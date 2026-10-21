@@ -74,6 +74,18 @@ Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemin
 
 추가 점검에서 gemini-3.8-flash 및 gemini-3.1-flash-lite 모두 HTTP 429 RESOURCE_EXHAUSTED였다. 응답의 안전한 구조화 필드에는 구체적인 quota 위반 항목이 없어 한도 0, 일일 소진 또는 다른 제한 중 무엇인지 확정하지 않았다. 같은 키가 속한 프로젝트를 AI Studio의 사용량과 한도에서 확인하도록 사용자에게 요청했다. 생성 성공이나 토큰 실측 완료로 표시하지 않는다.
 
+### 후속 확인: 청구 계정 월간 지출 한도 도달
+
+사용자는 같은 키로 Python 호출이 이전에 성공했고 현재 AI Studio가 Tier 2라고 보고했다. 키 소속을 읽기 전용으로 조회해 교육장 프로젝트 proj-skkuls0106-183255377938임을 확인했고 GCP billingEnabled=true도 확인했다. 키와 인증 토큰은 출력하지 않았다.
+
+짧은 합성 생성 요청의 HTTP 429 응답 설명에서 다음 문구를 확인했다. 키와 URL 등을 제거한 오류 설명만 확인했으며 업무 데이터는 사용하지 않았다.
+
+> Your billing account has exceeded its monthly spending cap.
+
+따라서 현재 확인된 생성 차단 원인은 청구 계정의 월간 지출 한도다. 앞선 원인 미확정 기록보다 이 결과가 우선한다. Tier 2 등급과 생성 API의 현재 사용 가능 여부는 구분한다. Google 문서상 청구 계정 한도는 연결된 프로젝트의 Gemini API 지출을 합산한다. 교육장 내 다른 프로젝트와 같은 청구 계정을 공유하는지는 담당자 확인이 필요하다.
+
+교육장 담당자에게 위 오류와 프로젝트 ID를 전달해 Gemini API 청구 계정의 월간 지출 및 한도 상향 가능 여부를 확인한다. 개인 결제 연결과 청구 계정 변경 및 한도 조정은 실행하지 않았다. 추가 생성 재시도도 중단한다. [공식 월간 지출 한도 안내](https://ai.google.dev/gemini-api/docs/billing#billing-account-tier-spend-caps).
+
 ## Microsoft 관리자 동의에서 막힐 때
 
 WSL에서는 스크립트가 Windows 기본 브라우저를 호출한다. 실패하면 같은 프로세스가 기다리는 일회용 로그인 URL을 터미널에 표시한다. URL은 본인 브라우저에서만 사용하고 채팅에 붙이지 않는다. 토큰과 시크릿은 출력하지 않는다.

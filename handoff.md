@@ -18,7 +18,7 @@
 - 로컬 검증: 전체 검사 23건과 타입 및 계약, 서비스 선택 Docker 검사 21건, 프론트 HTTP 3건과 production 빌드, 실제 legacy Docker runtime 및 서비스 소스 격리, SDK 이미지 안에서 도우미 실행을 확인했다. scripts 19건과 infra 15건 및 actionlint가 통과했다. data 및 최종 test 597건을 사용하지 않았다.
 - 운영: 자동 백업과 서울 보관 및 7개 보존, 삭제 보호를 확인했다. 사용자 수동 백업 1792600511679와 1792600953011은 SUCCESSFUL이다. docs/operations-basics.md에 안전한 로그 및 백업 조회 명령이 있다. 복구 훈련은 하지 않았다.
 - Microsoft: 사용자가 .env.integrations에 시크릿을 입력했다. WSL의 Windows 브라우저 열기를 수정해 로그인 페이지까지 접근했지만 조직 정책의 관리자 승인이 필요하다. 관리자 동의 버튼도 비활성이다. Mail.Read/Send/offline_access 표의 관리자 필요 '아니요'와 조직 정책을 구분했다. 실제 로그인과 메일 읽기 및 발송은 아직 미검증이다. 관리자 요청 가능 여부가 응답 대기 중이며 docs/integration-checks.md에 요청 문구가 있다. 관리자에게 직접 메시지를 보내지 않았다.
-- Gemini: 목록 조회는 성공하지만 3.8-flash와 3.1-flash-lite 생성은 429 RESOURCE_EXHAUSTED다. 응답에 quota 세부 정보가 없어 원인을 단정하지 않는다. 사용자가 같은 키 프로젝트의 AI Studio 사용량과 한도를 확인하도록 요청했으며 응답 대기 중이다. 이전 합성 임베딩 성공은 모델과 차원 확정이 아니다.
+- Gemini: 사용자는 같은 키의 Python 호출이 이전에 성공했고 AI Studio가 Tier 2라고 보고했다. 키 조회로 교육장 프로젝트 소속과 GCP billingEnabled=true를 확인했다. 후속 429 응답 설명에서 'Your billing account has exceeded its monthly spending cap.'을 확인해 청구 계정의 월간 지출 한도 도달이 원인임을 확인했다. 이전의 원인 미확정 기록보다 이 결과가 우선한다. 교육장 담당자가 청구 계정의 Gemini 월간 사용량과 한도 상향 가능 여부를 확인해야 한다. 다른 프로젝트와 청구 계정을 공유하는지는 미확인이다. 개인 결제와 한도 변경은 실행하지 않았고 추가 생성 재시도는 중단한다. docs/integration-checks.md에 근거와 다음 행동을 기록했다. 이전 합성 임베딩 성공은 모델과 차원 확정이 아니다.
 
 공용 웹과 서비스별 CI/CD 및 운영 기본 검증 결과를 노션의 기술스택, 아키텍처 및 맨 아래 다이어그램 프롬프트에도 반영했다. Jira KAN-67 댓글 10036 및 KAN-68 댓글 10037에 실제 검증과 남은 범위를 기록했고 담당과 일정 및 상태는 보존했다. 이번 결과 문서만 main에 반영하므로 실행 중인 서비스의 SHA가 문서 커밋과 달라도 정상이다. 남은 외부 선행 조건은 Microsoft 관리자 승인과 Gemini 할당량 확인이다. 전체 제품 인증, 업무 권한, Cloud Tasks 처리, Jobs 평가 UI와 상세 모니터링으로 셋업을 확대하지 않는다.
 
