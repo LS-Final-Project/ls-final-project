@@ -9,7 +9,11 @@
 | KAN-65 | 서비스별 DB SQL과 로컬 PostgreSQL 17, pgvector 및 FTS 검증 | 클라우드 vector 확인 및 후속 업무 마이그레이션 |
 | KAN-66, KAN-69 | DB Secret 도우미, 연결 검증과 큐 안내 | 백업 실제 결과, 문서 작업과 OIDC, DB 작업 상태 및 SSE 재접속 |
 | KAN-63 | 독립 앱 3개, 실제 DB ready와 서비스별 계약 stub | 후속 업무 기능, 내부 서비스 호출과 실제 권한 검사 |
-| KAN-67 | 빌드 전용 계정과 서울 비공개 소스 버킷 검증, 계약 및 프론트 검사 Actions | 실제 Cloud Build 및 이미지 업로드와 비공개 배포. 프론트 호스팅은 후속 연결 |
+| KAN-67 | 전용 계정 및 버킷, 실제 Cloud Build 및 이미지 업로드, 계약과 프론트 검사 Actions | 후속 코드 변경의 빌드 및 배포 운영 |
+| KAN-68 | 세 API 첫 비공개 배포, 인증 health와 익명 차단 확인 | 클라우드 DB ready 및 프론트 호스팅, 서비스 간 호출과 독립 재배포 검증 |
+| KAN-64 | React, Vite, TS와 Query 골격 및 연결 확인 화면 | 실제 업무 화면과 호스팅 |
+| KAN-78, KAN-79 | 로컬 users와 역할, 세션 및 production 개발 인증 차단 | 프로젝트 권한, 실제 OAuth 및 업무 범위 검사 |
+| KAN-84, KAN-86, KAN-87 | 합성 smoke 제공자, JSON 및 HTML 기록과 사용량 필드 | 실제 생성 성공, 과제별 평가와 가격표 및 결과 관리 API |
 | KAN-55, KAN-56 | 서비스 및 기능별 모델, OpenAPI와 예시 분리, 생성 타입 소비자 검사 | 실제 업무 DTO 확장 및 호환성 검증 |
 
 기술 조건이 남은 Jira 작업은 진행 중으로 유지한다. 코드 게시 완료를 실제 클라우드 실행 완료로 보고하지 않는다. 원본의 .env와 data는 커밋하거나 이동하지 않았다.
@@ -18,24 +22,13 @@
 
 [팀원 실행 안내](team-start.md)의 최초 설치와 실행, [계약 수정 안내](../contracts/README.md)의 자기 서비스 생성 절차를 따른다. 로컬 사용자와 세션은 개발 전용이며 실제 OAuth는 아직 미구현이다. 평가 smoke의 합성 JSON 및 HTML 기록은 가능하지만 실제 생성 모델 호출은 404 또는 429로 성공하지 않았다.
 
-## 다음 사용자 실행
+## 2026-10-22 클라우드 실행 결과와 다음 단계
 
-Cloud Build 준비 명령은 사용자가 실행했고 계정 및 권한과 버킷 비공개 설정을 읽기 전용으로 확인했다. 아래 준비 명령을 반복 실행할 필요는 없다.
+사용자가 Cloud Build 준비, 실제 빌드와 비공개 배포를 실행했다. 빌드 401a8afb-f9b9-4a51-878e-2a96fc373e99는 main f042981 소스로 성공했고 결과 digest 3개를 Cloud Run에 배포했다. GitHub의 Application checks와 Collaboration checks도 성공했다.
 
+세 서비스의 인증 health 200, 익명 health 403, production 개발 계정 경로 404를 확인했다. DB ready는 첫 확인에서 503이었다. 사용자에게 Cloud SQL Studio에서 vector 확장 적용을 요청한 상태다. 이후 인증 ready를 다시 확인하며 결과는 [인프라 실측 기록](infra-preflight.md)을 따른다. 프론트 호스팅 및 실제 Microsoft 로그인, 플랫폼 중계와 서비스 간 인증은 후속이다.
 
-최신 main의 저장소 루트에서 빌드 기반 설정을 실행한다. .env를 source하지 않는다.
-
-```bash
-bash infra/setup_cloud_build.sh
-```
-
-최신 변경을 커밋하고 main에 push한 뒤 같은 main 작업 공간에서 사용자가 실제 빌드를 진행한다.
-
-```bash
-bash infra/submit_cloud_build.sh
-```
-
-사용자 실행 결과의 BUILD_ID로 원격 성공 및 이미지 digest를 확인한다. 비공개 배포 미리보기와 실제 배포는 [Cloud Build 및 배포 안내](../infra/cloud-build.md)를 따른다.
+빌드와 배포 명령 및 확장 SQL은 [Cloud Build 및 배포 안내](../infra/cloud-build.md)를 따른다. 이미 성공한 초기 빌드 및 배포를 이유 없이 반복할 필요는 없다.
 
 기존 검증: Docker에서 Ruff 및 포맷, mypy 15개 파일, 백엔드 14건과 OpenAPI 일치 검사 통과. DB Secret 도우미 4건 및 배포 계획 3건 통과. Git 연동 12건과 PR 자동화 12건 통과. 실제 소스 업로드 목록에서 .env, data, Git과 인프라 도우미 제외를 확인했다. Cloud Build SDK 파서 및 가짜 gcloud로 커밋 소스와 임시 파일 정리 및 IAM 인자를 확인했다.
 

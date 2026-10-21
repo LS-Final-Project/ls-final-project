@@ -30,7 +30,7 @@ bash infra/setup_cloud_build.sh
 bash infra/submit_cloud_build.sh
 ```
 
-이 스크립트는 HEAD의 허용된 파일만 `git archive`로 임시 디렉터리에 추출해 업로드한다. `.env`, `data`, Git 메타데이터, 인프라 설정 스크립트와 미커밋 파일은 업로드하지 않는다. 추적 중인 빌드 입력에 변경이 있으면 중단한다. 아직 커밋하지 않은 신규 파일은 HEAD에 포함되지 않으므로 PR에 들어갔는지 먼저 확인한다. 작업 공간의 원본은 변경하지 않고 임시 디렉터리는 종료 시 제거한다.
+이 스크립트는 HEAD의 허용된 파일만 `git archive`로 임시 디렉터리에 추출해 업로드한다. `.env`, `data`, Git 메타데이터, 인프라 설정 스크립트와 미커밋 파일은 업로드하지 않는다. 추적 중인 빌드 입력에 변경이 있으면 중단한다. 아직 커밋하지 않은 신규 파일은 HEAD에 포함되지 않으므로 게시한 커밋에 들어갔는지 먼저 확인한다. 작업 공간의 원본은 변경하지 않고 임시 디렉터리는 종료 시 제거한다.
 
 Cloud Build에서 전체 40자리 `COMMIT_SHA`가 없으면 실패한다. lint, 포맷, mypy, 백엔드 단위 테스트 및 OpenAPI 일치 검사 후 세 이미지를 빌드한다. 각 이미지는 전체 커밋 SHA 태그, BUILD_ID 태그와 OCI revision label을 가진다. 로컬 Python 실행이 아니라 Linux Docker 빌드 결과를 배포 대상으로 삼는다. DB 비밀번호 등록 도우미 테스트는 별도 `python3 -m unittest discover -s infra/tests -v`로 검증한다.
 
@@ -70,7 +70,7 @@ python3 infra/deploy_private.py BUILD_ID --apply
 | 요청 | 동시 처리 20, timeout 300초. 부하 및 SSE 검증 후 조정할 초기값 |
 | DB | 기존 team4-sql Connector 연결, 서비스별 DB 사용자와 Secret 버전 1 |
 
-최소 1 인스턴스는 확정된 배포 방향이며 배포하면 유휴 상태에도 비용이 발생한다. health는 프로세스 상태만 의미한다. 현재 골격은 전달된 DB 설정을 사용한 업무 CRUD나 OAuth, 메일, Tasks 처리 및 SSE를 구현하지 않았다. 이 배포 성공을 업무 기능이나 실제 FastAPI DB 연결 검증으로 보고하지 않는다.
+최소 1 인스턴스는 확정된 배포 방향이며 배포하면 유휴 상태에도 비용이 발생한다. health는 프로세스 상태만 의미한다. 현재 골격은 전달된 DB 설정을 사용한 업무 CRUD나 OAuth, 메일, Tasks 처리 및 SSE를 구현하지 않았다. `/api/v1/<service>/ready`는 실제 FastAPI DB 연결과 계정 및 스키마, vector 및 FTS를 검사한다. Cloud SQL에서 vector 확장이 준비되지 않았다면 503으로 표시된다. 로컬 검증만으로 클라우드 준비를 완료 처리하지 않는다.
 
 `roles/run.invoker`는 아직 추가하지 않는다. 업무 서비스의 플랫폼 호출, Tasks OIDC와 사용자 맥락 검증은 후속 구현에서 연결한다. 네트워크 ingress를 internal로 제한하는 배치는 VPC 경로와 함께 따로 결정한다.
 
@@ -86,3 +86,30 @@ gcloud run services proxy team4-cs \
 다른 터미널에서 `curl --fail http://127.0.0.1:8085/health`로 확인한다. 프록시는 로컬 확인용이며 브라우저의 최종 로그인 구조는 아니다.
 
 근거: [사용자 지정 Cloud Build 실행 계정](https://docs.cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts), [빌드 제출](https://docs.cloud.google.com/sdk/gcloud/reference/builds/submit), [Cloud Run 배포 인자](https://docs.cloud.google.com/sdk/gcloud/reference/run/deploy).
+
+## 2026-10-22 실행 확인
+
+준비 명령과 실제 원격 빌드는 사용자 터미널에서 실행했다. 에이전트는 읽기 전용 조회로 확인했다.
+
+| 항목 | 확인 결과 |
+| --- | --- |
+| 빌드 | 401a8afb-f9b9-4a51-878e-2a96fc373e99, SUCCESS |
+| 소스 | main f04298161ea5b234d6e31521d186a6dd29f893f4 |
+| C/S digest | sha256:c2b5fb55358750195684f0b2980f538ebbc37d32ccece860399a3054494da864 |
+| TFT digest | sha256:7a7ba9603b34fc797f1cfc1760cb995e30bbaf74b2dcc1f51e05fd386fd6ce4f |
+| 플랫폼 digest | sha256:87df6b7d82c227456026568f4cb34fe19b3cc9f0b2fb8b2cd6a6ba170967f74e |
+| GitHub Application checks | [39629875011 성공](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39629875011) |
+| GitHub Collaboration checks | [39629874699 성공](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39629874699) |
+
+이 빌드의 digest 기준 미리보기 후 사용자가 실제 비공개 배포를 실행했다. 세 Cloud Run 서비스의 Ready=True, digest 및 실행 계정, Secret 버전 1과 production 및 최소 인스턴스 1을 확인했다. 세 서비스 모두 익명 health 403, 인증 health 200이고 플랫폼 개발 계정 경로는 인증 요청에도 404다. 첫 DB ready 검사는 세 서비스 모두 503이어서 Cloud SQL vector 확장 적용을 사용자에게 요청했다. 후속 DB 검증은 infra-preflight.md와 handoff.md를 따른다. 문서만 추가한 후속 main과 실제 빌드 소스 SHA를 혼동하지 않는다.
+
+### Cloud SQL 확장 확인
+
+첫 ready 검사가 503일 때 무작정 재배포하지 않는다. SQL 연결 오류와 스키마 및 확장 미준비를 구분한다. 이 배포에서는 아직 vector 적용을 확인하지 못했으므로 사용자에게 Cloud SQL Studio의 team4 DB에서 관리자 권한으로 다음 SQL 실행을 요청했다. 앱 계정에 확장 생성 권한을 주지 않는다.
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
+```
+
+확장 확인 후 인증한 `/api/v1/cs/ready`, `/api/v1/tft/ready`, `/api/v1/platform/ready`를 다시 조회한다. 성공은 DB 계정과 스키마, vector 및 FTS까지 확인한다. 신규 identity 테이블과 실제 OAuth는 별도 업무 마이그레이션이며 로컬 합성 계정을 클라우드에 넣지 않는다.

@@ -1,6 +1,6 @@
 # KAN-63 API 실행 골격
 
-C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용하되 각자 별도 프로세스 및 이미지로 실행한다. 설정과 DTO는 `backend/shared`, 공통 HTTP 처리는 `backend/api/common`, 앱의 진입점은 `backend/api/{cs,tft,platform}/main.py`다. 각 앱은 다른 앱의 진입점을 import하지 않는다.
+C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용하되 각자 별도 프로세스 및 이미지로 실행한다. 공통 설정과 HTTP 응답 모델은 `backend/shared`, 업무 DTO는 각 서비스의 기능 폴더, 공통 HTTP 처리는 `backend/api/common`, 앱의 진입점은 `backend/api/{cs,tft,platform}/main.py`다. 각 앱은 다른 앱의 진입점을 import하지 않는다.
 
 현재 구현은 프로세스 health와 DB 준비 상태, 공통 응답과 오류, 요청 ID, production 보호 및 로컬 DB 기반 계정 선택이다. 문의와 프로젝트 목록은 계약 stub으로 실제 API는 501이다. Microsoft 로그인, 업무 권한과 실제 메일 및 LLM, 작업 상태, SSE와 플랫폼 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다. 팀원 최초 실행은 [개발 시작 안내](../docs/team-start.md)를 따른다.
 
@@ -12,7 +12,7 @@ C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용�
 uv sync --frozen --python 3.12
 ```
 
-각각 다른 터미널에서 실행한다. 앱 설정은 루트 `.env`를 자동으로 읽으며 같은 이름의 환경 변수가 우선한다. 기존 GCP 및 DB 설정은 그대로 보관하며 이 골격에서 해당 비밀번호를 사용하지 않는다.
+아래 수동 실행은 프로세스 확인용이다. DB와 개발 계정 선택까지 실행하려면 팀원 안내의 Compose를 사용한다. 앱 설정은 루트 `.env`를 자동으로 읽으며 같은 이름의 환경 변수가 우선한다. DB 요청은 DATABASE_URL 또는 libpq의 PG 환경 변수를 사용하므로 수동 실행 시 자신이 지정한 연결 대상부터 확인한다. Compose에는 기존 `.env`를 주입하지 않는다.
 
 ```bash
 SERVICE_NAME=cs PORT=8081 uv run --frozen python -m backend
@@ -64,7 +64,7 @@ docker run --rm -p 127.0.0.1:8081:8080 team4-cs
 
 ## Cloud Build 준비
 
-루트 cloudbuild.yaml은 lint, 포맷과 타입 검사, 단위 테스트와 OpenAPI 일치 검사를 통과한 뒤 세 이미지를 만든다. 서울 team4 저장소에 전체 커밋 SHA 및 BUILD_ID 태그로 업로드하고 OCI revision label을 기록한다. 실제 Cloud Build 실행과 업로드는 아직 하지 않았으며 서비스 배포 단계는 포함하지 않는다. 구체적인 실행 계정 설정과 소스 제출 및 비공개 배포 절차는 [빌드 안내](../infra/cloud-build.md)를 따른다.
+루트 cloudbuild.yaml은 lint, 포맷과 타입 검사, 단위 테스트와 OpenAPI 일치 검사를 통과한 뒤 세 이미지를 만든다. 서울 team4 저장소에 전체 커밋 SHA 및 BUILD_ID 태그로 업로드하고 OCI revision label을 기록한다. 2026-10-22 사용자 실행의 실제 Cloud Build 및 이미지 업로드 성공을 확인했다. 빌드 자체에 서비스 배포 단계는 포함하지 않는다. 구체적인 실행 계정 설정과 소스 제출 및 비공개 배포 절차는 [빌드 안내](../infra/cloud-build.md)를 따른다.
 
 Cloud Build 실행 계정과 이미지 쓰기 및 로그 권한을 설정한 뒤 사용자가 빌드를 실행한다. 이후 런타임 서비스 계정, ENVIRONMENT=production, Secret 버전과 Cloud SQL 연결을 포함해 서비스를 비공개로 배포하고 내부 호출 권한을 연결한다. 실제 Microsoft 로그인과 업무 권한이 준비되기 전에는 업무 API를 공개하지 않는다. .gcloudignore 업로드 목록은 `gcloud meta list-files-for-upload`로 확인할 수 있다.
 

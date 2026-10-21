@@ -130,3 +130,13 @@ infra/verify_cloud_db.sh를 다음 사용자 실행용으로 준비했다. 각 �
 사용자가 setup_cloud_build.sh 실행 완료를 알린 뒤 읽기 전용 조회로 cloudbuild-runner 서비스 계정과 proj-skkuls0106-183255377938-team4-build-source 버킷을 확인했다. 버킷은 ASIA-NORTHEAST3이며 uniform bucket access와 public access prevention이 켜져 있다. 빌드 계정의 소스 버킷 objectViewer, Artifact Registry writer와 프로젝트 logging.logWriter, 교육장 사용자의 해당 빌드 계정 serviceAccountUser 권한을 각각 확인했다. 실제 원격 빌드와 서비스 배포는 아직 실행하지 않았다. 다음은 최신 main의 submit_cloud_build.sh를 사용자 터미널에서 실행한 뒤 BUILD_ID 및 결과 digest를 조회하는 단계다.
 
 로컬 Compose에서는 pgvector 및 FTS와 세 앱의 DB 연결을 실제 확인했다. 이 결과를 Cloud SQL의 vector 확장 또는 신규 identity 테이블 적용 완료로 보고하지 않는다.
+
+## 2026-10-22 실제 Cloud Build 성공
+
+사용자가 submit_cloud_build.sh를 실행했고 빌드 401a8afb-f9b9-4a51-878e-2a96fc373e99의 SUCCESS와 main 커밋 f04298161ea5b234d6e31521d186a6dd29f893f4를 확인했다. 서울 team4 저장소에 C/S, TFT, 플랫폼 이미지 3개의 SHA 및 BUILD_ID 태그와 결과 digest가 기록됐다. deploy_private.py의 기본 미리보기가 성공했고 production 및 익명 차단과 서비스별 DB Secret 연결을 확인했다. 실제 --apply 실행 및 호출 검증은 후속 기록을 따른다.
+
+## 2026-10-22 첫 비공개 배포 확인
+
+사용자가 성공 빌드의 digest로 team4-cs, team4-tft, team4-platform을 배포했다. 세 서비스의 Ready=True와 이미지 일치, 대응 runtime 서비스 계정 및 DB 사용자, 해당 Secret 버전 1, Cloud SQL Connector, ENVIRONMENT=production, DEV_AUTH_ENABLED=false와 minScale=1을 확인했다. IAM의 공개 주체는 없으며 invoker 검사도 활성 상태다. 실제 요청 결과 세 서비스 모두 익명 health 403, 교육장 사용자로 인증한 health 200이다. 플랫폼의 개발 계정 경로는 인증 요청에도 404다. 토큰은 프로세스 메모리에서만 사용하고 출력하지 않았다.
+
+첫 `/api/v1/<service>/ready` 결과는 세 서비스 모두 503이었다. 아직 클라우드 적용을 확인하지 못한 vector 확장부터 점검하도록 Cloud SQL Studio의 team4 DB에서 CREATE EXTENSION IF NOT EXISTS 실행 및 버전 조회를 요청했다. 503만으로 원인을 확장 누락으로 확정하지 않으며, 실행 후 실제 ready를 다시 확인한다. 신규 identity 테이블과 OAuth, 업무 기능 및 프론트 호스팅은 이 배포에 포함되지 않는다.

@@ -1,6 +1,6 @@
 # 다음 세션 인수인계
 
-작성: 2026-10-21. 작업 저장소는 `/home/canae/ls-final-project`다. 먼저 AGENTS.md와 CONTRIBUTING.md를 읽고, 사람용 결정 요약인 [docs/decisions.md](docs/decisions.md)를 확인한다. 사용자와 확정한 결정, 구현 제안과 실제 클라우드 상태를 섞지 않는다.
+작성: 2026-10-21, 최신 갱신: 2026-10-22. 작업 저장소는 `/home/canae/ls-final-project`다. 먼저 AGENTS.md와 CONTRIBUTING.md를 읽고, 사람용 결정 요약인 [docs/decisions.md](docs/decisions.md)를 확인한다. 사용자와 확정한 결정, 구현 제안과 실제 클라우드 상태를 섞지 않는다.
 
 사용자는 의사결정의 선택 근거를 명확하게 남기도록 추가 요청했다. decisions.md에는 선택 목적, 실제 비교한 대안, 감수하는 제약과 재검토 조건을 보강했다. 해당 문서의 '대화 근거'는 사용자가 밝힌 목적이나 선택 이력이고, '설계 해석'은 현재 선택에 대한 기술적 설명이다. 설계 해석을 사용자의 원문 발언이나 완료된 비교 실험으로 보고하지 않는다. 후속 변경에도 요구 또는 측정 근거와 계약 및 일정 영향을 함께 기록한다.
 
@@ -16,14 +16,18 @@
 - eval.smoke는 합성 2건만 사용하며 JSON 및 HTML에 모델, 판본, 지연, 스키마, 토큰과 실패 상태를 기록한다. fake 실행 성공은 모델 품질 합격이 아니다. 가격 미등록 비용은 미산정으로 표시한다. 최종 test 597건은 사용하지 않았다.
 - 실제 외부 점검: Microsoft 테넌트 OpenID discovery 성공. 사용자 제공 tenant `6c2ea5ee-418c-4e13-8eaa-5163cdb50c67`, client `7160833b-2aa3-497f-bc6c-11c59851c254`. 실제 로그인과 Graph는 아직 실행하지 않았다. 로컬 시크릿과 Web redirect `http://localhost:8765/callback` 준비 후 [연동 안내](docs/integration-checks.md)를 따른다. 시크릿을 채팅으로 요청하지 않는다.
 - Gemini 모델 목록 조회와 gemini-embedding-001 합성 임베딩 호출은 성공했다. 기본 차원 3072를 확인했지만 production 모델 및 인덱스 차원 확정은 아니다. 생성 호출은 gemini-2.5-flash-lite와 gemini-2.5-flash가 404, gemini-3.8-flash가 429였다. 생성 토큰 실측 성공으로 보고하지 않는다. SDK 자동 재시도는 비활성화했다. 실제 가용 모델과 할당량 확인이 필요하다.
-- 사용자 실행 후 Cloud Build 준비 검증 완료: cloudbuild-runner 계정, 서울 비공개 소스 버킷, 버킷 objectViewer, 저장소 artifactregistry.writer, 프로젝트 logging.logWriter, 교육장 사용자의 빌드 계정 serviceAccountUser를 확인했다. 실제 원격 빌드 및 이미지 업로드와 비공개 배포는 아직 미실행이다. 커밋과 push 후 사용자에게 `bash infra/submit_cloud_build.sh` 실행을 안내하고 결과 BUILD_ID를 읽기 전용 검증한다. Cloud SQL의 vector 확장과 이번 identity 마이그레이션은 클라우드에 아직 적용하지 않았다.
+- 사용자 실행 후 Cloud Build 준비 검증 완료: cloudbuild-runner 계정, 서울 비공개 소스 버킷, 버킷 objectViewer, 저장소 artifactregistry.writer, 프로젝트 logging.logWriter, 교육장 사용자의 빌드 계정 serviceAccountUser를 확인했다. 실제 원격 빌드와 이미지 업로드는 사용자 실행 후 검증했다. 빌드 401a8afb-f9b9-4a51-878e-2a96fc373e99가 SUCCESS이며 소스는 f04298161ea5b234d6e31521d186a6dd29f893f4다. 세 이미지의 SHA 및 BUILD_ID 태그와 결과 digest를 확인했다. 비공개 배포 미리보기도 통과했고 사용자에게 `python3 infra/deploy_private.py 401a8afb-f9b9-4a51-878e-2a96fc373e99 --apply` 실행을 요청했다. 사용자 실행 후 세 서비스의 Ready=True와 이미지 및 실행 계정과 Secret 연결, production 보호 및 최소 인스턴스 1을 검증했다. 세 서비스의 익명 health는 403, 인증 health는 200, 플랫폼 개발 계정 경로는 404였다. 첫 DB ready는 모두 503으로 사용자에게 Cloud SQL Studio에서 vector 확장 적용 및 조회를 요청했다. SQL 결과 후 실제 ready를 재검증한다. Cloud SQL의 vector 확장 적용은 확인 대기이며 이번 identity 마이그레이션은 클라우드에 적용하지 않았다.
 - 검증: 로컬 실제 DB/API 검사 및 권한 행렬, 프론트 TypeScript 및 production 빌드, 브라우저 계정 선택과 로그아웃 및 모의/실제 모드 전환 통과. Docker 테스트 23건, mypy 34개 백엔드 파일, Ruff, OpenAPI 및 예시 일치 검사를 확인했다. 브라우저 스크린샷은 임시 /tmp/team4-onboarding.png다. 최종 커밋 이후 새 체크아웃 검증 및 원격 Actions 결과는 아래 후속 기록을 확인한다.
+
+### main 게시와 원격 결과
+
+구현 d83cef1과 새 체크아웃 검증 f042981을 원격 main에 직접 push했다. f042981의 Application checks 39629875011 및 Collaboration checks 39629874699가 모두 성공했다. 실제 Cloud Build 결과 digest는 infra/cloud-build.md에 기록했다. Jira KAN-56/65/64/79/67/86/76 댓글 10028~10034에 구현과 미완료 조건을 기록했고 담당 및 일정은 유지했다. KAN-67 댓글 10032는 실제 빌드 성공과 원격 검사 성공으로 갱신했다. KAN-68 댓글 10035에는 첫 비공개 API 배포와 접근 차단 및 DB ready 503과 남은 범위를 기록했다. 새로 맡은 업무 전체가 완료됐다는 뜻은 아니다.
 
 ### 새 체크아웃 검증
 
 구현 커밋 d83cef1의 git archive를 /tmp/team4-coldstart-ib9nidi4에 추출했다. 기존 .env, data, 의존성과 DB 볼륨이 없는 상태에서 setup을 실행해 의존성 및 타입 생성을 통과했다. COMPOSE_PROJECT_NAME=team4-onboard-check와 별도 로컬 포트 및 새 DB 볼륨으로 up을 실행해 세 서비스 ready와 계정 세션 및 ACL 검사를 모두 통과했다. 새 폴더의 프론트 production 빌드 및 명시적 migrate 명령도 성공했다. 임시 컨테이너는 down으로 종료했으며 볼륨을 삭제하지 않았다. 원래 team4-local Compose 환경과 프론트 개발 서버는 유지했다. Cloud Build 업로드 목록의 49개 파일에 .env 계열과 data, node_modules, artifacts 및 .git이 없음을 확인했다.
 
-## 최신 결정과 작업: 초기 셋업은 main에 직접 push
+## 이전 작업: 초기 셋업은 main에 직접 push
 
 2026-10-21 사용자가 "셋업인데 pr 하는거 별로임 그냥 main에 push해줘"라고 요청했다. 현재 초기 셋업은 새 PR이나 동료 검토 없이 main에 직접 반영한다. 기존 티켓별 커밋을 main에 통합하고 작업 공간의 파일을 보존한다. 아래 과거 기록의 Draft 해제, PR 7 선행 병합, PR 8의 base 변경 등은 더 이상 진행 조건이 아니다. 이후 업무 기능 개발의 일반 PR 규칙은 유지한다.
 
