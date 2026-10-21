@@ -8,6 +8,10 @@
 
 사용자가 합의한 범위를 실제 진행하도록 요청했다. 아래 과거의 '이번 요청에서는 기록만'은 이전 범위 기록 시점의 설명이다. 계속 초기 셋업 main 직접 push 예외를 적용하고 GCP 변경은 사용자 실행 후 읽기 전용 검증한다.
 
+- main 반영 커밋은 3fadca0e9200e30ea35a28eea3855544029757cf다. 원격 Application checks 39640165391의 cs, tft, platform, frontend, infrastructure, evaluation 및 최종 결과가 모두 성공했다. Collaboration checks 39640165474도 성공했다. 자동 CD는 아직 비활성 상태이며 실행 39640329560은 정상 생략됐다.
+- 사용자가 웹 전용 Cloud Build d3da5329-a047-4f53-a866-5338bfa86c8b와 --service web --apply 배포를 실행했다. 빌드는 SUCCESS, 소스 SHA는 위 main 커밋, 산출물은 web 이미지의 SHA 및 BUILD_ID 태그 두 개뿐이며 digest는 sha256:20ac135e48cb0ff94a5f29401e486d301a6b5a5a395810f178b26d684acb25f3다. team4-web-00001-6v5 Ready와 정확한 digest, web-runtime 계정, DB 연결 및 Secret 미설정을 확인했다.
+- 공용 웹 https://team4-web-gew6ci4pgq-du.a.run.app/ 는 HTTPS 200이다. 웹 health와 플랫폼 health/ready 중계가 200이고 database/vector/fts가 모두 true다. 사용자 정보와 개발 계정 경로 및 예상 밖 쿼리는 404, POST는 405다. 백엔드 3개 직접 익명 호출은 각각 403으로 비공개를 유지한다. 제품 로그인과 업무 API 중계를 완료한 것으로 보고하지 않는다.
+- 읽기 전용 release.py plan은 cs, tft, platform만 대상으로, 현재 웹은 생략하는 것을 확인했다. 사용자가 GCP_RELEASE_ENABLED=true 및 수동 실행을 적용했다. 실행 39641256606의 OIDC 인증과 계획 및 세 Cloud Build 제출은 성공했지만 이미지 생성이 실패했다. Cloud Build의 기존 Docker 빌더는 runtime 생성 중에도 앞의 test 단계를 처리하며 TEST_SERVICE 기본 all의 mock_examples 호출에 필수 --service가 누락됐다. 검사 스크립트의 all 분기에서 각 서비스 예시를 순회하고 이미지 단계에도 TEST_SERVICE를 전달하도록 수정했다. 전체 검사 23건과 타입 및 계약, scripts 19건과 infra 14건을 재검증했다. 최초 실행에서는 CD가 시작되지 않았고 기존 배포를 유지했다. 수정 후 원격 재실행 결과를 확인해야 한다.
 - 서비스별 CI 및 이미지와 CD를 분리하는 코드를 작성했다. scripts/changes.py가 PR 및 마지막 성공 main CI 이후 변경을 판별한다. 프론트 계약 검사는 별도로 켜며 계약 변경만으로 웹 이미지를 배포하지 않는다. infra/release.py는 각 서비스의 실제 배포 SHA 이후 누적 변경을 비교하고 오래된 main 배포를 막는다. 실제 적용 상태는 후속 기록을 확인한다.
 - Application checks는 앱별 작업과 최종 Application result로 분리한다. 기존 루트 tests는 공통 회귀이며 새 서비스 업무 테스트는 tests/cs, tft, platform에 둔다. Cloud Build 서비스 이미지와 CD는 별도 빌드이고 정확한 결과 digest를 검증한다. 사용자 수동 명령도 --service로 선택할 수 있다. 변경 이력과 독립 배포 테스트를 추가했다.
 - 프론트는 Node 24의 정적 웹 서버와 별도 Dockerfile을 준비했다. 공용 웹은 플랫폼의 health/ready만 서버 IAM 토큰으로 중계한다. 업무 API, 사용자 정보와 개발 인증 경로는 허용하지 않는다. production 화면은 플랫폼 준비 상태만 표시한다. full BFF나 제품 인증 구현으로 확대하지 않는다.
@@ -17,7 +21,7 @@
 - Microsoft: .env.integrations를 예시에서 생성했고 사용자가 로컬에 시크릿을 입력했다. Windows 브라우저를 열지 못하던 WSL 실행을 수정했다. 사용자는 관리자 승인 필요 화면과 비활성 관리자 동의 버튼을 확인했다. Mail.Read/Send/offline_access 표의 관리자 필요 '아니요'와 조직 정책을 구분해 설명했고 관리자 승인 요청 가능 여부를 물었다. docs/integration-checks.md에 전달 문구를 기록했다. 실제 로그인 및 읽기/발송 성공은 아직 아니다. 대신 관리자에게 메시지를 보내지 않았다.
 - Gemini: 현재 목록 조회는 성공하나 3.8-flash 및 3.1-flash-lite 생성은 모두 429 RESOURCE_EXHAUSTED다. 안전한 구조화 오류에는 quota 세부 항목이 없어 구체 원인을 단정하지 않는다. 사용자가 AI Studio에서 같은 키 프로젝트의 사용량/한도를 확인하도록 요청했다. 키와 토큰은 출력하지 않았고 최종 test 또는 data를 사용하지 않았다.
 
-실행 절차와 권한 경계는 [서비스별 배포 안내](docs/service-delivery.md)를 따른다. 다음 사용자 실행은 소스 main 반영 후 bash infra/submit_cloud_build.sh --service web, 결과 BUILD_ID로 python3 infra/deploy_private.py BUILD_ID --service web --apply 순서다. 먼저 실제 웹을 검증하고 사용자가 GitHub GCP_RELEASE_ENABLED=true 및 deploy-services.yml 수동 실행으로 자동 CD를 활성화한다. 이후 main push가 Cloud Build를 실제 실행하므로 활성화 전 확인한다.
+실행 절차와 권한 경계는 [서비스별 배포 안내](docs/service-delivery.md)를 따른다. 첫 웹 빌드와 사용자 배포 및 HTTP 검증은 끝났고 사용자가 자동 CD를 활성화했다. 수정한 검사 스크립트의 전체 검사와 실제 legacy Docker runtime 빌드 및 production 앱 생성과 서비스 소스 격리도 통과했다. 수정 커밋 반영 후 CI와 자동 CD 결과를 확인한다. 이제 main push가 Cloud Build를 실제 실행하므로 이전 배포가 진행 중일 때 새 변경을 섞지 않는다. 관리자 승인 및 Gemini 할당량 질문도 아직 응답 대기 중이다.
 
 ## 2026-10-22 최신 합의: 이번 셋업의 범위와 완료선
 

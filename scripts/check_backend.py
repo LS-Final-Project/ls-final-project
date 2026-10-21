@@ -42,9 +42,11 @@ def main() -> None:
         ["pytest", "-q", *sorted(set(tests))],
         ["python", "-m", "backend.openapi", "--check"]
         + ([] if service == "all" else ["--service", service]),
-        ["python", "-m", "backend.mock_examples", "--check"]
-        + ([] if service == "all" else ["--service", service]),
     ]
+    commands.extend(
+        ["python", "-m", "backend.mock_examples", "--check", "--service", selected]
+        for selected in (("cs", "tft", "platform") if service == "all" else (service,))
+    )
     for command in commands:
         subprocess.run(command, check=True)
 

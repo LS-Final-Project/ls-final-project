@@ -90,3 +90,9 @@ python3 infra/release.py plan
 ```
 
 환경 파일, data와 의존성 및 평가 산출물은 Git archive 및 업로드 허용 목록으로 제외한다. 실제 빌드 SHA는 현재 문서 커밋이나 다른 서비스의 배포 SHA와 다를 수 있다.
+
+## 확인한 적용 상태
+
+2026-10-22 기준 main 3fadca0의 Application checks와 Collaboration checks가 성공했다. 사용자가 웹 전용 빌드 d3da5329-a047-4f53-a866-5338bfa86c8b와 최초 웹 배포를 실행했다. [공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)과 플랫폼 health/ready 중계는 200이며 DB, vector, FTS 준비 상태가 정상이다. 사용자 정보와 개발 계정 경로는 404이고 백엔드 3개의 직접 익명 호출은 403이다.
+
+웹은 web-runtime으로 실행하며 DB 연결 및 DB Secret을 설정하지 않았다. 최초 웹 배포의 성공을 자동 CD 검증 완료로 간주하지 않는다. 자동 CD 활성화와 최초 OIDC 실행 결과는 handoff.md의 후속 기록을 확인한다.
