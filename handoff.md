@@ -6,7 +6,7 @@
 
 ## 최신 작업: 티켓별 커밋 및 PR과 Cloud Build 실행 준비
 
-2026-10-21, 사용자의 진행 요청으로 초기 셋업 변경을 별도 worktree의 티켓별 브랜치에 커밋하고 push한 뒤 Draft PR 3~8로 게시했다. 계약 문서 PR은 현재 KAN-55-KAN-56-development-contracts 브랜치에서 게시한다. 실제 PR 목록과 실행 순서는 [docs/setup-prs.md](docs/setup-prs.md)를 따른다. 원본 공간의 코드 및 인프라 파일은 공유 세션 보존을 위해 그대로 남겼으므로 미커밋 복사본과 원격 게시 상태를 구분한다. .env와 data는 읽거나 수정하지 않았으며 포함하지 않았다. 현재 모든 PR은 미병합이고 검토 요청은 없다.
+2026-10-21, 사용자의 진행 요청으로 초기 셋업 변경을 별도 worktree의 티켓별 브랜치에 커밋하고 push한 뒤 Draft PR 3~8로 게시했다. 계약 문서는 현재 KAN-55-KAN-56-development-contracts 브랜치의 [PR 9](https://github.com/LS-Final-Project/ls-final-project/pull/9)로 게시했다. 실제 PR 목록과 실행 순서는 [docs/setup-prs.md](docs/setup-prs.md)를 따른다. 원본 공간의 코드 및 인프라 파일은 공유 세션 보존을 위해 그대로 남겼으므로 미커밋 복사본과 원격 게시 상태를 구분한다. .env와 data는 수정하거나 포함하지 않았고 비밀값을 조회 및 출력하지 않았다. 현재 모든 PR은 미병합이고 검토 요청은 없다.
 
 KAN-60의 PR 3에서 Jira 번호가 없는 제목이 [KAN-60]으로 자동 보완되고 관리되는 Jira 링크 블록이 생긴 것을 실제 확인했다. 새 초기 셋업 검토 예외는 정확한 브랜치명과 티켓 조합에만 적용하며 같은 티켓의 후속 브랜치로 확장하지 않는다. 예외는 PR 3이 main에 반영된 뒤 동작하므로 현재는 Draft로 검토 요청을 방지했다.
 

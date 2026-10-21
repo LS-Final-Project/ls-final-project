@@ -10,7 +10,7 @@
 | KAN-66, KAN-69 실행 기반 | [PR 6](https://github.com/LS-Final-Project/ls-final-project/pull/6) | 백업 실제 결과, 문서 작업 처리와 OIDC, DB 작업 상태 및 SSE 재접속 |
 | KAN-63 API 골격 | [PR 7](https://github.com/LS-Final-Project/ls-final-project/pull/7) | main 병합 및 후속 기능 연결. 현재 health는 프로세스 상태만 확인 |
 | KAN-67 빌드와 배포 준비 | [PR 8](https://github.com/LS-Final-Project/ls-final-project/pull/8) | 실행 계정과 소스 버킷 설정, 실제 원격 빌드 및 이미지 업로드 검증. 프론트 빌드는 후속 연결 |
-| KAN-55, KAN-56 계약 | 현재 브랜치의 계약 PR | 상세 DTO와 업무 OpenAPI 및 계약 테스트 확장. 제안 항목은 확정과 구분 |
+| KAN-55, KAN-56 계약 | [PR 9](https://github.com/LS-Final-Project/ls-final-project/pull/9) | 상세 DTO와 업무 OpenAPI 및 계약 테스트 확장. 제안 항목은 확정과 구분 |
 
 PR 3~7과 계약 PR의 기준은 main이다. PR 8은 PR 7의 `KAN-63-api-service-skeleton` 브랜치를 기준으로 만들었다. PR 7을 먼저 병합하고 PR 8의 base를 main으로 바꾼 뒤 검사를 확인한다. PR 8을 먼저 main으로 바꾸면 API 골격 변경이 중복으로 표시된다. 현재 협업 Actions는 main 대상 PR에서 실행되므로 PR 8은 이 기준 변경 후 원격 검사를 확인한다. Cloud Build의 앱 검사는 별도다.
 
@@ -33,4 +33,4 @@ bash infra/submit_cloud_build.sh
 
 사용자 실행 결과의 BUILD_ID로 원격 성공 및 이미지 digest를 확인한다. 비공개 배포 미리보기와 실제 배포는 [Cloud Build 및 배포 안내](../infra/cloud-build.md)를 따른다. 빌드와 배포 도우미의 작성 완료를 실제 클라우드 실행 완료로 기록하지 않는다.
 
-검증: Docker에서 Ruff 및 포맷, mypy 15개 파일, 백엔드 14건과 OpenAPI 일치 검사 통과. DB Secret 도우미 4건 및 배포 계획 3건 통과. Git 연동 12건과 PR 자동화 12건 통과. 실제 소스 업로드 목록에서 `.env`, `data`, Git과 인프라 도우미 제외를 확인했다. Cloud Build SDK 파서로 단계 5개 및 이미지 태그 6개 구성을 확인했다. 샌드박스에서 멈춘 로컬 pytest는 종료했으며 백엔드 실행 결과의 기준은 통과한 Docker 검사다.
+검증: Docker에서 Ruff 및 포맷, mypy 15개 파일, 백엔드 14건과 OpenAPI 일치 검사 통과. DB Secret 도우미 4건 및 배포 계획 3건 통과. Git 연동 12건과 PR 자동화 12건 통과. 실제 소스 업로드 목록에서 `.env`, `data`, Git과 인프라 도우미 제외를 확인했다. Cloud Build SDK 파서로 단계 5개 및 이미지 태그 6개 구성을 확인했다. 가짜 gcloud를 사용한 스크립트 실행으로 기존 리소스 보존, IAM 인자, 커밋 SHA 전달과 업로드 허용 목록 및 임시 소스 정리를 확인했다. 샌드박스에서 멈춘 로컬 pytest는 종료했으며 백엔드 실행 결과의 기준은 통과한 Docker 검사다.
