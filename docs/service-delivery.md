@@ -93,6 +93,17 @@ python3 infra/release.py plan
 
 ## 확인한 적용 상태
 
-2026-10-22 기준 main 3fadca0의 Application checks와 Collaboration checks가 성공했다. 사용자가 웹 전용 빌드 d3da5329-a047-4f53-a866-5338bfa86c8b와 최초 웹 배포를 실행했다. [공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)과 플랫폼 health/ready 중계는 200이며 DB, vector, FTS 준비 상태가 정상이다. 사용자 정보와 개발 계정 경로는 404이고 백엔드 3개의 직접 익명 호출은 403이다.
+2026-10-22 사용자가 최초 웹 빌드와 배포를 실행한 뒤 자동 CD를 활성화했다. [자동 배포 39644133647](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39644133647)에서 네 서비스의 독립 이미지 생성 및 별도 CD가 모두 성공했다. 소스는 afa938cb4ded382f2c25cf2565acb1450831bd93이며 실제 배포된 SHA와 digest가 빌드 결과와 일치함을 확인했다.
 
-웹은 web-runtime으로 실행하며 DB 연결 및 DB Secret을 설정하지 않았다. 최초 웹 배포의 성공을 자동 CD 검증 완료로 간주하지 않는다. 자동 CD 활성화와 최초 OIDC 실행 결과는 handoff.md의 후속 기록을 확인한다.
+| 서비스 | 이미지 Cloud Build | 별도 CD Cloud Build |
+| --- | --- | --- |
+| cs | 524fc3a1-039c-4e79-ad2f-2c4b675a2e96 | 6b82d2e1-08fc-4bb8-a4e6-cc90170e1fc0 |
+| tft | 568ab7ae-efa6-483e-8413-36346627b9cc | aca46953-4160-40e0-8dcc-fad02b261ddb |
+| platform | 985c8466-fee0-4a31-b020-aa6f108f4ccf | 05f08544-96ef-4bd3-9641-9217813cda26 |
+| web | 3d2538ca-920d-42af-8faf-429a045247eb | dd68e598-933d-497f-9ae0-6ebdb6f0acf6 |
+
+[공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)과 플랫폼 health/ready 중계는 200이며 DB, vector, FTS 준비 상태가 정상이다. 사용자 정보와 개발 계정 경로는 404이고 백엔드 3개의 직접 익명 호출은 403이다. 웹은 web-runtime으로 실행하며 DB 연결 및 DB Secret을 설정하지 않았다.
+
+후속 프론트 링크 수정 c111cc3에서는 [CI 39645850820](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39645850820)의 frontend만 실행하고 백엔드와 infrastructure 및 evaluation은 생략했다. [자동 CD 39645939828](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39645939828)도 웹만 선택해 성공했다. 이미지 빌드는 5a69a5d0-bad2-411e-b99e-1430a4226763, CD는 b8bb9ff0-f6bc-4e32-9133-693f7be2a6bc다. 웹만 team4-web-00003-nlc로 바뀌고 백엔드 3개 리비전은 유지되는 것을 확인했다. 실제 새 웹의 안내 링크와 플랫폼 준비 상태도 정상이다.
+
+실제 검증 중 발견한 기존 Docker 빌더의 인자 전달과 전체 예시 검사, 배포 빌드의 미참조 COMMIT_SHA를 수정했다. CD는 실행 확인한 Cloud SDK 이미지 digest를 고정하고 SDK 내장 Python으로 도우미를 실행한다. 빌드 실패나 배포 전 검증 실패를 성공으로 처리하지 않는다.

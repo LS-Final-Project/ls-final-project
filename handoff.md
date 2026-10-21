@@ -4,24 +4,23 @@
 
 사용자는 의사결정의 선택 근거를 명확하게 남기도록 추가 요청했다. decisions.md에는 선택 목적, 실제 비교한 대안, 감수하는 제약과 재검토 조건을 보강했다. 해당 문서의 '대화 근거'는 사용자가 밝힌 목적이나 선택 이력이고, '설계 해석'은 현재 선택에 대한 기술적 설명이다. 설계 해석을 사용자의 원문 발언이나 완료된 비교 실험으로 보고하지 않는다. 후속 변경에도 요구 또는 측정 근거와 계약 및 일정 영향을 함께 기록한다.
 
-## 2026-10-22 합의 범위 실행 중
+## 2026-10-22 공용 웹과 서비스별 CI 및 CD 검증
 
-사용자가 합의한 범위를 실제 진행하도록 요청했다. 아래 과거의 '이번 요청에서는 기록만'은 이전 범위 기록 시점의 설명이다. 계속 초기 셋업 main 직접 push 예외를 적용하고 GCP 변경은 사용자 실행 후 읽기 전용 검증한다.
+사용자가 합의 범위를 실행하도록 요청했다. 초기 셋업은 main 직접 push 예외를 유지한다. GCP 준비와 최초 배포 명령은 사용자가 실행했고 에이전트는 읽기 전용으로 검증했다. 사용자가 GCP_RELEASE_ENABLED=true와 배포 워크플로 수동 실행을 적용했으므로 이후 성공한 main CI가 자동으로 Cloud Build를 실행한다. 아래 과거의 미배포 또는 자동 CD 비활성 설명은 이전 시점의 기록이다.
 
-- main 반영 커밋은 3fadca0e9200e30ea35a28eea3855544029757cf다. 원격 Application checks 39640165391의 cs, tft, platform, frontend, infrastructure, evaluation 및 최종 결과가 모두 성공했다. Collaboration checks 39640165474도 성공했다. 자동 CD는 아직 비활성 상태이며 실행 39640329560은 정상 생략됐다.
-- 사용자가 웹 전용 Cloud Build d3da5329-a047-4f53-a866-5338bfa86c8b와 --service web --apply 배포를 실행했다. 빌드는 SUCCESS, 소스 SHA는 위 main 커밋, 산출물은 web 이미지의 SHA 및 BUILD_ID 태그 두 개뿐이며 digest는 sha256:20ac135e48cb0ff94a5f29401e486d301a6b5a5a395810f178b26d684acb25f3다. team4-web-00001-6v5 Ready와 정확한 digest, web-runtime 계정, DB 연결 및 Secret 미설정을 확인했다.
-- 공용 웹 https://team4-web-gew6ci4pgq-du.a.run.app/ 는 HTTPS 200이다. 웹 health와 플랫폼 health/ready 중계가 200이고 database/vector/fts가 모두 true다. 사용자 정보와 개발 계정 경로 및 예상 밖 쿼리는 404, POST는 405다. 백엔드 3개 직접 익명 호출은 각각 403으로 비공개를 유지한다. 제품 로그인과 업무 API 중계를 완료한 것으로 보고하지 않는다.
-- 읽기 전용 release.py plan은 cs, tft, platform만 대상으로, 현재 웹은 생략하는 것을 확인했다. 사용자가 GCP_RELEASE_ENABLED=true 및 수동 실행을 적용했다. 실행 39641256606의 OIDC 인증과 계획 및 세 Cloud Build 제출은 성공했지만 이미지 생성이 실패했다. Cloud Build의 기존 Docker 빌더는 runtime 생성 중에도 앞의 test 단계를 처리하며 TEST_SERVICE 기본 all의 mock_examples 호출에 필수 --service가 누락됐다. 검사 스크립트의 all 분기에서 각 서비스 예시를 순회하고 이미지 단계에도 TEST_SERVICE를 전달하도록 수정했다. 전체 검사 23건과 타입 및 계약, scripts 19건과 infra 14건을 재검증했다. 최초 실행에서는 CD가 시작되지 않았고 기존 배포를 유지했다. 수정 후 원격 재실행 결과를 확인해야 한다.
-- 서비스별 CI 및 이미지와 CD를 분리하는 코드를 작성했다. scripts/changes.py가 PR 및 마지막 성공 main CI 이후 변경을 판별한다. 프론트 계약 검사는 별도로 켜며 계약 변경만으로 웹 이미지를 배포하지 않는다. infra/release.py는 각 서비스의 실제 배포 SHA 이후 누적 변경을 비교하고 오래된 main 배포를 막는다. 실제 적용 상태는 후속 기록을 확인한다.
-- Application checks는 앱별 작업과 최종 Application result로 분리한다. 기존 루트 tests는 공통 회귀이며 새 서비스 업무 테스트는 tests/cs, tft, platform에 둔다. Cloud Build 서비스 이미지와 CD는 별도 빌드이고 정확한 결과 digest를 검증한다. 사용자 수동 명령도 --service로 선택할 수 있다. 변경 이력과 독립 배포 테스트를 추가했다.
-- 프론트는 Node 24의 정적 웹 서버와 별도 Dockerfile을 준비했다. 공용 웹은 플랫폼의 health/ready만 서버 IAM 토큰으로 중계한다. 업무 API, 사용자 정보와 개발 인증 경로는 허용하지 않는다. production 화면은 플랫폼 준비 상태만 표시한다. full BFF나 제품 인증 구현으로 확대하지 않는다.
-- 사용자가 infra/setup_service_delivery.sh를 실행했다. web-runtime, release-orchestrator, clouddeploy-runner와 OIDC를 준비했고 provider ACTIVE 및 정확한 저장소/조직 숫자 ID, main과 deploy-services.yml 신뢰 조건, 새 계정의 프로젝트 역할을 읽기 전용 확인했다. GitHub GCP_WIF_PROVIDER 공개 변수를 등록했다. GCP_RELEASE_ENABLED는 아직 켜지 않았다. 첫 웹 빌드 및 사용자 초기 배포와 실제 OIDC 및 분리 CD 검증이 다음이다.
-- 로컬 검증: C/S 선택 Docker 검사 21건과 mypy 18개 파일, 프론트 HTTP 보안 3건 및 production 이미지 빌드, 플랫폼 단독 runtime에서 다른 업무 앱 없이 앱 생성, scripts 테스트 19건과 infra 14건, actionlint 문법 검사를 통과했다. 마지막 변경과 원격 CI 결과는 후속 기록을 확인한다.
-- 운영 점검: 자동 백업 활성 및 서울 보관과 7개 보존, 삭제 보호를 확인했다. 사용자 수동 백업 1792600511679와 1792600953011이 SUCCESSFUL임을 조회했다. docs/operations-basics.md에 오류 로그와 백업 확인 명령을 남겼다. 복구 훈련은 실행하지 않았다.
-- Microsoft: .env.integrations를 예시에서 생성했고 사용자가 로컬에 시크릿을 입력했다. Windows 브라우저를 열지 못하던 WSL 실행을 수정했다. 사용자는 관리자 승인 필요 화면과 비활성 관리자 동의 버튼을 확인했다. Mail.Read/Send/offline_access 표의 관리자 필요 '아니요'와 조직 정책을 구분해 설명했고 관리자 승인 요청 가능 여부를 물었다. docs/integration-checks.md에 전달 문구를 기록했다. 실제 로그인 및 읽기/발송 성공은 아직 아니다. 대신 관리자에게 메시지를 보내지 않았다.
-- Gemini: 현재 목록 조회는 성공하나 3.8-flash 및 3.1-flash-lite 생성은 모두 429 RESOURCE_EXHAUSTED다. 안전한 구조화 오류에는 quota 세부 항목이 없어 구체 원인을 단정하지 않는다. 사용자가 AI Studio에서 같은 키 프로젝트의 사용량/한도를 확인하도록 요청했다. 키와 토큰은 출력하지 않았고 최종 test 또는 data를 사용하지 않았다.
+- [공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)은 HTTPS 200이다. 별도 Node 24 웹 서버가 React 정적 파일을 제공하고 플랫폼 health/ready만 IAM 토큰으로 중계한다. 업무 API와 사용자 정보 및 개발 로그인 경로는 404, POST는 405다. web-runtime에는 DB 연결 및 DB Secret을 설정하지 않았다. 제품 인증과 업무 API 중계는 후속이다.
+- 소스 afa938cb4ded382f2c25cf2565acb1450831bd93의 Application checks 39644064156과 Collaboration checks 39644064247이 성공했다. 자동 CD 39644133647에서 계획과 cs, tft, platform, web이 모두 성공했다. 네 이미지 생성과 별도 CD 빌드가 각각 SUCCESS이며 실행 계정도 분리했다. 실제 배포 SHA 및 digest가 성공한 빌드 결과와 일치한다. 빌드별 ID는 docs/service-delivery.md에 기록한다.
+- 백엔드 리비전은 cs=team4-cs-00002-c4s, tft=team4-tft-00002-r89, platform=team4-platform-00002-nmb다. 모두 인증 ready 200 및 database/vector/fts=true이고 직접 익명 health는 403이다. 웹은 당시 team4-web-00002-bl5였으며 공개 정책과 플랫폼 ready 200을 확인했다.
+- 팀원이 안내를 바로 열도록 frontend/src/App.tsx의 링크만 수정한 c111cc3f8f80f6378429c33b249b01263cf718dc를 반영했다. CI 39645850820은 frontend와 최종 결과만 성공하고 backend, infrastructure, evaluation은 생략됐다. 자동 CD 39645939828은 plan과 deploy-web만 실행해 성공했다. 웹 이미지 빌드 5a69a5d0-bad2-411e-b99e-1430a4226763와 CD b8bb9ff0-f6bc-4e32-9133-693f7be2a6bc가 모두 SUCCESS다. 웹은 team4-web-00003-nlc이며 digest sha256:3c236732fe78e01ce69fbec06ff5a954b21ac8a4364646b80de0561e3fc423b0와 소스 SHA가 일치한다. 배포한 JS 안의 안내 링크와 플랫폼 ready 200 및 개발 경로 404를 확인했다. 백엔드 3개의 리비전과 소스는 앞선 값 그대로다.
+- scripts/changes.py는 PR 및 마지막 성공 main CI 이후 변경을 판별한다. infra/release.py는 서비스별 실제 배포 SHA 이후 누적 변경을 비교한다. 계약 소비자 검사만 필요한 경우 웹을 배포하지 않고 오래된 main 이벤트는 건너뛴다. 기존 루트 tests는 공통 회귀이며 새 업무 테스트는 tests/cs, tft, platform에 둔다. 자동 CD는 기존 IAM 공개 정책을 검사하고 변경하지 않는다.
+- OIDC provider ACTIVE와 저장소/조직 숫자 ID 및 main의 deploy-services.yml 경로 제한을 확인했다. web-runtime, release-orchestrator, clouddeploy-runner를 사용하고 서비스 계정 키는 만들지 않았다. GitHub의 GCP_WIF_PROVIDER에는 공개 provider 리소스명만 저장한다. Cloud Build 소스는 커밋된 허용 경로만 포함하고 .env 및 data는 제외한다.
+- 실제 파이프라인에서 발견한 오류도 해결했다. 기존 Docker 빌더의 runtime 생성 시 TEST_SERVICE를 전달하고 all 예시 검사는 서비스마다 순회한다. 배포 빌드에 전달한 COMMIT_SHA는 추적 태그에서 참조한다. Cloud SDK 이미지에는 python3 명령이 없어 SDK가 사용하는 Python 경로로 실행하며 실제 검증한 SDK 이미지 digest를 고정했다. 제출 오류는 SDK의 ERROR 행만 제한해 남기고 토큰 형태를 가린다. 실패한 시도에서는 기존 서비스 배포를 유지했다.
+- 로컬 검증: 전체 검사 23건과 타입 및 계약, 서비스 선택 Docker 검사 21건, 프론트 HTTP 3건과 production 빌드, 실제 legacy Docker runtime 및 서비스 소스 격리, SDK 이미지 안에서 도우미 실행을 확인했다. scripts 19건과 infra 15건 및 actionlint가 통과했다. data 및 최종 test 597건을 사용하지 않았다.
+- 운영: 자동 백업과 서울 보관 및 7개 보존, 삭제 보호를 확인했다. 사용자 수동 백업 1792600511679와 1792600953011은 SUCCESSFUL이다. docs/operations-basics.md에 안전한 로그 및 백업 조회 명령이 있다. 복구 훈련은 하지 않았다.
+- Microsoft: 사용자가 .env.integrations에 시크릿을 입력했다. WSL의 Windows 브라우저 열기를 수정해 로그인 페이지까지 접근했지만 조직 정책의 관리자 승인이 필요하다. 관리자 동의 버튼도 비활성이다. Mail.Read/Send/offline_access 표의 관리자 필요 '아니요'와 조직 정책을 구분했다. 실제 로그인과 메일 읽기 및 발송은 아직 미검증이다. 관리자 요청 가능 여부가 응답 대기 중이며 docs/integration-checks.md에 요청 문구가 있다. 관리자에게 직접 메시지를 보내지 않았다.
+- Gemini: 목록 조회는 성공하지만 3.8-flash와 3.1-flash-lite 생성은 429 RESOURCE_EXHAUSTED다. 응답에 quota 세부 정보가 없어 원인을 단정하지 않는다. 사용자가 같은 키 프로젝트의 AI Studio 사용량과 한도를 확인하도록 요청했으며 응답 대기 중이다. 이전 합성 임베딩 성공은 모델과 차원 확정이 아니다.
 
-실행 절차와 권한 경계는 [서비스별 배포 안내](docs/service-delivery.md)를 따른다. 첫 웹 빌드와 사용자 배포 및 HTTP 검증은 끝났고 사용자가 자동 CD를 활성화했다. 수정한 검사 스크립트의 전체 검사와 실제 legacy Docker runtime 빌드 및 production 앱 생성과 서비스 소스 격리도 통과했다. 수정 커밋 반영 후 CI와 자동 CD 결과를 확인한다. 이제 main push가 Cloud Build를 실제 실행하므로 이전 배포가 진행 중일 때 새 변경을 섞지 않는다. 관리자 승인 및 Gemini 할당량 질문도 아직 응답 대기 중이다.
+공용 웹과 서비스별 CI/CD 및 운영 기본 검증 결과를 노션의 기술스택, 아키텍처 및 맨 아래 다이어그램 프롬프트에도 반영했다. Jira KAN-67 댓글 10036 및 KAN-68 댓글 10037에 실제 검증과 남은 범위를 기록했고 담당과 일정 및 상태는 보존했다. 이번 결과 문서만 main에 반영하므로 실행 중인 서비스의 SHA가 문서 커밋과 달라도 정상이다. 남은 외부 선행 조건은 Microsoft 관리자 승인과 Gemini 할당량 확인이다. 전체 제품 인증, 업무 권한, Cloud Tasks 처리, Jobs 평가 UI와 상세 모니터링으로 셋업을 확대하지 않는다.
 
 ## 2026-10-22 최신 합의: 이번 셋업의 범위와 완료선
 
