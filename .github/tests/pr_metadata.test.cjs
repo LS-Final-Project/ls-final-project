@@ -78,6 +78,24 @@ test('fetches latest PR, skips Draft review, and is idempotent', async () => {
   assert.deepEqual(f.requests[0].reviewers, ['jongddugi']);
 });
 
+test('initial setup waiver preserves Jira links and skips ready PR review requests', async () => {
+  const f = fixture({ draft: false, head: { ref: 'KAN-60-initial-setup-review-policy' } });
+  f.config = { ...config, setupReviewWaivers: [{ branch: f.pr.head.ref, keys: ['KAN-60'], reason: '사용자 결정' }] };
+  await run(f);
+  assert.equal(f.requests.length, 0);
+  assert.ok(f.pr.body.includes('/browse/KAN-60'));
+  assert.equal(f.pr.title, '[KAN-60] 협업 자동화');
+});
+
+test('waiver does not extend to another branch or an additional ticket', async () => {
+  for (const branch of ['KAN-60-next-feature', 'KAN-60-KAN-63-initial-setup']) {
+    const f = fixture({ draft: false, head: { ref: branch } });
+    f.config = { ...config, setupReviewWaivers: [{ branch: 'KAN-60-KAN-63-initial-setup', keys: ['KAN-60'], reason: '사용자 결정' }] };
+    await run(f);
+    assert.equal(f.requests.length, 1);
+  }
+});
+
 test('does not repeat a completed review request', async () => {
   const f = fixture({ draft: false });
   f.reviews.push({ user: { login: 'jongddugi' }, state: 'APPROVED' });

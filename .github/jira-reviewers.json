@@ -1,6 +1,15 @@
 {
   "jiraBaseUrl": "https://lsteam4.atlassian.net",
   "source": "WBS 2026-10-21. 공식 담당의 검토 순환 A->C, B->A, C->B. Jira 검토자 변경 시 이 배정표도 갱신한다.",
+  "setupReviewWaivers": [
+    {"branch": "KAN-60-initial-setup-review-policy", "keys": ["KAN-60"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-55-KAN-56-development-contracts", "keys": ["KAN-55", "KAN-56"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-62-gcp-preflight-records", "keys": ["KAN-62"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-65-service-database-roles", "keys": ["KAN-65"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-66-KAN-69-runtime-infrastructure", "keys": ["KAN-66", "KAN-69"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-63-api-service-skeleton", "keys": ["KAN-63"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"},
+    {"branch": "KAN-67-cloud-build-private-deployment", "keys": ["KAN-67"], "reason": "2026-10-21 사용자 결정. 현재 초기 셋업만 적용"}
+  ],
   "reviewersByIssue": {
     "KAN-11": "jongddugi",
     "KAN-54": "kny2383",
