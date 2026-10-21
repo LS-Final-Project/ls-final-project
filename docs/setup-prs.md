@@ -38,3 +38,5 @@ bash infra/submit_cloud_build.sh
 사용자 실행 결과의 BUILD_ID로 원격 성공 및 이미지 digest를 확인한다. 비공개 배포 미리보기와 실제 배포는 [Cloud Build 및 배포 안내](../infra/cloud-build.md)를 따른다.
 
 기존 검증: Docker에서 Ruff 및 포맷, mypy 15개 파일, 백엔드 14건과 OpenAPI 일치 검사 통과. DB Secret 도우미 4건 및 배포 계획 3건 통과. Git 연동 12건과 PR 자동화 12건 통과. 실제 소스 업로드 목록에서 .env, data, Git과 인프라 도우미 제외를 확인했다. Cloud Build SDK 파서 및 가짜 gcloud로 커밋 소스와 임시 파일 정리 및 IAM 인자를 확인했다.
+
+2026-10-22 추가 검증: Docker 테스트 23건, mypy 34개 파일, 서비스별 OpenAPI 및 모의 예시와 프론트 타입 검사, 프론트 production 빌드를 통과했다. 커밋 원본의 새 폴더에서 의존성 최초 설치와 별도 새 DB 초기화, 세 API readiness, 계정 세션 및 ACL 검사, 명시적 마이그레이션 적용까지 통과했다. 새 검증 환경은 종료했고 DB 볼륨과 원래 개발 환경은 보존했다.

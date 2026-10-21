@@ -19,6 +19,10 @@
 - 사용자 실행 후 Cloud Build 준비 검증 완료: cloudbuild-runner 계정, 서울 비공개 소스 버킷, 버킷 objectViewer, 저장소 artifactregistry.writer, 프로젝트 logging.logWriter, 교육장 사용자의 빌드 계정 serviceAccountUser를 확인했다. 실제 원격 빌드 및 이미지 업로드와 비공개 배포는 아직 미실행이다. 커밋과 push 후 사용자에게 `bash infra/submit_cloud_build.sh` 실행을 안내하고 결과 BUILD_ID를 읽기 전용 검증한다. Cloud SQL의 vector 확장과 이번 identity 마이그레이션은 클라우드에 아직 적용하지 않았다.
 - 검증: 로컬 실제 DB/API 검사 및 권한 행렬, 프론트 TypeScript 및 production 빌드, 브라우저 계정 선택과 로그아웃 및 모의/실제 모드 전환 통과. Docker 테스트 23건, mypy 34개 백엔드 파일, Ruff, OpenAPI 및 예시 일치 검사를 확인했다. 브라우저 스크린샷은 임시 /tmp/team4-onboarding.png다. 최종 커밋 이후 새 체크아웃 검증 및 원격 Actions 결과는 아래 후속 기록을 확인한다.
 
+### 새 체크아웃 검증
+
+구현 커밋 d83cef1의 git archive를 /tmp/team4-coldstart-ib9nidi4에 추출했다. 기존 .env, data, 의존성과 DB 볼륨이 없는 상태에서 setup을 실행해 의존성 및 타입 생성을 통과했다. COMPOSE_PROJECT_NAME=team4-onboard-check와 별도 로컬 포트 및 새 DB 볼륨으로 up을 실행해 세 서비스 ready와 계정 세션 및 ACL 검사를 모두 통과했다. 새 폴더의 프론트 production 빌드 및 명시적 migrate 명령도 성공했다. 임시 컨테이너는 down으로 종료했으며 볼륨을 삭제하지 않았다. 원래 team4-local Compose 환경과 프론트 개발 서버는 유지했다. Cloud Build 업로드 목록의 49개 파일에 .env 계열과 data, node_modules, artifacts 및 .git이 없음을 확인했다.
+
 ## 최신 결정과 작업: 초기 셋업은 main에 직접 push
 
 2026-10-21 사용자가 "셋업인데 pr 하는거 별로임 그냥 main에 push해줘"라고 요청했다. 현재 초기 셋업은 새 PR이나 동료 검토 없이 main에 직접 반영한다. 기존 티켓별 커밋을 main에 통합하고 작업 공간의 파일을 보존한다. 아래 과거 기록의 Draft 해제, PR 7 선행 병합, PR 8의 base 변경 등은 더 이상 진행 조건이 아니다. 이후 업무 기능 개발의 일반 PR 규칙은 유지한다.
