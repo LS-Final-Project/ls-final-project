@@ -1,6 +1,7 @@
 substitutions:
   _SERVICE: cs
   _BUILD_ID: required
+tags: [team4-cd, '${COMMIT_SHA}']
 steps:
   - id: deploy-verified-image
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable

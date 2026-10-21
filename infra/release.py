@@ -26,8 +26,20 @@ COMMON = [f"--project={PROJECT}", f"--account={ACCOUNT}", f"--region={REGION}"]
 def output(command: list[str]) -> str:
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     if result.returncode:
+        # Keep the SDK's error line, not auth diagnostics or uploaded source output.
+        detail = next(
+            (line for line in result.stderr.splitlines() if line.startswith("ERROR:")), ""
+        )
+        detail = re.sub(r"(?i)Bearer\s+\S+|ya29\.[\w.-]+", "[redacted]", detail)
+        detail = re.sub(r"eyJ[\w-]+\.[\w-]+\.[\w-]+", "[redacted]", detail)
+        detail = re.sub(
+            r"(?i)(access_token|refresh_token|id_token|client_secret)([\s\"']*[:=][\s\"']*)[^\s\"'&,}]+",
+            r"\1\2[redacted]",
+            detail,
+        )
         raise RuntimeError(
-            f"Command failed: {' '.join(command[:3])}; inspect account, IAM and build logs."
+            f"Command failed: {' '.join(command[:3])}; "
+            + (detail[:1200] or "inspect account, IAM and build logs.")
         )
     return result.stdout.strip()
 

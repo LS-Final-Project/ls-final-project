@@ -12,6 +12,26 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_failed_sdk_command_explains_failure_without_logging_credentials(self):
+        token = "eyJhbGciOiJSUzI1NiJ9.payload.signature"
+        result = subprocess.CompletedProcess(
+            [],
+            1,
+            stdout="",
+            stderr=(
+                "auth diagnostics must stay private\n"
+                "ERROR: (gcloud.builds.submit) INVALID_ARGUMENT: unused COMMIT_SHA; "
+                f"Bearer {token} refresh_token=private-refresh-value"
+            ),
+        )
+        with patch.object(release.subprocess, "run", return_value=result):
+            with self.assertRaises(RuntimeError) as failure:
+                release.output(["gcloud", "builds", "submit"])
+        message = str(failure.exception)
+        self.assertIn("INVALID_ARGUMENT: unused COMMIT_SHA", message)
+        for private in (token, "private-refresh-value", "auth diagnostics"):
+            self.assertNotIn(private, message)
+
     def test_last_deployment_comparison_retains_changes_skipped_by_docs_commit(self):
         with (
             patch.object(
