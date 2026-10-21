@@ -65,7 +65,7 @@ Draft에는 검토를 요청하지 않는다. 기존 요청 및 기존 검토 �
 4. Jira의 앱 관리에서 조직과 저장소 연결을 확인한다.
 5. 번호가 있는 실제 브랜치와 PR을 사용해 Jira 티켓의 Development 영역에 표시되는지 확인한다. 동기화에는 시간이 걸릴 수 있다.
 
-GitHub 저장소 Settings의 Pull Requests에서 Squash merge 사용과 병합 커밋 제목에 PR 제목 사용을 권장한다. 이는 아직 적용 완료를 뜻하지 않으며 현재 설정을 확인한 뒤 변경한다. PR 자동화는 GITHUB_TOKEN의 contents:read와 pull-requests:write만 요청하며 별도 개인 토큰을 추가하지 않는다.
+2026년 10월 21일 GitHub 저장소에서 Squash merge 허용과 squash_merge_commit_title=PR_TITLE을 확인했다. 제목 설정은 이번 작업에서 적용했으며 Squash 병합 시 Jira 번호가 있는 PR 제목을 최종 커밋 제목으로 사용한다. 다른 병합 방식과 자동 브랜치 삭제 설정은 변경하지 않았다. PR 자동화는 GITHUB_TOKEN의 contents:read와 pull-requests:write만 요청하며 별도 개인 토큰을 추가하지 않는다.
 
 현재 비공개 저장소의 브랜치 보호 및 규칙 조회는 요금제 제한으로 거절됐다. 따라서 자동 검사 실패가 표시돼도 병합 강제 차단을 보장하지 않는다. 필수 승인 및 검사 통과를 강제하려면 조직의 GitHub Team 또는 교육 혜택 적용 여부를 먼저 확인한다. GitHub 유료 autolink 기능에 의존하지 않고 PR 본문에 실제 Jira 링크를 작성한다.
 
