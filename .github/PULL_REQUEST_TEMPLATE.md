@@ -1,6 +1,8 @@
 ## 관련 작업
 
-- Jira: <!-- 실제 KAN 번호와 링크 -->
+<!-- jira-links:start -->
+<!-- 브랜치의 KAN 번호로 Jira 링크를 자동으로 채웁니다. -->
+<!-- jira-links:end -->
 - 관련 문서·결정: <!-- Google Docs 원본 또는 관련 PR 링크 -->
 
 ## 변경 이유와 결과
