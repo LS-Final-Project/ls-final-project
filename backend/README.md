@@ -2,7 +2,7 @@
 
 C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용하되 각자 별도 프로세스 및 이미지로 실행한다. 설정과 DTO는 `backend/shared`, 공통 HTTP 처리는 `backend/api/common`, 앱의 진입점은 `backend/api/{cs,tft,platform}/main.py`다. 각 앱은 다른 앱의 진입점을 import하지 않는다.
 
-현재 구현은 프로세스 health, 공통 응답과 오류, 요청 ID, 환경 설정과 production 보호다. DB 및 사용자 권한 조회, Microsoft 로그인, 메일, 업무 API, LLM, 작업 상태, SSE와 플랫폼 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다.
+현재 구현은 프로세스 health와 DB 준비 상태, 공통 응답과 오류, 요청 ID, production 보호 및 로컬 DB 기반 계정 선택이다. 문의와 프로젝트 목록은 계약 stub으로 실제 API는 501이다. Microsoft 로그인, 업무 권한과 실제 메일 및 LLM, 작업 상태, SSE와 플랫폼 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다. 팀원 최초 실행은 [개발 시작 안내](../docs/team-start.md)를 따른다.
 
 ## 로컬 실행
 
@@ -34,7 +34,7 @@ SERVICE_NAME=platform PORT=8083 uv run --frozen python -m backend
 
 성공 응답은 `data`와 `meta.request_id`, 오류는 `error.code`, `error.message`, `error.retryable`, `error.details` 및 `meta.request_id`를 사용한다. UUID 형식의 X-Request-ID만 이어받고 나머지는 새로 만든다. 요청 ID는 인증이나 멱등성 키로 사용하지 않는다.
 
-production에서 DEV_AUTH_ENABLED=true면 시작을 거부한다. Cloud Run의 K_SERVICE가 있는 프로세스 역시 ENVIRONMENT=production을 요구한다. production HTTP 문서와 OpenAPI 경로는 숨기고, 앱별 JSON 파일을 빌드 산출물로 제공한다. 개발 계정 선택 기능 자체는 아직 없으며 임의 사용자 헤더로 역할을 부여하지 않는다.
+production에서 DEV_AUTH_ENABLED=true면 시작을 거부한다. Cloud Run의 K_SERVICE가 있는 프로세스 역시 ENVIRONMENT=production을 요구한다. production HTTP 문서와 OpenAPI 경로는 숨기고, 앱별 JSON 파일을 빌드 산출물로 제공한다. 로컬 Compose 플랫폼에서만 DB에 등록한 시연 계정을 선택할 수 있으며 임의 사용자 헤더로 역할을 부여하지 않는다.
 
 ## 테스트 및 OpenAPI
 
@@ -45,9 +45,10 @@ uv run --frozen ruff format --check backend tests
 uv run --frozen mypy
 uv run --frozen python -m backend.openapi
 uv run --frozen python -m backend.openapi --check
+uv run --frozen python -m backend.openapi --service cs
 ```
 
-`docs/openapi/cs.json`, `tft.json`, `platform.json`은 실제 앱에서 생성한다. 현재 두 health 경로와 응답 DTO만 포함하며 업무 API 전체 계약은 아니다. 기존 [API 계약 초안](../docs/api-contract.md)의 후속 기능은 담당 앱이 확장한다. 테스트는 합성 fixture만 사용하며 data 디렉터리를 읽거나 수정하지 않는다.
+`docs/openapi/cs.json`, `tft.json`, `platform.json`은 실제 앱에서 생성한다. health, readiness와 대표 목록 stub 및 사용자 계약을 포함하며 업무 API 전체 계약은 아니다. 로컬 전용 계정 선택 경로는 일반 산출물에서 제외한다. 서비스별 생성 및 예시와 프론트 타입 연결은 [계약 안내](../contracts/README.md)를 따른다. 테스트는 합성 fixture만 사용하며 data 디렉터리를 읽거나 수정하지 않는다.
 
 ## Docker 이미지
 

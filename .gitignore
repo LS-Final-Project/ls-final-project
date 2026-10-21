@@ -5,6 +5,8 @@ data/
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.integrations.example
 
 # Python
 __pycache__/
@@ -22,3 +24,9 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# Local evaluation outputs and browser checks
+artifacts/
+frontend/src/api/generated/
+playwright-report/
+test-results/

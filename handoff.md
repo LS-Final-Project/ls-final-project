@@ -4,6 +4,21 @@
 
 사용자는 의사결정의 선택 근거를 명확하게 남기도록 추가 요청했다. decisions.md에는 선택 목적, 실제 비교한 대안, 감수하는 제약과 재검토 조건을 보강했다. 해당 문서의 '대화 근거'는 사용자가 밝힌 목적이나 선택 이력이고, '설계 해석'은 현재 선택에 대한 기술적 설명이다. 설계 해석을 사용자의 원문 발언이나 완료된 비교 실험으로 보고하지 않는다. 후속 변경에도 요구 또는 측정 근거와 계약 및 일정 영향을 함께 기록한다.
 
+## 2026-10-22 개발 시작 환경과 계약 분리
+
+이 절이 아래 과거 상태보다 우선한다. 사용자는 팀원이 안내만 보고 개발을 시작할 수 있는 환경과 API 계약 변경 시 충돌 최소화를 요청했다. 현재 셋업은 사용자 지시에 따라 main 직접 push 대상이다. GCP 변경은 사용자 터미널에서 실행하고 에이전트는 읽기 전용 검증만 한다. Jira 담당자를 새로 배정하지 않는다.
+
+- 팀원 시작 문서: [docs/team-start.md](docs/team-start.md). `python3 scripts/workspace.py setup`, `python3 scripts/workspace.py up`, `npm run dev --prefix frontend` 순서다. Docker, uv, Node 22.12 이상이 필요하다. GCP 키, Microsoft 시크릿과 원본 data 없이 시작한다.
+- 로컬 Compose는 PostgreSQL 17과 pgvector 및 API 3개를 사용한다. DB 포트 5433, C/S 8081, TFT 8082, 플랫폼 8083, 프론트 5173이다. 서비스별 계정과 스키마 및 ACL을 실제 확인했다. .env.local은 각 PC에서 별도 생성하며 기존 .env와 data는 수정하지 않는다. down은 DB 볼륨을 보존한다.
+- 플랫폼에 합성 사용자 4개의 개발 계정 선택과 DB 세션을 구현했다. DB에서 역할 및 활성 여부를 매번 조회한다. HttpOnly 쿠키와 Origin 검사, 세션 해시 저장 및 로그아웃 무효화를 적용했다. production에서는 개발 경로가 없고 미구현 실제 로그인은 401로 차단한다. 실제 OAuth와 서비스 중계 및 업무 권한은 후속 구현이다.
+- [contracts/README.md](contracts/README.md): 각 서비스 기능 폴더의 Pydantic 모델과 라우터가 원본이다. `python3 scripts/workspace.py contracts cs`처럼 자기 서비스의 OpenAPI와 합성 예시만 생성한다. TypeScript 생성물은 Git에서 제외하고 로컬 및 CI에서 재생성한다. 공통 업무 DTO를 만들지 않는다. 다른 서비스 파일을 갱신하지 않는 검증을 추가했다.
+- 프론트는 React, Vite, TypeScript와 TanStack Query의 개발 연결 확인 화면이다. OpenDesign 파일은 수정하지 않았다. 실제 DB 계정 선택과 준비 상태 및 합성 C/S, TFT 예시를 확인한다. 실제 목록 API는 명시적인 501 stub이며 실패를 모의 성공으로 숨기지 않는다. production 프론트에서는 모의 응답을 켤 수 없다.
+- eval.smoke는 합성 2건만 사용하며 JSON 및 HTML에 모델, 판본, 지연, 스키마, 토큰과 실패 상태를 기록한다. fake 실행 성공은 모델 품질 합격이 아니다. 가격 미등록 비용은 미산정으로 표시한다. 최종 test 597건은 사용하지 않았다.
+- 실제 외부 점검: Microsoft 테넌트 OpenID discovery 성공. 사용자 제공 tenant `6c2ea5ee-418c-4e13-8eaa-5163cdb50c67`, client `7160833b-2aa3-497f-bc6c-11c59851c254`. 실제 로그인과 Graph는 아직 실행하지 않았다. 로컬 시크릿과 Web redirect `http://localhost:8765/callback` 준비 후 [연동 안내](docs/integration-checks.md)를 따른다. 시크릿을 채팅으로 요청하지 않는다.
+- Gemini 모델 목록 조회와 gemini-embedding-001 합성 임베딩 호출은 성공했다. 기본 차원 3072를 확인했지만 production 모델 및 인덱스 차원 확정은 아니다. 생성 호출은 gemini-2.5-flash-lite와 gemini-2.5-flash가 404, gemini-3.8-flash가 429였다. 생성 토큰 실측 성공으로 보고하지 않는다. SDK 자동 재시도는 비활성화했다. 실제 가용 모델과 할당량 확인이 필요하다.
+- 사용자 실행 후 Cloud Build 준비 검증 완료: cloudbuild-runner 계정, 서울 비공개 소스 버킷, 버킷 objectViewer, 저장소 artifactregistry.writer, 프로젝트 logging.logWriter, 교육장 사용자의 빌드 계정 serviceAccountUser를 확인했다. 실제 원격 빌드 및 이미지 업로드와 비공개 배포는 아직 미실행이다. 커밋과 push 후 사용자에게 `bash infra/submit_cloud_build.sh` 실행을 안내하고 결과 BUILD_ID를 읽기 전용 검증한다. Cloud SQL의 vector 확장과 이번 identity 마이그레이션은 클라우드에 아직 적용하지 않았다.
+- 검증: 로컬 실제 DB/API 검사 및 권한 행렬, 프론트 TypeScript 및 production 빌드, 브라우저 계정 선택과 로그아웃 및 모의/실제 모드 전환 통과. Docker 테스트 23건, mypy 34개 백엔드 파일, Ruff, OpenAPI 및 예시 일치 검사를 확인했다. 브라우저 스크린샷은 임시 /tmp/team4-onboarding.png다. 최종 커밋 이후 새 체크아웃 검증 및 원격 Actions 결과는 아래 후속 기록을 확인한다.
+
 ## 최신 결정과 작업: 초기 셋업은 main에 직접 push
 
 2026-10-21 사용자가 "셋업인데 pr 하는거 별로임 그냥 main에 push해줘"라고 요청했다. 현재 초기 셋업은 새 PR이나 동료 검토 없이 main에 직접 반영한다. 기존 티켓별 커밋을 main에 통합하고 작업 공간의 파일을 보존한다. 아래 과거 기록의 Draft 해제, PR 7 선행 병합, PR 8의 base 변경 등은 더 이상 진행 조건이 아니다. 이후 업무 기능 개발의 일반 PR 규칙은 유지한다.

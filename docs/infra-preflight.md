@@ -124,3 +124,9 @@ infra/verify_cloud_db.sh를 다음 사용자 실행용으로 준비했다. 각 �
 ## KAN-63 로컬 앱 및 빌드 구성 검증
 
 세 FastAPI 실행 골격과 Dockerfile 및 빌드 전 테스트를 포함한 cloudbuild.yaml을 작성했다. 로컬 Python 3.12와 Docker에서 테스트 18건 및 하위 사례 2건을 통과했고 실제 runtime 컨테이너 3개의 health, 서비스 선택과 production 및 비루트 실행을 검증했다. 임시 컨테이너는 제거했다. 소스 업로드 목록에서 .env와 data 등의 제외 및 Cloud Build SDK 설정 파싱도 확인했다. 이 단계에서는 GCP 리소스를 변경하거나 Cloud Build를 실행하지 않았다. 실제 빌드 계정 권한과 소스 저장 경로 설정, 이미지 업로드와 비공개 서비스 배포는 다음 단계다. 자세한 검증은 backend/README.md를 따른다.
+
+## 2026-10-22 Cloud Build 준비 확인
+
+사용자가 setup_cloud_build.sh 실행 완료를 알린 뒤 읽기 전용 조회로 cloudbuild-runner 서비스 계정과 proj-skkuls0106-183255377938-team4-build-source 버킷을 확인했다. 버킷은 ASIA-NORTHEAST3이며 uniform bucket access와 public access prevention이 켜져 있다. 빌드 계정의 소스 버킷 objectViewer, Artifact Registry writer와 프로젝트 logging.logWriter, 교육장 사용자의 해당 빌드 계정 serviceAccountUser 권한을 각각 확인했다. 실제 원격 빌드와 서비스 배포는 아직 실행하지 않았다. 다음은 최신 main의 submit_cloud_build.sh를 사용자 터미널에서 실행한 뒤 BUILD_ID 및 결과 digest를 조회하는 단계다.
+
+로컬 Compose에서는 pgvector 및 FTS와 세 앱의 DB 연결을 실제 확인했다. 이 결과를 Cloud SQL의 vector 확장 또는 신규 identity 테이블 적용 완료로 보고하지 않는다.

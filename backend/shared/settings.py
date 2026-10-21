@@ -2,7 +2,7 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ServiceName = Literal["cs", "tft", "platform"]
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     service_name: ServiceName = "cs"
     port: int = Field(default=8080, ge=1, le=65535)
     dev_auth_enabled: bool = False
+    database_url: SecretStr | None = None
     cloud_run_service: str | None = Field(default=None, validation_alias="K_SERVICE")
 
     @model_validator(mode="after")

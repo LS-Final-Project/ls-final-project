@@ -9,6 +9,8 @@
 !backend/**
 !tests/
 !tests/**
+!eval/
+!eval/**
 !docs/
 !docs/openapi/
 !docs/openapi/**

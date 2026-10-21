@@ -74,6 +74,96 @@
         "title": "HealthData",
         "type": "object"
       },
+      "ProjectList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ProjectList",
+        "type": "object"
+      },
+      "ProjectSummary": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "data_origin"
+        ],
+        "title": "ProjectSummary",
+        "type": "object"
+      },
+      "ReadinessData": {
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "boolean"
+          },
+          "fts": {
+            "title": "Fts",
+            "type": "boolean"
+          },
+          "service": {
+            "enum": [
+              "cs",
+              "tft",
+              "platform"
+            ],
+            "title": "Service",
+            "type": "string"
+          },
+          "vector": {
+            "title": "Vector",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "service",
+          "database",
+          "vector",
+          "fts"
+        ],
+        "title": "ReadinessData",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -102,6 +192,38 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_ProjectList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProjectList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ProjectList]",
+        "type": "object"
+      },
+      "SuccessResponse_ReadinessData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReadinessData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReadinessData]",
         "type": "object"
       }
     }
@@ -140,6 +262,70 @@
           }
         },
         "summary": "Tft Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/tft/projects": {
+      "get": {
+        "description": "Contract stub. Browser mock examples are synthetic; real implementation is pending.",
+        "operationId": "tft_list_projects",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ProjectList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "List Projects",
+        "tags": [
+          "projects"
+        ],
+        "x-implementation-status": "stub"
+      }
+    },
+    "/api/v1/tft/ready": {
+      "get": {
+        "operationId": "tft_readiness_api_v1_tft_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReadinessData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Tft Readiness",
         "tags": [
           "health"
         ]

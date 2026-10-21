@@ -4,8 +4,12 @@
 
 ## 시작하기
 
+팀원은 [개발 시작 안내](docs/team-start.md)의 설치, 실행 및 확인 절차를 순서대로 따른다. 로컬 실행에는 클라우드 키가 필요하지 않다. API 변경은 [계약 수정 안내](contracts/README.md)를 따른다.
+
 | 확인할 내용 | 위치 |
 | --- | --- |
+| 처음 설치, 로컬 DB와 계정 선택, 프론트 실행, 문제 해결 | [팀원 개발 시작 안내](docs/team-start.md) |
+| 서비스별 API 원본과 생성 명령, 충돌 방지 규칙 | [계약 수정 안내](contracts/README.md) |
 | API 로컬 실행, 테스트, OpenAPI와 Docker 빌드 | [백엔드 실행 안내](backend/README.md) |
 | GCP DB, Secret 및 연결 검증 | [인프라 안내](infra/README.md) |
 | 프로젝트 목표, 현재 단계, 주요 링크 | [프로젝트 시작 안내](https://docs.google.com/document/d/1CI2gyXEogmcSIeAKceK9xsurv_ls8lJ3uOac45k6jqk/edit) |

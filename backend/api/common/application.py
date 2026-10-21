@@ -12,6 +12,8 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 
 from backend import __version__
+from backend.api.common.readiness import readiness
+from backend.shared.errors import ApplicationError
 from backend.shared.models import (
     ErrorData,
     ErrorResponse,
@@ -32,6 +34,7 @@ HTTP_ERRORS = {
     422: ("VALIDATION_ERROR", "Request validation failed."),
     429: ("RATE_LIMITED", "Too many requests."),
     503: ("DEPENDENCY_UNAVAILABLE", "A required service is unavailable."),
+    501: ("NOT_IMPLEMENTED", "This contract endpoint is not implemented yet."),
 }
 
 
@@ -69,6 +72,12 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
     )
     app.state.settings = settings
     app.state.service = service
+
+    @app.exception_handler(ApplicationError)
+    async def handle_application_error(
+        request: Request, exception: ApplicationError
+    ) -> JSONResponse:
+        return error_response(request, exception.status_code, exception.code, exception.message)
 
     @app.middleware("http")
     async def request_context(
@@ -130,6 +139,13 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
         description="Checks this process only; does not probe DB, OAuth, mail or model providers.",
     )
     router = APIRouter(prefix=f"/api/v1/{service}", tags=["health"])
+    router.add_api_route(
+        "/ready",
+        readiness,
+        methods=["GET"],
+        name=f"{service}_readiness",
+        responses={503: {"model": ErrorResponse}},
+    )
     router.add_api_route(
         "/health",
         health,

@@ -9,9 +9,10 @@ FROM dependencies AS test
 RUN uv sync --frozen --no-install-project --python /usr/local/bin/python
 COPY backend ./backend
 COPY tests ./tests
+COPY eval ./eval
 COPY docs/openapi ./docs/openapi
-RUN uv run --no-sync ruff check backend tests \
- && uv run --no-sync ruff format --check backend tests \
+RUN uv run --no-sync ruff check backend tests eval \
+ && uv run --no-sync ruff format --check backend tests eval \
  && uv run --no-sync mypy \
     && uv run --no-sync pytest -q \
     && uv run --no-sync python -m backend.openapi --check

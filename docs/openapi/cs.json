@@ -74,6 +74,39 @@
         "title": "HealthData",
         "type": "object"
       },
+      "ReadinessData": {
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "boolean"
+          },
+          "fts": {
+            "title": "Fts",
+            "type": "boolean"
+          },
+          "service": {
+            "enum": [
+              "cs",
+              "tft",
+              "platform"
+            ],
+            "title": "Service",
+            "type": "string"
+          },
+          "vector": {
+            "title": "Vector",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "service",
+          "database",
+          "vector",
+          "fts"
+        ],
+        "title": "ReadinessData",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -102,6 +135,95 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_ReadinessData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReadinessData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketList]",
+        "type": "object"
+      },
+      "TicketList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "TicketList",
+        "type": "object"
+      },
+      "TicketSummary": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "data_origin"
+        ],
+        "title": "TicketSummary",
         "type": "object"
       }
     }
@@ -143,6 +265,70 @@
         "tags": [
           "health"
         ]
+      }
+    },
+    "/api/v1/cs/ready": {
+      "get": {
+        "operationId": "cs_readiness_api_v1_cs_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReadinessData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Cs Readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/cs/tickets": {
+      "get": {
+        "description": "Contract stub. Browser mock examples are synthetic; real implementation is pending.",
+        "operationId": "cs_list_tickets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "List Tickets",
+        "tags": [
+          "tickets"
+        ],
+        "x-implementation-status": "stub"
       }
     },
     "/health": {

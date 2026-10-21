@@ -74,6 +74,102 @@
         "title": "HealthData",
         "type": "object"
       },
+      "Identity": {
+        "properties": {
+          "dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "oid": {
+            "format": "uuid",
+            "title": "Oid",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "enum": [
+                "cs_agent",
+                "dept_staff",
+                "manager",
+                "sales"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          },
+          "tid": {
+            "format": "uuid",
+            "title": "Tid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tid",
+          "oid",
+          "email",
+          "display_name",
+          "dept",
+          "roles"
+        ],
+        "title": "Identity",
+        "type": "object"
+      },
+      "ReadinessData": {
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "boolean"
+          },
+          "fts": {
+            "title": "Fts",
+            "type": "boolean"
+          },
+          "service": {
+            "enum": [
+              "cs",
+              "tft",
+              "platform"
+            ],
+            "title": "Service",
+            "type": "string"
+          },
+          "vector": {
+            "title": "Vector",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "service",
+          "database",
+          "vector",
+          "fts"
+        ],
+        "title": "ReadinessData",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -102,6 +198,38 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_Identity_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Identity]",
+        "type": "object"
+      },
+      "SuccessResponse_ReadinessData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReadinessData"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReadinessData]",
         "type": "object"
       }
     }
@@ -140,6 +268,58 @@
           }
         },
         "summary": "Platform Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/platform/me": {
+      "get": {
+        "operationId": "platform_get_me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Identity_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v1/platform/ready": {
+      "get": {
+        "operationId": "platform_readiness_api_v1_platform_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReadinessData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Platform Readiness",
         "tags": [
           "health"
         ]

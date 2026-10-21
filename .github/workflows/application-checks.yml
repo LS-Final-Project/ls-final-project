@@ -1,0 +1,37 @@
+name: Application checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend lint, types, tests and OpenAPI
+        run: docker build --target test -t team4-api-tests .
+      - name: Install contract tooling
+        run: |
+          python3 -m pip install uv==0.10.10
+          uv sync --frozen --python 3.12
+          npm ci --prefix frontend --no-audit --no-fund
+      - name: Check each service contract and its consumers
+        run: |
+          python3 scripts/workspace.py contracts all --check
+          npm run build --prefix frontend
+      - name: Infrastructure helper tests
+        run: python3 -m unittest discover -s infra/tests -q

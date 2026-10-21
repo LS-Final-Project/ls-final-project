@@ -37,7 +37,9 @@ def test_health_and_openapi_are_service_specific(service, factory):
                 str(UUID(response.headers["X-Request-ID"])) == response.json()["meta"]["request_id"]
             )
         schema = client.get("/openapi.json").json()
-        assert set(schema["paths"]) == {"/health", f"/api/v1/{service}/health"}
+        assert {"/health", f"/api/v1/{service}/health", f"/api/v1/{service}/ready"} <= set(
+            schema["paths"]
+        )
         assert "ErrorResponse" in schema["components"]["schemas"]
         assert client.get("/docs").status_code == 200
         for other, _ in FACTORIES:
@@ -69,12 +71,9 @@ def test_production_hides_docs_and_unimplemented_auth_routes(service, factory):
         for path in ("/docs", "/redoc", "/openapi.json", f"/api/v1/{service}/dev/login"):
             assert client.get(path).status_code == 404
         # User-controlled identity headers never turn missing business routes into successes.
-        assert (
-            client.get(
-                f"/api/v1/{service}/me", headers={"X-User-Role": "manager", "X-User-ID": "demo"}
-            ).status_code
-            == 404
-        )
+        assert client.get(
+            f"/api/v1/{service}/me", headers={"X-User-Role": "manager", "X-User-ID": "demo"}
+        ).status_code == (401 if service == "platform" else 404)
 
 
 def test_production_rejects_development_authentication():

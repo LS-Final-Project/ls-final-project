@@ -5,7 +5,7 @@ set -euo pipefail
 
 LS_BUILD_ROOT=$(git rev-parse --show-toplevel)
 cd "$LS_BUILD_ROOT"
-LS_BUILD_INPUTS=(.gcloudignore .dockerignore Dockerfile cloudbuild.yaml pyproject.toml uv.lock backend tests docs/openapi)
+LS_BUILD_INPUTS=(.gcloudignore .dockerignore Dockerfile cloudbuild.yaml pyproject.toml uv.lock backend tests eval docs/openapi)
 if ! git diff --quiet HEAD -- "${LS_BUILD_INPUTS[@]}"; then
   echo 'Commit changes to build inputs before submitting a build.' >&2
   exit 1
@@ -18,7 +18,7 @@ git archive HEAD -- "${LS_BUILD_INPUTS[@]}" | tar -x -C "$LS_BUILD_CONTEXT"
 for LS_BUILD_FILE in Dockerfile cloudbuild.yaml pyproject.toml uv.lock .gcloudignore .dockerignore; do
   test -f "$LS_BUILD_CONTEXT/$LS_BUILD_FILE"
 done
-for LS_BUILD_DIR in backend tests docs/openapi; do
+for LS_BUILD_DIR in backend tests eval docs/openapi; do
   test -d "$LS_BUILD_CONTEXT/$LS_BUILD_DIR"
 done
 printf 'Building committed source only: %s\n' "$LS_BUILD_SHA"

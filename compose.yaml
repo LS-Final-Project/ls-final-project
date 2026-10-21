@@ -1,0 +1,77 @@
+name: team4-local
+
+x-api: &api
+  build:
+    context: .
+    target: runtime
+  depends_on:
+    db:
+      condition: service_healthy
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+    interval: 5s
+    timeout: 4s
+    retries: 20
+    start_period: 10s
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    environment:
+      POSTGRES_DB: team4
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_DB_ADMIN_PASSWORD:?Run python3 scripts/workspace.py setup}
+      LOCAL_CS_PASSWORD: ${LOCAL_CS_PASSWORD:?Run setup}
+      LOCAL_TFT_PASSWORD: ${LOCAL_TFT_PASSWORD:?Run setup}
+      LOCAL_PLATFORM_PASSWORD: ${LOCAL_PLATFORM_PASSWORD:?Run setup}
+    ports: ["127.0.0.1:${LOCAL_DB_PORT:-5433}:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/local/init.sh:/docker-entrypoint-initdb.d/10-team4.sh:ro
+      - ./infra/local:/setup/local:ro
+      - ./infra/sql:/setup/sql:ro
+      - ./infra/migrations:/setup/migrations:ro
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, team4]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  cs:
+    <<: *api
+    environment:
+      ENVIRONMENT: local
+      SERVICE_NAME: cs
+      DEV_AUTH_ENABLED: "false"
+      PGHOST: db
+      PGDATABASE: team4
+      PGUSER: cs_app
+      PGPASSWORD: ${LOCAL_CS_PASSWORD:?Run setup}
+    ports: ["127.0.0.1:${LOCAL_CS_PORT:-8081}:8080"]
+
+  tft:
+    <<: *api
+    environment:
+      ENVIRONMENT: local
+      SERVICE_NAME: tft
+      DEV_AUTH_ENABLED: "false"
+      PGHOST: db
+      PGDATABASE: team4
+      PGUSER: tft_app
+      PGPASSWORD: ${LOCAL_TFT_PASSWORD:?Run setup}
+    ports: ["127.0.0.1:${LOCAL_TFT_PORT:-8082}:8080"]
+
+  platform:
+    <<: *api
+    environment:
+      ENVIRONMENT: local
+      SERVICE_NAME: platform
+      DEV_AUTH_ENABLED: "true"
+      PGHOST: db
+      PGDATABASE: team4
+      PGUSER: platform_app
+      PGPASSWORD: ${LOCAL_PLATFORM_PASSWORD:?Run setup}
+    ports: ["127.0.0.1:${LOCAL_PLATFORM_PORT:-8083}:8080"]
+
+volumes:
+  postgres-data:
