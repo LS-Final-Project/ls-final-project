@@ -1,0 +1,73 @@
+name: Deploy changed services
+on:
+  workflow_run:
+    workflows: [Application checks]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plan:
+    if: >-
+      vars.GCP_RELEASE_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      services: ${{ steps.plan.outputs.services }}
+      revision: ${{ steps.plan.outputs.revision }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: release-orchestrator@proj-skkuls0106-183255377938.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - id: plan
+        run: python3 infra/release.py plan --github-output "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEAM4_GCLOUD_ACCOUNT: release-orchestrator@proj-skkuls0106-183255377938.iam.gserviceaccount.com
+  service:
+    needs: plan
+    if: needs.plan.outputs.services != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.plan.outputs.services) }}
+    name: deploy-${{ matrix.service }}
+    concurrency:
+      group: deploy-${{ matrix.service }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          ref: ${{ needs.plan.outputs.revision }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: release-orchestrator@proj-skkuls0106-183255377938.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - run: python3 infra/release.py run --service "$SERVICE" --revision "$REVISION"
+        env:
+          SERVICE: ${{ matrix.service }}
+          REVISION: ${{ needs.plan.outputs.revision }}
+          TEAM4_GCLOUD_ACCOUNT: release-orchestrator@proj-skkuls0106-183255377938.iam.gserviceaccount.com

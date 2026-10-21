@@ -1,0 +1,12 @@
+substitutions:
+  _SERVICE: cs
+  _BUILD_ID: required
+steps:
+  - id: deploy-verified-image
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: python3
+    env: ['TEAM4_GCLOUD_ACCOUNT=']
+    args: [infra/deploy_private.py, '${_BUILD_ID}', --service, '${_SERVICE}', --preserve-access-policy, --apply]
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

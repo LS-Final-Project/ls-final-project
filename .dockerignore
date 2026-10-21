@@ -11,6 +11,13 @@
 !docs/
 !docs/openapi/
 !docs/openapi/**
+!scripts/
+!scripts/check_backend.py
+!frontend/
+!frontend/src/
+!frontend/src/mocks/
+!frontend/src/mocks/generated/
+!frontend/src/mocks/generated/**
 **/__pycache__
 **/*.pyc
 **/.pytest_cache

@@ -4,6 +4,21 @@
 
 사용자는 의사결정의 선택 근거를 명확하게 남기도록 추가 요청했다. decisions.md에는 선택 목적, 실제 비교한 대안, 감수하는 제약과 재검토 조건을 보강했다. 해당 문서의 '대화 근거'는 사용자가 밝힌 목적이나 선택 이력이고, '설계 해석'은 현재 선택에 대한 기술적 설명이다. 설계 해석을 사용자의 원문 발언이나 완료된 비교 실험으로 보고하지 않는다. 후속 변경에도 요구 또는 측정 근거와 계약 및 일정 영향을 함께 기록한다.
 
+## 2026-10-22 합의 범위 실행 중
+
+사용자가 합의한 범위를 실제 진행하도록 요청했다. 아래 과거의 '이번 요청에서는 기록만'은 이전 범위 기록 시점의 설명이다. 계속 초기 셋업 main 직접 push 예외를 적용하고 GCP 변경은 사용자 실행 후 읽기 전용 검증한다.
+
+- 서비스별 CI 및 이미지와 CD를 분리하는 코드를 작성했다. scripts/changes.py가 PR 및 마지막 성공 main CI 이후 변경을 판별한다. 프론트 계약 검사는 별도로 켜며 계약 변경만으로 웹 이미지를 배포하지 않는다. infra/release.py는 각 서비스의 실제 배포 SHA 이후 누적 변경을 비교하고 오래된 main 배포를 막는다. 실제 적용 상태는 후속 기록을 확인한다.
+- Application checks는 앱별 작업과 최종 Application result로 분리한다. 기존 루트 tests는 공통 회귀이며 새 서비스 업무 테스트는 tests/cs, tft, platform에 둔다. Cloud Build 서비스 이미지와 CD는 별도 빌드이고 정확한 결과 digest를 검증한다. 사용자 수동 명령도 --service로 선택할 수 있다. 변경 이력과 독립 배포 테스트를 추가했다.
+- 프론트는 Node 24의 정적 웹 서버와 별도 Dockerfile을 준비했다. 공용 웹은 플랫폼의 health/ready만 서버 IAM 토큰으로 중계한다. 업무 API, 사용자 정보와 개발 인증 경로는 허용하지 않는다. production 화면은 플랫폼 준비 상태만 표시한다. full BFF나 제품 인증 구현으로 확대하지 않는다.
+- 사용자가 infra/setup_service_delivery.sh를 실행했다. web-runtime, release-orchestrator, clouddeploy-runner와 OIDC를 준비했고 provider ACTIVE 및 정확한 저장소/조직 숫자 ID, main과 deploy-services.yml 신뢰 조건, 새 계정의 프로젝트 역할을 읽기 전용 확인했다. GitHub GCP_WIF_PROVIDER 공개 변수를 등록했다. GCP_RELEASE_ENABLED는 아직 켜지 않았다. 첫 웹 빌드 및 사용자 초기 배포와 실제 OIDC 및 분리 CD 검증이 다음이다.
+- 로컬 검증: C/S 선택 Docker 검사 21건과 mypy 18개 파일, 프론트 HTTP 보안 3건 및 production 이미지 빌드, 플랫폼 단독 runtime에서 다른 업무 앱 없이 앱 생성, scripts 테스트 19건과 infra 14건, actionlint 문법 검사를 통과했다. 마지막 변경과 원격 CI 결과는 후속 기록을 확인한다.
+- 운영 점검: 자동 백업 활성 및 서울 보관과 7개 보존, 삭제 보호를 확인했다. 사용자 수동 백업 1792600511679와 1792600953011이 SUCCESSFUL임을 조회했다. docs/operations-basics.md에 오류 로그와 백업 확인 명령을 남겼다. 복구 훈련은 실행하지 않았다.
+- Microsoft: .env.integrations를 예시에서 생성했고 사용자가 로컬에 시크릿을 입력했다. Windows 브라우저를 열지 못하던 WSL 실행을 수정했다. 사용자는 관리자 승인 필요 화면과 비활성 관리자 동의 버튼을 확인했다. Mail.Read/Send/offline_access 표의 관리자 필요 '아니요'와 조직 정책을 구분해 설명했고 관리자 승인 요청 가능 여부를 물었다. docs/integration-checks.md에 전달 문구를 기록했다. 실제 로그인 및 읽기/발송 성공은 아직 아니다. 대신 관리자에게 메시지를 보내지 않았다.
+- Gemini: 현재 목록 조회는 성공하나 3.8-flash 및 3.1-flash-lite 생성은 모두 429 RESOURCE_EXHAUSTED다. 안전한 구조화 오류에는 quota 세부 항목이 없어 구체 원인을 단정하지 않는다. 사용자가 AI Studio에서 같은 키 프로젝트의 사용량/한도를 확인하도록 요청했다. 키와 토큰은 출력하지 않았고 최종 test 또는 data를 사용하지 않았다.
+
+실행 절차와 권한 경계는 [서비스별 배포 안내](docs/service-delivery.md)를 따른다. 다음 사용자 실행은 소스 main 반영 후 bash infra/submit_cloud_build.sh --service web, 결과 BUILD_ID로 python3 infra/deploy_private.py BUILD_ID --service web --apply 순서다. 먼저 실제 웹을 검증하고 사용자가 GitHub GCP_RELEASE_ENABLED=true 및 deploy-services.yml 수동 실행으로 자동 CD를 활성화한다. 이후 main push가 Cloud Build를 실제 실행하므로 활성화 전 확인한다.
+
 ## 2026-10-22 최신 합의: 이번 셋업의 범위와 완료선
 
 사용자가 남은 셋업 전체를 지금 하는 것이 합리적인지 물었고, 개발을 막는 기반과 외부 연동 위험부터 해결하는 아래 범위에 동의했다. 이 절이 아래 과거의 광범위한 다음 작업보다 우선한다. 사람용 원본은 [노션 개발 관련 의사 결정 사항](https://www.notion.so/400910042c3780fb9025d489bf3a075e) 맨 위에 기록했다. 이번 요청에서는 범위를 기록하며 기능과 GCP 설정을 새로 구현하거나 적용하지 않는다.

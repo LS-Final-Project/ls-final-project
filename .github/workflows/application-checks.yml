@@ -1,37 +1,103 @@
 name: Application checks
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 permissions:
   contents: read
-
+  actions: read
 jobs:
-  contracts-and-build:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.plan.outputs.backends }}
+      frontend: ${{ steps.plan.outputs.frontend }}
+      infrastructure: ${{ steps.plan.outputs.infrastructure }}
+      evaluation: ${{ steps.plan.outputs.evaluation }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            python3 scripts/changes.py --base "$BASE_SHA" --head "$HEAD_SHA" --merge-base --github-output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/changes.py --base "$BASE_SHA" --head "$HEAD_SHA" --last-successful-main --github-output "$GITHUB_OUTPUT"
+          fi
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backends != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.backends) }}
+    name: backend-${{ matrix.service }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - run: docker build --target test --build-arg TEST_SERVICE=${{ matrix.service }} -t team4-api-tests .
+      - run: docker build --target runtime --build-arg SERVICE_NAME=${{ matrix.service }} -t team4-service .
+      - run: docker run --rm --network=none team4-service python -c 'import importlib,os; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"'
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          node-version: '22'
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Backend lint, types, tests and OpenAPI
-        run: docker build --target test -t team4-api-tests .
-      - name: Install contract tooling
+      - run: npm ci --prefix frontend --no-audit --no-fund
+      - run: npm test --prefix frontend && npm run build --prefix frontend
+  infrastructure:
+    needs: changes
+    if: needs.changes.outputs.infrastructure == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s infra/tests -q
+      - run: python3 -m unittest discover -s scripts/tests -q
+  evaluation:
+    needs: changes
+    if: needs.changes.outputs.evaluation == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install uv==0.10.10
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen pytest tests/test_eval_smoke.py -q
+  required:
+    name: Application result
+    if: always()
+    needs: [changes, backend, frontend, infrastructure, evaluation]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          python3 -m pip install uv==0.10.10
-          uv sync --frozen --python 3.12
-          npm ci --prefix frontend --no-audit --no-fund
-      - name: Check each service contract and its consumers
-        run: |
-          python3 scripts/workspace.py contracts all --check
-          npm run build --prefix frontend
-      - name: Infrastructure helper tests
-        run: python3 -m unittest discover -s infra/tests -q
+          python3 - <<'PYRESULT'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert results['changes']['result'] == 'success'
+          assert all(job['result'] in ('success', 'skipped') for job in results.values()), results
+          PYRESULT

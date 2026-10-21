@@ -5,6 +5,7 @@
   "type": "module",
   "engines": {"node": ">=22.12.0"},
   "scripts": {
+    "test": "node --test server.test.mjs",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "types:cs": "openapi-typescript ../docs/openapi/cs.json -o src/api/generated/cs.ts",
     "types:tft": "openapi-typescript ../docs/openapi/tft.json -o src/api/generated/tft.ts",

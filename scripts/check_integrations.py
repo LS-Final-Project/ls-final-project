@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -19,6 +21,38 @@ from dotenv import dotenv_values
 
 class ConfigurationError(ValueError):
     """Only fixed messages with setting names, never user-supplied values."""
+
+
+def open_login_browser(url: str) -> None:
+    """Pass the URL over stdin to Windows, avoiding shell expansion and argv logs."""
+    executable = shutil.which("powershell.exe")
+    fallback = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+    if not executable and fallback.is_file():
+        executable = str(fallback)
+    if executable:
+        result = subprocess.run(
+            [
+                executable,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$u=[Console]::In.ReadToEnd(); Start-Process -FilePath $u",
+            ],
+            input=url,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+    if webbrowser.open(url):
+        return
+    # This URL contains state and a public PKCE challenge, never a token or secret.
+    # The verifier stays in this process. Do not paste the URL into shared chat.
+    print("Open this one-time login URL in your local browser; do not share it:", flush=True)
+    print(url, flush=True)
 
 
 def configuration(path: Path) -> dict[str, str]:
@@ -97,7 +131,7 @@ def microsoft(values: dict[str, str], login: bool) -> int:
     with HTTPServer(("127.0.0.1", parsed.port or 8765), Callback) as server:
         server.timeout = 1
         print("Opening Microsoft login. Codes and tokens will not be printed or saved.", flush=True)
-        webbrowser.open(flow["auth_uri"])
+        open_login_browser(flow["auth_uri"])
         print(
             "If no browser opens, run this command in a desktop terminal with browser access.",
             flush=True,
@@ -186,9 +220,29 @@ def main() -> int:
         print(f"FAIL: {error}")
     except Exception as error:
         # Do not echo HTTP bodies, requests, tokens or SDK exception strings.
-        print(
-            f"FAIL: {type(error).__name__}. See docs/integration-checks.md and local configuration."
-        )
+        code = getattr(error, "code", None)
+        status = getattr(error, "status", "")
+        if isinstance(code, int):
+            safe_status = (
+                status
+                if status
+                in {
+                    "RESOURCE_EXHAUSTED",
+                    "NOT_FOUND",
+                    "PERMISSION_DENIED",
+                    "UNAUTHENTICATED",
+                    "INVALID_ARGUMENT",
+                    "UNAVAILABLE",
+                }
+                else "provider_error"
+            )
+            print(
+                f"FAIL: HTTP {code} {safe_status}. Check the key's project and quota in AI Studio."
+            )
+        else:
+            print(
+                f"FAIL: {type(error).__name__}. See docs/integration-checks.md and local configuration."
+            )
     return 1
 
 

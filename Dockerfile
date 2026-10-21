@@ -6,16 +6,20 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python
 
 FROM dependencies AS test
+ARG TEST_SERVICE=all
 RUN uv sync --frozen --no-install-project --python /usr/local/bin/python
 COPY backend ./backend
 COPY tests ./tests
 COPY eval ./eval
 COPY docs/openapi ./docs/openapi
-RUN uv run --no-sync ruff check backend tests eval \
- && uv run --no-sync ruff format --check backend tests eval \
- && uv run --no-sync mypy \
-    && uv run --no-sync pytest -q \
-    && uv run --no-sync python -m backend.openapi --check
+COPY frontend/src/mocks/generated ./frontend/src/mocks/generated
+COPY scripts/check_backend.py ./scripts/check_backend.py
+RUN uv run --no-sync python scripts/check_backend.py "$TEST_SERVICE"
+
+FROM dependencies AS service-source
+ARG SERVICE_NAME=cs
+COPY backend ./backend
+RUN python -c 'import os,shutil; service=os.environ["SERVICE_NAME"]; assert service in ("cs","tft","platform"); [shutil.rmtree("backend/api/"+other) for other in ("cs","tft","platform") if other != service]'
 
 FROM python:3.12-slim AS runtime
 ARG SERVICE_NAME=cs
@@ -24,6 +28,6 @@ ENV SERVICE_NAME=${SERVICE_NAME} ENVIRONMENT=production DEV_AUTH_ENABLED=false \
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid 10001 --no-create-home app
 WORKDIR /app
 COPY --from=dependencies /app/.venv ./.venv
-COPY backend ./backend
+COPY --from=service-source /app/backend ./backend
 USER 10001:10001
 CMD ["python", "-m", "backend"]

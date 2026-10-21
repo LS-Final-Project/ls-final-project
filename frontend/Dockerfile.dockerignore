@@ -1,0 +1,11 @@
+**
+!frontend/
+!frontend/**
+!docs/
+!docs/openapi/
+!docs/openapi/**
+frontend/node_modules
+frontend/dist
+frontend/.env*
+frontend/src/api/generated
+**/*.log

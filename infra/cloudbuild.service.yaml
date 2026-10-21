@@ -1,0 +1,18 @@
+substitutions:
+  _SERVICE: cs
+steps:
+  - id: test
+    name: gcr.io/cloud-builders/docker
+    args: [build, --target, test, --build-arg, 'TEST_SERVICE=${_SERVICE}', -t, team4-api-tests, .]
+  - id: image
+    name: gcr.io/cloud-builders/docker
+    args: [build, --target, runtime, --build-arg, 'SERVICE_NAME=${_SERVICE}', --label, 'org.opencontainers.image.revision=${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${BUILD_ID}', .]
+  - id: runtime-import
+    name: gcr.io/cloud-builders/docker
+    args: [run, --rm, --network=none, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}', python, -c, 'import importlib,os; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"']
+images:
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}'
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${BUILD_ID}'
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

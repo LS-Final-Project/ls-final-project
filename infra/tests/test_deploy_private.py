@@ -38,7 +38,7 @@ class DeploymentTests(unittest.TestCase):
                 f"--service-account={service}-runtime@{deployment.PROJECT}.iam.gserviceaccount.com",
                 command,
             )
-            self.assertIn(f"--set-secrets=PGPASSWORD={service}-db-password:1", command)
+            self.assertIn(f"--update-secrets=PGPASSWORD={service}-db-password:1", command)
             self.assertIn("--min=1", command)
             self.assertTrue(
                 any(
@@ -57,6 +57,32 @@ class DeploymentTests(unittest.TestCase):
                 build[field] = value
                 with self.assertRaises(ValueError):
                     deployment.deployment_commands(build)
+
+    def test_one_service_build_does_not_require_or_deploy_other_images(self):
+        build = build_fixture()
+        build["results"]["images"] = build["results"]["images"][:1]
+        commands = deployment.deployment_commands(build, ("cs",))
+        self.assertEqual(len(commands), 1)
+        self.assertIn("team4-cs", commands[0])
+        with self.assertRaises(ValueError):
+            deployment.deployment_commands(build, ("platform",))
+
+    def test_web_has_no_database_secret_or_cloudsql_access_and_automation_keeps_iam(self):
+        build = build_fixture()
+        build["results"]["images"] = [
+            {"name": f"{deployment.REGISTRY}/web:{'a' * 40}", "digest": "sha256:" + "d" * 64}
+        ]
+        command = deployment.deployment_commands(build, ("web",))[0]
+        self.assertIn("--allow-unauthenticated", command)
+        self.assertFalse(
+            any("--update-secrets" in arg or "--set-cloudsql" in arg for arg in command)
+        )
+        private = deployment.deployment_commands(
+            build_fixture(), ("cs",), preserve_access_policy=True
+        )[0]
+        self.assertFalse(
+            any("unauthenticated" in arg or "invoker-iam-check" in arg for arg in private)
+        )
 
     def test_missing_mismatched_or_invalid_image_digest_rejects_entire_release(self):
         for change in ("missing", "revision", "digest"):

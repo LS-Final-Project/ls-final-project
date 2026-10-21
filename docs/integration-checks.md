@@ -71,3 +71,17 @@ uv run --frozen python scripts/check_integrations.py gemini --env-file .env --em
 Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemini-embedding-001의 합성 임베딩 1건도 성공했고 기본 차원 3072를 확인했다. 실제 Microsoft 로그인 및 Graph 호출과 메일 발송은 미실행이다.
 
 생성 smoke는 gemini-2.5-flash-lite 및 gemini-2.5-flash에서 HTTP 404, gemini-3.8-flash에서 HTTP 429가 나왔다. 모델 목록 노출만으로 현재 키의 생성 호출 가능 여부가 보장되지 않았다. 실제 사용 가능한 생성 모델 및 할당량 확인 후 재검증해야 하며 아직 모델과 production 임베딩 차원을 확정하지 않았다. 실패 기록에도 원문 응답과 키는 포함하지 않는다.
+
+추가 점검에서 gemini-3.8-flash 및 gemini-3.1-flash-lite 모두 HTTP 429 RESOURCE_EXHAUSTED였다. 응답의 안전한 구조화 필드에는 구체적인 quota 위반 항목이 없어 한도 0, 일일 소진 또는 다른 제한 중 무엇인지 확정하지 않았다. 같은 키가 속한 프로젝트를 AI Studio의 사용량과 한도에서 확인하도록 사용자에게 요청했다. 생성 성공이나 토큰 실측 완료로 표시하지 않는다.
+
+## Microsoft 관리자 동의에서 막힐 때
+
+WSL에서는 스크립트가 Windows 기본 브라우저를 호출한다. 실패하면 같은 프로세스가 기다리는 일회용 로그인 URL을 터미널에 표시한다. URL은 본인 브라우저에서만 사용하고 채팅에 붙이지 않는다. 토큰과 시크릿은 출력하지 않는다.
+
+사용자는 로그인 화면에서 관리자 승인 필요 메시지를 확인했고 Entra의 관리자 동의 부여 버튼이 비활성화돼 있다고 보고했다. API 권한 표의 관리자 동의 필요 '아니요'는 권한 자체의 속성이다. 조직의 사용자 동의 및 미검증 앱 정책은 별개이므로 해당 표시만으로 조직 승인이 불필요하다고 판단하지 않는다.
+
+관리자에게 전달할 요청 문구:
+
+> 개발용 앱 ls-cs-rfp-agent의 Microsoft 로그인 및 메일 연동 검증을 위해 관리자 동의가 필요합니다. 앱 ID는 7160833b-2aa3-497f-bc6c-11c59851c254이고 테넌트 ID는 6c2ea5ee-418c-4e13-8eaa-5163cdb50c67입니다. 요청하는 Graph 위임 권한은 Mail.Read, Mail.Send, offline_access입니다. 시연용 사용자에 대해 사용할 수 있는 승인 방식과 메일함 사용 가능 여부를 확인 부탁드립니다.
+
+관리자에게 메시지를 대신 보내지는 않았다. 승인 후 로그인 및 Mail.Read를 재검증하고, Mail.Send 동의와 실제 테스트 메일 발송 및 수신은 구분해 확인한다. 현재는 실제 로그인, 읽기 및 발송 성공을 확인하지 못했다. [Microsoft 관리자 동의 안내](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent)를 참고한다.

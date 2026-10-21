@@ -30,3 +30,4 @@ artifacts/
 frontend/src/api/generated/
 playwright-report/
 test-results/
+gha-creds-*.json

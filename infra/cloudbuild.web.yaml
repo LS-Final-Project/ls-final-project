@@ -1,0 +1,10 @@
+steps:
+  - id: image
+    name: gcr.io/cloud-builders/docker
+    args: [build, -f, frontend/Dockerfile, --label, 'org.opencontainers.image.revision=${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/web:${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/web:${BUILD_ID}', .]
+images:
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/web:${COMMIT_SHA}'
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/web:${BUILD_ID}'
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

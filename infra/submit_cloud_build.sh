@@ -3,9 +3,17 @@
 set +x
 set -euo pipefail
 
+if [[ $# -gt 0 ]]; then
+  if [[ $# -ne 2 || "$1" != --service ]]; then
+    echo 'Usage: bash infra/submit_cloud_build.sh [--service web|cs|tft|platform]' >&2
+    exit 2
+  fi
+  exec python3 "$(dirname "$0")/release.py" build --service "$2"
+fi
+
 LS_BUILD_ROOT=$(git rev-parse --show-toplevel)
 cd "$LS_BUILD_ROOT"
-LS_BUILD_INPUTS=(.gcloudignore .dockerignore Dockerfile cloudbuild.yaml pyproject.toml uv.lock backend tests eval docs/openapi)
+LS_BUILD_INPUTS=(.gcloudignore .dockerignore Dockerfile cloudbuild.yaml pyproject.toml uv.lock backend tests eval docs/openapi scripts/check_backend.py frontend/src/mocks/generated)
 if ! git diff --quiet HEAD -- "${LS_BUILD_INPUTS[@]}"; then
   echo 'Commit changes to build inputs before submitting a build.' >&2
   exit 1

@@ -10,6 +10,8 @@
 | --- | --- |
 | 처음 설치, 로컬 DB와 계정 선택, 프론트 실행, 문제 해결 | [팀원 개발 시작 안내](docs/team-start.md) |
 | 서비스별 API 원본과 생성 명령, 충돌 방지 규칙 | [계약 수정 안내](contracts/README.md) |
+| 서비스별 CI, 이미지와 CD 및 공용 웹 준비 | [서비스별 배포 안내](docs/service-delivery.md) |
+| 로그와 실제 백업 확인 | [기본 운영 확인](docs/operations-basics.md) |
 | API 로컬 실행, 테스트, OpenAPI와 Docker 빌드 | [백엔드 실행 안내](backend/README.md) |
 | GCP DB, Secret 및 연결 검증 | [인프라 안내](infra/README.md) |
 | 프로젝트 목표, 현재 단계, 주요 링크 | [프로젝트 시작 안내](https://docs.google.com/document/d/1CI2gyXEogmcSIeAKceK9xsurv_ls8lJ3uOac45k6jqk/edit) |
