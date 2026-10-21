@@ -10,6 +10,8 @@
 
 KAN-60의 PR 3에서 Jira 번호가 없는 제목이 [KAN-60]으로 자동 보완되고 관리되는 Jira 링크 블록이 생긴 것을 실제 확인했다. 새 초기 셋업 검토 예외는 정확한 브랜치명과 티켓 조합에만 적용하며 같은 티켓의 후속 브랜치로 확장하지 않는다. 예외는 PR 3이 main에 반영된 뒤 동작하므로 현재는 Draft로 검토 요청을 방지했다.
 
+Jira 9건에 PR 링크와 검증 결과 및 미완료 조건을 추가했다. 댓글 ID는 KAN-55 10019, KAN-56 10020, KAN-60 10021, KAN-62 10022, KAN-63 10023, KAN-65 10024, KAN-66 10025, KAN-67 10026, KAN-69 10027이다. 담당자와 기한 및 진행 중 상태는 변경하지 않았다. 같은 결과를 다시 댓글로 중복 게시하지 않는다. PR 3~7의 원격 Collaboration checks 및 Jira PR metadata 성공을 확인했다. 계약 PR의 최초 c38b245 검사도 성공했고 후속 문서 커밋의 검사는 최종 상태를 재조회한다. PR 8은 base가 KAN-63 브랜치라 main 대상 Actions가 실행되지 않았으며 Jira 링크는 기존 본문을 보존해 직접 추가했다.
+
 KAN-63에 mypy를 추가했고 헤더 Mapping 및 FastAPI 응답 스키마 타입을 보완했다. Docker에서 lint 및 포맷, mypy 15개 파일과 백엔드 테스트 14건 및 OpenAPI 일치 검사를 통과했다. infra 테스트 7건과 협업 자동화 테스트 총 24건도 통과했다. 로컬 샌드박스에서 pytest가 멈춘 실행은 종료했으며 Docker의 통과 결과를 기준으로 삼는다.
 
 KAN-67의 Cloud Build는 전체 커밋 SHA를 검증하고 SHA 및 BUILD_ID 태그와 OCI revision label을 남긴다. submit_cloud_build.sh는 HEAD의 명시적 허용 파일만 git archive로 추출해 업로드한다. setup_cloud_build.sh는 빌드 전용 계정, 서울 비공개 소스 버킷과 필요한 IAM을 사용자 실행으로 준비한다. deploy_private.py는 성공 빌드의 실제 결과 digest 3개를 확인하며 기본은 미리보기다. --apply는 사용자가 실행한다. IAM 인증과 production 및 Secret 버전 1, 최소 인스턴스 1을 적용하며 업무 기능과 실제 FastAPI DB 연결이 구현됐다는 뜻은 아니다.
