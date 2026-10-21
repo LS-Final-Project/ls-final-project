@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+root=$(git rev-parse --show-toplevel)
+interpreter=$(git config --get team4.python || true)
+if [ -z "$interpreter" ]; then
+    interpreter=python3
+fi
+exec "$interpreter" "$root/scripts/dev.py" prepare-commit-msg "$@"
