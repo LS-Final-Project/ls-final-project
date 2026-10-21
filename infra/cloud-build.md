@@ -24,7 +24,7 @@ bash infra/setup_cloud_build.sh
 
 ## 2. 실제 빌드
 
-빌드 구성과 API 골격이 들어 있는 커밋에서 실행한다. 이 작업을 분리한 PR에서는 KAN-67 브랜치가 KAN-63 브랜치를 포함한다. PR이 모두 병합된 뒤에는 main에서 실행할 수 있다.
+현재 초기 셋업은 사용자 요청으로 main에 직접 반영했다. 최신 main의 빌드 구성과 API 골격을 사용해 실행한다. 과거 PR 브랜치의 순차 병합이나 임시 worktree를 준비할 필요가 없다.
 
 ```bash
 bash infra/submit_cloud_build.sh
