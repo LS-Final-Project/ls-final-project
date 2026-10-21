@@ -4,10 +4,19 @@ substitutions:
 tags: [team4-cd, '${COMMIT_SHA}']
 steps:
   - id: deploy-verified-image
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
-    entrypoint: python3
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
+    entrypoint: bash
     env: ['TEAM4_GCLOUD_ACCOUNT=']
-    args: [infra/deploy_private.py, '${_BUILD_ID}', --service, '${_SERVICE}', --preserve-access-policy, --apply]
+    args:
+      - -ceu
+      - exec "$$(gcloud info --format='value(basic.python_location)')" "$$@"
+      - team4-cd
+      - infra/deploy_private.py
+      - '${_BUILD_ID}'
+      - --service
+      - '${_SERVICE}'
+      - --preserve-access-policy
+      - --apply
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 1200s
