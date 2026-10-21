@@ -1,0 +1,72 @@
+substitutions:
+  _REGION: asia-northeast3
+  _REPOSITORY: team4
+
+steps:
+  - id: validate-revision
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env: ['SOURCE_REVISION=${COMMIT_SHA}']
+    args:
+      - -ceu
+      - |
+        case "$$SOURCE_REVISION" in ''|*[!0-9a-f]*) echo 'A full Git commit SHA is required.' >&2; exit 1;; esac
+        test "$${#SOURCE_REVISION}" -eq 40
+  - id: test
+    name: gcr.io/cloud-builders/docker
+    args: [build, --target, test, -t, team4-api-tests, .]
+  - id: build-cs
+    name: gcr.io/cloud-builders/docker
+    waitFor: [test]
+    args:
+      - build
+      - --build-arg
+      - SERVICE_NAME=cs
+      - --label
+      - org.opencontainers.image.revision=${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/cs:${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/cs:${BUILD_ID}
+      - .
+  - id: build-tft
+    name: gcr.io/cloud-builders/docker
+    waitFor: [test]
+    args:
+      - build
+      - --build-arg
+      - SERVICE_NAME=tft
+      - --label
+      - org.opencontainers.image.revision=${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/tft:${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/tft:${BUILD_ID}
+      - .
+  - id: build-platform
+    name: gcr.io/cloud-builders/docker
+    waitFor: [test]
+    args:
+      - build
+      - --build-arg
+      - SERVICE_NAME=platform
+      - --label
+      - org.opencontainers.image.revision=${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/platform:${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/platform:${BUILD_ID}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/cs:${COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/tft:${COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/platform:${COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/cs:${BUILD_ID}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/tft:${BUILD_ID}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/platform:${BUILD_ID}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
