@@ -86,6 +86,21 @@ Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemin
 
 교육장 담당자에게 위 오류와 프로젝트 ID를 전달해 Gemini API 청구 계정의 월간 지출 및 한도 상향 가능 여부를 확인한다. 개인 결제 연결과 청구 계정 변경 및 한도 조정은 실행하지 않았다. 추가 생성 재시도도 중단한다. [공식 월간 지출 한도 안내](https://ai.google.dev/gemini-api/docs/billing#billing-account-tier-spend-caps).
 
+## 후속 확인: Vertex AI global 생성 성공
+
+사용자 요청으로 기존 Developer API 키 경로와 별도로 교육장 프로젝트의 Vertex AI global 엔드포인트를 확인했다. aiplatform.googleapis.com은 이미 활성화돼 있었으며 API 활성화와 IAM 및 배포 설정은 변경하지 않았다.
+
+- 프로젝트: proj-skkuls0106-183255377938
+- 인증: 기존 교육장 GCP 사용자 계정의 OAuth 액세스 토큰. 키와 토큰은 출력하거나 저장하지 않았다.
+- 위치 및 모델: global, gemini-3.6-flash
+- 호출: aiplatform.googleapis.com의 v1/projects/PROJECT/locations/global/publishers/google/models/MODEL:generateContent
+- 합성 입력: Return exactly OK.
+- 결과: HTTP 200, 실제 OK 응답, finishReason=STOP. 입력 4, 답변 1, thinking 82, 총 87토큰을 확인했다.
+
+처음 maxOutputTokens=64 요청은 HTTP 200이었지만 본문이 비어 있었다. 1024로 늘린 후 위 실제 텍스트 결과를 확인했다. 짧은 연결 점검에도 출력 한도가 답변 생성을 막지 않는지 확인한다. 내부 추론 내용은 출력하지 않았다.
+
+기존 Developer API의 월간 지출 한도 오류와 이 경로의 생성 성공을 구분한다. 이번 성공은 교육장 사용자 인증으로 확인한 단건 연결 점검이다. 앱의 Cloud Run 실행 계정 권한과 Vertex용 SDK 및 평가 제공자 연결, 임베딩과 최종 업무 모델 선정은 아직 검증하지 않았다. 관리형 에이전트 실행 환경을 새로 채택하거나 서비스를 추가한 것은 아니다. [공식 global 엔드포인트 안내](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#global-endpoint).
+
 ## Microsoft 관리자 동의에서 막힐 때
 
 WSL에서는 스크립트가 Windows 기본 브라우저를 호출한다. 실패하면 같은 프로세스가 기다리는 일회용 로그인 URL을 터미널에 표시한다. URL은 본인 브라우저에서만 사용하고 채팅에 붙이지 않는다. 토큰과 시크릿은 출력하지 않는다.
