@@ -101,7 +101,7 @@ gcloud run services proxy team4-cs \
 | GitHub Application checks | [39629875011 성공](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39629875011) |
 | GitHub Collaboration checks | [39629874699 성공](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39629874699) |
 
-이 빌드의 digest 기준 미리보기 후 사용자가 실제 비공개 배포를 실행했다. 세 Cloud Run 서비스의 Ready=True, digest 및 실행 계정, Secret 버전 1과 production 및 최소 인스턴스 1을 확인했다. 세 서비스 모두 익명 health 403, 인증 health 200이고 플랫폼 개발 계정 경로는 인증 요청에도 404다. 첫 DB ready 검사는 세 서비스 모두 503이어서 Cloud SQL vector 확장 적용을 사용자에게 요청했다. 후속 DB 검증은 infra-preflight.md와 handoff.md를 따른다. 문서만 추가한 후속 main과 실제 빌드 소스 SHA를 혼동하지 않는다.
+이 빌드의 digest 기준 미리보기 후 사용자가 실제 비공개 배포를 실행했다. 세 Cloud Run 서비스의 Ready=True, digest 및 실행 계정, Secret 버전 1과 production 및 최소 인스턴스 1을 확인했다. 세 서비스 모두 익명 health 403, 인증 health 200이고 플랫폼 개발 계정 경로는 인증 요청에도 404다. 첫 DB ready 검사는 세 서비스 모두 503이었다. 사용자가 Cloud SQL vector 확장을 적용한 후 재검증에서 세 서비스 모두 HTTP 200이고 database, vector, fts가 전부 true였다. 세부 기록은 infra-preflight.md와 handoff.md를 따른다. 문서만 추가한 후속 main과 실제 빌드 소스 SHA를 혼동하지 않는다.
 
 ### Cloud SQL 확장 확인
 

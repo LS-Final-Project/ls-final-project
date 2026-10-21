@@ -6,11 +6,11 @@
 | --- | --- | --- |
 | KAN-60 | Git과 Jira 및 PR 협업 자동화, 초기 셋업 예외 | 일반 업무 기능의 검토 규칙 유지 |
 | KAN-62 | 교육장 GCP 점검과 비용 정리 이력 | 모델 실제 호출 제약 및 서비스 할당량 확인 |
-| KAN-65 | 서비스별 DB SQL과 로컬 PostgreSQL 17, pgvector 및 FTS 검증 | 클라우드 vector 확인 및 후속 업무 마이그레이션 |
+| KAN-65 | 서비스별 DB SQL과 로컬 PostgreSQL 17, pgvector 및 FTS 검증 | 후속 업무 마이그레이션과 프로젝트 권한 테이블 |
 | KAN-66, KAN-69 | DB Secret 도우미, 연결 검증과 큐 안내 | 백업 실제 결과, 문서 작업과 OIDC, DB 작업 상태 및 SSE 재접속 |
 | KAN-63 | 독립 앱 3개, 실제 DB ready와 서비스별 계약 stub | 후속 업무 기능, 내부 서비스 호출과 실제 권한 검사 |
 | KAN-67 | 전용 계정 및 버킷, 실제 Cloud Build 및 이미지 업로드, 계약과 프론트 검사 Actions | 후속 코드 변경의 빌드 및 배포 운영 |
-| KAN-68 | 세 API 첫 비공개 배포, 인증 health와 익명 차단 확인 | 클라우드 DB ready 및 프론트 호스팅, 서비스 간 호출과 독립 재배포 검증 |
+| KAN-68 | 세 API 첫 비공개 배포, 인증 health와 익명 차단 확인 | 프론트 호스팅, 서비스 간 호출과 독립 재배포 검증 |
 | KAN-64 | React, Vite, TS와 Query 골격 및 연결 확인 화면 | 실제 업무 화면과 호스팅 |
 | KAN-78, KAN-79 | 로컬 users와 역할, 세션 및 production 개발 인증 차단 | 프로젝트 권한, 실제 OAuth 및 업무 범위 검사 |
 | KAN-84, KAN-86, KAN-87 | 합성 smoke 제공자, JSON 및 HTML 기록과 사용량 필드 | 실제 생성 성공, 과제별 평가와 가격표 및 결과 관리 API |
@@ -26,7 +26,7 @@
 
 사용자가 Cloud Build 준비, 실제 빌드와 비공개 배포를 실행했다. 빌드 401a8afb-f9b9-4a51-878e-2a96fc373e99는 main f042981 소스로 성공했고 결과 digest 3개를 Cloud Run에 배포했다. GitHub의 Application checks와 Collaboration checks도 성공했다.
 
-세 서비스의 인증 health 200, 익명 health 403, production 개발 계정 경로 404를 확인했다. DB ready는 첫 확인에서 503이었다. 사용자에게 Cloud SQL Studio에서 vector 확장 적용을 요청한 상태다. 이후 인증 ready를 다시 확인하며 결과는 [인프라 실측 기록](infra-preflight.md)을 따른다. 프론트 호스팅 및 실제 Microsoft 로그인, 플랫폼 중계와 서비스 간 인증은 후속이다.
+세 서비스의 인증 health 200, 익명 health 403, production 개발 계정 경로 404를 확인했다. 첫 DB ready 503 이후 사용자가 Cloud SQL vector 확장을 적용했고, 세 서비스 모두 인증 ready 200과 database/vector/fts=true를 확인했다. 세부 결과는 [인프라 실측 기록](infra-preflight.md)을 따른다. 프론트 호스팅 및 실제 Microsoft 로그인, 플랫폼 중계와 서비스 간 인증은 후속이다.
 
 빌드와 배포 명령 및 확장 SQL은 [Cloud Build 및 배포 안내](../infra/cloud-build.md)를 따른다. 이미 성공한 초기 빌드 및 배포를 이유 없이 반복할 필요는 없다.
 

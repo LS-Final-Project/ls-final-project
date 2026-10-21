@@ -140,3 +140,7 @@ infra/verify_cloud_db.sh를 다음 사용자 실행용으로 준비했다. 각 �
 사용자가 성공 빌드의 digest로 team4-cs, team4-tft, team4-platform을 배포했다. 세 서비스의 Ready=True와 이미지 일치, 대응 runtime 서비스 계정 및 DB 사용자, 해당 Secret 버전 1, Cloud SQL Connector, ENVIRONMENT=production, DEV_AUTH_ENABLED=false와 minScale=1을 확인했다. IAM의 공개 주체는 없으며 invoker 검사도 활성 상태다. 실제 요청 결과 세 서비스 모두 익명 health 403, 교육장 사용자로 인증한 health 200이다. 플랫폼의 개발 계정 경로는 인증 요청에도 404다. 토큰은 프로세스 메모리에서만 사용하고 출력하지 않았다.
 
 첫 `/api/v1/<service>/ready` 결과는 세 서비스 모두 503이었다. 아직 클라우드 적용을 확인하지 못한 vector 확장부터 점검하도록 Cloud SQL Studio의 team4 DB에서 CREATE EXTENSION IF NOT EXISTS 실행 및 버전 조회를 요청했다. 503만으로 원인을 확장 누락으로 확정하지 않으며, 실행 후 실제 ready를 다시 확인한다. 신규 identity 테이블과 OAuth, 업무 기능 및 프론트 호스팅은 이 배포에 포함되지 않는다.
+
+## 2026-10-22 Cloud SQL 확장 적용 후 준비 검사 통과
+
+사용자가 Cloud SQL Studio에서 vector 확장 생성 및 버전 조회를 실행했다고 응답한 뒤 세 서비스의 인증 ready를 다시 호출했다. C/S, TFT와 플랫폼 모두 HTTP 200이고 data.database, data.vector, data.fts가 모두 true였다. 실제 FastAPI가 각 서비스 DB 계정으로 자기 스키마 및 pgvector와 FTS 준비를 확인한 결과다. 첫 503 이후 확장 적용과 재검증 과정을 완료했으며 identity 업무 테이블과 실제 OAuth 구현 완료를 의미하지 않는다.
