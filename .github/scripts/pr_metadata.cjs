@@ -48,9 +48,12 @@ async function run({ github, context, core, config }) {
   // Validate immediately. GITHUB_TOKEN edits do not cause another edited run.
   normalize({ branch: pr.head.ref, title: metadata.title, body: metadata.body }, config.jiraBaseUrl);
   const route = reviewersFor(metadata.keys, config, pr.user.login);
+  // Waivers are exact initial-setup branches, never a permanent ticket exemption.
+  const waiver = (config.setupReviewWaivers || []).find(item =>
+    item.branch === pr.head.ref && metadata.keys.every(key => item.keys.includes(key)));
   if (route.unknown.length) core.warning(`검토 배정표에 ${route.unknown.join(', ')}가 없습니다. Jira 검토자를 확인해 직접 지정하고 배정표를 갱신하세요.`);
   const requested = [];
-  if (!pr.draft && route.reviewers.length) {
+  if (!pr.draft && !waiver && route.reviewers.length) {
     const reviews = await github.paginate(github.rest.pulls.listReviews, { ...params, per_page: 100 });
     const latest = new Map();
     for (const review of reviews) if (review.user && review.state !== 'PENDING') latest.set(review.user.login.toLowerCase(), review.state);
@@ -60,10 +63,10 @@ async function run({ github, context, core, config }) {
     }
     if (requested.length) await github.rest.pulls.requestReviewers({ ...params, reviewers: requested });
   }
-  if (!pr.draft && !route.reviewers.length) core.warning('자동 지정할 수 있는 다른 검토자가 없습니다. Jira의 검토 배정을 확인해 직접 지정하세요.');
+  if (!pr.draft && !waiver && !route.reviewers.length) core.warning('자동 지정할 수 있는 다른 검토자가 없습니다. Jira의 검토 배정을 확인해 직접 지정하세요.');
   await core.summary.addHeading('Jira 연결 검사')
     .addRaw(`티켓: ${metadata.keys.join(', ')}\n\n`)
-    .addRaw(pr.draft ? 'Draft PR이므로 검토 요청은 보류했습니다.\n' : `검토 배정: ${route.reviewers.join(', ') || '직접 지정 필요'}\n`)
+    .addRaw(waiver ? `초기 셋업 검토 생략: ${waiver.reason}\n` : pr.draft ? 'Draft PR이므로 검토 요청은 보류했습니다.\n' : `검토 배정: ${route.reviewers.join(', ') || '직접 지정 필요'}\n`)
     .addRaw('\nJira의 최종 완료 상태와 배포 승인은 변경하지 않습니다.\n')
     .write();
 }

@@ -1,0 +1,24 @@
+# 데이터 (Google Drive에서 로컬에 받아 넣는 파일)
+data/
+
+# 환경 설정
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# IDE
+.vscode/
+.idea/

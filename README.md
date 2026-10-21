@@ -1,19 +1,21 @@
-# cs-ai-agent
+# Team4 업무지원 AI
 
-해외 C/S와 고객요청서 기반 견적 검토를 함께 처리하는 4조 프로젝트입니다.
+해외 C/S 문의 대응과 RFP 기반 TFT 구성을 지원하는 4조 프로젝트입니다.
 
 ## 시작하기
 
 | 확인할 내용 | 위치 |
 | --- | --- |
+| API 로컬 실행, 테스트, OpenAPI와 Docker 빌드 | [백엔드 실행 안내](backend/README.md) |
+| GCP DB, Secret 및 연결 검증 | [인프라 안내](infra/README.md) |
 | 프로젝트 목표, 현재 단계, 주요 링크 | [프로젝트 시작 안내](https://docs.google.com/document/d/1CI2gyXEogmcSIeAKceK9xsurv_ls8lJ3uOac45k6jqk/edit) |
 | 담당 업무, 진행 상태, 완료 결과 | [Jira KAN 보드](https://lsteam4.atlassian.net/jira/software/projects/KAN/boards/1) |
 | 문서·회의·검토·인수인계 운영 | [협업 운영 기준](https://docs.google.com/document/d/10xunkXSy_73YSvlRKBRzNNeRAIk23FMc4XmpT6ywv2Q/edit) |
 | 기획서와 WBS 원본 | [Google Drive docs 폴더](https://drive.google.com/drive/folders/1qGourXRhyvCMKRd6wZtOylAx4iuQKSeS) |
 | 작업 브랜치와 PR 작성 방법 | [기여 안내](CONTRIBUTING.md) |
 
-개발 착수일은 **2026년 10월 16일**, 최종 발표일은 **11월 10일**입니다.
-개별 담당·검토자와 세부 일정은 팀 합의 후 Jira에 반영합니다.
+개발 및 통합 배포 목표일은 **2026년 11월 3일**, 최종 발표일은 **11월 10일**입니다.
+개별 담당·검토자와 세부 일정은 WBS 및 Jira의 최신 배정을 따릅니다.
 
 ## 협업 도구
 
