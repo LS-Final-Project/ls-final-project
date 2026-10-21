@@ -8,9 +8,11 @@
 
 2026-10-21 사용자가 "셋업인데 pr 하는거 별로임 그냥 main에 push해줘"라고 요청했다. 현재 초기 셋업은 새 PR이나 동료 검토 없이 main에 직접 반영한다. 기존 티켓별 커밋을 main에 통합하고 작업 공간의 파일을 보존한다. 아래 과거 기록의 Draft 해제, PR 7 선행 병합, PR 8의 base 변경 등은 더 이상 진행 조건이 아니다. 이후 업무 기능 개발의 일반 PR 규칙은 유지한다.
 
-CONTRIBUTING.md, docs/decisions.md 및 docs/setup-prs.md를 이 결정에 맞췄다. 셋업 전체를 포함하는 main을 Cloud Build 소스로 사용한다. 기존 PR 3~9는 main 포함 여부를 확인한 뒤 정리하며 검토 요청을 하지 않는다. Jira 9건의 현재 담당 오새결과 일정은 유지하고 코드 게시만으로 기술 미완료 항목을 완료 처리하지 않는다.
+CONTRIBUTING.md, docs/decisions.md 및 docs/setup-prs.md를 이 결정에 맞췄다. 티켓별 커밋을 보존한 통합 커밋 c1e07e1과 결정 기록 e953f7d를 원격 main에 직접 push했고 두 커밋의 원격 Collaboration checks 성공을 확인했다. 셋업 전체를 포함하는 main을 Cloud Build 소스로 사용한다. PR 3~7 및 9는 main 포함으로 GitHub가 자동 MERGED 처리했고 PR 8은 커밋의 main 포함을 확인한 뒤 닫았다. 열린 셋업 PR과 검토 요청은 없다. Jira 9건의 기존 결과 댓글 10019~10027에 main 반영을 기록하고 담당 오새결과 일정 및 진행 중 상태를 유지한다. 코드 게시만으로 기술 미완료 항목을 완료 처리하지 않는다.
 
-원본 공간의 코드 파일은 통합 main의 파일과 일치하는지 확인한 후 로컬 main으로 전환한다. .env와 data는 커밋, 이동 또는 삭제하지 않는다. GCP는 아직 변경하지 않았으며 다음은 사용자 터미널에서 bash infra/setup_cloud_build.sh 실행, 에이전트의 읽기 전용 권한 확인, main에서 bash infra/submit_cloud_build.sh 실행 순서다. 실제 원격 빌드와 이미지 업로드 및 배포는 여전히 미실행이다.
+원본 공간의 파일 47개가 게시 커밋과 일치함을 확인하고 인덱스를 통합 main에 맞춘 뒤 로컬 main으로 전환했다. 작업 공간은 깨끗하며 .env 및 data의 inode, 크기와 수정 시각이 보존됐다. 비밀값과 데이터 내용은 읽지 않았고 해당 경로를 커밋, 이동 또는 삭제하지 않았다. 임시 main worktree는 제거했으며 이전 티켓 worktree 6개는 보존했다. 로컬 훅이 main 커밋을 거부하므로 명시적으로 승인된 이번 main 문서 커밋에만 git -c core.hooksPath=/dev/null commit을 사용했다. 영구 훅 설정은 .githooks 그대로다.
+
+GCP는 아직 변경하지 않았으며 다음은 사용자 터미널에서 bash infra/setup_cloud_build.sh 실행, 에이전트의 읽기 전용 권한 확인, main에서 bash infra/submit_cloud_build.sh 실행 순서다. 실제 원격 빌드와 이미지 업로드 및 배포는 여전히 미실행이다.
 
 ## 이전 작업: 티켓별 커밋 및 PR과 Cloud Build 실행 준비
 
