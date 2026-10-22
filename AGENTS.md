@@ -69,7 +69,7 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 | 항목 | 결정 |
 |---|---|
 | 런타임 | Python 3.12 실행 기준 / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
-| LLM | Gemini API 키 방식의 `gemini-3.6-flash`로 연결 재검증. 최종 업무 모델은 평가 후 결정 |
+| LLM | Gemini API 키 방식. 초기 생성 모델 `gemini-3.6-flash`, 최종 업무 모델은 평가 후 결정 |
 | 임베딩 | Gemini 다국어 임베딩. 모델과 차원은 검색 평가 후 확정 |
 | DB | Cloud SQL PostgreSQL + pgvector + FTS 하이브리드 검색 |
 | LangGraph 상태 | `langgraph-checkpoint-postgres` |
@@ -118,15 +118,15 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ## 현재 담당과 수정 경계
 
-현재 개발 분담은 아래 실명 담당을 기준으로 한다. 과거 데이터·플랫폼, 백엔드, 프론트, 에이전트, 평가의 5개 세션 구분은 폴더 책임을 설명한 것이며 담당자가 여러 영역을 수정하는 것을 금지하는 별도 인원 배정이 아니다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
+현재 개발 분담은 아래 실명 담당을 기준으로 한다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
 
 | 담당 | 소유 기능 | 주로 수정할 경로 |
 | --- | --- | --- |
-| 김나영 | 인증·메일, C/S API와 결정론적 규칙, 통합 회귀 | `backend/api/platform/auth/`, `mail/`, `backend/api/cs/`, `backend/engine/cs/`의 규칙, 관련 마이그레이션·테스트 |
-| 오새결 | 입력 어댑터·데이터·검색, C/S 및 TFT의 AI, 평가 실행·지표, 인프라 셋업 | `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
+| 김나영 | 메일, 사용자 등록·업무 권한, C/S API와 결정론적 규칙, 통합 회귀 | `backend/api/platform/mail/`, 사용자·권한 기능, `backend/api/cs/`, `backend/engine/cs/`의 규칙, 관련 마이그레이션·테스트 |
+| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S 및 TFT의 AI, 평가 실행·지표 | `backend/api/platform/auth/`, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
 | 김종하 | 프론트, TFT API, 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
 
-아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth/mail은 김나영, evaluations는 김종하다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
+아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth는 오새결, mail 및 사용자·업무 권한은 김나영, evaluations는 김종하다. 인증 결과와 메일 접근 인터페이스를 계약으로 공유하고 OAuth·토큰 갱신을 중복 구현하지 않는다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
 
 자기 티켓에 필요한 기능·테스트·계약 산출물만 수정한다. 다른 담당 기능과 공용 라우터·설정·DTO를 바꿔야 하면 먼저 영향과 계약을 확인하고 변경을 작게 유지한다. 다른 사람의 미커밋 변경을 덮어쓰지 않는다. 세션 간 대화를 공유한다고 가정하지 않고 파일과 Jira에 결과를 남긴다.
 

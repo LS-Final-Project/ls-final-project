@@ -47,6 +47,6 @@ with create_client(settings, embedding=True) as client:
     )
 ```
 
-Gemini API는 별도 Vertex 위치 설정을 사용하지 않는다. 과거 합성 호출의 기본 관측 차원은 3072지만 모델 및 production 차원은 미확정이다. 실제 수집에서는 담당자가 모델과 차원을 선택해 DB 인덱스와 일치시키고 dimensions에 명시한다. 빈 벡터, 비유한 값과 요청 차원 불일치는 실패다. 제공자가 잘림 메타데이터를 반환하면 함께 검사한다. Gemini API는 auto_truncate 옵션을 받지 않으므로 수집 담당자가 선택 모델의 입력 토큰 한도에 맞춰 청킹 및 길이 검사를 적용한다.
+임베딩 모델과 production 차원은 평가 후 확정한다. 실제 수집에서는 담당자가 모델과 차원을 선택해 DB 인덱스와 일치시키고 dimensions에 명시한다. 빈 벡터, 비유한 값과 요청 차원 불일치는 실패다. 제공자가 잘림 메타데이터를 반환하면 함께 검사한다. Gemini API는 auto_truncate 옵션을 받지 않으므로 수집 담당자가 선택 모델의 입력 토큰 한도에 맞춰 청킹 및 길이 검사를 적용한다.
 
-모델 교체 비교는 같은 합성 입력과 설정으로 `uv run --frozen python -m eval.smoke --provider gemini --env-file .env --model MODEL_ID`를 실행하고 생성된 JSON 및 HTML을 확인한다. 외부 호출의 자동 재시도와 제공자 자동 전환은 없다. 선택형 기존 어댑터는 명시적으로 설정했을 때만 사용하며 일반 개발의 필수 설정이 아니다. 실제 문의 분류와 검색 품질 평가는 별도 담당 작업이며 최종 test 597건을 연결 점검에 쓰지 않는다.
+모델 교체 비교는 같은 합성 입력과 설정으로 `uv run --frozen python -m eval.smoke --provider gemini --env-file .env --model MODEL_ID`를 실행하고 생성된 JSON 및 HTML을 확인한다. 외부 호출의 자동 재시도와 제공자 자동 전환은 없다. 실제 문의 분류와 검색 품질 평가는 별도 담당 작업이며 최종 test 597건을 연결 점검에 쓰지 않는다.

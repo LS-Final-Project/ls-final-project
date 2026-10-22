@@ -1,6 +1,6 @@
-# KAN-65 서비스별 DB 권한 초기 설정
+# 서비스별 DB 권한 최초 구성
 
-대상은 `team4-sql`의 `team4` DB다. 사용자가 `postgres`로 접속한 psql 터미널에서 실행한다. Google 서비스 계정인 `cs-runtime` 등과 아래 PostgreSQL 역할은 별도다. 이 SQL은 GCP IAM 권한을 부여하지 않는다.
+공용 DB와 로컬 초기화 기반은 준비돼 있다. 이 문서는 인프라 담당자가 새 DB를 최초 구성할 때 참고한다. 팀원의 로컬 시작은 [공통 온보딩](../../docs/team-start.md), 업무 테이블 추가는 서비스별 새 마이그레이션을 사용한다.
 
 | 실행 계정 | 테이블 생성 및 변경 역할 | 소유 스키마 |
 | --- | --- | --- |
@@ -12,15 +12,17 @@
 
 마이그레이션 역할은 NOLOGIN이다. 관리자가 `SET ROLE`로 전환해 해당 서비스의 테이블을 생성하거나 변경한다. 앱 실행 계정에는 마이그레이션 역할을 부여하지 않는다. 배포용 마이그레이션 로그인 주체는 후속 CI/CD 설정에서 연결한다.
 
-공통 `search`, `runtime`의 쓰기 및 업무별 접근 정책은 후속 마이그레이션에서 정의한다. 이 단계에서 모든 서비스에 해당 스키마의 무제한 권한을 부여하지 않는다. 업무 테이블, pgvector 확장 및 임베딩 차원은 아직 생성하지 않는다.
+공통 `search`, `runtime`의 쓰기 및 업무별 접근 정책은 후속 마이그레이션에서 정의한다. 이 단계에서 모든 서비스에 해당 스키마의 무제한 권한을 부여하지 않는다. 이 초기 SQL은 역할·스키마만 구성한다. pgvector는 별도로 설치돼 있으며 업무 테이블과 검색 인덱스·임베딩 차원은 기능별 마이그레이션으로 추가한다.
 
 ## 실행
 
-아래 경로는 현재 작업 환경 기준이다. 다른 PC에서는 해당 체크아웃의 절대 경로를 사용한다.
+대상 DB는 `team4`다. DB 관리자 psql 세션을 사용하며 PostgreSQL 역할은 GCP의 runtime 서비스 계정과 별개다. 이 SQL은 GCP IAM을 변경하지 않는다.
+
+새 DB를 구성할 때 저장소 루트에서 연 psql 세션을 사용한다. 기존 공용 DB에 최초 구성 SQL을 다시 실행하지 않는다.
 
 ```psql
-\i /home/canae/ls-final-project/infra/sql/001_service_roles.sql
-\i /home/canae/ls-final-project/infra/sql/002_verify_service_roles.sql
+\i infra/sql/001_service_roles.sql
+\i infra/sql/002_verify_service_roles.sql
 ```
 
 첫 파일은 전체 트랜잭션으로 실행한다. 기존 역할이나 스키마와 이름이 겹치면 중단하므로 기존 권한을 덮어쓰지 않는다. 최초 설정용이며 재실행 시 이미 존재하는 역할 오류가 정상적으로 발생한다. 오류가 나면 `ROLLBACK;`을 실행한 뒤 원인을 확인한다.
@@ -51,9 +53,3 @@ COMMIT;
 LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단계에서 해당 역할로 수행한다. 런타임 계정으로 `.setup()` 같은 DDL 초기화를 호출하지 않는다.
 
 근거: [PostgreSQL 스키마 권한](https://www.postgresql.org/docs/17/ddl-schemas.html), [생성자별 기본 권한](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html), [Cloud SQL 사용자 생성](https://docs.cloud.google.com/sql/docs/postgres/create-manage-users).
-
-## 준비 단계의 검증 결과
-
-2026-10-21, 공식 Ubuntu 패키지를 /tmp에 추출한 PostgreSQL 16.15 임시 서버에서 두 SQL을 실행했다. 테스트용 postgres는 SUPERUSER 없이 CREATEDB와 CREATEROLE만 가진 별도 역할로 구성했다. 앱 CRUD, 전체 8개 스키마의 접근 행렬, 다른 서비스 SELECT 및 INSERT 차단, CREATE TABLE 차단, 앱의 역할 멤버십 부재를 통과했다. 검사 후 임시 테이블 및 시퀀스는 0개였고, 잘못된 DB 실행과 초기 설정 재실행은 오류로 중단됨을 확인했다. 테스트 서버는 종료했다.
-
-위 자동 검증은 로컬 PostgreSQL 16 결과다. 이후 사용자가 실제 Cloud SQL PostgreSQL 17에서 두 SQL 실행, PASS 확인과 비밀번호 설정 안내에 대해 완료했다고 응답했다. 2026-10-21 12:36 UTC API 재조회에서도 cs_app, tft_app, platform_app의 존재를 확인했다. 사용자는 이어 계정별 실제 로그인과 스키마 접근 행렬 확인 및 로컬 .env 입력도 완료했다고 응답했다. 클라우드 SQL의 상세 권한과 실제 로그인을 에이전트가 직접 재검증한 결과는 아니며 Cloud SQL Client IAM 부여는 후속 실조회에서 확인했다. 배포 Secret 연결과 실제 Cloud Run DB 연결은 남아 있다.

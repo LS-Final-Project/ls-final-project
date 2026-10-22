@@ -6,7 +6,7 @@
 
 ## 처음 한 번 설정
 
-자동화 변경이 dev에 반영된 뒤 최신 코드를 받고 저장소에서 실행한다. Python 3.11 이상과 Git이 필요하다.
+최신 dev를 받은 저장소에서 실행한다. Python 3.11 이상과 Git이 필요하다.
 
 ```sh
 python3 scripts/dev.py setup
@@ -19,11 +19,11 @@ Windows에서는 [공통 온보딩](team-start.md)의 WSL Ubuntu 환경에서 �
 ## 매일 작업하는 순서
 
 1. Jira에서 실제 티켓의 범위, 담당자, 선행 작업과 검토자를 확인한다.
-2. `python3 scripts/dev.py start KAN-63 backend-skeleton`처럼 작업 브랜치를 만든다. 예시 번호 대신 자신의 실제 티켓을 사용한다.
-3. 자신의 변경 파일만 stage하고 `git commit -m "feat: 실행 골격 추가"`처럼 내용을 작성한다. 훅이 KAN-63을 앞에 추가한다.
+2. `python3 scripts/dev.py start KAN-64 frontend-routes`처럼 작업 브랜치를 만든다. 예시 번호 대신 자신의 실제 티켓을 사용한다.
+3. 자신의 변경 파일만 stage하고 `git commit -m "feat: 화면 라우팅 추가"`처럼 내용을 작성한다. 훅이 KAN-64를 앞에 추가한다.
 4. `git push -u origin HEAD` 후 GitHub에서 dev 대상 Draft PR을 만든다. 변경 이유와 실제 검증 결과는 직접 작성한다.
 5. 검토할 준비가 되면 Ready for review를 누른다. 등록된 Jira 검토자에게 요청하며 누락 및 자기 검토 상황은 직접 확인한다.
-6. 검토를 반영한 뒤 dev에 Squash merge로 병합하고 Jira의 완료 조건을 확인한다. 병합만으로 최종 완료가 되지는 않는다.
+6. 검토를 반영한 뒤 dev에 Squash merge로 병합하고 Jira의 완료 조건을 확인한다. 티켓 전체를 끝낸 최종 PR에만 아래 완료 표시를 사용한다.
 
 작업 시작 명령은 origin/dev를 가져와 새 브랜치를 만들며 원격에 쓰거나 PR을 자동 생성하지 않는다. 변경 중인 파일과 기존 같은 이름의 브랜치가 있으면 중단한다. 복구를 위해 파일을 지우거나 자동 stash하지 않는다.
 
@@ -45,7 +45,7 @@ Git 훅은 일반 커밋의 제목을 다룬다. 본문의 선행 작업 번호�
 
 ## 검토 배정
 
-배정표는 2026년 10월 21일 WBS의 신규 계획 118건을 공식 담당 기준으로 옮겼다.
+티켓별 검토자는 `.github/jira-reviewers.json`과 Jira의 배정을 따른다. 별도 배정이 없는 새 작업의 기본 순서는 다음과 같다.
 
 | 공식 담당 | 기본 검토자 | GitHub 검토 계정 |
 | --- | --- | --- |
@@ -53,58 +53,28 @@ Git 훅은 일반 커밋의 제목을 다룬다. 본문의 선행 작업 번호�
 | 오새결 | 김나영 | kny2383 |
 | 김종하 | 오새결 | oseguri |
 
-실제 인프라를 오새결이 수행해도 공식 담당 김나영의 작업이면 기존 검토자 김종하를 유지한다. WBS나 Jira 검토자 변경 시 배정표도 갱신한다. 새 티켓은 표에 추가하거나 PR에서 검토자를 직접 지정한다. 여러 티켓이면 각 티켓 검토자의 중복을 제거해 요청한다. 작성자 자신에게는 요청하지 않으며 다른 사람을 임의로 대신 지정하지 않는다.
+KAN-77·80·81의 담당자는 오새결이며 티켓에 지정된 검토자 김종하를 유지한다. WBS나 Jira 검토자 변경 시 배정표도 갱신한다. 새 티켓은 표에 추가하거나 PR에서 검토자를 직접 지정한다. 여러 티켓이면 각 티켓 검토자의 중복을 제거해 요청한다. 작성자 자신에게는 요청하지 않으며 다른 사람을 임의로 대신 지정하지 않는다.
 
 Draft에는 검토를 요청하지 않는다. 기존 요청 및 기존 검토 이력을 확인해 같은 요청을 반복하지 않는다. 수정 후 다시 검토가 필요하면 GitHub에서 재검토를 요청한다. 이 자동화가 승인이나 리뷰 자체를 수행하지는 않는다.
 
-## GitHub와 Jira 화면 설정
+## 연결과 권한
 
-공식 앱 연결은 Codex의 Atlassian 플러그인 연결과 별개다. GitHub for Atlassian 설치 여부와 조직 연결을 확인해야 하며 Jira 사이트 관리자와 GitHub 조직 소유자 권한이 필요할 수 있다.
+GitHub for Atlassian으로 이 저장소와 Jira KAN이 연결돼 있다. Jira 번호가 있는 브랜치·커밋·PR은 티켓의 Development 영역에서 추적한다. 팀원이 앱을 다시 설치하거나 별도 Jira 토큰을 추가할 필요는 없다.
 
-1. Jira의 앱 탐색에서 GitHub for Atlassian을 찾아 연결한다.
-2. GitHub Cloud와 LS-Final-Project 조직을 선택한다.
-3. 저장소 범위를 Only select repositories로 두고 ls-final-project를 선택한다.
-4. Jira의 앱 관리에서 조직과 저장소 연결을 확인한다.
-5. 번호가 있는 실제 브랜치와 PR을 사용해 Jira 티켓의 Development 영역에 표시되는지 확인한다. 동기화에는 시간이 걸릴 수 있다.
+PR 자동화는 GITHUB_TOKEN의 `contents:read`, `pull-requests:write`를 사용하고 대상 브랜치의 신뢰할 수 있는 코드만 실행한다. PR의 임의 코드를 권한 있는 워크플로에서 실행하지 않는다. 테스트는 별도 읽기 전용 워크플로에서 수행한다.
 
-2026년 10월 21일 GitHub 저장소에서 Squash merge 허용과 squash_merge_commit_title=PR_TITLE을 확인했다. 제목 설정은 이번 작업에서 적용했으며 Squash 병합 시 Jira 번호가 있는 PR 제목을 최종 커밋 제목으로 사용한다. 다른 병합 방식과 자동 브랜치 삭제 설정은 변경하지 않았다. PR 자동화는 GITHUB_TOKEN의 contents:read와 pull-requests:write만 요청하며 별도 개인 토큰을 추가하지 않는다.
+브랜치 보호의 서버 강제는 현재 적용되지 않는다. 병합자는 CI 성공과 검토자 승인을 직접 확인한다. 기능 PR은 dev에 Squash merge, dev → main 배포와 main → dev 동기화는 merge commit이다. 장기 브랜치 간 PR은 검토자를 직접 지정하고 Jira 완료 표시를 넣지 않는다.
 
-현재 비공개 저장소의 브랜치 보호 및 규칙 조회는 요금제 제한으로 거절됐다. 따라서 자동 검사 실패가 표시돼도 병합 강제 차단을 보장하지 않는다. 필수 승인 및 검사 통과를 강제하려면 조직의 GitHub Team 또는 교육 혜택 적용 여부를 먼저 확인한다. GitHub 유료 autolink 기능에 의존하지 않고 PR 본문에 실제 Jira 링크를 작성한다.
+자동화 자체를 수정할 때는 다음 검사를 실제 실행한다. 임시 Git 저장소를 사용하며 클라우드나 data에 접속하지 않는다.
 
-## 최초 적용과 검증
-
-이 변경의 PR에서는 Collaboration checks로 자동화 테스트를 실행한다. PR 메타데이터 워크플로는 신뢰할 수 있는 PR 대상 브랜치의 코드만 실행하므로 최초 자동화 PR에는 아직 적용되지 않는다. 이 PR이 검토 후 대상 브랜치에 병합돼야 이후 PR에서 자동 입력과 검토 요청을 확인할 수 있다.
-
-권한이 있는 워크플로는 PR 코드 대신 base SHA의 자동화 파일만 읽는다. PR 코드의 테스트는 별도 읽기 전용 워크플로에서 수행한다. 외부 배포나 Jira 최종 완료 상태를 변경하지 않는다.
-
-로컬에서는 다음 명령으로 확인한다. 테스트는 임시 Git 저장소를 사용하고 실제 data 디렉터리나 클라우드에 접속하지 않는다.
-
-```sh
+```bash
 python3 -m unittest discover -s scripts/tests -v
 node .github/tests/pr_metadata.test.cjs
 ```
 
-원격 적용 후에는 실제 번호가 있는 Draft PR의 제목과 링크, Draft 해제 시 검토자 요청, Jira 개발 이력 연결을 확인한다. 이 단계가 확인되기 전에는 로컬 테스트 통과를 전체 연동 완료로 보고하지 않는다.
-
-## 근거
-
-- [Atlassian 개발 작업의 Jira 번호 연결](https://support.atlassian.com/jira-software-cloud/docs/reference-issues-in-your-development-work/)
-- [GitHub Cloud와 Jira 연결](https://support.atlassian.com/jira-cloud-administration/docs/integrate-with-github/)
-- [Git 훅](https://git-scm.com/docs/githooks)
-- [GitHub 토큰에 의해 발생한 이벤트의 실행 조건](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
-- [GitHub 브랜치 보호](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches)
-
-## 2026-10-22 dev 기본 브랜치 전환
-
-기능 개발과 일반 PR의 기준은 dev, 배포 기준은 main이다. CI 및 Jira PR 자동화는 두 브랜치 모두 지원한다. 변경 범위는 각 브랜치의 마지막 성공 push CI와 비교하므로 dev의 성공이 main의 실패를 건너뛰게 하지 않는다. 기존 작업 브랜치는 자동 rebase하거나 삭제하지 않는다. 새 작업은 scripts/dev.py start를 사용한다.
-
-같은 저장소의 dev → main 배포 PR과 main → dev 동기화 PR은 번호 없는 장기 브랜치를 허용한다. 이 경우 자동화는 제목과 본문을 보존하고 수동 검토자 지정과 merge commit 사용을 안내한다. 일반 작업 및 fork의 번호 없는 브랜치에는 이 예외를 적용하지 않는다. 검토자를 자동으로 새 요청하거나 Jira 상태를 변경하지 않는다.
-
-저장소에서는 Squash와 Merge commit을 허용한다. 기능 작업은 dev에 Squash, 두 장기 브랜치 사이는 merge commit으로 병합한다. 기본 브랜치 변경은 요금제 제한이 있는 보호 규칙을 활성화하는 작업과 별개다. 보호 규칙에 의한 서버 강제 차단은 설정하지 않았다.
-
 ## Jira 자동 완료
 
-2026-10-22 KAN의 `KAN 최종 PR dev 병합 시 자동 완료` 규칙을 생성했다. 저장 후 목록의 ENABLED, 범위 LSTeam4와 실행 주체 Automation for Jira를 확인했다. 실제 PR 병합에 따른 상태 전환은 첫 최종 기능 PR에서 확인해야 한다.
+KAN의 `KAN 최종 PR dev 병합 시 자동 완료` 규칙이 활성화돼 있다. 티켓 전체 완료 조건을 만족한 PR만 다음 표시를 사용하고 병합 후 실제 Jira 상태를 확인한다.
 
 | PR 구분 | 제목 예시 | dev 병합 후 Jira |
 | --- | --- | --- |
