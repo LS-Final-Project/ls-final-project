@@ -24,11 +24,11 @@ Microsoft 최신 상태: 사용자는 앱 지원 계정 유형을 모든 조직 
 - OpenID discovery PASS
 - Microsoft login PASS, Mail.Send consent=True
 - Graph Mail.Read PASS, 받은편지함 ID 조회 0건. 메일 내용과 ID는 출력하지 않았다.
-- 실제 발송은 아직 미실행이다. 권한 동의를 발송 성공으로 표시하지 않는다. production 로그인과 세션 및 메일 기능은 여전히 기능 구현 대상이다.
+- 실제 발송 테스트에서 Graph sendMail HTTP 202와 보낸편지함 저장을 확인했다. 단, 60초 내 받은편지함 수신은 미확인이라 PENDING이다. 권한 동의와 접수를 실제 배달 완료로 표시하지 않는다. production 로그인과 세션 및 메일 기능은 여전히 기능 구현 대상이다.
 
 scripts/check_integrations.py의 --personal-account는 해당 실행만 consumers 및 개인 계정 고정 테넌트를 사용하고 기존 .env.integrations와 학교 테넌트 및 시크릿을 보존한다. 로그인은 prompt=select_account를 사용하고 오류는 OAuth enum과 AADSTS 및 단계만 출력한다. 개인 계정의 Entra 앱 역할에 의존하지 않고 기존 DB 등록 사용자와 역할 정책을 유지한다.
 
-다음 실제 검증용으로 --mail-roundtrip-to 옵션을 준비했고 사용자에게 본인 Outlook 주소로 직접 실행하도록 요청했다. 이 옵션은 microsoft --login과 함께 명시했을 때만 합성 메일 1통을 지정 주소로 POST하고 약 60초 동안 보낸편지함 및 로그인한 받은편지함에서 고유 제목을 확인한다. HTTP 202와 실제 수신을 구분하며 둘 다 확인돼야 PASS다. 발송 실패나 수신 대기 시 자동 재발송하지 않는다. 주소는 채팅에 받지 않고 사용자 터미널에서만 지정한다. 토큰과 메일 원문 및 메시지 ID는 출력 또는 저장하지 않는다. scripts/tests 전체 28건과 Ruff 및 포맷 검사가 통과했고 실제 발송은 아직 실행 대기다.
+다음 실제 검증용으로 --mail-roundtrip-to 옵션을 준비했고 사용자에게 본인 Outlook 주소로 직접 실행하도록 요청했다. 이 옵션은 microsoft --login과 함께 명시했을 때만 합성 메일 1통을 지정 주소로 POST하고 약 60초 동안 보낸편지함 및 로그인한 받은편지함에서 고유 제목을 확인한다. HTTP 202와 실제 수신을 구분하며 둘 다 확인돼야 PASS다. 발송 실패나 수신 대기 시 자동 재발송하지 않는다. 주소는 채팅에 받지 않고 사용자 터미널에서만 지정한다. 토큰과 메일 원문 및 메시지 ID는 출력 또는 저장하지 않는다. scripts/tests 전체 28건과 Ruff 및 포맷 검사가 통과했고 사용자가 실제 실행해 send_accepted=true와 sent_items_confirmed=true를 확인했지만 signed_in_inbox_confirmed=false로 PENDING이었다. 합성 probe는 71d7a8e27a35472e9ed13ac32bed74c2다. 자동 재발송은 0회이며 보낸편지함의 수신자가 본인 Outlook 주소인지 및 정크메일함과 받은편지함의 위치 확인을 요청한 상태다. 관련 CI 39711845319도 성공했다.
 
 ```bash
 uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login --mail-roundtrip-to '본인주소@outlook.com'
