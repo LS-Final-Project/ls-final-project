@@ -72,6 +72,19 @@ MSAL이 PKCE와 state가 포함된 로그인 흐름을 처리한다. 로그인 �
 
 메일함 라이선스 또는 테넌트 정책으로 Graph가 실패하면 표시된 HTTP 코드와 Azure 설정을 확인한다. Mail.Send 동의 확인은 실제 메일 발송 테스트와 구분한다. 원문 메일과 토큰이 있는 HTTP 응답을 그대로 공유하지 않는다.
 
+### 개인 Outlook 계정으로 사전 검증
+
+조직 관리자 승인이 어려워 개인 Outlook.com 계정의 별도 검증을 준비했다. Entra 앱의 지원 계정 유형을 조직과 개인 계정 포함으로 설정하고 기존 Web 콜백 및 유효한 시크릿을 유지한다. 매니페스트 값은 AzureADandPersonalMicrosoftAccount다. 앱 설정을 바꾸기 어려우면 그 원인을 확인하고 별도 앱 사용 여부를 결정한다.
+
+```bash
+uv run --frozen python scripts/check_integrations.py microsoft --personal-account
+uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login
+```
+
+이 옵션은 해당 실행에만 consumers authority와 개인 계정의 고정 테넌트를 사용한다. 기존 MS_TENANT_ID와 시크릿을 덮어쓰지 않고 임의 조직 테넌트를 허용하지 않는다. 실제 로그인은 개인 계정을 선택해 수행한다. 메일 읽기만 확인하며 발송하지 않는다. 공개 OpenID discovery는 성공했고 실제 사용자 로그인과 Mail.Read는 아직 확인 전이다.
+
+개인 계정에서는 Entra 앱 역할이 실행 시 지원되지 않으므로 앱 역할 claim에 의존하지 않는다. 확정된 DB 등록 사용자와 역할 정책을 유지하고 등록되지 않은 사용자에게 자동 권한을 주지 않는다. 이 사전 점검은 production 사용자 등록이나 전체 인증 기능 구현을 대신하지 않는다. [지원 계정 유형과 앱 역할 제한](https://learn.microsoft.com/en-us/entra/identity-platform/supported-accounts-validation), [Graph 위임 권한](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread)을 참고한다.
+
 ## 기존 Gemini Developer API 진단
 
 아래는 기존 API 키 경로를 별도로 진단하는 명령이다. 현재 생성은 월간 지출 한도로 막혀 있으므로 재시도를 반복하지 않는다. 위 Vertex 경로를 기본으로 사용한다.

@@ -71,18 +71,22 @@ def configuration(path: Path) -> dict[str, str]:
     }
 
 
-def microsoft(values: dict[str, str], login: bool) -> int:
+def microsoft(values: dict[str, str], login: bool, personal_account: bool = False) -> int:
     try:
-        tenant = str(UUID(values.get("MS_TENANT_ID", "")))
+        tenant = (
+            "9188040d-6c67-4c5b-b112-36a304b66dad"
+            if personal_account
+            else str(UUID(values.get("MS_TENANT_ID", "")))
+        )
         client_id = str(UUID(values.get("MS_CLIENT_ID", "")))
     except ValueError:
         raise ConfigurationError(
             "Set valid MS_TENANT_ID and MS_CLIENT_ID in .env.integrations."
         ) from None
-    authority = f"https://login.microsoftonline.com/{tenant}"
+    authority = f"https://login.microsoftonline.com/{'consumers' if personal_account else tenant}"
     with urlopen(f"{authority}/v2.0/.well-known/openid-configuration", timeout=15) as response:
         discovery = json.load(response)
-    if discovery.get("issuer") != f"{authority}/v2.0":
+    if discovery.get("issuer") != f"https://login.microsoftonline.com/{tenant}/v2.0":
         raise ValueError("Unexpected tenant issuer")
     print("PASS: tenant OpenID discovery. App consent and mailbox access are not yet verified.")
     if not login:
@@ -310,6 +314,9 @@ def main() -> int:
         "--login", action="store_true", help="Microsoft interactive login and read-only inbox check"
     )
     parser.add_argument(
+        "--personal-account", action="store_true", help="Microsoft personal Outlook account probe"
+    )
+    parser.add_argument(
         "--embed-model", help="Check one synthetic embedding instead of listing models"
     )
     parser.add_argument("--project")
@@ -327,6 +334,8 @@ def main() -> int:
         help="Use this existing CLI account for opt-in runtime identity verification",
     )
     args = parser.parse_args()
+    if args.personal_account and args.service != "microsoft":
+        parser.error("--personal-account is only available for Microsoft")
     if not 0 <= args.wait_runtime_iam <= 240 or (
         args.wait_runtime_iam and (args.service != "vertex" or not args.runtime_service)
     ):
@@ -352,7 +361,7 @@ def main() -> int:
             return vertex(args)
         values = configuration(args.env_file)
         return (
-            microsoft(values, args.login)
+            microsoft(values, args.login, args.personal_account)
             if args.service == "microsoft"
             else gemini(values, args.embed_model)
         )

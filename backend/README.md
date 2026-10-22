@@ -4,27 +4,11 @@ C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용�
 
 현재 구현은 프로세스 health와 DB 준비 상태, 공통 응답과 오류, 요청 ID, production 보호 및 로컬 DB 기반 계정 선택이다. 문의와 프로젝트 목록은 계약 stub으로 실제 API는 501이다. Microsoft 로그인, 업무 권한과 실제 메일 및 LLM, 작업 상태, SSE와 플랫폼 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다. 팀원 최초 실행은 [개발 시작 안내](../docs/team-start.md)를 따른다.
 
-## 로컬 실행
+## 공통 온보딩과 실행 설정
 
-저장소 루트에서 Python 3.12와 uv를 사용한다. 잠금 파일에는 Python 3.11 이상 호환 범위를 기록하며 Docker는 Python 3.12로 실행한다.
+설치, 로컬 DB 및 백엔드 실행, 계정 선택과 첫 PR은 [공통 개발 온보딩](../docs/team-start.md) 한 곳에서 안내한다. 이 문서는 앱 구조와 실행 설정을 설명하는 참고 문서다. 별도 수동 설치 절차를 진행하지 않는다.
 
-```bash
-uv sync --frozen --python 3.12
-```
-
-아래 수동 실행은 프로세스 확인용이다. DB와 개발 계정 선택까지 실행하려면 팀원 안내의 Compose를 사용한다. 앱 설정은 루트 `.env`를 자동으로 읽으며 같은 이름의 환경 변수가 우선한다. DB 요청은 DATABASE_URL 또는 libpq의 PG 환경 변수를 사용하므로 수동 실행 시 자신이 지정한 연결 대상부터 확인한다. Compose에는 기존 `.env`를 주입하지 않는다.
-
-```bash
-SERVICE_NAME=cs PORT=8081 uv run --frozen python -m backend
-```
-
-```bash
-SERVICE_NAME=tft PORT=8082 uv run --frozen python -m backend
-```
-
-```bash
-SERVICE_NAME=platform PORT=8083 uv run --frozen python -m backend
-```
+잠금 파일은 Python 3.11 이상 호환 범위를 기록하며 Docker와 로컬 실행 기준은 Python 3.12다. Compose는 서비스별 DB 설정과 로컬 개발 설정을 전달하며 기존 루트 .env를 주입하지 않는다. 별도 디버깅으로 앱을 수동 실행할 때는 SERVICE_NAME, PORT와 DB 연결 대상을 명시한다. 수동 프로세스의 앱 설정은 루트 .env도 읽으므로 공용 DB를 개발 DB로 착각하지 않게 확인한다.
 
 | 서비스 | 프로세스 health | 서비스 health | 로컬 문서 |
 | --- | --- | --- | --- |
@@ -64,7 +48,7 @@ docker run --rm -p 127.0.0.1:8081:8080 team4-cs
 
 ## Cloud Build 준비
 
-루트 cloudbuild.yaml은 lint, 포맷과 타입 검사, 단위 테스트와 OpenAPI 일치 검사를 통과한 뒤 세 이미지를 만든다. 서울 team4 저장소에 전체 커밋 SHA 및 BUILD_ID 태그로 업로드하고 OCI revision label을 기록한다. 2026-10-22 사용자 실행의 실제 Cloud Build 및 이미지 업로드 성공을 확인했다. 빌드 자체에 서비스 배포 단계는 포함하지 않는다. 구체적인 실행 계정 설정과 소스 제출 및 비공개 배포 절차는 [빌드 안내](../infra/cloud-build.md)를 따른다.
+현재 CI와 CD는 서비스별로 분리돼 있다. GitHub CI가 성공하면 변경된 서비스만 Cloud Build 이미지 생성과 별도 CD를 거쳐 배포한다. 서울 team4 저장소에 전체 커밋 SHA 및 BUILD_ID 태그를 남기고 배포에는 성공한 이미지 digest를 사용한다. 자세한 변경 범위와 실제 검증은 [서비스별 CI와 CD](../docs/service-delivery.md)를 따른다. 루트 cloudbuild.yaml의 전체 빌드는 초기 호환용이다.
 
 Cloud Build 실행 계정과 이미지 쓰기 및 로그 권한을 설정한 뒤 사용자가 빌드를 실행한다. 이후 런타임 서비스 계정, ENVIRONMENT=production, Secret 버전과 Cloud SQL 연결을 포함해 서비스를 비공개로 배포하고 내부 호출 권한을 연결한다. 실제 Microsoft 로그인과 업무 권한이 준비되기 전에는 업무 API를 공개하지 않는다. .gcloudignore 업로드 목록은 `gcloud meta list-files-for-upload`로 확인할 수 있다.
 
@@ -76,4 +60,4 @@ Cloud Build 실행 계정과 이미지 쓰기 및 로그 권한을 설정한 뒤
 
 서비스별 runtime 이미지 3개를 실제로 빌드하고 각각 localhost 임의 포트로 실행했다. 프로세스 및 서비스별 health 응답과 요청 ID, production 문서 경로 404, UID/GID 10001 실행 및 .env와 data 부재를 확인했다. 임시 컨테이너는 모두 제거했다.
 
-gcloud의 실제 업로드 목록으로 .env, data, Git과 가상 환경 제외를 확인했다. Cloud Build SDK 파서로 cloudbuild.yaml의 테스트 선행 단계와 이미지 3개 구성을 검증했다. GCP의 Cloud Build 실행, 이미지 업로드, 앱 서비스 배포 및 실제 Microsoft 로그인과 업무 권한 검증은 아직 하지 않았다.
+gcloud의 실제 업로드 목록으로 .env, data, Git과 가상 환경 제외를 확인했다. 위 절은 2026-10-21 당시 로컬 검증 기록이다. 이후 10/22에 Cloud Build와 배포, 공통 Vertex SDK를 포함한 실행 이미지 및 DB 준비 검사를 실제 확인했다. 최신 기록은 [서비스별 CI와 CD](../docs/service-delivery.md)를 따른다. 실제 Microsoft 로그인과 업무 권한 및 메일 검증은 아직 진행 중이다.

@@ -1,5 +1,7 @@
 # 팀원 개발 시작 안내
 
+설치부터 첫 PR까지의 공통 온보딩 원본은 이 문서다. README와 노션의 이름별 안내는 이 문서를 연결하며 설치 절차를 따로 복제하지 않는다. 업무별 설계 문서는 필요한 단계에서만 참고한다.
+
 처음 저장소를 받은 팀원은 1~5를 순서대로 실행한다. 이 로컬 실행에는 GCP 권한, Gemini 키와 Microsoft 시크릿이 필요하지 않다. data 디렉터리는 내려받지 않아도 시작할 수 있으며 이 절차는 해당 디렉터리를 수정하지 않는다.
 
 ## 1. 준비할 프로그램
@@ -115,11 +117,11 @@ python3 scripts/workspace.py down
 
 ## 자신의 작업 시작
 
-저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-64는 프론트 실행 골격 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. setup의 main 직접 push 예외는 현재 인프라 초기 작업에만 적용한다.
+저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-102는 C/S 문의 API 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. setup의 main 직접 push 예외는 현재 인프라 초기 작업에만 적용한다.
 
 ```bash
 python3 scripts/dev.py setup
-python3 scripts/dev.py start KAN-64 frontend-work
+python3 scripts/dev.py start KAN-102 cs-ticket-api
 ```
 
 | 작업 | 주로 수정할 경로 |
@@ -133,6 +135,40 @@ python3 scripts/dev.py start KAN-64 frontend-work
 | 화면과 API 소비자 | frontend/src/ |
 
 담당 인원은 Jira를 따른다. API를 수정할 때는 [계약 수정 안내](../contracts/README.md)를 먼저 읽는다. 전체 DTO를 한 파일에 모으거나 다른 서비스의 모델을 직접 import하지 않는다.
+
+### 티켓 하나를 개발하는 순서
+
+1. Jira의 담당자, 선행 작업과 완료 조건을 확인한다. 아래 이름별 문서에서 첫 작업과 결과 전달 대상을 확인한다.
+2. 자기 기능 폴더에 입력 및 응답 모델과 합성 예시를 먼저 정한다. API 제공자와 프론트 담당자가 필드, 오류 및 작업 상태를 확인한다.
+3. DB가 필요하면 자기 서비스 마이그레이션 파일을 추가한다. 업무 로직, 저장 및 외부 연동을 나눠 구현하고 계약에 합의한 fixture로 독립 테스트한다.
+4. 자기 서비스 계약을 재생성하고 아래 검사 명령을 실행한다. 실제 API 실패를 모의 성공으로 바꾸지 않는다.
+5. 자기 변경 파일만 커밋하고 브랜치를 push한다. PR에 Jira, 변경 내용, 검증 결과와 남은 제약을 적고 검토자 1명을 요청한다.
+6. 검토 및 CI 통과 후 main에 병합한다. 자동 CD 결과와 필요한 통합 동작을 확인하고 Jira의 완료 조건을 충족한 뒤 상태를 갱신한다.
+
+예시는 실제 자기 Jira 번호와 경로로 바꿔 실행한다. 공통 수정이 아니면 다른 서비스의 생성물을 함께 커밋하지 않는다.
+
+```bash
+git status
+git add backend/api/cs/tickets docs/openapi/cs.json frontend/src/mocks/generated/cs.json
+git commit -m "문의 API 구현"
+git push -u origin HEAD
+```
+
+Git 훅이 브랜치의 Jira 번호를 커밋 제목에 추가한다. GitHub에서 push한 브랜치의 PR을 열고 검토자를 확인한다. 일반 기능 작업의 기본 검토 배정은 김나영 작업을 김종하, 오새결 작업을 김나영, 김종하 작업을 오새결이 검토하는 순서이며 티켓에 별도 배정이 있으면 그 배정을 따른다.
+
+### 담당 경계와 공통 작업
+
+| 담당 | 개발 범위 | 다른 담당자와 맞출 지점 |
+| --- | --- | --- |
+| [김나영](https://www.notion.so/401910042c3781ecb002d9786de41392) | 플랫폼 인증 및 메일, C/S API와 결정론적 규칙, 통합 회귀 | 오새결의 AI 결과를 API 및 작업 상태로 연결하고 김종하에게 계약과 예시 제공 |
+| [오새결](https://www.notion.so/401910042c3781fcad57d0ed3aee8fdb) | 데이터 및 검색, C/S와 TFT의 AI, 평가 실행과 지표 | 공통 AI SDK를 재사용해 구조화 결과를 반환하고 API 담당자와 실행 및 저장 계약 합의 |
+| [김종하](https://www.notion.so/401910042c3781408cedf75121232986) | 프론트, TFT API, 플랫폼 평가 관리 API | 두 API 제공자의 생성 타입을 소비하고 오새결의 평가 실행 및 결과를 화면과 연결 |
+
+이름별 WBS 개발 순서는 노션의 [개발 온보딩](https://www.notion.so/401910042c3781ed9768f13ef422a4f8)에서 확인한다. WBS와 Jira의 기존 일정은 유지한다. 초기 셋업 9건만 기존 합의에 따라 Jira 실행 담당이 오새결이며 WBS에는 김나영으로 남아 있다. 이미 준비한 환경을 새 업무로 중복 구축하지 않는다.
+
+플랫폼을 함께 수정할 때 김나영은 auth 및 mail, 김종하는 evaluations 등 자기 기능 폴더와 마이그레이션을 사용한다. 이 중 아직 없는 폴더는 기능 구현 시 만든다. 공통 라우터 등록 변경은 작게 유지하고 서로의 DTO를 직접 import하지 않는다. 공유 엔진도 규칙, 입력 어댑터, 검색을 별도 파일로 나눠 수정한다.
+
+작업 시작 시 AI 도구에는 AGENTS.md, 이 문서, 자기 Jira 티켓과 소유 경계를 함께 전달한다. 다른 사람의 변경을 덮어쓰거나 data 및 OpenDesign 원본을 수정하도록 지시하지 않는다.
 
 ```bash
 python3 scripts/workspace.py contracts cs
@@ -153,6 +189,17 @@ python3 scripts/workspace.py migrate platform 20261022_KAN-78_identity.sql
 up은 기존 볼륨을 지우거나 모든 마이그레이션을 자동 재실행하지 않는다. 잘못된 SQL은 중단하고 원인을 확인한다. 이 명시 실행 도구는 production 마이그레이션 자동화가 아니다.
 
 ## 검증과 평가 연결 점검
+
+자기 서비스의 일상 검사는 cs 대신 tft 또는 platform을 지정해 실행한다. 프론트 담당자는 npm 검사와 빌드를 실행한다.
+
+```bash
+uv run --frozen python scripts/check_backend.py cs
+python3 scripts/workspace.py contracts cs --check
+npm test --prefix frontend
+npm run build --prefix frontend
+```
+
+공통 코드 변경이나 전체 통합 확인 때는 다음 검사를 사용한다.
 
 ```bash
 uv run --frozen ruff check backend tests eval scripts/workspace.py scripts/check_integrations.py
