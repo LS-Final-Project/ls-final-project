@@ -1,6 +1,6 @@
 # 서비스별 CI와 CD
 
-프론트 web, C/S cs, TFT tft, 공통 플랫폼 platform은 각각 검사하고 이미지와 배포를 관리한다. CI는 GitHub Actions, 실행 이미지 생성과 CD는 Cloud Build가 맡는다. 이 문서는 준비한 동작과 실제 적용 여부를 구분하며 최종 실행 기록은 handoff.md를 따른다.
+프론트 web, C/S cs, TFT tft, 공통 플랫폼 platform은 각각 검사하고 이미지와 배포를 관리한다. CI는 GitHub Actions, 실행 이미지 생성과 CD는 Cloud Build가 맡는다. 이 문서는 준비한 동작과 실제 적용 여부를 구분하며 아래 적용 상태와 검증 절에 실행 근거를 기록한다.
 
 ## 변경에 따른 실행
 

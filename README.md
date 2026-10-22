@@ -10,6 +10,7 @@
 | --- | --- |
 | 처음 설치, 로컬 DB와 계정 선택, 프론트 실행, 문제 해결 | [팀원 개발 시작 안내](docs/team-start.md) |
 | 이름별 첫 작업, WBS 개발 순서와 협업 경계 | [노션 개발 온보딩](https://www.notion.so/401910042c3781ed9768f13ef422a4f8) |
+| 서비스 구조와 선택 근거 | [아키텍처](docs/architecture.md), [의사결정](docs/decisions.md) |
 | 서비스별 API 원본과 생성 명령, 충돌 방지 규칙 | [계약 수정 안내](contracts/README.md) |
 | 서비스별 CI, 이미지와 CD 및 공용 웹 준비 | [서비스별 배포 안내](docs/service-delivery.md) |
 | 로그와 실제 백업 확인 | [기본 운영 확인](docs/operations-basics.md) |
