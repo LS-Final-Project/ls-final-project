@@ -32,8 +32,8 @@ Cloud Build의 서비스 이미지 빌드와 CD는 별도 실행 및 별도 계�
 1. 포함할 기능 PR이 dev에 병합됐고, 최신 dev의 CI가 성공했는지 확인한다.
 2. GitHub 저장소에서 Pull requests → New pull request를 누른다. [배포 비교 화면](https://github.com/LS-Final-Project/ls-final-project/compare/main...dev)을 바로 열어도 된다.
 3. 왼쪽 **base: main**, 오른쪽 **compare: dev**로 선택한다. base는 받을 곳, compare는 가져올 변경이다. Files changed에서 이번 배포 범위를 확인한다.
-4. 제목은 `배포: C/S 로그인과 화면 라우팅`처럼 적고, 본문에 포함 Jira 번호, 검증 결과와 남은 제약을 기록한다. Create pull request를 누르고 검토자 한 명을 지정한다. 배포 PR에는 `[완료 KAN-번호]` 표시를 넣지 않는다.
-5. PR의 CI 성공과 동료 승인을 확인한다. 병합 버튼 옆 화살표에서 **Create a merge commit**을 선택하고 Merge pull request → Confirm merge를 누른다. dev와 main 사이에는 Squash and merge를 사용하지 않는다.
+4. 제목은 `배포: C/S 로그인과 화면 라우팅`처럼 적고, 본문에 포함 Jira 번호, 검증 결과와 남은 제약을 기록한다. Create pull request를 누르고 최신 head/base SHA의 AI 코드 리뷰 결과를 확인한다. 배포 PR에는 `[완료 KAN-번호]` 표시를 넣지 않는다.
+5. PR의 CI 성공과 최신 SHA AI 코드 리뷰 통과를 확인하고 사용자가 배포를 판단한다. 병합 버튼 옆 화살표에서 **Create a merge commit**을 선택하고 Merge pull request → Confirm merge를 누른다. dev와 main 사이에는 Squash and merge를 사용하지 않는다.
 6. Actions에서 방금 생성된 main 커밋의 Application checks와 Deploy changed services가 성공했는지 확인한다. 바뀌지 않은 서비스의 skipped는 정상일 수 있다. [공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)에서 해당 기능도 확인한다. PR 병합 자체는 배포 성공을 뜻하지 않는다.
 7. 배포가 끝나면 [동기화 비교 화면](https://github.com/LS-Final-Project/ls-final-project/compare/dev...main)에서 **base: dev / compare: main**으로 PR을 만들고 **Create a merge commit**으로 병합한다. main의 병합 이력을 dev에 돌려놓는 단계다. 차이가 없으면 생략한다.
 

@@ -175,7 +175,7 @@ python3 scripts/dev.py start KAN-64 frontend-routes
 2. 자기 기능 폴더에 입력 및 응답 모델과 합성 예시를 먼저 정한다. API 제공자와 프론트 담당자가 필드, 오류 및 작업 상태를 확인한다.
 3. DB가 필요하면 자기 서비스 마이그레이션 파일을 추가한다. 업무 로직, 저장 및 외부 연동을 나눠 구현하고 계약에 합의한 fixture로 독립 테스트한다.
 4. 자기 서비스 계약을 재생성하고 아래 검사 명령을 실행한다. 실제 API 실패를 모의 성공으로 바꾸지 않는다.
-5. 자기 변경 파일만 커밋하고 브랜치를 push한다. PR에 Jira, 변경 내용, 검증 결과와 남은 제약을 적고 검토자 1명을 요청한다.
+5. 자기 변경 파일만 커밋하고 브랜치를 push한다. PR에 Jira, 변경 내용, 검증 결과와 남은 제약을 적고 Ready for review로 바꾸고 AI 코드 리뷰를 확인한다.
 6. PR 대상이 dev인지 확인하고 검토 및 CI 통과 후 Squash merge한다. 결과를 Jira에 남긴다. 티켓 전체 완료 조건을 충족한 최종 PR에만 제목에 `[완료 KAN-64]`처럼 자기 번호를 표시하면 dev 병합 시 Jira가 자동 완료된다. 중간 PR은 표시하지 않고 진행 중을 유지한다. dev 반영만으로 공용 배포는 실행되지 않으며 배포는 인프라 담당자가 별도로 진행한다.
 
 예시는 실제 자기 Jira 번호와 경로로 바꿔 실행한다. 공통 수정이 아니면 다른 서비스의 생성물을 함께 커밋하지 않는다.
@@ -187,7 +187,7 @@ git commit -m "문의 API 구현"
 git push -u origin HEAD
 ```
 
-Git 훅이 브랜치의 Jira 번호를 커밋 제목에 추가한다. GitHub에서 push한 브랜치의 Compare & pull request를 누른다. **base는 dev, compare는 본인의 KAN 작업 브랜치**인지 확인한다. 변경 이유와 실제 검증 결과를 작성하고 Create draft pull request로 먼저 공유할 수 있다. 검토 준비가 되면 Ready for review로 바꾸고 검토자가 지정됐는지 확인한다. Draft에는 자동 검토 요청을 보내지 않는다. CI가 실패하면 고친 커밋을 같은 브랜치에 push한다. 승인과 검사 성공을 확인한 뒤 Squash and merge한다.
+Git 훅이 브랜치의 Jira 번호를 커밋 제목에 추가한다. GitHub에서 push한 브랜치의 Compare & pull request를 누른다. **base는 dev, compare는 본인의 KAN 작업 브랜치**인지 확인한다. 변경 이유와 실제 검증 결과를 작성하고 Create draft pull request로 먼저 공유할 수 있다. 검토 준비가 되면 Ready for review로 바꾸고 최신 head/base SHA의 Claude 결과를 확인한다. Draft는 AI 리뷰를 실행하지 않으며 팀원은 자동 지정하지 않는다. CI 실패나 AI의 P0~P2 지적은 수정해 같은 브랜치에 push한다. CI 성공과 최신 SHA AI 리뷰 통과를 확인한 뒤 작성자가 Squash and merge한다.
 
 기본 브랜치 보호는 현재 요금제에서 서버 강제가 되지 않는다. 버튼이 활성화돼 있어도 CI와 검토를 직접 확인해야 한다. 최종 PR 제목 예시는 `[KAN-64] [완료 KAN-64] 화면 라우팅 완료`다. 병합 후 Jira가 실제 완료로 바뀌었는지 확인한다. 일반 기능 작업의 기본 검토 배정은 김나영 작업을 김종하, 오새결 작업을 김나영, 김종하 작업을 오새결이 검토하는 순서이며 티켓에 별도 배정이 있으면 그 배정을 따른다.
 

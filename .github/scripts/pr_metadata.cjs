@@ -4,10 +4,12 @@ const START = '<!-- jira-links:start -->';
 const END = '<!-- jira-links:end -->';
 const KEY = /(?<![A-Za-z0-9])KAN-[1-9][0-9]*(?![A-Za-z0-9])/g;
 
+/** Jira 번호를 중복 없이 추출한다. Args: text — 검사할 문자열. Returns: Jira 번호 배열. */
 function issueKeys(text) {
   return [...new Set((text || '').match(KEY) || [])];
 }
 
+/** PR 번호와 링크를 검사·보완한다. Args: PR 메타데이터, Jira 주소. Returns: 보완한 메타데이터. */
 function normalize({ branch, title, body }, jiraBaseUrl) {
   const keys = issueKeys(branch);
   if (!keys.length) throw new Error('브랜치 이름에 실제 Jira 번호(KAN-63 등)가 필요합니다.');
@@ -29,13 +31,7 @@ function normalize({ branch, title, body }, jiraBaseUrl) {
   return { keys, title: newTitle, body: newBody };
 }
 
-function reviewersFor(keys, config, author) {
-  const unknown = keys.filter(key => !config.reviewersByIssue[key]);
-  const reviewers = [...new Set(keys.map(key => config.reviewersByIssue[key]).filter(Boolean))]
-    .filter(login => login.toLowerCase() !== author.toLowerCase());
-  return { reviewers, unknown };
-}
-
+/** Jira 연결만 갱신한다. Args: GitHub API·이벤트·요약·설정. Returns: 완료 Promise. */
 async function run({ github, context, core, config }) {
   const params = { owner: context.repo.owner, repo: context.repo.repo, pull_number: context.payload.pull_request.number };
   // Read the latest PR so delayed events do not overwrite a newer edit.
@@ -48,7 +44,7 @@ async function run({ github, context, core, config }) {
   if (integration) {
     await core.summary.addHeading('통합 브랜치 PR')
       .addRaw(`${pr.head.ref} → ${pr.base.ref}: Create a merge commit으로 이력을 유지하세요.\n\n`)
-      .addRaw('관련 Jira 번호와 포함 기능, 검증 결과를 PR에 작성하고 검토자 1명을 직접 지정하세요.\n')
+      .addRaw('관련 Jira와 CI·최신 SHA AI 리뷰 결과를 확인한 뒤 작성자가 병합하세요.\n')
       .addRaw('Jira 완료 상태와 배포 승인은 변경하지 않습니다.\n')
       .write();
     return;
@@ -59,28 +55,11 @@ async function run({ github, context, core, config }) {
   }
   // Validate immediately. GITHUB_TOKEN edits do not cause another edited run.
   normalize({ branch: pr.head.ref, title: metadata.title, body: metadata.body }, config.jiraBaseUrl);
-  const route = reviewersFor(metadata.keys, config, pr.user.login);
-  // Waivers are exact initial-setup branches, never a permanent ticket exemption.
-  const waiver = (config.setupReviewWaivers || []).find(item =>
-    item.branch === pr.head.ref && metadata.keys.every(key => item.keys.includes(key)));
-  if (route.unknown.length) core.warning(`검토 배정표에 ${route.unknown.join(', ')}가 없습니다. Jira 검토자를 확인해 직접 지정하고 배정표를 갱신하세요.`);
-  const requested = [];
-  if (!pr.draft && !waiver && route.reviewers.length) {
-    const reviews = await github.paginate(github.rest.pulls.listReviews, { ...params, per_page: 100 });
-    const latest = new Map();
-    for (const review of reviews) if (review.user && review.state !== 'PENDING') latest.set(review.user.login.toLowerCase(), review.state);
-    const already = new Set((pr.requested_reviewers || []).map(user => user.login.toLowerCase()));
-    for (const login of route.reviewers) {
-      if (!already.has(login.toLowerCase()) && (!latest.has(login.toLowerCase()) || latest.get(login.toLowerCase()) === 'DISMISSED')) requested.push(login);
-    }
-    if (requested.length) await github.rest.pulls.requestReviewers({ ...params, reviewers: requested });
-  }
-  if (!pr.draft && !waiver && !route.reviewers.length) core.warning('자동 지정할 수 있는 다른 검토자가 없습니다. Jira의 검토 배정을 확인해 직접 지정하세요.');
   await core.summary.addHeading('Jira 연결 검사')
     .addRaw(`티켓: ${metadata.keys.join(', ')}\n\n`)
-    .addRaw(waiver ? `초기 셋업 검토 생략: ${waiver.reason}\n` : pr.draft ? 'Draft PR이므로 검토 요청은 보류했습니다.\n' : `검토 배정: ${route.reviewers.join(', ') || '직접 지정 필요'}\n`)
+    .addRaw('팀원을 자동 지정하지 않습니다. CI와 최신 SHA AI 리뷰 결과를 확인하세요.\n')
     .addRaw('\n이 워크플로는 Jira 상태를 직접 변경하지 않습니다. 최종 PR 제목의 [완료 KAN-번호]와 dev 병합 조건을 충족하면 별도 Jira 규칙이 해당 티켓을 완료로 전환합니다. 중간 PR에는 완료 표시를 넣지 마세요.\n')
     .write();
 }
 
-module.exports = { issueKeys, normalize, reviewersFor, run };
+module.exports = { issueKeys, normalize, run };

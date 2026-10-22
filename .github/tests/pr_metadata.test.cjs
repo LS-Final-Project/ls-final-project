@@ -4,9 +4,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { issueKeys, normalize, reviewersFor, run } = require('../scripts/pr_metadata.cjs');
+const { issueKeys, normalize, run } = require('../scripts/pr_metadata.cjs');
 const base = 'https://lsteam4.atlassian.net';
-const config = { jiraBaseUrl: base, reviewersByIssue: { 'KAN-60': 'jongddugi', 'KAN-63': 'jongddugi' } };
+const config = { jiraBaseUrl: base };
 
 test('recognizes complete Jira keys, including multiple keys', () => {
   assert.deepEqual(issueKeys('KAN-55-KAN-56-development-contracts'), ['KAN-55', 'KAN-56']);
@@ -43,12 +43,7 @@ test('keeps multiple ticket keys and does not duplicate existing title reference
   assert.ok(result.body.includes('/browse/KAN-56'));
 });
 
-test('routes by the WBS ticket reviewer, not the PR author', () => {
-  assert.deepEqual(reviewersFor(['KAN-60'], config, 'oseguri'), { reviewers: ['jongddugi'], unknown: [] });
-  assert.deepEqual(reviewersFor(['KAN-60'], config, 'jongddugi'), { reviewers: [], unknown: [] });
-  assert.deepEqual(reviewersFor(['KAN-999'], config, 'oseguri'), { reviewers: [], unknown: ['KAN-999'] });
-});
-
+/** 메타데이터 검사 환경을 만든다. Args: overrides — PR 변경값. Returns: API와 호출 기록. */
 function fixture(overrides = {}) {
   const pr = { state: 'open', head: { ref: 'KAN-60-automation' }, title: '협업 자동화', body: '검증 내용', user: { login: 'oseguri' }, draft: true, requested_reviewers: [], ...overrides };
   const updates = [], requests = [], warnings = [];
@@ -64,7 +59,7 @@ function fixture(overrides = {}) {
   return { github, context, core: { summary, warning: value => warnings.push(value) }, config, pr, updates, requests, warnings, reviews };
 }
 
-test('fetches latest PR, skips Draft review, and is idempotent', async () => {
+test('fetches latest PR and never requests teammates on Draft or ready PRs', async () => {
   const f = fixture();
   await run(f);
   await run(f);
@@ -74,8 +69,8 @@ test('fetches latest PR, skips Draft review, and is idempotent', async () => {
   f.pr.draft = false;
   await run(f);
   await run(f);
-  assert.equal(f.requests.length, 1);
-  assert.deepEqual(f.requests[0].reviewers, ['jongddugi']);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.warnings.length, 0);
 });
 
 test('same-repository dev/main integration keeps release text and needs no Jira branch name', async () => {
@@ -96,29 +91,12 @@ test('fork branches named dev and unrelated numberless branches get no integrati
   }
 });
 
-test('initial setup waiver preserves Jira links and skips ready PR review requests', async () => {
-  const f = fixture({ draft: false, head: { ref: 'KAN-60-initial-setup-review-policy' } });
-  f.config = { ...config, setupReviewWaivers: [{ branch: f.pr.head.ref, keys: ['KAN-60'], reason: '사용자 결정' }] };
-  await run(f);
-  assert.equal(f.requests.length, 0);
-  assert.ok(f.pr.body.includes('/browse/KAN-60'));
-  assert.equal(f.pr.title, '[KAN-60] 협업 자동화');
-});
-
-test('waiver does not extend to another branch or an additional ticket', async () => {
-  for (const branch of ['KAN-60-next-feature', 'KAN-60-KAN-63-initial-setup']) {
-    const f = fixture({ draft: false, head: { ref: branch } });
-    f.config = { ...config, setupReviewWaivers: [{ branch: 'KAN-60-KAN-63-initial-setup', keys: ['KAN-60'], reason: '사용자 결정' }] };
-    await run(f);
-    assert.equal(f.requests.length, 1);
-  }
-});
-
-test('does not repeat a completed review request', async () => {
-  const f = fixture({ draft: false });
+test('existing reviewer requests and historical approvals do not cause new requests', async () => {
+  const f = fixture({ draft: false, requested_reviewers: [{ login: 'jongddugi' }] });
   f.reviews.push({ user: { login: 'jongddugi' }, state: 'APPROVED' });
   await run(f);
   assert.equal(f.requests.length, 0);
+  assert.equal(f.warnings.length, 0);
 });
 
 test('does not change a mismatched PR or request review', async () => {
@@ -128,13 +106,7 @@ test('does not change a mismatched PR or request review', async () => {
   assert.equal(f.requests.length, 0);
 });
 
-test('review mapping covers current WBS tasks and names only real collaborators', () => {
-  const file = JSON.parse(fs.readFileSync(path.join(__dirname, '../jira-reviewers.json'), 'utf8'));
-  assert.equal(file.jiraBaseUrl, base);
-  assert.ok(Object.keys(file.reviewersByIssue).length > 0);
-  for (const [key, reviewer] of Object.entries(file.reviewersByIssue)) {
-    assert.match(key, /^KAN-[1-9][0-9]*$/);
-    assert.ok(['kny2383', 'oseguri', 'jongddugi'].includes(reviewer));
-  }
-  assert.equal(file.reviewersByIssue['KAN-60'], 'jongddugi');
+test('Jira config has no teammate assignment or setup waiver', () => {
+  const file = JSON.parse(fs.readFileSync(path.join(__dirname, '../jira-config.json'), 'utf8'));
+  assert.deepEqual(file, { jiraBaseUrl: base });
 });
