@@ -4,6 +4,19 @@
 
 사용자는 의사결정의 선택 근거를 명확하게 남기도록 추가 요청했다. decisions.md에는 선택 목적, 실제 비교한 대안, 감수하는 제약과 재검토 조건을 보강했다. 해당 문서의 '대화 근거'는 사용자가 밝힌 목적이나 선택 이력이고, '설계 해석'은 현재 선택에 대한 기술적 설명이다. 설계 해석을 사용자의 원문 발언이나 완료된 비교 실험으로 보고하지 않는다. 후속 변경에도 요구 또는 측정 근거와 계약 및 일정 영향을 함께 기록한다.
 
+## 2026-10-22 Vertex 공통 클라이언트와 평가 연결
+
+사용자가 global 생성 성공 후 다음 작업 진행을 요청했다. backend/shared/ai.py에 명시적 Vertex OAuth 경로를 구현하고 google-genai 및 google-auth를 실행 의존성으로 옮겼다. 기존 버전은 변경하지 않았다. 기본은 교육장 프로젝트, global, gemini-3.6-flash, 출력 한도 1024이며 최종 업무 모델 확정은 아니다. Developer API 자동 폴백과 생성 자동 재시도는 없다. 실제 업무 프롬프트, 룰 및 인증 기능은 변경하지 않았다.
+
+- 합성 영어와 한국어 2건의 실제 SDK 평가가 모두 JSON 스키마를 통과했다. artifacts/eval/c8af4a52-737e-41e7-beb1-8959ecf56dec.json 및 .html에 기록했다. 영어 지연 3200.51ms, 입력 70, 답변 5, 추론 121, 총 196토큰이고 한국어는 1602.21ms, 입력 71, 답변 5, 추론 125, 총 201토큰이다. 가격표가 없어 비용은 미산정이다. 로컬 ADC 신원으로 호출했으며 최종 test 597건을 사용하지 않았다.
+- gemini-embedding-001은 Vertex us-central1에서 합성 1건 성공했다. 입력 10토큰과 32 billable characters 및 3072차원을 관측했다. 벡터를 출력하거나 저장하지 않았고 DB 및 production 차원은 변경하지 않았다. 생성과 임베딩 위치를 별도로 설정한다.
+- 사용자가 infra/setup_vertex_access.sh --verify-runtime을 실행해 team4VertexInference 사용자 정의 역할을 생성했다. 읽기 전용 조회로 aiplatform.endpoints.predict와 serviceusage.services.use만 포함한 것을 확인했다. 대상은 cs-runtime과 tft-runtime이다. 첫 검증은 방금 추가한 임시 사용자 권한의 토큰 발급에서 RefreshError가 발생했고 임시 바인딩은 제거됐다. 이후 토큰 발급의 IAM_PERMISSION_DENIED만 최대 180초 기다리도록 수정해 사용자에게 재실행을 요청했다. 이 시점에는 두 실행 계정의 생성 PASS가 아직 미확인이다. 사용자 재로그인은 완료돼 프로젝트 권한 조회가 정상이다.
+- 로컬 API 회귀 32건, 인프라 검사 18건 및 scripts 19건, Ruff와 mypy 및 계약 비교가 통과했다. 실제 SDK HTTP 전송을 모의해 OAuth와 키 경로 분리, 사용량과 빈 응답, 임베딩 잘림 및 차원 불일치, 오류 비노출을 검사했다. IAM 스크립트는 권한 범위와 성공 및 실패 후 임시 바인딩 회수를 모의 검증했다.
+- 현재 WSL에서 Docker 명령을 사용할 수 없어 이번 로컬 이미지 검증은 못 했다. 원격 GitHub CI와 Cloud Build의 실제 이미지 빌드 및 오프라인 런타임 import 검증을 확인해야 한다. runtime 검사에는 공통 AI SDK import를 추가했고 시작 및 상태 검사에서 모델을 호출하지 않는다.
+- docs/ai-client.md에 팀원이 재사용할 생성과 임베딩 예제를, docs/integration-checks.md에 ADC와 CLI 로그인 구분 및 실행 계정 검증 명령을 정리했다. docs/team-start.md의 외부 인증 없는 시작 경로는 그대로다. 배포 도우미는 C/S와 TFT에만 명시적인 Vertex 환경변수를 설정한다. API 키와 인증 파일은 배포하지 않는다.
+
+GCP IAM 변경은 사용자가 실행한다. 현재 셋업은 기존 승인대로 main 직접 push 대상이다. 공통 패키지 및 실행 의존성 변경은 백엔드 3개의 재빌드 사유이며 웹 코드는 바꾸지 않았다. Microsoft 개인 Outlook 대안은 아직 선택되지 않았고 실제 로그인 및 메일은 미검증이다. 이번 기록의 원격 CI/CD와 실행 계정 검증은 후속 결과로 보완한다.
+
 ## 2026-10-22 공용 웹과 서비스별 CI 및 CD 검증
 
 사용자가 합의 범위를 실행하도록 요청했다. 초기 셋업은 main 직접 push 예외를 유지한다. GCP 준비와 최초 배포 명령은 사용자가 실행했고 에이전트는 읽기 전용으로 검증했다. 사용자가 GCP_RELEASE_ENABLED=true와 배포 워크플로 수동 실행을 적용했으므로 이후 성공한 main CI가 자동으로 Cloud Build를 실행한다. 아래 과거의 미배포 또는 자동 CD 비활성 설명은 이전 시점의 기록이다.

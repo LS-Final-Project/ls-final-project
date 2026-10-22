@@ -48,7 +48,7 @@ jobs:
           persist-credentials: false
       - run: docker build --target test --build-arg TEST_SERVICE=${{ matrix.service }} -t team4-api-tests .
       - run: docker build --target runtime --build-arg SERVICE_NAME=${{ matrix.service }} -t team4-service .
-      - run: docker run --rm --network=none team4-service python -c 'import importlib,os; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"'
+      - run: docker run --rm --network=none team4-service python -c 'import importlib,os; from backend.shared.ai import AISettings; assert AISettings().ai_provider=="vertex"; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"'
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest tests/test_eval_smoke.py -q
+      - run: uv run --frozen pytest tests/test_eval_smoke.py tests/test_ai_client.py tests/test_runtime_verification.py -q
   required:
     name: Application result
     if: always()

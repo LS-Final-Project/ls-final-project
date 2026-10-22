@@ -73,13 +73,20 @@ def deployment_commands(
         if service == "web":
             command.append(f"--update-env-vars=NODE_ENV=production,PLATFORM_URL={PLATFORM_URL}")
         else:
+            ai_environment = (
+                f",AI_PROVIDER=vertex,GOOGLE_CLOUD_PROJECT={PROJECT},"
+                "GOOGLE_CLOUD_LOCATION=global,GOOGLE_CLOUD_EMBEDDING_LOCATION=us-central1,"
+                "GEMINI_MODEL=gemini-3.6-flash,GEMINI_MAX_OUTPUT_TOKENS=1024"
+                if service in ("cs", "tft")
+                else ""
+            )
             command.extend(
                 [
                     f"--set-cloudsql-instances={PROJECT}:{REGION}:team4-sql",
                     "--update-env-vars="
                     f"ENVIRONMENT=production,DEV_AUTH_ENABLED=false,SERVICE_NAME={service},"
                     f"PGHOST=/cloudsql/{PROJECT}:{REGION}:team4-sql,PGDATABASE=team4,"
-                    f"PGUSER={service}_app",
+                    f"PGUSER={service}_app{ai_environment}",
                     f"--update-secrets=PGPASSWORD={service}-db-password:1",
                 ]
             )

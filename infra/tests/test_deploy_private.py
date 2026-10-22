@@ -58,6 +58,18 @@ class DeploymentTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     deployment.deployment_commands(build)
 
+    def test_only_cs_and_tft_receive_explicit_vertex_settings_without_api_keys(self):
+        for service, command in zip(
+            deployment.SERVICES, deployment.deployment_commands(build_fixture()), strict=True
+        ):
+            env = next(arg for arg in command if arg.startswith("--update-env-vars="))
+            self.assertEqual("AI_PROVIDER=vertex" in env, service in ("cs", "tft"))
+            if service in ("cs", "tft"):
+                self.assertIn(f"GOOGLE_CLOUD_PROJECT={deployment.PROJECT}", env)
+                self.assertIn("GOOGLE_CLOUD_LOCATION=global", env)
+                self.assertIn("GEMINI_MODEL=gemini-3.6-flash", env)
+            self.assertNotIn("GEMINI_API_KEY", " ".join(command))
+
     def test_one_service_build_does_not_require_or_deploy_other_images(self):
         build = build_fixture()
         build["results"]["images"] = build["results"]["images"][:1]

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -194,9 +195,116 @@ def gemini(values: dict[str, str], embed_model: str | None) -> int:
     return 0
 
 
+def vertex(args: argparse.Namespace) -> int:
+    # Support direct `python scripts/check_integrations.py`, not only an installed package.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from backend.shared.ai import (
+        AISettings,
+        create_client,
+        embed,
+        generate,
+        refresh_runtime_credentials,
+        runtime_credentials,
+    )
+
+    overrides = {"ai_provider": "vertex"}
+    for field, value in (
+        ("google_cloud_project", args.project),
+        ("google_cloud_location", args.location),
+        ("google_cloud_embedding_location", args.embedding_location),
+        ("gemini_model", args.model),
+    ):
+        if value is not None:
+            overrides[field] = value
+    settings = AISettings(_env_file=args.env_file, **overrides)
+    source_credentials = None
+    if args.gcloud_account:
+        from google.oauth2.credentials import Credentials
+
+        result = subprocess.run(
+            ["gcloud", "auth", "print-access-token", f"--account={args.gcloud_account}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ConfigurationError(
+                "Reauthenticate the selected gcloud account before verification"
+            )
+        source_credentials = Credentials(token=result.stdout.strip())
+    credentials = (
+        runtime_credentials(
+            settings.google_cloud_project,
+            args.runtime_service,
+            source_credentials=source_credentials,
+        )
+        if args.runtime_service
+        else None
+    )
+    if credentials is not None:
+        refresh_runtime_credentials(credentials, args.wait_runtime_iam)
+    with create_client(
+        settings, credentials=credentials, embedding=bool(args.embed_model)
+    ) as client:
+        if args.embed_model:
+            result = embed(
+                client,
+                args.embed_model,
+                "합성 연결 점검. Synthetic connection check.",
+                dimensions=args.dimensions,
+                task_type=args.embedding_task,
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "provider": "vertex",
+                        "kind": "embedding",
+                        "project": settings.google_cloud_project,
+                        "location": settings.google_cloud_embedding_location
+                        or settings.google_cloud_location,
+                        "model": args.embed_model,
+                        "runtime_service": args.runtime_service,
+                        "observed_dimensions": len(result.values),
+                        "input_tokens": result.input_tokens,
+                        "billable_characters": result.billable_characters,
+                        "vectors_saved": False,
+                        "production_dimensions_selected": False,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            answer = generate(client, settings, "Return exactly OK.")
+            if answer.text.strip() != "OK":
+                print("FAIL: expected synthetic OK response; response content was not logged.")
+                return 1
+            print(
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "provider": "vertex",
+                        "kind": "generation",
+                        "project": settings.google_cloud_project,
+                        "location": settings.google_cloud_location,
+                        "model": settings.gemini_model,
+                        "model_version": answer.model_version,
+                        "runtime_service": args.runtime_service,
+                        "finish_reasons": answer.finish_reasons,
+                        "input_tokens": answer.usage.input_tokens,
+                        "output_tokens": answer.usage.output_tokens,
+                        "thought_tokens": answer.usage.thought_tokens,
+                        "total_tokens": answer.usage.total_tokens,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("service", choices=("microsoft", "gemini"))
+    parser.add_argument("service", choices=("microsoft", "gemini", "vertex"))
     parser.add_argument("--env-file", type=Path, default=Path(".env.integrations"))
     parser.add_argument(
         "--login", action="store_true", help="Microsoft interactive login and read-only inbox check"
@@ -204,8 +312,44 @@ def main() -> int:
     parser.add_argument(
         "--embed-model", help="Check one synthetic embedding instead of listing models"
     )
+    parser.add_argument("--project")
+    parser.add_argument("--location")
+    parser.add_argument("--embedding-location")
+    parser.add_argument("--model")
+    parser.add_argument("--dimensions", type=int)
+    parser.add_argument(
+        "--embedding-task", choices=("RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY")
+    )
+    parser.add_argument("--runtime-service", choices=("cs", "tft"))
+    parser.add_argument("--wait-runtime-iam", type=int, default=0)
+    parser.add_argument(
+        "--gcloud-account",
+        help="Use this existing CLI account for opt-in runtime identity verification",
+    )
     args = parser.parse_args()
+    if not 0 <= args.wait_runtime_iam <= 240 or (
+        args.wait_runtime_iam and (args.service != "vertex" or not args.runtime_service)
+    ):
+        parser.error("--wait-runtime-iam requires vertex runtime verification and 0..240 seconds")
+    if args.gcloud_account and (args.service != "vertex" or not args.runtime_service):
+        parser.error("--gcloud-account requires vertex and --runtime-service")
+    if args.dimensions is not None and (not args.embed_model or not 1 <= args.dimensions <= 3072):
+        parser.error("Use --dimensions between 1 and 3072 with --embed-model")
+    if args.service != "vertex" and any(
+        (
+            args.project,
+            args.location,
+            args.embedding_location,
+            args.model,
+            args.runtime_service,
+            args.dimensions,
+            args.embedding_task,
+        )
+    ):
+        parser.error("Project, location, model, runtime and dimension options require vertex mode")
     try:
+        if args.service == "vertex":
+            return vertex(args)
         values = configuration(args.env_file)
         return (
             microsoft(values, args.login)
@@ -236,9 +380,12 @@ def main() -> int:
                 }
                 else "provider_error"
             )
-            print(
-                f"FAIL: HTTP {code} {safe_status}. Check the key's project and quota in AI Studio."
+            guidance = (
+                "Check Vertex project, IAM, model location and quota."
+                if args.service == "vertex"
+                else "Check the key's project and quota in AI Studio."
             )
+            print(f"FAIL: HTTP {code} {safe_status}. {guidance}")
         else:
             print(
                 f"FAIL: {type(error).__name__}. See docs/integration-checks.md and local configuration."

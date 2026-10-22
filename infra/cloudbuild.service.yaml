@@ -9,7 +9,7 @@ steps:
     args: [build, --target, runtime, --build-arg, 'SERVICE_NAME=${_SERVICE}', --build-arg, 'TEST_SERVICE=${_SERVICE}', --label, 'org.opencontainers.image.revision=${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${BUILD_ID}', .]
   - id: runtime-import
     name: gcr.io/cloud-builders/docker
-    args: [run, --rm, --network=none, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}', python, -c, 'import importlib,os; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"']
+    args: [run, --rm, --network=none, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}', python, -c, 'import importlib,os; from backend.shared.ai import AISettings; assert AISettings().ai_provider=="vertex"; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"']
 images:
   - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${COMMIT_SHA}'
   - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}:${BUILD_ID}'

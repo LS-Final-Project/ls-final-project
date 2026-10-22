@@ -10,7 +10,43 @@
 cp -n .env.integrations.example .env.integrations
 ```
 
-예시에 사용자 제공 테넌트와 애플리케이션 ID를 넣었다. MS_CLIENT_SECRET과 GEMINI_API_KEY는 실제 연동 확인 때만 로컬에서 입력한다. GCP용 기존 .env를 수정할 필요가 없다.
+예시에 사용자 제공 테넌트와 애플리케이션 ID를 넣었다. MS_CLIENT_SECRET은 Microsoft 연동 확인 때만 입력한다. 현재 기본 모델 경로인 Vertex에는 GEMINI_API_KEY가 필요하지 않다. GCP용 기존 .env를 수정할 필요가 없다.
+
+## 현재 기본 모델 경로: Vertex AI
+
+교육장 프로젝트의 Vertex AI global과 gemini-3.6-flash를 초기 연결 기준으로 사용한다. 기존 Developer API의 청구 계정 월간 지출 한도 오류가 발생한 뒤 이 경로에서 실제 생성과 스키마 기록을 확인했다. 최종 업무 모델은 품질, 지연과 비용을 비교한 뒤 선정한다. Cloud Run과 DB는 서울이며 global 모델 호출은 서울 내 처리만을 보장하지 않는다.
+
+로컬 호출에는 ADC가 필요하다. CLI의 gcloud auth login과 ADC는 별도 자격증명이다. 이미 작동하는 ADC가 있으면 재설정하지 않는다. 처음 사용하는 팀원만 본인 교육장 계정으로 다음 명령을 실행한다.
+
+```bash
+gcloud auth application-default login
+uv run --frozen python scripts/check_integrations.py vertex
+uv run --frozen python -m eval.smoke --provider vertex
+```
+
+첫 점검은 합성 OK 응답 1건, 평가는 영어와 한국어 합성 JSON 2건이다. 기존 .env.integrations에 AI 설정이 없더라도 기본값은 교육장 프로젝트, global, gemini-3.6-flash, 최대 출력 1024다. 다른 설정을 비교하려면 --project, --location, --model 또는 평가의 --max-output-tokens를 지정한다. 실패해도 Developer API 키로 자동 전환하거나 요청을 자동 재시도하지 않는다.
+
+평가의 JSON과 HTML에는 제공자, 프로젝트, 위치, 모델 및 실제 모델 판본, 지연, 스키마 결과와 입력, 답변, 추론, 캐시 입력 및 총 토큰을 기록한다. 원문 오류, 토큰과 키는 저장하지 않는다. 제공되지 않은 사용량과 미등록 가격표의 비용은 미산정으로 남긴다. 이 합성 점검은 실제 업무 합격선 평가가 아니다.
+
+임베딩 위치는 생성 위치와 별도로 지정한다. 다음 조합을 합성 1건으로 확인했으며 반환 벡터를 출력하거나 저장하지 않는다.
+
+```bash
+uv run --frozen python scripts/check_integrations.py vertex \
+  --embed-model gemini-embedding-001 --embedding-location us-central1 \
+  --embedding-task RETRIEVAL_DOCUMENT
+```
+
+관측 기본 차원은 3072다. production DB의 벡터 차원을 이 결과로 자동 변경하지 않는다. 모델, 차원과 실제 검색 품질을 결정한 뒤 인덱스와 수집 처리를 함께 맞춘다. --dimensions로 요청한 차원과 실제 결과가 다르거나 입력이 잘리면 점검은 실패한다.
+
+GCP 권한 준비는 인프라 담당자가 실행한다. 일반 팀원에게 프로젝트 IAM 변경 권한을 요구하지 않는다.
+
+```bash
+bash infra/setup_vertex_access.sh --verify-runtime
+```
+
+이 스크립트는 cs-runtime과 tft-runtime에 aiplatform.endpoints.predict와 serviceusage.services.use만 포함한 사용자 정의 역할을 부여한다. platform-runtime과 web-runtime에는 모델 권한을 주지 않는다. 선택한 교육장 CLI 계정에만 각 실행 계정의 임시 토큰 발급 권한을 10분 만료 조건으로 부여하고, 5분 수명 토큰으로 합성 요청을 1건씩 확인한 뒤 정확히 해당 임시 바인딩을 제거한다. 호출 실패 때도 제거하며 터미널 강제 종료 시에는 만료 조건이 남는다. API 키와 서비스 계정 키를 만들지 않는다. IAM 준비만 하려면 --verify-runtime을 생략한다.
+
+이 검증은 실제 서비스 계정 신원으로 로컬 SDK를 호출하는 점검이다. Cloud Run 업무 API 내부에서 모델을 호출하는 기능의 통합 검증은 해당 기능 구현 후 수행한다. Cloud Run에서는 연결된 실행 계정의 ADC를 그대로 사용하며 사용자 계정의 인증 파일을 배포하지 않는다. 앱 기동, health, ready와 CI에서는 모델을 호출하지 않는다. 팀원 코드 사용법은 [공통 AI 클라이언트](ai-client.md)를 따른다.
 
 ## Microsoft
 
@@ -36,7 +72,9 @@ MSAL이 PKCE와 state가 포함된 로그인 흐름을 처리한다. 로그인 �
 
 메일함 라이선스 또는 테넌트 정책으로 Graph가 실패하면 표시된 HTTP 코드와 Azure 설정을 확인한다. Mail.Send 동의 확인은 실제 메일 발송 테스트와 구분한다. 원문 메일과 토큰이 있는 HTTP 응답을 그대로 공유하지 않는다.
 
-## Gemini
+## 기존 Gemini Developer API 진단
+
+아래는 기존 API 키 경로를 별도로 진단하는 명령이다. 현재 생성은 월간 지출 한도로 막혀 있으므로 재시도를 반복하지 않는다. 위 Vertex 경로를 기본으로 사용한다.
 
 지원 모델 이름과 기능만 조회한다.
 
@@ -66,7 +104,7 @@ uv run --frozen python scripts/check_integrations.py gemini --env-file .env --em
 
 근거: [Microsoft MSAL 인증 코드 흐름](https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens), [Graph 메시지 조회](https://learn.microsoft.com/en-us/graph/api/user-list-messages), [Google Gen AI SDK](https://github.com/googleapis/python-genai).
 
-## 2026-10-22 확인 결과
+## 2026-10-22 기존 Developer API 확인 이력
 
 Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemini-embedding-001의 합성 임베딩 1건도 성공했고 기본 차원 3072를 확인했다. 실제 Microsoft 로그인 및 Graph 호출과 메일 발송은 미실행이다.
 
@@ -99,7 +137,7 @@ Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemin
 
 처음 maxOutputTokens=64 요청은 HTTP 200이었지만 본문이 비어 있었다. 1024로 늘린 후 위 실제 텍스트 결과를 확인했다. 짧은 연결 점검에도 출력 한도가 답변 생성을 막지 않는지 확인한다. 내부 추론 내용은 출력하지 않았다.
 
-기존 Developer API의 월간 지출 한도 오류와 이 경로의 생성 성공을 구분한다. 이번 성공은 교육장 사용자 인증으로 확인한 단건 연결 점검이다. 앱의 Cloud Run 실행 계정 권한과 Vertex용 SDK 및 평가 제공자 연결, 임베딩과 최종 업무 모델 선정은 아직 검증하지 않았다. 관리형 에이전트 실행 환경을 새로 채택하거나 서비스를 추가한 것은 아니다. [공식 global 엔드포인트 안내](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#global-endpoint).
+기존 Developer API의 월간 지출 한도 오류와 이 경로의 생성 성공을 구분한다. 위 REST 단건 점검 뒤 공통 SDK와 평가 제공자를 연결했다. 실제 영어 및 한국어 합성 평가 2건이 모두 스키마를 통과했고, Vertex us-central1의 gemini-embedding-001도 합성 1건 성공했다. 실행 계정 검증은 별도 절차로 진행하며 최종 업무 모델은 아직 미확정이다. 관리형 에이전트 실행 환경을 새로 채택하거나 서비스를 추가한 것은 아니다. [공식 global 엔드포인트 안내](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#global-endpoint).
 
 ## Microsoft 관리자 동의에서 막힐 때
 
@@ -112,3 +150,7 @@ WSL에서는 스크립트가 Windows 기본 브라우저를 호출한다. 실패
 > 개발용 앱 ls-cs-rfp-agent의 Microsoft 로그인 및 메일 연동 검증을 위해 관리자 동의가 필요합니다. 앱 ID는 7160833b-2aa3-497f-bc6c-11c59851c254이고 테넌트 ID는 6c2ea5ee-418c-4e13-8eaa-5163cdb50c67입니다. 요청하는 Graph 위임 권한은 Mail.Read, Mail.Send, offline_access입니다. 시연용 사용자에 대해 사용할 수 있는 승인 방식과 메일함 사용 가능 여부를 확인 부탁드립니다.
 
 관리자에게 메시지를 대신 보내지는 않았다. 승인 후 로그인 및 Mail.Read를 재검증하고, Mail.Send 동의와 실제 테스트 메일 발송 및 수신은 구분해 확인한다. 현재는 실제 로그인, 읽기 및 발송 성공을 확인하지 못했다. [Microsoft 관리자 동의 안내](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent)를 참고한다.
+
+### 실행 계정 권한 전파 확인
+
+첫 실행 계정 점검은 임시 권한 추가 직후 토큰 발급에서 RefreshError가 발생했고 임시 바인딩을 회수했다. 모델 요청 이전의 인증 단계다. 이후 IAM_PERMISSION_DENIED인 토큰 발급만 최대 180초 기다리도록 보완했다. 모델 생성은 재시도하지 않는다. IAM 정책 변경의 반영에는 수분이 걸릴 수 있다. [공식 IAM 전파 시간 안내](https://docs.cloud.google.com/iam/docs/access-change-propagation).
