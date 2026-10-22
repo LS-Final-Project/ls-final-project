@@ -68,6 +68,11 @@ Draft·fork에는 구독 Secret을 사용하는 리뷰를 실행하지 않으며
 `@claude` 대화 응답이나 CodeRabbit 댓글만으로 `claude-review` 결과를 대신하지 않는다.
 팀원 자동 요청은 중단했지만 기존 요청은 관리자가 별도로 해제한다.
 
+2026-10-23 사용자 결정으로 `.coderabbit.yaml`에서 CodeRabbit 자동 리뷰와 PR 본문 요약을 중단한다.
+라벨·본문 키워드로 자동 리뷰가 다시 켜지지 않도록 두 설정도 비운다. 병합 조건은 CI 성공과 최신 head/base SHA의 `claude-review` 통과이며 CodeRabbit 완료를 추가로 기다리지 않는다.
+이 설정은 GitHub App 삭제나 기존 PR 상태의 소급 삭제를 뜻하지 않는다. 기존 작업 브랜치에는 최신 dev의 설정을 반영해야 한다. 앱의 저장소 접근 해제·삭제는 조직의 [Installed GitHub Apps](https://github.com/organizations/LS-Final-Project/settings/installations)에서 CodeRabbit 설치를 확인해 처리한다.
+현재 CLI 인증에는 조직 앱 관리 범위가 없어 앱 삭제는 미실행이며, 수동 `@coderabbitai review` 요청은 설정 중단 후에도 가능하다.
+
 워크플로 자체를 최초로 변경하는 PR은 기본 브랜치에 새 검사 코드가 없어 실행이 실패할 수 있다.
 이때 실패를 통과로 바꾸지 않는다. 해당 설치 PR의 diff를 Claude로 별도 검토하고 기존 CI를
 확인한 근거를 PR에 남겨 dev에 통합한 뒤, 실제 열린 기능 PR에서 새 파이프라인을 검증한다.
