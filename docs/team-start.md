@@ -251,29 +251,38 @@ up은 기존 볼륨을 지우거나 모든 마이그레이션을 자동 재실�
 
 ## 자기 변경 검증
 
-API 변경자는 자기 서비스 검사만, 프론트 변경자는 프론트 검사만 실행한다. 함께 수정한 경우 양쪽을 확인한다. 아래 cs는 자기 서비스인 tft 또는 platform으로 바꾼다.
+코드를 작성하는 AI도 아래 검사를 실제 실행한다. 담당자 이름이 아니라 이번에 바꾼 경로와 영향을 기준으로 선택한다. 검사 결과와 코드 작성 원칙은 [AGENTS](../AGENTS.md#필요한-만큼-구현하고-실제로-검증하기), 사람의 검토 기준은 [CONTRIBUTING](../CONTRIBUTING.md#pr-작성과-검토)를 따른다.
+
+| 변경 범위 | 실행할 검사 |
+| --- | --- |
+| C/S API·규칙 | `uv run --frozen python scripts/check_backend.py cs` |
+| TFT API | `uv run --frozen python scripts/check_backend.py tft` |
+| 인증·메일·평가 관리 API | `uv run --frozen python scripts/check_backend.py platform` |
+| 공통 backend·AI·Python 의존성 | `uv run --frozen python scripts/check_backend.py all`. 영향을 받는 프론트와 인프라 검사는 아래에서 추가 |
+| 평가 코드·평가 테스트 | `uv run --frozen python scripts/check_backend.py eval` |
+| 프론트 | `npm test --prefix frontend`와 `npm run build --prefix frontend`. 변경한 화면 흐름도 실제 확인 |
+| API 계약 | 해당 백엔드 검사에 `python3 scripts/workspace.py contracts cs --check` 추가. cs는 tft 또는 platform으로 교체하며 공통 계약은 all 사용 |
+| 인프라·스크립트 Python | 아래 Ruff·포맷 및 unittest 명령 |
+| 문서만 변경 | 링크·명령·범위·결정의 일관성 확인. 무관한 pytest 실행이나 테스트 신설은 필요 없음 |
+
+백엔드 검사 한 번으로 Ruff 검사·포맷 확인·mypy·pytest·OpenAPI 및 합성 예시 일치를 확인한다. `all`은 백엔드 전체와 평가 테스트를 포함하며 저장소 전체 검사를 뜻하지 않는다. `eval`은 Ruff·포맷·pytest를 실행하며 별도 타입 검사는 아직 없다. 공통 코드 변경 시 영향을 받는 소비자 검사도 실행한다.
+
+테스트는 `tests/cs`, `tests/tft`, `tests/platform`, `tests/eval`에 기능별로 둔다. 루트 테스트는 공통 회귀로 실행한다. 그 밖의 테스트 폴더는 우선 공유 범위로 취급해 백엔드와 평가 검사에서 재귀 수집한다. 새 테스트 폴더를 추가할 때도 해당 PR의 CI에서 실제 실행되는지 확인한다.
+
+인프라·스크립트 검사:
 
 ```bash
-uv run --frozen python scripts/check_backend.py cs
-python3 scripts/workspace.py contracts cs --check
+uv run --frozen ruff check infra scripts
+uv run --frozen ruff format --check infra scripts
+python3 -m unittest discover -s infra/tests -q
+python3 -m unittest discover -s scripts/tests -q
 ```
 
-프론트 변경:
+PR 자동화 JavaScript를 바꾸면 `node .github/tests/pr_metadata.test.cjs`도 실행한다. CI도 같은 검사를 실행한다. 위 unittest는 실제 GCP 변경을 수행하지 않는다.
 
-```bash
-npm test --prefix frontend
-npm run build --prefix frontend
-```
+검사 스크립트는 첫 실패에서 중단한다. 예를 들어 Ruff가 실패하면 이후 pytest는 미실행이다. 실패를 고친 뒤 명령을 다시 실행한다. PR에는 검증한 커밋, 실제 명령·결과, 미실행 이유와 CI 링크를 남긴다. 커밋 전 검사는 작업 트리 기준으로 표시하고 마지막 코드 수정에 영향받은 검사를 다시 실행한다. 필수 검증이 남으면 최종 완료 표시와 병합을 보류한다. 변경하지 않은 서비스의 정상 skipped와 검사 선택 오류를 구분한다.
 
-공통 코드 변경이나 전체 통합 확인 때는 다음 검사를 사용한다.
-
-```bash
-uv run --frozen ruff check backend tests eval scripts/workspace.py scripts/check_integrations.py
-uv run --frozen mypy
-uv run --frozen pytest -q
-python3 scripts/workspace.py contracts all --check
-npm run build --prefix frontend
-```
+프론트의 현재 `npm test`는 정적 웹 서버·프록시 테스트다. `build`는 TypeScript와 번들 생성 검사이며 React 화면의 클릭·입력·로딩·오류 동작을 보장하지 않는다. 화면 변경은 확인한 흐름과 방법을 PR에 기록한다. DB·세션 연결을 바꾸면 이미 실행한 로컬 환경에서 `python3 scripts/workspace.py check`도 사용한다. 이 연결 점검은 업무 기능 전체 검사나 실제 모델 품질 평가를 대신하지 않는다.
 
 키 없이 평가 실행과 기록 경로를 확인한다.
 

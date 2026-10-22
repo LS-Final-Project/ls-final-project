@@ -74,6 +74,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - run: python3 -m pip install uv==0.10.10
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen ruff check infra scripts
+      - run: uv run --frozen ruff format --check infra scripts
       - run: python3 -m unittest discover -s infra/tests -q
       - run: python3 -m unittest discover -s scripts/tests -q
   evaluation:
@@ -86,7 +90,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest tests/test_eval_smoke.py tests/test_ai_client.py tests/test_runtime_verification.py -q
+      - run: uv run --frozen python scripts/check_backend.py eval
   required:
     name: Application result
     if: always()

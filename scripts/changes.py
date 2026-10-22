@@ -26,6 +26,7 @@ def classify(paths: list[str]) -> dict:
             continue
         if path.startswith(("backend/agent/", "backend/engine/")):
             release.update(("cs", "tft"))
+            evaluation = True
             continue
         if path.endswith(".md") or path.startswith("contracts/"):
             continue
@@ -48,10 +49,12 @@ def classify(paths: list[str]) -> dict:
             release.update(BACKENDS)
             contracts.update(BACKENDS)
             frontend = True
-        elif path.startswith("eval/") or path == "tests/test_eval_smoke.py":
+            evaluation = True
+        elif path.startswith(("eval/", "tests/eval/")) or path == "tests/test_eval_smoke.py":
             evaluation = True
         elif path.startswith("tests/"):
             contracts.update(BACKENDS)
+            evaluation = True
         elif path == "compose.yaml":
             infrastructure = True
         elif path.startswith(("infra/", "scripts/")):
@@ -75,12 +78,12 @@ def classify(paths: list[str]) -> dict:
         elif path in {".dockerignore", ".gcloudignore", "cloudbuild.yaml"}:
             release.update(SERVICES)
             contracts.update(BACKENDS)
-            frontend = infrastructure = True
+            frontend = infrastructure = evaluation = True
         elif path not in {".gitignore", ".gitattributes"}:
             # An unknown executable/configuration path must not silently bypass CI.
             release.update(SERVICES)
             contracts.update(BACKENDS)
-            frontend = infrastructure = True
+            frontend = infrastructure = evaluation = True
     checks = set(contracts) | (release & set(BACKENDS))
     return {
         "services": [service for service in SERVICES if service in release],

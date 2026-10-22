@@ -72,6 +72,37 @@ class ChangeTests(unittest.TestCase):
                 result = changes.classify([path])
                 self.assertEqual(result["services"], list(changes.BACKENDS))
                 self.assertTrue(result["frontend"])
+                self.assertTrue(result["evaluation"])
+
+    def test_shared_ai_and_business_modules_check_evaluation_consumers(self):
+        for path in (
+            "backend/shared/ai.py",
+            "backend/agent/cs/prompts/classify.md",
+            "backend/engine/search.py",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertTrue(result["evaluation"])
+                self.assertIn("cs", result["backends"])
+                self.assertIn("tft", result["backends"])
+
+    def test_new_evaluation_tests_run_without_releasing_an_api(self):
+        result = changes.classify(["tests/eval/retrieval/test_metrics.py"])
+        self.assertTrue(result["evaluation"])
+        self.assertEqual(result["backends"], [])
+        self.assertEqual(result["services"], [])
+
+    def test_unknown_shared_test_directories_check_all_consumers_without_a_release(self):
+        for path in (
+            "tests/agent/test_classification.py",
+            "tests/engine/test_search.py",
+            "tests/new_shared/test_contract.py",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertEqual(result["backends"], list(changes.BACKENDS))
+                self.assertTrue(result["evaluation"])
+                self.assertEqual(result["services"], [])
 
     def test_docs_are_skipped_but_unknown_code_is_not(self):
         self.assertEqual(changes.classify(["docs/team-start.md"])["services"], [])
