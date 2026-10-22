@@ -80,6 +80,23 @@ jobs:
       - run: uv run --frozen ruff format --check infra scripts
       - run: python3 -m unittest discover -s infra/tests -q
       - run: python3 -m unittest discover -s scripts/tests -q
+      - name: Verify fresh local database initialization
+        timeout-minutes: 5
+        env:
+          LOCAL_DB_ADMIN_PASSWORD: ci-admin-only
+          LOCAL_CS_PASSWORD: ci-cs-only
+          LOCAL_TFT_PASSWORD: ci-tft-only
+          LOCAL_PLATFORM_PASSWORD: ci-platform-only
+          LOCAL_DB_PORT: '55433'
+        run: |
+          test -x infra/local/init.sh
+          bash -n infra/local/init.sh
+          compose=(docker compose --env-file /dev/null --project-name kan102-init-check)
+          trap '"${compose[@]}" down --volumes' EXIT
+          "${compose[@]}" up -d --wait --wait-timeout 120 db
+          "${compose[@]}" exec -T db psql -X -U postgres -d team4 -v ON_ERROR_STOP=1 -f /setup/sql/002_verify_service_roles.sql
+          initialized=$("${compose[@]}" exec -T db psql -X -U postgres -d team4 -v ON_ERROR_STOP=1 -Atc "SELECT (SELECT count(*) FROM identity.users) = 4 AND (SELECT count(*) FROM identity.user_roles) = 4 AND EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+          test "$initialized" = t
   evaluation:
     needs: changes
     if: needs.changes.outputs.evaluation == 'true'
