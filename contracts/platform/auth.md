@@ -37,7 +37,34 @@ KAN-57의 화면·업무 상태·권한 행렬은 김종하·김나영과 확인
 MSAL의 flow 시작과 callback 교환은 [Microsoft 안내](https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens)를 따른다.
 단순 JWT 디코딩이나 브라우저가 전달한 식별 결과를 인증으로 사용하지 않는다.
 
-이번 초안에는 테스트 전용 fake 어댑터와 거부 회귀만 있다. 실제 MSAL 어댑터,
-인가 시도 저장·원자적 소비 및 재사용 거부, 등록 사용자 조회와 기존 서버 세션 연결,
-production 쿠키·CSRF·로그아웃, 토큰 보관은 후속 구현이다. 따라서 실제 토큰 검증이나
-로그인 완료를 주장하지 않는다. 공개 라우터·OpenAPI·로컬 개발 세션은 변경하지 않는다.
+### 개인 Outlook용 MSAL 어댑터
+
+`backend/api/platform/auth/microsoft.py`의 `PersonalMicrosoftOAuth`는 KAN-76에서
+성공한 개인 계정 `consumers` authority와 시크릿 기반 서버 앱을 사용한다.
+학교 테넌트 설정을 덮어쓰지 않으며 조직 계정의 자동 대체 경로는 제공하지 않는다.
+생성자에는 기존 앱 ID·서버 시크릿·정확한 Web callback 주소를 명시적으로 전달한다.
+환경 파일을 자동으로 읽거나 앱 등록을 변경하지 않는다. 이전 SPA/Web 혼용 문제를
+피하려면 해당 서버 callback을 Entra의 Web 플랫폼에 등록해야 한다.
+
+`begin()`은 MSAL의 state·nonce·PKCE 생성을 사용해 로그인 URL과 서버 전용 인가
+시도를 반환한다. 서비스 로그인은 메일 권한을 추가하지 않고 사서함 연결만
+Mail.Read·Mail.Send를 요청한다. openid·profile·offline_access는 MSAL이 추가한다.
+브라우저에 반환할 값은 로그인 URL뿐이며 flow·시크릿·토큰을 응답에 포함하지 않는다.
+
+`redeem()`은 저장된 callback 주소·state·nonce·verifier를 확인하고 MSAL로 code를
+교환한다. 원시 ID 토큰은 개인 계정 전용 Microsoft JWKS의 공개키로 RS256 서명,
+정확한 issuer·앱 audience·필수 클레임·유효기간·nonce·개인 계정 tid와 UUID oid를
+검증한다. MSAL이 디코딩한 클레임만으로 인증하지 않는다. 공급자 연결 장애는 503,
+잘못된 토큰은 401로 구분하며 오류 응답에는 원시 공급자 설명이나 토큰을 넣지 않는다.
+토큰 캐시는 호출마다 새로 만들고 영속 저장하지 않는다. 반환값은 tid·oid뿐이며
+사서함 토큰 연결과 업무 권한 부여를 완료한 결과가 아니다.
+
+기존 개발 의존성인 MSAL을 실행 의존성으로 옮겼다. 직접 사용하는 PyJWT와 requests도
+실행 의존성으로 명시했다. MSAL 1.39의 토큰 획득은 nonce를 확인하지만 ID 토큰의
+서명·issuer·audience·유효기간 검증을 대신하지 않아 별도의 검증이 필요하다.
+잠금 파일의 기존 패키지 버전은 유지한다.
+
+합성 HTTP 응답과 실제 MSAL·RSA 서명 검증으로 회귀를 확인한다. 실제 Outlook을
+사용한 이번 제품 어댑터 검증은 아직 수행하지 않았다. 인가 시도 저장·원자적 소비 및
+재사용 거부, 등록 사용자 조회와 기존 서버 세션 연결, production 쿠키·CSRF·로그아웃,
+토큰 보관은 후속 구현이다. 공개 라우터·OpenAPI·로컬 개발 세션은 변경하지 않는다.
