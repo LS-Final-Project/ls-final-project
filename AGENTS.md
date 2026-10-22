@@ -91,11 +91,13 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 |---|---|
 | C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
-| C/S 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1DhnpC5vyPEIhk3QJ3IRSTLX5f-U-HfpRMdCaGDVnGpg/edit) |
-| RFP 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1Zz_ps2r9oRM5wTt75L-RboCc1knqJ1WYGZZ9DZc09fQ/edit) |
+| C/S 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/12lSqCl6DiYLkstFWcZno5MqNKv_kJ2AC/view), [PDF](https://drive.google.com/file/d/1iBKkSpim-3UhYEWvz1dt2X2x62ecN3O_/view) |
+| RFP 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view) |
 | 스토리보드 | [Google Docs](https://docs.google.com/document/d/1fprJf4b1P0dqKcv7KbFFSxnX2xn_cZM0/edit) |
 
 `data/`는 **읽기 전용**. 수정·생성·삭제 금지.
+
+개발은 위 최종 기획서를 기준으로 한다. 기획서는 수정하지 않고 출력 필드, 평가 계산법, 출처 표기와 안전 조건을 [C/S 계약](contracts/cs/tickets.md), [데이터 계약](docs/data-contract.md), [평가 명세](docs/evaluation.md)에 구체화한다. 기획서와 다른 이전 Google Docs를 최신 원본으로 사용하지 않는다. 현재 담당과 개발 범위는 이번 계약 보완으로 재배정하거나 확대하지 않는다.
 
 ---
 
@@ -149,7 +151,8 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ## 설계 원칙
 
-- **문의 분류 단계** LLM 출력 4개: `category_code`, `urgency_flag`, `provided_info`, `return_subtype`
+- **문의 분류 단계** LLM 출력 5개: `category_code`, `secondary_category`, `urgency_flag`, `provided_info`, `return_subtype`
+  `secondary_category`는 복합 의도의 보조 유형이며 없으면 null이다. 허용값과 규칙 연결은 [C/S 계약](contracts/cs/tickets.md)을 따른다.
   조건 비교·부서 질문·회신 분석·초안 작성은 별도 AI 처리 단계
 - `rule_engine`: 순수 Python, LLM 금지
 - 청킹: MarkdownHeaderTextSplitter (섹션 단위)
@@ -180,6 +183,8 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 ---
 
 ## 확정 합격선
+
+계산식, 규칙 단독 평가와 전체 파이프라인의 구분, 분모 및 보류·실패 처리는 [평가 명세](docs/evaluation.md)를 따른다. 보조 분류와 반품 하위유형의 정답 매핑 및 추가 합격선은 KAN-82·95에서 본실험 전에 잠근다.
 
 | 지표 | 기준 |
 |---|---|
