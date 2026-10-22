@@ -102,7 +102,7 @@ uv run --frozen python scripts/check_integrations.py microsoft --personal-accoun
 
 제목은 Team4 mail integration check와 고유한 합성 probe 값이며 본문에는 합성 연결 점검 문장만 들어간다. 실제 업무 데이터, 첨부와 추가 수신자는 없다. 발송 POST는 한 번만 실행하고 자동 재시도하지 않는다. 토큰은 프로세스 메모리에만 유지한다.
 
-Graph의 HTTP 202는 접수이며 배달 완료를 보장하지 않는다. 스크립트는 약 60초 동안 보낸편지함과 로그인한 받은편지함에서 해당 고유 제목을 조회하고 둘 다 확인해야 PASS를 출력한다. 주소와 원문 및 메시지 ID는 출력하지 않는다. PENDING이면 접수 후 아직 확인되지 않은 상태이므로 같은 메일이 미발송됐다고 단정하거나 자동 재발송하지 않는다. 출력된 합성 probe로 메일함에서 확인한다. 실행마다 새 합성 메일이 생성되므로 불필요하게 명령을 반복하지 않는다. [공식 sendMail 응답 의미](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
+Graph의 HTTP 202는 접수이며 배달 완료를 보장하지 않는다. 스크립트는 약 60초 동안 보낸편지함과 로그인한 받은편지함 및 정크메일함에서 해당 고유 제목을 조회한다. 보낸편지함 저장과 받은편지함 또는 정크메일함 수신 중 하나를 확인해야 PASS를 출력한다. signed_in_delivery_confirmed는 수신 여부이며 signed_in_inbox_confirmed 및 signed_in_junk_confirmed로 위치를 구분한다. 정크 수신을 받은편지함 도착으로 표시하지 않는다. 주소와 원문 및 메시지 ID는 출력하지 않는다. PENDING이면 접수 후 아직 확인되지 않은 상태이므로 같은 메일이 미발송됐다고 단정하거나 자동 재발송하지 않는다. 출력된 합성 probe로 메일함에서 확인한다. 실행마다 새 합성 메일이 생성되므로 불필요하게 명령을 반복하지 않는다. [공식 sendMail 응답 의미](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
 
 이 옵션의 로컬 검증은 단일 발송, 정확한 합성 제목 조회, 접수와 수신 구분, 실패 시 무재시도와 민감값 비노출을 확인했다. 사용자 실제 실행에서 HTTP 202 접수와 보낸편지함의 합성 메일을 확인했다. probe 71d7a8e27a35472e9ed13ac32bed74c2는 60초 내 받은편지함에서 찾지 못해 PENDING이었다. 자동 재발송은 0회이며 사용자에게 보낸 메일의 수신 주소와 정크메일함 및 받은편지함 위치 확인을 요청했다. 배달 완료로 표시하지 않는다. 관련 코드의 원격 CI 39711845319도 성공했다.
 
@@ -110,7 +110,11 @@ Graph의 HTTP 202는 접수이며 배달 완료를 보장하지 않는다. 스�
 
 기본 별칭 변경 후 올바른 수신 주소로 실행한 probe 8ee0827413e24ea2a0df5a3143858f67은 로그인과 Mail.Send 동의 및 Mail.Read를 통과했지만 POST /me/sendMail에서 HTTP 404가 발생했다. 이 시도는 HTTP 202 접수를 확인하지 못했고 수신도 미검증이다. 기존 출력에는 Graph 세부 코드가 없어 원인은 아직 미확정이다. 사서함 초기화나 별칭 전파 및 관리자 동의 문제로 단정하지 않는다.
 
-Graph 요청 오류는 HTTP 상태, 실패 단계(mail_read, send_mail, sent_items, inbox)와 허용 목록의 code만 출력한다. 오류 본문은 메모리에서 크기를 제한해 읽고 message, 요청 주소, 이메일과 토큰 및 요청 ID를 출력하지 않는다. 인식하지 못한 코드는 not_provided_or_unrecognized로 표시한다. 발송과 조회 오류를 구분하고 자동 재발송은 하지 않는다. Graph 오류의 code와 message 구분은 [공식 오류 응답 안내](https://learn.microsoft.com/en-us/graph/errors)를 따른다. 로컬 scripts 테스트 31건과 Ruff 및 포맷 검사를 통과했다. 다음은 사용자가 Outlook 웹에서 합성 메일을 본인 별칭으로 수동 발송해 웹 발송 여부를 확인한 뒤 필요한 경우 수정된 CLI로 세부 코드를 확인하는 단계다. 실제 추가 발송은 에이전트가 실행하지 않았다.
+Graph 요청 오류는 HTTP 상태, 실패 단계(mail_read, send_mail, sent_items, inbox, junkemail)와 허용 목록의 code만 출력한다. 오류 본문은 메모리에서 크기를 제한해 읽고 message, 요청 주소, 이메일과 토큰 및 요청 ID를 출력하지 않는다. 인식하지 못한 코드는 not_provided_or_unrecognized로 표시한다. 발송과 조회 오류를 구분하고 자동 재발송은 하지 않는다. Graph 오류의 code와 message 구분은 [공식 오류 응답 안내](https://learn.microsoft.com/en-us/graph/errors)를 따른다. 로컬 scripts 테스트 31건과 Ruff 및 포맷 검사를 통과했다. 후속 실제 결과는 아래와 같다. 추가 발송은 사용자가 직접 실행했다.
+
+최신 실제 검증: 사용자가 웹 발신 주소를 본인 Outlook 별칭으로 선택한 뒤 발송했고 Gmail에서 해당 별칭으로 보낸 메일의 수신도 확인했다. 이어 사용자 CLI의 probe 0e977472cfe7449a8f46a0e8526d7062가 로그인, Mail.Send 동의, Mail.Read, HTTP 202 접수 및 보낸편지함 저장을 통과했다. 사용자 화면에서 같은 probe의 합성 메일이 정크메일함에 도착한 것을 확인했다. 따라서 로컬 Microsoft OAuth 및 Graph 읽기와 실제 발송 및 수신의 연결 가능성은 확인됐다. 이전 HTTP 404는 이번 실행에서 재현되지 않았지만 이전 오류의 근본 원인은 미확정이다.
+
+기존 CLI는 받은편지함만 조회해 이 실제 수신을 PENDING으로 표시했다. 이를 보완해 Graph의 표준 폴더 이름 junkemail도 읽기 전용으로 확인한다. 메일 이동, 정크 해제, 주소록 및 허용 목록 변경이나 권한 추가는 하지 않는다. 사용자에게 메일 화면의 정크 메일이 아닙니다 버튼으로 직접 분류를 정정할 수 있음을 안내한다. [Graph 표준 폴더 이름](https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0)을 따른다. 정크 수신과 받은편지함 수신 구분 및 발송 저장 미확인 시 PENDING을 포함한 로컬 scripts 테스트 33건과 Ruff 및 포맷 검사를 통과했다. 수정 후 정크메일함의 실제 API 조회는 아직 실행하지 않았다. 이미 화면으로 수신을 확인했으므로 이 수정만을 위해 합성 메일을 재발송할 필요는 없다. 제품의 서버 세션, 토큰 보관 및 갱신, 역할과 동기화 및 승인 후 발송 구현은 여전히 별도다.
 
 ## 기존 Gemini Developer API 진단
 

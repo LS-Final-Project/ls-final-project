@@ -149,7 +149,9 @@ def graph_request(request: Request, *, phase: str, timeout: float):
         finally:
             error.close()
         safe_phase = (
-            phase if phase in {"mail_read", "send_mail", "sent_items", "inbox"} else "unknown"
+            phase
+            if phase in {"mail_read", "send_mail", "sent_items", "inbox", "junkemail"}
+            else "unknown"
         )
         safe_codes = ",".join(codes) or "not_provided_or_unrecognized"
         raise ConfigurationError(
@@ -184,38 +186,53 @@ def mail_roundtrip(access_token: str, recipient: str, *, wait_seconds: int = 60)
         if response.status != 202:
             print("FAIL: Graph sendMail did not return HTTP 202; delivery is unverified.")
             return 1
-    print("PASS: Graph sendMail HTTP 202 accepted; checking Sent Items and own Inbox.", flush=True)
+    print(
+        "PASS: Graph sendMail HTTP 202 accepted; checking Sent Items and own Inbox/Junk Email.",
+        flush=True,
+    )
     query = urlencode({"$filter": f"subject eq '{subject}'", "$select": "id", "$top": 1})
-    seen = {"sentitems": False, "inbox": False}
+    seen = {"sentitems": False, "inbox": False, "junkemail": False}
+
+    def complete() -> bool:
+        return seen["sentitems"] and (seen["inbox"] or seen["junkemail"])
+
     deadline = time.monotonic() + wait_seconds
-    while time.monotonic() < deadline and not all(seen.values()):
+    while time.monotonic() < deadline and not complete():
         for folder in seen:
             remaining = deadline - time.monotonic()
-            if seen[folder] or remaining <= 0:
+            if (
+                seen[folder]
+                or remaining <= 0
+                or (folder != "sentitems" and (seen["inbox"] or seen["junkemail"]))
+            ):
                 continue
             request = Request(
                 f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder}/messages?{query}",
                 headers=headers,
             )
-            phase = "sent_items" if folder == "sentitems" else "inbox"
+            phase = "sent_items" if folder == "sentitems" else folder
             with graph_request(request, phase=phase, timeout=min(10, remaining)) as response:
                 seen[folder] = bool(json.load(response).get("value", []))
-        if not all(seen.values()):
+            if complete():
+                break
+        if not complete():
             time.sleep(min(5, max(0, deadline - time.monotonic())))
     print(
         json.dumps(
             {
-                "status": "PASS" if all(seen.values()) else "PENDING",
+                "status": "PASS" if complete() else "PENDING",
                 "kind": "mail_roundtrip",
                 "probe": marker,
                 "send_accepted": True,
                 "sent_items_confirmed": seen["sentitems"],
                 "signed_in_inbox_confirmed": seen["inbox"],
+                "signed_in_junk_confirmed": seen["junkemail"],
+                "signed_in_delivery_confirmed": seen["inbox"] or seen["junkemail"],
                 "automatic_send_retries": 0,
             }
         )
     )
-    return 0 if all(seen.values()) else 1
+    return 0 if complete() else 1
 
 
 def microsoft(
@@ -480,7 +497,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--mail-roundtrip-to",
-        help="Opt in: send one synthetic email to your own address and verify Sent Items and Inbox",
+        help="Opt in: send one synthetic email and verify Sent Items plus your Inbox or Junk Email",
     )
     parser.add_argument(
         "--embed-model", help="Check one synthetic embedding instead of listing models"

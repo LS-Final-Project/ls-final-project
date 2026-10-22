@@ -108,12 +108,67 @@ class MicrosoftPreflightTests(unittest.TestCase):
             self.assertEqual(query["$select"], ["id"])
             self.assertEqual(query["$filter"], [f"subject eq '{payload['message']['subject']}'"])
         self.assertIn('"signed_in_inbox_confirmed": true', output.getvalue())
+        self.assertIn('"signed_in_junk_confirmed": false', output.getvalue())
+        self.assertEqual(len(calls), 3)
         for sensitive in (
             "fixture-secret-token",
             "fixture-id-not-for-logs",
             "self@example.invalid",
         ):
             self.assertNotIn(sensitive, output.getvalue())
+
+    def test_junk_delivery_counts_as_received_without_claiming_inbox_delivery(self):
+        calls = []
+
+        def request(req, **_):
+            calls.append(req)
+            if req.get_method() == "POST":
+                response = io.BytesIO()
+                response.status = 202
+                return response
+            found = "/inbox/" not in req.full_url
+            return io.BytesIO(b'{"value":[{"id":"private-id"}]}' if found else b'{"value":[]}')
+
+        output = io.StringIO()
+        with patch.object(check, "urlopen", side_effect=request), patch("sys.stdout", output):
+            self.assertEqual(check.mail_roundtrip("private-token", "self@example.invalid"), 0)
+        result = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(result["sent_items_confirmed"])
+        self.assertTrue(result["signed_in_junk_confirmed"])
+        self.assertTrue(result["signed_in_delivery_confirmed"])
+        self.assertFalse(result["signed_in_inbox_confirmed"])
+        self.assertEqual(sum(req.get_method() == "POST" for req in calls), 1)
+        self.assertTrue(all(req.get_method() == "GET" for req in calls[1:]))
+        self.assertEqual(len(calls), 4)
+        self.assertNotIn("private", output.getvalue())
+
+    def test_junk_delivery_without_sent_items_stays_pending(self):
+        now = [0]
+
+        def request(req, **_):
+            if req.get_method() == "POST":
+                response = io.BytesIO()
+                response.status = 202
+                return response
+            found = "/junkemail/" in req.full_url
+            return io.BytesIO(b'{"value":[{"id":"private-id"}]}' if found else b'{"value":[]}')
+
+        def advance(_):
+            now[0] = 61
+
+        output = io.StringIO()
+        with (
+            patch.object(check, "urlopen", side_effect=request),
+            patch.object(check.time, "monotonic", side_effect=lambda: now[0]),
+            patch.object(check.time, "sleep", side_effect=advance),
+            patch("sys.stdout", output),
+        ):
+            self.assertEqual(check.mail_roundtrip("private-token", "self@example.invalid"), 1)
+        result = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(result["status"], "PENDING")
+        self.assertTrue(result["signed_in_delivery_confirmed"])
+        self.assertFalse(result["sent_items_confirmed"])
 
     def test_accepted_mail_is_not_reported_as_delivered_and_is_never_resent(self):
         response = io.BytesIO()
