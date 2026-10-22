@@ -74,8 +74,7 @@ def deployment_commands(
             command.append(f"--update-env-vars=NODE_ENV=production,PLATFORM_URL={PLATFORM_URL}")
         else:
             ai_environment = (
-                ",AI_PROVIDER=gemini,"
-                "GEMINI_MODEL=gemini-3.6-flash,GEMINI_MAX_OUTPUT_TOKENS=1024"
+                ",AI_PROVIDER=gemini,GEMINI_MODEL=gemini-3.6-flash,GEMINI_MAX_OUTPUT_TOKENS=1024"
                 if service in ("cs", "tft")
                 else ""
             )
@@ -91,7 +90,9 @@ def deployment_commands(
                 ]
             )
         if service in ("cs", "tft"):
-            command.append("--remove-env-vars=GOOGLE_CLOUD_LOCATION,GOOGLE_CLOUD_EMBEDDING_LOCATION")
+            command.append(
+                "--remove-env-vars=GOOGLE_CLOUD_LOCATION,GOOGLE_CLOUD_EMBEDDING_LOCATION"
+            )
         commands.append(command)
     return commands
 

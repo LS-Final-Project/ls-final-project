@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import re
 import subprocess
 import sys
-
+from pathlib import Path
 
 KEY = re.compile(r"(?<![A-Za-z0-9])KAN-[1-9][0-9]*(?![A-Za-z0-9])")
 
@@ -25,13 +24,19 @@ def setup() -> None:
     root = Path(git("rev-parse", "--show-toplevel").stdout.strip())
     existing = git("config", "--get", "core.hooksPath", check=False).stdout.strip()
     if existing and existing != ".githooks":
-        raise ValueError(f"기존 core.hooksPath={existing} 설정을 보존했습니다. 기존 훅과 통합한 뒤 설정하세요.")
+        raise ValueError(
+            f"기존 core.hooksPath={existing} 설정을 보존했습니다. 기존 훅과 통합한 뒤 설정하세요."
+        )
     default_hook = Path(git("rev-parse", "--git-path", "hooks/prepare-commit-msg").stdout.strip())
     if not existing and default_hook.exists():
-        raise ValueError("기존 prepare-commit-msg 훅을 보존했습니다. 기존 훅과 통합한 뒤 설정하세요.")
+        raise ValueError(
+            "기존 prepare-commit-msg 훅을 보존했습니다. 기존 훅과 통합한 뒤 설정하세요."
+        )
     hook = root / ".githooks" / "prepare-commit-msg"
     if not hook.is_file():
-        raise ValueError("이 브랜치에 .githooks/prepare-commit-msg가 없습니다. 자동화 변경을 먼저 받아 주세요.")
+        raise ValueError(
+            "이 브랜치에 .githooks/prepare-commit-msg가 없습니다. 자동화 변경을 먼저 받아 주세요."
+        )
     hook.chmod(hook.stat().st_mode | 0o111)
     git("config", "--local", "team4.python", Path(sys.executable).as_posix())
     git("config", "--local", "core.hooksPath", ".githooks")
@@ -46,7 +51,9 @@ def start(key: str, slug: str) -> None:
     branch = f"{key}-{slug}"
     git("check-ref-format", "--branch", branch)
     if git("status", "--porcelain").stdout.strip():
-        raise ValueError("작업 중인 변경이 있습니다. 자신의 변경을 정리한 뒤 실행하세요. 자동으로 stash하거나 삭제하지 않습니다.")
+        raise ValueError(
+            "작업 중인 변경이 있습니다. 자신의 변경을 정리한 뒤 실행하세요. 자동으로 stash하거나 삭제하지 않습니다."
+        )
     if git("show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode == 0:
         raise ValueError(f"{branch} 브랜치가 이미 있습니다. 기존 브랜치를 확인하세요.")
     git("fetch", "origin", "dev")
@@ -67,11 +74,16 @@ def prepare_commit(message_path: str, source: str = "", *_: str) -> None:
         return  # Detached HEAD, for example during an automated operation.
     keys = issue_keys(branch.stdout.strip())
     if not keys:
-        raise ValueError("브랜치에 Jira 번호가 없습니다. KAN-63-task-name 형태의 작업 브랜치를 사용하세요.")
+        raise ValueError(
+            "브랜치에 Jira 번호가 없습니다. KAN-63-task-name 형태의 작업 브랜치를 사용하세요."
+        )
     path = Path(message_path)
     text = path.read_bytes().decode("utf-8", errors="surrogateescape")
     lines = text.splitlines(keepends=True)
-    index = next((i for i, line in enumerate(lines) if line.strip() and not line.lstrip().startswith("#")), None)
+    index = next(
+        (i for i, line in enumerate(lines) if line.strip() and not line.lstrip().startswith("#")),
+        None,
+    )
     if index is None:
         text = " ".join(keys) + " \n" + text
     else:
@@ -81,7 +93,9 @@ def prepare_commit(message_path: str, source: str = "", *_: str) -> None:
         existing = issue_keys(subject)
         wrong = [key for key in existing if key not in keys]
         if wrong:
-            raise ValueError(f"커밋 제목의 {', '.join(wrong)} 번호가 현재 브랜치와 다릅니다. 자동 교체하지 않았습니다.")
+            raise ValueError(
+                f"커밋 제목의 {', '.join(wrong)} 번호가 현재 브랜치와 다릅니다. 자동 교체하지 않았습니다."
+            )
         missing = [key for key in keys if key not in existing]
         if not missing:
             return

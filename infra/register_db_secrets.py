@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 
-
 PROJECT = "proj-skkuls0106-183255377938"
 ACCOUNT = "skkuls0106@skkukdp.re.kr"
 REGION = "asia-northeast3"
@@ -23,8 +22,11 @@ class RegistrationError(Exception):
 
 def gcloud(arguments: list[str], payload: bytes | None = None) -> str:
     command = [
-        "gcloud", *arguments,
-        f"--project={PROJECT}", f"--account={ACCOUNT}", "--quiet",
+        "gcloud",
+        *arguments,
+        f"--project={PROJECT}",
+        f"--account={ACCOUNT}",
+        "--quiet",
     ]
     result = subprocess.run(command, input=payload, capture_output=True, check=False)
     if result.returncode:
@@ -65,32 +67,53 @@ def register(dry_run: bool) -> None:
     for name, variable, service in SECRETS:
         if name not in existing:
             gcloud(
-                ["secrets", "create", name, "--replication-policy=user-managed",
-                 f"--locations={REGION}", "--data-file=-", "--format=none"],
+                [
+                    "secrets",
+                    "create",
+                    name,
+                    "--replication-policy=user-managed",
+                    f"--locations={REGION}",
+                    "--data-file=-",
+                    "--format=none",
+                ],
                 payload=os.environ[variable].encode("utf-8"),
             )
             print(f"CREATED: {name}")
         else:
-            enabled = gcloud([
-                "secrets", "versions", "list", name, "--filter=state:ENABLED",
-                "--limit=1", "--format=value(name)",
-            ])
+            enabled = gcloud(
+                [
+                    "secrets",
+                    "versions",
+                    "list",
+                    name,
+                    "--filter=state:ENABLED",
+                    "--limit=1",
+                    "--format=value(name)",
+                ]
+            )
             if not enabled.strip():
                 raise RegistrationError(f"No enabled version in existing secret: {name}")
             print(f"KEPT: {name} (existing value; not compared with local password)")
 
-        gcloud([
-            "secrets", "add-iam-policy-binding", name,
-            f"--member=serviceAccount:{service}@{PROJECT}.iam.gserviceaccount.com",
-            "--role=roles/secretmanager.secretAccessor", "--condition=None",
-            "--format=none",
-        ])
+        gcloud(
+            [
+                "secrets",
+                "add-iam-policy-binding",
+                name,
+                f"--member=serviceAccount:{service}@{PROJECT}.iam.gserviceaccount.com",
+                "--role=roles/secretmanager.secretAccessor",
+                "--condition=None",
+                "--format=none",
+            ]
+        )
         print(f"ACCESS: {name} -> {service}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true", help="Validate exported inputs without cloud calls")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Validate exported inputs without cloud calls"
+    )
     arguments = parser.parse_args()
     try:
         register(arguments.dry_run)
