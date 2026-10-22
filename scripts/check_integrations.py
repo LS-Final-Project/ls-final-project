@@ -143,7 +143,9 @@ def microsoft(values: dict[str, str], login: bool, personal_account: bool = Fals
     app = msal.ConfidentialClientApplication(
         client_id, authority=authority, client_credential=secret
     )
-    flow = app.initiate_auth_code_flow(scopes=["Mail.Read", "Mail.Send"], redirect_uri=redirect)
+    flow = app.initiate_auth_code_flow(
+        scopes=["Mail.Read", "Mail.Send"], redirect_uri=redirect, prompt="select_account"
+    )
     callback = {}
 
     class Callback(BaseHTTPRequestHandler):

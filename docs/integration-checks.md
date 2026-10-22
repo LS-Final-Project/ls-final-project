@@ -89,6 +89,8 @@ Gmail 주소를 로그인 이름으로 쓰는 Microsoft 개인 계정도 있다.
 
 사용자는 지원 계정 유형을 조직 및 개인 포함으로 설정했다고 보고했고 Gmail 주소로 로그인한 결과 OAuth invalid_request가 발생했다. 이는 Graph 호출 이전의 실패이며 구체 원인은 아직 미확정이다. 진단 출력은 OAuth 오류 종류와 AADSTS 숫자 및 authorization 또는 token_exchange 단계만 남긴다. 오류 설명 원문, 이메일, 시크릿, 인증 코드와 state 및 콜백 URL은 출력하지 않는다. 같은 명령으로 다시 확인한 FAIL 행만 공유한다. AADSTS가 제공되지 않으면 not_provided로 표시한다. [공식 오류 코드 안내](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes).
 
+로그인 요청은 select_account를 지정해 기존 브라우저 세션이 자동 선택되지 않도록 한다. 계정 선택 전에 앱 요청이 거절되면 여전히 오류가 날 수 있으므로 이 설정만으로 원인이 해결됐다고 판단하지 않는다. 사용자는 Outlook 계정을 만든 뒤 실제 받은편지함이 보인다고 확인했으며 이후 OAuth 결과를 기다리는 중이다.
+
 ## 기존 Gemini Developer API 진단
 
 아래는 기존 API 키 경로를 별도로 진단하는 명령이다. 현재 생성은 월간 지출 한도로 막혀 있으므로 재시도를 반복하지 않는다. 위 Vertex 경로를 기본으로 사용한다.
