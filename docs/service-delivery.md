@@ -25,6 +25,22 @@ main push 또는 main을 명시한 수동 실행으로만 CD를 시작한다. GC
 
 Cloud Build의 서비스 이미지 빌드와 CD는 별도 실행 및 별도 계정이다. CD는 성공한 빌드 메타데이터의 정확한 SHA 및 digest를 검증한다. 기존 IAM 공개 범위는 변경하지 않으며 기대한 웹/백엔드 경계와 다르면 중단한다. 실패한 앱 때문에 다른 앱의 이미지를 임의로 바꾸지 않는다. 자동 롤백은 아직 제공하지 않는다.
 
+## 오새결의 평소 배포: dev에서 main으로
+
+처음 셋업을 끝낸 뒤에는 아래 순서만 따른다. main에 병합하면 공용 환경의 자동 배포가 시작되므로 포함할 기능이 준비됐을 때 진행한다.
+
+1. 포함할 기능 PR이 dev에 병합됐고, 최신 dev의 CI가 성공했는지 확인한다.
+2. GitHub 저장소에서 Pull requests → New pull request를 누른다. [배포 비교 화면](https://github.com/LS-Final-Project/ls-final-project/compare/main...dev)을 바로 열어도 된다.
+3. 왼쪽 **base: main**, 오른쪽 **compare: dev**로 선택한다. base는 받을 곳, compare는 가져올 변경이다. Files changed에서 이번 배포 범위를 확인한다.
+4. 제목은 `배포: C/S 로그인과 화면 라우팅`처럼 적고, 본문에 포함 Jira 번호, 검증 결과와 남은 제약을 기록한다. Create pull request를 누르고 검토자 한 명을 지정한다. 배포 PR에는 `[완료 KAN-번호]` 표시를 넣지 않는다.
+5. PR의 CI 성공과 동료 승인을 확인한다. 병합 버튼 옆 화살표에서 **Create a merge commit**을 선택하고 Merge pull request → Confirm merge를 누른다. dev와 main 사이에는 Squash and merge를 사용하지 않는다.
+6. Actions에서 방금 생성된 main 커밋의 Application checks와 Deploy changed services가 성공했는지 확인한다. 바뀌지 않은 서비스의 skipped는 정상일 수 있다. [공용 웹](https://team4-web-gew6ci4pgq-du.a.run.app/)에서 해당 기능도 확인한다. PR 병합 자체는 배포 성공을 뜻하지 않는다.
+7. 배포가 끝나면 [동기화 비교 화면](https://github.com/LS-Final-Project/ls-final-project/compare/dev...main)에서 **base: dev / compare: main**으로 PR을 만들고 **Create a merge commit**으로 병합한다. main의 병합 이력을 dev에 돌려놓는 단계다. 차이가 없으면 생략한다.
+
+dev와 main은 계속 쓰는 브랜치이므로 삭제하지 않는다. 충돌이나 CI 실패가 나오면 병합을 중단하고 원인을 해결한다. 강제 push로 맞추지 않는다. 현재 요금제에서는 검토·CI 조건이 서버에서 강제되지 않아 병합하는 사람이 직접 확인한다.
+
+버전 태그는 검증한 배포를 다시 찾기 위한 이름이다. 예를 들어 첫 검증 배포를 `v0.1.0`으로 기록할 수 있지만, dev → main 병합만으로 버전 번호나 GitHub Release가 자동 생성되지는 않는다. 태그와 Release 발행은 실제 배포 확인 후 별도로 진행한다.
+
 ## 처음 한 번: 사용자 실행
 
 저장소 루트에서 준비한다. 서비스 계정 키를 만들거나 GitHub에 DB Secret을 넣지 않는다.

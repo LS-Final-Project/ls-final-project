@@ -79,7 +79,7 @@ async function run({ github, context, core, config }) {
   await core.summary.addHeading('Jira 연결 검사')
     .addRaw(`티켓: ${metadata.keys.join(', ')}\n\n`)
     .addRaw(waiver ? `초기 셋업 검토 생략: ${waiver.reason}\n` : pr.draft ? 'Draft PR이므로 검토 요청은 보류했습니다.\n' : `검토 배정: ${route.reviewers.join(', ') || '직접 지정 필요'}\n`)
-    .addRaw('\nJira의 최종 완료 상태와 배포 승인은 변경하지 않습니다.\n')
+    .addRaw('\n이 워크플로는 Jira 상태를 직접 변경하지 않습니다. 최종 PR 제목의 [완료 KAN-번호]와 dev 병합 조건을 충족하면 별도 Jira 규칙이 해당 티켓을 완료로 전환합니다. 중간 PR에는 완료 표시를 넣지 마세요.\n')
     .write();
 }
 

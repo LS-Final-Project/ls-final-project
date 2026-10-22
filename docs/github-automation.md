@@ -101,3 +101,27 @@ node .github/tests/pr_metadata.test.cjs
 같은 저장소의 dev → main 배포 PR과 main → dev 동기화 PR은 번호 없는 장기 브랜치를 허용한다. 이 경우 자동화는 제목과 본문을 보존하고 수동 검토자 지정과 merge commit 사용을 안내한다. 일반 작업 및 fork의 번호 없는 브랜치에는 이 예외를 적용하지 않는다. 검토자를 자동으로 새 요청하거나 Jira 상태를 변경하지 않는다.
 
 저장소에서는 Squash와 Merge commit을 허용한다. 기능 작업은 dev에 Squash, 두 장기 브랜치 사이는 merge commit으로 병합한다. 기본 브랜치 변경은 요금제 제한이 있는 보호 규칙을 활성화하는 작업과 별개다. 보호 규칙에 의한 서버 강제 차단은 설정하지 않았다.
+
+## Jira 자동 완료
+
+2026-10-22 KAN의 `KAN 최종 PR dev 병합 시 자동 완료` 규칙을 생성했다. 저장 후 목록의 ENABLED, 범위 LSTeam4와 실행 주체 Automation for Jira를 확인했다. 실제 PR 병합에 따른 상태 전환은 첫 최종 기능 PR에서 확인해야 한다.
+
+| PR 구분 | 제목 예시 | dev 병합 후 Jira |
+| --- | --- | --- |
+| 중간 결과 | `[KAN-64] 라우팅 초안` | 상태 유지 |
+| 티켓 전체 완료 | `[KAN-64] [완료 KAN-64] 화면 라우팅 완료` | KAN-64 완료 전환 |
+| dev/main 통합 | `배포: 화면 라우팅` | 상태 유지 |
+
+완료 표시는 제목에 하나만 넣는다. 참고 티켓은 본문에 링크한다. 완료 조건 충족 여부와 CI 및 동료 승인은 병합 전에 사람이 확인한다. GitHub 요금제상 강제 차단과 이 Jira 규칙의 자동 품질 검사는 제공되지 않는다. PR 메타데이터 워크플로가 완료 표시를 자동으로 붙이지는 않는다.
+
+트리거는 Pull request merged다. 다음 조건을 모두 만족한 현재 티켓만 완료로 전환한다.
+
+- `{{pullRequest.destinationBranch}}` = `dev`
+- `{{pullRequest.title.match("\[완료 (KAN-[0-9]+)\]")}}` = `{{issue.key}}`
+- `{{pullRequest.url.substringBefore("/pull/")}}` = `https://github.com/LS-Final-Project/ls-final-project`
+- `{{pullRequest.sourceBranch.match("^(KAN-[0-9]+)-")}}` = `{{issue.key}}`
+- JQL: `project = KAN AND statusCategory != Done`
+
+dev → main 배포와 main → dev 동기화는 소스 브랜치 조건에서 제외된다. 완료된 티켓을 다시 열거나 담당자와 일정을 바꾸지 않는다. Jira 설정은 [프로젝트 자동화](https://lsteam4.atlassian.net/jira/software/projects/KAN/settings/automation)에서 확인한다. 전환이 누락되면 해당 규칙의 Audit log에서 조건과 권한 오류를 확인하며 성공으로 가정하지 않는다.
+
+스마트 값은 [Atlassian 개발 정보](https://support.atlassian.com/cloud-automation/docs/jira-smart-values-development/) 및 [문자열 함수](https://support.atlassian.com/cloud-automation/docs/jira-smart-values-text-fields/)를 따른다. 배포 방법은 [서비스별 CI와 CD](service-delivery.md#오새결의-평소-배포-dev에서-main으로)를 참고한다.
