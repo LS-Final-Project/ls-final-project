@@ -141,12 +141,21 @@ git config --local user.name "본인 이름"
 git config --local user.email "본인 GitHub 등록 이메일"
 ```
 
-저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-102는 C/S 문의 API 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. 작업 브랜치는 최신 origin/dev에서 생성한다. 초기 셋업의 main 직접 push 예외를 새 기능 개발에 적용하지 않는다.
+저장소를 받은 뒤 Git 훅을 처음 한 번 설치한다.
 
 ```bash
 python3 scripts/dev.py setup
-python3 scripts/dev.py start KAN-102 cs-ticket-api
 ```
+
+설정은 이 저장소 폴더에 유지된다. 컴퓨터나 터미널을 껐다 켜거나 pull 및 브랜치 전환을 해도 setup을 반복할 필요는 없다. 다른 컴퓨터나 새 폴더에 clone했거나 Python 실행 경로가 바뀌었을 때 다시 실행한다.
+
+새 Jira 작업을 시작할 때마다 start로 최신 origin/dev에서 작업 브랜치를 만든다. 아래는 김종하의 KAN-64 예시이며 자신이 맡은 실제 티켓과 작업명으로 바꾼다. 초기 셋업의 main 직접 push 예외를 새 기능 개발에 적용하지 않는다.
+
+```bash
+python3 scripts/dev.py start KAN-64 frontend-routes
+```
+
+같은 작업을 다음 날 이어갈 때는 기존 작업 브랜치에서 계속한다. setup이나 start를 다시 실행하지 않는다. 현재 브랜치는 git branch --show-current로 확인한다.
 
 | 작업 | 주로 수정할 경로 |
 | --- | --- |

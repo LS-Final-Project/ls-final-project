@@ -12,6 +12,8 @@
 python3 scripts/dev.py setup
 ```
 
+이 설정은 현재 저장소 폴더에 유지되므로 컴퓨터나 터미널 재시작 후 다시 실행하지 않는다. 다른 컴퓨터나 새 폴더에 clone했거나 Python 실행 경로가 바뀐 경우 다시 실행한다. 새 Jira 작업에만 start를 사용하며 같은 작업을 이어갈 때는 기존 브랜치에서 계속한다.
+
 Windows에서는 [공통 온보딩](team-start.md)의 WSL Ubuntu 환경에서 실행한다. 설치는 현재 저장소의 로컬 Git 설정만 변경한다. 기존 core.hooksPath나 prepare-commit-msg 훅이 있으면 덮어쓰지 않고 안내한다. Python 설치 위치가 바뀌면 설정 명령을 다시 실행한다. 다른 IDE나 AI 도구도 이 저장소의 Git 커밋을 사용하면 같은 훅이 적용된다.
 
 ## 매일 작업하는 순서
