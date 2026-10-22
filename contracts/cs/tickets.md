@@ -2,7 +2,21 @@
 
 원본: backend/api/cs/tickets/schemas.py 및 routes.py. 예시: backend/api/cs/examples.py.
 
-GET /api/v1/cs/tickets의 응답은 SuccessResponse[TicketList]다. 시작 모델에는 내부 UUID, 제목, data_origin과 목록 커서만 있다. 문의 상태, 분류 및 권한 모델은 기능 작업에서 이 서비스의 파일에 추가한다. 현재 실제 경로는 501이며 로컬 브라우저의 모의 응답만 200 예시다.
+## 문의 목록과 상세 (KAN-102)
+
+| 경로 | 응답 | 설명 |
+| --- | --- | --- |
+| `GET /api/v1/cs/tickets?limit=&cursor=` | `SuccessResponse[TicketList]` | 접수 시각 최신순. `limit` 1~100(기본 50). `next_cursor`를 그대로 다음 요청의 `cursor`로 보낸다. 잘못된 커서는 400 `CS_INVALID_CURSOR` |
+| `GET /api/v1/cs/tickets/{ticket_id}` | `SuccessResponse[TicketDetail]` | 접수 원문과 연결된 해결 사례. 없는 문의는 404 `CS_TICKET_NOT_FOUND` |
+
+저장 구조는 C/S 기획서 6.1의 제공 테이블(tickets, resolution_cases)과 [공통 데이터 계약](../../docs/data-contract.md)의 식별자·시점·출처 필드를 따른다. 마이그레이션은 `infra/migrations/cs/20261022_KAN-102_tickets.sql`이다.
+
+- `cs.tickets`는 접수 입력만 저장한다. 운영 중 생기는 AI 분류(KAN-103), 규칙 결과(KAN-104)와 업무 상태(KAN-108)는 각 티켓에서 별도로 저장한다.
+- 제공 원천이 기록한 분류·규칙 결과·처리 이력(category_code, priority, assigned_dept, status, SLA, final_reply, data_split 등)은 `cs.ticket_source_records`에 문의당 한 행으로 보존한다. 이 값은 평가 정답과 사후 기록이므로 분류 입력(build_input)이나 API 응답에 섞지 않으며, 운영 중의 AI 결과·사람 수정과 같은 칸을 공유하지 않는다. 제공 CSV에는 `return_subtype` 열이 없어 정답 매핑은 KAN-95에서 정한다.
+- 원천 ID(`CSV1-000044`, `RC-0007`)는 `external_id`, URL과 내부 참조는 서버 UUID `id`를 쓴다.
+- 제목이 없는 채팅 문의의 `subject`는 null이다.
+- 해결 사례는 `known_at`이 지난 경우에만 상세에 포함한다. 제공 데이터는 해결 시각을 known_at으로 가정한다.
+- 역할·부서·프로젝트 접근 검사는 KAN-78에서 추가하며, 그 전까지 OpenAPI 상태는 `partial`이다. 등록·수정·버전·감사, 설비·장비 일치 확인은 KAN-102의 후속 PR에서 추가한다.
 
 ## 문의 분류 출력 계약
 
