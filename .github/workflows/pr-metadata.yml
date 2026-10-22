@@ -27,5 +27,5 @@ jobs:
         with:
           script: |
             const automation = require(process.env.GITHUB_WORKSPACE + '/.github/scripts/pr_metadata.cjs');
-            const config = require(process.env.GITHUB_WORKSPACE + '/.github/jira-reviewers.json');
+            const config = require(process.env.GITHUB_WORKSPACE + '/.github/jira-config.json');
             await automation.run({ github, context, core, config });
