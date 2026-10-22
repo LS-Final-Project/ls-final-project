@@ -6,7 +6,7 @@
 
 ## 처음 한 번 설정
 
-자동화 변경이 main에 병합된 뒤 최신 코드를 받고 저장소에서 실행한다. Python 3.11 이상과 Git이 필요하다.
+자동화 변경이 dev에 반영된 뒤 최신 코드를 받고 저장소에서 실행한다. Python 3.11 이상과 Git이 필요하다.
 
 ```sh
 python3 scripts/dev.py setup
@@ -19,11 +19,11 @@ Windows에서 Python 실행 명령이 python이면 python3 대신 python을 사�
 1. Jira에서 실제 티켓의 범위, 담당자, 선행 작업과 검토자를 확인한다.
 2. `python3 scripts/dev.py start KAN-63 backend-skeleton`처럼 작업 브랜치를 만든다. 예시 번호 대신 자신의 실제 티켓을 사용한다.
 3. 자신의 변경 파일만 stage하고 `git commit -m "feat: 실행 골격 추가"`처럼 내용을 작성한다. 훅이 KAN-63을 앞에 추가한다.
-4. `git push -u origin HEAD` 후 GitHub에서 Draft PR을 만든다. 변경 이유와 실제 검증 결과는 직접 작성한다.
+4. `git push -u origin HEAD` 후 GitHub에서 dev 대상 Draft PR을 만든다. 변경 이유와 실제 검증 결과는 직접 작성한다.
 5. 검토할 준비가 되면 Ready for review를 누른다. 등록된 Jira 검토자에게 요청하며 누락 및 자기 검토 상황은 직접 확인한다.
-6. 검토를 반영한 뒤 Squash merge로 병합하고 Jira의 완료 조건을 확인한다. 병합만으로 최종 완료가 되지는 않는다.
+6. 검토를 반영한 뒤 dev에 Squash merge로 병합하고 Jira의 완료 조건을 확인한다. 병합만으로 최종 완료가 되지는 않는다.
 
-작업 시작 명령은 origin/main을 가져와 새 브랜치를 만들며 원격에 쓰거나 PR을 자동 생성하지 않는다. 변경 중인 파일과 기존 같은 이름의 브랜치가 있으면 중단한다. 복구를 위해 파일을 지우거나 자동 stash하지 않는다.
+작업 시작 명령은 origin/dev를 가져와 새 브랜치를 만들며 원격에 쓰거나 PR을 자동 생성하지 않는다. 변경 중인 파일과 기존 같은 이름의 브랜치가 있으면 중단한다. 복구를 위해 파일을 지우거나 자동 stash하지 않는다.
 
 ## 자동화의 범위
 
@@ -71,7 +71,7 @@ Draft에는 검토를 요청하지 않는다. 기존 요청 및 기존 검토 �
 
 ## 최초 적용과 검증
 
-이 변경의 PR에서는 Collaboration checks로 자동화 테스트를 실행한다. PR 메타데이터 워크플로는 신뢰할 수 있는 main의 코드만 실행하므로 최초 자동화 PR에는 아직 적용되지 않는다. 이 PR이 검토 후 main에 병합돼야 이후 PR에서 자동 입력과 검토 요청을 확인할 수 있다.
+이 변경의 PR에서는 Collaboration checks로 자동화 테스트를 실행한다. PR 메타데이터 워크플로는 신뢰할 수 있는 PR 대상 브랜치의 코드만 실행하므로 최초 자동화 PR에는 아직 적용되지 않는다. 이 PR이 검토 후 대상 브랜치에 병합돼야 이후 PR에서 자동 입력과 검토 요청을 확인할 수 있다.
 
 권한이 있는 워크플로는 PR 코드 대신 base SHA의 자동화 파일만 읽는다. PR 코드의 테스트는 별도 읽기 전용 워크플로에서 수행한다. 외부 배포나 Jira 최종 완료 상태를 변경하지 않는다.
 
@@ -91,3 +91,11 @@ node .github/tests/pr_metadata.test.cjs
 - [Git 훅](https://git-scm.com/docs/githooks)
 - [GitHub 토큰에 의해 발생한 이벤트의 실행 조건](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
 - [GitHub 브랜치 보호](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches)
+
+## 2026-10-22 dev 기본 브랜치 전환
+
+기능 개발과 일반 PR의 기준은 dev, 배포 기준은 main이다. CI 및 Jira PR 자동화는 두 브랜치 모두 지원한다. 변경 범위는 각 브랜치의 마지막 성공 push CI와 비교하므로 dev의 성공이 main의 실패를 건너뛰게 하지 않는다. 기존 작업 브랜치는 자동 rebase하거나 삭제하지 않는다. 새 작업은 scripts/dev.py start를 사용한다.
+
+같은 저장소의 dev → main 배포 PR과 main → dev 동기화 PR은 번호 없는 장기 브랜치를 허용한다. 이 경우 자동화는 제목과 본문을 보존하고 수동 검토자 지정과 merge commit 사용을 안내한다. 일반 작업 및 fork의 번호 없는 브랜치에는 이 예외를 적용하지 않는다. 검토자를 자동으로 새 요청하거나 Jira 상태를 변경하지 않는다.
+
+저장소에서는 Squash와 Merge commit을 허용한다. 기능 작업은 dev에 Squash, 두 장기 브랜치 사이는 merge commit으로 병합한다. 기본 브랜치 변경은 요금제 제한이 있는 보호 규칙을 활성화하는 작업과 별개다. 보호 규칙에 의한 서버 강제 차단은 설정하지 않았다.

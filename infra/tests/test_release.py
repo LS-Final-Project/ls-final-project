@@ -1,6 +1,7 @@
 """Release planning prevents missed commits, unrelated deployments and stale rollback."""
 
 import importlib.util
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -12,6 +13,86 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_ci_wait_accepts_only_the_exact_main_commit(self):
+        sha = "a" * 40
+        attempts = iter(
+            [
+                [],
+                [
+                    {
+                        "headSha": sha,
+                        "headBranch": "dev",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ],
+                [
+                    {
+                        "headSha": "b" * 40,
+                        "headBranch": "main",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ],
+                [
+                    {
+                        "headSha": sha,
+                        "headBranch": "main",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ],
+            ]
+        )
+        with (
+            patch.object(release, "is_current_main", return_value=True),
+            patch.object(
+                release, "output", side_effect=lambda _: json.dumps(next(attempts))
+            ) as calls,
+            patch.object(release.time, "sleep"),
+        ):
+            release.wait_for_main_ci(sha)
+        self.assertEqual(calls.call_count, 4)
+        self.assertTrue(all(c.args[0][0] == "gh" for c in calls.call_args_list))
+
+    def test_failed_or_stale_main_ci_stops_without_building(self):
+        sha = "a" * 40
+        for conclusion in ("failure", "cancelled", "skipped"):
+            with (
+                patch.object(release, "is_current_main", return_value=True),
+                patch.object(
+                    release,
+                    "output",
+                    return_value=json.dumps(
+                        [
+                            {
+                                "headSha": sha,
+                                "headBranch": "main",
+                                "status": "completed",
+                                "conclusion": conclusion,
+                            }
+                        ]
+                    ),
+                ),
+                patch.object(release, "build") as build,
+            ):
+                with self.assertRaisesRegex(ValueError, "did not succeed"):
+                    release.wait_for_main_ci(sha)
+                build.assert_not_called()
+        with (
+            patch.object(release, "is_current_main", return_value=False),
+            patch.object(release, "output") as calls,
+        ):
+            with self.assertRaisesRegex(ValueError, "Main advanced"):
+                release.wait_for_main_ci(sha)
+            calls.assert_not_called()
+
+    def test_ci_wait_timeout_does_not_start_any_network_or_build(self):
+        with patch.object(release, "output") as calls:
+            with self.assertRaisesRegex(ValueError, "Timed out"):
+                release.wait_for_main_ci("a" * 40, timeout=0)
+            calls.assert_not_called()
+
     def test_failed_sdk_command_explains_failure_without_logging_credentials(self):
         token = "eyJhbGciOiJSUzI1NiJ9.payload.signature"
         result = subprocess.CompletedProcess(

@@ -26,7 +26,7 @@ Windows는 Docker Desktop과 WSL2를 사용하고 같은 WSL 터미널에서 모
 ```bash
 git clone https://github.com/LS-Final-Project/ls-final-project.git
 cd ls-final-project
-git switch main
+git switch dev
 git pull --ff-only
 ```
 
@@ -34,7 +34,9 @@ git pull --ff-only
 
 ```bash
 git status
-git switch main
+git fetch origin
+git remote set-head origin -a
+git switch dev
 git pull --ff-only
 ```
 
@@ -117,7 +119,7 @@ python3 scripts/workspace.py down
 
 ## 자신의 작업 시작
 
-저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-102는 C/S 문의 API 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. setup의 main 직접 push 예외는 현재 인프라 초기 작업에만 적용한다.
+저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-102는 C/S 문의 API 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. 작업 브랜치는 최신 origin/dev에서 생성한다. 초기 셋업의 main 직접 push 예외를 새 기능 개발에 적용하지 않는다.
 
 ```bash
 python3 scripts/dev.py setup
@@ -143,7 +145,7 @@ python3 scripts/dev.py start KAN-102 cs-ticket-api
 3. DB가 필요하면 자기 서비스 마이그레이션 파일을 추가한다. 업무 로직, 저장 및 외부 연동을 나눠 구현하고 계약에 합의한 fixture로 독립 테스트한다.
 4. 자기 서비스 계약을 재생성하고 아래 검사 명령을 실행한다. 실제 API 실패를 모의 성공으로 바꾸지 않는다.
 5. 자기 변경 파일만 커밋하고 브랜치를 push한다. PR에 Jira, 변경 내용, 검증 결과와 남은 제약을 적고 검토자 1명을 요청한다.
-6. 검토 및 CI 통과 후 main에 병합한다. 자동 CD 결과와 필요한 통합 동작을 확인하고 Jira의 완료 조건을 충족한 뒤 상태를 갱신한다.
+6. PR 대상이 dev인지 확인하고 검토 및 CI 통과 후 Squash merge한다. dev 반영만으로 공용 배포는 실행되지 않는다. 배포할 때 dev → main PR을 Create a merge commit으로 병합한다. main의 CI와 자동 CD 및 필요한 통합 동작을 확인하고 Jira의 완료 조건을 충족한 뒤 상태를 갱신한다.
 
 예시는 실제 자기 Jira 번호와 경로로 바꿔 실행한다. 공통 수정이 아니면 다른 서비스의 생성물을 함께 커밋하지 않는다.
 

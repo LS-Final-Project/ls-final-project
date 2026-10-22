@@ -49,10 +49,10 @@ def start(key: str, slug: str) -> None:
         raise ValueError("작업 중인 변경이 있습니다. 자신의 변경을 정리한 뒤 실행하세요. 자동으로 stash하거나 삭제하지 않습니다.")
     if git("show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode == 0:
         raise ValueError(f"{branch} 브랜치가 이미 있습니다. 기존 브랜치를 확인하세요.")
-    git("fetch", "origin", "main")
-    git("switch", "--no-track", "-c", branch, "origin/main")
+    git("fetch", "origin", "dev")
+    git("switch", "--no-track", "-c", branch, "origin/dev")
     print(f"작업 브랜치: {branch}")
-    print("작업 후 git push -u origin HEAD로 올리고 Draft PR을 만드세요.")
+    print("작업 후 git push -u origin HEAD로 올리고 dev 대상 Draft PR을 만드세요.")
 
 
 def prepare_commit(message_path: str, source: str = "", *_: str) -> None:
@@ -94,7 +94,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("setup", help="이 저장소의 로컬 커밋 훅 설정")
-    begin = commands.add_parser("start", help="origin/main에서 Jira 작업 브랜치 생성")
+    begin = commands.add_parser("start", help="origin/dev에서 Jira 작업 브랜치 생성")
     begin.add_argument("key")
     begin.add_argument("slug")
     hook = commands.add_parser("prepare-commit-msg", help=argparse.SUPPRESS)

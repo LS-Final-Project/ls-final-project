@@ -29,7 +29,15 @@ class ChangeTests(unittest.TestCase):
                 ],
             ),
         ):
-            self.assertEqual(changes.successful_main_base("current"), "passed-ancestor")
+            self.assertEqual(changes.successful_branch_base("current"), "passed-ancestor")
+
+    def test_dev_ci_history_is_separate_from_main(self):
+        with patch.object(changes.subprocess, "check_output", return_value="[]") as command:
+            self.assertEqual(changes.successful_branch_base("current", "dev"), "0" * 40)
+        args = command.call_args.args[0]
+        self.assertEqual(args[args.index("--branch") + 1], "dev")
+        with self.assertRaises(ValueError):
+            changes.successful_branch_base("current", "feature")
 
     def test_frontend_does_not_build_backends(self):
         result = changes.classify(["frontend/src/App.tsx"])

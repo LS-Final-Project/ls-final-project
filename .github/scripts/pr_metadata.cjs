@@ -41,6 +41,18 @@ async function run({ github, context, core, config }) {
   // Read the latest PR so delayed events do not overwrite a newer edit.
   const { data: pr } = await github.rest.pulls.get(params);
   if (pr.state !== 'open') return;
+  const sameRepository = pr.head.repo?.full_name === `${params.owner}/${params.repo}`;
+  const integration = sameRepository && (
+    (pr.head.ref === 'dev' && pr.base?.ref === 'main') ||
+    (pr.head.ref === 'main' && pr.base?.ref === 'dev'));
+  if (integration) {
+    await core.summary.addHeading('통합 브랜치 PR')
+      .addRaw(`${pr.head.ref} → ${pr.base.ref}: Create a merge commit으로 이력을 유지하세요.\n\n`)
+      .addRaw('관련 Jira 번호와 포함 기능, 검증 결과를 PR에 작성하고 검토자 1명을 직접 지정하세요.\n')
+      .addRaw('Jira 완료 상태와 배포 승인은 변경하지 않습니다.\n')
+      .write();
+    return;
+  }
   const metadata = normalize({ branch: pr.head.ref, title: pr.title, body: pr.body }, config.jiraBaseUrl);
   if (metadata.title !== pr.title || metadata.body !== (pr.body || '')) {
     await github.rest.pulls.update({ ...params, title: metadata.title, body: metadata.body });

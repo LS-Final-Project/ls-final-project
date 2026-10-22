@@ -78,6 +78,24 @@ test('fetches latest PR, skips Draft review, and is idempotent', async () => {
   assert.deepEqual(f.requests[0].reviewers, ['jongddugi']);
 });
 
+test('same-repository dev/main integration keeps release text and needs no Jira branch name', async () => {
+  for (const [head, target] of [['dev', 'main'], ['main', 'dev']]) {
+    const f = fixture({ draft: false, head: {ref: head, repo: {full_name: 'LS-Final-Project/ls-final-project'}}, base: {ref: target}, title: '통합 버전 배포', body: '포함 작업 KAN-63과 검증 결과' });
+    await run(f);
+    assert.equal(f.updates.length, 0);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.pr.title, '통합 버전 배포');
+  }
+});
+
+test('fork branches named dev and unrelated numberless branches get no integration exception', async () => {
+  for (const [head, repo] of [['dev', 'fork/repository'], ['feature', 'LS-Final-Project/ls-final-project']]) {
+    const f = fixture({head: {ref: head, repo: {full_name: repo}}, base: {ref: 'main'}});
+    await assert.rejects(() => run(f));
+    assert.equal(f.updates.length, 0);
+  }
+});
+
 test('initial setup waiver preserves Jira links and skips ready PR review requests', async () => {
   const f = fixture({ draft: false, head: { ref: 'KAN-60-initial-setup-review-policy' } });
   f.config = { ...config, setupReviewWaivers: [{ branch: f.pr.head.ref, keys: ['KAN-60'], reason: '사용자 결정' }] };

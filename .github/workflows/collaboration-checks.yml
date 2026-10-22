@@ -2,10 +2,10 @@ name: Collaboration checks
 
 on:
   pull_request:
-    branches: [main]
+    branches: [dev, main]
     types: [opened, reopened, synchronize, ready_for_review]
   push:
-    branches: [main]
+    branches: [dev, main]
 
 permissions:
   contents: read

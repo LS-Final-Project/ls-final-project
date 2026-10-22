@@ -100,6 +100,46 @@ def is_current_main(head: str) -> bool:
     return bool(remote) and remote[0] == head
 
 
+def wait_for_main_ci(head: str, timeout: int = 1200) -> None:
+    """Read GitHub only, before acquiring GCP credentials or starting any builds."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_current_main(head):
+            raise ValueError("Main advanced; this release will not start.")
+        runs = json.loads(
+            output(
+                [
+                    "gh",
+                    "run",
+                    "list",
+                    "--repo",
+                    "LS-Final-Project/ls-final-project",
+                    "--workflow",
+                    "application-checks.yml",
+                    "--branch",
+                    "main",
+                    "--commit",
+                    head,
+                    "--event",
+                    "push",
+                    "--limit",
+                    "10",
+                    "--json",
+                    "status,conclusion,headSha,headBranch",
+                ]
+            )
+        )
+        matching = [r for r in runs if r.get("headSha") == head and r.get("headBranch") == "main"]
+        if matching and matching[0]["status"] == "completed":
+            if matching[0]["conclusion"] != "success":
+                raise ValueError("The exact main CI did not succeed; release stopped.")
+            print("PASS: exact main commit passed Application checks.", flush=True)
+            return
+        print("Waiting for Application checks on this main commit; no build started.", flush=True)
+        time.sleep(min(15, max(0, deadline - time.monotonic())))
+    raise ValueError("Timed out waiting for main CI; release stopped without building.")
+
+
 def source_inputs(service: str, deploy: bool = False) -> list[str]:
     if deploy:
         return [".gcloudignore", "infra/cloudbuild.deploy.yaml", "infra/deploy_private.py"]
@@ -219,6 +259,8 @@ def main() -> int:
         "plan", help="Read deployed SHA per service and print pending releases"
     )
     plan.add_argument("--github-output", type=Path)
+    wait = commands.add_parser("wait-ci", help="Wait for successful push CI on the exact main SHA")
+    wait.add_argument("--revision", default="HEAD")
     for name in ("build", "run"):
         command = commands.add_parser(name)
         command.add_argument("--service", choices=SERVICES, required=True)
@@ -226,7 +268,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         head = revision(getattr(args, "revision", "HEAD"))
-        if args.command == "plan":
+        if args.command == "wait-ci":
+            wait_for_main_ci(head)
+        elif args.command == "plan":
             if not is_current_main(head):
                 write_plan({"services": [], "revision": head}, args.github_output)
                 return 0

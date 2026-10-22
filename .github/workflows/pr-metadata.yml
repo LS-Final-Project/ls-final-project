@@ -2,7 +2,7 @@ name: Jira PR metadata
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [dev, main]
     types: [opened, reopened, edited, synchronize, ready_for_review]
 
 permissions:

@@ -1,8 +1,6 @@
 name: Deploy changed services
 on:
-  workflow_run:
-    workflows: [Application checks]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
 permissions:
@@ -10,12 +8,9 @@ permissions:
 jobs:
   plan:
     if: >-
-      vars.GCP_RELEASE_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+      vars.GCP_RELEASE_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
       actions: read
@@ -28,7 +23,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
-          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+          ref: ${{ github.sha }}
+      # A workflow_run uses the default branch's identity. Starting on main itself
+      # preserves the existing main-only OIDC trust even when dev is the default.
+      - name: Wait for this main commit to pass CI
+        run: python3 infra/release.py wait-ci --revision "$REVISION"
+        env:
+          REVISION: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}

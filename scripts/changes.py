@@ -99,7 +99,9 @@ def changed_paths(base: str, head: str, merge_base: bool = False) -> list[str]:
     return [path.decode("utf-8") for path in output.split(b"\0") if path]
 
 
-def successful_main_base(head: str) -> str:
+def successful_branch_base(head: str, branch: str = "main") -> str:
+    if branch not in {"main", "dev"}:
+        raise ValueError("CI history must belong to main or dev")
     runs = json.loads(
         subprocess.check_output(
             [
@@ -111,7 +113,7 @@ def successful_main_base(head: str) -> str:
                 "--workflow",
                 "application-checks.yml",
                 "--branch",
-                "main",
+                branch,
                 "--status",
                 "success",
                 "--event",
@@ -142,10 +144,13 @@ def main() -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--merge-base", action="store_true")
-    parser.add_argument("--last-successful-main", action="store_true")
+    history = parser.add_mutually_exclusive_group()
+    history.add_argument("--last-successful-main", action="store_true")
+    history.add_argument("--last-successful-branch", choices=("main", "dev"))
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
-    base = successful_main_base(args.head) if args.last_successful_main else args.base
+    branch = "main" if args.last_successful_main else args.last_successful_branch
+    base = successful_branch_base(args.head, branch) if branch else args.base
     result = classify(changed_paths(base, args.head, args.merge_base))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if args.github_output:

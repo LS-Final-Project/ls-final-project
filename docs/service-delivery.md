@@ -17,11 +17,11 @@
 
 알 수 없는 실행 코드 경로는 전체 검사 대상으로 보수적으로 처리한다. 공유 엔진과 에이전트가 플랫폼에서도 쓰이기 시작하면 scripts/changes.py의 영향 범위를 함께 수정해야 한다. 현재 루트 tests의 기존 사례는 공통 회귀 검사이며, 새 업무 테스트는 tests/cs, tests/tft, tests/platform 아래에 추가한다.
 
-PR은 공통 기준 브랜치와의 변경을 검사한다. main은 마지막 성공한 Application checks 이후 누적 변경을 검사하므로 실패한 CI 뒤에 문서만 수정해도 실패 범위를 건너뛰지 않는다. 최종 Application result는 작업의 실패와 취소를 모아 확인한다. 서비스별 작업이 정상 생략되는 경우도 이 결과는 완료된다.
+PR은 공통 기준 브랜치와의 변경을 검사한다. dev와 main은 각 브랜치의 마지막 성공한 Application checks 이후 누적 변경을 검사하므로 실패한 CI 뒤에 문서만 수정해도 실패 범위를 건너뛰지 않는다. 최종 Application result는 작업의 실패와 취소를 모아 확인한다. 서비스별 작업이 정상 생략되는 경우도 이 결과는 완료된다.
 
 ## 배포 판단
 
-CI 성공한 main만 CD 대상으로 삼는다. 각 서비스의 실제 배포 commit-sha와 현재 main을 비교해 변경을 찾는다. 직전 push만 비교하지 않으므로 배포를 건너뛴 중간 커밋도 반영한다. 오래된 CI 이벤트와 빌드 중 main 변경은 배포 전에 다시 확인해 이전 버전 배포를 막는다. 서비스별 배포는 직렬화하고 다른 서비스는 독립 실행한다.
+main push 또는 main을 명시한 수동 실행으로만 CD를 시작한다. GCP 인증과 빌드 전에 동일한 main 커밋의 Application checks 성공을 최대 20분 기다린다. 실패 또는 취소, 시간 초과와 main 전진 시 빌드하지 않는다. dev의 CI 성공은 배포 조건이 아니다. 각 서비스의 실제 배포 commit-sha와 현재 main을 비교해 변경을 찾는다. 직전 push만 비교하지 않으므로 배포를 건너뛴 중간 커밋도 반영한다. 오래된 CI 이벤트와 빌드 중 main 변경은 배포 전에 다시 확인해 이전 버전 배포를 막는다. 서비스별 배포는 직렬화하고 다른 서비스는 독립 실행한다.
 
 Cloud Build의 서비스 이미지 빌드와 CD는 별도 실행 및 별도 계정이다. CD는 성공한 빌드 메타데이터의 정확한 SHA 및 digest를 검증한다. 기존 IAM 공개 범위는 변경하지 않으며 기대한 웹/백엔드 경계와 다르면 중단한다. 실패한 앱 때문에 다른 앱의 이미지를 임의로 바꾸지 않는다. 자동 롤백은 아직 제공하지 않는다.
 
@@ -68,7 +68,7 @@ GCP 계정과 OIDC 및 첫 웹 배포 검증 후 사용자가 활성화한다. �
 
 ```bash
 gh variable set GCP_RELEASE_ENABLED --body true --repo LS-Final-Project/ls-final-project
-gh workflow run deploy-services.yml --repo LS-Final-Project/ls-final-project
+gh workflow run deploy-services.yml --repo LS-Final-Project/ls-final-project --ref main
 ```
 
 비활성화는 같은 변수에 false를 넣는다. 이미 시작한 Cloud Build는 별도로 확인해야 한다.
@@ -119,3 +119,9 @@ python3 infra/release.py plan
 | platform | 41b9d490-47f3-4c4e-8d78-69baed964147 | 42ecb74e-cf94-40f7-a801-70f137e32511 | team4-platform-00003-sfr |
 
 총 6건의 빌드가 SUCCESS이며 실제 SHA와 이미지 digest가 빌드 메타데이터와 일치했다. 각 서비스 인증 ready 200, database/vector/fts=true와 익명 접근 403을 확인했다. C/S와 TFT에만 Vertex 제공자 및 프로젝트, global 생성 위치와 us-central1 임베딩 위치 및 초기 모델을 명시했다. 플랫폼에는 모델 환경설정이나 호출 권한을 추가하지 않았다. 웹은 team4-web-00003-nlc 그대로이며 공개 health와 플랫폼 ready 중계가 200이다. 모델 호출은 앱 기동이나 CI 및 health 검사에서 하지 않는다.
+
+## dev 기본 브랜치의 배포 인증
+
+기본 브랜치를 dev로 바꿔도 배포 워크플로는 main에서 실행한다. workflow_run의 GITHUB_REF는 기본 브랜치이므로 main 전용 OIDC 조건과 맞지 않는다. 이를 피하려고 main push에서 시작하고 실제 CI 성공을 먼저 기다리는 방식으로 전환했다. GCP의 저장소 및 main과 배포 워크플로 경로 제한은 변경하지 않았다. 수동 실행에서 dev를 고르면 plan job을 생략해 GCP 인증과 빌드를 실행하지 않는다.
+
+근거: [GitHub workflow_run 실행 문맥](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).

@@ -106,15 +106,18 @@ class GitWorkflowTests(unittest.TestCase):
         self.assertTrue((self.root / "notes.txt").exists())
         self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "KAN-63-example")
 
-    def test_start_uses_fetched_main_without_tracking_main(self):
+    def test_start_uses_fetched_dev_without_tracking_dev(self):
         remote = Path(self.temp.name) / "origin.git"
         self.command("git", "init", "--bare", "-q", str(remote))
         self.git("remote", "add", "origin", str(remote))
         self.git("push", "-q", "origin", "HEAD:main")
-        main = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("commit", "--allow-empty", "-qm", "Development integration ahead of main")
+        self.git("push", "-q", "origin", "HEAD:dev")
+        dev = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("switch", "--detach", "origin/main")
         self.dev("start", "KAN-64", "api-contract")
         self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "KAN-64-api-contract")
-        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), main)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), dev)
         self.assertNotEqual(self.git("rev-parse", "--abbrev-ref", "@{upstream}", check=False).returncode, 0)
 
 

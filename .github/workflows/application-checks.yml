@@ -1,9 +1,9 @@
 name: Application checks
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
 permissions:
   contents: read
   actions: read
@@ -25,12 +25,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$EVENT" = pull_request ]; then
             python3 scripts/changes.py --base "$BASE_SHA" --head "$HEAD_SHA" --merge-base --github-output "$GITHUB_OUTPUT"
           else
-            python3 scripts/changes.py --base "$BASE_SHA" --head "$HEAD_SHA" --last-successful-main --github-output "$GITHUB_OUTPUT"
+            python3 scripts/changes.py --base "$BASE_SHA" --head "$HEAD_SHA" --last-successful-branch "$BRANCH" --github-output "$GITHUB_OUTPUT"
           fi
   backend:
     needs: changes
