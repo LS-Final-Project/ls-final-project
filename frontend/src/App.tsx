@@ -30,6 +30,6 @@ export default function App() {
     {import.meta.env.DEV && <section><div className="section-title"><h2>업무 API 연결 예시</h2><select aria-label="API 모드" value={mode} onChange={e => {const next = e.target.value as ApiMode; setApiMode(next); changeMode(next);}}><option value="mock">모의 응답</option><option value="live">실제 API</option></select></div>
       <div className="columns"><article><h3>C/S 문의</h3>{tickets.data?.data.items.map(item => <p key={item.id}>{item.subject} <small>{item.data_origin}</small></p>)}{tickets.isError && <p className="error">{tickets.error.message}</p>}</article><article><h3>TFT 프로젝트</h3>{projects.data?.data.items.map(item => <p key={item.id}>{item.name} <small>{item.data_origin}</small></p>)}{projects.isError && <p className="error">{projects.error.message}</p>}</article></div>
     </section>}
-    <footer><a href="https://github.com/LS-Final-Project/ls-final-project/blob/main/docs/team-start.md">팀원 실행 안내</a> / <a href="https://github.com/LS-Final-Project/ls-final-project/blob/main/contracts/README.md">API 계약 수정 안내</a></footer>
+    <footer><a href="https://github.com/LS-Final-Project/ls-final-project/blob/dev/docs/team-start.md">팀원 실행 안내</a> / <a href="https://github.com/LS-Final-Project/ls-final-project/blob/dev/contracts/README.md">API 계약 수정 안내</a></footer>
   </main>;
 }

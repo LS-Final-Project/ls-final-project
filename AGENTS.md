@@ -1,7 +1,10 @@
 # 4조 업무지원 AI Agent — 에이전트 온보딩
 
-작성 2026-10-20. 이 레포는 C/S·RFP 에이전트의 **코드 작업 저장소**다.
-설계 문서·데이터·기획서는 `/home/canae/ls_main/`에 있다. 코드를 쓰기 전에 먼저 읽어라.
+갱신 2026-10-22. 이 레포는 C/S·RFP 에이전트의 코드 작업 저장소다. 이 파일은 AI 코딩 도구용 규칙이며 사람의 설치 안내는 [공통 온보딩](docs/team-start.md)이다.
+
+작업 전 이 파일과 사용자가 지정한 Jira 티켓, 자기 이름의 노션 안내에서 첫 작업과 담당 범위를 확인한다. 로컬 실행이 필요하면 공통 온보딩의 1~5를 따른다. 모든 설계 및 운영 문서를 먼저 읽을 필요는 없다. 설계는 [아키텍처](docs/architecture.md), API 변경은 [계약 수정 안내](contracts/README.md)를 해당 작업에서 참고한다.
+
+기획 원본은 아래 링크를 사용한다. 인프라 담당자 PC의 `/home/canae/ls_main/`은 보조 자료 위치일 뿐 다른 팀원의 필수 경로가 아니다. 폴더가 없다고 작업을 중단하거나 같은 경로를 생성하지 않는다.
 
 ---
 
@@ -16,16 +19,16 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 
 | 항목 | 결정 |
 |---|---|
-| 런타임 | Python 3.11+ / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
-| LLM | Gemini (모델 ID는 사용 키로 지원 목록 확인 후 확정) |
-| 임베딩 | Gemini 다국어 임베딩 (모델 ID 확인 후 확정, 원문 직접 임베딩) |
+| 런타임 | Python 3.12 실행 기준 / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
+| LLM | Vertex AI `global`의 `gemini-3.6-flash`로 연결 검증. 최종 업무 모델은 평가 후 결정 |
+| 임베딩 | Gemini 다국어 임베딩. 모델과 차원은 검색 평가 후 확정 |
 | DB | Cloud SQL PostgreSQL + pgvector + FTS 하이브리드 검색 |
 | LangGraph 상태 | `langgraph-checkpoint-postgres` |
 | 파일 | Cloud Storage |
 | 인증 | Microsoft OAuth (MSAL, PKCE) + `users` 테이블 역할 관리 |
 | 프론트 | React + Vite + TypeScript + TanStack Query, UI 키트 없음 |
 | 오케스트레이션 | LangChain + LangGraph + LangSmith |
-| CI/CD | Cloud Build |
+| CI/CD | GitHub Actions 검사 / Cloud Build 이미지 및 CD. dev 개발 통합, main 배포 |
 | 배치·비동기 작업 | Cloud Tasks (RFP 문서 처리) / Cloud Run Jobs (평가 실행, 데이터 초기화) |
 | 스트리밍 | SSE |
 
@@ -37,7 +40,7 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 | 자료 | 위치 |
 |---|---|
-| C/S 학습 데이터 | `data/CS_AI_Agent_Training_Data_v1/` (Google Drive에서 받아 넣을 것) |
+| C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
 | C/S 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1DhnpC5vyPEIhk3QJ3IRSTLX5f-U-HfpRMdCaGDVnGpg/edit) |
 | RFP 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1Zz_ps2r9oRM5wTt75L-RboCc1knqJ1WYGZZ9DZc09fQ/edit) |
@@ -64,17 +67,19 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ---
 
-## 세션 역할과 소유 경계
+## 현재 담당과 수정 경계
 
-| 세션 | 소유 경계 |
-|---|---|
-| 데이터·플랫폼 | 로더, 룰 엔진 (`backend/engine/`) |
-| 백엔드 | API 계층 (`backend/api/`) |
-| 프론트 | 상담원 콘솔 UI (`frontend/`) |
-| 에이전트 | 프롬프트, LLM 호출 (`backend/agent/`) |
-| 평가 | 지표, 리포트 (`eval/`) |
+현재 개발 분담은 아래 실명 담당을 기준으로 한다. 과거 데이터·플랫폼, 백엔드, 프론트, 에이전트, 평가의 5개 세션 구분은 폴더 책임을 설명한 것이며 담당자가 여러 영역을 수정하는 것을 금지하는 별도 인원 배정이 아니다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
 
-자기 소유 경계 밖은 고치지 않는다. 세션은 서로의 대화를 못 본다. 공유되는 것은 파일뿐이다.
+| 담당 | 소유 기능 | 주로 수정할 경로 |
+| --- | --- | --- |
+| 김나영 | 인증·메일, C/S API와 결정론적 규칙, 통합 회귀 | `backend/api/platform/auth/`, `mail/`, `backend/api/cs/`, `backend/engine/cs/`의 규칙, 관련 마이그레이션·테스트 |
+| 오새결 | 입력 어댑터·데이터·검색, C/S 및 TFT의 AI, 평가 실행·지표, 인프라 셋업 | `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
+| 김종하 | 프론트, TFT API, 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
+
+아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth/mail은 김나영, evaluations는 김종하다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
+
+자기 티켓에 필요한 기능·테스트·계약 산출물만 수정한다. 다른 담당 기능과 공용 라우터·설정·DTO를 바꿔야 하면 먼저 영향과 계약을 확인하고 변경을 작게 유지한다. 다른 사람의 미커밋 변경을 덮어쓰지 않는다. 세션 간 대화를 공유한다고 가정하지 않고 파일과 Jira에 결과를 남긴다.
 
 ---
 
@@ -140,6 +145,6 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ## 미확정 항목
 
-- Gemini 모델 ID: 사용 키로 지원 목록 확인 후 확정
-- RFP·시연 데이터: 수집 완료 후 `data/` 추가
+- 최종 생성 모델, 임베딩 모델과 차원: 초기 연결 검증과 별도로 품질·토큰·지연 평가 후 확정
+- RFP·시연 데이터의 범위와 판본: Jira와 데이터 목록을 확인. 에이전트는 `data/`를 변경하지 않음
 - LangSmith 무료/유료 티어

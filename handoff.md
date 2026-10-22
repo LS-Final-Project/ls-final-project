@@ -2,16 +2,19 @@
 
 2026-10-22 기준. 작업 저장소는 /home/canae/ls-final-project다. 먼저 AGENTS.md와 CONTRIBUTING.md를 읽는다. 과거 셋업 보고서와 일정 사본은 삭제했으며 변경 이력은 Git, 작업 상태는 Jira에서 확인한다.
 
-## 먼저 읽을 문서
+## 시작할 때 읽을 문서
 
 - [공통 개발 온보딩](docs/team-start.md): 설치부터 로컬 실행 및 첫 PR까지의 단일 원본
-- [의사결정과 선택 근거](docs/decisions.md), [아키텍처](docs/architecture.md)
-- [데이터 계약](docs/data-contract.md), [API 규약](docs/api-contract.md), [계약 수정 안내](contracts/README.md)
-- [서비스별 CI와 CD](docs/service-delivery.md), [운영 확인](docs/operations-basics.md)
-- [외부 연동 확인](docs/integration-checks.md), [AI 클라이언트](docs/ai-client.md)
-- [노션 온보딩과 팀원별 안내](https://www.notion.so/401910042c3781ed9768f13ef422a4f8)
-- [현재 WBS](https://docs.google.com/spreadsheets/d/11X85xRDncd_xg3EPhcoke6dhF1fhTByKzhpRxLk6ow8/edit#gid=1680447802)
-- [Jira KAN 백로그](https://lsteam4.atlassian.net/jira/software/projects/KAN/boards/1/backlog)
+- [노션 온보딩과 팀원별 안내](https://www.notion.so/401910042c3781ed9768f13ef422a4f8): 자기 첫 티켓과 담당 경계
+- [Jira KAN 백로그](https://lsteam4.atlassian.net/jira/software/projects/KAN/boards/1/backlog): 최신 상태 및 선행 조건
+
+아래는 필요한 작업에서만 참고한다. 기능 개발 시작 전에 모두 읽을 필요는 없다.
+
+- 설계 및 선택 근거: [의사결정](docs/decisions.md), [아키텍처](docs/architecture.md)
+- 계약 변경: [데이터 계약](docs/data-contract.md), [API 규약](docs/api-contract.md), [계약 수정 안내](contracts/README.md)
+- 인프라 담당: [서비스별 CI와 CD](docs/service-delivery.md), [운영 확인](docs/operations-basics.md)
+- 실제 모델 및 메일 연동: [외부 연동 확인](docs/integration-checks.md), [AI 클라이언트](docs/ai-client.md)
+- 일정 원본: [현재 WBS](https://docs.google.com/spreadsheets/d/11X85xRDncd_xg3EPhcoke6dhF1fhTByKzhpRxLk6ow8/edit#gid=1680447802)
 
 ## 작업 방식
 
@@ -46,6 +49,10 @@ Cloud SQL PostgreSQL 17과 pgvector 및 FTS, 서비스별 DB 계정과 스키마
 - 백업 설정 및 수동 백업 두 건의 성공을 확인했다. 복구 훈련은 후속이다.
 
 ## 다음 개발과 Jira
+
+온보딩을 단순화해 첫 개발 작업은 김나영 KAN-77, 오새결 KAN-84, 김종하 KAN-64로 안내한다. KAN-77 선행 KAN-57과 KAN-84 선행 KAN-82가 2026-10-22 조회에서 미완료여서 착수 시 함께 확인한다. Jira 담당·일정·상태는 변경하지 않았다. AGENTS와 Claude 지침은 현재 실명 담당 및 기능 경계로 맞췄고 개인 PC 절대경로를 필수 조건에서 제거했다.
+
+사용자 설명 원고는 오새구리 워크스페이스의 [개발 설명회](https://www.notion.so/401910042c3781ba8e37e7a9f640709a) 비공개 페이지에 저장했다. 구조와 구현 상태, 담당 간 결과 전달, 첫 티켓 및 Git 규칙을 10~15분 순서로 설명한다. 원래 지정한 개인 워크스페이스는 현재 앱 연결과 달라 사용자 요청으로 저장 위치를 바꿨다. 팀원용 설치 문서는 기존 공통 안내 하나로 유지한다.
 
 배포 및 시연 목표는 11월 3일, 발표는 11월 10일이다. 스프린트는 10/21~10/27 기반과 평가, 10/28~11/3 기능과 통합, 11/4~11/10 안정화와 발표 준비다. 현재 상태와 선행 관계는 Jira 원문을 조회한다.
 
