@@ -10,7 +10,9 @@
 
 CI와 PR 메타데이터는 dev 및 main 모두 지원한다. 변경 범위는 각 브랜치의 마지막 성공 CI를 따로 조회한다. 기본 브랜치 전환 시 workflow_run의 기본 브랜치 실행 문맥이 기존 main 전용 OIDC와 충돌하므로 배포 트리거를 main push 및 main 수동 실행으로 변경했다. GCP 인증 전에 동일한 main SHA의 push CI 성공을 최대 20분 기다린다. 실패, 취소, 시간 초과와 main 전진 시 빌드하지 않으며 GCP 신뢰 조건은 넓히지 않는다. 수동 배포에는 --ref main이 필요하다.
 
-로컬 scripts 34건, infra 21건, PR 자동화 14건과 Ruff 및 actionlint 1.7.12를 통과했다. 이 기록 시점은 코드 준비 단계이며 GitHub 기본 브랜치와 원격 적용 결과는 아래 후속 확인으로 기록한다. 기존 작업 브랜치와 .env 및 data는 보존한다. 릴리스 태그 발행과 버전 번호 확정은 이번 브랜치 전환에서 실행하지 않는다.
+로컬 scripts 34건, infra 21건, PR 자동화 14건과 Ruff 및 actionlint 1.7.12를 통과했다. 코드 e683910a9615fa255c3aefc90963a16a0bb514c2를 main에 반영한 뒤 같은 SHA로 dev를 생성했다. GitHub API로 default_branch=dev, allow_merge_commit=true, allow_squash_merge=true와 allow_rebase_merge=false를 확인했다. 로컬도 dev를 추적하고 origin/HEAD는 origin/dev다. 자동 브랜치 삭제는 기존 false를 유지했다. 기존 작업 브랜치와 .env 및 data는 보존했다. 릴리스 태그 발행과 버전 번호 확정은 이번 브랜치 전환에서 실행하지 않는다.
+
+원격 main CI 39721051535와 협업 검사 39721051530, dev CI 39721089161과 협업 검사 39721089152가 모두 성공했다. main 및 dev의 앱 CI에서 각각 백엔드 3개, 프론트와 평가 및 인프라 검사를 통과했다. dev에서 수동 배포를 요청한 검증 39721193839는 plan 및 deploy가 모두 skipped였고 GCP 인증도 실행하지 않았다. main의 실제 배포 39721051542도 동일 SHA의 CI 대기와 GCP OIDC 및 네 서비스의 독립 빌드와 CD를 모두 통과했다. 새 리비전은 cs=team4-cs-00004-qnz, tft=team4-tft-00004-r7j, platform=team4-platform-00004-c2r, web=team4-web-00004-mm2이며 네 서비스의 commit-sha가 e683910과 일치한다. 실제 공용 웹 health 200과 플랫폼 ready 200 및 database/vector/fts=true를 확인했다. 상세 빌드 ID는 docs/service-delivery.md를 따른다. 추가 결과 문서는 dev에만 반영하며 실행 중인 main SHA는 문서 커밋과 구분한다. 노션 공통 온보딩과 아키텍처 다이어그램 프롬프트도 dev 통합 및 main 전용 배포 흐름으로 맞췄다.
 
 ## 2026-10-22 Jira 셋업 결과 반영
 

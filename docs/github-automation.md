@@ -2,7 +2,7 @@
 
 관련 작업: [KAN-60](https://lsteam4.atlassian.net/browse/KAN-60).
 
-팀원이 작업 시작 시 Jira 번호를 한 번 지정하면 브랜치, 커밋과 PR에서 같은 번호를 사용한다. 기존 규칙을 유지하면서 반복 입력을 줄이는 선택이다. GitHub Actions는 협업 자동화와 이 자동화의 테스트를 맡고 앱의 CI/CD는 Cloud Build로 유지한다.
+팀원이 작업 시작 시 Jira 번호를 한 번 지정하면 브랜치, 커밋과 PR에서 같은 번호를 사용한다. 기존 규칙을 유지하면서 반복 입력을 줄이는 선택이다. GitHub Actions는 협업 자동화와 서비스별 CI를 실행하고 Cloud Build는 앱 이미지 생성과 별도 CD를 맡는다.
 
 ## 처음 한 번 설정
 

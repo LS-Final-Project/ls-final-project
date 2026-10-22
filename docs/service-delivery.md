@@ -125,3 +125,18 @@ python3 infra/release.py plan
 기본 브랜치를 dev로 바꿔도 배포 워크플로는 main에서 실행한다. workflow_run의 GITHUB_REF는 기본 브랜치이므로 main 전용 OIDC 조건과 맞지 않는다. 이를 피하려고 main push에서 시작하고 실제 CI 성공을 먼저 기다리는 방식으로 전환했다. GCP의 저장소 및 main과 배포 워크플로 경로 제한은 변경하지 않았다. 수동 실행에서 dev를 고르면 plan job을 생략해 GCP 인증과 빌드를 실행하지 않는다.
 
 근거: [GitHub workflow_run 실행 문맥](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
+## 2026-10-22 dev 기본 브랜치 전환 실제 검증
+
+소스 e683910a9615fa255c3aefc90963a16a0bb514c2에서 [main CI 39721051535](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39721051535)와 [dev CI 39721089161](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39721089161)가 모두 성공했다. 양쪽 모두 백엔드 3개와 프론트, 평가 및 인프라 검사를 통과했다. 협업 검사는 main 39721051530과 dev 39721089152가 성공했다.
+
+GitHub 기본 브랜치를 dev로 전환했고 Squash와 Merge commit을 허용하며 Rebase merge는 비활성화했다. [dev 수동 배포 검증 39721193839](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39721193839)에서 plan과 deploy가 모두 skipped였으며 GCP 인증을 실행하지 않았다. [main 배포 39721051542](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39721051542)는 동일 SHA의 CI 성공 대기 후 기존 main 전용 OIDC로 인증하고 네 서비스를 각각 빌드 및 배포했다. 새 CI 기준과 변경 선택 도구의 수정은 기존 보수적 영향 규칙에 따라 네 서비스 검사 및 빌드 대상으로 처리됐다.
+
+| 서비스 | 이미지 Cloud Build | 별도 CD Cloud Build | Ready 리비전 |
+| --- | --- | --- | --- |
+| web | 807bf5d5-3ebd-4885-817f-aed38025f559 | bd36174a-6b57-43f8-9038-b038c1c33fe2 | team4-web-00004-mm2 |
+| cs | 583250f4-c94f-4c09-b84b-9823405af192 | 5222e328-c05b-48f1-9561-13517067d1fd | team4-cs-00004-qnz |
+| tft | abd90623-38b0-469b-ae3f-2ca8584b3079 | 49016dac-f38a-49a1-a7ce-40d8b933cbd1 | team4-tft-00004-r7j |
+| platform | 38c6ebe9-f005-4fea-b34e-5f043bd11901 | 1fb57a80-ff50-4caa-930e-3a5d7108ed7a | team4-platform-00004-c2r |
+
+네 서비스의 실제 commit-sha가 위 소스와 일치하고 Ready 리비전을 확인했다. 공용 웹 health와 플랫폼 ready 중계는 HTTP 200이며 database/vector/fts=true다. 이번 검증을 위해 GCP IAM을 변경하거나 실제 AI 및 메일 호출을 추가하지 않았다. 후속 결과 문서의 dev 커밋은 main 배포 SHA와 다를 수 있다.
