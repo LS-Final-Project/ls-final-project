@@ -527,22 +527,15 @@
       "TicketSummary": {
         "properties": {
           "channel": {
-            "anyOf": [
-              {
-                "enum": [
-                  "EMAIL",
-                  "PARTNER_PORTAL",
-                  "WEB_FORM",
-                  "PHONE",
-                  "CHAT"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "enum": [
+              "EMAIL",
+              "PARTNER_PORTAL",
+              "WEB_FORM",
+              "PHONE",
+              "CHAT"
             ],
-            "title": "Channel"
+            "title": "Channel",
+            "type": "string"
           },
           "data_origin": {
             "enum": [
@@ -554,7 +547,6 @@
             "type": "string"
           },
           "derivation_kind": {
-            "default": "PROVIDED",
             "enum": [
               "PROVIDED",
               "DERIVED",
@@ -581,27 +573,13 @@
             "type": "string"
           },
           "product_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Code"
+            "title": "Product Code",
+            "type": "string"
           },
           "received_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Received At"
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
           },
           "subject": {
             "anyOf": [
@@ -618,7 +596,12 @@
         "required": [
           "id",
           "subject",
-          "data_origin"
+          "data_origin",
+          "external_id",
+          "derivation_kind",
+          "received_at",
+          "channel",
+          "product_code"
         ],
         "title": "TicketSummary",
         "type": "object"

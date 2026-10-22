@@ -1,5 +1,7 @@
 """KAN-102 ticket list and detail routes, with the database replaced by in-memory rows."""
 
+import base64
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -102,7 +104,24 @@ def test_chat_ticket_without_subject_is_returned_as_null(client):
     assert chat["subject"] is None
 
 
-@pytest.mark.parametrize("cursor", ["not-base64!", "eyJyIjogIjIwMjUtMTAtMDEifQ=="])
+def b64(value) -> str:
+    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-base64!",
+        b64({"r": "2025-10-01"}),
+        # Review finding: a numeric id used to raise AttributeError (500).
+        b64({"r": "2025-10-01T00:00:00+00:00", "i": 5}),
+        b64({"r": 1, "i": str(UUID(int=1))}),
+        b64(["2025-10-01T00:00:00+00:00", str(UUID(int=1))]),
+        b64({"r": "2025-10-01T00:00:00", "i": str(UUID(int=1))}),
+        b64({"r": "2025-10-01T00:00:00+00:00", "i": str(UUID(int=1)), "x": 1}),
+        b64({"r": "2025-10-01T00:00:00+00:00", "i": "not-a-uuid"}),
+    ],
+)
 def test_invalid_or_naive_cursor_is_rejected(client, cursor):
     result = client.get("/api/v1/cs/tickets", params={"cursor": cursor})
     assert result.status_code == 400
@@ -126,3 +145,17 @@ def test_unknown_ticket_returns_feature_error(client):
     result = client.get(f"/api/v1/cs/tickets/{uuid4()}")
     assert result.status_code == 404
     assert result.json()["error"]["code"] == "CS_TICKET_NOT_FOUND"
+
+
+def test_routes_are_closed_in_production_until_access_checks_exist(monkeypatch):
+    async def must_not_query(*args):
+        raise AssertionError("production must be rejected before any database access")
+
+    monkeypatch.setattr(repository, "list_tickets", must_not_query)
+    monkeypatch.setattr(repository, "get_ticket", must_not_query)
+    app = create_app(Settings(_env_file=None, environment="production"))
+    with TestClient(app) as production:
+        for path in ("/api/v1/cs/tickets", f"/api/v1/cs/tickets/{ROWS[0]['id']}"):
+            result = production.get(path)
+            assert result.status_code == 404
+            assert result.json()["error"]["code"] == "NOT_FOUND"

@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.api.cs.tickets import repository
 from backend.api.cs.tickets.schemas import (
@@ -17,10 +17,25 @@ from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
-router = APIRouter(prefix="/api/v1/cs/tickets", tags=["tickets"])
 
-# Access checks by role, department and project are added by KAN-78.
+def guard_until_access_checks(request: Request) -> None:
+    # No role, department or project checks exist yet (KAN-78). Fail closed outside
+    # local and test so ticket bodies and customer IDs are never exposed in production.
+    if request.app.state.settings.environment not in {"local", "test"}:
+        raise HTTPException(404)
+
+
+router = APIRouter(
+    prefix="/api/v1/cs/tickets",
+    tags=["tickets"],
+    dependencies=[Depends(guard_until_access_checks)],
+)
+
 PARTIAL = {"x-implementation-status": "partial"}
+
+
+def cursor_error() -> ApplicationError:
+    return ApplicationError(400, "CS_INVALID_CURSOR", "The page cursor is invalid.")
 
 
 def encode_cursor(received_at: datetime, ticket_id: UUID) -> str:
@@ -31,12 +46,22 @@ def encode_cursor(received_at: datetime, ticket_id: UUID) -> str:
 def decode_cursor(value: str) -> tuple[datetime, UUID]:
     try:
         data = json.loads(base64.urlsafe_b64decode(value.encode()))
-        received_at = datetime.fromisoformat(data["r"])
-        if received_at.tzinfo is None:
-            raise ValueError
-        return received_at, UUID(data["i"])
-    except (binascii.Error, json.JSONDecodeError, KeyError, TypeError, ValueError):
-        raise ApplicationError(400, "CS_INVALID_CURSOR", "The page cursor is invalid.") from None
+    except (binascii.Error, ValueError):
+        raise cursor_error() from None
+    # A cursor is client input: check its shape before parsing any value.
+    if not isinstance(data, dict) or set(data) != {"r", "i"}:
+        raise cursor_error()
+    received_at, ticket_id = data["r"], data["i"]
+    if not isinstance(received_at, str) or not isinstance(ticket_id, str):
+        raise cursor_error()
+    try:
+        parsed_at = datetime.fromisoformat(received_at)
+        parsed_id = UUID(ticket_id)
+    except ValueError:
+        raise cursor_error() from None
+    if parsed_at.tzinfo is None:
+        raise cursor_error()
+    return parsed_at, parsed_id
 
 
 @router.get(

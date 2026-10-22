@@ -19,11 +19,12 @@ class TicketSummary(BaseModel):
     # Chat inquiries have no subject in the provided data.
     subject: str | None
     data_origin: DataOrigin
-    external_id: str | None = None
-    derivation_kind: DerivationKind = "PROVIDED"
-    received_at: datetime | None = None
-    channel: Channel | None = None
-    product_code: str | None = None
+    # Manual input may have no source ID; the other fields are NOT NULL in cs.tickets.
+    external_id: str | None
+    derivation_kind: DerivationKind
+    received_at: datetime
+    channel: Channel
+    product_code: str
 
 
 class TicketList(BaseModel):
