@@ -107,3 +107,15 @@ python3 infra/release.py plan
 후속 프론트 링크 수정 c111cc3에서는 [CI 39645850820](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39645850820)의 frontend만 실행하고 백엔드와 infrastructure 및 evaluation은 생략했다. [자동 CD 39645939828](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39645939828)도 웹만 선택해 성공했다. 이미지 빌드는 5a69a5d0-bad2-411e-b99e-1430a4226763, CD는 b8bb9ff0-f6bc-4e32-9133-693f7be2a6bc다. 웹만 team4-web-00003-nlc로 바뀌고 백엔드 3개 리비전은 유지되는 것을 확인했다. 실제 새 웹의 안내 링크와 플랫폼 준비 상태도 정상이다.
 
 실제 검증 중 발견한 기존 Docker 빌더의 인자 전달과 전체 예시 검사, 배포 빌드의 미참조 COMMIT_SHA를 수정했다. CD는 실행 확인한 Cloud SDK 이미지 digest를 고정하고 SDK 내장 Python으로 도우미를 실행한다. 빌드 실패나 배포 전 검증 실패를 성공으로 처리하지 않는다.
+
+## 2026-10-22 Vertex 실행 의존성 반영
+
+공통 AI SDK와 Python 실행 의존성을 반영한 소스 e557c8bf816326dceef2671b7bbb9fb32b34e88a의 [CI 39706740083](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39706740083)와 [자동 CD 39706861091](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39706861091)가 성공했다. CI에서 백엔드별 Docker 검사와 네트워크 없는 SDK import, 프론트 계약 소비자와 평가 및 인프라 검사가 통과했다. 공통 백엔드 변경이므로 백엔드 3개만 배포하고 웹은 유지했다.
+
+| 서비스 | 이미지 Cloud Build | 별도 CD Cloud Build | 실제 리비전 |
+| --- | --- | --- | --- |
+| cs | 566476cd-1c57-496e-aae1-1dad9d9887dc | 2ad53be2-1813-4113-bab2-dd5861ce5a43 | team4-cs-00003-ln2 |
+| tft | f788fbfb-a595-48be-81a4-104ec3c96d6d | 613b9b61-0b82-46a2-97e7-a85315c39a55 | team4-tft-00003-fv2 |
+| platform | 41b9d490-47f3-4c4e-8d78-69baed964147 | 42ecb74e-cf94-40f7-a801-70f137e32511 | team4-platform-00003-sfr |
+
+총 6건의 빌드가 SUCCESS이며 실제 SHA와 이미지 digest가 빌드 메타데이터와 일치했다. 각 서비스 인증 ready 200, database/vector/fts=true와 익명 접근 403을 확인했다. C/S와 TFT에만 Vertex 제공자 및 프로젝트, global 생성 위치와 us-central1 임베딩 위치 및 초기 모델을 명시했다. 플랫폼에는 모델 환경설정이나 호출 권한을 추가하지 않았다. 웹은 team4-web-00003-nlc 그대로이며 공개 health와 플랫폼 ready 중계가 200이다. 모델 호출은 앱 기동이나 CI 및 health 검사에서 하지 않는다.
