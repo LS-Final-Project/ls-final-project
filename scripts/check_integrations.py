@@ -109,6 +109,55 @@ def validate_test_recipient(recipient: str) -> None:
         raise ConfigurationError("Use one email address for the explicit mail roundtrip test")
 
 
+def graph_request(request: Request, *, phase: str, timeout: float):
+    """Keep Graph diagnostics to known codes; never log its message or request details."""
+    try:
+        return urlopen(request, timeout=timeout)
+    except HTTPError as error:
+        allowed_codes = {
+            "ErrorInvalidUser",
+            "ErrorItemNotFound",
+            "ErrorAccessDenied",
+            "ErrorSendAsDenied",
+            "ErrorInvalidRecipients",
+            "ErrorRecipientNotFound",
+            "ErrorInvalidRequest",
+            "ErrorMailboxMoveInProgress",
+            "ErrorMailboxStoreUnavailable",
+            "MailboxNotEnabledForRESTAPI",
+            "ResourceNotFound",
+            "Request_ResourceNotFound",
+            "InvalidAuthenticationToken",
+            "ErrorQuotaExceeded",
+            "notFound",
+            "itemNotFound",
+            "accessDenied",
+        }
+        codes = []
+        try:
+            body = json.loads(error.read(65536) if error.fp is not None else b"")
+            detail = body.get("error") if isinstance(body, dict) else None
+            for _ in range(8):
+                if not isinstance(detail, dict):
+                    break
+                code = detail.get("code")
+                if isinstance(code, str) and code in allowed_codes and code not in codes:
+                    codes.append(code)
+                detail = detail.get("innerError", detail.get("innererror"))
+        except (ValueError, OSError):
+            pass
+        finally:
+            error.close()
+        safe_phase = (
+            phase if phase in {"mail_read", "send_mail", "sent_items", "inbox"} else "unknown"
+        )
+        safe_codes = ",".join(codes) or "not_provided_or_unrecognized"
+        raise ConfigurationError(
+            f"Graph HTTP {error.code}; phase={safe_phase}; code={safe_codes}. "
+            "Mail delivery is unverified; no automatic send retry was made."
+        ) from None
+
+
 def mail_roundtrip(access_token: str, recipient: str, *, wait_seconds: int = 60) -> int:
     """Send once to an explicit address and check the signed-in mailbox, never retry sending."""
     validate_test_recipient(recipient)
@@ -131,7 +180,7 @@ def mail_roundtrip(access_token: str, recipient: str, *, wait_seconds: int = 60)
     print(
         f"Sending one synthetic test message; probe={marker}. Sending is never retried.", flush=True
     )
-    with urlopen(request, timeout=20) as response:
+    with graph_request(request, phase="send_mail", timeout=20) as response:
         if response.status != 202:
             print("FAIL: Graph sendMail did not return HTTP 202; delivery is unverified.")
             return 1
@@ -148,7 +197,8 @@ def mail_roundtrip(access_token: str, recipient: str, *, wait_seconds: int = 60)
                 f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder}/messages?{query}",
                 headers=headers,
             )
-            with urlopen(request, timeout=min(10, remaining)) as response:
+            phase = "sent_items" if folder == "sentitems" else "inbox"
+            with graph_request(request, phase=phase, timeout=min(10, remaining)) as response:
                 seen[folder] = bool(json.load(response).get("value", []))
         if not all(seen.values()):
             time.sleep(min(5, max(0, deadline - time.monotonic())))
@@ -267,7 +317,7 @@ def microsoft(
         "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=1&$select=id",
         headers={"Authorization": f"Bearer {result['access_token']}"},
     )
-    with urlopen(request, timeout=20) as response:
+    with graph_request(request, phase="mail_read", timeout=20) as response:
         mailbox = json.load(response)
     print(
         f"PASS: Graph Mail.Read; returned {len(mailbox.get('value', []))} message ID(s). Content and IDs were not logged."

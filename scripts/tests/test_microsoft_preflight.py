@@ -133,9 +133,80 @@ class MicrosoftPreflightTests(unittest.TestCase):
         with patch.object(
             check, "urlopen", side_effect=HTTPError("", 503, "fixture-error", {}, None)
         ) as request:
-            with patch("sys.stdout", io.StringIO()), self.assertRaises(HTTPError):
+            with (
+                patch("sys.stdout", io.StringIO()),
+                self.assertRaisesRegex(check.ConfigurationError, "Graph HTTP 503; phase=send_mail"),
+            ):
                 check.mail_roundtrip("fixture-token", "self@example.invalid")
         self.assertEqual(request.call_count, 1)
+
+    def test_graph_failure_reports_known_codes_and_phase_without_private_fields(self):
+        body = {
+            "error": {
+                "code": "ErrorInvalidUser",
+                "message": "fixture-secret-token self@example.invalid",
+                "innerError": {
+                    "code": "ErrorItemNotFound",
+                    "request-id": "fixture-private-id",
+                },
+            }
+        }
+        error = HTTPError(
+            "https://graph.microsoft.com/private-fixture",
+            404,
+            "fixture-private-reason",
+            {},
+            io.BytesIO(json.dumps(body).encode()),
+        )
+        output = io.StringIO()
+        with patch.object(check, "urlopen", side_effect=error) as request:
+            with patch("sys.stdout", output), self.assertRaises(check.ConfigurationError) as raised:
+                check.mail_roundtrip("fixture-secret-token", "self@example.invalid")
+        self.assertIn("Graph HTTP 404; phase=send_mail", str(raised.exception))
+        self.assertIn("code=ErrorInvalidUser,ErrorItemNotFound", str(raised.exception))
+        self.assertEqual(request.call_count, 1)
+        diagnostic = output.getvalue() + str(raised.exception)
+        for private in ("fixture", "self@example.invalid", "https://"):
+            self.assertNotIn(private, diagnostic)
+
+    def test_graph_unrecognized_codes_and_malformed_bodies_are_not_echoed(self):
+        for body in (
+            b'{"error":{"code":"fixture-secret","message":"fixture-private"}}',
+            b"fixture-private-not-json",
+            b"[]",
+        ):
+            error = HTTPError("", 404, "private", {}, io.BytesIO(body))
+            with patch.object(check, "urlopen", side_effect=error):
+                with self.assertRaises(check.ConfigurationError) as raised:
+                    check.graph_request(
+                        check.Request("https://graph.microsoft.com/v1.0/me/sendMail"),
+                        phase="fixture-private",
+                        timeout=1,
+                    )
+            self.assertIn("phase=unknown; code=not_provided_or_unrecognized", str(raised.exception))
+            self.assertNotIn("private", str(raised.exception))
+            self.assertNotIn("secret", str(raised.exception))
+
+    def test_poll_failure_is_labeled_after_send_acceptance_without_resending(self):
+        response = io.BytesIO()
+        response.status = 202
+        error = HTTPError(
+            "", 404, "private", {}, io.BytesIO(b'{"error":{"code":"ErrorItemNotFound"}}')
+        )
+        output = io.StringIO()
+        with patch.object(check, "urlopen", side_effect=[response, error]) as request:
+            with (
+                patch("sys.stdout", output),
+                self.assertRaisesRegex(
+                    check.ConfigurationError, "phase=sent_items; code=ErrorItemNotFound"
+                ),
+            ):
+                check.mail_roundtrip("fixture-token", "self@example.invalid")
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("HTTP 202 accepted", output.getvalue())
+        self.assertEqual(
+            sum(call.args[0].get_method() == "POST" for call in request.call_args_list), 1
+        )
 
     def test_invalid_or_multiple_recipients_are_rejected_before_network(self):
         for recipient in ("first@example.invalid,second@example.invalid", "one@example.invalid\n"):
