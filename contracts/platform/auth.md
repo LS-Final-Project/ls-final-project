@@ -65,6 +65,33 @@ Mail.Read·Mail.Send를 요청한다. openid·profile·offline_access는 MSAL이
 잠금 파일의 기존 패키지 버전은 유지한다.
 
 합성 HTTP 응답과 실제 MSAL·RSA 서명 검증으로 회귀를 확인한다. 실제 Outlook을
-사용한 이번 제품 어댑터 검증은 아직 수행하지 않았다. 인가 시도 저장·원자적 소비 및
-재사용 거부, 등록 사용자 조회와 기존 서버 세션 연결, production 쿠키·CSRF·로그아웃,
+사용한 이번 제품 어댑터 검증은 아직 수행하지 않았다. 등록 사용자 조회와 기존
+서버 세션 연결, production 쿠키·CSRF·로그아웃,
 토큰 보관은 후속 구현이다. 공개 라우터·OpenAPI·로컬 개발 세션은 변경하지 않는다.
+
+### 서버 인가 시도 저장과 일회 소비
+
+`attempts.py`의 `save_authorization()`은 인가 시도를 플랫폼 전용
+`identity.oauth_authorizations`에 저장한다. state와 브라우저 결속값은 SHA-256으로
+조회하며, MSAL flow의 nonce·PKCE verifier는 서버 DB에만 보관한다. 로그인 시도는
+사용자 ID를 갖지 않고 사서함 연결 시도는 기존 서비스 사용자 ID에 결속한다.
+업무 서비스인 cs_app·tft_app에는 해당 테이블 접근 권한이 없다.
+
+`complete_stored_callback()`은 중복 키·공급자 오류·누락된 입력을 거부한 뒤
+state·목적·브라우저·사용자·만료를 조건으로 `DELETE ... RETURNING`을 실행한다.
+삭제를 커밋한 다음 기존 callback 검증과 MSAL 교환을 스레드에서 실행한다.
+동시 요청에서는 한 건만 교환하며, 공급자 장애가 나도 이미 소비한 시도를 복구하지
+않는다. 사용자는 새로운 인가 시도를 시작해야 한다. 잘못된 결속 요청은 정상 시도를
+소비하지 않는다. 만료는 전달된 현재 시각과 DB의 실제 시각을 모두 검사한다.
+
+마이그레이션 `20261023_KAN-77_oauth_authorizations.sql`은 기존 KAN-78의 users 테이블
+생성 다음에 적용한다. 날짜 접두사는 부트스트랩의 파일 정렬 순서를 유지한다.
+기존 로컬 DB에는 다음 명령으로 명시적으로 적용하며 공용 DB 변경·배포는 별도다.
+
+```bash
+python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizations.sql
+```
+
+전용 `kan77_auth_test` DB를 사용하는 통합 검사는 `AUTH_TEST_DATABASE_URL`을 명시한다.
+일반 단위 검사에서는 해당 DB 검사를 건너뛰고, 플랫폼 변경 CI의 `auth-database` 작업에서
+PostgreSQL 17로 실제 실행한다. 공개 로그인 경로와 세션 연결은 여전히 미구현이다.
