@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only preflight plus an opt-in interactive Microsoft mail-read probe."""
+"""Integration preflight with explicit Microsoft login and optional synthetic mail test."""
 
 import argparse
 import json
@@ -13,9 +13,9 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from dotenv import dotenv_values
 
@@ -101,7 +101,83 @@ def microsoft_error_summary(result: dict) -> str:
     return f"{code}; AADSTS={aadsts}"
 
 
-def microsoft(values: dict[str, str], login: bool, personal_account: bool = False) -> int:
+def validate_test_recipient(recipient: str) -> None:
+    if len(recipient) > 254 or not re.fullmatch(
+        r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?",
+        recipient,
+    ):
+        raise ConfigurationError("Use one email address for the explicit mail roundtrip test")
+
+
+def mail_roundtrip(access_token: str, recipient: str, *, wait_seconds: int = 60) -> int:
+    """Send once to an explicit address and check the signed-in mailbox, never retry sending."""
+    validate_test_recipient(recipient)
+    marker = uuid4().hex
+    subject = f"Team4 mail integration check {marker}"
+    payload = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": "Synthetic mail integration check."},
+            "toRecipients": [{"emailAddress": {"address": recipient}}],
+        }
+    }
+    headers = {"Authorization": f"Bearer {access_token}"}
+    request = Request(
+        "https://graph.microsoft.com/v1.0/me/sendMail",
+        data=json.dumps(payload).encode(),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    print(
+        f"Sending one synthetic test message; probe={marker}. Sending is never retried.", flush=True
+    )
+    with urlopen(request, timeout=20) as response:
+        if response.status != 202:
+            print("FAIL: Graph sendMail did not return HTTP 202; delivery is unverified.")
+            return 1
+    print("PASS: Graph sendMail HTTP 202 accepted; checking Sent Items and own Inbox.", flush=True)
+    query = urlencode({"$filter": f"subject eq '{subject}'", "$select": "id", "$top": 1})
+    seen = {"sentitems": False, "inbox": False}
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline and not all(seen.values()):
+        for folder in seen:
+            remaining = deadline - time.monotonic()
+            if seen[folder] or remaining <= 0:
+                continue
+            request = Request(
+                f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder}/messages?{query}",
+                headers=headers,
+            )
+            with urlopen(request, timeout=min(10, remaining)) as response:
+                seen[folder] = bool(json.load(response).get("value", []))
+        if not all(seen.values()):
+            time.sleep(min(5, max(0, deadline - time.monotonic())))
+    print(
+        json.dumps(
+            {
+                "status": "PASS" if all(seen.values()) else "PENDING",
+                "kind": "mail_roundtrip",
+                "probe": marker,
+                "send_accepted": True,
+                "sent_items_confirmed": seen["sentitems"],
+                "signed_in_inbox_confirmed": seen["inbox"],
+                "automatic_send_retries": 0,
+            }
+        )
+    )
+    return 0 if all(seen.values()) else 1
+
+
+def microsoft(
+    values: dict[str, str],
+    login: bool,
+    personal_account: bool = False,
+    mail_roundtrip_to: str | None = None,
+) -> int:
+    if mail_roundtrip_to:
+        if not login:
+            raise ConfigurationError("The explicit mail test requires interactive login")
+        validate_test_recipient(mail_roundtrip_to)
     try:
         tenant = (
             "9188040d-6c67-4c5b-b112-36a304b66dad"
@@ -196,6 +272,10 @@ def microsoft(values: dict[str, str], login: bool, personal_account: bool = Fals
     print(
         f"PASS: Graph Mail.Read; returned {len(mailbox.get('value', []))} message ID(s). Content and IDs were not logged."
     )
+    if mail_roundtrip_to:
+        if "Mail.Send" not in scopes:
+            raise ConfigurationError("Mail.Send consent is required for the explicit mail test")
+        return mail_roundtrip(result["access_token"], mail_roundtrip_to)
     print("Mail sending was not executed. Tokens remain only in process memory.")
     return 0
 
@@ -349,6 +429,10 @@ def main() -> int:
         "--personal-account", action="store_true", help="Microsoft personal Outlook account probe"
     )
     parser.add_argument(
+        "--mail-roundtrip-to",
+        help="Opt in: send one synthetic email to your own address and verify Sent Items and Inbox",
+    )
+    parser.add_argument(
         "--embed-model", help="Check one synthetic embedding instead of listing models"
     )
     parser.add_argument("--project")
@@ -366,6 +450,8 @@ def main() -> int:
         help="Use this existing CLI account for opt-in runtime identity verification",
     )
     args = parser.parse_args()
+    if args.mail_roundtrip_to and (args.service != "microsoft" or not args.login):
+        parser.error("--mail-roundtrip-to requires microsoft --login")
     if args.personal_account and args.service != "microsoft":
         parser.error("--personal-account is only available for Microsoft")
     if not 0 <= args.wait_runtime_iam <= 240 or (
@@ -393,7 +479,7 @@ def main() -> int:
             return vertex(args)
         values = configuration(args.env_file)
         return (
-            microsoft(values, args.login, args.personal_account)
+            microsoft(values, args.login, args.personal_account, args.mail_roundtrip_to)
             if args.service == "microsoft"
             else gemini(values, args.embed_model)
         )

@@ -7,6 +7,8 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 
 spec = importlib.util.spec_from_file_location(
     "integration_check", Path(__file__).parents[1] / "check_integrations.py"
@@ -76,6 +78,71 @@ class MicrosoftPreflightTests(unittest.TestCase):
             ),
             "oauth_failed; AADSTS=not_provided",
         )
+
+    def test_roundtrip_sends_once_and_requires_both_sent_items_and_own_inbox(self):
+        calls = []
+
+        def request(req, **_):
+            calls.append(req)
+            if req.get_method() == "POST":
+                response = io.BytesIO()
+                response.status = 202
+                return response
+            return io.BytesIO(b'{"value":[{"id":"fixture-id-not-for-logs"}]}')
+
+        output = io.StringIO()
+        with patch.object(check, "urlopen", side_effect=request), patch("sys.stdout", output):
+            self.assertEqual(
+                check.mail_roundtrip("fixture-secret-token", "self@example.invalid"), 0
+            )
+        posts = [r for r in calls if r.get_method() == "POST"]
+        self.assertEqual(len(posts), 1)
+        payload = json.loads(posts[0].data)
+        self.assertEqual(
+            payload["message"]["toRecipients"],
+            [{"emailAddress": {"address": "self@example.invalid"}}],
+        )
+        self.assertNotIn("ccRecipients", payload["message"])
+        for req in calls[1:]:
+            query = parse_qs(urlparse(req.full_url).query)
+            self.assertEqual(query["$select"], ["id"])
+            self.assertEqual(query["$filter"], [f"subject eq '{payload['message']['subject']}'"])
+        self.assertIn('"signed_in_inbox_confirmed": true', output.getvalue())
+        for sensitive in (
+            "fixture-secret-token",
+            "fixture-id-not-for-logs",
+            "self@example.invalid",
+        ):
+            self.assertNotIn(sensitive, output.getvalue())
+
+    def test_accepted_mail_is_not_reported_as_delivered_and_is_never_resent(self):
+        response = io.BytesIO()
+        response.status = 202
+        output = io.StringIO()
+        with patch.object(check, "urlopen", return_value=response) as request:
+            with patch("sys.stdout", output):
+                self.assertEqual(
+                    check.mail_roundtrip("fixture-token", "self@example.invalid", wait_seconds=0),
+                    1,
+                )
+        self.assertEqual(request.call_count, 1)
+        self.assertIn('"status": "PENDING"', output.getvalue())
+        self.assertIn('"signed_in_inbox_confirmed": false', output.getvalue())
+
+    def test_send_failure_is_not_retried(self):
+        with patch.object(
+            check, "urlopen", side_effect=HTTPError("", 503, "fixture-error", {}, None)
+        ) as request:
+            with patch("sys.stdout", io.StringIO()), self.assertRaises(HTTPError):
+                check.mail_roundtrip("fixture-token", "self@example.invalid")
+        self.assertEqual(request.call_count, 1)
+
+    def test_invalid_or_multiple_recipients_are_rejected_before_network(self):
+        for recipient in ("first@example.invalid,second@example.invalid", "one@example.invalid\n"):
+            with patch.object(check, "urlopen") as request:
+                with self.assertRaises(check.ConfigurationError):
+                    check.mail_roundtrip("fixture-token", recipient)
+            request.assert_not_called()
 
 
 if __name__ == "__main__":

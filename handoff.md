@@ -19,9 +19,22 @@ WBS는 gws CLI로 작업 상세 A1:V170을 읽고 Jira의 wbs-plan 118건 전체
 
 역할별 안내에는 이미 있는 셋업과 남은 기능, 첫 작업과 개발 순서, 실제 및 제안 경로, 계약 및 DB 마이그레이션과 검토 방법을 담았다. 플랫폼에서 김나영은 auth 및 mail, 김종하는 evaluations로 기능 폴더를 나누고 오새결의 룰 외 입력 및 검색과 AI 모듈을 구조화 계약으로 연결한다. 아직 없는 경로는 구현 제안으로 표시했다. WBS 원문에 남은 가칭과 두 백엔드 및 학교 테넌트 표현은 최신 결정과 구분했다. OpenDesign과 data는 변경하지 않았다. 노션 공유 알림은 보내지 않았다.
 
-Microsoft: 사용자는 Entra 앱의 지원 계정 유형을 모든 조직 및 개인 계정 포함으로 설정했다고 보고했다. 이 설정을 다시 요청하지 않는다. 이후 Gmail 주소로 --personal-account --login을 실행해 OpenID discovery는 성공했지만 OAuth invalid_request가 발생했다. Graph 호출 전의 실패이며 구체 원인은 아직 미확정이다. Gmail 주소의 Microsoft 개인 계정과 Outlook 사서함 보유를 구분했고 사용자는 방금 Outlook 계정을 만들어 받은편지함이 보인다고 답했다. 방금 만든 Outlook 주소로 재로그인해 PASS 또는 AADSTS가 포함된 FAIL 행을 알려 달라고 요청한 상태다. 스크립트는 오류 원문을 노출하지 않고 OAuth 오류 enum, AADSTS 숫자와 실패 단계만 출력하도록 보완했다. 사용자가 로그인 창이 보이지 않고 즉시 같은 오류가 난다고 보고했고, 최신 결과는 invalid_request, AADSTS90023, phase=token_exchange다. 메일 조회 전 토큰 교환 실패이며 계정 주소를 원인으로 단정하지 않는다. 실제 SDK의 토큰 요청을 로컬에서 가로채 authorization_code, client ID, 설정된 시크릿, redirect URI와 scope 및 PKCE 일치를 확인했다. 서버의 시크릿 유효성이나 앱 플랫폼 설정이 확인됐다는 뜻은 아니다. Entra에서 localhost:8765/callback의 플랫폼이 Web인지 사용자에게 확인 요청한 상태다. 쿠키 없는 공개 인증 시작 요청은 login.live.com까지 302와 200으로 이어졌지만 이는 실제 로그인 검증은 아니다. 기존 세션 자동 선택을 줄이도록 로그인 요청에 prompt=select_account를 추가했다. 실제 로그인과 메일은 여전히 미검증이다. 기존 .env.integrations와 시크릿 및 학교 테넌트 설정을 보존했다. scripts/check_integrations.py에 --personal-account 옵션을 추가해 해당 실행만 consumers authority와 개인 계정 고정 테넌트를 사용한다. 공개 OpenID discovery는 실제 성공했고 학교 기본 모드 보존과 예상하지 않은 issuer 차단을 포함한 scripts 테스트 22건 및 Ruff가 통과했다. 이 옵션은 사전 점검용이며 production 인증 및 사용자 등록을 변경하지 않는다. 개인 계정의 Entra 앱 역할은 지원되지 않으므로 기존 DB 역할 정책을 유지한다.
+Microsoft 최신 상태: 사용자는 앱 지원 계정 유형을 모든 조직 및 개인 계정 포함으로 설정했고 Outlook 개인 계정과 받은편지함을 준비했다. 실제 로그인은 token_exchange의 AADSTS90023으로 실패했으나 사용자 화면에서 http://localhost:8765/callback이 SPA로 등록된 것을 확인했다. 해당 콜백을 Web으로 옮기도록 안내한 뒤 사용자 터미널에서 다음 실제 성공을 확인했다. 5173 SPA 주소는 보존했다.
 
-사용자가 앱 설정을 완료하면 본인 터미널에서 `uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login`을 실행한다. 실제 개인 Outlook 계정으로 로그인하고 PASS 또는 오류 코드만 확인한다. 시크릿과 토큰을 채팅에 받지 않는다. 이 스크립트는 읽기만 하고 발송하지 않으며 실제 발송은 통제된 수신자를 확인한 뒤 별도로 진행한다. GCP 변경이나 서비스 재배포가 필요한 변경은 이번에 없다.
+- OpenID discovery PASS
+- Microsoft login PASS, Mail.Send consent=True
+- Graph Mail.Read PASS, 받은편지함 ID 조회 0건. 메일 내용과 ID는 출력하지 않았다.
+- 실제 발송은 아직 미실행이다. 권한 동의를 발송 성공으로 표시하지 않는다. production 로그인과 세션 및 메일 기능은 여전히 기능 구현 대상이다.
+
+scripts/check_integrations.py의 --personal-account는 해당 실행만 consumers 및 개인 계정 고정 테넌트를 사용하고 기존 .env.integrations와 학교 테넌트 및 시크릿을 보존한다. 로그인은 prompt=select_account를 사용하고 오류는 OAuth enum과 AADSTS 및 단계만 출력한다. 개인 계정의 Entra 앱 역할에 의존하지 않고 기존 DB 등록 사용자와 역할 정책을 유지한다.
+
+다음 실제 검증용으로 --mail-roundtrip-to 옵션을 준비했고 사용자에게 본인 Outlook 주소로 직접 실행하도록 요청했다. 이 옵션은 microsoft --login과 함께 명시했을 때만 합성 메일 1통을 지정 주소로 POST하고 약 60초 동안 보낸편지함 및 로그인한 받은편지함에서 고유 제목을 확인한다. HTTP 202와 실제 수신을 구분하며 둘 다 확인돼야 PASS다. 발송 실패나 수신 대기 시 자동 재발송하지 않는다. 주소는 채팅에 받지 않고 사용자 터미널에서만 지정한다. 토큰과 메일 원문 및 메시지 ID는 출력 또는 저장하지 않는다. scripts/tests 전체 28건과 Ruff 및 포맷 검사가 통과했고 실제 발송은 아직 실행 대기다.
+
+```bash
+uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login --mail-roundtrip-to '본인주소@outlook.com'
+```
+
+담당자와 일정 및 상태를 새로 바꾸지 않았다. GCP 변경과 서비스 재배포가 필요한 변경은 이번에 없다. 제품 인증 전체 또는 메일 동기화 및 승인 업무 구현으로 셋업을 확대하지 않는다.
 
 ## 2026-10-22 Vertex 공통 클라이언트와 평가 연결
 

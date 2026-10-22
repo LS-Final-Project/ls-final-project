@@ -1,6 +1,6 @@
 # 외부 연동 사전 확인
 
-로컬 개발 시작에는 필요하지 않다. 교육장 계정과 실제 앱 연동을 확인하는 담당자가 실행한다. 키와 시크릿을 채팅, Git 또는 프론트 VITE 변수에 넣지 않는다. 아래 절차는 메일을 발송하지 않는다.
+로컬 개발 시작에는 필요하지 않다. 교육장 계정과 실제 앱 연동을 확인하는 담당자가 실행한다. 키와 시크릿을 채팅, Git 또는 프론트 VITE 변수에 넣지 않는다. 기본 절차는 읽기 전용이며, --mail-roundtrip-to를 명시했을 때만 합성 메일 1통을 실제 발송한다.
 
 ## 로컬 설정
 
@@ -81,15 +81,30 @@ uv run --frozen python scripts/check_integrations.py microsoft --personal-accoun
 uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login
 ```
 
-이 옵션은 해당 실행에만 consumers authority와 개인 계정의 고정 테넌트를 사용한다. 기존 MS_TENANT_ID와 시크릿을 덮어쓰지 않고 임의 조직 테넌트를 허용하지 않는다. 실제 로그인은 개인 계정을 선택해 수행한다. 메일 읽기만 확인하며 발송하지 않는다. 공개 OpenID discovery는 성공했고 실제 사용자 로그인과 Mail.Read는 아직 확인 전이다.
+이 옵션은 해당 실행에만 consumers authority와 개인 계정의 고정 테넌트를 사용한다. 기존 MS_TENANT_ID와 시크릿을 덮어쓰지 않고 임의 조직 테넌트를 허용하지 않는다. 실제 로그인은 개인 계정을 선택해 수행한다. --mail-roundtrip-to가 없으면 메일 읽기만 확인하며 발송하지 않는다. 사용자 터미널에서 개인 계정의 실제 로그인, Mail.Send 동의 및 Graph Mail.Read 호출 성공을 확인했다. 받은편지함 조회는 0건이었으며 실제 발송과 수신은 별도 검증한다.
 
 개인 계정에서는 Entra 앱 역할이 실행 시 지원되지 않으므로 앱 역할 claim에 의존하지 않는다. 확정된 DB 등록 사용자와 역할 정책을 유지하고 등록되지 않은 사용자에게 자동 권한을 주지 않는다. 이 사전 점검은 production 사용자 등록이나 전체 인증 기능 구현을 대신하지 않는다. [지원 계정 유형과 앱 역할 제한](https://learn.microsoft.com/en-us/entra/identity-platform/supported-accounts-validation), [Graph 위임 권한](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread)을 참고한다.
 
 Gmail 주소를 로그인 이름으로 쓰는 Microsoft 개인 계정도 있다. Microsoft 계정 보유와 Outlook 사서함 보유는 따로 확인한다. Outlook 웹에서 실제 받은편지함이 열리는지 확인하며 Gmail 주소라는 이유만으로 OAuth 실패 원인이나 사서함 부재를 단정하지 않는다. [Microsoft 계정의 외부 이메일 주소 안내](https://support.microsoft.com/en-us/accounts-billing/subscriptions/connecting-a-microsoft-subscription-to-outlook).
 
-사용자는 지원 계정 유형을 조직 및 개인 포함으로 설정했다고 보고했고 Gmail 주소로 로그인한 결과 OAuth invalid_request가 발생했다. 이는 Graph 호출 이전의 실패이며 구체 원인은 아직 미확정이다. 진단 출력은 OAuth 오류 종류와 AADSTS 숫자 및 authorization 또는 token_exchange 단계만 남긴다. 오류 설명 원문, 이메일, 시크릿, 인증 코드와 state 및 콜백 URL은 출력하지 않는다. 같은 명령으로 다시 확인한 FAIL 행만 공유한다. AADSTS가 제공되지 않으면 not_provided로 표시한다. [공식 오류 코드 안내](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes).
+사용자는 지원 계정 유형을 조직 및 개인 포함으로 설정했다고 보고했고 Gmail 주소로 로그인한 결과 OAuth invalid_request가 발생했다. 후속 진단에서 AADSTS90023과 token_exchange 단계를 확인했고 사용자 화면에서 콜백이 SPA로 등록된 것을 확인했다. Web 플랫폼으로 옮기도록 안내한 뒤 실제 로그인과 Mail.Read가 성공했다. Python의 시크릿 기반 서버 토큰 교환은 Web 콜백으로 구성한다. 진단 출력은 OAuth 오류 종류와 AADSTS 숫자 및 authorization 또는 token_exchange 단계만 남긴다. 오류 설명 원문, 이메일, 시크릿, 인증 코드와 state 및 콜백 URL은 출력하지 않는다. 같은 명령으로 다시 확인한 FAIL 행만 공유한다. AADSTS가 제공되지 않으면 not_provided로 표시한다. [공식 오류 코드 안내](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes).
 
-로그인 요청은 select_account를 지정해 기존 브라우저 세션이 자동 선택되지 않도록 한다. 계정 선택 전에 앱 요청이 거절되면 여전히 오류가 날 수 있으므로 이 설정만으로 원인이 해결됐다고 판단하지 않는다. 사용자는 Outlook 계정을 만든 뒤 실제 받은편지함이 보인다고 확인했으며 이후 OAuth 결과를 기다리는 중이다.
+로그인 요청은 select_account를 지정해 기존 브라우저 세션이 자동 선택되지 않도록 한다. 계정 선택 전에 앱 요청이 거절되면 여전히 오류가 날 수 있으므로 이 설정만으로 원인이 해결됐다고 판단하지 않는다. 사용자는 Outlook 계정을 만든 뒤 실제 받은편지함이 보인다고 확인했고, 이후 OAuth와 Graph Mail.Read 성공을 보고했다. 이 성공은 로컬 사전 검증이며 production 로그인, 토큰 보관과 실제 메일 발송까지 완료했다는 의미는 아니다.
+
+### 합성 메일 발송 및 수신 검증
+
+기존 --login은 발송하지 않는다. 실제 발송을 확인하려면 본인 Outlook 주소로 바꿔 아래 명령을 직접 실행한다. 이 명령은 지정한 주소로 합성 메일 1통을 실제 발송한다. 수신 주소가 로그인한 본인 메일함의 주소여야 같은 세션에서 수신도 확인할 수 있다. 주소를 채팅이나 Git에 넣지 않는다.
+
+```bash
+uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login \
+  --mail-roundtrip-to '본인주소@outlook.com'
+```
+
+제목은 Team4 mail integration check와 고유한 합성 probe 값이며 본문에는 합성 연결 점검 문장만 들어간다. 실제 업무 데이터, 첨부와 추가 수신자는 없다. 발송 POST는 한 번만 실행하고 자동 재시도하지 않는다. 토큰은 프로세스 메모리에만 유지한다.
+
+Graph의 HTTP 202는 접수이며 배달 완료를 보장하지 않는다. 스크립트는 약 60초 동안 보낸편지함과 로그인한 받은편지함에서 해당 고유 제목을 조회하고 둘 다 확인해야 PASS를 출력한다. 주소와 원문 및 메시지 ID는 출력하지 않는다. PENDING이면 접수 후 아직 확인되지 않은 상태이므로 같은 메일이 미발송됐다고 단정하거나 자동 재발송하지 않는다. 출력된 합성 probe로 메일함에서 확인한다. 실행마다 새 합성 메일이 생성되므로 불필요하게 명령을 반복하지 않는다. [공식 sendMail 응답 의미](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
+
+이 옵션의 로컬 검증은 단일 발송, 정확한 합성 제목 조회, 접수와 수신 구분, 실패 시 무재시도와 민감값 비노출을 확인했다. 실제 발송 및 수신은 아직 사용자 실행 대기 중이다.
 
 ## 기존 Gemini Developer API 진단
 
