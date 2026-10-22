@@ -60,4 +60,4 @@ Cloud Build 실행 계정과 이미지 쓰기 및 로그 권한을 설정한 뒤
 
 서비스별 runtime 이미지 3개를 실제로 빌드하고 각각 localhost 임의 포트로 실행했다. 프로세스 및 서비스별 health 응답과 요청 ID, production 문서 경로 404, UID/GID 10001 실행 및 .env와 data 부재를 확인했다. 임시 컨테이너는 모두 제거했다.
 
-gcloud의 실제 업로드 목록으로 .env, data, Git과 가상 환경 제외를 확인했다. 위 절은 2026-10-21 당시 로컬 검증 기록이다. 이후 10/22에 Cloud Build와 배포, 공통 Vertex SDK를 포함한 실행 이미지 및 DB 준비 검사를 실제 확인했다. 최신 기록은 [서비스별 CI와 CD](../docs/service-delivery.md)를 따른다. 개인 Microsoft 계정의 로그인과 Graph 읽기 및 실제 송수신은 사전 검증을 마쳤다. 제품의 OAuth와 토큰 관리, 업무 권한 및 메일 통합은 후속 기능이며 사전 검증과 구분한다. 연동 근거는 [외부 연동 확인](../docs/integration-checks.md)을 따른다.
+gcloud의 실제 업로드 목록으로 .env, data, Git과 가상 환경 제외를 확인했다. 위 절은 2026-10-21 당시 로컬 검증 기록이다. 이후 10/22에 Cloud Build와 배포, 공통 Google Gen AI SDK를 포함한 실행 이미지 및 DB 준비 검사를 실제 확인했다. 최신 기록은 [서비스별 CI와 CD](../docs/service-delivery.md)를 따른다. 개인 Microsoft 계정의 로그인과 Graph 읽기 및 실제 송수신은 사전 검증을 마쳤다. 제품의 OAuth와 토큰 관리, 업무 권한 및 메일 통합은 후속 기능이며 사전 검증과 구분한다. 연동 근거는 [외부 연동 확인](../docs/integration-checks.md)을 따른다.

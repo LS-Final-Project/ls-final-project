@@ -12,14 +12,14 @@ from google import genai
 from google.auth.credentials import Credentials
 from google.auth.impersonated_credentials import Credentials as ImpersonatedCredentials
 from google.genai import types
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AISettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
-    ai_provider: Literal["vertex", "gemini"] = "vertex"
+    ai_provider: Literal["gemini", "vertex"] = "gemini"
     google_cloud_project: str = Field(default="proj-skkuls0106-183255377938", min_length=1)
     google_cloud_location: str = Field(default="global", pattern=r"^[a-z0-9-]+$")
     google_cloud_embedding_location: str | None = Field(default=None, pattern=r"^[a-z0-9-]+$")
@@ -27,12 +27,6 @@ class AISettings(BaseSettings):
     gemini_max_output_tokens: int = Field(default=1024, ge=1, le=65536)
     gemini_timeout_ms: int = Field(default=30000, ge=1000, le=300000)
     gemini_api_key: SecretStr | None = Field(default=None, repr=False)
-
-    @model_validator(mode="after")
-    def require_explicit_developer_key(self) -> "AISettings":
-        if self.ai_provider == "gemini" and not self.gemini_api_key:
-            raise ValueError("Developer API mode requires GEMINI_API_KEY")
-        return self
 
 
 @dataclass
@@ -120,7 +114,7 @@ def refresh_runtime_credentials(credentials: Credentials, wait_seconds: int) -> 
 def create_client(
     settings: AISettings, *, credentials: Credentials | None = None, embedding: bool = False
 ) -> genai.Client:
-    """Use ADC on Vertex; never switch to a Developer API key after failure."""
+    """Use the selected provider explicitly; no credential or provider fallback."""
     options = types.HttpOptions(
         api_version="v1" if settings.ai_provider == "vertex" else "v1beta",
         timeout=settings.gemini_timeout_ms,
@@ -141,7 +135,8 @@ def create_client(
         )
     if credentials is not None:
         raise ValueError("OAuth credentials are only used by Vertex mode")
-    assert settings.gemini_api_key is not None
+    if not settings.gemini_api_key or not settings.gemini_api_key.get_secret_value().strip():
+        raise ValueError("Gemini API requires GEMINI_API_KEY when creating a real client")
     return genai.Client(
         vertexai=False,
         api_key=settings.gemini_api_key.get_secret_value(),
@@ -201,7 +196,10 @@ def embed(
         model=model,
         contents=text,
         config=types.EmbedContentConfig(
-            output_dimensionality=dimensions, task_type=task_type, auto_truncate=False
+            output_dimensionality=dimensions,
+            task_type=task_type,
+            # Developer API rejects auto_truncate even when it is False.
+            auto_truncate=False if client.vertexai else None,
         ),
     )
     entries = response.embeddings or []

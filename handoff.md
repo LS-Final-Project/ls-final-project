@@ -45,7 +45,7 @@ Cloud SQL PostgreSQL 17과 pgvector 및 FTS, 서비스별 DB 계정과 스키마
 
 ## 외부 연동의 확인 범위
 
-- Vertex global의 gemini-3.6-flash 생성과 C/S 및 TFT 실행 계정 호출은 실제 PASS다. Developer API 경로는 청구 계정 월간 한도 차단이었다. 임베딩 gemini-embedding-001의 us-central1 단건에서 3072차원을 관측했지만 최종 모델과 DB 차원을 확정한 것은 아니다.
+- 모델 기본 경로를 Gemini API와 API 키 방식으로 변경했다. 기존 키의 gemini-3.6-flash 합성 영어·한국어 2건이 실제 PASS이며 스키마와 토큰을 기록했다. 사용자가 기존 gemini-api-key:1 보존 및 cs/tft-runtime의 Secret 접근 권한 추가를 실행했고 읽기 전용 IAM 조회로 확인했다. Gemini API 공통 임베딩 합성 1건도 실제 성공했으며 3072차원을 관측했다. 코드와 배포 설정은 dev에 반영하며 실제 Cloud Run 전환은 사용자의 다음 main 배포 후 확인한다. Vertex 어댑터는 선택형 호환 코드이고 팀원 ADC 준비는 필요 없다. 과거 Vertex IAM은 이번에 변경하지 않았다. 최종 업무 모델과 임베딩 차원은 미확정이다.
 - 개인 Microsoft 계정의 MSAL 로그인 및 Graph 읽기, sendMail HTTP 202와 보낸편지함 저장을 확인했다. 동일 합성 메일의 정크메일함 수신은 사용자 화면으로 확인했다. 스크립트의 정크 폴더 조회 보완 후 실제 API 재실행은 하지 않았다. 추가 발송을 다시 요구하지 않는다.
 - 학교 테넌트 관리자 동의는 막혀 있다. 개인 계정 대안으로 검증했으며 콜백 localhost:8765/callback은 SPA가 아닌 Web 등록이 필요하다. 제품의 OAuth, 토큰 갱신과 업무 메일 기능 완료는 아니다.
 - 백업 설정 및 수동 백업 두 건의 성공을 확인했다. 복구 훈련은 후속이다.

@@ -124,7 +124,7 @@ python3 infra/release.py plan
 
 실제 검증 중 발견한 기존 Docker 빌더의 인자 전달과 전체 예시 검사, 배포 빌드의 미참조 COMMIT_SHA를 수정했다. CD는 실행 확인한 Cloud SDK 이미지 digest를 고정하고 SDK 내장 Python으로 도우미를 실행한다. 빌드 실패나 배포 전 검증 실패를 성공으로 처리하지 않는다.
 
-## 2026-10-22 Vertex 실행 의존성 반영
+## 과거 AI SDK 실행 의존성 반영 이력
 
 공통 AI SDK와 Python 실행 의존성을 반영한 소스 e557c8bf816326dceef2671b7bbb9fb32b34e88a의 [CI 39706740083](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39706740083)와 [자동 CD 39706861091](https://github.com/LS-Final-Project/ls-final-project/actions/runs/39706861091)가 성공했다. CI에서 백엔드별 Docker 검사와 네트워크 없는 SDK import, 프론트 계약 소비자와 평가 및 인프라 검사가 통과했다. 공통 백엔드 변경이므로 백엔드 3개만 배포하고 웹은 유지했다.
 
@@ -134,7 +134,7 @@ python3 infra/release.py plan
 | tft | f788fbfb-a595-48be-81a4-104ec3c96d6d | 613b9b61-0b82-46a2-97e7-a85315c39a55 | team4-tft-00003-fv2 |
 | platform | 41b9d490-47f3-4c4e-8d78-69baed964147 | 42ecb74e-cf94-40f7-a801-70f137e32511 | team4-platform-00003-sfr |
 
-총 6건의 빌드가 SUCCESS이며 실제 SHA와 이미지 digest가 빌드 메타데이터와 일치했다. 각 서비스 인증 ready 200, database/vector/fts=true와 익명 접근 403을 확인했다. C/S와 TFT에만 Vertex 제공자 및 프로젝트, global 생성 위치와 us-central1 임베딩 위치 및 초기 모델을 명시했다. 플랫폼에는 모델 환경설정이나 호출 권한을 추가하지 않았다. 웹은 team4-web-00003-nlc 그대로이며 공개 health와 플랫폼 ready 중계가 200이다. 모델 호출은 앱 기동이나 CI 및 health 검사에서 하지 않는다.
+아래는 기본 경로를 Gemini API로 되돌리기 전의 배포 이력이다. 현재 코드의 기본값과 구분한다. 총 6건의 빌드가 SUCCESS이며 실제 SHA와 이미지 digest가 빌드 메타데이터와 일치했다. 각 서비스 인증 ready 200, database/vector/fts=true와 익명 접근 403을 확인했다. C/S와 TFT에만 Vertex 제공자 및 프로젝트, global 생성 위치와 us-central1 임베딩 위치 및 초기 모델을 명시했다. 플랫폼에는 모델 환경설정이나 호출 권한을 추가하지 않았다. 웹은 team4-web-00003-nlc 그대로이며 공개 health와 플랫폼 ready 중계가 200이다. 모델 호출은 앱 기동이나 CI 및 health 검사에서 하지 않는다.
 
 ## dev 기본 브랜치의 배포 인증
 
@@ -156,3 +156,11 @@ GitHub 기본 브랜치를 dev로 전환했고 Squash와 Merge commit을 허용�
 | platform | 38c6ebe9-f005-4fea-b34e-5f043bd11901 | 1fb57a80-ff50-4caa-930e-3a5d7108ed7a | team4-platform-00004-c2r |
 
 네 서비스의 실제 commit-sha가 위 소스와 일치하고 Ready 리비전을 확인했다. 공용 웹 health와 플랫폼 ready 중계는 HTTP 200이며 database/vector/fts=true다. 이번 검증을 위해 GCP IAM을 변경하거나 실제 AI 및 메일 호출을 추가하지 않았다. 후속 결과 문서의 dev 커밋은 main 배포 SHA와 다를 수 있다.
+
+## Gemini API로 전환하는 다음 배포
+
+기본 제공자를 Gemini API로 변경하고 C/S와 TFT에만 AI_PROVIDER=gemini 및 Secret Manager의 GEMINI_API_KEY=gemini-api-key:1을 전달하도록 준비했다. 이전 Vertex 위치 환경 변수는 새 배포에서 제거한다. SDK의 선택형 어댑터는 남아 있지만 기본 경로가 아니다. 플랫폼과 웹에는 모델 키를 전달하지 않는다.
+
+사용자가 `uv run --frozen python infra/register_gemini_secret.py --apply`로 기존 Secret 버전 1을 보존하고 두 실행 계정에 읽기 권한을 추가했다. 스크립트는 기본 실행 시 미리보기이며 키를 명령행이나 로그에 출력하지 않는다. 기존의 다른 IAM 바인딩이나 Vertex IAM은 변경하지 않았다.
+
+Gemini API의 실제 합성 생성 2건과 로컬 코드 검증은 완료했으며, Cloud Run은 아직 이전 배포다. dev → main 배포 후 main CI와 CD, 새 리비전의 제공자 설정 및 Secret 참조를 확인한다. 런타임의 실제 모델 호출은 별도 확인하며 health 성공만으로 생성 성공을 주장하지 않는다.

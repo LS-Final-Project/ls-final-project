@@ -285,13 +285,13 @@ uv run --frozen python -m eval.smoke
 
 ## 필요할 때 참고: 실제 모델 호출
 
-화면과 API 골격 개발은 위 fake 방식으로 시작한다. 실제 모델이 필요한 시점에 [외부 연동 점검](integration-checks.md)의 Vertex ADC 준비를 진행하고 아래 명령을 실행한다.
+화면과 API 골격 개발은 위 fake 방식으로 시작한다. 실제 모델이 필요한 시점에 [외부 연동 점검](integration-checks.md)에서 로컬 GEMINI_API_KEY를 준비하고 아래 명령을 실행한다.
 
 ```bash
-uv run --frozen python -m eval.smoke --provider vertex
+uv run --frozen python -m eval.smoke --provider gemini --env-file .env
 ```
 
-현재 기본 조합은 교육장 프로젝트의 global, gemini-3.6-flash다. 초기 연결 기준이며 최종 품질 평가로 선택한 모델은 아니다. 생성 결과의 스키마, 지연 및 토큰은 출력된 HTML에서 확인한다. 팀원은 IAM 준비 스크립트를 반복 실행하지 않는다. 업무 코드에서 재사용할 연결 및 임베딩 예제는 [공통 AI 클라이언트](ai-client.md)를 따른다.
+기본 호출은 API 키를 사용하는 Gemini API이며 초기 모델은 gemini-3.6-flash다. 초기 연결 기준이며 최종 품질 평가로 선택한 모델은 아니다. 생성 결과의 스키마, 지연 및 토큰은 출력된 HTML에서 확인한다. 키가 다른 파일에 있으면 --env-file을 해당 파일로 바꾼다. fake 개발에서는 이 준비를 하지 않으며 Vertex ADC와 IAM 설정도 필요하지 않다. 업무 코드에서 재사용할 연결 및 임베딩 예제는 [공통 AI 클라이언트](ai-client.md)를 따른다.
 
 ## 문제가 생기면
 

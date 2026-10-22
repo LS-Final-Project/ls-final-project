@@ -58,7 +58,7 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 | 항목 | 결정 |
 |---|---|
 | 런타임 | Python 3.12 실행 기준 / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
-| LLM | Vertex AI `global`의 `gemini-3.6-flash`로 연결 검증. 최종 업무 모델은 평가 후 결정 |
+| LLM | Gemini API 키 방식의 `gemini-3.6-flash`로 연결 재검증. 최종 업무 모델은 평가 후 결정 |
 | 임베딩 | Gemini 다국어 임베딩. 모델과 차원은 검색 평가 후 확정 |
 | DB | Cloud SQL PostgreSQL + pgvector + FTS 하이브리드 검색 |
 | LangGraph 상태 | `langgraph-checkpoint-postgres` |

@@ -49,7 +49,7 @@ def sdk_http(monkeypatch):
 
 def test_vertex_uses_oauth_and_preserves_schema_and_all_token_categories(sdk_http):
     _, requests = sdk_http
-    settings = AISettings(google_cloud_project="fixture-project")
+    settings = AISettings(ai_provider="vertex", google_cloud_project="fixture-project")
     with create_client(settings) as client:
         result = generate(client, settings, "synthetic", response_schema=Prediction)
     request = requests[0]
@@ -83,7 +83,9 @@ def test_vertex_failure_does_not_retry_or_fall_back_to_key_and_report_redacts_er
             }
         },
     )
-    provider = GenAIProvider(AISettings(google_cloud_project="fixture-project"))
+    provider = GenAIProvider(
+        AISettings(ai_provider="vertex", google_cloud_project="fixture-project")
+    )
     try:
         report = evaluate(provider, "vertex", "fixture")
     finally:
@@ -101,7 +103,9 @@ def test_empty_answer_retains_usage_and_finish_reason_in_failed_schema_report(sd
     state["response"]["candidates"][0].update(
         content={"role": "model", "parts": []}, finishReason="MAX_TOKENS"
     )
-    provider = GenAIProvider(AISettings(google_cloud_project="fixture-project"))
+    provider = GenAIProvider(
+        AISettings(ai_provider="vertex", google_cloud_project="fixture-project")
+    )
     try:
         report = evaluate(provider, "vertex", "fixture", {"location": "global"})
     finally:
@@ -135,7 +139,9 @@ def test_embedding_location_and_dimension_or_truncation_contract(
         "metadata": {"billableCharacterCount": 8},
     }
     settings = AISettings(
-        google_cloud_project="fixture-project", google_cloud_embedding_location="us-central1"
+        ai_provider="vertex",
+        google_cloud_project="fixture-project",
+        google_cloud_embedding_location="us-central1",
     )
     with create_client(settings, embedding=True) as client:
         if valid:
@@ -150,11 +156,41 @@ def test_embedding_location_and_dimension_or_truncation_contract(
     assert requests[0].url.path.endswith("gemini-embedding-001:predict")
 
 
-def test_developer_api_is_only_used_when_explicitly_selected(sdk_http):
+def test_default_provider_uses_gemini_key_without_adc(sdk_http):
     _, requests = sdk_http
-    settings = AISettings(ai_provider="gemini", gemini_api_key="fixture-explicit-key")
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
     with create_client(settings) as client:
         generate(client, settings, "synthetic")
     assert requests[0].url.host == "generativelanguage.googleapis.com"
     assert requests[0].headers["x-goog-api-key"] == "fixture-explicit-key"
     assert "authorization" not in requests[0].headers
+
+
+def test_fake_startup_needs_no_key_but_real_client_fails_before_network(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    settings = AISettings()
+    assert settings.ai_provider == "gemini"
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        create_client(settings)
+
+
+def test_gemini_embedding_uses_supported_config_and_checks_dimensions(sdk_http):
+    state, requests = sdk_http
+    state["response"] = {"embeddings": [{"values": [0.1, 0.2]}]}
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    with create_client(settings, embedding=True) as client:
+        result = embed(
+            client,
+            "gemini-embedding-001",
+            "synthetic",
+            dimensions=2,
+            task_type="RETRIEVAL_DOCUMENT",
+        )
+        assert result.values == [0.1, 0.2]
+        with pytest.raises(ValueError, match="dimension"):
+            embed(client, "gemini-embedding-001", "synthetic", dimensions=3)
+    assert all(r.url.host == "generativelanguage.googleapis.com" for r in requests)
+    body = json.loads(requests[0].content)
+    assert body["requests"][0]["outputDimensionality"] == 2
+    assert body["requests"][0]["taskType"] == "RETRIEVAL_DOCUMENT"
+    assert "autoTruncate" not in str(body)
