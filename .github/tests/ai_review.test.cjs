@@ -14,16 +14,19 @@ function result(overrides = {}) {
 /** 검토 판정 환경을 만든다. Args: overrides — 결과 변경. Returns: API와 출력 기록. */
 function fixture(overrides = {}) {
   const pr = {number: 12, state: 'open', draft: false, head: {sha: head}, base: {sha: base}, changed_files: 2};
-  const comments = [], failed = [], outputs = {};
+  const comments = [], edits = [], failed = [], outputs = {};
   const summary = {addHeading() { return this; }, addRaw() {return this; }, async write() {}};
   const context = {repo: {owner: 'team', repo: 'project'}, payload: {pull_request: structuredClone(pr)}, runId: 123};
   const github = {rest: {pulls: {
     async get() {return {data: structuredClone(pr)};}, async listFiles() {},
-  }, issues: {async createComment(comment) { comments.push(comment); }}},
+  }, issues: {
+    async createComment(comment) { comments.push(comment); return {data: {id: 1}}; },
+    async updateComment(comment) {edits.push(comment);},
+  }},
   async paginate() {return files.map(filename => ({filename}));}};
   const core = {summary, setFailed(message) {failed.push(message);}, setOutput(key, value) {outputs[key] = value;}};
   return {github, context, core, raw: JSON.stringify(result(overrides)), files: JSON.stringify(files),
-    conclusion: 'success', pr, comments, failed, outputs};
+    conclusion: 'success', pr, comments, edits, failed, outputs};
 }
 
 test('prepare binds the schema to the complete changed-file manifest', async () => {
@@ -91,8 +94,13 @@ test('execution failure and changed head/base never publish passing comments', a
 
 test('a push while the comment is published invalidates the run', async () => {
   const f = fixture();
-  f.github.rest.issues.createComment = async comment => {f.comments.push(comment); f.pr.head.sha = '3'.repeat(40);};
+  f.github.rest.issues.createComment = async comment => {
+    f.comments.push(comment); f.pr.head.sha = '3'.repeat(40); return {data: {id: 1}};
+  };
   await assert.rejects(() => finish(f));
+  assert.equal(f.edits.length, 1);
+  assert.ok(f.edits[0].body.includes('검토 무효'));
+  assert.ok(!f.edits[0].body.includes('**통과**'));
 });
 
 test('AI text cannot mention teammates and comment publishing errors propagate', async () => {

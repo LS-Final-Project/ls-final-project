@@ -90,8 +90,18 @@ async function finish({ github, context, core, raw, files, conclusion }) {
     `실행: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
     '이 결과는 위 SHA의 코드 리뷰이며 업무 기능 전체 완료나 배포 승인을 뜻하지 않습니다.',
   ].join('\n\n');
-  await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number, body });
-  await currentPR(github, context);
+  const { data: comment } = await github.rest.issues.createComment({
+    ...context.repo, issue_number: pr.number, body,
+  });
+  try {
+    await currentPR(github, context);
+  } catch (error) {
+    await github.rest.issues.updateComment({
+      ...context.repo, comment_id: comment.id,
+      body: `<!-- team4-ai-review -->\n## Claude AI 검토 무효\n게시 중 PR 상태가 바뀌었습니다. 최신 이벤트로 다시 검토하세요.\n검토했던 head: ${pr.head.sha}\n검토했던 base: ${pr.base.sha}`,
+    });
+    throw error;
+  }
   await core.summary.addHeading('Claude AI 검토 결과').addRaw(body).write();
   if (blocking.length) core.setFailed('P0~P2 지적을 수정하고 새 커밋으로 AI 리뷰를 다시 받으세요.');
 }
