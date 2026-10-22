@@ -53,6 +53,30 @@ class MicrosoftPreflightTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 check.microsoft(self.values, False, personal_account=True)
 
+    def test_oauth_diagnostics_preserve_error_number_without_account_or_secret_details(self):
+        diagnostic = check.microsoft_error_summary(
+            {
+                "error": "invalid_request",
+                "error_codes": [9002332],
+                "error_description": (
+                    "AADSTS9002332: fixture-personal-email@example.invalid "
+                    "client_secret=fixture-secret code=fixture-code state=fixture-state"
+                ),
+                "correlation_id": "fixture-correlation-id",
+            }
+        )
+        self.assertEqual(diagnostic, "invalid_request; AADSTS=AADSTS9002332")
+        for private in ("fixture", "email", "secret", "state", "correlation"):
+            self.assertNotIn(private, diagnostic)
+
+    def test_oauth_diagnostic_uses_only_known_protocol_error_enums(self):
+        self.assertEqual(
+            check.microsoft_error_summary(
+                {"error": "fixture-secret", "error_description": None, "error_codes": None}
+            ),
+            "oauth_failed; AADSTS=not_provided",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

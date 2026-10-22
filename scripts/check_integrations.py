@@ -71,6 +71,36 @@ def configuration(path: Path) -> dict[str, str]:
     }
 
 
+def microsoft_error_summary(result: dict) -> str:
+    """Extract only protocol enums and AADSTS numbers, never descriptions or identifiers."""
+    allowed_errors = {
+        "invalid_request",
+        "invalid_grant",
+        "invalid_client",
+        "unauthorized_client",
+        "access_denied",
+        "interaction_required",
+        "temporarily_unavailable",
+        "server_error",
+        "invalid_scope",
+        "login_required",
+        "consent_required",
+    }
+    error = result.get("error")
+    code = error if isinstance(error, str) and error in allowed_errors else "oauth_failed"
+    raw_codes = result.get("error_codes")
+    numbers = {
+        str(item)
+        for item in (raw_codes if isinstance(raw_codes, list) else [])
+        if type(item) is int and 100 <= item <= 9999999999
+    }
+    description = result.get("error_description", "")
+    if isinstance(description, str):
+        numbers.update(re.findall(r"\bAADSTS(\d{3,10})\b", description))
+    aadsts = ",".join(f"AADSTS{number}" for number in sorted(numbers)[:8]) or "not_provided"
+    return f"{code}; AADSTS={aadsts}"
+
+
 def microsoft(values: dict[str, str], login: bool, personal_account: bool = False) -> int:
     try:
         tenant = (
@@ -148,8 +178,8 @@ def microsoft(values: dict[str, str], login: bool, personal_account: bool = Fals
         raise ValueError("Login timed out; no token was stored")
     result = app.acquire_token_by_auth_code_flow(flow, callback)
     if "access_token" not in result:
-        code = re.sub(r"[^A-Za-z0-9_]", "", str(result.get("error", "oauth_failed")))[:80]
-        print(f"FAIL: Microsoft OAuth {code}. Check consent and redirect settings.")
+        phase = "authorization" if callback.get("error") else "token_exchange"
+        print(f"FAIL: Microsoft OAuth {microsoft_error_summary(result)}; phase={phase}.")
         return 1
     if result.get("id_token_claims", {}).get("tid") != tenant:
         raise ValueError("Authenticated tenant did not match configured tenant")
