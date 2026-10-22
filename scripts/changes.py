@@ -24,10 +24,16 @@ def classify(paths: list[str]) -> dict:
                 release.add(service)
                 frontend = True
             continue
+        if path.startswith(("backend/agent/", "backend/engine/")):
+            release.update(("cs", "tft"))
+            continue
         if path.endswith(".md") or path.startswith("contracts/"):
             continue
         if path.startswith("frontend/src/mocks/generated/"):
             frontend = True
+            service = Path(path).stem
+            if service in BACKENDS:
+                contracts.add(service)
         elif path.startswith("frontend/"):
             release.add("web")
             frontend = True
@@ -38,8 +44,6 @@ def classify(paths: list[str]) -> dict:
             frontend = True
         elif any(path.startswith(f"tests/{service}/") for service in BACKENDS):
             contracts.add(path.split("/")[1])
-        elif path.startswith(("backend/agent/", "backend/engine/")):
-            release.update(("cs", "tft"))
         elif path.startswith("backend/") or path in {"Dockerfile", "pyproject.toml", "uv.lock"}:
             release.update(BACKENDS)
             contracts.update(BACKENDS)
@@ -48,6 +52,8 @@ def classify(paths: list[str]) -> dict:
             evaluation = True
         elif path.startswith("tests/"):
             contracts.update(BACKENDS)
+        elif path == "compose.yaml":
+            infrastructure = True
         elif path.startswith(("infra/", "scripts/")):
             infrastructure = True
             if path in {"scripts/changes.py", "scripts/check_backend.py"}:
@@ -70,7 +76,7 @@ def classify(paths: list[str]) -> dict:
             release.update(SERVICES)
             contracts.update(BACKENDS)
             frontend = infrastructure = True
-        elif path not in {".gitignore", ".gitattributes", "compose.yaml"}:
+        elif path not in {".gitignore", ".gitattributes"}:
             # An unknown executable/configuration path must not silently bypass CI.
             release.update(SERVICES)
             contracts.update(BACKENDS)

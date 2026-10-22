@@ -2,35 +2,56 @@
 
 설치부터 첫 PR까지의 공통 온보딩 원본은 이 문서다. README와 노션의 이름별 안내는 이 문서를 연결하며 설치 절차를 따로 복제하지 않는다. 업무별 설계 문서는 필요한 단계에서만 참고한다.
 
-처음 저장소를 받은 팀원은 1~5를 순서대로 실행한다. 이 로컬 실행에는 GCP 권한, Gemini 키와 Microsoft 시크릿이 필요하지 않다. data 디렉터리는 내려받지 않아도 시작할 수 있으며 이 절차는 해당 디렉터리를 수정하지 않는다.
+처음 온 팀원은 **1~5로 로컬 실행을 확인한 뒤 자신의 작업 시작으로 이동**한다. 마지막에 시연 계정 4개와 서비스 연결 완료가 보이면 기능 개발을 시작할 준비가 된 것이다. 처음에는 제품의 완성된 업무 화면이 아니라 개발 환경 확인 화면이 보인다.
+
+이 로컬 실행에는 GCP 권한, Gemini 키와 Microsoft 시크릿이 필요하지 않다. data 디렉터리를 내려받거나 교육장 IAM 및 배포 스크립트를 실행할 필요도 없다. 명령은 모두 저장소 루트에서 실행한다. 한 블록 안에서도 앞 명령이 실패하면 다음 단계로 넘어가지 말고 맨 아래 문제 해결을 확인한다. 코드 블록의 명령만 복사하며 화면의 프롬프트나 실행 결과는 함께 붙이지 않는다.
 
 ## 1. 준비할 프로그램
 
-Windows는 Docker Desktop과 WSL2를 사용하고 같은 WSL 터미널에서 모든 명령을 실행하는 구성을 권장한다. 저장소는 WSL의 홈 디렉터리 아래에 둔다. macOS 및 Linux에서도 같은 명령을 사용한다.
+Windows는 Docker Desktop과 WSL2의 Ubuntu 터미널을 사용한다. Ubuntu가 아직 없으면 [Microsoft WSL 설치 안내](https://learn.microsoft.com/windows/wsl/install)부터 완료한다.
+
+1. Docker Desktop을 실행하고 Settings → Resources → WSL Integration에서 사용하는 Ubuntu를 연결한다.
+2. 이후 명령은 PowerShell 대신 Ubuntu 터미널에서 실행한다. Python, uv, Node.js와 npm, GitHub CLI도 그 터미널에서 확인할 수 있어야 한다. Windows에만 설치된 Node.js를 그대로 쓰는 구성과 섞지 않는다.
+3. `cd ~`로 WSL 홈 디렉터리로 이동한 뒤 저장소를 받는다. VS Code를 사용하면 WSL에서 해당 폴더를 연다.
+
+macOS 및 Linux에서도 아래 명령은 같으며 Docker 엔진이 실행 중이어야 한다.
 
 | 프로그램 | 확인 명령 | 정상 기준 |
 | --- | --- | --- |
 | Git | git --version | 버전 출력 및 비공개 저장소 접근 권한 |
+| GitHub CLI | gh --version | 아래 브라우저 인증과 비공개 저장소 접근에 사용 |
 | Docker와 Compose | docker compose version | Compose 버전 출력 |
 | 실행 중인 Docker 엔진 | docker info | 엔진 연결 성공 |
 | Python | python3 --version | 3.11 이상. 로컬 실행용 3.12는 uv가 준비 |
 | uv | uv --version | 버전 출력 |
 | Node.js와 npm | node --version, npm --version | Node 22.12 이상. Node 24 LTS 권장 |
 
-설치 안내: [Docker Desktop](https://docs.docker.com/desktop/), [uv 설치](https://docs.astral.sh/uv/getting-started/installation/), [Node.js](https://nodejs.org/en/download). Windows에서 Python 명령이 python이면 아래 python3 대신 python을 사용한다. 저장소 접근이 거부되면 본인의 GitHub 계정으로 조직 초대를 수락하고 저장소 권한을 확인한다. 공용 GitHub 계정이나 다른 팀원의 토큰을 복사하지 않는다.
+설치 안내: [Docker Desktop](https://docs.docker.com/desktop/), [uv 설치](https://docs.astral.sh/uv/getting-started/installation/), [Node.js](https://nodejs.org/en/download), [GitHub CLI](https://cli.github.com/). Windows에서는 아래 명령을 WSL Ubuntu의 python3로 실행한다. 저장소 접근이 거부되면 본인의 GitHub 계정으로 조직 초대를 수락하고 저장소 권한을 확인한다. 공용 GitHub 계정이나 다른 팀원의 토큰을 복사하지 않는다.
 
 ## 2. 저장소 받기
 
-처음 한 번 실행한다.
+GitHub에 본인 계정으로 로그인해 조직 초대를 수락하고 [저장소](https://github.com/LS-Final-Project/ls-final-project)가 보이는지 확인한다. 비공개 저장소가 보이지 않으면 인프라 담당자에게 본인 계정의 접근 권한을 확인한다.
+
+처음 한 번 터미널의 Git 인증을 연결한다. 기존 Git 인증으로 정상 clone/pull이 된다면 이 단계는 생략한다.
 
 ```bash
+gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git
+```
+
+안내된 코드를 본인 브라우저에 입력하고 같은 GitHub 계정으로 승인한다. 브라우저가 자동으로 열리지 않으면 터미널에 표시된 주소를 직접 연다. [GitHub CLI 로그인 안내](https://cli.github.com/manual/gh_auth_login)를 참고한다. 인증 코드와 토큰을 채팅이나 문서에 붙이지 않는다. 일반 GitHub 로그인 비밀번호를 git의 비밀번호로 입력하는 방식은 사용하지 않는다.
+
+새 폴더를 받는다.
+
+```bash
+cd ~
 git clone https://github.com/LS-Final-Project/ls-final-project.git
 cd ls-final-project
 git switch dev
 git pull --ff-only
 ```
 
-이미 받은 저장소라면 자신의 변경을 확인한 뒤 업데이트한다. 작업 파일을 지우거나 reset --hard하지 않는다.
+이미 받은 저장소에서는 git status로 수정 중인 파일을 확인한다. 변경이 있으면 자신의 작업 브랜치에 보존한 뒤 전환한다. 기존 작업을 지우거나 reset --hard로 정리하지 않는다. 아래 git switch dev는 로컬 dev가 없으면 origin/dev를 추적하는 브랜치를 만든다.
 
 ```bash
 git status
@@ -49,6 +70,8 @@ python3 scripts/workspace.py setup
 ```
 
 정상 결과의 마지막에 READY가 표시된다. 이 명령은 Python 및 프론트 의존성을 잠금 파일 기준으로 설치하고 타입을 생성한다. .env.local에 서로 다른 로컬 DB 비밀번호를 생성하며 기존 .env와 기존 .env.local은 덮어쓰지 않는다. frontend/.env.local에는 로컬 API 주소만 들어간다.
+
+설치 중 한 명령이 실패했으면 원인을 해결한 뒤 같은 setup 명령을 다시 실행해도 된다. 기존 로컬 비밀번호는 유지한다.
 
 로컬 파일을 팀원에게 보내지 않는다. 각 팀원은 자기 컴퓨터에서 setup을 실행한다. 처음 실행에는 패키지와 Docker 이미지 다운로드를 위한 인터넷 연결이 필요하다.
 
@@ -71,13 +94,13 @@ health는 프로세스만 확인한다. `/api/v1/cs/ready`, `/api/v1/tft/ready`,
 
 ## 5. 프론트 실행
 
-같은 저장소의 별도 터미널에서 실행한다.
+두 번째 터미널을 열어 같은 저장소 폴더로 이동한 뒤 실행한다. 이 터미널은 프론트 서버가 실행되는 동안 열린 채로 둔다. 첫 번째 터미널에서 Git과 검사 명령을 실행하면 된다.
 
 ```bash
 npm run dev --prefix frontend
 ```
 
-브라우저에서 http://127.0.0.1:5173 을 연다. 서비스 연결 완료 문구와 시연 계정 4개가 보여야 한다. 계정을 선택하면 현재 계정에 역할이 표시된다. 선택 해제를 누르면 세션이 무효화된다.
+터미널에 Vite의 Local 주소가 나오면 브라우저에서 http://127.0.0.1:5173 을 연다. 서비스 연결 완료 문구와 시연 계정 4개가 보여야 한다. 계정을 선택하면 현재 계정에 역할이 표시된다. 선택 해제를 누르면 세션이 무효화된다.
 
 | 계정 | 역할 | 부서 |
 | --- | --- | --- |
@@ -100,8 +123,15 @@ npm run dev --prefix frontend
 
 ## 매일 개발 시작과 종료
 
+첫 번째 터미널에서 저장소 루트로 이동해 API와 DB를 실행한다. 이 명령은 확인을 마치면 프롬프트로 돌아온다.
+
 ```bash
 python3 scripts/workspace.py up
+```
+
+두 번째 터미널에서 프론트를 실행한다. 프론트 코드 수정은 Vite가 반영하며 백엔드 수정 후에는 첫 번째 터미널에서 up을 다시 실행한다.
+
+```bash
 npm run dev --prefix frontend
 ```
 
@@ -118,6 +148,20 @@ python3 scripts/workspace.py down
 ```
 
 ## 자신의 작업 시작
+
+첫 커밋 전에 현재 Git 작성자 이름과 이메일을 확인한다.
+
+```bash
+git config --get user.name
+git config --get user.email
+```
+
+값이 없거나 다른 사람 정보이면 이 저장소에 사용할 본인 정보로 설정한다. 아래 예시는 본인 이름과 GitHub 등록 이메일 또는 GitHub의 비공개 noreply 이메일로 바꾼다. 기존에 올바른 값이 있으면 다시 설정하지 않는다.
+
+```bash
+git config --local user.name "본인 이름"
+git config --local user.email "본인 GitHub 등록 이메일"
+```
 
 저장소의 Git 훅을 한 번 설치하고 실제 Jira 번호로 브랜치를 만든다. 아래 KAN-102는 C/S 문의 API 티켓의 예시다. 자신이 맡은 실제 티켓으로 바꾼다. 작업 브랜치는 최신 origin/dev에서 생성한다. 초기 셋업의 main 직접 push 예외를 새 기능 개발에 적용하지 않는다.
 
@@ -156,7 +200,9 @@ git commit -m "문의 API 구현"
 git push -u origin HEAD
 ```
 
-Git 훅이 브랜치의 Jira 번호를 커밋 제목에 추가한다. GitHub에서 push한 브랜치의 PR을 열고 검토자를 확인한다. 일반 기능 작업의 기본 검토 배정은 김나영 작업을 김종하, 오새결 작업을 김나영, 김종하 작업을 오새결이 검토하는 순서이며 티켓에 별도 배정이 있으면 그 배정을 따른다.
+Git 훅이 브랜치의 Jira 번호를 커밋 제목에 추가한다. GitHub에서 push한 브랜치의 Compare & pull request를 누른다. **base는 dev, compare는 본인의 KAN 작업 브랜치**인지 확인한다. 변경 이유와 실제 검증 결과를 작성하고 Create draft pull request로 먼저 공유할 수 있다. 검토 준비가 되면 Ready for review로 바꾸고 검토자가 지정됐는지 확인한다. Draft에는 자동 검토 요청을 보내지 않는다. CI가 실패하면 고친 커밋을 같은 브랜치에 push한다. 승인과 검사 성공을 확인한 뒤 Squash and merge한다.
+
+기본 브랜치 보호는 현재 요금제에서 서버 강제가 되지 않는다. 버튼이 활성화돼 있어도 CI와 검토를 직접 확인해야 한다. PR 병합만으로 Jira가 자동 완료되지는 않는다. 일반 기능 작업의 기본 검토 배정은 김나영 작업을 김종하, 오새결 작업을 김나영, 김종하 작업을 오새결이 검토하는 순서이며 티켓에 별도 배정이 있으면 그 배정을 따른다.
 
 ### 담당 경계와 공통 작업
 
@@ -233,7 +279,11 @@ uv run --frozen python -m eval.smoke --provider vertex
 
 | 증상 | 확인 및 해결 |
 | --- | --- |
-| Docker 엔진 연결 실패 | Docker Desktop 또는 Docker Engine을 실행하고 docker info 재확인 |
+| Docker 명령을 못 찾거나 엔진 연결 실패 | Docker Desktop 또는 Docker Engine을 실행하고 Windows는 Ubuntu의 WSL Integration을 확인한 뒤 같은 터미널에서 docker info 재확인 |
+| gh/uv/node/npm 명령을 못 찾음 | 현재 사용하는 WSL 또는 macOS/Linux 환경에 설치됐는지 확인하고 터미널을 다시 연다. Windows용 실행 파일과 WSL 설치를 섞지 않는다 |
+| git clone/pull 인증 실패 또는 Repository not found | 브라우저에서 저장소 접근과 조직 초대를 확인하고 gh auth login 및 gh auth setup-git 수행 |
+| Author identity unknown | 자신의 Git 이름과 이메일을 이 문서의 작업 시작 절차대로 설정 |
+| 작업 시작 명령이 변경 파일 때문에 중단 | git status로 확인하고 본인 작업을 먼저 보존한다. 훅이나 변경 검사를 끄거나 자동 삭제하지 않는다 |
 | 포트 사용 중 | 해당 프로그램을 확인한다. .env.local의 LOCAL_*_PORT를 변경했다면 frontend/.env.local의 대응 API 주소도 수정하고 Vite 재시작 |
 | 비밀번호 인증 실패 | 기존 DB 볼륨과 .env.local 비밀번호가 다를 수 있다. 기존 파일을 되찾거나 관리자와 확인한다. 볼륨을 자동 삭제하거나 비밀번호를 임의 재생성하지 않는다 |
 | DB 초기화 실패 | 아래 logs 명령으로 SQL 실패 위치 확인. 실패를 숨기기 위해 반복 초기화 SQL을 실행하거나 볼륨을 삭제하지 않는다 |

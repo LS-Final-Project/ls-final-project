@@ -1,7 +1,7 @@
 name: team4-local
 
 x-api: &api
-  build:
+  build: &api-build
     context: .
     target: runtime
   depends_on:
@@ -39,6 +39,10 @@ services:
 
   cs:
     <<: *api
+    build:
+      <<: *api-build
+      args:
+        SERVICE_NAME: cs
     environment:
       ENVIRONMENT: local
       SERVICE_NAME: cs
@@ -51,6 +55,10 @@ services:
 
   tft:
     <<: *api
+    build:
+      <<: *api-build
+      args:
+        SERVICE_NAME: tft
     environment:
       ENVIRONMENT: local
       SERVICE_NAME: tft
@@ -63,6 +71,10 @@ services:
 
   platform:
     <<: *api
+    build:
+      <<: *api-build
+      args:
+        SERVICE_NAME: platform
     environment:
       ENVIRONMENT: local
       SERVICE_NAME: platform

@@ -24,6 +24,12 @@ def main() -> None:
             "backend/mock_examples.py",
         ]
     )
+    if service in {"cs", "tft"}:
+        sources.extend(
+            directory
+            for directory in ("backend/engine", "backend/agent")
+            if Path(directory).is_dir()
+        )
     tests = [
         str(p)
         for p in Path("tests").glob("test_*.py")

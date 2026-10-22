@@ -54,6 +54,17 @@ class ChangeTests(unittest.TestCase):
         result = changes.classify(["frontend/src/mocks/generated/cs.json"])
         self.assertTrue(result["frontend"])
         self.assertEqual(result["services"], [])
+        self.assertEqual(result["backends"], ["cs"])
+
+    def test_compose_changes_are_checked_without_releasing_cloud_services(self):
+        result = changes.classify(["compose.yaml"])
+        self.assertTrue(result["infrastructure"])
+        self.assertEqual(result["services"], [])
+
+    def test_runtime_markdown_prompts_are_not_skipped_as_documentation(self):
+        result = changes.classify(["backend/agent/cs/prompts/classification.md"])
+        self.assertEqual(result["services"], ["cs", "tft"])
+        self.assertEqual(result["backends"], ["cs", "tft"])
 
     def test_shared_dependencies_expand_to_all_backends(self):
         for path in ("backend/shared/models.py", "uv.lock", "backend/api/common/application.py"):
