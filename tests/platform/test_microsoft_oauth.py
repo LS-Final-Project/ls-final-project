@@ -253,6 +253,61 @@ def test_signed_personal_token_returns_subject_and_redeems_with_saved_pkce(oauth
     assert oauth.jwks_calls == [JWKS_URI]
 
 
+@pytest.mark.parametrize(
+    ("claim", "offset", "accepted"),
+    [
+        ("iat", 59, True),
+        ("iat", 61, False),
+        ("nbf", 59, True),
+        ("nbf", 61, False),
+        ("exp", -59, True),
+        ("exp", -61, False),
+    ],
+)
+def test_id_token_clock_skew_has_a_sixty_second_limit(oauth, monkeypatch, claim, offset, accepted):
+    """서명 토큰의 시각 오차는 60초 이내에서만 허용하는지 확인한다.
+
+    Args:
+        oauth: 개인 계정 어댑터와 합성 HTTP 응답.
+        monkeypatch: PyJWT의 검증 시각을 고정하는 pytest 도구.
+        claim: 발급·사용 시작·만료 시각 중 변경할 클레임.
+        offset: 고정된 검증 시각과 클레임의 차이(초).
+        accepted: 해당 오차에서 인증을 허용해야 하는지 여부.
+
+    Returns:
+        None: 실제 MSAL 교환과 RSA 검증 후 오차 범위 안팎의 결과를 확인한다.
+    """
+    _, pending = begin_attempt(oauth)
+    checked_at = datetime.now(UTC).replace(microsecond=0)
+
+    class ValidationClock(datetime):
+        """토큰 검증만 고정된 UTC 시각을 사용하도록 하는 테스트 시계."""
+
+        @classmethod
+        def now(cls, tz=None):
+            """검증 시각을 요청한 시간대에 맞춰 반환한다.
+
+            Args:
+                tz: 반환할 datetime의 시간대. 없으면 시간대 정보를 제거한다.
+
+            Returns:
+                datetime: 테스트 시작 때 고정한 검증 시각.
+            """
+            return checked_at.astimezone(tz) if tz else checked_at.replace(tzinfo=None)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", ValidationClock)
+    oauth.claims.update(
+        iat=int(checked_at.timestamp()) - 3600,
+        nbf=int(checked_at.timestamp()) - 3600,
+    )
+    oauth.claims[claim] = int(checked_at.timestamp()) + offset
+    if accepted:
+        assert finish_attempt(oauth, pending).oid == USER_ID
+    else:
+        with pytest.raises(ApplicationError, match="AUTH_INVALID_TOKEN"):
+            finish_attempt(oauth, pending)
+
+
 def test_mailbox_subject_is_separate_from_the_service_user(oauth):
     """기존 사용자에 결속한 사서함 동의도 별도의 Microsoft 식별자를 반환하는지 확인한다.
 

@@ -196,6 +196,7 @@ class PersonalMicrosoftOAuth:
                 token,
                 key.key,
                 algorithms=["RS256"],
+                leeway=60,
                 audience=self._client_id,
                 issuer=ISSUER,
                 options={

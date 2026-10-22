@@ -61,6 +61,21 @@ class ChangeTests(unittest.TestCase):
         self.assertTrue(result["infrastructure"])
         self.assertEqual(result["services"], [])
 
+    def test_platform_migration_runs_platform_checks_without_a_release(self):
+        """플랫폼 SQL만 바뀌어도 인증 DB 검사를 포함한 플랫폼 검사를 선택한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 인프라와 플랫폼 검사 선택 및 배포 대상 부재를 검증한다.
+        """
+        result = changes.classify(["infra/migrations/platform/20261023_KAN-77_oauth.sql"])
+        self.assertTrue(result["infrastructure"])
+        self.assertEqual(result["backends"], ["platform"])
+        self.assertEqual(result["services"], [])
+        self.assertFalse(result["frontend"])
+
     def test_runtime_markdown_prompts_are_not_skipped_as_documentation(self):
         result = changes.classify(["backend/agent/cs/prompts/classification.md"])
         self.assertEqual(result["services"], ["cs", "tft"])

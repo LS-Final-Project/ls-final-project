@@ -56,6 +56,8 @@ Mail.Read·Mail.Send를 요청한다. openid·profile·offline_access는 MSAL이
 정확한 issuer·앱 audience·필수 클레임·유효기간·nonce·개인 계정 tid와 UUID oid를
 검증한다. MSAL이 디코딩한 클레임만으로 인증하지 않는다. 공급자 연결 장애는 503,
 잘못된 토큰은 401로 구분하며 오류 응답에는 원시 공급자 설명이나 토큰을 넣지 않는다.
+ID 토큰의 발급·사용 시작·만료 시각에는 서버 간 시계 오차를 고려해 60초의 여유를
+적용하며 이 범위를 벗어나면 거부한다. 이 여유는 인가 시도 만료나 일회 소비에는 적용하지 않는다.
 토큰 캐시는 호출마다 새로 만들고 영속 저장하지 않는다. 반환값은 tid·oid뿐이며
 사서함 토큰 연결과 업무 권한 부여를 완료한 결과가 아니다.
 
@@ -94,4 +96,5 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizatio
 
 전용 `kan77_auth_test` DB를 사용하는 통합 검사는 `AUTH_TEST_DATABASE_URL`을 명시한다.
 일반 단위 검사에서는 해당 DB 검사를 건너뛰고, 플랫폼 변경 CI의 `auth-database` 작업에서
-PostgreSQL 17로 실제 실행한다. 공개 로그인 경로와 세션 연결은 여전히 미구현이다.
+PostgreSQL 17로 실제 실행한다. 플랫폼 마이그레이션만 변경해도 플랫폼 검사 대상으로
+선택해 해당 DB 검사가 빠지지 않게 한다. 공개 로그인 경로와 세션 연결은 여전히 미구현이다.
