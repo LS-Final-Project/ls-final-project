@@ -57,7 +57,7 @@ Ready PR의 생성·새 커밋·Draft 해제·재오픈 때 Claude가 전체 dif
 P3는 참고 사항이다. 실행 오류·빈 결과·미완료·SHA 불일치·파일 누락도 검사 실패다.
 모델 판단의 정확성을 보장하는 장치는 아니므로 CI·업무 완료 조건과 함께 확인한다.
 
-출력 검사는 신뢰한 기본 브랜치(dev) 코드로 실행하고 실제 GitHub PR의 SHA와 대조한다.
+출력 검사는 기본 브랜치(dev)에서 가져온 검사 코드로 실행하고 실제 GitHub PR의 SHA와 대조한다. 이 checkout은 pull_request 이벤트의 워크플로 정의를 PR 변경으로부터 격리하지 않는다.
 검토 중 새 push가 생기면 이전 실행을 취소하며 게시 전후에도 SHA를 확인한다.
 댓글에 전체 head/base SHA와 실행 링크를 남기고, 게시 직후 상태 변경을 발견하면 해당 댓글을 검토 무효로 바꾼다. 작성자는 병합 직전에도 현재 SHA와
 결과가 같은지 확인한다. base가 달라졌다면 작업 브랜치에 최신 base를 반영해 새 이벤트로
@@ -77,7 +77,7 @@ Draft·fork에는 구독 Secret을 사용하는 리뷰를 실행하지 않으며
 
 GitHub for Atlassian으로 이 저장소와 Jira KAN이 연결돼 있다. Jira 번호가 있는 브랜치·커밋·PR은 티켓의 Development 영역에서 추적한다. 팀원이 앱을 다시 설치하거나 별도 Jira 토큰을 추가할 필요는 없다.
 
-PR 자동화는 GITHUB_TOKEN의 `contents:read`, `pull-requests:write`를 사용하고 대상 브랜치의 신뢰할 수 있는 코드만 실행한다. PR의 임의 코드를 권한 있는 워크플로에서 실행하지 않는다. 테스트는 별도 읽기 전용 워크플로에서 수행한다.
+Jira 메타데이터 자동화는 pull_request_target에서 GITHUB_TOKEN의 `contents:read`, `pull-requests:write`와 대상 브랜치에서 checkout한 파일을 사용한다. Claude 리뷰의 pull_request 워크플로 정의는 PR 변경의 영향을 받을 수 있으므로 checkout만으로 Secret·OIDC를 PR 변경과 격리한다고 간주하지 않는다. 테스트는 별도 읽기 전용 워크플로에서 수행한다.
 
 브랜치 보호의 서버 강제는 현재 적용되지 않는다. 병합자는 CI 성공과 최신 SHA AI 리뷰 완료·P0~P2 지적 해소를 직접 확인한다. 기능 PR은 dev에 Squash merge, dev → main 배포와 main → dev 동기화는 merge commit이다. 장기 브랜치 간 PR도 AI 리뷰를 확인하고 Jira 완료 표시를 넣지 않는다.
 
