@@ -7,12 +7,74 @@
       "data": {
         "items": [
           {
+            "id": "22222222-2222-4222-8222-222222222223",
+            "subject": "Problem with Oil-immersed Transformer 1000kVA",
+            "data_origin": "synthetic",
+            "external_id": "CSV1-000120",
+            "derivation_kind": "PROVIDED",
+            "received_at": "2025-10-14T08:18:51Z",
+            "channel": "PHONE",
+            "product_code": "TRF-OIL-1000"
+          },
+          {
             "id": "22222222-2222-4222-8222-222222222222",
-            "subject": "개발용 문의 예시",
-            "data_origin": "demo"
+            "subject": "Kurulum sorusu TRF-OIL-1000",
+            "data_origin": "synthetic",
+            "external_id": "CSV1-000044",
+            "derivation_kind": "PROVIDED",
+            "received_at": "2025-10-05T16:42:59Z",
+            "channel": "PARTNER_PORTAL",
+            "product_code": "TRF-OIL-1000"
           }
         ],
         "next_cursor": null
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/22222222-2222-4222-8222-222222222222",
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "external_id": "CSV1-000044",
+        "version": 1,
+        "data_origin": "synthetic",
+        "derivation_kind": "PROVIDED",
+        "received_at": "2025-10-05T16:42:59Z",
+        "known_at": "2025-10-05T16:42:59Z",
+        "channel": "PARTNER_PORTAL",
+        "body_language": "tr",
+        "customer_external_id": "CUST-0374",
+        "product_code": "TRF-OIL-1000",
+        "subject": "Kurulum sorusu TRF-OIL-1000",
+        "body": "Oil-immersed Transformer 1000kVA için doğru kurulum prosedürü nedir? Bu model ile ilk projemiz.\n\nAyrıntılar:\n- Ürün modeli / sipariş kodu: TRF-OIL-1000\n- Seri numarası (etiket üzerindeki): **MASKED**\n- Saha koşulları (ortam sıcaklığı, rakım, nem): 50 °C, 300 m\n- Bağlantı / tek hat şeması: [attachment: SLD.pdf]",
+        "fw_version_reported": null,
+        "error_code_reported": null,
+        "resolution_case": {
+          "id": "44444444-4444-4444-8444-444444444444",
+          "external_id": "RC-0007",
+          "data_origin": "synthetic",
+          "derivation_kind": "PROVIDED",
+          "resolved_at": "2025-10-06T19:32:27Z",
+          "known_at": "2025-10-06T19:32:27Z",
+          "product_code": "TRF-OIL-1000",
+          "fault_id": "FLT-067",
+          "fw_version_at_issue": null,
+          "symptom": "Oil leakage at gasket",
+          "root_cause": "Gasket damage during transport",
+          "root_cause_type": "WEAR_PART",
+          "action_taken": "Replace gasket and top up oil",
+          "onsite_visit": true,
+          "rma_no": null,
+          "fw_fixed_version": null,
+          "resolved_by_dept": "FIELD_SVC",
+          "recurrence_prevention": "Quality feedback sent to factory for lot analysis."
+        }
       },
       "meta": {
         "request_id": "11111111-1111-4111-8111-111111111111"
