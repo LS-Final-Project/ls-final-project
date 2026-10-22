@@ -50,6 +50,19 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthData": {
         "properties": {
           "service": {
@@ -107,6 +120,161 @@
         "title": "ReadinessData",
         "type": "object"
       },
+      "ResolutionCase": {
+        "properties": {
+          "action_taken": {
+            "title": "Action Taken",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_version_at_issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version At Issue"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "known_at": {
+            "description": "Earliest time this case may be used as evidence.",
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "onsite_visit": {
+            "title": "Onsite Visit",
+            "type": "boolean"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "recurrence_prevention": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recurrence Prevention"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_by_dept": {
+            "title": "Resolved By Dept",
+            "type": "string"
+          },
+          "rma_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rma No"
+          },
+          "root_cause": {
+            "title": "Root Cause",
+            "type": "string"
+          },
+          "root_cause_type": {
+            "title": "Root Cause Type",
+            "type": "string"
+          },
+          "symptom": {
+            "title": "Symptom",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "data_origin",
+          "derivation_kind",
+          "resolved_at",
+          "known_at",
+          "product_code",
+          "fault_id",
+          "fw_version_at_issue",
+          "symptom",
+          "root_cause",
+          "root_cause_type",
+          "action_taken",
+          "onsite_visit",
+          "rma_no",
+          "fw_fixed_version",
+          "resolved_by_dept",
+          "recurrence_prevention"
+        ],
+        "title": "ResolutionCase",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -153,6 +321,22 @@
         "title": "SuccessResponse[ReadinessData]",
         "type": "object"
       },
+      "SuccessResponse_TicketDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketDetail]",
+        "type": "object"
+      },
       "SuccessResponse_TicketList_": {
         "properties": {
           "data": {
@@ -167,6 +351,149 @@
           "meta"
         ],
         "title": "SuccessResponse[TicketList]",
+        "type": "object"
+      },
+      "TicketDetail": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "body_language": {
+            "title": "Body Language",
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "EMAIL",
+              "PARTNER_PORTAL",
+              "WEB_FORM",
+              "PHONE",
+              "CHAT"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "error_code_reported": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code Reported"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "fw_version_reported": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version Reported"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "resolution_case": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionCase"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "version",
+          "data_origin",
+          "derivation_kind",
+          "received_at",
+          "known_at",
+          "channel",
+          "body_language",
+          "customer_external_id",
+          "product_code",
+          "subject",
+          "body",
+          "fw_version_reported",
+          "error_code_reported",
+          "resolution_case"
+        ],
+        "title": "TicketDetail",
         "type": "object"
       },
       "TicketList": {
@@ -199,6 +526,17 @@
       },
       "TicketSummary": {
         "properties": {
+          "channel": {
+            "enum": [
+              "EMAIL",
+              "PARTNER_PORTAL",
+              "WEB_FORM",
+              "PHONE",
+              "CHAT"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -208,22 +546,104 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
-          "subject": {
-            "title": "Subject",
+          "product_code": {
+            "title": "Product Code",
             "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
           }
         },
         "required": [
           "id",
           "subject",
-          "data_origin"
+          "data_origin",
+          "external_id",
+          "derivation_kind",
+          "received_at",
+          "channel",
+          "product_code"
         ],
         "title": "TicketSummary",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       }
     }
@@ -300,8 +720,38 @@
     },
     "/api/v1/cs/tickets": {
       "get": {
-        "description": "Contract stub. Browser mock examples are synthetic; real implementation is pending.",
         "operationId": "cs_list_tickets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -313,7 +763,7 @@
             },
             "description": "Successful Response"
           },
-          "501": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
@@ -321,14 +771,98 @@
                 }
               }
             },
-            "description": "Not Implemented"
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "List Tickets",
         "tags": [
           "tickets"
         ],
-        "x-implementation-status": "stub"
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}": {
+      "get": {
+        "operationId": "cs_get_ticket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Ticket",
+        "tags": [
+          "tickets"
+        ],
+        "x-implementation-status": "partial"
       }
     },
     "/health": {

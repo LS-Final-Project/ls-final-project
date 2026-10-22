@@ -65,9 +65,8 @@ def test_production_identity_never_accepts_a_development_cookie_or_role_header()
         )
 
 
-@pytest.mark.parametrize(
-    ("factory", "path"), ((cs_app, "/api/v1/cs/tickets"), (tft_app, "/api/v1/tft/projects"))
-)
+# C/S tickets are implemented by KAN-102 and tested in tests/cs.
+@pytest.mark.parametrize(("factory", "path"), ((tft_app, "/api/v1/tft/projects"),))
 def test_business_stubs_are_explicit_and_never_return_mock_success(factory, path):
     with TestClient(factory(settings())) as client:
         result = client.get(path)
