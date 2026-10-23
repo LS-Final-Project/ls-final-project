@@ -13,36 +13,6 @@ from backend.api.platform.auth import sessions
 from backend.api.platform.auth.callback import MicrosoftSubject
 
 
-@pytest.fixture
-def registered_user(auth_database):
-    """실제 토큰이 없는 활성 등록 사용자를 준비하고 해당 검사 자료만 정리한다.
-
-    Args:
-        auth_database: 전용 테스트 DB의 관리자 연결 문자열.
-
-    Returns:
-        tuple[MicrosoftSubject, UUID]: 합성 Microsoft 식별자와 서비스 사용자 ID.
-    """
-    user_id, tid, oid = uuid4(), uuid4(), uuid4()
-    with psycopg.connect(auth_database) as conn:
-        conn.execute(
-            "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
-            "VALUES (%s,%s,%s,%s,%s,%s)",
-            (user_id, tid, oid, "synthetic@example.invalid", "합성 세션 사용자", "engineering"),
-        )
-        conn.execute(
-            "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'cs_agent')", (user_id,)
-        )
-    try:
-        yield MicrosoftSubject(tid, oid), user_id
-    finally:
-        with psycopg.connect(auth_database) as conn:
-            conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (user_id,))
-            conn.execute("DELETE FROM identity.dev_sessions WHERE user_id=%s", (user_id,))
-            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
-            conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))
-
-
 def test_session_stores_only_hash_and_lookup_does_not_extend_expiry(
     settings, auth_database, registered_user
 ):
@@ -101,7 +71,9 @@ def test_session_replacement_revokes_old_token_but_preserves_other_browser(
         old = await sessions.issue_session(settings, subject)
         other = await sessions.issue_session(settings, subject)
         new = await sessions.issue_session(
-            settings, subject, previous_token=old.token.get_secret_value()
+            settings,
+            subject,
+            previous_token_hash=sha256(old.token.get_secret_value().encode()).hexdigest(),
         )
         assert len({grant.token.get_secret_value() for grant in (old, other, new)}) == 3
         with pytest.raises(HTTPException) as rejected:
@@ -340,7 +312,11 @@ def test_failed_session_replacement_rolls_back_old_session(settings, registered_
     monkeypatch.setattr(sessions, "token_urlsafe", colliding_token)
     with pytest.raises(HTTPException) as rejected:
         asyncio.run(
-            sessions.issue_session(settings, subject, previous_token=old.token.get_secret_value())
+            sessions.issue_session(
+                settings,
+                subject,
+                previous_token_hash=sha256(old.token.get_secret_value().encode()).hexdigest(),
+            )
         )
     assert rejected.value.status_code == 503
     for grant in (old, other):

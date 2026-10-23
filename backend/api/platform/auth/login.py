@@ -1,4 +1,4 @@
-"""공개 API에 연결하기 전의 서비스 로그인 흐름. 세션 발급은 수행하지 않는다."""
+"""HTTP 경계가 호출하는 서비스 로그인 흐름. 이 모듈은 세션 발급을 수행하지 않는다."""
 
 from collections.abc import Sequence
 from datetime import datetime
@@ -48,7 +48,7 @@ async def start_login(
 ) -> str:
     """로그인 목적의 MSAL flow를 생성하고 저장한 뒤 인가 URL만 반환한다.
 
-    브라우저 결속값의 생성·쿠키 설정은 향후 HTTP 경계의 책임이다.
+    브라우저 결속값의 생성·쿠키 설정은 HTTP 경계의 책임이다.
     동기 MSAL 호출은 스레드에서 실행하고 저장 실패 시 URL을 반환하지 않는다.
 
     Args:

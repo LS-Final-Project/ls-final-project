@@ -17,13 +17,88 @@ async function fixture(callback, fetcher) {
   finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true }); }
 }
 
-test('serves SPA and health but blocks files and business/auth routes', async () => {
+test('serves SPA and health but blocks files, business, development and unknown auth routes', async () => {
   await fixture(async origin => {
     assert.equal((await fetch(origin + '/workspace')).status, 200);
     assert.equal((await fetch(origin + '/health')).status, 200);
-    for (const path of ['/missing.js', '/.env', '/api/v1/platform/me', '/api/v1/platform/dev/accounts', '/api/v1/cs/tickets']) assert.equal((await fetch(origin + path)).status, 404);
+    for (const path of ['/missing.js', '/.env', '/api/v1/platform/auth/unknown', '/api/v1/platform/dev/accounts', '/api/v1/cs/tickets']) assert.equal((await fetch(origin + path)).status, 404);
     assert.equal((await fetch(origin + '/api/v1/platform/ready', { method: 'POST' })).status, 405);
   });
+});
+
+test('proxies auth redirect and all cookies without following redirect or forwarding browser authorization', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const response = await fetch(origin + '/api/v1/platform/auth/login', {
+      redirect: 'manual', headers: { Authorization: 'Bearer browser-secret', Cookie: '__Host-team4_session=old; unrelated=private' },
+    });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), 'https://login.microsoftonline.com/consumers/authorize');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.getSetCookie().length, 2);
+  }, async (url, options) => {
+    calls.push({ url: String(url), options });
+    return new Response(null, { status: 302, headers: [
+      ['Location', 'https://login.microsoftonline.com/consumers/authorize'],
+      ['Set-Cookie', '__Host-team4_oauth=binding; Secure; HttpOnly; Path=/; SameSite=None'],
+      ['Set-Cookie', '__Host-team4_session=old; Secure; HttpOnly; Path=/; SameSite=Lax'],
+    ] });
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://platform.example.invalid/api/v1/platform/auth/login');
+  assert.equal(calls[0].options.redirect, 'manual');
+  assert.deepEqual(calls[0].options.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=old' });
+});
+
+test('forwards callback form as body and preserves fixed callback redirect', async () => {
+  await fixture(async origin => {
+    const response = await fetch(origin + '/api/v1/platform/auth/callback', {
+      method: 'POST', redirect: 'manual', body: 'state=one&state=two&code=synthetic-code',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: '__Host-team4_oauth=binding' },
+    });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('location'), 'https://app.example.invalid/');
+  }, async (url, options) => {
+    assert.equal(String(url), 'https://platform.example.invalid/api/v1/platform/auth/callback');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.body.toString(), 'state=one&state=two&code=synthetic-code');
+    assert.equal(options.headers.Cookie, '__Host-team4_oauth=binding');
+    return new Response(null, { status: 303, headers: { Location: 'https://app.example.invalid/' } });
+  });
+});
+
+test('forwards me csrf response and logout origin/csrf while preserving session deletion', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const me = await fetch(origin + '/api/v1/platform/me');
+    assert.equal(me.headers.get('x-csrf-token'), 'bound-csrf');
+    const logout = await fetch(origin + '/api/v1/platform/auth/logout', { method: 'POST', headers: {
+      Origin: origin, 'X-CSRF-Token': 'bound-csrf', Cookie: '__Host-team4_session=session',
+    } });
+    assert.equal(logout.status, 204);
+    assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
+  }, async (url, options) => {
+    calls.push(options);
+    return String(url).endsWith('/me')
+      ? new Response('{}', { headers: { 'X-CSRF-Token': 'bound-csrf' } })
+      : new Response(null, { status: 204, headers: { 'Set-Cookie': '__Host-team4_session=; Max-Age=0; Secure; HttpOnly; Path=/' } });
+  });
+  assert.equal(calls[1].headers['X-CSRF-Token'], 'bound-csrf');
+  assert.ok(calls[1].headers.Origin.startsWith('http://127.0.0.1:'));
+});
+
+test('rejects auth query strings, wrong methods and oversized or non-form callbacks before forwarding', async () => {
+  let calls = 0;
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/login?return_url=https://evil.invalid')).status, 404);
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/callback?code=private')).status, 404);
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/callback')).status, 405);
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/logout')).status, 405);
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/callback', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } })).status, 400);
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/callback', { method: 'POST', body: 'code=' + 'x'.repeat(9000), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 413);
+  }, async () => { calls++; return new Response('{}'); });
+  assert.equal(calls, 0);
 });
 
 test('adds server identity only to allowlisted fixed origin and never forwards browser credentials', async () => {

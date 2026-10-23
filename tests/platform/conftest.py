@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -9,6 +10,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
+from backend.api.platform.auth.callback import MicrosoftSubject
 from backend.shared.settings import Settings
 
 
@@ -66,3 +68,33 @@ def settings(auth_database):
             make_conninfo(auth_database, user="platform_app", password="test-only")
         ),
     )
+
+
+@pytest.fixture
+def registered_user(auth_database):
+    """실제 토큰이 없는 활성 등록 사용자를 준비하고 해당 검사 자료만 정리한다.
+
+    Args:
+        auth_database: 전용 테스트 DB의 관리자 연결 문자열.
+
+    Returns:
+        tuple[MicrosoftSubject, UUID]: 합성 Microsoft 식별자와 서비스 사용자 ID.
+    """
+    user_id, tid, oid = uuid4(), uuid4(), uuid4()
+    with psycopg.connect(auth_database) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (user_id, tid, oid, "synthetic@example.invalid", "합성 세션 사용자", "engineering"),
+        )
+        conn.execute(
+            "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'cs_agent')", (user_id,)
+        )
+    try:
+        yield MicrosoftSubject(tid, oid), user_id
+    finally:
+        with psycopg.connect(auth_database) as conn:
+            conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.dev_sessions WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))

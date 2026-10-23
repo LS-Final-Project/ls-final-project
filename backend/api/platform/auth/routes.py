@@ -1,4 +1,4 @@
-"""Local-only account selection. Microsoft production auth is a separate task."""
+"""운영·개발 인증의 현재 사용자 조회와 로컬 전용 계정 선택 경로."""
 
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -6,6 +6,7 @@ from hashlib import sha256
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from backend.api.platform.auth.http import operational_identity
 from backend.api.platform.auth.identity import IDENTITY_QUERY, identity
 from backend.api.platform.auth.schemas import DemoAccounts, Identity, SelectAccount
 from backend.shared.database import connection
@@ -47,12 +48,38 @@ async def current_identity(request: Request) -> Identity:
     return identity(row)
 
 
-@router.get("/me", response_model=SuccessResponse[Identity], operation_id="platform_get_me")
-async def me(request: Request) -> SuccessResponse[Identity]:
-    if not request.app.state.settings.dev_auth_enabled:
-        # No production token validation has been implemented. Fail closed.
+@router.get(
+    "/me",
+    response_model=SuccessResponse[Identity],
+    operation_id="platform_get_me",
+    responses={
+        200: {
+            "headers": {
+                "X-CSRF-Token": {
+                    "description": "Microsoft 서버 세션에 결속한 변경 요청용 값. Identity 계약은 유지한다.",
+                    "schema": {"type": "string"},
+                }
+            }
+        }
+    },
+)
+async def me(request: Request, response: Response) -> SuccessResponse[Identity]:
+    """운영 로그인 또는 명시적 개발 모드의 현재 사용자를 반환한다.
+
+    Args:
+        request: 현재 플랫폼 요청.
+        response: 운영 세션 CSRF 헤더를 설정할 응답.
+
+    Returns:
+        SuccessResponse[Identity]: DB에서 조회한 현재 사용자와 역할.
+    """
+    if request.app.state.microsoft_auth.enabled:
+        user = await operational_identity(request, response)
+    elif request.app.state.settings.dev_auth_enabled:
+        user = await current_identity(request)
+    else:
+        # Microsoft 인증 비활성과 개발 인증 비활성에서는 인증을 허용하지 않는다.
         raise HTTPException(401)
-    user = await current_identity(request)
     return SuccessResponse(data=user, meta=ResponseMeta(request_id=request.state.request_id))
 
 

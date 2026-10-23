@@ -1,7 +1,7 @@
-"""개인 Outlook 계정용 MSAL 어댑터. 공개 API·DB 세션·토큰 보관은 연결하지 않는다.
+"""개인 Outlook 계정용 MSAL 어댑터. 토큰 보관은 연결하지 않는다.
 
 기존 KAN-76에서 성공한 consumers authority와 서버 시크릿 교환을 사용한다.
-동기 네트워크 호출을 수행하므로 비동기 라우터 연결 시 스레드에서 실행해야 한다.
+동기 네트워크 호출은 로그인 경계에서 스레드로 실행한다.
 MSAL이 반환한 디코딩 결과를 신뢰하지 않고 ID 토큰의 서명과 클레임을 검증한다.
 """
 
@@ -126,7 +126,10 @@ class PersonalMicrosoftOAuth:
         scopes = ["Mail.Read", "Mail.Send"] if purpose is OAuthPurpose.MAILBOX else []
         try:
             flow = self._application().initiate_auth_code_flow(
-                scopes=scopes, redirect_uri=self._redirect_uri, prompt="select_account"
+                scopes=scopes,
+                redirect_uri=self._redirect_uri,
+                prompt="select_account",
+                response_mode="form_post",
             )
         except (RequestException, ValueError):
             raise ApplicationError(
