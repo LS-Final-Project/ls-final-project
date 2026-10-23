@@ -6,6 +6,7 @@ from hashlib import sha256
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from backend.api.platform.auth.identity import IDENTITY_QUERY, identity
 from backend.api.platform.auth.schemas import DemoAccounts, Identity, SelectAccount
 from backend.shared.database import connection
 from backend.shared.models import ResponseMeta, SuccessResponse
@@ -13,11 +14,6 @@ from backend.shared.models import ResponseMeta, SuccessResponse
 router = APIRouter(prefix="/api/v1/platform", tags=["identity"])
 dev_router = APIRouter(prefix="/api/v1/platform/dev", tags=["local-development"])
 COOKIE = "team4_dev_session"
-IDENTITY_QUERY = (
-    "SELECT u.id,u.tid,u.oid,u.email,u.display_name,u.dept, "
-    "array_agg(r.role ORDER BY r.role) AS roles FROM identity.users u "
-    "JOIN identity.user_roles r ON r.user_id=u.id "
-)
 
 
 def guard_local(request: Request) -> None:
@@ -31,15 +27,6 @@ def guard_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if origin and origin not in {"http://localhost:5173", "http://127.0.0.1:5173"}:
         raise HTTPException(403)
-
-
-def identity(row: dict | None) -> Identity:
-    if not row:
-        raise HTTPException(401)
-    try:
-        return Identity.model_validate(row)
-    except ValueError:
-        raise HTTPException(401) from None
 
 
 async def current_identity(request: Request) -> Identity:

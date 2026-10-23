@@ -67,7 +67,7 @@ ID 토큰의 발급·사용 시작·만료 시각에는 서버 간 시계 오차
 잠금 파일의 기존 패키지 버전은 유지한다.
 
 합성 HTTP 응답과 실제 MSAL·RSA 서명 검증으로 회귀를 확인한다. 실제 Outlook을
-사용한 이번 제품 어댑터 검증은 아직 수행하지 않았다. 등록 사용자 조회와 기존
+사용한 이번 제품 어댑터 검증은 아직 수행하지 않았다. 기존
 서버 세션 연결, production 쿠키·CSRF·로그아웃,
 토큰 보관은 후속 구현이다. 공개 라우터·OpenAPI·로컬 개발 세션은 변경하지 않는다.
 
@@ -98,3 +98,49 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizatio
 일반 단위 검사에서는 해당 DB 검사를 건너뛰고, 플랫폼 변경 CI의 `auth-database` 작업에서
 PostgreSQL 17로 실제 실행한다. 플랫폼 마이그레이션만 변경해도 플랫폼 검사 대상으로
 선택해 해당 DB 검사가 빠지지 않게 한다. 공개 로그인 경로와 세션 연결은 여전히 미구현이다.
+
+### 로그인 흐름과 등록 사용자 확인
+
+`login.py`의 `start_login()`은 로그인 목적으로 고정한 MSAL 인가 시도를 만들고
+DB 저장이 성공한 뒤 URL만 반환한다. MSAL 호출은 스레드에서 수행한다. 결속값의
+생성과 쿠키 설정은 이후 HTTP 경계에서 담당하며, flow나 토큰을 응답하지 않는다.
+
+`complete_login()`은 기존 `complete_stored_callback()`으로 로그인 목적의 시도를
+한 번 소비하고 검증된 `tid + oid`로 활성 등록 사용자를 조회한다. 이메일이나
+callback의 역할·사용자 필드로 계정을 선택하지 않는다. DB에 등록된 역할만 사용하며
+미등록·비활성·무역할 사용자, 부서 없는 `dept_staff`는 401로 거부한다. 사용자와
+역할을 자동 생성하지 않는다. 개발 세션과 동일한 조회 필드 및 Identity 검증을
+`identity.py`에서 공유하며 기존 개발 로그인 동작은 유지한다.
+
+이 결과는 서버 내부의 사용자 식별 결과다. 아직 서비스 세션이나 쿠키를 발급하지
+않고 공개 라우터에 등록하지 않는다. 사서함 연결과 토큰 보관은 KAN-80·81 범위다.
+
+### 공개 HTTP 계약 제안 — 미등록 초안
+
+KAN-57에 기록된 Microsoft 로그인·서버 세션·HttpOnly/Secure 쿠키 방식을 따른다.
+아래 URL·쿠키 이름·세션 수명·화면 이동은 김종하와 확인할 제안이며, 현재 OpenAPI나
+프론트 클라이언트가 사용할 수 있는 경로가 아니다. 공개 시 Pydantic/라우터 원본과
+계약 산출물을 함께 갱신한다. KAN-78 사용자·역할 등록은 김나영의 담당으로 유지한다.
+
+| 제안 경로 | 성공 시 동작 | 실패 시 동작 |
+| --- | --- | --- |
+| `GET /api/v1/platform/auth/login` | 새 브라우저 결속값·5분 인가 시도를 저장한 뒤 Microsoft URL로 302 | 공급자·DB 장애는 503, 저장 실패 시 이동·결속 쿠키 발급 없음 |
+| `GET /api/v1/platform/auth/callback` | 결속·일회 소비·토큰·등록 사용자 검증 후 새 서버 세션을 발급하고 고정된 앱 진입점으로 303 | 잘못된 callback은 400, 토큰 또는 등록 사용자 검증 실패는 401, 공급자·DB 장애는 503. 실패 시 새 세션 없음 |
+| `POST /api/v1/platform/auth/logout` | CSRF 확인 후 DB 세션 철회와 쿠키 삭제, 204 | CSRF 실패는 403. GET으로 로그아웃하지 않음 |
+| `GET /api/v1/platform/me` | 서버 세션으로 현재 활성 사용자와 DB 역할 조회 | 만료·철회·미등록·비활성 또는 유효 역할 없음은 401 |
+
+- 결속 쿠키 제안: `__Host-team4_oauth`, 5분, HttpOnly·Secure·SameSite=Lax,
+  Path=/, Domain 미지정. nonce·PKCE verifier·state 원문은 쿠키에 넣지 않는다.
+- 세션 쿠키 제안: `__Host-team4_session`, 최대 8시간, HttpOnly·Secure·SameSite=Lax,
+  Path=/, Domain 미지정. 브라우저에는 새 무작위 ID만, DB에는 hash·사용자·만료를 저장한다.
+  로그인 성공 시 기존 서비스 세션을 교체하고 매 요청 사용자 활성 상태·역할을 재조회한다.
+- callback은 query 중복을 보존해 검증하고 요청이 지정한 `return_url`로 이동하지 않는다.
+  앱 진입점과 실패 시 UI 표시는 합의가 필요하다. 응답은 공통 오류 형식을 사용하고
+  code·state·토큰·공급자 원문 오류를 응답·접근 로그·화면 이동 URL에 남기지 않는다.
+  인증 응답은 Cache-Control: no-store 및 Referrer-Policy: no-referrer를 적용한다.
+- 변경 요청의 CSRF 방어는 허용 Origin 확인과 서버 세션에 결속한 CSRF 토큰 검증을
+  함께 적용하는 안이다. SameSite만으로 대신하지 않는다. 로컬 HTTP 점검을 위한
+  쿠키 이름·Secure 예외는 운영과 분리해 확인하며 기존 개발 세션을 운영에서 수용하지 않는다.
+
+공개 경로, 세션 발급·교체·철회, CSRF, 프록시/SSE 인증, 실제 Outlook 제품 흐름 검증은
+이번 내부 연결 구현의 완료 범위에 포함하지 않는다. 이 초안으로 KAN-57·77을 완료 처리하지 않는다.
