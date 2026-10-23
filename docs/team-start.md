@@ -109,9 +109,9 @@ npm run dev --prefix frontend
 | 계정 | 역할 | 부서 |
 | --- | --- | --- |
 | 시연 C/S 담당자 | cs_agent | 없음 |
-| 시연 기술부서 담당자 | dept_staff | technical |
+| 시연 변압기 기술지원 담당자 | dept_staff | TS_TRF |
 | 시연 수주 담당자 | sales | 없음 |
-| 시연 관리자 | manager | 없음 |
+| 시연 관리자 | manager | 없음 (관리 대상 부서 GCS_L1) |
 
 이 계정은 합성한 로컬 개발 사용자이며 실제 팀원의 Microsoft 계정과 연결되지 않는다. 업무 범위와 최종 승인권은 후속 API에서 별도로 검사해야 한다.
 
