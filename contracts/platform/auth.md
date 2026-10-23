@@ -18,6 +18,30 @@ Microsoft 로그인 HTTP 경계는 기본 비활성 구현 초안이다. `MICROS
 
 수정 후 `python3 scripts/workspace.py contracts platform`을 실행한다.
 
+## 운영 세션에서 업무 사용자 모델로 변환 (KAN-178 첫 단계)
+
+`context.py`의 `load_session_principal()`은 기존 `load_session()` 결과를 KAN-78의
+공통 `backend.shared.access.Principal`로 변환하는 서버 내부 함수다. 역할·부서·관리 범위는
+기존 세션 SQL과 `Identity` 검증을 재사용해 요청마다 다시 조회하며 별도 SQL·캐시·DTO를
+만들지 않는다. manager 역할 없이 관리 범위 행이 남는 등 등록 조건이 불일치하면 기존
+검증에 따라 401로 거부한다. DB 조회 실패도 기존 503으로 전파한다.
+
+반환 필드는 [권한 계약 1.4](permissions.md#14-업무-서비스가-받는-사용자-정보-kan-78-형식-제안)의
+`user_id`, 다중 `roles`, nullable `dept`, `managed_departments`, `managed_projects`다.
+공개 `Identity`의 이메일·표시 이름·Microsoft `tid`/`oid`와 원문 세션·Microsoft 토큰은
+`Principal`에 포함하지 않는다. 조회만으로 세션 만료를 연장하거나 권한을 부여하지 않는다.
+
+**이 함수는 HTTP 경로·업무 중계에 아직 연결하지 않았다.** `X-Team4-Principal` JSON의
+필드 구성은 기존 공통 모델을 재사용할 수 있지만, production에서 헤더를 신뢰할 근거는
+아니다. 플랫폼 호출자 인증·브라우저 위조 헤더 제거·Origin/CSRF·허용 경로 중계와 소비자
+검증을 후속 구현하기 전까지 운영 잠금을 유지한다. TFT의 담당 sales·현재 책임자는
+TFT 업무 관계로 판정하며 이 변환 함수가 대신하지 않는다.
+
+실제 PostgreSQL 검사 `tests/platform/test_session_context.py`를 `auth-database` CI에
+포함해 공통 모델 변환·권한 회수·등록/세션 거부·DB 장애를 확인한다. 기존 KAN-78의
+관리 범위·부서 코드 마이그레이션을 사용하며 새 마이그레이션과 공개 API 변경은 없다.
+이 내부 변환 검증을 서비스 간 신뢰 경계나 실제 공용 로그인 성공으로 해석하지 않는다.
+
 ## KAN-77 callback 경계 초안
 
 KAN-57의 화면·업무 상태·권한 행렬은 김종하·김나영과 확인한다.
