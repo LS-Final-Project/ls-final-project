@@ -35,7 +35,7 @@ function stubLive(items: StaffingRequest[], onPatch: () => Response) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 
 describe('S2 역할·인력 요청서', () => {
-  test('모의 응답: 역할 요건·필수/우대 역량·연결 요구사항 근거를 그리고 요청서는 "요청서 없음"이다', async () => {
+  test('모의 응답: 역할 요건·필수/우대 역량·연결 요구사항 근거를 그리고 요청서 목록은 모의 응답 유무를 따른다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '로그인 필요'))));
     renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
     expect(await screen.findByRole('heading', { level: 1, name: '해상 시공 관리' })).toBeTruthy();
@@ -43,9 +43,17 @@ describe('S2 역할·인력 요청서', () => {
     expect(screen.getByText('유사 해저 시공 참여 경험')).toBeTruthy();
     expect(screen.getByText('R-01')).toBeTruthy();
     expect(screen.getByText('3.5.2 해상 설치 포함')).toBeTruthy();
-    expect(await screen.findByText('요청서 없음')).toBeTruthy();
-    expect(screen.getByText(/프로젝트 조회 응답의 요청서 1건/)).toBeTruthy();
-    expect(screen.queryByRole('form', { name: '인력 요청서 편집' })).toBeNull();
+    // 인력요청 목록 예시는 KAN-122가 생성한다. 예시가 없으면(병합 전) 빈 목록, 있으면 이 역할의 요청서만 표로 보인다.
+    const listExample = tftExamples.find(item => item.path === LIST_PATH)?.body as { data: { items: StaffingRequest[] } } | undefined;
+    const roleItems = (listExample?.data.items ?? []).filter(item => item.required_role_id === ROLE_ID);
+    if (roleItems.length === 0) {
+      expect(await screen.findByText('요청서 없음')).toBeTruthy();
+      expect(screen.getByText(/프로젝트 조회 응답의 요청서 1건/)).toBeTruthy();
+      expect(screen.queryByRole('form', { name: '인력 요청서 편집' })).toBeNull();
+    } else {
+      for (const item of roleItems) expect((await screen.findAllByText(new RegExp(item.organization_name))).length).toBeGreaterThan(0);
+      expect(screen.queryByText('요청서 없음')).toBeNull();
+    }
   });
 
   test('없는 역할은 404 안내를 보인다', async () => {
