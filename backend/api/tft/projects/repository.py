@@ -72,19 +72,19 @@ async def list_projects(
 
     Fetches one extra row so the caller knows whether a next page exists.
     """
-    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s)"
+    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s)"
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, limit + 1),
+            (managed_projects, user_id, user_id, limit + 1),
         )
     else:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "AND (p.created_at, p.id) < (%s, %s) "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, *after, limit + 1),
+            (managed_projects, user_id, user_id, *after, limit + 1),
         )
     return await cursor.fetchall()
 

@@ -47,10 +47,12 @@ async def lock_request(conn: AsyncConnection[Row], request_id: UUID) -> Row | No
 
 
 async def get_project_scope(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:
-    """The columns the action checks need: who the responsible sales user is and which
-    company the project belongs to."""
+    """The columns the visibility and action checks need: who may see the project, who the
+    assigned sales user is and which company the project belongs to."""
     cursor = await conn.execute(
-        "SELECT id, company_code, sales_user_id FROM tft.projects WHERE id = %s", (project_id,)
+        "SELECT id, company_code, responsible_user_id, sales_user_id FROM tft.projects "
+        "WHERE id = %s",
+        (project_id,),
     )
     return await cursor.fetchone()
 
@@ -65,14 +67,21 @@ async def get_organization(conn: AsyncConnection[Row], organization_id: UUID) ->
 
 async def update_request(
     conn: AsyncConnection[Row], request_id: UUID, version: int, values: Row
-) -> None:
+) -> datetime:
+    """Applies the change and returns the stored updated_at so the response matches a GET."""
     # Column names come from schemas.EDITABLE_FIELDS or this module, never from request keys.
     assignments = ", ".join(f"{name} = %s" for name in values)
-    await conn.execute(
+    cursor = await conn.execute(
         f"UPDATE tft.staffing_requests SET {assignments}, version = version + 1, "
-        "updated_at = now() WHERE id = %s AND version = %s",
+        "updated_at = now() WHERE id = %s AND version = %s RETURNING updated_at",
         (*values.values(), request_id, version),
     )
+    updated = await cursor.fetchone()
+    if updated is None:
+        # The row is locked by the caller, so a missed update means the version check failed.
+        raise RuntimeError("staffing request update matched no row")
+    result: datetime = updated["updated_at"]
+    return result
 
 
 async def mark_role_issued(

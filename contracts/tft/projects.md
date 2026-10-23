@@ -26,7 +26,7 @@
 
 - `projects.status`(INITIAL_REVIEW/STAFFING/COMPOSING/CONFIRMED)는 목록용 대략적 단계이며 각 단계 테이블의 상태를 대신하지 않는다.
 - 상세의 `responsible`는 `responsible_user_id`와 최신 `responsible_changes.new_user_id`가 일치할 때만 채운다. 불일치는 지정 없음으로 보여 주며 임의로 지정을 만들지 않는다.
-- 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.2): 사용자 정보가 없거나 잘못되면 401, cs_agent는 403. 목록·상세는 manager의 관리 대상 프로젝트와 사용자가 책임자(`responsible_user_id`)인 프로젝트만이며 범위 밖은 404 `TFT_PROJECT_NOT_FOUND`. 담당 sales(KAN-122)와 인력요청을 받은 부서의 dept_staff는 사용자와 연결할 정보가 생기기 전까지 빈 목록이다.
+- 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.2): 사용자 정보가 없거나 잘못되면 401, cs_agent는 403. 목록·상세는 manager의 관리 대상 프로젝트, 사용자가 책임자(`responsible_user_id`)인 프로젝트, 사용자가 담당 sales(`sales_user_id`, KAN-122)인 프로젝트만이며 범위 밖은 404 `TFT_PROJECT_NOT_FOUND`. 인력요청을 받은 부서의 dept_staff 범위(`organizations.dept_code`)는 KAN-123에서 더하며 그 전까지 빈 목록이다.
 - 플랫폼의 사용자 정보 중계가 생기기 전까지 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. OpenAPI 상태는 `partial`이다.
 - 합성 예시는 `data_origin=synthetic`이며 기획서 4.6의 해저케이블 시연 흐름(설계 후보 확인 완료, 시공 후보는 육상 경험만이라 필수 역량 추가 확인·가용성 미기재·역할 보강 필요)을 따른다. 사용자 ID는 로컬 시연 계정이다.
 

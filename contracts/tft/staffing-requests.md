@@ -26,9 +26,9 @@
 
 | 순서 | 검사 | PATCH | issue |
 | --- | --- | --- | --- |
-| 1 | 행위자 확인 | 401 `AUTH_REQUIRED` | 401 `AUTH_REQUIRED` |
-| 2 | 요청서·프로젝트 존재 | 404 `TFT_STAFFING_REQUEST_NOT_FOUND` | 같음 |
-| 3 | 행위자가 프로젝트의 `sales_user_id`인가 | 403 `FORBIDDEN` | 403 `FORBIDDEN`(**권한 없는 발행 차단**. `sales_user_id`가 비어 있어도 403) |
+| 1 | 행위자 확인(`current_principal`), cs_agent 제외 | 401 `AUTH_REQUIRED` / 403 `FORBIDDEN` | 같음 |
+| 2 | 요청서·프로젝트 존재와 프로젝트 가시성(`sees_project`) | 404 `TFT_STAFFING_REQUEST_NOT_FOUND` | 같음 |
+| 3 | `sales` 역할이고 프로젝트의 `sales_user_id`인가 | 403 `FORBIDDEN` | 403 `FORBIDDEN`(**권한 없는 발행 차단**. `sales_user_id`가 비어 있어도 403) |
 | 4 | 상태가 `DRAFT`인가 | 409 `INVALID_TRANSITION` | 409 `INVALID_TRANSITION` |
 | 5 | `If-Match` | 없으면 428 `VERSION_REQUIRED`, 현재 `version`과 다르거나 숫자가 아니면 412 `VERSION_CONFLICT` | 같음 |
 | 6 | 입력·근거 | 수정 필드 없음·불변 필드·null 불가 필드·시간대 없는 `due_at`·프로젝트 회사 밖 또는 없는 `organization_id`·기한과 미정 동시 설정은 422 `VALIDATION_ERROR` | `due_at`도 `due_undecided`도 없으면 422 `EVIDENCE_REQUIRED` |
@@ -42,9 +42,12 @@
 
 `tft.staffing_requests.version`은 1에서 시작한다. 바뀐 값이 있는 PATCH와 issue마다 1씩 올리고 `tft.staffing_request_revisions`에 한 행을 추가한다(`version`은 변경 후 판본, `action`은 `EDIT`/`ISSUE`, `actor_user_id`는 행위자, `changes`는 `{"필드": {"from": 이전, "to": 이후}}`). 이 테이블은 서비스 계정(tft_app)에 UPDATE·DELETE 권한이 없는 추가 전용이다. 이력 조회 API(S5)는 후속이다.
 
-## 행위자 식별 (임시, KAN-78 공통 코드로 교체 예정)
+## 행위자 식별과 범위 (KAN-78 공통 코드)
 
-플랫폼이 세션을 검증해 사용자 맥락을 업무 서비스로 중계하는 규약은 아직 없다([인증 계약](../platform/auth.md) "업무 서비스로의 사용자 맥락 중계는 후속 기능"). 그 전까지 `backend/api/tft/authz.py`가 `local`·`test` 환경에서만 요청 헤더 `X-Debug-User-Id`(identity.users.id UUID)를 행위자로 읽는다. `production`에서는 이 헤더를 읽지 않으며(행위자 없음 → 401) 기존 KAN-119 가드가 경로 자체를 404로 닫는다. 라우트는 `resolve_actor(request)`, `ensure_can_issue(actor, project)`, `ensure_can_edit(actor, project)`만 호출하므로 KAN-78 공통 코드가 들어오면 이 파일만 바꾼다. 브라우저가 보낸 사용자 헤더를 production에서 근거로 쓰지 않는다는 [권한 문서 1.3](../platform/permissions.md#13-검사-순서와-오류-확정-코드는-api-계약오류와-동시-수정-사용)의 원칙은 유지된다.
+행위자는 [권한 문서 1.4](../platform/permissions.md#14-업무-서비스가-받는-사용자-정보-kan-78-형식-제안)의 `X-Team4-Principal` 헤더(`backend/shared/access.py`의 `Principal`, `current_principal`)다. 헤더가 없거나 잘못되면 401, `local`·`test` 밖에서는 헤더와 무관하게 DB 조회 전에 404다. 플랫폼의 인증된 중계는 KAN-178에서 만든다.
+
+- 프로젝트 가시성(1.3 2단계)은 `backend/api/tft/projects/access.py`의 `sees_project`를 그대로 쓴다. KAN-122에서 담당 sales(`projects.sales_user_id == principal.user_id`)를 가시 조건에 더했다. 즉 manager의 관리 대상 프로젝트, 책임자, 담당 sales가 요청서를 보고, 그 밖의 사용자에게는 요청서가 404다. cs_agent는 403(`require_project_list`). 요청을 받은 부서 dept_staff의 범위(`organizations.dept_code == principal.dept`)는 KAN-123에서 더한다.
+- 행동(1.3 3단계)은 `backend/api/tft/authz.py`: PATCH·issue는 `principal.has("sales")`이고 `project.sales_user_id == principal.user_id`일 때만 허용, 아니면 403 `FORBIDDEN`. 책임자·manager는 읽기만 한다. 이력의 `actor_user_id`는 `principal.user_id`다.
 
 ## KAN-78 연결 지점 (김나영 요청으로 이 마이그레이션에서 추가)
 

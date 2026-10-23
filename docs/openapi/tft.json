@@ -2320,6 +2320,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role or user may not do this"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2328,7 +2348,7 @@
                 }
               }
             },
-            "description": "Not found, or closed outside local/test"
+            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
           },
           "422": {
             "content": {
@@ -2423,6 +2443,26 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role or user may not do this"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2431,7 +2471,7 @@
                 }
               }
             },
-            "description": "Not found, or closed outside local/test"
+            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
           },
           "422": {
             "content": {
@@ -2521,7 +2561,7 @@
                 }
               }
             },
-            "description": "Unauthorized"
+            "description": "No valid user context"
           },
           "403": {
             "content": {
@@ -2531,7 +2571,7 @@
                 }
               }
             },
-            "description": "Forbidden"
+            "description": "The role or user may not do this"
           },
           "404": {
             "content": {
@@ -2541,7 +2581,7 @@
                 }
               }
             },
-            "description": "Not found, or closed outside local/test"
+            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
           },
           "409": {
             "content": {
@@ -2571,7 +2611,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "428": {
             "content": {
@@ -2672,7 +2712,7 @@
                 }
               }
             },
-            "description": "Unauthorized"
+            "description": "No valid user context"
           },
           "403": {
             "content": {
@@ -2682,7 +2722,7 @@
                 }
               }
             },
-            "description": "Forbidden"
+            "description": "The role or user may not do this"
           },
           "404": {
             "content": {
@@ -2692,7 +2732,7 @@
                 }
               }
             },
-            "description": "Not found, or closed outside local/test"
+            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
           },
           "409": {
             "content": {
@@ -2722,7 +2762,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "428": {
             "content": {

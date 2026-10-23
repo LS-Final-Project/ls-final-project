@@ -128,7 +128,9 @@ async def get_project(
     async with connection(request.app.state.settings) as conn:
         row = await repository.get_project(conn, project_id)
         # Out-of-scope projects look the same as missing ones (permissions.md 1.3 step 2).
-        if row is None or not sees_project(principal, row["id"], row["responsible_user_id"]):
+        if row is None or not sees_project(
+            principal, row["id"], row["responsible_user_id"], row["sales_user_id"]
+        ):
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         detail = await load_detail(conn, row)
     return respond(request, detail)
