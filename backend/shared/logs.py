@@ -100,12 +100,11 @@ def log_context(**fields: object) -> Iterator[dict[str, str]]:
     unknown = set(fields) - LINK_FIELDS - REQUEST_FIELDS
     if unknown:
         raise ValueError(f"Not a log context field: {sorted(unknown)}")
-    context = {
-        key: (_link_value(value) if key in LINK_FIELDS else redact(str(value)))
-        for key, value in fields.items()
-        if value is not None
-    }
-    context = {key: value for key, value in context.items() if value is not None}
+    context: dict[str, str] = {}
+    for key, value in fields.items():
+        text = _link_value(value) if key in LINK_FIELDS else redact(str(value))
+        if value is not None and text is not None:
+            context[key] = text
     token = _context.set(context)
     try:
         yield context
