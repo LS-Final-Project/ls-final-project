@@ -10,12 +10,14 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+from fastapi import HTTPException
 from psycopg.conninfo import make_conninfo
 from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.api.platform.auth.attempts import complete_stored_callback, save_authorization
 from backend.api.platform.auth.callback import MicrosoftSubject, OAuthPurpose, PendingAuthorization
+from backend.api.platform.auth.login import complete_login
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
@@ -99,17 +101,19 @@ def new_pending(**overrides):
 class RecordingAdapter:
     """Microsoft를 호출하지 않고 교환 횟수와 실패를 기록한다."""
 
-    def __init__(self, error=None):
+    def __init__(self, error=None, subject=None):
         """합성 교환기를 초기화한다.
 
         Args:
             error: 지정하면 교환 중 발생시킬 ApplicationError.
+            subject: 반환할 합성 식별자. 없으면 기존 고정 식별자를 사용한다.
 
         Returns:
             None: 호출 기록을 초기화한다.
         """
         self.calls = []
         self.error = error
+        self.subject = subject or MicrosoftSubject(UUID(int=1), UUID(int=2))
 
     def redeem(self, pending, callback):
         """교환 요청을 기록하고 합성 식별자를 반환한다.
@@ -124,7 +128,7 @@ class RecordingAdapter:
         self.calls.append((pending, callback))
         if self.error:
             raise self.error
-        return MicrosoftSubject(UUID(int=1), UUID(int=2))
+        return self.subject
 
 
 async def finish(settings, pending, adapter, **overrides):
@@ -364,3 +368,103 @@ def test_business_services_cannot_read_protocol_secrets(auth_database, role):
         conn.execute(SQL("SET ROLE {}").format(Identifier(role)))
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("SELECT provider_flow FROM identity.oauth_authorizations")
+
+
+@pytest.mark.parametrize(
+    "registration",
+    ["allowed", "unregistered", "wrong_tid", "wrong_oid", "inactive", "no_roles", "missing_dept"],
+)
+def test_login_matches_registered_subject_without_creating_users_or_sessions(
+    settings, auth_database, registration
+):
+    """실제 DB에서 tid+oid 매칭·등록 조건·실패 후 재사용 차단을 검증한다.
+
+    Args:
+        settings: 플랫폼 런타임 권한의 테스트 DB 설정.
+        auth_database: 합성 등록 사용자 준비용 관리자 연결.
+        registration: 정상 등록 또는 거부할 등록 상태.
+
+    Returns:
+        None: DB 역할만 사용하며 사용자·역할·세션을 생성하지 않음을 검증한다.
+    """
+    user_id, tid, oid = uuid4(), uuid4(), uuid4()
+    roles = [] if registration == "no_roles" else ["manager", "sales"]
+    if registration == "missing_dept":
+        roles = ["dept_staff"]
+    if registration != "unregistered":
+        with psycopg.connect(auth_database) as conn:
+            conn.execute(
+                "INSERT INTO identity.users(id,tid,oid,email,display_name,is_active) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (
+                    user_id,
+                    tid,
+                    oid,
+                    "registered@example.invalid",
+                    "합성 등록 사용자",
+                    registration != "inactive",
+                ),
+            )
+            for role in roles:
+                conn.execute(
+                    "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,%s)", (user_id, role)
+                )
+    subject = MicrosoftSubject(
+        uuid4() if registration == "wrong_tid" else tid,
+        uuid4() if registration == "wrong_oid" else oid,
+    )
+    adapter = RecordingAdapter(subject=subject)
+
+    async def scenario():
+        """인가 시도를 소비하고 등록 확인 성공·실패 및 재사용 거부를 확인한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 허용 조건과 소비된 시도의 일회성을 검증한다.
+        """
+        pending = new_pending()
+        await save_authorization(settings, pending)
+        parameters = [
+            ("state", pending.state),
+            ("code", "test-code"),
+            ("email", "registered@example.invalid"),
+            ("roles", "cs_agent"),
+            ("user_id", str(user_id)),
+        ]
+        arguments = {
+            "browser_binding": "test-browser",
+            "now": datetime.now(UTC),
+            "adapter": adapter,
+        }
+        if registration == "allowed":
+            result = await complete_login(settings, parameters, **arguments)
+            assert (result.id, result.tid, result.oid) == (user_id, tid, oid)
+            assert result.roles == ["manager", "sales"]
+        else:
+            with pytest.raises(HTTPException) as rejected:
+                await complete_login(settings, parameters, **arguments)
+            assert rejected.value.status_code == 401
+        with pytest.raises(ApplicationError, match="AUTH_INVALID_CALLBACK"):
+            await complete_login(settings, parameters, **arguments)
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0][1] == {"state": pending.state, "code": "test-code"}
+
+    try:
+        asyncio.run(scenario())
+        with psycopg.connect(auth_database) as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM identity.users WHERE id=%s OR (tid=%s AND oid=%s)",
+                (user_id, subject.tid, subject.oid),
+            ).fetchone() == (int(registration != "unregistered"),)
+            assert conn.execute(
+                "SELECT role FROM identity.user_roles WHERE user_id=%s ORDER BY role", (user_id,)
+            ).fetchall() == [(role,) for role in roles if registration != "unregistered"]
+            assert conn.execute(
+                "SELECT count(*) FROM identity.dev_sessions WHERE user_id=%s", (user_id,)
+            ).fetchone() == (0,)
+    finally:
+        with psycopg.connect(auth_database) as conn:
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))
