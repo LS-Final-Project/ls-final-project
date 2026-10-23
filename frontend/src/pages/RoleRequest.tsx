@@ -104,9 +104,16 @@ function ReferenceRequests({ project, roleId, known }: { project: ProjectDetail;
   </details>;
 }
 
+type Notice = { kind: 'info' | 'error'; text: string; requestId?: string };
+
+// 안내(notice)·치명 오류(fatal)는 요청서 ID별로 여기에 둔다. 저장·발행 성공이나 412/409 뒤 재조회로 version이 바뀌어도
+// 폼은 재마운트되지 않고(key는 id만) 안내와 입력값이 남는다.
 function RequestList({ items, orgOptions, userRoles }: { items: StaffingRequest[]; orgOptions: OrgOption[]; userRoles: string[] | null }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [notices, setNotices] = useState<Record<string, { notice: Notice | null; fatal: unknown }>>({});
   const selected = items.find(item => item.id === selectedId) ?? items[0];
+  const feedback = notices[selected.id] ?? { notice: null, fatal: null };
+  const setFeedback = (id: string, value: { notice: Notice | null; fatal: unknown }) => setNotices(prev => ({ ...prev, [id]: value }));
   return <>
     <table><thead><tr><th>부서</th><th>참여</th><th>상태</th><th>기한</th><th>판본</th><th></th></tr></thead>
       <tbody>{items.map(item => <tr key={item.id} aria-selected={item.id === selected.id}>
@@ -117,7 +124,7 @@ function RequestList({ items, orgOptions, userRoles }: { items: StaffingRequest[
         <td>{item.version}</td>
         <td><button type="button" onClick={() => setSelectedId(item.id)} aria-pressed={item.id === selected.id}>{item.id === selected.id ? '편집 중' : '편집'}</button></td>
       </tr>)}</tbody></table>
-    <RequestForm key={`${selected.id}:${selected.version}`} request={selected} orgOptions={orgOptions} userRoles={userRoles} />
+    <RequestForm key={selected.id} request={selected} orgOptions={orgOptions} userRoles={userRoles} feedback={feedback} setFeedback={value => setFeedback(selected.id, value)} />
   </>;
 }
 
@@ -127,90 +134,100 @@ const toLocalInput = (iso: string | null) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-type Notice = { kind: 'info' | 'error'; text: string; requestId?: string };
+type Feedback = { notice: Notice | null; fatal: unknown };
+type FormValues = { organizationId: string; participation: Participation; dueAt: string; dueUndecided: boolean; message: string };
+const fromRequest = (request: StaffingRequest): FormValues => ({ organizationId: request.organization_id, participation: request.participation, dueAt: toLocalInput(request.due_at), dueUndecided: request.due_undecided, message: request.message ?? '' });
 
-function RequestForm({ request, orgOptions, userRoles }: { request: StaffingRequest; orgOptions: OrgOption[]; userRoles: string[] | null }) {
+// 바뀐 필드만 PATCH 본문에 넣는다. message null→'' 같은 표시용 변환이나 분 단위로 잘린 due_at을 바꾸지 않았는데 보내지 않기 위해서다.
+function diffPatch(values: FormValues, request: StaffingRequest): StaffingRequestPatch {
+  const base = fromRequest(request);
+  const patch: StaffingRequestPatch = {};
+  if (values.organizationId !== base.organizationId) patch.organization_id = values.organizationId;
+  if (values.participation !== base.participation) patch.participation = values.participation;
+  if (values.dueUndecided !== base.dueUndecided) patch.due_undecided = values.dueUndecided;
+  const dueChanged = values.dueUndecided ? request.due_at !== null : values.dueAt !== base.dueAt;
+  if (dueChanged) patch.due_at = values.dueUndecided || values.dueAt === '' ? null : new Date(values.dueAt).toISOString();
+  if (values.message !== base.message) patch.message = values.message;
+  return patch;
+}
+
+function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: { request: StaffingRequest; orgOptions: OrgOption[]; userRoles: string[] | null; feedback: Feedback; setFeedback: (value: Feedback) => void }) {
   const cache = useQueryClient();
-  const [organizationId, setOrganizationId] = useState(request.organization_id);
-  const [participation, setParticipation] = useState<Participation>(request.participation);
-  const [dueAt, setDueAt] = useState(toLocalInput(request.due_at));
-  const [dueUndecided, setDueUndecided] = useState(request.due_undecided);
-  const [message, setMessage] = useState(request.message ?? '');
-  const [notice, setNotice] = useState<Notice | null>(null);
-  const [fatal, setFatal] = useState<unknown>(null);
+  const [values, setValues] = useState<FormValues>(() => fromRequest(request));
+  const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues(prev => ({ ...prev, [key]: value }));
+  const { notice, fatal } = feedback;
 
   // 잠금 이유: DRAFT가 아닌 요청서, 또는 로그인 역할에 sales가 없음. 서버 검사는 UI 잠금과 무관하게 수행된다.
   const lockReason = request.status !== 'DRAFT' ? `작성 중(DRAFT) 요청서만 편집·발행할 수 있습니다. 현재 상태: ${REQUEST_STATUS_LABEL[request.status] ?? request.status}${request.issued_at ? ` (발행 ${formatDateTime(request.issued_at)})` : ''}`
     : userRoles && !userRoles.includes('sales') ? '담당 sales만 요청서를 편집·발행할 수 있습니다.' : null;
   const locked = lockReason !== null;
-  const dirty = organizationId !== request.organization_id || participation !== request.participation || dueUndecided !== request.due_undecided
-    || (dueUndecided ? false : dueAt !== toLocalInput(request.due_at)) || message !== (request.message ?? '');
-  const missingDue = !dueUndecided && dueAt === '';
+  const patch = diffPatch(values, request);
+  const dirty = Object.keys(patch).length > 0;
   const issueBlock = locked ? lockReason : dirty ? '저장하지 않은 변경이 있습니다. 먼저 저장하세요.' : (request.due_undecided ? false : !request.due_at) ? '기한을 입력하거나 "기한 미정"을 표시해야 발행할 수 있습니다.' : null;
 
   const refresh = () => { cache.invalidateQueries({queryKey: ['staffing-requests']}); cache.invalidateQueries({queryKey: ['projects']}); };
   const onError = (error: unknown) => {
     const api = error instanceof ApiError ? error : null;
-    if (api?.status === 412) { setNotice({ kind: 'error', text: '다른 사람이 먼저 수정했습니다. 새로고침 후 다시 시도하세요. 최신 요청서를 다시 불러왔습니다.', requestId: api.requestId }); refresh(); return; }
-    if (api?.status === 428) { setNotice({ kind: 'error', text: '판본 정보(If-Match)가 없어 처리하지 못했습니다. 화면 오류이므로 요청 ID와 함께 알려 주세요.', requestId: api.requestId }); return; }
-    if (api?.status === 409) { setNotice({ kind: 'error', text: '상태가 바뀌어 처리할 수 없습니다. 최신 상태를 다시 불러왔습니다.', requestId: api.requestId }); refresh(); return; }
-    if (api?.status === 422) { setNotice({ kind: 'error', text: api.code === 'EVIDENCE_REQUIRED' ? '기한 또는 "기한 미정" 표시가 필요합니다.' : api.message, requestId: api.requestId }); return; }
-    setFatal(error);
+    if (api?.status === 412) { setFeedback({ notice: { kind: 'error', text: '다른 사람이 먼저 수정했습니다. 새로고침 후 다시 시도하세요. 서버의 최신 판본을 다시 불러왔으며 입력한 값은 그대로 두었습니다. 아래 서버 값과 비교해 확인한 뒤 다시 저장하거나 "서버 값으로 되돌리기"를 누르세요.', requestId: api.requestId }, fatal: null }); refresh(); return; }
+    if (api?.status === 428) { setFeedback({ notice: { kind: 'error', text: '판본 정보(If-Match)가 없어 처리하지 못했습니다. 화면 오류이므로 요청 ID와 함께 알려 주세요.', requestId: api.requestId }, fatal: null }); return; }
+    if (api?.status === 409) { setFeedback({ notice: { kind: 'error', text: '상태가 바뀌어 처리할 수 없습니다. 최신 상태를 다시 불러왔습니다. 입력한 값은 그대로 두었습니다.', requestId: api.requestId }, fatal: null }); refresh(); return; }
+    if (api?.status === 422) { setFeedback({ notice: { kind: 'error', text: api.code === 'EVIDENCE_REQUIRED' ? '기한 또는 "기한 미정" 표시가 필요합니다.' : api.message, requestId: api.requestId }, fatal: null }); return; }
+    setFeedback({ notice: null, fatal: error });
   };
   const save = useMutation({
     mutationFn: (body: StaffingRequestPatch) => updateStaffingRequest(request.id, request.version, body),
-    onMutate: () => { setNotice(null); setFatal(null); },
-    onSuccess: () => { setNotice({ kind: 'info', text: '저장했습니다.' }); refresh(); },
+    onMutate: () => setFeedback({ notice: null, fatal: null }),
+    onSuccess: result => { setFeedback({ notice: { kind: 'info', text: `저장했습니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
     onError,
   });
   const issue = useMutation({
     mutationFn: () => issueStaffingRequest(request.id, request.version),
-    onMutate: () => { setNotice(null); setFatal(null); },
-    onSuccess: () => { setNotice({ kind: 'info', text: '요청서를 발행했습니다. 요청 부서의 목록에 나타납니다.' }); refresh(); },
+    onMutate: () => setFeedback({ notice: null, fatal: null }),
+    onSuccess: result => { setFeedback({ notice: { kind: 'info', text: `요청서를 발행했습니다. 요청 부서의 목록에 나타납니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
     onError,
   });
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (missingDue) { setNotice({ kind: 'error', text: '기한을 입력하거나 "기한 미정"을 표시하세요.' }); return; }
-    save.mutate({ organization_id: organizationId, participation, due_at: dueUndecided ? null : new Date(dueAt).toISOString(), due_undecided: dueUndecided, message });
-  };
+  // 기한 없는 작성 중 요청서도 저장은 된다(계약상 EVIDENCE_REQUIRED는 발행에서만). 기한 조건은 발행 버튼이 막는다.
+  const submit = (event: FormEvent) => { event.preventDefault(); save.mutate(patch); };
   const busy = save.isPending || issue.isPending;
-  const orgKnown = orgOptions.some(option => option.id === organizationId);
+  const orgKnown = orgOptions.some(option => option.id === values.organizationId);
+  const serverValues = fromRequest(request);
   return <form onSubmit={submit} aria-label="인력 요청서 편집" className="request-form">
-    <h3>요청서 편집 <small>{request.role_name}</small> <small>판본 {request.version}</small> <Origin dataOrigin={request.data_origin} derivationKind={request.derivation_kind} /></h3>
+    <h3>요청서 편집 <small>{request.role_name}</small> <small data-testid="request-version">판본 {request.version}</small> <Origin dataOrigin={request.data_origin} derivationKind={request.derivation_kind} /></h3>
     {locked && <p className="notice" role="note">읽기 전용: {lockReason}</p>}
     <fieldset disabled={locked || busy}>
       <div className="field">
         <label htmlFor="sr-organization">요청 부서</label>
-        {orgOptions.length > 0 ? <select id="sr-organization" value={organizationId} onChange={e => setOrganizationId(e.target.value)}>
-          {!orgKnown && <option value={organizationId}>{organizationId}</option>}
+        {orgOptions.length > 0 ? <select id="sr-organization" value={values.organizationId} onChange={e => set('organizationId', e.target.value)}>
+          {!orgKnown && <option value={values.organizationId}>{values.organizationId}</option>}
           {orgOptions.map(option => <option key={option.id} value={option.id}>{option.name}{option.deptCode ? ` (${option.deptCode})` : ''}</option>)}
-        </select> : <input id="sr-organization" value={organizationId} onChange={e => setOrganizationId(e.target.value)} placeholder="organization_id (UUID)" />}
+        </select> : <input id="sr-organization" value={values.organizationId} onChange={e => set('organizationId', e.target.value)} placeholder="organization_id (UUID)" />}
         <small>조직 목록 API 미구현 — {orgOptions.length > 0 ? '프로젝트와 요청서에 포함된 부서만 선택할 수 있습니다.' : 'organization_id를 직접 입력합니다.'}</small>
       </div>
       <div className="field">
         <label htmlFor="sr-participation">참여 형태</label>
-        <select id="sr-participation" value={participation} onChange={e => setParticipation(e.target.value as Participation)}>
+        <select id="sr-participation" value={values.participation} onChange={e => set('participation', e.target.value as Participation)}>
           <option value="LEAD">주관 (LEAD)</option><option value="SUPPORT">협업 (SUPPORT)</option>
         </select>
       </div>
       <div className="field">
         <label htmlFor="sr-due-at">회신 기한</label>
-        <input id="sr-due-at" type="datetime-local" value={dueAt} disabled={dueUndecided} onChange={e => setDueAt(e.target.value)} aria-describedby="sr-due-hint" />
-        <label className="check"><input type="checkbox" checked={dueUndecided} onChange={e => setDueUndecided(e.target.checked)} /> 기한 미정</label>
+        <input id="sr-due-at" type="datetime-local" value={values.dueAt} disabled={values.dueUndecided} onChange={e => set('dueAt', e.target.value)} aria-describedby="sr-due-hint" />
+        <label className="check"><input type="checkbox" checked={values.dueUndecided} onChange={e => set('dueUndecided', e.target.checked)} /> 기한 미정</label>
         <small id="sr-due-hint">기한과 "기한 미정" 중 하나가 있어야 발행할 수 있습니다. 빈칸으로 두지 않습니다.</small>
       </div>
       <div className="field">
         <label htmlFor="sr-message">메시지</label>
-        <textarea id="sr-message" rows={4} value={message} onChange={e => setMessage(e.target.value)} />
+        <textarea id="sr-message" rows={4} value={values.message} onChange={e => set('message', e.target.value)} />
       </div>
     </fieldset>
     <div className="actions">
       <button type="submit" disabled={locked || busy || !dirty}>{save.isPending ? '저장 중' : '저장'}</button>
       <button type="button" disabled={issueBlock !== null || busy} onClick={() => issue.mutate()} aria-describedby="sr-issue-hint">{issue.isPending ? '발행 중' : '발행'}</button>
+      <button type="button" disabled={locked || busy || !dirty} onClick={() => setValues(serverValues)}>서버 값으로 되돌리기</button>
       <small id="sr-issue-hint">{issueBlock ?? '발행하면 요청 부서의 목록에 공지됩니다. 메일은 보내지 않습니다.'}</small>
     </div>
     {notice && <p role={notice.kind === 'error' ? 'alert' : 'status'} className={notice.kind === 'error' ? 'state error' : 'state'}>{notice.text}{notice.requestId && <> <small>요청 ID {notice.requestId}</small></>}</p>}
+    {notice?.kind === 'error' && dirty && <dl className="server-values"><dt>서버 값 (판본 {request.version})</dt><dd>부서 {request.organization_name} · {PARTICIPATION_LABEL[request.participation]} · {request.due_undecided ? '기한 미정' : formatDateTime(request.due_at)} · 메시지 {request.message ?? '-'}</dd></dl>}
     {fatal != null && <ErrorState error={fatal} />}
   </form>;
 }

@@ -19,13 +19,14 @@ const draft: StaffingRequest = {
   issued_by_user_id: null, issued_at: null, created_at: '2026-10-23T00:00:00Z', updated_at: '2026-10-23T00:00:00Z', data_origin: 'synthetic', derivation_kind: 'SYSTEM',
 };
 
-function stubLive(items: StaffingRequest[], onPatch: () => Response) {
+// items는 목록 응답이 매번 읽는 배열이다. onPatch가 이 배열을 바꾸면 재조회가 새 판본을 돌려준다.
+function stubLive(items: StaffingRequest[], onPatch: (init: RequestInit) => Response) {
   setApiMode('live');
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === PROJECT_PATH) return jsonResponse(200, project);
-    if (url === LIST_PATH) return jsonResponse(200, { data: { items }, meta: { request_id: '11111111-1111-4111-8111-111111111112' } });
-    if (init?.method === 'PATCH') return onPatch();
+    if (url === LIST_PATH) return jsonResponse(200, { data: { items: [...items] }, meta: { request_id: '11111111-1111-4111-8111-111111111112' } });
+    if (init?.method === 'PATCH') return onPatch(init);
     return jsonResponse(401, errorBody('AUTH_REQUIRED', '로그인 필요'));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -85,8 +86,36 @@ describe('S2 역할·인력 요청서', () => {
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
     expect(String(patch[0])).toBe(`/api/v1/tft/staffing-requests/${draft.id}`);
     expect((patch[1]!.headers as Record<string, string>)['If-Match']).toBe('"1"');
-    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ due_undecided: true, due_at: null, participation: 'LEAD' });
-    // 충돌 후 목록을 다시 불러온다.
+    // 바뀐 필드만 보낸다. due_at은 원래 null이라 그대로이고, participation·message는 바꾸지 않았다.
+    expect(JSON.parse(String(patch[1]!.body))).toEqual({ due_undecided: true });
+    // 충돌 후 목록을 다시 불러오되 입력값은 유지하고 서버 값을 함께 보인다.
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === LIST_PATH).length).toBeGreaterThan(1));
+    expect((screen.getByLabelText('기한 미정') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/서버 값 \(판본 1\)/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '서버 값으로 되돌리기' })).toBeTruthy();
+  });
+
+  test('저장 성공으로 판본이 올라가 목록이 재조회돼도 "저장했습니다" 안내와 입력값이 남는다', async () => {
+    const items = [draft];
+    const fetchMock = stubLive(items, init => {
+      const body = JSON.parse(String(init.body)) as Partial<StaffingRequest>;
+      items[0] = { ...items[0], ...body, version: 2, updated_at: '2026-10-23T02:00:00Z' };
+      return jsonResponse(200, { data: items[0], meta: { request_id: '11111111-1111-4111-8111-111111111113' } });
+    });
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    await screen.findByRole('form', { name: '인력 요청서 편집' });
+    expect(screen.getByTestId('request-version').textContent).toBe('판본 1');
+    fireEvent.change(screen.getByLabelText('메시지'), { target: { value: '후보를 추천해 주세요.' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(screen.getByText(/저장했습니다\. 판본 2/)).toBeTruthy();
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(JSON.parse(String(patch[1]!.body))).toEqual({ message: '후보를 추천해 주세요.' });
+    // 재조회가 판본 2를 돌려준 뒤에도 폼은 재마운트되지 않는다.
+    await waitFor(() => expect(screen.getByTestId('request-version').textContent).toBe('판본 2'));
+    expect(screen.getByRole('status').textContent).toMatch(/저장했습니다\. 판본 2/);
+    expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('후보를 추천해 주세요.');
+    expect((screen.getByRole('button', { name: '저장' }) as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === LIST_PATH).length).toBeGreaterThan(1));
   });
 

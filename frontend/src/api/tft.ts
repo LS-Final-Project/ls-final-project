@@ -10,8 +10,10 @@ export type RfpRequirement = ProjectDetail['rfp_requirements'][number];
 export const listProjects = () => request<ProjectListResponse>('/api/v1/tft/projects');
 export const getProject = (id: string) => request<ProjectDetailResponse>(`/api/v1/tft/projects/${encodeURIComponent(id)}`);
 
-// 인력요청 API(KAN-122)는 병렬 구현 중이라 docs/openapi/tft.json에 아직 없다. 아래 타입과 호출은 KAN-134에서 합의한 계약을 손으로
-// 옮긴 것이며, KAN-122 병합 후 generated/tft의 타입으로 교체한다. 필드·오류 코드를 여기서 임의로 바꾸지 않는다.
+// TODO(KAN-122 PR #31 병합 후 교체): 인력요청 API는 병렬 구현 중이라 docs/openapi/tft.json에 아직 없다. 아래 StaffingRequest*
+// 타입은 KAN-134에서 합의한 계약을 손으로 옮긴 것이다. PR #31이 dev에 병합되면 `npm run types:tft`로 generated/tft.ts를 다시
+// 만들고 이 손 작성 타입을 `paths['/api/v1/tft/projects/{project_id}/staffing-requests']...` 형태의 생성 타입으로 바꾼 뒤
+// `npm run build`·`npm run test:ui`로 필드 이름 차이를 확인한다. 필드·오류 코드를 여기서 임의로 바꾸지 않는다.
 export type StaffingRequestStatus = 'DRAFT' | 'ISSUED' | 'ANSWERED' | 'CLOSED';
 export type Participation = 'LEAD' | 'SUPPORT';
 export type StaffingRequest = {
