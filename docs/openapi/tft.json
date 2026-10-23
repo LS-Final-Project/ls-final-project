@@ -941,6 +941,19 @@
             "title": "Rfp Requirements",
             "type": "array"
           },
+          "sales_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Responsible sales user (login user ID) who issues requests.",
+            "title": "Sales User Id"
+          },
           "staffing_requests": {
             "items": {
               "$ref": "#/components/schemas/StaffingRequest"
@@ -1088,6 +1101,19 @@
             ],
             "description": "Login user ID, never a candidate ID.",
             "title": "Responsible User Id"
+          },
+          "sales_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Responsible sales user (login user ID) who issues requests.",
+            "title": "Sales User Id"
           },
           "status": {
             "enum": [
@@ -1637,7 +1663,13 @@
         "type": "object"
       },
       "StaffingRequest": {
+        "description": "Department staffing request (KAN-122). Shared by the project detail and the\nstaffing-request routes, so both read the same columns.",
         "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -1668,6 +1700,11 @@
               }
             ],
             "title": "Due At"
+          },
+          "due_undecided": {
+            "description": "Explicit 'undecided' mark, apart from a null due_at.",
+            "title": "Due Undecided",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",
@@ -1709,6 +1746,18 @@
             ],
             "title": "Message"
           },
+          "organization_dept_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "identity.departments.code of the organization, when linked.",
+            "title": "Organization Dept Code"
+          },
           "organization_id": {
             "format": "uuid",
             "title": "Organization Id",
@@ -1726,9 +1775,18 @@
             "title": "Participation",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
           "required_role_id": {
             "format": "uuid",
             "title": "Required Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "title": "Role Name",
             "type": "string"
           },
           "status": {
@@ -1740,23 +1798,126 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "description": "Sent back as ETag and required in If-Match for writes.",
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
           "id",
+          "project_id",
           "required_role_id",
+          "role_name",
           "organization_id",
           "organization_name",
+          "organization_dept_code",
           "participation",
           "status",
+          "version",
+          "due_at",
+          "due_undecided",
+          "message",
           "issued_by_user_id",
           "issued_at",
-          "due_at",
-          "message",
+          "created_at",
+          "updated_at",
           "data_origin",
           "derivation_kind"
         ],
         "title": "StaffingRequest",
+        "type": "object"
+      },
+      "StaffingRequestList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StaffingRequest"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "StaffingRequestList",
+        "type": "object"
+      },
+      "StaffingRequestUpdate": {
+        "additionalProperties": false,
+        "description": "Edit of a DRAFT request. Omitted means unchanged; `If-Match` carries the version.",
+        "properties": {
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "due_undecided": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Undecided"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "participation": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LEAD",
+                  "SUPPORT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participation"
+          }
+        },
+        "title": "StaffingRequestUpdate",
         "type": "object"
       },
       "SuccessResponse_HealthData_": {
@@ -1821,6 +1982,38 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_StaffingRequestList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StaffingRequestList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[StaffingRequestList]",
+        "type": "object"
+      },
+      "SuccessResponse_StaffingRequest_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StaffingRequest"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[StaffingRequest]",
         "type": "object"
       },
       "ValidationError": {
@@ -2101,6 +2294,70 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/tft/projects/{project_id}/staffing-requests": {
+      "get": {
+        "operationId": "tft_list_staffing_requests",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_StaffingRequestList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Staffing Requests",
+        "tags": [
+          "staffing-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/tft/ready": {
       "get": {
         "operationId": "tft_readiness_api_v1_tft_ready_get",
@@ -2130,6 +2387,350 @@
         "tags": [
           "health"
         ]
+      }
+    },
+    "/api/v1/tft/staffing-requests/{request_id}": {
+      "get": {
+        "operationId": "tft_get_staffing_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_StaffingRequest_"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Version",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Staffing Request",
+        "tags": [
+          "staffing-requests"
+        ],
+        "x-implementation-status": "partial"
+      },
+      "patch": {
+        "operationId": "tft_update_staffing_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current request version, quoted like an ETag: \"3\". Required for writes.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Current request version, quoted like an ETag: \"3\". Required for writes.",
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffingRequestUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_StaffingRequest_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Update Staffing Request",
+        "tags": [
+          "staffing-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/tft/staffing-requests/{request_id}/issue": {
+      "post": {
+        "operationId": "tft_issue_staffing_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current request version, quoted like an ETag: \"3\". Required for writes.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Current request version, quoted like an ETag: \"3\". Required for writes.",
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_StaffingRequest_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Issue Staffing Request",
+        "tags": [
+          "staffing-requests"
+        ],
+        "x-implementation-status": "partial"
       }
     },
     "/health": {

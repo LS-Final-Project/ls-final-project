@@ -6,17 +6,19 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
+from backend.api.tft.staffing_requests import repository as staffing_requests
+
 Row = dict[str, Any]
 
 SUMMARY_COLUMNS = (
     "p.id, p.external_id, p.name, p.company_code, p.status, p.data_origin, p.derivation_kind, "
-    "p.responsible_user_id, p.created_at, "
+    "p.responsible_user_id, p.sales_user_id, p.created_at, "
     "(SELECT max(v.version) FROM tft.composition_versions v WHERE v.project_id = p.id) "
     "AS current_composition_version"
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
-    "company_code, name, client_name, status, responsible_user_id"
+    "company_code, name, client_name, status, responsible_user_id, sales_user_id"
 )
 REQUIREMENT_COLUMNS = (
     "id, requirement_code, field_tag, title, description, document_name, document_id, "
@@ -26,11 +28,6 @@ ROLE_COLUMNS = (
     "id, role_code, title, field_tag, tasks, experience_condition, is_core, headcount, "
     "period_start, period_end, allocation_rate, status, reviewed_by_user_id, reviewed_at, "
     "next_action, next_action_organization_id, reply_due_at, data_origin, derivation_kind"
-)
-REQUEST_COLUMNS = (
-    "r.id, r.required_role_id, r.organization_id, o.name AS organization_name, r.participation, "
-    "r.status, r.issued_by_user_id, r.issued_at, r.due_at, r.message, r.data_origin, "
-    "r.derivation_kind"
 )
 RECOMMENDATION_COLUMNS = (
     "c.id, c.staffing_request_id, r.required_role_id, c.candidate_id, "
@@ -139,13 +136,8 @@ async def list_role_competencies(conn: AsyncConnection[Row], project_id: UUID) -
 
 
 async def list_staffing_requests(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {REQUEST_COLUMNS} FROM tft.staffing_requests r "
-        "JOIN tft.organizations o ON o.id = r.organization_id "
-        "WHERE r.project_id = %s ORDER BY r.created_at, r.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
+    # Same columns as the staffing-request routes (KAN-122) so both show one object.
+    return await staffing_requests.list_for_project(conn, project_id)
 
 
 async def list_recommendations(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
