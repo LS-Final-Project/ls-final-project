@@ -12,6 +12,9 @@ IDENTITY_QUERY = (
     "array_agg(r.role ORDER BY r.role) AS roles FROM identity.users u "
     "JOIN identity.user_roles r ON r.user_id=u.id "
 )
+REGISTERED_IDENTITY_QUERY = (
+    IDENTITY_QUERY + "WHERE u.tid=%s AND u.oid=%s AND u.is_active GROUP BY u.id"
+)
 
 
 def identity(row: dict | None) -> Identity:
@@ -51,7 +54,7 @@ async def registered_identity(settings: Settings, subject: MicrosoftSubject) -> 
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            IDENTITY_QUERY + "WHERE u.tid=%s AND u.oid=%s AND u.is_active GROUP BY u.id",
+            REGISTERED_IDENTITY_QUERY,
             (subject.tid, subject.oid),
         )
         row = await cursor.fetchone()
