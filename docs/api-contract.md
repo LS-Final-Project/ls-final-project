@@ -2,7 +2,7 @@
 
 C/S·TFT·공통 플랫폼 API의 공통 HTTP·작업 설계 규약이다. 세부 합의는 KAN-56에서 관리한다. 플랫폼의 서버 로그인, 세션 쿠키와 업무 API 중계를 사용한다. 앱별 OpenAPI와 예시 응답으로 구체화하고, 업무별 API는 각 기능 작업에서 확장한다.
 
-계약 원본은 서비스·기능별로 나눠 관리한다. 일상적인 수정은 [contracts/README.md](../contracts/README.md)의 원본 파일과 자기 서비스 생성 명령을 따른다. 이 문서는 공통 HTTP 및 작업 설계 설명으로 유지하고 업무 필드를 추가할 때마다 함께 수정하지 않는다. 현재 health 및 DB readiness, 로컬 DB 계정 선택과 대표 목록 stub을 제공한다. 실제 문의 및 프로젝트 목록 구현 전에는 501을 반환하며 브라우저 모의 응답은 로컬에서만 사용한다.
+계약 원본은 서비스·기능별로 나눠 관리한다. 일상적인 수정은 [contracts/README.md](../contracts/README.md)의 원본 파일과 자기 서비스 생성 명령을 따른다. 이 문서는 공통 HTTP 및 작업 설계 설명으로 유지하고 업무 필드를 추가할 때마다 함께 수정하지 않는다. 현재 health 및 DB readiness, 로컬 DB 계정 선택과 문의·프로젝트 목록·상세의 `partial` 구현을 제공한다. 접근 검사 전까지 업무 경로는 local·test에서만 응답하며 브라우저 모의 응답은 로컬에서만 사용한다.
 
 실제 생성한 OpenAPI는 [C/S](openapi/cs.json), [TFT](openapi/tft.json), [플랫폼](openapi/platform.json)이다. 공통 성공 및 오류 envelope와 요청 ID, health와 DB readiness 및 대표 목록 stub과 사용자 계약을 포함한다. 업무 API 전체, 실제 OAuth, 작업 및 SSE는 후속 기능에서 확장한다. 실행과 검증은 [백엔드 안내](../backend/README.md)를 따른다.
 
