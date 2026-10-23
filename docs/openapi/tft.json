@@ -1,6 +1,531 @@
 {
   "components": {
     "schemas": {
+      "AvailabilityCheck": {
+        "properties": {
+          "allocation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Percent of working time, 0 to 100.",
+            "title": "Allocation Rate"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "checked_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked By User Id"
+          },
+          "constraints_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraints Note"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "status": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "period_start",
+          "period_end",
+          "allocation_rate",
+          "constraints_note",
+          "checked_by_user_id",
+          "checked_at",
+          "basis",
+          "status",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "AvailabilityCheck",
+        "type": "object"
+      },
+      "CandidateRecommendation": {
+        "properties": {
+          "availability_checks": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityCheck"
+            },
+            "title": "Availability Checks",
+            "type": "array"
+          },
+          "candidate_id": {
+            "description": "Candidate personnel ID, never a login user ID.",
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "candidate_name": {
+            "title": "Candidate Name",
+            "type": "string"
+          },
+          "competency_checks": {
+            "items": {
+              "$ref": "#/components/schemas/CompetencyCheck"
+            },
+            "title": "Competency Checks",
+            "type": "array"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "experience_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/ExperienceEvidence"
+            },
+            "title": "Experience Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "organization_id": {
+            "format": "uuid",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "recommended_at": {
+            "format": "date-time",
+            "title": "Recommended At",
+            "type": "string"
+          },
+          "recommended_by_user_id": {
+            "format": "uuid",
+            "title": "Recommended By User Id",
+            "type": "string"
+          },
+          "required_role_id": {
+            "format": "uuid",
+            "title": "Required Role Id",
+            "type": "string"
+          },
+          "staffing_request_id": {
+            "format": "uuid",
+            "title": "Staffing Request Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "RECOMMENDED",
+              "WITHDRAWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "staffing_request_id",
+          "required_role_id",
+          "candidate_id",
+          "candidate_name",
+          "organization_id",
+          "recommended_by_user_id",
+          "recommended_at",
+          "rationale",
+          "status",
+          "experience_evidence",
+          "competency_checks",
+          "availability_checks",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "CandidateRecommendation",
+        "type": "object"
+      },
+      "CompetencyCheck": {
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "checked_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked By User Id"
+          },
+          "competency_id": {
+            "format": "uuid",
+            "title": "Competency Id",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "competency_id",
+          "status",
+          "checked_by_user_id",
+          "checked_at",
+          "basis",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "CompetencyCheck",
+        "type": "object"
+      },
+      "CompositionMember": {
+        "properties": {
+          "follow_up_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Due At"
+          },
+          "gap_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Note"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "next_action_organization_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Organization Id"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "recommendation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null records the role as an open gap.",
+            "title": "Recommendation Id"
+          },
+          "remaining_conditions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Conditions"
+          },
+          "required_role_id": {
+            "format": "uuid",
+            "title": "Required Role Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PROPOSED",
+              "NEEDS_REINFORCEMENT",
+              "CONFIRMED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "required_role_id",
+          "recommendation_id",
+          "status",
+          "rationale",
+          "remaining_conditions",
+          "gap_note",
+          "next_action_organization_id",
+          "follow_up_due_at"
+        ],
+        "title": "CompositionMember",
+        "type": "object"
+      },
+      "CompositionVersion": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "format": "uuid",
+            "title": "Created By User Id",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/CompositionMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "created_by_user_id",
+          "created_at",
+          "note",
+          "members",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "CompositionVersion",
+        "type": "object"
+      },
       "ErrorData": {
         "properties": {
           "code": {
@@ -50,6 +575,219 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "ExperienceEvidence": {
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "evidence_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Source"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "role_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Title"
+          },
+          "status": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "verified_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified By User Id"
+          }
+        },
+        "required": [
+          "id",
+          "summary",
+          "project_name",
+          "role_title",
+          "period_start",
+          "period_end",
+          "evidence_source",
+          "status",
+          "verified_by_user_id",
+          "verified_at",
+          "basis",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "ExperienceEvidence",
+        "type": "object"
+      },
+      "FinalConfirmation": {
+        "properties": {
+          "composition_version": {
+            "title": "Composition Version",
+            "type": "integer"
+          },
+          "composition_version_id": {
+            "format": "uuid",
+            "title": "Composition Version Id",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "confirmed_by_user_id": {
+            "format": "uuid",
+            "title": "Confirmed By User Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "composition_version_id",
+          "composition_version",
+          "confirmed_by_user_id",
+          "confirmed_at",
+          "note"
+        ],
+        "title": "FinalConfirmation",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthData": {
         "properties": {
           "service": {
@@ -72,6 +810,181 @@
           "service"
         ],
         "title": "HealthData",
+        "type": "object"
+      },
+      "ProjectDetail": {
+        "properties": {
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "company_code": {
+            "title": "Company Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_composition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompositionVersion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "final_confirmation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FinalConfirmation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateRecommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "required_roles": {
+            "items": {
+              "$ref": "#/components/schemas/RequiredRole"
+            },
+            "title": "Required Roles",
+            "type": "array"
+          },
+          "responsible": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponsibleSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "responsible_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsible User Id"
+          },
+          "rfp_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RfpRequirement"
+            },
+            "title": "Rfp Requirements",
+            "type": "array"
+          },
+          "staffing_requests": {
+            "items": {
+              "$ref": "#/components/schemas/StaffingRequest"
+            },
+            "title": "Staffing Requests",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "INITIAL_REVIEW",
+              "STAFFING",
+              "COMPOSING",
+              "CONFIRMED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "version",
+          "data_origin",
+          "derivation_kind",
+          "known_at",
+          "created_at",
+          "company_code",
+          "name",
+          "client_name",
+          "status",
+          "responsible_user_id",
+          "responsible",
+          "rfp_requirements",
+          "required_roles",
+          "staffing_requests",
+          "recommendations",
+          "current_composition",
+          "final_confirmation"
+        ],
+        "title": "ProjectDetail",
         "type": "object"
       },
       "ProjectList": {
@@ -104,6 +1017,26 @@
       },
       "ProjectSummary": {
         "properties": {
+          "company_code": {
+            "title": "Company Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_composition_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Composition Version"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -113,6 +1046,27 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -121,12 +1075,42 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "responsible_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Login user ID, never a candidate ID.",
+            "title": "Responsible User Id"
+          },
+          "status": {
+            "enum": [
+              "INITIAL_REVIEW",
+              "STAFFING",
+              "COMPOSING",
+              "CONFIRMED"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
           "id",
+          "external_id",
           "name",
-          "data_origin"
+          "company_code",
+          "status",
+          "data_origin",
+          "derivation_kind",
+          "responsible_user_id",
+          "current_composition_version",
+          "created_at"
         ],
         "title": "ProjectSummary",
         "type": "object"
@@ -164,6 +1148,244 @@
         "title": "ReadinessData",
         "type": "object"
       },
+      "RequiredRole": {
+        "properties": {
+          "allocation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Rate"
+          },
+          "competencies": {
+            "items": {
+              "$ref": "#/components/schemas/RoleCompetency"
+            },
+            "title": "Competencies",
+            "type": "array"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "experience_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Condition"
+          },
+          "field_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DESIGN",
+                  "CIVIL_STRUCTURE",
+                  "CONSTRUCTION_TRANSPORT",
+                  "QUALITY_TEST",
+                  "PROJECT_MANAGEMENT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Tag"
+          },
+          "headcount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null means not decided yet.",
+            "title": "Headcount"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_core": {
+            "title": "Is Core",
+            "type": "boolean"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action"
+          },
+          "next_action_organization_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Organization Id"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "reply_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Due At"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RoleRequirementLink"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By User Id"
+          },
+          "role_code": {
+            "title": "Role Code",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFTING",
+              "ISSUED",
+              "RECOMMENDATIONS_RECEIVED",
+              "DEPT_VERIFIED",
+              "COMPARING",
+              "IN_COMPOSITION",
+              "CONFIRMED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tasks"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role_code",
+          "title",
+          "field_tag",
+          "tasks",
+          "experience_condition",
+          "is_core",
+          "headcount",
+          "period_start",
+          "period_end",
+          "allocation_rate",
+          "status",
+          "reviewed_by_user_id",
+          "reviewed_at",
+          "next_action",
+          "next_action_organization_id",
+          "reply_due_at",
+          "requirements",
+          "competencies",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "RequiredRole",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -176,6 +1398,365 @@
           "request_id"
         ],
         "title": "ResponseMeta",
+        "type": "object"
+      },
+      "ResponsibleSummary": {
+        "description": "Latest assignment of the responsible user, from the change history.",
+        "properties": {
+          "assigned_at": {
+            "format": "date-time",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "assigned_by_user_id": {
+            "format": "uuid",
+            "title": "Assigned By User Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "assigned_by_user_id",
+          "assigned_at",
+          "reason"
+        ],
+        "title": "ResponsibleSummary",
+        "type": "object"
+      },
+      "RfpRequirement": {
+        "properties": {
+          "clause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "document_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Name"
+          },
+          "document_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Version Id"
+          },
+          "excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excerpt"
+          },
+          "field_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DESIGN",
+                  "CIVIL_STRUCTURE",
+                  "CONSTRUCTION_TRANSPORT",
+                  "QUALITY_TEST",
+                  "PROJECT_MANAGEMENT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Tag"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "requirement_code": {
+            "title": "Requirement Code",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "requirement_code",
+          "field_tag",
+          "title",
+          "description",
+          "document_name",
+          "document_id",
+          "document_version_id",
+          "clause",
+          "page",
+          "excerpt",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "RfpRequirement",
+        "type": "object"
+      },
+      "RoleCompetency": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "REQUIRED",
+              "PREFERRED"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "description"
+        ],
+        "title": "RoleCompetency",
+        "type": "object"
+      },
+      "RoleRequirementLink": {
+        "properties": {
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "rationale"
+        ],
+        "title": "RoleRequirementLink",
+        "type": "object"
+      },
+      "StaffingRequest": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued At"
+          },
+          "issued_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued By User Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "organization_id": {
+            "format": "uuid",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "organization_name": {
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "participation": {
+            "enum": [
+              "LEAD",
+              "SUPPORT"
+            ],
+            "title": "Participation",
+            "type": "string"
+          },
+          "required_role_id": {
+            "format": "uuid",
+            "title": "Required Role Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "ISSUED",
+              "ANSWERED",
+              "CLOSED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "required_role_id",
+          "organization_id",
+          "organization_name",
+          "participation",
+          "status",
+          "issued_by_user_id",
+          "issued_at",
+          "due_at",
+          "message",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "StaffingRequest",
         "type": "object"
       },
       "SuccessResponse_HealthData_": {
@@ -192,6 +1773,22 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_ProjectDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProjectDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ProjectDetail]",
         "type": "object"
       },
       "SuccessResponse_ProjectList_": {
@@ -224,6 +1821,46 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       }
     }
@@ -269,8 +1906,38 @@
     },
     "/api/v1/tft/projects": {
       "get": {
-        "description": "Contract stub. Browser mock examples are synthetic; real implementation is pending.",
         "operationId": "tft_list_projects",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -282,7 +1949,7 @@
             },
             "description": "Successful Response"
           },
-          "501": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
@@ -290,14 +1957,108 @@
                 }
               }
             },
-            "description": "Not Implemented"
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "List Projects",
         "tags": [
           "projects"
         ],
-        "x-implementation-status": "stub"
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/tft/projects/{project_id}": {
+      "get": {
+        "operationId": "tft_get_project",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ProjectDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or closed outside local/test"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Project",
+        "tags": [
+          "projects"
+        ],
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/tft/ready": {
