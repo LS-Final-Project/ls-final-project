@@ -5,6 +5,8 @@ import DevCheck from './pages/DevCheck';
 import Tickets from './pages/Tickets';
 import TicketDetail from './pages/TicketDetail';
 import Projects from './pages/Projects';
+import ProjectDetail from './pages/ProjectDetail';
+import RoleRequest from './pages/RoleRequest';
 
 export default function App() {
   return <Routes>
@@ -13,6 +15,8 @@ export default function App() {
       <Route path="cs/tickets" element={<Tickets />} />
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft/projects" element={<Projects />} />
+      <Route path="tft/projects/:projectId" element={<ProjectDetail />} />
+      <Route path="tft/projects/:projectId/roles/:roleId" element={<RoleRequest />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
   </Routes>;
