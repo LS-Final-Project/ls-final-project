@@ -78,12 +78,13 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | `IN_REVIEW` → `ANSWERED` | 답변 발송 승인(초안 수정 포함) | `cs_agent` | 문의 조회 범위 | 403 / 409 |
 | `IN_REVIEW` → `TRANSFERRED` | 이관 확정(대상 부서는 규칙 제안을 사람이 확정) | `cs_agent` | 문의 조회 범위 | 403 / 409 |
 | `WAITING_CUSTOMER`, `ANSWERED` → `IN_REVIEW` | 고객 회신 재투입(같은 문의에 연결, 재분석) | 시스템(메일 수신) / `cs_agent`(수동 연결) | — | — |
-| `TRANSFERRED` → `IN_REVIEW` | 부서 처리 결과·회신 내용 등록 | `dept_staff` | **자기 부서로 이관된 문의** | 403 / 409 |
-| `ANSWERED`, `TRANSFERRED`(처리 결과 있음) → `CLOSED` | 종결 확정 | `cs_agent` | 문의 조회 범위 | 403 / 409 |
+| `TRANSFERRED` → `IN_REVIEW` | 부서 처리 결과·회신 내용 등록. 문의는 `IN_REVIEW`로 돌아가고 `cs_agent`가 고객 발송 또는 종결을 판단 | `dept_staff` | **자기 부서로 이관된 문의** | 403 / 409 |
+| `ANSWERED` → `CLOSED` | 종결 확정 | `cs_agent` | 문의 조회 범위 | 403 / 409 |
+| `IN_REVIEW` → `CLOSED` | 종결 확정. **부서 처리 결과가 등록됐거나 이 문의에 고객 발송 완료 이력이 있을 때만** 허용. 둘 다 없으면 409 | `cs_agent` | 문의 조회 범위 | 403 / 409 |
 | `CLOSED` → `IN_REVIEW` | 고객 회신 재투입으로 재개 | 시스템 / `cs_agent` | — | — |
 | 담당자 재배정(상태 변경 없음) | 문의의 담당 `cs_agent` 변경 | `manager` | 관리 대상 부서에 배정·이관된 문의 | 403 |
 
-종결 조건(기본값 제안): 발송 완료된 최종 답변 또는 등록된 부서 처리 결과가 있고, 발송 결과가 `UNKNOWN`인 발송 의도가 없으며, `cs_agent`가 명시적으로 종결을 확정한다. AI 작업 완료, SLA 만료, 부서 회신만으로 자동 종결하지 않는다. 사례 적재(⑧)와 고객 이력 확정값 저장(⑨)은 `CLOSED` 상태에서만 허용하며 종결 후 개선요청은 계속 진행할 수 있다.
+종결 조건(기본값 제안): 종결은 `ANSWERED`에서, 또는 `IN_REVIEW`에서 부서 처리 결과가 등록됐거나 고객 발송 완료 이력이 있을 때만 허용한다(`TRANSFERRED`에서는 부서 결과 등록으로 `IN_REVIEW`를 거친 뒤 종결한다). 추가로 발송 결과가 `UNKNOWN`인 발송 의도가 없어야 하며, `cs_agent`가 명시적으로 종결을 확정한다. AI 작업 완료, SLA 만료, 부서 회신만으로 자동 종결하지 않는다. 사례 적재(⑧)와 고객 이력 확정값 저장(⑨)은 `CLOSED` 상태에서만 허용하며 종결 후 개선요청은 계속 진행할 수 있다.
 
 고객 발송 주체는 `cs_agent`로 통일한다(기본값 제안). `dept_staff`는 처리 결과와 회신 내용을 등록하고 고객 발송은 `cs_agent`가 확인한다. RMA 번호·방문일·보증 승인은 AI가 생성하지 않으며 사람이 입력한 값만 발송 본문에 들어간다(확정).
 
@@ -115,10 +116,10 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | `ADOPTED` → `ACTION_TAKEN` | 조치 등록(`action`, `action_scope`, `action_date`, `action_evidence`) | `dept_staff` | 수신 부서 | 403 / 409 / 422 |
 | `ACTION_TAKEN` → `FOLLOW_UP` | 후속 확인 계획(`followup_plan`) 확정 | `cs_agent` (부서와 협의) | — | 403 / 409 / 422 |
 | `FOLLOW_UP` → `COMPLETED` | `followup_result` 기록 후 완료 판단(`completed_by`, `completed_at`) | `cs_agent` | — | 403 / 409 |
-| `COMPLETED` → `SENT` | 재발: 조치 적용 장비에서 1건이라도 재발 → 같은 요청을 다시 열어 전달 | 시스템(후보) / `cs_agent`(재개) | — | 403 / 409 |
+| `ACTION_TAKEN`, `FOLLOW_UP`, `COMPLETED` → `SENT` | 재발 재개: 조치 적용 장비에서 1건이라도 재발이 확인되면 재발 후보 → `cs_agent` 검토 후 같은 요청을 다시 열어 전달(새 판본). 조치 전 장비의 발생은 재발이 아니며 재요청 집계로 간다 | 시스템(후보) / `cs_agent`(재개) | — | 403 / 409 |
 | 담당자 재배정(`cs_owner` 변경) | 상태 변경 없음 | `manager` | 관리 대상 부서가 수신·제안 부서에 포함된 요청 | 403 |
 
-- 완료 판단은 `cs_agent`(C/S 주관)가 한다(기본값 제안). 부서 회신·조치 등록만으로 `COMPLETED`가 되지 않는다. 조치 전 장비의 발생은 재발과 구분해 따로 집계한다.
+- 완료 판단은 `cs_agent`(C/S 주관)가 한다(기본값 제안). 부서 회신·조치 등록만으로 `COMPLETED`가 되지 않는다. 재발 재개는 조치 이후 상태(`ACTION_TAKEN`, `FOLLOW_UP`, `COMPLETED`) 어디서든 가능하며 재개 시 진행 중이던 후속 확인 기록은 보존한다. 조치 전 장비의 발생은 재발과 구분해 따로 집계한다.
 - 여러 부서에 전달한 요청의 부서별 회신은 `dept_replies`에 부서 단위로 기록한다. 부서별 회신이 엇갈릴 때 요청 상태를 어떻게 집계할지는 미확정(김나영, C/S 개선요청 구현 티켓)이다. 결정 전에는 `cs_agent`가 상태를 수동 확정한다.
 - `manager`는 개선요청 진행 현황을 집계로 보고, 관리 대상 부서 관련 요청만 상세 조회한다. 상태 전이는 하지 않는다.
 
@@ -129,7 +130,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | `CLOSED` | `INFO_REQUESTED`, `SENT`, `FOLLOW_UP` | 가능 | 고객 문의가 끝나도 개선 검토는 계속된다 |
 | `IN_REVIEW`, `ANSWERED` | `COMPLETED` | 가능 | 과거 조치가 완료된 고장에 새 문의가 들어올 수 있다. 재발 후보 판단은 별도 |
 | `CLOSED` | (없음) | 가능 | 모든 문의가 개선요청을 만들지 않는다 |
-| 어떤 상태든 | `COMPLETED` → `SENT` | 가능 | 재발 재개는 문의 상태와 무관 |
+| 어떤 상태든 | `ACTION_TAKEN` / `FOLLOW_UP` / `COMPLETED` → `SENT` | 가능 | 재발 재개는 문의 상태와 무관 |
 
 화면에서 두 상태를 한 배지로 합치지 않고 문의 상세(F03·F04)와 개선요청(F05)에 각각 표시한다.
 
