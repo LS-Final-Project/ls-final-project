@@ -9,8 +9,13 @@ from backend.shared.settings import Settings
 
 IDENTITY_QUERY = (
     "SELECT u.id,u.tid,u.oid,u.email,u.display_name,u.dept, "
-    "array_agg(r.role ORDER BY r.role) AS roles FROM identity.users u "
-    "JOIN identity.user_roles r ON r.user_id=u.id "
+    "array_agg(r.role ORDER BY r.role) AS roles, "
+    # Manager scopes (KAN-78). Written only by infra/sql/register_user.sql.
+    "ARRAY(SELECT m.dept_code FROM identity.manager_departments m "
+    "WHERE m.user_id=u.id ORDER BY m.dept_code) AS managed_departments, "
+    "ARRAY(SELECT m.project_id FROM identity.manager_projects m "
+    "WHERE m.user_id=u.id ORDER BY m.project_id) AS managed_projects "
+    "FROM identity.users u JOIN identity.user_roles r ON r.user_id=u.id "
 )
 REGISTERED_IDENTITY_QUERY = (
     IDENTITY_QUERY + "WHERE u.tid=%s AND u.oid=%s AND u.is_active GROUP BY u.id"

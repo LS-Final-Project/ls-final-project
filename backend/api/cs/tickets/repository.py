@@ -94,12 +94,14 @@ async def insert_audit(
     ticket_id: UUID,
     action: str,
     version: int,
+    actor_user_id: UUID,
     changes: Row,
 ) -> None:
     await conn.execute(
-        "INSERT INTO cs.audit_events (id, entity_type, entity_id, action, version, changes) "
-        "VALUES (%s, 'ticket', %s, %s, %s, %s)",
-        (event_id, ticket_id, action, version, Jsonb(changes)),
+        "INSERT INTO cs.audit_events "
+        "(id, entity_type, entity_id, action, version, actor_user_id, changes) "
+        "VALUES (%s, 'ticket', %s, %s, %s, %s, %s)",
+        (event_id, ticket_id, action, version, actor_user_id, Jsonb(changes)),
     )
 
 

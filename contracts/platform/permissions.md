@@ -56,6 +56,22 @@ C/S 범위 판정: 문의와 개선요청의 담당 `cs_agent`(문의 담당자,
 
 플랫폼이 세션을 검증하고 사용자 맥락을 내부 요청으로 중계하며, C/S·TFT 서비스는 호출자 인증과 함께 2~6을 **다시** 검사한다. 브라우저가 보낸 역할·사용자 헤더와 `approved=true` 같은 값은 근거로 쓰지 않는다. 조회 가능 범위 안에서는 404 대신 403을 내서 "보이지만 할 수 없음"을 구분한다.
 
+### 1.4 업무 서비스가 받는 사용자 정보 (KAN-78, 형식 제안)
+
+C/S·TFT 서비스는 DB 권한상 `identity` 스키마를 읽지 못한다. 플랫폼이 세션에서 읽은 사용자를 아래 형식으로 넘기고, 서비스는 이 값으로 2~3단계를 검사한다(`backend/shared/access.py`).
+
+| 필드 | 내용 |
+| --- | --- |
+| `user_id` | `identity.users.id` |
+| `roles` | `identity.user_roles`의 역할 목록(1개 이상) |
+| `dept` | `users.dept`. `dept_staff`는 필수 |
+| `managed_departments` | manager의 관리 대상 부서 코드(`identity.manager_departments`) |
+| `managed_projects` | manager의 관리 대상 TFT 프로젝트 ID(`identity.manager_projects`) |
+
+- 전달: 요청 헤더 `X-Team4-Principal`에 위 필드의 JSON. 알 수 없는 필드, 역할 없음, 부서 없는 dept_staff, manager가 아닌 사용자의 관리 범위는 401로 거부한다.
+- 신뢰 범위: 플랫폼의 인증된 내부 중계는 KAN-178(오새결)에서 만든다. 이 형식은 KAN-178에서 검토해 확정한다. 그 전까지 서비스는 `local`·`test`에서만 이 헤더를 읽고, `production`에서는 헤더와 무관하게 DB 조회 전에 404로 닫는다. 중계를 만들 때 호출자 인증(플랫폼만 보낼 수 있음)과 브라우저가 보낸 같은 헤더의 제거를 함께 넣는다.
+- 플랫폼 `/me`와 세션 조회는 같은 값(`managed_departments`, `managed_projects`)을 이미 돌려준다.
+
 ---
 
 ## 2. C/S 업무 상태 전이
@@ -452,7 +468,7 @@ SSE 구독과 작업 조회도 1.3의 검사 순서를 적용한다. 다른 소�
 | 번호 | 내용 | 확인 상대 |
 | --- | --- | --- |
 | 1 | [API 계약](../../docs/api-contract.md)은 판본 충돌을 `If-Match` 기반 412 `VERSION_CONFLICT` / 428 `VERSION_REQUIRED`로 정하는데, [C/S 계약](../cs/tickets.md)의 KAN-102 구현은 본문 `version` 기반 409 `CS_TICKET_VERSION_CONFLICT`다. C/S 계약은 "KAN-56 확정 시 맞춘다"고 적었다. 이 문서는 API 계약 코드를 쓰되 C/S 구현 코드가 유지되면 5.1의 412/428 행에 409를 추가한다 | 김나영(KAN-102·108), KAN-56 |
-| 2 | [AGENTS](../../AGENTS.md#인증과-역할)는 `users` 테이블의 단일 `role` 필드를 적었지만 실제 `identity` 마이그레이션(KAN-78)과 [결정 정리](../../docs/decisions.md#로그인과-사용자-권한)는 `user_roles` 다중 역할이다. 이 문서는 다중 역할을 전제로 한다 | 김나영(KAN-78), AGENTS 갱신 |
+| 2 | (해결) AGENTS의 단일 `role` 설명을 `user_roles` 다중 역할로 고쳤다(KAN-78) | — |
 | 3 | 관리 대상 부서·프로젝트는 `identity.manager_departments`·`manager_projects`에 두었다(KAN-78, 제안: 소유 identity). 담당 `sales`, `responsible_user_id`, 책임자 변경 이력의 저장 구조와 시연용 관리 대상 프로젝트 fixture는 아직 없다 | 김종하(TFT, KAN-122·127) |
 | 4 | [AGENTS](../../AGENTS.md#인증과-역할)의 `manager` 설명 "승인 범위 별도 정의"는 이 문서와 아키텍처로 정의됐다. AGENTS 본문은 이번에 수정하지 않았다 | AGENTS 담당 |
 | 5 | KAN-129(공통 상태 UI)의 실제 범위는 Jira에서 확인하지 못했다. 5.1은 지시된 401/403/404에 409·412/428·501을 더한 제안이다 | 김종하(KAN-129) |

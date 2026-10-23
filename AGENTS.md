@@ -104,14 +104,15 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 ## 인증과 역할
 
 - 사용자 식별: JWT의 `tid + oid` (이메일은 표시용만)
-- 역할 조회: `users` 테이블 (`tid`, `oid`, `role`, `dept`, `email`)
+- 역할 조회: `identity.users`(`tid`, `oid`, `dept`, `email`)와 `identity.user_roles`(한 사용자에 여러 역할). manager 관리 범위는 `identity.manager_departments`·`manager_projects`
+- 계정·역할·범위 등록: 서버 밖 `infra/sql/register_user.sql`로만. 권한 규칙은 [권한 문서](contracts/platform/permissions.md)
 - 등록되지 않은 사용자에게 역할 자동 부여 금지
 
 | 역할 | 설명 |
 |---|---|
 | `cs_agent` | C/S 문의 처리 담당자 |
 | `dept_staff` | 전문부서 담당자 (소속 부서 필드 필수) |
-| `manager` | 관리자 (승인 범위 별도 정의) |
+| `manager` | 관리자 (관리 대상 부서·프로젝트 안에서 상세 조회·재배정, 권한 문서 1.2) |
 | `sales` | 수주·견적 담당자 |
 
 **개발 모드**: DB에 시연 계정을 미리 생성하고 로그인 없이 계정 선택. `environment=production`이면 개발 모드 진입 불가.

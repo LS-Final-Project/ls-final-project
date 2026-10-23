@@ -5,9 +5,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.api.cs.tickets import repository
+from backend.api.cs.tickets.access import (
+    require_ticket_list,
+    require_ticket_write,
+    sees_all_tickets,
+)
 from backend.api.cs.tickets.schemas import (
     AuditEvent,
     AuditList,
@@ -18,24 +23,22 @@ from backend.api.cs.tickets.schemas import (
     TicketSummary,
     TicketUpdate,
 )
+from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
-
-def guard_until_access_checks(request: Request) -> None:
-    # No role, department or project checks exist yet (KAN-78). Fail closed outside
-    # local and test so ticket bodies and customer IDs are never exposed in production.
-    if request.app.state.settings.environment not in {"local", "test"}:
-        raise HTTPException(404)
-
-
 router = APIRouter(
     prefix="/api/v1/cs/tickets",
     tags=["tickets"],
-    dependencies=[Depends(guard_until_access_checks)],
     responses={
-        404: {"model": ErrorResponse, "description": "Not found, or closed outside local/test"}
+        401: {"model": ErrorResponse, "description": "No valid user context"},
+        403: {"model": ErrorResponse, "description": "The role may not take this action"},
+        404: {
+            "model": ErrorResponse,
+            "description": "Not found or outside the user's scope. Closed outside local/test "
+            "until the platform relays the user (KAN-78)",
+        },
     },
 )
 
@@ -88,8 +91,13 @@ async def list_tickets(
     request: Request,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketList]:
+    require_ticket_list(principal)
     after = decode_cursor(cursor) if cursor else None
+    if not sees_all_tickets(principal):
+        # Transfer departments arrive with KAN-108; until then no ticket is in this scope.
+        return respond(request, TicketList(items=[], next_cursor=None))
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_tickets(conn, limit, after)
     items = [TicketSummary.model_validate(row) for row in rows[:limit]]
@@ -110,7 +118,10 @@ async def list_tickets(
     responses={503: {"model": ErrorResponse}},
     openapi_extra=PARTIAL,
 )
-async def get_ticket(ticket_id: UUID, request: Request) -> SuccessResponse[TicketDetail]:
+async def get_ticket(
+    ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[TicketDetail]:
+    require_visible(principal)
     async with connection(request.app.state.settings) as conn:
         row = await repository.get_ticket(conn, ticket_id)
         if row is None:
@@ -121,6 +132,12 @@ async def get_ticket(ticket_id: UUID, request: Request) -> SuccessResponse[Ticke
 
 def not_found() -> ApplicationError:
     return ApplicationError(404, "CS_TICKET_NOT_FOUND", "The ticket was not found.")
+
+
+def require_visible(principal: Principal) -> None:
+    # Out-of-scope tickets look the same as missing ones (permissions.md 1.3 step 2).
+    if not sees_all_tickets(principal):
+        raise not_found()
 
 
 def detail(row: dict[str, Any], case: dict[str, Any] | None) -> TicketDetail:
@@ -141,7 +158,10 @@ def respond(request: Request, data: Any) -> SuccessResponse[Any]:
     responses={503: {"model": ErrorResponse}},
     openapi_extra=PARTIAL,
 )
-async def create_ticket(payload: TicketCreate, request: Request) -> SuccessResponse[TicketDetail]:
+async def create_ticket(
+    payload: TicketCreate, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[TicketDetail]:
+    require_ticket_write(principal)
     now = datetime.now(UTC)
     values = {
         "id": uuid4(),
@@ -161,7 +181,9 @@ async def create_ticket(payload: TicketCreate, request: Request) -> SuccessRespo
     }
     async with connection(request.app.state.settings) as conn:
         await repository.insert_ticket(conn, values)
-        await repository.insert_audit(conn, uuid4(), values["id"], "create", 1, created)
+        await repository.insert_audit(
+            conn, uuid4(), values["id"], "create", 1, principal.user_id, created
+        )
     return respond(request, detail({**values, "version": 1}, None))
 
 
@@ -173,8 +195,13 @@ async def create_ticket(payload: TicketCreate, request: Request) -> SuccessRespo
     openapi_extra=PARTIAL,
 )
 async def update_ticket(
-    ticket_id: UUID, payload: TicketUpdate, request: Request
+    ticket_id: UUID,
+    payload: TicketUpdate,
+    request: Request,
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketDetail]:
+    require_visible(principal)
+    require_ticket_write(principal)
     async with connection(request.app.state.settings) as conn:
         row = await repository.lock_ticket(conn, ticket_id)
         if row is None:
@@ -191,7 +218,7 @@ async def update_ticket(
             await repository.update_ticket(conn, ticket_id, payload.version, values)
             row = {**row, **values, "version": payload.version + 1}
             await repository.insert_audit(
-                conn, uuid4(), ticket_id, "update", row["version"], changes
+                conn, uuid4(), ticket_id, "update", row["version"], principal.user_id, changes
             )
         case = await repository.get_resolution_case(conn, ticket_id)
     return respond(request, detail(row, case))
@@ -204,7 +231,10 @@ async def update_ticket(
     responses={503: {"model": ErrorResponse}},
     openapi_extra=PARTIAL,
 )
-async def list_ticket_audit(ticket_id: UUID, request: Request) -> SuccessResponse[AuditList]:
+async def list_ticket_audit(
+    ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[AuditList]:
+    require_visible(principal)
     async with connection(request.app.state.settings) as conn:
         if await repository.get_ticket(conn, ticket_id) is None:
             raise not_found()

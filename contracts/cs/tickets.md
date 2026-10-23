@@ -15,7 +15,7 @@
 저장 구조는 C/S 기획서 6.1의 제공 테이블(tickets, resolution_cases)과 [공통 데이터 계약](../../docs/data-contract.md)의 식별자·시점·출처 필드를 따른다. 마이그레이션은 `infra/migrations/cs/20261022_KAN-102_tickets.sql`, 감사 이력은 `20261023_KAN-102_ticket_audit.sql`이다.
 
 - 정정은 행을 잠근(`SELECT ... FOR UPDATE`) 상태에서 판본을 비교하고, 문의 변경과 감사 기록을 한 트랜잭션으로 저장한다. `cs.audit_events`는 서비스 계정(cs_app)에 UPDATE·DELETE 권한이 없는 추가 전용 테이블이다.
-- `actor_user_id`는 KAN-78에서 로그인 사용자를 받기 전까지 null이다.
+- `actor_user_id`는 요청한 사용자 ID다(KAN-78). KAN-78 이전에 만든 기록은 null이다.
 - 오류 코드는 현재 기능별 `ApplicationError`를 쓰며 KAN-56의 오류 계약이 확정되면 맞춘다.
 
 - `cs.tickets`는 접수 입력만 저장한다. 운영 중 생기는 AI 분류(KAN-103), 규칙 결과(KAN-104)와 업무 상태(KAN-108)는 각 티켓에서 별도로 저장한다.
@@ -23,7 +23,8 @@
 - 원천 ID(`CSV1-000044`, `RC-0007`)는 `external_id`, URL과 내부 참조는 서버 UUID `id`를 쓴다.
 - 제목이 없는 채팅 문의의 `subject`는 null이다.
 - 해결 사례는 `known_at`이 지난 경우에만 상세에 포함한다. 제공 데이터는 해결 시각을 known_at으로 가정한다.
-- 역할·부서·프로젝트 접근 검사는 KAN-78에서 추가한다. 그 전까지 OpenAPI 상태는 `partial`이며, 위 경로는 모두 `local`·`test` 환경에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. 설비·장비 일치 확인은 KAN-102의 후속 PR에서 추가한다.
+- 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.1): 사용자 정보가 없거나 잘못되면 401. 조회는 `cs_agent`와 C/S 부서(`GCS_L1`)를 관리하는 manager는 전체, dept_staff와 다른 부서 manager는 자기(관리) 부서로 이관된 문의만이며 이관 부서 칸이 생기기 전(KAN-108)에는 빈 목록이다. 범위 밖 문의는 없는 문의와 같은 404 `CS_TICKET_NOT_FOUND`. sales의 목록과 cs_agent가 아닌 사용자의 등록·정정은 403.
+- 플랫폼의 사용자 정보 중계가 생기기 전까지 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. OpenAPI 상태는 `partial`이다. 설비·장비 일치 확인은 KAN-102의 후속 PR에서 추가한다.
 
 ## 문의 분류 출력 계약
 

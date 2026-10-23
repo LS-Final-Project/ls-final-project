@@ -2,7 +2,7 @@
 
 C/S, TFT와 공통 플랫폼은 같은 저장소와 공통 패키지를 사용하되 각자 별도 프로세스 및 이미지로 실행한다. 공통 설정과 HTTP 응답 모델은 `backend/shared`, 업무 DTO는 각 서비스의 기능 폴더, 공통 HTTP 처리는 `backend/api/common`, 앱의 진입점은 `backend/api/{cs,tft,platform}/main.py`다. 각 앱은 다른 앱의 진입점을 import하지 않는다.
 
-현재 구현은 프로세스 health와 DB 준비 상태, 공통 응답과 오류, 요청 ID, production 보호 및 로컬 DB 기반 계정 선택이다. 문의와 프로젝트 목록은 계약 stub으로 실제 API는 501이다. Microsoft 로그인, 업무 권한과 실제 메일 및 LLM, 작업 상태, SSE와 플랫폼 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다. 팀원 최초 실행은 [개발 시작 안내](../docs/team-start.md)를 따른다.
+현재 구현은 프로세스 health와 DB 준비 상태, 공통 응답과 오류, 요청 ID, production 보호 및 로컬 DB 기반 계정 선택이다. C/S 문의(KAN-102)와 TFT 프로젝트(KAN-119) API는 local·test에서 응답하며, 사용자 정보(`backend/shared/access.py`)로 역할·범위를 검사한다. Microsoft 로그인, 실제 메일 및 LLM, 작업 상태, SSE와 플랫폼의 사용자 정보 중계는 후속 작업이다. health의 성공은 DB나 외부 연동의 준비 상태를 뜻하지 않는다. 팀원 최초 실행은 [개발 시작 안내](../docs/team-start.md)를 따른다.
 
 ## 공통 온보딩과 실행 설정
 

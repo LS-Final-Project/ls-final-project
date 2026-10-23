@@ -192,9 +192,61 @@ def test_existing_session_reads_current_roles_and_department(
         conn.execute(
             "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'dept_staff')", (user_id,)
         )
-        conn.execute("UPDATE identity.users SET dept='service' WHERE id=%s", (user_id,))
+        conn.execute("UPDATE identity.users SET dept='FIELD_SVC' WHERE id=%s", (user_id,))
     current = asyncio.run(sessions.load_session(settings, grant.token.get_secret_value()))
-    assert current.roles == ["dept_staff"] and current.dept == "service"
+    assert current.roles == ["dept_staff"] and current.dept == "FIELD_SVC"
+
+
+def test_session_carries_the_managers_registered_scopes(settings, auth_database, registered_user):
+    """KAN-78: 세션 조회가 manager의 관리 대상 부서·프로젝트를 DB에서 함께 읽는지 확인한다.
+
+    Args:
+        settings: 플랫폼 런타임 권한의 DB 설정.
+        auth_database: 역할·범위를 등록할 전용 DB 관리자 연결.
+        registered_user: 합성 Microsoft 식별자와 등록 사용자 ID.
+
+    Returns:
+        None: 등록한 관리 범위가 그대로 조회됨을 검증한다.
+    """
+    subject, user_id = registered_user
+    project = uuid4()
+    with psycopg.connect(auth_database) as conn:
+        conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
+        conn.execute(
+            "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'manager')", (user_id,)
+        )
+        conn.execute(
+            "INSERT INTO identity.manager_departments(user_id,dept_code) "
+            "VALUES (%s,'GCS_L1'),(%s,'TS_TRF')",
+            (user_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO identity.manager_projects(user_id,project_id) VALUES (%s,%s)",
+            (user_id, project),
+        )
+    grant = asyncio.run(sessions.issue_session(settings, subject))
+    current = asyncio.run(sessions.load_session(settings, grant.token.get_secret_value()))
+    assert current.managed_departments == ["GCS_L1", "TS_TRF"]
+    assert current.managed_projects == [project]
+
+
+def test_runtime_user_cannot_grant_scopes(settings, registered_user):
+    """KAN-78: 플랫폼 실행 계정은 관리 범위를 읽기만 하고 쓸 수 없다.
+
+    Args:
+        settings: 플랫폼 런타임 권한의 DB 설정.
+        registered_user: 합성 등록 사용자 ID.
+
+    Returns:
+        None: 범위 테이블 쓰기가 권한 오류로 거부됨을 검증한다.
+    """
+    _, user_id = registered_user
+    with psycopg.connect(settings.database_url.get_secret_value()) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "INSERT INTO identity.manager_departments(user_id,dept_code) VALUES (%s,'GCS_L1')",
+                (user_id,),
+            )
 
 
 @pytest.mark.parametrize("invalid", ["inactive", "no_roles", "missing_dept"])

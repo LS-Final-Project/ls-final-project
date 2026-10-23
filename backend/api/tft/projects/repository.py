@@ -65,21 +65,29 @@ RECOMMENDATION_SCOPE = (
 
 
 async def list_projects(
-    conn: AsyncConnection[Row], limit: int, after: tuple[datetime, UUID] | None
+    conn: AsyncConnection[Row],
+    limit: int,
+    after: tuple[datetime, UUID] | None,
+    managed_projects: list[UUID],
+    user_id: UUID,
 ) -> list[Row]:
-    """Newest first. Fetches one extra row so the caller knows whether a next page exists."""
+    """Newest first, only projects the user may see (access.sees_project).
+
+    Fetches one extra row so the caller knows whether a next page exists.
+    """
+    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s)"
     if after is None:
         cursor = await conn.execute(
-            f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p "
+            f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (limit + 1,),
+            (managed_projects, user_id, limit + 1),
         )
     else:
         cursor = await conn.execute(
-            f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p "
-            "WHERE (p.created_at, p.id) < (%s, %s) "
+            f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
+            "AND (p.created_at, p.id) < (%s, %s) "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (*after, limit + 1),
+            (managed_projects, user_id, *after, limit + 1),
         )
     return await cursor.fetchall()
 
