@@ -132,4 +132,74 @@ console.info({ before: beforeLogout.status, logout: logoutResult.status, after: 
 실패는 실제 단계와 원인을 구분하며 503을 로그인 성공으로, 404를 설정 비활성으로 처리하지 않는다.
 Graph·첨부·토큰 갱신은 KAN-80, 토큰 영속 보관·연결 해제는 KAN-81에서 검증한다.
 
+### 운영자 터미널에서 제품 인증 준비
+
+이 절차는 기존 공용 자원을 사용한다. 준비 도구의 기본 실행은 로컬 설정을 검사하고
+계획만 출력하며 클라우드를 호출하지 않는다. `.env.integrations`의 `MS_CLIENT_ID`와
+`MS_CLIENT_SECRET`을 명시적으로 읽어 제품 서버 설정에 연결하는 도구이며 앱 런타임의
+설정 폴백을 추가하지 않는다. 기존 학교 테넌트 값·localhost callback과 환경 파일은 보존한다.
+
+```bash
+uv run --frozen python infra/prepare_microsoft_auth.py
+```
+
+DB는 [Cloud SQL Auth Proxy](https://docs.cloud.google.com/sql/docs/postgres/connect-auth-proxy)를
+사용해 확인한다. 아래 프록시는 로컬 `127.0.0.1:55434`에만 열리며, 별도 터미널에서
+유지한다. 기존 gcloud 사용자 인증을 사용하는 로컬 운영 점검이며 앱의 인증 방식은 바꾸지 않는다.
+
+```bash
+cloud-sql-proxy --gcloud-auth --address=127.0.0.1 --port=55434 \
+  proj-skkuls0106-183255377938:asia-northeast3:team4-sql
+```
+
+다른 터미널에서 **platform_app 비밀번호 입력창**으로 접속해 점검한다. 비밀번호를
+명령 인자에 넣지 않는다. SQL은 READ ONLY이며 테이블·권한·개인 Microsoft 등록 계정이
+없으면 실패한다. 계정은 건수만 보고하므로 실제 선택할 `tid + oid`도 별도로 확인한다.
+
+```bash
+psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=platform_app' \
+  -v ON_ERROR_STOP=1 -f infra/sql/003_check_platform_auth.sql
+```
+
+테이블이 없으면 운영자가 DB 관리자 계정으로 아래 **세 파일만 순서대로** 적용한다.
+각 파일은 해당 migrator 역할로 테이블을 생성한다. 기존 역할·스키마 부트스트랩을
+다시 실행하거나 개발 시연 계정을 공용 DB에 적재하지 않는다. 실제 검증 사용자와
+역할 등록은 KAN-78 담당과 확인한다. 아래 명령은 관리자 비밀번호를 입력받는다.
+
+```bash
+psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=postgres' \
+  -v ON_ERROR_STOP=1 \
+  -f infra/migrations/platform/20261022_KAN-78_identity.sql \
+  -f infra/migrations/platform/20261023_KAN-77_oauth_authorizations.sql \
+  -f infra/migrations/platform/20261023_KAN-77_sessions.sql
+```
+
+누락 조건을 확인한 뒤 운영자가 서버 설정을 **비활성 상태로만** 준비할 수 있다.
+DB 점검 통과와 실제 검증 계정 확인은 인증 활성화 전에 다시 확인한다.
+
+```bash
+uv run --frozen python infra/prepare_microsoft_auth.py --apply
+```
+
+`--apply`는 `microsoft-client-secret:1`을 서울에 준비하고 platform-runtime 접근 권한을
+추가한 뒤 team4-platform의 설정을 연결한다. 비밀값은 gcloud 표준 입력으로만 전달한다.
+기존 버전 1은 ENABLED 상태와 로컬 값 일치를 메모리에서 확인하고 보존하며, 다르면
+중단한다. 이미 활성화된 인증, 다른 실행 계정·앱·Secret 연결도 변경 전에 거부한다.
+서버 설정 변경은 Cloud Run revision을 만들지만 이미지를 승격하거나 인증을 켜지 않는다.
+실패 시 일부 준비가 반영됐을 수 있으므로 원격 상태부터 확인하고 자동 재시도하지 않는다.
+
+기존 Entra 앱에 제품 Web callback을 확인하고, 배포 대상 이미지·DB·등록 사용자·화면
+정책 준비가 끝났을 때 **운영자가 별도로** 활성화한다.
+
+```bash
+gcloud run services update team4-platform \
+  --project=proj-skkuls0106-183255377938 --region=asia-northeast3 \
+  --account=skkuls0106@skkukdp.re.kr \
+  --update-env-vars=MICROSOFT_AUTH_ENABLED=true
+```
+
+위 GCP 변경 명령은 운영자 실행용이다. 문서·도구 검사나 dev PR 병합이 이 명령을
+자동 실행하지 않는다. main 배포 범위에 포함되는 C/S 등 다른 서비스의 마이그레이션은
+각 담당자와 별도로 확인한다. 검증을 마치면 로컬 프록시도 종료한다.
+
 참고: [Gemini API 키](https://ai.google.dev/gemini-api/docs/api-key), [Microsoft 인증 코드 흐름](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow), [Graph sendMail](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
