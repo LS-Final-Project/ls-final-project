@@ -11,6 +11,14 @@ SERVICES = ("web", *BACKENDS)
 
 
 def classify(paths: list[str]) -> dict:
+    """변경 경로의 소유 서비스에 따라 검사와 배포 대상을 선택한다.
+
+    Args:
+        paths: 추가·수정·삭제된 저장소 상대 경로 목록.
+
+    Returns:
+        dict: 백엔드·프론트·인프라·평가 검사와 배포 서비스의 선택 결과.
+    """
     release: set[str] = set()
     contracts: set[str] = set()
     infrastructure = evaluation = frontend = False
@@ -59,7 +67,9 @@ def classify(paths: list[str]) -> dict:
             infrastructure = True
         elif path.startswith(("infra/", "scripts/")):
             infrastructure = True
-            if path in {"scripts/changes.py", "scripts/check_backend.py"}:
+            if path.startswith("infra/migrations/platform/"):
+                contracts.add("platform")
+            elif path in {"scripts/changes.py", "scripts/check_backend.py"}:
                 release.update(SERVICES)
                 contracts.update(BACKENDS)
                 frontend = evaluation = True
