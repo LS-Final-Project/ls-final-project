@@ -4,7 +4,7 @@
 
 GET /api/v1/platform/me는 현재 세션의 Identity를 반환한다. id, tid, oid, 표시 이메일과 이름, 부서 및 역할을 DB에서 조회한다. 쿠키에는 무작위 세션 ID만 있고 DB에는 해당 값의 hash를 저장한다. 요청마다 사용자 활성 상태와 역할을 다시 읽는다. 부서 역할은 부서가 없으면 거부한다. manager 역할이 프로젝트 책임자나 원문 열람 범위를 자동 부여하지 않는다.
 
-현재 세션 구현은 로컬 개발용이다. production에서는 개발 쿠키와 임의 역할 헤더를 인증으로 받지 않으며 Microsoft 서버 로그인 구현 전에는 401을 반환한다. production MSAL, 토큰 저장, CSRF와 사용자 맥락 중계는 후속 기능이다.
+현재 공개 세션 API는 로컬 개발용이다. production에서는 개발 쿠키와 임의 역할 헤더를 인증으로 받지 않으며 Microsoft 서버 로그인 API 연결 전에는 401을 반환한다. MSAL 어댑터와 서버 세션 저장 경계는 내부 구현이며, 공개 경로 연결·사서함 토큰 저장·CSRF와 사용자 맥락 중계는 후속 기능이다.
 
 로컬에서 DEV_AUTH_ENABLED=true일 때만 제공하는 경로:
 
@@ -114,6 +114,43 @@ callback의 역할·사용자 필드로 계정을 선택하지 않는다. DB에 
 
 이 결과는 서버 내부의 사용자 식별 결과다. 아직 서비스 세션이나 쿠키를 발급하지
 않고 공개 라우터에 등록하지 않는다. 사서함 연결과 토큰 보관은 KAN-80·81 범위다.
+
+### 운영 서버 세션 저장 경계
+
+`sessions.py`는 기존 `identity.dev_sessions`와 별개인 `identity.sessions`를 사용한다.
+이 내부 저장 경계는 공개 API·쿠키·로그인 callback에 아직 연결하지 않았다.
+
+- `issue_session()`은 **서버의 OAuth 검증 경계를 통과한 MicrosoftSubject만** 받는다.
+  HTTP 요청의 tid·oid로 직접 호출하면 안 된다. 발급 시 DB 등록·활성·역할·부서를
+  다시 확인하고, 매번 새로운 32바이트 난수 기반 세션 ID를 생성한다. DB에는 SHA-256
+  hash·사용자 ID·생성 및 만료 시각만 저장하며 역할·MS 토큰은 세션에 저장하지 않는다.
+- 발급 결과의 원문 토큰은 `SecretStr`로 마스킹하며 HTTP 응답 DTO가 아닌 서버 내부
+  결과로 취급한다. 이후 HTTP 경계가 쿠키에 설정할 때만 원문을 꺼내 사용한다.
+- `previous_token`을 지정하면 기존 운영 세션 삭제와 신규 발급을 같은 트랜잭션으로
+  처리한다. 신규 삽입 실패 시 삭제도 롤백되며, 다른 브라우저의 세션은 유지한다.
+  토큰을 재사용하거나 기존 세션을 연장하는 방식으로 로그인을 처리하지 않는다.
+- `load_session()`은 DB 실제 시각으로 만료를 확인하고 현재 사용자 활성 상태·역할·
+  부서를 재조회한다. 누락·미등록·만료·철회·무역할·부서 누락은 401이며 조회로
+  만료를 연장하지 않는다. 개발 세션으로 폴백하지 않는다.
+- `revoke_session()`은 해당 운영 세션을 삭제한다. 중복 철회와 토큰 누락은 허용하되
+  DB 장애를 성공으로 숨기지 않는다. 공개 로그아웃의 CSRF 확인·쿠키 삭제는 후속 HTTP
+  경계의 책임이다. cs_app·tft_app에는 세션 테이블 조회 권한이 없다.
+
+세션 수명은 현재 HTTP 초안과 같은 **8시간 절대 만료 제안**을 내부 구현에 적용했다.
+공개 계약 확정 시 재확인하며 유휴 만료·전체 기기 로그아웃·감사 로그 API는 이번 범위가 아니다.
+세션 교체·서버 만료·철회 원칙은 [OWASP 세션 관리 안내](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)를 참고한다.
+
+마이그레이션 `20261023_KAN-77_sessions.sql`은 기존 users 생성 이후 적용한다.
+기존 로컬 DB에는 아래 명령으로 명시적으로 적용하며 공용 DB 변경·배포는 별도다.
+
+```bash
+python3 scripts/workspace.py migrate platform 20261023_KAN-77_sessions.sql
+```
+
+실제 DB 검사는 `tests/platform/test_session_store.py`이며 OAuth 검사와 같은 전용 DB
+준비를 `tests/platform/conftest.py`에서 공유한다. `auth-database` CI는 두 검사 파일을
+명시적으로 실행한다. 일반 검사에서는 `AUTH_TEST_DATABASE_URL`이 없으면 DB 검사를
+건너뛰며 이를 실제 DB 검증 성공으로 보고하지 않는다.
 
 ### 공개 HTTP 계약 제안 — 미등록 초안
 
