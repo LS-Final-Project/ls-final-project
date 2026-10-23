@@ -4,14 +4,16 @@ Classification, rule results and workflow status belong to later tickets.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
+Code = Annotated[str, Field(min_length=1, max_length=64)]
+Subject = Annotated[str, Field(min_length=1, max_length=500)]
 
 
 class TicketSummary(BaseModel):
@@ -70,3 +72,70 @@ class TicketDetail(BaseModel):
     fw_version_reported: str | None
     error_code_reported: str | None
     resolution_case: ResolutionCase | None
+
+
+class TicketCreate(BaseModel):
+    """Manual intake. Source IDs, origin and timestamps are set by the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Channel
+    body_language: str = Field(min_length=2, max_length=16)
+    customer_external_id: Code
+    product_code: Code
+    subject: Subject | None = None
+    body: str = Field(min_length=1, max_length=50_000)
+    fw_version_reported: Code | None = None
+    error_code_reported: Code | None = None
+
+
+# The customer's original text, channel and receipt time are never rewritten.
+EDITABLE_FIELDS = (
+    "customer_external_id",
+    "product_code",
+    "subject",
+    "fw_version_reported",
+    "error_code_reported",
+)
+
+
+class TicketUpdate(BaseModel):
+    """Correction of identifying fields. `version` must match the stored version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    customer_external_id: Code | None = None
+    product_code: Code | None = None
+    subject: Subject | None = None
+    fw_version_reported: Code | None = None
+    error_code_reported: Code | None = None
+
+    @model_validator(mode="after")
+    def check_fields(self) -> "TicketUpdate":
+        sent = self.model_fields_set & set(EDITABLE_FIELDS)
+        if not sent:
+            raise ValueError("At least one editable field is required.")
+        # Omitted means unchanged; these two columns are NOT NULL and cannot be cleared.
+        for name in ("customer_external_id", "product_code"):
+            if name in sent and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null.")
+        return self
+
+    def changed_values(self) -> dict[str, Any]:
+        return {
+            name: getattr(self, name) for name in EDITABLE_FIELDS if name in self.model_fields_set
+        }
+
+
+class AuditEvent(BaseModel):
+    id: UUID
+    action: Literal["create", "update"]
+    version: int
+    actor_user_id: UUID | None
+    changes: dict[str, dict[str, Any]]
+    occurred_at: datetime
+
+
+class AuditList(BaseModel):
+    items: list[AuditEvent]

@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
 
 SUMMARY_COLUMNS = (
     "id, external_id, subject, data_origin, derivation_kind, received_at, channel, product_code"
@@ -57,3 +58,55 @@ async def get_resolution_case(conn: AsyncConnection[Row], ticket_id: UUID) -> Ro
         (ticket_id,),
     )
     return await cursor.fetchone()
+
+
+async def insert_ticket(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    placeholders = ", ".join(["%s"] * len(values))
+    await conn.execute(
+        f"INSERT INTO cs.tickets ({columns}) VALUES ({placeholders})", tuple(values.values())
+    )
+
+
+async def lock_ticket(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
+    """Locks the row until the transaction ends so version checks cannot interleave."""
+    cursor = await conn.execute(
+        f"SELECT {DETAIL_COLUMNS} FROM cs.tickets WHERE id = %s FOR UPDATE", (ticket_id,)
+    )
+    return await cursor.fetchone()
+
+
+async def update_ticket(
+    conn: AsyncConnection[Row], ticket_id: UUID, version: int, values: Row
+) -> None:
+    # Column names come from schemas.EDITABLE_FIELDS, never from request keys.
+    assignments = ", ".join(f"{name} = %s" for name in values)
+    await conn.execute(
+        f"UPDATE cs.tickets SET {assignments}, version = version + 1, updated_at = now() "
+        "WHERE id = %s AND version = %s",
+        (*values.values(), ticket_id, version),
+    )
+
+
+async def insert_audit(
+    conn: AsyncConnection[Row],
+    event_id: UUID,
+    ticket_id: UUID,
+    action: str,
+    version: int,
+    changes: Row,
+) -> None:
+    await conn.execute(
+        "INSERT INTO cs.audit_events (id, entity_type, entity_id, action, version, changes) "
+        "VALUES (%s, 'ticket', %s, %s, %s, %s)",
+        (event_id, ticket_id, action, version, Jsonb(changes)),
+    )
+
+
+async def list_audit(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT id, action, version, actor_user_id, changes, occurred_at FROM cs.audit_events "
+        "WHERE entity_type = 'ticket' AND entity_id = %s ORDER BY version",
+        (ticket_id,),
+    )
+    return await cursor.fetchall()
