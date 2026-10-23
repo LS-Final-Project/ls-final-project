@@ -20,13 +20,14 @@ const draft: StaffingRequest = {
 };
 
 // items는 목록 응답이 매번 읽는 배열이다. onPatch가 이 배열을 바꾸면 재조회가 새 판본을 돌려준다.
-function stubLive(items: StaffingRequest[], onPatch: (init: RequestInit) => Response) {
+function stubLive(items: StaffingRequest[], onPatch: (init: RequestInit) => Response, onIssue: (init: RequestInit) => Response = () => jsonResponse(500, {})) {
   setApiMode('live');
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === PROJECT_PATH) return jsonResponse(200, project);
     if (url === LIST_PATH) return jsonResponse(200, { data: { items: [...items] }, meta: { request_id: '11111111-1111-4111-8111-111111111112' } });
     if (init?.method === 'PATCH') return onPatch(init);
+    if (init?.method === 'POST' && url.endsWith('/issue')) return onIssue(init);
     return jsonResponse(401, errorBody('AUTH_REQUIRED', '로그인 필요'));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -117,6 +118,64 @@ describe('S2 역할·인력 요청서', () => {
     expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('후보를 추천해 주세요.');
     expect((screen.getByRole('button', { name: '저장' }) as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === LIST_PATH).length).toBeGreaterThan(1));
+  });
+
+  test('412 뒤 재조회로 다른 사용자가 바꾼 message는 폼에 반영되고, 다시 저장하면 사용자가 바꾼 participation만 보낸다', async () => {
+    const items = [draft];
+    let patchCalls = 0;
+    const fetchMock = stubLive(items, init => {
+      patchCalls += 1;
+      if (patchCalls === 1) {
+        // 다른 사용자 B가 먼저 message를 고쳐 판본 2가 됐다.
+        items[0] = { ...items[0], message: 'B가 고친 메시지', version: 2 };
+        return jsonResponse(412, errorBody('VERSION_CONFLICT', '판본 불일치'));
+      }
+      const body = JSON.parse(String(init.body)) as Partial<StaffingRequest>;
+      items[0] = { ...items[0], ...body, version: 3 };
+      return jsonResponse(200, { data: items[0], meta: { request_id: '11111111-1111-4111-8111-111111111114' } });
+    });
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    await screen.findByRole('form', { name: '인력 요청서 편집' });
+    fireEvent.change(screen.getByLabelText('참여 형태'), { target: { value: 'SUPPORT' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    // 재조회(판본 2)가 오면 건드리지 않은 message는 서버 값으로, 건드린 participation은 입력값으로 남는다.
+    await waitFor(() => expect(screen.getByTestId('request-version').textContent).toBe('판본 2'));
+    await waitFor(() => expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('B가 고친 메시지'));
+    expect((screen.getByLabelText('참여 형태') as HTMLSelectElement).value).toBe('SUPPORT');
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(screen.getByTestId('request-version').textContent).toBe('판본 3'));
+    const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
+    expect(patches).toHaveLength(2);
+    expect((patches[1][1]!.headers as Record<string, string>)['If-Match']).toBe('"2"');
+    expect(JSON.parse(String(patches[1][1]!.body))).toEqual({ participation: 'SUPPORT' });
+    expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('B가 고친 메시지');
+  });
+
+  test('발행 재시도는 같은 판본에 같은 Idempotency-Key를 보내고 성공 후 판본이 바뀌면 새 키를 쓴다', async () => {
+    const items = [{ ...draft, due_undecided: true }];
+    let issueCalls = 0;
+    const fetchMock = stubLive(items, () => jsonResponse(500, {}), () => {
+      issueCalls += 1;
+      if (issueCalls === 1) return jsonResponse(503, errorBody('DEPENDENCY_UNAVAILABLE', '일시 장애'));
+      items[0] = { ...items[0], status: 'ISSUED', version: items[0].version + 1, issued_at: '2026-10-23T03:00:00Z' };
+      return jsonResponse(200, { data: items[0], meta: { request_id: '11111111-1111-4111-8111-111111111115' } });
+    });
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    await screen.findByRole('form', { name: '인력 요청서 편집' });
+    const issue = screen.getByRole('button', { name: '발행' }) as HTMLButtonElement;
+    expect(issue.disabled).toBe(false);
+    fireEvent.click(issue);
+    expect(await screen.findByText('요청을 처리하지 못했습니다')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '발행' }));
+    expect(await screen.findByText(/요청서를 발행했습니다/)).toBeTruthy();
+    const posts = fetchMock.mock.calls.filter(([url, init]) => init?.method === 'POST' && String(url).endsWith('/issue'));
+    expect(posts).toHaveLength(2);
+    const keys = posts.map(([, init]) => (init!.headers as Record<string, string>)['Idempotency-Key']);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
+    // 발행 뒤에는 읽기 전용으로 잠긴다.
+    await waitFor(() => expect(screen.getByRole('note').textContent).toMatch(/현재 상태: 발행/));
   });
 
   test('DRAFT가 아닌 요청서는 폼을 읽기 전용으로 잠그고 이유를 보인다', async () => {

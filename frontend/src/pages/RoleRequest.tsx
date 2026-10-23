@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
@@ -138,30 +138,41 @@ type Feedback = { notice: Notice | null; fatal: unknown };
 type FormValues = { organizationId: string; participation: Participation; dueAt: string; dueUndecided: boolean; message: string };
 const fromRequest = (request: StaffingRequest): FormValues => ({ organizationId: request.organization_id, participation: request.participation, dueAt: toLocalInput(request.due_at), dueUndecided: request.due_undecided, message: request.message ?? '' });
 
-// 바뀐 필드만 PATCH 본문에 넣는다. message null→'' 같은 표시용 변환이나 분 단위로 잘린 due_at을 바꾸지 않았는데 보내지 않기 위해서다.
-function diffPatch(values: FormValues, request: StaffingRequest): StaffingRequestPatch {
+type FieldKey = keyof FormValues;
+
+// 사용자가 실제로 바꾼 필드(dirty)만 PATCH 본문에 넣고, 그 값이 최신 서버 값과 다를 때만 보낸다. message null→'' 같은 표시용
+// 변환, 분 단위로 잘린 due_at, 재조회로 바뀐 다른 사용자의 변경은 보내지 않는다.
+function diffPatch(values: FormValues, request: StaffingRequest, dirty: ReadonlySet<FieldKey>): StaffingRequestPatch {
   const base = fromRequest(request);
   const patch: StaffingRequestPatch = {};
-  if (values.organizationId !== base.organizationId) patch.organization_id = values.organizationId;
-  if (values.participation !== base.participation) patch.participation = values.participation;
-  if (values.dueUndecided !== base.dueUndecided) patch.due_undecided = values.dueUndecided;
-  const dueChanged = values.dueUndecided ? request.due_at !== null : values.dueAt !== base.dueAt;
-  if (dueChanged) patch.due_at = values.dueUndecided || values.dueAt === '' ? null : new Date(values.dueAt).toISOString();
-  if (values.message !== base.message) patch.message = values.message;
+  if (dirty.has('organizationId') && values.organizationId !== base.organizationId) patch.organization_id = values.organizationId;
+  if (dirty.has('participation') && values.participation !== base.participation) patch.participation = values.participation;
+  if (dirty.has('dueUndecided') && values.dueUndecided !== base.dueUndecided) patch.due_undecided = values.dueUndecided;
+  if (dirty.has('dueAt') || dirty.has('dueUndecided')) {
+    const dueChanged = values.dueUndecided ? request.due_at !== null : values.dueAt !== base.dueAt;
+    if (dueChanged) patch.due_at = values.dueUndecided || values.dueAt === '' ? null : new Date(values.dueAt).toISOString();
+  }
+  if (dirty.has('message') && values.message !== base.message) patch.message = values.message;
   return patch;
 }
 
 function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: { request: StaffingRequest; orgOptions: OrgOption[]; userRoles: string[] | null; feedback: Feedback; setFeedback: (value: Feedback) => void }) {
   const cache = useQueryClient();
   const [values, setValues] = useState<FormValues>(() => fromRequest(request));
-  const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues(prev => ({ ...prev, [key]: value }));
+  const [dirtyKeys, setDirtyKeys] = useState<ReadonlySet<FieldKey>>(() => new Set());
+  const set = <K extends FieldKey>(key: K, value: FormValues[K]) => { setValues(prev => ({ ...prev, [key]: value })); setDirtyKeys(prev => new Set(prev).add(key)); };
+  // 재조회로 request가 바뀌면(412·409 뒤, 저장 성공 뒤) 사용자가 건드리지 않은 필드만 새 서버 값으로 갱신한다. dirty 필드는 입력을 유지한다.
+  useEffect(() => {
+    setValues(prev => { const next = fromRequest(request); for (const key of dirtyKeys) (next as Record<FieldKey, unknown>)[key] = prev[key]; return next; });
+  }, [request, dirtyKeys]);
+  const revert = () => { setValues(fromRequest(request)); setDirtyKeys(new Set()); };
   const { notice, fatal } = feedback;
 
   // 잠금 이유: DRAFT가 아닌 요청서, 또는 로그인 역할에 sales가 없음. 서버 검사는 UI 잠금과 무관하게 수행된다.
   const lockReason = request.status !== 'DRAFT' ? `작성 중(DRAFT) 요청서만 편집·발행할 수 있습니다. 현재 상태: ${REQUEST_STATUS_LABEL[request.status] ?? request.status}${request.issued_at ? ` (발행 ${formatDateTime(request.issued_at)})` : ''}`
     : userRoles && !userRoles.includes('sales') ? '담당 sales만 요청서를 편집·발행할 수 있습니다.' : null;
   const locked = lockReason !== null;
-  const patch = diffPatch(values, request);
+  const patch = diffPatch(values, request, dirtyKeys);
   const dirty = Object.keys(patch).length > 0;
   const issueBlock = locked ? lockReason : dirty ? '저장하지 않은 변경이 있습니다. 먼저 저장하세요.' : (request.due_undecided ? false : !request.due_at) ? '기한을 입력하거나 "기한 미정"을 표시해야 발행할 수 있습니다.' : null;
 
@@ -177,7 +188,7 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
   const save = useMutation({
     mutationFn: (body: StaffingRequestPatch) => updateStaffingRequest(request.id, request.version, body),
     onMutate: () => setFeedback({ notice: null, fatal: null }),
-    onSuccess: result => { setFeedback({ notice: { kind: 'info', text: `저장했습니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
+    onSuccess: result => { setDirtyKeys(new Set()); setFeedback({ notice: { kind: 'info', text: `저장했습니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
     onError,
   });
   const issue = useMutation({
@@ -190,7 +201,6 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
   const submit = (event: FormEvent) => { event.preventDefault(); save.mutate(patch); };
   const busy = save.isPending || issue.isPending;
   const orgKnown = orgOptions.some(option => option.id === values.organizationId);
-  const serverValues = fromRequest(request);
   return <form onSubmit={submit} aria-label="인력 요청서 편집" className="request-form">
     <h3>요청서 편집 <small>{request.role_name}</small> <small data-testid="request-version">판본 {request.version}</small> <Origin dataOrigin={request.data_origin} derivationKind={request.derivation_kind} /></h3>
     {locked && <p className="notice" role="note">읽기 전용: {lockReason}</p>}
@@ -223,7 +233,7 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
     <div className="actions">
       <button type="submit" disabled={locked || busy || !dirty}>{save.isPending ? '저장 중' : '저장'}</button>
       <button type="button" disabled={issueBlock !== null || busy} onClick={() => issue.mutate()} aria-describedby="sr-issue-hint">{issue.isPending ? '발행 중' : '발행'}</button>
-      <button type="button" disabled={locked || busy || !dirty} onClick={() => setValues(serverValues)}>서버 값으로 되돌리기</button>
+      <button type="button" disabled={locked || busy || dirtyKeys.size === 0} onClick={revert}>서버 값으로 되돌리기</button>
       <small id="sr-issue-hint">{issueBlock ?? '발행하면 요청 부서의 목록에 공지됩니다. 메일은 보내지 않습니다.'}</small>
     </div>
     {notice && <p role={notice.kind === 'error' ? 'alert' : 'status'} className={notice.kind === 'error' ? 'state error' : 'state'}>{notice.text}{notice.requestId && <> <small>요청 ID {notice.requestId}</small></>}</p>}

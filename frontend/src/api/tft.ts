@@ -56,6 +56,14 @@ export const listStaffingRequests = (projectId: string) =>
 export const getStaffingRequest = (id: string) => request<StaffingRequestResponse>(`/api/v1/tft/staffing-requests/${encodeURIComponent(id)}`);
 export const updateStaffingRequest = (id: string, version: number, body: StaffingRequestPatch) =>
   request<StaffingRequestResponse>(`/api/v1/tft/staffing-requests/${encodeURIComponent(id)}`, { method: 'PATCH', headers: ifMatch(version), body: JSON.stringify(body) });
-// 발행은 상태 전이 POST이므로 API 규약의 Idempotency-Key도 함께 보낸다.
-export const issueStaffingRequest = (id: string, version: number) =>
-  request<StaffingRequestResponse>(`/api/v1/tft/staffing-requests/${encodeURIComponent(id)}/issue`, { method: 'POST', headers: { ...ifMatch(version), 'Idempotency-Key': crypto.randomUUID() } });
+// 발행은 상태 전이 POST이므로 API 규약의 Idempotency-Key를 보낸다. 키는 요청서 id+version 단위로 보관해 같은 판본의 재시도에는
+// 같은 키를 쓰고(서버가 첫 응답을 그대로 돌려준다), 판본이 바뀌면 새 키를 만들며, 발행이 성공하면 키를 버린다.
+const issueKeys = new Map<string, string>();
+export async function issueStaffingRequest(id: string, version: number): Promise<StaffingRequestResponse> {
+  const slot = `${id}:${version}`;
+  const key = issueKeys.get(slot) ?? crypto.randomUUID();
+  issueKeys.set(slot, key);
+  const result = await request<StaffingRequestResponse>(`/api/v1/tft/staffing-requests/${encodeURIComponent(id)}/issue`, { method: 'POST', headers: { ...ifMatch(version), 'Idempotency-Key': key } });
+  issueKeys.delete(slot);
+  return result;
+}
