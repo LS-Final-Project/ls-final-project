@@ -1,6 +1,7 @@
 """Common liveness routes, request IDs and safe error responses."""
 
 import logging
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from uuid import UUID, uuid4
@@ -14,6 +15,7 @@ from starlette.responses import Response
 from backend import __version__
 from backend.api.common.readiness import readiness
 from backend.shared.errors import ApplicationError
+from backend.shared.logs import log_context, trace_id
 from backend.shared.models import (
     ErrorData,
     ErrorResponse,
@@ -24,6 +26,7 @@ from backend.shared.models import (
 from backend.shared.settings import ServiceName, Settings
 
 logger = logging.getLogger(__name__)
+request_logger = logging.getLogger("backend.request")
 
 HTTP_ERRORS = {
     400: ("BAD_REQUEST", "Invalid request."),
@@ -87,16 +90,34 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
             request.state.request_id = UUID(request.headers.get("X-Request-ID", ""))
         except ValueError:
             request.state.request_id = uuid4()
-        try:
-            response = await call_next(request)
-        except Exception:
-            # Exception strings can include provider responses or credentials.
-            logger.error(
-                "Unhandled request error: service=%s request_id=%s",
-                service,
-                request.state.request_id,
+        started = time.perf_counter()
+        with log_context(
+            service=service,
+            request_id=request.state.request_id,
+            trace_id=trace_id(request.headers.get("X-Cloud-Trace-Context")),
+        ):
+            try:
+                response = await call_next(request)
+            except Exception as error:
+                # Exception strings can include provider responses or credentials:
+                # log the type only (KAN-70).
+                logger.error(
+                    "Unhandled request error",
+                    extra={"error_type": type(error).__name__},
+                )
+                response = error_response(
+                    request, 500, "INTERNAL_ERROR", "An internal error occurred."
+                )
+            # One line per request. The path has no query string, which can carry codes.
+            request_logger.info(
+                "request completed",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                },
             )
-            response = error_response(request, 500, "INTERNAL_ERROR", "An internal error occurred.")
         response.headers["X-Request-ID"] = str(request.state.request_id)
         return response
 
