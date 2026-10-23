@@ -2,6 +2,7 @@
 
 import asyncio
 from hashlib import sha256
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
@@ -341,3 +342,70 @@ def test_business_services_cannot_read_operational_sessions(auth_database, role)
         conn.execute(SQL("SET ROLE {}").format(Identifier(role)))
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("SELECT token_hash,user_id FROM identity.sessions")
+
+
+def test_public_auth_sql_checks_real_runtime_role_and_rolls_back(
+    settings, auth_database, registered_user
+):
+    """공용 DB 점검 SQL이 플랫폼 권한으로 실제 실행되고 읽기 전용 검사를 끝내는지 확인한다.
+
+    Args:
+        settings: 전용 테스트 DB의 플랫폼 실행 계정 설정.
+        auth_database: 전용 테스트 DB 관리자 연결.
+        registered_user: 실제 자격증명이 없는 합성 등록 사용자.
+
+    Returns:
+        None: 정상 등록 조건·권한 검증과 트랜잭션 종료를 확인한다.
+    """
+    _, user_id = registered_user
+    with psycopg.connect(auth_database) as conn:
+        conn.execute(
+            "UPDATE identity.users SET tid='9188040d-6c67-4c5b-b112-36a304b66dad'::uuid WHERE id=%s",
+            (user_id,),
+        )
+    script = Path("infra/sql/003_check_platform_auth.sql").read_text()
+    with psycopg.connect(settings.database_url.get_secret_value(), autocommit=True) as conn:
+        conn.execute(script)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        assert conn.execute("SELECT current_user").fetchone() == ("platform_app",)
+
+
+@pytest.mark.parametrize("failure", ["missing_table", "missing_privilege", "unregistered"])
+def test_public_auth_sql_refuses_missing_production_prerequisites(
+    settings, auth_database, registered_user, failure
+):
+    """실제 DB의 테이블·세션 권한·등록 조건 누락을 준비 완료로 보고하지 않는지 확인한다.
+
+    Args:
+        settings: 전용 테스트 DB의 플랫폼 실행 계정 설정.
+        auth_database: 전용 테스트 DB만 허용하는 관리자 연결.
+        registered_user: 해당 검사에서만 쓰는 합성 사용자.
+        failure: 재현할 테이블·권한·실제 등록 조건 누락.
+
+    Returns:
+        None: SQL 점검 실패와 테스트용 권한·테이블 복원을 확인한다.
+    """
+    _, user_id = registered_user
+    with psycopg.connect(auth_database) as conn:
+        assert conn.info.dbname == "kan77_auth_test"
+        conn.execute(
+            "UPDATE identity.users SET tid='9188040d-6c67-4c5b-b112-36a304b66dad'::uuid WHERE id=%s",
+            (user_id,),
+        )
+    try:
+        with psycopg.connect(auth_database) as conn:
+            if failure == "missing_table":
+                conn.execute("ALTER TABLE identity.sessions RENAME TO kan77_hidden_sessions")
+            elif failure == "missing_privilege":
+                conn.execute("REVOKE DELETE ON identity.sessions FROM platform_app")
+            else:
+                conn.execute("UPDATE identity.users SET is_active=false WHERE id=%s", (user_id,))
+        with psycopg.connect(settings.database_url.get_secret_value(), autocommit=True) as conn:
+            with pytest.raises(psycopg.errors.RaiseException):
+                conn.execute(Path("infra/sql/003_check_platform_auth.sql").read_text())
+    finally:
+        with psycopg.connect(auth_database) as conn:
+            if failure == "missing_table":
+                conn.execute("ALTER TABLE identity.kan77_hidden_sessions RENAME TO sessions")
+            elif failure == "missing_privilege":
+                conn.execute("GRANT DELETE ON identity.sessions TO platform_app")
