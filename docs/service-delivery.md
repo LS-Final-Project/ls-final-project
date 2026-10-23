@@ -70,7 +70,7 @@ python3 infra/deploy_private.py BUILD_ID --service web
 python3 infra/deploy_private.py BUILD_ID --service web --apply
 ```
 
-이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 아직 실제 Microsoft 인증이 없는 공용 웹은 정적 개발 안내와 플랫폼 health/ready만 중계한다. 임의 API, 개발 로그인, 메일과 업무 데이터는 중계하지 않는다. 실제 플랫폼 중계와 사용자 세션은 별도 업무 구현이다.
+이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API, 개발 로그인, 메일과 업무 데이터는 중계하지 않는다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
 
 ## 인프라 담당 전용: CD 활성화 설정
 

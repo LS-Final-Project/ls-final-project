@@ -1,4 +1,4 @@
-"""개발 세션과 분리된 서버 세션 저장 경계. 공개 API와 쿠키는 연결하지 않는다."""
+"""개발 세션과 분리된 서버 세션 저장 경계. 쿠키 설정은 HTTP 경계가 담당한다."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,7 +28,7 @@ async def issue_session(
     settings: Settings,
     subject: MicrosoftSubject,
     *,
-    previous_token: str | None = None,
+    previous_token_hash: str | None = None,
 ) -> IssuedSession:
     """검증된 Microsoft 사용자에게 새 세션을 발급하고 기존 브라우저 세션을 교체한다.
 
@@ -39,7 +39,8 @@ async def issue_session(
     Args:
         settings: 플랫폼 DB 연결 설정.
         subject: 기존 OAuth 검증 경계를 통과한 Microsoft 테넌트·사용자 식별자.
-        previous_token: 교체할 기존 브라우저의 운영 세션 원문. 없으면 새 세션만 발급한다.
+        previous_token_hash: 인가 시도와 브라우저 결속을 검증한 기존 세션 hash.
+            HTTP 요청의 임의 hash를 직접 받지 않으며, 없으면 새 세션만 발급한다.
 
     Returns:
         IssuedSession: 마스킹된 원문 토큰, 현재 DB 사용자와 절대 만료 시각.
@@ -52,10 +53,10 @@ async def issue_session(
         user = identity(await cursor.fetchone())
         token = token_urlsafe(32)
         await conn.execute("DELETE FROM identity.sessions WHERE expires_at<=clock_timestamp()")
-        if previous_token:
+        if previous_token_hash:
             await conn.execute(
                 "DELETE FROM identity.sessions WHERE token_hash=%s",
-                (sha256(previous_token.encode()).hexdigest(),),
+                (previous_token_hash,),
             )
         cursor = await conn.execute(
             "INSERT INTO identity.sessions(token_hash,user_id,expires_at) "
@@ -75,7 +76,7 @@ async def load_session(settings: Settings, token: str | None) -> Identity:
 
     Args:
         settings: 플랫폼 DB 연결 설정.
-        token: 향후 HTTP 경계가 운영 세션 쿠키에서 읽을 원문 토큰.
+        token: HTTP 경계가 운영 세션 쿠키에서 읽은 원문 토큰.
 
     Returns:
         Identity: 조회 시점의 DB 활성 사용자와 유효한 역할·부서 정보.

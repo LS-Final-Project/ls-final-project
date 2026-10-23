@@ -214,6 +214,7 @@ def test_personal_flow_uses_consumers_web_redirect_pkce_and_distinct_scopes(oaut
     assert query["redirect_uri"] == [REDIRECT]
     assert query["prompt"] == ["select_account"]
     assert query["response_type"] == ["code"]
+    assert query["response_mode"] == ["form_post"]
     assert query["state"] == [pending.state]
     assert query["code_challenge_method"] == ["S256"]
     expected = urlsafe_b64encode(sha256(pending.provider_flow["code_verifier"].encode()).digest())
