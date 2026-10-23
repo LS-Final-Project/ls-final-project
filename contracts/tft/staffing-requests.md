@@ -11,7 +11,7 @@
 | `GET /api/v1/tft/projects/{project_id}/staffing-requests` | `SuccessResponse[StaffingRequestList]` | 프로젝트의 요청서 전체를 `data.items[]`로 생성순 반환. 프로젝트당 소수라 커서가 없다. 없는 프로젝트는 404 `TFT_PROJECT_NOT_FOUND` |
 | `GET /api/v1/tft/staffing-requests/{id}` | `SuccessResponse[StaffingRequest]` | 상세. 응답 헤더 `ETag: "<version>"`. 없으면 404 `TFT_STAFFING_REQUEST_NOT_FOUND` |
 | `PATCH /api/v1/tft/staffing-requests/{id}` | `SuccessResponse[StaffingRequest]` | `DRAFT` 요청서 수정. `If-Match` 필수. 본문은 `StaffingRequestUpdate`(모두 선택, 하나 이상): `organization_id`, `participation`(LEAD/SUPPORT), `due_at`(시간대 포함 ISO 또는 null), `due_undecided`(bool), `message`(null 가능, 4000자). 값이 실제로 바뀌면 `version`+1과 `EDIT` 이력, 같으면 판본을 올리지 않는다 |
-| `POST /api/v1/tft/staffing-requests/{id}/issue` | `SuccessResponse[StaffingRequest]` | `DRAFT` → `ISSUED`. 본문 없음, `If-Match` 필수. `issued_by_user_id`·`issued_at`을 기록하고 `version`+1과 `ISSUE` 이력을 남긴다. 해당 역할(`required_roles`)이 아직 `DRAFTING`이면 `ISSUED`로 바꾸고 발행자를 `reviewed_by_user_id`·`reviewed_at`에 기록한다(두 번째 부서 요청처럼 이미 지난 역할은 그대로 둔다) |
+| `POST /api/v1/tft/staffing-requests/{id}/issue` | `SuccessResponse[StaffingRequest]` | `DRAFT` → `ISSUED`. 본문 없음, `If-Match` 필수, `Idempotency-Key` 수신(아래). `issued_by_user_id`·`issued_at`을 기록하고 `version`+1과 `ISSUE` 이력을 남긴다. 해당 역할(`required_roles`)이 아직 `DRAFTING`이면 `ISSUED`로 바꾸고 발행자를 `reviewed_by_user_id`·`reviewed_at`에 기록한다(두 번째 부서 요청처럼 이미 지난 역할은 그대로 둔다) |
 
 ## StaffingRequest 필드
 
@@ -34,7 +34,8 @@
 | 6 | 입력·근거 | 수정 필드 없음·불변 필드·null 불가 필드·시간대 없는 `due_at`·프로젝트 회사 밖 또는 없는 `organization_id`·기한과 미정 동시 설정은 422 `VALIDATION_ERROR` | `due_at`도 `due_undecided`도 없으면 422 `EVIDENCE_REQUIRED` |
 
 - `If-Match` 값은 `"3"`처럼 따옴표가 있어도 없어도 되고 `W/` 접두사는 무시한다. 응답의 `ETag`를 그대로 돌려보내면 된다.
-- 판본 비교와 변경, 이력 저장은 행을 잠근(`SELECT ... FOR UPDATE`) 한 트랜잭션이다. `Idempotency-Key`는 아직 요구하지 않는다. 같은 `If-Match`로 두 번 발행하면 두 번째는 412다.
+- 판본 비교와 변경, 이력 저장은 행을 잠근(`SELECT ... FOR UPDATE`) 한 트랜잭션이다.
+- `Idempotency-Key`(최대 128자): 프론트는 [API 계약](../../docs/api-contract.md#중복-요청과-복구)대로 issue에 함께 보낸다. 백엔드는 **수신만** 하며 거부하지 않는다. 키 기반 중복 억제(같은 키 재요청에 최초 응답 반환)는 멱등성 저장소와 함께 후속 티켓이다. 그 전까지 같은 `If-Match`로 다시 발행하면 상태가 이미 `ISSUED`라 409, 판본이 바뀌었으면 412가 나 두 번 발행되지 않는다.
 - 범위 검사는 프로젝트 단위다. 프로젝트 조회 범위(`dept_staff`의 자기 부서, `manager`의 관리 대상) 검사는 KAN-78에서 추가하며, 그때 2단계의 404가 범위 밖 객체도 숨긴다.
 
 ## 판본과 변경 이력

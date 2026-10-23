@@ -321,8 +321,14 @@ def test_edit_by_another_user_is_forbidden(client, store):
 
 
 def test_issue_sets_issuer_time_status_and_revision(client, store):
-    result = client.post(f"{detail_path(DRAFT_ID)}/issue", headers={**AS_SALES, "If-Match": '"1"'})
+    # The frontend sends Idempotency-Key on every state-making POST (api-contract); it is
+    # accepted. A replay with the same key and the old If-Match is a 412, not a duplicate.
+    headers = {**AS_SALES, "If-Match": '"1"', "Idempotency-Key": str(uuid4())}
+    result = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers)
     assert result.status_code == 200, result.text
+    replay = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers)
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "INVALID_TRANSITION"
     data = result.json()["data"]
     assert data["status"] == "ISSUED"
     assert data["version"] == 2

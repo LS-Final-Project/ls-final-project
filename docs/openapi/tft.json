@@ -2632,6 +2632,25 @@
               "description": "Current request version, quoted like an ETag: \"3\". Required for writes.",
               "title": "If-Match"
             }
+          },
+          {
+            "description": "Received and ignored for now; replays are refused by If-Match (412).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received and ignored for now; replays are refused by If-Match (412).",
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {

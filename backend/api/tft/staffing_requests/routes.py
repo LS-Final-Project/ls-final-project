@@ -47,6 +47,14 @@ IF_MATCH = Header(
     alias="If-Match",
     description='Current request version, quoted like an ETag: "3". Required for writes.',
 )
+# Accepted per docs/api-contract.md so the frontend can send it on every state-making POST.
+# Duplicate suppression by key is a later ticket; today If-Match makes a replay a 412.
+IDEMPOTENCY_KEY = Header(
+    default=None,
+    alias="Idempotency-Key",
+    max_length=128,
+    description="Received and ignored for now; replays are refused by If-Match (412).",
+)
 Row = dict[str, Any]
 
 
@@ -200,6 +208,7 @@ async def issue_staffing_request(
     request: Request,
     response: Response,
     if_match: str | None = IF_MATCH,
+    idempotency_key: str | None = IDEMPOTENCY_KEY,
 ) -> SuccessResponse[StaffingRequest]:
     actor = resolve_actor(request)
     async with connection(request.app.state.settings) as conn:
