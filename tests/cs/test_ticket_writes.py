@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.api.cs.tickets import repository, routes
+from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
+
+CS_AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 
 NEW = {
     "channel": "EMAIL",
@@ -43,14 +46,14 @@ def store(monkeypatch):
         assert tickets[ticket_id]["version"] == version
         tickets[ticket_id].update(values, version=version + 1)
 
-    async def insert_audit(conn, event_id, ticket_id, action, version, changes):
+    async def insert_audit(conn, event_id, ticket_id, action, version, actor_user_id, changes):
         audit.append(
             {
                 "id": event_id,
                 "ticket_id": ticket_id,
                 "action": action,
                 "version": version,
-                "actor_user_id": None,
+                "actor_user_id": actor_user_id,
                 "changes": changes,
                 "occurred_at": "2026-10-23T00:00:00Z",
             }
@@ -78,7 +81,8 @@ def store(monkeypatch):
 
 @pytest.fixture
 def client(store):
-    with TestClient(create_app(Settings(_env_file=None, environment="test"))) as test_client:
+    app = create_app(Settings(_env_file=None, environment="test"))
+    with TestClient(app, headers=principal_header(CS_AGENT)) as test_client:
         yield test_client
 
 
@@ -175,6 +179,45 @@ def test_update_and_audit_of_unknown_ticket_are_not_found(client):
 
 def test_writes_are_closed_in_production(store):
     app = create_app(Settings(_env_file=None, environment="production"))
-    with TestClient(app) as production:
+    with TestClient(app, headers=principal_header(CS_AGENT)) as production:
         assert production.post("/api/v1/cs/tickets", json=NEW).status_code == 404
         assert store == ({}, [])
+
+
+def as_user(**fields) -> dict:
+    return principal_header(Principal(user_id=uuid4(), **fields))
+
+
+def test_audit_records_who_made_each_change(client, store):
+    ticket = create(client)
+    client.patch(f"/api/v1/cs/tickets/{ticket['id']}", json={"version": 1, "subject": "x"})
+    _, audit = store
+    assert [e["actor_user_id"] for e in audit] == [CS_AGENT.user_id, CS_AGENT.user_id]
+    history = client.get(f"/api/v1/cs/tickets/{ticket['id']}/audit").json()["data"]["items"]
+    assert {e["actor_user_id"] for e in history} == {str(CS_AGENT.user_id)}
+
+
+def test_c_s_manager_sees_but_cannot_change_tickets(client, store):
+    ticket = create(client)
+    manager = as_user(roles={"manager"}, managed_departments={"GCS_L1"})
+    path = f"/api/v1/cs/tickets/{ticket['id']}"
+    assert client.get(f"{path}/audit", headers=manager).status_code == 200
+    assert client.post("/api/v1/cs/tickets", json=NEW, headers=manager).status_code == 403
+    patched = client.patch(path, json={"version": 1, "subject": "x"}, headers=manager)
+    assert patched.status_code == 403
+    assert len(store[0]) == 1 and len(store[1]) == 1
+
+
+@pytest.mark.parametrize(
+    "user",
+    [{"roles": {"dept_staff"}, "dept": "TS_TRF"}, {"roles": {"sales"}}],
+)
+def test_users_outside_the_ticket_scope_get_not_found(client, store, user):
+    ticket = create(client)
+    headers = as_user(**user)
+    path = f"/api/v1/cs/tickets/{ticket['id']}"
+    assert (
+        client.patch(path, json={"version": 1, "subject": "x"}, headers=headers).status_code == 404
+    )
+    assert client.get(f"{path}/audit", headers=headers).status_code == 404
+    assert client.post("/api/v1/cs/tickets", json=NEW, headers=headers).status_code == 403

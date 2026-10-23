@@ -100,6 +100,21 @@
             "title": "Id",
             "type": "string"
           },
+          "managed_departments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Managed Departments",
+            "type": "array"
+          },
+          "managed_projects": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Managed Projects",
+            "type": "array"
+          },
           "oid": {
             "format": "uuid",
             "title": "Oid",

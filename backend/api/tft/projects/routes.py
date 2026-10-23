@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from psycopg import AsyncConnection
 
 from backend.api.tft.projects import repository
+from backend.api.tft.projects.access import require_project_list, sees_project
 from backend.api.tft.projects.schemas import (
     AvailabilityCheck,
     CandidateRecommendation,
@@ -28,24 +29,22 @@ from backend.api.tft.projects.schemas import (
     RoleRequirementLink,
     StaffingRequest,
 )
+from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
-
-def guard_until_access_checks(request: Request) -> None:
-    # No role, department or project-scope checks exist yet (KAN-78). Fail closed outside
-    # local and test so candidate names and responsible users are never exposed in production.
-    if request.app.state.settings.environment not in {"local", "test"}:
-        raise HTTPException(404)
-
-
 router = APIRouter(
     prefix="/api/v1/tft/projects",
     tags=["projects"],
-    dependencies=[Depends(guard_until_access_checks)],
     responses={
-        404: {"model": ErrorResponse, "description": "Not found, or closed outside local/test"}
+        401: {"model": ErrorResponse, "description": "No valid user context"},
+        403: {"model": ErrorResponse, "description": "The role has no TFT scope"},
+        404: {
+            "model": ErrorResponse,
+            "description": "Not found or outside the user's scope. Closed outside local/test "
+            "until the platform relays the user (KAN-78)",
+        },
     },
 )
 
@@ -99,10 +98,14 @@ async def list_projects(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[ProjectList]:
+    require_project_list(principal)
     after = decode_cursor(cursor) if cursor else None
     async with connection(request.app.state.settings) as conn:
-        rows = await repository.list_projects(conn, limit, after)
+        rows = await repository.list_projects(
+            conn, limit, after, sorted(principal.managed_projects), principal.user_id
+        )
     items = [ProjectSummary.model_validate(row) for row in rows[:limit]]
     next_cursor = None
     if len(rows) > limit:
@@ -118,10 +121,14 @@ async def list_projects(
     responses={503: {"model": ErrorResponse}},
     openapi_extra=PARTIAL,
 )
-async def get_project(project_id: UUID, request: Request) -> SuccessResponse[ProjectDetail]:
+async def get_project(
+    project_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[ProjectDetail]:
+    require_project_list(principal)
     async with connection(request.app.state.settings) as conn:
         row = await repository.get_project(conn, project_id)
-        if row is None:
+        # Out-of-scope projects look the same as missing ones (permissions.md 1.3 step 2).
+        if row is None or not sees_project(principal, row["id"], row["responsible_user_id"]):
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         detail = await load_detail(conn, row)
     return respond(request, detail)

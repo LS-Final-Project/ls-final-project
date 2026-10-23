@@ -1,6 +1,6 @@
 -- KAN-78: department codes and manager scopes (contracts/platform/permissions.md 1.2).
 -- Local bootstrap applies this as postgres. Runtime users never execute DDL.
--- Rows are written only by infra/admin/register_user.sql or the local seed, never by an API.
+-- Rows are written only by infra/sql/register_user.sql or the local seed, never by an API.
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL ROLE platform_migrator;

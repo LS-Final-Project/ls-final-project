@@ -43,6 +43,8 @@ def auth_database():
             "20261022_KAN-78_identity.sql",
             "20261023_KAN-77_oauth_authorizations.sql",
             "20261023_KAN-77_sessions.sql",
+            "20261023_KAN-78_manager_scopes.sql",
+            "20261024_KAN-78_user_department_code.sql",
         ):
             migration = Path("infra/migrations/platform", filename).read_text()
             conn.execute(
@@ -85,7 +87,7 @@ def registered_user(auth_database):
         conn.execute(
             "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
             "VALUES (%s,%s,%s,%s,%s,%s)",
-            (user_id, tid, oid, "synthetic@example.invalid", "합성 세션 사용자", "engineering"),
+            (user_id, tid, oid, "synthetic@example.invalid", "합성 세션 사용자", "TS_AUTO"),
         )
         conn.execute(
             "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'cs_agent')", (user_id,)
@@ -97,4 +99,6 @@ def registered_user(auth_database):
             conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.dev_sessions WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.manager_departments WHERE user_id=%s", (user_id,))
+            conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))

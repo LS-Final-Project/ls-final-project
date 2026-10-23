@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.tft.main import create_app
 from backend.api.tft.projects import repository, routes
+from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
 BASE = datetime(2026, 10, 1, tzinfo=UTC)
@@ -39,6 +40,9 @@ def project_row(index: int) -> dict:
 
 ROWS = [project_row(i) for i in range(5)]
 PROJECT = ROWS[0]
+PROJECTS_MANAGER = Principal(
+    user_id=uuid4(), roles={"manager"}, managed_projects={r["id"] for r in ROWS}
+)
 ROLE_ID, REQ_ID, REQUEST_ID, RECOMMEND_ID, VERSION_ID = (UUID(int=100 + i) for i in range(5))
 ORIGIN = {"data_origin": "synthetic", "derivation_kind": "SYSTEM"}
 
@@ -199,8 +203,11 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after):
-        rows = sorted(ROWS, key=lambda r: (r["created_at"], r["id"]), reverse=True)
+    async def list_projects(conn, limit, after, managed_projects, user_id):
+        rows = [
+            r for r in ROWS if r["id"] in managed_projects or r["responsible_user_id"] == user_id
+        ]
+        rows = sorted(rows, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         if after:
             rows = [r for r in rows if (r["created_at"], r["id"]) < after]
         return rows[: limit + 1]
@@ -250,7 +257,8 @@ def fakes(monkeypatch):
 
 @pytest.fixture
 def client(fakes):
-    with TestClient(create_app(Settings(_env_file=None, environment="test"))) as test_client:
+    app = create_app(Settings(_env_file=None, environment="test"))
+    with TestClient(app, headers=principal_header(PROJECTS_MANAGER)) as test_client:
         yield test_client
 
 
@@ -374,8 +382,43 @@ def test_routes_are_closed_in_production_until_access_checks_exist(monkeypatch):
     monkeypatch.setattr(repository, "list_projects", must_not_query)
     monkeypatch.setattr(repository, "get_project", must_not_query)
     app = create_app(Settings(_env_file=None, environment="production"))
-    with TestClient(app) as production:
+    with TestClient(app, headers=principal_header(PROJECTS_MANAGER)) as production:
         for path in ("/api/v1/tft/projects", f"/api/v1/tft/projects/{PROJECT['id']}"):
             result = production.get(path)
             assert result.status_code == 404
             assert result.json()["error"]["code"] == "NOT_FOUND"
+
+
+def as_user(**fields) -> dict:
+    return principal_header(Principal(user_id=uuid4(), **fields))
+
+
+def test_manager_sees_only_managed_projects(client):
+    headers = as_user(roles={"manager"}, managed_projects={ROWS[2]["id"]})
+    items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
+    assert [i["id"] for i in items] == [str(ROWS[2]["id"])]
+    other = client.get(f"/api/v1/tft/projects/{ROWS[3]['id']}", headers=headers)
+    assert other.status_code == 404
+    assert other.json()["error"]["code"] == "TFT_PROJECT_NOT_FOUND"
+
+
+def test_responsible_user_sees_own_project(client):
+    headers = principal_header(Principal(user_id=SALES, roles={"sales"}))
+    items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
+    assert [i["id"] for i in items] == [str(PROJECT["id"])]
+    assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "user", [{"roles": {"sales"}}, {"roles": {"dept_staff"}, "dept": "TS_TRF"}]
+)
+def test_sales_and_department_staff_see_nothing_until_assignments_exist(client, user):
+    headers = as_user(**user)
+    assert client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"] == []
+    assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 404
+
+
+def test_c_s_agent_has_no_tft_scope(client):
+    headers = as_user(roles={"cs_agent"})
+    assert client.get("/api/v1/tft/projects", headers=headers).status_code == 403
+    assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 403

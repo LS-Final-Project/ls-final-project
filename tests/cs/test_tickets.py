@@ -11,9 +11,11 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.api.cs.tickets import repository, routes
+from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
 BASE = datetime(2025, 10, 1, tzinfo=UTC)
+CS_AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 
 
 def ticket_row(index: int) -> dict:
@@ -81,7 +83,8 @@ def client(monkeypatch):
     monkeypatch.setattr(repository, "list_tickets", fake_list)
     monkeypatch.setattr(repository, "get_ticket", fake_get)
     monkeypatch.setattr(repository, "get_resolution_case", fake_case)
-    with TestClient(create_app(Settings(_env_file=None, environment="test"))) as test_client:
+    app = create_app(Settings(_env_file=None, environment="test"))
+    with TestClient(app, headers=principal_header(CS_AGENT)) as test_client:
         yield test_client
 
 
@@ -156,8 +159,45 @@ def test_routes_are_closed_in_production_until_access_checks_exist(monkeypatch):
     monkeypatch.setattr(repository, "list_tickets", must_not_query)
     monkeypatch.setattr(repository, "get_ticket", must_not_query)
     app = create_app(Settings(_env_file=None, environment="production"))
-    with TestClient(app) as production:
+    with TestClient(app, headers=principal_header(CS_AGENT)) as production:
         for path in ("/api/v1/cs/tickets", f"/api/v1/cs/tickets/{ROWS[0]['id']}"):
             result = production.get(path)
             assert result.status_code == 404
             assert result.json()["error"]["code"] == "NOT_FOUND"
+
+
+def as_user(**fields) -> dict:
+    return principal_header(Principal(user_id=uuid4(), **fields))
+
+
+C_S_MANAGER = {"roles": {"manager"}, "managed_departments": {"GCS_L1"}}
+OTHER_MANAGER = {"roles": {"manager"}, "managed_departments": {"TS_TRF"}}
+DEPT_STAFF = {"roles": {"dept_staff"}, "dept": "TS_TRF"}
+
+
+def test_c_s_department_manager_sees_every_ticket(client):
+    headers = as_user(**C_S_MANAGER)
+    assert len(client.get("/api/v1/cs/tickets", headers=headers).json()["data"]["items"]) == 5
+    assert client.get(f"/api/v1/cs/tickets/{ROWS[0]['id']}", headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("user", [OTHER_MANAGER, DEPT_STAFF])
+def test_transfer_department_users_see_no_ticket_until_transfers_exist(client, user):
+    headers = as_user(**user)
+    body = client.get("/api/v1/cs/tickets", headers=headers).json()["data"]
+    assert body == {"items": [], "next_cursor": None}
+    detail = client.get(f"/api/v1/cs/tickets/{ROWS[0]['id']}", headers=headers)
+    # Same answer as a missing ticket, so the ticket's existence is not revealed.
+    assert detail.status_code == 404
+    assert detail.json()["error"]["code"] == "CS_TICKET_NOT_FOUND"
+
+
+def test_sales_has_no_c_s_scope(client):
+    headers = as_user(roles={"sales"})
+    assert client.get("/api/v1/cs/tickets", headers=headers).status_code == 403
+    assert client.get(f"/api/v1/cs/tickets/{ROWS[0]['id']}", headers=headers).status_code == 404
+
+
+def test_roles_combine(client):
+    headers = as_user(roles={"sales", "cs_agent"})
+    assert len(client.get("/api/v1/cs/tickets", headers=headers).json()["data"]["items"]) == 5
