@@ -108,12 +108,25 @@ def test_only_known_fields_are_written():
     record.body = "Dear team, the gasket leaks"
     record.token = "abc"
     record.status = 200
+    job, experiment = uuid4(), uuid4()
     with log_context(service="cs", request_id="r1"):
-        bind(job_id="j1", experiment_id="e1")
+        bind(job_id=job, experiment_id=str(experiment))
         entry = json.loads(JsonFormatter().format(record))
     assert "body" not in entry and "token" not in entry
     assert entry["status"] == 200
-    assert (entry["job_id"], entry["experiment_id"], entry["service"]) == ("j1", "e1", "cs")
+    assert (entry["job_id"], entry["experiment_id"]) == (str(job), str(experiment))
+    assert entry["service"] == "cs"
+
+
+def test_link_ids_must_be_uuids(client, lines):
+    # Review finding: the path segment is bound before FastAPI validates it as a UUID.
+    client.get("/api/v1/cs/tickets/access_token=" + "x" * 3000, headers=CS_AGENT)
+    [line] = [entry for entry in lines() if entry["message"] == "request completed"]
+    assert "ticket_id" not in line
+    assert "x" * 2100 not in json.dumps(line)
+    with log_context(job_id="not-a-uuid") as context:
+        bind(experiment_id="Bearer abc")
+        assert context == {}
 
 
 def test_unknown_link_fields_are_refused():

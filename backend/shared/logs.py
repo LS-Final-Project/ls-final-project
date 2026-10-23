@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import Request
 
@@ -63,6 +64,17 @@ def redact(text: str) -> str:
     return text
 
 
+def _link_value(value: object) -> str | None:
+    """Link IDs are UUIDs. Anything else, such as an unvalidated path segment, is dropped
+    so a caller cannot write arbitrary text into a log field."""
+    if value is None:
+        return None
+    try:
+        return str(value if isinstance(value, UUID) else UUID(str(value)))
+    except ValueError:
+        return None
+
+
 def bind(**ids: object) -> None:
     """Adds work IDs to the current request or job context. Unknown keys are refused."""
     unknown = set(ids) - LINK_FIELDS
@@ -72,7 +84,10 @@ def bind(**ids: object) -> None:
     if context is None:
         # Outside a request or log_context there is nothing to attach the IDs to.
         return
-    context.update({key: str(value) for key, value in ids.items() if value is not None})
+    for key, value in ids.items():
+        link = _link_value(value)
+        if link is not None:
+            context[key] = link
 
 
 @contextmanager
@@ -85,7 +100,12 @@ def log_context(**fields: object) -> Iterator[dict[str, str]]:
     unknown = set(fields) - LINK_FIELDS - REQUEST_FIELDS
     if unknown:
         raise ValueError(f"Not a log context field: {sorted(unknown)}")
-    context = {key: str(value) for key, value in fields.items() if value is not None}
+    context = {
+        key: (_link_value(value) if key in LINK_FIELDS else redact(str(value)))
+        for key, value in fields.items()
+        if value is not None
+    }
+    context = {key: value for key, value in context.items() if value is not None}
     token = _context.set(context)
     try:
         yield context
