@@ -5,7 +5,7 @@ import Projects from './pages/Projects';
 
 function Layout() {
   return <>
-    <nav aria-label="주 메뉴"><NavLink to="/" end>개발 환경</NavLink><NavLink to="/cs/tickets">C/S 문의</NavLink><NavLink to="/tft/projects">TFT 프로젝트</NavLink></nav>
+    <nav aria-label="주 메뉴"><NavLink to="/" end>개발 환경</NavLink>{import.meta.env.DEV && <><NavLink to="/cs/tickets">C/S 문의</NavLink><NavLink to="/tft/projects">TFT 프로젝트</NavLink></>}</nav>
     <Outlet />
   </>;
 }
