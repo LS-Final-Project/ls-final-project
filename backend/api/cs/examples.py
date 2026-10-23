@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from backend.api.cs.tickets.schemas import (
+    AuditEvent,
+    AuditList,
     ResolutionCase,
     TicketDetail,
     TicketList,
@@ -28,6 +30,78 @@ BODY = (
     "- Saha koşulları (ortam sıcaklığı, rakım, nem): 50 °C, 300 m\n"
     "- Bağlantı / tek hat şeması: [attachment: SLD.pdf]"
 )
+
+
+MANUAL_ID = UUID("22222222-2222-4222-8222-222222222224")
+MANUAL_AT = datetime(2026, 10, 23, 1, 0, 0, tzinfo=UTC)
+
+
+def manual_ticket(version: int, product_code: str) -> TicketDetail:
+    """A demo ticket entered through the API (no source ID, origin set by the server)."""
+    return TicketDetail(
+        id=MANUAL_ID,
+        external_id=None,
+        version=version,
+        data_origin="demo",
+        derivation_kind="SYSTEM",
+        received_at=MANUAL_AT,
+        known_at=MANUAL_AT,
+        channel="EMAIL",
+        body_language="en",
+        customer_external_id="CUST-0374",
+        product_code=product_code,
+        subject="Oil leakage after delivery",
+        body="Oil leakage at the gasket was found during installation.",
+        fw_version_reported=None,
+        error_code_reported=None,
+        resolution_case=None,
+    )
+
+
+def write_examples() -> list[dict]:
+    path = f"/api/v1/cs/tickets/{MANUAL_ID}"
+    history = AuditList(
+        items=[
+            AuditEvent(
+                id=UUID("55555555-5555-4555-8555-555555555551"),
+                action="create",
+                version=1,
+                actor_user_id=None,
+                changes={
+                    "channel": {"to": "EMAIL"},
+                    "body_language": {"to": "en"},
+                    "customer_external_id": {"to": "CUST-0374"},
+                    "product_code": {"to": "TRF-OIL-1000"},
+                    "subject": {"to": "Oil leakage after delivery"},
+                    "fw_version_reported": {"to": None},
+                    "error_code_reported": {"to": None},
+                },
+                occurred_at=MANUAL_AT,
+            ),
+            AuditEvent(
+                id=UUID("55555555-5555-4555-8555-555555555552"),
+                action="update",
+                version=2,
+                actor_user_id=None,
+                changes={"product_code": {"from": "TRF-OIL-1000", "to": "TRF-OIL-2000"}},
+                occurred_at=datetime(2026, 10, 23, 1, 5, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    responses = [
+        ("POST", "/api/v1/cs/tickets", 201, manual_ticket(1, "TRF-OIL-1000")),
+        ("PATCH", path, 200, manual_ticket(2, "TRF-OIL-2000")),
+        ("GET", f"{path}/audit", 200, history),
+    ]
+    return [
+        {
+            "method": method,
+            "path": route,
+            "status": status,
+            "body": SuccessResponse(data=data, meta=META).model_dump(mode="json"),
+        }
+        for method, route, status, data in responses
+    ]
 
 
 def examples() -> list[dict]:
@@ -113,4 +187,4 @@ def examples() -> list[dict]:
             "status": 200,
             "body": detail.model_dump(mode="json"),
         },
-    ]
+    ] + write_examples()

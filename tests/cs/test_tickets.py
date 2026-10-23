@@ -120,6 +120,8 @@ def b64(value) -> str:
         b64({"r": "2025-10-01T00:00:00", "i": str(UUID(int=1))}),
         b64({"r": "2025-10-01T00:00:00+00:00", "i": str(UUID(int=1)), "x": 1}),
         b64({"r": "2025-10-01T00:00:00+00:00", "i": "not-a-uuid"}),
+        # Review finding: normalising this offset to UTC overflows the datetime range.
+        b64({"r": "0001-01-01T00:00:00+23:59", "i": str(UUID(int=1))}),
     ],
 )
 def test_invalid_or_naive_cursor_is_rejected(client, cursor):
