@@ -26,11 +26,13 @@ from backend.api.cs.tickets.schemas import (
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
+from backend.shared.logs import bind, bind_path_ids
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
 router = APIRouter(
     prefix="/api/v1/cs/tickets",
     tags=["tickets"],
+    dependencies=[Depends(bind_path_ids)],
     responses={
         401: {"model": ErrorResponse, "description": "No valid user context"},
         403: {"model": ErrorResponse, "description": "The role may not take this action"},
@@ -175,6 +177,7 @@ async def create_ticket(
         "known_at": now,
         **payload.model_dump(),
     }
+    bind(ticket_id=values["id"])
     # The original body is immutable and stays in the ticket row, not in the audit trail.
     created = {
         name: {"to": value} for name, value in payload.model_dump().items() if name != "body"
