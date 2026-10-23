@@ -117,7 +117,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | 반려 확인(부서별 상태 변경 없음) | 반려 사유를 확인하고 재요청하지 않음(`rejection_reviewed_by`·`_at` 기록) | `cs_agent` | — | 403 / 409 |
 | `SENT`, `ACKNOWLEDGED`, `ADOPTED` → `SENT` | 재요청: 직전 전달 이후 새 해결 기록 3건마다 후보 → `cs_agent` 검토 후 재전달 | 시스템(후보) / `cs_agent`(전달) | — | 403 / 409 |
 | `ADOPTED` → `ACTION_TAKEN` | 조치 등록(`action`, `action_scope`, `action_date`, `action_evidence`). **그 부서의 상태가 `ADOPTED`일 때** 허용하며 다른 부서의 회신을 기다리지 않는다 | `dept_staff` | 수신 부서 | 403 / 409 / 422 |
-| `ACTION_TAKEN` → `FOLLOW_UP` | 후속 확인 계획(`followup_plan`) 확정. 모든 수신 부서가 `ACTION_TAKEN`이거나 반려 확인된 `REJECTED`이고 `ACTION_TAKEN`이 1개 이상일 때만. 아니면 409 | `cs_agent` (부서와 협의) | — | 403 / 409 / 422 |
+| `ACTION_TAKEN` → `FOLLOW_UP` | 후속 확인 계획(`followup_plan`) 확정. 현재 회차(2.2.1)의 모든 수신 부서가 `ACTION_TAKEN`이거나 반려 확인된 `REJECTED`이고 `ACTION_TAKEN`이 1개 이상일 때만. 아니면 409 | `cs_agent` (부서와 협의) | — | 403 / 409 / 422 |
 | `FOLLOW_UP` → `COMPLETED` | `followup_result` 기록 후 완료 판단(`completed_by`, `completed_at`) | `cs_agent` | — | 403 / 409 |
 | `ACTION_TAKEN`, `FOLLOW_UP`, `COMPLETED` → `SENT` | 재발 재개: 조치 적용 장비에서 1건이라도 재발이 확인되면 재발 후보 → `cs_agent` 검토 후 같은 요청을 다시 열어 전달(새 판본). 조치 전 장비의 발생은 재발이 아니며 재요청 집계로 간다 | 시스템(후보) / `cs_agent`(재개) | — | 403 / 409 |
 | 담당자 재배정(`cs_owner` 변경) | 상태 변경 없음 | `manager` | 관리 대상 부서가 수신·제안 부서에 포함된 요청 | 403 |
@@ -130,18 +130,21 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 
 수신 부서마다 `SENT → ACKNOWLEDGED → ADOPTED / INFO_REQUESTED / REJECTED → (ADOPTED이면) ACTION_TAKEN`을 독립적으로 진행한다. 부서별 현재 상태는 요청-부서 단위 행에 두고(이름은 C/S 개선요청 구현에서 정함), 회신 이력은 `dept_replies`에 남긴다. 반려는 "이 부서가 맡을 일이 아님"을 뜻하며 그 부서만 진행에서 빠진다. 부서 질문(`QA:`, `SCM:` 등)은 해당 부서에 묶는다.
 
-요청 상태 요약 규칙(`SENT` 이후 `FOLLOW_UP` 전까지, 위에서부터 처음 맞는 것):
+**전달 회차**: 요청 단위 전달(첫 전달, 재요청, 재발 재개)은 새 회차를 연다. 새 회차에서는 `cs_agent`가 고른 대상 부서 전체가 `SENT`에서 시작하고(재요청 기본값은 기존 수신 부서, 재발 재개 기본값은 조치를 등록한 부서), 이전 회차의 부서별 상태·회신·조치·후속 확인 기록은 그 회차에 그대로 보존한다. 부서 단위 재전달(자료 보완 후 재전달, 반려 부서 재요청)은 회차를 바꾸지 않고 그 부서 상태만 `SENT`로 되돌린다.
+
+요청 상태 요약 규칙(**현재 회차**의 부서만 보고, `SENT` 이후 `FOLLOW_UP` 전까지, 위에서부터 처음 맞는 것):
 
 | 순서 | 부서별 상태 조건 | 요청 상태 |
 | --- | --- | --- |
 | 1 | 모든 부서가 `REJECTED` | `REJECTED` |
-| 2 | `ADOPTED`·`ACTION_TAKEN` 부서가 1개 이상이고 그 부서가 모두 `ACTION_TAKEN` | `ACTION_TAKEN` |
-| 3 | `ADOPTED`·`ACTION_TAKEN` 부서가 1개 이상 | `ADOPTED` |
+| 2 | `REJECTED`가 아닌 부서가 모두 `ACTION_TAKEN` | `ACTION_TAKEN` |
+| 3 | `ADOPTED`·`ACTION_TAKEN` 부서가 1개 이상 (일부 부서만 채택·조치했거나 다른 부서가 아직 회신·보완 중) | `ADOPTED` |
 | 4 | `INFO_REQUESTED` 부서가 1개 이상 | `INFO_REQUESTED` |
 | 5 | `ACKNOWLEDGED` 부서가 1개 이상 | `ACKNOWLEDGED` |
 | 6 | 그 외 | `SENT` |
 
-- `FOLLOW_UP`·`COMPLETED`는 요약이 아니라 `cs_agent`의 전이로만 바뀐다. 재요청·재발 재개로 다시 전달하면 대상 부서의 상태가 `SENT`로 돌아가고 요약을 다시 계산한다.
+- `FOLLOW_UP`·`COMPLETED`는 요약하지 않는다. `cs_agent`의 전이로만 들어가고, 새 회차를 열 때만 빠져나온다. 새 회차는 대상 부서가 모두 `SENT`이므로 요약 결과도 `SENT`이며, 전이표의 재요청·재발 재개 행(→ `SENT`)과 같다.
+- 요청 상태가 `ACTION_TAKEN`이어도 반려 확인 전인 `REJECTED` 부서가 있으면 `FOLLOW_UP` 전이는 409이며, 화면은 `cs_agent` 할 일로 "반려 확인"을 보여 준다.
 - 요청 상태 하나에 담기지 않는 정보는 화면에 부서별 상태와 `cs_agent` 할 일로 보여 준다: `INFO_REQUESTED` → 자료 보완 후 재전달, 반려 확인 전 `REJECTED` → 반려 확인 또는 새 근거 재요청, 회신 기한 경과 → 재요청, 후속 확인 조건 충족 → 후속 확인 계획.
 - 예: 품질 `ADOPTED`, 설계 `REJECTED`, 물류 `INFO_REQUESTED` → 요청 상태 `ADOPTED`. 품질은 바로 조치를 등록할 수 있고, `cs_agent` 할 일은 설계 반려 확인과 물류 자료 보완이다.
 
