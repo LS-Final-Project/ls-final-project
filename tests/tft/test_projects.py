@@ -213,7 +213,7 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after, managed_projects, user_id):
+    async def list_projects(conn, limit, after, managed_projects, user_id, department=None):
         rows = [
             r
             for r in ROWS

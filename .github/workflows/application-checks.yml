@@ -94,6 +94,34 @@ jobs:
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
       - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py
+  tft-database:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.backends), 'tft')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: team4
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TFT_TEST_DATABASE_URL: postgresql://postgres:test-only@127.0.0.1:5432/team4
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install uv==0.10.10
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen pytest -q tests/tft/test_recommendations_database.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'
@@ -139,7 +167,7 @@ jobs:
   required:
     name: Application result
     if: always()
-    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation]
+    needs: [changes, backend, frontend, auth-database, tft-database, infrastructure, evaluation]
     runs-on: ubuntu-latest
     steps:
       - env:
