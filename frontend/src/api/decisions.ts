@@ -17,3 +17,11 @@ export async function decide(id:string,version:number,action:Decision,compositio
   const result=await request<Envelope<Schema['DecisionResult']>>(path,{method:'POST',headers:{'If-Match':`"${version}"`,'Idempotency-Key':key},body});
   attempts.delete(slot);return result;
 }
+export type CompositionInput = Schema['CompositionInput'];
+export async function createComposition(id:string,version:number,payload:CompositionInput){
+  const path=`/api/v1/tft/projects/${encodeURIComponent(id)}/compositions`;
+  const body=JSON.stringify(payload);const slot=`${path}:${version}:${body}`;
+  const key=attempts.get(slot)??crypto.randomUUID();attempts.set(slot,key);
+  const result=await request<Envelope<Schema['DecisionResult']>>(path,{method:'POST',headers:{'If-Match':`"${version}"`,'Idempotency-Key':key},body});
+  attempts.delete(slot);return result;
+}

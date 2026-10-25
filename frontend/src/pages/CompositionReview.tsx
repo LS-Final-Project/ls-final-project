@@ -1,3 +1,4 @@
+import CompositionEditor from './CompositionEditor';
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
@@ -57,6 +58,7 @@ export function CompositionPanel({projectId}:{projectId:string}){
         </section>}
         <CompositionTable title="현재 구성안" value={data.current_composition} project={data}/>
         <Compare project={data}/>
+        <CompositionEditor project={data} assessment={assessment} userId={user.data!.data.id} disabled={denied||project.isFetching||report.isFetching||!assessment||!(responsible||data.sales_user_id===user.data?.data.id)} onRefresh={()=>Promise.all([project.refetch(),report.refetch(),cache.invalidateQueries({queryKey:['decisions',projectId]})])}/>
         <section><h2>최종 결정</h2><p>근거와 가용성 변경은 기존 확정 판본을 보존하며 재검토해야 합니다.</p>
           {notice&&<p role="status">{notice}</p>}{error!=null&&<ErrorState error={error}/>}
           <label>결정 사유<textarea value={reason} maxLength={4000} disabled={busy} onChange={e=>setReason(e.target.value)}/></label>
