@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { issueKeys, normalize, run } = require('../scripts/pr_metadata.cjs');
 const base = 'https://lsteam4.atlassian.net';
 const config = { jiraBaseUrl: base };
@@ -109,4 +110,33 @@ test('does not change a mismatched PR or request review', async () => {
 test('Jira config has no teammate assignment or setup waiver', () => {
   const file = JSON.parse(fs.readFileSync(path.join(__dirname, '../jira-config.json'), 'utf8'));
   assert.deepEqual(file, { jiraBaseUrl: base });
+});
+
+test('배포 대상 main에 새 Jira 설정이 없어도 신뢰한 기본 브랜치로 통합 검사를 실행한다', async () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '../workflows/pr-metadata.yml'), 'utf8');
+  const ref = workflow.match(/^          ref: (.+)$/m)?.[1];
+  const script = workflow.split('          script: |\n')[1]
+    .split('\n').filter(line => line.startsWith('            '))
+    .map(line => line.slice(12)).join('\n');
+  const oldMain = fs.mkdtempSync(path.join(os.tmpdir(), 'team4-old-main-'));
+  try {
+    fs.mkdirSync(path.join(oldMain, '.github/scripts'), {recursive: true});
+    fs.copyFileSync(path.join(__dirname, '../scripts/pr_metadata.cjs'), path.join(oldMain, '.github/scripts/pr_metadata.cjs'));
+    // Actions checkout의 두 실제 선택지를 재현한다. 이전 main에는 jira-config.json이 없다.
+    const checkouts = {
+      '${{ github.event.repository.default_branch }}': path.resolve(__dirname, '../..'),
+      '${{ github.event.pull_request.base.sha }}': oldMain,
+    };
+    const workspace = checkouts[ref];
+    assert.ok(workspace, 'PR head 대신 신뢰한 기본 브랜치를 선택해야 한다');
+    const f = fixture({draft: false, head: {ref: 'dev', repo: {full_name: 'LS-Final-Project/ls-final-project'}}, base: {ref: 'main'}});
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    await new AsyncFunction('require', 'process', 'github', 'context', 'core', script)(
+      require, {env: {GITHUB_WORKSPACE: workspace}}, f.github, f.context, f.core,
+    );
+    assert.equal(f.updates.length, 0);
+    assert.equal(f.requests.length, 0);
+  } finally {
+    fs.rmSync(oldMain, {recursive: true, force: true});
+  }
 });
