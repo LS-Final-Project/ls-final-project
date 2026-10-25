@@ -20,6 +20,8 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   </div>;
 }
 
-export const Preparing = ({ title }: { title: string }) => <main><header><h1>{title}</h1></header><section><p>업무 화면은 준비 중입니다.</p></section></main>;
+// inline은 화면 안의 한 구역만 준비 중일 때(예: 아직 연결되지 않은 API) 쓴다. 기본은 화면 전체다.
+export const Preparing = ({ title, message = '업무 화면은 준비 중입니다.', inline = false }: { title: string; message?: string; inline?: boolean }) =>
+  inline ? <section><h2>{title}</h2><p className="state">{message}</p></section> : <main><header><h1>{title}</h1></header><section><p>{message}</p></section></main>;
 
 export const NotFoundPage = () => <main><header><h1>페이지를 찾을 수 없습니다</h1></header><p>주소를 확인하거나 <Link to="/">처음 화면</Link>으로 이동하세요.</p></main>;
