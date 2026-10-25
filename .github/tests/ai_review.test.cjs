@@ -94,7 +94,7 @@ test('실제 Git의 한글·공백·따옴표 인용 경로와 이름 변경을 
     fs.mkdirSync(path.join(directory, 'new'));
     fs.writeFileSync(path.join(directory, before), 'old\n');
     fs.writeFileSync(path.join(directory, after), 'new\n');
-    const git = spawnSync('git', ['-c', 'core.quotePath=true', 'diff', '--no-index', '--', before, after], {cwd: directory, encoding: 'utf8'});
+    const git = spawnSync('git', ['-c', 'core.quotePath=true', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', 'diff', '--no-index', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--', before, after], {cwd: directory, encoding: 'utf8'});
     assert.equal(git.status, 1, git.stderr);
     assert.ok(git.stdout.startsWith('diff --git "a/'));
     f.diff.value = git.stdout;
@@ -106,6 +106,17 @@ test('실제 Git의 한글·공백·따옴표 인용 경로와 이름 변경을 
   } finally {
     cleanDiff(f);
     fs.rmSync(directory, {recursive: true, force: true});
+  }
+});
+
+test('추가 줄 안의 CR·유니코드 구분자를 실제 파일 헤더로 오인하지 않는다', async () => {
+  for (const separator of ['\r', '\u2028', '\u2029']) {
+    const f = fixture();
+    f.diff.value = f.diff.value.replace('+new\n', `+new${separator}diff --git a/fake b/fake\n`);
+    try {
+      await prepare(f);
+      assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    } finally {cleanDiff(f);}
   }
 });
 

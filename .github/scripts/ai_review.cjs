@@ -58,7 +58,8 @@ async function prepare({ github, context, core }) {
   const {data: diff} = await github.rest.pulls.get({
     ...context.repo, pull_number: pr.number, mediaType: {format: 'diff'},
   });
-  const lines = typeof diff === 'string' ? diff.match(/^diff --git .+$/gm) || [] : [];
+  const diffLines = typeof diff === 'string' ? diff.split('\n') : [];
+  const lines = diffLines.filter(line => line.startsWith('diff --git '));
   const headers = new Set(lines);
   if (lines.length !== files.length || headers.size !== files.length || files.some(file => {
     const oldPath = `a/${file.previous_filename || file.filename}`, newPath = `b/${file.filename}`;
@@ -75,7 +76,7 @@ async function prepare({ github, context, core }) {
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
   core.setOutput('schema', JSON.stringify(schema));
   core.setOutput('diff_file', diffFile);
-  core.setOutput('diff_lines', String(diff.split('\n').length - Number(diff.endsWith('\n'))));
+  core.setOutput('diff_lines', String(diffLines.length - Number(diff.endsWith('\n'))));
 }
 
 /** 모델 결과를 검사한다. Args: 원시 JSON, 예상 SHA·파일 목록. Returns: 검증한 결과. */
