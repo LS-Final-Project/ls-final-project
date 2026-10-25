@@ -69,7 +69,7 @@ C/S·TFT 서비스는 DB 권한상 `identity` 스키마를 읽지 못한다. 플
 | `managed_projects` | manager의 관리 대상 TFT 프로젝트 ID(`identity.manager_projects`) |
 
 - 전달: 요청 헤더 `X-Team4-Principal`에 위 필드의 JSON. 알 수 없는 필드, 역할 없음, 부서 없는 dept_staff, manager가 아닌 사용자의 관리 범위는 401로 거부한다.
-- 신뢰 범위: 플랫폼의 인증된 내부 중계는 KAN-178(오새결)에서 만든다. 이 형식은 KAN-178에서 검토해 확정한다. 그 전까지 서비스는 `local`·`test`에서만 이 헤더를 읽고, `production`에서는 헤더와 무관하게 DB 조회 전에 404로 닫는다. 중계를 만들 때 호출자 인증(플랫폼만 보낼 수 있음)과 브라우저가 보낸 같은 헤더의 제거를 함께 넣는다.
+- 신뢰 범위: KAN-178은 이 공통 모델을 운영 세션에서 만들고 브라우저의 같은 헤더를 제거한다. 업무 중계는 기본 비활성이며 production은 DB 조회 전 404 잠금을 유지한다. 명시 활성화 시에는 Google 서명·수신 서비스 audience·플랫폼 실행 계정을 검증한 `X-Team4-Caller-Token`이 있어야 이 JSON을 읽는다. 호출자 인증 뒤에도 업무 역할·객체 검사를 수행한다. 설정·허용 경로·거부 조건·실제 공용 검증의 구분은 [인증 계약](auth.md#업무-json-중계와-호출자-검증-kan-178)을 따른다. 비활성 local/test의 unsigned fake는 독립 개발에만 사용한다.
 - 플랫폼 `/me`와 세션 조회는 같은 값(`managed_departments`, `managed_projects`)을 이미 돌려준다.
 
 ---

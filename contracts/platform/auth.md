@@ -4,7 +4,7 @@
 
 GET /api/v1/platform/me는 현재 세션의 Identity를 반환한다. id, tid, oid, 표시 이메일과 이름, 부서 및 역할을 DB에서 조회한다. 쿠키에는 무작위 세션 ID만 있고 DB에는 해당 값의 hash를 저장한다. 요청마다 사용자 활성 상태와 역할을 다시 읽는다. 부서 역할은 부서가 없으면 거부한다. manager 역할이 프로젝트 책임자나 원문 열람 범위를 자동 부여하지 않는다.
 
-Microsoft 로그인 HTTP 경계는 기본 비활성 구현 초안이다. `MICROSOFT_AUTH_ENABLED=false`이면 로그인·callback·로그아웃은 503이며, `/me`는 기존 개발 인증이 활성화된 경우 외에는 401이다. Microsoft 인증과 개발 인증은 동시에 활성화할 수 없다. production에서는 개발 쿠키와 임의 역할 헤더를 인증으로 받지 않는다. 사서함 토큰 저장과 업무 서비스로의 사용자 맥락 중계는 후속 기능이다.
+Microsoft 로그인 HTTP 경계는 기본 비활성 구현 초안이다. `MICROSOFT_AUTH_ENABLED=false`이면 로그인·callback·로그아웃은 503이며, `/me`는 기존 개발 인증이 활성화된 경우 외에는 401이다. Microsoft 인증과 개발 인증은 동시에 활성화할 수 없다. production에서는 개발 쿠키와 임의 역할 헤더를 인증으로 받지 않는다. 사서함 토큰 저장은 후속 기능이다. 업무 사용자 맥락의 JSON 중계는 아래 KAN-178 설정을 명시적으로 켰을 때만 사용한다.
 
 로컬에서 DEV_AUTH_ENABLED=true일 때만 제공하는 경로:
 
@@ -17,6 +17,107 @@ Microsoft 로그인 HTTP 경계는 기본 비활성 구현 초안이다. `MICROS
 브라우저의 변경 요청은 localhost:5173 및 127.0.0.1:5173 Origin만 허용한다. 쿠키는 HttpOnly, SameSite=Lax이며 HTTP 로컬 개발이므로 Secure는 사용하지 않는다. 개발 경로는 일반 계약 산출물에 포함하지 않으며 로컬 Swagger에서 확인한다.
 
 수정 후 `python3 scripts/workspace.py contracts platform`을 실행한다.
+
+## 운영 세션에서 업무 사용자 모델로 변환 (KAN-178 첫 단계)
+
+`context.py`의 `load_session_principal()`은 기존 `load_session()` 결과를 KAN-78의
+공통 `backend.shared.access.Principal`로 변환하는 서버 내부 함수다. 역할·부서·관리 범위는
+기존 세션 SQL과 `Identity` 검증을 재사용해 요청마다 다시 조회하며 별도 SQL·캐시·DTO를
+만들지 않는다. manager 역할 없이 관리 범위 행이 남는 등 등록 조건이 불일치하면 기존
+검증에 따라 401로 거부한다. DB 조회 실패도 기존 503으로 전파한다.
+
+반환 필드는 [권한 계약 1.4](permissions.md#14-업무-서비스가-받는-사용자-정보-kan-78-형식-제안)의
+`user_id`, 다중 `roles`, nullable `dept`, `managed_departments`, `managed_projects`다.
+공개 `Identity`의 이메일·표시 이름·Microsoft `tid`/`oid`와 원문 세션·Microsoft 토큰은
+`Principal`에 포함하지 않는다. 조회만으로 세션 만료를 연장하거나 권한을 부여하지 않는다.
+
+첫 단계는 내부 변환만 제공했으며, 다음 절의 명시 활성화 JSON 중계에서 이 함수를
+호출한다. `Principal`의 필드 호환성만으로 헤더를 신뢰하지 않는다. TFT의 담당 sales·현재
+책임자는 TFT 업무 관계로 판정하며 이 변환 함수가 대신하지 않는다.
+
+실제 PostgreSQL 검사 `tests/platform/test_session_context.py`를 `auth-database` CI에
+포함해 공통 모델 변환·권한 회수·등록/세션 거부·DB 장애를 확인한다. 기존 KAN-78의
+관리 범위·부서 코드 마이그레이션을 사용하며 새 마이그레이션과 공개 API 변경은 없다.
+이 내부 변환 검증을 실제 공용 로그인 성공으로 해석하지 않는다.
+
+## 업무 JSON 중계와 호출자 검증 (KAN-178)
+
+`BUSINESS_RELAY_ENABLED`는 웹·플랫폼·C/S·TFT 모두 기본 `false`다. 비활성 production의
+업무 경로는 기존 404 잠금을 유지한다. 활성화는 실제 권한·호출자 검증을 확인하는 별도
+통합·배포 판단이며, 이번 코드에서 GCP IAM·환경 변수·main 배포를 바꾸지 않는다.
+
+흐름은 브라우저 → 웹 → 플랫폼 → 고정 C/S 또는 TFT다. 웹은 플랫폼용 IAM 토큰과
+운영 세션 쿠키만 구분해서 전달하며, 플랫폼은 운영 세션·활성 사용자·현재 역할·부서·
+명시 관리 범위를 DB에서 매번 읽어 공통 `Principal`을 만든다. 브라우저의 Authorization,
+`X-Team4-Principal`, `X-Team4-Caller-Token` 및 다른 내부 인증 헤더를 전달하지 않는다.
+플랫폼→업무 서비스 요청에는 원문 세션 쿠키·Microsoft 토큰·표시 이메일을 넣지 않는다.
+
+| 내부 헤더 | 생성·검증 |
+| --- | --- |
+| `Authorization: Bearer <Google ID token>` | 플랫폼 실행 계정이 메타데이터 서버에서 대상 업무 URL을 audience로 발급. Cloud Run IAM용 |
+| `X-Team4-Caller-Token` | 위 원본 Google ID 토큰. 업무 컨테이너가 고정 Google JWKS의 RS256 서명·Google issuer·정확한 수신 audience·필수 시간/sub·허용 플랫폼 이메일·email_verified=true 검사 |
+| `X-Team4-Principal` | 플랫폼 세션에서 만든 5필드 JSON. 호출자 인증 뒤 공통 Principal 모델로 검증. 누락·중복·8KiB 초과·허용하지 않은 필드/역할/범위는 401 |
+
+Google 키 조회 장애는 503, 잘못된 호출자 증명은 401이다. 호출자 헤더는 한 개·16KiB
+이내여야 한다. 활성화한 local/test에서도 같은 호출자 검증을 강제한다. 중계가 비활성인
+local/test의 기존 `principal_header()` fake는 독립 개발용으로만 유지한다. 호출자 검증
+성공 뒤에도 C/S·TFT의 역할·객체·행동 검사를 그대로 수행하며 IAM 성공을 사용자 권한으로
+해석하지 않는다. 이 ID 토큰은 Principal의 필드를 서명한 사용자 JWT가 아니라 플랫폼
+실행 계정의 bearer 증명이다. 토큰/서비스 계정 impersonation 권한과 TLS 경계를 보호해야 한다.
+
+Cloud Run의 `X-Serverless-Authorization`은 컨테이너 전달 시 서명이 제거될 수 있으므로
+애플리케이션 증명으로 사용하지 않는다. 원본 토큰을 별도 내부 헤더로 검증하는 이유다.
+[Cloud Run 서비스 간 인증](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)과
+[Google ID 토큰 검증](https://docs.cloud.google.com/compute/docs/instances/verifying-instance-identity)을 따른다.
+
+허용 경로는 현재 dev에 병합된 다음 JSON API뿐이다. UUID는 표준 하이픈 표기만 허용한다.
+새 업무 API를 추가하면 웹·플랫폼 허용 목록과 회귀 검사를 함께 확장해야 한다.
+
+| 경로 | 메서드 |
+| --- | --- |
+| `/api/v1/cs/tickets` | GET, POST |
+| `/api/v1/cs/tickets/{ticket_id}` | GET, PATCH |
+| `/api/v1/cs/tickets/{ticket_id}/audit` | GET |
+| `/api/v1/tft/projects` | GET |
+| `/api/v1/tft/projects/{project_id}` | GET |
+
+목록 GET만 중복 없는 `limit`·`cursor` query(값 각각 200자 이내)를 허용한다. 세부 형식과
+페이지 범위는 기존 업무 API가 검증한다. 임의 upstream·다른 query·SSE·파일·메일·미병합
+API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
+자동 재시도 없이 고정 HTTPS 대상으로만 전달한다. 플랫폼 연결/읽기 제한은 3초/20초,
+웹 전체 중계 제한은 45초다. JSON이 아닌 응답·리디렉션·네트워크 장애는 플랫폼 503 또는
+웹 502로 처리하고 공급자 원문을 반환하지 않는다.
+
+변경 요청은 정확한 `MICROSOFT_AUTH_APP_ORIGIN`과 운영 세션에 결속된 `X-CSRF-Token`,
+`application/json`을 요구한다. 조회도 Origin이 있으면 고정 출처와 대조한다. `/me`의 CSRF
+응답 헤더를 화면이 받아 보내는 연결은 KAN-130 범위다. 업무 상태·JSON 본문·요청 ID와
+ETag를 보존하며 If-Match·Idempotency-Key는 기존 소비자 API로 전달한다. 업무 API의
+판본/멱등성 규칙을 중계에서 새로 구현하지 않는다. 업무 응답은 성공·실패 모두 no-store이며
+Set-Cookie·Location·내부 인증 헤더는 브라우저로 전달하지 않는다.
+
+명시 활성화 시 백엔드 세 서비스에 필요한 값:
+
+```text
+BUSINESS_RELAY_ENABLED=false
+BUSINESS_CS_URL=https://<정확한 CS Cloud Run 서비스 출처>
+BUSINESS_TFT_URL=https://<정확한 TFT Cloud Run 서비스 출처>
+BUSINESS_PLATFORM_EMAIL=<platform-runtime 실행 서비스 계정 이메일>
+```
+
+출처는 path·마지막 slash·자격증명·query·fragment가 없는 서로 다른 HTTPS 주소여야 한다.
+플랫폼은 Microsoft 운영 인증도 켜져 있어야 하며 개발 인증과 동시에 사용할 수 없다.
+웹은 같은 플래그와 기존 `PLATFORM_URL`을 사용한다. C/S는 추가로
+`CS_MANUAL_DATA_ORIGIN=demo` 또는 `real`을 명시해야 활성화된다. 공용 시연은
+production에서도 demo를 유지하며 실제 문의 배포만 real을 선택한다. 이 설정은 새 수동
+문의에만 적용하고 브라우저가 지정할 수 없다. 출처가 다른 자료를 한 배포에서 혼합 접수하지 않는다. 수신 서비스별 run.invoker 부여와
+실제 공용 계정 검증은 [배포 안내](../../docs/service-delivery.md#kan-178-업무-중계-활성화-전-확인)를 따른다.
+
+검사는 `tests/test_service_auth.py`(합성 RSA의 실제 서명·클레임 검증),
+`tests/platform/test_business_relay.py`(실제 PostgreSQL·세 서비스 앱·세션/역할/범위 회수·
+위조/직접 호출/CSRF 거부), `test_relay_transport.py`(upstream 실패·응답 제한) 및 웹 서버
+회귀다. Google JWKS/메타데이터와 서비스 간 HTTP 소켓은 fake이며 실제 Google 토큰·IAM·
+Outlook 브라우저 로그인·공용 배포 성공으로 보고하지 않는다. 실제 DB 검사는
+`auth-database` CI에도 포함한다. SSE·비동기 맥락과 업무 기능 전체 완료는 별도다.
 
 ## KAN-77 callback 경계 초안
 
@@ -151,8 +252,8 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-77_sessions.sql
 
 실제 DB 검사는 `tests/platform/test_session_store.py`이며 OAuth 검사와 같은 전용 DB
 준비를 `tests/platform/conftest.py`에서 공유한다. `auth-database` CI는
-`test_authorization_store.py`, `test_session_store.py`, `test_login_http.py`를 명시적으로
-실행한다. 일반 검사에서는 `AUTH_TEST_DATABASE_URL`이 없으면 DB 검사를
+`test_authorization_store.py`, `test_session_store.py`, `test_login_http.py`,
+`test_session_context.py`, `test_business_relay.py`를 명시적으로 실행한다. 일반 검사에서는 `AUTH_TEST_DATABASE_URL`이 없으면 DB 검사를
 건너뛰며 이를 실제 DB 검증 성공으로 보고하지 않는다.
 
 ### 공개 HTTP 계약 제안 — 기본 비활성 구현 초안
@@ -214,17 +315,17 @@ KAN-57 화면 계약 확인, 기존 Entra 앱의 Web callback 등록 확인과 �
 ### 운영 웹의 인증 전용 중계
 
 `frontend/server.mjs`는 위 네 인증 경로만 정확한 메서드로 플랫폼에 중계한다.
-인가 결과는 본문으로만 전달하며 모든 API query를 거부한다. callback 본문 형식·8KiB
+인가 결과는 본문으로만 전달하며 인증 경로의 query를 거부한다. callback 본문 형식·8KiB
 상한도 중계 전에 확인한다. 브라우저 Cookie 중 두 `__Host-team4_` 인증 쿠키만 전달하고,
 브라우저 Authorization 대신 기존 Cloud Run 서비스 간 IAM 토큰을 사용한다.
 Origin·CSRF 헤더를 전달하고 인증 응답의 Location·여러 Set-Cookie·CSRF 헤더를 보존한다.
 Microsoft redirect를 서버에서 따라가지 않는다. 인증 중계 제한 시간은 45초이며 기존
-health/ready는 15초다. 임의 API·개발 로그인·C/S·TFT·SSE 중계는 추가하지 않는다.
+health/ready는 15초다. 업무 JSON은 위 KAN-178 설정과 허용 목록에 한정하며 임의 API·개발 로그인·SSE는 중계하지 않는다.
 
 현재 프론트의 공통 JSON 요청 함수는 응답 헤더를 반환하지 않고 기존 logout 함수는
 개발 세션용이다. KAN-130 화면 구현 시 `/me`의 CSRF 응답 헤더를 읽어 로그아웃에
 전달하는 연결이 필요하다. 이번 변경에는 화면·버튼이나 공통 요청 함수 변경을 포함하지 않는다.
 
 HTTP·쿠키·CSRF·인증 전용 중계는 비활성 초안으로 구현했으며 KAN-57 합의, 운영 활성화,
-실제 Outlook 브라우저 흐름, 로그인 화면 및 업무 중계/SSE 검증은 남아 있다.
+실제 Outlook 브라우저 흐름, 로그인 화면 및 공용 업무 중계/SSE 검증은 남아 있다.
 사서함 연결·Graph·토큰 보관은 KAN-80·81 범위다. 이 초안으로 KAN-57·77을 완료 처리하지 않는다.

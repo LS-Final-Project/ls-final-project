@@ -1,8 +1,4 @@
-"""The calling user as the C/S and TFT services see it (contracts/platform/permissions.md 1.4).
-
-The platform verifies the session and relays this context. That relay does not exist
-yet, so services read it only in local and test and stay closed in production.
-"""
+"""플랫폼 호출자 검증 뒤 업무 사용자 정보를 읽는다. 운영 중계는 기본 비활성이다."""
 
 import json
 from typing import Literal, Self
@@ -10,6 +6,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from backend.shared.service_auth import CALLER_HEADER
 
 Role = Literal["cs_agent", "dept_staff", "manager", "sales"]
 
@@ -40,15 +38,30 @@ class Principal(BaseModel):
 
 
 def current_principal(request: Request) -> Principal:
-    """FastAPI dependency: the calling user, checked before any data access (1.3 step 1)."""
-    if request.app.state.settings.environment not in {"local", "test"}:
-        # No authenticated platform relay yet. Never trust a caller-supplied header here.
+    """호출자 인증 이후에만 전달된 사용자 정보를 읽고 업무 조회 전에 검증한다.
+
+    Args:
+        request: 사용자 맥락과 별도 플랫폼 호출자 토큰을 포함한 요청.
+
+    Returns:
+        Principal: 호출자와 등록 조건을 통과한 업무 사용자 정보.
+
+    Raises:
+        HTTPException: 비활성 운영 경로는 404, 맥락·호출자 위반은 401, 서명키 장애는 503.
+    """
+    settings = request.app.state.settings
+    if settings.business_relay_enabled:
+        tokens = request.headers.getlist(CALLER_HEADER)
+        if len(tokens) != 1:
+            raise HTTPException(401)
+        request.app.state.platform_caller.verify(tokens[0])
+    elif settings.environment not in {"local", "test"}:
         raise HTTPException(404)
-    raw = request.headers.get(PRINCIPAL_HEADER)
-    if raw is None:
+    values = request.headers.getlist(PRINCIPAL_HEADER)
+    if len(values) != 1 or len(values[0].encode()) > 8192:
         raise HTTPException(401)
     try:
-        return Principal.model_validate(json.loads(raw))
+        return Principal.model_validate(json.loads(values[0]))
     except (ValueError, ValidationError):
         raise HTTPException(401) from None
 
