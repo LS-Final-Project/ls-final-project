@@ -1,5 +1,6 @@
 """OAuth 인가 시도와 운영 세션에서 공유하는 전용 PostgreSQL 검사 준비."""
 
+import hashlib
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +12,8 @@ from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.api.platform.auth.callback import MicrosoftSubject
+from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
 from backend.shared.settings import Settings
 
 
@@ -102,3 +105,146 @@ def registered_user(auth_database):
             conn.execute("DELETE FROM identity.manager_departments WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))
+
+
+@pytest.fixture(scope="session")
+def jobs_database(auth_database):
+    """기존 전용 인증 검사 DB에 작업 접수 마이그레이션을 적용한다.
+
+    Args:
+        auth_database: 명시적으로 허용된 합성 검사 DB.
+
+    Returns:
+        str: 관리자 연결 문자열.
+    """
+    with psycopg.connect(auth_database, autocommit=True) as conn:
+        if conn.execute("SELECT to_regclass('runtime.jobs')").fetchone()[0] is None:
+            migration = Path(
+                "infra/migrations/platform/20261025_KAN-69_job_admission.sql"
+            ).read_text()
+            conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+    return auth_database
+
+
+@pytest.fixture(scope="session")
+def evaluation_database(jobs_database):
+    """전용 DB에 평가 저장과 접수 보완을 실제 권한으로 적용한다.
+
+    Args:
+        jobs_database: 작업 마이그레이션이 적용된 합성 DB.
+
+    Returns:
+        str: 전용 관리자 연결 문자열.
+    """
+    with psycopg.connect(jobs_database, autocommit=True) as conn:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS evaluation AUTHORIZATION platform_migrator")
+        conn.execute("GRANT USAGE ON SCHEMA evaluation TO platform_app")
+        conn.execute(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE platform_migrator IN SCHEMA evaluation "
+            "GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO platform_app"
+        )
+        for table, filename in [
+            ("experiments", "20261023_KAN-85_evaluation_storage.sql"),
+            ("run_control", "20261025_KAN-90_run_admission.sql"),
+        ]:
+            if (
+                conn.execute("SELECT to_regclass(%s)", ("evaluation." + table,)).fetchone()[0]
+                is None
+            ):
+                sql = Path("infra/migrations/platform", filename).read_text()
+                conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path("infra/migrations/platform/20261025_KAN-90_smoke_worker.sql").read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+    return jobs_database
+
+
+@pytest.fixture
+def experiment(evaluation_database, registered_user):
+    """원문·정답이 없는 합성 실험 두 대상을 등록하고 검사 뒤 정리한다.
+
+    Args:
+        evaluation_database: 전용 검사 DB.
+        registered_user: 합성 등록 사용자.
+
+    Returns:
+        dict: 실험 UUID·구성과 현재 사용자 UUID.
+    """
+    actor = registered_user[1]
+    value = dict.fromkeys(CONFIG_FIELDS)
+    value.update(
+        purpose="smoke",
+        data_origin="synthetic",
+        dataset_hash="a" * 64,
+        model_id="fake",
+        configuration={},
+        target_set_hash=hashlib.sha256(b"synthetic-1\nsynthetic-2").hexdigest(),
+    )
+    value["config_hash"] = canonical_hash({k: value[k] for k in CONFIG_FIELDS})
+    value.update(id=uuid4(), actor=actor)
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "INSERT INTO evaluation.experiments "
+            "(id,name,purpose,data_origin,dataset_manifest,dataset_hash,model_id,configuration,"
+            "target_set_hash,config_hash,created_by_user_id) "
+            "VALUES (%s,'synthetic','smoke','synthetic','{}',%s,'fake','{}',%s,%s,%s)",
+            (
+                value["id"],
+                value["dataset_hash"],
+                value["target_set_hash"],
+                value["config_hash"],
+                actor,
+            ),
+        )
+        for ref in ("synthetic-1", "synthetic-2"):
+            conn.execute(
+                "INSERT INTO evaluation.experiment_targets "
+                "(experiment_id,target_ref,target_kind,data_origin) "
+                "VALUES (%s,%s,'smoke','synthetic')",
+                (value["id"], ref),
+            )
+    yield value
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "DELETE FROM evaluation.case_attempts WHERE case_id IN "
+            "(SELECT id FROM evaluation.cases WHERE experiment_id=%s)",
+            (value["id"],),
+        )
+        for table in ("admission_receipts", "run_control", "cases"):
+            conn.execute(
+                psycopg.sql.SQL(
+                    "DELETE FROM evaluation.{} WHERE run_id IN "
+                    "(SELECT id FROM evaluation.runs WHERE experiment_id=%s)"
+                ).format(psycopg.sql.Identifier(table)),
+                (value["id"],),
+            )
+        conn.execute("DELETE FROM evaluation.runs WHERE experiment_id=%s", (value["id"],))
+        for table in ("job_events", "dispatch_outbox"):
+            conn.execute(
+                psycopg.sql.SQL(
+                    "DELETE FROM runtime.{} WHERE job_id IN "
+                    "(SELECT id FROM runtime.jobs WHERE actor_id=%s)"
+                ).format(psycopg.sql.Identifier(table)),
+                (actor,),
+            )
+        conn.execute("DELETE FROM runtime.jobs WHERE actor_id=%s", (actor,))
+        conn.execute(
+            "DELETE FROM evaluation.experiment_targets WHERE experiment_id=%s", (value["id"],)
+        )
+        conn.execute("DELETE FROM evaluation.experiments WHERE id=%s", (value["id"],))
+
+
+@pytest.fixture
+def access(experiment):
+    """합성 실험 하나만 명시적으로 허용한다.
+
+    Args:
+        experiment: 합성 실험.
+
+    Returns:
+        EvaluationAccessSettings: 테스트 환경 전용 허용 설정.
+    """
+    return EvaluationAccessSettings(
+        evaluator_user_ids={experiment["actor"]},
+        approved_config_hashes={experiment["config_hash"]},
+        local_admission_enabled=True,
+    )

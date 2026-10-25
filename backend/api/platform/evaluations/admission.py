@@ -1,0 +1,246 @@
+"""합성 실험의 접수·사례·작업을 한 트랜잭션으로 보존한다."""
+
+import hashlib
+import json
+from typing import Any
+from uuid import UUID, uuid4
+
+from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.evaluations.schemas import EvaluationAdmission, EvaluationRunStatus
+from backend.api.platform.jobs.admission import EvaluationJobRequest, admit_evaluation_job
+from backend.shared.database import connection
+from backend.shared.errors import ApplicationError
+from backend.shared.models import ResponseMeta, SuccessResponse
+from backend.shared.settings import Settings
+
+CONFIG_FIELDS = (
+    "purpose",
+    "data_origin",
+    "dataset_hash",
+    "data_split",
+    "gold_version",
+    "policy_version",
+    "prompt_version",
+    "model_id",
+    "index_version",
+    "input_builder_version",
+    "configuration",
+    "target_set_hash",
+)
+
+
+def canonical_hash(value: dict[str, Any]) -> str:
+    """계약의 키 정렬·공백 없는 UTF-8 JSON으로 SHA-256을 계산한다.
+
+    Args:
+        value: 비밀값 없는 요청 또는 동결 구성.
+
+    Returns:
+        str: 소문자 64자리 hash.
+    """
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def admission_available(settings: Settings, access: EvaluationAccessSettings) -> bool:
+    """운영 실행과 구별되는 명시적 로컬 접수 모드 여부를 반환한다.
+
+    Args:
+        settings: 실행 환경 설정.
+        access: 서버 전용 평가 설정.
+
+    Returns:
+        bool: local/test이며 명시적으로 접수를 켠 경우만 True.
+    """
+    return settings.environment in {"local", "test"} and access.local_admission_enabled
+
+
+def check_actor(settings: Settings, access: EvaluationAccessSettings, actor: UUID) -> None:
+    """저장 함수에서도 환경 잠금과 평가자 지정을 검사한다.
+
+    Args:
+        settings: 실행 환경.
+        access: 현재 평가 설정.
+        actor: 세션 검증을 마친 내부 사용자 UUID.
+
+    Returns:
+        None: 허용 조건을 통과하며 위반은 안전한 오류로 거절한다.
+    """
+    if actor not in access.evaluator_user_ids:
+        raise ApplicationError(403, "FORBIDDEN", "Access denied.")
+    if not admission_available(settings, access):
+        raise ApplicationError(503, "EVALUATION_RUNNER_NOT_CONNECTED", "Execution is unavailable.")
+
+
+def validate_smoke_experiment(experiment: dict[str, Any], access: EvaluationAccessSettings) -> None:
+    """접수와 실행에서 동일한 합성 구성·시험 차단 규칙을 검사한다.
+
+    Args:
+        experiment: 서버 DB의 실험 메타데이터.
+        access: 현재 서버의 허용 구성 목록.
+
+    Returns:
+        None: 허용된 합성 구성만 통과하며 위반은 안전한 오류로 반환한다.
+    """
+    # 최종 시험은 허용 hash에 있어도 일반 접수에서 항상 거절한다.
+    if experiment["data_split"] == "test":
+        raise ApplicationError(403, "FINAL_TEST_LOCKED", "Final test is locked.")
+    if experiment["config_hash"] not in access.approved_config_hashes:
+        raise ApplicationError(403, "EXPERIMENT_NOT_APPROVED", "Experiment is not approved.")
+    if (
+        experiment["purpose"] != "smoke"
+        or experiment["data_origin"] != "synthetic"
+        or experiment["model_id"] != "fake"
+        or experiment["configuration"] != {}
+        or experiment["dataset_manifest"] != {}
+    ):
+        raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Only synthetic smoke is supported.")
+    if canonical_hash({k: experiment[k] for k in CONFIG_FIELDS}) != experiment["config_hash"]:
+        raise ApplicationError(409, "EXPERIMENT_HASH_MISMATCH", "Experiment hash differs.")
+
+
+async def accept_run(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    actor: UUID,
+    experiment_id: UUID,
+    key: str,
+    request_id: UUID,
+    if_match: str | None = None,
+) -> SuccessResponse[EvaluationAdmission]:
+    """현재 허용된 합성 실험을 원자적으로 접수하거나 최초 접수 응답을 재생한다.
+
+    Args:
+        settings: 플랫폼 DB 연결과 실행 환경.
+        access: 지정 평가자와 사전 검수된 구성 hash 허용 목록.
+        actor: 현재 운영 세션으로 확인한 사용자.
+        experiment_id: 이미 동결 등록된 실험 UUID.
+        key: 공통 계약의 멱등 키.
+        request_id: 최초 응답에 보존할 요청 UUID.
+        if_match: 요청 hash에 포함하는 조건 헤더. 신규 생성의 판본 조건은 아니다.
+
+    Returns:
+        SuccessResponse: DB commit이 완료된 최초 접수 응답. 외부 실행은 하지 않는다.
+    """
+    check_actor(settings, access, actor)
+    async with connection(settings) as conn:
+        async with conn.transaction():
+            await conn.execute("SET LOCAL lock_timeout = '2s'")
+            await conn.execute("SET LOCAL statement_timeout = '5s'")
+            cursor = await conn.execute(
+                "SELECT * FROM evaluation.experiments WHERE id=%s AND created_by_user_id=%s",
+                (experiment_id, actor),
+            )
+            experiment = await cursor.fetchone()
+            if experiment is None:
+                raise ApplicationError(404, "NOT_FOUND", "Experiment is unavailable.")
+            validate_smoke_experiment(experiment, access)
+            # 검증한 대상 snapshot만 아래 사례 INSERT에 사용한다. 이후 추가된 행은 섞지 않는다.
+            cursor = await conn.execute(
+                "SELECT target_ref,data_origin,attributes FROM evaluation.experiment_targets "
+                "WHERE experiment_id=%s",
+                (experiment_id,),
+            )
+            targets = await cursor.fetchall()
+            refs = sorted(row["target_ref"] for row in targets)
+            if (
+                not targets
+                or any(
+                    row["data_origin"] != "synthetic" or row["attributes"] != {} for row in targets
+                )
+                or hashlib.sha256("\n".join(refs).encode()).hexdigest()
+                != experiment["target_set_hash"]
+            ):
+                raise ApplicationError(409, "TARGET_SET_MISMATCH", "Target set differs.")
+            job = await admit_evaluation_job(
+                conn,
+                EvaluationJobRequest(
+                    actor_id=actor,
+                    run_id=uuid4(),
+                    input_version=experiment["config_hash"],
+                    idempotency_key=key,
+                    request_hash=canonical_hash(
+                        {"experiment_id": str(experiment_id), "if_match": if_match}
+                    ),
+                ),
+            )
+            if job.created:
+                await conn.execute(
+                    "INSERT INTO evaluation.runs "
+                    "(id,experiment_id,job_id,runner_kind,requested_by_user_id,provider,"
+                    "scoring_version,requested_count) VALUES (%s,%s,%s,'test',%s,'fake',"
+                    "'smoke-not-scored-v1',%s)",
+                    (job.run_id, experiment_id, job.job_id, actor, len(refs)),
+                )
+                for ref in refs:
+                    await conn.execute(
+                        "INSERT INTO evaluation.cases(id,run_id,experiment_id,target_ref) "
+                        "VALUES (%s,%s,%s,%s)",
+                        (uuid4(), job.run_id, experiment_id, ref),
+                    )
+                await conn.execute(
+                    "INSERT INTO evaluation.run_control(run_id) VALUES (%s)",
+                    (job.run_id,),
+                )
+                await conn.execute(
+                    "INSERT INTO evaluation.admission_receipts(run_id,response_request_id) "
+                    "VALUES (%s,%s)",
+                    (job.run_id, request_id),
+                )
+            cursor = await conn.execute(
+                "SELECT response_request_id FROM evaluation.admission_receipts WHERE run_id=%s",
+                (job.run_id,),
+            )
+            receipt = await cursor.fetchone()
+            if receipt is None:
+                raise ApplicationError(503, "ADMISSION_INCOMPLETE", "Retry with the same key.")
+            result: SuccessResponse[EvaluationAdmission] = SuccessResponse(
+                data=EvaluationAdmission(
+                    run_id=job.run_id,
+                    job_id=job.job_id,
+                    status_url=f"/api/v1/platform/evaluations/runs/{job.run_id}",
+                ),
+                meta=ResponseMeta(request_id=receipt["response_request_id"]),
+            )
+    return result
+
+
+async def get_run(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    actor: UUID,
+    run_id: UUID,
+) -> EvaluationRunStatus:
+    """현재 평가 권한과 구성 허용 여부를 확인하고 자기 접수 상태만 반환한다.
+
+    Args:
+        settings: DB와 환경 설정.
+        access: 현재 서버 허용 목록.
+        actor: 현재 세션 사용자.
+        run_id: 조회할 실행 UUID.
+
+    Returns:
+        EvaluationRunStatus: 정답·원시 출력·입력 없이 제한된 상태 필드.
+    """
+    check_actor(settings, access, actor)
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT r.id,r.job_id,r.status,r.requested_count,e.config_hash,e.data_split "
+            "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
+            "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+            "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
+            (run_id, actor, actor),
+        )
+        row = await cursor.fetchone()
+        if (
+            row is None
+            or row["config_hash"] not in access.approved_config_hashes
+            or row["data_split"] == "test"
+        ):
+            raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
+        return EvaluationRunStatus(
+            run_id=row["id"],
+            job_id=row["job_id"],
+            status=row["status"],
+            requested_count=row["requested_count"],
+        )
