@@ -228,8 +228,6 @@ async def write_record(
                     != row["required_role_id"]
                 ):
                     raise ApplicationError(422, "VALIDATION_ERROR", "이 역할의 역량이 아닙니다.")
-                if await repository.competency_exists(conn, parent["id"], payload.competency_id):
-                    raise ApplicationError(409, "DUPLICATE_CHECK", "이미 확인 기록이 있습니다.")
             prefix = "verified" if isinstance(payload, ExperienceCreate) else "checked"
             values[f"{prefix}_by_user_id"] = principal.user_id
             values[f"{prefix}_at"] = datetime.now(UTC)
