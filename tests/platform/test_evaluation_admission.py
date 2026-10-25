@@ -220,7 +220,7 @@ def test_http_acceptance_status_and_revocation(settings, access, experiment, mon
     replay = client.post("/api/v1/platform/evaluations/runs", json=body)
     assert replay.json() == first.json()
     access.approved_config_hashes = frozenset()
-    assert client.get(first.headers["location"]).status_code == 404
+    assert client.get(first.headers["location"]).status_code == 200
     assert client.post("/api/v1/platform/evaluations/runs", json=body).status_code == 403
     access.evaluator_user_ids = frozenset()
     assert client.get(first.headers["location"]).status_code == 403

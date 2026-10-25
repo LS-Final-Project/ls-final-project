@@ -51,8 +51,12 @@ async def locked_run(
     """
     await conn.execute("SET LOCAL lock_timeout='2s'")
     await conn.execute("SET LOCAL statement_timeout='5s'")
+    # 제어 행 잠금을 먼저 얻고 새 명령에서 실행 상태를 읽어 동시 취소의 최신 상태를 본다.
+    await conn.execute(
+        "SELECT run_id FROM evaluation.run_control WHERE run_id=%s FOR UPDATE", (run_id,)
+    )
     cursor = await conn.execute(
-        "SELECT c.*,r.status,r.job_id,r.requested_count,r.requested_by_user_id,r.provider,"
+        "SELECT c.*,r.status,r.needs_review,r.job_id,r.requested_count,r.requested_by_user_id,r.provider,"
         "r.experiment_id,e.created_by_user_id,u.is_active,"
         "(c.lease_expires_at > clock_timestamp()) AS lease_live "
         "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
@@ -140,7 +144,11 @@ async def claim_run(
     async with connection(settings) as conn:
         async with conn.transaction():
             row = await locked_run(conn, settings, access, run_id)
-            if row["status"] not in {"QUEUED", "RUNNING"} or row["lease_live"]:
+            if (
+                row["status"] not in {"QUEUED", "RUNNING"}
+                or row["lease_live"]
+                or row["needs_review"]
+            ):
                 return None
             holder = uuid4()
             cursor = await conn.execute(
@@ -192,6 +200,7 @@ async def advance_run(
             row = await locked_run(conn, settings, access, lease.run_id)
             if (
                 row["status"] != "RUNNING"
+                or row["needs_review"]
                 or not row["lease_live"]
                 or row["holder_id"] != lease.holder_id
                 or row["generation"] != lease.generation
@@ -274,6 +283,78 @@ async def advance_run(
             return True
 
 
+REVIEW_CODES = frozenset(
+    {
+        "FORBIDDEN",
+        "SMOKE_ACCESS_DENIED",
+        "FINAL_TEST_LOCKED",
+        "EXPERIMENT_NOT_APPROVED",
+        "LOCAL_SMOKE_ONLY",
+        "EXPERIMENT_HASH_MISMATCH",
+        "TARGET_SET_MISMATCH",
+        "SMOKE_INCOMPLETE",
+    }
+)
+
+
+async def park_run(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    run_id: UUID,
+    code: str,
+    lease: SmokeLease | None,
+) -> None:
+    """검증 위반 실행을 자동 재시도에서 제외하고 안전한 코드로 검토 필요를 기록한다.
+
+    Args:
+        settings: 로컬 DB 설정.
+        access: worker 활성 환경 설정.
+        run_id: 대상 실행 UUID.
+        code: 명시 허용한 안전한 오류 코드.
+        lease: 오류가 난 실행자의 소유권. 인수 전 실패면 None.
+
+    Returns:
+        None: 최신 소유권을 침범하지 않는 경우에만 보류를 commit한다.
+    """
+    if not admission_available(settings, access) or code not in REVIEW_CODES:
+        return
+    async with connection(settings) as conn:
+        async with conn.transaction():
+            await conn.execute("SET LOCAL lock_timeout='2s'")
+            await conn.execute("SET LOCAL statement_timeout='5s'")
+            await conn.execute(
+                "SELECT run_id FROM evaluation.run_control WHERE run_id=%s FOR UPDATE", (run_id,)
+            )
+            cursor = await conn.execute(
+                "SELECT c.*,r.status,r.job_id,r.needs_review,"
+                "c.lease_expires_at>clock_timestamp() AS lease_live "
+                "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
+                "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+                "WHERE c.run_id=%s FOR UPDATE OF c",
+                (run_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None or row["status"] not in {"QUEUED", "RUNNING"} or row["needs_review"]:
+                return
+            if lease is None:
+                if row["lease_live"]:
+                    return
+            elif row["generation"] != lease.generation or row["holder_id"] != lease.holder_id:
+                return
+            await conn.execute(
+                "UPDATE evaluation.runs SET needs_review=true,failure_code=%s WHERE id=%s",
+                (code, run_id),
+            )
+            await conn.execute(
+                "UPDATE evaluation.run_control SET generation=generation+1,holder_id=NULL,"
+                "lease_expires_at=NULL,version=version+1 WHERE run_id=%s",
+                (run_id,),
+            )
+            await append_event(
+                conn, row["job_id"], "job.progress", {"needs_review": True, "code": code}
+            )
+
+
 async def dispatch_one(settings: Settings, access: EvaluationAccessSettings) -> UUID | None:
     """outbox에서 허용된 미완료 합성 작업 하나를 인수하여 끝까지 실행한다.
 
@@ -291,21 +372,25 @@ async def dispatch_one(settings: Settings, access: EvaluationAccessSettings) -> 
             "SELECT r.id FROM runtime.dispatch_outbox o JOIN evaluation.runs r ON r.job_id=o.job_id "
             "JOIN evaluation.run_control c ON c.run_id=r.id "
             "JOIN evaluation.experiments e ON e.id=r.experiment_id "
-            "WHERE r.status IN ('QUEUED','RUNNING') AND "
+            "WHERE r.status IN ('QUEUED','RUNNING') AND NOT r.needs_review AND "
             "(c.holder_id IS NULL OR c.lease_expires_at<=clock_timestamp()) "
-            "AND r.requested_by_user_id=ANY(%s) AND e.config_hash=ANY(%s) "
             "ORDER BY o.created_at,o.job_id LIMIT 1",
-            (list(access.evaluator_user_ids), list(access.approved_config_hashes)),
         )
         row = await cursor.fetchone()
     if row is None:
         return None
-    lease = await claim_run(settings, access, row["id"])
-    if lease is None:
-        return None
-    while not await advance_run(settings, access, lease):
-        pass
-    return lease.run_id
+    lease = None
+    try:
+        lease = await claim_run(settings, access, row["id"])
+        if lease is None:
+            return None
+        while not await advance_run(settings, access, lease):
+            pass
+        return lease.run_id
+    except ApplicationError as error:
+        if error.code in REVIEW_CODES:
+            await park_run(settings, access, row["id"], error.code, lease)
+        raise
 
 
 def main() -> None:

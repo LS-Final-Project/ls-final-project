@@ -155,6 +155,12 @@ def evaluation_database(jobs_database):
                 conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
         sql = Path("infra/migrations/platform/20261025_KAN-90_smoke_worker.sql").read_text()
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path("infra/migrations/platform/20261025_KAN-90_run_actions.sql").read_text()
+        if (
+            conn.execute("SELECT to_regclass('evaluation.run_action_receipts')").fetchone()[0]
+            is None
+        ):
+            conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return jobs_database
 
 
@@ -209,7 +215,7 @@ def experiment(evaluation_database, registered_user):
             "(SELECT id FROM evaluation.cases WHERE experiment_id=%s)",
             (value["id"],),
         )
-        for table in ("admission_receipts", "run_control", "cases"):
+        for table in ("run_action_receipts", "admission_receipts", "run_control", "cases"):
             conn.execute(
                 psycopg.sql.SQL(
                     "DELETE FROM evaluation.{} WHERE run_id IN "

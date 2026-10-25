@@ -10,7 +10,7 @@
 
 2026-10-25 사용자 결정에 따라 `primary_quality_view=first_attempt`, `final_result_reported_separately=true`를 반환한다. 해당 AI 품질 합격선은 최초 호출에 적용하고 모든 원시 응답의 스키마 위반0 기준을 유지한다. 실제 복구 정책·신규 합격선 확정은 별도다.
 
-실제 모델 평가 실행기는 미연결이므로 `execution_available=false`, `execution_unavailable_reason=RUNNER_NOT_CONNECTED`, `final_test_available=false`, `raw_output_available=false`를 유지한다. `admission_available`은 아래 로컬 합성 **저장 접수** 가능 여부다. `local_smoke_execution_available`은 같은 명시 설정에서 CLI 합성 worker 사용 가능 여부이며 실제 모델 실행 가능 여부와 다르다. 실험 등록·취소·재개·결과 조회·화면은 아직 미구현이다.
+실제 모델 평가 실행기는 미연결이므로 `execution_available=false`, `execution_unavailable_reason=RUNNER_NOT_CONNECTED`, `final_test_available=false`, `raw_output_available=false`를 유지한다. `admission_available`은 아래 로컬 합성 **저장 접수** 가능 여부다. `local_smoke_execution_available`은 같은 명시 설정에서 CLI 합성 worker 사용 가능 여부이며 실제 모델 실행 가능 여부와 다르다. 합성 실행의 취소·재개는 아래 local/test 제어 계약을 따른다. 실험 등록·평가 결과 조회·화면은 아직 미구현이다.
 
 ## KAN-90 로컬 합성 저장 접수 — 운영 실행 미연결
 
@@ -26,7 +26,7 @@
 
 KAN-69의 작업 유일 키를 먼저 확보한 뒤 신규 요청만 run·고정 대상별 PENDING case·run_control·최초 응답 request ID를 동일 transaction에 저장한다. 작업·최초 이벤트·outbox를 포함한 어느 단계에서든 실패하면 모두 rollback한다. commit 후에만202를 반환한다. 동일 키·동일 정규화 요청은 기존 run/job과 최초 응답 body·Location·Retry-After를 재생한다. 다른 experiment_id 또는 If-Match면409다. If-Match는 신규 생성의 판본 전제조건이 아니며 멱등 요청 구분에 포함한다. HTTP X-Request-ID 헤더는 현재 요청 추적 ID이고 body meta.request_id는 최초 접수의 ID다.
 
-202의 data는 run_id·job_id·status=QUEUED·status_url이다. Location은 실제 구현한 `GET /api/v1/platform/evaluations/runs/{run_id}`이며 조회는 현재 평가 권한·실험 생성자·요청자·허용 hash를 다시 검사한다. 허용 목록 철회 후 재전송/조회는 기존 성공을 근거로 허용하지 않는다. 조회는 상태·요청 건수만 반환하고 원시 출력·정답을 노출하지 않는다.
+202의 data는 run_id·job_id·status=QUEUED·status_url이다. Location은 실제 구현한 `GET /api/v1/platform/evaluations/runs/{run_id}`이며 조회는 현재 평가 권한·실험 생성자·요청자를 다시 검사하고 test split은 숨긴다. 구성 hash 허용이 철회돼도 담당자가 보류 원인과 최신 판본을 확인해 취소할 수 있도록 제한된 상태 조회는 유지한다. 평가자 지정이나 세션 권한이 철회되면 조회도 거부한다. 접수 재전송·재개는 구성 허용을 다시 검사한다. 조회는 실행/job ID·상태·요청 건수·version·needs_review·failure_code만 반환하고 원시 출력·정답을 노출하지 않는다.
 
 현재는 일반 jobs/SSE 경로가 구현되지 않았으므로 공통 비동기 응답의 events_url을 제공하지 않는 **local/test 전용 부분 계약**이다. 실제 운영 접수 활성화 전에 공통 jobs/SSE 연결과 권한 검증을 완료해야 한다. 접수 자체는 QUEUED만 만든다. 아래 로컬 worker를 명시적으로 실행하면 RUNNING→SUCCEEDED로 진행한다. Cloud Run Jobs dispatcher는 아직 없다. 이 접수의 provider=fake, runner_kind=test, scoring_version=smoke-not-scored-v1은 미채점 연결 검사 표시이며 실제 품질 점수를 의미하지 않는다.
 
@@ -34,9 +34,9 @@ DB 대기 상한은 초기 로컬 보호값으로 lock_timeout=2초, statement_t
 
 ### 마이그레이션과 남은 범위
 
-KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소 API는 아직 없다.
+KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 run_actions migration을 추가로 적용해야 한다.
 
-최초 응답 저장은 구조화 ID만 보존한다. 허용 실험의 실제 모델 실행, dispatcher·worker·lease·복구, 취소/재개, SSE, 전체 평가 및 최종 시험 운영은 후속 작업이다. 로컬 합성 접수 성공으로 KAN-69/90 전체 완료를 판단하지 않는다.
+최초 응답 저장은 구조화 ID만 보존한다. 실제 모델 실행·운영 dispatcher/worker·외부 호출 복구, SSE, 전체 평가 및 최종 시험 운영은 후속 작업이다. 로컬 합성 접수 성공으로 KAN-69/90 전체 완료를 판단하지 않는다.
 
 마이그레이션: `infra/migrations/platform/20261023_KAN-85_evaluation_storage.sql`. 스키마는 `evaluation`(소유 `platform_migrator`, 실행 계정 `platform_app`)이며 `cs_app`·`tft_app`은 접근할 수 없다. 분모·계산법·안전 조건의 원본은 [평가 명세](../../docs/evaluation.md), 출처 축은 [데이터 계약](../../docs/data-contract.md)을 따른다. 이 문서는 저장 구조의 계약이며 평가 API(KAN-90)나 지표 계산기(KAN-86·88·89)의 구현 완료를 뜻하지 않는다.
 
@@ -147,4 +147,38 @@ uv run --frozen python -m backend.api.platform.evaluations.smoke_worker
 
 **이 복구는 외부 효과가 없는 FakeProvider 전용이다.** transaction 중 실제 모델 네트워크를 호출하는 구현으로 확장하지 않는다. 외부 모델은 intent/dispatch 결과 불명확(UNKNOWN)/사용량 보존 규약이 먼저 필요하다. 중단된 합성 함수를 다시 호출할 수는 있지만 commit된 사례·시도는 하나만 남는다. 이를 실제 모델 호출의 exactly-once 보장으로 해석하지 않는다.
 
-검사에는 HTTP 접수→outbox→합성 실행→완료 조회, 종료 뒤 최초 접수 응답 재생, 동시 소유권 경합, 저장 단계 실패, 만료 worker 차단, 사례 일부 완료 후 재개, 종료 직전 재개, 별도 프로세스의 transaction 중 비정상 종료를 포함한다. 실제 배포·취소 API·SSE·운영 worker 인증·실제 모델 품질은 별도 검증 대상이다.
+검사에는 HTTP 접수→outbox→합성 실행→완료 조회, 종료 뒤 최초 접수 응답 재생, 동시 소유권 경합, 저장 단계 실패, 만료 worker 차단, 사례 일부 완료 후 재개, 종료 직전 재개, 별도 프로세스의 transaction 중 비정상 종료를 포함한다. 실제 배포·SSE·운영 worker 인증·실제 모델 품질은 별도 검증 대상이다. 합성 실행의 취소·재개 검사는 아래와 같다.
+
+
+## KAN-90 합성 실행 보류·취소·재개
+
+이 절은 local/test의 합성 실행 제어 구현 계약이다. production 활성화나 실제 모델 호출 취소 보장이 아니다. `20261025_KAN-90_smoke_worker.sql` 다음에 `20261025_KAN-90_run_actions.sql`을 적용한다. 새 migration은 이번 작업의 임시 검사 DB에서만 적용하며 공용 DB에는 적용하지 않았다. 기존 접수·worker migration을 재적용할 필요는 없다.
+
+### 요청과 판본
+
+- `GET /evaluations/runs/{run_id}`는 현재 `version`과 `ETag: "<version>"`을 반환한다. 경로 접두사는 `/api/v1/platform`이다.
+- `POST /evaluations/runs/{run_id}/cancel` 및 `/resume`는 현재 지정 평가자의 활성 세션, Origin, 세션 결속 CSRF와 8~128자 `Idempotency-Key`를 요구한다. 본문 없이 조회 ETag를 `If-Match`에 전달한다.
+- If-Match 누락은428 VERSION_REQUIRED, 최신 판본과 다르면412 VERSION_CONFLICT다. 다른 소유자·없는 실행은404다. 현재 접수 활성 조건(local/test 및 명시 활성 설정)을 만족해야 한다.
+- 한 실행의 run_control 행 잠금 아래 상태 변경·job·이벤트·판본·최초 응답을 같은 transaction에 저장한다. receipt 저장 실패도 전부 rollback한다. 멱등 범위는 실행·사용자·동작·키이며 동일 요청은 최초 body와 ETag를 재생한다. 같은 키에 다른 If-Match는409 IDEMPOTENCY_CONFLICT다. 재생 ETag는 최초 결과의 판본이므로 새 작업 전 GET으로 최신 상태를 확인한다.
+- 재전송도 현재 세션·평가자·소유권을 검사한다. resume은 구성 hash·사용자 활성·고정 합성 대상도 다시 검사한다. DB 실패/commit 불명확 시 기존503 경계를 따르며 동일 키로 재확인한다.
+
+### 상태별 동작
+
+| 요청 | 현재 상태 | 처리 |
+| --- | --- | --- |
+| cancel | QUEUED 또는 RUNNING | CANCELLED와 finished_at, job CANCELLED, 취소자·시각, completed 이벤트를 함께 저장하고 needs_review를 해제한다. 기존 failure_code는 진단 이력으로 유지한다. |
+| cancel | 종료 상태 | 상태와 판본을 바꾸지 않고 기존 상태를 반환한다. 취소 성공으로 완료 상태를 덮어쓰지 않는다. |
+| resume | 비종료, needs_review=true 또는 활성 lease 없음 | 현재 허용 조건을 재검사하고 needs_review·failure_code를 지운다. 새 소유권 획득은 다음 worker 실행에 맡긴다. |
+| resume | 종료 상태 또는 보류 아닌 활성 lease | 409 INVALID_TRANSITION. 완료·취소 상태를 RUNNING으로 되돌리지 않는다. |
+
+비종료 실행 제어 시 generation과 version을 증가시키고 holder·lease를 해제한다. 오래된 worker는 STALE_WORKER로 저장이 거부된다. 합성 worker와 취소가 같은 제어 행을 잠그므로 이미 commit한 사례·시도는 보존하고 이후 처리를 막는다. 외부 호출이 없는 fake 처리에만 적용되며 실제 모델의 실행 중 요청 취소·UNKNOWN 처리로 확장하지 않는다.
+
+### 자동 보류와 복구
+
+worker가 현재 평가자 지정/활성 사용자/구성 승인/구성 hash/합성 대상 검증에 실패하면 안전한 허용 오류 코드만 failure_code에 기록하고 needs_review=true로 보류한다. 상태는 기존 QUEUED/RUNNING을 유지하며 새 상태 enum을 만들지 않는다. job.progress 이벤트와 판본을 함께 저장하고 dispatcher는 보류 실행을 자동 선택하지 않는다. 원문·정답·예외 메시지는 저장하지 않는다.
+
+기록 가능한 코드는 FORBIDDEN, SMOKE_ACCESS_DENIED, FINAL_TEST_LOCKED, EXPERIMENT_NOT_APPROVED, LOCAL_SMOKE_ONLY, EXPERIMENT_HASH_MISMATCH, TARGET_SET_MISMATCH, SMOKE_INCOMPLETE다. DB 일시 장애·STALE_WORKER는 이 목록에 넣지 않으며 lease 만료 후 복구 규칙을 따른다. 이전 worker의 오류가 새 holder를 보류시키지 않도록 generation/holder를 비교한다.
+
+담당자는 보류 사유 확인 → 허용 조건 복구 → 최신 ETag 조회 → 명시 resume 순으로 진행한다. 구성 승인 철회 상태에서는 제한 상태 조회와 cancel만 허용하고 resume은 거부한다. 평가자 지정/계정 활성 자체가 철회됐으면 먼저 운영자가 계정 정책을 해결해야 한다. 플랫폼 API가 역할이나 허용 hash를 자동 복구하지 않는다.
+
+검증 범위는 실제 PostgreSQL의 취소·재전송, 동시 동일 취소, 판본 충돌, 저장 실패 rollback, 옛 worker 차단, 보류 반복 방지와 조건 복구 후 재개, HTTP CSRF·ETag다. 합성 성공은 실제 품질 평가나 운영 배포 완료 증거가 아니다.
