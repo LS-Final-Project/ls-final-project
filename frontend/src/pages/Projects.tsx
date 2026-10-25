@@ -1,17 +1,20 @@
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { getApiMode } from '../api/client';
 import { listProjects } from '../api/tft';
-import { Empty, ErrorState, Loading, Preparing } from '../components/states';
+import { Empty, ErrorState, Loading } from '../components/states';
 import { PROJECT_STATUS_LABEL, StatusBadge } from '../components/tft';
 
 export default function Projects() {
   const mode = getApiMode();
-  const projects = useQuery({queryKey: ['projects', mode], queryFn: listProjects, enabled: import.meta.env.DEV});
-  if (!import.meta.env.DEV) return <Preparing title="TFT 프로젝트" />;
-  const items = projects.data?.data.items;
+  const access = useBusinessAccess('tft');
+  const projects = useQuery({queryKey: ['projects', mode], queryFn: listProjects, enabled: access.ready});
+  if (!access.ready) return <BusinessGate access={access} title="TFT 프로젝트" />;
+  const items = projects.isSuccess ? projects.data.data.items : undefined;
   return <main>
     <header><p className="eyebrow">TFT</p><h1>프로젝트 목록</h1></header>
+    <button disabled={projects.isFetching} onClick={()=>projects.refetch()}>최신 상태 조회</button>
     <section>
       {projects.isPending && <Loading />}
       {projects.isError && <ErrorState error={projects.error} onRetry={() => projects.refetch()} />}

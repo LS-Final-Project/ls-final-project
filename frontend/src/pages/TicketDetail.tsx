@@ -1,18 +1,21 @@
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
 import { getTicket } from '../api/cs';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
 
 export default function TicketDetail() {
   const { ticketId = '' } = useParams();
   const mode = getApiMode();
-  const ticket = useQuery({queryKey: ['tickets', mode, ticketId], queryFn: () => getTicket(ticketId), enabled: import.meta.env.DEV && ticketId !== ''});
-  if (!import.meta.env.DEV) return <Preparing title="C/S 문의" />;
-  const data = ticket.data?.data;
+  const access = useBusinessAccess('cs');
+  const ticket = useQuery({queryKey: ['tickets', mode, ticketId], queryFn: () => getTicket(ticketId), enabled: access.ready && ticketId !== ''});
+  if (!access.ready) return <BusinessGate access={access} title="C/S 문의" />;
+  const data = ticket.isSuccess ? ticket.data.data : undefined;
   const rc = data?.resolution_case;
   return <main>
     <header><p className="eyebrow"><Link to="/cs/tickets">C/S 문의 목록</Link></p><h1>{data ? data.subject || '(제목 없음)' : '문의 상세'}</h1></header>
+    <button disabled={ticket.isFetching} onClick={()=>ticket.refetch()}>최신 상태 조회</button>
     {ticket.isPending && <Loading />}
     {ticket.isError && <ErrorState error={ticket.error} onRetry={() => ticket.refetch()} />}
     {data && <>

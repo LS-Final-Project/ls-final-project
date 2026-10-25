@@ -14,6 +14,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   const hint = status === 401 ? '세션이 없거나 만료됐습니다.' : status === 403 ? '허용된 역할과 범위를 확인하세요.' : status === 404 ? '없거나 접근할 수 없는 항목입니다.' : api?.message || (error instanceof Error ? error.message : '알 수 없는 오류');
   return <div role="alert" className="state error">
     <strong>{title}</strong><p>{hint}</p>
+    {status === 401 && !import.meta.env.DEV && <p><Link to="/account">계정 확인</Link>에서 다시 로그인하세요.</p>}
     {status === 401 && import.meta.env.DEV && <p><Link to="/">개발 환경</Link>에서 시연 계정을 선택하세요.</p>}
     {api?.requestId && <small>요청 ID {api.requestId}</small>}
     {onRetry && !fixed && <button onClick={onRetry}>다시 시도</button>}
