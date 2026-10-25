@@ -68,16 +68,6 @@ async def competency_role(conn: AsyncConnection[Row], competency_id: UUID) -> UU
     return row["required_role_id"] if row else None
 
 
-async def competency_exists(
-    conn: AsyncConnection[Row], recommendation_id: UUID, competency_id: UUID
-) -> bool:
-    result = await conn.execute(
-        "SELECT 1 FROM tft.competency_checks WHERE recommendation_id = %s AND competency_id = %s",
-        (recommendation_id, competency_id),
-    )
-    return await result.fetchone() is not None
-
-
 async def replay(
     conn: AsyncConnection[Row], actor: UUID, request_id: UUID, operation: str, key: str
 ) -> Row | None:
