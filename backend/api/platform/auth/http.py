@@ -99,7 +99,10 @@ def configure_auth(app: FastAPI, configuration: MicrosoftAuthSettings) -> None:
             Response: 인증 경로에 보호 헤더를 추가한 응답.
         """
         response = await call_next(request)
-        if request.url.path.startswith(AUTH_PREFIX) or request.url.path == "/api/v1/platform/me":
+        if (
+            request.url.path.startswith((AUTH_PREFIX, "/api/v1/platform/evaluations/"))
+            or request.url.path == "/api/v1/platform/me"
+        ):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Referrer-Policy"] = "no-referrer"
         return response
