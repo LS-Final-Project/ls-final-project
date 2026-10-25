@@ -200,3 +200,20 @@ def test_platform_relay_requires_operational_login():
     """
     with pytest.raises(ValueError, match="Microsoft operational"):
         create_app(Settings(_env_file=None, **RELAY))
+
+
+def test_cs_relay_requires_explicit_manual_data_origin():
+    """운영 인증을 켠 C/S가 문의를 임의로 시연·실제 자료로 분류하지 못하게 한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 중계 활성화 시 출처 누락을 거부하고 실제·시연 설정을 각각 허용한다.
+    """
+    from backend.api.cs.main import create_app as create_cs
+
+    with pytest.raises(ValueError, match="CS_MANUAL_DATA_ORIGIN"):
+        create_cs(Settings(_env_file=None, **RELAY))
+    for origin in ("demo", "real"):
+        create_cs(Settings(_env_file=None, **RELAY, cs_manual_data_origin=origin))

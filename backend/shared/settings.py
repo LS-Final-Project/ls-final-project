@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     business_cs_url: str = ""
     business_tft_url: str = ""
     business_platform_email: str = ""
+    cs_manual_data_origin: Literal["demo", "real"] | None = None
     database_url: SecretStr | None = None
     cloud_run_service: str | None = Field(default=None, validation_alias="K_SERVICE")
 

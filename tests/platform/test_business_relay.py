@@ -124,11 +124,12 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
             **(
                 OPTIONS
                 | {
+                    "cs_manual_data_origin": "demo",
                     "database_url": SecretStr(
                         make_conninfo(
                             business_database, user=service + "_app", password="test-only"
                         )
-                    )
+                    ),
                 }
             ),
         )
@@ -197,16 +198,23 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
             conn.execute("DELETE FROM tft.projects WHERE id=ANY(%s)", (list(projects),))
 
 
-def test_real_cs_create_update_audit_and_user_header_replacement(system):
+@pytest.mark.parametrize("manual_origin", ["demo", "real"])
+def test_real_cs_create_update_audit_and_user_header_replacement(system, manual_origin):
     """C/S 생성·수정·감사 기록에서 세션 사용자만 사용하고 비밀 헤더를 전달하지 않는다.
 
     Args:
         system: 실제 DB·세 서비스 앱과 합성 네트워크 경계.
+        manual_origin: production 인증 정책과 독립적으로 지정한 서버의 수동 문의 출처.
 
     Returns:
         None: 현재 C/S API 상태·본문·판본·감사 작성자와 위조 제거를 확인한다.
     """
     client = system["client"]
+    cs_app = system["services"][CS].app
+    cs_app.state.settings = Settings(
+        _env_file=None,
+        **(cs_app.state.settings.model_dump() | {"cs_manual_data_origin": manual_origin}),
+    )
     forged = Principal(user_id=uuid4(), roles={"sales"})
     headers = (
         system["write"]
@@ -231,6 +239,7 @@ def test_real_cs_create_update_audit_and_user_header_replacement(system):
     )
     assert result.status_code == 201, result.text
     ticket = result.json()["data"]
+    assert ticket["data_origin"] == manual_origin
     ticket_path = "/api/v1/cs/tickets/" + ticket["id"]
     updated = client.patch(
         ticket_path, headers=system["write"], json={"version": 1, "subject": "수정된 합성 제목"}
@@ -240,7 +249,8 @@ def test_real_cs_create_update_audit_and_user_header_replacement(system):
         ticket_path, headers=system["write"], json={"version": 1, "subject": "충돌"}
     )
     assert conflict.status_code == 409
-    assert client.get(ticket_path).json()["data"]["subject"] == "수정된 합성 제목"
+    stored = client.get(ticket_path).json()["data"]
+    assert stored["subject"] == "수정된 합성 제목" and stored["data_origin"] == manual_origin
     audit = client.get(ticket_path + "/audit").json()["data"]["items"]
     assert len(audit) == 2
     assert {event["actor_user_id"] for event in audit} == {str(system["user_id"])}

@@ -1059,7 +1059,7 @@
                 }
               }
             },
-            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
+            "description": "Not found or outside the user's scope. Production requires an enabled business relay and a verified platform caller (KAN-178)"
           },
           "422": {
             "content": {
@@ -1089,6 +1089,7 @@
         "x-implementation-status": "partial"
       },
       "post": {
+        "description": "\uc811\uc218 \uad8c\ud55c\uc744 \ud655\uc778\ud558\uace0 \uc11c\ubc84\uac00 \uba85\uc2dc\ud55c \ucd9c\ucc98\ub85c \ubb38\uc758\uc640 \uac10\uc0ac \uae30\ub85d\uc744 \ud568\uaed8 \uc800\uc7a5\ud55c\ub2e4.\n\nArgs:\n    payload: \ud074\ub77c\uc774\uc5b8\ud2b8\uac00 \uc785\ub825\ud55c \ubb38\uc758 \ud544\ub4dc. \ucd9c\ucc98\u00b7\ud310\ubcf8\u00b7\uc791\uc131\uc790 \uc9c0\uc815\uc740 \ud5c8\uc6a9\ud558\uc9c0 \uc54a\ub294\ub2e4.\n    request: \ucd9c\ucc98 \uc124\uc815\uacfc DB \uc5f0\uacb0\uc744 \uc81c\uacf5\ud558\ub294 \uc694\uccad.\n    principal: \ud638\ucd9c\uc790\u00b7\uc0ac\uc6a9\uc790 \ub9e5\ub77d \uac80\uc99d\uc744 \ub9c8\uce5c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[TicketDetail]: \uc11c\ubc84 \ud310\ubcf8\u00b7\ucd9c\ucc98\uac00 \ud3ec\ud568\ub41c \uc0c8 \ubb38\uc758.",
         "operationId": "cs_create_ticket",
         "requestBody": {
           "content": {
@@ -1139,7 +1140,7 @@
                 }
               }
             },
-            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
+            "description": "Not found or outside the user's scope. Production requires an enabled business relay and a verified platform caller (KAN-178)"
           },
           "422": {
             "content": {
@@ -1223,7 +1224,7 @@
                 }
               }
             },
-            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
+            "description": "Not found or outside the user's scope. Production requires an enabled business relay and a verified platform caller (KAN-178)"
           },
           "422": {
             "content": {
@@ -1315,7 +1316,7 @@
                 }
               }
             },
-            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
+            "description": "Not found or outside the user's scope. Production requires an enabled business relay and a verified platform caller (KAN-178)"
           },
           "409": {
             "content": {
@@ -1409,7 +1410,7 @@
                 }
               }
             },
-            "description": "Not found or outside the user's scope. Closed outside local/test until the platform relays the user (KAN-78)"
+            "description": "Not found or outside the user's scope. Production requires an enabled business relay and a verified platform caller (KAN-178)"
           },
           "422": {
             "content": {

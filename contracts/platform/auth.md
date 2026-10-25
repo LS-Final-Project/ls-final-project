@@ -106,7 +106,10 @@ BUSINESS_PLATFORM_EMAIL=<platform-runtime 실행 서비스 계정 이메일>
 
 출처는 path·마지막 slash·자격증명·query·fragment가 없는 서로 다른 HTTPS 주소여야 한다.
 플랫폼은 Microsoft 운영 인증도 켜져 있어야 하며 개발 인증과 동시에 사용할 수 없다.
-웹은 같은 플래그와 기존 `PLATFORM_URL`을 사용한다. 수신 서비스별 run.invoker 부여와
+웹은 같은 플래그와 기존 `PLATFORM_URL`을 사용한다. C/S는 추가로
+`CS_MANUAL_DATA_ORIGIN=demo` 또는 `real`을 명시해야 활성화된다. 공용 시연은
+production에서도 demo를 유지하며 실제 문의 배포만 real을 선택한다. 이 설정은 새 수동
+문의에만 적용하고 브라우저가 지정할 수 없다. 출처가 다른 자료를 한 배포에서 혼합 접수하지 않는다. 수신 서비스별 run.invoker 부여와
 실제 공용 계정 검증은 [배포 안내](../../docs/service-delivery.md#kan-178-업무-중계-활성화-전-확인)를 따른다.
 
 검사는 `tests/test_service_auth.py`(합성 RSA의 실제 서명·클레임 검증),

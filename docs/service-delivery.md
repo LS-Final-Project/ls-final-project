@@ -87,7 +87,9 @@ python3 infra/deploy_private.py BUILD_ID --service web --apply
    프로젝트 전체 invoker나 allUsers 공개 권한을 부여하지 않는다.
 3. 서로 다른 정확한 CS/TFT 서비스 URL과 실제 플랫폼 실행 계정 이메일을 백엔드 세 곳에
    주입하고, 플랫폼 Microsoft 운영 인증과 고정 callback을 검증한다. C/S·TFT는 토큰
-   audience를 각각 자기 URL과 대조한다. 웹은 기존 PLATFORM_URL을 사용한다.
+   audience를 각각 자기 URL과 대조한다. 웹은 기존 PLATFORM_URL을 사용한다. C/S의 CS_MANUAL_DATA_ORIGIN도
+   명시한다. 공용 시연은 demo, 실제 문의만 처리하는 배포는 real이며 production 인증
+   정책만으로 실제 자료를 판정하지 않는다. 혼합 접수·기존 행의 일괄 출처 변경은 지원하지 않는다.
 4. 수신 서비스 호출자 검증이 준비된 뒤 플랫폼·웹 중계를 연결한다. 직접 호출·위조 맥락·
    다른 서비스 audience·미인증·만료·CSRF·범위 밖 프로젝트·권한 회수·upstream 장애를
    실제 공용 환경에서 확인한다. 실제 토큰이나 Cookie를 로그/PR/터미널 기록에 출력하지 않는다.

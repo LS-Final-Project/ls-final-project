@@ -44,8 +44,8 @@ router = APIRouter(
         403: {"model": ErrorResponse, "description": "The role has no TFT scope"},
         404: {
             "model": ErrorResponse,
-            "description": "Not found or outside the user's scope. Closed outside local/test "
-            "until the platform relays the user (KAN-78)",
+            "description": "Not found or outside the user's scope. Production requires an enabled "
+            "business relay and a verified platform caller (KAN-178)",
         },
     },
 )

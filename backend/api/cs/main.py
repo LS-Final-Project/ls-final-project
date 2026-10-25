@@ -6,6 +6,19 @@ from backend.shared.settings import Settings
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """C/S 앱을 만들고 인증 중계 활성화 시 수동 문의 출처의 명시 설정을 요구한다.
+
+    Args:
+        settings: 공통 설정. 없으면 환경에서 읽는다.
+
+    Returns:
+        FastAPI: 수동 문의 출처와 호출자 검증 설정을 확인한 C/S 앱.
+    """
     app = create_application("cs", settings)
+    if (
+        app.state.settings.business_relay_enabled
+        and app.state.settings.cs_manual_data_origin is None
+    ):
+        raise ValueError("Business relay requires an explicit CS_MANUAL_DATA_ORIGIN")
     app.include_router(router)
     return app
