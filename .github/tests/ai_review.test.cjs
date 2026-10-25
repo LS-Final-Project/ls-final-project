@@ -45,6 +45,7 @@ test('prepare binds the schema to the complete changed-file manifest', async () 
     await prepare(f);
     assert.deepEqual(JSON.parse(f.outputs.files), files);
     assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, files);
     assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
     f.pr.changed_files = 3;
     await assert.rejects(() => prepare(f));

@@ -74,7 +74,9 @@ async function prepare({ github, context, core }) {
   const diffFile = path.join(directory, 'review.diff');
   await fs.writeFile(diffFile, diff, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
-  core.setOutput('schema', JSON.stringify(schema));
+  const reviewSchema = structuredClone(schema);
+  reviewSchema.properties.findings.items.properties.path.enum = files.map(file => file.filename);
+  core.setOutput('schema', JSON.stringify(reviewSchema));
   core.setOutput('diff_file', diffFile);
   core.setOutput('diff_lines', String(diffLines.length - Number(diff.endsWith('\n'))));
 }
