@@ -166,10 +166,17 @@ def test_entrypoint_selects_only_the_requested_app_and_cloud_run_port(monkeypatc
         "backend.__main__.uvicorn.run",
         lambda target, **kwargs: observed.update(target=target, **kwargs),
     )
+    # JSON logging is configured before the server starts (KAN-70).
+    monkeypatch.setattr(
+        "backend.__main__.configure_logging", lambda: observed.update(logging="json")
+    )
     main()
     assert observed == {
+        "logging": "json",
         "target": "backend.api.tft.main:create_app",
         "factory": True,
         "host": "0.0.0.0",
         "port": 8124,
+        "log_config": None,
+        "access_log": False,
     }

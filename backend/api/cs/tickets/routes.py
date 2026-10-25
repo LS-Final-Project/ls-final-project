@@ -26,18 +26,20 @@ from backend.api.cs.tickets.schemas import (
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
+from backend.shared.logs import bind, bind_path_ids
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
 router = APIRouter(
     prefix="/api/v1/cs/tickets",
     tags=["tickets"],
+    dependencies=[Depends(bind_path_ids)],
     responses={
         401: {"model": ErrorResponse, "description": "No valid user context"},
         403: {"model": ErrorResponse, "description": "The role may not take this action"},
         404: {
             "model": ErrorResponse,
-            "description": "Not found or outside the user's scope. Closed outside local/test "
-            "until the platform relays the user (KAN-78)",
+            "description": "Not found or outside the user's scope. Production requires an enabled "
+            "business relay and a verified platform caller (KAN-178)",
         },
     },
 )
@@ -161,20 +163,34 @@ def respond(request: Request, data: Any) -> SuccessResponse[Any]:
 async def create_ticket(
     payload: TicketCreate, request: Request, principal: Principal = Depends(current_principal)
 ) -> SuccessResponse[TicketDetail]:
+    """접수 권한을 확인하고 서버가 명시한 출처로 문의와 감사 기록을 함께 저장한다.
+
+    Args:
+        payload: 클라이언트가 입력한 문의 필드. 출처·판본·작성자 지정은 허용하지 않는다.
+        request: 출처 설정과 DB 연결을 제공하는 요청.
+        principal: 호출자·사용자 맥락 검증을 마친 사용자.
+
+    Returns:
+        SuccessResponse[TicketDetail]: 서버 판본·출처가 포함된 새 문의.
+    """
     require_ticket_write(principal)
+    settings = request.app.state.settings
     now = datetime.now(UTC)
     values = {
         "id": uuid4(),
-        # Manual input has no source ID. Routes only answer in local/test, so records are demo.
+        # 인증용 production 설정과 자료의 실제·시연 여부는 별개다.
         "source": "manual",
         "source_instance": "cs_api",
         "external_id": None,
-        "data_origin": "demo",
+        "data_origin": (
+            settings.cs_manual_data_origin if settings.business_relay_enabled else "demo"
+        ),
         "derivation_kind": "SYSTEM",
         "received_at": now,
         "known_at": now,
         **payload.model_dump(),
     }
+    bind(ticket_id=values["id"])
     # The original body is immutable and stays in the ticket row, not in the audit trail.
     created = {
         name: {"to": value} for name, value in payload.model_dump().items() if name != "body"
