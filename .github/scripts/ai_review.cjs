@@ -36,6 +36,15 @@ async function currentPR(github, context) {
   return pr;
 }
 
+/** Git의 C 인용 경로를 만든다. Args: name — UTF-8 경로. Returns: 인용·이스케이프한 경로. */
+function quotedPath(name) {
+  const escapes = {7: '\\a', 8: '\\b', 9: '\\t', 10: '\\n', 11: '\\v', 12: '\\f', 13: '\\r', 34: '\\"', 92: '\\\\'};
+  const encoded = [...Buffer.from(name, 'utf8')].map(byte =>
+    escapes[byte] || (byte < 32 || byte >= 127
+      ? `\\${byte.toString(8).padStart(3, '0')}` : String.fromCharCode(byte))).join('');
+  return `"${encoded}"`;
+}
+
 /** 검토 범위와 출력 스키마를 고정한다. Args: API·이벤트·출력 도구. Returns: 완료 Promise. */
 async function prepare({ github, context, core }) {
   const pr = await currentPR(github, context);
@@ -49,9 +58,13 @@ async function prepare({ github, context, core }) {
   const {data: diff} = await github.rest.pulls.get({
     ...context.repo, pull_number: pr.number, mediaType: {format: 'diff'},
   });
-  const headers = typeof diff === 'string' ? new Set(diff.match(/^diff --git .+$/gm)) : new Set();
-  if (headers.size !== files.length || files.some(file =>
-    !headers.has(`diff --git a/${file.previous_filename || file.filename} b/${file.filename}`))) {
+  const lines = typeof diff === 'string' ? diff.match(/^diff --git .+$/gm) || [] : [];
+  const headers = new Set(lines);
+  if (lines.length !== files.length || headers.size !== files.length || files.some(file => {
+    const oldPath = `a/${file.previous_filename || file.filename}`, newPath = `b/${file.filename}`;
+    return ![oldPath, quotedPath(oldPath)].some(oldName =>
+      [newPath, quotedPath(newPath)].some(newName => headers.has(`diff --git ${oldName} ${newName}`)));
+  })) {
     throw new Error('전체 파일의 diff를 확보하지 못했습니다. 검토를 시작하지 않습니다.');
   }
   await currentPR(github, context);
@@ -62,7 +75,7 @@ async function prepare({ github, context, core }) {
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
   core.setOutput('schema', JSON.stringify(schema));
   core.setOutput('diff_file', diffFile);
-  core.setOutput('diff_lines', String(diff.split('\n').length));
+  core.setOutput('diff_lines', String(diff.split('\n').length - Number(diff.endsWith('\n'))));
 }
 
 /** 모델 결과를 검사한다. Args: 원시 JSON, 예상 SHA·파일 목록. Returns: 검증한 결과. */

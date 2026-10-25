@@ -3,6 +3,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const {spawnSync} = require('node:child_process');
 const { prepare, validate, finish } = require('../scripts/ai_review.cjs');
 const head = '1'.repeat(40), base = '2'.repeat(40);
 const files = ['backend/example.py', 'tests/test_example.py'];
@@ -60,12 +62,12 @@ test('168파일의 큰 diff를 잘림 없이 모델이 읽을 파일로 제공�
     assert.deepEqual(JSON.parse(f.outputs.files), many);
     assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
     assert.equal(fs.statSync(f.outputs.diff_file).mode & 0o777, 0o600);
-    assert.equal(Number(f.outputs.diff_lines), f.diff.value.split('\n').length);
+    assert.equal(Number(f.outputs.diff_lines), many.length * 6);
   } finally {cleanDiff(f);}
 });
 
 test('누락된 파일 diff나 읽는 동안 바뀐 SHA를 모델에게 넘기지 않는다', async () => {
-  for (const invalid of ['', '<html>error</html>', `diff --git a/${files[0]} b/${files[0]}\n`]) {
+  for (const invalid of [null, {}, '', '<html>error</html>', `diff --git a/${files[0]} b/${files[0]}\n`, fixture().diff.value + `diff --git a/${files[0]} b/${files[0]}\n`]) {
     const f = fixture();
     f.diff.value = invalid;
     await assert.rejects(() => prepare(f));
@@ -80,6 +82,31 @@ test('누락된 파일 diff나 읽는 동안 바뀐 SHA를 모델에게 넘기�
   };
   await assert.rejects(() => prepare(f));
   assert.equal(f.outputs.diff_file, undefined);
+});
+
+test('실제 Git의 한글·공백·따옴표 인용 경로와 이름 변경을 처리한다', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'team4-git-path-'));
+  const f = fixture();
+  const name = '한글 "문서".md';
+  const before = `old/${name}`, after = `new/${name}`;
+  try {
+    fs.mkdirSync(path.join(directory, 'old'));
+    fs.mkdirSync(path.join(directory, 'new'));
+    fs.writeFileSync(path.join(directory, before), 'old\n');
+    fs.writeFileSync(path.join(directory, after), 'new\n');
+    const git = spawnSync('git', ['-c', 'core.quotePath=true', 'diff', '--no-index', '--', before, after], {cwd: directory, encoding: 'utf8'});
+    assert.equal(git.status, 1, git.stderr);
+    assert.ok(git.stdout.startsWith('diff --git "a/'));
+    f.diff.value = git.stdout;
+    f.pr.changed_files = 1;
+    f.github.paginate = async () => [{filename: after, previous_filename: before}];
+    await prepare(f);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), git.stdout);
+    assert.deepEqual(JSON.parse(f.outputs.files), [after]);
+  } finally {
+    cleanDiff(f);
+    fs.rmSync(directory, {recursive: true, force: true});
+  }
 });
 
 test('rejects missing, incomplete, stale, empty-summary and partially reviewed results', () => {
