@@ -1,6 +1,10 @@
 import csExamples from '../mocks/generated/cs.json';
 import tftExamples from '../mocks/generated/tft.json';
 
+let csrfToken: string | null = null;
+export const sessionCsrfToken = () => csrfToken;
+export const clearSessionCsrfToken = () => { csrfToken = null; };
+
 export type ApiMode = 'mock' | 'live';
 let mode: ApiMode = import.meta.env.DEV ? 'mock' : 'live';
 export const getApiMode = () => mode;
@@ -25,6 +29,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (mockFallback) return mockFallback() as T;
   }
   const response = await fetch(path, { ...init, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...init.headers } });
+  if (path === '/api/v1/platform/me') csrfToken = response.ok ? response.headers.get('X-CSRF-Token') : null;
+  if (response.status === 401) csrfToken = null;
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(response.status, body.error?.message || `HTTP ${response.status}`, body.meta?.request_id, body.error?.code);
