@@ -121,7 +121,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest -q tests/tft/test_recommendations_database.py
+      - run: uv run --frozen pytest -q tests/tft/test_recommendations_database.py tests/tft/test_decisions_database.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'
