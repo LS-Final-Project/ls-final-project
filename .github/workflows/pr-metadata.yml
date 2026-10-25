@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      # 신뢰한 기본 브랜치에서 스크립트와 설정을 함께 읽는다. 임의 PR head는 실행하지 않는다.
+      # 신뢰한 기본 브랜치(현재 dev)에서 스크립트와 설정을 함께 읽는다. 임의 PR head는 실행하지 않는다.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.repository.default_branch }}

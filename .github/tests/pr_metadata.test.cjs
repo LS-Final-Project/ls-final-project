@@ -122,16 +122,26 @@ test('배포 대상 main에 새 Jira 설정이 없어도 신뢰한 기본 브랜
   try {
     fs.mkdirSync(path.join(oldMain, '.github/scripts'), {recursive: true});
     fs.copyFileSync(path.join(__dirname, '../scripts/pr_metadata.cjs'), path.join(oldMain, '.github/scripts/pr_metadata.cjs'));
-    // Actions checkout의 두 실제 선택지를 재현한다. 이전 main에는 jira-config.json이 없다.
-    const checkouts = {
-      '${{ github.event.repository.default_branch }}': path.resolve(__dirname, '../..'),
-      '${{ github.event.pull_request.base.sha }}': oldMain,
+    const f = fixture({draft: false, head: {ref: 'dev', repo: {full_name: 'LS-Final-Project/ls-final-project'}}, base: {ref: 'main', sha: 'previous-main-sha'}});
+    // 실제 저장소의 기본 브랜치는 dev이고 배포 대상은 main이다.
+    const event = {repository: {default_branch: 'dev'}, pull_request: {base: f.pr.base}};
+    const refs = {
+      '${{ github.event.repository.default_branch }}': event.repository.default_branch,
+      '${{ github.event.pull_request.base.sha }}': event.pull_request.base.sha,
     };
-    const workspace = checkouts[ref];
+    const checkouts = {
+      dev: path.resolve(__dirname, '../..'),
+      'previous-main-sha': oldMain,
+    };
+    const workspace = checkouts[refs[ref]];
     assert.ok(workspace, 'PR head 대신 신뢰한 기본 브랜치를 선택해야 한다');
-    const f = fixture({draft: false, head: {ref: 'dev', repo: {full_name: 'LS-Final-Project/ls-final-project'}}, base: {ref: 'main'}});
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-    await new AsyncFunction('require', 'process', 'github', 'context', 'core', script)(
+    const action = new AsyncFunction('require', 'process', 'github', 'context', 'core', script);
+    // 이전 main checkout도 실제 실행해 파일 누락 실패가 재현되는지 확인한다.
+    await assert.rejects(action(
+      require, {env: {GITHUB_WORKSPACE: oldMain}}, f.github, f.context, f.core,
+    ), {code: 'MODULE_NOT_FOUND'});
+    await action(
       require, {env: {GITHUB_WORKSPACE: workspace}}, f.github, f.context, f.core,
     );
     assert.equal(f.updates.length, 0);
