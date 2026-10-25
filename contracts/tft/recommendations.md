@@ -12,7 +12,7 @@
 | 같은 경로 | POST | candidate_id, rationale(비어 있지 않은 추천 근거) |
 | `.../recommendations/{recommendation_id}/experience` | POST | summary(수행 업무), project_name, role_title, period_start/end, evidence_source, status, basis |
 | `.../recommendations/{recommendation_id}/availability` | POST | period_start/end, allocation_rate(0~100), constraints_note, status, basis |
-| `.../recommendations/{recommendation_id}/competency` | POST | 해당 역할의 competency_id, status, basis. 같은 후보·역량의 기존 확인 기록은 409로 보호 |
+| `.../recommendations/{recommendation_id}/competency` | POST | 해당 역할의 competency_id, status, basis. 같은 후보·역량의 재검증은 새 행으로 추가하며 기존 확인 기록 보존 |
 
 POST 응답은 `SuccessResponse[CreatedRecord]`: 생성 id와 request_version. ETag는 변경 후 요청서 판본이다. 모든 POST에 If-Match(요청서 판본) 및 Idempotency-Key(1~128자)가 필요하다. 미지정 If-Match는 428, 오래된 값은 412, 키 누락은 422다.
 
@@ -23,7 +23,7 @@ POST 응답은 `SuccessResponse[CreatedRecord]`: 생성 id와 request_version. E
 - ISSUED/ANSWERED 요청서와 미확정 프로젝트에만 새 기록을 추가한다. CLOSED, 최종 확정 프로젝트, 철회된 추천은 409다. 재개/승인/반려는 KAN-127 범위다.
 - 추천자·검증자·시각은 서버가 채운다. 사용자 입력의 actor·data_origin 등 허용하지 않은 필드는 422다. 같은 담당자가 추천·검증해도 별도 행이며 독립 교차 검증이라 표시하지 않는다.
 - NEEDS_CHECK/UNSPECIFIED는 역량 부족이나 가용성 없음으로 바꾸지 않는다. CONFIRMED/UNMET은 비어 있지 않은 근거가 필수다. 가용성 CONFIRMED는 기간·투입률이 추가로 필요하고 역전된 기간은 거부한다.
-- 경험·가용성은 추가 전용 입력이다. 과거 행을 덮어쓰지 않는다. 역량 재검증·최신 기록 선택·충돌/공백 판정은 KAN-125에서 연결한다.
+- 경험·역량·가용성은 추가 전용 입력이다. 과거 행을 덮어쓰지 않는다. KAN-125는 서버 확인 시각과 ID로 최신 기록을 선택해 충돌/공백을 판정한다. 역량 재검증에는 `20261025_KAN-123_competency_rechecks.sql` 적용이 필요하다. 새 기록으로 기존 역할 확정 근거가 달라지면 재검토 대상이 된다.
 - 출처는 요청·프로젝트·후보/기존 추천을 보수적으로 결합한다. 하나라도 synthetic이면 synthetic, 아니면 demo가 있으면 demo, 나머지만 real. 사람 입력은 derivation_kind=PROVIDED로 기록한다.
 - 추천 등록은 요청서를 ANSWERED로 바꾸고 요청서 version과 감사 이력을 추가한다. 역할은 ISSUED일 때만 RECOMMENDATIONS_RECEIVED로 진행한다. 검증 기록 추가도 요청서 판본과 VERIFY 감사 이력을 남기며 최종 승인/구성안은 만들지 않는다.
 

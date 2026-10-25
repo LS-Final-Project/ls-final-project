@@ -57,7 +57,7 @@ export default function DepartmentRequest() {
           <EvidenceRecords recommendation={r} />
           <EvidenceForm key={r.id} disabled={locked || r.status==='WITHDRAWN'} competencies={role?.competencies ?? []} onSave={(kind,payload,reset)=>void save(()=>recordEvidence(requestId,item.version,r.id,kind,payload),reset)} />
         </article>)}</section>
-        <p>역량 재검증·추천 철회·보완 회신은 후속 API 연결이 필요합니다. 같은 후보의 다른 역할 제안과 전사 일정은 이 화면만으로 확인 완료로 판단하지 않습니다.</p>
+        <p>역량 재검증은 새 확인 기록으로 추가하며 기존 근거를 보존합니다. 추천 철회·보완 회신은 후속 API 연결이 필요합니다. 같은 후보의 다른 역할 제안과 전사 일정은 이 화면만으로 확인 완료로 판단하지 않습니다.</p>
       </>}
     </>}
   </main>;

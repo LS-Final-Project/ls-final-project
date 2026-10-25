@@ -33,6 +33,7 @@ def database():
             apply(conn, path)
         # The new migration is repeatable without deleting records.
         apply(conn, Path("infra/migrations/tft/20261025_KAN-123_recommendation_commands.sql"))
+        apply(conn, Path("infra/migrations/tft/20261025_KAN-123_competency_rechecks.sql"))
     yield DSN
 
 
@@ -277,3 +278,41 @@ def test_database_competency_must_belong_to_requested_role(scenario):
         f"/api/v1/tft/staffing-requests/{request}/recommendations", headers=headers
     ).json()["data"]["items"][0]
     assert data["competency_checks"][0]["status"] == "CONFIRMED"
+
+
+def test_database_competency_recheck_preserves_history_and_replays_once(scenario):
+    client, request, _, headers, database, role, _ = scenario
+    rec = recommend(scenario).json()["data"]["id"]
+    competency = uuid4()
+    with psycopg.connect(database) as conn:
+        conn.execute(
+            "INSERT INTO tft.role_competencies (id,required_role_id,kind,description) VALUES (%s,%s,'REQUIRED','재검증 대상')",
+            (competency, role),
+        )
+    path = f"/api/v1/tft/staffing-requests/{request}/recommendations/{rec}/competency"
+    first = client.post(
+        path,
+        headers={**headers, "If-Match": '"2"', "Idempotency-Key": "first-check"},
+        json={"competency_id": str(competency), "status": "CONFIRMED", "basis": "최초 확인"},
+    )
+    assert first.status_code == 200, first.text
+    auth = {**headers, "If-Match": '"3"', "Idempotency-Key": "recheck"}
+    payload = {"competency_id": str(competency), "status": "UNMET", "basis": "변경 근거"}
+    second = client.post(path, headers=auth, json=payload)
+    assert second.status_code == 200, second.text
+    replay = client.post(path, headers=auth, json=payload)
+    assert replay.status_code == 200
+    assert replay.json() == second.json()
+    checks = client.get(
+        f"/api/v1/tft/staffing-requests/{request}/recommendations", headers=headers
+    ).json()["data"]["items"][0]["competency_checks"]
+    assert len(checks) == 2
+    assert {record["basis"] for record in checks} == {"최초 확인", "변경 근거"}
+    assert (
+        next(record for record in checks if record["id"] == first.json()["data"]["id"])["status"]
+        == "CONFIRMED"
+    )
+    assert (
+        next(record for record in checks if record["id"] == second.json()["data"]["id"])["status"]
+        == "UNMET"
+    )
