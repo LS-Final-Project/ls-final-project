@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
 const schema = {
   type: 'object', additionalProperties: false,
   required: ['head_sha', 'base_sha', 'review_complete', 'reviewed_files', 'summary', 'findings'],
@@ -42,8 +45,24 @@ async function prepare({ github, context, core }) {
   if (!files.length || files.length !== pr.changed_files) {
     throw new Error('변경 파일 전체를 조회하지 못했습니다. 검토를 완료로 처리하지 않습니다.');
   }
+  // PR 코드를 실행하지 않고 API의 diff를 검토 데이터로만 저장한다.
+  const {data: diff} = await github.rest.pulls.get({
+    ...context.repo, pull_number: pr.number, mediaType: {format: 'diff'},
+  });
+  const headers = typeof diff === 'string' ? new Set(diff.match(/^diff --git .+$/gm)) : new Set();
+  if (headers.size !== files.length || files.some(file =>
+    !headers.has(`diff --git a/${file.previous_filename || file.filename} b/${file.filename}`))) {
+    throw new Error('전체 파일의 diff를 확보하지 못했습니다. 검토를 시작하지 않습니다.');
+  }
+  await currentPR(github, context);
+  // Claude의 Read 경계 안에 임시 데이터를 두고 제품 파일은 덮어쓰지 않는다.
+  const directory = await fs.mkdtemp(path.join(process.cwd(), '.team4-ai-review-'));
+  const diffFile = path.join(directory, 'review.diff');
+  await fs.writeFile(diffFile, diff, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
   core.setOutput('schema', JSON.stringify(schema));
+  core.setOutput('diff_file', diffFile);
+  core.setOutput('diff_lines', String(diff.split('\n').length));
 }
 
 /** 모델 결과를 검사한다. Args: 원시 JSON, 예상 SHA·파일 목록. Returns: 검증한 결과. */

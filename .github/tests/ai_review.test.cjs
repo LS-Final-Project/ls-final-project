@@ -1,6 +1,8 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { prepare, validate, finish } = require('../scripts/ai_review.cjs');
 const head = '1'.repeat(40), base = '2'.repeat(40);
 const files = ['backend/example.py', 'tests/test_example.py'];
@@ -15,10 +17,11 @@ function result(overrides = {}) {
 function fixture(overrides = {}) {
   const pr = {number: 12, state: 'open', draft: false, head: {sha: head}, base: {sha: base}, changed_files: 2};
   const comments = [], edits = [], failed = [], outputs = {};
+  const diff = {value: files.map(filename => `diff --git a/${filename} b/${filename}\n--- a/${filename}\n+++ b/${filename}\n@@ -1 +1 @@\n-old\n+new\n`).join('')};
   const summary = {addHeading() { return this; }, addRaw() {return this; }, async write() {}};
   const context = {repo: {owner: 'team', repo: 'project'}, payload: {pull_request: structuredClone(pr)}, runId: 123};
   const github = {rest: {pulls: {
-    async get() {return {data: structuredClone(pr)};}, async listFiles() {},
+    async get(params) {return {data: params?.mediaType?.format === 'diff' ? diff.value : structuredClone(pr)};}, async listFiles() {},
   }, issues: {
     async createComment(comment) { comments.push(comment); return {data: {id: 1}}; },
     async updateComment(comment) {edits.push(comment);},
@@ -26,16 +29,57 @@ function fixture(overrides = {}) {
   async paginate() {return files.map(filename => ({filename}));}};
   const core = {summary, setFailed(message) {failed.push(message);}, setOutput(key, value) {outputs[key] = value;}};
   return {github, context, core, raw: JSON.stringify(result(overrides)), files: JSON.stringify(files),
-    conclusion: 'success', pr, comments, edits, failed, outputs};
+    conclusion: 'success', pr, diff, comments, edits, failed, outputs};
+}
+
+/** 검사 산출물만 정리한다. Args: f — 합성 검사 환경. Returns: 없음. */
+function cleanDiff(f) {
+  if (f.outputs.diff_file) fs.rmSync(path.dirname(f.outputs.diff_file), {recursive: true, force: true});
 }
 
 test('prepare binds the schema to the complete changed-file manifest', async () => {
   const f = fixture();
-  await prepare(f);
-  assert.deepEqual(JSON.parse(f.outputs.files), files);
-  assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
-  f.pr.changed_files = 3;
+  try {
+    await prepare(f);
+    assert.deepEqual(JSON.parse(f.outputs.files), files);
+    assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    f.pr.changed_files = 3;
+    await assert.rejects(() => prepare(f));
+  } finally {cleanDiff(f);}
+});
+
+test('168파일의 큰 diff를 잘림 없이 모델이 읽을 파일로 제공한다', async () => {
+  const f = fixture();
+  const many = Array.from({length: 168}, (_, i) => `tests/file_${i}.py`);
+  f.pr.changed_files = many.length;
+  f.github.paginate = async () => many.map(filename => ({filename}));
+  f.diff.value = many.map(filename => `diff --git a/${filename} b/${filename}\n--- a/${filename}\n+++ b/${filename}\n@@ -1 +1 @@\n-old\n+${'합성 변경 '.repeat(1024)}\n`).join('');
+  try {
+    await prepare(f);
+    assert.deepEqual(JSON.parse(f.outputs.files), many);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    assert.equal(fs.statSync(f.outputs.diff_file).mode & 0o777, 0o600);
+    assert.equal(Number(f.outputs.diff_lines), f.diff.value.split('\n').length);
+  } finally {cleanDiff(f);}
+});
+
+test('누락된 파일 diff나 읽는 동안 바뀐 SHA를 모델에게 넘기지 않는다', async () => {
+  for (const invalid of ['', '<html>error</html>', `diff --git a/${files[0]} b/${files[0]}\n`]) {
+    const f = fixture();
+    f.diff.value = invalid;
+    await assert.rejects(() => prepare(f));
+    assert.equal(f.outputs.diff_file, undefined);
+  }
+  const f = fixture();
+  const get = f.github.rest.pulls.get;
+  f.github.rest.pulls.get = async params => {
+    const response = await get(params);
+    if (params?.mediaType?.format === 'diff') f.pr.head.sha = '3'.repeat(40);
+    return response;
+  };
   await assert.rejects(() => prepare(f));
+  assert.equal(f.outputs.diff_file, undefined);
 });
 
 test('rejects missing, incomplete, stale, empty-summary and partially reviewed results', () => {
