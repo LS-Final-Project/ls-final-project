@@ -168,9 +168,10 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
   const revert = () => { setValues(fromRequest(request)); setDirtyKeys(new Set()); };
   const { notice, fatal } = feedback;
 
-  // 잠금 이유: DRAFT가 아닌 요청서, 또는 로그인 역할에 sales가 없음. 서버 검사는 UI 잠금과 무관하게 수행된다.
+  // 잠금 이유: DRAFT가 아닌 요청서, 또는 로그인/역할 확인이 끝나지 않았거나 sales가 없음. 서버 검사는 UI 잠금과 무관하게 수행된다.
   const lockReason = request.status !== 'DRAFT' ? `작성 중(DRAFT) 요청서만 편집·발행할 수 있습니다. 현재 상태: ${REQUEST_STATUS_LABEL[request.status] ?? request.status}${request.issued_at ? ` (발행 ${formatDateTime(request.issued_at)})` : ''}`
-    : userRoles && !userRoles.includes('sales') ? '담당 sales만 요청서를 편집·발행할 수 있습니다.' : null;
+    : userRoles === null ? '로그인 및 권한을 확인할 수 없습니다. 로그인 상태를 확인하세요.'
+    : !userRoles.includes('sales') ? '담당 sales만 요청서를 편집·발행할 수 있습니다.' : null;
   const locked = lockReason !== null;
   const patch = diffPatch(values, request, dirtyKeys);
   const dirty = Object.keys(patch).length > 0;
@@ -198,7 +199,7 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
     onError,
   });
   // 기한 없는 작성 중 요청서도 저장은 된다(계약상 EVIDENCE_REQUIRED는 발행에서만). 기한 조건은 발행 버튼이 막는다.
-  const submit = (event: FormEvent) => { event.preventDefault(); save.mutate(patch); };
+  const submit = (event: FormEvent) => { event.preventDefault(); if (!locked && !busy && dirty) save.mutate(patch); };
   const busy = save.isPending || issue.isPending;
   const orgKnown = orgOptions.some(option => option.id === values.organizationId);
   return <form onSubmit={submit} aria-label="인력 요청서 편집" className="request-form">

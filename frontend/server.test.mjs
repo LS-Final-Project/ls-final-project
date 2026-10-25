@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -192,5 +192,30 @@ test('business upstream redirects, HTML, oversized responses and timeouts stay f
       assert.equal(response.status, 502);
       assert.ok(!(await response.text()).includes('private-provider-body'));
     }, async () => reply(), true);
+  }
+});
+
+
+test('serves a symlinked static root but rejects a file symlink outside it', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-root-'));
+  const content = join(directory, 'content');
+  await mkdir(content);
+  await writeFile(join(content, 'index.html'), '<h1>Linked root</h1>');
+  await writeFile(join(directory, 'private.txt'), 'private fixture');
+  await symlink(content, join(directory, 'public'));
+  await symlink(join(directory, 'private.txt'), join(content, 'escape.txt'));
+  const server = createServer(handler({ directory: join(directory, 'public'), upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture' }));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    assert.equal((await fetch(origin + '/tft/projects')).status, 200);
+    const escaped = await fetch(origin + '/escape.txt');
+    assert.equal(escaped.status, 404);
+    assert.ok(!(await escaped.text()).includes('private fixture'));
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(directory, { recursive: true });
   }
 });

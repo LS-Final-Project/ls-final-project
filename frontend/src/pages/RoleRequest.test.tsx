@@ -20,10 +20,11 @@ const draft: StaffingRequest = {
 };
 
 // items는 목록 응답이 매번 읽는 배열이다. onPatch가 이 배열을 바꾸면 재조회가 새 판본을 돌려준다.
-function stubLive(items: StaffingRequest[], onPatch: (init: RequestInit) => Response, onIssue: (init: RequestInit) => Response = () => jsonResponse(500, {})) {
+function stubLive(items: StaffingRequest[], onPatch: (init: RequestInit) => Response, onIssue: (init: RequestInit) => Response = () => jsonResponse(500, {}), identity: () => Response | Promise<Response> = () => jsonResponse(200, { data: { user_id: 'sales-test', roles: ['sales'] } })) {
   setApiMode('live');
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url === '/api/v1/platform/me') return identity();
     if (url === PROJECT_PATH) return jsonResponse(200, project);
     if (url === LIST_PATH) return jsonResponse(200, { data: { items: [...items] }, meta: { request_id: '11111111-1111-4111-8111-111111111112' } });
     if (init?.method === 'PATCH') return onPatch(init);
@@ -62,6 +63,33 @@ describe('S2 역할·인력 요청서', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '로그인 필요'))));
     renderApp(`/tft/projects/${PROJECT_ID}/roles/00000000-0000-4000-8000-000000000000`);
     expect(await screen.findByText('찾을 수 없습니다')).toBeTruthy();
+  });
+
+  test.each([401, 503])('로그인 확인 실패(%s) 시 편집과 발행 및 form submit을 차단한다', async status => {
+    const fetchMock = stubLive([{ ...draft, due_undecided: true }], () => jsonResponse(500, {}), undefined,
+      () => jsonResponse(status, errorBody('AUTH_REQUIRED', '로그인 확인 실패')));
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    const form = await screen.findByRole('form', { name: '인력 요청서 편집' });
+    expect(screen.getByRole('note').textContent).toContain('로그인 및 권한을 확인할 수 없습니다');
+    expect((screen.getByLabelText('메시지').closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '발행' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(form);
+    expect(fetchMock.mock.calls.filter(([, init]) => ['PATCH', 'POST'].includes(init?.method ?? ''))).toHaveLength(0);
+  });
+
+  test('로그인 조회 중에는 잠그고 sales 확인 이후에만 편집을 허용한다', async () => {
+    let resolveIdentity!: (value: Response) => void;
+    const identity = new Promise<Response>(resolve => { resolveIdentity = resolve; });
+    stubLive([{ ...draft, due_undecided: true }], () => jsonResponse(500, {}), undefined, () => identity);
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    await screen.findByRole('form', { name: '인력 요청서 편집' });
+    expect((screen.getByRole('button', { name: '발행' }) as HTMLButtonElement).disabled).toBe(true);
+    resolveIdentity(jsonResponse(200, { data: { user_id: 'sales-test', roles: ['sales'] } }));
+    await waitFor(() => expect((screen.getByRole('button', { name: '발행' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(screen.getByLabelText('메시지'), { target: { value: '취소할 입력' } });
+    fireEvent.click(screen.getByRole('button', { name: '서버 값으로 되돌리기' }));
+    expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('');
+    expect((screen.getByRole('button', { name: '저장' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   test('DRAFT 요청서: 폼에 label이 연결되고 기한 미정 저장은 If-Match로 PATCH하며 412는 충돌 안내를 보인다', async () => {
