@@ -67,6 +67,19 @@ test('168파일의 큰 diff를 잘림 없이 모델이 읽을 파일로 제공�
   } finally {cleanDiff(f);}
 });
 
+test('작은따옴표 파일명도 JSON 스키마의 CLI 인자 경계를 바꾸지 않는다', async () => {
+  const f = fixture();
+  const filename = "tests/don't.py";
+  f.pr.changed_files = 1;
+  f.github.paginate = async () => [{filename}];
+  f.diff.value = `diff --git a/${filename} b/${filename}\n`;
+  try {
+    await prepare(f);
+    assert.ok(!f.outputs.schema.includes("'"));
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, [filename]);
+  } finally {cleanDiff(f);}
+});
+
 test('누락된 파일 diff나 읽는 동안 바뀐 SHA를 모델에게 넘기지 않는다', async () => {
   for (const invalid of [null, {}, '', '<html>error</html>', `diff --git a/${files[0]} b/${files[0]}\n`, fixture().diff.value + `diff --git a/${files[0]} b/${files[0]}\n`]) {
     const f = fixture();
