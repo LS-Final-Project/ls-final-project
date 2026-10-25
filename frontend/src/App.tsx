@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
 import Account from './pages/Account';
+import CompositionReview from './pages/CompositionReview';
 import Tickets from './pages/Tickets';
 import TicketDetail from './pages/TicketDetail';
 import Projects from './pages/Projects';
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="tft/requests" element={<DepartmentRequests />} />
       <Route path="tft/projects/:projectId/requests/:requestId" element={<DepartmentRequest />} />
       <Route path="tft/projects" element={<Projects />} />
+      <Route path="tft/projects/:projectId/composition" element={<CompositionReview />} />
       <Route path="tft/projects/:projectId" element={<ProjectDetail />} />
       <Route path="tft/projects/:projectId/roles/:roleId" element={<RoleRequest />} />
       <Route path="*" element={<NotFoundPage />} />

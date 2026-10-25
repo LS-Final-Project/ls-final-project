@@ -20,6 +20,7 @@ export default function ProjectDetail() {
     {project.isPending && <Loading />}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {data && <>
+      <p><Link to="composition">구성안 비교와 책임자 결정</Link></p>
       <ProjectInfo project={data} />
       <DocumentStatus project={data} />
       <InitialReview project={data} />
