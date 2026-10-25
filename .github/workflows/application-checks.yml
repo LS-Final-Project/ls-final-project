@@ -93,7 +93,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py
+      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'
