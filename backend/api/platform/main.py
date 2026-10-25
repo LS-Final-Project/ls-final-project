@@ -4,6 +4,7 @@ from backend.api.common.application import create_application
 from backend.api.platform.auth.http import configure_auth
 from backend.api.platform.auth.routes import dev_router
 from backend.api.platform.auth.settings import MicrosoftAuthSettings
+from backend.api.platform.relay import configure_relay
 from backend.api.platform.routes import router
 from backend.shared.settings import Settings
 
@@ -25,4 +26,5 @@ def create_app(
     app.include_router(router)
     if app.state.settings.dev_auth_enabled and app.state.settings.environment in {"local", "test"}:
         app.include_router(dev_router)
+    configure_relay(app)
     return app

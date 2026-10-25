@@ -23,6 +23,7 @@ from backend.shared.models import (
     ResponseMeta,
     SuccessResponse,
 )
+from backend.shared.service_auth import PlatformCaller
 from backend.shared.settings import ServiceName, Settings
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
     )
     app.state.settings = settings
     app.state.service = service
+    app.state.platform_caller = None
+    if settings.business_relay_enabled and service in {"cs", "tft"}:
+        audience = settings.business_cs_url if service == "cs" else settings.business_tft_url
+        app.state.platform_caller = PlatformCaller(audience, settings.business_platform_email)
 
     @app.exception_handler(ApplicationError)
     async def handle_application_error(

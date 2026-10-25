@@ -70,7 +70,35 @@ python3 infra/deploy_private.py BUILD_ID --service web
 python3 infra/deploy_private.py BUILD_ID --service web --apply
 ```
 
-이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API, 개발 로그인, 메일과 업무 데이터는 중계하지 않는다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
+이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API, 개발 로그인, 메일은 중계하지 않는다. KAN-178 업무 JSON 중계도 기본 비활성이며 아래 별도 확인 후 활성화한다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
+
+## KAN-178 업무 중계 활성화 전 확인
+
+현재 배포·IAM·운영 잠금은 이 코드 변경으로 바뀌지 않는다. `BUSINESS_RELAY_ENABLED`는
+웹·플랫폼·C/S·TFT 모두 기본 false다. 활성화는 사용자 판단 후 운영자 터미널에서 진행한다.
+설정값·현재 허용 JSON API·별도 호출자 검증은 [인증 계약](../contracts/platform/auth.md#업무-json-중계와-호출자-검증-kan-178)이 기준이다.
+
+1. 배포할 정확한 SHA의 CI와 AI 리뷰, 필요한 업무·identity 마이그레이션, 실제 Microsoft
+   등록 사용자와 로그인/CSRF 화면 연결을 확인한다. 로컬 합성 서명·DB 검사는 실제 공용
+   로그인·Google IAM 검증을 대신하지 않는다. 새 TFT/C/S API는 허용 목록 확장도 필요하다.
+2. 기존 web-runtime → platform의 run.invoker는 유지한다. platform-runtime → cs 및
+   platform-runtime → tft의 **서비스 단위** roles/run.invoker가 필요한지 현재 정책을 읽어
+   확인한다. 준비 스크립트의 웹 호출 권한만으로 이 두 호출이 허용된다고 가정하지 않는다.
+   프로젝트 전체 invoker나 allUsers 공개 권한을 부여하지 않는다.
+3. 서로 다른 정확한 CS/TFT 서비스 URL과 실제 플랫폼 실행 계정 이메일을 백엔드 세 곳에
+   주입하고, 플랫폼 Microsoft 운영 인증과 고정 callback을 검증한다. C/S·TFT는 토큰
+   audience를 각각 자기 URL과 대조한다. 웹은 기존 PLATFORM_URL을 사용한다. C/S의 CS_MANUAL_DATA_ORIGIN도
+   명시한다. 공용 시연은 demo, 실제 문의만 처리하는 배포는 real이며 production 인증
+   정책만으로 실제 자료를 판정하지 않는다. 혼합 접수·기존 행의 일괄 출처 변경은 지원하지 않는다.
+4. 수신 서비스 호출자 검증이 준비된 뒤 플랫폼·웹 중계를 연결한다. 직접 호출·위조 맥락·
+   다른 서비스 audience·미인증·만료·CSRF·범위 밖 프로젝트·권한 회수·upstream 장애를
+   실제 공용 환경에서 확인한다. 실제 토큰이나 Cookie를 로그/PR/터미널 기록에 출력하지 않는다.
+5. 실패하면 먼저 웹과 플랫폼의 업무 플래그를 false로 되돌려 진입을 닫고 수신 서비스도
+   false로 복원한다. 개발 인증으로 대체하지 않는다. 변경 전 revision/환경 값을 기준으로
+   복구하고 서비스별 배포 결과를 기록한다.
+
+이 절은 활성화 순서와 검증 조건이며 IAM/환경 변경을 수행하는 자동 스크립트가 아니다.
+SSE·비동기 작업과 최종 업무 승인 규칙은 각 기능 티켓에서 별도로 검증한다.
 
 ## 인프라 담당 전용: CD 활성화 설정
 
