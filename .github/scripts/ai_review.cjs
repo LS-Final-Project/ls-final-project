@@ -74,7 +74,10 @@ async function prepare({ github, context, core }) {
   const diffFile = path.join(directory, 'review.diff');
   await fs.writeFile(diffFile, diff, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
-  core.setOutput('schema', JSON.stringify(schema));
+  const reviewSchema = structuredClone(schema);
+  reviewSchema.properties.findings.items.properties.path.enum = files.map(file => file.filename);
+  // JSON 의미는 유지하면서 claude_args의 작은따옴표 인자 경계를 보존한다.
+  core.setOutput('schema', JSON.stringify(reviewSchema).replaceAll("'", '\\u0027'));
   core.setOutput('diff_file', diffFile);
   core.setOutput('diff_lines', String(diffLines.length - Number(diff.endsWith('\n'))));
 }

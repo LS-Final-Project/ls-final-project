@@ -45,6 +45,7 @@ test('prepare binds the schema to the complete changed-file manifest', async () 
     await prepare(f);
     assert.deepEqual(JSON.parse(f.outputs.files), files);
     assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, files);
     assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
     f.pr.changed_files = 3;
     await assert.rejects(() => prepare(f));
@@ -63,6 +64,19 @@ test('168파일의 큰 diff를 잘림 없이 모델이 읽을 파일로 제공�
     assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
     assert.equal(fs.statSync(f.outputs.diff_file).mode & 0o777, 0o600);
     assert.equal(Number(f.outputs.diff_lines), many.length * 6);
+  } finally {cleanDiff(f);}
+});
+
+test('작은따옴표 파일명도 JSON 스키마의 CLI 인자 경계를 바꾸지 않는다', async () => {
+  const f = fixture();
+  const filename = "tests/don't.py";
+  f.pr.changed_files = 1;
+  f.github.paginate = async () => [{filename}];
+  f.diff.value = `diff --git a/${filename} b/${filename}\n`;
+  try {
+    await prepare(f);
+    assert.ok(!f.outputs.schema.includes("'"));
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, [filename]);
   } finally {cleanDiff(f);}
 });
 
