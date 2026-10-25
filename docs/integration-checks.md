@@ -161,17 +161,26 @@ psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=platform_app' \
   -v ON_ERROR_STOP=1 -f infra/sql/003_check_platform_auth.sql
 ```
 
-테이블이 없으면 운영자가 DB 관리자 계정으로 아래 **세 파일만 순서대로** 적용한다.
-각 파일은 해당 migrator 역할로 테이블을 생성한다. 기존 역할·스키마 부트스트랩을
-다시 실행하거나 개발 시연 계정을 공용 DB에 적재하지 않는다. 실제 검증 사용자와
-역할 등록은 KAN-78 담당과 확인한다. 아래 명령은 관리자 비밀번호를 입력받는다.
+인증과 최신 사용자·관리 범위 조회에 필요한 마이그레이션은 아래 **다섯 파일 순서**다.
+`departments`·`manager_departments`·`manager_projects`도 필수이며, 점검 SQL은 일곱 테이블의
+존재와 platform_app SELECT 권한을 확인한다. 세션·인가 시도에는 INSERT·DELETE도 확인한다.
+운영자가 실제 적용 상태를 확인하고 **누락된 파일만** DB 관리자 계정으로 순서대로 적용한다.
+각 파일은 해당 migrator 역할을 사용한다. 이미 적용한 파일이나 역할·스키마 부트스트랩을
+재실행하거나 개발 시연 계정을 공용 DB에 적재하지 않는다. 실제 검증 사용자와 역할 등록은
+KAN-78 담당과 확인한다.
+
+아래는 다섯 파일이 모두 미적용인 경우의 전체 순서 예시이며 관리자 비밀번호를 입력받는다.
+일부만 누락됐다면 적용된 파일의 `-f` 항목은 제외한다. 적용 뒤 platform_app으로 위의
+읽기 전용 점검을 다시 실행하고 실제 계정 등록을 확인한다.
 
 ```bash
 psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=postgres' \
   -v ON_ERROR_STOP=1 \
   -f infra/migrations/platform/20261022_KAN-78_identity.sql \
   -f infra/migrations/platform/20261023_KAN-77_oauth_authorizations.sql \
-  -f infra/migrations/platform/20261023_KAN-77_sessions.sql
+  -f infra/migrations/platform/20261023_KAN-77_sessions.sql \
+  -f infra/migrations/platform/20261023_KAN-78_manager_scopes.sql \
+  -f infra/migrations/platform/20261024_KAN-78_user_department_code.sql
 ```
 
 누락 조건을 확인한 뒤 운영자가 서버 설정을 **비활성 상태로만** 준비할 수 있다.
