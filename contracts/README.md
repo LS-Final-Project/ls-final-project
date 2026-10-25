@@ -14,6 +14,8 @@
 
 담당 인원은 Jira의 최신 배정을 따른다. 이 경로 구분이 인원을 새로 배정하는 것은 아니다. OpenDesign 프로토타입은 수정하지 않는다.
 
+최종 기획서를 기준으로 [C/S 다섯 분류 필드](cs/tickets.md), [출처 구분](../docs/data-contract.md#기획서의-출처-표기와-api-연결), [평가 계산법과 안전 조건](../docs/evaluation.md)을 적용한다. 명세를 추가한 것과 실제 DTO·평가기 구현 완료를 구분한다.
+
 ## 예시: C/S 필드 추가
 
 1. tickets/schemas.py에서 응답 모델을 수정한다. 처음 확장하는 호환 필드는 기본값이 있는 선택 필드로 시작한다.
@@ -44,8 +46,8 @@ python3 scripts/workspace.py contracts cs --check
 - 생성 JSON이 충돌하면 어느 한쪽 파일을 고르는 대신 schemas.py와 routes.py의 변경을 합친 뒤 자기 서비스만 다시 생성한다.
 - 공통 HTTP 형식 변경은 3개 서비스 생성과 프론트 컴파일을 함께 확인한다. 공통 패키지에 업무별 모델을 넣거나 서비스끼리 직접 DTO를 import하지 않는다.
 
-기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [TFT 프로젝트](tft/projects.md), [플랫폼 인증](platform/auth.md)을 참고한다.
+기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [TFT 프로젝트](tft/projects.md), [플랫폼 인증](platform/auth.md), [플랫폼 평가 저장](platform/evaluations.md), [플랫폼 작업 접수](platform/jobs.md)을 참고한다. 역할·범위별 권한 행렬, C/S·TFT 업무 상태 전이와 화면별 행동은 [화면·상태·권한](platform/permissions.md)(KAN-57 설계 문서)을 참고한다. 제안이 포함돼 있으므로 확정·제안·미확정 구분은 해당 문서의 표기를 확인한다.
 
 ## 실제 API와 모의 응답
 
-현재 문의 및 프로젝트 목록은 계약 stub이다. 실제 백엔드는 501 NOT_IMPLEMENTED를 반환한다. 로컬 프론트의 모의 응답 모드에서만 생성된 합성 예시를 반환한다. 실제 API 실패 시 자동으로 모의 응답으로 전환하지 않는다. 로그인 계정과 DB 준비 상태는 모의 응답을 사용하지 않는다. production 프론트 빌드는 모의 응답을 활성화할 수 없으며 백엔드 개발 계정 선택도 production에서 등록되지 않는다.
+문의(KAN-102)와 프로젝트(KAN-119) 목록·상세는 DB를 읽는 `partial` 구현이며 기본 설정에서 `local`·`test`에만 응답하고 production에서는 404로 닫는다. KAN-178의 명시 활성화 JSON 중계는 [인증 계약](platform/auth.md#업무-json-중계와-호출자-검증-kan-178)의 플랫폼 호출자 검증과 기존 KAN-78 업무 권한 검사를 함께 요구한다. 로컬 프론트의 모의 응답 모드에서는 생성된 합성 예시를 반환한다. 실제 API 실패 시 자동으로 모의 응답으로 전환하지 않는다. 로그인 계정과 DB 준비 상태는 모의 응답을 사용하지 않는다. production 프론트 빌드는 모의 응답을 활성화할 수 없으며 백엔드 개발 계정 선택도 production에서 등록되지 않는다.

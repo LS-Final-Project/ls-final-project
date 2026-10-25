@@ -1,7 +1,59 @@
 # 4조 업무지원 AI Agent — 에이전트 온보딩
 
-작성 2026-10-20. 이 레포는 C/S·RFP 에이전트의 **코드 작업 저장소**다.
-설계 문서·데이터·기획서는 `/home/canae/ls_main/`에 있다. 코드를 쓰기 전에 먼저 읽어라.
+갱신 2026-10-22. 이 레포는 C/S·RFP 에이전트의 코드 작업 저장소다. 이 파일은 AI 코딩 도구용 규칙이며 사람의 설치 안내는 [공통 온보딩](docs/team-start.md)이다.
+
+작업 전 이 파일과 사용자가 지정한 Jira 티켓, 자기 이름의 노션 안내에서 첫 작업과 담당 범위를 확인한다. 로컬 실행이 필요하면 공통 온보딩의 1~5를 따른다. 모든 설계 및 운영 문서를 먼저 읽을 필요는 없다. 설계는 [아키텍처](docs/architecture.md), API 변경은 [계약 수정 안내](contracts/README.md)를 해당 작업에서 참고한다.
+
+기획 원본은 아래 링크를 사용한다. 인프라 담당자 PC의 `/home/canae/ls_main/`은 보조 자료 위치일 뿐 다른 팀원의 필수 경로가 아니다. 폴더가 없다고 작업을 중단하거나 같은 경로를 생성하지 않는다.
+
+## AI 개발 작업과 진행 추적
+
+코드를 수정하는 AI는 매 작업 시작과 세션 재개 시 이 절을 확인하고 아래 절차를 적용한다. 현재 작업의 사실과 근거는 Jira와 PR에 남긴다. 별도 진행률 문서를 만들어 상태를 중복 관리하지 않는다.
+
+### 작업 시작
+
+1. 현재 Jira 티켓의 목적, 담당자, 선행 작업과 전체 완료 조건을 확인한다. 사용자와 브랜치에서 작업 번호를 확인하며, 불명확하면 범위를 임의로 넓히지 않는다.
+2. 현재 브랜치와 `git status`, 기존 변경 및 관련 구현을 확인한다. 이전 세션의 설명만으로 구현 완료를 판단하거나 다른 사람의 변경을 덮어쓰지 않는다.
+3. 이번에 구현할 작은 범위, 검증 방법과 이번에 완료하지 않을 범위를 사용자에게 짧게 알린다. 전체 문서 정독이나 재셋업을 새로운 선행 조건으로 만들지 않는다.
+4. 실제 개발에 착수하면 Jira의 현재 상태를 확인해 필요한 경우 해야 할 일에서 진행 중으로 반영한다. 이미 완료된 티켓을 자동으로 재개하거나 담당자·일정·의존성을 임의 변경하지 않는다.
+
+### 작업 진행
+
+1. 기능 개발은 Jira 번호가 있는 작업 브랜치에서 진행하고, 티켓 전체를 한 번에 구현하기보다 검증 가능한 결과로 나눈다.
+2. 구현 완료, 실제 검사 통과, 미검증 및 미구현을 구분한다. 코드 생성이나 smoke 성공만으로 업무 기능·배포·티켓 전체가 완료됐다고 보고하지 않는다.
+3. 의미 있는 결과, 범위 변경, 막힌 원인과 필요한 합의가 생기면 관련 커밋·PR·검사 근거 및 다음 행동을 Jira에 요약한다. 기존 기록을 먼저 확인해 같은 내용을 중복 등록하지 않는다.
+4. 다른 담당자의 입력·결과·API 계약이 바뀌면 영향과 확인할 상대를 기록한다. 외부 메시지 발송이나 검토 요청은 기존 사용자 승인 및 협업 절차를 따른다.
+
+### 작업 종료 또는 인계
+
+1. 최종 변경과 실제 검증 결과를 PR 및 Jira에 연결한다. 실패와 미실행 검사를 성공으로 표시하지 않는다.
+2. 완료한 범위, 남은 작업 또는 막힌 이유와 다음 행동을 남긴다. 중단하거나 세션을 넘길 때는 브랜치·커밋·PR 및 미커밋 변경 유무도 기록한다.
+3. 티켓 전체 완료 조건과 필요한 검증을 충족한 최종 기능 PR에만 제목에 `[완료 KAN-번호]`를 하나 넣고 최신 head/base SHA의 AI 코드 리뷰를 받는다. dev 병합 시 해당 티켓을 완료로 바꾸는 Jira 자동화를 설정했다. 중간 PR과 dev/main 통합 PR에는 완료 표시를 넣지 않는다. 병합 후 Jira의 실제 상태를 확인하며 전환 실패를 완료로 보고하지 않는다. 코드 밖의 작업과 별도 통합·배포 티켓은 실제 완료 조건에 따라 처리한다. 코드 리뷰는 AI로 수행하며 팀원을 자동 지정하지 않는다. CI 성공·최신 SHA AI 리뷰 완료·P0~P2 지적 해소를 확인한 뒤 작성자가 병합한다. AI 실행 성공만으로 검토 통과를 판단하지 않는다.
+4. Jira 접근 또는 쓰기 권한이 없으면 반영한 것처럼 말하지 않는다. 사용자에게 받은 티켓 자료로 가능한 작업을 진행하고 최신 원격 상태는 미확인으로 표시한다. 아래 요약을 사용자가 붙여 넣을 수 있게 제공한다.
+
+진행 또는 인계 요약은 다음 형식을 사용한다. 실제 Jira 반영 여부와 기록 링크를 함께 알려준다.
+
+```text
+Jira:
+이번에 완료:
+검증 결과: 실행한 명령과 결과 / 미실행 또는 미확인
+남은 작업 또는 막힌 이유:
+다음 행동 및 확인할 상대:
+브랜치 / 커밋 / PR:
+미커밋 변경: 있음 또는 없음
+Jira 반영: 완료(링크) 또는 미반영(이유)
+```
+
+## 필요한 만큼 구현하고 실제로 검증하기
+
+1. 현재 티켓의 완료 조건에 필요한 가장 작은 변경을 한다. 기존 구현과 공통 함수를 먼저 확인하고, 무관한 리팩터링·전체 포맷·의존성 갱신을 섞지 않는다.
+2. 현재 사용처와 요구가 없는 범용 계층·설정·플러그인·미래 기능을 만들지 않는다. 새 추상화나 의존성이 필요하면 기존 방법으로 부족한 이유를 PR에 짧게 적는다. 합의된 입력 어댑터·모델 인터페이스·fake 경계는 유지한다.
+3. 예외는 복구·변환·정리할 책임이 있는 경계에서 처리한다. 실패를 빈 값이나 성공 응답으로 숨기지 않고, 재시도와 폴백은 필요한 조건과 범위를 정한다. 기존 인증·안전·입력 검증과 합의된 폴백을 코드량 절감 목적으로 제거하지 않는다.
+4. 테스트는 변경된 동작·계약·회귀 위험을 검증한다. 구현을 그대로 재현하거나 사소한 변경에 테스트를 기계적으로 늘리지 않는다. 버그 수정은 재현 테스트를 우선하고 추가하지 않으면 기존 검증으로 충분한 이유를 남긴다. 줄 수·테스트 개수·커버리지 수치만으로 품질을 판단하지 않는다.
+5. [자기 변경 검증](docs/team-start.md#자기-변경-검증)에 따라 관련 pytest·Ruff 검사와 포맷 확인 등을 실제 실행한다. 공통 코드와 API 계약 변경은 영향을 받는 서비스·소비자까지 확인하고, 새 테스트 경로가 CI에서 실행되는지도 확인한다. 문서만 바꾸면 링크·명령·결정의 일관성을 확인한다.
+6. 최종 변경 후 검증 대상 커밋, 실제 명령, 결과와 CI 링크를 PR에 남긴다. 커밋 전 검사는 작업 트리를 대상으로 했음을 명시한다. 실패·건너뜀·미실행을 통과로 쓰지 않는다. 검사 스크립트가 중간에 실패하면 후속 단계는 미실행이다. 이후 코드를 고쳤다면 영향받는 검사를 다시 실행한다.
+7. 검사를 통과시키려고 테스트·assert·검사 범위를 임의로 삭제하거나 무시 설정을 넓히지 않는다. 정당한 변경은 이유와 대체 검증을 PR에 적고 AI 코드 리뷰에서 확인한다. 필요한 구현 판단을 매번 별도 사용자 승인 단계로 만들지는 않는다.
+8. 필수 검증이 남으면 완료로 보고하거나 최종 `[완료 KAN-번호]` 표시를 붙이지 않는다. 실행을 막는 원인과 다음 행동을 기록한다. fake·mock·smoke 성공은 실제 모델 품질·업무 기능 전체·배포 성공의 증거로 쓰지 않는다. 검토와 CI를 확인한 뒤 병합한다.
 
 ---
 
@@ -16,16 +68,16 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 
 | 항목 | 결정 |
 |---|---|
-| 런타임 | Python 3.11+ / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
-| LLM | Gemini (모델 ID는 사용 키로 지원 목록 확인 후 확정) |
-| 임베딩 | Gemini 다국어 임베딩 (모델 ID 확인 후 확정, 원문 직접 임베딩) |
+| 런타임 | Python 3.12 실행 기준 / FastAPI / GCP Cloud Run (서울 리전, `min-instances: 1`) |
+| LLM | Gemini API 키 방식. 초기 생성 모델 `gemini-3.6-flash`, 최종 업무 모델은 평가 후 결정 |
+| 임베딩 | Gemini 다국어 임베딩. 모델과 차원은 검색 평가 후 확정 |
 | DB | Cloud SQL PostgreSQL + pgvector + FTS 하이브리드 검색 |
 | LangGraph 상태 | `langgraph-checkpoint-postgres` |
 | 파일 | Cloud Storage |
 | 인증 | Microsoft OAuth (MSAL, PKCE) + `users` 테이블 역할 관리 |
 | 프론트 | React + Vite + TypeScript + TanStack Query, UI 키트 없음 |
 | 오케스트레이션 | LangChain + LangGraph + LangSmith |
-| CI/CD | Cloud Build |
+| CI/CD | GitHub Actions 검사 / Cloud Build 이미지 및 CD. dev 개발 통합, main 배포 |
 | 배치·비동기 작업 | Cloud Tasks (RFP 문서 처리) / Cloud Run Jobs (평가 실행, 데이터 초기화) |
 | 스트리밍 | SSE |
 
@@ -37,44 +89,51 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 | 자료 | 위치 |
 |---|---|
-| C/S 학습 데이터 | `data/CS_AI_Agent_Training_Data_v1/` (Google Drive에서 받아 넣을 것) |
+| C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
-| C/S 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1DhnpC5vyPEIhk3QJ3IRSTLX5f-U-HfpRMdCaGDVnGpg/edit) |
-| RFP 최신 기획서 | [Google Docs](https://docs.google.com/document/d/1Zz_ps2r9oRM5wTt75L-RboCc1knqJ1WYGZZ9DZc09fQ/edit) |
+| C/S 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/12lSqCl6DiYLkstFWcZno5MqNKv_kJ2AC/view), [PDF](https://drive.google.com/file/d/1iBKkSpim-3UhYEWvz1dt2X2x62ecN3O_/view) |
+| RFP 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view) |
 | 스토리보드 | [Google Docs](https://docs.google.com/document/d/1fprJf4b1P0dqKcv7KbFFSxnX2xn_cZM0/edit) |
 
 `data/`는 **읽기 전용**. 수정·생성·삭제 금지.
+
+개발은 위 최종 기획서를 기준으로 한다. 기획서는 수정하지 않고 출력 필드, 평가 계산법, 출처 표기와 안전 조건을 [C/S 계약](contracts/cs/tickets.md), [데이터 계약](docs/data-contract.md), [평가 명세](docs/evaluation.md)에 구체화한다. 기획서와 다른 이전 Google Docs를 최신 원본으로 사용하지 않는다. 현재 담당과 개발 범위는 이번 계약 보완으로 재배정하거나 확대하지 않는다.
 
 ---
 
 ## 인증과 역할
 
 - 사용자 식별: JWT의 `tid + oid` (이메일은 표시용만)
-- 역할 조회: `users` 테이블 (`tid`, `oid`, `role`, `dept`, `email`)
+- 역할 조회: `identity.users`(`tid`, `oid`, `dept`, `email`)와 `identity.user_roles`(한 사용자에 여러 역할). manager 관리 범위는 `identity.manager_departments`·`manager_projects`
+- 계정·역할·범위 등록: 서버 밖 `infra/sql/register_user.sql`로만. 권한 규칙은 [권한 문서](contracts/platform/permissions.md)
 - 등록되지 않은 사용자에게 역할 자동 부여 금지
 
 | 역할 | 설명 |
 |---|---|
 | `cs_agent` | C/S 문의 처리 담당자 |
 | `dept_staff` | 전문부서 담당자 (소속 부서 필드 필수) |
-| `manager` | 관리자 (승인 범위 별도 정의) |
+| `manager` | 관리자 (관리 대상 부서·프로젝트 안에서 상세 조회·재배정, 권한 문서 1.2) |
 | `sales` | 수주·견적 담당자 |
 
 **개발 모드**: DB에 시연 계정을 미리 생성하고 로그인 없이 계정 선택. `environment=production`이면 개발 모드 진입 불가.
 
 ---
 
-## 세션 역할과 소유 경계
+## 현재 담당과 수정 경계
 
-| 세션 | 소유 경계 |
-|---|---|
-| 데이터·플랫폼 | 로더, 룰 엔진 (`backend/engine/`) |
-| 백엔드 | API 계층 (`backend/api/`) |
-| 프론트 | 상담원 콘솔 UI (`frontend/`) |
-| 에이전트 | 프롬프트, LLM 호출 (`backend/agent/`) |
-| 평가 | 지표, 리포트 (`eval/`) |
+현재 개발 분담은 아래 실명 담당을 기준으로 한다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
 
-자기 소유 경계 밖은 고치지 않는다. 세션은 서로의 대화를 못 본다. 공유되는 것은 파일뿐이다.
+2026-10-25 사용자 결정으로 KAN-90 평가 관리 API와 KAN-137·138·139 평가 화면은 오새결 담당으로 변경했다. 아래 기존 표의 evaluations·평가 화면 범위에는 이 변경이 우선한다. 관련 신규 저장 확장도 오새결이 담당하며 완료된 KAN-85 이력과 TFT·나머지 프론트 담당은 유지한다.
+
+| 담당 | 소유 기능 | 주로 수정할 경로 |
+| --- | --- | --- |
+| 김나영 | 메일, 사용자 등록·업무 권한, C/S API와 결정론적 규칙, 통합 회귀 | `backend/api/platform/mail/`, 사용자·권한 기능, `backend/api/cs/`, `backend/engine/cs/`의 규칙, 관련 마이그레이션·테스트 |
+| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S 및 TFT의 AI, 평가 실행·지표 | `backend/api/platform/auth/`, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
+| 김종하 | 프론트, TFT API, 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
+
+아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth는 오새결, mail 및 사용자·업무 권한은 김나영, evaluations는 김종하다. 인증 결과와 메일 접근 인터페이스를 계약으로 공유하고 OAuth·토큰 갱신을 중복 구현하지 않는다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
+
+자기 티켓에 필요한 기능·테스트·계약 산출물만 수정한다. 다른 담당 기능과 공용 라우터·설정·DTO를 바꿔야 하면 먼저 영향과 계약을 확인하고 변경을 작게 유지한다. 다른 사람의 미커밋 변경을 덮어쓰지 않는다. 세션 간 대화를 공유한다고 가정하지 않고 파일과 Jira에 결과를 남긴다.
 
 ---
 
@@ -95,7 +154,8 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ## 설계 원칙
 
-- **문의 분류 단계** LLM 출력 4개: `category_code`, `urgency_flag`, `provided_info`, `return_subtype`
+- **문의 분류 단계** LLM 출력 5개: `category_code`, `secondary_category`, `urgency_flag`, `provided_info`, `return_subtype`
+  `secondary_category`는 복합 의도의 보조 유형이며 없으면 null이다. 허용값과 규칙 연결은 [C/S 계약](contracts/cs/tickets.md)을 따른다.
   조건 비교·부서 질문·회신 분석·초안 작성은 별도 AI 처리 단계
 - `rule_engine`: 순수 Python, LLM 금지
 - 청킹: MarkdownHeaderTextSplitter (섹션 단위)
@@ -120,12 +180,14 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 ## 협업 규칙
 
 - 브랜치·커밋·PR 제목에 Jira 번호 포함 (`KAN-xx`)
-- PR은 검토자 1명 지정 후 병합
+- PR은 팀원 지정 없이 CI·최신 SHA AI 코드 리뷰 통과 후 작성자가 병합한다. 업무 발송·최종 승인과 main 배포 판단은 기존 사람의 권한을 유지한다.
 - 상세 규칙: `CONTRIBUTING.md`
 
 ---
 
 ## 확정 합격선
+
+계산식, 규칙 단독 평가와 전체 파이프라인의 구분, 분모 및 보류·실패 처리는 [평가 명세](docs/evaluation.md)를 따른다. 보조 분류와 반품 하위유형의 정답 매핑 및 추가 합격선은 KAN-82·95에서 본실험 전에 잠근다.
 
 | 지표 | 기준 |
 |---|---|
@@ -140,6 +202,6 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 ## 미확정 항목
 
-- Gemini 모델 ID: 사용 키로 지원 목록 확인 후 확정
-- RFP·시연 데이터: 수집 완료 후 `data/` 추가
+- 최종 생성 모델, 임베딩 모델과 차원: 초기 연결 검증과 별도로 품질·토큰·지연 평가 후 확정
+- RFP·시연 데이터의 범위와 판본: Jira와 데이터 목록을 확인. 에이전트는 `data/`를 변경하지 않음
 - LangSmith 무료/유료 티어

@@ -356,6 +356,7 @@ def gemini(values: dict[str, str], embed_model: str | None) -> int:
     from google.genai import types
 
     client = genai.Client(
+        vertexai=False,
         api_key=values["GEMINI_API_KEY"],
         http_options=types.HttpOptions(
             timeout=20000, retry_options=types.HttpRetryOptions(attempts=1)

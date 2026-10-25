@@ -1,86 +1,44 @@
-# KAN-62 배포 기반 설정
+# 인프라 담당 안내
 
-대상 프로젝트는 `proj-skkuls0106-183255377938`, 리전은 `asia-northeast3`다. DB 권한 초기 설정은 [sql/README.md](sql/README.md)를 따른다.
+대상은 `proj-skkuls0106-183255377938`, 계정 `skkuls0106@skkukdp.re.kr`, 서울 `asia-northeast3`다. 담당은 오새결이다. GCP 변경은 담당자 터미널에서 수행하고 에이전트는 읽기 전용으로 확인한다. 일반 팀원은 [공통 온보딩](../docs/team-start.md)만 실행한다.
 
-## DB 비밀번호 등록
+## 현재 구성
 
-저장소 루트의 `.env`에 GCP 대상 설정과 `CS_DB_PASSWORD`, `TFT_DB_PASSWORD`, `PLATFORM_DB_PASSWORD`를 준비한 뒤 일반 터미널에서 실행한다. `.env`는 신뢰하는 로컬 설정이며 shell에서 source 가능한 형식이어야 한다. 비밀번호에 `$`, 공백이나 `#` 등이 있으면 적절히 인용한다.
+| 대상 | 구성 |
+| --- | --- |
+| 앱 | 공개 team4-web, 비공개 team4-cs·team4-tft·team4-platform |
+| DB | Cloud SQL team4-sql / PostgreSQL team4, 서비스별 스키마·실행 및 마이그레이션 계정 |
+| 비밀값 | cs-db-password·tft-db-password·platform-db-password, gemini-api-key 버전 1 |
+| 이미지·배포 | 서울 Artifact Registry team4, Cloud Build, GitHub OIDC와 main 전용 CD |
+| 문서 처리 큐 | rfp-document-processing. 동시 2·초당 2·최대 시도 5회, backoff 10~300초 |
+| 백업 | 서울 자동 백업 7개 보존, 삭제 보호. 실제 백업 성공 확인 |
 
-```bash
-set +x
-set -a
-source ./.env
-set +a
-python3 infra/register_db_secrets.py --dry-run
-python3 infra/register_db_secrets.py
-```
+DB Secret은 해당 실행 계정에만, Gemini Secret의 새 직접 권한은 C/S·TFT에 부여한다. 비밀값을 읽어 출력하거나 이미지·Git에 넣지 않는다. 기존 Secret 버전은 보존하며 키 회전은 별도 작업이다.
 
-| Secret | 값의 환경 변수 | 접근 권한을 받는 실행 계정 |
-| --- | --- | --- |
-| cs-db-password | CS_DB_PASSWORD | cs-runtime |
-| tft-db-password | TFT_DB_PASSWORD | tft-runtime |
-| platform-db-password | PLATFORM_DB_PASSWORD | platform-runtime |
+큐와 TFT의 작업 등록 권한은 준비돼 있다. 문서 처리 핸들러·OIDC·작업 상태·멱등성은 KAN-69 및 기능 티켓에서 연결한다. 큐 존재를 문서 처리 완료로 보지 않는다.
 
-새 Secret의 복제 위치는 서울 한 곳이다. 비밀번호는 gcloud의 표준 입력으로만 전달하고 명령 인자, 임시 파일과 출력에 넣지 않는다. 사용자 입력 전체를 검증한 뒤 생성하며 각 Secret에 해당 서비스의 `roles/secretmanager.secretAccessor`만 추가한다. 상위 IAM에서 상속된 권한을 제거하는 동작은 하지 않는다.
+## 작업별 안내
 
-재실행 시 기존 Secret의 값을 읽거나 바꾸거나 새 버전을 추가하지 않는다. 활성 버전이 있는지 확인하고 해당 실행 계정의 접근 권한을 연결한다. 따라서 로컬 비밀번호와 기존 Secret 값이 같은지 비교한 결과가 아니며 비밀번호 교체는 별도 절차다. 실패 시 그전까지 생성한 Secret은 남겨 두며 원본을 삭제하지 않는다. 오류 출력은 값 노출을 피하기 위해 명령 종류와 종료 코드만 제공한다.
+- 평소 배포와 main 동기화: [서비스별 CI와 CD](../docs/service-delivery.md)
+- 이미지 수동 빌드·비공개 배포 점검: [Cloud Build 안내](cloud-build.md)
+- 새 DB 최초 준비·계정 정책: [SQL 안내](sql/README.md)
+- 새 업무 테이블: [마이그레이션 안내](../docs/team-start.md#필요할-때-참고-db-테이블-추가)
+- 로그·백업·운영 담당 후속 확인: [운영 확인](../docs/operations-basics.md)
+- 실제 모델·메일 연결: [외부 연동 점검](../docs/integration-checks.md)
+- 기존 공용 Microsoft 인증 준비: `prepare_microsoft_auth.py`의 기본 미리보기와
+  [운영자 적용 순서](../docs/integration-checks.md#운영자-터미널에서-제품-인증-준비)를 따른다.
+  운영자의 `--apply`도 인증 비활성 상태까지만 준비한다.
 
-이 스크립트는 Secret 및 접근 권한 등록용이다. Cloud Run 배포, 실제 실행 계정의 Secret 접근과 DB 연결 및 Secret 버전 지정은 후속 배포에서 검증한다. 기존 gemini-api-key는 변경하지 않는다.
+## 새 환경을 만드는 경우에만
 
-검증 명령은 실제 gcloud 호출 없이 가짜 비밀번호를 사용한다.
+기존 공용 환경에 반복 실행하지 않는다. 새 프로젝트나 자원 재구성이 필요할 때 대상 프로젝트·권한·기존 리소스를 확인한 뒤 도구를 선택한다.
 
-```bash
-python3 -m unittest discover -s infra/tests -v
-```
+| 도구 | 용도 |
+| --- | --- |
+| register_db_secrets.py | 로컬 CS_DB_PASSWORD·TFT_DB_PASSWORD·PLATFORM_DB_PASSWORD를 서비스별 Secret으로 등록. 기존 값·버전은 덮어쓰지 않음 |
+| verify_cloud_db.sh | 서비스별 Cloud Run 검증 Job으로 실제 Secret·DB 접속 확인 |
+| setup_cloud_build.sh | 이미지 생성 계정·저장소·빌드 소스 버킷 준비 |
+| setup_service_delivery.sh | 실행·배포 계정과 저장소 main 전용 GitHub OIDC 준비 |
+| register_gemini_secret.py | Gemini Secret 준비 및 C/S·TFT 접근 권한 연결 |
 
-## Cloud Run 실행 계정의 실제 DB 연결 검증
-
-2026-10-21 12:51 UTC 실조회에서 DB Secret 3개 모두 서울 복제 위치, 활성 버전 1 및 각 실행 계정의 직접 접근 권한을 확인했다. Secret 값은 조회하지 않았다.
-
-같은 환경 변수를 불러온 일반 터미널에서 실행한다.
-
-```bash
-bash infra/verify_cloud_db.sh
-```
-
-이 명령은 서울에 `verify-cs-db`, `verify-tft-db`, `verify-platform-db` Cloud Run Jobs를 생성 또는 갱신하고 순서대로 실행한다. PostgreSQL 17 공식 이미지의 psql로 `SELECT current_user;`를 실행한다. 각 Job은 자기 실행 계정과 DB 사용자 및 Secret 버전 1을 사용하며 로컬 비밀번호는 읽지 않는다. Cloud SQL 연결과 Secret의 실제 전달, DB 비밀번호 인증을 함께 확인한다. Job당 태스크 1개, 최대 120초, 재시도 0이다.
-
-세 실행이 모두 성공하면 PASS를 출력한다. 실패하면 다음 서비스로 진행하지 않으며 생성한 Job은 진단을 위해 남겨 둔다. 완료한 Job 정의도 남아 있으므로 실제 앱 및 평가 Job과 구분한다. 이 검증은 업무 테이블 CRUD와 FastAPI 서비스 배포를 확인하는 단계는 아니다.
-
-스크립트는 shell 문법과 모의 gcloud 호출로 대상 및 인자를 검증했다. 사용자가 실행한 뒤 2026-10-21 12:57 UTC 실조회에서 아래 세 실행의 성공을 확인했고 로그의 DB 사용자도 각각 일치했다. Secret 값은 조회하지 않았다.
-
-| Job | 실행 | 접속 사용자 | 결과 |
-| --- | --- | --- | --- |
-| verify-cs-db | verify-cs-db-m6f9v | cs_app | 태스크 1개 성공, 12:56:12 UTC 완료 |
-| verify-tft-db | verify-tft-db-zhsgk | tft_app | 태스크 1개 성공, 12:56:33 UTC 완료 |
-| verify-platform-db | verify-platform-db-6w6zv | platform_app | 태스크 1개 성공, 12:56:55 UTC 완료 |
-
-참고: [Cloud Run Jobs 배포 옵션](https://docs.cloud.google.com/sdk/gcloud/reference/run/jobs/deploy), [Cloud SQL 연결](https://docs.cloud.google.com/sql/docs/postgres/connect-run).
-
-## RFP 문서 처리 큐
-
-12:58 UTC 서울 큐 목록은 비어 있었고 사용자가 다음 명령을 실행했다. 13:00 UTC 실조회로 큐 생성 및 권한을 확인했다. 큐 이름은 `rfp-document-processing`, 초기 동시 처리 상한 2건, 초당 전송 2건, 최초 실행 포함 최대 시도 5회로 시작한다. 성능 및 모델 할당량을 검증한 최종 값은 아니며 실제 처리 시간과 오류율을 보고 조정한다.
-
-```bash
-gcloud tasks queues create rfp-document-processing \
-  --location="$LS_REGION" \
-  --project="$LS_PROJECT_ID" \
-  --account="$LS_GCP_ACCOUNT" \
-  --max-concurrent-dispatches=2 \
-  --max-dispatches-per-second=2 \
-  --max-attempts=5 \
-  --max-retry-duration=0s \
-  --min-backoff=10s \
-  --max-backoff=300s
-
-gcloud tasks queues add-iam-policy-binding rfp-document-processing \
-  --location="$LS_REGION" \
-  --project="$LS_PROJECT_ID" \
-  --account="$LS_GCP_ACCOUNT" \
-  --member="serviceAccount:tft-runtime@${LS_PROJECT_ID}.iam.gserviceaccount.com" \
-  --role=roles/cloudtasks.enqueuer
-```
-
-이 단계는 큐와 작업 등록 권한만 구성한다. 처리 API URL, OIDC 호출 계정 및 Cloud Run 호출 권한, 작업 상태 저장과 중복 방지는 TFT 서비스 배포 및 구현과 연결해 검증한다. 이 명령에서는 실제 문서 처리 작업을 등록하지 않는다. 참고: [큐 생성](https://docs.cloud.google.com/tasks/docs/creating-queues).
-
-2026-10-21 13:00 UTC 실조회: 큐 상태 RUNNING, maxConcurrentDispatches=2, maxDispatchesPerSecond=2, 자동 계산된 maxBurstSize=10, maxAttempts=5, minBackoff=10s, maxBackoff=300s다. 큐 수준 정책에 tft-runtime의 roles/cloudtasks.enqueuer가 존재했다. 실제 처리 API와 OIDC 연결은 아직 없고, Cloud Run 서비스 목록 및 서울 Cloud Build 트리거 목록도 비어 있었다. 다음은 세 FastAPI 앱의 실행 골격과 이미지 빌드 구성을 준비한 뒤 배포 및 실제 작업 처리를 연결하는 단계다.
+각 스크립트의 옵션을 확인하고 미리보기가 있으면 먼저 검토한다. 업무 개발을 시작하기 위한 설치 명령으로 배포 도구를 실행하지 않는다.

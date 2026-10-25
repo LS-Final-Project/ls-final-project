@@ -1,11 +1,10 @@
-from pathlib import Path
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[2]
 
@@ -20,7 +19,9 @@ class GitWorkflowTests(unittest.TestCase):
         for name in ("scripts", ".githooks"):
             (self.root / name).mkdir()
         shutil.copy2(SOURCE / "scripts/dev.py", self.root / "scripts/dev.py")
-        shutil.copy2(SOURCE / ".githooks/prepare-commit-msg", self.root / ".githooks/prepare-commit-msg")
+        shutil.copy2(
+            SOURCE / ".githooks/prepare-commit-msg", self.root / ".githooks/prepare-commit-msg"
+        )
         self.git("init", "-q", "--initial-branch=KAN-63-example")
         self.git("config", "user.name", "Workflow Test")
         self.git("config", "user.email", "workflow@example.invalid")
@@ -28,7 +29,9 @@ class GitWorkflowTests(unittest.TestCase):
         self.git("commit", "-qm", "Initial test fixture")
 
     def command(self, *args, check=True):
-        return subprocess.run(args, cwd=self.root, env=self.env, text=True, capture_output=True, check=check)
+        return subprocess.run(
+            args, cwd=self.root, env=self.env, text=True, capture_output=True, check=check
+        )
 
     def git(self, *args, check=True):
         return self.command("git", *args, check=check)
@@ -44,7 +47,9 @@ class GitWorkflowTests(unittest.TestCase):
         self.dev("setup")
         self.git("commit", "--allow-empty", "-qm", "feat: 한국어 제목", "-m", "검증 결과 보존")
         self.assertEqual(self.message(), "KAN-63 feat: 한국어 제목\n\n검증 결과 보존")
-        self.assertEqual(self.git("config", "--local", "core.hooksPath").stdout.strip(), ".githooks")
+        self.assertEqual(
+            self.git("config", "--local", "core.hooksPath").stdout.strip(), ".githooks"
+        )
 
     def test_existing_key_is_not_duplicated(self):
         self.dev("setup")
@@ -61,7 +66,9 @@ class GitWorkflowTests(unittest.TestCase):
     def test_numberless_branch_cannot_make_normal_commit(self):
         self.dev("setup")
         self.git("switch", "-c", "main")
-        self.assertNotEqual(self.git("commit", "--allow-empty", "-qm", "missing key", check=False).returncode, 0)
+        self.assertNotEqual(
+            self.git("commit", "--allow-empty", "-qm", "missing key", check=False).returncode, 0
+        )
 
     def test_multi_ticket_branch_keeps_both_keys(self):
         self.dev("setup")
@@ -118,7 +125,9 @@ class GitWorkflowTests(unittest.TestCase):
         self.dev("start", "KAN-64", "api-contract")
         self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "KAN-64-api-contract")
         self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), dev)
-        self.assertNotEqual(self.git("rev-parse", "--abbrev-ref", "@{upstream}", check=False).returncode, 0)
+        self.assertNotEqual(
+            self.git("rev-parse", "--abbrev-ref", "@{upstream}", check=False).returncode, 0
+        )
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
       - run: docker build --target test --build-arg TEST_SERVICE=${{ matrix.service }} -t team4-api-tests .
       - run: docker build --target runtime --build-arg SERVICE_NAME=${{ matrix.service }} -t team4-service .
-      - run: docker run --rm --network=none team4-service python -c 'import importlib,os; from backend.shared.ai import AISettings; assert AISettings().ai_provider=="vertex"; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"'
+      - run: docker run --rm --network=none team4-service python -c 'import importlib,os; from backend.shared.ai import AISettings; assert AISettings().ai_provider=="gemini"; app=importlib.import_module("backend.api."+os.environ["SERVICE_NAME"]+".main").create_app(); assert app.state.settings.environment=="production"'
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -66,6 +66,34 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefix frontend --no-audit --no-fund
       - run: npm test --prefix frontend && npm run build --prefix frontend
+  auth-database:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.backends), 'platform')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: kan77_auth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AUTH_TEST_DATABASE_URL: postgresql://postgres:test-only@127.0.0.1:5432/kan77_auth_test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install uv==0.10.10
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_job_admission.py tests/platform/test_evaluation_admission.py tests/platform/test_smoke_worker.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'
@@ -74,8 +102,29 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - run: python3 -m pip install uv==0.10.10
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen ruff check infra scripts
+      - run: uv run --frozen ruff format --check infra scripts
       - run: python3 -m unittest discover -s infra/tests -q
       - run: python3 -m unittest discover -s scripts/tests -q
+      - name: Verify fresh local database initialization
+        timeout-minutes: 5
+        env:
+          LOCAL_DB_ADMIN_PASSWORD: ci-admin-only
+          LOCAL_CS_PASSWORD: ci-cs-only
+          LOCAL_TFT_PASSWORD: ci-tft-only
+          LOCAL_PLATFORM_PASSWORD: ci-platform-only
+          LOCAL_DB_PORT: '55433'
+        run: |
+          test -x infra/local/init.sh
+          bash -n infra/local/init.sh
+          compose=(docker compose --env-file /dev/null --project-name kan102-init-check)
+          trap '"${compose[@]}" down --volumes' EXIT
+          "${compose[@]}" up -d --wait --wait-timeout 120 db
+          "${compose[@]}" exec -T db psql -X -U postgres -d team4 -v ON_ERROR_STOP=1 -f /setup/sql/002_verify_service_roles.sql
+          initialized=$("${compose[@]}" exec -T db psql -X -U postgres -d team4 -v ON_ERROR_STOP=1 -Atc "SELECT (SELECT count(*) FROM identity.users) = 4 AND (SELECT count(*) FROM identity.user_roles) = 4 AND EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+          test "$initialized" = t
   evaluation:
     needs: changes
     if: needs.changes.outputs.evaluation == 'true'
@@ -86,11 +135,11 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest tests/test_eval_smoke.py tests/test_ai_client.py tests/test_runtime_verification.py -q
+      - run: uv run --frozen python scripts/check_backend.py eval
   required:
     name: Application result
     if: always()
-    needs: [changes, backend, frontend, infrastructure, evaluation]
+    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation]
     runs-on: ubuntu-latest
     steps:
       - env:

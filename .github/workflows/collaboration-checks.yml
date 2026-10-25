@@ -21,4 +21,4 @@ jobs:
       - name: Test local Git workflow
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Test PR automation
-        run: node .github/tests/pr_metadata.test.cjs
+        run: node --test .github/tests/*.test.cjs

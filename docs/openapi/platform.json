@@ -50,6 +50,161 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EvaluationAdmission": {
+        "description": "\ud569\uc131 \uc811\uc218\uc758 \uc800\uc7a5 \uacb0\uacfc\uc774\uba70 \uc2e4\ud589 \uc644\ub8cc\ub098 \ud488\uc9c8 \uc810\uc218\uac00 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "QUEUED",
+            "default": "QUEUED",
+            "title": "Status",
+            "type": "string"
+          },
+          "status_url": {
+            "title": "Status Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id",
+          "status_url"
+        ],
+        "title": "EvaluationAdmission",
+        "type": "object"
+      },
+      "EvaluationPolicy": {
+        "additionalProperties": false,
+        "description": "\uc2e4\ud589 \uae30\ubc18 \uc5f0\uacb0 \uc804\uc5d0\ub294 \uc791\uc5c5\uacfc \ubbfc\uac10 \uc790\ub8cc \uc811\uadfc\uc744 \ud65c\uc131\ud654\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "admission_available": {
+            "default": false,
+            "title": "Admission Available",
+            "type": "boolean"
+          },
+          "execution_available": {
+            "const": false,
+            "default": false,
+            "title": "Execution Available",
+            "type": "boolean"
+          },
+          "execution_unavailable_reason": {
+            "const": "RUNNER_NOT_CONNECTED",
+            "default": "RUNNER_NOT_CONNECTED",
+            "title": "Execution Unavailable Reason",
+            "type": "string"
+          },
+          "final_result_reported_separately": {
+            "const": true,
+            "default": true,
+            "title": "Final Result Reported Separately",
+            "type": "boolean"
+          },
+          "final_test_available": {
+            "const": false,
+            "default": false,
+            "title": "Final Test Available",
+            "type": "boolean"
+          },
+          "local_smoke_execution_available": {
+            "default": false,
+            "title": "Local Smoke Execution Available",
+            "type": "boolean"
+          },
+          "primary_quality_view": {
+            "const": "first_attempt",
+            "default": "first_attempt",
+            "title": "Primary Quality View",
+            "type": "string"
+          },
+          "raw_output_available": {
+            "const": false,
+            "default": false,
+            "title": "Raw Output Available",
+            "type": "boolean"
+          }
+        },
+        "title": "EvaluationPolicy",
+        "type": "object"
+      },
+      "EvaluationRunRequest": {
+        "additionalProperties": false,
+        "description": "\uc11c\ubc84\uc5d0 \ub3d9\uacb0 \ub4f1\ub85d\ub41c \uc2e4\ud5d8\ub9cc \ucc38\uc870\ud558\uba70 \uc2e4\ud589 \uc124\uc815 \ub36e\uc5b4\uc4f0\uae30\ub97c \uae08\uc9c0\ud55c\ub2e4.",
+        "properties": {
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment_id"
+        ],
+        "title": "EvaluationRunRequest",
+        "type": "object"
+      },
+      "EvaluationRunStatus": {
+        "description": "\uc6d0\uc2dc \ucd9c\ub825\u00b7\uc815\ub2f5 \uc5c6\uc774 \uc811\uc218 \uc0c1\ud0dc\ub9cc \uc81c\uacf5\ud55c\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "requested_count": {
+            "title": "Requested Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id",
+          "status",
+          "requested_count"
+        ],
+        "title": "EvaluationRunStatus",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthData": {
         "properties": {
           "service": {
@@ -99,6 +254,21 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "managed_departments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Managed Departments",
+            "type": "array"
+          },
+          "managed_projects": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Managed Projects",
+            "type": "array"
           },
           "oid": {
             "format": "uuid",
@@ -184,6 +354,54 @@
         "title": "ResponseMeta",
         "type": "object"
       },
+      "SuccessResponse_EvaluationAdmission_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationAdmission"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationAdmission]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationPolicy_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationPolicy"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationPolicy]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationRunStatus_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRunStatus"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRunStatus]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -231,6 +449,46 @@
         ],
         "title": "SuccessResponse[ReadinessData]",
         "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
       }
     }
   },
@@ -241,6 +499,458 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/platform/auth/callback": {
+      "post": {
+        "description": "Microsoft form_post\ub97c \uac80\uc99d\ud558\uace0 \uc0c8 \uc11c\ubc84 \uc138\uc158\uc744 \ubc1c\uae09\ud574 \uace0\uc815 \uc571 \uc9c4\uc785\uc810\uc73c\ub85c \uc774\ub3d9\ud55c\ub2e4.\n\nArgs:\n    request: \ube0c\ub77c\uc6b0\uc800 \uacb0\uc18d \ucfe0\ud0a4\uc640 form_post \ubcf8\ubb38\uc744 \ud3ec\ud568\ud55c \uc694\uccad.\n    provider: code \uad50\ud658\uacfc ID \ud1a0\ud070 \uac80\uc99d \uc5b4\ub311\ud130.\n\nReturns:\n    RedirectResponse: \uc138\uc158 \uad50\uccb4 \ud6c4 code\u00b7state \uc5c6\ub294 \uace0\uc815 URL\uc758 303 \uc751\ub2f5.",
+        "operationId": "platform_complete_login",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "error": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "303": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "identity"
+        ],
+        "x-activation": "MICROSOFT_AUTH_ENABLED",
+        "x-implementation-status": "draft"
+      }
+    },
+    "/api/v1/platform/auth/login": {
+      "get": {
+        "description": "\uc11c\ubc84 \uc778\uac00 \uc2dc\ub3c4\ub97c \uc800\uc7a5\ud55c \ub4a4 Microsoft\ub85c \uc774\ub3d9\ud558\uace0 \ube0c\ub77c\uc6b0\uc800 \uacb0\uc18d \ucfe0\ud0a4\ub97c \uc124\uc815\ud55c\ub2e4.\n\nArgs:\n    request: \ub85c\uadf8\uc778 \uc2dc\uc791 \uc694\uccad.\n    provider: \uc11c\ubc84\uc758 Microsoft \ub85c\uadf8\uc778 \uc5b4\ub311\ud130.\n\nReturns:\n    RedirectResponse: flow\u00b7\ud1a0\ud070\uc744 \ud3ec\ud568\ud558\uc9c0 \uc54a\ub294 Microsoft \uc778\uac00 URL\uc758 302 \uc751\ub2f5.",
+        "operationId": "platform_start_login",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "identity"
+        ],
+        "x-activation": "MICROSOFT_AUTH_ENABLED",
+        "x-implementation-status": "draft"
+      }
+    },
+    "/api/v1/platform/auth/logout": {
+      "post": {
+        "description": "\ud5c8\uc6a9 Origin\uacfc \uc138\uc158 \uacb0\uc18d CSRF\ub97c \ud655\uc778\ud55c \ub4a4 \uc11c\ubc84 \uc138\uc158 \ucca0\ud68c\uc640 \ucfe0\ud0a4 \uc0ad\uc81c\ub97c \uc218\ud589\ud55c\ub2e4.\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \ucfe0\ud0a4\u00b7Origin\u00b7X-CSRF-Token\uc744 \ud3ec\ud568\ud55c \uc694\uccad.\n\nReturns:\n    Response: \ucca0\ud68c\uac00 \uc644\ub8cc\ub41c 204 \uc751\ub2f5. \uc138\uc158 \ucfe0\ud0a4\uac00 \uc5c6\uc73c\uba74 \uac19\uc740 \uacb0\uacfc\ub97c \ubc18\ud658\ud55c\ub2e4.",
+        "operationId": "platform_logout",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "identity"
+        ],
+        "x-activation": "MICROSOFT_AUTH_ENABLED",
+        "x-implementation-status": "draft"
+      }
+    },
+    "/api/v1/platform/evaluations/policy": {
+      "get": {
+        "description": "\uc9c0\uc815 \ud3c9\uac00\uc790\uc5d0\uac8c \ud655\uc815\ub41c \uc8fc\uc9c0\ud45c \uc120\ud0dd\uacfc \ubbf8\uad6c\ud604 \uc2e4\ud589 \uc7a0\uae08\uc744 \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud558\uace0 \uc694\uccad ID\uac00 \ubd80\uc5ec\ub41c \uc694\uccad.\n\nReturns:\n    SuccessResponse[EvaluationPolicy]: \uc6d0\ubb38\u00b7\uc815\ub2f5\u00b7\uc0ac\uc6a9\uc790 \ud5c8\uc6a9 \ubaa9\ub85d\uc774 \uc5c6\ub294 \uc815\ucc45.",
+        "operationId": "platform_get_evaluation_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationPolicy_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Policy",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
+    "/api/v1/platform/evaluations/runs": {
+      "post": {
+        "description": "\uba85\uc2dc\uc801\uc73c\ub85c \ucf20 local/test \ud658\uacbd\uc758 \uc2b9\uc778\ub41c \ud569\uc131 smoke\ub9cc \uc800\uc7a5 \uc811\uc218\ud55c\ub2e4. \uc2e4\ud589\uae30\ub294 \ubbf8\uc5f0\uacb0\uc774\ub2e4.",
+        "operationId": "platform_request_evaluation_run",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationAdmission_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Request Evaluation Run",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
+    "/api/v1/platform/evaluations/runs/{run_id}": {
+      "get": {
+        "description": "\ud604\uc7ac \uad8c\ud55c\uc73c\ub85c \uc790\uae30 \ud569\uc131 \uc811\uc218\uc758 \uc0c1\ud0dc\ub9cc \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c\ud560 \uc2e4\ud589 UUID.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse: \uc6d0\uc2dc \ucd9c\ub825\uacfc \uc815\ub2f5\uc744 \uc81c\uc678\ud55c \uc2e4\ud589 \uc0c1\ud0dc.",
+        "operationId": "platform_get_evaluation_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Status",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
     "/api/v1/platform/health": {
       "get": {
         "description": "Checks this service process only; does not authorize business operations.",
@@ -275,6 +985,7 @@
     },
     "/api/v1/platform/me": {
       "get": {
+        "description": "\uc6b4\uc601 \ub85c\uadf8\uc778 \ub610\ub294 \uba85\uc2dc\uc801 \uac1c\ubc1c \ubaa8\ub4dc\uc758 \ud604\uc7ac \uc0ac\uc6a9\uc790\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \ud50c\ub7ab\ud3fc \uc694\uccad.\n    response: \uc6b4\uc601 \uc138\uc158 CSRF \ud5e4\ub354\ub97c \uc124\uc815\ud560 \uc751\ub2f5.\n\nReturns:\n    SuccessResponse[Identity]: DB\uc5d0\uc11c \uc870\ud68c\ud55c \ud604\uc7ac \uc0ac\uc6a9\uc790\uc640 \uc5ed\ud560.",
         "operationId": "platform_get_me",
         "responses": {
           "200": {
@@ -285,7 +996,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "X-CSRF-Token": {
+                "description": "Microsoft \uc11c\ubc84 \uc138\uc158\uc5d0 \uacb0\uc18d\ud55c \ubcc0\uacbd \uc694\uccad\uc6a9 \uac12. Identity \uacc4\uc57d\uc740 \uc720\uc9c0\ud55c\ub2e4.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Me",

@@ -65,16 +65,17 @@ def test_production_identity_never_accepts_a_development_cookie_or_role_header()
         )
 
 
+# C/S tickets (KAN-102) and TFT projects (KAN-119) are implemented and tested in
+# tests/cs and tests/tft. Until access checks exist (KAN-78) both stay partial and
+# are closed in production, which those tests cover.
 @pytest.mark.parametrize(
-    ("factory", "path"), ((cs_app, "/api/v1/cs/tickets"), (tft_app, "/api/v1/tft/projects"))
+    ("factory", "path"),
+    ((cs_app, "/api/v1/cs/tickets"), (tft_app, "/api/v1/tft/projects")),
 )
-def test_business_stubs_are_explicit_and_never_return_mock_success(factory, path):
+def test_business_lists_are_marked_partial_until_access_checks(factory, path):
     with TestClient(factory(settings())) as client:
-        result = client.get(path)
-        assert result.status_code == 501
-        assert result.json()["error"]["code"] == "NOT_IMPLEMENTED"
         schema = client.get("/openapi.json").json()
-        assert schema["paths"][path]["get"]["x-implementation-status"] == "stub"
+        assert schema["paths"][path]["get"]["x-implementation-status"] == "partial"
 
 
 def test_one_service_export_does_not_write_the_other_services(monkeypatch, tmp_path):

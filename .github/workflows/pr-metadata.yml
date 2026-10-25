@@ -18,14 +18,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      # Only trusted base code is used in this job, never the PR head.
+      # 신뢰한 기본 브랜치(현재 dev)에서 스크립트와 설정을 함께 읽는다. 임의 PR head는 실행하지 않는다.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const automation = require(process.env.GITHUB_WORKSPACE + '/.github/scripts/pr_metadata.cjs');
-            const config = require(process.env.GITHUB_WORKSPACE + '/.github/jira-reviewers.json');
+            const config = require(process.env.GITHUB_WORKSPACE + '/.github/jira-config.json');
             await automation.run({ github, context, core, config });

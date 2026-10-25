@@ -1,206 +1,214 @@
-# 외부 연동 사전 확인
+# 외부 연동 점검
 
-로컬 개발 시작에는 필요하지 않다. 교육장 계정과 실제 앱 연동을 확인하는 담당자가 실행한다. 키와 시크릿을 채팅, Git 또는 프론트 VITE 변수에 넣지 않는다. 기본 절차는 읽기 전용이며, --mail-roundtrip-to를 명시했을 때만 합성 메일 1통을 실제 발송한다.
+인증·메일·AI 연동 담당자가 필요할 때 사용한다. 일반 로컬 개발에는 필요 없다. 개인 Outlook의 로그인·Graph 읽기·실제 송수신과 Gemini API의 생성·임베딩 호출은 사전 검증됐다. 제품 안의 세션·토큰·메일 및 업무 AI 통합은 담당 티켓에서 구현한다.
 
 ## 로컬 설정
 
-파일이 아직 없을 때만 복사하고 로컬에서 편집한다. 기존 파일이 있으면 보존한다.
+파일이 없을 때만 복사하고 로컬에서 편집한다. 기존 `.env*`는 보존하며 키·시크릿을 Git·채팅·프론트 VITE 변수에 넣지 않는다.
 
 ```bash
 cp -n .env.integrations.example .env.integrations
 ```
 
-예시에 사용자 제공 테넌트와 애플리케이션 ID를 넣었다. MS_CLIENT_SECRET은 Microsoft 연동 확인 때만 입력한다. 현재 기본 모델 경로인 Vertex에는 GEMINI_API_KEY가 필요하지 않다. GCP용 기존 .env를 수정할 필요가 없다.
+실제 모델 호출은 `GEMINI_API_KEY`, Microsoft 로그인 점검은 앱의 유효한 `MS_CLIENT_SECRET`을 사용한다. 기존 `.env`의 키를 쓸 때는 `--env-file .env`를 지정한다. fake 개발은 둘 다 필요 없다.
 
-## 현재 기본 모델 경로: Vertex AI
+## Gemini API
 
-교육장 프로젝트의 Vertex AI global과 gemini-3.6-flash를 초기 연결 기준으로 사용한다. 기존 Developer API의 청구 계정 월간 지출 한도 오류가 발생한 뒤 이 경로에서 실제 생성과 스키마 기록을 확인했다. 최종 업무 모델은 품질, 지연과 비용을 비교한 뒤 선정한다. Cloud Run과 DB는 서울이며 global 모델 호출은 서울 내 처리만을 보장하지 않는다.
-
-로컬 호출에는 ADC가 필요하다. CLI의 gcloud auth login과 ADC는 별도 자격증명이다. 이미 작동하는 ADC가 있으면 재설정하지 않는다. 처음 사용하는 팀원만 본인 교육장 계정으로 다음 명령을 실행한다.
+기본 제공자는 Gemini Developer API, 초기 생성 모델은 `gemini-3.6-flash`다. 최종 업무 모델·임베딩 모델과 차원은 평가 후 확정한다.
 
 ```bash
-gcloud auth application-default login
-uv run --frozen python scripts/check_integrations.py vertex
-uv run --frozen python -m eval.smoke --provider vertex
+uv run --frozen python scripts/check_integrations.py gemini --env-file .env
+uv run --frozen python -m eval.smoke --provider gemini --model gemini-3.6-flash --env-file .env
 ```
 
-첫 점검은 합성 OK 응답 1건, 평가는 영어와 한국어 합성 JSON 2건이다. 기존 .env.integrations에 AI 설정이 없더라도 기본값은 교육장 프로젝트, global, gemini-3.6-flash, 최대 출력 1024다. 다른 설정을 비교하려면 --project, --location, --model 또는 평가의 --max-output-tokens를 지정한다. 실패해도 Developer API 키로 자동 전환하거나 요청을 자동 재시도하지 않는다.
+첫 명령은 지원 목록 조회, 두 번째는 영어·한국어 합성 JSON 생성이다. JSON·HTML 결과에는 스키마, 지연 및 입력·답변·추론·캐시·총 토큰을 기록한다. 가격표가 없으면 비용은 미산정이다. 자동 재시도·제공자 전환은 없으며 앱 시작·health·ready·CI에서는 실제 모델을 호출하지 않는다.
 
-평가의 JSON과 HTML에는 제공자, 프로젝트, 위치, 모델 및 실제 모델 판본, 지연, 스키마 결과와 입력, 답변, 추론, 캐시 입력 및 총 토큰을 기록한다. 원문 오류, 토큰과 키는 저장하지 않는다. 제공되지 않은 사용량과 미등록 가격표의 비용은 미산정으로 남긴다. 이 합성 점검은 실제 업무 합격선 평가가 아니다.
-
-임베딩 위치는 생성 위치와 별도로 지정한다. 다음 조합을 합성 1건으로 확인했으며 반환 벡터를 출력하거나 저장하지 않는다.
+임베딩 합성 점검은 아래 명령을 사용한다. 관측 차원만으로 DB 인덱스를 바꾸지 않는다.
 
 ```bash
-uv run --frozen python scripts/check_integrations.py vertex \
-  --embed-model gemini-embedding-001 --embedding-location us-central1 \
-  --embedding-task RETRIEVAL_DOCUMENT
+uv run --frozen python scripts/check_integrations.py gemini --env-file .env --embed-model gemini-embedding-001
 ```
 
-관측 기본 차원은 3072다. production DB의 벡터 차원을 이 결과로 자동 변경하지 않는다. 모델, 차원과 실제 검색 품질을 결정한 뒤 인덱스와 수집 처리를 함께 맞춘다. --dimensions로 요청한 차원과 실제 결과가 다르거나 입력이 잘리면 점검은 실패한다.
+호출 예시는 [AI 클라이언트](ai-client.md)를 따른다. 연결 점검에 최종 test 597건을 사용하지 않는다.
 
-GCP 권한 준비는 인프라 담당자가 실행한다. 일반 팀원에게 프로젝트 IAM 변경 권한을 요구하지 않는다.
+### 배포 키 관리
+
+C/S와 TFT의 배포 설정은 Secret Manager의 `gemini-api-key:1`을 `GEMINI_API_KEY`로 전달한다. 두 실행 계정의 접근 권한은 준비돼 있다. 웹과 플랫폼에는 모델 키를 주지 않는다. dev에 준비된 설정의 실제 적용은 다음 main 배포 후 확인한다.
+
+새 프로젝트를 준비하거나 접근 권한을 다시 구성할 때만 인프라 담당자의 터미널에서 실행한다. 기본은 미리보기이며 기존 값과 버전을 보존한다. 키 회전은 별도 절차다.
 
 ```bash
-bash infra/setup_vertex_access.sh --verify-runtime
+uv run --frozen python infra/register_gemini_secret.py
+uv run --frozen python infra/register_gemini_secret.py --apply
 ```
 
-이 스크립트는 cs-runtime과 tft-runtime에 aiplatform.endpoints.predict와 serviceusage.services.use만 포함한 사용자 정의 역할을 부여한다. platform-runtime과 web-runtime에는 모델 권한을 주지 않는다. 선택한 교육장 CLI 계정에만 각 실행 계정의 임시 토큰 발급 권한을 10분 만료 조건으로 부여하고, 5분 수명 토큰으로 합성 요청을 1건씩 확인한 뒤 정확히 해당 임시 바인딩을 제거한다. 호출 실패 때도 제거하며 터미널 강제 종료 시에는 만료 조건이 남는다. API 키와 서비스 계정 키를 만들지 않는다. IAM 준비만 하려면 --verify-runtime을 생략한다.
+## Microsoft 로그인과 메일
 
-이 검증은 실제 서비스 계정 신원으로 로컬 SDK를 호출하는 점검이다. Cloud Run 업무 API 내부에서 모델을 호출하는 기능의 통합 검증은 해당 기능 구현 후 수행한다. Cloud Run에서는 연결된 실행 계정의 ADC를 그대로 사용하며 사용자 계정의 인증 파일을 배포하지 않는다. 앱 기동, health, ready와 CI에서는 모델을 호출하지 않는다. 팀원 코드 사용법은 [공통 AI 클라이언트](ai-client.md)를 따른다.
+담당은 오새결(KAN-77·80·81)이다. 시연 연결은 개인 Microsoft 계정의 실제 Outlook 사서함으로 검증한다. 앱의 지원 계정 유형은 조직과 개인 계정을 포함하고, 서버의 시크릿 기반 토큰 교환을 사용한다.
 
-## Microsoft
-
-먼저 테넌트의 OpenID 경로만 확인한다. 이 성공은 앱 권한이나 메일함 사용 가능성을 뜻하지 않는다.
-
-```bash
-uv run --frozen python scripts/check_integrations.py microsoft
-```
-
-실제 로그인 전 Entra 앱 등록에서 다음을 설정한다.
-
-1. 인증의 Web 플랫폼에 http://localhost:8765/callback 리디렉션 URI를 추가한다. 실제 서비스의 production 콜백은 별도로 설정한다.
-2. Graph 위임 권한 Mail.Read와 Mail.Send를 확인한다. 이미 추가했다면 반복 추가하지 않는다. 테넌트의 사용자 동의 정책에 따라 관리자 동의가 필요할 수 있다.
-3. 인증서 및 비밀에서 클라이언트 시크릿을 만들거나 기존 유효한 값을 사용하고 .env.integrations의 MS_CLIENT_SECRET에만 입력한다. 시크릿 값은 채팅에 보내지 않는다.
-
-브라우저를 사용할 수 있는 본인 PC 터미널에서 실행한다.
-
-```bash
-uv run --frozen python scripts/check_integrations.py microsoft --login
-```
-
-MSAL이 PKCE와 state가 포함된 로그인 흐름을 처리한다. 로그인 후 Graph에서 받은 편지함 메시지 ID 최대 1개만 요청하며 ID와 본문을 출력하지 않는다. 로그인, Mail.Send 동의 여부와 Mail.Read 호출 결과만 출력한다. 토큰은 메모리에만 있고 종료 시 저장하지 않는다. 이 스크립트의 성공이 앱의 production 로그인 및 토큰 보관 구현을 대신하지 않는다.
-
-메일함 라이선스 또는 테넌트 정책으로 Graph가 실패하면 표시된 HTTP 코드와 Azure 설정을 확인한다. Mail.Send 동의 확인은 실제 메일 발송 테스트와 구분한다. 원문 메일과 토큰이 있는 HTTP 응답을 그대로 공유하지 않는다.
-
-### 개인 Outlook 계정으로 사전 검증
-
-조직 관리자 승인이 어려워 개인 Outlook.com 계정의 별도 검증을 준비했다. Entra 앱의 지원 계정 유형을 조직과 개인 계정 포함으로 설정하고 기존 Web 콜백 및 유효한 시크릿을 유지한다. 매니페스트 값은 AzureADandPersonalMicrosoftAccount다. 앱 설정을 바꾸기 어려우면 그 원인을 확인하고 별도 앱 사용 여부를 결정한다.
+1. Entra 앱 등록 → 인증 → **Web** 플랫폼의 리디렉션 URI에 `http://localhost:8765/callback`이 있어야 한다. 같은 URI를 SPA로 등록하지 않는다. 제품 production 콜백은 별도로 등록한다.
+2. Graph 위임 권한 `Mail.Read`, `Mail.Send`, `offline_access`를 확인한다.
+3. 유효한 시크릿은 `.env.integrations`에만 넣는다. 브라우저에서 실제 Outlook 받은편지함이 열리는 계정을 사용한다. 로그인 이름과 수신 주소는 다를 수 있으므로 실제 사서함 주소를 확인한다.
 
 ```bash
 uv run --frozen python scripts/check_integrations.py microsoft --personal-account
 uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login
 ```
 
-이 옵션은 해당 실행에만 consumers authority와 개인 계정의 고정 테넌트를 사용한다. 기존 MS_TENANT_ID와 시크릿을 덮어쓰지 않고 임의 조직 테넌트를 허용하지 않는다. 실제 로그인은 개인 계정을 선택해 수행한다. --mail-roundtrip-to가 없으면 메일 읽기만 확인하며 발송하지 않는다. 사용자 터미널에서 개인 계정의 실제 로그인, Mail.Send 동의 및 Graph Mail.Read 호출 성공을 확인했다. 받은편지함 조회는 0건이었으며 실제 발송과 수신은 별도 검증한다.
+첫 명령은 OpenID 경로만 확인한다. `--login`은 계정 선택과 실제 Graph 읽기를 확인하며 발송하지 않는다. 개인 계정 옵션은 해당 실행에서 consumers authority를 사용하고 기존 테넌트 설정을 덮어쓰지 않는다. 토큰은 프로세스 메모리에만 유지한다. 조직 계정 점검은 `--personal-account`를 빼고 해당 조직의 동의 정책과 메일함 사용 권한을 확인한다.
 
-개인 계정에서는 Entra 앱 역할이 실행 시 지원되지 않으므로 앱 역할 claim에 의존하지 않는다. 확정된 DB 등록 사용자와 역할 정책을 유지하고 등록되지 않은 사용자에게 자동 권한을 주지 않는다. 이 사전 점검은 production 사용자 등록이나 전체 인증 기능 구현을 대신하지 않는다. [지원 계정 유형과 앱 역할 제한](https://learn.microsoft.com/en-us/entra/identity-platform/supported-accounts-validation), [Graph 위임 권한](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread)을 참고한다.
+WSL에서는 Windows 기본 브라우저를 사용한다. 자동으로 열리지 않으면 같은 프로세스가 기다리는 일회용 URL을 본인 브라우저에서 연다. 공유할 결과는 PASS 또는 민감값을 제외한 FAIL 코드·단계뿐이다.
 
-Gmail 주소를 로그인 이름으로 쓰는 Microsoft 개인 계정도 있다. Microsoft 계정 보유와 Outlook 사서함 보유는 따로 확인한다. Outlook 웹에서 실제 받은편지함이 열리는지 확인하며 Gmail 주소라는 이유만으로 OAuth 실패 원인이나 사서함 부재를 단정하지 않는다. [Microsoft 계정의 외부 이메일 주소 안내](https://support.microsoft.com/en-us/accounts-billing/subscriptions/connecting-a-microsoft-subscription-to-outlook).
+### 필요한 경우에만 실제 송수신 확인
 
-사용자는 지원 계정 유형을 조직 및 개인 포함으로 설정했다고 보고했고 Gmail 주소로 로그인한 결과 OAuth invalid_request가 발생했다. 후속 진단에서 AADSTS90023과 token_exchange 단계를 확인했고 사용자 화면에서 콜백이 SPA로 등록된 것을 확인했다. Web 플랫폼으로 옮기도록 안내한 뒤 실제 로그인과 Mail.Read가 성공했다. Python의 시크릿 기반 서버 토큰 교환은 Web 콜백으로 구성한다. 진단 출력은 OAuth 오류 종류와 AADSTS 숫자 및 authorization 또는 token_exchange 단계만 남긴다. 오류 설명 원문, 이메일, 시크릿, 인증 코드와 state 및 콜백 URL은 출력하지 않는다. 같은 명령으로 다시 확인한 FAIL 행만 공유한다. AADSTS가 제공되지 않으면 not_provided로 표시한다. [공식 오류 코드 안내](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes).
-
-로그인 요청은 select_account를 지정해 기존 브라우저 세션이 자동 선택되지 않도록 한다. 계정 선택 전에 앱 요청이 거절되면 여전히 오류가 날 수 있으므로 이 설정만으로 원인이 해결됐다고 판단하지 않는다. 사용자는 Outlook 계정을 만든 뒤 실제 받은편지함이 보인다고 확인했고, 이후 OAuth와 Graph Mail.Read 성공을 보고했다. 이 성공은 로컬 사전 검증이며 production 로그인, 토큰 보관과 실제 메일 발송까지 완료했다는 의미는 아니다.
-
-### 합성 메일 발송 및 수신 검증
-
-기존 --login은 발송하지 않는다. 실제 발송을 확인하려면 본인 Outlook 주소로 바꿔 아래 명령을 직접 실행한다. 이 명령은 지정한 주소로 합성 메일 1통을 실제 발송한다. 수신 주소가 로그인한 본인 메일함의 주소여야 같은 세션에서 수신도 확인할 수 있다. 주소를 채팅이나 Git에 넣지 않는다.
+아래 명령은 지정한 본인 사서함으로 합성 메일 **1통을 실제 발송**한다. 주소를 실제 Outlook 수신 주소로 바꾼다. 이미 성공한 사전 검증을 온보딩 목적으로 반복하지 않는다.
 
 ```bash
 uv run --frozen python scripts/check_integrations.py microsoft --personal-account --login \
   --mail-roundtrip-to '본인주소@outlook.com'
 ```
 
-제목은 Team4 mail integration check와 고유한 합성 probe 값이며 본문에는 합성 연결 점검 문장만 들어간다. 실제 업무 데이터, 첨부와 추가 수신자는 없다. 발송 POST는 한 번만 실행하고 자동 재시도하지 않는다. 토큰은 프로세스 메모리에만 유지한다.
+HTTP 202는 발송 접수다. 스크립트는 보낸편지함 저장과 받은편지함 또는 정크메일함의 동일 합성 제목 수신을 확인한다. 정크 수신을 받은편지함 도착으로 표시하지 않는다. 발송은 자동 재시도하지 않으며 PENDING이면 메일함에서 해당 제목을 먼저 확인한다. 명령을 반복할 때마다 새 메일이 발송된다.
 
-Graph의 HTTP 202는 접수이며 배달 완료를 보장하지 않는다. 스크립트는 약 60초 동안 보낸편지함과 로그인한 받은편지함 및 정크메일함에서 해당 고유 제목을 조회한다. 보낸편지함 저장과 받은편지함 또는 정크메일함 수신 중 하나를 확인해야 PASS를 출력한다. signed_in_delivery_confirmed는 수신 여부이며 signed_in_inbox_confirmed 및 signed_in_junk_confirmed로 위치를 구분한다. 정크 수신을 받은편지함 도착으로 표시하지 않는다. 주소와 원문 및 메시지 ID는 출력하지 않는다. PENDING이면 접수 후 아직 확인되지 않은 상태이므로 같은 메일이 미발송됐다고 단정하거나 자동 재발송하지 않는다. 출력된 합성 probe로 메일함에서 확인한다. 실행마다 새 합성 메일이 생성되므로 불필요하게 명령을 반복하지 않는다. [공식 sendMail 응답 의미](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
+서비스 사용자 키는 `tid + oid`이며 DB에 등록된 사용자·역할·부서·프로젝트 범위를 검사한다. 로그인 성공이나 메일 동의가 역할 자동 부여를 허용하지 않는다. 점검 스크립트는 제품의 토큰 보관·갱신·세션 및 승인 후 메일 발송 구현을 대신하지 않는다.
 
-이 옵션의 로컬 검증은 단일 발송, 정확한 합성 제목 조회, 접수와 수신 구분, 실패 시 무재시도와 민감값 비노출을 확인했다. 사용자 실제 실행에서 HTTP 202 접수와 보낸편지함의 합성 메일을 확인했다. probe 71d7a8e27a35472e9ed13ac32bed74c2는 60초 내 받은편지함에서 찾지 못해 PENDING이었다. 자동 재발송은 0회이며 사용자에게 보낸 메일의 수신 주소와 정크메일함 및 받은편지함 위치 확인을 요청했다. 배달 완료로 표시하지 않는다. 관련 코드의 원격 CI 39711845319도 성공했다.
+### KAN-77 제품 로그인 — 기존 공용 웹 검증
 
-후속 확인에서 사용자가 입력한 수신 도메인 .com과 계정에 등록된 Outlook 별칭의 .kr이 달랐다. 사용자 화면에서 Gmail과 Outlook 주소가 같은 Microsoft 개인 계정의 별칭임을 확인했다. Outlook 설정에는 outlook_문자숫자@outlook.com 형태도 보였으며 사용자가 Outlook 별칭을 기본으로 지정했다. 이 변경만으로 배달 성공이나 404 원인을 확정하지 않는다.
+위 `--login`은 사전 점검용 `http://localhost:8765/callback`을 사용한다. 제품 로그인은
+[인증 계약](../contracts/platform/auth.md#공개-http-계약-제안--기본-비활성-구현-초안)의
+HTTP 경로·DB 세션·쿠키·CSRF를 실제 브라우저에서 확인한다. 사전 점검 성공과 제품
+검증 성공을 구분한다. 세션 8시간 절대 만료·유휴 만료·앱 진입점·실패 UI는 KAN-57의
+제안/미확정 표기를 유지하며, 검증 결과로 정책이 확정됐다고 보고하지 않는다.
 
-기본 별칭 변경 후 올바른 수신 주소로 실행한 probe 8ee0827413e24ea2a0df5a3143858f67은 로그인과 Mail.Send 동의 및 Mail.Read를 통과했지만 POST /me/sendMail에서 HTTP 404가 발생했다. 이 시도는 HTTP 202 접수를 확인하지 못했고 수신도 미검증이다. 기존 출력에는 Graph 세부 코드가 없어 원인은 아직 미확정이다. 사서함 초기화나 별칭 전파 및 관리자 동의 문제로 단정하지 않는다.
+기존 공용 웹을 사용하면 주소는 다음과 같다. Entra에는 **Web** 플랫폼으로 등록해야 한다.
+사전 점검의 localhost URI는 유지하고 제품 URI 등록 여부를 별도로 확인한다.
 
-Graph 요청 오류는 HTTP 상태, 실패 단계(mail_read, send_mail, sent_items, inbox, junkemail)와 허용 목록의 code만 출력한다. 오류 본문은 메모리에서 크기를 제한해 읽고 message, 요청 주소, 이메일과 토큰 및 요청 ID를 출력하지 않는다. 인식하지 못한 코드는 not_provided_or_unrecognized로 표시한다. 발송과 조회 오류를 구분하고 자동 재발송은 하지 않는다. Graph 오류의 code와 message 구분은 [공식 오류 응답 안내](https://learn.microsoft.com/en-us/graph/errors)를 따른다. 로컬 scripts 테스트 31건과 Ruff 및 포맷 검사를 통과했다. 후속 실제 결과는 아래와 같다. 추가 발송은 사용자가 직접 실행했다.
-
-최신 실제 검증: 사용자가 웹 발신 주소를 본인 Outlook 별칭으로 선택한 뒤 발송했고 Gmail에서 해당 별칭으로 보낸 메일의 수신도 확인했다. 이어 사용자 CLI의 probe 0e977472cfe7449a8f46a0e8526d7062가 로그인, Mail.Send 동의, Mail.Read, HTTP 202 접수 및 보낸편지함 저장을 통과했다. 사용자 화면에서 같은 probe의 합성 메일이 정크메일함에 도착한 것을 확인했다. 따라서 로컬 Microsoft OAuth 및 Graph 읽기와 실제 발송 및 수신의 연결 가능성은 확인됐다. 이전 HTTP 404는 이번 실행에서 재현되지 않았지만 이전 오류의 근본 원인은 미확정이다.
-
-기존 CLI는 받은편지함만 조회해 이 실제 수신을 PENDING으로 표시했다. 이를 보완해 Graph의 표준 폴더 이름 junkemail도 읽기 전용으로 확인한다. 메일 이동, 정크 해제, 주소록 및 허용 목록 변경이나 권한 추가는 하지 않는다. 사용자에게 메일 화면의 정크 메일이 아닙니다 버튼으로 직접 분류를 정정할 수 있음을 안내한다. [Graph 표준 폴더 이름](https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0)을 따른다. 정크 수신과 받은편지함 수신 구분 및 발송 저장 미확인 시 PENDING을 포함한 로컬 scripts 테스트 33건과 Ruff 및 포맷 검사를 통과했다. 수정 후 정크메일함의 실제 API 조회는 아직 실행하지 않았다. 이미 화면으로 수신을 확인했으므로 이 수정만을 위해 합성 메일을 재발송할 필요는 없다. 제품의 서버 세션, 토큰 보관 및 갱신, 역할과 동기화 및 승인 후 발송 구현은 여전히 별도다.
-
-## 기존 Gemini Developer API 진단
-
-아래는 기존 API 키 경로를 별도로 진단하는 명령이다. 현재 생성은 월간 지출 한도로 막혀 있으므로 재시도를 반복하지 않는다. 위 Vertex 경로를 기본으로 사용한다.
-
-지원 모델 이름과 기능만 조회한다.
-
-```bash
-uv run --frozen python scripts/check_integrations.py gemini
+```text
+앱 origin: https://team4-web-gew6ci4pgq-du.a.run.app
+Web callback: https://team4-web-gew6ci4pgq-du.a.run.app/api/v1/platform/auth/callback
+로그인 시작: https://team4-web-gew6ci4pgq-du.a.run.app/api/v1/platform/auth/login
 ```
 
-기존 .env에 키가 있다면 파일을 복사하지 않고 해당 파일을 지정할 수 있다.
+적용 순서는 다음과 같다. 공용 GCP 변경은 운영 담당자가 수행한다.
 
-```bash
-uv run --frozen python scripts/check_integrations.py gemini --env-file .env
+1. [배포 절차](service-delivery.md#배포-판단)에 따라 대상 커밋·포함 변경·서비스별 배포
+   범위를 확인한다. dev 병합만으로는 배포되지 않는다. main 반영은 누적 변경을 포함하며,
+   CD 활성 상태에서는 해당 main의 CI 성공 후 변경 서비스가 자동 배포된다.
+2. 공용 DB의 `identity.users`, `identity.user_roles`, `identity.oauth_authorizations`,
+   `identity.sessions`와 플랫폼 실행 권한을 확인한다. 누락된 마이그레이션은 별도로 적용한다.
+   이미지 배포는 DB 마이그레이션을 자동 실행하지 않는다. KAN-78의 실제 검증 사용자
+   `tid + oid`·활성 상태·역할·필요한 부서 등록을 확인한다. 시연 사용자로 대체하지 않는다.
+3. 제품 인증 코드를 포함한 platform과 인증 중계를 포함한 web을 배포한 뒤, 인증 비활성
+   상태의 로그인 503을 확인한다. web에서 404면 해당 경로의 배포·중계 준비부터 확인한다.
+4. 기존 Entra 앱의 위 Web callback 등록을 확인한다. 플랫폼 서버에 인증 계약의
+   `MICROSOFT_AUTH_CLIENT_ID`, `MICROSOFT_AUTH_CLIENT_SECRET`, `MICROSOFT_AUTH_APP_ORIGIN`,
+   `MICROSOFT_AUTH_REDIRECT_URI`를 연결하고 `DEV_AUTH_ENABLED=false`를 유지한다.
+   시크릿은 Secret Manager 참조로 주입한다. 사전 점검의 `MS_*` 설정은 제품 앱이
+   자동으로 읽거나 변환하지 않는다. 준비가 끝난 뒤 `MICROSOFT_AUTH_ENABLED=true`로 활성화한다.
+
+로그인 화면이 아직 연결되지 않았어도 브라우저에서 위 로그인 시작 주소를 직접 연다.
+검증할 본인의 등록된 개인 Outlook 계정을 선택한다. 이 단계는 메일 권한을 요청하거나
+메일을 발송하지 않는다. 성공하면 POST callback 후 고정 앱 루트로 이동하며,
+`GET /api/v1/platform/me`가 200으로 등록 사용자와 DB 역할을 반환해야 한다.
+다시 로그인해 세션 교체를 확인하고 로그아웃 전후의 상태도 확인한다.
+
+화면 연결 전 로그아웃은 **같은 공용 웹의 개발자 도구 Console**에서 다음처럼 검사할 수 있다.
+세션 쿠키는 HttpOnly이며 이 코드로 읽지 않는다. `/me`에서 받은 CSRF 값은 요청에만 사용한다.
+
+```javascript
+const beforeLogout = await fetch('/api/v1/platform/me', { credentials: 'same-origin', cache: 'no-store' });
+const loginCsrf = beforeLogout.headers.get('X-CSRF-Token');
+if (beforeLogout.status !== 200 || !loginCsrf) throw new Error('현재 로그인과 CSRF 응답을 먼저 확인하세요.');
+const logoutResult = await fetch('/api/v1/platform/auth/logout', {
+  method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': loginCsrf },
+});
+const afterLogout = await fetch('/api/v1/platform/me', { credentials: 'same-origin', cache: 'no-store' });
+console.info({ before: beforeLogout.status, logout: logoutResult.status, after: afterLogout.status });
 ```
 
-출력에서 generateContent를 지원하는 실제 모델 ID를 골라 합성 2건의 smoke 호출을 실행한다. 아래 MODEL_ID를 목록의 값으로 바꾼다. 이 선택은 연결 점검용이며 최종 업무 모델 선정은 평가 결과를 따른다.
+정상 기대값은 `{ before: 200, logout: 204, after: 401 }`이다. 브라우저의 재로그인 후
+이전 세션 거부, 미등록 계정의 401과 자동 등록 없음도 확인한다. code·state·쿠키·토큰·
+개인 계정 식별자 원문은 Jira에 붙이지 않고 대상 배포 SHA·단계·상태·검사 결과만 기록한다.
+실패는 실제 단계와 원인을 구분하며 503을 로그인 성공으로, 404를 설정 비활성으로 처리하지 않는다.
+Graph·첨부·토큰 갱신은 KAN-80, 토큰 영속 보관·연결 해제는 KAN-81에서 검증한다.
+
+### 운영자 터미널에서 제품 인증 준비
+
+이 절차는 기존 공용 자원을 사용한다. 준비 도구의 기본 실행은 로컬 설정을 검사하고
+계획만 출력하며 클라우드를 호출하지 않는다. `.env.integrations`의 `MS_CLIENT_ID`와
+`MS_CLIENT_SECRET`을 명시적으로 읽어 제품 서버 설정에 연결하는 도구이며 앱 런타임의
+설정 폴백을 추가하지 않는다. 기존 학교 테넌트 값·localhost callback과 환경 파일은 보존한다.
 
 ```bash
-uv run --frozen python -m eval.smoke --provider gemini --model MODEL_ID --env-file .env
+uv run --frozen python infra/prepare_microsoft_auth.py
 ```
 
-JSON 및 HTML에 모델, 합성 사례 판본, 스키마 검증, 지연과 제공자가 반환한 토큰 사용량을 기록한다. 가격표는 아직 등록하지 않아 비용을 0으로 표시하지 않고 미산정으로 남긴다. 실패 또는 토큰 미제공도 기록하며 업무 합격선은 평가하지 않는다.
-
-목록에 있는 임베딩 모델도 합성 문장 1개로 별도 확인할 수 있다. EMBEDDING_MODEL_ID를 실제 목록의 값으로 바꾼다. 반환 벡터는 출력하거나 저장하지 않으며 확인한 기본 차원을 production 인덱스 차원으로 자동 채택하지 않는다.
+DB는 [Cloud SQL Auth Proxy](https://docs.cloud.google.com/sql/docs/postgres/connect-auth-proxy)를
+사용해 확인한다. 아래 프록시는 로컬 `127.0.0.1:55434`에만 열리며, 별도 터미널에서
+유지한다. 기존 gcloud 사용자 인증을 사용하는 로컬 운영 점검이며 앱의 인증 방식은 바꾸지 않는다.
 
 ```bash
-uv run --frozen python scripts/check_integrations.py gemini --env-file .env --embed-model EMBEDDING_MODEL_ID
+cloud-sql-proxy --gcloud-auth --address=127.0.0.1 --port=55434 \
+  proj-skkuls0106-183255377938:asia-northeast3:team4-sql
 ```
 
-근거: [Microsoft MSAL 인증 코드 흐름](https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens), [Graph 메시지 조회](https://learn.microsoft.com/en-us/graph/api/user-list-messages), [Google Gen AI SDK](https://github.com/googleapis/python-genai).
+다른 터미널에서 **platform_app 비밀번호 입력창**으로 접속해 점검한다. 비밀번호를
+명령 인자에 넣지 않는다. SQL은 READ ONLY이며 테이블·권한·개인 Microsoft 등록 계정이
+없으면 실패한다. 계정은 건수만 보고하므로 실제 선택할 `tid + oid`도 별도로 확인한다.
 
-## 2026-10-22 기존 Developer API 확인 이력
+```bash
+psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=platform_app' \
+  -v ON_ERROR_STOP=1 -f infra/sql/003_check_platform_auth.sql
+```
 
-Microsoft OpenID discovery와 Gemini 모델 목록 조회는 성공했다. gemini-embedding-001의 합성 임베딩 1건도 성공했고 기본 차원 3072를 확인했다. 실제 Microsoft 로그인 및 Graph 호출과 메일 발송은 미실행이다.
+인증과 최신 사용자·관리 범위 조회에 필요한 마이그레이션은 아래 **다섯 파일 순서**다.
+`departments`·`manager_departments`·`manager_projects`도 필수이며, 점검 SQL은 일곱 테이블의
+존재와 platform_app SELECT 권한을 확인한다. 세션·인가 시도에는 INSERT·DELETE도 확인한다.
+운영자가 실제 적용 상태를 확인하고 **누락된 파일만** DB 관리자 계정으로 순서대로 적용한다.
+각 파일은 해당 migrator 역할을 사용한다. 이미 적용한 파일이나 역할·스키마 부트스트랩을
+재실행하거나 개발 시연 계정을 공용 DB에 적재하지 않는다. 실제 검증 사용자와 역할 등록은
+KAN-78 담당과 확인한다.
 
-생성 smoke는 gemini-2.5-flash-lite 및 gemini-2.5-flash에서 HTTP 404, gemini-3.8-flash에서 HTTP 429가 나왔다. 모델 목록 노출만으로 현재 키의 생성 호출 가능 여부가 보장되지 않았다. 실제 사용 가능한 생성 모델 및 할당량 확인 후 재검증해야 하며 아직 모델과 production 임베딩 차원을 확정하지 않았다. 실패 기록에도 원문 응답과 키는 포함하지 않는다.
+아래는 다섯 파일이 모두 미적용인 경우의 전체 순서 예시이며 관리자 비밀번호를 입력받는다.
+일부만 누락됐다면 적용된 파일의 `-f` 항목은 제외한다. 적용 뒤 platform_app으로 위의
+읽기 전용 점검을 다시 실행하고 실제 계정 등록을 확인한다.
 
-추가 점검에서 gemini-3.8-flash 및 gemini-3.1-flash-lite 모두 HTTP 429 RESOURCE_EXHAUSTED였다. 응답의 안전한 구조화 필드에는 구체적인 quota 위반 항목이 없어 한도 0, 일일 소진 또는 다른 제한 중 무엇인지 확정하지 않았다. 같은 키가 속한 프로젝트를 AI Studio의 사용량과 한도에서 확인하도록 사용자에게 요청했다. 생성 성공이나 토큰 실측 완료로 표시하지 않는다.
+```bash
+psql -X -W 'host=127.0.0.1 port=55434 dbname=team4 user=postgres' \
+  -v ON_ERROR_STOP=1 \
+  -f infra/migrations/platform/20261022_KAN-78_identity.sql \
+  -f infra/migrations/platform/20261023_KAN-77_oauth_authorizations.sql \
+  -f infra/migrations/platform/20261023_KAN-77_sessions.sql \
+  -f infra/migrations/platform/20261023_KAN-78_manager_scopes.sql \
+  -f infra/migrations/platform/20261024_KAN-78_user_department_code.sql
+```
 
-### 후속 확인: 청구 계정 월간 지출 한도 도달
+누락 조건을 확인한 뒤 운영자가 서버 설정을 **비활성 상태로만** 준비할 수 있다.
+DB 점검 통과와 실제 검증 계정 확인은 인증 활성화 전에 다시 확인한다.
 
-사용자는 같은 키로 Python 호출이 이전에 성공했고 현재 AI Studio가 Tier 2라고 보고했다. 키 소속을 읽기 전용으로 조회해 교육장 프로젝트 proj-skkuls0106-183255377938임을 확인했고 GCP billingEnabled=true도 확인했다. 키와 인증 토큰은 출력하지 않았다.
+```bash
+uv run --frozen python infra/prepare_microsoft_auth.py --apply
+```
 
-짧은 합성 생성 요청의 HTTP 429 응답 설명에서 다음 문구를 확인했다. 키와 URL 등을 제거한 오류 설명만 확인했으며 업무 데이터는 사용하지 않았다.
+`--apply`는 `microsoft-client-secret:1`을 서울에 준비하고 platform-runtime 접근 권한을
+추가한 뒤 team4-platform의 설정을 연결한다. 비밀값은 gcloud 표준 입력으로만 전달한다.
+기존 버전 1은 ENABLED 상태와 로컬 값 일치를 메모리에서 확인하고 보존하며, 다르면
+중단한다. 이미 활성화된 인증, 다른 실행 계정·앱·Secret 연결도 변경 전에 거부한다.
+서버 설정 변경은 Cloud Run revision을 만들지만 이미지를 승격하거나 인증을 켜지 않는다.
+실패 시 일부 준비가 반영됐을 수 있으므로 원격 상태부터 확인하고 자동 재시도하지 않는다.
 
-> Your billing account has exceeded its monthly spending cap.
+기존 Entra 앱에 제품 Web callback을 확인하고, 배포 대상 이미지·DB·등록 사용자·화면
+정책 준비가 끝났을 때 **운영자가 별도로** 활성화한다.
 
-따라서 현재 확인된 생성 차단 원인은 청구 계정의 월간 지출 한도다. 앞선 원인 미확정 기록보다 이 결과가 우선한다. Tier 2 등급과 생성 API의 현재 사용 가능 여부는 구분한다. Google 문서상 청구 계정 한도는 연결된 프로젝트의 Gemini API 지출을 합산한다. 교육장 내 다른 프로젝트와 같은 청구 계정을 공유하는지는 담당자 확인이 필요하다.
+```bash
+gcloud run services update team4-platform \
+  --project=proj-skkuls0106-183255377938 --region=asia-northeast3 \
+  --account=skkuls0106@skkukdp.re.kr \
+  --update-env-vars=MICROSOFT_AUTH_ENABLED=true
+```
 
-교육장 담당자에게 위 오류와 프로젝트 ID를 전달해 Gemini API 청구 계정의 월간 지출 및 한도 상향 가능 여부를 확인한다. 개인 결제 연결과 청구 계정 변경 및 한도 조정은 실행하지 않았다. 추가 생성 재시도도 중단한다. [공식 월간 지출 한도 안내](https://ai.google.dev/gemini-api/docs/billing#billing-account-tier-spend-caps).
+위 GCP 변경 명령은 운영자 실행용이다. 문서·도구 검사나 dev PR 병합이 이 명령을
+자동 실행하지 않는다. main 배포 범위에 포함되는 C/S 등 다른 서비스의 마이그레이션은
+각 담당자와 별도로 확인한다. 검증을 마치면 로컬 프록시도 종료한다.
 
-## 후속 확인: Vertex AI global 생성 성공
-
-사용자 요청으로 기존 Developer API 키 경로와 별도로 교육장 프로젝트의 Vertex AI global 엔드포인트를 확인했다. aiplatform.googleapis.com은 이미 활성화돼 있었으며 API 활성화와 IAM 및 배포 설정은 변경하지 않았다.
-
-- 프로젝트: proj-skkuls0106-183255377938
-- 인증: 기존 교육장 GCP 사용자 계정의 OAuth 액세스 토큰. 키와 토큰은 출력하거나 저장하지 않았다.
-- 위치 및 모델: global, gemini-3.6-flash
-- 호출: aiplatform.googleapis.com의 v1/projects/PROJECT/locations/global/publishers/google/models/MODEL:generateContent
-- 합성 입력: Return exactly OK.
-- 결과: HTTP 200, 실제 OK 응답, finishReason=STOP. 입력 4, 답변 1, thinking 82, 총 87토큰을 확인했다.
-
-처음 maxOutputTokens=64 요청은 HTTP 200이었지만 본문이 비어 있었다. 1024로 늘린 후 위 실제 텍스트 결과를 확인했다. 짧은 연결 점검에도 출력 한도가 답변 생성을 막지 않는지 확인한다. 내부 추론 내용은 출력하지 않았다.
-
-기존 Developer API의 월간 지출 한도 오류와 이 경로의 생성 성공을 구분한다. 위 REST 단건 점검 뒤 공통 SDK와 평가 제공자를 연결했다. 실제 영어 및 한국어 합성 평가 2건이 모두 스키마를 통과했고, Vertex us-central1의 gemini-embedding-001도 합성 1건 성공했다. 실행 계정 검증은 별도 절차로 진행하며 최종 업무 모델은 아직 미확정이다. 관리형 에이전트 실행 환경을 새로 채택하거나 서비스를 추가한 것은 아니다. [공식 global 엔드포인트 안내](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#global-endpoint).
-
-## Microsoft 관리자 동의에서 막힐 때
-
-WSL에서는 스크립트가 Windows 기본 브라우저를 호출한다. 실패하면 같은 프로세스가 기다리는 일회용 로그인 URL을 터미널에 표시한다. URL은 본인 브라우저에서만 사용하고 채팅에 붙이지 않는다. 토큰과 시크릿은 출력하지 않는다.
-
-사용자는 로그인 화면에서 관리자 승인 필요 메시지를 확인했고 Entra의 관리자 동의 부여 버튼이 비활성화돼 있다고 보고했다. API 권한 표의 관리자 동의 필요 '아니요'는 권한 자체의 속성이다. 조직의 사용자 동의 및 미검증 앱 정책은 별개이므로 해당 표시만으로 조직 승인이 불필요하다고 판단하지 않는다.
-
-관리자에게 전달할 요청 문구:
-
-> 개발용 앱 ls-cs-rfp-agent의 Microsoft 로그인 및 메일 연동 검증을 위해 관리자 동의가 필요합니다. 앱 ID는 7160833b-2aa3-497f-bc6c-11c59851c254이고 테넌트 ID는 6c2ea5ee-418c-4e13-8eaa-5163cdb50c67입니다. 요청하는 Graph 위임 권한은 Mail.Read, Mail.Send, offline_access입니다. 시연용 사용자에 대해 사용할 수 있는 승인 방식과 메일함 사용 가능 여부를 확인 부탁드립니다.
-
-관리자에게 메시지를 대신 보내지는 않았다. 승인 후 로그인 및 Mail.Read를 재검증하고, Mail.Send 동의와 실제 테스트 메일 발송 및 수신은 구분해 확인한다. 현재는 실제 로그인, 읽기 및 발송 성공을 확인하지 못했다. [Microsoft 관리자 동의 안내](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent)를 참고한다.
-
-### 실행 계정 권한 전파 확인
-
-첫 실행 계정 점검은 임시 권한 추가 직후 토큰 발급에서 RefreshError가 발생했고 임시 바인딩을 회수했다. 모델 요청 이전의 인증 단계다. 이후 IAM_PERMISSION_DENIED인 토큰 발급만 최대 180초 기다리도록 보완했다. 모델 생성은 재시도하지 않는다. IAM 정책 변경의 반영에는 수분이 걸릴 수 있다. [공식 IAM 전파 시간 안내](https://docs.cloud.google.com/iam/docs/access-change-propagation).
-
-사용자가 보완한 스크립트를 실행한 결과 약 70초 전파 대기 후 두 실행 신원 모두 gemini-3.6-flash, global의 실제 생성에서 PASS와 STOP을 확인했다. C/S는 입력 4, 답변 1, 추론 60, 총 65토큰이고 TFT는 입력 4, 답변 1, 추론 67, 총 72토큰이다. 이후 IAM을 읽기 전용 조회해 호출 역할의 대상이 두 실행 계정뿐이고 검증용 임시 바인딩은 양쪽 모두 0건임을 확인했다. 업무 API 내부의 생성 기능은 아직 구현 전이다.
-
-공통 SDK의 실제 스키마 점검 결과는 artifacts/eval/c8af4a52-737e-41e7-beb1-8959ecf56dec.json 및 .html에 있다. 영어는 3200.51ms와 총 196토큰, 한국어는 1602.21ms와 총 201토큰이고 스키마가 모두 유효했다. 이는 두 합성 요청의 관측값이며 성능 보장이나 업무 품질 평가 결과가 아니다.
-
-공통 모듈과 설정은 main의 e557c8b에 반영했고 CI 39706740083 및 자동 CD 39706861091가 성공했다. Cloud Run 백엔드 3개의 새 이미지와 SDK import, 실행 설정 및 DB 준비 상태를 확인했다. 웹은 재배포하지 않았다. 상세 빌드 기록은 [서비스별 CI와 CD](service-delivery.md)에 있다.
+참고: [Gemini API 키](https://ai.google.dev/gemini-api/docs/api-key), [Microsoft 인증 코드 흐름](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow), [Graph sendMail](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).

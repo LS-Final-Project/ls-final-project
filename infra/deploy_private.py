@@ -74,9 +74,7 @@ def deployment_commands(
             command.append(f"--update-env-vars=NODE_ENV=production,PLATFORM_URL={PLATFORM_URL}")
         else:
             ai_environment = (
-                f",AI_PROVIDER=vertex,GOOGLE_CLOUD_PROJECT={PROJECT},"
-                "GOOGLE_CLOUD_LOCATION=global,GOOGLE_CLOUD_EMBEDDING_LOCATION=us-central1,"
-                "GEMINI_MODEL=gemini-3.6-flash,GEMINI_MAX_OUTPUT_TOKENS=1024"
+                ",AI_PROVIDER=gemini,GEMINI_MODEL=gemini-3.6-flash,GEMINI_MAX_OUTPUT_TOKENS=1024"
                 if service in ("cs", "tft")
                 else ""
             )
@@ -87,8 +85,13 @@ def deployment_commands(
                     f"ENVIRONMENT=production,DEV_AUTH_ENABLED=false,SERVICE_NAME={service},"
                     f"PGHOST=/cloudsql/{PROJECT}:{REGION}:team4-sql,PGDATABASE=team4,"
                     f"PGUSER={service}_app{ai_environment}",
-                    f"--update-secrets=PGPASSWORD={service}-db-password:1",
+                    f"--update-secrets=PGPASSWORD={service}-db-password:1"
+                    + (",GEMINI_API_KEY=gemini-api-key:1" if service in ("cs", "tft") else ""),
                 ]
+            )
+        if service in ("cs", "tft"):
+            command.append(
+                "--remove-env-vars=GOOGLE_CLOUD_LOCATION,GOOGLE_CLOUD_EMBEDDING_LOCATION"
             )
         commands.append(command)
     return commands
