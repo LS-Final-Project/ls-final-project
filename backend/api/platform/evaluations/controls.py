@@ -47,7 +47,12 @@ async def control_run(
             await conn.execute("SET LOCAL statement_timeout='5s'")
             # 잠금 대기 전에 읽힌 조인 상태를 사용하지 않도록 잠금 뒤 새 snapshot으로 조회한다.
             await conn.execute(
-                "SELECT run_id FROM evaluation.run_control WHERE run_id=%s FOR UPDATE", (run_id,)
+                "SELECT c.run_id FROM evaluation.run_control c "
+                "JOIN evaluation.runs r ON r.id=c.run_id "
+                "JOIN evaluation.experiments e ON e.id=r.experiment_id "
+                "WHERE c.run_id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s "
+                "FOR UPDATE OF c",
+                (run_id, actor, actor),
             )
             cursor = await conn.execute(
                 "SELECT r.id,r.job_id,r.status,r.requested_count,r.needs_review,r.failure_code,"

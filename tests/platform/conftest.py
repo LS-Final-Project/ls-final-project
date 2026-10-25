@@ -155,7 +155,7 @@ def evaluation_database(jobs_database):
                 conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
         sql = Path("infra/migrations/platform/20261025_KAN-90_smoke_worker.sql").read_text()
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
-        sql = Path("infra/migrations/platform/20261025_KAN-90_run_actions.sql").read_text()
+        sql = Path("infra/migrations/platform/20261025_KAN-90_user_controls.sql").read_text()
         if (
             conn.execute("SELECT to_regclass('evaluation.run_action_receipts')").fetchone()[0]
             is None

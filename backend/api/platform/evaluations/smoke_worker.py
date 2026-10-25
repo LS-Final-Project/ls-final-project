@@ -20,7 +20,6 @@ from backend.api.platform.evaluations.admission import (
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
-from eval.smoke import FakeProvider, Prediction
 
 
 @dataclass(frozen=True)
@@ -213,6 +212,9 @@ async def advance_run(
             )
             case = await cursor.fetchone()
             if case is not None:
+                # 운영 API 이미지는 eval 패키지를 포함하지 않으므로 합성 실행 때만 읽는다.
+                from eval.smoke import FakeProvider, Prediction
+
                 prompt = 'Return JSON {"result":"ready"}.'
                 raw, _ = FakeProvider().generate(prompt)
                 parsed = Prediction.model_validate_json(raw).model_dump()

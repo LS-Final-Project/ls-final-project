@@ -34,7 +34,7 @@ DB 대기 상한은 초기 로컬 보호값으로 lock_timeout=2초, statement_t
 
 ### 마이그레이션과 남은 범위
 
-KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 run_actions migration을 추가로 적용해야 한다.
+KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 user_controls migration을 추가로 적용해야 한다.
 
 최초 응답 저장은 구조화 ID만 보존한다. 실제 모델 실행·운영 dispatcher/worker·외부 호출 복구, SSE, 전체 평가 및 최종 시험 운영은 후속 작업이다. 로컬 합성 접수 성공으로 KAN-69/90 전체 완료를 판단하지 않는다.
 
@@ -152,7 +152,7 @@ uv run --frozen python -m backend.api.platform.evaluations.smoke_worker
 
 ## KAN-90 합성 실행 보류·취소·재개
 
-이 절은 local/test의 합성 실행 제어 구현 계약이다. production 활성화나 실제 모델 호출 취소 보장이 아니다. `20261025_KAN-90_smoke_worker.sql` 다음에 `20261025_KAN-90_run_actions.sql`을 적용한다. 새 migration은 이번 작업의 임시 검사 DB에서만 적용하며 공용 DB에는 적용하지 않았다. 기존 접수·worker migration을 재적용할 필요는 없다.
+이 절은 local/test의 합성 실행 제어 구현 계약이다. production 활성화나 실제 모델 호출 취소 보장이 아니다. `20261025_KAN-90_smoke_worker.sql` 다음에 `20261025_KAN-90_user_controls.sql`을 적용한다. 새 migration은 이번 작업의 임시 검사 DB에서만 적용하며 공용 DB에는 적용하지 않았다. 기존 접수·worker migration을 재적용할 필요는 없다.
 
 ### 요청과 판본
 
