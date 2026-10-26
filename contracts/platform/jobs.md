@@ -85,3 +85,28 @@ PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 
 5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.
 
 운영 dispatcher·Jobs 인증·실모델·production 활성화·공용 SQL 적용·main 배포는 이번 범위 밖이다. `tests/platform/test_job_status.py`는 전용 PostgreSQL의 실제 세션으로 정상/종료/구성 철회 조회, 다른 평가자·소유권·시험 차단, 세션/계정/역할/지정 회수 및 DB 장애를 검사한다. CI의 실제 DB 검사 목록에도 포함한다.
+
+### KAN-69 전송 장부 — local/test 첫 단위
+
+`backend/api/platform/jobs/dispatch.py`는 기본 비활성인 내부 저장 함수다. 기존 local/test 합성 접수 허용과 `EVALUATION_DISPATCH_ENABLED=true`가 모두 필요하며 production은 항상 거부한다. HTTP 경로·스케줄러·실제 전송 어댑터는 아직 없다. 새 SQL은 `20261026_KAN-69_dispatch_ledger.sql`이며 기존 outbox는 PENDING/시도0으로 보존한다. 공용 DB에는 별도 운영 절차로 한 번 적용한다.
+
+전송 소유권은 `(job_id, attempt_no, holder_id, lease_expires_at)`이고 평가 worker의 `(run_id, generation, holder_id, lease)`와 별개다. `claim_next`는 행 잠금과 SKIP LOCKED로 한 건을 확보하고 outbox와 시도 기록을 같은 트랜잭션에 저장한다. 기본 lease는30초, 전체 확보 한도는3회, 명확한 미접수 후 재확보 대기는30초이며 서버 설정으로 제한된 범위 안에서 조정한다. 전송 전 만료도 확보 횟수에 포함된다.
+
+| 상태 | 후속 처리 |
+| --- | --- |
+| PENDING | 최초 확보 가능 |
+| CLAIMED | 현재 holder만 전송 시작 가능. 만료되면 이전 시도는 EXPIRED, 한도 안에서 새 holder로 확보 |
+| SENDING | 전송 전에 commit한 상태. 만료되면 UNKNOWN으로 보류 |
+| ACCEPTED | 외부 접수가 확실히 확인됨. 자동 재전송 없음. 평가 성공을 뜻하지 않음 |
+| REJECTED | 외부에서 **접수하지 않았음이 확실한 경우만** 사용. 지연 후 한도 안에서 재확보 |
+| UNKNOWN | timeout·연결 단절·응답 해석 불가·전송 후 기록 실패 등 접수 여부 불명확. 자동 재전송 없음 |
+| BLOCKED | 전송 시작 시 현재 평가 승인·소유권·상태 검사 실패. 자동 재확보 없음 |
+| EXHAUSTED | 확보 한도 도달. 자동 재확보 없음 |
+
+`begin_send`는 지정 평가자·활성 계정·현재 승인 hash·합성 대상·소유권·job 입력 판본을 재검사한다. 종료/검토 필요/현재 worker lease 보유 실행은 BLOCKED다. SENDING commit을 확인한 호출자만 **DB 트랜잭션 밖에서** 외부 전송해야 한다. commit 성공을 확인하지 못했으면 보내지 않는다. 이 함수는 실행 권한을 부여하지 않으며 전송 직후 취소·승인이 회수될 수 있으므로 worker는 기존 실행 인수 검사를 다시 수행해야 한다.
+
+`record_result`는 현재 SENDING의 시도·holder·lease를 검증하고 두 장부를 함께 갱신한다. 만료된/중복/위조 결과는409로 거부한다. timeout과 예외를 REJECTED로 분류하지 않는다. UNKNOWN/ACCEPTED/BLOCKED/EXHAUSTED의 운영 대조·재처리 도구는 후속 범위다. 만료 한 건을 보류하거나 한도를 소진하면 `claim_next`는 None을 반환할 수 있으므로 None은 전체 큐가 비었다는 증거가 아니다.
+
+장부는 외부 응답 본문·자격증명·원문·정답을 저장하지 않는다. 실행 상태·worker lease·판본·사용량·공개 이벤트는 바꾸지 않고 일반 조회/SSE에 노출하지 않는다. 기존 `smoke_worker.dispatch_one`은 로컬 fake 직접 실행 도구이며 이 전송 장부를 소비하는 운영 dispatcher가 아니다.
+
+후속 순서는 Cloud Run Jobs의 호출자 IAM과 컨테이너 실행 계정·DB 권한을 구분한 계약 → 한 건 전송 어댑터와 timeout/불명확 결과 처리 → 중복 전달에도 독립적인 worker 권한/lease 검사다. HTTP worker OIDC 인증을 Jobs 실행 인증으로 혼동하지 않는다. 실제 모델 intent/UNKNOWN·사용량 보존·취소 경계는 별도다.
