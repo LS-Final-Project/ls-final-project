@@ -1,6 +1,6 @@
 # 플랫폼 작업 접수 저장 계약 — KAN-69 초기 구현
 
-현재 구현은 평가 실행 접수에 필요한 저장 함수와 마이그레이션이다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. 실제 평가·Cloud Run Jobs 전송·SSE는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
+현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회 API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. 실제 평가·Cloud Run Jobs 전송·SSE는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
 
 ## 저장과 소유권
 
@@ -39,3 +39,31 @@ DB 대기 시간 제한과 오류→HTTP 변환은 호출자 경계의 후속 �
 `tests/platform/test_job_admission.py`는 전용 PostgreSQL과 platform_app 계정으로 동시 동일 요청, 다른 hash 충돌, 후속 업무 SQL 실패, outbox INSERT 실패, transaction 없는 호출 거부, 다른 서비스 권한을 검사한다. 기존 auth-database CI에 이 파일을 추가해 DB 테스트가 단순 skip으로 끝나지 않게 한다.
 
 공통 작업 전송·인증·재시도·SSE 재접속과 평가 run 소유권은 이 접수 저장과 별도다. 이 저장 구조의 성공을 모델 호출의 중복 방지, 최종 시험 보호 전체 또는 KAN-69 전체 완료로 보고하지 않는다.
+
+## 평가 작업 상태 조회 — KAN-69 첫 조회 단위
+
+`GET /api/v1/platform/jobs/{job_id}`는 local/test에서 명시적으로 접수를 허용한 평가 작업만 조회한다. 현재 Microsoft 서버 세션·활성 등록 계정·유효 업무 역할·지정 평가자 조건을 요청마다 기존 인증 경계로 검사한다. manager 역할만으로 평가자가 되거나 타인의 작업을 조회하지 않는다. 작업 actor, 실행 요청자, 실험 생성자가 모두 현재 사용자여야 한다. 없는 작업·다른 소유자의 작업·최종 시험은404로 숨긴다. 세션 만료/회수·계정 비활성·역할 전체 회수는401, 평가자 지정 회수는403이다. 구성 승인 hash 철회 후에도 본인의 제한 조회는 유지한다. production 또는 접수 비활성 상태는503이며 실행 잠금 해제 수단이 아니다.
+
+성공 envelope의 `data`는 `job_id`, `run_id`, `owner=platform`, `kind=evaluation.run`, `status`, `run_status`, `version`, `last_event_sequence`, `needs_review`만 포함한다. 원시 출력·정답·대상·event payload·사용자 식별 정보·입력 hash·멱등 키·내부 전송/worker 정보는 반환하지 않는다. 계산되지 않은 진행률과 사용량을 만들어내지 않는다. `ETag: "<version>"`, `Cache-Control: no-store`를 반환하며 DB 장애는503이다.
+
+상태의 권위는 evaluation run이다. `TIMED_OUT`은 작업 `status=FAILED`로 투영하고 `run_status=TIMED_OUT`으로 구분한다. runtime의 전송 기록이나 job 상태를 실행 권한으로 사용하지 않는다. run 상태·제어 판본·해당 작업의 마지막 저장 sequence를 단일 SELECT의 동일 PostgreSQL 스냅샷으로 읽는다. `version`은 실행 제어 판본이고 `last_event_sequence`는 이벤트 위치이므로 서로 대체하지 않는다. 현재 이벤트 삭제/보관 만료 기능은 없으며 이벤트가 없으면 sequence는0이다.
+
+기존 접수 응답의 `status_url`과 최초 응답 재생은 변경하지 않는다. 소비자는 응답의 job_id로 위 경로를 구성할 수 있다. 새 migration이나 추가 DB 권한은 필요하지 않다.
+
+### SSE 재접속의 남은 구현 경계
+
+이번 단위는 상태 조회만 구현한다. `/api/v1/platform/jobs/{job_id}/events` 및 `events_url` 응답은 아직 제공하지 않는다. SSE 구현 시 [공통 계약](../../docs/api-contract.md#작업과-sse)의 Last-Event-ID 우선, after/0 시작, 증가 순서 재생, 미래 커서400, 만료410, 종료 이벤트 뒤 닫기와 종료 위치까지 받은 재접속204를 적용한다. 숫자 커서는 URL의 작업 안에서 해석하므로 동일 숫자가 다른 작업에서 유래했는지는 판별할 수 없다. 작업 소유권을 먼저 검사한다.
+
+스냅샷으로 상태를 복구한 클라이언트는 그 스냅샷의 last_event_sequence 이후를 구독해야 스냅샷과 구독 사이에 commit된 이벤트를 놓치지 않는다. 헤더 전 현재 세션·평가자·소유권·커서를 검사하고 연결 중에도 같은 권한을 주기적으로 재검사해야 한다. 권한 회수/DB 장애 후 기존 권한으로 계속 보내지 않으며 연결 종료로 복구한다. 이벤트 payload는 별도 허용 필드 DTO로 제한해야 한다. 이 흐름과 동시 commit·재접속 검사는 후속 구현 대상이며 이번 GET 성공을 SSE 검증 성공으로 해석하지 않는다.
+
+### 공개 경로와 후속 구현 순서
+
+현재 공개 웹 `frontend/server.mjs`는 평가/jobs 경로를 허용하지 않는다. 플랫폼의 C/S·TFT 업무 JSON 중계도 평가 SSE의 경로가 아니다. 로컬 Vite API 프록시로 플랫폼에 접근할 수 있지만 공개 웹 통합은 미구현이다. PR45(김종하)의 최신 web diff는 정적 파일 canonical 경로 처리이며 공통 프론트 소유권을 변경하지 않는다. KAN-140 담당 김종하와 공개 웹의 고정 플랫폼 경로, 쿠키·Last-Event-ID 전달, 스트림 헤더·버퍼링·연결 종료 처리를 연결해야 한다. 오류를 합성 성공으로 대체하지 않는다.
+
+1. 이번 GET의 실제 세션·DB 접근 경계 및 상태 스냅샷 검증.
+2. SSE 저장 이벤트 재생·연결 중 권한 회수·종료 복구와 공개 웹 소비자 연결.
+3. dispatcher 전송 lease/시도/결과 불명확 기록을 runtime에 구현. 평가 run의 generation/holder/lease와 실행 허가를 대체하지 않음.
+4. Cloud Run Jobs API 호출자의 IAM과 Job 컨테이너 실행 서비스 계정·DB 실행 권한을 구분하여 최소 연결. HTTP Tasks worker의 OIDC 인증을 Jobs 컨테이너 인증으로 복사하지 않음. 중복 전달·전송 결과 불명확 시에도 run 소유권 재검사.
+5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.
+
+운영 dispatcher·Jobs 인증·실모델·production 활성화·공용 SQL 적용·main 배포는 이번 범위 밖이다. `tests/platform/test_job_status.py`는 전용 PostgreSQL의 실제 세션으로 정상/종료/구성 철회 조회, 다른 평가자·소유권·시험 차단, 세션/계정/역할/지정 회수 및 DB 장애를 검사한다. CI의 실제 DB 검사 목록에도 포함한다.
