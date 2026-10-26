@@ -35,7 +35,8 @@ export async function nextEvaluationChange(jobId: string, after: number, signal:
       timer = setTimeout(() => controller.abort(), 45000);
       const chunk = await reader.read();
       if (chunk.done) throw interrupted();
-      buffer += decoder.decode(chunk.value, { stream: true });
+      try { buffer += decoder.decode(chunk.value, { stream: true }); }
+      catch { throw invalidStream(); }
       let end: number;
       while ((end = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, end).replace(/\r$/, '');

@@ -169,3 +169,19 @@ test('보관 만료 뒤에는 새 스냅샷의 커서로 구독한다', async t 
   await watchEvaluation(job, new AbortController().signal, () => {});
   assert.deepEqual(positions, ['2', '6']);
 });
+
+test('깨진 UTF-8은 네트워크 장애로 재시도하지 않고 즉시 중단한다', async t => {
+  let calls = 0;
+  const views: EvaluationView[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    calls++;
+    return url.includes('/events')
+      ? new Response(new Uint8Array([0xff]), { headers: { 'Content-Type': 'text/event-stream' } })
+      : Response.json({ data: snapshot });
+  });
+  await watchEvaluation(job, new AbortController().signal, view => views.push(view));
+  assert.equal(calls, 2);
+  assert.equal(views.at(-1)?.connection, 'error');
+  assert.equal(views.at(-1)?.data, undefined);
+  assert.match(views.at(-1)?.message || '', /실시간 응답/);
+});
