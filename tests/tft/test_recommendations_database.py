@@ -316,3 +316,84 @@ def test_database_competency_recheck_preserves_history_and_replays_once(scenario
         next(record for record in checks if record["id"] == second.json()["data"]["id"])["status"]
         == "UNMET"
     )
+
+
+@pytest.fixture
+def issue_scenario(scenario):
+    client, request, _, _, database, role, _ = scenario
+    sales = uuid4()
+    with psycopg.connect(database) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET sales_user_id=%s WHERE id=(SELECT project_id FROM tft.staffing_requests WHERE id=%s)",
+            (sales, request),
+        )
+        conn.execute(
+            "UPDATE tft.staffing_requests SET status='DRAFT',issued_at=NULL,issued_by_user_id=NULL WHERE id=%s",
+            (request,),
+        )
+        conn.execute("UPDATE tft.required_roles SET status='DRAFTING' WHERE id=%s", (role,))
+    headers = principal_header(Principal(user_id=sales, roles={"sales"}))
+    return (
+        client,
+        request,
+        database,
+        role,
+        headers | {"If-Match": '"1"', "Idempotency-Key": "issue"},
+    )
+
+
+def test_database_issue_replay_is_atomic_and_keeps_original_result(issue_scenario):
+    client, request, database, role, headers = issue_scenario
+    path = f"/api/v1/tft/staffing-requests/{request}/issue"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: client.post(path, headers=headers), range(2)))
+    assert [r.status_code for r in results] == [200, 200]
+    assert results[0].json() == results[1].json()
+    with psycopg.connect(database) as conn:
+        assert conn.execute(
+            "SELECT version,status FROM tft.staffing_requests WHERE id=%s", (request,)
+        ).fetchone() == (2, "ISSUED")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.staffing_request_revisions WHERE staffing_request_id=%s",
+                (request,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.recommendation_commands WHERE request_id=%s", (request,)
+            ).fetchone()[0]
+            == 1
+        )
+        conn.execute(
+            "UPDATE tft.staffing_requests SET status='ANSWERED',version=3 WHERE id=%s", (request,)
+        )
+    assert client.post(path, headers=headers).json() == results[0].json()
+    assert client.post(path, headers=headers | {"If-Match": '"3"'}).status_code == 409
+
+
+def test_database_issue_receipt_failure_rolls_back_issue(issue_scenario, monkeypatch):
+    client, request, database, role, headers = issue_scenario
+
+    async def fail(*args, **kwargs):
+        raise psycopg.OperationalError("synthetic receipt failure")
+
+    monkeypatch.setattr(repository, "remember", fail)
+    result = client.post(f"/api/v1/tft/staffing-requests/{request}/issue", headers=headers)
+    assert result.status_code == 503
+    with psycopg.connect(database) as conn:
+        assert conn.execute(
+            "SELECT version,status FROM tft.staffing_requests WHERE id=%s", (request,)
+        ).fetchone() == (1, "DRAFT")
+        assert (
+            conn.execute("SELECT status FROM tft.required_roles WHERE id=%s", (role,)).fetchone()[0]
+            == "DRAFTING"
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.staffing_request_revisions WHERE staffing_request_id=%s",
+                (request,),
+            ).fetchone()[0]
+            == 0
+        )

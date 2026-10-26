@@ -4909,7 +4909,7 @@
             }
           },
           {
-            "description": "Received and ignored for now; replays are refused by If-Match (412).",
+            "description": "Replay the first successful issue response for this actor, request and key.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -4917,13 +4917,14 @@
               "anyOf": [
                 {
                   "maxLength": 128,
+                  "minLength": 1,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Received and ignored for now; replays are refused by If-Match (412).",
+              "description": "Replay the first successful issue response for this actor, request and key.",
               "title": "Idempotency-Key"
             }
           }
