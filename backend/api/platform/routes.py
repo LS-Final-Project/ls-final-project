@@ -4,7 +4,11 @@ from fastapi import APIRouter
 
 from backend.api.platform.auth.http import router as login
 from backend.api.platform.auth.routes import router as auth
+from backend.api.platform.evaluations.routes import router as evaluations
+from backend.api.platform.jobs.routes import router as jobs
 
 router = APIRouter()
 router.include_router(auth)
 router.include_router(login)
+router.include_router(evaluations)
+router.include_router(jobs)

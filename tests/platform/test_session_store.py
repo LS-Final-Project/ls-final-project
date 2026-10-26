@@ -422,9 +422,21 @@ def test_public_auth_sql_checks_real_runtime_role_and_rolls_back(
         assert conn.execute("SELECT current_user").fetchone() == ("platform_app",)
 
 
-@pytest.mark.parametrize("failure", ["missing_table", "missing_privilege", "unregistered"])
+@pytest.mark.parametrize(
+    "failure,relation_name,privilege",
+    [
+        ("missing_table", "sessions", "DELETE"),
+        ("missing_privilege", "sessions", "DELETE"),
+        ("unregistered", "sessions", "DELETE"),
+        *[
+            (failure, relation_name, "SELECT")
+            for relation_name in ("departments", "manager_departments", "manager_projects")
+            for failure in ("missing_table", "missing_privilege")
+        ],
+    ],
+)
 def test_public_auth_sql_refuses_missing_production_prerequisites(
-    settings, auth_database, registered_user, failure
+    settings, auth_database, registered_user, failure, relation_name, privilege
 ):
     """실제 DB의 테이블·세션 권한·등록 조건 누락을 준비 완료로 보고하지 않는지 확인한다.
 
@@ -433,6 +445,8 @@ def test_public_auth_sql_refuses_missing_production_prerequisites(
         auth_database: 전용 테스트 DB만 허용하는 관리자 연결.
         registered_user: 해당 검사에서만 쓰는 합성 사용자.
         failure: 재현할 테이블·권한·실제 등록 조건 누락.
+        relation_name: 누락을 재현할 인증 의존 테이블.
+        privilege: 회수했다 복원할 실제 런타임 권한.
 
     Returns:
         None: SQL 점검 실패와 테스트용 권한·테이블 복원을 확인한다.
@@ -444,12 +458,21 @@ def test_public_auth_sql_refuses_missing_production_prerequisites(
             "UPDATE identity.users SET tid='9188040d-6c67-4c5b-b112-36a304b66dad'::uuid WHERE id=%s",
             (user_id,),
         )
+    hidden_name = f"kan77_hidden_{relation_name}"
     try:
         with psycopg.connect(auth_database) as conn:
             if failure == "missing_table":
-                conn.execute("ALTER TABLE identity.sessions RENAME TO kan77_hidden_sessions")
+                conn.execute(
+                    SQL("ALTER TABLE identity.{} RENAME TO {}").format(
+                        Identifier(relation_name), Identifier(hidden_name)
+                    )
+                )
             elif failure == "missing_privilege":
-                conn.execute("REVOKE DELETE ON identity.sessions FROM platform_app")
+                conn.execute(
+                    SQL("REVOKE {} ON identity.{} FROM platform_app").format(
+                        SQL(privilege), Identifier(relation_name)
+                    )
+                )
             else:
                 conn.execute("UPDATE identity.users SET is_active=false WHERE id=%s", (user_id,))
         with psycopg.connect(settings.database_url.get_secret_value(), autocommit=True) as conn:
@@ -458,6 +481,14 @@ def test_public_auth_sql_refuses_missing_production_prerequisites(
     finally:
         with psycopg.connect(auth_database) as conn:
             if failure == "missing_table":
-                conn.execute("ALTER TABLE identity.kan77_hidden_sessions RENAME TO sessions")
+                conn.execute(
+                    SQL("ALTER TABLE identity.{} RENAME TO {}").format(
+                        Identifier(hidden_name), Identifier(relation_name)
+                    )
+                )
             elif failure == "missing_privilege":
-                conn.execute("GRANT DELETE ON identity.sessions TO platform_app")
+                conn.execute(
+                    SQL("GRANT {} ON identity.{} TO platform_app").format(
+                        SQL(privilege), Identifier(relation_name)
+                    )
+                )
