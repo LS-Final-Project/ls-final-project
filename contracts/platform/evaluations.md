@@ -28,7 +28,7 @@ KAN-69의 작업 유일 키를 먼저 확보한 뒤 신규 요청만 run·고정
 
 202의 data는 run_id·job_id·status=QUEUED·status_url이다. Location은 실제 구현한 `GET /api/v1/platform/evaluations/runs/{run_id}`이며 조회는 현재 평가 권한·실험 생성자·요청자를 다시 검사하고 test split은 숨긴다. 구성 hash 허용이 철회돼도 담당자가 보류 원인과 최신 판본을 확인해 취소할 수 있도록 제한된 상태 조회는 유지한다. 평가자 지정이나 세션 권한이 철회되면 조회도 거부한다. 접수 재전송·재개는 구성 허용을 다시 검사한다. 조회는 실행/job ID·상태·요청 건수·version·needs_review·failure_code만 반환하고 원시 출력·정답을 노출하지 않는다.
 
-현재는 일반 jobs/SSE 경로가 구현되지 않았으므로 공통 비동기 응답의 events_url을 제공하지 않는 **local/test 전용 부분 계약**이다. 실제 운영 접수 활성화 전에 공통 jobs/SSE 연결과 권한 검증을 완료해야 한다. 접수 자체는 QUEUED만 만든다. 아래 로컬 worker를 명시적으로 실행하면 RUNNING→SUCCEEDED로 진행한다. Cloud Run Jobs dispatcher는 아직 없다. 이 접수의 provider=fake, runner_kind=test, scoring_version=smoke-not-scored-v1은 미채점 연결 검사 표시이며 실제 품질 점수를 의미하지 않는다.
+접수 응답은 최초 응답 재생을 유지하기 위해 events_url을 추가하지 않은 **local/test 전용 부분 계약**이다. job_id로 작업 상태 및 SSE 경로를 구성할 수 있으며 상세는 [작업 계약](jobs.md)을 따른다. 실제 운영 접수 활성화 전에 공개 웹 중계·운영 실행 인증과 통합 검증을 완료해야 한다. 접수 자체는 QUEUED만 만든다. 아래 로컬 worker를 명시적으로 실행하면 RUNNING→SUCCEEDED로 진행한다. Cloud Run Jobs dispatcher는 아직 없다. 이 접수의 provider=fake, runner_kind=test, scoring_version=smoke-not-scored-v1은 미채점 연결 검사 표시이며 실제 품질 점수를 의미하지 않는다.
 
 DB 대기 상한은 초기 로컬 보호값으로 lock_timeout=2초, statement_timeout=5초다. Retry-After=5초도 조회 안내값이며 실측 SLA가 아니다. DB 오류/commit 불명확 시503이며 같은 키로 재확인한다. 호출자가 새 키를 발급해 중복 접수하지 않아야 한다.
 
@@ -185,4 +185,4 @@ worker가 현재 평가자 지정/활성 사용자/구성 승인/구성 hash/합
 
 ### 작업 ID로 상태 복구
 
-접수된 합성 실행은 [작업 상태 조회](jobs.md#평가-작업-상태-조회--kan-69-첫-조회-단위)의 `GET /api/v1/platform/jobs/{job_id}`로도 제한 조회할 수 있다. 현재 세션·지정 평가자와 작업/실행/실험의 소유권을 검사하며 최종 시험 잠금은 유지한다. 기존 run 상태 URL과 제어 ETag 계약은 유지하고, 작업 스냅샷은 같은 실행 판본과 마지막 이벤트 sequence를 구분하여 반환한다. SSE 스트림·공개 웹 중계는 아직 미구현이다.
+접수된 합성 실행은 [작업 상태 조회](jobs.md#평가-작업-상태-조회--kan-69-첫-조회-단위)의 `GET /api/v1/platform/jobs/{job_id}`로도 제한 조회할 수 있다. 현재 세션·지정 평가자와 작업/실행/실험의 소유권을 검사하며 최종 시험 잠금은 유지한다. 기존 run 상태 URL과 제어 ETag 계약은 유지하고, 작업 스냅샷은 같은 실행 판본과 마지막 이벤트 sequence를 구분하여 반환한다. 같은 job_id의 `/api/v1/platform/jobs/{job_id}/events`는 local/test 합성 저장 이벤트 재생과 연결 중 권한 재검사를 제공한다. 상세 커서/종료/허용 payload는 작업 계약을 따른다. 공개 웹 중계는 아직 미구현이다.
