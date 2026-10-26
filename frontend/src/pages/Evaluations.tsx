@@ -38,7 +38,7 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
     };
   }, [jobId, valid, revision]);
   const loading = valid && view.connection === 'loading';
-  const data = view.data;
+  const data = valid ? view.data : undefined;
   const connectionLabels = {
     loading: '상태 확인 중', connecting: '실시간 연결 중', connected: '실시간 연결됨',
     reconnecting: '재접속 중', ended: '종료 상태 확인됨', error: '갱신 중단',
