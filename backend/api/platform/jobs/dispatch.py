@@ -1,0 +1,243 @@
+"""로컬 합성 평가의 전송 장부. 외부 호출과 worker 실행 권한을 부여하지 않는다."""
+
+from dataclasses import dataclass
+from typing import Any, Literal
+from uuid import UUID, uuid4
+
+import psycopg
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.evaluations.admission import admission_available
+from backend.api.platform.evaluations.smoke_worker import locked_run
+from backend.shared.database import connection
+from backend.shared.errors import ApplicationError
+from backend.shared.settings import Settings
+
+
+class DispatchSettings(BaseSettings):
+    """실제 전송 없이 장부 검증만 명시적으로 허용하는 설정."""
+
+    model_config = SettingsConfigDict(env_prefix="EVALUATION_DISPATCH_", extra="ignore")
+    enabled: bool = False
+    lease_seconds: int = Field(default=30, ge=1, le=300)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    retry_delay_seconds: int = Field(default=30, ge=1, le=3600)
+
+
+@dataclass(frozen=True)
+class DispatchLease:
+    """평가 실행 generation과 별개인 전송 시도 식별자."""
+
+    job_id: UUID
+    run_id: UUID
+    attempt_no: int
+    holder_id: UUID
+
+
+def require_local(
+    settings: Settings, access: EvaluationAccessSettings, dispatch: DispatchSettings
+) -> None:
+    """운영 또는 기본 비활성 상태에서 장부 변경을 거부한다.
+
+    Args:
+        settings: 실행 환경.
+        access: 합성 접수 허용 설정.
+        dispatch: 전송 장부 허용 설정.
+
+    Returns:
+        None: 명시적으로 허용된 local/test에서만 반환한다.
+    """
+    if not dispatch.enabled or not admission_available(settings, access):
+        raise ApplicationError(403, "DISPATCH_DISABLED", "Dispatch is disabled.")
+
+
+async def finish(
+    conn: psycopg.AsyncConnection[dict[str, Any]], row: dict[str, Any], state: str, delay: int = 0
+) -> None:
+    """잠긴 전송 시도와 outbox의 종료 상태를 함께 기록한다.
+
+    Args:
+        conn: outbox 잠금을 보유한 트랜잭션 연결.
+        row: 현재 시도 번호를 가진 outbox 행.
+        state: 원문이나 외부 오류를 포함하지 않는 고정 상태.
+        delay: 명확한 거부 뒤 다음 확보까지의 초.
+
+    Returns:
+        None: 호출자의 commit으로 두 기록이 함께 확정된다.
+    """
+    await conn.execute(
+        "UPDATE runtime.dispatch_attempts SET state=%s,finished_at=clock_timestamp() "
+        "WHERE job_id=%s AND attempt_no=%s",
+        (state, row["job_id"], row["attempt_no"]),
+    )
+    await conn.execute(
+        "UPDATE runtime.dispatch_outbox SET state=%s,holder_id=NULL,lease_expires_at=NULL,"
+        "next_attempt_at=clock_timestamp()+make_interval(secs => %s) WHERE job_id=%s",
+        (state, delay, row["job_id"]),
+    )
+
+
+async def claim_next(
+    settings: Settings, access: EvaluationAccessSettings, dispatch: DispatchSettings
+) -> DispatchLease | None:
+    """전송 한 건을 확보하거나 만료된 전송의 불명확 상태를 보존한다.
+
+    Args:
+        settings: 로컬 DB 설정.
+        access: 합성 접수 설정.
+        dispatch: 전송 장부 허용·lease·시도 한도.
+
+    Returns:
+        DispatchLease | None: 새 전송 소유권. 만료된 SENDING은 UNKNOWN으로 보류한다.
+    """
+    require_local(settings, access, dispatch)
+    async with connection(settings) as conn, conn.transaction():
+        cursor = await conn.execute(
+            "SELECT o.*,j.business_id FROM runtime.dispatch_outbox o "
+            "JOIN runtime.jobs j ON j.id=o.job_id "
+            "WHERE (o.state IN ('PENDING','REJECTED') AND o.next_attempt_at<=clock_timestamp()) "
+            "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp()) "
+            "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        if row["state"] == "SENDING":
+            await finish(conn, row, "UNKNOWN")
+            return None
+        if row["state"] == "CLAIMED":
+            await conn.execute(
+                "UPDATE runtime.dispatch_attempts SET state='EXPIRED',finished_at=clock_timestamp() "
+                "WHERE job_id=%s AND attempt_no=%s",
+                (row["job_id"], row["attempt_no"]),
+            )
+        if row["attempt_no"] >= dispatch.max_attempts:
+            await conn.execute(
+                "UPDATE runtime.dispatch_outbox SET state='EXHAUSTED',holder_id=NULL,"
+                "lease_expires_at=NULL WHERE job_id=%s",
+                (row["job_id"],),
+            )
+            return None
+        lease = DispatchLease(row["job_id"], row["business_id"], row["attempt_no"] + 1, uuid4())
+        await conn.execute(
+            "UPDATE runtime.dispatch_outbox SET state='CLAIMED',attempt_no=%s,holder_id=%s,"
+            "lease_expires_at=clock_timestamp()+make_interval(secs => %s) WHERE job_id=%s",
+            (lease.attempt_no, lease.holder_id, dispatch.lease_seconds, lease.job_id),
+        )
+        await conn.execute(
+            "INSERT INTO runtime.dispatch_attempts(job_id,attempt_no,holder_id,state) "
+            "VALUES (%s,%s,%s,'CLAIMED')",
+            (lease.job_id, lease.attempt_no, lease.holder_id),
+        )
+        return lease
+
+
+async def current_attempt(
+    conn: psycopg.AsyncConnection[dict[str, Any]], lease: DispatchLease, state: str
+) -> dict[str, Any]:
+    """전송 담당자·시도·상태·만료를 잠금 뒤 새 스냅샷으로 검증한다.
+
+    Args:
+        conn: 전송 트랜잭션 연결.
+        lease: 호출자의 전송 소유권.
+        state: 허용되는 현재 상태.
+
+    Returns:
+        dict: 검증된 행. 오래되거나 만료된 호출은 409다.
+    """
+    await conn.execute(
+        "SELECT job_id FROM runtime.dispatch_outbox WHERE job_id=%s FOR UPDATE", (lease.job_id,)
+    )
+    cursor = await conn.execute(
+        "SELECT o.*,j.business_id,j.actor_id,j.input_version FROM runtime.dispatch_outbox o "
+        "JOIN runtime.jobs j ON j.id=o.job_id WHERE o.job_id=%s "
+        "AND o.state=%s AND o.attempt_no=%s AND o.holder_id=%s "
+        "AND o.lease_expires_at>clock_timestamp() AND j.business_id=%s",
+        (lease.job_id, state, lease.attempt_no, lease.holder_id, lease.run_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ApplicationError(409, "STALE_DISPATCH", "Dispatch ownership expired.")
+    return row
+
+
+async def begin_send(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    dispatch: DispatchSettings,
+    lease: DispatchLease,
+) -> bool:
+    """현재 평가 승인 조건을 재검사하고 외부 전송 전에 SENDING을 commit한다.
+
+    Args:
+        settings: 로컬 DB 설정.
+        access: 현재 지정 평가자·승인 구성.
+        dispatch: 장부 허용 설정.
+        lease: 확보한 전송 소유권.
+
+    Returns:
+        bool: True일 때만 호출자가 트랜잭션 밖에서 전송할 수 있다. 실행 권한은 별도다.
+    """
+    require_local(settings, access, dispatch)
+    async with connection(settings) as conn, conn.transaction():
+        row = await current_attempt(conn, lease, "CLAIMED")
+        try:
+            run = await locked_run(conn, settings, access, lease.run_id)
+        except ApplicationError:
+            await finish(conn, row, "BLOCKED")
+            return False
+        cursor = await conn.execute(
+            "SELECT config_hash FROM evaluation.experiments WHERE id=%s", (run["experiment_id"],)
+        )
+        experiment = await cursor.fetchone()
+        assert experiment is not None
+        if (
+            run["status"] not in {"QUEUED", "RUNNING"}
+            or run["needs_review"]
+            or run["lease_live"]
+            or run["job_id"] != lease.job_id
+            or run["requested_by_user_id"] != row["actor_id"]
+            or experiment["config_hash"] != row["input_version"]
+        ):
+            await finish(conn, row, "BLOCKED")
+            return False
+        # 승인 검사 중 lease가 만료될 수 있으므로 전송 시작 직전에 다시 검사한다.
+        await current_attempt(conn, lease, "CLAIMED")
+        await conn.execute(
+            "UPDATE runtime.dispatch_outbox SET state='SENDING' WHERE job_id=%s", (lease.job_id,)
+        )
+        await conn.execute(
+            "UPDATE runtime.dispatch_attempts SET state='SENDING',sent_at=clock_timestamp() "
+            "WHERE job_id=%s AND attempt_no=%s",
+            (lease.job_id, lease.attempt_no),
+        )
+        return True
+
+
+async def record_result(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    dispatch: DispatchSettings,
+    lease: DispatchLease,
+    result: Literal["ACCEPTED", "REJECTED", "UNKNOWN"],
+) -> None:
+    """전송 결과만 저장하며 평가 상태·worker lease·이벤트는 변경하지 않는다.
+
+    Args:
+        settings: 로컬 DB 설정.
+        access: 합성 접수 설정.
+        dispatch: 장부 설정과 명확한 거부의 재시도 간격.
+        lease: 전송을 시작한 소유권.
+        result: 접수 확인, 명확한 미접수, 결과 불명확 중 하나.
+
+    Returns:
+        None: 전송 결과를 commit한다. 만료·중복·오래된 결과는 409다.
+    """
+    require_local(settings, access, dispatch)
+    if result not in {"ACCEPTED", "REJECTED", "UNKNOWN"}:
+        raise ValueError("Unsupported dispatch result")
+    async with connection(settings) as conn, conn.transaction():
+        row = await current_attempt(conn, lease, "SENDING")
+        await finish(conn, row, result, dispatch.retry_delay_seconds if result == "REJECTED" else 0)

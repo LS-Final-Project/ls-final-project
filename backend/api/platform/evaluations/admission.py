@@ -211,7 +211,7 @@ async def get_run(
     actor: UUID,
     run_id: UUID,
 ) -> EvaluationRunStatus:
-    """현재 평가 권한과 구성 허용 여부를 확인하고 자기 접수 상태만 반환한다.
+    """현재 평가 권한을 확인하고 구성 철회 후에도 자기 접수의 제어 상태를 반환한다.
 
     Args:
         settings: DB와 환경 설정.
@@ -225,22 +225,22 @@ async def get_run(
     check_actor(settings, access, actor)
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT r.id,r.job_id,r.status,r.requested_count,e.config_hash,e.data_split "
+            "SELECT r.id,r.job_id,r.status,r.requested_count,e.config_hash,e.data_split,r.needs_review,r.failure_code,c.version "
             "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
             "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+            "JOIN evaluation.run_control c ON c.run_id=r.id "
             "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
             (run_id, actor, actor),
         )
         row = await cursor.fetchone()
-        if (
-            row is None
-            or row["config_hash"] not in access.approved_config_hashes
-            or row["data_split"] == "test"
-        ):
+        if row is None or row["data_split"] == "test":
             raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
         return EvaluationRunStatus(
             run_id=row["id"],
             job_id=row["job_id"],
             status=row["status"],
             requested_count=row["requested_count"],
+            version=row["version"],
+            needs_review=row["needs_review"],
+            failure_code=row["failure_code"],
         )
