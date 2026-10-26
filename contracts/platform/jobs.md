@@ -1,6 +1,6 @@
 # 플랫폼 작업 접수 저장 계약 — KAN-69 초기 구현
 
-현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회 API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. 실제 평가·Cloud Run Jobs 전송·SSE는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
+현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회·SSE API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. local/test 합성 평가의 저장 이벤트 SSE를 제공한다. 실제 평가·Cloud Run Jobs 전송·공개 웹 SSE 중계는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
 
 ## 저장과 소유권
 
@@ -50,18 +50,26 @@ DB 대기 시간 제한과 오류→HTTP 변환은 호출자 경계의 후속 �
 
 기존 접수 응답의 `status_url`과 최초 응답 재생은 변경하지 않는다. 소비자는 응답의 job_id로 위 경로를 구성할 수 있다. 새 migration이나 추가 DB 권한은 필요하지 않다.
 
-### SSE 재접속의 남은 구현 경계
+### 평가 SSE 재접속 — local/test 구현
 
-이번 단위는 상태 조회만 구현한다. `/api/v1/platform/jobs/{job_id}/events` 및 `events_url` 응답은 아직 제공하지 않는다. SSE 구현 시 [공통 계약](../../docs/api-contract.md#작업과-sse)의 Last-Event-ID 우선, after/0 시작, 증가 순서 재생, 미래 커서400, 만료410, 종료 이벤트 뒤 닫기와 종료 위치까지 받은 재접속204를 적용한다. 숫자 커서는 URL의 작업 안에서 해석하므로 동일 숫자가 다른 작업에서 유래했는지는 판별할 수 없다. 작업 소유권을 먼저 검사한다.
+`GET /api/v1/platform/jobs/{job_id}/events`는 위 상태 조회와 같은 세션·지정 평가자·소유권·최종 시험/환경 잠금을 적용한다. 스트림 헤더 전에 권한과 커서를 검사한다. 응답은 `text/event-stream`, `Cache-Control: no-cache, no-store`, `X-Accel-Buffering: no`다. 기존 접수 응답 및 최초 응답 재생은 변경하지 않으며 클라이언트는 job_id로 events 경로를 구성한다.
 
-스냅샷으로 상태를 복구한 클라이언트는 그 스냅샷의 last_event_sequence 이후를 구독해야 스냅샷과 구독 사이에 commit된 이벤트를 놓치지 않는다. 헤더 전 현재 세션·평가자·소유권·커서를 검사하고 연결 중에도 같은 권한을 주기적으로 재검사해야 한다. 권한 회수/DB 장애 후 기존 권한으로 계속 보내지 않으며 연결 종료로 복구한다. 이벤트 payload는 별도 허용 필드 DTO로 제한해야 한다. 이 흐름과 동시 commit·재접속 검사는 후속 구현 대상이며 이번 GET 성공을 SSE 검증 성공으로 해석하지 않는다.
+- `Last-Event-ID` 헤더가 있으면 `after` 쿼리보다 우선한다. 둘 다 없으면0. 0~9223372036854775807의 ASCII 숫자만 받으며 빈 값·음수·잘못된 형식·미래 커서는400 INVALID_EVENT_CURSOR다. 숫자 위치는 URL 작업 안에서만 해석한다. 다른 작업에서 유래한 같은 숫자를 식별하는 토큰은 아니다. 다른 작업 접근은 소유권 검사에서404로 막는다.
+- 마지막 수신 위치 이후 이벤트를 sequence 오름차순으로 최대100개씩 읽는다. 상태·최종 sequence·보관 시작 위치·배치를 같은 REPEATABLE READ 읽기 전용 트랜잭션으로 조회하며, 전송/대기 중에는 DB 연결·트랜잭션을 보유하지 않는다.
+- 이벤트 JSON은 job_id, sequence, type, occurred_at, payload다. payload는 `state`(공통 작업 상태 enum), `step=smoke`, `action=cancel|resume`, `resumed`/`synthetic`/`needs_review`(bool)만 허용하고 null은 생략한다. 내부 generation·code 및 미지정 키는 제거한다. 허용 키의 잘못된 타입/값은503 EVENT_DATA_UNAVAILABLE로 거부하며 DB 원문이나 검증 오류 상세를 반환하지 않는다. 이는 합성 worker의 기존 이벤트에 한정한 공개 DTO다.
+- 매 배치와 유휴 poll(기본1초)에서 기존 서버 세션·활성 계정/업무 역할·지정 평가자·소유권을 재검사한다. 구성 승인 hash 철회 후에도 제한 조회는 유지한다. 권한 회수·DB 오류가 확인되면 스트림을 닫는다. 헤더 이후 JSON 오류나 합성 완료 이벤트로 실패를 숨기지 않는다. 이미 검증해 전송 중인 배치까지 회수할 수 있다는 보장은 하지 않는다.
+- 유휴 상태는15초마다 `: heartbeat` 주석을 보낸다. 클라이언트 연결 종료 시 generator를 종료한다. 유휴 poll 주기와 배치 크기는 초기 구현값이며 운영 부하 검증은 후속이다.
+- 종료된 작업도 커서 이후 저장 이벤트를 모두 보낸 뒤 닫는다. 종료 위치까지 받은 재접속은204다. 클라이언트는 종료 이벤트 수신 후 상태 GET으로 복구하고 재구독을 멈춘다. 상태 snapshot의 last_event_sequence 이후를 구독하면 조회와 구독 사이 commit을 놓치지 않는다.
+- 보관 시작보다 이전에 누락된 구간이 있으면410 EVENT_CURSOR_EXPIRED로 상태 재조회를 요구한다. 현재 이벤트 삭제/보관 만료 작업은 구현하지 않았고 최소7일 보관은 기존 제안 상태다. 모든 이벤트를 삭제하는 정책은 watermark 저장 계약 없이 도입하지 않는다. 현 구현의410 검사는 남아 있는 prefix 경계에 한정한다.
+
+`tests/platform/test_job_events.py`는 실제 DB 세션과 loopback HTTP 스트림에서 저장·실시간 이벤트 순서,100건 배치 경계, 헤더 우선/커서 거부, 연결 종료 후 취소 재접속/204, heartbeat, 연결 중 세션·계정·역할·평가자·소유권 회수/DB 장애, 민감 payload 차단 및 보관 구간 손실을 검증한다. 공용 GCP 프록시·브라우저 UI 통합은 이 검증에 포함하지 않는다.
 
 ### 공개 경로와 후속 구현 순서
 
 현재 공개 웹 `frontend/server.mjs`는 평가/jobs 경로를 허용하지 않는다. 플랫폼의 C/S·TFT 업무 JSON 중계도 평가 SSE의 경로가 아니다. 로컬 Vite API 프록시로 플랫폼에 접근할 수 있지만 공개 웹 통합은 미구현이다. PR45(김종하)의 최신 web diff는 정적 파일 canonical 경로 처리이며 공통 프론트 소유권을 변경하지 않는다. KAN-140 담당 김종하와 공개 웹의 고정 플랫폼 경로, 쿠키·Last-Event-ID 전달, 스트림 헤더·버퍼링·연결 종료 처리를 연결해야 한다. 오류를 합성 성공으로 대체하지 않는다.
 
-1. 이번 GET의 실제 세션·DB 접근 경계 및 상태 스냅샷 검증.
-2. SSE 저장 이벤트 재생·연결 중 권한 회수·종료 복구와 공개 웹 소비자 연결.
+1. GET 및 SSE의 실제 세션·DB 접근, 상태 스냅샷·재생·권한 회수·종료 복구 검증까지 구현.
+2. 공개 웹 SSE 중계와 소비자 연결: 고정 경로·쿠키/커서·스트림 전달·끊김 복구 검증.
 3. dispatcher 전송 lease/시도/결과 불명확 기록을 runtime에 구현. 평가 run의 generation/holder/lease와 실행 허가를 대체하지 않음.
 4. Cloud Run Jobs API 호출자의 IAM과 Job 컨테이너 실행 서비스 계정·DB 실행 권한을 구분하여 최소 연결. HTTP Tasks worker의 OIDC 인증을 Jobs 컨테이너 인증으로 복사하지 않음. 중복 전달·전송 결과 불명확 시에도 run 소유권 재검사.
 5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.

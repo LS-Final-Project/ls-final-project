@@ -1337,6 +1337,145 @@
         ]
       }
     },
+    "/api/v1/platform/jobs/{job_id}/events": {
+      "get": {
+        "description": "\uc2a4\ud2b8\ub9bc \ud5e4\ub354 \uc804\uc5d0 \ud604\uc7ac \uad8c\ud55c\u00b7\ucee4\uc11c\ub97c \uac80\uc0ac\ud558\uace0 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c \uc7ac\uc0dd\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc124\uc815\u00b7\uc138\uc158 \ucfe0\ud0a4\ub97c \uac00\uc9c4 \uc694\uccad.\n    job_id: \ud50c\ub7ab\ud3fc \ud3c9\uac00 \uc791\uc5c5 UUID.\n    last_event_id: \ucffc\ub9ac\ubcf4\ub2e4 \uc6b0\uc120\ud558\ub294 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n    after: \ud5e4\ub354\uac00 \uc5c6\ub294 \uacbd\uc6b0\uc758 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n\nReturns:\n    Response: SSE \uc751\ub2f5 \ub610\ub294 \uc885\ub8cc \ucee4\uc11c\uc758204. \uac80\uc99d \uc2e4\ud328\ub294 \uacf5\ud1b5 \uc624\ub958 \uc751\ub2f5.",
+        "operationId": "platform_stream_evaluation_job_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "header",
+            "name": "last-event-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "\uc885\ub8cc \uc704\uce58\uae4c\uc9c0 \uc218\uc2e0\ud588\uc73c\ubbc0\ub85c \uc7ac\uc5f0\uacb0\uc744 \uc911\ub2e8\ud55c\ub2e4."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Job Events",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
     "/api/v1/platform/me": {
       "get": {
         "description": "\uc6b4\uc601 \ub85c\uadf8\uc778 \ub610\ub294 \uba85\uc2dc\uc801 \uac1c\ubc1c \ubaa8\ub4dc\uc758 \ud604\uc7ac \uc0ac\uc6a9\uc790\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \ud50c\ub7ab\ud3fc \uc694\uccad.\n    response: \uc6b4\uc601 \uc138\uc158 CSRF \ud5e4\ub354\ub97c \uc124\uc815\ud560 \uc751\ub2f5.\n\nReturns:\n    SuccessResponse[Identity]: DB\uc5d0\uc11c \uc870\ud68c\ud55c \ud604\uc7ac \uc0ac\uc6a9\uc790\uc640 \uc5ed\ud560.",

@@ -198,7 +198,8 @@ def test_environment_lock_and_database_failure(job_client, settings, access, eva
             conn.execute("GRANT SELECT ON runtime.job_events TO platform_app")
 
 
-def test_other_evaluator_cannot_read_job(job_client, settings, access, evaluation_database):
+@pytest.mark.parametrize("suffix", ["", "/events"])
+def test_other_evaluator_cannot_read_job(job_client, settings, access, evaluation_database, suffix):
     """다른 지정 평가자의 유효 세션도 남의 작업을 읽지 못한다.
 
     Args:
@@ -206,6 +207,7 @@ def test_other_evaluator_cannot_read_job(job_client, settings, access, evaluatio
         settings: 실행 DB 연결.
         access: 지정 평가자 설정.
         evaluation_database: 격리 관리자 연결.
+        suffix: 상태 조회 또는 SSE 경로 접미사.
 
     Returns:
         None: 실제 다른 사용자 세션의404와 익명401을 확인한다.
@@ -223,7 +225,7 @@ def test_other_evaluator_cannot_read_job(job_client, settings, access, evaluatio
         access.evaluator_user_ids = access.evaluator_user_ids | {actor}
         grant = asyncio.run(issue_session(settings, MicrosoftSubject(tid, oid)))
         client.cookies.set(SESSION_COOKIE, grant.token.get_secret_value())
-        url = f"/api/v1/platform/jobs/{admitted.job_id}"
+        url = f"/api/v1/platform/jobs/{admitted.job_id}{suffix}"
         response = client.get(url)
         assert response.status_code == 404
         assert str(admitted.run_id) not in response.text

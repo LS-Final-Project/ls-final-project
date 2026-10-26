@@ -1,6 +1,9 @@
 """평가 실행 권한을 유지하는 작업 상태 조회."""
 
+from typing import Any
 from uuid import UUID
+
+import psycopg
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import check_actor
@@ -27,23 +30,39 @@ async def get_evaluation_job(
     check_actor(settings, access, actor)
     async with connection(settings) as conn:
         await conn.execute("SET LOCAL statement_timeout = '5s'")
-        cursor = await conn.execute(
-            "SELECT j.id AS job_id,r.id AS run_id,r.status AS run_status,"
-            "CASE WHEN r.status='TIMED_OUT' THEN 'FAILED' ELSE r.status END AS status,"
-            "c.version,r.needs_review,"
-            "(SELECT coalesce(max(sequence),0) FROM runtime.job_events "
-            "WHERE job_id=j.id) AS last_event_sequence "
-            "FROM runtime.jobs j "
-            "JOIN evaluation.runs r ON r.id=j.business_id AND r.job_id=j.id "
-            "JOIN evaluation.experiments e ON e.id=r.experiment_id "
-            "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
-            "JOIN evaluation.run_control c ON c.run_id=r.id "
-            "WHERE j.id=%s AND j.owner='platform' AND j.kind='evaluation.run' "
-            "AND j.actor_id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s "
-            "AND e.data_split IS DISTINCT FROM 'test'",
-            (job_id, actor, actor, actor),
-        )
-        row = await cursor.fetchone()
-        if row is None:
-            raise ApplicationError(404, "NOT_FOUND", "Job is unavailable.")
-        return EvaluationJobStatus.model_validate(row)
+        return await read_evaluation_job(conn, actor, job_id)
+
+
+async def read_evaluation_job(
+    conn: psycopg.AsyncConnection[dict[str, Any]], actor: UUID, job_id: UUID
+) -> EvaluationJobStatus:
+    """호출자의 읽기 트랜잭션에서 동일한 소유권·시험 차단 SQL을 재사용한다.
+
+    Args:
+        conn: 호출자가 관리하는 플랫폼 DB 연결.
+        actor: 현재 지정 평가자 세션의 사용자 UUID.
+        job_id: 조회할 작업 UUID.
+
+    Returns:
+        EvaluationJobStatus: 해당 SQL 스냅샷의 제한 상태.
+    """
+    cursor = await conn.execute(
+        "SELECT j.id AS job_id,r.id AS run_id,r.status AS run_status,"
+        "CASE WHEN r.status='TIMED_OUT' THEN 'FAILED' ELSE r.status END AS status,"
+        "c.version,r.needs_review,"
+        "(SELECT coalesce(max(sequence),0) FROM runtime.job_events "
+        "WHERE job_id=j.id) AS last_event_sequence "
+        "FROM runtime.jobs j "
+        "JOIN evaluation.runs r ON r.id=j.business_id AND r.job_id=j.id "
+        "JOIN evaluation.experiments e ON e.id=r.experiment_id "
+        "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+        "JOIN evaluation.run_control c ON c.run_id=r.id "
+        "WHERE j.id=%s AND j.owner='platform' AND j.kind='evaluation.run' "
+        "AND j.actor_id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s "
+        "AND e.data_split IS DISTINCT FROM 'test'",
+        (job_id, actor, actor, actor),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ApplicationError(404, "NOT_FOUND", "Job is unavailable.")
+    return EvaluationJobStatus.model_validate(row)
