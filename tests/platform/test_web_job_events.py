@@ -1,6 +1,7 @@
 """실제 Node 웹 중계·플랫폼·PostgreSQL을 연결하는 합성 소비자 회귀."""
 
 import asyncio
+import json
 import os
 import selectors
 import subprocess
@@ -136,3 +137,89 @@ def test_web_stream_closes_on_session_revocation(web_job, evaluation_database):
         assert all(not line.startswith(("id:", "data:", "event:")) for line in lines)
     assert client.get(url).status_code == 401
     assert client.get(url + "/events").status_code == 401
+
+
+@pytest.mark.parametrize("action", ["cancel", "revoke"])
+def test_browser_consumer_observes_real_stream(
+    web_job, settings, access, experiment, evaluation_database, action
+):
+    """실제 화면 소비자가 웹·플랫폼·DB의 취소와 권한 회수를 복구한다.
+
+    Args:
+        web_job: 실제 웹 중계와 접수 결과.
+        settings: 실행 DB 설정.
+        access: 합성 실행 허용 설정.
+        experiment: 실행 소유자.
+        evaluation_database: 격리 검사 DB.
+        action: 취소 또는 세션 회수.
+
+    Returns:
+        None: 소비자의 종료/오류와 상세 제거를 확인한다.
+    """
+    client, admitted = web_job
+    script = """
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (path, init) => originalFetch(new URL(path, process.env.TEST_WEB_URL), {
+  ...init, headers: { ...init.headers, Cookie: process.env.TEST_SESSION_COOKIE },
+});
+const { watchEvaluation } = await import(process.env.TEST_CONSUMER_MODULE);
+await watchEvaluation(process.env.TEST_JOB_ID, new AbortController().signal, view => {
+  console.log(JSON.stringify({ connection: view.connection, status: view.data?.run_status,
+    hasData: Boolean(view.data), message: view.message }));
+});
+"""
+    process = subprocess.Popen(
+        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+        env={
+            **os.environ,
+            "TEST_WEB_URL": str(client.base_url),
+            "TEST_SESSION_COOKIE": client.headers["Cookie"],
+            "TEST_JOB_ID": str(admitted.job_id),
+            "TEST_CONSUMER_MODULE": Path("frontend/src/api/evaluation-events.ts")
+            .resolve()
+            .as_uri(),
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    try:
+        assert process.stdout is not None
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            for _ in range(3):
+                assert selector.select(timeout=5), "평가 화면 소비자가 연결되지 않았습니다."
+                state = json.loads(process.stdout.readline())
+                if state["connection"] == "connected":
+                    break
+            assert state["connection"] == "connected"
+        if action == "cancel":
+            asyncio.run(
+                control_run(
+                    settings,
+                    access,
+                    experiment["actor"],
+                    admitted.run_id,
+                    "cancel",
+                    str(uuid4()),
+                    '"1"',
+                    uuid4(),
+                )
+            )
+        else:
+            with psycopg.connect(evaluation_database) as conn:
+                conn.execute("DELETE FROM identity.sessions")
+        output, errors = process.communicate(timeout=10)
+        assert process.returncode == 0, errors.decode()
+        final = json.loads(output.splitlines()[-1])
+        if action == "cancel":
+            assert final["connection"] == "ended"
+            assert final["status"] == "CANCELLED"
+        else:
+            assert final["connection"] == "error"
+            assert not final["hasData"]
+            assert "로그인" in final["message"]
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)

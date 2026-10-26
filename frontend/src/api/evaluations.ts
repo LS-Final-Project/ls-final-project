@@ -14,6 +14,20 @@ const messages: Record<number, string> = {
   503: '평가 조회가 현재 비활성 상태이거나 서비스를 사용할 수 없습니다.',
 };
 
+/** 조회 오류의 재시도 여부를 보존한다. Args: 안전한 메시지와 재시도 허용. Returns: 오류. */
+export class EvaluationReadError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable = false) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
+/** HTTP 실패를 안전한 안내로 변환한다. Args: HTTP 상태. Returns: 조회 오류. */
+export function evaluationHttpError(status: number): EvaluationReadError {
+  return new EvaluationReadError(messages[status] || '상태를 확인하지 못했습니다. 잠시 후 다시 조회해 주세요.', [500, 502, 504].includes(status));
+}
+
 /** 실제 서버에서 제한된 평가 상태를 조회한다. Args: 작업 ID, 취소 신호. Returns: 검증된 상태. */
 export async function getEvaluationJob(jobId: string, signal: AbortSignal): Promise<JobStatus> {
   if (!isJobId(jobId)) throw new Error('올바른 작업 ID를 입력해 주세요.');
@@ -22,7 +36,7 @@ export async function getEvaluationJob(jobId: string, signal: AbortSignal): Prom
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
     headers: { Accept: 'application/json' },
   });
-  if (!response.ok) throw new Error(messages[response.status] || '상태를 확인하지 못했습니다. 잠시 후 다시 조회해 주세요.');
+  if (!response.ok) throw evaluationHttpError(response.status);
   const body = await response.json().catch(() => null);
   const data = body?.data;
   if (!data || typeof data.job_id !== 'string' || data.job_id.toLowerCase() !== jobId.toLowerCase() || typeof data.run_id !== 'string' || !isJobId(data.run_id)
@@ -31,7 +45,7 @@ export async function getEvaluationJob(jobId: string, signal: AbortSignal): Prom
       || data.status === 'TIMED_OUT' || typeof data.needs_review !== 'boolean'
       || !Number.isSafeInteger(data.version) || data.version < 1
       || !Number.isSafeInteger(data.last_event_sequence) || data.last_event_sequence < 0) {
-    throw new Error('서버의 상태 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
+    throw new EvaluationReadError('서버의 상태 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
   }
   return {
     job_id: data.job_id, run_id: data.run_id, owner: data.owner, kind: data.kind,
