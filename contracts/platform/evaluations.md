@@ -185,4 +185,4 @@ worker가 현재 평가자 지정/활성 사용자/구성 승인/구성 hash/합
 
 ### 작업 ID로 상태 복구
 
-접수된 합성 실행은 [작업 상태 조회](jobs.md#평가-작업-상태-조회--kan-69-첫-조회-단위)의 `GET /api/v1/platform/jobs/{job_id}`로도 제한 조회할 수 있다. 현재 세션·지정 평가자와 작업/실행/실험의 소유권을 검사하며 최종 시험 잠금은 유지한다. 기존 run 상태 URL과 제어 ETag 계약은 유지하고, 작업 스냅샷은 같은 실행 판본과 마지막 이벤트 sequence를 구분하여 반환한다. 같은 job_id의 `/api/v1/platform/jobs/{job_id}/events`는 local/test 합성 저장 이벤트 재생과 연결 중 권한 재검사를 제공한다. 상세 커서/종료/허용 payload는 작업 계약을 따른다. 공개 웹 중계는 아직 미구현이다.
+접수된 합성 실행은 [작업 상태 조회](jobs.md#평가-작업-상태-조회--kan-69-첫-조회-단위)의 `GET /api/v1/platform/jobs/{job_id}`로도 제한 조회할 수 있다. 현재 세션·지정 평가자와 작업/실행/실험의 소유권을 검사하며 최종 시험 잠금은 유지한다. 기존 run 상태 URL과 제어 ETag 계약은 유지하고, 작업 스냅샷은 같은 실행 판본과 마지막 이벤트 sequence를 구분하여 반환한다. 같은 job_id의 `/api/v1/platform/jobs/{job_id}/events`는 local/test 합성 저장 이벤트 재생과 연결 중 권한 재검사를 제공한다. 상세 커서/종료/허용 payload는 작업 계약을 따른다. 웹은 별도 기본 비활성 EVALUATION_READ_RELAY_ENABLED 설정으로 job 상태·SSE GET만 중계한다. 실제 공용 활성화·평가 화면 및 접수/제어 중계는 미구현이다.

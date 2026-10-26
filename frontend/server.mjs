@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { evaluationReadPath, relayEvaluationRead } from './evaluation-relay.mjs';
 
 const allowed = new Set(['/api/v1/platform/health', '/api/v1/platform/ready']);
 const authentication = new Map([
@@ -66,10 +67,10 @@ export function metadataTokenProvider(audience) {
 
 /**
  * 정적 화면·인증 경로와 명시적으로 켠 업무 JSON API를 고정 플랫폼으로 중계한다.
- * Args: directory는 정적 파일 위치, upstream은 고정 플랫폼 출처, tokenProvider는 서버 IAM 토큰 제공자, fetcher는 HTTP 경계, businessRelayEnabled는 기본 비활성 업무 중계 설정이다.
+ * Args: directory는 정적 파일 위치, upstream은 고정 플랫폼 출처, tokenProvider는 서버 IAM 토큰 제공자, fetcher는 HTTP 경계, businessRelayEnabled와 evaluationReadRelayEnabled는 기본 비활성인 업무/평가 읽기 중계 설정이다.
  * Returns: 브라우저 인증 쿠키와 IAM 토큰을 구분해 처리하는 HTTP 요청 처리기.
  */
-export function handler({ directory, upstream, tokenProvider, fetcher = fetch, businessRelayEnabled = false }) {
+export function handler({ directory, upstream, tokenProvider, fetcher = fetch, businessRelayEnabled = false, evaluationReadRelayEnabled = false }) {
   const root = resolve(directory);
   const target = new URL(upstream);
   if (target.protocol !== 'https:' && !(process.env.NODE_ENV === 'test' && target.hostname === '127.0.0.1')) throw new Error('Use an HTTPS platform URL');
@@ -80,6 +81,9 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
     try {
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
+      if (evaluationReadRelayEnabled && evaluationReadPath(path)) {
+        return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
+      }
       const authMethod = authentication.get(path);
       const business = businessRelayEnabled ? businessMethods(path) : [];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
@@ -179,6 +183,6 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const upstream = process.env.PLATFORM_URL;
   if (!upstream) throw new Error('PLATFORM_URL is required');
-  const service = createServer(handler({ directory: process.env.STATIC_DIR || '/app/dist', upstream, tokenProvider: metadataTokenProvider(upstream), businessRelayEnabled: process.env.BUSINESS_RELAY_ENABLED === 'true' }));
+  const service = createServer(handler({ directory: process.env.STATIC_DIR || '/app/dist', upstream, tokenProvider: metadataTokenProvider(upstream), businessRelayEnabled: process.env.BUSINESS_RELAY_ENABLED === 'true', evaluationReadRelayEnabled: process.env.EVALUATION_READ_RELAY_ENABLED === 'true' }));
   service.listen(Number(process.env.PORT || 8080), '0.0.0.0');
 }

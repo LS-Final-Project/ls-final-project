@@ -1,6 +1,6 @@
 # 플랫폼 작업 접수 저장 계약 — KAN-69 초기 구현
 
-현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회·SSE API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. local/test 합성 평가의 저장 이벤트 SSE를 제공한다. 실제 평가·Cloud Run Jobs 전송·공개 웹 SSE 중계는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
+현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회·SSE API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. local/test 합성 평가의 저장 이벤트 SSE를 제공한다. 실제 평가·Cloud Run Jobs 전송·공용 배포의 SSE 활성화는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
 
 ## 저장과 소유권
 
@@ -62,14 +62,24 @@ DB 대기 시간 제한과 오류→HTTP 변환은 호출자 경계의 후속 �
 - 종료된 작업도 커서 이후 저장 이벤트를 모두 보낸 뒤 닫는다. 종료 위치까지 받은 재접속은204다. 클라이언트는 종료 이벤트 수신 후 상태 GET으로 복구하고 재구독을 멈춘다. 상태 snapshot의 last_event_sequence 이후를 구독하면 조회와 구독 사이 commit을 놓치지 않는다.
 - 보관 시작보다 이전에 누락된 구간이 있으면410 EVENT_CURSOR_EXPIRED로 상태 재조회를 요구한다. 현재 이벤트 삭제/보관 만료 작업은 구현하지 않았고 최소7일 보관은 기존 제안 상태다. 모든 이벤트를 삭제하는 정책은 watermark 저장 계약 없이 도입하지 않는다. 현 구현의410 검사는 남아 있는 prefix 경계에 한정한다.
 
-`tests/platform/test_job_events.py`는 실제 DB 세션과 loopback HTTP 스트림에서 저장·실시간 이벤트 순서,100건 배치 경계, 헤더 우선/커서 거부, 연결 종료 후 취소 재접속/204, heartbeat, 연결 중 세션·계정·역할·평가자·소유권 회수/DB 장애, 민감 payload 차단 및 보관 구간 손실을 검증한다. 공용 GCP 프록시·브라우저 UI 통합은 이 검증에 포함하지 않는다.
+`tests/platform/test_job_events.py`는 실제 DB 세션과 loopback HTTP 스트림에서 저장·실시간 이벤트 순서,100건 배치 경계, 헤더 우선/커서 거부, 연결 종료 후 취소 재접속/204, heartbeat, 연결 중 세션·계정·역할·평가자·소유권 회수/DB 장애, 민감 payload 차단 및 보관 구간 손실을 검증한다. 공용 GCP 프록시·브라우저 UI 통합은 이 검증에 포함하지 않는다. 로컬 웹 중계 검증은 아래 별도 범위를 따른다.
 
 ### 공개 경로와 후속 구현 순서
 
-현재 공개 웹 `frontend/server.mjs`는 평가/jobs 경로를 허용하지 않는다. 플랫폼의 C/S·TFT 업무 JSON 중계도 평가 SSE의 경로가 아니다. 로컬 Vite API 프록시로 플랫폼에 접근할 수 있지만 공개 웹 통합은 미구현이다. PR45(김종하)의 최신 web diff는 정적 파일 canonical 경로 처리이며 공통 프론트 소유권을 변경하지 않는다. KAN-140 담당 김종하와 공개 웹의 고정 플랫폼 경로, 쿠키·Last-Event-ID 전달, 스트림 헤더·버퍼링·연결 종료 처리를 연결해야 한다. 오류를 합성 성공으로 대체하지 않는다.
+웹 서버의 `EVALUATION_READ_RELAY_ENABLED`는 기본false다. 명시적으로 켜면 정확한 UUID의 `GET /api/v1/platform/jobs/{job_id}` 및 `/events` 두 경로만 고정 PLATFORM_URL로 전달한다. 이는 배포 리소스/환경을 변경하거나 플랫폼의 local/test·지정 평가자·최종 시험 잠금을 해제하지 않는다. 평가 접수·제어·policy 및 임의 경로/메서드는 추가 허용하지 않는다. 플랫폼 C/S·TFT JSON 업무 중계와는 별개다.
+
+웹은 서버 IAM 토큰 공급자를 재사용하며 브라우저 Authorization·내부 사용자/역할/호출자 헤더를 전달하지 않는다. 쿠키는 __Host-team4_session만 전달한다. SSE는 Last-Event-ID와 after 하나만 전달하고, 상태 GET의 쿼리 및 임의/중복 쿼리를 거부한다. 커서는 최대64자로 제한하며 값의 유효성·헤더 우선은 플랫폼 계약을 따른다. upstream 리디렉션은 따라가지 않는다.
+
+상태·오류 응답은 최대1MiB의 application/json으로 제한하고 HTTP 상태·ETag·X-Request-ID·Retry-After를 보존한다. Set-Cookie·Location·내부 인증 헤더는 반환하지 않는다. SSE200은 text/event-stream만 허용하여 첫 프레임부터 전달하며 Cache-Control: no-cache, no-store와 X-Accel-Buffering: no를 적용한다. 느린 소비자에는 write/drain 역압력을 적용하며 전체 스트림을 메모리에 모으지 않는다.204는 본문 없이 그대로 반환한다.
+
+upstream 헤더/JSON 대기는15초, SSE의 다음 chunk 대기/소비자 역압력 대기는45초로 제한한다. 클라이언트 연결 종료 시 upstream을 abort하고 타이머·이벤트 리스너를 정리한다. 헤더 전 중계 오류는 안전한502, 전송 시작 후 오류는 연결을 끊는다. API 오류를 합성 성공·정적 HTML·완료 이벤트로 바꾸지 않는다.
+
+`frontend/server.test.mjs`는 허용 경로·쿠키/헤더 제거·상태/커서/204·첫 프레임 즉시 전달·클라이언트 단절 취소·잘못된 upstream·중간 스트림 실패·헤더 시간 제한을 검사한다. `tests/platform/test_web_job_events.py`는 실제 Node handler→FastAPI→PostgreSQL로 상태 snapshot→SSE heartbeat→단절→취소→재접속→종료 GET/204 및 세션 회수 후 연결 종료/401을 확인한다. 테스트의 IAM 공급자만 합성 값이며 실제 Cloud Run IAM·GCP 프록시 검증은 아니다. CI의 실제 DB job은 프론트 변경 때에도 실행한다.
+
+PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 영역은 건드리지 않고 별도 evaluation-relay.mjs와 작은 진입 분기만 추가한다. KAN-140의 공통 프론트 소유권은 유지한다. 평가 React 화면·브라우저의 자동 재접속 상태 UI(KAN-137), 접수/제어 중계와 공용 활성화는 미구현이다. 이번 소비자 검증은 HTTP 통합 회귀이며 화면 완료를 뜻하지 않는다.
 
 1. GET 및 SSE의 실제 세션·DB 접근, 상태 스냅샷·재생·권한 회수·종료 복구 검증까지 구현.
-2. 공개 웹 SSE 중계와 소비자 연결: 고정 경로·쿠키/커서·스트림 전달·끊김 복구 검증.
+2. 읽기 전용 웹 SSE 중계·HTTP 소비자 복구 회귀까지 구현. 다음은 평가 화면의 읽기 연결과 단절/권한 오류 UI 및 필요한 접수/제어 중계.
 3. dispatcher 전송 lease/시도/결과 불명확 기록을 runtime에 구현. 평가 run의 generation/holder/lease와 실행 허가를 대체하지 않음.
 4. Cloud Run Jobs API 호출자의 IAM과 Job 컨테이너 실행 서비스 계정·DB 실행 권한을 구분하여 최소 연결. HTTP Tasks worker의 OIDC 인증을 Jobs 컨테이너 인증으로 복사하지 않음. 중복 전달·전송 결과 불명확 시에도 run 소유권 재검사.
 5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.

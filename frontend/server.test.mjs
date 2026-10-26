@@ -12,10 +12,10 @@ import { handler } from './server.mjs';
  * Args: callback은 요청 검사, fetcher는 upstream 대체, businessRelayEnabled는 명시 활성화 여부다.
  * Returns: 검사와 임시 서버·파일 정리를 마친 Promise.
  */
-async function fixture(callback, fetcher, businessRelayEnabled = false) {
+async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false) {
   const directory = await mkdtemp(join(tmpdir(), 'team4-web-'));
   await writeFile(join(directory, 'index.html'), '<h1>Fixture</h1>');
-  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled }));
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try { await callback(`http://127.0.0.1:${server.address().port}`); }
@@ -193,4 +193,124 @@ test('business upstream redirects, HTML, oversized responses and timeouts stay f
       assert.ok(!(await response.text()).includes('private-provider-body'));
     }, async () => reply(), true);
   }
+});
+
+const jobUrl = '/api/v1/platform/jobs/22222222-2222-4222-8222-222222222222';
+
+test('evaluation read relay defaults closed and allows only GET with bounded cursor inputs', async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; return new Response('{}', { headers: { 'Content-Type': 'application/json' } }); };
+  await fixture(async origin => {
+    for (const suffix of ['', '/events']) assert.equal((await fetch(origin + jobUrl + suffix)).status, 404);
+  }, fetcher);
+  await fixture(async origin => {
+    for (const method of ['POST', 'DELETE', 'HEAD']) assert.equal((await fetch(origin + jobUrl, { method })).status, 405);
+    for (const path of [jobUrl + '/events?target=https://evil.invalid', jobUrl + '?after=1', jobUrl + '/events?after=1&after=2', jobUrl + '/events?after=' + '1'.repeat(65)]) assert.equal((await fetch(origin + path)).status, 400);
+    for (const path of ['/api/v1/platform/jobs/not-uuid/events', jobUrl + '/cancel', '/api/v1/platform/evaluations/runs']) assert.equal((await fetch(origin + path)).status, 404);
+  }, fetcher, false, true);
+  assert.equal(calls, 0);
+});
+
+test('evaluation status and error relay preserve status/ETag and discard browser/upstream credentials', async () => {
+  for (const status of [200, 401, 403, 404, 410, 503]) {
+    await fixture(async origin => {
+      const response = await fetch(origin + jobUrl, { headers: {
+        Cookie: '__Host-team4_session=session; __Host-team4_oauth=private; unrelated=private',
+        Authorization: 'Bearer forged', 'X-Team4-Principal': 'forged', 'X-Team4-Caller-Token': 'forged',
+      } });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get('etag'), '"5"');
+      assert.equal(response.headers.get('x-request-id'), 'request-id');
+      assert.equal(response.headers.get('set-cookie'), null);
+      assert.equal(response.headers.get('location'), null);
+      assert.deepEqual(await response.json(), { data: { status: 'RUNNING' } });
+    }, async (url, options) => {
+      assert.equal(String(url), 'https://platform.example.invalid' + jobUrl);
+      assert.deepEqual(options.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session' });
+      assert.equal(options.redirect, 'error');
+      return new Response('{"data":{"status":"RUNNING"}}', { status, headers: {
+        'Content-Type': 'application/json', ETag: '"5"', 'X-Request-ID': 'request-id',
+        'Set-Cookie': 'private=secret', Location: 'https://evil.invalid',
+      } });
+    }, false, true);
+  }
+});
+
+test('evaluation SSE forwards cursor, delivers first frame before upstream closes and aborts on disconnect', async () => {
+  let abort;
+  const aborted = new Promise(resolve => { abort = resolve; });
+  let streamController;
+  await fixture(async origin => {
+    const controller = new AbortController();
+    const response = await fetch(origin + jobUrl + '/events?after=1', {
+      signal: controller.signal, headers: { 'Last-Event-ID': '2', Cookie: '__Host-team4_session=session' },
+    });
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    assert.equal(response.headers.get('x-accel-buffering'), 'no');
+    const reader = response.body.getReader();
+    const frame = await reader.read();
+    assert.equal(new TextDecoder().decode(frame.value), 'id: 3\nevent: job.progress\ndata: {}\n\n');
+    controller.abort();
+    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error('Upstream was not aborted')), 2000).unref())]);
+    reader.releaseLock();
+  }, async (url, options) => {
+    assert.equal(String(url), 'https://platform.example.invalid' + jobUrl + '/events?after=1');
+    assert.equal(options.headers['Last-Event-ID'], '2');
+    options.signal.addEventListener('abort', () => { streamController.error(new Error('Disconnected')); abort(); }, { once: true });
+    return new Response(new ReadableStream({ start(controller) {
+      streamController = controller;
+      controller.enqueue(new TextEncoder().encode('id: 3\nevent: job.progress\ndata: {}\n\n'));
+    } }), { headers: { 'Content-Type': 'text/event-stream' } });
+  }, false, true);
+});
+
+test('evaluation SSE preserves completed 204 and pre-header errors without synthetic success', async () => {
+  for (const status of [204, 400, 401, 403, 404, 410, 503]) {
+    await fixture(async origin => {
+      const response = await fetch(origin + jobUrl + '/events');
+      assert.equal(response.status, status);
+      if (status === 204) assert.equal(await response.text(), '');
+      else assert.deepEqual(await response.json(), { error: { code: 'SAFE_ERROR' } });
+    }, async () => new Response(status === 204 ? null : '{"error":{"code":"SAFE_ERROR"}}', {
+      status, headers: status === 204 ? {} : { 'Content-Type': 'application/json' },
+    }), false, true);
+  }
+});
+
+test('evaluation relay rejects redirects, wrong content types and oversized JSON', async () => {
+  for (const reply of [
+    () => new Response(null, { status: 302, headers: { Location: 'https://evil.invalid' } }),
+    () => new Response('private-upstream', { headers: { 'Content-Type': 'text/html' } }),
+    () => new Response('private-upstream'.repeat(100000), { status: 503, headers: { 'Content-Type': 'application/json' } }),
+    () => { throw new Error('private-upstream'); },
+  ]) await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    assert.equal(response.status, 502);
+    assert.ok(!(await response.text()).includes('private-upstream'));
+  }, async () => reply(), false, true);
+});
+
+test('evaluation mid-stream failure terminates the connection without a synthetic completion', async () => {
+  await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    const reader = response.body.getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /id: 1/);
+    await assert.rejects(reader.read());
+    reader.releaseLock();
+  }, async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode('id: 1\nevent: job.queued\ndata: {}\n\n'));
+    setTimeout(() => controller.error(new Error('private-provider-failure')), 30);
+  } }), { headers: { 'Content-Type': 'text/event-stream' } }), false, true);
+});
+
+test('evaluation upstream header deadline aborts the request and returns a safe failure', { timeout: 20000 }, async () => {
+  let aborted = false;
+  await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.code, 'UPSTREAM_UNAVAILABLE');
+    assert.equal(aborted, true);
+  }, async (_url, options) => new Promise((_, reject) => {
+    options.signal.addEventListener('abort', () => { aborted = true; reject(new Error('private-timeout')); }, { once: true });
+  }), false, true);
 });
