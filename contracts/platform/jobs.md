@@ -76,10 +76,10 @@ upstream 헤더/JSON 대기는15초, SSE의 다음 chunk 대기/소비자 역압
 
 `frontend/server.test.mjs`는 허용 경로·쿠키/헤더 제거·상태/커서/204·첫 프레임 즉시 전달·클라이언트 단절 취소·잘못된 upstream·중간 스트림 실패·헤더 시간 제한을 검사한다. `tests/platform/test_web_job_events.py`는 실제 Node handler→FastAPI→PostgreSQL로 상태 snapshot→SSE heartbeat→단절→취소→재접속→종료 GET/204 및 세션 회수 후 연결 종료/401을 확인한다. 테스트의 IAM 공급자만 합성 값이며 실제 Cloud Run IAM·GCP 프록시 검증은 아니다. CI의 실제 DB job은 프론트 변경 때에도 실행한다.
 
-PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 영역은 건드리지 않고 별도 evaluation-relay.mjs와 작은 진입 분기만 추가한다. KAN-140의 공통 프론트 소유권은 유지한다. 평가 React 화면·브라우저의 자동 재접속 상태 UI(KAN-137), 접수/제어 중계와 공용 활성화는 미구현이다. 이번 소비자 검증은 HTTP 통합 회귀이며 화면 완료를 뜻하지 않는다.
+PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 영역은 건드리지 않고 별도 evaluation-relay.mjs와 작은 진입 분기만 추가한다. KAN-140의 공통 프론트 소유권은 유지한다. 평가 React 화면과 브라우저 자동 갱신/재접속은 [평가 화면 계약](evaluations.md#kan-137-sse-자동-갱신과-재접속)을 따른다. 접수/제어 중계와 공용 활성화는 미구현이다. 이 HTTP 통합 회귀만으로 평가 화면 전체 완료를 뜻하지 않는다.
 
 1. GET 및 SSE의 실제 세션·DB 접근, 상태 스냅샷·재생·권한 회수·종료 복구 검증까지 구현.
-2. 읽기 전용 웹 SSE 중계·HTTP 소비자 복구 회귀까지 구현. 다음은 평가 화면의 읽기 연결과 단절/권한 오류 UI 및 필요한 접수/제어 중계.
+2. 읽기 전용 웹 SSE 중계·HTTP 소비자 복구 회귀까지 구현. 평가 화면의 읽기 연결과 단절/권한 오류 UI까지 구현. 다음은 필요한 접수/제어 중계와 화면 연결.
 3. dispatcher 전송 lease/시도/결과 불명확 기록을 runtime에 구현. 평가 run의 generation/holder/lease와 실행 허가를 대체하지 않음.
 4. Cloud Run Jobs API 호출자의 IAM과 Job 컨테이너 실행 서비스 계정·DB 실행 권한을 구분하여 최소 연결. HTTP Tasks worker의 OIDC 인증을 Jobs 컨테이너 인증으로 복사하지 않음. 중복 전달·전송 결과 불명확 시에도 run 소유권 재검사.
 5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.
