@@ -45,3 +45,6 @@ class EvaluationRunStatus(BaseModel):
     job_id: UUID
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"]
     requested_count: int
+    version: int
+    needs_review: bool
+    failure_code: str | None
