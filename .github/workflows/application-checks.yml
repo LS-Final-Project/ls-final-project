@@ -68,7 +68,7 @@ jobs:
       - run: npm test --prefix frontend && npm run build --prefix frontend
   auth-database:
     needs: changes
-    if: contains(fromJSON(needs.changes.outputs.backends), 'platform')
+    if: contains(fromJSON(needs.changes.outputs.backends), 'platform') || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -91,9 +91,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
       - run: python3 -m pip install uv==0.10.10
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py
+      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_job_admission.py tests/platform/test_dispatch_ledger.py tests/platform/test_job_status.py tests/platform/test_job_events.py tests/platform/test_web_job_events.py tests/platform/test_evaluation_admission.py tests/platform/test_smoke_worker.py tests/platform/test_run_controls.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'

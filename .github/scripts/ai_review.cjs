@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
 const schema = {
   type: 'object', additionalProperties: false,
   required: ['head_sha', 'base_sha', 'review_complete', 'reviewed_files', 'summary', 'findings'],
@@ -33,6 +36,15 @@ async function currentPR(github, context) {
   return pr;
 }
 
+/** Git의 C 인용 경로를 만든다. Args: name — UTF-8 경로. Returns: 인용·이스케이프한 경로. */
+function quotedPath(name) {
+  const escapes = {7: '\\a', 8: '\\b', 9: '\\t', 10: '\\n', 11: '\\v', 12: '\\f', 13: '\\r', 34: '\\"', 92: '\\\\'};
+  const encoded = [...Buffer.from(name, 'utf8')].map(byte =>
+    escapes[byte] || (byte < 32 || byte >= 127
+      ? `\\${byte.toString(8).padStart(3, '0')}` : String.fromCharCode(byte))).join('');
+  return `"${encoded}"`;
+}
+
 /** 검토 범위와 출력 스키마를 고정한다. Args: API·이벤트·출력 도구. Returns: 완료 Promise. */
 async function prepare({ github, context, core }) {
   const pr = await currentPR(github, context);
@@ -42,8 +54,32 @@ async function prepare({ github, context, core }) {
   if (!files.length || files.length !== pr.changed_files) {
     throw new Error('변경 파일 전체를 조회하지 못했습니다. 검토를 완료로 처리하지 않습니다.');
   }
+  // PR 코드를 실행하지 않고 API의 diff를 검토 데이터로만 저장한다.
+  const {data: diff} = await github.rest.pulls.get({
+    ...context.repo, pull_number: pr.number, mediaType: {format: 'diff'},
+  });
+  const diffLines = typeof diff === 'string' ? diff.split('\n') : [];
+  const lines = diffLines.filter(line => line.startsWith('diff --git '));
+  const headers = new Set(lines);
+  if (lines.length !== files.length || headers.size !== files.length || files.some(file => {
+    const oldPath = `a/${file.previous_filename || file.filename}`, newPath = `b/${file.filename}`;
+    return ![oldPath, quotedPath(oldPath)].some(oldName =>
+      [newPath, quotedPath(newPath)].some(newName => headers.has(`diff --git ${oldName} ${newName}`)));
+  })) {
+    throw new Error('전체 파일의 diff를 확보하지 못했습니다. 검토를 시작하지 않습니다.');
+  }
+  await currentPR(github, context);
+  // Claude의 Read 경계 안에 임시 데이터를 두고 제품 파일은 덮어쓰지 않는다.
+  const directory = await fs.mkdtemp(path.join(process.cwd(), '.team4-ai-review-'));
+  const diffFile = path.join(directory, 'review.diff');
+  await fs.writeFile(diffFile, diff, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
   core.setOutput('files', JSON.stringify(files.map(file => file.filename)));
-  core.setOutput('schema', JSON.stringify(schema));
+  const reviewSchema = structuredClone(schema);
+  reviewSchema.properties.findings.items.properties.path.enum = files.map(file => file.filename);
+  // JSON 의미는 유지하면서 claude_args의 작은따옴표 인자 경계를 보존한다.
+  core.setOutput('schema', JSON.stringify(reviewSchema).replaceAll("'", '\\u0027'));
+  core.setOutput('diff_file', diffFile);
+  core.setOutput('diff_lines', String(diffLines.length - Number(diff.endsWith('\n'))));
 }
 
 /** 모델 결과를 검사한다. Args: 원시 JSON, 예상 SHA·파일 목록. Returns: 검증한 결과. */

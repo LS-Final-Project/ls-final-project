@@ -12,10 +12,10 @@ import { handler } from './server.mjs';
  * Args: callback은 요청 검사, fetcher는 upstream 대체, businessRelayEnabled는 명시 활성화 여부다.
  * Returns: 검사와 임시 서버·파일 정리를 마친 Promise.
  */
-async function fixture(callback, fetcher, businessRelayEnabled = false) {
+async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false) {
   const directory = await mkdtemp(join(tmpdir(), 'team4-web-'));
   await writeFile(join(directory, 'index.html'), '<h1>Fixture</h1>');
-  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled }));
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled, evaluationControlRelayEnabled }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try { await callback(`http://127.0.0.1:${server.address().port}`); }
@@ -217,5 +217,190 @@ test('serves a symlinked static root but rejects a file symlink outside it', asy
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     await rm(directory, { recursive: true });
+  }
+});
+
+const jobUrl = '/api/v1/platform/jobs/22222222-2222-4222-8222-222222222222';
+
+test('evaluation read relay defaults closed and allows only GET with bounded cursor inputs', async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; return new Response('{}', { headers: { 'Content-Type': 'application/json' } }); };
+  await fixture(async origin => {
+    for (const suffix of ['', '/events']) assert.equal((await fetch(origin + jobUrl + suffix)).status, 404);
+  }, fetcher);
+  await fixture(async origin => {
+    for (const method of ['POST', 'DELETE', 'HEAD']) assert.equal((await fetch(origin + jobUrl, { method })).status, 405);
+    for (const path of [jobUrl + '/events?target=https://evil.invalid', jobUrl + '?after=1', jobUrl + '/events?after=1&after=2', jobUrl + '/events?after=' + '1'.repeat(65)]) assert.equal((await fetch(origin + path)).status, 400);
+    for (const path of ['/api/v1/platform/jobs/not-uuid/events', jobUrl + '/cancel', '/api/v1/platform/evaluations/runs']) assert.equal((await fetch(origin + path)).status, 404);
+  }, fetcher, false, true);
+  assert.equal(calls, 0);
+});
+
+test('evaluation status and error relay preserve status/ETag and discard browser/upstream credentials', async () => {
+  for (const status of [200, 401, 403, 404, 410, 503]) {
+    await fixture(async origin => {
+      const response = await fetch(origin + jobUrl, { headers: {
+        Cookie: '__Host-team4_session=session; __Host-team4_oauth=private; unrelated=private',
+        Authorization: 'Bearer forged', 'X-Team4-Principal': 'forged', 'X-Team4-Caller-Token': 'forged',
+      } });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get('etag'), '"5"');
+      assert.equal(response.headers.get('x-request-id'), 'request-id');
+      assert.equal(response.headers.get('set-cookie'), null);
+      assert.equal(response.headers.get('location'), null);
+      assert.deepEqual(await response.json(), { data: { status: 'RUNNING' } });
+    }, async (url, options) => {
+      assert.equal(String(url), 'https://platform.example.invalid' + jobUrl);
+      assert.deepEqual(options.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session' });
+      assert.equal(options.redirect, 'error');
+      return new Response('{"data":{"status":"RUNNING"}}', { status, headers: {
+        'Content-Type': 'application/json', ETag: '"5"', 'X-Request-ID': 'request-id',
+        'Set-Cookie': 'private=secret', Location: 'https://evil.invalid',
+      } });
+    }, false, true);
+  }
+});
+
+test('evaluation SSE forwards cursor, delivers first frame before upstream closes and aborts on disconnect', async () => {
+  let abort;
+  const aborted = new Promise(resolve => { abort = resolve; });
+  let streamController;
+  await fixture(async origin => {
+    const controller = new AbortController();
+    const response = await fetch(origin + jobUrl + '/events?after=1', {
+      signal: controller.signal, headers: { 'Last-Event-ID': '2', Cookie: '__Host-team4_session=session' },
+    });
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    assert.equal(response.headers.get('x-accel-buffering'), 'no');
+    const reader = response.body.getReader();
+    const frame = await reader.read();
+    assert.equal(new TextDecoder().decode(frame.value), 'id: 3\nevent: job.progress\ndata: {}\n\n');
+    controller.abort();
+    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error('Upstream was not aborted')), 2000).unref())]);
+    reader.releaseLock();
+  }, async (url, options) => {
+    assert.equal(String(url), 'https://platform.example.invalid' + jobUrl + '/events?after=1');
+    assert.equal(options.headers['Last-Event-ID'], '2');
+    options.signal.addEventListener('abort', () => { streamController.error(new Error('Disconnected')); abort(); }, { once: true });
+    return new Response(new ReadableStream({ start(controller) {
+      streamController = controller;
+      controller.enqueue(new TextEncoder().encode('id: 3\nevent: job.progress\ndata: {}\n\n'));
+    } }), { headers: { 'Content-Type': 'text/event-stream' } });
+  }, false, true);
+});
+
+test('evaluation SSE preserves completed 204 and pre-header errors without synthetic success', async () => {
+  for (const status of [204, 400, 401, 403, 404, 410, 503]) {
+    await fixture(async origin => {
+      const response = await fetch(origin + jobUrl + '/events');
+      assert.equal(response.status, status);
+      if (status === 204) assert.equal(await response.text(), '');
+      else assert.deepEqual(await response.json(), { error: { code: 'SAFE_ERROR' } });
+    }, async () => new Response(status === 204 ? null : '{"error":{"code":"SAFE_ERROR"}}', {
+      status, headers: status === 204 ? {} : { 'Content-Type': 'application/json' },
+    }), false, true);
+  }
+});
+
+test('evaluation relay rejects redirects, wrong content types and oversized JSON', async () => {
+  for (const reply of [
+    () => new Response(null, { status: 302, headers: { Location: 'https://evil.invalid' } }),
+    () => new Response('private-upstream', { headers: { 'Content-Type': 'text/html' } }),
+    () => new Response('private-upstream'.repeat(100000), { status: 503, headers: { 'Content-Type': 'application/json' } }),
+    () => { throw new Error('private-upstream'); },
+  ]) await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    assert.equal(response.status, 502);
+    assert.ok(!(await response.text()).includes('private-upstream'));
+  }, async () => reply(), false, true);
+});
+
+test('evaluation mid-stream failure terminates the connection without a synthetic completion', async () => {
+  await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    const reader = response.body.getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /id: 1/);
+    await assert.rejects(reader.read());
+    reader.releaseLock();
+  }, async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode('id: 1\nevent: job.queued\ndata: {}\n\n'));
+    setTimeout(() => controller.error(new Error('private-provider-failure')), 30);
+  } }), { headers: { 'Content-Type': 'text/event-stream' } }), false, true);
+});
+
+test('evaluation upstream header deadline aborts the request and returns a safe failure', { timeout: 20000 }, async () => {
+  let aborted = false;
+  await fixture(async origin => {
+    const response = await fetch(origin + jobUrl + '/events');
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.code, 'UPSTREAM_UNAVAILABLE');
+    assert.equal(aborted, true);
+  }, async (_url, options) => new Promise((_, reject) => {
+    options.signal.addEventListener('abort', () => { aborted = true; reject(new Error('private-timeout')); }, { once: true });
+  }), false, true);
+});
+
+const controlRun = '/api/v1/platform/evaluations/runs/22222222-2222-4222-8222-222222222222';
+const controlHeaders = { Origin: 'https://app.example.invalid', 'X-CSRF-Token': 'session-csrf', 'If-Match': '"2"', 'Idempotency-Key': 'control-key-123' };
+
+test('evaluation control relay defaults closed independently of read relay', async () => {
+  let calls = 0;
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + controlRun)).status, 404);
+    assert.equal((await fetch(origin + controlRun + '/cancel', { method: 'POST', headers: controlHeaders })).status, 405);
+  }, async () => { calls++; return Response.json({}); }, false, true);
+  assert.equal(calls, 0);
+});
+
+test('evaluation controls forward only session and command headers to fixed platform', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    for (const action of ['cancel', 'resume']) {
+      const response = await fetch(origin + controlRun + '/' + action, { method: 'POST', headers: {
+        ...controlHeaders, Cookie: '__Host-team4_session=session; unrelated=private', Authorization: 'Bearer browser', 'X-User-ID': 'fake',
+      } });
+      assert.equal(response.status, 200); assert.equal(response.headers.get('etag'), '"3"');
+      assert.equal(response.headers.get('set-cookie'), null); assert.equal(response.headers.get('location'), null);
+    }
+    assert.equal((await fetch(origin + controlRun)).status, 200);
+  }, async (url, init) => {
+    calls.push({url: String(url), init});
+    return Response.json({data: {}}, {headers:{ETag:'"3"', 'Set-Cookie':'private=1', Location:'https://wrong.invalid'}});
+  }, false, false, true);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].url, 'https://platform.example.invalid' + controlRun + '/cancel');
+  assert.deepEqual(calls[0].init.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session', origin: controlHeaders.Origin, 'x-csrf-token':'session-csrf', 'if-match':'"2"', 'idempotency-key':'control-key-123' });
+  assert.equal(calls[0].init.redirect, 'error'); assert.equal(calls[0].init.body, undefined);
+});
+
+test('evaluation controls reject wrong methods, queries, bodies and missing protection before forwarding', async () => {
+  let calls=0;
+  await fixture(async origin => {
+    const post = (suffix, headers=controlHeaders, body) => fetch(origin+controlRun+suffix,{method:'POST',headers,body});
+    assert.equal((await fetch(origin+controlRun+'/cancel')).status,405);
+    assert.equal((await post('/resume?x=1')).status,400);
+    assert.equal((await post('/cancel',controlHeaders,'{}')).status,413);
+    assert.equal((await post('/cancel',{})).status,403);
+    assert.equal((await post('/cancel',{...controlHeaders,'Idempotency-Key':''})).status,400);
+    const {'If-Match': ignored, ...withoutVersion}=controlHeaders;
+    assert.equal((await post('/cancel',withoutVersion)).status,428);
+    assert.equal((await post('/cancel',{...controlHeaders,'If-Match':'*'})).status,400);
+    assert.equal((await fetch(origin+'/api/v1/platform/evaluations/policy')).status,404);
+    assert.equal((await post('/delete')).status,405);
+  },async()=>{calls++;return Response.json({});},false,false,true);
+  assert.equal(calls,0);
+});
+
+test('evaluation control relay preserves conflict/auth errors and refuses HTML or redirect success', async () => {
+  for(const status of [401,403,409,412,503]) {
+    await fixture(async origin => {
+      assert.equal((await fetch(origin+controlRun+'/cancel',{method:'POST',headers:controlHeaders})).status,status);
+    },async()=>Response.json({error:{code:'SAFE_ERROR'}},{status}),false,false,true);
+  }
+  for(const result of [new Response('private html'),new Response(null,{status:302,headers:{Location:'https://wrong.invalid'}}),Response.json({value:'x'.repeat(1024*1024)})]) {
+    await fixture(async origin => {
+      const response=await fetch(origin+controlRun+'/cancel',{method:'POST',headers:controlHeaders});
+      assert.equal(response.status,502);assert.ok(!(await response.text()).includes('private'));
+    },async()=>result,false,false,true);
   }
 });

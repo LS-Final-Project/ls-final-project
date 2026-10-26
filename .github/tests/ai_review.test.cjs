@@ -1,6 +1,10 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const {spawnSync} = require('node:child_process');
 const { prepare, validate, finish } = require('../scripts/ai_review.cjs');
 const head = '1'.repeat(40), base = '2'.repeat(40);
 const files = ['backend/example.py', 'tests/test_example.py'];
@@ -15,10 +19,11 @@ function result(overrides = {}) {
 function fixture(overrides = {}) {
   const pr = {number: 12, state: 'open', draft: false, head: {sha: head}, base: {sha: base}, changed_files: 2};
   const comments = [], edits = [], failed = [], outputs = {};
+  const diff = {value: files.map(filename => `diff --git a/${filename} b/${filename}\n--- a/${filename}\n+++ b/${filename}\n@@ -1 +1 @@\n-old\n+new\n`).join('')};
   const summary = {addHeading() { return this; }, addRaw() {return this; }, async write() {}};
   const context = {repo: {owner: 'team', repo: 'project'}, payload: {pull_request: structuredClone(pr)}, runId: 123};
   const github = {rest: {pulls: {
-    async get() {return {data: structuredClone(pr)};}, async listFiles() {},
+    async get(params) {return {data: params?.mediaType?.format === 'diff' ? diff.value : structuredClone(pr)};}, async listFiles() {},
   }, issues: {
     async createComment(comment) { comments.push(comment); return {data: {id: 1}}; },
     async updateComment(comment) {edits.push(comment);},
@@ -26,16 +31,107 @@ function fixture(overrides = {}) {
   async paginate() {return files.map(filename => ({filename}));}};
   const core = {summary, setFailed(message) {failed.push(message);}, setOutput(key, value) {outputs[key] = value;}};
   return {github, context, core, raw: JSON.stringify(result(overrides)), files: JSON.stringify(files),
-    conclusion: 'success', pr, comments, edits, failed, outputs};
+    conclusion: 'success', pr, diff, comments, edits, failed, outputs};
+}
+
+/** 검사 산출물만 정리한다. Args: f — 합성 검사 환경. Returns: 없음. */
+function cleanDiff(f) {
+  if (f.outputs.diff_file) fs.rmSync(path.dirname(f.outputs.diff_file), {recursive: true, force: true});
 }
 
 test('prepare binds the schema to the complete changed-file manifest', async () => {
   const f = fixture();
-  await prepare(f);
-  assert.deepEqual(JSON.parse(f.outputs.files), files);
-  assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
-  f.pr.changed_files = 3;
+  try {
+    await prepare(f);
+    assert.deepEqual(JSON.parse(f.outputs.files), files);
+    assert.equal(JSON.parse(f.outputs.schema).additionalProperties, false);
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, files);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    f.pr.changed_files = 3;
+    await assert.rejects(() => prepare(f));
+  } finally {cleanDiff(f);}
+});
+
+test('168파일의 큰 diff를 잘림 없이 모델이 읽을 파일로 제공한다', async () => {
+  const f = fixture();
+  const many = Array.from({length: 168}, (_, i) => `tests/file_${i}.py`);
+  f.pr.changed_files = many.length;
+  f.github.paginate = async () => many.map(filename => ({filename}));
+  f.diff.value = many.map(filename => `diff --git a/${filename} b/${filename}\n--- a/${filename}\n+++ b/${filename}\n@@ -1 +1 @@\n-old\n+${'합성 변경 '.repeat(1024)}\n`).join('');
+  try {
+    await prepare(f);
+    assert.deepEqual(JSON.parse(f.outputs.files), many);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    assert.equal(fs.statSync(f.outputs.diff_file).mode & 0o777, 0o600);
+    assert.equal(Number(f.outputs.diff_lines), many.length * 6);
+  } finally {cleanDiff(f);}
+});
+
+test('작은따옴표 파일명도 JSON 스키마의 CLI 인자 경계를 바꾸지 않는다', async () => {
+  const f = fixture();
+  const filename = "tests/don't.py";
+  f.pr.changed_files = 1;
+  f.github.paginate = async () => [{filename}];
+  f.diff.value = `diff --git a/${filename} b/${filename}\n`;
+  try {
+    await prepare(f);
+    assert.ok(!f.outputs.schema.includes("'"));
+    assert.deepEqual(JSON.parse(f.outputs.schema).properties.findings.items.properties.path.enum, [filename]);
+  } finally {cleanDiff(f);}
+});
+
+test('누락된 파일 diff나 읽는 동안 바뀐 SHA를 모델에게 넘기지 않는다', async () => {
+  for (const invalid of [null, {}, '', '<html>error</html>', `diff --git a/${files[0]} b/${files[0]}\n`, fixture().diff.value + `diff --git a/${files[0]} b/${files[0]}\n`]) {
+    const f = fixture();
+    f.diff.value = invalid;
+    await assert.rejects(() => prepare(f));
+    assert.equal(f.outputs.diff_file, undefined);
+  }
+  const f = fixture();
+  const get = f.github.rest.pulls.get;
+  f.github.rest.pulls.get = async params => {
+    const response = await get(params);
+    if (params?.mediaType?.format === 'diff') f.pr.head.sha = '3'.repeat(40);
+    return response;
+  };
   await assert.rejects(() => prepare(f));
+  assert.equal(f.outputs.diff_file, undefined);
+});
+
+test('실제 Git의 한글·공백·따옴표 인용 경로와 이름 변경을 처리한다', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'team4-git-path-'));
+  const f = fixture();
+  const name = '한글 "문서".md';
+  const before = `old/${name}`, after = `new/${name}`;
+  try {
+    fs.mkdirSync(path.join(directory, 'old'));
+    fs.mkdirSync(path.join(directory, 'new'));
+    fs.writeFileSync(path.join(directory, before), 'old\n');
+    fs.writeFileSync(path.join(directory, after), 'new\n');
+    const git = spawnSync('git', ['-c', 'core.quotePath=true', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', 'diff', '--no-index', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--', before, after], {cwd: directory, encoding: 'utf8'});
+    assert.equal(git.status, 1, git.stderr);
+    assert.ok(git.stdout.startsWith('diff --git "a/'));
+    f.diff.value = git.stdout;
+    f.pr.changed_files = 1;
+    f.github.paginate = async () => [{filename: after, previous_filename: before}];
+    await prepare(f);
+    assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), git.stdout);
+    assert.deepEqual(JSON.parse(f.outputs.files), [after]);
+  } finally {
+    cleanDiff(f);
+    fs.rmSync(directory, {recursive: true, force: true});
+  }
+});
+
+test('추가 줄 안의 CR·유니코드 구분자를 실제 파일 헤더로 오인하지 않는다', async () => {
+  for (const separator of ['\r', '\u2028', '\u2029']) {
+    const f = fixture();
+    f.diff.value = f.diff.value.replace('+new\n', `+new${separator}diff --git a/fake b/fake\n`);
+    try {
+      await prepare(f);
+      assert.equal(fs.readFileSync(f.outputs.diff_file, 'utf8'), f.diff.value);
+    } finally {cleanDiff(f);}
+  }
 });
 
 test('rejects missing, incomplete, stale, empty-summary and partially reviewed results', () => {
