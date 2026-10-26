@@ -82,6 +82,84 @@
         "title": "EvaluationAdmission",
         "type": "object"
       },
+      "EvaluationJobStatus": {
+        "additionalProperties": false,
+        "description": "\uc2e4\ud589 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "evaluation.run",
+            "default": "evaluation.run",
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "minimum": 0.0,
+            "title": "Last Event Sequence",
+            "type": "integer"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "owner": {
+            "const": "platform",
+            "default": "platform",
+            "title": "Owner",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Run Status",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "status",
+          "run_status",
+          "version",
+          "last_event_sequence",
+          "needs_review"
+        ],
+        "title": "EvaluationJobStatus",
+        "type": "object"
+      },
       "EvaluationPolicy": {
         "additionalProperties": false,
         "description": "\uc2e4\ud589 \uae30\ubc18 \uc5f0\uacb0 \uc804\uc5d0\ub294 \uc791\uc5c5\uacfc \ubbfc\uac10 \uc790\ub8cc \uc811\uadfc\uc744 \ud65c\uc131\ud654\ud558\uc9c0 \uc54a\ub294\ub2e4.",
@@ -155,10 +233,25 @@
       "EvaluationRunStatus": {
         "description": "\uc6d0\uc2dc \ucd9c\ub825\u00b7\uc815\ub2f5 \uc5c6\uc774 \uc811\uc218 \uc0c1\ud0dc\ub9cc \uc81c\uacf5\ud55c\ub2e4.",
         "properties": {
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "job_id": {
             "format": "uuid",
             "title": "Job Id",
             "type": "string"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
           },
           "requested_count": {
             "title": "Requested Count",
@@ -181,13 +274,20 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
           "run_id",
           "job_id",
           "status",
-          "requested_count"
+          "requested_count",
+          "version",
+          "needs_review",
+          "failure_code"
         ],
         "title": "EvaluationRunStatus",
         "type": "object"
@@ -368,6 +468,22 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationAdmission]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationJobStatus_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationJobStatus"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationJobStatus]",
         "type": "object"
       },
       "SuccessResponse_EvaluationPolicy_": {
@@ -869,7 +985,7 @@
     },
     "/api/v1/platform/evaluations/runs/{run_id}": {
       "get": {
-        "description": "\ud604\uc7ac \uad8c\ud55c\uc73c\ub85c \uc790\uae30 \ud569\uc131 \uc811\uc218\uc758 \uc0c1\ud0dc\ub9cc \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c\ud560 \uc2e4\ud589 UUID.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse: \uc6d0\uc2dc \ucd9c\ub825\uacfc \uc815\ub2f5\uc744 \uc81c\uc678\ud55c \uc2e4\ud589 \uc0c1\ud0dc.",
+        "description": "\ud604\uc7ac \uad8c\ud55c\uc73c\ub85c \uc790\uae30 \ud569\uc131 \uc811\uc218\uc758 \uc0c1\ud0dc\ub9cc \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c\ud560 \uc2e4\ud589 UUID.\n    response: \ud604\uc7ac \ud310\ubcf8\uc744 ETag\ub85c \uc804\ub2ec\ud560 \uc751\ub2f5.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse: \uc6d0\uc2dc \ucd9c\ub825\uacfc \uc815\ub2f5\uc744 \uc81c\uc678\ud55c \uc2e4\ud589 \uc0c1\ud0dc.",
         "operationId": "platform_get_evaluation_run",
         "parameters": [
           {
@@ -951,6 +1067,160 @@
         ]
       }
     },
+    "/api/v1/platform/evaluations/runs/{run_id}/{action}": {
+      "post": {
+        "description": "\ud604\uc7ac \uc138\uc158\u00b7CSRF\u00b7\ud310\ubcf8\u00b7\uba71\ub4f1 \ud0a4\ub97c \uac80\uc99d\ud558\uc5ec \uc790\uae30 \ud569\uc131 \uc2e4\ud589\uc744 \uc81c\uc5b4\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\uacfc \ud604\uc7ac \uc694\uccad ID.\n    response: \ucd5c\ucd08 \uacb0\uacfc \ud310\ubcf8 ETag\ub97c \ubc18\ud658\ud560 \uc751\ub2f5.\n    run_id: \uc2e4\ud589 UUID.\n    action: cancel \ub610\ub294 resume.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n    idempotency_key: \uc694\uccad \uc7ac\uc804\uc1a1 \uc2dd\ubcc4 \ud0a4.\n    if_match: \uc870\ud68c\ud55c \uc2e4\ud589 \ud310\ubcf8.\n\nReturns:\n    SuccessResponse: \uc2e4\uc81c \uc800\uc7a5\ub418\uac70\ub098 \uc7ac\uc0dd\ub41c \uc81c\uc5b4 \uacb0\uacfc.",
+        "operationId": "platform_control_evaluation_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "enum": [
+                "cancel",
+                "resume"
+              ],
+              "title": "Action",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Control",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
     "/api/v1/platform/health": {
       "get": {
         "description": "Checks this service process only; does not authorize business operations.",
@@ -980,6 +1250,229 @@
         "summary": "Platform Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/platform/jobs/{job_id}": {
+      "get": {
+        "description": "\uba85\uc2dc\uc801\uc73c\ub85c \ud5c8\uc6a9\ub41c local/test \ud569\uc131 \ud3c9\uac00 \uc791\uc5c5\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4.",
+        "operationId": "platform_get_evaluation_job",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationJobStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Job Status",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/platform/jobs/{job_id}/events": {
+      "get": {
+        "description": "\uc2a4\ud2b8\ub9bc \ud5e4\ub354 \uc804\uc5d0 \ud604\uc7ac \uad8c\ud55c\u00b7\ucee4\uc11c\ub97c \uac80\uc0ac\ud558\uace0 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c \uc7ac\uc0dd\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc124\uc815\u00b7\uc138\uc158 \ucfe0\ud0a4\ub97c \uac00\uc9c4 \uc694\uccad.\n    job_id: \ud50c\ub7ab\ud3fc \ud3c9\uac00 \uc791\uc5c5 UUID.\n    last_event_id: \ucffc\ub9ac\ubcf4\ub2e4 \uc6b0\uc120\ud558\ub294 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n    after: \ud5e4\ub354\uac00 \uc5c6\ub294 \uacbd\uc6b0\uc758 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n\nReturns:\n    Response: SSE \uc751\ub2f5 \ub610\ub294 \uc885\ub8cc \ucee4\uc11c\uc758204. \uac80\uc99d \uc2e4\ud328\ub294 \uacf5\ud1b5 \uc624\ub958 \uc751\ub2f5.",
+        "operationId": "platform_stream_evaluation_job_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "header",
+            "name": "last-event-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "\uc885\ub8cc \uc704\uce58\uae4c\uc9c0 \uc218\uc2e0\ud588\uc73c\ubbc0\ub85c \uc7ac\uc5f0\uacb0\uc744 \uc911\ub2e8\ud55c\ub2e4."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Job Events",
+        "tags": [
+          "jobs"
         ]
       }
     },

@@ -1,12 +1,13 @@
 """평가 기능의 접근 경계와 현재 실행 가능 여부를 제공한다."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
 from backend.api.platform.evaluations.access import require_evaluation_write, require_evaluator
 from backend.api.platform.evaluations.admission import accept_run, admission_available, get_run
+from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.schemas import (
     EvaluationAdmission,
     EvaluationPolicy,
@@ -104,6 +105,7 @@ async def request_evaluation_run(
 async def evaluation_run_status(
     request: Request,
     run_id: UUID,
+    response: Response,
     principal: Annotated[Principal, Depends(require_evaluator)],
 ) -> SuccessResponse[EvaluationRunStatus]:
     """현재 권한으로 자기 합성 접수의 상태만 조회한다.
@@ -111,6 +113,7 @@ async def evaluation_run_status(
     Args:
         request: 서버 설정과 요청 ID.
         run_id: 조회할 실행 UUID.
+        response: 현재 판본을 ETag로 전달할 응답.
         principal: 현재 지정 평가자 세션.
 
     Returns:
@@ -119,4 +122,49 @@ async def evaluation_run_status(
     data = await get_run(
         request.app.state.settings, request.app.state.evaluation_access, principal.user_id, run_id
     )
+    response.headers["ETag"] = f'"{data.version}"'
     return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))
+
+
+@router.post(
+    "/runs/{run_id}/{action}",
+    response_model=SuccessResponse[EvaluationRunStatus],
+    operation_id="platform_control_evaluation_run",
+    dependencies=[Depends(require_evaluation_write)],
+    responses={code: {"model": ErrorResponse} for code in (404, 409, 412, 428)},
+)
+async def evaluation_run_control(
+    request: Request,
+    response: Response,
+    run_id: UUID,
+    action: Literal["cancel", "resume"],
+    principal: Annotated[Principal, Depends(require_evaluator)],
+    idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
+    if_match: Annotated[str | None, Header()] = None,
+) -> SuccessResponse[EvaluationRunStatus]:
+    """현재 세션·CSRF·판본·멱등 키를 검증하여 자기 합성 실행을 제어한다.
+
+    Args:
+        request: 서버 설정과 현재 요청 ID.
+        response: 최초 결과 판본 ETag를 반환할 응답.
+        run_id: 실행 UUID.
+        action: cancel 또는 resume.
+        principal: 현재 지정 평가자 세션.
+        idempotency_key: 요청 재전송 식별 키.
+        if_match: 조회한 실행 판본.
+
+    Returns:
+        SuccessResponse: 실제 저장되거나 재생된 제어 결과.
+    """
+    result = await control_run(
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        run_id,
+        action,
+        idempotency_key,
+        if_match,
+        request.state.request_id,
+    )
+    response.headers["ETag"] = f'"{result.data.version}"'
+    return result

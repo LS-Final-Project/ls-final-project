@@ -10,6 +10,6 @@ FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
 COPY --from=build --chown=node:node /app/frontend/dist ./dist
-COPY --chown=node:node frontend/server.mjs ./server.mjs
+COPY --chown=node:node frontend/server.mjs frontend/evaluation-relay.mjs ./
 USER node
 CMD ["node", "server.mjs"]
