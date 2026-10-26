@@ -123,6 +123,11 @@ def jobs_database(auth_database):
                 "infra/migrations/platform/20261025_KAN-69_job_admission.sql"
             ).read_text()
             conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        if conn.execute("SELECT to_regclass('runtime.dispatch_attempts')").fetchone()[0] is None:
+            migration = Path(
+                "infra/migrations/platform/20261026_KAN-69_dispatch_ledger.sql"
+            ).read_text()
+            conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 
