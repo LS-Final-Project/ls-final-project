@@ -1,5 +1,6 @@
 """로컬 합성 평가의 전송 장부. 외부 호출과 worker 실행 권한을 부여하지 않는다."""
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -54,7 +55,11 @@ def require_local(
 
 
 async def finish(
-    conn: psycopg.AsyncConnection[dict[str, Any]], row: dict[str, Any], state: str, delay: int = 0
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    row: dict[str, Any],
+    state: str,
+    delay: int = 0,
+    operation_name: str | None = None,
 ) -> None:
     """잠긴 전송 시도와 outbox의 종료 상태를 함께 기록한다.
 
@@ -63,14 +68,15 @@ async def finish(
         row: 현재 시도 번호를 가진 outbox 행.
         state: 원문이나 외부 오류를 포함하지 않는 고정 상태.
         delay: 명확한 거부 뒤 다음 확보까지의 초.
+        operation_name: 검증된 Google operation 이름 또는 없음.
 
     Returns:
         None: 호출자의 commit으로 두 기록이 함께 확정된다.
     """
     await conn.execute(
-        "UPDATE runtime.dispatch_attempts SET state=%s,finished_at=clock_timestamp() "
+        "UPDATE runtime.dispatch_attempts SET state=%s,finished_at=clock_timestamp(),operation_name=%s "
         "WHERE job_id=%s AND attempt_no=%s",
-        (state, row["job_id"], row["attempt_no"]),
+        (state, operation_name, row["job_id"], row["attempt_no"]),
     )
     await conn.execute(
         "UPDATE runtime.dispatch_outbox SET state=%s,holder_id=NULL,lease_expires_at=NULL,"
@@ -222,6 +228,7 @@ async def record_result(
     dispatch: DispatchSettings,
     lease: DispatchLease,
     result: Literal["ACCEPTED", "REJECTED", "UNKNOWN"],
+    operation_name: str | None = None,
 ) -> None:
     """전송 결과만 저장하며 평가 상태·worker lease·이벤트는 변경하지 않는다.
 
@@ -231,6 +238,7 @@ async def record_result(
         dispatch: 장부 설정과 명확한 거부의 재시도 간격.
         lease: 전송을 시작한 소유권.
         result: 접수 확인, 명확한 미접수, 결과 불명확 중 하나.
+        operation_name: 외부 본문 대신 보존할 operation 식별자.
 
     Returns:
         None: 전송 결과를 commit한다. 만료·중복·오래된 결과는 409다.
@@ -238,6 +246,17 @@ async def record_result(
     require_local(settings, access, dispatch)
     if result not in {"ACCEPTED", "REJECTED", "UNKNOWN"}:
         raise ValueError("Unsupported dispatch result")
+    if operation_name is not None and not re.fullmatch(
+        r"projects/[1-9][0-9]{5,19}/locations/asia-northeast3/operations/[A-Za-z0-9_-]{1,128}",
+        operation_name,
+    ):
+        raise ValueError("Invalid operation name")
     async with connection(settings) as conn, conn.transaction():
         row = await current_attempt(conn, lease, "SENDING")
-        await finish(conn, row, result, dispatch.retry_delay_seconds if result == "REJECTED" else 0)
+        await finish(
+            conn,
+            row,
+            result,
+            dispatch.retry_delay_seconds if result == "REJECTED" else 0,
+            operation_name,
+        )
