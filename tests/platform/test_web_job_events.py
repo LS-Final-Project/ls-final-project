@@ -36,6 +36,7 @@ const { handler } = await import(process.env.TEST_WEB_MODULE);
 const server = createServer(handler({
   directory: '/tmp', upstream: process.env.TEST_PLATFORM_URL,
   tokenProvider: async () => 'synthetic-iam-token', evaluationReadRelayEnabled: true,
+  evaluationControlRelayEnabled: true,
 }));
 server.listen(0, '127.0.0.1', () => console.log(server.address().port));
 """
@@ -223,3 +224,99 @@ await watchEvaluation(process.env.TEST_JOB_ID, new AbortController().signal, vie
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("action", ["cancel", "resume"])
+def test_web_control_consumer_preserves_idempotent_command(web_job, evaluation_database, action):
+    """실제 제어 소비자의 CSRF·판본·유실 응답 재전송을 검사한다.
+
+    Args:
+        web_job: 실제 세션과 웹 중계.
+        evaluation_database: 격리 DB 연결.
+        action: 취소 또는 검토 보류 해제.
+
+    Returns:
+        None: 상태 변경과 같은 키 재전송의 판본 보존을 확인한다.
+    """
+    client, admitted = web_job
+    if action == "resume":
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(
+                "UPDATE evaluation.runs SET needs_review=true WHERE id=%s", (admitted.run_id,)
+            )
+    script = """
+import assert from 'node:assert/strict';
+const originalFetch = globalThis.fetch;
+const keys = [];
+globalThis.fetch = async (path, init = {}) => {
+  const result = await originalFetch(new URL(path, process.env.TEST_WEB_URL), {
+    ...init, headers: { ...init.headers, Cookie: process.env.TEST_SESSION_COOKIE,
+      ...(init.method === 'POST' ? {Origin: 'https://app.example.invalid'} : {}) },
+  });
+  if (init.method === 'POST') {
+    keys.push(init.headers['Idempotency-Key']);
+    if (keys.length === 1) { await result.text(); throw new TypeError('lost response'); }
+  }
+  return result;
+};
+const { prepareRunCommand, sendRunCommand, RunControlError } = await import(process.env.TEST_MODULE);
+const path = '/api/v1/platform/jobs/' + process.env.TEST_JOB_ID;
+const snapshot = (await (await fetch(path)).json()).data;
+const command = await prepareRunCommand(snapshot, process.env.TEST_ACTION, new AbortController().signal);
+await assert.rejects(sendRunCommand(command, new AbortController().signal),
+  error => error instanceof RunControlError && error.uncertain);
+const first = (await (await fetch(path)).json()).data;
+await sendRunCommand(command, new AbortController().signal);
+const replayed = (await (await fetch(path)).json()).data;
+assert.equal(first.version, snapshot.version + 1);
+assert.equal(replayed.version, first.version);
+assert.deepEqual(keys, [command.key, command.key]);
+assert.equal(replayed.needs_review, false);
+assert.equal(replayed.run_status, process.env.TEST_ACTION === 'cancel' ? 'CANCELLED' : 'QUEUED');
+console.log('control replay verified');
+"""
+    result = subprocess.run(
+        ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+        env={
+            **os.environ,
+            "TEST_WEB_URL": str(client.base_url),
+            "TEST_SESSION_COOKIE": client.headers["Cookie"],
+            "TEST_JOB_ID": str(admitted.job_id),
+            "TEST_ACTION": action,
+            "TEST_MODULE": Path("frontend/src/api/evaluation-controls.ts").resolve().as_uri(),
+        },
+        capture_output=True,
+        timeout=15,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "control replay verified" in result.stdout
+
+
+def test_web_control_rejects_csrf_origin_and_stale_version(web_job):
+    """웹을 통과한 변경 요청도 실제 서버의 보호 조건을 충족해야 한다.
+
+    Args:
+        web_job: 실제 세션과 웹 중계.
+
+    Returns:
+        None: CSRF·Origin·If-Match 거부와 미변경 상태를 확인한다.
+    """
+    client, admitted = web_job
+    token = client.get("/api/v1/platform/me").headers["X-CSRF-Token"]
+    headers = {
+        "Origin": "https://app.example.invalid",
+        "X-CSRF-Token": token,
+        "If-Match": '"1"',
+        "Idempotency-Key": str(uuid4()),
+    }
+    url = f"/api/v1/platform/evaluations/runs/{admitted.run_id}/cancel"
+    for changes, status in [
+        ({"X-CSRF-Token": "wrong"}, 403),
+        ({"Origin": "https://wrong.invalid"}, 403),
+        ({"If-Match": '"2"'}, 412),
+    ]:
+        response = client.post(url, headers={**headers, **changes})
+        assert response.status_code == status
+    state = client.get(f"/api/v1/platform/jobs/{admitted.job_id}").json()["data"]
+    assert state["run_status"] == "QUEUED" and state["version"] == 1

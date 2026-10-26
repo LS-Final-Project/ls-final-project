@@ -11,6 +11,71 @@ export function evaluationReadPath(path) {
   return jobPath.test(path);
 }
 
+const runPath = /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\/(cancel|resume))?$/;
+
+/** 실행 조회·취소·재개만 식별한다. Args: URL 경로. Returns: 허용 대상 여부. */
+export function evaluationControlPath(path) {
+  return runPath.test(path);
+}
+
+/** 본문 없는 제어 요청을 고정 플랫폼으로 전달한다. Args: 요청/응답과 검증된 출처·경로·IAM 공급자. Returns: 중계 완료. */
+export async function relayEvaluationControl(request, response, { path, searchParams, target, tokenProvider, fetcher }) {
+  /** 안전한 오류만 반환한다. Args: 상태와 상수 코드. Returns: 없음. */
+  const fail = (status, code) => {
+    response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    response.end(JSON.stringify({ error: { code } }));
+  };
+  const write = /\/(cancel|resume)$/.test(path);
+  if (request.method !== (write ? 'POST' : 'GET')) return fail(405, 'METHOD_NOT_ALLOWED');
+  if ([...searchParams].length) return fail(400, 'BAD_REQUEST');
+  if (request.headers['transfer-encoding'] || Number(request.headers['content-length'] || 0) !== 0) return fail(413, 'REQUEST_TOO_LARGE');
+  if (write) {
+    if (!request.headers.origin || !request.headers['x-csrf-token']) return fail(403, 'FORBIDDEN');
+    const key = request.headers['idempotency-key'];
+    if (typeof key !== 'string' || !/^[\x21-\x7e]{8,128}$/.test(key)) return fail(400, 'INVALID_IDEMPOTENCY_KEY');
+    if (!request.headers['if-match']) return fail(428, 'VERSION_REQUIRED');
+    if (!/^"[1-9][0-9]{0,18}"$/.test(request.headers['if-match'])) return fail(400, 'INVALID_VERSION');
+    if (request.headers['x-csrf-token'].length > 256 || request.headers.origin.length > 2048) return fail(400, 'BAD_REQUEST');
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  /** 연결 종료를 전파한다. Args: 없음. Returns: 없음. */
+  const disconnected = () => controller.abort();
+  response.once('close', disconnected);
+  try {
+    const headers = { Authorization: `Bearer ${await tokenProvider()}` };
+    const cookies = (request.headers.cookie || '').split(';').map(value => value.trim()).filter(value => value.split('=', 1)[0] === '__Host-team4_session');
+    if (cookies.length) headers.Cookie = cookies.join('; ');
+    if (write) for (const name of ['origin', 'x-csrf-token', 'if-match', 'idempotency-key']) headers[name] = request.headers[name];
+    const result = await fetcher(new URL(path, target), { method: request.method, headers, redirect: 'error', signal: controller.signal });
+    if (result.status >= 300 && result.status < 400 || result.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      await result.body?.cancel();
+      throw new Error('Invalid control response');
+    }
+    const chunks = [];
+    let size = 0;
+    if (result.body) for await (const chunk of result.body) {
+      size += chunk.length;
+      if (size > 1024 * 1024) throw new Error('Response too large');
+      chunks.push(chunk);
+    }
+    const outgoing = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+    for (const name of ['ETag', 'X-Request-ID']) {
+      const value = result.headers.get(name);
+      if (value) outgoing[name] = value;
+    }
+    response.writeHead(result.status, outgoing);
+    response.end(Buffer.concat(chunks));
+  } catch {
+    if (!response.destroyed && !response.headersSent) fail(502, 'UPSTREAM_UNAVAILABLE');
+    else if (!response.destroyed) response.destroy();
+  } finally {
+    clearTimeout(timer);
+    response.off('close', disconnected);
+    controller.abort();
+  }
+}
+
 /**
  * 평가 상태·SSE를 고정 플랫폼으로 전달하고 종료·시간 제한·역압력을 적용한다.
  * Args: request/response는 웹 연결, path/searchParams는 검증 대상 경로/쿼리,
