@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "npm run test:server && npm run test:ui",
-    "test:server": "node --test server.test.mjs",
+    "test:server": "node --experimental-strip-types --test server.test.mjs src/api/evaluations.test.ts src/api/evaluation-events.test.ts src/api/evaluation-controls.test.ts",
     "test:ui": "vitest run",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "types:cs": "openapi-typescript ../docs/openapi/cs.json -o src/api/generated/cs.ts",

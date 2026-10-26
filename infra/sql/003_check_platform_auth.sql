@@ -11,7 +11,10 @@ BEGIN
        OR current_setting('transaction_read_only') <> 'on' THEN
         RAISE EXCEPTION 'Use platform_app in the expected database with a read-only transaction';
     END IF;
-    FOREACH relation_name IN ARRAY ARRAY['users', 'user_roles', 'oauth_authorizations', 'sessions']
+    FOREACH relation_name IN ARRAY ARRAY[
+        'users', 'user_roles', 'oauth_authorizations', 'sessions',
+        'departments', 'manager_departments', 'manager_projects'
+    ]
     LOOP
         IF to_regclass('identity.' || relation_name) IS NULL THEN
             RAISE EXCEPTION 'Required auth table is missing: identity.%', relation_name;

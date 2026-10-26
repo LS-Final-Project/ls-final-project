@@ -9,6 +9,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import RoleRequest from './pages/RoleRequest';
 import DepartmentRequests from './pages/DepartmentRequests';
 import DepartmentRequest from './pages/DepartmentRequest';
+import Evaluations from './pages/Evaluations';
 
 export default function App() {
   return <Routes>
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="tft/projects" element={<Projects />} />
       <Route path="tft/projects/:projectId" element={<ProjectDetail />} />
       <Route path="tft/projects/:projectId/roles/:roleId" element={<RoleRequest />} />
+      <Route path="evaluations" element={<Evaluations />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
   </Routes>;

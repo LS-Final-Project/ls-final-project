@@ -181,7 +181,7 @@ def test_crash_before_commit_and_finalization_resume(
         from unittest.mock import Mock
 
         patch.setattr(
-            "backend.api.platform.evaluations.smoke_worker.FakeProvider.generate",
+            "eval.smoke.FakeProvider.generate",
             Mock(side_effect=RuntimeError("synthetic crash")),
         )
         with pytest.raises(RuntimeError):
@@ -299,7 +299,8 @@ import asyncio, os
 from uuid import UUID
 from backend.shared.settings import Settings
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
-from backend.api.platform.evaluations.smoke_worker import claim_run, advance_run, FakeProvider
+from backend.api.platform.evaluations.smoke_worker import claim_run, advance_run
+from eval.smoke import FakeProvider
 settings = Settings(_env_file=None, environment="test", database_url=os.environ["SMOKE_TEST_DSN"])
 access = EvaluationAccessSettings(evaluator_user_ids={UUID(os.environ["SMOKE_TEST_ACTOR"])},
     approved_config_hashes={os.environ["SMOKE_TEST_HASH"]}, local_admission_enabled=True)
