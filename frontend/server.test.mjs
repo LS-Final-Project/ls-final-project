@@ -12,10 +12,10 @@ import { handler } from './server.mjs';
  * Args: callback은 요청 검사, fetcher는 upstream 대체, businessRelayEnabled는 명시 활성화 여부다.
  * Returns: 검사와 임시 서버·파일 정리를 마친 Promise.
  */
-async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false) {
+async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false) {
   const directory = await mkdtemp(join(tmpdir(), 'team4-web-'));
   await writeFile(join(directory, 'index.html'), '<h1>Fixture</h1>');
-  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled }));
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled, evaluationControlRelayEnabled }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try { await callback(`http://127.0.0.1:${server.address().port}`); }
@@ -313,4 +313,69 @@ test('evaluation upstream header deadline aborts the request and returns a safe 
   }, async (_url, options) => new Promise((_, reject) => {
     options.signal.addEventListener('abort', () => { aborted = true; reject(new Error('private-timeout')); }, { once: true });
   }), false, true);
+});
+
+const controlRun = '/api/v1/platform/evaluations/runs/22222222-2222-4222-8222-222222222222';
+const controlHeaders = { Origin: 'https://app.example.invalid', 'X-CSRF-Token': 'session-csrf', 'If-Match': '"2"', 'Idempotency-Key': 'control-key-123' };
+
+test('evaluation control relay defaults closed independently of read relay', async () => {
+  let calls = 0;
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + controlRun)).status, 404);
+    assert.equal((await fetch(origin + controlRun + '/cancel', { method: 'POST', headers: controlHeaders })).status, 405);
+  }, async () => { calls++; return Response.json({}); }, false, true);
+  assert.equal(calls, 0);
+});
+
+test('evaluation controls forward only session and command headers to fixed platform', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    for (const action of ['cancel', 'resume']) {
+      const response = await fetch(origin + controlRun + '/' + action, { method: 'POST', headers: {
+        ...controlHeaders, Cookie: '__Host-team4_session=session; unrelated=private', Authorization: 'Bearer browser', 'X-User-ID': 'fake',
+      } });
+      assert.equal(response.status, 200); assert.equal(response.headers.get('etag'), '"3"');
+      assert.equal(response.headers.get('set-cookie'), null); assert.equal(response.headers.get('location'), null);
+    }
+    assert.equal((await fetch(origin + controlRun)).status, 200);
+  }, async (url, init) => {
+    calls.push({url: String(url), init});
+    return Response.json({data: {}}, {headers:{ETag:'"3"', 'Set-Cookie':'private=1', Location:'https://wrong.invalid'}});
+  }, false, false, true);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].url, 'https://platform.example.invalid' + controlRun + '/cancel');
+  assert.deepEqual(calls[0].init.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session', origin: controlHeaders.Origin, 'x-csrf-token':'session-csrf', 'if-match':'"2"', 'idempotency-key':'control-key-123' });
+  assert.equal(calls[0].init.redirect, 'error'); assert.equal(calls[0].init.body, undefined);
+});
+
+test('evaluation controls reject wrong methods, queries, bodies and missing protection before forwarding', async () => {
+  let calls=0;
+  await fixture(async origin => {
+    const post = (suffix, headers=controlHeaders, body) => fetch(origin+controlRun+suffix,{method:'POST',headers,body});
+    assert.equal((await fetch(origin+controlRun+'/cancel')).status,405);
+    assert.equal((await post('/resume?x=1')).status,400);
+    assert.equal((await post('/cancel',controlHeaders,'{}')).status,413);
+    assert.equal((await post('/cancel',{})).status,403);
+    assert.equal((await post('/cancel',{...controlHeaders,'Idempotency-Key':''})).status,400);
+    const {'If-Match': ignored, ...withoutVersion}=controlHeaders;
+    assert.equal((await post('/cancel',withoutVersion)).status,428);
+    assert.equal((await post('/cancel',{...controlHeaders,'If-Match':'*'})).status,400);
+    assert.equal((await fetch(origin+'/api/v1/platform/evaluations/policy')).status,404);
+    assert.equal((await post('/delete')).status,405);
+  },async()=>{calls++;return Response.json({});},false,false,true);
+  assert.equal(calls,0);
+});
+
+test('evaluation control relay preserves conflict/auth errors and refuses HTML or redirect success', async () => {
+  for(const status of [401,403,409,412,503]) {
+    await fixture(async origin => {
+      assert.equal((await fetch(origin+controlRun+'/cancel',{method:'POST',headers:controlHeaders})).status,status);
+    },async()=>Response.json({error:{code:'SAFE_ERROR'}},{status}),false,false,true);
+  }
+  for(const result of [new Response('private html'),new Response(null,{status:302,headers:{Location:'https://wrong.invalid'}}),Response.json({value:'x'.repeat(1024*1024)})]) {
+    await fixture(async origin => {
+      const response=await fetch(origin+controlRun+'/cancel',{method:'POST',headers:controlHeaders});
+      assert.equal(response.status,502);assert.ok(!(await response.text()).includes('private'));
+    },async()=>result,false,false,true);
+  }
 });
