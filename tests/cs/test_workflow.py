@@ -1,7 +1,5 @@
 """KAN-108 workflow routes: checks that need no database."""
 
-import re
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -9,17 +7,10 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.shared.access import Principal, principal_header
-from backend.shared.departments import CS_DEPARTMENT, TRANSFER_DEPARTMENTS
 from backend.shared.settings import Settings
 
 AGENT = principal_header(Principal(user_id=uuid4(), roles={"cs_agent"}))
 PATH = f"/api/v1/cs/tickets/{uuid4()}/workflow"
-
-
-def test_department_codes_match_identity_departments():
-    sql = Path("infra/migrations/platform/20261023_KAN-78_manager_scopes.sql").read_text()
-    codes = set(re.findall(r"\('([A-Z][A-Z0-9_]*)', '", sql))
-    assert codes == TRANSFER_DEPARTMENTS | {CS_DEPARTMENT}
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,9 @@ Received is not reviewed and reviewed is not closed: a submitted department resu
 accepted by a C/S agent before it counts, and closing stays a separate C/S decision.
 """
 
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
@@ -15,13 +17,22 @@ from pydantic import SecretStr
 
 from backend.api.cs.main import create_app
 from backend.shared.access import Principal, principal_header
+from backend.shared.departments import CS_DEPARTMENT, TRANSFER_DEPARTMENTS
 from backend.shared.settings import Settings
 
+IDENTITY_DEPARTMENTS = Path("infra/migrations/platform/20261023_KAN-78_manager_scopes.sql")
 AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 TRF_STAFF = Principal(user_id=uuid4(), roles={"dept_staff"}, dept="TS_TRF")
 LV_STAFF = Principal(user_id=uuid4(), roles={"dept_staff"}, dept="TS_LV")
 CS_MANAGER = Principal(user_id=uuid4(), roles={"manager"}, managed_departments={"GCS_L1"})
 TRF_MANAGER = Principal(user_id=uuid4(), roles={"manager"}, managed_departments={"TS_TRF"})
+
+
+# Runs in the full checkout (auth-database job). The backend test image has no infra files.
+@pytest.mark.skipif(not IDENTITY_DEPARTMENTS.exists(), reason="infra/migrations not in image")
+def test_department_codes_match_identity_departments():
+    codes = set(re.findall(r"\('([A-Z][A-Z0-9_]*)', '", IDENTITY_DEPARTMENTS.read_text()))
+    assert codes == TRANSFER_DEPARTMENTS | {CS_DEPARTMENT}
 
 
 @pytest.fixture(scope="module")
