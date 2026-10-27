@@ -248,6 +248,38 @@ def workflow_example() -> dict:
     }
 
 
+def case_example() -> dict:
+    """The case a C/S agent registers after closing, from the accepted department result."""
+    registered_at = datetime(2025, 10, 7, 9, 0, 0, tzinfo=UTC)
+    case = ResolutionCase(
+        id=UUID("cccccccc-cccc-4ccc-8ccc-ccccccccccc1"),
+        external_id=None,
+        data_origin="synthetic",
+        derivation_kind="SYSTEM",
+        resolved_at=datetime(2025, 10, 7, 8, 30, 0, tzinfo=UTC),
+        known_at=registered_at,
+        product_code="TRF-OIL-1000",
+        fault_id="FLT-067",
+        fw_version_at_issue=None,
+        symptom="Oil leakage at gasket",
+        root_cause="Gasket damaged in transport",
+        root_cause_type="WEAR_PART",
+        action_taken="Replace gasket and top up oil",
+        onsite_visit=True,
+        rma_no=None,
+        fw_fixed_version=None,
+        resolved_by_dept="FIELD_SVC",
+        recurrence_prevention=None,
+        dept_result_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"),
+    )
+    return {
+        "method": "POST",
+        "path": f"/api/v1/cs/tickets/{SECOND_TICKET_ID}/resolution-case",
+        "status": 201,
+        "body": SuccessResponse(data=case, meta=META).model_dump(mode="json"),
+    }
+
+
 def examples() -> list[dict]:
     listing: SuccessResponse[TicketList] = SuccessResponse(
         data=TicketList(

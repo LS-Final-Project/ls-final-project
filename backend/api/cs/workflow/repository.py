@@ -132,7 +132,7 @@ async def insert_audit(
     entity_id: UUID,
     action: str,
     version: int,
-    actor_user_id: UUID,
+    actor_user_id: UUID | None,
     changes: Row,
 ) -> None:
     await conn.execute(
@@ -140,4 +140,20 @@ async def insert_audit(
         "(id, entity_type, entity_id, action, version, actor_user_id, changes) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (event_id, entity_type, entity_id, action, version, actor_user_id, Jsonb(changes)),
+    )
+
+
+async def has_case(conn: AsyncConnection[Row], ticket_id: UUID) -> bool:
+    # Any case, known or not: a ticket has at most one (UNIQUE ticket_id).
+    cursor = await conn.execute(
+        "SELECT 1 FROM cs.resolution_cases WHERE ticket_id = %s", (ticket_id,)
+    )
+    return await cursor.fetchone() is not None
+
+
+async def insert_case(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.resolution_cases ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
     )

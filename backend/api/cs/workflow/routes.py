@@ -6,13 +6,15 @@ moves the state through the mail sending path (KAN-74), not through this router.
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, get_args
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.api.cs.tickets import repository as tickets
+from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
+from backend.api.cs.tickets.schemas import ResolutionCase, WorkflowState
 from backend.api.cs.workflow import repository
 from backend.api.cs.workflow.schemas import (
     Action,
@@ -20,10 +22,18 @@ from backend.api.cs.workflow.schemas import (
     DeptResultRequest,
     OwnerRequest,
     ReasonRequest,
+    ResolutionCaseCreate,
     ReviewRequest,
     Transfer,
     TransferRequest,
     Workflow,
+)
+from backend.api.cs.workflow.service import (
+    check,
+    json_value,
+    not_started,
+    save,
+    unreviewed_result,
 )
 from backend.shared.access import Principal, Role, current_principal
 from backend.shared.database import connection
@@ -46,26 +56,7 @@ router = APIRouter(
 )
 
 Row = dict[str, Any]
-
-
-def invalid_transition() -> ApplicationError:
-    return ApplicationError(
-        409, "CS_INVALID_TRANSITION", "The ticket state does not allow this action."
-    )
-
-
-def unreviewed_result() -> ApplicationError:
-    return ApplicationError(
-        409, "CS_DEPT_RESULT_UNREVIEWED", "A department result is waiting for review."
-    )
-
-
-def json_value(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, UUID):
-        return str(value)
-    return value
+ALL_STATES = get_args(WorkflowState)
 
 
 def require_role(principal: Principal, role: Role) -> None:
@@ -86,64 +77,25 @@ async def begin(
     return workflow, transfers, results
 
 
-def not_started(ticket_id: UUID) -> Row:
-    return {
-        "ticket_id": ticket_id,
-        "state": "RECEIVED",
-        "version": 0,
-        "owner_user_id": None,
-        "customer_sent_at": None,
-        "closed_at": None,
-        "closed_by": None,
-    }
-
-
-def check(workflow: Row, payload: Action, *states: str) -> None:
-    if workflow["state"] not in states:
-        raise invalid_transition()
-    if workflow["version"] != payload.version:
-        raise ApplicationError(409, "CS_WORKFLOW_VERSION_CONFLICT", "The workflow has changed.")
-
-
 def open_transfer(transfers: list[Row]) -> Row:
     # TRANSFERRED always has exactly one open transfer (partial unique index).
     return next(t for t in transfers if t["status"] == "OPEN")
 
 
-async def save(
-    conn: Any, workflow: Row, actor: UUID, action: str, values: Row, **details: Any
-) -> Row:
-    """Writes the workflow change and its audit event. Returns the new workflow row."""
-    changes: Row = {
-        name: {"from": json_value(workflow[name]), "to": json_value(value)}
-        for name, value in values.items()
-        if workflow[name] != value
-    }
-    changes["action"] = {"to": action}
-    for name, value in details.items():
-        changes[name] = {"to": json_value(value)}
+async def view(conn: Any, workflow: Row, principal: Principal) -> Workflow:
+    """The workflow as this user may see it. Department users see only the transfers and
+    results of their own departments, not what another department reported."""
     ticket_id = workflow["ticket_id"]
-    if workflow["version"] == 0:
-        await repository.insert_workflow(conn, ticket_id, {"state": workflow["state"], **values})
-    else:
-        await repository.update_workflow(conn, ticket_id, workflow["version"], values)
-    version = workflow["version"] + 1
-    await repository.insert_audit(
-        conn, uuid4(), "ticket_workflow", ticket_id, "transition", version, actor, changes
-    )
-    return {**workflow, **values, "version": version}
-
-
-async def view(conn: Any, workflow: Row) -> Workflow:
-    ticket_id = workflow["ticket_id"]
+    transfers = await repository.list_transfers(conn, ticket_id)
+    results = await repository.list_results(conn, ticket_id)
+    if not sees_all_tickets(principal):
+        departments = transfer_departments(principal)
+        transfers = [t for t in transfers if t["dept_code"] in departments]
+        results = [r for r in results if r["dept_code"] in departments]
     return Workflow(
         **workflow,
-        transfers=[
-            Transfer.model_validate(t) for t in await repository.list_transfers(conn, ticket_id)
-        ],
-        dept_results=[
-            DeptResult.model_validate(r) for r in await repository.list_results(conn, ticket_id)
-        ],
+        transfers=[Transfer.model_validate(t) for t in transfers],
+        dept_results=[DeptResult.model_validate(r) for r in results],
     )
 
 
@@ -161,7 +113,7 @@ async def get_workflow(
         if await tickets.get_ticket(conn, ticket_id) is None:
             raise not_found()
         workflow = await repository.get_workflow(conn, ticket_id) or not_started(ticket_id)
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -181,12 +133,12 @@ async def start_review(
     async with connection(request.app.state.settings) as conn:
         workflow, _, _ = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
-        check(workflow, payload, "RECEIVED")
+        check(workflow, payload.version, "RECEIVED")
         values: Row = {"state": "IN_REVIEW"}
         if workflow["owner_user_id"] is None:
             values["owner_user_id"] = principal.user_id
         workflow = await save(conn, workflow, principal.user_id, "start_review", values)
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -206,7 +158,7 @@ async def transfer(
     async with connection(request.app.state.settings) as conn:
         workflow, _, results = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
-        check(workflow, payload, "IN_REVIEW")
+        check(workflow, payload.version, "IN_REVIEW")
         if any(r["review_status"] == "SUBMITTED" for r in results):
             raise unreviewed_result()
         await repository.insert_transfer(
@@ -228,7 +180,7 @@ async def transfer(
             dept_code=payload.dept_code,
             reason=payload.reason,
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -248,7 +200,7 @@ async def recall(
     async with connection(request.app.state.settings) as conn:
         workflow, transfers, _ = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
-        check(workflow, payload, "TRANSFERRED")
+        check(workflow, payload.version, "TRANSFERRED")
         current = open_transfer(transfers)
         await repository.end_transfer(
             conn, current["id"], "RECALLED", principal.user_id, payload.reason
@@ -262,7 +214,7 @@ async def recall(
             dept_code=current["dept_code"],
             reason=payload.reason,
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -290,7 +242,7 @@ async def return_transfer(
     async with connection(request.app.state.settings) as conn:
         workflow, transfers, _ = await begin(conn, principal, ticket_id)
         require_role(principal, "dept_staff")
-        check(workflow, payload, "TRANSFERRED")
+        check(workflow, payload.version, "TRANSFERRED")
         current = require_transfer_department(principal, transfers)
         await repository.end_transfer(
             conn, current["id"], "RETURNED_BY_DEPT", principal.user_id, payload.reason
@@ -304,7 +256,7 @@ async def return_transfer(
             dept_code=current["dept_code"],
             reason=payload.reason,
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -324,7 +276,7 @@ async def submit_dept_result(
     async with connection(request.app.state.settings) as conn:
         workflow, transfers, _ = await begin(conn, principal, ticket_id)
         require_role(principal, "dept_staff")
-        check(workflow, payload, "TRANSFERRED")
+        check(workflow, payload.version, "TRANSFERRED")
         current = require_transfer_department(principal, transfers)
         result_id = uuid4()
         await repository.insert_result(
@@ -361,7 +313,7 @@ async def submit_dept_result(
             {"state": "IN_REVIEW"},
             dept_result_id=result_id,
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -385,7 +337,7 @@ async def review_dept_result(
     async with connection(request.app.state.settings) as conn:
         workflow, _, results = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
-        check(workflow, payload, "IN_REVIEW")
+        check(workflow, payload.version, "IN_REVIEW")
         result = next((r for r in results if r["id"] == result_id), None)
         if result is None:
             raise ApplicationError(
@@ -438,7 +390,7 @@ async def review_dept_result(
             dept_result_id=result_id,
             decision=payload.decision,
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -459,7 +411,7 @@ async def close(
     async with connection(request.app.state.settings) as conn:
         workflow, _, results = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
-        check(workflow, payload, "IN_REVIEW", "ANSWERED")
+        check(workflow, payload.version, "IN_REVIEW", "ANSWERED")
         if any(r["review_status"] == "SUBMITTED" for r in results):
             raise unreviewed_result()
         accepted = any(r["review_status"] == "ACCEPTED" for r in results)
@@ -476,7 +428,7 @@ async def close(
             "close",
             {"state": "CLOSED", "closed_at": datetime.now(UTC), "closed_by": principal.user_id},
         )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
 
 
@@ -501,8 +453,7 @@ async def reassign_owner(
         workflow, _, _ = await begin(conn, principal, ticket_id)
         if not (principal.has("manager") and CS_DEPARTMENT in principal.managed_departments):
             raise HTTPException(403)
-        if workflow["version"] != payload.version:
-            raise ApplicationError(409, "CS_WORKFLOW_VERSION_CONFLICT", "The workflow has changed.")
+        check(workflow, payload.version, *ALL_STATES)
         if workflow["owner_user_id"] != payload.owner_user_id:
             workflow = await save(
                 conn,
@@ -511,5 +462,94 @@ async def reassign_owner(
                 "reassign_owner",
                 {"owner_user_id": payload.owner_user_id},
             )
-        data = await view(conn, workflow)
+        data = await view(conn, workflow, principal)
     return respond(request, data)
+
+
+case_router = APIRouter(
+    prefix="/api/v1/cs/tickets/{ticket_id}",
+    tags=["workflow"],
+    dependencies=[Depends(bind_path_ids)],
+    responses=router.responses,
+)
+
+
+@case_router.post(
+    "/resolution-case",
+    status_code=201,
+    response_model=SuccessResponse[ResolutionCase],
+    operation_id="cs_register_resolution_case",
+    responses={422: {"model": ErrorResponse}},
+    openapi_extra=PARTIAL,
+)
+async def register_resolution_case(
+    ticket_id: UUID,
+    payload: ResolutionCaseCreate,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[ResolutionCase]:
+    """종결된 문의에 해결 사례를 한 건 등록한다(선택).
+
+    연결할 부서 결과는 이 문의에서 채택된 것만 쓸 수 있다. 사례 등록은 업무 상태를 바꾸지
+    않으며, 등록한 종결 판본을 감사에 남긴다.
+
+    Args:
+        ticket_id: 종결된 문의.
+        payload: 사람이 확인한 사례 내용과 종결 화면의 업무 판본.
+        request: DB 연결을 제공하는 요청.
+        principal: 검증된 사용자. cs_agent만 등록한다.
+
+    Returns:
+        SuccessResponse[ResolutionCase]: 등록된 사례. 바로 문의 상세에 근거로 보인다.
+    """
+    async with connection(request.app.state.settings) as conn:
+        workflow, _, results = await begin(conn, principal, ticket_id)
+        require_role(principal, "cs_agent")
+        check(workflow, payload.version, "CLOSED")
+        if await repository.has_case(conn, ticket_id):
+            raise ApplicationError(
+                409, "CS_RESOLUTION_CASE_EXISTS", "The ticket already has a resolution case."
+            )
+        if payload.dept_result_id is not None and not any(
+            r["id"] == payload.dept_result_id and r["review_status"] == "ACCEPTED" for r in results
+        ):
+            raise ApplicationError(
+                422,
+                "CS_DEPT_RESULT_NOT_ACCEPTED",
+                "Only an accepted result of this ticket can back a case.",
+            )
+        ticket = await tickets.get_ticket(conn, ticket_id)
+        if ticket is None:
+            raise not_found()
+        now = datetime.now(UTC)
+        case = {
+            "id": uuid4(),
+            "ticket_id": ticket_id,
+            "source": "manual",
+            "source_instance": "cs_api",
+            "external_id": None,
+            "data_origin": ticket["data_origin"],
+            "derivation_kind": "SYSTEM",
+            "resolved_at": workflow["closed_at"],
+            "known_at": now,
+            "product_code": ticket["product_code"],
+            "registered_by": principal.user_id,
+            **payload.model_dump(exclude={"version"}),
+        }
+        await repository.insert_case(conn, case)
+        await repository.insert_audit(
+            conn,
+            uuid4(),
+            "resolution_case",
+            case["id"],
+            "create",
+            1,
+            principal.user_id,
+            {
+                "ticket_id": {"to": str(ticket_id)},
+                "workflow_version": {"to": workflow["version"]},
+                "dept_result_id": {"to": json_value(payload.dept_result_id)},
+                "fault_id": {"to": payload.fault_id},
+            },
+        )
+    return respond(request, ResolutionCase.model_validate(case))

@@ -58,6 +58,11 @@ class ResolutionCase(BaseModel):
     fw_fixed_version: str | None
     resolved_by_dept: str
     recurrence_prevention: str | None
+    dept_result_id: UUID | None = Field(
+        default=None,
+        description="Accepted department result the case was written from (KAN-108). "
+        "Null for provided cases.",
+    )
 
 
 class TicketDetail(BaseModel):

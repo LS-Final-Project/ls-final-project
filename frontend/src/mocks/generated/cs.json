@@ -76,7 +76,8 @@
           "rma_no": null,
           "fw_fixed_version": null,
           "resolved_by_dept": "FIELD_SVC",
-          "recurrence_prevention": "Quality feedback sent to factory for lot analysis."
+          "recurrence_prevention": "Quality feedback sent to factory for lot analysis.",
+          "dept_result_id": null
         }
       },
       "meta": {
