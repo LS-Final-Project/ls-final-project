@@ -21,6 +21,7 @@ from backend.api.cs.units.schemas import (
     UnitHistory,
     UnitLink,
 )
+from backend.api.cs.workflow.schemas import DeptResult, Transfer, Workflow
 from backend.shared.models import ResponseMeta, SuccessResponse
 
 META = ResponseMeta(request_id=UUID("11111111-1111-4111-8111-111111111111"))
@@ -61,6 +62,7 @@ def manual_ticket(version: int, product_code: str) -> TicketDetail:
         body="Oil leakage at the gasket was found during installation.",
         fw_version_reported=None,
         error_code_reported=None,
+        workflow_state="RECEIVED",
         resolution_case=None,
     )
 
@@ -191,6 +193,61 @@ def unit_examples() -> list[dict]:
     ]
 
 
+DEPT_USER_ID = UUID("88888888-8888-4888-8888-888888888882")
+TRANSFER_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1")
+
+
+def workflow_example() -> dict:
+    """The gasket leak ticket after the transformer department reported and C/S accepted."""
+    transferred_at = datetime(2025, 10, 5, 18, 0, 0, tzinfo=UTC)
+    reported_at = datetime(2025, 10, 6, 15, 0, 0, tzinfo=UTC)
+    workflow = Workflow(
+        ticket_id=SECOND_TICKET_ID,
+        state="IN_REVIEW",
+        version=4,
+        owner_user_id=AGENT_ID,
+        customer_sent_at=None,
+        closed_at=None,
+        closed_by=None,
+        transfers=[
+            Transfer(
+                id=TRANSFER_ID,
+                round=1,
+                dept_code="TS_TRF",
+                status="RESULT_SUBMITTED",
+                reason="Oil leakage needs a transformer engineer.",
+                transferred_by=AGENT_ID,
+                transferred_at=transferred_at,
+                ended_by=DEPT_USER_ID,
+                ended_at=reported_at,
+                end_reason=None,
+            )
+        ],
+        dept_results=[
+            DeptResult(
+                id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"),
+                transfer_id=TRANSFER_ID,
+                dept_code="TS_TRF",
+                version=2,
+                result="Gasket damaged in transport. Field service replaces it on site.",
+                reply_content="An engineer will replace the gasket and top up the oil.",
+                submitted_by=DEPT_USER_ID,
+                submitted_at=reported_at,
+                review_status="ACCEPTED",
+                reviewed_by=AGENT_ID,
+                reviewed_at=datetime(2025, 10, 6, 16, 0, 0, tzinfo=UTC),
+                review_note=None,
+            )
+        ],
+    )
+    return {
+        "method": "GET",
+        "path": f"/api/v1/cs/tickets/{SECOND_TICKET_ID}/workflow",
+        "status": 200,
+        "body": SuccessResponse(data=workflow, meta=META).model_dump(mode="json"),
+    }
+
+
 def examples() -> list[dict]:
     listing: SuccessResponse[TicketList] = SuccessResponse(
         data=TicketList(
@@ -204,6 +261,7 @@ def examples() -> list[dict]:
                     received_at=datetime(2025, 10, 14, 8, 18, 51, tzinfo=UTC),
                     channel="PHONE",
                     product_code="TRF-OIL-1000",
+                    workflow_state="IN_REVIEW",
                 ),
                 TicketSummary(
                     id=TICKET_ID,
@@ -214,6 +272,7 @@ def examples() -> list[dict]:
                     received_at=RECEIVED_AT,
                     channel="PARTNER_PORTAL",
                     product_code="TRF-OIL-1000",
+                    workflow_state="CLOSED",
                 ),
             ],
             next_cursor=None,
@@ -237,6 +296,7 @@ def examples() -> list[dict]:
             body=BODY,
             fw_version_reported=None,
             error_code_reported=None,
+            workflow_state="CLOSED",
             resolution_case=ResolutionCase(
                 id=UUID("44444444-4444-4444-8444-444444444444"),
                 external_id="RC-0007",

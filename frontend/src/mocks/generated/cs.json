@@ -14,7 +14,8 @@
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-14T08:18:51Z",
             "channel": "PHONE",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "IN_REVIEW"
           },
           {
             "id": "22222222-2222-4222-8222-222222222222",
@@ -24,7 +25,8 @@
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-05T16:42:59Z",
             "channel": "PARTNER_PORTAL",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "CLOSED"
           }
         ],
         "next_cursor": null
@@ -55,6 +57,7 @@
         "body": "Oil-immersed Transformer 1000kVA için doğru kurulum prosedürü nedir? Bu model ile ilk projemiz.\n\nAyrıntılar:\n- Ürün modeli / sipariş kodu: TRF-OIL-1000\n- Seri numarası (etiket üzerindeki): **MASKED**\n- Saha koşulları (ortam sıcaklığı, rakım, nem): 50 °C, 300 m\n- Bağlantı / tek hat şeması: [attachment: SLD.pdf]",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "CLOSED",
         "resolution_case": {
           "id": "44444444-4444-4444-8444-444444444444",
           "external_id": "RC-0007",
@@ -102,6 +105,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
@@ -130,6 +134,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
