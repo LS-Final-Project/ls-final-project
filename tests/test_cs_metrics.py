@@ -709,3 +709,34 @@ def test_return_subtype_strata_and_final_reuse_first_attempt_contract():
     assert final["null_predictions"] == 1 and final["outcomes"]["NOT_FINAL"] == 1
     assert [case["attempt_number"] for case in final["cases"]] == [2, 3, None]
     assert final["cases"][1]["prediction"] is None
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",
+        b"id,return_subtype\na,DEFECT\n",
+        b"ticket_id,return_subtype\na,DEFECT\na,NON_DEFECT\n",
+        b"ticket_id,return_subtype\na,\n",
+        b"ticket_id,return_subtype\na,UNKNOWN\n",
+        b"ticket_id,return_subtype\n,DEFECT\n",
+        b"ticket_id,return_subtype\na,DEFECT,extra\n",
+        b"\xff\xfe",
+    ],
+)
+def test_return_subtype_gold_file_rejects_malformed_rows(data):
+    """저장 전 정답 파일의 헤더·중복·빈 값·허용값 밖·인코딩 오류를 거부한다.
+
+    Args:
+        data: 잘못된 합성 정답 파일 바이트.
+
+    Returns:
+        None: 원문 없는 오류 코드로 거부한다.
+    """
+    from eval.cs_report import _parse_return_subtype_gold
+
+    with pytest.raises(ValueError, match="^CS_QUALITY_GOLD_INVALID$"):
+        _parse_return_subtype_gold(data)
+    assert _parse_return_subtype_gold(
+        "﻿ticket_id,return_subtype\r\na,DEFECT\r\nb,NON_DEFECT\r\n".encode()
+    ) == {"a": "DEFECT", "b": "NON_DEFECT"}

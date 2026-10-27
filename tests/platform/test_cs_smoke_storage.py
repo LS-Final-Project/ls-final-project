@@ -509,6 +509,190 @@ def test_stored_subset_gold_is_return_subtype_only(
             summarize_stored_first_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
 
 
+def return_gold_csv(gold=RETURN_GOLD):
+    """합성 반품 하위유형 정답 파일 바이트와 SHA-256을 만든다.
+
+    Args:
+        gold: 대상 ID별 합성 하위유형.
+
+    Returns:
+        tuple[bytes, str]: 두 열 CSV 바이트와 소문자 hex hash.
+    """
+    import hashlib
+
+    data = ("ticket_id,return_subtype\n" + "".join(f"{k},{v}\n" for k, v in gold.items())).encode()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def stored_quality_rows(dsn, run_id):
+    """실행의 저장된 metrics 행을 모두 읽는다.
+
+    Args:
+        dsn: 격리 DB 연결 문자열.
+        run_id: 대상 실행.
+
+    Returns:
+        list[dict]: 저장 행.
+    """
+    with psycopg.connect(dsn) as conn, conn.cursor(row_factory=dict_row) as cursor:
+        return cursor.execute(
+            "SELECT * FROM evaluation.metrics WHERE run_id=%s ORDER BY metric_key,class_label",
+            (run_id,),
+        ).fetchall()
+
+
+@pytest.fixture
+def quality_rows_cleanup(cs_run, evaluation_database):
+    """공용 실험 정리 전에 이 실행의 추가 전용 metrics 행을 검사 관리자로 지운다.
+
+    Args:
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 검사 뒤 FK 정리를 보장한다.
+    """
+    yield
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("DELETE FROM evaluation.metrics WHERE run_id=%s", (cs_run,))
+
+
+def test_synthetic_quality_rows_store_aggregates_only(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """종료된 합성 실행의 반품 하위유형 집계를 실행 단위 행으로만 저장한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: 저장 수치가 같은 집계와 일치하고 사례·정답·예측·원시 출력이 없음을 확인한다.
+    """
+    from eval.cs_report import store_synthetic_return_subtype_metrics
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    data, digest = return_gold_csv()
+    with psycopg.connect(evaluation_database) as conn:
+        stored = store_synthetic_return_subtype_metrics(
+            conn, cs_run, data, gold_sha256=digest, gold_version=None, scoring_version="syn-v1"
+        )
+        expected = summarize_stored_first_attempts(
+            conn, cs_run, RETURN_GOLD, gold_version=None, metric="return_subtype"
+        )["report"]["overall"]
+    assert stored == {"run_id": str(cs_run), "scoring_version": "syn-v1", "stored_rows": 5}
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert [(r["metric_key"], r["class_label"]) for r in rows] == [
+        ("return_subtype_first_accuracy", None),
+        ("return_subtype_first_f1", "DEFECT"),
+        ("return_subtype_first_f1", "NON_DEFECT"),
+        ("return_subtype_first_macro_f1", None),
+        ("return_subtype_first_null_predictions", None),
+    ]
+    by_key = {(r["metric_key"], r["class_label"]): r for r in rows}
+    accuracy = by_key[("return_subtype_first_accuracy", None)]
+    assert (accuracy["value"], accuracy["numerator"], accuracy["denominator"]) == (0, 0, 2)
+    assert by_key[("return_subtype_first_null_predictions", None)]["value"] == 1
+    assert by_key[("return_subtype_first_macro_f1", None)]["value"] == expected["macro_f1"]
+    assert by_key[("return_subtype_first_f1", "DEFECT")]["details"] == {
+        key: expected["per_class"]["DEFECT"][key]
+        for key in ("tp", "fp", "fn", "precision", "recall")
+    }
+    assert accuracy["details"] == {
+        "report_version": "cs-return-subtype-first-attempt-v1",
+        "data_origin": "synthetic",
+        "gold_version": None,
+        "gold_sha256": digest,
+        "run_status": "PARTIAL",
+        "target_count": 3,
+        "scored_target_count": 2,
+        "outcomes": expected["outcomes"],
+    }
+    assert all(
+        r["case_id"] is None and r["segment"] == "all" and r["threshold"] is None for r in rows
+    )
+    assert all(r["passed"] is None and r["comparison"] is None for r in rows)
+    # 사례 ID·정답/예측 기록·원시 출력·본문이 어떤 행에도 남지 않는다.
+    dumped = str(rows)
+    assert all(ref not in dumped for ref in FIXTURES)
+    assert all(
+        word not in dumped
+        for word in (
+            "'cases'",
+            "'prediction'",
+            "'gold'",
+            "raw_output",
+            "parsed_output",
+            "Synthetic",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid,code",
+    [
+        ("not_terminal", "CS_QUALITY_RUN_NOT_TERMINAL"),
+        ("gold_version", "CS_QUALITY_GOLD_VERSION_MISMATCH"),
+        ("hash", "CS_QUALITY_GOLD_HASH_MISMATCH"),
+        ("test_split", "CS_QUALITY_FINAL_TEST_LOCKED"),
+        ("synthetic", "CS_QUALITY_SYNTHETIC_ONLY"),
+        ("subset", "CS_QUALITY_TARGET_MISMATCH"),
+        ("duplicate", "CS_QUALITY_ALREADY_STORED"),
+    ],
+)
+def test_synthetic_quality_rows_reject_without_partial_rows(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, invalid, code
+):
+    """거부 조건마다 원문 없는 오류로 끝나고 새 행을 남기지 않는다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        invalid: 주입할 거부 조건.
+        code: 기대 오류 코드.
+
+    Returns:
+        None: 실패한 저장이 기존 행을 바꾸거나 일부 행을 남기지 않음을 확인한다.
+    """
+    from eval.cs_report import store_synthetic_return_subtype_metrics
+
+    if invalid != "not_terminal":
+        assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    data, digest = return_gold_csv(
+        {**RETURN_GOLD, "not-in-run": "DEFECT"} if invalid == "subset" else RETURN_GOLD
+    )
+    field = {"test_split": ("data_split", "test"), "synthetic": ("prompt_version", "unapproved")}
+    with psycopg.connect(evaluation_database) as conn:
+        if invalid in field:
+            conn.execute(
+                psycopg.sql.SQL(
+                    "UPDATE evaluation.experiments SET {}=%s WHERE id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)"
+                ).format(psycopg.sql.Identifier(field[invalid][0])),
+                (field[invalid][1], cs_run),
+            )
+            conn.commit()
+        kwargs = {"gold_sha256": digest, "gold_version": None, "scoring_version": "syn-v1"}
+        if invalid == "duplicate":
+            store_synthetic_return_subtype_metrics(conn, cs_run, data, **kwargs)
+        before = stored_quality_rows(evaluation_database, cs_run)
+        if invalid == "gold_version":
+            kwargs["gold_version"] = "other"
+        if invalid == "hash":
+            kwargs["gold_sha256"] = "0" * 64
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            store_synthetic_return_subtype_metrics(conn, cs_run, data, **kwargs)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert stored_quality_rows(evaluation_database, cs_run) == before
+    assert len(before) == (5 if invalid == "duplicate" else 0)
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )
