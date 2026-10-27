@@ -23,6 +23,7 @@ from backend.api.cs.tickets.schemas import (
     TicketSummary,
     TicketUpdate,
 )
+from backend.api.cs.units import repository as units
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -45,6 +46,8 @@ router = APIRouter(
 )
 
 PARTIAL = {"x-implementation-status": "partial"}
+# Ticket fields a confirmed unit must match.
+UNIT_MATCH_FIELDS = {"customer_external_id", "product_code"}
 
 
 def cursor_error() -> ApplicationError:
@@ -229,6 +232,11 @@ async def update_ticket(
             for name, value in payload.changed_values().items()
             if row[name] != value
         }
+        if changes.keys() & UNIT_MATCH_FIELDS and await units.confirmed_link(conn, ticket_id):
+            # A confirmed unit was checked against these values (KAN-102). Reject the link first.
+            raise ApplicationError(
+                409, "CS_TICKET_UNIT_LINKED", "A confirmed unit is linked to this ticket."
+            )
         if changes:
             values = {name: change["to"] for name, change in changes.items()}
             await repository.update_ticket(conn, ticket_id, payload.version, values)

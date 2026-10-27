@@ -159,6 +159,281 @@
         "title": "HealthData",
         "type": "object"
       },
+      "HistoryTicket": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "EMAIL",
+              "PARTNER_PORTAL",
+              "WEB_FORM",
+              "PHONE",
+              "CHAT"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "error_code_reported": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code Reported"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "fw_version_reported": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version Reported"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "relation": {
+            "description": "REPLACED_UNIT: the ticket was about a unit this one replaced. Values of that earlier unit (commissioning, shipping) are not copied to this unit.",
+            "enum": [
+              "SAME_UNIT",
+              "REPLACED_UNIT"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "resolution_case": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionCase"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "serial_no": {
+            "title": "Serial No",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "received_at",
+          "channel",
+          "subject",
+          "product_code",
+          "fw_version_reported",
+          "error_code_reported",
+          "unit_id",
+          "serial_no",
+          "relation",
+          "resolution_case"
+        ],
+        "title": "HistoryTicket",
+        "type": "object"
+      },
+      "InstalledUnit": {
+        "properties": {
+          "commissioning_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commissioning Date"
+          },
+          "commissioning_status": {
+            "enum": [
+              "CONFIRMED",
+              "PLANNED",
+              "UNKNOWN"
+            ],
+            "title": "Commissioning Status",
+            "type": "string"
+          },
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "fw_version_last": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version Last"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lot_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot No"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "replaced_by_unit_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By Unit Id"
+          },
+          "serial_no": {
+            "description": "Virtual serial (VSN-...) in demo data.",
+            "title": "Serial No",
+            "type": "string"
+          },
+          "ship_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ship Date"
+          },
+          "site_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Code"
+          },
+          "unit_status": {
+            "enum": [
+              "ACTIVE",
+              "REPLACED",
+              "RETIRED"
+            ],
+            "title": "Unit Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "data_origin",
+          "derivation_kind",
+          "serial_no",
+          "customer_external_id",
+          "product_code",
+          "site_code",
+          "commissioning_date",
+          "commissioning_status",
+          "ship_date",
+          "lot_no",
+          "fw_version_last",
+          "unit_status",
+          "replaced_by_unit_id"
+        ],
+        "title": "InstalledUnit",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -439,6 +714,54 @@
           "meta"
         ],
         "title": "SuccessResponse[TicketList]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketUnitList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketUnitList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketUnitList]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketUnit_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketUnit"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketUnit]",
+        "type": "object"
+      },
+      "SuccessResponse_UnitHistory_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnitHistory"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnitHistory]",
         "type": "object"
       },
       "TicketCreate": {
@@ -783,6 +1106,51 @@
         "title": "TicketSummary",
         "type": "object"
       },
+      "TicketUnit": {
+        "properties": {
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnitLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matches_ticket": {
+            "description": "Same customer and product as the ticket. Only matching units can be a candidate or confirmed.",
+            "title": "Matches Ticket",
+            "type": "boolean"
+          },
+          "unit": {
+            "$ref": "#/components/schemas/InstalledUnit"
+          }
+        },
+        "required": [
+          "unit",
+          "matches_ticket",
+          "link"
+        ],
+        "title": "TicketUnit",
+        "type": "object"
+      },
+      "TicketUnitList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketUnit"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TicketUnitList",
+        "type": "object"
+      },
       "TicketUpdate": {
         "additionalProperties": false,
         "description": "Correction of identifying fields. `version` must match the stored version.",
@@ -862,6 +1230,188 @@
           "version"
         ],
         "title": "TicketUpdate",
+        "type": "object"
+      },
+      "UnitHistory": {
+        "properties": {
+          "items": {
+            "description": "Earlier tickets confirmed on the same unit or a unit it replaced, received before this ticket. Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/HistoryTicket"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "description": "Without a confirmed unit no earlier ticket is returned, even for the same customer and product.",
+            "enum": [
+              "CONFIRMED",
+              "NO_CONFIRMED_UNIT"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InstalledUnit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "unit",
+          "items"
+        ],
+        "title": "UnitHistory",
+        "type": "object"
+      },
+      "UnitLink": {
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link_basis": {
+            "enum": [
+              "SERIAL_PROVIDED",
+              "CUSTOMER_CONFIRMED",
+              "AGENT_REVIEW"
+            ],
+            "title": "Link Basis",
+            "type": "string"
+          },
+          "link_status": {
+            "enum": [
+              "CANDIDATE",
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Link Status",
+            "type": "string"
+          },
+          "repeat_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SAME_UNIT",
+                  "REPLACEMENT",
+                  "MULTIPLE_UNITS",
+                  "CONFLICT",
+                  "DIFFERENT_UNIT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeat Type"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "link_status",
+          "link_basis",
+          "repeat_type",
+          "decided_by",
+          "decided_at"
+        ],
+        "title": "UnitLink",
+        "type": "object"
+      },
+      "UnitLinkWrite": {
+        "additionalProperties": false,
+        "description": "Sets the link between the ticket and one unit. `version` is null for a new link.",
+        "properties": {
+          "link_basis": {
+            "enum": [
+              "SERIAL_PROVIDED",
+              "CUSTOMER_CONFIRMED",
+              "AGENT_REVIEW"
+            ],
+            "title": "Link Basis",
+            "type": "string"
+          },
+          "link_status": {
+            "enum": [
+              "CANDIDATE",
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Link Status",
+            "type": "string"
+          },
+          "repeat_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SAME_UNIT",
+                  "REPLACEMENT",
+                  "MULTIPLE_UNITS",
+                  "CONFLICT",
+                  "DIFFERENT_UNIT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeat Type"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "link_status",
+          "link_basis"
+        ],
+        "title": "UnitLinkWrite",
         "type": "object"
       },
       "ValidationError": {
@@ -1436,6 +1986,289 @@
         "summary": "List Ticket Audit",
         "tags": [
           "tickets"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/unit-history": {
+      "get": {
+        "operationId": "cs_get_ticket_unit_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnitHistory_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Ticket or unit not found or outside the user's scope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Ticket Unit History",
+        "tags": [
+          "units"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/units": {
+      "get": {
+        "operationId": "cs_list_ticket_units",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketUnitList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Ticket or unit not found or outside the user's scope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Ticket Units",
+        "tags": [
+          "units"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/units/{unit_id}": {
+      "put": {
+        "description": "\ubb38\uc758\uc640 \uc7a5\ube44\uc758 \uc5f0\uacb0\uc744 \ud6c4\ubcf4\u00b7\ud655\uc815\u00b7\uac70\uc808\ub85c \uae30\ub85d\ud55c\ub2e4.\n\n\uace0\uac1d\u00b7\uc81c\ud488\uc774 \ubb38\uc758\uc640 \ub2e4\ub978 \uc7a5\ube44\ub294 \ud6c4\ubcf4\ub098 \ud655\uc815\uc73c\ub85c \ub458 \uc218 \uc5c6\uace0 \uac70\uc808\ub9cc \ud560 \uc218 \uc788\ub2e4.\n\ud55c \ubb38\uc758\uc5d0 \ud655\uc815 \uc7a5\ube44\ub294 \ud558\ub098\ub2e4. \ubb38\uc758 \ud589\uc744 \uc7a0\uac00 \uc815\uc815\u00b7\ub2e4\ub978 \uc5f0\uacb0\uacfc \uc21c\uc11c\ub300\ub85c \ucc98\ub9ac\ud55c\ub2e4.\n\nArgs:\n    ticket_id: \ub300\uc0c1 \ubb38\uc758.\n    unit_id: \uc5f0\uacb0\ud560 \uc7a5\ube44.\n    payload: \uc5f0\uacb0 \uc0c1\ud0dc\u00b7\uadfc\uac70\u00b7\ubc18\ubcf5 \uc720\ud615\uacfc \uae30\uc874 \uc5f0\uacb0\uc758 \ud310\ubcf8.\n    request: DB \uc5f0\uacb0\uc744 \uc81c\uacf5\ud558\ub294 \uc694\uccad.\n    principal: \uac80\uc99d\ub41c \uc0ac\uc6a9\uc790. cs_agent\ub9cc \uae30\ub85d\ud55c\ub2e4.\n\nReturns:\n    SuccessResponse[TicketUnit]: \uc800\uc7a5\ub41c \uc5f0\uacb0\uacfc \uc7a5\ube44.",
+        "operationId": "cs_set_ticket_unit_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitLinkWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketUnit_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Ticket or unit not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Set Ticket Unit Link",
+        "tags": [
+          "units"
         ],
         "x-implementation-status": "partial"
       }
