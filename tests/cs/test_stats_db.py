@@ -133,10 +133,26 @@ def test_agents_see_only_their_own_tickets(client, customer):
     assert get(client, "overview", stranger, **SEPT)["tickets"]["received"] == 0
 
 
-def test_owner_load_for_managers(client, customer):
+def test_owner_load_for_managers(client, admin, customer):
+    # An August ticket still open: outside the period, but part of the owner's current load.
+    august = ticket(admin, customer["name"], "2026-08-15")
+    workflow(admin, august, "IN_REVIEW", customer["owner"])
     items = get(client, "owners", MANAGER, **SEPT)["items"]
     [row] = [i for i in items if i["owner_user_id"] == str(customer["owner"])]
-    assert (row["received"], row["closed"], row["open"]) == (3, 1, 2)
+    assert (row["received"], row["closed"], row["open"]) == (3, 1, 3)
+    # The overview counts only tickets received in the period.
+    overview = get(client, "overview", MANAGER, customer=customer["name"], **SEPT)
+    assert overview["tickets"]["open"] == 2
+    # An owner with only older open tickets is still listed.
+    idle = uuid4()
+    old = ticket(admin, customer["name"], "2026-07-01")
+    workflow(admin, old, "WAITING_CUSTOMER", idle)
+    [row] = [
+        i
+        for i in get(client, "owners", MANAGER, **SEPT)["items"]
+        if i["owner_user_id"] == str(idle)
+    ]
+    assert (row["received"], row["closed"], row["open"]) == (0, 0, 1)
     agent = Principal(user_id=customer["owner"], roles={"cs_agent"})
     response = client.get(f"{PATH}/owners", headers=principal_header(agent))
     assert response.status_code == 403
