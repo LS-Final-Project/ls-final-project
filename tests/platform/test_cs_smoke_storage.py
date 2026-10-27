@@ -643,3 +643,165 @@ def test_stored_attempt_comparison_rejects_inconsistent_final(
         )
         with pytest.raises(ValueError, match="^CS_STORED_COMPARISON_INVALID_INPUT$"):
             compare_stored_attempts(conn, cs_run, gold, gold_version=None, metric="category")
+
+
+def test_stored_usage_preserves_missing_zero_failures_and_retries(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """실제 DB의 부분 사용량과 실패·재시도 비용을 손계산 값과 대조한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 검사 DB.
+
+    Returns:
+        None: 누락/0·최초/재시도 분리 및 지연 보간을 확인한다.
+    """
+    from eval.cs_usage import summarize_stored_usage
+
+    with psycopg.connect(evaluation_database) as conn:
+        empty = summarize_stored_usage(conn, cs_run)
+    assert empty["target_count"] == empty["targets_without_first_attempt"] == 3
+    assert empty["all"]["stored_attempt_count"] == 0
+    assert empty["all"]["cost_usd"]["total"] is None
+    assert empty["all"]["latency_ms"]["p95"] is None
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        cases = dict(
+            conn.execute(
+                "SELECT target_ref,id FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+            ).fetchall()
+        )
+        for ref, latency, cost in (
+            ("cs-smoke-valid", 0, "0.000000"),
+            ("cs-smoke-invalid", 100, "0.100000"),
+            ("cs-smoke-timeout", None, None),
+        ):
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET latency_ms=%s,cost_usd=%s,pricing_version=%s WHERE case_id=%s",
+                (latency, cost, "price-v1" if cost is not None else None, cases[ref]),
+            )
+        for ref, latency, tokens, cost, outcome, finished in (
+            ("cs-smoke-invalid", 200, 5, "0.200000", "TIMEOUT", True),
+            ("cs-smoke-timeout", 400, 0, "0.300000", "HELD", False),
+        ):
+            conn.execute(
+                "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,outcome,started_at,finished_at,latency_ms,input_tokens,cost_usd,pricing_version) "
+                "VALUES (%s,%s,'classify',2,%s,now(),CASE WHEN %s THEN now() END,%s,%s,%s,'price-v2')",
+                (uuid4(), cases[ref], outcome, finished, latency, tokens, cost),
+            )
+        conn.execute(
+            "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,outcome,started_at,input_tokens) "
+            "VALUES (%s,%s,'draft',1,'HELD',now(),99999)",
+            (uuid4(), cases["cs-smoke-valid"]),
+        )
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        report = summarize_stored_usage(conn, cs_run)
+    assert report["targets_without_first_attempt"] == 0
+    first, retry, all_usage = (report[key] for key in ("first", "retry", "all"))
+    assert [group["stored_attempt_count"] for group in (first, retry, all_usage)] == [3, 2, 5]
+    assert all_usage["unfinished_attempt_count"] == 1
+    assert all_usage["outcomes"]["TIMEOUT"] == 2 and all_usage["outcomes"]["HELD"] == 1
+    assert first["tokens"]["input_tokens"]["total"] == 21
+    assert retry["tokens"]["input_tokens"]["total"] == 5
+    assert all_usage["tokens"]["input_tokens"]["total"] == 26
+    assert first["tokens"]["total_tokens"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": 20,
+        "total": None,
+    }
+    assert first["tokens"]["cached_input_tokens"]["known_sum"] == 0
+    assert all_usage["tokens"]["thought_tokens"]["known_sum"] is None
+    assert first["latency_ms"] == {"reported_count": 2, "missing_count": 1, "p50": 50, "p95": 95}
+    assert retry["latency_ms"]["p50"] == 300 and retry["latency_ms"]["p95"] == 390
+    assert all_usage["latency_ms"]["p50"] == 150
+    assert all_usage["latency_ms"]["p95"] == pytest.approx(370)
+    assert first["cost_usd"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": "0.100000",
+        "total": None,
+        "pricing_versions": ["price-v1"],
+    }
+    assert retry["cost_usd"]["total"] == "0.500000"
+    assert all_usage["cost_usd"]["known_sum"] == "0.600000"
+    assert all_usage["cost_usd"]["total"] is None
+    assert all_usage["cost_usd"]["pricing_versions"] == ["price-v1", "price-v2"]
+    assert "raw_output" not in str(report) and "parsed_output" not in str(report)
+
+
+@pytest.mark.parametrize("invalid", ["run", "count", "nan_cost", "empty_price"])
+def test_stored_usage_rejects_invalid_run_or_cost(
+    settings, cs_access, cs_run, evaluation_database, invalid
+):
+    """실행·분모·가격표·비유한 금액 오류를 합계로 숨기지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        invalid: 주입할 오류.
+
+    Returns:
+        None: 안전한 명시적 오류를 확인한다.
+    """
+    from eval.cs_usage import summarize_stored_usage
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        if invalid == "count":
+            conn.execute("UPDATE evaluation.runs SET requested_count=2 WHERE id=%s", (cs_run,))
+        if invalid in {"nan_cost", "empty_price"}:
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET cost_usd=%s,pricing_version=%s "
+                "WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+                (
+                    "NaN" if invalid == "nan_cost" else "0",
+                    "v1" if invalid == "nan_cost" else " ",
+                    cs_run,
+                ),
+            )
+        with pytest.raises(ValueError, match="^CS_USAGE_INVALID_INPUT$"):
+            summarize_stored_usage(conn, uuid4() if invalid == "run" else cs_run)
+
+
+def test_stored_usage_single_zero_is_reported_not_missing(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """단일 보고값 0과 아직 저장되지 않은 대상의 경계를 유지한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 0 합계·단일 표본 분위수와 미실행 대상 수를 확인한다.
+    """
+    from eval.cs_usage import summarize_stored_usage
+
+    lease = asyncio.run(claim_run(settings, cs_access, cs_run))
+    assert not asyncio.run(advance_run(settings, cs_access, lease))
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.case_attempts SET input_tokens=0,cost_usd=0,pricing_version='v1',latency_ms=0 "
+            "WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+            (cs_run,),
+        )
+        result = summarize_stored_usage(conn, cs_run)
+    assert result["targets_without_first_attempt"] == 2
+    assert result["all"]["tokens"]["input_tokens"] == {
+        "reported_count": 1,
+        "missing_count": 0,
+        "known_sum": 0,
+        "total": 0,
+    }
+    assert result["all"]["cost_usd"]["total"] == "0.000000"
+    assert result["all"]["latency_ms"]["p50"] == result["all"]["latency_ms"]["p95"] == 0
+    assert result["retry"]["cost_usd"]["total"] is None
