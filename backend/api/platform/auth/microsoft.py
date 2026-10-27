@@ -81,18 +81,20 @@ class MailboxAuthorization:
 
 
 def _mailbox_error(code: str) -> ApplicationError:
-    """사서함 공급자 오류를 민감 정보 없는 고정 형식으로 생성한다.
+    """사서함 인증·보관 오류를 민감 정보 없는 고정 형식으로 생성한다.
 
     Args:
-        code: 접근 거부, 재연결 필요 또는 일시 제공 실패 코드.
+        code: 호출 경계에서 분류한 내부 사서함 오류 코드.
 
     Returns:
         ApplicationError: 공급자 원문을 포함하지 않는 내부 오류.
     """
     status, message = {
         "MAILBOX_ACCESS_DENIED": (403, "Mailbox access is not allowed."),
+        "MAILBOX_NOT_CONNECTED": (409, "Mailbox is not connected."),
         "MAILBOX_RECONNECT_REQUIRED": (409, "Mailbox reconnection is required."),
         "MAILBOX_TOKEN_UNAVAILABLE": (503, "Mailbox authentication is unavailable."),
+        "MAILBOX_VERSION_CONFLICT": (409, "Mailbox connection has changed."),
     }[code]
     return ApplicationError(status, code, message)
 
