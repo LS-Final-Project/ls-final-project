@@ -50,3 +50,38 @@ with create_client(settings, embedding=True) as client:
 임베딩 모델과 production 차원은 평가 후 확정한다. 실제 수집에서는 담당자가 모델과 차원을 선택해 DB 인덱스와 일치시키고 dimensions에 명시한다. 빈 벡터, 비유한 값과 요청 차원 불일치는 실패다. 제공자가 잘림 메타데이터를 반환하면 함께 검사한다. Gemini API는 auto_truncate 옵션을 받지 않으므로 수집 담당자가 선택 모델의 입력 토큰 한도에 맞춰 청킹 및 길이 검사를 적용한다.
 
 모델 교체 비교는 같은 합성 입력과 설정으로 `uv run --frozen python -m eval.smoke --provider gemini --env-file .env --model MODEL_ID`를 실행하고 생성된 JSON 및 HTML을 확인한다. 외부 호출의 자동 재시도와 제공자 자동 전환은 없다. 실제 문의 분류와 검색 품질 평가는 별도 담당 작업이며 최종 test 597건을 연결 점검에 쓰지 않는다.
+
+## C/S 분류 단일 시도 (KAN-84 일부)
+
+`backend/engine/cs/classification_call.py`의 `run_classification_attempt`는 KAN-103의
+`build_input`과 원시 5필드 검사를 공통 `Generation`·`Usage`에 연결한다. 호출자는 정규화된
+record, 명시적 sensitive_values·allowed_info_codes, 1 이상의 attempt_number와
+`Callable[[ClassificationInput], Generation]` 제공자를 전달한다. 제공자는 정제된 네 필드만
+받는다. 과제별 프롬프트·모델 설정은 제공자 측 책임이며, 이 함수는 SDK나 기본 모델을 만들지 않는다.
+현재 연결 검증은 `tests/cs/test_classification_call.py`의 고정 fake로만 수행한다.
+
+- 입력 실패는 `HELD`와 고정 오류 코드이며 호출하지 않는다. hash·제거 건수·호출 지연은 null이다.
+- 입력 통과 후 제공자를 한 번 호출한다. 정제 입력 JSON을 UTF-8, 키 정렬, 공백 없는 구분자로
+  직렬화한 `input_sha256`, 입력 판본과 PHONE 주석 제거 건수를 남긴다. hash는 제공자 측
+  시스템 프롬프트나 전체 HTTP 요청의 hash가 아니며 구성/프롬프트 판본 고정을 대신하지 않는다.
+- 응답은 원시 JSON 그대로 검사한다. `VALID`는 스키마 통과만 의미하며 의미상 정답이나 모델
+  완료·품질 합격은 아니다. 잘못된/빈 응답은 `SCHEMA_VIOLATION`이고 응답 당시 사용량을 보존한다.
+- 제공자 어댑터는 `ClassificationCallError`로 고정 코드(`CS_RATE_LIMITED`,
+  `CS_PROVIDER_TIMEOUT`, `CS_PROVIDER_ERROR`), 알려진 HTTP 상태와 사용량을 전달할 수 있다.
+  그 밖의 일반 예외는 원문·예외 이름을 복제하지 않고 `CS_PROVIDER_ERROR`로 기록한다.
+  TimeoutError와 정규화된 타임아웃은 `TIMEOUT`, 나머지는 `TRANSPORT_FAILURE`다.
+- 호출 중 예외는 `execution_uncertain=true`다. 이는 실패를 원격 미실행의 증거로 삼지 않기
+  위한 보수적인 표시다. 알려진 사용량만 복사하고 미제공 토큰은 null로 유지한다. 금액은 계산하지 않는다.
+- 자동 재시도·수선·폴백은 없다. 다음 시도는 외부 실행기가 새 번호로 명시 호출하며, 기존 시도
+  결과를 덮어쓰지 않는다. KeyboardInterrupt 등 중단은 상위 실행기로 전파한다.
+
+반환값은 **메모리 내 내부 기록**이다. `raw_response`는 제공자의 미마스킹 응답이므로 일반
+API·로그·DB에 그대로 내보내면 안 된다. repr에서는 원시 응답·예측·제공자 문자열 메타데이터를
+숨기지만, `asdict` 같은 명시적 직렬화는 보호 수단이 아니다. 제한된 감사 저장이 필요할 때는
+[평가 저장 계약](../contracts/platform/evaluations.md)의 마스킹 후 `raw_output` 저장·접근 권한을
+별도로 구현해야 한다. 이 단위에는 영속 저장과 비용 계산이 없다.
+
+실제 SDK/업무 API/worker에는 아직 연결하지 않았다. 연결 전 KAN-92의 입력·민감값 식별,
+KAN-95의 코드북, 모델별 설정·실제 지원 검증, 호출 전 intent 영속화와 UNKNOWN 복구,
+사용량 보존·취소·동시 시도 번호 할당을 확인해야 한다. 기존 synthetic worker의 DB transaction
+안에 외부 호출을 넣는 방식으로 연결하지 않는다. 이 경계만으로 KAN-84 전체 완료가 되지 않는다.
