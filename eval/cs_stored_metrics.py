@@ -28,7 +28,7 @@ def summarize_stored_first_attempts(
         run_id: 조회 권한이 있는 실행 ID.
         gold: 해당 실험의 사전 잠금 정답. 대상 ID가 정확히 일치해야 한다.
         gold_version: 인수한 정답 판본. 실험의 gold_version과 일치해야 한다.
-        metric: category/urgency/secondary 중 집계할 지표.
+        metric: 집계할 지표. return_subtype만 gold가 실험 대상의 비어 있지 않은 부분집합이다.
 
     Returns:
         dict: 한 SQL 스냅샷의 실행 상태와 최초 시도 집계. 원시 출력은 읽지 않는다.
@@ -110,8 +110,10 @@ def _summarize_snapshot(
     if not rows:
         raise ValueError("CS_STORED_METRICS_INVALID_INPUT")
     targets = {row["target_ref"] for row in rows if row["target_ref"] is not None}
+    # 반품 하위유형 정답은 반품 대상만 잠갔으므로 실험 대상의 부분집합을 채점한다.
+    scoped = metric == "return_subtype"
     if (
-        targets != set(gold)
+        (not gold or not set(gold) <= targets if scoped else targets != set(gold))
         or rows[0]["requested_count"] != len(targets)
         or rows[0]["gold_version"] != gold_version
     ):
@@ -120,7 +122,7 @@ def _summarize_snapshot(
     metadata = {}
     for row in rows:
         target = row["target_ref"]
-        if target is None:
+        if target not in gold:
             continue
         metadata[target] = {key: row[key] for key in ("channel", "body_language")}
         if row["attempt_id"] is None:
@@ -143,6 +145,8 @@ def _summarize_snapshot(
         "experiment_id": str(rows[0]["experiment_id"]),
         "run_status": rows[0]["status"],
         "gold_version": gold_version,
+        "target_count": len(targets),
+        "scored_target_count": len(gold),
         "report": summarize_first_attempts_by_group(gold, attempts, metadata, metric=metric),
     }
 
@@ -162,7 +166,7 @@ def compare_stored_attempts(
         run_id: 비교할 실행.
         gold: 고정 대상별 해당 지표 정답.
         gold_version: 실험과 일치해야 하는 정답 판본.
-        metric: category/urgency/secondary 중 비교할 지표.
+        metric: 비교할 지표. return_subtype은 gold 대상만 비교한다.
 
     Returns:
         dict: 최초 집계와 별도 최종 품질 지표·전이 건수·사례별 시도 번호.
@@ -173,7 +177,7 @@ def compare_stored_attempts(
     first_cases = {case["case_id"]: case for case in first["report"]["overall"]["cases"]}
     final_attempts = {}
     for row in rows:
-        if row["final_id"] is None:
+        if row["final_id"] is None or row["target_ref"] not in gold:
             continue
         if (
             row["attempt_id"] is None
@@ -251,7 +255,7 @@ def compare_stored_runs(
         candidate_run_id: 비교할 후보 실행.
         gold: 두 실행에 공통으로 적용할 고정 대상별 정답.
         gold_version: 두 실험과 일치해야 하는 인수 정답 판본.
-        metric: category/urgency/secondary 중 비교할 지표.
+        metric: 비교할 지표. return_subtype은 gold 대상만 비교한다.
 
     Returns:
         dict: 기준·후보 최초 지표, 후보-기준 차이와 사례별 퇴행/개선.

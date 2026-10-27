@@ -672,3 +672,40 @@ def test_return_subtype_empty_target_has_no_score():
     """
     report = summarize_return_subtype_first_attempts({}, {})
     assert report["accuracy"] is None and report["macro_f1"] is None
+
+
+def test_return_subtype_strata_and_final_reuse_first_attempt_contract():
+    """반품 하위유형도 언어·채널 집계와 최종 시도 집계가 같은 계산식을 쓴다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 그룹 분모·최종 판본·시도 번호·null 예측 건수를 확인한다.
+    """
+    from eval.cs_metrics import summarize_final_attempts
+
+    gold = {"a": "DEFECT", "b": "NON_DEFECT", "c": "DEFECT"}
+    first = {
+        "a": synthetic_attempt(return_subtype="DEFECT"),
+        "b": synthetic_attempt(),
+        "c": synthetic_attempt(error=TimeoutError()),
+    }
+    metadata = {"a": {"channel": "PHONE", "body_language": "ko"}}
+    report = summarize_first_attempts_by_group(gold, first, metadata, metric="return_subtype")
+    assert report["overall"] == summarize_return_subtype_first_attempts(gold, first)
+    assert report["groups"]["phone"]["PHONE"]["correct"] == 1
+    assert report["groups"]["phone"]["UNKNOWN"]["total"] == 2
+    final = summarize_final_attempts(
+        gold,
+        {
+            "a": synthetic_attempt(return_subtype="DEFECT", number=2),
+            "b": synthetic_attempt(number=3),
+        },
+        metric="return_subtype",
+    )
+    assert final["version"] == "cs-return-subtype-final-attempt-v1"
+    assert final["selection"] == "is_final" and final["correct"] == 1
+    assert final["null_predictions"] == 1 and final["outcomes"]["NOT_FINAL"] == 1
+    assert [case["attempt_number"] for case in final["cases"]] == [2, 3, None]
+    assert final["cases"][1]["prediction"] is None
