@@ -6,6 +6,7 @@ import Account from './pages/Account';
 import CompositionReview from './pages/CompositionReview';
 import Tickets from './pages/Tickets';
 import CsStats from './pages/CsStats';
+import CsImprovements from './pages/CsImprovements';
 import TicketDetail from './pages/TicketDetail';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
@@ -19,6 +20,8 @@ export default function App() {
     <Route element={<Layout />}>
       <Route index element={import.meta.env.DEV ? <DevCheck /> : <Account />} />
       <Route path="account" element={<Account />} />
+      <Route path="cs/improvements" element={<CsImprovements />} />
+      <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
       <Route path="cs/stats" element={<CsStats />} />
       <Route path="cs/tickets" element={<Tickets />} />
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
