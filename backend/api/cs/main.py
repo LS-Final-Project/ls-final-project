@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from backend.api.common.application import create_application
 from backend.api.cs.routes import router
+from backend.engine.cs.rules import load_policy
 from backend.shared.settings import Settings
 
 
@@ -14,6 +15,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Returns:
         FastAPI: 수동 문의 출처와 호출자 검증 설정을 확인한 C/S 앱.
     """
+    # An edited or mismatched policy table stops the service here, not at the first ticket.
+    load_policy()
     app = create_application("cs", settings)
     if (
         app.state.settings.business_relay_enabled

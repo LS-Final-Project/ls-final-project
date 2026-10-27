@@ -1,8 +1,8 @@
 """C/S rule engine: priority, product family, department and SLA without an LLM (KAN-104).
 
 The policy tables in ./policy are verbatim copies of the provided reference files. The code
-checks at load time that each table still says what this module implements, so an edited
-table fails loudly instead of silently changing results.
+checks that each table still says what this module implements, so an edited table fails
+loudly instead of silently changing results. The C/S app runs this check when it starts.
 
 Only the primary category drives priority and routing. A secondary category never replaces
 it, and an unconfirmed return subtype is never treated as NON_DEFECT.
@@ -196,6 +196,9 @@ def route(family: str, category: str, return_subtype: ReturnSubtype | None) -> R
     if return_subtype not in (None, "DEFECT", "NON_DEFECT"):
         raise RuleInputError(f"Unknown return subtype: {return_subtype!r}")
     policy = load_policy()
+    # Checked first so every branch refuses an unknown family, the NON_DEFECT one included.
+    if family not in policy.families.values():
+        raise RuleInputError(f"Unknown product family: {family!r}")
     reasons: tuple[str, ...] = ()
     if category == "RETURN" and return_subtype == "NON_DEFECT":
         row = policy.non_defect

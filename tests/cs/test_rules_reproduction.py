@@ -116,3 +116,30 @@ def test_sla_targets_elapsed_time_and_status(tickets):
             closed_without_response=t["final_action"] == "CLOSED_NO_RESPONSE",
         )
         assert status == t["sla_resolution_status"], t["ticket_id"]
+
+
+def test_returns_reproduce_with_the_reviewed_subtype(tickets):
+    """Runs once KAN-95 has locked the reviewed return subtypes (CS_RETURN_SUBTYPE_GOLD).
+
+    The gold file is a person's review of the inquiry text. It is never derived from the
+    provided department, so a mismatch here is a finding to review, not a value to copy.
+    """
+    path = os.getenv("CS_RETURN_SUBTYPE_GOLD")
+    if not path:
+        pytest.skip("반품 하위유형 정답(KAN-95) 파일이 필요합니다.")
+    with open(path, encoding="utf-8-sig", newline="") as file:
+        gold = {row["ticket_id"]: row["return_subtype"] or None for row in csv.DictReader(file)}
+    assert set(gold.values()) <= {"DEFECT", "NON_DEFECT", None}
+    returns = [t for t in tickets if t["category_code"] == "RETURN"]
+    assert {t["ticket_id"] for t in returns} <= set(gold)
+    mismatched, unconfirmed = [], []
+    for t in returns:
+        subtype = gold[t["ticket_id"]]
+        decision = route(product_family(t["product_code"]), "RETURN", subtype)
+        if subtype is None:
+            unconfirmed.append(t["ticket_id"])
+        elif (decision.dept, decision.rule_id) != (t["assigned_dept"], t["routing_rule_id"]):
+            mismatched.append(t["ticket_id"])
+    # Unconfirmed subtypes are reported for review, not counted as reproduced.
+    print(f"returns={len(returns)} unconfirmed={len(unconfirmed)} mismatched={mismatched}")
+    assert mismatched == []

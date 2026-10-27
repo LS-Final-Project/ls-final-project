@@ -98,6 +98,10 @@ def test_secondary_category_cannot_replace_the_primary():
 def test_invalid_routing_input_is_refused():
     with pytest.raises(RuleInputError):
         route("LV_BREAKER", "RETURN", "UNKNOWN")  # type: ignore[arg-type]
+    for subtype in (None, "DEFECT", "NON_DEFECT"):
+        # Every branch refuses an unknown family, the NON_DEFECT shortcut included.
+        with pytest.raises(RuleInputError, match="family"):
+            route("NO_FAMILY", "RETURN", subtype)
     with pytest.raises(RuleInputError):
         route("NO_FAMILY", "DEFECT", None)
 
@@ -169,13 +173,30 @@ def test_decide_combines_the_rules_with_the_policy_version():
     assert decision.policy_version == rules.POLICY_VERSION
 
 
-def test_an_edited_policy_table_is_detected(monkeypatch, tmp_path):
+def edited_policy(monkeypatch, tmp_path):
     for name in rules.POLICY_FILES:
         (tmp_path / name).write_bytes((rules.POLICY_DIR / name).read_bytes())
     table = tmp_path / "priority_rules.csv"
     table.write_text(table.read_text(encoding="utf-8-sig").replace("PR-07,7", "PR-07,8"))
     monkeypatch.setattr(rules, "POLICY_DIR", tmp_path)
     rules.load_policy.cache_clear()
+
+
+def test_the_c_s_app_does_not_start_with_an_edited_policy(monkeypatch, tmp_path):
+    from backend.api.cs.main import create_app
+    from backend.shared.settings import Settings
+
+    edited_policy(monkeypatch, tmp_path)
+    try:
+        with pytest.raises(RuntimeError, match="priority_rules.csv changed"):
+            create_app(Settings(_env_file=None, environment="test"))
+    finally:
+        monkeypatch.undo()
+        rules.load_policy.cache_clear()
+
+
+def test_an_edited_policy_table_is_detected(monkeypatch, tmp_path):
+    edited_policy(monkeypatch, tmp_path)
     try:
         with pytest.raises(RuntimeError, match="priority_rules.csv changed"):
             rules.load_policy()
