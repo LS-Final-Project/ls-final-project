@@ -1,3 +1,4 @@
+import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQuery } from '@tanstack/react-query';
@@ -10,7 +11,7 @@ export default function TicketDetail() {
   const { ticketId = '' } = useParams();
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
-  const ticket = useQuery({queryKey: ['tickets', mode, ticketId], queryFn: () => getTicket(ticketId), enabled: access.ready && ticketId !== ''});
+  const ticket = useQuery({queryKey: ['tickets', mode, ticketId], queryFn: ({signal}) => getTicket(ticketId, signal), enabled: access.ready && ticketId !== ''});
   if (!access.ready) return <BusinessGate access={access} title="C/S 문의" />;
   const data = ticket.isSuccess ? ticket.data.data : undefined;
   const rc = data?.resolution_case;
@@ -20,6 +21,7 @@ export default function TicketDetail() {
     {ticket.isPending && <Loading />}
     {ticket.isError && <ErrorState error={ticket.error} onRetry={() => ticket.refetch()} />}
     {data && <>
+      <section><h2>현재 업무 상태</h2><TicketWorkflow state={data.workflow_state}/><p>API 조회 상태와 상태별 일반 안내입니다. 실행 권한이나 후속 작업의 완료를 보장하지 않습니다.</p></section>
       <section><h2>접수 정보</h2>
         <dl><dt>외부 ID</dt><dd>{data.external_id ?? '-'}</dd><dt>채널</dt><dd>{data.channel}</dd><dt>제품</dt><dd>{data.product_code}</dd><dt>고객</dt><dd>{data.customer_external_id}</dd><dt>접수</dt><dd>{new Date(data.received_at).toLocaleString('ko-KR')}</dd><dt>언어</dt><dd>{data.body_language}</dd><dt>보고된 오류 코드</dt><dd>{data.error_code_reported ?? '-'}</dd><dt>보고된 FW</dt><dd>{data.fw_version_reported ?? '-'}</dd><dt>출처</dt><dd><small>{data.data_origin}</small> <small>{data.derivation_kind}</small></dd></dl>
         <h3>본문</h3><p className="body">{data.body}</p>
