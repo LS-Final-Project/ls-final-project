@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { me, logoutSession } from '../api/platform';
 import { sessionCsrfToken } from '../api/client';
 import { ErrorState, Loading } from '../components/states';
+import MailboxConnections from '../components/MailboxConnections';
 
 export default function Account() {
   return <AccountPanel operational={!import.meta.env.DEV} />;
@@ -47,6 +48,6 @@ export function AccountPanel({ operational }: { operational: boolean }) {
         {!confirming ? <button disabled={busy || !sessionCsrfToken()} onClick={() => setConfirming(true)}>로그아웃</button> : <div><p>현재 계정에서 로그아웃할까요?</p><button disabled={busy || !sessionCsrfToken()} onClick={() => void signOut()}>{busy ? '로그아웃 중' : '로그아웃 확인'}</button><button disabled={busy} onClick={() => setConfirming(false)}>취소</button></div>}
       </>}
     </section>}
-    <section><h2>메일 연결</h2><p>사서함 연결 상태를 아직 확인할 수 없습니다. 서비스 로그인과 메일 연결은 별도입니다.</p><p>연결 상태 확인이 준비되면 연결·만료·재연결을 안내합니다.</p></section>
+    <section><h2>메일 연결</h2><p>서비스 로그인과 메일 연결은 별도입니다.</p>{operational && identity && <MailboxConnections />}</section>
   </main>;
 }
