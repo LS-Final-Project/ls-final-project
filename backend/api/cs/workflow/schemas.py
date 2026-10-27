@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from backend.api.cs.tickets.schemas import WorkflowState
 from backend.shared.departments import TransferDepartment
 
+Code = Annotated[str, Field(min_length=1, max_length=64)]
+
 Text = Annotated[str, Field(min_length=1, max_length=10_000)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
@@ -93,3 +95,26 @@ class ReviewRequest(Action):
 
 class OwnerRequest(Action):
     owner_user_id: UUID
+
+
+class ResolutionCaseCreate(Action):
+    """A resolution case for a closed ticket, written by the C/S agent (workflow ⑧).
+
+    Product, origin and times come from the ticket and the server. RMA numbers, visit dates
+    and warranty decisions are entered by people, never generated.
+    """
+
+    fault_id: str = Field(pattern=r"^FLT-[0-9]{3}$")
+    fw_version_at_issue: Code | None = None
+    symptom: Text
+    root_cause: Text
+    root_cause_type: Literal["SITE_CONDITION", "HARDWARE", "SETTING", "WEAR_PART", "FIRMWARE"]
+    action_taken: Text
+    onsite_visit: bool
+    rma_no: Code | None = None
+    fw_fixed_version: Code | None = None
+    resolved_by_dept: TransferDepartment | Literal["GCS_L1"]
+    recurrence_prevention: Text | None = None
+    dept_result_id: UUID | None = Field(
+        default=None, description="An accepted department result of this ticket."
+    )

@@ -47,12 +47,18 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | `POST /dept-results/{result_id}/review` (`result_version`, `decision`, `note`) | cs_agent | `ACCEPT`: 결과 `ACCEPTED`, 상태 유지. `REWORK`: 결과 `REWORK_REQUESTED`, 같은 부서로 새 회차 `TRANSFERRED`. 보완 요청은 `note` 필수 |
 | `POST /close` | cs_agent | `ANSWERED` 또는 `IN_REVIEW` → `CLOSED` |
 | `PUT /owner` (`owner_user_id`) | C/S 부서(`GCS_L1`) manager | 상태 변경 없음. 담당자 재배정 |
+| `POST /api/v1/cs/tickets/{ticket_id}/resolution-case` | cs_agent | `CLOSED`에서만. 상태 변경 없음. 해결 사례 1건 등록(선택) |
 
 - **수신 ≠ 검토 ≠ 완료**: 부서가 등록한 결과는 `SUBMITTED`이고, cs_agent가 채택해야 `ACCEPTED`가 된다. 채택해도 문의는 `IN_REVIEW`로 남고 종결은 cs_agent가 따로 확정한다.
 - **검토된 회신만 반영**: 종결 조건은 `ANSWERED`이거나, `IN_REVIEW`에서 **채택된** 부서 결과 또는 고객 발송 이력(`customer_sent_at`)이 있는 경우다. 아니면 409 `CS_CLOSE_CONDITION_UNMET`. 검토 전(`SUBMITTED`) 결과가 있으면 종결과 새 이관은 409 `CS_DEPT_RESULT_UNREVIEWED`. 반송·회수된 이관은 처리 결과가 아니다.
 - **승인 판본 감사**: 모든 요청은 결정한 화면의 업무 판본 `version`을 보낸다. 다르면 409 `CS_WORKFLOW_VERSION_CONFLICT`. 부서 결과 검토는 결과 판본 `result_version`도 보내며 다르면 409 `CS_DEPT_RESULT_VERSION_CONFLICT`, 이미 검토했으면 409 `CS_DEPT_RESULT_ALREADY_REVIEWED`. 전이마다 `cs.audit_events`에 `ticket_workflow`(action `transition`, 바뀐 칸·동작 이름·부서·사유)와 `dept_result`(`create`, `review`와 검토한 결과 판본)를 남긴다. 결과 본문은 감사에 복제하지 않는다.
 - **검사 순서**(권한 문서 1.3): 조회 범위 404 → 역할 403 → 상태 409 `CS_INVALID_TRANSITION` → 판본 409 → 입력 422. 이관 이력이 있지만 지금 이관 부서가 아닌 dept_staff의 결과 등록·반송은 403이다.
-- **답변·추가 정보 요청 발송**(`ANSWERED`, `WAITING_CUSTOMER`)과 **고객 회신 재투입**(`→ IN_REVIEW`)은 메일 발송(KAN-74)·회신 연결(KAN-75·110)이 호출하는 내부 함수로 둔다. 손으로 "보냈음"을 표시하는 API는 없다.
+- **답변·추가 정보 요청 발송**과 **고객 회신 재투입**은 `backend/api/cs/workflow/service.py`의 내부 함수다. 손으로 "보냈음"을 표시하는 API는 없다.
+  - `record_customer_send(conn, ticket_id, kind, version, message_id, actor)`: 메일 발송(KAN-74)이 공급자 접수 뒤 같은 트랜잭션에서 호출한다. `IN_REVIEW` → `ANSWERED`(`ANSWER`) 또는 `WAITING_CUSTOMER`(`INFO_REQUEST`), `customer_sent_at` 기록. `version`은 담당자가 승인한 업무 판본이다. 검토 전 부서 결과가 있으면 409 `CS_DEPT_RESULT_UNREVIEWED`. 발송 결과 불명(`UNKNOWN`) 처리는 KAN-74에서 정한다.
+  - `reopen_for_customer_reply(conn, ticket_id, message_id, actor)`: 회신 연결(KAN-75·110)이 호출한다. `WAITING_CUSTOMER`·`ANSWERED`·`CLOSED` → `IN_REVIEW`(종결 정보는 지움). 회신은 아무 때나 오므로 판본을 비교하지 않고, 검토 중·이관 중이면 상태를 바꾸지 않는다. 시스템 처리는 `actor`가 null이다.
+  - 둘 다 감사에 동작 이름과 `message_id`를 남긴다.
+- **부서 사용자의 조회**: `GET .../workflow`와 모든 동작 응답에서 dept_staff와 다른 부서 manager는 **자기 부서의** 이관 회차와 처리 결과만 본다. 다른 부서가 보고한 내용은 보이지 않는다.
+- **해결 사례 등록**(워크플로 ⑧): 종결된 문의에만, 문의당 1건(이미 있으면 409 `CS_RESOLUTION_CASE_EXISTS`). 요청은 사람이 확인한 `fault_id`(`FLT-000` 형식), 증상·원인·원인 유형(`SITE_CONDITION`·`HARDWARE`·`SETTING`·`WEAR_PART`·`FIRMWARE`)·조치·현장 방문·처리 부서와 선택 칸(RMA 번호, 펌웨어 판본, 재발 방지), 종결 화면의 업무 판본 `version`이다. `dept_result_id`를 주면 이 문의에서 **채택된** 결과만 쓸 수 있다(아니면 422 `CS_DEPT_RESULT_NOT_ACCEPTED`). 서버가 제품 코드(문의 값), 출처(`manual`/`cs_api`, `SYSTEM`, 문의의 `data_origin`), `resolved_at`(종결 시각), `known_at`(등록 시각, DB 시계 기준), `registered_by`를 정한다. 등록 즉시 문의 상세의 근거 사례로 보인다. 종결 뒤 고객 회신으로 문의가 다시 열려도 등록한 사례는 그대로 남는다(재검토 시 처리는 KAN-110에서 정한다). 업무 판본은 바뀌지 않고, 감사에 `resolution_case`와 등록한 업무 판본을 남긴다. 서비스 계정은 사례를 삭제할 수 없다. 마이그레이션은 `20261028_KAN-108_resolution_cases.sql`이다.
 - **담당자**: C/S 서비스는 identity 스키마를 읽을 수 없어 새 담당자의 역할을 서버에서 확인하지 않는다. 화면은 등록된 cs_agent만 고르게 한다.
 - **부서 코드**: `backend/shared/departments.py`가 `identity.departments`와 같은 목록을 두고, 테스트가 두 목록이 같은지 확인한다.
 - 서비스 계정(cs_app)은 업무 상태·이관·부서 결과 행을 삭제할 수 없다. 문의당 열린 이관은 하나다(부분 유일 인덱스).
