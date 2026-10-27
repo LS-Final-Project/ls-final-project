@@ -53,7 +53,16 @@ BEGIN
         SELECT 1 FROM pg_constraint WHERE conname = 'staffing_requests_issued_due'
     ) THEN
         ALTER TABLE tft.staffing_requests ADD CONSTRAINT staffing_requests_issued_due
-            CHECK (status = 'DRAFT' OR due_at IS NOT NULL OR due_undecided);
+            CHECK (status = 'DRAFT' OR due_at IS NOT NULL OR due_undecided) NOT VALID;
+    END IF;
+    -- Legacy KAN-119 issued rows may have no due date. Do not fabricate a date or
+    -- a sales user's undecided decision. NOT VALID still checks every new/updated
+    -- row; validate existing rows only when all have been reviewed and corrected.
+    IF NOT EXISTS (
+        SELECT 1 FROM tft.staffing_requests
+        WHERE status <> 'DRAFT' AND due_at IS NULL AND NOT due_undecided
+    ) THEN
+        ALTER TABLE tft.staffing_requests VALIDATE CONSTRAINT staffing_requests_issued_due;
     END IF;
 END
 $constraints$;

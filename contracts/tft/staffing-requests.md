@@ -57,3 +57,7 @@
 ## 상태
 
 OpenAPI `x-implementation-status`는 `partial`이다. 위 경로는 `local`·`test` 환경에서만 응답하며 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. 합성 예시는 `data_origin=synthetic`이며 해저케이블 시연 흐름에 품질시험팀 협업 요청서 초안(기한 미정 → 기한 지정 수정 → 발행)을 더했다. 수정 후 `python3 scripts/workspace.py contracts tft`를 실행한다.
+
+## 기존 데이터 적용
+
+KAN-119의 기한 없는 발행 이력은 기한이나 sales의 미정 결정을 만들어 보정하지 않는다. `staffing_requests_issued_due`는 `NOT VALID`로 추가해 신규·수정 행을 즉시 검사한다. 기존 위반 행이 없으면 같은 마이그레이션에서 검증 완료하며, 있으면 이력을 그대로 보존한다. 운영 적용 담당자는 `status <> 'DRAFT' AND due_at IS NULL AND NOT due_undecided`인 기존 행을 업무 담당자와 확인하고 실제 기한 또는 명시적 미정 결정을 반영한 뒤 `ALTER TABLE tft.staffing_requests VALIDATE CONSTRAINT staffing_requests_issued_due`를 실행한다. 마이그레이션 재실행도 위반 행이 없을 때 제약을 검증한다. 이 PR은 운영 DB를 수정하지 않는다.
