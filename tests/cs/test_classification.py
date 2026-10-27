@@ -362,3 +362,25 @@ def test_unknown_phone_annotation_is_held_without_partial_removal(value):
     result = build_input(record, sensitive_values={})
     assert result.payload.body == record["body"]
     assert result.removed_annotations == 0
+
+
+@pytest.mark.parametrize("prefix", ["Note-", "x*", "metadata"])
+def test_attached_phone_label_is_held(prefix):
+    """지원 형식 밖의 접두사가 붙은 주석도 모델 입력으로 넘기지 않는다.
+
+    Args:
+        prefix: 라벨에 바로 붙은 합성 접두사.
+
+    Returns:
+        None: 부분 삭제 없이 원문 없는 보류 오류를 반환한다.
+    """
+    with pytest.raises(ValueError, match="^CS_UNSUPPORTED_PHONE_ANNOTATION$"):
+        build_input(
+            {
+                "channel": "PHONE",
+                "body_language": "en",
+                "subject": None,
+                "body": f"{prefix}Urgency: SAFETY\nTrip at 300 V.",
+            },
+            sensitive_values={},
+        )
