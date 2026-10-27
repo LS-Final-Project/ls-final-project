@@ -51,7 +51,7 @@ async def save_authorization(settings: Settings, pending: PendingAuthorization) 
         )
 
 
-async def complete_stored_callback(
+async def consume_authorization(
     settings: Settings,
     parameters: Sequence[tuple[str, str]],
     *,
@@ -59,13 +59,12 @@ async def complete_stored_callback(
     browser_binding: str,
     session_user_id: UUID | None,
     now: datetime,
-    adapter: OAuthAdapter,
-) -> MicrosoftSubject:
-    """결속된 인가 시도를 원자적으로 삭제·커밋한 뒤 토큰을 교환한다.
+) -> PendingAuthorization:
+    """결속된 인가 시도를 원자적으로 삭제·커밋해 교환 경계에 전달한다.
 
     다른 브라우저·목적·사용자의 요청은 정상 인가 시도를 소비하지 않는다.
     공급자 검증이 실패해도 이미 소비한 시도는 복구하지 않으며 새 로그인이 필요하다.
-    동기 어댑터는 스레드에서 실행해 이벤트 루프를 막지 않는다.
+    반환 전에 삭제 커밋을 완료한다. 외부 교환과 스레드 실행은 호출자의 책임이다.
 
     Args:
         settings: 플랫폼 DB 연결 설정.
@@ -74,10 +73,9 @@ async def complete_stored_callback(
         browser_binding: 시작한 브라우저의 예측 불가능한 결속값.
         session_user_id: 현재 서비스 사용자. 사서함 연결 시 시작 사용자와 같아야 한다.
         now: 시간대 정보가 있는 현재 시각.
-        adapter: MSAL 교환과 ID 토큰 검증 어댑터.
 
     Returns:
-        MicrosoftSubject: 검증된 Microsoft 식별자. 서비스 세션은 생성하지 않는다.
+        PendingAuthorization: 삭제가 커밋된 서버 전용 인가 시도. 교환은 실행하지 않는다.
     """
     callback = dict(parameters)
     if (
@@ -110,13 +108,47 @@ async def complete_stored_callback(
     # 연결 종료 시 삭제를 커밋한 뒤 외부 토큰 교환을 수행한다.
     if row is None:
         raise reject_callback()
-    pending = PendingAuthorization(
+    return PendingAuthorization(
         purpose=purpose,
         state=callback["state"],
         browser_binding_hash=row["browser_binding_hash"],
         expires_at=row["expires_at"],
         provider_flow=row["provider_flow"],
         owner_user_id=row["owner_user_id"],
+    )
+
+
+async def complete_stored_callback(
+    settings: Settings,
+    parameters: Sequence[tuple[str, str]],
+    *,
+    purpose: OAuthPurpose,
+    browser_binding: str,
+    session_user_id: UUID | None,
+    now: datetime,
+    adapter: OAuthAdapter,
+) -> MicrosoftSubject:
+    """기존 경계에서 인가 시도를 일회 소비한 뒤 식별자 교환을 실행한다.
+
+    Args:
+        settings: 플랫폼 실행 계정의 DB 설정.
+        parameters: 중복 키를 보존한 callback 입력.
+        purpose: 호출 경로의 인가 목적.
+        browser_binding: 시작 브라우저의 결속값.
+        session_user_id: 사서함 연결을 시작한 현재 서비스 사용자.
+        now: 시간대 정보가 있는 현재 시각.
+        adapter: MSAL 교환과 Microsoft 식별자 검증 어댑터.
+
+    Returns:
+        MicrosoftSubject: 검증된 Microsoft 식별자. 서비스 세션은 생성하지 않는다.
+    """
+    pending = await consume_authorization(
+        settings,
+        parameters,
+        purpose=purpose,
+        browser_binding=browser_binding,
+        session_user_id=session_user_id,
+        now=now,
     )
     return await run_in_threadpool(
         complete_callback,

@@ -6,7 +6,7 @@ MSAL이 반환한 디코딩 결과를 신뢰하지 않고 ID 토큰의 서명과
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -25,6 +25,7 @@ from backend.api.platform.auth.callback import (
     OAuthPurpose,
     PendingAuthorization,
     reject_callback,
+    validate_callback,
 )
 from backend.shared.errors import ApplicationError
 
@@ -64,6 +65,19 @@ class MailboxTokenUpdate:
     access_token: SecretStr
     serialized_cache: SecretStr
     cache_changed: bool
+
+
+@dataclass(frozen=True, repr=False)
+class MailboxAuthorization:
+    """서비스 소유자와 별도 사서함 식별자에 결속한 보관 전용 메모리 결과.
+
+    캐시는 아직 평문 메모리 상태다. 보관 계층은 소유자와 상태를 다시 확인하고
+    무결성 보호 암호화를 적용해야 한다. HTTP 응답이나 소비자에게 전달하지 않는다.
+    """
+
+    owner_user_id: UUID
+    subject: MicrosoftSubject
+    serialized_cache: SecretStr
 
 
 def _mailbox_error(code: str) -> ApplicationError:
@@ -265,6 +279,26 @@ class PersonalMicrosoftOAuth:
         Raises:
             ApplicationError: flow 불일치, 공급자 장애 또는 토큰 검증 실패 시 발생한다.
         """
+        subject, _ = self._redeem(pending, callback)
+        return subject
+
+    def _redeem(
+        self,
+        pending: PendingAuthorization,
+        callback: Mapping[str, str],
+        *,
+        token_cache: Any = None,
+    ) -> tuple[MicrosoftSubject, dict[str, Any]]:
+        """로그인과 사서함에서 동일한 code 교환·초기 ID 토큰 검증을 사용한다.
+
+        Args:
+            pending: 원본 flow를 가진 일회 소비된 서버 인가 시도.
+            callback: 공통 결속 검증을 통과한 state와 code.
+            token_cache: 이번 사서함 연결 전용 캐시. 로그인은 별도 메모리 캐시.
+
+        Returns:
+            tuple[MicrosoftSubject, dict[str, Any]]: 검증 식별자와 서버 메모리 전용 응답.
+        """
         flow = dict(pending.provider_flow)
         if (
             flow.get("redirect_uri") != self._redirect_uri
@@ -277,7 +311,9 @@ class PersonalMicrosoftOAuth:
         ):
             raise reject_callback()
         try:
-            result = self._application().acquire_token_by_auth_code_flow(flow, dict(callback))
+            result = self._application(token_cache=token_cache).acquire_token_by_auth_code_flow(
+                flow, dict(callback)
+            )
         except RequestException:
             raise ApplicationError(
                 503, "AUTH_PROVIDER_UNAVAILABLE", "Authentication is unavailable."
@@ -288,7 +324,114 @@ class PersonalMicrosoftOAuth:
         token = result.get("id_token")
         if "error" in result or not isinstance(token, str) or not token:
             raise ApplicationError(401, "AUTH_INVALID_TOKEN", "Authentication failed.")
-        return self._validated_subject(token, nonce=str(flow["nonce"]))
+        return self._validated_subject(token, nonce=str(flow["nonce"])), result
+
+    def redeem_mailbox(
+        self,
+        pending: PendingAuthorization,
+        parameters: Sequence[tuple[str, str]],
+        *,
+        browser_binding: str,
+        session_user_id: UUID,
+        now: datetime,
+    ) -> MailboxAuthorization:
+        """사서함 callback의 결속·서명·캐시를 확인해 보관 전용 결과를 만든다.
+
+        호출자는 유효한 현재 세션을 확인하고 서버의 인가 시도를 원자적으로
+        일회 소비해야 한다. 이 메서드는 소유자 DB 조회나 암호화 저장을 대신하지 않는다.
+
+        Args:
+            pending: 일회 소비한 사서함 연결 인가 시도.
+            parameters: 중복 키를 보존한 callback 입력.
+            browser_binding: 연결을 시작한 브라우저의 결속값.
+            session_user_id: 신뢰할 세션 조회로 확인한 현재 서비스 사용자 ID.
+            now: 시간대 정보가 있는 현재 시각.
+
+        Returns:
+            MailboxAuthorization: 서비스 소유자·검증된 사서함 식별자·격리된 캐시.
+        """
+        callback = validate_callback(
+            pending,
+            parameters,
+            purpose=OAuthPurpose.MAILBOX,
+            browser_binding=browser_binding,
+            session_user_id=session_user_id,
+            now=now,
+        )
+        cache = msal.SerializableTokenCache()
+        subject, result = self._redeem(pending, callback, token_cache=cache)
+        account = _mailbox_account(cache, subject)
+        self._mailbox_access_token(cache=cache, account=account, result=result)
+        refresh_token = result.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token.strip():
+            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+        credentials = cache.search(
+            msal.TokenCache.CredentialType.REFRESH_TOKEN,
+            query={
+                "home_account_id": account["home_account_id"],
+                "environment": account["environment"],
+                "client_id": self._client_id,
+            },
+        )
+        if not any(entry.get("secret") == refresh_token for entry in credentials):
+            raise _mailbox_error("MAILBOX_ACCESS_DENIED")
+        return MailboxAuthorization(
+            owner_user_id=session_user_id,
+            subject=subject,
+            serialized_cache=SecretStr(cache.serialize()),
+        )
+
+    def _mailbox_access_token(
+        self, *, cache: Any, account: dict[str, Any], result: dict[str, Any]
+    ) -> SecretStr:
+        """초기 교환과 갱신의 opaque 토큰을 동일한 캐시·앱·권한으로 검증한다.
+
+        Args:
+            cache: 현재 연결 전용 MSAL 캐시.
+            account: 검증된 단일 사서함 계정.
+            result: 공급자가 반환했거나 MSAL 캐시에 적중한 토큰 응답.
+
+        Returns:
+            SecretStr: 현재 계정·앱·권한과 대조한 유효 access token.
+        """
+        token = result.get("access_token")
+        token_type = result.get("token_type")
+        expires_in = result.get("expires_in")
+        scope = result.get("scope")
+        try:
+            valid_expiry = (
+                not isinstance(expires_in, bool)
+                and isinstance(expires_in, (int, str))
+                and int(expires_in) > 0
+            )
+        except ValueError:
+            valid_expiry = False
+        if (
+            not isinstance(token, str)
+            or not token.strip()
+            or not isinstance(token_type, str)
+            or token_type.lower() != "bearer"
+            or not valid_expiry
+            or ("scope" in result and not isinstance(scope, str))
+        ):
+            raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
+        if "scope" in result and not _has_mailbox_scopes(scope):
+            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+        credentials = cache.search(
+            msal.TokenCache.CredentialType.ACCESS_TOKEN,
+            query={
+                "home_account_id": account["home_account_id"],
+                "environment": account["environment"],
+                "client_id": self._client_id,
+                "realm": "consumers",
+            },
+        )
+        if not any(
+            entry.get("secret") == token and _has_mailbox_scopes(entry.get("target"))
+            for entry in credentials
+        ):
+            raise _mailbox_error("MAILBOX_ACCESS_DENIED")
+        return SecretStr(token)
 
     def _validated_subject(self, token: str, *, nonce: str | None) -> MicrosoftSubject:
         """고정 Microsoft 서명·클레임 검증을 로그인과 사서함 갱신에서 재사용한다.
@@ -393,38 +536,7 @@ class PersonalMicrosoftOAuth:
                     else "MAILBOX_TOKEN_UNAVAILABLE"
                 )
                 raise _mailbox_error(code)
-            token = result.get("access_token")
-            token_type = result.get("token_type")
-            expires_in = result.get("expires_in")
-            scope = result.get("scope")
-            if (
-                not isinstance(token, str)
-                or not token.strip()
-                or not isinstance(token_type, str)
-                or token_type.lower() != "bearer"
-                or isinstance(expires_in, bool)
-                or not isinstance(expires_in, (int, str))
-                or int(expires_in) <= 0
-            ):
-                raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
-            if "scope" in result and not isinstance(scope, str):
-                raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
-            if "scope" in result and not _has_mailbox_scopes(scope):
-                raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
-            credentials = cache.search(
-                msal.TokenCache.CredentialType.ACCESS_TOKEN,
-                query={
-                    "home_account_id": account["home_account_id"],
-                    "environment": account["environment"],
-                    "client_id": self._client_id,
-                    "realm": "consumers",
-                },
-            )
-            if not any(
-                entry.get("secret") == token and _has_mailbox_scopes(entry.get("target"))
-                for entry in credentials
-            ):
-                raise _mailbox_error("MAILBOX_ACCESS_DENIED")
+            token = self._mailbox_access_token(cache=cache, account=account, result=result)
             if "id_token" in result:
                 id_token = result["id_token"]
                 if not isinstance(id_token, str) or not id_token:
@@ -445,7 +557,7 @@ class PersonalMicrosoftOAuth:
                 raise _mailbox_error("MAILBOX_ACCESS_DENIED")
             changed = cache.has_state_changed
             return MailboxTokenUpdate(
-                access_token=SecretStr(token),
+                access_token=token,
                 serialized_cache=SecretStr(cache.serialize()),
                 cache_changed=changed,
             )

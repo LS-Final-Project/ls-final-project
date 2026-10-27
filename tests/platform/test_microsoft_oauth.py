@@ -968,3 +968,194 @@ def test_sdk_aging_refresh_failure_can_only_return_still_valid_cache(oauth, mail
     assert [c for c in oauth.calls if c[0] == "POST"][-1][2]["data"][
         "grant_type"
     ] == "refresh_token"
+
+
+@pytest.fixture
+def mailbox_attempt(oauth):
+    """캐시를 별도로 주입하지 않고 초기 사서함 인가 입력을 준비한다.
+
+    Args:
+        oauth: 실제 MSAL에 합성 HTTP를 연결한 문맥.
+
+    Returns:
+        PendingAuthorization: 아직 code를 교환하지 않은 사서함 인가 시도.
+    """
+    info = json.dumps({"uid": str(USER_ID), "utid": str(PERSONAL_TENANT)}).encode()
+    oauth.response_overrides.update(
+        client_info=urlsafe_b64encode(info).rstrip(b"=").decode(),
+        scope="Mail.Read Mail.Send",
+    )
+    return begin_attempt(oauth, OAuthPurpose.MAILBOX, OWNER_ID)[1]
+
+
+def finish_mailbox(oauth, pending, **overrides):
+    """소유자·브라우저·목적 검증을 포함한 실제 초기 캐시 전달을 실행한다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 Microsoft 응답 문맥.
+        pending: 사서함 인가 시도.
+        **overrides: 정상 결속·입력을 교체할 검사 인자.
+
+    Returns:
+        MailboxAuthorization: 서명과 캐시 검증을 통과한 서버 내부 결과.
+    """
+    arguments = {
+        "browser_binding": BINDING,
+        "session_user_id": OWNER_ID,
+        "now": datetime.now(UTC),
+        **overrides,
+    }
+    parameters = arguments.pop("parameters", [("state", pending.state), ("code", "synthetic-code")])
+    return oauth.adapter.redeem_mailbox(pending, parameters, **arguments)
+
+
+def test_initial_mailbox_result_binds_owner_and_can_feed_existing_refresh(
+    oauth, mailbox_attempt, caplog
+):
+    """서명 검증된 초기 캐시가 기존 조회·갱신 경계로 이어지고 비밀은 숨겨진다.
+
+    Args:
+        oauth: 합성 토큰과 실제 MSAL 문맥.
+        mailbox_attempt: 서버 소유자가 정해진 초기 인가 시도.
+        caplog: SDK DEBUG 기록의 민감 값 비노출 수집기.
+
+    Returns:
+        None: 소유자 분리·일회 POST·캐시 호환·로그와 repr 비노출을 검증한다.
+    """
+    caplog.set_level("DEBUG", logger="msal")
+    result = finish_mailbox(
+        oauth,
+        mailbox_attempt,
+        parameters=[
+            ("state", mailbox_attempt.state),
+            ("code", "synthetic-code"),
+            ("owner_user_id", str(USER_ID)),
+            ("role", "manager"),
+        ],
+    )
+    assert result.owner_user_id == OWNER_ID
+    assert result.subject == MicrosoftSubject(PERSONAL_TENANT, USER_ID)
+    assert result.subject.oid != result.owner_user_id
+    assert not hasattr(result, "access_token")
+    cache = result.serialized_cache.get_secret_value()
+    assert "synthetic-refresh-token" in cache
+    assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
+    post = [c for c in oauth.calls if c[0] == "POST"][0]
+    assert "owner_user_id" not in post[2]["data"]
+    update = oauth.adapter.acquire_mailbox_token(
+        subject=result.subject, serialized_cache=result.serialized_cache
+    )
+    assert update.access_token.get_secret_value() == "synthetic-access-token"
+    assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
+    for secret in (
+        "synthetic-access-token",
+        "synthetic-refresh-token",
+        "synthetic-code",
+        "synthetic-secret",
+        oauth.response_overrides["client_info"],
+        str(USER_ID),
+        str(OWNER_ID),
+    ):
+        assert secret not in repr(result) + caplog.text
+
+
+@pytest.mark.parametrize("invalid", ["purpose", "owner", "browser", "expired", "duplicate"])
+def test_initial_mailbox_bad_binding_never_reaches_exchange(oauth, mailbox_attempt, invalid):
+    """초기 캐시를 반환하는 경로도 기존 결속·만료·중복 입력을 거부한다.
+
+    Args:
+        oauth: HTTP 호출 기록이 있는 합성 공급자.
+        mailbox_attempt: 정상 시작된 사서함 인가 시도.
+        invalid: 변조할 인가 결속 조건.
+
+    Returns:
+        None: 잘못된 입력의 교환 전 거부를 검증한다.
+    """
+    changes = {}
+    if invalid == "purpose":
+        mailbox_attempt = replace(mailbox_attempt, purpose=OAuthPurpose.LOGIN, owner_user_id=None)
+    elif invalid == "owner":
+        changes["session_user_id"] = USER_ID
+    elif invalid == "browser":
+        changes["browser_binding"] = "another-browser"
+    elif invalid == "expired":
+        changes["now"] = mailbox_attempt.expires_at
+    else:
+        changes["parameters"] = [
+            ("state", mailbox_attempt.state),
+            ("code", "synthetic-code"),
+            ("code", "another-code"),
+        ]
+    with pytest.raises(ApplicationError, match="AUTH_INVALID_CALLBACK"):
+        finish_mailbox(oauth, mailbox_attempt, **changes)
+    assert not [c for c in oauth.calls if c[0] == "POST"]
+
+
+@pytest.mark.parametrize("invalid", ["nonce", "signature", "tenant", "jwks"])
+def test_initial_mailbox_rejects_unverified_identity(oauth, mailbox_attempt, invalid, monkeypatch):
+    """캐시가 만들어져도 초기 nonce·서명·사서함 식별 검증 실패 시 반환하지 않는다.
+
+    Args:
+        oauth: 서명·식별자를 바꿀 합성 공급자.
+        mailbox_attempt: 아직 교환하지 않은 인가 시도.
+        invalid: 잘못된 nonce·서명·개인 계정 테넌트 또는 키 조회 장애.
+        monkeypatch: 합성 JWKS 장애를 주입할 도구.
+
+    Returns:
+        None: 미검증 캐시가 보관 경계에 인계되지 않음을 검증한다.
+    """
+    expected = "AUTH_INVALID_TOKEN"
+    if invalid == "nonce":
+        oauth.claims["nonce"] = "another-nonce"
+    elif invalid == "signature":
+        oauth.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    elif invalid == "tenant":
+        oauth.claims["tid"] = str(OWNER_ID)
+    else:
+
+        def fail(_client):
+            """키 조회 장애를 합성한다.
+
+            Args:
+                _client: 공개키 조회기.
+
+            Returns:
+                None: 반환하지 않고 조회 장애를 발생시킨다.
+            """
+            raise jwt.PyJWKClientConnectionError("private-provider-details")
+
+        monkeypatch.setattr(jwt.PyJWKClient, "fetch_data", fail)
+        expected = "AUTH_PROVIDER_UNAVAILABLE"
+    with pytest.raises(ApplicationError, match=expected):
+        finish_mailbox(oauth, mailbox_attempt)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("refresh_token", None, "MAILBOX_RECONNECT_REQUIRED"),
+        ("refresh_token", "", "MAILBOX_RECONNECT_REQUIRED"),
+        ("scope", "Mail.Read", "MAILBOX_RECONNECT_REQUIRED"),
+        ("access_token", "", "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("token_type", "PoP", "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("expires_in", 0, "MAILBOX_TOKEN_UNAVAILABLE"),
+    ],
+)
+def test_initial_mailbox_incomplete_grant_is_not_returned(
+    oauth, mailbox_attempt, field, value, expected
+):
+    """초기 access/refresh 자격과 동의 범위가 부족하면 연결 성공으로 숨기지 않는다.
+
+    Args:
+        oauth: 토큰 응답을 변경할 합성 공급자.
+        mailbox_attempt: 정상 시작된 인가 시도.
+        field: 변경할 공급자 응답 필드.
+        value: 부족하거나 잘못된 합성 값.
+        expected: 기대하는 고정 오류 코드.
+
+    Returns:
+        None: 사용할 수 없는 초기 캐시의 반환 차단을 검증한다.
+    """
+    oauth.response_overrides[field] = value
+    with pytest.raises(ApplicationError, match=expected):
+        finish_mailbox(oauth, mailbox_attempt)
