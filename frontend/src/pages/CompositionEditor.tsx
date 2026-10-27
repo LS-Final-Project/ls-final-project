@@ -10,6 +10,7 @@ export default function CompositionEditor({project,assessment,userId,disabled,on
   const [error,setError]=useState<unknown>(null);const [notice,setNotice]=useState('');const [denied,setDenied]=useState(false);
   const locked=disabled||denied||busy||project.status==='CONFIRMED'||project.required_roles.length===0;
   const isResponsible=project.responsible_user_id===userId;
+  // KAN-127 save_composition과 같은 확정 조건. 검토 준비(ready_for_review)는 우대 역량을 제외하므로 단독으로 확정 권한을 뜻하지 않는다.
   const ready=(id:string)=>isResponsible&&assessment?.roles.some(r=>r.candidates.some(c=>c.recommendation_id===id&&c.ready_for_review&&c.preferred_competencies==='CONFIRMED'))===true;
   function toggle(role:string,recommendation:string,selected:boolean){setConfirming(false);setMembers(old=>selected?[...old.filter(m=>m.required_role_id!==role||m.recommendation_id),{required_role_id:role,recommendation_id:recommendation,status:'PROPOSED'}]:old.filter(m=>m.recommendation_id!==recommendation));}
   function update(index:number,patch:Partial<Member>){setConfirming(false);setMembers(old=>old.map((m,i)=>i===index?{...m,...patch}:m));}
@@ -25,7 +26,7 @@ export default function CompositionEditor({project,assessment,userId,disabled,on
     catch(e){setError(e);if(e instanceof ApiError&&[401,403,404].includes(e.status))setDenied(true);if(e instanceof ApiError&&[409,412].includes(e.status)){setConfirming(false);setNotice('입력은 보존했습니다. 최신 프로젝트와 비교한 뒤 새 판본 저장을 다시 확인하세요.');await onRefresh();}}
     finally{active.current=false;setBusy(false);}
   }
-  return <section><h2>새 구성안 작성</h2><p>현재 판본을 덮어쓰지 않습니다. 역할 확정은 전체 최종 승인과 별도입니다.</p>{project.status==='CONFIRMED'&&<p>새 판본 작성 전에 재검토를 시작하세요.</p>}
+  return <section><h2>새 구성안 작성</h2><p>현재 판본을 덮어쓰지 않습니다. 역할 확정은 전체 최종 승인과 별도입니다.</p><p>현재 확정 계약은 책임자의 경험·필수 역량·우대 역량·가용성 확인을 모두 요구합니다. 검토 준비 완료만으로 확정할 수 없으며, 미정 항목은 제안 또는 보완 필요로 저장하세요.</p>{!isResponsible&&<p>기존 확정 항목이 포함된 새 판본도 현재 책임자만 저장할 수 있습니다. 확정 상태를 유지하려면 책임자에게 검토를 요청하세요.</p>}{project.status==='CONFIRMED'&&<p>새 판본 작성 전에 재검토를 시작하세요.</p>}
     {error!=null&&<ErrorState error={error}/>} {notice&&<p role="status">{notice}</p>}
     <fieldset disabled={locked||confirming}>{project.required_roles.map(role=><div key={role.id}><h3>{role.title}</h3>{project.recommendations.filter(r=>r.required_role_id===role.id&&r.status==='RECOMMENDED').map(r=><label key={r.id}><input type="checkbox" checked={members.some(m=>m.recommendation_id===r.id)} onChange={e=>toggle(role.id,r.id,e.target.checked)}/>{r.candidate_name} 선택</label>)}
       <button type="button" onClick={()=>{setMembers(old=>[...old.filter(m=>m.required_role_id!==role.id),{required_role_id:role.id,recommendation_id:null,status:'PROPOSED',gap_note:''}]);setConfirming(false);}}>{role.title} 공백으로 기록</button>
