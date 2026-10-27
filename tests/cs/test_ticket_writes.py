@@ -34,7 +34,7 @@ def store(monkeypatch):
         yield object()
 
     async def insert_ticket(conn, values):
-        tickets[values["id"]] = {**values, "version": 1}
+        tickets[values["id"]] = {**values, "version": 1, "workflow_state": "RECEIVED"}
 
     async def lock_ticket(conn, ticket_id):
         row = tickets.get(ticket_id)
@@ -70,7 +70,12 @@ def store(monkeypatch):
         return None
 
     monkeypatch.setattr(routes, "connection", fake_connection)
+
+    async def not_transferred(conn, ticket_id, departments):
+        return False
+
     monkeypatch.setattr(units, "confirmed_link", no_confirmed_unit)
+    monkeypatch.setattr(repository, "transferred_to", not_transferred)
     for name, fake in {
         "insert_ticket": insert_ticket,
         "lock_ticket": lock_ticket,

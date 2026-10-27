@@ -34,7 +34,7 @@ Windows에서는 [공통 온보딩](team-start.md)의 WSL Ubuntu 환경에서 �
 | scripts/dev.py | 최초 설정, Jira 작업 브랜치 생성과 커밋 번호 처리 |
 | .githooks/prepare-commit-msg | 로컬 Git 커밋 시 Python 도우미 호출 |
 | .github/workflows/pr-metadata.yml | PR 제목과 링크 보완, 번호 불일치 검사(팀원 배정 없음) |
-| .github/workflows/collaboration-checks.yml | Python Git 연동 테스트와 Node PR 자동화 테스트 |
+| .github/workflows/application-checks.yml의 infrastructure | 변경 영향에 따른 Python Git 연동·Node PR 자동화 검사. 실패는 Application result에서 차단 |
 | .github/jira-config.json | Jira 링크의 기본 주소 |
 | .github/workflows/claude-code-review.yml | 매 커밋 Claude 구조화 리뷰와 결과 검사 |
 | .github/scripts/ai_review.cjs | 검토 SHA·완료·파일 범위·차단 지적 검사 및 댓글 게시 |

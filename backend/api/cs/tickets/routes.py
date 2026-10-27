@@ -12,6 +12,7 @@ from backend.api.cs.tickets.access import (
     require_ticket_list,
     require_ticket_write,
     sees_all_tickets,
+    transfer_departments,
 )
 from backend.api.cs.tickets.schemas import (
     AuditEvent,
@@ -100,11 +101,14 @@ async def list_tickets(
 ) -> SuccessResponse[TicketList]:
     require_ticket_list(principal)
     after = decode_cursor(cursor) if cursor else None
-    if not sees_all_tickets(principal):
-        # Transfer departments arrive with KAN-108; until then no ticket is in this scope.
+    departments = None if sees_all_tickets(principal) else transfer_departments(principal)
+    if departments is not None and not departments:
         return respond(request, TicketList(items=[], next_cursor=None))
     async with connection(request.app.state.settings) as conn:
-        rows = await repository.list_tickets(conn, limit, after)
+        if departments is None:
+            rows = await repository.list_tickets(conn, limit, after)
+        else:
+            rows = await repository.list_tickets(conn, limit, after, departments)
     items = [TicketSummary.model_validate(row) for row in rows[:limit]]
     next_cursor = None
     if len(rows) > limit:
@@ -126,8 +130,8 @@ async def list_tickets(
 async def get_ticket(
     ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
 ) -> SuccessResponse[TicketDetail]:
-    require_visible(principal)
     async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, ticket_id)
         row = await repository.get_ticket(conn, ticket_id)
         if row is None:
             raise not_found()
@@ -139,9 +143,20 @@ def not_found() -> ApplicationError:
     return ApplicationError(404, "CS_TICKET_NOT_FOUND", "The ticket was not found.")
 
 
-def require_visible(principal: Principal) -> None:
-    # Out-of-scope tickets look the same as missing ones (permissions.md 1.3 step 2).
+def require_full_scope(principal: Principal) -> None:
+    """Only users who see every ticket. Used where earlier tickets of other departments
+    could be shown (unit history). Out-of-scope tickets look the same as missing ones."""
     if not sees_all_tickets(principal):
+        raise not_found()
+
+
+async def check_visible(conn: Any, principal: Principal, ticket_id: UUID) -> None:
+    """Ticket read scope (permissions.md 1.3 step 2): all tickets, or tickets transferred to
+    the user's department. A ticket outside the scope looks the same as a missing one."""
+    if sees_all_tickets(principal):
+        return
+    departments = transfer_departments(principal)
+    if not departments or not await repository.transferred_to(conn, ticket_id, departments):
         raise not_found()
 
 
@@ -203,7 +218,7 @@ async def create_ticket(
         await repository.insert_audit(
             conn, uuid4(), values["id"], "create", 1, principal.user_id, created
         )
-    return respond(request, detail({**values, "version": 1}, None))
+    return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 
 @router.patch(
@@ -219,9 +234,9 @@ async def update_ticket(
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketDetail]:
-    require_visible(principal)
-    require_ticket_write(principal)
     async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, ticket_id)
+        require_ticket_write(principal)
         row = await repository.lock_ticket(conn, ticket_id)
         if row is None:
             raise not_found()
@@ -258,8 +273,8 @@ async def update_ticket(
 async def list_ticket_audit(
     ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
 ) -> SuccessResponse[AuditList]:
-    require_visible(principal)
     async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, ticket_id)
         if await repository.get_ticket(conn, ticket_id) is None:
             raise not_found()
         rows = await repository.list_audit(conn, ticket_id)

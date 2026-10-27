@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import require_ticket_write
-from backend.api.cs.tickets.routes import PARTIAL, not_found, require_visible, respond
+from backend.api.cs.tickets.routes import PARTIAL, not_found, require_full_scope, respond
 from backend.api.cs.tickets.schemas import ResolutionCase
 from backend.api.cs.units import repository
 from backend.api.cs.units.schemas import (
@@ -81,7 +81,7 @@ def link_model(row: dict[str, Any], prefix: str = "") -> UnitLink:
 async def list_ticket_units(
     ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
 ) -> SuccessResponse[TicketUnitList]:
-    require_visible(principal)
+    require_full_scope(principal)
     async with connection(request.app.state.settings) as conn:
         ticket = await tickets.get_ticket(conn, ticket_id)
         if ticket is None:
@@ -129,7 +129,7 @@ async def set_ticket_unit_link(
     Returns:
         SuccessResponse[TicketUnit]: 저장된 연결과 장비.
     """
-    require_visible(principal)
+    require_full_scope(principal)
     require_ticket_write(principal)
     async with connection(request.app.state.settings) as conn:
         # The ticket lock orders this write against ticket corrections and other links.
@@ -236,9 +236,9 @@ def json_value(value: Any) -> Any:
 async def get_ticket_unit_history(
     ticket_id: UUID, request: Request, principal: Principal = Depends(current_principal)
 ) -> SuccessResponse[UnitHistory]:
-    # History is limited to users who see every ticket (require_visible). When KAN-108 opens
-    # department scopes, earlier tickets must also be filtered by that scope.
-    require_visible(principal)
+    # History lists earlier tickets that may not be transferred to the user's department, so
+    # department users (KAN-108 scope) get 404 here until the history is filtered by scope.
+    require_full_scope(principal)
     async with connection(request.app.state.settings) as conn:
         ticket = await tickets.get_ticket(conn, ticket_id)
         if ticket is None:

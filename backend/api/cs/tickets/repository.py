@@ -7,45 +7,74 @@ from uuid import UUID
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
+# A ticket without a workflow row has not started review (KAN-108).
+STATE = "COALESCE(w.state, 'RECEIVED') AS workflow_state"
+FROM_TICKETS = "FROM cs.tickets t LEFT JOIN cs.ticket_workflows w ON w.ticket_id = t.id"
 SUMMARY_COLUMNS = (
-    "id, external_id, subject, data_origin, derivation_kind, received_at, channel, product_code"
+    "t.id, t.external_id, t.subject, t.data_origin, t.derivation_kind, t.received_at, "
+    f"t.channel, t.product_code, {STATE}"
 )
 DETAIL_COLUMNS = (
-    "id, external_id, version, data_origin, derivation_kind, received_at, known_at, channel, "
-    "body_language, customer_external_id, product_code, subject, body, fw_version_reported, "
-    "error_code_reported"
+    "t.id, t.external_id, t.version, t.data_origin, t.derivation_kind, t.received_at, "
+    "t.known_at, t.channel, t.body_language, t.customer_external_id, t.product_code, "
+    f"t.subject, t.body, t.fw_version_reported, t.error_code_reported, {STATE}"
+)
+# Tickets transferred to one of the given departments, now or earlier.
+IN_DEPARTMENTS = (
+    "EXISTS (SELECT 1 FROM cs.ticket_transfers x "
+    "WHERE x.ticket_id = t.id AND x.dept_code = ANY(%s))"
 )
 CASE_COLUMNS = (
     "id, external_id, data_origin, derivation_kind, resolved_at, known_at, product_code, "
     "fault_id, fw_version_at_issue, symptom, root_cause, root_cause_type, action_taken, "
-    "onsite_visit, rma_no, fw_fixed_version, resolved_by_dept, recurrence_prevention"
+    "onsite_visit, rma_no, fw_fixed_version, resolved_by_dept, recurrence_prevention, "
+    "dept_result_id"
 )
 
 Row = dict[str, Any]
 
 
 async def list_tickets(
-    conn: AsyncConnection[Row], limit: int, after: tuple[datetime, UUID] | None
+    conn: AsyncConnection[Row],
+    limit: int,
+    after: tuple[datetime, UUID] | None,
+    departments: frozenset[str] | None = None,
 ) -> list[Row]:
-    """Newest first. Fetches one extra row so the caller knows whether a next page exists."""
-    if after is None:
-        cursor = await conn.execute(
-            f"SELECT {SUMMARY_COLUMNS} FROM cs.tickets ORDER BY received_at DESC, id DESC LIMIT %s",
-            (limit + 1,),
-        )
-    else:
-        cursor = await conn.execute(
-            f"SELECT {SUMMARY_COLUMNS} FROM cs.tickets "
-            "WHERE (received_at, id) < (%s, %s) "
-            "ORDER BY received_at DESC, id DESC LIMIT %s",
-            (*after, limit + 1),
-        )
+    """Newest first. Fetches one extra row so the caller knows whether a next page exists.
+
+    `departments` limits the page to tickets transferred to those departments. None means
+    every ticket.
+    """
+    conditions: list[str] = []
+    params: list[Any] = []
+    if departments is not None:
+        conditions.append(IN_DEPARTMENTS)
+        params.append(list(departments))
+    if after is not None:
+        conditions.append("(t.received_at, t.id) < (%s, %s)")
+        params.extend(after)
+    where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+    cursor = await conn.execute(
+        f"SELECT {SUMMARY_COLUMNS} {FROM_TICKETS} {where}"
+        "ORDER BY t.received_at DESC, t.id DESC LIMIT %s",
+        (*params, limit + 1),
+    )
     return await cursor.fetchall()
+
+
+async def transferred_to(
+    conn: AsyncConnection[Row], ticket_id: UUID, departments: frozenset[str]
+) -> bool:
+    cursor = await conn.execute(
+        f"SELECT 1 FROM cs.tickets t WHERE t.id = %s AND {IN_DEPARTMENTS}",
+        (ticket_id, list(departments)),
+    )
+    return await cursor.fetchone() is not None
 
 
 async def get_ticket(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
     cursor = await conn.execute(
-        f"SELECT {DETAIL_COLUMNS} FROM cs.tickets WHERE id = %s", (ticket_id,)
+        f"SELECT {DETAIL_COLUMNS} {FROM_TICKETS} WHERE t.id = %s", (ticket_id,)
     )
     return await cursor.fetchone()
 
@@ -71,7 +100,7 @@ async def insert_ticket(conn: AsyncConnection[Row], values: Row) -> None:
 async def lock_ticket(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
     """Locks the row until the transaction ends so version checks cannot interleave."""
     cursor = await conn.execute(
-        f"SELECT {DETAIL_COLUMNS} FROM cs.tickets WHERE id = %s FOR UPDATE", (ticket_id,)
+        f"SELECT {DETAIL_COLUMNS} {FROM_TICKETS} WHERE t.id = %s FOR UPDATE OF t", (ticket_id,)
     )
     return await cursor.fetchone()
 

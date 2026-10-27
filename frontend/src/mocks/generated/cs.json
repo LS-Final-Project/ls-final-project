@@ -14,7 +14,8 @@
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-14T08:18:51Z",
             "channel": "PHONE",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "IN_REVIEW"
           },
           {
             "id": "22222222-2222-4222-8222-222222222222",
@@ -24,7 +25,8 @@
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-05T16:42:59Z",
             "channel": "PARTNER_PORTAL",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "CLOSED"
           }
         ],
         "next_cursor": null
@@ -55,6 +57,7 @@
         "body": "Oil-immersed Transformer 1000kVA için doğru kurulum prosedürü nedir? Bu model ile ilk projemiz.\n\nAyrıntılar:\n- Ürün modeli / sipariş kodu: TRF-OIL-1000\n- Seri numarası (etiket üzerindeki): **MASKED**\n- Saha koşulları (ortam sıcaklığı, rakım, nem): 50 °C, 300 m\n- Bağlantı / tek hat şeması: [attachment: SLD.pdf]",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "CLOSED",
         "resolution_case": {
           "id": "44444444-4444-4444-8444-444444444444",
           "external_id": "RC-0007",
@@ -73,7 +76,8 @@
           "rma_no": null,
           "fw_fixed_version": null,
           "resolved_by_dept": "FIELD_SVC",
-          "recurrence_prevention": "Quality feedback sent to factory for lot analysis."
+          "recurrence_prevention": "Quality feedback sent to factory for lot analysis.",
+          "dept_result_id": null
         }
       },
       "meta": {
@@ -102,6 +106,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
@@ -130,6 +135,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
@@ -330,6 +336,86 @@
           "replaced_by_unit_id": null
         },
         "items": []
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/22222222-2222-4222-8222-222222222223/workflow",
+    "status": 200,
+    "body": {
+      "data": {
+        "ticket_id": "22222222-2222-4222-8222-222222222223",
+        "state": "IN_REVIEW",
+        "version": 4,
+        "owner_user_id": "88888888-8888-4888-8888-888888888881",
+        "customer_sent_at": null,
+        "closed_at": null,
+        "closed_by": null,
+        "transfers": [
+          {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+            "round": 1,
+            "dept_code": "TS_TRF",
+            "status": "RESULT_SUBMITTED",
+            "reason": "Oil leakage needs a transformer engineer.",
+            "transferred_by": "88888888-8888-4888-8888-888888888881",
+            "transferred_at": "2025-10-05T18:00:00Z",
+            "ended_by": "88888888-8888-4888-8888-888888888882",
+            "ended_at": "2025-10-06T15:00:00Z",
+            "end_reason": null
+          }
+        ],
+        "dept_results": [
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+            "transfer_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+            "dept_code": "TS_TRF",
+            "version": 2,
+            "result": "Gasket damaged in transport. Field service replaces it on site.",
+            "reply_content": "An engineer will replace the gasket and top up the oil.",
+            "submitted_by": "88888888-8888-4888-8888-888888888882",
+            "submitted_at": "2025-10-06T15:00:00Z",
+            "review_status": "ACCEPTED",
+            "reviewed_by": "88888888-8888-4888-8888-888888888881",
+            "reviewed_at": "2025-10-06T16:00:00Z",
+            "review_note": null
+          }
+        ]
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/cs/tickets/22222222-2222-4222-8222-222222222223/resolution-case",
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+        "external_id": null,
+        "data_origin": "synthetic",
+        "derivation_kind": "SYSTEM",
+        "resolved_at": "2025-10-07T08:30:00Z",
+        "known_at": "2025-10-07T09:00:00Z",
+        "product_code": "TRF-OIL-1000",
+        "fault_id": "FLT-067",
+        "fw_version_at_issue": null,
+        "symptom": "Oil leakage at gasket",
+        "root_cause": "Gasket damaged in transport",
+        "root_cause_type": "WEAR_PART",
+        "action_taken": "Replace gasket and top up oil",
+        "onsite_visit": true,
+        "rma_no": null,
+        "fw_fixed_version": null,
+        "resolved_by_dept": "FIELD_SVC",
+        "recurrence_prevention": null,
+        "dept_result_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
       },
       "meta": {
         "request_id": "11111111-1111-4111-8111-111111111111"
