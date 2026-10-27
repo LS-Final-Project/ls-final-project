@@ -14,6 +14,7 @@ from eval.cs_metrics import (
     summarize_secondary_first_attempts,
     summarize_urgency_first_attempts,
 )
+from eval.cs_strata import summarize_first_attempts_by_group
 
 
 def synthetic_attempt(
@@ -403,3 +404,104 @@ def test_secondary_invalid_gold_and_retry_are_rejected(gold, attempts):
     """
     with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
         summarize_secondary_first_attempts(gold, attempts)
+
+
+@pytest.mark.parametrize(
+    "metric,gold",
+    [
+        ("category", {"a": "RETURN", "b": "RETURN", "c": "MANUAL", "d": "MANUAL"}),
+        ("urgency", {"a": "SAFETY", "b": "SITE_DOWN", "c": "SAFETY", "d": "NONE"}),
+        ("secondary", {"a": None, "b": "MANUAL", "c": None, "d": "MANUAL"}),
+    ],
+)
+def test_strata_preserve_all_targets_and_existing_metric_contracts(metric, gold):
+    """세 지표의 그룹별 분모·실패가 전체 집계와 일치함을 확인한다.
+
+    Args:
+        metric: 기존 지표 이름.
+        gold: 지표별 합성 고정 정답.
+
+    Returns:
+        None: 메타데이터 누락·미실행도 각 축의 한 그룹에 정확히 한 번 포함된다.
+    """
+    attempts = {
+        "a": synthetic_attempt(urgency="SAFETY"),
+        "b": synthetic_attempt(category="MANUAL", secondary="QUOTE"),
+        "c": synthetic_attempt(error=TimeoutError()),
+    }
+    metadata = {
+        "a": {"channel": "PHONE", "body_language": "ko"},
+        "b": {"channel": "EMAIL", "body_language": "en"},
+        "d": {"channel": "PHONE", "body_language": None},
+    }
+    report = summarize_first_attempts_by_group(gold, attempts, metadata, metric=metric)
+    direct = {
+        "category": summarize_category_first_attempts,
+        "urgency": summarize_urgency_first_attempts,
+        "secondary": summarize_secondary_first_attempts,
+    }[metric](gold, attempts)
+    assert report["overall"] == direct
+    assert report["overall"]["accuracy"] == 0.25
+    assert report["missing_metadata"] == {"channel": 1, "body_language": 2}
+    for values in report["groups"].values():
+        assert sum(r["total"] for r in values.values()) == 4
+        assert sum(r["correct"] for r in values.values()) == 1
+        ids = [c["case_id"] for r in values.values() for c in r["cases"]]
+        assert sorted(ids) == sorted(gold)
+        for outcome, count in direct["outcomes"].items():
+            assert sum(r["outcomes"][outcome] for r in values.values()) == count
+    phone = report["groups"]["phone"]
+    assert phone["PHONE"]["total"] == 2
+    assert phone["NON_PHONE"]["total"] == 1
+    assert phone["UNKNOWN"]["outcomes"]["TIMEOUT"] == 1
+    assert phone["PHONE"]["outcomes"]["NOT_STARTED"] == 1
+    assert phone["PHONE"]["accuracy"] == 0.5
+    assert not report["quality_gate_evaluated"]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"extra": {}},
+        {"a": None},
+        {"a": {"body": "PRIVATE"}},
+        {"a": {"channel": "UNKNOWN"}},
+        {"a": {"channel": ""}},
+        {"a": {"body_language": "private@example.test"}},
+        {"a": {"body_language": "en\n"}},
+        {"a": {"body_language": 1}},
+    ],
+)
+def test_strata_reject_invalid_metadata_without_echoing_values(metadata):
+    """형식 오류를 누락으로 숨기거나 개인정보 메타데이터를 출력하지 않는다.
+
+    Args:
+        metadata: 잘못된 합성 메타데이터.
+
+    Returns:
+        None: 안전한 오류로 전체 집계를 거부한다.
+    """
+    with pytest.raises(ValueError, match="^CS_STRATA_INVALID_INPUT$"):
+        summarize_first_attempts_by_group({"a": "RETURN"}, {}, metadata, metric="category")
+
+
+def test_strata_validate_before_filtering_and_handle_empty_targets():
+    """그룹 필터가 대상 밖 시도나 재시도를 숨기지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 전체 입력 검사와 비어 있는 대상의 null 점수를 유지한다.
+    """
+    for attempts in ({"extra": synthetic_attempt()}, {"a": synthetic_attempt(number=2)}):
+        with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+            summarize_first_attempts_by_group({"a": "RETURN"}, attempts, {}, metric="category")
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_first_attempts_by_group({"a": None}, {}, {}, metric="category")
+    with pytest.raises(ValueError, match="^CS_STRATA_INVALID_INPUT$"):
+        summarize_first_attempts_by_group({}, {}, {}, metric="other")
+    report = summarize_first_attempts_by_group({}, {}, {}, metric="urgency")
+    assert report["overall"]["accuracy"] is None
+    assert report["groups"] == {"channel": {}, "body_language": {}, "phone": {}}
+    assert report["missing_metadata"] == {"channel": 0, "body_language": 0}

@@ -99,7 +99,7 @@ accuracy/macro_f1은 null이며 합격 판정을 만들지 않는다. 비어 있
 
 반환 사례 기록은 ID·정답/예측 코드·상태·정오이며 원시 응답·오류 원문·토큰을 포함하지
 않는다. 이 집계의 quality_gate_evaluated는 항상 false다. 이번 검증은 합성 사례의 계산
-회귀이며 실제 품질 합격 근거가 아니다. 채널·언어별 집계, 최초/최종
+회귀이며 실제 품질 합격 근거가 아니다. 최초/최종
 비교, 지연·사용량·비용·퇴행, 실제 DB/화면 연결과 잠긴 정답 인수는 남아 있다.
 
 
@@ -135,3 +135,23 @@ composite FP에 포함하지 않고 absent.invented와 전체 행렬에 별도�
 per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모가 다르다.
 복합 의도 대상0이면 composite.macro_f1=null이며, null 포함 전체 macro-F1은 제공하지
 않는다. 합격선/실제 정답 잠금 및 품질 합격 판정은 별도이며 자동 승인하지 않는다.
+
+
+### KAN-88 언어·채널별 최초 집계
+
+`eval.cs_strata.summarize_first_attempts_by_group(gold, attempts, metadata, metric=...)`는
+category/urgency/secondary 중 한 지표를 기존 집계 함수로 계산한다. metadata는 고정 대상
+ID별 channel/body_language만 받으며 본문·정답·임의 필드를 추가하면 오류다. 전체 지표는
+고정 대상 전체에서 직접 계산하고 그룹 점수의 단순 평균으로 대체하지 않는다.
+
+각 축(channel, body_language, phone)은 대상마다 정확히 한 그룹을 부여한다. 메타데이터
+행·키 누락 또는 None은 UNKNOWN으로 남기며, 채널 미확인을 NON_PHONE에 합치지 않는다.
+빈 문자열·불명 채널·언어 태그 형식 위반은 누락으로 보정하지 않고 오류다. 언어는 기존
+입력 형식(en/ko/en-US 등, 최대32자)을 따르며 표기를 자동 합치지 않는다. 대상 밖
+메타데이터/시도나 재시도는 그룹 필터로 숨기기 전에 거부한다.
+
+전체/각 그룹은 미실행·실패를 포함한 기존 지표 계약을 유지한다. 각 축의 total 합은 전체
+total과 같고 missing_metadata는 채널/언어 누락 건수다. 축 간 그룹은 중복되므로 서로
+더하지 않는다. 나타나지 않은 그룹은 생성하지 않으며 대상0은 빈 그룹 목록과 null 점수다.
+PHONE 주석 제거 판본·처리 건수 및 누설 조건은 기존 입력 감사 기록에서 별도로 확인한다.
+이 집계만으로 누설 제거·정답 잠금·실제 품질 합격이 검증되지는 않는다.
