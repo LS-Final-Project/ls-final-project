@@ -105,3 +105,34 @@ test('집계 요청의 취소를 전달한다', async t => {
   });
   await assert.rejects(getEvaluationSummary(snapshot.run_id, controller.signal), { name: 'AbortError' });
 });
+
+test('비용은 십진 문자열을 그대로 보존하고 구버전의 누락을 미연결로 구별한다', async t => {
+  const data = summaryFixture();
+  data.first.cost_usd = { reported_count: 2, missing_count: 1, known_sum: '9007199254740993.000001', total: null, pricing_version_count: 2 };
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.deepEqual(result.first.cost_usd, data.first.cost_usd);
+  delete data.first.cost_usd;
+  delete data.retry.cost_usd;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).first.cost_usd, null);
+});
+
+for (const badCost of [0, '0', 'NaN', '-1.00', '1e-6', '0.00\n', '0'.repeat(129)]) {
+  test(`잘못된 비용 문자열을 거부한다: ${JSON.stringify(badCost)}`, async t => {
+    const data = summaryFixture();
+    data.first.cost_usd = { reported_count: 1, missing_count: 2, known_sum: '0.000001', total: null, pricing_version_count: 1 };
+    if (badCost === '0') Object.assign(data.first, { cost_usd: '0' });
+    else Object.assign(data.first.cost_usd, { known_sum: badCost });
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+for (const change of [{ total: '0.000001' }, { pricing_version_count: 0 }, { pricing_version_count: 2 }, { missing_count: 0 }]) {
+  test(`모순된 비용 보고 범위를 거부한다: ${JSON.stringify(change)}`, async t => {
+    const data = summaryFixture();
+    data.first.cost_usd = { reported_count: 1, missing_count: 2, known_sum: '0.000001', total: null, pricing_version_count: 1, ...change };
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}

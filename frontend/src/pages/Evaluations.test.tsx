@@ -70,3 +70,23 @@ test('SSE 연결 상태만 바뀌면 중복 조회하지 않고 새 상태 시�
   await screen.findByRole('table');
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+
+test('USD 소액·실제0·부분합·혼합 판본을 반올림 없이 표시한다', async () => {
+  const data = summaryFixture();
+  data.first.cost_usd = { reported_count: 2, missing_count: 1, known_sum: '0.000001', total: null, pricing_version_count: 2 };
+  data.all = { ...data.all, cost_usd: { reported_count: 3, missing_count: 0, known_sum: '0.000000', total: '0.000000', pricing_version_count: 1 } };
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view(); await screen.findByRole('table');
+  expect(screen.getByText('부분합 0.000001 USD · 1건 미보고')).toBeTruthy();
+  expect(screen.getByText('0.000000 USD')).toBeTruthy();
+  expect(screen.getByText('2종 (혼합)')).toBeTruthy();
+  expect(screen.getByText(/청구액이나 무료 사용 여부를 뜻하지 않습니다/)).toBeTruthy();
+});
+
+test('구버전 집계의 비용 누락은0 대신 미연결로 표시한다', async () => {
+  const data = summaryFixture();
+  delete data.first.cost_usd; delete data.retry.cost_usd;
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view(); await screen.findByRole('table');
+  expect(screen.getAllByText('비용 집계 미연결').length).toBe(3);
+});

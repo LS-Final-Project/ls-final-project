@@ -13,6 +13,20 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** 비용의 십진 문자열과 보고 범위를 보존한다. Args: 선택적 비용·시도 수. Returns: 검증한 비용 또는 구버전 미연결. */
+function cost(value: unknown, size: number): AttemptSummary['cost_usd'] {
+  if (value === undefined || value === null) return null;
+  const data = object(value);
+  const amount = (v: unknown): v is string | null => v === null || typeof v === 'string' && v.length <= 128 && v.trim() === v && /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(v);
+  if (!count(data.reported_count) || !count(data.missing_count) || data.reported_count + data.missing_count !== size
+      || !amount(data.known_sum) || !amount(data.total) || !count(data.pricing_version_count)
+      || data.pricing_version_count > data.reported_count) throw invalid();
+  if (data.reported_count === 0 ? data.known_sum !== null || data.pricing_version_count !== 0 : data.known_sum === null || data.pricing_version_count < 1) throw invalid();
+  if (data.total !== (size > 0 && data.missing_count === 0 ? data.known_sum : null)) throw invalid();
+  return { reported_count: data.reported_count, missing_count: data.missing_count,
+    known_sum: data.known_sum, total: data.total, pricing_version_count: data.pricing_version_count };
+}
+
 /** 허용한 집계 수치만 검증해 반환한다. Args: 최초/재시도/전체 값. Returns: 명시적 집계 DTO. */
 function attempt(value: unknown): AttemptSummary {
   const data = object(value);
@@ -44,6 +58,7 @@ function attempt(value: unknown): AttemptSummary {
     schema_violation_count: data.schema_violation_count as number,
     incomplete_evidence_attempt_count: data.incomplete_evidence_attempt_count as number,
     schema_violation_rate: data.schema_violation_rate,
+    cost_usd: cost(data.cost_usd, size),
     tokens, latency_ms: { reported_count: latency.reported_count, missing_count: latency.missing_count, p50: latency.p50, p95: latency.p95 },
   };
 }
