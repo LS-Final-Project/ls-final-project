@@ -30,7 +30,7 @@ _PHONE_ANNOTATION = re.compile(
     re.IGNORECASE,
 )
 # 제거 형식보다 넓게 남은 라벨을 찾아 접두사 우회도 입력 실패로 보류한다.
-_PHONE_UNSUPPORTED = re.compile(r"Urgency[*_`]*[ \t]*[:：]", re.IGNORECASE)
+_PHONE_UNSUPPORTED = re.compile(r"Urgency[*_`]*\s*[:：]", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+")
 _SERIAL = re.compile(
     r"(?i)(\b(?:serial(?:\s+(?:number|no\.?))?|s/n)|시리얼(?:\s*번호)?)"

@@ -384,3 +384,25 @@ def test_attached_phone_label_is_held(prefix):
             },
             sensitive_values={},
         )
+
+
+@pytest.mark.parametrize("annotation", ["Urgency\n: SAFETY", "Urgency:\r\nSAFETY"])
+def test_split_phone_annotation_is_held(annotation):
+    """줄바꿈으로 갈라진 주석을 삭제하거나 모델 입력으로 통과시키지 않는다.
+
+    Args:
+        annotation: 줄바꿈이 포함된 합성 주석.
+
+    Returns:
+        None: 원문 없는 보류 오류를 반환한다.
+    """
+    with pytest.raises(ValueError, match="^CS_UNSUPPORTED_PHONE_ANNOTATION$"):
+        build_input(
+            {
+                "channel": "PHONE",
+                "body_language": "en",
+                "subject": None,
+                "body": annotation + "\nTrip at 300 V.",
+            },
+            sensitive_values={},
+        )
