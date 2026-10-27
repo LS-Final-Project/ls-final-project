@@ -12,6 +12,6 @@
 ## 바꿀 때
 
 1. 원본 `ref/` 파일을 고치고 여기에 다시 복사한다. 이 폴더에서 직접 고치지 않는다.
-2. `rules.py`의 `POLICY_FILES` 해시를 새 값(`shasum -a 256 *.csv`)으로 바꾼다. 해시가 다르면 규칙 엔진이 시작하지 않는다.
-3. 우선순위 규칙 ID·순서·결과, SLA 시계(`24x7 calendar hours`)·위험 기준(75%)을 바꾸면 `rules.py`의 코드도 함께 바꿔야 한다. 표와 코드가 다르면 시작 시 실패한다.
+2. `rules.py`의 `POLICY_FILES` 해시를 새 값(`shasum -a 256 *.csv`)으로 바꾼다. 해시가 다르면 C/S 앱이 시작하지 않는다(`backend/api/cs/main.py`).
+3. 우선순위 규칙 ID·순서·결과, SLA 시계(`24x7 calendar hours`)·위험 기준(75%)을 바꾸면 `rules.py`의 코드도 함께 바꿔야 한다. 표와 코드가 다르면 C/S 앱 시작 시 실패한다.
 4. `POLICY_VERSION`이 바뀌므로 규칙 결과를 저장·평가할 때 판본이 구분된다.
