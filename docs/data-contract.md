@@ -131,8 +131,11 @@ version이 없어 최신 checksum은 확인하지 못했다. 10/25 기록의 MD5
 
 ### 데이터 관리자가 제공할 최소 인수 묶음
 
-원본과 `data/`는 수정하지 않는다. 이 개발 세션에서 통합 파일을 열어 분리하지 않는다.
-분리 작업은 원본 접근 권한을 가진 관리자가 별도로 수행하고 실행 이력을 남긴다.
+원본과 `data/`는 수정하지 않는다. 2026-10-27 사용자는 원본 보존 후 train/valid만 복사하는
+관리 작업을 허용했다. 이 예외는 `scripts/cs_dev_bundle.py`를 통한 기계적 분리이며, 통합
+파일을 평가 소비자나 모델 입력으로 사용하는 승인이 아니다. 시험 행도 분리 과정의
+프로그램 메모리에서는 읽으므로 접근 이력을 남기고, 본문·정답·시험 ID를 출력·저장하지
+않는다. 수행자 오새결은 AI·평가 구현 담당이며 독립 검수자로 표시하지 않는다.
 
 | 인수 항목 | 확인할 내용 | 미확보 시 처리 |
 | --- | --- | --- |
@@ -167,14 +170,114 @@ manifest와 파일 인수 이후에만 승인된 개발 자료에서 PHONE 주�
 
 [KAN-104의 기록](https://lsteam4.atlassian.net/browse/KAN-104?focusedCommentId=10248)에 따르면
 반품298건의 하위유형 정답과 경과시간 이상3건의 처리가 검수 대상이다. 이는 기존 검사자의
-보고이며 이번 원문 재검수 결과가 아니다. 부서 정답을 역산해 반품 하위유형 gold를 만들지
-않는다. 경과시간 이상을 이유로 해당 문의를 분류·긴급도 분모에서도 일괄 제외하지 않는다.
+보고이며 이번 원문 재검수 결과가 아니다. 부서 정답을 역산해 gold를 만들지 않는 것이 원칙이며,
+반품 하위유형만 2026-10-27 팀 합의([KAN-95 댓글 10324·10325](https://lsteam4.atlassian.net/browse/KAN-95?focusedCommentId=10325))로
+예외를 둔다. `RT-ALL-RETURN-NON_DEFECT`는 `NON_DEFECT`, `RT-<제품군>-RETURN`은 `DEFECT`로 변환하고,
+대조 전에 고정한 원문 판정은 정답이 원문과 모순되지 않는다는 근거로 따로 보존한다. 이 정답으로 낸
+KAN-104 반품 경로 일치는 정의상 일치이므로 독립 검증이 아니다. 경과시간 이상을 이유로 해당 문의를 분류·긴급도 분모에서도 일괄 제외하지 않는다.
 검수 양식 준비와 실제 사례 작성·교차검수 완료는 구분한다.
 
 KAN-104 소비자는 반품 하위유형 정답을 분리 자료 manifest의 `return_subtype_gold` 항목으로 받는다
 (`tests/cs/cs_dev_data.py`). 파일은 UTF-8 CSV의 `ticket_id,return_subtype`이며 값은 `DEFECT`,
 `NON_DEFECT`, 빈 값이다. 검수표 원본의 근거·판본·검수 상태를 이 두 열로 축소해 잃지 않도록
 별도 보존한 뒤, 승인된 개발 반품 대상만 소비자 형식으로 내보낸다. 빈 값은 미확인으로 보고되므로
-298건 전부의 재현 확정과 같지 않다. 소비자는 행을 읽기 전에 manifest의 SHA-256과 비교하고
+298건 전부의 재현 확정과 같지 않다. manifest의 `path`는 manifest 폴더 안을 가리켜야 하며 밖(상위 경로·절대 경로·밖으로 이어진 링크)은 거부한다. 소비자는 행을 읽기 전에 manifest의 SHA-256과 비교하고
 검수 판본(`review_version`)이 없으면 거부한다. 열 이름, 중복 ID, 대상 반품 집합과의 정확한 일치(누락·추가
 행), 허용값을 검사해 하나라도 어긋나면 실패한다.
+
+
+### 개발 분리와 전건 검수 준비
+
+`python scripts/cs_dev_bundle.py --source <읽기전용 원본> --output <새 artifacts 경로>
+--source-ref <원천 판본 참조> --authorization-ref <분리 승인 참조>`를 한 명령으로 실행한다.
+원본 전체를 한 번 읽어 train/valid만 남기고 불명 split·중복/누락 ID·건수 불일치는 실패한다.
+출력 디렉터리는 기존 경로 및 data 하위를 거부하며 디렉터리0700·파일0600으로 생성한다.
+Git 저장소 안에서는 `git check-ignore`로 제외 경로임을 확인하지 못하면 생성하지 않는다.
+공개 저장소에는 실제 CSV·검수 결과를 커밋하지 않는다. 이 명령은 원격 전송을 하지 않는다.
+
+출력은 `tickets.train.csv`, `tickets.valid.csv`, KAN-104 호환 `tickets.dev.csv`, `manifest.json`이다.
+manifest의 `tickets`는 PR73 소비 형식을 유지하고, `partitions`와 `provenance`는 파일별 hash·
+건수·원천 hash·승인 참조·처리 판본·시간·버린 시험 행 수를 보존한다. 검수 상태는 `pending`이다.
+로컬 제공 패키지의 원천을 사용할 때 Drive 최신 파일과 바이트 동일성을 확인하지 않았다면
+그 사실도 source_ref에 표시한다. 생성된 CSV는 규칙/정답 검수용으로 원천 정답 열이 포함되며,
+그대로 모델·검색에 넣지 않는다. 실제 분리 결과와 전달 위치·접근 이력은 Jira에 기록한다.
+
+전건 검수 양식은 아래 열을 사용한다. 실제 파일은 비공개 artifacts에 보관하고 공개 문서에는
+사례 본문을 복사하지 않는다. 반품 대상은 개발 RETURN 전체, 보조 분류 대상은 null 오류도
+찾도록 개발 문의 전체다. 빈 초안은 완료 gold가 아니며 `return_subtype_gold`로 연결하지 않는다.
+
+```csv
+case_id,field,source_ref,evidence_location,policy_version,candidate_value,review_status,reviewer,reviewed_at,reason,comparison_result
+```
+
+- 원문과 정책으로 먼저 후보·근거를 작성한다. 반품 후보 작성 단계에서는 assigned_dept와
+  routing_rule_id를 가리고, 1차 결과의 판본/hash를 고정한 뒤에만 대조한다.
+- 보조 분류는 [사용자 결정](evaluation.md#보조-분류와-정보-추출)을 따른다. `candidate_value`는
+  JSON 값으로 기록해 `null`과 빈 셀(미작성)을 구분한다. 상태는 `pending`·`confirmed`·`disputed`로
+  구분하고 미판정·정책 불명확 사유를 별도로 보존한다. 모델 후보는 사람 확정 전 pending이다.
+- Gemini 전건 사전 검토는 선택 가능한 보조 수단이며 파일 전달·사람 라벨링의 선행 조건이
+  아니다. 아직 실행 승인·모델·호출량이 확정된 것은 아니다.
+  원천 라벨·담당부서·규칙 ID·사후 해결 정보는 모델에 전달하지 않는다. 모델 출력만으로
+  정답 확정이나 사람 교차 검수 완료를 표시하지 않는다. 실제 호출 전에 입력 마스킹·정책
+  판본·최초 호출/재시도 구분·사용량 기록 및 최대 호출량을 검증한다.
+- 사람 교차 검수의 전건/표본 범위는 별도 결정한다. 불일치·근거 부족뿐 아니라 일치 건에도
+  공통 오류가 있을 수 있다. S15/current_fw는 전달받은 오류 후보이며 원문 확인 전 확정하지 않는다.
+- 우선순위 adjusted=N, 반품 미확인 보류, SLA 경과시간 전용 제외를 각각 기록한다. 원천 건수는
+  인수 시 재확인하며 한 지표의 제외를 다른 지표에 전파하지 않는다.
+
+### 개발 입력 정제 검수 도구 (KAN-93)
+
+`python -m scripts.cs_review_inputs --manifest <인수 manifest.json> --manifest-sha256 <인수 기록 hash> --output <새 artifacts 경로>`는
+KAN-83에서 승인된 개발 사본에만 적용한다. 통합 원본을 분리하거나 평가·모델 호출을 하지
+않는다. 인수 manifest hash·개발 split·폴더 내부 경로를 확인하고 기존 KAN-104 개발 로더로
+파일 hash·행 수·ID를 검사한다. 실행 중 manifest 변경은 실패하며 기존 전달 ZIP은 보존한다.
+
+제공 CSV의 inquiry_subject/inquiry_body를 subject/body로 연결하고 channel/body_language와
+함께 기존 `build_input`에 전달한다. 이 연결은 제공 자료 검수 전용이며 KAN-92의 공통
+입력 어댑터·외부 ID 매핑·민감값 식별 구현을 대신하지 않는다. 라벨·정답·규칙 ID·사후 기록은
+payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않아 `sensitive_values={}`를 명시하고
+기존 이메일·라벨형 시리얼 패턴만 적용한다. 이름·주소·라벨 없는 식별자 등 전체 개인정보가
+제거됐다는 보장은 없으며 **모든 정제 후보도 사람 개인정보 검수 pending, model_ready=0**이다.
+
+| 파일 | 내용과 사용 경계 |
+| --- | --- |
+| candidates.jsonl | 성공 사례의 case_id·privacy_review_status와 정제 payload 4필드. 모델 실행 승인 아님 |
+| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
+| review.boundaries.csv | 전건 개인정보와 선정된 경계별 미검수 질문·원문/후보 위치·판정 기록 칸. 본문/정답을 복사하지 않는 사람 검수 전용 |
+| summary.json | 입력/처리 판본·manifest/개발 파일 hash·출력 파일 hash·시간·전체/성공/보류·split/채널별 집계. 사례 ID 없음 |
+
+검수 그룹은 PHONE, 원천 SAFETY/SITE_DOWN, 보조 의도·반품·회신 존재, 원천 FLT-042 참조다.
+원천 라벨 기반 그룹은 확정 gold나 실제 위험 판정이 아니며 모델 payload와 별도로 저장한다.
+회신 그룹은 customer_followups 양수 여부만 표시하고 회신 본문·시점·해결 이력을 아직
+검수하지 않는다. 금지 문서 참조 표시 역시 실제 검색·인용 차단 검증을 뜻하지 않는다.
+모든 그룹 건수는 중복될 수 있으므로 합을 전체 사례 수로 사용하지 않는다.
+
+예상된 입력 오류는 사례별 보류로 남기고 원문을 저장하지 않는다. 예상 밖 오류는 안전한
+코드로 작업 전체를 실패시키며 부분 결과를 성공으로 내보내지 않는다. 출력은 기존 분리
+도구와 같은 Git 제외 경로·0700/0600·기존 파일 보존 규칙을 사용한다. KAN-95는 이 목록에서
+원문과 정제 결과를 대조하고 오탐/누락·정책 판본·gold·family·known_at을 별도 검수한다.
+원문 단위 사람 검수·오탐률·민감정보 완전성·실제 품질과 KAN-93 전체 완료는 아직 미확정이다.
+
+
+검수 도구 v2의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류,
+원천 SAFETY/SITE_DOWN·보조 의도·회신·금지 참조별로 한 행씩 준비한다. 반품 정답 양식은
+기존 `review.return_subtype.csv`를 사용하며 중복 생성하지 않는다. 그룹은 겹칠 수 있고 선정에
+원천 라벨을 사용하므로 독립적인 맹검 정답 판정용으로 사용하지 않는다. 그룹에 없는 사례도
+위험·복합 의도가 없다고 판정한 것이 아니다. `summary.boundary_review.checks`는 0건 항목도
+보존하며, 금지 참조 0건을 차단 검사 성공으로 해석하지 않는다.
+
+- `case_id_json`은 ID의 JSON 문자열이다. CSV 셀에서 수식처럼 시작하는 외부 ID도 텍스트로
+  보존하며, 프로그램에서 사용할 때 JSON으로 디코딩한다.
+- `source_sha256`는 승인 개발 CSV의 판본, `source_record`는 헤더를 제외한 1부터 시작하는
+  논리 레코드 번호다(멀티라인 본문이 있어 물리 줄 번호와 다름). `source_fields`는 확인할
+  칼럼 위치이며 의미상 정답 근거 구절을 자동 선정한 값이 아니다.
+- `candidate_record`는 함께 생성한 candidates.jsonl의 1부터 시작하는 줄 번호다. 입력 보류
+  사례는 빈 값이며, 삭제된 행이나 검수 제외가 아니다. `input_status/input_reason`은 기계적
+  정제 결과로 사람의 `review_status`와 구분한다.
+- 작성자는 원문/후보를 대조한 뒤 reviewer/reviewed_at/evidence_location/finding/reason을
+  기록한다. 생성 시 모두 빈 칸이고 review_status=pending, completed=0이다. 근거 위치에는
+  필드와 실제 구절 범위를 적고 민감값 원문을 그대로 복사하지 않는다. 회신은 현재 횟수만
+  인수됐으므로 본문·판본·known_at을 추가 확보하기 전 검수 완료로 바꾸지 않는다.
+
+이 CSV 편집은 모델 실행 승인이나 KAN-95 gold 잠금으로 자동 연결되지 않는다. 산출물은
+기존과 동일한 비공개 경로에 보관하며 실제 판정·인수 여부는 Jira에 기록한다.

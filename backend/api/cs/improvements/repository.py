@@ -1,0 +1,206 @@
+"""Queries for improvement requests. Tables come from infra/migrations/cs."""
+
+from typing import Any
+from uuid import UUID
+
+from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
+
+Row = dict[str, Any]
+
+REQUEST_COLUMNS = (
+    "id, request_type, origin, data_origin, derivation_kind, product_code, fault_id, "
+    "doc_signal, doc_id, condition_status, condition_summary, fw_fixed_version, "
+    "fw_released_on, status, version, current_round, cs_owner, problem_statement, "
+    "confirmed_facts, inconsistencies, missing_info, not_claimed, review_task, proposed_depts, "
+    "reviewed_by, reviewed_at, sent_at, followup_plan, followup_result, completed_by, "
+    "completed_at, created_by, created_at"
+)
+# Requests a department user may read: sent to the department in any round, or (for a
+# manager) proposed to a managed department.
+IN_DEPARTMENTS = (
+    "(EXISTS (SELECT 1 FROM cs.request_departments d "
+    "WHERE d.request_id = r.id AND d.dept_code = ANY(%(departments)s)) "
+    "OR (%(proposed)s AND r.proposed_depts && %(departments)s))"
+)
+LIST_LIMIT = 200
+
+
+async def list_requests(
+    conn: AsyncConnection[Row], departments: list[str] | None, proposed: bool
+) -> list[Row]:
+    where = f"WHERE {IN_DEPARTMENTS} " if departments is not None else ""
+    cursor = await conn.execute(
+        "SELECT r.id, r.request_type, r.product_code, r.fault_id, r.doc_signal, r.status, "
+        "r.version, r.cs_owner, r.problem_statement, r.created_at, "
+        "(SELECT count(*) FROM cs.request_evidence e "
+        "WHERE e.request_id = r.id AND e.removed_at IS NULL) AS evidence_count "
+        f"FROM cs.improvement_requests r {where}"
+        "ORDER BY r.created_at DESC, r.id DESC LIMIT %(limit)s",
+        {"departments": departments, "proposed": proposed, "limit": LIST_LIMIT},
+    )
+    return await cursor.fetchall()
+
+
+async def visible_to(
+    conn: AsyncConnection[Row], request_id: UUID, departments: list[str], proposed: bool
+) -> bool:
+    cursor = await conn.execute(
+        f"SELECT 1 FROM cs.improvement_requests r WHERE r.id = %(id)s AND {IN_DEPARTMENTS}",
+        {"id": request_id, "departments": departments, "proposed": proposed},
+    )
+    return await cursor.fetchone() is not None
+
+
+async def get_request(conn: AsyncConnection[Row], request_id: UUID) -> Row | None:
+    cursor = await conn.execute(
+        f"SELECT {REQUEST_COLUMNS} FROM cs.improvement_requests WHERE id = %s", (request_id,)
+    )
+    return await cursor.fetchone()
+
+
+async def lock_request(conn: AsyncConnection[Row], request_id: UUID) -> Row | None:
+    """Orders every change to one request: content, evidence, owner and later transitions."""
+    cursor = await conn.execute(
+        f"SELECT {REQUEST_COLUMNS} FROM cs.improvement_requests WHERE id = %s FOR UPDATE",
+        (request_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def insert_request(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.improvement_requests ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def update_request(
+    conn: AsyncConnection[Row], request_id: UUID, version: int, values: Row
+) -> None:
+    # Column names come from schemas.CONTENT_FIELDS or fixed route values only.
+    assignments = "".join(f"{name} = %s, " for name in values)
+    await conn.execute(
+        f"UPDATE cs.improvement_requests SET {assignments}version = version + 1, "
+        "updated_at = now() WHERE id = %s AND version = %s",
+        (*values.values(), request_id, version),
+    )
+
+
+async def insert_version(
+    conn: AsyncConnection[Row], request_id: UUID, version: int, content: Row, actor: UUID
+) -> None:
+    await conn.execute(
+        "INSERT INTO cs.improvement_request_versions (request_id, version, content, changed_by) "
+        "VALUES (%s, %s, %s, %s)",
+        (request_id, version, Jsonb(content), actor),
+    )
+
+
+async def list_versions(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT version, content, changed_by, changed_at FROM cs.improvement_request_versions "
+        "WHERE request_id = %s ORDER BY version",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def list_evidence(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT e.id, e.ticket_id, t.external_id AS ticket_external_id, e.case_id, "
+        "c.external_id AS case_external_id, e.added_by, e.added_at, e.removed_by, "
+        "e.removed_at, e.removal_reason "
+        "FROM cs.request_evidence e JOIN cs.tickets t ON t.id = e.ticket_id "
+        "LEFT JOIN cs.resolution_cases c ON c.id = e.case_id "
+        "WHERE e.request_id = %s ORDER BY (e.removed_at IS NOT NULL), e.added_at, e.id",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def ticket_and_case(
+    conn: AsyncConnection[Row], ticket_id: UUID, case_id: UUID | None
+) -> tuple[Row | None, Row | None]:
+    """The evidence ticket, and its resolution case if one is named and already known."""
+    cursor = await conn.execute(
+        "SELECT id, product_code FROM cs.tickets WHERE id = %s", (ticket_id,)
+    )
+    ticket = await cursor.fetchone()
+    case = None
+    if case_id is not None:
+        cursor = await conn.execute(
+            "SELECT id, ticket_id, product_code, fault_id FROM cs.resolution_cases "
+            "WHERE id = %s AND known_at <= now()",
+            (case_id,),
+        )
+        case = await cursor.fetchone()
+    return ticket, case
+
+
+async def insert_evidence(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.request_evidence ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def remove_evidence(
+    conn: AsyncConnection[Row], request_id: UUID, evidence_id: UUID, actor: UUID, reason: str
+) -> bool:
+    cursor = await conn.execute(
+        "UPDATE cs.request_evidence SET removed_by = %s, removed_at = now(), "
+        "removal_reason = %s WHERE id = %s AND request_id = %s AND removed_at IS NULL "
+        "RETURNING id",
+        (actor, reason, evidence_id, request_id),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def current_departments(conn: AsyncConnection[Row], request: Row) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT round, dept_code, status, carried_over, sent_version, reply_due_at, "
+        "rejection_reviewed_by, rejection_reviewed_at FROM cs.request_departments "
+        "WHERE request_id = %s AND round = %s ORDER BY dept_code",
+        (request["id"], request["current_round"]),
+    )
+    return await cursor.fetchall()
+
+
+async def list_replies(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT id, round, dept_code, request_version, reply_type, reason, replied_by, "
+        "replied_at FROM cs.dept_replies WHERE request_id = %s ORDER BY replied_at, id",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def list_actions(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT id, round, dept_code, action, action_scope, action_date, action_evidence, "
+        "recorded_by, recorded_at FROM cs.request_actions WHERE request_id = %s "
+        "ORDER BY recorded_at, id",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_audit(
+    conn: AsyncConnection[Row],
+    event_id: UUID,
+    request_id: UUID,
+    action: str,
+    version: int,
+    actor: UUID,
+    changes: Row,
+) -> None:
+    await conn.execute(
+        "INSERT INTO cs.audit_events "
+        "(id, entity_type, entity_id, action, version, actor_user_id, changes) "
+        "VALUES (%s, 'improvement_request', %s, %s, %s, %s, %s)",
+        (event_id, request_id, action, version, actor, Jsonb(changes)),
+    )

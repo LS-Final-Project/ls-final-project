@@ -52,4 +52,38 @@ COMMIT;
 
 LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단계에서 해당 역할로 수행한다. 런타임 계정으로 `.setup()` 같은 DDL 초기화를 호출하지 않는다.
 
+## 사서함 보관 준비 (KAN-81)
+
+현재 구현은 내부 보관 경계이며 공용 환경에는 미적용이다. 기존003 인증 점검과 기본
+로그인은 새 보관 테이블·키 없이 유지한다. 아래는 별도 운영 승인 후 운영자 터미널에서
+진행할 준비이며, 에이전트가 공유 DB나 Secret/IAM을 변경하지 않는다.
+
+1. 현재 연결 대상이 공용 프로젝트의 team4 DB인지 읽기 전용으로 확인한다. 기존 역할·identity
+   테이블과 새 mailbox_auth 스키마 존재/소유자를 확인하고, 기존 스키마가 있으면 덮어쓰거나
+   마이그레이션을 반복하지 않는다. 임시 검사 DB는 kan77_auth_test만 허용한다.
+2. 운영자 postgres 연결에서 `infra/migrations/platform/20261027_KAN-81_mailbox_vault.sql`을
+   `psql -X -v ON_ERROR_STOP=1 -f ...`로 한 번 적용한다. 이 파일은 새 스키마를 생성하므로
+   이미 있으면 실패한다. 플랫폼 런타임에는 새 스키마 USAGE와 테이블 DML만 부여하고
+   C/S·TFT·평가 worker에는 접근을 부여하지 않는다.
+3. platform_app 연결에서 `infra/sql/004_check_mailbox_vault.sql`을 같은 psql 검사 옵션으로
+   실행한다. 스크립트는 BEGIN READ ONLY/ROLLBACK으로 테이블·최소 권한·서비스 격리를
+   확인하며 캐시나 사용자 식별자를 출력하지 않는다. 기존003 점검에 보관 조건을 합치지 않는다.
+   PostgreSQL 행 잠금에는 identity.users/user_roles/sessions의 SELECT·UPDATE 권한도 필요하므로
+   기존 권한을 별도로 확인한다. 새 마이그레이션은 이 identity 권한을 추가하거나 확대하지 않는다.
+4. 별도 승인으로 보관 전용 32바이트 임의 키를 만들고 기존 플랫폼 계정만 읽을 수 있는
+   Secret Manager의 고정 버전에 등록한다. 표준 base64로 서버에 주입하며 시크릿 원문은
+   터미널 출력·명령행 인자·채팅·.env 예시에 남기지 않는다. 로그인 client secret이나 Gemini
+   키를 재사용하지 않는다. 실제 Secret 이름·버전/IAM·Cloud Run 주입은 운영자 작업이며 이번에 적용하지 않는다.
+   플랫폼의 `MAILBOX_AUTH_ENCRYPTION_KEY`·`MAILBOX_AUTH_KEY_VERSION`으로 받으며 웹에는 키를 주입하지 않는다.
+5. 초기 HTTP 경로는 웹·플랫폼의 `MAILBOX_AUTH_ENABLED=false`로 기본 차단된다. 기존 Web 앱에
+   정확한 사서함 callback을 추가하고 플랫폼 `MAILBOX_AUTH_REDIRECT_URI`를 준비한 뒤 별도 승인으로
+   배포·활성화한다. [HTTP/쿠키·CSRF 계약](../../contracts/platform/auth.md#사서함-초기-연결-http-기본-비활성-운영-미적용)을 따른다.
+   소비자 getter·실제 Graph 검증은 별도이며 키/SQL 준비만으로 업무 수집을
+   활성화하거나 KAN-80·81 전체 완료로 표시하지 않는다. 단일 키 버전이며 자동 키 회전은 없다.
+
+새 연결/해제/재연결은 현재 세션과 DB 권한을 확인해야 한다. 작업용 조회·갱신은 인증한
+서버 작업의 소유자를 사용하며, 브라우저가 보낸 ID를 그대로 넘기지 않는다. 외부 토큰 갱신
+중 DB 잠금을 유지하지 않고 저장 단계에서 현재 연결 개정을 재검사한다. 상세 호출 계약은
+[플랫폼 인증](../../contracts/platform/auth.md#사서함-보관-계층-kan-81-부분-구현-운영-미적용)을 따른다.
+
 근거: [PostgreSQL 스키마 권한](https://www.postgresql.org/docs/17/ddl-schemas.html), [생성자별 기본 권한](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html), [Cloud SQL 사용자 생성](https://docs.cloud.google.com/sql/docs/postgres/create-manage-users).

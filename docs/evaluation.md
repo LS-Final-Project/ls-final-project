@@ -29,7 +29,14 @@
 
 provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을 보고한다. 원문에 정보가 있다는 사실과 그 값이 정확한지는 구분하며 이미 제공한 정보를 재요청한 건수를 별도 채점한다. return_subtype은 POL-RETURN·routing_rules에 맞춘 사람 검수 정답으로 채점한다. 기존 tickets에 정답 열이 없다는 이유로 LLM 출력이나 담당부서 정답을 역산해 정답을 만들지 않는다. 미확인과 비해당 null은 검수 메타데이터에서 구분한다.
 
-보조 분류·provided_info·반품 하위유형의 추가 합격선, 다중 보조 의도의 선택 기준과 gold 매핑은 KAN-82·95에서 잠근 뒤 본실험을 시작한다. 아직 잠그지 않은 점수를 임의로 합격 처리하지 않는다.
+보조 분류의 선택 기준은 아래 2026-10-27 사용자 결정에 따른다. provided_info·반품 하위유형의 gold 매핑 및 각 추가 합격선은 KAN-82·95에서 잠근 뒤 본실험을 시작한다. 아직 잠그지 않은 점수를 임의로 합격 처리하지 않는다.
+
+2026-10-27 사용자 결정: 보조 유형 후보는 주분류와 다른 명시적 처리 요청이다. 하나이면
+그 후보를 선택하고, 여러 개이면 고객이 우선이라고 명시한 의도를 선택한다. 우선 근거가
+없거나 동률이면 임의 선택하지 않고 검수 보류한다. 보조 의도 없음은 `null` 정답으로,
+미판정은 별도 `pending` 상태로 기록한다. 보류를 null 정답이나 오답 없는 사례로 바꾸지
+않으며 전체 대상·채점 가능·보류 건수를 함께 보고한다. 이 선택 기준 확정은 사례별 gold
+검수나 합격선 확정을 뜻하지 않는다.
 
 ## 데이터와 안전 조건
 
@@ -58,8 +65,9 @@ hash·정확한 실행 시각·출력 열람자·다른 실행 이력은 이번�
 `csv.DictReader`로 행을 만든 **뒤** train/valid 여부를 검사했다. 따라서 평가 계산에 시험 행을
 사용하지 않는 것과 시험 본문·정답을 파싱하지 않는 것은 다르다. 이후 이 테스트는
 `CS_DEV_MANIFEST`의 분리된 개발 파일만 받으며, 행을 읽기 전에 파일 SHA-256을 manifest와 비교하고
-시험 분할이 든 manifest나 시험 행이 있는 파일을 거부한다(`tests/cs/cs_dev_data.py`). 통합 파일은
-manifest 해시와 맞지 않으므로 거부된다. 분리 자료와 manifest의 인수는 여전히 데이터 관리자가 한다.
+시험 분할이 든 manifest나 시험 행이 있는 파일을 거부한다(`tests/cs/cs_dev_data.py`). hash는 파일 무결성을 확인할 뿐 분리 승인을 증명하지 않는다. 잘못 승인된 통합 파일의
+시험 행은 파싱 후 거부하므로 비접근을 보장할 수 없다. 분리 자료와 manifest의 인수는
+데이터 관리자가 별도 기록으로 확인한다.
 KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행하지 않았다. 변경 전 테스트를 통합 파일로 실행한 10/27 김나영 세션의 이력은 KAN-104 댓글 10248·10261에 있다.
 
 앞선 [10/25 감사 기록](https://lsteam4.atlassian.net/browse/KAN-83?focusedCommentId=10140)의
@@ -72,6 +80,294 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 다섯 출력 계약은 유지하며, KAN-82·95의 C/S 미정 기준을 임의로 확정하지 않는다. 검수 전
 반품 하위유형·누락 정보 코드를 추측해 본실험을 시작하지 않는다.
 
+## C/S 반품 하위유형 정답 잠금 (KAN-95)
+
+2026-10-27에 개발 반품 298건(학습 245·검증 53)의 하위유형 정답을 잠갔다. 시험 분할은 쓰지 않았다.
+정답 파일은 문의 정답 열에서 만든 데이터라 저장소에 넣지 않고, 아래 판본과 hash로만 기록한다.
+
+| 항목 | 값 |
+| --- | --- |
+| 판본 | `routing-derived-v1-team-agreed-20261027` (manifest `return_subtype_gold.review_version`) |
+| 정답 파일 SHA-256 | `4dfe4ac67708003d4ca12f4ac1976494c4126c2e3cbab2d9514768c89a1b76c1` |
+| 형식 | `ticket_id,return_subtype` 298행, 빈 값 0 |
+| 건수 | DEFECT 147(학습 123·검증 24), NON_DEFECT 151(학습 122·검증 29) |
+| 변환 규칙 | `RT-ALL-RETURN-NON_DEFECT` → NON_DEFECT, `RT-<제품군>-RETURN` → DEFECT |
+| 합의 | [KAN-95 댓글 10324 제안·10325 잠금](https://lsteam4.atlassian.net/browse/KAN-95?focusedCommentId=10325), 오새결·김종하 동의(사용자 전달) |
+
+[데이터 계약](data-contract.md)의 역산 금지 원칙에서 반품 하위유형만 예외로 둔 판본이다. LLM 입력은
+채널·언어·제목·본문뿐이라 이 정답으로 LLM의 하위유형 판정을 채점해도 순환되지 않는다.
+
+**원문 대조**: routing_rule_id 대조 전에 고정한 AI(Claude) 원문 판정(v1)과 248건 일치했다.
+불일치 50건은 모두 배송 중 파손이다. 반품 정책 판 C에 분류가 없어, 제공 데이터의 처리 관행(제품군 반품
+규칙, 품질보증 창구)을 따라 DEFECT로 둔다. 원문과 정면으로 모순되는 건은 0건이다.
+
+**검수 수준**: 제공 데이터 처리 결과 기반 + AI 두 개(Claude 1차 판정, Codex 보조 검토)의 원문 대조 +
+팀 합의. 사람 298건 독립 검수는 하지 않았다. 배송 파손 중 "포장 OK" 12건의 사람 확인은 기록되지 않았다.
+
+**사용 범위와 한계**
+- 이 정답으로 낸 KAN-104 반품 경로 재현 일치는 정의상 일치이며 정책표 연결 확인이다. 독립 검증이 아니다.
+- 제공 데이터의 처리 자체가 틀린 건은 걸러지지 않는다.
+- 정책 판 C가 배송 파손 분류를 정하거나 현업 기준이 확인되면 판본을 새로 만든다. 이 판본을 덮어쓰지 않는다.
+
+**KAN-95 남은 범위**: 보조 분류 3,403건 검수, 나머지 분류 필드의 정답/null 검수, 규칙 평가 제외
+사유·분모 검수, 독립 최종셋 확보 여부 결정.
+
 ## RFP 및 나머지 지표 잠금
 
 RFP 기획서의 역할 precision/recall, 근거 정확도, 요청서 필수값, 가상 경력·가용성 생성, 공백 탐지 및 상태 전이를 각각 검수한다. 미기재·미확인·미충족을 구분하고 부서 검증과 지정 책임자 확정을 합치지 않는다. OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
+
+### KAN-88 최초 주분류 집계 첫 단위
+
+`eval.cs_metrics.summarize_category_first_attempts(gold, attempts)`는 사전 잠금 대상 ID→주분류
+정답과 ID→`ClassificationAttempt`를 받는 순수 집계다. 실제 정답 검수/사용 승인은 호출자
+책임이며 파일이나 DB를 읽거나 모델을 호출하지 않는다. 기존 10개 주분류 enum을 고정 평균
+목록으로 사용하고 클래스별 support/TP/FP/FN/P/R/F1, 정오와 혼동행렬을 반환한다.
+
+최초 시도(번호1)만 허용하며 재시도·추가 대상 ID·불명 정답·상태/예측 모순은 오류다.
+고정 대상에 시도 기록이 없으면 NOT_STARTED, 보류/실패는 해당 상태로 유지하며 모두
+무예측 열(NO_PREDICTION)과 정답 클래스 FN에 포함한다. 유효 출력만 추려 분모를 줄이지
+않는다. 예측 없는 값을 NONE 긴급도나 null 정답으로 치환하지 않는다. 대상이 아예 없으면
+accuracy/macro_f1은 null이며 합격 판정을 만들지 않는다. 비어 있는 클래스의 F1은 0이다.
+
+반환 사례 기록은 ID·정답/예측 코드·상태·정오이며 원시 응답·오류 원문·토큰을 포함하지
+않는다. 이 집계의 quality_gate_evaluated는 항상 false다. 이번 검증은 합성 사례의 계산
+회귀이며 실제 품질 합격 근거가 아니다. 최초/최종
+비교, 지연·사용량·비용·퇴행, 실제 DB/화면 연결과 잠긴 정답 인수는 남아 있다.
+
+
+### KAN-88 최초 긴급도·위험 누락 집계
+
+`eval.cs_metrics.summarize_urgency_first_attempts(gold, attempts)`는 같은 최초 시도 계약으로
+긴급도 6클래스의 P/R/F1·macro-F1·정오·혼동행렬을 계산한다. 비NONE의 support는 gold가
+NONE이 아닌 전체 대상이며, detected는 이 중 유효 예측도 NONE이 아닌 수다. 실패·보류·
+미실행은 detected에 포함하지 않는다. support=0이면 비NONE recall은 null이다.
+
+CRITICAL은 gold SAFETY/SITE_DOWN 전체와 유형별 support/missed를 함께 반환한다.
+SAFETY↔SITE_DOWN 혼동은 일반 긴급도 오분류로 계산하지만 CRITICAL 누락은 아니며,
+두 방향의 혼동 수를 별도로 기록한다. 다른 비NONE 긴급도로 예측한 경우 비NONE 탐지는
+성공이어도 CRITICAL 누락이다. 사례별 critical_missed로 누락 대상을 찾을 수 있다.
+CRITICAL support=0/missed=0은 위험 누락 검증 성공을 뜻하지 않는다. 합격 판정은 여전히
+수행하지 않으며 실제 정답·모델·DB·화면 연결을 완료한 결과로 사용하지 않는다.
+
+
+### KAN-88 최초 보조 분류 집계
+
+`eval.cs_metrics.summarize_secondary_first_attempts(gold, attempts)`의 gold는 검수된 유형
+또는 의도 없음(None)이다. 미검수·충돌 상태를 None으로 바꾸면 안 되며, 빈 문자열과
+내부 행렬 표식은 정답으로 허용하지 않는다. 최초 시도 검사와 실패 분모는 기존과 같다.
+
+전체 accuracy는 null 정답도 포함한 정확 일치율이다. 유효 응답의 null은 행렬의
+NO_SECONDARY, 실패/보류/미실행은 NO_PREDICTION 열로 구분한다. 사례별 prediction은
+둘 다 null일 수 있으므로 outcome과 correct를 함께 사용한다. null 정답이라도 실행 실패는
+오답이다. 없는 의도 생성은 null 정답 대상 중 유효한 비null 예측 수이며 실패와 섞지 않는다.
+
+composite는 gold가 비null인 대상 행만 분모로 사용하고 고정 10개 유형의 P/R/F1·macro-F1을
+반환한다. 이 부분집합에서 null 예측·실패도 FN이다. null 정답 행의 잘못된 의도 생성은
+composite FP에 포함하지 않고 absent.invented와 전체 행렬에 별도로 보존한다. 전체
+per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모가 다르다.
+복합 의도 대상0이면 composite.macro_f1=null이며, null 포함 전체 macro-F1은 제공하지
+않는다. 합격선/실제 정답 잠금 및 품질 합격 판정은 별도이며 자동 승인하지 않는다.
+
+
+### KAN-88 언어·채널별 최초 집계
+
+`eval.cs_strata.summarize_first_attempts_by_group(gold, attempts, metadata, metric=...)`는
+category/urgency/secondary 중 한 지표를 기존 집계 함수로 계산한다. metadata는 고정 대상
+ID별 channel/body_language만 받으며 본문·정답·임의 필드를 추가하면 오류다. 전체 지표는
+고정 대상 전체에서 직접 계산하고 그룹 점수의 단순 평균으로 대체하지 않는다.
+
+각 축(channel, body_language, phone)은 대상마다 정확히 한 그룹을 부여한다. 메타데이터
+행·키 누락 또는 None은 UNKNOWN으로 남기며, 채널 미확인을 NON_PHONE에 합치지 않는다.
+빈 문자열·불명 채널·언어 태그 형식 위반은 누락으로 보정하지 않고 오류다. 언어는 기존
+입력 형식(en/ko/en-US 등, 최대32자)을 따르며 표기를 자동 합치지 않는다. 대상 밖
+메타데이터/시도나 재시도는 그룹 필터로 숨기기 전에 거부한다.
+
+전체/각 그룹은 미실행·실패를 포함한 기존 지표 계약을 유지한다. 각 축의 total 합은 전체
+total과 같고 missing_metadata는 채널/언어 누락 건수다. 축 간 그룹은 중복되므로 서로
+더하지 않는다. 나타나지 않은 그룹은 생성하지 않으며 대상0은 빈 그룹 목록과 null 점수다.
+PHONE 주석 제거 판본·처리 건수 및 누설 조건은 기존 입력 감사 기록에서 별도로 확인한다.
+이 집계만으로 누설 제거·정답 잠금·실제 품질 합격이 검증되지는 않는다.
+
+
+### KAN-88 저장된 최초 시도 집계
+
+`eval.cs_stored_metrics.summarize_stored_first_attempts(conn, run_id, gold,
+gold_version=..., metric=...)`는 내부 평가 도구용 읽기 함수다. 호출자가 먼저 실행 조회
+권한과 정답 인수/잠금을 확인한 DB 연결을 전달해야 한다. 공개 API 인증·평가자 권한을
+대신하지 않으며 새 API나 DB 권한을 추가하지 않는다. 실제 정답 잠금 여부를 이 함수가
+보증하지 않는다.
+
+한 SELECT에서 실행·실험의 고정 대상·최초 classify 시도를 읽고, gold ID 집합과
+requested_count 및 gold_version이 일치하지 않으면 거부한다. 없는 run도 오류다.
+실험 대상의 attributes 중 channel/body_language만 가져오며 누락은 UNKNOWN이다.
+사례나 최초 시도가 없더라도 고정 대상은 NOT_STARTED로 남긴다. 진행 중 결과는 해당
+조회 시점의 스냅샷이며 run_status와 함께 반환한다. 후속 시도만 있는 비정상 기록 역시
+최초 시도가 없는 상태로 남고 후속 성공으로 대체하지 않는다.
+
+attempt=1, step=classify만 선택하며 is_final·cases.final_output을 채점에 사용하지 않는다.
+저장된 parsed_output의 5필드 스키마/관계와 outcome 일관성을 재검사한다. 원시 응답,
+오류 원문, 입력 본문과 사용량은 조회하지 않는다. 출력에는 기존 집계의 정답/예측 코드가
+포함되므로 일반 사용자 응답으로 그대로 공개하면 안 된다. 원시 출력 잠금은 유지한다.
+정답 판본 일치는 정답 내용의 교차검수 증명이 아니며 실제 품질 합격 판정은 하지 않는다.
+연결의 트랜잭션과 권한 수명은 호출자가 관리한다. DB 오류를 빈 집계로 숨기지 않는다.
+
+
+### KAN-88 최초/최종 정오 비교
+
+`eval.cs_stored_metrics.compare_stored_attempts(conn, run_id, gold, gold_version=..., metric=...)`
+는 최초 집계와 최종 시도 정오를 같은 SQL 스냅샷에서 비교한다. 기존 내부 조회 권한·정답
+인수 책임과 원시 출력 잠금을 유지한다. `first`는 기존 최초 집계 계약 그대로이며 주 품질
+지표다. `final`은 별도의 정확 일치율·상태별 건수이며 최초 macro-F1이나 실패를 대체하지
+않는다. 최종 품질 지표 확대는 아래 최종 품질 절을 따른다. 재시도 실행 기능은 포함하지 않는다.
+
+최종 선택은 classify의 `is_final=true` 행만 따른다. 표시가 없으면 NOT_FINAL이며 최신
+시도나 cases.final_output으로 추정하지 않는다. 최종 정확도의 분모도 고정 대상 전체다.
+미확정/실패는 정답으로 세지 않고, 보조 분류 null 정답도 유효 null 출력일 때만 맞는다.
+진행 중 실행에서는 조회 시점의 잠정 비교다. 후속 처리가 끝났다는 승인 의미는 없다.
+
+전이는 RECOVERED(최초 오답→최종 정답), REGRESSED(정답→오답), STILL_CORRECT,
+STILL_INCORRECT, FINAL_PENDING(최종 표시 없음)으로 나눈다. 다섯 건수 합은 전체 대상
+수와 같다. 사례별 최종 시도 번호·예측 코드·정오를 반환한다. 최초 시도가 없는데 최종만
+있거나, 더 뒤의 classify 시도가 있는데 이전 행이 최종이거나, 최종 행에 종료 시각이
+없으면 오류다. 최종 스키마/상태 모순도 거부한다. 번호가 가장 크다는 이유로 최종을
+자동 선택하거나 실패를 지우지 않는다. 다른 처리 단계의 시도는 비교 대상이 아니다.
+
+
+### KAN-88 저장 시도의 지연·토큰·비용
+
+`eval.cs_usage.summarize_stored_usage(conn, run_id)`는 조회 권한을 확인한 내부 연결에서
+분류(classify) 시도만 읽는다. 한 SQL 스냅샷의 first(번호1), retry(번호2 이상), all을
+분리하며 is_final이나 성공 여부로 사용량을 버리지 않는다. 고정 대상 수와 requested_count를
+대조하고 최초 행 없는 대상 수도 반환한다. 없는 실행은 오류다. 원시 출력·정답은 읽지 않는다.
+
+stored_attempt_count는 저장 행 수이며 외부 호출 수가 아니다. 현 저장 필드만으로 호출
+여부·미저장 호출을 확정할 수 없다. HELD/실패와 미종료 행도 보존하고 outcome별 건수와
+unfinished_attempt_count를 제공한다. 실행 중 결과는 조회 시점의 잠정 값이다.
+
+토큰 5종은 각각 reported_count/missing_count/known_sum/total을 반환한다. 일부가 null이면
+known_sum은 확인된 부분합이고 total은 null이다. 관측값이 전혀 없거나 시도0이면 두 합계도
+null이며, 보고된 0은 그대로 0이다. total_tokens를 다른 항목에서 유도하지 않으며 캐시·추론
+토큰을 입력/출력에 다시 더하지 않는다. 실패 시 이미 저장된 사용량도 동일하게 합산한다.
+
+지연은 보고된 latency_ms만 사용해 정렬 후 (n-1)q 위치에서 선형 보간한다(p50:q=.5,
+p95:q=.95). 표본0은 null, 표본1은 그 값이다. 누락 수와 미종료 행 수를 함께 해석해야 한다.
+저장된 시도 지연이며 실제 API 전체 응답 시간이나 성공 호출의 지연으로 주장하지 않는다.
+
+비용도 같은 누락 규칙을 적용하고 USD Decimal을 정확한 십진 문자열로 반환한다. 저장된
+비용의 pricing_versions를 함께 제공하며 서로 다른 가격표의 저장 USD 금액은 합산하되
+재가격 계산은 하지 않는다. 가격표가 없거나 빈 값인 비용·비유한 비용은 오류다. null 비용을
+무료/0으로 보정하거나 미보고 토큰으로 추정하지 않는다. 이 내부 집계는 청구서 검증·실제
+모델 사용량 검증·운영 성능 합격·공개 API/UI 연결 완료를 의미하지 않는다.
+
+여기서 total은 선택된 **저장 시도**가 모두 보고한 경우의 합계다. 미저장 시도·미실행 대상의
+비용까지 알려졌다는 뜻이 아니다. target_count/targets_without_first_attempt와 실행 상태를
+함께 확인해야 하며, 일부 대상만 실행된 0 합계를 전체 실행 무료로 해석하지 않는다.
+
+
+### KAN-88 기준선 대비 최초 품질 비교
+
+`eval.cs_stored_metrics.compare_stored_runs(conn, baseline_run_id, candidate_run_id, gold,
+gold_version=..., metric=...)`는 사용자가 지정한 서로 다른 종료 실행의 최초 시도만 비교한다.
+두 실행을 한 SQL 스냅샷에서 읽고 동일한 현재 집계 코드로 다시 계산한다. 호출자는 두 실행의
+조회 권한과 고정 정답 인수를 확인해야 한다. 이 함수는 승인·배포·합격 여부를 결정하지 않는다.
+
+purpose/data_origin/dataset_hash/data_split/gold_version/target_set_hash/policy_version,
+실제 대상 ID 집합과 대상별 channel/body_language가 일치해야 한다. 각 실행의 요청 건수와
+인수 gold 대상도 기존 최초 집계에서 다시 대조한다. 불일치를 필터링하거나 교집합으로
+축소하지 않는다. 진행 중/없는 실행/자기 자신과 비교는 거부한다. 종료한 실패·취소 실행은
+비교할 수 있으며 미실행과 실패도 분모에 남긴다.
+
+모델·프롬프트·입력 변환 판본·구성 hash는 비교 변수일 수 있으므로 일치를 강제하지 않고
+각 실행의 settings에 기록한다. 그 밖의 비교 조건은 conditions에 남긴다. 같은 판본 표기는
+정답 내용의 교차검수 증명이 아니며 실제 잠금 확인은 호출자 책임이다.
+
+baseline/candidate는 기존 최초 지표·언어/채널 보고서다. delta는 **후보-기준**으로 계산하며
+accuracy/macro-F1(보조 분류는 composite_macro_f1), 비NONE 재현율/CRITICAL 누락 또는
+불필요한 보조 의도 생성 수를 비교한다. 누락/오류 건수는 양수일수록 악화이고 점수는 반대다.
+어느 쪽이든 계산 불가(null)이면 차이도 null이다. 점수 평균 차이만으로 회귀가 없다고
+판정하지 않는다. 사례별 IMPROVED/REGRESSED/STILL_CORRECT/STILL_INCORRECT와 긴급도
+새 CRITICAL 누락·복구를 함께 반환한다. 전이 건수 합은 고정 대상 수와 같다.
+이번 비교는 최초 품질에 한정하며 최종 시도 품질·사용량/지연 차이·통계적 유의성·자동
+합격선·공개 API/UI는 포함하지 않는다. 정답/예측 코드가 포함된 내부 보고서를 일반 응답에
+그대로 공개하면 안 된다.
+
+
+### KAN-88 최종 시도 품질 지표
+
+`compare_stored_attempts`의 v2는 기존 first와 전이/cases 필드를 유지하고 final에 주분류·긴급도
+macro-F1, 혼동행렬·클래스별 P/R/F1, 비NONE 재현율·CRITICAL 누락/유형별 누락/상호 혼동,
+보조 분류의 복합 의도 macro-F1·없는 의도 생성 수를 추가한다. 최초 지표는 계속 주 품질
+지표이며, 최종 개선으로 최초 오류를 덮어쓰지 않는다. 최종 지표는 전체 집계이며 언어·채널별
+최종 세분화와 실행 간 최종 비교는 이번 단위에 포함하지 않는다.
+
+순수 계산 함수 `eval.cs_metrics.summarize_final_attempts(gold, attempts, metric=...)`는
+호출자가 선택·검증한 최종 시도를 받는다. DB의 is_final/최신 번호/종료/출력 일관성은 기존
+저장 비교 함수가 확인한다. 순수 함수 자체가 권한이나 최종 표시를 검증했다고 주장하지 않는다.
+최초 함수들은 계속 번호1만 허용하며 기존 판본/응답을 유지한다. 수식은 최초·최종이 공유한다.
+
+최종 보고서는 `cs-{category|urgency|secondary}-final-attempt-v1`, selection=is_final을 쓰고
+사례별 attempt_number는 실제 번호(미확정이면 null)다. 번호를1로 바꿔 최초 보고서로 포장하지
+않는다. 미확정은 NOT_FINAL·무예측으로 고정 분모와 정답 클래스 FN에 포함한다. 유효한 보조
+분류 null과 실패·미확정의 null은 outcome과 정오로 구분한다. 전체 null 포함 보조 macro-F1은
+제공하지 않고 기존 복합 의도 부분집합 계산을 그대로 사용한다. 대상0/비NONE0/복합대상0은
+해당 점수null이며 합격 판정은 없다. 원시 출력·정답 접근 잠금과 호출자의 인수 책임은 유지한다.
+
+
+### KAN-88 원시 응답·스키마·사례 폴백 감사
+
+`eval.cs_response_audit.summarize_stored_response_audit(conn, run_id)`는 권한을 확인한 내부
+연결에서 classify 시도의 **원시/구조화 출력 존재 여부만 SQL에서 계산**한다. 원시·구조화
+출력 내용, 정답, 오류 원문은 DB 연결 밖으로 가져오지 않는다. 첫 시도/재시도/전체를
+분리하며 final 표시나 재시도 성공으로 최초 스키마 위반을 지우지 않는다.
+
+스키마 위반율은 저장된 SCHEMA_VIOLATION 수/저장 원시 응답 수다. 빈 문자열 응답도
+저장값이 null이 아니면 응답1건이다. 분모0은 null이다. VALID/SCHEMA_VIOLATION인데
+원시 증거가 없거나, 다른 상태에 원시 증거가 있거나, VALID 여부와 구조화 출력 존재가
+모순되거나, 시도가 미종료이면 해당 묶음의 위반율을 null로 보류한다. 이때 위반 건수와
+관측 분모는 그대로 반환하고 incomplete_evidence_attempt_count와 문제 유형별 건수를
+함께 보여준다. 유형별 문제는 중복 가능하며 합이 시도 수라는 의미는 아니다.
+
+이는 저장 기록의 존재/상태 감사이며 원문을 재파싱하는 검사가 아니다. 실제 응답이 있었어도
+저장되지 않았거나 삭제된 자료는 이 집계로 복원할 수 없다. 전송 실패·타임아웃·보류는 상태별
+건수로 분리하며 저장 시도 수를 실제 외부 호출 수로 간주하지 않는다. 합격 판정은 하지 않는다.
+
+case_fallback은 고정 대상별 사례 플래그를 중복 없이 집계한다. recorded_used와
+recorded_not_used는 현재 기록값이며 missing_case와 함께 target_count를 이룬다.
+pending_case는 그 안의 아직 진행 중인 사례 수다. 기본false인 미실행 사례가 있다고 해서
+최종 폴백 미사용이 확정된 것은 아니다. 플래그는 사례 전체의 것으로 분류 단계별 폴백
+발생이나 폴백 결과의 정답 여부를 증명하지 않는다. 원시 위반과 최종 성공·폴백은 서로 다른
+축으로 유지한다. 폴백 실행기·품질 결과 API/UI 연결·실제 호출 검증은 별도 작업이다.
+
+
+### KAN-88 한 실행의 통합 보고서와 합성 CLI
+
+`eval.cs_report.build_stored_report(conn, run_id, gold, gold_version=...)`는 지표별 정답 맵
+(category/urgency/secondary)을 받아 최초/최종 품질 3종·사용량·응답 감사를 한 보고서로 묶는다.
+새 `REPEATABLE READ READ ONLY` 트랜잭션을 직접 열므로 모든 집계가 같은 DB 스냅샷을 본다.
+다른 연결이 중간에 commit해도 다음 보고서부터 반영된다. 이미 트랜잭션이 진행 중인 연결은
+호출자의 commit/rollback을 대신하지 않고 거부한다. 보고서 오류는 전체 실패이며 부분 성공
+보고서를 반환하지 않는다. 종료 후 연결은 계속 사용할 수 있다.
+
+보고서 판본은 cs-run-report-v1이며 실행/실험 ID·상태·분모·판본/구성 hash를 기록한다.
+generated_at은 트랜잭션 시작 시각이며 실시간 최신 상태를 보증하지 않는다. 구성 JSON 전체,
+원시 출력·정답 원문은 내보내지 않지만 정답/예측 코드가 포함된 내부 보고서이므로 공개 API
+응답으로 그대로 사용하면 안 된다. 조회 권한과 실제 정답 잠금 확인은 호출자 책임이다.
+
+다음 CLI는 local/test의 기존 고정 C/S 합성 실행만 읽는다. 실행을 생성하거나 모델을 호출하지
+않으며 production·실자료·시험 분할·다른 프로필은 거부한다. 운영 세션 API가 아닌 DB 접근권을
+가진 내부 검사 도구이며 새 사용자 권한을 부여하지 않는다.
+
+```sh
+# 전용 로컬 검사 DB의 연결 문자열을 환경에 설정한다(공용 DB 사용 안 함).
+export ENVIRONMENT=test
+export EVALUATION_REPORT_DATABASE_URL='<전용 검사 DB 연결 문자열>'
+mkdir -p artifacts
+python -m eval.cs_report --run-id '<기존 합성 실행 UUID>' --output artifacts/cs-run-report.json
+```
+
+CLI 기대 정답은 모든 합성 대상의 category=RETURN, urgency=NONE, secondary=null로 지정한
+연결 검사용 값이다. 실제 라벨/품질 결과가 아니며 synthetic_gold_fixture=cs-report-demo-gold-v1로
+표시한다. 실험 gold_version을 임의로 잠그거나 실제 미검수 값을 대체하지 않는다. 결과는
+소유자 전용(0600) 새 JSON 파일에만 저장하고 기존 파일/심볼릭 링크를 덮어쓰지 않는다.
+오류는 고정 코드로만 출력하며 DB 접속 정보나 오류 원문을 노출하지 않는다. 이 기능은
+보고서를 내부에서 확인하는 경로이며 공개 웹 결과 화면·실제 평가 실행·품질 합격은 별도다.

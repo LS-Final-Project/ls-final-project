@@ -89,7 +89,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | 필드 | 형식과 의미 |
 | --- | --- |
 | `category_code` | 주된 처리 의도 하나. `TECH_SPEC`, `INSTALL`, `WARRANTY`, `ORDER_LEAD`, `MANUAL`, `DEFECT`, `COMPLIANCE`, `QUOTE`, `FW_UPDATE`, `RETURN` 중 하나 |
-| `secondary_category` | 원문에 별도의 처리 의도가 명시된 경우 보조 유형 하나. 주분류와 같은 enum이며 주분류와 같은 값은 금지. 복합 의도가 없으면 JSON null. 여러 보조 의도 중 선택 및 정답 검수 기준은 KAN-95에서 잠금 |
+| `secondary_category` | 원문에 별도의 처리 의도가 명시된 경우 보조 유형 하나. 주분류와 같은 enum이며 주분류와 같은 값은 금지. 복합 의도가 없으면 JSON null. 여러 후보는 고객이 명시한 우선 의도로 선택하고 우선 근거가 없으면 검수 보류. [평가 명세](../../docs/evaluation.md)의 사용자 결정에 따르며 사례별 정답은 KAN-95에서 검수 |
 | `urgency_flag` | urgency_codebook의 `SAFETY`, `SITE_DOWN`, `PROD_IMPACT`, `COMMISSION`, `DEADLINE`, `NONE` 중 하나. 우선순위 자체를 생성하지 않음 |
 | `provided_info` | 원문에서 제공 여부를 확인한 정보 항목 코드의 중복 없는 배열. info_field_codebook에 있는 코드만 사용하며 없으면 `[]`. 시리얼 원값이나 개인정보를 반환하지 않음 |
 | `return_subtype` | 반품 의도가 확인되면 품질·불량 반품 `DEFECT` 또는 비불량 반품 `NON_DEFECT`. 반품 의도가 없거나 근거가 부족하면 null. POL-RETURN 및 routing_rules의 NON_DEFECT 예외에 맞춰 KAN-95에서 정답 매핑 검수 |
@@ -119,7 +119,8 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 - **정책표 변경**: 파일 해시와 코드가 맞지 않으면 C/S 앱이 시작할 때(`create_app`) 실패한다. 절차는 `backend/engine/cs/policy/README.md`.
 - **제공 데이터 재현**(`tests/cs/test_rules_reproduction.py`): 데이터 관리자가 물리적으로 분리한 학습·검증 파일과 manifest를 `CS_DEV_MANIFEST`로 지정했을 때만 실행한다. 형식과 검사는 `tests/cs/cs_dev_data.py`가 정한다. 파일마다 행을 읽기 전에 manifest의 SHA-256과 비교하고, manifest가 시험 분할을 포함하거나 파일에 시험 행이 있으면 거부한다. 통합 `tickets.csv`는 쓰지 않는다([평가 명세](../../docs/evaluation.md)). 반품 하위유형 정답(KAN-95)은 manifest의 `return_subtype_gold`(`ticket_id,return_subtype`, 해시·검수 판본 필수)로 받는다. 중복 ID, 대상 반품 집합과 다른 행(누락·추가), 허용값 밖의 값은 거부하고, 빈 값은 미확인으로 따로 보고한다.
   - 참고 수치(회귀 참고값, 독립 검증 아님): 10/27 김나영 세션이 위 변경 전의 테스트로 통합 `tickets.csv`를 파싱해 학습·검증 3,403건을 계산한 결과다. 시험 행도 파싱됐으며 사용 이력은 KAN-104 댓글 10248·10261과 KAN-83에 기록했다. 우선순위 `priority_adjusted_by_agent=N` 3,303건 일치(1.000), 제품군 3,403건, 반품 외 담당 부서·규칙 ID 3,105건, SLA 목표 3,403건, 경과 시간·상태 3,400건 일치. 반품 298건은 두 정책 부서 중 하나와 일치. `customer_wait_hours`가 음수인 3건(CSV1-003890, CSV1-003946, CSV1-003951, 첫 응답이 기준일 뒤)은 경과 시간 검사에서 ID로 제외한다.
-  - 분리 자료로는 아직 실행하지 않았다. KAN-104의 재현 확정은 분리된 개발 파일·manifest와 반품 하위유형 정답(KAN-95)을 받은 뒤 이 테스트를 실행해서 한다. [사용 이력 판정과 분리 입력 인수 조건](../../docs/evaluation.md#cs-사용-이력과-검수-준비-kan-83)을 먼저 적용한다.
+  - 분리 자료 재현(10/27, 김나영 세션): 오새결님이 분리한 학습 2,800·검증 603건(manifest SHA-256 확인)과 KAN-95에서 잠근 반품 하위유형 정답(298건, `review_version=routing-derived-v1-team-agreed-20261027`, 정답 파일 SHA-256 `4dfe4ac6…1b76c1`)으로 5개 검사가 모두 통과했다. 우선순위, 제품군·담당 부서, 반품의 정책 부서, SLA 목표·경과 시간·상태, 반품 하위유형별 경로가 대상이다. 시험 분할은 읽지 않았다.
+  - 반품 하위유형 정답은 제공 데이터의 `routing_rule_id`에서 변환했다([데이터 계약](../../docs/data-contract.md)). 따라서 반품 경로 일치는 정책표 연결 확인이며 독립 검증이 아니다. 하위유형 판정의 품질은 LLM 분류(KAN-103) 평가에서 이 정답으로 따로 잰다.
 
 ## 입력과 검증
 
@@ -134,11 +135,13 @@ KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 �
 
 `backend/engine/cs/classification.py`는 모델·DB·파일에 접근하지 않는 순수 함수다. KAN-92의 적재/정규화 어댑터를 대체하지 않는다. `build_input(record, sensitive_values=...)`는 정규화 레코드의 channel/body_language/subject/body만 선택한다. subject는 null을 허용하지만 네 키 모두 필요하다. body_language는 en/ko/en-US 같은 언어 태그 형식이며 빈/주석만 있는 본문은 거부한다. 원본은 수정하지 않는다.
 
-PHONE의 제목·본문에서 알려진 긴급도 enum을 가진 `Urgency: <값>` 주석을 대소문자와 공백 차이를 허용해 제거한다. 반환값의 payload만 모델 입력이며 version(`cs-classification-input-v2`)과 removed_annotations는 실행 감사 기록용이다. 다른 채널의 같은 문구는 이 규칙으로 삭제하지 않는다.
+PHONE의 제목·본문에서 알려진 긴급도 enum을 가진 `Urgency: <값>` 주석을 대소문자와 공백 차이를 허용해 제거한다. 반환값의 payload만 모델 입력이며 version(`cs-classification-input-v3`)과 removed_annotations는 실행 감사 기록용이다. 다른 채널의 같은 문구는 이 규칙으로 삭제하지 않는다.
 
 v2는 `*`·`_`·백틱으로 감싼 라벨/값과 전각 콜론(`：`)도 처리하고, 주석만 있던 본문은 마크다운 표식을 남겨 성공으로 통과시키지 않는다. `Urgency:` 또는 `Urgency：` 라벨이 남는 미지원 값(예: `HIGH`, `SAFETY-extra`, `SITE_DOWN/SAFETY`)은 일부 enum만 지우지 않고 원문 없는 `CS_UNSUPPORTED_PHONE_ANNOTATION`으로 보류한다. `Note-Urgency:`·`x*Urgency:`처럼 접두사가 붙어 제거 형식 밖에 있는 경우에도 남은 라벨을 찾아 보류한다. 라벨과 콜론 또는 값 사이가 줄바꿈으로 나뉜 경우도 자동 삭제하지 않고 보류한다. 줄바꿈을 건너 다음 줄의 단어를 주석 값으로 가져오지 않는다. 호출자는 이를 입력 실패로 기록해야 하며 원본을 다시 모델에 보내는 폴백으로 우회하지 않는다. v1과 v2 결과는 입력 처리 판본으로 구분한다. 이 처리는 명시한 라벨 형식에 한정하며 모든 누설 변형을 탐지한다는 뜻은 아니다.
 
-민감값은 어댑터가 식별한 원값→SERIAL/PERSONAL 매핑을 명시적으로 전달받아 긴 값부터 정확 일치로 마스킹한다. 이미 만들어진 `[PERSONAL_PROVIDED]`·`[SERIAL_PROVIDED]` 표시는 시리얼 라벨 뒤에 있더라도 종류를 바꾸지 않는다. 이메일 형식과 `serial:`, `Serial number:`, `S/N:`, `시리얼 번호:` 같은 명시 표기도 마스킹하고 제공 표시를 남긴다. **임의 이름·주소·전화번호·표기 없는 시리얼 전체를 자동 탐지하는 개인정보 처리기가 아니다.** 자동 시리얼 표기 검사는 공백 없는 한 토큰만 대상으로 하므로 `Serial number: AB 1234` 같은 공백 포함 원값은 반드시 sensitive_values에 전체 값으로 전달해야 한다. 실제 데이터 연결 전 KAN-92와 식별/마스킹 범위를 검증해야 하며 이 함수만으로 실제 문의의 안전한 외부 전송이 완성됐다고 판단하지 않는다. 이번에는 합성 입력만 검사하며 실제 모델 경로에 연결하지 않는다.
+민감값은 어댑터가 식별한 원값→SERIAL/PERSONAL 매핑을 명시적으로 전달받아 긴 값부터 정확 일치로 마스킹한다. 이미 만들어진 `[PERSONAL_PROVIDED]`·`[SERIAL_PROVIDED]` 표시는 시리얼 라벨 뒤에 있더라도 종류를 바꾸지 않는다. 이메일 형식과 `serial:`, `Serial number:`, `S/N:`, `시리얼 번호:` 같은 명시 표기도 마스킹하고 제공 표시를 남긴다. **임의 이름·주소·전화번호·표기 없는 시리얼 전체를 자동 탐지하는 개인정보 처리기가 아니다.** 자동 시리얼 표기 검사는 공백 없는 한 토큰만 대상으로 하므로 `Serial number: AB 1234` 같은 공백 포함 원값은 반드시 sensitive_values에 전체 값으로 전달해야 한다. 실제 데이터 연결 전 KAN-92와 식별/마스킹 범위를 검증해야 하며 이 함수만으로 실제 문의의 안전한 외부 전송이 완성됐다고 판단하지 않는다. 실제 모델 경로에는 연결하지 않는다.
+
+v3는 시리얼 라벨 뒤 값이 `not provided`, `N/A`, `none`, `unknown`, `없음`이고 그 뒤가 줄 끝인 경우 미제공 표현을 그대로 보존한다(대소문자·가로 공백·끝 문장부호 하나 `. ! ?` 허용). `UNKNOWN-123` 같은 접두사 식별자에는 적용하지 않는다. 어댑터가 sensitive_values로 지정한 원값 마스킹이 먼저 적용되며 이 예외로 우회하지 않는다. 문장 중간의 설명·다른 언어의 미제공 표현까지 판별하는 규칙은 아니므로 KAN-92의 원값 식별과 사람의 검수는 여전히 필요하다. KAN-93 개발 분리본 검사는 실제 모델 호출이나 개인정보 검수 완료의 근거가 아니다.
 
 `validate_output(raw, allowed_info_codes=...)`는 원시 JSON 전체를 검사한다. 검수된 info_field_codebook 코드 집합을 필수 인자로 받고 기본 코드나 추측 값을 만들지 않는다. 테스트의 TEST_SERIAL/TEST_PHOTO는 검사 전용이며 실제 코드북이 아니다. 다섯 키 필수·추가 키 금지·엄격한 타입/enum·중복 JSON 키/정보 코드 금지·주/보조 분류 중복 금지를 검사한다. 반품 의도가 주/보조 분류에 없으면 return_subtype의 비null 값을 거부한다. 반품의 null은 그대로 보존한다.
 

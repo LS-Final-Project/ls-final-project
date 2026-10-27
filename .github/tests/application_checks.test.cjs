@@ -14,7 +14,7 @@ test('협업 검사 명령이 실제 실패를 반환하고 최종 결과가 이
   const command = infrastructure.match(/name: Test PR automation\n\s+run: (.+)/)?.[1];
   assert.ok(command, '협업 검사는 infrastructure에서 실행해야 한다');
   assert.ok(!infrastructure.includes('continue-on-error:'), '검사 실패를 무시하지 않는다');
-  assert.equal((infrastructure.match(/python3 -m unittest discover -s scripts\/tests/g) || []).length, 1);
+  assert.equal((infrastructure.match(/uv run --frozen python -m unittest discover -s scripts\/tests/g) || []).length, 1);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kan180-ci-'));
   try {
     fs.mkdirSync(path.join(directory, '.github/tests'), {recursive: true});

@@ -406,3 +406,72 @@ def test_split_phone_annotation_is_held(annotation):
             },
             sensitive_values={},
         )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Serial number: not provided",
+        "S/N: N/A",
+        "시리얼 번호: 없음",
+        "Serial number: unknown",
+        "Serial No.: NONE.  ",
+        "serial: NOT\tPROVIDED\r\nPlease help.",
+    ],
+)
+def test_serial_absence_preserves_meaning(text):
+    """한 줄의 명확한 미제공 표현을 정보 제공 표시로 바꾸지 않는다.
+
+    Args:
+        text: 식별자가 아닌 합성 미제공 표현.
+
+    Returns:
+        None: 제목·본문과 원본이 그대로 보존됨을 확인한다.
+    """
+    record = {"channel": "EMAIL", "body_language": "en", "subject": text, "body": text}
+    before = copy.deepcopy(record)
+    result = build_input(record, sensitive_values={})
+    assert result.payload.subject == text
+    assert result.payload.body == text
+    assert record == before
+
+
+@pytest.mark.parametrize(
+    "value", ["UNKNOWN-123", "NONE123", "N/A-123", "없음123", "not-provided-123"]
+)
+def test_serial_absence_prefix_does_not_exempt_identifier(value):
+    """미제공 표현과 접두사가 같은 실제 식별자도 가린다.
+
+    Args:
+        value: 합성 시리얼 원값.
+
+    Returns:
+        None: 접두사 일치만으로 원값이 노출되지 않음을 확인한다.
+    """
+    result = build_input(
+        {"channel": "EMAIL", "body_language": "en", "subject": None, "body": f"S/N: {value}"},
+        sensitive_values={},
+    )
+    assert result.payload.body == "serial: [SERIAL_PROVIDED]"
+
+
+def test_known_serial_overrides_absence_and_next_line_is_masked():
+    """어댑터의 명시적 원값과 다음 줄의 민감값 처리를 유지한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 미제공 보존이 알려진 원값 마스킹을 우회하지 않음을 확인한다.
+    """
+    record = {
+        "channel": "EMAIL",
+        "body_language": "en",
+        "subject": "serial: NONE",
+        "body": "serial: not provided\nS/N: ZX-123\na@example.test",
+    }
+    result = build_input(record, sensitive_values={"NONE": "SERIAL"})
+    assert result.payload.subject == "serial: [SERIAL_PROVIDED]"
+    assert result.payload.body == (
+        "serial: not provided\nserial: [SERIAL_PROVIDED]\n[PERSONAL_PROVIDED]"
+    )

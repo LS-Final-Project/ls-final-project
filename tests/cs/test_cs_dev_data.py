@@ -1,4 +1,4 @@
-"""The development data loaders refuse the integrated file and loose gold files.
+"""The development loaders reject invalid rows and gold; hashes do not prove separation.
 
 Uses small synthetic files only; no provided data is read.
 """
@@ -14,7 +14,8 @@ TARGETS = {"T-1", "T-2"}
 
 
 def write(tmp_path, tickets: str, gold: str | None = None, **changes) -> object:
-    (tmp_path / "tickets_dev.csv").write_text(tickets, encoding="utf-8")
+    # Bytes, not text: newline translation on Windows would change the hash.
+    (tmp_path / "tickets_dev.csv").write_bytes(tickets.encode())
     manifest: dict = {
         "tickets": {
             "path": "tickets_dev.csv",
@@ -24,7 +25,7 @@ def write(tmp_path, tickets: str, gold: str | None = None, **changes) -> object:
         }
     }
     if gold is not None:
-        (tmp_path / "gold.csv").write_text(gold, encoding="utf-8")
+        (tmp_path / "gold.csv").write_bytes(gold.encode())
         manifest["return_subtype_gold"] = {
             "path": "gold.csv",
             "sha256": hashlib.sha256(gold.encode()).hexdigest(),
@@ -59,7 +60,7 @@ def test_a_manifest_listing_the_test_split_is_refused(tmp_path):
 
 def test_a_file_that_differs_from_the_manifest_is_not_parsed(tmp_path):
     path = write(tmp_path, DEV)
-    (tmp_path / "tickets_dev.csv").write_text(DEV + "T-3,test,DEFECT\n", encoding="utf-8")
+    (tmp_path / "tickets_dev.csv").write_bytes((DEV + "T-3,test,DEFECT\n").encode())
     with pytest.raises(DevDataError, match="SHA-256"):
         load_dev_tickets(path)
 
@@ -116,3 +117,60 @@ def test_missing_manifest_fields_and_columns_are_reported(tmp_path):
         load_dev_tickets(path)
     with pytest.raises(DevDataError, match="data_split"):
         load_dev_tickets(write(tmp_path, "ticket_id,category_code\nT-1,RETURN\n"))
+
+
+@pytest.mark.parametrize(
+    "tickets",
+    [
+        HEADER + "T-1,train,RETURN\nT-1,valid,RETURN\n",
+        HEADER + "T-1,train,RETURN\nT-1,train,RETURN\n",
+        HEADER + ",train,RETURN\n",
+        HEADER + " T-1,train,RETURN\n",
+        "data_split,category_code\ntrain,RETURN\n",
+        "ticket_id,ticket_id,data_split\nA,B,train\n",
+        HEADER + "T-1,train\n",
+        HEADER + "T-1,train,RETURN,extra\n",
+    ],
+)
+def test_invalid_development_identity_or_columns_are_rejected(tmp_path, tickets):
+    """분모를 왜곡하는 중복·누락 ID와 모호한 CSV 열을 거부한다.
+
+    Args:
+        tmp_path: 합성 파일 전용 임시 디렉터리.
+        tickets: 검증할 합성 CSV.
+
+    Returns:
+        None: 원문을 포함하지 않는 오류를 확인한다.
+    """
+    with pytest.raises(DevDataError, match="^CS_DEV_ROWS_INVALID$"):
+        load_dev_tickets(write(tmp_path, tickets))
+
+
+@pytest.mark.parametrize("entry_path", ["../outside.csv", "sub/../../outside.csv", "ABSOLUTE"])
+def test_paths_outside_the_manifest_folder_are_refused(tmp_path, entry_path):
+    folder = tmp_path / "package"
+    folder.mkdir()
+    outside = tmp_path / "outside.csv"
+    outside.write_bytes(DEV.encode())
+    if entry_path == "ABSOLUTE":
+        entry_path = str(outside)
+    path = write(folder, DEV, tickets__path=entry_path)
+    with pytest.raises(DevDataError, match="inside the manifest folder"):
+        load_dev_tickets(path)
+
+
+def test_a_link_leading_outside_is_refused(tmp_path):
+    folder = tmp_path / "package"
+    folder.mkdir()
+    (tmp_path / "outside.csv").write_bytes(DEV.encode())
+    path = write(folder, DEV, tickets__path="link.csv")
+    (folder / "link.csv").symlink_to(tmp_path / "outside.csv")
+    with pytest.raises(DevDataError, match="inside the manifest folder"):
+        load_dev_tickets(path)
+
+
+def test_files_in_a_subfolder_are_allowed(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "tickets_dev.csv").write_bytes(DEV.encode())
+    path = write(tmp_path, DEV, tickets__path="data/tickets_dev.csv")
+    assert len(load_dev_tickets(path)) == 2

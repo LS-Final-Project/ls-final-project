@@ -56,6 +56,24 @@ def auth_database():
     return dsn
 
 
+@pytest.fixture(scope="session")
+def mailbox_database(auth_database):
+    """보관 단독 검사와 실제 MSAL 연결 검사에 같은 전용 보관 스키마를 준비한다.
+
+    Args:
+        auth_database: kan77_auth_test만 허용하는 기존 관리자 검사 연결.
+
+    Returns:
+        str: 보관 마이그레이션을 한 번 적용한 전용 검사 DB 연결.
+    """
+    with psycopg.connect(auth_database) as conn:
+        migration = Path("infra/migrations/platform/20261027_KAN-81_mailbox_vault.sql").read_text()
+        conn.execute(
+            "\n".join(line for line in migration.splitlines() if not line.startswith("\\"))
+        )
+    return auth_database
+
+
 @pytest.fixture
 def settings(auth_database):
     """DDL 권한이 없는 플랫폼 실행 사용자의 연결을 준비한다.

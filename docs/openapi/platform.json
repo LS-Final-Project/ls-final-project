@@ -1,6 +1,85 @@
 {
   "components": {
     "schemas": {
+      "AttemptSummary": {
+        "additionalProperties": false,
+        "description": "\ucd5c\ucd08\u00b7\uc7ac\uc2dc\ub3c4\u00b7\uc804\uccb4\ubcc4\ub85c \uacf5\uac1c\ud560 \uc218\uce58 \ud544\ub4dc\ub9cc \uc9c0\uc815\ud55c\ub2e4.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryCost"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incomplete_evidence_attempt_count": {
+            "title": "Incomplete Evidence Attempt Count",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/SummaryLatency"
+          },
+          "schema_violation_count": {
+            "title": "Schema Violation Count",
+            "type": "integer"
+          },
+          "schema_violation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Violation Rate"
+          },
+          "stored_attempt_count": {
+            "title": "Stored Attempt Count",
+            "type": "integer"
+          },
+          "stored_raw_response_count": {
+            "title": "Stored Raw Response Count",
+            "type": "integer"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/SummaryTokens"
+          },
+          "unfinished_attempt_count": {
+            "title": "Unfinished Attempt Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored_attempt_count",
+          "unfinished_attempt_count",
+          "tokens",
+          "latency_ms",
+          "stored_raw_response_count",
+          "schema_violation_count",
+          "schema_violation_rate",
+          "incomplete_evidence_attempt_count"
+        ],
+        "title": "AttemptSummary",
+        "type": "object"
+      },
+      "AuthorizationStart": {
+        "description": "\uc11c\ubc84 flow\u00b7\ud1a0\ud070\uc744 \ud3ec\ud568\ud558\uc9c0 \uc54a\ub294 Microsoft \ub3d9\uc758 URL.",
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "AuthorizationStart",
+        "type": "object"
+      },
       "ErrorData": {
         "properties": {
           "code": {
@@ -292,6 +371,88 @@
         "title": "EvaluationRunStatus",
         "type": "object"
       },
+      "EvaluationRunSummary": {
+        "additionalProperties": false,
+        "description": "\ud488\uc9c8 \ucc44\uc810\uc774 \uc544\ub2cc \ud569\uc131 \uc800\uc7a5 \uae30\ub85d \uc9d1\uacc4\uc784\uc744 \uba85\uc2dc\ud55c\ub2e4.",
+        "properties": {
+          "all": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "data_origin": {
+            "const": "synthetic",
+            "default": "synthetic",
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "first": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "quality_available": {
+            "const": false,
+            "default": false,
+            "title": "Quality Available",
+            "type": "boolean"
+          },
+          "quality_unavailable_reason": {
+            "const": "GOLD_NOT_CONNECTED",
+            "default": "GOLD_NOT_CONNECTED",
+            "title": "Quality Unavailable Reason",
+            "type": "string"
+          },
+          "report_version": {
+            "const": "cs-run-summary-v1",
+            "default": "cs-run-summary-v1",
+            "title": "Report Version",
+            "type": "string"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "targets_without_first_attempt": {
+            "title": "Targets Without First Attempt",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "generated_at",
+          "target_count",
+          "targets_without_first_attempt",
+          "first",
+          "retry",
+          "all"
+        ],
+        "title": "EvaluationRunSummary",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -454,6 +615,22 @@
         "title": "ResponseMeta",
         "type": "object"
       },
+      "SuccessResponse_AuthorizationStart_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthorizationStart"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AuthorizationStart]",
+        "type": "object"
+      },
       "SuccessResponse_EvaluationAdmission_": {
         "properties": {
           "data": {
@@ -518,6 +695,22 @@
         "title": "SuccessResponse[EvaluationRunStatus]",
         "type": "object"
       },
+      "SuccessResponse_EvaluationRunSummary_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRunSummary"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRunSummary]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -564,6 +757,175 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SummaryCost": {
+        "additionalProperties": false,
+        "description": "\uac00\uaca9\ud45c \ubb38\uc790\uc5f4 \uc5c6\uc774 \uc815\ud655\ud55c USD \ubd80\ubd84\ud569\u00b7\ud569\uacc4\uc640 \ubcf4\uace0 \ubc94\uc704\ub97c \uc81c\uacf5\ud55c\ub2e4.",
+        "properties": {
+          "known_sum": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Sum"
+          },
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "pricing_version_count": {
+            "title": "Pricing Version Count",
+            "type": "integer"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "known_sum",
+          "total",
+          "pricing_version_count"
+        ],
+        "title": "SummaryCost",
+        "type": "object"
+      },
+      "SummaryLatency": {
+        "description": "\uc800\uc7a5\ub41c \uc9c0\uc5f0 \ud45c\ubcf8 \uc218\uc640 \uc120\ud615 \ubcf4\uac04 \ubd84\uc704\uc218.",
+        "properties": {
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "p50",
+          "p95"
+        ],
+        "title": "SummaryLatency",
+        "type": "object"
+      },
+      "SummaryTokens": {
+        "description": "\ud569\uc0b0 \uc758\ubbf8\uac00 \ub2e4\ub978 \ud1a0\ud070 \ud544\ub4dc\ub97c \ubd84\ub9ac\ud55c\ub2e4.",
+        "properties": {
+          "cached_input_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "input_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "output_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "thought_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "total_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "thought_tokens",
+          "cached_input_tokens",
+          "total_tokens"
+        ],
+        "title": "SummaryTokens",
+        "type": "object"
+      },
+      "TokenTotal": {
+        "additionalProperties": false,
+        "description": "\uad00\uce21 \ubd80\ubd84\ud569\uacfc \ub204\ub77d \uc5c6\ub294 \uc804\uccb4 \ud569\uacc4\ub97c \uad6c\ubcc4\ud55c\ub2e4.",
+        "properties": {
+          "known_sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Sum"
+          },
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "known_sum",
+          "total"
+        ],
+        "title": "TokenTotal",
         "type": "object"
       },
       "ValidationError": {
@@ -808,6 +1170,394 @@
         ],
         "x-activation": "MICROSOFT_AUTH_ENABLED",
         "x-implementation-status": "draft"
+      }
+    },
+    "/api/v1/platform/auth/mailbox/callback": {
+      "post": {
+        "description": "\uad50\ucc28 \uc0ac\uc774\ud2b8 form_post\ub97c \uac19\uc740 \ucd9c\ucc98\uc758 \uc644\ub8cc POST\ub85c \uc804\ub2ec\ud558\ub294 \ubb34\uc0c1\ud0dc \ubb38\uc11c\ub9cc \ubc18\ud658\ud55c\ub2e4.\n\n\ud604\uc7ac \uc694\uccad\uc5d0 Lax \ucfe0\ud0a4\uac00 \uc5c6\uc5b4\ub3c4 \uc774 \ub2e8\uacc4\uc5d0\uc11c \uc778\uac00\ub97c \uc18c\ube44\u00b7\uad50\ud658\u00b7\uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.\ncode/state\ub294 URL\u00b7\uc2a4\ud06c\ub9bd\ud2b8\uc5d0 \ub123\uc9c0 \uc54a\uace0 escape\ud55c hidden \uc785\ub825 \ub450 \uac1c\ub85c\ub9cc \uc804\ub2ec\ud55c\ub2e4.\n\nArgs:\n    request: Microsoft form_post \ub610\ub294 \ub3d9\uc77c\ud55c \uc81c\ud55c \ud615\uc2dd\uc758 \uc785\ub825.\n    provider: \uae30\ubcf8 \ube44\ud65c\uc131 \uacbd\ub85c\ub97c \uba3c\uc800 \ub2eb\ub294 \uc758\uc874\uc131. \uc774 \ub2e8\uacc4\uc5d0\uc11c\ub294 \ud638\ucd9c\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\nReturns:\n    HTMLResponse: \uace0\uc815\ub41c \uac19\uc740 \ucd9c\ucc98\uc758 \uc644\ub8cc \uacbd\ub85c\ub85c \uc81c\ucd9c\ud558\ub294 \uce90\uc2dc \uae08\uc9c0 \ubb38\uc11c.",
+        "operationId": "platform_relay_mailbox_callback",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "code"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Callback Relay",
+        "tags": [
+          "mailbox-authentication"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/auth/mailbox/complete": {
+      "post": {
+        "description": "\ub3d9\uc77c \ucd9c\ucc98 POST\uc758 \uc2e4\uc81c \uc138\uc158\u00b7\uc0ac\uc11c\ud568 \uacb0\uc18d\u00b7\uc778\uac00\ub97c \uac80\uc99d\ud574 \ucee4\ubc0b \ud6c4 \uace0\uc815 \ub8e8\ud2b8\ub85c \uc774\ub3d9\ud55c\ub2e4.\n\ncallback\uc740 \uc77c\ud68c state\uc640 \ubcc4\ub3c4 \ube0c\ub77c\uc6b0\uc800 \uacb0\uc18d\uc73c\ub85c CSRF\ub97c \uac80\uc0ac\ud55c\ub2e4. \uc55e\uc758 \ubb34\uc0c1\ud0dc\n\ubb38\uc11c\uac00 \uc131\uacf5\uc744 \ubcf4\uc7a5\ud558\uc9c0 \uc54a\uc73c\uba70 \ud604\uc7ac \uc138\uc158\u00b7\uad8c\ud55c \uac80\uc0ac\ub294 \uc774 \uc694\uccad\uacfc \uc800\uc7a5 \uc2dc \ub2e4\uc2dc \uc218\ud589\ud55c\ub2e4.\n\nArgs:\n    request: Lax \uc138\uc158\u00b7\uc0ac\uc11c\ud568 \uacb0\uc18d \ucfe0\ud0a4\uc640 form \uc785\ub825\uc744 \ud3ec\ud568\ud558\ub294 \uc694\uccad.\n    provider: \uae30\uc874 MSAL \uc0ac\uc11c\ud568 \uac80\uc99d \uc5b4\ub311\ud130.\n\nReturns:\n    RedirectResponse: \uc554\ud638\ud654 \uc800\uc7a5 \ucee4\ubc0b \ud6c4 \ud1a0\ud070\u00b7\uc5f0\uacb0 ID \uc5c6\ub294 \uc571 \ub8e8\ud2b8\uc758303 \uc751\ub2f5.",
+        "operationId": "platform_complete_mailbox_link",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "code"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "303": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Complete",
+        "tags": [
+          "mailbox-authentication"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/auth/mailbox/start": {
+      "post": {
+        "description": "\ud604\uc7ac \uc6b4\uc601 \uc138\uc158\uc758 \uc0ac\uc11c\ud568 \uc778\uac00\ub97c \uc2dc\uc791\ud558\uace0 \ubcc4\ub3c4 Lax \uacb0\uc18d \ucfe0\ud0a4\uc640 URL\ub9cc \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    response: \ubcc4\ub3c4 \uc0ac\uc11c\ud568 \uacb0\uc18d \ucfe0\ud0a4\ub97c \uc124\uc815\ud560 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 callback \uc804\uc6a9 \uc11c\ubc84 \uc5b4\ub311\ud130.\n\nReturns:\n    SuccessResponse[AuthorizationStart]: \uc11c\ubc84 \uc778\uac00\uac00 \uc800\uc7a5\ub41c Microsoft URL.",
+        "operationId": "platform_start_mailbox_link",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AuthorizationStart_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start",
+        "tags": [
+          "mailbox-authentication"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/auth/mailbox/{mailbox_id}/disconnect": {
+      "post": {
+        "description": "\ud604\uc7ac \uc138\uc158 \uc18c\uc720\uc790\uc758 \uc800\uc7a5 \uc790\uaca9\uc99d\uba85\ub9cc \uc81c\uac70\ud55c\ub2e4.\n\nArgs:\n    mailbox_id: \ud574\uc81c\ud560 \uc11c\ubc84 \uc5f0\uacb0 ID.\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    provider: \uae30\ubcf8 \ube44\ud65c\uc131\uc744 \uac80\uc0ac\ud558\ub294 \uc758\uc874\uc131. \uacf5\uae09\uc790\ub97c \ud638\ucd9c\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\nReturns:\n    Response: \ud604\uc7ac \uc18c\uc720\uc790\uc758 \uc554\ud638\ubb38 \uc81c\uac70\uac00 \ucee4\ubc0b\ub41c204 \uc751\ub2f5.",
+        "operationId": "platform_disconnect_mailbox",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mailbox_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mailbox Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "mailbox-authentication"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/platform/evaluations/policy": {
@@ -1062,6 +1812,100 @@
           }
         },
         "summary": "Evaluation Run Status",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
+    "/api/v1/platform/evaluations/runs/{run_id}/summary": {
+      "get": {
+        "description": "\ud604\uc7ac \uc138\uc158\uc758 \ud569\uc131 \uc0ac\uc6a9\ub7c9\u00b7\uac10\uc0ac \uc9d1\uacc4\ub97c \uc2a4\ub808\ub4dc \ud480\uc5d0\uc11c \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \ud658\uacbd\u00b7\uc2b9\uc778 \ubaa9\ub85d\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c \ub300\uc0c1 \uc2e4\ud589.\n    principal: \ud604\uc7ac \uc138\uc158\uacfc \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud55c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse: \uc815\ub2f5\u00b7\uc608\uce21\u00b7\uc6d0\uc2dc \ub0b4\uc6a9 \uc5c6\ub294 \ud569\uc131 \uc9d1\uacc4.",
+        "operationId": "platform_get_evaluation_run_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Summary",
         "tags": [
           "evaluations"
         ]

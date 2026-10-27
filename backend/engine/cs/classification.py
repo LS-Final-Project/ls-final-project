@@ -21,7 +21,7 @@ Category = Literal[
     "RETURN",
 ]
 Urgency = Literal["SAFETY", "SITE_DOWN", "PROD_IMPACT", "COMMISSION", "DEADLINE", "NONE"]
-INPUT_VERSION = "cs-classification-input-v2"
+INPUT_VERSION = "cs-classification-input-v3"
 _PHONE_LABEL = r"(?<![\w*`-])[*_`]*Urgency[*_`]*[ \t]*[:：][ \t]*[*_`]*"
 _PHONE_ANNOTATION = re.compile(
     _PHONE_LABEL
@@ -36,18 +36,25 @@ _SERIAL = re.compile(
     r"(?i)(\b(?:serial(?:\s+(?:number|no\.?))?|s/n)|시리얼(?:\s*번호)?)"
     r"\s*[:=]\s*(?P<value>[^\s,;<>]+)"
 )
+_SERIAL_ABSENCE = re.compile(
+    r"(?:not[ \t]+provided|n/a|none|unknown|없음)[ \t]*[.!?]?[ \t]*(?=\r?$)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def _mask_serial(match: re.Match[str]) -> str:
-    """이미 마스킹한 값의 종류를 라벨만 보고 덮어쓰지 않는다.
+    """명확한 미제공 표현과 이미 마스킹한 값의 종류를 보존한다.
 
     Args:
         match: 시리얼 라벨과 값의 일치 결과.
 
     Returns:
-        str: 기존 마스킹 표시 또는 시리얼 원값을 가린 문자열.
+        str: 미제공 표현·기존 마스킹 표시 또는 원값을 가린 문자열.
     """
     if match["value"].rstrip(".!?:)") in {"[PERSONAL_PROVIDED]", "[SERIAL_PROVIDED]"}:
+        return match[0]
+    # 값부터 줄 끝까지 확인해 UNKNOWN-123 같은 식별자를 예외로 노출하지 않는다.
+    if _SERIAL_ABSENCE.match(match.string, match.start("value")):
         return match[0]
     return "serial: [SERIAL_PROVIDED]"
 
