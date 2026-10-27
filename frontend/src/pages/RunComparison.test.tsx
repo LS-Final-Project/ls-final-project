@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import RunComparison from './RunComparison';
+import RunComparison, { comparisonCsv, comparisonFileName, csvCell } from './RunComparison';
 import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
 import { jsonResponse } from '../test/render';
 import type { RunSummary } from '../api/evaluation-summary';
@@ -55,12 +55,14 @@ test('비교 키가 다르면 표 없이 이유만 표시한다', async () => {
   compare(pair(candidate => { candidate.comparison_key = 'd'.repeat(64); }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/평가 조건.*달라 비교하지 않습니다/);
   expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'CSV 저장' })).toBeNull();
 });
 
 test('한쪽이 미종료면 비교하지 않는다', async () => {
   compare(pair(candidate => { candidate.status = 'RUNNING'; }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/모두 종료된 뒤/);
   expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'CSV 저장' })).toBeNull();
 });
 
 test('정답 판본이 다르면 품질 차이만 계산하지 않고 이유를 적는다', async () => {
@@ -100,4 +102,44 @@ test('잘못된 실행 ID는 비교를 시작하지 않는다', () => {
   render(<RunComparison candidateId={summaryFixture().run_id} />);
   fireEvent.change(screen.getByLabelText(/기준 실행 ID/), { target: { value: 'not-a-run' } });
   expect((screen.getByRole('button', { name: '비교' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('비교 가능할 때만 CSV 저장 버튼을 보인다', async () => {
+  compare(pair());
+  await screen.findByRole('region', { name: '실행 비교 표' });
+  expect(screen.getByRole('button', { name: 'CSV 저장' })).toBeTruthy();
+});
+
+test('CSV는 화면 표의 집계만 BOM·CRLF로 담고 사례·정답·예측·원시 출력은 넣지 않는다', () => {
+  const { baseline, candidate } = pair();
+  const csv = comparisonCsv(baseline, candidate);
+  expect(csv.startsWith('\uFEFF')).toBe(true);
+  expect(csv.endsWith('\r\n')).toBe(true);
+  expect(csv.replace(/\r\n/g, '').includes('\n')).toBe(false);
+  const lines = csv.slice(1).split('\r\n');
+  expect(lines.slice(0, 2)).toEqual([`기준 run_id,${baselineId}`, `후보 run_id,${candidate.run_id}`]);
+  expect(lines).toContain('항목,기준,후보,차이(후보−기준)');
+  expect(lines).toContain('입력 토큰,21,25,+4');
+  expect(lines).toContain('합성 품질 accuracy,0.5,0.25,-0.25');
+  expect(lines).toContain('비용 (USD),미보고,미보고,계산 안 함');
+  expect(lines.at(-2)).toBe('안내,"합성 정답 기준, 실제 품질·합격 판정 아님. 최초 시도 기준이며 비용 차이는 계산하지 않음."');
+  for (const forbidden of ['cs-smoke', 'case', 'prediction', 'raw_output', 'gold', 'a'.repeat(64), 'DEFECT']) {
+    expect(csv).not.toContain(forbidden);
+  }
+});
+
+test('수식으로 해석될 셀은 작은따옴표를 붙이고 순수·부호 숫자는 그대로 둔다', () => {
+  expect(['=1+1', '+cmd', '-x', '@SUM(A1)', '\tx'].map(csvCell)).toEqual(["'=1+1", "'+cmd", "'-x", "'@SUM(A1)", "'\tx"]);
+  expect(csvCell('\rx')).toBe('"\'\rx"');
+  expect(['-0.25', '+4', '0', '-2', '12.5'].map(csvCell)).toEqual(['-0.25', '+4', '0', '-2', '12.5']);
+  expect(csvCell('+1,234')).toBe('"+1,234"');
+  expect(csvCell('-1,2x')).toBe('"\'-1,2x"');
+  expect(csvCell('부분합 20 · 1건 미보고')).toBe('부분합 20 · 1건 미보고');
+  expect(csvCell('a"b')).toBe('"a""b"');
+});
+
+test('파일명은 서버가 확인한 두 run_id 앞 8자리와 날짜로만 만든다', () => {
+  const { baseline, candidate } = pair();
+  expect(comparisonFileName(baseline, candidate, new Date('2026-10-28T03:00:00Z')))
+    .toBe(`run-comparison-33333333-${candidate.run_id.slice(0, 8)}-2026-10-28.csv`);
 });
