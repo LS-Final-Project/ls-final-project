@@ -318,3 +318,28 @@ DB의 Decimal 합계를 float로 바꾸거나 브라우저에서 Number/통화 �
 0으로 대체하지 않는다. 소비자도 금액 형식/보고 범위가 잘못되면 전체 집계 오류로 처리한다.
 고정 합성 worker는 비용을 추정하지 않으므로 기본 비용은 미보고다. 비용 연결 검사는
 격리 DB/화면 fixture의 명시적 합성 금액으로 수행하며 실제 모델·과금 검증이 아니다.
+
+
+### KAN-88 합성 품질 선택 필드
+
+`cs-run-summary-v1`에 선택 필드 `synthetic_quality`를 호환 추가한다. `quality_available=false`,
+`quality_unavailable_reason=GOLD_NOT_CONNECTED`는 그대로다. 합성 정답으로 낸 값은 실제 정답 연결이나
+품질 측정이 아니기 때문이다. 구버전 응답의 누락과 null은 모두 "합성 품질 미저장"이다.
+
+서버는 위 요약 권한 검사(세션·평가자·소유권·승인 구성·합성 제한·대상 집합)를 모두 통과한 뒤 같은
+읽기 전용 트랜잭션에서 `evaluation.metrics`의 실행 단위 `return_subtype_first_*` 행만 SELECT한다.
+행은 운영자 명령(`python -m eval.cs_report store-return-subtype`)이 저장하며, 서버는 정답 파일·
+`cases.gold_labels`·사례 시도를 읽지 않는다. 같은 실행에 채점 판본이 여럿이면 저장 시각이 가장 늦은
+판본 하나(동률이면 판본 문자열 역순 첫째)를 보이고 `stored_scoring_version_count`로 판본 수를 알린다.
+추가 전용 재채점은 새 판본을 쌓으므로 판본이 여럿이라는 이유로 요약 전체를 막지 않는다.
+
+필드: `metric=return_subtype`, `attempt=first`, `data_origin=synthetic`, `quality_gate_evaluated=false`,
+`scoring_version`, `stored_scoring_version_count`, `stored_at`, `gold_version`, `gold_sha256`(정답 파일
+SHA-256), `run_status_at_scoring`, `target_count`, `scored_target_count`, `correct`, `accuracy`,
+`macro_f1`, `null_predictions`, `outcomes`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD·
+NOT_STARTED 건수), `per_class`(DEFECT·NON_DEFECT의 support·tp·fp·fn·precision·recall·f1).
+사례/대상 ID, 사례별 정답·예측, 원시 출력, 정답 파일 경로는 없다. 합격 판정은 하지 않는다.
+
+선택한 판본의 행이 저장 계약과 다르면(행 누락·추가, segment가 all이 아님, threshold·comparison·passed
+기록, details 키·판본·data_origin·정답 판본 불일치, 분모·outcomes·클래스 support 합 불일치, 범위 밖
+수치) 부분 표시 없이 503이다. 화면 표시는 후속 범위이며 현재 소비자는 이 필드를 읽지 않는다.
