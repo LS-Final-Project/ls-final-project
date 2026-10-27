@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import Evaluations from './Evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
-import { summaryFixture } from '../test/evaluation-summary';
+import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
 import { jsonResponse, renderAt } from '../test/render';
 
 vi.mock('../api/evaluation-events', () => ({ watchEvaluation: vi.fn() }));
@@ -89,4 +89,38 @@ test('구버전 집계의 비용 누락은0 대신 미연결로 표시한다', a
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
   view(); await screen.findByRole('table');
   expect(screen.getAllByText('비용 집계 미연결').length).toBe(3);
+});
+
+test('합성 품질 미저장은 한 줄로 표시하고 고정 안내를 유지한다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: summaryFixture() })));
+  view(); await screen.findByRole('table');
+  expect(screen.getByRole('heading', { name: /합성 품질/ })).toBeTruthy();
+  expect(screen.getByText('합성 품질 미저장')).toBeTruthy();
+  expect(screen.getByRole('note').textContent).toBe('합성 정답 기준, 실제 품질·합격 판정 아님');
+  expect(screen.getAllByRole('table').length).toBe(1);
+});
+
+test('저장된 합성 품질의 판본·대상·수치·클래스 표를 숫자와 문구로만 표시한다', async () => {
+  const data = summaryFixture();
+  data.synthetic_quality = syntheticQualityFixture();
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view();
+  const table = await screen.findByRole('region', { name: '클래스별 합성 품질 표' });
+  expect(screen.getByText('채점 판본 syn-v2 (저장 판본 2개 중 최신) · 정답 판본 미지정')).toBeTruthy();
+  expect(screen.getByText('채점 대상 2건 / 전체 대상 3건 · accuracy 0.5 · macro-F1 0.5 · null 예측 1건')).toBeTruthy();
+  expect(screen.getByRole('note').textContent).toBe('합성 정답 기준, 실제 품질·합격 판정 아님');
+  const rows = table.querySelectorAll('tbody tr');
+  expect([...rows].map(row => row.textContent)).toEqual(['DEFECT1111', 'NON_DEFECT1000']);
+  expect(screen.queryByText('합성 품질 미저장')).toBeNull();
+  expect(screen.queryByText(/양호|우수|합격$|불합격/)).toBeNull();
+});
+
+test('잘못된 합성 품질 값이면 집계 전체를 숨기고 안전한 오류만 표시한다', async () => {
+  const data = summaryFixture();
+  data.synthetic_quality = { ...syntheticQualityFixture(), accuracy: 2 };
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view();
+  await screen.findByText(/집계 응답을 확인할 수 없습니다/);
+  expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.queryByText(/합성 품질/)).toBeNull();
 });
