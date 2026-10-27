@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.api.cs.tickets import repository, routes
+from backend.api.cs.units import repository as units
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -65,7 +66,11 @@ def store(monkeypatch):
     async def no_case(conn, ticket_id):
         return None
 
+    async def no_confirmed_unit(conn, ticket_id):
+        return None
+
     monkeypatch.setattr(routes, "connection", fake_connection)
+    monkeypatch.setattr(units, "confirmed_link", no_confirmed_unit)
     for name, fake in {
         "insert_ticket": insert_ticket,
         "lock_ticket": lock_ticket,

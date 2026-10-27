@@ -3,7 +3,7 @@
 Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak demo case).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from backend.api.cs.tickets.schemas import (
@@ -13,6 +13,13 @@ from backend.api.cs.tickets.schemas import (
     TicketDetail,
     TicketList,
     TicketSummary,
+)
+from backend.api.cs.units.schemas import (
+    InstalledUnit,
+    TicketUnit,
+    TicketUnitList,
+    UnitHistory,
+    UnitLink,
 )
 from backend.shared.models import ResponseMeta, SuccessResponse
 
@@ -104,6 +111,86 @@ def write_examples() -> list[dict]:
     ]
 
 
+# Customer history scenario S13: CUST-0130 owns two meters. The September ticket is about
+# the second one, so the earlier warranty record (installed 2024-05) is not carried over.
+S13_TICKET_ID = UUID("66666666-6666-4666-8666-666666666661")
+EARLIER_UNIT_ID = UUID("77777777-7777-4777-8777-777777777771")
+CURRENT_UNIT_ID = UUID("77777777-7777-4777-8777-777777777772")
+UNIT_DECIDED_AT = datetime(2026, 9, 11, 3, 0, 0, tzinfo=UTC)
+AGENT_ID = UUID("88888888-8888-4888-8888-888888888881")
+
+
+def meter(unit_id: UUID, serial: str, commissioned: date | None) -> InstalledUnit:
+    return InstalledUnit(
+        id=unit_id,
+        external_id=None,
+        data_origin="demo",
+        derivation_kind="ASSUMED",
+        serial_no=serial,
+        customer_external_id="CUST-0130",
+        product_code="METER-LP3500-3P4W",
+        site_code=None,
+        commissioning_date=commissioned,
+        commissioning_status="CONFIRMED" if commissioned else "UNKNOWN",
+        ship_date=None,
+        lot_no=None,
+        fw_version_last=None,
+        unit_status="ACTIVE",
+        replaced_by_unit_id=None,
+    )
+
+
+def unit_examples() -> list[dict]:
+    path = f"/api/v1/cs/tickets/{S13_TICKET_ID}"
+    earlier = meter(EARLIER_UNIT_ID, "VSN-MTR-1301", date(2024, 5, 1))
+    current = meter(CURRENT_UNIT_ID, "VSN-MTR-1302", None)
+    confirmed = TicketUnit(
+        unit=current,
+        matches_ticket=True,
+        link=UnitLink(
+            id=UUID("99999999-9999-4999-8999-999999999992"),
+            version=1,
+            link_status="CONFIRMED",
+            link_basis="SERIAL_PROVIDED",
+            repeat_type=None,
+            decided_by=AGENT_ID,
+            decided_at=UNIT_DECIDED_AT,
+        ),
+    )
+    rejected = TicketUnit(
+        unit=earlier,
+        matches_ticket=True,
+        link=UnitLink(
+            id=UUID("99999999-9999-4999-8999-999999999991"),
+            version=1,
+            link_status="REJECTED",
+            link_basis="AGENT_REVIEW",
+            repeat_type="DIFFERENT_UNIT",
+            decided_by=AGENT_ID,
+            decided_at=UNIT_DECIDED_AT,
+        ),
+    )
+    responses = [
+        ("GET", f"{path}/units", 200, TicketUnitList(items=[rejected, confirmed])),
+        ("PUT", f"{path}/units/{CURRENT_UNIT_ID}", 200, confirmed),
+        (
+            "GET",
+            f"{path}/unit-history",
+            200,
+            UnitHistory(status="CONFIRMED", unit=current, items=[]),
+        ),
+    ]
+    return [
+        {
+            "method": method,
+            "path": route,
+            "status": status,
+            "body": SuccessResponse(data=data, meta=META).model_dump(mode="json"),
+        }
+        for method, route, status, data in responses
+    ]
+
+
 def examples() -> list[dict]:
     listing: SuccessResponse[TicketList] = SuccessResponse(
         data=TicketList(
@@ -174,17 +261,21 @@ def examples() -> list[dict]:
         ),
         meta=META,
     )
-    return [
-        {
-            "method": "GET",
-            "path": "/api/v1/cs/tickets",
-            "status": 200,
-            "body": listing.model_dump(mode="json"),
-        },
-        {
-            "method": "GET",
-            "path": f"/api/v1/cs/tickets/{TICKET_ID}",
-            "status": 200,
-            "body": detail.model_dump(mode="json"),
-        },
-    ] + write_examples()
+    return (
+        [
+            {
+                "method": "GET",
+                "path": "/api/v1/cs/tickets",
+                "status": 200,
+                "body": listing.model_dump(mode="json"),
+            },
+            {
+                "method": "GET",
+                "path": f"/api/v1/cs/tickets/{TICKET_ID}",
+                "status": 200,
+                "body": detail.model_dump(mode="json"),
+            },
+        ]
+        + write_examples()
+        + unit_examples()
+    )
