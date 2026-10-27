@@ -10,8 +10,8 @@ export default function TicketUnits({ ticketId }: { ticketId: string }) {
   const [opened, setOpened] = useState(false);
   const mode = getApiMode();
   const enabled = import.meta.env.DEV && opened;
-  const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: () => getTicketUnits(ticketId), enabled });
-  const history = useQuery({ queryKey: ['unit-history', mode, ticketId], queryFn: () => getUnitHistory(ticketId), enabled });
+  const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: ({signal}) => getTicketUnits(ticketId, signal), enabled });
+  const history = useQuery({ queryKey: ['unit-history', mode, ticketId], queryFn: ({signal}) => getUnitHistory(ticketId, signal), enabled });
   if (!import.meta.env.DEV) return <Preparing inline title="장비와 이전 문의" message="장비 조회의 운영 연결을 준비 중입니다." />;
   const failed = units.isError || history.isError;
   const busy = units.isFetching || history.isFetching;

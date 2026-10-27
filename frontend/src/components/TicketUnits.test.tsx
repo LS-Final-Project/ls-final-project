@@ -41,3 +41,16 @@ test('조회 중 반복 클릭은 추가 요청을 만들지 않는다', async (
   cleanup(); resolve();
   await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
 });
+
+test('화면 이탈은 두 조회를 취소하고 재진입 때 이전 장비를 남기지 않는다', async () => {
+  const signals: AbortSignal[]=[];
+  vi.stubGlobal('fetch',vi.fn((_url: RequestInfo|URL,init?: RequestInit)=>{
+    const signal=init!.signal as AbortSignal;signals.push(signal);
+    return new Promise<Response>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));
+  }));
+  view();fireEvent.click(screen.getByRole('button',{name:'장비 정보 조회'}));
+  await waitFor(()=>expect(signals).toHaveLength(2));cleanup();expect(signals.every(signal=>signal.aborted)).toBe(true);
+  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,{data:String(url).endsWith('/units')?{items:[]}:{status:'NO_CONFIRMED_UNIT',unit:null,items:[]}})));
+  view();expect(screen.queryByText('VSN-TEST')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'장비 정보 조회'}));
+  await screen.findByText('조회 가능한 장비가 없습니다.');
+});

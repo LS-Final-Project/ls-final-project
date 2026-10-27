@@ -8,5 +8,5 @@ export const getTicket = (id: string, signal?:AbortSignal) => request<TicketDeta
 
 export type TicketUnitsResponse = paths['/api/v1/cs/tickets/{ticket_id}/units']['get']['responses'][200]['content']['application/json'];
 export type UnitHistoryResponse = paths['/api/v1/cs/tickets/{ticket_id}/unit-history']['get']['responses'][200]['content']['application/json'];
-export const getTicketUnits = (id: string) => request<TicketUnitsResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/units`);
-export const getUnitHistory = (id: string) => request<UnitHistoryResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/unit-history`);
+export const getTicketUnits = (id: string, signal?:AbortSignal) => request<TicketUnitsResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/units`, {signal});
+export const getUnitHistory = (id: string, signal?:AbortSignal) => request<UnitHistoryResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/unit-history`, {signal});
