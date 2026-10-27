@@ -468,3 +468,178 @@ def test_stored_metrics_reject_inconsistent_snapshot(
                 gold_version="different" if invalid == "version" else None,
                 metric="category",
             )
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary"])
+@pytest.mark.parametrize("final_failure", [False, True])
+def test_stored_attempt_comparison_keeps_first_and_counts_transitions(
+    settings, cs_access, cs_run, evaluation_database, metric, final_failure
+):
+    """최초 결과를 보존하며 복구·악화·미확정을 동일 분모에서 비교한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        metric: 비교할 세 지표.
+        final_failure: 정답에서 실행 실패로 악화되는 경우.
+
+    Returns:
+        None: 최초/최종 분리, null 정답, 최종 표시 부재와 분모 보존을 검증한다.
+    """
+    from backend.api.platform.evaluations.cs_smoke import run_case
+    from eval.cs_stored_metrics import compare_stored_attempts, summarize_stored_first_attempts
+
+    gold = dict.fromkeys(
+        FIXTURES, {"category": "RETURN", "urgency": "NONE", "secondary": None}[metric]
+    )
+    with psycopg.connect(evaluation_database) as conn:
+        pending = compare_stored_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
+    assert pending["transitions"]["FINAL_PENDING"] == 3
+    assert pending["final"]["accuracy"] == 0
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        first = summarize_stored_first_attempts(
+            conn, cs_run, gold, gold_version=None, metric=metric
+        )
+        original = compare_stored_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
+    assert original["first"] == first
+    assert original["transitions"] == {
+        "STILL_CORRECT": 1,
+        "STILL_INCORRECT": 2,
+        "RECOVERED": 0,
+        "REGRESSED": 0,
+        "FINAL_PENDING": 0,
+    }
+    valid = run_case("cs-smoke-valid").prediction.model_dump()
+    wrong = {
+        **valid,
+        "category_code": "INSTALL",
+        "urgency_flag": "SAFETY",
+        "secondary_category": "DEFECT",
+    }
+    with psycopg.connect(evaluation_database) as conn:
+        rows = conn.execute(
+            "SELECT id,target_ref FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+        ).fetchall()
+        for case_id, ref in rows:
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET is_final=false WHERE case_id=%s", (case_id,)
+            )
+            conn.execute(
+                "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,is_final,outcome,parsed_output,started_at,finished_at) "
+                "VALUES (%s,%s,'classify',2,%s,'VALID',%s,now(),now())",
+                (
+                    uuid4(),
+                    case_id,
+                    ref != "cs-smoke-timeout",
+                    Jsonb(wrong if ref == "cs-smoke-valid" else valid),
+                ),
+            )
+            if final_failure and ref == "cs-smoke-valid":
+                conn.execute(
+                    "UPDATE evaluation.case_attempts SET outcome='TIMEOUT',parsed_output=NULL "
+                    "WHERE case_id=%s AND step='classify' AND attempt=2",
+                    (case_id,),
+                )
+            # 다른 처리 단계의 큰 시도 번호/최종 표시는 분류 비교에 섞이지 않는다.
+            conn.execute(
+                "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,is_final,outcome,started_at,finished_at) "
+                "VALUES (%s,%s,'draft',99,true,'TIMEOUT',now(),now())",
+                (uuid4(), case_id),
+            )
+            # 사례의 최종 필드는 모두 정답이어도 선택한 시도의 결과만 비교한다.
+            conn.execute(
+                "UPDATE evaluation.cases SET final_output=%s WHERE id=%s", (Jsonb(valid), case_id)
+            )
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        compared = compare_stored_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
+    assert compared["first"] == first
+    assert compared["final"]["total"] == 3
+    assert compared["final"]["correct"] == 1
+    assert compared["final"]["accuracy"] == pytest.approx(1 / 3)
+    assert compared["final"]["outcomes"]["NOT_FINAL"] == 1
+    assert compared["transitions"] == {
+        "RECOVERED": 1,
+        "REGRESSED": 1,
+        "FINAL_PENDING": 1,
+        "STILL_CORRECT": 0,
+        "STILL_INCORRECT": 0,
+    }
+    cases = {case["case_id"]: case for case in compared["cases"]}
+    assert cases["cs-smoke-invalid"]["final_attempt_number"] == 2
+    assert cases["cs-smoke-timeout"]["final_attempt_number"] is None
+    assert cases["cs-smoke-timeout"]["final_prediction"] is None
+    assert cases["cs-smoke-timeout"]["final_correct"] is False
+    assert sum(compared["transitions"].values()) == 3
+    assert "raw_output" not in str(compared) and "provided_info" not in str(compared)
+
+
+@pytest.mark.parametrize(
+    "invalid", ["missing_first", "stale_final", "unfinished", "schema", "outcome"]
+)
+def test_stored_attempt_comparison_rejects_inconsistent_final(
+    settings, cs_access, cs_run, evaluation_database, invalid
+):
+    """최초 부재·오래된 최종 표시·미종료·스키마·상태 모순을 거부한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 합성 실행.
+        evaluation_database: 격리 DB.
+        invalid: 주입할 모순.
+
+    Returns:
+        None: 모순을 복구 성공이나 최초 품질 변경으로 숨기지 않음을 확인한다.
+    """
+    from eval.cs_stored_metrics import compare_stored_attempts, summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    gold = dict.fromkeys(FIXTURES, "RETURN")
+    with psycopg.connect(evaluation_database) as conn:
+        case_id = conn.execute(
+            "SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-timeout'",
+            (cs_run,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,is_final,outcome,started_at,finished_at) "
+            "VALUES (%s,%s,'classify',2,false,'TIMEOUT',now(),now())",
+            (uuid4(), case_id),
+        )
+        if invalid != "stale_final":
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET is_final=false WHERE case_id=%s", (case_id,)
+            )
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET is_final=true WHERE case_id=%s AND attempt=2",
+                (case_id,),
+            )
+        if invalid == "missing_first":
+            conn.execute(
+                "DELETE FROM evaluation.case_attempts WHERE case_id=%s AND attempt=1", (case_id,)
+            )
+        if invalid == "unfinished":
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET finished_at=NULL WHERE case_id=%s AND attempt=2",
+                (case_id,),
+            )
+        if invalid in {"schema", "outcome"}:
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET outcome='VALID',parsed_output=%s WHERE case_id=%s AND attempt=2",
+                (
+                    Jsonb({"private": "private@example.invalid"}) if invalid == "schema" else None,
+                    case_id,
+                ),
+            )
+        # 최초 전용 조회는 최종 저장 모순에 영향받지 않는다.
+        assert (
+            summarize_stored_first_attempts(
+                conn, cs_run, gold, gold_version=None, metric="category"
+            )["report"]["overall"]["total"]
+            == 3
+        )
+        with pytest.raises(ValueError, match="^CS_STORED_COMPARISON_INVALID_INPUT$"):
+            compare_stored_attempts(conn, cs_run, gold, gold_version=None, metric="category")
