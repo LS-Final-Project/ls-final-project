@@ -34,7 +34,7 @@ def build_stored_report(
     Args:
         conn: 조회 권한을 확인한 유휴 내부 연결. 기존 트랜잭션은 인수하지 않는다.
         run_id: 보고할 실행 ID.
-        gold: category/urgency/secondary별 인수한 고정 대상 정답.
+        gold: category/urgency/secondary별 인수한 고정 대상 정답과 선택적 return_subtype.
         gold_version: 실험과 일치해야 하는 정답 판본. 잠금 확인은 호출자 책임이다.
         synthetic_only: CLI용 고정 합성 프로필 제한을 적용할지 여부.
 
@@ -42,11 +42,13 @@ def build_stored_report(
         dict: 실행 판본·조회 시점·품질·사용량·감사. 실패 시 부분 보고서는 반환하지 않는다.
             함수가 연 읽기 전용 트랜잭션만 종료하며 연결은 닫지 않는다.
     """
-    if conn.info.transaction_status != TransactionStatus.IDLE or set(gold) != set(METRICS):
+    # 반품 하위유형은 잠긴 정답이 있을 때만 보고하는 선택 지표다.
+    metrics = (*METRICS, "return_subtype") if "return_subtype" in gold else METRICS
+    if conn.info.transaction_status != TransactionStatus.IDLE or set(gold) != set(metrics):
         raise ValueError("CS_REPORT_INVALID_INPUT")
-    if any(not isinstance(gold[metric], Mapping) for metric in METRICS):
+    if any(not isinstance(gold[metric], Mapping) for metric in metrics):
         raise ValueError("CS_REPORT_INVALID_INPUT")
-    frozen_gold = {metric: dict(gold[metric]) for metric in METRICS}
+    frozen_gold = {metric: dict(gold[metric]) for metric in metrics}
     with conn.transaction():
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         with conn.cursor(row_factory=dict_row) as cursor:
@@ -70,14 +72,15 @@ def build_stored_report(
             or meta["runner_kind"] not in {"local", "test"}
             or meta["data_split"] == "test"
             or not matches_profile(meta)
-            or any(set(targets) != set(FIXTURES) for targets in frozen_gold.values())
+            or any(set(frozen_gold[metric]) != set(FIXTURES) for metric in METRICS)
+            or not set(frozen_gold.get("return_subtype", {})) <= set(FIXTURES)
         ):
             raise ValueError("CS_REPORT_SYNTHETIC_ONLY")
         quality = {
             metric: compare_stored_attempts(
                 conn, run_id, frozen_gold[metric], gold_version=gold_version, metric=metric
             )
-            for metric in METRICS
+            for metric in metrics
         }
         usage = summarize_stored_usage(conn, run_id)
         audit = summarize_stored_response_audit(conn, run_id)

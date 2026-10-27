@@ -424,6 +424,91 @@ def test_stored_metrics_preserve_unstarted_targets(
     assert partial["report"]["missing_metadata"] == {"channel": 3, "body_language": 3}
 
 
+RETURN_GOLD = {"cs-smoke-valid": "DEFECT", "cs-smoke-timeout": "NON_DEFECT"}
+
+
+def test_stored_return_subtype_scores_locked_subset_in_report(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """반품 하위유형만 잠긴 반품 대상 부분집합을 채점하고 통합 보고서에 선택 연결한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 전체·채점 대상 수, 유효 null과 실패 분리, 기존 세 지표 불변을 확인한다.
+    """
+    from eval import cs_report
+    from eval.cs_stored_metrics import compare_stored_attempts, summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        first = summarize_stored_first_attempts(
+            conn, cs_run, RETURN_GOLD, gold_version=None, metric="return_subtype"
+        )
+        compared = compare_stored_attempts(
+            conn, cs_run, RETURN_GOLD, gold_version=None, metric="return_subtype"
+        )
+    assert first["target_count"] == 3 and first["scored_target_count"] == 2
+    overall = first["report"]["overall"]
+    assert overall["version"] == "cs-return-subtype-first-attempt-v1"
+    assert overall["total"] == 2 and overall["correct"] == 0
+    assert overall["null_predictions"] == 1
+    assert overall["outcomes"]["VALID"] == overall["outcomes"]["TIMEOUT"] == 1
+    assert sorted(case["case_id"] for case in overall["cases"]) == sorted(RETURN_GOLD)
+    assert sum(compared["transitions"].values()) == 2
+    assert compared["final"]["version"] == "cs-return-subtype-final-attempt-v1"
+    with psycopg.connect(evaluation_database) as conn:
+        base = cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+        report = cs_report.build_stored_report(
+            conn, cs_run, {**report_gold(), "return_subtype": RETURN_GOLD}, gold_version=None
+        )
+    assert "return_subtype" not in base["quality"]
+    assert report["quality"]["return_subtype"]["first"]["report"] == first["report"]
+    for metric in ("category", "urgency", "secondary"):
+        assert (
+            report["quality"][metric]["first"]["report"]
+            == base["quality"][metric]["first"]["report"]
+        )
+
+
+@pytest.mark.parametrize(
+    "metric,gold",
+    [
+        ("return_subtype", {}),
+        ("return_subtype", {**RETURN_GOLD, "not-in-run": "DEFECT"}),
+        ("return_subtype", {"cs-smoke-valid": None}),
+        ("category", {"cs-smoke-valid": "RETURN"}),
+    ],
+)
+def test_stored_subset_gold_is_return_subtype_only(
+    settings, cs_access, cs_run, evaluation_database, metric, gold
+):
+    """빈·대상 밖·null 반품 정답과 다른 지표의 부분집합 정답을 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        metric: 검사할 지표.
+        gold: 잘못된 합성 정답.
+
+    Returns:
+        None: 부분집합 허용이 반품 하위유형에 한정되고 다른 지표는 정확 일치를 유지한다.
+    """
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        with pytest.raises(ValueError, match="^CS_(STORED_METRICS|METRICS)_INVALID_INPUT$"):
+            summarize_stored_first_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )

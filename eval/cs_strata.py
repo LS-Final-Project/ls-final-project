@@ -7,11 +7,12 @@ from typing import Literal, cast
 from backend.engine.cs.classification_call import ClassificationAttempt
 from eval.cs_metrics import (
     summarize_category_first_attempts,
+    summarize_return_subtype_first_attempts,
     summarize_secondary_first_attempts,
     summarize_urgency_first_attempts,
 )
 
-Metric = Literal["category", "urgency", "secondary"]
+Metric = Literal["category", "urgency", "secondary", "return_subtype"]
 CHANNELS = frozenset({"EMAIL", "PHONE", "WEB_FORM", "PARTNER_PORTAL", "CHAT"})
 UNKNOWN = "UNKNOWN"
 
@@ -35,7 +36,9 @@ def summarize_first_attempts_by_group(
         dict: 전체·채널·언어·PHONE 여부별 지표와 메타데이터 누락 수.
             잘못된 메타데이터는 원문 없는 ValueError로 거부한다.
     """
-    if metric not in {"category", "urgency", "secondary"} or not set(metadata) <= set(gold):
+    if metric not in {"category", "urgency", "secondary", "return_subtype"} or not set(
+        metadata
+    ) <= set(gold):
         raise ValueError("CS_STRATA_INVALID_INPUT")
     groups: dict[str, dict[str, list[str]]] = {"channel": {}, "body_language": {}, "phone": {}}
     missing = {"channel": 0, "body_language": 0}
@@ -65,7 +68,7 @@ def summarize_first_attempts_by_group(
     def summarize(
         targets: Mapping[str, str | None], selected: Mapping[str, ClassificationAttempt]
     ) -> dict:
-        """기존 세 지표 중 선택한 계산만 호출한다.
+        """기존 지표 중 선택한 계산만 호출한다.
 
         Args:
             targets: 해당 그룹의 고정 정답 집합.
@@ -80,6 +83,8 @@ def summarize_first_attempts_by_group(
         typed = cast(Mapping[str, str], targets)
         if metric == "category":
             return summarize_category_first_attempts(typed, selected)
+        if metric == "return_subtype":
+            return summarize_return_subtype_first_attempts(typed, selected)
         return summarize_urgency_first_attempts(typed, selected)
 
     overall = summarize(gold, attempts)  # 추가 ID·재시도를 그룹 필터 전에 거부한다.

@@ -201,7 +201,17 @@ per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모
 NO_PREDICTION 열로 구분하며 둘 다 정답 클래스의 FN이다. 계약대로 반품의 null을 비불량으로
 간주하지 않는다. 비반품 대상의 null 정답은 잠기지 않았으므로 비반품에 하위유형을 만든 건수는
 이 집계에 없다. 정답 판본의 한계(독립 검증 아님)와 합격선 미정은 그대로이며
-quality_gate_evaluated는 false다. 저장 실행 보고서·화면 연결은 남아 있다.
+quality_gate_evaluated는 false다.
+
+저장 실행 경로(`eval.cs_stored_metrics`의 최초 집계·최초/최종 비교·기준선 비교, `eval.cs_strata`,
+`summarize_final_attempts`)도 metric=`return_subtype`을 받는다. **부분집합 허용은 return_subtype에
+한정한다.** 이 지표만 gold가 실험 고정 대상의 비어 있지 않은 부분집합(잠긴 반품 대상)이면 받고,
+그 대상만 채점한다. gold에 실험 밖 ID가 있으면 거부한다. 주분류·긴급도·보조 분류는 기존처럼 gold와
+실험 대상이 정확히 같아야 한다. 저장 최초 집계는 target_count(실험 대상)와
+scored_target_count(채점 대상)를 함께 반환해 분모 축소를 숨기지 않는다.
+`eval.cs_report.build_stored_report`는 gold에 return_subtype 키가 있을 때만 quality.return_subtype을
+추가한다. 기존 세 지표 키는 필수이며 키가 없을 때의 보고서는 바뀌지 않는다. 합성 CLI는 반품
+하위유형을 보고하지 않는다. 플랫폼 집계 API·화면 연결은 남아 있다.
 
 
 ### KAN-88 언어·채널별 최초 집계

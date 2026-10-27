@@ -187,12 +187,32 @@ def summarize_return_subtype_first_attempts(
         dict: 2클래스 P/R/F1·macro-F1과 유효 응답의 null 예측 건수. 유효 null은
             NO_SUBTYPE, 실패·보류·미실행은 NO_PREDICTION 열로 구분하고 둘 다 FN이다.
     """
+    return _summarize_return_subtype(gold, attempts)
+
+
+def _summarize_return_subtype(
+    gold: Mapping[str, str],
+    attempts: Mapping[str, ClassificationAttempt],
+    *,
+    final: bool = False,
+) -> dict:
+    """반품 하위유형 계산식을 공유하되 시도 선택 의미를 구분한다.
+
+    Args:
+        gold: 잠금 반품 대상 정답.
+        attempts: 호출자가 선택한 대상별 시도.
+        final: 최종 선택 여부. 최초 경로는 번호1만 허용한다.
+
+    Returns:
+        dict: null 예측 건수를 더한 2클래스 집계.
+    """
     report = _summarize_attempts(
         gold,
         attempts,
         RETURN_SUBTYPE_LABELS,
         "return_subtype",
-        "cs-return-subtype-first-attempt-v1",
+        "cs-return-subtype-final-attempt-v1" if final else "cs-return-subtype-first-attempt-v1",
+        final=final,
     )
     report["null_predictions"] = sum(row[NO_SUBTYPE] for row in report["confusion_matrix"].values())
     for case in report["cases"]:
@@ -205,7 +225,7 @@ def summarize_final_attempts(
     gold: Mapping[str, str | None],
     attempts: Mapping[str, ClassificationAttempt],
     *,
-    metric: Literal["category", "urgency", "secondary"],
+    metric: Literal["category", "urgency", "secondary", "return_subtype"],
 ) -> dict:
     """사전에 선택한 최종 시도를 번호 변경 없이 별도 품질 지표로 계산한다.
 
@@ -232,6 +252,8 @@ def summarize_final_attempts(
             "cs-category-final-attempt-v1",
             final=True,
         )
+    if metric == "return_subtype":
+        return _summarize_return_subtype(typed, attempts, final=True)
     raise ValueError("CS_METRICS_INVALID_INPUT")
 
 
