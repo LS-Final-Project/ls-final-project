@@ -255,19 +255,50 @@ async def create_mailbox(
         cipher: 서버 비밀 키로 구성한 암호기.
 
     Returns:
-        StoredMailbox: 새 연결 ID·개정과 서버 전용 캐시. 공개 연결 응답이 아니다.
+        StoredMailbox: 같은 소유자·같은 Microsoft 계정의 기존 연결을 재사용했거나 새로 만든
+            연결 ID·개정과 서버 전용 캐시. 공개 연결 응답이 아니다.
     """
     if not session_token:
         raise _mailbox_error("MAILBOX_ACCESS_DENIED")
-    value = StoredMailbox(
-        uuid4(),
-        authorization.owner_user_id,
-        authorization.subject,
-        1,
-        authorization.serialized_cache,
-    )
+    owner, subject = authorization.owner_user_id, authorization.subject
     async with _vault_connection(settings) as conn:
-        await _lock_owner(conn, value.owner_user_id, session_token=session_token)
+        # 잠금 순서는 다른 보관 함수와 같이 사용자 행 → 연결 행이다.
+        await _lock_owner(conn, owner, session_token=session_token)
+        # ponytail: (owner_user_id, subject) 유일 제약이 없어 같은 계정 행이 여럿이면 최근
+        # 변경 하나만 재사용한다. 중복 자체를 막으려면 유일 인덱스 마이그레이션을 추가한다.
+        cursor = await conn.execute(
+            "SELECT id,revision FROM mailbox_auth.connections "
+            "WHERE owner_user_id=%s AND subject_tid=%s AND subject_oid=%s "
+            "ORDER BY updated_at DESC, id LIMIT 1 FOR UPDATE",
+            (owner, subject.tid, subject.oid),
+        )
+        existing = await cursor.fetchone()
+        if existing is not None:
+            value = StoredMailbox(
+                existing["id"],
+                owner,
+                subject,
+                existing["revision"] + 1,
+                authorization.serialized_cache,
+            )
+            cursor = await conn.execute(
+                "UPDATE mailbox_auth.connections SET revision=%s,state='connected',key_version=%s,"
+                "cache_ciphertext=%s,updated_at=clock_timestamp() "
+                "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING id",
+                (
+                    value.revision,
+                    cipher.key_version,
+                    cipher.encrypt(value),
+                    value.mailbox_id,
+                    existing["revision"],
+                    owner,
+                    sha256(session_token.encode()).hexdigest(),
+                ),
+            )
+            if await cursor.fetchone() is None:
+                raise _mailbox_error("MAILBOX_ACCESS_DENIED")
+            return value
+        value = StoredMailbox(uuid4(), owner, subject, 1, authorization.serialized_cache)
         ciphertext = cipher.encrypt(value)
         cursor = await conn.execute(
             "INSERT INTO mailbox_auth.connections "
