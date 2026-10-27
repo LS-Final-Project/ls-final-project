@@ -538,3 +538,200 @@ def test_process_cancellation_preserves_sending(
         )
     assert asyncio.run(claim_next(settings, access, dispatch)) is None
     assert evidence(evaluation_database, queued)[:3] == ("UNKNOWN", 1, None)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "confirmed"),
+    [
+        (200, {"name": OPERATION}, True),
+        (200, {"name": OPERATION + "-other"}, False),
+        (200, {"name": OPERATION, "error": {"message": "private"}}, False),
+        (200, {"name": OPERATION, "done": True}, False),
+        (200, {"name": OPERATION, "done": "true"}, False),
+        (404, {"error": {"code": 404, "status": "NOT_FOUND"}}, False),
+        (403, {"error": {"code": 403, "status": "PERMISSION_DENIED"}}, False),
+        (503, {"name": OPERATION}, False),
+        (302, {"name": OPERATION}, False),
+        (200, {"name": OPERATION, "metadata": "x" * 65536}, False),
+        (200, [], False),
+        (
+            200,
+            {
+                "name": OPERATION,
+                "done": True,
+                "response": {
+                    "@type": "type.googleapis.com/google.cloud.run.v2.Execution",
+                    "name": "projects/123456789012/locations/asia-northeast3/jobs/synthetic-worker/executions/test-1",
+                },
+            },
+            True,
+        ),
+        (
+            200,
+            {
+                "name": OPERATION,
+                "done": True,
+                "response": {
+                    "@type": "type.googleapis.com/google.cloud.run.v2.Execution",
+                    "name": "projects/123456789012/locations/asia-northeast3/jobs/other-worker/executions/test-1",
+                },
+            },
+            False,
+        ),
+    ],
+)
+def test_inspect_unknown_is_read_only(
+    settings, access, dispatch, jobs, queued, evaluation_database, status, body, confirmed
+):
+    """저장된 operation을 대조하고 HTTP 실패를 재전송 근거로 쓰지 않는다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+        status: 합성 HTTP 상태.
+        body: 합성 응답 본문.
+        confirmed: 기대 접수 확인 여부.
+
+    Returns:
+        None: GET 한 번과 장부·실행·이벤트 불변을 확인한다.
+    """
+    from backend.api.platform.jobs.dispatch import begin_send, record_result
+    from backend.api.platform.jobs.operation import inspect_operation
+
+    attempt = asyncio.run(claim_next(settings, access, dispatch))
+    assert asyncio.run(begin_send(settings, access, dispatch, attempt))
+    asyncio.run(record_result(settings, access, dispatch, attempt, "UNKNOWN", OPERATION))
+    before = evidence(evaluation_database, queued)
+    requests = []
+
+    def handler(request):
+        """고정 GET과 잠금 부재를 검사한다.
+
+        Args:
+            request: 합성 조회 요청.
+
+        Returns:
+            httpx.Response: 지정한 응답.
+        """
+        requests.append(request)
+        assert request.method == "GET"
+        assert str(request.url) == "https://run.googleapis.com/v2/" + OPERATION
+        assert request.content == b""
+        assert request.headers["authorization"] == "Bearer synthetic-access-token"
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute("SELECT job_id FROM runtime.dispatch_outbox FOR UPDATE NOWAIT")
+        return httpx.Response(status, json=body, headers={"location": "https://example.org"})
+
+    assert (
+        asyncio.run(
+            inspect_operation(
+                settings,
+                access,
+                dispatch,
+                jobs,
+                attempt,
+                asyncio.run(token_provider()),
+                transport=httpx.MockTransport(handler),
+            )
+        )
+        is confirmed
+    )
+    assert len(requests) == 1
+    assert evidence(evaluation_database, queued) == before
+    assert asyncio.run(claim_next(settings, access, dispatch)) is None
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "missing",
+        "foreign",
+        "holder",
+        "run",
+        "attempt",
+        "accepted",
+        "production",
+        "token",
+        "timeout",
+        "html",
+    ],
+)
+def test_inspect_operation_boundaries(
+    settings, access, dispatch, jobs, queued, evaluation_database, variant
+):
+    """대조 대상·환경·인증 경계와 불명확 응답을 검사한다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+        variant: 차단 또는 불명확 조건.
+
+    Returns:
+        None: 호출 범위와 장부 불변을 확인한다.
+    """
+    from dataclasses import replace
+
+    from backend.api.platform.jobs.dispatch import begin_send, record_result
+    from backend.api.platform.jobs.operation import inspect_operation
+
+    attempt = asyncio.run(claim_next(settings, access, dispatch))
+    assert asyncio.run(begin_send(settings, access, dispatch, attempt))
+    name = None if variant == "missing" else OPERATION
+    if variant == "foreign":
+        name = OPERATION.replace("123456789012", "999999999999")
+    state = "ACCEPTED" if variant == "accepted" else "UNKNOWN"
+    asyncio.run(record_result(settings, access, dispatch, attempt, state, name))
+    before = evidence(evaluation_database, queued)
+    if variant == "holder":
+        attempt = replace(attempt, holder_id=uuid4())
+    if variant == "run":
+        attempt = replace(attempt, run_id=uuid4())
+    if variant == "attempt":
+        attempt = replace(attempt, attempt_no=attempt.attempt_no + 1)
+    if variant == "production":
+        settings = settings.model_copy(update={"environment": "production"})
+    token = SecretStr("bad\nheader") if variant == "token" else asyncio.run(token_provider())
+    requests = []
+
+    async def handler(request):
+        """오류 응답 또는 전체 제한 시간 초과를 만든다.
+
+        Args:
+            request: 합성 조회 요청.
+
+        Returns:
+            httpx.Response: JSON 아닌 응답.
+        """
+        requests.append(request)
+        if variant == "timeout":
+            await asyncio.sleep(1)
+        return httpx.Response(200, text="private", headers={"content-type": "text/html"})
+
+    async def inspect():
+        """현재 조건으로 조회를 실행한다.
+
+        Args:
+            없음.
+
+        Returns:
+            bool: 접수 증거 확인 여부.
+        """
+        return await inspect_operation(
+            settings, access, dispatch, jobs, attempt, token, transport=httpx.MockTransport(handler)
+        )
+
+    if variant in {"production", "token"}:
+        with pytest.raises(ApplicationError):
+            asyncio.run(inspect())
+    else:
+        assert asyncio.run(inspect()) is False
+    assert len(requests) == (1 if variant in {"timeout", "html"} else 0)
+    assert evidence(evaluation_database, queued) == before
