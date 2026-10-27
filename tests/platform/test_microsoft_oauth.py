@@ -7,9 +7,10 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from secrets import token_bytes
+from threading import Barrier, get_ident
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 import msal
@@ -20,13 +21,24 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import SecretStr
 
 from backend.api.platform.auth.callback import MicrosoftSubject, OAuthPurpose, complete_callback
-from backend.api.platform.auth.mailbox import complete_and_store_mailbox_link, start_mailbox_link
-from backend.api.platform.auth.mailbox_vault import MailboxCipher, load_mailbox
+from backend.api.platform.auth.mailbox import (
+    acquire_stored_mailbox_token,
+    complete_and_store_mailbox_link,
+    start_mailbox_link,
+)
+from backend.api.platform.auth.mailbox_vault import (
+    MailboxCipher,
+    create_mailbox,
+    disconnect_mailbox,
+    load_mailbox,
+    reconnect_mailbox,
+)
 from backend.api.platform.auth.microsoft import (
     AUTHORITY,
     ISSUER,
     JWKS_URI,
     PERSONAL_TENANT,
+    MailboxAuthorization,
     PersonalMicrosoftOAuth,
 )
 from backend.api.platform.auth.sessions import issue_session, load_session
@@ -1483,5 +1495,515 @@ def test_session_revoked_between_callback_and_store_cannot_persist(
                 ).fetchone()[0]
                 == 0
             )
+
+    asyncio.run(scenario())
+
+
+async def persist_token_cache(context, mailbox_cache, *, expired=False):
+    """실제 MSAL이 만든 합성 캐시를 현재 세션의 연결로 암호화 보관한다.
+
+    Args:
+        context: 전용 DB·현재 서비스 소유자·세션·암호기.
+        mailbox_cache: 기존 실제 MSAL/RSA가 만든 합성 캐시.
+        expired: access token 만료로 실제 MSAL 갱신을 유도할지 여부.
+
+    Returns:
+        StoredMailbox: 실제 DB에 저장한 연결 스냅샷.
+    """
+    return await create_mailbox(
+        context.settings,
+        session_token=context.token,
+        authorization=MailboxAuthorization(
+            context.owner,
+            mailbox_cache.subject,
+            expired_mailbox_cache(mailbox_cache) if expired else mailbox_cache.serialized,
+        ),
+        cipher=context.cipher,
+    )
+
+
+async def acquire_persisted_token(oauth, context, value, **overrides):
+    """현재 보관 연결로 실제 조회·갱신·저장 경계를 실행한다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 HTTP를 사용하는 기존 어댑터.
+        context: 전용 DB·신뢰할 소유자·암호기.
+        value: 보관한 연결 ID.
+        **overrides: 접근 거부 검사를 위한 ID 교체.
+
+    Returns:
+        SecretStr: 저장 또는 현재 상태 확인 뒤의 access token 하나.
+    """
+    return await acquire_stored_mailbox_token(
+        context.settings,
+        **{"mailbox_id": value.mailbox_id, "owner_user_id": context.owner, **overrides},
+        adapter=oauth.adapter,
+        cipher=context.cipher,
+    )
+
+
+def persisted_token_row(context, value):
+    """전용 검사 DB에서 암호문·개정·상태와 수정 시각을 독립 조회한다.
+
+    Args:
+        context: 자체 PostgreSQL의 관리자 검사 연결.
+        value: 이번 합성 보관 연결.
+
+    Returns:
+        tuple: 개정·암호문·키 버전·상태·수정 시각. 평문 비밀은 포함하지 않는다.
+    """
+    with psycopg.connect(context.dsn) as conn:
+        return conn.execute(
+            "SELECT revision,cache_ciphertext,key_version,state,updated_at "
+            "FROM mailbox_auth.connections WHERE id=%s",
+            (value.mailbox_id,),
+        ).fetchone()
+
+
+def test_stored_cache_hit_returns_only_token_without_rewriting(
+    oauth, mailbox_cache, persistence_context
+):
+    """암호화 캐시 적중은 현재 상태 확인 뒤 토큰만 반환하고 DB를 다시 쓰지 않는다.
+
+    Args:
+        oauth: 실제 MSAL·합성 HTTP 문맥.
+        mailbox_cache: 유효한 합성 MSAL 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+
+    Returns:
+        None: 반환형·캐시 적중·DB 불변을 확인한다.
+    """
+
+    async def scenario():
+        """실제 보관 캐시를 읽고 갱신 POST나 저장 변경이 없는지 확인한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 유효 토큰 하나와 불변 보관 행을 검증한다.
+        """
+        value = await persist_token_cache(persistence_context, mailbox_cache)
+        before = persisted_token_row(persistence_context, value)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        token = await acquire_persisted_token(oauth, persistence_context, value)
+        assert isinstance(token, SecretStr)
+        assert token.get_secret_value() == "synthetic-access-token"
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts
+        assert persisted_token_row(persistence_context, value) == before
+        assert "synthetic-access-token" not in repr(token)
+
+    asyncio.run(scenario())
+
+
+def test_stored_refresh_commits_rotated_cache_before_return(
+    oauth, mailbox_cache, persistence_context, monkeypatch, caplog
+):
+    """실제 갱신은 스레드에서 실행하고 새 캐시 커밋 후에만 access token을 반환한다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 갱신 응답.
+        mailbox_cache: 만료시킬 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        monkeypatch: 스레드 경계를 관찰할 도구.
+        caplog: 실제 MSAL DEBUG 기록 수집기.
+
+    Returns:
+        None: 회전 캐시 커밋·재조회·로그 비노출을 검증한다.
+    """
+    context = persistence_context
+    caplog.set_level("DEBUG", logger="msal")
+    original = oauth.adapter.acquire_mailbox_token
+    main_thread = get_ident()
+
+    def observed_acquire(**kwargs):
+        """실제 SDK가 비동기 루프의 스레드를 막지 않는지 확인한다.
+
+        Args:
+            **kwargs: 검증된 사서함 식별자와 복호화 캐시.
+
+        Returns:
+            MailboxTokenUpdate: 기존 SDK의 실제 갱신 결과.
+        """
+        assert get_ident() != main_thread
+        return original(**kwargs)
+
+    monkeypatch.setattr(oauth.adapter, "acquire_mailbox_token", observed_acquire)
+    oauth.response_overrides.update(
+        access_token="synthetic-stored-access", refresh_token="synthetic-stored-refresh"
+    )
+
+    async def scenario():
+        """만료 캐시 저장부터 갱신·커밋·두 번째 캐시 적중까지 실행한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: DB의 새 개정·회전 캐시와 반환 토큰을 대조한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        token = await acquire_persisted_token(oauth, context, value)
+        assert token.get_secret_value() == "synthetic-stored-access"
+        assert persisted_token_row(context, value)[0] == 2
+        stored = await load_mailbox(
+            context.settings,
+            mailbox_id=value.mailbox_id,
+            owner_user_id=context.owner,
+            cipher=context.cipher,
+        )
+        cache = stored.serialized_cache.get_secret_value()
+        assert "synthetic-stored-refresh" in cache and "synthetic-refresh-token" not in cache
+        assert b"synthetic-stored-refresh" not in bytes(persisted_token_row(context, value)[1])
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1
+        assert await acquire_persisted_token(oauth, context, value) == token
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1
+        for secret in (
+            "synthetic-stored-access",
+            "synthetic-stored-refresh",
+            "synthetic-secret",
+            str(USER_ID),
+        ):
+            assert secret not in repr(token) + caplog.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("denied", ["mailbox", "owner", "inactive", "role", "disconnected"])
+def test_stored_token_denied_before_sdk(oauth, mailbox_cache, persistence_context, denied):
+    """현재 소유자·권한·연결이 유효하지 않으면 SDK에 복호화 캐시를 전달하지 않는다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 요청 기록.
+        mailbox_cache: 갱신이 필요한 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        denied: 거부할 ID·활성·역할·연결 조건.
+
+    Returns:
+        None: 공급자 POST 전에 고정 오류로 거부하고 보관을 바꾸지 않는다.
+    """
+    context = persistence_context
+
+    async def scenario():
+        """현재 접근 조건을 바꾼 뒤 내부 토큰 제공을 시도한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 공급자 미호출과 안전한 접근 거부를 확인한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        overrides = {}
+        if denied in {"mailbox", "owner"}:
+            overrides["mailbox_id" if denied == "mailbox" else "owner_user_id"] = uuid4()
+        elif denied == "disconnected":
+            await disconnect_mailbox(
+                context.settings, mailbox_id=value.mailbox_id, session_token=context.token
+            )
+        else:
+            with psycopg.connect(context.dsn) as conn:
+                if denied == "inactive":
+                    conn.execute(
+                        "UPDATE identity.users SET is_active=false WHERE id=%s", (context.owner,)
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM identity.user_roles WHERE user_id=%s", (context.owner,)
+                    )
+        before = persisted_token_row(context, value)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        expected = "MAILBOX_NOT_CONNECTED" if denied == "disconnected" else "MAILBOX_ACCESS_DENIED"
+        with pytest.raises(ApplicationError, match=expected):
+            await acquire_persisted_token(oauth, context, value, **overrides)
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts
+        assert persisted_token_row(context, value) == before
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("expired", [False, True])
+@pytest.mark.parametrize("change", ["inactive", "role", "disconnect", "reconnect"])
+def test_stored_token_rechecks_current_state_after_sdk(
+    oauth, mailbox_cache, persistence_context, monkeypatch, expired, change
+):
+    """캐시 적중과 갱신 모두 반환 전에 현재 권한·연결·개정 변화를 거부한다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 공급자 응답.
+        mailbox_cache: 유효 또는 만료시킬 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        monkeypatch: 실제 SDK 완료와 저장 사이의 시점을 제어할 도구.
+        expired: 실제 refresh POST를 실행할지 여부.
+        change: 제공 중 변경할 권한·연결 상태.
+
+    Returns:
+        None: 토큰 미반환·현재 보관 보호와 자동 재시도 부재를 검증한다.
+    """
+    context = persistence_context
+    original = oauth.adapter.acquire_mailbox_token
+    changed_rows = []
+    oauth.response_overrides.update(
+        access_token="synthetic-stale-access", refresh_token="synthetic-stale-refresh"
+    )
+
+    async def scenario():
+        """실제 SDK가 끝난 직후 상태를 바꿔 반환 전 재검사를 확인한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 캐시 변경 여부와 무관하게 안전하게 실패하는지 확인한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=expired)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+
+        def changed_acquire(**kwargs):
+            """SDK 호출 뒤 실제 DB 상태를 변경하며 네트워크 중 잠금 부재도 확인한다.
+
+            Args:
+                **kwargs: 기존 어댑터에 전달할 캐시·식별자.
+
+            Returns:
+                MailboxTokenUpdate: 변경된 현재 상태에 대해 재검사가 필요한 SDK 결과.
+            """
+            result = original(**kwargs)
+            if not expired:
+                assert not result.cache_changed
+            if change in {"inactive", "role"}:
+                with psycopg.connect(context.dsn) as conn:
+                    conn.execute("SET LOCAL lock_timeout='1s'")
+                    if change == "inactive":
+                        conn.execute(
+                            "UPDATE identity.users SET is_active=false WHERE id=%s",
+                            (context.owner,),
+                        )
+                    else:
+                        conn.execute(
+                            "DELETE FROM identity.user_roles WHERE user_id=%s", (context.owner,)
+                        )
+            elif change == "disconnect":
+                asyncio.run(
+                    disconnect_mailbox(
+                        context.settings, mailbox_id=value.mailbox_id, session_token=context.token
+                    )
+                )
+            else:
+                asyncio.run(
+                    reconnect_mailbox(
+                        context.settings,
+                        mailbox_id=value.mailbox_id,
+                        expected_revision=value.revision,
+                        session_token=context.token,
+                        cipher=context.cipher,
+                        authorization=MailboxAuthorization(
+                            context.owner, mailbox_cache.subject, mailbox_cache.serialized
+                        ),
+                    )
+                )
+            changed_rows.append(persisted_token_row(context, value))
+            return result
+
+        monkeypatch.setattr(oauth.adapter, "acquire_mailbox_token", changed_acquire)
+        expected = {
+            "inactive": "MAILBOX_ACCESS_DENIED",
+            "role": "MAILBOX_ACCESS_DENIED",
+            "disconnect": "MAILBOX_NOT_CONNECTED",
+            "reconnect": "MAILBOX_TOKEN_UNAVAILABLE",
+        }[change]
+        with pytest.raises(ApplicationError, match=expected) as error:
+            await acquire_persisted_token(oauth, context, value)
+        assert error.value.code != "MAILBOX_VERSION_CONFLICT"
+        assert persisted_token_row(context, value) == changed_rows[0]
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + int(expired)
+
+    asyncio.run(scenario())
+
+
+def test_stored_refresh_sql_failure_never_returns_new_token(
+    oauth, mailbox_cache, persistence_context, monkeypatch
+):
+    """성공한 실제 갱신 뒤 저장 권한 실패는 새 토큰 미반환·기존 암호문 보존으로 끝난다.
+
+    Args:
+        oauth: 실제 SDK와 합성 공급자 응답.
+        mailbox_cache: 갱신이 필요한 합성 캐시.
+        persistence_context: 권한 실패를 만드는 자체 DB.
+        monkeypatch: SDK 완료 후 SQL 실패 시점을 제어할 도구.
+
+    Returns:
+        None: 실제 SQL 실패·롤백·자동 재시도 부재를 확인한다.
+    """
+    context = persistence_context
+    original = oauth.adapter.acquire_mailbox_token
+
+    def denied_update(**kwargs):
+        """실제 갱신 후 이번 전용 스키마의 UPDATE 권한만 잠시 제거한다.
+
+        Args:
+            **kwargs: 원래 SDK 인자.
+
+        Returns:
+            MailboxTokenUpdate: 저장에 실패해야 하는 실제 SDK 결과.
+        """
+        result = original(**kwargs)
+        assert result.cache_changed
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute("SET LOCAL ROLE platform_migrator")
+            conn.execute("REVOKE UPDATE ON mailbox_auth.connections FROM platform_app")
+        return result
+
+    monkeypatch.setattr(oauth.adapter, "acquire_mailbox_token", denied_update)
+
+    async def scenario():
+        """실제 공급자 성공 뒤 DB 실패를 처리하고 권한을 반드시 복구한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 저장 실패의 고정503과 DB 불변을 확인한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        before = persisted_token_row(context, value)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        try:
+            with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+                await acquire_persisted_token(oauth, context, value)
+            assert error.value.status_code == 503
+        finally:
+            with psycopg.connect(context.dsn) as conn:
+                conn.execute("SET LOCAL ROLE platform_migrator")
+                conn.execute("GRANT UPDATE ON mailbox_auth.connections TO platform_app")
+        assert persisted_token_row(context, value) == before
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "provider_error,expected",
+    [
+        ("invalid_grant", "MAILBOX_RECONNECT_REQUIRED"),
+        ("temporarily_unavailable", "MAILBOX_TOKEN_UNAVAILABLE"),
+    ],
+)
+def test_stored_provider_failure_does_not_save_or_return_token(
+    oauth, mailbox_cache, persistence_context, provider_error, expected
+):
+    """실제 SDK의 재연결·일시 장애 분류를 보존하고 실패 캐시를 저장하지 않는다.
+
+    Args:
+        oauth: 합성 Microsoft 오류 응답을 사용하는 실제 MSAL.
+        mailbox_cache: 갱신이 필요한 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        provider_error: 재연결 또는 일시 장애 공급자 코드.
+        expected: 기존 어댑터의 고정 오류 코드.
+
+    Returns:
+        None: 고정 오류 전달·기존 보관 보존·자동 재시도 부재를 확인한다.
+    """
+    context = persistence_context
+    oauth.token_response = {"error": provider_error, "error_description": "synthetic-refresh-token"}
+    oauth.response_status = 400
+
+    async def scenario():
+        """기존 만료 캐시에 대해 SDK 오류를 전달한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 실패를 성공·캐시 갱신으로 숨기지 않는지 확인한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        before = persisted_token_row(context, value)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        with pytest.raises(ApplicationError, match=expected) as error:
+            await acquire_persisted_token(oauth, context, value)
+        assert "synthetic-refresh-token" not in error.value.message
+        assert persisted_token_row(context, value) == before
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_stored_refresh_only_returns_committed_winner(
+    oauth, mailbox_cache, persistence_context, monkeypatch
+):
+    """실제 동시 갱신 두 개 중 커밋된 캐시의 토큰만 반환하고 패자는503으로 종료한다.
+
+    Args:
+        oauth: 실제 MSAL·합성 HTTP 문맥.
+        mailbox_cache: 두 작업이 읽을 같은 만료 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        monkeypatch: 두 실제 HTTP 응답이 겹치도록 제어할 도구.
+
+    Returns:
+        None: 실제 동시 저장·개정 충돌·캐시 승자·재시도 부재를 확인한다.
+    """
+    context = persistence_context
+    barrier = Barrier(2)
+    original = requests.Session.request
+
+    def overlapping_refresh(session, method, url, **kwargs):
+        """두 합성 토큰 응답을 서로 다른 회전 값으로 동시에 반환한다.
+
+        Args:
+            session: 실제 MSAL requests 세션.
+            method: discovery 또는 갱신 메서드.
+            url: 고정 Microsoft 주소.
+            **kwargs: 실제 SDK 요청 인자.
+
+        Returns:
+            Response: 서로 다른 합성 access/refresh 값을 가진 응답.
+        """
+        response = original(session, method, url, **kwargs)
+        if method.upper() == "POST":
+            index = barrier.wait(timeout=10)
+            body = response.json()
+            body.update(
+                access_token=f"synthetic-race-access-{index}",
+                refresh_token=f"synthetic-race-refresh-{index}",
+            )
+            response._content = json.dumps(body).encode()
+        return response
+
+    async def scenario():
+        """같은 개정의 만료 캐시에서 두 실제 MSAL 갱신을 병렬 실행한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 반환 토큰이 실제 저장 승자의 캐시와 같은지 확인한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        monkeypatch.setattr(requests.Session, "request", overlapping_refresh)
+        results = await asyncio.gather(
+            acquire_persisted_token(oauth, context, value),
+            acquire_persisted_token(oauth, context, value),
+            return_exceptions=True,
+        )
+        tokens = [v for v in results if isinstance(v, SecretStr)]
+        errors = [v for v in results if isinstance(v, ApplicationError)]
+        assert len(tokens) == len(errors) == 1
+        assert errors[0].code == "MAILBOX_TOKEN_UNAVAILABLE" and errors[0].status_code == 503
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 2
+        stored = await load_mailbox(
+            context.settings,
+            mailbox_id=value.mailbox_id,
+            owner_user_id=context.owner,
+            cipher=context.cipher,
+        )
+        cache = stored.serialized_cache.get_secret_value()
+        winner = tokens[0].get_secret_value().removeprefix("synthetic-race-access-")
+        assert stored.revision == 2
+        assert tokens[0].get_secret_value() in cache and f"synthetic-race-refresh-{winner}" in cache
+        assert f"synthetic-race-refresh-{1 - int(winner)}" not in cache
+        assert "synthetic-refresh-token" not in cache
 
     asyncio.run(scenario())

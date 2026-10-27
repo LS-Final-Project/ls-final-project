@@ -1,4 +1,4 @@
-"""현재 세션·사서함 인가·암호화 저장을 잇는 내부 경계. HTTP는 미연결이다."""
+"""현재 세션·사서함 인가·암호화 보관과 토큰 조회를 잇는 내부 경계."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -6,13 +6,24 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
+from pydantic import SecretStr
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.platform.auth.attempts import consume_authorization, save_authorization
 from backend.api.platform.auth.callback import OAuthPurpose, reject_callback
-from backend.api.platform.auth.mailbox_vault import MailboxCipher, create_mailbox
-from backend.api.platform.auth.microsoft import MailboxAuthorization, PersonalMicrosoftOAuth
+from backend.api.platform.auth.mailbox_vault import (
+    MailboxCipher,
+    create_mailbox,
+    load_mailbox,
+    save_mailbox_update,
+)
+from backend.api.platform.auth.microsoft import (
+    MailboxAuthorization,
+    PersonalMicrosoftOAuth,
+    _mailbox_error,
+)
 from backend.api.platform.auth.sessions import load_session
+from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
 
@@ -150,3 +161,45 @@ async def complete_and_store_mailbox_link(
         settings, session_token=session_token, authorization=authorization, cipher=cipher
     )
     return MailboxConnectionReceipt(mailbox_id=stored.mailbox_id, revision=stored.revision)
+
+
+async def acquire_stored_mailbox_token(
+    settings: Settings,
+    *,
+    mailbox_id: UUID,
+    owner_user_id: UUID,
+    adapter: PersonalMicrosoftOAuth,
+    cipher: MailboxCipher,
+) -> SecretStr:
+    """현재 보관 캐시를 조회·갱신하고 안전한 저장을 마친 뒤 토큰 하나만 반환한다.
+
+    인증된 서버 요청·저장된 작업에서 소유자를 복원한 호출만 허용한다. 이 함수는
+    HTTP 인증이나 작업 권한 검사를 대신하지 않으며 소비자용 최종 주입 경로도 아니다.
+    MSAL은 트랜잭션 밖의 스레드에서 실행한다. 캐시 적중도 현재 권한·연결·개정을
+    다시 확인하고, 저장 충돌·실패 시 새 토큰을 반환하거나 자동 재시도하지 않는다.
+
+    Args:
+        settings: 플랫폼 런타임 DB 설정.
+        mailbox_id: 서버에 저장된 사서함 연결 ID.
+        owner_user_id: 인증한 요청 또는 신뢰할 서버 작업에서 복원한 소유자 ID.
+        adapter: 기존 MSAL 토큰 조회·갱신 어댑터.
+        cipher: 서버 전용 키를 주입한 현재 보관 암호기.
+
+    Returns:
+        SecretStr: 저장 커밋 또는 변경 없는 현재 상태 확인을 마친 access token 하나.
+    """
+    snapshot = await load_mailbox(
+        settings, mailbox_id=mailbox_id, owner_user_id=owner_user_id, cipher=cipher
+    )
+    update = await run_in_threadpool(
+        adapter.acquire_mailbox_token,
+        subject=snapshot.subject,
+        serialized_cache=snapshot.serialized_cache,
+    )
+    try:
+        await save_mailbox_update(settings, snapshot=snapshot, update=update, cipher=cipher)
+    except ApplicationError as error:
+        if error.code == "MAILBOX_VERSION_CONFLICT":
+            raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE") from None
+        raise
+    return update.access_token
