@@ -17,7 +17,7 @@ export function summaryFixture(): RunSummary {
     report_version: 'cs-run-summary-v1', run_id: '22222222-2222-4222-8222-222222222222',
     status: 'PARTIAL', generated_at: '2026-10-27T10:00:00Z', data_origin: 'synthetic',
     quality_available: false, quality_unavailable_reason: 'GOLD_NOT_CONNECTED',
-    target_count: 3, targets_without_first_attempt: 0, first, all: first, synthetic_quality: null,
+    target_count: 3, targets_without_first_attempt: 0, first, all: first, synthetic_quality: null, comparison_key: 'c'.repeat(64),
     retry: { stored_attempt_count: 0, unfinished_attempt_count: 0, stored_raw_response_count: 0,
       schema_violation_count: 0, schema_violation_rate: null, incomplete_evidence_attempt_count: 0,
       cost_usd: { reported_count: 0, missing_count: 0, known_sum: null, total: null, pricing_version_count: 0 },

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { isJobId, statusLabels } from '../api/evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
 import './evaluations.css';
+import RunComparison from './RunComparison';
 import RunControls from './RunControls';
 import RunSummary from './RunSummary';
 
@@ -83,6 +84,7 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
       </>}
     </section>
     {data && <RunSummary key={`${data.run_id}:${view.checkedAt}`} runId={data.run_id} />}
+    {data && <RunComparison key={`comparison:${data.run_id}:${view.checkedAt}`} candidateId={data.run_id} />}
     {valid && <RunControls jobId={jobId.toLowerCase()} snapshot={data} onRefresh={refresh} />}
     <aside className="evaluation-note"><strong>평가 결과와 실행 상태는 별도로 확인합니다.</strong><p>현재 지원 범위는 합성 평가의 상태·집계 조회와 실행 제어입니다. 실행 완료는 모델 품질의 합격을 의미하지 않습니다. 최종 시험과 원시 출력은 잠금 상태를 유지합니다.</p></aside>
   </main>;

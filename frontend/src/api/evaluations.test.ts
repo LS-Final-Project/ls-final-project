@@ -175,3 +175,17 @@ for (const [name, change] of Object.entries(qualityChanges)) {
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   });
 }
+
+test('비교 키는 누락·null을 미제공으로 통과시키고 형식이 다르면 거부한다', async t => {
+  const data = summaryFixture();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, 'c'.repeat(64));
+  data.comparison_key = null;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, null);
+  delete data.comparison_key;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, null);
+  for (const bad of ['C'.repeat(64), 'c'.repeat(63), 1]) {
+    Object.assign(data, { comparison_key: bad });
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  }
+});
