@@ -37,7 +37,7 @@ def source_groups(row: dict[str, str]) -> list[str]:
     if row.get("category_code") == "RETURN":
         groups.append("SOURCE_RETURN")
     followups = row.get("customer_followups", "")
-    if followups.isdigit() and int(followups) > 0:
+    if followups.isascii() and followups.isdecimal() and followups.strip("0"):
         groups.append("SOURCE_FOLLOWUP")
     if re.search(r"(?<![A-Z0-9])FLT-042(?![A-Z0-9])", row.get("reference_doc_id", "")):
         groups.append("SOURCE_BLOCKED_REFERENCE")

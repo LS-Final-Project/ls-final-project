@@ -10,10 +10,31 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.cs_review_inputs import prepare_review
+from scripts.cs_review_inputs import prepare_review, source_groups
 
 
 class InputReviewTests(unittest.TestCase):
+    def test_followup_group_uses_only_positive_ascii_counts(self):
+        """회신 수의 특수 숫자나 매우 긴 문자열로 감사 작업이 중단되지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 유효한 양의 ASCII 정수 표기만 회신 그룹으로 표시한다.
+        """
+        for value, expected in (
+            ("²", False),
+            ("２", False),
+            ("000", False),
+            ("002", True),
+            ("9" * 5000, True),
+        ):
+            with self.subTest(value=value[:8]):
+                self.assertEqual(
+                    "SOURCE_FOLLOWUP" in source_groups({"customer_followups": value}), expected
+                )
+
     def setUp(self):
         """Git 제외 출력과 합성 파일만 있는 독립 작업 공간을 만든다.
 
