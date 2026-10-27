@@ -12,6 +12,16 @@ from backend.api.cs.improvements.schemas import (
     NextOwner,
     RequestDetail,
 )
+from backend.api.cs.stats.schemas import (
+    CustomerLoad,
+    DataRange,
+    DepartmentCount,
+    ImprovementCounts,
+    OpenAge,
+    Overview,
+    Period,
+    TicketCounts,
+)
 from backend.api.cs.tickets.schemas import (
     AuditEvent,
     AuditList,
@@ -381,6 +391,60 @@ def improvement_example() -> dict:
     }
 
 
+def stats_example() -> dict:
+    """A manager's September overview (synthetic counts for screen development)."""
+    overview = Overview(
+        scope="ALL",
+        period=Period(
+            start=datetime(2026, 9, 1, tzinfo=UTC), end=datetime(2026, 10, 1, tzinfo=UTC)
+        ),
+        dept_code=None,
+        customer_external_id=None,
+        data_range=DataRange(
+            first_received_at=datetime(2025, 10, 1, 4, 10, 51, tzinfo=UTC),
+            last_received_at=datetime(2026, 9, 30, 21, 5, 0, tzinfo=UTC),
+        ),
+        tickets=TicketCounts(
+            received=42,
+            closed=35,
+            open=9,
+            by_state={
+                "RECEIVED": 2,
+                "IN_REVIEW": 4,
+                "WAITING_CUSTOMER": 1,
+                "ANSWERED": 1,
+                "TRANSFERRED": 1,
+                "CLOSED": 33,
+            },
+            by_origin={"synthetic": 40, "demo": 2, "real": 0},
+            open_age=OpenAge(under_1_day=3, from_1_to_3_days=2, from_3_to_7_days=3, over_7_days=1),
+        ),
+        departments=[
+            DepartmentCount(
+                dept_code="TS_TRF",
+                transferred=4,
+                results_submitted=3,
+                results_accepted=2,
+                returned_or_recalled=1,
+            )
+        ],
+        top_customers=[CustomerLoad(customer_external_id="CUST-0374", received=3, open=1)],
+        improvements=ImprovementCounts(
+            by_status={"DRAFT": 1, "SENT": 1},
+            by_type={"FAULT": 2, "DOCUMENT": 0},
+            open=2,
+            receiver_unconfirmed=0,
+        ),
+        unconfirmed=["SLA_DUE", "RULE_ASSIGNED_DEPT"],
+    )
+    return {
+        "method": "GET",
+        "path": "/api/v1/cs/stats/overview",
+        "status": 200,
+        "body": SuccessResponse(data=overview, meta=META).model_dump(mode="json"),
+    }
+
+
 def examples() -> list[dict]:
     listing: SuccessResponse[TicketList] = SuccessResponse(
         data=TicketList(
@@ -471,5 +535,5 @@ def examples() -> list[dict]:
         ]
         + write_examples()
         + unit_examples()
-        + [workflow_example(), case_example(), improvement_example()]
+        + [workflow_example(), case_example(), improvement_example(), stats_example()]
     )
