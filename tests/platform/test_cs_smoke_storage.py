@@ -805,3 +805,277 @@ def test_stored_usage_single_zero_is_reported_not_missing(
     assert result["all"]["cost_usd"]["total"] == "0.000000"
     assert result["all"]["latency_ms"]["p50"] == result["all"]["latency_ms"]["p95"] == 0
     assert result["retry"]["cost_usd"]["total"] is None
+
+
+@pytest.fixture
+def baseline_pair(settings, cs_access, cs_run, evaluation_database):
+    """합성 종료 실행을 복제해 다른 실험의 비교 후보를 트랜잭션 안에 준비한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 기준 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        tuple: 연결·기준/후보 실행·후보 실험. 종료 시 복제를 롤백한다.
+    """
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        try:
+            source_experiment = conn.execute(
+                "SELECT experiment_id FROM evaluation.runs WHERE id=%s", (cs_run,)
+            ).fetchone()[0]
+            experiment_id, candidate_id = uuid4(), uuid4()
+            conn.execute(
+                "INSERT INTO evaluation.experiments SELECT (jsonb_populate_record(NULL::evaluation.experiments,to_jsonb(e)||%s)).* "
+                "FROM evaluation.experiments e WHERE id=%s",
+                (
+                    Jsonb(
+                        {
+                            "id": str(experiment_id),
+                            "config_hash": uuid4().hex + uuid4().hex,
+                            "model_id": "candidate-fake",
+                        }
+                    ),
+                    source_experiment,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO evaluation.experiment_targets SELECT %s,target_ref,target_kind,data_origin,attributes "
+                "FROM evaluation.experiment_targets WHERE experiment_id=%s",
+                (experiment_id, source_experiment),
+            )
+            conn.execute(
+                "INSERT INTO evaluation.runs SELECT (jsonb_populate_record(NULL::evaluation.runs,to_jsonb(r)||%s)).* "
+                "FROM evaluation.runs r WHERE id=%s",
+                (
+                    Jsonb(
+                        {
+                            "id": str(candidate_id),
+                            "experiment_id": str(experiment_id),
+                            "job_id": None,
+                        }
+                    ),
+                    cs_run,
+                ),
+            )
+            for (case_id,) in conn.execute(
+                "SELECT id FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+            ).fetchall():
+                new_case = uuid4()
+                conn.execute(
+                    "INSERT INTO evaluation.cases SELECT (jsonb_populate_record(NULL::evaluation.cases,to_jsonb(c)||%s)).* "
+                    "FROM evaluation.cases c WHERE id=%s",
+                    (
+                        Jsonb(
+                            {
+                                "id": str(new_case),
+                                "run_id": str(candidate_id),
+                                "experiment_id": str(experiment_id),
+                            }
+                        ),
+                        case_id,
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO evaluation.case_attempts SELECT (jsonb_populate_record(NULL::evaluation.case_attempts,to_jsonb(a)||%s)).* "
+                    "FROM evaluation.case_attempts a WHERE case_id=%s",
+                    (Jsonb({"id": str(uuid4()), "case_id": str(new_case)}), case_id),
+                )
+            yield conn, cs_run, candidate_id, experiment_id
+        finally:
+            conn.rollback()
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary"])
+def test_baseline_comparison_finds_regression_hidden_by_equal_score(baseline_pair, metric):
+    """평균 점수가 같아도 사례 퇴행·새 위험 누락을 숨기지 않는다.
+
+    Args:
+        baseline_pair: 같은 자료의 합성 종료 실행 쌍.
+        metric: 비교 지표.
+
+    Returns:
+        None: 동일 분모·최초 시도·사례 전이 및 위험 누락 대조를 확인한다.
+    """
+    from eval.cs_stored_metrics import compare_stored_runs
+
+    conn, baseline, candidate, _ = baseline_pair
+    good = {
+        "category_code": "RETURN",
+        "secondary_category": "DEFECT",
+        "urgency_flag": "SAFETY",
+        "provided_info": [],
+        "return_subtype": None,
+    }
+    bad = {**good, "category_code": "INSTALL", "secondary_category": None, "urgency_flag": "NONE"}
+    for run, ref, output in (
+        (baseline, "cs-smoke-valid", good),
+        (candidate, "cs-smoke-valid", bad),
+        (candidate, "cs-smoke-invalid", good),
+    ):
+        conn.execute(
+            "UPDATE evaluation.case_attempts SET outcome='VALID',parsed_output=%s WHERE case_id IN "
+            "(SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref=%s)",
+            (Jsonb(output), run, ref),
+        )
+    gold = dict.fromkeys(
+        FIXTURES, {"category": "RETURN", "urgency": "SAFETY", "secondary": "DEFECT"}[metric]
+    )
+    result = compare_stored_runs(conn, baseline, candidate, gold, gold_version=None, metric=metric)
+    assert result["delta"]["accuracy"] == 0
+    base_scores = result["baseline"]["report"]["overall"]
+    assert base_scores["accuracy"] == pytest.approx(1 / 3)
+    if metric == "secondary":
+        assert base_scores["composite"]["macro_f1"] == pytest.approx(0.5 / 10)
+    else:
+        assert base_scores["macro_f1"] == pytest.approx(0.5 / (6 if metric == "urgency" else 10))
+    assert all(value == 0 for value in result["delta"].values())
+    assert (
+        result["baseline"]["report"]["overall"]["total"]
+        == result["candidate"]["report"]["overall"]["total"]
+        == 3
+    )
+    assert result["transitions"] == {
+        "IMPROVED": 1,
+        "REGRESSED": 1,
+        "STILL_CORRECT": 0,
+        "STILL_INCORRECT": 1,
+    }
+    cases = {case["case_id"]: case for case in result["cases"]}
+    assert cases["cs-smoke-valid"]["transition"] == "REGRESSED"
+    assert cases["cs-smoke-invalid"]["transition"] == "IMPROVED"
+    if metric == "urgency":
+        assert cases["cs-smoke-valid"]["new_critical_miss"] is True
+        assert cases["cs-smoke-invalid"]["recovered_critical_miss"] is True
+    assert result["settings"]["candidate"]["model_id"] == "candidate-fake"
+    assert result["quality_gate_evaluated"] is False
+    assert "raw_output" not in str(result)
+    case_id = conn.execute(
+        "SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-valid'",
+        (candidate,),
+    ).fetchone()[0]
+    conn.execute("UPDATE evaluation.case_attempts SET is_final=false WHERE case_id=%s", (case_id,))
+    conn.execute(
+        "INSERT INTO evaluation.case_attempts SELECT (jsonb_populate_record(NULL::evaluation.case_attempts,to_jsonb(a)||%s)).* "
+        "FROM evaluation.case_attempts a WHERE case_id=%s AND attempt=1",
+        (
+            Jsonb({"id": str(uuid4()), "attempt": 2, "is_final": True, "parsed_output": good}),
+            case_id,
+        ),
+    )
+    assert (
+        compare_stored_runs(conn, baseline, candidate, gold, gold_version=None, metric=metric)
+        == result
+    )
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "same_run",
+        "missing_run",
+        "active",
+        "dataset",
+        "split",
+        "gold",
+        "policy",
+        "target_hash",
+        "target_rows",
+        "metadata",
+    ],
+)
+def test_baseline_comparison_rejects_incompatible_runs(baseline_pair, mismatch):
+    """평가 대상·판본·그룹 또는 실행 상태가 다르면 비교를 거부한다.
+
+    Args:
+        baseline_pair: 합성 실행 쌍.
+        mismatch: 주입할 비교 불가 조건.
+
+    Returns:
+        None: 조건 불일치를 점수 변화로 해석하지 않음을 확인한다.
+    """
+    from eval.cs_stored_metrics import compare_stored_runs
+
+    conn, baseline, candidate, experiment_id = baseline_pair
+    fields = {
+        "dataset": ("dataset_hash", "b" * 64),
+        "split": ("data_split", "valid"),
+        "gold": ("gold_version", "different"),
+        "policy": ("policy_version", "different"),
+        "target_hash": ("target_set_hash", "c" * 64),
+    }
+    if mismatch in fields:
+        field, value = fields[mismatch]
+        conn.execute(
+            psycopg.sql.SQL("UPDATE evaluation.experiments SET {}=%s WHERE id=%s").format(
+                psycopg.sql.Identifier(field)
+            ),
+            (value, experiment_id),
+        )
+    if mismatch == "active":
+        conn.execute(
+            "UPDATE evaluation.runs SET status='RUNNING',finished_at=NULL WHERE id=%s", (candidate,)
+        )
+    if mismatch == "target_rows":
+        conn.execute(
+            "DELETE FROM evaluation.case_attempts WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-timeout')",
+            (candidate,),
+        )
+        conn.execute(
+            "DELETE FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-timeout'",
+            (candidate,),
+        )
+        conn.execute(
+            "DELETE FROM evaluation.experiment_targets WHERE experiment_id=%s AND target_ref='cs-smoke-timeout'",
+            (experiment_id,),
+        )
+    if mismatch == "metadata":
+        conn.execute(
+            "UPDATE evaluation.experiment_targets SET attributes=%s WHERE experiment_id=%s",
+            (Jsonb({"channel": "PHONE"}), experiment_id),
+        )
+    with pytest.raises(ValueError, match="^CS_BASELINE_INCOMPATIBLE$"):
+        compare_stored_runs(
+            conn,
+            baseline,
+            baseline
+            if mismatch == "same_run"
+            else uuid4()
+            if mismatch == "missing_run"
+            else candidate,
+            dict.fromkeys(FIXTURES, "RETURN"),
+            gold_version=None,
+            metric="category",
+        )
+
+
+def test_baseline_comparison_keeps_unsupported_recall_null(baseline_pair):
+    """비NONE 대상이 없으면 재현율 차이를 0이나 개선으로 만들지 않는다.
+
+    Args:
+        baseline_pair: 합성 실행 쌍.
+
+    Returns:
+        None: 빈 지원 집합의 null과 취소 후 미실행 분모를 확인한다.
+    """
+    from eval.cs_stored_metrics import compare_stored_runs
+
+    conn, baseline, candidate, _ = baseline_pair
+    conn.execute(
+        "DELETE FROM evaluation.case_attempts WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+        (candidate,),
+    )
+    conn.execute("UPDATE evaluation.runs SET status='CANCELLED' WHERE id=%s", (candidate,))
+    result = compare_stored_runs(
+        conn,
+        baseline,
+        candidate,
+        dict.fromkeys(FIXTURES, "NONE"),
+        gold_version=None,
+        metric="urgency",
+    )
+    assert result["delta"]["non_none_recall"] is None
+    assert result["delta"]["accuracy"] == pytest.approx(-1 / 3)
+    assert result["candidate"]["report"]["overall"]["outcomes"]["NOT_STARTED"] == 3

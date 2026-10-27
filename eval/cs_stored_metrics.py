@@ -39,13 +39,16 @@ def summarize_stored_first_attempts(
     return _summarize_snapshot(rows, run_id, gold, gold_version=gold_version, metric=metric)
 
 
-def _read_snapshot(conn: Connection, run_id: UUID, *, compare_final: bool = False) -> list[dict]:
+def _read_snapshot(
+    conn: Connection, run_id: UUID, *, compare_final: bool = False, baseline_id: UUID | None = None
+) -> list[dict]:
     """최초/최종 비교도 같은 SQL 스냅샷에서 읽는다.
 
     Args:
         conn: 권한 확인된 내부 연결.
         run_id: 대상 실행.
         compare_final: 최종 표시와 최신 시도 번호까지 읽을지 여부.
+        baseline_id: 함께 읽을 기준 실행. 두 실행도 한 SQL 스냅샷을 사용한다.
 
     Returns:
         list[dict]: 원시 출력 없이 고정 대상별 저장 행.
@@ -66,7 +69,9 @@ def _read_snapshot(conn: Connection, run_id: UUID, *, compare_final: bool = Fals
     )
     with conn.cursor(row_factory=dict_row) as cursor:
         rows = cursor.execute(
-            "SELECT r.experiment_id,r.status,r.requested_count,e.gold_version,"
+            "SELECT r.id AS run_id,r.experiment_id,r.status,r.requested_count,e.gold_version,"
+            "e.purpose,e.data_origin,e.dataset_hash,e.data_split,e.target_set_hash,e.policy_version,"
+            "e.config_hash,e.model_id,e.prompt_version,e.input_builder_version,"
             "t.target_ref,t.attributes->'channel' AS channel,"
             "t.attributes->'body_language' AS body_language,a.id AS attempt_id,"
             "a.outcome,a.parsed_output " + final_columns + "FROM evaluation.runs r "
@@ -76,8 +81,8 @@ def _read_snapshot(conn: Connection, run_id: UUID, *, compare_final: bool = Fals
             "LEFT JOIN evaluation.case_attempts a "
             "ON a.case_id=c.id AND a.step='classify' AND a.attempt=1 "
             + final_join
-            + "WHERE r.id=%s ORDER BY t.target_ref",
-            (run_id,),
+            + "WHERE r.id=ANY(%s) ORDER BY r.id,t.target_ref",
+            ([run_id] if baseline_id is None else [run_id, baseline_id],),
         ).fetchall()
     return rows
 
@@ -237,6 +242,117 @@ def compare_stored_attempts(
             "correct": correct,
             "accuracy": correct / total if total else None,
             "outcomes": outcomes,
+        },
+        "transitions": transitions,
+        "cases": cases,
+    }
+
+
+def compare_stored_runs(
+    conn: Connection,
+    baseline_run_id: UUID,
+    candidate_run_id: UUID,
+    gold: Mapping[str, str | None],
+    *,
+    gold_version: str | None,
+    metric: Metric,
+) -> dict:
+    """동일 평가 조건의 종료 실행을 최초 시도 기준으로 비교한다.
+
+    Args:
+        conn: 두 실행 조회 권한과 정답 잠금을 확인한 내부 연결.
+        baseline_run_id: 사용자가 지정한 기준 실행.
+        candidate_run_id: 비교할 후보 실행.
+        gold: 두 실행에 공통으로 적용할 고정 대상별 정답.
+        gold_version: 두 실험과 일치해야 하는 인수 정답 판본.
+        metric: category/urgency/secondary 중 비교할 지표.
+
+    Returns:
+        dict: 기준·후보 최초 지표, 후보-기준 차이와 사례별 퇴행/개선.
+            평가 조건이 다르거나 진행 중이면 안전한 오류로 거부한다. 합격 판정은 없다.
+    """
+    if baseline_run_id == candidate_run_id:
+        raise ValueError("CS_BASELINE_INCOMPATIBLE")
+    rows = _read_snapshot(conn, candidate_run_id, baseline_id=baseline_run_id)
+    baseline = [row for row in rows if row["run_id"] == baseline_run_id]
+    candidate = [row for row in rows if row["run_id"] == candidate_run_id]
+    conditions = (
+        "purpose",
+        "data_origin",
+        "dataset_hash",
+        "data_split",
+        "gold_version",
+        "target_set_hash",
+        "policy_version",
+    )
+    terminal = {"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"}
+    if (
+        not baseline
+        or not candidate
+        or baseline[0]["status"] not in terminal
+        or candidate[0]["status"] not in terminal
+        or any(baseline[0][key] != candidate[0][key] for key in conditions)
+        or {row["target_ref"]: (row["channel"], row["body_language"]) for row in baseline}
+        != {row["target_ref"]: (row["channel"], row["body_language"]) for row in candidate}
+    ):
+        raise ValueError("CS_BASELINE_INCOMPATIBLE")
+    base_report = _summarize_snapshot(
+        baseline, baseline_run_id, gold, gold_version=gold_version, metric=metric
+    )
+    candidate_report = _summarize_snapshot(
+        candidate, candidate_run_id, gold, gold_version=gold_version, metric=metric
+    )
+    old, new = base_report["report"]["overall"], candidate_report["report"]["overall"]
+    values = {"accuracy": (old["accuracy"], new["accuracy"])}
+    if metric == "secondary":
+        values["composite_macro_f1"] = (old["composite"]["macro_f1"], new["composite"]["macro_f1"])
+        values["invented_secondary"] = (old["absent"]["invented"], new["absent"]["invented"])
+    else:
+        values["macro_f1"] = (old["macro_f1"], new["macro_f1"])
+    if metric == "urgency":
+        values["non_none_recall"] = (old["non_none"]["recall"], new["non_none"]["recall"])
+        values["critical_missed"] = (old["critical"]["missed"], new["critical"]["missed"])
+    old_cases = {case["case_id"]: case for case in old["cases"]}
+    transitions = dict.fromkeys(("IMPROVED", "REGRESSED", "STILL_CORRECT", "STILL_INCORRECT"), 0)
+    cases = []
+    for case in new["cases"]:
+        previous = old_cases[case["case_id"]]
+        transition = (
+            "STILL_CORRECT"
+            if previous["correct"] and case["correct"]
+            else "REGRESSED"
+            if previous["correct"]
+            else "IMPROVED"
+            if case["correct"]
+            else "STILL_INCORRECT"
+        )
+        transitions[transition] += 1
+        item = {
+            "case_id": case["case_id"],
+            "baseline_correct": previous["correct"],
+            "candidate_correct": case["correct"],
+            "transition": transition,
+        }
+        if metric == "urgency":
+            item["new_critical_miss"] = not previous["critical_missed"] and case["critical_missed"]
+            item["recovered_critical_miss"] = (
+                previous["critical_missed"] and not case["critical_missed"]
+            )
+        cases.append(item)
+    provenance = ("config_hash", "model_id", "prompt_version", "input_builder_version")
+    return {
+        "version": "cs-baseline-first-attempt-v1",
+        "quality_gate_evaluated": False,
+        "baseline": base_report,
+        "candidate": candidate_report,
+        "conditions": {key: baseline[0][key] for key in conditions},
+        "settings": {
+            "baseline": {key: baseline[0][key] for key in provenance},
+            "candidate": {key: candidate[0][key] for key in provenance},
+        },
+        "delta": {
+            key: after - before if before is not None and after is not None else None
+            for key, (before, after) in values.items()
         },
         "transitions": transitions,
         "cases": cases,

@@ -230,3 +230,31 @@ p95:q=.95). 표본0은 null, 표본1은 그 값이다. 누락 수와 미종료 �
 여기서 total은 선택된 **저장 시도**가 모두 보고한 경우의 합계다. 미저장 시도·미실행 대상의
 비용까지 알려졌다는 뜻이 아니다. target_count/targets_without_first_attempt와 실행 상태를
 함께 확인해야 하며, 일부 대상만 실행된 0 합계를 전체 실행 무료로 해석하지 않는다.
+
+
+### KAN-88 기준선 대비 최초 품질 비교
+
+`eval.cs_stored_metrics.compare_stored_runs(conn, baseline_run_id, candidate_run_id, gold,
+gold_version=..., metric=...)`는 사용자가 지정한 서로 다른 종료 실행의 최초 시도만 비교한다.
+두 실행을 한 SQL 스냅샷에서 읽고 동일한 현재 집계 코드로 다시 계산한다. 호출자는 두 실행의
+조회 권한과 고정 정답 인수를 확인해야 한다. 이 함수는 승인·배포·합격 여부를 결정하지 않는다.
+
+purpose/data_origin/dataset_hash/data_split/gold_version/target_set_hash/policy_version,
+실제 대상 ID 집합과 대상별 channel/body_language가 일치해야 한다. 각 실행의 요청 건수와
+인수 gold 대상도 기존 최초 집계에서 다시 대조한다. 불일치를 필터링하거나 교집합으로
+축소하지 않는다. 진행 중/없는 실행/자기 자신과 비교는 거부한다. 종료한 실패·취소 실행은
+비교할 수 있으며 미실행과 실패도 분모에 남긴다.
+
+모델·프롬프트·입력 변환 판본·구성 hash는 비교 변수일 수 있으므로 일치를 강제하지 않고
+각 실행의 settings에 기록한다. 그 밖의 비교 조건은 conditions에 남긴다. 같은 판본 표기는
+정답 내용의 교차검수 증명이 아니며 실제 잠금 확인은 호출자 책임이다.
+
+baseline/candidate는 기존 최초 지표·언어/채널 보고서다. delta는 **후보-기준**으로 계산하며
+accuracy/macro-F1(보조 분류는 composite_macro_f1), 비NONE 재현율/CRITICAL 누락 또는
+불필요한 보조 의도 생성 수를 비교한다. 누락/오류 건수는 양수일수록 악화이고 점수는 반대다.
+어느 쪽이든 계산 불가(null)이면 차이도 null이다. 점수 평균 차이만으로 회귀가 없다고
+판정하지 않는다. 사례별 IMPROVED/REGRESSED/STILL_CORRECT/STILL_INCORRECT와 긴급도
+새 CRITICAL 누락·복구를 함께 반환한다. 전이 건수 합은 고정 대상 수와 같다.
+이번 비교는 최초 품질에 한정하며 최종 시도 품질·사용량/지연 차이·통계적 유의성·자동
+합격선·공개 API/UI는 포함하지 않는다. 정답/예측 코드가 포함된 내부 보고서를 일반 응답에
+그대로 공개하면 안 된다.
