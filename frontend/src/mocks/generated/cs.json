@@ -193,5 +193,147 @@
         "request_id": "11111111-1111-4111-8111-111111111111"
       }
     }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/units",
+    "status": 200,
+    "body": {
+      "data": {
+        "items": [
+          {
+            "unit": {
+              "id": "77777777-7777-4777-8777-777777777771",
+              "external_id": null,
+              "data_origin": "demo",
+              "derivation_kind": "ASSUMED",
+              "serial_no": "VSN-MTR-1301",
+              "customer_external_id": "CUST-0130",
+              "product_code": "METER-LP3500-3P4W",
+              "site_code": null,
+              "commissioning_date": "2024-05-01",
+              "commissioning_status": "CONFIRMED",
+              "ship_date": null,
+              "lot_no": null,
+              "fw_version_last": null,
+              "unit_status": "ACTIVE",
+              "replaced_by_unit_id": null
+            },
+            "matches_ticket": true,
+            "link": {
+              "id": "99999999-9999-4999-8999-999999999991",
+              "version": 1,
+              "link_status": "REJECTED",
+              "link_basis": "AGENT_REVIEW",
+              "repeat_type": "DIFFERENT_UNIT",
+              "decided_by": "88888888-8888-4888-8888-888888888881",
+              "decided_at": "2026-09-11T03:00:00Z"
+            }
+          },
+          {
+            "unit": {
+              "id": "77777777-7777-4777-8777-777777777772",
+              "external_id": null,
+              "data_origin": "demo",
+              "derivation_kind": "ASSUMED",
+              "serial_no": "VSN-MTR-1302",
+              "customer_external_id": "CUST-0130",
+              "product_code": "METER-LP3500-3P4W",
+              "site_code": null,
+              "commissioning_date": null,
+              "commissioning_status": "UNKNOWN",
+              "ship_date": null,
+              "lot_no": null,
+              "fw_version_last": null,
+              "unit_status": "ACTIVE",
+              "replaced_by_unit_id": null
+            },
+            "matches_ticket": true,
+            "link": {
+              "id": "99999999-9999-4999-8999-999999999992",
+              "version": 1,
+              "link_status": "CONFIRMED",
+              "link_basis": "SERIAL_PROVIDED",
+              "repeat_type": null,
+              "decided_by": "88888888-8888-4888-8888-888888888881",
+              "decided_at": "2026-09-11T03:00:00Z"
+            }
+          }
+        ]
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/units/77777777-7777-4777-8777-777777777772",
+    "status": 200,
+    "body": {
+      "data": {
+        "unit": {
+          "id": "77777777-7777-4777-8777-777777777772",
+          "external_id": null,
+          "data_origin": "demo",
+          "derivation_kind": "ASSUMED",
+          "serial_no": "VSN-MTR-1302",
+          "customer_external_id": "CUST-0130",
+          "product_code": "METER-LP3500-3P4W",
+          "site_code": null,
+          "commissioning_date": null,
+          "commissioning_status": "UNKNOWN",
+          "ship_date": null,
+          "lot_no": null,
+          "fw_version_last": null,
+          "unit_status": "ACTIVE",
+          "replaced_by_unit_id": null
+        },
+        "matches_ticket": true,
+        "link": {
+          "id": "99999999-9999-4999-8999-999999999992",
+          "version": 1,
+          "link_status": "CONFIRMED",
+          "link_basis": "SERIAL_PROVIDED",
+          "repeat_type": null,
+          "decided_by": "88888888-8888-4888-8888-888888888881",
+          "decided_at": "2026-09-11T03:00:00Z"
+        }
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/unit-history",
+    "status": 200,
+    "body": {
+      "data": {
+        "status": "CONFIRMED",
+        "unit": {
+          "id": "77777777-7777-4777-8777-777777777772",
+          "external_id": null,
+          "data_origin": "demo",
+          "derivation_kind": "ASSUMED",
+          "serial_no": "VSN-MTR-1302",
+          "customer_external_id": "CUST-0130",
+          "product_code": "METER-LP3500-3P4W",
+          "site_code": null,
+          "commissioning_date": null,
+          "commissioning_status": "UNKNOWN",
+          "ship_date": null,
+          "lot_no": null,
+          "fw_version_last": null,
+          "unit_status": "ACTIVE",
+          "replaced_by_unit_id": null
+        },
+        "items": []
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
   }
 ]
