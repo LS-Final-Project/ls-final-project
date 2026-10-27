@@ -110,3 +110,40 @@ PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 
 장부는 외부 응답 본문·자격증명·원문·정답을 저장하지 않는다. 실행 상태·worker lease·판본·사용량·공개 이벤트는 바꾸지 않고 일반 조회/SSE에 노출하지 않는다. 기존 `smoke_worker.dispatch_one`은 로컬 fake 직접 실행 도구이며 이 전송 장부를 소비하는 운영 dispatcher가 아니다.
 
 후속 순서는 Cloud Run Jobs의 호출자 IAM과 컨테이너 실행 계정·DB 권한을 구분한 계약 → 한 건 전송 어댑터와 timeout/불명확 결과 처리 → 중복 전달에도 독립적인 worker 권한/lease 검사다. HTTP worker OIDC 인증을 Jobs 실행 인증으로 혼동하지 않는다. 실제 모델 intent/UNKNOWN·사용량 보존·취소 경계는 별도다.
+
+### KAN-69 Jobs 한 건 전송 연결 — local/test
+
+`cloud_run.dispatch_one`은 서버 OAuth 공급자로 인증을 준비한 뒤 `claim_next → begin_send commit → Jobs POST → record_result commit` 순서로 한 건만 처리한다. HTTP 경로·자동 스케줄러·실제 ADC 공급자·운영 worker 진입점은 연결하지 않는다. 기존 합성 접수/장부 허용 외에 `EVALUATION_JOBS_ENABLED=true`가 필요하며 production 잠금을 유지한다. `httpx`는 기존 설치 버전을 유지하고 직접 운영 의존성으로 명시한다.
+
+서버 설정은 `EVALUATION_JOBS_PROJECT_NUMBER`(프로젝트 **번호**), `REGION=asia-northeast3`, `JOB`, `CONTAINER=worker`, `TIMEOUT_SECONDS=10`이다. 사용자 요청으로 호스트·Job·컨테이너를 선택하지 않는다. 목적지는 고정 `https://run.googleapis.com/v2/projects/{number}/locations/asia-northeast3/jobs/{job}:run`이다. override는 taskCount1과 지정 컨테이너의 `EVALUATION_RUN_ID=<UUID>`만 포함한다. 토큰·평가 구성·worker lease·원문·정답은 전달하지 않는다.
+
+인증 경계는 다음과 같다. 아래는 구현·검증할 운영 계약이며 현재 GCP 배정이나 권한 적용 완료를 뜻하지 않는다.
+
+| 주체 | 필요한 권한과 책임 |
+| --- | --- |
+| dispatcher 호출 계정 | 서버 ADC의 cloud-platform scope **OAuth access token**으로 Jobs Admin API 호출. 대상 Job에 `run.jobs.run` 및 override 사용에 필요한 `run.jobs.runWithOverrides`를 최소 범위로 부여. 브라우저 토큰·Microsoft 세션·HTTP 서비스용 ID 토큰을 사용하지 않음 |
+| Job 배포 계정 | 고정 이미지·실행 서비스 계정·컨테이너명·taskCount1·maxRetries0 등을 관리. 실행 계정을 선택하는 `iam.serviceAccounts.actAs`는 배포 권한이며 dispatcher에 자동 부여하지 않음 |
+| Job 컨테이너 실행 계정 | Job에 고정된 별도 서비스 계정으로 DB 연결과 필요한 secret만 접근. 전송 호출 계정의 권한·access token을 상속하지 않음. DB worker 최소 역할과 기존 승인·소유권·generation/lease 인수 검사를 모두 적용해야 함 |
+| HTTP Tasks worker | 수신 요청의 OIDC·audience·호출자 검증이 필요한 별도 경로. HTTP 요청을 받지 않는 Jobs 컨테이너의 인증 방식으로 복사하지 않음 |
+
+실제 worker 진입점을 연결하기 전에는 `EVALUATION_RUN_ID`를 UUID로 파싱하고 **해당 run만** 인수해야 한다. 기존 fake CLI처럼 큐의 첫 실행을 탐색하면 안 된다. Job 실행 재시도/중복 호출도 실행 lease 검사로 차단한다. `CLOUD_RUN_*` 환경 변수 또는 operation 접수 확인만으로 신원을 인증하거나 평가 실행을 허가하지 않는다. 현재 shared platform_app 권한을 운영 worker 전용 권한으로 간주하지 않으며 별도 DB 역할 구현·검증이 남아 있다.
+
+전송은 자동 재시도·리디렉션·환경 proxy를 사용하지 않는다. 전체 응답 대기를 포함해 timeout을 적용하고 64KiB 이하 JSON만 해석한다. 요청 제한 시간+1초는 설정 lease보다 짧아야 한다. 현재 실제 남은 lease 검사는 장부의 begin_send/record_result가 담당하며 만료된 결과 저장은 실패한다. 프로세스 취소·저장 실패는 SENDING을 남기고 만료 후 UNKNOWN으로 보류한다.
+
+HTTP200과 같은 프로젝트 번호/리전의 유효 operation 이름을 확인하면 ACCEPTED다. done=true라면 해당 Job의 Execution 응답도 확인한다. operation error,429,5xx,리디렉션,timeout,연결 단절,비JSON,초과 크기,다른 프로젝트/리전,불완전 operation은 UNKNOWN이다. 400/401/403/404와 일치하는 Google 오류 code/status를 모두 확인한 경우만 REJECTED로 기록한다. 접수 성공은 실행 성공이 아니며 operation을 polling해 평가 상태로 대체하지 않는다.
+
+`20261026_KAN-69_dispatch_operation.sql`은 시도별 operation 이름만 추가한다. 외부 원문·오류 메시지·token은 저장하지 않는다. operation 이름이 있어도 UNKNOWN이면 자동 재전송하지 않는다. 응답 후 DB 저장에 실패하면 operation 이름을 잃을 수 있으므로 작업 상태를 보류하고 외부 실행 내역과 운영 대조해야 한다. operation 조회·대조·재처리 도구는 아직 없다.
+
+근거: [Jobs run API와 OAuth/override 권한](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/run), [Cloud Run 서비스 실행 신원](https://docs.cloud.google.com/run/docs/securing/service-identity), [Operation 결과 형식](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations). 실제 IAM 허용/거부·컨테이너 실행 신원·공용 DB 권한 검증은 후속 운영 단계다. 이번 검증은 합성 HTTP와 전용 실제 PostgreSQL로 한정한다.
+
+### KAN-90 지정 run 합성 worker와 DB 권한
+
+`python -m backend.api.platform.evaluations.job_worker`는 `EVALUATION_RUN_ID`의 표준 UUID 한 개만 인수한다. 누락·잘못된 값은 `INVALID_RUN_ID`로 비정상 종료하며 큐의 다른 항목을 탐색하지 않는다. 기존 local/test·합성 허용 설정, 지정 평가자·승인 hash·최종 시험 차단을 유지한다. 현재 소유자가 있거나 종료/보류 상태면 `NOT_CLAIMED`로 정상 종료하고, 이번 실행이 완료되면 `SYNTHETIC_COMPLETED`를 출력한다. 실제 모델 품질 성공을 뜻하지 않는다.
+
+`20261027_KAN-90_worker_role.sql`은 관리자 연결에서 한 번 적용하는 **NOLOGIN** 역할 `evaluation_worker`를 만든다. 실제 로그인 계정·비밀번호·IAM은 생성하지 않는다. 운영자는 별도 승인 절차에서 제한된 DB 로그인에 이 역할과 대상 DB CONNECT만 부여해야 한다. 해당 로그인에 platform_app·cs_app·tft_app·각 migrator 역할이나 superuser/DB·역할 생성/BYPASSRLS/REPLICATION 권한을 함께 부여하지 않는다. 진입점은 위 6개 앱/migrator 역할 멤버십과 superuser/DB 생성/역할 생성/BYPASSRLS/REPLICATION 속성을 검사해 거부한다. 직접 부여된 테이블 권한이나 다른 역할을 통한 추가 권한 전체를 탐지하는 기능은 아니므로 로그인 연결 시 운영자가 별도 권한 감사를 수행해야 한다. current_user와 session_user가 다른 SET ROLE 연결도 거부하고, 전용 로그인 자체가 권한 역할을 상속하도록 한다.
+
+worker는 현재 승인·대상·활성 사용자 확인에 필요한 읽기, run/사례/lease의 필요한 열 갱신, 사례 시도·이벤트 삽입만 허용한다. 세션·사용자 역할·전송 outbox/attempts 접근, 사용자/실험 변경, run/job 접수, 취소 요청 열 변경, 원시 결과 조회와 삭제·DDL은 허용하지 않는다. 이 역할은 행별 격리가 아니며 대상 run 제한과 현재 평가 승인은 애플리케이션에서 재검사한다. 실행 계정의 탈취를 막는 IAM·secret 연결은 별도 운영 검증이다.
+
+기존 `claim_run/advance_run/park_run`을 재사용해 매 사례의 승인·holder/generation/lease를 검사한다. 승인 위반은 안전한 코드로 지정 run만 검토 필요로 보류한다. 중복 인수와 취소 후 이전 worker의 저장은 거부하고, 만료 후 재인수는 이미 완료한 사례를 건너뛴다. dispatcher의 ACCEPTED/operation 이름이나 CLOUD_RUN 환경 변수를 실행 권한으로 사용하지 않는다.
+
+전용 이미지 빌드: `docker build --target evaluation-worker --build-arg SERVICE_NAME=platform -t evaluation-worker .`. 비root 사용자와 production 기본 잠금을 유지하고 합성 실행에 필요한 eval 패키지만 추가한다. 일반 서비스 runtime 및 target 생략 빌드는 기존 API 진입점을 유지한다. 공용 배포·실제 worker 로그인 연결·production 허용·실제 모델 호출은 아직 하지 않는다. 외부 모델은 fake transaction 내부 호출 방식을 재사용하지 않고 intent/UNKNOWN·사용량·취소 경계부터 구현해야 한다.

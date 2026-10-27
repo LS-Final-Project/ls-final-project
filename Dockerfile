@@ -31,3 +31,12 @@ COPY --from=dependencies /app/.venv ./.venv
 COPY --from=service-source /app/backend ./backend
 USER 10001:10001
 CMD ["python", "-m", "backend"]
+
+# 명시적으로 선택하는 합성 Job 이미지. production 잠금은 코드에서 유지한다.
+FROM runtime AS evaluation-worker
+COPY --chown=10001:10001 eval ./eval
+ENTRYPOINT ["python", "-m", "backend.api.platform.evaluations.job_worker"]
+CMD []
+
+# target을 생략한 기존 서비스 빌드의 동작을 유지한다.
+FROM runtime AS default-runtime
