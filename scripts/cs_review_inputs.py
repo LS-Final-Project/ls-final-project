@@ -10,11 +10,99 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.engine.cs.classification import INPUT_VERSION, build_input
-from scripts.cs_dev_bundle import checked_output, write_private_bundle
+from scripts.cs_dev_bundle import checked_output, csv_bytes, write_private_bundle
 from tests.cs.cs_dev_data import load_dev_tickets
 
-VERSION = "cs-input-review-v1"
+VERSION = "cs-input-review-v2"
 EXPECTED_FAILURES = {"CS_INVALID_INPUT", "CS_EMPTY_INPUT", "CS_UNSUPPORTED_PHONE_ANNOTATION"}
+
+# 검수 질문은 원천 라벨을 정답으로 확정하지 않으며 자동 판정값을 만들지 않는다.
+BOUNDARY_CHECKS = {
+    "INPUT_PRIVACY": "원문과 정제 후보의 민감값 누락·과다 마스킹을 확인. 보류 건은 후보 없음.",
+    "PHONE_REMOVED": "제거된 PHONE 주석과 업무 본문을 대조하고 과다 삭제·남은 누설을 확인.",
+    "PHONE_NO_REMOVAL": "주석 제거 0건이 무누설을 뜻하지 않음. 미지원 주석·변형을 원문에서 확인.",
+    "PHONE_HELD": "입력 보류 사유를 확인. 제거 여부 미확정이며 원문 재전송으로 우회하지 않음.",
+    "SOURCE_SAFETY": "원천 SAFETY는 선정 근거일 뿐. PHONE 주석을 제외한 위험 근거 위치를 기록.",
+    "SOURCE_SITE_DOWN": "원천 SITE_DOWN은 선정 근거일 뿐. 실제 가동 중단 근거 위치를 기록.",
+    "SOURCE_SECONDARY": "주분류와 다른 명시적 의도와 우선 근거를 확인. 모호하면 보류.",
+    "SOURCE_FOLLOWUP": "회신 횟수만으로 판정하지 않음. 회신 본문·장비/판본 연결·known_at 필요.",
+    "SOURCE_BLOCKED_REFERENCE": "원천 참조와 실제 근거 문서 위치를 확인. FLT-042 인용 차단 검증은 별도.",
+}
+BOUNDARY_FIELDS = (
+    "case_id_json",
+    "split",
+    "channel",
+    "check",
+    "instruction",
+    "source_sha256",
+    "source_record",
+    "source_fields",
+    "candidate_record",
+    "input_version",
+    "input_status",
+    "input_reason",
+    "review_status",
+    "reviewer",
+    "reviewed_at",
+    "evidence_location",
+    "finding",
+    "reason",
+)
+
+
+def boundary_rows(
+    item: dict, source_hash: str, source_record: int, candidate_record: int | None
+) -> list[dict[str, str]]:
+    """전체 개인정보와 선정된 경계 사례를 근거 참조가 있는 미검수 행으로 만든다.
+
+    Args:
+        item: 원문과 정답을 제외한 사례 감사 항목.
+        source_hash: 승인된 개발 CSV의 SHA-256.
+        source_record: 헤더를 제외한 1부터 시작하는 CSV 논리 레코드 번호.
+        candidate_record: 후보 JSONL의 1부터 시작하는 줄 번호. 보류는 None.
+
+    Returns:
+        list: 자동 판정 없이 질문·근거 조회 위치를 제공하는 검수 행.
+    """
+    checks = ["INPUT_PRIVACY"]
+    if item["channel"] == "PHONE":
+        checks.append(
+            "PHONE_HELD"
+            if item["status"] == "held"
+            else "PHONE_REMOVED"
+            if item["removed_annotations"]
+            else "PHONE_NO_REMOVAL"
+        )
+    checks.extend(group for group in item["source_groups"] if group in BOUNDARY_CHECKS)
+    return [
+        {
+            "case_id_json": json.dumps(item["case_id"], ensure_ascii=False),
+            "split": item["split"],
+            "channel": item["channel"],
+            "check": check,
+            "instruction": BOUNDARY_CHECKS[check],
+            "source_sha256": source_hash,
+            "source_record": str(source_record),
+            "source_fields": (
+                "customer_followups"
+                if check == "SOURCE_FOLLOWUP"
+                else "reference_doc_id"
+                if check == "SOURCE_BLOCKED_REFERENCE"
+                else "inquiry_subject,inquiry_body"
+            ),
+            "candidate_record": str(candidate_record) if candidate_record is not None else "",
+            "input_version": INPUT_VERSION,
+            "input_status": item["status"],
+            "input_reason": item["reason"] or "",
+            "review_status": "pending",
+            "reviewer": "",
+            "reviewed_at": "",
+            "evidence_location": "",
+            "finding": "",
+            "reason": "",
+        }
+        for check in checks
+    ]
 
 
 def source_groups(row: dict[str, str]) -> list[str]:
@@ -69,11 +157,11 @@ def prepare_review(manifest_path: Path, approved_hash: str, output: Path) -> dic
     rows = load_dev_tickets(manifest_path)
     if not rows:
         raise ValueError("CS_REVIEW_NO_CASES")
-    candidates, audit = [], []
+    candidates, audit, review = [], [], []
     strata: dict[str, Counter] = {}
     failures: Counter = Counter()
     groups_total: Counter = Counter()
-    for row in rows:
+    for source_record, row in enumerate(rows, start=1):
         record = {
             "channel": row.get("channel"),
             "body_language": row.get("body_language"),
@@ -120,6 +208,14 @@ def prepare_review(manifest_path: Path, approved_hash: str, output: Path) -> dic
                 }
             )
         audit.append(item)
+        review.extend(
+            boundary_rows(
+                item,
+                entry["sha256"],
+                source_record,
+                len(candidates) if item["status"] == "candidate" else None,
+            )
+        )
     # 로컬 파일 관리 경계에서 실행 중 manifest 변경을 감지한다.
     if manifest_path.read_bytes() != raw:
         raise ValueError("CS_REVIEW_MANIFEST_CHANGED")
@@ -139,11 +235,19 @@ def prepare_review(manifest_path: Path, approved_hash: str, output: Path) -> dic
         "strata": dict(sorted(strata.items())),
         "hold_reasons": dict(failures),
         "source_groups": dict(groups_total),
+        "boundary_review": {
+            "rows": len(review),
+            "checks": {
+                check: sum(r["check"] == check for r in review) for check in BOUNDARY_CHECKS
+            },
+            "completed": 0,
+        },
     }
     payloads = {
         name: "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items).encode()
         for name, items in (("candidates.jsonl", candidates), ("audit.jsonl", audit))
     }
+    payloads["review.boundaries.csv"] = csv_bytes(BOUNDARY_FIELDS, review)
     summary["files"] = {name: hashlib.sha256(data).hexdigest() for name, data in payloads.items()}
     payloads["summary.json"] = (json.dumps(summary, ensure_ascii=False, indent=2) + "\n").encode()
     write_private_bundle(output, payloads)
