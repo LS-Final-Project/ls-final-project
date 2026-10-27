@@ -49,6 +49,8 @@ from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSetti
 from backend.api.platform.mail.storage import LocalObjectStore
 from backend.api.platform.main import create_app
 from backend.shared.errors import ApplicationError
+from backend.shared.models import ErrorResponse
+from backend.shared.settings import Settings
 from tests.platform import test_mail_sync_db as mail_sync_db
 from tests.platform.test_mail_sync_db import mail_database as mail_database
 
@@ -2226,3 +2228,35 @@ def test_real_provider_feeds_kan71_mail_sync(
                     ),
                     (value.mailbox_id,),
                 )
+
+
+def test_mailbox_callback_errors_are_documented_as_sent_json():
+    """callback 오류는 문서와 실제 응답 모두 JSON이고 성공 문서만 HTML이다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: OpenAPI 미디어 타입과 기본 비활성 404의 실제 Content-Type을 대조한다.
+    """
+    app = create_app(
+        Settings(_env_file=None, environment="test"),
+        MicrosoftAuthSettings(_env_file=None),
+        mailbox_settings=MailboxAuthSettings(_env_file=None),
+    )
+    schema = app.openapi()
+    responses = schema["paths"][MAILBOX_CALLBACK]["post"]["responses"]
+    assert list(responses["200"]["content"]) == ["text/html"]
+    for code in ("400", "401", "403", "404", "409", "503"):
+        assert list(responses[code]["content"]) == ["application/json"], code
+        ref = responses[code]["content"]["application/json"]["schema"]["$ref"]
+        assert ref.rsplit("/", 1)[-1] in schema["components"]["schemas"]
+    with TestClient(app) as client:
+        rejected = client.post(
+            MAILBOX_CALLBACK,
+            content="state=s&code=c",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    assert rejected.status_code == 404
+    assert rejected.headers["content-type"] == "application/json"
+    ErrorResponse.model_validate(rejected.json())
