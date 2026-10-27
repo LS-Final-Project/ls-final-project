@@ -242,3 +242,44 @@ def test_invalid_json_and_duplicate_keys(raw):
     """
     with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
         validate_output(raw, allowed_info_codes=INFO_CODES)
+
+
+@pytest.mark.parametrize(
+    "sensitive", [{1: "SERIAL"}, {"private": []}, {"": "SERIAL"}, {"private": "UNKNOWN"}]
+)
+def test_invalid_sensitive_mapping_is_safe(sensitive):
+    """잘못된 민감값 타입·종류는 원래 예외 대신 고정 오류로 거부한다.
+
+    Args:
+        sensitive: 잘못된 어댑터 매핑.
+
+    Returns:
+        None: 원문 없는 CS_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^CS_INVALID_INPUT$"):
+        build_input(
+            {"channel": "CHAT", "body_language": "en", "subject": None, "body": "private"},
+            sensitive_values=sensitive,
+        )
+
+
+def test_spaced_serial_requires_adapter_full_value():
+    """공백 포함 시리얼은 어댑터가 식별한 전체 값을 사용해 가린다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 원값 전체 제거와 증상 보존을 확인한다.
+    """
+    record = {
+        "channel": "EMAIL",
+        "body_language": "en",
+        "subject": "AB 1234",
+        "body": "Serial number: AB 1234; trip at 300 V",
+    }
+    result = build_input(record, sensitive_values={"AB 1234": "SERIAL"})
+    text = result.payload.model_dump_json()
+    assert "1234" not in text and "AB" not in text
+    assert "[SERIAL_PROVIDED]" in text
+    assert "trip at 300 V" in text

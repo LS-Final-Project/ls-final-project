@@ -68,7 +68,10 @@ def build_input(
             {key: record[key] for key in ("channel", "body_language", "subject", "body")}
         )
         if any(
-            not key or value not in {"SERIAL", "PERSONAL"}
+            not isinstance(key, str)
+            or not key
+            or not isinstance(value, str)
+            or value not in {"SERIAL", "PERSONAL"}
             for key, value in sensitive_values.items()
         ):
             raise ValueError
