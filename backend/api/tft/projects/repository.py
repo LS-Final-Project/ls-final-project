@@ -67,24 +67,30 @@ async def list_projects(
     after: tuple[datetime, UUID] | None,
     managed_projects: list[UUID],
     user_id: UUID,
+    department: str | None = None,
 ) -> list[Row]:
     """Newest first, only projects the user may see (access.sees_project).
 
     Fetches one extra row so the caller knows whether a next page exists.
     """
-    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s)"
+    scope = (
+        "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s OR EXISTS ("
+        "SELECT 1 FROM tft.staffing_requests r JOIN tft.organizations o ON o.id = r.organization_id "
+        "WHERE r.project_id = p.id AND o.dept_code = %s AND o.company_code = p.company_code "
+        "AND r.status <> 'DRAFT'))"
+    )
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, user_id, limit + 1),
+            (managed_projects, user_id, user_id, department, limit + 1),
         )
     else:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "AND (p.created_at, p.id) < (%s, %s) "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, user_id, *after, limit + 1),
+            (managed_projects, user_id, user_id, department, *after, limit + 1),
         )
     return await cursor.fetchall()
 

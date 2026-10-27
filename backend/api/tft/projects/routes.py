@@ -106,7 +106,12 @@ async def list_projects(
     after = decode_cursor(cursor) if cursor else None
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_projects(
-            conn, limit, after, sorted(principal.managed_projects), principal.user_id
+            conn,
+            limit,
+            after,
+            sorted(principal.managed_projects),
+            principal.user_id,
+            principal.dept if principal.has("dept_staff") else None,
         )
     items = [ProjectSummary.model_validate(row) for row in rows[:limit]]
     next_cursor = None
@@ -130,11 +135,52 @@ async def get_project(
     async with connection(request.app.state.settings) as conn:
         row = await repository.get_project(conn, project_id)
         # Out-of-scope projects look the same as missing ones (permissions.md 1.3 step 2).
-        if row is None or not sees_project(
+        if row is None:
+            raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
+        full_access = sees_project(
             principal, row["id"], row["responsible_user_id"], row["sales_user_id"]
-        ):
+        )
+        allowed_requests = []
+        if not full_access and principal.has("dept_staff"):
+            allowed_requests = [
+                item
+                for item in await repository.list_staffing_requests(conn, project_id)
+                if item["organization_dept_code"] == principal.dept and item["status"] != "DRAFT"
+            ]
+            # An organization from another company does not grant project access.
+            allowed = []
+            for item in allowed_requests:
+                organization = await repository.staffing_requests.get_organization(
+                    conn, item["organization_id"]
+                )
+                if organization and organization["company_code"] == row["company_code"]:
+                    allowed.append(item)
+            allowed_requests = allowed
+        if not full_access and not allowed_requests:
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         detail = await load_detail(conn, row)
+        if not full_access:
+            request_ids = {item["id"] for item in allowed_requests}
+            role_ids = {item["required_role_id"] for item in allowed_requests}
+            organization_ids = {item["organization_id"] for item in allowed_requests}
+            detail.required_roles = [role for role in detail.required_roles if role.id in role_ids]
+            requirement_ids = {
+                link.requirement_id for role in detail.required_roles for link in role.requirements
+            }
+            detail.rfp_requirements = [
+                item for item in detail.rfp_requirements if item.id in requirement_ids
+            ]
+            detail.staffing_requests = [
+                item for item in detail.staffing_requests if item.id in request_ids
+            ]
+            detail.recommendations = [
+                item
+                for item in detail.recommendations
+                if item.staffing_request_id in request_ids
+                and item.organization_id in organization_ids
+            ]
+            detail.current_composition = None
+            detail.final_confirmation = None
     return respond(request, detail)
 
 
