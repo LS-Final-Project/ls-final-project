@@ -195,6 +195,11 @@ jobs:
       - run: uv run --frozen ruff format --check infra scripts
       - run: python3 -m unittest discover -s infra/tests -q
       - run: python3 -m unittest discover -s scripts/tests -q
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Test PR automation
+        run: node --test .github/tests/*.test.cjs
       - name: Verify fresh local database initialization
         timeout-minutes: 5
         env:
