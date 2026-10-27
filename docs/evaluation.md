@@ -99,7 +99,7 @@ accuracy/macro_f1은 null이며 합격 판정을 만들지 않는다. 비어 있
 
 반환 사례 기록은 ID·정답/예측 코드·상태·정오이며 원시 응답·오류 원문·토큰을 포함하지
 않는다. 이 집계의 quality_gate_evaluated는 항상 false다. 이번 검증은 합성 사례의 계산
-회귀이며 실제 품질 합격 근거가 아니다. 보조 분류, 채널·언어별 집계, 최초/최종
+회귀이며 실제 품질 합격 근거가 아니다. 채널·언어별 집계, 최초/최종
 비교, 지연·사용량·비용·퇴행, 실제 DB/화면 연결과 잠긴 정답 인수는 남아 있다.
 
 
@@ -116,3 +116,22 @@ SAFETY↔SITE_DOWN 혼동은 일반 긴급도 오분류로 계산하지만 CRITI
 성공이어도 CRITICAL 누락이다. 사례별 critical_missed로 누락 대상을 찾을 수 있다.
 CRITICAL support=0/missed=0은 위험 누락 검증 성공을 뜻하지 않는다. 합격 판정은 여전히
 수행하지 않으며 실제 정답·모델·DB·화면 연결을 완료한 결과로 사용하지 않는다.
+
+
+### KAN-88 최초 보조 분류 집계
+
+`eval.cs_metrics.summarize_secondary_first_attempts(gold, attempts)`의 gold는 검수된 유형
+또는 의도 없음(None)이다. 미검수·충돌 상태를 None으로 바꾸면 안 되며, 빈 문자열과
+내부 행렬 표식은 정답으로 허용하지 않는다. 최초 시도 검사와 실패 분모는 기존과 같다.
+
+전체 accuracy는 null 정답도 포함한 정확 일치율이다. 유효 응답의 null은 행렬의
+NO_SECONDARY, 실패/보류/미실행은 NO_PREDICTION 열로 구분한다. 사례별 prediction은
+둘 다 null일 수 있으므로 outcome과 correct를 함께 사용한다. null 정답이라도 실행 실패는
+오답이다. 없는 의도 생성은 null 정답 대상 중 유효한 비null 예측 수이며 실패와 섞지 않는다.
+
+composite는 gold가 비null인 대상 행만 분모로 사용하고 고정 10개 유형의 P/R/F1·macro-F1을
+반환한다. 이 부분집합에서 null 예측·실패도 FN이다. null 정답 행의 잘못된 의도 생성은
+composite FP에 포함하지 않고 absent.invented와 전체 행렬에 별도로 보존한다. 전체
+per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모가 다르다.
+복합 의도 대상0이면 composite.macro_f1=null이며, null 포함 전체 macro-F1은 제공하지
+않는다. 합격선/실제 정답 잠금 및 품질 합격 판정은 별도이며 자동 승인하지 않는다.

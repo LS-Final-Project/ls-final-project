@@ -9,13 +9,15 @@ from backend.engine.cs.classification_call import run_classification_attempt
 from backend.shared.ai import Generation, Usage
 from eval.cs_metrics import (
     NO_PREDICTION,
+    NO_SECONDARY,
     summarize_category_first_attempts,
+    summarize_secondary_first_attempts,
     summarize_urgency_first_attempts,
 )
 
 
 def synthetic_attempt(
-    category="RETURN", *, error=None, raw=None, number=1, held=False, urgency="NONE"
+    category="RETURN", *, error=None, raw=None, number=1, held=False, urgency="NONE", secondary=None
 ):
     """실제 모델 없이 기존 호출 함수의 정상·실패 결과를 만든다.
 
@@ -26,6 +28,7 @@ def synthetic_attempt(
         number: 호출 시도 번호.
         held: 빈 본문으로 입력 보류를 재현할지 여부.
         urgency: 합성 예측 긴급도.
+        secondary: 합성 보조 분류 또는 의도 없음.
 
     Returns:
         ClassificationAttempt: 기존 호출 경계가 만든 시도 기록.
@@ -48,7 +51,7 @@ def synthetic_attempt(
             else json.dumps(
                 {
                     "category_code": category,
-                    "secondary_category": None,
+                    "secondary_category": secondary,
                     "urgency_flag": urgency,
                     "provided_info": [],
                     "return_subtype": None,
@@ -292,3 +295,111 @@ def test_urgency_rejects_wrong_gold_retry_or_extra_target(gold, attempts):
     """
     with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
         summarize_urgency_first_attempts(gold, attempts)
+
+
+def test_secondary_null_failure_and_composite_metrics_are_separate():
+    """null 정답·실패·없는 의도 생성과 복합 의도 분모를 손계산으로 검증한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: null 예측만 정답인 경우와 실패가 서로 다른 행렬 칸에 남는다.
+    """
+    gold = dict(
+        zip("abcdefghi", [None, None, None, "MANUAL", "MANUAL", "QUOTE", "QUOTE", None, "MANUAL"])
+    )
+    attempts = {
+        "a": synthetic_attempt(),
+        "b": synthetic_attempt(secondary="MANUAL"),
+        "c": synthetic_attempt(error=TimeoutError()),
+        "d": synthetic_attempt(secondary="MANUAL"),
+        "e": synthetic_attempt(),
+        "f": synthetic_attempt(secondary="MANUAL"),
+        "g": synthetic_attempt(secondary="QUOTE"),
+        "i": synthetic_attempt(held=True),
+    }
+    report = summarize_secondary_first_attempts(gold, attempts)
+    assert report["total"] == 9 and report["correct"] == 3
+    assert report["accuracy"] == 1 / 3
+    assert "macro_f1" not in report
+    assert report["composite"]["support"] == 5
+    assert report["composite"]["macro_f1"] == pytest.approx((0.4 + 2 / 3) / 10)
+    assert len(report["composite"]["labels"]) == 10
+    assert report["composite"]["per_class"]["MANUAL"]["fp"] == 1
+    assert report["per_class"]["MANUAL"]["fp"] == 2
+    assert report["absent"] == {"support": 4, "invented": 1}
+    assert report["confusion_matrix"][NO_SECONDARY][NO_SECONDARY] == 1
+    assert report["confusion_matrix"][NO_SECONDARY][NO_PREDICTION] == 2
+    cases = {r["case_id"]: r for r in report["cases"]}
+    assert cases["a"]["gold"] is None and cases["a"]["prediction"] is None
+    assert cases["a"]["correct"] is True and cases["a"]["outcome"] == "VALID"
+    assert cases["c"]["prediction"] is None and cases["c"]["correct"] is False
+    assert cases["h"]["outcome"] == "NOT_STARTED" and not cases["h"]["correct"]
+    assert [r["case_id"] for r in report["cases"] if r["invented_secondary"]] == ["b"]
+    assert not report["quality_gate_evaluated"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"raw": "BAD"},
+        {"error": RuntimeError()},
+        {"held": True},
+    ],
+)
+def test_secondary_failed_response_is_not_null_match(kwargs):
+    """실행 실패를 보조 의도 없음 정답으로 인정하지 않는다.
+
+    Args:
+        kwargs: 합성 실패 설정.
+
+    Returns:
+        None: 정답 null 사례에서도 실패는 오답이다.
+    """
+    report = summarize_secondary_first_attempts({"a": None}, {"a": synthetic_attempt(**kwargs)})
+    assert report["accuracy"] == 0
+    assert report["absent"]["invented"] == 0
+    assert report["confusion_matrix"][NO_SECONDARY][NO_PREDICTION] == 1
+    assert report["composite"]["macro_f1"] is None
+
+
+def test_secondary_empty_or_absent_only_has_no_composite_score():
+    """복합 의도 대상이 없으면 전체 정확도로 복합 성능을 주장하지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: null만 맞힌 결과도 복합 macro-F1은 null이다.
+    """
+    empty = summarize_secondary_first_attempts({}, {})
+    assert empty["accuracy"] is None and empty["composite"]["macro_f1"] is None
+    report = summarize_secondary_first_attempts({"a": None}, {"a": synthetic_attempt()})
+    assert report["accuracy"] == 1
+    assert report["composite"]["support"] == 0
+    assert report["composite"]["macro_f1"] is None
+
+
+@pytest.mark.parametrize(
+    "gold,attempts",
+    [
+        ({"a": ""}, {}),
+        ({"a": "NO_SECONDARY"}, {}),
+        ({"a": "UNKNOWN"}, {}),
+        ({"a": None}, {"a": synthetic_attempt(number=2)}),
+        ({"a": None}, {"extra": synthetic_attempt()}),
+    ],
+)
+def test_secondary_invalid_gold_and_retry_are_rejected(gold, attempts):
+    """미검수 빈 문자열이나 재시도를 확정 null 정답으로 바꾸지 않는다.
+
+    Args:
+        gold: 잘못된 합성 정답 또는 정상 null 정답.
+        attempts: 최초 시도 경계를 위반한 입력.
+
+    Returns:
+        None: 안전한 오류로 전체 집계를 거부한다.
+    """
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_secondary_first_attempts(gold, attempts)
