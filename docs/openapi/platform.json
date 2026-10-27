@@ -5,6 +5,16 @@
         "additionalProperties": false,
         "description": "\ucd5c\ucd08\u00b7\uc7ac\uc2dc\ub3c4\u00b7\uc804\uccb4\ubcc4\ub85c \uacf5\uac1c\ud560 \uc218\uce58 \ud544\ub4dc\ub9cc \uc9c0\uc815\ud55c\ub2e4.",
         "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryCost"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "incomplete_evidence_attempt_count": {
             "title": "Incomplete Evidence Attempt Count",
             "type": "integer"
@@ -747,6 +757,59 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SummaryCost": {
+        "additionalProperties": false,
+        "description": "\uac00\uaca9\ud45c \ubb38\uc790\uc5f4 \uc5c6\uc774 \uc815\ud655\ud55c USD \ubd80\ubd84\ud569\u00b7\ud569\uacc4\uc640 \ubcf4\uace0 \ubc94\uc704\ub97c \uc81c\uacf5\ud55c\ub2e4.",
+        "properties": {
+          "known_sum": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Sum"
+          },
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "pricing_version_count": {
+            "title": "Pricing Version Count",
+            "type": "integer"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "known_sum",
+          "total",
+          "pricing_version_count"
+        ],
+        "title": "SummaryCost",
         "type": "object"
       },
       "SummaryLatency": {

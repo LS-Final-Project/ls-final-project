@@ -8,6 +8,11 @@ const number = (value: number | null) => value === null ? '미보고' : value.to
 const token = (value: Summary['first']['tokens']['total_tokens']) => value.total !== null ? number(value.total)
   : value.known_sum === null ? '미보고' : `부분합 ${number(value.known_sum)} · ${value.missing_count}건 미보고`;
 
+/** 비용 문자열을 숫자로 바꾸거나 반올림하지 않는다. Args: 비용 집계. Returns: USD 합계·부분합 또는 미보고 안내. */
+const cost = (value: Summary['first']['cost_usd']) => !value ? '비용 집계 미연결'
+  : value.total !== null ? `${value.total} USD`
+  : value.known_sum === null ? '미보고' : `부분합 ${value.known_sum} USD · ${value.missing_count}건 미보고`;
+
 /** 상태 조회에 결속된 한 실행의 집계를 표시한다. Args: 실행 ID. Returns: 합성 집계 또는 안전한 오류. */
 export default function RunSummary({ runId }: { runId: string }) {
   const [data, setData] = useState<Summary>();
@@ -36,6 +41,9 @@ export default function RunSummary({ runId }: { runId: string }) {
           <tbody>{[
             ['저장 시도', (v: Summary['first']) => number(v.stored_attempt_count)],
             ['미종료 시도', (v: Summary['first']) => number(v.unfinished_attempt_count)],
+            ['비용 (USD)', (v: Summary['first']) => cost(v.cost_usd)],
+            ['비용 보고 / 미보고', (v: Summary['first']) => v.cost_usd ? `${v.cost_usd.reported_count} / ${v.cost_usd.missing_count}` : '미연결'],
+            ['가격표 판본 수', (v: Summary['first']) => v.cost_usd ? `${v.cost_usd.pricing_version_count}${v.cost_usd.pricing_version_count > 1 ? '종 (혼합)' : '종'}` : '미연결'],
             ['총 토큰', (v: Summary['first']) => token(v.tokens.total_tokens)],
             ['입력 토큰', (v: Summary['first']) => token(v.tokens.input_tokens)],
             ['출력 토큰', (v: Summary['first']) => token(v.tokens.output_tokens)],
@@ -50,7 +58,8 @@ export default function RunSummary({ runId }: { runId: string }) {
         </table>
       </div>
       <p className="evaluation-caption">부분합은 보고된 값만 더한 수치입니다. 미보고는 0이 아니며, 캐시·추론 토큰을 총 토큰에 다시 더하지 않습니다. 위반율은 응답이 없거나 증거가 불완전하면 보류합니다.</p>
-      <p>품질 점수: 정답 검수·연결 전 · 비용 및 실험 간 비교: 아직 제공하지 않음</p>
+      <p className="evaluation-caption">비용은 저장된 USD 금액이며 청구액이나 무료 사용 여부를 뜻하지 않습니다. 가격표가 여러 판본이면 각 시도에 기록된 비용의 합이며 공통 단가로 재계산하지 않습니다.</p>
+      <p>품질 점수: 정답 검수·연결 전 · 실험 간 비교: 아직 제공하지 않음</p>
     </>}
   </section>;
 }

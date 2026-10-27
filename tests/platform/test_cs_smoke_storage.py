@@ -1762,3 +1762,108 @@ def test_summary_snapshot_and_safe_failure(
     failure = client.get(url)
     assert failure.status_code == 503 and "sensitive" not in failure.text
     assert failure.headers["cache-control"] == "no-store"
+
+
+def test_summary_cost_preserves_decimal_partial_retry_and_price_count(
+    summary_client, cs_run, settings, cs_access, evaluation_database
+):
+    """저장 비용의 정밀도·미보고·실제0·가격표 혼합을 HTTP까지 보존한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        cs_run: 고정 합성 실행.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        evaluation_database: 검사 전용 관리자 연결.
+
+    Returns:
+        None: 가격표 원문 없는 비용 집계와 최초/재시도 분리를 검증한다.
+    """
+    client, url = summary_client
+    empty = client.get(url).json()["data"]["first"]["cost_usd"]
+    assert empty == {
+        "reported_count": 0,
+        "missing_count": 0,
+        "known_sum": None,
+        "total": None,
+        "pricing_version_count": 0,
+    }
+    asyncio.run(dispatch_one(settings, cs_access))
+    assert client.get(url).json()["data"]["first"]["cost_usd"]["missing_count"] == 3
+    with psycopg.connect(evaluation_database) as conn:
+        cases = dict(
+            conn.execute(
+                "SELECT target_ref,id FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+            ).fetchall()
+        )
+        for ref, cost, price in (
+            ("cs-smoke-valid", "0.000000", "private-price-a@example.test"),
+            ("cs-smoke-invalid", "0.000001", "private-price-b@example.test"),
+        ):
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET cost_usd=%s,pricing_version=%s WHERE case_id=%s",
+                (cost, price, cases[ref]),
+            )
+        conn.execute(
+            "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,outcome,started_at,finished_at,cost_usd,pricing_version) "
+            "VALUES (%s,%s,'classify',2,'TIMEOUT',now(),now(),0.000002,'private-price-b@example.test')",
+            (uuid4(), cases["cs-smoke-invalid"]),
+        )
+    response = client.get(url)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["first"]["cost_usd"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": "0.000001",
+        "total": None,
+        "pricing_version_count": 2,
+    }
+    assert data["retry"]["cost_usd"]["total"] == "0.000002"
+    assert data["all"]["cost_usd"]["known_sum"] == "0.000003"
+    assert data["all"]["cost_usd"]["total"] is None
+    assert data["all"]["cost_usd"]["pricing_version_count"] == 2
+    assert "private-price" not in response.text and "pricing_versions" not in response.text
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.case_attempts SET cost_usd=0,pricing_version='zero-price' WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+            (cs_run,),
+        )
+    zero = client.get(url).json()["data"]
+    assert zero["first"]["cost_usd"]["total"] == "0.000000"
+    assert zero["all"]["cost_usd"]["reported_count"] == 4
+    assert zero["all"]["cost_usd"]["pricing_version_count"] == 1
+
+
+@pytest.mark.parametrize("invalid", ["NaN", "missing_price"])
+def test_summary_invalid_cost_stays_safe_failure(
+    summary_client, cs_run, settings, cs_access, evaluation_database, invalid
+):
+    """유효하지 않은 금액·가격표를0이나 정상 집계로 숨기지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        cs_run: 합성 실행.
+        settings: worker 설정.
+        cs_access: 승인 목록.
+        evaluation_database: 오류 주입용 전용 관리자 연결.
+        invalid: 잘못된 금액 또는 비어 있는 가격표.
+
+    Returns:
+        None:503·비캐시 및 내부 진단 비노출 확인.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.case_attempts SET cost_usd=%s,pricing_version=%s WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+            (
+                "NaN" if invalid == "NaN" else "0",
+                "secret-price" if invalid == "NaN" else " ",
+                cs_run,
+            ),
+        )
+    response = client.get(url)
+    assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
+    assert "data" not in response.json() and "secret-price" not in response.text

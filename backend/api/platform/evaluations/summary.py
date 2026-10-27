@@ -1,13 +1,13 @@
 """승인된 합성 실행의 내용 없는 사용량·응답 감사만 공개한다."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 import psycopg
 from fastapi import HTTPException
 from psycopg.rows import dict_row
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import check_actor, validate_smoke_experiment
@@ -47,6 +47,20 @@ class SummaryLatency(BaseModel):
     p95: float | None
 
 
+UsdAmount = Annotated[str, Field(pattern=r"^(0|[1-9][0-9]*)(\.[0-9]+)?$", max_length=128)]
+
+
+class SummaryCost(BaseModel):
+    """가격표 문자열 없이 정확한 USD 부분합·합계와 보고 범위를 제공한다."""
+
+    model_config = ConfigDict(extra="forbid")
+    reported_count: int
+    missing_count: int
+    known_sum: UsdAmount | None
+    total: UsdAmount | None
+    pricing_version_count: int
+
+
 class AttemptSummary(BaseModel):
     """최초·재시도·전체별로 공개할 수치 필드만 지정한다."""
 
@@ -55,6 +69,7 @@ class AttemptSummary(BaseModel):
     unfinished_attempt_count: int
     tokens: SummaryTokens
     latency_ms: SummaryLatency
+    cost_usd: SummaryCost | None = None
     stored_raw_response_count: int
     schema_violation_count: int
     schema_violation_rate: float | None
@@ -131,7 +146,15 @@ def get_run_summary(
             audit = summarize_stored_response_audit(conn, run_id)
             groups = {}
             for group in ("first", "retry", "all"):
+                cost = usage[group]["cost_usd"]
                 groups[group] = AttemptSummary(
+                    cost_usd=SummaryCost(
+                        reported_count=cost["reported_count"],
+                        missing_count=cost["missing_count"],
+                        known_sum=cost["known_sum"],
+                        total=cost["total"],
+                        pricing_version_count=len(cost["pricing_versions"]),
+                    ),
                     **{
                         key: usage[group][key]
                         for key in (

@@ -396,7 +396,22 @@ catch (error) { console.log(JSON.stringify({error: error.message})); }
     assert queued["targets_without_first_attempt"] == 3
     assert queued["first"]["tokens"]["input_tokens"]["total"] is None
     assert asyncio.run(dispatch_one(settings, access)) == admitted.run_id
+    # 검사 전용 DB에서 비용 연결을 주입한다. 합성 worker 자체는 가격을 추정하지 않는다.
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.case_attempts SET cost_usd=0.000001,pricing_version='private-price' "
+            "WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-invalid')",
+            (admitted.run_id,),
+        )
     completed = read_summary()
+    assert completed["first"]["cost_usd"] == {
+        "reported_count": 1,
+        "missing_count": 2,
+        "known_sum": "0.000001",
+        "total": None,
+        "pricing_version_count": 1,
+    }
+    assert "private-price" not in json.dumps(completed)
     assert completed["status"] == "PARTIAL"
     assert completed["first"]["stored_attempt_count"] == 3
     assert completed["first"]["tokens"]["input_tokens"]["total"] == 21
