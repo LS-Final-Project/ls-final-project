@@ -605,7 +605,9 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
   재시도 계약을 확정한 것은 아니다.
 - `disconnect_mailbox()`는 현재 세션 소유자를 확인해 암호문을 NULL로 지우고 개정을
   증가시킨다. 이후 조회·갱신은 `MAILBOX_NOT_CONNECTED`다. `reconnect_mailbox()`는 새 OAuth
-  인계와 현재 세션·기대 개정을 검사해 새 암호문과 개정을 저장한다. 이전 갱신 결과가 새 연결을
+  인계와 현재 세션·기대 개정을 검사해 새 암호문과 개정을 저장한다. 인계의 Microsoft 계정
+  (`subject_tid`·`subject_oid`)이 기존 행과 다르면 저장 없이 `MAILBOX_ACCESS_DENIED`로 거부해
+  같은 `mailbox_id`를 다른 계정으로 바꾸지 않는다(KAN-71 수집 커서 보호). 이전 갱신 결과가 새 연결을
   덮어쓸 수 없다. 명시적 해제/재연결을 구현한 것이며 외부 철회 자동 탐지나 이미 반환한 access
   token의 즉시 무효화, 메모리·백업에서의 물리적 제거까지 보장하지 않는다. 해제·재연결 모두
   연결 행은 삭제하지 않고 같은 ID에서 `state='disconnected'`/`'connected'`로만 바꾼다(KAN-71

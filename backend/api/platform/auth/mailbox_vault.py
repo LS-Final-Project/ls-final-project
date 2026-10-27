@@ -464,24 +464,31 @@ async def reconnect_mailbox(
     authorization: MailboxAuthorization,
     cipher: MailboxCipher,
 ) -> StoredMailbox:
-    """새 OAuth 인계만 현재 세션·개정 재검사 후 기존 연결에 저장한다.
+    """같은 Microsoft 계정의 새 OAuth 인계만 현재 세션·개정 재검사 후 기존 연결에 저장한다.
 
     Args:
         settings: 플랫폼 런타임 DB 설정.
         mailbox_id: 소유자가 재연결할 서버 연결 ID.
         expected_revision: 시작 시 서버에서 확인한 연결 개정.
         session_token: 현재 유효한 소유자 세션.
-        authorization: 새 인가 교환·서명 검증을 통과한 서버 전용 결과.
+        authorization: 새 인가 교환·서명 검증을 통과한 서버 전용 결과. 계정이 기존 행과
+            다르면 저장 없이 `MAILBOX_ACCESS_DENIED`다.
         cipher: 서버 키 버전의 암호기.
 
     Returns:
-        StoredMailbox: 새 사서함 식별자·캐시와 증가한 개정.
+        StoredMailbox: 같은 사서함 식별자·새 캐시와 증가한 개정.
     """
     if not session_token:
         raise _mailbox_error("MAILBOX_ACCESS_DENIED")
     async with _vault_connection(settings) as conn:
         await _lock_owner(conn, authorization.owner_user_id, session_token=session_token)
         row = await _owned_row(conn, mailbox_id, authorization.owner_user_id)
+        # 다른 Microsoft 계정으로 같은 mailbox_id를 바꾸면 KAN-71 수집 커서가 섞인다.
+        if (row["subject_tid"], row["subject_oid"]) != (
+            authorization.subject.tid,
+            authorization.subject.oid,
+        ):
+            raise _mailbox_error("MAILBOX_ACCESS_DENIED")
         if row["revision"] != expected_revision:
             raise _mailbox_error("MAILBOX_VERSION_CONFLICT")
         value = StoredMailbox(
@@ -492,12 +499,10 @@ async def reconnect_mailbox(
             authorization.serialized_cache,
         )
         cursor = await conn.execute(
-            "UPDATE mailbox_auth.connections SET subject_tid=%s,subject_oid=%s,revision=%s,"
+            "UPDATE mailbox_auth.connections SET revision=%s,"
             "state='connected',key_version=%s,cache_ciphertext=%s,updated_at=clock_timestamp() "
             "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING revision",
             (
-                value.subject.tid,
-                value.subject.oid,
                 value.revision,
                 cipher.key_version,
                 cipher.encrypt(value),
