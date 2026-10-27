@@ -1,6 +1,61 @@
 {
   "components": {
     "schemas": {
+      "AttemptSummary": {
+        "additionalProperties": false,
+        "description": "\ucd5c\ucd08\u00b7\uc7ac\uc2dc\ub3c4\u00b7\uc804\uccb4\ubcc4\ub85c \uacf5\uac1c\ud560 \uc218\uce58 \ud544\ub4dc\ub9cc \uc9c0\uc815\ud55c\ub2e4.",
+        "properties": {
+          "incomplete_evidence_attempt_count": {
+            "title": "Incomplete Evidence Attempt Count",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/SummaryLatency"
+          },
+          "schema_violation_count": {
+            "title": "Schema Violation Count",
+            "type": "integer"
+          },
+          "schema_violation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Violation Rate"
+          },
+          "stored_attempt_count": {
+            "title": "Stored Attempt Count",
+            "type": "integer"
+          },
+          "stored_raw_response_count": {
+            "title": "Stored Raw Response Count",
+            "type": "integer"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/SummaryTokens"
+          },
+          "unfinished_attempt_count": {
+            "title": "Unfinished Attempt Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored_attempt_count",
+          "unfinished_attempt_count",
+          "tokens",
+          "latency_ms",
+          "stored_raw_response_count",
+          "schema_violation_count",
+          "schema_violation_rate",
+          "incomplete_evidence_attempt_count"
+        ],
+        "title": "AttemptSummary",
+        "type": "object"
+      },
       "ErrorData": {
         "properties": {
           "code": {
@@ -292,6 +347,88 @@
         "title": "EvaluationRunStatus",
         "type": "object"
       },
+      "EvaluationRunSummary": {
+        "additionalProperties": false,
+        "description": "\ud488\uc9c8 \ucc44\uc810\uc774 \uc544\ub2cc \ud569\uc131 \uc800\uc7a5 \uae30\ub85d \uc9d1\uacc4\uc784\uc744 \uba85\uc2dc\ud55c\ub2e4.",
+        "properties": {
+          "all": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "data_origin": {
+            "const": "synthetic",
+            "default": "synthetic",
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "first": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "quality_available": {
+            "const": false,
+            "default": false,
+            "title": "Quality Available",
+            "type": "boolean"
+          },
+          "quality_unavailable_reason": {
+            "const": "GOLD_NOT_CONNECTED",
+            "default": "GOLD_NOT_CONNECTED",
+            "title": "Quality Unavailable Reason",
+            "type": "string"
+          },
+          "report_version": {
+            "const": "cs-run-summary-v1",
+            "default": "cs-run-summary-v1",
+            "title": "Report Version",
+            "type": "string"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/AttemptSummary"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "targets_without_first_attempt": {
+            "title": "Targets Without First Attempt",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "generated_at",
+          "target_count",
+          "targets_without_first_attempt",
+          "first",
+          "retry",
+          "all"
+        ],
+        "title": "EvaluationRunSummary",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -518,6 +655,22 @@
         "title": "SuccessResponse[EvaluationRunStatus]",
         "type": "object"
       },
+      "SuccessResponse_EvaluationRunSummary_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRunSummary"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRunSummary]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -564,6 +717,122 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SummaryLatency": {
+        "description": "\uc800\uc7a5\ub41c \uc9c0\uc5f0 \ud45c\ubcf8 \uc218\uc640 \uc120\ud615 \ubcf4\uac04 \ubd84\uc704\uc218.",
+        "properties": {
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "p50",
+          "p95"
+        ],
+        "title": "SummaryLatency",
+        "type": "object"
+      },
+      "SummaryTokens": {
+        "description": "\ud569\uc0b0 \uc758\ubbf8\uac00 \ub2e4\ub978 \ud1a0\ud070 \ud544\ub4dc\ub97c \ubd84\ub9ac\ud55c\ub2e4.",
+        "properties": {
+          "cached_input_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "input_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "output_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "thought_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          },
+          "total_tokens": {
+            "$ref": "#/components/schemas/TokenTotal"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "thought_tokens",
+          "cached_input_tokens",
+          "total_tokens"
+        ],
+        "title": "SummaryTokens",
+        "type": "object"
+      },
+      "TokenTotal": {
+        "additionalProperties": false,
+        "description": "\uad00\uce21 \ubd80\ubd84\ud569\uacfc \ub204\ub77d \uc5c6\ub294 \uc804\uccb4 \ud569\uacc4\ub97c \uad6c\ubcc4\ud55c\ub2e4.",
+        "properties": {
+          "known_sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Sum"
+          },
+          "missing_count": {
+            "title": "Missing Count",
+            "type": "integer"
+          },
+          "reported_count": {
+            "title": "Reported Count",
+            "type": "integer"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "reported_count",
+          "missing_count",
+          "known_sum",
+          "total"
+        ],
+        "title": "TokenTotal",
         "type": "object"
       },
       "ValidationError": {
@@ -1062,6 +1331,100 @@
           }
         },
         "summary": "Evaluation Run Status",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
+    "/api/v1/platform/evaluations/runs/{run_id}/summary": {
+      "get": {
+        "description": "\ud604\uc7ac \uc138\uc158\uc758 \ud569\uc131 \uc0ac\uc6a9\ub7c9\u00b7\uac10\uc0ac \uc9d1\uacc4\ub97c \uc2a4\ub808\ub4dc \ud480\uc5d0\uc11c \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \ud658\uacbd\u00b7\uc2b9\uc778 \ubaa9\ub85d\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c \ub300\uc0c1 \uc2e4\ud589.\n    principal: \ud604\uc7ac \uc138\uc158\uacfc \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud55c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse: \uc815\ub2f5\u00b7\uc608\uce21\u00b7\uc6d0\uc2dc \ub0b4\uc6a9 \uc5c6\ub294 \ud569\uc131 \uc9d1\uacc4.",
+        "operationId": "platform_get_evaluation_run_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Summary",
         "tags": [
           "evaluations"
         ]

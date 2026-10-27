@@ -1492,3 +1492,273 @@ def test_synthetic_report_cli_keeps_execution_boundary(
     assert main(["--run-id", str(cs_run), "--output", str(output)]) == 2
     assert not output.exists()
     assert evaluation_database not in capsys.readouterr().err
+
+
+@pytest.fixture
+def summary_client(settings, cs_access, cs_experiment, cs_run, registered_user):
+    """현재 DB 세션으로 실제 합성 요약 API에 연결한다.
+
+    Args:
+        settings: 플랫폼 실행 권한의 DB 설정.
+        cs_access: 지정 평가자와 구성 승인.
+        cs_experiment: 고정 합성 실험.
+        cs_run: 접수 실행.
+        registered_user: 세션을 발급할 합성 사용자.
+
+    Returns:
+        tuple: 실제 HTTP 클라이언트와 요약 URL.
+    """
+    from backend.api.platform.auth.http import SESSION_COOKIE
+    from backend.api.platform.auth.sessions import issue_session
+    from tests.platform.test_evaluation_access import client_for
+
+    grant = asyncio.run(issue_session(settings, registered_user[0]))
+    client = client_for((cs_experiment["actor"],))
+    client.app.state.settings = settings
+    client.app.state.evaluation_access = cs_access
+    client.cookies.set(SESSION_COOKIE, grant.token.get_secret_value())
+    with client:
+        yield client, f"/api/v1/platform/evaluations/runs/{cs_run}/summary"
+
+
+def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):
+    """실행 전후의 저장 집계를 허용된 필드만으로 반환한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+
+    Returns:
+        None: 빈 값·부분 보고·민감 필드 비노출·캐시 금지를 검증한다.
+    """
+    client, url = summary_client
+    queued = client.get(url)
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["data"]["targets_without_first_attempt"] == 3
+    assert queued.json()["data"]["first"]["tokens"]["input_tokens"]["total"] is None
+    assert queued.json()["data"]["first"]["schema_violation_rate"] is None
+    asyncio.run(dispatch_one(settings, cs_access))
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert set(data) == {
+        "report_version",
+        "run_id",
+        "status",
+        "generated_at",
+        "data_origin",
+        "quality_available",
+        "quality_unavailable_reason",
+        "target_count",
+        "targets_without_first_attempt",
+        "first",
+        "retry",
+        "all",
+    }
+    assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
+    assert data["quality_available"] is False
+    assert data["first"]["stored_attempt_count"] == 3
+    assert data["first"]["tokens"]["input_tokens"]["total"] == 21
+    assert data["first"]["tokens"]["output_tokens"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": 6,
+        "total": None,
+    }
+    assert data["first"]["stored_raw_response_count"] == 2
+    assert data["first"]["schema_violation_rate"] == 0.5
+    assert data["retry"]["latency_ms"]["p95"] is None
+    assert response.headers["cache-control"] == "no-store"
+    for secret in (
+        "target_ref",
+        "raw_output",
+        "parsed_output",
+        "gold",
+        "configuration",
+        "@",
+        *FIXTURES,
+    ):
+        assert secret not in response.text
+
+
+@pytest.mark.parametrize("revocation", ["session", "account", "role", "evaluator", "approval"])
+def test_summary_http_checks_revocation(
+    summary_client, cs_access, evaluation_database, registered_user, revocation
+):
+    """다음 조회에서 세션·업무 접근·평가자·구성 철회를 적용한다.
+
+    Args:
+        summary_client: 실제 세션 클라이언트.
+        cs_access: 현재 평가 설정.
+        evaluation_database: 전용 관리자 연결.
+        registered_user: 영향을 한정할 사용자.
+        revocation: 철회 종류.
+
+    Returns:
+        None: 상세 없는401/403 및 비캐시를 검증한다.
+    """
+    client, url = summary_client
+    assert client.get(url).status_code == 200
+    actor = registered_user[1]
+    with psycopg.connect(evaluation_database) as conn:
+        if revocation == "session":
+            conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (actor,))
+        elif revocation == "account":
+            conn.execute("UPDATE identity.users SET is_active=false WHERE id=%s", (actor,))
+        elif revocation == "role":
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (actor,))
+        elif revocation == "evaluator":
+            cs_access.evaluator_user_ids = frozenset()
+        else:
+            cs_access.approved_config_hashes = frozenset()
+    result = client.get(url)
+    assert result.status_code == (403 if revocation in {"evaluator", "approval"} else 401)
+    assert "data" not in result.json()
+    assert result.headers["cache-control"] == "no-store"
+    if revocation == "approval":
+        assert client.get(url.removesuffix("/summary")).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "requester",
+        "creator",
+        "test",
+        "missing",
+        "production",
+        "disabled",
+        "real",
+        "profile",
+        "target",
+    ],
+)
+def test_summary_http_scope_boundary(
+    summary_client, settings, cs_access, cs_experiment, cs_run, evaluation_database, boundary
+):
+    """소유권·시험·환경·프로필 제한을 집계 전에 적용한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 환경 설정.
+        cs_access: 승인 설정.
+        cs_experiment: 실험 메타데이터.
+        cs_run: 실행 ID.
+        evaluation_database: 전용 검사 DB.
+        boundary: 거부할 경계.
+
+    Returns:
+        None: 제한된 오류만 반환하고 민감 내용을 숨긴다.
+    """
+    client, url = summary_client
+    expected = 404
+    with psycopg.connect(evaluation_database) as conn:
+        if boundary == "requester":
+            conn.execute(
+                "UPDATE evaluation.runs SET requested_by_user_id=NULL WHERE id=%s", (cs_run,)
+            )
+        elif boundary == "creator":
+            conn.execute(
+                "UPDATE evaluation.experiments SET created_by_user_id=NULL WHERE id=%s",
+                (cs_experiment["id"],),
+            )
+        elif boundary == "test":
+            conn.execute(
+                "UPDATE evaluation.experiments SET data_split='test' WHERE id=%s",
+                (cs_experiment["id"],),
+            )
+        elif boundary == "missing":
+            url = url.replace(str(cs_run), str(uuid4()))
+        elif boundary == "production":
+            settings.environment = "production"
+            expected = 503
+        elif boundary == "disabled":
+            cs_access.local_admission_enabled = False
+            expected = 503
+        elif boundary in {"real", "profile"}:
+            column, value = (
+                ("data_origin", "real")
+                if boundary == "real"
+                else ("configuration", Jsonb({"task": "unapproved"}))
+            )
+            conn.execute(
+                psycopg.sql.SQL("UPDATE evaluation.experiments SET {}=%s WHERE id=%s").format(
+                    psycopg.sql.Identifier(column)
+                ),
+                (value, cs_experiment["id"]),
+            )
+            expected = 403
+        elif boundary == "target":
+            conn.execute(
+                "UPDATE evaluation.experiment_targets SET data_origin='real' WHERE experiment_id=%s AND target_ref='cs-smoke-valid'",
+                (cs_experiment["id"],),
+            )
+            expected = 409
+    response = client.get(url)
+    assert response.status_code == expected, response.text
+    assert "data" not in response.json()
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_summary_snapshot_and_safe_failure(
+    summary_client, cs_run, settings, cs_access, evaluation_database, monkeypatch
+):
+    """집계 사이 실제 commit에도 일관성을 유지하고 오류를 성공으로 숨기지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        cs_run: 실행 ID.
+        settings: 합성 worker 환경.
+        cs_access: 승인 설정.
+        evaluation_database: 별도 writer 연결.
+        monkeypatch: 집계 경계에 동시 갱신과 실패 주입.
+
+    Returns:
+        None: 동일 시점 집계와 원문 없는503을 확인한다.
+    """
+    from backend.api.platform.evaluations import summary
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    original = summary.summarize_stored_usage
+
+    def update_after_usage(conn, run_id):
+        """사용량 조회 후 원시 증거를 별도 연결에서 제거한다.
+
+        Args:
+            conn: 읽기 전용 스냅샷.
+            run_id: 조회 실행.
+
+        Returns:
+            dict: 변경 전 사용량.
+        """
+        assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+        result = original(conn, run_id)
+        with psycopg.connect(evaluation_database) as writer:
+            writer.execute(
+                "UPDATE evaluation.case_attempts SET raw_output=NULL WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+                (run_id,),
+            )
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(summary, "summarize_stored_usage", update_after_usage)
+        assert client.get(url).json()["data"]["first"]["schema_violation_rate"] == 0.5
+    assert client.get(url).json()["data"]["first"]["schema_violation_rate"] is None
+
+    def unavailable(*args):
+        """집계 저장 오류를 안전한 응답으로 변환하도록 유도한다.
+
+        Args:
+            args: 집계 인자.
+
+        Returns:
+            None: 성공 대신 원문을 가진 오류를 발생시킨다.
+        """
+        raise psycopg.OperationalError("sensitive database diagnostic")
+
+    monkeypatch.setattr(summary, "summarize_stored_usage", unavailable)
+    failure = client.get(url)
+    assert failure.status_code == 503 and "sensitive" not in failure.text
+    assert failure.headers["cache-control"] == "no-store"
