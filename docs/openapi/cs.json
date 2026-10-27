@@ -1810,10 +1810,12 @@
       "OwnerLoad": {
         "properties": {
           "closed": {
+            "description": "Closed in the period.",
             "title": "Closed",
             "type": "integer"
           },
           "open": {
+            "description": "Not closed now, whenever received: the owner's current load. Unlike the overview's open count, the period does not limit it.",
             "title": "Open",
             "type": "integer"
           },
@@ -1831,6 +1833,7 @@
             "title": "Owner User Id"
           },
           "received": {
+            "description": "Received in the period.",
             "title": "Received",
             "type": "integer"
           }

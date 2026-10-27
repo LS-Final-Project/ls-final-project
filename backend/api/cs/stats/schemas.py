@@ -86,9 +86,12 @@ class Overview(BaseModel):
 
 class OwnerLoad(BaseModel):
     owner_user_id: UUID | None = Field(description="Null groups tickets without an owner.")
-    received: int
-    closed: int
-    open: int
+    received: int = Field(description="Received in the period.")
+    closed: int = Field(description="Closed in the period.")
+    open: int = Field(
+        description="Not closed now, whenever received: the owner's current load. Unlike "
+        "the overview's open count, the period does not limit it."
+    )
 
 
 class OwnerList(BaseModel):
