@@ -163,16 +163,18 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         return response.end(request.method === 'HEAD' ? undefined : body);
       }
       if (path.split('/').some(part => part.startsWith('.') && part !== '')) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      let file = resolve(root, '.' + path);
-      if (!file.startsWith(root + sep) && file !== root) return json(response, 404, { error: { code: 'NOT_FOUND' } });
+      // Compare canonical paths: macOS temporary directories may resolve through /private.
+      const staticRoot = await realpath(root);
+      let file = resolve(staticRoot, '.' + path);
+      if (!file.startsWith(staticRoot + sep) && file !== staticRoot) return json(response, 404, { error: { code: 'NOT_FOUND' } });
       try {
-        if (!(await stat(file)).isFile()) file = resolve(root, 'index.html');
+        if (!(await stat(file)).isFile()) file = resolve(staticRoot, 'index.html');
       } catch {
         if (extname(path)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-        file = resolve(root, 'index.html');
+        file = resolve(staticRoot, 'index.html');
       }
       file = await realpath(file);
-      if (!file.startsWith(root + sep)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
+      if (!file.startsWith(staticRoot + sep)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
       response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600' });
       response.end(request.method === 'HEAD' ? undefined : await readFile(file));
     } catch {
