@@ -1,5 +1,6 @@
 """Queries for ticket workflows, transfers and department results (infra/migrations/cs)."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -157,3 +158,11 @@ async def insert_case(conn: AsyncConnection[Row], values: Row) -> None:
         f"INSERT INTO cs.resolution_cases ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
         tuple(values.values()),
     )
+
+
+async def database_now(conn: AsyncConnection[Row]) -> datetime:
+    """Transaction time of the database, so a value stored now passes `known_at <= now()`."""
+    cursor = await conn.execute("SELECT now() AS now")
+    row = await cursor.fetchone()
+    assert row is not None
+    return row["now"]

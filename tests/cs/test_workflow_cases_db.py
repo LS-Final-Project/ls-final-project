@@ -133,6 +133,11 @@ def test_case_is_registered_once_after_closing_from_an_accepted_result(client, a
         workflow["closed_at"]
     )
     assert case["product_code"] == "TRF-OIL-1000"
+    # known_at is the database time, so the case is evidence right away.
+    stored = admin.execute(
+        "SELECT known_at <= now() FROM cs.resolution_cases WHERE id = %s", (case["id"],)
+    ).fetchone()
+    assert stored == (True,)
     detail = ok(client.get(f"/api/v1/cs/tickets/{ticket}"))
     assert detail["resolution_case"]["id"] == case["id"]
     assert code(register(client, ticket, version=5)) == (409, "CS_RESOLUTION_CASE_EXISTS")

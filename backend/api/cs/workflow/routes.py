@@ -521,7 +521,8 @@ async def register_resolution_case(
         ticket = await tickets.get_ticket(conn, ticket_id)
         if ticket is None:
             raise not_found()
-        now = datetime.now(UTC)
+        # The database clock, which the ticket detail compares known_at with.
+        now = await repository.database_now(conn)
         case = {
             "id": uuid4(),
             "ticket_id": ticket_id,
