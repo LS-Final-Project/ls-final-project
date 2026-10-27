@@ -54,6 +54,43 @@ function rows(baseline: Summary, candidate: Summary): { rows: Row[]; qualityNote
   return { rows: result, qualityNote };
 }
 
+const numeric = /^[+-]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/;
+/** 스프레드시트 수식으로 해석될 셀을 막고 CSV로 인용한다. Args: 셀 문자열. Returns: 안전한 CSV 셀. */
+export function csvCell(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) && !numeric.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** 화면의 비교 표만 CSV로 만든다. Args: 비교 가능한 기준·후보 요약. Returns: UTF-8 BOM·CRLF CSV 문자열. */
+export function comparisonCsv(baseline: Summary, candidate: Summary): string {
+  const table = rows(baseline, candidate);
+  const lines: string[][] = [
+    ['기준 run_id', baseline.run_id], ['후보 run_id', candidate.run_id], ['comparison_key', candidate.comparison_key ?? ''],
+    ['기준 집계 시각', baseline.generated_at], ['후보 집계 시각', candidate.generated_at], [],
+    ['항목', '기준', '후보', '차이(후보−기준)'], ...table.rows, [],
+    ...(table.qualityNote ? [['품질 차이', table.qualityNote]] : []),
+    ['안내', '합성 정답 기준, 실제 품질·합격 판정 아님. 최초 시도 기준이며 비용 차이는 계산하지 않음.'],
+  ];
+  return `\uFEFF${lines.map(line => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+/** 서버가 확인한 run_id와 날짜로만 파일명을 만든다. Args: 기준·후보 요약, 기준 시각. Returns: 파일명. */
+export function comparisonFileName(baseline: Summary, candidate: Summary, now = new Date()): string {
+  return `run-comparison-${baseline.run_id.slice(0, 8)}-${candidate.run_id.slice(0, 8)}-${now.toISOString().slice(0, 10)}.csv`;
+}
+
+/** 브라우저에서 CSV 파일을 저장한다. Args: 기준·후보 요약. Returns: 없음. */
+function download(baseline: Summary, candidate: Summary) {
+  const url = URL.createObjectURL(new Blob([comparisonCsv(baseline, candidate)], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url; link.download = comparisonFileName(baseline, candidate);
+  // 일부 브라우저는 문서에 없는 앵커 클릭을 무시하거나 시작 전 해제된 URL을 읽지 못한다.
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** 현재 실행을 후보로, 입력한 실행을 기준으로 요약 두 개를 비교한다. Args: 후보 실행 ID. Returns: 비교 절. */
 export default function RunComparison({ candidateId }: { candidateId: string }) {
   const [input, setInput] = useState('');
@@ -94,6 +131,7 @@ export default function RunComparison({ candidateId }: { candidateId: string }) 
       </div>
       <p className="evaluation-caption">토큰 차이는 두 실행 모두 전건 보고된 합계일 때만, 지연 차이는 두 실행 모두 보고됐을 때만 계산합니다. 비용은 가격표 판본이 같은지 확인할 수 없어 차이를 계산하지 않습니다.</p>
       {table.qualityNote && <p className="evaluation-caption">{table.qualityNote}</p>}
+      <button type="button" onClick={() => download(...pair!)}>CSV 저장</button>
       <p className="evaluation-caption">합성 품질은 합성 정답 기준이며 실제 품질·합격 판정이 아닙니다.</p>
     </>}
   </section>;
