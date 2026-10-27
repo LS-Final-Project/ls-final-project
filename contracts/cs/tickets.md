@@ -6,7 +6,7 @@
 
 | 경로 | 응답 | 설명 |
 | --- | --- | --- |
-| `GET /api/v1/cs/tickets?limit=&cursor=` | `SuccessResponse[TicketList]` | 접수 시각 최신순. `limit` 1~100(기본 50). `next_cursor`를 그대로 다음 요청의 `cursor`로 보낸다. 잘못된 커서는 400 `CS_INVALID_CURSOR` |
+| `GET /api/v1/cs/tickets?limit=&cursor=` | `SuccessResponse[TicketList]` | 접수 시각 최신순. 항목마다 업무 상태 `workflow_state`(아래 절). `limit` 1~100(기본 50). `next_cursor`를 그대로 다음 요청의 `cursor`로 보낸다. 잘못된 커서는 400 `CS_INVALID_CURSOR` |
 | `GET /api/v1/cs/tickets/{ticket_id}` | `SuccessResponse[TicketDetail]` | 접수 원문과 연결된 해결 사례. 없는 문의는 404 `CS_TICKET_NOT_FOUND` |
 | `POST /api/v1/cs/tickets` | 201 `SuccessResponse[TicketDetail]` | 수동 접수. 요청은 `TicketCreate`(채널, 본문 언어, 고객·제품 코드, 제목, 본문, 보고된 펌웨어·에러코드)만 받는다. `id`, `external_id`(null), `version`(1), `received_at`, `data_origin`(중계 비활성은 demo, 활성은 서버의 CS_MANUAL_DATA_ORIGIN), `derivation_kind`(SYSTEM)는 서버가 정하며 요청에 넣으면 422 |
 | `PATCH /api/v1/cs/tickets/{ticket_id}` | `SuccessResponse[TicketDetail]` | 식별 정보 정정. `version`과 바꿀 필드(customer_external_id, product_code, subject, fw_version_reported, error_code_reported)를 보낸다. 본문·채널·접수 시각은 수정할 수 없다(422). 저장된 판본과 다르면 409 `CS_TICKET_VERSION_CONFLICT`, 값이 같으면 판본을 올리지 않는다 |
@@ -23,7 +23,7 @@
 - 원천 ID(`CSV1-000044`, `RC-0007`)는 `external_id`, URL과 내부 참조는 서버 UUID `id`를 쓴다.
 - 제목이 없는 채팅 문의의 `subject`는 null이다.
 - 해결 사례는 `known_at`이 지난 경우에만 상세에 포함한다. 제공 데이터는 해결 시각을 known_at으로 가정한다.
-- 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.1): 사용자 정보가 없거나 잘못되면 401. 조회는 `cs_agent`와 C/S 부서(`GCS_L1`)를 관리하는 manager는 전체, dept_staff와 다른 부서 manager는 자기(관리) 부서로 이관된 문의만이며 이관 부서 칸이 생기기 전(KAN-108)에는 빈 목록이다. 범위 밖 문의는 없는 문의와 같은 404 `CS_TICKET_NOT_FOUND`. sales의 목록과 cs_agent가 아닌 사용자의 등록·정정은 403.
+- 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.1): 사용자 정보가 없거나 잘못되면 401. 조회는 `cs_agent`와 C/S 부서(`GCS_L1`)를 관리하는 manager는 전체, dept_staff와 다른 부서 manager는 자기(관리) 부서로 **한 번이라도 이관된** 문의만 본다(KAN-108, 이관이 끝난 뒤에도 조회 유지). 범위 밖 문의는 없는 문의와 같은 404 `CS_TICKET_NOT_FOUND`. sales의 목록과 cs_agent가 아닌 사용자의 등록·정정은 403.
 - 업무 중계가 비활성일 때 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. KAN-178의 명시 활성화는 [플랫폼 호출자 검증](../platform/auth.md#업무-json-중계와-호출자-검증-kan-178)과 기존 사용자·업무 권한 검사를 함께 요구한다. OpenAPI 상태는 `partial`이다. 설비·장비 일치 확인은 아래 절을 따른다.
 
 중계를 켠 C/S는 `CS_MANUAL_DATA_ORIGIN=demo` 또는 `real`을 명시해야 시작한다.
@@ -31,6 +31,31 @@
 real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여부를 추정하지 않는다.
 한 배포의 수동 접수 출처는 한 값이며 실제·시연 자료를 섞어 접수하는 기능은 제공하지 않는다.
 설정 변경은 이후 새 문의에만 적용하며 기존 행을 일괄 승격·변경하지 않는다.
+
+## 담당 검토·이관·부서 처리 결과·종결 (KAN-108)
+
+원본: backend/api/cs/workflow/schemas.py 및 routes.py. 상태와 전이는 [권한 문서](../platform/permissions.md) 2.1을 따른다. 마이그레이션은 `infra/migrations/cs/20261027_KAN-108_ticket_workflow.sql`이다. 제공 CSV의 `status`(CLOSED, RESOLVED 등)는 `cs.ticket_source_records`의 사후 기록이며 이 상태와 섞지 않는다.
+
+| 경로 (`/api/v1/cs/tickets/{ticket_id}/workflow` 아래) | 허용 | 전이 |
+| --- | --- | --- |
+| `GET` | 문의 조회 범위 | 현재 상태·판본·담당자·이관 회차·부서 처리 결과. 시작 전 문의는 `RECEIVED`, `version: 0` |
+| `POST /start-review` | cs_agent | `RECEIVED` → `IN_REVIEW`. 담당자가 없으면 실행한 사람이 담당자 |
+| `POST /transfer` (`dept_code`, `reason`) | cs_agent | `IN_REVIEW` → `TRANSFERRED`. 새 이관 회차. `GCS_L1`과 목록 밖 부서는 422 |
+| `POST /recall` (`reason`) | cs_agent | `TRANSFERRED` → `IN_REVIEW`. C/S 회수 |
+| `POST /return` (`reason`) | 현재 이관 부서의 dept_staff | `TRANSFERRED` → `IN_REVIEW`. 부서 반송("우리 부서 일이 아님") |
+| `POST /dept-result` (`result`, `reply_content`) | 현재 이관 부서의 dept_staff | `TRANSFERRED` → `IN_REVIEW`. 결과는 `SUBMITTED`(수신) |
+| `POST /dept-results/{result_id}/review` (`result_version`, `decision`, `note`) | cs_agent | `ACCEPT`: 결과 `ACCEPTED`, 상태 유지. `REWORK`: 결과 `REWORK_REQUESTED`, 같은 부서로 새 회차 `TRANSFERRED`. 보완 요청은 `note` 필수 |
+| `POST /close` | cs_agent | `ANSWERED` 또는 `IN_REVIEW` → `CLOSED` |
+| `PUT /owner` (`owner_user_id`) | C/S 부서(`GCS_L1`) manager | 상태 변경 없음. 담당자 재배정 |
+
+- **수신 ≠ 검토 ≠ 완료**: 부서가 등록한 결과는 `SUBMITTED`이고, cs_agent가 채택해야 `ACCEPTED`가 된다. 채택해도 문의는 `IN_REVIEW`로 남고 종결은 cs_agent가 따로 확정한다.
+- **검토된 회신만 반영**: 종결 조건은 `ANSWERED`이거나, `IN_REVIEW`에서 **채택된** 부서 결과 또는 고객 발송 이력(`customer_sent_at`)이 있는 경우다. 아니면 409 `CS_CLOSE_CONDITION_UNMET`. 검토 전(`SUBMITTED`) 결과가 있으면 종결과 새 이관은 409 `CS_DEPT_RESULT_UNREVIEWED`. 반송·회수된 이관은 처리 결과가 아니다.
+- **승인 판본 감사**: 모든 요청은 결정한 화면의 업무 판본 `version`을 보낸다. 다르면 409 `CS_WORKFLOW_VERSION_CONFLICT`. 부서 결과 검토는 결과 판본 `result_version`도 보내며 다르면 409 `CS_DEPT_RESULT_VERSION_CONFLICT`, 이미 검토했으면 409 `CS_DEPT_RESULT_ALREADY_REVIEWED`. 전이마다 `cs.audit_events`에 `ticket_workflow`(action `transition`, 바뀐 칸·동작 이름·부서·사유)와 `dept_result`(`create`, `review`와 검토한 결과 판본)를 남긴다. 결과 본문은 감사에 복제하지 않는다.
+- **검사 순서**(권한 문서 1.3): 조회 범위 404 → 역할 403 → 상태 409 `CS_INVALID_TRANSITION` → 판본 409 → 입력 422. 이관 이력이 있지만 지금 이관 부서가 아닌 dept_staff의 결과 등록·반송은 403이다.
+- **답변·추가 정보 요청 발송**(`ANSWERED`, `WAITING_CUSTOMER`)과 **고객 회신 재투입**(`→ IN_REVIEW`)은 메일 발송(KAN-74)·회신 연결(KAN-75·110)이 호출하는 내부 함수로 둔다. 손으로 "보냈음"을 표시하는 API는 없다.
+- **담당자**: C/S 서비스는 identity 스키마를 읽을 수 없어 새 담당자의 역할을 서버에서 확인하지 않는다. 화면은 등록된 cs_agent만 고르게 한다.
+- **부서 코드**: `backend/shared/departments.py`가 `identity.departments`와 같은 목록을 두고, 테스트가 두 목록이 같은지 확인한다.
+- 서비스 계정(cs_app)은 업무 상태·이관·부서 결과 행을 삭제할 수 없다. 문의당 열린 이관은 하나다(부분 유일 인덱스).
 
 ## 설치 장비 확인과 같은 장비 이력 (KAN-102)
 
@@ -48,7 +73,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 - **정정 잠금**: 확정 장비가 있는 문의의 `customer_external_id`·`product_code` 정정은 409 `CS_TICKET_UNIT_LINKED`. 연결을 거절로 바꾼 뒤 정정한다. 문의 행을 잠근 상태에서 연결과 정정을 처리해 서로 끼어들지 않는다.
 - **다른 장비 이력 복사 차단**: 이력은 이 문의의 확정 장비와, 그 장비가 교체한 장비(`replaced_by_unit_id` 역방향)에 **확정** 연결된 문의만 담는다. 같은 고객·제품의 다른 장비, 후보·거절 연결은 담지 않는다(시나리오 S13: CSV1-000991의 2024-05 설치 장비를 CSV1-003317에 쓰지 않는다). 교체 전 장비의 문의는 `relation = REPLACED_UNIT`으로 표시하고, 교체 전 장비의 설치일·출하일 같은 값은 `unit`에 섞지 않는다.
 - **시점 제한**: 이 문의 접수 시각보다 먼저 접수·인지된 문의만, 해결 사례는 그 시각 이전에 알려진 것만 담는다. 최대 100건, 최신순.
-- **접근**: 문의 상세와 같은 범위 검사를 쓴다(cs_agent, C/S 부서 manager). 장비 연결 기록은 cs_agent만 한다. KAN-108에서 부서 범위가 열리면 이력의 이전 문의도 그 범위로 거른다.
+- **접근**: 장비 목록·연결·이력은 전체 문의를 보는 사용자(cs_agent, C/S 부서 manager)만 쓴다. 이관 부서 사용자는 문의 상세는 볼 수 있지만 이 경로는 404다. 이력에 그 부서로 이관되지 않은 이전 문의가 섞일 수 있기 때문이며, 범위로 거르는 기능은 필요할 때 추가한다. 장비 연결 기록은 cs_agent만 한다.
 - **데이터**: 장비는 CRM 설치기반을 가정한 자료(`derivation_kind = ASSUMED`, 가상 시리얼 `VSN-제품약어-번호`)이며 어댑터가 적재한다. C/S 서비스 계정은 장비를 읽기만 하고, 연결은 삭제할 수 없다. 이 PR은 장비 시연 데이터를 생성하지 않는다. 같은 장비 여부의 평가 정답은 모델 입력·검색과 분리된 별도 자료로 둔다.
 
 ## 문의 분류 출력 계약

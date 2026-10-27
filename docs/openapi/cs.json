@@ -1,6 +1,22 @@
 {
   "components": {
     "schemas": {
+      "Action": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "Action",
+        "type": "object"
+      },
       "AuditEvent": {
         "properties": {
           "action": {
@@ -71,6 +87,149 @@
           "items"
         ],
         "title": "AuditList",
+        "type": "object"
+      },
+      "DeptResult": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reply_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Content"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "review_status": {
+            "enum": [
+              "SUBMITTED",
+              "ACCEPTED",
+              "REWORK_REQUESTED"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "submitted_by": {
+            "format": "uuid",
+            "title": "Submitted By",
+            "type": "string"
+          },
+          "transfer_id": {
+            "format": "uuid",
+            "title": "Transfer Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "transfer_id",
+          "dept_code",
+          "version",
+          "result",
+          "reply_content",
+          "submitted_by",
+          "submitted_at",
+          "review_status",
+          "reviewed_by",
+          "reviewed_at",
+          "review_note"
+        ],
+        "title": "DeptResult",
+        "type": "object"
+      },
+      "DeptResultRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reply_content": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Content"
+          },
+          "result": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Result",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "result"
+        ],
+        "title": "DeptResultRequest",
         "type": "object"
       },
       "ErrorData": {
@@ -434,6 +593,28 @@
         "title": "InstalledUnit",
         "type": "object"
       },
+      "OwnerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "owner_user_id"
+        ],
+        "title": "OwnerRequest",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -465,6 +646,29 @@
           "fts"
         ],
         "title": "ReadinessData",
+        "type": "object"
+      },
+      "ReasonRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reason"
+        ],
+        "title": "ReasonRequest",
         "type": "object"
       },
       "ResolutionCase": {
@@ -636,6 +840,51 @@
         "title": "ResponseMeta",
         "type": "object"
       },
+      "ReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "ACCEPT",
+              "REWORK"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "result_version": {
+            "description": "The result version that was reviewed.",
+            "minimum": 1.0,
+            "title": "Result Version",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "result_version",
+          "decision"
+        ],
+        "title": "ReviewRequest",
+        "type": "object"
+      },
       "SuccessResponse_AuditList_": {
         "properties": {
           "data": {
@@ -762,6 +1011,22 @@
           "meta"
         ],
         "title": "SuccessResponse[UnitHistory]",
+        "type": "object"
+      },
+      "SuccessResponse_Workflow_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Workflow"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Workflow]",
         "type": "object"
       },
       "TicketCreate": {
@@ -973,6 +1238,18 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "workflow_state": {
+            "enum": [
+              "RECEIVED",
+              "IN_REVIEW",
+              "WAITING_CUSTOMER",
+              "ANSWERED",
+              "TRANSFERRED",
+              "CLOSED"
+            ],
+            "title": "Workflow State",
+            "type": "string"
           }
         },
         "required": [
@@ -991,6 +1268,7 @@
           "body",
           "fw_version_reported",
           "error_code_reported",
+          "workflow_state",
           "resolution_case"
         ],
         "title": "TicketDetail",
@@ -1091,6 +1369,18 @@
               }
             ],
             "title": "Subject"
+          },
+          "workflow_state": {
+            "enum": [
+              "RECEIVED",
+              "IN_REVIEW",
+              "WAITING_CUSTOMER",
+              "ANSWERED",
+              "TRANSFERRED",
+              "CLOSED"
+            ],
+            "title": "Workflow State",
+            "type": "string"
           }
         },
         "required": [
@@ -1101,7 +1391,8 @@
           "derivation_kind",
           "received_at",
           "channel",
-          "product_code"
+          "product_code",
+          "workflow_state"
         ],
         "title": "TicketSummary",
         "type": "object"
@@ -1230,6 +1521,138 @@
           "version"
         ],
         "title": "TicketUpdate",
+        "type": "object"
+      },
+      "Transfer": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ended_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "OPEN",
+              "RESULT_SUBMITTED",
+              "RETURNED_BY_DEPT",
+              "RECALLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "transferred_at": {
+            "format": "date-time",
+            "title": "Transferred At",
+            "type": "string"
+          },
+          "transferred_by": {
+            "format": "uuid",
+            "title": "Transferred By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "round",
+          "dept_code",
+          "status",
+          "reason",
+          "transferred_by",
+          "transferred_at",
+          "ended_by",
+          "ended_at",
+          "end_reason"
+        ],
+        "title": "Transfer",
+        "type": "object"
+      },
+      "TransferRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dept_code": {
+            "enum": [
+              "TS_LV",
+              "TS_MV",
+              "TS_TRF",
+              "TS_AUTO",
+              "TS_ENERGY",
+              "RND_FW",
+              "QA_CLAIM",
+              "FIELD_SVC",
+              "CERT",
+              "SALES_OPS",
+              "SCM",
+              "WARRANTY_DESK"
+            ],
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "dept_code",
+          "reason"
+        ],
+        "title": "TransferRequest",
         "type": "object"
       },
       "UnitHistory": {
@@ -1452,6 +1875,109 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "Workflow": {
+        "properties": {
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "closed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed By"
+          },
+          "customer_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Sent At"
+          },
+          "dept_results": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/DeptResult"
+            },
+            "title": "Dept Results",
+            "type": "array"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "state": {
+            "enum": [
+              "RECEIVED",
+              "IN_REVIEW",
+              "WAITING_CUSTOMER",
+              "ANSWERED",
+              "TRANSFERRED",
+              "CLOSED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "transfers": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/Transfer"
+            },
+            "title": "Transfers",
+            "type": "array"
+          },
+          "version": {
+            "description": "0 until the first action. Send it with every action.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "state",
+          "version",
+          "owner_user_id",
+          "customer_sent_at",
+          "closed_at",
+          "closed_by",
+          "transfers",
+          "dept_results"
+        ],
+        "title": "Workflow",
         "type": "object"
       }
     }
@@ -2269,6 +2795,950 @@
         "summary": "Set Ticket Unit Link",
         "tags": [
           "units"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow": {
+      "get": {
+        "operationId": "cs_get_ticket_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Workflow",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/close": {
+      "post": {
+        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.",
+        "operationId": "cs_close_ticket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Action"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Close",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/dept-result": {
+      "post": {
+        "description": "TRANSFERRED \u2192 IN_REVIEW: the department reports its result. It waits for review.",
+        "operationId": "cs_submit_dept_result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Dept Result",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/dept-results/{result_id}/review": {
+      "post": {
+        "description": "The C/S agent accepts a department result, or asks the same department to rework it.\n\nRework opens a new transfer round to that department (IN_REVIEW \u2192 TRANSFERRED).",
+        "operationId": "cs_review_dept_result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "result_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Review Dept Result",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/owner": {
+      "put": {
+        "description": "Only a manager of the C/S department reassigns the owner. The state does not change.\n\nThe C/S service cannot read the identity schema, so the new owner's role is not checked\nhere; the screen offers registered C/S agents only.",
+        "operationId": "cs_reassign_ticket_owner",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reassign Owner",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/recall": {
+      "post": {
+        "description": "TRANSFERRED \u2192 IN_REVIEW: the C/S agent takes back a transfer, with a reason.",
+        "operationId": "cs_recall_ticket_transfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Recall",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/return": {
+      "post": {
+        "description": "TRANSFERRED \u2192 IN_REVIEW: the department sends back a ticket that is not its work.",
+        "operationId": "cs_return_ticket_transfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Return Transfer",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/start-review": {
+      "post": {
+        "description": "RECEIVED \u2192 IN_REVIEW by a C/S agent, who becomes the owner if there is none.",
+        "operationId": "cs_start_ticket_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Action"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start Review",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/transfer": {
+      "post": {
+        "description": "IN_REVIEW \u2192 TRANSFERRED. The C/S agent confirms the department and the reason.",
+        "operationId": "cs_transfer_ticket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Transfer",
+        "tags": [
+          "workflow"
         ],
         "x-implementation-status": "partial"
       }

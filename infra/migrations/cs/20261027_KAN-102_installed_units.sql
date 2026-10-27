@@ -73,10 +73,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS ticket_unit_links_one_confirmed
 CREATE INDEX IF NOT EXISTS ticket_unit_links_confirmed_unit
     ON cs.ticket_unit_links (unit_id) WHERE link_status = 'CONFIRMED';
 
--- Link decisions are audited next to ticket changes.
-ALTER TABLE cs.audit_events DROP CONSTRAINT IF EXISTS audit_events_entity_type_check;
-ALTER TABLE cs.audit_events ADD CONSTRAINT audit_events_entity_type_check
-    CHECK (entity_type IN ('ticket', 'ticket_unit_link'));
+-- Link decisions are audited next to ticket changes. Later migrations widen this list, so
+-- the constraint is replaced only while it does not allow links yet (safe to re-run).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'audit_events_entity_type_check'
+          AND conrelid = 'cs.audit_events'::regclass
+          AND pg_get_constraintdef(oid) LIKE '%ticket_unit_link%'
+    ) THEN
+        ALTER TABLE cs.audit_events DROP CONSTRAINT IF EXISTS audit_events_entity_type_check;
+        ALTER TABLE cs.audit_events ADD CONSTRAINT audit_events_entity_type_check
+            CHECK (entity_type IN ('ticket', 'ticket_unit_link'));
+    END IF;
+END
+$$;
 
 -- Units come from the install-base adapter; the service only reads them.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON cs.installed_units FROM cs_app;

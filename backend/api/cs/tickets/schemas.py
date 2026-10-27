@@ -12,6 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
+# Live workflow state (KAN-108). The provided `status` is source history, not this value.
+WorkflowState = Literal[
+    "RECEIVED", "IN_REVIEW", "WAITING_CUSTOMER", "ANSWERED", "TRANSFERRED", "CLOSED"
+]
 Code = Annotated[str, Field(min_length=1, max_length=64)]
 Subject = Annotated[str, Field(min_length=1, max_length=500)]
 
@@ -27,6 +31,7 @@ class TicketSummary(BaseModel):
     received_at: datetime
     channel: Channel
     product_code: str
+    workflow_state: WorkflowState
 
 
 class TicketList(BaseModel):
@@ -71,6 +76,7 @@ class TicketDetail(BaseModel):
     body: str
     fw_version_reported: str | None
     error_code_reported: str | None
+    workflow_state: WorkflowState
     resolution_case: ResolutionCase | None
 
 
