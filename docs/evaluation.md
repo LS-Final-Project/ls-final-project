@@ -253,7 +253,23 @@ gold_version=..., scoring_version=...)`는 운영자 도구가 정답 파일 바
   (`CS_QUALITY_FINAL_TEST_LOCKED`, 대상·정답 파싱 전), 고정 합성 프로필의 local/test fake 실행이 아님
   (`CS_QUALITY_SYNTHETIC_ONLY`), 실험 gold_version 불일치, 실행 미종료, 정답 파일 형식 오류, 정답이 실험
   대상의 비어 있지 않은 부분집합이 아님, 같은 실행·scoring_version의 기존 행(UNIQUE로 덮어쓰기 거부).
+  저장 집계 검증 오류는 기존 코드 그대로 전달한다: 저장 행이 실험 고정 대상·요청 건수와 어긋나거나
+  저장 출력이 계약에 맞지 않으면 `CS_STORED_METRICS_INVALID_INPUT` 또는 `CS_METRICS_INVALID_INPUT`이다.
 - 현재는 합성 실행만 저장한다. 합성 정답으로 낸 값은 실제 품질이 아니다.
+
+운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
+
+```bash
+uv run --frozen python -m eval.cs_report store-return-subtype --run-id <UUID> \
+  --gold-file <정답 CSV> --gold-sha256 <hex> [--gold-version <판본>] --scoring-version <판본>
+```
+
+정답 파일은 바이트로 읽어 넘기며 경로는 출력·저장하지 않는다. 성공하면 stdout에
+`{"run_id":…,"scoring_version":…,"stored_rows":5}` JSON 한 줄, exit 0이다. 실패하면 exit 1이고
+stderr에 코드 한 줄만 쓴다: 위 `CS_QUALITY_*`·저장 집계 검증 코드, 파일 읽기 실패
+`CS_QUALITY_GOLD_UNREADABLE`, local/test 설정 누락 `CS_REPORT_LOCAL_CONFIGURATION_REQUIRED`, 그 밖의
+DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택은 출력하지 않는다. 기존 보고서
+내보내기 명령(`--run-id … --output …`, 오류 exit 2)은 그대로다.
 
 **미결(운영 쓰기 역할)**: KAN-85 권한에서는 `platform_app`도 `evaluation.metrics`에 INSERT할 수 있다.
 이 행을 운영자 전용 역할만 쓰도록 분리할지는 운영 활성화 전에 정한다. 이번 변경은 권한을 바꾸지
