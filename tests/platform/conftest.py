@@ -128,6 +128,14 @@ def jobs_database(auth_database):
                 "infra/migrations/platform/20261026_KAN-69_dispatch_ledger.sql"
             ).read_text()
             conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        if not conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema='runtime' "
+            "AND table_name='dispatch_attempts' AND column_name='operation_name'"
+        ).fetchone():
+            migration = Path(
+                "infra/migrations/platform/20261026_KAN-69_dispatch_operation.sql"
+            ).read_text()
+            conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 
