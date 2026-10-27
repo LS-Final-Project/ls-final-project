@@ -28,6 +28,7 @@ RoleStatus = Literal[
     "CONFIRMED",
 ]
 RequestStatus = Literal["DRAFT", "ISSUED", "ANSWERED", "CLOSED"]
+Participation = Literal["LEAD", "SUPPORT"]
 RecommendationStatus = Literal["RECOMMENDED", "WITHDRAWN"]
 # UNSPECIFIED: nothing recorded. NEEDS_CHECK: not confirmed yet (never "lacking").
 # CONFIRMED / UNMET: checked by a department user at a time with a basis.
@@ -44,6 +45,9 @@ class ProjectSummary(BaseModel):
     data_origin: DataOrigin
     derivation_kind: DerivationKind
     responsible_user_id: UUID | None = Field(description="Login user ID, never a candidate ID.")
+    sales_user_id: UUID | None = Field(
+        default=None, description="Responsible sales user (login user ID) who issues requests."
+    )
     current_composition_version: int | None
     created_at: datetime
 
@@ -105,16 +109,28 @@ class RequiredRole(BaseModel):
 
 
 class StaffingRequest(BaseModel):
+    """Department staffing request (KAN-122). Shared by the project detail and the
+    staffing-request routes, so both read the same columns."""
+
     id: UUID
+    project_id: UUID
     required_role_id: UUID
+    role_name: str
     organization_id: UUID
     organization_name: str
-    participation: Literal["LEAD", "SUPPORT"]
+    organization_dept_code: str | None = Field(
+        description="identity.departments.code of the organization, when linked."
+    )
+    participation: Participation
     status: RequestStatus
+    version: int = Field(description="Sent back as ETag and required in If-Match for writes.")
+    due_at: datetime | None
+    due_undecided: bool = Field(description="Explicit 'undecided' mark, apart from a null due_at.")
+    message: str | None
     issued_by_user_id: UUID | None
     issued_at: datetime | None
-    due_at: datetime | None
-    message: str | None
+    created_at: datetime
+    updated_at: datetime
     data_origin: DataOrigin
     derivation_kind: DerivationKind
 
@@ -232,6 +248,9 @@ class ProjectDetail(BaseModel):
     client_name: str | None
     status: ProjectStatus
     responsible_user_id: UUID | None
+    sales_user_id: UUID | None = Field(
+        default=None, description="Responsible sales user (login user ID) who issues requests."
+    )
     responsible: ResponsibleSummary | None
     rfp_requirements: list[RfpRequirement]
     required_roles: list[RequiredRole]

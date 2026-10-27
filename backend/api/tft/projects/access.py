@@ -11,10 +11,20 @@ def require_project_list(principal: Principal) -> None:
         raise HTTPException(403)
 
 
-def sees_project(principal: Principal, project_id: object, responsible_user_id: object) -> bool:
-    """A manager sees managed projects; anyone sees projects they are responsible for.
+def sees_project(
+    principal: Principal,
+    project_id: object,
+    responsible_user_id: object,
+    sales_user_id: object,
+) -> bool:
+    """A manager sees managed projects; anyone sees projects they are responsible for or
+    assigned to as the sales user (KAN-122, `tft.projects.sales_user_id`).
 
-    The assigned sales user (KAN-122) and departments that received a staffing request
-    are not stored in a form this check can use yet, so they are not granted here.
+    Departments that received a staffing request (`tft.organizations.dept_code` equal to
+    the principal's `dept`) are the dept_staff scope of KAN-123 and are not granted here.
     """
-    return project_id in principal.managed_projects or responsible_user_id == principal.user_id
+    return (
+        project_id in principal.managed_projects
+        or responsible_user_id == principal.user_id
+        or sales_user_id == principal.user_id
+    )

@@ -18,6 +18,8 @@ BASE = datetime(2026, 10, 1, tzinfo=UTC)
 SALES = UUID(int=0x3)
 MANAGER = UUID(int=0x4)
 DEPT = UUID(int=0x2)
+# Assigned as the sales user of the second project without being its responsible user.
+ASSIGNED_SALES = UUID(int=0x6)
 
 
 def project_row(index: int) -> dict:
@@ -34,6 +36,7 @@ def project_row(index: int) -> dict:
         "created_at": BASE + timedelta(hours=index),
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
+        "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
         "current_composition_version": 1 if index == 0 else None,
     }
 
@@ -91,15 +94,22 @@ COMPETENCIES = [
 REQUESTS = [
     {
         "id": REQUEST_ID,
+        "project_id": PROJECT["id"],
         "required_role_id": ROLE_ID,
+        "role_name": "marine construction",
         "organization_id": UUID(int=300),
         "organization_name": "construction",
+        "organization_dept_code": "FIELD_SVC",
         "participation": "LEAD",
         "status": "ANSWERED",
+        "version": 2,
         "issued_by_user_id": SALES,
         "issued_at": BASE,
         "due_at": None,
+        "due_undecided": True,
         "message": None,
+        "created_at": BASE,
+        "updated_at": BASE,
         **ORIGIN,
     }
 ]
@@ -205,7 +215,11 @@ def fakes(monkeypatch):
 
     async def list_projects(conn, limit, after, managed_projects, user_id):
         rows = [
-            r for r in ROWS if r["id"] in managed_projects or r["responsible_user_id"] == user_id
+            r
+            for r in ROWS
+            if r["id"] in managed_projects
+            or r["responsible_user_id"] == user_id
+            or r["sales_user_id"] == user_id
         ]
         rows = sorted(rows, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         if after:
@@ -279,6 +293,7 @@ def test_list_summary_carries_stage_pointers(client):
     items = client.get("/api/v1/tft/projects").json()["data"]["items"]
     first = next(item for item in items if item["external_id"] == "RFP-0000")
     assert first["responsible_user_id"] == str(SALES)
+    assert first["sales_user_id"] == str(SALES)
     assert first["current_composition_version"] == 1
     other = next(item for item in items if item["external_id"] == "RFP-0001")
     assert other["responsible_user_id"] is None
@@ -325,6 +340,9 @@ def test_detail_keeps_the_six_stages_as_separate_records(client):
     assert role["requirements"] == [{"requirement_id": str(REQ_ID), "rationale": "3.5.2"}]
     assert role["competencies"][0]["kind"] == "REQUIRED"
     assert body["staffing_requests"][0]["issued_by_user_id"] == str(SALES)
+    assert body["staffing_requests"][0]["organization_dept_code"] == "FIELD_SVC"
+    assert body["staffing_requests"][0]["due_undecided"] is True
+    assert body["sales_user_id"] == str(SALES)
     # Department recommendation is a record of its own, apart from the checks.
     recommendation = body["recommendations"][0]
     assert recommendation["recommended_by_user_id"] == str(DEPT)
@@ -407,6 +425,14 @@ def test_responsible_user_sees_own_project(client):
     items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
     assert [i["id"] for i in items] == [str(PROJECT["id"])]
     assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 200
+
+
+def test_assigned_sales_user_sees_the_project_without_being_responsible(client):
+    headers = principal_header(Principal(user_id=ASSIGNED_SALES, roles={"sales"}))
+    items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
+    assert [i["id"] for i in items] == [str(ROWS[1]["id"])]
+    assert client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}", headers=headers).status_code == 200
+    assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 404
 
 
 @pytest.mark.parametrize(
