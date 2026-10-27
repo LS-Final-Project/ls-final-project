@@ -89,7 +89,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | 필드 | 형식과 의미 |
 | --- | --- |
 | `category_code` | 주된 처리 의도 하나. `TECH_SPEC`, `INSTALL`, `WARRANTY`, `ORDER_LEAD`, `MANUAL`, `DEFECT`, `COMPLIANCE`, `QUOTE`, `FW_UPDATE`, `RETURN` 중 하나 |
-| `secondary_category` | 원문에 별도의 처리 의도가 명시된 경우 보조 유형 하나. 주분류와 같은 enum이며 주분류와 같은 값은 금지. 복합 의도가 없으면 JSON null. 여러 후보는 고객이 명시한 우선 의도로 선택하고 우선 근거가 없으면 검수 보류. [평가 명세](../../docs/evaluation.md)의 사용자 결정에 따르며 사례별 정답은 KAN-95에서 검수 |
+| `secondary_category` | 원문에 별도의 처리 의도가 명시된 경우 보조 유형 하나. 주분류와 같은 enum이며 주분류와 같은 값은 금지. 복합 의도가 없으면 JSON null. 여러 후보는 고객이 명시한 우선 의도로 선택하고 우선 근거가 없으면 검수 보류. [평가 명세](../../docs/evaluation.md)의 사용자 결정에 따르며 사례별 정답은 KAN-95에서 검수. 사양 질문에 붙은 데이터시트 요청은 TECH_SPEC의 일부이며 보조 유형이 아니다. 따로 요청한 매뉴얼·인증서·설명서만 보조 유형으로 본다 |
 | `urgency_flag` | urgency_codebook의 `SAFETY`, `SITE_DOWN`, `PROD_IMPACT`, `COMMISSION`, `DEADLINE`, `NONE` 중 하나. 우선순위 자체를 생성하지 않음 |
 | `provided_info` | 원문에서 제공 여부를 확인한 정보 항목 코드의 중복 없는 배열. info_field_codebook에 있는 코드만 사용하며 없으면 `[]`. 시리얼 원값이나 개인정보를 반환하지 않음 |
 | `return_subtype` | 반품 의도가 확인되면 품질·불량 반품 `DEFECT` 또는 비불량 반품 `NON_DEFECT`. 반품 의도가 없거나 근거가 부족하면 null. POL-RETURN 및 routing_rules의 NON_DEFECT 예외에 맞춰 KAN-95에서 정답 매핑 검수 |
