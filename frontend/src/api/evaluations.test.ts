@@ -59,3 +59,49 @@ test('화면 이동에 따른 취소 신호를 실제 요청까지 전달한다'
   });
   await assert.rejects(getEvaluationJob(jobId, controller.signal), { name: 'AbortError' });
 });
+
+// 공개 요약 소비자도 실제 fetch 경계에서 검증한다.
+import { getEvaluationSummary } from './evaluation-summary.ts';
+import { summaryFixture } from '../test/evaluation-summary.ts';
+
+test('집계는 현재 세션으로 조회하고 원문·추가 필드는 투영하지 않는다', async t => {
+  const data = summaryFixture();
+  t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    assert.equal(url, `/api/v1/platform/evaluations/runs/${data.run_id}/summary`);
+    assert.equal(init.credentials, 'same-origin'); assert.equal(init.cache, 'no-store');
+    return Response.json({ data: { ...data, raw_output: 'secret', first: { ...data.first, gold: 'secret' } } });
+  });
+  assert.deepEqual(await getEvaluationSummary(data.run_id, new AbortController().signal), data);
+});
+
+for (const change of ['run', 'origin', 'version', 'count', 'null', 'rate', 'date']) {
+  test(`집계의 잘못된 ${change} 응답을 거부한다`, async t => {
+    const data = summaryFixture();
+    if (change === 'run') data.run_id = jobId;
+    if (change === 'origin') Object.assign(data, { data_origin: 'real' });
+    if (change === 'version') Object.assign(data, { report_version: 'unknown' });
+    if (change === 'count') data.first.stored_attempt_count = -1;
+    if (change === 'null') data.first.tokens.output_tokens.total = 0;
+    if (change === 'rate') data.retry.schema_violation_rate = 0;
+    if (change === 'date') data.generated_at = 'not-date';
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(snapshot.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+for (const status of [401, 403, 404, 409, 503, 502]) {
+  test(`집계 ${status} 실패는 합성 성공으로 대체하지 않는다`, async t => {
+    t.mock.method(globalThis, 'fetch', async () => new Response('secret', { status }));
+    await assert.rejects(getEvaluationSummary(snapshot.run_id, new AbortController().signal), error => {
+      assert.ok(error instanceof Error); assert.doesNotMatch(error.message, /secret/); return true;
+    });
+  });
+}
+
+test('집계 요청의 취소를 전달한다', async t => {
+  const controller = new AbortController();
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    controller.abort(); init.signal!.throwIfAborted(); return Response.json({});
+  });
+  await assert.rejects(getEvaluationSummary(snapshot.run_id, controller.signal), { name: 'AbortError' });
+});

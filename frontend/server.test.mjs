@@ -404,3 +404,25 @@ test('evaluation control relay preserves conflict/auth errors and refuses HTML o
     },async()=>result,false,false,true);
   }
 });
+
+test('summary relay is read-only, defaults closed and forwards no browser identity', async () => {
+  const path = controlRun + '/summary';
+  await fixture(async origin => assert.equal((await fetch(origin + path)).status, 404));
+  let calls = 0;
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + path, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(origin + path + '?gold=anything')).status, 400);
+    assert.equal((await fetch(origin + path + '/raw')).status, 404);
+    const response = await fetch(origin + path, { headers: { Authorization: 'browser', Cookie: '__Host-team4_session=session; other=secret', 'X-User-Id': 'spoofed' } });
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.match(response.headers.get('cache-control'), /no-store/);
+  }, async (url, options) => {
+    calls++;
+    assert.equal(String(url), 'https://platform.example.invalid' + path);
+    assert.equal(options.method, 'GET');
+    assert.deepEqual(options.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session' });
+    return Response.json({ error: { code: 'FORBIDDEN' } }, { status: 403, headers: { 'Set-Cookie': 'secret' } });
+  }, false, true);
+  assert.equal(calls, 1);
+});

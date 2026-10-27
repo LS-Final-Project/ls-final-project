@@ -13,6 +13,7 @@ import psycopg
 import pytest
 
 from backend.api.platform.evaluations.controls import control_run
+from tests.platform.test_cs_smoke_storage import cs_experiment as cs_experiment
 from tests.platform.test_job_events import live_job as live_job
 from tests.platform.test_job_events import read_frame
 from tests.platform.test_job_status import job_client as job_client
@@ -320,3 +321,90 @@ def test_web_control_rejects_csrf_origin_and_stale_version(web_job):
         assert response.status_code == status
     state = client.get(f"/api/v1/platform/jobs/{admitted.job_id}").json()["data"]
     assert state["run_status"] == "QUEUED" and state["version"] == 1
+
+
+@pytest.fixture
+def cs_web_job(cs_experiment, access, request):
+    """기존 실제 웹 fixture에 고정 C/S 프로필을 접수한다.
+
+    Args:
+        cs_experiment: 접수 전 고정 합성 프로필.
+        access: 웹과 worker가 공유하는 승인 설정.
+        request: 프로필 준비 뒤 기존 웹 fixture를 실행한다.
+
+    Returns:
+        tuple: 실제 웹 HTTP 클라이언트와 접수 결과.
+    """
+    access.approved_config_hashes = frozenset({cs_experiment["config_hash"]})
+    return request.getfixturevalue("web_job")
+
+
+def test_summary_consumer_reads_actual_web_database_and_revocation(
+    cs_web_job, settings, access, evaluation_database, registered_user
+):
+    """실제 TS→웹→플랫폼→DB에서 합성 집계와 승인·세션 철회를 검증한다.
+
+    Args:
+        cs_web_job: 실제 세션과 고정 C/S 실행을 가진 웹 중계.
+        settings: worker DB 설정.
+        access: 현재 승인 설정.
+        evaluation_database: 검사 관리자 연결.
+        registered_user: 철회할 합성 세션 사용자.
+
+    Returns:
+        None: 미보고·실행 후 집계·권한 오류·원문 비노출을 확인한다.
+    """
+    from backend.api.platform.evaluations.smoke_worker import dispatch_one
+
+    client, admitted = cs_web_job
+    script = """
+const original = globalThis.fetch;
+globalThis.fetch = (path, init) => original(new URL(path, process.env.TEST_WEB_URL), {
+  ...init, headers: {...init.headers, Cookie: process.env.TEST_SESSION_COOKIE},
+});
+const {getEvaluationSummary} = await import(process.env.TEST_MODULE);
+try { console.log(JSON.stringify(await getEvaluationSummary(process.env.TEST_RUN_ID, new AbortController().signal))); }
+catch (error) { console.log(JSON.stringify({error: error.message})); }
+"""
+
+    def read_summary():
+        """실제 TypeScript 소비자의 결과만 읽는다.
+
+        Args:
+            없음.
+
+        Returns:
+            dict: 집계 또는 소비자의 안전한 오류.
+        """
+        result = subprocess.run(
+            ["node", "--experimental-strip-types", "--input-type=module", "-e", script],
+            env={
+                **os.environ,
+                "TEST_WEB_URL": str(client.base_url),
+                "TEST_SESSION_COOKIE": client.headers["Cookie"],
+                "TEST_RUN_ID": str(admitted.run_id),
+                "TEST_MODULE": Path("frontend/src/api/evaluation-summary.ts").resolve().as_uri(),
+            },
+            capture_output=True,
+            timeout=20,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    queued = read_summary()
+    assert queued["targets_without_first_attempt"] == 3
+    assert queued["first"]["tokens"]["input_tokens"]["total"] is None
+    assert asyncio.run(dispatch_one(settings, access)) == admitted.run_id
+    completed = read_summary()
+    assert completed["status"] == "PARTIAL"
+    assert completed["first"]["stored_attempt_count"] == 3
+    assert completed["first"]["tokens"]["input_tokens"]["total"] == 21
+    assert completed["first"]["schema_violation_rate"] == 0.5
+    assert completed["first"]["tokens"]["output_tokens"]["total"] is None
+    assert "raw_output" not in json.dumps(completed) and "target_ref" not in json.dumps(completed)
+    access.approved_config_hashes = frozenset()
+    assert "구성 승인" in read_summary()["error"]
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (registered_user[1],))
+    assert "로그인" in read_summary()["error"]
