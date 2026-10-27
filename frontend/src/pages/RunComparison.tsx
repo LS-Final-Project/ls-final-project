@@ -84,8 +84,11 @@ function download(baseline: Summary, candidate: Summary) {
   const url = URL.createObjectURL(new Blob([comparisonCsv(baseline, candidate)], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url; link.download = comparisonFileName(baseline, candidate);
+  // 일부 브라우저는 문서에 없는 앵커 클릭을 무시하거나 시작 전 해제된 URL을 읽지 못한다.
+  document.body.append(link);
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** 현재 실행을 후보로, 입력한 실행을 기준으로 요약 두 개를 비교한다. Args: 후보 실행 ID. Returns: 비교 절. */
