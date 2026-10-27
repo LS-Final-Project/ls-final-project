@@ -3,6 +3,7 @@
 import json
 from dataclasses import replace
 
+import psycopg
 import pytest
 
 from backend.engine.cs.classification_call import run_classification_attempt
@@ -740,3 +741,170 @@ def test_return_subtype_gold_file_rejects_malformed_rows(data):
     assert _parse_return_subtype_gold(
         "﻿ticket_id,return_subtype\r\na,DEFECT\r\nb,NON_DEFECT\r\n".encode()
     ) == {"a": "DEFECT", "b": "NON_DEFECT"}
+
+
+def store_cli_args(gold_file, *extra):
+    """저장 명령의 필수 인자를 만든다.
+
+    Args:
+        gold_file: 합성 정답 파일 경로.
+        extra: 추가 인자.
+
+    Returns:
+        list[str]: main에 넘길 인자.
+    """
+    from uuid import UUID
+
+    from eval.cs_report import STORE_COMMAND
+
+    return [
+        STORE_COMMAND,
+        "--run-id",
+        str(UUID(int=1)),
+        "--gold-file",
+        str(gold_file),
+        "--gold-sha256",
+        "0" * 64,
+        "--scoring-version",
+        "syn-v1",
+        *extra,
+    ]
+
+
+@pytest.fixture
+def store_cli(monkeypatch, tmp_path):
+    """DB 없이 저장 명령을 실행할 합성 환경과 정답 파일을 준비한다.
+
+    Args:
+        monkeypatch: 환경 변수·연결 대체.
+        tmp_path: 비밀로 취급할 정답 파일 위치.
+
+    Returns:
+        tuple: cs_report 모듈과 정답 파일 경로.
+    """
+    from contextlib import nullcontext
+
+    from eval import cs_report
+
+    gold = tmp_path / "secret-gold.csv"
+    gold.write_bytes(b"ticket_id,return_subtype\n")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", "postgresql://u:secret-pw@h/db")
+    monkeypatch.setattr(cs_report.psycopg, "connect", lambda dsn: nullcontext(object()))
+    return cs_report, gold
+
+
+def test_store_cli_passes_bytes_and_prints_one_json_line(store_cli, monkeypatch, capsys):
+    """정답 파일을 바이트로 넘기고 성공 결과만 JSON 한 줄로 출력한다.
+
+    Args:
+        store_cli: 합성 실행 환경.
+        monkeypatch: 저장 함수 대체.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 인자 전달·기본 gold_version·경로 비출력을 확인한다.
+    """
+    cs_report, gold = store_cli
+    calls = []
+
+    def fake_store(conn, run_id, gold_csv, **kwargs):
+        """전달된 인자를 기록한다.
+
+        Args:
+            conn: 대체 연결.
+            run_id: 실행 ID.
+            gold_csv: 정답 바이트.
+            kwargs: 판본 인자.
+
+        Returns:
+            dict: 합성 저장 결과.
+        """
+        calls.append((run_id, gold_csv, kwargs))
+        return {"run_id": str(run_id), "scoring_version": "syn-v1", "stored_rows": 5}
+
+    monkeypatch.setattr(cs_report, "store_synthetic_return_subtype_metrics", fake_store)
+    assert cs_report.main(store_cli_args(gold)) == 0
+    ((run_id, gold_csv, kwargs),) = calls
+    assert gold_csv == gold.read_bytes()
+    assert kwargs == {"gold_sha256": "0" * 64, "gold_version": None, "scoring_version": "syn-v1"}
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {
+        "run_id": str(run_id),
+        "scoring_version": "syn-v1",
+        "stored_rows": 5,
+    }
+    assert captured.out.count("\n") == 1 and captured.err == ""
+    assert str(gold) not in captured.out
+    cs_report.main(store_cli_args(gold, "--gold-version", "v2"))
+    assert calls[-1][2]["gold_version"] == "v2"
+
+
+@pytest.mark.parametrize(
+    "raised,expected",
+    [
+        (ValueError("CS_QUALITY_RUN_NOT_TERMINAL"), "CS_QUALITY_RUN_NOT_TERMINAL"),
+        (ValueError("CS_STORED_METRICS_INVALID_INPUT"), "CS_STORED_METRICS_INVALID_INPUT"),
+        (ValueError("CS_METRICS_INVALID_INPUT"), "CS_METRICS_INVALID_INPUT"),
+        (ValueError("bad row in secret-gold.csv"), "CS_QUALITY_STORE_FAILED"),
+        (ValueError("CS_QUALITY_X secret"), "CS_QUALITY_STORE_FAILED"),
+        (psycopg.OperationalError("password=secret-pw"), "CS_QUALITY_STORE_FAILED"),
+    ],
+)
+def test_store_cli_maps_errors_to_codes_only(store_cli, monkeypatch, capsys, raised, expected):
+    """알려진 코드만 그대로 전달하고 나머지 오류는 원문 없이 일반 코드로 바꾼다.
+
+    Args:
+        store_cli: 합성 실행 환경.
+        monkeypatch: 저장 함수 대체.
+        capsys: 출력 확인.
+        raised: 저장 함수가 낼 오류.
+        expected: stderr에 기대하는 코드.
+
+    Returns:
+        None: exit1·코드 한 줄·경로/비밀/스택 비출력을 확인한다.
+    """
+    cs_report, gold = store_cli
+
+    def fail(*args, **kwargs):
+        """지정 오류를 낸다.
+
+        Args:
+            args: 무시.
+            kwargs: 무시.
+
+        Returns:
+            None: 항상 예외.
+        """
+        raise raised
+
+    monkeypatch.setattr(cs_report, "store_synthetic_return_subtype_metrics", fail)
+    assert cs_report.main(store_cli_args(gold)) == 1
+    captured = capsys.readouterr()
+    assert captured.err == expected + "\n" and captured.out == ""
+    assert "secret" not in captured.err and "Traceback" not in captured.err
+
+
+def test_store_cli_rejects_configuration_unreadable_file_and_missing_args(
+    store_cli, monkeypatch, capsys
+):
+    """설정·파일 읽기 실패는 코드만, 인자 누락은 argparse 오류로 끝난다.
+
+    Args:
+        store_cli: 합성 실행 환경.
+        monkeypatch: 환경 변수 변경.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 각 실패의 exit 코드와 경로 비출력을 확인한다.
+    """
+    cs_report, gold = store_cli
+    missing = gold.with_name("missing-secret.csv")
+    assert cs_report.main(store_cli_args(missing)) == 1
+    assert capsys.readouterr().err == "CS_QUALITY_GOLD_UNREADABLE\n"
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    assert cs_report.main(store_cli_args(gold)) == 1
+    assert capsys.readouterr().err == "CS_REPORT_LOCAL_CONFIGURATION_REQUIRED\n"
+    with pytest.raises(SystemExit) as exit_info:
+        cs_report.main(store_cli_args(gold)[:-2])
+    assert exit_info.value.code == 2

@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -262,15 +263,78 @@ def _parse_return_subtype_gold(data: bytes) -> dict[str, str]:
     return gold
 
 
+STORE_COMMAND = "store-return-subtype"
+# 저장 함수와 그 안의 저장 집계 검증이 내는 원문 없는 코드만 그대로 전달한다.
+STORE_ERROR_CODES = re.compile(
+    r"CS_QUALITY_[A-Z_]+|CS_STORED_METRICS_INVALID_INPUT|CS_METRICS_INVALID_INPUT"
+)
+
+
+def store_main(argv: list[str]) -> int:
+    """종료된 합성 실행의 반품 하위유형 집계 행을 저장하는 운영자 명령.
+
+    Args:
+        argv: 하위 명령 뒤의 인자. DB 연결 정보는 환경 변수로만 받는다.
+
+    Returns:
+        int: 성공0 또는 오류1. 오류는 코드만 stderr에 쓰고 경로·원문·스택은 출력하지 않는다.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"python -m eval.cs_report {STORE_COMMAND}",
+        description="합성 실행의 반품 하위유형 집계 행 저장; 실제 품질 평가 아님",
+    )
+    parser.add_argument("--run-id", type=UUID, required=True)
+    parser.add_argument("--gold-file", type=Path, required=True)
+    parser.add_argument("--gold-sha256", required=True)
+    parser.add_argument("--gold-version", default=None)
+    parser.add_argument("--scoring-version", required=True)
+    args = parser.parse_args(argv)
+    dsn = os.getenv("EVALUATION_REPORT_DATABASE_URL")
+    if os.getenv("ENVIRONMENT") not in {"local", "test"} or not dsn:
+        print("CS_REPORT_LOCAL_CONFIGURATION_REQUIRED", file=sys.stderr)
+        return 1
+    try:
+        gold_csv = args.gold_file.read_bytes()
+    except OSError:
+        print("CS_QUALITY_GOLD_UNREADABLE", file=sys.stderr)
+        return 1
+    try:
+        with psycopg.connect(dsn) as conn:
+            result = store_synthetic_return_subtype_metrics(
+                conn,
+                args.run_id,
+                gold_csv,
+                gold_sha256=args.gold_sha256,
+                gold_version=args.gold_version,
+                scoring_version=args.scoring_version,
+            )
+    except ValueError as error:
+        code = str(error)
+        print(
+            code if STORE_ERROR_CODES.fullmatch(code) else "CS_QUALITY_STORE_FAILED",
+            file=sys.stderr,
+        )
+        return 1
+    except psycopg.Error:
+        print("CS_QUALITY_STORE_FAILED", file=sys.stderr)
+        return 1
+    print(json.dumps(result))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """local/test의 고정 합성 실행을 새 비공개 JSON 파일로 내보낸다.
 
     Args:
-        argv: 선택적 명령행 인자. DB 연결 정보는 환경 변수로만 받는다.
+        argv: 선택적 명령행 인자. 첫 인자가 store-return-subtype이면 집계 행 저장 명령이다.
+            DB 연결 정보는 환경 변수로만 받는다.
 
     Returns:
-        int: 성공0 또는 원문 없는 오류2. 기존 파일을 덮어쓰지 않는다.
+        int: 성공0 또는 원문 없는 오류2(저장 명령은 1). 기존 파일을 덮어쓰지 않는다.
     """
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == [STORE_COMMAND]:
+        return store_main(argv[1:])
     parser = argparse.ArgumentParser(description="고정 합성 C/S 실행 보고서; 실제 품질 평가 아님")
     parser.add_argument("--run-id", type=UUID, required=True)
     parser.add_argument("--output", type=Path, required=True)
