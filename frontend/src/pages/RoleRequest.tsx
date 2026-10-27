@@ -186,16 +186,24 @@ function RequestForm({ request, orgOptions, userRoles, feedback, setFeedback }: 
     if (api?.status === 422) { setFeedback({ notice: { kind: 'error', text: api.code === 'EVIDENCE_REQUIRED' ? '기한 또는 "기한 미정" 표시가 필요합니다.' : api.message, requestId: api.requestId }, fatal: null }); return; }
     setFeedback({ notice: null, fatal: error });
   };
+  const acceptResponse = async (updated: StaffingRequest) => {
+    const queryKey = ['staffing-requests', getApiMode(), updated.project_id];
+    await cache.cancelQueries({ queryKey });
+    cache.setQueryData<Awaited<ReturnType<typeof listStaffingRequests>>>(queryKey, previous => previous ? {
+      ...previous, data: { ...previous.data, items: previous.data.items.map(item => item.id === updated.id ? updated : item) },
+    } : previous);
+    setDirtyKeys(new Set());
+  };
   const save = useMutation({
     mutationFn: (body: StaffingRequestPatch) => updateStaffingRequest(request.id, request.version, body),
     onMutate: () => setFeedback({ notice: null, fatal: null }),
-    onSuccess: result => { setDirtyKeys(new Set()); setFeedback({ notice: { kind: 'info', text: `저장했습니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
+    onSuccess: async result => { await acceptResponse(result.data); setFeedback({ notice: { kind: 'info', text: `저장했습니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
     onError,
   });
   const issue = useMutation({
     mutationFn: () => issueStaffingRequest(request.id, request.version),
     onMutate: () => setFeedback({ notice: null, fatal: null }),
-    onSuccess: result => { setFeedback({ notice: { kind: 'info', text: `요청서를 발행했습니다. 요청 부서의 목록에 나타납니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
+    onSuccess: async result => { await acceptResponse(result.data); setFeedback({ notice: { kind: 'info', text: `요청서를 발행했습니다. 요청 부서의 목록에 나타납니다. 판본 ${result.data.version}` }, fatal: null }); refresh(); },
     onError,
   });
   // 기한 없는 작성 중 요청서도 저장은 된다(계약상 EVIDENCE_REQUIRED는 발행에서만). 기한 조건은 발행 버튼이 막는다.

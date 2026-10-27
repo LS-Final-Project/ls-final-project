@@ -148,6 +148,39 @@ describe('S2 역할·인력 요청서', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === LIST_PATH).length).toBeGreaterThan(1));
   });
 
+  test('저장 뒤 목록 재조회가 지연·실패해도 응답 값과 판본을 유지하고 다음 저장에 새 판본을 쓴다', async () => {
+    const items = [{ ...draft, due_undecided: true }];
+    const fetchMock = stubLive(items, init => {
+      items[0] = { ...items[0], ...JSON.parse(String(init.body)), version: items[0].version + 1 };
+      return jsonResponse(200, { data: items[0] });
+    });
+    const original = fetchMock.getMockImplementation()!;
+    let listCalls = 0;
+    let failRefresh!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { failRefresh = resolve; });
+    fetchMock.mockImplementation((input, init) => {
+      if (String(input) === LIST_PATH && ++listCalls > 1) return pending;
+      return original(input, init);
+    });
+    renderApp(`/tft/projects/${PROJECT_ID}/roles/${ROLE_ID}`);
+    await screen.findByRole('form', { name: '인력 요청서 편집' });
+    fireEvent.change(screen.getByLabelText('메시지'), { target: { value: '저장된 최신 값' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await screen.findByText(/저장했습니다\. 판본 2/);
+    expect(screen.getByTestId('request-version').textContent).toBe('판본 2');
+    expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('저장된 최신 값');
+    failRefresh(jsonResponse(503, errorBody('DEPENDENCY_UNAVAILABLE', '목록 일시 장애')));
+    await screen.findByText('요청을 처리하지 못했습니다');
+    expect(screen.getByTestId('request-version').textContent).toBe('판본 2');
+    expect((screen.getByLabelText('메시지') as HTMLTextAreaElement).value).toBe('저장된 최신 값');
+    fireEvent.change(screen.getByLabelText('메시지'), { target: { value: '두 번째 저장' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await screen.findByText(/저장했습니다\. 판본 3/);
+    const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
+    expect(patches).toHaveLength(2);
+    expect((patches[1][1]!.headers as Record<string, string>)['If-Match']).toBe('"2"');
+  });
+
   test('412 뒤 재조회로 다른 사용자가 바꾼 message는 폼에 반영되고, 다시 저장하면 사용자가 바꾼 participation만 보낸다', async () => {
     const items = [draft];
     let patchCalls = 0;
