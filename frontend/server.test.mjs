@@ -9,13 +9,13 @@ import { handler } from './server.mjs';
 
 /**
  * 임시 정적 파일과 로컬 HTTP 서버로 웹 중계 경계를 검사한다.
- * Args: callback은 요청 검사, fetcher는 upstream 대체, businessRelayEnabled는 명시 활성화 여부다.
+ * Args: callback은 요청 검사, fetcher는 upstream 대체이며 뒤의 네 설정은 각각 업무·평가 읽기·평가 제어·사서함 명시 활성화 여부다.
  * Returns: 검사와 임시 서버·파일 정리를 마친 Promise.
  */
-async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false) {
+async function fixture(callback, fetcher, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false, mailboxAuthEnabled = false) {
   const directory = await mkdtemp(join(tmpdir(), 'team4-web-'));
   await writeFile(join(directory, 'index.html'), '<h1>Fixture</h1>');
-  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled, evaluationControlRelayEnabled }));
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture-server-token', fetcher, businessRelayEnabled, evaluationReadRelayEnabled, evaluationControlRelayEnabled, mailboxAuthEnabled }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try { await callback(`http://127.0.0.1:${server.address().port}`); }
@@ -425,4 +425,49 @@ test('summary relay is read-only, defaults closed and forwards no browser identi
     return Response.json({ error: { code: 'FORBIDDEN' } }, { status: 403, headers: { 'Set-Cookie': 'secret' } });
   }, false, true);
   assert.equal(calls, 1);
+});
+
+test('mailbox relay is disabled independently and never reaches upstream by default', async () => {
+  let calls = 0;
+  await fixture(async origin => {
+    for (const suffix of ['/start', '/callback', '/complete', '/11111111-1111-4111-8111-111111111111/disconnect']) {
+      assert.equal((await fetch(origin + '/api/v1/platform/auth/mailbox' + suffix, { method: 'POST' })).status, 404);
+    }
+  }, async () => { calls += 1; return new Response('{}'); });
+  assert.equal(calls, 0);
+});
+
+test('enabled mailbox proxy preserves bounded form, separate cookie, CSP and fixed upstream', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const base = origin + '/api/v1/platform/auth/mailbox';
+    const headers = { Origin: origin, Cookie: '__Host-team4_session=session; __Host-team4_mailbox_oauth=binding; unrelated=private', 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Bearer browser-untrusted' };
+    const relay = await fetch(base + '/callback', { method: 'POST', headers, body: 'state=synthetic-state&code=synthetic-code' });
+    assert.equal(relay.status, 200);
+    assert.equal(relay.headers.get('content-security-policy'), "default-src 'none'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'");
+    assert.equal(relay.headers.get('referrer-policy'), 'no-referrer');
+    assert.match(relay.headers.get('set-cookie'), /__Host-team4_mailbox_oauth/);
+    const complete = await fetch(base + '/complete', { method: 'POST', headers, body: 'state=synthetic-state&code=synthetic-code', redirect: 'manual' });
+    assert.equal(complete.status, 303);
+    assert.equal(complete.headers.get('location'), 'https://app.example.invalid/');
+    assert.equal((await fetch(base + '/start', { method: 'POST', headers: { ...headers, 'X-CSRF-Token': 'bound-csrf' } })).status, 200);
+    assert.equal((await fetch(base + '/11111111-1111-4111-8111-111111111111/disconnect', { method: 'POST', headers: { ...headers, 'X-CSRF-Token': 'bound-csrf' } })).status, 204);
+    assert.equal((await fetch(base + '/complete?code=private', { method: 'POST' })).status, 404);
+    assert.equal((await fetch(base + '/complete')).status, 405);
+    assert.equal((await fetch(base + '/callback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 400);
+    assert.equal((await fetch(base + '/complete', { method: 'POST', headers, body: 'code=' + 'x'.repeat(9000) })).status, 413);
+    assert.equal((await fetch(base + '/unknown')).status, 404);
+  }, async (url, options) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith('/complete')) return new Response(null, { status: 303, headers: { Location: 'https://app.example.invalid/' } });
+    if (String(url).endsWith('/disconnect')) return new Response(null, { status: 204 });
+    return new Response('<form></form>', { headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'", 'Set-Cookie': '__Host-team4_mailbox_oauth=binding; Secure; HttpOnly; Path=/; SameSite=Lax' } });
+  }, false, false, false, true);
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].url, 'https://platform.example.invalid/api/v1/platform/auth/mailbox/callback');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-server-token');
+  assert.equal(calls[0].options.headers.Cookie, '__Host-team4_session=session; __Host-team4_mailbox_oauth=binding');
+  assert.equal(String(calls[0].options.body), 'state=synthetic-state&code=synthetic-code');
+  assert.equal(calls[0].options.redirect, 'manual');
+  assert.equal(calls[2].options.headers['X-CSRF-Token'], 'bound-csrf');
 });

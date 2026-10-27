@@ -11,6 +11,13 @@ const authentication = new Map([
   ['/api/v1/platform/auth/logout', 'POST'],
   ['/api/v1/platform/me', 'GET'],
 ]);
+const mailboxAuthentication = new Map([
+  ['/api/v1/platform/auth/mailbox/start', 'POST'],
+  ['/api/v1/platform/auth/mailbox/callback', 'POST'],
+  ['/api/v1/platform/auth/mailbox/complete', 'POST'],
+]);
+const mailboxForms = new Set(['/api/v1/platform/auth/mailbox/callback', '/api/v1/platform/auth/mailbox/complete']);
+const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/disconnect$/;
 /**
  * 현재 구현된 업무 API의 경로·메서드만 반환한다.
  * Args: path는 디코딩된 요청 경로다.
@@ -42,7 +49,7 @@ async function limitedBody(result, limit) {
   return Buffer.concat(chunks);
 }
 
-const authenticationCookies = new Set(['__Host-team4_session', '__Host-team4_oauth']);
+const authenticationCookies = new Set(['__Host-team4_session', '__Host-team4_oauth', '__Host-team4_mailbox_oauth']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 function json(response, status, body) {
@@ -67,10 +74,10 @@ export function metadataTokenProvider(audience) {
 
 /**
  * 정적 화면·인증 경로와 명시적으로 켠 업무 JSON API를 고정 플랫폼으로 중계한다.
- * Args: directory는 정적 파일 위치, upstream은 고정 플랫폼 출처, tokenProvider는 서버 IAM 토큰 제공자, fetcher는 HTTP 경계, businessRelayEnabled와 evaluationReadRelayEnabled는 기본 비활성인 업무/평가 읽기 중계 설정이며 evaluationControlRelayEnabled는 별도 기본 비활성 제어 중계다.
+ * Args: directory는 정적 파일 위치, upstream은 고정 플랫폼 출처, tokenProvider는 서버 IAM 토큰 제공자, fetcher는 HTTP 경계다. businessRelayEnabled·evaluationReadRelayEnabled·evaluationControlRelayEnabled·mailboxAuthEnabled는 각자 기본 비활성인 업무·평가·사서함 중계 설정이다.
  * Returns: 브라우저 인증 쿠키와 IAM 토큰을 구분해 처리하는 HTTP 요청 처리기.
  */
-export function handler({ directory, upstream, tokenProvider, fetcher = fetch, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false }) {
+export function handler({ directory, upstream, tokenProvider, fetcher = fetch, businessRelayEnabled = false, evaluationReadRelayEnabled = false, evaluationControlRelayEnabled = false, mailboxAuthEnabled = false }) {
   const root = resolve(directory);
   const target = new URL(upstream);
   if (target.protocol !== 'https:' && !(process.env.NODE_ENV === 'test' && target.hostname === '127.0.0.1')) throw new Error('Use an HTTPS platform URL');
@@ -81,13 +88,14 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
     try {
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
+      if (path.startsWith('/api/v1/platform/auth/mailbox/') && !mailboxAuthEnabled) return json(response, 404, { error: { code: 'NOT_FOUND' } });
       if (evaluationReadRelayEnabled && evaluationReadPath(path)) {
         return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       if (evaluationControlRelayEnabled && evaluationControlPath(path)) {
         return relayEvaluationControl(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
-      const authMethod = authentication.get(path);
+      const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
       const business = businessRelayEnabled ? businessMethods(path) : [];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
@@ -124,7 +132,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
               headers['Content-Type'] = 'application/json';
             }
           }
-          if (path === '/api/v1/platform/auth/callback') {
+          if (path === '/api/v1/platform/auth/callback' || (mailboxAuthEnabled && mailboxForms.has(path))) {
             const type = request.headers['content-type'] || '';
             if (type.split(';', 1)[0].trim().toLowerCase() !== 'application/x-www-form-urlencoded') return json(response, 400, { error: { code: 'AUTH_INVALID_CALLBACK' } });
             const chunks = [];
@@ -146,7 +154,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         const body = business.length ? await limitedBody(result, 8 * 1024 * 1024) : await result.text();
         const outgoing = { 'Content-Type': result.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' };
         if (authMethod) {
-          for (const name of ['Location', 'X-CSRF-Token', 'X-Request-ID']) {
+          for (const name of ['Location', 'X-CSRF-Token', 'X-Request-ID', 'Content-Security-Policy']) {
             const value = result.headers.get(name);
             if (value) outgoing[name] = value;
           }
@@ -188,6 +196,6 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const upstream = process.env.PLATFORM_URL;
   if (!upstream) throw new Error('PLATFORM_URL is required');
-  const service = createServer(handler({ directory: process.env.STATIC_DIR || '/app/dist', upstream, tokenProvider: metadataTokenProvider(upstream), businessRelayEnabled: process.env.BUSINESS_RELAY_ENABLED === 'true', evaluationReadRelayEnabled: process.env.EVALUATION_READ_RELAY_ENABLED === 'true', evaluationControlRelayEnabled: process.env.EVALUATION_CONTROL_RELAY_ENABLED === 'true' }));
+  const service = createServer(handler({ directory: process.env.STATIC_DIR || '/app/dist', upstream, tokenProvider: metadataTokenProvider(upstream), businessRelayEnabled: process.env.BUSINESS_RELAY_ENABLED === 'true', evaluationReadRelayEnabled: process.env.EVALUATION_READ_RELAY_ENABLED === 'true', evaluationControlRelayEnabled: process.env.EVALUATION_CONTROL_RELAY_ENABLED === 'true', mailboxAuthEnabled: process.env.MAILBOX_AUTH_ENABLED === 'true' }));
   service.listen(Number(process.env.PORT || 8080), '0.0.0.0');
 }

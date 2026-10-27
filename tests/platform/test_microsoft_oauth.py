@@ -18,14 +18,17 @@ import psycopg
 import pytest
 import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from backend.api.platform.auth.callback import MicrosoftSubject, OAuthPurpose, complete_callback
+from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, csrf_token
 from backend.api.platform.auth.mailbox import (
     acquire_stored_mailbox_token,
     complete_and_store_mailbox_link,
     start_mailbox_link,
 )
+from backend.api.platform.auth.mailbox_settings import MAILBOX_CALLBACK, MailboxAuthSettings
 from backend.api.platform.auth.mailbox_vault import (
     MailboxCipher,
     create_mailbox,
@@ -42,6 +45,8 @@ from backend.api.platform.auth.microsoft import (
     PersonalMicrosoftOAuth,
 )
 from backend.api.platform.auth.sessions import issue_session, load_session
+from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSettings
+from backend.api.platform.main import create_app
 from backend.shared.errors import ApplicationError
 
 CLIENT_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -2007,3 +2012,97 @@ def test_concurrent_stored_refresh_only_returns_committed_winner(
         assert "synthetic-refresh-token" not in cache
 
     asyncio.run(scenario())
+
+
+def test_http_mailbox_flow_uses_real_msal_and_commits_ciphertext(oauth, persistence_context):
+    """실제 HTTP·MSAL·RSA·암호화 DB 연결이 기존 로그인 세션을 보존하는지 확인한다.
+
+    Args:
+        oauth: 실제 SDK와 합성 Microsoft HTTP/JWKS 응답.
+        persistence_context: 현재 합성 로그인과 전용 PostgreSQL.
+
+    Returns:
+        None: 별도 callback·일회 교환·암호화 커밋·캐시 토큰 호환을 확인한다.
+    """
+    origin = "https://app.example.invalid"
+    prefix = "/api/v1/platform/auth/mailbox"
+    context = persistence_context
+    auth = MicrosoftAuthSettings(
+        _env_file=None,
+        enabled=True,
+        client_id=CLIENT_ID,
+        client_secret=SecretStr("synthetic-secret"),
+        app_origin=origin,
+        redirect_uri=origin + CALLBACK_PATH,
+    )
+    mailbox = MailboxAuthSettings(
+        _env_file=None,
+        enabled=True,
+        encryption_key=SecretStr(b64encode(token_bytes(32)).decode()),
+        key_version="test-real-http-v1",
+        redirect_uri=origin + MAILBOX_CALLBACK,
+    )
+    app = create_app(context.settings, auth, mailbox_settings=mailbox)
+    with TestClient(app, base_url=origin, follow_redirects=False) as client:
+        client.cookies.set(SESSION_COOKIE, context.token)
+        started = client.post(
+            prefix + "/start", headers={"Origin": origin, CSRF_HEADER: csrf_token(context.token)}
+        )
+        assert started.status_code == 200
+        query = parse_qs(urlsplit(started.json()["data"]["authorization_url"]).query)
+        assert query["redirect_uri"] == [origin + MAILBOX_CALLBACK]
+        assert query["response_mode"] == ["form_post"]
+        now = datetime.now(UTC)
+        oauth.claims = {
+            "iss": ISSUER,
+            "aud": str(CLIENT_ID),
+            "iat": int(now.timestamp()),
+            "nbf": int(now.timestamp()) - 1,
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+            "nonce": query["nonce"][0],
+            "tid": str(PERSONAL_TENANT),
+            "oid": str(USER_ID),
+            "sub": "synthetic-http-subject",
+        }
+        info = json.dumps({"uid": str(USER_ID), "utid": str(PERSONAL_TENANT)}).encode()
+        oauth.response_overrides.update(
+            client_info=urlsafe_b64encode(info).rstrip(b"=").decode(), scope="Mail.Read Mail.Send"
+        )
+        body = "state=" + query["state"][0] + "&code=synthetic-code"
+        client.cookies.delete(SESSION_COOKIE)
+        relay = client.post(
+            prefix + "/callback",
+            content=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert relay.status_code == 200
+        assert not [c for c in oauth.calls if c[0] == "POST"]
+        client.cookies.set(SESSION_COOKIE, context.token)
+        completed = client.post(
+            prefix + "/complete",
+            content=body,
+            headers={"Origin": origin, "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert completed.status_code == 303 and completed.headers["location"] == origin + "/"
+        posts = [c for c in oauth.calls if c[0] == "POST"]
+        assert len(posts) == 1 and posts[0][2]["data"]["redirect_uri"] == origin + MAILBOX_CALLBACK
+        with psycopg.connect(context.dsn) as conn:
+            row = conn.execute(
+                "SELECT id,cache_ciphertext FROM mailbox_auth.connections WHERE owner_user_id=%s",
+                (context.owner,),
+            ).fetchone()
+            assert b"synthetic-refresh-token" not in bytes(row[1])
+        token = asyncio.run(
+            acquire_stored_mailbox_token(
+                context.settings,
+                mailbox_id=row[0],
+                owner_user_id=context.owner,
+                adapter=app.state.mailbox_oauth,
+                cipher=app.state.mailbox_cipher,
+            )
+        )
+        assert token.get_secret_value() == "synthetic-access-token"
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
+        assert asyncio.run(load_session(context.settings, context.token)).id == context.owner
+        assert client.cookies.get(SESSION_COOKIE) == context.token
+        assert "synthetic-refresh-token" not in completed.text + relay.text
