@@ -12,6 +12,8 @@ from backend.engine.cs.classification_call import ClassificationAttempt
 from eval.cs_metrics import OUTCOMES, summarize_final_attempts
 from eval.cs_strata import Metric, summarize_first_attempts_by_group
 
+TERMINAL_STATUSES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"})
+
 
 def summarize_stored_first_attempts(
     conn: Connection,
@@ -275,12 +277,11 @@ def compare_stored_runs(
         "target_set_hash",
         "policy_version",
     )
-    terminal = {"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"}
     if (
         not baseline
         or not candidate
-        or baseline[0]["status"] not in terminal
-        or candidate[0]["status"] not in terminal
+        or baseline[0]["status"] not in TERMINAL_STATUSES
+        or candidate[0]["status"] not in TERMINAL_STATUSES
         or any(baseline[0][key] != candidate[0][key] for key in conditions)
         or {row["target_ref"]: (row["channel"], row["body_language"]) for row in baseline}
         != {row["target_ref"]: (row["channel"], row["body_language"]) for row in candidate}

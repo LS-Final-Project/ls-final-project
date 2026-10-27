@@ -234,6 +234,32 @@ scored_target_count(채점 대상)를 함께 반환해 분모 축소를 숨기�
 하위유형을 보고하지 않는다. 플랫폼 집계 API·화면 연결은 남아 있다.
 
 
+### KAN-88 합성 품질 저장 행
+
+`eval.cs_report.store_synthetic_return_subtype_metrics(conn, run_id, gold_csv, gold_sha256=...,
+gold_version=..., scoring_version=...)`는 운영자 도구가 정답 파일 바이트를 넘겨 반품 하위유형 최초
+집계를 KAN-85의 추가 전용 `evaluation.metrics`에 **실행 단위 행으로만** 저장한다. 플랫폼 서버는 정답
+파일을 읽지 않고 이후 이 행만 조회한다. 새 테이블·마이그레이션은 없다.
+
+- 한 REPEATABLE READ 트랜잭션에서 실행 행을 `FOR SHARE`로 잠그고 종료 상태를 재확인한 뒤 같은
+  스냅샷의 저장 집계로 행을 넣는다. 어떤 거부·오류든 전체 rollback이며 일부 행을 남기지 않는다.
+- 행(case_id null, segment `all`): `return_subtype_first_accuracy`(numerator=정답 수, denominator=채점
+  대상 수), `return_subtype_first_macro_f1`, `return_subtype_first_null_predictions`, 클래스별
+  `return_subtype_first_f1`(class_label DEFECT/NON_DEFECT, support, details의 tp/fp/fn/precision/recall).
+  집계 행 details는 report_version·data_origin·gold_version·정답 파일 SHA-256·실행 상태·target_count·
+  scored_target_count·outcomes만 담는다. 정답 파일 경로, 사례 ID, 사례별 정답·예측, 원시 출력은
+  넣지 않는다. threshold·comparison·passed는 항상 null이며 합격 판정을 하지 않는다.
+- 거부: 정답 파일 hash 불일치(`CS_QUALITY_GOLD_HASH_MISMATCH`), 시험 분할
+  (`CS_QUALITY_FINAL_TEST_LOCKED`, 대상·정답 파싱 전), 고정 합성 프로필의 local/test fake 실행이 아님
+  (`CS_QUALITY_SYNTHETIC_ONLY`), 실험 gold_version 불일치, 실행 미종료, 정답 파일 형식 오류, 정답이 실험
+  대상의 비어 있지 않은 부분집합이 아님, 같은 실행·scoring_version의 기존 행(UNIQUE로 덮어쓰기 거부).
+- 현재는 합성 실행만 저장한다. 합성 정답으로 낸 값은 실제 품질이 아니다.
+
+**미결(운영 쓰기 역할)**: KAN-85 권한에서는 `platform_app`도 `evaluation.metrics`에 INSERT할 수 있다.
+이 행을 운영자 전용 역할만 쓰도록 분리할지는 운영 활성화 전에 정한다. 이번 변경은 권한을 바꾸지
+않았다. 플랫폼 집계 API의 `synthetic_quality` 조회와 화면 표시는 후속 단위다.
+
+
 ### KAN-88 언어·채널별 최초 집계
 
 `eval.cs_strata.summarize_first_attempts_by_group(gold, attempts, metadata, metric=...)`는
