@@ -1,3 +1,4 @@
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
@@ -12,14 +13,17 @@ const summarize = (counts: Record<string, number>, labels: Record<string, string
 export default function ProjectDetail() {
   const { projectId = '' } = useParams();
   const mode = getApiMode();
-  const project = useQuery({queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: import.meta.env.DEV && projectId !== ''});
-  if (!import.meta.env.DEV) return <Preparing title="TFT 프로젝트" />;
-  const data = project.data?.data;
+  const access = useBusinessAccess('tft');
+  const project = useQuery({queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: access.ready && projectId !== ''});
+  if (!access.ready) return <BusinessGate access={access} title="TFT 프로젝트" />;
+  const data = project.isSuccess ? project.data.data : undefined;
   return <main>
     <header><p className="eyebrow"><Link to="/tft/projects">TFT 프로젝트 목록</Link></p><h1>{data ? data.name : '프로젝트 현황'}</h1></header>
+    <button disabled={project.isFetching} onClick={()=>project.refetch()}>최신 상태 조회</button>
     {project.isPending && <Loading />}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {data && <>
+      {import.meta.env.DEV && <p><Link to="composition">구성안 비교와 책임자 결정</Link></p>}
       <ProjectInfo project={data} />
       <DocumentStatus project={data} />
       <InitialReview project={data} />
@@ -38,7 +42,7 @@ function ProjectInfo({ project }: { project: Project }) {
       <dt>회사 코드</dt><dd>{project.company_code}</dd>
       <dt>상태</dt><dd><StatusBadge code={project.status} labels={PROJECT_STATUS_LABEL} /></dd>
       <dt>책임자</dt><dd>{r ? <>지정됨 — 사용자 {r.user_id} <br /><small>지정 {formatDateTime(r.assigned_at)} · 사유: {r.reason}</small></> : <span className="warn">책임자 미지정 — 구성안 확정 불가. 관리 manager가 지정합니다.</span>}</dd>
-      <dt>담당 sales</dt><dd>정보 없음 <small>프로젝트 조회 계약(KAN-119)에 담당 sales 필드가 없음</small></dd>
+      <dt>담당 sales</dt><dd>{project.sales_user_id ?? '미지정'}</dd>
       <dt>구성안 판본</dt><dd>{project.current_composition ? `판본 ${project.current_composition.version}` : '없음'}</dd>
       <dt>최종 확정</dt><dd>{project.final_confirmation ? `판본 ${project.final_confirmation.composition_version} · ${formatDateTime(project.final_confirmation.confirmed_at)}` : '미확정'}</dd>
       <dt>등록</dt><dd>{formatDateTime(project.created_at)}</dd>
@@ -90,7 +94,7 @@ function Requirements({ project }: { project: Project }) {
           <td>{req.requirement_code}</td>
           <td><strong>{req.title}</strong>{req.description && <><br /><small>{req.description}</small></>}{req.field_tag && <><br /><small>{req.field_tag}</small></>}</td>
           <td><span className="badge" data-kind={c.label}>{c.label}</span>{(c.kinds.REQUIRED || c.kinds.PREFERRED) ? <><br /><small>필수 {c.kinds.REQUIRED ?? 0} · 우대 {c.kinds.PREFERRED ?? 0}</small></> : null}</td>
-          <td>{c.linked.length === 0 ? '없음' : c.linked.map(role => <div key={role.id}><Link to={`roles/${role.id}`}>{role.title}</Link></div>)}</td>
+          <td>{c.linked.length === 0 ? '없음' : c.linked.map(role => <div key={role.id}>{import.meta.env.DEV ? <Link to={`roles/${role.id}`}>{role.title}</Link> : role.title}</div>)}</td>
           <td><Evidence requirement={req} /></td>
           <td><Origin dataOrigin={req.data_origin} derivationKind={req.derivation_kind} /></td>
         </tr>; })}</tbody></table>
@@ -105,7 +109,7 @@ function Roles({ project }: { project: Project }) {
     {roles.length === 0 ? <Empty message="아직 정리된 역할이 없습니다." /> :
       <table><thead><tr><th>역할</th><th>과업</th><th>인원</th><th>상태</th><th>역량</th><th>요청서</th><th>회신 기한</th><th>다음 행동</th><th>출처</th></tr></thead>
         <tbody>{roles.map(role => { const reqs = requestsOf(role); const kinds = countBy(role.competencies, c => c.kind); return <tr key={role.id}>
-          <td><Link to={`roles/${role.id}`}>{role.title}</Link><br /><small>{role.role_code}</small> {role.is_core && <small>핵심</small>}</td>
+          <td>{import.meta.env.DEV ? <Link to={`roles/${role.id}`}>{role.title}</Link> : role.title}<br /><small>{role.role_code}</small> {role.is_core && <small>핵심</small>}</td>
           <td>{role.tasks ?? '-'}</td>
           <td>{role.headcount ?? '미정'}</td>
           <td><StatusBadge code={role.status} labels={ROLE_STATUS_LABEL} /></td>

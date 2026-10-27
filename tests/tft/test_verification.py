@@ -261,3 +261,18 @@ def test_nonoverlapping_roles_are_not_schedule_conflicts(project):
         )
     )
     assert "OVERLAPPING_ROLE_PROPOSALS" not in assess(project).roles[0].reasons
+
+
+def test_latest_competency_recheck_requires_review_without_overwriting_history(project):
+    verify(project)
+    old = project.recommendations[0].competency_checks[0]
+    changed = old.model_copy(
+        update={"id": uuid4(), "checked_at": BASE + timedelta(days=1), "status": "UNMET"}
+    )
+    project.recommendations[0].competency_checks.append(changed)
+    project.current_composition.members[0].status = "CONFIRMED"
+    role = assess(project).roles[0]
+    assert role.candidates[0].required_competencies == "UNMET"
+    assert "CONFIRMATION_NEEDS_REVIEW" in role.reasons
+    assert not role.complete
+    assert old.status == "CONFIRMED"
