@@ -4,6 +4,7 @@ import hmac
 from datetime import UTC, datetime
 from html import escape
 from secrets import token_urlsafe
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -43,10 +44,18 @@ FORM_BODY = {
         },
     }
 }
+ERROR_CODES = (400, 401, 403, 404, 409, 503)
+# HTML 성공 경로도 오류는 공통 처리기의 JSON이다. model을 두면 FastAPI가 text/html로 문서화한다.
+JSON_ERRORS: dict[int | str, dict[str, Any]] = {
+    code: {
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}
+    }
+    for code in ERROR_CODES
+}
 router = APIRouter(
     prefix=PREFIX,
     tags=["mailbox-authentication"],
-    responses={code: {"model": ErrorResponse} for code in (400, 401, 403, 404, 409, 503)},
+    responses={code: {"model": ErrorResponse} for code in ERROR_CODES},
 )
 
 
@@ -169,6 +178,7 @@ async def start(
 @router.post(
     "/callback",
     response_class=HTMLResponse,
+    responses=JSON_ERRORS,
     operation_id="platform_relay_mailbox_callback",
     openapi_extra={**ACTIVATION, **FORM_BODY},
 )

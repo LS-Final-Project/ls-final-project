@@ -46,8 +46,13 @@ from backend.api.platform.auth.microsoft import (
 )
 from backend.api.platform.auth.sessions import issue_session, load_session
 from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSettings
+from backend.api.platform.mail.storage import LocalObjectStore
 from backend.api.platform.main import create_app
 from backend.shared.errors import ApplicationError
+from backend.shared.models import ErrorResponse
+from backend.shared.settings import Settings
+from tests.platform import test_mail_sync_db as mail_sync_db
+from tests.platform.test_mail_sync_db import mail_database as mail_database
 
 CLIENT_ID = UUID("11111111-1111-4111-8111-111111111111")
 USER_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -2139,3 +2144,119 @@ def test_http_mailbox_flow_uses_real_msal_and_commits_ciphertext(oauth, persiste
             asyncio.run(get_token(mailbox_id=row[0], owner_user_id=context.owner))
         assert error.value.status_code == 409
         assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
+
+
+@pytest.mark.parametrize("refresh_error", [None, "invalid_grant"])
+def test_real_provider_feeds_kan71_mail_sync(
+    oauth, mailbox_cache, persistence_context, mail_database, monkeypatch, tmp_path, refresh_error
+):
+    """KAN-71 수집이 실제 제공자 메서드로 토큰을 받고 실패 코드를 기록하는지 대조한다.
+
+    Graph는 KAN-71의 가짜 응답이며 실제 Outlook·Graph 연동이나 소비자 합의의 증거가 아니다.
+
+    Args:
+        oauth: 실제 MSAL·합성 Microsoft HTTP 문맥.
+        mailbox_cache: 실제 MSAL이 만든 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        mail_database: KAN-71 수집 마이그레이션을 적용한 같은 전용 DB.
+        monkeypatch: 가짜 Graph가 기대하는 합성 토큰 값을 제공자 값으로 맞추는 도구.
+        tmp_path: 원문 임시 저장소.
+        refresh_error: 갱신 시 공급자 오류. 없으면 유효 캐시를 그대로 사용한다.
+
+    Returns:
+        None: 토큰 전달·실패 기록·비밀 비노출·보관 행 불변을 확인한다.
+    """
+    context = persistence_context
+    monkeypatch.setattr(mail_sync_db, "TOKEN", "synthetic-access-token")
+    if refresh_error:
+        oauth.token_response = {
+            "error": refresh_error,
+            "error_description": "synthetic-refresh-token",
+        }
+        oauth.response_status = 400
+    value = asyncio.run(persist_token_cache(context, mailbox_cache, expired=bool(refresh_error)))
+    before = persisted_token_row(context, value)
+    graph = mail_sync_db.FakeGraph()
+    provider = MailboxTokenProvider(
+        settings=context.settings, adapter=oauth.adapter, cipher=context.cipher
+    )
+    mailbox = {"id": value.mailbox_id, "owner": context.owner}
+    try:
+        result = mail_sync_db.run(
+            context.settings,
+            mailbox,
+            graph,
+            LocalObjectStore(tmp_path),
+            provider.get_mailbox_access_token,
+        )
+        runs = mail_sync_db.rows(
+            context.dsn,
+            "SELECT status,error_code,mail_sync_runs::text FROM integration.mail_sync_runs "
+            "WHERE mailbox_id=%s",
+            value.mailbox_id,
+        )
+        stored = (
+            mail_sync_db.rows(
+                context.dsn,
+                "SELECT string_agg(m::text,'') FROM integration.mail_messages m WHERE mailbox_id=%s",
+                value.mailbox_id,
+            )[0][0]
+            or ""
+        )
+        if refresh_error:
+            assert (result.status, result.error_code) == ("FAILED", "MAILBOX_RECONNECT_REQUIRED")
+            assert runs[0][:2] == ("FAILED", "MAILBOX_RECONNECT_REQUIRED")
+            assert graph.requests == [] and stored == ""
+        else:
+            assert (result.status, result.error_code) == ("SUCCEEDED", None)
+            assert runs[0][:2] == ("SUCCEEDED", None) and graph.requests
+        assert len(runs) == 1
+        for secret in ("synthetic-access-token", "synthetic-refresh-token"):
+            assert secret not in runs[0][2] + stored
+        assert persisted_token_row(context, value) == before
+    finally:
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute(
+                "DELETE FROM integration.mail_attachments WHERE message_id IN "
+                "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)",
+                (value.mailbox_id,),
+            )
+            for table in ("mail_messages", "mail_sync_cursors", "mail_sync_runs"):
+                conn.execute(
+                    psycopg.sql.SQL("DELETE FROM integration.{} WHERE mailbox_id=%s").format(
+                        psycopg.sql.Identifier(table)
+                    ),
+                    (value.mailbox_id,),
+                )
+
+
+def test_mailbox_callback_errors_are_documented_as_sent_json():
+    """callback 오류는 문서와 실제 응답 모두 JSON이고 성공 문서만 HTML이다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: OpenAPI 미디어 타입과 기본 비활성 404의 실제 Content-Type을 대조한다.
+    """
+    app = create_app(
+        Settings(_env_file=None, environment="test"),
+        MicrosoftAuthSettings(_env_file=None),
+        mailbox_settings=MailboxAuthSettings(_env_file=None),
+    )
+    schema = app.openapi()
+    responses = schema["paths"][MAILBOX_CALLBACK]["post"]["responses"]
+    assert list(responses["200"]["content"]) == ["text/html"]
+    for code in ("400", "401", "403", "404", "409", "503"):
+        assert list(responses[code]["content"]) == ["application/json"], code
+        ref = responses[code]["content"]["application/json"]["schema"]["$ref"]
+        assert ref.rsplit("/", 1)[-1] in schema["components"]["schemas"]
+    with TestClient(app) as client:
+        rejected = client.post(
+            MAILBOX_CALLBACK,
+            content="state=s&code=c",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    assert rejected.status_code == 404
+    assert rejected.headers["content-type"] == "application/json"
+    ErrorResponse.model_validate(rejected.json())

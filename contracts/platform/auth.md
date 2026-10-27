@@ -464,6 +464,37 @@ None이며 키·DB·공급자 호출 없이 기존 로그인과 분리된다. �
 영구 철회/재연결 필요로 단정하지 않는 것이다. 이후 강제 갱신 신호·제한된 재시도·실패
 기록 책임은 KAN-71과 함께 정한 뒤 양쪽에 검증한다. 인증 제공자는 기존 MSAL의 실제
 갱신 오류를 분류하며, 소비자 fake도 미합의 강제 갱신을 구현했다고 가정하지 않는다.
+KAN-71 [메일 수집 계약](mail.md#실패)도 현재 Graph 401을 `GRAPH_UNAUTHORIZED`로 실패
+기록하고 강제 갱신·재시도 없이 다음 실행에 맡긴다.
+
+### Graph 401 처리 제안 (KAN-71 확인 전, 미구현)
+
+**상태: 합의 전 제안·미구현이다. 인증 측과 KAN-71 모두 아래 내용을 구현하지 않았다.**
+위 현재 동작에서는 만료 전에 거부된 캐시 토큰이 다음 실행에서도 다시 401이 될 수 있다.
+아래는 이 간격을 메우는 최소안이며 KAN-71 확인 후 양쪽에 구현·검증한다.
+
+KAN-71이 답할 질문:
+
+1. 401 뒤 `force_refresh=True` 호출은 수집 코드가 직접 내는가, 아니면 다음 실행을 부르는 쪽(KAN-72)에 넘기는가?
+2. 실행 한 번의 강제 갱신 1회·같은 Graph 요청 재요청 1회 상한이 수집 흐름(페이지·메시지 내려받기 단위)에 맞는가?
+3. 재요청도 401이면 실행을 기존 `GRAPH_UNAUTHORIZED`/`FAILED`로 끝내고 커서를 유지하는 것으로 충분한가?
+
+| 항목 | 제안 |
+| --- | --- |
+| 신호 | getter에 선택 키워드 `force_refresh: bool = False`를 추가한다. 기존 두 ID 호출과 KAN-71의 토큰 함수 Protocol은 그대로 맞는다. 거부된 토큰·Graph 응답은 넘기지 않는다 |
+| 제공자 동작 | `force_refresh=True`여도 소유자·활성·연결 재검사는 같다. 그 뒤 기존 MSAL `acquire_token_silent_with_error`의 `force_refresh=True`로 캐시 토큰을 건너뛰고 refresh token으로 새 access token을 받아, 기존과 같이 암호화 커밋 후에만 반환한다. 제공자는 Graph를 호출하지 않는다 |
+| 사용 조건 | Graph가 401을 반환했을 때만 쓴다. 403·429·5xx·`syncStateNotFound`에는 쓰지 않는다. 사전 예방용 강제 갱신도 하지 않는다 |
+| 재시도 상한 | 수집 실행 한 번에 강제 갱신 1회, 그 토큰으로 같은 Graph 요청 1회 재요청까지. 실행 간 재시도 간격은 실행을 부르는 쪽(KAN-72)이 정한다 |
+| 두 번째 401 | 기존 `GRAPH_UNAUTHORIZED`로 실행을 실패 기록하고 더 부르지 않는다. 401만으로 연결을 재연결 필요나 해제 상태로 바꾸지 않는다 |
+| 강제 갱신 실패 | 새 코드 없이 기존 네 코드를 그대로 쓴다. 갱신 거부는 `MAILBOX_RECONNECT_REQUIRED`/409, DB·복호화·공급자 장애와 저장 개정 충돌은 `MAILBOX_TOKEN_UNAVAILABLE`/503이다. 이 실패에는 자동 재시도하지 않는다 |
+| 기록 책임 | 실행 실패·오류 코드 기록은 KAN-71, 갱신 결과 저장·경합 처리와 오류 분류는 KAN-81이 맡는다. 토큰·공급자 원문 설명은 어느 쪽 기록에도 남기지 않는다 |
+
+구현 시 확인할 검사는 다음과 같다. 합성 Microsoft 응답과 가짜 Graph로 확인하며 실제
+Outlook·Graph 통과를 뜻하지 않는다.
+
+- 제공자: 유효 캐시에서도 `force_refresh=True`면 갱신 POST가 정확히 1회 일어나고 새 캐시가 커밋된 뒤에만 토큰을 반환한다. 기본값 호출은 지금처럼 캐시 적중 시 POST가 없다.
+- 소비자: 401 → 강제 갱신 1회 → 재요청 성공이면 실행이 이어진다. 401이 두 번이면 `GRAPH_UNAUTHORIZED`이고 getter 호출은 실행당 2회를 넘지 않는다.
+- 강제 갱신의 `MAILBOX_RECONNECT_REQUIRED`·`MAILBOX_TOKEN_UNAVAILABLE`이 실행 기록에 그대로 남는다.
 
 ### MSAL 사서함 캐시 어댑터 (부분 구현)
 
@@ -619,7 +650,7 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 | 경로 | 보호 및 결과 |
 | --- | --- |
 | `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
-| `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음 |
+| `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
 | `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303 |
 | `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님 |
 
@@ -661,5 +692,6 @@ JavaScript가 꺼져 있으면 활성화 후 새 연결을 안내한다. 두 for
 제한시간, 위 내부 경합 처리를 소비자에게 연결하는 방식, 일시 장애의 제한된 재시도 책임을
 확인해야 한다. getter의
 성공이 뒤따르는 Graph 요청 성공까지 보장하지는 않는다. Graph의 401 이후 강제 갱신 신호와
-재시도 방식도 합의 전이며, KAN-71이 임의로 갱신하거나 무한 재시도하지 않는다. 이 초안의
+재시도 방식은 [Graph 401 처리 제안](#graph-401-처리-제안-kan-71-확인-전-미구현)으로 KAN-71
+확인을 기다리며, KAN-71이 임의로 갱신하거나 무한 재시도하지 않는다. 이 초안의
 구문·링크 확인은 fake 소비자 연동·실제 Graph·토큰 암호화·공용 배포 검증의 증거가 아니다.

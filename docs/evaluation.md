@@ -27,9 +27,9 @@
 
 다섯 출력의 의미·enum·null은 [C/S 계약](../contracts/cs/tickets.md)을 따른다. secondary_category는 주분류와 독립 채점한다. 전체 정확 일치율(null 포함), gold가 있는 복합 의도 대상의 macro-F1 및 없는 보조 의도를 생성한 건수를 각각 보고한다. null이 많은 데이터에서 전체 정확도만으로 복합 의도 성능을 주장하지 않는다. 정답은 원천 secondary_category를 검수해 사용하며 primary를 복사해 만들지 않는다.
 
-provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을 보고한다. 원문에 정보가 있다는 사실과 그 값이 정확한지는 구분하며 이미 제공한 정보를 재요청한 건수를 별도 채점한다. return_subtype은 POL-RETURN·routing_rules에 맞춘 사람 검수 정답으로 채점한다. 기존 tickets에 정답 열이 없다는 이유로 LLM 출력이나 담당부서 정답을 역산해 정답을 만들지 않는다. 미확인과 비해당 null은 검수 메타데이터에서 구분한다.
+provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을 보고한다. 원문에 정보가 있다는 사실과 그 값이 정확한지는 구분하며 이미 제공한 정보를 재요청한 건수를 별도 채점한다. return_subtype은 [반품 하위유형 정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95)의 판본으로 채점한다. 이 정답은 팀 합의로 제공 데이터의 routing_rule_id에서 변환했으며(역산 금지 원칙의 반품 하위유형 예외), LLM 출력에서 정답을 만들지 않는다. 다른 필드에는 담당부서 정답 역산 금지를 그대로 적용한다. 미확인과 비해당 null은 검수 메타데이터에서 구분한다.
 
-보조 분류의 선택 기준은 아래 2026-10-27 사용자 결정에 따른다. provided_info·반품 하위유형의 gold 매핑 및 각 추가 합격선은 KAN-82·95에서 잠근 뒤 본실험을 시작한다. 아직 잠그지 않은 점수를 임의로 합격 처리하지 않는다.
+보조 분류의 선택 기준은 아래 2026-10-27 사용자 결정에 따른다. provided_info의 gold 매핑과 provided_info·반품 하위유형의 추가 합격선은 KAN-82·95에서 잠근 뒤 본실험을 시작한다. 반품 하위유형 gold는 [정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95)에서 잠갔다. 아직 잠그지 않은 점수를 임의로 합격 처리하지 않는다.
 
 2026-10-27 사용자 결정: 보조 유형 후보는 주분류와 다른 명시적 처리 요청이다. 하나이면
 그 후보를 선택하고, 여러 개이면 고객이 우선이라고 명시한 의도를 선택한다. 우선 근거가
@@ -112,6 +112,27 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 **KAN-95 남은 범위**: 보조 분류 3,403건 검수, 나머지 분류 필드의 정답/null 검수, 규칙 평가 제외
 사유·분모 검수, 독립 최종셋 확보 여부 결정.
 
+## C/S 규칙 평가 분모와 제외 사유 (KAN-95)
+
+2026-10-27 개발 자료(학습 2,800·검증 603, `tickets.dev.csv` SHA-256 `c3fd2b60…`)에서 직접 집계해 잠근
+규칙 평가(`tests/cs/test_rules_reproduction.py`)의 분모다. 시험 분할은 포함하지 않는다. 제외는 해당 지표에만
+적용하고 다른 지표의 분모에서 함께 빼지 않는다.
+
+| 지표 | 분모(학습+검증) | 학습 | 검증 | 제외와 사유 |
+| --- | --- | --- | --- | --- |
+| 우선순위 정확 일치 | 3,303 | 2,709 | 594 | 담당자가 우선순위를 수동 조정한 `priority_adjusted_by_agent=Y` 100건(학습 91·검증 9). 규칙이 아니라 사람 판단이 정답이라 비교하지 않는다 |
+| 제품군 | 3,403 | 2,800 | 603 | 없음 |
+| 담당부서·규칙 ID(반품 외) | 3,105 | 2,555 | 550 | 없음 |
+| 담당부서·규칙 ID(반품) | 298 | 245 | 53 | 없음. 하위유형은 [정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95) 판본을 입력으로 쓴다 |
+| SLA 목표 시간 | 3,403 | 2,800 | 603 | 없음 |
+| SLA 경과 시간·상태 | 3,400 | 2,798 | 602 | 고객 대기 시간이 음수인 3건(학습 CSV1-003890·CSV1-003946, 검증 CSV1-003951). 첫 응답이 기준일(2026-10-01) 뒤로 기록돼 `customer_wait_hours`가 음수다. 규칙은 이 입력을 `RuleInputError`로 거부하며, 검사는 거부되는지를 따로 확인한다 |
+
+수동 조정 100건과 음수 대기 3건은 겹치지 않는다. 두 제외 목록은 제공 데이터의 플래그·ID로 고정하며,
+결과가 나쁘다는 이유로 대상을 추가로 빼지 않는다. 우선순위 수동 조정 제외는 분류·긴급도·담당부서 평가에
+적용하지 않는다. 음수 대기 3건도 분류·긴급도 평가 분모에서는 빼지 않는다.
+
+LLM 분류(주분류·보조 분류·긴급도·제공 정보)의 분모는 모델 실행 전에 같은 방식으로 따로 잠근다.
+
 ## RFP 및 나머지 지표 잠금
 
 RFP 기획서의 역할 precision/recall, 근거 정확도, 요청서 필수값, 가상 경력·가용성 생성, 공백 탐지 및 상태 전이를 각각 검수한다. 미기재·미확인·미충족을 구분하고 부서 검증과 지정 책임자 확정을 합치지 않는다. OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
@@ -167,6 +188,56 @@ composite FP에 포함하지 않고 absent.invented와 전체 행렬에 별도�
 per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모가 다르다.
 복합 의도 대상0이면 composite.macro_f1=null이며, null 포함 전체 macro-F1은 제공하지
 않는다. 합격선/실제 정답 잠금 및 품질 합격 판정은 별도이며 자동 승인하지 않는다.
+
+
+### KAN-88 최초 반품 하위유형 집계
+
+`eval.cs_metrics.summarize_return_subtype_first_attempts(gold, attempts)`의 gold는 위 KAN-95
+잠금 판본의 반품 대상 ID→DEFECT/NON_DEFECT다. 정답 파일의 판본·hash 인수는 호출자 책임이며
+이 함수는 파일을 읽지 않는다. null·빈 값·내부 표식은 정답으로 허용하지 않고, 최초 시도 검사와
+실패 분모는 주분류와 같다. 두 클래스의 P/R/F1·macro-F1·정확 일치율을 반환한다.
+
+유효 응답의 null 예측은 행렬의 NO_SUBTYPE 열과 null_predictions, 실패·보류·미실행은
+NO_PREDICTION 열로 구분하며 둘 다 정답 클래스의 FN이다. 계약대로 반품의 null을 비불량으로
+간주하지 않는다. 비반품 대상의 null 정답은 잠기지 않았으므로 비반품에 하위유형을 만든 건수는
+이 집계에 없다. 정답 판본의 한계(독립 검증 아님)와 합격선 미정은 그대로이며
+quality_gate_evaluated는 false다.
+
+저장 실행 경로(`eval.cs_stored_metrics`의 최초 집계·최초/최종 비교·기준선 비교, `eval.cs_strata`,
+`summarize_final_attempts`)도 metric=`return_subtype`을 받는다. **부분집합 허용은 return_subtype에
+한정한다.** 이 지표만 gold가 실험 고정 대상의 비어 있지 않은 부분집합(잠긴 반품 대상)이면 받고,
+그 대상만 채점한다. gold에 실험 밖 ID가 있으면 거부한다. 주분류·긴급도·보조 분류는 기존처럼 gold와
+실험 대상이 정확히 같아야 한다. 저장 최초 집계는 target_count(실험 대상)와
+scored_target_count(채점 대상)를 함께 반환해 분모 축소를 숨기지 않는다.
+`eval.cs_report.build_stored_report`는 gold에 return_subtype 키가 있을 때만 quality.return_subtype을
+추가한다. 기존 세 지표 키는 필수이며 키가 없을 때의 보고서는 바뀌지 않는다. 합성 CLI는 반품
+하위유형을 보고하지 않는다. 플랫폼 집계 API·화면 연결은 남아 있다.
+
+
+### KAN-88 합성 품질 저장 행
+
+`eval.cs_report.store_synthetic_return_subtype_metrics(conn, run_id, gold_csv, gold_sha256=...,
+gold_version=..., scoring_version=...)`는 운영자 도구가 정답 파일 바이트를 넘겨 반품 하위유형 최초
+집계를 KAN-85의 추가 전용 `evaluation.metrics`에 **실행 단위 행으로만** 저장한다. 플랫폼 서버는 정답
+파일을 읽지 않고 이후 이 행만 조회한다. 새 테이블·마이그레이션은 없다.
+
+- 한 REPEATABLE READ 트랜잭션에서 실행 행을 `FOR SHARE`로 잠그고 종료 상태를 재확인한 뒤 같은
+  스냅샷의 저장 집계로 행을 넣는다. 어떤 거부·오류든 전체 rollback이며 일부 행을 남기지 않는다.
+- 행(case_id null, segment `all`): `return_subtype_first_accuracy`(numerator=정답 수, denominator=채점
+  대상 수), `return_subtype_first_macro_f1`, `return_subtype_first_null_predictions`, 클래스별
+  `return_subtype_first_f1`(class_label DEFECT/NON_DEFECT, support, details의 tp/fp/fn/precision/recall).
+  집계 행 details는 report_version·data_origin·gold_version·정답 파일 SHA-256·실행 상태·target_count·
+  scored_target_count·outcomes만 담는다. 정답 파일 경로, 사례 ID, 사례별 정답·예측, 원시 출력은
+  넣지 않는다. threshold·comparison·passed는 항상 null이며 합격 판정을 하지 않는다.
+- 거부: 정답 파일 hash 불일치(`CS_QUALITY_GOLD_HASH_MISMATCH`), 시험 분할
+  (`CS_QUALITY_FINAL_TEST_LOCKED`, 대상·정답 파싱 전), 고정 합성 프로필의 local/test fake 실행이 아님
+  (`CS_QUALITY_SYNTHETIC_ONLY`), 실험 gold_version 불일치, 실행 미종료, 정답 파일 형식 오류, 정답이 실험
+  대상의 비어 있지 않은 부분집합이 아님, 같은 실행·scoring_version의 기존 행(UNIQUE로 덮어쓰기 거부).
+- 현재는 합성 실행만 저장한다. 합성 정답으로 낸 값은 실제 품질이 아니다.
+
+**미결(운영 쓰기 역할)**: KAN-85 권한에서는 `platform_app`도 `evaluation.metrics`에 INSERT할 수 있다.
+이 행을 운영자 전용 역할만 쓰도록 분리할지는 운영 활성화 전에 정한다. 이번 변경은 권한을 바꾸지
+않았다. 플랫폼 집계 API의 `synthetic_quality` 조회와 화면 표시는 후속 단위다.
 
 
 ### KAN-88 언어·채널별 최초 집계
