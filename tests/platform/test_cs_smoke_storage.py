@@ -693,6 +693,64 @@ def test_synthetic_quality_rows_reject_without_partial_rows(
     assert len(before) == (5 if invalid == "duplicate" else 0)
 
 
+@pytest.mark.parametrize("terminal", [True, False])
+def test_store_cli_saves_rows_or_rejects_with_code_only(
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    tmp_path,
+    capsys,
+    terminal,
+):
+    """저장 명령이 실제 DB에 집계 행을 넣거나 미종료 실행을 코드만으로 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경 설정.
+        tmp_path: 정답 파일 위치.
+        capsys: 출력 확인.
+        terminal: 실행을 종료시킨 뒤 저장할지 여부.
+
+    Returns:
+        None: 성공 JSON 한 줄과 저장 행, 또는 exit1·코드·행 없음을 확인한다.
+    """
+    import json
+
+    from eval.cs_report import STORE_COMMAND, main
+
+    if terminal:
+        assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    data, digest = return_gold_csv()
+    gold = tmp_path / "secret-gold.csv"
+    gold.write_bytes(data)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [STORE_COMMAND, "--run-id", str(cs_run), "--gold-file", str(gold)]
+    args += ["--gold-sha256", digest, "--scoring-version", "syn-v1"]
+    assert main(args) == (0 if terminal else 1)
+    captured = capsys.readouterr()
+    assert str(gold) not in captured.out + captured.err
+    assert evaluation_database not in captured.out + captured.err
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    if terminal:
+        assert json.loads(captured.out) == {
+            "run_id": str(cs_run),
+            "scoring_version": "syn-v1",
+            "stored_rows": 5,
+        }
+        assert captured.err == "" and len(rows) == 5
+    else:
+        assert captured.err == "CS_QUALITY_RUN_NOT_TERMINAL\n" and captured.out == ""
+        assert rows == []
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )
