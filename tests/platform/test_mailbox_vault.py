@@ -179,24 +179,6 @@ def test_cipher_rejects_cache_for_another_verified_subject(cipher, snapshot):
         cipher.encrypt(wrong)
 
 
-@pytest.fixture(scope="session")
-def mailbox_database(auth_database):
-    """명시한 전용 DB에만 새 보관 마이그레이션을 적용한다.
-
-    Args:
-        auth_database: kan77_auth_test만 허용하는 기존 관리자 검사 연결.
-
-    Returns:
-        str: 새 플랫폼 전용 테이블을 가진 전용 검사 DB 연결.
-    """
-    with psycopg.connect(auth_database) as conn:
-        migration = Path("infra/migrations/platform/20261027_KAN-81_mailbox_vault.sql").read_text()
-        conn.execute(
-            "\n".join(line for line in migration.splitlines() if not line.startswith("\\"))
-        )
-    return auth_database
-
-
 @pytest.fixture
 def context(mailbox_database, registered_user, settings):
     """합성 소유자·현재 세션과 이번 연결 행만 정리할 문맥을 준비한다.

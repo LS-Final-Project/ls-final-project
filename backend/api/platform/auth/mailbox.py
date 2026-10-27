@@ -1,15 +1,27 @@
-"""현재 서비스 세션과 사서함 인가 결과를 연결하는 내부 경계. 저장·HTTP는 미연결이다."""
+"""현재 세션·사서함 인가·암호화 저장을 잇는 내부 경계. HTTP는 미연결이다."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
+from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.platform.auth.attempts import consume_authorization, save_authorization
 from backend.api.platform.auth.callback import OAuthPurpose, reject_callback
+from backend.api.platform.auth.mailbox_vault import MailboxCipher, create_mailbox
 from backend.api.platform.auth.microsoft import MailboxAuthorization, PersonalMicrosoftOAuth
 from backend.api.platform.auth.sessions import load_session
 from backend.shared.settings import Settings
+
+
+@dataclass(frozen=True)
+class MailboxConnectionReceipt:
+    """저장이 커밋된 연결의 확인 값. 토큰·캐시·공급자 사서함 식별자는 포함하지 않는다."""
+
+    mailbox_id: UUID
+    revision: int
 
 
 async def start_mailbox_link(
@@ -94,3 +106,47 @@ async def complete_mailbox_link(
     if current_owner.id != owner.id or result.owner_user_id != owner.id:
         raise reject_callback()
     return result
+
+
+async def complete_and_store_mailbox_link(
+    settings: Settings,
+    parameters: Sequence[tuple[str, str]],
+    *,
+    session_token: str | None,
+    browser_binding: str,
+    now: datetime,
+    adapter: PersonalMicrosoftOAuth,
+    cipher: MailboxCipher,
+) -> MailboxConnectionReceipt:
+    """초기 사서함 인가와 암호화 저장을 연결하고 저장 완료 확인 값만 반환한다.
+
+    기존 일회 소비·교환 전후 세션 검사와 저장 트랜잭션의 현재 권한 재검사를
+    모두 사용한다. 저장 실패는 성공으로 바꾸지 않으며 소비한 인가를 복구하지 않는다.
+    재시도하려면 새 인가를 시작해야 한다. 이 함수도 HTTP 요청 인증·CSRF를 대신하지 않는다.
+
+    Args:
+        settings: 플랫폼 런타임 DB 설정.
+        parameters: 중복 키를 보존한 callback 입력.
+        session_token: 신뢰할 HTTP 경계에서 얻은 현재 세션 쿠키 값.
+        browser_binding: 사서함 연결을 시작한 브라우저 결속값.
+        now: 시간대 정보가 있는 callback 처리 시각.
+        adapter: 기존 Microsoft 교환·서명·캐시 검증 어댑터.
+        cipher: 서버에서 키를 주입해 구성한 현재 보관 암호기.
+
+    Returns:
+        MailboxConnectionReceipt: 저장 커밋이 완료된 서버 연결 ID와 개정만 포함한 값.
+    """
+    if not session_token:
+        raise HTTPException(401)
+    authorization = await complete_mailbox_link(
+        settings,
+        parameters,
+        session_token=session_token,
+        browser_binding=browser_binding,
+        now=now,
+        adapter=adapter,
+    )
+    stored = await create_mailbox(
+        settings, session_token=session_token, authorization=authorization, cipher=cipher
+    )
+    return MailboxConnectionReceipt(mailbox_id=stored.mailbox_id, revision=stored.revision)
