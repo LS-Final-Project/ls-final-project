@@ -18,6 +18,7 @@ Manifest (JSON, paths relative to the manifest):
 
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 
@@ -29,17 +30,27 @@ class DevDataError(ValueError):
     """The provided files do not match what the manifest promises."""
 
 
-def _entry(manifest_path: Path, name: str) -> tuple[Path, dict]:
+def _entry(manifest_path: Path, name: str) -> tuple[bytes, dict]:
+    """The file's bytes, checked against the manifest. Callers parse these same bytes, so the
+    file cannot change between the hash check and the read."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     entry = manifest.get(name)
     if not isinstance(entry, dict):
         raise DevDataError(f"The manifest has no {name} entry")
-    path = (manifest_path.parent / entry["path"]).resolve()
-    # Hash the bytes before parsing, so a wrong file is refused without reading its rows.
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != entry["sha256"]:
+    try:
+        path = (manifest_path.parent / entry["path"]).resolve()
+        expected = str(entry["sha256"]).lower()
+    except KeyError as missing:
+        raise DevDataError(f"{name}: manifest field {missing} is missing") from None
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != expected:
         raise DevDataError(f"{name}: SHA-256 differs from the manifest")
-    return path, entry
+    return data, entry
+
+
+def _rows(data: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    reader = csv.DictReader(io.StringIO(data.decode("utf-8-sig"), newline=""))
+    return list(reader.fieldnames or []), list(reader)
 
 
 def has_entry(manifest_path: Path, name: str) -> bool:
@@ -48,30 +59,29 @@ def has_entry(manifest_path: Path, name: str) -> bool:
 
 
 def load_dev_tickets(manifest_path: Path) -> list[dict[str, str]]:
-    path, entry = _entry(manifest_path, "tickets")
+    data, entry = _entry(manifest_path, "tickets")
     splits = set(entry.get("splits", []))
     if not splits or not splits <= DEV_SPLITS:
         raise DevDataError(f"Only train/valid files are allowed, got {sorted(splits)}")
-    with open(path, encoding="utf-8-sig", newline="") as file:
-        rows = list(csv.DictReader(file))
+    fields, rows = _rows(data)
+    if "data_split" not in fields:
+        raise DevDataError("The tickets file has no data_split column")
     outside = {row["data_split"] for row in rows} - splits
     if outside:
         raise DevDataError(f"The tickets file holds rows from {sorted(outside)}")
-    if len(rows) != entry["rows"]:
-        raise DevDataError(f"Expected {entry['rows']} rows, found {len(rows)}")
+    if len(rows) != entry.get("rows"):
+        raise DevDataError(f"Expected {entry.get('rows')} rows, found {len(rows)}")
     return rows
 
 
 def load_return_subtypes(manifest_path: Path, targets: set[str]) -> dict[str, str | None]:
     """Reviewed return subtypes for exactly `targets`. Empty means unconfirmed (None)."""
-    path, entry = _entry(manifest_path, "return_subtype_gold")
+    data, entry = _entry(manifest_path, "return_subtype_gold")
     if not entry.get("review_version"):
         raise DevDataError("The return subtype gold needs a review version")
-    with open(path, encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file)
-        if reader.fieldnames != ["ticket_id", "return_subtype"]:
-            raise DevDataError(f"Unexpected columns: {reader.fieldnames}")
-        rows = list(reader)
+    fields, rows = _rows(data)
+    if fields != ["ticket_id", "return_subtype"]:
+        raise DevDataError(f"Unexpected columns: {fields}")
     gold: dict[str, str | None] = {}
     for row in rows:
         ticket_id, subtype = row["ticket_id"], row["return_subtype"]

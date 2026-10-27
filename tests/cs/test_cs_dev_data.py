@@ -100,3 +100,19 @@ def test_gold_needs_its_hash_and_review_version(tmp_path):
     path = write(tmp_path, DEV, GOLD, return_subtype_gold__sha256="0" * 64)
     with pytest.raises(DevDataError, match="SHA-256"):
         load_return_subtypes(path, TARGETS)
+
+
+def test_upper_case_hash_is_accepted(tmp_path):
+    digest = hashlib.sha256(DEV.encode()).hexdigest().upper()
+    assert len(load_dev_tickets(write(tmp_path, DEV, tickets__sha256=digest))) == 2
+
+
+def test_missing_manifest_fields_and_columns_are_reported(tmp_path):
+    path = write(tmp_path, DEV)
+    manifest = json.loads(path.read_text())
+    del manifest["tickets"]["sha256"]
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(DevDataError, match="sha256"):
+        load_dev_tickets(path)
+    with pytest.raises(DevDataError, match="data_split"):
+        load_dev_tickets(write(tmp_path, "ticket_id,category_code\nT-1,RETURN\n"))

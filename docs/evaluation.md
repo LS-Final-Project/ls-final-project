@@ -60,7 +60,7 @@ hash·정확한 실행 시각·출력 열람자·다른 실행 이력은 이번�
 `CS_DEV_MANIFEST`의 분리된 개발 파일만 받으며, 행을 읽기 전에 파일 SHA-256을 manifest와 비교하고
 시험 분할이 든 manifest나 시험 행이 있는 파일을 거부한다(`tests/cs/cs_dev_data.py`). 통합 파일은
 manifest 해시와 맞지 않으므로 거부된다. 분리 자료와 manifest의 인수는 여전히 데이터 관리자가 한다.
-이 감사에서는 해당 테스트와 과거 audit.py를 실행하지 않았다.
+KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행하지 않았다. 변경 전 테스트를 통합 파일로 실행한 10/27 김나영 세션의 이력은 KAN-104 댓글 10248·10261에 있다.
 
 앞선 [10/25 감사 기록](https://lsteam4.atlassian.net/browse/KAN-83?focusedCommentId=10140)의
 과거 audit.py 실행 여부 미확인과 이번10/27 노출 보고는 별도 사건이다. 전체 사용 횟수를1회로
