@@ -74,6 +74,7 @@ def business_database(auth_database):
             "cs/20261022_KAN-102_tickets.sql",
             "cs/20261023_KAN-102_ticket_audit.sql",
             "tft/20261023_KAN-119_projects.sql",
+            "tft/20261023_KAN-122_staffing_requests.sql",
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(
