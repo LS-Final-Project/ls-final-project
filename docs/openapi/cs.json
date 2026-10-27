@@ -89,6 +89,338 @@
         "title": "AuditList",
         "type": "object"
       },
+      "CustomerHistory": {
+        "properties": {
+          "by_product": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Product",
+            "type": "object"
+          },
+          "by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "RECEIVED",
+                "IN_REVIEW",
+                "WAITING_CUSTOMER",
+                "ANSWERED",
+                "TRANSFERRED",
+                "CLOSED"
+              ]
+            },
+            "title": "By State",
+            "type": "object"
+          },
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "improvement_requests": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerRequest"
+            },
+            "title": "Improvement Requests",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          },
+          "tickets": {
+            "description": "Newest first, at most 200.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          },
+          "unconfirmed": {
+            "items": {
+              "enum": [
+                "SLA_DUE",
+                "RULE_ASSIGNED_DEPT"
+              ],
+              "type": "string"
+            },
+            "title": "Unconfirmed",
+            "type": "array"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerUnit"
+            },
+            "title": "Units",
+            "type": "array"
+          }
+        },
+        "required": [
+          "customer_external_id",
+          "period",
+          "received",
+          "by_state",
+          "by_product",
+          "tickets",
+          "units",
+          "improvement_requests",
+          "unconfirmed"
+        ],
+        "title": "CustomerHistory",
+        "type": "object"
+      },
+      "CustomerLoad": {
+        "properties": {
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_external_id",
+          "received",
+          "open"
+        ],
+        "title": "CustomerLoad",
+        "type": "object"
+      },
+      "CustomerRequest": {
+        "properties": {
+          "evidence_tickets": {
+            "title": "Evidence Tickets",
+            "type": "integer"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "status",
+          "evidence_tickets"
+        ],
+        "title": "CustomerRequest",
+        "type": "object"
+      },
+      "CustomerTicket": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "data_origin": {
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "workflow_state": {
+            "enum": [
+              "RECEIVED",
+              "IN_REVIEW",
+              "WAITING_CUSTOMER",
+              "ANSWERED",
+              "TRANSFERRED",
+              "CLOSED"
+            ],
+            "title": "Workflow State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "received_at",
+          "channel",
+          "product_code",
+          "subject",
+          "workflow_state",
+          "data_origin"
+        ],
+        "title": "CustomerTicket",
+        "type": "object"
+      },
+      "CustomerUnit": {
+        "properties": {
+          "confirmed_tickets": {
+            "title": "Confirmed Tickets",
+            "type": "integer"
+          },
+          "derivation_kind": {
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "serial_no": {
+            "title": "Serial No",
+            "type": "string"
+          },
+          "unit_status": {
+            "title": "Unit Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "serial_no",
+          "product_code",
+          "unit_status",
+          "derivation_kind",
+          "confirmed_tickets"
+        ],
+        "title": "CustomerUnit",
+        "type": "object"
+      },
+      "DataRange": {
+        "properties": {
+          "first_received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Received At"
+          },
+          "last_received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Received At"
+          }
+        },
+        "required": [
+          "first_received_at",
+          "last_received_at"
+        ],
+        "title": "DataRange",
+        "type": "object"
+      },
+      "DepartmentCount": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "results_accepted": {
+            "title": "Results Accepted",
+            "type": "integer"
+          },
+          "results_submitted": {
+            "title": "Results Submitted",
+            "type": "integer"
+          },
+          "returned_or_recalled": {
+            "title": "Returned Or Recalled",
+            "type": "integer"
+          },
+          "transferred": {
+            "title": "Transferred",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dept_code",
+          "transferred",
+          "results_submitted",
+          "results_accepted",
+          "returned_or_recalled"
+        ],
+        "title": "DepartmentCount",
+        "type": "object"
+      },
       "DeptReply": {
         "properties": {
           "dept_code": {
@@ -697,6 +1029,47 @@
         "title": "HistoryTicket",
         "type": "object"
       },
+      "ImprovementCounts": {
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Status",
+            "type": "object"
+          },
+          "by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "FAULT",
+                "DOCUMENT"
+              ]
+            },
+            "title": "By Type",
+            "type": "object"
+          },
+          "open": {
+            "description": "Not completed and not ended by rejection review.",
+            "title": "Open",
+            "type": "integer"
+          },
+          "receiver_unconfirmed": {
+            "title": "Receiver Unconfirmed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_status",
+          "by_type",
+          "open",
+          "receiver_unconfirmed"
+        ],
+        "title": "ImprovementCounts",
+        "type": "object"
+      },
       "ImprovementRequest": {
         "properties": {
           "completed_at": {
@@ -1288,6 +1661,189 @@
         "title": "NextOwner",
         "type": "object"
       },
+      "OpenAge": {
+        "description": "Open tickets by time since receipt, measured at the end of the period (or now).",
+        "properties": {
+          "from_1_to_3_days": {
+            "title": "From 1 To 3 Days",
+            "type": "integer"
+          },
+          "from_3_to_7_days": {
+            "title": "From 3 To 7 Days",
+            "type": "integer"
+          },
+          "over_7_days": {
+            "title": "Over 7 Days",
+            "type": "integer"
+          },
+          "under_1_day": {
+            "title": "Under 1 Day",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "under_1_day",
+          "from_1_to_3_days",
+          "from_3_to_7_days",
+          "over_7_days"
+        ],
+        "title": "OpenAge",
+        "type": "object"
+      },
+      "Overview": {
+        "properties": {
+          "customer_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer External Id"
+          },
+          "data_range": {
+            "$ref": "#/components/schemas/DataRange"
+          },
+          "departments": {
+            "description": "By transfer department.",
+            "items": {
+              "$ref": "#/components/schemas/DepartmentCount"
+            },
+            "title": "Departments",
+            "type": "array"
+          },
+          "dept_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Code"
+          },
+          "improvements": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImprovementCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "All requests created in the period. Null for the OWN scope."
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "scope": {
+            "description": "ALL for a manager; OWN for a C/S agent, limited to tickets they own.",
+            "enum": [
+              "ALL",
+              "OWN"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "tickets": {
+            "$ref": "#/components/schemas/TicketCounts"
+          },
+          "top_customers": {
+            "description": "Most received first, at most 10.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerLoad"
+            },
+            "title": "Top Customers",
+            "type": "array"
+          },
+          "unconfirmed": {
+            "description": "Metrics shown as unknown because their source is not stored yet.",
+            "items": {
+              "enum": [
+                "SLA_DUE",
+                "RULE_ASSIGNED_DEPT"
+              ],
+              "type": "string"
+            },
+            "title": "Unconfirmed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "period",
+          "dept_code",
+          "customer_external_id",
+          "data_range",
+          "tickets",
+          "departments",
+          "top_customers",
+          "improvements",
+          "unconfirmed"
+        ],
+        "title": "Overview",
+        "type": "object"
+      },
+      "OwnerList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerLoad"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          }
+        },
+        "required": [
+          "period",
+          "items"
+        ],
+        "title": "OwnerList",
+        "type": "object"
+      },
+      "OwnerLoad": {
+        "properties": {
+          "closed": {
+            "title": "Closed",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null groups tickets without an owner.",
+            "title": "Owner User Id"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "owner_user_id",
+          "received",
+          "closed",
+          "open"
+        ],
+        "title": "OwnerLoad",
+        "type": "object"
+      },
       "OwnerRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1329,6 +1885,42 @@
           "owner_user_id"
         ],
         "title": "OwnerUpdate",
+        "type": "object"
+      },
+      "Period": {
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive. Null means up to now.",
+            "title": "End"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive. Null means from the first record.",
+            "title": "Start"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "Period",
         "type": "object"
       },
       "ReadinessData": {
@@ -2568,6 +3160,22 @@
         "title": "SuccessResponse[AuditList]",
         "type": "object"
       },
+      "SuccessResponse_CustomerHistory_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CustomerHistory"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CustomerHistory]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -2582,6 +3190,38 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_Overview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Overview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Overview]",
+        "type": "object"
+      },
+      "SuccessResponse_OwnerList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OwnerList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[OwnerList]",
         "type": "object"
       },
       "SuccessResponse_ReadinessData_": {
@@ -2758,6 +3398,69 @@
           "meta"
         ],
         "title": "SuccessResponse[Workflow]",
+        "type": "object"
+      },
+      "TicketCounts": {
+        "properties": {
+          "by_origin": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "synthetic",
+                "demo",
+                "real"
+              ]
+            },
+            "title": "By Origin",
+            "type": "object"
+          },
+          "by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "RECEIVED",
+                "IN_REVIEW",
+                "WAITING_CUSTOMER",
+                "ANSWERED",
+                "TRANSFERRED",
+                "CLOSED"
+              ]
+            },
+            "title": "By State",
+            "type": "object"
+          },
+          "closed": {
+            "description": "Closed in the period, whenever received.",
+            "title": "Closed",
+            "type": "integer"
+          },
+          "open": {
+            "description": "Received in the period and not closed now.",
+            "title": "Open",
+            "type": "integer"
+          },
+          "open_age": {
+            "$ref": "#/components/schemas/OpenAge"
+          },
+          "received": {
+            "description": "Received in the period.",
+            "title": "Received",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received",
+          "closed",
+          "open",
+          "by_state",
+          "by_origin",
+          "open_age"
+        ],
+        "title": "TicketCounts",
         "type": "object"
       },
       "TicketCreate": {
@@ -4560,6 +5263,402 @@
         "tags": [
           "health"
         ]
+      }
+    },
+    "/api/v1/cs/stats/customers/{customer_external_id}": {
+      "get": {
+        "description": "A customer's tickets, units and improvement requests. Lists records, so it needs the\nfull ticket scope (cs_agent, C/S department manager).",
+        "operationId": "cs_stats_customer_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_external_id",
+            "required": true,
+            "schema": {
+              "title": "Customer External Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive, with a time zone.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive, with a time zone.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "Exclusive, with a time zone.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive, with a time zone.",
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CustomerHistory_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not see these aggregates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Customer History",
+        "tags": [
+          "stats"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/stats/overview": {
+      "get": {
+        "description": "Throughput, open age, transfers, customer load and improvement progress.",
+        "operationId": "cs_stats_overview",
+        "parameters": [
+          {
+            "description": "Inclusive, with a time zone.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive, with a time zone.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "Exclusive, with a time zone.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive, with a time zone.",
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dept"
+            }
+          },
+          {
+            "in": "query",
+            "name": "customer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Customer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Overview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not see these aggregates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "stats"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/stats/owners": {
+      "get": {
+        "description": "Load per C/S owner. Managers only; agents see their own numbers in the overview.",
+        "operationId": "cs_stats_owners",
+        "parameters": [
+          {
+            "description": "Inclusive, with a time zone.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive, with a time zone.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "Exclusive, with a time zone.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive, with a time zone.",
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dept"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_OwnerList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not see these aggregates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Owners",
+        "tags": [
+          "stats"
+        ],
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/cs/tickets": {

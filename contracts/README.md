@@ -47,7 +47,7 @@ python3 scripts/workspace.py contracts cs --check
 - 생성 JSON이 충돌하면 어느 한쪽 파일을 고르는 대신 schemas.py와 routes.py의 변경을 합친 뒤 자기 서비스만 다시 생성한다.
 - 공통 HTTP 형식 변경은 3개 서비스 생성과 프론트 컴파일을 함께 확인한다. 공통 패키지에 업무별 모델을 넣거나 서비스끼리 직접 DTO를 import하지 않는다.
 
-기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [C/S 개선요청](cs/improvements.md), [TFT 프로젝트](tft/projects.md), [TFT 부서 인력요청](tft/staffing-requests.md), [플랫폼 인증](platform/auth.md), [플랫폼 평가 저장](platform/evaluations.md), [플랫폼 작업 접수](platform/jobs.md)을 참고한다. 역할·범위별 권한 행렬, C/S·TFT 업무 상태 전이와 화면별 행동은 [화면·상태·권한](platform/permissions.md)(KAN-57 설계 문서)을 참고한다. 제안이 포함돼 있으므로 확정·제안·미확정 구분은 해당 문서의 표기를 확인한다.
+기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [C/S 개선요청](cs/improvements.md), [C/S 집계](cs/stats.md), [TFT 프로젝트](tft/projects.md), [TFT 부서 인력요청](tft/staffing-requests.md), [플랫폼 인증](platform/auth.md), [플랫폼 평가 저장](platform/evaluations.md), [플랫폼 작업 접수](platform/jobs.md)을 참고한다. 역할·범위별 권한 행렬, C/S·TFT 업무 상태 전이와 화면별 행동은 [화면·상태·권한](platform/permissions.md)(KAN-57 설계 문서)을 참고한다. 제안이 포함돼 있으므로 확정·제안·미확정 구분은 해당 문서의 표기를 확인한다.
 
 ## 실제 API와 모의 응답
 
