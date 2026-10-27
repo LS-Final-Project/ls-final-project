@@ -10,7 +10,9 @@ from backend.shared.ai import Generation, Usage
 from eval.cs_metrics import (
     NO_PREDICTION,
     NO_SECONDARY,
+    NO_SUBTYPE,
     summarize_category_first_attempts,
+    summarize_return_subtype_first_attempts,
     summarize_secondary_first_attempts,
     summarize_urgency_first_attempts,
 )
@@ -18,7 +20,15 @@ from eval.cs_strata import summarize_first_attempts_by_group
 
 
 def synthetic_attempt(
-    category="RETURN", *, error=None, raw=None, number=1, held=False, urgency="NONE", secondary=None
+    category="RETURN",
+    *,
+    error=None,
+    raw=None,
+    number=1,
+    held=False,
+    urgency="NONE",
+    secondary=None,
+    return_subtype=None,
 ):
     """실제 모델 없이 기존 호출 함수의 정상·실패 결과를 만든다.
 
@@ -30,6 +40,7 @@ def synthetic_attempt(
         held: 빈 본문으로 입력 보류를 재현할지 여부.
         urgency: 합성 예측 긴급도.
         secondary: 합성 보조 분류 또는 의도 없음.
+        return_subtype: 합성 반품 하위유형 또는 null.
 
     Returns:
         ClassificationAttempt: 기존 호출 경계가 만든 시도 기록.
@@ -55,7 +66,7 @@ def synthetic_attempt(
                     "secondary_category": secondary,
                     "urgency_flag": urgency,
                     "provided_info": [],
-                    "return_subtype": None,
+                    "return_subtype": return_subtype,
                 }
             )
         )
@@ -590,3 +601,74 @@ def test_final_quality_empty_has_no_score(metric):
     assert (
         result["composite"]["macro_f1"] if metric == "secondary" else result["macro_f1"]
     ) is None
+
+
+def test_return_subtype_null_and_failures_are_separate_false_negatives():
+    """유효 null·실패·미실행을 서로 다른 열의 FN으로 손계산과 비교한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 2클래스 macro-F1과 null 예측 건수가 손계산과 같다.
+    """
+    gold = dict(zip("abcdef", ["DEFECT", "DEFECT", "DEFECT", "NON_DEFECT", "NON_DEFECT", "DEFECT"]))
+    attempts = {
+        "a": synthetic_attempt(return_subtype="DEFECT"),
+        "b": synthetic_attempt(return_subtype="NON_DEFECT"),
+        "c": synthetic_attempt(),
+        "d": synthetic_attempt(return_subtype="NON_DEFECT"),
+        "e": synthetic_attempt(error=TimeoutError()),
+    }
+    report = summarize_return_subtype_first_attempts(gold, attempts)
+    assert report["version"] == "cs-return-subtype-first-attempt-v1"
+    assert report["labels"] == ["DEFECT", "NON_DEFECT"]
+    assert report["total"] == 6 and report["correct"] == 2
+    # DEFECT: tp1 fp0 fn3 → 2/5, NON_DEFECT: tp1 fp1 fn1 → 1/2
+    assert report["macro_f1"] == pytest.approx((2 / 5 + 1 / 2) / 2)
+    assert report["null_predictions"] == 1
+    assert report["confusion_matrix"]["DEFECT"][NO_SUBTYPE] == 1
+    assert report["confusion_matrix"]["DEFECT"][NO_PREDICTION] == 1
+    assert report["confusion_matrix"]["NON_DEFECT"][NO_PREDICTION] == 1
+    assert report["outcomes"]["NOT_STARTED"] == 1 and report["outcomes"]["TIMEOUT"] == 1
+    cases = {r["case_id"]: r for r in report["cases"]}
+    assert cases["c"]["prediction"] is None and cases["c"]["outcome"] == "VALID"
+    assert not cases["c"]["correct"]
+    assert not report["quality_gate_evaluated"]
+
+
+@pytest.mark.parametrize(
+    "gold,attempts",
+    [
+        ({"a": None}, {}),
+        ({"a": NO_SUBTYPE}, {}),
+        ({"a": "RETURN"}, {}),
+        ({"a": "DEFECT"}, {"a": synthetic_attempt(number=2)}),
+        ({"a": "DEFECT"}, {"extra": synthetic_attempt()}),
+    ],
+)
+def test_return_subtype_rejects_null_gold_retry_or_extra_target(gold, attempts):
+    """미확인 null·내부 표식 정답과 최초 시도 경계 위반을 거부한다.
+
+    Args:
+        gold: 잘못된 합성 정답 또는 정상 정답.
+        attempts: 최초 시도 경계를 위반한 입력.
+
+    Returns:
+        None: 부분 집계 없이 안전한 오류로 거부한다.
+    """
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_return_subtype_first_attempts(gold, attempts)
+
+
+def test_return_subtype_empty_target_has_no_score():
+    """대상이 없으면 점수와 합격 판정을 만들지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: accuracy·macro-F1이 null이다.
+    """
+    report = summarize_return_subtype_first_attempts({}, {})
+    assert report["accuracy"] is None and report["macro_f1"] is None

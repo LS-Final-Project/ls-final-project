@@ -11,6 +11,8 @@ CATEGORY_LABELS: tuple[str, ...] = get_args(Category)
 URGENCY_LABELS: tuple[str, ...] = get_args(Urgency)
 CRITICAL_LABELS = ("SAFETY", "SITE_DOWN")
 NO_SECONDARY = "NO_SECONDARY"
+RETURN_SUBTYPE_LABELS = ("DEFECT", "NON_DEFECT")
+NO_SUBTYPE = "NO_SUBTYPE"
 NO_PREDICTION = "NO_PREDICTION"
 OUTCOMES = {"VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"}
 
@@ -172,6 +174,33 @@ def _summarize_secondary(
     return report
 
 
+def summarize_return_subtype_first_attempts(
+    gold: Mapping[str, str], attempts: Mapping[str, ClassificationAttempt]
+) -> dict:
+    """잠금된 반품 대상의 하위유형 최초 시도를 집계한다.
+
+    Args:
+        gold: 반품 대상 ID와 DEFECT/NON_DEFECT 정답. 판본·hash 인수는 호출자 책임이다.
+        attempts: 대상별 최초 시도. 없는 시도도 전체 분모에 남긴다.
+
+    Returns:
+        dict: 2클래스 P/R/F1·macro-F1과 유효 응답의 null 예측 건수. 유효 null은
+            NO_SUBTYPE, 실패·보류·미실행은 NO_PREDICTION 열로 구분하고 둘 다 FN이다.
+    """
+    report = _summarize_attempts(
+        gold,
+        attempts,
+        RETURN_SUBTYPE_LABELS,
+        "return_subtype",
+        "cs-return-subtype-first-attempt-v1",
+    )
+    report["null_predictions"] = sum(row[NO_SUBTYPE] for row in report["confusion_matrix"].values())
+    for case in report["cases"]:
+        if case["prediction"] == NO_SUBTYPE:
+            case["prediction"] = None
+    return report
+
+
 def summarize_final_attempts(
     gold: Mapping[str, str | None],
     attempts: Mapping[str, ClassificationAttempt],
@@ -210,7 +239,7 @@ def _summarize_attempts(
     gold: Mapping[str, str],
     attempts: Mapping[str, ClassificationAttempt],
     labels: tuple[str, ...],
-    field: Literal["category_code", "urgency_flag", "secondary_category"],
+    field: Literal["category_code", "urgency_flag", "secondary_category", "return_subtype"],
     version: str,
     *,
     final: bool = False,
@@ -233,7 +262,9 @@ def _summarize_attempts(
     ) or not set(attempts) <= set(gold):
         raise ValueError("CS_METRICS_INVALID_INPUT")
     missing_outcome = "NOT_FINAL" if final else "NOT_STARTED"
-    matrix = {label: dict.fromkeys((*labels, NO_PREDICTION), 0) for label in labels}
+    # 반품 하위유형의 유효 null은 실패와 다른 열에 두되 정답으로 인정하지 않는다.
+    predictable = (*labels, NO_SUBTYPE) if field == "return_subtype" else labels
+    matrix = {label: dict.fromkeys((*predictable, NO_PREDICTION), 0) for label in labels}
     outcomes: Counter[str] = Counter()
     cases = []
     for case_id, expected in gold.items():
@@ -255,7 +286,9 @@ def _summarize_attempts(
                 predicted = getattr(attempt.prediction, field)
                 if field == "secondary_category" and predicted is None:
                     predicted = NO_SECONDARY
-                if predicted not in labels:
+                if field == "return_subtype" and predicted is None:
+                    predicted = NO_SUBTYPE
+                if predicted not in predictable:
                     raise ValueError("CS_METRICS_INVALID_INPUT")
         matrix[expected][predicted] += 1
         outcomes[outcome] += 1

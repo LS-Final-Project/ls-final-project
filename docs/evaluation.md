@@ -169,6 +169,20 @@ per_class는 null 정답 행까지 포함하므로 composite.per_class와 분모
 않는다. 합격선/실제 정답 잠금 및 품질 합격 판정은 별도이며 자동 승인하지 않는다.
 
 
+### KAN-88 최초 반품 하위유형 집계
+
+`eval.cs_metrics.summarize_return_subtype_first_attempts(gold, attempts)`의 gold는 위 KAN-95
+잠금 판본의 반품 대상 ID→DEFECT/NON_DEFECT다. 정답 파일의 판본·hash 인수는 호출자 책임이며
+이 함수는 파일을 읽지 않는다. null·빈 값·내부 표식은 정답으로 허용하지 않고, 최초 시도 검사와
+실패 분모는 주분류와 같다. 두 클래스의 P/R/F1·macro-F1·정확 일치율을 반환한다.
+
+유효 응답의 null 예측은 행렬의 NO_SUBTYPE 열과 null_predictions, 실패·보류·미실행은
+NO_PREDICTION 열로 구분하며 둘 다 정답 클래스의 FN이다. 계약대로 반품의 null을 비불량으로
+간주하지 않는다. 비반품 대상의 null 정답은 잠기지 않았으므로 비반품에 하위유형을 만든 건수는
+이 집계에 없다. 정답 판본의 한계(독립 검증 아님)와 합격선 미정은 그대로이며
+quality_gate_evaluated는 false다. 저장 실행 보고서·화면 연결은 남아 있다.
+
+
 ### KAN-88 언어·채널별 최초 집계
 
 `eval.cs_strata.summarize_first_attempts_by_group(gold, attempts, metadata, metric=...)`는
