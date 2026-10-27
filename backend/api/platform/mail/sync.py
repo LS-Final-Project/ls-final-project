@@ -10,7 +10,7 @@
 import contextlib
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID, uuid4
 
 import httpx
@@ -31,6 +31,9 @@ from backend.api.platform.mail.storage import ObjectStore, StoredObject
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
+
+if TYPE_CHECKING:
+    from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
 
 Row = dict[str, Any]
 Conn = psycopg.AsyncConnection[Row]
@@ -78,7 +81,7 @@ class LeaseLost(Exception):
 
 
 class MailboxDisconnected(Exception):
-    """실행 중 연결이 해제되거나 재연결이 필요해졌다."""
+    """실행 중 연결이 해제됐다. 재연결 필요 여부는 토큰 제공자가 판단한다."""
 
 
 async def begin_run(conn: Conn, mailbox_id: UUID) -> tuple[UUID, UUID]:
@@ -92,19 +95,16 @@ async def begin_run(conn: Conn, mailbox_id: UUID) -> tuple[UUID, UUID]:
         tuple[UUID, UUID]: 새 실행 ID와 저장된 소유자 ID.
     """
     async with conn.transaction():
+        # 연결 표는 KAN-81 소유다. 수집은 소유자·연결 상태만 읽고 토큰 열은 읽지 않는다.
         cursor = await conn.execute(
-            "SELECT owner_user_id, connection_status FROM integration.mailboxes "
+            "SELECT owner_user_id, state FROM mailbox_auth.connections "
             "WHERE id=%s FOR NO KEY UPDATE",
             (mailbox_id,),
         )
         mailbox = await cursor.fetchone()
         if mailbox is None:
             raise ApplicationError(403, "MAILBOX_ACCESS_DENIED", "Mailbox access is not allowed.")
-        if mailbox["connection_status"] == "RECONNECT_REQUIRED":
-            raise ApplicationError(
-                409, "MAILBOX_RECONNECT_REQUIRED", "Mailbox reconnection is required."
-            )
-        if mailbox["connection_status"] != "CONNECTED":
+        if mailbox["state"] != "connected":
             raise ApplicationError(409, "MAILBOX_NOT_CONNECTED", "Mailbox is not connected.")
         await conn.execute(
             "UPDATE integration.mail_sync_runs SET status='FAILED', error_code='LEASE_EXPIRED', "
@@ -136,15 +136,15 @@ async def hold_run(conn: Conn, run_id: UUID) -> None:
     cursor = await conn.execute(
         "UPDATE integration.mail_sync_runs r "
         "SET lease_expires_at=now() + make_interval(secs => %s) "
-        "FROM integration.mailboxes m WHERE r.id=%s AND r.status='RUNNING' "
-        "AND m.id=r.mailbox_id RETURNING m.connection_status",
+        "FROM mailbox_auth.connections m WHERE r.id=%s AND r.status='RUNNING' "
+        "AND m.id=r.mailbox_id RETURNING m.state",
         (LEASE_SECONDS, run_id),
     )
     row = await cursor.fetchone()
     if row is None:
         raise LeaseLost
-    if row["connection_status"] != "CONNECTED":
-        raise MailboxDisconnected(row["connection_status"])
+    if row["state"] != "connected":
+        raise MailboxDisconnected
 
 
 async def finish_run(settings: Settings, result: SyncResult) -> None:
@@ -448,13 +448,8 @@ async def sync_mailbox(
         result.status, result.error_code = "FAILED", error.code
     except GraphError as error:
         result.status, result.error_code = "FAILED", error.code
-    except MailboxDisconnected as error:
-        result.status = "FAILED"
-        result.error_code = (
-            "MAILBOX_RECONNECT_REQUIRED"
-            if error.args == ("RECONNECT_REQUIRED",)
-            else "MAILBOX_NOT_CONNECTED"
-        )
+    except MailboxDisconnected:
+        result.status, result.error_code = "FAILED", "MAILBOX_NOT_CONNECTED"
     except LeaseLost:
         # 다른 실행이 이미 LEASE_EXPIRED로 기록했다.
         result.status, result.error_code = "FAILED", "LEASE_EXPIRED"
@@ -467,3 +462,10 @@ async def sync_mailbox(
         raise
     await finish_run(settings, result)
     return result
+
+
+if TYPE_CHECKING:
+
+    def _provider_fits(provider: MailboxTokenProvider) -> MailboxTokenGetter:
+        """KAN-81 토큰 제공자가 수집이 기대하는 호출 형태와 맞는지 mypy가 확인한다."""
+        return provider.get_mailbox_access_token

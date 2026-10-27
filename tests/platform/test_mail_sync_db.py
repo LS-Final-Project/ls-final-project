@@ -7,6 +7,7 @@
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 from urllib.parse import unquote
 from uuid import uuid4
@@ -22,7 +23,9 @@ from backend.api.platform.mail.sync import sync_mailbox
 from backend.shared.errors import ApplicationError
 
 TOKEN = "synthetic-mail-token"
-MIGRATION = Path("infra/migrations/platform/20261027_KAN-71_mail_sync.sql")
+MIGRATION = Path("infra/migrations/platform/20261028_KAN-71_mail_sync.sql")
+# Microsoft 개인 계정 테넌트. KAN-81 연결 표가 이 값만 허용한다.
+CONSUMER_TID = "9188040d-6c67-4c5b-b112-36a304b66dad"
 INBOX = initial_delta_url("inbox")
 SENT = initial_delta_url("sentitems")
 INBOX_PAGE_2 = f"{GRAPH_BASE}/me/mailFolders('inbox')/messages/delta?$skiptoken=p2"
@@ -32,31 +35,33 @@ SENT_DELTA = f"{GRAPH_BASE}/me/mailFolders('sentitems')/messages/delta?$deltatok
 
 
 @pytest.fixture(scope="session")
-def mail_database(auth_database):
-    """전용 검사 DB에 integration 스키마와 KAN-71 마이그레이션을 적용한다.
+def mail_database(mailbox_database):
+    """KAN-81 연결 표가 있는 전용 검사 DB에 integration 스키마와 KAN-71 마이그레이션을 적용한다.
 
     Args:
-        auth_database: 인증 마이그레이션이 적용된 전용 DB.
+        mailbox_database: KAN-81 보관 마이그레이션이 적용된 전용 DB.
 
     Returns:
         str: 관리자 연결 문자열.
     """
-    with psycopg.connect(auth_database, autocommit=True) as conn:
+    with psycopg.connect(mailbox_database, autocommit=True) as conn:
         conn.execute("CREATE SCHEMA IF NOT EXISTS integration AUTHORIZATION platform_migrator")
         conn.execute("GRANT USAGE ON SCHEMA integration TO platform_app")
         conn.execute(
             "ALTER DEFAULT PRIVILEGES FOR ROLE platform_migrator IN SCHEMA integration "
             "GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO platform_app"
         )
-        if conn.execute("SELECT to_regclass('integration.mailboxes')").fetchone()[0] is None:
+        if conn.execute("SELECT to_regclass('integration.mail_sync_runs')").fetchone()[0] is None:
             sql = MIGRATION.read_text()
             conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
-    return auth_database
+    return mailbox_database
 
 
 @pytest.fixture
 def mailbox(mail_database, registered_user):
-    """연결된 합성 사서함 하나를 만들고 검사 뒤 관련 행을 정리한다.
+    """KAN-81 연결 표에 연결된 합성 사서함 하나를 만들고 검사 뒤 관련 행을 정리한다.
+
+    캐시 칸은 형식만 맞춘 임의 바이트다. 토큰 함수가 가짜라서 복호화하지 않는다.
 
     Args:
         mail_database: 전용 검사 DB.
@@ -68,9 +73,10 @@ def mailbox(mail_database, registered_user):
     mailbox_id, owner = uuid4(), registered_user[1]
     with psycopg.connect(mail_database) as conn:
         conn.execute(
-            "INSERT INTO integration.mailboxes (id, owner_user_id, provider, data_origin, "
-            "connection_status) VALUES (%s, %s, 'microsoft_graph', 'synthetic', 'CONNECTED')",
-            (mailbox_id, owner),
+            "INSERT INTO mailbox_auth.connections (id, owner_user_id, subject_tid, subject_oid, "
+            "revision, state, key_version, cache_ciphertext) "
+            "VALUES (%s, %s, %s, %s, 1, 'connected', 'test-v1', %s)",
+            (mailbox_id, owner, CONSUMER_TID, uuid4(), os.urandom(64)),
         )
     yield {"id": mailbox_id, "owner": owner, "dsn": mail_database}
     with psycopg.connect(mail_database) as conn:
@@ -86,7 +92,7 @@ def mailbox(mail_database, registered_user):
                 ),
                 (mailbox_id,),
             )
-        conn.execute("DELETE FROM integration.mailboxes WHERE id=%s", (mailbox_id,))
+        conn.execute("DELETE FROM mailbox_auth.connections WHERE id=%s", (mailbox_id,))
 
 
 def message(graph_id, received, subject="Inquiry", attachments=False):
@@ -430,24 +436,29 @@ def test_concurrent_runs_do_not_both_start(settings, mailbox, tmp_path):
     ) == [(3,)]
 
 
-@pytest.mark.parametrize(
-    ("status", "code"),
-    [
-        ("PENDING", "MAILBOX_NOT_CONNECTED"),
-        ("DISCONNECTED", "MAILBOX_NOT_CONNECTED"),
-        ("RECONNECT_REQUIRED", "MAILBOX_RECONNECT_REQUIRED"),
-    ],
-)
-def test_unconnected_mailboxes_are_not_synced(settings, mailbox, tmp_path, status, code):
+def disconnect(mailbox):
+    """KAN-81의 연결 해제와 같은 상태로 바꾼다.
+
+    Args:
+        mailbox: 합성 사서함.
+
+    Returns:
+        None.
+    """
     with psycopg.connect(mailbox["dsn"]) as conn:
         conn.execute(
-            "UPDATE integration.mailboxes SET connection_status=%s WHERE id=%s",
-            (status, mailbox["id"]),
+            "UPDATE mailbox_auth.connections SET state='disconnected', cache_ciphertext=NULL "
+            "WHERE id=%s",
+            (mailbox["id"],),
         )
+
+
+def test_disconnected_mailboxes_are_not_synced(settings, mailbox, tmp_path):
+    disconnect(mailbox)
     get_token = token_getter()
     with pytest.raises(ApplicationError) as error:
         run(settings, mailbox, FakeGraph(), LocalObjectStore(tmp_path), get_token)
-    assert (error.value.status_code, error.value.code) == (409, code)
+    assert (error.value.status_code, error.value.code) == (409, "MAILBOX_NOT_CONNECTED")
     assert get_token.calls == []
 
 
@@ -528,11 +539,7 @@ def test_disconnect_during_sync_stops_writing(settings, mailbox, tmp_path):
     def disconnect_after_first_page(request):
         response = original(request)
         if str(request.url) == str(httpx.URL(INBOX_PAGE_2)):
-            with psycopg.connect(mailbox["dsn"]) as conn:
-                conn.execute(
-                    "UPDATE integration.mailboxes SET connection_status='DISCONNECTED' WHERE id=%s",
-                    (mailbox["id"],),
-                )
+            disconnect(mailbox)
         return response
 
     graph.handler = disconnect_after_first_page
