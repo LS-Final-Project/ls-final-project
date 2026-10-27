@@ -144,23 +144,30 @@ test('파일명은 서버가 확인한 두 run_id 앞 8자리와 날짜로만 �
     .toBe(`run-comparison-33333333-${candidate.run_id.slice(0, 8)}-2026-10-28.csv`);
 });
 
-test('CSV 저장은 앵커를 클릭 동안만 문서에 붙이고 바로 떼며 URL은 즉시 해제하지 않는다', async () => {
+test('CSV 저장은 앵커를 클릭 동안만 문서에 붙이고 바로 떼며 URL은 1초 뒤에 해제한다', async () => {
   const created = vi.fn(() => 'blob:comparison');
   const revoked = vi.fn();
   const original = { createObjectURL: URL.createObjectURL, revokeObjectURL: URL.revokeObjectURL };
-  Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked });
   const attached: boolean[] = [];
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
     attached.push(document.body.contains(this));
   });
-  compare(pair());
-  fireEvent.click(await screen.findByRole('button', { name: 'CSV 저장' }));
-  expect(created).toHaveBeenCalledTimes(1);
-  expect(attached).toEqual([true]);
-  expect(document.body.querySelector('a[download]')).toBeNull();
-  expect(revoked).not.toHaveBeenCalled();
-  await new Promise(done => setTimeout(done, 1100));
-  expect(revoked).toHaveBeenCalledWith('blob:comparison');
-  click.mockRestore();
-  Object.assign(URL, original);
+  Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked });
+  try {
+    compare(pair());
+    const button = await screen.findByRole('button', { name: 'CSV 저장' });
+    vi.useFakeTimers();
+    fireEvent.click(button);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(attached).toEqual([true]);
+    expect(document.body.querySelector('a[download]')).toBeNull();
+    vi.advanceTimersByTime(999);
+    expect(revoked).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(revoked).toHaveBeenCalledWith('blob:comparison');
+  } finally {
+    vi.useRealTimers();
+    click.mockRestore();
+    Object.assign(URL, original);
+  }
 });
