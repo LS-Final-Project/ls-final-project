@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.classification_call import ClassificationAttempt
-from eval.cs_metrics import OUTCOMES
+from eval.cs_metrics import OUTCOMES, summarize_final_attempts
 from eval.cs_strata import Metric, summarize_first_attempts_by_group
 
 
@@ -165,84 +165,70 @@ def compare_stored_attempts(
         metric: category/urgency/secondary 중 비교할 지표.
 
     Returns:
-        dict: 최초 집계와 별도 최종 정확도·전이 건수·사례별 시도 번호.
+        dict: 최초 집계와 별도 최종 품질 지표·전이 건수·사례별 시도 번호.
             최종 미표시를 추정하지 않으며 모순된 저장은 안전한 오류로 거부한다.
     """
     rows = _read_snapshot(conn, run_id, compare_final=True)
     first = _summarize_snapshot(rows, run_id, gold, gold_version=gold_version, metric=metric)
     first_cases = {case["case_id"]: case for case in first["report"]["overall"]["cases"]}
-    field = {
-        "category": "category_code",
-        "urgency": "urgency_flag",
-        "secondary": "secondary_category",
-    }[metric]
+    final_attempts = {}
+    for row in rows:
+        if row["final_id"] is None:
+            continue
+        if (
+            row["attempt_id"] is None
+            or row["final_attempt"] != row["last_attempt"]
+            or row["final_finished_at"] is None
+            or row["final_outcome"] not in OUTCOMES
+            or (row["final_outcome"] == "VALID") != (row["final_output"] is not None)
+        ):
+            raise ValueError("CS_STORED_COMPARISON_INVALID_INPUT")
+        try:
+            output = (
+                ClassificationOutput.model_validate(row["final_output"])
+                if row["final_output"] is not None
+                else None
+            )
+        except ValidationError:
+            raise ValueError("CS_STORED_COMPARISON_INVALID_INPUT") from None
+        final_attempts[row["target_ref"]] = ClassificationAttempt(
+            attempt_number=row["final_attempt"], outcome=row["final_outcome"], prediction=output
+        )
+    final = summarize_final_attempts(gold, final_attempts, metric=metric)
     transitions = dict.fromkeys(
         ("RECOVERED", "REGRESSED", "STILL_CORRECT", "STILL_INCORRECT", "FINAL_PENDING"), 0
     )
-    outcomes = dict.fromkeys(sorted(OUTCOMES | {"NOT_FINAL"}), 0)
     cases = []
-    correct = 0
-    for row in rows:
-        target = row["target_ref"]
-        if target is None:
-            continue
-        initial = first_cases[target]
-        prediction = None
-        final_correct = False
-        outcome = "NOT_FINAL"
-        transition = "FINAL_PENDING"
-        if row["final_id"] is not None:
-            if (
-                row["attempt_id"] is None
-                or row["final_attempt"] != row["last_attempt"]
-                or row["final_finished_at"] is None
-                or row["final_outcome"] not in OUTCOMES
-                or (row["final_outcome"] == "VALID") != (row["final_output"] is not None)
-            ):
-                raise ValueError("CS_STORED_COMPARISON_INVALID_INPUT")
-            outcome = row["final_outcome"]
-            if row["final_output"] is not None:
-                try:
-                    output = ClassificationOutput.model_validate(row["final_output"])
-                except ValidationError:
-                    raise ValueError("CS_STORED_COMPARISON_INVALID_INPUT") from None
-                prediction = getattr(output, field)
-                final_correct = prediction == gold[target]
-            transition = (
-                "STILL_CORRECT"
-                if initial["correct"] and final_correct
-                else "REGRESSED"
-                if initial["correct"]
-                else "RECOVERED"
-                if final_correct
-                else "STILL_INCORRECT"
-            )
+    for case in final["cases"]:
+        initial = first_cases[case["case_id"]]
+        transition = (
+            "FINAL_PENDING"
+            if case["outcome"] == "NOT_FINAL"
+            else "STILL_CORRECT"
+            if initial["correct"] and case["correct"]
+            else "REGRESSED"
+            if initial["correct"]
+            else "RECOVERED"
+            if case["correct"]
+            else "STILL_INCORRECT"
+        )
         transitions[transition] += 1
-        outcomes[outcome] += 1
-        correct += final_correct
         cases.append(
             {
-                "case_id": target,
+                "case_id": case["case_id"],
                 "first_correct": initial["correct"],
-                "final_attempt_number": row["final_attempt"],
-                "final_outcome": outcome,
-                "final_prediction": prediction,
-                "final_correct": final_correct,
+                "final_attempt_number": case["attempt_number"],
+                "final_outcome": case["outcome"],
+                "final_prediction": case["prediction"],
+                "final_correct": case["correct"],
                 "transition": transition,
             }
         )
-    total = len(gold)
     return {
-        "version": "cs-stored-attempt-comparison-v1",
+        "version": "cs-stored-attempt-comparison-v2",
         "quality_gate_evaluated": False,
         "first": first,
-        "final": {
-            "selection": "is_final",
-            "total": total,
-            "correct": correct,
-            "accuracy": correct / total if total else None,
-            "outcomes": outcomes,
-        },
+        "final": final,
         "transitions": transitions,
         "cases": cases,
     }

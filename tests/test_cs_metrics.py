@@ -505,3 +505,88 @@ def test_strata_validate_before_filtering_and_handle_empty_targets():
     assert report["overall"]["accuracy"] is None
     assert report["groups"] == {"channel": {}, "body_language": {}, "phone": {}}
     assert report["missing_metadata"] == {"channel": 0, "body_language": 0}
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary"])
+def test_final_quality_keeps_attempt_numbers_and_missing_denominator(metric):
+    """최종 시도의 고정 분모·위험 누락·null 실패를 손계산과 대조한다.
+
+    Args:
+        metric: 검증할 세 분류 지표.
+
+    Returns:
+        None: 최초 함수를 우회하지 않고 최종 번호와 미확정을 보존함을 확인한다.
+    """
+    from eval.cs_metrics import summarize_final_attempts
+
+    gold = dict.fromkeys(("a", "b", "c", "d"), "RETURN" if metric == "category" else "SAFETY")
+    if metric == "secondary":
+        gold = {"a": None, "b": "DEFECT", "c": None, "d": "DEFECT"}
+    attempts = {
+        "a": synthetic_attempt(number=3, urgency="SAFETY"),
+        "b": synthetic_attempt("INSTALL", number=2, urgency="SITE_DOWN", secondary="WARRANTY"),
+        "c": synthetic_attempt(number=4, error=TimeoutError()),
+    }
+    result = summarize_final_attempts(gold, attempts, metric=metric)
+    assert result["selection"] == "is_final" and "attempt_number" not in result
+    assert result["version"] == f"cs-{metric}-final-attempt-v1"
+    assert result["total"] == 4 and result["correct"] == 1 and result["accuracy"] == 0.25
+    assert result["outcomes"]["NOT_FINAL"] == result["outcomes"]["TIMEOUT"] == 1
+    assert "NOT_STARTED" not in result["outcomes"]
+    assert [case["attempt_number"] for case in result["cases"]] == [3, 2, 4, None]
+    if metric == "category":
+        assert result["macro_f1"] == pytest.approx(0.4 / 10)
+        assert result["per_class"]["RETURN"]["fn"] == 3
+    elif metric == "urgency":
+        assert result["macro_f1"] == pytest.approx(0.4 / 6)
+        assert result["critical"]["missed"] == 2
+        assert result["critical"]["safety_as_site_down"] == 1
+        assert result["non_none"]["recall"] == 0.5
+    else:
+        assert "macro_f1" not in result
+        assert result["composite"]["support"] == 2 and result["composite"]["macro_f1"] == 0
+        assert result["absent"] == {"support": 2, "invented": 0}
+        assert result["cases"][2]["correct"] is False
+    first_function = {
+        "category": summarize_category_first_attempts,
+        "urgency": summarize_urgency_first_attempts,
+        "secondary": summarize_secondary_first_attempts,
+    }[metric]
+    with pytest.raises(ValueError, match="CS_METRICS_INVALID_INPUT"):
+        first_function(gold, attempts)
+
+
+@pytest.mark.parametrize("number", [0, -1, True, 2.5])
+def test_final_quality_rejects_invalid_attempt_number(number):
+    """최종 입력에서도 양의 정수 시도 번호만 허용한다.
+
+    Args:
+        number: 부정확한 시도 번호.
+
+    Returns:
+        None: 최초/최종 경계의 입력 검증을 확인한다.
+    """
+    from eval.cs_metrics import summarize_final_attempts
+
+    attempt = replace(synthetic_attempt(), attempt_number=number)
+    with pytest.raises(ValueError, match="CS_METRICS_INVALID_INPUT"):
+        summarize_final_attempts({"a": "RETURN"}, {"a": attempt}, metric="category")
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary"])
+def test_final_quality_empty_has_no_score(metric):
+    """최종 평가 대상0을 합격 점수로 만들지 않는다.
+
+    Args:
+        metric: 비교 지표.
+
+    Returns:
+        None: 빈 대상의 null 점수와 빈 사례 목록을 확인한다.
+    """
+    from eval.cs_metrics import summarize_final_attempts
+
+    result = summarize_final_attempts({}, {}, metric=metric)
+    assert result["accuracy"] is None and result["cases"] == []
+    assert (
+        result["composite"]["macro_f1"] if metric == "secondary" else result["macro_f1"]
+    ) is None

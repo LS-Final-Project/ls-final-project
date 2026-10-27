@@ -561,6 +561,19 @@ def test_stored_attempt_comparison_keeps_first_and_counts_transitions(
     assert compared["final"]["correct"] == 1
     assert compared["final"]["accuracy"] == pytest.approx(1 / 3)
     assert compared["final"]["outcomes"]["NOT_FINAL"] == 1
+    assert compared["version"] == "cs-stored-attempt-comparison-v2"
+    final_quality = compared["final"]
+    assert final_quality["selection"] == "is_final"
+    assert [case["attempt_number"] for case in final_quality["cases"]].count(2) == 2
+    if metric == "category":
+        assert final_quality["macro_f1"] == pytest.approx(0.5 / 10)
+    elif metric == "urgency":
+        assert final_quality["macro_f1"] == pytest.approx(0.5 / 6)
+        assert final_quality["critical"]["support"] == 0
+        assert final_quality["non_none"]["recall"] is None
+    else:
+        assert final_quality["composite"]["macro_f1"] is None
+        assert final_quality["absent"]["invented"] == (0 if final_failure else 1)
     assert compared["transitions"] == {
         "RECOVERED": 1,
         "REGRESSED": 1,
