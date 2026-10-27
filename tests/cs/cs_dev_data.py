@@ -1,9 +1,8 @@
 """Guarded loaders for the C/S development data (docs/data-contract.md, KAN-83 인수 조건).
 
-The integrated tickets file contains the test split, so it is never parsed here. A data
-manager provides physically split train/valid files and a manifest. Each file's SHA-256 is
-compared with the manifest before a single row is parsed, and a manifest that lists the test
-split is refused.
+관리자가 물리적으로 분리한 개발 파일과 검수 manifest를 제공해야 한다. hash는 무결성
+검사이며 분리 승인이 아니다. 잘못 승인된 파일의 시험 행은 파싱 후 거부하므로 시험
+비접근을 보장하지 않는다. 이 로더는 원본을 분리하거나 사람의 승인을 대신하지 않는다.
 
 Manifest (JSON, paths relative to the manifest):
 
@@ -59,6 +58,14 @@ def has_entry(manifest_path: Path, name: str) -> bool:
 
 
 def load_dev_tickets(manifest_path: Path) -> list[dict[str, str]]:
+    """개발 문의의 split·건수·ID 유일성과 CSV 구조를 검증한다.
+
+    Args:
+        manifest_path: 관리자가 검수한 개발 파일 목록 경로.
+
+    Returns:
+        list: 인수 검사를 통과한 개발 문의 행.
+    """
     data, entry = _entry(manifest_path, "tickets")
     splits = set(entry.get("splits", []))
     if not splits or not splits <= DEV_SPLITS:
@@ -66,6 +73,16 @@ def load_dev_tickets(manifest_path: Path) -> list[dict[str, str]]:
     fields, rows = _rows(data)
     if "data_split" not in fields:
         raise DevDataError("The tickets file has no data_split column")
+    if "ticket_id" not in fields or len(fields) != len(set(fields)) or not all(fields):
+        raise DevDataError("CS_DEV_ROWS_INVALID")
+    seen = set()
+    for row in rows:
+        if None in row or any(value is None for value in row.values()):
+            raise DevDataError("CS_DEV_ROWS_INVALID")
+        ticket_id = row["ticket_id"]
+        if not ticket_id or ticket_id != ticket_id.strip() or ticket_id in seen:
+            raise DevDataError("CS_DEV_ROWS_INVALID")
+        seen.add(ticket_id)
     outside = {row["data_split"] for row in rows} - splits
     if outside:
         raise DevDataError(f"The tickets file holds rows from {sorted(outside)}")

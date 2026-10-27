@@ -1,8 +1,8 @@
 """KAN-104: the rules reproduce the provided policy results (docs/evaluation.md 16~17행).
 
 Runs only when CS_DEV_MANIFEST names a manifest for physically split train/valid files
-(cs_dev_data.py). The integrated tickets file holds the test split, so it is never parsed:
-each file's hash is checked against the manifest first, and test rows are refused.
+(cs_dev_data.py). The manager must approve physical separation first. Hashes check integrity, not approval:
+a wrongly approved file containing test rows is parsed before rejection.
 
 Priority uses records with priority_adjusted_by_agent=N, as the target 1.000 requires.
 Department reproduction for returns needs the reviewed return subtype (KAN-95). Until it
