@@ -602,7 +602,9 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
   증가시킨다. 이후 조회·갱신은 `MAILBOX_NOT_CONNECTED`다. `reconnect_mailbox()`는 새 OAuth
   인계와 현재 세션·기대 개정을 검사해 새 암호문과 개정을 저장한다. 이전 갱신 결과가 새 연결을
   덮어쓸 수 없다. 명시적 해제/재연결을 구현한 것이며 외부 철회 자동 탐지나 이미 반환한 access
-  token의 즉시 무효화, 메모리·백업에서의 물리적 제거까지 보장하지 않는다.
+  token의 즉시 무효화, 메모리·백업에서의 물리적 제거까지 보장하지 않는다. 해제·재연결 모두
+  연결 행은 삭제하지 않고 같은 ID에서 `state='disconnected'`/`'connected'`로만 바꾼다(KAN-71
+  수집 표의 `mailbox_id` FK 보장).
 
 `StoredMailbox`와 캐시는 repr에 내용을 표시하지 않는 보관 전용 메모리 값이다. 캐시로
 기존 MSAL 조회·갱신을 수행할 수 있지만 이 계층은 Graph를 호출하지 않는다. KAN-71에
@@ -652,7 +654,7 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 | `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
 | `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
 | `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303 |
-| `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님 |
+| `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님. 연결 행은 삭제하지 않고 `state='disconnected'`로 유지(KAN-71 FK 보장) |
 
 시작은 별도 `__Host-team4_mailbox_oauth` 쿠키(5분·Secure·HttpOnly·SameSite=Lax·Path=/)를
 설정한다. 로그인 결속 쿠키와 구분하며 원문 세션·해시·캐시·토큰을 복사하지 않는다. 성공
