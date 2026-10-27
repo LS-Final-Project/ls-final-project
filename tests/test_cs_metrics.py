@@ -7,10 +7,16 @@ import pytest
 
 from backend.engine.cs.classification_call import run_classification_attempt
 from backend.shared.ai import Generation, Usage
-from eval.cs_metrics import NO_PREDICTION, summarize_category_first_attempts
+from eval.cs_metrics import (
+    NO_PREDICTION,
+    summarize_category_first_attempts,
+    summarize_urgency_first_attempts,
+)
 
 
-def synthetic_attempt(category="RETURN", *, error=None, raw=None, number=1, held=False):
+def synthetic_attempt(
+    category="RETURN", *, error=None, raw=None, number=1, held=False, urgency="NONE"
+):
     """실제 모델 없이 기존 호출 함수의 정상·실패 결과를 만든다.
 
     Args:
@@ -19,6 +25,7 @@ def synthetic_attempt(category="RETURN", *, error=None, raw=None, number=1, held
         raw: 스키마 실패 재현용 응답.
         number: 호출 시도 번호.
         held: 빈 본문으로 입력 보류를 재현할지 여부.
+        urgency: 합성 예측 긴급도.
 
     Returns:
         ClassificationAttempt: 기존 호출 경계가 만든 시도 기록.
@@ -42,7 +49,7 @@ def synthetic_attempt(category="RETURN", *, error=None, raw=None, number=1, held
                 {
                     "category_code": category,
                     "secondary_category": None,
-                    "urgency_flag": "NONE",
+                    "urgency_flag": urgency,
                     "provided_info": [],
                     "return_subtype": None,
                 }
@@ -169,3 +176,119 @@ def test_empty_target_has_no_quality_score():
     assert report["total"] == 0
     assert report["accuracy"] is None and report["macro_f1"] is None
     assert not report["quality_gate_evaluated"]
+
+
+def test_urgency_confusion_is_distinct_from_critical_misses():
+    """위험 유형 혼동·누락·비NONE 재현율을 손계산과 대조한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 실패를 포함한 분모와 6클래스 평균을 확인한다.
+    """
+    gold = dict(
+        zip(
+            "abcdefgh",
+            [
+                "SAFETY",
+                "SAFETY",
+                "SITE_DOWN",
+                "SITE_DOWN",
+                "PROD_IMPACT",
+                "NONE",
+                "NONE",
+                "COMMISSION",
+            ],
+        )
+    )
+    attempts = {
+        "a": synthetic_attempt(urgency="SITE_DOWN"),
+        "b": synthetic_attempt(urgency="NONE"),
+        "c": synthetic_attempt(urgency="SAFETY"),
+        "d": synthetic_attempt(error=TimeoutError()),
+        "e": synthetic_attempt(urgency="DEADLINE"),
+        "f": synthetic_attempt(),
+        "g": synthetic_attempt(urgency="SAFETY"),
+    }
+    report = summarize_urgency_first_attempts(gold, attempts)
+    assert report["total"] == 8
+    assert report["accuracy"] == 1 / 8
+    assert report["macro_f1"] == pytest.approx(1 / 12)
+    assert len(report["labels"]) == 6
+    assert report["non_none"] == {"support": 6, "detected": 3, "recall": 0.5}
+    assert report["critical"] == {
+        "support": 4,
+        "missed": 2,
+        "by_gold": {
+            "SAFETY": {"support": 2, "missed": 1},
+            "SITE_DOWN": {"support": 2, "missed": 1},
+        },
+        "safety_as_site_down": 1,
+        "site_down_as_safety": 1,
+    }
+    assert [r["case_id"] for r in report["cases"] if r["critical_missed"]] == ["b", "d"]
+    assert report["confusion_matrix"]["COMMISSION"][NO_PREDICTION] == 1
+    assert report["per_class"]["SAFETY"]["fn"] == 2
+    assert report["per_class"]["DEADLINE"]["support"] == 0
+    assert not report["quality_gate_evaluated"]
+
+
+@pytest.mark.parametrize("kwargs", [{"held": True}, {"raw": "BAD"}, {"error": RuntimeError()}])
+def test_failed_critical_cases_remain_missed(kwargs):
+    """각 실패 상태의 위험 사례를 무누락으로 집계하지 않는다.
+
+    Args:
+        kwargs: 기존 호출 경계에 전달할 합성 실패 설정.
+
+    Returns:
+        None: CRITICAL 누락 및 비NONE 재현율 실패를 확인한다.
+    """
+    report = summarize_urgency_first_attempts({"a": "SAFETY"}, {"a": synthetic_attempt(**kwargs)})
+    assert report["critical"]["missed"] == 1
+    assert report["non_none"]["recall"] == 0
+
+
+def test_urgency_no_positive_target_is_not_perfect_recall():
+    """비NONE 대상이 없는 경우 재현율을 100%로 만들지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 대상0과 미실행·기타 긴급도 예측의 경계를 확인한다.
+    """
+    for gold, attempts in [({}, {}), ({"a": "NONE"}, {"a": synthetic_attempt()})]:
+        report = summarize_urgency_first_attempts(gold, attempts)
+        assert report["non_none"] == {"support": 0, "detected": 0, "recall": None}
+        assert report["critical"]["support"] == 0
+        assert not report["quality_gate_evaluated"]
+    report = summarize_urgency_first_attempts({"a": "SAFETY"}, {})
+    assert report["critical"]["missed"] == 1
+    report = summarize_urgency_first_attempts(
+        {"a": "SAFETY"}, {"a": synthetic_attempt(urgency="PROD_IMPACT")}
+    )
+    assert report["critical"]["missed"] == 1
+    assert report["non_none"]["recall"] == 1
+
+
+@pytest.mark.parametrize(
+    "gold,attempts",
+    [
+        ({"a": "RETURN"}, {}),
+        ({"a": "SAFETY"}, {"a": synthetic_attempt(number=2)}),
+        ({"a": "SAFETY"}, {"extra": synthetic_attempt()}),
+    ],
+)
+def test_urgency_rejects_wrong_gold_retry_or_extra_target(gold, attempts):
+    """긴급도에도 최초 시도 및 고정 대상 검사를 동일하게 적용한다.
+
+    Args:
+        gold: 합성 대상 정답.
+        attempts: 잘못된 합성 시도 집합.
+
+    Returns:
+        None: 부분 집계 없이 안전한 오류로 거부한다.
+    """
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_urgency_first_attempts(gold, attempts)

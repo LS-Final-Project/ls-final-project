@@ -99,5 +99,20 @@ accuracy/macro_f1은 null이며 합격 판정을 만들지 않는다. 비어 있
 
 반환 사례 기록은 ID·정답/예측 코드·상태·정오이며 원시 응답·오류 원문·토큰을 포함하지
 않는다. 이 집계의 quality_gate_evaluated는 항상 false다. 이번 검증은 합성 사례의 계산
-회귀이며 실제 품질 합격 근거가 아니다. 긴급도/보조 분류, 채널·언어별 집계, 최초/최종
+회귀이며 실제 품질 합격 근거가 아니다. 보조 분류, 채널·언어별 집계, 최초/최종
 비교, 지연·사용량·비용·퇴행, 실제 DB/화면 연결과 잠긴 정답 인수는 남아 있다.
+
+
+### KAN-88 최초 긴급도·위험 누락 집계
+
+`eval.cs_metrics.summarize_urgency_first_attempts(gold, attempts)`는 같은 최초 시도 계약으로
+긴급도 6클래스의 P/R/F1·macro-F1·정오·혼동행렬을 계산한다. 비NONE의 support는 gold가
+NONE이 아닌 전체 대상이며, detected는 이 중 유효 예측도 NONE이 아닌 수다. 실패·보류·
+미실행은 detected에 포함하지 않는다. support=0이면 비NONE recall은 null이다.
+
+CRITICAL은 gold SAFETY/SITE_DOWN 전체와 유형별 support/missed를 함께 반환한다.
+SAFETY↔SITE_DOWN 혼동은 일반 긴급도 오분류로 계산하지만 CRITICAL 누락은 아니며,
+두 방향의 혼동 수를 별도로 기록한다. 다른 비NONE 긴급도로 예측한 경우 비NONE 탐지는
+성공이어도 CRITICAL 누락이다. 사례별 critical_missed로 누락 대상을 찾을 수 있다.
+CRITICAL support=0/missed=0은 위험 누락 검증 성공을 뜻하지 않는다. 합격 판정은 여전히
+수행하지 않으며 실제 정답·모델·DB·화면 연결을 완료한 결과로 사용하지 않는다.
