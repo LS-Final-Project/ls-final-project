@@ -13,3 +13,20 @@ test('페이지 정렬은 현재 받은 목록에 적용한다',async()=>{vi.stu
 test('다음 커서를 인코딩해 전달하고 이전 페이지로 돌아간다',async()=>{const f=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,{data:String(url).includes('cursor=')?{items:[{...items[0],subject:'다음 문의'}],next_cursor:null}:{items,next_cursor:'abc+/='}}));vi.stubGlobal('fetch',f);view();await screen.findByRole('link',{name:'Alpha'});fireEvent.click(screen.getByRole('button',{name:'다음 페이지'}));await screen.findByRole('link',{name:'다음 문의'});expect(f.mock.calls.some(([url])=>String(url).includes('cursor=abc%2B%2F%3D'))).toBe(true);fireEvent.click(screen.getByRole('button',{name:'이전 페이지'}));await screen.findByRole('link',{name:'Beta'});});
 test('갱신 권한 거부는 이전 데이터를 숨긴다',async()=>{let calls=0;vi.stubGlobal('fetch',vi.fn(async()=>++calls===1?jsonResponse(200,{data:{items,next_cursor:null}}):jsonResponse(403,errorBody('FORBIDDEN','회수'))));view();await screen.findByRole('link',{name:'Alpha'});fireEvent.click(screen.getByRole('button',{name:'최신 상태 조회'}));await screen.findByText('권한이 없습니다');await waitFor(()=>expect(screen.queryByRole('link',{name:'Alpha'})).toBeNull());});
 test('원문과 언어를 표시하고 AI 분석을 만들어내지 않는다',async()=>{const source=examples.find(x=>x.path==='/api/v1/cs/tickets/22222222-2222-4222-8222-222222222222')!;vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,source.body)));setApiMode('live');renderAt('/cs/tickets/x','/cs/tickets/:ticketId',<TicketDetail/>);await screen.findByRole('heading',{name:'본문'});expect(screen.getByText('tr')).toBeTruthy();expect(screen.getByText(/AI 분류·담당자 수정 결과는 아직 연결되지/)).toBeTruthy();});
+
+test('제품 필터를 채널과 결합하고 페이지 이동 뒤에도 유지하며 초기화한다',async()=>{
+  const f=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,{data:String(url).includes('cursor=')?{items:[{...items[0],id:'c',subject:'Gamma'}],next_cursor:null}:{items,next_cursor:'next'}}));
+  vi.stubGlobal('fetch',f);view();await screen.findByRole('link',{name:'Alpha'});
+  fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'P2'}});
+  expect(screen.queryByRole('link',{name:'Alpha'})).toBeNull();expect(screen.getByRole('link',{name:'Beta'})).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('접수 채널'),{target:{value:'EMAIL'}});
+  expect(screen.getByText('현재 페이지에서 조건에 맞는 문의가 없습니다.')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('접수 채널'),{target:{value:''}});
+  fireEvent.click(screen.getByRole('button',{name:'다음 페이지'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'다음 페이지'}).hasAttribute('disabled')).toBe(true));
+  expect((screen.getByLabelText('제품 코드') as HTMLSelectElement).value).toBe('P2');
+  expect(screen.queryByRole('link',{name:'Gamma'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'필터 초기화'}));await screen.findByRole('link',{name:'Gamma'});
+  expect((screen.getByLabelText('제품 코드') as HTMLSelectElement).value).toBe('');
+  fireEvent.click(screen.getByRole('button',{name:'이전 페이지'}));await screen.findByRole('link',{name:'Alpha'});
+});
