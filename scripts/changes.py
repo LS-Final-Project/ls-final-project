@@ -25,6 +25,13 @@ def classify(paths: list[str]) -> dict:
     for path in paths:
         if path.startswith(("data/", ".env")):
             continue
+        # 협업 도구와 워크플로는 문서 확장자라도 자동화 회귀를 실행한다.
+        if path.startswith(("scripts/", ".github/")):
+            infrastructure = True
+        if path.startswith("backend/engine/cs/"):
+            release.add("cs")
+            evaluation = True
+            continue
         if path.startswith("docs/openapi/"):
             service = Path(path).stem
             if service in BACKENDS:
@@ -58,6 +65,8 @@ def classify(paths: list[str]) -> dict:
             contracts.update(BACKENDS)
             frontend = True
             evaluation = True
+            if path in {"pyproject.toml", "uv.lock"}:
+                infrastructure = True
         elif path.startswith(("eval/", "tests/eval/")) or path == "tests/test_eval_smoke.py":
             evaluation = True
         elif path.startswith("tests/"):

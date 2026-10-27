@@ -7,13 +7,12 @@ from uuid import UUID
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from backend.shared.departments import CS_DEPARTMENT as CS_DEPARTMENT
 from backend.shared.service_auth import CALLER_HEADER
 
 Role = Literal["cs_agent", "dept_staff", "manager", "sales"]
 
 PRINCIPAL_HEADER = "X-Team4-Principal"
-# Department code of the C/S department in identity.departments.
-CS_DEPARTMENT = "GCS_L1"
 
 
 class Principal(BaseModel):

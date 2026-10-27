@@ -73,6 +73,9 @@ def business_database(auth_database):
         for filename in (
             "cs/20261022_KAN-102_tickets.sql",
             "cs/20261023_KAN-102_ticket_audit.sql",
+            "cs/20261027_KAN-102_installed_units.sql",
+            "cs/20261027_KAN-108_ticket_workflow.sql",
+            "cs/20261028_KAN-108_resolution_cases.sql",
             "tft/20261023_KAN-119_projects.sql",
             "tft/20261023_KAN-122_staffing_requests.sql",
             "tft/20261025_KAN-123_recommendation_commands.sql",
