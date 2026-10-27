@@ -367,6 +367,27 @@ async def save_mailbox_update(
         return value
 
 
+async def list_mailboxes(settings: Settings, *, owner_user_id: UUID) -> list[dict[str, Any]]:
+    """소유자의 연결 상태만 조회한다. 암호문·Microsoft 식별자·키 버전은 읽지 않는다.
+
+    Args:
+        settings: 플랫폼 런타임 DB 설정.
+        owner_user_id: HTTP 경계가 현재 세션으로 확인한 서비스 사용자 ID.
+
+    Returns:
+        list[dict[str, Any]]: 최근 변경 순의 mailbox_id·state·revision·updated_at 행.
+    """
+    async with _vault_connection(settings) as conn:
+        # ponytail: 상한·페이지 없이 전부 반환한다. 사용자당 연결은 소수라는 가정이며,
+        # 늘어나면 limit과 (updated_at, id) 커서 페이지를 추가한다.
+        cursor = await conn.execute(
+            "SELECT id AS mailbox_id,state,revision,updated_at FROM mailbox_auth.connections "
+            "WHERE owner_user_id=%s ORDER BY updated_at DESC, id",
+            (owner_user_id,),
+        )
+        return await cursor.fetchall()
+
+
 async def disconnect_mailbox(settings: Settings, *, mailbox_id: UUID, session_token: str) -> None:
     """현재 세션 소유자의 암호문을 제거하고 이후 조회·오래된 갱신을 차단한다.
 
