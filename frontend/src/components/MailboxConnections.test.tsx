@@ -93,3 +93,17 @@ test('세션 CSRF가 없으면 연결·해제를 보내지 않는다', async () 
   fireEvent.click(screen.getByRole('button', { name: '사서함 연결' }));
   expect(posts(fetchMock)).toHaveLength(0);
 });
+
+test('해제 뒤 목록 재조회가 실패해도 성공 안내와 기존 표를 유지한다', async () => {
+  let reads = 0;
+  await view((url) => {
+    if (url.endsWith('/disconnect')) return new Response(null, { status: 204 });
+    return ++reads === 1 ? listed(item('connected', 1)) : jsonResponse(503, errorBody('UNAVAILABLE', 'list down'));
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '해제' }));
+  fireEvent.click(screen.getByRole('button', { name: '해제 확인' }));
+  expect(await screen.findByText('사서함 연결을 해제했습니다.')).toBeTruthy();
+  expect(await screen.findByText('사서함 연결 목록을 다시 불러오지 못했습니다.')).toBeTruthy();
+  expect(screen.getByText(ID)).toBeTruthy();
+  expect(screen.getByRole('table')).toBeTruthy();
+});

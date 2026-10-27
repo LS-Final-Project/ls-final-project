@@ -16,20 +16,24 @@ export default function MailboxConnections({ navigate = (url: string) => window.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [disconnected, setDisconnected] = useState(false);
   const csrf = sessionCsrfToken();
   async function run(action: () => Promise<void>) {
     if (busy || !csrf) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setDisconnected(false);
     try { await action(); }
     catch (cause) { setError(cause); }
     finally { setBusy(false); }
   }
   const connect = () => run(async () => { navigate(await startMailboxLink()); });
-  const disconnect = (id: string) => run(async () => { await disconnectMailbox(id); setConfirming(null); await list.refetch(); });
+  const disconnect = (id: string) => run(async () => { await disconnectMailbox(id); setConfirming(null); setDisconnected(true); await list.refetch(); });
   if (list.isPending) return <Loading label="사서함 연결 확인 중" />;
-  if (list.isError) return <ErrorState error={list.error} onRetry={() => list.refetch()} />;
+  // 이미 받은 목록이 있으면 재조회 실패에도 표를 유지한다. 처음부터 못 받았을 때만 전체 오류다.
+  if (list.data === undefined) return <ErrorState error={list.error} onRetry={() => list.refetch()} />;
   if (list.data === null) return <p>사서함 연결이 이 배포에서 활성화되지 않았습니다.</p>;
   return <div>
+    {disconnected && <p role="status">사서함 연결을 해제했습니다.</p>}
+    {list.isError && <p role="alert">사서함 연결 목록을 다시 불러오지 못했습니다. <button onClick={() => list.refetch()}>다시 불러오기</button></p>}
     {error != null && <ErrorState error={error} />}
     {!csrf && <p>세션 확인 정보가 없어 사서함 연결을 바꿀 수 없습니다. 세션을 다시 확인하세요.</p>}
     {list.data.length === 0 ? <p>연결된 사서함이 없습니다.</p> : <table>
