@@ -140,7 +140,7 @@ HTTP200과 같은 프로젝트 번호/리전의 유효 operation 이름을 확�
 
 `python -m backend.api.platform.evaluations.job_worker`는 `EVALUATION_RUN_ID`의 표준 UUID 한 개만 인수한다. 누락·잘못된 값은 `INVALID_RUN_ID`로 비정상 종료하며 큐의 다른 항목을 탐색하지 않는다. 기존 local/test·합성 허용 설정, 지정 평가자·승인 hash·최종 시험 차단을 유지한다. 현재 소유자가 있거나 종료/보류 상태면 `NOT_CLAIMED`로 정상 종료하고, 이번 실행이 완료되면 `SYNTHETIC_COMPLETED`를 출력한다. 실제 모델 품질 성공을 뜻하지 않는다.
 
-`20261027_KAN-90_worker_role.sql`은 관리자 연결에서 한 번 적용하는 **NOLOGIN** 역할 `evaluation_worker`를 만든다. 실제 로그인 계정·비밀번호·IAM은 생성하지 않는다. 운영자는 별도 승인 절차에서 제한된 DB 로그인에 이 역할과 대상 DB CONNECT만 부여해야 한다. 해당 로그인에 platform_app·cs_app·tft_app·각 migrator 역할이나 superuser/DB·역할 생성/BYPASSRLS 권한을 함께 부여하지 않는다. 진입점은 위 6개 앱/migrator 역할 멤버십과 superuser/DB 생성/역할 생성/BYPASSRLS 속성을 검사해 거부한다. 직접 부여된 테이블 권한이나 다른 역할을 통한 추가 권한 전체를 탐지하는 기능은 아니므로 로그인 연결 시 운영자가 별도 권한 감사를 수행해야 한다. current_user와 session_user가 다른 SET ROLE 연결도 거부하고, 전용 로그인 자체가 권한 역할을 상속하도록 한다.
+`20261027_KAN-90_worker_role.sql`은 관리자 연결에서 한 번 적용하는 **NOLOGIN** 역할 `evaluation_worker`를 만든다. 실제 로그인 계정·비밀번호·IAM은 생성하지 않는다. 운영자는 별도 승인 절차에서 제한된 DB 로그인에 이 역할과 대상 DB CONNECT만 부여해야 한다. 해당 로그인에 platform_app·cs_app·tft_app·각 migrator 역할이나 superuser/DB·역할 생성/BYPASSRLS/REPLICATION 권한을 함께 부여하지 않는다. 진입점은 위 6개 앱/migrator 역할 멤버십과 superuser/DB 생성/역할 생성/BYPASSRLS/REPLICATION 속성을 검사해 거부한다. 직접 부여된 테이블 권한이나 다른 역할을 통한 추가 권한 전체를 탐지하는 기능은 아니므로 로그인 연결 시 운영자가 별도 권한 감사를 수행해야 한다. current_user와 session_user가 다른 SET ROLE 연결도 거부하고, 전용 로그인 자체가 권한 역할을 상속하도록 한다.
 
 worker는 현재 승인·대상·활성 사용자 확인에 필요한 읽기, run/사례/lease의 필요한 열 갱신, 사례 시도·이벤트 삽입만 허용한다. 세션·사용자 역할·전송 outbox/attempts 접근, 사용자/실험 변경, run/job 접수, 취소 요청 열 변경, 원시 결과 조회와 삭제·DDL은 허용하지 않는다. 이 역할은 행별 격리가 아니며 대상 run 제한과 현재 평가 승인은 애플리케이션에서 재검사한다. 실행 계정의 탈취를 막는 IAM·secret 연결은 별도 운영 검증이다.
 

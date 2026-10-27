@@ -306,26 +306,38 @@ def test_cli_uses_exact_run(worker, settings, access, experiment, runs):
     assert result.returncode != 0 and result.stderr.strip() == "INVALID_RUN_ID"
 
 
-def test_overprivileged_worker_login_is_rejected(worker, access, runs, evaluation_database):
-    """전용 역할과 앱 역할을 함께 받은 로그인도 진입점에서 거부한다.
+@pytest.mark.parametrize("permission", ["app_role", "replication"])
+def test_overprivileged_worker_login_is_rejected(
+    worker, access, runs, evaluation_database, permission
+):
+    """앱 역할 또는 복제 권한을 함께 받은 로그인도 진입점에서 거부한다.
 
     Args:
         worker: 전용 설정.
         access: 승인 설정.
         runs: 실행 ID.
         evaluation_database: 검사 관리자 연결.
+        permission: 추가로 부여할 금지 권한.
 
     Returns:
         None: 역할 혼합으로 최소 권한 검사를 우회하지 못한다.
     """
     with psycopg.connect(evaluation_database) as conn:
-        conn.execute("GRANT platform_app TO test_evaluation_worker")
+        conn.execute(
+            "GRANT platform_app TO test_evaluation_worker"
+            if permission == "app_role"
+            else "ALTER ROLE test_evaluation_worker REPLICATION"
+        )
     try:
         with pytest.raises(ApplicationError, match="WORKER_ROLE_REQUIRED"):
             asyncio.run(execute_run(worker, access, runs[0]))
     finally:
         with psycopg.connect(evaluation_database) as conn:
-            conn.execute("REVOKE platform_app FROM test_evaluation_worker")
+            conn.execute(
+                "REVOKE platform_app FROM test_evaluation_worker"
+                if permission == "app_role"
+                else "ALTER ROLE test_evaluation_worker NOREPLICATION"
+            )
 
 
 def test_inactive_actor_cannot_save(worker, access, runs, experiment, evaluation_database):

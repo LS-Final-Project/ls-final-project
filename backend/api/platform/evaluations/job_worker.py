@@ -54,7 +54,7 @@ async def execute_run(settings: Settings, access: EvaluationAccessSettings, run_
     async with connection(settings) as conn:
         cursor = await conn.execute(
             "SELECT current_user=session_user AND pg_has_role(current_user,'evaluation_worker','USAGE') AND NOT "
-            "(rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls) AND NOT EXISTS ("
+            "(rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication) AND NOT EXISTS ("
             "SELECT 1 FROM pg_roles p WHERE p.rolname IN "
             "('platform_app','cs_app','tft_app','platform_migrator','cs_migrator','tft_migrator') "
             "AND pg_has_role(current_user,p.oid,'MEMBER')) AS allowed "
