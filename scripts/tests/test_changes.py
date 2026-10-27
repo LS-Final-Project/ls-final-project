@@ -13,6 +13,83 @@ spec.loader.exec_module(changes)
 
 
 class ChangeTests(unittest.TestCase):
+    def test_cs_engine_selects_only_its_consumers_including_runtime_markdown(self):
+        """C/S 전용 엔진의 검사·배포와 평가 소비자를 선택한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 코드·초기화·런타임 문서 모두 같은 소유 경계를 따름을 확인한다.
+        """
+        for path in (
+            "backend/engine/cs/classification.py",
+            "backend/engine/cs/__init__.py",
+            "backend/engine/cs/prompt.md",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertEqual(result["services"], ["cs"])
+                self.assertEqual(result["backends"], ["cs"])
+                self.assertTrue(result["evaluation"])
+                self.assertFalse(result["infrastructure"])
+
+    def test_shared_or_unknown_engine_keeps_both_consumers(self):
+        """공통·미분류 경로 및 C/S 경로 밖 이동은 보수적으로 검사한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 삭제·추가 경로의 합집합과 공통 영향 범위를 확인한다.
+        """
+        for path in (
+            "backend/engine/__init__.py",
+            "backend/engine/search.py",
+            "backend/engine/new_domain/adapter.py",
+            "backend/engine/cs_extra/adapter.py",
+            "backend/agent/cs/prompts/classify.md",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify(["backend/engine/cs/adapter.py", path])
+                self.assertEqual(result["services"], ["cs", "tft"])
+                self.assertEqual(result["backends"], ["cs", "tft"])
+                self.assertTrue(result["evaluation"])
+
+    def test_collaboration_consumers_run_only_with_infrastructure_inputs(self):
+        """협업 검사의 입력과 일반 업무 변경을 구분한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 협업 입력·실행 환경 변경은 선택하고 무관한 경로는 생략한다.
+        """
+        for path in (
+            "scripts/dev.py",
+            "scripts/tests/test_dev.py",
+            "scripts/README.md",
+            ".github/scripts/pr_metadata.cjs",
+            ".github/tests/ai_review.test.cjs",
+            ".github/workflows/collaboration-checks.yml",
+            ".github/pull_request_template.md",
+            "infra/local/init.sh",
+            "pyproject.toml",
+            "uv.lock",
+            "new-runtime/handler.py",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(changes.classify([path])["infrastructure"])
+        for path in (
+            "docs/team-start.md",
+            "frontend/src/App.tsx",
+            "backend/api/cs/workflow/routes.py",
+            "tests/cs/test_workflow.py",
+            "eval/smoke.py",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(changes.classify([path])["infrastructure"])
+
     def test_main_compares_against_successful_ci_not_a_failed_previous_commit(self):
         with (
             patch.object(
