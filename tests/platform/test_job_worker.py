@@ -356,3 +356,26 @@ def test_inactive_actor_cannot_save(worker, access, runs, experiment, evaluation
             ).fetchone()[0]
             == 0
         )
+
+
+def test_set_role_cannot_hide_login_privileges(worker, access, runs, evaluation_database):
+    """관리자 로그인을 SET ROLE로 가린 연결을 거부한다.
+
+    Args:
+        worker: worker 설정 기반.
+        access: 승인 설정.
+        runs: 실행 ID.
+        evaluation_database: 테스트 관리자 연결.
+
+    Returns:
+        None: 실효 역할만 확인해 관리자 로그인을 허용하지 않는다.
+    """
+    disguised = worker.model_copy(
+        update={
+            "database_url": SecretStr(
+                make_conninfo(evaluation_database, options="-c role=evaluation_worker")
+            )
+        }
+    )
+    with pytest.raises(ApplicationError, match="WORKER_ROLE_REQUIRED"):
+        asyncio.run(execute_run(disguised, access, runs[0]))
