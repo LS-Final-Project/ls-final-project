@@ -54,12 +54,13 @@ hash·정확한 실행 시각·출력 열람자·다른 실행 이력은 이번�
 미확인이다. 향후 평가 여부·용도는 별도 결정하며, 이미 노출된 자료를 다시 쓰는 경우 최종
 독립 성능이 아닌 회귀 결과로 구분해야 한다. 이 문서 변경은 재실행 허가가 아니다.
 
-현재 `tests/cs/test_rules_reproduction.py`는 `CS_TRAINING_DATA_DIR/tickets.csv`를 열고
-`csv.DictReader`로 행을 만든 **뒤** train/valid 여부를 검사한다. 따라서 평가 계산에 시험 행을
-사용하지 않는 것과 시험 본문·정답을 파싱하지 않는 것은 다르다. 통합 CSV에 대해 실행하면
-시험 행도 파싱하므로 이 개발 흐름에서 해당 통합 파일로 재실행하지 않는다. 코드의 접근을
-차단하는 새 장치가 구현된 것은 아니며, 기존 opt-in 환경변수만으로 분리 자료임을 보장하지 않는다.
-이 감사에서는 해당 테스트와 과거 audit.py를 실행하지 않았다.
+10/27까지의 `tests/cs/test_rules_reproduction.py`는 `CS_TRAINING_DATA_DIR/tickets.csv`를 열고
+`csv.DictReader`로 행을 만든 **뒤** train/valid 여부를 검사했다. 따라서 평가 계산에 시험 행을
+사용하지 않는 것과 시험 본문·정답을 파싱하지 않는 것은 다르다. 이후 이 테스트는
+`CS_DEV_MANIFEST`의 분리된 개발 파일만 받으며, 행을 읽기 전에 파일 SHA-256을 manifest와 비교하고
+시험 분할이 든 manifest나 시험 행이 있는 파일을 거부한다(`tests/cs/cs_dev_data.py`). 통합 파일은
+manifest 해시와 맞지 않으므로 거부된다. 분리 자료와 manifest의 인수는 여전히 데이터 관리자가 한다.
+KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행하지 않았다. 변경 전 테스트를 통합 파일로 실행한 10/27 김나영 세션의 이력은 KAN-104 댓글 10248·10261에 있다.
 
 앞선 [10/25 감사 기록](https://lsteam4.atlassian.net/browse/KAN-83?focusedCommentId=10140)의
 과거 audit.py 실행 여부 미확인과 이번10/27 노출 보고는 별도 사건이다. 전체 사용 횟수를1회로

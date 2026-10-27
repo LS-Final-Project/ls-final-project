@@ -1,0 +1,96 @@
+"""Guarded loaders for the C/S development data (docs/data-contract.md, KAN-83 인수 조건).
+
+The integrated tickets file contains the test split, so it is never parsed here. A data
+manager provides physically split train/valid files and a manifest. Each file's SHA-256 is
+compared with the manifest before a single row is parsed, and a manifest that lists the test
+split is refused.
+
+Manifest (JSON, paths relative to the manifest):
+
+    {
+      "tickets": {"path": "...", "sha256": "...", "splits": ["train", "valid"], "rows": 3403},
+      "return_subtype_gold": {"path": "...", "sha256": "...", "review_version": "..."}
+    }
+
+`return_subtype_gold` is optional until KAN-95 locks it. Its CSV has the columns
+`ticket_id,return_subtype` with `DEFECT`, `NON_DEFECT` or an empty value (unconfirmed).
+"""
+
+import csv
+import hashlib
+import io
+import json
+from pathlib import Path
+
+DEV_SPLITS = frozenset({"train", "valid"})
+SUBTYPES = frozenset({"DEFECT", "NON_DEFECT", ""})
+
+
+class DevDataError(ValueError):
+    """The provided files do not match what the manifest promises."""
+
+
+def _entry(manifest_path: Path, name: str) -> tuple[bytes, dict]:
+    """The file's bytes, checked against the manifest. Callers parse these same bytes, so the
+    file cannot change between the hash check and the read."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entry = manifest.get(name)
+    if not isinstance(entry, dict):
+        raise DevDataError(f"The manifest has no {name} entry")
+    try:
+        path = (manifest_path.parent / entry["path"]).resolve()
+        expected = str(entry["sha256"]).lower()
+    except KeyError as missing:
+        raise DevDataError(f"{name}: manifest field {missing} is missing") from None
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise DevDataError(f"{name}: SHA-256 differs from the manifest")
+    return data, entry
+
+
+def _rows(data: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    reader = csv.DictReader(io.StringIO(data.decode("utf-8-sig"), newline=""))
+    return list(reader.fieldnames or []), list(reader)
+
+
+def has_entry(manifest_path: Path, name: str) -> bool:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return isinstance(manifest.get(name), dict)
+
+
+def load_dev_tickets(manifest_path: Path) -> list[dict[str, str]]:
+    data, entry = _entry(manifest_path, "tickets")
+    splits = set(entry.get("splits", []))
+    if not splits or not splits <= DEV_SPLITS:
+        raise DevDataError(f"Only train/valid files are allowed, got {sorted(splits)}")
+    fields, rows = _rows(data)
+    if "data_split" not in fields:
+        raise DevDataError("The tickets file has no data_split column")
+    outside = {row["data_split"] for row in rows} - splits
+    if outside:
+        raise DevDataError(f"The tickets file holds rows from {sorted(outside)}")
+    if len(rows) != entry.get("rows"):
+        raise DevDataError(f"Expected {entry.get('rows')} rows, found {len(rows)}")
+    return rows
+
+
+def load_return_subtypes(manifest_path: Path, targets: set[str]) -> dict[str, str | None]:
+    """Reviewed return subtypes for exactly `targets`. Empty means unconfirmed (None)."""
+    data, entry = _entry(manifest_path, "return_subtype_gold")
+    if not entry.get("review_version"):
+        raise DevDataError("The return subtype gold needs a review version")
+    fields, rows = _rows(data)
+    if fields != ["ticket_id", "return_subtype"]:
+        raise DevDataError(f"Unexpected columns: {fields}")
+    gold: dict[str, str | None] = {}
+    for row in rows:
+        ticket_id, subtype = row["ticket_id"], row["return_subtype"]
+        if ticket_id in gold:
+            raise DevDataError(f"Duplicate ticket_id {ticket_id}")
+        if subtype not in SUBTYPES:
+            raise DevDataError(f"{ticket_id}: unknown return_subtype {subtype!r}")
+        gold[ticket_id] = subtype or None
+    if set(gold) != targets:
+        missing, extra = sorted(targets - set(gold)), sorted(set(gold) - targets)
+        raise DevDataError(f"Gold rows differ from targets: missing={missing} extra={extra}")
+    return gold
