@@ -378,6 +378,18 @@
           "all": {
             "$ref": "#/components/schemas/AttemptSummary"
           },
+          "comparison_key": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Key"
+          },
           "data_origin": {
             "const": "synthetic",
             "default": "synthetic",

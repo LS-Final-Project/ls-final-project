@@ -1992,6 +1992,113 @@ def test_summary_invalid_synthetic_quality_rows_are_safe_failure(
         assert leak not in response.text
 
 
+def expected_comparison_key(**changes):
+    """계약에 적은 입력으로 비교 키를 독립 계산한다.
+
+    Args:
+        changes: 기본 합성 실험 조건에서 바꿀 값.
+
+    Returns:
+        str: 소문자 SHA-256 hex.
+    """
+    import hashlib
+    import json
+
+    conditions = {
+        "purpose": "smoke",
+        "data_origin": "synthetic",
+        "dataset_hash": DATASET_HASH,
+        "data_split": None,
+        "gold_version": None,
+        "target_set_hash": TARGET_SET_HASH,
+        "policy_version": None,
+        **changes,
+    }
+    payload = {"key_version": "cs-comparison-key-v1", **conditions}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def test_summary_comparison_key_matches_same_conditions_regardless_of_status(
+    summary_client, settings, cs_access, cs_experiment, cs_run, caplog
+):
+    """같은 조건의 두 실행은 상태와 무관하게 같은 키이며 조건 원값은 응답·로그에 없다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 설정.
+        cs_access: 현재 승인.
+        cs_experiment: 고정 합성 실험.
+        cs_run: 첫 접수 실행.
+        caplog: 요약 처리 중 로그.
+
+    Returns:
+        None: 미종료에도 키를 내고(프론트가 status로 거부), 원값을 노출하지 않음을 확인한다.
+    """
+    client, url = summary_client
+    caplog.set_level("DEBUG")
+    queued = client.get(url)
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["data"]["status"] == "QUEUED"
+    key = queued.json()["data"]["comparison_key"]
+    assert key == expected_comparison_key()
+    second = asyncio.run(
+        accept_run(
+            settings, cs_access, cs_experiment["actor"], cs_experiment["id"], str(uuid4()), uuid4()
+        )
+    ).data.run_id
+    asyncio.run(dispatch_one(settings, cs_access))
+    finished = client.get(url)
+    other = client.get(f"/api/v1/platform/evaluations/runs/{second}/summary")
+    assert finished.status_code == other.status_code == 200, other.text
+    assert finished.json()["data"]["status"] != "QUEUED"
+    assert (
+        finished.json()["data"]["comparison_key"] == other.json()["data"]["comparison_key"] == key
+    )
+    for response in (queued, finished, other):
+        for raw in (DATASET_HASH, TARGET_SET_HASH, "cs-comparison-key-v1", "policy_version"):
+            assert raw not in response.text
+    for raw in (DATASET_HASH, TARGET_SET_HASH, key):
+        assert raw not in caplog.text
+
+
+def test_summary_comparison_key_changes_with_one_condition(
+    summary_client, cs_access, cs_experiment, evaluation_database, caplog
+):
+    """조건 하나(policy_version)만 달라도 다른 키가 되며 바꾼 원값을 내지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        cs_access: 현재 승인.
+        cs_experiment: 고정 합성 실험.
+        evaluation_database: 격리 DB.
+        caplog: 요약 처리 중 로그.
+
+    Returns:
+        None: 구성 hash를 다시 승인한 같은 실행에서 키만 바뀜을 확인한다.
+    """
+    from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
+
+    client, url = summary_client
+    caplog.set_level("DEBUG")
+    before = client.get(url).json()["data"]["comparison_key"]
+    changed = {**cs_experiment, "policy_version": "policy-secret-v2"}
+    config_hash = canonical_hash({k: changed[k] for k in CONFIG_FIELDS})
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET policy_version=%s,config_hash=%s WHERE id=%s",
+            ("policy-secret-v2", config_hash, cs_experiment["id"]),
+        )
+    client.app.state.evaluation_access = cs_access.model_copy(
+        update={"approved_config_hashes": {config_hash}}
+    )
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    after = response.json()["data"]["comparison_key"]
+    assert after == expected_comparison_key(policy_version="policy-secret-v2") != before
+    assert "policy-secret-v2" not in response.text and "policy-secret-v2" not in caplog.text
+
+
 def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):
     """실행 전후의 저장 집계를 허용된 필드만으로 반환한다.
 
@@ -2027,6 +2134,7 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "retry",
         "all",
         "synthetic_quality",
+        "comparison_key",
     }
     assert data["synthetic_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"

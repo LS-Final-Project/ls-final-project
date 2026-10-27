@@ -301,6 +301,11 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 `synthetic_quality`로 투영한다(최신 판본 하나, `quality_available=false` 유지). 계약은
 [플랫폼 평가 계약](../contracts/platform/evaluations.md#kan-88-합성-품질-선택-필드)을 따른다. 화면 표시는 후속 단위다.
 
+실행 간 비교(KAN-138)는 요약을 실행마다 조회한 뒤 소비자가 나란히 놓는다. 비교 가능 조건은
+`compare_stored_runs`와 같은 7개이며, API는 원값 대신 이를 해시한 `comparison_key`(판본
+`cs-comparison-key-v1`)만 낸다. 키가 다르거나 한쪽이 미종료면 비교하지 않는다. 계약은
+[실행 비교 키](../contracts/platform/evaluations.md#kan-138-실행-비교-키)를 따른다.
+
 
 ### KAN-88 언어·채널별 최초 집계
 
