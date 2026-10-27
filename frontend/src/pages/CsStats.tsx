@@ -32,8 +32,8 @@ function StatsView(){
   const active=view==='overview'?overview:view==='owners'?owners:customer;
   const o=view==='overview'&&overview.isSuccess?overview.data.data:null;
   const c=view==='customer'&&customer.isSuccess?customer.data.data:null;
-  return <main><header><Link to="/cs/tickets">C/S 문의 목록</Link><h1>C/S 현황·고객 이력</h1><p>저장된 기록의 집계입니다. 실제 권한 범위는 서버에서 확인합니다.</p></header>
-    <nav aria-label="현황 종류">{(['overview','owners','customer'] as const).map((key,i)=><button key={key} aria-pressed={view===key} onClick={()=>{void client.cancelQueries({queryKey:['cs-stats']});setView(key);}}>{['처리·개선 현황','담당자별 현황 (관리자)','고객·장비 이력'][i]}</button>)}</nav>
+  return <main><header><Link to="/cs/tickets">C/S 문의 목록</Link><h1>C/S 현황·고객 이력</h1>{mode==='mock'&&<p role="status">모의 응답 모드 — 계약 예시이며 실제 업무 집계가 아닙니다. 필터·고객별 예시가 없는 요청은 실패할 수 있습니다.</p>}<p>저장된 기록의 집계입니다. 실제 권한 범위는 서버에서 확인합니다.</p></header>
+    <nav aria-label="현황 종류">{(['overview','owners','customer'] as const).map((key,i)=><button key={key} aria-pressed={view===key} onClick={()=>{if(view===key)return;void client.cancelQueries({queryKey:['cs-stats']});setView(key);}}>{['처리·개선 현황','담당자별 현황 (관리자)','고객·장비 이력'][i]}</button>)}</nav>
     <form onSubmit={event=>{event.preventDefault();const f={...draft,customer:draft.customer.trim()};if(f.start&&f.end&&new Date(f.start)>=new Date(f.end)){setError('종료는 시작보다 늦어야 합니다.');return;}if(view==='customer'&&!f.customer){setError('고객 ID를 입력하세요.');return;}setError('');setFilters(f);}}>
       <label>시작 (포함, 현지 시각)<input type="datetime-local" value={draft.start} onChange={e=>setDraft({...draft,start:e.target.value})}/></label>
       <label>종료 (미포함, 현지 시각)<input type="datetime-local" value={draft.end} onChange={e=>setDraft({...draft,end:e.target.value})}/></label>
