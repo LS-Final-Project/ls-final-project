@@ -74,6 +74,13 @@ function syntheticQuality(value: unknown): SyntheticQuality | null {
   };
 }
 
+/** 비교 키는 형식만 확인한다. Args: 선택 필드 값. Returns: 소문자 hex 키 또는 구버전 미제공(null). */
+function comparisonKey(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) throw invalid();
+  return value;
+}
+
 /** 허용한 집계 수치만 검증해 반환한다. Args: 최초/재시도/전체 값. Returns: 명시적 집계 DTO. */
 function attempt(value: unknown): AttemptSummary {
   const data = object(value);
@@ -136,5 +143,6 @@ export async function getEvaluationSummary(runId: string, signal: AbortSignal): 
     targets_without_first_attempt: data.targets_without_first_attempt,
     first: attempt(data.first), retry: attempt(data.retry), all: attempt(data.all),
     synthetic_quality: syntheticQuality(data.synthetic_quality),
+    comparison_key: comparisonKey(data.comparison_key),
   };
 }
