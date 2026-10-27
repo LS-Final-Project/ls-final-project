@@ -283,3 +283,82 @@ def test_spaced_serial_requires_adapter_full_value():
     assert "1234" not in text and "AB" not in text
     assert "[SERIAL_PROVIDED]" in text
     assert "trip at 300 V" in text
+
+
+@pytest.mark.parametrize("value", ["person@example.test", "김테스트"])
+@pytest.mark.parametrize("field", ["subject", "body"])
+def test_serial_label_preserves_personal_mask(value, field):
+    """시리얼 라벨 뒤에서도 식별된 개인정보의 마스킹 종류를 보존한다.
+
+    Args:
+        value: 합성 개인정보.
+        field: 민감값이 들어갈 입력 필드.
+
+    Returns:
+        None: 원값은 숨기고 PERSONAL 표시를 SERIAL로 바꾸지 않는다.
+    """
+    record = {"channel": "CHAT", "body_language": "ko", "subject": None, "body": "Trip."}
+    record[field] = f"Serial number: {value}."
+    result = build_input(record, sensitive_values={"김테스트": "PERSONAL"})
+    text = result.payload.model_dump_json()
+    assert value not in text
+    assert "[PERSONAL_PROVIDED]" in text
+    assert "[SERIAL_PROVIDED]" not in text
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "**Urgency:** SAFETY",
+        "Urgency: **SITE_DOWN**",
+        "`Urgency: NONE`",
+        "Urgency：DEADLINE",
+        "__Urgency__: __PROD_IMPACT__",
+        "*Urgency: COMMISSION*",
+    ],
+)
+def test_supported_phone_annotation_wrappers(annotation):
+    """지원하는 주석 표기 전체를 제거해 빈 마크다운을 문의로 통과시키지 않는다.
+
+    Args:
+        annotation: 지원하는 합성 PHONE 주석 표기.
+
+    Returns:
+        None: 증상은 유지하고 주석만 있던 본문은 거부한다.
+    """
+    record = {"channel": "PHONE", "body_language": "en", "subject": annotation, "body": annotation}
+    with pytest.raises(ValueError, match="^CS_EMPTY_INPUT$"):
+        build_input(record, sensitive_values={})
+    record["body"] += "\nTrip at 300 V."
+    result = build_input(record, sensitive_values={})
+    assert result.payload.subject == ""
+    assert result.payload.body == "\nTrip at 300 V."
+    assert result.removed_annotations == 2
+
+
+@pytest.mark.parametrize(
+    "value", ["SAFETY-extra", "NONE_LIKE", "SITE_DOWN/SAFETY", "HIGH", "**SAFETY**-extra"]
+)
+def test_unknown_phone_annotation_is_held_without_partial_removal(value):
+    """알 수 없는 주석 값은 일부만 지우지 않고 안전하게 보류한다.
+
+    Args:
+        value: 계약 밖의 합성 주석 값.
+
+    Returns:
+        None: 원문 없는 오류로 보류하며 원본과 다른 채널은 보존한다.
+    """
+    record = {
+        "channel": "PHONE",
+        "body_language": "en",
+        "subject": None,
+        "body": f"Urgency: {value}\nTrip at 300 V.",
+    }
+    before = copy.deepcopy(record)
+    with pytest.raises(ValueError, match="^CS_UNSUPPORTED_PHONE_ANNOTATION$"):
+        build_input(record, sensitive_values={})
+    assert record == before
+    record["channel"] = "EMAIL"
+    result = build_input(record, sensitive_values={})
+    assert result.payload.body == record["body"]
+    assert result.removed_annotations == 0
