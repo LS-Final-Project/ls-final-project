@@ -147,6 +147,20 @@ async def hold_run(conn: Conn, run_id: UUID) -> None:
         raise MailboxDisconnected
 
 
+async def heartbeat(settings: Settings, run_id: UUID) -> None:
+    """짧은 트랜잭션으로 실행 소유를 확인하고 lease를 늘린다.
+
+    Args:
+        settings: DB 설정.
+        run_id: 이 실행의 ID.
+
+    Returns:
+        None. 소유를 잃었거나 연결이 끊겼으면 예외를 낸다.
+    """
+    async with connection(settings) as conn, conn.transaction():
+        await hold_run(conn, run_id)
+
+
 async def finish_run(settings: Settings, result: SyncResult) -> None:
     """아직 이 실행이 소유한 경우에만 종료 상태를 기록한다.
 
@@ -395,6 +409,8 @@ async def sync_folder(
         for meta in page.messages:
             if meta.graph_id in known:
                 continue
+            # 큰 페이지도 lease가 끝나기 전에 메시지마다 늘린다.
+            await heartbeat(settings, result.run_id)
             try:
                 fetched.append(await fetch_message(graph, store, meta))
             except GraphError as error:

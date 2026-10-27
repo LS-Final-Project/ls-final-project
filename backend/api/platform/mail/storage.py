@@ -1,5 +1,6 @@
 """메일 원문·첨부 바이트의 보관 위치. DB에는 키·해시·크기만 기록한다."""
 
+import asyncio
 import hashlib
 import os
 import tempfile
@@ -66,6 +67,18 @@ class LocalObjectStore:
 
         Returns:
             StoredObject: 이미 같은 내용이 있으면 다시 쓰지 않은 위치.
+        """
+        # 해시·파일 쓰기는 이벤트 루프를 막지 않도록 스레드에서 한다.
+        return await asyncio.to_thread(self._put, data)
+
+    def _put(self, data: bytes) -> StoredObject:
+        """put의 동기 본문.
+
+        Args:
+            data: 보관할 바이트.
+
+        Returns:
+            StoredObject: 저장 위치.
         """
         digest = hashlib.sha256(data).hexdigest()
         key = content_key(digest)

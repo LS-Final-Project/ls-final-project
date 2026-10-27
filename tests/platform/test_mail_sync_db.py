@@ -44,13 +44,8 @@ def mail_database(mailbox_database):
     Returns:
         str: 관리자 연결 문자열.
     """
+    # 스키마·권한은 마이그레이션이 만든다. 검사가 대신 만들어 결함을 가리지 않게 한다.
     with psycopg.connect(mailbox_database, autocommit=True) as conn:
-        conn.execute("CREATE SCHEMA IF NOT EXISTS integration AUTHORIZATION platform_migrator")
-        conn.execute("GRANT USAGE ON SCHEMA integration TO platform_app")
-        conn.execute(
-            "ALTER DEFAULT PRIVILEGES FOR ROLE platform_migrator IN SCHEMA integration "
-            "GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO platform_app"
-        )
         if conn.execute("SELECT to_regclass('integration.mail_sync_runs')").fetchone()[0] is None:
             sql = MIGRATION.read_text()
             conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
@@ -567,3 +562,29 @@ def test_storage_writes_each_content_once(tmp_path):
     assert first == second
     assert [p.name for p in tmp_path.rglob("*") if p.is_file()] == [first.sha256]
     assert json.dumps(first.key).startswith('"mail/sha256/')
+
+
+def test_lease_is_extended_before_each_download(settings, mailbox, tmp_path):
+    graph = FakeGraph()
+    original = graph.handler
+    seen = []
+
+    def check_lease(request):
+        if (
+            request.url.raw_path.endswith(b"/$value")
+            and b"/attachments/" not in request.url.raw_path
+        ):
+            with psycopg.connect(mailbox["dsn"]) as conn:
+                seen.append(
+                    conn.execute(
+                        "SELECT lease_expires_at > started_at + interval '300 seconds' "
+                        "FROM integration.mail_sync_runs WHERE mailbox_id=%s AND status='RUNNING'",
+                        (mailbox["id"],),
+                    ).fetchone()[0]
+                )
+        return original(request)
+
+    graph.handler = check_lease
+    assert run(settings, mailbox, graph, LocalObjectStore(tmp_path)).status == "SUCCEEDED"
+    # 처음 lease(시작 + 300초)보다 늦게 끝나도록 메시지마다 늘어나 있다.
+    assert seen == [True, True, True]

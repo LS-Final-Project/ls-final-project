@@ -3,7 +3,11 @@
 -- 토큰·MSAL 캐시는 이 표에 두지 않는다. 원문 바이트는 객체 저장소에 두고 위치·해시만 기록한다.
 \set ON_ERROR_STOP on
 BEGIN;
+-- 001_service_roles.sql이 이미 만들었으면 그대로 둔다. 없는 DB에서도 이 파일만으로 적용된다.
+CREATE SCHEMA IF NOT EXISTS integration AUTHORIZATION platform_migrator;
 SET LOCAL ROLE platform_migrator;
+REVOKE ALL ON SCHEMA integration FROM PUBLIC;
+GRANT USAGE ON SCHEMA integration TO platform_app;
 -- 수집 실행 한 번. 사서함마다 RUNNING은 하나뿐이다.
 CREATE TABLE integration.mail_sync_runs (
     id uuid PRIMARY KEY,
