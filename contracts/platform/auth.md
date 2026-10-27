@@ -580,10 +580,15 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
   변조·다른 문맥·잘못된 키/버전은 `MAILBOX_TOKEN_UNAVAILABLE`로 실패한다. 키를 캐시나
   DB에 저장하거나 자동 생성·폴백하지 않는다. 현재 단일 키 버전만 지원하며 자동 키 회전은 없다
   ([AEAD 공식 문서](https://cryptography.io/en/latest/hazmat/primitives/aead/)).
-- `create_mailbox()`는 검증된 `MailboxAuthorization`과 현재 세션으로 새 서버 연결 ID를
-  생성한다. 현재 사용자·유효 역할·세션을 DB에서 다시 확인하고, 계정이 결속된 캐시의
-  암호문만 플랫폼 전용 `mailbox_auth.connections`에 저장한다. 사서함 개수 정책·중복 연결
-  방지는 후속 제품 연결에서 정하며, 이 내부 함수가 이메일을 인증 키로 쓰지 않는다.
+- `create_mailbox()`는 검증된 `MailboxAuthorization`과 현재 세션으로 연결을 저장한다. 현재
+  사용자·유효 역할·세션을 DB에서 다시 확인하고, 계정이 결속된 캐시의 암호문만 플랫폼 전용
+  `mailbox_auth.connections`에 저장한다. 같은 소유자에 서명 검증된 같은 Microsoft 계정
+  (`subject_tid`·`subject_oid`)의 행이 있으면 새 행 대신 그 행을 `connected`·새 암호문·개정
+  +1로 갱신해 같은 `mailbox_id`(KAN-71 수집 이력·커서)를 유지하고, 없으면 새 행을 만든다.
+  다른 소유자의 같은 계정 행과 다른 계정은 재사용하지 않는다. 잠금 순서는 다른 보관 함수와
+  같이 사용자 행 → 연결 행이다. `(owner_user_id, subject)` 유일 제약은 없으므로 같은 계정
+  행이 여럿이면 `updated_at DESC, id` 순 첫 행 하나만 갱신한다(중복 방지는 유일 인덱스
+  마이그레이션이 필요한 후속 항목). 이메일을 인증 키로 쓰지 않는다.
 - `load_mailbox()`는 신뢰할 서버 세션/저장된 작업에서 확인한 소유자 ID를 받는다.
   알 수 없는 연결과 다른 소유자는 같은 `MAILBOX_ACCESS_DENIED`이며 복호화 전에 거부한다.
   `manager`도 타인의 개인 사서함 접근을 허용하지 않는다. 작업용 조회·갱신은 작업 인증과
@@ -654,7 +659,7 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 | `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`으로 최근 변경 순200 반환. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹 중계 허용 목록에는 아직 없음 |
 | `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
 | `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
-| `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303 |
+| `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303. 같은 소유자의 같은 Microsoft 계정 연결이 있으면 그 행을 재연결(같은 `mailbox_id`, 개정 +1)하고 없으면 새 연결 |
 | `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님. 연결 행은 삭제하지 않고 `state='disconnected'`로 유지(KAN-71 FK 보장) |
 
 시작은 별도 `__Host-team4_mailbox_oauth` 쿠키(5분·Secure·HttpOnly·SameSite=Lax·Path=/)를
