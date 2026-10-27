@@ -1940,7 +1940,9 @@ def test_summary_projects_latest_synthetic_quality_without_cases(
         assert secret not in response.text
 
 
-@pytest.mark.parametrize("tamper", ["missing_row", "judged", "details"])
+@pytest.mark.parametrize(
+    "tamper", ["missing_row", "judged", "details", "outcomes_array", "class_duplicate_key"]
+)
 def test_summary_invalid_synthetic_quality_rows_are_safe_failure(
     summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, tamper
 ):
@@ -1956,7 +1958,7 @@ def test_summary_invalid_synthetic_quality_rows_are_safe_failure(
         tamper: 검사 관리자가 주입할 변조.
 
     Returns:
-        None: 누락 행·합격 판정 기록·추가 상세를 거부하고 원문을 내지 않는다.
+        None: 누락 행·합격 판정 기록·추가 상세·안쪽 타입 오류를 거부하고 원문을 내지 않는다.
     """
     client, url = summary_client
     asyncio.run(dispatch_one(settings, cs_access))
@@ -1968,12 +1970,26 @@ def test_summary_invalid_synthetic_quality_rows_are_safe_failure(
         "WHERE run_id=%s AND metric_key='return_subtype_first_accuracy'",
         "details": 'UPDATE evaluation.metrics SET details=details||\'{"case_ids":["cs-smoke-valid"]}\' '
         "WHERE run_id=%s AND metric_key='return_subtype_first_accuracy'",
+        # 키 집합은 맞지만 dict가 아닌 outcomes: 세 집계 행을 같게 바꿔 .values()까지 도달시킨다.
+        "outcomes_array": "UPDATE evaluation.metrics SET details=jsonb_set(details,'{outcomes}',"
+        '\'["VALID","HELD","TIMEOUT","SCHEMA_VIOLATION","TRANSPORT_FAILURE","NOT_STARTED"]\') '
+        "WHERE run_id=%s AND class_label IS NULL",
+        "class_duplicate_key": "UPDATE evaluation.metrics SET details=details||'{\"support\":1}' "
+        "WHERE run_id=%s AND metric_key='return_subtype_first_f1' AND class_label='DEFECT'",
     }[tamper]
     with psycopg.connect(evaluation_database) as conn:
         conn.execute(statement, (cs_run,))
     response = client.get(url)
     assert response.status_code == 503
     assert "cs-smoke" not in response.text and "case_ids" not in response.text
+    for leak in (
+        "TypeError",
+        "AttributeError",
+        "multiple values",
+        "SYNTHETIC_QUALITY",
+        "Traceback",
+    ):
+        assert leak not in response.text
 
 
 def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):

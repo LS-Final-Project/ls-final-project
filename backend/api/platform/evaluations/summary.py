@@ -282,6 +282,26 @@ def _read_synthetic_quality(
             "WHERE run_id=%s AND case_id IS NULL AND scoring_version=%s AND metric_key LIKE %s",
             (run_id, versions[0]["scoring_version"], pattern),
         ).fetchall()
+    try:
+        return _build_synthetic_quality(rows, versions, gold_version)
+    except (TypeError, KeyError, AttributeError):
+        # 저장 행 안쪽 값의 타입이 어긋나도 원문 없는 503으로 끝낸다.
+        raise ValueError("SYNTHETIC_QUALITY_INVALID") from None
+
+
+def _build_synthetic_quality(
+    rows: list[dict], versions: list[dict], gold_version: str | None
+) -> SyntheticQuality:
+    """선택한 판본의 저장 행이 계약과 같은지 확인하고 응답 모델로 조립한다.
+
+    Args:
+        rows: 선택한 판본의 실행 단위 품질 행.
+        versions: 최신순 채점 판본 목록.
+        gold_version: 실험의 정답 판본.
+
+    Returns:
+        SyntheticQuality: 검증한 합성 품질. 계약 위반은 ValueError다.
+    """
     by_key = {(r["metric_key"].removeprefix(QUALITY_PREFIX), r["class_label"]): r for r in rows}
     if (
         len(rows) != len(QUALITY_ROWS)
