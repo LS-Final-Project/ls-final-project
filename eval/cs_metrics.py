@@ -1,4 +1,4 @@
-"""C/S 최초 분류 시도의 주분류 집계. 파일·DB·모델에 접근하지 않는다."""
+"""C/S 최초 분류 시도의 분류 지표 집계. 파일·DB·모델에 접근하지 않는다."""
 
 from collections import Counter
 from collections.abc import Mapping
@@ -10,6 +10,7 @@ from backend.engine.cs.classification_call import ClassificationAttempt
 CATEGORY_LABELS: tuple[str, ...] = get_args(Category)
 URGENCY_LABELS: tuple[str, ...] = get_args(Urgency)
 CRITICAL_LABELS = ("SAFETY", "SITE_DOWN")
+NO_SECONDARY = "NO_SECONDARY"
 NO_PREDICTION = "NO_PREDICTION"
 OUTCOMES = {"VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"}
 
@@ -81,14 +82,63 @@ def summarize_urgency_first_attempts(
     return report
 
 
+def summarize_secondary_first_attempts(
+    gold: Mapping[str, str | None], attempts: Mapping[str, ClassificationAttempt]
+) -> dict:
+    """확정된 보조 의도 없음과 실행 실패를 분리해 최초 시도를 집계한다.
+
+    Args:
+        gold: 잠금 대상의 보조 분류 정답. None은 검수된 의도 없음이며 미검수 표시가 아니다.
+        attempts: 대상별 최초 시도. 없는 시도도 전체 분모에 남긴다.
+
+    Returns:
+        dict: null 포함 정확 일치율, 복합 의도 대상의 macro-F1, 없는 의도 생성 건수.
+    """
+    if any(value is not None and value not in CATEGORY_LABELS for value in gold.values()):
+        raise ValueError("CS_METRICS_INVALID_INPUT")
+    report = _summarize_first_attempts(
+        {key: NO_SECONDARY if value is None else value for key, value in gold.items()},
+        attempts,
+        (*CATEGORY_LABELS, NO_SECONDARY),
+        "secondary_category",
+        "cs-secondary-first-attempt-v1",
+    )
+    # null이 많은 전체 집합의 macro-F1을 복합 의도 성능으로 보고하지 않는다.
+    report.pop("macro_f1")
+    matrix = report["confusion_matrix"]
+    composite = _per_class_metrics(matrix, CATEGORY_LABELS)
+    support = sum(row["support"] for row in composite.values())
+    report["composite"] = {
+        "support": support,
+        "labels": list(CATEGORY_LABELS),
+        "per_class": composite,
+        "macro_f1": sum(row["f1"] for row in composite.values()) / len(CATEGORY_LABELS)
+        if support
+        else None,
+    }
+    report["absent"] = {
+        "support": sum(matrix[NO_SECONDARY].values()),
+        "invented": sum(matrix[NO_SECONDARY][label] for label in CATEGORY_LABELS),
+    }
+    for case in report["cases"]:
+        case["invented_secondary"] = (
+            case["gold"] == NO_SECONDARY and case["prediction"] in CATEGORY_LABELS
+        )
+        if case["gold"] == NO_SECONDARY:
+            case["gold"] = None
+        if case["prediction"] == NO_SECONDARY:
+            case["prediction"] = None
+    return report
+
+
 def _summarize_first_attempts(
     gold: Mapping[str, str],
     attempts: Mapping[str, ClassificationAttempt],
     labels: tuple[str, ...],
-    field: Literal["category_code", "urgency_flag"],
+    field: Literal["category_code", "urgency_flag", "secondary_category"],
     version: str,
 ) -> dict:
-    """두 단일 분류 지표의 최초 시도 검사와 동일한 분모 계산을 공유한다.
+    """단일 분류 지표의 최초 시도 검사와 동일한 분모 계산을 공유한다.
 
     Args:
         gold: 잠금 대상과 해당 필드의 정답.
@@ -123,6 +173,8 @@ def _summarize_first_attempts(
             outcome = attempt.outcome
             if attempt.prediction is not None:
                 predicted = getattr(attempt.prediction, field)
+                if field == "secondary_category" and predicted is None:
+                    predicted = NO_SECONDARY
                 if predicted not in labels:
                     raise ValueError("CS_METRICS_INVALID_INPUT")
         matrix[expected][predicted] += 1
@@ -136,21 +188,7 @@ def _summarize_first_attempts(
                 "correct": expected == predicted,
             }
         )
-    per_class = {}
-    for label in labels:
-        tp = matrix[label][label]
-        support = sum(matrix[label].values())
-        fp = sum(matrix[other][label] for other in labels if other != label)
-        fn = support - tp
-        per_class[label] = {
-            "support": support,
-            "tp": tp,
-            "fp": fp,
-            "fn": fn,
-            "precision": tp / (tp + fp) if tp + fp else 0.0,
-            "recall": tp / support if support else 0.0,
-            "f1": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.0,
-        }
+    per_class = _per_class_metrics(matrix, labels)
     total = len(gold)
     correct = sum(matrix[label][label] for label in labels)
     return {
@@ -167,3 +205,31 @@ def _summarize_first_attempts(
         "per_class": per_class,
         "cases": cases,
     }
+
+
+def _per_class_metrics(matrix: dict[str, dict[str, int]], labels: tuple[str, ...]) -> dict:
+    """지정한 정답 행 집합 안에서 클래스별 지표를 계산한다.
+
+    Args:
+        matrix: 무예측·의도 없음 열을 포함한 혼동행렬.
+        labels: 분모에 포함할 정답 행과 평균할 클래스 목록.
+
+    Returns:
+        dict: 실패와 null 예측도 해당 정답의 FN으로 포함한 지표.
+    """
+    per_class = {}
+    for label in labels:
+        tp = matrix[label][label]
+        support = sum(matrix[label].values())
+        fp = sum(matrix[other][label] for other in labels if other != label)
+        fn = support - tp
+        per_class[label] = {
+            "support": support,
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "precision": tp / (tp + fp) if tp + fp else 0.0,
+            "recall": tp / support if support else 0.0,
+            "f1": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.0,
+        }
+    return per_class
