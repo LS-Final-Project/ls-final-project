@@ -329,3 +329,104 @@ health/ready는 15초다. 업무 JSON은 위 KAN-178 설정과 허용 목록에 
 HTTP·쿠키·CSRF·인증 전용 중계는 비활성 초안으로 구현했으며 KAN-57 합의, 운영 활성화,
 실제 Outlook 브라우저 흐름, 로그인 화면 및 공용 업무 중계/SSE 검증은 남아 있다.
 사서함 연결·Graph·토큰 보관은 KAN-80·81 범위다. 이 초안으로 KAN-57·77을 완료 처리하지 않는다.
+
+## 사서함 토큰 소비자 계약 초안 (KAN-80·81 → KAN-71)
+
+**상태: 소비자 합의 전 제안이며 제공 함수는 아직 구현하지 않았다.**
+[KAN-71 문의 답변](https://lsteam4.atlassian.net/browse/KAN-71?focusedCommentId=10267)의
+함수 형태와 실패 구분을 구체화한다. 아래 함수의 import 경로, 오류 매핑과 재시도 책임은
+KAN-71·80·81에서 확인할 항목이다. 이 문서만으로 실제 사서함 연결이나 토큰 보관이
+가능해진 것은 아니다. 공개 HTTP API·OpenAPI·운영 설정·DB 스키마도 추가하지 않는다.
+
+### 서버 내부 호출 형태
+
+```python
+from uuid import UUID
+
+from pydantic import SecretStr
+
+
+async def get_mailbox_access_token(
+    *, mailbox_id: UUID, owner_user_id: UUID
+) -> SecretStr:
+    """소유 관계를 확인하고 유효한 Graph access token을 반환한다.
+
+    Args:
+        mailbox_id: 서버에 등록된 사서함 연결의 내부 ID.
+        owner_user_id: 인증된 요청 또는 서버의 수집 작업에서 확인한 소유 사용자 ID.
+
+    Returns:
+        SecretStr: 서버의 Graph 호출에만 사용할 유효한 access token.
+
+    Raises:
+        ApplicationError: 아래 실패 코드에 따라 토큰을 제공할 수 없는 경우.
+    """
+    ...
+```
+
+`mailbox_id`는 사서함 연결의 내부 UUID이며 Microsoft `oid`나 이메일로 대체하지 않는다.
+`owner_user_id`는 `identity.users.id`다. 요청 경계는 유효한 사용자와 해당 작업의 권한을
+확인하고, 비동기 작업은 서버에 저장된 연결·수집 작업에서 소유자를 복원한다. 브라우저나
+검증되지 않은 작업 본문이 지정한 두 ID를 그대로 넘겨 권한 확인을 대신하지 않는다.
+메일 수집이 실행될 때마다 현재 연결·소유자·활성 상태를 확인하며, ID를 안다는 이유로
+토큰 접근을 허용하지 않는다. 사서함 연결과 로그인 사용자의 결속은 위 callback 계약을 따른다.
+사서함의 Microsoft 식별자는 별도 연결 정보이며, 이메일을 기준으로 서비스 로그인 사용자나
+연결 소유자를 자동 변경하지 않는다.
+
+반환값은 조회 시점에 유효한 access token 하나다. 만료됐거나 갱신에 실패한 토큰,
+빈 문자열·`None`을 성공으로 반환하지 않는다. 소비자는 Graph 호출의 인증 헤더를 구성할
+때만 서버 메모리에서 원문을 사용하고, 브라우저·URL·업무 데이터·로그에 기록하지 않는다.
+refresh token, MSAL 캐시와 암호화 키는 이 반환값에 포함하지 않는다. `SecretStr`은 표현을
+마스킹하는 자료형이며 저장 암호화나 접근제한의 구현을 뜻하지 않는다.
+
+### 실패 구분 제안
+
+호출 경계와 토큰 제공자는 각자의 권한·연결 검사를 수행한다. 실패를 전달할 때는 새 오류
+기반 클래스를 만들기보다 기존 `backend.shared.errors.ApplicationError`의
+`status_code`, `code`, `message`를 재사용하는 안이다. 아래 값은 소비자와 합의할 제안이며,
+내부 함수에 대한 값이다. 이를 위한 공개 오류 API나 공용 업무 오류 목록을 추가하지 않는다.
+
+| code | status_code | 조건 | 안전한 message 제안 | 소비자 처리 |
+| --- | --- | --- | --- | --- |
+| `MAILBOX_ACCESS_DENIED` | 403 | 알 수 없는 연결 ID, 다른 소유자, 비활성 사용자 또는 허용되지 않은 호출 작업 | `Mailbox access is not allowed.` | 수집 중단. 연결 존재 여부나 타인의 정보를 노출하지 않음 |
+| `MAILBOX_NOT_CONNECTED` | 409 | 소유 관계는 확인됐지만 연결이 완료되지 않았거나 명시적으로 해제됨 | `Mailbox is not connected.` | 연결 전까지 수집을 실행하지 않음 |
+| `MAILBOX_RECONNECT_REQUIRED` | 409 | 자격증명 철회·동의 만료 등 사용자 재연결이 필요한 것으로 분류됨 | `Mailbox reconnection is required.` | 자동 재시도 대신 재연결 필요 상태 전달 |
+| `MAILBOX_TOKEN_UNAVAILABLE` | 503 | DB·시크릿·복호화·공급자 통신 등으로 유효한 토큰을 제공할 수 없음 | `Mailbox authentication is unavailable.` | 실패를 기록하고 작업 정책에 따른 처리. 자동 재연결로 단정하지 않음 |
+
+연결 존재 여부·소유 관계를 확인할 수 없는 DB 장애는 접근 거부나 미연결로 위장하지 않고
+`MAILBOX_TOKEN_UNAVAILABLE`로 실패한다. 알 수 없는 연결과 다른 소유자의 연결은 같은
+접근 거부로 처리하고, 소유 관계 확인 전에 공급자 토큰을 교환하거나 복호화하지 않는다.
+공급자의 원시 오류 설명, 토큰·캐시·계정 식별자는 오류 메시지와 로그에 넣지 않는다.
+다른 예외까지 일괄 잡아 빈 토큰으로 바꾸는 폴백도 두지 않는다.
+
+### 구현 책임과 KAN-71의 fake 경계
+
+| 담당 범위 | 책임 |
+| --- | --- |
+| KAN-80 인증·Graph 경계 | 기존 MSAL·인가 시도 검증 재사용, 연결 소유자 검증, 유효 토큰 획득·갱신과 공급자 실패 분류, 실제 메시지·첨부 접근 확인 |
+| KAN-81 보관·연결 해제 | 토큰/캐시의 암호화·접근제한, 갱신 결과의 안전한 저장과 경합 처리, 해제 후 토큰 조회 차단·저장 자격증명 제거/비활성화, 재연결 시 이전 캐시 재사용 차단 |
+| KAN-71 메일 수집 | 서버의 사서함/작업 소유자를 사용한 호출, 사서함당 단일 처리, 페이지네이션·증분·원문/첨부 보존, 작업 실패 기록 |
+
+메일 수집 코드에서 OAuth·refresh token 처리나 별도 토큰 캐시를 중복 구현하지 않는다.
+MSAL은 캐시의 유효 토큰을 사용하거나 갱신할 수 있으며 오류를 구분하는 획득 방법도
+제공하므로, 기존 SDK 위에 공급자 경계를 연결한다
+([MSAL 토큰 획득](https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens)).
+refresh token은 만료 전에 철회될 수 있으므로 재연결 필요 상태를 일시 장애와 구분한다
+([Microsoft refresh token 안내](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)).
+연결 해제 후 차단은 이후 getter 호출을 대상으로 검증한다. 이미 반환된 토큰의 외부 즉시
+무효화까지 이번 함수 계약으로 보장하지 않으며, 그 보장이 필요하면 별도 검증 항목으로 둔다.
+
+KAN-71의 fake는 위 두 keyword 인자를 받는 비동기 callable과 `SecretStr` 반환 형태를
+사용하는 안이다. 실제 Graph와 연결하지 않는 합성 토큰만 반환하고, 실패 시나리오는 위
+`ApplicationError` 코드로 구분한다. 별도 인터페이스 계층이나 운영용 fake를 새로 등록하지
+않는다. 합의 후 최소한 다음을 fake 소비자와 실제 제공자 양쪽에서 대조한다.
+
+- 정상 소유자·연결은 토큰을 받고, 다른 소유자와 알 수 없는 연결은 같은 접근 거부가 된다.
+- 미연결·재연결 필요·일시 장애를 구분하며, 실패를 빈 목록·동기화 성공으로 기록하지 않는다.
+- 소비자가 refresh token을 받지 않고, 토큰 값이 오류·로그·업무 저장 payload에 남지 않는다.
+
+**남은 합의·검증:** 함수의 import 경로, 위 오류 코드/상태 매핑, 갱신 여유시간·외부 요청
+제한시간, 갱신 저장의 경합 처리, 일시 장애의 제한된 재시도 책임을 확인해야 한다. getter의
+성공이 뒤따르는 Graph 요청 성공까지 보장하지는 않는다. Graph의 401 이후 강제 갱신 신호와
+재시도 방식도 합의 전이며, KAN-71이 임의로 갱신하거나 무한 재시도하지 않는다. 이 초안의
+구문·링크 확인은 fake 소비자 연동·실제 Graph·토큰 암호화·공용 배포 검증의 증거가 아니다.
