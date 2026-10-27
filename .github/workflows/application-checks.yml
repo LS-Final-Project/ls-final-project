@@ -142,7 +142,7 @@ jobs:
           cache-dependency-glob: uv.lock
           cache-suffix: ${{ github.job }}
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_job_admission.py tests/platform/test_dispatch_ledger.py tests/platform/test_jobs_transport.py tests/platform/test_job_status.py tests/platform/test_job_events.py tests/platform/test_web_job_events.py tests/platform/test_evaluation_admission.py tests/platform/test_smoke_worker.py tests/platform/test_cs_smoke_storage.py tests/platform/test_job_worker.py tests/platform/test_run_controls.py tests/cs/test_units_db.py tests/cs/test_workflow_db.py tests/cs/test_workflow_cases_db.py
+      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_job_admission.py tests/platform/test_dispatch_ledger.py tests/platform/test_jobs_transport.py tests/platform/test_job_status.py tests/platform/test_job_events.py tests/platform/test_web_job_events.py tests/platform/test_evaluation_admission.py tests/platform/test_smoke_worker.py tests/platform/test_cs_smoke_storage.py tests/platform/test_job_worker.py tests/platform/test_run_controls.py tests/cs/test_units_db.py tests/cs/test_workflow_db.py tests/cs/test_workflow_cases_db.py tests/cs/test_improvements_db.py
   tft-database:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.backends), 'tft')

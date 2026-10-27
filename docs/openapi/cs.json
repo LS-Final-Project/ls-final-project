@@ -89,6 +89,70 @@
         "title": "AuditList",
         "type": "object"
       },
+      "DeptReply": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "replied_at": {
+            "format": "date-time",
+            "title": "Replied At",
+            "type": "string"
+          },
+          "replied_by": {
+            "format": "uuid",
+            "title": "Replied By",
+            "type": "string"
+          },
+          "reply_type": {
+            "enum": [
+              "ACKNOWLEDGED",
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED"
+            ],
+            "title": "Reply Type",
+            "type": "string"
+          },
+          "request_version": {
+            "title": "Request Version",
+            "type": "integer"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "round",
+          "dept_code",
+          "request_version",
+          "reply_type",
+          "reason",
+          "replied_by",
+          "replied_at"
+        ],
+        "title": "DeptReply",
+        "type": "object"
+      },
       "DeptResult": {
         "properties": {
           "dept_code": {
@@ -281,6 +345,204 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "Evidence": {
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "added_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added By"
+          },
+          "case_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case External Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "removal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removal Reason"
+          },
+          "removed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed At"
+          },
+          "removed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed By"
+          },
+          "ticket_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket External Id"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ticket_id",
+          "ticket_external_id",
+          "case_id",
+          "case_external_id",
+          "added_by",
+          "added_at",
+          "removed_by",
+          "removed_at",
+          "removal_reason"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
+      "EvidenceAdd": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's resolution case. Required for a fault request.",
+            "title": "Case Id"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "version"
+        ],
+        "title": "EvidenceAdd",
+        "type": "object"
+      },
+      "EvidenceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's resolution case. Required for a fault request.",
+            "title": "Case Id"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ],
+        "title": "EvidenceInput",
+        "type": "object"
+      },
+      "EvidenceRemove": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reason"
+        ],
+        "title": "EvidenceRemove",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -433,6 +695,379 @@
           "resolution_case"
         ],
         "title": "HistoryTicket",
+        "type": "object"
+      },
+      "ImprovementRequest": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed By"
+          },
+          "condition_status": {
+            "enum": [
+              "CONFIRMED",
+              "UNKNOWN"
+            ],
+            "title": "Condition Status",
+            "type": "string"
+          },
+          "condition_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Summary"
+          },
+          "confirmed_facts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed Facts"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "cs_owner": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cs Owner"
+          },
+          "current_round": {
+            "title": "Current Round",
+            "type": "integer"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "doc_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Id"
+          },
+          "doc_signal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOT_FOUND",
+                  "VALUE_CONFLICT",
+                  "BROKEN_LINK",
+                  "REPEATED_SPEC"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Signal"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "followup_plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followup Plan"
+          },
+          "followup_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followup Result"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_released_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Released On"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inconsistencies": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inconsistencies"
+          },
+          "missing_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Info"
+          },
+          "not_claimed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Claimed"
+          },
+          "origin": {
+            "enum": [
+              "SYSTEM_CANDIDATE",
+              "MANUAL"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "problem_statement": {
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "proposed_depts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Proposed Depts",
+            "type": "array"
+          },
+          "receiver_unconfirmed": {
+            "description": "No receiving department yet. A document request's receiver needs confirmation with the business before it can be sent.",
+            "title": "Receiver Unconfirmed",
+            "type": "boolean"
+          },
+          "request_type": {
+            "enum": [
+              "FAULT",
+              "DOCUMENT"
+            ],
+            "title": "Request Type",
+            "type": "string"
+          },
+          "review_task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Task"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "REVIEWED",
+              "SENT",
+              "ACKNOWLEDGED",
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED",
+              "ACTION_TAKEN",
+              "FOLLOW_UP",
+              "COMPLETED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "request_type",
+          "origin",
+          "data_origin",
+          "derivation_kind",
+          "product_code",
+          "fault_id",
+          "doc_signal",
+          "doc_id",
+          "condition_status",
+          "condition_summary",
+          "fw_fixed_version",
+          "fw_released_on",
+          "status",
+          "version",
+          "current_round",
+          "cs_owner",
+          "problem_statement",
+          "confirmed_facts",
+          "inconsistencies",
+          "missing_info",
+          "not_claimed",
+          "review_task",
+          "proposed_depts",
+          "receiver_unconfirmed",
+          "reviewed_by",
+          "reviewed_at",
+          "sent_at",
+          "followup_plan",
+          "followup_result",
+          "completed_by",
+          "completed_at",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ImprovementRequest",
         "type": "object"
       },
       "InstalledUnit": {
@@ -593,6 +1228,66 @@
         "title": "InstalledUnit",
         "type": "object"
       },
+      "NextOwner": {
+        "description": "Who acts next and on what. The C/S owner may still be unassigned (null).",
+        "properties": {
+          "actor": {
+            "enum": [
+              "CS_OWNER",
+              "DEPARTMENT"
+            ],
+            "title": "Actor",
+            "type": "string"
+          },
+          "dept_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Code"
+          },
+          "task": {
+            "enum": [
+              "REVIEW",
+              "CONFIRM_RECEIVER",
+              "SEND",
+              "ACKNOWLEDGE",
+              "REPLY",
+              "RECORD_ACTION",
+              "SUPPLEMENT",
+              "REVIEW_REJECTION",
+              "PLAN_FOLLOWUP",
+              "RECORD_FOLLOWUP"
+            ],
+            "title": "Task",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "actor",
+          "user_id",
+          "dept_code",
+          "task"
+        ],
+        "title": "NextOwner",
+        "type": "object"
+      },
       "OwnerRequest": {
         "additionalProperties": false,
         "properties": {
@@ -613,6 +1308,27 @@
           "owner_user_id"
         ],
         "title": "OwnerRequest",
+        "type": "object"
+      },
+      "OwnerUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "owner_user_id"
+        ],
+        "title": "OwnerUpdate",
         "type": "object"
       },
       "ReadinessData": {
@@ -669,6 +1385,791 @@
           "reason"
         ],
         "title": "ReasonRequest",
+        "type": "object"
+      },
+      "RequestAction": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "action_date": {
+            "format": "date",
+            "title": "Action Date",
+            "type": "string"
+          },
+          "action_evidence": {
+            "title": "Action Evidence",
+            "type": "string"
+          },
+          "action_scope": {
+            "title": "Action Scope",
+            "type": "string"
+          },
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "format": "uuid",
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "round",
+          "dept_code",
+          "action",
+          "action_scope",
+          "action_date",
+          "action_evidence",
+          "recorded_by",
+          "recorded_at"
+        ],
+        "title": "RequestAction",
+        "type": "object"
+      },
+      "RequestCreate": {
+        "additionalProperties": false,
+        "description": "A request written by a C/S agent. System candidates come from KAN-113.",
+        "properties": {
+          "condition_status": {
+            "default": "UNKNOWN",
+            "enum": [
+              "CONFIRMED",
+              "UNKNOWN"
+            ],
+            "title": "Condition Status",
+            "type": "string"
+          },
+          "condition_summary": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Summary"
+          },
+          "confirmed_facts": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed Facts"
+          },
+          "doc_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Id"
+          },
+          "doc_signal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOT_FOUND",
+                  "VALUE_CONFLICT",
+                  "BROKEN_LINK",
+                  "REPEATED_SPEC"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Signal"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceInput"
+            },
+            "maxItems": 200,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "pattern": "^FLT-[0-9]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_released_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Released On"
+          },
+          "inconsistencies": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inconsistencies"
+          },
+          "missing_info": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Info"
+          },
+          "not_claimed": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Conclusions not to draw.",
+            "title": "Not Claimed"
+          },
+          "problem_statement": {
+            "description": "What to investigate, in one sentence. It does not declare a cause.",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "product_code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Product Code",
+            "type": "string"
+          },
+          "proposed_depts": {
+            "items": {
+              "enum": [
+                "TS_LV",
+                "TS_MV",
+                "TS_TRF",
+                "TS_AUTO",
+                "TS_ENERGY",
+                "RND_FW",
+                "QA_CLAIM",
+                "FIELD_SVC",
+                "CERT",
+                "SALES_OPS",
+                "SCM",
+                "WARRANTY_DESK"
+              ],
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Proposed Depts",
+            "type": "array"
+          },
+          "request_type": {
+            "enum": [
+              "FAULT",
+              "DOCUMENT"
+            ],
+            "title": "Request Type",
+            "type": "string"
+          },
+          "review_task": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Task"
+          }
+        },
+        "required": [
+          "problem_statement",
+          "request_type",
+          "product_code"
+        ],
+        "title": "RequestCreate",
+        "type": "object"
+      },
+      "RequestDepartment": {
+        "properties": {
+          "carried_over": {
+            "title": "Carried Over",
+            "type": "boolean"
+          },
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "rejection_reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reviewed At"
+          },
+          "rejection_reviewed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reviewed By"
+          },
+          "reply_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Due At"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "sent_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent Version"
+          },
+          "status": {
+            "enum": [
+              "SENT",
+              "ACKNOWLEDGED",
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED",
+              "ACTION_TAKEN"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "round",
+          "dept_code",
+          "status",
+          "carried_over",
+          "sent_version",
+          "reply_due_at",
+          "rejection_reviewed_by",
+          "rejection_reviewed_at"
+        ],
+        "title": "RequestDepartment",
+        "type": "object"
+      },
+      "RequestDetail": {
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/RequestAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "departments": {
+            "description": "Departments of the current round.",
+            "items": {
+              "$ref": "#/components/schemas/RequestDepartment"
+            },
+            "title": "Departments",
+            "type": "array"
+          },
+          "evidence": {
+            "description": "Active links first, then removed ones.",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "next_owners": {
+            "items": {
+              "$ref": "#/components/schemas/NextOwner"
+            },
+            "title": "Next Owners",
+            "type": "array"
+          },
+          "replies": {
+            "items": {
+              "$ref": "#/components/schemas/DeptReply"
+            },
+            "title": "Replies",
+            "type": "array"
+          },
+          "request": {
+            "$ref": "#/components/schemas/ImprovementRequest"
+          }
+        },
+        "required": [
+          "request",
+          "evidence",
+          "departments",
+          "replies",
+          "actions",
+          "next_owners"
+        ],
+        "title": "RequestDetail",
+        "type": "object"
+      },
+      "RequestList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RequestList",
+        "type": "object"
+      },
+      "RequestSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cs_owner": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cs Owner"
+          },
+          "doc_signal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOT_FOUND",
+                  "VALUE_CONFLICT",
+                  "BROKEN_LINK",
+                  "REPEATED_SPEC"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Signal"
+          },
+          "evidence_count": {
+            "title": "Evidence Count",
+            "type": "integer"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "problem_statement": {
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "request_type": {
+            "enum": [
+              "FAULT",
+              "DOCUMENT"
+            ],
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "REVIEWED",
+              "SENT",
+              "ACKNOWLEDGED",
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED",
+              "ACTION_TAKEN",
+              "FOLLOW_UP",
+              "COMPLETED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "doc_signal",
+          "status",
+          "version",
+          "cs_owner",
+          "problem_statement",
+          "evidence_count",
+          "created_at"
+        ],
+        "title": "RequestSummary",
+        "type": "object"
+      },
+      "RequestUpdate": {
+        "additionalProperties": false,
+        "description": "Changes to the content. `version` must match; each change makes a new version.",
+        "properties": {
+          "condition_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONFIRMED",
+                  "UNKNOWN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Status"
+          },
+          "condition_summary": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Summary"
+          },
+          "confirmed_facts": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed Facts"
+          },
+          "doc_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Id"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_released_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Released On"
+          },
+          "inconsistencies": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inconsistencies"
+          },
+          "missing_info": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Info"
+          },
+          "not_claimed": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Claimed"
+          },
+          "problem_statement": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Statement"
+          },
+          "proposed_depts": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 12,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Depts"
+          },
+          "review_task": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Task"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RequestUpdate",
+        "type": "object"
+      },
+      "RequestVersion": {
+        "properties": {
+          "changed_at": {
+            "format": "date-time",
+            "title": "Changed At",
+            "type": "string"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed By"
+          },
+          "content": {
+            "additionalProperties": true,
+            "title": "Content",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "content",
+          "changed_by",
+          "changed_at"
+        ],
+        "title": "RequestVersion",
+        "type": "object"
+      },
+      "RequestVersionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestVersion"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RequestVersionList",
         "type": "object"
       },
       "ResolutionCase": {
@@ -1097,6 +2598,54 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestDetail]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestList]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestVersionList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestVersionList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestVersionList]",
         "type": "object"
       },
       "SuccessResponse_ResolutionCase_": {
@@ -2201,6 +3750,785 @@
         "tags": [
           "health"
         ]
+      }
+    },
+    "/api/v1/cs/improvement-requests": {
+      "get": {
+        "operationId": "cs_list_improvement_requests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Requests",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "C/S \ub2f4\ub2f9\uc790\uac00 \uac1c\uc120\uc694\uccad \ucd08\uc548\uc744 \uc791\uc131\ud55c\ub2e4(DRAFT, \ud310\ubcf8 1). \uc791\uc131\uc790\uac00 \ub2f4\ub2f9\uc790\uac00 \ub41c\ub2e4.\n\nArgs:\n    payload: \uc720\ud615\u00b7\uc81c\ud488\u00b7\uace0\uc7a5 \ub610\ub294 \ubb38\uc11c \uc2e0\ud638, \ub0b4\uc6a9, \uadfc\uac70 \ubb38\uc758.\n    request: DB \uc5f0\uacb0\uc744 \uc81c\uacf5\ud558\ub294 \uc694\uccad.\n    principal: \uac80\uc99d\ub41c \uc0ac\uc6a9\uc790. cs_agent\ub9cc \uc791\uc131\ud55c\ub2e4.\n\nReturns:\n    SuccessResponse[RequestDetail]: \uc0c8 \uc694\uccad\uc11c\uc640 \uadfc\uac70, \ub2e4\uc74c \ub2f4\ub2f9.",
+        "operationId": "cs_create_improvement_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Request",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}": {
+      "get": {
+        "operationId": "cs_get_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Request",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      },
+      "patch": {
+        "description": "Changes the content and stores it as a new version. Unchanged values make none.",
+        "operationId": "cs_update_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Update Request",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/evidence": {
+      "post": {
+        "description": "Links a ticket (and, for faults, its case). The ticket's state does not matter.",
+        "operationId": "cs_add_improvement_request_evidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvidenceAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Add Evidence",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove": {
+      "post": {
+        "description": "Takes a ticket out of the evidence with a reason. The link stays in the history.",
+        "operationId": "cs_remove_improvement_request_evidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "evidence_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Evidence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvidenceRemove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Remove Evidence",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/owner": {
+      "put": {
+        "description": "Only a manager of the C/S department reassigns the C/S owner (permissions.md 2.2).",
+        "operationId": "cs_reassign_improvement_request_owner",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reassign Owner",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/versions": {
+      "get": {
+        "operationId": "cs_list_improvement_request_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestVersionList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Versions",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/cs/ready": {
