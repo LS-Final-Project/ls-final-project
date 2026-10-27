@@ -39,3 +39,36 @@ test.each(['CONFIRMED','UNSPECIFIED','UNMET','NEEDS_CHECK'] as const)('역할 �
   expect(options.every(option => (option as HTMLOptionElement).disabled === (preferred !== 'CONFIRMED'))).toBe(true);
   expect(screen.getByText(/검토 준비 완료만으로 확정할 수 없으며/)).toBeTruthy();
 });
+
+test('후속 부서와 현지 시각 기한을 저장하고 반복 클릭은 한 번만 전송한다',async()=>{
+  let resolve!:(value:Response)=>void;
+  const f=vi.fn(()=>new Promise<Response>(done=>{resolve=done;}));vi.stubGlobal('fetch',f);view();note();
+  fireEvent.change(screen.getByLabelText('후속 담당 부서 1'),{target:{value:source.staffing_requests[0].organization_id}});
+  fireEvent.change(screen.getByLabelText(/^후속 확인 기한 1/),{target:{value:'2026-11-02T09:30:00'}});
+  fireEvent.click(screen.getByRole('button',{name:'새 판본 저장'}));
+  const button=screen.getByRole('button',{name:'새 판본 저장 확인'});fireEvent.click(button);fireEvent.click(button);
+  expect(f).toHaveBeenCalledOnce();
+  const args=f.mock.calls as unknown as [string,RequestInit][];const body=JSON.parse(args[0][1].body as string);
+  expect(body.members[0].next_action_organization_id).toBe(source.staffing_requests[0].organization_id);
+  expect(body.members[0].follow_up_due_at).toBe(new Date('2026-11-02T09:30:00').toISOString());
+  resolve(jsonResponse(200,{data:{composition_version:2,project_version:2}}));await screen.findByText('새 구성안 판본을 저장했습니다. 이전 판본은 보존됩니다.');
+});
+test('기존 목록 밖 부서와 기한은 보존하며 취소 후 지울 수 있다',async()=>{
+  const project=structuredClone(source);const member=project.current_composition!.members[0];
+  member.next_action_organization_id='99999999-9999-4999-8999-999999999999';member.follow_up_due_at='2026-11-03T09:00:00+09:00';
+  const f=vi.fn(async()=>jsonResponse(200,{data:{composition_version:2,project_version:2}}));vi.stubGlobal('fetch',f);view(project);note();
+  expect((screen.getByLabelText('후속 담당 부서 1') as HTMLSelectElement).value).toBe(member.next_action_organization_id);
+  fireEvent.click(screen.getByRole('button',{name:'새 판본 저장'}));fireEvent.click(screen.getByRole('button',{name:'구성안 저장 취소'}));expect(f).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('후속 담당 부서 1'),{target:{value:''}});fireEvent.change(screen.getByLabelText(/^후속 확인 기한 1/),{target:{value:''}});
+  fireEvent.click(screen.getByRole('button',{name:'새 판본 저장'}));fireEvent.click(screen.getByRole('button',{name:'새 판본 저장 확인'}));await screen.findByText('새 구성안 판본을 저장했습니다. 이전 판본은 보존됩니다.');
+  const args=f.mock.calls as unknown as [string,RequestInit][];const body=JSON.parse(args[0][1].body as string);
+  expect(body.members[0].next_action_organization_id).toBeNull();expect(body.members[0].follow_up_due_at).toBeNull();
+});
+test('판본 충돌 후에도 후속 입력이 남고 권한 거절 후에는 다시 저장할 수 없다',async()=>{
+  const f=vi.fn().mockResolvedValueOnce(jsonResponse(412,errorBody('VERSION_CONFLICT','충돌'))).mockResolvedValueOnce(jsonResponse(403,errorBody('FORBIDDEN','권한 없음')));vi.stubGlobal('fetch',f);view();note();
+  fireEvent.change(screen.getByLabelText(/^후속 확인 기한 1/),{target:{value:'2026-11-02T09:30:00'}});
+  fireEvent.click(screen.getByRole('button',{name:'새 판본 저장'}));fireEvent.click(screen.getByRole('button',{name:'새 판본 저장 확인'}));await screen.findByText(/입력은 보존했습니다/);
+  expect((screen.getByLabelText(/^후속 확인 기한 1/) as HTMLInputElement).value).toContain('2026-11-02T09:30');
+  fireEvent.click(screen.getByRole('button',{name:'새 판본 저장'}));fireEvent.click(screen.getByRole('button',{name:'새 판본 저장 확인'}));await screen.findByText('권한이 없습니다');
+  expect((screen.getByRole('button',{name:'새 판본 저장 확인'}) as HTMLButtonElement).disabled).toBe(true);expect(f).toHaveBeenCalledTimes(2);
+});

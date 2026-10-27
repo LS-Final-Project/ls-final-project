@@ -4,11 +4,20 @@ import { createComposition, type Assessment, type CompositionInput } from '../ap
 import type { ProjectDetail } from '../api/tft';
 import { ErrorState } from '../components/states';
 type Member=CompositionInput['members'][number];
+function localDateTime(value:string|null|undefined){
+  if(!value)return '';
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime()))return '';
+  const pad=(n:number)=>String(n).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
 export default function CompositionEditor({project,assessment,userId,disabled,onRefresh}:{project:ProjectDetail;assessment:Assessment|null;userId:string;disabled:boolean;onRefresh:()=>Promise<unknown>}){
   const [members,setMembers]=useState<Member[]>(()=>project.current_composition?.members.map(({required_role_id,recommendation_id,status,rationale,remaining_conditions,gap_note,next_action_organization_id,follow_up_due_at})=>({required_role_id,recommendation_id,status,rationale,remaining_conditions,gap_note,next_action_organization_id,follow_up_due_at}))??[]);
   const [note,setNote]=useState('');const [confirming,setConfirming]=useState(false);const [busy,setBusy]=useState(false);const active=useRef(false);
   const [error,setError]=useState<unknown>(null);const [notice,setNotice]=useState('');const [denied,setDenied]=useState(false);
   const locked=disabled||denied||busy||project.status==='CONFIRMED'||project.required_roles.length===0;
+  const organizations=[...new Map(project.staffing_requests.map(r=>[r.organization_id,r.organization_name])).entries()];
+  const timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const isResponsible=project.responsible_user_id===userId;
   // KAN-127 save_composition과 같은 확정 조건. 검토 준비(ready_for_review)는 우대 역량을 제외하므로 단독으로 확정 권한을 뜻하지 않는다.
   const ready=(id:string)=>isResponsible&&assessment?.roles.some(r=>r.candidates.some(c=>c.recommendation_id===id&&c.ready_for_review&&c.preferred_competencies==='CONFIRMED'))===true;
@@ -32,6 +41,11 @@ export default function CompositionEditor({project,assessment,userId,disabled,on
       <button type="button" onClick={()=>{setMembers(old=>[...old.filter(m=>m.required_role_id!==role.id),{required_role_id:role.id,recommendation_id:null,status:'PROPOSED',gap_note:''}]);setConfirming(false);}}>{role.title} 공백으로 기록</button>
       {members.map((m,index)=>m.required_role_id!==role.id?null:<div key={m.recommendation_id??role.id}><p>{project.recommendations.find(r=>r.id===m.recommendation_id)?.candidate_name??'미추천 공백'}</p>
         {m.recommendation_id&&<label>역할 상태 {index+1}<select value={m.status??'PROPOSED'} onChange={e=>update(index,{status:e.target.value as Member['status']})}><option value="PROPOSED">제안</option><option value="NEEDS_REINFORCEMENT">보완 필요</option><option value="CONFIRMED" disabled={!ready(m.recommendation_id)}>역할 확정</option></select></label>}
+        <label>후속 담당 부서 {index+1}<select value={m.next_action_organization_id??''} onChange={e=>update(index,{next_action_organization_id:e.target.value||null})}>
+          <option value="">미지정</option>{organizations.map(([id,name])=><option key={id} value={id}>{name}</option>)}
+          {m.next_action_organization_id&&!organizations.some(([id])=>id===m.next_action_organization_id)&&<option value={m.next_action_organization_id}>기존 담당 부서 ({m.next_action_organization_id})</option>}
+        </select></label>
+        <label>후속 확인 기한 {index+1} ({timeZone})<input type="datetime-local" step="1" value={localDateTime(m.follow_up_due_at)} onChange={e=>{const value=e.target.value;const date=new Date(value);if(!value||!Number.isNaN(date.getTime()))update(index,{follow_up_due_at:value?date.toISOString():null});}}/></label>
         <label>선정 사유 {index+1}<textarea maxLength={4000} value={m.rationale??''} onChange={e=>update(index,{rationale:e.target.value||null})}/></label>
         {!m.recommendation_id&&<label>공백 사유 {index+1}<textarea maxLength={4000} value={m.gap_note??''} onChange={e=>update(index,{gap_note:e.target.value||null})}/></label>}
         {m.status==='NEEDS_REINFORCEMENT'&&<label>남은 보완 조건 {index+1}<textarea maxLength={4000} value={m.remaining_conditions??''} onChange={e=>update(index,{remaining_conditions:e.target.value||null})}/></label>}
