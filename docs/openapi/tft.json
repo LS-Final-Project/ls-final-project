@@ -274,6 +274,92 @@
         "title": "Candidate",
         "type": "object"
       },
+      "CandidateAssessment": {
+        "properties": {
+          "availability": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "experience": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Experience",
+            "type": "string"
+          },
+          "overlapping_role_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Overlapping Role Ids",
+            "type": "array"
+          },
+          "preferred_competencies": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Preferred Competencies",
+            "type": "string"
+          },
+          "ready_for_review": {
+            "title": "Ready For Review",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "recommendation_id": {
+            "format": "uuid",
+            "title": "Recommendation Id",
+            "type": "string"
+          },
+          "required_competencies": {
+            "enum": [
+              "UNSPECIFIED",
+              "NEEDS_CHECK",
+              "CONFIRMED",
+              "UNMET"
+            ],
+            "title": "Required Competencies",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recommendation_id",
+          "candidate_id",
+          "experience",
+          "required_competencies",
+          "preferred_competencies",
+          "availability",
+          "overlapping_role_ids",
+          "reasons",
+          "ready_for_review"
+        ],
+        "title": "CandidateAssessment",
+        "type": "object"
+      },
       "CandidateList": {
         "properties": {
           "items": {
@@ -2004,6 +2090,90 @@
         "title": "RfpRequirement",
         "type": "object"
       },
+      "RoleAssessment": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateAssessment"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "confirmed_count": {
+            "title": "Confirmed Count",
+            "type": "integer"
+          },
+          "next_action": {
+            "enum": [
+              "DEPARTMENT_CHECK",
+              "RESPONSIBLE_REVIEW",
+              "ASSIGN_RESPONSIBLE"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "next_organization_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Next Organization Ids",
+            "type": "array"
+          },
+          "next_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next User Id"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "required_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Count"
+          },
+          "role_id": {
+            "format": "uuid",
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "candidates",
+          "reasons",
+          "next_organization_ids",
+          "next_user_id",
+          "next_action",
+          "confirmed_count",
+          "required_count",
+          "complete"
+        ],
+        "title": "RoleAssessment",
+        "type": "object"
+      },
       "RoleCompetency": {
         "properties": {
           "description": {
@@ -2474,6 +2644,82 @@
           "meta"
         ],
         "title": "SuccessResponse[StaffingRequest]",
+        "type": "object"
+      },
+      "SuccessResponse_TeamAssessment_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamAssessment"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TeamAssessment]",
+        "type": "object"
+      },
+      "TeamAssessment": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "composition_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composition Version"
+          },
+          "confirmed_role_count": {
+            "title": "Confirmed Role Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/RoleAssessment"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "NEEDS_REVIEW",
+              "PARTIALLY_CONFIRMED",
+              "READY_FOR_FINAL_REVIEW",
+              "CONFIRMED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total_role_count": {
+            "title": "Total Role Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "composition_version",
+          "roles",
+          "confirmed_role_count",
+          "total_role_count",
+          "state",
+          "complete"
+        ],
+        "title": "TeamAssessment",
         "type": "object"
       },
       "ValidationError": {
@@ -2967,6 +3213,90 @@
         "summary": "List Staffing Requests",
         "tags": [
           "staffing-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/verification": {
+      "get": {
+        "operationId": "tft_verify_team",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TeamAssessment_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Verification",
+        "tags": [
+          "team-verification"
         ],
         "x-implementation-status": "partial"
       }
