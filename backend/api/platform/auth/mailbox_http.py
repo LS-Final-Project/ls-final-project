@@ -20,6 +20,7 @@ from backend.api.platform.auth.http import (
 )
 from backend.api.platform.auth.mailbox import complete_and_store_mailbox_link, start_mailbox_link
 from backend.api.platform.auth.mailbox_settings import MailboxAuthSettings
+from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
 from backend.api.platform.auth.mailbox_vault import MailboxCipher, disconnect_mailbox
 from backend.api.platform.auth.microsoft import PersonalMicrosoftOAuth
 from backend.shared.errors import ApplicationError
@@ -70,6 +71,7 @@ def configure_mailbox_auth(app: FastAPI, value: MailboxAuthSettings) -> None:
     app.state.mailbox_auth = value
     app.state.mailbox_cipher = None
     app.state.mailbox_oauth = None
+    app.state.mailbox_tokens = None
     if value.enabled:
         assert value.encryption_key is not None
         try:
@@ -80,6 +82,11 @@ def configure_mailbox_auth(app: FastAPI, value: MailboxAuthSettings) -> None:
             raise ValueError("사서함 전용 암호화 키와 고정 버전 설정을 확인하세요.") from None
         app.state.mailbox_oauth = PersonalMicrosoftOAuth(
             auth.client_id, auth.client_secret, value.redirect_uri
+        )
+        app.state.mailbox_tokens = MailboxTokenProvider(
+            settings=app.state.settings,
+            adapter=app.state.mailbox_oauth,
+            cipher=app.state.mailbox_cipher,
         )
 
 

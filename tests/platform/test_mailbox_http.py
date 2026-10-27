@@ -275,7 +275,7 @@ def test_default_disabled_routes_do_not_touch_database_or_provider():
     with TestClient(app) as client:
         for suffix in ("/start", "/callback", "/complete", f"/{uuid4()}/disconnect"):
             assert client.post(PREFIX + suffix).status_code == 404
-    assert app.state.mailbox_oauth is app.state.mailbox_cipher is None
+    assert app.state.mailbox_oauth is app.state.mailbox_cipher is app.state.mailbox_tokens is None
 
 
 @pytest.mark.parametrize("bad", ["login", "key", "version", "callback"])
