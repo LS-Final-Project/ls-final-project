@@ -849,6 +849,7 @@ def test_store_cli_passes_bytes_and_prints_one_json_line(store_cli, monkeypatch,
         (ValueError("bad row in secret-gold.csv"), "CS_QUALITY_STORE_FAILED"),
         (ValueError("CS_QUALITY_X secret"), "CS_QUALITY_STORE_FAILED"),
         (psycopg.OperationalError("password=secret-pw"), "CS_QUALITY_STORE_FAILED"),
+        (RuntimeError("secret"), "CS_QUALITY_STORE_FAILED"),
     ],
 )
 def test_store_cli_maps_errors_to_codes_only(store_cli, monkeypatch, capsys, raised, expected):

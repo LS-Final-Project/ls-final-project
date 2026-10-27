@@ -315,7 +315,7 @@ def store_main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-    except psycopg.Error:
+    except Exception:  # 예상 밖 오류도 원문·스택(경로·DSN 포함 가능) 없이 끝낸다.
         print("CS_QUALITY_STORE_FAILED", file=sys.stderr)
         return 1
     print(json.dumps(result))
