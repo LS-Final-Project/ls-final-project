@@ -111,6 +111,16 @@ def initial_rows() -> dict:
 
 @pytest.fixture
 def store(monkeypatch):
+    commands = {}
+
+    async def replay(conn, actor, request_id, operation, key):
+        return commands.get((actor, request_id, operation, key))
+
+    async def remember(conn, actor, request_id, operation, key, payload, result):
+        commands[actor, request_id, operation, key] = {"payload": payload, "result": result}
+
+    monkeypatch.setattr(routes.commands, "replay", replay)
+    monkeypatch.setattr(routes.commands, "remember", remember)
     requests = initial_rows()
     revisions: list = []
     roles = {ROLE_ID: {"status": "DRAFTING", "reviewed_by_user_id": None}}
@@ -380,7 +390,7 @@ def test_edit_rejects_an_organization_outside_the_project_company(client, store)
 
 def test_issue_sets_issuer_time_status_and_revision(client, store):
     # The frontend sends Idempotency-Key on every state-making POST (api-contract); it is
-    # accepted. A replay with the same key and the old If-Match is refused, not duplicated.
+    # replayed without creating another revision after a lost response.
     headers = {**V1, "Idempotency-Key": str(uuid4())}
     result = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers)
     assert result.status_code == 200, result.text
@@ -397,8 +407,17 @@ def test_issue_sets_issuer_time_status_and_revision(client, store):
     # The role the request belongs to leaves DRAFTING with the issuing sales user as reviewer.
     assert store["roles"][ROLE_ID] == {"status": "ISSUED", "reviewed_by_user_id": SALES}
     replay = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers)
-    assert replay.status_code == 409
-    assert replay.json()["error"]["code"] == "INVALID_TRANSITION"
+    assert replay.status_code == 200
+    assert replay.json() == result.json()
+    assert replay.headers["ETag"] == result.headers["ETag"]
+    assert len(store["revisions"]) == 1
+    conflict = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers | {"If-Match": '"2"'})
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    denied = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers | AS_MANAGER)
+    assert denied.status_code == 403
+    hidden = client.post(f"{detail_path(DRAFT_ID)}/issue", headers=headers | AS_OTHER_SALES)
+    assert hidden.status_code == 404
 
 
 def test_issue_accepts_an_undecided_due_date(client):

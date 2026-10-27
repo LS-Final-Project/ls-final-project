@@ -14,6 +14,7 @@ from fastapi.encoders import jsonable_encoder
 
 from backend.api.tft.authz import ensure_can_edit, ensure_can_issue
 from backend.api.tft.projects.access import require_project_list, sees_project
+from backend.api.tft.recommendations import repository as commands
 from backend.api.tft.staffing_requests import repository
 from backend.api.tft.staffing_requests.schemas import (
     StaffingRequest,
@@ -52,13 +53,13 @@ IF_MATCH = Header(
     alias="If-Match",
     description='Current request version, quoted like an ETag: "3". Required for writes.',
 )
-# Accepted per docs/api-contract.md so the frontend can send it on every state-making POST.
-# Duplicate suppression by key is a later ticket; today If-Match makes a replay a 412.
+# Optional for compatibility with existing callers; keyed retries replay the first result.
 IDEMPOTENCY_KEY = Header(
     default=None,
     alias="Idempotency-Key",
+    min_length=1,
     max_length=128,
-    description="Received and ignored for now; replays are refused by If-Match (412).",
+    description="Replay the first successful issue response for this actor, request and key.",
 )
 Row = dict[str, Any]
 
@@ -246,6 +247,21 @@ async def issue_staffing_request(
     async with connection(request.app.state.settings) as conn:
         row, project = await visible_request(conn, principal, request_id, lock=True)
         ensure_can_issue(principal, project)
+        # The request row lock serializes first use of a key with concurrent writes.
+        # Recheck current visibility and action permission before returning stored data.
+        command_payload = {"if_match": if_match}
+        if idempotency_key is not None:
+            replay = await commands.replay(
+                conn, principal.user_id, request_id, "staffing_request_issue", idempotency_key
+            )
+            if replay:
+                if replay["payload"] != command_payload:
+                    raise ApplicationError(
+                        409, "IDEMPOTENCY_CONFLICT", "The key was used with another version."
+                    )
+                result = SuccessResponse[StaffingRequest].model_validate(replay["result"])
+                response.headers["ETag"] = f'"{result.data.version}"'
+                return result
         require_draft(row)
         check_version(if_match, row["version"])
         if row["due_at"] is None and not row["due_undecided"]:
@@ -267,4 +283,15 @@ async def issue_staffing_request(
             principal.user_id,
             jsonable_encoder(changes),
         )
-    return respond(request, response, row)
+        result = respond(request, response, row)
+        if idempotency_key is not None:
+            await commands.remember(
+                conn,
+                principal.user_id,
+                request_id,
+                "staffing_request_issue",
+                idempotency_key,
+                command_payload,
+                result.model_dump(mode="json"),
+            )
+    return result
