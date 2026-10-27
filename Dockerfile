@@ -31,12 +31,13 @@ RUN groupadd --gid 10001 app && useradd --uid 10001 --gid 10001 --no-create-home
 WORKDIR /app
 COPY --from=dependencies /app/.venv ./.venv
 COPY --from=service-source /app/backend ./backend
+# 플랫폼 요약 API가 기존 집계 함수를 재사용한다. 실행 잠금은 코드에서 유지한다.
+COPY --chown=10001:10001 eval ./eval
 USER 10001:10001
 CMD ["python", "-m", "backend"]
 
 # 명시적으로 선택하는 합성 Job 이미지. production 잠금은 코드에서 유지한다.
 FROM runtime AS evaluation-worker
-COPY --chown=10001:10001 eval ./eval
 ENTRYPOINT ["python", "-m", "backend.api.platform.evaluations.job_worker"]
 CMD []
 

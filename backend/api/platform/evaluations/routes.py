@@ -14,6 +14,7 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationRunRequest,
     EvaluationRunStatus,
 )
+from backend.api.platform.evaluations.summary import EvaluationRunSummary, get_run_summary
 from backend.shared.access import Principal
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
@@ -168,3 +169,30 @@ async def evaluation_run_control(
     )
     response.headers["ETag"] = f'"{result.data.version}"'
     return result
+
+
+@router.get(
+    "/runs/{run_id}/summary",
+    response_model=SuccessResponse[EvaluationRunSummary],
+    operation_id="platform_get_evaluation_run_summary",
+    responses={code: {"model": ErrorResponse} for code in (404, 409)},
+)
+def evaluation_run_summary(
+    request: Request,
+    run_id: UUID,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+) -> SuccessResponse[EvaluationRunSummary]:
+    """현재 세션의 합성 사용량·감사 집계를 스레드 풀에서 조회한다.
+
+    Args:
+        request: 서버 환경·승인 목록과 요청 ID.
+        run_id: 조회 대상 실행.
+        principal: 현재 세션과 평가자 검사를 통과한 사용자.
+
+    Returns:
+        SuccessResponse: 정답·예측·원시 내용 없는 합성 집계.
+    """
+    data = get_run_summary(
+        request.app.state.settings, request.app.state.evaluation_access, principal.user_id, run_id
+    )
+    return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))
