@@ -332,7 +332,7 @@ HTTP·쿠키·CSRF·인증 전용 중계는 비활성 초안으로 구현했으�
 
 ## 사서함 토큰 소비자 계약 초안 (KAN-80·81 → KAN-71)
 
-**상태: 소비자 합의 전 제안이며 제공 함수는 아직 구현하지 않았다.**
+**상태: 소비자 합의 전 제안이며 소비자용 `get_mailbox_access_token()`은 아직 구현하지 않았다.**
 [KAN-71 문의 답변](https://lsteam4.atlassian.net/browse/KAN-71?focusedCommentId=10267)의
 함수 형태와 실패 구분을 구체화한다. 아래 함수의 import 경로, 오류 매핑과 재시도 책임은
 KAN-71·80·81에서 확인할 항목이다. 이 문서만으로 실제 사서함 연결이나 토큰 보관이
@@ -373,7 +373,7 @@ async def get_mailbox_access_token(
 사서함의 Microsoft 식별자는 별도 연결 정보이며, 이메일을 기준으로 서비스 로그인 사용자나
 연결 소유자를 자동 변경하지 않는다.
 
-반환값은 조회 시점에 유효한 access token 하나다. 만료됐거나 갱신에 실패한 토큰,
+반환값은 조회 시점에 유효한 access token 하나다. 만료됐거나 갱신에 실패해 사용할 수 없는 토큰,
 빈 문자열·`None`을 성공으로 반환하지 않는다. 소비자는 Graph 호출의 인증 헤더를 구성할
 때만 서버 메모리에서 원문을 사용하고, 브라우저·URL·업무 데이터·로그에 기록하지 않는다.
 refresh token, MSAL 캐시와 암호화 키는 이 반환값에 포함하지 않는다. `SecretStr`은 표현을
@@ -424,6 +424,47 @@ KAN-71의 fake는 위 두 keyword 인자를 받는 비동기 callable과 `Secret
 - 정상 소유자·연결은 토큰을 받고, 다른 소유자와 알 수 없는 연결은 같은 접근 거부가 된다.
 - 미연결·재연결 필요·일시 장애를 구분하며, 실패를 빈 목록·동기화 성공으로 기록하지 않는다.
 - 소비자가 refresh token을 받지 않고, 토큰 값이 오류·로그·업무 저장 payload에 남지 않는다.
+
+### MSAL 사서함 캐시 어댑터 (부분 구현)
+
+`backend/api/platform/auth/microsoft.py`의 동기 메서드
+`PersonalMicrosoftOAuth.acquire_mailbox_token(subject=..., serialized_cache=...)`는
+검증된 Microsoft 사서함 식별자와 해당 연결의 복호화된 `SecretStr` 캐시를 받는다.
+호출자는 현재 연결의 소유자·활성·작업 권한을 먼저 확인하고 무결성이 보호된 캐시를
+복호화해야 한다. 이 메서드는 DB 소유자 검사나 서비스 사용자 인증을 대신하지 않는다.
+비동기 서비스에서 호출할 때는 기존 MSAL 경계처럼 스레드에서 실행해야 한다.
+
+- 고정 개인 계정 authority·앱 설정을 재사용하고 호출마다 별도 `SerializableTokenCache`를
+  사용한다. 이메일 대신 단일 캐시 계정의 `local_account_id`와 검증된 `oid`, 개인 계정
+  realm·고정 환경을 대조한다. 다중 계정이나 다른 계정의 캐시는 접근 거부로 실패한다.
+- MSAL의 `acquire_token_silent_with_error()`로 캐시 적중 또는 갱신을 처리한다. 반환된
+  opaque access token을 JWT로 해석하지 않고 현재 앱·계정·realm의 캐시 및 기존
+  `Mail.Read`·`Mail.Send` 권한과 대조한다. 캐시 적중 응답에는 `scope`가 없을 수 있어
+  그때도 해당 토큰의 캐시 권한을 확인한다. 만료/빈 토큰이나 잘못된 토큰 형식은 반환하지 않는다.
+  SDK의 선제 갱신 실패 시 아직 유효한 캐시가 반환될 수 있으며 동일한 유효성·계정·권한
+  검증을 적용한다. 유효 토큰 조회 성공을 갱신 성공이나 공급자 철회 즉시 탐지로 해석하지 않는다.
+- 갱신 응답에 ID 토큰이 있으면 기존 RS256/JWKS·issuer/audience·시간·개인 `tid`/`oid`
+  검증을 재사용하고 저장된 사서함 식별자와 같은지 확인한다. 갱신에서는 새 nonce를
+  요청하지 않으므로 그 검증에 새 nonce를 요구하지 않는다. 초기 인가의 nonce 검증은 유지한다.
+- 내부 결과 `MailboxTokenUpdate`는 access token, 직렬화된 캐시, 변경 여부를 담는다.
+  토큰·캐시는 `SecretStr`이며 결과의 repr에도 내용을 표시하지 않는다. 변경 여부는
+  MSAL 직렬화가 플래그를 초기화하기 전에 읽는다. 캐시는 KAN-81 보관 경계 전용이고
+  KAN-71 소비자에게 전달하지 않는다. 이 메서드가 결과를 저장하지는 않는다.
+- 계정 불일치는 `MAILBOX_ACCESS_DENIED`, 갱신 자격증명 부재/MSAL이 반환한 재인가 필요는
+  `MAILBOX_RECONNECT_REQUIRED`, 손상된 캐시·공급자/필요한 서명키 조회 실패는
+  `MAILBOX_TOKEN_UNAVAILABLE`로 구분한다. 제공자 오류 설명이나 AADSTS 숫자로 분기하지
+  않고 OAuth `error`로 분류한다
+  ([Microsoft 오류 처리](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes)).
+  `MAILBOX_NOT_CONNECTED`는 연결 상태를 아는 상위 계층의 책임이며 이 어댑터가 생성하지 않는다.
+- 고정 MSAL 버전의 갱신 실패 DEBUG 기록은 `error_description`, 캐시 이벤트는 식별자를
+  인코딩한 `client_info`를 포함하므로 이 두 기록만 안전한 고정 문장으로 변환한다.
+  로그 수준이나 성공·실패 구분은 유지하고, 다른 SDK 기록은 변경하지 않는다.
+  실제 SDK의 DEBUG 기록까지 합성 성공·오류 회귀로 확인한다.
+
+위 내부 어댑터의 합성 HTTP·실제 MSAL/RSA 회귀는 실제 Microsoft·Graph 연결 검증과
+구분한다. 최초 사서함 인가의 캐시 전달/영속 저장, 소유자 DB 검사, 연결·해제 HTTP 경로와
+소비자용 getter는 아직 연결하지 않았다. MSAL SDK의 기본 캐시·갱신 판정을 재사용하며
+별도 재시도 루프·새 설정·공용 DB 변경은 추가하지 않는다.
 
 **남은 합의·검증:** 함수의 import 경로, 위 오류 코드/상태 매핑, 갱신 여유시간·외부 요청
 제한시간, 갱신 저장의 경합 처리, 일시 장애의 제한된 재시도 책임을 확인해야 한다. getter의

@@ -10,12 +10,13 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 import jwt
+import msal
 import pytest
 import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import SecretStr
 
-from backend.api.platform.auth.callback import OAuthPurpose, complete_callback
+from backend.api.platform.auth.callback import MicrosoftSubject, OAuthPurpose, complete_callback
 from backend.api.platform.auth.microsoft import (
     AUTHORITY,
     ISSUER,
@@ -91,12 +92,14 @@ def oauth(monkeypatch, signing_key):
         else:
             assert method.upper() == "POST"
             assert url == f"{AUTHORITY}/oauth2/v2.0/token"
+            if getattr(context, "token_error", None):
+                raise context.token_error
             body = {
                 "id_token": jwt.encode(
                     context.claims,
                     context.key,
                     algorithm=context.algorithm,
-                    headers={"kid": "synthetic-key"},
+                    headers={"kid": getattr(context, "kid", "synthetic-key")},
                 ),
                 "access_token": "synthetic-access-token",
                 "refresh_token": "synthetic-refresh-token",
@@ -104,8 +107,10 @@ def oauth(monkeypatch, signing_key):
                 "expires_in": 3600,
                 **context.response_overrides,
             }
+            if getattr(context, "token_response", None) is not None:
+                body = context.token_response
         response = requests.Response()
-        response.status_code = 200
+        response.status_code = getattr(context, "response_status", 200) if method == "POST" else 200
         response._content = json.dumps(body).encode()
         response.headers["Content-Type"] = "application/json"
         return response
@@ -554,3 +559,412 @@ def test_unsafe_server_redirect_is_rejected(redirect):
     """
     with pytest.raises(ValueError):
         PersonalMicrosoftOAuth(CLIENT_ID, SecretStr("synthetic-secret"), redirect)
+
+
+@pytest.fixture
+def mailbox_cache(oauth, monkeypatch):
+    """실제 MSAL code 교환·RSA 검증을 거친 합성 사서함 캐시를 준비한다.
+
+    Args:
+        oauth: Microsoft HTTP 응답을 합성한 기존 어댑터 문맥.
+        monkeypatch: 이번 합성 연결의 MSAL 캐시를 지정할 도구.
+
+    Returns:
+        SimpleNamespace: 검증 식별자와 외부로 저장하지 않을 합성 캐시.
+    """
+    cache = msal.SerializableTokenCache()
+    factory = oauth.adapter._application
+
+    def application(*, token_cache=None):
+        """현재 합성 연결에만 캐시를 주입한다.
+
+        Args:
+            token_cache: 호출자가 명시한 캐시 또는 None.
+
+        Returns:
+            ConfidentialClientApplication: 실제 MSAL 서버 앱.
+        """
+        return factory(token_cache=cache if token_cache is None else token_cache)
+
+    client_info = json.dumps({"uid": str(USER_ID), "utid": str(PERSONAL_TENANT)}).encode()
+    oauth.response_overrides.update(
+        client_info=urlsafe_b64encode(client_info).rstrip(b"=").decode(),
+        scope="Mail.Read Mail.Send",
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(oauth.adapter, "_application", application)
+        _, pending = begin_attempt(oauth, OAuthPurpose.MAILBOX, OWNER_ID)
+        subject = finish_attempt(oauth, pending)
+    return SimpleNamespace(subject=subject, serialized=SecretStr(cache.serialize()))
+
+
+def expired_mailbox_cache(mailbox_cache, *, remove_refresh=False):
+    """실제 MSAL이 생성한 캐시의 유효기간만 만료시킨다.
+
+    Args:
+        mailbox_cache: 합성 사서함 연결 캐시.
+        remove_refresh: 갱신 자격증명이 없는 경우를 검사할지 여부.
+
+    Returns:
+        SecretStr: 메모리에서만 사용하는 만료 상태의 캐시.
+    """
+    data = json.loads(mailbox_cache.serialized.get_secret_value())
+    for token in data["AccessToken"].values():
+        token.update(expires_on="1", extended_expires_on="1")
+    if remove_refresh:
+        data.pop("RefreshToken", None)
+    return SecretStr(json.dumps(data))
+
+
+def test_mailbox_cache_hit_returns_opaque_token_without_refresh(oauth, mailbox_cache):
+    """유효한 연결 캐시는 갱신 POST 없이 사용하고 민감 결과를 repr에 숨긴다.
+
+    Args:
+        oauth: 합성 공급자 HTTP 문맥.
+        mailbox_cache: 실제 MSAL로 생성한 합성 연결 캐시.
+
+    Returns:
+        None: 캐시 적중·입력 불변·결과 마스킹을 검증한다.
+    """
+    before = len([c for c in oauth.calls if c[0] == "POST"])
+    original = mailbox_cache.serialized.get_secret_value()
+    result = oauth.adapter.acquire_mailbox_token(
+        subject=mailbox_cache.subject, serialized_cache=mailbox_cache.serialized
+    )
+    assert result.access_token.get_secret_value() == "synthetic-access-token"
+    assert len([c for c in oauth.calls if c[0] == "POST"]) == before
+    assert mailbox_cache.serialized.get_secret_value() == original
+    for secret in ("synthetic-access-token", "synthetic-refresh-token", str(USER_ID)):
+        assert secret not in repr(result)
+
+
+def test_expired_mailbox_cache_uses_sdk_refresh_and_returns_rotated_cache(
+    oauth, mailbox_cache, caplog
+):
+    """만료 캐시를 실제 MSAL로 갱신하고 새 보관 상태만 반환하는지 확인한다.
+
+    Args:
+        oauth: 합성 Microsoft 토큰 응답 문맥.
+        mailbox_cache: 기존 access/refresh token을 포함한 합성 캐시.
+        caplog: 실제 SDK의 DEBUG 기록까지 확인할 수집기.
+
+    Returns:
+        None: 갱신 grant·회전된 캐시·표시 이메일 비결속을 검증한다.
+    """
+    caplog.set_level("DEBUG", logger="msal")
+    oauth.response_overrides.update(
+        access_token="synthetic-refreshed-access", refresh_token="synthetic-rotated-refresh"
+    )
+    oauth.claims["preferred_username"] = "changed-display@example.invalid"
+    oauth.claims.pop("nonce")
+    result = oauth.adapter.acquire_mailbox_token(
+        subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+    )
+    post = [c for c in oauth.calls if c[0] == "POST"][-1]
+    assert post[2]["data"]["grant_type"] == "refresh_token"
+    assert post[2]["data"]["refresh_token"] == "synthetic-refresh-token"
+    assert result.access_token.get_secret_value() == "synthetic-refreshed-access"
+    assert result.cache_changed
+    stored = result.serialized_cache.get_secret_value()
+    assert "synthetic-rotated-refresh" in stored
+    assert "synthetic-refresh-token" not in stored
+    assert "synthetic-rotated-refresh" not in repr(result)
+    old_id = next(iter(json.loads(mailbox_cache.serialized.get_secret_value())["IdToken"].values()))
+    new_id = next(iter(json.loads(stored)["IdToken"].values()))
+    assert new_id["secret"] != old_id["secret"]
+    for secret in (
+        "synthetic-refreshed-access",
+        "synthetic-rotated-refresh",
+        "synthetic-secret",
+        oauth.response_overrides["client_info"],
+        str(USER_ID),
+    ):
+        assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("case", ["subject", "realm", "environment", "multiple"])
+def test_mailbox_account_mismatch_is_rejected_before_provider_call(oauth, mailbox_cache, case):
+    """이메일을 공유해도 다른 식별자·계정 묶음은 공급자 호출 전에 거부한다.
+
+    Args:
+        oauth: 합성 HTTP 호출 기록.
+        mailbox_cache: 정상 연결의 합성 캐시.
+        case: 변경할 계정 식별 조건.
+
+    Returns:
+        None: 계정 불일치의 접근 거부와 외부 미호출을 검증한다.
+    """
+    data = json.loads(mailbox_cache.serialized.get_secret_value())
+    account = next(iter(data["Account"].values()))
+    subject = mailbox_cache.subject
+    if case == "subject":
+        subject = MicrosoftSubject(PERSONAL_TENANT, OWNER_ID)
+    elif case == "multiple":
+        data["Account"]["another-synthetic-account"] = {
+            **account,
+            "home_account_id": str(OWNER_ID),
+            "local_account_id": str(OWNER_ID),
+        }
+    else:
+        account[case] = "untrusted.example.invalid"
+    before = len(oauth.calls)
+    with pytest.raises(ApplicationError, match="MAILBOX_ACCESS_DENIED") as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=subject, serialized_cache=SecretStr(json.dumps(data))
+        )
+    assert error.value.status_code == 403
+    assert len(oauth.calls) == before
+
+
+@pytest.mark.parametrize("serialized", ["{", "[]", "null"])
+def test_malformed_mailbox_cache_is_safe_unavailable_without_http(oauth, serialized):
+    """손상된 보관 상태를 계정 부재나 성공으로 숨기지 않는다.
+
+    Args:
+        oauth: 아직 외부 요청이 없는 공급자 문맥.
+        serialized: 손상된 합성 캐시 본문.
+
+    Returns:
+        None: 안전한 제공 장애와 외부 미호출을 검증한다.
+    """
+    with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=MicrosoftSubject(PERSONAL_TENANT, USER_ID),
+            serialized_cache=SecretStr(serialized),
+        )
+    assert error.value.status_code == 503
+    assert oauth.calls == []
+
+
+def test_missing_refresh_credential_requires_reconnection(oauth, mailbox_cache):
+    """만료 토큰만 남으면 빈 토큰을 반환하지 않고 재연결을 요구한다.
+
+    Args:
+        oauth: 합성 HTTP 공급자 문맥.
+        mailbox_cache: 갱신 자격증명을 제거할 합성 캐시.
+
+    Returns:
+        None: MSAL 미획득 결과의 재연결 분류를 검증한다.
+    """
+    before = len([c for c in oauth.calls if c[0] == "POST"])
+    with pytest.raises(ApplicationError, match="MAILBOX_RECONNECT_REQUIRED") as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject,
+            serialized_cache=expired_mailbox_cache(mailbox_cache, remove_refresh=True),
+        )
+    assert error.value.status_code == 409
+    assert len([c for c in oauth.calls if c[0] == "POST"]) == before
+
+
+@pytest.mark.parametrize(
+    ("provider_error", "expected", "status"),
+    [
+        ("invalid_grant", "MAILBOX_RECONNECT_REQUIRED", 409),
+        ("interaction_required", "MAILBOX_RECONNECT_REQUIRED", 409),
+        ("consent_required", "MAILBOX_RECONNECT_REQUIRED", 409),
+        ("login_required", "MAILBOX_RECONNECT_REQUIRED", 409),
+        ("temporarily_unavailable", "MAILBOX_TOKEN_UNAVAILABLE", 503),
+        ("invalid_client", "MAILBOX_TOKEN_UNAVAILABLE", 503),
+        ("unknown_error", "MAILBOX_TOKEN_UNAVAILABLE", 503),
+    ],
+)
+def test_mailbox_refresh_error_is_classified_without_provider_details(
+    oauth, mailbox_cache, provider_error, expected, status, caplog
+):
+    """공급자 상세를 노출하지 않고 재연결과 일시 장애를 구분한다.
+
+    Args:
+        oauth: 합성 HTTP 공급자 문맥.
+        mailbox_cache: 만료 상태로 바꿀 합성 캐시.
+        provider_error: 합성 OAuth 오류 코드.
+        expected: 기대하는 내부 오류 코드.
+        status: 기대하는 상태 값.
+        caplog: 민감 로그 노출을 검사할 수집기.
+
+    Returns:
+        None: 오류 분류와 민감 값 비노출을 검증한다.
+    """
+    caplog.set_level("DEBUG", logger="msal")
+    oauth.token_response = {
+        "error": provider_error,
+        "error_description": "synthetic-access-token synthetic-refresh-token synthetic-secret",
+    }
+    oauth.response_status = 400
+    with pytest.raises(ApplicationError, match=expected) as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+    assert error.value.status_code == status
+    for secret in ("synthetic-access-token", "synthetic-refresh-token", "synthetic-secret"):
+        assert secret not in repr(error.value) + error.value.message + caplog.text
+
+
+def test_mailbox_refresh_transport_failure_does_not_become_reconnect(oauth, mailbox_cache):
+    """공급자 통신 장애를 재연결 필요로 잘못 분류하지 않는다.
+
+    Args:
+        oauth: 토큰 요청에 실패할 합성 공급자 문맥.
+        mailbox_cache: 갱신이 필요한 합성 캐시.
+
+    Returns:
+        None: 통신 실패의 안전한 일시 장애 변환을 검증한다.
+    """
+    oauth.token_error = requests.ConnectionError("synthetic-refresh-token private-details")
+    with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+    assert error.value.status_code == 503
+    assert "private" not in str(error.value) + error.value.message
+
+
+@pytest.mark.parametrize("changed", ["oid", "home_account"])
+def test_refresh_cannot_replace_verified_mailbox_subject(oauth, mailbox_cache, changed):
+    """갱신 결과가 다른 사용자 계정으로 바뀌면 토큰과 캐시를 반환하지 않는다.
+
+    Args:
+        oauth: 다른 oid를 반환하도록 변경할 합성 공급자 문맥.
+        mailbox_cache: 원래 식별자에 결속된 합성 캐시.
+        changed: 다른 계정으로 바꿀 공급자 식별 정보.
+
+    Returns:
+        None: 갱신 후 계정 식별자 보존을 검증한다.
+    """
+    if changed == "oid":
+        oauth.claims["oid"] = str(OWNER_ID)
+    else:
+        info = json.dumps({"uid": str(OWNER_ID), "utid": str(PERSONAL_TENANT)}).encode()
+        oauth.response_overrides["client_info"] = urlsafe_b64encode(info).rstrip(b"=").decode()
+    with pytest.raises(ApplicationError, match="MAILBOX_ACCESS_DENIED"):
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("access_token", "", "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("expires_in", 0, "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("expires_in", True, "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("expires_in", "invalid", "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("token_type", "PoP", "MAILBOX_TOKEN_UNAVAILABLE"),
+        ("scope", "Mail.Read", "MAILBOX_RECONNECT_REQUIRED"),
+    ],
+)
+def test_unusable_mailbox_token_is_not_returned(oauth, mailbox_cache, field, value, expected):
+    """만료·형식·동의 범위가 올바르지 않은 토큰을 성공으로 반환하지 않는다.
+
+    Args:
+        oauth: 합성 토큰 응답 문맥.
+        mailbox_cache: 갱신이 필요한 합성 연결 캐시.
+        field: 변경할 토큰 응답 필드.
+        value: 성공으로 취급하면 안 되는 값.
+        expected: 기대하는 안전한 오류 코드.
+
+    Returns:
+        None: 잘못된 공급자 응답의 실패 분류를 검증한다.
+    """
+    oauth.response_overrides[field] = value
+    with pytest.raises(ApplicationError, match=expected):
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+
+
+def test_refresh_without_id_token_accepts_fixed_graph_scope_uri(oauth, mailbox_cache):
+    """새 ID 토큰이 없는 갱신도 캐시 계정과 고정 Graph 권한을 대조한다.
+
+    Args:
+        oauth: 합성 토큰 응답 문맥.
+        mailbox_cache: 갱신이 필요한 합성 연결 캐시.
+
+    Returns:
+        None: 새 신원 주장을 요구하지 않는 정상 갱신을 검증한다.
+    """
+    oauth.token_response = {
+        "access_token": "synthetic-without-id-token",
+        "refresh_token": "synthetic-rotated-refresh",
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "scope": "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send",
+        "client_info": oauth.response_overrides["client_info"],
+    }
+    result = oauth.adapter.acquire_mailbox_token(
+        subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+    )
+    assert result.access_token.get_secret_value() == "synthetic-without-id-token"
+    assert result.cache_changed
+
+
+def test_refresh_id_token_signature_is_checked(oauth, mailbox_cache):
+    """MSAL이 디코딩만 한 갱신 ID 토큰도 실제 서명을 검사한다.
+
+    Args:
+        oauth: 다른 키로 토큰을 서명할 합성 공급자 문맥.
+        mailbox_cache: 원래 서명 검증으로 만든 연결 캐시.
+
+    Returns:
+        None: 위조 ID 토큰이 토큰 결과로 전달되지 않음을 검증한다.
+    """
+    oauth.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    with pytest.raises(ApplicationError, match="MAILBOX_ACCESS_DENIED"):
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+
+
+def test_refresh_signing_keys_outage_is_not_reconnection(oauth, mailbox_cache, monkeypatch):
+    """캐시에 없는 새 서명키 조회 실패는 재연결 필요와 구분한다.
+
+    Args:
+        oauth: 합성 토큰 응답 문맥.
+        mailbox_cache: 원래 서명 검증으로 만든 연결 캐시.
+        monkeypatch: 공개키 조회를 장애로 바꾸는 도구.
+
+    Returns:
+        None: 서명키 장애의 안전한 제공 실패를 검증한다.
+    """
+
+    def fail(_client):
+        """공급자 원문을 포함할 수 있는 키 조회 실패를 합성한다.
+
+        Args:
+            _client: 사용하지 않을 서명키 조회기.
+
+        Returns:
+            None: 반환하지 않고 조회 장애를 발생시킨다.
+        """
+        raise jwt.PyJWKClientConnectionError("private-provider-details")
+
+    oauth.kid = "synthetic-new-key"
+    monkeypatch.setattr(jwt.PyJWKClient, "fetch_data", fail)
+    with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+        oauth.adapter.acquire_mailbox_token(
+            subject=mailbox_cache.subject, serialized_cache=expired_mailbox_cache(mailbox_cache)
+        )
+    assert error.value.status_code == 503
+    assert "private" not in error.value.message
+
+
+def test_sdk_aging_refresh_failure_can_only_return_still_valid_cache(oauth, mailbox_cache):
+    """선제 갱신 장애에도 SDK가 반환한 아직 유효한 캐시는 검증 후 사용한다.
+
+    Args:
+        oauth: 갱신 통신 장애를 반환할 합성 공급자 문맥.
+        mailbox_cache: 만료 전 선제 갱신 대상으로 바꿀 합성 캐시.
+
+    Returns:
+        None: SDK의 기본 유효 캐시 동작을 만료 토큰 성공과 구분한다.
+    """
+    data = json.loads(mailbox_cache.serialized.get_secret_value())
+    for entry in data["AccessToken"].values():
+        entry["refresh_on"] = "1"
+    oauth.token_error = requests.ConnectionError("private-provider-details")
+    result = oauth.adapter.acquire_mailbox_token(
+        subject=mailbox_cache.subject, serialized_cache=SecretStr(json.dumps(data))
+    )
+    assert result.access_token.get_secret_value() == "synthetic-access-token"
+    assert [c for c in oauth.calls if c[0] == "POST"][-1][2]["data"][
+        "grant_type"
+    ] == "refresh_token"
