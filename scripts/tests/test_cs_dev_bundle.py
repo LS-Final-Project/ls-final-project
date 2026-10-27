@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,30 @@ spec.loader.exec_module(consumer)
 
 
 class DevelopmentBundleTests(unittest.TestCase):
+    def test_repository_output_must_be_ignored(self):
+        """저장소에서는 Git 제외 경로만 허용해 공개 커밋 실수를 방지한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 일반 출력 거부와 artifacts 허용을 합성 저장소에서 검증한다.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            (root / ".gitignore").write_text("artifacts/\n")
+            source = root / "source.csv"
+            source.write_text("ticket_id,data_split\nA,train\nB,valid\n")
+            with self.assertRaisesRegex(ValueError, "CS_SPLIT_OUTPUT_NOT_IGNORED"):
+                bundle.create_bundle(source, root / "out", "source", "approval", (1, 1))
+            self.assertFalse((root / "out").exists())
+            (root / "artifacts").mkdir()
+            result = bundle.create_bundle(
+                source, root / "artifacts" / "dev", "source", "approval", (1, 1)
+            )
+            self.assertEqual(result["tickets"]["rows"], 2)
+
     def test_only_development_rows_are_saved_and_consumer_accepts_them(self):
         """시험 표식 비출력·원본 보존·개발 분리본 hash와 소비자를 확인한다.
 
@@ -28,6 +53,8 @@ class DevelopmentBundleTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            (root / ".gitignore").write_text("development/\n")
             source = root / "source.csv"
             raw = b'ticket_id,data_split,body\nA,train,"first\nsecond"\nB,test,DO_NOT_EXPORT\nC,valid,ok\n'
             source.write_bytes(raw)
@@ -67,6 +94,8 @@ class DevelopmentBundleTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            (root / ".gitignore").write_text("development/\n")
             source = root / "source.csv"
             output = root / "development"
             for rows in ("A,train\nA,valid\n", "A,other\nC,valid\n", "A,train\n"):

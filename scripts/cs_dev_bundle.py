@@ -7,6 +7,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,6 +57,17 @@ def create_bundle(
         or not authorization_ref.strip()
     ):
         raise ValueError("CS_SPLIT_CONFIGURATION_INVALID")
+    for parent in output.parents:
+        if (parent / ".git").exists():
+            ignored = subprocess.run(
+                ["git", "check-ignore", "--quiet", "--no-index", "--", str(output) + "/"],
+                cwd=parent,
+                capture_output=True,
+                check=False,
+            )
+            if ignored.returncode != 0:
+                raise ValueError("CS_SPLIT_OUTPUT_NOT_IGNORED")
+            break
     with source.open("rb") as file:
         raw = file.read(32 * 1024 * 1024 + 1)
     if len(raw) > 32 * 1024 * 1024:

@@ -189,6 +189,7 @@ KAN-104 소비자는 반품 하위유형 정답을 분리 자료 manifest의 `re
 --source-ref <원천 판본 참조> --authorization-ref <분리 승인 참조>`를 한 명령으로 실행한다.
 원본 전체를 한 번 읽어 train/valid만 남기고 불명 split·중복/누락 ID·건수 불일치는 실패한다.
 출력 디렉터리는 기존 경로 및 data 하위를 거부하며 디렉터리0700·파일0600으로 생성한다.
+Git 저장소 안에서는 `git check-ignore`로 제외 경로임을 확인하지 못하면 생성하지 않는다.
 공개 저장소에는 실제 CSV·검수 결과를 커밋하지 않는다. 이 명령은 원격 전송을 하지 않는다.
 
 출력은 `tickets.train.csv`, `tickets.valid.csv`, KAN-104 호환 `tickets.dev.csv`, `manifest.json`이다.
