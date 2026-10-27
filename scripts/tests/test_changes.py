@@ -29,8 +29,8 @@ class ChangeTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 result = changes.classify([path])
-                self.assertEqual(result["services"], ["cs"])
-                self.assertEqual(result["backends"], ["cs"])
+                self.assertEqual(result["services"], ["cs", "platform"])
+                self.assertEqual(result["backends"], ["cs", "platform"])
                 self.assertTrue(result["evaluation"])
                 self.assertFalse(result["infrastructure"])
 
@@ -52,8 +52,8 @@ class ChangeTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 result = changes.classify(["backend/engine/cs/adapter.py", path])
-                self.assertEqual(result["services"], ["cs", "tft"])
-                self.assertEqual(result["backends"], ["cs", "tft"])
+                self.assertEqual(result["services"], ["cs", "tft", "platform"])
+                self.assertEqual(result["backends"], ["cs", "tft", "platform"])
                 self.assertTrue(result["evaluation"])
 
     def test_collaboration_consumers_run_only_with_infrastructure_inputs(self):
@@ -155,8 +155,8 @@ class ChangeTests(unittest.TestCase):
 
     def test_runtime_markdown_prompts_are_not_skipped_as_documentation(self):
         result = changes.classify(["backend/agent/cs/prompts/classification.md"])
-        self.assertEqual(result["services"], ["cs", "tft"])
-        self.assertEqual(result["backends"], ["cs", "tft"])
+        self.assertEqual(result["services"], ["cs", "tft", "platform"])
+        self.assertEqual(result["backends"], ["cs", "tft", "platform"])
 
     def test_shared_dependencies_expand_to_all_backends(self):
         for path in ("backend/shared/models.py", "uv.lock", "backend/api/common/application.py"):

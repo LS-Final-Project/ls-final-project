@@ -177,6 +177,8 @@ def evaluation_database(jobs_database):
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='evaluation_worker'").fetchone():
             sql = Path("infra/migrations/platform/20261027_KAN-90_worker_role.sql").read_text()
             conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path("infra/migrations/platform/20261027_KAN-90_worker_usage_KAN-86.sql").read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return jobs_database
 
 

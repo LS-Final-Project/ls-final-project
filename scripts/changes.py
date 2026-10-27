@@ -29,7 +29,7 @@ def classify(paths: list[str]) -> dict:
         if path.startswith(("scripts/", ".github/")):
             infrastructure = True
         if path.startswith("backend/engine/cs/"):
-            release.add("cs")
+            release.update(("cs", "platform"))
             evaluation = True
             continue
         if path.startswith("docs/openapi/"):
@@ -40,7 +40,7 @@ def classify(paths: list[str]) -> dict:
                 frontend = True
             continue
         if path.startswith(("backend/agent/", "backend/engine/")):
-            release.update(("cs", "tft"))
+            release.update(("cs", "tft", "platform"))
             evaluation = True
             continue
         if path.endswith(".md") or path.startswith("contracts/"):

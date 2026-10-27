@@ -9,8 +9,8 @@
 | frontend 실행 코드와 의존성 | 웹 테스트와 TypeScript 및 빌드 | web |
 | backend/api/cs, tft, platform | 해당 앱, 공통 회귀와 계약 소비자 검사 | 해당 앱 |
 | backend/shared, api/common, Python 의존성 | 백엔드 전체와 계약 소비자 | 백엔드 전체 |
-| backend/engine/cs | C/S와 평가 검사 | C/S |
-| 그 밖의 backend/engine, backend/agent | C/S·TFT와 평가 검사 | C/S와 TFT |
+| backend/engine/cs | C/S·플랫폼과 평가 검사 | C/S와 플랫폼 |
+| 그 밖의 backend/engine, backend/agent | C/S·TFT·플랫폼과 평가 검사 | C/S·TFT·플랫폼 |
 | OpenAPI와 개발용 모의 예시 | 원본 일치 및 프론트 호환성 | OpenAPI는 해당 앱, 개발 모의 예시만 바꾸면 웹 CD 없음 |
 | eval 및 tests/eval | Ruff·포맷, 공통 회귀 및 평가 테스트 재귀 수집 | API CD 없음 |
 | infra·scripts·.github와 Python 의존성 | Ruff·포맷, 도구 unittest·PR 자동화·새 DB 초기화 | 자동 DB 마이그레이션 없음 |
@@ -26,7 +26,7 @@ Python 검사는 uv 0.10.10과 uv.lock 기준 다운로드 캐시를 재사용�
 
 협업 검사는 Application checks의 infrastructure 작업에 통합한다. 기존 scripts unittest는 한 번만 실행하며 Node PR 자동화 검사도 같은 작업에서 실행한다. 별도 Collaboration checks는 실행하지 않는다. .github·scripts 변경(하위 Markdown 포함), 인프라 및 Python 의존성 변경은 이 작업을 선택하고 실패는 최종 Application result를 차단한다. 일반 프론트·업무 API·설명 문서만 바뀌면 협업 검사 전용 runner를 시작하지 않는다.
 
-현재 backend/engine/cs는 C/S에서만 사용하는 코드이므로 C/S·평가 검사와 C/S 배포 대상으로 선택한다. 공통 엔진·아직 분류하지 않은 엔진·에이전트 경로는 C/S와 TFT 대상으로 유지한다. 다른 서비스가 C/S 엔진을 사용하게 되면 이 영향 범위를 함께 확장해야 한다. 이름 변경은 삭제와 추가 양쪽 경로로 계산하고 dev/main은 마지막 성공한 검사 이후의 누적 변경을 계속 확인한다.
+플랫폼 합성 평가 worker가 backend/engine/cs를 사용하므로 C/S·플랫폼·평가 검사와 C/S·플랫폼 배포 대상으로 선택한다. 공통 엔진·아직 분류하지 않은 엔진·에이전트 경로는 세 백엔드를 보수적으로 선택한다. 이름 변경은 삭제와 추가 양쪽 경로로 계산하고 dev/main은 마지막 성공한 검사 이후의 누적 변경을 계속 확인한다.
 
 ## 배포 판단
 
