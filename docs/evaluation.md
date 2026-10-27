@@ -305,3 +305,37 @@ pending_case는 그 안의 아직 진행 중인 사례 수다. 기본false인 �
 최종 폴백 미사용이 확정된 것은 아니다. 플래그는 사례 전체의 것으로 분류 단계별 폴백
 발생이나 폴백 결과의 정답 여부를 증명하지 않는다. 원시 위반과 최종 성공·폴백은 서로 다른
 축으로 유지한다. 폴백 실행기·품질 결과 API/UI 연결·실제 호출 검증은 별도 작업이다.
+
+
+### KAN-88 한 실행의 통합 보고서와 합성 CLI
+
+`eval.cs_report.build_stored_report(conn, run_id, gold, gold_version=...)`는 지표별 정답 맵
+(category/urgency/secondary)을 받아 최초/최종 품질 3종·사용량·응답 감사를 한 보고서로 묶는다.
+새 `REPEATABLE READ READ ONLY` 트랜잭션을 직접 열므로 모든 집계가 같은 DB 스냅샷을 본다.
+다른 연결이 중간에 commit해도 다음 보고서부터 반영된다. 이미 트랜잭션이 진행 중인 연결은
+호출자의 commit/rollback을 대신하지 않고 거부한다. 보고서 오류는 전체 실패이며 부분 성공
+보고서를 반환하지 않는다. 종료 후 연결은 계속 사용할 수 있다.
+
+보고서 판본은 cs-run-report-v1이며 실행/실험 ID·상태·분모·판본/구성 hash를 기록한다.
+generated_at은 트랜잭션 시작 시각이며 실시간 최신 상태를 보증하지 않는다. 구성 JSON 전체,
+원시 출력·정답 원문은 내보내지 않지만 정답/예측 코드가 포함된 내부 보고서이므로 공개 API
+응답으로 그대로 사용하면 안 된다. 조회 권한과 실제 정답 잠금 확인은 호출자 책임이다.
+
+다음 CLI는 local/test의 기존 고정 C/S 합성 실행만 읽는다. 실행을 생성하거나 모델을 호출하지
+않으며 production·실자료·시험 분할·다른 프로필은 거부한다. 운영 세션 API가 아닌 DB 접근권을
+가진 내부 검사 도구이며 새 사용자 권한을 부여하지 않는다.
+
+```sh
+# 전용 로컬 검사 DB의 연결 문자열을 환경에 설정한다(공용 DB 사용 안 함).
+export ENVIRONMENT=test
+export EVALUATION_REPORT_DATABASE_URL='<전용 검사 DB 연결 문자열>'
+mkdir -p artifacts
+python -m eval.cs_report --run-id '<기존 합성 실행 UUID>' --output artifacts/cs-run-report.json
+```
+
+CLI 기대 정답은 모든 합성 대상의 category=RETURN, urgency=NONE, secondary=null로 지정한
+연결 검사용 값이다. 실제 라벨/품질 결과가 아니며 synthetic_gold_fixture=cs-report-demo-gold-v1로
+표시한다. 실험 gold_version을 임의로 잠그거나 실제 미검수 값을 대체하지 않는다. 결과는
+소유자 전용(0600) 새 JSON 파일에만 저장하고 기존 파일/심볼릭 링크를 덮어쓰지 않는다.
+오류는 고정 코드로만 출력하며 DB 접속 정보나 오류 원문을 노출하지 않는다. 이 기능은
+보고서를 내부에서 확인하는 경로이며 공개 웹 결과 화면·실제 평가 실행·품질 합격은 별도다.
