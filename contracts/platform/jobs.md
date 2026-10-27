@@ -147,3 +147,13 @@ worker는 현재 승인·대상·활성 사용자 확인에 필요한 읽기, ru
 기존 `claim_run/advance_run/park_run`을 재사용해 매 사례의 승인·holder/generation/lease를 검사한다. 승인 위반은 안전한 코드로 지정 run만 검토 필요로 보류한다. 중복 인수와 취소 후 이전 worker의 저장은 거부하고, 만료 후 재인수는 이미 완료한 사례를 건너뛴다. dispatcher의 ACCEPTED/operation 이름이나 CLOUD_RUN 환경 변수를 실행 권한으로 사용하지 않는다.
 
 전용 이미지 빌드: `docker build --target evaluation-worker --build-arg SERVICE_NAME=platform -t evaluation-worker .`. 비root 사용자와 production 기본 잠금을 유지하고 합성 실행에 필요한 eval 패키지만 추가한다. 일반 서비스 runtime 및 target 생략 빌드는 기존 API 진입점을 유지한다. 공용 배포·실제 worker 로그인 연결·production 허용·실제 모델 호출은 아직 하지 않는다. 외부 모델은 fake transaction 내부 호출 방식을 재사용하지 않고 intent/UNKNOWN·사용량·취소 경계부터 구현해야 한다.
+
+### KAN-69 UNKNOWN operation 읽기 대조
+
+`operation.inspect_operation`은 local/test 내부 함수이며 현재 UNKNOWN인 outbox와 정확히 일치하는 `(job_id, run_id, attempt_no, holder_id)`의 저장된 operation만 조회한다. 이름이 없거나 설정 프로젝트 번호·리전과 다르면 HTTP 호출 없이 False다. 고정 Google 호스트에 OAuth access token으로 GET 한 번만 수행하며 DB 연결은 HTTP 전에 닫는다. production 잠금·기본 비활성, timeout·64KiB 제한·리디렉션/자동 재시도/proxy 금지를 유지한다.
+
+True는 요청한 operation 이름과 일치하는 유효 접수 응답을 확인했다는 뜻이다. done=true는 설정 Job의 Execution도 확인한다. 평가 성공이나 현재 실행 권한을 뜻하지 않는다. False는 조회 불가/불명확이며 **미접수 또는 재전송 허용을 뜻하지 않는다**. 401/403/404와 operation error도 False다. 외부 본문·오류·토큰은 반환하거나 저장하지 않는다. DB 장애는 503으로 전파한다.
+
+이 첫 단위는 읽기만 하며 UNKNOWN 장부·평가 상태·판본·이벤트를 변경하지 않는다. 조회 중 장부가 바뀔 수 있으므로 결과를 미래 상태 변경에 사용할 때는 시도와 현재 상태를 트랜잭션 안에서 다시 대조해야 한다. 장부 갱신·재처리, operation 이름을 잃은 전송 복구, 자동 polling/CLI/API, 실제 ADC·IAM과 worker 로그인 연결은 후속 범위다.
+
+근거: [Cloud Run operations.get](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations/get). 현재 검증은 합성 HTTP와 임시 PostgreSQL에 한정한다.
