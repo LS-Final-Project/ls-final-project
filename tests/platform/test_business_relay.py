@@ -74,6 +74,7 @@ def business_database(auth_database):
             "cs/20261022_KAN-102_tickets.sql",
             "cs/20261023_KAN-102_ticket_audit.sql",
             "tft/20261023_KAN-119_projects.sql",
+            "tft/20261023_KAN-122_staffing_requests.sql",
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(
@@ -467,3 +468,57 @@ def test_verified_caller_still_requires_valid_user_context(system, google_tokens
     if context == "duplicate":
         headers.append((PRINCIPAL_HEADER, raw))
     assert system["services"][CS].get("/api/v1/cs/tickets", headers=headers).status_code == 401
+
+
+def test_staffing_migration_preserves_legacy_missing_due_and_enforces_new_writes(business_database):
+    """Upgrade is repeatable without inventing a legacy sales decision."""
+    project, role, org, request, actor = [uuid4() for _ in range(5)]
+    source = Path("infra/migrations/tft/20261023_KAN-122_staffing_requests.sql").read_text()
+    migration = "\n".join(
+        line
+        for line in source.splitlines()
+        if not line.startswith("\\") and line not in {"BEGIN;", "COMMIT;"}
+    )
+    with psycopg.connect(business_database, autocommit=True) as conn:
+        with conn.transaction(force_rollback=True):
+            conn.execute(
+                "ALTER TABLE tft.staffing_requests DROP CONSTRAINT staffing_requests_issued_due"
+            )
+            conn.execute(
+                "INSERT INTO tft.projects(id,source,source_instance,data_origin,derivation_kind,known_at,company_code,name) VALUES (%s,'test','test','synthetic','ASSUMED',now(),'TEST','Migration fixture')",
+                (project,),
+            )
+            conn.execute(
+                "INSERT INTO tft.organizations(id,source,source_instance,data_origin,derivation_kind,company_code,name) VALUES (%s,'test','test','synthetic','ASSUMED','TEST','Migration fixture')",
+                (org,),
+            )
+            conn.execute(
+                "INSERT INTO tft.required_roles(id,project_id,data_origin,derivation_kind,role_code,title) VALUES (%s,%s,'synthetic','ASSUMED','TEST','Migration fixture')",
+                (role, project),
+            )
+            conn.execute(
+                "INSERT INTO tft.staffing_requests(id,project_id,required_role_id,organization_id,data_origin,derivation_kind,status,issued_by_user_id,issued_at) VALUES (%s,%s,%s,%s,'synthetic','ASSUMED','ISSUED',%s,now())",
+                (request, project, role, org, actor),
+            )
+            for _ in range(2):
+                conn.execute(migration)
+            assert conn.execute(
+                "SELECT due_at,due_undecided FROM tft.staffing_requests WHERE id=%s", (request,)
+            ).fetchone() == (None, False)
+            assert conn.execute(
+                "SELECT convalidated FROM pg_constraint WHERE conrelid='tft.staffing_requests'::regclass AND conname='staffing_requests_issued_due'"
+            ).fetchone() == (False,)
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with conn.transaction():
+                    conn.execute(
+                        "UPDATE tft.staffing_requests SET message='still missing due' WHERE id=%s",
+                        (request,),
+                    )
+            conn.execute(
+                "UPDATE tft.staffing_requests SET due_at='2026-11-01T00:00:00Z' WHERE id=%s",
+                (request,),
+            )
+            conn.execute(migration)
+            assert conn.execute(
+                "SELECT convalidated FROM pg_constraint WHERE conrelid='tft.staffing_requests'::regclass AND conname='staffing_requests_issued_due'"
+            ).fetchone() == (True,)
