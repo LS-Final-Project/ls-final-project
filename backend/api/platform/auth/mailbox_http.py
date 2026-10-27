@@ -4,7 +4,7 @@ import hmac
 from datetime import UTC, datetime
 from html import escape
 from secrets import token_urlsafe
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -17,12 +17,17 @@ from backend.api.platform.auth.http import (
     SESSION_COOKIE,
     configuration,
     csrf_token,
+    operational_identity,
     read_callback_form,
 )
 from backend.api.platform.auth.mailbox import complete_and_store_mailbox_link, start_mailbox_link
 from backend.api.platform.auth.mailbox_settings import MailboxAuthSettings
 from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
-from backend.api.platform.auth.mailbox_vault import MailboxCipher, disconnect_mailbox
+from backend.api.platform.auth.mailbox_vault import (
+    MailboxCipher,
+    disconnect_mailbox,
+    list_mailboxes,
+)
 from backend.api.platform.auth.microsoft import PersonalMicrosoftOAuth
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
@@ -63,6 +68,21 @@ class AuthorizationStart(BaseModel):
     """서버 flow·토큰을 포함하지 않는 Microsoft 동의 URL."""
 
     authorization_url: str
+
+
+class MailboxConnection(BaseModel):
+    """토큰·암호문·Microsoft 식별자·키 버전 없이 연결 상태만 담는다."""
+
+    mailbox_id: UUID
+    state: Literal["connected", "disconnected"]
+    revision: int
+    updated_at: datetime
+
+
+class MailboxConnections(BaseModel):
+    """현재 세션 소유자의 연결 목록."""
+
+    items: list[MailboxConnection]
 
 
 def configure_mailbox_auth(app: FastAPI, value: MailboxAuthSettings) -> None:
@@ -293,3 +313,34 @@ async def disconnect(
     token = mutation_token(request)
     await disconnect_mailbox(request.app.state.settings, mailbox_id=mailbox_id, session_token=token)
     return Response(status_code=204)
+
+
+@router.get(
+    "",
+    response_model=SuccessResponse[MailboxConnections],
+    operation_id="platform_list_mailboxes",
+    openapi_extra=ACTIVATION,
+)
+async def list_connections(
+    request: Request,
+    response: Response,
+    provider: PersonalMicrosoftOAuth = Depends(mailbox_provider),
+) -> SuccessResponse[MailboxConnections]:
+    """현재 운영 세션 소유자의 사서함 연결 상태만 읽는다.
+
+    읽기라 CSRF 헤더는 요구하지 않고 `/me`와 같은 Origin·세션 검사를 재사용한다.
+
+    Args:
+        request: 운영 세션 쿠키를 포함한 요청.
+        response: 기존 세션 결속 CSRF 헤더를 받을 응답.
+        provider: 기본 비활성을 검사하는 의존성. 공급자를 호출하지 않는다.
+
+    Returns:
+        SuccessResponse[MailboxConnections]: 연결 ID·상태·개정·변경 시각 목록.
+    """
+    user = await operational_identity(request, response)
+    rows = await list_mailboxes(request.app.state.settings, owner_user_id=user.id)
+    return SuccessResponse(
+        data=MailboxConnections(items=[MailboxConnection(**row) for row in rows]),
+        meta=ResponseMeta(request_id=request.state.request_id),
+    )
