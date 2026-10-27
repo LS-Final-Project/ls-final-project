@@ -240,6 +240,7 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 | --- | --- |
 | candidates.jsonl | 성공 사례의 case_id·privacy_review_status와 정제 payload 4필드. 모델 실행 승인 아님 |
 | audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
+| review.boundaries.csv | 전건 개인정보와 선정된 경계별 미검수 질문·원문/후보 위치·판정 기록 칸. 본문/정답을 복사하지 않는 사람 검수 전용 |
 | summary.json | 입력/처리 판본·manifest/개발 파일 hash·출력 파일 hash·시간·전체/성공/보류·split/채널별 집계. 사례 ID 없음 |
 
 검수 그룹은 PHONE, 원천 SAFETY/SITE_DOWN, 보조 의도·반품·회신 존재, 원천 FLT-042 참조다.
@@ -253,3 +254,27 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 도구와 같은 Git 제외 경로·0700/0600·기존 파일 보존 규칙을 사용한다. KAN-95는 이 목록에서
 원문과 정제 결과를 대조하고 오탐/누락·정책 판본·gold·family·known_at을 별도 검수한다.
 원문 단위 사람 검수·오탐률·민감정보 완전성·실제 품질과 KAN-93 전체 완료는 아직 미확정이다.
+
+
+검수 도구 v2의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류,
+원천 SAFETY/SITE_DOWN·보조 의도·회신·금지 참조별로 한 행씩 준비한다. 반품 정답 양식은
+기존 `review.return_subtype.csv`를 사용하며 중복 생성하지 않는다. 그룹은 겹칠 수 있고 선정에
+원천 라벨을 사용하므로 독립적인 맹검 정답 판정용으로 사용하지 않는다. 그룹에 없는 사례도
+위험·복합 의도가 없다고 판정한 것이 아니다. `summary.boundary_review.checks`는 0건 항목도
+보존하며, 금지 참조 0건을 차단 검사 성공으로 해석하지 않는다.
+
+- `case_id_json`은 ID의 JSON 문자열이다. CSV 셀에서 수식처럼 시작하는 외부 ID도 텍스트로
+  보존하며, 프로그램에서 사용할 때 JSON으로 디코딩한다.
+- `source_sha256`는 승인 개발 CSV의 판본, `source_record`는 헤더를 제외한 1부터 시작하는
+  논리 레코드 번호다(멀티라인 본문이 있어 물리 줄 번호와 다름). `source_fields`는 확인할
+  칼럼 위치이며 의미상 정답 근거 구절을 자동 선정한 값이 아니다.
+- `candidate_record`는 함께 생성한 candidates.jsonl의 1부터 시작하는 줄 번호다. 입력 보류
+  사례는 빈 값이며, 삭제된 행이나 검수 제외가 아니다. `input_status/input_reason`은 기계적
+  정제 결과로 사람의 `review_status`와 구분한다.
+- 작성자는 원문/후보를 대조한 뒤 reviewer/reviewed_at/evidence_location/finding/reason을
+  기록한다. 생성 시 모두 빈 칸이고 review_status=pending, completed=0이다. 근거 위치에는
+  필드와 실제 구절 범위를 적고 민감값 원문을 그대로 복사하지 않는다. 회신은 현재 횟수만
+  인수됐으므로 본문·판본·known_at을 추가 확보하기 전 검수 완료로 바꾸지 않는다.
+
+이 CSV 편집은 모델 실행 승인이나 KAN-95 gold 잠금으로 자동 연결되지 않는다. 산출물은
+기존과 동일한 비공개 경로에 보관하며 실제 판정·인수 여부는 Jira에 기록한다.

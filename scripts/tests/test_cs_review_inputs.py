@@ -181,6 +181,77 @@ class InputReviewTests(unittest.TestCase):
                 hashlib.sha256((self.root / "out" / name).read_bytes()).hexdigest(), checksum
             )
 
+    def test_boundary_sheet_links_source_and_candidates_without_auto_review(self):
+        """보류와 다중 그룹의 검수 항목·근거 연결을 실제 파일에서 확인한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 미검수 상태와 CSV 논리 레코드·후보 줄 번호가 일치한다.
+        """
+        manifest, digest = self.source(
+            ["Urgency: SAFETY\nhelp", "Urgency: HIGH", "help", "mail\nbody"],
+            ["PHONE", "PHONE", "PHONE", "EMAIL"],
+        )
+        summary = prepare_review(manifest, digest, self.root / "out")
+        with (self.root / "out/review.boundaries.csv").open(newline="") as handle:
+            reviews = list(csv.DictReader(handle))
+        checks = summary["boundary_review"]["checks"]
+        self.assertEqual(checks["INPUT_PRIVACY"], 4)
+        self.assertEqual(checks["PHONE_REMOVED"], 1)
+        self.assertEqual(checks["PHONE_NO_REMOVAL"], 1)
+        self.assertEqual(checks["PHONE_HELD"], 1)
+        self.assertEqual(checks["SOURCE_SAFETY"], 0)
+        self.assertEqual(checks["SOURCE_SITE_DOWN"], 4)
+        self.assertEqual(checks["SOURCE_FOLLOWUP"], 4)
+        self.assertEqual(checks["SOURCE_BLOCKED_REFERENCE"], 4)
+        self.assertEqual(summary["boundary_review"]["rows"], len(reviews))
+        self.assertEqual(summary["boundary_review"]["completed"], 0)
+        self.assertEqual(len({(r["case_id_json"], r["check"]) for r in reviews}), len(reviews))
+        raw_source = (self.root / "dev.csv").read_bytes()
+        for row in reviews:
+            i = int(json.loads(row["case_id_json"]).split("-")[1])
+            self.assertEqual(row["source_record"], str(i + 1))
+            self.assertEqual(row["source_sha256"], hashlib.sha256(raw_source).hexdigest())
+            self.assertEqual(row["candidate_record"], ["1", "", "2", "3"][i])
+            self.assertEqual(row["review_status"], "pending")
+            for field in ("reviewer", "reviewed_at", "evidence_location", "finding", "reason"):
+                self.assertEqual(row[field], "")
+        content = (self.root / "out/review.boundaries.csv").read_text()
+        for secret in ("GOLD_SECRET", "FUTURE_SECRET", "mail\nbody", "Urgency: HIGH"):
+            self.assertNotIn(secret, content)
+        self.assertTrue(
+            all(
+                r["input_reason"] == "CS_UNSUPPORTED_PHONE_ANNOTATION"
+                for r in reviews
+                if r["source_record"] == "2"
+            )
+        )
+
+    def test_boundary_csv_preserves_formula_like_id_as_json_text(self):
+        """외부 ID를 수식 셀로 내보내지 않고 JSON 문자열로 보존한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: CSV를 읽은 셀은 따옴표로 시작하고 원래 ID로 복구된다.
+        """
+        manifest, _ = self.source(["help"])
+        source = self.root / "dev.csv"
+        raw = source.read_bytes().replace(b"CASE-0", b"=1+1")
+        source.write_bytes(raw)
+        value = json.loads(manifest.read_text())
+        value["tickets"]["sha256"] = hashlib.sha256(raw).hexdigest()
+        manifest.write_text(json.dumps(value))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        prepare_review(manifest, digest, self.root / "out")
+        with (self.root / "out/review.boundaries.csv").open(newline="") as handle:
+            row = next(csv.DictReader(handle))
+        self.assertTrue(row["case_id_json"].startswith('"'))
+        self.assertEqual(json.loads(row["case_id_json"]), "=1+1")
+
     def test_wrong_hash_or_external_path_is_rejected_before_loader(self):
         """승인 hash 불일치와 인수 폴더 밖 파일을 읽기 전에 거부한다.
 
