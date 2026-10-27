@@ -2146,6 +2146,114 @@ def test_http_mailbox_flow_uses_real_msal_and_commits_ciphertext(oauth, persiste
         assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
 
 
+def delete_mail_rows(dsn, mailbox_id):
+    """KAN-71 수집 행을 FK 순서대로 지워 연결 행 정리가 막히지 않게 한다.
+
+    Args:
+        dsn: 전용 검사 DB의 관리자 연결 문자열.
+        mailbox_id: 정리할 사서함 연결 ID.
+
+    Returns:
+        None: 첨부·메시지·커서·실행 행을 삭제한다.
+    """
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "DELETE FROM integration.mail_attachments WHERE message_id IN "
+            "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)",
+            (mailbox_id,),
+        )
+        for table in ("mail_messages", "mail_sync_cursors", "mail_sync_runs"):
+            conn.execute(
+                psycopg.sql.SQL("DELETE FROM integration.{} WHERE mailbox_id=%s").format(
+                    psycopg.sql.Identifier(table)
+                ),
+                (mailbox_id,),
+            )
+
+
+def test_disconnect_and_reconnect_keep_row_referenced_by_mail_sync(
+    oauth, mailbox_cache, persistence_context, mail_database, monkeypatch, tmp_path
+):
+    """해제·재연결은 KAN-71 수집 행이 참조하는 연결 행을 지우지 않고 같은 ID로 유지한다.
+
+    Graph는 KAN-71의 가짜 응답이며 실제 Outlook·Graph 연동의 증거가 아니다.
+
+    Args:
+        oauth: 실제 MSAL·합성 Microsoft HTTP 문맥.
+        mailbox_cache: 실제 MSAL이 만든 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+        mail_database: KAN-71 수집 마이그레이션을 적용한 같은 전용 DB.
+        monkeypatch: 가짜 Graph가 기대하는 합성 토큰 값을 제공자 값으로 맞추는 도구.
+        tmp_path: 원문 임시 저장소.
+
+    Returns:
+        None: 해제 상태·암호문 제거·FK 보존·같은 행 재연결 뒤 토큰 제공을 확인한다.
+    """
+    context = persistence_context
+    monkeypatch.setattr(mail_sync_db, "TOKEN", "synthetic-access-token")
+    value = asyncio.run(persist_token_cache(context, mailbox_cache))
+    provider = MailboxTokenProvider(
+        settings=context.settings, adapter=oauth.adapter, cipher=context.cipher
+    )
+    ids = {"mailbox_id": value.mailbox_id, "owner_user_id": context.owner}
+    referencing = (
+        "SELECT (SELECT count(*) FROM integration.mail_sync_runs WHERE mailbox_id=%s),"
+        "(SELECT count(*) FROM integration.mail_messages WHERE mailbox_id=%s)"
+    )
+    try:
+        result = mail_sync_db.run(
+            context.settings,
+            {"id": value.mailbox_id, "owner": context.owner},
+            mail_sync_db.FakeGraph(),
+            LocalObjectStore(tmp_path),
+            provider.get_mailbox_access_token,
+        )
+        assert result.status == "SUCCEEDED"
+        counts = mail_sync_db.rows(context.dsn, referencing, value.mailbox_id, value.mailbox_id)[0]
+        assert counts[0] == 1 and counts[1] > 0
+        asyncio.run(
+            disconnect_mailbox(
+                context.settings, mailbox_id=value.mailbox_id, session_token=context.token
+            )
+        )
+        revision, ciphertext, _, state, _ = persisted_token_row(context, value)
+        assert (revision, ciphertext, state) == (value.revision + 1, None, "disconnected")
+        assert (
+            mail_sync_db.rows(context.dsn, referencing, value.mailbox_id, value.mailbox_id)[0]
+            == counts
+        )
+        # 해제가 행 삭제였다면 이 FK가 막았을 것이다. 롤백되는 관리자 연결로만 확인한다.
+        with (
+            pytest.raises(psycopg.errors.ForeignKeyViolation),
+            psycopg.connect(context.dsn) as conn,
+        ):
+            conn.execute("DELETE FROM mailbox_auth.connections WHERE id=%s", (value.mailbox_id,))
+        with pytest.raises(ApplicationError, match="MAILBOX_NOT_CONNECTED"):
+            asyncio.run(provider.get_mailbox_access_token(**ids))
+        current = asyncio.run(
+            reconnect_mailbox(
+                context.settings,
+                mailbox_id=value.mailbox_id,
+                expected_revision=revision,
+                session_token=context.token,
+                authorization=MailboxAuthorization(
+                    context.owner, mailbox_cache.subject, mailbox_cache.serialized
+                ),
+                cipher=context.cipher,
+            )
+        )
+        assert current.mailbox_id == value.mailbox_id
+        assert persisted_token_row(context, value)[3] == "connected"
+        token = asyncio.run(provider.get_mailbox_access_token(**ids))
+        assert token.get_secret_value() == "synthetic-access-token"
+        assert (
+            mail_sync_db.rows(context.dsn, referencing, value.mailbox_id, value.mailbox_id)[0]
+            == counts
+        )
+    finally:
+        delete_mail_rows(context.dsn, value.mailbox_id)
+
+
 @pytest.mark.parametrize("refresh_error", [None, "invalid_grant"])
 def test_real_provider_feeds_kan71_mail_sync(
     oauth, mailbox_cache, persistence_context, mail_database, monkeypatch, tmp_path, refresh_error
