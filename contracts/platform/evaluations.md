@@ -343,3 +343,21 @@ NOT_STARTED 건수), `per_class`(DEFECT·NON_DEFECT의 support·tp·fp·fn·prec
 선택한 판본의 행이 저장 계약과 다르면(행 누락·추가, segment가 all이 아님, threshold·comparison·passed
 기록, details 키·판본·data_origin·정답 판본 불일치, 분모·outcomes·클래스 support 합 불일치, 범위 밖
 수치) 부분 표시 없이 503이다. 화면 표시는 후속 범위이며 현재 소비자는 이 필드를 읽지 않는다.
+
+
+### KAN-138 실행 비교 키
+
+`cs-run-summary-v1`에 선택 필드 `comparison_key`를 호환 추가한다. 두 실행의 요약을 각각 조회한
+소비자가 실험 구성 원값을 받지 않고 비교 가능 여부를 판단하기 위한 값이다. 새 비교 엔드포인트는 없다.
+
+키 판본은 `cs-comparison-key-v1`이다. 입력은 `key_version`과 실험의 `purpose`·`data_origin`·
+`dataset_hash`·`data_split`·`gold_version`·`target_set_hash`·`policy_version` 7개로,
+`eval.cs_stored_metrics.compare_stored_runs`의 비교 가능 조건과 같다. 이 객체를 키 정렬·구분자
+`(",", ":")`·ASCII 이스케이프·null 그대로의 JSON으로 직렬화한 UTF-8 바이트의 SHA-256 소문자 hex가
+키다. 조건 집합이나 직렬화를 바꾸면 키 판본을 올리며, 판본이 다른 키는 같은 조건이어도 다르다.
+
+키는 실행 상태와 무관하게 실험 조건만으로 정해지며 미종료 실행에도 반환한다. 비교 가능 여부는
+키 일치와 두 실행의 `status`가 종료 상태인지를 소비자가 함께 확인한다(조건과 상태를 한 값에 섞지
+않는다). 7개 원값은 응답·로그에 내지 않는다. 키가 같다는 것은 위 조건이 같다는 뜻일 뿐 구성·모델·
+프롬프트·가격표 판본이 같다는 뜻이 아니며, 품질 차이는 합성 품질의 정답 판본·채점 대상까지 같을 때만
+계산한다. 개선·퇴행 판정은 하지 않는다.

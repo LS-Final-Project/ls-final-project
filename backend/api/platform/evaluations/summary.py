@@ -1,5 +1,7 @@
 """승인된 합성 실행의 내용 없는 사용량·응답 감사와 합성 품질 집계만 공개한다."""
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -95,6 +97,17 @@ QUALITY_DETAILS = {
     "scored_target_count",
     "outcomes",
 }
+COMPARISON_KEY_VERSION = "cs-comparison-key-v1"
+# eval.cs_stored_metrics.compare_stored_runs의 비교 가능 조건과 같다. 바꾸면 키 판본도 올린다.
+COMPARISON_FIELDS = (
+    "purpose",
+    "data_origin",
+    "dataset_hash",
+    "data_split",
+    "gold_version",
+    "target_set_hash",
+    "policy_version",
+)
 Ratio = Annotated[float, Field(ge=0, le=1)]
 Count = Annotated[int, Field(ge=0)]
 
@@ -156,6 +169,7 @@ class EvaluationRunSummary(BaseModel):
     retry: AttemptSummary
     all: AttemptSummary
     synthetic_quality: SyntheticQuality | None = None
+    comparison_key: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
 
 
 def get_run_summary(
@@ -245,10 +259,28 @@ def get_run_summary(
                 target_count=usage["target_count"],
                 targets_without_first_attempt=usage["targets_without_first_attempt"],
                 synthetic_quality=_read_synthetic_quality(conn, run_id, row["gold_version"]),
+                comparison_key=comparison_key(row),
                 **groups,
             )
     except (psycopg.Error, ValueError):
         raise HTTPException(503, "Evaluation summary is unavailable") from None
+
+
+def comparison_key(experiment: dict) -> str:
+    """비교 가능 조건 원값을 내보내지 않고 같은 조건인지 판단할 키를 만든다.
+
+    Args:
+        experiment: COMPARISON_FIELDS를 가진 실험 메타데이터.
+
+    Returns:
+        str: 키 판본과 조건 7개의 canonical JSON SHA-256 hex. 실행 상태와 무관하다.
+    """
+    payload = {
+        "key_version": COMPARISON_KEY_VERSION,
+        **{k: experiment[k] for k in COMPARISON_FIELDS},
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _read_synthetic_quality(
