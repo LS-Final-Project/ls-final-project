@@ -433,6 +433,7 @@ test('mailbox relay is disabled independently and never reaches upstream by defa
     for (const suffix of ['/start', '/callback', '/complete', '/11111111-1111-4111-8111-111111111111/disconnect']) {
       assert.equal((await fetch(origin + '/api/v1/platform/auth/mailbox' + suffix, { method: 'POST' })).status, 404);
     }
+    assert.equal((await fetch(origin + '/api/v1/platform/auth/mailbox')).status, 404);
   }, async () => { calls += 1; return new Response('{}'); });
   assert.equal(calls, 0);
 });
@@ -470,4 +471,30 @@ test('enabled mailbox proxy preserves bounded form, separate cookie, CSP and fix
   assert.equal(String(calls[0].options.body), 'state=synthetic-state&code=synthetic-code');
   assert.equal(calls[0].options.redirect, 'manual');
   assert.equal(calls[2].options.headers['X-CSRF-Token'], 'bound-csrf');
+});
+
+test('enabled mailbox list relay forwards GET only with server token and selected cookies', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const list = origin + '/api/v1/platform/auth/mailbox';
+    const response = await fetch(list, { headers: { Origin: origin, Cookie: '__Host-team4_session=session; unrelated=private', Authorization: 'Bearer browser-untrusted' } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { data: { items: [] } });
+    assert.equal(response.headers.get('x-csrf-token'), 'bound-csrf');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal((await fetch(list + '?limit=1')).status, 404);
+    assert.equal((await fetch(list, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(list, { method: 'HEAD' })).status, 405);
+  }, async (url, options) => {
+    calls.push({ url: String(url), options });
+    return Response.json({ data: { items: [] } }, { headers: { 'X-CSRF-Token': 'bound-csrf' } });
+  }, false, false, false, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://platform.example.invalid/api/v1/platform/auth/mailbox');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-server-token');
+  assert.equal(calls[0].options.headers.Cookie, '__Host-team4_session=session');
+  assert.equal(calls[0].options.redirect, 'manual');
+  assert.equal(calls[0].options.body, undefined);
 });

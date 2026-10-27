@@ -12,6 +12,7 @@ const authentication = new Map([
   ['/api/v1/platform/me', 'GET'],
 ]);
 const mailboxAuthentication = new Map([
+  ['/api/v1/platform/auth/mailbox', 'GET'],
   ['/api/v1/platform/auth/mailbox/start', 'POST'],
   ['/api/v1/platform/auth/mailbox/callback', 'POST'],
   ['/api/v1/platform/auth/mailbox/complete', 'POST'],
