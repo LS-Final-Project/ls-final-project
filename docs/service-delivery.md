@@ -19,6 +19,10 @@
 
 PR은 공통 기준 브랜치와의 변경을 검사한다. dev와 main은 각 브랜치의 마지막 성공한 Application checks 이후 누적 변경을 검사하므로 실패한 CI 뒤에 문서만 수정해도 실패 범위를 건너뛰지 않는다. 최종 Application result는 작업의 실패와 취소를 모아 확인한다. 서비스별 작업이 정상 생략되는 경우도 이 결과는 완료된다.
 
+PR의 Application checks와 Collaboration checks는 새 실행이 시작되면 같은 PR의 이전 실행을 취소한다. dev/main push는 각 SHA의 검증과 배포 판단을 위해 취소하지 않는다. Draft에서도 CI는 실행하며 AI 리뷰는 Ready 상태에서 실행한다.
+
+Python 검사는 uv 0.10.10과 uv.lock 기준 다운로드 캐시를 재사용하고 매번 `uv sync --frozen` 및 검사를 실행한다. Docker는 서비스·target별 GitHub Actions 캐시를 사용한다. `test-dependencies`에 설치를 분리하고 `test` 단계에는 `no-cache-filters: test`를 적용해 캐시가 있어도 Ruff·타입·테스트·계약 검사를 다시 실행한다. runtime/worker 이미지는 로컬로 불러와 기존 시작·잠금 검사를 매번 수행한다. 캐시가 없으면 의존성을 다시 설치한다. 캐시 적중은 검사 성공을 대신하지 않으며, 캐시에는 키·운영 설정·업무 데이터를 넣지 않는다.
+
 ## 배포 판단
 
 main push 또는 main을 명시한 수동 실행으로만 CD를 시작한다. GCP 인증과 빌드 전에 동일한 main 커밋의 Application checks 성공을 최대 20분 기다린다. 실패 또는 취소, 시간 초과와 main 전진 시 빌드하지 않는다. dev의 CI 성공은 배포 조건이 아니다. 각 서비스의 실제 배포 commit-sha와 현재 main을 비교해 변경을 찾는다. 직전 push만 비교하지 않으므로 배포를 건너뛴 중간 커밋도 반영한다. 오래된 CI 이벤트와 빌드 중 main 변경은 배포 전에 다시 확인해 이전 버전 배포를 막는다. 서비스별 배포는 직렬화하고 다른 서비스는 독립 실행한다.
