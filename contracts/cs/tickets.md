@@ -24,13 +24,32 @@
 - 제목이 없는 채팅 문의의 `subject`는 null이다.
 - 해결 사례는 `known_at`이 지난 경우에만 상세에 포함한다. 제공 데이터는 해결 시각을 known_at으로 가정한다.
 - 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.1): 사용자 정보가 없거나 잘못되면 401. 조회는 `cs_agent`와 C/S 부서(`GCS_L1`)를 관리하는 manager는 전체, dept_staff와 다른 부서 manager는 자기(관리) 부서로 이관된 문의만이며 이관 부서 칸이 생기기 전(KAN-108)에는 빈 목록이다. 범위 밖 문의는 없는 문의와 같은 404 `CS_TICKET_NOT_FOUND`. sales의 목록과 cs_agent가 아닌 사용자의 등록·정정은 403.
-- 업무 중계가 비활성일 때 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. KAN-178의 명시 활성화는 [플랫폼 호출자 검증](../platform/auth.md#업무-json-중계와-호출자-검증-kan-178)과 기존 사용자·업무 권한 검사를 함께 요구한다. OpenAPI 상태는 `partial`이다. 설비·장비 일치 확인은 KAN-102의 후속 PR에서 추가한다.
+- 업무 중계가 비활성일 때 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. KAN-178의 명시 활성화는 [플랫폼 호출자 검증](../platform/auth.md#업무-json-중계와-호출자-검증-kan-178)과 기존 사용자·업무 권한 검사를 함께 요구한다. OpenAPI 상태는 `partial`이다. 설비·장비 일치 확인은 아래 절을 따른다.
 
 중계를 켠 C/S는 `CS_MANUAL_DATA_ORIGIN=demo` 또는 `real`을 명시해야 시작한다.
 공용 시연은 production 인증 정책에서도 demo를 유지하고, 실제 문의만 처리하는 배포에서
 real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여부를 추정하지 않는다.
 한 배포의 수동 접수 출처는 한 값이며 실제·시연 자료를 섞어 접수하는 기능은 제공하지 않는다.
 설정 변경은 이후 새 문의에만 적용하며 기존 행을 일괄 승격·변경하지 않는다.
+
+## 설치 장비 확인과 같은 장비 이력 (KAN-102)
+
+원본: backend/api/cs/units/schemas.py 및 routes.py. 기획서 4.3(고객 이력 프로필)과 6.1의 가정 테이블 `installed_units`, `ticket_unit_link`를 따른다. 마이그레이션은 `infra/migrations/cs/20261027_KAN-102_installed_units.sql`이다.
+
+| 경로 | 응답 | 설명 |
+| --- | --- | --- |
+| `GET /api/v1/cs/tickets/{ticket_id}/units` | `SuccessResponse[TicketUnitList]` | 문의와 고객·제품이 같은 장비와 이미 연결된 장비. 장비마다 `matches_ticket`과 현재 연결(`link`, 없으면 null)을 준다 |
+| `PUT /api/v1/cs/tickets/{ticket_id}/units/{unit_id}` | `SuccessResponse[TicketUnit]` | 연결을 `CANDIDATE`·`CONFIRMED`·`REJECTED`로 기록한다. 새 연결은 `version: null`, 기존 연결은 저장된 판본을 보낸다. cs_agent만 쓸 수 있다 |
+| `GET /api/v1/cs/tickets/{ticket_id}/unit-history` | `SuccessResponse[UnitHistory]` | 확정 장비의 이전 문의. 확정 장비가 없으면 `NO_CONFIRMED_UNIT`과 빈 목록 |
+
+- **고객·장비 일치 확인**: 장비의 `customer_external_id`·`product_code`가 문의와 다르면 후보·확정으로 둘 수 없다(422 `CS_UNIT_MISMATCH`). 거절은 항상 기록할 수 있다. 없는 장비는 404 `CS_UNIT_NOT_FOUND`.
+- **확정은 문의당 1대**: 다른 장비가 확정돼 있으면 409 `CS_TICKET_UNIT_ALREADY_CONFIRMED`. 먼저 기존 확정을 거절로 바꾼다. DB의 부분 유일 인덱스도 같은 제한을 둔다. 여러 대 중 특정 장비를 모르면(시나리오 S09) 후보로만 둔다.
+- **판본**: 연결마다 `version`이 있다. 새 연결인데 이미 있거나, 판본이 다르면 409 `CS_UNIT_LINK_VERSION_CONFLICT`. 값이 같으면 판본과 결정 시각을 유지한다. `CONFIRMED`·`REJECTED`는 결정한 사용자(`decided_by`)와 시각을 남기고, `CONFIRMED`의 `repeat_type`은 `DIFFERENT_UNIT`일 수 없다(422). 변경은 `cs.audit_events`에 `entity_type = 'ticket_unit_link'`로 기록한다.
+- **정정 잠금**: 확정 장비가 있는 문의의 `customer_external_id`·`product_code` 정정은 409 `CS_TICKET_UNIT_LINKED`. 연결을 거절로 바꾼 뒤 정정한다. 문의 행을 잠근 상태에서 연결과 정정을 처리해 서로 끼어들지 않는다.
+- **다른 장비 이력 복사 차단**: 이력은 이 문의의 확정 장비와, 그 장비가 교체한 장비(`replaced_by_unit_id` 역방향)에 **확정** 연결된 문의만 담는다. 같은 고객·제품의 다른 장비, 후보·거절 연결은 담지 않는다(시나리오 S13: CSV1-000991의 2024-05 설치 장비를 CSV1-003317에 쓰지 않는다). 교체 전 장비의 문의는 `relation = REPLACED_UNIT`으로 표시하고, 교체 전 장비의 설치일·출하일 같은 값은 `unit`에 섞지 않는다.
+- **시점 제한**: 이 문의 접수 시각보다 먼저 접수·인지된 문의만, 해결 사례는 그 시각 이전에 알려진 것만 담는다. 최대 100건, 최신순.
+- **접근**: 문의 상세와 같은 범위 검사를 쓴다(cs_agent, C/S 부서 manager). 장비 연결 기록은 cs_agent만 한다. KAN-108에서 부서 범위가 열리면 이력의 이전 문의도 그 범위로 거른다.
+- **데이터**: 장비는 CRM 설치기반을 가정한 자료(`derivation_kind = ASSUMED`, 가상 시리얼 `VSN-제품약어-번호`)이며 어댑터가 적재한다. C/S 서비스 계정은 장비를 읽기만 하고, 연결은 삭제할 수 없다. 이 PR은 장비 시연 데이터를 생성하지 않는다. 같은 장비 여부의 평가 정답은 모델 입력·검색과 분리된 별도 자료로 둔다.
 
 ## 문의 분류 출력 계약
 

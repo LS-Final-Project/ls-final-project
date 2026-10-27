@@ -128,6 +128,14 @@ def jobs_database(auth_database):
                 "infra/migrations/platform/20261026_KAN-69_dispatch_ledger.sql"
             ).read_text()
             conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        if not conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema='runtime' "
+            "AND table_name='dispatch_attempts' AND column_name='operation_name'"
+        ).fetchone():
+            migration = Path(
+                "infra/migrations/platform/20261026_KAN-69_dispatch_operation.sql"
+            ).read_text()
+            conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 
@@ -165,6 +173,9 @@ def evaluation_database(jobs_database):
             conn.execute("SELECT to_regclass('evaluation.run_action_receipts')").fetchone()[0]
             is None
         ):
+            conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='evaluation_worker'").fetchone():
+            sql = Path("infra/migrations/platform/20261027_KAN-90_worker_role.sql").read_text()
             conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return jobs_database
 
