@@ -73,8 +73,12 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 4. 별도 승인으로 보관 전용 32바이트 임의 키를 만들고 기존 플랫폼 계정만 읽을 수 있는
    Secret Manager의 고정 버전에 등록한다. 표준 base64로 서버에 주입하며 시크릿 원문은
    터미널 출력·명령행 인자·채팅·.env 예시에 남기지 않는다. 로그인 client secret이나 Gemini
-   키를 재사용하지 않는다. 현재 Secret 이름·버전/IAM·Cloud Run 주입 코드는 미연결이다.
-5. HTTP/CSRF·소비자 getter·실제 Graph 검증은 별도 범위다. 키/SQL 준비만으로 업무 수집을
+   키를 재사용하지 않는다. 실제 Secret 이름·버전/IAM·Cloud Run 주입은 운영자 작업이며 이번에 적용하지 않는다.
+   플랫폼의 `MAILBOX_AUTH_ENCRYPTION_KEY`·`MAILBOX_AUTH_KEY_VERSION`으로 받으며 웹에는 키를 주입하지 않는다.
+5. 초기 HTTP 경로는 웹·플랫폼의 `MAILBOX_AUTH_ENABLED=false`로 기본 차단된다. 기존 Web 앱에
+   정확한 사서함 callback을 추가하고 플랫폼 `MAILBOX_AUTH_REDIRECT_URI`를 준비한 뒤 별도 승인으로
+   배포·활성화한다. [HTTP/쿠키·CSRF 계약](../../contracts/platform/auth.md#사서함-초기-연결-http-기본-비활성-운영-미적용)을 따른다.
+   소비자 getter·실제 Graph 검증은 별도이며 키/SQL 준비만으로 업무 수집을
    활성화하거나 KAN-80·81 전체 완료로 표시하지 않는다. 단일 키 버전이며 자동 키 회전은 없다.
 
 새 연결/해제/재연결은 현재 세션과 DB 권한을 확인해야 한다. 작업용 조회·갱신은 인증한

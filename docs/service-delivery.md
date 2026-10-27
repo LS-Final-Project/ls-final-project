@@ -79,7 +79,7 @@ python3 infra/deploy_private.py BUILD_ID --service web
 python3 infra/deploy_private.py BUILD_ID --service web --apply
 ```
 
-이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API, 개발 로그인, 메일은 중계하지 않는다. KAN-178 업무 JSON 중계도 기본 비활성이며 아래 별도 확인 후 활성화한다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
+이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API와 개발 로그인은 중계하지 않는다. 사서함 초기 연결/해제 HTTP는 별도 `MAILBOX_AUTH_ENABLED=false`로 기본 차단하며 [전용 callback·키·쿠키/CSRF 계약](../contracts/platform/auth.md#사서함-초기-연결-http-기본-비활성-운영-미적용)에 따라 운영자가 준비한다. 이 경계가 메일 수집이나 Graph 업무 API를 중계하는 것은 아니다. KAN-178 업무 JSON 중계도 기본 비활성이며 아래 별도 확인 후 활성화한다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
 
 ## KAN-178 업무 중계 활성화 전 확인
 

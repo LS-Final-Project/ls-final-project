@@ -468,7 +468,7 @@ DB 변경은 추가하지 않는다.
 ### 초기 사서함 캐시 전달 경계 (부분 구현)
 
 `backend/api/platform/auth/mailbox.py`의 서버 내부 함수는 기존 세션·인가 시도 테이블만
-사용하며 HTTP 경로에는 등록하지 않았다.
+사용한다. 아래 기본 비활성 HTTP 경계가 초기 인가와 보관을 연결한다.
 
 - `start_mailbox_link()`는 원문 세션 쿠키를 기존 `load_session()`으로 확인한 뒤 현재
   활성 등록 사용자·유효 역할의 ID에 인가 시도를 결속해 저장한다. URL만 반환한다.
@@ -492,15 +492,16 @@ DB 변경은 추가하지 않는다.
   재전송해 다시 교환·저장하지 않고, 실패 후 새 연결을 시도하려면 새 인가를 시작해야 한다.
 
 저수준 `complete_mailbox_link()`의 결과는 평문 메모리 캐시이며 `SecretStr`은 암호화가 아니다.
-아래 보관 계층의 내부 함수에 명시적으로 전달해야 암호화 저장한다. HTTP·CSRF 연결과
-소비자용 getter는 미연결이고, 실제 Microsoft 동의/정책·Graph 메시지/첨부·실제 갱신도
+아래 보관 계층의 내부 함수에 명시적으로 전달해야 암호화 저장한다. 초기 HTTP 연결은
+아래 명시 활성화 경계가 담당하며, 소비자용 getter의 최종 주입과 실제 Microsoft 동의/정책·
+Graph 메시지/첨부·실제 외부 갱신은
 미검증이다. 합성 MSAL/RSA와 전용 PostgreSQL 검사를 실제 연결·배포 완료로 해석하지 않는다.
 
 ### 사서함 보관 계층 (KAN-81 부분 구현, 운영 미적용)
 
-`backend/api/platform/auth/mailbox_vault.py`는 서버 내부에서만 호출한다. 앱 시작이나
-HTTP callback에 자동 연결하지 않았고, 기본 로그인과 기존 인증 점검의 선행 조건을
-추가하지 않는다. 소비자 getter와 별개로 인증·보관 담당자만 평문 캐시를 취급한다.
+`backend/api/platform/auth/mailbox_vault.py`는 서버 내부에서만 호출한다. 기본 비활성에서
+HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성화가 필요하다. 기본 로그인과
+기존 인증 점검의 선행 조건을 추가하지 않는다. 소비자 getter와 별개로 인증·보관 담당자만 평문 캐시를 취급한다.
 
 - `MailboxCipher`는 서버에서 주입한 표준 base64 형식의 32바이트 키와 고정 버전 이름으로
   AES-256-GCM을 사용한다. 매 암호화마다 임의 12바이트 nonce를 생성하고, 형식 버전·키
@@ -564,8 +565,55 @@ HTTP callback에 자동 연결하지 않았고, 기본 로그인과 기존 인�
   무효화, 재연결 필요 상태의 영속 표시·자동 복구는 이번 연결 함수가 보장하지 않는다.
 
 실제 MSAL·RSA·PostgreSQL·AES-GCM과 합성 Microsoft HTTP를 연결하는 회귀 범위다.
-실제 Microsoft 동의·정책·Graph 요청·실제 외부 갱신, 소비자 fake 교체·HTTP/CSRF·운영 키
+실제 Microsoft 동의·정책·Graph 요청·실제 외부 갱신, 소비자 fake 교체·HTTP 운영 적용·전용 키
 주입은 별도이며, 합성 검사 성공을 실제 사서함 수집 가능 상태로 표시하지 않는다.
+
+### 사서함 초기 연결 HTTP (기본 비활성, 운영 미적용)
+
+기존 로그인과 별도로 웹·플랫폼의 `MAILBOX_AUTH_ENABLED` 기본값은 false다. 플랫폼은
+비활성 경로를 DB/공급자 호출 전404로 닫으며 키나 사서함 어댑터를 구성하지 않는다.
+기본 로그인은 사서함 키·스키마 없이 유지한다. 웹은 이 플래그가 켜졌을 때만 아래 네
+경로를 고정 플랫폼 upstream으로 중계하고, 브라우저 Authorization은 전달하지 않는다.
+
+| 경로 | 보호 및 결과 |
+| --- | --- |
+| `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
+| `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음 |
+| `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303 |
+| `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님 |
+
+시작은 별도 `__Host-team4_mailbox_oauth` 쿠키(5분·Secure·HttpOnly·SameSite=Lax·Path=/)를
+설정한다. 로그인 결속 쿠키와 구분하며 원문 세션·해시·캐시·토큰을 복사하지 않는다. 성공
+완료는 이 쿠키만 삭제하고 기존 서비스 로그인·역할·세션 쿠키를 변경하지 않는다.
+
+기존 Lax 세션은 Microsoft의 교차 사이트 POST에 실리지 않는다. 첫 callback 문서는
+code/state 두 hidden 입력만 HTML escape해 같은 출처 완료 경로로 전달한다. URL·스크립트에
+code/state를 넣거나 다른 공급자 필드를 반사하지 않는다. `no-referrer`에서 일반 form 제출은
+Origin:null이 될 수 있으므로 nonce CSP가 허용한 고정 스크립트가 같은 출처 fetch를 사용한다.
+완료 요청의 Origin 검사를 완화하지 않으며 state와 별도 결속으로 OAuth CSRF를 검사한다.
+시작/해제의 일반 변경 요청과 달리 이 완료 POST는 별도 CSRF 헤더를 요구하지 않는다.
+
+문서는 no-store·no-referrer, nonce script·connect-src self·form-action none·base-uri none·
+frame-ancestors none CSP를 적용하고 웹도 CSP를 보존한다. 완료의303 응답을 받은 뒤에만
+고정 루트로 이동한다. 오류/통신 실패는 연결 성공으로 바꾸지 않으며 고정 안내만 표시한다.
+JavaScript가 꺼져 있으면 활성화 후 새 연결을 안내한다. 두 form 입력 경로는 query를
+거부하고 기존8KiB/20필드·중복 보존 검사를 재사용한다. 소비한 인가는 실패 후 복구하지 않는다.
+
+플랫폼 활성화에는 기존 Microsoft 로그인 설정 외에 아래 전용 설정이 모두 필요하다.
+
+- `MAILBOX_AUTH_REDIRECT_URI`: 기존 Web 앱에 추가 등록할 동일 출처의 정확한
+  `/api/v1/platform/auth/mailbox/callback`. 로그인 callback을 교체하지 않는다.
+- `MAILBOX_AUTH_ENCRYPTION_KEY`: 플랫폼만 읽는 고정 Secret 버전의 표준 base64 32바이트 키.
+- `MAILBOX_AUTH_KEY_VERSION`: 보관 암호문의 키 버전에 결속할 비밀이 아닌 고정 이름.
+
+불완전한 활성 설정은 서버 시작 시 원문 없는 오류로 거부한다. 키는 웹·브라우저에 주입하지
+않으며 앱이 Secret/IAM/DB를 생성하지 않는다. 공용에서는 최신 스키마·권한을 재조회하고
+필요한 보관 마이그레이션을 한 번 적용/004 읽기 전용 점검한 뒤 운영자가 키·IAM·설정을 준비한다.
+기존 identity7테이블 점검이나 계정 등록을 반복하지 않는다. main 배포와 활성화는 별도 승인이다.
+
+이번은 초기 연결/해제 HTTP까지다. 연결 목록·재연결 UI/HTTP·소비자 getter의 최종 주입,
+실제 Microsoft 동의/Graph/외부 refresh·운영 설정 검증과 재연결 필요 상태 영속 표시는 남아 있다.
+합성 HTTP/MSAL·자체 DB·독립 Chrome 검사를 실제 Outlook/공용 환경 완료로 확대하지 않는다.
 
 **남은 합의·검증:** 함수의 import 경로, 위 오류 코드/상태 매핑, 갱신 여유시간·외부 요청
 제한시간, 위 내부 경합 처리를 소비자에게 연결하는 방식, 일시 장애의 제한된 재시도 책임을
