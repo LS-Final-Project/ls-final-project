@@ -1,4 +1,4 @@
-"""The development data loaders refuse the integrated file and loose gold files.
+"""The development loaders reject invalid rows and gold; hashes do not prove separation.
 
 Uses small synthetic files only; no provided data is read.
 """
@@ -116,3 +116,30 @@ def test_missing_manifest_fields_and_columns_are_reported(tmp_path):
         load_dev_tickets(path)
     with pytest.raises(DevDataError, match="data_split"):
         load_dev_tickets(write(tmp_path, "ticket_id,category_code\nT-1,RETURN\n"))
+
+
+@pytest.mark.parametrize(
+    "tickets",
+    [
+        HEADER + "T-1,train,RETURN\nT-1,valid,RETURN\n",
+        HEADER + "T-1,train,RETURN\nT-1,train,RETURN\n",
+        HEADER + ",train,RETURN\n",
+        HEADER + " T-1,train,RETURN\n",
+        "data_split,category_code\ntrain,RETURN\n",
+        "ticket_id,ticket_id,data_split\nA,B,train\n",
+        HEADER + "T-1,train\n",
+        HEADER + "T-1,train,RETURN,extra\n",
+    ],
+)
+def test_invalid_development_identity_or_columns_are_rejected(tmp_path, tickets):
+    """분모를 왜곡하는 중복·누락 ID와 모호한 CSV 열을 거부한다.
+
+    Args:
+        tmp_path: 합성 파일 전용 임시 디렉터리.
+        tickets: 검증할 합성 CSV.
+
+    Returns:
+        None: 원문을 포함하지 않는 오류를 확인한다.
+    """
+    with pytest.raises(DevDataError, match="^CS_DEV_ROWS_INVALID$"):
+        load_dev_tickets(write(tmp_path, tickets))
