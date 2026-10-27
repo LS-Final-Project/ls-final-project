@@ -1258,3 +1258,237 @@ def test_response_audit_preserves_missing_case_and_empty_response_denominator(
         == 0
     )
     assert report["first"]["schema_violation_rate"] is None
+
+
+def report_gold():
+    """실제 정답을 사용하지 않는 통합 보고서용 고정 기대값을 만든다.
+
+    Args:
+        없음.
+
+    Returns:
+        dict: 지표별 합성 기대값.
+    """
+    return {
+        "category": dict.fromkeys(FIXTURES, "RETURN"),
+        "urgency": dict.fromkeys(FIXTURES, "NONE"),
+        "secondary": dict.fromkeys(FIXTURES, None),
+    }
+
+
+def test_combined_report_keeps_one_snapshot_during_concurrent_commit(
+    settings, cs_access, cs_run, evaluation_database, monkeypatch
+):
+    """다른 연결의 commit이 집계 사이에 발생해도 한 보고서의 시점은 섞이지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 실행 ID.
+        evaluation_database: 격리 DB.
+        monkeypatch: 첫 집계 뒤 실제 별도 연결 변경을 삽입한다.
+
+    Returns:
+        None: 반복 가능한 읽기와 다음 조회의 최신 반영을 확인한다.
+    """
+    from eval import cs_report
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    original = cs_report.compare_stored_attempts
+    changed = False
+
+    def concurrent_update(conn, *args, **kwargs):
+        """첫 지표 조회 후 다른 연결에서 저장값을 변경한다.
+
+        Args:
+            conn: 보고서의 읽기 연결.
+            args: 기존 집계 인자.
+            kwargs: 기존 집계 옵션.
+
+        Returns:
+            dict: 실제 집계 결과.
+        """
+        nonlocal changed
+        assert conn.execute("SHOW transaction_isolation").fetchone()[0] == "repeatable read"
+        assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+        result = original(conn, *args, **kwargs)
+        if not changed:
+            with psycopg.connect(evaluation_database) as writer:
+                writer.execute("UPDATE evaluation.runs SET status='FAILED' WHERE id=%s", (cs_run,))
+                writer.execute(
+                    "UPDATE evaluation.case_attempts SET input_tokens=99 WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-valid')",
+                    (cs_run,),
+                )
+                writer.execute(
+                    "UPDATE evaluation.case_attempts SET raw_output=NULL WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-invalid')",
+                    (cs_run,),
+                )
+            changed = True
+        return result
+
+    monkeypatch.setattr(cs_report, "compare_stored_attempts", concurrent_update)
+    with psycopg.connect(evaluation_database) as conn:
+        report = cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        assert (
+            report["run_status"]
+            == report["usage"]["run_status"]
+            == report["response_audit"]["run_status"]
+            == "PARTIAL"
+        )
+        assert all(
+            value["first"]["run_status"] == "PARTIAL" for value in report["quality"].values()
+        )
+        assert report["usage"]["all"]["tokens"]["input_tokens"]["total"] == 21
+        assert report["response_audit"]["all"]["schema_violation_rate"] == 0.5
+        latest = cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+    assert latest["run_status"] == "FAILED"
+    assert latest["usage"]["all"]["tokens"]["input_tokens"]["total"] == 113
+    assert latest["response_audit"]["all"]["schema_violation_rate"] is None
+    assert set(report["quality"]) == {"category", "urgency", "secondary"}
+    assert report["target_count"] == 3 and report["snapshot_isolation"] == "repeatable_read"
+    assert "configuration" not in report["provenance"]
+
+
+def test_combined_report_rejects_active_transaction_and_rolls_back_failure(
+    cs_run, evaluation_database, monkeypatch
+):
+    """호출자의 변경은 건드리지 않고 보고서 실패의 트랜잭션만 정리한다.
+
+    Args:
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        monkeypatch: 사용량 단계에 금지된 쓰기를 주입한다.
+
+    Returns:
+        None: 입력 실패·읽기 전용 강제·연결 재사용 경계를 확인한다.
+    """
+    from eval import cs_report
+
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("UPDATE evaluation.runs SET retry_count=9 WHERE id=%s", (cs_run,))
+        with pytest.raises(ValueError, match="CS_REPORT_INVALID_INPUT"):
+            cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.INTRANS
+        assert (
+            conn.execute(
+                "SELECT retry_count FROM evaluation.runs WHERE id=%s", (cs_run,)
+            ).fetchone()[0]
+            == 9
+        )
+        conn.rollback()
+        bad_gold = report_gold()
+        bad_gold["urgency"].pop("cs-smoke-valid")
+        with pytest.raises(ValueError):
+            cs_report.build_stored_report(conn, cs_run, bad_gold, gold_version=None)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        with pytest.raises(ValueError, match="CS_REPORT_INVALID_INPUT"):
+            cs_report.build_stored_report(conn, uuid4(), report_gold(), gold_version=None)
+
+        def forbidden_write(connection, run_id):
+            """보고서 안의 쓰기가 DB에서 실제로 거부되는지 검사한다.
+
+            Args:
+                connection: 읽기 전용 보고서 연결.
+                run_id: 실행 ID.
+
+            Returns:
+                dict: 반환 전에 DB가 쓰기를 거부해야 한다.
+            """
+            connection.execute("UPDATE evaluation.runs SET retry_count=99 WHERE id=%s", (run_id,))
+            return {}
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cs_report, "summarize_stored_usage", forbidden_write)
+            with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+                cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        report = cs_report.build_stored_report(conn, cs_run, report_gold(), gold_version=None)
+        assert report["run_status"] == "QUEUED"
+        assert (
+            conn.execute(
+                "SELECT retry_count FROM evaluation.runs WHERE id=%s", (cs_run,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_synthetic_report_cli_exports_private_json_without_overwrite(
+    settings, cs_access, cs_run, evaluation_database, monkeypatch, tmp_path, capsys
+):
+    """합성 CLI가 사용 가능한 JSON을 비공개 새 파일로만 내보낸다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 실행 ID.
+        evaluation_database: 격리 DB.
+        monkeypatch: 합성 환경 변수 설정.
+        tmp_path: 검사 출력 위치.
+        capsys: 안전한 출력/오류 확인.
+
+    Returns:
+        None: JSON·권한·원문 비노출·덮어쓰기 방지를 확인한다.
+    """
+    import json
+    import stat
+
+    from eval.cs_report import main
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    output = tmp_path / "report.json"
+    args = ["--run-id", str(cs_run), "--output", str(output)]
+    assert main(args) == 0
+    saved_text = output.read_text()
+    report = json.loads(saved_text)
+    assert report["synthetic_gold_fixture"] == "cs-report-demo-gold-v1"
+    assert report["quality"]["category"]["first"]["report"]["overall"]["correct"] == 1
+    assert report["response_audit"]["first"]["schema_violation_rate"] == 0.5
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert "@example.test" not in saved_text and "provided_info" not in saved_text
+    assert main(args) == 2 and output.read_text() == saved_text
+    captured = capsys.readouterr()
+    assert captured.out == "CS_REPORT_EXPORTED\n"
+    assert captured.err == "CS_REPORT_EXPORT_FAILED\n"
+
+
+@pytest.mark.parametrize("blocked", ["production", "real", "test_split", "profile"])
+def test_synthetic_report_cli_keeps_execution_boundary(
+    cs_run, evaluation_database, monkeypatch, tmp_path, capsys, blocked
+):
+    """CLI가 운영·실자료·시험·다른 합성 프로필을 내보내지 않는다.
+
+    Args:
+        cs_run: 실행 ID.
+        evaluation_database: 격리 DB.
+        monkeypatch: CLI 환경 설정.
+        tmp_path: 금지 출력 위치.
+        capsys: 오류 원문 비노출 검사.
+        blocked: 허용하지 않을 조건.
+
+    Returns:
+        None: 금지 조건에서 파일이 생성되지 않음을 확인한다.
+    """
+    from eval.cs_report import main
+
+    monkeypatch.setenv("ENVIRONMENT", "production" if blocked == "production" else "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    if blocked != "production":
+        field, value = {
+            "real": ("data_origin", "real"),
+            "test_split": ("data_split", "test"),
+            "profile": ("prompt_version", "unapproved"),
+        }[blocked]
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(
+                psycopg.sql.SQL(
+                    "UPDATE evaluation.experiments SET {}=%s WHERE id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)"
+                ).format(psycopg.sql.Identifier(field)),
+                (value, cs_run),
+            )
+    output = tmp_path / "denied.json"
+    assert main(["--run-id", str(cs_run), "--output", str(output)]) == 2
+    assert not output.exists()
+    assert evaluation_database not in capsys.readouterr().err
