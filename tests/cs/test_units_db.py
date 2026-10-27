@@ -4,55 +4,21 @@ Scenarios follow the customer history set (프로젝트1_고객이력_가상시�
 different unit of the same customer and product, S04 a warranty replacement.
 """
 
-import os
 from datetime import UTC, date, datetime
-from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
-from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.api.cs.main import create_app
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
-MIGRATIONS = (
-    "20261022_KAN-102_tickets.sql",
-    "20261023_KAN-102_ticket_audit.sql",
-    "20261027_KAN-102_installed_units.sql",
-)
 CS_AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 PRODUCT = "METER-LP3500-3P4W"
-
-
-@pytest.fixture(scope="module")
-def cs_database():
-    """Applies the C/S migrations to the dedicated test DB and returns its admin DSN."""
-    dsn = os.getenv("AUTH_TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("전용 PostgreSQL 검사는 AUTH_TEST_DATABASE_URL이 필요합니다.")
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        assert conn.info.dbname == "kan77_auth_test", "전용 테스트 DB만 사용할 수 있습니다."
-        for role in ("cs_migrator", "cs_app"):
-            if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
-                conn.execute(SQL("CREATE ROLE {} NOLOGIN").format(Identifier(role)))
-        conn.execute("ALTER ROLE cs_app LOGIN PASSWORD 'test-only'")
-        conn.execute("CREATE SCHEMA IF NOT EXISTS cs AUTHORIZATION cs_migrator")
-        conn.execute("GRANT USAGE ON SCHEMA cs TO cs_app")
-        conn.execute(
-            "ALTER DEFAULT PRIVILEGES FOR ROLE cs_migrator IN SCHEMA cs "
-            "GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO cs_app"
-        )
-        for filename in MIGRATIONS:
-            migration = Path("infra/migrations/cs", filename).read_text()
-            conn.execute(
-                "\n".join(line for line in migration.splitlines() if not line.startswith("\\"))
-            )
-    return dsn
 
 
 @pytest.fixture(scope="module")
@@ -64,12 +30,6 @@ def client(cs_database):
     )
     with TestClient(create_app(settings), headers=principal_header(CS_AGENT)) as test_client:
         yield test_client
-
-
-@pytest.fixture
-def admin(cs_database):
-    with psycopg.connect(cs_database, autocommit=True) as conn:
-        yield conn
 
 
 def add_ticket(admin, customer: str, received: datetime, product: str = PRODUCT):

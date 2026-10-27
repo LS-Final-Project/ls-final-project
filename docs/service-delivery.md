@@ -9,15 +9,24 @@
 | frontend 실행 코드와 의존성 | 웹 테스트와 TypeScript 및 빌드 | web |
 | backend/api/cs, tft, platform | 해당 앱, 공통 회귀와 계약 소비자 검사 | 해당 앱 |
 | backend/shared, api/common, Python 의존성 | 백엔드 전체와 계약 소비자 | 백엔드 전체 |
-| backend/engine, backend/agent | 영향받는 C/S와 TFT 검사 | C/S와 TFT |
+| backend/engine/cs | C/S와 평가 검사 | C/S |
+| 그 밖의 backend/engine, backend/agent | C/S·TFT와 평가 검사 | C/S와 TFT |
 | OpenAPI와 개발용 모의 예시 | 원본 일치 및 프론트 호환성 | OpenAPI는 해당 앱, 개발 모의 예시만 바꾸면 웹 CD 없음 |
 | eval 및 tests/eval | Ruff·포맷, 공통 회귀 및 평가 테스트 재귀 수집 | API CD 없음 |
-| infra·scripts Python과 배포 도구 | Ruff·포맷, 도구 unittest | 자동 DB 마이그레이션 없음 |
+| infra·scripts·.github와 Python 의존성 | Ruff·포맷, 도구 unittest·PR 자동화·새 DB 초기화 | 자동 DB 마이그레이션 없음 |
 | 설명 Markdown | Application result만 확인 | 없음 |
 
 알 수 없는 실행 코드 경로는 전체 검사 대상으로 보수적으로 처리한다. 공통 백엔드·AI 의존성과 공유 엔진·에이전트 변경은 평가 소비자 검사도 실행한다. 서비스별 테스트는 해당 앱에서, tests/eval은 평가에서, 그 밖의 새 테스트 폴더는 공유 범위로 재귀 수집한다. 공유 엔진과 에이전트가 플랫폼에서도 쓰이기 시작하면 scripts/changes.py의 영향 범위를 함께 수정해야 한다. 현재 루트 tests의 기존 사례는 공통 회귀 검사이며, 새 업무 테스트는 tests/cs, tests/tft, tests/platform 아래에 추가한다.
 
 PR은 공통 기준 브랜치와의 변경을 검사한다. dev와 main은 각 브랜치의 마지막 성공한 Application checks 이후 누적 변경을 검사하므로 실패한 CI 뒤에 문서만 수정해도 실패 범위를 건너뛰지 않는다. 최종 Application result는 작업의 실패와 취소를 모아 확인한다. 서비스별 작업이 정상 생략되는 경우도 이 결과는 완료된다.
+
+PR의 Application checks는 새 실행이 시작되면 같은 PR의 이전 실행을 취소한다. dev/main push는 각 SHA의 검증과 배포 판단을 위해 취소하지 않는다. Draft에서도 CI는 실행하며 AI 리뷰는 Ready 상태에서 실행한다.
+
+Python 검사는 uv 0.10.10과 uv.lock 기준 다운로드 캐시를 재사용하고 매번 `uv sync --frozen` 및 검사를 실행한다. Docker는 서비스·target별 GitHub Actions 캐시를 사용한다. `test-dependencies`에 설치를 분리하고 `test` 단계에는 `no-cache-filters: test`를 적용해 캐시가 있어도 Ruff·타입·테스트·계약 검사를 다시 실행한다. runtime/worker 이미지는 로컬로 불러와 기존 시작·잠금 검사를 매번 수행한다. 캐시가 없으면 의존성을 다시 설치한다. 캐시 적중은 검사 성공을 대신하지 않으며, 캐시에는 키·운영 설정·업무 데이터를 넣지 않는다.
+
+협업 검사는 Application checks의 infrastructure 작업에 통합한다. 기존 scripts unittest는 한 번만 실행하며 Node PR 자동화 검사도 같은 작업에서 실행한다. 별도 Collaboration checks는 실행하지 않는다. .github·scripts 변경(하위 Markdown 포함), 인프라 및 Python 의존성 변경은 이 작업을 선택하고 실패는 최종 Application result를 차단한다. 일반 프론트·업무 API·설명 문서만 바뀌면 협업 검사 전용 runner를 시작하지 않는다.
+
+현재 backend/engine/cs는 C/S에서만 사용하는 코드이므로 C/S·평가 검사와 C/S 배포 대상으로 선택한다. 공통 엔진·아직 분류하지 않은 엔진·에이전트 경로는 C/S와 TFT 대상으로 유지한다. 다른 서비스가 C/S 엔진을 사용하게 되면 이 영향 범위를 함께 확장해야 한다. 이름 변경은 삭제와 추가 양쪽 경로로 계산하고 dev/main은 마지막 성공한 검사 이후의 누적 변경을 계속 확인한다.
 
 ## 배포 판단
 

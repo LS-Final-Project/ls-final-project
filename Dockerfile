@@ -5,9 +5,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python
 
-FROM dependencies AS test
-ARG TEST_SERVICE=all
+FROM dependencies AS test-dependencies
 RUN uv sync --frozen --no-install-project --python /usr/local/bin/python
+
+FROM test-dependencies AS test
+ARG TEST_SERVICE=all
 COPY backend ./backend
 COPY tests ./tests
 COPY eval ./eval
