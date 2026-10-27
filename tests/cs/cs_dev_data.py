@@ -4,7 +4,7 @@
 검사이며 분리 승인이 아니다. 잘못 승인된 파일의 시험 행은 파싱 후 거부하므로 시험
 비접근을 보장하지 않는다. 이 로더는 원본을 분리하거나 사람의 승인을 대신하지 않는다.
 
-Manifest (JSON, paths relative to the manifest):
+Manifest (JSON, paths relative to the manifest and inside its folder):
 
     {
       "tickets": {"path": "...", "sha256": "...", "splits": ["train", "valid"], "rows": 3403},
@@ -36,11 +36,15 @@ def _entry(manifest_path: Path, name: str) -> tuple[bytes, dict]:
     entry = manifest.get(name)
     if not isinstance(entry, dict):
         raise DevDataError(f"The manifest has no {name} entry")
+    root = manifest_path.parent.resolve()
     try:
-        path = (manifest_path.parent / entry["path"]).resolve()
+        path = (root / entry["path"]).resolve()
         expected = str(entry["sha256"]).lower()
     except KeyError as missing:
         raise DevDataError(f"{name}: manifest field {missing} is missing") from None
+    # The manifest only vouches for files in its own folder (docs/data-contract.md).
+    if not path.is_relative_to(root):
+        raise DevDataError(f"{name}: path must stay inside the manifest folder")
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != expected:
         raise DevDataError(f"{name}: SHA-256 differs from the manifest")
