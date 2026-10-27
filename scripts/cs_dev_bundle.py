@@ -30,6 +30,54 @@ def csv_bytes(fields: Sequence[str], rows: list[dict[str, str]]) -> bytes:
     return stream.getvalue().encode("utf-8")
 
 
+def checked_output(output: Path) -> Path:
+    """두 C/S 관리 도구의 새 비공개 출력 경로를 확인한다.
+
+    Args:
+        output: 새 디렉터리 경로. 저장소 안에서는 Git 제외 경로여야 한다.
+
+    Returns:
+        Path: data 하위·기존 경로가 아닌 정규화 경로.
+    """
+    output = output.resolve()
+    if output.exists() or "data" in output.parts:
+        raise ValueError("CS_SPLIT_CONFIGURATION_INVALID")
+    for parent in output.parents:
+        if (parent / ".git").exists():
+            ignored = subprocess.run(
+                ["git", "check-ignore", "--quiet", "--no-index", "--", str(output) + "/"],
+                cwd=parent,
+                capture_output=True,
+                check=False,
+            )
+            if ignored.returncode != 0:
+                raise ValueError("CS_SPLIT_OUTPUT_NOT_IGNORED")
+            break
+    return output
+
+
+def write_private_bundle(output: Path, payloads: dict[str, bytes]) -> None:
+    """개발 분리/검수 산출물을 같은 권한·실패 정리 방식으로 저장한다.
+
+    Args:
+        output: checked_output으로 검증한 새 경로.
+        payloads: 도구가 고정한 파일 이름과 직렬화한 내용.
+
+    Returns:
+        None: 실패하면 이번에 만든 디렉터리만 제거한다.
+    """
+    output.mkdir(mode=0o700, parents=False)
+    try:
+        for name, content in payloads.items():
+            with os.fdopen(
+                os.open(output / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
+            ) as file:
+                file.write(content)
+    except BaseException:
+        shutil.rmtree(output)
+        raise
+
+
 def create_bundle(
     source: Path,
     output: Path,
@@ -49,25 +97,9 @@ def create_bundle(
     Returns:
         dict: 원문 없이 hash·건수·처리 이력을 담은 manifest.
     """
-    output = output.resolve()
-    if (
-        output.exists()
-        or "data" in output.parts
-        or not source_ref.strip()
-        or not authorization_ref.strip()
-    ):
+    output = checked_output(output)
+    if not source_ref.strip() or not authorization_ref.strip():
         raise ValueError("CS_SPLIT_CONFIGURATION_INVALID")
-    for parent in output.parents:
-        if (parent / ".git").exists():
-            ignored = subprocess.run(
-                ["git", "check-ignore", "--quiet", "--no-index", "--", str(output) + "/"],
-                cwd=parent,
-                capture_output=True,
-                check=False,
-            )
-            if ignored.returncode != 0:
-                raise ValueError("CS_SPLIT_OUTPUT_NOT_IGNORED")
-            break
     with source.open("rb") as file:
         raw = file.read(32 * 1024 * 1024 + 1)
     if len(raw) > 32 * 1024 * 1024:
@@ -128,20 +160,8 @@ def create_bundle(
             "purpose": "development_review_and_rules_only",
         },
     }
-    # 새로 만든 디렉터리만 정리하며 기존 사용자 파일은 건드리지 않는다.
-    output.mkdir(mode=0o700, parents=False)
-    try:
-        payloads["manifest.json"] = (
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
-        ).encode()
-        for name, content in payloads.items():
-            with os.fdopen(
-                os.open(output / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
-            ) as file:
-                file.write(content)
-    except BaseException:
-        shutil.rmtree(output)
-        raise
+    payloads["manifest.json"] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
+    write_private_bundle(output, payloads)
     return manifest
 
 

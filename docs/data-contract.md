@@ -221,3 +221,35 @@ case_id,field,source_ref,evidence_location,policy_version,candidate_value,review
   공통 오류가 있을 수 있다. S15/current_fw는 전달받은 오류 후보이며 원문 확인 전 확정하지 않는다.
 - 우선순위 adjusted=N, 반품 미확인 보류, SLA 경과시간 전용 제외를 각각 기록한다. 원천 건수는
   인수 시 재확인하며 한 지표의 제외를 다른 지표에 전파하지 않는다.
+
+### 개발 입력 정제 검수 도구 (KAN-93)
+
+`python -m scripts.cs_review_inputs --manifest <인수 manifest.json> --manifest-sha256 <인수 기록 hash> --output <새 artifacts 경로>`는
+KAN-83에서 승인된 개발 사본에만 적용한다. 통합 원본을 분리하거나 평가·모델 호출을 하지
+않는다. 인수 manifest hash·개발 split·폴더 내부 경로를 확인하고 기존 KAN-104 개발 로더로
+파일 hash·행 수·ID를 검사한다. 실행 중 manifest 변경은 실패하며 기존 전달 ZIP은 보존한다.
+
+제공 CSV의 inquiry_subject/inquiry_body를 subject/body로 연결하고 channel/body_language와
+함께 기존 `build_input`에 전달한다. 이 연결은 제공 자료 검수 전용이며 KAN-92의 공통
+입력 어댑터·외부 ID 매핑·민감값 식별 구현을 대신하지 않는다. 라벨·정답·규칙 ID·사후 기록은
+payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않아 `sensitive_values={}`를 명시하고
+기존 이메일·라벨형 시리얼 패턴만 적용한다. 이름·주소·라벨 없는 식별자 등 전체 개인정보가
+제거됐다는 보장은 없으며 **모든 정제 후보도 사람 개인정보 검수 pending, model_ready=0**이다.
+
+| 파일 | 내용과 사용 경계 |
+| --- | --- |
+| candidates.jsonl | 성공 사례의 case_id·privacy_review_status와 정제 payload 4필드. 모델 실행 승인 아님 |
+| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
+| summary.json | 입력/처리 판본·manifest/개발 파일 hash·출력 파일 hash·시간·전체/성공/보류·split/채널별 집계. 사례 ID 없음 |
+
+검수 그룹은 PHONE, 원천 SAFETY/SITE_DOWN, 보조 의도·반품·회신 존재, 원천 FLT-042 참조다.
+원천 라벨 기반 그룹은 확정 gold나 실제 위험 판정이 아니며 모델 payload와 별도로 저장한다.
+회신 그룹은 customer_followups 양수 여부만 표시하고 회신 본문·시점·해결 이력을 아직
+검수하지 않는다. 금지 문서 참조 표시 역시 실제 검색·인용 차단 검증을 뜻하지 않는다.
+모든 그룹 건수는 중복될 수 있으므로 합을 전체 사례 수로 사용하지 않는다.
+
+예상된 입력 오류는 사례별 보류로 남기고 원문을 저장하지 않는다. 예상 밖 오류는 안전한
+코드로 작업 전체를 실패시키며 부분 결과를 성공으로 내보내지 않는다. 출력은 기존 분리
+도구와 같은 Git 제외 경로·0700/0600·기존 파일 보존 규칙을 사용한다. KAN-95는 이 목록에서
+원문과 정제 결과를 대조하고 오탐/누락·정책 판본·gold·family·known_at을 별도 검수한다.
+원문 단위 사람 검수·오탐률·민감정보 완전성·실제 품질과 KAN-93 전체 완료는 아직 미확정이다.
