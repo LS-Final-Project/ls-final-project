@@ -1092,3 +1092,169 @@ def test_baseline_comparison_keeps_unsupported_recall_null(baseline_pair):
     assert result["delta"]["non_none_recall"] is None
     assert result["delta"]["accuracy"] == pytest.approx(-1 / 3)
     assert result["candidate"]["report"]["overall"]["outcomes"]["NOT_STARTED"] == 3
+
+
+def test_response_audit_separates_schema_retries_and_case_fallback(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """원문 없이 응답 분모·재시도·폴백 기록을 분리해 계산한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 최초 위반 보존·빈 응답 분모·사례 중복 제거와 내용 비노출을 확인한다.
+    """
+    from backend.api.platform.evaluations.cs_smoke import run_case
+    from eval.cs_response_audit import summarize_stored_response_audit
+
+    with psycopg.connect(evaluation_database) as conn:
+        empty = summarize_stored_response_audit(conn, cs_run)
+    assert empty["first"]["schema_violation_rate"] is None
+    assert empty["targets_without_first_attempt"] == 3
+    assert (
+        empty["case_fallback"]["recorded_not_used"] == empty["case_fallback"]["pending_case"] == 3
+    )
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        original = summarize_stored_response_audit(conn, cs_run)
+        cases = dict(
+            conn.execute(
+                "SELECT target_ref,id FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+            ).fetchall()
+        )
+        good = run_case("cs-smoke-valid").prediction.model_dump()
+        conn.execute(
+            "UPDATE evaluation.cases SET fallback_used=true,final_output=%s,status='VALID' WHERE id=%s",
+            (Jsonb(good), cases["cs-smoke-invalid"]),
+        )
+        for ref, outcome, raw, parsed in (
+            ("cs-smoke-invalid", "VALID", "private@example.invalid", good),
+            ("cs-smoke-valid", "SCHEMA_VIOLATION", "", None),
+        ):
+            conn.execute(
+                "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,outcome,started_at,finished_at,raw_output,parsed_output) "
+                "VALUES (%s,%s,'classify',2,%s,now(),now(),%s,%s)",
+                (uuid4(), cases[ref], outcome, raw, Jsonb(parsed) if parsed is not None else None),
+            )
+        conn.execute(
+            "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,outcome,started_at,finished_at,raw_output) "
+            "VALUES (%s,%s,'draft',1,'SCHEMA_VIOLATION',now(),now(),'private-draft')",
+            (uuid4(), cases["cs-smoke-invalid"]),
+        )
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        report = summarize_stored_response_audit(conn, cs_run)
+    assert original["first"] == report["first"]
+    assert report["first"]["stored_attempt_count"] == 3
+    assert report["first"]["stored_raw_response_count"] == 2
+    assert report["first"]["schema_violation_count"] == 1
+    assert report["first"]["schema_violation_rate"] == 0.5
+    assert (
+        report["retry"]["stored_attempt_count"] == report["retry"]["stored_raw_response_count"] == 2
+    )
+    assert report["retry"]["schema_violation_rate"] == 0.5
+    assert report["all"]["stored_raw_response_count"] == 4
+    assert (
+        report["all"]["schema_violation_count"] == report["all"]["stored_parsed_output_count"] == 2
+    )
+    assert report["all"]["schema_violation_rate"] == 0.5
+    assert report["all"]["incomplete_evidence_attempt_count"] == 0
+    assert report["all"]["outcomes"]["TIMEOUT"] == 1
+    assert report["case_fallback"] == {
+        "scope": "case",
+        "target_count": 3,
+        "recorded_used": 1,
+        "recorded_not_used": 2,
+        "missing_case": 0,
+        "pending_case": 0,
+    }
+    assert "private" not in str(report) and "provided_info" not in str(report)
+
+
+@pytest.mark.parametrize(
+    "issue", ["missing_raw", "unexpected_raw", "inconsistent_parsed", "unfinished"]
+)
+def test_response_audit_withholds_rate_when_evidence_is_incomplete(
+    settings, cs_access, cs_run, evaluation_database, issue
+):
+    """불완전한 증거를 0 위반이나 확정된 비율로 표시하지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 합성 실행.
+        evaluation_database: 격리 DB.
+        issue: 주입할 누락 또는 모순.
+
+    Returns:
+        None: 위반 건수는 보존하고 비율만 보류함을 확인한다.
+    """
+    from eval.cs_response_audit import summarize_stored_response_audit
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        field, value, ref = {
+            "missing_raw": ("raw_output", None, "cs-smoke-invalid"),
+            "unexpected_raw": ("raw_output", "private-timeout", "cs-smoke-timeout"),
+            "inconsistent_parsed": ("parsed_output", None, "cs-smoke-valid"),
+            "unfinished": ("finished_at", None, "cs-smoke-valid"),
+        }[issue]
+        conn.execute(
+            psycopg.sql.SQL(
+                "UPDATE evaluation.case_attempts SET {}=%s WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref=%s)"
+            ).format(psycopg.sql.Identifier(field)),
+            (value, cs_run, ref),
+        )
+        report = summarize_stored_response_audit(conn, cs_run)
+    assert report["first"]["schema_violation_rate"] is None
+    assert report["first"]["schema_violation_count"] == 1
+    assert report["first"]["incomplete_evidence_attempt_count"] == 1
+    assert report["first"]["evidence_issues"][issue] == 1
+    assert "private-timeout" not in str(report)
+
+
+def test_response_audit_preserves_missing_case_and_empty_response_denominator(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """응답 없는 시도와 사례 행 누락도 고정 대상에서 제거하지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 승인 설정.
+        cs_run: 합성 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 응답0의 null과 폴백 기록 미확인을 확인한다.
+    """
+    from eval.cs_response_audit import summarize_stored_response_audit
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "DELETE FROM evaluation.case_attempts WHERE case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s AND target_ref!='cs-smoke-timeout')",
+            (cs_run,),
+        )
+        conn.execute(
+            "DELETE FROM evaluation.cases WHERE run_id=%s AND target_ref='cs-smoke-valid'",
+            (cs_run,),
+        )
+        report = summarize_stored_response_audit(conn, cs_run)
+        with pytest.raises(ValueError, match="CS_RESPONSE_AUDIT_INVALID_INPUT"):
+            summarize_stored_response_audit(conn, uuid4())
+        conn.execute("UPDATE evaluation.runs SET requested_count=2 WHERE id=%s", (cs_run,))
+        with pytest.raises(ValueError, match="CS_RESPONSE_AUDIT_INVALID_INPUT"):
+            summarize_stored_response_audit(conn, cs_run)
+    assert report["target_count"] == 3 and report["targets_without_first_attempt"] == 2
+    assert report["case_fallback"]["missing_case"] == 1
+    assert report["case_fallback"]["recorded_not_used"] == 2
+    assert (
+        report["first"]["stored_raw_response_count"]
+        == report["first"]["schema_violation_count"]
+        == 0
+    )
+    assert report["first"]["schema_violation_rate"] is None
