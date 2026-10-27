@@ -332,11 +332,13 @@ HTTP·쿠키·CSRF·인증 전용 중계는 비활성 초안으로 구현했으�
 
 ## 사서함 토큰 소비자 계약 초안 (KAN-80·81 → KAN-71)
 
-**상태: 소비자 합의 전 제안이며 소비자용 `get_mailbox_access_token()`은 아직 구현하지 않았다.**
+**상태: 소비자 합의 전 제안이다. 인증 측 제공자와 앱 내부 주입은 구현했으며,
+KAN-71의 실제 소비자 연결·합의 및 Microsoft/Graph 검증은 아직 하지 않았다.**
 [KAN-71 문의 답변](https://lsteam4.atlassian.net/browse/KAN-71?focusedCommentId=10267)의
 함수 형태와 실패 구분을 구체화한다. 아래 함수의 import 경로, 오류 매핑과 재시도 책임은
 KAN-71·80·81에서 확인할 항목이다. 이 문서만으로 실제 사서함 연결이나 토큰 보관이
-가능해진 것은 아니다. 공개 HTTP API·OpenAPI·운영 설정·DB 스키마도 추가하지 않는다.
+가능해진 것은 아니다. 이 소비자 인터페이스 때문에 공개 토큰 HTTP API·OpenAPI·운영 설정·
+DB 스키마를 추가하지 않는다. 기존 초기 연결 HTTP와 보관 구현은 아래 절에서 구분한다.
 
 ### 서버 내부 호출 형태
 
@@ -424,6 +426,44 @@ KAN-71의 fake는 위 두 keyword 인자를 받는 비동기 callable과 `Secret
 - 정상 소유자·연결은 토큰을 받고, 다른 소유자와 알 수 없는 연결은 같은 접근 거부가 된다.
 - 미연결·재연결 필요·일시 장애를 구분하며, 실패를 빈 목록·동기화 성공으로 기록하지 않는다.
 - 소비자가 refresh token을 받지 않고, 토큰 값이 오류·로그·업무 저장 payload에 남지 않는다.
+
+### 인증 측 제공자와 주입 경로 (소비자 합의 전)
+
+구현 import 경로는
+`backend.api.platform.auth.mailbox_tokens.MailboxTokenProvider`다. 서버 구성 단계에서
+`Settings`, 기존 `PersonalMicrosoftOAuth`, `MailboxCipher`를 주입하고,
+인스턴스의 `get_mailbox_access_token` 메서드만 소비자의 비동기 callable로 넘긴다.
+결속된 메서드는 위 예시처럼 두 keyword 인자만 받고 `SecretStr` 하나를 반환한다.
+소비자에게 암호기·설정·MSAL 캐시를 인자로 넘기도록 요구하지 않는다.
+
+```python
+from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
+
+# 플랫폼/작업의 신뢰할 서버 구성 단계에서만 준비한다.
+provider = MailboxTokenProvider(settings=settings, adapter=adapter, cipher=cipher)
+get_mailbox_access_token = provider.get_mailbox_access_token
+# 소비자에게는 위 callable을 주입한다. ID는 인증된 요청/저장 작업에서 복원한다.
+token = await get_mailbox_access_token(mailbox_id=mailbox_id, owner_user_id=owner_user_id)
+```
+
+플랫폼 앱은 기존 `MAILBOX_AUTH_ENABLED`가 true이고 전용 설정을 검증한 경우에만
+같은 사서함 어댑터·암호기로 `app.state.mailbox_tokens`를 구성한다. 기본 false에서는
+None이며 키·DB·공급자 호출 없이 기존 로그인과 분리된다. 메일 실행 경계는 제공자가
+없으면 작업을 시작하지 않아야 하며 임의 기본 키·개발 토큰·다른 캐시로 대체하지 않는다.
+이 앱 내부 상태를 공개 API로 반환하지 않는다. KAN-71의 요청/워커에 주입하는 코드는
+소비자 합의 후 해당 담당 범위에서 연결한다. 별도 전역 singleton이나 자동 등록 fake는 없다.
+
+제공자는 아래 기존 조회·갱신 저장 경계를 재사용한다. 네 가지 `ApplicationError`를
+그대로 전달하고, 내부 저장 개정 충돌은 기존처럼 `MAILBOX_TOKEN_UNAVAILABLE`/503이다.
+작업 인증·업무 권한 확인을 대신하거나 실패를 빈 토큰/동기화 성공으로 바꾸지 않는다.
+
+**Graph 401 책임은 아직 합의 전이다.** 현재 getter는 Graph 응답이나 거부된 토큰을
+받지 않고, 강제 갱신 옵션·Graph 호출·자동 재시도를 제공하지 않는다. 캐시가 아직
+유효하면 getter를 다시 불러도 같은 토큰이 나올 수 있으므로 401 뒤 getter 호출/Graph
+재요청 루프를 만들지 않는다. 현재 제안은 해당 작업을 실패로 남기고, 401 하나로 연결을
+영구 철회/재연결 필요로 단정하지 않는 것이다. 이후 강제 갱신 신호·제한된 재시도·실패
+기록 책임은 KAN-71과 함께 정한 뒤 양쪽에 검증한다. 인증 제공자는 기존 MSAL의 실제
+갱신 오류를 분류하며, 소비자 fake도 미합의 강제 갱신을 구현했다고 가정하지 않는다.
 
 ### MSAL 사서함 캐시 어댑터 (부분 구현)
 
@@ -540,12 +580,13 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 점검·전용 Secret/IAM/서버 주입을 준비해야 한다. 현재 공용 DB·Secret·IAM·Cloud Run 설정과
 배포에는 적용하지 않았다. 운영 순서는 [SQL 안내](../../infra/sql/README.md#사서함-보관-준비-kan-81)를 따른다.
 
-### 보관 캐시의 조회·갱신 연결 (KAN-81 부분 구현, 소비자 주입 미연결)
+### 보관 캐시의 조회·갱신 연결 (KAN-81 부분 구현)
 
 `backend/api/platform/auth/mailbox.py`의 `acquire_stored_mailbox_token()`은 인증·보관 내부의
 연결 함수다. `Settings`, 기존 `PersonalMicrosoftOAuth`, `MailboxCipher`를 서버가 명시적으로
-주입하고 연결 ID와 신뢰할 소유자 ID를 전달한다. 위의 두 keyword 인자만 받는 소비자 getter의
-최종 import 경로나 런타임 주입을 확정한 것은 아니며, HTTP 요청·수집 작업의 인증과 업무 권한
+주입하고 연결 ID와 신뢰할 소유자 ID를 전달한다. 위 제공자가 이 내부 함수를 재사용한다.
+제공자 import 및 앱 내부 구성은 위 절에 명시했으며, KAN-71의
+실제 주입·소비자 합의를 완료한 것은 아니다. HTTP 요청·수집 작업의 인증과 업무 권한
 확인을 대신하지 않는다. `owner_user_id`를 브라우저 입력에서 그대로 가져오지 않는다.
 
 - `load_mailbox()`로 현재 소유자·활성·유효 역할·연결을 검사한 뒤 캐시를 복호화한다.
@@ -615,7 +656,8 @@ JavaScript가 꺼져 있으면 활성화 후 새 연결을 안내한다. 두 for
 실제 Microsoft 동의/Graph/외부 refresh·운영 설정 검증과 재연결 필요 상태 영속 표시는 남아 있다.
 합성 HTTP/MSAL·자체 DB·독립 Chrome 검사를 실제 Outlook/공용 환경 완료로 확대하지 않는다.
 
-**남은 합의·검증:** 함수의 import 경로, 위 오류 코드/상태 매핑, 갱신 여유시간·외부 요청
+**남은 합의·검증:** 위 제공자의 import·주입 방식과 오류 코드/상태 매핑에 대한 소비자 확인,
+갱신 여유시간·외부 요청
 제한시간, 위 내부 경합 처리를 소비자에게 연결하는 방식, 일시 장애의 제한된 재시도 책임을
 확인해야 한다. getter의
 성공이 뒤따르는 Graph 요청 성공까지 보장하지는 않는다. Graph의 401 이후 강제 갱신 신호와

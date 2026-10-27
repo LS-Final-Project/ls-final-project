@@ -24,11 +24,11 @@ from pydantic import SecretStr
 from backend.api.platform.auth.callback import MicrosoftSubject, OAuthPurpose, complete_callback
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, csrf_token
 from backend.api.platform.auth.mailbox import (
-    acquire_stored_mailbox_token,
     complete_and_store_mailbox_link,
     start_mailbox_link,
 )
 from backend.api.platform.auth.mailbox_settings import MAILBOX_CALLBACK, MailboxAuthSettings
+from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
 from backend.api.platform.auth.mailbox_vault import (
     MailboxCipher,
     create_mailbox,
@@ -1528,7 +1528,7 @@ async def persist_token_cache(context, mailbox_cache, *, expired=False):
 
 
 async def acquire_persisted_token(oauth, context, value, **overrides):
-    """현재 보관 연결로 실제 조회·갱신·저장 경계를 실행한다.
+    """소비자용 제공자의 두 ID 호출로 실제 조회·갱신·저장 경계를 실행한다.
 
     Args:
         oauth: 실제 MSAL과 합성 HTTP를 사용하는 기존 어댑터.
@@ -1539,11 +1539,13 @@ async def acquire_persisted_token(oauth, context, value, **overrides):
     Returns:
         SecretStr: 저장 또는 현재 상태 확인 뒤의 access token 하나.
     """
-    return await acquire_stored_mailbox_token(
-        context.settings,
-        **{"mailbox_id": value.mailbox_id, "owner_user_id": context.owner, **overrides},
+    provider = MailboxTokenProvider(
+        settings=context.settings,
         adapter=oauth.adapter,
         cipher=context.cipher,
+    )
+    return await provider.get_mailbox_access_token(
+        **{"mailbox_id": value.mailbox_id, "owner_user_id": context.owner, **overrides}
     )
 
 
@@ -1935,6 +1937,35 @@ def test_stored_provider_failure_does_not_save_or_return_token(
     asyncio.run(scenario())
 
 
+def test_consumer_database_failure_is_not_access_denied(oauth, persistence_context):
+    """소비자 호출에서도 DB 장애를 접근 거부·빈 토큰으로 숨기지 않는다.
+
+    Args:
+        oauth: 생성 과정에서 네트워크를 호출하지 않는 검사 어댑터.
+        persistence_context: 전용 DB 문맥의 서버 설정과 실제 암호기.
+
+    Returns:
+        None: 고정503·비밀 비노출·공급자 미호출을 검증한다.
+    """
+    context = persistence_context
+    settings = context.settings.model_copy(
+        update={
+            "database_url": SecretStr(
+                "postgresql://postgres:synthetic-db-secret@127.0.0.1:1/kan77_auth_test"
+            )
+        }
+    )
+    provider = MailboxTokenProvider(settings=settings, adapter=oauth.adapter, cipher=context.cipher)
+    calls = list(oauth.calls)
+    with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+        asyncio.run(
+            provider.get_mailbox_access_token(mailbox_id=uuid4(), owner_user_id=context.owner)
+        )
+    assert error.value.status_code == 503
+    assert "synthetic-db-secret" not in error.value.message + repr(error.value) + repr(provider)
+    assert oauth.calls == calls
+
+
 def test_concurrent_stored_refresh_only_returns_committed_winner(
     oauth, mailbox_cache, persistence_context, monkeypatch
 ):
@@ -2092,17 +2123,19 @@ def test_http_mailbox_flow_uses_real_msal_and_commits_ciphertext(oauth, persiste
                 (context.owner,),
             ).fetchone()
             assert b"synthetic-refresh-token" not in bytes(row[1])
-        token = asyncio.run(
-            acquire_stored_mailbox_token(
-                context.settings,
-                mailbox_id=row[0],
-                owner_user_id=context.owner,
-                adapter=app.state.mailbox_oauth,
-                cipher=app.state.mailbox_cipher,
-            )
-        )
+        get_token = app.state.mailbox_tokens.get_mailbox_access_token
+        token = asyncio.run(get_token(mailbox_id=row[0], owner_user_id=context.owner))
         assert token.get_secret_value() == "synthetic-access-token"
         assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
         assert asyncio.run(load_session(context.settings, context.token)).id == context.owner
         assert client.cookies.get(SESSION_COOKIE) == context.token
         assert "synthetic-refresh-token" not in completed.text + relay.text
+        disconnected = client.post(
+            prefix + f"/{row[0]}/disconnect",
+            headers={"Origin": origin, CSRF_HEADER: csrf_token(context.token)},
+        )
+        assert disconnected.status_code == 204
+        with pytest.raises(ApplicationError, match="MAILBOX_NOT_CONNECTED") as error:
+            asyncio.run(get_token(mailbox_id=row[0], owner_user_id=context.owner))
+        assert error.value.status_code == 409
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == 1
