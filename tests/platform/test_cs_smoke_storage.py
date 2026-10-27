@@ -314,3 +314,157 @@ def test_cs_job_uses_dedicated_worker_role(
         asyncio.run(get_run(settings, cs_access, cs_experiment["actor"], cs_run)).status
         == "PARTIAL"
     )
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary"])
+def test_stored_metrics_match_first_calls_and_ignore_retry(
+    settings, cs_access, cs_run, evaluation_database, metric
+):
+    """실제 저장 결과가 직접 집계와 같으며 최종 재시도 성공에도 변하지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        metric: 검증할 세 분류 지표.
+
+    Returns:
+        None: 읽기 전용 집계·실패 분모·고정 메타데이터·원문 비노출을 확인한다.
+    """
+    from backend.api.platform.evaluations.cs_smoke import run_case
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+    from eval.cs_strata import summarize_first_attempts_by_group
+
+    gold = dict.fromkeys(
+        FIXTURES, {"category": "RETURN", "urgency": "NONE", "secondary": None}[metric]
+    )
+    metadata = {"cs-smoke-valid": {"channel": "PHONE", "body_language": "ko"}}
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    # 합성 worker는 빈 attributes만 허용하므로 종료 후 검사 관리자만 메타데이터를 주입한다.
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiment_targets SET attributes=%s "
+            "WHERE experiment_id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s) "
+            "AND target_ref='cs-smoke-valid'",
+            (Jsonb({**metadata["cs-smoke-valid"], "unrelated": "private@example.invalid"}), cs_run),
+        )
+    expected = summarize_first_attempts_by_group(
+        gold, {ref: run_case(ref) for ref in FIXTURES}, metadata, metric=metric
+    )
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        first = summarize_stored_first_attempts(
+            conn, cs_run, gold, gold_version=None, metric=metric
+        )
+    assert first["report"] == expected
+    assert first["run_status"] == "PARTIAL"
+    assert first["report"]["overall"]["total"] == 3
+    assert first["report"]["overall"]["correct"] == 1
+    valid = run_case("cs-smoke-valid").prediction.model_dump()
+    with psycopg.connect(evaluation_database) as conn:
+        cases = conn.execute(
+            "SELECT id FROM evaluation.cases WHERE run_id=%s", (cs_run,)
+        ).fetchall()
+        for (case_id,) in cases:
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET is_final=false WHERE case_id=%s", (case_id,)
+            )
+            conn.execute(
+                "INSERT INTO evaluation.case_attempts(id,case_id,step,attempt,is_final,outcome,parsed_output,started_at,finished_at) "
+                "VALUES (%s,%s,'classify',2,true,'VALID',%s,now(),now())",
+                (uuid4(), case_id, Jsonb(valid)),
+            )
+        conn.execute(
+            "UPDATE evaluation.cases SET final_output=%s WHERE run_id=%s", (Jsonb(valid), cs_run)
+        )
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        assert (
+            summarize_stored_first_attempts(conn, cs_run, gold, gold_version=None, metric=metric)
+            == first
+        )
+    assert "private@example.invalid" not in str(first)
+    assert all(field not in str(first) for field in ("raw_output", "provided_info", "final_output"))
+
+
+def test_stored_metrics_preserve_unstarted_targets(
+    settings, cs_access, cs_run, evaluation_database
+):
+    """미실행·부분 진행 및 사례 행 누락에도 실험 대상 전체를 분모로 유지한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 저장 행 수 대신 고정 대상 수로 계산함을 확인한다.
+    """
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+
+    gold = dict.fromkeys(FIXTURES, "RETURN")
+    with psycopg.connect(evaluation_database) as conn:
+        before = summarize_stored_first_attempts(
+            conn, cs_run, gold, gold_version=None, metric="category"
+        )
+    assert before["run_status"] == "QUEUED"
+    assert before["report"]["overall"]["outcomes"]["NOT_STARTED"] == 3
+    lease = asyncio.run(claim_run(settings, cs_access, cs_run))
+    assert not asyncio.run(advance_run(settings, cs_access, lease))
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute("DELETE FROM evaluation.cases WHERE run_id=%s AND status='PENDING'", (cs_run,))
+        partial = summarize_stored_first_attempts(
+            conn, cs_run, gold, gold_version=None, metric="category"
+        )
+    assert partial["run_status"] == "RUNNING"
+    assert partial["report"]["overall"]["total"] == 3
+    assert partial["report"]["overall"]["outcomes"]["NOT_STARTED"] == 2
+    assert partial["report"]["missing_metadata"] == {"channel": 3, "body_language": 3}
+
+
+@pytest.mark.parametrize(
+    "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
+)
+def test_stored_metrics_reject_inconsistent_snapshot(
+    settings, cs_access, cs_run, evaluation_database, invalid
+):
+    """다른 대상·정답 판본·저장 스키마 및 상태 모순을 빈 성공으로 숨기지 않는다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        invalid: 주입할 불일치 종류.
+
+    Returns:
+        None: 원문 없는 명시적 오류를 확인한다.
+    """
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    gold = dict.fromkeys(FIXTURES, "RETURN")
+    if invalid == "missing_gold":
+        gold.pop("cs-smoke-timeout")
+    if invalid == "extra_gold":
+        gold["not-in-run"] = "RETURN"
+    with psycopg.connect(evaluation_database) as conn:
+        if invalid == "count":
+            conn.execute("UPDATE evaluation.runs SET requested_count=2 WHERE id=%s", (cs_run,))
+        if invalid in {"schema", "outcome"}:
+            value = {"private": "private@example.invalid"} if invalid == "schema" else None
+            conn.execute(
+                "UPDATE evaluation.case_attempts SET parsed_output=%s WHERE outcome='VALID' "
+                "AND case_id IN (SELECT id FROM evaluation.cases WHERE run_id=%s)",
+                (Jsonb(value) if value is not None else None, cs_run),
+            )
+        with pytest.raises(ValueError, match="^CS_(STORED_METRICS|METRICS)_INVALID_INPUT$"):
+            summarize_stored_first_attempts(
+                conn,
+                uuid4() if invalid == "run" else cs_run,
+                gold,
+                gold_version="different" if invalid == "version" else None,
+                metric="category",
+            )
