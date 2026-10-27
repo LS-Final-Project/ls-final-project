@@ -4,6 +4,7 @@ import { isJobId, statusLabels } from '../api/evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
 import './evaluations.css';
 import RunControls from './RunControls';
+import RunSummary from './RunSummary';
 
 /** 평가 작업 조회 화면을 표시한다. Args: 없음. Returns: 조회 화면. */
 export default function Evaluations() {
@@ -18,7 +19,7 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
   const valid = isJobId(jobId);
   const [revision, setRevision] = useState(0);
   const [view, setView] = useState<EvaluationView>({ connection: 'loading' });
-  const refresh = () => setRevision(value => value + 1);
+  const refresh = () => { setView({ connection: 'loading' }); setRevision(value => value + 1); };
   useEffect(() => {
     if (!valid) return;
     const controller = new AbortController();
@@ -81,7 +82,8 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
         <p className="evaluation-caption">{view.connection === 'ended' ? '서버에서 종료 상태를 확인하여 실시간 구독을 마쳤습니다.' : '변경이 감지되면 서버 상태를 다시 확인합니다.'}</p>
       </>}
     </section>
+    {data && <RunSummary key={`${data.run_id}:${view.checkedAt}`} runId={data.run_id} />}
     {valid && <RunControls jobId={jobId.toLowerCase()} snapshot={data} onRefresh={refresh} />}
-    <aside className="evaluation-note"><strong>평가 결과와 실행 상태는 별도로 확인합니다.</strong><p>현재 지원 범위는 합성 평가의 상태 조회와 실행 제어입니다. 실행 완료는 모델 품질의 합격을 의미하지 않습니다. 최종 시험과 원시 출력은 잠금 상태를 유지합니다.</p></aside>
+    <aside className="evaluation-note"><strong>평가 결과와 실행 상태는 별도로 확인합니다.</strong><p>현재 지원 범위는 합성 평가의 상태·집계 조회와 실행 제어입니다. 실행 완료는 모델 품질의 합격을 의미하지 않습니다. 최종 시험과 원시 출력은 잠금 상태를 유지합니다.</p></aside>
   </main>;
 }
