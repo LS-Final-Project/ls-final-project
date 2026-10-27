@@ -10,42 +10,13 @@ export type RfpRequirement = ProjectDetail['rfp_requirements'][number];
 export const listProjects = () => request<ProjectListResponse>('/api/v1/tft/projects');
 export const getProject = (id: string) => request<ProjectDetailResponse>(`/api/v1/tft/projects/${encodeURIComponent(id)}`);
 
-// TODO(KAN-122 PR #31 병합 후 교체): 인력요청 API는 병렬 구현 중이라 docs/openapi/tft.json에 아직 없다. 아래 StaffingRequest*
-// 타입은 KAN-134에서 합의한 계약을 손으로 옮긴 것이다. PR #31이 dev에 병합되면 `npm run types:tft`로 generated/tft.ts를 다시
-// 만들고 이 손 작성 타입을 `paths['/api/v1/tft/projects/{project_id}/staffing-requests']...` 형태의 생성 타입으로 바꾼 뒤
-// `npm run build`·`npm run test:ui`로 필드 이름 차이를 확인한다. 필드·오류 코드를 여기서 임의로 바꾸지 않는다.
-export type StaffingRequestStatus = 'DRAFT' | 'ISSUED' | 'ANSWERED' | 'CLOSED';
-export type Participation = 'LEAD' | 'SUPPORT';
-export type StaffingRequest = {
-  id: string;
-  project_id: string;
-  required_role_id: string;
-  role_name: string;
-  organization_id: string;
-  organization_name: string;
-  organization_dept_code: string | null;
-  participation: Participation;
-  status: StaffingRequestStatus;
-  version: number;
-  due_at: string | null;
-  due_undecided: boolean;
-  message: string | null;
-  issued_by_user_id: string | null;
-  issued_at: string | null;
-  created_at: string;
-  updated_at: string;
-  data_origin: 'synthetic' | 'demo' | 'real';
-  derivation_kind: 'PROVIDED' | 'DERIVED' | 'SYSTEM' | 'ASSUMED';
-};
-export type StaffingRequestListResponse = { data: { items: StaffingRequest[] }; meta: { request_id: string } };
-export type StaffingRequestResponse = { data: StaffingRequest; meta: { request_id: string } };
-export type StaffingRequestPatch = {
-  organization_id?: string;
-  participation?: Participation;
-  due_at?: string | null;
-  due_undecided?: boolean;
-  message?: string;
-};
+// KAN-122의 병합된 OpenAPI 계약에서 요청·응답 타입을 생성한다.
+export type StaffingRequestListResponse = paths['/api/v1/tft/projects/{project_id}/staffing-requests']['get']['responses'][200]['content']['application/json'];
+export type StaffingRequestResponse = paths['/api/v1/tft/staffing-requests/{request_id}']['get']['responses'][200]['content']['application/json'];
+export type StaffingRequest = StaffingRequestResponse['data'];
+export type StaffingRequestStatus = StaffingRequest['status'];
+export type Participation = StaffingRequest['participation'];
+export type StaffingRequestPatch = paths['/api/v1/tft/staffing-requests/{request_id}']['patch']['requestBody']['content']['application/json'];
 
 // 모의 응답 파일에는 인력요청 예시가 없으므로 모의 모드에서는 빈 목록을 돌려준다(임의 데이터를 만들지 않는다).
 const emptyList = (): StaffingRequestListResponse => ({ data: { items: [] }, meta: { request_id: '00000000-0000-4000-8000-000000000000' } });
