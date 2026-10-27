@@ -76,6 +76,7 @@ def business_database(auth_database):
             "cs/20261027_KAN-102_installed_units.sql",
             "cs/20261027_KAN-108_ticket_workflow.sql",
             "cs/20261028_KAN-108_resolution_cases.sql",
+            "cs/20261028_KAN-112_improvement_requests.sql",
             "tft/20261023_KAN-119_projects.sql",
             "tft/20261023_KAN-122_staffing_requests.sql",
             "tft/20261025_KAN-123_recommendation_commands.sql",

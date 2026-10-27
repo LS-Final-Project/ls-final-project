@@ -6,6 +6,12 @@ Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak 
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from backend.api.cs.improvements.schemas import (
+    Evidence,
+    ImprovementRequest,
+    NextOwner,
+    RequestDetail,
+)
 from backend.api.cs.tickets.schemas import (
     AuditEvent,
     AuditList,
@@ -280,6 +286,101 @@ def case_example() -> dict:
     }
 
 
+def improvement_example() -> dict:
+    """The gasket leak draft at the point the group reached three customers (proposal 4.5)."""
+    created = datetime(2025, 11, 15, 9, 0, 0, tzinfo=UTC)
+    request_id = UUID("dddddddd-dddd-4ddd-8ddd-ddddddddddd1")
+    evidence = [
+        Evidence(
+            id=UUID(f"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee{index}"),
+            ticket_id=ticket,
+            ticket_external_id=ticket_ref,
+            case_id=case,
+            case_external_id=case_ref,
+            added_by=AGENT_ID,
+            added_at=created,
+            removed_by=None,
+            removed_at=None,
+            removal_reason=None,
+        )
+        for index, (ticket, ticket_ref, case, case_ref) in enumerate(
+            [
+                (TICKET_ID, "CSV1-000044", UUID("44444444-4444-4444-8444-444444444444"), "RC-0007"),
+                (
+                    SECOND_TICKET_ID,
+                    "CSV1-000120",
+                    UUID("44444444-4444-4444-8444-444444444445"),
+                    "RC-0022",
+                ),
+                (
+                    UUID("22222222-2222-4222-8222-222222222225"),
+                    "CSV1-000445",
+                    UUID("44444444-4444-4444-8444-444444444446"),
+                    "RC-0102",
+                ),
+            ],
+            start=1,
+        )
+    ]
+    request = ImprovementRequest(
+        id=request_id,
+        request_type="FAULT",
+        origin="MANUAL",
+        data_origin="synthetic",
+        derivation_kind="SYSTEM",
+        product_code="TRF-OIL-1000",
+        fault_id="FLT-067",
+        doc_signal=None,
+        doc_id=None,
+        condition_status="UNKNOWN",
+        condition_summary=None,
+        fw_fixed_version=None,
+        fw_released_on=None,
+        status="DRAFT",
+        version=1,
+        current_round=0,
+        cs_owner=AGENT_ID,
+        problem_statement=(
+            "Gasket leaks on the 1000 kVA oil transformer were reported by three customers "
+            "(Turkey, USA, Thailand) within 40 days. Investigate common packing, transport "
+            "or handling factors."
+        ),
+        confirmed_facts="All three were fixed on site by replacing the gasket and topping up oil.",
+        inconsistencies=(
+            "The recorded cause is transport damage, but the cause type is WEAR_PART and the "
+            "prevention note asks for factory lot analysis."
+        ),
+        missing_info="Shipping dates, transport route and receiving photos.",
+        not_claimed="That the factory lot is defective.",
+        review_task=None,
+        proposed_depts=["QA_CLAIM"],
+        receiver_unconfirmed=False,
+        reviewed_by=None,
+        reviewed_at=None,
+        sent_at=None,
+        followup_plan=None,
+        followup_result=None,
+        completed_by=None,
+        completed_at=None,
+        created_by=AGENT_ID,
+        created_at=created,
+    )
+    detail = RequestDetail(
+        request=request,
+        evidence=evidence,
+        departments=[],
+        replies=[],
+        actions=[],
+        next_owners=[NextOwner(actor="CS_OWNER", user_id=AGENT_ID, dept_code=None, task="REVIEW")],
+    )
+    return {
+        "method": "GET",
+        "path": f"/api/v1/cs/improvement-requests/{request_id}",
+        "status": 200,
+        "body": SuccessResponse(data=detail, meta=META).model_dump(mode="json"),
+    }
+
+
 def examples() -> list[dict]:
     listing: SuccessResponse[TicketList] = SuccessResponse(
         data=TicketList(
@@ -370,5 +471,5 @@ def examples() -> list[dict]:
         ]
         + write_examples()
         + unit_examples()
-        + [workflow_example(), case_example()]
+        + [workflow_example(), case_example(), improvement_example()]
     )
