@@ -18,7 +18,7 @@
 
 기본 접수는 비활성이다. **local/test** 환경에서만 서버 `EVALUATION_LOCAL_ADMISSION_ENABLED=true`와 `EVALUATION_APPROVED_CONFIG_HASHES` JSON 배열을 명시하여 검수한 구성 hash를 허용할 수 있다. production에서는 이 설정을 켜도503이다. 이번 작업에서 실제 계정·실험을 허용하거나 공용 설정을 변경하지 않았다.
 
-현재 지원 범위는 요청자가 생성한 실험 중 `purpose=smoke`, `data_origin=synthetic`, `model_id=fake`, 빈 configuration·dataset_manifest뿐이다. 모든 대상은 synthetic이며 attributes가 비어 있어야 한다. 일반 실험·실제 데이터·외부 모델은 거부한다. `data_split=test`는 허용 hash에 있어도403 FINAL_TEST_LOCKED로 거부하며 대상·원문·정답을 읽지 않는다. 다른 생성자나 없는 실험은404다. 합성 테스트에서 이 조건들을 검증하며 실제 시험 자료는 사용하지 않는다.
+현재 지원 범위는 요청자가 생성한 실험 중 `purpose=smoke`, `data_origin=synthetic`, `model_id=fake`, 빈 configuration 또는 아래 고정 C/S 합성 프로필이며 dataset_manifest는 비어 있어야 한다. 모든 대상은 synthetic이며 attributes가 비어 있어야 한다. 일반 실험·실제 데이터·외부 모델은 거부한다. `data_split=test`는 허용 hash에 있어도403 FINAL_TEST_LOCKED로 거부하며 대상·원문·정답을 읽지 않는다. 다른 생성자나 없는 실험은404다. 합성 테스트에서 이 조건들을 검증하며 실제 시험 자료는 사용하지 않는다.
 
 구성 hash를 기존 canonical JSON 규칙으로 재계산하고, 비어 있지 않은 대상 집합의 hash를 확인한다. 이때 읽고 검증한 대상 snapshot만 사례 생성에 사용한다. 등록 이후 대상 추가/구성 변경으로 hash가 달라지면409다. 자료의 출처 진실성이나 검수 품질을 hash만으로 증명하지 않는다. 사전 검수된 허용 목록 등록은 별도 운영 책임이며 실험 등록·데이터 검수 API는 미구현이다.
 
@@ -144,6 +144,34 @@ uv run --frozen python -m backend.api.platform.evaluations.smoke_worker
 - 사례가 모두 VALID이고 고정 분모와 일치하면 run/job SUCCEEDED·종료 시각·completed 이벤트·lease 해제를 함께 저장한다. 이는 연결 검사 성공이며 품질 합격/실측 점수가 아니다. metrics는 생성하지 않는다.
 
 프로세스가 사례 transaction 중 죽으면 미commit 결과는 rollback된다. 다음 명시적 CLI 실행은 lease 만료 후 새 generation으로 인수하고 남은 PENDING 사례부터 처리한다. 이미 모든 사례가 끝났고 종료 저장만 남았다면 사례를 재실행하지 않고 종료만 확정한다. 오래되거나 만료된 worker의 저장은409 STALE_WORKER로 거부한다. 오류를 성공으로 숨기거나 임의로 종료 상태를 덮어쓰지 않는다. 허용 목록 철회·사용자 비활성화 시에도 다음 단계가 거부되며 해당 실행은 관리자 확인 전까지 진행되지 않는다.
+
+
+### 고정 C/S 합성 저장 프로필 (KAN-86)
+
+`configuration={"task":"cs_classification","fixture_version":"cs-smoke-v1"}`도 지원한다.
+`backend/api/platform/evaluations/cs_smoke.py`의 고정 세 사례(정상·스키마 위반·타임아웃)만
+사용하며 `dataset_hash`, `target_set_hash`, `input_builder_version`, `prompt_version`이 모듈의
+고정 값과 일치해야 한다. 임의 입력·응답·제공자·파일 경로 설정은 받지 않는다. 기존 승인
+hash·평가자·local/test·시험 잠금은 그대로 적용하고 인수/사례 저장 시 다시 검사한다.
+
+- 실제 C/S `build_input → 단일 fake 호출 → validate_output`을 거쳐 `step=classify`, 시도1을 저장한다.
+  `VALID`는 스키마 통과일 뿐 품질 정답 판정이 아니다. 코드북·gold·채점은 연결하지 않는다.
+- 검사 전 원시 응답은 메모리에만 존재한다. 저장할 때 응답 전체를 `[REDACTED]`로 바꾸며,
+  응답 없음은 SQL NULL이다. 이 프로필의 원시 본문 감사는 불가능하며 고정 fixture로만 재현한다.
+  parsed/final_output은 검증을 통과한 다섯 코드 필드만 저장하고 실패 시 NULL로 둔다.
+- 모델 판본·종료 사유·입력 hash·오류 코드·지연(정수 ms)·알려진 토큰을 보존한다.
+  토큰은 **고정 합성 수치**이고 비용은 NULL이다. 모르는 사용량은 NULL, 알려진0은0이다.
+  입력 판본은 동결 실험에 보존한다. 메모리의 removed_annotations/call_started/
+  execution_uncertain은 현재 DB에 저장하지 않는다. 실제 외부 호출의 intent/UNKNOWN 기록을 대체하지 않는다.
+- 최초 스키마 위반·타임아웃을 자동 재시도하거나 성공으로 바꾸지 않는다. 사례·시도·카운터·
+  진행 이벤트를 기존 잠금 transaction에서 함께 저장한다. 이미 완료된 사례는 재개 시 건너뛴다.
+- 모든 사례 처리 뒤 전부 유효하면 SUCCEEDED, 일부 유효하면 PARTIAL, 유효 사례가 없으면 FAILED다.
+  runs와 jobs의 상태를 함께 저장하고 종료 이벤트를 보낸다. 고정 세 사례는 PARTIAL로 끝난다.
+  SSE 진행 payload의 step은 기존 `smoke`를 유지하며 원문·코드 출력·토큰을 추가하지 않는다.
+- 공개 API 필드는 추가하지 않는다. 최종 시험·원시 출력 접근·운영 실행 잠금을 유지한다.
+- `20261027_KAN-90_worker_usage_KAN-86.sql`은 기존 worker_role SQL **다음**에 적용한다.
+  전용 worker의 시도 메타데이터·토큰 INSERT와 실행 실패/보류 카운터 SELECT·UPDATE만 추가한다.
+  시도 원문 SELECT·UPDATE·DELETE 권한은 부여하지 않는다. 이번 적용은 격리 검사 DB에 한정한다.
 
 **이 복구는 외부 효과가 없는 FakeProvider 전용이다.** transaction 중 실제 모델 네트워크를 호출하는 구현으로 확장하지 않는다. 외부 모델은 intent/dispatch 결과 불명확(UNKNOWN)/사용량 보존 규약이 먼저 필요하다. 중단된 합성 함수를 다시 호출할 수는 있지만 commit된 사례·시도는 하나만 남는다. 이를 실제 모델 호출의 exactly-once 보장으로 해석하지 않는다.
 

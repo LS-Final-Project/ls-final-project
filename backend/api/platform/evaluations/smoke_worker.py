@@ -17,6 +17,7 @@ from backend.api.platform.evaluations.admission import (
     check_actor,
     validate_smoke_experiment,
 )
+from backend.api.platform.evaluations.cs_smoke import run_case
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -96,6 +97,7 @@ async def locked_run(
         or hashlib.sha256("\n".join(refs).encode()).hexdigest() != experiment["target_set_hash"]
     ):
         raise ApplicationError(409, "TARGET_SET_MISMATCH", "Target snapshot differs.")
+    row["cs_profile"] = experiment["configuration"] != {}
     return row
 
 
@@ -206,18 +208,25 @@ async def advance_run(
             ):
                 raise ApplicationError(409, "STALE_WORKER", "Worker ownership has expired.")
             cursor = await conn.execute(
-                "SELECT id FROM evaluation.cases WHERE run_id=%s AND status='PENDING' "
+                "SELECT id,target_ref FROM evaluation.cases WHERE run_id=%s AND status='PENDING' "
                 "ORDER BY id LIMIT 1 FOR UPDATE",
                 (lease.run_id,),
             )
             case = await cursor.fetchone()
             if case is not None:
-                # 운영 API 이미지는 eval 패키지를 포함하지 않으므로 합성 실행 때만 읽는다.
-                from eval.smoke import FakeProvider, Prediction
+                attempt = None
+                if row["cs_profile"]:
+                    attempt = run_case(case["target_ref"])
+                    # 원시 검사 후 응답 존재만 보존한다. 임의 원문을 저장하지 않는다.
+                    raw = "[REDACTED]" if attempt.raw_response is not None else None
+                    parsed = attempt.prediction.model_dump() if attempt.prediction else None
+                else:
+                    # 운영 API 이미지는 eval 패키지를 포함하지 않는다.
+                    from eval.smoke import FakeProvider, Prediction
 
-                prompt = 'Return JSON {"result":"ready"}.'
-                raw, _ = FakeProvider().generate(prompt)
-                parsed = Prediction.model_validate_json(raw).model_dump()
+                    prompt = 'Return JSON {"result":"ready"}.'
+                    raw, _ = FakeProvider().generate(prompt)
+                    parsed = Prediction.model_validate_json(raw).model_dump()
                 cursor = await conn.execute(
                     "SELECT lease_expires_at>clock_timestamp() AS live "
                     "FROM evaluation.run_control WHERE run_id=%s",
@@ -226,27 +235,70 @@ async def advance_run(
                 current = await cursor.fetchone()
                 if current is None or not current["live"]:
                     raise ApplicationError(409, "STALE_WORKER", "Worker ownership has expired.")
+                if attempt is None:
+                    await conn.execute(
+                        "INSERT INTO evaluation.case_attempts "
+                        "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
+                        "raw_output,parsed_output,started_at,finished_at) "
+                        "VALUES (%s,%s,'smoke',1,true,'VALID','fake','fake',%s,%s,%s,now(),now())",
+                        (
+                            uuid4(),
+                            case["id"],
+                            hashlib.sha256(prompt.encode()).hexdigest(),
+                            raw,
+                            Jsonb(parsed),
+                        ),
+                    )
+                    case_status = "VALID"
+                else:
+                    await conn.execute(
+                        "INSERT INTO evaluation.case_attempts "
+                        "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
+                        "raw_output,parsed_output,started_at,finished_at,model_version,finish_reasons,"
+                        "error_code,http_status,latency_ms,input_tokens,output_tokens,thought_tokens,"
+                        "cached_input_tokens,total_tokens) "
+                        "VALUES (%s,%s,'classify',1,true,%s,'fake','fake',%s,%s,%s,now(),now(),"
+                        "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (
+                            uuid4(),
+                            case["id"],
+                            attempt.outcome,
+                            attempt.input_sha256,
+                            raw,
+                            Jsonb(parsed) if parsed is not None else None,
+                            attempt.model_version,
+                            list(attempt.finish_reasons),
+                            attempt.error_code,
+                            attempt.http_status,
+                            round(attempt.latency_ms) if attempt.latency_ms is not None else None,
+                            attempt.usage.input_tokens,
+                            attempt.usage.output_tokens,
+                            attempt.usage.thought_tokens,
+                            attempt.usage.cached_input_tokens,
+                            attempt.usage.total_tokens,
+                        ),
+                    )
+                    case_status = {
+                        "VALID": "VALID",
+                        "SCHEMA_VIOLATION": "INVALID_OUTPUT",
+                        "TIMEOUT": "FAILED",
+                        "TRANSPORT_FAILURE": "FAILED",
+                        "HELD": "HELD",
+                    }[attempt.outcome]
                 await conn.execute(
-                    "INSERT INTO evaluation.case_attempts "
-                    "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
-                    "raw_output,parsed_output,started_at,finished_at) "
-                    "VALUES (%s,%s,'smoke',1,true,'VALID','fake','fake',%s,%s,%s,now(),now())",
-                    (
-                        uuid4(),
-                        case["id"],
-                        hashlib.sha256(prompt.encode()).hexdigest(),
-                        raw,
-                        Jsonb(parsed),
-                    ),
-                )
-                await conn.execute(
-                    "UPDATE evaluation.cases SET status='VALID',final_output=%s,completed_at=now() "
+                    "UPDATE evaluation.cases SET status=%s,final_output=%s,completed_at=now() "
                     "WHERE id=%s",
-                    (Jsonb(parsed), case["id"]),
+                    (case_status, Jsonb(parsed) if parsed is not None else None, case["id"]),
                 )
                 await conn.execute(
-                    "UPDATE evaluation.runs SET valid_output_count=valid_output_count+1 WHERE id=%s",
-                    (lease.run_id,),
+                    "UPDATE evaluation.runs SET valid_output_count=valid_output_count+%s,"
+                    "held_count=held_count+%s,failed_count=failed_count+%s WHERE id=%s",
+                    (
+                        int(case_status == "VALID"),
+                        int(case_status == "HELD"),
+                        int(case_status in {"INVALID_OUTPUT", "FAILED"}),
+                        lease.run_id,
+                    ),
                 )
                 await append_event(conn, row["job_id"], "job.progress", {"step": "smoke"})
                 await conn.execute(
@@ -264,15 +316,22 @@ async def advance_run(
             if (
                 counts is None
                 or counts["total"] != row["requested_count"]
-                or counts["valid"] != counts["total"]
+                or (not row["cs_profile"] and counts["valid"] != counts["total"])
             ):
                 raise ApplicationError(409, "SMOKE_INCOMPLETE", "Smoke cases are incomplete.")
-            await conn.execute(
-                "UPDATE evaluation.runs SET status='SUCCEEDED',finished_at=now() WHERE id=%s",
-                (lease.run_id,),
+            state = (
+                "SUCCEEDED"
+                if counts["valid"] == counts["total"]
+                else "PARTIAL"
+                if counts["valid"]
+                else "FAILED"
             )
             await conn.execute(
-                "UPDATE runtime.jobs SET status='SUCCEEDED' WHERE id=%s", (row["job_id"],)
+                "UPDATE evaluation.runs SET status=%s,finished_at=now() WHERE id=%s",
+                (state, lease.run_id),
+            )
+            await conn.execute(
+                "UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, row["job_id"])
             )
             await conn.execute(
                 "UPDATE evaluation.run_control SET holder_id=NULL,lease_expires_at=NULL,version=version+1 "
@@ -280,7 +339,10 @@ async def advance_run(
                 (lease.run_id,),
             )
             await append_event(
-                conn, row["job_id"], "job.completed", {"state": "SUCCEEDED", "synthetic": True}
+                conn,
+                row["job_id"],
+                "job.failed" if state == "FAILED" else "job.completed",
+                {"state": state, "synthetic": True},
             )
             return True
 

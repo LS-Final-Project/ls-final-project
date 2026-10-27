@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.evaluations.cs_smoke import matches_profile
 from backend.api.platform.evaluations.schemas import EvaluationAdmission, EvaluationRunStatus
 from backend.api.platform.jobs.admission import EvaluationJobRequest, admit_evaluation_job
 from backend.shared.database import connection
@@ -91,7 +92,7 @@ def validate_smoke_experiment(experiment: dict[str, Any], access: EvaluationAcce
         experiment["purpose"] != "smoke"
         or experiment["data_origin"] != "synthetic"
         or experiment["model_id"] != "fake"
-        or experiment["configuration"] != {}
+        or (experiment["configuration"] != {} and not matches_profile(experiment))
         or experiment["dataset_manifest"] != {}
     ):
         raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Only synthetic smoke is supported.")
