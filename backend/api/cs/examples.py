@@ -370,4 +370,5 @@ def examples() -> list[dict]:
         ]
         + write_examples()
         + unit_examples()
+        + [workflow_example(), case_example()]
     )

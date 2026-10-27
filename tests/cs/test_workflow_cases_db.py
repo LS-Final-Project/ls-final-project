@@ -138,6 +138,7 @@ def test_case_is_registered_once_after_closing_from_an_accepted_result(client, a
         "SELECT known_at <= now() FROM cs.resolution_cases WHERE id = %s", (case["id"],)
     ).fetchone()
     assert stored == (True,)
+    assert datetime.fromisoformat(case["known_at"]) >= datetime.fromisoformat(case["resolved_at"])
     detail = ok(client.get(f"/api/v1/cs/tickets/{ticket}"))
     assert detail["resolution_case"]["id"] == case["id"]
     assert code(register(client, ticket, version=5)) == (409, "CS_RESOLUTION_CASE_EXISTS")

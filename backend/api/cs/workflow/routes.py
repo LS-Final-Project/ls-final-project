@@ -521,8 +521,9 @@ async def register_resolution_case(
         ticket = await tickets.get_ticket(conn, ticket_id)
         if ticket is None:
             raise not_found()
-        # The database clock, which the ticket detail compares known_at with.
-        now = await repository.database_now(conn)
+        # The database clock, which the ticket detail compares known_at with. A case is never
+        # known before the ticket was closed, even if the two clocks differ.
+        now = max(await repository.database_now(conn), workflow["closed_at"])
         case = {
             "id": uuid4(),
             "ticket_id": ticket_id,
