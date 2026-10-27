@@ -653,12 +653,12 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 
 기존 로그인과 별도로 웹·플랫폼의 `MAILBOX_AUTH_ENABLED` 기본값은 false다. 플랫폼은
 비활성 경로를 DB/공급자 호출 전404로 닫으며 키나 사서함 어댑터를 구성하지 않는다.
-기본 로그인은 사서함 키·스키마 없이 유지한다. 웹은 이 플래그가 켜졌을 때만 아래 POST 네
-경로를 고정 플랫폼 upstream으로 중계하고, 브라우저 Authorization은 전달하지 않는다.
+기본 로그인은 사서함 키·스키마 없이 유지한다. 웹은 이 플래그가 켜졌을 때만 아래 다섯
+경로(목록 GET과 POST 넷)를 고정 플랫폼 upstream으로 중계하고, 브라우저 Authorization은 전달하지 않는다.
 
 | 경로 | 보호 및 결과 |
 | --- | --- |
-| `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`으로 최근 변경 순200 반환. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹 중계 허용 목록에는 아직 없음 |
+| `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`으로 최근 변경 순200 반환. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹은 GET만 쿼리 없이 중계하고 인증 쿠키·Origin만 전달 |
 | `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
 | `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
 | `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303. 같은 소유자의 같은 Microsoft 계정 연결이 있으면 그 행을 재연결(같은 `mailbox_id`, 개정 +1)하고 없으면 새 연결 |
