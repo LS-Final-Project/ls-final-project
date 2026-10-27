@@ -21,15 +21,35 @@ Category = Literal[
     "RETURN",
 ]
 Urgency = Literal["SAFETY", "SITE_DOWN", "PROD_IMPACT", "COMMISSION", "DEADLINE", "NONE"]
-INPUT_VERSION = "cs-classification-input-v1"
+INPUT_VERSION = "cs-classification-input-v2"
+_PHONE_LABEL = r"(?<![\w*`-])[*_`]*Urgency[*_`]*[ \t]*[:：][ \t]*[*_`]*"
 _PHONE_ANNOTATION = re.compile(
-    r"(?im)\bUrgency\s*:\s*(?:SAFETY|SITE_DOWN|PROD_IMPACT|COMMISSION|DEADLINE|NONE)\b"
+    _PHONE_LABEL
+    + r"[ \t]*(?:SAFETY|SITE_DOWN|PROD_IMPACT|COMMISSION|DEADLINE|NONE)"
+    + r"[*_`]*+(?![\w/-])",
+    re.IGNORECASE,
 )
+# 제거 형식보다 넓게 남은 라벨을 찾아 접두사 우회도 입력 실패로 보류한다.
+_PHONE_UNSUPPORTED = re.compile(r"Urgency[*_`]*\s*[:：]", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+")
 _SERIAL = re.compile(
     r"(?i)(\b(?:serial(?:\s+(?:number|no\.?))?|s/n)|시리얼(?:\s*번호)?)"
-    r"\s*[:=]\s*[^\s,;<>]+"
+    r"\s*[:=]\s*(?P<value>[^\s,;<>]+)"
 )
+
+
+def _mask_serial(match: re.Match[str]) -> str:
+    """이미 마스킹한 값의 종류를 라벨만 보고 덮어쓰지 않는다.
+
+    Args:
+        match: 시리얼 라벨과 값의 일치 결과.
+
+    Returns:
+        str: 기존 마스킹 표시 또는 시리얼 원값을 가린 문자열.
+    """
+    if match["value"].rstrip(".!?:)") in {"[PERSONAL_PROVIDED]", "[SERIAL_PROVIDED]"}:
+        return match[0]
+    return "serial: [SERIAL_PROVIDED]"
 
 
 class ClassificationInput(BaseModel):
@@ -86,6 +106,8 @@ def build_input(
         if payload.channel == "PHONE":
             value, count = _PHONE_ANNOTATION.subn("", value)
             removed += count
+            if _PHONE_UNSUPPORTED.search(value):
+                raise ValueError("CS_UNSUPPORTED_PHONE_ANNOTATION")
         # 긴 원값부터 한 번에 대체해 겹치는 값이나 대체 표식을 재처리하지 않는다.
         if sensitive_values:
             pattern = re.compile(
@@ -95,7 +117,7 @@ def build_input(
                 lambda match: "[" + sensitive_values[match.group()] + "_PROVIDED]", value
             )
         value = _EMAIL.sub("[PERSONAL_PROVIDED]", value)
-        value = _SERIAL.sub("serial: [SERIAL_PROVIDED]", value)
+        value = _SERIAL.sub(_mask_serial, value)
         values[field] = value
     # 주석만 있던 본문은 실행 가능한 문의로 취급하지 않는다.
     if not values["body"].strip():
