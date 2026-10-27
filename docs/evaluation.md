@@ -289,12 +289,17 @@ uv run --frozen python -m eval.cs_report store-return-subtype --run-id <UUID> \
 `{"run_id":…,"scoring_version":…,"stored_rows":5}` JSON 한 줄, exit 0이다. 실패하면 exit 1이고
 stderr에 코드 한 줄만 쓴다: 위 `CS_QUALITY_*`·저장 집계 검증 코드, 파일 읽기 실패
 `CS_QUALITY_GOLD_UNREADABLE`, local/test 설정 누락 `CS_REPORT_LOCAL_CONFIGURATION_REQUIRED`, 그 밖의
-DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택은 출력하지 않는다. 기존 보고서
+DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택은 출력하지 않는다. 필수 인자 누락·
+잘못된 UUID 같은 인자 형식 오류는 argparse 기본대로 exit 2와 사용법을 출력한다. 기존 보고서
 내보내기 명령(`--run-id … --output …`, 오류 exit 2)은 그대로다.
 
 **미결(운영 쓰기 역할)**: KAN-85 권한에서는 `platform_app`도 `evaluation.metrics`에 INSERT할 수 있다.
 이 행을 운영자 전용 역할만 쓰도록 분리할지는 운영 활성화 전에 정한다. 이번 변경은 권한을 바꾸지
-않았다. 플랫폼 집계 API의 `synthetic_quality` 조회와 화면 표시는 후속 단위다.
+않았다.
+
+플랫폼 집계 API(`GET …/runs/{run_id}/summary`)는 기존 권한 검사 뒤 이 행만 읽어 선택 필드
+`synthetic_quality`로 투영한다(최신 판본 하나, `quality_available=false` 유지). 계약은
+[플랫폼 평가 계약](../contracts/platform/evaluations.md#kan-88-합성-품질-선택-필드)을 따른다. 화면 표시는 후속 단위다.
 
 
 ### KAN-88 언어·채널별 최초 집계
