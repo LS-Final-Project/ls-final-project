@@ -10,6 +10,12 @@ Row = dict[str, Any]
 
 
 async def request_scope(conn: AsyncConnection[Row], request_id: UUID) -> Row | None:
+    # Same project-before-request order as KAN-127 approval; re-read status after the lock.
+    await conn.execute(
+        "SELECT p.id FROM tft.projects p JOIN tft.staffing_requests r ON r.project_id=p.id "
+        "WHERE r.id=%s FOR UPDATE OF p",
+        (request_id,),
+    )
     cursor = await conn.execute(
         "SELECT r.*, o.dept_code, o.company_code AS organization_company, "
         "p.company_code, p.status AS project_status, p.data_origin AS project_origin "
