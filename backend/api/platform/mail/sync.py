@@ -80,6 +80,10 @@ class LeaseLost(Exception):
     """다른 실행이 만료된 실행을 정리해 이 실행이 더 기록할 수 없다."""
 
 
+class MessageGone(Exception):
+    """delta 이후 Graph에서 지워진 메시지. 다음 delta가 제거를 알려 준다."""
+
+
 class MailboxDisconnected(Exception):
     """실행 중 연결이 해제됐다. 재연결 필요 여부는 토큰 제공자가 판단한다."""
 
@@ -133,17 +137,22 @@ async def hold_run(conn: Conn, run_id: UUID) -> None:
     Returns:
         None. 소유를 잃었거나 연결이 끊겼으면 예외를 낸다.
     """
+    # 연결 행을 먼저 공유 잠금한다. 커밋 전까지 연결 해제가 끼어들지 못하고,
+    # begin_run과 같은 순서(연결 → 실행)로 잠가 교착을 피한다.
     cursor = await conn.execute(
-        "UPDATE integration.mail_sync_runs r "
-        "SET lease_expires_at=now() + make_interval(secs => %s) "
-        "FROM mailbox_auth.connections m WHERE r.id=%s AND r.status='RUNNING' "
-        "AND m.id=r.mailbox_id RETURNING m.state",
+        "SELECT c.state FROM integration.mail_sync_runs r "
+        "JOIN mailbox_auth.connections c ON c.id=r.mailbox_id WHERE r.id=%s FOR SHARE OF c",
+        (run_id,),
+    )
+    connection_row = await cursor.fetchone()
+    cursor = await conn.execute(
+        "UPDATE integration.mail_sync_runs SET lease_expires_at=now() + make_interval(secs => %s) "
+        "WHERE id=%s AND status='RUNNING' RETURNING id",
         (LEASE_SECONDS, run_id),
     )
-    row = await cursor.fetchone()
-    if row is None:
+    if connection_row is None or await cursor.fetchone() is None:
         raise LeaseLost
-    if row["state"] != "connected":
+    if connection_row["state"] != "connected":
         raise MailboxDisconnected
 
 
@@ -166,17 +175,20 @@ async def finish_run(settings: Settings, result: SyncResult) -> None:
 
     Args:
         settings: DB 설정.
-        result: 종료 상태와 고정 오류 코드.
+        result: 종료 상태와 고정 오류 코드. 소유를 잃었으면 LEASE_EXPIRED로 바꾼다.
 
     Returns:
         None.
     """
     async with connection(settings) as conn, conn.transaction():
-        await conn.execute(
+        cursor = await conn.execute(
             "UPDATE integration.mail_sync_runs SET status=%s, error_code=%s, finished_at=now() "
             "WHERE id=%s AND status='RUNNING'",
             (result.status, result.error_code, result.run_id),
         )
+        if cursor.rowcount == 0:
+            # 다른 실행이 이미 LEASE_EXPIRED로 정리했다. 성공으로 돌려주지 않는다.
+            result.status, result.error_code = "FAILED", "LEASE_EXPIRED"
 
 
 async def read_cursor(settings: Settings, mailbox_id: UUID, folder: Folder) -> str:
@@ -235,11 +247,24 @@ async def fetch_message(graph: GraphMail, store: ObjectStore, meta: MessageMeta)
     Returns:
         FetchedMessage: 저장 위치를 담은 메시지.
     """
-    fetched = FetchedMessage(meta, await store.put(await graph.message_mime(meta.graph_id)))
-    for attachment in await graph.attachments(meta.graph_id):
+    try:
+        mime = await graph.message_mime(meta.graph_id)
+        attachments = await graph.attachments(meta.graph_id)
+    except GraphError as error:
+        if error.code == "GRAPH_NOT_FOUND":
+            raise MessageGone from None
+        raise
+    fetched = FetchedMessage(meta, await store.put(mime))
+    for attachment in attachments:
         stored = None
         if attachment.kind != "reference":
-            data = await graph.attachment_bytes(meta.graph_id, attachment.graph_id)
+            try:
+                data = await graph.attachment_bytes(meta.graph_id, attachment.graph_id)
+            except GraphError as error:
+                # 첨부만 지워졌다. 원문 MIME에 첨부가 들어 있으므로 메시지는 저장한다.
+                if error.code == "GRAPH_NOT_FOUND":
+                    continue
+                raise
             stored = await store.put(data)
         fetched.attachments.append((attachment, stored))
     return fetched
@@ -413,10 +438,8 @@ async def sync_folder(
             await heartbeat(settings, result.run_id)
             try:
                 fetched.append(await fetch_message(graph, store, meta))
-            except GraphError as error:
-                # delta 이후 지워진 메시지. 다음 delta가 제거를 알려 준다.
-                if error.code != "GRAPH_NOT_FOUND":
-                    raise
+            except MessageGone:
+                continue
         async with connection(settings) as conn, conn.transaction():
             await hold_run(conn, result.run_id)
             stored, removed = await record_page(

@@ -17,6 +17,7 @@ import psycopg
 import pytest
 from pydantic import SecretStr
 
+from backend.api.platform.mail import sync
 from backend.api.platform.mail.graph import GRAPH_BASE, initial_delta_url
 from backend.api.platform.mail.storage import LocalObjectStore
 from backend.api.platform.mail.sync import sync_mailbox
@@ -588,3 +589,34 @@ def test_lease_is_extended_before_each_download(settings, mailbox, tmp_path):
     assert run(settings, mailbox, graph, LocalObjectStore(tmp_path)).status == "SUCCEEDED"
     # 처음 lease(시작 + 300초)보다 늦게 끝나도록 메시지마다 늘어나 있다.
     assert seen == [True, True, True]
+
+
+def test_missing_attachment_keeps_the_message(settings, mailbox, tmp_path):
+    graph = FakeGraph()
+    del graph.attachment_bytes[("AAMk/1=", "a1")]
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path))
+    assert (result.status, result.messages_stored) == ("SUCCEEDED", 3)
+    assert rows(
+        mailbox["dsn"],
+        "SELECT a.graph_attachment_id FROM integration.mail_attachments a "
+        "JOIN integration.mail_messages m ON m.id=a.message_id WHERE m.mailbox_id=%s ORDER BY 1",
+        mailbox["id"],
+    ) == [("a2",), ("a3",)]
+
+
+def test_lost_lease_is_not_reported_as_success(settings, mailbox, tmp_path, monkeypatch):
+    finish = sync.finish_run
+
+    async def expired_before_finish(settings_, result):
+        # 마지막 페이지 기록 뒤, 종료 기록 전에 다른 실행이 이 실행을 정리한 상황.
+        with psycopg.connect(mailbox["dsn"]) as conn:
+            conn.execute(
+                "UPDATE integration.mail_sync_runs SET status='FAILED', "
+                "error_code='LEASE_EXPIRED', finished_at=now() WHERE id=%s",
+                (result.run_id,),
+            )
+        await finish(settings_, result)
+
+    monkeypatch.setattr(sync, "finish_run", expired_before_finish)
+    result = run(settings, mailbox, FakeGraph(), LocalObjectStore(tmp_path))
+    assert (result.status, result.error_code) == ("FAILED", "LEASE_EXPIRED")

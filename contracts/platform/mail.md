@@ -44,7 +44,7 @@ result = await sync_mailbox(
 2. 저장된 소유자로 토큰 함수를 부른다. 빈 토큰은 실패로 본다.
 3. 폴더마다 저장된 `next_link` → `delta_link` → 처음 주소 순으로 delta 페이지를 받는다. 모든 요청에 `Prefer: IdType="ImmutableId"`를 보낸다.
 4. 새 메시지만 원문 MIME(`$value`)과 첨부(목록 → 각 `$value`)를 받아 저장소에 먼저 쓴다. 이미 보관한 메시지는 다시 받지 않고 폴더·제거 표시만 고친다.
-5. 한 트랜잭션에서 실행 소유와 연결 상태를 다시 확인하고, 메시지·첨부·커서·건수를 함께 기록한다. 중간에 멈추면 다음 실행이 마지막으로 기록한 페이지부터 이어 받는다.
+5. 한 트랜잭션에서 연결 행을 공유 잠금(FOR SHARE)하고 실행 소유와 연결 상태를 다시 확인한 뒤, 메시지·첨부·커서·건수를 함께 기록한다. 중간에 멈추면 다음 실행이 마지막으로 기록한 페이지부터 이어 받는다.
 6. delta의 `@removed`는 같은 폴더에 있는 행에만 `removed_at`을 기록한다. 다른 폴더로 옮겨 간 메시지는 그 폴더의 delta가 다시 알려 준다.
 
 ## 실패
@@ -57,7 +57,8 @@ result = await sync_mailbox(
 | 토큰 함수 실패 | `FAILED`, 토큰 함수의 코드(`MAILBOX_RECONNECT_REQUIRED` 등) | 기록 |
 | Graph 401/403/429/5xx | `FAILED`, `GRAPH_UNAUTHORIZED`/`GRAPH_FORBIDDEN`/`GRAPH_THROTTLED`/`GRAPH_UNAVAILABLE` | 기록, 커서 유지 |
 | Graph가 동기화 상태를 버림(410, `syncStateNotFound`) | 폴더를 처음부터 한 번 다시 받음. 이미 보관한 원문은 다시 받지 않음 | 두 번째면 `GRAPH_SYNC_RESET` |
-| delta 뒤 지워진 메시지(404) | 그 메시지만 건너뜀 | 성공 가능 |
+| delta 뒤 지워진 메시지(원문·첨부 목록 404) | 그 메시지만 건너뜀. 다음 delta가 제거를 알려 줌 | 성공 가능 |
+| 메시지는 있고 첨부만 404 | 그 첨부 행만 건너뛰고 메시지는 저장. 원문 MIME에 첨부가 들어 있음 | 성공 가능 |
 | 실행 중 연결 해제 | `FAILED`, `MAILBOX_NOT_CONNECTED` | 기록 |
 | 50MB를 넘는 원문·첨부 | `FAILED`, `MAIL_OBJECT_TOO_LARGE` | 기록 |
 | Graph 밖을 가리키는 다음 주소 | `FAILED`, `GRAPH_LINK_REJECTED`. 그 주소로 요청하지 않음 | 기록 |
