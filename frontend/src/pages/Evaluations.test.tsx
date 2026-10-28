@@ -30,20 +30,52 @@ test('합성 표시와 최초·재시도·전체 표에 미보고·부분합·�
   expect(screen.getByText(/품질 점수: 정답 검수·연결 전/)).toBeTruthy();
 });
 
-test('잠금 품질 연결·일부 연결 응답에서 품질 점수 문구를 사유대로 표시하고 화면이 깨지지 않는다', async () => {
+/** 잠금 경로 요약을 만든다. Args: 응답 변경. Returns: 검증기를 통과하는 독립 응답. */
+function lockedSummary(change: (data: ReturnType<typeof summaryFixture>, quality: ReturnType<typeof lockedQualityFixture>) => void = () => {}) {
   const data = summaryFixture();
   const quality = lockedQualityFixture();
-  Object.assign(data, { quality_available: true, quality_unavailable_reason: null, comparison_key: null, locked_quality: quality });
+  Object.assign(data, { data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null, locked_quality: quality });
+  change(data, quality);
+  return data;
+}
+
+test('잠금 경로는 다섯 지표의 범위별 저장값을 반올림 없이 표시하고 합성 문구·합성 품질 절을 숨긴다', async () => {
+  const data = lockedSummary((_, q) => { q.metrics.category!.segments.all.values.macro_f1.value = 0.5714285714285714; });
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
-  const { unmount } = view();
-  await screen.findByRole('table');
-  expect(screen.getByText(/품질 점수: 잠금 정답 다섯 지표 연결됨/)).toBeTruthy();
-  expect(screen.queryByText(/정답 검수·연결 전/)).toBeNull();
-  unmount();
-  Object.assign(data, { quality_available: false, quality_unavailable_reason: 'GOLD_PARTIAL', locked_quality: { ...quality, metrics: { ...quality.metrics, urgency: null } } });
   view();
-  await screen.findByRole('table');
-  expect(screen.getByText(/품질 점수: 잠금 정답 일부 지표만 연결/)).toBeTruthy();
+  const category = await screen.findByRole('region', { name: '대분류 전체 잠금 품질 표' });
+  expect(screen.getByText('평가 실행 저장 기록입니다 · 데이터 출처 실제 · 품질은 잠금 정답 저장값이며 합격 판정이 아닙니다.')).toBeTruthy();
+  expect(screen.queryByText(/합성 연결 검사 기록/)).toBeNull();
+  expect(screen.queryByText(/합성 품질/)).toBeNull();
+  expect(screen.getByRole('note').textContent).toBe('quality_gate_evaluated=false · 합격 판정 아님');
+  expect(screen.getByText('정답 묶음 cs-gold-bundle-test · 다섯 지표 연결')).toBeTruthy();
+  for (const label of ['대분류', '긴급도', '보조 분류', '반품 하위유형', '제공 정보']) expect(screen.getByRole('heading', { name: label })).toBeTruthy();
+  expect([...category.querySelectorAll('tbody tr')].map(row => row.textContent)).toEqual(['accuracy13 / 33', 'macro_f10.5714285714285714해당 없음3']);
+  const partial = screen.getByRole('region', { name: '제공 정보 채점 범위 PRECISION_ONLY (precision만) 잠금 품질 표' });
+  expect([...partial.querySelectorAll('tbody tr')].map(row => row.textContent)).toEqual(['precision계산 불가0 / 01']);
+  expect(screen.getByText(/결과 분포: HELD 0 · NOT_STARTED 0 · SCHEMA_VIOLATION 1 · TIMEOUT 0 · TRANSPORT_FAILURE 0 · VALID 1 · 제외: PRECISION_ONLY 1 · 항목 집계: tp 1 · fp 1 · fn 1/)).toBeTruthy();
+  expect(screen.getByText(/제외: NOT_RETURN 1/)).toBeTruthy();
+  expect(screen.getByRole('region', { name: '반품 하위유형 전체 클래스별 잠금 품질 표' }).querySelectorAll('tbody tr').length).toBe(2);
+  expect(screen.getByText('품질 점수: 잠금 정답 다섯 지표 연결')).toBeTruthy();
+  expect(screen.queryByText(/양호|우수|합격$|불합격|정답 검수·연결 전/)).toBeNull();
+});
+
+test('잠금 경로의 일부 저장·묶음 미연결은 사유대로 표시하고 미저장 지표를 0으로 바꾸지 않는다', async () => {
+  const partial = lockedSummary((data, q) => { q.metrics.urgency = null; Object.assign(data, { data_origin: 'synthetic', quality_available: false, quality_unavailable_reason: 'GOLD_PARTIAL' }); });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: partial })));
+  const { unmount } = view();
+  await screen.findByRole('region', { name: '대분류 전체 잠금 품질 표' });
+  expect(screen.getByText(/데이터 출처 합성 · 품질은 잠금 정답 저장값/)).toBeTruthy();
+  expect(screen.getByText('정답 묶음 cs-gold-bundle-test · 일부 지표만 저장 (4/5)')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '긴급도' }).nextElementSibling?.textContent).toBe('미저장');
+  expect(screen.getByText('품질 점수: 잠금 정답 일부 지표만 연결')).toBeTruthy();
+  unmount();
+  const none = lockedSummary(data => { Object.assign(data, { quality_available: false, quality_unavailable_reason: 'GOLD_NOT_CONNECTED', locked_quality: null }); });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: none })));
+  view();
+  expect(await screen.findByText('정답 묶음 미연결')).toBeTruthy();
+  expect(screen.queryByText(/합성 연결 검사 기록|합성 품질/)).toBeNull();
+  expect(screen.getByText(/품질 점수: 정답 검수·연결 전/)).toBeTruthy();
 });
 
 test('재조회 실패 후 이전 집계를 숨기며 서버 원문을 표시하지 않는다', async () => {

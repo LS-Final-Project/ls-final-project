@@ -204,6 +204,9 @@ function attempt(value: unknown): AttemptSummary {
   };
 }
 
+/** 검증한 v2 응답이 잠금 정답 경로(비합성 실행)인지 판별한다. smoke 경로는 비교 키를 항상 주고 잠금 품질을 주지 않는다. Args: 검증한 요약. Returns: 잠금 경로 여부. */
+export const isLockedPath = (summary: RunSummary) => summary.locked_quality !== null || summary.comparison_key === null;
+
 /** 모의 응답을 우회하고 현재 세션으로 집계를 읽는다. Args: 실행 ID·취소 신호. Returns: 검증·투영한 집계. */
 export async function getEvaluationSummary(runId: string, signal: AbortSignal): Promise<RunSummary> {
   if (!isJobId(runId)) throw invalid();
