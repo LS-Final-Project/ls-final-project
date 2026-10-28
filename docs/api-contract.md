@@ -42,7 +42,7 @@ C/S·TFT·공통 플랫폼 API의 공통 HTTP·작업 설계 규약이다. 세�
 | 429 | `RATE_LIMITED` | `Retry-After` 후 제한된 재시도 |
 | 503 | `DEPENDENCY_UNAVAILABLE`(프레임워크 공통), 기능 예 `EVENT_DATA_UNAVAILABLE`, `EVALUATION_RUNNER_NOT_CONNECTED` | 작업 상태를 조회하고 재시도 여부 결정 |
 
-리소스 GET은 `ETag: "<version>"`를 반환한다. 기존 객체 변경과 승인, 발송에는 `If-Match`가 필수다. DB의 판본 검사와 변경은 한 트랜잭션으로 처리한다. 적용 예는 [TFT 부서 인력요청](../contracts/tft/staffing-requests.md)의 수정·발행과 [평가 실행](../contracts/platform/evaluations.md)의 취소·재개다. 예외: C/S 업무 흐름·개선요청·조건 비교는 `If-Match` 대신 본문에 판본을 보내고 불일치는 409 `CS_*_VERSION_CONFLICT`다([C/S 계약](../contracts/cs/)). 키가 같은 재전송은 기존 응답을 돌려주고 판본을 다시 증가시키지 않는다. 멱등성 레코드와 권한을 먼저 확인한 뒤, 새로운 실행에만 현재 판본을 검사한다.
+리소스 GET은 `ETag: "<version>"`를 반환한다. 기존 객체 변경과 승인, 발송에는 `If-Match`가 필수다. DB의 판본 검사와 변경은 한 트랜잭션으로 처리한다. 적용 예는 [평가 실행](../contracts/platform/evaluations.md)의 취소·재개다. 예외: C/S 업무 흐름·개선요청·조건 비교는 `If-Match` 대신 본문에 판본을 보내고 불일치는 409 `CS_*_VERSION_CONFLICT`다([C/S 계약](../contracts/cs/)). 키가 같은 재전송은 기존 응답을 돌려주고 판본을 다시 증가시키지 않는다. 멱등성 레코드와 권한을 먼저 확인한 뒤, 새로운 실행에만 현재 판본을 검사한다.
 
 ## 중복 요청과 복구
 
