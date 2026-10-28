@@ -221,8 +221,19 @@ def test_other_roles_see_no_aggregates(client, user):
         {"start": "2026-10-01T00:00:00Z", "end": "2026-09-01T00:00:00Z"},
         {"start": "2026-09-01T00:00:00"},
         {"dept": "GCS_L1"},
+        {"customer": ".CUST"},
+        {"customer": "CUST 01"},
+        {"customer": "C" * 65},
     ],
 )
 def test_invalid_filters_are_rejected(client, query):
     response = client.get(f"{PATH}/overview", params=query, headers=principal_header(MANAGER))
     assert response.status_code == 422
+
+
+# KAN-178 customer ID convention: the same pattern the platform relay matches on paths.
+@pytest.mark.parametrize("customer", [".CUST", "-CUST", "CUST%20A", "%EA%B3%A0%EA%B0%9D", "C" * 65])
+def test_customer_history_rejects_ids_outside_the_convention(client, customer):
+    response = client.get(f"{PATH}/customers/{customer}", headers=principal_header(CS_MANAGER))
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "CS_INVALID_CUSTOMER"

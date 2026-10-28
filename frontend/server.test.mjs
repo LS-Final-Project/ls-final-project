@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm, symlink, mkdir, readFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { handler, businessRoutes } from './server.mjs';
+import { handler, businessRoutes, placeholders } from './server.mjs';
 
 /**
  * 임시 정적 파일과 로컬 HTTP 서버로 웹 중계 경계를 검사한다.
@@ -518,6 +518,7 @@ const routeRows = rows => rows.map(([path, methods, query]) => JSON.stringify([p
 
 test('web business relay table matches the shared fixture exactly', () => {
   assert.deepEqual(routeRows(businessRoutes), routeRows(relayRoutes.routes.map(route => [route.path, route.methods, route.query])));
+  assert.equal(placeholders['{customer}'], relayRoutes.customer_pattern);
 });
 
 test('web business relay forwards or rejects each shared case before reaching the platform', async () => {

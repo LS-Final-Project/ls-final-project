@@ -93,7 +93,7 @@ Cloud Run의 `X-Serverless-Authorization`은 컨테이너 전달 시 서명이 �
 query는 표에 적힌 키만 중복 없이(값 각각 200자 이내) 허용하고, 표에 없는 키·중복·변경 요청의
 query·query가 없는 경로의 query는 400이다. 세부 형식(시각·부서·페이지 범위)은 기존 업무 API가
 검증한다. `customer_external_id` 경로 값은 웹·플랫폼 모두 디코드한 경로에서
-`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
+고객 ID 규약 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자, C/S 입력 검증과 같은 `backend/shared/models.py` `CUSTOMER_ID`)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
 `.`·`..` 세그먼트가 upstream 경로나 query를 바꾸지 못하게 하기 위해서이며, 플랫폼은 이 때문에 `request.url.path` 대신 ASGI scope의
 디코드된 경로로 검사·전달한다. 개선요청 생성·수정 등 변경 메서드와 처리 이력·업무 흐름
 조회는 아직 중계하지 않는다. 임의 upstream·SSE·파일·메일·미병합 API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나

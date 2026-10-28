@@ -23,6 +23,7 @@ from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSetti
 from backend.api.platform.main import create_app
 from backend.api.tft.main import create_app as create_tft
 from backend.shared.access import PRINCIPAL_HEADER, Principal, principal_header
+from backend.shared.models import CUSTOMER_ID
 from backend.shared.service_auth import CALLER_HEADER
 from backend.shared.settings import Settings
 
@@ -538,13 +539,13 @@ RELAY_ROUTES = json.loads(
 
 
 def test_platform_business_relay_table_matches_shared_fixture():
-    """플랫폼 허용표가 공유 픽스처와 누락·초과 없이 같다.
+    """플랫폼 허용표와 고객 ID 규약이 공유 픽스처와 누락·초과 없이 같다.
 
     Args:
         없음.
 
     Returns:
-        None: 경로 틀·메서드·query 키 집합의 완전 일치를 확인한다.
+        None: 경로 틀·메서드·query 키 집합과 고객 ID 정규식의 완전 일치를 확인한다.
     """
 
     def rows(items):
@@ -562,6 +563,7 @@ def test_platform_business_relay_table_matches_shared_fixture():
 
     shared = [(route["path"], route["methods"], route["query"]) for route in RELAY_ROUTES["routes"]]
     assert rows(relay.BUSINESS_ROUTES) == rows(shared)
+    assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
 
 
 @pytest.mark.parametrize(

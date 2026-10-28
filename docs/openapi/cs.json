@@ -3494,8 +3494,7 @@
             "type": "string"
           },
           "customer_external_id": {
-            "maxLength": 64,
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
             "title": "Customer External Id",
             "type": "string"
           },
@@ -3886,8 +3885,7 @@
           "customer_external_id": {
             "anyOf": [
               {
-                "maxLength": 64,
-                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
                 "type": "string"
               },
               {
@@ -5460,8 +5458,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 64,
-                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
                   "type": "string"
                 },
                 {

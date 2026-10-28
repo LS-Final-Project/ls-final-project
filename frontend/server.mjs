@@ -36,7 +36,7 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}', ['GET'], []],
 ];
 // 디코드한 경로에서 검사한다. customer는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
-const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}' };
+export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}' };
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
