@@ -8,7 +8,6 @@
 | --- | --- | --- |
 | C/S 문의 | backend/api/cs/tickets/schemas.py, routes.py, backend/api/cs/examples.py | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
-| TFT 부서 인력요청 | backend/api/tft/staffing_requests/schemas.py, routes.py, backend/api/tft/authz.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
 | 플랫폼 사용자 | backend/api/platform/auth/schemas.py, routes.py | docs/openapi/platform.json |
 | 프론트 연결 | frontend/src/api/cs.ts, tft.ts, platform.ts 중 해당 서비스 | frontend/src/api/generated/ 아래 해당 TypeScript 파일 |
 | HTTP 공통 형식 | backend/shared/models.py, errors.py, backend/api/common/ | 공통 변경은 3개 서비스 산출물에 영향 |
