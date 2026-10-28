@@ -119,12 +119,11 @@ def _body_text(message: EmailMessage) -> str:
     return content
 
 
-def _clean(value: str, limit: int) -> str:
-    """인용 이력과 '>' 인용 줄을 자르고 공백을 정리한 뒤 길이를 제한한다.
+def _clean(value: str) -> str:
+    """인용 이력과 '>' 인용 줄을 자르고 공백을 정리한다. 길이 제한은 마스킹 뒤에 한다.
 
     Args:
         value: 원본 텍스트.
-        limit: 최대 글자 수.
 
     Returns:
         str: 정리한 텍스트.
@@ -133,8 +132,7 @@ def _clean(value: str, limit: int) -> str:
     if quoted:
         value = value[: quoted.start()]
     lines = [line.rstrip() for line in value.splitlines() if not line.lstrip().startswith(">")]
-    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-    return text[:limit]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def build_input(
@@ -165,8 +163,9 @@ def build_input(
         raise ValueError("MAIL_TRIAGE_INVALID_INPUT") from None
     return TriageInput(
         folder=folder,
-        subject=mask_contacts_and_serials(_clean(subject, SUBJECT_LIMIT)),
-        body=mask_contacts_and_serials(_clean(body, BODY_LIMIT)),
+        # 먼저 가리고 자른다. 자른 뒤 가리면 경계에 걸친 주소·시리얼 조각이 남는다.
+        subject=mask_contacts_and_serials(_clean(subject))[:SUBJECT_LIMIT],
+        body=mask_contacts_and_serials(_clean(body))[:BODY_LIMIT],
         is_reply=is_reply,
         attachments=attachments,
     )

@@ -149,3 +149,12 @@ def test_reply_evidence_and_thread_links_are_allowed_for_replies():
         "EXISTING_THREAD",
         False,
     )
+
+
+@pytest.mark.parametrize("cut", [9, 16])
+def test_masking_happens_before_the_length_limit(cut):
+    # 8,000자 경계에서 'someone@'·'someone@company'처럼 점 앞에서 잘린 주소는 이메일 규칙에
+    # 맞지 않아, 자른 뒤 가리면 그대로 남는다. 먼저 가리면 남지 않는다.
+    body = "가" * (8_000 - cut) + " someone@company.example 뒤"
+    data = parsed(mime(body=body))
+    assert len(data.body) == 8_000 and "someone" not in data.body

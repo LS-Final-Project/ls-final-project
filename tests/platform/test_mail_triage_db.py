@@ -296,3 +296,17 @@ def test_triage_routes_are_closed_when_mailbox_auth_is_off(triage_database):
     with TestClient(app) as client:
         assert client.get(url(uuid4())).status_code == 404
         assert client.post(url(uuid4()), json={}).status_code == 404
+
+
+def test_a_lost_first_triage_race_is_a_version_conflict(context, owned):
+    # 동시에 들어온 다른 첫 분류가 판본 1을 먼저 커밋했지만 포인터는 아직 없는 순간을 만든다.
+    with psycopg.connect(owned["dsn"]) as conn:
+        conn.execute(
+            "INSERT INTO integration.mail_triage (message_id, version, mail_type, needs_review, "
+            "attachments_pending, evidence, provenance_kind, input_version, output_version) "
+            "VALUES (%s, 1, 'OTHER', true, true, '[]', 'ai_draft', 'i', 'o')",
+            (owned["mine"],),
+        )
+    with pytest.raises(ApplicationError) as error:
+        classify(context, owned)
+    assert (error.value.status_code, error.value.code) == (409, "MAIL_TRIAGE_VERSION_CONFLICT")

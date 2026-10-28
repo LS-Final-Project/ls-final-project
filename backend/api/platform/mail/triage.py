@@ -119,22 +119,25 @@ async def _insert(conn: Any, message_id: UUID, values: Row, expected: int | None
     if expected is not None and expected != latest:
         raise ApplicationError(409, "MAIL_TRIAGE_VERSION_CONFLICT", "The triage has changed.")
     version = latest + 1
-    await conn.execute(
+    # 첫 분류가 동시에 둘이면 잠글 포인터가 없다. 같은 판본을 먼저 쓴 쪽만 남고 나머지는 409다.
+    cursor = await conn.execute(
         "INSERT INTO integration.mail_triage (message_id, version, mail_type, needs_review, "
         "attachments_pending, evidence, link_suggestion, provenance_kind, input_version, "
         "output_version, reason, decided_by) VALUES (%(message_id)s, %(version)s, %(mail_type)s, "
         "%(needs_review)s, %(attachments_pending)s, %(evidence)s, %(link_suggestion)s, "
-        "%(provenance_kind)s, %(input_version)s, %(output_version)s, %(reason)s, %(decided_by)s)",
+        "%(provenance_kind)s, %(input_version)s, %(output_version)s, %(reason)s, %(decided_by)s) "
+        "ON CONFLICT (message_id, version) DO NOTHING RETURNING version",
         values
         | {"message_id": message_id, "version": version, "evidence": Jsonb(values["evidence"])},
     )
+    if await cursor.fetchone() is None:
+        raise ApplicationError(409, "MAIL_TRIAGE_VERSION_CONFLICT", "The triage has changed.")
     if row:
         await conn.execute(
             "UPDATE integration.mail_triage_latest SET latest_version=%s WHERE message_id=%s",
             (version, message_id),
         )
     else:
-        # 첫 분류가 동시에 둘이면 둘째는 PK 충돌로 실패하고 트랜잭션이 롤백된다.
         await conn.execute(
             "INSERT INTO integration.mail_triage_latest (message_id, latest_version) "
             "VALUES (%s, %s)",
@@ -158,7 +161,8 @@ async def classify_message(
         provider: 입력을 받아 JSON 문자열을 돌려주는 주입 제공자(현재는 합성만).
 
     Returns:
-        int: 새 판본 번호. 메일이 없으면 404, 원문이 다르면 409 MAIL_TRIAGE_RAW_MISMATCH.
+        int: 새 판본 번호. 메일이 없으면 404, 원문이 다르면 409 MAIL_TRIAGE_RAW_MISMATCH,
+        같은 메일의 첫 분류가 동시에 들어와 진 쪽은 409 MAIL_TRIAGE_VERSION_CONFLICT.
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
