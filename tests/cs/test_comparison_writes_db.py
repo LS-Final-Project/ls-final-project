@@ -407,3 +407,69 @@ def test_only_c_s_agents_remove_and_history_is_append_only(client, cs_database, 
         ):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(statement, (data["comparison_id"],))
+
+
+def test_an_older_unconfirmed_item_keeps_a_reason_after_its_later_evidence_is_removed(
+    client, admin, group
+):
+    """#151 규칙으로 저장될 수 있던 미확인 항목(알려진+아직 모르는 근거, 값 모두 있음)을
+    직접 판본 2로 넣고, 아직 모르는 근거를 빼면 사유가 EVIDENCE_REMOVED로 저장된다."""
+    path, t = group["path"], group["ticket"]
+    later_ticket, later_case = ticket(
+        admin, fault=group["fault"], known=datetime.now(UTC) + timedelta(days=30)
+    )
+    [(comparison_id, request_id)] = admin.execute(
+        "SELECT c.id, v.improvement_request_id FROM cs.condition_comparisons c "
+        "JOIN cs.condition_comparison_versions v ON v.comparison_id = c.id "
+        "WHERE c.fault_id = %s",
+        (group["fault"],),
+    ).fetchall()
+    admin.execute(
+        "INSERT INTO cs.condition_comparison_versions (comparison_id, version, "
+        "improvement_request_id, request_version, data_origin, known_at) "
+        "VALUES (%s, 2, %s, 1, 'synthetic', now())",
+        (comparison_id, request_id),
+    )
+    for evidence_id, ticket_id, case_id, known in (
+        ("ev-k", t, None, PAST),
+        ("ev-l", later_ticket, later_case, datetime.now(UTC) + timedelta(days=30)),
+    ):
+        source = "resolution_case" if case_id else "ticket"
+        admin.execute(
+            "INSERT INTO cs.condition_comparison_evidence (comparison_id, version, evidence_id, "
+            "case_id, ticket_id, evidence_location, data_origin, derivation_kind, known_at) "
+            "VALUES (%s, 2, %s, %s, %s, %s, 'synthetic', 'PROVIDED', %s)",
+            (
+                comparison_id,
+                evidence_id,
+                case_id,
+                ticket_id,
+                f'{{"source": "{source}", "field": "body"}}',
+                known,
+            ),
+        )
+    admin.execute(
+        "INSERT INTO cs.condition_comparison_items SELECT comparison_id, 2, kind, code, "
+        "judgement, finding, unconfirmed_reason, baseline_value, baseline_missing_reason, "
+        "baseline_evidence_ids, target_value, target_missing_reason, target_evidence_ids, "
+        "masked_summary, summary_missing_reason, evidence_ids, provenance_kind, decided_by, "
+        "decided_by_name, decided_at, reason FROM cs.condition_comparison_items "
+        "WHERE comparison_id = %s AND version = 1",
+        (comparison_id,),
+    )
+    admin.execute(
+        "UPDATE cs.condition_comparison_items SET unconfirmed_reason = 'NO_EVIDENCE', "
+        "baseline_value = '정격 부하 운전', baseline_missing_reason = NULL, "
+        "baseline_evidence_ids = '{ev-k}', target_value = '정격 상한 근처 운전', "
+        "target_missing_reason = NULL, target_evidence_ids = '{ev-k}', "
+        "masked_summary = '합성 요약', summary_missing_reason = NULL, "
+        "evidence_ids = '{ev-k,ev-l}', provenance_kind = 'human_input' "
+        "WHERE comparison_id = %s AND version = 2 AND code = 'application'",
+        (comparison_id,),
+    )
+    admin.execute(
+        "UPDATE cs.condition_comparisons SET latest_version = 2 WHERE id = %s", (comparison_id,)
+    )
+    item = application(ok(remove(client, path, 2, "ev-l")))
+    assert (item["judgement"], item["unconfirmed_reason"]) == ("UNCONFIRMED", "EVIDENCE_REMOVED")
+    assert item["evidence_ids"] == ["ev-k"] and item["provenance_kind"] == "system_record"

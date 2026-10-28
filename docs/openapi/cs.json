@@ -1476,7 +1476,7 @@
             "title": "Case Id"
           },
           "evidence_id": {
-            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
             "title": "Evidence Id",
             "type": "string"
           },
@@ -2244,7 +2244,7 @@
           "evidence_ids": {
             "default": [],
             "items": {
-              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
               "type": "string"
             },
             "maxItems": 50,
@@ -4014,7 +4014,7 @@
           "evidence_ids": {
             "default": [],
             "items": {
-              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
               "type": "string"
             },
             "maxItems": 50,
@@ -6847,7 +6847,7 @@
             "name": "evidence_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
               "title": "Evidence Id",
               "type": "string"
             }

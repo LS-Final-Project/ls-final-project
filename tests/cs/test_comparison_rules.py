@@ -426,3 +426,48 @@ def test_unknown_or_removed_evidence_is_not_found_and_never_reused():
             removals,
         )
     assert reused.value.code == "CS_EVIDENCE_INVALID"
+
+
+@pytest.mark.parametrize("evidence_id", [".ev", "-ev", "_ev", "e" * 65, "ev/1", ""])
+def test_evidence_ids_follow_the_relay_rule(evidence_id):
+    # 중계 경로와 같은 규칙: 첫 글자 영숫자, 영숫자·.·_·-만, 1~64자.
+    with pytest.raises(ValidationError):
+        JudgementWrite.model_validate(
+            {
+                "version": 1,
+                "items": [condition()],
+                "evidence": [EVIDENCE_WRITE | {"evidence_id": evidence_id}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ItemWrite.model_validate(condition(evidence_ids=[evidence_id]))
+
+
+@pytest.mark.parametrize("evidence_id", ["a", "ev-1", "e" * 64, "case.2026_10"])
+def test_evidence_ids_within_the_rule_are_accepted(evidence_id):
+    body = EVIDENCE_WRITE | {"evidence_id": evidence_id}
+    assert (
+        JudgementWrite.model_validate({"version": 1, "items": [condition()], "evidence": [body]})
+        .evidence[0]
+        .evidence_id
+        == evidence_id
+    )
+
+
+def test_removing_later_evidence_from_an_older_unconfirmed_item_records_the_removal():
+    # #151 규칙으로 저장될 수 있던 항목: 알려진 근거(ev-1)와 아직 모르는 근거(ev-9)를 함께
+    # 인용하고 값도 다 있는데 UNCONFIRMED다. 지금 규칙이면 맞는 사유가 없다(expected_reason None).
+    older = examples.DIFFERS | {
+        "judgement": "UNCONFIRMED",
+        "finding": None,
+        "unconfirmed_reason": "NO_EVIDENCE",
+        "evidence_ids": ["ev-1", "ev-9"],
+    }
+    evidence = {e["evidence_id"]: e for e in (CASE, LATER)}
+    assert rules.expected_reason(older, evidence, set(), NOW) is None
+    [row], left, changes, affected = remove([older], [CASE, LATER], "ev-9")
+    # 방금 뺀 항목 키가 이력에 들어가 EVIDENCE_REMOVED가 되고 None이 되지 않는다.
+    assert (row["judgement"], row["unconfirmed_reason"]) == ("UNCONFIRMED", "EVIDENCE_REMOVED")
+    assert row["provenance_kind"] == "system_record" and row["evidence_ids"] == ["ev-1"]
+    assert [e["evidence_id"] for e in left] == ["ev-1"] and affected == ["CONDITION:application"]
+    assert changes["CONDITION:application"]["from"] == "UNCONFIRMED"
