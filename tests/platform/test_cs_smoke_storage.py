@@ -1047,6 +1047,158 @@ def test_synthetic_and_locked_quality_paths_exclude_each_other(
     assert rows and all(r["metric_key"].startswith(prefix) for r in rows)
 
 
+# 항목 코드가 저장 행에 새지 않는지 찾기 쉽게 고유한 합성 코드를 쓴다.
+INFO_GOLD = {
+    "cs-smoke-valid": ("[]", "FULL"),
+    "cs-smoke-invalid": ("synthetic_code_alpha", "FULL"),
+    "cs-smoke-timeout": ("synthetic_code_beta", "PRECISION_ONLY"),
+    OTHER_SPLIT: ("synthetic_code_gamma", "FULL"),
+}
+
+
+def locked_info_gold(full=2, partial=1):
+    """검사용 provided_info 잠금 정답 바이트와 범위별 분모 잠금표를 만든다.
+
+    Args:
+        full: 검증 분할 FULL 고정 분모.
+        partial: 검증 분할 PRECISION_ONLY 고정 분모.
+
+    Returns:
+        tuple[bytes, dict]: 세 열 정답 CSV 바이트와 provided_info 잠금표.
+    """
+    import hashlib
+
+    from eval.cs_gold_locks import GoldLock
+
+    data = (
+        "ticket_id,provided_info,scoring_scope\n"
+        + "".join(f"{k},{items},{scope}\n" for k, (items, scope) in INFO_GOLD.items())
+    ).encode()
+    lock = GoldLock(
+        "test-provided_info-v1",
+        hashlib.sha256(data).hexdigest(),
+        ("ticket_id", "provided_info", "scoring_scope"),
+        (("FULL", 0, full), ("PRECISION_ONLY", 0, partial)),
+    )
+    return data, {"provided_info": lock}
+
+
+def test_locked_provided_info_rows_keep_scopes_separate(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """provided_info를 채점 범위별 segment 행으로만 저장하고 두 범위를 합하지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: FULL 4행·PRECISION_ONLY precision 1행, 집계값만 담은 details, 코드·사례 비노출을 확인한다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+    from eval.cs_report import store_locked_quality_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_info_gold()
+    with psycopg.connect(evaluation_database) as conn:
+        stored = store_locked_quality_metrics(
+            conn, cs_run, "provided_info", data, scoring_version="locked-v1", locks=locks
+        )
+        # 잠금표에 있어도 저장 경로가 없는 지표는 기본 잠금표로도 거부한다.
+        with pytest.raises(ValueError, match="^CS_QUALITY_METRIC_UNSUPPORTED$"):
+            store_locked_quality_metrics(conn, cs_run, "priority", data, scoring_version="x")
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert stored["stored_rows"] == len(rows) == 5
+    prefix = "cs_locked_provided_info_first_"
+    by_key = {(r["segment"], r["metric_key"].removeprefix(prefix)): r for r in rows}
+    assert set(by_key) == {
+        ("scope=FULL", "precision"),
+        ("scope=FULL", "recall"),
+        ("scope=FULL", "f1"),
+        ("scope=FULL", "exact_match"),
+        ("scope=PRECISION_ONLY", "precision"),
+    }
+    # 유효 예측 []만 있어 FULL precision 분모가 0이고, 실패한 FULL 사례는 FN이다.
+    precision = by_key[("scope=FULL", "precision")]
+    assert (precision["value"], precision["numerator"], precision["denominator"]) == (None, 0, 0)
+    recall = by_key[("scope=FULL", "recall")]
+    assert (recall["value"], recall["numerator"], recall["denominator"]) == (0, 0, 1)
+    assert by_key[("scope=FULL", "f1")]["value"] == 0
+    exact = by_key[("scope=FULL", "exact_match")]
+    assert (exact["value"], exact["numerator"], exact["denominator"]) == (0.5, 1, 2)
+    common = {
+        "report_version": "cs-locked-quality-v1",
+        "bundle_id": GOLD_BUNDLE_ID,
+        "gold_version": "test-provided_info-v1",
+        "gold_sha256": locks["provided_info"].gold_sha256,
+        "data_origin": "synthetic",
+        "data_split": "valid",
+        "run_status": "PARTIAL",
+        "target_count": 3,
+        "scored_target_count": 3,
+    }
+    assert precision["details"] == {
+        **common,
+        "scope": "FULL",
+        "locked_denominator": 2,
+        "scope_target_count": 2,
+        "valid_count": 1,
+        "items": {"tp": 0, "fp": 0, "fn": 1},
+        "recall_scored": True,
+        "excluded_by_reason": {"PRECISION_ONLY": 1},
+        "outcomes": precision["details"]["outcomes"],
+    }
+    assert precision["details"]["outcomes"]["VALID"] == 1
+    assert precision["details"]["outcomes"]["SCHEMA_VIOLATION"] == 1
+    partial = by_key[("scope=PRECISION_ONLY", "precision")]
+    assert partial["value"] is None and partial["support"] == 1
+    assert partial["details"]["items"] == {"tp": 0, "fp": 0}
+    assert partial["details"]["recall_scored"] is False
+    assert partial["details"]["excluded_by_reason"] == {}
+    assert partial["details"]["outcomes"]["TIMEOUT"] == 1
+    assert all(r["case_id"] is None and r["class_label"] is None for r in rows)
+    assert all(r["threshold"] is None and r["passed"] is None for r in rows)
+    dumped = str(rows)
+    assert "synthetic_code" not in dumped
+    assert all(ref not in dumped for ref in (*FIXTURES, OTHER_SPLIT))
+
+
+@pytest.mark.parametrize("full,partial", [(3, 1), (2, 2)])
+def test_locked_provided_info_rejects_scope_denominator_mismatch(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, full, partial
+):
+    """범위별 채점 대상 수가 잠근 분모와 하나라도 다르면 행 없이 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        full: 잠금표의 FULL 분모.
+        partial: 잠금표의 PRECISION_ONLY 분모.
+
+    Returns:
+        None: CS_QUALITY_DENOMINATOR_MISMATCH와 rollback을 확인한다.
+    """
+    from eval.cs_report import store_locked_quality_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_info_gold(full, partial)
+    with psycopg.connect(evaluation_database) as conn:
+        with pytest.raises(ValueError, match="^CS_QUALITY_DENOMINATOR_MISMATCH$"):
+            store_locked_quality_metrics(
+                conn, cs_run, "provided_info", data, scoring_version="locked-v1", locks=locks
+            )
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert stored_quality_rows(evaluation_database, cs_run) == []
+
+
 def test_locked_store_cli_saves_rows_or_rejects_with_code_only(
     settings,
     cs_access,

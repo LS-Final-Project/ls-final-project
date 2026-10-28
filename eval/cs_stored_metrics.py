@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.classification_call import ClassificationAttempt
 from eval.cs_metrics import OUTCOMES, summarize_final_attempts
-from eval.cs_strata import Metric, summarize_first_attempts_by_group
+from eval.cs_strata import GoldValue, Metric, summarize_first_attempts_by_group
 
 TERMINAL_STATUSES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"})
 
@@ -18,7 +18,7 @@ TERMINAL_STATUSES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "T
 def summarize_stored_first_attempts(
     conn: Connection,
     run_id: UUID,
-    gold: Mapping[str, str | None],
+    gold: Mapping[str, GoldValue],
     *,
     gold_version: str | None,
     metric: Metric,
@@ -92,7 +92,7 @@ def _read_snapshot(
 def _summarize_snapshot(
     rows: list[dict],
     run_id: UUID,
-    gold: Mapping[str, str | None],
+    gold: Mapping[str, GoldValue],
     *,
     gold_version: str | None,
     metric: Metric,
