@@ -20,7 +20,7 @@ export default function TicketUnits({ ticketId }: { ticketId: string }) {
     <p>후보 장비는 확정 장비가 아닙니다. 이전 문의는 확정된 장비 또는 교체 전 장비의 이력만 표시합니다.</p>
     <button disabled={busy} onClick={refresh}>{opened ? '장비 정보 새로고침' : '장비 정보 조회'}</button>
     {opened && busy && <Loading label="장비 정보 조회 중" />}
-    {opened && failed && <ErrorState error={units.error ?? history.error} onRetry={refresh} />}
+    {opened && !busy && failed && <ErrorState error={units.error ?? history.error} onRetry={refresh} />}
     {opened && !busy && !failed && units.isSuccess && history.isSuccess && <>
       <h3>장비 후보와 연결 상태</h3>
       {units.data.data.items.length === 0 ? <p>조회 가능한 장비가 없습니다.</p> : <ul>{units.data.data.items.map(({ unit, link, matches_ticket }) => <li key={unit.id}>

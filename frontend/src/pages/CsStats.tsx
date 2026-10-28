@@ -45,7 +45,7 @@ function StatsView(){
     {error&&<p role="alert">{error}</p>}
     {view==='customer'&&!filters.customer?<p>고객 ID를 입력하고 필터를 적용하세요.</p>:<>
       <button disabled={active.isFetching} onClick={()=>active.refetch()}>최신 현황 조회</button>
-      {active.isFetching&&<Loading/>}{active.isError&&<ErrorState error={active.error} onRetry={()=>active.refetch()}/>}
+      {active.isFetching&&<Loading/>}{!active.isFetching&&active.isError&&<ErrorState error={active.error} onRetry={()=>active.refetch()}/>}
     </>}
     {o&&<>
       <section><h2>처리 현황 ({o.scope==='ALL'?'전체':'본인 담당'})</h2><p>적용 기간: {o.period.start?timestamp(o.period.start):'처음부터'} ~ {o.period.end?timestamp(o.period.end):'현재까지'} (종료 미포함)</p><p>최초·최종 접수 기록: {timestamp(o.data_range.first_received_at)} ~ {timestamp(o.data_range.last_received_at)}</p><dl><dt>기간 내 접수</dt><dd>{o.tickets.received}</dd><dt>기간 내 종결</dt><dd>{o.tickets.closed}</dd><dt>기간 내 접수 중 현재 진행</dt><dd>{o.tickets.open}</dd></dl><Counts values={o.tickets.by_state}/><h3>자료 출처</h3><Counts values={o.tickets.by_origin}/><Unconfirmed values={o.unconfirmed}/><h3>진행 문의 접수 후 경과 기간 (SLA 지연 아님)</h3><Counts values={{'1일 미만':o.tickets.open_age.under_1_day,'1~3일':o.tickets.open_age.from_1_to_3_days,'3~7일':o.tickets.open_age.from_3_to_7_days,'7일 이상':o.tickets.open_age.over_7_days}}/></section>
