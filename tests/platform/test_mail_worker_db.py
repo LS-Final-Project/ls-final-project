@@ -311,8 +311,18 @@ def test_permanent_failure_is_recorded_without_queue_retry(settings, mailbox):
 
 def test_sync_body_must_name_one_mailbox(settings, mailbox):
     world = World(settings)
-    response = world.client.post(
-        "/internal/v1/platform/mail/sync", json={"mailbox_id": "nope"}, headers=GOOD
-    )
-    assert response.status_code == 422
+    for body in ('{"mailbox_id": "nope"}', "not json", "{}"):
+        response = world.client.post("/internal/v1/platform/mail/sync", content=body, headers=GOOD)
+        assert (response.status_code, response.json()["error"]["code"]) == (
+            422,
+            "VALIDATION_ERROR",
+        )
     assert world.graph.requests == []
+
+
+def test_bad_body_does_not_reveal_closed_or_unauthenticated_routes(settings, mailbox):
+    bad = '{"mailbox_id": "nope"}'
+    closed = TestClient(create_app(settings=settings))
+    assert closed.post("/internal/v1/platform/mail/sync", content=bad).status_code == 404
+    world = World(settings)
+    assert world.client.post("/internal/v1/platform/mail/sync", content=bad).status_code == 401

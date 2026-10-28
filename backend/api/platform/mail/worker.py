@@ -19,7 +19,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.responses import JSONResponse
 
@@ -275,17 +275,21 @@ async def dispatch(request: Request) -> JSONResponse:
 
 
 @router.post("/sync", response_model=SuccessResponse[SyncData])
-async def sync(request: Request, payload: SyncRequest) -> JSONResponse:
+async def sync(request: Request) -> JSONResponse:
     """사서함 하나를 수집하고, 큐가 다시 시도할지를 응답 코드로 알린다.
 
     Args:
-        request: Cloud Tasks 호출.
-        payload: 사서함 연결 ID.
+        request: Cloud Tasks 호출. 본문은 `{"mailbox_id": "<UUID>"}`.
 
     Returns:
         JSONResponse: 결과. 일시 실패는 503(큐 재시도), 나머지는 200.
     """
+    # 본문은 호출자 확인 뒤에 읽는다. 비활성 404·인증 401이 본문 검증 422에 가려지지 않게 한다.
     await verify_caller(request)
+    try:
+        payload = SyncRequest.model_validate_json(await request.body())
+    except ValidationError:
+        raise ApplicationError(422, "VALIDATION_ERROR", "Request body is invalid.") from None
     value: MailSyncSettings = request.app.state.mail_sync
     async with (
         client(request, httpx.Timeout(30, connect=10)) as graph_client,

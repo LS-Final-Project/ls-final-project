@@ -115,7 +115,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | `MAIL_SYNC_INTERVAL_SECONDS` | 작업 이름 구간 길이. 기본 300초(Scheduler 주기와 맞춘다) |
 | `MAIL_OBJECT_BUCKET` | 메일 객체 버킷(KAN-66 댓글 10427) |
 
-- **호출자 확인**: Cloud Run IAM(`run.invoker`)과 별도로, 컨테이너가 `Authorization`의 Google ID 토큰을 고정 Google 서명키·`MAIL_SYNC_SERVICE_URL` audience·`MAIL_SYNC_INVOKER_EMAIL`로 다시 검증한다(`PlatformCaller`). 실패하면 DB·큐·Graph를 부르기 전에 401이다.
+- **호출자 확인**: Cloud Run IAM(`run.invoker`)과 별도로, 컨테이너가 `Authorization`의 Google ID 토큰을 고정 Google 서명키·`MAIL_SYNC_SERVICE_URL` audience·`MAIL_SYNC_INVOKER_EMAIL`로 다시 검증한다(`PlatformCaller`). 실패하면 DB·큐·Graph를 부르기 전에 401이다. 본문은 호출자 확인 뒤에 읽어, 잘못된 본문이 비활성 404·인증 401을 가리지 않는다(본문 오류는 422 `VALIDATION_ERROR`).
 - **같은 사서함 중복 방지**: 등록 단계는 작업 이름(사서함 ID + 시간 구간)으로, 같은 구간에 다시 불려도 Cloud Tasks가 409로 거절한다(기존으로 셈). 실행 단계는 KAN-71 실행 표의 `RUNNING` 부분 유일 인덱스로 막는다. 구간이 겹쳐 두 작업이 동시에 와도 하나는 `MAIL_SYNC_IN_PROGRESS`로 건너뛴다.
 - **같은 메일 재수집**: 사서함 안 `graph_id` 유일 제약과 저장소의 같은 키 재사용으로, 커서를 잃고 전체를 다시 받아도 메시지·객체가 늘지 않는다.
 - **응답 코드와 재시도**
@@ -126,7 +126,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 진행 중·연결 해제·알 수 없는 사서함 | 200 `SKIPPED` + 코드 | 끝(다음 주기) |
 | 일시 실패: `GRAPH_THROTTLED`·`GRAPH_UNAVAILABLE`·`MAILBOX_TOKEN_UNAVAILABLE`·`MAIL_STORAGE_UNAVAILABLE`·`LEASE_EXPIRED`·`SYNC_CANCELLED` | 503 `FAILED` | 큐 재시도(최대 3회, 30~300초) |
 | 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN`·`MAILBOX_RECONNECT_REQUIRED` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
-| 작업 등록 중 하나라도 실패 | 503 | Scheduler 재시도. 이미 등록된 작업은 중복되지 않음 |
+| 작업 등록 중 하나라도 실패 | 503 | Scheduler 재시도(최대 3회, 30~120초). 이미 등록된 작업은 중복되지 않음 |
 
 - 큐·호출 계정·Scheduler 준비는 `infra/setup_mail_sync.sh`(인프라 담당자 실행). Scheduler 작업은 일시 중지로 만들고, 앱 설정을 켠 뒤 resume한다. 권한은 호출 계정에 플랫폼 `run.invoker`, `platform-runtime`에 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
 

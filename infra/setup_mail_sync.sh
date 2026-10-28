@@ -64,7 +64,8 @@ if ! printf '%s\n' "$LS_SYNC_JOBS" | grep -Fxq "$LS_SYNC_JOB"; then
     --schedule='*/5 * * * *' --time-zone=Asia/Seoul \
     --uri="${LS_SYNC_URL}/internal/v1/platform/mail/dispatch" --http-method=POST \
     --oidc-service-account-email="$LS_SYNC_INVOKER" --oidc-token-audience="$LS_SYNC_URL" \
-    --attempt-deadline=120s "${LS_SYNC_FLAGS[@]}"
+    --attempt-deadline=120s --max-retry-attempts=3 --min-backoff=30s --max-backoff=120s \
+    "${LS_SYNC_FLAGS[@]}"
   gcloud scheduler jobs pause "$LS_SYNC_JOB" --location="$LS_SYNC_REGION" "${LS_SYNC_FLAGS[@]}"
 fi
 

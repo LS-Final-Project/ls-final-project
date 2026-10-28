@@ -65,6 +65,8 @@ class MailSyncSetupTests(unittest.TestCase):
             "--uri=https://team4-platform-abc.a.run.app/internal/v1/platform/mail/dispatch", create
         )
         self.assertIn("--oidc-token-audience=https://team4-platform-abc.a.run.app", create)
+        # 등록 실패(503)는 다음 주기를 기다리지 않고 Scheduler가 다시 부른다.
+        self.assertIn("--max-retry-attempts=3", create)
         self.assertIn(
             "--oidc-service-account-email=mail-sync-invoker@proj-skkuls0106-183255377938.iam.gserviceaccount.com",
             create,
