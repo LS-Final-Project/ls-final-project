@@ -3,6 +3,7 @@
 입력은 분류와 같은 build_input으로 화이트리스트·마스킹하고, 요청할 정보 코드는 모델이 아니라 여기서
 필요 코드 − 제공 코드 − 이미 물은 코드로 계산한다. 출력은 문안 선택지 3개이며 문장마다 근거·조건·미확인을
 구분한다. RMA·반품 승인, 방문 확정, 보증·무상 처리 확정 같은 약속은 확정형 문구 패턴으로 거부한다.
+정규식은 보조 차단이며 모든 확정형 변형을 막지 못하므로, 발송 전 담당자 검토가 필수다.
 """
 
 import json
@@ -27,20 +28,23 @@ FORBIDDEN_COMMITMENTS = tuple(
         r"\bRMA\s+(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed|issued)\b",
         r"\breturn\s+(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed)\b",
         r"\bwarranty\s+(?:claim\s+)?(?:is\s+|has\s+been\s+)?approved\b",
-        r"(?<!whether )(?<!if )\b(?:it|this|that|they|the\s+\w+)\s+(?:is|are|will\s+be)\s+"
+        r"(?<!whether )(?<!if )\b(?:it|this|that|they|(?:the|your|our)\s+\w+)\s+(?:is|are|will\s+be)\s+"
         r"covered\s+(?:under|by)\s+(?:the\s+|your\s+|our\s+)?warranty\b",
         r"\bit[’']s\s+covered\s+(?:under|by)\s+(?:the\s+|your\s+|our\s+)?warranty\b",
-        r"\bwe\s+will\s+(?:send|dispatch)\s+(?:a|an|our)\s+(?:field\s+)?(?:technician|engineer)\b",
+        r"\bwe(?:\s+will|[’\']ll)\s+(?:send|dispatch)\s+(?:a|an|our)\s+(?:field\s+)?(?:technician|engineer)\b",
         r"\b(?:site\s+visit|visit|technician|engineer)\s+(?:is|has\s+been)\s+"
         r"(?:scheduled|confirmed|booked)\b",
-        r"\bwe\s+will\s+(?:repair|replace)\b[^.!?\n]{0,40}"
+        r"\bwe(?:\s+will|[’\']ll)\s+(?:repair|replace)\b[^.!?\n]{0,40}"
         r"\b(?:free\s+of\s+charge|at\s+no\s+(?:cost|charge))",
         r"RMA\s*(?:가|를|이)?\s*(?:승인|발급)\s*(?:되었|됐|했|하였|합니다|해\s*드리)",
         r"반품\s*(?:이|을|가)?\s*승인\s*(?:되었|됐|했|하였|합니다|해\s*드리)",
-        r"방문\s*(?:하겠습니다|해\s*드리겠습니다)",
+        r"방문\s*(?:하겠습니다|드리겠습니다|해\s*드리겠습니다)",
         r"방문\s*(?:일정)?\s*(?:이|을)?\s*확정\s*(?:되었|됐|했|하였|합니다)",
-        r"보증\s*(?:이|으로)?\s*(?:승인|적용)\s*(?:되었|됐|됩니다|합니다|해\s*드리)",
+        r"보증\s*(?:이|으로)?\s*(?:승인|적용|처리)\s*(?:되었|됐|됩니다|합니다|해\s*드리)",
         r"무상\s*(?:으로)?\s*(?:처리|교체|수리)\s*(?:해\s*드리|하겠습니다|됩니다|되었|됐)",
+        r"\bwe(?:\s+have|[’']ve)\s+approved\s+(?:your|the)\s+(?:RMA|return|warranty\s+claim)\b",
+        r"(?:RMA|반품|보증)\s*(?:승인|처리)\s*(?:이|가)?\s*완료\s*(?:되었|됐|했|하였|합니다|입니다)",
+        r"(?:기술자|엔지니어|기사)\s*(?:를|을)?\s*파견\s*(?:하겠습니다|해\s*드리)",
     )
 )
 
@@ -105,7 +109,10 @@ def build_draft_input(
     """
     prepared = build_input(record, sensitive_values=sensitive_values)
     if (
-        not isinstance(classification, ClassificationOutput)
+        not isinstance(required_info_codes, frozenset)
+        or not isinstance(already_asked_codes, frozenset)
+        or not isinstance(evidence, list)
+        or not isinstance(classification, ClassificationOutput)
         or not all(isinstance(e, EvidenceSnippet) for e in evidence)
         or len({e.chunk_id for e in evidence}) != len(evidence)
         or not all(

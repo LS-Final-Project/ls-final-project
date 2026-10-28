@@ -148,6 +148,8 @@ def test_request_codes_exclude_provided_and_already_asked():
         {"evidence": EVIDENCE * 2},
         {"required_info_codes": frozenset({""})},
         {"classification": CLASSIFICATION.model_dump()},
+        {"required_info_codes": ["TEST_PHOTO"]},
+        {"already_asked_codes": None},
     ],
 )
 def test_invalid_draft_input_is_rejected(overrides):
@@ -234,7 +236,11 @@ def test_repeated_info_request_in_option_is_rejected():
 
 # 패턴마다 거부해야 할 확정형 예문. 패턴을 더하거나 빼면 키 집합 검사가 깨진다.
 FORBIDDEN_EXAMPLES = {
-    FORBIDDEN_COMMITMENTS[0].pattern: ["Your RMA has been approved.", "RMA issued: please ship."],
+    FORBIDDEN_COMMITMENTS[0].pattern: [
+        "Your RMA has been approved.",
+        "RMA issued: please ship.",
+        "RMA approved.",
+    ],
     FORBIDDEN_COMMITMENTS[1].pattern: ["Return authorized.", "The return is approved."],
     FORBIDDEN_COMMITMENTS[2].pattern: [
         "Warranty approved.",
@@ -243,23 +249,43 @@ FORBIDDEN_EXAMPLES = {
     FORBIDDEN_COMMITMENTS[3].pattern: [
         "The unit is covered under warranty.",
         "This will be covered by the warranty.",
+        "Your unit is covered under warranty.",
     ],
     FORBIDDEN_COMMITMENTS[4].pattern: ["It's covered under warranty.", "it’s covered by warranty"],
     FORBIDDEN_COMMITMENTS[5].pattern: [
         "We will send a technician tomorrow.",
         "We will dispatch our engineer.",
+        "We'll send a technician tomorrow.",
     ],
     FORBIDDEN_COMMITMENTS[6].pattern: ["A site visit is scheduled.", "Technician has been booked."],
     FORBIDDEN_COMMITMENTS[7].pattern: [
         "We will replace the breaker free of charge.",
         "We will repair it at no cost.",
+        "We’ll replace it free of charge.",
     ],
     FORBIDDEN_COMMITMENTS[8].pattern: ["RMA가 승인되었습니다.", "RMA를 발급해 드리겠습니다."],
     FORBIDDEN_COMMITMENTS[9].pattern: ["반품이 승인되었습니다.", "반품 승인해 드리겠습니다."],
-    FORBIDDEN_COMMITMENTS[10].pattern: ["내일 방문하겠습니다.", "현장에 방문해 드리겠습니다."],
+    FORBIDDEN_COMMITMENTS[10].pattern: [
+        "내일 방문하겠습니다.",
+        "현장에 방문해 드리겠습니다.",
+        "내일 방문드리겠습니다.",
+    ],
     FORBIDDEN_COMMITMENTS[11].pattern: ["방문 일정이 확정되었습니다.", "방문을 확정했습니다."],
-    FORBIDDEN_COMMITMENTS[12].pattern: ["보증이 적용됩니다.", "보증으로 승인되었습니다."],
+    FORBIDDEN_COMMITMENTS[12].pattern: [
+        "보증이 적용됩니다.",
+        "보증으로 승인되었습니다.",
+        "보증 처리됩니다.",
+    ],
     FORBIDDEN_COMMITMENTS[13].pattern: ["무상 처리해 드리겠습니다.", "무상으로 교체됩니다."],
+    FORBIDDEN_COMMITMENTS[14].pattern: ["We have approved your RMA.", "We've approved the return."],
+    FORBIDDEN_COMMITMENTS[15].pattern: [
+        "RMA 승인이 완료되었습니다.",
+        "보증 처리가 완료되었습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[16].pattern: [
+        "기술자를 파견하겠습니다.",
+        "엔지니어를 파견해 드리겠습니다.",
+    ],
 }
 # 조건부·부정 표현은 허용한다(경계 고정).
 ALLOWED_EXAMPLES = [
@@ -274,6 +300,10 @@ ALLOWED_EXAMPLES = [
     "We will confirm whether it is covered under warranty.",
     "If the unit is covered under warranty, we will let you know.",
     "The RMA is not approved yet.",
+    "반품 승인 완료 여부는 확인 후 안내드립니다.",
+    "보증 처리 여부는 점검 후 알려 드립니다.",
+    "기술자 파견 여부는 담당 부서에서 결정합니다.",
+    "We will check whether your unit is covered under warranty.",
 ]
 
 
@@ -469,5 +499,9 @@ def test_timeout_and_rejected_input():
     provider.assert_not_called()
     assert held.outcome == "HELD" and held.error_code == "CS_INVALID_INPUT"
     assert not held.call_started
+    # frozenset이 아닌 코드 집합도 예외로 새지 않고 보류로 남는다.
+    typed = attempt(provider, required_info_codes=None)
+    provider.assert_not_called()
+    assert typed.outcome == "HELD" and typed.error_code == "CS_INVALID_INPUT"
     with pytest.raises(ValueError, match="^CS_INVALID_ATTEMPT_NUMBER$"):
         attempt(provider, attempt_number=0)
