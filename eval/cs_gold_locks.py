@@ -1,6 +1,7 @@
 """KAN-95에서 잠근 C/S 개발 정답의 판본·hash·분모와 묶음 ID. 정답 파일은 저장소 밖에 둔다."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 GOLD_BUNDLE_ID = "cs-gold-bundle-20261028-v1"
 
@@ -51,3 +52,27 @@ GOLD_LOCKS: dict[str, GoldLock] = {
         (("FULL", 2643, 561), ("PRECISION_ONLY", 157, 42)),
     ),
 }
+
+# 제공 자료 ref/required_info.csv의 바이트 그대로의 사본이다. 정답이 아닌 필수 항목 규칙표다.
+REQUIRED_INFO_PATH = Path(__file__).with_name("policy") / "cs_required_info.csv"
+REQUIRED_INFO_SHA256 = "c3a026def3d3229b5c9fe68a1d332bfc4346ebcc0965dc869dd4a61b0826a339"
+REQUIRED_INFO_ROWS = 110
+
+
+@dataclass(frozen=True)
+class RerequestLock:
+    """재요청 지표의 split별 고정 수. 각 값은 (학습, 검증)이다.
+
+    targets는 provided_info FULL 대상 수, gold_items는 그 대상의 gold 제공 항목 수,
+    request_needed는 gold 주분류·provided_info를 넣었을 때 요청이 생기는 문의 수다.
+    """
+
+    targets: tuple[int, int]
+    gold_items: tuple[int, int]
+    request_needed: tuple[int, int]
+
+
+# docs/evaluation.md "C/S 이미 제공한 정보 재요청 지표" 절과 같아야 한다(tests/eval/test_cs_gold_locks.py).
+REREQUEST_LOCK = RerequestLock(
+    targets=(2643, 561), gold_items=(7876, 1643), request_needed=(584, 122)
+)

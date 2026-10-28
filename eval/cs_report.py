@@ -9,7 +9,7 @@ import os
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 from uuid import UUID
@@ -20,18 +20,32 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from backend.api.platform.evaluations.cs_smoke import FIXTURES, matches_profile
-from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS, GoldLock
+from backend.engine.cs.rules import RuleInputError, product_family
+from eval.cs_gold_locks import (
+    GOLD_BUNDLE_ID,
+    GOLD_LOCKS,
+    REQUIRED_INFO_PATH,
+    REQUIRED_INFO_SHA256,
+    REREQUEST_LOCK,
+    GoldLock,
+    RerequestLock,
+)
 from eval.cs_metrics import (
     CATEGORY_LABELS,
     PROVIDED_INFO_SCOPES,
     RETURN_SUBTYPE_LABELS,
     URGENCY_LABELS,
+    BlockingFields,
     ProvidedInfoGold,
+    RerequestGold,
+    requested_items,
+    summarize_rerequest_first_attempts,
 )
 from eval.cs_response_audit import summarize_stored_response_audit
 from eval.cs_stored_metrics import (
     TERMINAL_STATUSES,
     compare_stored_attempts,
+    read_stored_first_attempts,
     summarize_stored_first_attempts,
 )
 from eval.cs_strata import GoldValue, Metric
@@ -155,9 +169,8 @@ QualityRow = tuple[str, str | None, float | None, int | None, int | None, int | 
 def _store_quality_rows(
     conn: psycopg.Connection,
     run_id: UUID,
-    gold_csv: bytes,
+    inputs: Sequence[tuple[bytes, str]],
     *,
-    gold_sha256: str,
     scoring_version: str,
     build: Callable[[dict, set[str]], tuple[str, dict[str, list[QualityRow]]]],
 ) -> dict:
@@ -166,8 +179,8 @@ def _store_quality_rows(
     Args:
         conn: 운영자가 연 유휴 내부 연결. 기존 트랜잭션은 인수하지 않는다.
         run_id: 저장할 종료 실행 ID.
-        gold_csv: 정답 파일 바이트. 경로나 원문은 저장하지 않는다.
-        gold_sha256: 행을 읽기 전에 대조할 정답 파일 SHA-256(소문자 hex).
+        inputs: (입력 파일 바이트, 행을 읽기 전에 대조할 SHA-256 소문자 hex) 목록. 정답·규칙표 등
+            채점 입력 전부이며 경로나 원문은 저장하지 않는다.
         scoring_version: 새 채점 판본. 같은 판본의 기존 행은 덮어쓰지 않는다.
         build: 잠근 실행 메타·실험 대상을 받아 경로별 거부 검사 후 metric_key 접두와 segment별
             행을 낸다.
@@ -177,7 +190,7 @@ def _store_quality_rows(
     """
     if conn.info.transaction_status != TransactionStatus.IDLE or not 0 < len(scoring_version) <= 64:
         raise ValueError("CS_QUALITY_INVALID_INPUT")
-    if hashlib.sha256(gold_csv).hexdigest() != gold_sha256:
+    if any(hashlib.sha256(data).hexdigest() != digest for data, digest in inputs):
         raise ValueError("CS_QUALITY_GOLD_HASH_MISMATCH")
     with conn.transaction():
         # 집계와 저장을 한 스냅샷에서 하고 실행 행을 잠가 종료 뒤 변경과 섞지 않는다.
@@ -315,8 +328,7 @@ def store_synthetic_return_subtype_metrics(
     return _store_quality_rows(
         conn,
         run_id,
-        gold_csv,
-        gold_sha256=gold_sha256,
+        [(gold_csv, gold_sha256)],
         scoring_version=scoring_version,
         build=build,
     )
@@ -371,18 +383,7 @@ def store_locked_quality_metrics(
             tuple[str, dict[str, list[QualityRow]]]: metric_key 접두와 segment별 저장 행.
                 provided_info만 채점 범위별 segment를 쓰고 나머지는 `all`이다.
         """
-        # 합성 경로의 SYNTHETIC_ONLY와 반대 경계라 한 실행에 두 경로의 행이 함께 남지 않는다.
-        if (
-            meta["purpose"] == "smoke"
-            or meta["provider"] == "fake"
-            or meta["model_id"] == "fake"
-            or matches_profile(meta)
-        ):
-            raise ValueError("CS_QUALITY_LOCKED_RUN_REQUIRED")
-        if meta["gold_version"] != GOLD_BUNDLE_ID:
-            raise ValueError("CS_QUALITY_BUNDLE_MISMATCH")
-        if meta["status"] not in TERMINAL_STATUSES:
-            raise ValueError("CS_QUALITY_RUN_NOT_TERMINAL")
+        _check_locked_run(meta)
         gold: Mapping[str, GoldValue] = (
             _parse_provided_info_gold(gold_csv, lock.columns)
             if metric == "provided_info"
@@ -463,11 +464,253 @@ def store_locked_quality_metrics(
     return _store_quality_rows(
         conn,
         run_id,
-        gold_csv,
-        gold_sha256=lock.gold_sha256,
+        [(gold_csv, lock.gold_sha256)],
         scoring_version=scoring_version,
         build=build,
     )
+
+
+def _check_locked_run(meta: dict) -> None:
+    """잠금 정답으로 채점할 수 있는 종료된 비합성 묶음 실행인지 확인한다.
+
+    Args:
+        meta: 잠근 실행·실험 메타.
+
+    Returns:
+        None: 통과하면 반환하고 위반은 원문 없는 ValueError다.
+    """
+    # 합성 경로의 SYNTHETIC_ONLY와 반대 경계라 한 실행에 두 경로의 행이 함께 남지 않는다.
+    if (
+        meta["purpose"] == "smoke"
+        or meta["provider"] == "fake"
+        or meta["model_id"] == "fake"
+        or matches_profile(meta)
+    ):
+        raise ValueError("CS_QUALITY_LOCKED_RUN_REQUIRED")
+    if meta["gold_version"] != GOLD_BUNDLE_ID:
+        raise ValueError("CS_QUALITY_BUNDLE_MISMATCH")
+    if meta["status"] not in TERMINAL_STATUSES:
+        raise ValueError("CS_QUALITY_RUN_NOT_TERMINAL")
+
+
+# (분할, 문의 ID별 product_code, 그 분할 파일의 manifest SHA-256).
+ProductInput = tuple[str, Mapping[str, str], str]
+
+
+def store_locked_rerequest_metrics(
+    conn: psycopg.Connection,
+    run_id: UUID,
+    *,
+    category_gold: bytes,
+    info_gold: bytes,
+    products: ProductInput,
+    scoring_version: str,
+    locks: Mapping[str, GoldLock] | None = None,
+    required_info: tuple[bytes, str] | None = None,
+    rerequest_lock: RerequestLock | None = None,
+) -> dict:
+    """종료된 비합성 실행의 이미 제공한 정보 재요청 지표를 잠금 정답으로 계산해 저장한다.
+
+    Args:
+        conn: 운영자가 연 유휴 내부 연결.
+        run_id: 저장할 종료 실행 ID. 실험 gold_version은 정답 묶음 ID여야 한다.
+        category_gold: category 잠금 정답 파일 바이트.
+        info_gold: provided_info 잠금 정답 파일 바이트. FULL 대상만 채점한다.
+        products: 개발 분리본에서 읽은 (분할, 문의별 product_code, 파일 SHA-256).
+        scoring_version: 새 채점 판본.
+        locks: 정답 잠금표. 없으면 GOLD_LOCKS다.
+        required_info: (필수 항목표 바이트, SHA-256). 없으면 저장소의 잠금 사본이다.
+        rerequest_lock: 분할별 고정 수. 없으면 REREQUEST_LOCK이다.
+
+    Returns:
+        dict: 저장한 채점 판본과 행 수. 거부 시 원문 없는 ValueError이며 아무 행도 남기지 않는다.
+            사례 ID·항목 코드·예측은 행에 넣지 않는다. 합격 판정은 하지 않는다.
+    """
+    locks = GOLD_LOCKS if locks is None else locks
+    lock = REREQUEST_LOCK if rerequest_lock is None else rerequest_lock
+    table = (
+        (REQUIRED_INFO_PATH.read_bytes(), REQUIRED_INFO_SHA256)
+        if required_info is None
+        else required_info
+    )
+    category_lock, info_lock = locks["category"], locks["provided_info"]
+    product_split, codes, product_sha256 = products
+
+    def build(meta: dict, targets: set[str]) -> tuple[str, dict[str, list[QualityRow]]]:
+        """경계·입력·분모·기준선을 확인하고 재요청 집계 행을 만든다.
+
+        Args:
+            meta: 잠근 실행·실험 메타.
+            targets: 실험 고정 대상.
+
+        Returns:
+            tuple[str, dict[str, list[QualityRow]]]: metric_key 접두와 segment all의 행.
+        """
+        _check_locked_run(meta)
+        split = meta["data_split"]
+        # 제품 입력이 다른 분할 파일이면 분모를 보기 전에 입력 오류로 멈춘다.
+        if product_split != split:
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        category = _parse_gold(category_gold, category_lock.columns, CATEGORY_LABELS)
+        info = cast(
+            Mapping[str, ProvidedInfoGold],
+            _parse_provided_info_gold(info_gold, info_lock.columns),
+        )
+        blocking = _parse_required_info(table[0])
+        if not targets <= set(category) or not targets <= set(info):
+            raise ValueError("CS_QUALITY_DENOMINATOR_MISMATCH")
+        full = {target for target in targets if info[target][1] == "FULL"}
+        try:
+            gold: dict[str, RerequestGold] = {
+                target: (
+                    cast(str, category[target]),
+                    info[target][0],
+                    product_family(codes[target]),
+                )
+                for target in full
+            }
+        except (KeyError, RuleInputError):
+            raise ValueError("CS_QUALITY_GOLD_INVALID") from None
+        index = 0 if split == "train" else 1
+        gold_items = sum(len(items) for _, items, _ in gold.values())
+        if len(full) != lock.targets[index] or gold_items != lock.gold_items[index]:
+            raise ValueError("CS_QUALITY_DENOMINATOR_MISMATCH")
+        # 기준선 관문: gold를 예측으로 넣으면 요청에서 gold 항목을 빼므로 재요청은 0이고,
+        # 요청이 생기는 문의 수가 문서에 잠근 값과 같아야 입력 묶음을 믿고 채점한다.
+        try:
+            needed = sum(
+                bool(requested_items(blocking, family, cat, items))
+                for cat, items, family in gold.values()
+            )
+        except KeyError:
+            raise ValueError("CS_QUALITY_GOLD_INVALID") from None
+        if needed != lock.request_needed[index]:
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        result = summarize_rerequest_first_attempts(
+            gold, read_stored_first_attempts(conn, run_id, full), blocking
+        )
+        total, tickets, items = (
+            len(full),
+            result["rerequest_ticket_count"],
+            result["rerequest_item_count"],
+        )
+        causes = result["causes"]
+        details = {
+            "report_version": LOCKED_REPORT_VERSION,
+            "bundle_id": GOLD_BUNDLE_ID,
+            "gold_versions": {
+                "category": category_lock.gold_version,
+                "provided_info": info_lock.gold_version,
+            },
+            "gold_sha256s": {
+                "category": category_lock.gold_sha256,
+                "provided_info": info_lock.gold_sha256,
+            },
+            "required_info_sha256": table[1],
+            "product_sha256": product_sha256,
+            "data_origin": meta["data_origin"],
+            "data_split": split,
+            "run_status": meta["status"],
+            "locked_denominator": total,
+            "gold_item_count": gold_items,
+            "target_count": len(targets),
+            "scored_target_count": total,
+            "excluded_by_reason": {"PRECISION_ONLY": len(targets) - total},
+            "valid_count": result["valid_count"],
+            "outcomes": result["outcomes"],
+            "cause_items": {cause: causes[cause]["items"] for cause in causes},
+            "baseline_request_needed": needed,
+        }
+        extraction, classification = (
+            causes[c]["tickets"] for c in ("EXTRACTION", "CLASSIFICATION")
+        )
+        requests = result["request_ticket_count"]
+        rows: list[QualityRow] = [
+            ("rerequest_ticket_count", None, tickets, tickets, total, total, details),
+            (
+                "rerequest_ticket_ratio",
+                None,
+                result["rerequest_ticket_rate"],
+                tickets,
+                total,
+                total,
+                details,
+            ),
+            ("rerequest_item_count", None, items, items, gold_items, total, details),
+            (
+                "rerequest_item_ratio",
+                None,
+                result["rerequest_item_rate"],
+                items,
+                gold_items,
+                total,
+                details,
+            ),
+            ("cause_extraction", None, extraction, extraction, tickets, total, details),
+            ("cause_classification", None, classification, classification, tickets, total, details),
+            (
+                "request_ticket_count",
+                None,
+                requests,
+                requests,
+                result["valid_count"],
+                total,
+                details,
+            ),
+        ]
+        return "cs_locked_rerequest_first_", {"all": rows}
+
+    return _store_quality_rows(
+        conn,
+        run_id,
+        [
+            (category_gold, category_lock.gold_sha256),
+            (info_gold, info_lock.gold_sha256),
+            table,
+        ],
+        scoring_version=scoring_version,
+        build=build,
+    )
+
+
+REQUIRED_INFO_COLUMNS = ["family", "category", "required_fields", "blocking_fields", "field_labels"]
+
+
+def _parse_required_info(data: bytes) -> BlockingFields:
+    """필수 항목표에서 (제품군, 주분류)별 핵심 항목 집합만 읽는다.
+
+    Args:
+        data: hash를 대조한 required_info.csv 바이트(UTF-8 BOM·CRLF 허용).
+
+    Returns:
+        BlockingFields: 핵심 항목 집합. 열·주분류·중복 키·빈 항목·필수 항목 밖 핵심 항목은
+            CS_QUALITY_GOLD_INVALID로 거부한다.
+    """
+    try:
+        reader = csv.DictReader(io.StringIO(data.decode("utf-8-sig"), newline=""))
+        rows = list(reader)
+    except (UnicodeDecodeError, csv.Error):
+        raise ValueError("CS_QUALITY_GOLD_INVALID") from None
+    if reader.fieldnames != REQUIRED_INFO_COLUMNS:
+        raise ValueError("CS_QUALITY_GOLD_INVALID")
+    blocking: dict[tuple[str, str], frozenset[str]] = {}
+    for row in rows:
+        # 짧은 행은 DictReader가 None으로 채우므로 값을 쪼개기 전에 거부한다.
+        if None in row or None in row.values():
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        key = (row["family"], row["category"])
+        required, core = (row[name].split(";") for name in ("required_fields", "blocking_fields"))
+        if (
+            not key[0]
+            or key[1] not in CATEGORY_LABELS
+            or key in blocking
+            or not all(required)
+            or not all(core)
+            or not set(core) <= set(required)
+        ):
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        blocking[key] = frozenset(core)
+    return blocking
 
 
 def _provided_info_rows(
@@ -593,18 +836,21 @@ def _parse_provided_info_gold(data: bytes, columns: tuple[str, ...]) -> dict[str
 
 STORE_COMMAND = "store-return-subtype"
 STORE_LOCKED_COMMAND = "store-locked-quality"
+STORE_REREQUEST_COMMAND = "store-locked-rerequest"
 # 저장 함수와 그 안의 저장 집계 검증이 내는 원문 없는 코드만 그대로 전달한다.
 STORE_ERROR_CODES = re.compile(
     r"CS_QUALITY_[A-Z_]+|CS_STORED_METRICS_INVALID_INPUT|CS_METRICS_INVALID_INPUT"
 )
 
 
-def _run_store(gold_file: Path, store: Callable[[psycopg.Connection, bytes], dict]) -> int:
+def _run_store(
+    gold_files: Sequence[Path], store: Callable[[psycopg.Connection, list[bytes]], dict]
+) -> int:
     """저장 명령의 공통 환경 확인·파일 읽기·오류 코드 출력을 수행한다.
 
     Args:
-        gold_file: 정답 파일 경로. 출력·저장하지 않는다.
-        store: 연결과 정답 바이트를 받아 저장 결과를 내는 함수.
+        gold_files: 정답 파일 경로들. 출력·저장하지 않는다.
+        store: 연결과 정답 바이트 목록(경로 순서)을 받아 저장 결과를 내는 함수.
 
     Returns:
         int: 성공0 또는 오류1. 오류는 코드만 stderr에 쓰고 경로·원문·스택은 출력하지 않는다.
@@ -614,13 +860,13 @@ def _run_store(gold_file: Path, store: Callable[[psycopg.Connection, bytes], dic
         print("CS_REPORT_LOCAL_CONFIGURATION_REQUIRED", file=sys.stderr)
         return 1
     try:
-        gold_csv = gold_file.read_bytes()
+        gold_csvs = [path.read_bytes() for path in gold_files]
     except OSError:
         print("CS_QUALITY_GOLD_UNREADABLE", file=sys.stderr)
         return 1
     try:
         with psycopg.connect(dsn) as conn:
-            result = store(conn, gold_csv)
+            result = store(conn, gold_csvs)
     except ValueError as error:
         code = str(error)
         print(
@@ -655,11 +901,11 @@ def store_main(argv: list[str]) -> int:
     parser.add_argument("--scoring-version", required=True)
     args = parser.parse_args(argv)
     return _run_store(
-        args.gold_file,
-        lambda conn, gold_csv: store_synthetic_return_subtype_metrics(
+        [args.gold_file],
+        lambda conn, gold_csvs: store_synthetic_return_subtype_metrics(
             conn,
             args.run_id,
-            gold_csv,
+            gold_csvs[0],
             gold_sha256=args.gold_sha256,
             gold_version=args.gold_version,
             scoring_version=args.scoring_version,
@@ -686,9 +932,51 @@ def store_locked_main(argv: list[str]) -> int:
     parser.add_argument("--scoring-version", required=True)
     args = parser.parse_args(argv)
     return _run_store(
-        args.gold_file,
-        lambda conn, gold_csv: store_locked_quality_metrics(
-            conn, args.run_id, args.metric, gold_csv, scoring_version=args.scoring_version
+        [args.gold_file],
+        lambda conn, gold_csvs: store_locked_quality_metrics(
+            conn, args.run_id, args.metric, gold_csvs[0], scoring_version=args.scoring_version
+        ),
+    )
+
+
+def store_rerequest_main(argv: list[str]) -> int:
+    """종료된 비합성 실행의 재요청 지표 집계 행을 저장하는 운영자 명령.
+
+    운영자 CLI 전용이다. 실행 이미지에는 tests/가 없어 개발 분리본 로더를 여기서만 지연 import한다.
+
+    Args:
+        argv: 하위 명령 뒤의 인자. 정답 판본·hash는 잠금 상수에서 읽는다.
+
+    Returns:
+        int: 성공0 또는 오류1. 오류는 코드만 stderr에 쓰고 경로·원문·스택은 출력하지 않는다.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"python -m eval.cs_report {STORE_REREQUEST_COMMAND}",
+        description="이미 제공한 정보 재요청 집계 행 저장; 합격 판정 없음",
+    )
+    parser.add_argument("--run-id", type=UUID, required=True)
+    parser.add_argument("--category-gold", type=Path, required=True)
+    parser.add_argument("--info-gold", type=Path, required=True)
+    parser.add_argument("--dev-manifest", type=Path, required=True)
+    parser.add_argument("--split", choices=("train", "valid"), required=True)
+    parser.add_argument("--scoring-version", required=True)
+    args = parser.parse_args(argv)
+    from tests.cs.cs_dev_data import load_partition_products
+
+    try:
+        codes, digest = load_partition_products(args.dev_manifest, args.split)
+    except (OSError, ValueError):
+        print("CS_QUALITY_PRODUCT_INVALID", file=sys.stderr)
+        return 1
+    return _run_store(
+        [args.category_gold, args.info_gold],
+        lambda conn, gold_csvs: store_locked_rerequest_metrics(
+            conn,
+            args.run_id,
+            category_gold=gold_csvs[0],
+            info_gold=gold_csvs[1],
+            products=(args.split, codes, digest),
+            scoring_version=args.scoring_version,
         ),
     )
 
@@ -697,8 +985,8 @@ def main(argv: list[str] | None = None) -> int:
     """local/test의 고정 합성 실행을 새 비공개 JSON 파일로 내보낸다.
 
     Args:
-        argv: 선택적 명령행 인자. 첫 인자가 store-return-subtype·store-locked-quality면 집계 행
-            저장 명령이다.
+        argv: 선택적 명령행 인자. 첫 인자가 store-return-subtype·store-locked-quality·
+            store-locked-rerequest면 집계 행 저장 명령이다.
             DB 연결 정보는 환경 변수로만 받는다.
 
     Returns:
@@ -709,6 +997,8 @@ def main(argv: list[str] | None = None) -> int:
         return store_main(argv[1:])
     if argv[:1] == [STORE_LOCKED_COMMAND]:
         return store_locked_main(argv[1:])
+    if argv[:1] == [STORE_REREQUEST_COMMAND]:
+        return store_rerequest_main(argv[1:])
     parser = argparse.ArgumentParser(description="고정 합성 C/S 실행 보고서; 실제 품질 평가 아님")
     parser.add_argument("--run-id", type=UUID, required=True)
     parser.add_argument("--output", type=Path, required=True)

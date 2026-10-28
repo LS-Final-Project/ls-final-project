@@ -7,7 +7,13 @@ import hashlib
 import json
 
 import pytest
-from cs_dev_data import DevDataError, has_entry, load_dev_tickets, load_return_subtypes
+from cs_dev_data import (
+    DevDataError,
+    has_entry,
+    load_dev_tickets,
+    load_partition_products,
+    load_return_subtypes,
+)
 
 HEADER = "ticket_id,data_split,category_code\n"
 TARGETS = {"T-1", "T-2"}
@@ -174,3 +180,43 @@ def test_files_in_a_subfolder_are_allowed(tmp_path):
     (tmp_path / "data" / "tickets_dev.csv").write_bytes(DEV.encode())
     path = write(tmp_path, DEV, tickets__path="data/tickets_dev.csv")
     assert len(load_dev_tickets(path)) == 2
+
+
+PARTITION = "ticket_id,category_code,product_code,data_split\nT-1,RETURN,PLC-01,valid\nT-2,QUOTE,UPS-02,valid\n"
+
+
+def write_partition(tmp_path, data: str, **changes) -> object:
+    (tmp_path / "tickets.valid.csv").write_bytes(data.encode())
+    entry = {
+        "path": "tickets.valid.csv",
+        "sha256": hashlib.sha256(data.encode()).hexdigest(),
+        "rows": data.count("\n") - 1,
+    } | changes
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({"partitions": {"valid": entry}}), encoding="utf-8")
+    return path
+
+
+def test_partition_products_keep_only_id_and_product(tmp_path):
+    products, digest = load_partition_products(write_partition(tmp_path, PARTITION), "valid")
+    assert products == {"T-1": "PLC-01", "T-2": "UPS-02"}
+    assert digest == hashlib.sha256(PARTITION.encode()).hexdigest()
+    assert "RETURN" not in repr(products)
+
+
+@pytest.mark.parametrize(
+    "data,changes,split",
+    [
+        (PARTITION, {}, "test"),
+        (PARTITION, {}, "train"),
+        (PARTITION.replace("T-2,QUOTE,UPS-02,valid", "T-2,QUOTE,UPS-02,test"), {}, "valid"),
+        (PARTITION.replace("UPS-02", ""), {}, "valid"),
+        (PARTITION.replace("T-2,", "T-1,"), {}, "valid"),
+        (PARTITION.replace("product_code", "product"), {}, "valid"),
+        (PARTITION, {"rows": 3}, "valid"),
+        (PARTITION, {"sha256": "0" * 64}, "valid"),
+    ],
+)
+def test_partition_products_reject_invalid_files(tmp_path, data, changes, split):
+    with pytest.raises(DevDataError):
+        load_partition_products(write_partition(tmp_path, data, **changes), split)
