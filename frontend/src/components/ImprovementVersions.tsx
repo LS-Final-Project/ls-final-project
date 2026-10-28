@@ -23,13 +23,13 @@ function Evidence({value}:{value:unknown}) {
 export default function ImprovementVersions({requestId}:{requestId:string}){
   const [opened,setOpened]=useState(false);
   const mode=getApiMode();
-  const versions=useQuery({queryKey:['cs-improvement-versions',mode,requestId],queryFn:({signal})=>getImprovementVersions(requestId,signal),enabled:import.meta.env.DEV&&opened,retry:false});
+  const versions=useQuery({queryKey:['cs-improvement-versions',mode,requestId],queryFn:({signal})=>getImprovementVersions(requestId,signal),enabled:import.meta.env.DEV&&opened,retry:false,staleTime:0});
   if(!import.meta.env.DEV)return null;
   const refresh=()=>{if(opened)void versions.refetch();else setOpened(true);};
   return <section><h2>작성 판본 이력</h2><p>각 판본에 저장된 작성 내용과 유효 근거입니다. 검토 승인·전달 완료를 뜻하지 않으며 현재 상태와 구분합니다.</p>
     <button disabled={versions.isFetching} onClick={refresh}>{opened?'판본 이력 새로고침':'판본 이력 조회'}</button>
     {versions.isFetching&&<Loading/>}{opened&&versions.isError&&<ErrorState error={versions.error} onRetry={refresh}/>}
-    {opened&&versions.isSuccess&&(versions.data.data.items.length?versions.data.data.items.map(v=><article key={v.version}>
+    {opened&&!versions.isFetching&&versions.isSuccess&&(versions.data.data.items.length?versions.data.data.items.map(v=><article key={v.version}>
       <h3>판본 {v.version}</h3><p>변경 시각: {v.changed_at} · 변경자 ID: {v.changed_by??'미확인'}</p>
       <dl>{Object.entries(fields).map(([field,label])=><div key={field}><dt>{label}</dt><dd>{recordedText(v.content[field])}</dd></div>)}</dl>
       <p>제안 부서: {Array.isArray(v.content.proposed_depts)&&v.content.proposed_depts.every(d=>typeof d==='string')?v.content.proposed_depts.join(', ')||'미기록':'미확인'}</p>

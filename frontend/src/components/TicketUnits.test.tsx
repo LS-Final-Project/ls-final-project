@@ -1,3 +1,6 @@
+import { render } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import TicketUnits from './TicketUnits';
@@ -53,4 +56,13 @@ test('화면 이탈은 두 조회를 취소하고 재진입 때 이전 장비를
   vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,{data:String(url).endsWith('/units')?{items:[]}:{status:'NO_CONFIRMED_UNIT',unit:null,items:[]}})));
   view();expect(screen.queryByText('VSN-TEST')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'장비 정보 조회'}));
   await screen.findByText('조회 가능한 장비가 없습니다.');
+});
+
+test('같은 QueryClient의 신선한 캐시가 있어도 재진입 조회 중 이전 값을 숨긴다',async()=>{
+ setApiMode('live');const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:5000}}});
+ client.setQueryData(['ticket-units','live','ticket-1'],{data:{items:[{unit,link:null,matches_ticket:true}]}});client.setQueryData(['unit-history','live','ticket-1'],{data:{status:'NO_CONFIRMED_UNIT',unit:null,items:[]}});
+ vi.stubGlobal('fetch',vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))))));
+ const page=render(<QueryClientProvider client={client}><MemoryRouter><TicketUnits ticketId="ticket-1"/></MemoryRouter></QueryClientProvider>);
+ expect(screen.queryByText('VSN-TEST')).toBeNull();fireEvent.click(screen.getByText('장비 정보 조회'));
+ await waitFor(()=>expect(fetch).toHaveBeenCalled());expect(screen.queryByText('VSN-TEST')).toBeNull();page.unmount();client.clear();
 });

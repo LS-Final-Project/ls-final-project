@@ -10,8 +10,8 @@ export default function TicketUnits({ ticketId }: { ticketId: string }) {
   const [opened, setOpened] = useState(false);
   const mode = getApiMode();
   const enabled = import.meta.env.DEV && opened;
-  const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: ({signal}) => getTicketUnits(ticketId, signal), enabled });
-  const history = useQuery({ queryKey: ['unit-history', mode, ticketId], queryFn: ({signal}) => getUnitHistory(ticketId, signal), enabled });
+  const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: ({signal}) => getTicketUnits(ticketId, signal), enabled, staleTime: 0 });
+  const history = useQuery({ queryKey: ['unit-history', mode, ticketId], queryFn: ({signal}) => getUnitHistory(ticketId, signal), enabled, staleTime: 0 });
   if (!import.meta.env.DEV) return <Preparing inline title="장비와 이전 문의" message="장비 조회의 운영 연결을 준비 중입니다." />;
   const failed = units.isError || history.isError;
   const busy = units.isFetching || history.isFetching;
@@ -21,7 +21,7 @@ export default function TicketUnits({ ticketId }: { ticketId: string }) {
     <button disabled={busy} onClick={refresh}>{opened ? '장비 정보 새로고침' : '장비 정보 조회'}</button>
     {opened && busy && <Loading label="장비 정보 조회 중" />}
     {opened && failed && <ErrorState error={units.error ?? history.error} onRetry={refresh} />}
-    {opened && !failed && units.isSuccess && history.isSuccess && <>
+    {opened && !busy && !failed && units.isSuccess && history.isSuccess && <>
       <h3>장비 후보와 연결 상태</h3>
       {units.data.data.items.length === 0 ? <p>조회 가능한 장비가 없습니다.</p> : <ul>{units.data.data.items.map(({ unit, link, matches_ticket }) => <li key={unit.id}>
         <strong>{unit.serial_no}</strong> · {unit.product_code} · 고객 {unit.customer_external_id}
