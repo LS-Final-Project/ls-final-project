@@ -12,6 +12,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
+
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
 Verdict = Literal["passed", "failed", "unknown"]
 # (확인 항목, 결과, 한국어 문장)
@@ -20,58 +22,6 @@ Check = tuple[str, Verdict, str]
 RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
-
-
-# ponytail: KAN-184의 schemas.PartnerProfile 병합 전 임시 모델(공유 형식 §1 중 판정에 쓰는 키).
-# 병합 후 import로 바꾼다.
-class Condition(BaseModel):
-    name: str
-    value: str
-    unit: str | None = None
-
-
-class Product(BaseModel):
-    product_code: str
-    model: str
-    scope: list[str] = []
-
-
-class IntegratorCapable(BaseModel):
-    assembly: bool | None = None
-    test: bool | None = None
-    integration: bool | None = None
-    warranty: bool | None = None
-
-
-class SpecFact(BaseModel):
-    product_code: str
-    attribute: str
-    value: str
-    unit: str | None = None
-    conditions: list[Condition] | None = None
-    evidence_id: str
-    section: str | None = None
-
-
-class Certification(BaseModel):
-    standard: str
-    applicable_models: list[str]
-    kind: Literal["LISTED", "TEST_REPORT"]
-    as_of: date
-    valid_until: date | None = None
-    evidence_id: str
-
-
-class PartnerProfile(BaseModel):
-    candidate_code: str
-    display_name: str
-    manufacturer_name: str
-    products: list[Product]
-    integrator_capable: IntegratorCapable
-    spec_facts: list[SpecFact]
-    certifications: list[Certification]
-    supply_regions: list[str]
-    notes: str | None = None
 
 
 class Requirement(BaseModel):
@@ -502,11 +452,8 @@ def _constraints(profile: PartnerProfile, context: RfpContext) -> list[Check]:
         regions = ", ".join(profile.supply_regions)
         if _norm(region) in {_norm(r) for r in profile.supply_regions}:
             checks.append(("supply_region", "passed", f"공급 지역 {region} 가능(후보 {regions})."))
-        elif not profile.supply_regions:
-            checks.append(
-                ("supply_region", "unknown", f"공급 지역 {region}: 후보 자료 없음, 확인 필요.")
-            )
         else:
+            # 프로필 형식이 공급 지역을 1개 이상 요구하므로 '자료 없음' 경우는 없다.
             checks.append(
                 ("supply_region", "failed", f"공급 지역 불일치: 요구 {region}, 후보 {regions}.")
             )

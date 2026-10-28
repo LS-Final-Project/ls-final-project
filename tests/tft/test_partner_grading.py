@@ -1,19 +1,23 @@
-"""KAN-187 가상 협력사 등급 규칙. 기획서 4.8 시연 B 장면(14번 2.4·2.6)을 합성 프로필로 재현한다."""
+"""KAN-187 가상 협력사 등급 규칙. 기획서 4.8 시연 B 장면(14번 2.4·2.6)을 합성 프로필과
+KAN-184 profiles.json으로 재현한다."""
 
+import json
 from datetime import date
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 import pytest
 
 from backend.api.tft.partners.grading import (
-    PartnerProfile,
     Requirement,
     RequirementGrade,
     RfpContext,
     grade_candidate,
     grade_requirement,
 )
+from backend.api.tft.partners.loader import load_profiles
+from backend.api.tft.partners.schemas import PartnerProfile
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -44,6 +48,7 @@ def fact(attribute: str, value: str, unit: str | None = None, **extra: Any) -> d
         "attribute": attribute,
         "value": value,
         "unit": unit,
+        "conditions": None,
         "evidence_id": f"DS-{attribute}",
         "section": "3.1",
     } | extra
@@ -65,6 +70,12 @@ def profile(code: str, facts=(), certs=(), integration: bool | None = True, **ex
         "candidate_code": code,
         "display_name": f"가상 {code}",
         "manufacturer_name": f"가상제조 {code}",
+        "profile_source": "synthetic",
+        "profile_version": 1,
+        "data_origin": "synthetic",
+        "derivation_kind": "PROVIDED",
+        "known_at": "2026-10-28",
+        "product_family": "합성 제품군",
         "products": [{"product_code": "X-1", "model": "X-100", "scope": ["SUPPLY"]}],
         "integrator_capable": {
             "assembly": True,
@@ -74,7 +85,16 @@ def profile(code: str, facts=(), certs=(), integration: bool | None = True, **ex
         },
         "spec_facts": list(facts),
         "certifications": list(certs),
+        "similar_tasks": [],
         "supply_regions": ["US"],
+        "lead_time": None,
+        "warranty": None,
+        "confirmation": {
+            "status": "UNCONFIRMED",
+            "as_of": "2026-10-28",
+            "reviewer": "가상 검토자",
+            "follow_up_questions": [],
+        },
         "notes": None,
     }
     return PartnerProfile.model_validate(fields | extra)
@@ -287,7 +307,7 @@ def test_range_and_form_mismatch():
     ranged = req(7, "impedance", "5~6", unit="%", operator="RANGE")
     assert (
         grade_requirement(
-            profile("T", [fact("impedance", "5.5", "%")]), ranged, CONTEXT, DAY
+            profile("P-X", [fact("impedance", "5.5", "%")]), ranged, CONTEXT, DAY
         ).mandatory_check.passed[-1]
         == "impedance"
     )
@@ -339,3 +359,32 @@ def test_output_has_no_score_and_needs_requirements():
     }
     with pytest.raises(ValueError):
         grade_candidate(P_A, [], CONTEXT, DAY)
+
+
+DEMO_CASES = Path(__file__).parents[2] / "backend/api/tft/partners/demo_cases.json"
+LISTED = [{"name": "listing", "value": "LISTED"}]
+B1 = [
+    *MV[:5],
+    req(6, "certification", "IEEE C37.20.3", standard_system="IEEE", conditions=LISTED),
+]
+B2 = [
+    req(21, "form", "drawout LV switchgear", clause_no="2.6"),
+    req(22, "protection_functions", "LSIG", clause_no="2.6"),
+    req(23, "certification", "UL 1558", clause_no="2.6", standard_system="UL", conditions=LISTED),
+    req(24, "certification", "UL 1066", clause_no="2.6", standard_system="UL", conditions=LISTED),
+    req(25, "arc_flash_reduction", "maintenance switch", clause_no="2.6"),
+]
+
+
+def test_demo_pool_profiles_follow_plan_4_8_expected_grades():
+    profiles = {p.candidate_code: p for p in load_profiles()}
+    cases = {c["case"]: c for c in json.loads(DEMO_CASES.read_text(encoding="utf-8"))["cases"]}
+    for case, requirements in (("B-1", B1), ("B-2", B2)):
+        for expected in cases[case]["candidates"]:
+            summary, _ = grade_candidate(
+                profiles[expected["candidate_code"]], requirements, CONTEXT, DAY
+            )
+            assert summary.overall_grade == expected["expected_grade"], expected["candidate_code"]
+    # 차단기 모델 LA-BRK-4000이 L-A products에 있어 UL 1066 등록이 적용 모델 다름으로 빠지지 않는다.
+    _, grades = grade_candidate(profiles["L-A"], B2, CONTEXT, DAY)
+    assert "certification:UL 1066" in by_id(grades)[24].mandatory_check.passed
