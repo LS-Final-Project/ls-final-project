@@ -20,7 +20,8 @@ const mailboxAuthentication = new Map([
 const mailboxForms = new Set(['/api/v1/platform/auth/mailbox/callback', '/api/v1/platform/auth/mailbox/complete']);
 const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/disconnect$/;
 // [경로 틀, 허용 메서드, 허용 query 키]. backend/api/platform/relay.py의 BUSINESS_ROUTES와 같아야 하며
-// 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다.
+// 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만 적용한다.
+// 변경 메서드의 query는 경로와 상관없이 400이다(handler의 query 검사).
 export const businessRoutes = [
   ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor']],
   ['/api/v1/cs/tickets/{uuid}', ['GET', 'PATCH'], []],
@@ -47,7 +48,8 @@ export const businessRoutes = [
   ['/api/v1/cs/improvement-requests/{uuid}/evidence', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/owner', ['PUT'], []],
-  ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison', ['GET'], ['version']],
+  ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison', ['GET', 'POST'], ['version']],
+  ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements', ['POST'], []],
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
   ['/api/v1/tft/projects', ['GET'], ['limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}', ['GET'], []],
