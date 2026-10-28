@@ -99,6 +99,26 @@ def _mailbox_error(code: str) -> ApplicationError:
     return ApplicationError(status, code, message)
 
 
+class MailboxReconnectRequired(ApplicationError):
+    """사용자가 제품에서 다시 연결해야 하는 갱신 거부. 응답 형식은 다른 409와 같다."""
+
+    def __init__(self, reason: str) -> None:
+        """보관 계층이 연결에 표시할 사유를 함께 담는다.
+
+        Args:
+            reason: 공급자 오류 이름(invalid_grant 등) 또는 캐시에 토큰·계정이 없으면
+                token_missing. 응답·로그에는 내지 않는다.
+
+        Returns:
+            None: 409 MAILBOX_RECONNECT_REQUIRED 오류를 만든다.
+        """
+        super().__init__(409, "MAILBOX_RECONNECT_REQUIRED", "Mailbox reconnection is required.")
+        self.reason = reason
+
+
+RECONNECT_ERRORS = {"invalid_grant", "interaction_required", "login_required", "consent_required"}
+
+
 def _mailbox_account(cache: Any, subject: MicrosoftSubject) -> dict[str, Any]:
     """검증된 사서함 식별자와 캐시의 단일 계정을 이메일 없이 대조한다.
 
@@ -111,7 +131,7 @@ def _mailbox_account(cache: Any, subject: MicrosoftSubject) -> dict[str, Any]:
     """
     accounts = list(cache.search(msal.TokenCache.CredentialType.ACCOUNT))
     if not accounts:
-        raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+        raise MailboxReconnectRequired("token_missing")
     if len(accounts) != 1 or not isinstance(accounts[0], dict):
         raise _mailbox_error("MAILBOX_ACCESS_DENIED")
     account = accounts[0]
@@ -366,7 +386,7 @@ class PersonalMicrosoftOAuth:
         self._mailbox_access_token(cache=cache, account=account, result=result)
         refresh_token = result.get("refresh_token")
         if not isinstance(refresh_token, str) or not refresh_token.strip():
-            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+            raise MailboxReconnectRequired("token_missing")
         credentials = cache.search(
             msal.TokenCache.CredentialType.REFRESH_TOKEN,
             query={
@@ -418,7 +438,7 @@ class PersonalMicrosoftOAuth:
         ):
             raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
         if "scope" in result and not _has_mailbox_scopes(scope):
-            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+            raise MailboxReconnectRequired("consent_required")
         credentials = cache.search(
             msal.TokenCache.CredentialType.ACCESS_TOKEN,
             query={
@@ -523,22 +543,13 @@ class PersonalMicrosoftOAuth:
                 list(MAILBOX_SCOPES), account=account, force_refresh=force_refresh
             )
             if result is None:
-                raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
+                raise MailboxReconnectRequired("token_missing")
             if not isinstance(result, dict):
                 raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
             if "error" in result:
-                code = (
-                    "MAILBOX_RECONNECT_REQUIRED"
-                    if result["error"]
-                    in {
-                        "invalid_grant",
-                        "interaction_required",
-                        "login_required",
-                        "consent_required",
-                    }
-                    else "MAILBOX_TOKEN_UNAVAILABLE"
-                )
-                raise _mailbox_error(code)
+                if result["error"] in RECONNECT_ERRORS:
+                    raise MailboxReconnectRequired(result["error"])
+                raise _mailbox_error("MAILBOX_TOKEN_UNAVAILABLE")
             token = self._mailbox_access_token(cache=cache, account=account, result=result)
             if "id_token" in result:
                 id_token = result["id_token"]

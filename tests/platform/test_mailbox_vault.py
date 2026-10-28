@@ -590,7 +590,11 @@ def test_vault_schema_runtime_and_service_permissions(context):
     finally:
         with psycopg.connect(context.dsn) as conn:
             conn.execute("SET LOCAL ROLE platform_migrator")
-            conn.execute("GRANT UPDATE ON mailbox_auth.connections TO platform_app")
+            conn.execute(
+                # 재연결 상태 마이그레이션과 같은 열 단위 권한으로 되돌린다.
+                "GRANT UPDATE (revision, state, key_version, cache_ciphertext, updated_at, "
+                "reconnect_required_at, reconnect_reason) ON mailbox_auth.connections TO platform_app"
+            )
 
 
 def test_unchanged_cache_does_not_rotate_revision_or_ciphertext(context, cipher):

@@ -64,13 +64,17 @@ def mailbox_database(auth_database):
         auth_database: kan77_auth_test만 허용하는 기존 관리자 검사 연결.
 
     Returns:
-        str: 보관 마이그레이션을 한 번 적용한 전용 검사 DB 연결.
+        str: 보관·재연결 상태 마이그레이션을 한 번씩 적용한 전용 검사 DB 연결.
     """
     with psycopg.connect(auth_database) as conn:
-        migration = Path("infra/migrations/platform/20261027_KAN-81_mailbox_vault.sql").read_text()
-        conn.execute(
-            "\n".join(line for line in migration.splitlines() if not line.startswith("\\"))
-        )
+        for filename in (
+            "20261027_KAN-81_mailbox_vault.sql",
+            "20261028_KAN-81_mailbox_reconnect_state.sql",
+        ):
+            migration = Path("infra/migrations/platform", filename).read_text()
+            conn.execute(
+                "\n".join(line for line in migration.splitlines() if not line.startswith("\\"))
+            )
     return auth_database
 
 

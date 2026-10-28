@@ -7,10 +7,18 @@ const AUTHORITY = 'https://login.microsoftonline.com/consumers/';
 
 export type MailboxConnection = paths['/api/v1/platform/auth/mailbox']['get']['responses'][200]['content']['application/json']['data']['items'][number];
 
-const isConnection = (value: unknown): value is MailboxConnection => {
+const REASONS = ['invalid_grant', 'interaction_required', 'login_required', 'consent_required', 'token_missing'];
+// 재연결 필드는 호환 추가라 없으면 기본값으로 받는다. 있는데 타입이 틀리면 거부한다.
+const isConnection = (value: unknown): boolean => {
   const item = value as Record<string, unknown> | null;
-  return typeof item === 'object' && item !== null && typeof item.mailbox_id === 'string' && (item.state === 'connected' || item.state === 'disconnected') && typeof item.revision === 'number' && typeof item.updated_at === 'string';
+  return typeof item === 'object' && item !== null && typeof item.mailbox_id === 'string' && (item.state === 'connected' || item.state === 'disconnected') && typeof item.revision === 'number' && typeof item.updated_at === 'string'
+    && (item.reconnect_required === undefined || typeof item.reconnect_required === 'boolean')
+    && (item.reconnect_reason === undefined || item.reconnect_reason === null || REASONS.includes(item.reconnect_reason as string))
+    && (item.reconnect_required_at === undefined || item.reconnect_required_at === null || typeof item.reconnect_required_at === 'string');
 };
+const withDefaults = (item: Record<string, unknown>): MailboxConnection => ({
+  reconnect_required: false, reconnect_reason: null, reconnect_required_at: null, ...item,
+} as MailboxConnection);
 
 function csrf(): string {
   const token = sessionCsrfToken();
@@ -28,7 +36,7 @@ export async function listMailboxes(): Promise<MailboxConnection[] | null> {
   catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
   const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
   if (!Array.isArray(items) || !items.every(isConnection)) throw new ApiError(502, '사서함 연결 목록을 확인할 수 없습니다.');
-  return items;
+  return items.map(withDefaults);
 }
 
 /**
