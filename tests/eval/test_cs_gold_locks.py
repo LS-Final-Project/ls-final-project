@@ -2,7 +2,7 @@ from pathlib import Path
 
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS
 
-DOC = Path(__file__).resolve().parents[1] / "docs" / "evaluation.md"
+DOC = Path(__file__).resolve().parents[2] / "docs" / "evaluation.md"
 SECTION = "## C/S 정답 묶음 판본 (KAN-88)"
 
 
