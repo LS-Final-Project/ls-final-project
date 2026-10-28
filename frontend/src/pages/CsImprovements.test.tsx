@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
 import CsImprovements from './CsImprovements';
 import type { ImprovementDetail } from '../api/cs-improvements';
 import { setApiMode } from '../api/client';
@@ -33,4 +34,23 @@ test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
  let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
  vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
+});
+
+
+test('초안 생성 후 실제 반환 ID의 상세를 새로 조회한다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;body.data.request.id='created-synthetic';body.data.request.problem_statement='새 합성 초안';
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent']}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(init?.method==='POST')return jsonResponse(201,body);
+  return jsonResponse(200,String(url).endsWith('/created-synthetic')?body:{data:{items:[]}});
+ });vi.stubGlobal('fetch',fetch);setApiMode('live');
+ renderAt('/cs/improvements','/cs/improvements/*',<Routes><Route index element={<CsImprovements/>}/><Route path=":requestId" element={<CsImprovements/>}/></Routes>);
+ fireEvent.click(await screen.findByText('새 개선요청 작성'));
+ fireEvent.change(screen.getByLabelText('요청 유형'),{target:{value:'DOCUMENT'}});
+ fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});
+ fireEvent.change(screen.getByLabelText('문서 신호'),{target:{value:'NOT_FOUND'}});
+ fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'새 합성 초안'}});
+ fireEvent.click(screen.getByText('초안 저장'));await screen.findByRole('heading',{name:'개선요청 상세'});
+ await screen.findByRole('heading',{name:'새 합성 초안'});expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
+ expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/created-synthetic'))).toBe(true);
 });
