@@ -230,7 +230,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | 지정·변경 주체 | 해당 프로젝트를 **관리 대상으로 가진 `manager`만** (`PATCH /projects/{uuid}/assignment`) |
 | 대상 | 담당 `sales`(`sales_user_id`)와 책임자(`responsible_user_id`). 책임자 후보는 그 프로젝트의 담당 `sales` 또는 그 프로젝트를 관리하는 `manager`의 로그인 사용자 ID(명세 §4.1) |
 | 자동 부여 | 접수한 `sales`가 담당이 된다. 책임자는 자동 지정하지 않는다 |
-| 이력 필드 | 프로젝트 ID, 변경자 ID, 이전·신규 담당 ID, 사유, 변경 시각. 조회 경로는 두지 않는다(저장만) |
+| 이력 필드 | 프로젝트 ID, 변경자 ID, 이전·신규 `sales_user_id`, 이전·신규 `responsible_user_id`(바뀌지 않은 쪽은 같은 값), 사유, 변경 시각. 한 호출이 한 행이며 두 대상 모두 보존한다. 조회 경로는 두지 않는다(저장만) |
 | 거부 | 관리 대상 밖 404 `NOT_FOUND`, 관리 `manager`가 아님 403 `FORBIDDEN`, 조건 불일치 422 `VALIDATION_ERROR` |
 | 자기 자신 지정 허용 여부 | 미확정(팀). 별도 결정 전 추가 제약을 넣지 않는다 |
 
