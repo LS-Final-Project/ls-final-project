@@ -81,5 +81,6 @@ test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결
  await screen.findByText('합성 저장 결과 불확실');
  expect((screen.getByRole('button',{name:detail?'내용 저장':'초안 저장'}) as HTMLButtonElement).disabled).toBe(true);
  expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST'||init?.method==='PATCH')).toHaveLength(1);
+ if(!detail){fireEvent.click(screen.getByRole('button',{name:'입력 버리고 목록 새로 조회'}));await screen.findByRole('button',{name:'새 개선요청 작성'});expect(screen.queryByText('합성 저장 결과 불확실')).toBeNull();expect(fetch.mock.calls.filter(([url,init])=>String(url).endsWith('/improvement-requests')&&!init?.method)).toHaveLength(2);expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);}
  focusManager.setFocused(undefined);
 });

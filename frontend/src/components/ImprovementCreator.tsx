@@ -8,7 +8,7 @@ const fields={problem_statement:'검토할 문제',confirmed_facts:'확인된 �
 type Field=keyof typeof fields;
 const empty=()=>Object.fromEntries(Object.keys(fields).map(key=>[key,''])) as Record<Field,string>;
 
-export default function ImprovementCreator({onCreated,onEditingChange}:{onEditingChange?:(editing:boolean)=>void;onCreated:(data:ImprovementDetail)=>void}){
+export default function ImprovementCreator({onCreated,onEditingChange,onReload}:{onReload?:()=>void;onEditingChange?:(editing:boolean)=>void;onCreated:(data:ImprovementDetail)=>void}){
   const [opened,setOpened]=useState(false);
   const [type,setType]=useState<ImprovementCreate['request_type']>('FAULT');
   const [product,setProduct]=useState('');const [fault,setFault]=useState('');
@@ -23,7 +23,7 @@ export default function ImprovementCreator({onCreated,onEditingChange}:{onEditin
   if(!import.meta.env.DEV)return null;
   const available=getApiMode()==='live';
   const valid=!!product.trim()&&!!values.problem_statement.trim()&&(type==='FAULT'?/^FLT-[0-9]{3}$/.test(fault.trim())&&depts.length>0:!!docSignal);
-  const reset=()=>{setOpened(false);setType('FAULT');setProduct('');setFault('');setDocSignal('');setDepts([]);setValues(empty());setError('');};
+  const reset=()=>{setOpened(false);setType('FAULT');setProduct('');setFault('');setDocSignal('');setDepts([]);setValues(empty());setError('');setUncertain(false);};
   const save=async()=>{
     if(controller.current||!available||!valid||uncertain)return;
     const current=new AbortController();controller.current=current;setBusy(true);setError('');
@@ -46,6 +46,7 @@ export default function ImprovementCreator({onCreated,onEditingChange}:{onEditin
       </fieldset>
       {error&&<p role="alert">{error}</p>}
       {uncertain&&<p>저장 결과가 불확실해 다시 작성하지 않습니다. 목록에서 실제 생성 여부를 먼저 확인하세요. 화면을 나가거나 새로고침해도 이미 생성된 요청은 취소되지 않습니다.</p>}
+      {uncertain&&<button type="button" onClick={()=>{reset();onReload?.();}}>입력 버리고 목록 새로 조회</button>}
       <p>저장 중 이탈은 서버 생성을 취소하지 못할 수 있습니다. 재진입 시 목록에서 생성 여부를 확인하세요.</p>
       <button type="submit" disabled={busy||uncertain||!valid}>{busy?'초안 저장 중':'초안 저장'}</button>
       <button type="button" disabled={busy||uncertain} onClick={reset}>작성 취소</button>
