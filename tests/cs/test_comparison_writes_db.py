@@ -295,3 +295,115 @@ def test_two_writers_on_the_same_version_make_one_new_version(client, admin, gro
         (group["fault"],),
     ).fetchone()
     assert versions == (2,)
+
+
+def remove(client, path, version, evidence_id, reason="합성 제외 사유", user=AGENT):
+    return client.post(
+        f"{path}/evidence/{evidence_id}/remove",
+        json={"version": version, "reason": reason},
+        headers=principal_header(user),
+    )
+
+
+def application(data):
+    return next(c for c in data["conditions"] if c["item_code"] == "application")
+
+
+def test_removing_the_last_evidence_lowers_a_suspicion_and_keeps_the_history(client, admin, group):
+    path = group["path"]
+    ok(
+        judge(
+            client, path, 1, [condition("SUSPECTED", "ev-t")], [evidence("ev-t", group["ticket"])]
+        )
+    )
+    removed = ok(remove(client, path, 2, "ev-t", "근거 문의 오분류"))
+    item = application(removed)
+    assert removed["version"] == 3 and removed["evidence"] == []
+    assert (item["judgement"], item["finding"], item["unconfirmed_reason"]) == (
+        "UNCONFIRMED",
+        None,
+        "EVIDENCE_REMOVED",
+    )
+    assert item["provenance_kind"] == "system_record"
+    assert item["baseline"] == {"masked_value": None, "missing_reason": "NOT_PROVIDED"}
+    assert application(ok(client.get(path, params={"version": 2})))["judgement"] == "SUSPECTED"
+    comparison_id = removed["comparison_id"]
+    history = admin.execute(
+        "SELECT evidence_id, version, item_keys, reason, removed_by "
+        "FROM cs.condition_comparison_removals WHERE comparison_id = %s",
+        (comparison_id,),
+    ).fetchall()
+    assert history == [("ev-t", 3, ["CONDITION:application"], "근거 문의 오분류", AGENT.user_id)]
+    [(changes,)] = admin.execute(
+        "SELECT changes FROM cs.audit_events WHERE entity_type = 'condition_comparison' "
+        "AND entity_id = %s AND version = 3",
+        (comparison_id,),
+    ).fetchall()
+    assert changes["evidence:ev-t"] == {"removed": True, "reason": "근거 문의 오분류"}
+    assert changes["CONDITION:application"]["by"] == "system_record"
+
+    assert code(remove(client, path, 3, "ev-t")) == (404, "CS_EVIDENCE_NOT_FOUND")
+    reused = judge(
+        client, path, 3, [condition("SUSPECTED", "ev-t")], [evidence("ev-t", group["ticket"])]
+    )
+    assert code(reused) == (422, "CS_EVIDENCE_INVALID")
+    missing = {"masked_value": None, "missing_reason": "NOT_PROVIDED", "evidence_ids": []}
+    unconfirmed = {"finding": None, "baseline": missing, "target": missing, "evidence_ids": []}
+    unconfirmed |= {"masked_summary": None, "summary_missing_reason": "NOT_PROVIDED"}
+    wrong = condition("UNCONFIRMED", "x", unconfirmed_reason="NO_EVIDENCE", **unconfirmed)
+    assert code(judge(client, path, 3, [wrong])) == (422, "CS_REASON_MISMATCH")
+    right = wrong | {"unconfirmed_reason": "EVIDENCE_REMOVED"}
+    assert ok(judge(client, path, 3, [right]))["version"] == 4
+    assert code(remove(client, path, 3, "ev-x")) == (409, "CS_COMPARISON_VERSION_CONFLICT")
+
+
+def test_a_judgement_that_still_holds_survives_a_removal(client, group):
+    path, t = group["path"], group["ticket"]
+    item = condition("SUSPECTED", "ev-a") | {"evidence_ids": ["ev-a", "ev-b"]}
+    ok(judge(client, path, 1, [item], [evidence("ev-a", t), evidence("ev-b", t)]))
+    kept = application(ok(remove(client, path, 2, "ev-b")))
+    assert (kept["judgement"], kept["evidence_ids"]) == ("SUSPECTED", ["ev-a"])
+    assert kept["baseline"]["masked_value"] == "정격 부하 운전"
+
+
+def test_a_confirmation_is_reviewed_before_its_case_is_removed(client, group):
+    path, t, c = group["path"], group["ticket"], group["case"]
+    confirmed = condition("CONFIRMED", "ev-t", "ev-c", reason="해결 사례로 확인")
+    ok(judge(client, path, 1, [confirmed], [evidence("ev-t", t), evidence("ev-c", t, c)]))
+    blocked = remove(client, path, 2, "ev-c")
+    assert code(blocked) == (409, "CS_INVALID_TRANSITION")
+    review = condition("SUSPECTED", "ev-t", reason="사례 근거 재확인 필요")
+    review |= {"evidence_ids": ["ev-t", "ev-c"]}
+    ok(judge(client, path, 2, [review]))
+    item = application(ok(remove(client, path, 3, "ev-c")))
+    assert (item["judgement"], item["evidence_ids"]) == ("SUSPECTED", ["ev-t"])
+
+
+def test_unconfirmed_needs_a_reason_the_evidence_supports(client, group):
+    path, t = group["path"], group["ticket"]
+    ok(judge(client, path, 1, [condition("SUSPECTED", "ev-t")], [evidence("ev-t", t)]))
+    lowered = condition(
+        "UNCONFIRMED", "ev-t", finding=None, unconfirmed_reason="NO_EVIDENCE", reason="재검토"
+    )
+    response = judge(client, path, 2, [lowered])
+    assert code(response) == (422, "CS_REASON_MISMATCH")
+    assert "SUSPECTED로 내리세요" in response.json()["error"]["message"]
+
+
+def test_only_c_s_agents_remove_and_history_is_append_only(client, cs_database, group):
+    path = group["path"]
+    ok(
+        judge(
+            client, path, 1, [condition("SUSPECTED", "ev-t")], [evidence("ev-t", group["ticket"])]
+        )
+    )
+    assert remove(client, path, 2, "ev-t", user=CS_MANAGER).status_code == 403
+    data = ok(remove(client, path, 2, "ev-t"))
+    runtime = make_conninfo(cs_database, user="cs_app", password="test-only")
+    with psycopg.connect(runtime, autocommit=True) as conn:
+        for statement in (
+            "UPDATE cs.condition_comparison_removals SET reason = 'x' WHERE comparison_id = %s",
+            "DELETE FROM cs.condition_comparison_removals WHERE comparison_id = %s",
+        ):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(statement, (data["comparison_id"],))

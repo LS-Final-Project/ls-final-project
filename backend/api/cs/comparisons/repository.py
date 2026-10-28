@@ -293,3 +293,40 @@ async def insert_audit(
         "VALUES (%s, 'condition_comparison', %s, %s, %s, %s, %s)",
         (event_id, comparison_id, action, version, actor, Jsonb(changes)),
     )
+
+
+async def removals(conn: AsyncConnection[Row], comparison_id: UUID) -> list[Row]:
+    """비교의 근거 제외 이력을 읽는다.
+
+    Args:
+        conn: C/S DB 연결.
+        comparison_id: 비교 결과 ID.
+
+    Returns:
+        list[Row]: evidence_id·item_keys 행.
+    """
+    cursor = await conn.execute(
+        "SELECT evidence_id, item_keys FROM cs.condition_comparison_removals "
+        "WHERE comparison_id = %s",
+        (comparison_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_removal(conn: AsyncConnection[Row], values: Row) -> None:
+    """근거 제외 이력 한 행을 추가한다. 이력은 고치거나 지우지 않는다.
+
+    Args:
+        conn: C/S DB 연결.
+        values: comparison_id·evidence_id·version·item_keys·reason·removed_by.
+
+    Returns:
+        None: cs.condition_comparison_removals에 한 행을 추가한다.
+    """
+    await conn.execute(
+        "INSERT INTO cs.condition_comparison_removals "
+        "(comparison_id, evidence_id, version, item_keys, reason, removed_by) VALUES "
+        "(%(comparison_id)s, %(evidence_id)s, %(version)s, %(item_keys)s, %(reason)s, "
+        "%(removed_by)s)",
+        values,
+    )
