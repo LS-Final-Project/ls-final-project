@@ -498,6 +498,50 @@
         "title": "EvaluationRunSummary",
         "type": "object"
       },
+      "Evidence": {
+        "additionalProperties": false,
+        "description": "\ud14d\uc2a4\ud2b8 \uc5c6\ub294 \uadfc\uac70 \uc704\uce58. \uc81c\ubaa9\u00b7\ubcf8\ubb38\uc740 \ub9c8\uc2a4\ud0b9 \uc785\ub825\uc758 \uae00\uc790 \uad6c\uac04, \ud5e4\ub354\ub294 \ud68c\uc2e0 \uc5ec\ubd80\ub2e4.",
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "source": {
+            "enum": [
+              "subject",
+              "body",
+              "reply_header"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -932,6 +976,110 @@
         "title": "LockedValue",
         "type": "object"
       },
+      "MailTriage": {
+        "description": "\uba54\uc77c \ud55c \ud1b5\uc758 \ubd84\ub958 \ud310\ubcf8. \uc6d0\ubb38\u00b7\ubcf8\ubb38\u00b7\uc8fc\uc18c\ub294 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "attachments_pending": {
+            "title": "Attachments Pending",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "is_latest": {
+            "title": "Is Latest",
+            "type": "boolean"
+          },
+          "latest_version": {
+            "title": "Latest Version",
+            "type": "integer"
+          },
+          "link_suggestion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NEW_PROJECT",
+                  "EXISTING_THREAD",
+                  "NEW_CS_TICKET"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Suggestion"
+          },
+          "mail_type": {
+            "enum": [
+              "NEW_RFP",
+              "EXISTING_CHANGE",
+              "CANDIDATE_REPLY",
+              "CS",
+              "OTHER"
+            ],
+            "title": "Mail Type",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "provenance_kind": {
+            "enum": [
+              "ai_draft",
+              "human_input"
+            ],
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_id",
+          "version",
+          "latest_version",
+          "is_latest",
+          "mail_type",
+          "needs_review",
+          "attachments_pending",
+          "evidence",
+          "link_suggestion",
+          "provenance_kind",
+          "reason",
+          "created_at"
+        ],
+        "title": "MailTriage",
+        "type": "object"
+      },
       "MailboxConnection": {
         "description": "\ud1a0\ud070\u00b7\uc554\ud638\ubb38\u00b7Microsoft \uc2dd\ubcc4\uc790\u00b7\ud0a4 \ubc84\uc804 \uc5c6\uc774 \uc5f0\uacb0 \uc0c1\ud0dc\ub9cc \ub2f4\ub294\ub2e4.",
         "properties": {
@@ -1052,6 +1200,63 @@
           "fts"
         ],
         "title": "ReadinessData",
+        "type": "object"
+      },
+      "Reclassification": {
+        "additionalProperties": false,
+        "description": "\uba54\uc77c\ud568 \uc18c\uc720\uc790\uc758 \uc7ac\ubd84\ub958. \uc77d\uc740 \ud310\ubcf8\uacfc \uc0ac\uc720\uac00 \ud544\uc694\ud558\ub2e4.",
+        "properties": {
+          "link_suggestion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NEW_PROJECT",
+                  "EXISTING_THREAD",
+                  "NEW_CS_TICKET"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Suggestion"
+          },
+          "mail_type": {
+            "enum": [
+              "NEW_RFP",
+              "EXISTING_CHANGE",
+              "CANDIDATE_REPLY",
+              "CS",
+              "OTHER"
+            ],
+            "title": "Mail Type",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": false,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "version": {
+            "description": "The triage version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "mail_type",
+          "reason"
+        ],
+        "title": "Reclassification",
         "type": "object"
       },
       "ResponseMeta": {
@@ -1194,6 +1399,22 @@
           "meta"
         ],
         "title": "SuccessResponse[Identity]",
+        "type": "object"
+      },
+      "SuccessResponse_MailTriage_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MailTriage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[MailTriage]",
         "type": "object"
       },
       "SuccessResponse_MailboxConnections_": {
@@ -3094,6 +3315,223 @@
         "tags": [
           "jobs"
         ]
+      }
+    },
+    "/api/v1/platform/mail/messages/{message_id}/triage": {
+      "get": {
+        "description": "\uba54\uc77c\ud568 \uc18c\uc720\uc790\uac00 \uc790\uae30 \uba54\uc77c\uc758 \ubd84\ub958(\ucd5c\uc2e0 \ub610\ub294 \uc9c0\uc815 \ud310\ubcf8)\ub97c \uc77d\ub294\ub2e4.\n\nArgs:\n    message_id: \uba54\uc77c ID.\n    request: \uc6b4\uc601 \uc138\uc158 \ucfe0\ud0a4\ub97c \ud3ec\ud568\ud55c \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    version: \ud310\ubcf8. \uc0dd\ub7b5\ud558\uba74 \ucd5c\uc2e0.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131. \uacf5\uae09\uc790\ub97c \ubd80\ub974\uc9c0 \uc54a\ub294\ub2e4.\n\nReturns:\n    SuccessResponse[MailTriage]: \ubd84\ub958 \ud310\ubcf8.",
+        "operationId": "platform_get_mail_triage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MailTriage_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown message or not the mailbox owner's"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale triage version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Triage",
+        "tags": [
+          "mail-triage"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\uba54\uc77c\ud568 \uc18c\uc720\uc790\uac00 \uc720\ud615\uc744 \ub2e4\uc2dc \uc815\ud55c\ub2e4. \uc0ac\ub78c \ud310\ubcf8(human_input)\uc73c\ub85c \uc0c8\ub85c \uc4f4\ub2e4.\n\n\uadfc\uac70\ub294 \uc0ac\ub78c \ud310\ub2e8\uc774\ub77c \ube44\uc6b0\uace0, \ucca8\ubd80 \ucc98\ub9ac \ub300\uae30\ub294 \uc774\uc804 \ud310\ubcf8 \uac12\uc744 \uc787\ub294\ub2e4. \ubb38\uc758 \uc811\uc218\u00b7\uc5c5\ubb34\n\uc5f0\uacb0\uc740 \ud558\uc9c0 \uc54a\ub294\ub2e4.\n\nArgs:\n    message_id: \uba54\uc77c ID.\n    payload: \uc77d\uc740 \ud310\ubcf8\u00b7\uc720\ud615\u00b7\uc5f0\uacb0 \ucd94\ucc9c\u00b7\uac80\ud1a0 \ud544\uc694\u00b7\uc0ac\uc720.\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[MailTriage]: \uc0c8 \ucd5c\uc2e0 \ud310\ubcf8. \uc77d\uc740 \ud310\ubcf8\uc774 \uc544\ub2c8\uba74 409.",
+        "operationId": "platform_reclassify_mail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reclassification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MailTriage_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown message or not the mailbox owner's"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale triage version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reclassify",
+        "tags": [
+          "mail-triage"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/platform/me": {

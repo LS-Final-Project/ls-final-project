@@ -166,8 +166,34 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 - **권한**: `platform_app`은 의도 SELECT·INSERT·UPDATE, 이력 SELECT·INSERT만. 삭제·이력 수정 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
 - 문의 종결 조건(“`UNKNOWN` 발송 의도가 없어야 함”, [권한 문서](permissions.md))은 이 표의 상태로 판단한다. 발송 상태가 문의·개선요청 상태를 자동으로 바꾸지 않는다.
 
+## 업무 유형 분류 (KAN-73, 부분 구현)
+
+수집한 메일 한 통이 어느 업무로 가는지 분류해 **추천만** 저장한다. 문의·프로젝트에 자동으로 연결하거나 C/S 문의로 접수하지 않는다([데이터 계약](../../docs/data-contract.md#메일과-파일-연결): 제목이나 AI 분류만으로 확정 연결하지 않는다). 수집 코드(`sync.py`·`worker.py`)는 바꾸지 않았고 수집 뒤 자동 분류는 아직 연결하지 않았다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 유형(`mail_type`) | `NEW_RFP`(TFT 신규 RFP)·`EXISTING_CHANGE`(기존 프로젝트 변경)·`CANDIDATE_REPLY`(후보 회신)·`CS`(C/S 문의)·`OTHER` |
+| `needs_review` | 모델 값, 또는 첨부 처리 대기·근거 없음·`OTHER`면 엔진이 true로 정한다 |
+| `attachments_pending` | 링크형·inline이 아닌 첨부가 있으면 true(첨부 내용은 아직 처리하지 않음). 엔진이 정한다 |
+| `evidence` | 텍스트 없는 위치만: 마스킹한 입력의 `subject`·`body` 글자 구간(`start`<`end`), `reply_header`(회신 메일일 때만). 최대 10개 |
+| `link_suggestion` | 연결 후보일 뿐 확정 연결이 아니다. 유형별 허용: `NEW_RFP`→`NEW_PROJECT`, `EXISTING_CHANGE`·`CANDIDATE_REPLY`→`EXISTING_THREAD`(회신일 때만), `CS`→`NEW_CS_TICKET`·`EXISTING_THREAD`, `OTHER`→없음 |
+
+- **엔진**(`backend/engine/mail_triage/`, 순수): `extract.build_input()`이 원문 MIME에서 text/plain(없으면 html의 보이는 텍스트)과 제목을 꺼내 인용 이력·`>` 줄을 자르고 C/S 분류와 같은 규칙(`mask_contacts_and_serials`)으로 이메일·라벨 시리얼을 가린 **뒤** 제목 500·본문 8,000자로 줄인다(경계에 걸친 주소·시리얼 조각이 남지 않게). 첨부는 종류·content type·inline만 넘기고 이름은 넘기지 않는다. `triage.validate_output()`은 정확히 네 필드를 엄격히 검사하고 근거 구간·연결 추천을 입력·유형과 대조한다(어기면 `MAIL_TRIAGE_INVALID_OUTPUT`). 제공자는 주입한 함수이며 **지금은 합성 제공자만** 쓴다. 실제 메일 본문을 외부 모델로 보내는 것은 개인정보 검수·승인 전까지 범위 밖이다.
+- **저장**(`20261028_KAN-73_mail_triage.sql`, 공용 DB 미적용): `integration.mail_triage`에 판본마다 한 행(모델 분류 `ai_draft`는 입력·출력 판본, 사람 재분류 `human_input`은 사유·판정자 필수), `integration.mail_triage_latest`에 메일별 최신 판본. `platform_app`은 두 표에 SELECT·INSERT와 `latest_version` 열 UPDATE만 하고 고치거나 지우지 못한다. 메일 원문·본문·주소는 저장하지 않는다.
+- **내부 함수** `classify_message(settings, message_id, raw, provider)`: 호출자가 객체 저장소에서 읽은 원문을 넘기고 저장된 SHA-256과 같아야 한다(다르면 409 `MAIL_TRIAGE_RAW_MISMATCH`). 제공자 호출은 트랜잭션 밖에서 하고 최신 판본 행을 잠근 뒤 다음 판본을 쓴다. 같은 메일의 첫 분류가 동시에 들어오면 먼저 쓴 쪽만 남고 나머지는 409 `MAIL_TRIAGE_VERSION_CONFLICT`다.
+- **HTTP**(사서함 연결과 같은 `MAILBOX_AUTH_ENABLED`가 꺼져 있으면 404):
+
+| 경로 | 동작 |
+| --- | --- |
+| `GET /api/v1/platform/mail/messages/{message_id}/triage?version=` | 메일함 소유자만. 최신(또는 지정) 판본과 `latest_version`·`is_latest`. 다른 사람 메일·없는 메일은 404 `MAIL_MESSAGE_NOT_FOUND`, 분류·판본이 없으면 404 `MAIL_TRIAGE_NOT_FOUND` |
+| `POST /api/v1/platform/mail/messages/{message_id}/triage` | 메일함 소유자의 재분류. 동일 출처·세션 CSRF 필수. 본문 `version`(읽은 판본)·`mail_type`·`link_suggestion`(유형별 허용)·`needs_review`·`reason`(필수). 근거는 비우고 첨부 대기는 이전 값을 잇는다. 읽은 판본이 아니면 409 `MAIL_TRIAGE_VERSION_CONFLICT` |
+
+- 응답에 제목·본문·보낸 사람은 없다. 권한 5.2의 '본인 메일함만'을 따르며, 업무에 연결된 뒤의 열람 범위는 연결 단위에서 정한다.
+- **다음 단위**: 수집 뒤 자동 분류(수집 코드·객체 저장소 읽기, 김나영 합의), 메일 → C/S 문의 접수 경로(`source=microsoft_graph`, `external_id`=Graph ID, `known_at`=수신 시각, cs_agent 확인 뒤 플랫폼 → C/S 호출자 토큰), 화면, 실제 모델 호출·평가.
+
 ## 남은 작업
 
 - KAN-74 후속: C/S 업무가 발송 의도를 만들고 상태를 조회하는 HTTP 입구, 의도 전송 실행(워커), 실제 사서함 발송 확인
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결
+- 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결(분류 추천은 위 KAN-73 절)
+- 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

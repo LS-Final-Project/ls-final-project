@@ -78,6 +78,18 @@ class PreparedInput:
     removed_annotations: int
 
 
+def mask_contacts_and_serials(value: str) -> str:
+    """이메일 주소와 라벨이 붙은 시리얼 값을 가린다(C/S 분류와 메일 분류가 같은 규칙을 쓴다).
+
+    Args:
+        value: 제목이나 본문 텍스트.
+
+    Returns:
+        str: 이메일은 [PERSONAL_PROVIDED], 시리얼 값은 [SERIAL_PROVIDED]로 바꾼 텍스트.
+    """
+    return _SERIAL.sub(_mask_serial, _EMAIL.sub("[PERSONAL_PROVIDED]", value))
+
+
 def build_input(
     record: Mapping[str, object], *, sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]]
 ) -> PreparedInput:
@@ -123,9 +135,7 @@ def build_input(
             value = pattern.sub(
                 lambda match: "[" + sensitive_values[match.group()] + "_PROVIDED]", value
             )
-        value = _EMAIL.sub("[PERSONAL_PROVIDED]", value)
-        value = _SERIAL.sub(_mask_serial, value)
-        values[field] = value
+        values[field] = mask_contacts_and_serials(value)
     # 주석만 있던 본문은 실행 가능한 문의로 취급하지 않는다.
     if not values["body"].strip():
         raise ValueError("CS_EMPTY_INPUT")
