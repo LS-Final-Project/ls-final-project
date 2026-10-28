@@ -37,10 +37,25 @@ MATH = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
 MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
 # 압축 해제 뒤 부분 하나의 상한. 25 MiB 업로드가 비정상적으로 부풀어도 메모리를 지킨다.
 PART_LIMIT = 64 * 1024 * 1024
+# 안의 런을 현행으로 읽는 래퍼. w:moveTo는 이동 추적의 도착 위치라 현행 본문이다.
 PASS_THROUGH = {
     f"{W}{name}"
-    for name in ("ins", "hyperlink", "smartTag", "sdt", "sdtContent", "fldSimple", "customXml")
-}
+    for name in (
+        "ins", "moveTo", "hyperlink", "smartTag", "sdt", "sdtContent", "fldSimple", "customXml",
+        "dir", "bdo",
+    )
+}  # fmt: skip
+# 텍스트가 없는 표식과 범위 밖으로 정한 w:moveFrom(이동 전 위치)은 조용히 넘긴다.
+IGNORED = {
+    f"{W}{name}"
+    for name in (
+        "pPr", "rPr", "sdtPr", "sdtEndPr", "customXmlPr", "smartTagPr", "proofErr",
+        "bookmarkStart", "bookmarkEnd", "commentRangeStart", "commentRangeEnd",
+        "permStart", "permEnd", "moveFrom", "moveFromRangeStart", "moveFromRangeEnd",
+        "moveToRangeStart", "moveToRangeEnd",
+    )
+}  # fmt: skip
+CONTAINERS = {f"{W}sdt", f"{W}sdtContent", f"{W}customXml"}
 OBJECTS = {f"{W}drawing", f"{W}pict", f"{W}object", f"{MC}AlternateContent"}
 HEADER_PART = re.compile(r"^word/(header|footer)\d*\.xml$")
 
@@ -322,6 +337,9 @@ def _collect(container: ET.Element, out: Collected, tracked_delete: bool = False
             out.unprocessed.append(("EQUATION", "수식은 읽지 않음"))
         elif tag in OBJECTS:
             _object(child, out)
+        elif tag not in IGNORED:
+            # 모르는 요소를 조용히 버리면 본문 누락을 요약에서 알 수 없다.
+            out.unprocessed.append(("OTHER", f"읽지 않은 요소 {tag.rsplit('}', 1)[-1]}"))
 
 
 def _assemble(out: Collected) -> tuple[str, list[DeletedValue], list[Flag], int, int]:
@@ -375,6 +393,24 @@ def _assemble(out: Collected) -> tuple[str, list[DeletedValue], list[Flag], int,
         flags.append("LINE_BREAK_REJOINED")
     strikes = sum(value.origin == "STRIKE" for value in deleted)
     return text, deleted, flags, strikes, highlights
+
+
+def _cell_items(container: ET.Element) -> list[ET.Element]:
+    """표 셀의 문단·표를 콘텐츠 컨트롤(w:sdt) 안까지 문서 순서로 모은다.
+
+    Args:
+        container: w:tc 또는 그 안 래퍼.
+
+    Returns:
+        w:p·w:tbl 요소 목록.
+    """
+    items: list[ET.Element] = []
+    for child in container:
+        if child.tag in {f"{W}p", f"{W}tbl"}:
+            items.append(child)
+        elif child.tag in CONTAINERS:
+            items.extend(_cell_items(child))
+    return items
 
 
 class _Extractor:
@@ -475,6 +511,8 @@ class _Extractor:
         text, deleted, flags, strikes, highlights = _assemble(out)
         self.strikes += strikes
         self.highlights += highlights
+        # 빈 번호 문단도 Word에서는 번호를 한 칸 쓰므로 블록이 없어도 번호는 진행한다.
+        hints = self.hints(paragraph)
         if text or deleted:
             self.blocks.append(
                 Block(
@@ -484,7 +522,7 @@ class _Extractor:
                     deleted_values=deleted,
                     flags=flags,
                     position=Position(paragraph_index=self.paragraph_index),
-                    hints=self.hints(paragraph),
+                    hints=hints,
                 )
             )
         self.record(out, block_id, self.paragraph_index)
@@ -505,7 +543,7 @@ class _Extractor:
                 else:
                     origins[col] = block_id
                 out = Collected()
-                for child in cell:
+                for child in _cell_items(cell):
                     if child.tag == f"{W}p":
                         if out.pieces:
                             out.pieces.append(Piece(" ", None, False))
@@ -537,7 +575,7 @@ class _Extractor:
                 self.paragraph(child)
             elif child.tag == f"{W}tbl":
                 self.table(child)
-            elif child.tag in {f"{W}sdt", f"{W}sdtContent", f"{W}customXml"}:
+            elif child.tag in CONTAINERS:
                 self.body(child)
 
 

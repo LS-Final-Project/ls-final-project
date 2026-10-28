@@ -10,7 +10,6 @@ import io
 import re
 
 from pypdf import PageObject, PdfReader
-from pypdf.errors import PyPdfError
 
 from backend.engine.documents.model import (
     PLACEHOLDER,
@@ -23,6 +22,9 @@ from backend.engine.documents.model import (
 )
 
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
+# 신뢰하지 않는 업로드의 시간·메모리 상한. 바이트는 명세 §4.2 업로드 상한과 같다.
+MAX_BYTES = 25 * 1024 * 1024
+MAX_PAGES = 500
 
 
 def _image_count(page: PageObject) -> int:
@@ -53,14 +55,18 @@ def extract_pdf(data: bytes) -> ExtractedDocument:
         공통 표현 문서(edit_trace_support=False, 블록마다 page는 1부터).
 
     Raises:
-        ValueError: PDF를 읽을 수 없거나 암호화돼 있을 때.
+        ValueError: PDF를 읽을 수 없거나, 암호화돼 있거나, 크기·페이지 수 상한을 넘을 때.
     """
+    if len(data) > MAX_BYTES:
+        raise ValueError("PDF가 크기 상한을 넘습니다.")
     blocks: list[Block] = []
     unprocessed: list[Unprocessed] = []
     try:
         reader = PdfReader(io.BytesIO(data))
         if reader.is_encrypted:
             raise ValueError("암호화된 PDF는 읽지 않습니다.")
+        if len(reader.pages) > MAX_PAGES:
+            raise ValueError("PDF가 페이지 수 상한을 넘습니다.")
         for number, page in enumerate(reader.pages, start=1):
             # 기본 모드는 문단 사이 빈 줄을 내지 않는다. layout 모드가 세로 간격을 빈 줄로 남긴다.
             text = page.extract_text(extraction_mode="layout") or ""
@@ -90,6 +96,8 @@ def extract_pdf(data: bytes) -> ExtractedDocument:
                 unprocessed.append(
                     Unprocessed(kind="IMAGE", location=block_id, reason="그림 내용은 읽지 않음")
                 )
-    except PyPdfError as error:
+    except ValueError:
+        raise
+    except Exception as error:  # pypdf는 PyPdfError 밖(RecursionError 등)으로도 실패한다.
         raise ValueError("PDF를 읽을 수 없습니다.") from error
     return build_document("PDF", blocks, unprocessed, tables=0)

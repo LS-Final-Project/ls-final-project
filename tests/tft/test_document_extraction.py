@@ -8,6 +8,7 @@ import pytest
 
 from backend.engine.documents.docx import extract_docx
 from backend.engine.documents.model import ExtractedDocument
+from backend.engine.documents.pdf import MAX_BYTES, MAX_PAGES, extract_pdf
 from backend.engine.documents.router import DOCX_MIME, extract
 
 NS = (
@@ -308,3 +309,53 @@ def test_untrusted_docx_parts_are_rejected() -> None:
         archive.writestr("word/document.xml", "<w:document")
     with pytest.raises(ValueError, match="해석할 수 없"):
         extract_docx(broken.getvalue())
+
+
+def test_moved_text_is_current_and_unknown_elements_are_listed() -> None:
+    body = para(
+        '<w:bookmarkStart w:id="0" w:name="x"/>',
+        run("Provide "),
+        f"<w:moveTo>{run('moved clause')}</w:moveTo>",
+        f"<w:moveFrom>{run('old place')}</w:moveFrom>",
+        "<w:unknownWrapper/>",
+    )
+    document = extract_docx(docx(body))
+    assert only(document)["text"] == "Provide moved clause"
+    assert [(u.kind, u.reason) for u in document.unprocessed] == [
+        ("OTHER", "읽지 않은 요소 unknownWrapper")
+    ]
+
+
+def test_empty_numbered_paragraph_still_uses_a_number() -> None:
+    body = styled("PR1", "first") + para(props='<w:pStyle w:val="PR1"/>') + styled("PR1", "third")
+    document = extract_docx(docx(body, word_styles_xml=STYLES, word_numbering_xml=NUMBERING))
+    assert [b.hints.list_text for b in document.blocks] == ["A.", "C."]  # type: ignore[union-attr]
+
+
+def test_cell_text_inside_content_control_is_read() -> None:
+    wrapped = f"<w:sdt><w:sdtPr/><w:sdtContent>{para(run('600 A'))}</w:sdtContent></w:sdt>"
+    table = f"<w:tbl><w:tr>{cell('Rating')}<w:tc>{wrapped}</w:tc></w:tr></w:tbl>"
+    document = extract_docx(docx(table))
+    assert [b.text for b in document.blocks] == ["Rating", "600 A"]
+    assert document.unprocessed == []
+
+
+def test_router_ignores_mime_parameters_and_generic_type() -> None:
+    assert extract(pdf(["one"]), "application/pdf; charset=binary").source_kind == "PDF"
+    assert extract(docx(para(run("x"))), "application/octet-stream").source_kind == "DOCX"
+    with pytest.raises(ValueError, match="선언한 형식"):
+        extract(pdf(["one"]), f"{DOCX_MIME}; charset=binary")
+
+
+def test_pdf_limits_and_unexpected_reader_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="크기 상한"):
+        extract_pdf(b"%PDF-" + b"0" * MAX_BYTES)
+    with pytest.raises(ValueError, match="페이지 수 상한"):
+        extract_pdf(pdf(["p"] * (MAX_PAGES + 1)))
+
+    def explode(stream: object) -> None:
+        raise RecursionError("deep")
+
+    monkeypatch.setattr("backend.engine.documents.pdf.PdfReader", explode)
+    with pytest.raises(ValueError, match="읽을 수 없"):
+        extract_pdf(pdf(["one"]))

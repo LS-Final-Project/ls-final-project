@@ -56,7 +56,9 @@ def extract(source: Path | bytes, mime: str | None = None) -> ExtractedDocument:
     """
     data = source.read_bytes() if isinstance(source, Path) else source
     kind = _sniff(data)
-    declared = [mime] if mime else []
+    # MIME 파라미터(; charset=…)는 떼고, 형식을 말하지 않는 일반 타입은 확인하지 않는다.
+    media_type = (mime or "").split(";", 1)[0].strip().lower()
+    declared = [media_type] if media_type and media_type != "application/octet-stream" else []
     if isinstance(source, Path):
         declared.append(source.suffix.lower())
     for value in declared:
