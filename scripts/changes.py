@@ -32,6 +32,10 @@ def classify(paths: list[str]) -> dict:
             release.update(("cs", "platform"))
             evaluation = True
             continue
+        if path == "docs/evaluation.md":
+            # 정답 묶음 표는 eval 상수와 대조하므로 문서만 바뀌어도 평가 검사를 돈다.
+            evaluation = True
+            continue
         if path.startswith("docs/openapi/"):
             service = Path(path).stem
             if service in BACKENDS:

@@ -184,6 +184,12 @@ class ChangeTests(unittest.TestCase):
         self.assertEqual(result["backends"], [])
         self.assertEqual(result["services"], [])
 
+    def test_evaluation_spec_runs_evaluation_without_releasing_an_api(self):
+        result = changes.classify(["docs/evaluation.md"])
+        self.assertTrue(result["evaluation"])
+        self.assertEqual(result["backends"], [])
+        self.assertEqual(result["services"], [])
+
     def test_unknown_shared_test_directories_check_all_consumers_without_a_release(self):
         for path in (
             "tests/agent/test_classification.py",

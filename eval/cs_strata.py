@@ -6,19 +6,23 @@ from typing import Literal, cast
 
 from backend.engine.cs.classification_call import ClassificationAttempt
 from eval.cs_metrics import (
+    ProvidedInfoGold,
     summarize_category_first_attempts,
+    summarize_provided_info_first_attempts,
     summarize_return_subtype_first_attempts,
     summarize_secondary_first_attempts,
     summarize_urgency_first_attempts,
 )
 
-Metric = Literal["category", "urgency", "secondary", "return_subtype"]
+Metric = Literal["category", "urgency", "secondary", "return_subtype", "provided_info"]
+# provided_info만 (항목 집합, 채점 범위) 정답을 쓰고 나머지는 단일 코드 또는 null이다.
+GoldValue = str | ProvidedInfoGold | None
 CHANNELS = frozenset({"EMAIL", "PHONE", "WEB_FORM", "PARTNER_PORTAL", "CHAT"})
 UNKNOWN = "UNKNOWN"
 
 
 def summarize_first_attempts_by_group(
-    gold: Mapping[str, str | None],
+    gold: Mapping[str, GoldValue],
     attempts: Mapping[str, ClassificationAttempt],
     metadata: Mapping[str, Mapping[str, str | None]],
     *,
@@ -27,7 +31,8 @@ def summarize_first_attempts_by_group(
     """전체와 각 축의 분모를 고정하고 누락 메타데이터도 별도 그룹에 보존한다.
 
     Args:
-        gold: 해당 지표의 사전 잠금 대상과 정답. None은 보조 분류만 허용한다.
+        gold: 해당 지표의 사전 잠금 대상과 정답. None은 보조 분류만, (항목 집합, 채점 범위)는
+            provided_info만 허용한다.
         attempts: 대상별 최초 시도. 누락 시도는 기존 집계처럼 실패로 남긴다.
         metadata: 대상별 channel/body_language. 누락 행·키·None은 UNKNOWN이다.
         metric: 집계할 기존 지표 이름. 임의 함수나 모델을 실행하지 않는다.
@@ -36,9 +41,13 @@ def summarize_first_attempts_by_group(
         dict: 전체·채널·언어·PHONE 여부별 지표와 메타데이터 누락 수.
             잘못된 메타데이터는 원문 없는 ValueError로 거부한다.
     """
-    if metric not in {"category", "urgency", "secondary", "return_subtype"} or not set(
-        metadata
-    ) <= set(gold):
+    if metric not in {
+        "category",
+        "urgency",
+        "secondary",
+        "return_subtype",
+        "provided_info",
+    } or not set(metadata) <= set(gold):
         raise ValueError("CS_STRATA_INVALID_INPUT")
     groups: dict[str, dict[str, list[str]]] = {"channel": {}, "body_language": {}, "phone": {}}
     missing = {"channel": 0, "body_language": 0}
@@ -66,7 +75,7 @@ def summarize_first_attempts_by_group(
             groups[axis].setdefault(key, []).append(case_id)
 
     def summarize(
-        targets: Mapping[str, str | None], selected: Mapping[str, ClassificationAttempt]
+        targets: Mapping[str, GoldValue], selected: Mapping[str, ClassificationAttempt]
     ) -> dict:
         """기존 지표 중 선택한 계산만 호출한다.
 
@@ -77,8 +86,14 @@ def summarize_first_attempts_by_group(
         Returns:
             dict: 기존 지표 계약 그대로의 결과.
         """
+        if metric == "provided_info":
+            return summarize_provided_info_first_attempts(
+                cast(Mapping[str, ProvidedInfoGold], targets), selected
+            )
         if metric == "secondary":
-            return summarize_secondary_first_attempts(targets, selected)
+            return summarize_secondary_first_attempts(
+                cast(Mapping[str, str | None], targets), selected
+            )
         # 주분류/긴급도 함수가 실제 값과 enum을 검증하므로 None도 거부된다.
         typed = cast(Mapping[str, str], targets)
         if metric == "category":

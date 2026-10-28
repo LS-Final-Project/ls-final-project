@@ -5,6 +5,7 @@ A C/S agent sees the same overview limited to tickets they own. Customer history
 tickets, so it needs the full ticket scope.
 """
 
+import re
 from datetime import datetime
 from typing import Annotated, get_args
 
@@ -35,7 +36,7 @@ from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.departments import TransferDepartment
 from backend.shared.errors import ApplicationError
-from backend.shared.models import ErrorResponse, SuccessResponse
+from backend.shared.models import CUSTOMER_ID, ErrorResponse, SuccessResponse
 
 router = APIRouter(
     prefix="/api/v1/cs/stats",
@@ -53,7 +54,7 @@ UNCONFIRMED: list[Unconfirmed] = ["SLA_DUE", "RULE_ASSIGNED_DEPT"]
 STATES = get_args(WorkflowState)
 Start = Annotated[datetime | None, Query(description="Inclusive, with a time zone.")]
 End = Annotated[datetime | None, Query(description="Exclusive, with a time zone.")]
-Customer = Annotated[str | None, Query(min_length=1, max_length=64)]
+Customer = Annotated[str | None, Query(pattern=f"^{CUSTOMER_ID}$")]
 
 
 def period(start: datetime | None, end: datetime | None) -> Period:
@@ -171,7 +172,7 @@ async def customer_history(
     full ticket scope (cs_agent, C/S department manager)."""
     if not sees_all_tickets(principal):
         raise HTTPException(403)
-    if not 0 < len(customer_external_id) <= 64:
+    if not re.fullmatch(CUSTOMER_ID, customer_external_id):
         raise ApplicationError(422, "CS_INVALID_CUSTOMER", "The customer ID is invalid.")
     window = period(start, end)
     p = repository.params(start, end, customer=customer_external_id)

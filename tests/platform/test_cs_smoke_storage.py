@@ -751,6 +751,513 @@ def test_store_cli_saves_rows_or_rejects_with_code_only(
         assert rows == []
 
 
+OTHER_SPLIT = "cs-other-split"
+# 합성 사례에 붙인 검사용 잠금 정답. 다른 split 행 하나를 함께 넣어 대상 범위 제한을 확인한다.
+LOCKED_GOLD = {
+    "category": ("category_code", {**dict.fromkeys(FIXTURES, "RETURN"), OTHER_SPLIT: "QUOTE"}),
+    "urgency": (
+        "urgency_flag",
+        {"cs-smoke-valid": "NONE", "cs-smoke-invalid": "SAFETY", "cs-smoke-timeout": "SAFETY"}
+        | {OTHER_SPLIT: "NONE"},
+    ),
+    "secondary": (
+        "secondary_category",
+        {"cs-smoke-valid": "", "cs-smoke-invalid": "MANUAL", "cs-smoke-timeout": "MANUAL"}
+        | {OTHER_SPLIT: ""},
+    ),
+    "return_subtype": ("return_subtype", {**RETURN_GOLD, OTHER_SPLIT: "DEFECT"}),
+}
+
+
+def locked_gold(metric, gold=None, valid=None):
+    """검사용 잠금 정답 바이트와 그 hash·분모를 담은 잠금표를 만든다.
+
+    Args:
+        metric: 잠금 지표.
+        gold: 바꿀 대상 ID별 정답. 없으면 LOCKED_GOLD 값이다.
+        valid: 검증 분할 고정 분모. 없으면 실험 대상 안의 정답 수다.
+
+    Returns:
+        tuple[bytes, dict]: 정답 CSV 바이트와 그 지표 하나의 잠금표.
+    """
+    import hashlib
+
+    from eval.cs_gold_locks import GoldLock
+
+    column, default = LOCKED_GOLD[metric]
+    gold = default if gold is None else gold
+    data = (f"ticket_id,{column}\n" + "".join(f"{k},{v}\n" for k, v in gold.items())).encode()
+    scored = sum(target in gold for target in FIXTURES) if valid is None else valid
+    lock = GoldLock(
+        f"test-{metric}-v1",
+        hashlib.sha256(data).hexdigest(),
+        ("ticket_id", column),
+        (("ALL", 0, scored),),
+    )
+    return data, {metric: lock}
+
+
+def make_locked(dsn, run_id):
+    """검사 관리자로 합성 실행을 묶음 판본의 비합성 검증 분할 실행처럼 바꾼다.
+
+    Args:
+        dsn: 격리 DB 연결.
+        run_id: 바꿀 실행.
+
+    Returns:
+        None: 실험 목적·분할·판본·모델과 실행 provider를 바꾼다. 모델은 호출하지 않는다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET purpose='pipeline',data_split='valid',"
+            "gold_version=%s,model_id='gemini-test',prompt_version='locked-test' "
+            "WHERE id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+            (GOLD_BUNDLE_ID, run_id),
+        )
+        conn.execute("UPDATE evaluation.runs SET provider='gemini' WHERE id=%s", (run_id,))
+
+
+@pytest.mark.parametrize("metric", ["category", "urgency", "secondary", "return_subtype"])
+def test_locked_quality_rows_store_each_metric_aggregates_only(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, metric
+):
+    """비합성 종료 실행의 지표 하나를 잠금 정답으로 채점해 실행 단위 행으로만 저장한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        metric: 저장할 잠금 지표.
+
+    Returns:
+        None: 대상 범위 제한, 행 구성, details, 같은 집계와의 일치, 사례 비노출을 확인한다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+    from eval.cs_report import store_locked_quality_metrics
+    from eval.cs_stored_metrics import summarize_stored_first_attempts
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_gold(metric)
+    scoped = {
+        target: value or None
+        for target, value in LOCKED_GOLD[metric][1].items()
+        if target in FIXTURES
+    }
+    with psycopg.connect(evaluation_database) as conn:
+        stored = store_locked_quality_metrics(
+            conn, cs_run, metric, data, scoring_version="locked-v1", locks=locks
+        )
+        overall = summarize_stored_first_attempts(
+            conn, cs_run, scoped, gold_version=GOLD_BUNDLE_ID, metric=metric
+        )["report"]["overall"]
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert stored == {
+        "run_id": str(cs_run),
+        "scoring_version": "locked-v1",
+        "stored_rows": len(rows),
+    }
+    prefix = f"cs_locked_{metric}_first_"
+    by_key = {(r["metric_key"].removeprefix(prefix), r["class_label"]): r for r in rows}
+    aggregates = {key for key, label in by_key if label is None}
+    extra = {
+        "category": {"macro_f1"},
+        "urgency": {"macro_f1", "non_none_recall", "critical_missed"},
+        "secondary": {"composite_macro_f1", "invented"},
+        "return_subtype": {"macro_f1", "null_predictions"},
+    }[metric]
+    assert all(r["metric_key"].startswith(prefix) for r in rows)
+    assert aggregates == {"accuracy"} | extra
+    per_class = (overall["composite"] if metric == "secondary" else overall)["per_class"]
+    assert {label for _, label in by_key if label is not None} == set(per_class)
+    total = len(scoped)
+    accuracy = by_key[("accuracy", None)]
+    assert (accuracy["numerator"], accuracy["denominator"]) == (overall["correct"], total)
+    assert accuracy["details"] == {
+        "report_version": "cs-locked-quality-v1",
+        "bundle_id": GOLD_BUNDLE_ID,
+        "gold_version": f"test-{metric}-v1",
+        "gold_sha256": locks[metric].gold_sha256,
+        "data_origin": "synthetic",
+        "data_split": "valid",
+        "run_status": "PARTIAL",
+        "locked_denominator": total,
+        "target_count": 3,
+        "scored_target_count": total,
+        "excluded_by_reason": {"NOT_RETURN": 1} if metric == "return_subtype" else {},
+        "outcomes": overall["outcomes"],
+    }
+    if metric == "urgency":
+        recall = by_key[("non_none_recall", None)]
+        assert (recall["numerator"], recall["denominator"]) == (0, 2)
+        assert by_key[("critical_missed", None)]["value"] == 2
+    if metric == "secondary":
+        assert by_key[("composite_macro_f1", None)]["support"] == 2
+        invented = by_key[("invented", None)]
+        assert (invented["value"], invented["denominator"]) == (0, 1)
+    if metric == "return_subtype":
+        assert by_key[("null_predictions", None)]["value"] == 1
+    assert all(
+        r["case_id"] is None and r["segment"] == "all" and r["threshold"] is None for r in rows
+    )
+    assert all(r["passed"] is None and r["comparison"] is None for r in rows)
+    dumped = str(rows)
+    assert all(ref not in dumped for ref in (*FIXTURES, OTHER_SPLIT))
+    assert all(word not in dumped for word in ("'cases'", "'prediction'", "raw_output"))
+
+
+@pytest.mark.parametrize(
+    "invalid,code",
+    [
+        ("metric", "CS_QUALITY_METRIC_UNSUPPORTED"),
+        ("hash", "CS_QUALITY_GOLD_HASH_MISMATCH"),
+        ("test_split", "CS_QUALITY_FINAL_TEST_LOCKED"),
+        ("smoke", "CS_QUALITY_LOCKED_RUN_REQUIRED"),
+        ("fake_provider", "CS_QUALITY_LOCKED_RUN_REQUIRED"),
+        ("fake_model", "CS_QUALITY_LOCKED_RUN_REQUIRED"),
+        ("profile", "CS_QUALITY_LOCKED_RUN_REQUIRED"),
+        ("bundle", "CS_QUALITY_BUNDLE_MISMATCH"),
+        ("not_terminal", "CS_QUALITY_RUN_NOT_TERMINAL"),
+        ("gold_label", "CS_QUALITY_GOLD_INVALID"),
+        ("denominator", "CS_QUALITY_DENOMINATOR_MISMATCH"),
+        ("missing_target", "CS_QUALITY_DENOMINATOR_MISMATCH"),
+        ("duplicate", "CS_QUALITY_ALREADY_STORED"),
+    ],
+)
+def test_locked_quality_rows_reject_without_partial_rows(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, invalid, code
+):
+    """잠금 경로의 거부 조건마다 원문 없는 코드로 끝나고 새 행을 남기지 않는다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        invalid: 주입할 거부 조건.
+        code: 기대 오류 코드.
+
+    Returns:
+        None: 실패한 저장이 rollback되어 기존 행을 바꾸거나 일부 행을 남기지 않음을 확인한다.
+    """
+    from eval.cs_report import store_locked_quality_metrics
+
+    if invalid != "not_terminal":
+        assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    gold = {
+        "gold_label": {"cs-smoke-valid": "NOT_A_CATEGORY"},
+        "missing_target": {"cs-smoke-valid": "RETURN", "cs-smoke-invalid": "RETURN"},
+    }.get(invalid)
+    data, locks = locked_gold("category", gold, valid=4 if invalid == "denominator" else None)
+    if invalid == "hash":
+        data += b"\n"
+    # 실험·실행 값을 하나만 되돌려 각 경계를 따로 확인한다.
+    field = {
+        "test_split": ("experiments", "data_split", "test"),
+        "smoke": ("experiments", "purpose", "smoke"),
+        "fake_model": ("experiments", "model_id", "fake"),
+        "profile": ("experiments", "prompt_version", PROMPT_VERSION),
+        "bundle": ("experiments", "gold_version", "provided-verified-v1-20261028"),
+        "fake_provider": ("runs", "provider", "fake"),
+    }
+    with psycopg.connect(evaluation_database) as conn:
+        if invalid in field:
+            table, column, value = field[invalid]
+            where = (
+                "id=%s"
+                if table == "runs"
+                else ("id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)")
+            )
+            conn.execute(
+                psycopg.sql.SQL("UPDATE evaluation.{} SET {}=%s WHERE " + where).format(
+                    psycopg.sql.Identifier(table), psycopg.sql.Identifier(column)
+                ),
+                (value, cs_run),
+            )
+            conn.commit()
+        metric = "provided_info" if invalid == "metric" else "category"
+        kwargs = {"scoring_version": "locked-v1", "locks": locks}
+        if invalid == "duplicate":
+            store_locked_quality_metrics(conn, cs_run, metric, data, **kwargs)
+        before = stored_quality_rows(evaluation_database, cs_run)
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            store_locked_quality_metrics(conn, cs_run, metric, data, **kwargs)
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert stored_quality_rows(evaluation_database, cs_run) == before
+    assert (len(before) > 0) is (invalid == "duplicate")
+
+
+@pytest.mark.parametrize("path", ["synthetic", "locked"])
+def test_synthetic_and_locked_quality_paths_exclude_each_other(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, path
+):
+    """합성 실행에는 잠금 정답 행이, 비합성 실행에는 합성 행이 남지 않는다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        path: 실행이 맞는 저장 경로.
+
+    Returns:
+        None: 맞는 경로만 저장되고 반대 경로는 거부되어 한 경로의 접두 행만 남음을 확인한다.
+    """
+    from eval.cs_report import store_locked_quality_metrics, store_synthetic_return_subtype_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    if path == "locked":
+        make_locked(evaluation_database, cs_run)
+    synthetic_data, digest = return_gold_csv()
+    locked_data, locks = locked_gold("return_subtype")
+
+    def synthetic(conn):
+        return store_synthetic_return_subtype_metrics(
+            conn,
+            cs_run,
+            synthetic_data,
+            gold_sha256=digest,
+            gold_version=None,
+            scoring_version="both-v1",
+        )
+
+    def locked(conn):
+        return store_locked_quality_metrics(
+            conn, cs_run, "return_subtype", locked_data, scoring_version="both-v1", locks=locks
+        )
+
+    allowed, refused, code = (
+        (synthetic, locked, "CS_QUALITY_LOCKED_RUN_REQUIRED")
+        if path == "synthetic"
+        else (locked, synthetic, "CS_QUALITY_SYNTHETIC_ONLY")
+    )
+    with psycopg.connect(evaluation_database) as conn:
+        allowed(conn)
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            refused(conn)
+    prefix = "return_subtype_first_" if path == "synthetic" else "cs_locked_return_subtype_first_"
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert rows and all(r["metric_key"].startswith(prefix) for r in rows)
+
+
+# 항목 코드가 저장 행에 새지 않는지 찾기 쉽게 고유한 합성 코드를 쓴다.
+INFO_GOLD = {
+    "cs-smoke-valid": ("[]", "FULL"),
+    "cs-smoke-invalid": ("synthetic_code_alpha", "FULL"),
+    "cs-smoke-timeout": ("synthetic_code_beta", "PRECISION_ONLY"),
+    OTHER_SPLIT: ("synthetic_code_gamma", "FULL"),
+}
+
+
+def locked_info_gold(full=2, partial=1):
+    """검사용 provided_info 잠금 정답 바이트와 범위별 분모 잠금표를 만든다.
+
+    Args:
+        full: 검증 분할 FULL 고정 분모.
+        partial: 검증 분할 PRECISION_ONLY 고정 분모.
+
+    Returns:
+        tuple[bytes, dict]: 세 열 정답 CSV 바이트와 provided_info 잠금표.
+    """
+    import hashlib
+
+    from eval.cs_gold_locks import GoldLock
+
+    data = (
+        "ticket_id,provided_info,scoring_scope\n"
+        + "".join(f"{k},{items},{scope}\n" for k, (items, scope) in INFO_GOLD.items())
+    ).encode()
+    lock = GoldLock(
+        "test-provided_info-v1",
+        hashlib.sha256(data).hexdigest(),
+        ("ticket_id", "provided_info", "scoring_scope"),
+        (("FULL", 0, full), ("PRECISION_ONLY", 0, partial)),
+    )
+    return data, {"provided_info": lock}
+
+
+def test_locked_provided_info_rows_keep_scopes_separate(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """provided_info를 채점 범위별 segment 행으로만 저장하고 두 범위를 합하지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: FULL 4행·PRECISION_ONLY precision 1행, 집계값만 담은 details, 코드·사례 비노출을 확인한다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+    from eval.cs_report import store_locked_quality_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_info_gold()
+    with psycopg.connect(evaluation_database) as conn:
+        stored = store_locked_quality_metrics(
+            conn, cs_run, "provided_info", data, scoring_version="locked-v1", locks=locks
+        )
+        # 잠금표에 있어도 저장 경로가 없는 지표는 기본 잠금표로도 거부한다.
+        with pytest.raises(ValueError, match="^CS_QUALITY_METRIC_UNSUPPORTED$"):
+            store_locked_quality_metrics(conn, cs_run, "priority", data, scoring_version="x")
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert stored["stored_rows"] == len(rows) == 5
+    prefix = "cs_locked_provided_info_first_"
+    by_key = {(r["segment"], r["metric_key"].removeprefix(prefix)): r for r in rows}
+    assert set(by_key) == {
+        ("scope=FULL", "precision"),
+        ("scope=FULL", "recall"),
+        ("scope=FULL", "f1"),
+        ("scope=FULL", "exact_match"),
+        ("scope=PRECISION_ONLY", "precision"),
+    }
+    # 유효 예측 []만 있어 FULL precision 분모가 0이고, 실패한 FULL 사례는 FN이다.
+    precision = by_key[("scope=FULL", "precision")]
+    assert (precision["value"], precision["numerator"], precision["denominator"]) == (None, 0, 0)
+    recall = by_key[("scope=FULL", "recall")]
+    assert (recall["value"], recall["numerator"], recall["denominator"]) == (0, 0, 1)
+    assert by_key[("scope=FULL", "f1")]["value"] == 0
+    exact = by_key[("scope=FULL", "exact_match")]
+    assert (exact["value"], exact["numerator"], exact["denominator"]) == (0.5, 1, 2)
+    common = {
+        "report_version": "cs-locked-quality-v1",
+        "bundle_id": GOLD_BUNDLE_ID,
+        "gold_version": "test-provided_info-v1",
+        "gold_sha256": locks["provided_info"].gold_sha256,
+        "data_origin": "synthetic",
+        "data_split": "valid",
+        "run_status": "PARTIAL",
+        "target_count": 3,
+        "scored_target_count": 3,
+    }
+    assert precision["details"] == {
+        **common,
+        "scope": "FULL",
+        "locked_denominator": 2,
+        "scope_target_count": 2,
+        "valid_count": 1,
+        "items": {"tp": 0, "fp": 0, "fn": 1},
+        "recall_scored": True,
+        "excluded_by_reason": {"PRECISION_ONLY": 1},
+        "outcomes": precision["details"]["outcomes"],
+    }
+    assert precision["details"]["outcomes"]["VALID"] == 1
+    assert precision["details"]["outcomes"]["SCHEMA_VIOLATION"] == 1
+    partial = by_key[("scope=PRECISION_ONLY", "precision")]
+    assert partial["value"] is None and partial["support"] == 1
+    assert partial["details"]["items"] == {"tp": 0, "fp": 0}
+    assert partial["details"]["recall_scored"] is False
+    assert partial["details"]["excluded_by_reason"] == {}
+    assert partial["details"]["outcomes"]["TIMEOUT"] == 1
+    assert all(r["case_id"] is None and r["class_label"] is None for r in rows)
+    assert all(r["threshold"] is None and r["passed"] is None for r in rows)
+    dumped = str(rows)
+    assert "synthetic_code" not in dumped
+    assert all(ref not in dumped for ref in (*FIXTURES, OTHER_SPLIT))
+
+
+@pytest.mark.parametrize("full,partial", [(3, 1), (2, 2)])
+def test_locked_provided_info_rejects_scope_denominator_mismatch(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, full, partial
+):
+    """범위별 채점 대상 수가 잠근 분모와 하나라도 다르면 행 없이 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        full: 잠금표의 FULL 분모.
+        partial: 잠금표의 PRECISION_ONLY 분모.
+
+    Returns:
+        None: CS_QUALITY_DENOMINATOR_MISMATCH와 rollback을 확인한다.
+    """
+    from eval.cs_report import store_locked_quality_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_info_gold(full, partial)
+    with psycopg.connect(evaluation_database) as conn:
+        with pytest.raises(ValueError, match="^CS_QUALITY_DENOMINATOR_MISMATCH$"):
+            store_locked_quality_metrics(
+                conn, cs_run, "provided_info", data, scoring_version="locked-v1", locks=locks
+            )
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert stored_quality_rows(evaluation_database, cs_run) == []
+
+
+def test_locked_store_cli_saves_rows_or_rejects_with_code_only(
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    """잠금 저장 명령이 실제 DB에 행을 넣고, 지원하지 않는 지표·인자 누락을 코드로 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경과 검사용 잠금표 설정.
+        tmp_path: 정답 파일 위치.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 성공 JSON 한 줄, exit1 코드만 출력, argparse exit2, 경로·DSN 비노출을 확인한다.
+    """
+    import json
+
+    from eval import cs_report
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    data, locks = locked_gold("category")
+    monkeypatch.setattr(cs_report, "GOLD_LOCKS", locks)
+    gold = tmp_path / "secret-gold.csv"
+    gold.write_bytes(data)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [cs_report.STORE_LOCKED_COMMAND, "--run-id", str(cs_run), "--gold-file", str(gold)]
+    args += ["--scoring-version", "locked-v1"]
+    assert cs_report.main([*args, "--metric", "category"]) == 0
+    captured = capsys.readouterr()
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert json.loads(captured.out) == {
+        "run_id": str(cs_run),
+        "scoring_version": "locked-v1",
+        "stored_rows": len(rows),
+    }
+    assert captured.err == "" and rows
+    assert cs_report.main([*args, "--metric", "provided_info"]) == 1
+    rejected = capsys.readouterr()
+    assert rejected.err == "CS_QUALITY_METRIC_UNSUPPORTED\n" and rejected.out == ""
+    with pytest.raises(SystemExit) as exited:
+        cs_report.main(args)
+    assert exited.value.code == 2
+    outputs = captured.out + captured.err + rejected.out + rejected.err + capsys.readouterr().err
+    assert str(gold) not in outputs and evaluation_database not in outputs
+    assert len(stored_quality_rows(evaluation_database, cs_run)) == len(rows)
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )
@@ -1896,7 +2403,8 @@ def test_summary_projects_latest_synthetic_quality_without_cases(
     response = client.get(url)
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert data["report_version"] == "cs-run-summary-v1"
+    assert data["report_version"] == "cs-run-summary-v2"
+    assert data["locked_quality"] is None
     assert data["quality_available"] is False
     assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
     quality = data["synthetic_quality"]
@@ -2134,11 +2642,13 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "retry",
         "all",
         "synthetic_quality",
+        "locked_quality",
         "comparison_key",
     }
-    assert data["synthetic_quality"] is None
+    assert data["synthetic_quality"] is None and data["locked_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
     assert data["quality_available"] is False
+    assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
     assert data["first"]["stored_attempt_count"] == 3
     assert data["first"]["tokens"]["input_tokens"]["total"] == 21
     assert data["first"]["tokens"]["output_tokens"] == {
@@ -2279,6 +2789,308 @@ def test_summary_http_scope_boundary(
     response = client.get(url)
     assert response.status_code == expected, response.text
     assert "data" not in response.json()
+    assert response.headers["cache-control"] == "no-store"
+
+
+def locked_summary(dsn, run_id, access, monkeypatch, **changes):
+    """합성 실행을 잠금 경로 실행으로 바꾸고 바뀐 구성 hash를 승인한다.
+
+    Args:
+        dsn: 격리 DB 연결.
+        run_id: 바꿀 실행.
+        access: 요약 API가 읽는 승인 설정. 새 hash만 승인한다.
+        monkeypatch: 요약 검증 잠금표 교체.
+        changes: make_locked 뒤 hash 재계산 전에 바꿀 실험 열.
+
+    Returns:
+        dict: 지표별 검사용 (정답 바이트, 잠금표). 요약 검증도 이 잠금표를 쓴다.
+    """
+    from backend.api.platform.evaluations import summary
+
+    make_locked(dsn, run_id)
+    with psycopg.connect(dsn) as conn:
+        experiment = (
+            conn.cursor(row_factory=dict_row)
+            .execute(
+                "SELECT * FROM evaluation.experiments WHERE id="
+                "(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+                (run_id,),
+            )
+            .fetchone()
+        )
+        experiment.update(changes)
+        digest = canonical_hash({k: experiment[k] for k in CONFIG_FIELDS})
+        for column, value in {**changes, "config_hash": digest}.items():
+            conn.execute(
+                psycopg.sql.SQL("UPDATE evaluation.experiments SET {}=%s WHERE id=%s").format(
+                    psycopg.sql.Identifier(column)
+                ),
+                (value, experiment["id"]),
+            )
+    access.approved_config_hashes = frozenset({digest})
+    golds = {metric: locked_gold(metric) for metric in LOCKED_GOLD}
+    golds["provided_info"] = locked_info_gold()
+    locks = {metric: lock for _, table in golds.values() for metric, lock in table.items()}
+    monkeypatch.setattr(summary, "GOLD_LOCKS", locks)
+    return golds
+
+
+def store_locked(dsn, run_id, golds, metric, scoring_version="locked-v1"):
+    """검사 관리자 연결로 지표 하나의 잠금 품질 행을 저장한다.
+
+    Args:
+        dsn: 격리 DB 연결.
+        run_id: 잠금 경로 실행.
+        golds: locked_summary가 만든 지표별 정답·잠금표.
+        metric: 저장할 지표.
+        scoring_version: 채점 판본.
+
+    Returns:
+        None: 저장 거부는 예외로 전파된다.
+    """
+    from eval.cs_report import store_locked_quality_metrics
+
+    data, locks = golds[metric]
+    with psycopg.connect(dsn) as conn:
+        store_locked_quality_metrics(
+            conn, run_id, metric, data, scoring_version=scoring_version, locks=locks
+        )
+
+
+def test_summary_locked_quality_available_only_with_all_metrics(
+    summary_client,
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+):
+    """잠금 경로는 다섯 지표가 모두 계약 행일 때만 품질 연결로 표시한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: 잠금표 교체.
+
+    Returns:
+        None: 0·4·5지표의 연결 사유, 최신 판본 선택, 범위 분리, 비교 키 null, 사례 비노출을 확인한다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    golds = locked_summary(evaluation_database, cs_run, cs_access, monkeypatch)
+    names = ("category", "urgency", "secondary", "return_subtype", "provided_info")
+
+    def read():
+        response = client.get(url)
+        assert response.status_code == 200, response.text
+        for secret in ("synthetic_code", "target_ref", "raw_output", "@", *FIXTURES, OTHER_SPLIT):
+            assert secret not in response.text
+        return response.json()["data"]
+
+    data = read()
+    assert data["report_version"] == "cs-run-summary-v2" and data["data_origin"] == "synthetic"
+    assert (data["quality_available"], data["quality_unavailable_reason"]) == (
+        False,
+        "GOLD_NOT_CONNECTED",
+    )
+    assert data["synthetic_quality"] is None and data["comparison_key"] is None
+    assert data["locked_quality"] == {
+        "bundle_id": GOLD_BUNDLE_ID,
+        "attempt": "first",
+        "quality_gate_evaluated": False,
+        "metrics": dict.fromkeys(names),
+    }
+    for metric in names[:4]:
+        store_locked(evaluation_database, cs_run, golds, metric)
+    data = read()
+    assert (data["quality_available"], data["quality_unavailable_reason"]) == (
+        False,
+        "GOLD_PARTIAL",
+    )
+    store_locked(evaluation_database, cs_run, golds, "provided_info")
+    store_locked(evaluation_database, cs_run, golds, "category", "locked-v2")
+    data = read()
+    assert (data["quality_available"], data["quality_unavailable_reason"]) == (True, None)
+    metrics = data["locked_quality"]["metrics"]
+    category = metrics["category"]
+    assert category["scoring_version"] == "locked-v2"
+    assert category["stored_scoring_version_count"] == 2
+    assert category["gold_version"] == "test-category-v1"
+    assert (category["target_count"], category["scored_target_count"]) == (3, 3)
+    segment = category["segments"]["all"]
+    assert set(segment["values"]) == {"accuracy", "macro_f1"}
+    assert segment["locked_denominator"] == segment["target_count"] == 3
+    assert segment["items"] is None and segment["excluded_by_reason"] == {}
+    assert sum(item["support"] for item in segment["per_class"].values()) == 3
+    assert metrics["return_subtype"]["segments"]["all"]["excluded_by_reason"] == {"NOT_RETURN": 1}
+    assert set(metrics["secondary"]["segments"]["all"]["values"]) == {
+        "accuracy",
+        "composite_macro_f1",
+        "invented",
+    }
+    info = metrics["provided_info"]["segments"]
+    assert set(info) == {"scope=FULL", "scope=PRECISION_ONLY"}
+    assert set(info["scope=FULL"]["values"]) == {"precision", "recall", "f1", "exact_match"}
+    assert info["scope=FULL"]["items"] == {"tp": 0, "fp": 0, "fn": 1}
+    assert info["scope=FULL"]["excluded_by_reason"] == {"PRECISION_ONLY": 1}
+    assert set(info["scope=PRECISION_ONLY"]["values"]) == {"precision"}
+    assert info["scope=PRECISION_ONLY"]["items"] == {"tp": 0, "fp": 0}
+    assert info["scope=PRECISION_ONLY"]["values"]["precision"]["value"] is None
+    assert info["scope=FULL"]["per_class"] == {}
+
+
+@pytest.mark.parametrize(
+    "tamper,violation",
+    [
+        ("row_set", "LOCKED_ROW_SET"),
+        ("judged", "LOCKED_JUDGEMENT_RECORDED"),
+        ("details", "LOCKED_DETAILS"),
+        ("lock", "LOCKED_LOCK_MISMATCH"),
+        ("denominator", "LOCKED_DENOMINATOR"),
+        ("value", "LOCKED_VALUE_INVALID"),
+    ],
+)
+def test_summary_locked_quality_contract_violation_is_logged_without_values(
+    summary_client,
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    caplog,
+    tamper,
+    violation,
+):
+    """계약과 다른 잠금 행은 503이며 로그에는 실행 ID와 위반 종류만 남는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: 잠금표 교체.
+        caplog: 요약 처리 로그.
+        tamper: 주입할 변조.
+        violation: 기대하는 위반 종류 코드.
+
+    Returns:
+        None: 응답·로그에 저장 값·검증 메시지·사례 ID가 없음을 확인한다.
+    """
+    import dataclasses
+
+    from backend.api.platform.evaluations import summary
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    golds = locked_summary(evaluation_database, cs_run, cs_access, monkeypatch)
+    store_locked(evaluation_database, cs_run, golds, "category")
+    lock = summary.GOLD_LOCKS["category"]
+    statement = {
+        "row_set": "DELETE FROM evaluation.metrics WHERE run_id=%s "
+        "AND metric_key='cs_locked_category_first_macro_f1'",
+        "judged": "UPDATE evaluation.metrics SET threshold=0.9,comparison='>=',passed=false "
+        "WHERE run_id=%s AND metric_key='cs_locked_category_first_accuracy'",
+        "details": 'UPDATE evaluation.metrics SET details=details||\'{"case_ids":["cs-smoke-valid"]}\' '
+        "WHERE run_id=%s AND metric_key='cs_locked_category_first_accuracy'",
+        "value": "UPDATE evaluation.metrics SET value=-0.123456 "
+        "WHERE run_id=%s AND metric_key='cs_locked_category_first_macro_f1'",
+    }.get(tamper)
+    if statement:
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(statement, (cs_run,))
+    elif tamper == "lock":
+        changed = dataclasses.replace(lock, gold_sha256="0" * 64)
+        monkeypatch.setitem(summary.GOLD_LOCKS, "category", changed)
+    else:
+        changed = dataclasses.replace(lock, denominators=(("ALL", 0, 4),))
+        monkeypatch.setitem(summary.GOLD_LOCKS, "category", changed)
+    caplog.set_level("DEBUG")
+    response = client.get(url)
+    assert response.status_code == 503
+    records = [r for r in caplog.records if r.getMessage() == "Locked quality rows rejected"]
+    assert [(r.run_id, r.metric, r.violation) for r in records] == [
+        (str(cs_run), "category", violation)
+    ]
+    for leak in ("cs-smoke", "case_ids", "-0.123456", "0" * 64, "Traceback", "LOCKED_"):
+        assert leak not in response.text
+    for leak in ("cs-smoke", "case_ids", "-0.123456", "0" * 64, lock.gold_sha256):
+        assert leak not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "boundary", ["approval", "hash", "fake", "profile", "test", "target", "train"]
+)
+def test_summary_locked_path_scope_boundary(
+    summary_client,
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    boundary,
+):
+    """잠금 경로도 승인·hash·비합성·split·대상 경계를 집계 전에 적용한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: 잠금표 교체.
+        boundary: 확인할 경계.
+
+    Returns:
+        None: 거부 상태 코드와 본문 비노출, train 허용을 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    changes = {
+        "profile": {"prompt_version": PROMPT_VERSION},
+        "test": {"data_split": "test"},
+        "train": {"data_split": "train"},
+    }.get(boundary, {})
+    locked_summary(evaluation_database, cs_run, cs_access, monkeypatch, **changes)
+    expected = {"approval": 403, "hash": 409, "fake": 403, "profile": 403, "test": 404}
+    with psycopg.connect(evaluation_database) as conn:
+        if boundary == "approval":
+            cs_access.approved_config_hashes = frozenset({"0" * 64})
+        elif boundary == "hash":
+            conn.execute(
+                "UPDATE evaluation.experiments SET policy_version='changed' WHERE id="
+                "(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+                (cs_run,),
+            )
+        elif boundary == "fake":
+            conn.execute("UPDATE evaluation.runs SET provider='fake' WHERE id=%s", (cs_run,))
+        elif boundary == "target":
+            conn.execute(
+                "UPDATE evaluation.experiments SET target_set_hash=%s WHERE id="
+                "(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+                ("0" * 64, cs_run),
+            )
+            expected["target"] = 409
+    if boundary == "target":
+        # 바꾼 대상 hash로 구성 hash를 다시 승인해 대상 대조만 남긴다.
+        locked_summary(evaluation_database, cs_run, cs_access, monkeypatch)
+    response = client.get(url)
+    assert response.status_code == expected.get(boundary, 200), response.text
+    if boundary == "train":
+        assert response.json()["data"]["locked_quality"]["metrics"]["category"] is None
+    else:
+        assert "data" not in response.json()
     assert response.headers["cache-control"] == "no-store"
 
 

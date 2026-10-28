@@ -86,4 +86,23 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 중 DB 잠금을 유지하지 않고 저장 단계에서 현재 연결 개정을 재검사한다. 상세 호출 계약은
 [플랫폼 인증](../../contracts/platform/auth.md#사서함-보관-계층-kan-81-부분-구현-운영-미적용)을 따른다.
 
+## 메일 수집 표 적용 (KAN-71)
+
+현재 구현은 서버 내부 수집 함수이며 공용 환경에는 미적용이다. 아래도 별도 운영 승인 후 운영자 터미널에서
+진행하며, 에이전트가 공유 DB를 변경하지 않는다.
+
+1. 위 사서함 보관 준비 1~3단계(KAN-81 마이그레이션 적용과 `004_check_mailbox_vault.sql` 확인)가 끝났는지 확인한다.
+   KAN-71 표는 `mailbox_auth.connections`를 참조하므로 그 뒤에만 적용할 수 있다.
+2. 운영자 postgres 연결에서 `infra/migrations/platform/20261028_KAN-71_mail_sync.sql`을
+   `psql -X -v ON_ERROR_STOP=1 -f ...`로 한 번 적용한다. 로컬은 `python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql`이다.
+   전체가 한 트랜잭션이라 KAN-81 표가 없거나 수집 표가 이미 있으면 오류로 멈추고 아무것도 남기지 않는다.
+   이때 순서를 바로잡아 다시 적용하며, 이미 적용된 DB에 반복하지 않는다.
+3. 적용 뒤 `integration` 스키마에 `mail_sync_runs`·`mail_sync_cursors`·`mail_messages`·`mail_attachments` 네 표가 있고,
+   `platform_app`은 SELECT·INSERT·UPDATE만, `cs_app`·`tft_app`은 권한이 없는지 읽기 전용으로 확인한다.
+   이 확인용 검사 SQL은 아직 없다.
+4. 연결 행은 수집 표가 참조하므로 지우지 않는다(해제는 `state='disconnected'`). 참조가 있는 연결의 DELETE는 FK로 거부된다.
+
+표 적용만으로 수집이 켜지지 않는다. 수집을 부르는 워커·정기 실행은 KAN-72, 운영 객체 저장소는 후속 작업이다.
+상세는 [메일 수집 계약](../../contracts/platform/mail.md)을 따른다.
+
 근거: [PostgreSQL 스키마 권한](https://www.postgresql.org/docs/17/ddl-schemas.html), [생성자별 기본 권한](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html), [Cloud SQL 사용자 생성](https://docs.cloud.google.com/sql/docs/postgres/create-manage-users).
