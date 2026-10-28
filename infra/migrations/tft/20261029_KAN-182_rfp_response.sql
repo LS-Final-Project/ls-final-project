@@ -524,7 +524,8 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
 GRANT UPDATE (latest_version) ON tft.documents, tft.requirements, tft.drafts TO tft_app;
 GRANT UPDATE (status, version, updated_at) ON tft.customer_questions TO tft_app;
 GRANT UPDATE (status, decided_by, decided_at, decision_note, version) ON tft.change_proposals TO tft_app;
-GRANT UPDATE (storage_key, sha256, size, completed_at) ON tft.exports TO tft_app;
+-- job_id는 내보내기 행을 먼저 쓰고 플랫폼 접수 뒤 채운다.
+GRANT UPDATE (job_id, storage_key, sha256, size, completed_at) ON tft.exports TO tft_app;
 GRANT UPDATE (cleared_by, cleared_at) ON tft.rereview_marks TO tft_app;
 GRANT UPDATE (output_status, judgement_status, customer_goal, review_departments, review_version)
     ON tft.projects TO tft_app;
