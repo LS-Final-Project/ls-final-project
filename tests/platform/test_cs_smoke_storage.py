@@ -217,6 +217,47 @@ def test_cs_attempts_persist_and_recover_without_duplicate(
     assert saved(evaluation_database, cs_run) == rows
 
 
+def test_attempt_cost_is_null_when_input_or_output_tokens_are_missing(monkeypatch):
+    """입력·답변 토큰 중 하나라도 미보고면 부분 합계를 확정 비용으로 저장하지 않는다.
+
+    Args:
+        monkeypatch: 단가표 교체.
+
+    Returns:
+        None: 캐시·추론 생략은 비용 저장을 막지 않는다.
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from backend.api.platform.evaluations import smoke_worker
+    from backend.engine.cs.classification_call import ClassificationAttempt
+    from backend.shared.ai import ModelPrice, Usage
+
+    # 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+    prices = {
+        "fake": ModelPrice(
+            input_per_million=Decimal("2"),
+            output_per_million=Decimal("10"),
+            cached_input_per_million=Decimal("0.5"),
+            currency="USD",
+            as_of=date(2026, 1, 1),
+        )
+    }
+    monkeypatch.setattr(smoke_worker, "load_price_table", lambda: prices)
+
+    def cost(usage: Usage) -> tuple:
+        return smoke_worker.attempt_cost(
+            ClassificationAttempt(1, usage=usage, requested_model="fake")
+        )
+
+    assert cost(Usage(input_tokens=7)) == (None, None)
+    assert cost(Usage(output_tokens=3)) == (None, None)
+    assert cost(Usage(input_tokens=7, output_tokens=3)) == (
+        Decimal("0.000044"),
+        "fake@2026-01-01",
+    )
+
+
 @pytest.mark.parametrize(("currency", "stored"), [("USD", True), ("KRW", False)])
 def test_cs_attempt_cost_and_raw_usage_follow_price_table(
     settings, cs_access, cs_run, evaluation_database, monkeypatch, currency, stored

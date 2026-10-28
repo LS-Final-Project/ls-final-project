@@ -33,14 +33,16 @@ def attempt_cost(attempt: ClassificationAttempt) -> tuple[Decimal | None, str | 
         attempt: 요청 모델과 사용량을 가진 분류 시도.
 
     Returns:
-        tuple[Decimal | None, str | None]: total이 있고 통화가 USD일 때만 (금액, '모델@as_of').
-            단가가 없거나 USD가 아니면 (None, None)이다. 금액은 DB numeric(14,6)에 저장되며
-            소수 6자리로 반올림된다.
+        tuple[Decimal | None, str | None]: 청구 입력·답변 금액이 모두 계산되고 통화가 USD일 때만
+            (total, '모델@as_of'). 입력·답변 토큰 중 하나라도 미보고면 부분 합계를 확정 비용으로
+            저장하지 않고 (None, None)이다. 캐시·추론 토큰은 쓰지 않은 호출에서 공급자가 생략하므로
+            없어도 0으로 본다. 단가가 없거나 USD가 아니어도 (None, None)이다. 금액은 DB
+            numeric(14,6)에 저장되며 소수 6자리로 반올림된다.
     """
     if attempt.requested_model is None:
         return None, None
     cost = estimate_cost(attempt.usage, attempt.requested_model, load_price_table())
-    if cost.total is None or cost.currency != "USD":
+    if cost.input is None or cost.output is None or cost.currency != "USD":
         return None, None
     return cost.total, f"{attempt.requested_model}@{cost.price_as_of}"
 
