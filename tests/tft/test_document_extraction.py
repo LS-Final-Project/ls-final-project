@@ -1,0 +1,310 @@
+"""KAN-96 DOCX·PDF 네이티브 추출. 픽스처는 코드로 만든다(바이너리 커밋 없음, 실제 RFP 없음)."""
+
+import io
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from backend.engine.documents.docx import extract_docx
+from backend.engine.documents.model import ExtractedDocument
+from backend.engine.documents.router import DOCX_MIME, extract
+
+NS = (
+    'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+    'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+    'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"'
+)
+
+
+def docx(body: str, **parts: str) -> bytes:
+    """본문 XML과 추가 부분으로 최소 DOCX를 만든다.
+
+    Args:
+        body: w:body 안 XML.
+        parts: 부분 경로(점은 "_"로) → XML. 예 word_styles_xml.
+
+    Returns:
+        DOCX 바이트.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "word/document.xml", f"<w:document {NS}><w:body>{body}</w:body></w:document>"
+        )
+        for name, xml in parts.items():
+            archive.writestr(name.replace("_xml", ".xml").replace("_", "/"), xml)
+    return buffer.getvalue()
+
+
+def run(text: str, props: str = "") -> str:
+    return f'<w:r><w:rPr>{props}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>'
+
+
+def para(*runs: str, props: str = "") -> str:
+    return f"<w:p><w:pPr>{props}</w:pPr>{''.join(runs)}</w:p>"
+
+
+STRIKE = "<w:strike/>"
+
+
+def only(document: ExtractedDocument) -> dict:
+    [block] = [b for b in document.blocks if b.kind == "PARAGRAPH"]
+    return block.model_dump()
+
+
+def test_struck_value_is_history_not_current_text() -> None:
+    document = extract_docx(docx(para(run("50", STRIKE), run("33% with fans"))))
+    block = only(document)
+    assert block["text"] == "33% with fans"
+    assert block["deleted_values"] == [{"text": "50", "position": 0, "origin": "STRIKE"}]
+    assert document.edit_trace_support is True and document.summary.strike_runs == 1
+
+
+def test_struck_parenthesis_split_over_runs_counts_once() -> None:
+    body = para(
+        run("EXECUTION "), run("(NOT ", STRIKE), run("IN CONTRACT)", '<w:dstrike w:val="1"/>')
+    )
+    document = extract_docx(docx(body))
+    block = only(document)
+    assert block["text"] == "EXECUTION"
+    assert block["deleted_values"] == [
+        {"text": "(NOT IN CONTRACT)", "position": 9, "origin": "STRIKE"}
+    ]
+    assert document.summary.strike_runs == 1
+
+
+def test_strike_turned_off_is_current_text() -> None:
+    block = only(extract_docx(docx(para(run("kept", '<w:strike w:val="0"/>')))))
+    assert block["text"] == "kept" and block["deleted_values"] == []
+
+
+def test_tracked_delete_is_kept_apart_from_strike() -> None:
+    body = para(
+        run("Rated "),
+        "<w:del><w:r><w:delText>40</w:delText></w:r></w:del>",
+        f"<w:ins>{run('38')}</w:ins>",
+        run(" kA"),
+    )
+    document = extract_docx(docx(body))
+    block = only(document)
+    assert block["text"] == "Rated 38 kA"
+    assert block["deleted_values"] == [{"text": "40", "position": 6, "origin": "TRACKED_DELETE"}]
+    assert document.summary.strike_runs == 0
+
+
+def test_placeholder_highlight_and_line_break_flags() -> None:
+    body = para(run("&lt;Insert value&gt;"), run(" kV")) + para(
+        run("Owner "), run("approval", '<w:highlight w:val="yellow"/>'), run(" required")
+    )
+    body += para("<w:r><w:t>first</w:t><w:br/><w:t>second</w:t></w:r>")
+    document = extract_docx(docx(body))
+    placeholder, highlighted, joined = (b for b in document.blocks if b.kind == "PARAGRAPH")
+    assert placeholder.text == "<Insert value> kV" and placeholder.flags == ["TEMPLATE_PLACEHOLDER"]
+    assert highlighted.flags == ["HIGHLIGHT"] and highlighted.text == "Owner approval required"
+    assert joined.text == "first second" and joined.flags == ["LINE_BREAK_REJOINED"]
+    assert document.summary.placeholders == 1 and document.summary.highlight_runs == 1
+
+
+def cell(text: str, props: str = "") -> str:
+    return f"<w:tc><w:tcPr>{props}</w:tcPr>{para(run(text)) if text else '<w:p/>'}</w:tc>"
+
+
+def test_table_cells_keep_merges_and_empty_cells() -> None:
+    span, restart, cont = '<w:gridSpan w:val="2"/>', '<w:vMerge w:val="restart"/>', "<w:vMerge/>"
+    rows = [
+        cell("Item", span) + cell("Value"),
+        cell("Breaker", restart) + cell("") + cell("1200 A"),
+        cell("", cont) + cell("Frame") + cell(""),
+    ]
+    table = "<w:tbl>" + "".join(f"<w:tr>{row}</w:tr>" for row in rows) + "</w:tbl>"
+    document = extract_docx(docx(table))
+    cells = {(b.position.row, b.position.col): b for b in document.blocks}
+    assert document.summary.tables == 1 and len(cells) == 8
+    assert cells[(0, 0)].cell_state.col_span == 2  # type: ignore[union-attr]
+    assert cells[(0, 2)].text == "Value"
+    origin = cells[(1, 0)]
+    assert cells[(2, 0)].cell_state.merged_with == origin.block_id  # type: ignore[union-attr]
+    assert origin.cell_state.merged_with is None  # type: ignore[union-attr]
+    assert cells[(1, 1)].cell_state.is_empty is True  # type: ignore[union-attr]
+    assert cells[(2, 1)].text == "Frame" and cells[(2, 1)].position.page is None
+
+
+def test_images_textboxes_equations_footnotes_and_headers_are_listed_not_read() -> None:
+    image = "<w:r><w:drawing><a:graphic><a:blip/></a:graphic></w:drawing></w:r>"
+    textbox = (
+        f"<w:r><w:pict><w:txbxContent>{para(run('hidden box text'))}</w:txbxContent></w:pict></w:r>"
+    )
+    body = para(run("See figure"), image, textbox, "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>")
+    body += para(run("Note"), '<w:r><w:footnoteReference w:id="1"/></w:r>')
+    document = extract_docx(docx(body, word_header1_xml=f"<w:hdr {NS}/>"))
+    texts = [b.text for b in document.blocks]
+    assert "See figure" in texts and not any("hidden" in t or "x" == t for t in texts)
+    kinds = sorted(item.kind for item in document.unprocessed)
+    assert kinds == ["EQUATION", "FOOTNOTE", "HEADER", "IMAGE", "TEXTBOX"]
+    [image_block] = [b for b in document.blocks if b.kind == "IMAGE"]
+    assert image_block.position.paragraph_index == 0
+    assert any(
+        i.kind == "IMAGE" and i.location == image_block.block_id for i in document.unprocessed
+    )
+    assert document.summary.images == 1 and document.summary.unprocessed == 5
+
+
+STYLES = f"""<w:styles {NS}>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="SpecBase"><w:name w:val="Spec Base"/>
+  <w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="PRT"><w:name w:val="PRT"/><w:basedOn w:val="SpecBase"/></w:style>
+<w:style w:type="paragraph" w:styleId="ART"><w:name w:val="ART"/><w:basedOn w:val="SpecBase"/></w:style>
+<w:style w:type="paragraph" w:styleId="PR1"><w:name w:val="PR1"/><w:basedOn w:val="SpecBase"/></w:style>
+<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style>
+</w:styles>"""
+NUMBERING = f"""<w:numbering {NS}>
+<w:abstractNum w:abstractNumId="7">
+  <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:pStyle w:val="PRT"/>
+    <w:lvlText w:val="PART %1 -"/></w:lvl>
+  <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:pStyle w:val="ART"/>
+    <w:lvlText w:val="%1.%2"/></w:lvl>
+  <w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="upperLetter"/><w:pStyle w:val="PR1"/>
+    <w:lvlText w:val="%3."/></w:lvl>
+  <w:lvl w:ilvl="3"><w:numFmt w:val="chicago"/><w:lvlText w:val="%4"/></w:lvl>
+</w:abstractNum>
+<w:num w:numId="1"><w:abstractNumId w:val="7"/></w:num>
+</w:numbering>"""
+
+
+def styled(style: str, text: str) -> str:
+    return para(run(text), props=f'<w:pStyle w:val="{style}"/>')
+
+
+def test_style_linked_numbering_through_based_on_chain() -> None:
+    body = "".join(
+        styled(style, text)
+        for style, text in [
+            ("PRT", "GENERAL"),
+            ("ART", "SUMMARY"),
+            ("PR1", "Section includes"),
+            ("PR1", "Related sections"),
+            ("ART", "SUBMITTALS"),
+            ("PR1", "Product data"),
+            ("Heading1", "Title"),
+        ]
+    )
+    body += para(run("odd"), props='<w:numPr><w:ilvl w:val="3"/><w:numId w:val="1"/></w:numPr>')
+    body += para(run("missing"), props='<w:numPr><w:numId w:val="9"/></w:numPr>')
+    document = extract_docx(docx(body, word_styles_xml=STYLES, word_numbering_xml=NUMBERING))
+    hints = [b.hints for b in document.blocks]
+    assert [h.list_text for h in hints] == [  # type: ignore[union-attr]
+        "PART 1 -", "1.1", "A.", "B.", "1.2", "A.", None, None, None,
+    ]  # fmt: skip
+    assert [h.numbering_level for h in hints[:3]] == [0, 1, 2]  # type: ignore[union-attr]
+    assert hints[2].style_name == "PR1"  # type: ignore[union-attr]
+    assert hints[6].is_heading and not hints[0].is_heading  # type: ignore[union-attr]
+    # 계산하지 못해도 원래 번호 참조는 남는다.
+    assert hints[7].numbering_raw.model_dump() == {"num_id": "1", "ilvl": 3}  # type: ignore[union-attr]
+    assert hints[8].numbering_raw.model_dump() == {"num_id": "9", "ilvl": 0}  # type: ignore[union-attr]
+    assert hints[6].numbering_raw is None  # type: ignore[union-attr]
+
+
+def pdf(pages: list[str], image_on: int | None = None) -> bytes:
+    """페이지마다 한 줄 텍스트를 가진 최소 PDF를 만든다.
+
+    Args:
+        pages: 페이지별 텍스트(줄은 "\\n", 빈 줄은 문단 간격).
+        image_on: 1x1 그림 XObject를 붙일 페이지 번호(1부터).
+
+    Returns:
+        PDF 바이트.
+    """
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    kids = []
+    for number, text in enumerate(pages, start=1):
+        # 빈 줄은 문단 사이 세로 간격(30pt)으로 그린다.
+        lines = "".join(
+            f"({line}) Tj 0 -14 Td " if line else "0 -30 Td " for line in text.split("\n")
+        )
+        stream = f"BT /F1 12 Tf 72 720 Td {lines}ET"
+        objects.append(f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream")
+        content = len(objects)
+        xobject = ""
+        if number == image_on:
+            objects.append(
+                "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray "
+                "/BitsPerComponent 8 /Length 1 >>\nstream\n\x00\nendstream"
+            )
+            xobject = f" /XObject << /Im1 {len(objects)} 0 R >>"
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content} 0 R "
+            f"/Resources << /Font << /F1 3 0 R >>{xobject} >> >>"
+        )
+        kids.append(f"{len(objects)} 0 R")
+    objects[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>"
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += "".join(f"{offset:010d} 00000 n \n" for offset in offsets).encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    )
+    return out
+
+
+def test_pdf_pages_text_and_images() -> None:
+    pages = ["Section 2.4 Switchgear\n\nA. Rated 15 kV\ncontinued line", "Rated <Insert value> kV"]
+    document = extract(pdf(pages, image_on=2))
+    assert document.source_kind == "PDF" and document.edit_trace_support is False
+    paragraphs = [b for b in document.blocks if b.kind == "PARAGRAPH"]
+    assert [(b.text, b.position.page) for b in paragraphs] == [
+        ("Section 2.4 Switchgear", 1),
+        ("A. Rated 15 kV\ncontinued line", 1),
+        ("Rated <Insert value> kV", 2),
+    ]
+    assert paragraphs[2].flags == ["TEMPLATE_PLACEHOLDER"] and paragraphs[1].flags == []
+    assert all(b.deleted_values == [] for b in document.blocks)
+    [image] = [b for b in document.blocks if b.kind == "IMAGE"]
+    assert image.position.page == 2 and document.summary.images == 1
+    assert [u.kind for u in document.unprocessed] == ["IMAGE"]
+
+
+def test_router_uses_content_and_rejects_mismatch(tmp_path: Path) -> None:
+    data = docx(para(run("hello")))
+    path = tmp_path / "spec.docx"
+    path.write_bytes(data)
+    assert extract(path).source_kind == "DOCX"
+    assert extract(data, DOCX_MIME).source_kind == "DOCX"
+    with pytest.raises(ValueError, match="선언한 형식"):
+        extract(data, "application/pdf")
+    renamed = tmp_path / "spec.pdf"
+    renamed.write_bytes(data)
+    with pytest.raises(ValueError, match="선언한 형식"):
+        extract(renamed)
+    other_zip = io.BytesIO()
+    with zipfile.ZipFile(other_zip, "w") as archive:
+        archive.writestr("xl/workbook.xml", "<x/>")
+    for unsupported in (b"\xd0\xcf\x11\xe0legacy doc", other_zip.getvalue(), b"plain"):
+        with pytest.raises(ValueError, match="DOCX·PDF만"):
+            extract(unsupported)
+
+
+def test_untrusted_docx_parts_are_rejected() -> None:
+    doctype = io.BytesIO()
+    with zipfile.ZipFile(doctype, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            '<!DOCTYPE d [<!ENTITY x "y">]><w:document ' + NS + "><w:body/></w:document>",
+        )
+    with pytest.raises(ValueError, match="DOCTYPE"):
+        extract_docx(doctype.getvalue())
+    broken = io.BytesIO()
+    with zipfile.ZipFile(broken, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document")
+    with pytest.raises(ValueError, match="해석할 수 없"):
+        extract_docx(broken.getvalue())
