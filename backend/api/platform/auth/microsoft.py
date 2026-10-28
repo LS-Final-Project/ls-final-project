@@ -491,7 +491,7 @@ class PersonalMicrosoftOAuth:
         return MicrosoftSubject(tid=PERSONAL_TENANT, oid=oid)
 
     def acquire_mailbox_token(
-        self, *, subject: MicrosoftSubject, serialized_cache: SecretStr
+        self, *, subject: MicrosoftSubject, serialized_cache: SecretStr, force_refresh: bool = False
     ) -> MailboxTokenUpdate:
         """연결 전용 캐시에서 유효 토큰을 얻고 필요하면 MSAL로 갱신한다.
 
@@ -503,6 +503,7 @@ class PersonalMicrosoftOAuth:
         Args:
             subject: 연결 시 검증해 서버에 저장한 사서함의 Microsoft 식별자.
             serialized_cache: 해당 연결에서만 사용하는 복호화된 MSAL 캐시.
+            force_refresh: True면 캐시의 access token을 쓰지 않고 refresh token으로 새로 받는다.
 
         Returns:
             MailboxTokenUpdate: 유효 access token과 보관 경계에 전달할 새 캐시 상태.
@@ -519,7 +520,7 @@ class PersonalMicrosoftOAuth:
             identity_fields = ("home_account_id", "local_account_id", "environment")
             expected_account = tuple(account.get(field) for field in identity_fields)
             result = self._application(token_cache=cache).acquire_token_silent_with_error(
-                list(MAILBOX_SCOPES), account=account
+                list(MAILBOX_SCOPES), account=account, force_refresh=force_refresh
             )
             if result is None:
                 raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
