@@ -25,10 +25,10 @@ SentenceKind = Literal["EVIDENCE", "CONDITION", "UNCONFIRMED"]
 FORBIDDEN_COMMITMENTS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
-        r"\bRMA\s+(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed|issued)\b",
+        r"\bRMA\s+(?:(?:request|claim)\s+)?(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed|issued)\b",
         r"\breturn\s+(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed)\b",
         r"\bwarranty\s+(?:claim\s+)?(?:is\s+|has\s+been\s+)?approved\b",
-        r"(?<!whether )(?<!if )\b(?:it|this|that|they|(?:the|your|our)\s+\w+)\s+(?:is|are|will\s+be)\s+"
+        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )\b(?:it|this|that|they|(?:the|your|our)\s+\w+)\s+(?:is|are|will\s+be)\s+"
         r"covered\s+(?:under|by)\s+(?:the\s+|your\s+|our\s+)?warranty\b",
         r"\bit[’']s\s+covered\s+(?:under|by)\s+(?:the\s+|your\s+|our\s+)?warranty\b",
         r"\bwe(?:\s+will|[’\']ll)\s+(?:send|dispatch)\s+(?:a|an|our)\s+(?:field\s+)?(?:technician|engineer)\b",

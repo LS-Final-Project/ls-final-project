@@ -257,6 +257,7 @@ FORBIDDEN_EXAMPLES = {
         "Your RMA has been approved.",
         "RMA issued: please ship.",
         "RMA approved.",
+        "Your RMA request has been approved.",
     ],
     FORBIDDEN_COMMITMENTS[1].pattern: ["Return authorized.", "The return is approved."],
     FORBIDDEN_COMMITMENTS[2].pattern: [
@@ -321,6 +322,8 @@ ALLOWED_EXAMPLES = [
     "보증 처리 여부는 점검 후 알려 드립니다.",
     "기술자 파견 여부는 담당 부서에서 결정합니다.",
     "We will check whether your unit is covered under warranty.",
+    "We will confirm whether or not it is covered under warranty.",
+    "In case it is covered under warranty, we will let you know.",
 ]
 
 
