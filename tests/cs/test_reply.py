@@ -219,6 +219,8 @@ def test_full_and_partial_answers_pass_validation():
         (raw(answered=["TEST_PHOTO", "TEST_PHOTO"]), "NOT_MENTIONED"),
         (raw(answered=["TEST_PHOTO"], questions=[("TEST_PHOTO", "Again?")]), "NOT_MENTIONED"),
         (raw(unit="SAME"), "DIFFERS"),
+        (raw(unit="NOT_MENTIONED"), "DIFFERS"),
+        (raw(unit="UNCLEAR"), "DIFFERS"),
         (raw(unit="DIFFERENT"), "MATCHES"),
         (raw(unit="GUESSED"), "NOT_MENTIONED"),
         (raw()[:-1] + ', "answered_codes": []}', "NOT_MENTIONED"),
@@ -287,6 +289,25 @@ def test_apply_reply_next_action(kwargs, action):
         None: 다음 행동을 확인한다.
     """
     assert apply_reply(CONTEXT, check(raw(**kwargs))).next_action == action
+
+
+def test_code_computed_different_serial_overrides_model_and_escalates():
+    """회신이 다른 시리얼을 말하면 모델이 NOT_MENTIONED로 가려도 거부하고, DIFFERENT면 사람에게 넘긴다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: DIFFERS가 DRAFT_ANSWER로 새지 않음을 확인한다.
+    """
+    serial_match = prepare(
+        "serial: ZX-OTHER-9, photo and invoice attached."
+    ).payload.reply_serial_match
+    assert serial_match == "DIFFERS"
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(raw(unit="NOT_MENTIONED"), serial_match)
+    update = apply_reply(CONTEXT, check(raw(unit="DIFFERENT"), serial_match))
+    assert update.next_action == "ESCALATE_TO_AGENT" and update.still_missing == []
 
 
 def test_apply_reply_merges_codes_and_keeps_not_mentioned():
