@@ -12,7 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from backend.api.platform.mail.storage import GcsObjectStore, GoogleStorageToken, content_key
+from backend.api.platform.mail.storage import GcsObjectStore, GoogleAccessToken, content_key
 from backend.shared.errors import ApplicationError
 
 BUCKET = "proj-test-team4-mail-objects"
@@ -179,16 +179,16 @@ class FakeCredentials:
 
 def test_google_token_refreshes_only_when_needed():
     valid = FakeCredentials(valid=True)
-    assert asyncio.run(GoogleStorageToken(valid)()) == "cached"
+    assert asyncio.run(GoogleAccessToken(valid)()) == "cached"
     assert valid.refreshes == 0
     expired = FakeCredentials(valid=False)
-    assert asyncio.run(GoogleStorageToken(expired)()) == "refreshed"
+    assert asyncio.run(GoogleAccessToken(expired)()) == "refreshed"
     assert expired.refreshes == 1
 
 
 def test_google_token_failure_hides_provider_detail():
     with pytest.raises(ApplicationError) as error:
-        asyncio.run(GoogleStorageToken(FakeCredentials(valid=False, fail=True))())
+        asyncio.run(GoogleAccessToken(FakeCredentials(valid=False, fail=True))())
     assert error.value.code == "MAIL_STORAGE_UNAVAILABLE"
     assert "secret detail" not in error.value.message
     assert error.value.__cause__ is None

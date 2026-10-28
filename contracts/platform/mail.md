@@ -29,7 +29,7 @@ python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql
 | `GcsObjectStore(client, bucket, token)` | 운영(KAN-72) | 버킷은 `MAIL_OBJECT_BUCKET`(`infra/setup_mail_bucket.sh`). `ifGenerationMatch=0`으로 객체가 없을 때만 만들고, 보낸 바이트의 MD5(`x-goog-hash`)를 Cloud Storage가 확인한다. 이미 있다는 응답(412)이나 덮어쓰기 거부(403)는 같은 키의 객체 크기·MD5가 같을 때만 성공으로 본다 |
 
 - 운영 실행 계정 `platform-runtime`은 이 버킷에 객체 생성·읽기만 할 수 있다. 삭제·덮어쓰기 권한이 없어 보관한 원문은 수집 코드로 바뀌지 않는다.
-- `GoogleStorageToken`은 실행 환경 기본 자격 증명(`devstorage.read_write` 범위)으로 access token을 받고 만료되면 갱신한다. 토큰은 요청 헤더에만 쓴다.
+- `GoogleAccessToken`은 실행 환경 기본 자격 증명(`devstorage.read_write` 범위)으로 access token을 받고 만료되면 갱신한다. 토큰은 요청 헤더에만 쓴다.
 - 저장소 장애·거부·내용 불일치는 `MAIL_STORAGE_UNAVAILABLE`(503)로 실행에 기록한다. 버킷·키·Cloud Storage 응답 본문은 오류에 넣지 않는다.
 
 ## 호출
@@ -95,8 +95,42 @@ result = await sync_mailbox(
 - 이 확인은 PR #105 수집 코드로 했다. 이후 바뀐 취소 기록·사서함별 저장 키(PR #140)와 Graph 401 강제 갱신(PR #145)은 합성 검사로만 확인했다.
 - 제품 사서함 연결 화면(KAN-81 HTTP)을 거친 흐름은 이 확인 범위가 아니다.
 
+## 워커와 정기 실행 (KAN-72)
+
+`backend/api/platform/mail/worker.py`. 두 내부 경로는 기본 비활성(404)이고 OpenAPI·웹 중계에 넣지 않는다.
+
+```text
+Cloud Scheduler(5분, OIDC) ──POST──▶ /internal/v1/platform/mail/dispatch
+        연결된 사서함마다 Cloud Tasks 작업 1개 등록 (이름: mail-<mailbox_id>-<구간>)
+Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1/platform/mail/sync
+        sync_mailbox(KAN-81 토큰 제공자, GcsObjectStore)
+```
+
+| 설정(환경 변수) | 값 |
+| --- | --- |
+| `MAIL_SYNC_ENABLED` | 기본 `false`. 켜려면 `MAILBOX_AUTH_ENABLED`도 켜져 있어야 한다 |
+| `MAIL_SYNC_QUEUE` | `projects/<p>/locations/<l>/queues/mail-sync` |
+| `MAIL_SYNC_SERVICE_URL` | 플랫폼 Cloud Run 주소(https origin, 끝 `/` 없음). 작업 대상과 ID 토큰 audience |
+| `MAIL_SYNC_INVOKER_EMAIL` | Scheduler·Tasks가 ID 토큰을 받는 호출 전용 계정(`mail-sync-invoker@…`) |
+| `MAIL_SYNC_INTERVAL_SECONDS` | 작업 이름 구간 길이. 기본 300초(Scheduler 주기와 맞춘다) |
+| `MAIL_OBJECT_BUCKET` | 메일 객체 버킷(KAN-66 댓글 10427) |
+
+- **호출자 확인**: Cloud Run IAM(`run.invoker`)과 별도로, 컨테이너가 `Authorization`의 Google ID 토큰을 고정 Google 서명키·`MAIL_SYNC_SERVICE_URL` audience·`MAIL_SYNC_INVOKER_EMAIL`로 다시 검증한다(`PlatformCaller`). 실패하면 DB·큐·Graph를 부르기 전에 401이다. 본문은 호출자 확인 뒤에 읽어, 잘못된 본문이 비활성 404·인증 401을 가리지 않는다(본문 오류는 422 `VALIDATION_ERROR`).
+- **같은 사서함 중복 방지**: 등록 단계는 작업 이름(사서함 ID + 시간 구간)으로, 같은 구간에 다시 불려도 Cloud Tasks가 409로 거절한다(기존으로 셈). 실행 단계는 KAN-71 실행 표의 `RUNNING` 부분 유일 인덱스로 막는다. 구간이 겹쳐 두 작업이 동시에 와도 하나는 `MAIL_SYNC_IN_PROGRESS`로 건너뛴다.
+- **같은 메일 재수집**: 사서함 안 `graph_id` 유일 제약과 저장소의 같은 키 재사용으로, 커서를 잃고 전체를 다시 받아도 메시지·객체가 늘지 않는다.
+- **응답 코드와 재시도**
+
+| 결과 | 응답 | 큐·Scheduler |
+| --- | --- | --- |
+| 수집 성공 | 200 `SUCCEEDED` | 끝 |
+| 진행 중·연결 해제·알 수 없는 사서함 | 200 `SKIPPED` + 코드 | 끝(다음 주기) |
+| 일시 실패: `GRAPH_THROTTLED`·`GRAPH_UNAVAILABLE`·`MAILBOX_TOKEN_UNAVAILABLE`·`MAIL_STORAGE_UNAVAILABLE`·`LEASE_EXPIRED`·`SYNC_CANCELLED` | 503 `FAILED` | 큐 재시도(최대 3회, 30~300초) |
+| 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN`·`MAILBOX_RECONNECT_REQUIRED` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
+| 작업 등록 중 하나라도 실패 | 503 | Scheduler 재시도(최대 3회, 30~120초). 이미 등록된 작업은 중복되지 않음 |
+
+- 큐·호출 계정·Scheduler 준비는 `infra/setup_mail_sync.sh`(인프라 담당자 실행). Scheduler 작업은 일시 중지로 만들고, 앱 설정을 켠 뒤 resume한다. 권한은 호출 계정에 플랫폼 `run.invoker`, `platform-runtime`에 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
+
 ## 남은 작업
 
-- 수집을 부르는 워커·정기 실행과 실행 간격·재시도 정책(KAN-72)
-- Cloud Run 환경 변수 `MAIL_OBJECT_BUCKET` 적용과 운영 저장소 연결(KAN-72 워커와 함께), 실제 버킷 쓰기 확인
+- 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결

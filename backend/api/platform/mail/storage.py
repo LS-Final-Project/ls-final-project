@@ -137,14 +137,22 @@ def storage_unavailable() -> ApplicationError:
     return ApplicationError(503, "MAIL_STORAGE_UNAVAILABLE", "Mail object storage is unavailable.")
 
 
-class GoogleStorageToken:
-    """실행 환경의 Google 자격 증명으로 Cloud Storage access token을 준다."""
+class GoogleAccessToken:
+    """실행 환경의 Google 자격 증명으로 Google API access token을 준다."""
 
-    def __init__(self, credentials: "Credentials | None" = None) -> None:
-        """자격 증명을 정한다.
+    def __init__(
+        self,
+        credentials: "Credentials | None" = None,
+        *,
+        scope: str = GCS_SCOPE,
+        error: Callable[[], ApplicationError] = storage_unavailable,
+    ) -> None:
+        """자격 증명과 실패 코드를 정한다.
 
         Args:
             credentials: 검사용 자격 증명. 없으면 실행 환경 기본 자격 증명(Cloud Run 실행 계정).
+            scope: 요청할 OAuth 범위. 기본은 Cloud Storage 읽기·쓰기.
+            error: 토큰을 받지 못했을 때 낼 오류. 공급자 설명은 넣지 않는다.
 
         Returns:
             None.
@@ -152,8 +160,9 @@ class GoogleStorageToken:
         if credentials is None:
             import google.auth
 
-            credentials, _ = google.auth.default(scopes=[GCS_SCOPE])
+            credentials, _ = google.auth.default(scopes=[scope])
         self.credentials = credentials
+        self.error = error
         self.lock = asyncio.Lock()
 
     async def __call__(self) -> str:
@@ -170,10 +179,10 @@ class GoogleStorageToken:
                 try:
                     await asyncio.to_thread(self.credentials.refresh, Request())
                 except GoogleAuthError:
-                    raise storage_unavailable() from None
+                    raise self.error() from None
             token = self.credentials.token
         if not token:
-            raise storage_unavailable()
+            raise self.error()
         return str(token)
 
 
