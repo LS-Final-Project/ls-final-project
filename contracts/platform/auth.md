@@ -82,11 +82,26 @@ Cloud Run의 `X-Serverless-Authorization`은 컨테이너 전달 시 서명이 �
 | `/api/v1/cs/tickets/{ticket_id}/audit` | GET | 없음 |
 | `/api/v1/cs/tickets/{ticket_id}/units` | GET | 없음 |
 | `/api/v1/cs/tickets/{ticket_id}/unit-history` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/units/{unit_id}` | PUT | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/resolution-case` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/start-review` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/transfer` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/recall` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/return` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/dept-result` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/dept-results/{result_id}/review` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/close` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/owner` | PUT | 없음 |
 | `/api/v1/cs/stats/overview` | GET | `start`·`end`·`dept`·`customer` |
 | `/api/v1/cs/stats/owners` | GET | `start`·`end`·`dept` |
 | `/api/v1/cs/stats/customers/{customer_external_id}` | GET | `start`·`end` |
-| `/api/v1/cs/improvement-requests` | GET | 없음 |
-| `/api/v1/cs/improvement-requests/{request_id}` | GET | 없음 |
+| `/api/v1/cs/improvement-requests` | GET, POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}` | GET, PATCH | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/versions` | GET | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/evidence` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/owner` | PUT | 없음 |
 | `/api/v1/tft/projects` | GET | `limit`·`cursor` |
 | `/api/v1/tft/projects/{project_id}` | GET | 없음 |
 
@@ -95,8 +110,9 @@ query·query가 없는 경로의 query는 400이다. 세부 형식(시각·부�
 검증한다. `customer_external_id` 경로 값은 웹·플랫폼 모두 디코드한 경로에서
 고객 ID 규약 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자, C/S 입력 검증과 같은 `backend/shared/models.py` `CUSTOMER_ID`)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
 `.`·`..` 세그먼트가 upstream 경로나 query를 바꾸지 못하게 하기 위해서이며, 플랫폼은 이 때문에 `request.url.path` 대신 ASGI scope의
-디코드된 경로로 검사·전달한다. 개선요청 생성·수정 등 변경 메서드와 처리 이력·업무 흐름
-조회는 아직 중계하지 않는다. 임의 upstream·SSE·파일·메일·미병합 API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
+디코드된 경로로 검사·전달한다. 중계 대상은 위 표의 27행이 전부이며, 표에 없는 경로는 404,
+표에 있는 경로의 다른 메서드는 405다(웹은 표에 없는 경로의 GET·HEAD 외 메서드도 405). 쓰기의 권한·상태 전이·판본
+검사는 C/S가 한다. 임의 upstream·SSE·파일·메일·미병합 API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
 자동 재시도 없이 고정 HTTPS 대상으로만 전달한다. 플랫폼 연결/읽기 제한은 3초/20초,
 웹 전체 중계 제한은 45초다. JSON이 아닌 응답·리디렉션·네트워크 장애는 플랫폼 503 또는
 웹 502로 처리하고 공급자 원문을 반환하지 않는다.
