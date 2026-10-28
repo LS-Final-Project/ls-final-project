@@ -120,14 +120,57 @@ def _summarize_snapshot(
         or rows[0]["gold_version"] != gold_version
     ):
         raise ValueError("CS_STORED_METRICS_INVALID_INPUT")
+    metadata = {
+        row["target_ref"]: {key: row[key] for key in ("channel", "body_language")}
+        for row in rows
+        if row["target_ref"] in gold
+    }
+    attempts = _first_attempts(rows, set(gold))
+    return {
+        "version": "cs-stored-first-attempt-v1",
+        "run_id": str(run_id),
+        "experiment_id": str(rows[0]["experiment_id"]),
+        "run_status": rows[0]["status"],
+        "gold_version": gold_version,
+        "target_count": len(targets),
+        "scored_target_count": len(gold),
+        "report": summarize_first_attempts_by_group(gold, attempts, metadata, metric=metric),
+    }
+
+
+def read_stored_first_attempts(
+    conn: Connection, run_id: UUID, targets: set[str]
+) -> dict[str, ClassificationAttempt]:
+    """한 실행의 지정 대상 최초 시도만 원시 출력 없이 읽는다.
+
+    Args:
+        conn: 호출자가 연 같은 스냅샷의 내부 연결.
+        run_id: 대상 실행.
+        targets: 읽을 고정 대상. 실행의 실험 대상이어야 한다.
+
+    Returns:
+        dict[str, ClassificationAttempt]: 시도가 저장된 대상만. 없는 대상은 미실행으로 남긴다.
+    """
+    rows = _read_snapshot(conn, run_id)
+    if not targets <= {row["target_ref"] for row in rows}:
+        raise ValueError("CS_STORED_METRICS_INVALID_INPUT")
+    return _first_attempts(rows, targets)
+
+
+def _first_attempts(rows: list[dict], wanted: set[str]) -> dict[str, ClassificationAttempt]:
+    """스냅샷 행에서 지정 대상의 최초 시도를 기존 분류 출력으로 복원한다.
+
+    Args:
+        rows: _read_snapshot 결과.
+        wanted: 복원할 대상.
+
+    Returns:
+        dict[str, ClassificationAttempt]: 시도가 있는 대상만. 저장 출력이 계약과 다르면 거부한다.
+    """
     attempts = {}
-    metadata = {}
     for row in rows:
         target = row["target_ref"]
-        if target not in gold:
-            continue
-        metadata[target] = {key: row[key] for key in ("channel", "body_language")}
-        if row["attempt_id"] is None:
+        if target not in wanted or row["attempt_id"] is None:
             continue  # 접수/시도 누락도 고정 대상에서 지우지 않는다.
         try:
             prediction = (
@@ -141,16 +184,7 @@ def _summarize_snapshot(
         attempts[target] = ClassificationAttempt(
             attempt_number=1, outcome=row["outcome"], prediction=prediction
         )
-    return {
-        "version": "cs-stored-first-attempt-v1",
-        "run_id": str(run_id),
-        "experiment_id": str(rows[0]["experiment_id"]),
-        "run_status": rows[0]["status"],
-        "gold_version": gold_version,
-        "target_count": len(targets),
-        "scored_target_count": len(gold),
-        "report": summarize_first_attempts_by_group(gold, attempts, metadata, metric=metric),
-    }
+    return attempts
 
 
 def compare_stored_attempts(

@@ -363,3 +363,123 @@ def test_ledger_role_privileges(evaluation_database):
                 "SELECT has_column_privilege('platform_app','runtime.dispatch_attempts',%s,'UPDATE')",
                 (column,),
             ).fetchone()[0]
+
+
+def test_requeue_blocked_and_exhausted_with_raised_limit(
+    settings, access, dispatch, queued, evaluation_database
+):
+    """미전송이 확실한 BLOCKED·EXHAUSTED만 다시 대기시키고 늘린 한도까지만 확보한다.
+
+    Args:
+        settings: DB 설정.
+        access: 평가 설정.
+        dispatch: 시도 한도 2의 전송 설정.
+        queued: 합성 실행.
+        evaluation_database: 관리자 연결.
+
+    Returns:
+        None: 상태·한도·재처리 기록과 begin_send 재검사, 실행 상태 불변을 확인한다.
+    """
+    from backend.api.platform.jobs.recovery import requeue
+
+    lease = asyncio.run(claim_next(settings, access, dispatch))
+    revoked = access.model_copy(update={"approved_config_hashes": frozenset()})
+    assert not asyncio.run(begin_send(settings, revoked, dispatch, lease))
+    status = asyncio.run(requeue(settings, access, dispatch, lease.job_id))
+    assert (status["state"], status["attempt_no"], status["attempt_limit"]) == ("PENDING", 1, 3)
+    assert status["requeue_count"] == 1 and status["requeued_at"] is not None
+    # 재처리 뒤에도 전송 시작은 현재 승인을 다시 검사한다.
+    lease = asyncio.run(claim_next(settings, access, dispatch))
+    assert lease.attempt_no == 2
+    assert not asyncio.run(begin_send(settings, revoked, dispatch, lease))
+    asyncio.run(requeue(settings, access, dispatch, lease.job_id))
+    for attempt in (3, 4):
+        lease = asyncio.run(claim_next(settings, access, dispatch))
+        assert lease.attempt_no == attempt
+        assert asyncio.run(begin_send(settings, access, dispatch, lease))
+        asyncio.run(record_result(settings, access, dispatch, lease, "REJECTED"))
+        expire(evaluation_database, lease.job_id)
+    assert asyncio.run(claim_next(settings, access, dispatch)) is None
+    assert saved(evaluation_database, queued) == ("EXHAUSTED", 4, "QUEUED", 1, 1)
+    status = asyncio.run(requeue(settings, access, dispatch, lease.job_id))
+    assert (status["state"], status["attempt_limit"], status["requeue_count"]) == ("PENDING", 6, 3)
+    assert [a["state"] for a in status["attempts"]] == [
+        "BLOCKED",
+        "BLOCKED",
+        "REJECTED",
+        "REJECTED",
+    ]
+
+
+@pytest.mark.parametrize("state", ["PENDING", "ACCEPTED", "UNKNOWN", "forged"])
+def test_requeue_refuses_states_that_may_have_been_sent(
+    settings, access, dispatch, queued, evaluation_database, state
+):
+    """대기 중·접수 확인·불명확 전송과 외부로 보냈을 수 있는 시도가 있는 전송은 재처리하지 않는다.
+
+    Args:
+        settings: DB 설정.
+        access: 평가 설정.
+        dispatch: 전송 설정.
+        queued: 합성 실행.
+        evaluation_database: 관리자 연결.
+        state: 만들 장부 상태. forged는 BLOCKED outbox에 UNKNOWN 시도를 둔 위조 상태다.
+
+    Returns:
+        None: 409 INVALID_TRANSITION과 장부 불변을 확인한다.
+    """
+    from backend.api.platform.jobs.recovery import requeue
+
+    with psycopg.connect(evaluation_database) as conn:
+        job_id = conn.execute(
+            "SELECT job_id FROM evaluation.runs WHERE id=%s", (queued,)
+        ).fetchone()[0]
+    if state != "PENDING":
+        lease = asyncio.run(claim_next(settings, access, dispatch))
+        assert asyncio.run(begin_send(settings, access, dispatch, lease))
+        result = "UNKNOWN" if state == "forged" else state
+        asyncio.run(record_result(settings, access, dispatch, lease, result))
+    if state == "forged":
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(
+                "UPDATE runtime.dispatch_outbox SET state='BLOCKED' WHERE job_id=%s", (job_id,)
+            )
+    before = saved(evaluation_database, queued)
+    with pytest.raises(ApplicationError, match="INVALID_TRANSITION"):
+        asyncio.run(requeue(settings, access, dispatch, job_id))
+    assert saved(evaluation_database, queued) == before
+
+
+def test_recovery_columns_are_platform_only(evaluation_database):
+    """재처리·대조 기록 열은 platform_app만 갱신하고 다른 서비스 역할은 접근하지 않는다.
+
+    Args:
+        evaluation_database: 전용 관리자 연결.
+
+    Returns:
+        None: 새 열의 UPDATE 권한과 MANUAL_CHECK 상태 허용을 확인한다.
+    """
+    with psycopg.connect(evaluation_database) as conn:
+        for table, column in [
+            ("runtime.dispatch_attempts", "checked_at"),
+            ("runtime.dispatch_outbox", "attempt_limit"),
+            ("runtime.dispatch_outbox", "requeue_count"),
+            ("runtime.dispatch_outbox", "requeued_at"),
+        ]:
+            assert conn.execute(
+                "SELECT has_column_privilege('platform_app',%s,%s,'UPDATE')", (table, column)
+            ).fetchone()[0]
+            for role in ("cs_app", "tft_app", "evaluation_worker"):
+                assert not conn.execute(
+                    "SELECT has_column_privilege(%s,%s,%s,'SELECT,UPDATE')", (role, table, column)
+                ).fetchone()[0]
+        for table in ("runtime.dispatch_outbox", "runtime.dispatch_attempts"):
+            definitions = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid=%s::regclass "
+                    "AND conname LIKE '%%state_check'",
+                    (table,),
+                )
+            ]
+            assert len(definitions) == 1 and "MANUAL_CHECK" in definitions[0]

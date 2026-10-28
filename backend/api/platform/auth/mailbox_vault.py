@@ -283,7 +283,8 @@ async def create_mailbox(
             )
             cursor = await conn.execute(
                 "UPDATE mailbox_auth.connections SET revision=%s,state='connected',key_version=%s,"
-                "cache_ciphertext=%s,updated_at=clock_timestamp() "
+                "cache_ciphertext=%s,reconnect_required_at=NULL,reconnect_reason=NULL,"
+                "updated_at=clock_timestamp() "
                 "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING id",
                 (
                     value.revision,
@@ -342,6 +343,9 @@ async def load_mailbox(
         row = await _owned_row(conn, mailbox_id, owner_user_id)
         if row["state"] != "connected":
             raise _mailbox_error("MAILBOX_NOT_CONNECTED")
+        # 공급자가 갱신을 거부한 연결은 제품에서 다시 연결할 때까지 MSAL을 부르지 않는다.
+        if row["reconnect_required_at"] is not None:
+            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
         value = _snapshot(row, SecretStr(""))
         cache = cipher.decrypt(
             value, ciphertext=bytes(row["cache_ciphertext"]), key_version=row["key_version"]
@@ -374,6 +378,8 @@ async def save_mailbox_update(
         row = await _owned_row(conn, snapshot.mailbox_id, snapshot.owner_user_id)
         if row["state"] != "connected":
             raise _mailbox_error("MAILBOX_NOT_CONNECTED")
+        if row["reconnect_required_at"] is not None:
+            raise _mailbox_error("MAILBOX_RECONNECT_REQUIRED")
         if row["revision"] != snapshot.revision or (row["subject_tid"], row["subject_oid"]) != (
             snapshot.subject.tid,
             snapshot.subject.oid,
@@ -398,6 +404,39 @@ async def save_mailbox_update(
         return value
 
 
+async def mark_reconnect_required(
+    settings: Settings, *, snapshot: StoredMailbox, reason: str
+) -> bool:
+    """공급자가 갱신을 거부한 연결에 재연결 필요를 표시한다.
+
+    MSAL은 트랜잭션 밖에서 실행되므로 별도의 짧은 트랜잭션으로 기록한다. 토큰을 읽은 뒤
+    재연결·해제·갱신으로 개정이 바뀌었으면 표시하지 않아 새 연결을 오래된 거부로 막지 않는다.
+
+    Args:
+        settings: 플랫폼 런타임 DB 설정.
+        snapshot: 토큰 조회 전에 읽은 연결 스냅샷.
+        reason: 공급자 오류 이름 또는 token_missing.
+
+    Returns:
+        bool: 이번에 표시했으면 True. 이미 표시됐거나 상태·개정이 바뀌었으면 False.
+    """
+    async with _vault_connection(settings) as conn:
+        await _lock_owner(conn, snapshot.owner_user_id)
+        row = await _owned_row(conn, snapshot.mailbox_id, snapshot.owner_user_id)
+        if (
+            row["state"] != "connected"
+            or row["revision"] != snapshot.revision
+            or row["reconnect_required_at"] is not None
+        ):
+            return False
+        await conn.execute(
+            "UPDATE mailbox_auth.connections SET reconnect_required_at=clock_timestamp(),"
+            "reconnect_reason=%s WHERE id=%s AND revision=%s",
+            (reason, snapshot.mailbox_id, snapshot.revision),
+        )
+        return True
+
+
 async def list_mailboxes(settings: Settings, *, owner_user_id: UUID) -> list[dict[str, Any]]:
     """소유자의 연결 상태만 조회한다. 암호문·Microsoft 식별자·키 버전은 읽지 않는다.
 
@@ -406,13 +445,15 @@ async def list_mailboxes(settings: Settings, *, owner_user_id: UUID) -> list[dic
         owner_user_id: HTTP 경계가 현재 세션으로 확인한 서비스 사용자 ID.
 
     Returns:
-        list[dict[str, Any]]: 최근 변경 순의 mailbox_id·state·revision·updated_at 행.
+        list[dict[str, Any]]: 최근 변경 순의 mailbox_id·state·revision·updated_at과
+        재연결 필요 시각·사유 행.
     """
     async with _vault_connection(settings) as conn:
         # ponytail: 상한·페이지 없이 전부 반환한다. 사용자당 연결은 소수라는 가정이며,
         # 늘어나면 limit과 (updated_at, id) 커서 페이지를 추가한다.
         cursor = await conn.execute(
-            "SELECT id AS mailbox_id,state,revision,updated_at FROM mailbox_auth.connections "
+            "SELECT id AS mailbox_id,state,revision,updated_at,reconnect_required_at,"
+            "reconnect_reason FROM mailbox_auth.connections "
             "WHERE owner_user_id=%s ORDER BY updated_at DESC, id",
             (owner_user_id,),
         )
@@ -446,6 +487,7 @@ async def disconnect_mailbox(settings: Settings, *, mailbox_id: UUID, session_to
             return
         cursor = await conn.execute(
             "UPDATE mailbox_auth.connections SET state='disconnected',cache_ciphertext=NULL,"
+            "reconnect_required_at=NULL,reconnect_reason=NULL,"
             "revision=revision+1,updated_at=clock_timestamp() WHERE id=%s AND "
             + _VALID_SESSION
             + " RETURNING revision",
@@ -499,8 +541,9 @@ async def reconnect_mailbox(
             authorization.serialized_cache,
         )
         cursor = await conn.execute(
-            "UPDATE mailbox_auth.connections SET revision=%s,"
-            "state='connected',key_version=%s,cache_ciphertext=%s,updated_at=clock_timestamp() "
+            "UPDATE mailbox_auth.connections SET revision=%s,state='connected',key_version=%s,"
+            "cache_ciphertext=%s,reconnect_required_at=NULL,reconnect_reason=NULL,"
+            "updated_at=clock_timestamp() "
             "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING revision",
             (
                 value.revision,

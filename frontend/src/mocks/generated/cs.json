@@ -599,5 +599,119 @@
         "request_id": "11111111-1111-4111-8111-111111111111"
       }
     }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-902",
+    "status": 200,
+    "body": {
+      "data": {
+        "comparison_id": "5b0f6a52-3c1e-4c7a-9d10-0b6f2a7e9c02",
+        "product_code": "SYN-PRD-01",
+        "fault_id": "FLT-902",
+        "improvement_request_id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e02",
+        "request_version": 5,
+        "version": 1,
+        "latest_version": 1,
+        "is_latest": true,
+        "data_origin": "synthetic",
+        "derivation_kind": "DERIVED",
+        "known_at": "2026-10-28T01:00:00Z",
+        "computed_condition_status": "UNKNOWN",
+        "condition_summary": "정격 상한 근처 운전 사례 위주(합성)",
+        "fw_fixed_version": "SYN-FW-2.1",
+        "fw_released_on": "2026-10-15",
+        "summary": {
+          "confirmed": 0,
+          "suspected": 1,
+          "unconfirmed": 0
+        },
+        "conditions": [
+          {
+            "judgement": "SUSPECTED",
+            "unconfirmed_reason": null,
+            "masked_summary": "정격 상한 근처 운전 사례에서 재발 의심",
+            "summary_missing_reason": null,
+            "provenance_kind": "ai_draft",
+            "decided_by_name": null,
+            "decided_at": "2026-10-27T09:00:00Z",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "hidden_evidence_count": 0,
+            "item_code": "application",
+            "item_label": "적용 조건(전압·부하·운전 주기)",
+            "finding": "DIFFERS",
+            "baseline": {
+              "masked_value": "정격 부하 운전",
+              "missing_reason": null
+            },
+            "target": {
+              "masked_value": "정격 상한 근처 운전",
+              "missing_reason": null
+            }
+          }
+        ],
+        "causes": [
+          {
+            "judgement": "SUSPECTED",
+            "unconfirmed_reason": null,
+            "masked_summary": "펌웨어 판올림 후 재발 감소",
+            "summary_missing_reason": null,
+            "provenance_kind": "ai_draft",
+            "decided_by_name": null,
+            "decided_at": "2026-10-27T09:00:00Z",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "hidden_evidence_count": 0,
+            "cause_type": "FIRMWARE"
+          }
+        ],
+        "document_signals": [
+          {
+            "doc_signal": "VALUE_CONFLICT",
+            "provenance_kind": "system_record",
+            "evidence_ids": [
+              "ev-3"
+            ],
+            "hidden_evidence_count": 0
+          }
+        ],
+        "evidence": [
+          {
+            "evidence_id": "ev-1",
+            "case_id": "0f2d7c1e-8a44-4b1a-9e3e-6a1c2b3d4e01",
+            "ticket_id": "7a1e2b3c-4d5e-4f60-8a71-b2c3d4e5f601",
+            "evidence_location": {
+              "source": "resolution_case",
+              "field": "root_cause"
+            },
+            "data_origin": "synthetic",
+            "derivation_kind": "SYSTEM",
+            "known_at": "2026-10-20T00:00:00Z"
+          },
+          {
+            "evidence_id": "ev-3",
+            "case_id": null,
+            "ticket_id": null,
+            "evidence_location": {
+              "doc_id": "doc-syn-manual",
+              "version": "docv-3",
+              "page": 12,
+              "char_start": 340,
+              "char_end": 362
+            },
+            "data_origin": "synthetic",
+            "derivation_kind": "PROVIDED",
+            "known_at": "2026-10-01T00:00:00Z"
+          }
+        ],
+        "hidden_evidence_count": 0
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111199"
+      }
+    }
   }
 ]

@@ -77,6 +77,20 @@ class MailboxConnection(BaseModel):
     state: Literal["connected", "disconnected"]
     revision: int
     updated_at: datetime
+    # 공급자가 갱신을 거부해 제품에서 다시 연결해야 하는 연결. 외부에서 동의를 복구해도
+    # 여기서 다시 연결하기 전까지 토큰을 주지 않는다.
+    reconnect_required: bool
+    reconnect_reason: (
+        Literal[
+            "invalid_grant",
+            "interaction_required",
+            "login_required",
+            "consent_required",
+            "token_missing",
+        ]
+        | None
+    )
+    reconnect_required_at: datetime | None
 
 
 class MailboxConnections(BaseModel):
@@ -336,11 +350,19 @@ async def list_connections(
         provider: 기본 비활성을 검사하는 의존성. 공급자를 호출하지 않는다.
 
     Returns:
-        SuccessResponse[MailboxConnections]: 연결 ID·상태·개정·변경 시각 목록.
+        SuccessResponse[MailboxConnections]: 연결 ID·상태·개정·변경 시각과 재연결 필요
+        여부·사유·시각 목록.
     """
     user = await operational_identity(request, response)
     rows = await list_mailboxes(request.app.state.settings, owner_user_id=user.id)
     return SuccessResponse(
-        data=MailboxConnections(items=[MailboxConnection(**row) for row in rows]),
+        data=MailboxConnections(
+            items=[
+                MailboxConnection(
+                    **row, reconnect_required=row["reconnect_required_at"] is not None
+                )
+                for row in rows
+            ]
+        ),
         meta=ResponseMeta(request_id=request.state.request_id),
     )

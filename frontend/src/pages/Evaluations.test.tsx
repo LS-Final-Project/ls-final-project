@@ -6,6 +6,8 @@ import { lockedQualityFixture, summaryFixture, syntheticQualityFixture } from '.
 import { jsonResponse, renderAt } from '../test/render';
 
 vi.mock('../api/evaluation-events', () => ({ watchEvaluation: vi.fn() }));
+// 새 접수·목록 구역은 RunAdmission.test.tsx가 따로 검사한다. 여기서는 상태·집계 fetch만 본다.
+vi.mock('./RunAdmission', () => ({ default: () => null }));
 const jobId = '11111111-1111-4111-8111-111111111111';
 let emit: (view: EvaluationView) => void;
 const state = (checkedAt = 1): EvaluationView => ({ connection: 'ended', checkedAt,

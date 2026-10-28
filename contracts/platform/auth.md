@@ -102,15 +102,19 @@ Cloud Run의 `X-Serverless-Authorization`은 컨테이너 전달 시 서명이 �
 | `/api/v1/cs/improvement-requests/{request_id}/evidence` | POST | 없음 |
 | `/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove` | POST | 없음 |
 | `/api/v1/cs/improvement-requests/{request_id}/owner` | PUT | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison` | GET, POST | GET만 `version` |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison/judgements` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison/evidence/{evidence_id}/remove` | POST | 없음 |
+| `/api/v1/cs/condition-comparisons` | GET | `product_code`·`fault_id`·`version` |
 | `/api/v1/tft/projects` | GET | `limit`·`cursor` |
 | `/api/v1/tft/projects/{project_id}` | GET | 없음 |
 
 query는 표에 적힌 키만 중복 없이(값 각각 200자 이내) 허용하고, 표에 없는 키·중복·변경 요청의
 query·query가 없는 경로의 query는 400이다. 세부 형식(시각·부서·페이지 범위)은 기존 업무 API가
 검증한다. `customer_external_id` 경로 값은 웹·플랫폼 모두 디코드한 경로에서
-고객 ID 규약 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자, C/S 입력 검증과 같은 `backend/shared/models.py` `CUSTOMER_ID`)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
+고객 ID 규약 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자, C/S 입력 검증과 같은 `backend/shared/models.py` `CUSTOMER_ID`)만 허용하고 아니면 404다. 조건 비교 근거 제외 경로의 `evidence_id`도 같은 문자 규칙(`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, relay.py `EVIDENCE_PATH`, 공용 픽스처 `evidence_pattern`)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
 `.`·`..` 세그먼트가 upstream 경로나 query를 바꾸지 못하게 하기 위해서이며, 플랫폼은 이 때문에 `request.url.path` 대신 ASGI scope의
-디코드된 경로로 검사·전달한다. 중계 대상은 위 표의 27행이 전부이며, 표에 없는 경로는 404,
+디코드된 경로로 검사·전달한다. 중계 대상은 위 표의 31행이 전부이며, 표에 없는 경로는 404,
 표에 있는 경로의 다른 메서드는 405다(웹은 표에 없는 경로의 GET·HEAD 외 메서드도 405). 쓰기의 권한·상태 전이·판본
 검사는 C/S가 한다. 임의 upstream·SSE·파일·메일·미병합 API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
 자동 재시도 없이 고정 HTTPS 대상으로만 전달한다. 플랫폼 연결/읽기 제한은 3초/20초,
@@ -628,6 +632,23 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
   token의 즉시 무효화, 메모리·백업에서의 물리적 제거까지 보장하지 않는다. 해제·재연결 모두
   연결 행은 삭제하지 않고 같은 ID에서 `state='disconnected'`/`'connected'`로만 바꾼다(KAN-71
   수집 표의 `mailbox_id` FK 보장).
+- 권한(`20261028_KAN-81_mailbox_reconnect_state.sql`): `platform_app`의 연결 표 UPDATE는 열 단위로
+  `revision`·`state`·`key_version`·`cache_ciphertext`·`updated_at`·`reconnect_required_at`·`reconnect_reason`만
+  허용한다. `id`·`owner_user_id`·`subject_tid`·`subject_oid`는 바꿀 수 없다. 현재 DELETE 권한은 남아 있으나 코드는 쓰지 않는다
+  (행 유지 계약; 회수는 후속).
+- **재연결 필요 표시**: 공급자가 갱신을 거부하면(`invalid_grant`·`interaction_required`·`login_required`·
+  `consent_required`, 또는 캐시에 토큰·계정이 없거나 메일 권한이 줄어든 경우) 연결 행의
+  `reconnect_required_at`·`reconnect_reason`(공급자 오류 이름 그대로, 토큰·계정 없음은 `token_missing`,
+  권한 축소는 `consent_required`)을 기록한다. `state`는 `connected` 그대로이며 행·FK를 바꾸지 않는다.
+  MSAL은 트랜잭션 밖에서 돌기 때문에 거부 직후 짧은 트랜잭션(`mark_reconnect_required()`)으로 기록하고,
+  토큰을 읽은 뒤 재연결·해제·갱신으로 개정이 바뀌었으면 기록하지 않는다. 기록이 실패해도 호출자에게는
+  원래 409를 그대로 낸다. 일시 장애(503)·접근 거부(403)·Graph 401은 기록하지 않는다.
+- 표시된 연결은 `load_mailbox()`·`save_mailbox_update()`에서 MSAL을 부르지 않고 바로 `MAILBOX_RECONNECT_REQUIRED`/409다
+  (`force_refresh` 포함). 사용자가 Microsoft 쪽에서 동의를 복구해도 제품에서 다시 연결해야 한다(재연결이 필요합니다).
+  같은 계정으로 다시 연결(`create_mailbox()` 재사용 갱신·`reconnect_mailbox()`)하거나 해제하면 두 열을 비운다.
+- 수집·워커(KAN-71·72)는 `reconnect_required_at`이 있는 연결을 토큰 요청 전에 건너뛰고
+  `MAILBOX_RECONNECT_REQUIRED`로 기록할 수 있다. 건너뛰지 않아도 제공자가 공급자 호출 없이 바로 409를 낸다.
+  수집 코드는 이번 변경에서 바꾸지 않았다.
 
 `StoredMailbox`와 캐시는 repr에 내용을 표시하지 않는 보관 전용 메모리 값이다. 캐시로
 기존 MSAL 조회·갱신을 수행할 수 있지만 이 계층은 Graph를 호출하지 않는다. KAN-71에
@@ -658,8 +679,8 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
   갱신한 두 호출은 커밋한 결과의 토큰만 반환할 수 있다. 회전된 공급자 자격증명을 사용한
   패자의 결과를 다시 저장하거나 성공 토큰으로 반환하지 않는다.
 - DB 저장 실패도 토큰 제공 실패다. 기존 SDK의 재연결 필요/일시 장애 분류는 그대로 전달하며
-  실패 캐시를 저장하거나 연결 상태를 임의 변경하지 않는다. 이미 반환한 토큰의 즉시 외부
-  무효화, 재연결 필요 상태의 영속 표시·자동 복구는 이번 연결 함수가 보장하지 않는다.
+  실패 캐시를 저장하지 않는다. 재연결 필요는 위 보관 계층 절대로 연결에 표시만 하고 `state`는
+  바꾸지 않는다. 이미 반환한 토큰의 즉시 외부 무효화와 재연결 필요의 자동 복구는 보장하지 않는다.
 
 실제 MSAL·RSA·PostgreSQL·AES-GCM과 합성 Microsoft HTTP를 연결하는 회귀 범위다.
 실제 Microsoft 동의·정책·Graph 요청·실제 외부 갱신, 소비자 fake 교체·HTTP 운영 적용·전용 키
@@ -674,7 +695,7 @@ HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성
 
 | 경로 | 보호 및 결과 |
 | --- | --- |
-| `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`으로 최근 변경 순200 반환. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹은 GET만 쿼리 없이 중계하고 인증 쿠키·Origin만 전달 |
+| `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`과 `reconnect_required`(bool)·`reconnect_reason`(위 5종|null)·`reconnect_required_at`(시각|null)으로 최근 변경 순200 반환. 재연결 세 필드는 호환 추가이며 화면은 없으면 재연결 불필요로 받는다. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹은 GET만 쿼리 없이 중계하고 인증 쿠키·Origin만 전달 |
 | `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
 | `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
 | `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303. 같은 소유자의 같은 Microsoft 계정 연결이 있으면 그 행을 재연결(같은 `mailbox_id`, 개정 +1)하고 없으면 새 연결 |

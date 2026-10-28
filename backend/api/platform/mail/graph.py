@@ -6,7 +6,7 @@ delta 조회로 받은편지함·보낸편지함의 변경을 페이지 단위�
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -33,6 +33,7 @@ ATTACHMENT_KINDS = {
     "#microsoft.graph.referenceAttachment": "reference",
 }
 SYNC_RESET_CODES = {"syncStateNotFound", "resyncRequired", "SyncStateNotFound"}
+TokenRefresher = Callable[[], Awaitable[SecretStr]]
 
 
 class GraphError(Exception):
@@ -225,23 +226,55 @@ def failure_code(response: httpx.Response, body: bytes) -> str:
 
 
 class GraphMail:
-    """한 사서함의 access token으로 메일을 읽는다. 토큰 갱신은 하지 않는다."""
+    """한 사서함의 access token으로 메일을 읽는다.
 
-    def __init__(self, client: httpx.AsyncClient, token: SecretStr) -> None:
+    Graph가 401을 돌려주면 이 객체가 사는 동안(수집 실행 한 번) 단 한 번만 토큰을 새로 받아
+    같은 요청을 다시 보낸다. 페이지·메시지마다 기회를 새로 주지 않아 401이 반복돼도 요청이
+    늘어나지 않는다. 토큰 갱신 자체는 토큰 제공자가 한다.
+    """
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        token: SecretStr,
+        refresh: TokenRefresher | None = None,
+    ) -> None:
         """HTTP 클라이언트와 토큰을 받는다.
 
         Args:
             client: 제한 시간이 설정된 클라이언트. 리디렉션은 따르지 않아야 한다.
             token: 토큰 제공자가 돌려준 유효한 access token.
+            refresh: 캐시를 건너뛰고 새 토큰을 받는 함수. 없으면 401에서 바로 실패한다.
 
         Returns:
             None.
         """
         self.client = client
         self.token = token
+        self.refresh = refresh
 
     async def get(self, url: str, limit: int = MAX_OBJECT_BYTES) -> bytes:
-        """Graph 주소 하나를 받는다.
+        """Graph 주소 하나를 받는다. 401이면 남은 갱신 기회로 한 번 다시 시도한다.
+
+        Args:
+            url: 확인한 Graph 주소.
+            limit: 본문 바이트 상한.
+
+        Returns:
+            bytes: 성공 응답의 본문.
+        """
+        try:
+            return await self.get_once(url, limit)
+        except GraphError as error:
+            if error.code != "GRAPH_UNAUTHORIZED" or self.refresh is None:
+                raise
+        # 기회를 먼저 없앤다. 갱신이 실패해도 이 실행에서 다시 갱신하지 않는다.
+        refresh, self.refresh = self.refresh, None
+        self.token = await refresh()
+        return await self.get_once(url, limit)
+
+    async def get_once(self, url: str, limit: int) -> bytes:
+        """현재 토큰으로 Graph 주소 하나를 한 번 요청한다.
 
         Args:
             url: 확인한 Graph 주소.

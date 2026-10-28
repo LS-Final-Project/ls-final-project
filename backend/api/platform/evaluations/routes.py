@@ -6,12 +6,20 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Request, Response
 
 from backend.api.platform.evaluations.access import require_evaluation_write, require_evaluator
-from backend.api.platform.evaluations.admission import accept_run, admission_available, get_run
+from backend.api.platform.evaluations.admission import (
+    accept_run,
+    admission_available,
+    get_run,
+    list_experiments,
+    list_runs,
+)
 from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.schemas import (
     EvaluationAdmission,
+    EvaluationExperiments,
     EvaluationPolicy,
     EvaluationRunRequest,
+    EvaluationRuns,
     EvaluationRunStatus,
 )
 from backend.api.platform.evaluations.summary import EvaluationRunSummary, get_run_summary
@@ -50,6 +58,55 @@ async def evaluation_policy(request: Request) -> SuccessResponse[EvaluationPolic
             ),
         ),
         meta=ResponseMeta(request_id=request.state.request_id),
+    )
+
+
+@router.get(
+    "/experiments",
+    response_model=SuccessResponse[EvaluationExperiments],
+    operation_id="platform_list_evaluation_experiments",
+)
+async def evaluation_experiments(
+    request: Request, principal: Annotated[Principal, Depends(require_evaluator)]
+) -> SuccessResponse[EvaluationExperiments]:
+    """본인 실험 최근 50개와 접수 가능 여부·막힌 사유를 반환한다.
+
+    Args:
+        request: 서버 설정·허용 목록·요청 ID를 가진 요청.
+        principal: 현재 지정 평가자 세션.
+
+    Returns:
+        SuccessResponse[EvaluationExperiments]: 구성 원문·manifest·hash·대상 ID 없는 목록.
+    """
+    items = await list_experiments(
+        request.app.state.settings, request.app.state.evaluation_access, principal.user_id
+    )
+    return SuccessResponse(
+        data=EvaluationExperiments(items=items),
+        meta=ResponseMeta(request_id=request.state.request_id),
+    )
+
+
+@router.get(
+    "/runs",
+    response_model=SuccessResponse[EvaluationRuns],
+    operation_id="platform_list_evaluation_runs",
+)
+async def evaluation_runs(
+    request: Request, principal: Annotated[Principal, Depends(require_evaluator)]
+) -> SuccessResponse[EvaluationRuns]:
+    """본인 접수 실행 최근 50개를 반환한다(최종 시험 실행 제외).
+
+    Args:
+        request: 서버 설정·요청 ID를 가진 요청.
+        principal: 현재 지정 평가자 세션.
+
+    Returns:
+        SuccessResponse[EvaluationRuns]: 원시 출력·정답 없는 실행 목록.
+    """
+    items = await list_runs(request.app.state.settings, principal.user_id)
+    return SuccessResponse(
+        data=EvaluationRuns(items=items), meta=ResponseMeta(request_id=request.state.request_id)
     )
 
 

@@ -9,3 +9,4 @@
 *.tsx text eol=lf
 # Provided policy tables are kept byte for byte; rules.py checks their SHA-256.
 backend/engine/cs/policy/*.csv -text
+eval/policy/*.csv -text

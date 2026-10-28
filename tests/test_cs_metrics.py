@@ -911,13 +911,14 @@ def test_store_cli_rejects_configuration_unreadable_file_and_missing_args(
     assert exit_info.value.code == 2
 
 
-def info_attempt(items=None, *, outcome="VALID", number=1):
+def info_attempt(items=None, *, outcome="VALID", number=1, category="TECH_SPEC"):
     """provided_info 예측만 다른 합성 최초 시도를 만든다.
 
     Args:
         items: 예측 항목 코드 목록. 유효 출력이 아니면 무시한다.
         outcome: 시도 결과.
         number: 시도 번호.
+        category: 예측 주분류.
 
     Returns:
         ClassificationAttempt: 기존 분류 출력 형식의 시도.
@@ -927,7 +928,7 @@ def info_attempt(items=None, *, outcome="VALID", number=1):
 
     prediction = (
         ClassificationOutput(
-            category_code="TECH_SPEC",
+            category_code=category,
             secondary_category=None,
             urgency_flag="NONE",
             provided_info=list(items or []),
@@ -1128,3 +1129,147 @@ def test_run_comparison_rejects_provided_info_before_reading_runs():
 
     with pytest.raises(ValueError, match="^CS_STORED_METRICS_INVALID_INPUT$"):
         compare_stored_runs(None, uuid4(), uuid4(), {}, gold_version=None, metric="provided_info")
+
+
+BLOCKING = {
+    ("PLC", "TECH_SPEC"): frozenset({"product_model", "current_fw"}),
+    ("PLC", "INSTALL"): frozenset({"product_model", "wiring_diagram"}),
+}
+REREQUEST_GOLD = {
+    "extraction": ("TECH_SPEC", frozenset({"product_model"}), "PLC"),
+    "classification": ("TECH_SPEC", frozenset({"wiring_diagram"}), "PLC"),
+    "complete": ("TECH_SPEC", frozenset({"product_model", "current_fw"}), "PLC"),
+    "failed": ("INSTALL", frozenset({"product_model"}), "PLC"),
+    "missing": ("INSTALL", frozenset({"wiring_diagram"}), "PLC"),
+}
+
+
+def test_rerequest_hand_calculated_counts_causes_and_failures():
+    """요청·재요청·원인을 손계산과 대조하고 실패·미실행은 요청을 계산하지 않는다.
+
+    Returns:
+        None: 문의 2/5, 항목 2/6, 원인 각 1건, 요청 2건, 실패 사례의 요청 None을 확인한다.
+    """
+    from eval.cs_metrics import summarize_rerequest_first_attempts
+
+    attempts = {
+        "extraction": info_attempt([]),
+        "classification": info_attempt([], category="INSTALL"),
+        "complete": info_attempt(["product_model", "current_fw"]),
+        "failed": info_attempt(outcome="SCHEMA_VIOLATION"),
+    }
+    result = summarize_rerequest_first_attempts(REREQUEST_GOLD, attempts, BLOCKING)
+    assert {k: v for k, v in result.items() if k != "cases"} == {
+        "version": "cs-rerequest-first-attempt-v1",
+        "attempt_number": 1,
+        "quality_gate_evaluated": False,
+        "total": 5,
+        "valid_count": 3,
+        "gold_item_count": 6,
+        "outcomes": {
+            "HELD": 0,
+            "NOT_STARTED": 1,
+            "SCHEMA_VIOLATION": 1,
+            "TIMEOUT": 0,
+            "TRANSPORT_FAILURE": 0,
+            "VALID": 3,
+        },
+        "request_ticket_count": 2,
+        "rerequest_ticket_count": 2,
+        "rerequest_ticket_rate": 2 / 5,
+        "rerequest_item_count": 2,
+        "rerequest_item_rate": 2 / 6,
+        "causes": {
+            "EXTRACTION": {"tickets": 1, "items": 1},
+            "CLASSIFICATION": {"tickets": 1, "items": 1},
+        },
+    }
+    cases = {case["case_id"]: case for case in result["cases"]}
+    assert cases["extraction"]["rerequested"] == ["product_model"]
+    assert cases["classification"]["requested"] == ["product_model", "wiring_diagram"]
+    assert cases["complete"]["requested"] == []
+    for failed in ("failed", "missing"):
+        assert cases[failed]["requested"] is None and cases[failed]["rerequested"] is None
+
+
+def test_rerequest_gold_as_prediction_is_baseline_and_all_missed_counts_every_item():
+    """gold를 그대로 넣으면 재요청 0, 모두 놓치면 핵심 항목인 gold 제공 항목만 재요청이다.
+
+    Returns:
+        None: 기준선의 요청 필요 수와 전부 재요청 경우의 수를 확인한다.
+    """
+    from eval.cs_metrics import summarize_rerequest_first_attempts
+
+    gold = {key: value for key, value in REREQUEST_GOLD.items()}
+    baseline = {
+        key: info_attempt(sorted(items), category=category)
+        for key, (category, items, _) in gold.items()
+    }
+    result = summarize_rerequest_first_attempts(gold, baseline, BLOCKING)
+    assert result["rerequest_ticket_count"] == result["rerequest_item_count"] == 0
+    # 빠진 핵심 항목이 있는 문의: extraction(current_fw), classification·failed·missing.
+    assert result["request_ticket_count"] == 4
+    missed = {key: info_attempt([], category=category) for key, (category, _, _) in gold.items()}
+    result = summarize_rerequest_first_attempts(gold, missed, BLOCKING)
+    # gold 주분류의 핵심 항목이 아닌 제공 항목(classification의 wiring_diagram)은 요청되지 않는다.
+    assert result["rerequest_ticket_count"] == 4
+    assert (result["rerequest_item_count"], result["gold_item_count"]) == (5, 6)
+    assert result["causes"]["CLASSIFICATION"] == {"tickets": 0, "items": 0}
+
+
+def test_rerequest_empty_and_all_failed_keep_denominators():
+    """대상이 없으면 비율은 null이고, 전부 실패하면 대상·gold 항목 분모를 유지한다.
+
+    Returns:
+        None: valid_count 0과 함께 재요청 0을 보고하며 사례별 요청은 계산하지 않는다.
+    """
+    from eval.cs_metrics import summarize_rerequest_first_attempts
+
+    empty = summarize_rerequest_first_attempts({}, {}, BLOCKING)
+    assert empty["rerequest_ticket_rate"] is None and empty["rerequest_item_rate"] is None
+    failed = summarize_rerequest_first_attempts(
+        REREQUEST_GOLD, {key: info_attempt(outcome="TIMEOUT") for key in REREQUEST_GOLD}, BLOCKING
+    )
+    assert (failed["total"], failed["valid_count"], failed["gold_item_count"]) == (5, 0, 6)
+    assert failed["outcomes"]["TIMEOUT"] == 5 and failed["outcomes"]["NOT_STARTED"] == 0
+    assert all(case["requested"] is None for case in failed["cases"])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "gold_category",
+        "gold_items_type",
+        "gold_family",
+        "extra_attempt",
+        "second_attempt",
+        "pred_pair",
+    ],
+)
+def test_rerequest_rejects_invalid_input(change):
+    """정답·규칙표·시도 형식이 계약과 다르면 원문 없이 거부한다.
+
+    Args:
+        change: 바꿀 입력.
+
+    Returns:
+        None: CS_METRICS_INVALID_INPUT을 확인한다.
+    """
+    from eval.cs_metrics import summarize_rerequest_first_attempts
+
+    gold = dict(REREQUEST_GOLD)
+    attempts = {"extraction": info_attempt([])}
+    if change == "gold_category":
+        gold["extraction"] = ("UNKNOWN", frozenset(), "PLC")
+    elif change == "gold_items_type":
+        gold["extraction"] = ("TECH_SPEC", {"product_model"}, "PLC")
+    elif change == "gold_family":
+        gold["extraction"] = ("TECH_SPEC", frozenset(), "UPS")
+    elif change == "extra_attempt":
+        attempts["other"] = info_attempt([])
+    elif change == "second_attempt":
+        attempts["extraction"] = info_attempt([], number=2)
+    else:
+        attempts["extraction"] = info_attempt([], category="QUOTE")
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_rerequest_first_attempts(gold, attempts, BLOCKING)
