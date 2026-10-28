@@ -234,6 +234,23 @@ def test_repeated_info_request_in_option_is_rejected():
         check(raw(option("CONCISE"), option("DETAILED"), doubled))
 
 
+def test_info_first_must_ask_every_requested_code():
+    """INFO_FIRST는 요청 코드를 전부 묻고, CONCISE·DETAILED는 묻지 않아도 된다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 누락은 CS_INVALID_OUTPUT, 부분 집합은 통과함을 확인한다.
+    """
+    silent = {label: option(label) | {"info_requests": []} for label in ("CONCISE", "DETAILED")}
+    assert check(raw(silent["CONCISE"], silent["DETAILED"], option("INFO_FIRST")))
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(
+            raw(option("CONCISE"), option("DETAILED"), option("INFO_FIRST") | {"info_requests": []})
+        )
+
+
 # 패턴마다 거부해야 할 확정형 예문. 패턴을 더하거나 빼면 키 집합 검사가 깨진다.
 FORBIDDEN_EXAMPLES = {
     FORBIDDEN_COMMITMENTS[0].pattern: [

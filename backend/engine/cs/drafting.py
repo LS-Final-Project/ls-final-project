@@ -252,7 +252,7 @@ def validate_output(
         request_info_codes: 입력에 준 요청 대상 정보 코드 집합.
 
     Returns:
-        DraftOutput: 유효한 초안. 형식·근거·코드 위반은 CS_INVALID_OUTPUT, 형식은 맞지만 승인·확정
+        DraftOutput: 유효한 초안. INFO_FIRST는 request_info_codes를 전부 물어야 한다. 형식·근거·코드 위반은 CS_INVALID_OUTPUT, 형식은 맞지만 승인·확정
             약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
     """
     try:
@@ -263,6 +263,12 @@ def validate_output(
                 for sentence in option.sentences
             ) or any(r.info_code not in request_info_codes for r in option.info_requests):
                 raise ValueError("CS_UNKNOWN_REFERENCE")
+            # 정보 요청 우선 선택지는 요청 코드를 전부 묻는다. 나머지는 부분 집합이면 된다.
+            if (
+                option.label == "INFO_FIRST"
+                and {r.info_code for r in option.info_requests} != request_info_codes
+            ):
+                raise ValueError("CS_MISSING_INFO_REQUEST")
     except (ValueError, RecursionError):
         raise ValueError("CS_INVALID_OUTPUT") from None
     texts = [
