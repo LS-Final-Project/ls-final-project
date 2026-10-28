@@ -57,6 +57,36 @@ class ObjectStore(Protocol):
         ...
 
 
+class ObjectReader(Protocol):
+    """보관한 바이트를 위치로 읽는 저장소. 읽은 바이트의 해시·크기를 확인한다."""
+
+    async def get(self, stored: StoredObject) -> bytes:
+        """보관한 바이트를 읽는다.
+
+        Args:
+            stored: 저장 위치와 기대 SHA-256·크기.
+
+        Returns:
+            bytes: 해시·크기가 맞는 바이트. 없거나 다르면 ApplicationError를 낸다.
+        """
+        ...
+
+
+def checked_bytes(data: bytes, stored: StoredObject) -> bytes:
+    """읽은 바이트가 기록한 해시·크기와 같은지 확인한다.
+
+    Args:
+        data: 읽은 바이트.
+        stored: 기대 위치·해시·크기.
+
+    Returns:
+        bytes: 같으면 그대로. 다르면 저장 실패 오류를 낸다.
+    """
+    if len(data) != stored.size or hashlib.sha256(data).hexdigest() != stored.sha256:
+        raise storage_unavailable()
+    return data
+
+
 def content_key(mailbox_id: UUID, digest: str) -> str:
     """사서함과 내용 해시로 저장 키를 정한다.
 
@@ -126,6 +156,25 @@ class LocalObjectStore:
                 Path(temp).unlink(missing_ok=True)
                 raise
         return StoredObject(key=key, sha256=digest, size=len(data))
+
+    async def get(self, stored: StoredObject) -> bytes:
+        """보관한 파일을 읽고 해시·크기를 확인한다.
+
+        Args:
+            stored: 저장 위치와 기대 해시·크기.
+
+        Returns:
+            bytes: 확인한 바이트. 없거나 다르면 ApplicationError를 낸다.
+        """
+        path = self.root / stored.key
+        # 저장소 밖 경로를 가리키는 키는 읽지 않는다.
+        if ".." in Path(stored.key).parts or not path.resolve().is_relative_to(self.root.resolve()):
+            raise storage_unavailable()
+        try:
+            data = await asyncio.to_thread(path.read_bytes)
+        except OSError:
+            raise storage_unavailable() from None
+        return checked_bytes(data, stored)
 
 
 def storage_unavailable() -> ApplicationError:
@@ -244,6 +293,24 @@ class GcsObjectStore:
                 self.check(existing, stored, md5)
                 return stored
         raise storage_unavailable()
+
+    async def get(self, stored: StoredObject) -> bytes:
+        """객체 바이트를 내려받고 해시·크기를 확인한다.
+
+        Args:
+            stored: 저장 위치와 기대 해시·크기.
+
+        Returns:
+            bytes: 확인한 바이트. 없거나 다르면 ApplicationError를 낸다.
+        """
+        response = await self.request(
+            "GET",
+            GCS_OBJECT.format(bucket=self.bucket, name=quote(stored.key, safe="")),
+            params={"alt": "media"},
+        )
+        if response.status_code != 200:
+            raise storage_unavailable()
+        return checked_bytes(response.content, stored)
 
     async def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """인증 헤더를 붙여 Cloud Storage를 한 번 호출한다.

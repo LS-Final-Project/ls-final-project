@@ -105,4 +105,12 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 표 적용만으로 수집이 켜지지 않는다. 수집을 부르는 워커·정기 실행은 KAN-72, 운영 객체 저장소는 후속 작업이다.
 상세는 [메일 수집 계약](../../contracts/platform/mail.md)을 따른다.
 
+## 메일 발송 표 적용 (KAN-74)
+
+위 메일 수집 표 적용(KAN-71)이 끝난 뒤, 같은 방식으로 `infra/migrations/platform/20261028_KAN-74_mail_send.sql`을
+한 번 적용한다. 로컬은 `python3 scripts/workspace.py migrate platform 20261028_KAN-74_mail_send.sql`이다.
+`integration.mail_send_intents`·`mail_send_events` 두 표가 생기고, `platform_app`은 의도에 SELECT·INSERT·UPDATE,
+이력에 SELECT·INSERT만 가진다(이력 수정·삭제 불가). `identity.users`와 `mailbox_auth.connections`를 참조한다.
+표 적용만으로 발송이 켜지지 않는다. 상세는 [메일 수집 계약](../../contracts/platform/mail.md)의 발송 절을 따른다.
+
 근거: [PostgreSQL 스키마 권한](https://www.postgresql.org/docs/17/ddl-schemas.html), [생성자별 기본 권한](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html), [Cloud SQL 사용자 생성](https://docs.cloud.google.com/sql/docs/postgres/create-manage-users).
