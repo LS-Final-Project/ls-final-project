@@ -1608,6 +1608,57 @@ def test_stored_cache_hit_returns_only_token_without_rewriting(
     asyncio.run(scenario())
 
 
+def test_stored_force_refresh_skips_valid_cache_and_commits_before_return(
+    oauth, mailbox_cache, persistence_context
+):
+    """강제 갱신은 유효 캐시 토큰을 쓰지 않고 refresh grant로 받은 새 캐시를 커밋한 뒤 반환한다.
+
+    Args:
+        oauth: 실제 MSAL과 합성 갱신 응답.
+        mailbox_cache: 아직 유효한 합성 캐시.
+        persistence_context: 실제 DB·세션·암호기.
+
+    Returns:
+        None: 갱신 POST 1회·새 개정·회전 캐시와 뒤이은 기본 호출의 캐시 적중을 검증한다.
+    """
+    context = persistence_context
+    oauth.response_overrides.update(
+        access_token="synthetic-forced-access", refresh_token="synthetic-forced-refresh"
+    )
+
+    async def scenario():
+        """유효 캐시를 저장하고 강제 갱신·기본 호출 순서로 토큰을 받는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 저장 행과 반환 토큰을 대조한다.
+        """
+        value = await persist_token_cache(context, mailbox_cache)
+        posts = len([c for c in oauth.calls if c[0] == "POST"])
+        token = await acquire_persisted_token(oauth, context, value, force_refresh=True)
+        assert token.get_secret_value() == "synthetic-forced-access"
+        refresh = [c for c in oauth.calls if c[0] == "POST"]
+        assert len(refresh) == posts + 1
+        assert refresh[-1][2]["data"]["grant_type"] == "refresh_token"
+        assert persisted_token_row(context, value)[0] == 2
+        stored = await load_mailbox(
+            context.settings,
+            mailbox_id=value.mailbox_id,
+            owner_user_id=context.owner,
+            cipher=context.cipher,
+        )
+        cache = stored.serialized_cache.get_secret_value()
+        assert "synthetic-forced-refresh" in cache and "synthetic-refresh-token" not in cache
+        # 기본 호출은 방금 커밋한 새 토큰을 캐시에서 그대로 쓴다.
+        assert await acquire_persisted_token(oauth, context, value) == token
+        assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1
+        assert persisted_token_row(context, value)[0] == 2
+
+    asyncio.run(scenario())
+
+
 def test_stored_refresh_commits_rotated_cache_before_return(
     oauth, mailbox_cache, persistence_context, monkeypatch, caplog
 ):
@@ -1682,15 +1733,19 @@ def test_stored_refresh_commits_rotated_cache_before_return(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("force_refresh", [False, True])
 @pytest.mark.parametrize("denied", ["mailbox", "owner", "inactive", "role", "disconnected"])
-def test_stored_token_denied_before_sdk(oauth, mailbox_cache, persistence_context, denied):
-    """현재 소유자·권한·연결이 유효하지 않으면 SDK에 복호화 캐시를 전달하지 않는다.
+def test_stored_token_denied_before_sdk(
+    oauth, mailbox_cache, persistence_context, denied, force_refresh
+):
+    """현재 소유자·권한·연결이 유효하지 않으면 강제 갱신이어도 SDK에 캐시를 전달하지 않는다.
 
     Args:
         oauth: 실제 MSAL과 합성 요청 기록.
         mailbox_cache: 갱신이 필요한 합성 캐시.
         persistence_context: 실제 DB·세션·암호기.
         denied: 거부할 ID·활성·역할·연결 조건.
+        force_refresh: 제공자 강제 갱신 키워드.
 
     Returns:
         None: 공급자 POST 전에 고정 오류로 거부하고 보관을 바꾸지 않는다.
@@ -1706,8 +1761,8 @@ def test_stored_token_denied_before_sdk(oauth, mailbox_cache, persistence_contex
         Returns:
             None: 공급자 미호출과 안전한 접근 거부를 확인한다.
         """
-        value = await persist_token_cache(context, mailbox_cache, expired=True)
-        overrides = {}
+        value = await persist_token_cache(context, mailbox_cache, expired=not force_refresh)
+        overrides: dict = {"force_refresh": force_refresh}
         if denied in {"mailbox", "owner"}:
             overrides["mailbox_id" if denied == "mailbox" else "owner_user_id"] = uuid4()
         elif denied == "disconnected":
@@ -1895,6 +1950,7 @@ def test_stored_refresh_sql_failure_never_returns_new_token(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("force_refresh", [False, True])
 @pytest.mark.parametrize(
     "provider_error,expected",
     [
@@ -1903,7 +1959,7 @@ def test_stored_refresh_sql_failure_never_returns_new_token(
     ],
 )
 def test_stored_provider_failure_does_not_save_or_return_token(
-    oauth, mailbox_cache, persistence_context, provider_error, expected
+    oauth, mailbox_cache, persistence_context, provider_error, expected, force_refresh
 ):
     """실제 SDK의 재연결·일시 장애 분류를 보존하고 실패 캐시를 저장하지 않는다.
 
@@ -1913,6 +1969,7 @@ def test_stored_provider_failure_does_not_save_or_return_token(
         persistence_context: 실제 DB·세션·암호기.
         provider_error: 재연결 또는 일시 장애 공급자 코드.
         expected: 기존 어댑터의 고정 오류 코드.
+        force_refresh: True면 유효 캐시를 강제 갱신하다 실패하는 경우다.
 
     Returns:
         None: 고정 오류 전달·기존 보관 보존·자동 재시도 부재를 확인한다.
@@ -1930,11 +1987,11 @@ def test_stored_provider_failure_does_not_save_or_return_token(
         Returns:
             None: 실패를 성공·캐시 갱신으로 숨기지 않는지 확인한다.
         """
-        value = await persist_token_cache(context, mailbox_cache, expired=True)
+        value = await persist_token_cache(context, mailbox_cache, expired=not force_refresh)
         before = persisted_token_row(context, value)
         posts = len([c for c in oauth.calls if c[0] == "POST"])
         with pytest.raises(ApplicationError, match=expected) as error:
-            await acquire_persisted_token(oauth, context, value)
+            await acquire_persisted_token(oauth, context, value, force_refresh=force_refresh)
         assert "synthetic-refresh-token" not in error.value.message
         assert persisted_token_row(context, value) == before
         assert len([c for c in oauth.calls if c[0] == "POST"]) == posts + 1

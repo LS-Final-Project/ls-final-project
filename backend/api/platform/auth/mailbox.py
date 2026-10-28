@@ -170,6 +170,7 @@ async def acquire_stored_mailbox_token(
     owner_user_id: UUID,
     adapter: PersonalMicrosoftOAuth,
     cipher: MailboxCipher,
+    force_refresh: bool = False,
 ) -> SecretStr:
     """현재 보관 캐시를 조회·갱신하고 안전한 저장을 마친 뒤 토큰 하나만 반환한다.
 
@@ -184,10 +185,12 @@ async def acquire_stored_mailbox_token(
         owner_user_id: 인증한 요청 또는 신뢰할 서버 작업에서 복원한 소유자 ID.
         adapter: 기존 MSAL 토큰 조회·갱신 어댑터.
         cipher: 서버 전용 키를 주입한 현재 보관 암호기.
+        force_refresh: True면 같은 현재 상태 확인 뒤 캐시 토큰을 건너뛰고 갱신한다.
 
     Returns:
         SecretStr: 저장 커밋 또는 변경 없는 현재 상태 확인을 마친 access token 하나.
     """
+    # 강제 갱신도 소유자·활성·연결 확인을 먼저 통과해야 MSAL을 부른다.
     snapshot = await load_mailbox(
         settings, mailbox_id=mailbox_id, owner_user_id=owner_user_id, cipher=cipher
     )
@@ -195,6 +198,7 @@ async def acquire_stored_mailbox_token(
         adapter.acquire_mailbox_token,
         subject=snapshot.subject,
         serialized_cache=snapshot.serialized_cache,
+        force_refresh=force_refresh,
     )
     try:
         await save_mailbox_update(settings, snapshot=snapshot, update=update, cipher=cipher)

@@ -30,15 +30,20 @@ class MailboxTokenProvider:
         self._adapter = adapter
         self._cipher = cipher
 
-    async def get_mailbox_access_token(self, *, mailbox_id: UUID, owner_user_id: UUID) -> SecretStr:
+    async def get_mailbox_access_token(
+        self, *, mailbox_id: UUID, owner_user_id: UUID, force_refresh: bool = False
+    ) -> SecretStr:
         """현재 소유자·권한·연결을 재검사하고 저장 완료된 유효 토큰만 반환한다.
 
         호출자는 요청이나 저장된 작업을 인증하고 소유자 ID를 복원해야 한다.
         HTTP 인증·업무 권한 검사·Graph 요청·401 이후 재시도는 이 메서드가 수행하지 않는다.
+        `force_refresh=True`면 같은 재검사 뒤 캐시 토큰을 건너뛰고 MSAL로 갱신해 저장 커밋 후 반환한다.
+        언제 강제 갱신을 부를지는 호출자(수집 계약)가 정한다.
 
         Args:
             mailbox_id: 서버에 저장된 사서함 연결 ID.
             owner_user_id: 인증한 요청 또는 신뢰할 서버 작업에서 복원한 소유자 ID.
+            force_refresh: True면 유효한 캐시 토큰이 있어도 갱신한다. 기본값은 기존 동작이다.
 
         Returns:
             SecretStr: 기존 보관 경계의 현재 상태 확인·저장 커밋을 마친 access token 하나.
@@ -52,4 +57,5 @@ class MailboxTokenProvider:
             owner_user_id=owner_user_id,
             adapter=self._adapter,
             cipher=self._cipher,
+            force_refresh=force_refresh,
         )
