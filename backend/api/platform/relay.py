@@ -24,7 +24,8 @@ UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 # upstream URL을 바꾸지 못한다.
 CUSTOMER_PATH = CUSTOMER_ID
 # (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
-# 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다.
+# 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만
+# 적용한다. 변경 메서드의 query는 경로와 상관없이 400이다(relay()의 query 검사).
 BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets", ("GET", "POST"), ("limit", "cursor")),
     ("/api/v1/cs/tickets/{uuid}", ("GET", "PATCH"), ()),
