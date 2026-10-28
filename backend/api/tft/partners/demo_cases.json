@@ -1,0 +1,71 @@
+{
+  "document": "14",
+  "source": "기획서 최종본 수정본(2026-10-28) 4.7~4.9 표",
+  "note": "14번 시연의 기대 상태와 근거 위치만 둔다. 평가 문서(10·11·12·18)의 기대 결과는 저장소 밖에 둔다.",
+  "cases": [
+    {
+      "case": "A",
+      "title": "몰드 변압기: 자사 근거와 조건",
+      "clause_no": "2.5",
+      "own_product": "TRF-DRY-630",
+      "requirements": [
+        {"item": "탭 ±2×2.5%", "clause_no": "2.5", "attribute": "tap", "expected_status": "EVIDENCE_FOUND", "reason": "같은 속성·같은 값"},
+        {"item": "절연 Class F", "clause_no": "2.5", "attribute": "insulation_class", "expected_status": "EVIDENCE_FOUND", "reason": "같은 등급"},
+        {"item": "임피던스 5.75% ±10%", "clause_no": "2.5", "attribute": "impedance", "expected_status": "CONDITIONAL", "reason": "범위 안이지만 기준 온도가 IEEE 조건과 같은지 기술 검토"},
+        {"item": "강제 공랭 시 용량 증대 33%(115℃ 상승)", "clause_no": "2.5 C.1", "attribute": "forced_air_capacity_increase", "expected_status": "CONDITIONAL", "reason": "수치는 넘지만 요구 조건에서의 값인지 근거 없음. 115℃ 상승 조건의 AF 정격 확인"},
+        {"item": "2차 전압 480Y/277V", "clause_no": "2.5", "attribute": "secondary_voltage", "expected_status": "SPEC_GAP", "reason": "2차 전압이 다름. 변형 모델 가능 여부를 변압기 기술부서에 자문"},
+        {"item": "1차 전압·용량(도면 참조)", "clause_no": "2.5", "attribute": "primary_voltage", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "요구값을 아직 모름(도면 미확보). 도면 요청 후 비교"},
+        {"item": "BIL 95kV·알루미늄 권선·이중 온도센서·ModBus 연동", "clause_no": "2.5", "attribute": "bil", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청"},
+        {"item": "IEEE C57.12.01·소음 NEMA TR1·부품 Listed and labeled", "clause_no": "2.5", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 기준 시험·등록·소음 근거를 찾을 수 없음. 인증·시험 자료 요청"},
+        {"item": "설계 기준: 타사 몰드 변압기 모델", "clause_no": "2.5", "attribute": null, "expected_status": "CONDITIONAL", "reason": "기준 모델은 참고 기준. 동등 이상 제안 가능 여부를 고객에게 확인"}
+      ],
+      "result": "자사 변형 모델 확인 필요(공급 미확정). 확인 전에는 내부 검토 대안으로만 표시"
+    },
+    {
+      "case": "B-1",
+      "title": "15kV 부하개폐기반",
+      "clause_no": "2.4",
+      "own_product": "SWGR-MV-12kV",
+      "requirements": [
+        {"item": "형식: 금속 폐쇄형·고정식·퓨즈 부하개폐기", "clause_no": "2.4", "attribute": "form", "expected_status": "SPEC_GAP", "reason": "형식 다름"},
+        {"item": "정격 최대전압 15kV / BIL 95kV", "clause_no": "2.4", "attribute": "rated_max_voltage", "expected_status": "SPEC_GAP", "reason": "전압·절연 모두 낮음"},
+        {"item": "단시간 내전류 38kA, 2s", "clause_no": "2.4", "attribute": "short_time_withstand_current", "expected_status": "SPEC_GAP", "reason": "전류 낮음(시간 조건은 별도)"},
+        {"item": "아크 내성 구조, 부품 UL 등 등록", "clause_no": "2.4", "attribute": "arc_resistant", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 아크 내성 시험·등록 근거 없음. IEC 내부 아크 등급은 다른 속성"}
+      ],
+      "candidates": [
+        {"candidate_code": "P-A", "expected_grade": "REVIEW", "reason": "정격·아크·등록 근거는 있으나 변압기 접속 조건 미확인. 참여 의사·납기도 미확인"},
+        {"candidate_code": "P-B", "expected_grade": "EXCLUDED", "reason": "필수 정격 미달(단시간 내전류 25kA)"},
+        {"candidate_code": "P-C", "expected_grade": "REFERENCE_ONLY", "reason": "제품군은 맞지만 데이터시트·시험 근거 없음. 적합 후보와 섞지 않음"}
+      ]
+    },
+    {
+      "case": "B-2",
+      "title": "저압 배전반",
+      "clause_no": "2.6",
+      "own_product": "ACB-AS-2000",
+      "requirements": [
+        {"item": "인출형, LSIG 보호", "clause_no": "2.6", "attribute": "protection_functions", "expected_status": "EVIDENCE_FOUND", "reason": "기능 단위 근거 있음"},
+        {"item": "배전반 IEEE C37.20.1 + UL 1558", "clause_no": "2.6", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "배전반 제품 자료 없음"},
+        {"item": "차단기 IEEE C37.13 + UL 1066", "clause_no": "2.6", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "UL 1066 등록 근거를 찾을 수 없음. 미기재는 미충족이 아님"},
+        {"item": "아크플래시 저감 4가지 방식 중 하나", "clause_no": "2.6", "attribute": "arc_flash_reduction", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 기능 없음"}
+      ],
+      "candidates": [
+        {"candidate_code": "L-A", "expected_grade": "REVIEW", "reason": "UL 1558 조립 실적·UL 1066 차단기 사용만 확인. 2.6절 나머지(버스·아크플래시 저감·지정 계전기·계량기 탑재) 근거 미확인"},
+        {"candidate_code": "L-B", "expected_grade": "EXCLUDED", "reason": "UL 891 Switchboard만 등록. 요구는 UL 1558 Switchgear"}
+      ]
+    },
+    {
+      "case": "C",
+      "title": "편집 흔적 반영과 고객 질문",
+      "edit_traces": [
+        {"clause_no": "2.5 C.1", "deleted_value": "50", "current_value": "33%", "expected": "요구값 33%로 등록, 삭제 값 50은 이력으로만 표시하고 되묻지 않음"},
+        {"clause_no": "PART 3", "deleted_value": "(NOT IN CONTRACT)", "current_value": "EXECUTION", "expected": "PART 3 전체를 계약 범위로 보고 3.6·3.7·3.8을 수행 과업 요구로 등록, 수행 주체는 확인 항목"}
+      ],
+      "questions": [
+        {"clause_no": "2.4 E.1.c", "issue_type": "EMPTY_VALUE", "issue": "상용주파 내전압 \"<Insert value> kV\" 값이 비어 있음(템플릿 잔재)", "question_text": "요구 값을 알려 주십시오."},
+        {"clause_no": "1.1 ↔ 2.4", "issue_type": "CONFLICT", "issue": "같은 고압 구간이 1.1은 metal-clad, 2.4는 metal-enclosed", "question_text": "고압 수전부 형식은 2.4의 금속 폐쇄형 퓨즈 부하개폐기가 맞습니까?"},
+        {"clause_no": "2.1", "issue_type": "CONDITION_MISSING", "issue": "제조사 목록 \"include, but are not limited to … with Owner's approval\"의 승인 절차가 없음", "question_text": "목록에 없는 제조사의 승인 절차와 제출 자료를 알려 주십시오."}
+      ]
+    }
+  ]
+}
