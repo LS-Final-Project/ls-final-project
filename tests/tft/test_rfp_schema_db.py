@@ -313,3 +313,50 @@ def test_other_services_cannot_read_rfp_tables(admin):
         assert not conn.execute(
             "SELECT has_table_privilege('cs_app', 'tft.requirement_versions', 'SELECT')"
         ).fetchone()[0]
+
+
+def test_rereview_marks_are_cleared_not_rewritten(app_dsn, admin, chain):
+    proposal, mark = uuid4(), uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id, project_id, requirement_id, origin, current, "
+            "proposed, rationale, proposer_kind, proposer_user_id, data_origin, derivation_kind, "
+            "known_at) VALUES (%s,%s,%s,'web','{}','{}','근거','user',%s,'synthetic','PROVIDED',now())",
+            (proposal, chain["project"], chain["requirement"], uuid4()),
+        )
+    with psycopg.connect(app_dsn) as conn:
+        conn.execute(
+            "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, "
+            "cause_proposal_id) VALUES (%s,%s,'comparison',%s,%s)",
+            (mark, chain["project"], chain["requirement"], proposal),
+        )
+        conn.execute(
+            "UPDATE tft.rereview_marks SET cleared_by=%s, cleared_at=now() WHERE id=%s",
+            (uuid4(), mark),
+        )
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("UPDATE tft.rereview_marks SET target_id=%s WHERE id=%s", (uuid4(), mark))
+    # 해소자 없이 해소 시각만 채울 수 없다.
+    violates(
+        admin,
+        "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, cause_proposal_id, "
+        "cleared_at) VALUES (%s,%s,'draft_sentence',%s,%s,now())",
+        (uuid4(), chain["project"], uuid4(), proposal),
+    )
+
+
+def test_command_records_keep_the_first_result_per_key(app_dsn, chain):
+    actor = uuid4()
+    base = (
+        "INSERT INTO tft.rfp_commands (actor_user_id, operation, idempotency_key, project_id, "
+        "request_hash, status_code, result) VALUES (%s,%s,%s,%s,%s,201,'{}')"
+    )
+    with psycopg.connect(app_dsn) as conn:
+        # 접수는 프로젝트가 생기기 전이라 project_id가 비어 있다.
+        conn.execute(base, (actor, "project.create", "key-0001", None, "a" * 64))
+        conn.execute(base, (actor, "project.process", "key-0001", chain["project"], "b" * 64))
+    violates(app_dsn, base, (actor, "project.create", "key-0001", None, "c" * 64))
+    violates(app_dsn, base, (actor, "project.create", "short", None, "a" * 64))
+    with psycopg.connect(app_dsn) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("UPDATE tft.rfp_commands SET result='{}' WHERE actor_user_id=%s", (actor,))

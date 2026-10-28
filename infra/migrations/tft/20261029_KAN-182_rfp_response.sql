@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS tft.requirement_versions (
     path text CHECK (path IN ('OTHER_OWN_PRODUCT', 'ALTERNATIVE_SPEC', 'EXTERNAL_PRODUCT',
         'TASK_SUBCONTRACT', 'JOINT_PROPOSAL', 'NONE')),
     next_owner_field text CHECK (next_owner_field IN ('SALES', 'TECH', 'PURCHASE', 'CUSTOMER')),
-    needs_rereview boolean NOT NULL DEFAULT false,
     provenance_kind text NOT NULL CHECK (provenance_kind IN ('ai_draft', 'human_input', 'system_record')),
     decided_by uuid,
     decided_at timestamptz,
@@ -403,7 +402,6 @@ CREATE TABLE IF NOT EXISTS tft.draft_sentences (
     text text NOT NULL CHECK (length(text) BETWEEN 1 AND 4000),
     conditions jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(conditions) = 'array'),
     unconfirmed boolean NOT NULL DEFAULT false,
-    needs_rereview boolean NOT NULL DEFAULT false,
     evidence_missing boolean NOT NULL,
     provenance_kind text NOT NULL CHECK (provenance_kind IN ('ai_draft', 'human_input', 'system_record')),
     edit_reason text CHECK (length(edit_reason) <= 500),
@@ -445,6 +443,40 @@ CREATE TABLE IF NOT EXISTS tft.exports (
     FOREIGN KEY (project_id, review_version) REFERENCES tft.review_versions(project_id, review_version)
 );
 
+-- 재검토 표시. 판본 행은 고치지 않으므로 표시를 따로 쌓는다. 제안 승인이 연결 대상마다 한 행을
+-- 넣고, 사람이 다시 확인하면 cleared_at·cleared_by만 채운다. needs_rereview = 해소 안 된 행이 있음.
+CREATE TABLE IF NOT EXISTS tft.rereview_marks (
+    id uuid PRIMARY KEY,
+    project_id uuid NOT NULL REFERENCES tft.projects(id),
+    -- requirement·comparison·supplement는 요구 ID, draft_sentence는 문장 sentence_key.
+    target_kind text NOT NULL CHECK (target_kind IN ('requirement', 'comparison', 'supplement', 'draft_sentence')),
+    target_id uuid NOT NULL,
+    cause_proposal_id uuid NOT NULL REFERENCES tft.change_proposals(id),
+    marked_at timestamptz NOT NULL DEFAULT now(),
+    cleared_by uuid,
+    cleared_at timestamptz,
+    CHECK ((cleared_by IS NULL) = (cleared_at IS NULL)),
+    UNIQUE (cause_proposal_id, target_kind, target_id)
+);
+CREATE INDEX IF NOT EXISTS rereview_marks_open ON tft.rereview_marks (project_id, target_kind, target_id)
+    WHERE cleared_at IS NULL;
+
+-- 상태를 만드는 POST의 멱등 기록. 같은 사용자·동작·키의 재전송은 첫 결과를 돌려주고,
+-- 본문이 다르면 409 IDEMPOTENCY_CONFLICT다. 접수(경로 2)는 프로젝트가 아직 없어 project_id가 비어 있다.
+CREATE TABLE IF NOT EXISTS tft.rfp_commands (
+    actor_user_id uuid NOT NULL,
+    operation text NOT NULL CHECK (operation IN ('project.create', 'document.upload', 'project.process',
+        'supplement.select', 'question.create', 'question.reply', 'proposal.create', 'proposal.approve',
+        'proposal.reject', 'review_version.create', 'export.create', 'annotation.process')),
+    idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+    project_id uuid REFERENCES tft.projects(id),
+    request_hash text NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+    status_code integer NOT NULL CHECK (status_code BETWEEN 200 AND 299),
+    result jsonb NOT NULL CHECK (jsonb_typeof(result) = 'object'),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (actor_user_id, operation, idempotency_key)
+);
+
 -- 모든 쓰기의 감사. 변경 제안 승인은 제안자·승인자를 모두 남긴다.
 CREATE TABLE IF NOT EXISTS tft.rfp_audit_events (
     id uuid PRIMARY KEY,
@@ -469,7 +501,7 @@ REVOKE ALL ON
     tft.supplement_options, tft.supplement_selections, tft.partner_profiles, tft.partner_grades,
     tft.partner_grade_summaries, tft.customer_questions, tft.question_replies, tft.change_proposals,
     tft.drafts, tft.draft_versions, tft.draft_sentences, tft.draft_sentence_evidence,
-    tft.review_versions, tft.exports, tft.rfp_audit_events
+    tft.review_versions, tft.exports, tft.rereview_marks, tft.rfp_commands, tft.rfp_audit_events
     FROM PUBLIC, cs_app, platform_app;
 GRANT SELECT, INSERT ON
     tft.project_assignments, tft.documents, tft.document_versions, tft.clauses,
@@ -478,7 +510,7 @@ GRANT SELECT, INSERT ON
     tft.supplement_options, tft.supplement_selections, tft.partner_profiles, tft.partner_grades,
     tft.partner_grade_summaries, tft.customer_questions, tft.question_replies, tft.change_proposals,
     tft.drafts, tft.draft_versions, tft.draft_sentences, tft.draft_sentence_evidence,
-    tft.review_versions, tft.exports, tft.rfp_audit_events
+    tft.review_versions, tft.exports, tft.rereview_marks, tft.rfp_commands, tft.rfp_audit_events
     TO tft_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON
     tft.project_assignments, tft.documents, tft.document_versions, tft.clauses,
@@ -487,12 +519,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     tft.supplement_options, tft.supplement_selections, tft.partner_profiles, tft.partner_grades,
     tft.partner_grade_summaries, tft.customer_questions, tft.question_replies, tft.change_proposals,
     tft.drafts, tft.draft_versions, tft.draft_sentences, tft.draft_sentence_evidence,
-    tft.review_versions, tft.exports, tft.rfp_audit_events
+    tft.review_versions, tft.exports, tft.rereview_marks, tft.rfp_commands, tft.rfp_audit_events
     FROM tft_app;
 GRANT UPDATE (latest_version) ON tft.documents, tft.requirements, tft.drafts TO tft_app;
 GRANT UPDATE (status, version, updated_at) ON tft.customer_questions TO tft_app;
 GRANT UPDATE (status, decided_by, decided_at, decision_note, version) ON tft.change_proposals TO tft_app;
 GRANT UPDATE (storage_key, sha256, size, completed_at) ON tft.exports TO tft_app;
+GRANT UPDATE (cleared_by, cleared_at) ON tft.rereview_marks TO tft_app;
 GRANT UPDATE (output_status, judgement_status, customer_goal, review_departments, review_version)
     ON tft.projects TO tft_app;
 COMMIT;

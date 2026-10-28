@@ -5,10 +5,10 @@
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
 """
 
-from typing import Any, NoReturn
+from typing import Annotated, Any, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 
 from backend.api.tft.rfp import schemas as s
 from backend.shared.errors import ApplicationError
@@ -37,6 +37,8 @@ def not_implemented() -> NoReturn:
 
 
 A07, A08, A12 = planned("KAN-188"), planned("KAN-189"), planned("KAN-192")
+# 상태를 만드는 POST는 모두 필수(8~128자). 같은 키의 재전송은 tft.rfp_commands의 첫 결과를 돌려준다.
+Key = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)]
 P = "/projects/{project_id}"
 
 
@@ -47,7 +49,7 @@ P = "/projects/{project_id}"
     operation_id="tft_create_rfp_project",
     openapi_extra=A07,
 )
-async def create_project(payload: s.ProjectCreate) -> NoReturn:
+async def create_project(payload: s.ProjectCreate, idempotency_key: Key) -> NoReturn:
     """2. 접수. 호출자가 담당 sales가 된다."""
     not_implemented()
 
@@ -114,7 +116,7 @@ UPLOAD_BODY = {
     operation_id="tft_upload_rfp_document",
     openapi_extra={**A07, **UPLOAD_BODY},
 )
-async def upload_document(project_id: UUID) -> NoReturn:
+async def upload_document(project_id: UUID, idempotency_key: Key) -> NoReturn:
     """6. DOCX·PDF 25 MiB 이하(multipart). 업로드만으로는 파싱하지 않는다.
 
     본문 형식은 OpenAPI에 직접 적었다. 구현(KAN-188) 때 multipart 파서를 붙인다.
@@ -179,7 +181,7 @@ async def download_document(document_id: UUID) -> NoReturn:
     operation_id="tft_process_rfp",
     openapi_extra=A07,
 )
-async def process(project_id: UUID, payload: s.ProcessRequest) -> NoReturn:
+async def process(project_id: UUID, payload: s.ProcessRequest, idempotency_key: Key) -> NoReturn:
     """11. 처리 작업 접수(플랫폼 runtime.jobs, owner=tft, kind=rfp.process)."""
     not_implemented()
 
@@ -245,7 +247,9 @@ async def get_supplement_options(requirement_id: UUID) -> NoReturn:
     operation_id="tft_select_rfp_supplement",
     openapi_extra=A07,
 )
-async def select_supplement(requirement_id: UUID, payload: s.SupplementSelection) -> NoReturn:
+async def select_supplement(
+    requirement_id: UUID, payload: s.SupplementSelection, idempotency_key: Key
+) -> NoReturn:
     """16. 경로·후보·역할 분담 선택(사람 결정, human_input 새 판본)."""
     not_implemented()
 
@@ -281,7 +285,9 @@ async def list_questions(
     operation_id="tft_create_rfp_question",
     openapi_extra=A07,
 )
-async def create_question(project_id: UUID, payload: s.QuestionCreate) -> NoReturn:
+async def create_question(
+    project_id: UUID, payload: s.QuestionCreate, idempotency_key: Key
+) -> NoReturn:
     """19. 질문 작성. 회신 전 요구값은 UNDETERMINED로 유지한다."""
     not_implemented()
 
@@ -292,7 +298,9 @@ async def create_question(project_id: UUID, payload: s.QuestionCreate) -> NoRetu
     operation_id="tft_reply_rfp_question",
     openapi_extra=A08,
 )
-async def reply_question(question_id: UUID, payload: s.QuestionReply) -> NoReturn:
+async def reply_question(
+    question_id: UUID, payload: s.QuestionReply, idempotency_key: Key
+) -> NoReturn:
     """20. 회신 기록 → 변경 제안(customer_reply). 승인 전에는 요구가 바뀌지 않는다."""
     not_implemented()
 
@@ -320,7 +328,9 @@ async def list_proposals(
     operation_id="tft_create_rfp_proposal",
     openapi_extra=A08,
 )
-async def create_proposal(project_id: UUID, payload: s.ProposalCreate) -> NoReturn:
+async def create_proposal(
+    project_id: UUID, payload: s.ProposalCreate, idempotency_key: Key
+) -> NoReturn:
     """22. 웹 수정 제안(web)."""
     not_implemented()
 
@@ -331,7 +341,9 @@ async def create_proposal(project_id: UUID, payload: s.ProposalCreate) -> NoRetu
     operation_id="tft_approve_rfp_proposal",
     openapi_extra=A08,
 )
-async def approve_proposal(proposal_id: UUID, payload: s.ProposalDecision) -> NoReturn:
+async def approve_proposal(
+    proposal_id: UUID, payload: s.ProposalDecision, idempotency_key: Key
+) -> NoReturn:
     """23. 승인 → 요구 새 판본(human_input), 연결 객체 재검토 표시, 감사에 제안자·승인자."""
     not_implemented()
 
@@ -342,7 +354,9 @@ async def approve_proposal(proposal_id: UUID, payload: s.ProposalDecision) -> No
     operation_id="tft_reject_rfp_proposal",
     openapi_extra=A08,
 )
-async def reject_proposal(proposal_id: UUID, payload: s.ProposalRejection) -> NoReturn:
+async def reject_proposal(
+    proposal_id: UUID, payload: s.ProposalRejection, idempotency_key: Key
+) -> NoReturn:
     """24. 기각. 사유 필수."""
     not_implemented()
 
@@ -376,7 +390,9 @@ async def edit_draft(project_id: UUID, payload: s.DraftEdit) -> NoReturn:
     operation_id="tft_save_rfp_review_version",
     openapi_extra=A08,
 )
-async def save_review_version(project_id: UUID, payload: s.ReviewVersionCreate) -> NoReturn:
+async def save_review_version(
+    project_id: UUID, payload: s.ReviewVersionCreate, idempotency_key: Key
+) -> NoReturn:
     """27. 검토본 저장. 조건 미충족이면 422 TFT_DRAFT_INCOMPLETE."""
     not_implemented()
 
@@ -388,7 +404,9 @@ async def save_review_version(project_id: UUID, payload: s.ReviewVersionCreate) 
     operation_id="tft_export_rfp_draft",
     openapi_extra=A07,
 )
-async def export_draft(project_id: UUID, payload: s.ExportRequest) -> NoReturn:
+async def export_draft(
+    project_id: UUID, payload: s.ExportRequest, idempotency_key: Key
+) -> NoReturn:
     """28. 검토본 내보내기 작업(rfp.export)."""
     not_implemented()
 
@@ -412,6 +430,8 @@ async def download_export(project_id: UUID, export_id: UUID) -> NoReturn:
     operation_id="tft_process_rfp_annotations",
     openapi_extra=A12,
 )
-async def process_annotations(project_id: UUID, payload: s.AnnotationProcess) -> NoReturn:
+async def process_annotations(
+    project_id: UUID, payload: s.AnnotationProcess, idempotency_key: Key
+) -> NoReturn:
     """30. (A12 조건부) 메모 PDF 해석 → pdf_annot 제안."""
     not_implemented()

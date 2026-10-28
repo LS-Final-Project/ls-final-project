@@ -94,6 +94,7 @@ def test_declared_routes_answer_not_implemented(client):
     response = client.post(
         "/api/v1/tft/projects",
         json={"name": "p", "company_code": "HOST", "data_origin": "synthetic"},
+        headers={"Idempotency-Key": "create-0001"},
     )
     assert (response.status_code, response.json()["error"]["code"]) == (501, "TFT_NOT_IMPLEMENTED")
 
@@ -111,3 +112,17 @@ def test_openapi_lists_the_spec_routes_as_planned(client):
     assert ("/api/v1/tft/requirements/{requirement_id}/supplement-selection", "post") in planned
     upload = paths["/api/v1/tft/projects/{project_id}/documents"]["post"]
     assert "multipart/form-data" in upload["requestBody"]["content"]
+
+
+def test_every_state_creating_post_requires_an_idempotency_key(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    posts = [
+        (path, op)
+        for path, ops in paths.items()
+        for method, op in ops.items()
+        if method == "post" and op.get("x-implementation-status") == "planned"
+    ]
+    assert len(posts) == 12
+    for path, op in posts:
+        keys = [x for x in op.get("parameters", []) if x["name"] == "Idempotency-Key"]
+        assert keys and keys[0]["in"] == "header" and keys[0]["required"], path
