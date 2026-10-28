@@ -65,21 +65,21 @@ test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결
   if(init?.method==='POST'||init?.method==='PATCH'){saveSignal=init.signal as AbortSignal;await pending;return jsonResponse(503,errorBody('UNCERTAIN','합성 저장 결과 불확실'));}
   return jsonResponse(200,detail?source:{data:{items:[]}});
  });vi.stubGlobal('fetch',fetch);view(detail);
- fireEvent.click(await screen.findByRole('button',{name:detail?'내용 수정':'새 개선요청 작성',exact:true}));
+ fireEvent.click(await screen.findByRole('button',{name:detail?'내용 수정':'새 개선요청 작성'}));
  fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'보존할 합성 입력'}});
  if(!detail){fireEvent.change(screen.getByLabelText('요청 유형'),{target:{value:'DOCUMENT'}});fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});fireEvent.change(screen.getByLabelText('문서 신호'),{target:{value:'NOT_FOUND'}});}
  const refresh=screen.getByRole('button',{name:'최신 요청 조회'});
  expect((refresh as HTMLButtonElement).disabled).toBe(true);
  await act(async()=>{focusManager.setFocused(false);focusManager.setFocused(true);});
  expect((screen.getByLabelText('검토할 문제') as HTMLTextAreaElement).value).toBe('보존할 합성 입력');
- fireEvent.click(screen.getByRole('button',{name:detail?'내용 저장':'초안 저장',exact:true}));
+ fireEvent.click(screen.getByRole('button',{name:detail?'내용 저장':'초안 저장'}));
  await waitFor(()=>expect(saveSignal).toBeTruthy());
  fireEvent.click(refresh);
  await act(async()=>{focusManager.setFocused(false);focusManager.setFocused(true);});
  expect(saveSignal?.aborted).toBe(false);
  await act(async()=>{release();});
  await screen.findByText('합성 저장 결과 불확실');
- expect((screen.getByRole('button',{name:detail?'내용 저장':'초안 저장',exact:true}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole('button',{name:detail?'내용 저장':'초안 저장'}) as HTMLButtonElement).disabled).toBe(true);
  expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST'||init?.method==='PATCH')).toHaveLength(1);
  focusManager.setFocused(undefined);
 });
