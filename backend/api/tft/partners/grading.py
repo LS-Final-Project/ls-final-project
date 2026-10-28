@@ -136,7 +136,7 @@ def grade_requirement(
 
     Returns:
         RequirementGrade: 미달 근거가 하나라도 있으면 EXCLUDED, 관련 근거가 없으면 REFERENCE_ONLY,
-            미확인이 남으면 REVIEW, 모두 확인되면 MANDATORY_CONFIRMED.
+            미확인이 남거나 요구 자체가 충족이 아니면 REVIEW, 그 밖에는 MANDATORY_CONFIRMED.
     """
     codes = {p.product_code for p in profile.products}
     models = {p.model for p in profile.products}
@@ -167,7 +167,8 @@ def grade_requirement(
     elif not evidence:
         grade = "REFERENCE_ONLY"
         reasons.append("제안 모델의 사양·인증 근거가 없어 확인용 후보로만 둔다.")
-    elif check.unknown or not check.passed:
+    elif check.unknown or item[1] != "passed":
+        # 후보 단위 제약만 통과한 선호 요구가 확정으로 올라가지 않게, 요구 자체가 충족일 때만 확정한다.
         grade = "REVIEW"
     else:
         grade = "MANDATORY_CONFIRMED"
@@ -234,12 +235,13 @@ def _number(text: str) -> Decimal | None:
         text: 값 문자열.
 
     Returns:
-        Decimal | None: 숫자가 아니면 None.
+        Decimal | None: 숫자가 아니거나 NaN·Infinity면 None.
     """
     try:
-        return Decimal(text.strip())
+        number = Decimal(text.strip())
     except InvalidOperation:
         return None
+    return number if number.is_finite() else None
 
 
 def _system(standard: str) -> str:

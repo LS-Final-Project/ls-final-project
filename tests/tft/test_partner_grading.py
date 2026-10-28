@@ -251,6 +251,10 @@ def test_certification_rules(certs, verdict, phrase):
 
 
 def test_unit_mismatch_and_condition_gap_stay_unknown():
+    nan = profile("P-X", [fact("rated_max_voltage", "NaN", "kV")])
+    assert (
+        "rated_max_voltage" in grade_requirement(nan, MV[1], CONTEXT, DAY).mandatory_check.unknown
+    )
     volts = profile("P-X", [fact("rated_max_voltage", "15000", "V")])
     assert (
         "rated_max_voltage" in grade_requirement(volts, MV[1], CONTEXT, DAY).mandatory_check.unknown
@@ -296,8 +300,12 @@ def test_necessity_kinds():
     preferred = grade_requirement(
         weak, MV[2].model_copy(update={"necessity": "PREFERRED"}), CONTEXT, DAY
     )
-    assert preferred.grade != "EXCLUDED" and "bil" not in preferred.mandatory_check.failed
+    # 후보 단위 제약이 모두 통과해도 선호 요구 자체가 미달이면 확정이 아니다.
+    assert preferred.grade == "REVIEW" and "bil" not in preferred.mandatory_check.failed
     assert any("선호 요구" in r and "미달" in r for r in preferred.reasons)
+    met = profile("P-X", [fact("bil", "95", "kV")], integration=True)
+    preferred_met = MV[2].model_copy(update={"necessity": "PREFERRED"})
+    assert grade_requirement(met, preferred_met, CONTEXT, DAY).grade == "MANDATORY_CONFIRMED"
     undetermined = grade_requirement(
         weak, MV[2].model_copy(update={"necessity": "UNDETERMINED"}), CONTEXT, DAY
     )
