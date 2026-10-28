@@ -1459,6 +1459,52 @@
         "title": "Reclassification",
         "type": "object"
       },
+      "ResendRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ResendRequest",
+        "type": "object"
+      },
+      "ResendResult": {
+        "properties": {
+          "intent_id": {
+            "format": "uuid",
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "SUBMITTING",
+              "ACCEPTED",
+              "UNKNOWN",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_registered": {
+            "title": "Task Registered",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "intent_id",
+          "status",
+          "task_registered"
+        ],
+        "title": "ResendResult",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -1471,6 +1517,161 @@
           "request_id"
         ],
         "title": "ResponseMeta",
+        "type": "object"
+      },
+      "SendIntentList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SendIntentSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SendIntentList",
+        "type": "object"
+      },
+      "SendIntentSummary": {
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "business_ref": {
+            "title": "Business Ref",
+            "type": "string"
+          },
+          "business_version": {
+            "title": "Business Version",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "intent_id": {
+            "format": "uuid",
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "resend_ready": {
+            "title": "Resend Ready",
+            "type": "boolean"
+          },
+          "sent_copy_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent Copy Confirmed At"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "SUBMITTING",
+              "ACCEPTED",
+              "UNKNOWN",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "required": [
+          "intent_id",
+          "business_ref",
+          "business_version",
+          "subject",
+          "status",
+          "error_code",
+          "attempts",
+          "created_at",
+          "submitted_at",
+          "accepted_at",
+          "sent_copy_confirmed_at",
+          "resend_ready"
+        ],
+        "title": "SendIntentSummary",
+        "type": "object"
+      },
+      "SentCopyCheck": {
+        "properties": {
+          "intent_id": {
+            "format": "uuid",
+            "title": "Intent Id",
+            "type": "string"
+          },
+          "sent_copy_confirmed": {
+            "title": "Sent Copy Confirmed",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "SUBMITTING",
+              "ACCEPTED",
+              "UNKNOWN",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent_id",
+          "status",
+          "sent_copy_confirmed"
+        ],
+        "title": "SentCopyCheck",
         "type": "object"
       },
       "SuccessResponse_AuthorizationStart_": {
@@ -1679,6 +1880,54 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_ResendResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ResendResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ResendResult]",
+        "type": "object"
+      },
+      "SuccessResponse_SendIntentList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SendIntentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[SendIntentList]",
+        "type": "object"
+      },
+      "SuccessResponse_SentCopyCheck_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SentCopyCheck"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[SentCopyCheck]",
         "type": "object"
       },
       "SummaryCost": {
@@ -3865,6 +4114,287 @@
           "mail-triage"
         ],
         "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/send-intents": {
+      "get": {
+        "description": "\ub0b4\uac00 \uc2b9\uc778\ud55c \ubc1c\uc1a1\uc744 \ucd5c\uadfc \uc21c\uc73c\ub85c \ucd5c\ub300 50\uac74 \ub3cc\ub824\uc900\ub2e4.\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    status: \uc0c1\ud0dc\ub85c \uac70\ub97c \ub54c \uadf8 \uac12(\uc608: `UNKNOWN`).\n\nReturns:\n    SuccessResponse[SendIntentList]: \uc81c\ubaa9\u00b7\uc0c1\ud0dc\u00b7\uc2dc\uac01\u00b7\uc7ac\ubc1c\uc1a1 \uac00\ub2a5 \uc5ec\ubd80. \ubcf8\ubb38\u00b7\uc218\uc2e0\uc790 \uc81c\uc678.",
+        "operationId": "platform_list_my_mail_sends",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "QUEUED",
+                    "SUBMITTING",
+                    "ACCEPTED",
+                    "UNKNOWN",
+                    "FAILED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_SendIntentList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Mine",
+        "tags": [
+          "mail"
+        ],
+        "x-activation": "MAIL_SEND_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/send-intents/{intent_id}/check-sent-copy": {
+      "post": {
+        "description": "\ubcf4\ub0b8\ud3b8\uc9c0\ud568\uc5d0\uc11c \uc774 \ubc1c\uc1a1\uc758 \uc0ac\ubcf8\uc744 \ub2e4\uc2dc \ucc3e\ub294\ub2e4. \uacb0\uacfc \ubd88\uba85 \ud310\ub2e8\uc758 \uadfc\uac70\ub97c \ub0a8\uae34\ub2e4.\n\nArgs:\n    intent_id: \ubc1c\uc1a1 \uc758\ub3c4 ID.\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n\nReturns:\n    SuccessResponse[SentCopyCheck]: \ud604\uc7ac \uc0c1\ud0dc\uc640 \uc0ac\ubcf8 \ud655\uc778 \uc5ec\ubd80.",
+        "operationId": "platform_check_mail_sent_copy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_SentCopyCheck_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Sent Copy",
+        "tags": [
+          "mail"
+        ],
+        "x-activation": "MAIL_SEND_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/send-intents/{intent_id}/resend": {
+      "post": {
+        "description": "\uacb0\uacfc \ubd88\uba85 \ubc1c\uc1a1\uc744 \uc2b9\uc778\uc790\uac00 \uc0ac\uc720\uc640 \ud568\uaed8 \ub2e4\uc2dc \ubcf4\ub0b4\ub3c4\ub85d \ud5c8\uac00\ud558\uace0 \uc804\uc1a1 \uc791\uc5c5\uc744 \ub4f1\ub85d\ud55c\ub2e4.\n\n\uc720\uc608(10\ubd84) \ub4a4 \ubcf4\ub0b8\ud3b8\uc9c0\ud568 \"\uc0ac\ubcf8 \uc5c6\uc74c\" \ud655\uc778\uc774 \uc788\uc5b4\uc57c \ud55c\ub2e4. \ub4f1\ub85d\uc774 \uc2e4\ud328\ud574\ub3c4 \uc758\ub3c4\ub294\n`QUEUED`\uc774\uace0 \uc815\ub9ac \uc791\uc5c5\uc774 \ub2e4\uc2dc \ub4f1\ub85d\ud55c\ub2e4.\n\nArgs:\n    intent_id: `UNKNOWN` \ubc1c\uc1a1 \uc758\ub3c4.\n    payload: \ud310\ub2e8 \uc0ac\uc720.\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n\nReturns:\n    SuccessResponse[ResendResult]: `QUEUED`\uc640 \uc791\uc5c5 \ub4f1\ub85d \uc5ec\ubd80.",
+        "operationId": "platform_resend_mail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ResendResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resend",
+        "tags": [
+          "mail"
+        ],
+        "x-activation": "MAIL_SEND_ENABLED",
         "x-implementation-status": "partial"
       }
     },

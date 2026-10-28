@@ -219,9 +219,21 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - 접수 직후 사본 확인 작업 등록이 실패해도 `/send`는 200(`MAIL_CONFIRM_NOT_REGISTERED`)으로 끝내고 정리 작업이 복구한다. 이미 접수된 전송을 큐가 다시 부르게 하지 않는다.
 - 큐·권한·정리 작업 준비는 `infra/setup_mail_send.sh`(인프라 담당자 실행, `setup_mail_sync.sh` 뒤). C/S 계정에 플랫폼 `run.invoker`, `platform-runtime`에 `mail-send` 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
 
+### 승인자 확인·재발송 API
+
+`backend/api/platform/mail/send_http.py`. 기본 비활성(`MAIL_SEND_ENABLED`, 꺼져 있으면 DB 조회 전 404). 운영 세션으로만 쓰고, 변경 요청은 사서함 연결과 같은 동일 출처·세션 결속 CSRF(`X-CSRF-Token`) 검사를 거친다. **승인자 본인의 발송만** 보이고 다른 사람 것은 404다.
+
+| 경로 (`/api/v1/platform/mail/send-intents`) | 동작 |
+| --- | --- |
+| `GET ?status=` | 내가 승인한 발송 최근 50건. 제목·상태·시도·시각·`resend_ready`(결과 불명이고 유예 뒤 "사본 없음" 확인이 있음). 본문·수신자 제외 |
+| `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
+| `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
+
+- 화면에서 쓰려면 웹 중계(`frontend/server.mjs`)에 이 경로를 추가해야 한다. 지금 중계는 플랫폼 자체 경로에 JSON 본문을 넘기는 유형이 없어(업무 경로는 플랫폼이 C/S로 다시 넘긴다) 새 유형이 필요하다. 화면 연결(KAN-132)과 함께 다룬다.
+
 ## 남은 작업
 
-- KAN-74 후속: 사람이 결과 불명 발송을 확인하고 재발송을 허가하는 사용자 API
+- 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
 - KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 받는 사람은 KAN-75 회신·스레드 연결에서 정한다
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인

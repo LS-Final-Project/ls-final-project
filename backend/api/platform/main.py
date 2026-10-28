@@ -7,6 +7,7 @@ from backend.api.platform.auth.mailbox_settings import MailboxAuthSettings
 from backend.api.platform.auth.routes import dev_router
 from backend.api.platform.auth.settings import MicrosoftAuthSettings
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.mail.send_http import router as mail_send_user_router
 from backend.api.platform.mail.send_worker import MailSendSettings, configure_mail_send
 from backend.api.platform.mail.send_worker import router as mail_send_router
 from backend.api.platform.mail.worker import MailSyncSettings, configure_mail_sync
@@ -46,6 +47,7 @@ def create_app(
     app.include_router(router)
     app.include_router(mail_worker_router)
     app.include_router(mail_send_router)
+    app.include_router(mail_send_user_router)
     if app.state.settings.dev_auth_enabled and app.state.settings.environment in {"local", "test"}:
         app.include_router(dev_router)
     configure_relay(app)
