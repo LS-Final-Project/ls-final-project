@@ -844,3 +844,37 @@ def test_cancel_while_recording_the_end_still_finishes_the_run(
         "SELECT status, finished_at IS NOT NULL FROM integration.mail_sync_runs WHERE mailbox_id=%s",
         mailbox["id"],
     ) == [("SUCCEEDED", True)]
+
+
+def test_storage_failure_is_recorded_and_the_page_is_not_committed(settings, mailbox, tmp_path):
+    from backend.api.platform.mail.storage import GcsObjectStore
+
+    async def token():
+        return "gcs-token"
+
+    async def go():
+        graph = FakeGraph()
+        gcs = httpx.MockTransport(lambda request: httpx.Response(503, json={"error": {}}))
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(graph.handler)) as client,
+            httpx.AsyncClient(transport=gcs) as storage_client,
+        ):
+            return await sync_mailbox(
+                settings,
+                mailbox["id"],
+                get_token=token_getter(),
+                client=client,
+                store=GcsObjectStore(storage_client, "proj-test-team4-mail-objects", token),
+            )
+
+    result = asyncio.run(go())
+    assert (result.status, result.error_code, result.messages_stored) == (
+        "FAILED",
+        "MAIL_STORAGE_UNAVAILABLE",
+        0,
+    )
+    assert rows(
+        mailbox["dsn"],
+        "SELECT count(*) FROM integration.mail_sync_cursors WHERE mailbox_id=%s",
+        mailbox["id"],
+    ) == [(0,)]
