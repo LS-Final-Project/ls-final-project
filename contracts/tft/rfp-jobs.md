@@ -26,7 +26,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 - **기본 비활성(404)**. `TFT_JOBS_ENABLED=true`, `TFT_JOBS_SERVICE_URL`(플랫폼 서비스 주소, ID 토큰 audience), `TFT_JOBS_INVOKER_EMAIL`(tft 실행 서비스 계정)을 함께 정해야 켜진다. 켜면 `Authorization: Bearer <Google ID 토큰>`을 고정 Google 서명키·audience·실행 계정으로 다시 검증한다(Cloud Run IAM과 별도, 불일치 401).
 - **본문**: `actor_id`, `kind`, `project_id`, `input_version`(동결 입력 SHA-256), `idempotency_key`(8~128자), `request_hash`(정규화 원 요청 SHA-256). 다른 키는 422다. 원문·프롬프트·모델 응답은 받지 않는다.
-- **응답**: 새 작업 201, 같은 요청 재전송 200. `data`는 `job_id`, `kind`, `project_id`, `status`, `status_url`(`/api/v1/platform/jobs/{job_id}`), `created`. 같은 키에 hash·입력 판본·프로젝트가 다르면 409 `IDEMPOTENCY_CONFLICT`.
+- **응답**: 새 작업 201, 같은 요청 재전송 200. `data`는 `job_id`, `kind`, `project_id`, `status`, `status_url`(`/api/v1/platform/jobs/{job_id}`), `created`. 같은 키에 hash·입력 판본·프로젝트가 다르면 409 `IDEMPOTENCY_CONFLICT`. 등록되지 않은 `actor_id`는 422 `JOB_ACTOR_UNKNOWN`.
 - 작업과 첫 이벤트(`job.queued`)를 한 트랜잭션에 저장한다. **전송 의도(`dispatch_outbox`)는 만들지 않는다.** 평가 전송기는 outbox 행을 모두 평가 실행으로 보내므로, tft 처리 worker를 연결할 때 전송기의 종류 구분과 함께 연다. 그 전까지 tft 경로 11·28·30은 503 `TFT_PROCESSOR_NOT_CONNECTED`를 낸다(A07).
 
 ## SSE payload 허용 키 (명세 §4.3)

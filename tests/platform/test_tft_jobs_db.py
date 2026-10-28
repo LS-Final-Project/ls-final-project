@@ -147,3 +147,8 @@ def test_tft_runtime_role_still_has_no_runtime_access(jobs_database):
         assert not conn.execute(
             "SELECT has_table_privilege('tft_app', 'runtime.jobs', 'INSERT')"
         ).fetchone()[0]
+
+
+def test_unregistered_actor_is_a_client_error(client, jobs_database, body):
+    response = client.post(URL, json={**body, "actor_id": str(uuid4())}, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (422, "JOB_ACTOR_UNKNOWN")

@@ -135,7 +135,8 @@ async def admit_tft_job(
         TftJobAdmission: 새 작업 또는 같은 요청으로 이미 만든 작업.
 
     Raises:
-        ApplicationError: 다른 내용의 같은 키 409, 진행 중 작업 409, 재조회 실패 503.
+        ApplicationError: 다른 내용의 같은 키 409, 진행 중 작업 409, 미등록 사용자 422,
+            재조회 실패 503.
     """
     if conn.info.transaction_status != TransactionStatus.INTRANS:
         raise ValueError("An active caller transaction is required")
@@ -163,6 +164,9 @@ async def admit_tft_job(
                 ),
             )
             row = await cursor.fetchone()
+    except psycopg.errors.ForeignKeyViolation:
+        # 등록되지 않은 사용자. 다시 보내도 같으므로 재시도 대상이 아니다.
+        raise ApplicationError(422, "JOB_ACTOR_UNKNOWN", "The actor is not registered.") from None
     except psycopg.errors.UniqueViolation as error:
         if error.diag.constraint_name != "jobs_tft_one_active":
             raise
