@@ -257,12 +257,15 @@ def compare_stored_runs(
         candidate_run_id: 비교할 후보 실행.
         gold: 두 실행에 공통으로 적용할 고정 대상별 정답.
         gold_version: 두 실험과 일치해야 하는 인수 정답 판본.
-        metric: 비교할 지표. return_subtype은 gold 대상만 비교한다.
+        metric: 비교할 지표. return_subtype은 gold 대상만 비교한다. provided_info는 비교하지 않는다.
 
     Returns:
         dict: 기준·후보 최초 지표, 후보-기준 차이와 사례별 퇴행/개선.
             평가 조건이 다르거나 진행 중이면 안전한 오류로 거부한다. 합격 판정은 없다.
     """
+    # 비교 값은 단일 분류 집계의 accuracy·macro_f1이라 다른 구조의 지표는 DB 조회 전에 거부한다.
+    if metric not in {"category", "urgency", "secondary", "return_subtype"}:
+        raise ValueError("CS_STORED_METRICS_INVALID_INPUT")
     if baseline_run_id == candidate_run_id:
         raise ValueError("CS_BASELINE_INCOMPATIBLE")
     rows = _read_snapshot(conn, candidate_run_id, baseline_id=baseline_run_id)
