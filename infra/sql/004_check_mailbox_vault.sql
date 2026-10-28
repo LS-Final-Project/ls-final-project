@@ -21,12 +21,36 @@ BEGIN
        OR has_table_privilege(current_user,'mailbox_auth.connections','TRUNCATE') THEN
         RAISE EXCEPTION 'Mailbox runtime privileges differ from the expected minimum';
     END IF;
-    FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE']
+    FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','DELETE']
     LOOP
         IF NOT has_table_privilege(current_user,'mailbox_auth.connections',privilege_name) THEN
             RAISE EXCEPTION 'A required mailbox runtime privilege is missing';
         END IF;
     END LOOP;
+    -- UPDATE는 연결 상태·캐시 열만 필요하다. 재연결 상태 마이그레이션 뒤에는 그 열만 허용되고
+    -- 소유자·Microsoft 식별자는 바꿀 수 없어야 한다.
+    FOREACH relation_name IN ARRAY ARRAY['revision','state','key_version','cache_ciphertext','updated_at']
+    LOOP
+        IF NOT has_column_privilege(current_user,'mailbox_auth.connections',relation_name,'UPDATE') THEN
+            RAISE EXCEPTION 'A required mailbox runtime privilege is missing';
+        END IF;
+    END LOOP;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_schema='mailbox_auth'
+        AND table_name='connections' AND column_name='reconnect_required_at'
+    ) THEN
+        IF NOT has_column_privilege(current_user,'mailbox_auth.connections','reconnect_required_at','UPDATE')
+           OR NOT has_column_privilege(current_user,'mailbox_auth.connections','reconnect_reason','UPDATE')
+           OR has_table_privilege(current_user,'mailbox_auth.connections','UPDATE') THEN
+            RAISE EXCEPTION 'Mailbox runtime update privileges differ from the expected columns';
+        END IF;
+        FOREACH relation_name IN ARRAY ARRAY['id','owner_user_id','subject_tid','subject_oid']
+        LOOP
+            IF has_column_privilege(current_user,'mailbox_auth.connections',relation_name,'UPDATE') THEN
+                RAISE EXCEPTION 'Mailbox runtime may change a connection identity column';
+            END IF;
+        END LOOP;
+    END IF;
     FOREACH relation_name IN ARRAY ARRAY['identity.users','identity.user_roles','identity.sessions']
     LOOP
         IF NOT has_table_privilege(current_user,relation_name,'SELECT')

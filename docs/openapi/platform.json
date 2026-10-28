@@ -940,6 +940,40 @@
             "title": "Mailbox Id",
             "type": "string"
           },
+          "reconnect_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_grant",
+                  "interaction_required",
+                  "login_required",
+                  "consent_required",
+                  "token_missing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconnect Reason"
+          },
+          "reconnect_required": {
+            "title": "Reconnect Required",
+            "type": "boolean"
+          },
+          "reconnect_required_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconnect Required At"
+          },
           "revision": {
             "title": "Revision",
             "type": "integer"
@@ -962,7 +996,10 @@
           "mailbox_id",
           "state",
           "revision",
-          "updated_at"
+          "updated_at",
+          "reconnect_required",
+          "reconnect_reason",
+          "reconnect_required_at"
         ],
         "title": "MailboxConnection",
         "type": "object"
@@ -1829,7 +1866,7 @@
     },
     "/api/v1/platform/auth/mailbox": {
       "get": {
-        "description": "\ud604\uc7ac \uc6b4\uc601 \uc138\uc158 \uc18c\uc720\uc790\uc758 \uc0ac\uc11c\ud568 \uc5f0\uacb0 \uc0c1\ud0dc\ub9cc \uc77d\ub294\ub2e4.\n\n\uc77d\uae30\ub77c CSRF \ud5e4\ub354\ub294 \uc694\uad6c\ud558\uc9c0 \uc54a\uace0 `/me`\uc640 \uac19\uc740 Origin\u00b7\uc138\uc158 \uac80\uc0ac\ub97c \uc7ac\uc0ac\uc6a9\ud55c\ub2e4.\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \ucfe0\ud0a4\ub97c \ud3ec\ud568\ud55c \uc694\uccad.\n    response: \uae30\uc874 \uc138\uc158 \uacb0\uc18d CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uae30\ubcf8 \ube44\ud65c\uc131\uc744 \uac80\uc0ac\ud558\ub294 \uc758\uc874\uc131. \uacf5\uae09\uc790\ub97c \ud638\ucd9c\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\nReturns:\n    SuccessResponse[MailboxConnections]: \uc5f0\uacb0 ID\u00b7\uc0c1\ud0dc\u00b7\uac1c\uc815\u00b7\ubcc0\uacbd \uc2dc\uac01 \ubaa9\ub85d.",
+        "description": "\ud604\uc7ac \uc6b4\uc601 \uc138\uc158 \uc18c\uc720\uc790\uc758 \uc0ac\uc11c\ud568 \uc5f0\uacb0 \uc0c1\ud0dc\ub9cc \uc77d\ub294\ub2e4.\n\n\uc77d\uae30\ub77c CSRF \ud5e4\ub354\ub294 \uc694\uad6c\ud558\uc9c0 \uc54a\uace0 `/me`\uc640 \uac19\uc740 Origin\u00b7\uc138\uc158 \uac80\uc0ac\ub97c \uc7ac\uc0ac\uc6a9\ud55c\ub2e4.\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \ucfe0\ud0a4\ub97c \ud3ec\ud568\ud55c \uc694\uccad.\n    response: \uae30\uc874 \uc138\uc158 \uacb0\uc18d CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uae30\ubcf8 \ube44\ud65c\uc131\uc744 \uac80\uc0ac\ud558\ub294 \uc758\uc874\uc131. \uacf5\uae09\uc790\ub97c \ud638\ucd9c\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\nReturns:\n    SuccessResponse[MailboxConnections]: \uc5f0\uacb0 ID\u00b7\uc0c1\ud0dc\u00b7\uac1c\uc815\u00b7\ubcc0\uacbd \uc2dc\uac01\uacfc \uc7ac\uc5f0\uacb0 \ud544\uc694\n    \uc5ec\ubd80\u00b7\uc0ac\uc720\u00b7\uc2dc\uac01 \ubaa9\ub85d.",
         "operationId": "platform_list_mailboxes",
         "responses": {
           "200": {
