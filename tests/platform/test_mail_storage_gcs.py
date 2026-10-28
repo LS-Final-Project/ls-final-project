@@ -48,12 +48,14 @@ class FakeGcs:
             body = request.content
             self.objects[name] = body
             return httpx.Response(200, json=meta(name, body))
-        name = request.url.raw_path.decode().split("/o/", 1)[1]
+        name = request.url.raw_path.decode().split("?")[0].split("/o/", 1)[1]
         name = name.replace("%2F", "/")
         if self.get_status is not None:
             return httpx.Response(self.get_status, json={"error": {"code": 0}})
         if name not in self.objects:
             return httpx.Response(404, json={"error": {"code": 404}})
+        if request.url.params.get("alt") == "media":
+            return httpx.Response(200, content=self.objects[name])
         return httpx.Response(200, json=meta(name, self.objects[name]))
 
 
