@@ -221,6 +221,7 @@ def test_full_and_partial_answers_pass_validation():
         (raw(unit="SAME"), "DIFFERS"),
         (raw(unit="NOT_MENTIONED"), "DIFFERS"),
         (raw(unit="UNCLEAR"), "DIFFERS"),
+        (raw(unit="SAME"), "NO_CONFIRMED_UNIT"),
         (raw(unit="DIFFERENT"), "MATCHES"),
         (raw(unit="GUESSED"), "NOT_MENTIONED"),
         (raw()[:-1] + ', "answered_codes": []}', "NOT_MENTIONED"),
@@ -307,7 +308,24 @@ def test_code_computed_different_serial_overrides_model_and_escalates():
     with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
         check(raw(unit="NOT_MENTIONED"), serial_match)
     update = apply_reply(CONTEXT, check(raw(unit="DIFFERENT"), serial_match))
-    assert update.next_action == "ESCALATE_TO_AGENT" and update.still_missing == []
+    assert update.next_action == "ESCALATE_TO_AGENT" and update.provided_codes == ["TEST_MODEL"]
+    assert update.still_missing == CONTEXT.requested_info_codes
+
+
+def test_unclear_reply_answers_are_not_counted_as_provided():
+    """불명확한 회신의 답은 제공 코드로 합치지 않고 해석에만 남긴다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: CONFIRM_WITH_CUSTOMER에서 제공·부족 코드가 그대로임을 확인한다.
+    """
+    interpretation = check(raw(request="UNCLEAR"))
+    update = apply_reply(CONTEXT, interpretation)
+    assert update.next_action == "CONFIRM_WITH_CUSTOMER" and update.provided_codes == ["TEST_MODEL"]
+    assert update.still_missing == CONTEXT.requested_info_codes
+    assert interpretation.answered_codes == CONTEXT.requested_info_codes
 
 
 def test_apply_reply_merges_codes_and_keeps_not_mentioned():
