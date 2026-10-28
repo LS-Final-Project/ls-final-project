@@ -1,0 +1,527 @@
+"""KAN-106 C/S 답변 초안 입력·출력·금지 약속·호출 경계 회귀. 네트워크·모델·실제 데이터 없음."""
+
+import copy
+import json
+from unittest.mock import Mock
+
+import pytest
+
+from backend.engine.cs.classification import ClassificationOutput
+from backend.engine.cs.drafting import (
+    DRAFT_INPUT_VERSION,
+    DRAFT_PROMPT,
+    FORBIDDEN_COMMITMENTS,
+    EvidenceSnippet,
+    build_draft_input,
+    find_forbidden_commitment,
+    validate_output,
+)
+from backend.engine.cs.drafting_call import run_draft_attempt
+from backend.shared.ai import Generation, Usage
+
+RECORD = {
+    "channel": "PHONE",
+    "body_language": "ko",
+    "subject": "차단기 트립",
+    "body": "Urgency: SAFETY\nserial: ZX-PRIVATE; person@example.test 김고객 300 V에서 트립.",
+    "category_code": "GOLD_SECRET",
+    "resolution_case": "FUTURE_SECRET",
+}
+CLASSIFICATION = ClassificationOutput(
+    category_code="WARRANTY",
+    secondary_category="RETURN",
+    urgency_flag="NONE",
+    provided_info=["TEST_SERIAL"],
+    return_subtype="DEFECT",
+)
+EVIDENCE = [
+    EvidenceSnippet(
+        chunk_id="c1",
+        snippet="Warranty period is 12 months from delivery.",
+        section_path=["Warranty"],
+        document_sha256="a" * 64,
+    )
+]
+
+
+def prepare(**overrides):
+    """합성 설정으로 초안 입력을 만든다.
+
+    Args:
+        overrides: 바꿀 키워드 인자.
+
+    Returns:
+        PreparedDraftInput: 정제 입력.
+    """
+    kwargs = {
+        "classification": CLASSIFICATION,
+        "required_info_codes": frozenset({"TEST_SERIAL", "TEST_PHOTO", "TEST_INVOICE"}),
+        "already_asked_codes": frozenset({"TEST_INVOICE"}),
+        "evidence": EVIDENCE,
+        "sensitive_values": {"김고객": "PERSONAL"},
+    } | overrides
+    return build_draft_input(RECORD, **kwargs)
+
+
+def option(label, *, text="보증 기간은 납품일로부터 12개월입니다.", kind="EVIDENCE", ids=("c1",)):
+    """선택지 하나를 만든다.
+
+    Args:
+        label: 선택지 라벨.
+        text: 문장.
+        kind: 문장 종류.
+        ids: 근거 chunk_id.
+
+    Returns:
+        dict: 원시 선택지.
+    """
+    return {
+        "label": label,
+        "sentences": [
+            {"text": text, "kind": kind, "evidence_chunk_ids": list(ids)},
+            {
+                "text": "보증 적용 여부는 확인 후 안내드립니다.",
+                "kind": "CONDITION",
+                "evidence_chunk_ids": [],
+            },
+        ],
+        "info_requests": [{"info_code": "TEST_PHOTO", "question": "트립 표시 사진을 보내 주세요."}],
+    }
+
+
+def raw(*options):
+    """세 선택지 원시 JSON을 만든다.
+
+    Args:
+        options: 선택지. 없으면 기본 세 개.
+
+    Returns:
+        str: 원시 응답.
+    """
+    return json.dumps(
+        {"options": list(options or map(option, ("CONCISE", "DETAILED", "INFO_FIRST")))}
+    )
+
+
+def check(text):
+    """기본 입력의 근거·요청 코드로 원시 응답을 검사한다.
+
+    Args:
+        text: 원시 응답.
+
+    Returns:
+        DraftOutput: 검사 결과.
+    """
+    return validate_output(
+        text, evidence_chunk_ids=frozenset({"c1"}), request_info_codes=frozenset({"TEST_PHOTO"})
+    )
+
+
+def test_request_codes_exclude_provided_and_already_asked():
+    """요청 코드는 필요 − 제공 − 이미 물은 코드이며 정답·사후 기록·민감값은 빠진다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 서버 계산과 마스킹 유지를 확인한다.
+    """
+    before = copy.deepcopy(RECORD)
+    prepared = prepare()
+    payload = prepared.payload
+    assert payload.request_info_codes == ["TEST_PHOTO"]
+    assert payload.provided_info == ["TEST_SERIAL"]
+    assert prepared.version == DRAFT_INPUT_VERSION and prepared.removed_annotations == 1
+    dumped = payload.model_dump_json()
+    for secret in ("GOLD_SECRET", "FUTURE_SECRET", "ZX-PRIVATE", "person@example.test", "김고객"):
+        assert secret not in dumped
+    assert "[SERIAL_PROVIDED]" in payload.body and "[PERSONAL_PROVIDED]" in payload.body
+    assert "SAFETY" not in payload.body and "300 V에서 트립." in payload.body
+    assert RECORD == before
+    asked_all = prepare(already_asked_codes=frozenset({"TEST_PHOTO", "TEST_INVOICE"}))
+    assert asked_all.payload.request_info_codes == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"evidence": EVIDENCE * 2},
+        {"required_info_codes": frozenset({""})},
+        {"classification": CLASSIFICATION.model_dump()},
+        {"required_info_codes": ["TEST_PHOTO"]},
+        {"already_asked_codes": None},
+    ],
+)
+def test_invalid_draft_input_is_rejected(overrides):
+    """중복 근거 ID·빈 코드·검사 안 된 분류는 안전한 오류다.
+
+    Args:
+        overrides: 잘못된 합성 인자.
+
+    Returns:
+        None: CS_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^CS_INVALID_INPUT$"):
+        prepare(**overrides)
+
+
+def test_three_options_with_kinds_and_evidence_pass():
+    """세 라벨·문장 종류·근거 ID가 맞으면 통과한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 출력 구조를 확인한다.
+    """
+    output = check(raw())
+    assert [o.label for o in output.options] == ["CONCISE", "DETAILED", "INFO_FIRST"]
+    assert [s.kind for s in output.options[0].sentences] == ["EVIDENCE", "CONDITION"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        raw(option("CONCISE"), option("DETAILED")),
+        raw(option("CONCISE"), option("CONCISE"), option("INFO_FIRST")),
+        raw(option("CONCISE", ids=()), option("DETAILED"), option("INFO_FIRST")),
+        raw(option("CONCISE", ids=("c9",)), option("DETAILED"), option("INFO_FIRST")),
+        raw(option("CONCISE", ids=("c1", "c1")), option("DETAILED"), option("INFO_FIRST")),
+        raw(option("CONCISE", kind="GUESS"), option("DETAILED"), option("INFO_FIRST")),
+        raw().replace("TEST_PHOTO", "TEST_SERIAL", 1),
+        raw().replace('"label": "CONCISE"', '"label": "CONCISE", "extra": 1'),
+        raw().replace('{"options": ', '{"options": [], "options": '),
+        "not json",
+    ],
+    ids=[
+        "two-options",
+        "duplicate-label",
+        "evidence-without-id",
+        "unknown-chunk",
+        "duplicate-chunk",
+        "unknown-kind",
+        "provided-info-code",
+        "extra-key",
+        "duplicate-json-key",
+        "not-json",
+    ],
+)
+def test_invalid_output_is_rejected(text):
+    """선택지 수·라벨·근거 ID·요청 코드·추가 키 위반을 거부한다.
+
+    Args:
+        text: 원시 위반.
+
+    Returns:
+        None: CS_INVALID_OUTPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(text)
+
+
+def test_repeated_info_request_in_option_is_rejected():
+    """한 선택지 안에서 같은 코드를 두 번 묻지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: CS_INVALID_OUTPUT을 확인한다.
+    """
+    doubled = option("INFO_FIRST")
+    doubled["info_requests"] *= 2
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(raw(option("CONCISE"), option("DETAILED"), doubled))
+
+
+def test_info_first_must_ask_every_requested_code():
+    """INFO_FIRST는 요청 코드를 전부 묻고, CONCISE·DETAILED는 묻지 않아도 된다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 누락은 CS_INVALID_OUTPUT, 부분 집합은 통과함을 확인한다.
+    """
+    silent = {label: option(label) | {"info_requests": []} for label in ("CONCISE", "DETAILED")}
+    assert check(raw(silent["CONCISE"], silent["DETAILED"], option("INFO_FIRST")))
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(
+            raw(option("CONCISE"), option("DETAILED"), option("INFO_FIRST") | {"info_requests": []})
+        )
+
+
+# 패턴마다 거부해야 할 확정형 예문. 패턴을 더하거나 빼면 키 집합 검사가 깨진다.
+FORBIDDEN_EXAMPLES = {
+    FORBIDDEN_COMMITMENTS[0].pattern: [
+        "Your RMA has been approved.",
+        "RMA issued: please ship.",
+        "RMA approved.",
+        "Your RMA request has been approved.",
+    ],
+    FORBIDDEN_COMMITMENTS[1].pattern: ["Return authorized.", "The return is approved."],
+    FORBIDDEN_COMMITMENTS[2].pattern: [
+        "Warranty approved.",
+        "Your warranty claim has been approved.",
+    ],
+    FORBIDDEN_COMMITMENTS[3].pattern: [
+        "The unit is covered under warranty.",
+        "This will be covered by the warranty.",
+        "Your unit is covered under warranty.",
+    ],
+    FORBIDDEN_COMMITMENTS[4].pattern: ["It's covered under warranty.", "it’s covered by warranty"],
+    FORBIDDEN_COMMITMENTS[5].pattern: [
+        "We will send a technician tomorrow.",
+        "We will dispatch our engineer.",
+        "We'll send a technician tomorrow.",
+    ],
+    FORBIDDEN_COMMITMENTS[6].pattern: ["A site visit is scheduled.", "Technician has been booked."],
+    FORBIDDEN_COMMITMENTS[7].pattern: [
+        "We will replace the breaker free of charge.",
+        "We will repair it at no cost.",
+        "We’ll replace it free of charge.",
+    ],
+    FORBIDDEN_COMMITMENTS[8].pattern: ["RMA가 승인되었습니다.", "RMA를 발급해 드리겠습니다."],
+    FORBIDDEN_COMMITMENTS[9].pattern: ["반품이 승인되었습니다.", "반품 승인해 드리겠습니다."],
+    FORBIDDEN_COMMITMENTS[10].pattern: [
+        "내일 방문하겠습니다.",
+        "현장에 방문해 드리겠습니다.",
+        "내일 방문드리겠습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[11].pattern: ["방문 일정이 확정되었습니다.", "방문을 확정했습니다."],
+    FORBIDDEN_COMMITMENTS[12].pattern: [
+        "보증이 적용됩니다.",
+        "보증으로 승인되었습니다.",
+        "보증 처리됩니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[13].pattern: ["무상 처리해 드리겠습니다.", "무상으로 교체됩니다."],
+    FORBIDDEN_COMMITMENTS[14].pattern: ["We have approved your RMA.", "We've approved the return."],
+    FORBIDDEN_COMMITMENTS[15].pattern: [
+        "RMA 승인이 완료되었습니다.",
+        "보증 처리가 완료되었습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[16].pattern: [
+        "기술자를 파견하겠습니다.",
+        "엔지니어를 파견해 드리겠습니다.",
+    ],
+}
+# 조건부·부정 표현은 허용한다(경계 고정).
+ALLOWED_EXAMPLES = [
+    "승인 여부는 검토 후 안내드리겠습니다.",
+    "보증 적용 여부는 시리얼 확인 후 안내드립니다.",
+    "무상 처리 가능 여부는 점검 결과에 따라 달라집니다.",
+    "방문 일정 확정 여부는 담당 부서에서 회신합니다.",
+    "반품 승인 여부는 검토 후 알려 드립니다.",
+    "The unit may be eligible for warranty service.",
+    "The repair may be covered under warranty after inspection.",
+    "RMA approval is subject to review.",
+    "We will confirm whether it is covered under warranty.",
+    "If the unit is covered under warranty, we will let you know.",
+    "The RMA is not approved yet.",
+    "반품 승인 완료 여부는 확인 후 안내드립니다.",
+    "보증 처리 여부는 점검 후 알려 드립니다.",
+    "기술자 파견 여부는 담당 부서에서 결정합니다.",
+    "We will check whether your unit is covered under warranty.",
+    "We will confirm whether or not it is covered under warranty.",
+    "In case it is covered under warranty, we will let you know.",
+]
+
+
+def test_forbidden_pattern_table_is_fixed():
+    """패턴 목록과 예문 표가 일치하고 각 예문이 자기 패턴에 맞는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 패턴 추가·삭제·완화 시 실패한다.
+    """
+    assert set(FORBIDDEN_EXAMPLES) == {p.pattern for p in FORBIDDEN_COMMITMENTS}
+    assert len(FORBIDDEN_EXAMPLES) == len(FORBIDDEN_COMMITMENTS)
+    for pattern in FORBIDDEN_COMMITMENTS:
+        for example in FORBIDDEN_EXAMPLES[pattern.pattern]:
+            assert pattern.search(example), (pattern.pattern, example)
+
+
+@pytest.mark.parametrize("text", ALLOWED_EXAMPLES)
+def test_conditional_wording_is_allowed(text):
+    """조건부 표현은 어느 패턴에도 걸리지 않는다.
+
+    Args:
+        text: 허용 예문.
+
+    Returns:
+        None: 오탐이 없음을 확인한다.
+    """
+    assert not find_forbidden_commitment(text)
+
+
+@pytest.mark.parametrize("text", ["Your RMA has been approved.", "무상 처리해 드리겠습니다."])
+def test_forbidden_commitment_rejects_draft(text):
+    """확정형 약속이 문장에 있으면 초안 전체를 거부한다.
+
+    Args:
+        text: 확정형 문장.
+
+    Returns:
+        None: CS_FORBIDDEN_COMMITMENT를 확인한다.
+    """
+    bad = raw(
+        option("CONCISE"),
+        option("DETAILED", text=text, kind="UNCONFIRMED", ids=()),
+        option("INFO_FIRST"),
+    )
+    with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
+        check(bad)
+
+
+def test_forbidden_commitment_in_question_rejects_draft():
+    """정보 요청 질문에 든 확정형 약속도 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: CS_FORBIDDEN_COMMITMENT를 확인한다.
+    """
+    asking = option("INFO_FIRST")
+    asking["info_requests"][0]["question"] = "사진을 보내 주시면 내일 방문하겠습니다."
+    with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
+        check(raw(option("CONCISE"), option("DETAILED"), asking))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["승인 여부는 검토 후 안내드리겠습니다.", "The unit may be eligible for warranty service."],
+)
+def test_conditional_commitment_passes_draft(text):
+    """조건부 표현 문장은 초안 검사를 통과한다.
+
+    Args:
+        text: 조건부 문장.
+
+    Returns:
+        None: 유효한 출력을 확인한다.
+    """
+    ok = raw(
+        option("CONCISE"),
+        option("DETAILED", text=text, kind="CONDITION", ids=()),
+        option("INFO_FIRST"),
+    )
+    assert check(ok).options[1].sentences[0].text == text
+
+
+def test_prompt_states_rules_and_schema():
+    """프롬프트에 금지 약속 지시와 출력 스키마가 들어 있다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 고정 지시문을 확인한다.
+    """
+    assert "약속하지 않는다" in DRAFT_PROMPT
+    assert "request_info_codes" in DRAFT_PROMPT and '"evidence_chunk_ids"' in DRAFT_PROMPT
+
+
+def attempt(provider, **overrides):
+    """합성 설정으로 단일 초안 시도를 실행한다.
+
+    Args:
+        provider: 주입할 fake 호출자.
+        overrides: 바꿀 키워드 인자.
+
+    Returns:
+        DraftAttempt: 외부 호출 없는 시도 결과.
+    """
+    kwargs = {
+        "classification": CLASSIFICATION,
+        "required_info_codes": frozenset({"TEST_SERIAL", "TEST_PHOTO"}),
+        "already_asked_codes": frozenset(),
+        "evidence": EVIDENCE,
+        "sensitive_values": {"김고객": "PERSONAL"},
+        "provider": provider,
+        "attempt_number": 1,
+    } | overrides
+    return run_draft_attempt(RECORD, **kwargs)
+
+
+def test_fake_provider_round_trip_keeps_usage_and_masked_prompt():
+    """정제 입력만 담은 프롬프트를 한 번 보내고 결과·사용량·모델을 기록한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 왕복과 KAN-87 사용량 필드 보존을 확인한다.
+    """
+    usage = Usage(10, 3, None, 0, 13, {"promptTokenCount": 10})
+    provider = Mock(
+        return_value=Generation(raw(), usage, "fake-v1", ["STOP"], model="fake", attempts=1)
+    )
+    result = attempt(provider)
+    provider.assert_called_once()
+    prompt = provider.call_args.args[0]
+    assert prompt.startswith(DRAFT_PROMPT)
+    for secret in ("GOLD_SECRET", "FUTURE_SECRET", "ZX-PRIVATE", "person@example.test", "김고객"):
+        assert secret not in prompt
+    assert result.outcome == "VALID" and result.prediction is not None
+    assert result.usage == usage and result.usage.billable_input_tokens == 10
+    assert result.requested_model == "fake" and result.call_attempts == 1
+    assert result.model_version == "fake-v1" and result.finish_reasons == ("STOP",)
+    assert result.input_sha256 and len(result.input_sha256) == 64
+    assert result.input_version == DRAFT_INPUT_VERSION and result.removed_annotations == 1
+    assert "raw_response=" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [("not json", "CS_INVALID_OUTPUT"), (None, "CS_FORBIDDEN_COMMITMENT")],
+)
+def test_schema_and_commitment_violations_keep_raw_and_usage(text, code):
+    """스키마 위반과 금지 약속은 원시 응답·사용량을 남기고 재시도하지 않는다.
+
+    Args:
+        text: 원시 응답. None이면 금지 약속이 든 초안.
+        code: 기대 오류 코드.
+
+    Returns:
+        None: SCHEMA_VIOLATION과 오류 코드 구분을 확인한다.
+    """
+    if text is None:
+        text = raw(
+            option("CONCISE", text="RMA가 승인되었습니다.", kind="UNCONFIRMED", ids=()),
+            option("DETAILED"),
+            option("INFO_FIRST"),
+        )
+    provider = Mock(return_value=Generation(text, Usage(4, 2), "fake-v1", ["STOP"]))
+    result = attempt(provider)
+    provider.assert_called_once()
+    assert result.outcome == "SCHEMA_VIOLATION" and result.error_code == code
+    assert result.raw_response == text and result.prediction is None
+    assert result.usage == Usage(4, 2)
+
+
+def test_timeout_and_rejected_input():
+    """타임아웃은 불확실 상태로, 입력 위반은 호출 없이 보류로 남는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: TIMEOUT·HELD 기록을 확인한다.
+    """
+    timed_out = attempt(Mock(side_effect=TimeoutError("PRIVATE_TOKEN")))
+    assert timed_out.outcome == "TIMEOUT" and timed_out.error_code == "CS_PROVIDER_TIMEOUT"
+    assert timed_out.execution_uncertain and "PRIVATE_TOKEN" not in repr(timed_out)
+    provider = Mock()
+    held = attempt(provider, evidence=EVIDENCE * 2)
+    provider.assert_not_called()
+    assert held.outcome == "HELD" and held.error_code == "CS_INVALID_INPUT"
+    assert not held.call_started
+    # frozenset이 아닌 코드 집합도 예외로 새지 않고 보류로 남는다.
+    typed = attempt(provider, required_info_codes=None)
+    provider.assert_not_called()
+    assert typed.outcome == "HELD" and typed.error_code == "CS_INVALID_INPUT"
+    with pytest.raises(ValueError, match="^CS_INVALID_ATTEMPT_NUMBER$"):
+        attempt(provider, attempt_number=0)
