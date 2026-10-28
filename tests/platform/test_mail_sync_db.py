@@ -557,12 +557,75 @@ def test_runtime_role_cannot_delete_mail(settings, mailbox, tmp_path):
 
 
 def test_storage_writes_each_content_once(tmp_path):
-    store = LocalObjectStore(tmp_path)
-    first = asyncio.run(store.put(b"same"))
-    second = asyncio.run(store.put(b"same"))
+    store, mailbox_id = LocalObjectStore(tmp_path), uuid4()
+    first = asyncio.run(store.put(b"same", mailbox_id=mailbox_id))
+    second = asyncio.run(store.put(b"same", mailbox_id=mailbox_id))
     assert first == second
     assert [p.name for p in tmp_path.rglob("*") if p.is_file()] == [first.sha256]
-    assert json.dumps(first.key).startswith('"mail/sha256/')
+    assert json.dumps(first.key).startswith(f'"mail/{mailbox_id}/sha256/')
+
+
+def test_same_content_in_two_mailboxes_is_stored_separately(tmp_path):
+    # 한 사서함의 객체를 지우거나 권한을 좁혀도 다른 사서함 객체는 그대로여야 한다.
+    store, a, b = LocalObjectStore(tmp_path), uuid4(), uuid4()
+    first = asyncio.run(store.put(b"same", mailbox_id=a))
+    second = asyncio.run(store.put(b"same", mailbox_id=b))
+    assert first.sha256 == second.sha256
+    assert first.key != second.key
+    (tmp_path / first.key).unlink()
+    assert (tmp_path / second.key).read_bytes() == b"same"
+
+
+def test_sync_keys_objects_by_mailbox(settings, mailbox, tmp_path):
+    run(settings, mailbox, FakeGraph(), LocalObjectStore(tmp_path))
+    keys = rows(
+        mailbox["dsn"],
+        "SELECT m.raw_storage_key FROM integration.mail_messages m WHERE m.mailbox_id=%s "
+        "UNION ALL SELECT a.storage_key FROM integration.mail_attachments a "
+        "JOIN integration.mail_messages m ON m.id=a.message_id "
+        "WHERE m.mailbox_id=%s AND a.storage_key IS NOT NULL",
+        mailbox["id"],
+        mailbox["id"],
+    )
+    assert keys
+    assert all(key.startswith(f"mail/{mailbox['id']}/sha256/") for (key,) in keys)
+
+
+def test_cancelled_sync_is_finished_not_left_running(settings, mailbox, tmp_path):
+    graph = FakeGraph()
+
+    async def cancel_on_first_download():
+        task = None
+
+        async def handler(request):
+            if request.url.raw_path.endswith(b"/$value"):
+                task.cancel()
+                await asyncio.sleep(10)
+            return graph.handler(request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            task = asyncio.create_task(
+                sync_mailbox(
+                    settings,
+                    mailbox["id"],
+                    get_token=token_getter(),
+                    client=client,
+                    store=LocalObjectStore(tmp_path),
+                )
+            )
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(cancel_on_first_download())
+    assert rows(
+        mailbox["dsn"],
+        "SELECT status, error_code, finished_at IS NOT NULL FROM integration.mail_sync_runs "
+        "WHERE mailbox_id=%s",
+        mailbox["id"],
+    ) == [("FAILED", "SYNC_CANCELLED", True)]
+    # lease 만료(300초)를 기다리지 않고 바로 다음 실행이 시작된다.
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path))
+    assert (result.status, result.messages_stored) == ("SUCCEEDED", 3)
 
 
 def test_lease_is_extended_before_each_download(settings, mailbox, tmp_path):
