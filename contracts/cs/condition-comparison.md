@@ -23,7 +23,7 @@
 | `UNCONFIRMED` | 근거가 없거나 부족해 판단하지 못했다. `unconfirmed_reason` 필수 |
 
 - **항목 식별**: `item_code`는 화면이 키로 쓰는 고정 코드(대문자·밑줄, 예 `FIRMWARE_VERSION`)이고 한 비교 안에서 유일하다. `item_label`은 서버가 주는 한국어 표시명이다. 코드 목록은 구현 단위에서 enum으로 고정하며 화면은 모르는 코드도 `item_label`로 표시한다.
-- **비교 기준과 대상**: 조건 항목마다 `baseline`(비교 기준: 묶음의 이미 알려진 해결 사례 쪽 조건)과 `target`(비교 대상: 요청서가 다루는 문의 쪽 조건)을 따로 둔다. 각각 `masked_value`(마스킹된 값 또는 요약)와 `missing_reason`을 담는다.
+- **비교 기준과 대상**: 조건 항목마다 `baseline`(비교 기준: 묶음의 이미 알려진 해결 사례 쪽 조건)과 `target`(비교 대상: 요청서가 다루는 문의 쪽 조건)을 따로 둔다. 각각 `masked_value`(마스킹된 값 또는 요약)와 `missing_reason`을 담는다. 요청서가 없는 묶음에서는 `target`이 묶음에 연결된 미해결 문의 쪽 조건이며, 그런 문의도 없으면 `target`은 null 값과 `NOT_PROVIDED`다.
 - **`finding`**: 조건 항목에는 `DIFFERS`(기준과 대상의 조건이 다름) 또는 `SAME`(같음)을 둔다. 키는 항상 있고 **`UNCONFIRMED`일 때만 null**이다. `CONFIRMED`·`SUSPECTED`는 반드시 `DIFFERS`나 `SAME`을 가진다. 따라서 "확인했고 조건 차이 없음"(`CONFIRMED` + `SAME`)과 "모름"(`UNCONFIRMED` + null)을 구분한다. 원인에는 `finding`이 없다.
 - `judgement`(비교 항목 판정)와 개선요청의 `condition_status`는 서로 다른 enum이다. 아래 관계 절을 따른다.
 
@@ -51,6 +51,8 @@
 | `CONFIRMED` | `SUSPECTED`·`UNCONFIRMED` | `human_input`(cs_agent) | 근거 제외 또는 재검토, 사유 필수 |
 | `SUSPECTED` | `UNCONFIRMED` | `human_input` 또는 `system_record` | 근거 제외로 남은 근거가 0개 |
 | 모든 판정 | `CONFIRMED` | `ai_draft` | **금지.** 모델 후보는 사람 확정 전 `SUSPECTED` 이하 |
+
+- 표의 "`NOT_PROVIDED`가 아님" 조건은 `baseline`/`target`이 있는 조건 항목에만 적용하고, 원인은 근거 수 조건만 따른다.
 
 - 판정 변경마다 결과 판본(`version`)이 오르고 이전 판정·주체·시각·사유를 이력으로 남긴다. 판정 행을 지우지 않는다.
 - 판정 쓰기는 읽은 `version`을 보낸다. 최신 판본과 다르면 409 `CS_COMPARISON_VERSION_CONFLICT`이며 화면은 최신 판본을 다시 조회해 사용자에게 변경을 재확인하게 한다.
