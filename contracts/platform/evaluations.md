@@ -90,6 +90,7 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-85_evaluation_storage
 - `input_sha256`: 모델에 보낸 입력의 hash. 입력 자체는 저장하지 않으며 누설 감사는 hash 재계산으로 한다.
 - `error_code`·`http_status`: `eval/smoke.py`와 같이 예외 클래스명과 상태 코드만 둔다. 제공자 메시지는 자격증명·요청 본문을 포함할 수 있어 저장하지 않는다.
 - 토큰 5종은 `backend.shared.ai.Usage`와 같고 null은 제공자가 알려주지 않은 값이다. `cost_usd`는 `pricing_version`이 있어야 하며 가격표가 없으면 null로 두고 0으로 적지 않는다.
+- `usage_raw`·`requested_model`·`call_attempts`(KAN-86)는 공급자 사용량 원문(토큰 수 메타데이터, `Usage.raw`), 요청한 모델 ID(`Generation.model`), 호출 시도 수(`Generation.attempts`)다. 응답 없이 실패한 시도는 null이다. `cost_usd`는 `backend/shared/ai_prices.json`에 그 모델의 USD 단가가 있을 때만 `estimate_cost`의 total로 저장하고 `pricing_version`은 `모델@as_of`다. 단가가 없거나 USD가 아니면 둘 다 null이며 numeric(14,6)이라 소수 6자리로 반올림된다.
 - `cases.gold_labels`는 `gold_version` 시점의 정답 코드(`category_code` 등)만 담는다. `final_reply`, 본문, 담당자 등 원천 기록은 넣지 않는다.
 - `cases.final_output`은 폴백·재시도 후 채점에 쓴 구조화 출력(코드값)이다. 폴백 고정 문장을 썼으면 `fallback_used=true`다.
 

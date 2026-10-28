@@ -5,10 +5,9 @@ import zipfile
 from pathlib import Path
 
 from backend.engine.documents.docx import extract_docx
-from backend.engine.documents.model import ExtractedDocument, SourceKind
+from backend.engine.documents.model import DOCX_MIME, ExtractedDocument, SourceKind
 from backend.engine.documents.pdf import MAX_BYTES, extract_pdf
 
-DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DECLARED: dict[str, SourceKind] = {
     ".docx": "DOCX",
     ".pdf": "PDF",
@@ -41,12 +40,15 @@ def _sniff(data: bytes) -> SourceKind:
     raise ValueError("DOCX·PDF만 추출합니다.")
 
 
-def extract(source: Path | bytes, mime: str | None = None) -> ExtractedDocument:
+def extract(
+    source: Path | bytes, mime: str | None = None, source_name: str | None = None
+) -> ExtractedDocument:
     """파일 경로나 바이트를 형식에 맞는 추출기로 보낸다.
 
     Args:
         source: 파일 경로(확장자도 확인) 또는 바이트.
         mime: 업로드 때 받은 MIME(선택).
+        source_name: 원래 파일 이름(선택). 경로면 생략 시 경로의 파일 이름.
 
     Returns:
         공통 표현 문서.
@@ -54,6 +56,9 @@ def extract(source: Path | bytes, mime: str | None = None) -> ExtractedDocument:
     Raises:
         ValueError: 크기 상한을 넘거나, 지원하지 않는 형식이거나, 확장자·MIME이 실제 내용과 다를 때.
     """
+    # 경로는 읽기 전에 크기부터 본다(큰 파일을 메모리에 올리지 않게).
+    if isinstance(source, Path) and source.stat().st_size > MAX_BYTES:
+        raise ValueError("문서가 크기 상한(25 MiB)을 넘습니다.")
     data = source.read_bytes() if isinstance(source, Path) else source
     # 명세 §4.2 업로드 상한을 DOCX·PDF에 같이 적용한다.
     if len(data) > MAX_BYTES:
@@ -67,4 +72,7 @@ def extract(source: Path | bytes, mime: str | None = None) -> ExtractedDocument:
     for value in declared:
         if DECLARED.get(value.lower()) != kind:
             raise ValueError(f"선언한 형식({value})이 실제 내용({kind})과 다릅니다.")
-    return extract_docx(data) if kind == "DOCX" else extract_pdf(data)
+    document = extract_docx(data) if kind == "DOCX" else extract_pdf(data)
+    if source_name is None and isinstance(source, Path):
+        source_name = source.name
+    return document.model_copy(update={"source_name": source_name})

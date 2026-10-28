@@ -81,7 +81,14 @@ def run_case(target_ref: str) -> ClassificationAttempt:
         """
         if fixture["response"] is None:
             raise ClassificationCallError("CS_PROVIDER_TIMEOUT", usage=Usage(input_tokens=7))
-        return Generation(fixture["response"], Usage(7, 3, None, 0, 10), "cs-smoke-v1", ["STOP"])
+        return Generation(
+            fixture["response"],
+            Usage(7, 3, None, 0, 10),
+            "cs-smoke-v1",
+            ["STOP"],
+            model="fake",
+            attempts=1,
+        )
 
     return run_classification_attempt(
         {"channel": "EMAIL", "body_language": "en", "subject": None, "body": fixture["body"]},

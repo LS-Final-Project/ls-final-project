@@ -163,12 +163,17 @@ def test_cs_attempts_persist_and_recover_without_duplicate(
         assert len(row["input_sha256"]) == 64 and row["latency_ms"] >= 0
         assert row["input_tokens"] == 7 and row["cost_usd"] is None
         assert row["thought_tokens"] is None
+        # 저장소 단가표는 빈 표이고 합성 사용량에는 공급자 원문이 없다.
+        assert row["pricing_version"] is None and row["usage_raw"] is None
         if row["outcome"] == "TIMEOUT":
+            # 공급자 예외로 Generation이 없어 요청 모델·호출 시도 수를 모른다.
+            assert row["requested_model"] is None and row["call_attempts"] is None
             assert row["raw_output"] is None and row["parsed_output"] is None
             assert row["total_tokens"] is None and row["cached_input_tokens"] is None
             assert row["error_code"] == "CS_PROVIDER_TIMEOUT" and row["case_status"] == "FAILED"
         else:
             assert row["raw_output"] == "[REDACTED]"
+            assert row["requested_model"] == "fake" and row["call_attempts"] == 1
             assert row["total_tokens"] == 10 and row["cached_input_tokens"] == 0
             assert row["model_version"] == "cs-smoke-v1" and row["finish_reasons"] == ["STOP"]
             if row["outcome"] == "SCHEMA_VIOLATION":
@@ -210,6 +215,113 @@ def test_cs_attempts_persist_and_recover_without_duplicate(
     with pytest.raises(ApplicationError, match="STALE_WORKER"):
         asyncio.run(advance_run(settings, cs_access, lease))
     assert saved(evaluation_database, cs_run) == rows
+
+
+def test_attempt_cost_is_null_when_input_or_output_tokens_are_missing(monkeypatch):
+    """입력·답변 토큰 중 하나라도 미보고면 부분 합계를 확정 비용으로 저장하지 않는다.
+
+    Args:
+        monkeypatch: 단가표 교체.
+
+    Returns:
+        None: 캐시·추론 생략은 비용 저장을 막지 않는다.
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from backend.api.platform.evaluations import smoke_worker
+    from backend.engine.cs.classification_call import ClassificationAttempt
+    from backend.shared.ai import ModelPrice, Usage
+
+    # 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+    prices = {
+        "fake": ModelPrice(
+            input_per_million=Decimal("2"),
+            output_per_million=Decimal("10"),
+            cached_input_per_million=Decimal("0.5"),
+            currency="USD",
+            as_of=date(2026, 1, 1),
+        )
+    }
+    monkeypatch.setattr(smoke_worker, "load_price_table", lambda: prices)
+
+    def cost(usage: Usage) -> tuple:
+        return smoke_worker.attempt_cost(
+            ClassificationAttempt(1, usage=usage, requested_model="fake")
+        )
+
+    assert cost(Usage(input_tokens=7)) == (None, None)
+    assert cost(Usage(output_tokens=3)) == (None, None)
+    assert cost(Usage(input_tokens=7, output_tokens=3)) == (
+        Decimal("0.000044"),
+        "fake@2026-01-01",
+    )
+
+
+@pytest.mark.parametrize(("currency", "stored"), [("USD", True), ("KRW", False)])
+def test_cs_attempt_cost_and_raw_usage_follow_price_table(
+    settings, cs_access, cs_run, evaluation_database, monkeypatch, currency, stored
+):
+    """주입한 단가표로 비용·가격표 판본을, 공급자 원문으로 usage_raw를 저장한다.
+
+    Args:
+        settings: 실행 계정 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        monkeypatch: 단가표·합성 응답 교체.
+        currency: 주입할 단가표 통화.
+        stored: USD일 때만 cost_usd가 저장되는지 여부.
+
+    Returns:
+        None: CHECK(cost_usd → pricing_version)를 어기지 않고 저장되는지 확인한다.
+    """
+    from dataclasses import replace
+    from datetime import date
+    from decimal import Decimal
+
+    from backend.api.platform.evaluations import smoke_worker
+    from backend.shared.ai import ModelPrice
+
+    # 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+    prices = {
+        "fake": ModelPrice(
+            input_per_million=Decimal("2"),
+            output_per_million=Decimal("10"),
+            cached_input_per_million=Decimal("0.5"),
+            currency=currency,
+            as_of=date(2026, 1, 1),
+        )
+    }
+    raw = {"promptTokenCount": 7, "candidatesTokenCount": 3, "totalTokenCount": 10}
+    original = smoke_worker.run_case
+
+    def with_raw(target_ref):
+        attempt = original(target_ref)
+        if attempt.requested_model is None:
+            return attempt
+        return replace(attempt, usage=replace(attempt.usage, raw=raw))
+
+    monkeypatch.setattr(smoke_worker, "load_price_table", lambda: prices)
+    monkeypatch.setattr(smoke_worker, "run_case", with_raw)
+    lease = asyncio.run(claim_run(settings, cs_access, cs_run))
+    for _ in range(4):
+        if asyncio.run(advance_run(settings, cs_access, lease)):
+            break
+    rows = saved(evaluation_database, cs_run)
+    assert len(rows) == 3
+    for row in rows:
+        if row["outcome"] == "TIMEOUT":
+            assert row["usage_raw"] is None and row["cost_usd"] is None
+            assert row["pricing_version"] is None
+            continue
+        assert row["usage_raw"] == raw
+        # 청구 입력 7 × 2 + 답변 3 × 10, 캐시 0 × 0.5, 100만 토큰당.
+        if stored:
+            assert row["cost_usd"] == Decimal("0.000044")
+            assert row["pricing_version"] == "fake@2026-01-01"
+        else:
+            assert row["cost_usd"] is None and row["pricing_version"] is None
 
 
 @pytest.mark.parametrize("boundary", ["cancel", "approval", "evaluator", "expired"])
@@ -1840,6 +1952,15 @@ def test_stored_usage_preserves_missing_zero_failures_and_retries(
     assert all_usage["cost_usd"]["known_sum"] == "0.600000"
     assert all_usage["cost_usd"]["total"] is None
     assert all_usage["cost_usd"]["pricing_versions"] == ["price-v1", "price-v2"]
+    # 시도1의 VALID·SCHEMA_VIOLATION만 응답이 있어 모델·시도 수가 있다. 직접 넣은 재시도 행은 없다.
+    assert first["requested_models"] == ["fake"] and retry["requested_models"] == []
+    assert first["call_attempts"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": 2,
+        "total": None,
+    }
+    assert all_usage["usage_raw"] == {"reported_count": 0, "missing_count": 5}
     assert "raw_output" not in str(report) and "parsed_output" not in str(report)
 
 
