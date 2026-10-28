@@ -22,7 +22,7 @@ UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 # 디코드한 경로에서 검사한다. 이 문자만 허용해 ?·#·/가 upstream URL을 바꾸지 못하게 한다.
 CUSTOMER_PATH = r"[A-Za-z0-9._-]{1,64}"
 # (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
-# 두 검사가 tests/fixtures/business_relay_routes.json과 각각 대조한다.
+# 두 검사가 frontend/business-relay-routes.json과 각각 대조한다.
 BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets", ("GET", "POST"), ("limit", "cursor")),
     ("/api/v1/cs/tickets/{uuid}", ("GET", "PATCH"), ()),

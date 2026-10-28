@@ -20,7 +20,7 @@ const mailboxAuthentication = new Map([
 const mailboxForms = new Set(['/api/v1/platform/auth/mailbox/callback', '/api/v1/platform/auth/mailbox/complete']);
 const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/disconnect$/;
 // [경로 틀, 허용 메서드, 허용 query 키]. backend/api/platform/relay.py의 BUSINESS_ROUTES와 같아야 하며
-// 두 검사가 tests/fixtures/business_relay_routes.json과 각각 대조한다.
+// 두 검사가 frontend/business-relay-routes.json과 각각 대조한다.
 export const businessRoutes = [
   ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor']],
   ['/api/v1/cs/tickets/{uuid}', ['GET', 'PATCH'], []],
