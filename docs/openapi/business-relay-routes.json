@@ -1,5 +1,5 @@
 {
-  "_note": "테스트 전용, 서버는 읽지 않음. KAN-178 업무 JSON 중계 허용표: frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다.",
+  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다.",
   "routes": [
     {
       "path": "/api/v1/cs/tickets",
@@ -222,6 +222,30 @@
     {
       "method": "GET",
       "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/versions",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/.",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/%2E%2E",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/..%2Fowners",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/-CUST",
       "forward": false,
       "status": 404
     }

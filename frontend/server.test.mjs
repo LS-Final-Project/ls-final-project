@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { mkdtemp, writeFile, rm, symlink, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -500,7 +500,20 @@ test('enabled mailbox list relay forwards GET only with server token and selecte
 });
 
 // 플랫폼 relay.py 검사와 같은 허용표·사례 파일이다.
-const relayRoutes = JSON.parse(await readFile(new URL('./business-relay-routes.json', import.meta.url), 'utf8'));
+const relayRoutes = JSON.parse(await readFile(new URL('../docs/openapi/business-relay-routes.json', import.meta.url), 'utf8'));
+/**
+ * 클라이언트 URL 정규화 없이 원문 경로를 그대로 보낸다. fetch는 .·%2E%2E 세그먼트를 먼저 줄인다.
+ * Args: origin은 검사 서버 주소, method·path는 퍼센트 인코딩 원문 요청이다.
+ * Returns: 응답 상태를 담은 Promise.
+ */
+function rawRequest(origin, method, path) {
+  const write = method !== 'GET';
+  return new Promise((resolve, reject) => {
+    const sent = httpRequest(origin + '/', { method, path, headers: write ? { 'Content-Type': 'application/json' } : {} }, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
+    sent.on('error', reject);
+    sent.end(write ? '{}' : undefined);
+  });
+}
 const routeRows = rows => rows.map(([path, methods, query]) => JSON.stringify([path, [...methods].sort(), [...query].sort()])).sort();
 
 test('web business relay table matches the shared fixture exactly', () => {
@@ -512,10 +525,9 @@ test('web business relay forwards or rejects each shared case before reaching th
   await fixture(async origin => {
     for (const item of relayRoutes.cases) {
       const before = calls.length;
-      const write = item.method !== 'GET';
-      const response = await fetch(origin + item.path, { method: item.method, headers: write ? { 'Content-Type': 'application/json' } : {}, body: write ? '{}' : undefined });
+      const status = await rawRequest(origin, item.method, item.path);
       if (item.forward) {
-        assert.equal(response.status, 200, item.path);
+        assert.equal(status, 200, item.path);
         assert.equal(calls.length, before + 1, item.path);
         const sent = new URL(calls.at(-1));
         const asked = new URL(item.path, 'http://local.invalid');
@@ -523,7 +535,7 @@ test('web business relay forwards or rejects each shared case before reaching th
         assert.equal(decodeURIComponent(sent.pathname), decodeURIComponent(asked.pathname));
         assert.deepEqual([...sent.searchParams], [...asked.searchParams]);
       } else {
-        assert.equal(response.status, item.status, item.path);
+        assert.equal(status, item.status, item.path);
         assert.equal(calls.length, before, item.path);
       }
     }

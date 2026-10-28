@@ -533,7 +533,7 @@ def test_staffing_migration_preserves_legacy_missing_due_and_enforces_new_writes
 
 # 웹 frontend/server.test.mjs와 같은 허용표·사례 파일. 실행 위치와 무관하게 이 파일 기준으로 찾는다.
 RELAY_ROUTES = json.loads(
-    (Path(__file__).resolve().parents[2] / "frontend/business-relay-routes.json").read_text()
+    (Path(__file__).resolve().parents[2] / "docs/openapi/business-relay-routes.json").read_text()
 )
 
 
@@ -562,6 +562,33 @@ def test_platform_business_relay_table_matches_shared_fixture():
 
     shared = [(route["path"], route["methods"], route["query"]) for route in RELAY_ROUTES["routes"]]
     assert rows(relay.BUSINESS_ROUTES) == rows(shared)
+
+
+@pytest.mark.parametrize(
+    "case", RELAY_ROUTES["cases"], ids=lambda case: case["method"] + " " + case["path"][:80]
+)
+def test_shared_cases_match_the_platform_table_without_client_normalization(case):
+    """공유 사례를 HTTP 클라이언트 없이 디코드한 경로로 허용표에 직접 대조한다.
+
+    클라이언트가 .·%2E%2E 세그먼트를 먼저 줄여도 정규식 자체가 막는지 확인한다.
+
+    Args:
+        case: 퍼센트 인코딩 원문 경로와 기대 결과.
+
+    Returns:
+        None: 404 사례는 빈 메서드, 그 밖은 메서드·query 키 판정을 확인한다.
+    """
+    parts = urlsplit(case["path"])
+    path, keys = unquote(parts.path), {key for key, _ in parse_qsl(parts.query)}
+    methods = relay.allowed_methods(path)
+    if case["forward"]:
+        assert case["method"] in methods and keys <= relay.allowed_query(path)
+    elif case["status"] == 404:
+        assert methods == set()
+    elif case["status"] == 405:
+        assert methods and case["method"] not in methods
+    else:
+        assert case["method"] in methods
 
 
 @pytest.mark.parametrize(
