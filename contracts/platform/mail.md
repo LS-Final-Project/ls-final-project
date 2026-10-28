@@ -21,7 +21,7 @@ python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql
 
 `platform_app`은 네 표에 SELECT·INSERT·UPDATE만 가능하다. 메일 삭제도 행을 지우지 않는다. C/S·TFT 계정에는 권한이 없다.
 
-원문·첨부 바이트는 DB가 아니라 객체 저장소에 둔다(`backend/api/platform/mail/storage.py`). 키는 내용 SHA-256(`mail/sha256/<앞 2자>/<hash>`)이라 같은 내용은 한 번만 쓴다. 현재 구현은 로컬·검사용 폴더 저장소뿐이며 운영 Cloud Storage 구현은 남아 있다.
+원문·첨부 바이트는 DB가 아니라 객체 저장소에 둔다(`backend/api/platform/mail/storage.py`). 키는 사서함 연결 ID와 내용 SHA-256(`mail/<mailbox_id>/sha256/<앞 2자>/<hash>`)이라 같은 사서함 안에서 같은 내용은 한 번만 쓴다. 사서함마다 키를 나눠 한 사서함의 객체를 지우거나 접근을 좁혀도 다른 사서함 객체에 영향이 없다. 현재 구현은 로컬·검사용 폴더 저장소뿐이며 운영 Cloud Storage 구현은 남아 있다.
 
 ## 호출
 
@@ -62,6 +62,7 @@ result = await sync_mailbox(
 | 실행 중 연결 해제 | `FAILED`, `MAILBOX_NOT_CONNECTED` | 기록 |
 | 50MB를 넘는 원문·첨부 | `FAILED`, `MAIL_OBJECT_TOO_LARGE` | 기록 |
 | Graph 밖을 가리키는 다음 주소 | `FAILED`, `GRAPH_LINK_REJECTED`. 그 주소로 요청하지 않음 | 기록 |
+| 실행 중 작업 취소(`asyncio.CancelledError`) | `FAILED`, `SYNC_CANCELLED`. 기록 뒤 취소를 다시 전달. lease 만료를 기다리지 않고 다음 실행 가능 | 기록, 커서 유지 |
 
 - 401 뒤에 토큰을 강제 갱신하거나 다시 시도하지 않는다. 다음 실행이 새 토큰으로 이어 받는다. 401 이후 갱신 신호는 KAN-80·81과 합의 전이다.
 - 실패를 빈 목록이나 성공으로 기록하지 않는다. 오류 코드에는 공급자 원문 설명·토큰·URL을 넣지 않는다.

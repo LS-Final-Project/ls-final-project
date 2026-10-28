@@ -7,6 +7,7 @@
    중간에 멈춰도 다음 실행이 마지막으로 기록한 페이지부터 이어 받는다.
 """
 
+import asyncio
 import contextlib
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
@@ -236,12 +237,15 @@ async def stored_ids(settings: Settings, mailbox_id: UUID, graph_ids: list[str])
         return {row["graph_id"] for row in await cursor.fetchall()}
 
 
-async def fetch_message(graph: GraphMail, store: ObjectStore, meta: MessageMeta) -> FetchedMessage:
+async def fetch_message(
+    graph: GraphMail, store: ObjectStore, mailbox_id: UUID, meta: MessageMeta
+) -> FetchedMessage:
     """새 메시지의 원문과 첨부를 저장소에 쓴다.
 
     Args:
         graph: 사서함 Graph 클라이언트.
         store: 원문 저장소.
+        mailbox_id: 저장 키를 나눌 사서함 연결 ID.
         meta: delta 항목의 속성.
 
     Returns:
@@ -254,7 +258,7 @@ async def fetch_message(graph: GraphMail, store: ObjectStore, meta: MessageMeta)
         if error.code == "GRAPH_NOT_FOUND":
             raise MessageGone from None
         raise
-    fetched = FetchedMessage(meta, await store.put(mime))
+    fetched = FetchedMessage(meta, await store.put(mime, mailbox_id=mailbox_id))
     for attachment in attachments:
         stored = None
         if attachment.kind != "reference":
@@ -265,7 +269,7 @@ async def fetch_message(graph: GraphMail, store: ObjectStore, meta: MessageMeta)
                 if error.code == "GRAPH_NOT_FOUND":
                     continue
                 raise
-            stored = await store.put(data)
+            stored = await store.put(data, mailbox_id=mailbox_id)
         fetched.attachments.append((attachment, stored))
     return fetched
 
@@ -437,7 +441,7 @@ async def sync_folder(
             # 큰 페이지도 lease가 끝나기 전에 메시지마다 늘린다.
             await heartbeat(settings, result.run_id)
             try:
-                fetched.append(await fetch_message(graph, store, meta))
+                fetched.append(await fetch_message(graph, store, mailbox_id, meta))
             except MessageGone:
                 continue
         async with connection(settings) as conn, conn.transaction():
@@ -493,6 +497,12 @@ async def sync_mailbox(
         # 다른 실행이 이미 LEASE_EXPIRED로 기록했다.
         result.status, result.error_code = "FAILED", "LEASE_EXPIRED"
         return result
+    except asyncio.CancelledError:
+        # 취소돼도 RUNNING을 lease 만료까지 남기지 않는다. 기록이 끝나도록 취소에서 보호한다.
+        result.status, result.error_code = "FAILED", "SYNC_CANCELLED"
+        with contextlib.suppress(Exception):
+            await asyncio.shield(finish_run(settings, result))
+        raise
     except Exception:
         # 기록에 실패해도 원래 오류를 전달한다. 남은 RUNNING은 lease 만료로 정리된다.
         result.status, result.error_code = "FAILED", "INTERNAL_ERROR"
