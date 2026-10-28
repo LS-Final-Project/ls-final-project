@@ -41,3 +41,8 @@ test('URLSearchParams.size가 없는 환경에서도 필터를 보존한다',()=
  try {Object.defineProperty(URLSearchParams.prototype,'size',{configurable:true,get:()=>undefined});expect(statsQuery({start:'',end:'',dept:'TS_LV',customer:'TEST/ONE'},'overview')).toBe('?dept=TS_LV&customer=TEST%2FONE');expect(statsQuery({start:'',end:'',dept:'',customer:''},'overview')).toBe('');}
  finally {if(descriptor)Object.defineProperty(URLSearchParams.prototype,'size',descriptor);else Reflect.deleteProperty(URLSearchParams.prototype,'size');}
 });
+
+test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
+ let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,example));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
+ vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText(/처리 현황 \(/);fireEvent.click(screen.getByText('최신 현황 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText(/처리 현황 \(/)).toBeNull();page.unmount();
+});
