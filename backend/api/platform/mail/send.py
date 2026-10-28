@@ -656,6 +656,87 @@ async def authorize_resend(
     return SendResult(intent_id, "QUEUED")
 
 
+async def fail_queued(settings: Settings, intent_id: UUID, code: str) -> bool:
+    """보낼 수 없게 된 대기 의도(예: 사서함 연결 해제)를 실패로 마감한다. 보낸 적이 없다.
+
+    Args:
+        settings: DB 설정.
+        intent_id: 발송 의도 ID.
+        code: 고정 실패 코드.
+
+    Returns:
+        bool: `QUEUED`에서 바꿨으면 True.
+    """
+    async with connection(settings) as conn, conn.transaction():
+        cursor = await conn.execute(
+            "UPDATE integration.mail_send_intents SET status='FAILED', error_code=%s, "
+            "updated_at=now() WHERE id=%s AND status='QUEUED' RETURNING id",
+            (code, intent_id),
+        )
+        if await cursor.fetchone() is None:
+            return False
+        await add_event(conn, intent_id, "FAILED", code=code)
+        return True
+
+
+async def read_intent(settings: Settings, intent_id: UUID, owner_service: str) -> dict[str, Any]:
+    """업무 서비스가 자기 발송 의도의 상태와 이력을 읽는다. 본문·수신자는 돌려주지 않는다.
+
+    Args:
+        settings: DB 설정.
+        intent_id: 발송 의도 ID.
+        owner_service: 호출한 업무 서비스. 다른 서비스의 의도는 없는 것으로 본다.
+
+    Returns:
+        dict[str, Any]: 상태·코드·시도·시각과 이력. 없으면 404.
+    """
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT id, business_ref, business_version, status, error_code, attempts, "
+            "created_at, submitted_at, accepted_at, sent_copy_confirmed_at "
+            "FROM integration.mail_send_intents WHERE id=%s AND owner_service=%s",
+            (intent_id, owner_service),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise ApplicationError(404, "MAIL_SEND_NOT_FOUND", "Mail send intent was not found.")
+        cursor = await conn.execute(
+            "SELECT event, at, code FROM integration.mail_send_events WHERE intent_id=%s "
+            "ORDER BY at, id",
+            (intent_id,),
+        )
+        return {**dict(row), "events": [dict(e) for e in await cursor.fetchall()]}
+
+
+async def pending_work(settings: Settings, *, stale_after: timedelta) -> dict[str, list[Any]]:
+    """정리 작업이 다시 맡길 의도를 찾는다.
+
+    Args:
+        settings: DB 설정.
+        stale_after: 이 시간 넘게 움직임이 없는 `QUEUED`를 다시 맡긴다(등록 실패 대비).
+
+    Returns:
+        dict[str, list[Any]]: `queued`는 (ID, 시도 수), `unknown`은 유예가 지났는데
+        유예 뒤 사본 확인이 없는 `UNKNOWN` (ID, 시도 수).
+    """
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT id, attempts FROM integration.mail_send_intents "
+            "WHERE status='QUEUED' AND attempts < %s AND updated_at < now() - %s ORDER BY id",
+            (MAX_ATTEMPTS, stale_after),
+        )
+        queued = [(r["id"], r["attempts"]) for r in await cursor.fetchall()]
+        cursor = await conn.execute(
+            "SELECT i.id, i.attempts FROM integration.mail_send_intents i "
+            "WHERE i.status='UNKNOWN' AND i.submitted_at < now() - %s AND NOT EXISTS ("
+            "SELECT 1 FROM integration.mail_send_events e WHERE e.intent_id=i.id "
+            "AND e.event='SENT_COPY_NOT_FOUND' AND e.at >= i.submitted_at + %s) ORDER BY i.id",
+            (RESEND_GRACE, RESEND_GRACE),
+        )
+        unknown = [(r["id"], r["attempts"]) for r in await cursor.fetchall()]
+    return {"queued": queued, "unknown": unknown}
+
+
 async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
     """오래 `SUBMITTING`에 남은 의도를 `UNKNOWN`으로 바꾼다. 나갔을 수 있으므로 다시 보내지 않는다.
 
@@ -681,6 +762,9 @@ async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
 
 __all__ = [
     "Attachment",
+    "fail_queued",
+    "pending_work",
+    "read_intent",
     "SendRequest",
     "SendResult",
     "authorize_resend",

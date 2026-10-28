@@ -191,9 +191,38 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 - 응답에 제목·본문·보낸 사람은 없다. 권한 5.2의 '본인 메일함만'을 따르며, 업무에 연결된 뒤의 열람 범위는 연결 단위에서 정한다.
 - **다음 단위**: 수집 뒤 자동 분류(수집 코드·객체 저장소 읽기, 김나영 합의), 메일 → C/S 문의 접수 경로(`source=microsoft_graph`, `external_id`=Graph ID, `known_at`=수신 시각, cs_agent 확인 뒤 플랫폼 → C/S 호출자 토큰), 화면, 실제 모델 호출·평가.
 
+### 발송 입구와 실행
+
+`backend/api/platform/mail/send_worker.py`. 모든 경로는 기본 비활성(404)이고 OpenAPI·웹 중계에 넣지 않는다.
+
+```text
+C/S 서버(cs-runtime ID 토큰) ──POST──▶ /internal/v1/platform/mail/send-intents   → 의도 생성 + 전송 작업 등록, 202
+                              ──GET───▶ /internal/v1/platform/mail/send-intents/{id} → 상태·이력(본문·수신자 제외)
+Cloud Tasks(mail-send 큐)    ──POST {"intent_id"}──▶ /send          → submit_intent, 접수되면 사본 확인 작업(60초 뒤)
+                              ──POST {"intent_id"}──▶ /send-confirm  → confirm_sent_copy
+Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전송 UNKNOWN 처리, 등록이 빠진 대기 의도 재등록, 결과 불명 대조 등록
+```
+
+| 설정(환경 변수) | 값 |
+| --- | --- |
+| `MAIL_SEND_ENABLED` | 기본 `false`. `MAILBOX_AUTH_ENABLED`가 먼저 켜져 있어야 한다 |
+| `MAIL_SEND_QUEUE` | `projects/<p>/locations/<l>/queues/mail-send` |
+| `MAIL_SEND_SERVICE_URL` | 플랫폼 Cloud Run 주소. 작업 대상과 ID 토큰 audience |
+| `MAIL_SEND_INVOKER_EMAIL` | Scheduler·Tasks 호출 계정(`mail-sync-invoker@…`, 수집과 공유) |
+| `MAIL_SEND_CS_CALLER_EMAIL` | 발송을 요청할 수 있는 C/S 실행 계정(`cs-runtime@…`). 호출 계정과 같으면 시작 거부 |
+| `MAIL_OBJECT_BUCKET` | 첨부를 읽을 메일 객체 버킷 |
+
+- **업무 서비스 고정**: `owner_service`는 본문이 아니라 검증된 호출 계정이 정한다(C/S 계정 → `cs`). 상태 조회도 같은 서비스의 의도만 보이고 나머지는 404다.
+- **작업 이름**: 전송 `mailsend-<id>-a<시도 수>`, 사본 확인 `mailconfirm-<id>-s<시도 수>`(전송 뒤)·`-u<시도 수>`(정리 작업이 결과 불명 대조). 같은 일을 두 번 등록하지 않는다. 같은 작업이 다시 전달돼도 `QUEUED`가 아니면 보내지 않는다(200 `SKIPPED`).
+- **응답과 재시도**: `/send`는 미뤄진 전송(`QUEUED`)만 503(큐 재시도, 최대 5회 30~600초), 접수·결과 불명·실패·중복은 200. 연결이 끊긴 사서함의 대기 의도는 `FAILED` `MAILBOX_NOT_CONNECTED`로 마감한다. `/send-confirm`은 접수됐는데 사본이 아직 없으면 503, 결과 불명에서 사본이 없으면 이력에 남기고 200(사람이 판단). `/send-sweep`은 등록 실패가 있으면 503(Scheduler 재시도).
+- **정리 작업**: 15분 넘게 `SUBMITTING`이면 `UNKNOWN`(`MAIL_SUBMIT_INTERRUPTED`), 2분 넘게 움직임 없는 `QUEUED`는 전송 작업 재등록(생성 때 등록 실패 대비), 유예(10분)가 지났는데 유예 뒤 대조 기록이 없는 `UNKNOWN`은 사본 확인 작업 등록.
+- 큐·권한·정리 작업 준비는 `infra/setup_mail_send.sh`(인프라 담당자 실행, `setup_mail_sync.sh` 뒤). C/S 계정에 플랫폼 `run.invoker`, `platform-runtime`에 `mail-send` 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
+
 ## 남은 작업
 
-- KAN-74 후속: C/S 업무가 발송 의도를 만들고 상태를 조회하는 HTTP 입구, 의도 전송 실행(워커), 실제 사서함 발송 확인
+- KAN-74 후속: 사람이 결과 불명 발송을 확인하고 재발송을 허가하는 사용자 API
+- KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 받는 사람은 KAN-75 회신·스레드 연결에서 정한다
+- 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결(분류 추천은 위 KAN-73 절)
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)
