@@ -38,6 +38,7 @@ DB Secret은 해당 실행 계정에만, Gemini Secret의 새 직접 권한은 C
 | register_db_secrets.py | 로컬 CS_DB_PASSWORD·TFT_DB_PASSWORD·PLATFORM_DB_PASSWORD를 서비스별 Secret으로 등록. 기존 값·버전은 덮어쓰지 않음 |
 | verify_cloud_db.sh | 서비스별 Cloud Run 검증 Job으로 실제 Secret·DB 접속 확인 |
 | setup_cloud_build.sh | 이미지 생성 계정·저장소·빌드 소스 버킷 준비 |
+| setup_mail_bucket.sh | 메일 원문·첨부 객체 버킷 준비, platform-runtime에 객체 생성·읽기만 허용(KAN-71 후속) |
 | setup_service_delivery.sh | 실행·배포 계정과 저장소 main 전용 GitHub OIDC 준비 |
 | register_gemini_secret.py | Gemini Secret 준비 및 C/S·TFT 접근 권한 연결 |
 
