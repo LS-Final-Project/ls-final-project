@@ -20,8 +20,7 @@ def sees_project(
     """A manager sees managed projects; anyone sees projects they are responsible for or
     assigned to as the sales user (KAN-122, `tft.projects.sales_user_id`).
 
-    Departments that received a staffing request (`tft.organizations.dept_code` equal to
-    the principal's `dept`) are the dept_staff scope of KAN-123 and are not granted here.
+    The dept_staff scope through staffing requests was removed with them in KAN-181.
     """
     return (
         project_id in principal.managed_projects
