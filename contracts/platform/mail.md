@@ -168,6 +168,6 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 
 ## 남은 작업
 
-- KAN-74 후속: 업무 서비스(C/S·TFT)가 발송 의도를 만들고 상태를 조회하는 HTTP 입구, 의도 전송 실행(워커), 실제 사서함 발송 확인
+- KAN-74 후속: C/S 업무가 발송 의도를 만들고 상태를 조회하는 HTTP 입구, 의도 전송 실행(워커), 실제 사서함 발송 확인
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결

@@ -9,7 +9,7 @@ SET LOCAL ROLE platform_migrator;
 CREATE TABLE integration.mail_send_intents (
     id uuid PRIMARY KEY,
     mailbox_id uuid NOT NULL REFERENCES mailbox_auth.connections(id),
-    owner_service text NOT NULL CHECK (owner_service IN ('cs', 'tft', 'platform')),
+    owner_service text NOT NULL CHECK (owner_service IN ('cs', 'platform')),
     -- 업무 객체 참조(예: cs_ticket:TCK-000123)와 그 승인 판본.
     business_ref text NOT NULL CHECK (business_ref ~ '^[a-z][a-z_]{1,31}:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
     business_version integer NOT NULL CHECK (business_version >= 1),

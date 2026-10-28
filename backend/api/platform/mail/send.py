@@ -32,7 +32,8 @@ from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
-OwnerService = Literal["cs", "tft", "platform"]
+# TFT는 개발 중단(2026-10-28)이라 발송 주체에서 뺐다.
+OwnerService = Literal["cs", "platform"]
 # 보낸편지함에서 발송 의도를 찾는 숨은 확장 속성(이 서비스 전용 고정 GUID).
 INTENT_PROPERTY = "String {6f1c2a9e-3b7d-4e58-9a41-74c0d2e8b5a3} Name Team4SendIntentId"
 SEND_URL = f"{GRAPH_BASE}/me/sendMail"
@@ -172,7 +173,7 @@ def validate(request: SendRequest) -> tuple[list[dict[str, Any]], str]:
         tuple[list[dict[str, Any]], str]: 첨부 JSON과 다시 계산한 payload 해시.
     """
     if (
-        request.owner_service not in ("cs", "tft", "platform")
+        request.owner_service not in ("cs", "platform")
         or not BUSINESS_REF.fullmatch(request.business_ref)
         or request.business_version < 1
     ):

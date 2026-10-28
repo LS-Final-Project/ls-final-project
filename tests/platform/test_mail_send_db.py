@@ -438,6 +438,7 @@ def test_throttled_mail_is_sent_on_a_later_attempt(settings, sender):
         {"body_type": "markdown"},
         {"business_ref": "BAD"},
         {"owner_service": "hr"},
+        {"owner_service": "tft"},
         {"business_version": 0},
     ],
 )
