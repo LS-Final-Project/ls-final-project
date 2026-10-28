@@ -29,3 +29,8 @@ test('대기중 반복 클릭을 막고 이탈 시 조회를 취소한다',async
 test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[{id:'request-one',problem_statement:'합성 문서 검토',request_type:'DOCUMENT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null}]}})));view(false);const link=await screen.findByRole('link',{name:'합성 문서 검토'});expect(link.getAttribute('href')).toBe('/cs/improvements/request-one');expect(screen.getByText('담당자 ID: 미배정')).toBeTruthy();
 });
+
+test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
+ let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
+ vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
+});

@@ -26,12 +26,12 @@ function StatsView(){
   const [error,setError]=useState('');
   const [view,setView]=useState<'overview'|'owners'|'customer'>('overview');
   const mode=getApiMode();
-  const overview=useQuery({queryKey:['cs-stats',mode,'overview',filters],queryFn:({signal})=>getOverview(filters,signal),enabled:view==='overview',retry:false});
-  const owners=useQuery({queryKey:['cs-stats',mode,'owners',filters],queryFn:({signal})=>getOwners(filters,signal),enabled:view==='owners',retry:false});
-  const customer=useQuery({queryKey:['cs-stats',mode,'customer',filters],queryFn:({signal})=>getCustomerHistory(filters,signal),enabled:view==='customer'&&!!filters.customer,retry:false});
+  const overview=useQuery({queryKey:['cs-stats',mode,'overview',filters],queryFn:({signal})=>getOverview(filters,signal),enabled:view==='overview',retry:false,staleTime:0});
+  const owners=useQuery({queryKey:['cs-stats',mode,'owners',filters],queryFn:({signal})=>getOwners(filters,signal),enabled:view==='owners',retry:false,staleTime:0});
+  const customer=useQuery({queryKey:['cs-stats',mode,'customer',filters],queryFn:({signal})=>getCustomerHistory(filters,signal),enabled:view==='customer'&&!!filters.customer,retry:false,staleTime:0});
   const active=view==='overview'?overview:view==='owners'?owners:customer;
-  const o=view==='overview'&&overview.isSuccess?overview.data.data:null;
-  const c=view==='customer'&&customer.isSuccess?customer.data.data:null;
+  const o=view==='overview'&&!overview.isFetching&&overview.isSuccess?overview.data.data:null;
+  const c=view==='customer'&&!customer.isFetching&&customer.isSuccess?customer.data.data:null;
   return <main><header><Link to="/cs/tickets">C/S 문의 목록</Link><h1>C/S 현황·고객 이력</h1>{mode==='mock'&&<p role="status">모의 응답 모드 — 계약 예시이며 실제 업무 집계가 아닙니다. 필터·고객별 예시가 없는 요청은 실패할 수 있습니다.</p>}<p>저장된 기록의 집계입니다. 실제 권한 범위는 서버에서 확인합니다.</p></header>
     <nav aria-label="현황 종류">{(['overview','owners','customer'] as const).map((key,i)=><button key={key} aria-pressed={view===key} onClick={()=>{if(view===key)return;void client.cancelQueries({queryKey:['cs-stats']});setView(key);}}>{['처리·개선 현황','담당자별 현황 (관리자)','고객·장비 이력'][i]}</button>)}</nav>
     <form onSubmit={event=>{event.preventDefault();const f={...draft,customer:draft.customer.trim()};if(f.start&&f.end&&new Date(f.start)>=new Date(f.end)){setError('종료는 시작보다 늦어야 합니다.');return;}if(view==='customer'&&!f.customer){setError('고객 ID를 입력하세요.');return;}setError('');setFilters(f);}}>
@@ -53,7 +53,7 @@ function StatsView(){
       <section><h2>고객별 접수 상위 10</h2>{o.top_customers.length?o.top_customers.map(t=><p key={t.customer_external_id}>{t.customer_external_id}: 접수 {t.received}, 진행 {t.open}</p>):<p>고객 집계 없음</p>}</section>
       <section><h2>개선 현황</h2>{o.improvements?<><p>진행 {o.improvements.open} / 수신 부서 미확인 {o.improvements.receiver_unconfirmed}</p><Counts values={o.improvements.by_status}/><Counts values={o.improvements.by_type}/></>:<p>개선 집계는 관리자 범위에서만 제공됩니다.</p>}</section>
     </>}
-    {view==='owners'&&owners.isSuccess&&<section><h2>담당자별 현황</h2><p>접수·종결은 선택 기간 기준, 현재 진행 수는 기간과 무관합니다. 사용자 이름은 추측하지 않고 API 식별자로 표시합니다.</p>{owners.data.data.items.length?<table><thead><tr><th>담당자 ID</th><th>접수</th><th>종결</th><th>현재 진행 (전체 기간)</th></tr></thead><tbody>{owners.data.data.items.map((item,i)=><tr key={item.owner_user_id??i}><td>{item.owner_user_id??'담당자 미배정'}</td><td>{item.received}</td><td>{item.closed}</td><td>{item.open}</td></tr>)}</tbody></table>:<p>담당자 집계 없음</p>}</section>}
+    {view==='owners'&&!owners.isFetching&&owners.isSuccess&&<section><h2>담당자별 현황</h2><p>접수·종결은 선택 기간 기준, 현재 진행 수는 기간과 무관합니다. 사용자 이름은 추측하지 않고 API 식별자로 표시합니다.</p>{owners.data.data.items.length?<table><thead><tr><th>담당자 ID</th><th>접수</th><th>종결</th><th>현재 진행 (전체 기간)</th></tr></thead><tbody>{owners.data.data.items.map((item,i)=><tr key={item.owner_user_id??i}><td>{item.owner_user_id??'담당자 미배정'}</td><td>{item.received}</td><td>{item.closed}</td><td>{item.open}</td></tr>)}</tbody></table>:<p>담당자 집계 없음</p>}</section>}
     {c&&<section><h2>고객 {c.customer_external_id}</h2><p>기간 내 접수 {c.received}건 · 최근 문의 최대 200건</p><Unconfirmed values={c.unconfirmed}/><Counts values={c.by_state}/><Counts values={c.by_product}/><h3>문의</h3>{c.tickets.length?c.tickets.map(t=><article key={t.id}><Link to={`/cs/tickets/${encodeURIComponent(t.id)}`}>{t.subject||t.external_id||t.id}</Link><p>{timestamp(t.received_at)} · {t.product_code} · {t.channel} · {t.data_origin}</p><TicketWorkflow state={t.workflow_state}/></article>):<p>문의 기록 없음</p>}<h3>설치 장비 (전체 이력, 기간 필터 미적용)</h3>{c.units.length?c.units.map(u=><p key={u.id}>{u.serial_no} · {u.product_code} · {u.unit_status} · {u.derivation_kind==='ASSUMED'?'가정 자료':u.derivation_kind} · 확정 문의 {u.confirmed_tickets}</p>):<p>설치 장비 기록 없음</p>}<h3>연결된 개선요청 (전체 이력, 기간 필터 미적용)</h3>{c.improvement_requests.length?c.improvement_requests.map(r=><p key={r.id}>{r.id} · {r.request_type} · {r.product_code} · {r.fault_id??'고장 ID 없음'} · {r.status} · 근거 문의 {r.evidence_tickets}</p>):<p>연결된 개선요청 없음</p>}</section>}
   </main>;
 }
