@@ -1,3 +1,4 @@
+import ImprovementVersions from '../components/ImprovementVersions';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
@@ -26,6 +27,7 @@ function ImprovementView(){
       <section><h2>근거 문의</h2>{d.evidence.length?d.evidence.map(e=><article key={e.id}><Link to={`/cs/tickets/${encodeURIComponent(e.ticket_id)}`}>{e.ticket_external_id??e.ticket_id}</Link><p>해결 사례: {e.case_external_id??e.case_id??'연결 없음'} · {e.removed_at?`제외됨: ${e.removal_reason??'사유 미확인'}`:'유효한 근거'}</p></article>):<p>연결된 근거 없음</p>}</section>
       <section><h2>현재 회차 수신 부서</h2>{d.departments.length?d.departments.map(x=><p key={`${x.round}-${x.dept_code}`}>{x.dept_code} · {x.status} · 전달 판본 {x.sent_version??'미확인'} · 기한 {x.reply_due_at??'미확인'} · {x.carried_over?'이월':'이번 회차'}</p>):<p>수신 부서 기록 없음</p>}<h3>부서 회신</h3>{d.replies.length?d.replies.map(x=><p key={x.id}>{x.dept_code} · 회차 {x.round} · 판본 {x.request_version} · {x.reply_type} · {x.reason??'사유 기록 없음'}</p>):<p>회신 기록 없음</p>}</section>
       <section><h2>부서 조치</h2>{d.actions.length?d.actions.map(x=><article key={x.id}><h3>{x.dept_code} · {x.action_date}</h3><p>{x.action}</p><p>적용 대상: {x.action_scope}</p><p>근거: {x.action_evidence}</p></article>):<p>조치 기록 없음</p>}<h3>후속 확인 (고객 적용·재발 확인과 구분)</h3><p>계획: {r.followup_plan??'미기록'}</p><p>결과: {r.followup_result??'미기록'}</p><p>고객별 적용·재발 여부는 이 응답만으로 확인할 수 없습니다.</p></section>
+      <ImprovementVersions key={r.id} requestId={r.id}/>
       <Preparing inline title="검토·전달·조치 입력" message="작성·전달 API의 인증 연결과 후속 상태 전이 검증이 필요합니다. 이번 화면은 조회만 제공합니다."/>
     </>}
   </main>;
