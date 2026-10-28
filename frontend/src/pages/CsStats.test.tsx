@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import CsStats from './CsStats';
+import { statsQuery } from '../api/cs-stats';
 import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
@@ -33,4 +34,10 @@ test('담당자 미배정과 기간 밖 진행 부담을 구분하고 고객 필
 test('반복 클릭은 대기 요청을 늘리지 않고 화면 이탈은 취소, 재진입은 재조회한다',async()=>{
  let signal:AbortSignal|undefined;let calls=0;vi.stubGlobal('fetch',vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{calls++;if(calls>1)return Promise.resolve(jsonResponse(200,example));signal=init?.signal as AbortSignal;return new Promise<Response>((_r,reject)=>signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));}));
  const page=view();await waitFor(()=>expect(calls).toBe(1));fireEvent.click(screen.getByText('최신 현황 조회'));expect(calls).toBe(1);fireEvent.click(screen.getByText('처리·개선 현황'));expect(signal?.aborted).toBe(false);page.unmount();expect(signal?.aborted).toBe(true);view();await screen.findByText(/처리 현황 \(/);
+});
+
+test('URLSearchParams.size가 없는 환경에서도 필터를 보존한다',()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(URLSearchParams.prototype,'size');
+ try {Object.defineProperty(URLSearchParams.prototype,'size',{configurable:true,get:()=>undefined});expect(statsQuery({start:'',end:'',dept:'TS_LV',customer:'TEST/ONE'},'overview')).toBe('?dept=TS_LV&customer=TEST%2FONE');expect(statsQuery({start:'',end:'',dept:'',customer:''},'overview')).toBe('');}
+ finally {if(descriptor)Object.defineProperty(URLSearchParams.prototype,'size',descriptor);else Reflect.deleteProperty(URLSearchParams.prototype,'size');}
 });
