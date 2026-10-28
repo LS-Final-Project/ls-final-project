@@ -250,6 +250,14 @@ def test_certification_rules(certs, verdict, phrase):
     assert phrase in " ".join(row.reasons + row.exclusion_reasons)
 
 
+def test_unit_prefix_case_is_a_different_unit():
+    mega = req(8, "rated_max_voltage", "15", unit="MV", operator="GTE")
+    milli = profile("P-X", [fact("rated_max_voltage", "20", "mV")])
+    assert (
+        "rated_max_voltage" in grade_requirement(milli, mega, CONTEXT, DAY).mandatory_check.unknown
+    )
+
+
 def test_unit_mismatch_and_condition_gap_stay_unknown():
     nan = profile("P-X", [fact("rated_max_voltage", "NaN", "kV")])
     assert (
@@ -285,6 +293,11 @@ def test_range_and_form_mismatch():
     )
     clad = profile("P-X", [fact("form", "metal-clad VCB switchgear")])
     assert grade_requirement(clad, MV[0], CONTEXT, DAY).grade == "EXCLUDED"
+
+
+def test_supply_region_ignores_case_and_spaces():
+    lower = CONTEXT.model_copy(update={"supply_region": " us "})
+    assert "supply_region" in grade_requirement(P_A, MV[1], lower, DAY).mandatory_check.passed
 
 
 def test_region_and_integrator_constraints_exclude():

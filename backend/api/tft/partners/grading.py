@@ -313,7 +313,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
         tuple[Verdict, str]: 결과와 판정 말.
     """
     if requirement.operator != "TEXT":
-        if _norm(requirement.unit) != _norm(fact.unit):
+        # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
+        if " ".join((requirement.unit or "").split()) != " ".join((fact.unit or "").split()):
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
         if requirement.operator == "RANGE":
@@ -499,7 +500,7 @@ def _constraints(profile: PartnerProfile, context: RfpContext) -> list[Check]:
     region = context.supply_region
     if region:
         regions = ", ".join(profile.supply_regions)
-        if region in profile.supply_regions:
+        if _norm(region) in {_norm(r) for r in profile.supply_regions}:
             checks.append(("supply_region", "passed", f"공급 지역 {region} 가능(후보 {regions})."))
         elif not profile.supply_regions:
             checks.append(
