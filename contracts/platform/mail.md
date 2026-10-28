@@ -21,7 +21,16 @@ python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql
 
 `platform_app`은 네 표에 SELECT·INSERT·UPDATE만 가능하다. 메일 삭제도 행을 지우지 않는다. C/S·TFT 계정에는 권한이 없다.
 
-원문·첨부 바이트는 DB가 아니라 객체 저장소에 둔다(`backend/api/platform/mail/storage.py`). 키는 사서함 연결 ID와 내용 SHA-256(`mail/<mailbox_id>/sha256/<앞 2자>/<hash>`)이라 같은 사서함 안에서 같은 내용은 한 번만 쓴다. 사서함마다 키를 나눠 한 사서함의 객체를 지우거나 접근을 좁혀도 다른 사서함 객체에 영향이 없다. 현재 구현은 로컬·검사용 폴더 저장소뿐이며 운영 Cloud Storage 구현은 남아 있다.
+원문·첨부 바이트는 DB가 아니라 객체 저장소에 둔다(`backend/api/platform/mail/storage.py`). 키는 사서함 연결 ID와 내용 SHA-256(`mail/<mailbox_id>/sha256/<앞 2자>/<hash>`)이라 같은 사서함 안에서 같은 내용은 한 번만 쓴다. 사서함마다 키를 나눠 한 사서함의 객체를 지우거나 접근을 좁혀도 다른 사서함 객체에 영향이 없다.
+
+| 저장소 | 쓰는 곳 | 동작 |
+| --- | --- | --- |
+| `LocalObjectStore(root)` | 로컬 개발·검사 | 임시 파일에 쓴 뒤 이름을 바꿔 부분 쓰기를 남기지 않는다 |
+| `GcsObjectStore(client, bucket, token)` | 운영(KAN-72) | 버킷은 `MAIL_OBJECT_BUCKET`(`infra/setup_mail_bucket.sh`). `ifGenerationMatch=0`으로 객체가 없을 때만 만들고, 보낸 바이트의 MD5(`x-goog-hash`)를 Cloud Storage가 확인한다. 이미 있다는 응답(412)이나 덮어쓰기 거부(403)는 같은 키의 객체 크기·MD5가 같을 때만 성공으로 본다 |
+
+- 운영 실행 계정 `platform-runtime`은 이 버킷에 객체 생성·읽기만 할 수 있다. 삭제·덮어쓰기 권한이 없어 보관한 원문은 수집 코드로 바뀌지 않는다.
+- `GoogleStorageToken`은 실행 환경 기본 자격 증명(`devstorage.read_write` 범위)으로 access token을 받고 만료되면 갱신한다. 토큰은 요청 헤더에만 쓴다.
+- 저장소 장애·거부·내용 불일치는 `MAIL_STORAGE_UNAVAILABLE`(503)로 실행에 기록한다. 버킷·키·Cloud Storage 응답 본문은 오류에 넣지 않는다.
 
 ## 호출
 
@@ -63,6 +72,7 @@ result = await sync_mailbox(
 | 메시지는 있고 첨부만 404 | 그 첨부 행만 건너뛰고 메시지는 저장. 원문 MIME에 첨부가 들어 있음 | 성공 가능 |
 | 실행 중 연결 해제 | `FAILED`, `MAILBOX_NOT_CONNECTED` | 기록 |
 | 50MB를 넘는 원문·첨부 | `FAILED`, `MAIL_OBJECT_TOO_LARGE` | 기록 |
+| 객체 저장소 장애·거부·내용 불일치 | `FAILED`, `MAIL_STORAGE_UNAVAILABLE`. 그 페이지는 기록하지 않음 | 기록, 커서 유지 |
 | Graph 밖을 가리키는 다음 주소 | `FAILED`, `GRAPH_LINK_REJECTED`. 그 주소로 요청하지 않음 | 기록 |
 | 실행 중 작업 취소(`asyncio.CancelledError`) | `FAILED`, `SYNC_CANCELLED`. 기록 뒤 취소를 다시 전달. lease 만료를 기다리지 않고 다음 실행 가능. 모든 폴더를 받은 뒤 종료 기록 중에 취소되면 그 기록(`SUCCEEDED` 등)은 끝까지 쓴다 | 기록, 커서 유지 |
 
@@ -88,5 +98,5 @@ result = await sync_mailbox(
 ## 남은 작업
 
 - 수집을 부르는 워커·정기 실행과 실행 간격·재시도 정책(KAN-72)
-- 운영 Cloud Storage 저장소
+- Cloud Run 환경 변수 `MAIL_OBJECT_BUCKET` 적용과 운영 저장소 연결(KAN-72 워커와 함께), 실제 버킷 쓰기 확인
 - 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결
