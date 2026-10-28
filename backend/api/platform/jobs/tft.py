@@ -7,7 +7,9 @@ tft 서비스가 프로젝트 접근 검사와 본문 검증을 마친 뒤 `POST
   다시 검증한다(Cloud Run IAM과 별도).
 - 같은 사용자·종류 경로·멱등 키의 재전송은 기존 작업을 돌려준다. 내용이 다르면 409.
 - 같은 프로젝트에 진행 중 작업이 있으면 409 `TFT_JOB_IN_PROGRESS`.
-- 처리 worker가 없으므로 전송 의도(dispatch_outbox)는 만들지 않는다. 평가 전송기는 outbox의
+- 처리 worker 연결(`TFT_JOBS_PROCESSOR_CONNECTED`) 전에는 저장하지 않고 503
+  `TFT_PROCESSOR_NOT_CONNECTED`다(명세 §4.3).
+- 전송 의도(dispatch_outbox)는 만들지 않는다. 평가 전송기는 outbox의
   모든 행을 평가 실행으로 보내므로, 연결 전에 tft 행을 넣으면 안 된다.
 """
 
@@ -18,7 +20,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import psycopg
-from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from psycopg.pq import TransactionStatus
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,6 +53,9 @@ class TftJobSettings(BaseSettings):
     service_url: str = ""
     # 접수를 부를 수 있는 tft 실행 서비스 계정.
     invoker_email: str = ""
+    # tft 처리 worker가 작업을 RUNNING 이후로 옮길 수 있을 때만 켠다. 꺼져 있으면 저장하지 않고 503이다.
+    # 켜지 않은 채 저장하면 QUEUED가 남아 그 프로젝트의 다음 접수가 계속 409가 된다.
+    processor_connected: bool = False
 
     @model_validator(mode="after")
     def validate_enabled(self) -> Self:
@@ -238,7 +243,7 @@ async def verify_caller(request: Request) -> None:
 router = APIRouter(prefix=PREFIX, tags=["internal-jobs"], include_in_schema=False)
 
 
-@router.post("/tft", status_code=201)
+@router.post("/tft", status_code=201, dependencies=[Depends(verify_caller)])
 async def admit(
     request: Request, response: Response, body: TftJobRequest
 ) -> SuccessResponse[TftJobAdmission]:
@@ -252,7 +257,10 @@ async def admit(
     Returns:
         SuccessResponse[TftJobAdmission]: 작업 ID와 플랫폼 상태 경로.
     """
-    await verify_caller(request)
+    if not request.app.state.tft_jobs.processor_connected:
+        raise ApplicationError(
+            503, "TFT_PROCESSOR_NOT_CONNECTED", "The RFP job processor is not connected yet."
+        )
     async with connection(request.app.state.settings) as conn, conn.transaction():
         await conn.execute("SET LOCAL statement_timeout = '5s'")
         data = await admit_tft_job(conn, body)

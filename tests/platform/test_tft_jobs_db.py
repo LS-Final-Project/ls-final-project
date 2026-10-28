@@ -22,9 +22,11 @@ class FakeCaller:
             raise HTTPException(401)
 
 
-def enabled():
+def enabled(**changes):
+    values = {"processor_connected": True, **changes}
     return TftJobSettings(
         _env_file=None,
+        **values,
         enabled=True,
         service_url="https://platform.example.run.app",
         invoker_email="tft-runtime@proj-test.iam.gserviceaccount.com",
@@ -152,3 +154,21 @@ def test_tft_runtime_role_still_has_no_runtime_access(jobs_database):
 def test_unregistered_actor_is_a_client_error(client, jobs_database, body):
     response = client.post(URL, json={**body, "actor_id": str(uuid4())}, headers=GOOD)
     assert (response.status_code, response.json()["error"]["code"]) == (422, "JOB_ACTOR_UNKNOWN")
+
+
+def test_nothing_is_stored_before_the_processor_is_connected(settings, jobs_database, body):
+    # 저장하면 QUEUED가 남아 그 프로젝트가 계속 409로 잠긴다.
+    app = create_app(settings=settings)
+    configure_tft_jobs(app, enabled(processor_connected=False), caller=FakeCaller())
+    response = TestClient(app).post(URL, json=body, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (
+        503,
+        "TFT_PROCESSOR_NOT_CONNECTED",
+    )
+    assert rows(jobs_database, body["actor_id"]) == []
+
+
+def test_caller_is_checked_before_the_body(settings, client):
+    assert client.post(URL, json={"kind": "x"}).status_code == 401
+    closed = TestClient(create_app(settings=settings))
+    assert closed.post(URL, json={"kind": "x"}, headers=GOOD).status_code == 404
