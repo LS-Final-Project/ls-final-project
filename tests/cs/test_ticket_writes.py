@@ -121,6 +121,26 @@ def test_create_rejects_server_owned_fields(client, extra):
     assert client.post("/api/v1/cs/tickets", json={**NEW, **extra}).status_code == 422
 
 
+# KAN-178 customer ID convention: ASCII alphanumeric first, then alphanumerics, ".", "_", "-".
+@pytest.mark.parametrize(
+    "customer",
+    ["", ".CUST", "-CUST", "_CUST", "CUST 01", "고객-01", "CUST/01", "CUST-01\n", "C" * 65],
+)
+def test_customer_ids_outside_the_convention_are_rejected(client, customer):
+    created = client.post("/api/v1/cs/tickets", json={**NEW, "customer_external_id": customer})
+    assert created.status_code == 422
+    ticket = create(client)
+    body = {"version": 1, "customer_external_id": customer}
+    assert client.patch(f"/api/v1/cs/tickets/{ticket['id']}", json=body).status_code == 422
+
+
+@pytest.mark.parametrize("customer", ["A", "C" * 64, "cust.01_a-B"])
+def test_customer_ids_within_the_convention_are_accepted(client, customer):
+    created = client.post("/api/v1/cs/tickets", json={**NEW, "customer_external_id": customer})
+    assert created.status_code == 201
+    assert created.json()["data"]["customer_external_id"] == customer
+
+
 def test_update_bumps_version_and_records_from_and_to(client, store):
     ticket = create(client)
     result = client.patch(
