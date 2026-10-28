@@ -18,11 +18,13 @@ from typing import Any, Literal, Self
 from uuid import UUID
 
 import httpx
+import psycopg
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.responses import JSONResponse
 
+from backend.api.platform.mail.links import judge_new_replies
 from backend.api.platform.mail.storage import BUCKET_NAME, GcsObjectStore, GoogleAccessToken
 from backend.api.platform.mail.sync import SyncResult, sync_mailbox
 from backend.shared.database import connection
@@ -112,6 +114,10 @@ class SyncData(BaseModel):
     outcome: Literal["SUCCEEDED", "FAILED", "SKIPPED"]
     code: str | None
     messages_stored: int
+    # 수집 뒤 회신 판정(KAN-75). 실패한 메일은 다음 실행에서 다시 판정한다.
+    replies_linked: int = 0
+    replies_review: int = 0
+    replies_failed: int = 0
 
 
 def dispatch_unavailable() -> ApplicationError:
@@ -295,21 +301,32 @@ async def sync(request: Request) -> JSONResponse:
         client(request, httpx.Timeout(30, connect=10)) as graph_client,
         client(request, httpx.Timeout(60, connect=10)) as storage_client,
     ):
+        store = GcsObjectStore(
+            storage_client, value.object_bucket, request.app.state.mail_sync_storage_token
+        )
+        judged = {"LINKED": 0, "REVIEW": 0, "failed": 0}
         try:
             result: SyncResult | None = await sync_mailbox(
                 request.app.state.settings,
                 payload.mailbox_id,
                 get_token=request.app.state.mailbox_tokens.get_mailbox_access_token,
                 client=graph_client,
-                store=GcsObjectStore(
-                    storage_client, value.object_bucket, request.app.state.mail_sync_storage_token
-                ),
+                store=store,
             )
         except ApplicationError as error:
             # 실행을 만들기 전 거절. 진행 중·해제·없음은 다시 시도해도 같다.
             if error.code not in SKIPPED:
                 raise
             result, code = None, error.code
+        if result is not None:
+            # 수집이 실패해도 앞서 기록된 페이지의 메일은 판정한다. 판정 실패는 수집 결과를
+            # 바꾸지 않고 수만 알린다(표가 아직 없는 환경 포함).
+            try:
+                judged |= await judge_new_replies(
+                    request.app.state.settings, payload.mailbox_id, store
+                )
+            except (psycopg.Error, ApplicationError):
+                judged["failed"] += 1
     if result is None:
         data = SyncData(
             mailbox_id=payload.mailbox_id, outcome="SKIPPED", code=code, messages_stored=0
@@ -324,6 +341,9 @@ async def sync(request: Request) -> JSONResponse:
             outcome=outcome,
             code=result.error_code,
             messages_stored=result.messages_stored,
+            replies_linked=judged["LINKED"],
+            replies_review=judged["REVIEW"],
+            replies_failed=judged["failed"],
         )
         status = 503 if result.error_code in TRANSIENT else 200
     body = SuccessResponse[SyncData](

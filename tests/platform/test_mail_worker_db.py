@@ -243,7 +243,9 @@ def test_sync_stores_mail_in_the_bucket_and_repeating_it_stores_nothing_new(sett
     world = World(settings)
     first = world.sync(mailbox["id"])
     assert first.status_code == 200
-    assert first.json()["data"] == {
+    assert {
+        k: first.json()["data"][k] for k in ("mailbox_id", "outcome", "code", "messages_stored")
+    } == {
         "mailbox_id": str(mailbox["id"]),
         "outcome": "SUCCEEDED",
         "code": None,
