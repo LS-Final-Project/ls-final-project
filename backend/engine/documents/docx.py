@@ -4,7 +4,12 @@
 deleted_values에 origin과 함께 둔다. 변경 추적 삽입(w:ins)은 현행으로 읽는다.
 
 범위 밖: 문자·문단 스타일에서 상속한 취소선·형광펜(런에 직접 준 서식만 읽는다), 이동 추적(w:moveFrom),
-머리글·바닥글·각주·미주·텍스트박스·수식 본문(종류·위치만 unprocessed에 남긴다), 중첩 표.
+머리글·바닥글·각주·미주·텍스트박스·수식 본문(종류·위치만 unprocessed에 남긴다), 중첩 표,
+표 셀 안 번호 문단의 번호 진행(셀 문단은 카운터를 넘기지 않아 본문과 같은 numId를 공유하면 이후
+list_text가 어긋날 수 있다. numbering_raw로 복구한다).
+
+신뢰 경계: 부분마다 압축 해제 크기 상한(PART_LIMIT)을 두고, UTF-8·UTF-16(LE/BE) 어느 인코딩이든 DOCTYPE이
+있는 XML은 거부한다. 입력 전체 크기 상한은 router.extract가 공통으로 적용한다.
 """
 
 import io
@@ -36,7 +41,9 @@ W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 MATH = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
 MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
 # 압축 해제 뒤 부분 하나의 상한. 25 MiB 업로드가 비정상적으로 부풀어도 메모리를 지킨다.
-PART_LIMIT = 64 * 1024 * 1024
+PART_LIMIT = 32 * 1024 * 1024
+# XML이 허용하는 인코딩별 DOCTYPE 바이트. 엔티티 확장을 expat 보호에만 맡기지 않는다.
+DOCTYPES = tuple("<!DOCTYPE".encode(codec) for codec in ("utf-8", "utf-16-le", "utf-16-be"))
 # 안의 런을 현행으로 읽는 래퍼. w:moveTo는 이동 추적의 도착 위치라 현행 본문이다.
 PASS_THROUGH = {
     f"{W}{name}"
@@ -81,7 +88,7 @@ def _read_part(archive: zipfile.ZipFile, name: str) -> ET.Element | None:
         data = stream.read(PART_LIMIT + 1)
     if len(data) > PART_LIMIT:
         raise ValueError(f"{name}이 크기 상한을 넘습니다.")
-    if b"<!DOCTYPE" in data:
+    if any(doctype in data for doctype in DOCTYPES):
         raise ValueError(f"{name}에 DOCTYPE이 있습니다.")
     try:
         return ET.fromstring(data)

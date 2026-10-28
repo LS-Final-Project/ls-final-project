@@ -359,3 +359,15 @@ def test_pdf_limits_and_unexpected_reader_errors(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("backend.engine.documents.pdf.PdfReader", explode)
     with pytest.raises(ValueError, match="읽을 수 없"):
         extract_pdf(pdf(["one"]))
+
+
+def test_upload_size_cap_and_utf16_doctype_are_rejected() -> None:
+    oversized = docx(para(run("x")))
+    with pytest.raises(ValueError, match="크기 상한"):
+        extract(oversized + b"\0" * (MAX_BYTES - len(oversized) + 1))
+    utf16 = io.BytesIO()
+    with zipfile.ZipFile(utf16, "w") as archive:
+        xml = f'<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d><w:document {NS}><w:body/></w:document>'
+        archive.writestr("word/document.xml", xml.encode("utf-16"))
+    with pytest.raises(ValueError, match="DOCTYPE"):
+        extract_docx(utf16.getvalue())

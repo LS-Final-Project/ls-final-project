@@ -6,7 +6,7 @@ from pathlib import Path
 
 from backend.engine.documents.docx import extract_docx
 from backend.engine.documents.model import ExtractedDocument, SourceKind
-from backend.engine.documents.pdf import extract_pdf
+from backend.engine.documents.pdf import MAX_BYTES, extract_pdf
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DECLARED: dict[str, SourceKind] = {
@@ -52,9 +52,12 @@ def extract(source: Path | bytes, mime: str | None = None) -> ExtractedDocument:
         공통 표현 문서.
 
     Raises:
-        ValueError: 지원하지 않는 형식이거나, 확장자·MIME이 실제 내용과 다를 때.
+        ValueError: 크기 상한을 넘거나, 지원하지 않는 형식이거나, 확장자·MIME이 실제 내용과 다를 때.
     """
     data = source.read_bytes() if isinstance(source, Path) else source
+    # 명세 §4.2 업로드 상한을 DOCX·PDF에 같이 적용한다.
+    if len(data) > MAX_BYTES:
+        raise ValueError("문서가 크기 상한(25 MiB)을 넘습니다.")
     kind = _sniff(data)
     # MIME 파라미터(; charset=…)는 떼고, 형식을 말하지 않는 일반 타입은 확인하지 않는다.
     media_type = (mime or "").split(";", 1)[0].strip().lower()
