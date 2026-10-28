@@ -32,7 +32,8 @@ def summarize_stored_usage(conn: Connection, run_id: UUID) -> dict:
         rows = cursor.execute(
             "SELECT r.status,r.requested_count,t.target_ref,a.id AS attempt_id,a.attempt,"
             "a.outcome,a.finished_at,a.latency_ms,a.input_tokens,a.output_tokens,"
-            "a.thought_tokens,a.cached_input_tokens,a.total_tokens,a.cost_usd,a.pricing_version "
+            "a.thought_tokens,a.cached_input_tokens,a.total_tokens,a.cost_usd,a.pricing_version,"
+            "a.usage_raw IS NOT NULL AS has_usage_raw,a.requested_model,a.call_attempts "
             "FROM evaluation.runs r "
             "LEFT JOIN evaluation.experiment_targets t ON t.experiment_id=r.experiment_id "
             "LEFT JOIN evaluation.cases c ON c.run_id=r.id AND c.target_ref=t.target_ref "
@@ -77,7 +78,8 @@ def _summarize(rows: list[dict]) -> dict:
         rows: 최초 또는 재시도 또는 전체 저장 행.
 
     Returns:
-        dict: 시도 상태, 토큰별 보고 범위, 지연 분위수, 비용과 가격표 판본.
+        dict: 시도 상태, 토큰별 보고 범위, 지연 분위수, 비용과 가격표 판본, 요청 모델 목록,
+            호출 시도 수, 사용량 원문 보고 수(원문 자체는 집계에 넣지 않는다).
     """
     latency = sorted(row["latency_ms"] for row in rows if row["latency_ms"] is not None)
     cost = _sum_report(rows, "cost_usd")
@@ -102,6 +104,14 @@ def _summarize(rows: list[dict]) -> dict:
             "p95": _percentile(latency, 0.95),
         },
         "cost_usd": cost,
+        "requested_models": sorted(
+            {row["requested_model"] for row in rows if row["requested_model"] is not None}
+        ),
+        "call_attempts": _sum_report(rows, "call_attempts"),
+        "usage_raw": {
+            "reported_count": sum(row["has_usage_raw"] for row in rows),
+            "missing_count": sum(not row["has_usage_raw"] for row in rows),
+        },
     }
 
 

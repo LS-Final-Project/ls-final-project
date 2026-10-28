@@ -70,6 +70,9 @@ class ClassificationAttempt:
     prediction: ClassificationOutput | None = field(default=None, repr=False)
     model_version: str | None = field(default=None, repr=False)
     finish_reasons: tuple[str, ...] = field(default=(), repr=False)
+    # 응답의 Generation.model·attempts. 공급자 예외로 Generation이 없으면 None이다.
+    requested_model: str | None = field(default=None, repr=False)
+    call_attempts: int | None = None
 
 
 def run_classification_attempt(
@@ -145,6 +148,8 @@ def run_classification_attempt(
         raw_response=response.text,
         model_version=response.model_version,
         finish_reasons=tuple(response.finish_reasons),
+        requested_model=response.model,
+        call_attempts=response.attempts,
     )
     try:
         prediction = validate_output(response.text, allowed_info_codes=allowed_info_codes)
