@@ -39,6 +39,8 @@
 | `HIDDEN_BY_SCOPE` | 사용자의 조회 범위 밖 근거에서 온 값이다 | 판정과 `finding`은 유지한다(조회 범위 절) |
 | `MASKING_FAILED` | 마스킹할 수 없어 내지 않는다 | 판정과 `finding`은 유지한다 |
 
+- 사유가 둘 이상 해당하면 `HIDDEN_BY_SCOPE` > `NOT_PROVIDED` > `MASKING_FAILED` 순으로 하나만 낸다. 숨긴 근거에서 온 값은 자료에 없었더라도 `HIDDEN_BY_SCOPE`이며 판정과 `finding`을 유지한다(값의 존재 여부도 숨긴다).
+
 ## 상태 전이
 
 | 현재 | 다음 | 작성 주체(`provenance_kind`) | 조건 |
@@ -64,6 +66,7 @@
 
 값이 있을 때만 채우고, 없으면 null이다. 서버가 추정해 채우지 않으며 화면은 null을 "미확인"으로 표시한다.
 
+- `fw_fixed_version`·`condition_summary`는 저장 전 마스킹한 값만 내고, 마스킹할 수 없으면 사유 필드 없이 null이다. 조회 범위가 요청서 조회와 같으므로 `HIDDEN_BY_SCOPE`는 해당하지 않는다.
 - `fw_fixed_version`: 대상 요청서의 같은 이름 값. 요청서가 없으면 null.
 - `fw_deployed_at`: 수정 펌웨어 배포일. 지금 저장소에 원천 필드가 없어 원천이 생기기 전까지 항상 null이다.
 - `condition_summary`: 대상 요청서의 사용 조건 요약(같은 이름 값). 요청서가 없으면 null.
@@ -83,7 +86,7 @@
 
 ## 미확인 보존
 
-- `UNCONFIRMED` 항목은 응답에서 빼지 않고 null 판정이나 "해당 없음"으로 바꾸지 않는다. 미확인 사유(`unconfirmed_reason`: `NO_EVIDENCE`·`EVIDENCE_REMOVED`·`NOT_YET_KNOWN`·`VALUE_NOT_PROVIDED`)를 함께 둔다. 다른 판정에서는 null이다.
+- `UNCONFIRMED` 항목은 응답에서 빼지 않고 null 판정이나 "해당 없음"으로 바꾸지 않는다. 미확인 사유(`unconfirmed_reason`: `NO_EVIDENCE`·`EVIDENCE_REMOVED`·`NOT_YET_KNOWN`·`VALUE_NOT_PROVIDED`)를 함께 둔다. 다른 판정에서는 null이다. 둘 이상 해당하면 `NOT_YET_KNOWN` > `EVIDENCE_REMOVED` > `VALUE_NOT_PROVIDED` > `NO_EVIDENCE` 순으로 하나만 낸다.
 - `NOT_YET_KNOWN`은 근거의 `known_at`이 아직 오지 않은 경우다. 미래의 해결 기록으로 과거 판정을 채우지 않는다.
 - 판정 집계(`summary`)는 조건 항목(`conditions`)의 세 판정 건수를 모두 낸다. 원인 판정은 세지 않는다. 미확인을 0이나 확정으로 합치지 않는다.
 
