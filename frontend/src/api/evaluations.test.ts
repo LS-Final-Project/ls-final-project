@@ -62,7 +62,7 @@ test('화면 이동에 따른 취소 신호를 실제 요청까지 전달한다'
 
 // 공개 요약 소비자도 실제 fetch 경계에서 검증한다.
 import { getEvaluationSummary } from './evaluation-summary.ts';
-import { summaryFixture } from '../test/evaluation-summary.ts';
+import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary.ts';
 
 test('집계는 현재 세션으로 조회하고 원문·추가 필드는 투영하지 않는다', async t => {
   const data = summaryFixture();
@@ -136,3 +136,56 @@ for (const change of [{ total: '0.000001' }, { pricing_version_count: 0 }, { pri
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   });
 }
+
+test('합성 품질은 누락·null을 미저장으로 통과시키고 저장값은 허용 필드만 투영한다', async t => {
+  const data = summaryFixture();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).synthetic_quality, null);
+  delete data.synthetic_quality;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).synthetic_quality, null);
+  const quality = syntheticQualityFixture();
+  data.synthetic_quality = { ...quality, cases: ['secret'], per_class: { ...quality.per_class, DEFECT: { ...quality.per_class.DEFECT, gold: 'secret' } } } as typeof quality;
+  assert.deepEqual((await getEvaluationSummary(data.run_id, new AbortController().signal)).synthetic_quality, quality);
+});
+
+const qualityChanges: Record<string, (q: Record<string, unknown>) => void> = {
+  metric: q => { q.metric = 'category'; },
+  gate: q => { q.quality_gate_evaluated = true; },
+  origin: q => { q.data_origin = 'real'; },
+  sha: q => { q.gold_sha256 = 'A'.repeat(64); },
+  status: q => { q.run_status_at_scoring = 'DONE'; },
+  scored: q => { q.scored_target_count = 4; },
+  correct: q => { q.correct = 3; },
+  ratio: q => { q.accuracy = 1.5; },
+  string_number: q => { q.macro_f1 = '0.5'; },
+  outcome_key: q => { q.outcomes = { ...(q.outcomes as object), EXTRA: 0 }; },
+  outcome_sum: q => { q.outcomes = { ...(q.outcomes as object), VALID: 1 }; },
+  class_key: q => { q.per_class = { DEFECT: (q.per_class as Record<string, unknown>).DEFECT }; },
+  support_sum: q => { const c = q.per_class as Record<string, Record<string, unknown>>; c.DEFECT.support = 2; },
+  class_ratio: q => { const c = q.per_class as Record<string, Record<string, unknown>>; c.NON_DEFECT.f1 = -0.1; },
+  array: q => { q.per_class = []; },
+};
+for (const [name, change] of Object.entries(qualityChanges)) {
+  test(`잘못된 합성 품질 ${name}을 집계 오류로 거부한다`, async t => {
+    const data = summaryFixture();
+    const quality = syntheticQualityFixture() as unknown as Record<string, unknown>;
+    change(quality);
+    Object.assign(data, { synthetic_quality: quality });
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+test('비교 키는 누락·null을 미제공으로 통과시키고 형식이 다르면 거부한다', async t => {
+  const data = summaryFixture();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, 'c'.repeat(64));
+  data.comparison_key = null;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, null);
+  delete data.comparison_key;
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).comparison_key, null);
+  for (const bad of ['C'.repeat(64), 'c'.repeat(63), 1]) {
+    Object.assign(data, { comparison_key: bad });
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  }
+});

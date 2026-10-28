@@ -27,6 +27,60 @@ function cost(value: unknown, size: number): AttemptSummary['cost_usd'] {
     known_sum: data.known_sum, total: data.total, pricing_version_count: data.pricing_version_count };
 }
 
+type SyntheticQuality = NonNullable<RunSummary['synthetic_quality']>;
+const ratio = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+const outcomeKeys = ['HELD', 'NOT_STARTED', 'SCHEMA_VIOLATION', 'TIMEOUT', 'TRANSPORT_FAILURE', 'VALID'] as const;
+const subtypeLabels = ['DEFECT', 'NON_DEFECT'] as const;
+/** 키 집합이 정확히 같은지 본다. Args: 객체·허용 키. Returns: 일치 여부. */
+const exactKeys = (data: Record<string, unknown>, keys: readonly string[]) => Object.keys(data).sort().join() === [...keys].sort().join();
+
+/** 저장된 합성 품질 집계를 검증해 투영한다. Args: 선택 필드 값. Returns: 검증한 집계 또는 미저장(null). */
+function syntheticQuality(value: unknown): SyntheticQuality | null {
+  if (value === undefined || value === null) return null;
+  const data = object(value);
+  const scored = data.scored_target_count;
+  if (data.metric !== 'return_subtype' || data.attempt !== 'first' || data.data_origin !== 'synthetic' || data.quality_gate_evaluated !== false
+      || typeof data.scoring_version !== 'string' || !data.scoring_version || data.scoring_version.length > 64
+      || !count(data.stored_scoring_version_count) || data.stored_scoring_version_count < 1
+      || typeof data.stored_at !== 'string' || !Number.isFinite(Date.parse(data.stored_at))
+      || !(data.gold_version === null || typeof data.gold_version === 'string')
+      || typeof data.gold_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(data.gold_sha256)
+      || typeof data.run_status_at_scoring !== 'string' || !Object.hasOwn(statusLabels, data.run_status_at_scoring)
+      || !count(data.target_count) || !count(scored) || scored > data.target_count
+      || !count(data.correct) || data.correct > scored || !count(data.null_predictions) || data.null_predictions > scored
+      || !(data.accuracy === null || ratio(data.accuracy)) || !(data.macro_f1 === null || ratio(data.macro_f1))) throw invalid();
+  const outcomes = object(data.outcomes);
+  if (!exactKeys(outcomes, outcomeKeys) || outcomeKeys.some(key => !count(outcomes[key]))
+      || outcomeKeys.reduce((sum, key) => sum + (outcomes[key] as number), 0) !== scored) throw invalid();
+  const rawClasses = object(data.per_class);
+  if (!exactKeys(rawClasses, subtypeLabels)) throw invalid();
+  const perClass = {} as SyntheticQuality['per_class'];
+  for (const label of subtypeLabels) {
+    const item = object(rawClasses[label]);
+    if (!count(item.support) || !count(item.tp) || !count(item.fp) || !count(item.fn) || item.tp > item.support
+        || !ratio(item.precision) || !ratio(item.recall) || !ratio(item.f1)) throw invalid();
+    perClass[label] = { support: item.support, tp: item.tp, fp: item.fp, fn: item.fn, precision: item.precision, recall: item.recall, f1: item.f1 };
+  }
+  if (subtypeLabels.reduce((sum, label) => sum + perClass[label].support, 0) !== scored) throw invalid();
+  return {
+    metric: 'return_subtype', attempt: 'first', data_origin: 'synthetic', quality_gate_evaluated: false,
+    scoring_version: data.scoring_version, stored_scoring_version_count: data.stored_scoring_version_count,
+    stored_at: data.stored_at, gold_version: data.gold_version, gold_sha256: data.gold_sha256,
+    run_status_at_scoring: data.run_status_at_scoring as SyntheticQuality['run_status_at_scoring'],
+    target_count: data.target_count, scored_target_count: scored, correct: data.correct,
+    accuracy: data.accuracy, macro_f1: data.macro_f1, null_predictions: data.null_predictions,
+    outcomes: Object.fromEntries(outcomeKeys.map(key => [key, outcomes[key]])) as SyntheticQuality['outcomes'],
+    per_class: perClass,
+  };
+}
+
+/** 비교 키는 형식만 확인한다. Args: 선택 필드 값. Returns: 소문자 hex 키 또는 구버전 미제공(null). */
+function comparisonKey(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) throw invalid();
+  return value;
+}
+
 /** 허용한 집계 수치만 검증해 반환한다. Args: 최초/재시도/전체 값. Returns: 명시적 집계 DTO. */
 function attempt(value: unknown): AttemptSummary {
   const data = object(value);
@@ -88,5 +142,7 @@ export async function getEvaluationSummary(runId: string, signal: AbortSignal): 
     quality_unavailable_reason: data.quality_unavailable_reason, target_count: data.target_count,
     targets_without_first_attempt: data.targets_without_first_attempt,
     first: attempt(data.first), retry: attempt(data.retry), all: attempt(data.all),
+    synthetic_quality: syntheticQuality(data.synthetic_quality),
+    comparison_key: comparisonKey(data.comparison_key),
   };
 }

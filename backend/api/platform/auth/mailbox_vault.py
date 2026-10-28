@@ -255,19 +255,50 @@ async def create_mailbox(
         cipher: 서버 비밀 키로 구성한 암호기.
 
     Returns:
-        StoredMailbox: 새 연결 ID·개정과 서버 전용 캐시. 공개 연결 응답이 아니다.
+        StoredMailbox: 같은 소유자·같은 Microsoft 계정의 기존 연결을 재사용했거나 새로 만든
+            연결 ID·개정과 서버 전용 캐시. 공개 연결 응답이 아니다.
     """
     if not session_token:
         raise _mailbox_error("MAILBOX_ACCESS_DENIED")
-    value = StoredMailbox(
-        uuid4(),
-        authorization.owner_user_id,
-        authorization.subject,
-        1,
-        authorization.serialized_cache,
-    )
+    owner, subject = authorization.owner_user_id, authorization.subject
     async with _vault_connection(settings) as conn:
-        await _lock_owner(conn, value.owner_user_id, session_token=session_token)
+        # 잠금 순서는 다른 보관 함수와 같이 사용자 행 → 연결 행이다.
+        await _lock_owner(conn, owner, session_token=session_token)
+        # ponytail: (owner_user_id, subject) 유일 제약이 없어 같은 계정 행이 여럿이면 최근
+        # 변경 하나만 재사용한다. 중복 자체를 막으려면 유일 인덱스 마이그레이션을 추가한다.
+        cursor = await conn.execute(
+            "SELECT id,revision FROM mailbox_auth.connections "
+            "WHERE owner_user_id=%s AND subject_tid=%s AND subject_oid=%s "
+            "ORDER BY updated_at DESC, id LIMIT 1 FOR UPDATE",
+            (owner, subject.tid, subject.oid),
+        )
+        existing = await cursor.fetchone()
+        if existing is not None:
+            value = StoredMailbox(
+                existing["id"],
+                owner,
+                subject,
+                existing["revision"] + 1,
+                authorization.serialized_cache,
+            )
+            cursor = await conn.execute(
+                "UPDATE mailbox_auth.connections SET revision=%s,state='connected',key_version=%s,"
+                "cache_ciphertext=%s,updated_at=clock_timestamp() "
+                "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING id",
+                (
+                    value.revision,
+                    cipher.key_version,
+                    cipher.encrypt(value),
+                    value.mailbox_id,
+                    existing["revision"],
+                    owner,
+                    sha256(session_token.encode()).hexdigest(),
+                ),
+            )
+            if await cursor.fetchone() is None:
+                raise _mailbox_error("MAILBOX_ACCESS_DENIED")
+            return value
+        value = StoredMailbox(uuid4(), owner, subject, 1, authorization.serialized_cache)
         ciphertext = cipher.encrypt(value)
         cursor = await conn.execute(
             "INSERT INTO mailbox_auth.connections "
@@ -367,6 +398,27 @@ async def save_mailbox_update(
         return value
 
 
+async def list_mailboxes(settings: Settings, *, owner_user_id: UUID) -> list[dict[str, Any]]:
+    """소유자의 연결 상태만 조회한다. 암호문·Microsoft 식별자·키 버전은 읽지 않는다.
+
+    Args:
+        settings: 플랫폼 런타임 DB 설정.
+        owner_user_id: HTTP 경계가 현재 세션으로 확인한 서비스 사용자 ID.
+
+    Returns:
+        list[dict[str, Any]]: 최근 변경 순의 mailbox_id·state·revision·updated_at 행.
+    """
+    async with _vault_connection(settings) as conn:
+        # ponytail: 상한·페이지 없이 전부 반환한다. 사용자당 연결은 소수라는 가정이며,
+        # 늘어나면 limit과 (updated_at, id) 커서 페이지를 추가한다.
+        cursor = await conn.execute(
+            "SELECT id AS mailbox_id,state,revision,updated_at FROM mailbox_auth.connections "
+            "WHERE owner_user_id=%s ORDER BY updated_at DESC, id",
+            (owner_user_id,),
+        )
+        return await cursor.fetchall()
+
+
 async def disconnect_mailbox(settings: Settings, *, mailbox_id: UUID, session_token: str) -> None:
     """현재 세션 소유자의 암호문을 제거하고 이후 조회·오래된 갱신을 차단한다.
 
@@ -412,24 +464,31 @@ async def reconnect_mailbox(
     authorization: MailboxAuthorization,
     cipher: MailboxCipher,
 ) -> StoredMailbox:
-    """새 OAuth 인계만 현재 세션·개정 재검사 후 기존 연결에 저장한다.
+    """같은 Microsoft 계정의 새 OAuth 인계만 현재 세션·개정 재검사 후 기존 연결에 저장한다.
 
     Args:
         settings: 플랫폼 런타임 DB 설정.
         mailbox_id: 소유자가 재연결할 서버 연결 ID.
         expected_revision: 시작 시 서버에서 확인한 연결 개정.
         session_token: 현재 유효한 소유자 세션.
-        authorization: 새 인가 교환·서명 검증을 통과한 서버 전용 결과.
+        authorization: 새 인가 교환·서명 검증을 통과한 서버 전용 결과. 계정이 기존 행과
+            다르면 저장 없이 `MAILBOX_ACCESS_DENIED`다.
         cipher: 서버 키 버전의 암호기.
 
     Returns:
-        StoredMailbox: 새 사서함 식별자·캐시와 증가한 개정.
+        StoredMailbox: 같은 사서함 식별자·새 캐시와 증가한 개정.
     """
     if not session_token:
         raise _mailbox_error("MAILBOX_ACCESS_DENIED")
     async with _vault_connection(settings) as conn:
         await _lock_owner(conn, authorization.owner_user_id, session_token=session_token)
         row = await _owned_row(conn, mailbox_id, authorization.owner_user_id)
+        # 다른 Microsoft 계정으로 같은 mailbox_id를 바꾸면 KAN-71 수집 커서가 섞인다.
+        if (row["subject_tid"], row["subject_oid"]) != (
+            authorization.subject.tid,
+            authorization.subject.oid,
+        ):
+            raise _mailbox_error("MAILBOX_ACCESS_DENIED")
         if row["revision"] != expected_revision:
             raise _mailbox_error("MAILBOX_VERSION_CONFLICT")
         value = StoredMailbox(
@@ -440,12 +499,10 @@ async def reconnect_mailbox(
             authorization.serialized_cache,
         )
         cursor = await conn.execute(
-            "UPDATE mailbox_auth.connections SET subject_tid=%s,subject_oid=%s,revision=%s,"
+            "UPDATE mailbox_auth.connections SET revision=%s,"
             "state='connected',key_version=%s,cache_ciphertext=%s,updated_at=clock_timestamp() "
             "WHERE id=%s AND revision=%s AND " + _VALID_SESSION + " RETURNING revision",
             (
-                value.subject.tid,
-                value.subject.oid,
                 value.revision,
                 cipher.key_version,
                 cipher.encrypt(value),

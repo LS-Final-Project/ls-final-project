@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from backend.api.platform.auth import mailbox_http
+from backend.api.platform.auth import mailbox_http, mailbox_vault
 from backend.api.platform.auth.callback import (
     MicrosoftSubject,
     OAuthPurpose,
@@ -275,6 +275,7 @@ def test_default_disabled_routes_do_not_touch_database_or_provider():
     with TestClient(app) as client:
         for suffix in ("/start", "/callback", "/complete", f"/{uuid4()}/disconnect"):
             assert client.post(PREFIX + suffix).status_code == 404
+        assert client.get(PREFIX).status_code == 404
     assert app.state.mailbox_oauth is app.state.mailbox_cipher is app.state.mailbox_tokens is None
 
 
@@ -510,3 +511,244 @@ def test_consumed_provider_failure_is_not_redirect_or_reusable(context):
             ).fetchone()[0]
             == 0
         )
+
+
+def add_connection(dsn, owner, state, ciphertext, oid=None):
+    """관리자 연결로 목록 검사용 사서함 연결 행 하나를 직접 만든다.
+
+    Args:
+        dsn: 전용 검사 DB의 관리자 연결 문자열.
+        owner: 연결 소유 서비스 사용자 ID.
+        state: connected 또는 disconnected.
+        ciphertext: connected일 때 넣을 합성 암호문 바이트.
+        oid: 지정할 합성 Microsoft oid. 없으면 새로 만든다.
+
+    Returns:
+        tuple[UUID, UUID]: 연결 ID와 응답에 나오면 안 되는 합성 Microsoft oid.
+    """
+    mailbox_id, oid = uuid4(), oid or uuid4()
+    connected = state == "connected"
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "INSERT INTO mailbox_auth.connections (id,owner_user_id,subject_tid,subject_oid,"
+            "revision,state,key_version,cache_ciphertext) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                mailbox_id,
+                owner,
+                PERSONAL_TENANT,
+                oid,
+                1 if connected else 2,
+                state,
+                "list-test-v1",
+                ciphertext if connected else None,
+            ),
+        )
+    return mailbox_id, oid
+
+
+def test_list_returns_only_current_owner_connections_without_secrets(context):
+    """목록은 현재 세션 소유자의 상태·개정·시각만 주고 다른 사용자 행과 비밀을 내보내지 않는다.
+
+    Args:
+        context: 실제 DB·현재 세션의 HTTP 문맥.
+
+    Returns:
+        None: 실제 두 사용자 행으로 소유 범위·정렬·응답 필드·비밀 부재를 확인한다.
+    """
+    other = uuid4()
+    ciphertext = b"synthetic-ciphertext-marker-" * 2
+    with psycopg.connect(context.dsn) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (other, uuid4(), uuid4(), "other@example.invalid", "다른 합성 사용자", "TS_AUTO"),
+        )
+        conn.execute(
+            "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'cs_agent')", (other,)
+        )
+    try:
+        old = add_connection(context.dsn, context.owner, "disconnected", ciphertext)
+        new = add_connection(context.dsn, context.owner, "connected", ciphertext)
+        foreign = add_connection(context.dsn, other, "connected", ciphertext)
+        response = context.client.get(PREFIX)
+        assert response.status_code == 200
+        items = response.json()["data"]["items"]
+        assert [(i["mailbox_id"], i["state"], i["revision"]) for i in items] == [
+            (str(new[0]), "connected", 1),
+            (str(old[0]), "disconnected", 2),
+        ]
+        assert all(set(i) == {"mailbox_id", "state", "revision", "updated_at"} for i in items)
+        for secret in (
+            str(foreign[0]),
+            str(old[1]),
+            str(new[1]),
+            str(foreign[1]),
+            str(PERSONAL_TENANT),
+            "list-test-v1",
+            ciphertext.decode(),
+            b64encode(ciphertext).decode(),
+            ciphertext.hex(),
+            context.session,
+        ):
+            assert secret not in response.text
+    finally:
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute("DELETE FROM mailbox_auth.connections WHERE owner_user_id=%s", (other,))
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (other,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (other,))
+
+
+@pytest.mark.parametrize("bad", ["origin", "no_session", "inactive"])
+def test_list_requires_current_session_and_rejects_foreign_origin(context, bad):
+    """목록은 CSRF 없이 읽지만 다른 출처·세션 없음·비활성 사용자는 거부한다.
+
+    Args:
+        context: 실제 DB·현재 세션의 HTTP 문맥.
+        bad: 거부할 요청 조건.
+
+    Returns:
+        None: 403 또는 401과 DB 행 비노출을 확인한다.
+    """
+    headers = {}
+    if bad == "origin":
+        headers["Origin"] = "https://evil.example.invalid"
+    elif bad == "no_session":
+        context.client.cookies.delete(SESSION_COOKIE)
+    else:
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute("UPDATE identity.users SET is_active=false WHERE id=%s", (context.owner,))
+    response = context.client.get(PREFIX, headers=headers)
+    assert response.status_code == (403 if bad == "origin" else 401)
+    assert "items" not in response.text
+
+
+def test_list_database_failure_is_safe_unavailable():
+    """목록 조회의 DB 장애를 빈 목록으로 숨기지 않고 원문 없이 503으로 낸다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 로컬 연결 거부의 고정 503 변환과 연결 문자열 비노출을 확인한다.
+    """
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        database_url=SecretStr(
+            "postgresql://postgres:synthetic-dsn-secret@127.0.0.1:1/kan77_auth_test"
+        ),
+    )
+    with pytest.raises(ApplicationError, match="MAILBOX_TOKEN_UNAVAILABLE") as error:
+        asyncio.run(mailbox_vault.list_mailboxes(settings, owner_user_id=uuid4()))
+    assert error.value.status_code == 503
+    assert "synthetic-dsn-secret" not in repr(error.value) + error.value.message
+
+
+def connections(context, owner=None):
+    """관리자 연결로 소유자의 연결 행을 오래된 변경 순으로 읽는다.
+
+    Args:
+        context: 실제 DB의 HTTP 문맥.
+        owner: 조회할 소유자. 없으면 현재 세션 소유자.
+
+    Returns:
+        list[tuple]: 연결 ID·Microsoft oid·개정·상태·암호문·변경 시각.
+    """
+    with psycopg.connect(context.dsn) as conn:
+        return conn.execute(
+            "SELECT id,subject_oid,revision,state,cache_ciphertext,updated_at "
+            "FROM mailbox_auth.connections WHERE owner_user_id=%s ORDER BY updated_at, id",
+            (owner or context.owner,),
+        ).fetchall()
+
+
+def connect(context):
+    """실제 시작·완료 API로 현재 합성 계정의 사서함 연결을 한 번 완료한다.
+
+    Args:
+        context: 현재 세션과 합성 공급자를 가진 HTTP 문맥.
+
+    Returns:
+        None: 303 완료를 확인한다.
+    """
+    assert complete(context, begin(context)).status_code == 303
+
+
+def test_same_account_reconnects_existing_row_and_new_account_adds_row(context):
+    """같은 Microsoft 계정의 재연결·재동의는 같은 mailbox_id를 쓰고 다른 계정은 새 행이다.
+
+    Args:
+        context: 실제 DB·합성 공급자의 HTTP 문맥.
+
+    Returns:
+        None: 해제 후 재연결·연결 중 재동의·다른 계정 연결의 행 수·ID·개정·상태를 확인한다.
+    """
+    connect(context)
+    [(mailbox_id, oid, revision, state, _, _)] = connections(context)
+    assert (revision, state) == (1, "connected")
+    response = context.client.post(f"{PREFIX}/{mailbox_id}/disconnect", headers=context.headers)
+    assert response.status_code == 204
+    connect(context)
+    assert [r[:4] for r in connections(context)] == [(mailbox_id, oid, 3, "connected")]
+    connect(context)
+    assert [r[:4] for r in connections(context)] == [(mailbox_id, oid, 4, "connected")]
+    context.provider.subject = MicrosoftSubject(PERSONAL_TENANT, uuid4())
+    connect(context)
+    rows = connections(context)
+    assert rows[0][:4] == (mailbox_id, oid, 4, "connected")
+    assert len(rows) == 2 and rows[1][0] != mailbox_id
+    assert rows[1][1:4] == (context.provider.subject.oid, 1, "connected")
+
+
+def test_duplicate_same_account_rows_update_only_the_latest(context):
+    """유일 제약이 없어 같은 계정 행이 둘이면 최근 변경 행 하나만 재연결한다.
+
+    Args:
+        context: 실제 DB·합성 공급자의 HTTP 문맥.
+
+    Returns:
+        None: 최근 행만 개정·상태가 바뀌고 오래된 행은 그대로인지 확인한다.
+    """
+    oid = context.provider.subject.oid
+    older = add_connection(context.dsn, context.owner, "disconnected", None, oid)[0]
+    newer = add_connection(context.dsn, context.owner, "disconnected", None, oid)[0]
+    before = connections(context)
+    connect(context)
+    after = {r[0]: r for r in connections(context)}
+    assert len(after) == 2
+    assert after[older] == next(r for r in before if r[0] == older)
+    assert after[newer][2:4] == (3, "connected")
+
+
+def test_same_account_of_another_owner_is_never_touched(context):
+    """다른 소유자의 같은 Microsoft 계정 행은 재사용·수정하지 않고 현재 소유자 행을 새로 만든다.
+
+    Args:
+        context: 실제 DB·합성 공급자의 HTTP 문맥.
+
+    Returns:
+        None: 다른 소유자 행의 모든 열 불변과 현재 소유자 새 행을 확인한다.
+    """
+    other = uuid4()
+    with psycopg.connect(context.dsn) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (other, uuid4(), uuid4(), "other@example.invalid", "다른 합성 사용자", "TS_AUTO"),
+        )
+        conn.execute(
+            "INSERT INTO identity.user_roles(user_id,role) VALUES (%s,'cs_agent')", (other,)
+        )
+    try:
+        oid = context.provider.subject.oid
+        add_connection(context.dsn, other, "connected", b"synthetic-other-owner-cipher-" * 2, oid)
+        before = connections(context, other)
+        connect(context)
+        assert connections(context, other) == before
+        [(_, own_oid, revision, state, _, _)] = connections(context)
+        assert (own_oid, revision, state) == (oid, 1, "connected")
+    finally:
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute("DELETE FROM mailbox_auth.connections WHERE owner_user_id=%s", (other,))
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (other,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (other,))

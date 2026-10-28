@@ -484,7 +484,7 @@ def test_disconnect_and_reconnect_cannot_be_overwritten_by_old_refresh(context, 
             await save_mailbox_update(
                 context.settings, snapshot=value, update=update(value, "stale"), cipher=cipher
             )
-        renewed = authorization(context.owner, marker="new-consent-refresh")
+        renewed = authorization(context.owner, value.subject, marker="new-consent-refresh")
         current = await reconnect_mailbox(
             context.settings,
             mailbox_id=value.mailbox_id,
@@ -751,3 +751,69 @@ def test_database_failure_is_safe_token_unavailable(cipher):
         )
     assert error.value.status_code == 503
     assert "synthetic-dsn-secret" not in repr(error.value) + error.value.message
+
+
+def test_reconnect_rejects_another_microsoft_account_without_storing(context, cipher):
+    """기존 연결과 다른 Microsoft 계정의 인계는 저장 없이 거부하고 같은 계정만 재연결한다.
+
+    Args:
+        context: 실제 DB와 현재 세션.
+        cipher: 실제 암호기.
+
+    Returns:
+        None: 거부 시 행·암호문 불변과 같은 계정 재연결 성공을 확인한다.
+    """
+
+    def stored(value):
+        """관리자 연결로 보관 행의 계정·개정·상태·암호문·변경 시각을 읽는다.
+
+        Args:
+            value: 이번 합성 연결.
+
+        Returns:
+            tuple: 비교용 보관 행.
+        """
+        with psycopg.connect(context.dsn) as conn:
+            return conn.execute(
+                "SELECT subject_tid,subject_oid,revision,state,key_version,cache_ciphertext,"
+                "updated_at FROM mailbox_auth.connections WHERE id=%s",
+                (value.mailbox_id,),
+            ).fetchone()
+
+    async def scenario():
+        """연결 중인 행에 다른 계정·같은 계정 재연결을 차례로 시도한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 다른 계정 거부와 같은 계정 개정 증가를 검증한다.
+        """
+        value = await create(context, cipher)
+        before = stored(value)
+        with pytest.raises(ApplicationError, match="MAILBOX_ACCESS_DENIED") as error:
+            await reconnect_mailbox(
+                context.settings,
+                mailbox_id=value.mailbox_id,
+                expected_revision=1,
+                session_token=context.token,
+                authorization=authorization(context.owner, marker="other-account-refresh"),
+                cipher=cipher,
+            )
+        assert error.value.status_code == 403
+        assert stored(value) == before
+        current = await reconnect_mailbox(
+            context.settings,
+            mailbox_id=value.mailbox_id,
+            expected_revision=1,
+            session_token=context.token,
+            authorization=authorization(context.owner, value.subject, "same-account-refresh"),
+            cipher=cipher,
+        )
+        assert (current.mailbox_id, current.revision) == (value.mailbox_id, 2)
+        after = stored(value)
+        assert after[:4] == (value.subject.tid, value.subject.oid, 2, "connected")
+        assert after[5] != before[5]
+        assert (await load(context, current, cipher)).serialized_cache == current.serialized_cache
+
+    asyncio.run(scenario())

@@ -109,8 +109,8 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 - 제공 데이터의 처리 자체가 틀린 건은 걸러지지 않는다.
 - 정책 판 C가 배송 파손 분류를 정하거나 현업 기준이 확인되면 판본을 새로 만든다. 이 판본을 덮어쓰지 않는다.
 
-**KAN-95 남은 범위**: 긴급도·제공 정보의 정답 검수, LLM 분류 분모 잠금, 독립 최종셋 확보 여부 결정.
-보조 분류와 규칙 평가 분모·제외 사유는 아래 절에서 잠갔다.
+**KAN-95 남은 범위**: 주분류·제공 정보의 정답 검수, LLM 분류 분모 잠금, 독립 최종셋 확보 여부 결정.
+보조 분류·긴급도와 규칙 평가 분모·제외 사유는 아래 절에서 잠갔다.
 
 ## C/S 보조 분류 정답 잠금 (KAN-95)
 
@@ -131,6 +131,27 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 TECH_SPEC 처리의 일부로 보고 보조 분류를 붙이지 않는다. 데이터시트가 TECH_SPEC 정답값의 근거 문서이기 때문이다.
 매뉴얼·인증서·설명서처럼 따로 요청한 문서만 보조 분류(MANUAL·COMPLIANCE)로 본다. 개발 자료에서 이 경우는
 TECH_SPEC 54건이며, 그중 53건은 null이고 1건의 MANUAL은 별도 매뉴얼 요청 문단 때문이다.
+
+## C/S 긴급도 정답 잠금 (KAN-95)
+
+2026-10-27에 개발 문의 3,403건의 urgency_flag 정답을 잠갔다. 시험 분할은 쓰지 않았다. 정답 파일은 저장소에 넣지 않는다.
+
+- 판본: `provided-verified-v1-20261027`
+- 정답 파일 SHA-256: `9beda3c54d31f2398a10aba293582e999c97e05734863e74231c9392f9bec22e`(`ticket_id,urgency_flag`)
+- 건수: NONE 2,470, DEADLINE 380, COMMISSION 211, PROD_IMPACT 209, SITE_DOWN 107(학습 84·검증 23), SAFETY 26(학습 22·검증 4)
+- 출처: 제공 데이터의 urgency_flag를 원문과 대조해 그대로 채택했다
+
+**원문 대조**(AI(Claude), 개발 자료 원문만)
+- 전화 506건: 상담원 메모의 `Urgency:` 값과 정답이 모두 같다. 이 메모는 정답을 그대로 담고 있으므로 계약대로 모델 입력에서 지운다
+- 전화가 아닌 긴급도 문의 768건(DEADLINE 325, PROD_IMPACT 180, COMMISSION 176, SITE_DOWN 67, SAFETY 20): 모두 원문에 해당 신호 문장이 있다.
+  데이터에서 한 긴급도에만 반복되는 문장(날짜만 지움) 100종으로 667건, 언어별 신호 표현으로 91건, 원문 직접 확인으로 10건을 확인했다
+- 전화가 아닌 NONE 2,129건: 위 신호 문장이 없다. 신호 표현 재검색에서 걸린 45건은 모두 Details의 "설치/시운전 날짜" 칸이나 시운전 작업 설명이었다
+- 한 문의에 두 긴급도의 신호가 함께 있는 경우는 없었다
+- 사람의 건별 독립 검수는 하지 않았다
+
+신호 문장의 예(영어): SAFETY는 발연·타는 냄새, 안전을 위한 격리, 아크 플래시, "안전 문제로 처리" 요청.
+SITE_DOWN은 라인 전체 또는 공장 전체 정지. PROD_IMPACT는 생산 영향 또는 하루 여러 번 반복.
+COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출 기한까지의 회신 요청.
 
 ## C/S 규칙 평가 분모와 제외 사유 (KAN-95)
 
@@ -253,11 +274,37 @@ gold_version=..., scoring_version=...)`는 운영자 도구가 정답 파일 바
   (`CS_QUALITY_FINAL_TEST_LOCKED`, 대상·정답 파싱 전), 고정 합성 프로필의 local/test fake 실행이 아님
   (`CS_QUALITY_SYNTHETIC_ONLY`), 실험 gold_version 불일치, 실행 미종료, 정답 파일 형식 오류, 정답이 실험
   대상의 비어 있지 않은 부분집합이 아님, 같은 실행·scoring_version의 기존 행(UNIQUE로 덮어쓰기 거부).
+  저장 집계 검증 오류는 기존 코드 그대로 전달한다: 저장 행이 실험 고정 대상·요청 건수와 어긋나거나
+  저장 출력이 계약에 맞지 않으면 `CS_STORED_METRICS_INVALID_INPUT` 또는 `CS_METRICS_INVALID_INPUT`이다.
 - 현재는 합성 실행만 저장한다. 합성 정답으로 낸 값은 실제 품질이 아니다.
+
+운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
+
+```bash
+uv run --frozen python -m eval.cs_report store-return-subtype --run-id <UUID> \
+  --gold-file <정답 CSV> --gold-sha256 <hex> [--gold-version <판본>] --scoring-version <판본>
+```
+
+정답 파일은 바이트로 읽어 넘기며 경로는 출력·저장하지 않는다. 성공하면 stdout에
+`{"run_id":…,"scoring_version":…,"stored_rows":5}` JSON 한 줄, exit 0이다. 실패하면 exit 1이고
+stderr에 코드 한 줄만 쓴다: 위 `CS_QUALITY_*`·저장 집계 검증 코드, 파일 읽기 실패
+`CS_QUALITY_GOLD_UNREADABLE`, local/test 설정 누락 `CS_REPORT_LOCAL_CONFIGURATION_REQUIRED`, 그 밖의
+DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택은 출력하지 않는다. 필수 인자 누락·
+잘못된 UUID 같은 인자 형식 오류는 argparse 기본대로 exit 2와 사용법을 출력한다. 기존 보고서
+내보내기 명령(`--run-id … --output …`, 오류 exit 2)은 그대로다.
 
 **미결(운영 쓰기 역할)**: KAN-85 권한에서는 `platform_app`도 `evaluation.metrics`에 INSERT할 수 있다.
 이 행을 운영자 전용 역할만 쓰도록 분리할지는 운영 활성화 전에 정한다. 이번 변경은 권한을 바꾸지
-않았다. 플랫폼 집계 API의 `synthetic_quality` 조회와 화면 표시는 후속 단위다.
+않았다.
+
+플랫폼 집계 API(`GET …/runs/{run_id}/summary`)는 기존 권한 검사 뒤 이 행만 읽어 선택 필드
+`synthetic_quality`로 투영한다(최신 판본 하나, `quality_available=false` 유지). 계약은
+[플랫폼 평가 계약](../contracts/platform/evaluations.md#kan-88-합성-품질-선택-필드)을 따른다. 화면 표시는 후속 단위다.
+
+실행 간 비교(KAN-138)는 요약을 실행마다 조회한 뒤 소비자가 나란히 놓는다. 비교 가능 조건은
+`compare_stored_runs`와 같은 7개이며, API는 원값 대신 이를 해시한 `comparison_key`(판본
+`cs-comparison-key-v1`)만 낸다. 키가 다르거나 한쪽이 미종료면 비교하지 않는다. 계약은
+[실행 비교 키](../contracts/platform/evaluations.md#kan-138-실행-비교-키)를 따른다.
 
 
 ### KAN-88 언어·채널별 최초 집계

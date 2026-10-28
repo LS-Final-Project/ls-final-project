@@ -318,3 +318,58 @@ DB의 Decimal 합계를 float로 바꾸거나 브라우저에서 Number/통화 �
 0으로 대체하지 않는다. 소비자도 금액 형식/보고 범위가 잘못되면 전체 집계 오류로 처리한다.
 고정 합성 worker는 비용을 추정하지 않으므로 기본 비용은 미보고다. 비용 연결 검사는
 격리 DB/화면 fixture의 명시적 합성 금액으로 수행하며 실제 모델·과금 검증이 아니다.
+
+
+### KAN-88 합성 품질 선택 필드
+
+`cs-run-summary-v1`에 선택 필드 `synthetic_quality`를 호환 추가한다. `quality_available=false`,
+`quality_unavailable_reason=GOLD_NOT_CONNECTED`는 그대로다. 합성 정답으로 낸 값은 실제 정답 연결이나
+품질 측정이 아니기 때문이다. 구버전 응답의 누락과 null은 모두 "합성 품질 미저장"이다.
+
+서버는 위 요약 권한 검사(세션·평가자·소유권·승인 구성·합성 제한·대상 집합)를 모두 통과한 뒤 같은
+읽기 전용 트랜잭션에서 `evaluation.metrics`의 실행 단위 `return_subtype_first_*` 행만 SELECT한다.
+행은 운영자 명령(`python -m eval.cs_report store-return-subtype`)이 저장하며, 서버는 정답 파일·
+`cases.gold_labels`·사례 시도를 읽지 않는다. 같은 실행에 채점 판본이 여럿이면 저장 시각이 가장 늦은
+판본 하나(동률이면 판본 문자열 역순 첫째)를 보이고 `stored_scoring_version_count`로 판본 수를 알린다.
+추가 전용 재채점은 새 판본을 쌓으므로 판본이 여럿이라는 이유로 요약 전체를 막지 않는다.
+
+필드: `metric=return_subtype`, `attempt=first`, `data_origin=synthetic`, `quality_gate_evaluated=false`,
+`scoring_version`, `stored_scoring_version_count`, `stored_at`, `gold_version`, `gold_sha256`(정답 파일
+SHA-256), `run_status_at_scoring`, `target_count`, `scored_target_count`, `correct`, `accuracy`,
+`macro_f1`, `null_predictions`, `outcomes`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD·
+NOT_STARTED 건수), `per_class`(DEFECT·NON_DEFECT의 support·tp·fp·fn·precision·recall·f1).
+사례/대상 ID, 사례별 정답·예측, 원시 출력, 정답 파일 경로는 없다. 합격 판정은 하지 않는다.
+
+선택한 판본의 행이 저장 계약과 다르면(행 누락·추가, segment가 all이 아님, threshold·comparison·passed
+기록, details 키·판본·data_origin·정답 판본 불일치, 분모·outcomes·클래스 support 합 불일치, 범위 밖
+수치) 부분 표시 없이 503이다. 화면 표시는 후속 범위이며 현재 소비자는 이 필드를 읽지 않는다.
+
+
+### KAN-138 실행 비교 키
+
+`cs-run-summary-v1`에 선택 필드 `comparison_key`를 호환 추가한다. 두 실행의 요약을 각각 조회한
+소비자가 실험 구성 원값을 받지 않고 비교 가능 여부를 판단하기 위한 값이다. 새 비교 엔드포인트는 없다.
+
+키 판본은 `cs-comparison-key-v1`이다. 입력은 `key_version`과 실험의 `purpose`·`data_origin`·
+`dataset_hash`·`data_split`·`gold_version`·`target_set_hash`·`policy_version` 7개로,
+`eval.cs_stored_metrics.compare_stored_runs`의 비교 가능 조건과 같다. 이 객체를 키 정렬·구분자
+`(",", ":")`·ASCII 이스케이프·null 그대로의 JSON으로 직렬화한 UTF-8 바이트의 SHA-256 소문자 hex가
+키다. 조건 집합이나 직렬화를 바꾸면 키 판본을 올리며, 판본이 다른 키는 같은 조건이어도 다르다.
+
+키는 실행 상태와 무관하게 실험 조건만으로 정해지며 미종료 실행에도 반환한다. 비교 가능 여부는
+키 일치와 두 실행의 `status`가 종료 상태인지를 소비자가 함께 확인한다(조건과 상태를 한 값에 섞지
+않는다). 7개 원값은 응답·로그에 내지 않는다. 키가 같다는 것은 위 조건이 같다는 뜻일 뿐 구성·모델·
+프롬프트·가격표 판본이 같다는 뜻이 아니며, 품질 차이는 합성 품질의 정답 판본·채점 대상까지 같을 때만
+계산한다. 개선·퇴행 판정은 하지 않는다.
+
+키는 비밀이 아니며 원값 은닉을 보장하지 않는다. 입력 값의 범위가 좁아 후보를 대입해 추측할 수 있다.
+요약 조회는 그 실험을 만든 평가자 본인의 실행으로 제한되므로 조회자에게 새로 노출되는 정보는 없다.
+조회 범위를 넓히거나 실제 데이터로 확장할 때는 서버 비밀 기반 HMAC으로 키 판본을 올린다.
+
+평가 화면은 현재 실행을 후보로, 사용자가 입력한 run_id를 기준으로 요약을 각각 조회해 최초 시도
+집계를 기준·후보·차이(후보−기준) 3열로 나란히 둔다. 같은 실행, 키 누락(구버전), 키 불일치, 한쪽 미종료면
+표 없이 이유만 표시한다. 토큰은 두 실행 모두 전건 합계(total)일 때만, 지연 p50/p95는 두 실행 모두
+보고됐을 때만 차이를 계산하고 표본 수를 함께 보인다. 비용은 가격표 판본 동일성을 확인할 수 없어
+나란히 표시만 하며 차이를 계산하지 않는다. 합성 품질 accuracy·macro-F1은 두 실행 모두 저장되고
+gold_sha256·gold_version·scored_target_count가 같을 때만 차이를 계산한다. 차이는 부호 있는 숫자로만
+표시하고 색·등급·개선/퇴행 표현을 쓰지 않는다.

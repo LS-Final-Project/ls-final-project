@@ -693,6 +693,64 @@ def test_synthetic_quality_rows_reject_without_partial_rows(
     assert len(before) == (5 if invalid == "duplicate" else 0)
 
 
+@pytest.mark.parametrize("terminal", [True, False])
+def test_store_cli_saves_rows_or_rejects_with_code_only(
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    tmp_path,
+    capsys,
+    terminal,
+):
+    """저장 명령이 실제 DB에 집계 행을 넣거나 미종료 실행을 코드만으로 거부한다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경 설정.
+        tmp_path: 정답 파일 위치.
+        capsys: 출력 확인.
+        terminal: 실행을 종료시킨 뒤 저장할지 여부.
+
+    Returns:
+        None: 성공 JSON 한 줄과 저장 행, 또는 exit1·코드·행 없음을 확인한다.
+    """
+    import json
+
+    from eval.cs_report import STORE_COMMAND, main
+
+    if terminal:
+        assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    data, digest = return_gold_csv()
+    gold = tmp_path / "secret-gold.csv"
+    gold.write_bytes(data)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [STORE_COMMAND, "--run-id", str(cs_run), "--gold-file", str(gold)]
+    args += ["--gold-sha256", digest, "--scoring-version", "syn-v1"]
+    assert main(args) == (0 if terminal else 1)
+    captured = capsys.readouterr()
+    assert str(gold) not in captured.out + captured.err
+    assert evaluation_database not in captured.out + captured.err
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    if terminal:
+        assert json.loads(captured.out) == {
+            "run_id": str(cs_run),
+            "scoring_version": "syn-v1",
+            "stored_rows": 5,
+        }
+        assert captured.err == "" and len(rows) == 5
+    else:
+        assert captured.err == "CS_QUALITY_RUN_NOT_TERMINAL\n" and captured.out == ""
+        assert rows == []
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )
@@ -1790,6 +1848,257 @@ def summary_client(settings, cs_access, cs_experiment, cs_run, registered_user):
         yield client, f"/api/v1/platform/evaluations/runs/{cs_run}/summary"
 
 
+def store_quality(dsn, run_id, scoring_version):
+    """검사 관리자 연결로 합성 반품 하위유형 집계 행을 저장한다.
+
+    Args:
+        dsn: 격리 DB 연결 문자열.
+        run_id: 종료된 합성 실행.
+        scoring_version: 저장할 채점 판본.
+
+    Returns:
+        None: 저장 함수의 거부는 예외로 전파된다.
+    """
+    from eval.cs_report import store_synthetic_return_subtype_metrics
+
+    data, digest = return_gold_csv()
+    with psycopg.connect(dsn) as conn:
+        store_synthetic_return_subtype_metrics(
+            conn,
+            run_id,
+            data,
+            gold_sha256=digest,
+            gold_version=None,
+            scoring_version=scoring_version,
+        )
+
+
+def test_summary_projects_latest_synthetic_quality_without_cases(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """저장된 최신 합성 품질 판본만 투영하고 실제 품질 표시는 계속 끈다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: 판본 선택·수치·호환 필드·사례 비노출을 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    store_quality(evaluation_database, cs_run, "syn-v1")
+    store_quality(evaluation_database, cs_run, "syn-v2")
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["report_version"] == "cs-run-summary-v1"
+    assert data["quality_available"] is False
+    assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
+    quality = data["synthetic_quality"]
+    _, digest = return_gold_csv()
+    assert {key: quality[key] for key in quality if key not in {"stored_at", "per_class"}} == {
+        "metric": "return_subtype",
+        "attempt": "first",
+        "data_origin": "synthetic",
+        "quality_gate_evaluated": False,
+        "scoring_version": "syn-v2",
+        "stored_scoring_version_count": 2,
+        "gold_version": None,
+        "gold_sha256": digest,
+        "run_status_at_scoring": "PARTIAL",
+        "target_count": 3,
+        "scored_target_count": 2,
+        "correct": 0,
+        "accuracy": 0.0,
+        "macro_f1": 0.0,
+        "null_predictions": 1,
+        "outcomes": {
+            "HELD": 0,
+            "NOT_STARTED": 0,
+            "SCHEMA_VIOLATION": 0,
+            "TIMEOUT": 1,
+            "TRANSPORT_FAILURE": 0,
+            "VALID": 1,
+        },
+    }
+    assert quality["per_class"]["DEFECT"] == {
+        "support": 1,
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+    }
+    assert quality["per_class"]["NON_DEFECT"]["support"] == 1
+    for secret in ("target_ref", "raw_output", "parsed_output", "cases", 'prediction"', *FIXTURES):
+        assert secret not in response.text
+
+
+@pytest.mark.parametrize(
+    "tamper", ["missing_row", "judged", "details", "outcomes_array", "class_duplicate_key"]
+)
+def test_summary_invalid_synthetic_quality_rows_are_safe_failure(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, tamper
+):
+    """저장 계약과 다른 품질 행은 부분 표시 없이 안전한 503이다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        tamper: 검사 관리자가 주입할 변조.
+
+    Returns:
+        None: 누락 행·합격 판정 기록·추가 상세·안쪽 타입 오류를 거부하고 원문을 내지 않는다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    store_quality(evaluation_database, cs_run, "syn-v1")
+    statement = {
+        "missing_row": "DELETE FROM evaluation.metrics WHERE run_id=%s "
+        "AND metric_key='return_subtype_first_macro_f1'",
+        "judged": "UPDATE evaluation.metrics SET threshold=0.9,comparison='>=',passed=false "
+        "WHERE run_id=%s AND metric_key='return_subtype_first_accuracy'",
+        "details": 'UPDATE evaluation.metrics SET details=details||\'{"case_ids":["cs-smoke-valid"]}\' '
+        "WHERE run_id=%s AND metric_key='return_subtype_first_accuracy'",
+        # 키 집합은 맞지만 dict가 아닌 outcomes: 세 집계 행을 같게 바꿔 .values()까지 도달시킨다.
+        "outcomes_array": "UPDATE evaluation.metrics SET details=jsonb_set(details,'{outcomes}',"
+        '\'["VALID","HELD","TIMEOUT","SCHEMA_VIOLATION","TRANSPORT_FAILURE","NOT_STARTED"]\') '
+        "WHERE run_id=%s AND class_label IS NULL",
+        "class_duplicate_key": "UPDATE evaluation.metrics SET details=details||'{\"support\":1}' "
+        "WHERE run_id=%s AND metric_key='return_subtype_first_f1' AND class_label='DEFECT'",
+    }[tamper]
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(statement, (cs_run,))
+    response = client.get(url)
+    assert response.status_code == 503
+    assert "cs-smoke" not in response.text and "case_ids" not in response.text
+    for leak in (
+        "TypeError",
+        "AttributeError",
+        "multiple values",
+        "SYNTHETIC_QUALITY",
+        "Traceback",
+    ):
+        assert leak not in response.text
+
+
+def expected_comparison_key(**changes):
+    """계약에 적은 입력으로 비교 키를 독립 계산한다.
+
+    Args:
+        changes: 기본 합성 실험 조건에서 바꿀 값.
+
+    Returns:
+        str: 소문자 SHA-256 hex.
+    """
+    import hashlib
+    import json
+
+    conditions = {
+        "purpose": "smoke",
+        "data_origin": "synthetic",
+        "dataset_hash": DATASET_HASH,
+        "data_split": None,
+        "gold_version": None,
+        "target_set_hash": TARGET_SET_HASH,
+        "policy_version": None,
+        **changes,
+    }
+    payload = {"key_version": "cs-comparison-key-v1", **conditions}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def test_summary_comparison_key_matches_same_conditions_regardless_of_status(
+    summary_client, settings, cs_access, cs_experiment, cs_run, caplog
+):
+    """같은 조건의 두 실행은 상태와 무관하게 같은 키이며 조건 원값은 응답·로그에 없다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 설정.
+        cs_access: 현재 승인.
+        cs_experiment: 고정 합성 실험.
+        cs_run: 첫 접수 실행.
+        caplog: 요약 처리 중 로그.
+
+    Returns:
+        None: 미종료에도 키를 내고(프론트가 status로 거부), 원값을 노출하지 않음을 확인한다.
+    """
+    client, url = summary_client
+    caplog.set_level("DEBUG")
+    queued = client.get(url)
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["data"]["status"] == "QUEUED"
+    key = queued.json()["data"]["comparison_key"]
+    assert key == expected_comparison_key()
+    second = asyncio.run(
+        accept_run(
+            settings, cs_access, cs_experiment["actor"], cs_experiment["id"], str(uuid4()), uuid4()
+        )
+    ).data.run_id
+    asyncio.run(dispatch_one(settings, cs_access))
+    finished = client.get(url)
+    other = client.get(f"/api/v1/platform/evaluations/runs/{second}/summary")
+    assert finished.status_code == other.status_code == 200, other.text
+    assert finished.json()["data"]["status"] != "QUEUED"
+    assert (
+        finished.json()["data"]["comparison_key"] == other.json()["data"]["comparison_key"] == key
+    )
+    for response in (queued, finished, other):
+        for raw in (DATASET_HASH, TARGET_SET_HASH, "cs-comparison-key-v1", "policy_version"):
+            assert raw not in response.text
+    for raw in (DATASET_HASH, TARGET_SET_HASH, key):
+        assert raw not in caplog.text
+
+
+def test_summary_comparison_key_changes_with_one_condition(
+    summary_client, cs_access, cs_experiment, evaluation_database, caplog
+):
+    """조건 하나(policy_version)만 달라도 다른 키가 되며 바꾼 원값을 내지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        cs_access: 현재 승인.
+        cs_experiment: 고정 합성 실험.
+        evaluation_database: 격리 DB.
+        caplog: 요약 처리 중 로그.
+
+    Returns:
+        None: 구성 hash를 다시 승인한 같은 실행에서 키만 바뀜을 확인한다.
+    """
+    from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
+
+    client, url = summary_client
+    caplog.set_level("DEBUG")
+    before = client.get(url).json()["data"]["comparison_key"]
+    changed = {**cs_experiment, "policy_version": "policy-secret-v2"}
+    config_hash = canonical_hash({k: changed[k] for k in CONFIG_FIELDS})
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET policy_version=%s,config_hash=%s WHERE id=%s",
+            ("policy-secret-v2", config_hash, cs_experiment["id"]),
+        )
+    client.app.state.evaluation_access = cs_access.model_copy(
+        update={"approved_config_hashes": {config_hash}}
+    )
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    after = response.json()["data"]["comparison_key"]
+    assert after == expected_comparison_key(policy_version="policy-secret-v2") != before
+    assert "policy-secret-v2" not in response.text and "policy-secret-v2" not in caplog.text
+
+
 def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):
     """실행 전후의 저장 집계를 허용된 필드만으로 반환한다.
 
@@ -1824,7 +2133,10 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "first",
         "retry",
         "all",
+        "synthetic_quality",
+        "comparison_key",
     }
+    assert data["synthetic_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
     assert data["quality_available"] is False
     assert data["first"]["stored_attempt_count"] == 3
