@@ -538,3 +538,17 @@ def test_sentence_about_a_table_is_not_its_title() -> None:
     body += para(run("Table 3 " + "long " * 30)) + table_xml(rows)
     document = extract_docx(docx(body))
     assert {b.table_title for b in document.blocks if b.kind == "TABLE_CELL"} == {None}
+
+
+def test_footnote_marks_in_header_are_not_units() -> None:
+    rows = [
+        cell("Rating (1)") + cell("Class (B)") + cell("Load (kVA)"),
+        cell("x") + cell("y") + cell("z"),
+    ]
+    document = extract_docx(docx(table_xml(rows)))
+    data = [b for b in document.blocks if b.position.row == 1]
+    assert [(b.column_header, b.column_unit) for b in data] == [
+        ("Rating (1)", None),
+        ("Class (B)", None),
+        ("Load", "kVA"),
+    ]

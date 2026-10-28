@@ -4,7 +4,8 @@
 deleted_values에 origin과 함께 둔다. 변경 추적 삽입(w:ins)은 현행으로 읽는다.
 
 연결(KAN-98): 각주·미주 본문(word/footnotes.xml·endnotes.xml)을 참조한 블록의 footnotes에 본문 참조 순서로
-붙인다(읽지 못하면 unprocessed FOOTNOTE). 표 셀에는 표제(w:tblCaption, 없으면 바로 앞 본문 문단이 "Table N"·
+붙인다(읽지 못하면 unprocessed FOOTNOTE). 각주 안 취소선·형광펜은 원문 기준 집계라 본문 참조 여부와
+관계없이 summary에 센다(참조되지 않은 각주도 포함). 표 셀에는 표제(w:tblCaption, 없으면 바로 앞 본문 문단이 "Table N"·
 "표 N" 꼴일 때 그 문단)와, 첫 행을 머리 행으로 본 열 머리·단위("(kV)"·"[kA]")를 붙인다.
 
 범위 밖: 문자·문단 스타일에서 상속한 취소선·형광펜(런에 직접 준 서식만 읽는다), 이동 추적(w:moveFrom),
@@ -479,6 +480,9 @@ def _split_unit(header: str) -> tuple[str, str | None]:
     """
     match = UNIT.match(header)
     if match is None or not match.group(1) or re.search(r"(?i)note|see", match.group(2)):
+        return header, None
+    # "(1)"·"(A)"는 각주 표식·번호일 수 있어 단위로 떼지 않는다(암페어 "(A)"도 함께 빠진다).
+    if re.fullmatch(r"\d+|[A-Z]", match.group(2).strip()):
         return header, None
     return match.group(1), match.group(2).strip()
 
