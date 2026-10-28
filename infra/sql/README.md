@@ -52,6 +52,125 @@ COMMIT;
 
 LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단계에서 해당 역할로 수행한다. 런타임 계정으로 `.setup()` 같은 DDL 초기화를 호출하지 않는다.
 
+## 전체 적용 순서
+
+`infra/migrations/` 아래 서비스별 마이그레이션 30개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다.
+
+**공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
+
+- 선행: 먼저 적용돼 있어야 하는 행. `(헤더)`는 파일 첫 줄 주석에 순서가 적혀 있다는 뜻이고, 나머지는 FK·권한 대상 객체로 정했다.
+- 실행 역할: 파일 안에서 `SET LOCAL ROLE`로 전환하는 역할. postgres 행은 관리자 연결이 그대로 실행한다.
+- 재실행: `가능`은 `IF NOT EXISTS`·확인 후 변경 블록으로 다시 실행해도 오류 없이 같은 상태가 된다. `불가`는 이미 적용된 DB에서 오류로 멈추므로(전체 트랜잭션이라 아무것도 남지 않음) 반복하지 않는다.
+- 적용 전 확인: 아래 쿼리 형식으로 실행해 true면 이미 적용된 것이다.
+
+| 순서 | 파일 | 선행 | 실행 역할 | 재실행 | 적용 전 확인 | 공용 상태 |
+| --- | --- | --- | --- | --- | --- | --- |
+| C1 | `cs/20261022_KAN-102_tickets.sql` | 001 | cs_migrator | 가능 | to_regclass('cs.tickets') | 미확인 |
+| C2 | `cs/20261023_KAN-102_ticket_audit.sql` | C1 | cs_migrator | 가능 | to_regclass('cs.audit_events') | 미확인 |
+| C3 | `cs/20261027_KAN-102_installed_units.sql` | C1 | cs_migrator | 가능 | to_regclass('cs.installed_units') | 미확인 |
+| C4 | `cs/20261027_KAN-108_ticket_workflow.sql` | C1 | cs_migrator | 가능 | to_regclass('cs.ticket_workflows') | 미확인 |
+| C5 | `cs/20261028_KAN-108_resolution_cases.sql` | C4 | cs_migrator | 가능 | 열 `cs.resolution_cases.dept_result_id` | 미확인 |
+| C6 | `cs/20261028_KAN-112_improvement_requests.sql` | C1·C5 | cs_migrator | 가능 | to_regclass('cs.improvement_requests') | 미확인 |
+| C7 | `cs/20261028_KAN-114_condition_comparisons.sql` | C6(헤더) | cs_migrator | 가능 | to_regclass('cs.condition_comparisons') | 미확인 |
+| C8 | `cs/20261028_KAN-114_condition_comparisons_writes.sql` | C7(헤더) | cs_migrator | 가능 | 열 `cs.condition_comparison_items.reason` | 미확인 |
+| C9 | `cs/20261028_KAN-114_condition_comparisons_writes_removals.sql` | C8(헤더) | cs_migrator | 가능 | to_regclass('cs.condition_comparison_removals') | 미확인 |
+| T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
+| T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
+| T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
+| T4 | `tft/20261025_KAN-123_recommendation_commands.sql` | T2 | tft_migrator | 가능 | to_regclass('tft.recommendation_commands') | 미확인 |
+| T5 | `tft/20261025_KAN-127_decisions.sql` | T1 | tft_migrator | 가능 | to_regclass('tft.decision_commands') | 미확인 |
+| P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
+| P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
+| P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
+| P4 | `platform/20261023_KAN-78_manager_scopes.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.departments') | 미확인 |
+| P5 | `platform/20261023_KAN-85_evaluation_storage.sql` | P1 | platform_migrator | 가능 | to_regclass('evaluation.experiments') | 미확인 |
+| P6 | `platform/20261024_KAN-78_user_department_code.sql` | P4 | platform_migrator | 가능 | 제약 `users_dept_fkey` | 미확인 |
+| P7 | `platform/20261025_KAN-69_job_admission.sql` | P1 | platform_migrator | 불가 | to_regclass('runtime.jobs') | 미확인 |
+| P8 | `platform/20261025_KAN-90_run_admission.sql` | P5·P7(헤더) | platform_migrator | 불가 | to_regclass('evaluation.run_control') | 미확인 |
+| P9 | `platform/20261025_KAN-90_smoke_worker.sql` | P8 | platform_migrator | 가능 | 권한 `platform_app` UPDATE `evaluation.run_control.holder_id` | 미확인 |
+| P10 | `platform/20261025_KAN-90_user_controls.sql` | P8 | platform_migrator | 불가 | to_regclass('evaluation.run_action_receipts') | 미확인 |
+| P11 | `platform/20261026_KAN-69_dispatch_ledger.sql` | P7 | platform_migrator | 불가 | to_regclass('runtime.dispatch_attempts') | 미확인 |
+| P12 | `platform/20261026_KAN-69_dispatch_operation.sql` | P11 | platform_migrator | 불가 | 열 `runtime.dispatch_attempts.operation_name` | 미확인 |
+| P13 | `platform/20261027_KAN-81_mailbox_vault.sql` | P1 | 운영자 postgres(아래 KAN-81 절) | 불가 | to_regclass('mailbox_auth.connections') | 미확인 |
+| P14 | `platform/20261027_KAN-90_worker_role.sql` | P5·P7·P8·P10 | postgres(CREATE ROLE) | 불가 | 역할 `evaluation_worker` | 미확인 |
+| P15 | `platform/20261027_KAN-90_worker_usage_KAN-86.sql` | P14(헤더) | postgres | 가능 | 권한 `evaluation_worker` UPDATE `evaluation.runs.held_count` | 미확인 |
+| P16 | `platform/20261028_KAN-71_mail_sync.sql` | P13(헤더) | platform_migrator(아래 KAN-71 절) | 불가 | to_regclass('integration.mail_sync_runs') | 미확인 |
+
+적용 전 확인 쿼리(운영자 연결, 읽기 전용):
+
+```sql
+-- to_regclass 행: NULL이 아니면 이미 있다.
+SELECT to_regclass('cs.tickets') IS NOT NULL;
+-- 열 행
+SELECT EXISTS (SELECT 1 FROM information_schema.columns
+  WHERE table_schema = 'cs' AND table_name = 'resolution_cases' AND column_name = 'dept_result_id');
+-- 제약 행(P6)
+SELECT EXISTS (SELECT 1 FROM pg_constraint
+  WHERE conname = 'users_dept_fkey' AND conrelid = 'identity.users'::regclass);
+-- 권한 행(P9, P15)
+SELECT has_column_privilege('platform_app', 'evaluation.run_control', 'holder_id', 'UPDATE');
+SELECT has_column_privilege('evaluation_worker', 'evaluation.runs', 'held_count', 'UPDATE');
+-- 역할 행(P14)
+SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'evaluation_worker');
+```
+
+적용 후 권한 확인(결과가 모두 false여야 한다). 검사 SQL 파일은 001·002, 003(플랫폼 인증), 004(KAN-81)만 있고 나머지는 아래 쿼리로 확인한다.
+
+```sql
+SELECT has_table_privilege('cs_app', 'cs.audit_events', 'UPDATE');
+SELECT has_table_privilege('cs_app', 'cs.installed_units', 'INSERT');
+SELECT has_table_privilege('cs_app', 'cs.condition_comparison_removals', 'DELETE');
+SELECT has_table_privilege('tft_app', 'tft.staffing_request_revisions', 'UPDATE');
+SELECT has_table_privilege('tft_app', 'tft.decision_history', 'DELETE');
+SELECT has_table_privilege('platform_app', 'evaluation.case_attempts', 'UPDATE');
+SELECT has_table_privilege('platform_app', 'evaluation.metrics', 'DELETE');
+SELECT has_schema_privilege('cs_app', 'runtime', 'USAGE');
+SELECT has_schema_privilege('tft_app', 'mailbox_auth', 'USAGE');
+SELECT has_schema_privilege('cs_app', 'integration', 'USAGE');
+SELECT rolcanlogin FROM pg_roles WHERE rolname = 'evaluation_worker';
+```
+
+로컬 DB의 개별 적용(기존 로컬 DB에 새 파일만 더할 때, 위 순서대로 한 파일씩):
+
+```bash
+python3 scripts/workspace.py migrate cs 20261022_KAN-102_tickets.sql
+python3 scripts/workspace.py migrate cs 20261023_KAN-102_ticket_audit.sql
+python3 scripts/workspace.py migrate cs 20261027_KAN-102_installed_units.sql
+python3 scripts/workspace.py migrate cs 20261027_KAN-108_ticket_workflow.sql
+python3 scripts/workspace.py migrate cs 20261028_KAN-108_resolution_cases.sql
+python3 scripts/workspace.py migrate cs 20261028_KAN-112_improvement_requests.sql
+python3 scripts/workspace.py migrate cs 20261028_KAN-114_condition_comparisons.sql
+python3 scripts/workspace.py migrate cs 20261028_KAN-114_condition_comparisons_writes.sql
+python3 scripts/workspace.py migrate cs 20261028_KAN-114_condition_comparisons_writes_removals.sql
+python3 scripts/workspace.py migrate tft 20261023_KAN-119_projects.sql
+python3 scripts/workspace.py migrate tft 20261023_KAN-122_staffing_requests.sql
+python3 scripts/workspace.py migrate tft 20261025_KAN-123_competency_rechecks.sql
+python3 scripts/workspace.py migrate tft 20261025_KAN-123_recommendation_commands.sql
+python3 scripts/workspace.py migrate tft 20261025_KAN-127_decisions.sql
+python3 scripts/workspace.py migrate platform 20261022_KAN-78_identity.sql
+python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizations.sql
+python3 scripts/workspace.py migrate platform 20261023_KAN-77_sessions.sql
+python3 scripts/workspace.py migrate platform 20261023_KAN-78_manager_scopes.sql
+python3 scripts/workspace.py migrate platform 20261023_KAN-85_evaluation_storage.sql
+python3 scripts/workspace.py migrate platform 20261024_KAN-78_user_department_code.sql
+python3 scripts/workspace.py migrate platform 20261025_KAN-69_job_admission.sql
+python3 scripts/workspace.py migrate platform 20261025_KAN-90_run_admission.sql
+python3 scripts/workspace.py migrate platform 20261025_KAN-90_smoke_worker.sql
+python3 scripts/workspace.py migrate platform 20261025_KAN-90_user_controls.sql
+python3 scripts/workspace.py migrate platform 20261026_KAN-69_dispatch_ledger.sql
+python3 scripts/workspace.py migrate platform 20261026_KAN-69_dispatch_operation.sql
+python3 scripts/workspace.py migrate platform 20261027_KAN-81_mailbox_vault.sql
+python3 scripts/workspace.py migrate platform 20261027_KAN-90_worker_role.sql
+python3 scripts/workspace.py migrate platform 20261027_KAN-90_worker_usage_KAN-86.sql
+python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql
+```
+
+공용 DB는 운영 승인 뒤 운영자 터미널에서 위 순서대로 한 파일씩 적용한다. 각 파일 전에 적용 전 확인 쿼리를 실행해 true면 건너뛰고, 적용 후 공용 상태 열에 날짜를 기록한다. 에이전트는 공용 DB에 적용하지 않는다. KAN-81·KAN-71은 아래 절의 추가 단계를 따른다.
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f infra/migrations/<서비스>/<파일>
+```
+
 ## 사서함 보관 준비 (KAN-81)
 
 현재 구현은 내부 보관 경계이며 공용 환경에는 미적용이다. 기존003 인증 점검과 기본
