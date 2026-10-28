@@ -274,7 +274,8 @@ hash는 다르다). 잠금 정답으로 품질을 저장하는 실험은 `gold_v
 - 학습·검증은 [LLM 분류 평가 분모](#cs-llm-분류-평가-분모-kan-95)의 지표별 대상 수다. 지표 정의에 따른
   제외(gold NONE, null 등)는 대상에서 빼지 않고 지표 계산에서만 적용한다. 시험 분할은 없다.
 - 표와 `eval/cs_gold_locks.py` 상수는 테스트로 완전 일치를 확인한다. 이 묶음만으로 실제 품질이
-  연결되지는 않으며 저장 경로는 후속 단위다(`quality_available=false` 유지).
+  연결되지는 않는다. 저장 경로는 [잠금 정답 품질 저장 행](#kan-88-잠금-정답-품질-저장-행)이며 집계 API에는
+  아직 연결하지 않았다(`quality_available=false` 유지).
 
 | 지표 | 정답 판본 | 정답 파일 SHA-256 | 열 | 채점 범위 | 학습 | 검증 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -417,6 +418,45 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 `cs-comparison-key-v1`)만 낸다. 키가 다르거나 한쪽이 미종료면 비교하지 않는다. 계약은
 [실행 비교 키](../contracts/platform/evaluations.md#kan-138-실행-비교-키)를 따른다.
 
+
+### KAN-88 잠금 정답 품질 저장 행
+
+`eval.cs_report.store_locked_quality_metrics(conn, run_id, metric, gold_csv, scoring_version=...)`는
+종료된 비합성 실행의 지표 하나를 [정답 묶음](#cs-정답-묶음-판본-kan-88)의 잠금 정답으로 채점해
+`evaluation.metrics`에 실행 단위 행으로만 저장한다. 지표는 `category`·`urgency`·`secondary`·
+`return_subtype`이다(제공 정보는 후속). 한 번 실행에 지표 하나, 트랜잭션 하나다. 트랜잭션·실행 행
+`FOR SHARE`·종료 재확인·덮어쓰기 거부는 합성 저장과 같은 내부 함수를 쓴다. 정답 판본·hash는 인수로 받지
+않고 `eval/cs_gold_locks.py`에서 읽는다.
+
+- 채점 대상: 정답 파일(학습+검증) 중 실험 대상에 든 행. 반품 하위유형이 아닌 지표는 실험 대상 전부가
+  정답에 있어야 한다. 채점 대상 수가 실험 split의 잠금 분모와 다르면 거부한다. 결과를 본 뒤 대상을 빼지 않는다.
+- 행(case_id null, segment `all`, metric_key 접두 `cs_locked_<지표>_first_`): `accuracy`, 클래스별 `f1`,
+  `macro_f1`(보조 분류는 대신 null 정답 제외 `composite_macro_f1`과 없는 보조 의도 생성 `invented`),
+  긴급도 `non_none_recall`·`critical_missed`, 반품 하위유형 `null_predictions`. 분모가 다른 지표는
+  numerator·denominator·support에 그 분모를 쓴다.
+- 집계 행 details: `report_version`(`cs-locked-quality-v1`)·`bundle_id`·지표의 `gold_version`·
+  `gold_sha256`·`data_origin`·`data_split`·`run_status`·`locked_denominator`·`target_count`·
+  `scored_target_count`·`excluded_by_reason`(반품 하위유형은 `NOT_RETURN` 건수)·`outcomes`. 정답 파일
+  경로, 사례 ID, 사례별 정답·예측, 원시 출력은 넣지 않는다. threshold·comparison·passed는 항상 null이다.
+- 거부(전체 rollback): 지원하지 않는 지표(`CS_QUALITY_METRIC_UNSUPPORTED`), 정답 파일 hash 불일치
+  (`CS_QUALITY_GOLD_HASH_MISMATCH`, 행 파싱 전), 시험 분할(`CS_QUALITY_FINAL_TEST_LOCKED`, 대상·정답 파싱
+  전), smoke 목적·fake provider/model·고정 합성 프로필(`CS_QUALITY_LOCKED_RUN_REQUIRED`), 실험
+  gold_version이 묶음 ID가 아님(`CS_QUALITY_BUNDLE_MISMATCH`), 실행 미종료(`CS_QUALITY_RUN_NOT_TERMINAL`),
+  정답 형식 오류(`CS_QUALITY_GOLD_INVALID`), 분모 불일치(`CS_QUALITY_DENOMINATOR_MISMATCH`), 같은
+  실행·scoring_version의 기존 행(`CS_QUALITY_ALREADY_STORED`). 저장 집계 검증 코드는 합성 저장과 같다.
+- 합성 저장의 `CS_QUALITY_SYNTHETIC_ONLY`와 반대 경계라 한 실행에 두 경로의 행이 함께 남지 않는다.
+  접두도 달라 합성 품질 요약(`synthetic_quality`)은 이 행을 읽지 않는다.
+
+운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
+
+```bash
+uv run --frozen python -m eval.cs_report store-locked-quality --run-id <UUID> \
+  --metric <category|urgency|secondary|return_subtype> --gold-file <정답 CSV> --scoring-version <판본>
+```
+
+출력·오류 규칙은 합성 저장 명령과 같다(성공 JSON 한 줄 exit 0, 오류 코드 한 줄 exit 1, 인자 형식 오류
+exit 2, 경로·DSN·원문 비출력). 실제 실행이 아직 없어 이 경로는 격리 DB의 검사용 실행·잠금표로만
+검증했다. 집계 API·화면 연결, 합격선, 운영 쓰기 역할은 정하지 않았다.
 
 ### KAN-88 언어·채널별 최초 집계
 
