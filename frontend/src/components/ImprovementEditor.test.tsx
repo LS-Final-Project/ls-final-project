@@ -46,3 +46,20 @@ test.each([401,503])('세션 조회 %i 실패는 쓰기를 실행하지 않는�
 test('CSRF가 없는 세션은 쓰기를 실행하지 않는다',async()=>{
  const fetch=vi.fn(async()=>jsonResponse(200,{data:{roles:['cs_agent']}}));vi.stubGlobal('fetch',fetch);setApiMode('live');renderAt('/','/',<ImprovementEditor record={base().data.request} onSaved={()=>{}} onReload={()=>{}}/>);edit();fireEvent.click(screen.getByText('내용 저장'));await screen.findByRole('alert');expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+
+test('수정하지 않은 필드의 공백은 그대로 두고 편집·취소 초점을 복원한다',async()=>{
+ const data=base();data.data.request.confirmed_facts='  기존 사실  ';const saved=vi.fn();
+ const fetch=vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent']}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,data));
+ vi.stubGlobal('fetch',fetch);setApiMode('live');renderAt('/','/',<ImprovementEditor record={data.data.request} onSaved={saved} onReload={()=>{}}/>);
+ edit();expect(document.activeElement).toBe(screen.getByLabelText('검토할 문제'));fireEvent.click(screen.getByText('수정 취소'));expect(document.activeElement).toBe(screen.getByText('내용 수정'));
+ edit();fireEvent.click(screen.getByText('내용 저장'));await waitFor(()=>expect(saved).toHaveBeenCalled());
+ const init=(fetch.mock.calls as unknown as [string,RequestInit][])[1][1];expect(JSON.parse(init.body as string)).toEqual({version:1,problem_statement:'수정한 문제'});
+});
+test('검증 오류 뒤 수정해서 다시 저장할 수 있다',async()=>{
+ let attempts=0;const saved=vi.fn();vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>{if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent']}}),{headers:{'X-CSRF-Token':'synthetic'}});attempts++;return attempts===1?jsonResponse(422,errorBody('INVALID','입력 확인 필요')):jsonResponse(200,base());}));
+ setApiMode('live');renderAt('/','/',<ImprovementEditor record={base().data.request} onSaved={saved} onReload={()=>{}}/>);edit();fireEvent.click(screen.getByText('내용 저장'));await screen.findByRole('alert');fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'보완한 문제'}});fireEvent.click(screen.getByText('내용 저장'));await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));expect(attempts).toBe(2);
+});
+test('저장 충돌 뒤 취소·재진입해도 최신 조회 전 재저장을 막는다',async()=>{
+ const {fetch}=setup(409);edit();fireEvent.click(screen.getByText('내용 저장'));await screen.findByRole('alert');fireEvent.click(screen.getByText('수정 취소'));edit();expect((screen.getByText('내용 저장') as HTMLButtonElement).disabled).toBe(true);expect(fetch).toHaveBeenCalledTimes(2);expect(screen.getByText('입력 버리고 최신 내용 조회')).toBeTruthy();
+});
