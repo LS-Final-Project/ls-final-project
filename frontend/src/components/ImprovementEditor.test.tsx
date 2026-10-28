@@ -19,7 +19,7 @@ test('판본과 변경한 내용만 보내고 서버 응답을 상세 갱신에 
  const {fetch,saved,next}=setup();edit();fireEvent.click(screen.getByText('내용 저장'));await waitFor(()=>expect(saved).toHaveBeenCalledWith(next));
  const init=(fetch.mock.calls as unknown as [string,RequestInit][])[1][1];expect(init.method).toBe('PATCH');expect(JSON.parse(init.body as string)).toEqual({version:1,problem_statement:'수정한 문제'});expect(init.headers).toMatchObject({'X-CSRF-Token':'synthetic-csrf'});
 });
-test.each([409,503])('저장 %i는 자동 재전송 없이 최신 내용 확인을 요구한다',async(status)=>{
+test.each([408,409,503])('저장 %i는 자동 재전송 없이 최신 내용 확인을 요구한다',async(status)=>{
  const {fetch,saved,reload}=setup(status);edit();fireEvent.click(screen.getByText('내용 저장'));await screen.findByRole('alert');expect(saved).not.toHaveBeenCalled();expect((screen.getByText('내용 저장') as HTMLButtonElement).disabled).toBe(true);fireEvent.click(screen.getByText('내용 저장'));expect(fetch).toHaveBeenCalledTimes(2);fireEvent.click(screen.getByText('입력 버리고 최신 내용 조회'));expect(reload).toHaveBeenCalledTimes(1);
 });
 test.each(['manager','dept_staff'])('권한 %s는 PATCH 전에 거부한다',async(role)=>{

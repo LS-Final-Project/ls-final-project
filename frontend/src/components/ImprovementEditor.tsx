@@ -22,7 +22,7 @@ export default function ImprovementEditor({record,onSaved,onReload,onEditingChan
     if(controller.current||!available||!dirty||!values.problem_statement.trim()||uncertain)return;
     const current=new AbortController();controller.current=current;setBusy(true);setError('');
     try{const result=await updateImprovement(record.id,changes,current.signal);if(!current.signal.aborted){setOpened(false);onSaved(result);}}
-    catch(e){if(!current.signal.aborted){setError(e instanceof ApiError?e.message:'저장 결과를 확인할 수 없습니다. 최신 내용을 다시 조회하세요.');setUncertain(!(e instanceof ApiError)||e.status===409||e.status>=500);}}
+    catch(e){if(!current.signal.aborted){setError(e instanceof ApiError?e.message:'저장 결과를 확인할 수 없습니다. 최신 내용을 다시 조회하세요.');setUncertain(!(e instanceof ApiError)||e.status===408||e.status===409||e.status>=500);}}
     finally{if(controller.current===current)controller.current=null;if(!current.signal.aborted)setBusy(false);}
   };
   return <section><h2>작성 내용 수정</h2><p>내용만 새 판본으로 저장합니다. 검토 승인·전달·조치 완료는 실행하지 않습니다. 저장 중 화면을 떠나도 서버에 반영됐을 수 있으므로 재진입 후 최신 내용을 확인하세요.</p>

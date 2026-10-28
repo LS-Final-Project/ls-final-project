@@ -46,3 +46,12 @@ test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async(
  let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,example));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
  vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText(/처리 현황 \(/);fireEvent.click(screen.getByText('최신 현황 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText(/처리 현황 \(/)).toBeNull();page.unmount();
 });
+
+test('고객 ID 입력 후 탭만 바꿔도 미적용 안내를 유지하고 조회하지 않는다',async()=>{
+ const fetch=vi.fn(async()=>jsonResponse(200,example));vi.stubGlobal('fetch',fetch);view();await screen.findByText(/처리 현황 \(/);
+ fireEvent.change(screen.getByLabelText('고객 ID'),{target:{value:'SYNTHETIC'}});
+ fireEvent.click(screen.getByText('고객·장비 이력'));
+ expect(screen.getByText('입력한 고객 ID는 아직 적용되지 않았습니다. 필터 적용 후 해당 고객을 조회합니다.')).toBeTruthy();
+ expect(fetch).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByText('초기화'));expect(screen.queryByText(/입력한 고객 ID는 아직 적용/)).toBeNull();
+});
