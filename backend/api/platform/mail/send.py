@@ -45,6 +45,8 @@ MAX_REQUEST_BYTES = 3_900_000
 REQUEST_OVERHEAD = 64 * 1024
 # 보낸편지함 반영이 늦을 수 있어, 전송 시작 뒤 이 시간이 지나야 "사본 없음"을 재발송 근거로 쓴다.
 RESEND_GRACE = timedelta(minutes=10)
+# 마이그레이션의 business_ref CHECK와 같은 형식.
+BUSINESS_REF = re.compile(r"[a-z][a-z_]{1,31}:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 EMAIL = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 # 보내기 전에 난 일시 장애. 메일은 나가지 않았으므로 같은 의도를 나중에 다시 보낼 수 있다.
 PRE_SEND_TRANSIENT = {"MAILBOX_TOKEN_UNAVAILABLE", "MAIL_STORAGE_UNAVAILABLE"}
@@ -169,6 +171,14 @@ def validate(request: SendRequest) -> tuple[list[dict[str, Any]], str]:
     Returns:
         tuple[list[dict[str, Any]], str]: 첨부 JSON과 다시 계산한 payload 해시.
     """
+    if (
+        request.owner_service not in ("cs", "tft", "platform")
+        or not BUSINESS_REF.fullmatch(request.business_ref)
+        or request.business_version < 1
+    ):
+        raise invalid("MAIL_BUSINESS_REF_INVALID", "Business reference is invalid.")
+    if request.body_type not in ("text", "html"):
+        raise invalid("MAIL_CONTENT_INVALID", "Mail content is invalid.")
     addresses = [*request.to, *request.cc]
     if not request.to or len(addresses) > MAX_RECIPIENTS:
         raise invalid("MAIL_RECIPIENTS_INVALID", "Recipients are invalid.")
@@ -343,6 +353,25 @@ async def finish(
             await add_event(conn, intent_id, event, code=code)
 
 
+async def defer(settings: Settings, row: dict[str, Any], code: str) -> SendResult:
+    """보내지 않은 시도를 대기로 되돌린다. 시도 한도를 다 썼으면 실패로 마감한다.
+
+    Args:
+        settings: DB 설정.
+        row: claim이 잠근 행(시도 수는 증가 전 값).
+        code: 미룬 이유.
+
+    Returns:
+        SendResult: `QUEUED` 또는 `FAILED`(`MAIL_SEND_ATTEMPTS_EXHAUSTED`).
+    """
+    intent_id = row["id"]
+    if row["attempts"] + 1 >= MAX_ATTEMPTS:
+        await finish(settings, intent_id, "FAILED", "FAILED", "MAIL_SEND_ATTEMPTS_EXHAUSTED")
+        return SendResult(intent_id, "FAILED", "MAIL_SEND_ATTEMPTS_EXHAUSTED")
+    await finish(settings, intent_id, "QUEUED", "DEFERRED", code)
+    return SendResult(intent_id, "QUEUED", code)
+
+
 async def message_body(row: dict[str, Any], store: ObjectReader) -> dict[str, Any]:
     """저장된 행을 다시 확인해 sendMail 본문을 만든다.
 
@@ -435,8 +464,7 @@ async def submit_intent(
     except ApplicationError as error:
         # 아직 보내지 않았다. 일시 장애면 대기로 되돌리고, 그 밖에는 실패로 끝낸다.
         if error.code in PRE_SEND_TRANSIENT:
-            await finish(settings, intent_id, "QUEUED", "DEFERRED", error.code)
-            return SendResult(intent_id, "QUEUED", error.code)
+            return await defer(settings, row, error.code)
         await finish(settings, intent_id, "FAILED", "FAILED", error.code)
         return SendResult(intent_id, "FAILED", error.code)
     try:
@@ -465,8 +493,7 @@ async def submit_intent(
         return SendResult(intent_id, "ACCEPTED")
     if status == 429:
         # 사용량 제한은 보내지 않은 것이다. 같은 의도를 나중에 다시 보낼 수 있다.
-        await finish(settings, intent_id, "QUEUED", "DEFERRED", "GRAPH_THROTTLED")
-        return SendResult(intent_id, "QUEUED", "GRAPH_THROTTLED")
+        return await defer(settings, row, "GRAPH_THROTTLED")
     if status == 401 or status in REJECTED:
         code = "GRAPH_UNAUTHORIZED" if status == 401 else REJECTED[status]
         await finish(settings, intent_id, "FAILED", "FAILED", code)

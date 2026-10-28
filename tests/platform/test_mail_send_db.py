@@ -385,12 +385,39 @@ def test_throttled_mail_can_be_sent_later_up_to_three_attempts(settings, sender)
     intent = create(settings, request(sender))
     graph = FakeGraph()
     graph.replies = [429, 429, 429]
-    for _ in range(3):
+    for _ in range(2):
         assert submit(settings, sender, intent, graph).status == "QUEUED"
+    # 세 번째도 미뤄지면 대기에 갇히지 않고 실패로 마감한다.
+    result = submit(settings, sender, intent, graph)
+    assert (result.status, result.error_code) == ("FAILED", "MAIL_SEND_ATTEMPTS_EXHAUSTED")
     with pytest.raises(ApplicationError) as error:
         submit(settings, sender, intent, graph)
     assert error.value.code == "MAIL_SEND_NOT_QUEUED"
     assert len(graph.posts()) == 3
+
+
+def test_throttled_mail_is_sent_on_a_later_attempt(settings, sender):
+    intent = create(settings, request(sender))
+    graph = FakeGraph()
+    graph.replies = [429, 202]
+    assert submit(settings, sender, intent, graph).status == "QUEUED"
+    assert submit(settings, sender, intent, graph).status == "ACCEPTED"
+    assert state(sender["dsn"], intent) == ("ACCEPTED", None, 2, False)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"body_type": "markdown"},
+        {"business_ref": "BAD"},
+        {"owner_service": "hr"},
+        {"business_version": 0},
+    ],
+)
+def test_bad_business_fields_are_input_errors_not_database_errors(settings, sender, change):
+    with pytest.raises(ApplicationError) as error:
+        create(settings, request(sender, **change))
+    assert error.value.status_code == 422
 
 
 def test_unauthorized_is_retried_once_with_a_fresh_token(settings, sender):

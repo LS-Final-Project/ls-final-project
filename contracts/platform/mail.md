@@ -155,10 +155,10 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 202 | `ACCEPTED` | 없음 |
 | 401 | 새 토큰(`force_refresh=True`)으로 한 번 더. 그래도 401이면 `FAILED` `GRAPH_UNAUTHORIZED` | 401은 처리 전 거절이라 한 번 재요청 |
 | 400·403·404·413·422 | `FAILED`(`GRAPH_BAD_REQUEST`·`GRAPH_FORBIDDEN`·`GRAPH_NOT_FOUND`·`MAIL_TOO_LARGE`) | 없음. 내용을 고쳐 새 판본으로 승인 |
-| 429 | `QUEUED`(`DEFERRED`, `GRAPH_THROTTLED`) | 같은 의도를 나중에 다시 보낼 수 있음(시도 수 포함 최대 3) |
+| 429 | `QUEUED`(`DEFERRED`, `GRAPH_THROTTLED`) | 같은 의도를 나중에 다시 보낼 수 있음. 세 번째 시도까지 미뤄지면 `FAILED` `MAIL_SEND_ATTEMPTS_EXHAUSTED`로 마감 |
 | 5xx | `UNKNOWN` `GRAPH_UNAVAILABLE` | **자동으로 안 함** |
 | 응답 없음(연결 끊김·시간 초과) | `UNKNOWN` `GRAPH_NO_RESPONSE` | **자동으로 안 함** |
-| 보내기 전 토큰·저장소 일시 장애 | `QUEUED`(`DEFERRED`) | 나가지 않았으므로 가능 |
+| 보내기 전 토큰·저장소 일시 장애 | `QUEUED`(`DEFERRED`) | 나가지 않았으므로 가능. 429와 같은 시도 한도 |
 | 보내기 전 해시 불일치·재연결 필요 등 | `FAILED` | 없음 |
 
 - **결과 불명 재발송 통제**: `UNKNOWN`은 `confirm_sent_copy`로 먼저 대조한다. 사본이 있으면 실제로 나간 것으로 `ACCEPTED`가 된다. 사본이 없으면 `SENT_COPY_NOT_FOUND`를 남긴다. 재발송은 **마지막 전송 시작 10분 뒤의 "사본 없음" 확인**이 있고, **승인자 본인**이 사유(1~500자)를 적었을 때만 `QUEUED`로 되돌린다(`RESEND_AUTHORIZED`). 시도는 최대 3회다.
