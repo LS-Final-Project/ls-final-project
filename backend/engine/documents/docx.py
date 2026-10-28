@@ -3,8 +3,12 @@
 편집 흔적: 런 서식의 취소선(w:strike·w:dstrike)과 변경 추적 삭제(w:del)는 현행 text에서 빼고
 deleted_values에 origin과 함께 둔다. 변경 추적 삽입(w:ins)은 현행으로 읽는다.
 
+연결(KAN-98): 각주·미주 본문(word/footnotes.xml·endnotes.xml)을 참조한 블록의 footnotes에 본문 참조 순서로
+붙인다(읽지 못하면 unprocessed FOOTNOTE). 표 셀에는 표제(w:tblCaption, 없으면 바로 앞 본문 문단이 "Table N"·
+"표 N" 꼴일 때 그 문단)와, 첫 행을 머리 행으로 본 열 머리·단위("(kV)"·"[kA]")를 붙인다.
+
 범위 밖: 문자·문단 스타일에서 상속한 취소선·형광펜(런에 직접 준 서식만 읽는다), 이동 추적(w:moveFrom),
-머리글·바닥글·각주·미주·텍스트박스·수식 본문(종류·위치만 unprocessed에 남긴다), 중첩 표,
+머리글·바닥글·텍스트박스·수식 본문(종류·위치만 unprocessed에 남긴다), 중첩 표, 여러 줄 머리 행,
 표 셀 안 번호 문단의 번호 진행(셀 문단은 카운터를 넘기지 않아 본문과 같은 numId를 공유하면 이후
 list_text가 어긋날 수 있다. numbering_raw로 복구한다).
 
@@ -27,6 +31,7 @@ from backend.engine.documents.model import (
     DeletedValue,
     ExtractedDocument,
     Flag,
+    Footnote,
     Hints,
     NumberingRaw,
     Position,
@@ -34,6 +39,7 @@ from backend.engine.documents.model import (
     UnprocessedKind,
     build_document,
 )
+from backend.engine.documents.references import link_references
 
 Origin = Literal["STRIKE", "TRACKED_DELETE"]
 
@@ -65,6 +71,14 @@ IGNORED = {
 CONTAINERS = {f"{W}sdt", f"{W}sdtContent", f"{W}customXml"}
 OBJECTS = {f"{W}drawing", f"{W}pict", f"{W}object", f"{MC}AlternateContent"}
 HEADER_PART = re.compile(r"^word/(header|footer)\d*\.xml$")
+NoteKind = Literal["FOOTNOTE", "ENDNOTE"]
+NOTE_PARTS: dict[NoteKind, tuple[str, str]] = {
+    "FOOTNOTE": ("word/footnotes.xml", "footnote"),
+    "ENDNOTE": ("word/endnotes.xml", "endnote"),
+}
+TABLE_TITLE = re.compile(r"^(?:Table|TABLE|표)\s*[A-Z]?\d+(?:[.-]\d+)*")
+# 머리 셀 끝의 괄호 단위. 1~10자, 주석·참조 문구는 단위로 보지 않는다.
+UNIT = re.compile(r"^(.*?)\s*[(\[]\s*([A-Za-z0-9%°Ω/·\- ]{1,10}?)\s*[)\]]$")
 
 
 def _read_part(archive: zipfile.ZipFile, name: str) -> ET.Element | None:
@@ -277,6 +291,7 @@ class Collected:
     line_break: bool = False
     images: int = 0
     unprocessed: list[tuple[UnprocessedKind, str]] = field(default_factory=list)  # (종류, 사유)
+    notes: list[tuple[NoteKind, str]] = field(default_factory=list)  # 본문 순서 각주·미주 참조
 
 
 def _object(element: ET.Element, out: Collected) -> None:
@@ -319,7 +334,8 @@ def _run(run: ET.Element, out: Collected, tracked_delete: bool) -> None:
             out.pieces.append(Piece(" ", deleted, highlight))
             out.line_break = True
         elif tag in {f"{W}footnoteReference", f"{W}endnoteReference"}:
-            out.unprocessed.append(("FOOTNOTE", "각주·미주 본문은 읽지 않음"))
+            kind: NoteKind = "FOOTNOTE" if tag == f"{W}footnoteReference" else "ENDNOTE"
+            out.notes.append((kind, child.get(f"{W}id", "")))
         elif tag in OBJECTS:
             _object(child, out)
 
@@ -420,6 +436,41 @@ def _cell_items(container: ET.Element) -> list[ET.Element]:
     return items
 
 
+def _paragraphs_text(container: ET.Element) -> Collected:
+    """셀·각주처럼 여러 문단을 담는 요소의 문단을 공백 하나로 이어 모은다.
+
+    Args:
+        container: w:tc·w:footnote 같은 요소.
+
+    Returns:
+        수집 상태. 중첩 표는 펼치지 않고 미처리로 남긴다.
+    """
+    out = Collected()
+    for child in _cell_items(container):
+        if child.tag == f"{W}p":
+            if out.pieces:
+                out.pieces.append(Piece(" ", None, False))
+            _collect(child, out)
+        else:
+            out.unprocessed.append(("OTHER", "중첩 표는 펼치지 않음"))
+    return out
+
+
+def _split_unit(header: str) -> tuple[str, str | None]:
+    """머리 셀 텍스트 끝의 괄호 단위를 뗀다.
+
+    Args:
+        header: 머리 셀 현행 텍스트.
+
+    Returns:
+        (단위를 뺀 머리, 단위 또는 None). 앞이 비거나 주석 문구면 떼지 않는다.
+    """
+    match = UNIT.match(header)
+    if match is None or not match.group(1) or re.search(r"(?i)note|see", match.group(2)):
+        return header, None
+    return match.group(1), match.group(2).strip()
+
+
 class _Extractor:
     def __init__(self, archive: zipfile.ZipFile) -> None:
         self.styles, self.default_style = _styles(_read_part(archive, "word/styles.xml"))
@@ -431,6 +482,55 @@ class _Extractor:
         self.table_index = -1
         self.strikes = 0
         self.highlights = 0
+        self.previous_text: str | None = None  # 표제 후보: 마지막 비어 있지 않은 본문 문단
+        self.notes: dict[tuple[NoteKind, str], Footnote] = {}
+        for kind, (part, tag) in NOTE_PARTS.items():
+            root = _read_part(archive, part)
+            for note in [] if root is None else root.iter(f"{W}{tag}"):
+                if note.get(f"{W}type") in {
+                    "separator",
+                    "continuationSeparator",
+                    "continuationNotice",
+                }:
+                    continue
+                ref_id = note.get(f"{W}id", "")
+                out = _paragraphs_text(note)
+                text, deleted, _, strikes, highlights = _assemble(out)
+                self.strikes += strikes
+                self.highlights += highlights
+                self.notes[(kind, ref_id)] = Footnote(
+                    ref_id=ref_id, note_kind=kind, text=text, deleted_values=deleted
+                )
+                for unknown, reason in out.unprocessed:
+                    self.unprocessed.append(
+                        Unprocessed(kind=unknown, location=f"{part}#{ref_id}", reason=reason)
+                    )
+
+    def link_notes(self, out: Collected, block_id: str, attached: bool) -> list[Footnote]:
+        """본문 참조 순서대로 각주를 찾는다. 못 찾거나 붙일 블록이 없으면 미처리로 남긴다.
+
+        Args:
+            out: 문단 수집 상태.
+            block_id: 참조가 있는 블록 ID.
+            attached: 블록이 실제로 만들어지는지.
+
+        Returns:
+            블록에 붙일 각주 목록.
+        """
+        found = []
+        for kind, ref_id in out.notes:
+            note = self.notes.get((kind, ref_id))
+            if note is not None and attached:
+                found.append(note)
+            else:
+                self.unprocessed.append(
+                    Unprocessed(
+                        kind="FOOTNOTE",
+                        location=block_id,
+                        reason=f"{kind} {ref_id} 본문을 찾지 못함",
+                    )
+                )
+        return found
 
     def new_id(self) -> str:
         self.next_id += 1
@@ -520,6 +620,9 @@ class _Extractor:
         self.highlights += highlights
         # 빈 번호 문단도 Word에서는 번호를 한 칸 쓰므로 블록이 없어도 번호는 진행한다.
         hints = self.hints(paragraph)
+        footnotes = self.link_notes(out, block_id, attached=bool(text or deleted))
+        if text:
+            self.previous_text = text
         if text or deleted:
             self.blocks.append(
                 Block(
@@ -530,12 +633,17 @@ class _Extractor:
                     flags=flags,
                     position=Position(paragraph_index=self.paragraph_index),
                     hints=hints,
+                    footnotes=footnotes,
                 )
             )
         self.record(out, block_id, self.paragraph_index)
 
     def table(self, table: ET.Element) -> None:
         self.table_index += 1
+        first_block = len(self.blocks)
+        caption = _val(table.find(f"{W}tblPr/{W}tblCaption"))
+        previous, self.previous_text = self.previous_text, None
+        title = caption or (previous if previous and TABLE_TITLE.match(previous) else None)
         origins: dict[int, str] = {}  # 열별 세로 병합 시작 셀
         for row_index, row in enumerate(table.findall(f"{W}tr")):
             col = 0
@@ -549,14 +657,7 @@ class _Extractor:
                     merged_with = origins.get(col)
                 else:
                     origins[col] = block_id
-                out = Collected()
-                for child in _cell_items(cell):
-                    if child.tag == f"{W}p":
-                        if out.pieces:
-                            out.pieces.append(Piece(" ", None, False))
-                        _collect(child, out)
-                    elif child.tag == f"{W}tbl":
-                        out.unprocessed.append(("OTHER", "중첩 표는 펼치지 않음"))
+                out = _paragraphs_text(cell)
                 text, deleted, flags, strikes, highlights = _assemble(out)
                 self.strikes += strikes
                 self.highlights += highlights
@@ -571,10 +672,43 @@ class _Extractor:
                         cell_state=CellState(
                             col_span=span, merged_with=merged_with, is_empty=not text
                         ),
+                        footnotes=self.link_notes(out, block_id, attached=True),
                     )
                 )
                 self.record(out, block_id, None)
                 col += span
+        self.label_cells(first_block, title)
+
+    def label_cells(self, first_block: int, title: str | None) -> None:
+        """방금 만든 표의 셀에 표제와 첫 행 머리·단위를 붙인다.
+
+        Args:
+            first_block: 이 표의 첫 블록 위치(self.blocks 색인).
+            title: 표제(없으면 None).
+        """
+        cells = [
+            (index, block)
+            for index, block in enumerate(self.blocks[first_block:], start=first_block)
+            if block.kind == "TABLE_CELL"
+        ]
+        headers = [
+            (
+                block.position.col or 0,
+                block.cell_state.col_span if block.cell_state else 1,
+                block.text,
+            )
+            for _, block in cells
+            if block.position.row == 0
+        ]
+        for index, block in cells:
+            update: dict[str, str | None] = {"table_title": title}
+            col = block.position.col or 0
+            header = next(
+                (text for start, span, text in headers if start <= col < start + span), ""
+            )
+            if block.position.row and header:
+                update["column_header"], update["column_unit"] = _split_unit(header)
+            self.blocks[index] = block.model_copy(update=update)
 
     def body(self, container: ET.Element) -> None:
         for child in container:
@@ -596,7 +730,8 @@ def extract_docx(data: bytes) -> ExtractedDocument:
         공통 표현 문서(edit_trace_support=True).
 
     Raises:
-        ValueError: zip이 아니거나 word/document.xml이 없거나 부분이 상한·DTD 검사에 걸릴 때.
+        ValueError: zip이 아니거나 word/document.xml이 없거나 부분이 상한·DTD 검사에 걸리거나
+            요소 중첩이 재귀 한도를 넘을 때.
     """
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
@@ -607,8 +742,12 @@ def extract_docx(data: bytes) -> ExtractedDocument:
         body = None if document is None else document.find(f"{W}body")
         if body is None:
             raise ValueError("word/document.xml 본문이 없습니다.")
-        extractor = _Extractor(archive)
-        extractor.body(body)
+        try:
+            extractor = _Extractor(archive)
+            extractor.body(body)
+        except RecursionError as error:
+            # 래퍼를 비정상적으로 깊게 중첩한 문서도 호출자에게는 형식 오류로 알린다.
+            raise ValueError("DOCX 요소 중첩이 너무 깊습니다.") from error
         for name in sorted(archive.namelist()):
             match = HEADER_PART.match(name)
             if match:
@@ -618,7 +757,8 @@ def extract_docx(data: bytes) -> ExtractedDocument:
                 )
     return build_document(
         "DOCX",
-        extractor.blocks,
+        data,
+        link_references(extractor.blocks),
         extractor.unprocessed,
         tables=extractor.table_index + 1,
         strike_runs=extractor.strikes,

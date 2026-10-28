@@ -4,6 +4,9 @@ PDF는 취소선·형광펜·변경 추적을 텍스트 층에서 알 수 없어
 deleted_values·HIGHLIGHT·LINE_BREAK_REJOINED는 항상 비운다. 문단 안 줄 바꿈은 "\\n"으로 남긴다
 (조항 "A." 줄 경계를 A04가 쓰게). 그림은 페이지 /Resources /XObject 중 /Subtype /Image만 센다
 (Form XObject 안 중첩 그림은 세지 않는다). 주석·양식 필드는 읽지 않는다.
+
+범위 밖: 글자 좌표(bbox)와 좌표 변환. layout 모드 텍스트에는 글자 좌표가 없어 위치는 page까지만 둔다
+(좌표가 필요한 스캔·메모 PDF는 OCR R07 몫). 교차 참조는 DOCX와 같은 규칙(references.py)으로 뽑는다.
 """
 
 import io
@@ -20,6 +23,7 @@ from backend.engine.documents.model import (
     Unprocessed,
     build_document,
 )
+from backend.engine.documents.references import link_references
 
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
 # 신뢰하지 않는 업로드의 시간·메모리 상한. 바이트는 명세 §4.2 업로드 상한과 같다.
@@ -100,4 +104,4 @@ def extract_pdf(data: bytes) -> ExtractedDocument:
         raise
     except Exception as error:  # pypdf는 PyPdfError 밖(RecursionError 등)으로도 실패한다.
         raise ValueError("PDF를 읽을 수 없습니다.") from error
-    return build_document("PDF", blocks, unprocessed, tables=0)
+    return build_document("PDF", data, link_references(blocks), unprocessed, tables=0)
