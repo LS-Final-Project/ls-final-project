@@ -4,6 +4,7 @@ import { isJobId, statusLabels } from '../api/evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
 import './evaluations.css';
 import RunComparison from './RunComparison';
+import RunAdmission from './RunAdmission';
 import RunControls from './RunControls';
 import RunSummary from './RunSummary';
 
@@ -48,9 +49,10 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
   };
   return <main className="evaluation-page">
     <header className="evaluation-heading">
-      <div><p className="eyebrow">EVALUATIONS</p><h1>평가 실행</h1><p>접수한 작업의 현재 상태를 확인하세요.</p></div>
+      <div><p className="eyebrow">EVALUATIONS</p><h1>평가 실행</h1><p>합성 평가를 접수하고 작업의 현재 상태를 확인하세요.</p></div>
       <span className="evaluation-tag">실행 상태 조회</span>
     </header>
+    <RunAdmission onOpen={onOpen} />
     <section aria-labelledby="lookup-title">
       <h2 id="lookup-title">작업 조회</h2>
       <form className="evaluation-form" onSubmit={event => {

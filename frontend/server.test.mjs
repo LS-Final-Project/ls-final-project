@@ -231,7 +231,7 @@ test('evaluation read relay defaults closed and allows only GET with bounded cur
   await fixture(async origin => {
     for (const method of ['POST', 'DELETE', 'HEAD']) assert.equal((await fetch(origin + jobUrl, { method })).status, 405);
     for (const path of [jobUrl + '/events?target=https://evil.invalid', jobUrl + '?after=1', jobUrl + '/events?after=1&after=2', jobUrl + '/events?after=' + '1'.repeat(65)]) assert.equal((await fetch(origin + path)).status, 400);
-    for (const path of ['/api/v1/platform/jobs/not-uuid/events', jobUrl + '/cancel', '/api/v1/platform/evaluations/runs']) assert.equal((await fetch(origin + path)).status, 404);
+    for (const path of ['/api/v1/platform/jobs/not-uuid/events', jobUrl + '/cancel', '/api/v1/platform/evaluations/experiments/extra', '/api/v1/platform/evaluations/run']) assert.equal((await fetch(origin + path)).status, 404);
   }, fetcher, false, true);
   assert.equal(calls, 0);
 });
@@ -389,6 +389,82 @@ test('evaluation controls reject wrong methods, queries, bodies and missing prot
     assert.equal((await post('/delete')).status,405);
   },async()=>{calls++;return Response.json({});},false,false,true);
   assert.equal(calls,0);
+});
+
+const evaluationsBase = '/api/v1/platform/evaluations';
+const admissionHeaders = { Origin: 'https://app.example.invalid', 'X-CSRF-Token': 'session-csrf', 'Idempotency-Key': 'admission-key-123', 'Content-Type': 'application/json' };
+const admissionBody = JSON.stringify({ experiment_id: '33333333-3333-4333-8333-333333333333' });
+
+test('evaluation read relay forwards policy and own list GETs only, without queries or bodies', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    for (const suffix of ['/policy', '/experiments', '/runs']) {
+      const response = await fetch(origin + evaluationsBase + suffix, { headers: { Cookie: '__Host-team4_session=session; unrelated=private', Authorization: 'Bearer browser' } });
+      assert.equal(response.status, 200, suffix);
+    }
+    for (const suffix of ['/policy?x=1', '/runs?limit=5']) assert.equal((await fetch(origin + evaluationsBase + suffix)).status, 400);
+    const withBody = await new Promise((resolve, reject) => {
+      const sent = httpRequest(origin + '/', { method: 'GET', path: evaluationsBase + '/experiments', headers: { 'Content-Length': '2' } }, reply => { reply.resume(); reply.on('end', () => resolve(reply.statusCode)); });
+      sent.on('error', reject);
+      sent.end('{}');
+    });
+    assert.equal(withBody, 413);
+    // 읽기만 켜져 있으면 같은 경로의 접수 POST는 중계하지 않는다.
+    assert.equal((await fetch(origin + evaluationsBase + '/runs', { method: 'POST', headers: admissionHeaders, body: admissionBody })).status, 405);
+  }, async (url, init) => { calls.push({ url: String(url), init }); return Response.json({ data: { items: [] } }); }, false, true);
+  assert.deepEqual(calls.map(call => call.url), ['/policy', '/experiments', '/runs'].map(suffix => 'https://platform.example.invalid' + evaluationsBase + suffix));
+  assert.deepEqual(calls[0].init.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session' });
+});
+
+test('evaluation admission relay forwards one small JSON body with protection headers under the control flag', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const response = await fetch(origin + evaluationsBase + '/runs', { method: 'POST', headers: { ...admissionHeaders, 'If-Match': 'opaque-1', Cookie: '__Host-team4_session=session; unrelated=private', Authorization: 'Bearer browser' }, body: admissionBody });
+    assert.equal(response.status, 202);
+    assert.equal(response.headers.get('location'), controlRun);
+    assert.equal(response.headers.get('retry-after'), '5');
+    assert.deepEqual(await response.json(), { data: { run_id: 'r' } });
+    const without = await fetch(origin + evaluationsBase + '/runs', { method: 'POST', headers: admissionHeaders, body: admissionBody });
+    assert.equal(without.headers.get('location'), null);
+    // 목록 GET은 제어 플래그만으로는 중계하지 않는다.
+    assert.equal((await fetch(origin + evaluationsBase + '/runs')).status, 404);
+  }, async (url, init) => {
+    calls.push({ url: String(url), init });
+    const location = calls.length === 1 ? controlRun : 'https://wrong.invalid/x';
+    return Response.json({ data: { run_id: 'r' } }, { status: 202, headers: { Location: location, 'Retry-After': '5', 'Set-Cookie': 'private=1' } });
+  }, false, false, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, 'https://platform.example.invalid' + evaluationsBase + '/runs');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(Buffer.from(calls[0].init.body).toString(), admissionBody);
+  assert.deepEqual(calls[0].init.headers, { Authorization: 'Bearer fixture-server-token', Cookie: '__Host-team4_session=session', origin: admissionHeaders.Origin, 'x-csrf-token': 'session-csrf', 'if-match': 'opaque-1', 'idempotency-key': 'admission-key-123', 'Content-Type': 'application/json' });
+  assert.equal(calls[1].init.headers['if-match'], undefined);
+});
+
+test('with both evaluation flags on, GET runs lists and POST runs admits', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + evaluationsBase + '/runs')).status, 200);
+    assert.equal((await fetch(origin + evaluationsBase + '/runs', { method: 'POST', headers: admissionHeaders, body: admissionBody })).status, 200);
+  }, async (url, init) => { calls.push(init.method); return Response.json({ data: {} }); }, false, true, true);
+  assert.deepEqual(calls, ['GET', 'POST']);
+});
+
+test('evaluation admission relay rejects unsafe requests before forwarding', async () => {
+  let calls = 0;
+  await fixture(async origin => {
+    const post = (headers = admissionHeaders, body = admissionBody, suffix = '') => fetch(origin + evaluationsBase + '/runs' + suffix, { method: 'POST', headers, body });
+    const { 'Content-Type': ignored, ...noType } = admissionHeaders;
+    assert.equal((await post(noType)).status, 415);
+    assert.equal((await post({ ...admissionHeaders, 'Content-Type': 'text/plain' })).status, 415);
+    assert.equal((await post(admissionHeaders, 'x'.repeat(1025))).status, 413);
+    assert.equal((await post(admissionHeaders, '')).status, 413);
+    assert.equal((await post({ 'Content-Type': 'application/json', 'Idempotency-Key': 'admission-key-123' })).status, 403);
+    assert.equal((await post({ ...admissionHeaders, 'Idempotency-Key': 'short' })).status, 400);
+    assert.equal((await post({ ...admissionHeaders, 'If-Match': 'x'.repeat(129) })).status, 400);
+    assert.equal((await post(admissionHeaders, admissionBody, '?experiment=1')).status, 400);
+  }, async () => { calls++; return Response.json({}); }, false, false, true);
+  assert.equal(calls, 0);
 });
 
 test('evaluation control relay preserves conflict/auth errors and refuses HTML or redirect success', async () => {
