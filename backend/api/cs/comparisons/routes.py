@@ -1,16 +1,17 @@
-"""조건 비교 결과 조회 API(KAN-114, permissions.md 1.3·4.1). 판정 쓰기는 다음 단위다."""
+"""조건 비교 결과 API(KAN-114, permissions.md 1.3·4.1): 조회, 생성, 판정 쓰기·재검토."""
 
+from datetime import UTC, datetime
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from backend.api.cs.comparisons import repository
-from backend.api.cs.comparisons.examples import openapi_examples
-from backend.api.cs.comparisons.schemas import ConditionComparison
+from backend.api.cs.comparisons import repository, rules
+from backend.api.cs.comparisons.examples import conflict_example, openapi_examples
+from backend.api.cs.comparisons.schemas import ConditionComparison, JudgementWrite
 from backend.api.cs.comparisons.view import build, hide
 from backend.api.cs.improvements import repository as requests
-from backend.api.cs.improvements.routes import check_visible, require_list, scope
+from backend.api.cs.improvements.routes import check_visible, require_list, require_writer, scope
 from backend.api.cs.improvements.routes import not_found as request_not_found
 from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, respond
@@ -32,6 +33,15 @@ Version = Annotated[int | None, Query(ge=1, description="Omit for the latest ver
 EXAMPLES: dict[int | str, dict[str, Any]] = {
     200: {"content": {"application/json": {"examples": openapi_examples()}}}
 }
+WRITE_ERRORS: dict[int | str, dict[str, Any]] = {
+    409: {
+        "model": ErrorResponse,
+        "description": "Stale version, existing comparison or a transition the table forbids",
+        "content": {"application/json": {"examples": conflict_example()}},
+    },
+    422: {"model": ErrorResponse, "description": "Missing evidence, reason or value"},
+}
+PATH = "/api/v1/cs/improvement-requests/{request_id}/condition-comparison"
 Row = dict[str, Any]
 
 
@@ -87,6 +97,26 @@ async def respond_with(
     return respond(request, build(comparison, version, request_row, shown, kept, hidden_count))
 
 
+async def fault_request(conn: Any, principal: Principal, request_id: UUID) -> Row:
+    """요청서 경로 공통: 요청서 조회 범위를 확인하고 고장 요청서만 받는다.
+
+    Args:
+        conn: C/S DB 연결.
+        principal: 사용자.
+        request_id: 개선요청 ID.
+
+    Returns:
+        Row: 개선요청 행. 범위 밖·없음은 CS_REQUEST_NOT_FOUND, 문서 요청서는 404 비교 없음.
+    """
+    await check_visible(conn, principal, request_id)
+    row = await requests.get_request(conn, request_id)
+    if row is None:
+        raise request_not_found()
+    if row["request_type"] != "FAULT":
+        raise not_found()
+    return row
+
+
 @router.get(
     "/api/v1/cs/condition-comparisons",
     response_model=SuccessResponse[ConditionComparison],
@@ -122,7 +152,7 @@ async def get_group_comparison(
 
 
 @router.get(
-    "/api/v1/cs/improvement-requests/{request_id}/condition-comparison",
+    PATH,
     response_model=SuccessResponse[ConditionComparison],
     operation_id="cs_get_request_condition_comparison",
     responses=EXAMPLES,
@@ -147,13 +177,136 @@ async def get_request_comparison(
     """
     require_list(principal)
     async with connection(request.app.state.settings) as conn:
-        await check_visible(conn, principal, request_id)
-        row = await requests.get_request(conn, request_id)
-        if row is None:
-            raise request_not_found()
-        if row["request_type"] != "FAULT":
-            raise not_found()
+        row = await fault_request(conn, principal, request_id)
         comparison = await repository.get_comparison(conn, row["product_code"], row["fault_id"])
         if comparison is None:
             raise not_found()
         return await respond_with(request, conn, principal, comparison, version)
+
+
+@router.post(
+    PATH,
+    status_code=201,
+    response_model=SuccessResponse[ConditionComparison],
+    operation_id="cs_create_condition_comparison",
+    responses=WRITE_ERRORS,
+    openapi_extra=PARTIAL,
+)
+async def create_comparison(
+    request_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[ConditionComparison]:
+    """고장 요청서 묶음의 비교를 만든다. 판본 1은 사용 조건 8개 모두 근거 없는 미확인이다.
+
+    Args:
+        request_id: 판정 기준이 될 고장 개선요청 ID.
+        request: 요청.
+        principal: cs_agent만 만든다.
+
+    Returns:
+        SuccessResponse[ConditionComparison]: 만든 비교의 판본 1. 묶음에 이미 있으면 409.
+    """
+    async with connection(request.app.state.settings) as conn:
+        row = await fault_request(conn, principal, request_id)
+        require_writer(principal)
+        now = datetime.now(UTC)
+        comparison = {
+            "id": uuid4(),
+            "product_code": row["product_code"],
+            "fault_id": row["fault_id"],
+            "latest_version": 1,
+        }
+        if not await repository.insert_comparison(conn, comparison):
+            raise ApplicationError(409, "CS_COMPARISON_EXISTS", "The group has a comparison.")
+        version = {
+            "version": 1,
+            "improvement_request_id": row["id"],
+            "request_version": row["version"],
+            "data_origin": row["data_origin"],
+            "known_at": now,
+            "created_by": principal.user_id,
+        }
+        await repository.insert_version(
+            conn, comparison["id"], version, rules.initial_items(now), []
+        )
+        await repository.insert_audit(
+            conn,
+            uuid4(),
+            comparison["id"],
+            "create",
+            1,
+            principal.user_id,
+            {"improvement_request_id": {"to": str(row["id"])}},
+        )
+        return await respond_with(request, conn, principal, comparison, None)
+
+
+@router.post(
+    PATH + "/judgements",
+    response_model=SuccessResponse[ConditionComparison],
+    operation_id="cs_write_condition_judgements",
+    responses=WRITE_ERRORS,
+    openapi_extra=PARTIAL,
+)
+async def write_judgements(
+    request_id: UUID,
+    payload: JudgementWrite,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[ConditionComparison]:
+    """판정을 쓰거나 재검토해 새 판본을 만든다. 보낸 항목만 바뀌고 근거는 추가만 한다.
+
+    Args:
+        request_id: 판정 기준이 될 고장 개선요청 ID.
+        payload: 읽은 판본, 바꿀 항목, 새 근거.
+        request: 요청.
+        principal: cs_agent만 쓴다. 사람의 판정(human_input)으로 기록한다.
+
+    Returns:
+        SuccessResponse[ConditionComparison]: 새 최신 판본. 판본이 다르면 409.
+    """
+    async with connection(request.app.state.settings) as conn:
+        row = await fault_request(conn, principal, request_id)
+        require_writer(principal)
+        comparison = await repository.lock_comparison(conn, row["product_code"], row["fault_id"])
+        if comparison is None:
+            raise not_found()
+        if payload.version != comparison["latest_version"]:
+            raise ApplicationError(
+                409, "CS_COMPARISON_VERSION_CONFLICT", "The comparison has changed."
+            )
+        tickets, cases = await repository.sources(
+            conn,
+            [e.ticket_id for e in payload.evidence],
+            [e.case_id for e in payload.evidence if e.case_id is not None],
+        )
+        rules.check_sources(payload, tickets, cases, comparison)
+        found = {
+            e.evidence_id: cases[e.case_id] if e.case_id is not None else tickets[e.ticket_id]
+            for e in payload.evidence
+        }
+        latest = comparison["latest_version"]
+        now = datetime.now(UTC)
+        items, evidence, changes = rules.next_version(
+            await repository.items(conn, comparison["id"], latest),
+            await repository.evidence(conn, comparison["id"], latest),
+            payload,
+            found,
+            "human_input",
+            principal.user_id,
+            now,
+        )
+        version = {
+            "version": latest + 1,
+            "improvement_request_id": row["id"],
+            "request_version": row["version"],
+            "data_origin": rules.data_origin(evidence, row["data_origin"]),
+            "known_at": now,
+            "created_by": principal.user_id,
+        }
+        await repository.insert_version(conn, comparison["id"], version, items, evidence)
+        await repository.set_latest(conn, comparison["id"], latest + 1)
+        await repository.insert_audit(
+            conn, uuid4(), comparison["id"], "update", latest + 1, principal.user_id, changes
+        )
+        fresh = comparison | {"latest_version": latest + 1}
+        return await respond_with(request, conn, principal, fresh, None)

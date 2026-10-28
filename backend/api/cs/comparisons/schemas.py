@@ -4,10 +4,10 @@
 """
 
 from datetime import date, datetime
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.cs.improvements.schemas import ConditionStatus, DocSignal
 from backend.api.cs.tickets.schemas import DataOrigin, DerivationKind
@@ -41,6 +41,11 @@ UnconfirmedReason = Literal[
 ]
 MissingReason = Literal["NOT_PROVIDED", "HIDDEN_BY_SCOPE", "MASKING_FAILED"]
 ProvenanceKind = Literal["ai_draft", "human_input", "system_record"]
+# 쓰기에서 줄 수 있는 사유. HIDDEN_BY_SCOPE는 조회할 때만 생긴다.
+WrittenReason = Literal["NOT_PROVIDED", "MASKING_FAILED"]
+EvidenceId = Annotated[str, Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")]
+Masked = Annotated[str, Field(min_length=1, max_length=2_000)]
+Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 
 
 def check_reason(value: object, reason: object, name: str) -> None:
@@ -184,3 +189,128 @@ class ConditionComparison(BaseModel):
     document_signals: list[DocumentSignal]
     evidence: list[ComparisonEvidence]
     hidden_evidence_count: int
+
+
+class SideWrite(BaseModel):
+    """쓰기 본문의 기준 또는 대상. 값이 있으면 그 값이 나온 근거 ID가 있어야 한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    masked_value: Masked | None
+    missing_reason: WrittenReason | None
+    evidence_ids: list[EvidenceId] = Field(default=[], max_length=50)
+
+    @model_validator(mode="after")
+    def value_rules(self) -> Self:
+        """값·사유 중 하나만 있고, 값이 있으면 근거 ID가 있는지 확인한다.
+
+        Returns:
+            Self: 검사를 통과한 모델.
+        """
+        check_reason(self.masked_value, self.missing_reason, "masked_value")
+        if self.masked_value is not None and not self.evidence_ids:
+            raise ValueError("a value names the evidence it came from")
+        return self
+
+
+class ItemWrite(BaseModel):
+    """판정 하나. 조건은 기준·대상과 finding을, 원인은 둘 다 없이 판정만 쓴다.
+
+    값과 요약은 저장 전에 마스킹한 값이어야 한다. 서버는 마스킹 여부를 판단하지 않는다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["CONDITION", "CAUSE"]
+    code: str
+    judgement: Judgement
+    finding: Finding | None = None
+    unconfirmed_reason: UnconfirmedReason | None = None
+    baseline: SideWrite | None = None
+    target: SideWrite | None = None
+    masked_summary: Masked | None
+    summary_missing_reason: WrittenReason | None
+    evidence_ids: list[EvidenceId] = Field(default=[], max_length=50)
+    reason: Reason | None = Field(
+        default=None, description="Required to confirm, or to lower a judgement."
+    )
+
+    @model_validator(mode="after")
+    def item_rules(self) -> Self:
+        """항목 종류별 필드와 판정·사유·근거 ID 규칙을 확인한다.
+
+        Returns:
+            Self: 검사를 통과한 모델.
+        """
+        condition = self.kind == "CONDITION"
+        codes = CONDITION_LABELS if condition else get_args(CauseType)
+        if self.code not in codes:
+            raise ValueError(f"unknown {self.kind.lower()} code")
+        sides = [self.baseline, self.target]
+        if condition and None in sides:
+            raise ValueError("a condition has a baseline and a target")
+        if not condition and (self.finding is not None or sides != [None, None]):
+            raise ValueError("a cause has no finding, baseline or target")
+        if condition and (self.finding is None) != (self.judgement == "UNCONFIRMED"):
+            raise ValueError("finding is null exactly when UNCONFIRMED")
+        if (self.unconfirmed_reason is None) != (self.judgement != "UNCONFIRMED"):
+            raise ValueError("unconfirmed_reason is set exactly when UNCONFIRMED")
+        check_reason(self.masked_summary, self.summary_missing_reason, "masked_summary")
+        for side in sides:
+            if side is not None and not set(side.evidence_ids) <= set(self.evidence_ids):
+                raise ValueError("side evidence must be among the item's evidence")
+        return self
+
+
+class TicketLocation(BaseModel):
+    """문의·해결 사례 근거의 텍스트 없는 위치."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["ticket", "resolution_case"]
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+
+
+class EvidenceWrite(BaseModel):
+    """새 근거 참조. 출처와 known_at은 서버가 원본 문의·사례에서 읽는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: EvidenceId
+    ticket_id: UUID
+    case_id: UUID | None = None
+    evidence_location: TicketLocation
+
+    @model_validator(mode="after")
+    def location_matches(self) -> Self:
+        """사례 근거는 사례 위치, 문의 근거는 문의 위치를 가리키는지 확인한다.
+
+        Returns:
+            Self: 검사를 통과한 모델.
+        """
+        if (self.case_id is not None) != (self.evidence_location.source == "resolution_case"):
+            raise ValueError("a case points at the case, a ticket at the ticket")
+        return self
+
+
+class JudgementWrite(BaseModel):
+    """판정 쓰기와 재검토. 보낸 항목만 바뀌고 나머지는 이전 판본에서 이어진다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The comparison version the user decided on.")
+    items: list[ItemWrite] = Field(min_length=1, max_length=13)
+    evidence: list[EvidenceWrite] = Field(default=[], max_length=50)
+
+    @model_validator(mode="after")
+    def unique(self) -> Self:
+        """항목과 새 근거 ID가 겹치지 않는지 확인한다.
+
+        Returns:
+            Self: 검사를 통과한 모델.
+        """
+        keys = [(i.kind, i.code) for i in self.items]
+        ids = [e.evidence_id for e in self.evidence]
+        if len(set(keys)) != len(keys) or len(set(ids)) != len(ids):
+            raise ValueError("items and evidence IDs are unique")
+        return self
