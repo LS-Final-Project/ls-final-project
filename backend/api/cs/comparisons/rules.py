@@ -1,5 +1,6 @@
-"""판정 전이(계약 '상태 전이' 표)와 새 판본 조립. DB나 요청 없이 테스트한다."""
+"""판정 전이(계약 '상태 전이' 표), 근거 제외, 새 판본 조립. DB나 요청 없이 테스트한다."""
 
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -71,8 +72,52 @@ def initial_items(now: datetime) -> list[Row]:
     ]
 
 
+def key(item: Row) -> str:
+    """항목의 감사·제외 이력 키를 만든다.
+
+    Args:
+        item: 항목 행.
+
+    Returns:
+        str: 'CONDITION:site_condition' 같은 키.
+    """
+    return f"{item['kind']}:{item['code']}"
+
+
+def expected_reason(
+    item: Row, evidence: dict[str, Row], removed: Collection[str], now: datetime
+) -> str | None:
+    """미확인 항목의 사유를 근거 상태에서 계산한다(계약 우선순위).
+
+    NOT_YET_KNOWN > EVIDENCE_REMOVED > VALUE_NOT_PROVIDED > NO_EVIDENCE 순으로 처음 맞는 하나다.
+
+    Args:
+        item: 항목 행.
+        evidence: 새 판본의 근거 ID → 근거 행.
+        removed: 근거 제외 이력이 있는 항목 키.
+        now: 판정 시각.
+
+    Returns:
+        str | None: 맞는 사유. 알려진 근거가 있고 값도 다 있으면 None(미확인일 이유가 없다).
+    """
+    cited = [evidence[e] for e in item["evidence_ids"]]
+    if cited and all(e["known_at"] > now for e in cited):
+        return "NOT_YET_KNOWN"
+    if key(item) in removed:
+        return "EVIDENCE_REMOVED"
+    missing = "NOT_PROVIDED" in (item["baseline_missing_reason"], item["target_missing_reason"])
+    if cited and missing:
+        return "VALUE_NOT_PROVIDED"
+    return None if cited else "NO_EVIDENCE"
+
+
 def check_item(
-    old: str, item: Row, provenance: str, evidence: dict[str, Row], now: datetime
+    old: str,
+    item: Row,
+    provenance: str,
+    evidence: dict[str, Row],
+    now: datetime,
+    removed: Collection[str] = (),
 ) -> None:
     """항목 하나의 전이가 계약 표와 조건을 지키는지 확인한다.
 
@@ -82,6 +127,7 @@ def check_item(
         provenance: 작성 주체(ai_draft·human_input·system_record).
         evidence: 새 판본의 근거 ID → 근거 행.
         now: 판정 시각. 이보다 늦게 알려진 근거는 세지 않는다.
+        removed: 근거 제외 이력이 있는 항목 키(EVIDENCE_REMOVED 판단).
 
     Returns:
         None: 표에 없는 전이·주체는 409 CS_INVALID_TRANSITION, 조건 미충족은 422.
@@ -108,6 +154,18 @@ def check_item(
         raise ApplicationError(
             409, "CS_INVALID_TRANSITION", "The system lowers a judgement only without evidence."
         )
+    if new == "UNCONFIRMED":
+        expected = expected_reason(item, evidence, removed, now)
+        if expected is None:
+            raise unprocessable(
+                "CS_REASON_MISMATCH",
+                "Known evidence and both values are present, so it is not unconfirmed. "
+                "SUSPECTED로 내리세요.",
+            )
+        if item["unconfirmed_reason"] != expected:
+            raise unprocessable(
+                "CS_REASON_MISMATCH", f"The evidence makes the unconfirmed reason {expected}."
+            )
     lowered = (old == "CONFIRMED" and new != "CONFIRMED") or (old, new) == (
         "SUSPECTED",
         "UNCONFIRMED",
@@ -190,8 +248,9 @@ def next_version(
     provenance: str,
     actor: UUID | None,
     now: datetime,
+    removals: Sequence[Row] = (),
 ) -> tuple[list[Row], list[Row], Row]:
-    """이전 판본에 쓰기를 적용한 새 판본 전체를 만든다. 근거는 추가만 한다.
+    """이전 판본에 쓰기를 적용한 새 판본 전체를 만든다. 근거 제외는 remove_evidence()다.
 
     Args:
         items: 이전 판본 항목 행.
@@ -201,11 +260,13 @@ def next_version(
         provenance: 작성 주체.
         actor: 판정한 사람.
         now: 판정 시각.
+        removals: 제외 이력 행(evidence_id·item_keys). 제외된 ID는 다시 쓰지 못한다.
 
     Returns:
         tuple[list[Row], list[Row], Row]: 새 항목 행, 새 근거 행, 감사 기록의 changes.
     """
-    kept = {e["evidence_id"] for e in evidence}
+    kept = {e["evidence_id"] for e in evidence} | {r["evidence_id"] for r in removals}
+    removed = {k for r in removals for k in r["item_keys"]}
     if kept & set(sources):
         raise unprocessable("CS_EVIDENCE_INVALID", "Evidence IDs are added once and never reused.")
     added = [
@@ -229,7 +290,7 @@ def next_version(
         key = (write_item.kind, write_item.code)
         old = current[key]["judgement"] if key in current else "UNCONFIRMED"
         row = item_row(write_item, provenance, actor, now)
-        check_item(old, row, provenance, by_id, now)
+        check_item(old, row, provenance, by_id, now, removed)
         current[key] = row
         changes[f"{write_item.kind}:{write_item.code}"] = {
             "from": old,
@@ -237,6 +298,100 @@ def next_version(
             "reason": row["reason"],
         }
     return list(current.values()), list(by_id.values()), changes
+
+
+def remove_evidence(
+    items: list[Row],
+    evidence: list[Row],
+    evidence_id: str,
+    reason: str,
+    removals: Sequence[Row],
+    now: datetime,
+) -> tuple[list[Row], list[Row], Row, list[str]]:
+    """근거 하나를 뺀 새 판본 전체를 만든다.
+
+    그 근거만 받치던 기준·대상 값은 null과 NOT_PROVIDED가 된다. 의심 항목에 알려진 근거가
+    남지 않으면 system_record가 미확인으로 내린다. 사람 판정(확정)이나 근거가 남은 의심을
+    시스템이 지울 수는 없어서, 제외가 그 판정의 조건을 깨면 409로 막고 재검토를 먼저 요구한다.
+
+    Args:
+        items: 이전 판본 항목 행.
+        evidence: 이전 판본 근거 행.
+        evidence_id: 뺄 근거 ID.
+        reason: 제외 사유.
+        removals: 이전 제외 이력 행.
+        now: 제외 시각.
+
+    Returns:
+        tuple[list[Row], list[Row], Row, list[str]]: 새 항목 행, 남은 근거 행, 감사 changes,
+        그 근거를 인용하던 항목 키.
+    """
+    if evidence_id not in {e["evidence_id"] for e in evidence}:
+        raise ApplicationError(
+            404, "CS_EVIDENCE_NOT_FOUND", "The evidence was not found or already removed."
+        )
+    left = [e for e in evidence if e["evidence_id"] != evidence_id]
+    by_id = {e["evidence_id"]: e for e in left}
+    removed = {k for r in removals for k in r["item_keys"]}
+    changes: Row = {f"evidence:{evidence_id}": {"removed": True, "reason": reason}}
+    affected: list[str] = []
+    shown = []
+    for old in items:
+        if evidence_id not in old["evidence_ids"]:
+            shown.append(old)
+            continue
+        row = dict(old)
+        affected.append(key(row))
+        row["evidence_ids"] = [e for e in row["evidence_ids"] if e != evidence_id]
+        for side in ("baseline", "target"):
+            row[side + "_evidence_ids"] = [
+                e for e in row[side + "_evidence_ids"] if e != evidence_id
+            ]
+            if row[side + "_value"] is not None and not row[side + "_evidence_ids"]:
+                row[side + "_value"], row[side + "_missing_reason"] = None, "NOT_PROVIDED"
+        judgement = row["judgement"]
+        if judgement in ("SUSPECTED", "CONFIRMED"):
+            known = [by_id[e] for e in row["evidence_ids"] if by_id[e]["known_at"] <= now]
+            missing = "NOT_PROVIDED" in (
+                row["baseline_missing_reason"],
+                row["target_missing_reason"],
+            )
+            holds = known and not missing
+            if judgement == "CONFIRMED":
+                holds = holds and any(e["case_id"] is not None for e in known)
+            if holds:
+                shown.append(row)
+                continue
+            if judgement == "CONFIRMED" or known:
+                raise ApplicationError(
+                    409,
+                    "CS_INVALID_TRANSITION",
+                    f"Removing it breaks the {judgement} judgement of {key(row)}; "
+                    "review the item first.",
+                )
+        if judgement is None:
+            shown.append(row)
+            continue
+        lowered = expected_reason(row, by_id, removed | {key(row)}, now)
+        if judgement != "UNCONFIRMED" or lowered != row["unconfirmed_reason"]:
+            row |= {
+                "judgement": "UNCONFIRMED",
+                "finding": None,
+                "unconfirmed_reason": lowered,
+                "provenance_kind": "system_record",
+                "decided_by": None,
+                "decided_by_name": None,
+                "decided_at": now,
+                "reason": None,
+            }
+            changes[key(row)] = {
+                "from": judgement,
+                "to": "UNCONFIRMED",
+                "reason": None,
+                "by": "system_record",
+            }
+        shown.append(row)
+    return shown, left, changes, affected
 
 
 def data_origin(evidence: list[Row], fallback: str) -> str:
