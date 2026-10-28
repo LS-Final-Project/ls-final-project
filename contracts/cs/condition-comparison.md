@@ -73,6 +73,8 @@
 
 - 조회: cs_agent와 C/S 부서 manager는 전체. dept_staff와 다른 부서 manager는 4.1 "개선요청 조회"에서 볼 수 있는 요청에 연결된 비교만 본다. sales는 볼 수 없다.
 - 근거 중 사용자의 문의 조회 범위(4.1 "문의 목록·상세 조회") 밖의 문의는 `evidence`에 넣지 않고 `hidden_evidence_count`로 건수만 낸다. 판정은 숨기지 않는다.
+- 조회 범위 밖 근거의 ID는 `conditions`·`causes`·`document_signals`의 `evidence_ids`에서도 제외하고 `hidden_evidence_count`에만 반영한다. 응답 수준 값은 숨긴 근거의 전체 건수, 항목 수준 값은 그 항목이 가리키던 숨긴 근거 건수다.
+- 근거가 모두 숨겨진 항목은 `judgement`·`finding`을 유지하되 `evidence_ids`는 빈 배열이고, 항목에 `hidden_evidence_count`를 둔다(존재 여부만 건수로).
 - 확정·재검토 같은 판정 변경은 cs_agent만 한다.
 - 오류: 범위 밖 404(존재를 숨김), 보이지만 행동 불가 403, 허용하지 않는 전이(예: `ai_draft`의 확정) 409, 판본 불일치 409/412, 근거 없는 확정 422. 서비스별 오류 코드 이름은 개선요청 계약처럼 구현 단위에서 `CS_` 접두로 정한다.
 
@@ -98,7 +100,8 @@
         "masked_summary": "펌웨어 2.x 사례에서만 재발",
         "provenance_kind": "human_input",
         "decided_at": "2026-10-27T09:00:00Z",
-        "evidence_ids": ["ev-1", "ev-2"]
+        "evidence_ids": ["ev-1", "ev-2"],
+        "hidden_evidence_count": 0
       },
       {
         "item_code": "INSTALL_ENVIRONMENT",
@@ -107,7 +110,8 @@
         "masked_summary": "고온 환경 의심(현장 ***)",
         "provenance_kind": "ai_draft",
         "decided_at": "2026-10-27T10:00:00Z",
-        "evidence_ids": ["ev-2"]
+        "evidence_ids": ["ev-2"],
+        "hidden_evidence_count": 0
       },
       {
         "item_code": "LOAD_PROFILE",
@@ -117,7 +121,8 @@
         "masked_summary": null,
         "provenance_kind": "system_record",
         "decided_at": "2026-10-27T08:00:00Z",
-        "evidence_ids": []
+        "evidence_ids": [],
+        "hidden_evidence_count": 0
       }
     ],
     "causes": [
@@ -127,14 +132,16 @@
         "masked_summary": "펌웨어 판올림 후 재발 감소",
         "provenance_kind": "ai_draft",
         "decided_at": "2026-10-27T10:00:00Z",
-        "evidence_ids": ["ev-1"]
+        "evidence_ids": ["ev-1"],
+        "hidden_evidence_count": 0
       }
     ],
     "document_signals": [
       {
         "doc_signal": "VALUE_CONFLICT",
         "provenance_kind": "system_record",
-        "evidence_ids": ["ev-3"]
+        "evidence_ids": ["ev-3"],
+        "hidden_evidence_count": 0
       }
     ],
     "evidence": [
