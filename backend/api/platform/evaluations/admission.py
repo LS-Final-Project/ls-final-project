@@ -7,7 +7,12 @@ from uuid import UUID, uuid4
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.cs_smoke import matches_profile
-from backend.api.platform.evaluations.schemas import EvaluationAdmission, EvaluationRunStatus
+from backend.api.platform.evaluations.schemas import (
+    EvaluationAdmission,
+    EvaluationExperiment,
+    EvaluationRunItem,
+    EvaluationRunStatus,
+)
 from backend.api.platform.jobs.admission import EvaluationJobRequest, admit_evaluation_job
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -245,3 +250,92 @@ async def get_run(
             needs_review=row["needs_review"],
             failure_code=row["failure_code"],
         )
+
+
+# ponytail: 커서 없이 최근 50개만 준다. 평가자 한 명의 실험·실행이 더 많아지면 커서를 더한다.
+LIST_LIMIT = 50
+
+
+async def list_experiments(
+    settings: Settings, access: EvaluationAccessSettings, actor: UUID
+) -> list[EvaluationExperiment]:
+    """본인 실험을 최근순으로 읽고 접수 가능 여부를 접수와 같은 규칙으로 계산한다.
+
+    Args:
+        settings: DB와 환경 설정.
+        access: 현재 서버 허용 목록.
+        actor: 현재 세션 사용자(지정 평가자 검사는 라우터가 한다).
+
+    Returns:
+        list[EvaluationExperiment]: 최대 50개. 구성 원문·manifest·hash·대상 ID는 없다.
+    """
+    available = admission_available(settings, access)
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT e.*, (SELECT count(*) FROM evaluation.experiment_targets t "
+            "WHERE t.experiment_id=e.id) AS target_count FROM evaluation.experiments e "
+            "WHERE e.created_by_user_id=%s ORDER BY e.created_at DESC, e.id LIMIT %s",
+            (actor, LIST_LIMIT),
+        )
+        rows = await cursor.fetchall()
+    items = []
+    for row in rows:
+        reason = None if available else "ADMISSION_UNAVAILABLE"
+        if reason is None:
+            try:
+                validate_smoke_experiment(row, access)
+            except ApplicationError as error:
+                reason = error.code
+        items.append(
+            EvaluationExperiment(
+                experiment_id=row["id"],
+                name=row["name"],
+                purpose=row["purpose"],
+                data_split=row["data_split"],
+                data_origin=row["data_origin"],
+                model_id=row["model_id"],
+                target_count=row["target_count"],
+                created_at=row["created_at"],
+                admissible=reason is None,
+                blocked_reason=reason,
+            )
+        )
+    return items
+
+
+async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
+    """본인 접수 실행을 최근순으로 읽는다. GET runs/{id}로 볼 수 있는 실행만 나온다.
+
+    Args:
+        settings: DB 설정.
+        actor: 현재 세션 사용자.
+
+    Returns:
+        list[EvaluationRunItem]: 최대 50개. 최종 시험 실행은 상태 조회처럼 숨긴다.
+    """
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT r.id,r.job_id,r.experiment_id,r.status,r.requested_count,r.needs_review,"
+            "r.failure_code,r.created_at FROM evaluation.runs r "
+            "JOIN evaluation.experiments e ON e.id=r.experiment_id "
+            "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+            "JOIN evaluation.run_control c ON c.run_id=r.id "
+            "WHERE r.requested_by_user_id=%s AND e.created_by_user_id=%s "
+            "AND e.data_split IS DISTINCT FROM 'test' "
+            "ORDER BY r.created_at DESC, r.id LIMIT %s",
+            (actor, actor, LIST_LIMIT),
+        )
+        rows = await cursor.fetchall()
+    return [
+        EvaluationRunItem(
+            run_id=row["id"],
+            job_id=row["job_id"],
+            experiment_id=row["experiment_id"],
+            status=row["status"],
+            requested_count=row["requested_count"],
+            needs_review=row["needs_review"],
+            failure_code=row["failure_code"],
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
