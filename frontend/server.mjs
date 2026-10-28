@@ -19,18 +19,34 @@ const mailboxAuthentication = new Map([
 ]);
 const mailboxForms = new Set(['/api/v1/platform/auth/mailbox/callback', '/api/v1/platform/auth/mailbox/complete']);
 const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/disconnect$/;
+// [경로 틀, 허용 메서드, 허용 query 키]. backend/api/platform/relay.py의 BUSINESS_ROUTES와 같아야 하며
+// 두 검사가 tests/fixtures/business_relay_routes.json과 각각 대조한다.
+export const businessRoutes = [
+  ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor']],
+  ['/api/v1/cs/tickets/{uuid}', ['GET', 'PATCH'], []],
+  ['/api/v1/cs/tickets/{uuid}/audit', ['GET'], []],
+  ['/api/v1/cs/tickets/{uuid}/units', ['GET'], []],
+  ['/api/v1/cs/tickets/{uuid}/unit-history', ['GET'], []],
+  ['/api/v1/cs/stats/overview', ['GET'], ['start', 'end', 'dept', 'customer']],
+  ['/api/v1/cs/stats/owners', ['GET'], ['start', 'end', 'dept']],
+  ['/api/v1/cs/stats/customers/{customer}', ['GET'], ['start', 'end']],
+  ['/api/v1/cs/improvement-requests', ['GET'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}', ['GET'], []],
+  ['/api/v1/tft/projects', ['GET'], ['limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}', ['GET'], []],
+];
+// 디코드한 경로에서 검사한다. customer는 이 문자만 허용해 ?·#·/가 upstream URL을 바꾸지 못하게 한다.
+const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9._-]{1,64}' };
+const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
+
 /**
- * 현재 구현된 업무 API의 경로·메서드만 반환한다.
+ * 허용표에서 경로와 정확히 일치하는 업무 API의 메서드·query 키를 찾는다.
  * Args: path는 디코딩된 요청 경로다.
- * Returns: 허용 메서드 배열 또는 빈 배열.
+ * Returns: [허용 메서드, 허용 query 키]. 업무 경로가 아니면 빈 배열 두 개.
  */
-function businessMethods(path) {
-  const uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
-  if (path === '/api/v1/cs/tickets') return ['GET', 'POST'];
-  if (new RegExp(`^/api/v1/cs/tickets/${uuid}$`).test(path)) return ['GET', 'PATCH'];
-  if (new RegExp(`^/api/v1/cs/tickets/${uuid}/audit$`).test(path)) return ['GET'];
-  if (path === '/api/v1/tft/projects' || new RegExp(`^/api/v1/tft/projects/${uuid}$`).test(path)) return ['GET'];
-  return [];
+function businessRoute(path) {
+  const found = compiledRoutes.find(([pattern]) => pattern.test(path));
+  return found ? [found[1], found[2]] : [[], []];
 }
 
 /**
@@ -97,7 +113,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         return relayEvaluationControl(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
-      const business = businessRelayEnabled ? businessMethods(path) : [];
+      const [business, businessQuery] = businessRelayEnabled ? businessRoute(path) : [[], []];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
       if (path === '/health') return json(response, 200, { status: 'ok', service: 'web' });
@@ -107,8 +123,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         if (business.length) {
           if (!business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
           const pairs = [...parsed.searchParams];
-          const list = ['/api/v1/cs/tickets', '/api/v1/tft/projects'].includes(path);
-          if (pairs.length && (request.method !== 'GET' || !list || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !['limit', 'cursor'].includes(key) || value.length > 200))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
+          if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || value.length > 200))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
         }
         const headers = { Authorization: `Bearer ${await tokenProvider()}` };
         let form;

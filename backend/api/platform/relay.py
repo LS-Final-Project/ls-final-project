@@ -19,7 +19,54 @@ from backend.shared.service_auth import CALLER_HEADER, metadata_token
 REQUEST_LIMIT = 1024 * 1024
 RESPONSE_LIMIT = 8 * 1024 * 1024
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+# 디코드한 경로에서 검사한다. 이 문자만 허용해 ?·#·/가 upstream URL을 바꾸지 못하게 한다.
+CUSTOMER_PATH = r"[A-Za-z0-9._-]{1,64}"
+# (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
+# 두 검사가 tests/fixtures/business_relay_routes.json과 각각 대조한다.
+BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("/api/v1/cs/tickets", ("GET", "POST"), ("limit", "cursor")),
+    ("/api/v1/cs/tickets/{uuid}", ("GET", "PATCH"), ()),
+    ("/api/v1/cs/tickets/{uuid}/audit", ("GET",), ()),
+    ("/api/v1/cs/tickets/{uuid}/units", ("GET",), ()),
+    ("/api/v1/cs/tickets/{uuid}/unit-history", ("GET",), ()),
+    ("/api/v1/cs/stats/overview", ("GET",), ("start", "end", "dept", "customer")),
+    ("/api/v1/cs/stats/owners", ("GET",), ("start", "end", "dept")),
+    ("/api/v1/cs/stats/customers/{customer}", ("GET",), ("start", "end")),
+    ("/api/v1/cs/improvement-requests", ("GET",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}", ("GET",), ()),
+    ("/api/v1/tft/projects", ("GET",), ("limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}", ("GET",), ()),
+)
+_PLACEHOLDERS = {"{uuid}": UUID_PATH, "{customer}": CUSTOMER_PATH}
+_COMPILED = [
+    (
+        re.compile(
+            "".join(
+                _PLACEHOLDERS.get(part, re.escape(part))
+                for part in re.split(r"(\{uuid\}|\{customer\})", template)
+            )
+        ),
+        set(methods),
+        set(query),
+    )
+    for template, methods, query in BUSINESS_ROUTES
+]
 router = APIRouter()
+
+
+def _route(path: str) -> tuple[set[str], set[str]]:
+    """허용표에서 경로와 정확히 일치하는 항목의 메서드·query 키를 찾는다.
+
+    Args:
+        path: 디코딩된 절대 요청 경로.
+
+    Returns:
+        tuple[set[str], set[str]]: 허용 메서드와 query 키. 없으면 빈 집합 두 개.
+    """
+    for pattern, methods, query in _COMPILED:
+        if pattern.fullmatch(path):
+            return methods, query
+    return set(), set()
 
 
 def allowed_methods(path: str) -> set[str]:
@@ -31,15 +78,19 @@ def allowed_methods(path: str) -> set[str]:
     Returns:
         set[str]: 허용 메서드. 업무 경로가 아니면 빈 집합.
     """
-    if path == "/api/v1/cs/tickets":
-        return {"GET", "POST"}
-    if re.fullmatch(rf"/api/v1/cs/tickets/{UUID_PATH}", path):
-        return {"GET", "PATCH"}
-    if re.fullmatch(rf"/api/v1/cs/tickets/{UUID_PATH}/audit", path):
-        return {"GET"}
-    if path == "/api/v1/tft/projects" or re.fullmatch(rf"/api/v1/tft/projects/{UUID_PATH}", path):
-        return {"GET"}
-    return set()
+    return _route(path)[0]
+
+
+def allowed_query(path: str) -> set[str]:
+    """허용된 업무 경로가 받을 수 있는 query 키만 반환한다.
+
+    Args:
+        path: 디코딩된 절대 요청 경로.
+
+    Returns:
+        set[str]: 허용 query 키. 빈 집합이면 query를 받지 않는다.
+    """
+    return _route(path)[1]
 
 
 def forward(method: str, url: str, headers: dict[str, str], body: bytes) -> Response:
@@ -143,18 +194,20 @@ async def relay(request: Request, path: str) -> Response:
     settings = request.app.state.settings
     if not settings.business_relay_enabled:
         raise HTTPException(404)
-    methods = allowed_methods(request.url.path)
+    # request.url.path는 디코드된 ?를 query로 다시 잘라 낼 수 있어 scope의 경로를 쓴다.
+    path = request.scope["path"]
+    methods = allowed_methods(path)
     if not methods:
         raise HTTPException(404)
     if request.method not in methods:
         raise HTTPException(405)
     pairs = request.query_params.multi_items()
-    list_path = request.url.path in {"/api/v1/cs/tickets", "/api/v1/tft/projects"}
+    keys = allowed_query(path)
     if pairs and (
         request.method != "GET"
-        or not list_path
+        or not keys
         or len(pairs) != len(dict(pairs))
-        or any(k not in {"limit", "cursor"} or len(v) > 200 for k, v in pairs)
+        or any(k not in keys or len(v) > 200 for k, v in pairs)
     ):
         raise HTTPException(400)
     auth = configuration(request)
@@ -186,9 +239,7 @@ async def relay(request: Request, path: str) -> Response:
             raise HTTPException(413)
         chunks.append(chunk)
     target = (
-        settings.business_cs_url
-        if request.url.path.startswith("/api/v1/cs/")
-        else settings.business_tft_url
+        settings.business_cs_url if path.startswith("/api/v1/cs/") else settings.business_tft_url
     )
     caller = await asyncio.to_thread(request.app.state.business_token_provider, target)
     outgoing = {
@@ -207,7 +258,7 @@ async def relay(request: Request, path: str) -> Response:
     return await asyncio.to_thread(
         request.app.state.business_forwarder,
         request.method,
-        target + request.url.path + query,
+        target + path + query,
         outgoing,
         b"".join(chunks),
     )
