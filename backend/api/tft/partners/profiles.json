@@ -497,6 +497,13 @@
           "ASSEMBLY",
           "TEST"
         ]
+      },
+      {
+        "product_code": "SYN-LA-BRK-4000",
+        "model": "LA-BRK-4000",
+        "scope": [
+          "SUPPLY"
+        ]
       }
     ],
     "integrator_capable": {

@@ -3,11 +3,13 @@
 import json
 from datetime import date
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
 from backend.api.tft.partners.loader import PROFILES, load_profiles
+from backend.api.tft.partners.schemas import Attribute
 
 FOLDER = PROFILES.parent
 PROFILE_LIST = load_profiles()
@@ -54,6 +56,27 @@ def test_duplicate_code_and_unknown_key_are_rejected(tmp_path: Path) -> None:
     graded.write_text(json.dumps([{**raw[0], "grade": "REVIEW"}]), encoding="utf-8")
     with pytest.raises(ValidationError):
         load_profiles(graded)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda a, b: b["products"].append(a["products"][0]), "product_code가 겹칩니다"),
+        (
+            lambda a, b: a["spec_facts"].append({**a["spec_facts"][0], "product_code": "SYN-X"}),
+            "제품코드",
+        ),
+        (lambda a, b: a["certifications"][0]["applicable_models"].append("X-MODEL"), "적용 모델"),
+    ],
+)
+def test_references_outside_own_products_are_rejected(tmp_path: Path, change, message: str) -> None:
+    raw = json.loads(PROFILES.read_text(encoding="utf-8"))
+    first, second = raw[0], raw[1]
+    change(first, second)
+    broken = tmp_path / "broken.json"
+    broken.write_text(json.dumps([first, second]), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_profiles(broken)
 
 
 def test_pools_only_name_known_candidates() -> None:
@@ -119,3 +142,7 @@ def test_demo_cases_only_cover_document_14() -> None:
         "L-B": "EXCLUDED",
     }
     assert len(cases["C"]["edit_traces"]) == 2 and len(cases["C"]["questions"]) == 3
+    # 요구 쪽 어휘는 프로필 사양 어휘에 인증 요구(certification)를 더한 것이다.
+    vocabulary = set(get_args(Attribute)) | {"certification"}
+    attributes = {r["attribute"] for case in DEMO["cases"] for r in case.get("requirements", [])}
+    assert attributes - {None} <= vocabulary
