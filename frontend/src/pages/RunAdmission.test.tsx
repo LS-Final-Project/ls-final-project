@@ -133,3 +133,16 @@ test('막힌 실험 접수 거절은 사유로 안내하고 목록 응답이 틀
   view({ experiments: [{ ...experiment(READY, 'x', null), admissible: false }] });
   expect((await screen.findByRole('alert')).textContent).toBe('실험 목록을 확인할 수 없습니다.');
 });
+
+test('결과를 모르는 접수가 남아 있으면 표의 재접수와 실험 변경을 막아 앞 접수의 키를 잃지 않는다', async () => {
+  const { fetchMock } = view({ post: () => jsonResponse(503, errorBody('DEPENDENCY_UNAVAILABLE', 'x')) });
+  fireEvent.change(await screen.findByLabelText(/실험/), { target: { value: READY } });
+  fireEvent.click(screen.getByRole('button', { name: '접수' }));
+  await screen.findByRole('button', { name: '같은 접수로 다시 확인' });
+  expect(screen.getByText(/먼저 '같은 접수로 다시 확인'을 눌러/)).toBeTruthy();
+  const again = screen.getByRole('button', { name: '같은 실험으로 다시 접수' }) as HTMLButtonElement;
+  expect(again.disabled).toBe(true);
+  fireEvent.click(again);
+  expect((screen.getByLabelText(/^실험/) as HTMLSelectElement).disabled).toBe(true);
+  expect(posts(fetchMock)).toHaveLength(1);
+});

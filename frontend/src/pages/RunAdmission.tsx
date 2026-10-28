@@ -64,7 +64,7 @@ export default function RunAdmission({ onOpen }: { onOpen: (jobId: string) => vo
         if (experiment?.admissible) void submit(pending?.experimentId === experiment.experimentId ? pending : prepareAdmission(experiment.experimentId));
       }}>
         <label htmlFor="evaluation-experiment">실험<span>모델·설정은 실험에 고정되어 있습니다. 접수할 수 없는 실험은 사유와 함께 표시합니다.</span></label>
-        <div><select id="evaluation-experiment" value={selected} disabled={!formOpen || busy}
+        <div><select id="evaluation-experiment" value={selected} disabled={!formOpen || busy || pending !== null}
           onChange={event => { setSelected(event.target.value); setPending(null); setError(null); }}>
           <option value="">실험을 선택하세요</option>
           {lists.experiments.map(item => <option key={item.experimentId} value={item.experimentId} disabled={!item.admissible}>
@@ -79,6 +79,7 @@ export default function RunAdmission({ onOpen }: { onOpen: (jobId: string) => vo
         {experiment.blockedReason && <><dt>접수 불가</dt><dd>{blockedLabels[experiment.blockedReason]}</dd></>}
       </dl>}
       {error && <p role="alert" className="error">{error.message}</p>}
+      {pending && <p role="status">결과를 확인하지 못한 접수가 있습니다. 새 접수 전에 먼저 '같은 접수로 다시 확인'을 눌러 결과를 확인하세요.</p>}
       {lists.runs.length === 0 ? <p>접수한 실행이 없습니다.</p> : <table aria-label="내 실행">
         <thead><tr><th>접수 시각</th><th>상태</th><th>대상</th><th>작업</th></tr></thead>
         <tbody>{lists.runs.map(run => {
@@ -88,7 +89,7 @@ export default function RunAdmission({ onOpen }: { onOpen: (jobId: string) => vo
             <td>{statusLabels[run.status]}{run.needsReview ? ' · 검토 필요' : ''}</td><td>{run.requestedCount}</td>
             <td><button onClick={() => onOpen(run.jobId)}>열기</button>
               {RETRYABLE.has(run.status) && formOpen && source?.admissible
-                && <button disabled={busy} onClick={() => { setSelected(run.experimentId); void submit(prepareAdmission(run.experimentId)); }}>같은 실험으로 다시 접수</button>}</td>
+                && <button disabled={busy || pending !== null} onClick={() => { setSelected(run.experimentId); void submit(prepareAdmission(run.experimentId)); }}>같은 실험으로 다시 접수</button>}</td>
           </tr>;
         })}</tbody>
       </table>}
