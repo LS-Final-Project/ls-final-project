@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from backend.api.platform.mail import send_worker
 from backend.api.platform.mail.send import payload_sha256
 from backend.api.platform.mail.send_worker import MailSendSettings, configure_mail_send
 from backend.api.platform.mail.storage import content_key
@@ -359,7 +360,12 @@ def test_copy_check_retries_until_the_sent_copy_appears(settings, sender):
     assert (second.status_code, second.json()["data"]["code"]) == (200, None)
 
 
-def test_sweep_recovers_stuck_and_unregistered_work(settings, sender):
+NOW = 1_800_000_000  # 정리 작업 시간 구간을 고정한다.
+SLOT = NOW // 300
+
+
+def test_sweep_recovers_stuck_and_unregistered_work(settings, sender, monkeypatch):
+    monkeypatch.setattr(send_worker.time, "time", lambda: NOW)
     world = World(settings)
     stuck = created(world, sender)
     waiting = world.post("send-intents", payload(sender, world, business_version=3), AS_CS).json()[
@@ -390,10 +396,10 @@ def test_sweep_recovers_stuck_and_unregistered_work(settings, sender):
     data = response.json()["data"]
     assert data["interrupted"] >= 1 and data["failed"] == 0
     names = set(world.tasks.named("mail"))
-    assert f"mailsend-{waiting}-a0" in names
-    assert f"mailconfirm-{unknown}-u1" in names
+    assert f"mailsend-{waiting}-a0-t{SLOT}" in names
+    assert f"mailconfirm-{unknown}-u1-t{SLOT}" in names
     # 멈췄던 전송은 결과 불명이 되고 유예가 지나 대조 대상이 된다.
-    assert f"mailconfirm-{stuck}-u1" in names
+    assert f"mailconfirm-{stuck}-u1-t{SLOT}" in names
     assert rows(
         sender["dsn"],
         "SELECT status FROM integration.mail_send_intents WHERE id=%s",
@@ -412,3 +418,61 @@ def test_sweep_registration_failure_asks_the_scheduler_to_retry(settings, sender
         )
     world.tasks.status = 500
     assert world.post("send-sweep", {}, AS_TASKS).status_code == 503
+
+
+def test_missed_copy_check_after_acceptance_is_recovered_by_the_sweep(
+    settings, sender, monkeypatch
+):
+    monkeypatch.setattr(send_worker.time, "time", lambda: NOW)
+    world = World(settings)
+    intent = created(world, sender)
+    world.tasks.status = 500
+    response = world.post("send", {"intent_id": intent}, AS_TASKS)
+    # 이미 접수된 전송을 503으로 되돌려 큐가 다시 부르게 하지 않는다.
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "intent_id": intent,
+        "status": "ACCEPTED",
+        "code": "MAIL_CONFIRM_NOT_REGISTERED",
+    }
+    world.tasks.status = None
+    with psycopg.connect(sender["dsn"]) as conn:
+        conn.execute(
+            "UPDATE integration.mail_send_intents SET accepted_at=now() - interval '5 minutes' "
+            "WHERE id=%s",
+            (intent,),
+        )
+    assert world.post("send-sweep", {}, AS_TASKS).status_code == 200
+    assert f"mailconfirm-{intent}-r1-t{SLOT}" in world.tasks.named("mailconfirm-")
+
+
+def test_sweep_uses_a_new_task_name_each_period(settings, sender, monkeypatch):
+    world = World(settings)
+    waiting = created(world, sender)
+    with psycopg.connect(sender["dsn"]) as conn:
+        conn.execute(
+            "UPDATE integration.mail_send_intents SET updated_at=now() - interval '5 minutes' "
+            "WHERE id=%s",
+            (waiting,),
+        )
+    # 앞 구간 작업이 실패로 끝나 이름이 막혀 있어도, 다음 구간에는 새 작업이 생긴다.
+    for now in (NOW, NOW + 300):
+        monkeypatch.setattr(send_worker.time, "time", lambda now=now: now)
+        world.post("send-sweep", {}, AS_TASKS)
+    names = set(world.tasks.named("mailsend-"))
+    assert {f"mailsend-{waiting}-a0-t{SLOT}", f"mailsend-{waiting}-a0-t{SLOT + 1}"} <= names
+
+
+def test_tasks_token_failure_after_acceptance_is_not_a_queue_retry(settings, sender):
+    world = World(settings)
+    intent = created(world, sender)
+
+    async def broken():
+        raise send_worker.dispatch_unavailable()
+
+    world.client.app.state.mail_send_tasks_token = broken
+    response = world.post("send", {"intent_id": intent}, AS_TASKS)
+    assert (response.status_code, response.json()["data"]["code"]) == (
+        200,
+        "MAIL_CONFIRM_NOT_REGISTERED",
+    )

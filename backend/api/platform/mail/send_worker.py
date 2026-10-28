@@ -17,6 +17,7 @@ import asyncio
 import base64
 import json
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Self
 from uuid import UUID
@@ -45,6 +46,8 @@ PREFIX = "/internal/v1/platform/mail"
 CONFIRM_DELAY = timedelta(seconds=60)
 STALE_QUEUED = timedelta(minutes=2)
 STUCK_SUBMITTING = timedelta(minutes=15)
+# 정리 작업 주기(Scheduler 5분)와 같은 시간 구간. 정리 작업이 거는 작업 이름에 넣는다.
+SWEEP_SLOT_SECONDS = 300
 
 
 class MailSendSettings(BaseSettings):
@@ -270,7 +273,11 @@ async def enqueue(
     }
     if delay is not None:
         task["scheduleTime"] = (datetime.now(UTC) + delay).isoformat().replace("+00:00", "Z")
-    token = await request.app.state.mail_send_tasks_token()
+    try:
+        token = await request.app.state.mail_send_tasks_token()
+    except ApplicationError:
+        # 등록하지 못한 일은 정리 작업이 다시 찾는다. 이미 끝난 전송을 503으로 되돌리지 않는다.
+        return False
     try:
         response = await http.post(
             f"{TASKS_API}/{value.queue}/tasks",
@@ -402,7 +409,7 @@ async def run_send(request: Request) -> JSONResponse:
                 request, WorkOutcome(intent_id=ref.intent_id, status="SKIPPED", code=error.code)
             )
         if result.status == "ACCEPTED":
-            await enqueue(
+            registered = await enqueue(
                 request,
                 graph_client,
                 "send-confirm",
@@ -410,6 +417,12 @@ async def run_send(request: Request) -> JSONResponse:
                 ref.intent_id,
                 CONFIRM_DELAY,
             )
+            if not registered:
+                # 정리 작업이 접수 뒤 사본 확인이 없는 의도를 다시 찾아 등록한다.
+                outcome = WorkOutcome(
+                    intent_id=ref.intent_id, status="ACCEPTED", code="MAIL_CONFIRM_NOT_REGISTERED"
+                )
+                return ok(request, outcome)
     outcome = WorkOutcome(intent_id=ref.intent_id, status=result.status, code=result.error_code)
     return ok(request, outcome, 503 if result.status == "QUEUED" else 200)
 
@@ -470,20 +483,20 @@ async def sweep(request: Request) -> JSONResponse:
     settings = request.app.state.settings
     interrupted = await send.expire_submitting(settings, STUCK_SUBMITTING)
     work = await send.pending_work(settings, stale_after=STALE_QUEUED)
+    # Cloud Tasks는 끝난 작업의 이름도 한동안 다시 쓰지 못하게 한다. 정리 작업이 거는 이름에는
+    # 시간 구간을 넣어, 앞선 작업이 실패로 끝났어도 다음 주기에 새 작업이 생기게 한다.
+    slot = int(time.time()) // SWEEP_SLOT_SECONDS
+    jobs = [("send", f"{send_task(i, n)}-t{slot}", i) for i, n in work["queued"]]
+    jobs += [("send-confirm", f"mailconfirm-{i}-u{n}-t{slot}", i) for i, n in work["unknown"]]
+    jobs += [("send-confirm", f"mailconfirm-{i}-r{n}-t{slot}", i) for i, n in work["accepted"]]
     failed = 0
     async with client(request, httpx.Timeout(10)) as http:
-        for intent_id, attempts in work["queued"]:
-            failed += not await enqueue(
-                request, http, "send", send_task(intent_id, attempts), intent_id
-            )
-        for intent_id, attempts in work["unknown"]:
-            failed += not await enqueue(
-                request, http, "send-confirm", f"mailconfirm-{intent_id}-u{attempts}", intent_id
-            )
+        for path, name, intent_id in jobs:
+            failed += not await enqueue(request, http, path, name, intent_id)
     data = SweepData(
         interrupted=interrupted,
         queued=len(work["queued"]),
-        confirms=len(work["unknown"]),
+        confirms=len(work["unknown"]) + len(work["accepted"]),
         failed=failed,
     )
     return ok(request, data, 503 if failed else 200)

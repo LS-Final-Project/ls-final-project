@@ -215,7 +215,8 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - **업무 서비스 고정**: `owner_service`는 본문이 아니라 검증된 호출 계정이 정한다(C/S 계정 → `cs`). 상태 조회도 같은 서비스의 의도만 보이고 나머지는 404다.
 - **작업 이름**: 전송 `mailsend-<id>-a<시도 수>`, 사본 확인 `mailconfirm-<id>-s<시도 수>`(전송 뒤)·`-u<시도 수>`(정리 작업이 결과 불명 대조). 같은 일을 두 번 등록하지 않는다. 같은 작업이 다시 전달돼도 `QUEUED`가 아니면 보내지 않는다(200 `SKIPPED`).
 - **응답과 재시도**: `/send`는 미뤄진 전송(`QUEUED`)만 503(큐 재시도, 최대 5회 30~600초), 접수·결과 불명·실패·중복은 200. 연결이 끊긴 사서함의 대기 의도는 `FAILED` `MAILBOX_NOT_CONNECTED`로 마감한다. `/send-confirm`은 접수됐는데 사본이 아직 없으면 503, 결과 불명에서 사본이 없으면 이력에 남기고 200(사람이 판단). `/send-sweep`은 등록 실패가 있으면 503(Scheduler 재시도).
-- **정리 작업**: 15분 넘게 `SUBMITTING`이면 `UNKNOWN`(`MAIL_SUBMIT_INTERRUPTED`), 2분 넘게 움직임 없는 `QUEUED`는 전송 작업 재등록(생성 때 등록 실패 대비), 유예(10분)가 지났는데 유예 뒤 대조 기록이 없는 `UNKNOWN`은 사본 확인 작업 등록.
+- **정리 작업**: 15분 넘게 `SUBMITTING`이면 `UNKNOWN`(`MAIL_SUBMIT_INTERRUPTED`), 2분 넘게 움직임 없는 `QUEUED`는 전송 작업 재등록(생성 때 등록 실패 대비), 유예(10분)가 지났는데 유예 뒤 대조 기록이 없는 `UNKNOWN`과 접수 뒤 2분이 지났는데 사본 확인이 없는 `ACCEPTED`(하루 이내)는 사본 확인 작업 등록. Cloud Tasks는 끝난 작업 이름을 한동안 다시 쓰지 못하게 하므로, 정리 작업이 거는 이름에는 5분 시간 구간을 붙인다(`-t<구간>`, 앞 작업이 실패로 끝나도 다음 주기에 새 작업).
+- 접수 직후 사본 확인 작업 등록이 실패해도 `/send`는 200(`MAIL_CONFIRM_NOT_REGISTERED`)으로 끝내고 정리 작업이 복구한다. 이미 접수된 전송을 큐가 다시 부르게 하지 않는다.
 - 큐·권한·정리 작업 준비는 `infra/setup_mail_send.sh`(인프라 담당자 실행, `setup_mail_sync.sh` 뒤). C/S 계정에 플랫폼 `run.invoker`, `platform-runtime`에 `mail-send` 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
 
 ## 남은 작업

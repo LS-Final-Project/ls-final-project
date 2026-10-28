@@ -717,7 +717,8 @@ async def pending_work(settings: Settings, *, stale_after: timedelta) -> dict[st
 
     Returns:
         dict[str, list[Any]]: `queued`는 (ID, 시도 수), `unknown`은 유예가 지났는데
-        유예 뒤 사본 확인이 없는 `UNKNOWN` (ID, 시도 수).
+        유예 뒤 사본 확인이 없는 `UNKNOWN`, `accepted`는 접수 뒤 `stale_after`가 지났는데
+        사본 확인이 없는 `ACCEPTED`(하루 이내) (ID, 시도 수).
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
@@ -734,7 +735,16 @@ async def pending_work(settings: Settings, *, stale_after: timedelta) -> dict[st
             (RESEND_GRACE, RESEND_GRACE),
         )
         unknown = [(r["id"], r["attempts"]) for r in await cursor.fetchall()]
-    return {"queued": queued, "unknown": unknown}
+        # 접수됐는데 사본 확인이 아직 없는 의도(확인 작업 등록이 빠졌거나 실패한 경우).
+        # 하루가 지나면 더 찾지 않는다(보낸편지함에 끝내 안 보이는 경우 무한 확인 방지).
+        cursor = await conn.execute(
+            "SELECT id, attempts FROM integration.mail_send_intents "
+            "WHERE status='ACCEPTED' AND sent_copy_confirmed_at IS NULL "
+            "AND accepted_at < now() - %s AND accepted_at > now() - interval '1 day' ORDER BY id",
+            (stale_after,),
+        )
+        accepted = [(r["id"], r["attempts"]) for r in await cursor.fetchall()]
+    return {"queued": queued, "unknown": unknown, "accepted": accepted}
 
 
 async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
