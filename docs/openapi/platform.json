@@ -161,6 +161,120 @@
         "title": "EvaluationAdmission",
         "type": "object"
       },
+      "EvaluationExperiment": {
+        "description": "\ubcf8\uc778\uc774 \ub9cc\ub4e0 \uc2e4\ud5d8 \ud558\ub098. \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID\ub294 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "admissible": {
+            "title": "Admissible",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ADMISSION_UNAVAILABLE",
+                  "FINAL_TEST_LOCKED",
+                  "EXPERIMENT_NOT_APPROVED",
+                  "LOCAL_SMOKE_ONLY",
+                  "EXPERIMENT_HASH_MISMATCH"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "data_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "valid",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Split"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "smoke",
+              "rule_replay",
+              "pipeline"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "name",
+          "purpose",
+          "data_split",
+          "data_origin",
+          "model_id",
+          "target_count",
+          "created_at",
+          "admissible",
+          "blocked_reason"
+        ],
+        "title": "EvaluationExperiment",
+        "type": "object"
+      },
+      "EvaluationExperiments": {
+        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationExperiment"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "EvaluationExperiments",
+        "type": "object"
+      },
       "EvaluationJobStatus": {
         "additionalProperties": false,
         "description": "\uc2e4\ud589 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4.",
@@ -291,6 +405,75 @@
           }
         },
         "title": "EvaluationPolicy",
+        "type": "object"
+      },
+      "EvaluationRunItem": {
+        "description": "\ubcf8\uc778 \uc811\uc218 \uc2e4\ud589 \ud558\ub098. \uc6d0\uc2dc \ucd9c\ub825\u00b7\uc815\ub2f5\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "requested_count": {
+            "title": "Requested Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id",
+          "experiment_id",
+          "status",
+          "requested_count",
+          "needs_review",
+          "failure_code",
+          "created_at"
+        ],
+        "title": "EvaluationRunItem",
         "type": "object"
       },
       "EvaluationRunRequest": {
@@ -496,6 +679,23 @@
           "all"
         ],
         "title": "EvaluationRunSummary",
+        "type": "object"
+      },
+      "EvaluationRuns": {
+        "description": "\ubcf8\uc778 \uc811\uc218 \uc2e4\ud589 \ucd5c\uadfc 50\uac1c.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationRunItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "EvaluationRuns",
         "type": "object"
       },
       "Evidence": {
@@ -1305,6 +1505,22 @@
         "title": "SuccessResponse[EvaluationAdmission]",
         "type": "object"
       },
+      "SuccessResponse_EvaluationExperiments_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationExperiments"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationExperiments]",
+        "type": "object"
+      },
       "SuccessResponse_EvaluationJobStatus_": {
         "properties": {
           "data": {
@@ -1367,6 +1583,22 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationRunSummary]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationRuns_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRuns"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRuns]",
         "type": "object"
       },
       "SuccessResponse_HealthData_": {
@@ -2557,6 +2789,58 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/platform/evaluations/experiments": {
+      "get": {
+        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c\uc640 \uc811\uc218 \uac00\ub2a5 \uc5ec\ubd80\u00b7\ub9c9\ud78c \uc0ac\uc720\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\ud5c8\uc6a9 \ubaa9\ub85d\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse[EvaluationExperiments]: \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID \uc5c6\ub294 \ubaa9\ub85d.",
+        "operationId": "platform_list_evaluation_experiments",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationExperiments_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Experiments",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
     "/api/v1/platform/evaluations/policy": {
       "get": {
         "description": "\uc9c0\uc815 \ud3c9\uac00\uc790\uc5d0\uac8c \ud655\uc815\ub41c \uc8fc\uc9c0\ud45c \uc120\ud0dd\uacfc \ubbf8\uad6c\ud604 \uc2e4\ud589 \uc7a0\uae08\uc744 \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud558\uace0 \uc694\uccad ID\uac00 \ubd80\uc5ec\ub41c \uc694\uccad.\n\nReturns:\n    SuccessResponse[EvaluationPolicy]: \uc6d0\ubb38\u00b7\uc815\ub2f5\u00b7\uc0ac\uc6a9\uc790 \ud5c8\uc6a9 \ubaa9\ub85d\uc774 \uc5c6\ub294 \uc815\ucc45.",
@@ -2610,6 +2894,56 @@
       }
     },
     "/api/v1/platform/evaluations/runs": {
+      "get": {
+        "description": "\ubcf8\uc778 \uc811\uc218 \uc2e4\ud589 \ucd5c\uadfc 50\uac1c\ub97c \ubc18\ud658\ud55c\ub2e4(\ucd5c\uc885 \uc2dc\ud5d8 \uc2e4\ud589 \uc81c\uc678).\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse[EvaluationRuns]: \uc6d0\uc2dc \ucd9c\ub825\u00b7\uc815\ub2f5 \uc5c6\ub294 \uc2e4\ud589 \ubaa9\ub85d.",
+        "operationId": "platform_list_evaluation_runs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRuns_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Runs",
+        "tags": [
+          "evaluations"
+        ]
+      },
       "post": {
         "description": "\uba85\uc2dc\uc801\uc73c\ub85c \ucf20 local/test \ud658\uacbd\uc758 \uc2b9\uc778\ub41c \ud569\uc131 smoke\ub9cc \uc800\uc7a5 \uc811\uc218\ud55c\ub2e4. \uc2e4\ud589\uae30\ub294 \ubbf8\uc5f0\uacb0\uc774\ub2e4.",
         "operationId": "platform_request_evaluation_run",
