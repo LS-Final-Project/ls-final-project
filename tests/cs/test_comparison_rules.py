@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from backend.api.cs.comparisons import rules
+from backend.api.cs.comparisons import examples, rules
 from backend.api.cs.comparisons.schemas import ItemWrite, JudgementWrite
 from backend.shared.errors import ApplicationError
 
@@ -34,7 +34,10 @@ EVIDENCE = {e["evidence_id"]: e for e in (KNOWN_CASE, KNOWN_TICKET, LATER_CASE)}
 
 def item(judgement, **changes):
     row = {
+        "kind": "CONDITION",
+        "code": "application",
         "judgement": judgement,
+        "unconfirmed_reason": "NO_EVIDENCE" if judgement == "UNCONFIRMED" else None,
         "baseline_missing_reason": None,
         "target_missing_reason": None,
         "evidence_ids": [] if judgement == "UNCONFIRMED" else ["ev-1"],
@@ -103,7 +106,16 @@ def test_conditions_that_pass():
     assert error("UNCONFIRMED", "SUSPECTED", "ai_draft", reason=None) is None
     assert error("UNCONFIRMED", "UNCONFIRMED", "human_input", reason=None) is None
     # 아직 알려지지 않은 근거도 미확인 항목에는 남길 수 있다(NOT_YET_KNOWN).
-    assert error("UNCONFIRMED", "UNCONFIRMED", "human_input", evidence_ids=["ev-3"]) is None
+    assert (
+        error(
+            "UNCONFIRMED",
+            "UNCONFIRMED",
+            "human_input",
+            evidence_ids=["ev-3"],
+            unconfirmed_reason="NOT_YET_KNOWN",
+        )
+        is None
+    )
 
 
 def test_the_system_lowers_a_suspicion_only_when_no_evidence_is_left():
@@ -264,3 +276,153 @@ def test_version_origin_follows_its_evidence():
     assert (
         rules.data_origin([{"data_origin": "synthetic"}, {"data_origin": "real"}], "real") == "demo"
     )
+
+
+@pytest.mark.parametrize(
+    ("evidence_ids", "missing", "removed", "expected"),
+    [
+        ([], None, False, "NO_EVIDENCE"),
+        (["ev-3"], None, False, "NOT_YET_KNOWN"),
+        (["ev-3"], None, True, "NOT_YET_KNOWN"),  # 아직 모름이 제외 이력보다 앞선다.
+        (["ev-1"], None, True, "EVIDENCE_REMOVED"),
+        ([], None, True, "EVIDENCE_REMOVED"),
+        (["ev-1"], "NOT_PROVIDED", True, "EVIDENCE_REMOVED"),
+        (["ev-1"], "NOT_PROVIDED", False, "VALUE_NOT_PROVIDED"),
+        (["ev-1", "ev-3"], "NOT_PROVIDED", False, "VALUE_NOT_PROVIDED"),
+        (["ev-1"], None, False, None),
+    ],
+)
+def test_the_unconfirmed_reason_follows_the_evidence(evidence_ids, missing, removed, expected):
+    row = item("UNCONFIRMED", evidence_ids=evidence_ids, target_missing_reason=missing)
+    keys = {"CONDITION:application"} if removed else set()
+    assert rules.expected_reason(row, EVIDENCE, keys, NOW) == expected
+
+
+def test_a_person_cannot_pick_an_unconfirmed_reason_the_evidence_denies():
+    citing = {"evidence_ids": ["ev-1"]}
+    assert error("SUSPECTED", "UNCONFIRMED", "human_input", **citing) == (
+        422,
+        "CS_REASON_MISMATCH",
+    )
+    with pytest.raises(ApplicationError) as exc:
+        rules.check_item("CONFIRMED", item("UNCONFIRMED", **citing), "human_input", EVIDENCE, NOW)
+    assert "SUSPECTED로 내리세요" in exc.value.message
+    removed = {"unconfirmed_reason": "EVIDENCE_REMOVED"}
+    assert error("UNCONFIRMED", "UNCONFIRMED", "human_input", **removed) == (
+        422,
+        "CS_REASON_MISMATCH",
+    )
+    rules.check_item(
+        "UNCONFIRMED",
+        item("UNCONFIRMED", **removed),
+        "human_input",
+        EVIDENCE,
+        NOW,
+        {"CONDITION:application"},
+    )
+
+
+CASE = examples.CASE_EVIDENCE
+TICKET = examples.TICKET_EVIDENCE | {"known_at": NOW - timedelta(days=2)}
+LATER = examples.TICKET_EVIDENCE | {"evidence_id": "ev-9", "known_at": NOW + timedelta(days=1)}
+
+
+def remove(rows, evidence, evidence_id, removals=()):
+    return rules.remove_evidence(rows, evidence, evidence_id, "합성 제외 사유", removals, NOW)
+
+
+def test_removing_the_last_evidence_of_a_suspicion_lowers_it_by_the_system():
+    [row], left, changes, affected = remove([examples.DIFFERS], [CASE], "ev-1")
+    assert left == [] and affected == ["CONDITION:application"]
+    assert (row["judgement"], row["finding"], row["unconfirmed_reason"]) == (
+        "UNCONFIRMED",
+        None,
+        "EVIDENCE_REMOVED",
+    )
+    assert (row["provenance_kind"], row["decided_by"], row["decided_at"]) == (
+        "system_record",
+        None,
+        NOW,
+    )
+    assert (row["baseline_value"], row["baseline_missing_reason"]) == (None, "NOT_PROVIDED")
+    assert row["evidence_ids"] == [] and row["target_evidence_ids"] == []
+    assert changes == {
+        "evidence:ev-1": {"removed": True, "reason": "합성 제외 사유"},
+        "CONDITION:application": {
+            "from": "SUSPECTED",
+            "to": "UNCONFIRMED",
+            "reason": None,
+            "by": "system_record",
+        },
+    }
+
+
+def test_a_suspicion_with_only_later_evidence_left_waits_for_it():
+    rows = [examples.DIFFERS | {"evidence_ids": ["ev-1", "ev-9"]}]
+    [row], _, _, _ = remove(rows, [CASE, LATER], "ev-1")
+    assert (row["judgement"], row["unconfirmed_reason"]) == ("UNCONFIRMED", "NOT_YET_KNOWN")
+
+
+def test_a_judgement_that_still_holds_is_kept():
+    rows = [examples.HIDDEN | {"evidence_ids": ["ev-1", "ev-2", "ev-x"]}]
+    extra = TICKET | {"evidence_id": "ev-x"}
+    [row], left, changes, _ = remove(rows, [CASE, TICKET, extra], "ev-x")
+    assert row["judgement"] == "CONFIRMED" and row["evidence_ids"] == ["ev-1", "ev-2"]
+    assert [e["evidence_id"] for e in left] == ["ev-1", "ev-2"]
+    assert list(changes) == ["evidence:ev-x"]
+
+
+@pytest.mark.parametrize(
+    ("rows", "evidence", "evidence_id"),
+    [
+        # 확정의 유일한 해결 사례 근거: 사람 확정은 시스템이 지우지 않는다.
+        ([examples.HIDDEN], [CASE, TICKET], "ev-1"),
+        # 대상 값의 유일한 근거: 확정 조건(NOT_PROVIDED 없음)이 깨진다.
+        ([examples.HIDDEN], [CASE, TICKET], "ev-2"),
+        # 알려진 근거가 남은 의심인데 한쪽 값이 비게 된다: 시스템은 근거가 남은 의심을 못 내린다.
+        (
+            [
+                examples.DIFFERS
+                | {"evidence_ids": ["ev-1", "ev-2"], "target_evidence_ids": ["ev-2"]}
+            ],
+            [CASE, TICKET],
+            "ev-2",
+        ),
+    ],
+)
+def test_removals_that_break_a_judgement_need_a_review_first(rows, evidence, evidence_id):
+    with pytest.raises(ApplicationError) as exc:
+        remove(rows, evidence, evidence_id)
+    assert (exc.value.status_code, exc.value.code) == (409, "CS_INVALID_TRANSITION")
+
+
+def test_unconfirmed_items_and_signals_follow_the_removal():
+    waiting = examples.UNCONFIRMED  # VALUE_NOT_PROVIDED, 근거 ev-1
+    rows, _, changes, affected = remove(
+        [waiting, examples.SIGNAL], [CASE, examples.DOCUMENT_EVIDENCE], "ev-1"
+    )
+    assert rows[0]["unconfirmed_reason"] == "EVIDENCE_REMOVED"
+    assert changes["CONDITION:operating_condition"]["from"] == "UNCONFIRMED"
+    assert rows[1] == examples.SIGNAL and affected == ["CONDITION:operating_condition"]
+    _, _, _, signal = remove([examples.SIGNAL], [examples.DOCUMENT_EVIDENCE], "ev-3")
+    assert signal == ["DOCUMENT_SIGNAL:VALUE_CONFLICT"]
+
+
+def test_unknown_or_removed_evidence_is_not_found_and_never_reused():
+    with pytest.raises(ApplicationError) as exc:
+        remove([examples.DIFFERS], [CASE], "ev-7")
+    assert (exc.value.status_code, exc.value.code) == (404, "CS_EVIDENCE_NOT_FOUND")
+    removals = [{"evidence_id": "ev-1", "item_keys": ["CONDITION:application"]}]
+    sources = {"ev-1": KNOWN_TICKET | {"data_origin": "synthetic", "derivation_kind": "PROVIDED"}}
+    with pytest.raises(ApplicationError) as reused:
+        rules.next_version(
+            rules.initial_items(NOW),
+            [],
+            write(condition(), evidence=[EVIDENCE_WRITE]),
+            sources,
+            "human_input",
+            None,
+            NOW,
+            removals,
+        )
+    assert reused.value.code == "CS_EVIDENCE_INVALID"

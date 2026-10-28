@@ -1,6 +1,6 @@
 # C/S 조건 비교 결과 계약 (KAN-114)
 
-**상태: 조회·생성·판정 쓰기 구현.** 조회 2개, 비교 생성, 판정 쓰기·재검토 경로와 저장 구조를 구현했다. 근거 제외와 그에 따른 자동 전이, 문서 신호·문서 근거 쓰기는 아직 없다. 요청·응답 형식의 원본은 `backend/api/cs/comparisons/schemas.py`·`routes.py`, 전이 규칙의 원본은 `rules.py`, 저장은 `infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql`·`20261028_KAN-114_condition_comparisons_writes.sql`(공용 DB는 운영자가 따로 적용), 합성 예시 5종의 원본은 `backend/api/cs/comparisons/examples.py`이며 `docs/openapi/cs.json` 200 응답 examples로 나간다. 기획서는 수정하지 않는다.
+**상태: 조회·생성·판정 쓰기·근거 제외 구현.** 조회 2개, 비교 생성, 판정 쓰기·재검토, 근거 제외 경로와 저장 구조를 구현했다. 문서 신호·문서 근거 쓰기는 아직 없다. 요청·응답 형식의 원본은 `backend/api/cs/comparisons/schemas.py`·`routes.py`, 전이 규칙의 원본은 `rules.py`, 저장은 `infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql`·`20261028_KAN-114_condition_comparisons_writes.sql`·`20261028_KAN-114_condition_comparisons_writes_removals.sql`(공용 DB는 운영자가 따로 적용), 합성 예시 5종의 원본은 `backend/api/cs/comparisons/examples.py`이며 `docs/openapi/cs.json` 200 응답 examples로 나간다. 기획서는 수정하지 않는다.
 
 같은 고장 묶음 안에서 사례별 사용 조건과 원인을 비교해 **확정·의심·미확인**을 구분하고, 문서 문의 신호를 원인 판정과 섞지 않는다. [개선요청](improvements.md)의 `condition_status`, [문의](tickets.md)의 해결 사례, [데이터 계약](../../docs/data-contract.md)의 출처·근거 규칙, [권한](../platform/permissions.md) 1.3·4.1을 따른다.
 
@@ -15,7 +15,12 @@
   - `POST /api/v1/cs/improvement-requests/{request_id}/condition-comparison`: 그 고장 요청서 묶음의 비교를 만든다(201). 판본 1은 사용 조건 8개 모두 `UNCONFIRMED`(`NO_EVIDENCE`, `system_record`, 기준·대상·요약 null과 `NOT_PROVIDED`)이고 원인·문서 신호는 없다. 묶음에 이미 있으면 409 `CS_COMPARISON_EXISTS`.
   - `POST .../condition-comparison/judgements`: 판정 쓰기와 재검토. 본문은 읽은 `version`, 바꿀 항목(`items`: 조건은 `baseline`·`target`의 값·사유·근거 ID와 `finding`, 원인은 판정만), 새 근거(`evidence`: `evidence_id`·`ticket_id`·`case_id`·`evidence_location`). 보낸 항목만 바뀌고 나머지 항목·근거는 이전 판본에서 이어져 새 판본 전체가 된다. 원인은 처음 쓸 때 생긴다. 판정 기준 요청서는 경로의 요청서와 그 현재 판본이다.
   - 근거의 `data_origin`·`derivation_kind`·`known_at`은 서버가 원본 문의·해결 사례에서 읽는다. 문의는 묶음과 같은 제품, 사례는 그 문의의 것이고 같은 고장이어야 한다. 항목·기준·대상이 가리키는 근거 ID는 새 판본 근거에 있어야 하고, 값이 있는 쪽은 그 값이 나온 근거 ID가 있어야 한다(DB CHECK). 어기면 422 `CS_EVIDENCE_INVALID`.
-  - 근거는 추가만 한다. 같은 근거 ID를 다시 쓰면 422다. 근거 제외와 그에 따른 `EVIDENCE_REMOVED` 자동 전이(`system_record`)는 다음 단위다.
+  - `POST .../condition-comparison/evidence/{evidence_id}/remove`: 근거 하나를 사유와 함께 뺀다(개선요청의 근거 제외와 같은 방식). 본문은 읽은 `version`과 `reason`(필수). 최신 판본에 없거나 이미 뺀 근거는 404 `CS_EVIDENCE_NOT_FOUND`. 근거 하나마다 새 판본이 생긴다.
+    - 그 근거 ID는 모든 항목의 `evidence_ids`·기준·대상 근거 ID에서 빠진다. 기준·대상 중 근거 ID가 비게 된 쪽의 값은 null과 `NOT_PROVIDED`가 된다.
+    - 판정 조건이 그대로면 판정을 유지한다. 의심 항목에 이미 알려진 근거가 하나도 남지 않으면 `system_record`가 `UNCONFIRMED`로 내린다(사유는 아래 미확인 사유 계산, 보통 `EVIDENCE_REMOVED`). 미확인 항목은 사유를 다시 계산해 바뀌면 `system_record`로 갱신한다.
+    - 시스템은 사람의 확정이나 알려진 근거가 남은 의심을 지우지 않는다. 제외가 그 판정의 조건을 깨면 409 `CS_INVALID_TRANSITION`이고 먼저 판정 쓰기로 재검토한다. 예: 확정 항목의 유일한 해결 사례 근거 제외, 또는 알려진 근거가 남은 의심 항목에서 대상 값의 유일한 근거를 빼 그 쪽 값이 비게 되는 제외.
+    - 제외 이력은 `cs.condition_comparison_removals`(근거 ID, 제외로 생긴 판본, 그 근거를 인용하던 항목, 사유, 제외한 사람)에 남고 서비스는 읽기·추가만 한다. 이전 판본은 그대로 남는다. 뺀 근거 ID는 다시 쓸 수 없다(422 `CS_EVIDENCE_INVALID`). 제외 이력은 아직 응답에 내지 않는다.
+  - 같은 근거 ID를 다시 쓰면 422다.
   - 문서 근거·문서 신호 쓰기는 문서 원천 표가 생긴 뒤 넣는다. 지금은 원천이 없어 출처와 `known_at`을 서버가 확인할 수 없다.
   - 값과 요약은 저장 전에 마스킹한 값을 보낸다. 서버는 마스킹 여부를 판단하지 않는다.
   - 쓰기마다 `cs.audit_events`에 한 행(`entity_type` `condition_comparison`, 새 판본, 항목별 `{from, to, reason}`)을 남긴다. 개선요청의 `condition_status`는 바꾸지 않는다.
@@ -63,7 +68,7 @@
 | 같은 판정 | 같은 판정 | 그 판정으로 가는 행의 주체(`UNCONFIRMED`는 `human_input`·`system_record`) | 값·근거만 고치는 쓰기. 그 판정의 조건을 다시 지킨다(확정은 사유 포함) |
 
 - 표의 "`NOT_PROVIDED`가 아님" 조건은 `baseline`/`target`이 있는 조건 항목에만 적용하고, 원인은 근거 수 조건만 따른다.
-- `SUSPECTED` → `UNCONFIRMED`: 사람(`human_input`)은 사유를 적고, `system_record`는 남은 근거가 0개일 때만 쓴다.
+- `SUSPECTED` → `UNCONFIRMED`: 사람(`human_input`)은 사유를 적고, `system_record`는 근거 제외로 남은 근거가 0개일 때만 쓴다(근거 제외 경로에서 구현).
 - 근거 수는 판정 시각에 이미 알려진(`known_at` ≤ 판정 시각) 근거만 센다. 아직 알려지지 않은 근거만 있으면 `UNCONFIRMED`(`NOT_YET_KNOWN`)로 쓴다.
 - 오류: 표에 없는 전이·주체 409 `CS_INVALID_TRANSITION`, 근거 부족 422 `CS_EVIDENCE_REQUIRED`, 사유 없음 422 `CS_REASON_REQUIRED`, `NOT_PROVIDED` 쪽이 있는 판단 422 `CS_VALUE_NOT_PROVIDED`. 지금 HTTP 쓰기는 사람만 하며 `ai_draft` 쓰기는 같은 규칙(`rules.py`)으로 KAN-113 작업자 경로에서 쓴다.
 
@@ -102,6 +107,8 @@
 ## 미확인 보존
 
 - `UNCONFIRMED` 항목은 응답에서 빼지 않고 null 판정이나 "해당 없음"으로 바꾸지 않는다. 미확인 사유(`unconfirmed_reason`: `NO_EVIDENCE`·`EVIDENCE_REMOVED`·`NOT_YET_KNOWN`·`VALUE_NOT_PROVIDED`)를 함께 둔다. 다른 판정에서는 null이다. 둘 이상 해당하면 `NOT_YET_KNOWN` > `EVIDENCE_REMOVED` > `VALUE_NOT_PROVIDED` > `NO_EVIDENCE` 순으로 하나만 낸다.
+- 미확인 사유는 근거 상태로 정해진다(`rules.expected_reason`). `NOT_YET_KNOWN`: 인용 근거가 있고 모두 아직 알려지지 않음, `EVIDENCE_REMOVED`: 이 항목이 인용하던 근거가 제외된 이력이 있음, `VALUE_NOT_PROVIDED`: 인용 근거가 있고 기준·대상 중 `NOT_PROVIDED`가 있음, `NO_EVIDENCE`: 인용 근거 없음. 쓰기에서 보낸 사유가 이 값과 다르면 422 `CS_REASON_MISMATCH`이며 서버가 바꿔 쓰지 않는다.
+- 알려진 근거가 있고 기준·대상 값이 모두 있으면 맞는 미확인 사유가 없으므로 사람도 `UNCONFIRMED`로 쓸 수 없다(422 `CS_REASON_MISMATCH`, 메시지 "SUSPECTED로 내리세요"). 따라서 확정을 재검토로 내릴 때 근거가 그대로면 `SUSPECTED`로 내린다. 이전 단위(#151)보다 좁힌 규칙이다.
 - `NOT_YET_KNOWN`은 근거의 `known_at`이 아직 오지 않은 경우다. 미래의 해결 기록으로 과거 판정을 채우지 않는다.
 - 판정 집계(`summary`)는 조건 항목(`conditions`)의 세 판정 건수를 모두 낸다. 원인 판정은 세지 않는다. 미확인을 0이나 확정으로 합치지 않는다.
 
@@ -124,7 +131,7 @@
 - 숨긴 근거가 기여한 항목(`evidence_ids`에서 제외된 근거가 1개 이상)은 `judgement`·`finding`을 유지하되 `masked_summary`를 null(`summary_missing_reason: HIDDEN_BY_SCOPE`)로 내고, 숨긴 근거에서 온 기준·대상 값도 null(`missing_reason: HIDDEN_BY_SCOPE`)로 낸다. 문의 조회 권한이 없는 사용자에게 그 문의에서 파생된 값을 보이지 않기 위한 보수적 규칙이다.
 - 확정·재검토 같은 판정 변경은 cs_agent만 한다.
 - 조회 오류(구현): sales 등 C/S 범위가 없는 역할 403, 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 없는 비교·판본·고장 요청이 아닌 요청서·볼 수 있는 요청서에 연결되지 않은 묶음 404 `CS_COMPARISON_NOT_FOUND`, `product_code`·`fault_id`·`version` 형식 오류 422.
-- 쓰기 오류(구현): 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 문서 요청서·비교 없음 404 `CS_COMPARISON_NOT_FOUND`, cs_agent가 아닌 사용자 403, 이미 있는 비교 409 `CS_COMPARISON_EXISTS`, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내; 같은 비교의 쓰기는 비교 행 잠금으로 한 줄로 처리), 허용하지 않는 전이 409 `CS_INVALID_TRANSITION`, 판정 조건·근거 위반 422(상태 전이 절).
+- 쓰기 오류(구현): 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 문서 요청서·비교 없음 404 `CS_COMPARISON_NOT_FOUND`, cs_agent가 아닌 사용자 403, 이미 있는 비교 409 `CS_COMPARISON_EXISTS`, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내; 같은 비교의 쓰기는 비교 행 잠금으로 한 줄로 처리), 허용하지 않는 전이 409 `CS_INVALID_TRANSITION`(판정 조건을 깨는 근거 제외 포함), 없거나 이미 뺀 근거 404 `CS_EVIDENCE_NOT_FOUND`, 판정 조건·근거 위반 422(상태 전이 절), 근거 상태와 다른 미확인 사유 422 `CS_REASON_MISMATCH`.
 
 ## 응답 예시 (합성, 마스킹 값)
 

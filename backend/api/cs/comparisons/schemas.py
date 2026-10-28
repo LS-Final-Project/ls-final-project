@@ -314,3 +314,12 @@ class JudgementWrite(BaseModel):
         if len(set(keys)) != len(keys) or len(set(ids)) != len(ids):
             raise ValueError("items and evidence IDs are unique")
         return self
+
+
+class EvidenceRemoval(BaseModel):
+    """근거 제외. 개선요청의 근거 제외와 같이 읽은 판본과 사유가 필요하다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The comparison version the user decided on.")
+    reason: Reason

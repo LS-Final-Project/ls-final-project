@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from backend.api.cs.comparisons import repository, rules
 from backend.api.cs.comparisons.examples import conflict_example, openapi_examples
-from backend.api.cs.comparisons.schemas import ConditionComparison, JudgementWrite
+from backend.api.cs.comparisons.schemas import (
+    ConditionComparison,
+    EvidenceId,
+    EvidenceRemoval,
+    JudgementWrite,
+)
 from backend.api.cs.comparisons.view import build, hide
 from backend.api.cs.improvements import repository as requests
 from backend.api.cs.improvements.routes import check_visible, require_list, require_writer, scope
@@ -253,7 +258,7 @@ async def write_judgements(
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[ConditionComparison]:
-    """판정을 쓰거나 재검토해 새 판본을 만든다. 보낸 항목만 바뀌고 근거는 추가만 한다.
+    """판정을 쓰거나 재검토해 새 판본을 만든다. 보낸 항목만 바뀌고 새 근거를 더할 수 있다.
 
     Args:
         request_id: 판정 기준이 될 고장 개선요청 ID.
@@ -294,6 +299,7 @@ async def write_judgements(
             "human_input",
             principal.user_id,
             now,
+            await repository.removals(conn, comparison["id"]),
         )
         version = {
             "version": latest + 1,
@@ -305,6 +311,81 @@ async def write_judgements(
         }
         await repository.insert_version(conn, comparison["id"], version, items, evidence)
         await repository.set_latest(conn, comparison["id"], latest + 1)
+        await repository.insert_audit(
+            conn, uuid4(), comparison["id"], "update", latest + 1, principal.user_id, changes
+        )
+        fresh = comparison | {"latest_version": latest + 1}
+        return await respond_with(request, conn, principal, fresh, None)
+
+
+@router.post(
+    PATH + "/evidence/{evidence_id}/remove",
+    response_model=SuccessResponse[ConditionComparison],
+    operation_id="cs_remove_condition_comparison_evidence",
+    responses=WRITE_ERRORS,
+    openapi_extra=PARTIAL,
+)
+async def remove_comparison_evidence(
+    request_id: UUID,
+    evidence_id: EvidenceId,
+    payload: EvidenceRemoval,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[ConditionComparison]:
+    """근거 하나를 사유와 함께 빼고 새 판본을 만든다. 이전 판본과 제외 이력은 남는다.
+
+    Args:
+        request_id: 판정 기준이 될 고장 개선요청 ID.
+        evidence_id: 뺄 비교 근거 ID.
+        payload: 읽은 판본과 제외 사유.
+        request: 요청.
+        principal: cs_agent만 뺀다.
+
+    Returns:
+        SuccessResponse[ConditionComparison]: 새 최신 판본. 근거가 없으면 404, 판정 조건이
+        깨지는 제외(확정, 근거가 남은 의심)는 409.
+    """
+    async with connection(request.app.state.settings) as conn:
+        row = await fault_request(conn, principal, request_id)
+        require_writer(principal)
+        comparison = await repository.lock_comparison(conn, row["product_code"], row["fault_id"])
+        if comparison is None:
+            raise not_found()
+        if payload.version != comparison["latest_version"]:
+            raise ApplicationError(
+                409, "CS_COMPARISON_VERSION_CONFLICT", "The comparison has changed."
+            )
+        latest = comparison["latest_version"]
+        now = datetime.now(UTC)
+        items, evidence, changes, affected = rules.remove_evidence(
+            await repository.items(conn, comparison["id"], latest),
+            await repository.evidence(conn, comparison["id"], latest),
+            evidence_id,
+            payload.reason,
+            await repository.removals(conn, comparison["id"]),
+            now,
+        )
+        version = {
+            "version": latest + 1,
+            "improvement_request_id": row["id"],
+            "request_version": row["version"],
+            "data_origin": rules.data_origin(evidence, row["data_origin"]),
+            "known_at": now,
+            "created_by": principal.user_id,
+        }
+        await repository.insert_version(conn, comparison["id"], version, items, evidence)
+        await repository.set_latest(conn, comparison["id"], latest + 1)
+        await repository.insert_removal(
+            conn,
+            {
+                "comparison_id": comparison["id"],
+                "evidence_id": evidence_id,
+                "version": latest + 1,
+                "item_keys": affected,
+                "reason": payload.reason,
+                "removed_by": principal.user_id,
+            },
+        )
         await repository.insert_audit(
             conn, uuid4(), comparison["id"], "update", latest + 1, principal.user_id, changes
         )
