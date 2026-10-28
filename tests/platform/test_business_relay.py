@@ -23,7 +23,7 @@ from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSetti
 from backend.api.platform.main import create_app
 from backend.api.tft.main import create_app as create_tft
 from backend.shared.access import PRINCIPAL_HEADER, Principal, principal_header
-from backend.shared.models import CUSTOMER_ID
+from backend.shared.models import CUSTOMER_ID, EVIDENCE_ID
 from backend.shared.service_auth import CALLER_HEADER
 from backend.shared.settings import Settings
 
@@ -565,7 +565,7 @@ def test_platform_business_relay_table_matches_shared_fixture():
     shared = [(route["path"], route["methods"], route["query"]) for route in RELAY_ROUTES["routes"]]
     assert rows(relay.BUSINESS_ROUTES) == rows(shared)
     assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
-    assert relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
+    assert EVIDENCE_ID == relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
 
 
 @pytest.mark.parametrize(

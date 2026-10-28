@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.cs.improvements.schemas import ConditionStatus, DocSignal
 from backend.api.cs.tickets.schemas import DataOrigin, DerivationKind
+from backend.shared.models import EVIDENCE_ID
 
 # info_field_codebook의 사용 조건 항목. provided_info와 같은 코드를 쓴다.
 ConditionCode = Literal[
@@ -43,7 +44,8 @@ MissingReason = Literal["NOT_PROVIDED", "HIDDEN_BY_SCOPE", "MASKING_FAILED"]
 ProvenanceKind = Literal["ai_draft", "human_input", "system_record"]
 # 쓰기에서 줄 수 있는 사유. HIDDEN_BY_SCOPE는 조회할 때만 생긴다.
 WrittenReason = Literal["NOT_PROVIDED", "MASKING_FAILED"]
-EvidenceId = Annotated[str, Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")]
+# 중계 경로와 같은 규칙(첫 글자 영숫자). 이미 저장된 ID는 읽기 모델(str)이라 영향이 없다.
+EvidenceId = Annotated[str, Field(pattern=f"^{EVIDENCE_ID}$")]
 Masked = Annotated[str, Field(min_length=1, max_length=2_000)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 
