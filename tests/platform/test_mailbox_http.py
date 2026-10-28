@@ -577,7 +577,22 @@ def test_list_returns_only_current_owner_connections_without_secrets(context):
             (str(new[0]), "connected", 1),
             (str(old[0]), "disconnected", 2),
         ]
-        assert all(set(i) == {"mailbox_id", "state", "revision", "updated_at"} for i in items)
+        fields = {"mailbox_id", "state", "revision", "updated_at", "reconnect_required"}
+        fields |= {"reconnect_reason", "reconnect_required_at"}
+        assert all(set(i) == fields for i in items)
+        assert [i["reconnect_required"] for i in items] == [False, False]
+        with psycopg.connect(context.dsn) as conn:
+            conn.execute(
+                "UPDATE mailbox_auth.connections SET reconnect_required_at=clock_timestamp(),"
+                "reconnect_reason='invalid_grant' WHERE id=%s",
+                (new[0],),
+            )
+        flagged = context.client.get(PREFIX).json()["data"]["items"][0]
+        assert (flagged["reconnect_required"], flagged["reconnect_reason"]) == (
+            True,
+            "invalid_grant",
+        )
+        assert flagged["reconnect_required_at"] is not None
         for secret in (
             str(foreign[0]),
             str(old[1]),

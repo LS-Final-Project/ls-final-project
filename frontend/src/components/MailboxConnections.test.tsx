@@ -107,3 +107,36 @@ test('해제 뒤 목록 재조회가 실패해도 성공 안내와 기존 표를
   expect(screen.getByText(ID)).toBeTruthy();
   expect(screen.getByRole('table')).toBeTruthy();
 });
+
+test('재연결이 필요한 연결은 사유 안내와 재연결 버튼을 보여주고 연결 흐름을 시작한다', async () => {
+  const navigate = vi.fn();
+  const required = { ...item('connected', 3), reconnect_required: true, reconnect_reason: 'invalid_grant', reconnect_required_at: '2026-10-28T01:00:00Z' };
+  const fetchMock = await view(url => url.endsWith('/start')
+    ? jsonResponse(200, { data: { authorization_url: AUTH_URL } })
+    : listed(required), navigate);
+  expect(await screen.findByText('재연결 필요')).toBeTruthy();
+  expect(document.body.textContent).toContain('재연결이 필요합니다.');
+  expect(document.body.textContent).toContain('Microsoft가 저장된 연결 승인을 더 이상 받지 않습니다.');
+  expect(screen.queryByText('연결됨')).toBeNull();
+  expect(screen.getByRole('button', { name: '해제' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '재연결' }));
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith(AUTH_URL));
+  expect(posts(fetchMock).map(([url]) => String(url))).toEqual([`${LIST}/start`]);
+});
+
+test('재연결 필드가 없는 이전 응답은 재연결 불필요로 받는다', async () => {
+  await view(() => listed(item('connected', 1)));
+  expect(await screen.findByText('연결됨')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '재연결' })).toBeNull();
+});
+
+test('재연결 필드의 타입이 틀린 응답은 거부한다', async () => {
+  await view(() => listed({ ...item('connected', 1), reconnect_required: 'yes' }));
+  expect(await screen.findByText('사서함 연결 목록을 확인할 수 없습니다.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('table')).toBeNull());
+});
+
+test('알 수 없는 재연결 사유는 거부한다', async () => {
+  await view(() => listed({ ...item('connected', 1), reconnect_required: true, reconnect_reason: 'server_error', reconnect_required_at: '2026-10-28T01:00:00Z' }));
+  expect(await screen.findByText('사서함 연결 목록을 확인할 수 없습니다.')).toBeTruthy();
+});
