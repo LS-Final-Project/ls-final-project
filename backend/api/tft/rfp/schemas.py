@@ -186,7 +186,7 @@ class DocumentVersion(Provenance):
     size: int = Field(ge=0)
     # DOCX는 편집 흔적(취소선)을 읽을 수 있고 PDF는 확인 불가다.
     edit_trace_support: bool
-    supersedes_document_id: UUID | None
+    # 새 판본 업로드(supersedes_document_id)는 같은 document_id 아래 version+1로 쌓인다.
     base_document_id: UUID | None
     uploaded_by: UUID
     uploaded_at: datetime

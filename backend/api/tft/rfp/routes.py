@@ -98,7 +98,11 @@ UPLOAD_BODY = {
                         },
                         "title": {"type": "string", "maxLength": 300},
                         "note": {"type": "string", "maxLength": 2000},
-                        "supersedes_document_id": {"type": "string", "format": "uuid"},
+                        "supersedes_document_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "주면 새 문서가 아니라 이 문서의 다음 판본(version+1)으로 저장한다.",
+                        },
                         "base_document_id": {"type": "string", "format": "uuid"},
                         "data_origin": {"type": "string", "enum": ["synthetic", "demo", "real"]},
                     },

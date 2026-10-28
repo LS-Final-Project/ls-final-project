@@ -714,18 +714,6 @@
             "title": "Size",
             "type": "integer"
           },
-          "supersedes_document_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supersedes Document Id"
-          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -759,7 +747,6 @@
           "sha256",
           "size",
           "edit_trace_support",
-          "supersedes_document_id",
           "base_document_id",
           "uploaded_by",
           "uploaded_at",
@@ -864,18 +851,6 @@
             "title": "Size",
             "type": "integer"
           },
-          "supersedes_document_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supersedes Document Id"
-          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -909,7 +884,6 @@
           "sha256",
           "size",
           "edit_trace_support",
-          "supersedes_document_id",
           "base_document_id",
           "uploaded_by",
           "uploaded_at"
@@ -5765,6 +5739,7 @@
                     "type": "string"
                   },
                   "supersedes_document_id": {
+                    "description": "\uc8fc\uba74 \uc0c8 \ubb38\uc11c\uac00 \uc544\ub2c8\ub77c \uc774 \ubb38\uc11c\uc758 \ub2e4\uc74c \ud310\ubcf8(version+1)\uc73c\ub85c \uc800\uc7a5\ud55c\ub2e4.",
                     "format": "uuid",
                     "type": "string"
                   },
