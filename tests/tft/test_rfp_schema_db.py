@@ -360,3 +360,21 @@ def test_command_records_keep_the_first_result_per_key(app_dsn, chain):
     with psycopg.connect(app_dsn) as conn:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("UPDATE tft.rfp_commands SET result='{}' WHERE actor_user_id=%s", (actor,))
+
+
+def test_proposal_cannot_point_at_another_projects_requirement(admin, chain):
+    other = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.projects (id, source, source_instance, data_origin, derivation_kind, "
+            "known_at, company_code, name) VALUES (%s,'test','kan182','synthetic','PROVIDED',%s,"
+            "'HOST','다른 프로젝트')",
+            (other, NOW),
+        )
+    violates(
+        admin,
+        "INSERT INTO tft.change_proposals (id, project_id, requirement_id, origin, current, "
+        "proposed, rationale, proposer_kind, proposer_user_id, data_origin, derivation_kind, "
+        "known_at) VALUES (%s,%s,%s,'web','{}','{}','근거','user',%s,'synthetic','PROVIDED',now())",
+        (uuid4(), other, chain["requirement"], uuid4()),
+    )

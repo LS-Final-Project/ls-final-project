@@ -8,7 +8,7 @@
 from typing import Annotated, Any, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Query, Response
 
 from backend.api.tft.rfp import schemas as s
 from backend.shared.errors import ApplicationError
@@ -170,6 +170,7 @@ async def list_clauses(
     "/documents/{document_id}/file",
     operation_id="tft_download_rfp_document",
     response_model=None,
+    response_class=Response,
     openapi_extra=A07,
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
@@ -419,6 +420,7 @@ async def export_draft(
     P + "/draft/exports/{export_id}/file",
     operation_id="tft_download_rfp_export",
     response_model=None,
+    response_class=Response,
     openapi_extra=A07,
     responses={200: {"content": {"application/octet-stream": {}}}},
 )

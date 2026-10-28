@@ -4220,11 +4220,11 @@
             ],
             "title": "Blocked Reason"
           },
-          "candidate_ids": {
+          "candidate_codes": {
             "items": {
               "type": "string"
             },
-            "title": "Candidate Ids",
+            "title": "Candidate Codes",
             "type": "array"
           },
           "conditions_to_confirm": {
@@ -4259,7 +4259,7 @@
           "allowed",
           "conditions_to_confirm",
           "required_expertise",
-          "candidate_ids",
+          "candidate_codes",
           "blocked_reason"
         ],
         "title": "SupplementOption",
@@ -4845,9 +4845,6 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "application/octet-stream": {}
             },
             "description": "Successful Response"
@@ -6203,9 +6200,6 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "application/octet-stream": {}
             },
             "description": "Successful Response"

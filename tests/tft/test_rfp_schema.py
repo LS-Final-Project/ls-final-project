@@ -126,3 +126,14 @@ def test_every_state_creating_post_requires_an_idempotency_key(client):
     for path, op in posts:
         keys = [x for x in op.get("parameters", []) if x["name"] == "Idempotency-Key"]
         assert keys and keys[0]["in"] == "header" and keys[0]["required"], path
+
+
+def test_file_downloads_are_declared_as_binary_only(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    for path in (
+        "/api/v1/tft/documents/{document_id}/file",
+        "/api/v1/tft/projects/{project_id}/draft/exports/{export_id}/file",
+    ):
+        assert list(paths[path]["get"]["responses"]["200"]["content"]) == [
+            "application/octet-stream"
+        ], path

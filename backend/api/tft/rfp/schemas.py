@@ -385,7 +385,7 @@ class SupplementOption(Model):
     allowed: bool
     conditions_to_confirm: list[str]
     required_expertise: list[str]
-    candidate_ids: list[str]
+    candidate_codes: list[str]
     blocked_reason: str | None
 
 

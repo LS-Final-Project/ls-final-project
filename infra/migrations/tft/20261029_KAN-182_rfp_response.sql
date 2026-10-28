@@ -109,7 +109,9 @@ CREATE TABLE IF NOT EXISTS tft.requirements (
     derivation_kind text NOT NULL CHECK (derivation_kind IN ('PROVIDED', 'DERIVED', 'SYSTEM', 'ASSUMED')),
     known_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (project_id, code)
+    UNIQUE (project_id, code),
+    -- 다른 표가 (프로젝트, 요구)를 함께 참조해 다른 프로젝트 요구를 가리키지 못하게 한다.
+    UNIQUE (project_id, id)
 );
 CREATE TABLE IF NOT EXISTS tft.requirement_versions (
     requirement_id uuid NOT NULL REFERENCES tft.requirements(id),
@@ -288,7 +290,8 @@ CREATE TABLE IF NOT EXISTS tft.partner_grades (
     CHECK (grade = 'EXCLUDED' OR jsonb_array_length(exclusion_reasons) = 0),
     FOREIGN KEY (candidate_code, profile_version) REFERENCES tft.partner_profiles(candidate_code, profile_version),
     FOREIGN KEY (requirement_id, requirement_version)
-        REFERENCES tft.requirement_versions(requirement_id, version)
+        REFERENCES tft.requirement_versions(requirement_id, version),
+    FOREIGN KEY (project_id, requirement_id) REFERENCES tft.requirements(project_id, id)
 );
 CREATE TABLE IF NOT EXISTS tft.partner_grade_summaries (
     id uuid PRIMARY KEY,
@@ -323,7 +326,8 @@ CREATE TABLE IF NOT EXISTS tft.customer_questions (
     known_at timestamptz NOT NULL,
     created_by uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (project_id, requirement_id) REFERENCES tft.requirements(project_id, id)
 );
 CREATE TABLE IF NOT EXISTS tft.question_replies (
     id uuid PRIMARY KEY,
@@ -367,7 +371,8 @@ CREATE TABLE IF NOT EXISTS tft.change_proposals (
     CHECK ((requirement_id IS NULL) = clause_unresolved),
     CHECK ((proposer_kind = 'user') = (proposer_user_id IS NOT NULL)),
     CHECK ((status = 'PENDING') = (decided_by IS NULL AND decided_at IS NULL)),
-    CHECK (status <> 'REJECTED' OR decision_note IS NOT NULL)
+    CHECK (status <> 'REJECTED' OR decision_note IS NOT NULL),
+    FOREIGN KEY (project_id, requirement_id) REFERENCES tft.requirements(project_id, id)
 );
 CREATE INDEX IF NOT EXISTS change_proposals_pending ON tft.change_proposals (project_id, status, origin);
 
@@ -527,6 +532,6 @@ GRANT UPDATE (status, decided_by, decided_at, decision_note, version) ON tft.cha
 -- job_id는 내보내기 행을 먼저 쓰고 플랫폼 접수 뒤 채운다.
 GRANT UPDATE (job_id, storage_key, sha256, size, completed_at) ON tft.exports TO tft_app;
 GRANT UPDATE (cleared_by, cleared_at) ON tft.rereview_marks TO tft_app;
-GRANT UPDATE (output_status, judgement_status, customer_goal, review_departments, review_version)
-    ON tft.projects TO tft_app;
+-- tft.projects는 KAN-119 기본 권한(표 전체 UPDATE)을 그대로 둔다. 상태 두 개 직접 쓰기 금지는 앱이 지킨다.
+-- 권한 축소는 기존 status 열 정리와 함께 Z 단계에서 한다.
 COMMIT;
