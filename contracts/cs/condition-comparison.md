@@ -1,6 +1,6 @@
 # C/S 조건 비교 결과 계약 (KAN-114)
 
-**상태: 제안(미구현).** 김종하 화면 요구(KAN-114 댓글 10390)를 반영한 초안이다. 이 문서는 응답 형식과 판정·전이 규칙의 초안이며 DTO·라우터·OpenAPI·마이그레이션은 아직 없다. 구현하면 원본은 해당 기능의 `schemas.py`·`routes.py`가 되고 이 문서는 그에 맞춰 고친다. 기획서는 수정하지 않는다.
+**상태: 조회 구현, 판정 쓰기 미구현.** 조회 경로 2개와 저장 구조를 구현했다(KAN-114 최소 읽기 단위). 응답 형식의 원본은 `backend/api/cs/comparisons/schemas.py`·`routes.py`, 저장은 `infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql`(공용 DB는 운영자가 따로 적용), 합성 예시 5종의 원본은 `backend/api/cs/comparisons/examples.py`이며 `docs/openapi/cs.json` 200 응답 examples로 나간다. 판정·전이 쓰기 경로와 비교 생성은 다음 단위이며 아래 전이 규칙을 따른다. 기획서는 수정하지 않는다.
 
 같은 고장 묶음 안에서 사례별 사용 조건과 원인을 비교해 **확정·의심·미확인**을 구분하고, 문서 문의 신호를 원인 판정과 섞지 않는다. [개선요청](improvements.md)의 `condition_status`, [문의](tickets.md)의 해결 사례, [데이터 계약](../../docs/data-contract.md)의 출처·근거 규칙, [권한](../platform/permissions.md) 1.3·4.1을 따른다.
 
@@ -10,7 +10,8 @@
 - 조건이 다른 사례는 다른 묶음으로 나눈다는 개선요청 규칙을 유지한다. 비교 결과가 묶음 키를 바꾸지 않는다.
 - 대상 요청서: `improvement_request_id`는 이 비교가 연결된 개선요청, `request_version`은 판정할 때 기준으로 삼은 요청서 판본(개선요청의 `version`)이다. 요청서가 없는 묶음은 둘 다 null이다. 화면은 요청서의 현재 `version`과 `request_version`이 다르면 "이전 요청서 판본 기준"으로 표시한다.
 - 결과 판본: `version`은 비교 결과의 판본이며 판정 변경마다 1씩 오른다. 판본마다 내용을 고치지 않고 남긴다. `latest_version`은 지금 최신 판본, `is_latest`는 응답이 최신 판본인지다. 계약 판본은 별도 필드 없이 경로의 `/v1`로 식별하고, 호환되지 않는 변경은 새 경로로 낸다.
-- 제안 경로(미구현): `GET /api/v1/cs/condition-comparisons?product_code=&fault_id=`, `GET /api/v1/cs/improvement-requests/{id}/condition-comparison`. 기본은 최신 판본이고, `?version=N`이면 그 판본을 `is_latest=false`(N이 최신이면 `true`)로 돌려준다. 없는 판본은 404다. 확정·재검토 쓰기 경로는 구현 단위에서 정하며, 아래 전이 규칙을 따른다.
+- 경로: `GET /api/v1/cs/condition-comparisons?product_code=&fault_id=`, `GET /api/v1/cs/improvement-requests/{request_id}/condition-comparison`(그 고장 요청서의 묶음 비교). 기본은 최신 판본이고, `?version=N`이면 그 판본을 `is_latest=false`(N이 최신이면 `true`)로 돌려준다. 없는 비교·판본은 404 `CS_COMPARISON_NOT_FOUND`다. 비교는 판정 쓰기 단위에서 만들어지므로 그 전에는 404다. 확정·재검토 쓰기 경로는 다음 단위에서 정하며, 아래 전이 규칙을 따른다.
+- 저장: 판정이 바뀔 때마다 그 판본의 항목·근거 전체를 새로 쓰고 이전 판본은 고치거나 지우지 않는다. 서비스 계정은 최신 판본 번호(`latest_version`)만 갱신할 수 있다.
 
 ## 판정
 
@@ -22,7 +23,7 @@
 | `SUSPECTED` | 의심 근거가 1개 이상 있지만 사람이 확정하지 않았다. 근거 없는 모델 후보는 `SUSPECTED`가 아니라 `UNCONFIRMED`다 |
 | `UNCONFIRMED` | 근거가 없거나 부족해 판단하지 못했다. `unconfirmed_reason` 필수 |
 
-- **항목 식별**: `item_code`는 화면이 키로 쓰는 고정 코드(대문자·밑줄, 예 `FIRMWARE_VERSION`)이고 한 비교 안에서 유일하다. `item_label`은 서버가 주는 한국어 표시명이다. 코드 목록은 구현 단위에서 enum으로 고정하며 화면은 모르는 코드도 `item_label`로 표시한다.
+- **항목 식별**: `item_code`는 화면이 키로 쓰는 고정 코드이고 한 비교 안에서 유일하다. 문의의 `provided_info`가 쓰는 info_field_codebook 코드 중 사용 조건 8개(`application`·`site_condition`·`operating_condition`·`load_profile`·`current_fw`·`install_date`·`string_config`·`battery_age`)를 그대로 쓴다. `item_label`은 서버가 주는 한국어 표시명이다. 목록은 `schemas.py`의 `ConditionCode` 한 곳이며 화면은 모르는 코드도 `item_label`로 표시한다.
 - **비교 기준과 대상**: 조건 항목마다 `baseline`(비교 기준: 묶음의 이미 알려진 해결 사례 쪽 조건)과 `target`(비교 대상: 요청서가 다루는 문의 쪽 조건)을 따로 둔다. 각각 `masked_value`(마스킹된 값 또는 요약)와 `missing_reason`을 담는다. 요청서가 없는 묶음에서는 `target`이 묶음에 연결된 미해결 문의 쪽 조건이며, 그런 문의도 없으면 `target`은 null 값과 `NOT_PROVIDED`다.
 - **`finding`**: 조건 항목에는 `DIFFERS`(기준과 대상의 조건이 다름) 또는 `SAME`(같음)을 둔다. 키는 항상 있고 **`UNCONFIRMED`일 때만 null**이다. `CONFIRMED`·`SUSPECTED`는 반드시 `DIFFERS`나 `SAME`을 가진다. 따라서 "확인했고 조건 차이 없음"(`CONFIRMED` + `SAME`)과 "모름"(`UNCONFIRMED` + null)을 구분한다. 원인에는 `finding`이 없다.
 - `judgement`(비교 항목 판정)와 개선요청의 `condition_status`는 서로 다른 enum이다. 아래 관계 절을 따른다.
@@ -70,7 +71,7 @@
 
 - `fw_fixed_version`·`condition_summary`는 저장 전 마스킹한 값만 내고, 마스킹할 수 없으면 사유 필드 없이 null이다. 조회 범위가 요청서 조회와 같으므로 `HIDDEN_BY_SCOPE`는 해당하지 않는다.
 - `fw_fixed_version`: 대상 요청서의 같은 이름 값. 요청서가 없으면 null.
-- `fw_deployed_at`: 수정 펌웨어 배포일. 지금 저장소에 원천 필드가 없어 원천이 생기기 전까지 항상 null이다.
+- `fw_released_on`: 수정 펌웨어 배포일(date). 대상 요청서의 같은 이름 값이다. 요청서가 없으면 null.
 - `condition_summary`: 대상 요청서의 사용 조건 요약(같은 이름 값). 요청서가 없으면 null.
 - 항목의 `decided_by_name`(판정자 표시명)과 `decided_at`(판정 시각): `decided_by_name`은 `human_input` 판정에만 있고 `ai_draft`·`system_record`면 null이다.
 - 점수·신뢰도 필드는 두지 않는다.
@@ -82,7 +83,7 @@
 ## 비교 내용과 근거의 분리
 
 - `conditions`·`causes`·`document_signals`는 **마스킹된 비교 내용**이다. 항목 코드·표시명, 판정, `finding`, 마스킹된 기준·대상 값과 요약(`masked_summary`), 근거 참조 ID(`evidence_ids`)만 담는다.
-- `evidence`는 **근거 참조**다. `case_id`·`ticket_id`·`evidence_location`과 근거 자신의 출처(`data_origin`·`derivation_kind`·`known_at`)만 담고 본문을 담지 않는다.
+- `evidence`는 **근거 참조**다. `case_id`·`ticket_id`·`evidence_location`과 근거 자신의 출처(`data_origin`·`derivation_kind`·`known_at`)만 담고 본문을 담지 않는다. 해결 사례 근거는 그 사례가 속한 문의 ID(`ticket_id`)를 반드시 함께 저장하며(DB CHECK), 조회 범위 숨김은 이 문의 ID로 판정한다.
 - `evidence_location`은 텍스트 없는 위치다. 문의·해결 사례는 `{ "source": "ticket" | "resolution_case", "field": "<필드 이름>" }`, 문서는 데이터 계약의 인용 위치(`doc_id`·`version`·`page`·`char_start`·`char_end` 등)를 쓴다. 위치를 추적할 수 없으면 근거로 채택하지 않는다.
 - 응답에 원문(제목·본문·메일)·정답 열·개인정보·시리얼 원값·RMA 번호를 넣지 않는다. `masked_value`·`masked_summary`는 저장 전에 마스킹한 값이며, 마스킹할 수 없으면 null(`MASKING_FAILED`)로 두고 판정은 유지한다.
 
@@ -104,13 +105,14 @@
 
 [권한](../platform/permissions.md) 1.3의 검사 순서를 그대로 쓴다.
 
-- 조회: cs_agent와 C/S 부서 manager는 전체. dept_staff와 다른 부서 manager는 4.1 "개선요청 조회"에서 볼 수 있는 요청에 연결된 비교만 본다. sales는 볼 수 없다.
+- 조회: cs_agent와 C/S 부서 manager는 전체. dept_staff와 다른 부서 manager는 4.1 "개선요청 조회"에서 볼 수 있는 요청에 연결된 비교만 본다. 이때 기준은 **선택한 판본의 판정 기준 요청서**이며, 그 요청서가 보이지 않으면 요청서 경로로 조회해도 404 `CS_COMPARISON_NOT_FOUND`다(다른 요청서를 기준으로 한 과거 판본 포함). 요청서가 없는 판본도 404다. sales는 볼 수 없다.
 - 근거 중 사용자의 문의 조회 범위(4.1 "문의 목록·상세 조회") 밖의 문의는 `evidence`에 넣지 않고 `hidden_evidence_count`로 건수만 낸다. 판정은 숨기지 않는다.
 - 조회 범위 밖 근거의 ID는 `conditions`·`causes`·`document_signals`의 `evidence_ids`에서도 제외하고 `hidden_evidence_count`에만 반영한다. 응답 수준 값은 숨긴 근거의 전체 건수, 항목 수준 값은 그 항목이 가리키던 숨긴 근거 건수다.
 - 근거가 모두 숨겨진 항목은 `judgement`·`finding`을 유지하되 `evidence_ids`는 빈 배열이고, 항목에 `hidden_evidence_count`를 둔다(존재 여부만 건수로).
 - 숨긴 근거가 기여한 항목(`evidence_ids`에서 제외된 근거가 1개 이상)은 `judgement`·`finding`을 유지하되 `masked_summary`를 null(`summary_missing_reason: HIDDEN_BY_SCOPE`)로 내고, 숨긴 근거에서 온 기준·대상 값도 null(`missing_reason: HIDDEN_BY_SCOPE`)로 낸다. 문의 조회 권한이 없는 사용자에게 그 문의에서 파생된 값을 보이지 않기 위한 보수적 규칙이다.
 - 확정·재검토 같은 판정 변경은 cs_agent만 한다.
-- 오류: 범위 밖 404(존재를 숨김), 보이지만 행동 불가 403, 허용하지 않는 전이(예: `ai_draft`의 확정) 409, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내), 근거 없는 확정 422. 그 밖의 오류 코드 이름은 개선요청 계약처럼 구현 단위에서 `CS_` 접두로 정한다.
+- 조회 오류(구현): sales 등 C/S 범위가 없는 역할 403, 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 없는 비교·판본·고장 요청이 아닌 요청서·볼 수 있는 요청서에 연결되지 않은 묶음 404 `CS_COMPARISON_NOT_FOUND`, `product_code`·`fault_id`·`version` 형식 오류 422.
+- 쓰기 오류(다음 단위): 범위 밖 404(존재를 숨김), 보이지만 행동 불가 403, 허용하지 않는 전이(예: `ai_draft`의 확정) 409, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내), 근거 없는 확정 422. 그 밖의 오류 코드 이름은 개선요청 계약처럼 구현 단위에서 `CS_` 접두로 정한다.
 
 ## 응답 예시 (합성, 마스킹 값)
 
@@ -131,12 +133,12 @@
     "computed_condition_status": "UNKNOWN",
     "condition_summary": "옥외 설치 사례 위주(합성)",
     "fw_fixed_version": "SYN-FW-2.1",
-    "fw_deployed_at": null,
+    "fw_released_on": "2026-10-15",
     "summary": { "confirmed": 1, "suspected": 1, "unconfirmed": 1 },
     "conditions": [
       {
-        "item_code": "FIRMWARE_VERSION",
-        "item_label": "펌웨어 판",
+        "item_code": "current_fw",
+        "item_label": "현재 펌웨어 판",
         "judgement": "CONFIRMED",
         "finding": "DIFFERS",
         "unconfirmed_reason": null,
@@ -151,8 +153,8 @@
         "hidden_evidence_count": 0
       },
       {
-        "item_code": "INSTALL_ENVIRONMENT",
-        "item_label": "설치 환경",
+        "item_code": "site_condition",
+        "item_label": "현장 조건(주변 온도·고도·습도)",
         "judgement": "SUSPECTED",
         "finding": "DIFFERS",
         "unconfirmed_reason": null,
@@ -167,8 +169,8 @@
         "hidden_evidence_count": 0
       },
       {
-        "item_code": "LOAD_PROFILE",
-        "item_label": "부하 패턴",
+        "item_code": "load_profile",
+        "item_label": "부하 전류·온도 기록",
         "judgement": "UNCONFIRMED",
         "finding": null,
         "unconfirmed_reason": "NO_EVIDENCE",
@@ -244,14 +246,14 @@
 
 ## 합성 예시 5종
 
-화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다.
+화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다. 전체 응답 5종(`same`·`differs`·`unconfirmed`·`hidden`·`past_version`)은 `docs/openapi/cs.json`의 두 조회 경로 200 examples에 있고, DB 테스트가 같은 행을 저장해 실제 응답과 일치함을 확인한다. 409 본문은 판정 쓰기 경로와 함께 OpenAPI에 넣는다.
 
 **1. 동일** — 확인했고 조건 차이가 없다.
 
 ```json
 {
-  "item_code": "MOUNTING",
-  "item_label": "설치 방식",
+  "item_code": "site_condition",
+  "item_label": "현장 조건(주변 온도·고도·습도)",
   "judgement": "CONFIRMED",
   "finding": "SAME",
   "unconfirmed_reason": null,
@@ -271,8 +273,8 @@
 
 ```json
 {
-  "item_code": "INPUT_VOLTAGE",
-  "item_label": "입력 전압",
+  "item_code": "application",
+  "item_label": "적용 조건(전압·부하·운전 주기)",
   "judgement": "SUSPECTED",
   "finding": "DIFFERS",
   "unconfirmed_reason": null,
@@ -292,8 +294,8 @@
 
 ```json
 {
-  "item_code": "AMBIENT_TEMPERATURE",
-  "item_label": "주변 온도",
+  "item_code": "operating_condition",
+  "item_label": "고장 시 운전 조건(부하·속도·온도)",
   "judgement": "UNCONFIRMED",
   "finding": null,
   "unconfirmed_reason": "VALUE_NOT_PROVIDED",
@@ -313,8 +315,8 @@
 
 ```json
 {
-  "item_code": "OPERATING_HOURS",
-  "item_label": "가동 시간",
+  "item_code": "load_profile",
+  "item_label": "부하 전류·온도 기록",
   "judgement": "CONFIRMED",
   "finding": "DIFFERS",
   "unconfirmed_reason": null,
