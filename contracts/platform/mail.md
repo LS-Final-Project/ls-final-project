@@ -141,7 +141,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 
 | 함수 | 동작 |
 | --- | --- |
-| `create_intent(settings, SendRequest)` | 형식 확인(수신자 1~50명·중복 없음, 제목 한 줄, 본문 1MB 이하, 첨부 합계 2.8MB 이하) 뒤, 서버가 다시 계산한 payload 해시가 업무의 승인 해시(`approved_payload_sha256`)와 같을 때만 저장. 발신 사서함은 **승인자 본인의 연결 상태 사서함**이어야 한다. 같은 업무 판본을 같은 내용으로 다시 부르면 기존 의도, 다른 내용이면 409 `MAIL_SEND_CONFLICT` |
+| `create_intent(settings, SendRequest)` | 형식 확인(수신자 1~50명·중복 없음, 제목 한 줄, 본문 1MB 이하, 첨부 합계 2.8MB 이하, 본문 + base64 첨부 + 여유 64KB가 3.9MB 이하(`MAIL_TOO_LARGE`), 첨부 저장 키가 발신 사서함의 내용 키 `mail/<mailbox_id>/sha256/...`일 것) 뒤, 서버가 다시 계산한 payload 해시가 업무의 승인 해시(`approved_payload_sha256`)와 같을 때만 저장. 발신 사서함은 **승인자 본인의 연결 상태 사서함**이어야 한다. 같은 업무 판본을 같은 내용으로 다시 부르면 기존 의도, 다른 내용이면 409 `MAIL_SEND_CONFLICT` |
 | `submit_intent(...)` | `QUEUED`→`SUBMITTING`을 커밋한 뒤 트랜잭션 밖에서 저장 내용의 해시와 첨부 바이트(해시·크기)를 다시 확인하고 Graph `sendMail`을 한 번 호출 |
 | `confirm_sent_copy(...)` | 메일에 붙인 숨은 확장 속성(`INTENT_PROPERTY` = 발송 의도 ID)으로 보낸편지함 사본을 찾는다 |
 | `authorize_resend(..., actor_user_id, reason)` | `UNKNOWN` 재발송 허가. 아래 조건 |

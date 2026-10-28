@@ -26,7 +26,7 @@ from psycopg.types.json import Jsonb
 from pydantic import SecretStr
 
 from backend.api.platform.mail.graph import GRAPH_BASE
-from backend.api.platform.mail.storage import ObjectReader, StoredObject
+from backend.api.platform.mail.storage import ObjectReader, StoredObject, content_key
 from backend.api.platform.mail.sync import Conn, MailboxTokenGetter, checked_token
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -39,8 +39,10 @@ SEND_URL = f"{GRAPH_BASE}/me/sendMail"
 SENT_ITEMS_URL = f"{GRAPH_BASE}/me/mailFolders/sentitems/messages"
 MAX_ATTEMPTS = 3
 MAX_RECIPIENTS = 50
-# sendMail 한 요청은 약 4MB까지다. base64(4/3배)와 본문을 감안해 첨부 원본 합계를 제한한다.
+# sendMail 한 요청은 약 4MB까지다. 첨부 원본 합계와 (본문 + base64 첨부 + 여유) 전체를 함께 제한한다.
 MAX_ATTACHMENT_BYTES = 2_800_000
+MAX_REQUEST_BYTES = 3_900_000
+REQUEST_OVERHEAD = 64 * 1024
 # 보낸편지함 반영이 늦을 수 있어, 전송 시작 뒤 이 시간이 지나야 "사본 없음"을 재발송 근거로 쓴다.
 RESEND_GRACE = timedelta(minutes=10)
 EMAIL = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
@@ -187,8 +189,16 @@ def validate(request: SendRequest) -> tuple[list[dict[str, Any]], str]:
             or a.stored.size < 0
         ):
             raise invalid("MAIL_ATTACHMENT_INVALID", "Attachment is invalid.")
+    for a in request.attachments:
+        # 첨부는 발신 사서함 이름 공간의 내용 키여야 한다. 다른 사서함 파일을 붙이지 못하게 한다.
+        if a.stored.key != content_key(request.mailbox_id, a.stored.sha256):
+            raise invalid("MAIL_ATTACHMENT_INVALID", "Attachment is invalid.")
     if sum(a.stored.size for a in request.attachments) > MAX_ATTACHMENT_BYTES:
         raise invalid("MAIL_ATTACHMENT_TOO_LARGE", "Attachments are too large.")
+    # 승인 단계에서 전송 요청 전체 크기를 어림해, 보낼 때 Graph 한도로 실패하지 않게 한다.
+    encoded = sum((a.stored.size + 2) // 3 * 4 for a in request.attachments)
+    if len(request.body.encode()) + encoded + REQUEST_OVERHEAD > MAX_REQUEST_BYTES:
+        raise invalid("MAIL_TOO_LARGE", "Mail is too large.")
     rows = attachment_rows(request.attachments)
     digest = payload_sha256(
         subject=request.subject,

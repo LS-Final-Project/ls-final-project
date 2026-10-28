@@ -317,6 +317,23 @@ def test_too_large_attachments_are_rejected(settings, sender, monkeypatch):
     assert error.value.code == "MAIL_ATTACHMENT_TOO_LARGE"
 
 
+def test_attachment_from_another_mailbox_is_refused(settings, sender):
+    other = asyncio.run(sender["store"].put(PDF, mailbox_id=uuid4()))
+    with pytest.raises(ApplicationError) as error:
+        create(
+            settings,
+            request(sender, attachments=(Attachment("answer.pdf", "application/pdf", other),)),
+        )
+    assert error.value.code == "MAIL_ATTACHMENT_INVALID"
+
+
+def test_body_and_attachments_together_must_fit_one_request(settings, sender, monkeypatch):
+    monkeypatch.setattr(send, "MAX_REQUEST_BYTES", send.REQUEST_OVERHEAD + 100)
+    with pytest.raises(ApplicationError) as error:
+        create(settings, request(sender, body="가" * 40))
+    assert error.value.code == "MAIL_TOO_LARGE"
+
+
 def test_only_the_approvers_connected_mailbox_can_send(settings, sender):
     with pytest.raises(ApplicationError) as error:
         create(settings, request(sender, approved_by=uuid4()))
