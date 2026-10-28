@@ -231,11 +231,51 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 - 화면에서 쓰려면 웹 중계(`frontend/server.mjs`)에 이 경로를 추가해야 한다. 지금 중계는 플랫폼 자체 경로에 JSON 본문을 넘기는 유형이 없어(업무 경로는 플랫폼이 C/S로 다시 넘긴다) 새 유형이 필요하다. 화면 연결(KAN-132)과 함께 다룬다.
 
+## 회신·스레드·업무 연결 (KAN-75)
+
+`backend/api/platform/mail/links.py`, 마이그레이션 `infra/migrations/platform/20261029_KAN-75_mail_links.sql`. 받은 메일이 기존 업무에 대한 회신인지 판정해 연결한다. 연결 근거는 메일의 기술적 표시뿐이며 제목·AI 분류만으로 연결하지 않는다([데이터 계약](../../docs/data-contract.md#메일과-파일-연결)).
+
+| 표 | 내용 |
+| --- | --- |
+| `integration.mail_links` | 메일 ↔ 업무(`owner_service`, `business_ref`). `ORIGIN`(업무를 만든 원 메일, 업무가 `link_origin`으로 기록) 또는 `REPLY`(회신). 근거 `BUSINESS`·`HEADER`·`THREAD`·`HUMAN`(사람은 판단자·사유 필수). 추가만 가능 |
+| `integration.mail_reply_reviews` | 자동 연결하지 않은 회신. 이유·후보(근거 포함)·상태(`OPEN`→`LINKED`/`DISMISSED`)·판단자·사유. 결정 칸만 바꿀 수 있다 |
+| `integration.mail_reply_checks` | 받은 메일마다 판정을 한 번 했다는 표시와 결과(`LINKED`·`REVIEW`·`NONE`) |
+
+**판정 순서** (`resolve_reply(settings, message_id, raw)`, 원문 SHA-256 확인, 다시 불러도 같은 결과)
+
+1. 받은편지함 메일만 본다. 보낸편지함 메일은 발송 의도로 이미 업무와 묶여 있어 `NONE`.
+2. **헤더**: 원문의 `In-Reply-To`·`References`가 가리키는 Message-ID가 우리가 보낸 메일(`mail_send_intents.sent_internet_message_id`)이거나 업무에 연결된 메일(`mail_links` → `mail_messages.internet_message_id`)이면 그 업무가 후보다.
+3. **스레드**: Graph `conversationId`가 같은 메일 중 우리가 보낸 메일(보낸편지함 사본의 `graph_id` = `sent_graph_id`)이나 업무에 연결된 메일이 있으면 그 업무가 후보다.
+4. 결정: 헤더 후보가 한 업무면 그 업무(근거 `HEADER`), 헤더가 없고 스레드 후보가 한 업무면 그 업무(`THREAD`)로 자동 연결한다. 그 밖에는 검토로 보낸다.
+
+| 검토 이유 | 경우 |
+| --- | --- |
+| `AMBIGUOUS` | 헤더 또는 스레드 후보가 여러 업무 |
+| `CONFLICT` | 헤더와 스레드가 다른 업무를 가리킴 |
+| `UNMATCHED_REPLY` | 회신 헤더가 있는데 맞는 업무가 없음(추측해서 붙이지 않음) |
+| `TRIAGE_DISAGREES` | 근거로는 한 업무지만 KAN-73 최신 분류가 기존 스레드가 아니라고 봄(`NEW_CS_TICKET` 등) — 다른 업무에 대한 회신일 수 있음 |
+
+- 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
+- **한계**: 판정은 메일당 한 번이다. `UNMATCHED_REPLY`로 검토에 간 메일은 나중에 그 원 메일이 `link_origin`으로 기록돼도 자동으로 다시 판정되지 않고, 후보가 없어 닫기만 할 수 있다. 메일로 접수한 문의는 접수 때 바로 `link_origin`을 남겨(KAN-110) 회신보다 먼저 근거가 있게 한다.
+- **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 업무 쪽(KAN-110)이 `replies_for(owner_service, business_ref)`로 연결을 읽고 한다.
+- **자동 판정**: 수집 워커(`/internal/v1/platform/mail/sync`)가 수집 뒤 `judge_new_replies`로 판정 표시가 없는 받은 메일을 최대 50통 판정한다. 원문 읽기 실패 등은 표시를 남기지 않아 다음 실행에서 다시 하며, 수집 결과·응답 코드는 바꾸지 않는다(`replies_linked`·`replies_review`·`replies_failed`만 알린다).
+
+**메일함 주인의 검토 API** (`MAILBOX_AUTH_ENABLED`가 꺼져 있으면 404, 변경은 동일 출처·세션 CSRF)
+
+| 경로 (`/api/v1/platform/mail/reply-reviews`) | 동작 |
+| --- | --- |
+| `GET` | 내 메일함의 열린 검토(수신 시각·이유·후보). 제목·본문·주소 없음 |
+| `POST /{message_id}/link` (`owner_service`, `business_ref`, `note`) | **후보 중 하나에만** 연결(근거 `HUMAN`). 후보 밖은 422 `MAIL_REPLY_NOT_A_CANDIDATE` |
+| `POST /{message_id}/dismiss` (`note`) | 업무 회신이 아니라고 닫음 |
+
+다른 사람 메일함의 검토는 404 `MAIL_REPLY_REVIEW_NOT_FOUND`, 이미 결정한 검토는 409 `MAIL_REPLY_REVIEW_DECIDED`다.
+
 ## 남은 작업
 
 - 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
-- KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 받는 사람은 KAN-75 회신·스레드 연결에서 정한다
+- KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 메일로 접수한 문의는 `link_origin`으로 원 메일을 기록하고, 연결된 회신(`replies_for`)으로 문의를 다시 연다. 받는 사람은 원 메일의 보낸 사람에서 정한다
+- 회신 검토 API의 웹 중계와 화면(KAN-132)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결(분류 추천은 위 KAN-73 절)
+- 수집한 메일을 C/S 문의로 바꾸는 연결(KAN-110, 분류 추천은 위 KAN-73 절)
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

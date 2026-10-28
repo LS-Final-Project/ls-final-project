@@ -240,6 +240,10 @@ platform_app의 UPDATE를 열 단위로 바꾼다(소유자·Microsoft 식별자
 표 적용만으로 수집이 켜지지 않는다. 수집을 부르는 워커·정기 실행은 KAN-72, 운영 객체 저장소는 후속 작업이다.
 상세는 [메일 수집 계약](../../contracts/platform/mail.md)을 따른다.
 
+## 회신 연결 표 적용 (KAN-75)
+
+메일 발송 표(KAN-74, 아래)와 분류 표(KAN-73) 뒤에 `infra/migrations/platform/20261029_KAN-75_mail_links.sql`을 한 번 적용한다. `integration.mail_links`·`mail_reply_reviews`·`mail_reply_checks`가 생기고, `platform_app`은 세 표에 SELECT·INSERT, 검토의 결정 칸과 판정 표시의 결과 칸만 UPDATE한다(연결·후보 수정과 삭제 불가). 적용 전에도 수집 워커는 동작하고 회신 판정만 실패로 센다.
+
 ## 메일 발송 표 적용 (KAN-74)
 
 위 메일 수집 표 적용(KAN-71)이 끝난 뒤, 같은 방식으로 `infra/migrations/platform/20261028_KAN-74_mail_send.sql`을

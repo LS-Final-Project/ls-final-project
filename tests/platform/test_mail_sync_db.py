@@ -77,6 +77,22 @@ def mailbox(mail_database, registered_user):
         )
     yield {"id": mailbox_id, "owner": owner, "dsn": mail_database}
     with psycopg.connect(mail_database) as conn:
+        # 메일을 참조하는 후속 표(KAN-73 분류, KAN-75 회신 연결)는 적용된 경우에만 지운다.
+        for table in (
+            "mail_reply_checks",
+            "mail_reply_reviews",
+            "mail_links",
+            "mail_triage_latest",
+            "mail_triage",
+        ):
+            if conn.execute("SELECT to_regclass(%s)", (f"integration.{table}",)).fetchone()[0]:
+                conn.execute(
+                    psycopg.sql.SQL(
+                        "DELETE FROM integration.{} WHERE message_id IN "
+                        "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)"
+                    ).format(psycopg.sql.Identifier(table)),
+                    (mailbox_id,),
+                )
         conn.execute(
             "DELETE FROM integration.mail_attachments WHERE message_id IN "
             "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)",

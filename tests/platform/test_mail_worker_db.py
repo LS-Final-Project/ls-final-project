@@ -243,7 +243,9 @@ def test_sync_stores_mail_in_the_bucket_and_repeating_it_stores_nothing_new(sett
     world = World(settings)
     first = world.sync(mailbox["id"])
     assert first.status_code == 200
-    assert first.json()["data"] == {
+    assert {
+        k: first.json()["data"][k] for k in ("mailbox_id", "outcome", "code", "messages_stored")
+    } == {
         "mailbox_id": str(mailbox["id"]),
         "outcome": "SUCCEEDED",
         "code": None,
@@ -332,3 +334,18 @@ def test_bad_body_does_not_reveal_closed_or_unauthenticated_routes(settings, mai
     assert closed.post("/internal/v1/platform/mail/sync", content=bad).status_code == 404
     world = World(settings)
     assert world.client.post("/internal/v1/platform/mail/sync", content=bad).status_code == 401
+
+
+def test_reply_judging_failure_does_not_fail_the_sync(settings, mailbox, monkeypatch):
+    from fastapi import HTTPException as Unavailable
+
+    from backend.api.platform.mail import worker as sync_worker
+
+    async def broken(*args, **kwargs):
+        # 공용 DB 연결이 DB 오류를 바꾸는 예외(회신 표가 아직 없는 환경 등).
+        raise Unavailable(503, "Database is unavailable")
+
+    monkeypatch.setattr(sync_worker, "judge_new_replies", broken)
+    response = World(settings).sync(mailbox["id"])
+    data = response.json()["data"]
+    assert (response.status_code, data["outcome"], data["replies_failed"]) == (200, "SUCCEEDED", 1)
