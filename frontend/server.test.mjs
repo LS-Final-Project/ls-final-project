@@ -507,7 +507,8 @@ const relayRoutes = JSON.parse(await readFile(new URL('../docs/openapi/business-
  * Returns: 응답 상태를 담은 Promise.
  */
 function rawRequest(origin, method, path) {
-  const write = method !== 'GET';
+  // DELETE에 본문을 붙이면 405 뒤 keep-alive 연결이 끊겨 다음 요청이 실패하므로 본문은 쓰기 메서드만 보낸다.
+  const write = ['POST', 'PATCH', 'PUT'].includes(method);
   return new Promise((resolve, reject) => {
     const sent = httpRequest(origin + '/', { method, path, headers: write ? { 'Content-Type': 'application/json' } : {} }, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
     sent.on('error', reject);
@@ -530,7 +531,9 @@ test('web business relay forwards or rejects each shared case before reaching th
       if (item.forward) {
         assert.equal(status, 200, item.path);
         assert.equal(calls.length, before + 1, item.path);
-        const sent = new URL(calls.at(-1));
+        const [url, method] = calls.at(-1);
+        assert.equal(method, item.method, item.path);
+        const sent = new URL(url);
         const asked = new URL(item.path, 'http://local.invalid');
         assert.equal(sent.origin, 'https://platform.example.invalid');
         assert.equal(decodeURIComponent(sent.pathname), decodeURIComponent(asked.pathname));
@@ -540,6 +543,6 @@ test('web business relay forwards or rejects each shared case before reaching th
         assert.equal(calls.length, before, item.path);
       }
     }
-  }, async url => { calls.push(String(url)); return Response.json({ data: {} }); }, true);
+  }, async (url, options) => { calls.push([String(url), options.method]); return Response.json({ data: {} }); }, true);
 });
 

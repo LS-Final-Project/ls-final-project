@@ -203,6 +203,7 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
                 )
             ]
             conn.execute("DELETE FROM cs.audit_events WHERE actor_user_id=%s", (user_id,))
+            conn.execute("DELETE FROM cs.ticket_workflows WHERE ticket_id=ANY(%s)", (ticket_ids,))
             conn.execute("DELETE FROM cs.tickets WHERE id=ANY(%s)", (ticket_ids,))
             conn.execute("DELETE FROM tft.projects WHERE id=ANY(%s)", (list(projects),))
 
@@ -614,7 +615,7 @@ def test_shared_cases_forward_or_reject_before_business_service(system, case):
     if case["forward"]:
         [(method, url, *_)] = system["calls"]
         sent, asked = urlsplit(url), urlsplit(case["path"])
-        assert method == "GET" and sent.scheme + "://" + sent.netloc == CS
+        assert method == case["method"] and sent.scheme + "://" + sent.netloc == CS
         assert unquote(sent.path) == unquote(asked.path)
         assert parse_qsl(sent.query) == parse_qsl(asked.query)
     else:
@@ -664,3 +665,52 @@ def test_real_cs_read_routes_replace_the_browser_user_header(system):
         )
         assert outgoing[CALLER_HEADER] != "forged"
         assert result.headers["cache-control"] == "no-store"
+
+
+def test_real_cs_write_routes_relay_post_and_put_with_the_session_user(system):
+    """업무 흐름 POST·PUT이 실제 C/S로 전달돼 상태가 바뀌고 세션 사용자만 사용한다.
+
+    Args:
+        system: 실제 DB·세 서비스 앱과 합성 네트워크 경계.
+
+    Returns:
+        None: 검토 시작(POST)·담당자 재배정(PUT) 200, 판본 증가, 위조 헤더 미전달을 확인한다.
+    """
+    client = system["client"]
+    write = system["write"] | {"Content-Type": "application/json"}
+    created = client.post(
+        "/api/v1/cs/tickets",
+        headers=write,
+        json={
+            "channel": "WEB_FORM",
+            "body_language": "ko",
+            "customer_external_id": "CUST-0001",
+            "product_code": "TEST",
+            "body": "합성 문의",
+        },
+    )
+    assert created.status_code == 201, created.text
+    workflow = "/api/v1/cs/tickets/" + created.json()["data"]["id"] + "/workflow"
+    forged = principal_header(Principal(user_id=uuid4(), roles={"sales"})) | {
+        CALLER_HEADER: "forged"
+    }
+    version = client.get(workflow).json()["data"]["version"]
+    started = client.post(
+        workflow + "/start-review", headers=write | forged, json={"version": version}
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["data"]["state"] == "IN_REVIEW"
+    owner = uuid4()
+    moved = client.put(
+        workflow + "/owner",
+        headers=write | forged,
+        json={"version": started.json()["data"]["version"], "owner_user_id": str(owner)},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["data"]["owner_user_id"] == str(owner)
+    for method, _, outgoing, *_ in system["calls"][-2:]:
+        assert method in ("POST", "PUT")
+        assert (
+            Principal.model_validate_json(outgoing[PRINCIPAL_HEADER]).user_id == system["user_id"]
+        )
+        assert outgoing[CALLER_HEADER] != "forged"
