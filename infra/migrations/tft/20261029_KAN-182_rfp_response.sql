@@ -502,7 +502,7 @@ REVOKE ALL ON
     tft.partner_grade_summaries, tft.customer_questions, tft.question_replies, tft.change_proposals,
     tft.drafts, tft.draft_versions, tft.draft_sentences, tft.draft_sentence_evidence,
     tft.review_versions, tft.exports, tft.rereview_marks, tft.rfp_commands, tft.rfp_audit_events
-    FROM PUBLIC, cs_app, platform_app;
+    FROM PUBLIC;
 GRANT SELECT, INSERT ON
     tft.project_assignments, tft.documents, tft.document_versions, tft.clauses,
     tft.clause_deleted_values, tft.clause_flags, tft.requirements, tft.requirement_versions,
