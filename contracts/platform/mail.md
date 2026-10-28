@@ -130,7 +130,44 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 
 - 큐·호출 계정·Scheduler 준비는 `infra/setup_mail_sync.sh`(인프라 담당자 실행). Scheduler 작업은 일시 중지로 만들고, 앱 설정을 켠 뒤 resume한다. 권한은 호출 계정에 플랫폼 `run.invoker`, `platform-runtime`에 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
 
+## 승인 메일 발송 (KAN-74)
+
+`backend/api/platform/mail/send.py`, 마이그레이션 `infra/migrations/platform/20261028_KAN-74_mail_send.sql`. 서버 내부 함수이며 HTTP 입구·운영 활성화는 아직 없다. 상태는 [공통 API 계약](../../docs/api-contract.md#메일-발송의-특별-규칙)의 `QUEUED`·`SUBMITTING`·`ACCEPTED`·`UNKNOWN`·`FAILED`다.
+
+| 표 | 내용 |
+| --- | --- |
+| `integration.mail_send_intents` | 발송 의도. 발신 사서함, 업무 참조(`owner_service`, `business_ref`, `business_version`), 승인자·승인 시각, 제목·본문, 수신자(`to`·`cc`), 첨부(이름·형식·저장 키·SHA-256·크기), payload 해시, 상태, 시도 수(최대 3), 고정 오류 코드, 접수·보낸편지함 사본 확인 시각과 사본 ID. `(owner_service, business_ref, business_version)` 유일 |
+| `integration.mail_send_events` | 감사 이력. `QUEUED`·`SUBMITTING`·`ACCEPTED`·`DEFERRED`·`UNKNOWN`·`FAILED`·`SENT_COPY_CONFIRMED`·`SENT_COPY_NOT_FOUND`·`RESEND_AUTHORIZED`, 처리자(비면 시스템), 코드, 사유. 추가만 가능 |
+
+| 함수 | 동작 |
+| --- | --- |
+| `create_intent(settings, SendRequest)` | 형식 확인(수신자 1~50명·중복 없음, 제목 한 줄, 본문 1MB 이하, 첨부 합계 2.8MB 이하, 제목·본문·수신자·첨부 이름을 모두 이스케이프한 JSON 길이 + base64 첨부 + 여유 64KB가 3.9MB 이하(`MAIL_TOO_LARGE`), 첨부 저장 키가 발신 사서함의 내용 키 `mail/<mailbox_id>/sha256/...`일 것) 뒤, 서버가 다시 계산한 payload 해시가 업무의 승인 해시(`approved_payload_sha256`)와 같을 때만 저장. 발신 사서함은 **승인자 본인의 연결 상태 사서함**이어야 한다. 같은 업무 판본을 같은 내용으로 다시 부르면 기존 의도, 다른 내용이면 409 `MAIL_SEND_CONFLICT` |
+| `submit_intent(...)` | `QUEUED`→`SUBMITTING`을 커밋한 뒤 트랜잭션 밖에서 저장 내용의 해시와 첨부 바이트(해시·크기)를 다시 확인하고 Graph `sendMail`을 한 번 호출 |
+| `confirm_sent_copy(...)` | 메일에 붙인 숨은 확장 속성(`INTENT_PROPERTY` = 발송 의도 ID)으로 보낸편지함 사본을 찾는다 |
+| `authorize_resend(..., actor_user_id, reason)` | `UNKNOWN` 재발송 허가. 아래 조건 |
+| `expire_submitting(settings, older_than)` | 오래 `SUBMITTING`에 남은 의도를 `UNKNOWN`(`MAIL_SUBMIT_INTERRUPTED`)으로. 나갔을 수 있어 다시 보내지 않는다 |
+
+- **payload 해시**: `payload_sha256()`가 제목·본문 형식·본문·`to`·`cc`·첨부(이름·형식·SHA-256·크기)를 정렬 JSON으로 만들어 SHA-256을 낸다. 저장 키는 넣지 않는다. 업무는 승인할 때 같은 함수로 계산한 값을 승인 기록에 묶는다.
+- **접수 ≠ 배달**: 202는 `ACCEPTED`(접수)다. 보낸편지함 사본 확인은 `sent_copy_confirmed_at`으로 따로 남기며 이것도 배달 확인이 아니다. 화면에 "배달 완료"로 표시하지 않는다.
+
+| sendMail 결과 | 상태 | 다시 보내기 |
+| --- | --- | --- |
+| 202 | `ACCEPTED` | 없음 |
+| 401 | 새 토큰(`force_refresh=True`)으로 한 번 더. 그래도 401이면 `FAILED` `GRAPH_UNAUTHORIZED` | 401은 처리 전 거절이라 한 번 재요청 |
+| 400·403·404·413·422 | `FAILED`(`GRAPH_BAD_REQUEST`·`GRAPH_FORBIDDEN`·`GRAPH_NOT_FOUND`·`MAIL_TOO_LARGE`) | 없음. 내용을 고쳐 새 판본으로 승인 |
+| 429 | `QUEUED`(`DEFERRED`, `GRAPH_THROTTLED`) | 같은 의도를 나중에 다시 보낼 수 있음. 세 번째 시도까지 미뤄지면 `FAILED` `MAIL_SEND_ATTEMPTS_EXHAUSTED`로 마감 |
+| 5xx | `UNKNOWN` `GRAPH_UNAVAILABLE` | **자동으로 안 함** |
+| 응답 없음(연결 끊김·시간 초과) | `UNKNOWN` `GRAPH_NO_RESPONSE` | **자동으로 안 함** |
+| 보내기 전 토큰·저장소 일시 장애 | `QUEUED`(`DEFERRED`) | 나가지 않았으므로 가능. 429와 같은 시도 한도 |
+| 보내기 전 해시 불일치·재연결 필요 등 | `FAILED` | 없음 |
+| 보내기 전 예상하지 못한 오류 | `FAILED` `MAIL_SEND_PREPARE_FAILED`(예외는 그대로 전달) | 없음. 나가지 않았으므로 `UNKNOWN`으로 두지 않음 |
+
+- **결과 불명 재발송 통제**: `UNKNOWN`은 `confirm_sent_copy`로 먼저 대조한다. 사본이 있으면 실제로 나간 것으로 `ACCEPTED`가 된다. 사본이 없으면 `SENT_COPY_NOT_FOUND`를 남긴다. 재발송은 **마지막 전송 시작 10분 뒤의 "사본 없음" 확인**이 있고, **승인자 본인**이 사유(1~500자)를 적었을 때만 `QUEUED`로 되돌린다(`RESEND_AUTHORIZED`). 시도는 최대 3회다.
+- **권한**: `platform_app`은 의도 SELECT·INSERT·UPDATE, 이력 SELECT·INSERT만. 삭제·이력 수정 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
+- 문의 종결 조건(“`UNKNOWN` 발송 의도가 없어야 함”, [권한 문서](permissions.md))은 이 표의 상태로 판단한다. 발송 상태가 문의·개선요청 상태를 자동으로 바꾸지 않는다.
+
 ## 남은 작업
 
+- KAN-74 후속: C/S 업무가 발송 의도를 만들고 상태를 조회하는 HTTP 입구, 의도 전송 실행(워커), 실제 사서함 발송 확인
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결

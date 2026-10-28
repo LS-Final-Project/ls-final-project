@@ -192,3 +192,38 @@ def test_google_token_failure_hides_provider_detail():
     assert error.value.code == "MAIL_STORAGE_UNAVAILABLE"
     assert "secret detail" not in error.value.message
     assert error.value.__cause__ is None
+
+
+def test_stored_object_is_read_back_only_when_hash_and_size_match():
+    gcs, mailbox_id = FakeGcs(), uuid4()
+    stored = put(gcs, mailbox_id=mailbox_id)
+
+    def media(request):
+        assert request.url.params["alt"] == "media"
+        name = request.url.raw_path.decode().split("?")[0].split("/o/", 1)[1]
+        return httpx.Response(200, content=gcs.objects[name.replace("%2F", "/")])
+
+    async def read(handler, target):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await GcsObjectStore(client, BUCKET, token).get(target)
+
+    assert asyncio.run(read(media, stored)) == DATA
+    gcs.objects[stored.key] = b"changed"
+    with pytest.raises(ApplicationError):
+        asyncio.run(read(media, stored))
+    with pytest.raises(ApplicationError):
+        asyncio.run(read(lambda r: httpx.Response(404), stored))
+
+
+def test_local_store_reads_back_and_refuses_paths_outside_the_root(tmp_path):
+    from backend.api.platform.mail.storage import LocalObjectStore, StoredObject
+
+    store = LocalObjectStore(tmp_path / "root")
+    stored = asyncio.run(store.put(DATA, mailbox_id=uuid4()))
+    assert asyncio.run(store.get(stored)) == DATA
+    (tmp_path / "secret").write_bytes(DATA)
+    outside = StoredObject(key="../secret", sha256=stored.sha256, size=stored.size)
+    with pytest.raises(ApplicationError):
+        asyncio.run(store.get(outside))
+    with pytest.raises(ApplicationError):
+        asyncio.run(store.get(StoredObject(key=stored.key, sha256="0" * 64, size=stored.size)))
