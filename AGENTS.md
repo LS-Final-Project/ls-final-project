@@ -123,13 +123,13 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 현재 개발 분담은 아래 실명 담당을 기준으로 한다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
 
-2026-10-25 사용자 결정으로 KAN-90 평가 관리 API와 KAN-137·138·139 평가 화면은 오새결 담당으로 변경했다. 아래 기존 표의 evaluations·평가 화면 범위에는 이 변경이 우선한다. 관련 신규 저장 확장도 오새결이 담당하며 완료된 KAN-85 이력과 TFT·나머지 프론트 담당은 유지한다.
+2026-10-25 사용자 결정으로 KAN-90 평가 관리 API와 KAN-137·138·139 평가 화면은 오새결 담당으로 변경했다. 아래 기존 표의 evaluations·평가 화면 범위에는 이 변경이 우선한다. 관련 신규 저장 확장도 오새결이 담당하며 완료된 KAN-85 이력과 나머지 프론트 담당은 유지한다. 2026-10-28 프로젝트 2 범위가 TFT 팀 구성에서 RFP 자사 대응·협력사 보완(KAN-7, A01~A12 = KAN-182~192)으로 바뀌었다. `backend/api/tft/`는 서비스 이름만 유지하며 범위는 A 티켓 배정을 따른다: 김나영 A01·A04·A05(데이터 구조·조항 추출·비교·판정), 김종하 A02·A07~A09(조항 정리·경로 구현·화면·통합 시험), 오새결 A03·A06(가상 협력사 후보 풀·등급 규칙).
 
 | 담당 | 소유 기능 | 주로 수정할 경로 |
 | --- | --- | --- |
-| 김나영 | 메일, 사용자 등록·업무 권한, C/S API와 결정론적 규칙, 통합 회귀 | `backend/api/platform/mail/`, 사용자·권한 기능, `backend/api/cs/`, `backend/engine/cs/`의 규칙, 관련 마이그레이션·테스트 |
-| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S 및 TFT의 AI, 평가 실행·지표 | `backend/api/platform/auth/`, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
-| 김종하 | 프론트, TFT API, 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
+| 김나영 | 메일, 사용자 등록·업무 권한, C/S API와 결정론적 규칙, 통합 회귀, RFP 데이터 구조·조항 추출·비교·판정(A01·A04·A05) | `backend/api/platform/mail/`, 사용자·권한 기능, `backend/api/cs/`, `backend/engine/cs/`의 규칙, `backend/api/tft/`의 저장 구조·비교·판정, 관련 마이그레이션·테스트 |
+| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S와 RFP 대응의 AI, 가상 협력사 후보 풀·등급 규칙(A03·A06), 평가 실행·지표 | `backend/api/platform/auth/`, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
+| 김종하 | 프론트, RFP 조항 정리·경로 구현·화면·통합 시험(A02·A07~A09), 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`의 경로·중계 행, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
 
 아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth는 오새결, mail 및 사용자·업무 권한은 김나영, evaluations는 김종하다. 인증 결과와 메일 접근 인터페이스를 계약으로 공유하고 OAuth·토큰 갱신을 중복 구현하지 않는다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
 
