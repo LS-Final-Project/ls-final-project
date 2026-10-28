@@ -14,6 +14,7 @@
 
 저장 구조는 C/S 기획서 6.1의 제공 테이블(tickets, resolution_cases)과 [공통 데이터 계약](../../docs/data-contract.md)의 식별자·시점·출처 필드를 따른다. 마이그레이션은 `infra/migrations/cs/20261022_KAN-102_tickets.sql`, 감사 이력은 `20261023_KAN-102_ticket_audit.sql`이다.
 
+- **고객 ID 규약**(KAN-178): `customer_external_id`는 ASCII 영숫자로 시작하고 영숫자·`.`·`_`·`-`만 쓰는 1~64자(`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`)다. 접수·정정에서 어기면 422다. 값은 `backend/shared/models.py`의 `CUSTOMER_ID` 한 곳에 두고 플랫폼 중계가 같은 값을 쓴다.
 - 정정은 행을 잠근(`SELECT ... FOR UPDATE`) 상태에서 판본을 비교하고, 문의 변경과 감사 기록을 한 트랜잭션으로 저장한다. `cs.audit_events`는 서비스 계정(cs_app)에 UPDATE·DELETE 권한이 없는 추가 전용 테이블이다.
 - `actor_user_id`는 요청한 사용자 ID다(KAN-78). KAN-78 이전에 만든 기록은 null이다.
 - 오류 코드는 현재 기능별 `ApplicationError`를 쓰며 KAN-56의 오류 계약이 확정되면 맞춘다.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getEvaluationSummary, type RunSummary as Summary } from '../api/evaluation-summary';
+import { getEvaluationSummary, isLockedPath, type RunSummary as Summary } from '../api/evaluation-summary';
 import { EvaluationReadError, isJobId } from '../api/evaluations';
 
 type Attempt = Summary['first'];
@@ -21,7 +21,7 @@ const costText = (value: Attempt['cost_usd']) => !value ? '비용 집계 미연�
 /** 비교 가능 조건을 확인한다. Args: 기준·후보 요약. Returns: 비교 불가 이유 또는 null. */
 function refusal(baseline: Summary, candidate: Summary): string | null {
   if (baseline.run_id === candidate.run_id) return '같은 실행끼리는 비교하지 않습니다.';
-  if (!baseline.comparison_key || !candidate.comparison_key) return '비교 키가 없는 응답이라 비교 가능 여부를 확인할 수 없습니다.';
+  if (isLockedPath(baseline) || isLockedPath(candidate)) return '잠금 정답 경로 실행은 비교 키 도입 전이라 화면에서 비교하지 않습니다. 운영자 비교 함수로만 확인합니다.';
   if (baseline.comparison_key !== candidate.comparison_key) return '두 실행의 평가 조건(데이터·대상·정답·정책 판본 등)이 달라 비교하지 않습니다.';
   if (!terminal.has(baseline.status) || !terminal.has(candidate.status)) return '두 실행이 모두 종료된 뒤 비교할 수 있습니다.';
   return null;

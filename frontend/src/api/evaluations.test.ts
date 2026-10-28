@@ -62,7 +62,7 @@ test('화면 이동에 따른 취소 신호를 실제 요청까지 전달한다'
 
 // 공개 요약 소비자도 실제 fetch 경계에서 검증한다.
 import { getEvaluationSummary } from './evaluation-summary.ts';
-import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary.ts';
+import { lockedQualityFixture, summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary.ts';
 
 test('집계는 현재 세션으로 조회하고 원문·추가 필드는 투영하지 않는다', async t => {
   const data = summaryFixture();
@@ -78,7 +78,7 @@ for (const change of ['run', 'origin', 'version', 'count', 'null', 'rate', 'date
   test(`집계의 잘못된 ${change} 응답을 거부한다`, async t => {
     const data = summaryFixture();
     if (change === 'run') data.run_id = jobId;
-    if (change === 'origin') Object.assign(data, { data_origin: 'real' });
+    if (change === 'origin') Object.assign(data, { data_origin: 'production' });
     if (change === 'version') Object.assign(data, { report_version: 'unknown' });
     if (change === 'count') data.first.stored_attempt_count = -1;
     if (change === 'null') data.first.tokens.output_tokens.total = 0;
@@ -171,6 +171,57 @@ for (const [name, change] of Object.entries(qualityChanges)) {
     const quality = syntheticQualityFixture() as unknown as Record<string, unknown>;
     change(quality);
     Object.assign(data, { synthetic_quality: quality });
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+test('잠금 품질은 저장 지표 수로 연결 여부·사유를 다시 확인하고 허용 필드만 투영한다', async t => {
+  const data = summaryFixture();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const quality = lockedQualityFixture();
+  Object.assign(data, { data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null,
+    locked_quality: { ...quality, cases: ['secret'], metrics: { ...quality.metrics, category: { ...quality.metrics.category, gold: 'secret' } } } });
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.deepEqual(result.locked_quality, quality);
+  assert.equal(result.quality_available, true);
+  assert.equal(result.data_origin, 'real');
+  Object.assign(data, { quality_available: false, quality_unavailable_reason: 'GOLD_PARTIAL', locked_quality: { ...quality, metrics: { ...quality.metrics, urgency: null } } });
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).quality_unavailable_reason, 'GOLD_PARTIAL');
+  const empty = Object.fromEntries(Object.keys(quality.metrics).map(key => [key, null]));
+  Object.assign(data, { quality_unavailable_reason: 'GOLD_NOT_CONNECTED', locked_quality: { ...quality, metrics: empty } });
+  assert.equal((await getEvaluationSummary(data.run_id, new AbortController().signal)).quality_available, false);
+});
+
+type Summary = ReturnType<typeof summaryFixture>;
+type Locked = ReturnType<typeof lockedQualityFixture>;
+const lockedChanges: Record<string, (data: Summary, q: Locked) => void> = {
+  available_partial: (_, q) => { q.metrics.urgency = null; },
+  reason_with_all: data => { Object.assign(data, { quality_unavailable_reason: 'GOLD_PARTIAL' }); },
+  partial_as_none: (data, q) => { q.metrics.urgency = null; Object.assign(data, { quality_available: false, quality_unavailable_reason: 'GOLD_NOT_CONNECTED' }); },
+  both_qualities: data => { data.synthetic_quality = syntheticQualityFixture(); },
+  missing_metric: (_, q) => { Reflect.deleteProperty(q.metrics, 'provided_info'); },
+  gate: (_, q) => { Object.assign(q, { quality_gate_evaluated: true }); },
+  sha: (_, q) => { q.metrics.category!.gold_sha256 = 'A'.repeat(64); },
+  segment_key: (_, q) => { const s = q.metrics.provided_info!.segments; s.all = s['scope=FULL']; Reflect.deleteProperty(s, 'scope=FULL'); },
+  merged_scope: (_, q) => { Reflect.deleteProperty(q.metrics.provided_info!.segments, 'scope=PRECISION_ONLY'); },
+  value_key: (_, q) => { q.metrics.category!.segments.all.values.f1 = { value: 0, numerator: 0, denominator: 0, support: 0 }; },
+  negative: (_, q) => { q.metrics.category!.segments.all.values.accuracy.value = -0.1; },
+  numerator: (_, q) => { q.metrics.category!.segments.all.values.accuracy.numerator = 4; },
+  denominator: (_, q) => { q.metrics.category!.segments.all.locked_denominator = 4; },
+  scored: (_, q) => { q.metrics.category!.scored_target_count = 2; },
+  outcome_sum: (_, q) => { q.metrics.category!.segments.all.outcomes.VALID = 9; },
+  items_on_class_metric: (_, q) => { q.metrics.category!.segments.all.items = { tp: 0, fp: 0, fn: 0 }; },
+  item_codes: (_, q) => { Object.assign(q.metrics.provided_info!.segments['scope=FULL'].items!, { codes: 1 }); },
+  recall_on_partial: (_, q) => { Object.assign(q.metrics.provided_info!.segments['scope=PRECISION_ONLY'].items!, { fn: 0 }); },
+  class_ratio: (_, q) => { q.metrics.category!.segments.all.per_class.RETURN.f1 = 2; },
+};
+for (const [name, change] of Object.entries(lockedChanges)) {
+  test(`잘못된 잠금 품질 ${name}을 집계 오류로 거부한다`, async t => {
+    const data = summaryFixture();
+    const quality = lockedQualityFixture();
+    Object.assign(data, { quality_available: true, quality_unavailable_reason: null, locked_quality: quality });
+    change(data, quality);
     t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   });

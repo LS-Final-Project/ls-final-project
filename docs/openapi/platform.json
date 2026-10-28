@@ -373,7 +373,7 @@
       },
       "EvaluationRunSummary": {
         "additionalProperties": false,
-        "description": "\ud488\uc9c8 \ucc44\uc810\uc774 \uc544\ub2cc \ud569\uc131 \uc800\uc7a5 \uae30\ub85d \uc9d1\uacc4\uc784\uc744 \uba85\uc2dc\ud55c\ub2e4.",
+        "description": "\uc800\uc7a5 \uae30\ub85d \uc9d1\uacc4\uc640 \uc7a0\uae08 \uc815\ub2f5 \ud488\uc9c8 \uc5f0\uacb0 \uc5ec\ubd80\ub97c \ud568\uaed8 \ub0b8\ub2e4.",
         "properties": {
           "all": {
             "$ref": "#/components/schemas/AttemptSummary"
@@ -391,8 +391,11 @@
             "title": "Comparison Key"
           },
           "data_origin": {
-            "const": "synthetic",
-            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
             "title": "Data Origin",
             "type": "string"
           },
@@ -404,21 +407,38 @@
             "title": "Generated At",
             "type": "string"
           },
+          "locked_quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedQuality"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quality_available": {
-            "const": false,
-            "default": false,
             "title": "Quality Available",
             "type": "boolean"
           },
           "quality_unavailable_reason": {
-            "const": "GOLD_NOT_CONNECTED",
-            "default": "GOLD_NOT_CONNECTED",
-            "title": "Quality Unavailable Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "GOLD_NOT_CONNECTED",
+                  "GOLD_PARTIAL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Unavailable Reason"
           },
           "report_version": {
-            "const": "cs-run-summary-v1",
-            "default": "cs-run-summary-v1",
+            "const": "cs-run-summary-v2",
+            "default": "cs-run-summary-v2",
             "title": "Report Version",
             "type": "string"
           },
@@ -466,6 +486,9 @@
           "run_id",
           "status",
           "generated_at",
+          "data_origin",
+          "quality_available",
+          "quality_unavailable_reason",
           "target_count",
           "targets_without_first_attempt",
           "first",
@@ -588,6 +611,325 @@
           "roles"
         ],
         "title": "Identity",
+        "type": "object"
+      },
+      "LockedMetric": {
+        "additionalProperties": false,
+        "description": "KAN-95 \uc7a0\uae08 \uc815\ub2f5\uc73c\ub85c \uc800\uc7a5\ud55c \ud55c \uc9c0\ud45c\uc758 \ucd5c\uc2e0 \ucc44\uc810 \ud310\ubcf8. \ud569\uaca9 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "gold_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Gold Sha256",
+            "type": "string"
+          },
+          "gold_version": {
+            "title": "Gold Version",
+            "type": "string"
+          },
+          "run_status_at_scoring": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Run Status At Scoring",
+            "type": "string"
+          },
+          "scored_target_count": {
+            "minimum": 0.0,
+            "title": "Scored Target Count",
+            "type": "integer"
+          },
+          "scoring_version": {
+            "title": "Scoring Version",
+            "type": "string"
+          },
+          "segments": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LockedSegment"
+            },
+            "title": "Segments",
+            "type": "object"
+          },
+          "stored_at": {
+            "format": "date-time",
+            "title": "Stored At",
+            "type": "string"
+          },
+          "stored_scoring_version_count": {
+            "minimum": 1.0,
+            "title": "Stored Scoring Version Count",
+            "type": "integer"
+          },
+          "target_count": {
+            "minimum": 0.0,
+            "title": "Target Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scoring_version",
+          "stored_scoring_version_count",
+          "stored_at",
+          "gold_version",
+          "gold_sha256",
+          "run_status_at_scoring",
+          "target_count",
+          "scored_target_count",
+          "segments"
+        ],
+        "title": "LockedMetric",
+        "type": "object"
+      },
+      "LockedMetrics": {
+        "additionalProperties": false,
+        "description": "\ub2e4\uc12f \uc9c0\ud45c\ub97c \ubaa8\ub450 \ud0a4\ub85c \ub450\uace0 \uc800\uc7a5\ub418\uc9c0 \uc54a\uc740 \uc9c0\ud45c\ub294 null\uc774\ub2e4.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provided_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "return_subtype": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "secondary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "urgency": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "category",
+          "urgency",
+          "secondary",
+          "return_subtype",
+          "provided_info"
+        ],
+        "title": "LockedMetrics",
+        "type": "object"
+      },
+      "LockedQuality": {
+        "additionalProperties": false,
+        "description": "\uc2e4\ud5d8\uc774 \uc815\ub2f5 \ubb36\uc74c\uc5d0 \uc5f0\uacb0\ub41c \uc2e4\ud589\uc758 \ucd5c\ucd08 \uc2dc\ub3c4 \uc7a0\uae08 \ud488\uc9c8.",
+        "properties": {
+          "attempt": {
+            "const": "first",
+            "default": "first",
+            "title": "Attempt",
+            "type": "string"
+          },
+          "bundle_id": {
+            "title": "Bundle Id",
+            "type": "string"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/LockedMetrics"
+          },
+          "quality_gate_evaluated": {
+            "const": false,
+            "default": false,
+            "title": "Quality Gate Evaluated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bundle_id",
+          "metrics"
+        ],
+        "title": "LockedQuality",
+        "type": "object"
+      },
+      "LockedSegment": {
+        "additionalProperties": false,
+        "description": "\ud55c \ucc44\uc810 \ubc94\uc704\uc758 \uace0\uc815 \ubd84\ubaa8\u00b7\uacb0\uacfc \ubd84\ud3ec\u00b7\uc9d1\uacc4. provided_info \uc678\uc5d0\ub294 segment\uac00 all \ud558\ub098\ub2e4.",
+        "properties": {
+          "excluded_by_reason": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "title": "Excluded By Reason",
+            "type": "object"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "tp",
+                    "fp",
+                    "fn"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "locked_denominator": {
+            "minimum": 0.0,
+            "title": "Locked Denominator",
+            "type": "integer"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "VALID",
+                "SCHEMA_VIOLATION",
+                "TRANSPORT_FAILURE",
+                "TIMEOUT",
+                "HELD",
+                "NOT_STARTED"
+              ]
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "per_class": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SyntheticClassQuality"
+            },
+            "title": "Per Class",
+            "type": "object"
+          },
+          "target_count": {
+            "minimum": 0.0,
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "values": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LockedValue"
+            },
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "locked_denominator",
+          "target_count",
+          "outcomes",
+          "excluded_by_reason",
+          "values",
+          "per_class",
+          "items"
+        ],
+        "title": "LockedSegment",
+        "type": "object"
+      },
+      "LockedValue": {
+        "additionalProperties": false,
+        "description": "\uc7a0\uae08 \uc9d1\uacc4 \ud589 \ud558\ub098\uc758 \uc800\uc7a5 \uc218\uce58. \uac74\uc218 \uc9c0\ud45c(critical_missed \ub4f1)\ub294 1\uc744 \ub118\uc744 \uc218 \uc788\ub2e4.",
+        "properties": {
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "support": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Support"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "numerator",
+          "denominator",
+          "support"
+        ],
+        "title": "LockedValue",
         "type": "object"
       },
       "MailboxConnection": {

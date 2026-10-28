@@ -14,14 +14,15 @@ from starlette.responses import Response
 from backend.api.platform.auth.context import load_session_principal
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, configuration, csrf_token
 from backend.shared.access import PRINCIPAL_HEADER
+from backend.shared.models import CUSTOMER_ID
 from backend.shared.service_auth import CALLER_HEADER, metadata_token
 
 REQUEST_LIMIT = 1024 * 1024
 RESPONSE_LIMIT = 8 * 1024 * 1024
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-# 디코드한 경로에서 검사한다. 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가
-# upstream URL을 바꾸지 못하게 한다.
-CUSTOMER_PATH = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+# 디코드한 경로에서 검사한다. C/S 입력과 같은 고객 ID 규약이라 ?·#·/와 .·.. 세그먼트가
+# upstream URL을 바꾸지 못한다.
+CUSTOMER_PATH = CUSTOMER_ID
 # (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
 # 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다.
 BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (

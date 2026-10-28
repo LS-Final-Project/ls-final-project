@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.shared.models import CUSTOMER_ID
+
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
@@ -17,6 +19,7 @@ WorkflowState = Literal[
     "RECEIVED", "IN_REVIEW", "WAITING_CUSTOMER", "ANSWERED", "TRANSFERRED", "CLOSED"
 ]
 Code = Annotated[str, Field(min_length=1, max_length=64)]
+CustomerId = Annotated[str, Field(pattern=f"^{CUSTOMER_ID}$")]
 Subject = Annotated[str, Field(min_length=1, max_length=500)]
 
 
@@ -92,7 +95,7 @@ class TicketCreate(BaseModel):
 
     channel: Channel
     body_language: str = Field(min_length=2, max_length=16)
-    customer_external_id: Code
+    customer_external_id: CustomerId
     product_code: Code
     subject: Subject | None = None
     body: str = Field(min_length=1, max_length=50_000)
@@ -116,7 +119,7 @@ class TicketUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=1)
-    customer_external_id: Code | None = None
+    customer_external_id: CustomerId | None = None
     product_code: Code | None = None
     subject: Subject | None = None
     fw_version_reported: Code | None = None

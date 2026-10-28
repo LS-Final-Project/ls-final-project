@@ -262,6 +262,7 @@ worker가 현재 평가자 지정/활성 사용자/구성 승인/구성 hash/합
 실제 세션·등록 사용자·업무 역할을 매 요청 재검사한다. 없는 실행·다른 소유자·test split은404,
 평가자/구성 승인 철회는403, 구성 hash/대상 변조는409, 운영/비활성/DB·집계 장애는503이다.
 구성 철회 후 기존 제한 상태 GET·취소는 유지하지만 이 요약은 허용하지 않는다.
+`cs-run-summary-v2`부터는 아래 "KAN-88 잠금 정답 품질 요약"의 비합성 잠금 경로도 함께 조회한다.
 
 실험 소유권·현재 승인 구성 검증과 사용량·응답 감사를 하나의 `REPEATABLE READ READ ONLY`
 트랜잭션에서 처리한다. 응답의 generated_at은 트랜잭션 시작 시각이다. 집계 중 다른 연결의
@@ -373,3 +374,54 @@ NOT_STARTED 건수), `per_class`(DEFECT·NON_DEFECT의 support·tp·fp·fn·prec
 나란히 표시만 하며 차이를 계산하지 않는다. 합성 품질 accuracy·macro-F1은 두 실행 모두 저장되고
 gold_sha256·gold_version·scored_target_count가 같을 때만 차이를 계산한다. 차이는 부호 있는 숫자로만
 표시하고 색·등급·개선/퇴행 표현을 쓰지 않는다.
+
+
+### KAN-88 잠금 정답 품질 요약
+
+2026-10-28 사용자 결정으로 요약 응답을 `cs-run-summary-v2`로 올리고 조회 대상을 넓힌다. 합성 smoke 경로의
+요약과 기존 필드는 그대로이며 판본 문자열만 v2다. 소비자는 v1 응답을 집계 오류로 처리한다.
+
+접근 경계는 두 경로 모두 local/test·접수 켬·지정 평가자·실험 생성자=요청자=본인·접수 영수증·
+test split 404·승인 구성 hash(아니면 403 EXPERIMENT_NOT_APPROVED)·구성 hash 재계산(다르면 409)이다.
+실험 purpose가 smoke이면 기존 합성 경로(고정 프로필·fake·local/test runner·고정 대상, 위반 403
+LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따른다. 그 밖은 잠금 경로로, purpose pipeline·rule_replay,
+실행 provider와 model_id가 fake가 아니고 합성 프로필이 아니며 data_split이 train·valid인 실행만 허용하고
+위반은 403 LOCKED_RUN_REQUIRED다. 잠금 경로는 고정 대상 목록이 없으므로 실험 대상 ID를 정렬해
+줄바꿈으로 이은 SHA-256이 `target_set_hash`와 다르면 409 TARGET_SET_MISMATCH다. production 활성화,
+원문·모델 출력·정답·사례 ID 노출은 없다.
+
+필드 변경: `data_origin`은 실험 값(synthetic·demo·real)이다. `quality_available`은 boolean,
+`quality_unavailable_reason`은 GOLD_NOT_CONNECTED·GOLD_PARTIAL·null이다. 새 선택 필드
+`locked_quality`={`bundle_id`, `attempt=first`, `quality_gate_evaluated=false`, `metrics`}이며 metrics는
+category·urgency·secondary·return_subtype·provided_info 다섯 키를 항상 갖고 저장되지 않은 지표는 null이다.
+
+| 조건 | quality_available | reason | locked_quality |
+| --- | --- | --- | --- |
+| 합성 smoke 경로 | false | GOLD_NOT_CONNECTED | null (synthetic_quality는 기존대로) |
+| 잠금 경로, 실험 gold_version이 정답 묶음 ID가 아님 | false | GOLD_NOT_CONNECTED | null |
+| 잠금 경로, 계약 행이 있는 지표 0개 | false | GOLD_NOT_CONNECTED | 다섯 지표 모두 null |
+| 잠금 경로, 1~4개 | false | GOLD_PARTIAL | 저장 지표만 값 |
+| 잠금 경로, 5개 모두 | true | null | 다섯 지표 모두 값 |
+
+서버는 같은 읽기 전용 트랜잭션에서 지표마다 `cs_locked_<metric>_first_*` 실행 단위 행만 읽는다.
+판본 선택은 합성 품질과 같이 저장 시각이 가장 늦은 채점 판본 하나이며 `stored_scoring_version_count`로
+판본 수를 알린다. 지표 값: `scoring_version`, `stored_scoring_version_count`, `stored_at`, `gold_version`,
+`gold_sha256`, `run_status_at_scoring`, `target_count`, `scored_target_count`, `segments`. segment는
+provided_info만 `scope=FULL`·`scope=PRECISION_ONLY`이고 나머지는 `all`이다. 각 segment는
+`locked_denominator`, `target_count`(그 범위의 채점 대상 수), `outcomes`, `excluded_by_reason`,
+`values`(집계 키별 value·numerator·denominator·support), `per_class`(클래스 F1 행의 support·tp·fp·fn·
+precision·recall·f1, provided_info는 빈 객체), `items`(provided_info만 집계 tp·fp·fn, PRECISION_ONLY는
+tp·fp, 그 외 null)를 갖는다. 집계 키는 `docs/evaluation.md`의 "KAN-88 잠금 정답 품질 저장 행"과 같다.
+두 provided_info 범위는 합하지 않는다. 합격선·판정은 없다.
+
+선택 판본의 행이 계약과 다르면 부분 표시 없이 기존 집계 실패 규칙대로 503이다. 행 집합 누락·추가,
+threshold·comparison·passed 기록, details 키·segment 간 공통값 불일치, 판본·묶음 ID·정답 판본·SHA-256이
+`eval/cs_gold_locks.py` 잠금표와 다름, data_origin·data_split이 실험과 다름, 잠근 split 분모·outcomes 합·
+제외 수·클래스 support 합 불일치, 범위 밖 수치가 해당한다. 서버 로그에는 run_id·지표·위반 종류
+(`LOCKED_ROW_SET`, `LOCKED_JUDGEMENT_RECORDED`, `LOCKED_DETAILS`, `LOCKED_LOCK_MISMATCH`,
+`LOCKED_DENOMINATOR`, `LOCKED_VALUE_INVALID`)만 남기고 저장 값·검증 메시지는 남기지 않는다.
+
+잠금 경로는 서버 비밀 기반 HMAC 키 판본을 도입하기 전까지 `comparison_key=null`이며, 잠금 실행 간
+비교는 운영자 내부 연결의 `eval.cs_stored_metrics.compare_stored_runs`(별도 명령줄 진입점 없음)로만 한다. 소비자는 연결 여부·사유를 저장
+지표 수로 다시 계산해 응답과 다르면 집계 오류로 처리하고, synthetic_quality와 locked_quality가 함께
+오면 거부한다. 화면은 사유에 맞는 품질 문구만 바꾸며 잠금 품질 수치 표시는 후속 범위다.

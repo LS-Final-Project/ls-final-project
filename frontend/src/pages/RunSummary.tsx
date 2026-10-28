@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getEvaluationSummary, type RunSummary as Summary } from '../api/evaluation-summary';
+import { getEvaluationSummary, isLockedPath, type RunSummary as Summary } from '../api/evaluation-summary';
 import { EvaluationReadError, statusLabels } from '../api/evaluations';
 
 /** 미보고를 실제 0과 구별한다. Args: 관측값. Returns: 표시 문자열. */
@@ -18,7 +18,7 @@ const score = (value: number | null) => value === null ? '계산 불가' : value
 
 /** 저장된 합성 품질을 숫자와 문구로만 표시한다. Args: 검증한 합성 품질 또는 미저장. Returns: 품질 절. */
 function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality'] }) {
-  return <div aria-labelledby="synthetic-quality-title">
+  return <section aria-labelledby="synthetic-quality-title">
     <h3 id="synthetic-quality-title">합성 품질 (반품 하위유형 · 최초 시도)</h3>
     <div className="evaluation-note" role="note"><p><strong>합성 정답 기준, 실제 품질·합격 판정 아님</strong></p></div>
     {!quality ? <p>합성 품질 미저장</p> : <>
@@ -34,7 +34,60 @@ function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality
         </table>
       </div>
     </>}
+  </section>;
+}
+
+type Locked = NonNullable<Summary['locked_quality']>;
+type LockedMetric = NonNullable<Locked['metrics']['category']>;
+const metricLabels: [keyof Locked['metrics'], string][] = [
+  ['category', '대분류'], ['urgency', '긴급도'], ['secondary', '보조 분류'], ['return_subtype', '반품 하위유형'], ['provided_info', '제공 정보'],
+];
+const segmentLabels: Record<string, string> = { all: '전체', 'scope=FULL': '채점 범위 FULL', 'scope=PRECISION_ONLY': '채점 범위 PRECISION_ONLY (precision만)' };
+const originLabels: Record<Summary['data_origin'], string> = { synthetic: '합성', demo: '시연', real: '실제' };
+/** 응답 수치를 반올림하지 않고 표시한다. Args: 값 또는 null. Returns: 표시 문자열. */
+const raw = (value: number | null) => value === null ? '계산 불가' : String(value);
+/** 건수 객체를 키=값 목록으로 표시한다. Args: 건수 객체. Returns: 표시 문자열. */
+const counts = (value: Record<string, number>) => Object.entries(value).map(([key, n]) => `${key} ${n}`).join(' · ') || '없음';
+
+/** 잠금 지표 하나의 판본과 범위별 저장 수치를 표로 표시한다. Args: 지표 이름·값. Returns: 지표 절. */
+function LockedMetricView({ label, metric }: { label: string; metric: LockedMetric | null }) {
+  return <div>
+    <h4>{label}</h4>
+    {!metric ? <p>미저장</p> : <>
+      <p>채점 판본 {metric.scoring_version}{metric.stored_scoring_version_count > 1 ? ` (저장 판본 ${metric.stored_scoring_version_count}개 중 최신)` : ''} · 정답 판본 {metric.gold_version} · 채점 대상 {metric.scored_target_count}건 / 전체 대상 {metric.target_count}건</p>
+      {Object.entries(metric.segments).map(([name, segment]) => <div key={name}>
+        <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label={`${label} ${segmentLabels[name] ?? name} 잠금 품질 표`}>
+          <table className="evaluation-metrics"><caption>{segmentLabels[name] ?? name} · 고정 분모 {segment.locked_denominator}건</caption>
+            <thead><tr><th scope="col">지표</th><th scope="col">값</th><th scope="col">분자 / 분모</th><th scope="col">support</th></tr></thead>
+            <tbody>{Object.entries(segment.values).map(([key, item]) => <tr key={key}><th scope="row">{key}</th><td>{raw(item.value)}</td>
+              <td>{item.numerator === null || item.denominator === null ? '해당 없음' : `${item.numerator} / ${item.denominator}`}</td><td>{item.support ?? '해당 없음'}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <p className="evaluation-caption">결과 분포: {counts(segment.outcomes)} · 제외: {counts(segment.excluded_by_reason)}{segment.items ? ` · 항목 집계: ${(['tp', 'fp', 'fn'] as const).filter(key => key in segment.items!).map(key => `${key} ${segment.items![key]}`).join(' · ')}` : ''}</p>
+        {Object.keys(segment.per_class).length > 0 && <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label={`${label} ${segmentLabels[name] ?? name} 클래스별 잠금 품질 표`}>
+          <table className="evaluation-metrics"><caption>클래스별 수치</caption>
+            <thead><tr><th scope="col">클래스</th><th scope="col">support</th><th scope="col">tp</th><th scope="col">fp</th><th scope="col">fn</th><th scope="col">precision</th><th scope="col">recall</th><th scope="col">F1</th></tr></thead>
+            <tbody>{Object.entries(segment.per_class).map(([name, item]) => <tr key={name}><th scope="row">{name}</th><td>{item.support}</td><td>{item.tp}</td><td>{item.fp}</td><td>{item.fn}</td>
+              <td>{raw(item.precision)}</td><td>{raw(item.recall)}</td><td>{raw(item.f1)}</td></tr>)}</tbody>
+          </table>
+        </div>}
+      </div>)}
+    </>}
   </div>;
+}
+
+/** 잠금 정답 품질을 응답 값 그대로 표시하고 판정하지 않는다. Args: 검증한 요약. Returns: 잠금 품질 절. */
+function LockedQualityView({ data }: { data: Summary }) {
+  const quality = data.locked_quality;
+  const stored = quality ? metricLabels.filter(([key]) => quality.metrics[key] !== null).length : 0;
+  return <section aria-labelledby="locked-quality-title">
+    <h3 id="locked-quality-title">잠금 정답 품질 (최초 시도)</h3>
+    {!quality ? <p>정답 묶음 미연결</p> : <>
+      <div className="evaluation-note" role="note"><p><strong>quality_gate_evaluated={String(quality.quality_gate_evaluated)} · 합격 판정 아님</strong></p></div>
+      <p>정답 묶음 {quality.bundle_id} · {data.quality_available ? '다섯 지표 연결' : `일부 지표만 저장 (${stored}/${metricLabels.length})`}</p>
+      {metricLabels.map(([key, label]) => <LockedMetricView key={key} label={label} metric={quality.metrics[key]} />)}
+    </>}
+  </section>;
 }
 
 /** 상태 조회에 결속된 한 실행의 집계를 표시한다. Args: 실행 ID. Returns: 합성 집계 또는 안전한 오류. */
@@ -53,7 +106,9 @@ export default function RunSummary({ runId }: { runId: string }) {
   }, [runId]);
   return <section aria-labelledby="run-summary-title" aria-busy={!data && !error}>
     <h2 id="run-summary-title">실행 집계</h2>
-    <p>합성 연결 검사 기록입니다. 실제 모델 품질이나 사용량 측정 결과가 아닙니다.</p>
+    {data && (isLockedPath(data)
+      ? <p>평가 실행 저장 기록입니다 · 데이터 출처 {originLabels[data.data_origin]} · 품질은 잠금 정답 저장값이며 합격 판정이 아닙니다.</p>
+      : <p>합성 연결 검사 기록입니다. 실제 모델 품질이나 사용량 측정 결과가 아닙니다.</p>)}
     {!data && !error && <p role="status">집계를 확인하고 있습니다.</p>}
     {error && <p role="alert">{error} 실행 현황의 새로고침으로 다시 확인하세요.</p>}
     {data && <>
@@ -83,8 +138,8 @@ export default function RunSummary({ runId }: { runId: string }) {
       </div>
       <p className="evaluation-caption">부분합은 보고된 값만 더한 수치입니다. 미보고는 0이 아니며, 캐시·추론 토큰을 총 토큰에 다시 더하지 않습니다. 위반율은 응답이 없거나 증거가 불완전하면 보류합니다.</p>
       <p className="evaluation-caption">비용은 저장된 USD 금액이며 청구액이나 무료 사용 여부를 뜻하지 않습니다. 가격표가 여러 판본이면 각 시도에 기록된 비용의 합이며 공통 단가로 재계산하지 않습니다.</p>
-      <SyntheticQualityView quality={data.synthetic_quality} />
-      <p>품질 점수: 정답 검수·연결 전 · 실험 간 비교: 아직 제공하지 않음</p>
+      {isLockedPath(data) ? <LockedQualityView data={data} /> : <SyntheticQualityView quality={data.synthetic_quality} />}
+      <p>품질 점수: {data.quality_available ? '잠금 정답 다섯 지표 연결' : data.quality_unavailable_reason === 'GOLD_PARTIAL' ? '잠금 정답 일부 지표만 연결' : '정답 검수·연결 전'}</p>
     </>}
   </section>;
 }

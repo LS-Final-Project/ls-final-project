@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import RunComparison, { comparisonCsv, comparisonFileName, csvCell } from './RunComparison';
-import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
+import { lockedQualityFixture, summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
 import { jsonResponse } from '../test/render';
 import type { RunSummary } from '../api/evaluation-summary';
 
@@ -80,13 +80,17 @@ test('한쪽 합성 품질이 없으면 미저장으로 두고 차이를 계산�
   expect(cells()['합성 품질 accuracy']).toEqual(['0.5', '미저장', '계산 안 함']);
 });
 
-test('같은 실행·구버전 키 누락·조회 실패는 표를 만들지 않는다', async () => {
+test('같은 실행·잠금 경로·조회 실패는 표를 만들지 않는다', async () => {
   const same = pair();
   compare(same, same.candidate.run_id);
   expect((await screen.findByRole('alert')).textContent).toMatch(/같은 실행끼리는/);
   cleanup(); vi.unstubAllGlobals();
   compare(pair(candidate => { candidate.comparison_key = null; }));
-  expect((await screen.findByRole('alert')).textContent).toMatch(/비교 키가 없는 응답/);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/잠금 정답 경로 실행은 비교 키 도입 전이라 화면에서 비교하지 않습니다/);
+  cleanup(); vi.unstubAllGlobals();
+  compare(pair(candidate => { candidate.synthetic_quality = null; candidate.locked_quality = lockedQualityFixture(); Object.assign(candidate, { quality_available: true, quality_unavailable_reason: null }); }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/잠금 정답 경로 실행은/);
+  expect(screen.queryByRole('region', { name: '실행 비교 표' })).toBeNull();
   cleanup();
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(403, { error: { message: 'secret' } })));
   render(<RunComparison candidateId={summaryFixture().run_id} />);
