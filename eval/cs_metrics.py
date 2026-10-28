@@ -14,6 +14,9 @@ NO_SECONDARY = "NO_SECONDARY"
 RETURN_SUBTYPE_LABELS = ("DEFECT", "NON_DEFECT")
 NO_SUBTYPE = "NO_SUBTYPE"
 NO_PREDICTION = "NO_PREDICTION"
+PROVIDED_INFO_SCOPES = ("FULL", "PRECISION_ONLY")
+# 대상별 잠금 provided_info 항목 집합과 채점 범위(FULL/PRECISION_ONLY).
+ProvidedInfoGold = tuple[frozenset[str], str]
 OUTCOMES = {"VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"}
 
 
@@ -221,18 +224,113 @@ def _summarize_return_subtype(
     return report
 
 
+def summarize_provided_info_first_attempts(
+    gold: Mapping[str, ProvidedInfoGold], attempts: Mapping[str, ClassificationAttempt]
+) -> dict:
+    """잠금 채점 범위별로 최초 시도의 provided_info 항목 집합을 micro 집계한다.
+
+    Args:
+        gold: 대상 ID별 (정답 항목 집합, 채점 범위). 판본·hash 인수는 호출자 책임이다.
+        attempts: 대상별 최초 시도. 예측은 기존 분류 출력의 provided_info 배열이다.
+
+    Returns:
+        dict: FULL의 precision·recall·F1·완전 일치율과 PRECISION_ONLY의 precision.
+            실패·보류·미실행은 빈 예측으로 보아 정답 항목이 모두 FN이고 완전 일치가 아니다.
+            0 분모 점수는 null이며 두 범위를 합한 값은 내지 않는다. 합격 판정은 없다.
+    """
+    if any(
+        not isinstance(key, str)
+        or not key
+        or not isinstance(value, tuple)
+        or len(value) != 2
+        or not isinstance(value[0], frozenset)
+        or not all(isinstance(item, str) and item for item in value[0])
+        or value[1] not in PROVIDED_INFO_SCOPES
+        for key, value in gold.items()
+    ) or not set(attempts) <= set(gold):
+        raise ValueError("CS_METRICS_INVALID_INPUT")
+    scopes = {
+        scope: {"total": 0, "valid_count": 0, "tp": 0, "fp": 0, "fn": 0, "exact": 0}
+        for scope in PROVIDED_INFO_SCOPES
+    }
+    scope_outcomes: dict[str, Counter[str]] = {scope: Counter() for scope in PROVIDED_INFO_SCOPES}
+    cases = []
+    for case_id, (expected, scope) in gold.items():
+        outcome, predicted = "NOT_STARTED", frozenset[str]()
+        if case_id in attempts:
+            attempt = _check_attempt(attempts[case_id], final=False)
+            outcome = attempt.outcome
+            if attempt.prediction is not None:
+                predicted = frozenset(attempt.prediction.provided_info)
+        counts = scopes[scope]
+        tp, fp, fn = len(predicted & expected), len(predicted - expected), len(expected - predicted)
+        exact = outcome == "VALID" and predicted == expected
+        counts["total"] += 1
+        counts["valid_count"] += outcome == "VALID"
+        counts["tp"] += tp
+        counts["fp"] += fp
+        counts["fn"] += fn
+        counts["exact"] += exact
+        scope_outcomes[scope][outcome] += 1
+        cases.append(
+            {
+                "case_id": case_id,
+                "scope": scope,
+                "gold": sorted(expected),
+                "prediction": sorted(predicted) if outcome == "VALID" else None,
+                "outcome": outcome,
+                "tp": tp,
+                "fp": fp,
+                "fn": fn,
+                "exact": exact,
+            }
+        )
+    summary = {}
+    for scope, counts in scopes.items():
+        tp, fp, fn, total = counts["tp"], counts["fp"], counts["fn"], counts["total"]
+        result = {
+            "total": total,
+            "valid_count": counts["valid_count"],
+            "tp": tp,
+            "fp": fp,
+            "precision": tp / (tp + fp) if tp + fp else None,
+            "outcomes": {
+                key: scope_outcomes[scope][key] for key in sorted(OUTCOMES | {"NOT_STARTED"})
+            },
+        }
+        # PRECISION_ONLY는 정답에 원문 근거 없는 항목이 있어 recall·F1·완전 일치를 내지 않는다.
+        if scope == "FULL":
+            result |= {
+                "fn": fn,
+                "recall": tp / (tp + fn) if tp + fn else None,
+                "f1": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else None,
+                "exact_match": counts["exact"],
+                "exact_match_rate": counts["exact"] / total if total else None,
+            }
+        summary[scope] = result
+    return {
+        "version": "cs-provided-info-first-attempt-v1",
+        "attempt_number": 1,
+        "quality_gate_evaluated": False,
+        "total": len(gold),
+        "scopes": summary,
+        "cases": cases,
+    }
+
+
 def summarize_final_attempts(
     gold: Mapping[str, str | None],
     attempts: Mapping[str, ClassificationAttempt],
     *,
-    metric: Literal["category", "urgency", "secondary", "return_subtype"],
+    metric: Literal["category", "urgency", "secondary", "return_subtype", "provided_info"],
 ) -> dict:
     """사전에 선택한 최종 시도를 번호 변경 없이 별도 품질 지표로 계산한다.
 
     Args:
         gold: 잠금 대상별 해당 지표 정답.
         attempts: 호출자가 is_final 및 저장 일관성을 검증한 최종 시도.
-        metric: 집계 지표. 누락 시도는 NOT_FINAL로 전체 분모에 남긴다.
+        metric: 집계 지표. 누락 시도는 NOT_FINAL로 전체 분모에 남긴다. provided_info의 최종
+            집계는 아직 없어 거부한다.
 
     Returns:
         dict: 최종 전용 판본·선택 의미·사례별 실제 시도 번호를 가진 지표.
@@ -294,15 +392,7 @@ def _summarize_attempts(
         predicted = NO_PREDICTION
         outcome = missing_outcome
         if case_id in attempts:
-            if (
-                not isinstance(attempt, ClassificationAttempt)
-                or type(attempt.attempt_number) is not int
-                or attempt.attempt_number < 1
-                or (not final and attempt.attempt_number != 1)
-                or attempt.outcome not in OUTCOMES
-                or (attempt.outcome == "VALID") != (attempt.prediction is not None)
-            ):
-                raise ValueError("CS_METRICS_INVALID_INPUT")
+            attempt = _check_attempt(attempt, final=final)
             outcome = attempt.outcome
             if attempt.prediction is not None:
                 predicted = getattr(attempt.prediction, field)
@@ -343,6 +433,28 @@ def _summarize_attempts(
         "per_class": per_class,
         "cases": cases,
     }
+
+
+def _check_attempt(attempt: object, *, final: bool) -> ClassificationAttempt:
+    """선택한 시도의 형식·번호·결과와 예측 유무의 일관성을 검사한다.
+
+    Args:
+        attempt: 대상별로 선택한 시도.
+        final: 최종 선택 여부. 최초 경로는 번호1만 허용한다.
+
+    Returns:
+        ClassificationAttempt: 검사한 시도. 어긋나면 원문 없는 ValueError로 거부한다.
+    """
+    if (
+        not isinstance(attempt, ClassificationAttempt)
+        or type(attempt.attempt_number) is not int
+        or attempt.attempt_number < 1
+        or (not final and attempt.attempt_number != 1)
+        or attempt.outcome not in OUTCOMES
+        or (attempt.outcome == "VALID") != (attempt.prediction is not None)
+    ):
+        raise ValueError("CS_METRICS_INVALID_INPUT")
+    return attempt
 
 
 def _per_class_metrics(matrix: dict[str, dict[str, int]], labels: tuple[str, ...]) -> dict:
