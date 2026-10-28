@@ -1,6 +1,7 @@
 {
-  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다.",
+  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다.",
   "customer_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+  "evidence_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
   "routes": [
     {
       "path": "/api/v1/cs/tickets",
@@ -236,6 +237,13 @@
     },
     {
       "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove",
       "methods": [
         "POST"
       ],
@@ -559,6 +567,59 @@
       "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/judgements",
       "forward": false,
       "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/../remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/%2E%2E/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/.ev/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev%2F1/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev%3F1/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/remove",
+      "forward": false,
+      "status": 404
     }
   ]
 }
