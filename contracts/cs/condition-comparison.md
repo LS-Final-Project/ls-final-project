@@ -63,7 +63,7 @@
 
 [데이터 계약](../../docs/data-contract.md#식별자와-시간)의 두 축을 그대로 쓴다.
 
-- `derivation_kind`: 비교 결과와 그 안의 판정(확정 포함)은 모두 근거에서 계산·판단한 파생 기록이므로 `DERIVED`다. 사람 확정이라고 `SYSTEM`이나 `PROVIDED`로 바꾸지 않는다. 근거 항목은 근거 자신의 값(예: 제공 해결 사례는 `PROVIDED`)을 유지한다.
+- `derivation_kind`: 비교 결과와 그 안의 판정(확정 포함)은 모두 근거에서 계산·판단한 파생 기록이므로 `DERIVED`다. 사람 확정이라고 `SYSTEM`이나 `PROVIDED`로 바꾸지 않는다. 근거 항목은 원본 레코드에 저장된 `data_origin`·`derivation_kind`를 그대로 옮긴다. 종결 화면에서 등록한 해결 사례는 `SYSTEM`이고 `data_origin`은 그 문의의 값을 따른다([문의 계약](tickets.md)의 해결 사례 등록), 제공 데이터에서 적재한 문의·해결 사례·문서는 `PROVIDED`다. 비교 응답이 이 값을 바꾸거나 `PROVIDED`를 실제 회사 데이터로 해석하지 않는다.
 - `provenance_kind`: 판정을 만든 주체(`ai_draft`·`human_input`·`system_record`)는 이 축으로만 구분한다.
 - `data_origin`: 근거의 출처를 따른다. 근거가 모두 `synthetic`이면 `synthetic`, 실제·합성·시연 자료가 섞이면 `demo`다. 합성·가정 근거를 포함한 결과를 `real`로 승격하지 않는다.
 
@@ -151,7 +151,7 @@
         "ticket_id": "7a1e2b3c-4d5e-4f60-8a71-b2c3d4e5f601",
         "evidence_location": { "source": "resolution_case", "field": "cause" },
         "data_origin": "synthetic",
-        "derivation_kind": "PROVIDED",
+        "derivation_kind": "SYSTEM",
         "known_at": "2026-10-20T00:00:00Z"
       },
       {
