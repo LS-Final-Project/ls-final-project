@@ -456,6 +456,18 @@ def _paragraphs_text(container: ET.Element) -> Collected:
     return out
 
 
+def _looks_like_title(text: str | None) -> bool:
+    """앞 문단이 표제인지 본다. 표를 가리키는 서술문("Table 2-1 shows ….")은 표제가 아니다.
+
+    Args:
+        text: 표 바로 앞 본문 문단 텍스트.
+
+    Returns:
+        "Table N"·"표 N"으로 시작하고, 120자 이하이며, 마침표로 끝나지 않으면 True.
+    """
+    return bool(text and len(text) <= 120 and not text.endswith(".") and TABLE_TITLE.match(text))
+
+
 def _split_unit(header: str) -> tuple[str, str | None]:
     """머리 셀 텍스트 끝의 괄호 단위를 뗀다.
 
@@ -643,7 +655,7 @@ class _Extractor:
         first_block = len(self.blocks)
         caption = _val(table.find(f"{W}tblPr/{W}tblCaption"))
         previous, self.previous_text = self.previous_text, None
-        title = caption or (previous if previous and TABLE_TITLE.match(previous) else None)
+        title = caption or (previous if _looks_like_title(previous) else None)
         origins: dict[int, str] = {}  # 열별 세로 병합 시작 셀
         for row_index, row in enumerate(table.findall(f"{W}tr")):
             col = 0

@@ -9,8 +9,9 @@
   "2.4 E.1.c", 키워드 없이는 하위 문자까지 있는 "2.4 E.1.c" 꼴만. 맨 "2.4"는 수치(2.5% 등)와 구분되지 않아
   뽑지 않는다. 블록 맨 앞의 번호는 그 블록 자신의 번호라 참조로 보지 않는다.
 
-해결: CLAUSE의 target_hint 전체가 같은 문서 블록의 hints.list_text(끝의 "."·"-"·공백 제거) 또는 text 맨 앞
-번호와 같을 때만 resolved=True. "2.4 E.1.c" 같은 하위 경로는 조항 트리(A04)가 있어야 풀리므로 미해결로 두고
+해결: CLAUSE의 target_hint 전체가 같은 문서 블록의 hints.list_text(끝의 "."·"-"·공백 제거)와 같거나, list_text가
+없는 본문 문단(표 셀·그림 제외)의 맨 앞 번호와 같을 때만 resolved=True. 맨 앞 번호는 뒤에 공백과 대문자로
+시작하는 단어가 올 때만 쓰고("2.6 SWITCHGEAR"), 그 단어가 수치 단위면("2.5 kV", "2.5 MVA") 쓰지 않는다. 잘못 해결하는 것이 미해결보다 나쁘므로 대상 후보를 좁게 둔다. "2.4 E.1.c" 같은 하위 경로는 조항 트리(A04)가 있어야 풀리므로 미해결로 두고
 A04가 target_hint로 다시 푼다. DRAWING·DOCUMENT·OTHER는 문서 밖이라 해결하지 않는다. 문서가 자기 번호
 ("Section 261116.11")를 가리켜도 자기 문서 번호를 알 수 없으므로 DOCUMENT 미해결로 그대로 둔다.
 """
@@ -40,6 +41,12 @@ PATTERNS: list[tuple[ReferenceKind, re.Pattern[str]]] = [
     ("CLAUSE", re.compile(r"\b(\d{1,2}\.\d{1,2}\s[A-Z]\.\d{1,2}(?:\.[a-z])?)\b")),
 ]
 LEADING_NUMBER = re.compile(r"^(\d+(?:\.\d+)+)\b")
+# 선두 번호가 절 번호이려면 뒤에 공백과 대문자로 시작하는 단어가 와야 한다("2.6 SWITCHGEAR").
+TITLE_AFTER = re.compile(r"\s+[A-Z]")
+# 그래도 수치 단위가 바로 뒤따르면 수치로 본다("2.5 kV", "2.5 MVA").
+UNIT_AFTER = re.compile(
+    r"\s*(?:%|°|Ω|ohm|kV|V|kA|mA|A|kVA|MVA|kW|MW|W|Hz|mm|cm|m|in|ft|kg|lb|ms|s)(?![A-Za-z])"
+)
 
 
 def find_references(text: str) -> list[tuple[str, ReferenceKind, str]]:
@@ -63,14 +70,24 @@ def find_references(text: str) -> list[tuple[str, ReferenceKind, str]]:
     return [(found, kind, hint) for _, _, found, kind, hint in sorted(taken)]
 
 
-def _clause_key(block: Block) -> list[str]:
-    keys = []
+def _clause_key(block: Block) -> str | None:
+    """블록이 절 참조의 대상이 될 때 쓰는 번호를 정한다.
+
+    Args:
+        block: 문서 블록.
+
+    Returns:
+        hints.list_text가 있으면 그 값, 없으면 본문 문단의 선두 번호(뒤에 공백·대문자 단어가 오고 수치 단위가
+        아닐 때만). 없으면 None.
+    """
     if block.hints is not None and block.hints.list_text:
-        keys.append(block.hints.list_text.strip().rstrip(".-").strip())
-    leading = LEADING_NUMBER.match(block.text)
-    if leading:
-        keys.append(leading.group(1))
-    return keys
+        return block.hints.list_text.strip().rstrip(".-").strip()
+    leading = LEADING_NUMBER.match(block.text) if block.kind == "PARAGRAPH" else None
+    if leading is None or not TITLE_AFTER.match(block.text, leading.end()):
+        return None
+    if UNIT_AFTER.match(block.text, leading.end()):
+        return None
+    return leading.group(1)
 
 
 def link_references(blocks: list[Block]) -> list[Block]:
@@ -84,7 +101,8 @@ def link_references(blocks: list[Block]) -> list[Block]:
     """
     targets: dict[str, str] = {}
     for block in blocks:
-        for key in _clause_key(block):
+        key = _clause_key(block)
+        if key:
             targets.setdefault(key, block.block_id)
     linked = []
     for block in blocks:

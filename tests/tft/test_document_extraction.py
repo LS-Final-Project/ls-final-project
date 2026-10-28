@@ -515,3 +515,26 @@ def test_deep_nesting_and_oversized_path_are_rejected_early(
     monkeypatch.setattr(Path, "read_bytes", refuse)
     with pytest.raises(ValueError, match="크기 상한"):
         extract(large)
+
+
+def test_clause_targets_skip_cells_and_numbers_with_units() -> None:
+    body = table_xml([cell("2.6 BUS") + cell("2.5 kV")])
+    body += para(run("2.5 kV minimum rating applies"))
+    body += para(run("2.5 MVA transformer")) + para(run("2.6 mm clearance"))
+    body += para(run("2.6 between phases is measured"))
+    body += para(run("2.5 SCOPE")) + para(run("2.6 SWITCHGEAR"))
+    body += para(run("Comply with see 2.5 and see 2.6."))
+    document = extract_docx(docx(body))
+    by_text = {b.text: b.block_id for b in document.blocks if b.kind == "PARAGRAPH"}
+    assert [(r.target_hint, r.target_block_id) for r in document.blocks[-1].cross_references] == [
+        ("2.5", by_text["2.5 SCOPE"]),
+        ("2.6", by_text["2.6 SWITCHGEAR"]),
+    ]
+
+
+def test_sentence_about_a_table_is_not_its_title() -> None:
+    rows = [cell("Item") + cell("Value"), cell("Bus") + cell("15")]
+    body = para(run("Table 2-1 shows the ratings below.")) + table_xml(rows)
+    body += para(run("Table 3 " + "long " * 30)) + table_xml(rows)
+    document = extract_docx(docx(body))
+    assert {b.table_title for b in document.blocks if b.kind == "TABLE_CELL"} == {None}
