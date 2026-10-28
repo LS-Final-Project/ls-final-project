@@ -18,7 +18,7 @@ class GoldLock:
     denominators: tuple[tuple[str, int, int], ...]
 
 
-# docs/evaluation.md "C/S 정답 묶음 판본" 표와 같아야 한다(tests/test_cs_gold_locks.py).
+# docs/evaluation.md "C/S 정답 묶음 판본" 표와 같아야 한다(tests/eval/test_cs_gold_locks.py).
 GOLD_LOCKS: dict[str, GoldLock] = {
     "category": GoldLock(
         "provided-verified-v1-20261028",
