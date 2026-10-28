@@ -279,7 +279,14 @@ def test_cost_propagates_none():
     assert all(value is None for value in vars(unknown).values())
 
 
-def test_shipped_price_table_is_empty_so_cost_is_none():
-    table = load_price_table(PRICES)
-    assert table == {}
-    assert estimate_cost(Usage(10, 2, 1, 0, 13), AISettings().gemini_model, table).total is None
+def test_shipped_price_table_loads_and_empty_table_gives_none():
+    # 저장소 단가표는 형식만 검증한다. 담당자가 공식 단가를 채워도 깨지지 않는다.
+    load_price_table(PRICES)
+    assert estimate_cost(Usage(10, 2, 1, 0, 13), "fixture-model", {}).total is None
+
+
+def test_cache_larger_than_input_gives_no_billable_input():
+    usage = Usage(input_tokens=3, cached_input_tokens=5)
+    assert usage.billable_input_tokens is None
+    cost = estimate_cost(usage, "fixture-model", FAKE_PRICES)
+    assert cost.input is None and cost.total == Decimal("0.0000025")

@@ -57,9 +57,10 @@ class Usage:
         """입력 토큰이 있을 때만 캐시를 뺀 청구 입력 토큰을 계산한다.
 
         Returns:
-            None: billable_input_tokens를 채운다. input_tokens가 None이면 None이다.
+            None: billable_input_tokens를 채운다. input_tokens가 None이거나 캐시가 입력보다 크면
+                (입력에 캐시가 포함된다는 공급자 명세 위반) None이다.
         """
-        if self.input_tokens is not None:
+        if self.input_tokens is not None and self.input_tokens >= (self.cached_input_tokens or 0):
             self.billable_input_tokens = self.input_tokens - (self.cached_input_tokens or 0)
 
 

@@ -35,7 +35,7 @@ response_schema는 SDK의 JSON 출력 요청이며, 반환 결과는 담당 기�
 ## 사용량·시간·비용 (KAN-87)
 
 - `Usage.raw`는 공급자 `usageMetadata`의 토큰 수를 응답 키 이름 그대로 담는다(입력·답변 원문은 담지 않는다). 정규화한 필드는 `input_tokens`·`output_tokens`·`thought_tokens`·`cached_input_tokens`·`total_tokens`이고, 공급자가 주지 않은 값은 None이다. 총합은 공급자 `total_tokens`만 쓰고 직접 더하지 않는다. 추론 토큰은 답변 토큰에 합치지 않는다.
-- `billable_input_tokens`는 `input_tokens - cached_input_tokens`다. Gemini는 캐시를 쓰지 않은 호출에서 `cachedContentTokenCount`를 생략하므로(공급자 명세) 이때 캐시를 0으로 보고 계산한다. `cached_input_tokens`는 그대로 None이다. `input_tokens`가 없으면 None이다.
+- `billable_input_tokens`는 `input_tokens - cached_input_tokens`다. Gemini는 캐시를 쓰지 않은 호출에서 `cachedContentTokenCount`를 생략하므로(공급자 명세) 이때 캐시를 0으로 보고 계산한다. `cached_input_tokens`는 그대로 None이다. `input_tokens`가 없거나 캐시가 입력보다 크면(입력에 캐시가 포함된다는 명세와 어긋남) None이다.
 - `Generation`과 `Embedding`에는 요청한 모델 ID `model`, SDK 호출 시간 `elapsed_ms`, 시도 횟수 `attempts`, 완료 시각 `finished_at`(UTC)이 붙는다. 자동 재시도가 없으므로(`HttpRetryOptions(attempts=1)`) `attempts`는 1이다.
 - 단가표는 `backend/shared/ai_prices.json`이다. 저장소에는 빈 표 `{}`로 두며 수치를 추정해 넣지 않는다. 공식 가격표를 확인한 사람이 모델 ID마다 `input_per_million`·`output_per_million`·`cached_input_per_million`·`currency`·`as_of`(가격을 확인한 날짜)를 채운다.
   - 예: `{"MODEL_ID": {"input_per_million": "…", "output_per_million": "…", "cached_input_per_million": "…", "currency": "USD", "as_of": "YYYY-MM-DD"}}`
