@@ -246,7 +246,7 @@
 
 ## 합성 예시 5종
 
-화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다. 전체 응답 5종(`same`·`differs`·`unconfirmed`·`hidden`·`past_version`)은 `docs/openapi/cs.json`의 두 조회 경로 200 examples에 있고, DB 테스트가 같은 행을 저장해 실제 응답과 일치함을 확인한다. 409 본문은 판정 쓰기 경로와 함께 OpenAPI에 넣는다.
+화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다. 전체 응답 5종(`same`·`differs`·`unconfirmed`·`hidden`·`past_version`)은 `docs/openapi/cs.json`의 두 조회 경로 200 examples에 있고, DB 테스트가 같은 행을 저장해 실제 응답과 일치함을 확인한다. OpenAPI 예시는 생성기(FastAPI)가 null 키를 빼고 보여 준다. 실제 응답과 `frontend/src/mocks/generated/cs.json`은 null 값 키를 모두 가진다. 409 본문은 판정 쓰기 경로와 함께 OpenAPI에 넣는다.
 
 **1. 동일** — 확인했고 조건 차이가 없다.
 

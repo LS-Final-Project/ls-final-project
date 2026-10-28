@@ -212,6 +212,26 @@
         "GET"
       ],
       "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/condition-comparisons",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code",
+        "fault_id",
+        "version"
+      ]
     }
   ],
   "cases": [
@@ -447,6 +467,56 @@
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111",
       "forward": false,
       "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-902",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-900&version=3",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison?version=2",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/condition-comparisons",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&limit=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?fault_id=FLT-902&fault_id=FLT-901",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison?product_code=X",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/not-a-uuid/condition-comparison",
+      "forward": false,
+      "status": 404
     }
   ]
 }
