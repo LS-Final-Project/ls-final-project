@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import Evaluations from './Evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
-import { summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
+import { lockedQualityFixture, summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
 import { jsonResponse, renderAt } from '../test/render';
 
 vi.mock('../api/evaluation-events', () => ({ watchEvaluation: vi.fn() }));
@@ -28,6 +28,22 @@ test('합성 표시와 최초·재시도·전체 표에 미보고·부분합·�
   expect(screen.getAllByText('50%').length).toBe(2);
   expect(screen.getByText(/실제 모델 품질이나 사용량 측정 결과가 아닙니다/)).toBeTruthy();
   expect(screen.getByText(/품질 점수: 정답 검수·연결 전/)).toBeTruthy();
+});
+
+test('잠금 품질 연결·일부 연결 응답에서 품질 점수 문구를 사유대로 표시하고 화면이 깨지지 않는다', async () => {
+  const data = summaryFixture();
+  const quality = lockedQualityFixture();
+  Object.assign(data, { quality_available: true, quality_unavailable_reason: null, comparison_key: null, locked_quality: quality });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  const { unmount } = view();
+  await screen.findByRole('table');
+  expect(screen.getByText(/품질 점수: 잠금 정답 다섯 지표 연결됨/)).toBeTruthy();
+  expect(screen.queryByText(/정답 검수·연결 전/)).toBeNull();
+  unmount();
+  Object.assign(data, { quality_available: false, quality_unavailable_reason: 'GOLD_PARTIAL', locked_quality: { ...quality, metrics: { ...quality.metrics, urgency: null } } });
+  view();
+  await screen.findByRole('table');
+  expect(screen.getByText(/품질 점수: 잠금 정답 일부 지표만 연결/)).toBeTruthy();
 });
 
 test('재조회 실패 후 이전 집계를 숨기며 서버 원문을 표시하지 않는다', async () => {

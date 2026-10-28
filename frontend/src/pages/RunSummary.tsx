@@ -84,7 +84,7 @@ export default function RunSummary({ runId }: { runId: string }) {
       <p className="evaluation-caption">부분합은 보고된 값만 더한 수치입니다. 미보고는 0이 아니며, 캐시·추론 토큰을 총 토큰에 다시 더하지 않습니다. 위반율은 응답이 없거나 증거가 불완전하면 보류합니다.</p>
       <p className="evaluation-caption">비용은 저장된 USD 금액이며 청구액이나 무료 사용 여부를 뜻하지 않습니다. 가격표가 여러 판본이면 각 시도에 기록된 비용의 합이며 공통 단가로 재계산하지 않습니다.</p>
       <SyntheticQualityView quality={data.synthetic_quality} />
-      <p>품질 점수: 정답 검수·연결 전 · 실험 간 비교: 아직 제공하지 않음</p>
+      <p>품질 점수: {data.quality_available ? '잠금 정답 다섯 지표 연결됨 (화면 표시는 후속)' : data.quality_unavailable_reason === 'GOLD_PARTIAL' ? '잠금 정답 일부 지표만 연결' : '정답 검수·연결 전'} · 실험 간 비교: 아직 제공하지 않음</p>
     </>}
   </section>;
 }
