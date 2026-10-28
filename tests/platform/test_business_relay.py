@@ -1,9 +1,10 @@
 """실제 PostgreSQL·세 서비스 앱·RSA 검증으로 운영 업무 중계와 우회 차단을 확인한다."""
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import Mock
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
 import psycopg
@@ -15,6 +16,7 @@ from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.api.cs.main import create_app as create_cs
+from backend.api.platform import relay
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, csrf_token
 from backend.api.platform.auth.sessions import issue_session, revoke_session
 from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSettings
@@ -527,3 +529,136 @@ def test_staffing_migration_preserves_legacy_missing_due_and_enforces_new_writes
             assert conn.execute(
                 "SELECT convalidated FROM pg_constraint WHERE conrelid='tft.staffing_requests'::regclass AND conname='staffing_requests_issued_due'"
             ).fetchone() == (True,)
+
+
+# 웹 frontend/server.test.mjs와 같은 허용표·사례 파일. 실행 위치와 무관하게 이 파일 기준으로 찾는다.
+RELAY_ROUTES = json.loads(
+    (Path(__file__).resolve().parents[2] / "docs/openapi/business-relay-routes.json").read_text()
+)
+
+
+def test_platform_business_relay_table_matches_shared_fixture():
+    """플랫폼 허용표가 공유 픽스처와 누락·초과 없이 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 경로 틀·메서드·query 키 집합의 완전 일치를 확인한다.
+    """
+
+    def rows(items):
+        """정렬한 비교용 행을 만든다.
+
+        Args:
+            items: (경로 틀, 메서드, query 키) 묶음.
+
+        Returns:
+            list[tuple]: 순서와 무관한 비교용 행.
+        """
+        return sorted(
+            (path, tuple(sorted(methods)), tuple(sorted(query))) for path, methods, query in items
+        )
+
+    shared = [(route["path"], route["methods"], route["query"]) for route in RELAY_ROUTES["routes"]]
+    assert rows(relay.BUSINESS_ROUTES) == rows(shared)
+
+
+@pytest.mark.parametrize(
+    "case", RELAY_ROUTES["cases"], ids=lambda case: case["method"] + " " + case["path"][:80]
+)
+def test_shared_cases_match_the_platform_table_without_client_normalization(case):
+    """공유 사례를 HTTP 클라이언트 없이 디코드한 경로로 허용표에 직접 대조한다.
+
+    클라이언트가 .·%2E%2E 세그먼트를 먼저 줄여도 정규식 자체가 막는지 확인한다.
+
+    Args:
+        case: 퍼센트 인코딩 원문 경로와 기대 결과.
+
+    Returns:
+        None: 404 사례는 빈 메서드, 그 밖은 메서드·query 키 판정을 확인한다.
+    """
+    parts = urlsplit(case["path"])
+    path, keys = unquote(parts.path), {key for key, _ in parse_qsl(parts.query)}
+    methods = relay.allowed_methods(path)
+    if case["forward"]:
+        assert case["method"] in methods and keys <= relay.allowed_query(path)
+    elif case["status"] == 404:
+        assert methods == set()
+    elif case["status"] == 405:
+        assert methods and case["method"] not in methods
+    else:
+        assert case["method"] in methods
+
+
+@pytest.mark.parametrize(
+    "case", RELAY_ROUTES["cases"], ids=lambda case: case["method"] + " " + case["path"][:80]
+)
+def test_shared_cases_forward_or_reject_before_business_service(system, case):
+    """공유 사례를 실제 플랫폼 중계로 보내 전달 또는 업무 호출 전 거부를 확인한다.
+
+    Args:
+        system: 실제 세션과 중계 호출 기록.
+        case: 퍼센트 인코딩 원문 경로와 기대 결과.
+
+    Returns:
+        None: 전달 시 고정 C/S 주소·경로·query 일치, 거부 시 상태와 업무 미호출을 확인한다.
+    """
+    write = case["method"] != "GET"
+    headers = system["write"] | ({"Content-Type": "application/json"} if write else {})
+    result = system["client"].request(
+        case["method"], case["path"], headers=headers, content=b"{}" if write else None
+    )
+    if case["forward"]:
+        [(method, url, *_)] = system["calls"]
+        sent, asked = urlsplit(url), urlsplit(case["path"])
+        assert method == "GET" and sent.scheme + "://" + sent.netloc == CS
+        assert unquote(sent.path) == unquote(asked.path)
+        assert parse_qsl(sent.query) == parse_qsl(asked.query)
+    else:
+        assert result.status_code == case["status"], result.text
+        assert not system["calls"]
+
+
+def test_real_cs_read_routes_replace_the_browser_user_header(system):
+    """장비·통계·개선요청 조회가 실제 C/S로 전달되고 세션 사용자만 사용한다.
+
+    Args:
+        system: 실제 DB·세 서비스 앱과 합성 네트워크 경계.
+
+    Returns:
+        None: 각 조회 200과 위조 사용자·호출자 헤더 미전달을 확인한다.
+    """
+    client = system["client"]
+    created = client.post(
+        "/api/v1/cs/tickets",
+        headers=system["write"] | {"Content-Type": "application/json"},
+        json={
+            "channel": "WEB_FORM",
+            "body_language": "ko",
+            "customer_external_id": "CUST-0001",
+            "product_code": "TEST",
+            "body": "합성 문의",
+        },
+    )
+    assert created.status_code == 201, created.text
+    ticket = "/api/v1/cs/tickets/" + created.json()["data"]["id"]
+    forged = principal_header(Principal(user_id=uuid4(), roles={"sales"})) | {
+        CALLER_HEADER: "forged"
+    }
+    for path in (
+        ticket + "/units",
+        ticket + "/unit-history",
+        "/api/v1/cs/stats/overview?customer=CUST-0001",
+        "/api/v1/cs/stats/owners",
+        "/api/v1/cs/stats/customers/CUST-0001",
+        "/api/v1/cs/improvement-requests",
+    ):
+        result = client.get(path, headers=forged)
+        assert result.status_code == 200, (path, result.text)
+        outgoing = system["calls"][-1][2]
+        assert (
+            Principal.model_validate_json(outgoing[PRINCIPAL_HEADER]).user_id == system["user_id"]
+        )
+        assert outgoing[CALLER_HEADER] != "forged"
+        assert result.headers["cache-control"] == "no-store"
