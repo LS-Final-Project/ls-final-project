@@ -17,6 +17,11 @@ NO_PREDICTION = "NO_PREDICTION"
 PROVIDED_INFO_SCOPES = ("FULL", "PRECISION_ONLY")
 # 대상별 잠금 provided_info 항목 집합과 채점 범위(FULL/PRECISION_ONLY).
 ProvidedInfoGold = tuple[frozenset[str], str]
+# 재요청 대상별 (gold 주분류, gold 제공 항목 집합, 제품군).
+RerequestGold = tuple[str, frozenset[str], str]
+# (제품군, 주분류)별 핵심 항목(required_info.csv의 blocking_fields).
+BlockingFields = Mapping[tuple[str, str], frozenset[str]]
+REREQUEST_CAUSES = ("EXTRACTION", "CLASSIFICATION")
 OUTCOMES = {"VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"}
 
 
@@ -314,6 +319,106 @@ def summarize_provided_info_first_attempts(
         "quality_gate_evaluated": False,
         "total": len(gold),
         "scopes": summary,
+        "cases": cases,
+    }
+
+
+def requested_items(
+    blocking: BlockingFields, family: str, category: str, provided: frozenset[str]
+) -> frozenset[str]:
+    """제공 데이터 규칙대로 추가 요청할 항목(빠진 핵심 항목)을 계산한다.
+
+    Args:
+        blocking: (제품군, 주분류)별 핵심 항목.
+        family: 문의의 제품군.
+        category: 요청 목록을 정할 주분류.
+        provided: 제공된 것으로 본 항목 집합.
+
+    Returns:
+        frozenset[str]: 핵심 항목 중 제공되지 않은 항목. 규칙표에 없는 조합은 KeyError다.
+    """
+    return blocking[(family, category)] - provided
+
+
+def summarize_rerequest_first_attempts(
+    gold: Mapping[str, RerequestGold],
+    attempts: Mapping[str, ClassificationAttempt],
+    blocking: BlockingFields,
+) -> dict:
+    """최초 시도의 주분류·provided_info로 계산한 요청 중 이미 제공된 항목을 센다.
+
+    Args:
+        gold: provided_info FULL 대상 ID별 (gold 주분류, gold 제공 항목, 제품군).
+        attempts: 대상별 최초 시도. 예측은 기존 분류 출력의 category_code·provided_info다.
+        blocking: (제품군, 주분류)별 핵심 항목.
+
+    Returns:
+        dict: 재요청 문의·항목 수와 비율, 원인별 문의·항목 수, 요청이 생긴 문의 수.
+            VALID가 아닌 시도는 요청을 계산하지 않고 outcomes에만 세며 재요청 0으로 보지 않는다.
+            비율 분모는 대상 전체·gold 제공 항목 전체이고 0 분모는 null이다. 합격 판정은 없다.
+    """
+    if any(
+        not isinstance(key, str)
+        or not key
+        or not isinstance(value, tuple)
+        or len(value) != 3
+        or value[0] not in CATEGORY_LABELS
+        or not isinstance(value[1], frozenset)
+        or not all(isinstance(item, str) and item for item in value[1])
+        or (value[2], value[0]) not in blocking
+        for key, value in gold.items()
+    ) or not set(attempts) <= set(gold):
+        raise ValueError("CS_METRICS_INVALID_INPUT")
+    outcomes: Counter[str] = Counter()
+    causes = {cause: {"tickets": 0, "items": 0} for cause in REREQUEST_CAUSES}
+    counts = Counter[str]()
+    cases = []
+    for case_id, (gold_category, expected, family) in gold.items():
+        outcome, requested, rerequested = "NOT_STARTED", None, None
+        if case_id in attempts:
+            attempt = _check_attempt(attempts[case_id], final=False)
+            outcome = attempt.outcome
+            if attempt.prediction is not None:
+                category = attempt.prediction.category_code
+                key = (family, category)
+                if key not in blocking:
+                    raise ValueError("CS_METRICS_INVALID_INPUT")
+                requested = requested_items(
+                    blocking, family, category, frozenset(attempt.prediction.provided_info)
+                )
+                rerequested = requested & expected
+                counts["requests"] += bool(requested)
+                if rerequested:
+                    cause = "EXTRACTION" if category == gold_category else "CLASSIFICATION"
+                    causes[cause]["tickets"] += 1
+                    causes[cause]["items"] += len(rerequested)
+                    counts["tickets"] += 1
+                    counts["items"] += len(rerequested)
+        outcomes[outcome] += 1
+        counts["gold_items"] += len(expected)
+        cases.append(
+            {
+                "case_id": case_id,
+                "outcome": outcome,
+                "requested": sorted(requested) if requested is not None else None,
+                "rerequested": sorted(rerequested) if rerequested is not None else None,
+            }
+        )
+    total, gold_items = len(gold), counts["gold_items"]
+    return {
+        "version": "cs-rerequest-first-attempt-v1",
+        "attempt_number": 1,
+        "quality_gate_evaluated": False,
+        "total": total,
+        "valid_count": outcomes["VALID"],
+        "gold_item_count": gold_items,
+        "outcomes": {key: outcomes[key] for key in sorted(OUTCOMES | {"NOT_STARTED"})},
+        "request_ticket_count": counts["requests"],
+        "rerequest_ticket_count": counts["tickets"],
+        "rerequest_ticket_rate": counts["tickets"] / total if total else None,
+        "rerequest_item_count": counts["items"],
+        "rerequest_item_rate": counts["items"] / gold_items if gold_items else None,
+        "causes": causes,
         "cases": cases,
     }
 

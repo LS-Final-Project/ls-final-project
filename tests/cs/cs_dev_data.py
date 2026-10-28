@@ -29,11 +29,12 @@ class DevDataError(ValueError):
     """The provided files do not match what the manifest promises."""
 
 
-def _entry(manifest_path: Path, name: str) -> tuple[bytes, dict]:
+def _entry(manifest_path: Path, name: str, section: str | None = None) -> tuple[bytes, dict]:
     """The file's bytes, checked against the manifest. Callers parse these same bytes, so the
-    file cannot change between the hash check and the read."""
+    file cannot change between the hash check and the read. `section` reads a nested entry
+    such as `partitions.train`."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    entry = manifest.get(name)
+    entry = (manifest.get(section) or {}).get(name) if section else manifest.get(name)
     if not isinstance(entry, dict):
         raise DevDataError(f"The manifest has no {name} entry")
     root = manifest_path.parent.resolve()
@@ -115,3 +116,44 @@ def load_return_subtypes(manifest_path: Path, targets: set[str]) -> dict[str, st
         missing, extra = sorted(targets - set(gold)), sorted(set(gold) - targets)
         raise DevDataError(f"Gold rows differ from targets: missing={missing} extra={extra}")
     return gold
+
+
+def load_partition_products(manifest_path: Path, split: str) -> tuple[dict[str, str], str]:
+    """한 개발 분할 파일에서 ticket_id·product_code만 꺼낸다(재요청 지표의 제품군 입력).
+
+    Args:
+        manifest_path: 관리자가 검수한 개발 파일 목록 경로.
+        split: train 또는 valid. manifest의 partitions 항목을 쓴다.
+
+    Returns:
+        tuple[dict[str, str], str]: 문의 ID별 제품 코드와 manifest가 잠근 파일 SHA-256.
+            다른 열(정답 포함)은 결과에 남기지 않는다. 분할 밖 행·중복·빈 값·행 수 불일치는 거부한다.
+    """
+    if split not in DEV_SPLITS:
+        raise DevDataError("CS_DEV_SPLIT_INVALID")
+    data, entry = _entry(manifest_path, split, "partitions")
+    reader = csv.reader(io.StringIO(data.decode("utf-8-sig"), newline=""))
+    header = next(reader, [])
+    try:
+        ids, codes, splits = (
+            header.index(name) for name in ("ticket_id", "product_code", "data_split")
+        )
+    except ValueError:
+        raise DevDataError("CS_DEV_ROWS_INVALID") from None
+    products: dict[str, str] = {}
+    for row in reader:
+        if len(row) != len(header):
+            raise DevDataError("CS_DEV_ROWS_INVALID")
+        ticket_id, code = row[ids], row[codes]
+        if (
+            row[splits] != split
+            or not ticket_id
+            or ticket_id != ticket_id.strip()
+            or not code
+            or ticket_id in products
+        ):
+            raise DevDataError("CS_DEV_ROWS_INVALID")
+        products[ticket_id] = code
+    if len(products) != entry.get("rows"):
+        raise DevDataError("CS_DEV_ROWS_INVALID")
+    return products, str(entry["sha256"]).lower()

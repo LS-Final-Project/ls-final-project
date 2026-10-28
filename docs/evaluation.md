@@ -181,6 +181,12 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 
 **정하지 않은 것**: 합격선(KAN-82). 필요한 핵심 항목을 요청하지 않은 반대 방향 오류는 이 지표에 넣지 않았다.
 
+**평가기 입력**(2026-10-28 KAN-88)
+- 필수 항목표: 제공 자료 `CS_AI_Agent_Training_Data_v1/ref/required_info.csv`를 바이트 그대로 `eval/policy/cs_required_info.csv`에 복사했다. 정답이 아닌 규칙표다. 110행(11 제품군 × 10 주분류), SHA-256 `c3a026def3d3229b5c9fe68a1d332bfc4346ebcc0965dc869dd4a61b0826a339`. 원본이 CRLF라 `.gitattributes`로 줄바꿈 변환을 막는다
+- 제품군: 개발 분리본(`manifest.json`의 `partitions`가 SHA·행 수를 잠근 `tickets.train.csv`·`tickets.valid.csv`)에서 `ticket_id`·`product_code`만 꺼내 정책표 `product_master.csv`로 제품군을 정한다. 정답 열은 결과에 남기지 않는다
+- 분할별 고정 수(`eval/cs_gold_locks.py` `REREQUEST_LOCK`): 대상 학습 2,643·검증 561, gold 제공 항목 학습 7,876·검증 1,643, 기준선 요청 필요 학습 584·검증 122
+- 저장 행은 아래 [잠금 정답 품질 저장 행](#kan-88-잠금-정답-품질-저장-행)의 재요청 항목에 있다
+
 ## C/S 보조 분류 정답 잠금 (KAN-95)
 
 2026-10-27에 개발 문의 3,403건(학습 2,800·검증 603)의 secondary_category 정답을 잠갔다. 시험 분할은 쓰지 않았다.
@@ -466,7 +472,22 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
   `ticket_id,provided_info,scoring_scope`, 항목은 `;` 구분, 빈 정답은 `[]`, 범위는 `FULL`·`PRECISION_ONLY`.
   빈 칸·빈 항목·앞뒤 공백·중복 항목·중복 ID는 거부한다. 항목 코드의 허용값은 코드북을 읽지 않아 검사하지
   않는다. **실제 파일의 표기가 이 기록과 다르면 추정해 읽지 않고 `CS_QUALITY_GOLD_INVALID`로 멈춘다.**
-- 언어·채널별 집계는 계산 경로에 있지만 행으로 저장하지 않는다. 최종 시도 집계와 재요청 지표는 없다.
+- 언어·채널별 집계는 계산 경로에 있지만 행으로 저장하지 않는다. 최종 시도 집계는 없다.
+
+재요청 지표(`store_locked_rerequest_metrics`, 정의는 [재요청 지표](#cs-이미-제공한-정보-재요청-지표-kan-95)):
+- 입력: category·provided_info 잠금 정답(각 SHA 대조), 필수 항목표 사본(SHA 대조), 개발 분리본의 제품 코드.
+  거부 코드와 `cs-locked-quality-v1`, 비합성 경계·묶음·종료 검사는 위와 같다.
+- 순서: 제품 입력의 분할이 실행 split과 다르면 `CS_QUALITY_GOLD_INVALID`. 대상 제품 코드 누락·미등록 제품·
+  규칙표에 없는 (제품군, 주분류)도 같은 코드다. 이어서 FULL 대상 수와 gold 제공 항목 수가 잠금 수와 다르면
+  `CS_QUALITY_DENOMINATOR_MISMATCH`.
+- 기준선 관문: gold 주분류·provided_info를 예측으로 넣은 요청 필요 문의 수가 잠금 값과 다르면
+  `CS_QUALITY_GOLD_INVALID`로 저장하지 않는다(재요청은 구성상 0).
+- 행(접두 `cs_locked_rerequest_first_`, segment `all`): `rerequest_ticket_count`·`rerequest_ticket_ratio`
+  (분모 FULL 대상), `rerequest_item_count`·`rerequest_item_ratio`(분모 gold 제공 항목), `cause_extraction`·
+  `cause_classification`(재요청 문의 중 원인별 문의 수), `request_ticket_count`(요청이 생긴 문의 수, 분모 정상 출력).
+- details: 묶음 ID, 두 정답 판본·SHA, 규칙표·제품 파일 SHA, data_origin·split·상태, 고정 분모, gold 항목 수,
+  `excluded_by_reason`(`PRECISION_ONLY` 수), `valid_count`·`outcomes`, 원인별 항목 수, 기준선 요청 필요 수.
+  사례 ID·항목 코드·제품 코드는 넣지 않는다. 실패·보류는 요청을 계산하지 않고 `outcomes`에만 센다.
 
 운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
 
@@ -474,7 +495,13 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 uv run --frozen python -m eval.cs_report store-locked-quality --run-id <UUID> \
   --metric <category|urgency|secondary|return_subtype|provided_info> --gold-file <정답 CSV> \
   --scoring-version <판본>
+uv run --frozen python -m eval.cs_report store-locked-rerequest --run-id <UUID> \
+  --category-gold <정답 CSV> --info-gold <정답 CSV> --dev-manifest <manifest.json> \
+  --split <train|valid> --scoring-version <판본>
 ```
+
+재요청 명령은 개발 분리본 로더(`tests/cs/cs_dev_data.py`)를 지연 import하므로 저장소 전체가 있는 운영자 환경에서만
+실행한다. 분리본을 읽지 못하거나 SHA·행이 다르면 `CS_QUALITY_PRODUCT_INVALID`다.
 
 출력·오류 규칙은 합성 저장 명령과 같다(성공 JSON 한 줄 exit 0, 오류 코드 한 줄 exit 1, 인자 형식 오류
 exit 2, 경로·DSN·원문 비출력). 실제 실행이 아직 없어 이 경로는 격리 DB의 검사용 실행·잠금표로만
