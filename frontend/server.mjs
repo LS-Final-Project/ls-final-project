@@ -126,10 +126,10 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
       if (path.startsWith('/api/v1/platform/auth/mailbox/') && !mailboxAuthEnabled) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      if (evaluationReadRelayEnabled && evaluationReadPath(path)) {
+      if (evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) {
         return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
-      if (evaluationControlRelayEnabled && evaluationControlPath(path)) {
+      if (evaluationControlRelayEnabled && evaluationControlPath(path, request.method)) {
         return relayEvaluationControl(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
