@@ -1111,3 +1111,20 @@ def test_provided_info_gold_file_rejects_malformed_rows(data):
         "﻿ticket_id,provided_info,scoring_scope\r\na,[],FULL\r\nb,B;A,PRECISION_ONLY\r\n".encode(),
         columns,
     ) == {"a": (frozenset(), "FULL"), "b": (frozenset({"A", "B"}), "PRECISION_ONLY")}
+
+
+def test_run_comparison_rejects_provided_info_before_reading_runs():
+    """실행 비교가 단일 분류가 아닌 provided_info를 DB 조회 전에 코드로 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: KeyError 대신 원문 없는 저장 집계 검증 코드로 끝남을 확인한다.
+    """
+    from uuid import uuid4
+
+    from eval.cs_stored_metrics import compare_stored_runs
+
+    with pytest.raises(ValueError, match="^CS_STORED_METRICS_INVALID_INPUT$"):
+        compare_stored_runs(None, uuid4(), uuid4(), {}, gold_version=None, metric="provided_info")
