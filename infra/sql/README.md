@@ -54,7 +54,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 33개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 34개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -98,6 +98,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P17 | `platform/20261028_KAN-73_mail_triage.sql` | P16(헤더) | platform_migrator | 불가 | to_regclass('integration.mail_triage') | 미확인 |
 | P18 | `platform/20261028_KAN-74_mail_send.sql` | P1·P13·P16(헤더) | platform_migrator(아래 KAN-74 절) | 불가 | to_regclass('integration.mail_send_intents') | 미확인 |
 | P19 | `platform/20261028_KAN-81_mailbox_reconnect_state.sql` | P13·P16(헤더) | 운영자 postgres(아래 KAN-81 절) | 불가 | 열 `mailbox_auth.connections.reconnect_required_at` | 미확인 |
+| P20 | `platform/20261028_KAN-69_dispatch_recovery.sql` | P11·P12(헤더) | platform_migrator | 가능 | 열 `runtime.dispatch_outbox.requeued_at` | 미확인 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -172,6 +173,7 @@ python3 scripts/workspace.py migrate platform 20261028_KAN-71_mail_sync.sql
 python3 scripts/workspace.py migrate platform 20261028_KAN-73_mail_triage.sql
 python3 scripts/workspace.py migrate platform 20261028_KAN-74_mail_send.sql
 python3 scripts/workspace.py migrate platform 20261028_KAN-81_mailbox_reconnect_state.sql
+python3 scripts/workspace.py migrate platform 20261028_KAN-69_dispatch_recovery.sql
 ```
 
 공용 DB는 운영 승인 뒤 운영자 터미널에서 위 순서대로 한 파일씩 적용한다. 각 파일 전에 적용 전 확인 쿼리를 실행해 true면 건너뛰고, 적용 후 공용 상태 열에 날짜를 기록한다. 에이전트는 공용 DB에 적용하지 않는다. KAN-81·KAN-71은 아래 절의 추가 단계를 따른다.

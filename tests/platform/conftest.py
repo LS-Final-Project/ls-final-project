@@ -158,6 +158,11 @@ def jobs_database(auth_database):
                 "infra/migrations/platform/20261026_KAN-69_dispatch_operation.sql"
             ).read_text()
             conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # 재실행해도 같은 상태가 되는 마이그레이션이라 매번 적용한다.
+        migration = Path(
+            "infra/migrations/platform/20261028_KAN-69_dispatch_recovery.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 

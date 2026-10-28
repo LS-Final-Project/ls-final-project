@@ -735,3 +735,252 @@ def test_inspect_operation_boundaries(
         assert asyncio.run(inspect()) is False
     assert len(requests) == (1 if variant in {"timeout", "html"} else 0)
     assert evidence(evaluation_database, queued) == before
+
+
+def unknown_attempt(settings, access, dispatch, operation_name):
+    """전송을 시작하고 결과 불명확으로 기록한 시도를 만든다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        operation_name: 저장할 operation 이름 또는 None.
+
+    Returns:
+        DispatchLease: UNKNOWN으로 끝난 시도.
+    """
+    from backend.api.platform.jobs.dispatch import begin_send, record_result
+
+    attempt = asyncio.run(claim_next(settings, access, dispatch))
+    assert asyncio.run(begin_send(settings, access, dispatch, attempt))
+    asyncio.run(record_result(settings, access, dispatch, attempt, "UNKNOWN", operation_name))
+    return attempt
+
+
+def ledger_row(dsn, job_id):
+    """outbox·현재 시도 상태와 대조 시각 유무를 읽는다.
+
+    Args:
+        dsn: 관리자 DSN.
+        job_id: 작업 ID.
+
+    Returns:
+        tuple: outbox 상태, 시도 상태, checked_at 존재 여부.
+    """
+    with psycopg.connect(dsn) as conn:
+        return conn.execute(
+            "SELECT o.state,a.state,a.checked_at IS NOT NULL FROM runtime.dispatch_outbox o "
+            "JOIN runtime.dispatch_attempts a ON a.job_id=o.job_id AND a.attempt_no=o.attempt_no "
+            "WHERE o.job_id=%s",
+            (job_id,),
+        ).fetchone()
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (200, {"name": OPERATION}, "ACCEPTED"),
+        (404, {"error": {"code": 404, "status": "NOT_FOUND"}}, "UNKNOWN"),
+        (200, {"name": OPERATION, "error": {"message": "private"}}, "UNKNOWN"),
+        (503, {"name": OPERATION}, "UNKNOWN"),
+    ],
+)
+def test_reconcile_moves_only_positive_evidence_to_accepted(
+    settings, access, dispatch, jobs, queued, evaluation_database, status, body, expected
+):
+    """저장된 operation의 접수 확인만 ACCEPTED로 바꾸고 나머지는 UNKNOWN에 대조 시각만 남긴다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+        status: 합성 HTTP 상태.
+        body: 합성 operation 응답.
+        expected: 기대 장부 상태.
+
+    Returns:
+        None: GET 한 번, 두 장부 상태, 재전송 없음, 실행 상태·이벤트 불변을 확인한다.
+    """
+    from backend.api.platform.jobs.recovery import reconcile_unknown
+
+    attempt = unknown_attempt(settings, access, dispatch, OPERATION)
+    before = evidence(evaluation_database, queued)[2:]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, json=body)
+
+    outcome = asyncio.run(
+        reconcile_unknown(
+            settings,
+            access,
+            dispatch,
+            jobs,
+            attempt.job_id,
+            asyncio.run(token_provider()),
+            transport=httpx.MockTransport(handler),
+        )
+    )
+    assert outcome == expected and len(requests) == 1
+    assert ledger_row(evaluation_database, attempt.job_id) == (expected, expected, True)
+    assert evidence(evaluation_database, queued)[2:] == before
+    assert asyncio.run(claim_next(settings, access, dispatch)) is None
+
+
+def test_reconcile_without_operation_name_fixes_manual_check(
+    settings, access, dispatch, jobs, queued, evaluation_database
+):
+    """operation 이름 없이 UNKNOWN이 된 전송은 외부 조회 없이 MANUAL_CHECK로 고정된다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+
+    Returns:
+        None: HTTP 0회, 종료 상태, 재대조·재처리·재확보 거부를 확인한다.
+    """
+    from backend.api.platform.jobs.recovery import reconcile_unknown, requeue
+
+    attempt = unknown_attempt(settings, access, dispatch, None)
+
+    def handler(request):
+        raise AssertionError("no lookup without an operation name")
+
+    run = lambda: reconcile_unknown(  # noqa: E731
+        settings,
+        access,
+        dispatch,
+        jobs,
+        attempt.job_id,
+        SecretStr("synthetic-access-token"),
+        transport=httpx.MockTransport(handler),
+    )
+    assert asyncio.run(run()) == "MANUAL_CHECK"
+    assert ledger_row(evaluation_database, attempt.job_id) == ("MANUAL_CHECK", "MANUAL_CHECK", True)
+    with pytest.raises(ApplicationError, match="INVALID_TRANSITION"):
+        asyncio.run(run())
+    with pytest.raises(ApplicationError, match="INVALID_TRANSITION"):
+        asyncio.run(requeue(settings, access, dispatch, attempt.job_id))
+    assert asyncio.run(claim_next(settings, access, dispatch)) is None
+
+
+@pytest.mark.parametrize("change", ["accepted_meanwhile", "not_unknown", "production"])
+def test_reconcile_refuses_changed_or_wrong_state(
+    settings, access, dispatch, jobs, queued, evaluation_database, change
+):
+    """조회 사이 장부가 바뀌면 덮어쓰지 않고, UNKNOWN이 아니거나 production이면 거부한다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+        change: 거부 조건.
+
+    Returns:
+        None: 고정 코드와 장부 상태를 확인한다.
+    """
+    from backend.api.platform.jobs.dispatch import begin_send, record_result
+    from backend.api.platform.jobs.recovery import reconcile_unknown
+
+    if change == "not_unknown":
+        attempt = asyncio.run(claim_next(settings, access, dispatch))
+        assert asyncio.run(begin_send(settings, access, dispatch, attempt))
+        asyncio.run(record_result(settings, access, dispatch, attempt, "REJECTED"))
+    else:
+        attempt = unknown_attempt(settings, access, dispatch, OPERATION)
+
+    def handler(request):
+        # 조회 중 다른 운영자가 같은 전송을 먼저 처리한 상황.
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(
+                "UPDATE runtime.dispatch_outbox SET state='ACCEPTED' WHERE job_id=%s",
+                (attempt.job_id,),
+            )
+        return httpx.Response(200, json={"name": OPERATION})
+
+    if change == "production":
+        settings.environment = "production"
+    code = {
+        "accepted_meanwhile": "STALE_DISPATCH",
+        "not_unknown": "INVALID_TRANSITION",
+        "production": "DISPATCH_DISABLED",
+    }[change]
+    with pytest.raises(ApplicationError, match=code):
+        asyncio.run(
+            reconcile_unknown(
+                settings,
+                access,
+                dispatch,
+                jobs,
+                attempt.job_id,
+                SecretStr("synthetic-access-token"),
+                transport=httpx.MockTransport(handler),
+            )
+        )
+    if change == "accepted_meanwhile":
+        # 조회 결과로 시도를 바꾸지 않았다: 시도는 UNKNOWN 그대로, 대조 시각도 없다.
+        assert ledger_row(evaluation_database, attempt.job_id) == ("ACCEPTED", "UNKNOWN", False)
+
+
+def test_recovery_cli_reads_token_from_stdin_and_prints_no_secrets(
+    settings, access, dispatch, jobs, queued, evaluation_database, monkeypatch, capsys
+):
+    """운영자 명령은 토큰을 stdin으로만 받고 출력에 토큰·operation 이름을 남기지 않는다.
+
+    Args:
+        settings: 임시 DB 설정.
+        access: 합성 허용 설정.
+        dispatch: 장부 설정.
+        jobs: 고정 Job 설정.
+        queued: 접수한 run.
+        evaluation_database: 관리자 DSN.
+        monkeypatch: 설정·조회 교체와 stdin.
+        capsys: 출력 확인.
+
+    Returns:
+        None: status·reconcile 성공 JSON, 빈 토큰 코드, 비밀 비노출을 확인한다.
+    """
+    import io
+
+    from backend.api.platform.jobs import recovery
+
+    attempt = unknown_attempt(settings, access, dispatch, OPERATION)
+    seen = []
+
+    async def fake_inspect(*args, transport=None):
+        seen.append(args[-1].get_secret_value())
+        return True
+
+    monkeypatch.setattr(recovery, "Settings", lambda: settings)
+    monkeypatch.setattr(recovery, "EvaluationAccessSettings", lambda: access)
+    monkeypatch.setattr(recovery, "DispatchSettings", lambda: dispatch)
+    monkeypatch.setattr(recovery, "CloudRunJobsSettings", lambda: jobs)
+    monkeypatch.setattr(recovery, "inspect_operation", fake_inspect)
+    job = ["--job-id", str(attempt.job_id)]
+    assert recovery.main(["status", *job]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["state"] == "UNKNOWN" and status["attempts"][0]["has_operation"] is True
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    assert recovery.main(["reconcile", *job]) == 1
+    assert capsys.readouterr().err == "JOBS_AUTH_UNAVAILABLE\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO("synthetic-stdin-token\n"))
+    assert recovery.main(["reconcile", *job]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"job_id": str(attempt.job_id), "state": "ACCEPTED"}
+    assert seen == ["synthetic-stdin-token"]
+    assert recovery.main(["requeue", *job]) == 1
+    rejected = capsys.readouterr()
+    assert rejected.err == "INVALID_TRANSITION\n"
+    outputs = json.dumps(status) + captured.out + captured.err + rejected.out + rejected.err
+    assert "synthetic-stdin-token" not in outputs and "operations/" not in outputs
