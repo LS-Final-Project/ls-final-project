@@ -207,7 +207,18 @@ def validate(request: SendRequest) -> tuple[list[dict[str, Any]], str]:
         raise invalid("MAIL_ATTACHMENT_TOO_LARGE", "Attachments are too large.")
     # 승인 단계에서 전송 요청 전체 크기를 어림해, 보낼 때 Graph 한도로 실패하지 않게 한다.
     encoded = sum((a.stored.size + 2) // 3 * 4 for a in request.attachments)
-    if len(request.body.encode()) + encoded + REQUEST_OVERHEAD > MAX_REQUEST_BYTES:
+    # 제목·본문·수신자는 모든 글자가 이스케이프되는 최악의 JSON 길이로 센다.
+    text = json.dumps(
+        [
+            request.subject,
+            request.body,
+            *request.to,
+            *request.cc,
+            *(a.name for a in request.attachments),
+        ],
+        ensure_ascii=True,
+    )
+    if len(text) + encoded + REQUEST_OVERHEAD > MAX_REQUEST_BYTES:
         raise invalid("MAIL_TOO_LARGE", "Mail is too large.")
     rows = attachment_rows(request.attachments)
     digest = payload_sha256(
@@ -467,6 +478,10 @@ async def submit_intent(
             return await defer(settings, row, error.code)
         await finish(settings, intent_id, "FAILED", "FAILED", error.code)
         return SendResult(intent_id, "FAILED", error.code)
+    except Exception:
+        # 아직 보내지 않았다. SUBMITTING에 남겨 결과 불명으로 오인되지 않게 실패로 마감한다.
+        await finish(settings, intent_id, "FAILED", "FAILED", "MAIL_SEND_PREPARE_FAILED")
+        raise
     try:
         response = await post_send(client, token, body)
         if response.status_code == 401:

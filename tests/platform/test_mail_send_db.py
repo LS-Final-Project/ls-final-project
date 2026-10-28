@@ -334,6 +334,33 @@ def test_body_and_attachments_together_must_fit_one_request(settings, sender, mo
     assert error.value.code == "MAIL_TOO_LARGE"
 
 
+def test_size_check_counts_escaped_text(settings, sender, monkeypatch):
+    # 따옴표·개행은 JSON에서 커진다. 원래 바이트로는 들어가도 이스케이프 뒤 길이로 거절한다.
+    body = '"\n' * 30
+    monkeypatch.setattr(
+        send, "MAX_REQUEST_BYTES", send.REQUEST_OVERHEAD + len(PDF) * 2 + len(body.encode()) + 60
+    )
+    with pytest.raises(ApplicationError) as error:
+        create(settings, request(sender, body=body))
+    assert error.value.code == "MAIL_TOO_LARGE"
+
+
+def test_unexpected_error_before_sending_is_failed_not_left_submitting(
+    settings, sender, monkeypatch
+):
+    intent = create(settings, request(sender))
+
+    async def broken(row, store):
+        raise KeyError("attachments")
+
+    monkeypatch.setattr(send, "message_body", broken)
+    graph = FakeGraph()
+    with pytest.raises(KeyError):
+        submit(settings, sender, intent, graph)
+    assert state(sender["dsn"], intent)[:2] == ("FAILED", "MAIL_SEND_PREPARE_FAILED")
+    assert graph.posts() == []
+
+
 def test_only_the_approvers_connected_mailbox_can_send(settings, sender):
     with pytest.raises(ApplicationError) as error:
         create(settings, request(sender, approved_by=uuid4()))
