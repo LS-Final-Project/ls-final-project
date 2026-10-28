@@ -55,7 +55,7 @@ test('잠금 경로는 다섯 지표의 범위별 저장값을 반올림 없이 
   expect([...partial.querySelectorAll('tbody tr')].map(row => row.textContent)).toEqual(['precision계산 불가0 / 01']);
   expect(screen.getByText(/결과 분포: HELD 0 · NOT_STARTED 0 · SCHEMA_VIOLATION 1 · TIMEOUT 0 · TRANSPORT_FAILURE 0 · VALID 1 · 제외: PRECISION_ONLY 1 · 항목 집계: tp 1 · fp 1 · fn 1/)).toBeTruthy();
   expect(screen.getByText(/제외: NOT_RETURN 1/)).toBeTruthy();
-  expect(screen.getByRole('region', { name: '반품 하위유형 클래스별 잠금 품질 표' }).querySelectorAll('tbody tr').length).toBe(2);
+  expect(screen.getByRole('region', { name: '반품 하위유형 전체 클래스별 잠금 품질 표' }).querySelectorAll('tbody tr').length).toBe(2);
   expect(screen.getByText('품질 점수: 잠금 정답 다섯 지표 연결')).toBeTruthy();
   expect(screen.queryByText(/양호|우수|합격$|불합격|정답 검수·연결 전/)).toBeNull();
 });

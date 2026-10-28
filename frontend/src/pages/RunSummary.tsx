@@ -18,7 +18,7 @@ const score = (value: number | null) => value === null ? '계산 불가' : value
 
 /** 저장된 합성 품질을 숫자와 문구로만 표시한다. Args: 검증한 합성 품질 또는 미저장. Returns: 품질 절. */
 function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality'] }) {
-  return <div aria-labelledby="synthetic-quality-title">
+  return <section aria-labelledby="synthetic-quality-title">
     <h3 id="synthetic-quality-title">합성 품질 (반품 하위유형 · 최초 시도)</h3>
     <div className="evaluation-note" role="note"><p><strong>합성 정답 기준, 실제 품질·합격 판정 아님</strong></p></div>
     {!quality ? <p>합성 품질 미저장</p> : <>
@@ -34,7 +34,7 @@ function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality
         </table>
       </div>
     </>}
-  </div>;
+  </section>;
 }
 
 type Locked = NonNullable<Summary['locked_quality']>;
@@ -64,7 +64,7 @@ function LockedMetricView({ label, metric }: { label: string; metric: LockedMetr
           </table>
         </div>
         <p className="evaluation-caption">결과 분포: {counts(segment.outcomes)} · 제외: {counts(segment.excluded_by_reason)}{segment.items ? ` · 항목 집계: ${(['tp', 'fp', 'fn'] as const).filter(key => key in segment.items!).map(key => `${key} ${segment.items![key]}`).join(' · ')}` : ''}</p>
-        {Object.keys(segment.per_class).length > 0 && <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label={`${label} 클래스별 잠금 품질 표`}>
+        {Object.keys(segment.per_class).length > 0 && <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label={`${label} ${segmentLabels[name] ?? name} 클래스별 잠금 품질 표`}>
           <table className="evaluation-metrics"><caption>클래스별 수치</caption>
             <thead><tr><th scope="col">클래스</th><th scope="col">support</th><th scope="col">tp</th><th scope="col">fp</th><th scope="col">fn</th><th scope="col">precision</th><th scope="col">recall</th><th scope="col">F1</th></tr></thead>
             <tbody>{Object.entries(segment.per_class).map(([name, item]) => <tr key={name}><th scope="row">{name}</th><td>{item.support}</td><td>{item.tp}</td><td>{item.fp}</td><td>{item.fn}</td>
@@ -80,14 +80,14 @@ function LockedMetricView({ label, metric }: { label: string; metric: LockedMetr
 function LockedQualityView({ data }: { data: Summary }) {
   const quality = data.locked_quality;
   const stored = quality ? metricLabels.filter(([key]) => quality.metrics[key] !== null).length : 0;
-  return <div aria-labelledby="locked-quality-title">
+  return <section aria-labelledby="locked-quality-title">
     <h3 id="locked-quality-title">잠금 정답 품질 (최초 시도)</h3>
     {!quality ? <p>정답 묶음 미연결</p> : <>
       <div className="evaluation-note" role="note"><p><strong>quality_gate_evaluated={String(quality.quality_gate_evaluated)} · 합격 판정 아님</strong></p></div>
       <p>정답 묶음 {quality.bundle_id} · {data.quality_available ? '다섯 지표 연결' : `일부 지표만 저장 (${stored}/${metricLabels.length})`}</p>
       {metricLabels.map(([key, label]) => <LockedMetricView key={key} label={label} metric={quality.metrics[key]} />)}
     </>}
-  </div>;
+  </section>;
 }
 
 /** 상태 조회에 결속된 한 실행의 집계를 표시한다. Args: 실행 ID. Returns: 합성 집계 또는 안전한 오류. */
