@@ -747,6 +747,58 @@ async def pending_work(settings: Settings, *, stale_after: timedelta) -> dict[st
     return {"queued": queued, "unknown": unknown, "accepted": accepted}
 
 
+async def list_for_approver(
+    settings: Settings, approver: UUID, status: str | None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """승인자 본인의 발송 의도를 최근 순으로 읽는다. 본문·수신자는 돌려주지 않는다.
+
+    Args:
+        settings: DB 설정.
+        approver: 현재 사용자 ID.
+        status: 상태로 거를 때 그 값.
+        limit: 최대 건수.
+
+    Returns:
+        list[dict[str, Any]]: 제목·상태·시각과 재발송 허가 가능 여부(`resend_ready`).
+    """
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT i.id, i.business_ref, i.business_version, i.subject, i.status, i.error_code, "
+            "i.attempts, i.created_at, i.submitted_at, i.accepted_at, i.sent_copy_confirmed_at, "
+            "(i.status='UNKNOWN' AND i.attempts < %s AND EXISTS (SELECT 1 FROM "
+            "integration.mail_send_events e WHERE e.intent_id=i.id AND "
+            "e.event='SENT_COPY_NOT_FOUND' AND e.at >= i.submitted_at + %s)) AS resend_ready "
+            "FROM integration.mail_send_intents i WHERE i.approved_by=%s "
+            "AND (%s::text IS NULL OR i.status=%s) ORDER BY i.created_at DESC, i.id DESC LIMIT %s",
+            (MAX_ATTEMPTS, RESEND_GRACE, approver, status, status, limit),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+
+async def read_intent_any(settings: Settings, intent_id: UUID) -> dict[str, Any]:
+    """서비스 구분 없이 상태·시도 수만 읽는다(호출자가 권한을 이미 확인한 경우)."""
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT id, status, attempts FROM integration.mail_send_intents WHERE id=%s",
+            (intent_id,),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        raise ApplicationError(404, "MAIL_SEND_NOT_FOUND", "Mail send intent was not found.")
+    return dict(row)
+
+
+async def require_approver(settings: Settings, intent_id: UUID, approver: UUID) -> None:
+    """승인자 본인의 의도인지 확인한다. 아니면 존재를 숨기고 404다."""
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT 1 FROM integration.mail_send_intents WHERE id=%s AND approved_by=%s",
+            (intent_id, approver),
+        )
+        if await cursor.fetchone() is None:
+            raise ApplicationError(404, "MAIL_SEND_NOT_FOUND", "Mail send intent was not found.")
+
+
 async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
     """오래 `SUBMITTING`에 남은 의도를 `UNKNOWN`으로 바꾼다. 나갔을 수 있으므로 다시 보내지 않는다.
 
@@ -772,6 +824,8 @@ async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
 
 __all__ = [
     "Attachment",
+    "list_for_approver",
+    "require_approver",
     "fail_queued",
     "pending_work",
     "read_intent",
