@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS cs.condition_comparison_evidence (
     evidence_id text NOT NULL CHECK (length(evidence_id) BETWEEN 1 AND 64),
     case_id uuid REFERENCES cs.resolution_cases(id),
     ticket_id uuid REFERENCES cs.tickets(id),
+    -- A case belongs to a ticket; carrying it lets scope checks hide case evidence too.
+    CHECK (case_id IS NULL OR ticket_id IS NOT NULL),
     evidence_location jsonb NOT NULL CHECK (jsonb_typeof(evidence_location) = 'object'),
     data_origin text NOT NULL CHECK (data_origin IN ('synthetic', 'demo', 'real')),
     derivation_kind text NOT NULL

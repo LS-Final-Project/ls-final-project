@@ -1,7 +1,10 @@
 """KAN-114 조건 비교 조회를 실제 PostgreSQL에서: 합성 예시 5종이 실제 응답, 판본, 범위, 제약."""
 
 import json
+import re
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import get_args
 from uuid import uuid4
 
 import psycopg
@@ -11,6 +14,8 @@ from psycopg.conninfo import make_conninfo
 from pydantic import SecretStr
 
 from backend.api.cs.comparisons import examples
+from backend.api.cs.comparisons.schemas import CONDITION_LABELS, CauseType, ConditionCode
+from backend.api.cs.improvements.schemas import DocSignal
 from backend.api.cs.main import create_app
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
@@ -275,3 +280,60 @@ def test_the_service_account_cannot_rewrite_versions(seeded):
             "UPDATE cs.condition_comparisons SET latest_version = 1 WHERE id = %s",
             (comparison_id,),
         )
+
+
+def test_a_past_version_judged_on_a_hidden_request_is_not_shown_through_a_visible_one(
+    client, admin
+):
+    """같은 묶음의 과거 판본이 범위 밖 요청서를 기준으로 했으면 보이는 요청서 경로로도 404다."""
+    hidden, shown = examples.request(7) | {"id": uuid4()}, examples.request(7) | {"id": uuid4()}
+    for row in (hidden, shown):
+        add_request(admin, row | {"condition_summary": "범위 밖 요약"}, "FLT-907")
+    admin.execute(
+        "INSERT INTO cs.request_departments (request_id, round, dept_code, status) "
+        "VALUES (%s, 1, 'QA_CLAIM', 'SENT')",
+        (shown["id"],),
+    )
+    comparison = examples.comparison(7, latest=2)
+    insert(admin, "condition_comparisons", comparison)
+    add_version(admin, comparison["id"], examples.version(1, hidden), [examples.SAME], [])
+    add_version(admin, comparison["id"], examples.version(2, shown), [examples.SAME], [])
+    path = f"/api/v1/cs/improvement-requests/{shown['id']}/condition-comparison"
+    assert get(client, path, QA_STAFF).status_code == 200
+    for response in (
+        get(client, path, QA_STAFF, version=1),
+        get(client, GROUP, QA_STAFF, product_code=examples.PRODUCT, fault_id="FLT-907", version=1),
+    ):
+        assert (response.status_code, response.json()["error"]["code"]) == (
+            404,
+            "CS_COMPARISON_NOT_FOUND",
+        )
+    assert get(client, path, version=1).json()["data"]["improvement_request_id"] == str(
+        hidden["id"]
+    )
+
+
+def test_case_evidence_must_name_its_ticket(admin):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        insert(
+            admin,
+            "condition_comparison_evidence",
+            {"comparison_id": examples.comparison(1)["id"], "version": 1}
+            | examples.CASE_EVIDENCE
+            | {"evidence_id": "ev-9", "ticket_id": None},
+        )
+
+
+def check_list(migration: str, kind: str) -> set[str]:
+    block = re.search(rf"CHECK \(kind <> '{kind}' OR code IN \((.*?)\)\)", migration, re.S)
+    assert block, kind
+    return set(re.findall(r"'([^']+)'", block.group(1)))
+
+
+def test_migration_code_lists_match_the_schemas(cs_database):
+    # 마이그레이션은 백엔드 테스트 이미지에 없어 DB 검사(저장소 체크아웃)에서 대조한다.
+    migration = Path("infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql").read_text()
+    conditions = check_list(migration, "CONDITION")
+    assert conditions == set(get_args(ConditionCode)) == set(CONDITION_LABELS)
+    assert check_list(migration, "CAUSE") == set(get_args(CauseType))
+    assert check_list(migration, "DOCUMENT_SIGNAL") == set(get_args(DocSignal))

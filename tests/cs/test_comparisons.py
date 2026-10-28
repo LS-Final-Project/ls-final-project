@@ -1,24 +1,12 @@
-"""KAN-114 조건 비교 조회의 순수 함수: 근거 숨김, 응답 계산, 코드 목록 일치(DB 없음)."""
-
-import re
-from pathlib import Path
-from typing import get_args
+"""KAN-114 조건 비교 조회의 순수 함수: 근거 숨김, 응답 계산, 모델 규칙(DB 없음)."""
 
 import pytest
 from pydantic import ValidationError
 
 from backend.api.cs.comparisons import examples
-from backend.api.cs.comparisons.schemas import (
-    CONDITION_LABELS,
-    CauseType,
-    ConditionCode,
-    ConditionItem,
-    Side,
-)
+from backend.api.cs.comparisons.schemas import ConditionItem, Side
 from backend.api.cs.comparisons.view import build, hide
-from backend.api.cs.improvements.schemas import DocSignal
 
-MIGRATION = Path("infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql").read_text()
 SEEN, UNSEEN = examples.VISIBLE_TICKET, examples.HIDDEN_TICKET
 EVIDENCE = [examples.CASE_EVIDENCE, examples.TICKET_EVIDENCE, examples.DOCUMENT_EVIDENCE]
 
@@ -123,18 +111,6 @@ def test_condition_items_follow_the_contract_rules(changes):
 def test_a_side_needs_a_value_or_a_reason():
     with pytest.raises(ValidationError):
         Side(masked_value="x", missing_reason="NOT_PROVIDED")
-
-
-def check_list(kind: str) -> set[str]:
-    block = re.search(rf"CHECK \(kind <> '{kind}' OR code IN \((.*?)\)\)", MIGRATION, re.S)
-    assert block, kind
-    return set(re.findall(r"'([^']+)'", block.group(1)))
-
-
-def test_migration_code_lists_match_the_schemas():
-    assert check_list("CONDITION") == set(get_args(ConditionCode)) == set(CONDITION_LABELS)
-    assert check_list("CAUSE") == set(get_args(CauseType))
-    assert check_list("DOCUMENT_SIGNAL") == set(get_args(DocSignal))
 
 
 def test_examples_cover_the_five_contract_cases():

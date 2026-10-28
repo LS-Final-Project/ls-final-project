@@ -47,7 +47,10 @@ def not_found() -> ApplicationError:
 async def respond_with(
     request: Request, conn: Any, principal: Principal, comparison: Row, wanted: int | None
 ) -> SuccessResponse[ConditionComparison]:
-    """판본을 읽고 조회 범위 밖 근거를 숨겨 응답을 만든다.
+    """판본을 읽고 조회 범위를 확인한 뒤 범위 밖 근거를 숨겨 응답을 만든다.
+
+    전체 문의를 보지 않는 사용자는 그 판본의 판정 기준 요청서를 볼 수 있을 때만 받는다. 두 경로가
+    같은 규칙을 쓰므로 요청서 경로에서 다른 요청서를 기준으로 한 과거 판본도 막힌다.
 
     Args:
         request: 요청 ID를 담은 요청.
@@ -64,6 +67,15 @@ async def respond_with(
     )
     if version is None:
         raise not_found()
+    target = version["improvement_request_id"]
+    if not sees_all_tickets(principal):
+        departments, proposed = scope(principal)
+        if (
+            target is None
+            or not departments
+            or not await requests.visible_to(conn, target, departments, proposed)
+        ):
+            raise not_found()
     rows = await repository.items(conn, comparison["id"], version["version"])
     evidence = await repository.evidence(conn, comparison["id"], version["version"])
     visible = None
@@ -71,7 +83,6 @@ async def respond_with(
         tickets = [e["ticket_id"] for e in evidence if e["ticket_id"] is not None]
         visible = await repository.visible_tickets(conn, tickets, transfer_departments(principal))
     shown, kept, hidden_count = hide(rows, evidence, visible)
-    target = version["improvement_request_id"]
     request_row = await requests.get_request(conn, target) if target else None
     return respond(request, build(comparison, version, request_row, shown, kept, hidden_count))
 
@@ -107,18 +118,6 @@ async def get_group_comparison(
         comparison = await repository.get_comparison(conn, product_code, fault_id)
         if comparison is None:
             raise not_found()
-        if not sees_all_tickets(principal):
-            row = await repository.get_version(
-                conn, comparison["id"], version or comparison["latest_version"]
-            )
-            departments, proposed = scope(principal)
-            target = row["improvement_request_id"] if row else None
-            if (
-                target is None
-                or not departments
-                or not await requests.visible_to(conn, target, departments, proposed)
-            ):
-                raise not_found()
         return await respond_with(request, conn, principal, comparison, version)
 
 

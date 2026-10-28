@@ -83,7 +83,7 @@
 ## 비교 내용과 근거의 분리
 
 - `conditions`·`causes`·`document_signals`는 **마스킹된 비교 내용**이다. 항목 코드·표시명, 판정, `finding`, 마스킹된 기준·대상 값과 요약(`masked_summary`), 근거 참조 ID(`evidence_ids`)만 담는다.
-- `evidence`는 **근거 참조**다. `case_id`·`ticket_id`·`evidence_location`과 근거 자신의 출처(`data_origin`·`derivation_kind`·`known_at`)만 담고 본문을 담지 않는다.
+- `evidence`는 **근거 참조**다. `case_id`·`ticket_id`·`evidence_location`과 근거 자신의 출처(`data_origin`·`derivation_kind`·`known_at`)만 담고 본문을 담지 않는다. 해결 사례 근거는 그 사례가 속한 문의 ID(`ticket_id`)를 반드시 함께 저장하며(DB CHECK), 조회 범위 숨김은 이 문의 ID로 판정한다.
 - `evidence_location`은 텍스트 없는 위치다. 문의·해결 사례는 `{ "source": "ticket" | "resolution_case", "field": "<필드 이름>" }`, 문서는 데이터 계약의 인용 위치(`doc_id`·`version`·`page`·`char_start`·`char_end` 등)를 쓴다. 위치를 추적할 수 없으면 근거로 채택하지 않는다.
 - 응답에 원문(제목·본문·메일)·정답 열·개인정보·시리얼 원값·RMA 번호를 넣지 않는다. `masked_value`·`masked_summary`는 저장 전에 마스킹한 값이며, 마스킹할 수 없으면 null(`MASKING_FAILED`)로 두고 판정은 유지한다.
 
@@ -105,7 +105,7 @@
 
 [권한](../platform/permissions.md) 1.3의 검사 순서를 그대로 쓴다.
 
-- 조회: cs_agent와 C/S 부서 manager는 전체. dept_staff와 다른 부서 manager는 4.1 "개선요청 조회"에서 볼 수 있는 요청에 연결된 비교만 본다. sales는 볼 수 없다.
+- 조회: cs_agent와 C/S 부서 manager는 전체. dept_staff와 다른 부서 manager는 4.1 "개선요청 조회"에서 볼 수 있는 요청에 연결된 비교만 본다. 이때 기준은 **선택한 판본의 판정 기준 요청서**이며, 그 요청서가 보이지 않으면 요청서 경로로 조회해도 404 `CS_COMPARISON_NOT_FOUND`다(다른 요청서를 기준으로 한 과거 판본 포함). 요청서가 없는 판본도 404다. sales는 볼 수 없다.
 - 근거 중 사용자의 문의 조회 범위(4.1 "문의 목록·상세 조회") 밖의 문의는 `evidence`에 넣지 않고 `hidden_evidence_count`로 건수만 낸다. 판정은 숨기지 않는다.
 - 조회 범위 밖 근거의 ID는 `conditions`·`causes`·`document_signals`의 `evidence_ids`에서도 제외하고 `hidden_evidence_count`에만 반영한다. 응답 수준 값은 숨긴 근거의 전체 건수, 항목 수준 값은 그 항목이 가리키던 숨긴 근거 건수다.
 - 근거가 모두 숨겨진 항목은 `judgement`·`finding`을 유지하되 `evidence_ids`는 빈 배열이고, 항목에 `hidden_evidence_count`를 둔다(존재 여부만 건수로).
