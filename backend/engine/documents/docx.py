@@ -481,8 +481,9 @@ def _split_unit(header: str) -> tuple[str, str | None]:
     match = UNIT.match(header)
     if match is None or not match.group(1) or re.search(r"(?i)note|see", match.group(2)):
         return header, None
-    # "(1)"·"(A)"는 각주 표식·번호일 수 있어 단위로 떼지 않는다(암페어 "(A)"도 함께 빠진다).
-    if re.fullmatch(r"\d+|[A-Z]", match.group(2).strip()):
+    # "(1)"·"(B)"는 각주 표식·번호일 수 있어 단위로 떼지 않는다. 대문자 한 글자는 A·V·W·Ω만 단위다.
+    unit = match.group(2).strip()
+    if unit.isdigit() or (len(unit) == 1 and unit.isupper() and unit not in "AVWΩ"):
         return header, None
     return match.group(1), match.group(2).strip()
 

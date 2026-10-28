@@ -542,8 +542,8 @@ def test_sentence_about_a_table_is_not_its_title() -> None:
 
 def test_footnote_marks_in_header_are_not_units() -> None:
     rows = [
-        cell("Rating (1)") + cell("Class (B)") + cell("Load (kVA)"),
-        cell("x") + cell("y") + cell("z"),
+        cell("Rating (1)") + cell("Class (B)") + cell("Load (kVA)") + cell("Current (A)"),
+        cell("x") + cell("y") + cell("z") + cell("1200"),
     ]
     document = extract_docx(docx(table_xml(rows)))
     data = [b for b in document.blocks if b.position.row == 1]
@@ -551,4 +551,5 @@ def test_footnote_marks_in_header_are_not_units() -> None:
         ("Rating (1)", None),
         ("Class (B)", None),
         ("Load", "kVA"),
+        ("Current", "A"),
     ]
