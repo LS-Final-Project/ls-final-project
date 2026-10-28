@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from backend.api.cs.comparisons.view import build, hide
-from backend.shared.models import ResponseMeta, SuccessResponse
+from backend.shared.models import ErrorData, ErrorResponse, ResponseMeta, SuccessResponse
 
 Row = dict[str, Any]
 PRODUCT = "SYN-PRD-01"
@@ -318,4 +318,24 @@ def openapi_examples() -> dict[str, Any]:
     return {
         name: {"summary": seed[0], "value": response(name).model_dump(mode="json")}
         for name, seed in SEEDS.items()
+    }
+
+
+def conflict_example() -> dict[str, Any]:
+    """판정 쓰기의 판본 충돌 409 본문 예시를 만든다.
+
+    Returns:
+        dict[str, Any]: OpenAPI examples 객체.
+    """
+    body = ErrorResponse(
+        error=ErrorData(
+            code="CS_COMPARISON_VERSION_CONFLICT", message="The comparison has changed."
+        ),
+        meta=META,
+    )
+    return {
+        "version_conflict": {
+            "summary": "판본 충돌: 읽은 version이 최신이 아니다. 최신 판본을 다시 조회한다",
+            "value": body.model_dump(mode="json"),
+        }
     }

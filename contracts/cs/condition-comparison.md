@@ -1,6 +1,6 @@
 # C/S 조건 비교 결과 계약 (KAN-114)
 
-**상태: 조회 구현, 판정 쓰기 미구현.** 조회 경로 2개와 저장 구조를 구현했다(KAN-114 최소 읽기 단위). 응답 형식의 원본은 `backend/api/cs/comparisons/schemas.py`·`routes.py`, 저장은 `infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql`(공용 DB는 운영자가 따로 적용), 합성 예시 5종의 원본은 `backend/api/cs/comparisons/examples.py`이며 `docs/openapi/cs.json` 200 응답 examples로 나간다. 판정·전이 쓰기 경로와 비교 생성은 다음 단위이며 아래 전이 규칙을 따른다. 기획서는 수정하지 않는다.
+**상태: 조회·생성·판정 쓰기 구현.** 조회 2개, 비교 생성, 판정 쓰기·재검토 경로와 저장 구조를 구현했다. 근거 제외와 그에 따른 자동 전이, 문서 신호·문서 근거 쓰기는 아직 없다. 요청·응답 형식의 원본은 `backend/api/cs/comparisons/schemas.py`·`routes.py`, 전이 규칙의 원본은 `rules.py`, 저장은 `infra/migrations/cs/20261028_KAN-114_condition_comparisons.sql`·`20261028_KAN-114_condition_comparisons_writes.sql`(공용 DB는 운영자가 따로 적용), 합성 예시 5종의 원본은 `backend/api/cs/comparisons/examples.py`이며 `docs/openapi/cs.json` 200 응답 examples로 나간다. 기획서는 수정하지 않는다.
 
 같은 고장 묶음 안에서 사례별 사용 조건과 원인을 비교해 **확정·의심·미확인**을 구분하고, 문서 문의 신호를 원인 판정과 섞지 않는다. [개선요청](improvements.md)의 `condition_status`, [문의](tickets.md)의 해결 사례, [데이터 계약](../../docs/data-contract.md)의 출처·근거 규칙, [권한](../platform/permissions.md) 1.3·4.1을 따른다.
 
@@ -10,7 +10,15 @@
 - 조건이 다른 사례는 다른 묶음으로 나눈다는 개선요청 규칙을 유지한다. 비교 결과가 묶음 키를 바꾸지 않는다.
 - 대상 요청서: `improvement_request_id`는 이 비교가 연결된 개선요청, `request_version`은 판정할 때 기준으로 삼은 요청서 판본(개선요청의 `version`)이다. 요청서가 없는 묶음은 둘 다 null이다. 화면은 요청서의 현재 `version`과 `request_version`이 다르면 "이전 요청서 판본 기준"으로 표시한다.
 - 결과 판본: `version`은 비교 결과의 판본이며 판정 변경마다 1씩 오른다. 판본마다 내용을 고치지 않고 남긴다. `latest_version`은 지금 최신 판본, `is_latest`는 응답이 최신 판본인지다. 계약 판본은 별도 필드 없이 경로의 `/v1`로 식별하고, 호환되지 않는 변경은 새 경로로 낸다.
-- 경로: `GET /api/v1/cs/condition-comparisons?product_code=&fault_id=`, `GET /api/v1/cs/improvement-requests/{request_id}/condition-comparison`(그 고장 요청서의 묶음 비교). 기본은 최신 판본이고, `?version=N`이면 그 판본을 `is_latest=false`(N이 최신이면 `true`)로 돌려준다. 없는 비교·판본은 404 `CS_COMPARISON_NOT_FOUND`다. 비교는 판정 쓰기 단위에서 만들어지므로 그 전에는 404다. 확정·재검토 쓰기 경로는 다음 단위에서 정하며, 아래 전이 규칙을 따른다.
+- 경로: `GET /api/v1/cs/condition-comparisons?product_code=&fault_id=`, `GET /api/v1/cs/improvement-requests/{request_id}/condition-comparison`(그 고장 요청서의 묶음 비교). 기본은 최신 판본이고, `?version=N`이면 그 판본을 `is_latest=false`(N이 최신이면 `true`)로 돌려준다. 없는 비교·판본은 404 `CS_COMPARISON_NOT_FOUND`다.
+- 쓰기 경로(cs_agent만, 사람의 판정 `human_input`으로 기록):
+  - `POST /api/v1/cs/improvement-requests/{request_id}/condition-comparison`: 그 고장 요청서 묶음의 비교를 만든다(201). 판본 1은 사용 조건 8개 모두 `UNCONFIRMED`(`NO_EVIDENCE`, `system_record`, 기준·대상·요약 null과 `NOT_PROVIDED`)이고 원인·문서 신호는 없다. 묶음에 이미 있으면 409 `CS_COMPARISON_EXISTS`.
+  - `POST .../condition-comparison/judgements`: 판정 쓰기와 재검토. 본문은 읽은 `version`, 바꿀 항목(`items`: 조건은 `baseline`·`target`의 값·사유·근거 ID와 `finding`, 원인은 판정만), 새 근거(`evidence`: `evidence_id`·`ticket_id`·`case_id`·`evidence_location`). 보낸 항목만 바뀌고 나머지 항목·근거는 이전 판본에서 이어져 새 판본 전체가 된다. 원인은 처음 쓸 때 생긴다. 판정 기준 요청서는 경로의 요청서와 그 현재 판본이다.
+  - 근거의 `data_origin`·`derivation_kind`·`known_at`은 서버가 원본 문의·해결 사례에서 읽는다. 문의는 묶음과 같은 제품, 사례는 그 문의의 것이고 같은 고장이어야 한다. 항목·기준·대상이 가리키는 근거 ID는 새 판본 근거에 있어야 하고, 값이 있는 쪽은 그 값이 나온 근거 ID가 있어야 한다(DB CHECK). 어기면 422 `CS_EVIDENCE_INVALID`.
+  - 근거는 추가만 한다. 같은 근거 ID를 다시 쓰면 422다. 근거 제외와 그에 따른 `EVIDENCE_REMOVED` 자동 전이(`system_record`)는 다음 단위다.
+  - 문서 근거·문서 신호 쓰기는 문서 원천 표가 생긴 뒤 넣는다. 지금은 원천이 없어 출처와 `known_at`을 서버가 확인할 수 없다.
+  - 값과 요약은 저장 전에 마스킹한 값을 보낸다. 서버는 마스킹 여부를 판단하지 않는다.
+  - 쓰기마다 `cs.audit_events`에 한 행(`entity_type` `condition_comparison`, 새 판본, 항목별 `{from, to, reason}`)을 남긴다. 개선요청의 `condition_status`는 바꾸지 않는다.
 - 저장: 판정이 바뀔 때마다 그 판본의 항목·근거 전체를 새로 쓰고 이전 판본은 고치거나 지우지 않는다. 서비스 계정은 최신 판본 번호(`latest_version`)만 갱신할 수 있다.
 
 ## 판정
@@ -52,8 +60,12 @@
 | `CONFIRMED` | `SUSPECTED`·`UNCONFIRMED` | `human_input`(cs_agent) | 근거 제외 또는 재검토, 사유 필수 |
 | `SUSPECTED` | `UNCONFIRMED` | `human_input` 또는 `system_record` | 근거 제외로 남은 근거가 0개 |
 | 모든 판정 | `CONFIRMED` | `ai_draft` | **금지.** 모델 후보는 사람 확정 전 `SUSPECTED` 이하 |
+| 같은 판정 | 같은 판정 | 그 판정으로 가는 행의 주체(`UNCONFIRMED`는 `human_input`·`system_record`) | 값·근거만 고치는 쓰기. 그 판정의 조건을 다시 지킨다(확정은 사유 포함) |
 
 - 표의 "`NOT_PROVIDED`가 아님" 조건은 `baseline`/`target`이 있는 조건 항목에만 적용하고, 원인은 근거 수 조건만 따른다.
+- `SUSPECTED` → `UNCONFIRMED`: 사람(`human_input`)은 사유를 적고, `system_record`는 남은 근거가 0개일 때만 쓴다.
+- 근거 수는 판정 시각에 이미 알려진(`known_at` ≤ 판정 시각) 근거만 센다. 아직 알려지지 않은 근거만 있으면 `UNCONFIRMED`(`NOT_YET_KNOWN`)로 쓴다.
+- 오류: 표에 없는 전이·주체 409 `CS_INVALID_TRANSITION`, 근거 부족 422 `CS_EVIDENCE_REQUIRED`, 사유 없음 422 `CS_REASON_REQUIRED`, `NOT_PROVIDED` 쪽이 있는 판단 422 `CS_VALUE_NOT_PROVIDED`. 지금 HTTP 쓰기는 사람만 하며 `ai_draft` 쓰기는 같은 규칙(`rules.py`)으로 KAN-113 작업자 경로에서 쓴다.
 
 - 판정 변경마다 결과 판본(`version`)이 오르고 이전 판정·주체·시각·사유를 이력으로 남긴다. 판정 행을 지우지 않는다.
 - 판정 쓰기는 읽은 `version`을 보낸다. 최신 판본과 다르면 409 `CS_COMPARISON_VERSION_CONFLICT`이며 화면은 최신 판본을 다시 조회해 사용자에게 변경을 재확인하게 한다.
@@ -73,7 +85,7 @@
 - `fw_fixed_version`: 대상 요청서의 같은 이름 값. 요청서가 없으면 null.
 - `fw_released_on`: 수정 펌웨어 배포일(date). 대상 요청서의 같은 이름 값이다. 요청서가 없으면 null.
 - `condition_summary`: 대상 요청서의 사용 조건 요약(같은 이름 값). 요청서가 없으면 null.
-- 항목의 `decided_by_name`(판정자 표시명)과 `decided_at`(판정 시각): `decided_by_name`은 `human_input` 판정에만 있고 `ai_draft`·`system_record`면 null이다.
+- 항목의 `decided_by_name`(판정자 표시명)과 `decided_at`(판정 시각): `decided_by_name`은 `human_input` 판정에만 있고 `ai_draft`·`system_record`면 null이다. 표시명은 플랫폼 중계 단계에서 붙인다. C/S는 사용자 표시명을 읽지 못해 현재는 항상 null이며 판정자 ID만 저장한다.
 - 점수·신뢰도 필드는 두지 않는다.
 
 ## 문서 문의 신호
@@ -112,7 +124,7 @@
 - 숨긴 근거가 기여한 항목(`evidence_ids`에서 제외된 근거가 1개 이상)은 `judgement`·`finding`을 유지하되 `masked_summary`를 null(`summary_missing_reason: HIDDEN_BY_SCOPE`)로 내고, 숨긴 근거에서 온 기준·대상 값도 null(`missing_reason: HIDDEN_BY_SCOPE`)로 낸다. 문의 조회 권한이 없는 사용자에게 그 문의에서 파생된 값을 보이지 않기 위한 보수적 규칙이다.
 - 확정·재검토 같은 판정 변경은 cs_agent만 한다.
 - 조회 오류(구현): sales 등 C/S 범위가 없는 역할 403, 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 없는 비교·판본·고장 요청이 아닌 요청서·볼 수 있는 요청서에 연결되지 않은 묶음 404 `CS_COMPARISON_NOT_FOUND`, `product_code`·`fault_id`·`version` 형식 오류 422.
-- 쓰기 오류(다음 단위): 범위 밖 404(존재를 숨김), 보이지만 행동 불가 403, 허용하지 않는 전이(예: `ai_draft`의 확정) 409, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내), 근거 없는 확정 422. 그 밖의 오류 코드 이름은 개선요청 계약처럼 구현 단위에서 `CS_` 접두로 정한다.
+- 쓰기 오류(구현): 범위 밖 요청서 404 `CS_REQUEST_NOT_FOUND`, 문서 요청서·비교 없음 404 `CS_COMPARISON_NOT_FOUND`, cs_agent가 아닌 사용자 403, 이미 있는 비교 409 `CS_COMPARISON_EXISTS`, 판본 불일치 409 `CS_COMPARISON_VERSION_CONFLICT`(개선요청의 `CS_REQUEST_VERSION_CONFLICT`와 같은 방식, 재조회 안내; 같은 비교의 쓰기는 비교 행 잠금으로 한 줄로 처리), 허용하지 않는 전이 409 `CS_INVALID_TRANSITION`, 판정 조건·근거 위반 422(상태 전이 절).
 
 ## 응답 예시 (합성, 마스킹 값)
 
@@ -246,7 +258,7 @@
 
 ## 합성 예시 5종
 
-화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다. 전체 응답 5종(`same`·`differs`·`unconfirmed`·`hidden`·`past_version`)은 `docs/openapi/cs.json`의 두 조회 경로 200 examples에 있고, DB 테스트가 같은 행을 저장해 실제 응답과 일치함을 확인한다. OpenAPI 예시는 생성기(FastAPI)가 null 키를 빼고 보여 준다. 실제 응답과 `frontend/src/mocks/generated/cs.json`은 null 값 키를 모두 가진다. 409 본문은 판정 쓰기 경로와 함께 OpenAPI에 넣는다.
+화면 연동 확인용이다. 1~4는 `conditions`의 항목 1개, 5는 과거 판본 조회 응답의 머리 부분과 판본 충돌 오류다. 값은 모두 합성이다. 전체 응답 5종(`same`·`differs`·`unconfirmed`·`hidden`·`past_version`)은 `docs/openapi/cs.json`의 두 조회 경로 200 examples에 있고, DB 테스트가 같은 행을 저장해 실제 응답과 일치함을 확인한다. OpenAPI 예시는 생성기(FastAPI)가 null 키를 빼고 보여 준다. 실제 응답과 `frontend/src/mocks/generated/cs.json`은 null 값 키를 모두 가진다. 409 본문 예시는 두 쓰기 경로의 409 examples에 있다.
 
 **1. 동일** — 확인했고 조건 차이가 없다.
 

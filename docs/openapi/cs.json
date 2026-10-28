@@ -1435,6 +1435,44 @@
         "title": "EvidenceRemove",
         "type": "object"
       },
+      "EvidenceWrite": {
+        "additionalProperties": false,
+        "description": "\uc0c8 \uadfc\uac70 \ucc38\uc870. \ucd9c\ucc98\uc640 known_at\uc740 \uc11c\ubc84\uac00 \uc6d0\ubcf8 \ubb38\uc758\u00b7\uc0ac\ub840\uc5d0\uc11c \uc77d\ub294\ub2e4.",
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "evidence_id": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "evidence_location": {
+            "$ref": "#/components/schemas/TicketLocation"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "ticket_id",
+          "evidence_location"
+        ],
+        "title": "EvidenceWrite",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2161,6 +2199,146 @@
         "title": "InstalledUnit",
         "type": "object"
       },
+      "ItemWrite": {
+        "additionalProperties": false,
+        "description": "\ud310\uc815 \ud558\ub098. \uc870\uac74\uc740 \uae30\uc900\u00b7\ub300\uc0c1\uacfc finding\uc744, \uc6d0\uc778\uc740 \ub458 \ub2e4 \uc5c6\uc774 \ud310\uc815\ub9cc \uc4f4\ub2e4.\n\n\uac12\uacfc \uc694\uc57d\uc740 \uc800\uc7a5 \uc804\uc5d0 \ub9c8\uc2a4\ud0b9\ud55c \uac12\uc774\uc5b4\uc57c \ud55c\ub2e4. \uc11c\ubc84\ub294 \ub9c8\uc2a4\ud0b9 \uc5ec\ubd80\ub97c \ud310\ub2e8\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideWrite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "finding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DIFFERS",
+                  "SAME"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding"
+          },
+          "judgement": {
+            "enum": [
+              "CONFIRMED",
+              "SUSPECTED",
+              "UNCONFIRMED"
+            ],
+            "title": "Judgement",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "CONDITION",
+              "CAUSE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "masked_summary": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Summary"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required to confirm, or to lower a judgement.",
+            "title": "Reason"
+          },
+          "summary_missing_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOT_PROVIDED",
+                  "MASKING_FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Missing Reason"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideWrite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unconfirmed_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_EVIDENCE",
+                  "EVIDENCE_REMOVED",
+                  "NOT_YET_KNOWN",
+                  "VALUE_NOT_PROVIDED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unconfirmed Reason"
+          }
+        },
+        "required": [
+          "kind",
+          "code",
+          "judgement",
+          "masked_summary",
+          "summary_missing_reason"
+        ],
+        "title": "ItemWrite",
+        "type": "object"
+      },
       "JudgementCounts": {
         "description": "\uc870\uac74 \ud56d\ubaa9\uc758 \ud310\uc815\ubcc4 \uac74\uc218. \uc6d0\uc778\uc740 \uc138\uc9c0 \uc54a\ub294\ub2e4.",
         "properties": {
@@ -2183,6 +2361,42 @@
           "unconfirmed"
         ],
         "title": "JudgementCounts",
+        "type": "object"
+      },
+      "JudgementWrite": {
+        "additionalProperties": false,
+        "description": "\ud310\uc815 \uc4f0\uae30\uc640 \uc7ac\uac80\ud1a0. \ubcf4\ub0b8 \ud56d\ubaa9\ub9cc \ubc14\ub00c\uace0 \ub098\uba38\uc9c0\ub294 \uc774\uc804 \ud310\ubcf8\uc5d0\uc11c \uc774\uc5b4\uc9c4\ub2e4.",
+        "properties": {
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EvidenceWrite"
+            },
+            "maxItems": 50,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemWrite"
+            },
+            "maxItems": 13,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "version": {
+            "description": "The comparison version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "items"
+        ],
+        "title": "JudgementWrite",
         "type": "object"
       },
       "NextOwner": {
@@ -3769,6 +3983,56 @@
         "title": "Side",
         "type": "object"
       },
+      "SideWrite": {
+        "additionalProperties": false,
+        "description": "\uc4f0\uae30 \ubcf8\ubb38\uc758 \uae30\uc900 \ub610\ub294 \ub300\uc0c1. \uac12\uc774 \uc788\uc73c\uba74 \uadf8 \uac12\uc774 \ub098\uc628 \uadfc\uac70 ID\uac00 \uc788\uc5b4\uc57c \ud55c\ub2e4.",
+        "properties": {
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "masked_value": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Value"
+          },
+          "missing_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NOT_PROVIDED",
+                  "MASKING_FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Reason"
+          }
+        },
+        "required": [
+          "masked_value",
+          "missing_reason"
+        ],
+        "title": "SideWrite",
+        "type": "object"
+      },
       "SuccessResponse_AuditList_": {
         "properties": {
           "data": {
@@ -4374,6 +4638,31 @@
           "next_cursor"
         ],
         "title": "TicketList",
+        "type": "object"
+      },
+      "TicketLocation": {
+        "additionalProperties": false,
+        "description": "\ubb38\uc758\u00b7\ud574\uacb0 \uc0ac\ub840 \uadfc\uac70\uc758 \ud14d\uc2a4\ud2b8 \uc5c6\ub294 \uc704\uce58.",
+        "properties": {
+          "field": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Field",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "ticket",
+              "resolution_case"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "field"
+        ],
+        "title": "TicketLocation",
         "type": "object"
       },
       "TicketSummary": {
@@ -6399,6 +6688,236 @@
           }
         },
         "summary": "Get Request Comparison",
+        "tags": [
+          "condition-comparisons"
+        ],
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\uace0\uc7a5 \uc694\uccad\uc11c \ubb36\uc74c\uc758 \ube44\uad50\ub97c \ub9cc\ub4e0\ub2e4. \ud310\ubcf8 1\uc740 \uc0ac\uc6a9 \uc870\uac74 8\uac1c \ubaa8\ub450 \uadfc\uac70 \uc5c6\ub294 \ubbf8\ud655\uc778\uc774\ub2e4.\n\nArgs:\n    request_id: \ud310\uc815 \uae30\uc900\uc774 \ub420 \uace0\uc7a5 \uac1c\uc120\uc694\uccad ID.\n    request: \uc694\uccad.\n    principal: cs_agent\ub9cc \ub9cc\ub4e0\ub2e4.\n\nReturns:\n    SuccessResponse[ConditionComparison]: \ub9cc\ub4e0 \ube44\uad50\uc758 \ud310\ubcf8 1. \ubb36\uc74c\uc5d0 \uc774\ubbf8 \uc788\uc73c\uba74 409.",
+        "operationId": "cs_create_condition_comparison",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConditionComparison_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not read comparisons"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "version_conflict": {
+                    "summary": "\ud310\ubcf8 \ucda9\ub3cc: \uc77d\uc740 version\uc774 \ucd5c\uc2e0\uc774 \uc544\ub2c8\ub2e4. \ucd5c\uc2e0 \ud310\ubcf8\uc744 \ub2e4\uc2dc \uc870\ud68c\ud55c\ub2e4",
+                    "value": {
+                      "error": {
+                        "code": "CS_COMPARISON_VERSION_CONFLICT",
+                        "details": [],
+                        "message": "The comparison has changed.",
+                        "retryable": false
+                      },
+                      "meta": {
+                        "request_id": "11111111-1111-4111-8111-111111111199"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version, existing comparison or a transition the table forbids"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing evidence, reason or value"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Comparison",
+        "tags": [
+          "condition-comparisons"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/condition-comparison/judgements": {
+      "post": {
+        "description": "\ud310\uc815\uc744 \uc4f0\uac70\ub098 \uc7ac\uac80\ud1a0\ud574 \uc0c8 \ud310\ubcf8\uc744 \ub9cc\ub4e0\ub2e4. \ubcf4\ub0b8 \ud56d\ubaa9\ub9cc \ubc14\ub00c\uace0 \uadfc\uac70\ub294 \ucd94\uac00\ub9cc \ud55c\ub2e4.\n\nArgs:\n    request_id: \ud310\uc815 \uae30\uc900\uc774 \ub420 \uace0\uc7a5 \uac1c\uc120\uc694\uccad ID.\n    payload: \uc77d\uc740 \ud310\ubcf8, \ubc14\uafc0 \ud56d\ubaa9, \uc0c8 \uadfc\uac70.\n    request: \uc694\uccad.\n    principal: cs_agent\ub9cc \uc4f4\ub2e4. \uc0ac\ub78c\uc758 \ud310\uc815(human_input)\uc73c\ub85c \uae30\ub85d\ud55c\ub2e4.\n\nReturns:\n    SuccessResponse[ConditionComparison]: \uc0c8 \ucd5c\uc2e0 \ud310\ubcf8. \ud310\ubcf8\uc774 \ub2e4\ub974\uba74 409.",
+        "operationId": "cs_write_condition_judgements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgementWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConditionComparison_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not read comparisons"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "version_conflict": {
+                    "summary": "\ud310\ubcf8 \ucda9\ub3cc: \uc77d\uc740 version\uc774 \ucd5c\uc2e0\uc774 \uc544\ub2c8\ub2e4. \ucd5c\uc2e0 \ud310\ubcf8\uc744 \ub2e4\uc2dc \uc870\ud68c\ud55c\ub2e4",
+                    "value": {
+                      "error": {
+                        "code": "CS_COMPARISON_VERSION_CONFLICT",
+                        "details": [],
+                        "message": "The comparison has changed.",
+                        "retryable": false
+                      },
+                      "meta": {
+                        "request_id": "11111111-1111-4111-8111-111111111199"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version, existing comparison or a transition the table forbids"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing evidence, reason or value"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Write Judgements",
         "tags": [
           "condition-comparisons"
         ],
