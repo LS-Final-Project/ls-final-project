@@ -31,11 +31,26 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets/{uuid}/audit", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/units", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/unit-history", ("GET",), ()),
+    ("/api/v1/cs/tickets/{uuid}/units/{uuid}", ("PUT",), ()),
+    ("/api/v1/cs/tickets/{uuid}/resolution-case", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow", ("GET",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/start-review", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/transfer", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/recall", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/return", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/dept-result", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/dept-results/{uuid}/review", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/close", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/owner", ("PUT",), ()),
     ("/api/v1/cs/stats/overview", ("GET",), ("start", "end", "dept", "customer")),
     ("/api/v1/cs/stats/owners", ("GET",), ("start", "end", "dept")),
     ("/api/v1/cs/stats/customers/{customer}", ("GET",), ("start", "end")),
-    ("/api/v1/cs/improvement-requests", ("GET",), ()),
-    ("/api/v1/cs/improvement-requests/{uuid}", ("GET",), ()),
+    ("/api/v1/cs/improvement-requests", ("GET", "POST"), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}", ("GET", "PATCH"), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/versions", ("GET",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/evidence", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/owner", ("PUT",), ()),
     ("/api/v1/tft/projects", ("GET",), ("limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}", ("GET",), ()),
 )
@@ -178,7 +193,7 @@ def configure_relay(app: FastAPI) -> None:
 
 
 @router.api_route(
-    "/api/v1/cs/{path:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
+    "/api/v1/cs/{path:path}", methods=["GET", "POST", "PATCH", "PUT"], include_in_schema=False
 )
 @router.api_route(
     "/api/v1/tft/{path:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
