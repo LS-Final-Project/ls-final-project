@@ -424,7 +424,7 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 `eval.cs_report.store_locked_quality_metrics(conn, run_id, metric, gold_csv, scoring_version=...)`는
 종료된 비합성 실행의 지표 하나를 [정답 묶음](#cs-정답-묶음-판본-kan-88)의 잠금 정답으로 채점해
 `evaluation.metrics`에 실행 단위 행으로만 저장한다. 지표는 `category`·`urgency`·`secondary`·
-`return_subtype`이다(제공 정보는 후속). 한 번 실행에 지표 하나, 트랜잭션 하나다. 트랜잭션·실행 행
+`return_subtype`·`provided_info`다(provided_info는 아래 별도 항목). 한 번 실행에 지표 하나, 트랜잭션 하나다. 트랜잭션·실행 행
 `FOR SHARE`·종료 재확인·덮어쓰기 거부는 합성 저장과 같은 내부 함수를 쓴다. 정답 판본·hash는 인수로 받지
 않고 `eval/cs_gold_locks.py`에서 읽는다.
 
@@ -447,11 +447,33 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 - 합성 저장의 `CS_QUALITY_SYNTHETIC_ONLY`와 반대 경계라 한 실행에 두 경로의 행이 함께 남지 않는다.
   접두도 달라 합성 품질 요약(`synthetic_quality`)은 이 행을 읽지 않는다.
 
+**provided_info**(`eval.cs_metrics.summarize_provided_info_first_attempts`): 예측은 기존 분류 출력의
+`provided_info` 배열 그대로다. 항목 단위로 합산(micro)해 TP=예측∩정답, FP=예측−정답, FN=정답−예측을 센다.
+
+- 실패·보류·스키마 위반·미실행은 빈 예측으로 본다. 정답 항목은 모두 FN이고, 정답이 `[]`여도 완전 일치가
+  아니다. precision은 유효 출력의 항목만으로 계산되므로 실패가 precision을 낮추지 않는다. 이를 숨기지 않도록
+  행 details에 `valid_count`와 `outcomes`를 함께 둔다.
+- 분모가 0이면 값은 null이다: TP+FP=0이면 precision, 정답 항목이 0이면 recall, TP·FP·FN이 모두 0이면 F1이다.
+- `scope=FULL`: `cs_locked_provided_info_first_precision`(TP/TP+FP)·`_recall`(TP/TP+FN)·`_f1`·
+  `_exact_match`(완전 일치 문의/FULL 문의). `scope=PRECISION_ONLY`: `_precision` 한 행만. 두 범위를 합한
+  행은 없다. support는 범위 문의 수다.
+- details: 위 공통 키에 `scope`·범위의 `locked_denominator`·`scope_target_count`·`valid_count`·
+  `items`(tp·fp·fn 집계 수. PRECISION_ONLY는 tp·fp)·`recall_scored`·`excluded_by_reason`(FULL 행은
+  `PRECISION_ONLY` 건수)·범위의 `outcomes`. 항목 코드 목록은 넣지 않는다.
+- 분모: 범위별 채점 대상 수가 실험 split의 잠금 분모(FULL 2,643/561, PRECISION_ONLY 157/42)와 모두 같아야
+  하며, 실험 대상 전부가 정답에 있어야 한다.
+- 정답 파일은 [제공 정보 정답 잠금](#cs-제공-정보-정답-잠금-kan-95)의 기록대로 읽는다: 헤더
+  `ticket_id,provided_info,scoring_scope`, 항목은 `;` 구분, 빈 정답은 `[]`, 범위는 `FULL`·`PRECISION_ONLY`.
+  빈 칸·빈 항목·앞뒤 공백·중복 항목·중복 ID는 거부한다. 항목 코드의 허용값은 코드북을 읽지 않아 검사하지
+  않는다. **실제 파일의 표기가 이 기록과 다르면 추정해 읽지 않고 `CS_QUALITY_GOLD_INVALID`로 멈춘다.**
+- 언어·채널별 집계는 계산 경로에 있지만 행으로 저장하지 않는다. 최종 시도 집계와 재요청 지표는 없다.
+
 운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
 
 ```bash
 uv run --frozen python -m eval.cs_report store-locked-quality --run-id <UUID> \
-  --metric <category|urgency|secondary|return_subtype> --gold-file <정답 CSV> --scoring-version <판본>
+  --metric <category|urgency|secondary|return_subtype|provided_info> --gold-file <정답 CSV> \
+  --scoring-version <판본>
 ```
 
 출력·오류 규칙은 합성 저장 명령과 같다(성공 JSON 한 줄 exit 0, 오류 코드 한 줄 exit 1, 인자 형식 오류

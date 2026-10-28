@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
@@ -20,14 +21,20 @@ from psycopg.types.json import Jsonb
 
 from backend.api.platform.evaluations.cs_smoke import FIXTURES, matches_profile
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS, GoldLock
-from eval.cs_metrics import CATEGORY_LABELS, RETURN_SUBTYPE_LABELS, URGENCY_LABELS
+from eval.cs_metrics import (
+    CATEGORY_LABELS,
+    PROVIDED_INFO_SCOPES,
+    RETURN_SUBTYPE_LABELS,
+    URGENCY_LABELS,
+    ProvidedInfoGold,
+)
 from eval.cs_response_audit import summarize_stored_response_audit
 from eval.cs_stored_metrics import (
     TERMINAL_STATUSES,
     compare_stored_attempts,
     summarize_stored_first_attempts,
 )
-from eval.cs_strata import Metric
+from eval.cs_strata import GoldValue, Metric
 from eval.cs_usage import summarize_stored_usage
 
 METRICS: tuple[Metric, ...] = ("category", "urgency", "secondary")
@@ -152,7 +159,7 @@ def _store_quality_rows(
     *,
     gold_sha256: str,
     scoring_version: str,
-    build: Callable[[dict, set[str]], tuple[str, list[QualityRow]]],
+    build: Callable[[dict, set[str]], tuple[str, dict[str, list[QualityRow]]]],
 ) -> dict:
     """종료 실행의 품질 집계를 한 스냅샷에서 계산해 실행 단위 metrics 행으로만 저장한다.
 
@@ -162,7 +169,8 @@ def _store_quality_rows(
         gold_csv: 정답 파일 바이트. 경로나 원문은 저장하지 않는다.
         gold_sha256: 행을 읽기 전에 대조할 정답 파일 SHA-256(소문자 hex).
         scoring_version: 새 채점 판본. 같은 판본의 기존 행은 덮어쓰지 않는다.
-        build: 잠근 실행 메타·실험 대상을 받아 경로별 거부 검사 후 metric_key 접두와 행을 낸다.
+        build: 잠근 실행 메타·실험 대상을 받아 경로별 거부 검사 후 metric_key 접두와 segment별
+            행을 낸다.
 
     Returns:
         dict: 저장한 채점 판본과 행 수. 거부 시 원문 없는 ValueError이며 아무 행도 남기지 않는다.
@@ -187,17 +195,26 @@ def _store_quality_rows(
                 (meta["experiment_id"],),
             )
         }
-        prefix, rows = build(meta, targets)
+        prefix, segments = build(meta, targets)
+        rows = [(segment, row) for segment, items in segments.items() for row in items]
         try:
             with conn.cursor() as cursor:
                 cursor.executemany(
-                    "INSERT INTO evaluation.metrics(id,run_id,scoring_version,metric_key,"
+                    "INSERT INTO evaluation.metrics(id,run_id,scoring_version,metric_key,segment,"
                     "class_label,value,numerator,denominator,support,details) "
-                    "VALUES (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     [
-                        (run_id, scoring_version, prefix + key, label, value)
+                        (run_id, scoring_version, prefix + key, segment, label, value)
                         + (numerator, denominator, support, Jsonb(details))
-                        for key, label, value, numerator, denominator, support, details in rows
+                        for segment, (
+                            key,
+                            label,
+                            value,
+                            numerator,
+                            denominator,
+                            support,
+                            details,
+                        ) in rows
                     ],
                 )
         except psycopg.errors.UniqueViolation:
@@ -252,7 +269,7 @@ def store_synthetic_return_subtype_metrics(
             사례 ID·정답·예측·원시 출력은 행에 넣지 않는다. 합격 판정은 하지 않는다.
     """
 
-    def build(meta: dict, targets: set[str]) -> tuple[str, list[QualityRow]]:
+    def build(meta: dict, targets: set[str]) -> tuple[str, dict[str, list[QualityRow]]]:
         """합성 경계와 부분집합 정답을 확인하고 반품 하위유형 행을 만든다.
 
         Args:
@@ -260,7 +277,7 @@ def store_synthetic_return_subtype_metrics(
             targets: 실험 고정 대상.
 
         Returns:
-            tuple[str, list[QualityRow]]: metric_key 접두와 저장 행.
+            tuple[str, dict[str, list[QualityRow]]]: metric_key 접두와 segment `all`의 저장 행.
         """
         if _not_synthetic(meta) or targets != set(FIXTURES):
             raise ValueError("CS_QUALITY_SYNTHETIC_ONLY")
@@ -286,11 +303,14 @@ def store_synthetic_return_subtype_metrics(
             "outcomes": overall["outcomes"],
         }
         total, nulls = overall["total"], overall["null_predictions"]
-        return "return_subtype_first_", [
-            ("accuracy", None, overall["accuracy"], overall["correct"], total, total, common),
-            ("macro_f1", None, overall["macro_f1"], None, None, total, common),
-            ("null_predictions", None, nulls, nulls, total, total, common),
-        ] + _class_rows(overall["per_class"])
+        return "return_subtype_first_", {
+            "all": [
+                ("accuracy", None, overall["accuracy"], overall["correct"], total, total, common),
+                ("macro_f1", None, overall["macro_f1"], None, None, total, common),
+                ("null_predictions", None, nulls, nulls, total, total, common),
+            ]
+            + _class_rows(overall["per_class"])
+        }
 
     return _store_quality_rows(
         conn,
@@ -325,7 +345,7 @@ def store_locked_quality_metrics(
     Args:
         conn: 운영자가 연 유휴 내부 연결. 기존 트랜잭션은 인수하지 않는다.
         run_id: 저장할 종료 실행 ID. 실험 gold_version은 정답 묶음 ID여야 한다.
-        metric: category·urgency·secondary·return_subtype 중 하나.
+        metric: category·urgency·secondary·return_subtype·provided_info 중 하나.
         gold_csv: 그 지표의 잠금 정답 파일 바이트. 경로나 원문은 저장하지 않는다.
         scoring_version: 새 채점 판본. 같은 판본의 기존 행은 덮어쓰지 않는다.
         locks: 지표별 잠금 판본·hash·열·분모. 없으면 GOLD_LOCKS다. 판본·hash는 인수로 받지 않는다.
@@ -335,12 +355,12 @@ def store_locked_quality_metrics(
             사례 ID·정답·예측·원시 출력은 행에 넣지 않는다. 합격 판정은 하지 않는다.
     """
     locks = GOLD_LOCKS if locks is None else locks
-    if metric not in LOCKED_LABELS or metric not in locks:
+    if metric not in (*LOCKED_LABELS, "provided_info") or metric not in locks:
         raise ValueError("CS_QUALITY_METRIC_UNSUPPORTED")
     lock = locks[metric]
     stored_metric = cast(Metric, metric)
 
-    def build(meta: dict, targets: set[str]) -> tuple[str, list[QualityRow]]:
+    def build(meta: dict, targets: set[str]) -> tuple[str, dict[str, list[QualityRow]]]:
         """비합성 경계·묶음 판본·고정 분모를 확인하고 지표 행을 만든다.
 
         Args:
@@ -348,7 +368,8 @@ def store_locked_quality_metrics(
             targets: 실험 고정 대상.
 
         Returns:
-            tuple[str, list[QualityRow]]: metric_key 접두와 저장 행.
+            tuple[str, dict[str, list[QualityRow]]]: metric_key 접두와 segment별 저장 행.
+                provided_info만 채점 범위별 segment를 쓰고 나머지는 `all`이다.
         """
         # 합성 경로의 SYNTHETIC_ONLY와 반대 경계라 한 실행에 두 경로의 행이 함께 남지 않는다.
         if (
@@ -362,21 +383,36 @@ def store_locked_quality_metrics(
             raise ValueError("CS_QUALITY_BUNDLE_MISMATCH")
         if meta["status"] not in TERMINAL_STATUSES:
             raise ValueError("CS_QUALITY_RUN_NOT_TERMINAL")
-        gold = _parse_gold(
-            gold_csv, lock.columns, LOCKED_LABELS[metric], nullable=metric == "secondary"
+        gold: Mapping[str, GoldValue] = (
+            _parse_provided_info_gold(gold_csv, lock.columns)
+            if metric == "provided_info"
+            else _parse_gold(
+                gold_csv, lock.columns, LOCKED_LABELS[metric], nullable=metric == "secondary"
+            )
         )
         scoped = {target: gold[target] for target in targets if target in gold}
-        ((_, train, valid),) = lock.denominators
-        denominator = {"train": train, "valid": valid}.get(meta["data_split"])
-        # 결과를 본 뒤 대상을 빼지 못하게 잠근 split 분모와 정확히 같아야 한다.
-        if len(scoped) != denominator or (
-            metric != "return_subtype" and len(scoped) != len(targets)
+        denominators = {
+            scope: {"train": train, "valid": valid}.get(meta["data_split"])
+            for scope, train, valid in lock.denominators
+        }
+        counts: Mapping[str, int] = (
+            Counter(cast(ProvidedInfoGold, value)[1] for value in scoped.values())
+            if metric == "provided_info"
+            else {lock.denominators[0][0]: len(scoped)}
+        )
+        # 결과를 본 뒤 대상을 빼지 못하게 범위별로 잠근 split 분모와 정확히 같아야 한다.
+        if (
+            {scope: counts.get(scope, 0) for scope in denominators} != denominators
+            or not set(counts) <= set(denominators)
+            or (metric != "return_subtype" and len(scoped) != len(targets))
         ):
             raise ValueError("CS_QUALITY_DENOMINATOR_MISMATCH")
+        denominator = next(iter(denominators.values()))
         first = summarize_stored_first_attempts(
             conn, run_id, scoped, gold_version=GOLD_BUNDLE_ID, metric=stored_metric
         )
         overall = first["report"]["overall"]
+        prefix = f"cs_locked_{metric}_first_"
         common = {
             "report_version": LOCKED_REPORT_VERSION,
             "bundle_id": GOLD_BUNDLE_ID,
@@ -391,8 +427,10 @@ def store_locked_quality_metrics(
             "excluded_by_reason": (
                 {"NOT_RETURN": len(targets) - len(scoped)} if metric == "return_subtype" else {}
             ),
-            "outcomes": overall["outcomes"],
         }
+        if metric == "provided_info":
+            return prefix, _provided_info_rows(overall, common, denominators)
+        common["outcomes"] = overall["outcomes"]
         total = overall["total"]
         rows: list[QualityRow] = [
             ("accuracy", None, overall["accuracy"], overall["correct"], total, total, common)
@@ -420,7 +458,7 @@ def store_locked_quality_metrics(
         if metric == "return_subtype":
             nulls = overall["null_predictions"]
             rows.append(("null_predictions", None, nulls, nulls, total, total, common))
-        return f"cs_locked_{metric}_first_", rows + _class_rows(per_class)
+        return prefix, {"all": rows + _class_rows(per_class)}
 
     return _store_quality_rows(
         conn,
@@ -430,6 +468,52 @@ def store_locked_quality_metrics(
         scoring_version=scoring_version,
         build=build,
     )
+
+
+def _provided_info_rows(
+    overall: dict, common: dict, denominators: Mapping[str, int | None]
+) -> dict[str, list[QualityRow]]:
+    """provided_info 채점 범위별 집계 행을 만들며 두 범위를 합하지 않는다.
+
+    Args:
+        overall: 같은 스냅샷의 provided_info 최초 집계.
+        common: 실행·정답 판본 공통 details.
+        denominators: 채점 범위별 잠금 split 분모.
+
+    Returns:
+        dict[str, list[QualityRow]]: `scope=FULL`의 precision·recall·F1·완전 일치와
+            `scope=PRECISION_ONLY`의 precision. details의 항목 수는 집계값만이며 항목 코드는 없다.
+    """
+    scopes = overall["scopes"]
+    segments: dict[str, list[QualityRow]] = {}
+    for scope, result in scopes.items():
+        full = scope == "FULL"
+        details = {
+            **common,
+            "scope": scope,
+            "locked_denominator": denominators[scope],
+            "scope_target_count": result["total"],
+            "valid_count": result["valid_count"],
+            "items": {key: result[key] for key in ("tp", "fp", "fn") if key in result},
+            "recall_scored": full,
+            "excluded_by_reason": {"PRECISION_ONLY": scopes["PRECISION_ONLY"]["total"]}
+            if full
+            else {},
+            "outcomes": result["outcomes"],
+        }
+        tp, total = result["tp"], result["total"]
+        rows: list[QualityRow] = [
+            ("precision", None, result["precision"], tp, tp + result["fp"], total, details)
+        ]
+        if full:
+            rows += [
+                ("recall", None, result["recall"], tp, tp + result["fn"], total, details),
+                ("f1", None, result["f1"], None, None, total, details),
+                ("exact_match", None, result["exact_match_rate"], result["exact_match"])
+                + (total, total, details),
+            ]
+        segments[f"scope={scope}"] = rows
+    return segments
 
 
 def _parse_gold(
@@ -472,6 +556,39 @@ def _parse_return_subtype_gold(data: bytes) -> dict[str, str | None]:
         dict[str, str | None]: 대상 ID별 DEFECT/NON_DEFECT. 빈 값은 허용하지 않는다.
     """
     return _parse_gold(data, ("ticket_id", "return_subtype"), RETURN_SUBTYPE_LABELS)
+
+
+def _parse_provided_info_gold(data: bytes, columns: tuple[str, ...]) -> dict[str, GoldValue]:
+    """세 열 provided_info 정답과 채점 범위를 엄격하게 읽는다.
+
+    docs/evaluation.md "C/S 제공 정보 정답 잠금"의 기록 "`ticket_id,provided_info,scoring_scope`,
+    `;` 구분, 빈 값은 `[]`"를 그대로 따른다. 실제 파일 표기가 이와 다르면 추정하지 않고 거부한다.
+
+    Args:
+        data: hash를 확인한 정답 파일 바이트.
+        columns: 기대하는 헤더.
+
+    Returns:
+        dict[str, GoldValue]: 대상 ID별 (항목 집합, FULL/PRECISION_ONLY). 헤더·중복 ID·빈 칸·
+            빈 항목·앞뒤 공백·중복 항목·범위 값 밖은 CS_QUALITY_GOLD_INVALID로 거부한다.
+    """
+    try:
+        rows = list(csv.reader(io.StringIO(data.decode("utf-8-sig"), newline="")))
+    except (UnicodeDecodeError, csv.Error):
+        raise ValueError("CS_QUALITY_GOLD_INVALID") from None
+    if not rows or tuple(rows[0]) != columns or len(columns) != 3:
+        raise ValueError("CS_QUALITY_GOLD_INVALID")
+    gold: dict[str, GoldValue] = {}
+    for row in rows[1:]:
+        if len(row) != 3 or not row[0] or row[0] in gold or row[2] not in PROVIDED_INFO_SCOPES:
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        items = [] if row[1] == "[]" else row[1].split(";")
+        if any(not item or item != item.strip() or item == "[]" for item in items) or len(
+            set(items)
+        ) != len(items):
+            raise ValueError("CS_QUALITY_GOLD_INVALID")
+        gold[row[0]] = (frozenset(items), row[2])
+    return gold
 
 
 STORE_COMMAND = "store-return-subtype"

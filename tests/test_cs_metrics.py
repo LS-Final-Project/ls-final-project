@@ -909,3 +909,205 @@ def test_store_cli_rejects_configuration_unreadable_file_and_missing_args(
     with pytest.raises(SystemExit) as exit_info:
         cs_report.main(store_cli_args(gold)[:-2])
     assert exit_info.value.code == 2
+
+
+def info_attempt(items=None, *, outcome="VALID", number=1):
+    """provided_info 예측만 다른 합성 최초 시도를 만든다.
+
+    Args:
+        items: 예측 항목 코드 목록. 유효 출력이 아니면 무시한다.
+        outcome: 시도 결과.
+        number: 시도 번호.
+
+    Returns:
+        ClassificationAttempt: 기존 분류 출력 형식의 시도.
+    """
+    from backend.engine.cs.classification import ClassificationOutput
+    from backend.engine.cs.classification_call import ClassificationAttempt
+
+    prediction = (
+        ClassificationOutput(
+            category_code="TECH_SPEC",
+            secondary_category=None,
+            urgency_flag="NONE",
+            provided_info=list(items or []),
+            return_subtype=None,
+        )
+        if outcome == "VALID"
+        else None
+    )
+    return ClassificationAttempt(attempt_number=number, outcome=outcome, prediction=prediction)
+
+
+def test_provided_info_hand_calculated_scopes_are_separate():
+    """FULL과 PRECISION_ONLY를 따로 손계산하고 실패를 빈 예측으로 센다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: FULL P/R/F1·완전 일치, PRECISION_ONLY precision만, 합산 값 없음을 확인한다.
+    """
+    from eval.cs_metrics import summarize_provided_info_first_attempts
+
+    gold = {
+        "a": (frozenset({"A", "B"}), "FULL"),
+        "b": (frozenset({"A"}), "FULL"),
+        "c": (frozenset(), "FULL"),
+        "d": (frozenset({"B"}), "FULL"),
+        "e": (frozenset(), "FULL"),
+        "f": (frozenset({"A", "D"}), "PRECISION_ONLY"),
+        "g": (frozenset({"A"}), "PRECISION_ONLY"),
+    }
+    report = summarize_provided_info_first_attempts(
+        gold,
+        {
+            "a": info_attempt(["A", "C"]),
+            "b": info_attempt(["A"]),
+            "c": info_attempt([]),
+            "d": info_attempt(outcome="TIMEOUT"),
+            "f": info_attempt(["A", "E"]),
+            "g": info_attempt(outcome="SCHEMA_VIOLATION"),
+        },
+    )
+    full, partial = report["scopes"]["FULL"], report["scopes"]["PRECISION_ONLY"]
+    assert report["total"] == 7 and report["quality_gate_evaluated"] is False
+    assert (full["tp"], full["fp"], full["fn"]) == (2, 1, 2)
+    assert full["precision"] == pytest.approx(2 / 3)
+    assert full["recall"] == pytest.approx(0.5)
+    assert full["f1"] == pytest.approx(4 / 7)
+    # 실패한 e는 정답이 []여도 완전 일치가 아니다.
+    assert (full["exact_match"], full["total"], full["valid_count"]) == (2, 5, 3)
+    assert full["exact_match_rate"] == pytest.approx(0.4)
+    assert full["outcomes"]["VALID"] == 3
+    assert full["outcomes"]["TIMEOUT"] == full["outcomes"]["NOT_STARTED"] == 1
+    assert (partial["tp"], partial["fp"], partial["total"], partial["valid_count"]) == (1, 1, 2, 1)
+    assert partial["precision"] == pytest.approx(0.5)
+    assert not {"fn", "recall", "f1", "exact_match", "exact_match_rate"} & set(partial)
+    assert set(report["scopes"]) == {"FULL", "PRECISION_ONLY"}
+    cases = {case["case_id"]: case for case in report["cases"]}
+    assert cases["d"]["prediction"] is None and cases["d"]["fn"] == 1
+    assert cases["e"]["exact"] is False and cases["c"]["exact"] is True
+
+
+@pytest.mark.parametrize(
+    "gold,attempts,expected",
+    [
+        # 유효 예측 항목이 없으면 precision 분모 0
+        ({"a": (frozenset({"A"}), "FULL")}, {"a": info_attempt(outcome="HELD")}, (None, 0.0, 0.0)),
+        # 정답 항목이 없으면 recall 분모 0
+        ({"a": (frozenset(), "FULL")}, {"a": info_attempt(["X"])}, (0.0, None, 0.0)),
+        # 둘 다 0이면 F1도 null, 완전 일치는 1건
+        ({"a": (frozenset(), "FULL")}, {"a": info_attempt([])}, (None, None, None)),
+    ],
+)
+def test_provided_info_zero_denominators_are_null(gold, attempts, expected):
+    """0 분모 precision·recall과 둘 다 null인 F1을 0으로 바꾸지 않는다.
+
+    Args:
+        gold: 합성 FULL 정답.
+        attempts: 합성 최초 시도.
+        expected: 기대 (precision, recall, f1).
+
+    Returns:
+        None: null 규칙과 비어 있는 PRECISION_ONLY 범위의 null precision을 확인한다.
+    """
+    from eval.cs_metrics import summarize_provided_info_first_attempts
+
+    report = summarize_provided_info_first_attempts(gold, attempts)
+    full = report["scopes"]["FULL"]
+    assert (full["precision"], full["recall"], full["f1"]) == expected
+    assert report["scopes"]["PRECISION_ONLY"] == {
+        "total": 0,
+        "valid_count": 0,
+        "tp": 0,
+        "fp": 0,
+        "precision": None,
+        "outcomes": dict.fromkeys(sorted(full["outcomes"]), 0),
+    }
+    empty = summarize_provided_info_first_attempts({}, {})["scopes"]["FULL"]
+    assert empty["exact_match_rate"] is None and empty["f1"] is None
+
+
+@pytest.mark.parametrize(
+    "gold,attempts",
+    [
+        ({"a": (frozenset({"A"}), "FULL")}, {"a": info_attempt(["A"], number=2)}),
+        ({"a": (frozenset({"A"}), "FULL")}, {"b": info_attempt(["A"])}),
+        ({"a": (frozenset({"A"}), "PARTIAL")}, {}),
+        ({"a": ({"A"}, "FULL")}, {}),
+        ({"a": (frozenset({""}), "FULL")}, {}),
+        ({"": (frozenset({"A"}), "FULL")}, {}),
+    ],
+)
+def test_provided_info_rejects_retry_extra_target_or_malformed_gold(gold, attempts):
+    """재시도·대상 밖 시도·잘못된 범위나 항목 형식의 정답을 거부한다.
+
+    Args:
+        gold: 잘못된 합성 정답 또는 정상 정답.
+        attempts: 잘못된 시도 또는 빈 시도.
+
+    Returns:
+        None: 원문 없는 오류 코드로 거부한다.
+    """
+    from eval.cs_metrics import summarize_provided_info_first_attempts
+
+    with pytest.raises(ValueError, match="^CS_METRICS_INVALID_INPUT$"):
+        summarize_provided_info_first_attempts(gold, attempts)
+
+
+def test_provided_info_strata_reuse_overall_contract():
+    """층화 집계가 provided_info 전체 결과를 직접 집계와 같게 낸다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 전체 결과 일치와 채널별 범위 분리를 확인한다.
+    """
+    from eval.cs_metrics import summarize_provided_info_first_attempts
+
+    gold = {"a": (frozenset({"A"}), "FULL"), "b": (frozenset({"B"}), "PRECISION_ONLY")}
+    attempts = {"a": info_attempt(["A"]), "b": info_attempt(["C"])}
+    metadata = {"a": {"channel": "EMAIL"}, "b": {"channel": "CHAT"}}
+    report = summarize_first_attempts_by_group(gold, attempts, metadata, metric="provided_info")
+    assert report["overall"] == summarize_provided_info_first_attempts(gold, attempts)
+    chat = report["groups"]["channel"]["CHAT"]["scopes"]
+    assert chat["FULL"]["total"] == 0 and chat["PRECISION_ONLY"]["fp"] == 1
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",
+        b"ticket_id,provided_info\na,[]\n",
+        b"ticket_id,provided_info,scoring_scope\na,,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na,A;;B,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na, A,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na,A;A,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na,[];A,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na,A,PARTIAL\n",
+        b"ticket_id,provided_info,scoring_scope\na,A,FULL\na,B,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\n,A,FULL\n",
+        b"ticket_id,provided_info,scoring_scope\na,A\n",
+        b"\xff\xfe",
+    ],
+)
+def test_provided_info_gold_file_rejects_malformed_rows(data):
+    """문서에 기록된 '[]'·';' 표기 밖의 provided_info 정답 파일을 거부한다.
+
+    Args:
+        data: 잘못된 합성 정답 파일 바이트.
+
+    Returns:
+        None: 원문 없는 오류 코드로 거부하고 정상 표기는 집합으로 읽는다.
+    """
+    from eval.cs_report import _parse_provided_info_gold
+
+    columns = ("ticket_id", "provided_info", "scoring_scope")
+    with pytest.raises(ValueError, match="^CS_QUALITY_GOLD_INVALID$"):
+        _parse_provided_info_gold(data, columns)
+    assert _parse_provided_info_gold(
+        "﻿ticket_id,provided_info,scoring_scope\r\na,[],FULL\r\nb,B;A,PRECISION_ONLY\r\n".encode(),
+        columns,
+    ) == {"a": (frozenset(), "FULL"), "b": (frozenset({"A", "B"}), "PRECISION_ONLY")}
