@@ -263,6 +263,28 @@ COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출
 
 정답 판본이 바뀌면 이 표도 새 판본 기준으로 다시 집계하고 이전 값을 덮어쓰지 않는다. 결과를 본 뒤 대상을 추가로 빼지 않는다.
 
+## C/S 정답 묶음 판본 (KAN-88)
+
+실험의 `gold_version`은 값 하나지만 위 잠금 정답은 지표마다 판본과 파일이 다르다(판본 이름이 같아도 파일과
+hash는 다르다). 잠금 정답으로 품질을 저장하는 실험은 `gold_version`에 아래 묶음 ID를 쓰고, 지표별 판본과
+정답 파일 SHA-256은 저장 행에 따로 남긴다. 묶음은 위 잠금 절의 값을 모은 것이며 새 정답을 만들지 않는다.
+
+- 묶음 ID: `cs-gold-bundle-20261028-v1`
+- 표의 지표 판본이 하나라도 바뀌면 새 묶음 ID를 만들고 이 묶음을 덮어쓰지 않는다.
+- 학습·검증은 [LLM 분류 평가 분모](#cs-llm-분류-평가-분모-kan-95)의 지표별 대상 수다. 지표 정의에 따른
+  제외(gold NONE, null 등)는 대상에서 빼지 않고 지표 계산에서만 적용한다. 시험 분할은 없다.
+- 표와 `eval/cs_gold_locks.py` 상수는 테스트로 완전 일치를 확인한다. 이 묶음만으로 실제 품질이
+  연결되지는 않으며 저장 경로는 후속 단위다(`quality_available=false` 유지).
+
+| 지표 | 정답 판본 | 정답 파일 SHA-256 | 열 | 채점 범위 | 학습 | 검증 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `category` | `provided-verified-v1-20261028` | `76022e37107aea5564b58a8bc48509a697175f0a4bbeafbce9fc50dba25d2c25` | `ticket_id,category_code` | `ALL` | 2,800 | 603 |
+| `urgency` | `provided-verified-v1-20261027` | `9beda3c54d31f2398a10aba293582e999c97e05734863e74231c9392f9bec22e` | `ticket_id,urgency_flag` | `ALL` | 2,800 | 603 |
+| `secondary` | `provided-verified-v1-20261027` | `fcf4596dae592b80ca1d5f716a86e4e522f8a35a1856792b8841502dd08e0386` | `ticket_id,secondary_category` | `ALL` | 2,800 | 603 |
+| `return_subtype` | `routing-derived-v1-team-agreed-20261027` | `4dfe4ac67708003d4ca12f4ac1976494c4126c2e3cbab2d9514768c89a1b76c1` | `ticket_id,return_subtype` | `ALL` | 245 | 53 |
+| `provided_info` | `provided-verified-v1-20261028` | `78abf59b398c3443cf623e027d33e88eed8bf9e0c75cb919f4504f07f211595d` | `ticket_id,provided_info,scoring_scope` | `FULL` | 2,643 | 561 |
+| `provided_info` | `provided-verified-v1-20261028` | `78abf59b398c3443cf623e027d33e88eed8bf9e0c75cb919f4504f07f211595d` | `ticket_id,provided_info,scoring_scope` | `PRECISION_ONLY` | 157 | 42 |
+
 ## RFP 및 나머지 지표 잠금
 
 RFP 기획서의 역할 precision/recall, 근거 정확도, 요청서 필수값, 가상 경력·가용성 생성, 공백 탐지 및 상태 전이를 각각 검수한다. 미기재·미확인·미충족을 구분하고 부서 검증과 지정 책임자 확정을 합치지 않는다. OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
