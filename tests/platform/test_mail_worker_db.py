@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from backend.api.platform.mail import worker
 from backend.api.platform.mail.worker import MailSyncSettings, configure_mail_sync
 from backend.api.platform.main import create_app
 from tests.platform.test_mail_storage_gcs import FakeGcs
@@ -196,12 +197,17 @@ def test_wrong_caller_is_rejected_before_any_work(settings, mailbox, headers):
     assert world.tasks.tasks == {} and world.graph.requests == [] and world.provider.calls == []
 
 
-def test_dispatch_enqueues_one_task_per_connected_mailbox_once_per_slot(settings, mailbox):
+def test_dispatch_enqueues_one_task_per_connected_mailbox_once_per_slot(
+    settings, mailbox, monkeypatch
+):
     other = add_mailbox(mailbox["dsn"], mailbox["owner"])
     off = add_mailbox(mailbox["dsn"], mailbox["owner"], state="disconnected")
+    # 5분 경계에 걸려도 결과가 같도록 시각을 구간 한가운데로 고정한다.
+    now = (int(time.time()) // 300) * 300 + 150
+    monkeypatch.setattr(worker.time, "time", lambda: now)
     try:
         world = World(settings)
-        slot = int(time.time()) // 300
+        slot = now // 300
         first = world.dispatch()
         assert first.status_code == 200
         names = {f"{QUEUE}/tasks/mail-{m}-{slot}" for m in (mailbox["id"], other)}
