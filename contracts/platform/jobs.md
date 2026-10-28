@@ -102,10 +102,11 @@ PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 
 | UNKNOWN | timeout·연결 단절·응답 해석 불가·전송 후 기록 실패 등 접수 여부 불명확. 자동 재전송 없음 |
 | BLOCKED | 전송 시작 시 현재 평가 승인·소유권·상태 검사 실패. 자동 재확보 없음 |
 | EXHAUSTED | 확보 한도 도달. 자동 재확보 없음 |
+| MANUAL_CHECK | operation 이름 없이 UNKNOWN이 된 전송을 운영자 대조가 고정한 종료 상태. 자동 재확보·재전송 없음, 해소 경로 없음 |
 
 `begin_send`는 지정 평가자·활성 계정·현재 승인 hash·합성 대상·소유권·job 입력 판본을 재검사한다. 종료/검토 필요/현재 worker lease 보유 실행은 BLOCKED다. SENDING commit을 확인한 호출자만 **DB 트랜잭션 밖에서** 외부 전송해야 한다. commit 성공을 확인하지 못했으면 보내지 않는다. 이 함수는 실행 권한을 부여하지 않으며 전송 직후 취소·승인이 회수될 수 있으므로 worker는 기존 실행 인수 검사를 다시 수행해야 한다.
 
-`record_result`는 현재 SENDING의 시도·holder·lease를 검증하고 두 장부를 함께 갱신한다. 만료된/중복/위조 결과는409로 거부한다. timeout과 예외를 REJECTED로 분류하지 않는다. UNKNOWN/ACCEPTED/BLOCKED/EXHAUSTED의 운영 대조·재처리 도구는 후속 범위다. 만료 한 건을 보류하거나 한도를 소진하면 `claim_next`는 None을 반환할 수 있으므로 None은 전체 큐가 비었다는 증거가 아니다.
+`record_result`는 현재 SENDING의 시도·holder·lease를 검증하고 두 장부를 함께 갱신한다. 만료된/중복/위조 결과는409로 거부한다. timeout과 예외를 REJECTED로 분류하지 않는다. UNKNOWN의 대조와 BLOCKED·EXHAUSTED의 재처리는 아래 [운영자 명령](#kan-69-전송-장부-대조재처리-운영자-명령)으로만 한다. 자동 재처리는 없다. 만료 한 건을 보류하거나 한도를 소진하면 `claim_next`는 None을 반환할 수 있으므로 None은 전체 큐가 비었다는 증거가 아니다.
 
 장부는 외부 응답 본문·자격증명·원문·정답을 저장하지 않는다. 실행 상태·worker lease·판본·사용량·공개 이벤트는 바꾸지 않고 일반 조회/SSE에 노출하지 않는다. 기존 `smoke_worker.dispatch_one`은 로컬 fake 직접 실행 도구이며 이 전송 장부를 소비하는 운영 dispatcher가 아니다.
 
@@ -132,7 +133,7 @@ PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 
 
 HTTP200과 같은 프로젝트 번호/리전의 유효 operation 이름을 확인하면 ACCEPTED다. done=true라면 해당 Job의 Execution 응답도 확인한다. operation error,429,5xx,리디렉션,timeout,연결 단절,비JSON,초과 크기,다른 프로젝트/리전,불완전 operation은 UNKNOWN이다. 400/401/403/404와 일치하는 Google 오류 code/status를 모두 확인한 경우만 REJECTED로 기록한다. 접수 성공은 실행 성공이 아니며 operation을 polling해 평가 상태로 대체하지 않는다.
 
-`20261026_KAN-69_dispatch_operation.sql`은 시도별 operation 이름만 추가한다. 외부 원문·오류 메시지·token은 저장하지 않는다. operation 이름이 있어도 UNKNOWN이면 자동 재전송하지 않는다. 응답 후 DB 저장에 실패하면 operation 이름을 잃을 수 있으므로 작업 상태를 보류하고 외부 실행 내역과 운영 대조해야 한다. operation 조회·대조·재처리 도구는 아직 없다.
+`20261026_KAN-69_dispatch_operation.sql`은 시도별 operation 이름만 추가한다. 외부 원문·오류 메시지·token은 저장하지 않는다. operation 이름이 있어도 UNKNOWN이면 자동 재전송하지 않는다. 응답 후 DB 저장에 실패하면 operation 이름을 잃을 수 있으므로 작업 상태를 보류하고 외부 실행 내역과 운영 대조해야 한다. 대조·재처리는 아래 [운영자 명령](#kan-69-전송-장부-대조재처리-운영자-명령)을 따른다.
 
 근거: [Jobs run API와 OAuth/override 권한](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/run), [Cloud Run 서비스 실행 신원](https://docs.cloud.google.com/run/docs/securing/service-identity), [Operation 결과 형식](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations). 실제 IAM 허용/거부·컨테이너 실행 신원·공용 DB 권한 검증은 후속 운영 단계다. 이번 검증은 합성 HTTP와 전용 실제 PostgreSQL로 한정한다.
 
@@ -154,6 +155,32 @@ worker는 현재 승인·대상·활성 사용자 확인에 필요한 읽기, ru
 
 True는 요청한 operation 이름과 일치하는 유효 접수 응답을 확인했다는 뜻이다. done=true는 설정 Job의 Execution도 확인한다. 평가 성공이나 현재 실행 권한을 뜻하지 않는다. False는 조회 불가/불명확이며 **미접수 또는 재전송 허용을 뜻하지 않는다**. 401/403/404와 operation error도 False다. 외부 본문·오류·토큰은 반환하거나 저장하지 않는다. DB 장애는 503으로 전파한다.
 
-이 첫 단위는 읽기만 하며 UNKNOWN 장부·평가 상태·판본·이벤트를 변경하지 않는다. 조회 중 장부가 바뀔 수 있으므로 결과를 미래 상태 변경에 사용할 때는 시도와 현재 상태를 트랜잭션 안에서 다시 대조해야 한다. 장부 갱신·재처리, operation 이름을 잃은 전송 복구, 자동 polling/CLI/API, 실제 ADC·IAM과 worker 로그인 연결은 후속 범위다.
+이 첫 단위는 읽기만 하며 UNKNOWN 장부·평가 상태·판본·이벤트를 변경하지 않는다. 조회 중 장부가 바뀔 수 있으므로 결과를 미래 상태 변경에 사용할 때는 시도와 현재 상태를 트랜잭션 안에서 다시 대조해야 한다. 장부 갱신과 재처리는 아래 운영자 명령이 이 함수를 감싸 수행한다. 자동 polling·API, 실제 ADC·IAM과 worker 로그인 연결은 후속 범위다.
 
 근거: [Cloud Run operations.get](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations/get). 현재 검증은 합성 HTTP와 임시 PostgreSQL에 한정한다.
+
+### KAN-69 전송 장부 대조·재처리 운영자 명령
+
+`backend/api/platform/jobs/recovery.py`는 운영자가 작업 하나씩 실행하는 명령이다. 스케줄러·HTTP 경로·자동 재시도는 없다. 기존 잠금(local/test, 합성 접수 허용, `EVALUATION_DISPATCH_ENABLED`, 대조는 `EVALUATION_JOBS_ENABLED`까지)을 그대로 쓰며 production은 거부한다. 새 SQL은 `20261028_KAN-69_dispatch_recovery.sql`이고 앞의 전송 장부·operation 마이그레이션 뒤에 적용한다.
+
+```bash
+python -m backend.api.platform.jobs.recovery status --job-id <UUID>
+gcloud auth print-access-token | python -m backend.api.platform.jobs.recovery reconcile --job-id <UUID>
+python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
+```
+
+| 명령 | 동작 |
+| --- | --- |
+| `status` | outbox 상태·시도 수·한도·재처리 횟수·시각과 시도별 상태·operation 보유 여부·마지막 대조 시각. operation 이름 원문은 내지 않는다 |
+| `reconcile` | outbox와 현재 시도가 모두 UNKNOWN일 때만. 저장된 operation이 있으면 DB 연결을 닫고 [읽기 대조](#kan-69-unknown-operation-읽기-대조)로 조회한 뒤, 같은 시도·holder·이름이 여전히 UNKNOWN인지 트랜잭션 안에서 다시 확인한다. 접수 확인이면 두 장부를 ACCEPTED로, 아니면 UNKNOWN 그대로 두고 `checked_at`만 기록한다. 조회 중 장부가 바뀌면 409 `STALE_DISPATCH`로 아무것도 바꾸지 않는다. 저장된 operation이 없으면 조회하지 않고 두 장부를 MANUAL_CHECK로 고정한다 |
+| `requeue` | BLOCKED·EXHAUSTED만 PENDING으로 되돌린다. 시도 중 SENDING·ACCEPTED·UNKNOWN·MANUAL_CHECK가 하나라도 있으면 409 `INVALID_TRANSITION`이다. 시도 한도 `attempt_limit`를 현재 시도 수 + `EVALUATION_DISPATCH_MAX_ATTEMPTS`로 늘리고 `requeue_count`·`requeued_at`을 남긴다. 재전송 전 평가 승인·소유권은 기존 `begin_send`가 다시 검사한다 |
+
+- 대조는 양성 증거만 반영한다. operation 조회 실패(404·error·timeout 등)는 미접수 증거가 아니므로 REJECTED로 바꾸지 않고 재처리 대상도 아니다.
+- **MANUAL_CHECK는 종료 상태다.** 외부 실행 내역과 맞출 operation 이름이 없어 장부만으로 복구할 수 없다는 표시다. 이 상태의 해소(외부 실행 내역 대조 뒤의 상태 전환)는 이번 범위 밖이며 명령이 없다. reconcile·requeue·자동 확보 모두 거부한다.
+- access token은 stdin 한 줄로만 받는다. 명령행 인자·환경 변수로 받지 않고 출력하지 않는다. 실제 ADC 공급자 연결은 하지 않는다.
+- 출력은 성공 시 JSON 한 줄, 실패 시 오류 코드 한 줄(예상 밖 오류는 `DISPATCH_RECOVERY_FAILED`)이다. DSN·토큰·operation 이름·외부 응답을 출력하지 않는다.
+- 재처리 기록에 운영자 ID는 없다. CLI 실행이라 인증된 사용자가 없기 때문이다. 누가 실행했는지는 운영 절차의 기록으로 남긴다.
+- 평가 run 상태·판본·이벤트는 바꾸지 않고 일반 조회·SSE에 노출하지 않는다.
+
+검증은 합성 operation 응답(`httpx.MockTransport`)과 전용 PostgreSQL로 한정한다(`tests/platform/test_jobs_transport.py`, `tests/platform/test_dispatch_ledger.py`). 실제 Google 조회·IAM·공용 DB 적용은 운영 단계다.
+

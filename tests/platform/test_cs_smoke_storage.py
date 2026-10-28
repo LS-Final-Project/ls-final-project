@@ -163,12 +163,17 @@ def test_cs_attempts_persist_and_recover_without_duplicate(
         assert len(row["input_sha256"]) == 64 and row["latency_ms"] >= 0
         assert row["input_tokens"] == 7 and row["cost_usd"] is None
         assert row["thought_tokens"] is None
+        # 저장소 단가표는 빈 표이고 합성 사용량에는 공급자 원문이 없다.
+        assert row["pricing_version"] is None and row["usage_raw"] is None
         if row["outcome"] == "TIMEOUT":
+            # 공급자 예외로 Generation이 없어 요청 모델·호출 시도 수를 모른다.
+            assert row["requested_model"] is None and row["call_attempts"] is None
             assert row["raw_output"] is None and row["parsed_output"] is None
             assert row["total_tokens"] is None and row["cached_input_tokens"] is None
             assert row["error_code"] == "CS_PROVIDER_TIMEOUT" and row["case_status"] == "FAILED"
         else:
             assert row["raw_output"] == "[REDACTED]"
+            assert row["requested_model"] == "fake" and row["call_attempts"] == 1
             assert row["total_tokens"] == 10 and row["cached_input_tokens"] == 0
             assert row["model_version"] == "cs-smoke-v1" and row["finish_reasons"] == ["STOP"]
             if row["outcome"] == "SCHEMA_VIOLATION":
@@ -210,6 +215,113 @@ def test_cs_attempts_persist_and_recover_without_duplicate(
     with pytest.raises(ApplicationError, match="STALE_WORKER"):
         asyncio.run(advance_run(settings, cs_access, lease))
     assert saved(evaluation_database, cs_run) == rows
+
+
+def test_attempt_cost_is_null_when_input_or_output_tokens_are_missing(monkeypatch):
+    """입력·답변 토큰 중 하나라도 미보고면 부분 합계를 확정 비용으로 저장하지 않는다.
+
+    Args:
+        monkeypatch: 단가표 교체.
+
+    Returns:
+        None: 캐시·추론 생략은 비용 저장을 막지 않는다.
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from backend.api.platform.evaluations import smoke_worker
+    from backend.engine.cs.classification_call import ClassificationAttempt
+    from backend.shared.ai import ModelPrice, Usage
+
+    # 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+    prices = {
+        "fake": ModelPrice(
+            input_per_million=Decimal("2"),
+            output_per_million=Decimal("10"),
+            cached_input_per_million=Decimal("0.5"),
+            currency="USD",
+            as_of=date(2026, 1, 1),
+        )
+    }
+    monkeypatch.setattr(smoke_worker, "load_price_table", lambda: prices)
+
+    def cost(usage: Usage) -> tuple:
+        return smoke_worker.attempt_cost(
+            ClassificationAttempt(1, usage=usage, requested_model="fake")
+        )
+
+    assert cost(Usage(input_tokens=7)) == (None, None)
+    assert cost(Usage(output_tokens=3)) == (None, None)
+    assert cost(Usage(input_tokens=7, output_tokens=3)) == (
+        Decimal("0.000044"),
+        "fake@2026-01-01",
+    )
+
+
+@pytest.mark.parametrize(("currency", "stored"), [("USD", True), ("KRW", False)])
+def test_cs_attempt_cost_and_raw_usage_follow_price_table(
+    settings, cs_access, cs_run, evaluation_database, monkeypatch, currency, stored
+):
+    """주입한 단가표로 비용·가격표 판본을, 공급자 원문으로 usage_raw를 저장한다.
+
+    Args:
+        settings: 실행 계정 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        monkeypatch: 단가표·합성 응답 교체.
+        currency: 주입할 단가표 통화.
+        stored: USD일 때만 cost_usd가 저장되는지 여부.
+
+    Returns:
+        None: CHECK(cost_usd → pricing_version)를 어기지 않고 저장되는지 확인한다.
+    """
+    from dataclasses import replace
+    from datetime import date
+    from decimal import Decimal
+
+    from backend.api.platform.evaluations import smoke_worker
+    from backend.shared.ai import ModelPrice
+
+    # 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+    prices = {
+        "fake": ModelPrice(
+            input_per_million=Decimal("2"),
+            output_per_million=Decimal("10"),
+            cached_input_per_million=Decimal("0.5"),
+            currency=currency,
+            as_of=date(2026, 1, 1),
+        )
+    }
+    raw = {"promptTokenCount": 7, "candidatesTokenCount": 3, "totalTokenCount": 10}
+    original = smoke_worker.run_case
+
+    def with_raw(target_ref):
+        attempt = original(target_ref)
+        if attempt.requested_model is None:
+            return attempt
+        return replace(attempt, usage=replace(attempt.usage, raw=raw))
+
+    monkeypatch.setattr(smoke_worker, "load_price_table", lambda: prices)
+    monkeypatch.setattr(smoke_worker, "run_case", with_raw)
+    lease = asyncio.run(claim_run(settings, cs_access, cs_run))
+    for _ in range(4):
+        if asyncio.run(advance_run(settings, cs_access, lease)):
+            break
+    rows = saved(evaluation_database, cs_run)
+    assert len(rows) == 3
+    for row in rows:
+        if row["outcome"] == "TIMEOUT":
+            assert row["usage_raw"] is None and row["cost_usd"] is None
+            assert row["pricing_version"] is None
+            continue
+        assert row["usage_raw"] == raw
+        # 청구 입력 7 × 2 + 답변 3 × 10, 캐시 0 × 0.5, 100만 토큰당.
+        if stored:
+            assert row["cost_usd"] == Decimal("0.000044")
+            assert row["pricing_version"] == "fake@2026-01-01"
+        else:
+            assert row["cost_usd"] is None and row["pricing_version"] is None
 
 
 @pytest.mark.parametrize("boundary", ["cancel", "approval", "evaluator", "expired"])
@@ -1258,6 +1370,268 @@ def test_locked_store_cli_saves_rows_or_rejects_with_code_only(
     assert len(stored_quality_rows(evaluation_database, cs_run)) == len(rows)
 
 
+# 재요청 검사용 합성 입력. 항목 코드는 저장 행에 새지 않는지 찾기 쉽게 고유하게 둔다.
+REREQUEST_INFO = {
+    "cs-smoke-valid": ("synthetic_code_alpha", "FULL"),
+    "cs-smoke-invalid": ("[]", "FULL"),
+    "cs-smoke-timeout": ("synthetic_code_beta", "PRECISION_ONLY"),
+}
+REREQUEST_PRODUCTS = {"cs-smoke-valid": "PLC-XGI-CPUU", "cs-smoke-invalid": "PLC-XGI-CPUU"}
+REQUIRED_TABLE = (
+    "\ufefffamily,category,required_fields,blocking_fields,field_labels\r\n"
+    'PLC,RETURN,synthetic_code_alpha;serial_no,synthetic_code_alpha,"Alpha;Serial"\r\n'
+)
+
+
+def rerequest_inputs(**changes):
+    """재요청 저장 함수의 검사용 입력 묶음을 만든다.
+
+    Args:
+        **changes: 바꿀 인수(locks·required_info·rerequest_lock·products·category_gold 등).
+
+    Returns:
+        dict: store_locked_rerequest_metrics의 키워드 인수.
+    """
+    import hashlib
+
+    from eval.cs_gold_locks import GoldLock, RerequestLock
+
+    category, category_locks = locked_gold("category")
+    info = (
+        "ticket_id,provided_info,scoring_scope\n"
+        + "".join(f"{k},{items},{scope}\n" for k, (items, scope) in REREQUEST_INFO.items())
+    ).encode()
+    info_lock = GoldLock(
+        "test-provided_info-v1",
+        hashlib.sha256(info).hexdigest(),
+        ("ticket_id", "provided_info", "scoring_scope"),
+        (("FULL", 0, 2), ("PRECISION_ONLY", 0, 1)),
+    )
+    table = REQUIRED_TABLE.encode()
+    inputs = {
+        "category_gold": category,
+        "info_gold": info,
+        "products": ("valid", dict(REREQUEST_PRODUCTS), "c" * 64),
+        "scoring_version": "rerequest-v1",
+        "locks": {**category_locks, "provided_info": info_lock},
+        "required_info": (table, hashlib.sha256(table).hexdigest()),
+        # FULL 2건, gold 항목 1개, gold 기준 요청 필요 1건(cs-smoke-invalid).
+        "rerequest_lock": RerequestLock(targets=(0, 2), gold_items=(0, 1), request_needed=(0, 1)),
+    }
+    return inputs | changes
+
+
+def test_locked_rerequest_rows_store_aggregates_only(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """재요청 지표를 FULL 대상만으로 계산해 집계 행 7개로 저장한다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: 손계산 값, 실패 미계산, PRECISION_ONLY 제외, 코드·사례 비노출을 확인한다.
+    """
+    from eval.cs_report import store_locked_rerequest_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    inputs = rerequest_inputs()
+    with psycopg.connect(evaluation_database) as conn:
+        stored = store_locked_rerequest_metrics(conn, cs_run, **inputs)
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert stored["stored_rows"] == len(rows) == 7
+    prefix = "cs_locked_rerequest_first_"
+    values = {
+        r["metric_key"].removeprefix(prefix): (r["value"], r["numerator"], r["denominator"])
+        for r in rows
+    }
+    # cs-smoke-valid: 예측 RETURN·제공 [] → 요청 {alpha} ∩ gold {alpha} = 재요청 1(추출 오류).
+    # cs-smoke-invalid: 스키마 위반이라 요청을 계산하지 않는다.
+    assert values == {
+        "rerequest_ticket_count": (1, 1, 2),
+        "rerequest_ticket_ratio": (0.5, 1, 2),
+        "rerequest_item_count": (1, 1, 1),
+        "rerequest_item_ratio": (1.0, 1, 1),
+        "cause_extraction": (1, 1, 1),
+        "cause_classification": (0, 0, 1),
+        "request_ticket_count": (1, 1, 1),
+    }
+    details = rows[0]["details"]
+    assert all(r["details"] == details for r in rows)
+    assert {
+        k: details[k] for k in ("valid_count", "gold_item_count", "baseline_request_needed")
+    } == {
+        "valid_count": 1,
+        "gold_item_count": 1,
+        "baseline_request_needed": 1,
+    }
+    assert details["excluded_by_reason"] == {"PRECISION_ONLY": 1}
+    assert details["outcomes"]["SCHEMA_VIOLATION"] == 1 and details["outcomes"]["VALID"] == 1
+    assert details["cause_items"] == {"EXTRACTION": 1, "CLASSIFICATION": 0}
+    assert details["required_info_sha256"] == inputs["required_info"][1]
+    assert details["product_sha256"] == "c" * 64
+    assert all(r["segment"] == "all" and r["case_id"] is None for r in rows)
+    assert all(r["threshold"] is None and r["passed"] is None for r in rows)
+    dumped = str(rows)
+    assert "synthetic_code" not in dumped and "PLC-XGI" not in dumped
+    assert all(ref not in dumped for ref in FIXTURES)
+
+
+@pytest.mark.parametrize(
+    "case,code",
+    [
+        ("product_split", "CS_QUALITY_GOLD_INVALID"),
+        ("product_missing", "CS_QUALITY_GOLD_INVALID"),
+        ("product_unknown", "CS_QUALITY_GOLD_INVALID"),
+        ("family_not_in_table", "CS_QUALITY_GOLD_INVALID"),
+        ("table_hash", "CS_QUALITY_GOLD_HASH_MISMATCH"),
+        ("table_columns", "CS_QUALITY_GOLD_INVALID"),
+        ("category_hash", "CS_QUALITY_GOLD_HASH_MISMATCH"),
+        ("targets", "CS_QUALITY_DENOMINATOR_MISMATCH"),
+        ("gold_items", "CS_QUALITY_DENOMINATOR_MISMATCH"),
+        ("baseline", "CS_QUALITY_GOLD_INVALID"),
+        ("smoke", "CS_QUALITY_LOCKED_RUN_REQUIRED"),
+    ],
+)
+def test_locked_rerequest_rejects_without_rows(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, case, code
+):
+    """입력·분할·분모·기준선·실행 경계 위반은 행 없이 거부하고 트랜잭션을 남기지 않는다.
+
+    Args:
+        settings: 합성 실행 설정.
+        cs_access: 합성 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        case: 바꿀 입력.
+        code: 기대하는 원문 없는 코드.
+
+    Returns:
+        None: 고정 코드, rollback, 저장 행 0을 확인한다.
+    """
+    import dataclasses
+    import hashlib
+
+    from eval.cs_report import store_locked_rerequest_metrics
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    if case != "smoke":
+        make_locked(evaluation_database, cs_run)
+    inputs = rerequest_inputs()
+    split, codes, digest = inputs["products"]
+    lock = inputs["rerequest_lock"]
+    table, table_sha = inputs["required_info"]
+    changes = {
+        "product_split": {"products": ("train", codes, digest)},
+        "product_missing": {"products": (split, {"cs-smoke-valid": "PLC-XGI-CPUU"}, digest)},
+        "product_unknown": {"products": (split, {**codes, "cs-smoke-invalid": "NO-SUCH"}, digest)},
+        "family_not_in_table": {
+            "products": (split, {**codes, "cs-smoke-invalid": "UPS-LSU-10K"}, digest)
+        },
+        "table_hash": {"required_info": (table, "0" * 64)},
+        "table_columns": {
+            "required_info": (
+                table.replace(b"field_labels", b"labels"),
+                hashlib.sha256(table.replace(b"field_labels", b"labels")).hexdigest(),
+            )
+        },
+        "category_hash": {"category_gold": inputs["category_gold"] + b"x"},
+        "targets": {"rerequest_lock": dataclasses.replace(lock, targets=(0, 3))},
+        "gold_items": {"rerequest_lock": dataclasses.replace(lock, gold_items=(0, 2))},
+        "baseline": {"rerequest_lock": dataclasses.replace(lock, request_needed=(0, 2))},
+        "smoke": {},
+    }[case]
+    with psycopg.connect(evaluation_database) as conn:
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            store_locked_rerequest_metrics(conn, cs_run, **(inputs | changes))
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert stored_quality_rows(evaluation_database, cs_run) == []
+
+
+def test_locked_rerequest_cli_reads_products_from_dev_manifest_and_prints_codes_only(
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    """재요청 명령이 개발 분리본 manifest에서 제품 코드만 읽어 저장하고 오류는 코드만 낸다.
+
+    Args:
+        settings: 합성 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경과 검사용 잠금 설정.
+        tmp_path: 정답·분리본 위치.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 성공 JSON, 분리본 SHA 불일치의 PRODUCT_INVALID, 경로·DSN 비노출을 확인한다.
+    """
+    import hashlib
+    import json
+
+    from eval import cs_report
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    make_locked(evaluation_database, cs_run)
+    inputs = rerequest_inputs()
+    table_file = tmp_path / "required.csv"
+    table_file.write_bytes(inputs["required_info"][0])
+    monkeypatch.setattr(cs_report, "GOLD_LOCKS", inputs["locks"])
+    monkeypatch.setattr(cs_report, "REREQUEST_LOCK", inputs["rerequest_lock"])
+    monkeypatch.setattr(cs_report, "REQUIRED_INFO_PATH", table_file)
+    monkeypatch.setattr(cs_report, "REQUIRED_INFO_SHA256", inputs["required_info"][1])
+    partition = (
+        "ticket_id,category_code,product_code,data_split\n"
+        + "".join(f"{k},RETURN,{v},valid\n" for k, v in REREQUEST_PRODUCTS.items())
+    ).encode()
+    (tmp_path / "tickets.valid.csv").write_bytes(partition)
+    manifest = tmp_path / "manifest.json"
+    entry = {
+        "path": "tickets.valid.csv",
+        "sha256": hashlib.sha256(partition).hexdigest(),
+        "rows": 2,
+    }
+    manifest.write_text(json.dumps({"partitions": {"valid": entry}}), encoding="utf-8")
+    category, info = tmp_path / "secret-category.csv", tmp_path / "secret-info.csv"
+    category.write_bytes(inputs["category_gold"])
+    info.write_bytes(inputs["info_gold"])
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [cs_report.STORE_REREQUEST_COMMAND, "--run-id", str(cs_run)]
+    args += ["--category-gold", str(category), "--info-gold", str(info)]
+    args += ["--dev-manifest", str(manifest), "--split", "valid", "--scoring-version", "rr-v1"]
+    assert cs_report.main(args) == 0
+    captured = capsys.readouterr()
+    rows = stored_quality_rows(evaluation_database, cs_run)
+    assert json.loads(captured.out) == {
+        "run_id": str(cs_run),
+        "scoring_version": "rr-v1",
+        "stored_rows": 7,
+    }
+    assert rows[0]["details"]["product_sha256"] == entry["sha256"]
+    (tmp_path / "tickets.valid.csv").write_bytes(partition + b"x")
+    assert cs_report.main([*args[:-1], "rr-v2"]) == 1
+    rejected = capsys.readouterr()
+    assert rejected.err == "CS_QUALITY_PRODUCT_INVALID\n" and rejected.out == ""
+    outputs = captured.out + captured.err + rejected.out + rejected.err
+    for secret in (str(tmp_path), evaluation_database, "PLC-XGI"):
+        assert secret not in outputs
+    assert len(stored_quality_rows(evaluation_database, cs_run)) == 7
+
+
 @pytest.mark.parametrize(
     "invalid", ["run", "missing_gold", "extra_gold", "version", "count", "schema", "outcome"]
 )
@@ -1578,6 +1952,15 @@ def test_stored_usage_preserves_missing_zero_failures_and_retries(
     assert all_usage["cost_usd"]["known_sum"] == "0.600000"
     assert all_usage["cost_usd"]["total"] is None
     assert all_usage["cost_usd"]["pricing_versions"] == ["price-v1", "price-v2"]
+    # 시도1의 VALID·SCHEMA_VIOLATION만 응답이 있어 모델·시도 수가 있다. 직접 넣은 재시도 행은 없다.
+    assert first["requested_models"] == ["fake"] and retry["requested_models"] == []
+    assert first["call_attempts"] == {
+        "reported_count": 2,
+        "missing_count": 1,
+        "known_sum": 2,
+        "total": None,
+    }
+    assert all_usage["usage_raw"] == {"reported_count": 0, "missing_count": 5}
     assert "raw_output" not in str(report) and "parsed_output" not in str(report)
 
 

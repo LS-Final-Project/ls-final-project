@@ -90,6 +90,7 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-85_evaluation_storage
 - `input_sha256`: 모델에 보낸 입력의 hash. 입력 자체는 저장하지 않으며 누설 감사는 hash 재계산으로 한다.
 - `error_code`·`http_status`: `eval/smoke.py`와 같이 예외 클래스명과 상태 코드만 둔다. 제공자 메시지는 자격증명·요청 본문을 포함할 수 있어 저장하지 않는다.
 - 토큰 5종은 `backend.shared.ai.Usage`와 같고 null은 제공자가 알려주지 않은 값이다. `cost_usd`는 `pricing_version`이 있어야 하며 가격표가 없으면 null로 두고 0으로 적지 않는다.
+- `usage_raw`·`requested_model`·`call_attempts`(KAN-86)는 공급자 사용량 원문(토큰 수 메타데이터, `Usage.raw`), 요청한 모델 ID(`Generation.model`), 호출 시도 수(`Generation.attempts`)다. 응답 없이 실패한 시도는 null이다. `cost_usd`는 `backend/shared/ai_prices.json`에 그 모델의 USD 단가가 있을 때만 `estimate_cost`의 total로 저장하고 `pricing_version`은 `모델@as_of`다. 단가가 없거나 USD가 아니면 둘 다 null이며 numeric(14,6)이라 소수 6자리로 반올림된다.
 - `cases.gold_labels`는 `gold_version` 시점의 정답 코드(`category_code` 등)만 담는다. `final_reply`, 본문, 담당자 등 원천 기록은 넣지 않는다.
 - `cases.final_output`은 폴백·재시도 후 채점에 쓴 구조화 출력(코드값)이다. 폴백 고정 문장을 썼으면 `fallback_used=true`다.
 
@@ -279,6 +280,14 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 정답 코드·예측·사례/대상 ID·입력/출력 본문·실험 구성·가격표 문자열은 내보내지 않는다.
 내부 보고서 전체를 그대로 직렬화하지 않고 DTO에 열거한 집계만 투영한다. 비용은 아래
 선택적 집계로 연결하며 폴백 상세·정답 인수·품질 점수·실제 모델 실행·운영 활성화는 후속 범위다.
+
+### KAN-137 실험·실행 목록과 새 접수 화면
+
+- `GET /api/v1/platform/evaluations/experiments`: 지정 평가자 본인이 만든 실험 최근 50개(커서 없음). `experiment_id`·`name`·`purpose`·`data_split`·`data_origin`·`model_id`·`target_count`·`created_at`·`admissible`·`blocked_reason`. `blocked_reason`은 접수와 같은 `validate_smoke_experiment()`를 그대로 불러 얻은 코드(`FINAL_TEST_LOCKED`·`EXPERIMENT_NOT_APPROVED`·`LOCAL_SMOKE_ONLY`·`EXPERIMENT_HASH_MISMATCH`)이고, 서버 접수가 꺼져 있으면 `ADMISSION_UNAVAILABLE`이다. 대상 집합 hash 대조는 접수 때 한다. 구성 원문·`dataset_manifest`·hash·대상 ID는 응답에 넣지 않는다.
+- `GET /api/v1/platform/evaluations/runs`: 본인 접수 실행 최근 50개(`run_id`·`job_id`·`experiment_id`·`status`·`requested_count`·`needs_review`·`failure_code`·`created_at`). `GET /runs/{run_id}`와 같은 조건(본인 요청·본인 실험·접수 기록·제어 행)이며 최종 시험(`data_split='test'`) 실행은 숨긴다. 원시 출력·정답은 없다.
+- 화면의 **재시도**는 같은 실험을 새 `Idempotency-Key`로 다시 접수하는 것이다(새 run). 기존 실행을 다시 돌리지 않는다. 같은 접수 시도 안에서 응답을 받기 전 재전송할 때는 같은 키를 다시 써서 서버가 최초 응답을 재생한다.
+- 화면(`frontend/src/pages/RunAdmission.tsx`, 평가 실행 화면 위쪽): 정책의 `admission_available`이 false면 폼을 닫고 "실제 모델·실제 데이터 접수는 실행기 연결 뒤"를 안내한다. 실험 선택은 접수 가능한 실험만 고를 수 있고 나머지는 사유(최종 시험 잠금 등)와 함께 표시한다. 모델·설정은 실험에 고정된 값을 읽기 전용으로 보여준다. 접수는 `/me`의 CSRF와 시도마다 새로 만든 멱등 키로 실험 ID 하나만 보낸다. 결과가 불명확(네트워크·5xx·응답 형식 오류)하면 같은 키로 다시 확인하고, 거절(4xx)이면 다음 접수는 새 키다. 결과를 모르는 접수가 남아 있는 동안에는 실험 변경과 '같은 실험으로 다시 접수'를 막아 앞 접수의 키를 잃지 않는다. 성공하면 작업 ID로 기존 상태 화면을 연다. '내 실행' 표에서 열기와, 실패·취소·시간 초과·일부 완료 실행의 같은 실험 재접수를 제공한다.
+- 웹 중계(`frontend/evaluation-relay.mjs`, 둘 다 기본 비활성): 읽기 플래그(`EVALUATION_READ_RELAY_ENABLED`)에 `GET /policy`·`GET /experiments`·`GET /runs`(쿼리·본문 없음)를 더했다. 접수 `POST /runs`는 제어 플래그(`EVALUATION_CONTROL_RELAY_ENABLED`) 아래 별도 분기로, JSON 본문 1~1024바이트·`Content-Type: application/json`·`Idempotency-Key`·`Origin`·`X-CSRF-Token` 필수, `If-Match`는 선택(있으면 그대로 전달), 쿼리 400이다. 같은 경로라도 GET은 읽기, POST는 제어로 나눈다. 응답의 `Location`은 실행 상태 경로일 때만, `Retry-After`는 그대로 넘긴다. `GET /runs/{run_id}`는 기존대로 제어 플래그 경로다.
 
 ### KAN-138 한 실행의 집계 화면
 

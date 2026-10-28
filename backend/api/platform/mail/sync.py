@@ -2,6 +2,7 @@
 
 1. 사서함 연결을 잠그고 만료된 실행을 실패로 정리한 뒤 새 실행을 만든다.
 2. 저장된 소유자로 토큰 제공자를 호출한다. 실패는 그 코드로 실행에 기록한다.
+   Graph 401이면 실행당 한 번만 새 토큰(`force_refresh=True`)으로 같은 요청을 다시 보낸다.
 3. 폴더마다 저장된 커서에서 delta 페이지를 받는다. 새 메시지의 원문·첨부를 먼저 저장소에
    쓰고, 한 트랜잭션에서 실행 소유를 확인한 뒤 메시지·첨부·커서를 함께 기록한다.
    중간에 멈춰도 다음 실행이 마지막으로 기록한 페이지부터 이어 받는다.
@@ -44,12 +45,15 @@ LEASE_SECONDS = 300
 class MailboxTokenGetter(Protocol):
     """KAN-80·81 계약의 `get_mailbox_access_token`과 같은 호출 형태."""
 
-    def __call__(self, *, mailbox_id: UUID, owner_user_id: UUID) -> Awaitable[SecretStr]:
+    def __call__(
+        self, *, mailbox_id: UUID, owner_user_id: UUID, force_refresh: bool = False
+    ) -> Awaitable[SecretStr]:
         """유효한 access token을 돌려주거나 ApplicationError를 낸다.
 
         Args:
             mailbox_id: 사서함 연결 ID.
             owner_user_id: 서버에 저장된 연결 소유자.
+            force_refresh: True면 보관된 토큰을 쓰지 않고 새로 받는다. Graph 401 뒤에만 쓴다.
 
         Returns:
             Awaitable[SecretStr]: Graph 호출에만 쓰는 토큰.
@@ -454,6 +458,22 @@ async def sync_folder(
         url = page.next_link
 
 
+def checked_token(token: SecretStr) -> SecretStr:
+    """빈 토큰을 성공으로 쓰지 않는다.
+
+    Args:
+        token: 토큰 제공자가 돌려준 값.
+
+    Returns:
+        SecretStr: 비어 있지 않은 토큰. 비었으면 ApplicationError를 낸다.
+    """
+    if not token.get_secret_value():
+        raise ApplicationError(
+            503, "MAILBOX_TOKEN_UNAVAILABLE", "Mailbox authentication is unavailable."
+        )
+    return token
+
+
 async def sync_mailbox(
     settings: Settings,
     mailbox_id: UUID,
@@ -467,7 +487,8 @@ async def sync_mailbox(
     Args:
         settings: DB 설정.
         mailbox_id: 서버에 저장된 사서함 연결 ID.
-        get_token: 토큰 제공자. 수집 코드는 토큰을 갱신하지 않는다.
+        get_token: 토큰 제공자. 수집 코드는 OAuth를 하지 않고, Graph 401 뒤 실행당 한 번만
+            `force_refresh=True`로 새 토큰을 요청한다.
         client: Graph 호출용 클라이언트.
         store: 원문·첨부 저장소.
 
@@ -478,12 +499,17 @@ async def sync_mailbox(
         run_id, owner_user_id = await begin_run(conn, mailbox_id)
     result = SyncResult(run_id=run_id, status="RUNNING")
     try:
-        token = await get_token(mailbox_id=mailbox_id, owner_user_id=owner_user_id)
-        if not token.get_secret_value():
-            raise ApplicationError(
-                503, "MAILBOX_TOKEN_UNAVAILABLE", "Mailbox authentication is unavailable."
+        token = checked_token(await get_token(mailbox_id=mailbox_id, owner_user_id=owner_user_id))
+
+        async def refresh() -> SecretStr:
+            # Graph 401 뒤 한 번만 불린다(GraphMail이 실행당 기회를 하나만 쓴다).
+            return checked_token(
+                await get_token(
+                    mailbox_id=mailbox_id, owner_user_id=owner_user_id, force_refresh=True
+                )
             )
-        graph = GraphMail(client, token)
+
+        graph = GraphMail(client, token, refresh)
         for folder in FOLDERS:
             await sync_folder(settings, graph, store, result, mailbox_id, folder)
         result.status = "SUCCEEDED"
@@ -509,7 +535,8 @@ async def sync_mailbox(
         with contextlib.suppress(Exception):
             await finish_run(settings, result)
         raise
-    await finish_run(settings, result)
+    # 마지막 기록 중에 취소돼도 기록은 끝까지 쓴다. 취소는 그대로 호출자에게 전달된다.
+    await asyncio.shield(finish_run(settings, result))
     return result
 
 

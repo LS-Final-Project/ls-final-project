@@ -119,7 +119,8 @@ async def claim_next(
                 "WHERE job_id=%s AND attempt_no=%s",
                 (row["job_id"], row["attempt_no"]),
             )
-        if row["attempt_no"] >= dispatch.max_attempts:
+        # 운영자 재처리(recovery.requeue)가 늘린 한도가 있으면 그 값을 쓴다.
+        if row["attempt_no"] >= (row.get("attempt_limit") or dispatch.max_attempts):
             await conn.execute(
                 "UPDATE runtime.dispatch_outbox SET state='EXHAUSTED',holder_id=NULL,"
                 "lease_expires_at=NULL WHERE job_id=%s",

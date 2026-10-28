@@ -2,40 +2,54 @@ import { once } from 'node:events';
 
 const jobPath = /^\/api\/v1\/platform\/jobs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\/events)?$/;
 
+const evaluations = '/api/v1/platform/evaluations';
+// 평가 정책·본인 실험 목록·본인 실행 목록(GET). 실행 목록과 같은 경로의 POST는 접수(제어)다.
+const readLists = new Set([`${evaluations}/policy`, `${evaluations}/experiments`, `${evaluations}/runs`]);
+
 /**
  * 평가 작업의 고정 읽기 경로만 식별한다.
- * Args: path는 디코딩된 URL 경로다.
- * Returns: 상태·SSE·실행 집계 경로일 때만 true.
+ * Args: path는 디코딩된 URL 경로, method는 요청 메서드다.
+ * Returns: 상태·SSE·실행 집계와 정책·목록 GET일 때만 true.
  */
-export function evaluationReadPath(path) {
-  return jobPath.test(path) || /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/summary$/.test(path);
+export function evaluationReadPath(path, method = 'GET') {
+  return jobPath.test(path) || /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/summary$/.test(path)
+    || (method === 'GET' && readLists.has(path));
 }
 
 const runPath = /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\/(cancel|resume))?$/;
 
-/** 실행 조회·취소·재개만 식별한다. Args: URL 경로. Returns: 허용 대상 여부. */
-export function evaluationControlPath(path) {
-  return runPath.test(path);
+/** 실행 조회·취소·재개와 새 접수(POST runs)만 식별한다. Args: URL 경로와 메서드. Returns: 허용 대상 여부. */
+export function evaluationControlPath(path, method = 'GET') {
+  return runPath.test(path) || (method === 'POST' && path === `${evaluations}/runs`);
 }
 
-/** 본문 없는 제어 요청을 고정 플랫폼으로 전달한다. Args: 요청/응답과 검증된 출처·경로·IAM 공급자. Returns: 중계 완료. */
+/** 제어 요청(본문 없는 취소·재개, 1KiB JSON 접수)을 고정 플랫폼으로 전달한다. Args: 요청/응답과 검증된 출처·경로·IAM 공급자. Returns: 중계 완료. */
 export async function relayEvaluationControl(request, response, { path, searchParams, target, tokenProvider, fetcher }) {
   /** 안전한 오류만 반환한다. Args: 상태와 상수 코드. Returns: 없음. */
   const fail = (status, code) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify({ error: { code } }));
   };
-  const write = /\/(cancel|resume)$/.test(path);
+  const admission = path === `${evaluations}/runs`;
+  const write = admission || /\/(cancel|resume)$/.test(path);
   if (request.method !== (write ? 'POST' : 'GET')) return fail(405, 'METHOD_NOT_ALLOWED');
   if ([...searchParams].length) return fail(400, 'BAD_REQUEST');
-  if (request.headers['transfer-encoding'] || Number(request.headers['content-length'] || 0) !== 0) return fail(413, 'REQUEST_TOO_LARGE');
+  const length = Number(request.headers['content-length'] || 0);
+  if (request.headers['transfer-encoding'] || (admission ? !(length > 0 && length <= 1024) : length !== 0)) return fail(413, 'REQUEST_TOO_LARGE');
   if (write) {
     if (!request.headers.origin || !request.headers['x-csrf-token']) return fail(403, 'FORBIDDEN');
     const key = request.headers['idempotency-key'];
     if (typeof key !== 'string' || !/^[\x21-\x7e]{8,128}$/.test(key)) return fail(400, 'INVALID_IDEMPOTENCY_KEY');
+    if (request.headers['x-csrf-token'].length > 256 || request.headers.origin.length > 2048) return fail(400, 'BAD_REQUEST');
+  }
+  if (admission) {
+    // 접수는 실험 ID 하나의 JSON이다. If-Match는 선택이며 멱등 구분에만 쓰인다.
+    if ((request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json') return fail(415, 'UNSUPPORTED_MEDIA_TYPE');
+    const condition = request.headers['if-match'];
+    if (condition !== undefined && !/^[\x21-\x7e]{1,128}$/.test(condition)) return fail(400, 'INVALID_VERSION');
+  } else if (write) {
     if (!request.headers['if-match']) return fail(428, 'VERSION_REQUIRED');
     if (!/^"[1-9][0-9]{0,18}"$/.test(request.headers['if-match'])) return fail(400, 'INVALID_VERSION');
-    if (request.headers['x-csrf-token'].length > 256 || request.headers.origin.length > 2048) return fail(400, 'BAD_REQUEST');
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -46,8 +60,20 @@ export async function relayEvaluationControl(request, response, { path, searchPa
     const headers = { Authorization: `Bearer ${await tokenProvider()}` };
     const cookies = (request.headers.cookie || '').split(';').map(value => value.trim()).filter(value => value.split('=', 1)[0] === '__Host-team4_session');
     if (cookies.length) headers.Cookie = cookies.join('; ');
-    if (write) for (const name of ['origin', 'x-csrf-token', 'if-match', 'idempotency-key']) headers[name] = request.headers[name];
-    const result = await fetcher(new URL(path, target), { method: request.method, headers, redirect: 'error', signal: controller.signal });
+    if (write) for (const name of ['origin', 'x-csrf-token', 'if-match', 'idempotency-key']) if (request.headers[name] !== undefined) headers[name] = request.headers[name];
+    let body;
+    if (admission) {
+      const parts = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024) return fail(413, 'REQUEST_TOO_LARGE');
+        parts.push(chunk);
+      }
+      body = Buffer.concat(parts);
+      headers['Content-Type'] = 'application/json';
+    }
+    const result = await fetcher(new URL(path, target), { method: request.method, headers, body, redirect: 'error', signal: controller.signal });
     if (result.status >= 300 && result.status < 400 || result.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
       await result.body?.cancel();
       throw new Error('Invalid control response');
@@ -60,10 +86,13 @@ export async function relayEvaluationControl(request, response, { path, searchPa
       chunks.push(chunk);
     }
     const outgoing = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
-    for (const name of ['ETag', 'X-Request-ID']) {
+    for (const name of ['ETag', 'X-Request-ID', 'Retry-After']) {
       const value = result.headers.get(name);
       if (value) outgoing[name] = value;
     }
+    // 접수의 Location은 같은 출처의 실행 상태 경로일 때만 넘긴다.
+    const location = result.headers.get('Location');
+    if (admission && location && runPath.test(location)) outgoing.Location = location;
     response.writeHead(result.status, outgoing);
     response.end(Buffer.concat(chunks));
   } catch {
@@ -89,7 +118,7 @@ export async function relayEvaluationRead(request, response, { path, searchParam
     response.end(JSON.stringify({ error: { code } }));
   };
   if (request.method !== 'GET') return fail(405, 'METHOD_NOT_ALLOWED');
-  if (path.endsWith('/summary') && (request.headers['transfer-encoding'] || Number(request.headers['content-length'] || 0) !== 0)) return fail(413, 'REQUEST_TOO_LARGE');
+  if (!path.endsWith('/events') && (request.headers['transfer-encoding'] || Number(request.headers['content-length'] || 0) !== 0)) return fail(413, 'REQUEST_TOO_LARGE');
   const stream = path.endsWith('/events');
   const pairs = [...searchParams];
   if (pairs.length && (!stream || pairs.length !== 1 || pairs[0][0] !== 'after' || pairs[0][1].length > 64)) return fail(400, 'INVALID_EVENT_CURSOR');

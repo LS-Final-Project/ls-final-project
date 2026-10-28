@@ -1,10 +1,12 @@
 """현재 세션·사서함 인가·암호화 보관과 토큰 조회를 잇는 내부 경계."""
 
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+import psycopg
 from fastapi import HTTPException
 from pydantic import SecretStr
 from starlette.concurrency import run_in_threadpool
@@ -15,10 +17,12 @@ from backend.api.platform.auth.mailbox_vault import (
     MailboxCipher,
     create_mailbox,
     load_mailbox,
+    mark_reconnect_required,
     save_mailbox_update,
 )
 from backend.api.platform.auth.microsoft import (
     MailboxAuthorization,
+    MailboxReconnectRequired,
     PersonalMicrosoftOAuth,
     _mailbox_error,
 )
@@ -194,12 +198,18 @@ async def acquire_stored_mailbox_token(
     snapshot = await load_mailbox(
         settings, mailbox_id=mailbox_id, owner_user_id=owner_user_id, cipher=cipher
     )
-    update = await run_in_threadpool(
-        adapter.acquire_mailbox_token,
-        subject=snapshot.subject,
-        serialized_cache=snapshot.serialized_cache,
-        force_refresh=force_refresh,
-    )
+    try:
+        update = await run_in_threadpool(
+            adapter.acquire_mailbox_token,
+            subject=snapshot.subject,
+            serialized_cache=snapshot.serialized_cache,
+            force_refresh=force_refresh,
+        )
+    except MailboxReconnectRequired as refused:
+        # 표시가 실패해도 호출자에게는 원래 409를 그대로 낸다. 다음 호출이 다시 표시한다.
+        with suppress(ApplicationError, HTTPException, psycopg.Error):
+            await mark_reconnect_required(settings, snapshot=snapshot, reason=refused.reason)
+        raise
     try:
         await save_mailbox_update(settings, snapshot=snapshot, update=update, cipher=cipher)
     except ApplicationError as error:

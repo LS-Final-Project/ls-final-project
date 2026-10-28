@@ -30,7 +30,19 @@ with create_client(settings) as client:
 
 AI_PROVIDER=gemini, GEMINI_MODEL과 GEMINI_MAX_OUTPUT_TOKENS를 설정하면 같은 호출 코드로 모델을 비교할 수 있다. SDK는 실제 실행 시 생성하고 수명이 끝나면 close한다. 현재 generate와 embed는 동기 호출이므로 async 라우트에서 사용할 때는 스레드 실행 등으로 이벤트 루프를 막지 않도록 담당자가 통합한다. 앱 시작과 상태 점검에서 실제 모델을 호출하지 않는다.
 
-response_schema는 SDK의 JSON 출력 요청이며, 반환 결과는 담당 기능의 Pydantic 모델로 다시 검증한다. 빈 응답이나 잘못된 스키마도 성공 처리하지 않는다. usage에는 입력, 답변, 추론, 캐시 입력과 총 토큰이 있고 미제공 값은 None이다. 추론 토큰 수만 기록하며 내부 추론 내용과 원문 오류는 로그에 저장하지 않는다. 금액은 가격표를 등록한 후 계산한다.
+response_schema는 SDK의 JSON 출력 요청이며, 반환 결과는 담당 기능의 Pydantic 모델로 다시 검증한다. 빈 응답이나 잘못된 스키마도 성공 처리하지 않는다. usage에는 입력, 답변, 추론, 캐시 입력과 총 토큰이 있고 미제공 값은 None이다. 추론 토큰 수만 기록하며 내부 추론 내용과 원문 오류는 로그에 저장하지 않는다.
+
+## 사용량·시간·비용 (KAN-87)
+
+- `Usage.raw`는 공급자 `usageMetadata`의 토큰 수를 응답 키 이름 그대로 담는다(입력·답변 원문은 담지 않는다). 정규화한 필드는 `input_tokens`·`output_tokens`·`thought_tokens`·`cached_input_tokens`·`total_tokens`이고, 공급자가 주지 않은 값은 None이다. 총합은 공급자 `total_tokens`만 쓰고 직접 더하지 않는다. 추론 토큰은 답변 토큰에 합치지 않는다.
+- `billable_input_tokens`는 `input_tokens - cached_input_tokens`다. Gemini는 캐시를 쓰지 않은 호출에서 `cachedContentTokenCount`를 생략하므로(공급자 명세) 이때 캐시를 0으로 보고 계산한다. `cached_input_tokens`는 그대로 None이다. `input_tokens`가 없거나 캐시가 입력보다 크면(입력에 캐시가 포함된다는 명세와 어긋남) None이다.
+- `Generation`과 `Embedding`에는 요청한 모델 ID `model`, SDK 호출 시간 `elapsed_ms`, 시도 횟수 `attempts`, 완료 시각 `finished_at`(UTC)이 붙는다. 자동 재시도가 없으므로(`HttpRetryOptions(attempts=1)`) `attempts`는 1이다.
+- 단가표는 `backend/shared/ai_prices.json`이다. 저장소에는 빈 표 `{}`로 두며 수치를 추정해 넣지 않는다. 공식 가격표를 확인한 사람이 모델 ID마다 `input_per_million`·`output_per_million`·`cached_input_per_million`·`currency`·`as_of`(가격을 확인한 날짜)를 채운다.
+  - 예: `{"MODEL_ID": {"input_per_million": "…", "output_per_million": "…", "cached_input_per_million": "…", "currency": "USD", "as_of": "YYYY-MM-DD"}}`
+- `estimate_cost(usage, model, load_price_table())`는 항목별로 금액을 따로 계산한다. 청구 입력은 입력 단가, 캐시 입력은 캐시 단가, 답변과 추론은 각각 출력 단가를 쓴다. 같은 토큰을 두 번 세지 않는다.
+  - 단가표에 모델이 없으면 모든 값이 None이다.
+  - 토큰이 None인 항목은 None이다. `total`은 계산된 항목만 더하고, 하나도 없으면 None이다.
+  - 금액은 반올림하지 않는다. 임베딩은 `Usage`가 없어 이 계산 대상이 아니다.
 
 ## 임베딩 호출
 

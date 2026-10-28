@@ -1,0 +1,111 @@
+﻿family,category,required_fields,blocking_fields,field_labels
+LV_BREAKER,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+LV_BREAKER,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+LV_BREAKER,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+LV_BREAKER,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+LV_BREAKER,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+LV_BREAKER,DEFECT,product_model;serial_no;error_code;operating_condition;photos;load_profile,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Load current / temperature records"
+LV_BREAKER,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+LV_BREAKER,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+LV_BREAKER,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+LV_BREAKER,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+MV_EQUIP,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+MV_EQUIP,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+MV_EQUIP,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+MV_EQUIP,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+MV_EQUIP,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+MV_EQUIP,DEFECT,product_model;serial_no;error_code;operating_condition;photos,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate"
+MV_EQUIP,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+MV_EQUIP,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+MV_EQUIP,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+MV_EQUIP,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+CONTROL,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+CONTROL,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+CONTROL,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+CONTROL,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+CONTROL,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+CONTROL,DEFECT,product_model;serial_no;error_code;operating_condition;photos,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate"
+CONTROL,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+CONTROL,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+CONTROL,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+CONTROL,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+DRIVE,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+DRIVE,INSTALL,product_model;serial_no;site_condition;wiring_diagram;motor_nameplate,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram;Motor nameplate data"
+DRIVE,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+DRIVE,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+DRIVE,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+DRIVE,DEFECT,product_model;serial_no;error_code;operating_condition;photos;logs;parameter_backup;motor_nameplate,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Event / trip log export;Parameter backup file;Motor nameplate data"
+DRIVE,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+DRIVE,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+DRIVE,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+DRIVE,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+PLC,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+PLC,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+PLC,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+PLC,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+PLC,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+PLC,DEFECT,product_model;serial_no;error_code;operating_condition;photos;logs;program_backup,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Event / trip log export;PLC/HMI project backup"
+PLC,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+PLC,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+PLC,FW_UPDATE,product_model;serial_no;current_fw;tool_version;program_backup,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version;PLC/HMI project backup
+PLC,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+HMI,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+HMI,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+HMI,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+HMI,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+HMI,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+HMI,DEFECT,product_model;serial_no;error_code;operating_condition;photos;program_backup,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;PLC/HMI project backup"
+HMI,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+HMI,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+HMI,FW_UPDATE,product_model;serial_no;current_fw;tool_version;program_backup,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version;PLC/HMI project backup
+HMI,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+TRANSFORMER,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+TRANSFORMER,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+TRANSFORMER,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+TRANSFORMER,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+TRANSFORMER,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+TRANSFORMER,DEFECT,product_model;serial_no;error_code;operating_condition;photos;load_profile,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Load current / temperature records"
+TRANSFORMER,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+TRANSFORMER,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+TRANSFORMER,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+TRANSFORMER,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+METER,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+METER,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+METER,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+METER,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+METER,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+METER,DEFECT,product_model;serial_no;error_code;operating_condition;photos,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate"
+METER,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+METER,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+METER,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+METER,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+ESS,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+ESS,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+ESS,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+ESS,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+ESS,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+ESS,DEFECT,product_model;serial_no;error_code;operating_condition;photos;logs;battery_status,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Event / trip log export;Battery SOC / cell temperature at event"
+ESS,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+ESS,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+ESS,FW_UPDATE,product_model;serial_no;current_fw;tool_version;logs,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version;Event / trip log export
+ESS,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+PV,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+PV,INSTALL,product_model;serial_no;site_condition;wiring_diagram;string_config,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram;PV string configuration (modules per string)"
+PV,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+PV,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+PV,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+PV,DEFECT,product_model;serial_no;error_code;operating_condition;photos;logs;string_config,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Event / trip log export;PV string configuration (modules per string)"
+PV,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+PV,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+PV,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+PV,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival
+UPS,TECH_SPEC,product_model;application,product_model,"Product model / ordering code;Application (voltage, load, duty)"
+UPS,INSTALL,product_model;serial_no;site_condition;wiring_diagram,product_model;site_condition,"Product model / ordering code;Serial number (nameplate);Site condition (ambient temperature, altitude, humidity);Wiring / single-line diagram"
+UPS,WARRANTY,serial_no;purchase_doc;install_date;failure_description;photos,serial_no;purchase_doc,Serial number (nameplate);PO or invoice number;Installation / commissioning date;Failure description and occurrence time;Photos of product and nameplate
+UPS,ORDER_LEAD,po_number;product_model;quantity;required_date,po_number,PO number;Product model / ordering code;Quantity;Required delivery date
+UPS,MANUAL,product_model;document_type,product_model,Product model / ordering code;Document type requested
+UPS,DEFECT,product_model;serial_no;error_code;operating_condition;photos;logs;battery_age,serial_no;error_code,"Product model / ordering code;Serial number (nameplate);Error code or symptom displayed;Operating condition at failure (load, speed, temperature);Photos of product and nameplate;Event / trip log export;Battery installation date / age"
+UPS,COMPLIANCE,product_model;target_standard;target_country,target_standard,Product model / ordering code;Required standard / certificate;Destination country / market
+UPS,QUOTE,product_model;quantity;incoterms;required_date,quantity;incoterms,Product model / ordering code;Quantity;Incoterms and delivery destination;Required delivery date
+UPS,FW_UPDATE,product_model;serial_no;current_fw;tool_version,current_fw,Product model / ordering code;Serial number (nameplate);Current firmware version;Engineering tool / loader version
+UPS,RETURN,purchase_doc;serial_no;return_reason;photos;packaging_condition,purchase_doc;return_reason,PO or invoice number;Serial number (nameplate);Reason for return;Photos of product and nameplate;Packaging condition on arrival

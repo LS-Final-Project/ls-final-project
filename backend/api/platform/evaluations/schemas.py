@@ -1,5 +1,6 @@
 """화면이 주지표와 실행 잠금을 구별하기 위한 평가 정책 응답."""
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -48,3 +49,53 @@ class EvaluationRunStatus(BaseModel):
     version: int
     needs_review: bool
     failure_code: str | None
+
+
+BlockedReason = Literal[
+    "ADMISSION_UNAVAILABLE",
+    "FINAL_TEST_LOCKED",
+    "EXPERIMENT_NOT_APPROVED",
+    "LOCAL_SMOKE_ONLY",
+    "EXPERIMENT_HASH_MISMATCH",
+]
+
+
+class EvaluationExperiment(BaseModel):
+    """본인이 만든 실험 하나. 구성 원문·manifest·hash·대상 ID는 담지 않는다."""
+
+    experiment_id: UUID
+    name: str
+    purpose: Literal["smoke", "rule_replay", "pipeline"]
+    data_split: Literal["train", "valid", "test"] | None
+    data_origin: Literal["synthetic", "demo", "real"]
+    model_id: str
+    target_count: int
+    created_at: datetime
+    # 접수 규칙(validate_smoke_experiment)을 그대로 적용한 결과. 대상 집합 검사는 접수 때 한다.
+    admissible: bool
+    blocked_reason: BlockedReason | None
+
+
+class EvaluationExperiments(BaseModel):
+    """본인 실험 최근 50개."""
+
+    items: list[EvaluationExperiment]
+
+
+class EvaluationRunItem(BaseModel):
+    """본인 접수 실행 하나. 원시 출력·정답은 담지 않는다."""
+
+    run_id: UUID
+    job_id: UUID
+    experiment_id: UUID
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"]
+    requested_count: int
+    needs_review: bool
+    failure_code: str | None
+    created_at: datetime
+
+
+class EvaluationRuns(BaseModel):
+    """본인 접수 실행 최근 50개."""
+
+    items: list[EvaluationRunItem]

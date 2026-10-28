@@ -6,6 +6,7 @@ Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak 
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from backend.api.cs.comparisons.examples import response as comparison_response
 from backend.api.cs.improvements.schemas import (
     Evidence,
     ImprovementRequest,
@@ -536,4 +537,12 @@ def examples() -> list[dict]:
         + write_examples()
         + unit_examples()
         + [workflow_example(), case_example(), improvement_example(), stats_example()]
+        + [
+            {
+                "method": "GET",
+                "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-902",
+                "status": 200,
+                "body": comparison_response("differs").model_dump(mode="json"),
+            }
+        ]
     )

@@ -24,6 +24,7 @@ from backend.api.platform.mail.sync import sync_mailbox
 from backend.shared.errors import ApplicationError
 
 TOKEN = "synthetic-mail-token"
+FRESH = "synthetic-fresh-token"
 MIGRATION = Path("infra/migrations/platform/20261028_KAN-71_mail_sync.sql")
 # Microsoft 개인 계정 테넌트. KAN-81 연결 표가 이 값만 허용한다.
 CONSUMER_TID = "9188040d-6c67-4c5b-b112-36a304b66dad"
@@ -76,6 +77,22 @@ def mailbox(mail_database, registered_user):
         )
     yield {"id": mailbox_id, "owner": owner, "dsn": mail_database}
     with psycopg.connect(mail_database) as conn:
+        # 메일을 참조하는 후속 표(KAN-73 분류, KAN-75 회신 연결)는 적용된 경우에만 지운다.
+        for table in (
+            "mail_reply_checks",
+            "mail_reply_reviews",
+            "mail_links",
+            "mail_triage_latest",
+            "mail_triage",
+        ):
+            if conn.execute("SELECT to_regclass(%s)", (f"integration.{table}",)).fetchone()[0]:
+                conn.execute(
+                    psycopg.sql.SQL(
+                        "DELETE FROM integration.{} WHERE message_id IN "
+                        "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)"
+                    ).format(psycopg.sql.Identifier(table)),
+                    (mailbox_id,),
+                )
         conn.execute(
             "DELETE FROM integration.mail_attachments WHERE message_id IN "
             "(SELECT id FROM integration.mail_messages WHERE mailbox_id=%s)",
@@ -179,6 +196,9 @@ class FakeGraph:
         }
         self.attachment_bytes = {("AAMk/1=", "a1"): b"%PDF-synthetic", ("AAMk/1=", "a2"): b"PNG"}
         self.requests = []
+        # Graph가 받아 주는 토큰. 검사에서 빼면 그 토큰의 요청에 401을 돌려준다(만료 흉내).
+        self.accepted = {TOKEN, FRESH}
+        self.unauthorized = 0
 
     def handler(self, request):
         """요청 하나에 응답한다.
@@ -189,10 +209,14 @@ class FakeGraph:
         Returns:
             httpx.Response: 정해 둔 응답 또는 404.
         """
-        assert request.headers["authorization"] == f"Bearer {TOKEN}"
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        assert token in (TOKEN, FRESH)
         assert 'IdType="ImmutableId"' in request.headers["prefer"]
         url = str(request.url)
         self.requests.append(url)
+        if token not in self.accepted:
+            self.unauthorized += 1
+            return httpx.Response(401, json={"error": {"code": "InvalidAuthenticationToken"}})
         for key, (status, body) in self.pages.items():
             if str(httpx.URL(key)) == url:
                 return httpx.Response(status, json=body)
@@ -221,19 +245,25 @@ class FakeGraph:
         return sum(url.split("?")[0].endswith(suffix) for url in self.requests)
 
 
-def token_getter(error=None):
+def token_getter(error=None, refresh_error=None, fresh=FRESH):
     """KAN-80·81 계약 형태의 합성 토큰 함수.
 
     Args:
-        error: 낼 ApplicationError 인자 또는 없음.
+        error: 처음 호출에서 낼 ApplicationError 인자 또는 없음.
+        refresh_error: `force_refresh=True` 호출에서 낼 ApplicationError 인자 또는 없음.
+        fresh: `force_refresh=True` 호출이 돌려줄 토큰.
 
     Returns:
-        callable: 호출 기록을 가진 비동기 함수.
+        callable: 호출 기록(mailbox_id, owner_user_id, force_refresh)을 가진 비동기 함수.
     """
     calls = []
 
-    async def get(*, mailbox_id, owner_user_id):
-        calls.append((mailbox_id, owner_user_id))
+    async def get(*, mailbox_id, owner_user_id, force_refresh=False):
+        calls.append((mailbox_id, owner_user_id, force_refresh))
+        if force_refresh:
+            if refresh_error:
+                raise ApplicationError(*refresh_error)
+            return SecretStr(fresh)
         if error:
             raise ApplicationError(*error)
         return SecretStr(TOKEN)
@@ -291,7 +321,7 @@ def test_first_sync_stores_both_folders_with_raw_and_attachments(settings, mailb
     result = run(settings, mailbox, graph, store, get_token)
     assert (result.status, result.error_code, result.messages_stored) == ("SUCCEEDED", None, 3)
     # 토큰 함수는 저장된 소유자로 호출된다.
-    assert get_token.calls == [(mailbox["id"], mailbox["owner"])]
+    assert get_token.calls == [(mailbox["id"], mailbox["owner"], False)]
     stored = rows(
         mailbox["dsn"],
         "SELECT graph_id, folder, received_at, raw_storage_key, raw_sha256, raw_size, "
@@ -490,14 +520,17 @@ def test_unauthorized_page_keeps_progress_for_the_next_run(settings, mailbox, tm
     graph, store = FakeGraph(), LocalObjectStore(tmp_path)
     page_2 = graph.pages[INBOX_PAGE_2]
     graph.pages[INBOX_PAGE_2] = (401, {"error": {"code": "InvalidAuthenticationToken"}})
-    result = run(settings, mailbox, graph, store)
-    # 401 뒤에 토큰을 갱신하거나 다시 시도하지 않는다.
+    get_token = token_getter()
+    result = run(settings, mailbox, graph, store, get_token)
+    # 새 토큰으로 한 번만 다시 보내고, 그래도 401이면 실패로 끝낸다.
     assert (result.status, result.error_code, result.messages_stored) == (
         "FAILED",
         "GRAPH_UNAUTHORIZED",
         1,
     )
-    assert graph.count("/messages/delta") == 2
+    assert [force for *_, force in get_token.calls] == [False, True]
+    assert graph.requests.count(str(httpx.URL(INBOX_PAGE_2))) == 2
+    assert graph.count("/messages/delta") == 3
     assert rows(
         mailbox["dsn"],
         "SELECT next_link, delta_link FROM integration.mail_sync_cursors WHERE mailbox_id=%s",
@@ -683,3 +716,181 @@ def test_lost_lease_is_not_reported_as_success(settings, mailbox, tmp_path, monk
     monkeypatch.setattr(sync, "finish_run", expired_before_finish)
     result = run(settings, mailbox, FakeGraph(), LocalObjectStore(tmp_path))
     assert (result.status, result.error_code) == ("FAILED", "LEASE_EXPIRED")
+
+
+def expire_on(graph, predicate, token):
+    """조건에 맞는 요청이 처음 오면 그때부터 토큰 하나를 거부하게 한다.
+
+    Args:
+        graph: FakeGraph.
+        predicate: 요청을 받아 만료 시점인지 판단하는 함수.
+        token: 만료시킬 토큰.
+
+    Returns:
+        None.
+    """
+    original = graph.handler
+
+    def handler(request):
+        if predicate(request):
+            graph.accepted.discard(token)
+        return original(request)
+
+    graph.handler = handler
+
+
+def is_first_mime(request):
+    path = request.url.raw_path
+    return path.endswith(b"/$value") and b"/attachments/" not in path
+
+
+def test_token_expiring_mid_run_is_refreshed_once_and_sync_completes(settings, mailbox, tmp_path):
+    graph = FakeGraph()
+    expire_on(graph, is_first_mime, TOKEN)
+    get_token = token_getter()
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path), get_token)
+    assert (result.status, result.error_code, result.messages_stored) == ("SUCCEEDED", None, 3)
+    assert get_token.calls == [
+        (mailbox["id"], mailbox["owner"], False),
+        (mailbox["id"], mailbox["owner"], True),
+    ]
+    assert graph.unauthorized == 1
+
+
+def test_refresh_budget_is_shared_across_the_whole_run(settings, mailbox, tmp_path):
+    # 첫 토큰이 원문 요청에서, 새 토큰이 다음 페이지에서 또 만료된다. 두 번째 갱신은 없다.
+    graph = FakeGraph()
+    expire_on(graph, is_first_mime, TOKEN)
+    expire_on(graph, lambda r: str(r.url) == str(httpx.URL(INBOX_PAGE_2)), FRESH)
+    get_token = token_getter()
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path), get_token)
+    assert (result.status, result.error_code, result.messages_stored) == (
+        "FAILED",
+        "GRAPH_UNAUTHORIZED",
+        1,
+    )
+    assert [force for *_, force in get_token.calls] == [False, True]
+    assert graph.unauthorized == 2
+    assert rows(
+        mailbox["dsn"],
+        "SELECT next_link, delta_link FROM integration.mail_sync_cursors WHERE mailbox_id=%s",
+        mailbox["id"],
+    ) == [(INBOX_PAGE_2, None)]
+
+
+@pytest.mark.parametrize(
+    "refresh_error",
+    [
+        (409, "MAILBOX_RECONNECT_REQUIRED", "Mailbox reconnection is required."),
+        (503, "MAILBOX_TOKEN_UNAVAILABLE", "Mailbox authentication is unavailable."),
+    ],
+)
+def test_failed_refresh_is_recorded_and_graph_is_not_called_again(
+    settings, mailbox, tmp_path, refresh_error
+):
+    graph = FakeGraph()
+    graph.accepted.discard(TOKEN)
+    get_token = token_getter(refresh_error=refresh_error)
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path), get_token)
+    assert (result.status, result.error_code) == ("FAILED", refresh_error[1])
+    assert graph.requests == [str(httpx.URL(INBOX))]
+    assert [force for *_, force in get_token.calls] == [False, True]
+
+
+def test_empty_refreshed_token_is_not_used(settings, mailbox, tmp_path):
+    graph = FakeGraph()
+    graph.accepted.discard(TOKEN)
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path), token_getter(fresh=""))
+    assert (result.status, result.error_code) == ("FAILED", "MAILBOX_TOKEN_UNAVAILABLE")
+    assert graph.requests == [str(httpx.URL(INBOX))]
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(403, "GRAPH_FORBIDDEN"), (429, "GRAPH_THROTTLED"), (503, "GRAPH_UNAVAILABLE")],
+)
+def test_other_graph_failures_do_not_refresh(settings, mailbox, tmp_path, status, code):
+    graph = FakeGraph()
+    graph.pages[INBOX_PAGE_2] = (status, {"error": {"code": "Other"}})
+    get_token = token_getter()
+    result = run(settings, mailbox, graph, LocalObjectStore(tmp_path), get_token)
+    assert (result.status, result.error_code) == ("FAILED", code)
+    assert [force for *_, force in get_token.calls] == [False]
+    assert graph.requests.count(str(httpx.URL(INBOX_PAGE_2))) == 1
+
+
+def test_cancel_while_recording_the_end_still_finishes_the_run(
+    settings, mailbox, tmp_path, monkeypatch
+):
+    finish = sync.finish_run
+
+    async def slow_finish(settings_, result):
+        await asyncio.sleep(0.2)
+        await finish(settings_, result)
+
+    monkeypatch.setattr(sync, "finish_run", slow_finish)
+
+    async def cancel_during_finish():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(FakeGraph().handler)) as client:
+            task = asyncio.create_task(
+                sync_mailbox(
+                    settings,
+                    mailbox["id"],
+                    get_token=token_getter(),
+                    client=client,
+                    store=LocalObjectStore(tmp_path),
+                )
+            )
+            while not rows(
+                mailbox["dsn"],
+                "SELECT 1 FROM integration.mail_sync_cursors WHERE mailbox_id=%s "
+                "AND folder='sentitems' AND delta_link IS NOT NULL",
+                mailbox["id"],
+            ):
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            await asyncio.sleep(0.5)
+
+    asyncio.run(cancel_during_finish())
+    assert rows(
+        mailbox["dsn"],
+        "SELECT status, finished_at IS NOT NULL FROM integration.mail_sync_runs WHERE mailbox_id=%s",
+        mailbox["id"],
+    ) == [("SUCCEEDED", True)]
+
+
+def test_storage_failure_is_recorded_and_the_page_is_not_committed(settings, mailbox, tmp_path):
+    from backend.api.platform.mail.storage import GcsObjectStore
+
+    async def token():
+        return "gcs-token"
+
+    async def go():
+        graph = FakeGraph()
+        gcs = httpx.MockTransport(lambda request: httpx.Response(503, json={"error": {}}))
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(graph.handler)) as client,
+            httpx.AsyncClient(transport=gcs) as storage_client,
+        ):
+            return await sync_mailbox(
+                settings,
+                mailbox["id"],
+                get_token=token_getter(),
+                client=client,
+                store=GcsObjectStore(storage_client, "proj-test-team4-mail-objects", token),
+            )
+
+    result = asyncio.run(go())
+    assert (result.status, result.error_code, result.messages_stored) == (
+        "FAILED",
+        "MAIL_STORAGE_UNAVAILABLE",
+        0,
+    )
+    assert rows(
+        mailbox["dsn"],
+        "SELECT count(*) FROM integration.mail_sync_cursors WHERE mailbox_id=%s",
+        mailbox["id"],
+    ) == [(0,)]
