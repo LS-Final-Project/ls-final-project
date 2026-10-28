@@ -1,5 +1,6 @@
+import { focusManager } from '@tanstack/react-query';
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import CsImprovements from './CsImprovements';
 import type { ImprovementDetail } from '../api/cs-improvements';
@@ -53,4 +54,32 @@ test('초안 생성 후 실제 반환 ID의 상세를 새로 조회한다',async
  fireEvent.click(screen.getByText('초안 저장'));await screen.findByRole('heading',{name:'개선요청 상세'});
  await screen.findByRole('heading',{name:'새 합성 초안'});expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
  expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/created-synthetic'))).toBe(true);
+});
+
+// Window focus and manual refresh must not discard an open form or abort its save.
+test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결과를 보존한다 (detail=%s)',async(detail)=>{
+ let release!:()=>void;let saveSignal:AbortSignal|undefined;
+ const pending=new Promise<void>(resolve=>{release=resolve;});
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent']}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(init?.method==='POST'||init?.method==='PATCH'){saveSignal=init.signal as AbortSignal;await pending;return jsonResponse(503,errorBody('UNCERTAIN','합성 저장 결과 불확실'));}
+  return jsonResponse(200,detail?source:{data:{items:[]}});
+ });vi.stubGlobal('fetch',fetch);view(detail);
+ fireEvent.click(await screen.findByRole('button',{name:detail?'내용 수정':'새 개선요청 작성',exact:true}));
+ fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'보존할 합성 입력'}});
+ if(!detail){fireEvent.change(screen.getByLabelText('요청 유형'),{target:{value:'DOCUMENT'}});fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});fireEvent.change(screen.getByLabelText('문서 신호'),{target:{value:'NOT_FOUND'}});}
+ const refresh=screen.getByRole('button',{name:'최신 요청 조회'});
+ expect((refresh as HTMLButtonElement).disabled).toBe(true);
+ await act(async()=>{focusManager.setFocused(false);focusManager.setFocused(true);});
+ expect((screen.getByLabelText('검토할 문제') as HTMLTextAreaElement).value).toBe('보존할 합성 입력');
+ fireEvent.click(screen.getByRole('button',{name:detail?'내용 저장':'초안 저장',exact:true}));
+ await waitFor(()=>expect(saveSignal).toBeTruthy());
+ fireEvent.click(refresh);
+ await act(async()=>{focusManager.setFocused(false);focusManager.setFocused(true);});
+ expect(saveSignal?.aborted).toBe(false);
+ await act(async()=>{release();});
+ await screen.findByText('합성 저장 결과 불확실');
+ expect((screen.getByRole('button',{name:detail?'내용 저장':'초안 저장',exact:true}) as HTMLButtonElement).disabled).toBe(true);
+ expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST'||init?.method==='PATCH')).toHaveLength(1);
+ focusManager.setFocused(undefined);
 });

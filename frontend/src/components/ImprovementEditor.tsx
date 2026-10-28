@@ -3,7 +3,7 @@ import { ApiError, getApiMode } from '../api/client';
 import { updateImprovement, type ImprovementDetail, type ImprovementPatch } from '../api/cs-improvements';
 const fields={problem_statement:'검토할 문제',confirmed_facts:'확인된 사실',inconsistencies:'불일치',missing_info:'부족한 정보',not_claimed:'단정하지 않는 내용',review_task:'검토 과제'} as const;
 type Field=keyof typeof fields;
-export default function ImprovementEditor({record,onSaved,onReload}:{record:ImprovementDetail['data']['request'];onSaved:(data:ImprovementDetail)=>void;onReload:()=>void}){
+export default function ImprovementEditor({record,onSaved,onReload,onEditingChange}:{onEditingChange?:(editing:boolean)=>void;record:ImprovementDetail['data']['request'];onSaved:(data:ImprovementDetail)=>void;onReload:()=>void}){
   const [opened,setOpened]=useState(false);
   const [values,setValues]=useState(()=>Object.fromEntries(Object.keys(fields).map(k=>[k,record[k as Field]??''])) as Record<Field,string>);
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [uncertain,setUncertain]=useState(false);
@@ -11,6 +11,7 @@ export default function ImprovementEditor({record,onSaved,onReload}:{record:Impr
   const opener=useRef<HTMLButtonElement|null>(null);
   const wasOpened=useRef(false);
   useEffect(()=>{if(wasOpened.current&&!opened)opener.current?.focus();wasOpened.current=opened;},[opened]);
+  useEffect(()=>{onEditingChange?.(opened);return()=>onEditingChange?.(false);},[opened,onEditingChange]);
   useEffect(()=>()=>{controller.current?.abort();},[]);
   if(!import.meta.env.DEV)return null;
   const available=getApiMode()==='live'&&record.status!=='COMPLETED';

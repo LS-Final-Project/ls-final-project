@@ -8,7 +8,7 @@ const fields={problem_statement:'검토할 문제',confirmed_facts:'확인된 �
 type Field=keyof typeof fields;
 const empty=()=>Object.fromEntries(Object.keys(fields).map(key=>[key,''])) as Record<Field,string>;
 
-export default function ImprovementCreator({onCreated}:{onCreated:(data:ImprovementDetail)=>void}){
+export default function ImprovementCreator({onCreated,onEditingChange}:{onEditingChange?:(editing:boolean)=>void;onCreated:(data:ImprovementDetail)=>void}){
   const [opened,setOpened]=useState(false);
   const [type,setType]=useState<ImprovementCreate['request_type']>('FAULT');
   const [product,setProduct]=useState('');const [fault,setFault]=useState('');
@@ -18,6 +18,7 @@ export default function ImprovementCreator({onCreated}:{onCreated:(data:Improvem
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [uncertain,setUncertain]=useState(false);
   const controller=useRef<AbortController|null>(null);const opener=useRef<HTMLButtonElement|null>(null);const wasOpened=useRef(false);
   useEffect(()=>{if(wasOpened.current&&!opened)opener.current?.focus();wasOpened.current=opened;},[opened]);
+  useEffect(()=>{onEditingChange?.(opened);return()=>onEditingChange?.(false);},[opened,onEditingChange]);
   useEffect(()=>()=>controller.current?.abort(),[]);
   if(!import.meta.env.DEV)return null;
   const available=getApiMode()==='live';
