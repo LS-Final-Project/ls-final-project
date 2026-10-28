@@ -1,5 +1,6 @@
 """KAN-96 DOCX·PDF 네이티브 추출. 픽스처는 코드로 만든다(바이너리 커밋 없음, 실제 RFP 없음)."""
 
+import hashlib
 import io
 import zipfile
 from pathlib import Path
@@ -371,3 +372,184 @@ def test_upload_size_cap_and_utf16_doctype_are_rejected() -> None:
         archive.writestr("word/document.xml", xml.encode("utf-16"))
     with pytest.raises(ValueError, match="DOCTYPE"):
         extract_docx(utf16.getvalue())
+
+
+def note(tag: str, ref_id: str, *runs: str, kind: str = "") -> str:
+    attribute = f' w:type="{kind}"' if kind else ""
+    return f'<w:{tag} w:id="{ref_id}"{attribute}>{para(*runs)}</w:{tag}>'
+
+
+def test_footnotes_attach_in_reference_order_with_edit_traces() -> None:
+    body = para(
+        run("Rating"),
+        '<w:r><w:footnoteReference w:id="2"/></w:r>',
+        run(" and test"),
+        '<w:r><w:footnoteReference w:id="1"/></w:r>',
+        '<w:r><w:endnoteReference w:id="1"/></w:r>',
+        '<w:r><w:footnoteReference w:id="9"/></w:r>',
+    )
+    footnotes = (
+        f"<w:footnotes {NS}>"
+        + note("footnote", "-1", run("----"), kind="separator")
+        + note("footnote", "1", run("First note"))
+        + note("footnote", "2", run("40", STRIKE), run("38 kA per Owner"))
+        + "</w:footnotes>"
+    )
+    endnotes = f"<w:endnotes {NS}>{note('endnote', '1', run('End note'))}</w:endnotes>"
+    document = extract_docx(docx(body, word_footnotes_xml=footnotes, word_endnotes_xml=endnotes))
+    block = only(document)
+    assert [(n["note_kind"], n["ref_id"], n["text"]) for n in block["footnotes"]] == [
+        ("FOOTNOTE", "2", "38 kA per Owner"),
+        ("FOOTNOTE", "1", "First note"),
+        ("ENDNOTE", "1", "End note"),
+    ]
+    assert block["footnotes"][0]["deleted_values"] == [
+        {"text": "40", "position": 0, "origin": "STRIKE"}
+    ]
+    assert document.summary.strike_runs == 1
+    [missing] = document.unprocessed
+    assert missing.kind == "FOOTNOTE" and missing.location == block["block_id"]
+
+
+def table_xml(rows: list[str], caption: str = "") -> str:
+    props = f'<w:tblPr><w:tblCaption w:val="{caption}"/></w:tblPr>' if caption else ""
+    return f"<w:tbl>{props}" + "".join(f"<w:tr>{row}</w:tr>" for row in rows) + "</w:tbl>"
+
+
+def test_table_title_and_column_headers_with_units() -> None:
+    span = '<w:gridSpan w:val="2"/>'
+    body = table_xml(
+        [
+            cell("Item") + cell("Voltage (kV)") + cell("Remarks (see note)"),
+            cell("Bus") + cell("15") + cell(""),
+        ],
+        caption="Ratings",
+    )
+    body += para(run("Table 2-1 Breakers")) + "<w:p/>"
+    body += table_xml(
+        [cell("Item") + cell("Withstand [kA]", span), cell("Main") + cell("38") + cell("2 s")]
+    )
+    body += para(run("Notes follow")) + table_xml([cell("A"), cell("1")])
+    document = extract_docx(docx(body))
+    cells = {
+        (b.position.table_index, b.position.row, b.position.col): b
+        for b in document.blocks
+        if b.kind == "TABLE_CELL"
+    }
+    assert {b.table_title for (t, _, _), b in cells.items() if t == 0} == {"Ratings"}
+    assert (cells[(0, 1, 1)].column_header, cells[(0, 1, 1)].column_unit) == ("Voltage", "kV")
+    assert (cells[(0, 1, 2)].column_header, cells[(0, 1, 2)].column_unit) == (
+        "Remarks (see note)",
+        None,
+    )
+    assert cells[(0, 0, 1)].column_header is None
+    assert cells[(1, 1, 0)].table_title == "Table 2-1 Breakers"
+    # 가로 병합 머리 셀은 덮는 열 모두의 머리가 된다.
+    for col in (1, 2):
+        assert (cells[(1, 1, col)].column_header, cells[(1, 1, col)].column_unit) == (
+            "Withstand",
+            "kA",
+        )
+    assert cells[(2, 1, 0)].table_title is None and cells[(2, 1, 0)].column_header == "A"
+
+
+def test_cross_references_resolve_only_same_document_clauses() -> None:
+    body = styled("PRT", "GENERAL") + styled("ART", "SUMMARY")
+    body += para(run("2.6 SWITCHGEAR")) + para(run("2.4 E.1.c Power frequency withstand"))
+    body += para(
+        run(
+            "Refer to Section 1.1 and see 2.6; comply with 2.4 E.1.c, Drawing E-101, Addendum B, "
+            "Section 26 13 26 and Division 26. Efficiency 2.5% is not a reference."
+        )
+    )
+    document = extract_docx(docx(body, word_styles_xml=STYLES, word_numbering_xml=NUMBERING))
+    by_text = {b.text: b for b in document.blocks}
+    assert by_text["2.4 E.1.c Power frequency withstand"].cross_references == []
+    references = [
+        (r.text, r.target_kind, r.target_hint, r.resolved, r.target_block_id)
+        for r in document.blocks[-1].cross_references
+    ]
+    assert references == [
+        ("Section 1.1", "CLAUSE", "1.1", True, by_text["SUMMARY"].block_id),
+        ("see 2.6", "CLAUSE", "2.6", True, by_text["2.6 SWITCHGEAR"].block_id),
+        ("2.4 E.1.c", "CLAUSE", "2.4 E.1.c", False, None),
+        ("Drawing E-101", "DRAWING", "E-101", False, None),
+        ("Addendum B", "DOCUMENT", "B", False, None),
+        ("Section 26 13 26", "DOCUMENT", "26 13 26", False, None),
+        ("Division 26", "OTHER", "26", False, None),
+    ]
+
+
+def test_document_identity_matches_input_bytes(tmp_path: Path) -> None:
+    data = docx(para(run("hello")))
+    document = extract(data)
+    assert document.sha256 == hashlib.sha256(data).hexdigest() and document.size == len(data)
+    assert document.mime == DOCX_MIME and document.source_name is None
+    path = tmp_path / "261116.11 Unit Substations.docx"
+    path.write_bytes(data)
+    assert extract(path).source_name == path.name
+    assert extract(data, source_name="upload.docx").source_name == "upload.docx"
+    pdf_data = pdf(["one"])
+    assert extract(pdf_data, "application/pdf; charset=binary").model_dump(
+        include={"sha256", "size", "mime"}
+    ) == {
+        "sha256": hashlib.sha256(pdf_data).hexdigest(),
+        "size": len(pdf_data),
+        "mime": "application/pdf",
+    }
+
+
+def test_deep_nesting_and_oversized_path_are_rejected_early(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deep = "<w:ins>" * 5000 + run("x") + "</w:ins>" * 5000
+    with pytest.raises(ValueError, match="중첩"):
+        extract_docx(docx(f"<w:p>{deep}</w:p>"))
+    large = tmp_path / "large.pdf"
+    with large.open("wb") as handle:
+        handle.truncate(MAX_BYTES + 1)
+
+    def refuse(self: Path) -> bytes:
+        raise AssertionError("크기 확인 전에 읽음")
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    with pytest.raises(ValueError, match="크기 상한"):
+        extract(large)
+
+
+def test_clause_targets_skip_cells_and_numbers_with_units() -> None:
+    body = table_xml([cell("2.6 BUS") + cell("2.5 kV")])
+    body += para(run("2.5 kV minimum rating applies"))
+    body += para(run("2.5 MVA transformer")) + para(run("2.6 mm clearance"))
+    body += para(run("2.6 between phases is measured"))
+    body += para(run("2.5 SCOPE")) + para(run("2.6 SWITCHGEAR"))
+    body += para(run("Comply with see 2.5 and see 2.6."))
+    document = extract_docx(docx(body))
+    by_text = {b.text: b.block_id for b in document.blocks if b.kind == "PARAGRAPH"}
+    assert [(r.target_hint, r.target_block_id) for r in document.blocks[-1].cross_references] == [
+        ("2.5", by_text["2.5 SCOPE"]),
+        ("2.6", by_text["2.6 SWITCHGEAR"]),
+    ]
+
+
+def test_sentence_about_a_table_is_not_its_title() -> None:
+    rows = [cell("Item") + cell("Value"), cell("Bus") + cell("15")]
+    body = para(run("Table 2-1 shows the ratings below.")) + table_xml(rows)
+    body += para(run("Table 3 " + "long " * 30)) + table_xml(rows)
+    document = extract_docx(docx(body))
+    assert {b.table_title for b in document.blocks if b.kind == "TABLE_CELL"} == {None}
+
+
+def test_footnote_marks_in_header_are_not_units() -> None:
+    rows = [
+        cell("Rating (1)") + cell("Class (B)") + cell("Load (kVA)") + cell("Current (A)"),
+        cell("x") + cell("y") + cell("z") + cell("1200"),
+    ]
+    document = extract_docx(docx(table_xml(rows)))
+    data = [b for b in document.blocks if b.position.row == 1]
+    assert [(b.column_header, b.column_unit) for b in data] == [
+        ("Rating (1)", None),
+        ("Class (B)", None),
+        ("Load", "kVA"),
+        ("Current", "A"),
+    ]

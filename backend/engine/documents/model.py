@@ -1,5 +1,6 @@
 """DOCX·PDF 추출 결과의 공통 표현. A04(KAN-185)가 조항 트리 복원과 요구 추출의 입력으로 쓴다."""
 
+import hashlib
 import re
 from typing import Literal
 
@@ -8,8 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 SourceKind = Literal["DOCX", "PDF"]
 BlockKind = Literal["PARAGRAPH", "TABLE_CELL", "IMAGE"]
 Flag = Literal["HIGHLIGHT", "TEMPLATE_PLACEHOLDER", "LINE_BREAK_REJOINED"]
+ReferenceKind = Literal["CLAUSE", "DRAWING", "DOCUMENT", "OTHER"]
 UnprocessedKind = Literal["HEADER", "FOOTER", "FOOTNOTE", "TEXTBOX", "EQUATION", "IMAGE", "OTHER"]
 PLACEHOLDER = re.compile(r"<[^<>]{1,60}>")
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+MIMES: dict[str, str] = {"DOCX": DOCX_MIME, "PDF": "application/pdf"}
 
 
 class Strict(BaseModel):
@@ -57,6 +61,25 @@ class CellState(Strict):
     is_empty: bool
 
 
+class Footnote(Strict):
+    """본문 참조 위치에 붙인 각주·미주 본문. 각주 안 취소선도 본문과 같은 규칙으로 나눈다."""
+
+    ref_id: str
+    note_kind: Literal["FOOTNOTE", "ENDNOTE"]
+    text: str
+    deleted_values: list[DeletedValue] = []
+
+
+class CrossReference(Strict):
+    """다른 절·도면·문서 참조. CLAUSE만 같은 문서 안에서 해결을 시도한다."""
+
+    text: str
+    target_kind: ReferenceKind
+    target_hint: str
+    resolved: bool
+    target_block_id: str | None
+
+
 class Block(Strict):
     block_id: str
     kind: BlockKind
@@ -66,6 +89,13 @@ class Block(Strict):
     position: Position
     hints: Hints | None = None
     cell_state: CellState | None = None
+    footnotes: list[Footnote] = []
+    cross_references: list[CrossReference] = []
+    table_title: str | None = Field(default=None, description="표 셀만. 표 캡션 또는 앞 문단 표제.")
+    column_header: str | None = Field(
+        default=None, description="데이터 셀만. 단위를 뺀 머리 행 텍스트."
+    )
+    column_unit: str | None = Field(default=None, description="데이터 셀만. 머리 행 끝 괄호 단위.")
 
 
 class Unprocessed(Strict):
@@ -85,7 +115,13 @@ class Summary(Strict):
 
 
 class ExtractedDocument(Strict):
+    """명세 §4.2 업로드 응답과 같은 이름(sha256·size·mime). 판본 번호는 DB(document_versions) 몫이다."""
+
     source_kind: SourceKind
+    sha256: str
+    size: int
+    mime: str = Field(description="매직바이트로 판별한 표준 MIME. 호출자가 선언한 값이 아니다.")
+    source_name: str | None = None
     edit_trace_support: bool
     blocks: list[Block]
     unprocessed: list[Unprocessed]
@@ -94,6 +130,7 @@ class ExtractedDocument(Strict):
 
 def build_document(
     source_kind: SourceKind,
+    data: bytes,
     blocks: list[Block],
     unprocessed: list[Unprocessed],
     tables: int,
@@ -104,6 +141,7 @@ def build_document(
 
     Args:
         source_kind: 원본 형식.
+        data: 원본 바이트(식별 해시·크기 계산용).
         blocks: 문서 순서의 블록.
         unprocessed: 읽지 않은 요소.
         tables: 표 수.
@@ -115,6 +153,9 @@ def build_document(
     """
     return ExtractedDocument(
         source_kind=source_kind,
+        sha256=hashlib.sha256(data).hexdigest(),
+        size=len(data),
+        mime=MIMES[source_kind],
         edit_trace_support=source_kind == "DOCX",
         blocks=blocks,
         unprocessed=unprocessed,
