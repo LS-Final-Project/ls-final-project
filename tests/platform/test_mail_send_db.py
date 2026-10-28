@@ -33,7 +33,10 @@ from tests.platform.test_mail_sync_db import mail_database as mail_database
 from tests.platform.test_mail_sync_db import mailbox as mailbox
 from tests.platform.test_mail_sync_db import rows
 
-MIGRATION = Path("infra/migrations/platform/20261028_KAN-74_mail_send.sql")
+MIGRATIONS = (
+    Path("infra/migrations/platform/20261028_KAN-74_mail_send.sql"),
+    Path("infra/migrations/platform/20261029_KAN-74_mail_send_column_grants.sql"),
+)
 TOKEN, FRESH = "synthetic-send-token", "synthetic-fresh-token"
 PDF = b"%PDF-synthetic answer"
 
@@ -45,8 +48,9 @@ def send_database(mail_database):
             conn.execute("SELECT to_regclass('integration.mail_send_intents')").fetchone()[0]
             is None
         ):
-            sql = MIGRATION.read_text()
-            conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+            for migration in MIGRATIONS:
+                sql = migration.read_text()
+                conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return mail_database
 
 
@@ -565,3 +569,59 @@ def test_payload_hash_ignores_storage_location():
     second = payload_sha256(**kwargs, attachments=[{**base, "storage_key": "mail/y"}])
     assert first == second
     assert first != payload_sha256(**{**kwargs, "to": ["c@b.c"]}, attachments=[base])
+
+
+def test_temporary_refresh_failure_after_unauthorized_is_deferred(settings, sender):
+    intent = create(settings, request(sender))
+    graph = FakeGraph()
+    graph.replies = [401]
+    get_token = token_getter(refresh_error=(503, "MAILBOX_TOKEN_UNAVAILABLE", "x"))
+    result = submit(settings, sender, intent, graph, get_token)
+    assert (result.status, result.error_code) == ("QUEUED", "MAILBOX_TOKEN_UNAVAILABLE")
+    assert len(graph.posts()) == 1
+
+
+@pytest.mark.parametrize("field", ["subject", "body"])
+def test_nul_characters_are_input_errors(settings, sender, field):
+    with pytest.raises(ApplicationError) as error:
+        create(settings, request(sender, **{field: "a\x00b"}))
+    assert (error.value.status_code, error.value.code) == (422, "MAIL_CONTENT_INVALID")
+
+
+def test_not_found_check_is_dated_when_the_lookup_started(settings, sender):
+    intent = create(settings, request(sender))
+    graph = FakeGraph()
+    graph.replies = [500]
+    submit(settings, sender, intent, graph)
+    original, seen = graph.handler, []
+
+    def slow_lookup(request):
+        if request.method == "GET":
+            with psycopg.connect(sender["dsn"]) as conn:
+                seen.append(conn.execute("SELECT now()").fetchone()[0])
+        return original(request)
+
+    graph.handler = slow_lookup
+    confirm(settings, intent, graph)
+    [(at,)] = rows(
+        sender["dsn"],
+        "SELECT at FROM integration.mail_send_events "
+        "WHERE intent_id=%s AND event='SENT_COPY_NOT_FOUND'",
+        intent,
+    )
+    # 조회 중(Graph 호출 시점)보다 늦게 기록되지 않는다.
+    assert at <= seen[0]
+
+
+def test_runtime_role_cannot_rewrite_approved_content(settings, sender):
+    intent = create(settings, request(sender))
+    with psycopg.connect(settings.database_url.get_secret_value()) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "UPDATE integration.mail_send_intents SET body='x', payload_sha256=%s WHERE id=%s",
+                ("0" * 64, intent),
+            )
+    with psycopg.connect(settings.database_url.get_secret_value()) as conn:
+        conn.execute(
+            "UPDATE integration.mail_send_intents SET updated_at=now() WHERE id=%s", (intent,)
+        )

@@ -181,6 +181,10 @@ def validate(request: SendRequest) -> tuple[list[dict[str, Any]], str]:
     if request.body_type not in ("text", "html"):
         raise invalid("MAIL_CONTENT_INVALID", "Mail content is invalid.")
     addresses = [*request.to, *request.cc]
+    texts = [request.subject, request.body, *addresses, *(a.name for a in request.attachments)]
+    if any("\x00" in t for t in texts):
+        # PostgreSQL text는 NUL을 저장하지 못한다. DB 오류가 아니라 입력 오류로 거절한다.
+        raise invalid("MAIL_CONTENT_INVALID", "Mail content is invalid.")
     if not request.to or len(addresses) > MAX_RECIPIENTS:
         raise invalid("MAIL_RECIPIENTS_INVALID", "Recipients are invalid.")
     if any(not EMAIL.fullmatch(a) or len(a) > 254 for a in addresses):
@@ -244,12 +248,14 @@ async def add_event(
     actor: UUID | None = None,
     code: str | None = None,
     note: str | None = None,
+    at: datetime | None = None,
 ) -> None:
-    """감사 이력 한 줄을 남긴다. 호출자의 트랜잭션 안에서 쓴다."""
+    """감사 이력 한 줄을 남긴다. 호출자의 트랜잭션 안에서 쓴다. 시각을 주지 않으면 지금이다."""
     await conn.execute(
-        "INSERT INTO integration.mail_send_events (id, intent_id, event, actor_user_id, code, note) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (uuid4(), intent_id, event, actor, code, note),
+        "INSERT INTO integration.mail_send_events "
+        "(id, intent_id, event, actor_user_id, code, note, at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, coalesce(%s, now()))",
+        (uuid4(), intent_id, event, actor, code, note, at),
     )
 
 
@@ -496,6 +502,9 @@ async def submit_intent(
                     )
                 )
             except ApplicationError as error:
+                # 갱신 시점에도 아직 보내지 않았다. 일시 장애는 첫 토큰 경로처럼 미룬다.
+                if error.code in PRE_SEND_TRANSIENT:
+                    return await defer(settings, row, error.code)
                 await finish(settings, intent_id, "FAILED", "FAILED", error.code)
                 return SendResult(intent_id, "FAILED", error.code)
             response = await post_send(client, token, body)
@@ -539,7 +548,8 @@ async def confirm_sent_copy(
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT i.status, i.mailbox_id, i.sent_copy_confirmed_at, c.owner_user_id "
+            "SELECT i.status, i.mailbox_id, i.sent_copy_confirmed_at, c.owner_user_id, "
+            "now() AS checked_at "
             "FROM integration.mail_send_intents i "
             "JOIN mailbox_auth.connections c ON c.id=i.mailbox_id WHERE i.id=%s",
             (intent_id,),
@@ -577,7 +587,8 @@ async def confirm_sent_copy(
     async with connection(settings) as conn, conn.transaction():
         if not found or not isinstance(found[0], dict) or not found[0].get("id"):
             if row["status"] == "UNKNOWN":
-                await add_event(conn, intent_id, "SENT_COPY_NOT_FOUND")
+                # 조회를 시작한 시각으로 남긴다. 재발송 유예 판단이 느린 조회에 밀리지 않게 한다.
+                await add_event(conn, intent_id, "SENT_COPY_NOT_FOUND", at=row["checked_at"])
             return SendResult(intent_id, row["status"])
         copy = found[0]
         cursor = await conn.execute(

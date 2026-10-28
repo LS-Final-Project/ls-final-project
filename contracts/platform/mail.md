@@ -141,7 +141,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 
 | 함수 | 동작 |
 | --- | --- |
-| `create_intent(settings, SendRequest)` | 형식 확인(수신자 1~50명·중복 없음, 제목 한 줄, 본문 1MB 이하, 첨부 합계 2.8MB 이하, 제목·본문·수신자·첨부 이름을 모두 이스케이프한 JSON 길이 + base64 첨부 + 여유 64KB가 3.9MB 이하(`MAIL_TOO_LARGE`), 첨부 저장 키가 발신 사서함의 내용 키 `mail/<mailbox_id>/sha256/...`일 것) 뒤, 서버가 다시 계산한 payload 해시가 업무의 승인 해시(`approved_payload_sha256`)와 같을 때만 저장. 발신 사서함은 **승인자 본인의 연결 상태 사서함**이어야 한다. 같은 업무 판본을 같은 내용으로 다시 부르면 기존 의도, 다른 내용이면 409 `MAIL_SEND_CONFLICT` |
+| `create_intent(settings, SendRequest)` | 형식 확인(NUL 문자 없음, 수신자 1~50명·중복 없음, 제목 한 줄, 본문 1MB 이하, 첨부 합계 2.8MB 이하, 제목·본문·수신자·첨부 이름을 모두 이스케이프한 JSON 길이 + base64 첨부 + 여유 64KB가 3.9MB 이하(`MAIL_TOO_LARGE`), 첨부 저장 키가 발신 사서함의 내용 키 `mail/<mailbox_id>/sha256/...`일 것) 뒤, 서버가 다시 계산한 payload 해시가 업무의 승인 해시(`approved_payload_sha256`)와 같을 때만 저장. 발신 사서함은 **승인자 본인의 연결 상태 사서함**이어야 한다. 같은 업무 판본을 같은 내용으로 다시 부르면 기존 의도, 다른 내용이면 409 `MAIL_SEND_CONFLICT` |
 | `submit_intent(...)` | `QUEUED`→`SUBMITTING`을 커밋한 뒤 트랜잭션 밖에서 저장 내용의 해시와 첨부 바이트(해시·크기)를 다시 확인하고 Graph `sendMail`을 한 번 호출 |
 | `confirm_sent_copy(...)` | 메일에 붙인 숨은 확장 속성(`INTENT_PROPERTY` = 발송 의도 ID)으로 보낸편지함 사본을 찾는다 |
 | `authorize_resend(..., actor_user_id, reason)` | `UNKNOWN` 재발송 허가. 아래 조건 |
@@ -153,7 +153,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | sendMail 결과 | 상태 | 다시 보내기 |
 | --- | --- | --- |
 | 202 | `ACCEPTED` | 없음 |
-| 401 | 새 토큰(`force_refresh=True`)으로 한 번 더. 그래도 401이면 `FAILED` `GRAPH_UNAUTHORIZED` | 401은 처리 전 거절이라 한 번 재요청 |
+| 401 | 새 토큰(`force_refresh=True`)으로 한 번 더. 그래도 401이면 `FAILED` `GRAPH_UNAUTHORIZED`. 갱신이 일시 장애면 `QUEUED`(`DEFERRED`) | 401은 처리 전 거절이라 한 번 재요청 |
 | 400·403·404·413·422 | `FAILED`(`GRAPH_BAD_REQUEST`·`GRAPH_FORBIDDEN`·`GRAPH_NOT_FOUND`·`MAIL_TOO_LARGE`) | 없음. 내용을 고쳐 새 판본으로 승인 |
 | 429 | `QUEUED`(`DEFERRED`, `GRAPH_THROTTLED`) | 같은 의도를 나중에 다시 보낼 수 있음. 세 번째 시도까지 미뤄지면 `FAILED` `MAIL_SEND_ATTEMPTS_EXHAUSTED`로 마감 |
 | 5xx | `UNKNOWN` `GRAPH_UNAVAILABLE` | **자동으로 안 함** |
@@ -162,8 +162,8 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 보내기 전 해시 불일치·재연결 필요 등 | `FAILED` | 없음 |
 | 보내기 전 예상하지 못한 오류 | `FAILED` `MAIL_SEND_PREPARE_FAILED`(예외는 그대로 전달) | 없음. 나가지 않았으므로 `UNKNOWN`으로 두지 않음 |
 
-- **결과 불명 재발송 통제**: `UNKNOWN`은 `confirm_sent_copy`로 먼저 대조한다. 사본이 있으면 실제로 나간 것으로 `ACCEPTED`가 된다. 사본이 없으면 `SENT_COPY_NOT_FOUND`를 남긴다. 재발송은 **마지막 전송 시작 10분 뒤의 "사본 없음" 확인**이 있고, **승인자 본인**이 사유(1~500자)를 적었을 때만 `QUEUED`로 되돌린다(`RESEND_AUTHORIZED`). 시도는 최대 3회다.
-- **권한**: `platform_app`은 의도 SELECT·INSERT·UPDATE, 이력 SELECT·INSERT만. 삭제·이력 수정 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
+- **결과 불명 재발송 통제**: `UNKNOWN`은 `confirm_sent_copy`로 먼저 대조한다. 사본이 있으면 실제로 나간 것으로 `ACCEPTED`가 된다. 사본이 없으면 `SENT_COPY_NOT_FOUND`를 **조회를 시작한 DB 시각**으로 남긴다. 재발송은 **마지막 전송 시작 10분 뒤의 "사본 없음" 확인**이 있고, **승인자 본인**이 사유(1~500자)를 적었을 때만 `QUEUED`로 되돌린다(`RESEND_AUTHORIZED`). 시도는 최대 3회다.
+- **권한**: `platform_app`은 의도 SELECT·INSERT와 상태 열만 UPDATE(`20261029_KAN-74_mail_send_column_grants.sql`), 이력 SELECT·INSERT만. 승인 내용(본문·수신자·첨부·payload 해시)·이력 수정과 삭제 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
 - 문의 종결 조건(“`UNKNOWN` 발송 의도가 없어야 함”, [권한 문서](permissions.md))은 이 표의 상태로 판단한다. 발송 상태가 문의·개선요청 상태를 자동으로 바꾸지 않는다.
 
 ## 업무 유형 분류 (KAN-73, 부분 구현)
