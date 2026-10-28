@@ -135,6 +135,7 @@ def test_fts_ranks_words_titles_and_filters_documents(runtime) -> None:
     assert [hit["chunk_id"] for hit in hits] == [by_block["p1"], by_block["p2"]]
     assert hits[0]["rank"] > hits[1]["rank"] and "<b>" in hits[0]["snippet"]
     assert hits[0]["section_path"] == ["2.6 Switchgear"]
+    assert hits[0]["text"] == {c.chunk_id: c.text for c in a.chunks}[hits[0]["chunk_id"]]
 
     [table] = search(runtime, "breaker ratings", [a_sha])
     assert (table["kind"], table["table_title"]) == ("TABLE", TITLE)
