@@ -201,14 +201,14 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 
 ## 3. RFP 자사 대응 업무 상태 (2026-10-28 범위 변경)
 
-2026-10-28 프로젝트 2 범위가 TFT 팀 구성에서 RFP 자사 대응·협력사 보완(KAN-7, A01~A12)으로 바뀌어 이 절의 역할 요청·후보 추천·구성안·책임자 확정 내용은 제거했다(KAN-181, 복원 기준 `1d17f84`). 아래는 [RFP API 명세](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit) §2.1·§2.3·§2.4의 요약이며 구현 계약은 KAN-182의 `contracts/tft/rfp-*.md`에 둔다. 명세와 다르면 명세가 우선한다.
+2026-10-28 프로젝트 2 범위가 TFT 팀 구성에서 RFP 자사 대응·협력사 보완(KAN-7, A01~A12)으로 바뀌어 이 절의 역할 요청·후보 추천·구성안·책임자 확정 내용은 제거했다(KAN-181, 복원 기준 `1d17f84`). 아래는 [RFP API 명세](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit) §2.1·§2.3·§2.4·§4.1·§4.9의 요약이다. 구현 계약 `contracts/tft/rfp-*.md`(KAN-182)가 생기면 그 파일이 원본이고, 그 전까지는 이 요약과 명세가 어긋날 때 명세를 따른다(문서 머리의 '저장소 문서 우선'은 기획서 발췌에 대한 규칙이다).
 
 ### 3.1 상태 두 축과 요구 상태
 
 | 구분 | 값 | 뜻 |
 | --- | --- | --- |
 | 산출물 상태 `output_status` | `INTAKE` 접수 · `ANALYZING` 분석 중 · `REVIEW_DRAFT` 검토본 작성 | 처리 작업 접수와 함께 `ANALYZING`, 검토본 저장으로 `REVIEW_DRAFT`. 입찰 통과·수주와 별개 |
-| 판단 상태 `judgement_status` | `NEEDS_REVIEW` 검토 필요 · `CONDITION_CHECK` 조건 확인 필요 · `OWNER_CONFIRMED` 담당자 확인 | 프로젝트 단위 사람 판단 요약. `OWNER_CONFIRMED`는 담당 `sales` 또는 책임자가 검토본을 저장하면서 미해결 필수 조건이 없을 때만. 하나라도 남으면 `CONDITION_CHECK` 유지 |
+| 판단 상태 `judgement_status` | `NEEDS_REVIEW` 검토 필요 · `CONDITION_CHECK` 조건 확인 필요 · `OWNER_CONFIRMED` 담당자 확인 | 프로젝트 단위 사람 판단 요약. 검토본 저장(아래 3.2)이 성공할 때 미해결 필수 조건이 하나도 없으면 `OWNER_CONFIRMED`, 남아 있으면 `CONDITION_CHECK` 유지. 저장 성공 여부와 별개의 축 |
 | 요구 상태 `status` | `EVIDENCE_FOUND` · `CONDITIONAL` · `SPEC_GAP` · `INSUFFICIENT_EVIDENCE` | 자료 없음은 판단 근거 부족이지 미충족이 아님 |
 | 요구 성격 `necessity` | `MANDATORY` · `PREFERRED` · `CONDITION_BOUND` · `UNDETERMINED` | 원문이 구분하지 않으면 `UNDETERMINED` |
 | 변경 제안 `origin` / `status` | `web` · `customer_reply` · `pdf_annot` / `PENDING` · `APPROVED` · `REJECTED` | 세 입구가 같은 승인 대기 목록을 쓴다 |
@@ -220,7 +220,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 - 재실행은 손대지 않은 요구만 `ai_draft` 새 판본으로 덮어쓰고, 손댄 요구(최신 판본 `human_input` 또는 승인된 제안 있음)는 차이를 제안(`origin=web`, 사유 "재실행")으로 남긴다.
 - 쓰기 요청은 읽을 때 받은 `version`을 본문에 보내고 최신과 다르면 409 `TFT_VERSION_CONFLICT`다(C/S 조건 비교와 같은 방식). 상태를 만드는 POST는 `Idempotency-Key` 8~128자 필수. 모든 판본은 추가만 한다.
 - 처리 작업은 플랫폼 `runtime.jobs`(`owner=tft`)를 재사용하고 상태·SSE는 플랫폼 작업 경로를 쓴다. worker 연결 전 접수는 503 `TFT_PROCESSOR_NOT_CONNECTED`, 진행 중 작업이 있으면 409 `TFT_JOB_IN_PROGRESS`.
-- 검토본 저장은 미해결 필수 조건이 있으면 422. 금지된 보완 경로 선택은 409 `TFT_INVALID_TRANSITION`, 제외 후보 선택은 422 `TFT_CANDIDATE_EXCLUDED`.
+- 검토본 저장 조건(명세 §4.9): 필수 요구 전부가 상태·근거 또는 다음 행동(`unresolved`+`next_owner_field`)을 가지고, 초안 문장의 `evidence_missing=0`·`needs_rereview=0`. 어기면 422 `TFT_DRAFT_INCOMPLETE`(요구·문장 ID 목록). 통과하면 `review_version`을 기록하고 `output_status=REVIEW_DRAFT`가 되며, 판단 상태는 3.1대로 정한다. 미해결 필수 조건이 다음 행동과 함께 남아 있어도 저장은 성공한다. 금지된 보완 경로 선택은 409 `TFT_INVALID_TRANSITION`, 제외 후보 선택은 422 `TFT_CANDIDATE_EXCLUDED`.
 - 시연에서는 자기 제안을 자기가 승인할 수 있다. 감사 행에는 항상 `proposer`와 `approver`를 남긴다.
 
 ### 3.3 담당·책임자 지정 이력
@@ -228,7 +228,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | 항목 | 규칙 |
 | --- | --- |
 | 지정·변경 주체 | 해당 프로젝트를 **관리 대상으로 가진 `manager`만** (`PATCH /projects/{uuid}/assignment`) |
-| 대상 | 담당 `sales`(`sales_user_id`)와 책임자(`responsible_user_id`). 로그인 가능한 내부 사용자 ID만 |
+| 대상 | 담당 `sales`(`sales_user_id`)와 책임자(`responsible_user_id`). 책임자 후보는 그 프로젝트의 담당 `sales` 또는 그 프로젝트를 관리하는 `manager`의 로그인 사용자 ID(명세 §4.1) |
 | 자동 부여 | 접수한 `sales`가 담당이 된다. 책임자는 자동 지정하지 않는다 |
 | 이력 필드 | 프로젝트 ID, 변경자 ID, 이전·신규 담당 ID, 사유, 변경 시각. 조회 경로는 두지 않는다(저장만) |
 | 거부 | 관리 대상 밖 404 `NOT_FOUND`, 관리 `manager`가 아님 403 `FORBIDDEN`, 조건 불일치 422 `VALIDATION_ERROR` |
@@ -262,7 +262,9 @@ O = 허용, X = 거부, △ = 조건부. 괄호는 범위 조건. "책임자" �
 
 ### 4.2 RFP 자사 대응·협력사 보완 (2026-10-28 범위 변경)
 
-명세 §2.2·§3의 요약이다. 조회 역할 = 담당 `sales`·책임자·검토 부서 `dept_staff`·관리 대상 `manager`. 역할 자체가 없으면 403, 역할은 있으나 프로젝트 범위 밖이면 404, 범위 안에서 행동이 불허면 403이다. 경로별 허용 역할은 명세 §3 표가 원본이다.
+명세 §2.2·§3의 요약이다. 조회 역할 = 담당 `sales`·책임자·검토 부서 `dept_staff`·관리 대상 `manager`. 역할 자체가 없으면 403, 역할은 있으나 프로젝트 범위 밖이면 404, 범위 안에서 행동이 불허면 403이다. 경로별 허용 역할은 명세 §3 표(구현 후에는 `contracts/tft/rfp-*.md`)가 원본이다.
+
+책임자 열은 로그인 역할이 아니라 프로젝트 속성이다. 책임자로 지정된 사용자(담당 `sales` 또는 관리 `manager`, 3.3)는 그 프로젝트 안에서 로그인 역할과 관계없이 `sales` 범위 행동과 승인·기각·검토본 저장을 한다. `manager`가 책임자로 지정되면 그 프로젝트에서만 이 쓰기가 열리고 다른 관리 대상 프로젝트에서는 열리지 않는다.
 
 | 행동 | cs_agent | dept_staff | manager | sales | 책임자 |
 | --- | --- | --- | --- | --- | --- |
@@ -281,7 +283,7 @@ O = 허용, X = 거부, △ = 조건부. 괄호는 범위 조건. "책임자" �
 | (A12) 메모 PDF 해석 실행 | X | O (검토 부서) | X | O | O |
 
 - 대응표(요구의 상태·성격·조건·사유)를 직접 바꾸는 경로는 없다. 모든 변경은 제안 → 승인이다. 시연에서는 자기 제안을 자기가 승인할 수 있다.
-- `manager`는 담당·책임자 지정 외 업무 쓰기가 없다. 관리 대상 밖 프로젝트의 원문·파일 내려받기는 불허한다.
+- 책임자가 아닌 `manager`는 담당·책임자 지정 외 업무 쓰기가 없다. 관리 대상 밖 프로젝트의 원문·파일 내려받기는 불허한다.
 ### 4.3 공통·플랫폼
 
 | 행동 | cs_agent | dept_staff | manager | sales | 책임자 |
@@ -369,7 +371,7 @@ O = 허용, X = 거부, △ = 조건부. 괄호는 범위 조건. "책임자" �
 
 | 역할 | 보이는 것 | 할 수 있는 것 | 숨김·비활성 |
 | --- | --- | --- | --- |
-| `sales` | 초안 구역·문장별 근거 링크·조건·미확약·재검토 표시, 검토본 저장 조건, 검토 이력, 내보내기 결과 | 문장 수정(새 판본), 검토본 저장(미해결 필수 조건이면 422), DOCX·PDF 내보내기 | 재검토 표시 문장은 근거 재확인 전 저장 조건 미충족 |
+| `sales` | 초안 구역·문장별 근거 링크·조건·미확약·재검토 표시, 검토본 저장 조건, 검토 이력, 내보내기 결과 | 문장 수정(새 판본), 검토본 저장(3.2 조건 미충족이면 422 `TFT_DRAFT_INCOMPLETE`), DOCX·PDF 내보내기 | 근거 없는 문장·재검토 표시 문장·다음 행동 없는 필수 요구가 남으면 저장 불가 안내 |
 | 책임자 | `sales`와 같음 | 검토본 저장·내보내기 | — |
 | `dept_staff` | 검토 부서 프로젝트의 초안·이력 조회, (A12) 메모 PDF 해석 실행 | (A12) 메모 PDF 업로드·해석 → `pdf_annot` 제안 | 문장 수정·검토본 저장 비노출 |
 | `manager` | 관리 대상 프로젝트의 초안·이력, 내보낸 파일 내려받기 | — | 쓰기 비노출 |
