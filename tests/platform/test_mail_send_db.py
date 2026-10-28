@@ -35,7 +35,7 @@ from tests.platform.test_mail_sync_db import rows
 
 MIGRATIONS = (
     Path("infra/migrations/platform/20261028_KAN-74_mail_send.sql"),
-    Path("infra/migrations/platform/20261028_KAN-74_mail_send_column_grants.sql"),
+    Path("infra/migrations/platform/20261029_KAN-74_mail_send_column_grants.sql"),
 )
 TOKEN, FRESH = "synthetic-send-token", "synthetic-fresh-token"
 PDF = b"%PDF-synthetic answer"

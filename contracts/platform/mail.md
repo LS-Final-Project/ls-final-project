@@ -163,7 +163,7 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 보내기 전 예상하지 못한 오류 | `FAILED` `MAIL_SEND_PREPARE_FAILED`(예외는 그대로 전달) | 없음. 나가지 않았으므로 `UNKNOWN`으로 두지 않음 |
 
 - **결과 불명 재발송 통제**: `UNKNOWN`은 `confirm_sent_copy`로 먼저 대조한다. 사본이 있으면 실제로 나간 것으로 `ACCEPTED`가 된다. 사본이 없으면 `SENT_COPY_NOT_FOUND`를 **조회를 시작한 DB 시각**으로 남긴다. 재발송은 **마지막 전송 시작 10분 뒤의 "사본 없음" 확인**이 있고, **승인자 본인**이 사유(1~500자)를 적었을 때만 `QUEUED`로 되돌린다(`RESEND_AUTHORIZED`). 시도는 최대 3회다.
-- **권한**: `platform_app`은 의도 SELECT·INSERT와 상태 열만 UPDATE(`20261028_KAN-74_mail_send_column_grants.sql`), 이력 SELECT·INSERT만. 승인 내용(본문·수신자·첨부·payload 해시)·이력 수정과 삭제 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
+- **권한**: `platform_app`은 의도 SELECT·INSERT와 상태 열만 UPDATE(`20261029_KAN-74_mail_send_column_grants.sql`), 이력 SELECT·INSERT만. 승인 내용(본문·수신자·첨부·payload 해시)·이력 수정과 삭제 불가. `cs_app`·`tft_app`은 직접 접근하지 않는다.
 - 문의 종결 조건(“`UNKNOWN` 발송 의도가 없어야 함”, [권한 문서](permissions.md))은 이 표의 상태로 판단한다. 발송 상태가 문의·개선요청 상태를 자동으로 바꾸지 않는다.
 
 ## 업무 유형 분류 (KAN-73, 부분 구현)
