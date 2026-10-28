@@ -325,7 +325,8 @@ async def sync(request: Request) -> JSONResponse:
                 judged |= await judge_new_replies(
                     request.app.state.settings, payload.mailbox_id, store
                 )
-            except (psycopg.Error, ApplicationError):
+            except (psycopg.Error, ApplicationError, HTTPException):
+                # 공용 DB 연결은 DB 오류를 HTTP 503 예외로 바꾼다. 그것도 수집 결과로 번지지 않게 한다.
                 judged["failed"] += 1
     if result is None:
         data = SyncData(

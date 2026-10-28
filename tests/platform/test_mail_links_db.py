@@ -521,3 +521,15 @@ def test_sync_worker_judges_the_mail_it_just_collected(settings, links):
         "JOIN integration.mail_messages m ON m.id=c.message_id WHERE m.mailbox_id=%s ORDER BY 1, 2",
         links["id"],
     ) == [("NONE", "inbox"), ("NONE", "inbox")]
+
+
+def test_removed_mail_is_not_judged(settings, links):
+    sent_intent(settings, links, "cs_ticket:TCK-8", internet_id="<ans8@team4>", graph_id="AAMk-s8")
+    raw = mime(in_reply_to="<ans8@team4>")
+    reply = add_message(links, raw)
+    with psycopg.connect(links["dsn"]) as conn:
+        conn.execute("UPDATE integration.mail_messages SET removed_at=now() WHERE id=%s", (reply,))
+    assert resolve(settings, reply, raw).outcome == "NONE"
+    assert rows(
+        links["dsn"], "SELECT count(*) FROM integration.mail_links WHERE message_id=%s", reply
+    ) == [(0,)]

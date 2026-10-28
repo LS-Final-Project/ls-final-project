@@ -255,7 +255,8 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `UNMATCHED_REPLY` | 회신 헤더가 있는데 맞는 업무가 없음(추측해서 붙이지 않음) |
 | `TRIAGE_DISAGREES` | 근거로는 한 업무지만 KAN-73 최신 분류가 기존 스레드가 아니라고 봄(`NEW_CS_TICKET` 등) — 다른 업무에 대한 회신일 수 있음 |
 
-- 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다.
+- 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
+- **한계**: 판정은 메일당 한 번이다. `UNMATCHED_REPLY`로 검토에 간 메일은 나중에 그 원 메일이 `link_origin`으로 기록돼도 자동으로 다시 판정되지 않고, 후보가 없어 닫기만 할 수 있다. 메일로 접수한 문의는 접수 때 바로 `link_origin`을 남겨(KAN-110) 회신보다 먼저 근거가 있게 한다.
 - **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 업무 쪽(KAN-110)이 `replies_for(owner_service, business_ref)`로 연결을 읽고 한다.
 - **자동 판정**: 수집 워커(`/internal/v1/platform/mail/sync`)가 수집 뒤 `judge_new_replies`로 판정 표시가 없는 받은 메일을 최대 50통 판정한다. 원문 읽기 실패 등은 표시를 남기지 않아 다음 실행에서 다시 하며, 수집 결과·응답 코드는 바꾸지 않는다(`replies_linked`·`replies_review`·`replies_failed`만 알린다).
 
@@ -276,5 +277,5 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - 회신 검토 API의 웹 중계와 화면(KAN-132)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 회신·스레드와 업무 연결(KAN-75), 수집한 메일을 C/S 문의로 바꾸는 연결(분류 추천은 위 KAN-73 절)
+- 수집한 메일을 C/S 문의로 바꾸는 연결(KAN-110, 분류 추천은 위 KAN-73 절)
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

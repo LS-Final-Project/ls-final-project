@@ -20,7 +20,7 @@ from email.parser import BytesParser
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
@@ -184,7 +184,7 @@ async def resolve_reply(settings: Settings, message_id: UUID, raw: bytes) -> Rep
     """
     async with connection(settings) as conn, conn.transaction():
         cursor = await conn.execute(
-            "SELECT mailbox_id, folder, raw_sha256, conversation_id "
+            "SELECT mailbox_id, folder, raw_sha256, conversation_id, removed_at "
             "FROM integration.mail_messages WHERE id=%s FOR UPDATE",
             (message_id,),
         )
@@ -200,8 +200,8 @@ async def resolve_reply(settings: Settings, message_id: UUID, raw: bytes) -> Rep
             return await current(conn, message_id) or ReplyResult(
                 message_id=message_id, outcome="NONE"
             )
-        if message["folder"] != "inbox":
-            # 우리가 보낸 메일은 회신 판정 대상이 아니다(발송 의도로 이미 업무와 묶여 있다).
+        if message["folder"] != "inbox" or message["removed_at"] is not None:
+            # 우리가 보낸 메일(발송 의도로 이미 업무와 묶임)과 사서함에서 지워진 메일은 판정하지 않는다.
             return await checked(conn, ReplyResult(message_id=message_id, outcome="NONE"))
         ids = reply_headers(raw)
         header = await header_candidates(conn, message["mailbox_id"], ids)
@@ -285,7 +285,8 @@ async def judge_new_replies(
                 StoredObject(row["raw_storage_key"], row["raw_sha256"], row["raw_size"])
             )
             counts[(await resolve_reply(settings, row["id"], raw)).outcome] += 1
-        except ApplicationError:
+        except (ApplicationError, HTTPException):
+            # 원문 읽기·DB 일시 장애. 표시를 남기지 않아 다음 실행에서 다시 한다.
             counts["failed"] += 1
     return counts
 
