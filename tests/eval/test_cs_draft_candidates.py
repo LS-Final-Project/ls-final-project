@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 
 import pytest
 
@@ -555,6 +556,47 @@ def test_only_malformed_drafts_are_retried_as_attempt_two():
     assert off["candidates"][0]["final"]["retried"] == 0
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         run(invalid_output_retries=2)
+
+
+def test_rule_violations_keep_their_code_and_are_not_retried():
+    """형식은 맞지만 입력 밖 근거를 인용한 초안은 CS_UNKNOWN_REFERENCE로 남고 재호출하지 않는다(KAN-194 6차).
+
+    Args:
+        없음.
+
+    Returns:
+        None: 최초 위반 코드, 재호출 0, 스키마 위반 수를 확인한다.
+    """
+    healthy = provider()
+
+    def outside_evidence(prompt):
+        """근거 ID를 입력에 없는 값으로 바꾼 응답을 낸다.
+
+        Args:
+            prompt: 렌더링한 프롬프트.
+
+        Returns:
+            Generation: 입력 밖 근거를 인용한 응답.
+        """
+        generation = healthy(prompt)
+        body = json.loads(generation.text)
+        for option in body["options"]:
+            for sentence in option["sentences"]:
+                if sentence["evidence_chunk_ids"]:
+                    sentence["evidence_chunk_ids"] = ["not-in-input"]
+        return replace(generation, text=json.dumps(body))
+
+    result = run(
+        candidates=[DraftCandidate("cites-outside", outside_evidence, "fake-a", "v1")],
+        return_attempts=True,
+    )
+    row = result["candidates"][0]
+    attempts = result["attempts"]["cites-outside"]
+    cited = [a for a in attempts.values() if a.error_code == "CS_UNKNOWN_REFERENCE"]
+    assert cited and all(a.outcome == "SCHEMA_VIOLATION" for a in cited)
+    assert row["final"]["retried"] == 0 and result["retries"]["cites-outside"] == {}
+    assert row["schema"]["schema_violations"] == len(cited)
+    assert row["schema"]["error_codes"] == {"CS_UNKNOWN_REFERENCE": len(cited)}
 
 
 def test_draft_on_case_and_prior_replay_without_calls():

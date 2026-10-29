@@ -16,6 +16,16 @@
 
 - 분기는 `route_after_classify` 하나다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
 - 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
+- 초안 오류 코드(KAN-194 6차): `drafting.validate_output`은 내용 규칙 위반을 `CS_INVALID_OUTPUT`으로 합치지 않고 그 코드를 그대로 올리며, `drafting_call`이 outcome `SCHEMA_VIOLATION`·`error_code=<코드>`로 남긴다. 그래서 결정적 위반(근거 ID 인용 오류 등)은 위 재호출 대상이 아니다.
+
+  | `error_code` | 뜻 | 재호출 |
+  | --- | --- | --- |
+  | `CS_INVALID_OUTPUT` | JSON 파싱 실패·중복 키·타입·필드 위반(내용 규칙 위반과 섞인 경우 포함) | 1회 |
+  | `CS_UNKNOWN_REFERENCE` | 입력에 없는 근거 chunk_id·정보 코드 인용 | 안 함 |
+  | `CS_MISSING_INFO_REQUEST` | INFO_FIRST가 요청 코드를 다 묻지 않음 | 안 함 |
+  | `CS_EVIDENCE_REQUIRED` | 근거 ID 없는 EVIDENCE 문장 | 안 함 |
+  | `CS_DUPLICATE_EVIDENCE`·`CS_DUPLICATE_INFO`·`CS_DUPLICATE_OPTION` | 근거 ID·정보 요청·선택지 라벨 중복 | 안 함 |
+  | `CS_FORBIDDEN_COMMITMENT`·`CS_BLOCKED_EVIDENCE` | 승인·확정 약속, 차단 코드 언급 | 안 함 |
 - 엔진은 고치지 않는다. 모델 호출은 `backend/shared/ai.py`·`providers.py` 어댑터를 그대로 쓰며 LangChain 모델 래퍼는 쓰지 않는다.
 
 ## 중단점과 재개

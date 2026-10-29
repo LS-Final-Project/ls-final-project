@@ -11,6 +11,7 @@ from backend.engine.cs.drafting import (
     DRAFT_INPUT_VERSION,
     DRAFT_INPUT_VERSION_STRIPPED,
     DRAFT_PROMPT,
+    DRAFT_VALIDATION_CODES,
     FORBIDDEN_COMMITMENTS,
     EvidenceSnippet,
     build_draft_input,
@@ -211,18 +212,38 @@ def test_three_options_with_kinds_and_evidence_pass():
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "code"),
     [
-        raw(option("CONCISE"), option("DETAILED")),
-        raw(option("CONCISE"), option("CONCISE"), option("INFO_FIRST")),
-        raw(option("CONCISE", ids=()), option("DETAILED"), option("INFO_FIRST")),
-        raw(option("CONCISE", ids=("c9",)), option("DETAILED"), option("INFO_FIRST")),
-        raw(option("CONCISE", ids=("c1", "c1")), option("DETAILED"), option("INFO_FIRST")),
-        raw(option("CONCISE", kind="GUESS"), option("DETAILED"), option("INFO_FIRST")),
-        raw().replace("TEST_PHOTO", "TEST_SERIAL", 1),
-        raw().replace('"label": "CONCISE"', '"label": "CONCISE", "extra": 1'),
-        raw().replace('{"options": ', '{"options": [], "options": '),
-        "not json",
+        (raw(option("CONCISE"), option("DETAILED")), "CS_INVALID_OUTPUT"),
+        (raw(option("CONCISE"), option("CONCISE"), option("INFO_FIRST")), "CS_DUPLICATE_OPTION"),
+        (
+            raw(option("CONCISE", ids=()), option("DETAILED"), option("INFO_FIRST")),
+            "CS_EVIDENCE_REQUIRED",
+        ),
+        (
+            raw(option("CONCISE", ids=("c9",)), option("DETAILED"), option("INFO_FIRST")),
+            "CS_UNKNOWN_REFERENCE",
+        ),
+        (
+            raw(option("CONCISE", ids=("c1", "c1")), option("DETAILED"), option("INFO_FIRST")),
+            "CS_DUPLICATE_EVIDENCE",
+        ),
+        (
+            raw(option("CONCISE", kind="GUESS"), option("DETAILED"), option("INFO_FIRST")),
+            "CS_INVALID_OUTPUT",
+        ),
+        (raw().replace("TEST_PHOTO", "TEST_SERIAL", 1), "CS_UNKNOWN_REFERENCE"),
+        (
+            raw().replace('"label": "CONCISE"', '"label": "CONCISE", "extra": 1'),
+            "CS_INVALID_OUTPUT",
+        ),
+        (raw().replace('{"options": ', '{"options": [], "options": '), "CS_INVALID_OUTPUT"),
+        ("not json", "CS_INVALID_OUTPUT"),
+        # 내용 규칙 위반과 타입 위반이 섞이면 스키마 위반으로 본다.
+        (
+            raw(option("CONCISE", ids=()), option("DETAILED", kind="GUESS"), option("INFO_FIRST")),
+            "CS_INVALID_OUTPUT",
+        ),
     ],
     ids=[
         "two-options",
@@ -235,18 +256,21 @@ def test_three_options_with_kinds_and_evidence_pass():
         "extra-key",
         "duplicate-json-key",
         "not-json",
+        "mixed-schema-and-rule",
     ],
 )
-def test_invalid_output_is_rejected(text):
-    """선택지 수·라벨·근거 ID·요청 코드·추가 키 위반을 거부한다.
+def test_invalid_output_is_rejected(text, code):
+    """선택지 수·라벨·근거 ID·요청 코드·추가 키 위반을 거부하고, 내용 규칙 위반은 그 코드를 보존한다.
 
     Args:
         text: 원시 위반.
+        code: 기대 오류 코드(파싱·스키마 위반은 CS_INVALID_OUTPUT, 내용 규칙은 DRAFT_VALIDATION_CODES).
 
     Returns:
-        None: CS_INVALID_OUTPUT을 확인한다.
+        None: 오류 코드를 확인한다.
     """
-    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+    assert code == "CS_INVALID_OUTPUT" or code in DRAFT_VALIDATION_CODES
+    with pytest.raises(ValueError, match=f"^{code}$"):
         check(text)
 
 
@@ -257,11 +281,11 @@ def test_repeated_info_request_in_option_is_rejected():
         없음.
 
     Returns:
-        None: CS_INVALID_OUTPUT을 확인한다.
+        None: CS_DUPLICATE_INFO를 확인한다.
     """
     doubled = option("INFO_FIRST")
     doubled["info_requests"] *= 2
-    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+    with pytest.raises(ValueError, match="^CS_DUPLICATE_INFO$"):
         check(raw(option("CONCISE"), option("DETAILED"), doubled))
 
 
@@ -272,11 +296,11 @@ def test_info_first_must_ask_every_requested_code():
         없음.
 
     Returns:
-        None: 누락은 CS_INVALID_OUTPUT, 부분 집합은 통과함을 확인한다.
+        None: 누락은 CS_MISSING_INFO_REQUEST, 부분 집합은 통과함을 확인한다.
     """
     silent = {label: option(label) | {"info_requests": []} for label in ("CONCISE", "DETAILED")}
     assert check(raw(silent["CONCISE"], silent["DETAILED"], option("INFO_FIRST")))
-    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+    with pytest.raises(ValueError, match="^CS_MISSING_INFO_REQUEST$"):
         check(
             raw(option("CONCISE"), option("DETAILED"), option("INFO_FIRST") | {"info_requests": []})
         )

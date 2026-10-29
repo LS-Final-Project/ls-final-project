@@ -83,13 +83,13 @@ def test_draft_rejects_evidence_ids_outside_the_input() -> None:
         없음.
 
     Returns:
-        None: 허용 ID는 통과하고 빠진 ID는 CS_INVALID_OUTPUT이다.
+        None: 허용 ID는 통과하고 빠진 ID는 CS_UNKNOWN_REFERENCE다(KAN-194 6차, 내부 코드 보존).
     """
     allowed = frozenset({"kept"})
     assert validate_output(
         draft_raw(["kept"]), evidence_chunk_ids=allowed, request_info_codes=frozenset()
     )
-    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+    with pytest.raises(ValueError, match="^CS_UNKNOWN_REFERENCE$"):
         validate_output(
             draft_raw(["kept", "dropped-flt"]),
             evidence_chunk_ids=allowed,

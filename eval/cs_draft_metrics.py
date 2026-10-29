@@ -2,7 +2,8 @@
 
 스키마 위반·금지 약속·근거·정보 요청·과잉 보류를 따로 센다. drafting_call은 금지 약속을 outcome
 SCHEMA_VIOLATION, error_code CS_FORBIDDEN_COMMITMENT로 남기므로 outcome 건수는 그대로 두고, 스키마 위반율은
-CS_INVALID_OUTPUT만, 금지 약속은 error_code로 따로 센다. 합격 판정과 원문·원시 응답은 결과에 넣지 않는다.
+CS_INVALID_OUTPUT과 초안 검증 코드(drafting.DRAFT_VALIDATION_CODES, KAN-194 6차부터 따로 남음)를 합쳐 세며 코드별
+건수(error_codes)도 낸다. 금지 약속은 error_code로 따로 센다. 합격 판정과 원문·원시 응답은 결과에 넣지 않는다.
 """
 
 from collections import Counter
@@ -10,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, get_args
 
-from backend.engine.cs.drafting import OptionLabel
+from backend.engine.cs.drafting import DRAFT_VALIDATION_CODES, OptionLabel
 from backend.engine.cs.drafting_call import DraftAttempt
 from eval.cs_metrics import OUTCOMES
 from eval.cs_usage import TOKEN_FIELDS, percentile, sum_report
@@ -18,6 +19,8 @@ from eval.cs_usage import TOKEN_FIELDS, percentile, sum_report
 OPTION_LABELS: tuple[str, ...] = get_args(OptionLabel)
 FORBIDDEN = "CS_FORBIDDEN_COMMITMENT"
 INVALID_OUTPUT = "CS_INVALID_OUTPUT"
+# 스키마 위반으로 세는 오류 코드. 파싱·스키마 위반과 내용 규칙 위반을 합쳐 이전과 같은 위반율을 유지한다.
+SCHEMA_CODES = frozenset({INVALID_OUTPUT}) | DRAFT_VALIDATION_CODES
 Label = Literal["PASS", "FAIL", "HOLD"]
 LABELS: tuple[str, ...] = get_args(Label)
 
@@ -76,7 +79,7 @@ def _check(
             or attempt.outcome not in OUTCOMES
             or (attempt.outcome == "VALID") != (attempt.prediction is not None)
             or (attempt.error_code == FORBIDDEN and attempt.outcome != "SCHEMA_VIOLATION")
-            or (attempt.error_code == INVALID_OUTPUT and attempt.outcome != "SCHEMA_VIOLATION")
+            or (attempt.error_code in SCHEMA_CODES and attempt.outcome != "SCHEMA_VIOLATION")
             or (attempt.outcome == "SCHEMA_VIOLATION" and attempt.raw_response is None)
         ):
             raise ValueError("EVAL_INVALID_INPUT")
@@ -94,7 +97,7 @@ def summarize_draft_first_attempts(
             summarize_final_attempts와 같은 구분). 판본과 선택 의미가 결과에 남는다.
 
     Returns:
-        dict: schema(outcome 건수·스키마 위반율), forbidden(건수·비율), grounding(문장·사례 기준 정답 근거
+        dict: schema(outcome 건수·스키마 위반율·위반 코드별 건수 error_codes), forbidden(건수·비율), grounding(문장·사례 기준 정답 근거
             비율, 정답 근거 밖·입력 밖 문장 수), info_requests(라벨별 micro P/R/F1·완전 일치율·정답 밖 요청 수),
             over_hold(답할 수 있는 사례의 전 문장 미확인·비정상 종료와 합계), unsupported_assertion(답할 수 없는
             사례의 근거 문장 사례 수), usage(토큰·지연), per_case. 비율 분모가 0이면 None이다.
@@ -103,7 +106,8 @@ def summarize_draft_first_attempts(
     _check(gold, attempts, final=final)
     outcomes: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
     received = [a for a in attempts.values() if a.raw_response is not None]
-    invalid = sum(a.error_code == INVALID_OUTPUT for a in received)
+    invalid = sum(a.error_code in SCHEMA_CODES for a in received)
+    codes = Counter(a.error_code for a in received if a.error_code in SCHEMA_CODES)
     forbidden = sum(a.error_code == FORBIDDEN for a in received)
     sentences = {"total": 0, "grounded": 0, "outside_relevant": 0, "outside_input": 0}
     grounded_cases = cases_with_evidence = unsupported = 0
@@ -171,6 +175,7 @@ def summarize_draft_first_attempts(
             "received": len(received),
             "schema_violations": invalid,
             "schema_violation_rate": _rate(invalid, len(received)),
+            "error_codes": dict(sorted(codes.items())),
         },
         "forbidden": {"count": forbidden, "rate": _rate(forbidden, len(received))},
         "grounding": {

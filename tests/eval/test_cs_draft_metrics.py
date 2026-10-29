@@ -117,7 +117,7 @@ GOLD = {
 
 
 def test_schema_and_forbidden_are_counted_apart():
-    """스키마 위반율은 CS_INVALID_OUTPUT만, 금지 약속은 따로 세고 분모는 원시 응답을 받은 건이다.
+    """스키마 위반율은 CS_INVALID_OUTPUT과 초안 검증 코드, 금지 약속은 따로 세고 분모는 원시 응답을 받은 건이다.
 
     Args:
         없음.
@@ -131,7 +131,13 @@ def test_schema_and_forbidden_are_counted_apart():
     assert schema["outcomes"]["HELD"] == 1
     assert schema["received"] == 6 and schema["schema_violations"] == 1
     assert schema["schema_violation_rate"] == pytest.approx(1 / 6)
+    assert schema["error_codes"] == {"CS_INVALID_OUTPUT": 1}
     assert result["forbidden"] == {"count": 1, "rate": pytest.approx(1 / 6)}
+    # 내용 규칙 위반 코드(KAN-194 6차)도 스키마 위반으로 세어 위반율이 같고, 코드별로 따로 보인다.
+    kept = summarize_draft_first_attempts(
+        GOLD, ATTEMPTS | {"s1": replace(ATTEMPTS["s1"], error_code="CS_UNKNOWN_REFERENCE")}
+    )["schema"]
+    assert (kept["schema_violations"], kept["error_codes"]) == (1, {"CS_UNKNOWN_REFERENCE": 1})
 
 
 def test_grounding_over_hold_and_unsupported_are_separate():
@@ -296,8 +302,9 @@ def test_human_judgement_overrides_judge():
     [
         DraftAttempt(1, "SCHEMA_VIOLATION", error_code="CS_INVALID_OUTPUT"),
         DraftAttempt(1, "TRANSPORT_FAILURE", error_code="CS_INVALID_OUTPUT"),
+        DraftAttempt(1, "TRANSPORT_FAILURE", error_code="CS_MISSING_INFO_REQUEST"),
     ],
-    ids=["schema-without-raw", "invalid-output-on-transport"],
+    ids=["schema-without-raw", "invalid-output-on-transport", "rule-code-on-transport"],
 )
 def test_schema_violation_needs_raw_and_matching_outcome(attempt):
     """원시 응답 없는 스키마 위반과 다른 결과에 붙은 CS_INVALID_OUTPUT은 집계가 어긋나므로 거부한다.

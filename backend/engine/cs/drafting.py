@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from backend.engine.cs.classification import ClassificationOutput, _unique_object, build_input
 from backend.engine.cs.prompt_registry import get_prompt
@@ -22,6 +22,18 @@ from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 DRAFT_INPUT_VERSION = "cs-draft-input-v2"
 DRAFT_INPUT_VERSION_STRIPPED = "cs-draft-input-v1"
 OptionLabel = Literal["CONCISE", "DETAILED", "INFO_FIRST"]
+# 형식은 맞지만 내용 규칙을 어긴 초안 검증 코드(KAN-194 6차). CS_INVALID_OUTPUT(파싱·스키마 위반)과 따로 남겨
+# 원인을 구분한다. 결정적 위반이라 하네스·그래프의 CS_INVALID_OUTPUT 재호출 대상이 아니다.
+DRAFT_VALIDATION_CODES = frozenset(
+    {
+        "CS_UNKNOWN_REFERENCE",
+        "CS_MISSING_INFO_REQUEST",
+        "CS_EVIDENCE_REQUIRED",
+        "CS_DUPLICATE_EVIDENCE",
+        "CS_DUPLICATE_INFO",
+        "CS_DUPLICATE_OPTION",
+    }
+)
 SentenceKind = Literal["EVIDENCE", "CONDITION", "UNCONFIRMED"]
 
 # 승인·확정 약속의 확정형만 잡는다. 조건부 표현(검토 후, 여부, may be eligible)은 통과한다.
@@ -263,6 +275,24 @@ def find_forbidden_commitment(text: str) -> bool:
     return any(pattern.search(text) for pattern in FORBIDDEN_COMMITMENTS)
 
 
+def _validation_code(error: ValidationError) -> str:
+    """모델 검증 오류가 모두 초안 검증 코드면 첫 코드를, 아니면 CS_INVALID_OUTPUT을 고른다.
+
+    Args:
+        error: DraftOutput.model_validate의 오류.
+
+    Returns:
+        str: DRAFT_VALIDATION_CODES 중 하나 또는 CS_INVALID_OUTPUT(타입·필드 누락이 섞이면 스키마 위반이다).
+    """
+    codes = [
+        str(item.get("ctx", {}).get("error", "")) if item["type"] == "value_error" else ""
+        for item in error.errors()
+    ]
+    if codes and all(code in DRAFT_VALIDATION_CODES for code in codes):
+        return codes[0]
+    return "CS_INVALID_OUTPUT"
+
+
 def validate_output(
     raw: str,
     *,
@@ -279,25 +309,30 @@ def validate_output(
         blocked_codes: 문장·질문에 있으면 거부하는 인용 차단 코드(최종 응답 경계).
 
     Returns:
-        DraftOutput: 유효한 초안. INFO_FIRST는 request_info_codes를 전부 물어야 한다. 형식·근거·코드 위반은 CS_INVALID_OUTPUT, 형식은 맞지만 승인·확정
-            약속이 있으면 CS_FORBIDDEN_COMMITMENT, 차단 코드를 말하면 CS_BLOCKED_EVIDENCE ValueError다.
+        DraftOutput: 유효한 초안. INFO_FIRST는 request_info_codes를 전부 물어야 한다. 위반은 ValueError이며
+            코드는 JSON 파싱·중복 키·타입·필드 위반이면 CS_INVALID_OUTPUT, 형식은 맞지만 내용 규칙을 어기면
+            DRAFT_VALIDATION_CODES의 해당 코드(입력 밖 근거·요청 코드 CS_UNKNOWN_REFERENCE, INFO_FIRST 요청 누락
+            CS_MISSING_INFO_REQUEST, 근거 없는 EVIDENCE CS_EVIDENCE_REQUIRED, 중복 CS_DUPLICATE_*), 승인·확정 약속은
+            CS_FORBIDDEN_COMMITMENT, 차단 코드를 말하면 CS_BLOCKED_EVIDENCE다.
     """
     try:
         output = DraftOutput.model_validate(json.loads(raw, object_pairs_hook=_unique_object))
-        for option in output.options:
-            if any(
-                not set(sentence.evidence_chunk_ids) <= evidence_chunk_ids
-                for sentence in option.sentences
-            ) or any(r.info_code not in request_info_codes for r in option.info_requests):
-                raise ValueError("CS_UNKNOWN_REFERENCE")
-            # 정보 요청 우선 선택지는 요청 코드를 전부 묻는다. 나머지는 부분 집합이면 된다.
-            if (
-                option.label == "INFO_FIRST"
-                and {r.info_code for r in option.info_requests} != request_info_codes
-            ):
-                raise ValueError("CS_MISSING_INFO_REQUEST")
+    except ValidationError as error:
+        raise ValueError(_validation_code(error)) from None
     except (ValueError, RecursionError):
         raise ValueError("CS_INVALID_OUTPUT") from None
+    for option in output.options:
+        if any(
+            not set(sentence.evidence_chunk_ids) <= evidence_chunk_ids
+            for sentence in option.sentences
+        ) or any(r.info_code not in request_info_codes for r in option.info_requests):
+            raise ValueError("CS_UNKNOWN_REFERENCE")
+        # 정보 요청 우선 선택지는 요청 코드를 전부 묻는다. 나머지는 부분 집합이면 된다.
+        if (
+            option.label == "INFO_FIRST"
+            and {r.info_code for r in option.info_requests} != request_info_codes
+        ):
+            raise ValueError("CS_MISSING_INFO_REQUEST")
     texts = [
         text
         for option in output.options
