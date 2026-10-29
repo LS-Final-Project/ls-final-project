@@ -1,0 +1,312 @@
+"""C/S 처리 그래프(LangGraph) 골격과 체크포인트(KAN-194). contracts/cs/graph.md가 계약이다.
+
+분류 → 규칙 → 근거 검색 → 답변 초안 → 사람 확인 순서로 기존 순수 함수 엔진을 노드 안에서 부른다. 엔진은 고치지
+않는다. 사람 확인 직전에 멈추고(interrupt_before), 같은 thread_id로 invoke(None, config)를 부르면 끝난다.
+
+주입은 build_graph 인자로만 한다. LangGraph는 config["configurable"]·["metadata"]의 문자열·수 값을 체크포인트
+metadata에 그대로 복사하므로(langgraph.checkpoint.base.get_checkpoint_metadata), 원문이나 식별자를 configurable로
+넘기면 DB에 남는다. 그래서 configurable에는 thread_id만 두고, 원문 레코드·민감값·고객 등급 같은 사례 입력은
+노드 안에서 load_ticket으로만 꺼낸다. 상태에는 마스킹한 분류 입력과 결과·시도 ID만 두고 원문·정답·raw_response는
+두지 않는다. 시도 기록(raw_response 포함)은 record_attempt가 상태 밖에 저장한다.
+"""
+
+import json
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Literal, TypedDict
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph import END, START, StateGraph
+
+from backend.engine.cs.classification import (
+    ClassificationInput,
+    ClassificationOutput,
+    build_input,
+)
+from backend.engine.cs.classification_call import ClassificationAttempt, run_classification_attempt
+from backend.engine.cs.drafting import EvidenceSnippet
+from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
+from backend.engine.cs.rules import RuleInputError, decide
+from backend.engine.search.hybrid import Searcher, run_hybrid
+from backend.engine.search.model import SearchFilters
+from backend.shared.ai import Generation
+
+Stage = Literal[
+    "RECEIVED", "CLASSIFIED", "CLASSIFY_FAILED", "RULED", "RETRIEVED", "DRAFTED", "HUMAN_REVIEW"
+]
+HUMAN_REVIEW = "human_review"
+
+
+class CsState(TypedDict):
+    """체크포인트에 남는 그래프 상태. 원문·정답·raw_response·키는 두지 않는다."""
+
+    ticket_id: str
+    # build_input으로 마스킹한 분류 입력(channel·body_language·subject·body)만 둔다.
+    record: dict[str, Any] | None
+    classification: dict[str, Any] | None
+    attempt_ids: list[str]
+    rules: dict[str, Any] | None
+    evidence: list[dict[str, Any]]
+    draft: dict[str, Any] | None
+    errors: list[dict[str, str]]
+    stage: Stage
+
+
+@dataclass(frozen=True)
+class TicketInputs:
+    """load_ticket이 노드 안에서만 돌려주는 사례 입력. 상태·configurable에 넣지 않는다."""
+
+    record: Mapping[str, object]
+    sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]]
+    product_code: str
+    customer_tier: str
+    received_at: datetime
+    required_info_codes: frozenset[str]
+    already_asked_codes: frozenset[str]
+
+
+def initial_state(ticket_id: str) -> CsState:
+    """새 문의의 시작 상태.
+
+    Args:
+        ticket_id: 문의 ID. thread_id로도 쓴다.
+
+    Returns:
+        CsState: 빈 결과의 RECEIVED 상태.
+    """
+    return CsState(
+        ticket_id=ticket_id,
+        record=None,
+        classification=None,
+        attempt_ids=[],
+        rules=None,
+        evidence=[],
+        draft=None,
+        errors=[],
+        stage="RECEIVED",
+    )
+
+
+def thread_config(thread_id: str) -> dict[str, Any]:
+    """실행 config. configurable에는 thread_id만 둔다(나머지 값은 체크포인트 metadata로 복사되므로).
+
+    Args:
+        thread_id: 체크포인트 스레드 ID(문의 ID).
+
+    Returns:
+        dict: {"configurable": {"thread_id": thread_id}}.
+    """
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def route_after_classify(state: CsState) -> str:
+    """분류 뒤 갈 곳을 고른다(순수 함수).
+
+    Args:
+        state: 분류 노드가 갱신한 상태.
+
+    Returns:
+        str: 분류 결과가 있으면 "rules", 없으면(분류 실패) END.
+    """
+    return "rules" if state["classification"] is not None else END
+
+
+def _error(state: CsState, node: str, code: str) -> list[dict[str, str]]:
+    """오류 목록에 원문 없는 코드 하나를 더한다.
+
+    Args:
+        state: 현재 상태.
+        node: 노드 이름.
+        code: 안전한 오류 코드.
+
+    Returns:
+        list[dict[str, str]]: 새 오류 목록.
+    """
+    return [*state["errors"], {"node": node, "code": code}]
+
+
+def _plain(value: Any) -> dict[str, Any]:
+    """dataclass를 체크포인트에 넣을 JSON 값으로 바꾼다. datetime은 ISO 문자열이다.
+
+    Args:
+        value: dataclass 인스턴스.
+
+    Returns:
+        dict: JSON으로 왕복 가능한 dict.
+    """
+    return json.loads(
+        json.dumps(asdict(value), default=lambda v: v.isoformat() if isinstance(v, datetime) else v)
+    )
+
+
+def build_graph(
+    *,
+    classification_provider: Callable[[ClassificationInput], Generation],
+    draft_provider: Callable[[str], Generation],
+    fts_searcher: Searcher,
+    search_filters: SearchFilters,
+    allowed_info_codes: frozenset[str],
+    load_ticket: Callable[[str], TicketInputs],
+    record_attempt: Callable[[str, str, ClassificationAttempt | DraftAttempt], str],
+    checkpointer: BaseCheckpointSaver,
+    vector_searcher: Searcher | None = None,
+) -> Any:
+    """C/S 처리 그래프를 만들어 사람 확인 직전 중단점과 함께 컴파일한다.
+
+    Args:
+        classification_provider: 정제 분류 입력을 받아 Generation을 돌려주는 공급자(ai.py·providers.py 어댑터).
+        draft_provider: 초안 프롬프트를 받아 Generation을 돌려주는 공급자.
+        fts_searcher: FTS 검색기. vector_searcher와 함께 hybrid.run_hybrid에 넘긴다.
+        search_filters: 두 검색기에 똑같이 넘기는 검색 조건.
+        allowed_info_codes: 검수된 정보 코드 집합.
+        load_ticket: ticket_id로 TicketInputs를 돌려주는 콜러블. 노드 안에서만 부른다.
+        record_attempt: (kind, ticket_id, attempt)를 받아 시도를 상태 밖에 저장하고 ID를 돌려준다.
+            kind는 "classification" 또는 "draft"다.
+        checkpointer: MemorySaver(검사) 또는 checkpoint_cs 스키마의 PostgresSaver.
+        vector_searcher: 벡터 검색기. None이면 FTS만 쓴다.
+
+    Returns:
+        CompiledStateGraph: interrupt_before=["human_review"]로 컴파일한 그래프. 주입은 이 인자로만 하고
+            config["configurable"]에는 thread_id만 둔다(thread_config). 분류 실패는 END, 규칙·검색·초안 실패는
+            errors에 코드를 남기고 계속한다.
+    """
+
+    def classify(state: CsState) -> dict[str, Any]:
+        """분류 시도 1회를 실행하고 마스킹한 입력과 결과만 상태에 둔다.
+
+        Args:
+            state: 현재 상태.
+
+        Returns:
+            dict: 상태 갱신.
+        """
+        ticket = load_ticket(state["ticket_id"])
+        attempt = run_classification_attempt(
+            ticket.record,
+            sensitive_values=ticket.sensitive_values,
+            allowed_info_codes=allowed_info_codes,
+            provider=classification_provider,
+            attempt_number=1,
+        )
+        attempt_id = record_attempt("classification", state["ticket_id"], attempt)
+        ids = [*state["attempt_ids"], attempt_id]
+        if attempt.prediction is None:
+            code = attempt.error_code or attempt.outcome
+            return {
+                "attempt_ids": ids,
+                "errors": _error(state, "classify", code),
+                "stage": "CLASSIFY_FAILED",
+            }
+        masked = build_input(ticket.record, sensitive_values=ticket.sensitive_values)
+        return {
+            "attempt_ids": ids,
+            "record": masked.payload.model_dump(),
+            "classification": attempt.prediction.model_dump(mode="json"),
+            "stage": "CLASSIFIED",
+        }
+
+    def rules(state: CsState) -> dict[str, Any]:
+        """우선순위·담당 부서·SLA 규칙을 계산한다. 정책 밖 입력은 오류로 남기고 계속한다.
+
+        Args:
+            state: 분류가 끝난 상태.
+
+        Returns:
+            dict: 상태 갱신.
+        """
+        ticket = load_ticket(state["ticket_id"])
+        result = state["classification"] or {}
+        try:
+            decision = decide(
+                category=result["category_code"],
+                urgency=result["urgency_flag"],
+                product_code=ticket.product_code,
+                customer_tier=ticket.customer_tier,
+                return_subtype=result["return_subtype"],
+                received_at=ticket.received_at,
+            )
+        except RuleInputError:
+            return {"errors": _error(state, "rules", "CS_RULE_INPUT"), "stage": "RULED"}
+        return {"rules": _plain(decision), "stage": "RULED"}
+
+    def retrieve(state: CsState) -> dict[str, Any]:
+        """마스킹한 제목·본문으로 혼합 검색해 근거 스니펫으로 바꾼다.
+
+        Args:
+            state: 규칙 단계가 끝난 상태.
+
+        Returns:
+            dict: 상태 갱신. 검색기 예외는 원문 없이 CS_SEARCH_FAILED로 남긴다.
+        """
+        record = state["record"] or {}
+        query = "\n".join(part for part in (record.get("subject"), record.get("body")) if part)
+        try:
+            result = run_hybrid(query, search_filters, fts=fts_searcher, vector=vector_searcher)
+        except Exception:
+            return {"errors": _error(state, "retrieve", "CS_SEARCH_FAILED"), "stage": "RETRIEVED"}
+        evidence = [
+            EvidenceSnippet(
+                chunk_id=item.candidate.chunk_id,
+                snippet=item.candidate.snippet,
+                section_path=list(item.candidate.section_path),
+                document_sha256=item.candidate.document_sha256,
+            ).model_dump()
+            for item in result.items
+        ]
+        return {"evidence": evidence, "stage": "RETRIEVED"}
+
+    def draft(state: CsState) -> dict[str, Any]:
+        """초안 시도 1회를 실행한다. 실패해도 사람 확인으로 넘긴다(사람이 직접 쓴다).
+
+        Args:
+            state: 근거 검색이 끝난 상태.
+
+        Returns:
+            dict: 상태 갱신.
+        """
+        ticket = load_ticket(state["ticket_id"])
+        attempt = run_draft_attempt(
+            ticket.record,
+            classification=ClassificationOutput.model_validate(state["classification"]),
+            required_info_codes=ticket.required_info_codes,
+            already_asked_codes=ticket.already_asked_codes,
+            evidence=[EvidenceSnippet.model_validate(e) for e in state["evidence"]],
+            sensitive_values=ticket.sensitive_values,
+            provider=draft_provider,
+            attempt_number=1,
+        )
+        ids = [*state["attempt_ids"], record_attempt("draft", state["ticket_id"], attempt)]
+        if attempt.prediction is None:
+            code = attempt.error_code or attempt.outcome
+            return {"attempt_ids": ids, "errors": _error(state, "draft", code), "stage": "DRAFTED"}
+        return {
+            "attempt_ids": ids,
+            "draft": attempt.prediction.model_dump(mode="json"),
+            "stage": "DRAFTED",
+        }
+
+    def human_review(state: CsState) -> dict[str, Any]:
+        """사람 확인 단계 표시만 남긴다. 확정·전송은 그래프 밖에서 사람이 한다.
+
+        Args:
+            state: 초안 단계가 끝난 상태.
+
+        Returns:
+            dict: stage=HUMAN_REVIEW.
+        """
+        return {"stage": "HUMAN_REVIEW"}
+
+    graph = StateGraph(CsState)
+    graph.add_node("classify", classify)
+    graph.add_node("rules", rules)
+    graph.add_node("retrieve", retrieve)
+    graph.add_node("draft", draft)
+    graph.add_node(HUMAN_REVIEW, human_review)
+    graph.add_edge(START, "classify")
+    graph.add_conditional_edges("classify", route_after_classify, ["rules", END])
+    graph.add_edge("rules", "retrieve")
+    graph.add_edge("retrieve", "draft")
+    graph.add_edge("draft", HUMAN_REVIEW)
+    graph.add_edge(HUMAN_REVIEW, END)
+    return graph.compile(checkpointer=checkpointer, interrupt_before=[HUMAN_REVIEW])
