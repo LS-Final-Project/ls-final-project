@@ -21,7 +21,10 @@ MIGRATIONS = (
     "20261023_KAN-119_projects.sql",
     "20261023_KAN-122_staffing_requests.sql",
     "20261029_KAN-182_rfp_response.sql",
+    "20261030_KAN-182_rfp_keys.sql",
 )
+# 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
+RERUNNABLE = MIGRATIONS[2:]
 NOW = datetime(2026, 10, 29, tzinfo=UTC)
 
 
@@ -51,10 +54,11 @@ def admin():
                 "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tft_app"
             )
         if conn.execute("SELECT to_regclass('tft.projects')").fetchone()[0] is None:
-            for name in MIGRATIONS[:-1]:
+            for name in MIGRATIONS[:2]:
                 apply(conn, Path("infra/migrations/tft") / name)
         # 다시 적용해도 깨지지 않는다(ADD COLUMN IF NOT EXISTS·CREATE TABLE IF NOT EXISTS).
-        apply(conn, Path("infra/migrations/tft") / MIGRATIONS[-1])
+        for name in RERUNNABLE:
+            apply(conn, Path("infra/migrations/tft") / name)
     return dsn
 
 
@@ -377,4 +381,39 @@ def test_proposal_cannot_point_at_another_projects_requirement(admin, chain):
         "proposed, rationale, proposer_kind, proposer_user_id, data_origin, derivation_kind, "
         "known_at) VALUES (%s,%s,%s,'web','{}','{}','근거','user',%s,'synthetic','PROVIDED',now())",
         (uuid4(), other, chain["requirement"], uuid4()),
+    )
+
+
+def test_the_same_computed_version_is_stored_once(admin, chain):
+    base = (
+        "INSERT INTO tft.product_comparisons (id, requirement_id, requirement_version, product_code, "
+        "variant, comparable, result, provenance_kind, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,%s,1,'LS-15',NULL,true,'MEETS','ai_draft','synthetic','DERIVED',now())"
+    )
+    with psycopg.connect(admin) as conn:
+        conn.execute(base, (uuid4(), chain["requirement"]))
+    # variant가 없는 같은 제품·같은 판본을 다시 쓰면 막힌다.
+    violates(admin, base, (uuid4(), chain["requirement"]))
+
+
+def test_rereview_mark_cause_must_be_a_proposal_of_the_same_project(admin, chain):
+    proposal, other = uuid4(), uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.projects (id, source, source_instance, data_origin, derivation_kind, "
+            "known_at, company_code, name) VALUES (%s,'test','kan182','synthetic','PROVIDED',%s,"
+            "'HOST','다른 프로젝트')",
+            (other, NOW),
+        )
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id, project_id, requirement_id, origin, current, "
+            "proposed, rationale, proposer_kind, proposer_user_id, data_origin, derivation_kind, "
+            "known_at) VALUES (%s,%s,%s,'web','{}','{}','근거','user',%s,'synthetic','PROVIDED',now())",
+            (proposal, chain["project"], chain["requirement"], uuid4()),
+        )
+    violates(
+        admin,
+        "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, cause_proposal_id) "
+        "VALUES (%s,%s,'requirement',%s,%s)",
+        (uuid4(), other, chain["requirement"], proposal),
     )

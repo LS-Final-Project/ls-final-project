@@ -1351,6 +1351,32 @@
         "title": "Judgement",
         "type": "object"
       },
+      "LeadTime": {
+        "additionalProperties": false,
+        "properties": {
+          "ex_works": {
+            "title": "Ex Works",
+            "type": "boolean"
+          },
+          "unit": {
+            "const": "weeks",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "ex_works"
+        ],
+        "title": "LeadTime",
+        "type": "object"
+      },
       "MandatoryCheck": {
         "additionalProperties": false,
         "properties": {
@@ -1442,13 +1468,12 @@
           "lead_time": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/LeadTime"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Lead Time"
+            ]
           },
           "on_customer_manufacturer_list": {
             "anyOf": [

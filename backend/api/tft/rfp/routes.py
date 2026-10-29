@@ -8,15 +8,37 @@
 from typing import Annotated, Any, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
+from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import schemas as s
+from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
+from backend.shared.logs import bind_path_ids
 from backend.shared.models import ErrorResponse, SuccessResponse
+
+
+def rfp_principal(request: Request) -> Principal:
+    """모든 RFP 경로의 공통 앞단: 사용자 맥락 401, TFT 역할 없음(cs_agent) 403.
+
+    프로젝트 범위(404)는 경로마다 구현 티켓이 검사한다. 구현이 핸들러만 채워도 인증 없는
+    경로가 열리지 않도록 라우터 단위로 둔다.
+
+    Args:
+        request: 플랫폼 중계가 사용자 맥락을 넣은 요청.
+
+    Returns:
+        Principal: 검증한 사용자.
+    """
+    principal = current_principal(request)
+    require_project_list(principal)
+    return principal
+
 
 router = APIRouter(
     prefix="/api/v1/tft",
     tags=["rfp"],
+    dependencies=[Depends(bind_path_ids), Depends(rfp_principal)],
     responses={
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
