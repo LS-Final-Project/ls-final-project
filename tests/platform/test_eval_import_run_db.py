@@ -216,21 +216,120 @@ def test_import_round_trip_registers_scores_and_stops_on_repeat(
         assert (report.origin, report.status, report.target_count) == ("IMPORT", "PARTIAL", 3)
         assert report.all.stored_raw_response_count == 0
     finally:
+        cleanup(evaluation_database, actor)
+
+
+def cleanup(evaluation_database, actor):
+    """검사 평가자가 만든 실험과 그 실행·사례·시도·지표 행을 지운다.
+
+    Args:
+        evaluation_database: 관리자 DSN.
+        actor: 검사 평가자.
+
+    Returns:
+        None: 정리만 한다.
+    """
+    with psycopg.connect(evaluation_database) as conn:
+        mine = "SELECT id FROM evaluation.experiments WHERE created_by_user_id=%s"
+        runs = f"SELECT id FROM evaluation.runs WHERE experiment_id IN ({mine})"
+        cases = f"SELECT id FROM evaluation.cases WHERE run_id IN ({runs})"
+        conn.execute(f"DELETE FROM evaluation.metrics WHERE run_id IN ({runs})", (actor,))
+        conn.execute(f"DELETE FROM evaluation.case_attempts WHERE case_id IN ({cases})", (actor,))
+        conn.execute(f"DELETE FROM evaluation.cases WHERE run_id IN ({runs})", (actor,))
+        conn.execute(
+            f"DELETE FROM evaluation.admission_receipts WHERE run_id IN ({runs})", (actor,)
+        )
+        conn.execute(f"DELETE FROM evaluation.runs WHERE id IN ({runs})", (actor,))
+        conn.execute(
+            f"DELETE FROM evaluation.experiment_targets WHERE experiment_id IN ({mine})", (actor,)
+        )
+        conn.execute(f"DELETE FROM evaluation.experiments WHERE id IN ({mine})", (actor,))
+
+
+def test_import_with_audit_fills_attempt_columns(
+    evaluation_database, registered_user, tmp_path, monkeypatch
+):
+    """감사 파일이 있으면 시도 행의 사용량·지연·입력 hash·응답 판본·비용 열을 감사 값으로 채운다.
+
+    Args:
+        evaluation_database: 평가 스키마를 적용한 관리자 DSN.
+        registered_user: 지정 평가자로 쓸 합성 사용자.
+        tmp_path: 입력 파일 디렉터리.
+        monkeypatch: 환경변수 주입.
+
+    Returns:
+        None: 사례별 시도 열 값을 확인한다.
+    """
+    _, actor = registered_user
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        make_conninfo(evaluation_database, user="platform_app", password="test-only"),
+    )
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_EVALUATOR_USER_IDS", json.dumps([str(actor)]))
+    monkeypatch.setenv("EVALUATION_LOCAL_ADMISSION_ENABLED", "true")
+    argv, locks = write_inputs(tmp_path)
+    usage = {
+        "input_tokens": 900,
+        "output_tokens": 40,
+        "thought_tokens": 12,
+        "cached_input_tokens": None,
+        "total_tokens": 952,
+    }
+    entries = {
+        ticket_id: {
+            "outcome": outcome,
+            "error_code": None if outcome == "VALID" else "CS_INVALID_OUTPUT",
+            "http_status": None,
+            "model": "gemini-x",
+            "model_version": "x-0429",
+            "input_version": eval_import_run.INPUT_VERSION_STRIPPED,
+            "input_sha256": f"{index}" * 64,
+            "usage": usage,
+            "latency_ms": 812.6,
+            "finish_reasons": ["STOP"],
+            "attempts": 2,
+            "cost_usd": "0.000123",
+            "pricing_version": "gemini-x@2026-10-01",
+        }
+        for index, (ticket_id, outcome) in enumerate(
+            zip(IDS, ("VALID", "VALID", "SCHEMA_VIOLATION"), strict=True), start=1
+        )
+    }
+    raw = json.dumps(entries, sort_keys=True).encode()
+    (tmp_path / "audit.json").write_bytes(raw)
+    run_file = json.loads((tmp_path / "run.json").read_text())
+    run_file["meta"]["audit_files"] = {"a": hashlib.sha256(raw).hexdigest()}
+    (tmp_path / "run.json").write_text(json.dumps(run_file))
+    try:
+        code, summary = run(
+            [*argv, "--audit", str(tmp_path / "audit.json"), "--execute", "--actor", str(actor)],
+            locks,
+        )
+        assert code == 0, summary
+        assert summary["audit"] is True
         with psycopg.connect(evaluation_database) as conn:
-            mine = "SELECT id FROM evaluation.experiments WHERE created_by_user_id=%s"
-            runs = f"SELECT id FROM evaluation.runs WHERE experiment_id IN ({mine})"
-            cases = f"SELECT id FROM evaluation.cases WHERE run_id IN ({runs})"
-            conn.execute(f"DELETE FROM evaluation.metrics WHERE run_id IN ({runs})", (actor,))
-            conn.execute(
-                f"DELETE FROM evaluation.case_attempts WHERE case_id IN ({cases})", (actor,)
-            )
-            conn.execute(f"DELETE FROM evaluation.cases WHERE run_id IN ({runs})", (actor,))
-            conn.execute(
-                f"DELETE FROM evaluation.admission_receipts WHERE run_id IN ({runs})", (actor,)
-            )
-            conn.execute(f"DELETE FROM evaluation.runs WHERE id IN ({runs})", (actor,))
-            conn.execute(
-                f"DELETE FROM evaluation.experiment_targets WHERE experiment_id IN ({mine})",
-                (actor,),
-            )
-            conn.execute(f"DELETE FROM evaluation.experiments WHERE id IN ({mine})", (actor,))
+            rows = conn.execute(
+                "SELECT c.target_ref,a.outcome,a.error_code,a.model_version,a.finish_reasons,"
+                "a.input_sha256,a.latency_ms,a.input_tokens,a.output_tokens,a.thought_tokens,"
+                "a.cached_input_tokens,a.total_tokens,a.call_attempts,a.cost_usd::text,"
+                "a.pricing_version,a.requested_model,a.raw_output FROM evaluation.cases c "
+                "JOIN evaluation.case_attempts a ON a.case_id=c.id WHERE c.run_id=%s "
+                "ORDER BY c.target_ref",
+                (summary["run_id"],),
+            ).fetchall()
+            # 감사 포함 반입도 같은 트랜잭션에서 IMPORT 영수증 한 행을 남긴다.
+            receipts = conn.execute(
+                "SELECT origin,import_ref FROM evaluation.admission_receipts WHERE run_id=%s",
+                (summary["run_id"],),
+            ).fetchall()
+        run_ref = hashlib.sha256((tmp_path / "run.json").read_bytes()).hexdigest()[:12]
+        assert receipts == [("IMPORT", run_ref)]
+        tail = (813, 900, 40, 12, None, 952, 2, "0.000123", "gemini-x@2026-10-01", "gemini-x", None)
+        assert rows == [
+            (IDS[0], "VALID", None, "x-0429", ["STOP"], "1" * 64, *tail),
+            (IDS[1], "VALID", None, "x-0429", ["STOP"], "2" * 64, *tail),
+            (IDS[2], "SCHEMA_VIOLATION", "CS_INVALID_OUTPUT", "x-0429", ["STOP"], "3" * 64, *tail),
+        ]
+    finally:
+        cleanup(evaluation_database, actor)

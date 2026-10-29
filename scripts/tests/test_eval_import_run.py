@@ -23,6 +23,39 @@ PREDICTION = {
 SECRET = "합성-원문-표식"
 
 
+def audit_entry(outcome, **changes):
+    """사례 감사 항목 하나(cs_candidate_run.audit_entry 모양).
+
+    Args:
+        outcome: 시도 결과.
+        **changes: 덮어쓸 값.
+
+    Returns:
+        dict: 감사 항목. 입력 판본은 meta에 판본이 없는 결과의 기본값(v3)이다.
+    """
+    return {
+        "outcome": outcome,
+        "error_code": None if outcome == "VALID" else "CS_INVALID_OUTPUT",
+        "http_status": None,
+        "model": "gemini-x",
+        "model_version": "x-0429",
+        "input_version": INPUT_VERSION_STRIPPED,
+        "input_sha256": "a" * 64,
+        "usage": {
+            "input_tokens": 900,
+            "output_tokens": 40,
+            "thought_tokens": 0,
+            "cached_input_tokens": None,
+            "total_tokens": 940,
+        },
+        "latency_ms": 812.6,
+        "finish_reasons": ["STOP"],
+        "attempts": 1,
+        "cost_usd": "0.000123",
+        "pricing_version": "gemini-x@2026-10-01",
+    } | changes
+
+
 def gold_locks(category: bytes, urgency: bytes) -> dict[str, GoldLock]:
     """검사용 잠금표.
 
@@ -292,6 +325,107 @@ class ImportRunTests(unittest.TestCase):
         self.assertEqual(versions["v3"][0], INPUT_VERSION_STRIPPED)
         self.assertEqual(versions["v4"][0], INPUT_VERSION)
         self.assertNotEqual(versions["v3"][1], versions["v4"][1])
+
+    def write_audit(self, entries, *, sha=None):
+        """감사 파일을 쓰고 결과 meta.audit_files에 그 hash를 적는다.
+
+        Args:
+            entries: {ticket_id: 감사 항목}.
+            sha: 결과에 적을 hash(없으면 실제 hash).
+
+        Returns:
+            None: audit.json과 run.json을 쓴다.
+        """
+        raw = json.dumps(entries, sort_keys=True).encode()
+        (self.root / "audit.json").write_bytes(raw)
+        run = json.loads((self.root / "run.json").read_text())
+        run["meta"]["audit_files"] = {"a": sha or hashlib.sha256(raw).hexdigest()}
+        (self.root / "run.json").write_text(json.dumps(run))
+
+    def test_audit_replaces_inference_with_case_records(self):
+        """감사가 있으면 null 사례의 outcome을 감사에서 읽어 비VALID가 두 종류여도 받고, 열 값을 계획에 담는다.
+
+        Returns:
+            None: 시도 outcome·감사 항목·요약을 확인한다.
+        """
+        labels = {"T1": PREDICTION, "T2": None, "T3": None}
+        self.write_run(labels, {"SCHEMA_VIOLATION": 1, "TIMEOUT": 1})
+        self.assertEqual(self.run_main()[0], 1)
+        entries = {
+            "T1": audit_entry("VALID"),
+            "T2": audit_entry("SCHEMA_VIOLATION"),
+            "T3": audit_entry("TIMEOUT", model=None, usage=dict.fromkeys(("input_tokens",
+                "output_tokens", "thought_tokens", "cached_input_tokens", "total_tokens")),
+                cost_usd=None, pricing_version=None),
+        }  # fmt: skip
+        self.write_audit(entries)
+        code, printed = self.run_main("--audit", str(self.root / "audit.json"))
+        self.assertEqual(code, 0, printed)
+        summary = json.loads(printed)
+        self.assertTrue(summary["audit"])
+        self.assertEqual(
+            summary["outcomes"], {"VALID": 1, "INVALID_OUTPUT": 1, "FAILED": 1, "HELD": 0}
+        )
+        for text in ("T1", "a" * 64, "x-0429"):
+            self.assertNotIn(text, printed)
+        plan = eval_import_run.build_plan(
+            (self.root / "run.json").read_bytes(),
+            (self.root / "labels.json").read_bytes(),
+            self.root / "m.json",
+            candidate="a",
+            data_split="valid",
+            audit_bytes=(self.root / "audit.json").read_bytes(),
+        )
+        self.assertEqual(
+            {key: outcome for key, (outcome, _) in plan.attempts.items()},
+            {"T1": "VALID", "T2": "SCHEMA_VIOLATION", "T3": "TIMEOUT"},
+        )
+        columns = eval_import_run.audit_columns(plan.audit["T1"], "gemini-x")
+        self.assertEqual(columns[:7], ("gemini-x", None, None, "x-0429", ["STOP"], "a" * 64, 813))
+        self.assertEqual(columns[7:12], (900, 40, 0, None, 940))
+        self.assertEqual((columns[12], str(columns[13]), columns[14]), (1, "0.000123",
+            "gemini-x@2026-10-01"))  # fmt: skip
+        self.assertEqual(eval_import_run.audit_columns(plan.audit["T3"], "gemini-x")[0], "gemini-x")
+        self.assertEqual(
+            eval_import_run.audit_columns(None, "gemini-x"),
+            ("gemini-x", None, None, None, [], None, None) + (None,) * 8,
+        )
+
+    def test_inconsistent_audit_is_rejected(self):
+        """감사 hash·사례 집합·outcome 집계·VALID와 라벨·모델·입력 판본·항목 형식이 어긋나면 종료 코드 1이다.
+
+        Returns:
+            None: 경우별 종료 코드를 확인한다.
+        """
+        labels = {"T1": PREDICTION, "T2": None, "T3": None}
+        good = {
+            "T1": audit_entry("VALID"),
+            "T2": audit_entry("SCHEMA_VIOLATION"),
+            "T3": audit_entry("TIMEOUT"),
+        }
+        cases = {
+            "hash": (good, {"sha": "0" * 64}),
+            "사례 집합": ({k: good[k] for k in ("T1", "T2")}, {}),
+            "VALID와 라벨 엇갈림": (
+                good | {"T1": audit_entry("SCHEMA_VIOLATION"), "T2": audit_entry("VALID")},
+                {},
+            ),
+            "집계 불일치": (good | {"T3": audit_entry("SCHEMA_VIOLATION")}, {}),
+            "다른 모델": (good | {"T1": audit_entry("VALID", model="other")}, {}),
+            "다른 입력 판본": (good | {"T1": audit_entry("VALID", input_version="v9")}, {}),
+            "모르는 키": (good | {"T1": audit_entry("VALID", raw_response="x")}, {}),
+            "음수 지연": (good | {"T1": audit_entry("VALID", latency_ms=-1)}, {}),
+        }
+        for name, (entries, options) in cases.items():
+            with self.subTest(name):
+                self.write_run(labels, {"SCHEMA_VIOLATION": 1, "TIMEOUT": 1})
+                self.write_audit(entries, **options)
+                code, printed = self.run_main("--audit", str(self.root / "audit.json"))
+                self.assertEqual(code, 1)
+                self.assertTrue(printed.startswith("EVAL_IMPORT_FAILED: "))
+        self.write_run(labels, {"SCHEMA_VIOLATION": 1, "TIMEOUT": 1})
+        (self.root / "audit.json").write_text(json.dumps(good, sort_keys=True))
+        self.assertEqual(self.run_main("--audit", str(self.root / "audit.json"))[0], 1)
 
     def test_test_split_exits_with_code_2(self):
         """test 분할을 선언한 manifest는 종료 코드 2다.

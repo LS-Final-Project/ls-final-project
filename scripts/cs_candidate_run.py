@@ -24,14 +24,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
+from backend.api.platform.evaluations.smoke_worker import attempt_cost
 from backend.engine.cs.classification import (
     INPUT_VERSION,
     INPUT_VERSION_STRIPPED,
     ClassificationInput,
     build_input,
 )
+from backend.engine.cs.classification_call import ClassificationAttempt
+from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
@@ -374,19 +377,57 @@ def default_factory(settings: AISettings) -> ProviderFactory:
     return factory
 
 
-def label_path(directory: Path, name: str) -> Path:
-    """후보의 예측 라벨 파일 경로를 만든다.
+def label_path(directory: Path, name: str, kind: str = "labels") -> Path:
+    """후보의 비공개 산출물(예측 라벨·사례별 감사) 파일 경로를 만든다.
 
     Args:
-        directory: --labels-out 디렉터리.
+        directory: --labels-out 또는 --audit-out 디렉터리.
         name: 후보 이름(영숫자·._- 1~64자, '.'·'..' 불가).
+        kind: 파일 종류(labels 또는 audit).
 
     Returns:
-        Path: <directory>/<name>.labels.json. 이름이 규칙 밖이면 ValueError다.
+        Path: <directory>/<name>.<kind>.json. 이름이 규칙 밖이면 ValueError다.
     """
     if not LABEL_NAME.fullmatch(name) or name in {".", ".."}:
         raise ValueError("CS_LABEL_NAME")
-    return directory / f"{name}.labels.json"
+    return directory / f"{name}.{kind}.json"
+
+
+def audit_entry(attempt: ClassificationAttempt | DraftAttempt) -> dict[str, object]:
+    """시도 하나의 사례별 감사 항목. evaluation.case_attempts 열과 1:1이며 원문·응답·예측·정답은 없다.
+
+    Args:
+        attempt: 첫 분류 시도 또는 첫 초안 시도(cs_draft_run). 두 시도는 쓰는 필드가 같다.
+
+    Returns:
+        dict: outcome·error_code·http_status·model(요청)·model_version(응답)·input_version·input_sha256·
+            usage(토큰 5종, 미보고 null)·latency_ms·finish_reasons·attempts(공급자 호출 수)·cost_usd(십진
+            문자열)·pricing_version. 비용은 워커와 같은 attempt_cost 규칙이며 계산할 수 없으면 둘 다 null이다.
+    """
+    # attempt_cost는 requested_model·usage만 읽으며 두 시도 타입의 그 필드는 이름·타입이 같다.
+    cost, pricing_version = attempt_cost(cast(ClassificationAttempt, attempt))
+    usage = attempt.usage
+    return {
+        "outcome": attempt.outcome,
+        "error_code": attempt.error_code,
+        "http_status": attempt.http_status,
+        "model": attempt.requested_model,
+        "model_version": attempt.model_version,
+        "input_version": attempt.input_version,
+        "input_sha256": attempt.input_sha256,
+        "usage": {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "thought_tokens": usage.thought_tokens,
+            "cached_input_tokens": usage.cached_input_tokens,
+            "total_tokens": usage.total_tokens,
+        },
+        "latency_ms": attempt.latency_ms,
+        "finish_reasons": list(attempt.finish_reasons),
+        "attempts": attempt.call_attempts,
+        "cost_usd": None if cost is None else format(cost, "f"),
+        "pricing_version": pricing_version,
+    }
 
 
 def write_private(path: Path, data: bytes) -> None:
@@ -433,7 +474,8 @@ def execute(
     factory: ProviderFactory,
     labels: bool = False,
     strip_phone_annotation: bool = False,
-) -> tuple[dict[str, object], dict[str, bytes]]:
+    audit: bool = False,
+) -> tuple[dict[str, object], dict[str, bytes], dict[str, bytes]]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
     Args:
@@ -447,12 +489,14 @@ def execute(
         factory: 후보별 공급자를 만드는 함수(테스트는 fake로 교체).
         labels: True면 후보별 예측 라벨 파일 내용을 만든다.
         strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
+        audit: True면 후보별 사례 감사 파일 내용을 만든다.
 
     Returns:
-        tuple: (결과, 라벨). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·git sha,
-            라벨을 만들면 라벨 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 후보 이름 → 파일 바이트이고
-            내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이다. 사례 식별자가 들어간
-            비공개 산출물이라 raw_response·원문·usage는 넣지 않는다.
+        tuple: (결과, 라벨, 감사). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·
+            git sha, 라벨·감사를 만들면 그 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 후보 이름 → 파일
+            바이트이고 내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이다. 사례 식별자가
+            들어간 비공개 산출물이라 raw_response·원문·usage는 넣지 않는다. 감사는 후보 이름 → 파일 바이트이고
+            내용은 {ticket_id: audit_entry}(키 정렬)이며 예측·원문·정답이 없다.
     """
     started = datetime.now(UTC)
     candidates = [
@@ -472,7 +516,7 @@ def execute(
         sensitive_values=sensitive,
         allowed_info_codes=codes,
         price_table=dict(prices),
-        return_attempts=labels,
+        return_attempts=labels or audit,
         strip_phone_annotation=strip_phone_annotation,
     )
     attempts = result.pop("attempts", {})
@@ -489,6 +533,17 @@ def execute(
             indent=2,
         ).encode("utf-8")
         for name, runs in attempts.items()
+        if labels
+    }
+    audits = {
+        name: json.dumps(
+            {ticket_id: audit_entry(attempt) for ticket_id, attempt in runs.items()},
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+        for name, runs in attempts.items()
+        if audit
     }
     output: dict[str, object] = {
         "meta": {
@@ -517,10 +572,19 @@ def execute(
                 if labels
                 else {}
             ),
+            **(
+                {
+                    "audit_files": {
+                        name: hashlib.sha256(data).hexdigest() for name, data in audits.items()
+                    }
+                }
+                if audit
+                else {}
+            ),
         },
         "result": result,
     }
-    return output, files
+    return output, files, audits
 
 
 def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) -> int:
@@ -551,6 +615,11 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         help="후보별 예측 라벨(<name>.labels.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
     )
     parser.add_argument(
+        "--audit-out",
+        type=Path,
+        help="후보별 사례 감사(<name>.audit.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
+    )
+    parser.add_argument(
         "--strip-phone-annotation",
         action="store_true",
         help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v3 입력으로 돌린다(기본은 표기 포함 v4).",
@@ -560,10 +629,11 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         args.limit < 1
         or (args.execute and args.out is None)
         or (args.labels_out is not None and not args.execute)
+        or (args.audit_out is not None and not args.execute)
     ):
         print(
             "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
-            "--labels-out은 --execute와 함께만 쓴다."
+            "--labels-out·--audit-out은 --execute와 함께만 쓴다."
         )
         return 1
     try:
@@ -602,7 +672,10 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         if args.labels_out is not None:
             for spec in specs:
                 write_private(label_path(args.labels_out, spec["name"]), b"")
-        output, labels = execute(
+        if args.audit_out is not None:
+            for spec in specs:
+                write_private(label_path(args.audit_out, spec["name"], "audit"), b"")
+        output, labels, audits = execute(
             records,
             gold,
             specs,
@@ -613,6 +686,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             factory or default_factory(settings),
             labels=args.labels_out is not None,
             strip_phone_annotation=args.strip_phone_annotation,
+            audit=args.audit_out is not None,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
@@ -621,9 +695,12 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
         return 1
     try:
-        # 라벨을 먼저 쓰고 결과(라벨 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게 한다.
+        # 라벨·감사를 먼저 쓰고 결과(그 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게
+        # 한다.
         for name, data in labels.items():
             write_private(label_path(args.labels_out, name), data)
+        for name, data in audits.items():
+            write_private(label_path(args.audit_out, name, "audit"), data)
         args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         print(
