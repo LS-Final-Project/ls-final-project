@@ -9,7 +9,8 @@
 - 일반 고장: 어느 90일 구간 안에 서로 다른 고객 3곳이면 후보다. 도달 시각은 세 번째 고객의 기록이 알려진
   시각이다(`reached_at`). 같은 고객의 재발은 고객 수를 늘리지 않는다.
 - 펌웨어 예외: 원인 유형이 `FIRMWARE`이고, 그 제품에 **고장 당시 버전보다 높은 수정 펌웨어가 기록이 알려진
-  시각 이전에 배포**돼 있으면 고객 1곳부터 후보다(업데이트 안내 검토). 고장 당시 버전이 없거나 비교할 수 없으면
+  시각 이전에 배포**돼 있으면 고객 1곳부터 후보다(업데이트 안내 검토). 그 기록에 고객 식별자가 있어야 한다.
+  일반 기준과 펌웨어 예외 중 **먼저 충족된 쪽**이 `reached_at`과 사유가 된다. 고장 당시 버전이 없거나 비교할 수 없으면
   이 예외를 적용하지 않고 `INSUFFICIENT_EVIDENCE` 사유로 남긴다(일반 기준은 그대로 본다).
 - 사용 조건이 다르면 다른 묶음이어야 하지만 조건 판정은 KAN-114가 한다. 여기서는 묶음마다 조건 확인 여부를
   입력으로 받아 `UNKNOWN`이면 후보에 `condition_status=UNKNOWN`을 붙인다(보류 표시, 후보 자체는 낸다).
@@ -250,11 +251,13 @@ def fault_candidates(
             if case.root_cause_type != "FIRMWARE":
                 continue
             fix, why = applicable_fix(case, releases)
-            if fix is not None:
+            if fix is not None and case.customer_id is not None:
                 fw_hits.append((case, fix))
-            elif why is not None:
+            elif fix is None and why is not None:
                 fw_reasons.add(why)
-        if fw_hits and customers:
+        fw_at = min((pair[0].known_at for pair in fw_hits), default=None)
+        # Two routes to a candidate; the earlier one sets reached_at (the baseline replay relies on it).
+        if fw_hits and (reached is None or fw_at is not None and fw_at <= reached):
             case, fix = min(fw_hits, key=lambda pair: pair[0].known_at)
             out.append(
                 FaultCandidate(
@@ -262,7 +265,7 @@ def fault_candidates(
                     reason_code="FIRMWARE_FIX_RELEASED",
                     reason=(
                         f"펌웨어 원인이고 수정판 {fix.fw_version}({fix.release_date})이 기록 전에 배포됨. "
-                        f"고객 {len(customers)}/{FIRMWARE_CUSTOMERS}곳."
+                        f"기록 고객 {len(customers)}곳(기준 {FIRMWARE_CUSTOMERS}곳)."
                     ),
                     reached_at=case.known_at,
                     required_customers=FIRMWARE_CUSTOMERS,

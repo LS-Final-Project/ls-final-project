@@ -196,3 +196,31 @@ def test_evaluate_bundles_both_kinds_with_the_rule_version():
     assert report.version == "improvement-candidates-v1"
     assert [f.outcome for f in report.faults] == ["ELIGIBLE"]
     assert [d.outcome for d in report.documents] == ["ELIGIBLE"]
+
+
+def test_the_earlier_route_sets_reached_at_when_both_apply():
+    releases = [FirmwareRelease(product_code="P", fw_version="2.0", release_date=date(2025, 1, 1))]
+    # Three customers by day 3 (general rule), a firmware record with a released fix on day 50.
+    cases = [
+        case(1, "A", 1, product="P", fault="F"),
+        case(2, "B", 2, product="P", fault="F"),
+        case(3, "C", 3, product="P", fault="F"),
+        case(4, "D", 50, product="P", fault="F", cause="FIRMWARE", fw="1.0"),
+    ]
+    [result] = fault_candidates(cases, releases, as_of=LATER)
+    assert (result.reason_code, result.reached_at) == (
+        "REPEAT_90D_3_CUSTOMERS",
+        T0 + timedelta(days=3),
+    )
+    # Firmware first: the firmware record on day 2 reaches before the third customer on day 60.
+    early_fw = [
+        case(1, "A", 1, product="P", fault="F"),
+        case(2, "B", 2, product="P", fault="F", cause="FIRMWARE", fw="1.0"),
+        case(3, "C", 60, product="P", fault="F"),
+    ]
+    [fw] = fault_candidates(early_fw, releases, as_of=LATER)
+    assert (fw.reason_code, fw.reached_at) == ("FIRMWARE_FIX_RELEASED", T0 + timedelta(days=2))
+    assert fw.reason.endswith("기록 고객 3곳(기준 1곳).")
+    # A firmware record without a customer id does not make the group a candidate by itself.
+    anonymous = [case(1, None, 5, product="P", fault="F", cause="FIRMWARE", fw="1.0")]
+    assert fault_candidates(anonymous, releases, as_of=LATER)[0].outcome != "ELIGIBLE"
