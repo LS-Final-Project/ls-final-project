@@ -4,7 +4,7 @@
     "display_name": "가상 협력사 P-A",
     "manufacturer_name": "가상 제조사 P-A",
     "profile_source": "synthetic",
-    "profile_version": 1,
+    "profile_version": 2,
     "data_origin": "synthetic",
     "derivation_kind": "PROVIDED",
     "known_at": "2026-10-28",
@@ -128,7 +128,7 @@
         "변압기 1차 접속 조건(접속 방식·위치)"
       ]
     },
-    "notes": null
+    "notes": "합성 가정: IEEE C37.20.7 시험 성적·C37.20.3 등록이라는 규격명은 기획서·14번 원문에 없는 가정이다. 기획서 4.8 근거는 '아크 내성 시험 성적, 등록 표시(Listed and labeled) 근거 있음'까지다. fixed-mount는 프로필에 명시하지 않는다(요구 2.4 A.1에만 있음). profile_version 2: 2026-10-29 KAN-184 댓글 10620."
   },
   {
     "candidate_code": "P-B",
