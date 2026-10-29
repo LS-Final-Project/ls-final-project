@@ -319,3 +319,28 @@ def test_event_payload_refuses_unknown_step_values():
         EventPayload.model_validate({"step": "rewrite"})
     with pytest.raises(ValueError):
         EventPayload.model_validate({"draft_outcome": "SOMETHING"})
+
+
+def test_access_is_checked_before_the_event_cursor(
+    settings, access, experiment, registered_user, others, cs_job
+):
+    """잘못된 커서보다 권한 오류가 먼저다: 비평가자는 평가 작업 403, 타인 C/S 작업 404."""
+    run = asyncio.run(
+        accept_run(settings, access, experiment["actor"], experiment["id"], str(uuid4()), uuid4())
+    ).data
+    with session_client(settings, others["sales"][0]) as stranger:
+        stranger.app.state.evaluation_access = access
+        bad = {"Last-Event-ID": "not-a-cursor"}
+        assert (
+            stranger.get(f"/api/v1/platform/jobs/{run.job_id}/events", headers=bad).status_code
+            == 403
+        )
+        assert (
+            stranger.get(f"/api/v1/platform/jobs/{cs_job}/events", headers=bad).status_code == 404
+        )
+    with session_client(settings, registered_user[0]) as requester:
+        response = requester.get(f"/api/v1/platform/jobs/{cs_job}/events", headers=bad)
+        assert (response.status_code, response.json()["error"]["code"]) == (
+            400,
+            "INVALID_EVENT_CURSOR",
+        )

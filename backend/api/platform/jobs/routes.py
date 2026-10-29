@@ -81,8 +81,11 @@ async def evaluation_job_events(
     Returns:
         Response: SSE 응답 또는 종료 커서의204. 검증 실패는 공통 오류 응답.
     """
-    # 잘못된 커서의 상세를 응답하기 전에도 세션 검사를 적용한다(작업 권한은 read_event_batch가 본다).
-    await require_session(request)
+    # 커서 오류(400)보다 작업 권한(owner별 검사기의 401·403·404)을 먼저 낸다. 연결 중에는 배치마다 다시 본다.
+    principal = await require_session(request)
+    await get_job(
+        request.app.state.settings, request.app.state.evaluation_access, principal, job_id
+    )
     position = event_cursor(last_event_id, after)
     batch = await read_event_batch(request, job_id, position)
     headers = {"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"}
