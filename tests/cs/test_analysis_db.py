@@ -311,18 +311,29 @@ def test_correction_permissions_inputs_and_closing(client, settings, admin, tick
     )
 
 
-def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settings, ticket):
-    run = store(settings, ticket)
-    draft = {
+def draft_options():
+    """Three valid options, one per label (DraftOutput)."""
+    return {
         "options": [
             {
                 "label": label,
-                "sentences": [{"text": "x", "kind": "FACT", "evidence_chunk_ids": []}],
+                "sentences": [
+                    {
+                        "text": "We replaced the gasket.",
+                        "kind": "EVIDENCE",
+                        "evidence_chunk_ids": ["chunk-1"],
+                    }
+                ],
                 "info_requests": [],
             }
-            for label in ("A", "B", "C")
+            for label in ("CONCISE", "DETAILED", "INFO_FIRST")
         ]
     }
+
+
+def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settings, ticket):
+    run = store(settings, ticket)
+    draft = draft_options()
 
     async def save(**values):
         async with connection(settings) as conn:
@@ -333,6 +344,11 @@ def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settin
             )
 
     stored = asyncio.run(save(outcome="VALID", draft=draft))
+    # A draft the engine schema refuses is not stored (two options only).
+    with pytest.raises(ValueError):
+        asyncio.run(save(outcome="VALID", draft={"options": draft["options"][:2]}))
+    with pytest.raises(ValueError):
+        store(settings, ticket, {**AI, "urgency_flag": "URGENT"})
     asyncio.run(save(outcome="SCHEMA_VIOLATION", error_code="CS_DRAFT_INVALID"))
     data = analysis(client, ticket)
     assert [d["seq"] for d in data["drafts"]] == [1, 2]

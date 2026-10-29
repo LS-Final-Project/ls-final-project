@@ -22,6 +22,8 @@ from backend.api.cs.analysis.schemas import (
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.workflow import repository as workflow
 from backend.engine.cs import analysis
+from backend.engine.cs.classification import ClassificationOutput
+from backend.engine.cs.drafting import DraftOutput
 from backend.engine.cs.rules import RuleDecision
 from backend.shared.errors import ApplicationError
 
@@ -34,14 +36,25 @@ def ticket_not_found() -> ApplicationError:
 
 async def record_analysis(conn: Any, ticket_id: UUID, values: Row) -> Row:
     """Stores one classification run (`outcome`, `classification` when VALID, input version and
-    hash, model and prompt version, error code, optional `job_id`). Returns the stored row."""
+    hash, model and prompt version, error code, optional `job_id`). Returns the stored row.
+
+    A VALID classification is checked against the engine's output schema again, so a caller
+    cannot store fields the validator would have refused.
+    """
+    if values.get("classification") is not None:
+        ClassificationOutput.model_validate(values["classification"], strict=False)
     if await tickets.lock_ticket(conn, ticket_id) is None:
         raise ticket_not_found()
     return await repository.insert_run(conn, ticket_id, values)
 
 
 async def record_draft(conn: Any, ticket_id: UUID, values: Row) -> Row:
-    """Stores one draft run (three options when VALID). Returns the stored row."""
+    """Stores one draft run (three options when VALID). Returns the stored row.
+
+    The draft is checked against the engine's output schema (three options, one per label).
+    """
+    if values.get("draft") is not None:
+        DraftOutput.model_validate(values["draft"])
     if await tickets.lock_ticket(conn, ticket_id) is None:
         raise ticket_not_found()
     return await repository.insert_draft(conn, ticket_id, values)
