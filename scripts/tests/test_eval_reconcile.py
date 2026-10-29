@@ -165,6 +165,36 @@ class ReconcileCliTests(unittest.TestCase):
         self.assertEqual(result["result"]["metrics"]["category_macro_f1"]["status"], "MISMATCH")
         self.assertEqual(result["result"]["metrics"]["category_macro_f1"]["diff_stages"], ["DB"])
 
+    def test_schema_violation_rate_is_computed_from_outcomes_and_matched_to_db(self):
+        """schema_violation_rate는 RAW에서 SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION)으로 계산해 DB 행과 대조한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: MATCH·MISMATCH·응답 0건 None과 미매핑 목록을 확인한다.
+        """
+        data = summaries()
+        data["category"]["report"]["overall"]["outcomes"] = {
+            "VALID": 3,
+            "SCHEMA_VIOLATION": 1,
+            "NOT_STARTED": 0,
+        }
+        rate = row("cs_locked_schema_violation_rate", 0.25)
+        _, _, result = self.run_main(
+            (data, stored() + [rate]), "--metric-keys", "schema_violation_rate"
+        )
+        self.assertEqual(result["result"]["metrics"]["schema_violation_rate"]["status"], "MATCH")
+        self.assertNotIn("schema_violation_rate", result["meta"]["unmapped_keys"])
+        wrong = row("cs_locked_schema_violation_rate", 0.5)
+        _, _, result = self.run_main(
+            (data, stored() + [wrong]), "--metric-keys", "schema_violation_rate"
+        )
+        self.assertEqual(result["result"]["metrics"]["schema_violation_rate"]["status"], "MISMATCH")
+        data["category"]["report"]["overall"]["outcomes"] = {"HELD": 4}
+        raw, *_ = eval_reconcile.raw_stage(data, ["schema_violation_rate"])
+        self.assertIsNone(raw.values["schema_violation_rate"])
+
     def test_default_tolerance_absorbs_numeric_rounding_but_zero_does_not(self):
         """DB numeric의 15자리 반올림(1/3 → 0.333333333333333)은 기본 허용 오차로 MATCH, 0이면 MISMATCH다.
 

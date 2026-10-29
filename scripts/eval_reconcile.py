@@ -54,6 +54,9 @@ METRIC_MAP: dict[str, tuple[str, tuple[str, ...], str]] = {
         ("critical", "missed"),
         "cs_locked_urgency_first_critical_missed",
     ),
+    # 경로가 outcomes면 값이 아니라 SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION)을 계산한다(KAN-148 2차,
+    # eval/adoption·cs_report.store_outcome_metrics와 같은 정의).
+    "schema_violation_rate": ("category", ("outcomes",), "cs_locked_schema_violation_rate"),
 }
 # float 지표를 numeric으로 저장하면 유효숫자 15자리로 반올림된다(예 1/3 → 0.333333333333333).
 # 그 차이(최대 약 1e-15)를 불일치로 보지 않도록 기본 허용 절대 차를 둔다. 실제 지표 차이보다 충분히 작다.
@@ -138,10 +141,26 @@ def raw_stage(
         tuple: (RAW StageValues, reconcile 실행 상태, 대상 수, 최초 시도가 있는 대상 수). 매핑 없는 키는 None이다.
     """
     overall = {metric: summary["report"]["overall"] for metric, summary in summaries.items()}
-    values = {
-        key: _dig(overall[METRIC_MAP[key][0]], METRIC_MAP[key][1]) if key in METRIC_MAP else None
-        for key in keys
-    }
+
+    def value(key: str) -> Number | None:
+        """게이트 키 하나의 RAW 값.
+
+        Args:
+            key: 게이트 키.
+
+        Returns:
+            Number | None: 매핑 경로의 값. 경로가 outcomes면 형식 위반율(응답 0건이면 None)이다.
+        """
+        if key not in METRIC_MAP:
+            return None
+        metric, path, _ = METRIC_MAP[key]
+        if path == ("outcomes",):
+            outcomes = overall[metric]["outcomes"]
+            received = outcomes.get("VALID", 0) + outcomes.get("SCHEMA_VIOLATION", 0)
+            return outcomes.get("SCHEMA_VIOLATION", 0) / received if received else None
+        return _dig(overall[metric], path)
+
+    values = {key: value(key) for key in keys}
     category = overall["category"]
     status = RUN_STATUS.get(summaries["category"]["run_status"], "ABORTED")
     targets = summaries["category"]["target_count"]

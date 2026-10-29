@@ -498,6 +498,11 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 - details: 묶음 ID, 두 정답 판본·SHA, 규칙표·제품 파일 SHA, data_origin·split·상태, 고정 분모, gold 항목 수,
   `excluded_by_reason`(`PRECISION_ONLY` 수), `valid_count`·`outcomes`, 원인별 항목 수, 기준선 요청 필요 수.
   사례 ID·항목 코드·제품 코드는 넣지 않는다. 실패·보류는 요청을 계산하지 않고 `outcomes`에만 센다.
+- 형식 위반율(KAN-148 2차, `store_outcome_metrics`, 정답 파일 없음): `cs_locked_schema_violation_rate`(segment `all`,
+  분류 최초 시도 SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION), eval/adoption 게이트 계산과 같은 정의, 응답 0건이면
+  null)와 `cs_locked_outcome_count`(segment=결과, HELD·TRANSPORT_FAILURE·TIMEOUT·NOT_STARTED 포함). 원시 응답이 없는
+  반입 실행도 계산되며 `scripts/eval_import_run.py --execute`가 같이 저장하고, `scripts/eval_reconcile.py`가 게이트 키
+  `schema_violation_rate`로 대조한다.
 
 운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
 
@@ -508,6 +513,7 @@ uv run --frozen python -m eval.cs_report store-locked-quality --run-id <UUID> \
 uv run --frozen python -m eval.cs_report store-locked-rerequest --run-id <UUID> \
   --category-gold <정답 CSV> --info-gold <정답 CSV> --dev-manifest <manifest.json> \
   --split <train|valid> --scoring-version <판본>
+uv run --frozen python -m eval.cs_report store-outcomes --run-id <UUID> --scoring-version <판본>
 ```
 
 재요청 명령은 개발 분리본 로더(`tests/cs/cs_dev_data.py`)를 지연 import하므로 저장소 전체가 있는 운영자 환경에서만

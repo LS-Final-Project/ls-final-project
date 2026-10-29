@@ -32,6 +32,7 @@ from eval.cs_gold_locks import (
 )
 from eval.cs_metrics import (
     CATEGORY_LABELS,
+    OUTCOMES,
     PROVIDED_INFO_SCOPES,
     RETURN_SUBTYPE_LABELS,
     URGENCY_LABELS,
@@ -493,6 +494,79 @@ def _check_locked_run(meta: dict) -> None:
         raise ValueError("CS_QUALITY_RUN_NOT_TERMINAL")
 
 
+OUTCOME_REPORT_VERSION = "cs-locked-outcome-v1"
+# 분류 최초 시도 결과별 건수의 segment. 시도가 없는 대상은 NOT_STARTED다.
+OUTCOME_SEGMENTS: tuple[str, ...] = (*sorted(OUTCOMES), "NOT_STARTED")
+
+
+def store_outcome_metrics(conn: psycopg.Connection, run_id: UUID, *, scoring_version: str) -> dict:
+    """종료된 비합성 묶음 실행의 분류 최초 시도 결과로 형식 위반율·결과별 건수를 저장한다(KAN-148 2차).
+
+    정답 파일이 필요 없다. 형식 위반율은 eval/adoption의 게이트 계산과 같은 SCHEMA_VIOLATION / (VALID +
+    SCHEMA_VIOLATION)이며, 응답을 받지 못한 HELD·TRANSPORT_FAILURE·TIMEOUT·시도 없음은 분모에서 빼고 결과별
+    건수에만 남긴다. 반입 실행처럼 원시 응답을 저장하지 않아도 계산된다.
+
+    Args:
+        conn: 운영자가 연 유휴 내부 연결. 기존 트랜잭션은 인수하지 않는다.
+        run_id: 저장할 종료 실행 ID. 실험 gold_version은 정답 묶음 ID여야 한다.
+        scoring_version: 새 채점 판본. 같은 판본의 기존 행은 덮어쓰지 않는다(CS_QUALITY_ALREADY_STORED).
+
+    Returns:
+        dict: 저장한 채점 판본과 행 수. 행은 cs_locked_schema_violation_rate(segment all, 응답 0건이면 value
+            NULL)와 cs_locked_outcome_count(segment=결과, OUTCOME_SEGMENTS)다. 사례 ID·출력은 넣지 않는다.
+    """
+
+    def build(meta: dict, targets: set[str]) -> tuple[str, dict[str, list[QualityRow]]]:
+        """잠금 실행 경계를 확인하고 결과 집계 행을 만든다.
+
+        Args:
+            meta: 잠근 실행·실험 메타.
+            targets: 실험 고정 대상.
+
+        Returns:
+            tuple[str, dict[str, list[QualityRow]]]: 접두 cs_locked_와 segment별 행.
+        """
+        _check_locked_run(meta)
+        attempts = read_stored_first_attempts(conn, run_id, targets)
+        counts: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
+        counts["NOT_STARTED"] = len(targets) - len(attempts)
+        violations, received = (
+            counts["SCHEMA_VIOLATION"],
+            counts["VALID"] + counts["SCHEMA_VIOLATION"],
+        )
+        details = {
+            "report_version": OUTCOME_REPORT_VERSION,
+            "bundle_id": GOLD_BUNDLE_ID,
+            "data_origin": meta["data_origin"],
+            "data_split": meta["data_split"],
+            "run_status": meta["status"],
+            "target_count": len(targets),
+            "outcomes": {segment: counts[segment] for segment in OUTCOME_SEGMENTS},
+            "denominator_rule": "VALID+SCHEMA_VIOLATION",
+        }
+        rate = violations / received if received else None
+        segments: dict[str, list[QualityRow]] = {
+            "all": [
+                ("schema_violation_rate", None, rate, violations, received, len(targets), details)
+            ]
+        }
+        for segment in OUTCOME_SEGMENTS:
+            segments.setdefault(segment, []).append(
+                (
+                    "outcome_count",
+                    None,
+                    counts[segment],
+                    counts[segment],
+                    len(targets),
+                    len(targets),
+                    details,
+                )
+            )
+        return "cs_locked_", segments
+
+    return _store_quality_rows(conn, run_id, [], scoring_version=scoring_version, build=build)
+
+
 # (분할, 문의 ID별 product_code, 그 분할 파일의 manifest SHA-256).
 ProductInput = tuple[str, Mapping[str, str], str]
 
@@ -837,6 +911,7 @@ def _parse_provided_info_gold(data: bytes, columns: tuple[str, ...]) -> dict[str
 STORE_COMMAND = "store-return-subtype"
 STORE_LOCKED_COMMAND = "store-locked-quality"
 STORE_REREQUEST_COMMAND = "store-locked-rerequest"
+STORE_OUTCOMES_COMMAND = "store-outcomes"
 # 저장 함수와 그 안의 저장 집계 검증이 내는 원문 없는 코드만 그대로 전달한다.
 STORE_ERROR_CODES = re.compile(
     r"CS_QUALITY_[A-Z_]+|CS_STORED_METRICS_INVALID_INPUT|CS_METRICS_INVALID_INPUT"
@@ -981,12 +1056,36 @@ def store_rerequest_main(argv: list[str]) -> int:
     )
 
 
+def store_outcomes_main(argv: list[str]) -> int:
+    """종료된 비합성 실행의 분류 최초 시도 형식 위반율·결과별 건수 행을 저장하는 운영자 명령.
+
+    Args:
+        argv: 하위 명령 뒤의 인자. 정답 파일은 받지 않는다.
+
+    Returns:
+        int: 성공0 또는 오류1. 오류는 코드만 stderr에 쓰고 원문·스택은 출력하지 않는다.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"python -m eval.cs_report {STORE_OUTCOMES_COMMAND}",
+        description="분류 최초 시도 형식 위반율·결과별 건수 행 저장; 합격 판정 없음",
+    )
+    parser.add_argument("--run-id", type=UUID, required=True)
+    parser.add_argument("--scoring-version", required=True)
+    args = parser.parse_args(argv)
+    return _run_store(
+        [],
+        lambda conn, _: store_outcome_metrics(
+            conn, args.run_id, scoring_version=args.scoring_version
+        ),
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """local/test의 고정 합성 실행을 새 비공개 JSON 파일로 내보낸다.
 
     Args:
         argv: 선택적 명령행 인자. 첫 인자가 store-return-subtype·store-locked-quality·
-            store-locked-rerequest면 집계 행 저장 명령이다.
+            store-locked-rerequest·store-outcomes면 집계 행 저장 명령이다.
             DB 연결 정보는 환경 변수로만 받는다.
 
     Returns:
@@ -999,6 +1098,8 @@ def main(argv: list[str] | None = None) -> int:
         return store_locked_main(argv[1:])
     if argv[:1] == [STORE_REREQUEST_COMMAND]:
         return store_rerequest_main(argv[1:])
+    if argv[:1] == [STORE_OUTCOMES_COMMAND]:
+        return store_outcomes_main(argv[1:])
     parser = argparse.ArgumentParser(description="고정 합성 C/S 실행 보고서; 실제 품질 평가 아님")
     parser.add_argument("--run-id", type=UUID, required=True)
     parser.add_argument("--output", type=Path, required=True)

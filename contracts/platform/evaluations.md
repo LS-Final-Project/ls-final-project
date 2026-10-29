@@ -462,6 +462,11 @@ LOCAL_SMOKE_ONLY다. 반입 실행(IMPORT)은 아래 잠금 경로 검사를 그
 `quality_unavailable_reason`은 GOLD_NOT_CONNECTED·GOLD_PARTIAL·null이다. 새 선택 필드
 `locked_quality`={`bundle_id`, `attempt=first`, `quality_gate_evaluated=false`, `metrics`}이며 metrics는
 category·urgency·secondary·return_subtype·provided_info 다섯 키를 항상 갖고 저장되지 않은 지표는 null이다.
+KAN-148 2차로 locked_quality에 선택 필드 `outcomes`(기본 null)를 더한다. `eval.cs_report.store_outcome_metrics` 행
+(`cs_locked_schema_violation_rate`·`cs_locked_outcome_count`)의 최신 채점 판본이며 {`scoring_version`,
+`stored_scoring_version_count`, `stored_at`, `schema_violation_rate`(SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION),
+응답 0건이면 null), `schema_violations`, `received`, `outcomes`(결과별 건수, NOT_STARTED 포함)}다. 행끼리 분자·분모·
+결과 segment가 어긋나면 집계 오류(503)다. 기존 필드와 quality_available 계산은 그대로다.
 
 | 조건 | quality_available | reason | locked_quality |
 | --- | --- | --- | --- |

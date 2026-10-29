@@ -932,6 +932,66 @@ def make_locked(dsn, run_id):
         conn.execute("UPDATE evaluation.runs SET provider='gemini' WHERE id=%s", (run_id,))
 
 
+def test_outcome_rows_need_a_locked_run_and_store_once_via_cli(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, monkeypatch, capsys
+):
+    """형식 위반율·결과별 건수(KAN-148 2차)는 합성 smoke 실행을 거부하고, 잠금 실행에는 CLI로 한 번만 저장한다.
+
+    Args:
+        settings: 합성 worker 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경변수.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 거부 코드·저장 행·재저장 거부를 확인한다.
+    """
+    import json
+
+    from eval import cs_report
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with (
+        psycopg.connect(evaluation_database) as conn,
+        pytest.raises(ValueError, match="^CS_QUALITY_LOCKED_RUN_REQUIRED$"),
+    ):
+        cs_report.store_outcome_metrics(conn, cs_run, scoring_version="out-v1")
+    make_locked(evaluation_database, cs_run)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [
+        cs_report.STORE_OUTCOMES_COMMAND,
+        "--run-id",
+        str(cs_run),
+        "--scoring-version",
+        "out-v1",
+    ]
+    assert cs_report.main(args) == 0
+    assert json.loads(capsys.readouterr().out)["stored_rows"] == 1 + len(cs_report.OUTCOME_SEGMENTS)
+    with psycopg.connect(evaluation_database) as conn:
+        rate, outcomes = (
+            conn.execute(
+                "SELECT numerator,denominator FROM evaluation.metrics WHERE run_id=%s "
+                "AND metric_key='cs_locked_schema_violation_rate'",
+                (cs_run,),
+            ).fetchone(),
+            dict(
+                conn.execute(
+                    "SELECT segment,value::int FROM evaluation.metrics WHERE run_id=%s "
+                    "AND metric_key='cs_locked_outcome_count'",
+                    (cs_run,),
+                ).fetchall()
+            ),
+        )
+    assert set(outcomes) == set(cs_report.OUTCOME_SEGMENTS)
+    assert rate == (outcomes["SCHEMA_VIOLATION"], outcomes["VALID"] + outcomes["SCHEMA_VIOLATION"])
+    assert cs_report.main(args) == 1
+    assert capsys.readouterr().err == "CS_QUALITY_ALREADY_STORED\n"
+
+
 @pytest.mark.parametrize("metric", ["category", "urgency", "secondary", "return_subtype"])
 def test_locked_quality_rows_store_each_metric_aggregates_only(
     settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, metric
@@ -3541,6 +3601,8 @@ def test_summary_locked_quality_available_only_with_all_metrics(
         "attempt": "first",
         "quality_gate_evaluated": False,
         "metrics": dict.fromkeys(names),
+        # 형식 위반율 행(KAN-148 2차)을 저장하지 않은 실행은 null이다.
+        "outcomes": None,
     }
     for metric in names[:4]:
         store_locked(evaluation_database, cs_run, golds, metric)

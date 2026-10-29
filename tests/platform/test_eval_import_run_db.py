@@ -194,12 +194,21 @@ def test_import_round_trip_registers_scores_and_stops_on_repeat(
             )
             assert float(metrics["cs_locked_category_first_accuracy"]) == pytest.approx(1 / 3)
             assert float(metrics["cs_locked_urgency_first_accuracy"]) == pytest.approx(2 / 3)
+            # 형식 위반율(KAN-148 2차): 응답 받은 3건 중 SCHEMA_VIOLATION 1건.
+            assert summary["locked_metric_rows"]["outcomes"] == 7
+            rate = conn.execute(
+                "SELECT value,numerator,denominator FROM evaluation.metrics WHERE run_id=%s "
+                "AND metric_key='cs_locked_schema_violation_rate' AND segment='all'",
+                (summary["run_id"],),
+            ).fetchone()
+            assert (float(rate[0]), rate[1], rate[2]) == (pytest.approx(1 / 3), 1, 3)
             receipt = "SELECT origin,import_ref,response_request_id FROM evaluation.admission_receipts WHERE run_id=%s"
             [first] = conn.execute(receipt, (summary["run_id"],)).fetchall()
             run_ref = hashlib.sha256((tmp_path / "run.json").read_bytes()).hexdigest()[:12]
             assert first[:2] == ("IMPORT", run_ref) and first[2] is not None
         again_code, again = run([*argv, "--execute", "--actor", str(actor)], locks)
         assert (again_code, again["status"], again["run_id"]) == (0, "EXISTS", summary["run_id"])
+        assert again["locked_metric_rows"]["outcomes"] == "EXISTS"
         with psycopg.connect(evaluation_database) as conn:
             assert conn.execute(receipt, (summary["run_id"],)).fetchall() == [first]
         # 영수증이 생겨 summary가 반입 실행을 연다. 승인 목록 검사는 그대로라 승인 전에는 403이다.
@@ -215,6 +224,11 @@ def test_import_round_trip_registers_scores_and_stops_on_repeat(
         report = get_run_summary(settings, approved, actor, run_id)
         assert (report.origin, report.status, report.target_count) == ("IMPORT", "PARTIAL", 3)
         assert report.all.stored_raw_response_count == 0
+        outcomes = report.locked_quality.outcomes
+        assert outcomes is not None and outcomes.scoring_version == "kan144-import-test"
+        assert (outcomes.schema_violations, outcomes.received) == (1, 3)
+        assert outcomes.schema_violation_rate == pytest.approx(1 / 3)
+        assert outcomes.outcomes["VALID"] == 2 and outcomes.outcomes["NOT_STARTED"] == 0
     finally:
         cleanup(evaluation_database, actor)
 
