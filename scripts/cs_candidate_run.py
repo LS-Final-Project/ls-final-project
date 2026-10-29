@@ -28,14 +28,14 @@ from typing import Any, Literal
 
 from backend.engine.cs.classification import ClassificationInput, build_input
 from backend.engine.cs.prompt_registry import prompt_fingerprint
-from backend.engine.cs.providers import gemini_classification_provider
+from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
 from eval.cs_candidates import Candidate, run_candidates
 from eval.cs_gold_locks import GOLD_LOCKS
 from tests.cs.cs_dev_data import load_dev_tickets
 
 Provider = Callable[[ClassificationInput], Generation]
-ProviderFactory = Callable[[dict[str, str], frozenset[str], AISettings], Provider]
+ProviderFactory = Callable[[dict[str, Any], frozenset[str], AISettings], Provider]
 Sensitive = Mapping[str, Literal["SERIAL", "PERSONAL"]]
 TOKEN_CHARS = 4
 # 라벨 파일 이름으로 쓰는 후보 이름. 경로 구분자·상대 경로를 막는다.
@@ -79,7 +79,7 @@ def load_targets(manifest: Path, limit: int, seed: int) -> dict[str, dict[str, o
     }
 
 
-def load_gold(path: Path, metric: str, ids: set[str]) -> dict[str, str]:
+def load_gold(path: Path, metric: str, ids: set[str]) -> dict[str, Any]:
     """잠긴 정답 파일에서 대상 ID의 정답만 읽는다.
 
     Args:
@@ -123,14 +123,17 @@ def load_codes(path: Path, column: str) -> frozenset[str]:
     return codes
 
 
-def load_specs(path: Path) -> list[dict[str, str]]:
-    """후보 목록 JSON([{name, model, prompt_version}])을 읽는다.
+KNOB_FIELDS = ("thinking_budget", "thinking_level", "max_output_tokens")
+
+
+def load_specs(path: Path) -> list[dict[str, Any]]:
+    """후보 목록 JSON([{name, model, prompt_version, thinking_budget?, thinking_level?, max_output_tokens?}])을 읽는다.
 
     Args:
         path: 후보 JSON.
 
     Returns:
-        list[dict[str, str]]: 이름이 고유한 후보 명세.
+        list[dict[str, Any]]: 이름이 고유한 후보 명세. 생성 조절 항목은 GenerationKnobs 규칙으로 검사한다.
     """
     specs = json.loads(path.read_text(encoding="utf-8"))
     if (
@@ -138,14 +141,44 @@ def load_specs(path: Path) -> list[dict[str, str]]:
         or not specs
         or any(
             not isinstance(spec, dict)
-            or set(spec) != {"name", "model", "prompt_version"}
-            or not all(isinstance(value, str) and value for value in spec.values())
+            or not {"name", "model", "prompt_version"} <= set(spec)
+            or not set(spec) <= {"name", "model", "prompt_version", *KNOB_FIELDS}
+            or not all(
+                isinstance(spec[key], str) and spec[key]
+                for key in ("name", "model", "prompt_version")
+            )
             for spec in specs
         )
         or len({spec["name"] for spec in specs}) != len(specs)
     ):
         raise ValueError("CS_CANDIDATES_INVALID")
+    for spec in specs:
+        knobs_of(spec)
     return specs
+
+
+def knob_fields(spec: Mapping[str, Any]) -> dict[str, int | str]:
+    """후보 명세에서 값이 있는 생성 조절 항목만 꺼낸다.
+
+    Args:
+        spec: 후보 명세.
+
+    Returns:
+        dict: thinking_budget·thinking_level·max_output_tokens 중 있는 것.
+    """
+    return {key: spec[key] for key in KNOB_FIELDS if spec.get(key) is not None}
+
+
+def knobs_of(spec: Mapping[str, Any]) -> GenerationKnobs:
+    """후보 명세의 생성 조절 항목을 어댑터 인자로 만든다.
+
+    Args:
+        spec: 후보 명세.
+
+    Returns:
+        GenerationKnobs: 검사한 조절 항목. 위반은 CS_INVALID_GENERATION ValueError다.
+    """
+    return GenerationKnobs(**knob_fields(spec))  # type: ignore[arg-type]
 
 
 class RecordingModels:
@@ -173,7 +206,7 @@ class RecordingModels:
 
 def dry_run(
     records: Mapping[str, Mapping[str, object]],
-    specs: list[dict[str, str]],
+    specs: list[dict[str, Any]],
     codes: frozenset[str],
     sensitive: Sensitive,
     settings: AISettings,
@@ -220,7 +253,14 @@ def dry_run(
             {
                 **spec,
                 "held": held,
-                **estimate(recorder.lengths, recorder.bytes, spec["model"], settings, prices),
+                **estimate(
+                    recorder.lengths,
+                    recorder.bytes,
+                    spec["model"],
+                    settings,
+                    prices,
+                    spec.get("max_output_tokens"),
+                ),
             }
         )
     return rows
@@ -232,6 +272,7 @@ def estimate(
     model: str,
     settings: AISettings,
     prices: Mapping[str, Any],
+    max_output_tokens: int | None = None,
 ) -> dict[str, object]:
     """프롬프트 문자·바이트 수로 근사 토큰·토큰 상한·예상 비용을 계산한다(분류·초안 dry-run 공용).
 
@@ -242,13 +283,16 @@ def estimate(
         lengths: 호출마다의 프롬프트 문자 수.
         sizes: 호출마다의 프롬프트 UTF-8 바이트 수.
         model: 단가표에서 찾을 모델 ID.
-        settings: AI 설정(출력 토큰 상한).
+        settings: AI 설정(기본 출력 토큰 상한).
         prices: load_price_table 결과.
+        max_output_tokens: 후보의 출력 상한. None이면 settings 값이다. thinking 토큰을 포함한 상한이라 thinking
+            예산을 따로 더하지 않는다.
 
     Returns:
         dict: 호출 수, 문자·바이트 수, 근사 입력 토큰(문자/4 올림), 입력 토큰 상한, 근사 입력 비용, 입력 비용
             상한, 출력 비용 상한(max_output_tokens × 호출 수), 합계 상한, 안내문. 단가가 없으면 비용은 None이다.
     """
+    limit = max_output_tokens or settings.gemini_max_output_tokens
     chars = sum(lengths)
     tokens = math.ceil(chars / TOKEN_CHARS)
     upper = sum(sizes)
@@ -258,18 +302,14 @@ def estimate(
     if price is not None:
         input_cost = Decimal(tokens) * price.input_per_million / Decimal(1_000_000)
         input_upper = Decimal(upper) * price.input_per_million / Decimal(1_000_000)
-        output_cost = (
-            Decimal(calls * settings.gemini_max_output_tokens)
-            * price.output_per_million
-            / Decimal(1_000_000)
-        )
+        output_cost = Decimal(calls * limit) * price.output_per_million / Decimal(1_000_000)
     return {
         "calls": calls,
         "prompt_chars": chars,
         "prompt_bytes": upper,
         "approx_input_tokens": tokens,
         "input_tokens_upper": upper,
-        "max_output_tokens_per_call": settings.gemini_max_output_tokens,
+        "max_output_tokens_per_call": limit,
         "currency": price.currency if price else None,
         "estimated_input_cost": None if input_cost is None else format(input_cost, "f"),
         "input_cost_upper": None if input_upper is None else format(input_upper, "f"),
@@ -281,7 +321,7 @@ def estimate(
         ),
         "note": (
             "근사값이다. 실제 과금은 실행 후 usage로 확인한다. 출력 상한은 max_output_tokens 기준이며 "
-            "thinking 토큰의 별도 과금 여부는 미확인이다."
+            "thinking 토큰을 포함한다."
         ),
     }
 
@@ -310,13 +350,14 @@ def default_factory(settings: AISettings) -> ProviderFactory:
     """
     client = create_client(settings)
 
-    def factory(spec: dict[str, str], codes: frozenset[str], config: AISettings) -> Provider:
+    def factory(spec: dict[str, Any], codes: frozenset[str], config: AISettings) -> Provider:
         return gemini_classification_provider(
             client,
             config,
             model=spec["model"],
             allowed_info_codes=codes,
             prompt_version=spec["prompt_version"],
+            generation=knobs_of(spec),
         )
 
     return factory
@@ -373,7 +414,7 @@ def git_sha() -> str | None:
 def execute(
     records: Mapping[str, Mapping[str, object]],
     gold: Mapping[str, Mapping[str, str]],
-    specs: list[dict[str, str]],
+    specs: list[dict[str, Any]],
     codes: frozenset[str],
     sensitive: Sensitive,
     settings: AISettings,
@@ -407,6 +448,7 @@ def execute(
             provider=factory(spec, codes, settings),
             model=spec["model"],
             prompt_version=spec["prompt_version"],
+            knobs=knob_fields(spec),
         )
         for spec in specs
     ]

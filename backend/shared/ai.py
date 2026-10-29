@@ -266,17 +266,40 @@ def generate(
     prompt: str,
     *,
     response_schema: type[BaseModel] | None = None,
+    thinking_budget: int | None = None,
+    thinking_level: str | None = None,
+    max_output_tokens: int | None = None,
 ) -> Generation:
+    """프롬프트 하나를 생성 호출한다. 조절 항목이 None이면 설정 기본값을 쓰고 thinking 설정을 보내지 않는다.
+
+    Args:
+        client: create_client로 만든 SDK 클라이언트.
+        settings: 모델·출력 상한 기본값.
+        prompt: 완성 프롬프트.
+        response_schema: JSON 응답 스키마(없으면 텍스트).
+        thinking_budget: thinking 토큰 예산(ThinkingConfig.thinking_budget).
+        thinking_level: thinking 수준(ThinkingConfig.thinking_level, 예 LOW·HIGH).
+        max_output_tokens: 이번 호출의 출력 상한(thinking 토큰 포함). None이면 settings.gemini_max_output_tokens다.
+
+    Returns:
+        Generation: 응답 텍스트·사용량·모델 판본·종료 사유.
+    """
+    thinking = (
+        types.ThinkingConfig(thinking_budget=thinking_budget, thinking_level=thinking_level)
+        if thinking_budget is not None or thinking_level is not None
+        else None
+    )
     started = time.perf_counter()
     response = client.models.generate_content(
         model=settings.gemini_model,
         contents=prompt,
         config=types.GenerateContentConfig(
-            max_output_tokens=settings.gemini_max_output_tokens,
+            max_output_tokens=max_output_tokens or settings.gemini_max_output_tokens,
             response_mime_type="application/json" if response_schema else None,
             # pydantic 모델을 그대로 넘기면 extra="forbid"의 additionalProperties가 Gemini API에서
             # 400 INVALID_ARGUMENT가 난다. JSON 스키마를 response_json_schema로 넘긴다.
             response_json_schema=response_schema.model_json_schema() if response_schema else None,
+            thinking_config=thinking,
         ),
     )
     elapsed_ms = round((time.perf_counter() - started) * 1000)

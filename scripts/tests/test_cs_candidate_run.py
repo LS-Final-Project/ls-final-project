@@ -298,6 +298,85 @@ class CandidateRunTests(unittest.TestCase):
         self.assertIn("CS_RUN_OUTPUT_FAILED", printed)
         self.assertNotIn(KEY, printed)
 
+    def test_candidate_output_limit_drives_the_dry_run_and_is_passed_on(self):
+        """후보의 max_output_tokens가 dry-run 출력 상한이 되고(thinking 포함이라 따로 더하지 않음), 실행 때 어댑터·행에 전달된다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 출력 상한 비용과 전달된 조절 항목을 확인한다.
+        """
+        (self.root / "candidates.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "a",
+                        "model": "gemini-3.6-flash",
+                        "prompt_version": "v1",
+                        "thinking_budget": 512,
+                        "max_output_tokens": 4096,
+                    }
+                ]
+            )
+        )
+        code, printed = self.run_main()
+        self.assertEqual(code, 0)
+        [row] = json.loads(printed.splitlines()[-1])["candidates"]
+        self.assertEqual(row["max_output_tokens_per_call"], 4096)
+        self.assertEqual(
+            Decimal(row["output_cost_upper"]),
+            Decimal(3 * 4096) * Decimal("3.75") / Decimal(1_000_000),
+        )
+        self.assertIn("thinking 토큰을 포함", row["note"])
+        seen = []
+
+        def factory(spec, codes, settings):
+            seen.append(cs_candidate_run.knobs_of(spec))
+            return lambda payload: Generation(ANSWER, Usage(), None, [])
+
+        out = self.root / "result.json"
+        self.assertEqual(self.run_main("--execute", "--out", str(out), factory=factory)[0], 0)
+        self.assertEqual(seen[0].thinking_budget, 512)
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(
+            result["result"]["candidates"][0]["knobs"],
+            {"thinking_budget": 512, "max_output_tokens": 4096},
+        )
+        (self.root / "candidates.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "a",
+                        "model": "m",
+                        "prompt_version": "v1",
+                        "thinking_budget": 1,
+                        "thinking_level": "LOW",
+                    }
+                ]
+            )
+        )
+        self.assertEqual(self.run_main()[0], 1)
+
+    def test_default_factory_passes_generation_knobs_to_the_adapter(self):
+        """실제 공급자 함수는 후보의 생성 조절 항목을 분류 어댑터에 넘긴다(클라이언트·어댑터는 대역).
+
+        Args:
+            없음.
+
+        Returns:
+            None: 어댑터 인자를 확인한다.
+        """
+        spec = {"name": "a", "model": "m", "prompt_version": "v1", "thinking_level": "LOW"}
+        settings = cs_candidate_run.AISettings()
+        with (
+            patch.object(cs_candidate_run, "create_client", return_value="client"),
+            patch.object(cs_candidate_run, "gemini_classification_provider") as adapter,
+        ):
+            cs_candidate_run.default_factory(settings)(spec, frozenset(CODES), settings)
+        knobs = adapter.call_args.kwargs["generation"]
+        self.assertEqual((knobs.thinking_level, knobs.thinking_budget), ("LOW", None))
+
     def test_test_split_exits_with_code_2(self):
         """manifest가 test 분할을 선언하면 로더 전에 종료 코드 2로 멈춘다.
 

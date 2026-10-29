@@ -339,6 +339,24 @@ class DraftRunTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(calls, [])
 
+    def test_default_factory_passes_generation_knobs_to_the_text_adapter(self):
+        """실제 공급자 함수는 후보의 생성 조절 항목을 텍스트 어댑터에 넘긴다(클라이언트·어댑터는 대역).
+
+        Args:
+            없음.
+
+        Returns:
+            None: 어댑터 인자를 확인한다.
+        """
+        spec = {"name": "a", "model": "m", "prompt_version": "v1", "max_output_tokens": 4096}
+        settings = cs_draft_run.AISettings()
+        with (
+            patch.object(cs_draft_run, "create_client", return_value="client"),
+            patch.object(cs_draft_run, "gemini_text_provider") as adapter,
+        ):
+            cs_draft_run.default_factory(settings)(spec, settings)
+        self.assertEqual(adapter.call_args.kwargs["generation"].max_output_tokens, 4096)
+
     def test_invalid_inputs_exit_with_codes(self):
         """test 분할은 2, 잘못된 분류 형식·모르는 재실행 ID·--out 없는 실행·출력 디렉터리 없음은 1이다.
 

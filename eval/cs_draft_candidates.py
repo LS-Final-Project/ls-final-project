@@ -6,7 +6,7 @@ KAN-105 cs_candidates와 같은 모양이다. 지표는 cs_draft_metrics.summari
 """
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from backend.engine.cs.classification import ClassificationOutput
@@ -40,6 +40,8 @@ class DraftCandidate:
     provider: Callable[[str], Generation]
     model: str
     prompt_version: str
+    # 생성 조절 항목(thinking 예산·출력 상한 등). 기록만 하고 입력 hash 검사에는 넣지 않는다.
+    knobs: Mapping[str, int | str] = field(default_factory=dict)
 
 
 def _cost(attempts: list[DraftAttempt], model: str, price_table: dict[str, ModelPrice]) -> dict:
@@ -153,6 +155,7 @@ def run_draft_candidates(
                 "name": candidate.name,
                 "model": candidate.model,
                 "prompt_version": candidate.prompt_version,
+                "knobs": dict(candidate.knobs),
                 **{
                     key: summary[key]
                     for key in ("schema", "forbidden", "grounding", "info_requests", "over_hold")
