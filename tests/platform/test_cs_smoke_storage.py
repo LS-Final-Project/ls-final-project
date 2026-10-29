@@ -2832,6 +2832,124 @@ def test_summary_projects_latest_synthetic_quality_without_cases(
         assert secret not in response.text
 
 
+def store_stage_row(dsn, run_id, version, key, value, *, at, **extra):
+    """검사 관리자 연결로 단계 채점 실행 단위 행 하나를 저장한다.
+
+    Args:
+        dsn: 격리 DB 연결 문자열.
+        run_id: 실행.
+        version: 채점 판본.
+        key: metric_key.
+        value: 값(None 허용).
+        at: 저장 시각.
+        extra: segment·class_label·support·details·threshold·comparison·passed.
+
+    Returns:
+        None: 저장한다.
+    """
+    fields = {"segment": "all", "class_label": None, "support": None, "details": {}} | extra
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "INSERT INTO evaluation.metrics (id,run_id,scoring_version,metric_key,segment,class_label,"
+            "value,support,details,threshold,comparison,passed,created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                uuid4(),
+                run_id,
+                version,
+                key,
+                fields["segment"],
+                fields["class_label"],
+                value,
+                fields["support"],
+                Jsonb(fields["details"]),
+                fields.get("threshold"),
+                fields.get("comparison"),
+                fields.get("passed"),
+                at,
+            ),
+        )
+
+
+def test_summary_groups_stage_metrics_by_latest_version(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """검색·초안·RFP 채점 행을 단계별 최신 판본으로 묶고 null·저장 판정을 그대로 낸다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: 단계 묶음·판본 선택·null 유지·details 정리를 확인한다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    assert client.get(url).json()["data"]["stage_metrics"] == []
+    early = datetime(2026, 10, 29, 9, tzinfo=UTC)
+    late = early + timedelta(minutes=5)
+    db = evaluation_database
+    store_stage_row(db, cs_run, "search-v1", "search_hit_at_5", 0.5, at=early)
+    store_stage_row(
+        db,
+        cs_run,
+        "search-v2",
+        "search_hit_at_5",
+        0.75,
+        at=late,
+        support=8,
+        threshold=0.7,
+        comparison=">=",
+        passed=True,
+    )
+    store_stage_row(db, cs_run, "search-v2", "search_mrr", None, at=late)
+    store_stage_row(
+        db,
+        cs_run,
+        "draft-v1",
+        "draft_grounded_case_rate",
+        0.6,
+        at=early,
+        class_label="INFO_FIRST",
+        details={"tp": 3, "fp": 1, "fn": 2, "raw_output": "SECRET_TEXT", "note": "x", "tn": "7"},
+    )
+    store_stage_row(db, cs_run, "rfp-v1", "rfp_requirement_recall", 0.0, at=early, segment="doc=14")
+    # 분류 접두 행은 기존 품질 블록이 다루므로 묶음에 넣지 않는다.
+    store_stage_row(db, cs_run, "cls-v1", "category_macro_f1", 0.9, at=early)
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    blocks = response.json()["data"]["stage_metrics"]
+    assert [b["stage"] for b in blocks] == ["search", "draft", "rfp"]
+    search, draft, rfp = blocks
+    assert search["scoring_version"] == "search-v2" and search["stored_scoring_version_count"] == 2
+    assert [i["metric_key"] for i in search["items"]] == ["search_hit_at_5", "search_mrr"]
+    assert search["items"][0] == {
+        "metric_key": "search_hit_at_5",
+        "segment": "all",
+        "class_label": None,
+        "value": 0.75,
+        "support": 8,
+        "threshold": 0.7,
+        "comparison": ">=",
+        "passed": True,
+        "details": {},
+        "quality_gate_evaluated": False,
+    }
+    assert search["items"][1]["value"] is None and search["items"][1]["passed"] is None
+    assert draft["items"][0]["details"] == {"tp": 3, "fp": 1, "fn": 2}
+    assert draft["items"][0]["class_label"] == "INFO_FIRST"
+    assert rfp["items"][0]["value"] == 0.0 and rfp["items"][0]["segment"] == "doc=14"
+    assert rfp["stored_scoring_version_count"] == 1
+    for secret in ("SECRET_TEXT", "raw_output", "category_macro_f1", "cls-v1"):
+        assert secret not in response.text
+
+
 @pytest.mark.parametrize(
     "tamper", ["missing_row", "judged", "details", "outcomes_array", "class_duplicate_key"]
 )

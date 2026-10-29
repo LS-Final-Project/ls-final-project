@@ -436,3 +436,5 @@ threshold·comparison·passed 기록, details 키·segment 간 공통값 불일�
 비교는 운영자 내부 연결의 `eval.cs_stored_metrics.compare_stored_runs`(별도 명령줄 진입점 없음)로만 한다. 소비자는 연결 여부·사유를 저장
 지표 수로 다시 계산해 응답과 다르면 집계 오류로 처리하고, synthetic_quality와 locked_quality가 함께
 오면 거부한다. 화면은 사유에 맞는 품질 문구만 바꾸며 잠금 품질 수치 표시는 후속 범위다.
+
+KAN-90 2차로 두 경로 모두 선택 필드 `stage_metrics`(기본 빈 목록)를 더한다. 같은 스냅샷에서 한 번의 SELECT로 실행 단위(`case_id` null) 행 중 metric_key 접두가 `search_`·`draft_`·`rfp_`인 행만 읽어 각각 search·draft·rfp 단계 묶음으로 낸다(접두 표는 `summary.py`의 `STAGE_PREFIXES`). 분류 지표는 기존 품질 블록이 다루므로 넣지 않는다. 묶음은 {`stage`, `scoring_version`, `stored_scoring_version_count`, `stored_at`, `items`}이고, 합성 품질과 같이 단계마다 저장 시각이 가장 늦은 채점 판본 하나만 쓰며 판본 수를 함께 낸다. 각 항목은 저장 행의 `metric_key`·`segment`·`class_label`·`value`·`support`·`threshold`·`comparison`·`passed`를 그대로 옮기고 `quality_gate_evaluated=false`로 고정한다. 값 null은 null로 두며 0으로 바꾸지 않는다. `details`는 음이 아닌 정수 `tp`·`fp`·`fn`만 남기고 다른 키는 버린다. 행이 없는 단계는 빠지고, 저장 행이 없으면 빈 목록이며 나머지 응답 형태는 같다. 합격 판정은 화면이 내리지 않는다.

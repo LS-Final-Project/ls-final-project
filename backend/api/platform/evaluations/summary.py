@@ -252,6 +252,43 @@ class LockedQuality(BaseModel):
     metrics: LockedMetrics
 
 
+# 검색·초안·RFP 채점 행의 metric_key 접두와 단계. 분류는 기존 품질 블록이 다루므로 넣지 않는다.
+STAGE_PREFIXES: dict[str, Literal["search", "draft", "rfp"]] = {
+    "search_": "search",
+    "draft_": "draft",
+    "rfp_": "rfp",
+}
+# details에서 공개하는 키. 정수 건수만 내고 그 밖의 키·값은 버린다(원문성 값 차단).
+STAGE_DETAIL_KEYS = ("tp", "fp", "fn")
+
+
+class StageMetric(BaseModel):
+    """단계 채점 행 하나의 저장 값. 합격 판정은 화면이 내리지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    metric_key: str
+    segment: str
+    class_label: str | None
+    value: float | None
+    support: Count | None
+    threshold: float | None
+    comparison: Literal[">=", "<=", "="] | None
+    passed: bool | None
+    details: dict[Literal["tp", "fp", "fn"], Count]
+    quality_gate_evaluated: Literal[False] = False
+
+
+class StageMetricBlock(BaseModel):
+    """한 단계의 최신 채점 판본 행 묶음."""
+
+    model_config = ConfigDict(extra="forbid")
+    stage: Literal["classification", "search", "draft", "rfp"]
+    scoring_version: str
+    stored_scoring_version_count: Annotated[int, Field(ge=1)]
+    stored_at: datetime
+    items: list[StageMetric]
+
+
 class EvaluationRunSummary(BaseModel):
     """저장 기록 집계와 잠금 정답 품질 연결 여부를 함께 낸다."""
 
@@ -271,6 +308,7 @@ class EvaluationRunSummary(BaseModel):
     synthetic_quality: SyntheticQuality | None = None
     locked_quality: LockedQuality | None = None
     comparison_key: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    stage_metrics: list[StageMetricBlock] = Field(default_factory=list)
 
 
 def get_run_summary(
@@ -390,6 +428,7 @@ def get_run_summary(
                 locked_quality=locked_quality,
                 # 잠금 경로는 서버 비밀 HMAC 키 판본 도입 전까지 비교 키를 내지 않는다.
                 comparison_key=None if locked else comparison_key(row),
+                stage_metrics=_read_stage_metrics(conn, run_id),
                 **groups,
             )
     except (psycopg.Error, ValueError):
@@ -436,6 +475,69 @@ def comparison_key(experiment: dict) -> str:
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _read_stage_metrics(conn: psycopg.Connection, run_id: UUID) -> list[StageMetricBlock]:
+    """같은 스냅샷에서 검색·초안·RFP 실행 단위 채점 행을 한 번에 읽어 단계별 최신 판본으로 묶는다.
+
+    Args:
+        conn: 요약과 같은 읽기 전용 트랜잭션의 연결.
+        run_id: 조회 중인 실행.
+
+    Returns:
+        list[StageMetricBlock]: STAGE_PREFIXES 순서의 단계 묶음. 행이 없는 단계는 빠지고, 저장 행이 없으면
+            빈 목록이다. 단계마다 저장 시각이 가장 늦은 채점 판본 하나만 쓰고(합성 품질과 같은 규칙) 판본 수를
+            stored_scoring_version_count로 낸다. 값 null은 null로 두고, details는 음이 아닌 정수 tp·fp·fn만 남긴다.
+    """
+    patterns = [prefix.replace("_", "\\_") + "%" for prefix in STAGE_PREFIXES]
+    with conn.cursor(row_factory=dict_row) as cursor:
+        rows = cursor.execute(
+            "SELECT metric_key,segment,class_label,value,support,threshold,comparison,passed,details,"
+            "scoring_version,created_at FROM evaluation.metrics "
+            "WHERE run_id=%s AND case_id IS NULL AND metric_key LIKE ANY(%s)",
+            (run_id, patterns),
+        ).fetchall()
+    blocks = []
+    for prefix, stage in STAGE_PREFIXES.items():
+        stage_rows = [r for r in rows if r["metric_key"].startswith(prefix)]
+        if not stage_rows:
+            continue
+        stored: dict[str, datetime] = {}
+        for r in stage_rows:
+            version = r["scoring_version"]
+            stored[version] = max(stored.get(version, r["created_at"]), r["created_at"])
+        latest = max(stored, key=lambda version: (stored[version], version))
+        items = [
+            StageMetric(
+                metric_key=r["metric_key"],
+                segment=r["segment"],
+                class_label=r["class_label"],
+                value=None if r["value"] is None else float(r["value"]),
+                support=r["support"],
+                threshold=None if r["threshold"] is None else float(r["threshold"]),
+                comparison=r["comparison"],
+                passed=r["passed"],
+                details={
+                    key: r["details"][key]
+                    for key in STAGE_DETAIL_KEYS
+                    if type(r["details"].get(key)) is int and r["details"][key] >= 0
+                },
+            )
+            for r in sorted(
+                (r for r in stage_rows if r["scoring_version"] == latest),
+                key=lambda r: (r["metric_key"], r["segment"], r["class_label"] or ""),
+            )
+        ]
+        blocks.append(
+            StageMetricBlock(
+                stage=stage,
+                scoring_version=latest,
+                stored_scoring_version_count=len(stored),
+                stored_at=stored[latest],
+                items=items,
+            )
+        )
+    return blocks
 
 
 def _read_synthetic_quality(
