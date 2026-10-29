@@ -106,7 +106,7 @@ def test_runs_to_human_review_and_resumes_to_end():
 
 
 def test_classification_failure_records_error_and_ends():
-    """분류가 실패하면 오류 코드를 남기고 끝나며 규칙·검색·초안은 부르지 않는다.
+    """분류가 두 번 모두 형식 위반이면 오류 코드 하나를 남기고 끝나며 규칙·검색·초안은 부르지 않는다.
 
     Args:
         없음.
@@ -132,7 +132,158 @@ def test_classification_failure_records_error_and_ends():
     assert state.values["record"] is None
     searcher.assert_not_called()
     drafter.assert_not_called()
-    assert [kind for kind, _, _ in store.attempts] == ["classification"]
+    assert [(kind, a.attempt_number) for kind, _, a in store.attempts] == [
+        ("classification", 1),
+        ("classification", 2),
+    ]
+    assert [a["is_final"] for a in state.values["attempts"]] == [False, True]
+
+
+class Sequence:
+    """정해진 순서로 응답하는 공급자. 호출 수를 센다."""
+
+    def __init__(self, *providers):
+        """순서를 받는다(마지막 공급자를 이후에도 쓴다).
+
+        Args:
+            providers: 호출마다 쓸 공급자.
+        """
+        self.providers = list(providers)
+        self.calls = 0
+
+    def __call__(self, value):
+        """다음 공급자로 응답한다.
+
+        Args:
+            value: 정제 입력 또는 프롬프트.
+
+        Returns:
+            Generation: 그 공급자의 응답.
+        """
+        provider = self.providers[min(self.calls, len(self.providers) - 1)]
+        self.calls += 1
+        return provider(value)
+
+
+def broken_text(prompt):
+    """깨진 초안 응답.
+
+    Args:
+        prompt: 초안 프롬프트.
+
+    Returns:
+        Generation: JSON이 아닌 응답.
+    """
+    return broken_provider(prompt)
+
+
+def forbidden_draft(prompt):
+    """형식은 맞지만 금지 약속(RMA 승인)이 든 초안.
+
+    Args:
+        prompt: 초안 프롬프트.
+
+    Returns:
+        Generation: 금지 약속 응답.
+    """
+    generation = draft_provider(prompt)
+    return replace(
+        generation, text=generation.text.replace("Synthetic answer.", "Your RMA is approved.")
+    )
+
+
+def test_invalid_output_is_retried_once_and_resume_does_not_call_again():
+    """분류·초안 시도 1이 형식 위반이면 시도 2로 회복하고, 두 시도를 모두 남기며, 재개는 다시 부르지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 시도 기록·상태·재개 뒤 호출 수를 확인한다.
+    """
+    classifier = Sequence(broken_provider, classification_provider)
+    drafter = Sequence(broken_text, draft_provider)
+    saver = InMemorySaver()
+    graph, store = make(saver, classification_provider=classifier, draft_provider=drafter)
+    config = thread_config("ticket-r")
+    graph.invoke(initial_state("ticket-r"), config)
+    values = graph.get_state(config).values
+    assert values["stage"] == "DRAFTED" and values["errors"] == []
+    assert values["draft"] is not None and values["classification"] is not None
+    assert values["attempt_ids"] == [f"attempt-{i}" for i in range(1, 5)]
+    assert [
+        (a["kind"], a["attempt_number"], a["outcome"], a["error_code"], a["is_final"])
+        for a in values["attempts"]
+    ] == [
+        ("classification", 1, "SCHEMA_VIOLATION", "CS_INVALID_OUTPUT", False),
+        ("classification", 2, "VALID", None, True),
+        ("draft", 1, "SCHEMA_VIOLATION", "CS_INVALID_OUTPUT", False),
+        ("draft", 2, "VALID", None, True),
+    ]
+    assert (classifier.calls, drafter.calls) == (2, 2)
+    graph.invoke(None, config)
+    assert graph.get_state(config).values["stage"] == "HUMAN_REVIEW"
+    assert (classifier.calls, drafter.calls, len(store.attempts)) == (2, 2, 4)
+    dumped = dump_checkpoints(saver, config)
+    for secret in (*SECRETS, "RAW_SECRET", "raw_response"):
+        assert secret not in dumped
+
+
+@pytest.mark.parametrize(
+    ("drafter", "code", "calls"),
+    [
+        (forbidden_draft, "CS_FORBIDDEN_COMMITMENT", 1),
+        (Mock(side_effect=TimeoutError()), "TIMEOUT", 1),
+        (broken_text, "CS_INVALID_OUTPUT", 2),
+    ],
+    ids=["forbidden", "timeout", "twice-invalid"],
+)
+def test_only_invalid_output_is_retried(drafter, code, calls):
+    """금지 약속·타임아웃은 다시 부르지 않고, 형식 위반은 두 번까지 부른 뒤 사람 확인으로 넘긴다.
+
+    Args:
+        drafter: 초안 공급자.
+        code: 남는 오류 코드(타임아웃은 outcome 또는 코드).
+        calls: 기대 초안 호출 수.
+
+    Returns:
+        None: 호출 수·오류·단계를 확인한다.
+    """
+    counted = Sequence(drafter)
+    graph, store = make(InMemorySaver(), draft_provider=counted)
+    config = thread_config("ticket-o")
+    graph.invoke(initial_state("ticket-o"), config)
+    state = graph.get_state(config)
+    assert state.next == ("human_review",)
+    assert counted.calls == calls
+    [error] = state.values["errors"]
+    assert error["node"] == "draft" and code in error["code"]
+    drafts = [a for a in state.values["attempts"] if a["kind"] == "draft"]
+    assert [a["attempt_number"] for a in drafts] == list(range(1, calls + 1))
+    assert [a["is_final"] for a in drafts][-1] is True
+
+
+def test_retry_can_be_turned_off_and_rejects_other_values():
+    """invalid_output_retries=0이면 형식 위반을 다시 부르지 않고, 0·1 밖의 값은 그래프를 만들지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 호출 수와 오류를 확인한다.
+    """
+    classifier = Sequence(broken_provider, classification_provider)
+    graph, _ = make(InMemorySaver(), classification_provider=classifier, invalid_output_retries=0)
+    config = thread_config("ticket-0")
+    # 이 키가 생기기 전 체크포인트처럼 attempts 없이 시작해도 동작한다.
+    legacy = {k: v for k, v in initial_state("ticket-0").items() if k != "attempts"}
+    graph.invoke(legacy, config)
+    values = graph.get_state(config).values
+    assert classifier.calls == 1 and values["stage"] == "CLASSIFY_FAILED"
+    assert [a["attempt_number"] for a in values["attempts"]] == [1]
+    for bad in (2, -1, True, "1"):
+        with pytest.raises(ValueError, match="^CS_GRAPH_INVALID_RETRIES$"):
+            make(InMemorySaver(), invalid_output_retries=bad)
 
 
 def test_rule_and_search_errors_continue_to_human_review():

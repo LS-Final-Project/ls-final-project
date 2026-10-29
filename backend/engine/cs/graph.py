@@ -8,6 +8,11 @@ metadata에 그대로 복사하므로(langgraph.checkpoint.base.get_checkpoint_m
 넘기면 DB에 남는다. 그래서 configurable에는 thread_id만 두고, 원문 레코드·민감값·고객 등급 같은 사례 입력은
 노드 안에서 load_ticket으로만 꺼낸다. 상태에는 마스킹한 분류 입력과 결과·시도 ID만 두고 원문·정답·raw_response는
 두지 않는다. 시도 기록(raw_response 포함)은 record_attempt가 상태 밖에 저장한다.
+
+형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 SCHEMA_VIOLATION·CS_INVALID_OUTPUT이면
+같은 입력으로 attempt_number=2를 한 번 더 부른다(invalid_output_retries=0이면 끔). 금지 약속·차단 근거·다른 검증
+오류·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 재호출은 노드 안에서 끝나므로 체크포인트 재개는 다시
+부르지 않는다. 두 시도 모두 attempt_ids와 attempts(번호·결과·오류 코드·is_final, 원문 없음)에 남긴다.
 """
 
 import json
@@ -38,6 +43,7 @@ Stage = Literal[
     "RECEIVED", "CLASSIFIED", "CLASSIFY_FAILED", "RULED", "RETRIEVED", "DRAFTED", "HUMAN_REVIEW"
 ]
 HUMAN_REVIEW = "human_review"
+RETRY_CODE = "CS_INVALID_OUTPUT"
 
 
 class CsState(TypedDict):
@@ -48,6 +54,9 @@ class CsState(TypedDict):
     record: dict[str, Any] | None
     classification: dict[str, Any] | None
     attempt_ids: list[str]
+    # 시도 요약 {kind, attempt_id, attempt_number, outcome, error_code, is_final}. 원문·raw는 없다. 이 키가 생기기
+    # 전 체크포인트에는 없을 수 있다.
+    attempts: list[dict[str, Any]]
     rules: dict[str, Any] | None
     evidence: list[dict[str, Any]]
     draft: dict[str, Any] | None
@@ -82,6 +91,7 @@ def initial_state(ticket_id: str) -> CsState:
         record=None,
         classification=None,
         attempt_ids=[],
+        attempts=[],
         rules=None,
         evidence=[],
         draft=None,
@@ -154,6 +164,7 @@ def build_graph(
     checkpointer: BaseCheckpointSaver,
     vector_searcher: Searcher | None = None,
     allow_tracing: bool = False,
+    invalid_output_retries: int = 1,
 ) -> Any:
     """C/S 처리 그래프를 만들어 사람 확인 직전 중단점과 함께 컴파일한다.
 
@@ -170,17 +181,59 @@ def build_graph(
         vector_searcher: 벡터 검색기. None이면 FTS만 쓴다.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed. 추적 환경 변수가 있는데 False면
             Settings를 거치지 않는 진입점이라도 그래프를 만들지 않는다(KAN-89).
+        invalid_output_retries: 1이면 시도 1의 CS_INVALID_OUTPUT에 시도 2를 한 번 부르고, 0이면 부르지 않는다.
+            configurable에는 넣지 않는다(체크포인트 metadata 복사).
 
     Returns:
         CompiledStateGraph: interrupt_before=["human_review"]로 컴파일한 그래프. 주입은 이 인자로만 하고
             config["configurable"]에는 thread_id만 둔다(thread_config). 분류 실패는 END, 규칙·검색·초안 실패는
-            errors에 코드를 남기고 계속한다. 추적이 요청됐는데 허용되지 않으면 TRACING_BLOCKED ValueError다.
+            errors에 코드를 남기고 계속한다. 추적이 요청됐는데 허용되지 않으면 TRACING_BLOCKED ValueError,
+            invalid_output_retries가 0·1이 아니면 CS_GRAPH_INVALID_RETRIES ValueError다.
     """
     if tracing_requested(os.environ) and not allow_tracing:
         raise ValueError(TRACING_BLOCKED)
+    if type(invalid_output_retries) is not int or invalid_output_retries not in (0, 1):
+        raise ValueError("CS_GRAPH_INVALID_RETRIES")
+
+    def attempt_with_retry(
+        state: CsState, kind: str, call: Callable[[int], ClassificationAttempt | DraftAttempt]
+    ) -> tuple[Any, dict[str, Any]]:
+        """시도 1을 부르고 CS_INVALID_OUTPUT이면 시도 2를 한 번 더 부른 뒤 두 시도를 모두 기록한다.
+
+        Args:
+            state: 현재 상태.
+            kind: "classification" 또는 "draft".
+            call: 시도 번호를 받아 엔진 시도를 돌려주는 함수.
+
+        Returns:
+            tuple: (마지막 시도, attempt_ids·attempts 상태 갱신).
+        """
+        tries = [call(1)]
+        if (
+            invalid_output_retries
+            and tries[0].outcome == "SCHEMA_VIOLATION"
+            and tries[0].error_code == RETRY_CODE
+        ):
+            tries.append(call(2))
+        ids = list(state["attempt_ids"])
+        log = list(state.get("attempts", []))
+        for index, attempt in enumerate(tries):
+            attempt_id = record_attempt(kind, state["ticket_id"], attempt)
+            ids.append(attempt_id)
+            log.append(
+                {
+                    "kind": kind,
+                    "attempt_id": attempt_id,
+                    "attempt_number": attempt.attempt_number,
+                    "outcome": attempt.outcome,
+                    "error_code": attempt.error_code,
+                    "is_final": index == len(tries) - 1,
+                }
+            )
+        return tries[-1], {"attempt_ids": ids, "attempts": log}
 
     def classify(state: CsState) -> dict[str, Any]:
-        """분류 시도 1회를 실행하고 마스킹한 입력과 결과만 상태에 둔다.
+        """분류 시도를 실행하고(형식 위반이면 시도 2까지) 마스킹한 입력과 결과만 상태에 둔다.
 
         Args:
             state: 현재 상태.
@@ -189,25 +242,27 @@ def build_graph(
             dict: 상태 갱신.
         """
         ticket = load_ticket(state["ticket_id"])
-        attempt = run_classification_attempt(
-            ticket.record,
-            sensitive_values=ticket.sensitive_values,
-            allowed_info_codes=allowed_info_codes,
-            provider=classification_provider,
-            attempt_number=1,
+        attempt, recorded = attempt_with_retry(
+            state,
+            "classification",
+            lambda number: run_classification_attempt(
+                ticket.record,
+                sensitive_values=ticket.sensitive_values,
+                allowed_info_codes=allowed_info_codes,
+                provider=classification_provider,
+                attempt_number=number,
+            ),
         )
-        attempt_id = record_attempt("classification", state["ticket_id"], attempt)
-        ids = [*state["attempt_ids"], attempt_id]
         if attempt.prediction is None:
             code = attempt.error_code or attempt.outcome
             return {
-                "attempt_ids": ids,
+                **recorded,
                 "errors": _error(state, "classify", code),
                 "stage": "CLASSIFY_FAILED",
             }
         masked = build_input(ticket.record, sensitive_values=ticket.sensitive_values)
         return {
-            "attempt_ids": ids,
+            **recorded,
             "record": masked.payload.model_dump(),
             "classification": attempt.prediction.model_dump(mode="json"),
             "stage": "CLASSIFIED",
@@ -264,7 +319,7 @@ def build_graph(
         return {"evidence": evidence, "stage": "RETRIEVED"}
 
     def draft(state: CsState) -> dict[str, Any]:
-        """초안 시도 1회를 실행한다. 실패해도 사람 확인으로 넘긴다(사람이 직접 쓴다).
+        """초안 시도를 실행한다(형식 위반이면 시도 2까지). 실패해도 사람 확인으로 넘긴다(사람이 직접 쓴다).
 
         Args:
             state: 근거 검색이 끝난 상태.
@@ -273,22 +328,27 @@ def build_graph(
             dict: 상태 갱신.
         """
         ticket = load_ticket(state["ticket_id"])
-        attempt = run_draft_attempt(
-            ticket.record,
-            classification=ClassificationOutput.model_validate(state["classification"]),
-            required_info_codes=ticket.required_info_codes,
-            already_asked_codes=ticket.already_asked_codes,
-            evidence=[EvidenceSnippet.model_validate(e) for e in state["evidence"]],
-            sensitive_values=ticket.sensitive_values,
-            provider=draft_provider,
-            attempt_number=1,
+        classification = ClassificationOutput.model_validate(state["classification"])
+        evidence = [EvidenceSnippet.model_validate(e) for e in state["evidence"]]
+        attempt, recorded = attempt_with_retry(
+            state,
+            "draft",
+            lambda number: run_draft_attempt(
+                ticket.record,
+                classification=classification,
+                required_info_codes=ticket.required_info_codes,
+                already_asked_codes=ticket.already_asked_codes,
+                evidence=evidence,
+                sensitive_values=ticket.sensitive_values,
+                provider=draft_provider,
+                attempt_number=number,
+            ),
         )
-        ids = [*state["attempt_ids"], record_attempt("draft", state["ticket_id"], attempt)]
         if attempt.prediction is None:
             code = attempt.error_code or attempt.outcome
-            return {"attempt_ids": ids, "errors": _error(state, "draft", code), "stage": "DRAFTED"}
+            return {**recorded, "errors": _error(state, "draft", code), "stage": "DRAFTED"}
         return {
-            "attempt_ids": ids,
+            **recorded,
             "draft": attempt.prediction.model_dump(mode="json"),
             "stage": "DRAFTED",
         }

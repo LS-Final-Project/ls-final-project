@@ -59,8 +59,21 @@ def sdk_http(monkeypatch):
     Returns:
         list: 보낸 요청 목록.
     """
+    return install_http(monkeypatch, [CLASSIFICATION, DRAFT])
+
+
+def install_http(monkeypatch, texts):
+    """SDK의 httpx 전송을 가짜로 바꿔 주어진 응답 본문을 차례로 돌려준다.
+
+    Args:
+        monkeypatch: httpx.Client.send 교체.
+        texts: 차례로 돌려줄 모델 응답 텍스트.
+
+    Returns:
+        list: 보낸 요청 목록.
+    """
     requests = []
-    answers = iter([CLASSIFICATION, DRAFT])
+    answers = iter(texts)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setattr(
         google.auth, "default", lambda **_: (Credentials(token="fixture-token"), "fixture-project")
@@ -137,6 +150,7 @@ def test_runner_pauses_resumes_and_returns_summary_only(sdk_http):
     paused = run_ticket(graph, "thread-1", "t-1")
     assert paused.stage == "DRAFTED" and paused.next_nodes == ("human_review",)
     assert paused.errors == [] and paused.attempt_ids == ["classification-1", "draft-2"]
+    assert (paused.retried, paused.recovered) == (0, 0)
     assert len(sdk_http) == 2
     done = resume(graph, "thread-1")
     assert done.stage == "HUMAN_REVIEW" and done.next_nodes == ()
@@ -148,6 +162,48 @@ def test_runner_pauses_resumes_and_returns_summary_only(sdk_http):
     # 요청 본문에는 마스킹한 입력만 나간다.
     sent = b"".join(request.content for request in sdk_http).decode()
     assert "ZX-PRIVATE" not in sent and "person@example.test" not in sent
+
+
+@pytest.mark.parametrize(
+    ("retries", "second", "stage", "calls", "retried", "recovered"),
+    [
+        (1, CLASSIFICATION, "DRAFTED", 3, 1, 1),
+        (1, "still not json", "CLASSIFY_FAILED", 2, 1, 0),
+        (0, CLASSIFICATION, "CLASSIFY_FAILED", 1, 0, 0),
+    ],
+    ids=["recovered", "failed-twice", "off"],
+)
+def test_runner_retries_invalid_output_and_counts_it(
+    monkeypatch, retries, second, stage, calls, retried, recovered
+):
+    """분류 시도 1이 형식 위반이면 시도 2로 회복하고 요약에 재호출·회복 수를 내며, 끄면 다시 부르지 않는다.
+
+    Args:
+        monkeypatch: 가짜 HTTP 설치.
+        retries: invalid_output_retries.
+        second: 두 번째 응답.
+        stage: 기대 단계.
+        calls: 기대 HTTP 호출 수.
+        retried: 기대 재호출 수.
+        recovered: 기대 회복 수.
+
+    Returns:
+        None: 단계·호출 수·요약 수를 확인한다.
+    """
+    requests = install_http(monkeypatch, ["not json", second, DRAFT])
+    source = InMemoryTicketSource({"t-1": TICKET})
+    outcome = run_ticket(
+        runner(InMemorySaver(), source, invalid_output_retries=retries), "thread-r", "t-1"
+    )
+    assert (outcome.stage, len(requests), outcome.retried, outcome.recovered) == (
+        stage,
+        calls,
+        retried,
+        recovered,
+    )
+    assert [a["attempt_number"] for a in outcome.attempts if a["kind"] == "classification"] == (
+        [1, 2] if retries else [1]
+    )
 
 
 def test_runner_refuses_tracing_unless_allowed(sdk_http, monkeypatch):

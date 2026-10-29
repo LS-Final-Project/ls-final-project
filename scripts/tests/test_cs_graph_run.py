@@ -88,6 +88,48 @@ class GraphRunTest(unittest.TestCase):
         for secret in ("ZX-PRIVATE", "person@example.test", "Breaker trips"):
             self.assertNotIn(secret, text)
 
+    def test_invalid_output_retries_flag_reaches_the_graph(self) -> None:
+        """--invalid-output-retries는 기본 1, 0이면 0으로 그래프에 넘기고 요약에 재호출·회복 수가 있으며 다른 값은 거부한다.
+
+        Returns:
+            None: 그래프 인자·요약·종료 코드를 확인한다.
+        """
+        seen = []
+        real = cs_graph_run.build_graph
+
+        def spy(**kwargs):
+            """인자를 기록하고 원래 함수를 부른다.
+
+            Args:
+                kwargs: build_graph 인자.
+
+            Returns:
+                CompiledStateGraph: 그래프.
+            """
+            seen.append(kwargs["invalid_output_retries"])
+            return real(**kwargs)
+
+        out = Path(self.dir.name) / "out.json"
+        with patch.object(cs_graph_run, "build_graph", spy):
+            self.assertEqual(self.run_main("--thread-id", "t-a", "--out", str(out))[0], 0)
+            summary = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual((summary["retried"], summary["recovered"]), (0, 0))
+            self.assertEqual([a["attempt_number"] for a in summary["attempts"]], [1, 1])
+            code = self.run_main("--thread-id", "t-b", "--invalid-output-retries", "0")[0]
+            self.assertEqual(code, 0)
+        self.assertEqual(seen, [1, 0])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            cs_graph_run.main(
+                [
+                    "--ticket-file",
+                    str(self.tickets),
+                    "--thread-id",
+                    "t-c",
+                    "--invalid-output-retries",
+                    "2",
+                ]
+            )
+
     def test_resume_needs_database(self) -> None:
         """--resume은 DATABASE_URL이 없으면 안내와 함께 1로 끝난다.
 
