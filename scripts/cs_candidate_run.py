@@ -14,7 +14,9 @@ import hashlib
 import io
 import json
 import math
+import os
 import random
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
@@ -36,6 +38,8 @@ Provider = Callable[[ClassificationInput], Generation]
 ProviderFactory = Callable[[dict[str, str], frozenset[str], AISettings], Provider]
 Sensitive = Mapping[str, Literal["SERIAL", "PERSONAL"]]
 TOKEN_CHARS = 4
+# 라벨 파일 이름으로 쓰는 후보 이름. 경로 구분자·상대 경로를 막는다.
+LABEL_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 class SplitBlocked(ValueError):
@@ -318,6 +322,40 @@ def default_factory(settings: AISettings) -> ProviderFactory:
     return factory
 
 
+def label_path(directory: Path, name: str) -> Path:
+    """후보의 예측 라벨 파일 경로를 만든다.
+
+    Args:
+        directory: --labels-out 디렉터리.
+        name: 후보 이름(영숫자·._- 1~64자, '.'·'..' 불가).
+
+    Returns:
+        Path: <directory>/<name>.labels.json. 이름이 규칙 밖이면 ValueError다.
+    """
+    if not LABEL_NAME.fullmatch(name) or name in {".", ".."}:
+        raise ValueError("CS_LABEL_NAME")
+    return directory / f"{name}.labels.json"
+
+
+def write_private(path: Path, data: bytes) -> None:
+    """파일을 소유자만 읽고 쓰는 0600 권한으로 쓴다(빈 바이트면 만들기만 한다).
+
+    Args:
+        path: 쓸 경로.
+        data: 내용.
+
+    Returns:
+        None: 쓰지 못하거나 경로가 심볼릭 링크면 OSError다.
+    """
+    # 심볼릭 링크를 따라가지 않는다(비공개 라벨이 링크 대상 위치로 새거나 다른 파일을 덮어쓰지 않게).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
 def git_sha() -> str | None:
     """실행한 코드의 git 커밋을 읽는다.
 
@@ -341,7 +379,8 @@ def execute(
     settings: AISettings,
     prices: Mapping[str, Any],
     factory: ProviderFactory,
-) -> dict[str, object]:
+    labels: bool = False,
+) -> tuple[dict[str, object], dict[str, bytes]]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
     Args:
@@ -353,9 +392,13 @@ def execute(
         settings: AI 설정.
         prices: 단가표.
         factory: 후보별 공급자를 만드는 함수(테스트는 fake로 교체).
+        labels: True면 후보별 예측 라벨 파일 내용을 만든다.
 
     Returns:
-        dict: run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·git sha). 원문·키 없음.
+        tuple: (결과, 라벨). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·git sha,
+            라벨을 만들면 라벨 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 후보 이름 → 파일 바이트이고
+            내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이다. 사례 식별자가 들어간
+            비공개 산출물이라 raw_response·원문·usage는 넣지 않는다.
     """
     started = datetime.now(UTC)
     candidates = [
@@ -374,8 +417,24 @@ def execute(
         sensitive_values=sensitive,
         allowed_info_codes=codes,
         price_table=dict(prices),
+        return_attempts=labels,
     )
-    return {
+    attempts = result.pop("attempts", {})
+    files = {
+        name: json.dumps(
+            {
+                ticket_id: attempt.prediction.model_dump()
+                if attempt.outcome == "VALID" and attempt.prediction is not None
+                else None
+                for ticket_id, attempt in runs.items()
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+        for name, runs in attempts.items()
+    }
+    output: dict[str, object] = {
         "meta": {
             "candidates": [
                 {
@@ -391,9 +450,19 @@ def execute(
             "started_at": started.isoformat(),
             "finished_at": datetime.now(UTC).isoformat(),
             "git_sha": git_sha(),
+            **(
+                {
+                    "label_files": {
+                        name: hashlib.sha256(data).hexdigest() for name, data in files.items()
+                    }
+                }
+                if labels
+                else {}
+            ),
         },
         "result": result,
     }
+    return output, files
 
 
 def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) -> int:
@@ -418,9 +487,21 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--labels-out",
+        type=Path,
+        help="후보별 예측 라벨(<name>.labels.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
+    )
     args = parser.parse_args(argv)
-    if args.limit < 1 or (args.execute and args.out is None):
-        print("CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요합니다.")
+    if (
+        args.limit < 1
+        or (args.execute and args.out is None)
+        or (args.labels_out is not None and not args.execute)
+    ):
+        print(
+            "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
+            "--labels-out은 --execute와 함께만 쓴다."
+        )
         return 1
     try:
         records = load_targets(args.manifest, args.limit, args.seed)
@@ -447,7 +528,10 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             print(json.dumps({"targets": len(records), "candidates": rows}, ensure_ascii=False))
             return 0
         prepare_output(args.out)
-        output = execute(
+        if args.labels_out is not None:
+            for spec in specs:
+                write_private(label_path(args.labels_out, spec["name"]), b"")
+        output, labels = execute(
             records,
             gold,
             specs,
@@ -456,6 +540,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             settings,
             prices,
             factory or default_factory(settings),
+            labels=args.labels_out is not None,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
@@ -464,6 +549,9 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
         return 1
     try:
+        # 라벨을 먼저 쓰고 결과(라벨 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게 한다.
+        for name, data in labels.items():
+            write_private(label_path(args.labels_out, name), data)
         args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         print(

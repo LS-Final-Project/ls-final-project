@@ -40,6 +40,7 @@ def run_candidates(
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     allowed_info_codes: frozenset[str],
     price_table: dict[str, ModelPrice] | None = None,
+    return_attempts: bool = False,
 ) -> dict:
     """후보마다 모든 대상의 최초 시도를 실행하고 기존 지표로 비교표를 만든다.
 
@@ -50,6 +51,8 @@ def run_candidates(
         sensitive_values: 어댑터가 식별한 민감값과 마스킹 종류(모든 대상 공통).
         allowed_info_codes: 검수된 정보 코드 집합.
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
+        return_attempts: True면 "attempts"(후보 이름 → {대상 ID: ClassificationAttempt})를 더한다. 시도에는
+            raw_response가 들어 있으므로 호출자는 이 키를 꺼낸 뒤 결과를 저장한다.
 
     Returns:
         dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. ranking은 긴급도
@@ -110,6 +113,7 @@ def run_candidates(
         "targets": len(records),
         "candidates": rows,
         "ranking": [row["name"] for row in ranking],
+        **({"attempts": runs} if return_attempts else {}),
     }
 
 

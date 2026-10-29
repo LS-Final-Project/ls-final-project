@@ -7,6 +7,7 @@ import io
 import json
 import math
 import os
+import stat
 import tempfile
 import unittest
 import unittest.mock
@@ -18,7 +19,7 @@ from backend.engine.cs.classification import ClassificationOutput, build_input
 from backend.engine.cs.prompt_registry import get_prompt, prompt_fingerprint
 from backend.shared.ai import Generation, Usage
 from eval.cs_gold_locks import GoldLock
-from scripts import cs_candidate_run
+from scripts import cs_candidate_run, cs_draft_run
 
 KEY = "fixture-key-must-not-leak"
 CODES = ("TEST_PHOTO", "TEST_SERIAL")
@@ -67,6 +68,7 @@ class CandidateRunTests(unittest.TestCase):
                 "body_language": "en",
                 "inquiry_subject": "Return",
                 "inquiry_body": f"Please take breaker {i} back." if i != 2 else "   ",
+                "product_code": "MCCB-ABS-103c",
             }
             for i in range(4)
         ]
@@ -376,6 +378,168 @@ class CandidateRunTests(unittest.TestCase):
         self.assertEqual(len(calls), 6)
         for secret in (KEY, "Please take breaker", "SYN-0", ANSWER):
             self.assertNotIn(secret, text)
+
+    def labelled_run(self, *extra):
+        """후보 a는 모두 VALID, 후보 b는 SYN-0만 깨진 응답을 내는 fake로 --execute를 돌린다.
+
+        Args:
+            *extra: 추가 인자.
+
+        Returns:
+            tuple[int, str, Path]: 종료 코드, 출력, 결과 JSON 경로.
+        """
+
+        def factory(spec, codes, settings):
+            def provider(payload):
+                broken = spec["name"] == "b" and "breaker 0" in payload.body
+                return Generation("not json" if broken else ANSWER, Usage(), None, [])
+
+            return provider
+
+        out = self.root / "result.json"
+        code, printed = self.run_main("--execute", "--out", str(out), *extra, factory=factory)
+        return code, printed, out
+
+    def test_labels_out_writes_private_sorted_labels_with_nulls(self):
+        """--labels-out은 후보별 0600 라벨 파일을 쓰고 VALID가 아니거나 보류된 사례는 null이며 meta에 sha256만 남긴다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 라벨 형식·권한·meta를 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        code, printed, out = self.labelled_run("--labels-out", str(labels))
+        self.assertEqual(code, 0, printed)
+        expected = json.loads(ANSWER)
+        files = {}
+        for name in ("a", "b"):
+            path = labels / f"{name}.labels.json"
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            files[name] = path.read_bytes()
+            data = json.loads(files[name])
+            self.assertEqual(list(data), ["SYN-0", "SYN-1", "SYN-2", "SYN-3"])
+            self.assertIsNone(data["SYN-2"])
+            self.assertEqual(data["SYN-1"], expected)
+        self.assertEqual(json.loads(files["a"])["SYN-0"], expected)
+        self.assertIsNone(json.loads(files["b"])["SYN-0"])
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(
+            result["meta"]["label_files"],
+            {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
+        )
+        self.assertNotIn("attempts", result["result"])
+        self.assertNotIn("SYN-0", out.read_text(encoding="utf-8"))
+
+    def test_no_labels_out_writes_no_label_files_and_bad_requests_stop_early(self):
+        """--labels-out이 없으면 라벨 파일·meta 항목이 없고, dry-run과 함께 쓰거나 위험한 후보 이름이면 호출 전에 멈춘다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 파일 부재와 종료 코드를 확인한다.
+        """
+        code, _, out = self.labelled_run()
+        self.assertEqual(code, 0)
+        self.assertNotIn("label_files", json.loads(out.read_text())["meta"])
+        self.assertEqual(list(self.root.rglob("*.labels.json")), [])
+        self.assertEqual(self.run_main("--labels-out", str(self.root))[0], 1)
+        (self.root / "candidates.json").write_text(
+            json.dumps([{"name": "../escape", "model": "m", "prompt_version": "v1"}])
+        )
+        calls = []
+        code, _ = self.run_main(
+            "--execute",
+            "--out",
+            str(self.root / "r.json"),
+            "--labels-out",
+            str(self.root),
+            factory=lambda spec, codes, settings: calls.append(spec) or (lambda p: None),
+        )
+        self.assertEqual((code, calls), (1, []))
+        self.assertFalse((self.root.parent / "escape.labels.json").exists())
+
+    def test_symlinked_label_file_is_refused_before_any_call(self):
+        """라벨 파일 자리에 심볼릭 링크가 있으면 따라가지 않고 공급자 호출 전에 종료 코드 1로 멈춘다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 링크 대상이 바뀌지 않음과 공급자 미호출을 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        target = self.root / "shared.txt"
+        target.write_text("keep", encoding="utf-8")
+        (labels / "a.labels.json").symlink_to(target)
+        calls = []
+        code, _ = self.run_main(
+            "--execute",
+            "--out",
+            str(self.root / "r.json"),
+            "--labels-out",
+            str(labels),
+            factory=lambda spec, codes, settings: calls.append(spec) or (lambda p: None),
+        )
+        self.assertEqual((code, calls), (1, []))
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+    def test_failed_label_write_leaves_no_result_with_hashes(self):
+        """라벨을 먼저 쓰므로 라벨 쓰기가 실패하면 sha256을 담은 결과 JSON이 남지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드와 빈 결과 파일을 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        original = cs_candidate_run.write_private
+
+        def failing(path, data):
+            if data:
+                raise OSError("disk full " + KEY)
+            original(path, data)
+
+        with patch.object(cs_candidate_run, "write_private", failing):
+            code, printed, out = self.labelled_run("--labels-out", str(labels))
+        self.assertEqual(code, 1)
+        self.assertIn("CS_RUN_OUTPUT_FAILED", printed)
+        self.assertEqual(out.read_text(encoding="utf-8"), "")
+        self.assertNotIn(KEY, printed)
+
+    def test_label_file_feeds_the_draft_runner_directly(self):
+        """분류 라벨 파일을 초안 실행기의 --classification으로 그대로 넣어 dry-run이 된다(왕복).
+
+        Args:
+            없음.
+
+        Returns:
+            None: 초안 dry-run의 사례·보류 건수를 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        self.assertEqual(self.labelled_run("--labels-out", str(labels))[0], 0)
+        r = self.root
+        argv = [
+            "--manifest", str(r / "manifest.json"),
+            "--product-column", "product_code",
+            "--classification", str(labels / "b.labels.json"),
+            "--allowed-info-codes", str(r / "codes.csv"),
+            "--info-code-column", "code",
+            "--candidates", str(r / "candidates.json"),
+        ]  # fmt: skip
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(cs_draft_run.main(argv), 0)
+        report = json.loads(printed.getvalue().splitlines()[-1])
+        self.assertEqual((report["cases"], report["held_classification"]), (2, 2))
+        self.assertEqual(report["no_evidence"], 2)
 
 
 if __name__ == "__main__":
