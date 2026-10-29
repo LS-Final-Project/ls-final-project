@@ -371,11 +371,12 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
         )
         if not isinstance(sensitive, dict):
             raise ValueError("CS_EVIDENCE_SENSITIVE_SHAPE")
-        documents = (
-            [sha.strip() for sha in args.document_sha256s.split(",") if sha.strip()]
-            if args.document_sha256s
-            else None
-        )
+        documents = None
+        if args.document_sha256s is not None:
+            documents = [sha.strip() for sha in args.document_sha256s.split(",")]
+            # 빈 항목(',' 만·'a,,b'·빈 문자열)은 결과 0건이나 필터 없음으로 떨어지지 않게 입력 오류로 거부한다.
+            if not all(documents):
+                raise ValueError("CS_EVIDENCE_DOCUMENT_SHA256S")
         product_documents = None
         if args.index_manifest is not None:
             indexed = load_product_documents(args.index_manifest)
