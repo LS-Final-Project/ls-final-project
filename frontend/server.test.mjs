@@ -624,3 +624,22 @@ test('web business relay forwards or rejects each shared case before reaching th
   }, async (url, options) => { calls.push([String(url), options.method]); return Response.json({ data: {} }); }, true);
 });
 
+
+test('assignee lookup forwards only the cs_agent selector and session', async () => {
+  const calls = [];
+  await fixture(async origin => {
+    const response = await fetch(origin + '/api/v1/platform/assignees?role=cs_agent', {
+      headers: { Cookie: '__Host-team4_session=session; unrelated=private' },
+    });
+    assert.equal(response.status, 200);
+    for (const query of ['role=sales', 'role=cs_agent&role=cs_agent', 'other=x']) {
+      assert.equal((await fetch(origin + '/api/v1/platform/assignees?' + query)).status, 400);
+    }
+    assert.equal((await fetch(origin + '/api/v1/platform/assignees', { method: 'POST' })).status, 405);
+  }, async (url, options) => {
+    calls.push(String(url));
+    assert.equal(options.headers.Cookie, '__Host-team4_session=session');
+    return new Response('{"data":{"items":[]}}', {headers: {'Content-Type': 'application/json'}});
+  });
+  assert.deepEqual(calls, ['https://platform.example.invalid/api/v1/platform/assignees?role=cs_agent']);
+});
