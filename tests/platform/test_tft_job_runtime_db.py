@@ -18,8 +18,7 @@ from backend.api.platform.jobs.cloud_run import (
 )
 from backend.api.platform.jobs.dispatch import DispatchSettings, begin_send, claim_next
 from backend.api.platform.jobs.events import EventPayload
-from backend.api.platform.jobs.tft import TftJobRequest, TftJobSettings, admit_tft_job
-from backend.shared.database import connection
+from backend.api.platform.jobs.tft import TftJobSettings
 from backend.shared.errors import ApplicationError
 from tests.platform.test_cs_job_runtime_db import add_user, cs_settings, outbox, session_client
 
@@ -51,39 +50,6 @@ def tft_settings(connected=True):
         invoker_email="tft-runtime@proj-test.iam.gserviceaccount.com",
         processor_connected=connected,
     )
-
-
-@pytest.fixture
-def tft_job(settings, jobs_database, registered_user):
-    """registered_user가 요청한 rfp.process 작업을 접수하고 검사 뒤 정리한다.
-
-    Args:
-        settings: platform_app 설정.
-        jobs_database: 관리자 DSN.
-        registered_user: 요청 사용자.
-
-    Returns:
-        UUID: 작업 ID.
-    """
-
-    async def admit():
-        async with connection(settings) as conn, conn.transaction():
-            request = TftJobRequest(
-                actor_id=registered_user[1],
-                kind="rfp.process",
-                project_id=uuid4(),
-                input_version="a" * 64,
-                idempotency_key=str(uuid4()),
-                request_hash="b" * 64,
-            )
-            return (await admit_tft_job(conn, request)).job_id
-
-    job_id = asyncio.run(admit())
-    yield job_id
-    with psycopg.connect(jobs_database) as conn:
-        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
-            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
 
 
 @pytest.fixture

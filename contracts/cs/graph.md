@@ -87,7 +87,7 @@
 
 - 게이트: local/test이고 `CS_WORKER_ENABLED`(기본 꺼짐)일 때만 돈다. 아니면 `CS_WORKER_DISABLED`로 끝난다. `CS_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
 - DB: `DATABASE_URL` 하나(`cs_worker` 멤버 로그인)로 `runtime`·cs 표·`checkpoint_cs`를 쓴다. 앱·마이그레이터 역할 멤버이거나 특권 속성이 있으면 `WORKER_ROLE_REQUIRED`다. cs 표·`checkpoint_cs` 권한은 KAN-107 cs 마이그레이션이 준다.
-- 소유권(`runtime.job_control`)
+- 소유권(`runtime.job_control`, RFP worker와 공통 `backend/agent/job_runtime.py`)
   - 인수: QUEUED이거나 lease가 끊긴 RUNNING이고 취소 요청이 없을 때만이다. generation+1, holder, lease(`CS_WORKER_LEASE_SECONDS`, 기본 120초), RUNNING, `job.started`를 한 트랜잭션에 남긴다. 아니면 `NOT_CLAIMED`다.
   - 노드가 끝날 때마다 holder·generation·lease를 재검사하고 lease를 연장하며 `job.progress{step, stage}`를 남긴다. 소유권을 잃었으면 아무것도 쓰지 않고 `LEASE_LOST`로 끝난다.
   - 취소 요청(`cancel_requested_at`)이 보이면 다음 노드 전에 멈추고 CANCELLED·`job.completed{state:CANCELLED}`로 끝낸다. 취소를 거는 경로는 아직 없다.

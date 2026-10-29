@@ -7,7 +7,9 @@
 | 작업 종류 등록 | `infra/migrations/platform/20261029_KAN-182_tft_jobs.sql` |
 | 내부 접수 | `backend/api/platform/jobs/tft.py` |
 | 전송 분기·상태·SSE 접근(KAN-199) | `backend/api/platform/jobs/{dispatch,cloud_run,status,events}.py` |
-| 검사 | `tests/platform/test_tft_jobs_db.py`, `tests/platform/test_tft_job_runtime_db.py` |
+| worker 역할(KAN-199) | `infra/migrations/platform/20261031_KAN-199_tft_worker.sql`(P29) |
+| worker·처리 함수 등록(KAN-199) | `backend/agent/tft_worker.py`, `backend/agent/processor_registry.py`, `backend/agent/job_runtime.py` |
+| 검사 | `tests/platform/test_tft_jobs_db.py`, `tests/platform/test_tft_job_runtime_db.py`, `tests/platform/test_tft_worker_db.py`, `tests/agent/test_processor_registry.py` |
 
 ## 작업 종류
 
@@ -26,7 +28,7 @@
 tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `tft_app`에는 runtime 권한을 주지 않고 플랫폼(`platform_app`)이 저장한다.
 
 - **기본 비활성(404)**. `TFT_JOBS_ENABLED=true`, `TFT_JOBS_SERVICE_URL`(플랫폼 서비스 주소, ID 토큰 audience), `TFT_JOBS_INVOKER_EMAIL`(tft 실행 서비스 계정)을 함께 정해야 켜진다. 켜면 `Authorization: Bearer <Google ID 토큰>`을 고정 Google 서명키·audience·실행 계정으로 다시 검증한다(Cloud Run IAM과 별도, 불일치 401).
-- **`TFT_JOBS_PROCESSOR_CONNECTED`를 켜는 조건**: 전송기의 종류 구분과 tft 작업 상태·SSE 접근 검사는 KAN-199 1/2로 갖췄다. 남은 조건은 (1) tft 처리 worker(KAN-199 2/2)가 작업을 RUNNING 이후로 옮기고, (2) 처리 함수 등록 지점(`backend.api.tft.worker_processor`, KAN-186·KAN-184 구현)이 연결되고, (3) Jobs 전송 설정(`TFT_WORKER_JOBS_ENABLED` 등)이 켜지는 것이다. 그 전에 켜면 작업이 QUEUED로 남아 그 프로젝트의 다음 접수가 409가 된다.
+- **`TFT_JOBS_PROCESSOR_CONNECTED`를 켜는 조건**: 전송기의 종류 구분, tft 작업 상태·SSE 접근 검사, 처리 worker(아래 'worker' 절)는 KAN-199로 갖췄다. 남은 조건은 (1) 처리 함수 모듈(`backend.api.tft.worker_processor`, KAN-186·KAN-184 구현)과 그 tft 표 권한 마이그레이션, (2) P29 적용과 `tft_worker` 로그인, (3) `TFT_WORKER_JOBS_ENABLED`·`TFT_WORKER_ENABLED`다. 그 전에 켜면 작업이 FAILED(`TFT_WORKER_PROCESSOR_MISSING`)나 QUEUED로 남는다.
 - **처리기 연결 전에는 저장하지 않는다.** `TFT_JOBS_PROCESSOR_CONNECTED=false`(기본)이면 호출자 검증 뒤 503 `TFT_PROCESSOR_NOT_CONNECTED`를 돌려주고 행을 만들지 않는다. worker 없이 저장하면 QUEUED가 남아 그 프로젝트의 다음 접수가 계속 409가 되기 때문이다. tft 처리 worker를 연결할 때 함께 켠다.
 - 호출자 검증은 본문 검증보다 먼저 한다(비활성 404·불일치 401이 422보다 앞선다).
 - **본문**: `actor_id`, `kind`, `project_id`, `input_version`(동결 입력 SHA-256), `idempotency_key`(8~128자), `request_hash`(정규화 원 요청 SHA-256). 다른 키는 422다. 원문·프롬프트·모델 응답은 받지 않는다.
@@ -49,7 +51,24 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 `state`(공통 작업 상태), `step`(위 단계 값), `document_version_id`(표준 하이픈 소문자 UUID 문자열), `counts`(`requirements`·`proposals` 둘 다 0 이상 정수, 다른 키 없음), `needs_review`(bool). 원문·프롬프트·모델 응답은 이벤트에 넣지 않는다. 플랫폼 `EventPayload`가 이 키만 SSE로 내보내고 모르는 키(오류 코드 등)는 버린다. 표에 없는 `step` 값이나 형식이 틀린 값이 저장되면 SSE는 503 `EVENT_DATA_UNAVAILABLE`이다.
 
+## worker (KAN-199 2/2)
+
+플랫폼 전송이 tft 이미지의 `tft-worker` 대상(`python -m backend.agent.tft_worker`)을 `TFT_JOB_ID`=작업 ID로 실행한다. 이 이미지에는 `backend/api/platform`·`backend/api/cs`가 없다.
+
+- 게이트: local/test이고 `TFT_WORKER_ENABLED`(기본 꺼짐)일 때만 돈다. 아니면 `TFT_WORKER_DISABLED`다. `TFT_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
+- DB: `DATABASE_URL` 하나(`tft_worker` 멤버 로그인). 앱·마이그레이터 역할 멤버이거나 특권 속성이 있으면 `WORKER_ROLE_REQUIRED`다. P29는 runtime 열 권한만 준다(jobs 조회 열·status UPDATE, job_events 열 INSERT, job_control SELECT와 취소 열을 뺀 UPDATE). tft 표 권한은 처리 함수 쪽 tft 마이그레이션이 준다.
+- 소유권(`runtime.job_control`, C/S worker와 공통 `job_runtime`)
+  - 인수: owner가 tft이고 QUEUED이거나 lease가 끊긴 RUNNING이며 취소 요청이 없을 때만이다. generation+1·holder·lease(`TFT_WORKER_LEASE_SECONDS`, 기본 300초)·RUNNING·`job.started`. 아니면 `NOT_CLAIMED`다.
+  - 처리 함수가 단계마다 `emit`을 부르면 소유권을 재검사하고 lease를 연장하며 `job.progress`를 남긴다. 소유권을 잃었으면 아무것도 쓰지 않고 `LEASE_LOST`, 취소 요청이면 CANCELLED·`job.completed{state:CANCELLED}`다.
+- 처리 함수 등록(`backend/agent/processor_registry.py`)
+  - 고정 모듈 `backend.api.tft.worker_processor`의 `build(settings) -> Processor`. 경로를 환경 변수로 받지 않는다. 모듈이 없으면 인수 뒤 FAILED·`TFT_WORKER_PROCESSOR_MISSING`이다.
+  - `processor(job, emit)`: `job`은 `TftJob{job_id, kind, project_id, input_version, actor_id}`(원문 없음)다. 프로젝트 접근 검사는 tft 서비스가 접수 때 마쳤다.
+  - `emit`이 올리는 취소·소유권 상실 예외를 처리 함수가 삼키지 않는다. 재실행 멱등(이미 만든 판본 행 재사용)은 처리 함수 몫이다.
+  - 반환값은 종료 요약(`counts`·`needs_review`·`document_version_id`) 또는 None이다.
+- 결과: 처리 함수가 정상 반환하면 SUCCEEDED·`job.completed{state, counts?, needs_review?, document_version_id?}`다. `needs_review`가 참이어도 SUCCEEDED이고 PARTIAL은 쓰지 않는다. 예외는 FAILED·`job.failed{state:FAILED}`이고 `failure_code`는 `TFT_WORKER_PROCESSOR_MISSING`·`TFT_WORKER_PROCESSING_FAILED` 같은 고정 코드만이다.
+- payload 검사: worker가 처리 함수 값에서 위 허용 키만 형식을 확인해 저장한다. 표에 없는 step, 음수·빠진 counts 키, bool이 아닌 needs_review, UUID가 아닌 문서 판본은 저장하지 않고 FAILED다. 모르는 키(오류 코드·원문)는 버린다.
+
 ## 아직 없는 것
 
-- tft 처리 worker(`backend/agent/tft_worker.py`)와 `tft_worker` 역할 마이그레이션, 처리 함수 등록 규약: KAN-199 2/2.
-- 처리 함수 구현(`backend.api.tft.worker_processor`): KAN-186 판정·KAN-184 후보 풀.
+- 처리 함수 구현(`backend.api.tft.worker_processor`)과 그 tft 표 권한: KAN-186 판정·KAN-184 후보 풀.
+- 취소를 거는 경로. 지금은 `cancel_requested_at`을 읽기만 한다(KAN-194 이연 P3와 같은 범위).

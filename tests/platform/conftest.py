@@ -16,6 +16,7 @@ from backend.api.platform.auth.callback import MicrosoftSubject
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
 from backend.api.platform.jobs.cs import CsJobRequest, admit_cs_job
+from backend.api.platform.jobs.tft import TftJobRequest, admit_tft_job
 from backend.shared.database import connection
 from backend.shared.settings import Settings
 
@@ -171,6 +172,9 @@ def jobs_database(auth_database):
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
         # KAN-194 cs 작업 종류. tft 마이그레이션이 CHECK를 다시 만들므로 그 뒤에 적용한다.
         migration = Path("infra/migrations/platform/20261031_KAN-194_cs_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-199 tft_worker 역할. job_control이 필요하므로 cs 마이그레이션 뒤에 적용한다.
+        migration = Path("infra/migrations/platform/20261031_KAN-199_tft_worker.sql").read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
@@ -340,6 +344,39 @@ def cs_job(settings, jobs_database, registered_user):
                 requested_by=registered_user[1],
             )
             return (await admit_cs_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    yield job_id
+    with psycopg.connect(jobs_database) as conn:
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
+
+
+@pytest.fixture
+def tft_job(settings, jobs_database, registered_user):
+    """registered_user가 요청한 rfp.process 작업을 접수하고 검사 뒤 정리한다.
+
+    Args:
+        settings: platform_app 설정.
+        jobs_database: 관리자 DSN.
+        registered_user: 요청 사용자.
+
+    Returns:
+        UUID: 작업 ID.
+    """
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = TftJobRequest(
+                actor_id=registered_user[1],
+                kind="rfp.process",
+                project_id=uuid4(),
+                input_version="a" * 64,
+                idempotency_key=str(uuid4()),
+                request_hash="b" * 64,
+            )
+            return (await admit_tft_job(conn, request)).job_id
 
     job_id = asyncio.run(admit())
     yield job_id
