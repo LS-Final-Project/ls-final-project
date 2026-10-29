@@ -11,6 +11,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -24,6 +25,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -43,6 +45,7 @@
         ],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -62,6 +65,7 @@
         ],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -75,6 +79,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -88,6 +93,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -101,6 +107,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -114,6 +121,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": "IEEE C57.12.01",
+        "certification_listed": false,
         "designated_model": null,
         "task": null
       },
@@ -127,6 +135,7 @@
         "conditions": [],
         "necessity": "MANDATORY",
         "certification_standard": null,
+        "certification_listed": false,
         "designated_model": "Eaton Resibloc",
         "task": null
       }
