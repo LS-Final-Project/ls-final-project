@@ -8,7 +8,7 @@ import statistics
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from backend.engine.cs.classification import ClassificationInput
 from backend.engine.cs.classification_call import ClassificationAttempt, run_classification_attempt
@@ -19,7 +19,7 @@ from eval.cs_metrics import (
     summarize_urgency_first_attempts,
 )
 from eval.cs_strata import CHANNELS, summarize_first_attempts_by_group
-from eval.cs_usage import TOKEN_FIELDS, _percentile, _sum_report
+from eval.cs_usage import TOKEN_FIELDS, percentile, sum_report
 
 
 @dataclass(frozen=True)
@@ -150,7 +150,7 @@ def _row(
         }
         for c in estimates
     ]
-    cost = _sum_report(costs, "cost")
+    cost = sum_report(costs, "cost")
     outcomes: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
     return {
         "name": candidate.name,
@@ -173,13 +173,12 @@ def _row(
                 key: phone[key]["macro_f1"] for key in ("PHONE", "NON_PHONE") if key in phone
             },
         },
-        "usage": {field: _sum_report(usage, field) for field in TOKEN_FIELDS},
+        "usage": {field: sum_report(usage, field) for field in TOKEN_FIELDS},
         "latency_ms": {
             "reported_count": len(latency),
             "mean": statistics.fmean(latency) if latency else None,
-            # _percentile은 정수 지연용으로 선언됐지만 계산은 실수에도 같다.
-            "p50": _percentile(cast(list[int], latency), 0.5),
-            "p95": _percentile(cast(list[int], latency), 0.95),
+            "p50": percentile(latency, 0.5),
+            "p95": percentile(latency, 0.95),
         },
         # Decimal을 반올림하지 않고 cs_usage처럼 십진 문자열로 둔다.
         "cost_usd": {

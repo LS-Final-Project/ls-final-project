@@ -204,3 +204,20 @@ def test_invalid_inputs_are_rejected(call):
     """
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         call()
+
+
+def test_edit_traces_reject_non_text_values():
+    """삭제 값 원소나 예측 value_text가 문자열이 아니면 AttributeError가 아니라 입력 오류다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: EVAL_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        summarize_edit_traces(PREDICTED, {"A": frozenset({1})})
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        summarize_edit_traces(
+            {"A": [pred("2.5", "x", "EVIDENCE_FOUND", value=123)]}, {"A": frozenset({"600 V"})}
+        )

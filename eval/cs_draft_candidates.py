@@ -14,7 +14,7 @@ from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
 from backend.shared.ai import Generation, ModelPrice, estimate_cost
 from eval.cs_draft_metrics import DraftGold, summarize_draft_first_attempts
-from eval.cs_usage import _sum_report
+from eval.cs_usage import sum_report
 
 BLOCKED = "CS_BLOCKED_EVIDENCE"
 SUBSET_NOTE = "부분 집합 결과는 전체 집계·합격선에 반영하지 않는다"
@@ -51,7 +51,7 @@ def _cost(attempts: list[DraftAttempt], model: str, price_table: dict[str, Model
         price_table: 단가표.
 
     Returns:
-        dict: _sum_report 형식. 입력·답변 금액이 모두 있고 USD일 때만 확정 비용으로 센다(cs_candidates와 같은
+        dict: sum_report 형식. 입력·답변 금액이 모두 있고 USD일 때만 확정 비용으로 센다(cs_candidates와 같은
             규칙). 금액은 반올림하지 않은 십진 문자열이다.
     """
     estimates = [estimate_cost(a.usage, model, price_table) for a in attempts]
@@ -65,7 +65,7 @@ def _cost(attempts: list[DraftAttempt], model: str, price_table: dict[str, Model
     ]
     return {
         key: format(value, "f") if key in {"known_sum", "total"} and value is not None else value
-        for key, value in _sum_report(costs, "cost").items()
+        for key, value in sum_report(costs, "cost").items()
     }
 
 
