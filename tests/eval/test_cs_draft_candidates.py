@@ -130,9 +130,9 @@ def provider(*, cite="rel", text="Synthetic answer.", only=None):
 
 
 CANDIDATES = [
-    DraftCandidate("forbidden", provider(text="RMA가 승인되었습니다."), "fake-a", "p3"),
-    DraftCandidate("ungrounded", provider(cite="other"), "fake-a", "p2"),
-    DraftCandidate("grounded", provider(), "fake-a", "p1"),
+    DraftCandidate("forbidden", provider(text="RMA가 승인되었습니다."), "fake-a", "v1"),
+    DraftCandidate("ungrounded", provider(cite="other"), "fake-a", "v1"),
+    DraftCandidate("grounded", provider(), "fake-a", "v1"),
 ]
 
 
@@ -169,7 +169,7 @@ def test_ranking_separates_forbidden_from_grounding():
     assert rows["ungrounded"]["grounding"]["outside_relevant_sentences"] == 15
     assert rows["grounded"]["info_requests"]["INFO_FIRST"]["f1"] == 1.0
     assert rows["grounded"]["usage"]["input_tokens"]["total"] == 50
-    assert rows["grounded"]["model"] == "fake-a" and rows["grounded"]["prompt_version"] == "p1"
+    assert rows["grounded"]["model"] == "fake-a" and rows["grounded"]["prompt_version"] == "v1"
     assert result["subset"] == {"rerun": 5, "total": 5} and "note" not in result
 
 
@@ -183,10 +183,10 @@ def test_forbidden_then_blocked_rank_before_grounding():
         None: blocked 건수와 순위를 확인한다.
     """
     blocked = DraftCandidate(
-        "blocked", provider(text="See FLT-042 notes.", only="1"), "fake-a", "p4"
+        "blocked", provider(text="See FLT-042 notes.", only="1"), "fake-a", "v1"
     )
     forbid_one = DraftCandidate(
-        "forbid-one", provider(text="RMA가 승인되었습니다.", only="2"), "fake-a", "p5"
+        "forbid-one", provider(text="RMA가 승인되었습니다.", only="2"), "fake-a", "v1"
     )
     result = run(candidates=[forbid_one, blocked, CANDIDATES[1]])
     rows = {row["name"]: row for row in result["candidates"]}
@@ -235,8 +235,8 @@ def test_broken_candidates_rank_after_valid_ones():
     """
     result = run(
         candidates=[
-            DraftCandidate("all-broken", broken(), "fake-a", "p6"),
-            DraftCandidate("one-broken", broken(only="3"), "fake-a", "p7"),
+            DraftCandidate("all-broken", broken(), "fake-a", "v1"),
+            DraftCandidate("one-broken", broken(only="3"), "fake-a", "v1"),
             CANDIDATES[1],
         ]
     )
@@ -257,9 +257,9 @@ def test_forbidden_candidate_ranks_after_all_broken():
         None: 순위를 확인한다.
     """
     forbid_one = DraftCandidate(
-        "forbid-one", provider(text="RMA가 승인되었습니다.", only="2"), "fake-a", "p5"
+        "forbid-one", provider(text="RMA가 승인되었습니다.", only="2"), "fake-a", "v1"
     )
-    result = run(candidates=[forbid_one, DraftCandidate("all-broken", broken(), "fake-a", "p6")])
+    result = run(candidates=[forbid_one, DraftCandidate("all-broken", broken(), "fake-a", "v1")])
     assert result["ranking"] == ["all-broken", "forbid-one"]
 
 
@@ -287,7 +287,7 @@ def test_subset_reruns_only_selected_cases():
         return provider()(prompt)
 
     result = run(
-        candidates=[DraftCandidate("grounded", counting, "fake-a", "p1")],
+        candidates=[DraftCandidate("grounded", counting, "fake-a", "v1")],
         subset=frozenset({"k2", "k4"}),
     )
     assert len(calls) == 2
@@ -415,3 +415,46 @@ def test_invalid_setup_is_rejected(kwargs):
     """
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         run(**kwargs)
+
+
+def test_each_candidate_runs_its_own_prompt_version(monkeypatch):
+    """후보의 prompt_version이 실제 프롬프트 판본으로 쓰인다(이름표가 아니다).
+
+    Args:
+        monkeypatch: 검사용 draft 판본을 잠시 등록한다.
+
+    Returns:
+        None: 후보별 공급자가 받은 프롬프트 첫머리를 확인한다.
+    """
+    from backend.engine.cs import prompt_registry
+    from backend.engine.cs.drafting import DRAFT_PROMPT
+
+    monkeypatch.setitem(prompt_registry.PROMPTS["draft"], "test-v2", "검사용 초안 판본 본문.\n")
+    seen: dict[str, list[str]] = {"v1": [], "test-v2": []}
+
+    def recording(version):
+        """판본별로 받은 프롬프트를 기록하는 공급자.
+
+        Args:
+            version: 기록할 판본 키.
+
+        Returns:
+            Callable: grounded 응답을 내는 공급자.
+        """
+
+        def call(prompt):
+            seen[version].append(prompt)
+            return provider()(prompt)
+
+        return call
+
+    run(
+        candidates=[
+            DraftCandidate("v1", recording("v1"), "fake-a", "v1"),
+            DraftCandidate("v2", recording("test-v2"), "fake-a", "test-v2"),
+        ]
+    )
+    assert seen["v1"] and all(p.startswith(DRAFT_PROMPT) for p in seen["v1"])
+    assert seen["test-v2"] and all(
+        p.startswith("검사용 초안 판본 본문.\n") for p in seen["test-v2"]
+    )
