@@ -30,6 +30,8 @@
 - 절 번호(`2.5`)는 지금 PART 번호와 앞 자리가 같고 그 PART의 앞 절보다 클 때만 절이다. 끊긴 줄이
   `13.8 kV class`처럼 소수로 시작해도 절로 읽지 않는다. 미뤄 둔 절이 문서 끝이나 다음 절까지 열리지 않으면
   그 자리에서 열고 `numbering_issues`(`UNPLACED_ARTICLE`)에 남긴다.
+- 파일에 `SECTION … - …` 줄이 둘 이상이면 두 번째부터 번호 추적을 새로 시작하고 `MULTIPLE_SECTIONS`로
+  보고한다(조항 번호는 섹션을 붙이지 않으므로 같은 번호는 `~2`로 구분된다). 제공 RFP는 파일당 섹션 하나다.
 - 같은 번호가 다시 나오면 `~2`를 붙여 구분하고, 건너뛴 번호(c. 다음 e.)와 함께 `numbering_issues`에 남긴다.
   번호를 고쳐 쓰지 않는다.
 - 삭제 값(취소선)은 조항 text 기준 위치로 옮긴다. 번호 자리의 삭제 값은 `label_history`(예전 번호)다.
@@ -57,6 +59,7 @@ LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (7, re.compile(r"^\(?([a-z])\)(?:\s+|$)")),
 )
 END_OF_SECTION = re.compile(r"^END OF SECTION\b", re.I)
+SECTION_HEAD = re.compile(r"^SECTION\s+\d[\d .]*\s*[-–—]\s*\S")
 SENTENCE_END = (".", ":", ";", "?", "!")
 BOILERPLATE_MAX = 160
 BOILERPLATE_REPEAT = 3
@@ -76,6 +79,10 @@ class Clause(Strict):
     title: str | None = Field(description="PART·절(깊이 1·2)만. 그 밖에는 null.")
     text: str = Field(description="번호를 뺀 현행 본문. 이어 붙인 문단 포함.")
     deleted_values: list[DeletedValue] = Field(description="text 기준 위치로 옮긴 삭제 값.")
+    title_deleted_values: list[DeletedValue] = Field(
+        default=[],
+        description="PART·절 제목 줄의 삭제 값(title 기준 위치). 본문 삭제 값과 섞지 않는다.",
+    )
     flags: list[str] = []
     block_ids: list[str]
     table_rows: list[list[str]] = []
@@ -141,6 +148,7 @@ class _Open:
     rows: list[list[str]] = field(default_factory=list)
     row_deleted: list[TableDeleted] = field(default_factory=list)
     refs: list[CrossReference] = field(default_factory=list)
+    title_deleted: list[DeletedValue] = field(default_factory=list)
     # 이어 붙인 블록마다 text 안 시작 위치. 한 문단 나누기에서 블록 출처를 정한다.
     starts: list[tuple[int, str]] = field(default_factory=list)
 
@@ -353,6 +361,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 title=current_.title,
                 text=current_.text,
                 deleted_values=current_.deleted,
+                title_deleted_values=current_.title_deleted,
                 flags=sorted(current_.flags),
                 block_ids=current_.block_ids,
                 table_rows=current_.rows,
@@ -514,7 +523,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         if block.block_id in noise:
             i += 1
             continue
-        if ended and text and not PART.match(text):
+        if ended and text and not PART.match(text) and not SECTION_HEAD.match(text):
             noise[block.block_id] = "AFTER_END_OF_SECTION"
             i += 1
             continue
@@ -601,8 +610,25 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         if block.kind != "PARAGRAPH" or not text:
             i += 1
             continue
-        if section_title is None and text.upper().startswith("SECTION "):
-            section_title = text
+        if SECTION_HEAD.match(text):
+            if section_title is None:
+                section_title = text
+            else:
+                # 한 파일에 섹션이 둘 이상이면 번호 추적을 새로 시작하고 보고한다(같은 번호는 ~2로 구분).
+                flush_pending()
+                close()
+                stack.clear()
+                part_no = None
+                last_article.clear()
+                last_token.clear()
+                issues.append(
+                    NumberingIssue(
+                        clause_no=text[:40],
+                        kind="MULTIPLE_SECTIONS",
+                        detail="같은 파일의 다음 섹션",
+                    )
+                )
+            ended = False
             preamble.append(block.block_id)
             i += 1
             continue
@@ -619,19 +645,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             cut = block.text.find(label) + len(label)
             body, deleted, history = _strip(block.text, block.deleted_values, cut)
             if depth <= 2:
-                # 제목 줄의 삭제 값(예: PART 3의 "(NOT IN CONTRACT)")은 제목 기준으로 남긴다.
-                title_deleted = deleted
-                open_clause(
-                    depth,
-                    token,
-                    label,
-                    body.strip() or title,
-                    block,
-                    "",
-                    title_deleted,
-                    history,
-                    [],
-                )
+                # 제목 줄의 삭제 값(예: PART 3의 "(NOT IN CONTRACT)")은 제목 기준으로 따로 둔다.
+                open_clause(depth, token, label, body.strip() or title, block, "", [], history, [])
+                if current is not None:
+                    current.title_deleted = deleted
             else:
                 apply_pending(depth, token)
                 open_clause(depth, token, label, None, block, body, deleted, history, [])
