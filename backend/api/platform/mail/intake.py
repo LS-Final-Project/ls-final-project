@@ -42,6 +42,8 @@ router = APIRouter(
     },
 )
 Code = Annotated[str, Field(min_length=1, max_length=64)]
+SUBJECT_LIMIT = 500
+BODY_LIMIT = 50_000
 
 
 class RegisterTicket(BaseModel):
@@ -132,14 +134,19 @@ async def register_ticket(
         raise ApplicationError(422, "MAIL_SENDER_UNKNOWN", "The mail has no sender address.")
     if not body:
         raise ApplicationError(422, "MAIL_BODY_EMPTY", "The mail has no text body.")
+    # C/S 문의 한도(제목 500·본문 50,000자). 고객 원문을 잘라 접수하지 않는다.
+    if len(body) > BODY_LIMIT or (subject is not None and len(subject) > SUBJECT_LIMIT):
+        raise ApplicationError(
+            422, "MAIL_TOO_LONG_FOR_TICKET", "The mail is longer than a ticket can hold."
+        )
     outgoing = {
         "message_id": str(message_id),
         "mailbox_id": str(row["mailbox_id"]),
         "external_id": row["graph_id"],
         "sender_address": sender,
         "received_at": row["received_at"].isoformat(),
-        "subject": subject[:500] if subject else None,
-        "body": body[:50_000],
+        "subject": subject,
+        "body": body,
         **payload.model_dump(),
     }
     try:

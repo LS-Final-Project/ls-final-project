@@ -1036,6 +1036,92 @@
         "title": "CustomerSend",
         "type": "object"
       },
+      "CustomerSendRequest": {
+        "additionalProperties": false,
+        "description": "A C/S agent approves an answer or an information request for the customer.",
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "body_type": {
+            "default": "text",
+            "enum": [
+              "text",
+              "html"
+            ],
+            "title": "Body Type",
+            "type": "string"
+          },
+          "cc": {
+            "items": {
+              "maxLength": 320,
+              "minLength": 3,
+              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cc",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "ANSWER",
+              "INFO_REQUEST"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mailbox_id": {
+            "description": "The approver's connected mailbox (KAN-81).",
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 320,
+                  "minLength": 3,
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recipients. Omitted: the sender of the mail that opened the ticket.",
+            "title": "To"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "mailbox_id",
+          "subject",
+          "body"
+        ],
+        "title": "CustomerSendRequest",
+        "type": "object"
+      },
       "CustomerTicket": {
         "properties": {
           "channel": {
@@ -4497,6 +4583,58 @@
         "title": "ReviewRequest",
         "type": "object"
       },
+      "SendRequest": {
+        "additionalProperties": false,
+        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
+        "properties": {
+          "dept_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Codes"
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "SendRequest",
+        "type": "object"
+      },
       "Side": {
         "description": "\uc870\uac74\uc758 \ud55c\ucabd(\uae30\uc900 \ub610\ub294 \ub300\uc0c1). \ub9c8\uc2a4\ud0b9\ub41c \uac12, \ub610\ub294 null\uacfc \uc0ac\uc720.",
         "properties": {
@@ -5985,144 +6123,6 @@
           "dept_results"
         ],
         "title": "Workflow",
-        "type": "object"
-      },
-      "backend__api__cs__improvements__schemas__SendRequest": {
-        "additionalProperties": false,
-        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
-        "properties": {
-          "dept_codes": {
-            "anyOf": [
-              {
-                "items": {
-                  "enum": [
-                    "TS_LV",
-                    "TS_MV",
-                    "TS_TRF",
-                    "TS_AUTO",
-                    "TS_ENERGY",
-                    "RND_FW",
-                    "QA_CLAIM",
-                    "FIELD_SVC",
-                    "CERT",
-                    "SALES_OPS",
-                    "SCM",
-                    "WARRANTY_DESK"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dept Codes"
-          },
-          "reply_due_days": {
-            "default": 7,
-            "maximum": 90.0,
-            "minimum": 1.0,
-            "title": "Reply Due Days",
-            "type": "integer"
-          },
-          "version": {
-            "description": "The request version the user decided on.",
-            "minimum": 1.0,
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version"
-        ],
-        "title": "SendRequest",
-        "type": "object"
-      },
-      "backend__api__cs__workflow__schemas__SendRequest": {
-        "additionalProperties": false,
-        "description": "A C/S agent approves an answer or an information request for the customer.",
-        "properties": {
-          "body": {
-            "maxLength": 200000,
-            "minLength": 1,
-            "title": "Body",
-            "type": "string"
-          },
-          "body_type": {
-            "default": "text",
-            "enum": [
-              "text",
-              "html"
-            ],
-            "title": "Body Type",
-            "type": "string"
-          },
-          "cc": {
-            "items": {
-              "maxLength": 320,
-              "minLength": 3,
-              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
-              "type": "string"
-            },
-            "maxItems": 50,
-            "title": "Cc",
-            "type": "array"
-          },
-          "kind": {
-            "enum": [
-              "ANSWER",
-              "INFO_REQUEST"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "mailbox_id": {
-            "description": "The approver's connected mailbox (KAN-81).",
-            "format": "uuid",
-            "title": "Mailbox Id",
-            "type": "string"
-          },
-          "subject": {
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Subject",
-            "type": "string"
-          },
-          "to": {
-            "anyOf": [
-              {
-                "items": {
-                  "maxLength": 320,
-                  "minLength": 3,
-                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
-                  "type": "string"
-                },
-                "maxItems": 50,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Recipients. Omitted: the sender of the mail that opened the ticket.",
-            "title": "To"
-          },
-          "version": {
-            "description": "The workflow version the user decided on.",
-            "minimum": 0.0,
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "kind",
-          "mailbox_id",
-          "subject",
-          "body"
-        ],
-        "title": "SendRequest",
         "type": "object"
       }
     }
@@ -9068,7 +9068,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/backend__api__cs__improvements__schemas__SendRequest"
+                "$ref": "#/components/schemas/SendRequest"
               }
             }
           },
@@ -11384,7 +11384,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/backend__api__cs__workflow__schemas__SendRequest"
+                "$ref": "#/components/schemas/CustomerSendRequest"
               }
             }
           },

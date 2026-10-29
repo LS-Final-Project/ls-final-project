@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
+import psycopg
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,6 +59,15 @@ class MailTicketCreate(BaseModel):
     product_code: Code
     fw_version_reported: Code | None = None
     error_code_reported: Code | None = None
+
+
+def already_registered(ticket_id: UUID) -> ApplicationError:
+    return ApplicationError(
+        409,
+        "CS_MAIL_ALREADY_REGISTERED",
+        "This mail was registered before.",
+        details=[{"field": "ticket_id", "reason": str(ticket_id)}],
+    )
 
 
 @router.post("/from-mail", status_code=201, response_model=SuccessResponse[TicketDetail])
@@ -111,27 +121,35 @@ async def register_from_mail(
     async with connection(settings) as conn:
         existing = await repository.ticket_for_message(conn, payload.message_id)
         if existing is not None:
-            raise ApplicationError(
-                409,
-                "CS_MAIL_ALREADY_REGISTERED",
-                "This mail was registered before.",
-                details=[{"field": "ticket_id", "reason": str(existing)}],
-            )
-        await tickets.insert_ticket(conn, values)
-        await repository.insert_mail_origin(
-            conn,
-            {
-                "ticket_id": ticket_id,
-                "message_id": payload.message_id,
-                "mailbox_id": payload.mailbox_id,
-                "sender_address": payload.sender_address,
-                "received_at": payload.received_at,
-                "registered_by": principal.user_id,
-            },
-        )
-        await tickets.insert_audit(
-            conn, uuid4(), ticket_id, "create", 1, principal.user_id, created
-        )
+            raise already_registered(existing)
+        try:
+            # Savepoint: a concurrent registration of the same mail hits the unique keys here,
+            # and the existing ticket is read back after the rollback.
+            async with conn.transaction():
+                await tickets.insert_ticket(conn, values)
+                await repository.insert_mail_origin(
+                    conn,
+                    {
+                        "ticket_id": ticket_id,
+                        "message_id": payload.message_id,
+                        "mailbox_id": payload.mailbox_id,
+                        "sender_address": payload.sender_address,
+                        "received_at": payload.received_at,
+                        "registered_by": principal.user_id,
+                    },
+                )
+                await tickets.insert_audit(
+                    conn, uuid4(), ticket_id, "create", 1, principal.user_id, created
+                )
+        except psycopg.errors.UniqueViolation:
+            existing = await repository.ticket_for_message(conn, payload.message_id)
+            if existing is None:
+                existing = await repository.ticket_for_external_id(
+                    conn, MAIL_SOURCE, str(payload.mailbox_id), payload.external_id
+                )
+            if existing is None:
+                raise
+            raise already_registered(existing) from None
     return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 
