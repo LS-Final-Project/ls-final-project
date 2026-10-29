@@ -78,10 +78,21 @@ def summarize_triage(
     if (
         set(gold) != set(results)
         or any(
-            not isinstance(item, MailGold) or item.mail_type not in MAIL_TYPES
+            not isinstance(item, MailGold)
+            or item.mail_type not in MAIL_TYPES
+            or (item.human_needs_review is not None and type(item.human_needs_review) is not bool)
             for item in gold.values()
         )
-        or any(r is not None and not isinstance(r, TriageResult) for r in results.values())
+        # 검증을 거치지 않은 결과(model_construct)도 들어올 수 있으므로 유형·검토 필요 값을 다시 본다.
+        or any(
+            r is not None
+            and (
+                not isinstance(r, TriageResult)
+                or r.mail_type not in MAIL_TYPES
+                or type(r.needs_review) is not bool
+            )
+            for r in results.values()
+        )
     ):
         raise ValueError("EVAL_INVALID_INPUT")
     matrix = {label: dict.fromkeys((*MAIL_TYPES, NO_PREDICTION), 0) for label in MAIL_TYPES}

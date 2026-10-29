@@ -95,3 +95,32 @@ def test_triage_rejects_mismatched_ids():
         summarize_triage(GOLD, {k: v for k, v in RESULTS.items() if k != "m4"})
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         summarize_triage(GOLD, RESULTS | {"m4": "NEW_RFP"})
+
+
+@pytest.mark.parametrize(
+    "results,gold",
+    [
+        (
+            RESULTS | {"m4": TriageResult.model_construct(mail_type="SPAM", needs_review=False)},
+            GOLD,
+        ),
+        (
+            RESULTS | {"m4": TriageResult.model_construct(mail_type="OTHER", needs_review="yes")},
+            GOLD,
+        ),
+        (RESULTS, GOLD | {"m4": MailGold("OTHER", None, "no")}),
+    ],
+    ids=["unknown-type", "non-bool-review", "non-bool-human-review"],
+)
+def test_triage_rejects_unvalidated_values(results, gold):
+    """검증을 거치지 않은 결과·정답의 허용 밖 유형과 bool 아닌 검토 값을 거부한다.
+
+    Args:
+        results: 잘못된 결과.
+        gold: 정답.
+
+    Returns:
+        None: EVAL_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        summarize_triage(gold, results)
