@@ -1461,6 +1461,16 @@
           "metrics": {
             "$ref": "#/components/schemas/LockedMetrics"
           },
+          "outcomes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutcomeQuality"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quality_gate_evaluated": {
             "const": false,
             "default": false,
@@ -1863,6 +1873,78 @@
           "data_origin"
         ],
         "title": "ManifestSource",
+        "type": "object"
+      },
+      "OutcomeQuality": {
+        "additionalProperties": false,
+        "description": "\ubd84\ub958 \ucd5c\ucd08 \uc2dc\ub3c4 \uacb0\uacfc\ub85c \uc800\uc7a5\ud55c \ud615\uc2dd \uc704\ubc18\uc728\u00b7\uacb0\uacfc\ubcc4 \uac74\uc218(KAN-148 2\ucc28). \uc815\ub2f5\uc774 \ud544\uc694 \uc5c6\uace0 \ud569\uaca9 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "outcomes": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "VALID",
+                "SCHEMA_VIOLATION",
+                "TRANSPORT_FAILURE",
+                "TIMEOUT",
+                "HELD",
+                "NOT_STARTED"
+              ]
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "received": {
+            "minimum": 0.0,
+            "title": "Received",
+            "type": "integer"
+          },
+          "schema_violation_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Violation Rate"
+          },
+          "schema_violations": {
+            "minimum": 0.0,
+            "title": "Schema Violations",
+            "type": "integer"
+          },
+          "scoring_version": {
+            "title": "Scoring Version",
+            "type": "string"
+          },
+          "stored_at": {
+            "format": "date-time",
+            "title": "Stored At",
+            "type": "string"
+          },
+          "stored_scoring_version_count": {
+            "minimum": 1.0,
+            "title": "Stored Scoring Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scoring_version",
+          "stored_scoring_version_count",
+          "stored_at",
+          "schema_violation_rate",
+          "schema_violations",
+          "received",
+          "outcomes"
+        ],
+        "title": "OutcomeQuality",
         "type": "object"
       },
       "ReadinessData": {

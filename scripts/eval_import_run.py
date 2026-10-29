@@ -1,7 +1,8 @@
 """후보 비교 실측 결과를 평가 저장소(로컬 DB)에 들여오는 스크립트(KAN-144). 기본은 dry-run이다.
 
 scripts/cs_candidate_run.py --execute --labels-out의 결과 JSON과 라벨 파일에서 후보 하나를 골라 실험·실행·사례·
-시도 행을 만들고, eval.cs_report.store_locked_quality_metrics로 category·urgency 잠금 집계 행을 만든다.
+시도 행을 만들고, eval.cs_report.store_locked_quality_metrics로 category·urgency 잠금 집계 행을, store_outcome_metrics로
+분류 최초 시도 형식 위반율·결과별 건수 행(KAN-148 2차)을 만든다.
 
 - 실험은 POST /experiments와 같은 등록 함수(register_experiment)로 넣는다. 지정 평가자(--actor)·local/test
   환경·접수 허용 설정을 그대로 따르고 test 분할은 거부된다. 승인 목록은 바꾸지 않으며 admissible=false도 그대로
@@ -58,7 +59,7 @@ from backend.engine.cs.classification import (
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS, GoldLock
-from eval.cs_report import store_locked_quality_metrics
+from eval.cs_report import store_locked_quality_metrics, store_outcome_metrics
 from scripts.cs_candidate_run import SplitBlocked, knob_fields, load_targets
 from scripts.cs_index_docs import PROXY_PORTS, is_local
 from tests.cs.cs_dev_data import load_dev_tickets
@@ -610,7 +611,7 @@ def store_metrics(
     scoring_version: str,
     locks: Mapping[str, GoldLock] | None = None,
 ) -> dict[str, int | str]:
-    """category·urgency 잠금 집계를 저장한다. 이미 저장된 지표는 건너뛴다.
+    """category·urgency 잠금 집계와 형식 위반율·결과별 건수(outcomes)를 저장한다. 이미 저장된 것은 건너뛴다.
 
     Args:
         conn: 유휴 연결.
@@ -620,7 +621,7 @@ def store_metrics(
         locks: 잠금표(테스트 주입용). None이면 GOLD_LOCKS다.
 
     Returns:
-        dict: 지표별 저장 행 수 또는 'EXISTS'.
+        dict: 지표별(category·urgency·outcomes) 저장 행 수 또는 'EXISTS'.
     """
     stored: dict[str, int | str] = {}
     for metric in METRICS:
@@ -634,6 +635,14 @@ def store_metrics(
             stored[metric] = "EXISTS"
             continue
         stored[metric] = result["stored_rows"]
+    try:
+        stored["outcomes"] = store_outcome_metrics(conn, run_id, scoring_version=scoring_version)[
+            "stored_rows"
+        ]
+    except ValueError as error:
+        if str(error) != "CS_QUALITY_ALREADY_STORED":
+            raise
+        stored["outcomes"] = "EXISTS"
     return stored
 
 

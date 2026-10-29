@@ -24,7 +24,12 @@ from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS
 from eval.cs_metrics import OUTCOMES, RETURN_SUBTYPE_LABELS
-from eval.cs_report import LOCKED_LABELS, LOCKED_REPORT_VERSION
+from eval.cs_report import (
+    LOCKED_LABELS,
+    LOCKED_REPORT_VERSION,
+    OUTCOME_REPORT_VERSION,
+    OUTCOME_SEGMENTS,
+)
 from eval.cs_response_audit import summarize_stored_response_audit
 from eval.cs_usage import summarize_stored_usage
 
@@ -242,6 +247,20 @@ class LockedMetrics(BaseModel):
     provided_info: LockedMetric | None
 
 
+class OutcomeQuality(BaseModel):
+    """분류 최초 시도 결과로 저장한 형식 위반율·결과별 건수(KAN-148 2차). 정답이 필요 없고 합격 판정이 아니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    scoring_version: str
+    stored_scoring_version_count: Annotated[int, Field(ge=1)]
+    stored_at: datetime
+    # SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION). 응답을 받은 시도가 0건이면 null이다.
+    schema_violation_rate: Ratio | None
+    schema_violations: Count
+    received: Count
+    outcomes: Outcomes
+
+
 class LockedQuality(BaseModel):
     """실험이 정답 묶음에 연결된 실행의 최초 시도 잠금 품질."""
 
@@ -250,6 +269,8 @@ class LockedQuality(BaseModel):
     attempt: Literal["first"] = "first"
     quality_gate_evaluated: Literal[False] = False
     metrics: LockedMetrics
+    # 형식 위반율 행(cs_report.store_outcome_metrics)이 없으면 null이다. 기존 필드는 그대로다.
+    outcomes: OutcomeQuality | None = None
 
 
 # 검색·초안·RFP 채점 행의 metric_key 접두와 단계. 분류는 기존 품질 블록이 다루므로 넣지 않는다.
@@ -715,7 +736,71 @@ def _read_locked_quality(
                 extra={"run_id": str(run_id), "metric": metric, "violation": violation},
             )
             raise ValueError("LOCKED_QUALITY_INVALID") from None
-    return LockedQuality(bundle_id=GOLD_BUNDLE_ID, metrics=LockedMetrics(**metrics))
+    return LockedQuality(
+        bundle_id=GOLD_BUNDLE_ID,
+        metrics=LockedMetrics(**metrics),
+        outcomes=_read_outcome_quality(conn, run_id),
+    )
+
+
+OUTCOME_KEYS = ("cs_locked_schema_violation_rate", "cs_locked_outcome_count")
+
+
+def _read_outcome_quality(conn: psycopg.Connection, run_id: UUID) -> OutcomeQuality | None:
+    """형식 위반율·결과별 건수 행의 최신 채점 판본을 읽고 서로 맞는지 확인한다.
+
+    Args:
+        conn: 요약과 같은 읽기 전용 트랜잭션의 연결.
+        run_id: 권한 검사를 통과한 비합성 실행.
+
+    Returns:
+        OutcomeQuality | None: 저장 행이 없으면 None. 결과 segment·판본·분자·분모가 어긋나면
+            LOCKED_QUALITY_INVALID ValueError다.
+    """
+    with conn.cursor(row_factory=dict_row) as cursor:
+        versions = cursor.execute(
+            "SELECT scoring_version FROM evaluation.metrics "
+            "WHERE run_id=%s AND case_id IS NULL AND metric_key=ANY(%s) "
+            "GROUP BY scoring_version ORDER BY max(created_at) DESC, scoring_version DESC",
+            (run_id, list(OUTCOME_KEYS)),
+        ).fetchall()
+        if not versions:
+            return None
+        rows = cursor.execute(
+            "SELECT metric_key,segment,value,numerator,denominator,details,created_at "
+            "FROM evaluation.metrics WHERE run_id=%s AND case_id IS NULL AND class_label IS NULL "
+            "AND scoring_version=%s AND metric_key=ANY(%s)",
+            (run_id, versions[0]["scoring_version"], list(OUTCOME_KEYS)),
+        ).fetchall()
+    rates = [row for row in rows if row["metric_key"] == OUTCOME_KEYS[0]]
+    counts = {row["segment"]: row for row in rows if row["metric_key"] == OUTCOME_KEYS[1]}
+    try:
+        [rate] = rates
+        outcomes = {segment: int(counts[segment]["value"]) for segment in OUTCOME_SEGMENTS}
+        violations, received = (
+            outcomes["SCHEMA_VIOLATION"],
+            outcomes["VALID"] + outcomes["SCHEMA_VIOLATION"],
+        )
+        if (
+            rate["segment"] != "all"
+            or set(counts) != set(OUTCOME_SEGMENTS)
+            or rate["details"].get("report_version") != OUTCOME_REPORT_VERSION
+            or (rate["numerator"], rate["denominator"]) != (violations, received)
+            or (rate["value"] is None) != (received == 0)
+        ):
+            raise ValueError("LOCKED_OUTCOME_ROWS")
+        return OutcomeQuality(
+            scoring_version=versions[0]["scoring_version"],
+            stored_scoring_version_count=len(versions),
+            stored_at=max(row["created_at"] for row in rows),
+            schema_violation_rate=None if rate["value"] is None else float(rate["value"]),
+            schema_violations=violations,
+            received=received,
+            outcomes=outcomes,
+        )
+    except (ValueError, KeyError, TypeError, AttributeError):
+        logger.warning("Locked outcome rows rejected", extra={"run_id": str(run_id)})
+        raise ValueError("LOCKED_QUALITY_INVALID") from None
 
 
 def _build_locked_metric(
