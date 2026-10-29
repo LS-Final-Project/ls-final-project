@@ -14,7 +14,7 @@
 
 - 세 표 모두 서비스 계정(`cs_app`)이 UPDATE·DELETE할 수 없다. AI 행을 고치지 않고, 정정은 새 행으로만 쌓인다(KAN-73 `mail_triage`와 같은 모양).
 - 저장 함수 `record_analysis(conn, ticket_id, values)`·`record_draft(conn, ticket_id, values)`는 문의 행을 잠그고 다음 순번으로 넣는다. 원문·`raw_response`·시도 기록 본체는 저장하지 않는다(그래프 계약과 같은 원칙).
-- 사람이 고쳐 승인한 발송 본문은 초안 행이 아니라 발송 기록(KAN-110)에 남는다.
+- 사람이 고쳐 승인한 발송 본문은 초안 행이 아니라 발송 기록(KAN-110 `cs.ticket_customer_sends`, `draft_id`·`draft_option`으로 어느 초안·선택지를 검토했는지 연결)에 남는다.
 
 ## 유효값
 

@@ -176,7 +176,7 @@ SEND_COLUMNS = (
     "id, ticket_id, kind, workflow_version, mailbox_id, subject, body_type, body, to_addresses, "
     "cc_addresses, payload_sha256, approved_by, approved_at, request_status, request_error, "
     "intent_id, send_status, send_error_code, attempts, accepted_at, sent_copy_confirmed_at, "
-    "status_checked_at, recorded_at, created_at"
+    "status_checked_at, recorded_at, draft_id, draft_option, created_at"
 )
 # Send columns the platform answer may set. SQL names are built only from this tuple.
 SEND_FIELDS = (

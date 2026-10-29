@@ -146,6 +146,7 @@ class ResolutionCaseCreate(Action):
 # --- Customer mail (KAN-110) ---------------------------------------------------------------
 
 SendKind = Literal["ANSWER", "INFO_REQUEST"]
+DraftLabel = Literal["CONCISE", "DETAILED", "INFO_FIRST"]
 RequestStatus = Literal["PENDING", "REGISTERED", "REJECTED", "REQUEST_FAILED", "REQUEST_UNKNOWN"]
 Address = Annotated[str, Field(min_length=3, max_length=320, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
 
@@ -182,6 +183,8 @@ class CustomerSend(BaseModel):
     recorded_at: datetime | None = Field(
         description="When ACCEPTED moved the ticket to ANSWERED or WAITING_CUSTOMER."
     )
+    draft_id: UUID | None = Field(default=None, description="Reviewed AI draft, if any.")
+    draft_option: DraftLabel | None = None
     created_at: datetime
 
 
@@ -215,12 +218,19 @@ class CustomerSendRequest(Action):
         description="Recipients. Omitted: the sender of the mail that opened the ticket.",
     )
     cc: list[Address] = Field(default_factory=list, max_length=50)
+    # The reviewed AI draft this message came from (KAN-107 drafts). Both or neither: a message
+    # the agent wrote without a draft names none. The body is what the agent approved, edited
+    # or not; the draft row itself is never changed.
+    draft_id: UUID | None = None
+    draft_option: DraftLabel | None = None
 
     @model_validator(mode="after")
     def no_duplicates(self) -> Self:
         addresses = [a.lower() for a in (self.to or []) + self.cc]
         if len(addresses) != len(set(addresses)):
             raise ValueError("Recipients must not repeat")
+        if (self.draft_id is None) != (self.draft_option is None):
+            raise ValueError("Give draft_id and draft_option together")
         return self
 
 
