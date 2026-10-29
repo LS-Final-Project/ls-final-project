@@ -8,13 +8,14 @@
 
 | 노드 | 호출하는 엔진 | 상태 갱신 | 실패 시 |
 | --- | --- | --- | --- |
-| `classify` | `classification_call.run_classification_attempt`(시도 1회) | 마스킹한 분류 입력 `record`, `classification`, 시도 ID | `errors`에 코드를 남기고 `stage=CLASSIFY_FAILED`로 **END** |
+| `classify` | `classification_call.run_classification_attempt`(시도 1, 형식 위반이면 시도 2) | 마스킹한 분류 입력 `record`, `classification`, 시도 ID | `errors`에 코드를 남기고 `stage=CLASSIFY_FAILED`로 **END** |
 | `rules` | `rules.decide` | `rules`(정책 판본·우선순위·부서·SLA·기한, ISO 시각) | 정책 밖 입력은 `CS_RULE_INPUT`을 남기고 계속 |
 | `retrieve` | `search.hybrid.run_hybrid`(FTS, 선택적 벡터) | `evidence`(chunk_id·snippet·section_path·document_sha256) | 검색기 예외는 원문 없이 `CS_SEARCH_FAILED`를 남기고 계속 |
-| `draft` | `drafting_call.run_draft_attempt`(시도 1회) | `draft`(3선택지), 시도 ID | 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
+| `draft` | `drafting_call.run_draft_attempt`(시도 1, 형식 위반이면 시도 2) | `draft`(3선택지), 시도 ID | 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
 | `human_review` | 없음 | `stage=HUMAN_REVIEW`만 | 없음 |
 
 - 분기는 `route_after_classify` 하나다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
+- 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
 - 엔진은 고치지 않는다. 모델 호출은 `backend/shared/ai.py`·`providers.py` 어댑터를 그대로 쓰며 LangChain 모델 래퍼는 쓰지 않는다.
 
 ## 중단점과 재개
@@ -31,7 +32,8 @@
 | `ticket_id` | 문의 ID |
 | `record` | `build_input`으로 마스킹한 분류 입력(channel·body_language·subject·body)만. 분류 실패면 null |
 | `classification` | `ClassificationOutput` 5필드 |
-| `attempt_ids` | `record_attempt`가 돌려준 시도 ID(분류, 초안 순) |
+| `attempt_ids` | `record_attempt`가 돌려준 시도 ID(분류, 초안 순, 재호출 시도 포함) |
+| `attempts` | 시도 요약 `{kind, attempt_id, attempt_number, outcome, error_code, is_final}`. 원문·raw 없음. 이 키가 생기기 전 체크포인트에는 없을 수 있다 |
 | `rules` | `RuleDecision`을 JSON으로 바꾼 값 |
 | `evidence` | `EvidenceSnippet` 목록 |
 | `draft` | `DraftOutput` |

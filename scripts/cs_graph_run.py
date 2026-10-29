@@ -9,7 +9,8 @@ CS_GRAPH_NOTHING_TO_RESUME으로 종료 1이다(중복 유료 호출·오타 재
 
 --ticket-file은 {ticket_id: {record, sensitive_values, product_code, customer_tier, received_at(ISO, 시간대 포함),
 required_info_codes, already_asked_codes}} JSON이다. 원문이 들어 있으므로 저장소에 두지 않는다. --out에는 상태
-요약(단계·다음 노드·오류 코드·시도 ID)만 쓴다.
+요약(단계·다음 노드·오류 코드·시도 ID·시도 요약·재호출 수 retried·회복 수 recovered)만 쓴다.
+--invalid-output-retries(0|1, 기본 1)는 분류·초안 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출이다(KAN-194 4차).
 """
 
 import argparse
@@ -96,6 +97,13 @@ def main(
         "--allowed-codes", help="쉼표 구분 정보 코드. 없으면 파일의 required 합집합"
     )
     parser.add_argument("--fts-db", action="store_true", help="DATABASE_URL의 cs FTS 검색기")
+    parser.add_argument(
+        "--invalid-output-retries",
+        type=int,
+        choices=(0, 1),
+        default=1,
+        help="형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(기본 1)",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--debug", action="store_true", help="알 수 없는 오류를 원문 그대로 전파(로컬 디버깅만)"
@@ -160,6 +168,7 @@ def main(
                 model=ai_settings.gemini_model,
                 allowed_info_codes=allowed,
                 allow_tracing=settings.ai_tracing_allowed,
+                invalid_output_retries=args.invalid_output_retries,
             )
         else:
             graph = build_graph(
@@ -172,6 +181,7 @@ def main(
                 record_attempt=source.record_attempt,
                 checkpointer=saver,
                 allow_tracing=settings.ai_tracing_allowed,
+                invalid_output_retries=args.invalid_output_retries,
             )
         try:
             outcome = (

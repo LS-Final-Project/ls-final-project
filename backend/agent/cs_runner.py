@@ -102,6 +102,10 @@ class RunOutcome:
     next_nodes: tuple[str, ...]
     errors: list[dict[str, str]]
     attempt_ids: list[str]
+    # 시도 요약(원문 없음)과 형식 위반 재호출 수·그중 시도 2가 VALID인 수(KAN-194 4차).
+    attempts: list[dict[str, Any]]
+    retried: int
+    recovered: int
 
 
 def build_cs_runner(
@@ -116,6 +120,7 @@ def build_cs_runner(
     allowed_info_codes: frozenset[str],
     prompt_version: str = "v1",
     allow_tracing: bool = False,
+    invalid_output_retries: int = 1,
 ) -> Any:
     """Gemini 분류·초안 공급자를 만들어 C/S 그래프에 꽂는다.
 
@@ -130,6 +135,7 @@ def build_cs_runner(
         allowed_info_codes: 검수된 정보 코드 집합.
         prompt_version: 분류 프롬프트 판본.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed(KAN-89).
+        invalid_output_retries: 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(0|1). build_graph에 넘긴다.
 
     Returns:
         CompiledStateGraph: 사람 확인 직전에 멈추는 그래프. 추적이 요청됐는데 허용되지 않으면 ValueError다.
@@ -152,6 +158,7 @@ def build_cs_runner(
         record_attempt=ticket_source.record_attempt,
         checkpointer=checkpointer,
         allow_tracing=allow_tracing,
+        invalid_output_retries=invalid_output_retries,
     )
 
 
@@ -185,15 +192,20 @@ def _outcome(graph: Any, thread_id: str) -> RunOutcome:
         thread_id: 스레드 ID.
 
     Returns:
-        RunOutcome: 단계·다음 노드·오류 코드·시도 ID.
+        RunOutcome: 단계·다음 노드·오류 코드·시도 ID·시도 요약과 재호출·회복 수.
     """
     state = graph.get_state(thread_config(thread_id))
     values = state.values
+    attempts = list(values.get("attempts", []))
+    second = [a for a in attempts if a["attempt_number"] == 2]
     return RunOutcome(
         stage=values.get("stage", "RECEIVED"),
         next_nodes=tuple(state.next),
         errors=list(values.get("errors", [])),
         attempt_ids=list(values.get("attempt_ids", [])),
+        attempts=attempts,
+        retried=len(second),
+        recovered=sum(a["outcome"] == "VALID" for a in second),
     )
 
 
