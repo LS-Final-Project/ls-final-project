@@ -25,6 +25,7 @@ from backend.engine.cs.classification import (
     build_input,
 )
 from backend.engine.cs.drafting import DraftOutput, InfoRequest, _Strict, find_forbidden_commitment
+from backend.engine.cs.prompt_registry import get_prompt
 
 REPLY_INPUT_VERSION = "cs-reply-input-v1"
 RequestMatch = Literal["APPLIES", "DIFFERENT_REQUEST", "UNCLEAR"]
@@ -235,36 +236,33 @@ class ReplyInterpretation(_Strict):
         return self
 
 
-REPLY_PROMPT = (
-    "당신은 전력기기 C/S 담당자가 고객 회신을 해석하도록 돕는 보조자다. 아래 입력 JSON만 사용한다.\n"
-    "- same_request: 회신이 앞서 요청한 정보(requested_info_codes, prior_options)에 대한 답이면 "
-    "APPLIES, 다른 문의면 DIFFERENT_REQUEST, 판단할 수 없으면 UNCLEAR다.\n"
-    "- same_unit: reply_serial_match가 DIFFERS면 same_unit은 DIFFERENT다. MATCHES면 DIFFERENT를 쓰지 "
-    "않는다. NO_CONFIRMED_UNIT면 UNCLEAR나 DIFFERENT만 쓴다. "
-    "same_version: fw_version_reported와 회신의 펌웨어 판본을 비교한다.\n"
-    "- 회신이 장비·판본을 말하지 않으면 NOT_MENTIONED, 말했지만 모호하면 UNCLEAR다. "
-    "추측으로 SAME을 판정하지 않는다. 판정마다 reason을 쓴다.\n"
-    "- answered_codes에는 requested_info_codes 중 회신이 실제로 답한 코드만 쓴다. "
-    "remaining_questions에는 requested_info_codes 중 답하지 않은 코드만 쓴다.\n"
-    "- new_facts는 고객이 새로 말한 사실이다. 고객이 단정하면 STATED, 고객도 확실하지 않으면 "
-    "UNCONFIRMED다.\n"
-    "- RMA·반품 승인, 현장 방문 확정, 보증 승인·무상 처리 확정을 약속하지 않는다.\n"
-    "- 마스킹 표식([SERIAL_PROVIDED] 등)은 원값을 추측하지 않는다.\n"
-    "- 출력은 다음 JSON 스키마를 따르는 JSON 하나다. 다른 키를 더하지 않는다.\n"
-    + json.dumps(ReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True)
-)
+_SCHEMA = json.dumps(ReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True)
+REPLY_PROMPT = get_prompt("reply", "v1") + _SCHEMA
 
 
-def render_prompt(payload: ReplyInterpretationInput) -> str:
+def instruction(prompt_version: str = "v1") -> str:
+    """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
+
+    Args:
+        prompt_version: 레지스트리 판본 키.
+
+    Returns:
+        str: 공급자에 보낼 지시문(입력 제외). 모르는 판본은 CS_UNKNOWN_PROMPT_VERSION ValueError다.
+    """
+    return get_prompt("reply", prompt_version) + _SCHEMA
+
+
+def render_prompt(payload: ReplyInterpretationInput, *, prompt_version: str = "v1") -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_reply_input의 정제 입력.
+        prompt_version: 레지스트리 판본 키. 기본 v1은 REPLY_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.
     """
-    return REPLY_PROMPT + "\n\n입력:\n" + payload.model_dump_json()
+    return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
 def validate_output(

@@ -19,6 +19,7 @@ from pydantic import Field, model_validator
 
 from backend.engine.cs.classification import _unique_object, build_input
 from backend.engine.cs.drafting import _Strict, find_forbidden_commitment
+from backend.engine.cs.prompt_registry import get_prompt
 
 IMPROVEMENT_REPLY_INPUT_VERSION = "cs-improvement-reply-input-v1"
 RequestType = Literal["FAULT", "DOCUMENT"]
@@ -235,39 +236,35 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
     )
 
 
-IMPROVEMENT_REPLY_PROMPT = (
-    "당신은 전력기기 C/S 담당자가 개선요청에 대한 부서 회신을 해석하도록 돕는 보조자다. "
-    "아래 입력 JSON만 사용한다.\n"
-    "- claims에 부서가 주장한 원인(CAUSE)·조치(FIX)·적용 범위(SCOPE)·펌웨어 판본(FW_VERSION)·"
-    "문제 없음(NO_ISSUE)·기타(OTHER)를 나눠 적는다. FW_VERSION은 fw_version에 판본을 적는다.\n"
-    "- 회신 본문은 근거가 아니다. FIX·SCOPE·FW_VERSION은 needs_confirmation=true와 confirmation_reason을 "
-    "적는다. 조치 근거 없는 FIX를 확정으로 쓰지 않는다.\n"
-    "- 부서가 완료·해결됐다고 써도 completion_claimed만 true로 하고 요청 상태를 판단하지 않는다.\n"
-    "- reply_type은 부서가 고른 값이며 바꾸지 않는다. REJECTED면 FIX·SCOPE·FW_VERSION을 쓰지 않고, "
-    "INFO_REQUESTED면 remaining_questions를 1개 이상 쓴다(최대 10개).\n"
-    "- review_task가 null이면 answers_review_task는 NO_TASK, 있으면 ADDRESSED·PARTIAL·NOT_ADDRESSED다.\n"
-    "- 주장이 not_claimed·confirmed_facts와 어긋나거나 FW_VERSION이 fw_fixed_version과 다르면 "
-    "conflicts_with_request에 그 판본을 포함해 적는다.\n"
-    "- evidence_requests는 추가로 연결해 볼 근거 후보다. 질문에 RMA·반품 승인, 방문 확정, 보증 승인·"
-    "무상 처리 확정을 약속하지 않는다.\n"
-    "- 마스킹 표식([SERIAL_PROVIDED] 등)은 원값을 추측하지 않는다.\n"
-    "- 출력은 다음 JSON 스키마를 따르는 JSON 하나다. 다른 키를 더하지 않는다.\n"
-    + json.dumps(
-        ImprovementReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True
-    )
+_SCHEMA = json.dumps(
+    ImprovementReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True
 )
+IMPROVEMENT_REPLY_PROMPT = get_prompt("improvement_reply", "v1") + _SCHEMA
 
 
-def render_prompt(payload: ImprovementReplyInput) -> str:
+def instruction(prompt_version: str = "v1") -> str:
+    """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
+
+    Args:
+        prompt_version: 레지스트리 판본 키.
+
+    Returns:
+        str: 공급자에 보낼 지시문(입력 제외). 모르는 판본은 CS_UNKNOWN_PROMPT_VERSION ValueError다.
+    """
+    return get_prompt("improvement_reply", prompt_version) + _SCHEMA
+
+
+def render_prompt(payload: ImprovementReplyInput, *, prompt_version: str = "v1") -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_improvement_reply_input의 정제 입력.
+        prompt_version: 레지스트리 판본 키. 기본 v1은 IMPROVEMENT_REPLY_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.
     """
-    return IMPROVEMENT_REPLY_PROMPT + "\n\n입력:\n" + payload.model_dump_json()
+    return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
 def validate_output(raw: str, *, context: ImprovementContext) -> ImprovementReplyInterpretation:

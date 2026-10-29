@@ -13,6 +13,7 @@ from backend.engine.cs.drafting import (
     DraftOutput,
     EvidenceSnippet,
     build_draft_input,
+    instruction,
     render_prompt,
     validate_output,
 )
@@ -40,6 +41,9 @@ class DraftAttempt:
     finish_reasons: tuple[str, ...] = field(default=(), repr=False)
     requested_model: str | None = field(default=None, repr=False)
     call_attempts: int | None = None
+    prompt_version: str = "v1"
+    # 공급자에 보낸 지시문 전체(판본 본문 + 출력 스키마, 입력 제외)의 sha256 앞 16자.
+    instruction_fingerprint: str | None = None
 
 
 def run_draft_attempt(
@@ -52,6 +56,7 @@ def run_draft_attempt(
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     provider: Callable[[str], Generation],
     attempt_number: int,
+    prompt_version: str = "v1",
 ) -> DraftAttempt:
     """정제 입력으로 프롬프트를 만들어 한 번 호출하고 원시 검사 결과와 사용량을 보존한다.
 
@@ -65,6 +70,8 @@ def run_draft_attempt(
         provider: 프롬프트 문자열을 받아 공통 Generation을 반환하는 호출자.
             실제 연결은 generate(client, settings, prompt, response_schema=DraftOutput)이다.
         attempt_number: 외부 실행기가 부여한 1 이상의 시도 번호.
+        prompt_version: 프롬프트 레지스트리의 draft 판본 키. 모르는 판본은 호출 전에
+            CS_UNKNOWN_PROMPT_VERSION ValueError다.
 
     Returns:
         DraftAttempt: 내부 시도 기록. 입력 실패는 호출하지 않으며 자동 재시도하지 않는다.
@@ -72,7 +79,10 @@ def run_draft_attempt(
     """
     if type(attempt_number) is not int or attempt_number < 1:
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
-    result = DraftAttempt(attempt_number)
+    fingerprint = hashlib.sha256(instruction(prompt_version).encode()).hexdigest()[:16]
+    result = DraftAttempt(
+        attempt_number, prompt_version=prompt_version, instruction_fingerprint=fingerprint
+    )
     try:
         prepared = build_draft_input(
             record,
@@ -102,7 +112,7 @@ def run_draft_attempt(
     )
     started = time.perf_counter()
     try:
-        response = provider(render_prompt(payload))
+        response = provider(render_prompt(payload, prompt_version=prompt_version))
     except Exception as error:
         # 실패 원문이나 임의 예외 이름을 기록하지 않는다. 원격 미실행으로 단정하지 않는다.
         code: CallErrorCode = "CS_PROVIDER_ERROR"

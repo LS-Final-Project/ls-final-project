@@ -15,6 +15,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.engine.cs.classification import ClassificationOutput, _unique_object, build_input
+from backend.engine.cs.prompt_registry import get_prompt
 from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 
 DRAFT_INPUT_VERSION = "cs-draft-input-v1"
@@ -213,31 +214,33 @@ class DraftOutput(_Strict):
         return self
 
 
-DRAFT_PROMPT = (
-    "당신은 전력기기 C/S 담당자의 답변 초안을 쓰는 보조자다. 아래 입력 JSON만 사용한다.\n"
-    "- 문안 선택지 3개를 만든다: CONCISE(짧게), DETAILED(자세히), INFO_FIRST(추가 정보 요청 먼저).\n"
-    "- 문장마다 kind를 붙인다. EVIDENCE는 evidence의 chunk_id로 뒷받침되는 문장이며 "
-    "evidence_chunk_ids에 그 ID를 적는다. CONDITION은 조건에 따라 달라지는 안내, "
-    "UNCONFIRMED는 아직 확인되지 않은 내용이다. 근거 없는 사실을 EVIDENCE로 쓰지 않는다.\n"
-    "- info_requests에는 request_info_codes에 있는 코드만 쓴다. 고객이 이미 준 정보는 다시 묻지 않는다.\n"
-    "- RMA·반품 승인, 현장 방문 확정, 보증 승인·무상 처리 확정을 약속하지 않는다. "
-    "승인·적용 여부는 검토 후 안내한다고 쓴다.\n"
-    "- 답변 언어는 body_language를 따른다. 마스킹 표식([SERIAL_PROVIDED] 등)은 원값을 추측하지 않는다.\n"
-    "- 출력은 다음 JSON 스키마를 따르는 JSON 하나다. 다른 키를 더하지 않는다.\n"
-    + json.dumps(DraftOutput.model_json_schema(), ensure_ascii=False, sort_keys=True)
-)
+_SCHEMA = json.dumps(DraftOutput.model_json_schema(), ensure_ascii=False, sort_keys=True)
+DRAFT_PROMPT = get_prompt("draft", "v1") + _SCHEMA
 
 
-def render_prompt(payload: DraftInput) -> str:
+def instruction(prompt_version: str = "v1") -> str:
+    """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
+
+    Args:
+        prompt_version: 레지스트리 판본 키.
+
+    Returns:
+        str: 공급자에 보낼 지시문(입력 제외). 모르는 판본은 CS_UNKNOWN_PROMPT_VERSION ValueError다.
+    """
+    return get_prompt("draft", prompt_version) + _SCHEMA
+
+
+def render_prompt(payload: DraftInput, *, prompt_version: str = "v1") -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_draft_input의 정제 입력.
+        prompt_version: 레지스트리 판본 키. 기본 v1은 DRAFT_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.
     """
-    return DRAFT_PROMPT + "\n\n입력:\n" + payload.model_dump_json()
+    return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
 def find_forbidden_commitment(text: str) -> bool:
