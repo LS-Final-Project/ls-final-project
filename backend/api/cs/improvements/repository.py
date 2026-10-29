@@ -326,3 +326,14 @@ async def active_evidence_tickets(conn: AsyncConnection[Row], request_id: UUID) 
         (request_id,),
     )
     return {row["ticket_id"] for row in await cursor.fetchall()}
+
+
+async def sent_by(conn: AsyncConnection[Row], request_id: UUID) -> UUID | None:
+    """Who sent the first round, from the audit trail (requests sent before KAN-117)."""
+    cursor = await conn.execute(
+        "SELECT actor_user_id FROM cs.audit_events WHERE entity_type = 'improvement_request' "
+        "AND entity_id = %s AND changes->'action'->>'to' = 'send' ORDER BY version LIMIT 1",
+        (request_id,),
+    )
+    row = await cursor.fetchone()
+    return row["actor_user_id"] if row else None
