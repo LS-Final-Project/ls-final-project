@@ -1,9 +1,11 @@
-"""평가 작업의 제한된 조회 스냅샷 계약."""
+"""플랫폼 작업(평가·C/S)의 제한된 조회 스냅샷 계약."""
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.shared.models import SuccessResponse
 
 
 class EvaluationJobStatus(BaseModel):
@@ -22,3 +24,23 @@ class EvaluationJobStatus(BaseModel):
     version: int = Field(ge=1)
     last_event_sequence: int = Field(ge=0)
     needs_review: bool
+
+
+class CsJobStatus(BaseModel):
+    """C/S 처리 작업 상태와 같은 스냅샷의 이벤트 위치만 공개한다(KAN-194). 원문·오류 코드는 없다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    ticket_id: UUID
+    owner: Literal["cs"] = "cs"
+    kind: Literal["cs.analyze"] = "cs.analyze"
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
+    version: int = Field(ge=1)
+    last_event_sequence: int = Field(ge=0)
+
+
+class JobStatusResponse(
+    SuccessResponse[Annotated[EvaluationJobStatus | CsJobStatus, Field(discriminator="owner")]]
+):
+    """상태 조회 응답. data는 owner(platform·cs)로 구분한다."""
