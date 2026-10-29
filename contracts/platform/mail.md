@@ -62,6 +62,7 @@ result = await sync_mailbox(
 | --- | --- | --- |
 | 알 수 없는 연결 | `ApplicationError` 403 `MAILBOX_ACCESS_DENIED` | 만들지 않음 |
 | 연결 해제 상태 | 409 `MAILBOX_NOT_CONNECTED` | 만들지 않음 |
+| 재연결 필요 표시(`reconnect_required_at`, KAN-81) | 409 `MAILBOX_RECONNECT_REQUIRED`. 토큰을 요청하지 않는다 | 만들지 않음 |
 | 같은 사서함 실행 중 | 409 `MAIL_SYNC_IN_PROGRESS` | 만들지 않음 |
 | 토큰 함수 실패 | `FAILED`, 토큰 함수의 코드(`MAILBOX_RECONNECT_REQUIRED` 등) | 기록 |
 | Graph 401 | 실행당 한 번만 `force_refresh=True`로 새 토큰을 받아 같은 요청을 다시 보냄. 다시 401이거나 이미 기회를 썼으면 `FAILED`, `GRAPH_UNAUTHORIZED` | 기록, 커서 유지 |
@@ -123,9 +124,9 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 결과 | 응답 | 큐·Scheduler |
 | --- | --- | --- |
 | 수집 성공 | 200 `SUCCEEDED` | 끝 |
-| 진행 중·연결 해제·알 수 없는 사서함 | 200 `SKIPPED` + 코드 | 끝(다음 주기) |
+| 진행 중·연결 해제·알 수 없는 사서함·재연결 필요 | 200 `SKIPPED` + 코드 | 끝(다음 주기). 재연결 필요 사서함은 등록 단계(`dispatch`)에서도 빠지고, 이미 큐에 있던 작업은 토큰 요청 전에 건너뛴다(실행 기록 없음, 2026-10-29 결정) |
 | 일시 실패: `GRAPH_THROTTLED`·`GRAPH_UNAVAILABLE`·`MAILBOX_TOKEN_UNAVAILABLE`·`MAIL_STORAGE_UNAVAILABLE`·`LEASE_EXPIRED`·`SYNC_CANCELLED` | 503 `FAILED` | 큐 재시도(최대 3회, 30~300초) |
-| 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN`·`MAILBOX_RECONNECT_REQUIRED` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
+| 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
 | 작업 등록 중 하나라도 실패 | 503 | Scheduler 재시도(최대 3회, 30~120초). 이미 등록된 작업은 중복되지 않음 |
 
 - 큐·호출 계정·Scheduler 준비는 `infra/setup_mail_sync.sh`(인프라 담당자 실행). Scheduler 작업은 일시 중지로 만들고, 앱 설정을 켠 뒤 resume한다. 권한은 호출 계정에 플랫폼 `run.invoker`, `platform-runtime`에 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.

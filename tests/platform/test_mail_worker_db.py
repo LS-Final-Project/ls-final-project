@@ -149,6 +149,23 @@ def add_mailbox(dsn, owner, state="connected"):
     return mailbox_id
 
 
+def flag_reconnect(dsn, mailbox_id, reason="invalid_grant"):
+    """KAN-81이 남기는 재연결 표시(연결 상태는 그대로 connected)."""
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "UPDATE mailbox_auth.connections SET reconnect_required_at=now(), reconnect_reason=%s "
+            "WHERE id=%s",
+            (reason, mailbox_id),
+        )
+
+
+def run_count(dsn, mailbox_id) -> int:
+    with psycopg.connect(dsn) as conn:
+        return conn.execute(
+            "SELECT count(*) FROM integration.mail_sync_runs WHERE mailbox_id=%s", (mailbox_id,)
+        ).fetchone()[0]
+
+
 def remove_mailbox(dsn, mailbox_id):
     with psycopg.connect(dsn) as conn:
         conn.execute("DELETE FROM mailbox_auth.connections WHERE id=%s", (mailbox_id,))
@@ -349,3 +366,42 @@ def test_reply_judging_failure_does_not_fail_the_sync(settings, mailbox, monkeyp
     response = World(settings).sync(mailbox["id"])
     data = response.json()["data"]
     assert (response.status_code, data["outcome"], data["replies_failed"]) == (200, "SUCCEEDED", 1)
+
+
+def test_dispatch_skips_mailboxes_that_need_reconnecting(settings, mailbox, monkeypatch):
+    flagged = add_mailbox(mailbox["dsn"], mailbox["owner"])
+    flag_reconnect(mailbox["dsn"], flagged)
+    now = (int(time.time()) // 300) * 300 + 150
+    monkeypatch.setattr(worker.time, "time", lambda: now)
+    try:
+        world = World(settings)
+        response = world.dispatch()
+        assert response.status_code == 200
+        assert not [n for n in world.tasks.tasks if str(flagged) in n]
+        assert [n for n in world.tasks.tasks if str(mailbox["id"]) in n]
+    finally:
+        remove_mailbox(mailbox["dsn"], flagged)
+
+
+def test_sync_of_a_mailbox_that_needs_reconnecting_is_skipped_without_a_run(settings, mailbox):
+    # A task already in the queue when the owner's grant was revoked: no token request, no FAILED run.
+    flagged = add_mailbox(mailbox["dsn"], mailbox["owner"])
+    flag_reconnect(mailbox["dsn"], flagged, reason="interaction_required")
+    try:
+        world = World(settings)
+        before = run_count(mailbox["dsn"], flagged)
+        response = world.sync(flagged)
+        assert (
+            response.status_code,
+            response.json()["data"]["outcome"],
+            response.json()["data"]["code"],
+        ) == (
+            200,
+            "SKIPPED",
+            "MAILBOX_RECONNECT_REQUIRED",
+        )
+        assert run_count(mailbox["dsn"], flagged) == before
+        # No token request was made for the flagged mailbox.
+        assert world.provider.calls == []
+    finally:
+        remove_mailbox(mailbox["dsn"], flagged)

@@ -106,7 +106,7 @@ async def begin_run(conn: Conn, mailbox_id: UUID) -> tuple[UUID, UUID]:
     async with conn.transaction():
         # 연결 표는 KAN-81 소유다. 수집은 소유자·연결 상태만 읽고 토큰 열은 읽지 않는다.
         cursor = await conn.execute(
-            "SELECT owner_user_id, state FROM mailbox_auth.connections "
+            "SELECT owner_user_id, state, reconnect_required_at FROM mailbox_auth.connections "
             "WHERE id=%s FOR NO KEY UPDATE",
             (mailbox_id,),
         )
@@ -115,6 +115,12 @@ async def begin_run(conn: Conn, mailbox_id: UUID) -> tuple[UUID, UUID]:
             raise ApplicationError(403, "MAILBOX_ACCESS_DENIED", "Mailbox access is not allowed.")
         if mailbox["state"] != "connected":
             raise ApplicationError(409, "MAILBOX_NOT_CONNECTED", "Mailbox is not connected.")
+        if mailbox["reconnect_required_at"] is not None:
+            # KAN-81 marked the mailbox: the owner must reconnect. Asking for a token would fail the
+            # same way, so skip before any run row exists (KAN-72, 2026-10-29 decision).
+            raise ApplicationError(
+                409, "MAILBOX_RECONNECT_REQUIRED", "Mailbox needs to be reconnected."
+            )
         await conn.execute(
             "UPDATE integration.mail_sync_runs SET status='FAILED', error_code='LEASE_EXPIRED', "
             "finished_at=now() WHERE mailbox_id=%s AND status='RUNNING' AND lease_expires_at<=now()",
