@@ -144,7 +144,7 @@ def load_specs(path: Path) -> list[dict[str, str]]:
     return specs
 
 
-class _RecordingModels:
+class RecordingModels:
     """generate_content가 프롬프트 길이만 기록하고 빈 응답을 낸다(네트워크 없음)."""
 
     def __init__(self) -> None:
@@ -196,7 +196,7 @@ def dry_run(
     """
     rows = []
     for spec in specs:
-        recorder = _RecordingModels()
+        recorder = RecordingModels()
         provider = gemini_classification_provider(
             SimpleNamespace(models=recorder),  # type: ignore[arg-type]
             settings,
@@ -212,46 +212,87 @@ def dry_run(
                 held += 1
                 continue
             provider(payload)
-        chars = sum(recorder.lengths)
-        tokens = math.ceil(chars / TOKEN_CHARS)
-        upper = sum(recorder.bytes)
-        calls = len(recorder.lengths)
-        price = prices.get(spec["model"])
-        input_cost = input_upper = output_cost = None
-        if price is not None:
-            input_cost = Decimal(tokens) * price.input_per_million / Decimal(1_000_000)
-            input_upper = Decimal(upper) * price.input_per_million / Decimal(1_000_000)
-            output_cost = (
-                Decimal(calls * settings.gemini_max_output_tokens)
-                * price.output_per_million
-                / Decimal(1_000_000)
-            )
         rows.append(
             {
                 **spec,
-                "calls": calls,
                 "held": held,
-                "prompt_chars": chars,
-                "prompt_bytes": upper,
-                "approx_input_tokens": tokens,
-                "input_tokens_upper": upper,
-                "max_output_tokens_per_call": settings.gemini_max_output_tokens,
-                "currency": price.currency if price else None,
-                "estimated_input_cost": None if input_cost is None else format(input_cost, "f"),
-                "input_cost_upper": None if input_upper is None else format(input_upper, "f"),
-                "output_cost_upper": None if output_cost is None else format(output_cost, "f"),
-                "total_cost_upper": (
-                    None
-                    if input_upper is None or output_cost is None
-                    else format(input_upper + output_cost, "f")
-                ),
-                "note": (
-                    "근사값이다. 실제 과금은 실행 후 usage로 확인한다. 출력 상한은 max_output_tokens 기준이며 "
-                    "thinking 토큰의 별도 과금 여부는 미확인이다."
-                ),
+                **estimate(recorder.lengths, recorder.bytes, spec["model"], settings, prices),
             }
         )
     return rows
+
+
+def estimate(
+    lengths: list[int],
+    sizes: list[int],
+    model: str,
+    settings: AISettings,
+    prices: Mapping[str, Any],
+) -> dict[str, object]:
+    """프롬프트 문자·바이트 수로 근사 토큰·토큰 상한·예상 비용을 계산한다(분류·초안 dry-run 공용).
+
+    문자/4는 영어 기준 근사라 한국어·JSON 스키마에서는 과소다. 상한은 UTF-8 바이트 수로 잡는다(바이트 폴백
+    토크나이저는 바이트보다 많은 토큰을 만들지 않는다).
+
+    Args:
+        lengths: 호출마다의 프롬프트 문자 수.
+        sizes: 호출마다의 프롬프트 UTF-8 바이트 수.
+        model: 단가표에서 찾을 모델 ID.
+        settings: AI 설정(출력 토큰 상한).
+        prices: load_price_table 결과.
+
+    Returns:
+        dict: 호출 수, 문자·바이트 수, 근사 입력 토큰(문자/4 올림), 입력 토큰 상한, 근사 입력 비용, 입력 비용
+            상한, 출력 비용 상한(max_output_tokens × 호출 수), 합계 상한, 안내문. 단가가 없으면 비용은 None이다.
+    """
+    chars = sum(lengths)
+    tokens = math.ceil(chars / TOKEN_CHARS)
+    upper = sum(sizes)
+    calls = len(lengths)
+    price = prices.get(model)
+    input_cost = input_upper = output_cost = None
+    if price is not None:
+        input_cost = Decimal(tokens) * price.input_per_million / Decimal(1_000_000)
+        input_upper = Decimal(upper) * price.input_per_million / Decimal(1_000_000)
+        output_cost = (
+            Decimal(calls * settings.gemini_max_output_tokens)
+            * price.output_per_million
+            / Decimal(1_000_000)
+        )
+    return {
+        "calls": calls,
+        "prompt_chars": chars,
+        "prompt_bytes": upper,
+        "approx_input_tokens": tokens,
+        "input_tokens_upper": upper,
+        "max_output_tokens_per_call": settings.gemini_max_output_tokens,
+        "currency": price.currency if price else None,
+        "estimated_input_cost": None if input_cost is None else format(input_cost, "f"),
+        "input_cost_upper": None if input_upper is None else format(input_upper, "f"),
+        "output_cost_upper": None if output_cost is None else format(output_cost, "f"),
+        "total_cost_upper": (
+            None
+            if input_upper is None or output_cost is None
+            else format(input_upper + output_cost, "f")
+        ),
+        "note": (
+            "근사값이다. 실제 과금은 실행 후 usage로 확인한다. 출력 상한은 max_output_tokens 기준이며 "
+            "thinking 토큰의 별도 과금 여부는 미확인이다."
+        ),
+    }
+
+
+def prepare_output(path: Path) -> None:
+    """유료 호출 전에 결과 파일을 만들 수 있는지 확인한다(빈 파일 생성 시도).
+
+    Args:
+        path: 결과 JSON 경로.
+
+    Returns:
+        None: 만들 수 없으면 OSError다.
+    """
+    with path.open("a", encoding="utf-8"):
+        pass
 
 
 def default_factory(settings: AISettings) -> ProviderFactory:
@@ -277,7 +318,12 @@ def default_factory(settings: AISettings) -> ProviderFactory:
     return factory
 
 
-def _git_sha() -> str | None:
+def git_sha() -> str | None:
+    """실행한 코드의 git 커밋을 읽는다.
+
+    Returns:
+        str | None: HEAD SHA. git이 없거나 저장소 밖이면 None이다.
+    """
     try:
         return subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
@@ -344,7 +390,7 @@ def execute(
             "target_ids_sha256": hashlib.sha256("\n".join(sorted(records)).encode()).hexdigest(),
             "started_at": started.isoformat(),
             "finished_at": datetime.now(UTC).isoformat(),
-            "git_sha": _git_sha(),
+            "git_sha": git_sha(),
         },
         "result": result,
     }
@@ -400,9 +446,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             )
             print(json.dumps({"targets": len(records), "candidates": rows}, ensure_ascii=False))
             return 0
-        # 유료 호출 전에 결과 파일을 만들 수 있는지 확인한다(빈 파일 생성 시도).
-        with args.out.open("a", encoding="utf-8"):
-            pass
+        prepare_output(args.out)
         output = execute(
             records,
             gold,

@@ -129,6 +129,7 @@ def run_draft_candidates(
                 sensitive_values=cases[case_id].sensitive_values,
                 provider=candidate.provider,
                 attempt_number=1,
+                prompt_version=candidate.prompt_version,
             )
             for case_id in selected
         }
