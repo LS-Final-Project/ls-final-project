@@ -49,7 +49,12 @@ TRANSIENT = {
     "SYNC_CANCELLED",
 }
 # 실행을 만들기 전에 거절된 경우. 다시 시도해도 같으므로 2xx로 끝낸다.
-SKIPPED = {"MAIL_SYNC_IN_PROGRESS", "MAILBOX_NOT_CONNECTED", "MAILBOX_ACCESS_DENIED"}
+SKIPPED = {
+    "MAIL_SYNC_IN_PROGRESS",
+    "MAILBOX_NOT_CONNECTED",
+    "MAILBOX_ACCESS_DENIED",
+    "MAILBOX_RECONNECT_REQUIRED",
+}
 
 
 class MailSyncSettings(BaseSettings):
@@ -194,7 +199,10 @@ def client(request: Request, timeout: httpx.Timeout) -> httpx.AsyncClient:
 
 
 async def connected_mailboxes(request: Request) -> list[UUID]:
-    """연결된 사서함 ID를 읽는다. 토큰·소유자 열은 읽지 않는다.
+    """연결됐고 재연결 표시가 없는 사서함 ID를 읽는다. 토큰·소유자 열은 읽지 않는다.
+
+    재연결이 필요한 사서함(KAN-81 `reconnect_required_at`)은 토큰 요청이 실패할 것이 정해져 있어
+    작업을 만들지 않는다. 소유자가 다시 연결하면 다음 주기부터 다시 들어온다.
 
     Args:
         request: 앱 설정을 가진 요청.
@@ -204,7 +212,8 @@ async def connected_mailboxes(request: Request) -> list[UUID]:
     """
     async with connection(request.app.state.settings) as conn:
         cursor = await conn.execute(
-            "SELECT id FROM mailbox_auth.connections WHERE state='connected' ORDER BY id"
+            "SELECT id FROM mailbox_auth.connections "
+            "WHERE state='connected' AND reconnect_required_at IS NULL ORDER BY id"
         )
         return [row["id"] for row in await cursor.fetchall()]
 
