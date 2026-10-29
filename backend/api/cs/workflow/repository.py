@@ -10,7 +10,9 @@ from psycopg.types.json import Jsonb
 Row = dict[str, Any]
 
 WORKFLOW_COLUMNS = (
-    "ticket_id, state, version, owner_user_id, customer_sent_at, closed_at, closed_by"
+    "ticket_id, state, version, owner_user_id, customer_sent_at, closed_at, closed_by, "
+    "return_subtype_confirmed, return_subtype_confirmed_reason, return_subtype_confirmed_by, "
+    "return_subtype_confirmed_at"
 )
 TRANSFER_COLUMNS = (
     "id, round, dept_code, status, reason, transferred_by, transferred_at, ended_by, "

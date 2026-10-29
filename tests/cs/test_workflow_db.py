@@ -238,3 +238,91 @@ def test_service_cannot_remove_workflow_history(cs_database, client, ticket):
             "transferred_by) VALUES (%s, %s, 9, 'TS_LV', 'OPEN', 'x', %s)",
             (uuid4(), ticket, uuid4()),
         )
+
+
+def test_return_subtype_is_confirmed_by_a_person_after_review_starts(client, admin, ticket):
+    # Not at intake: the customer's stated reason is on the ticket, confirmation needs review.
+    early = act(
+        client, ticket, "return-subtype", version=0, return_subtype="NON_DEFECT", reason="x"
+    )
+    assert code(early) == (409, "CS_INVALID_TRANSITION")
+    ok(act(client, ticket, "start-review", version=0))
+    # Scope before role (permissions 1.3): a department outside the ticket sees nothing, and a
+    # C/S manager who sees it still may not confirm. A reason is required.
+    staff = act(
+        client,
+        ticket,
+        "return-subtype",
+        user=TRF_STAFF,
+        version=1,
+        return_subtype="DEFECT",
+        reason="Inspected",
+    )
+    assert staff.status_code == 404
+    manager = act(
+        client,
+        ticket,
+        "return-subtype",
+        user=CS_MANAGER,
+        version=1,
+        return_subtype="DEFECT",
+        reason="Inspected",
+    )
+    assert manager.status_code == 403
+    assert (
+        act(client, ticket, "return-subtype", version=1, return_subtype="DEFECT").status_code == 422
+    )
+    assert (
+        act(
+            client, ticket, "return-subtype", version=1, return_subtype="UNSURE", reason="?"
+        ).status_code
+        == 422
+    )
+    first = ok(
+        act(
+            client,
+            ticket,
+            "return-subtype",
+            version=1,
+            return_subtype="NON_DEFECT",
+            reason="No fault found; customer ordered the wrong rating",
+        )
+    )
+    assert first["state"] == "IN_REVIEW" and first["version"] == 2
+    assert first["return_subtype_confirmed"] == "NON_DEFECT"
+    assert first["return_subtype_confirmed_by"] == str(AGENT.user_id)
+    assert first["return_subtype_confirmed_at"] and first["return_subtype_confirmed_reason"]
+    # Confirming again overwrites with a new version; the stale version is refused.
+    assert code(
+        act(client, ticket, "return-subtype", version=1, return_subtype="DEFECT", reason="late")
+    ) == (409, "CS_WORKFLOW_VERSION_CONFLICT")
+    second = ok(
+        act(
+            client,
+            ticket,
+            "return-subtype",
+            version=2,
+            return_subtype="DEFECT",
+            reason="Winding insulation failed on test",
+        )
+    )
+    assert (second["return_subtype_confirmed"], second["version"]) == ("DEFECT", 3)
+    audits = admin.execute(
+        "SELECT changes FROM cs.audit_events WHERE entity_id = %s AND entity_type = 'ticket_workflow' "
+        "AND changes->'action'->>'to' = 'confirm_return_subtype' ORDER BY version",
+        (ticket,),
+    ).fetchall()
+    assert len(audits) == 2
+    assert audits[0][0]["provenance_kind"]["to"] == "human_input"
+    assert audits[1][0]["return_subtype_confirmed"] == {"from": "NON_DEFECT", "to": "DEFECT"}
+    # The four confirmation columns move together, and the value domain stays checked (DB CHECK).
+    with pytest.raises(psycopg.errors.CheckViolation):
+        admin.execute(
+            "UPDATE cs.ticket_workflows SET return_subtype_confirmed_reason = NULL WHERE ticket_id = %s",
+            (ticket,),
+        )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        admin.execute(
+            "UPDATE cs.ticket_workflows SET return_subtype_confirmed = 'FOO' WHERE ticket_id = %s",
+            (ticket,),
+        )

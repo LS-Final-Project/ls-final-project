@@ -45,6 +45,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets/{uuid}/workflow/dept-results/{uuid}/review", ("POST",), ()),
     ("/api/v1/cs/tickets/{uuid}/workflow/close", ("POST",), ()),
     ("/api/v1/cs/tickets/{uuid}/workflow/owner", ("PUT",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/return-subtype", ("POST",), ()),
     ("/api/v1/cs/stats/overview", ("GET",), ("start", "end", "dept", "customer")),
     ("/api/v1/cs/stats/owners", ("GET",), ("start", "end", "dept")),
     ("/api/v1/cs/stats/customers/{customer}", ("GET",), ("start", "end")),
