@@ -237,6 +237,51 @@ class DraftRunTests(unittest.TestCase):
         for secret in (KEY, "Breaker T1", "ZX-T1", "not json", "Warranty period"):
             self.assertNotIn(secret, text)
 
+    def test_strip_phone_annotation_flag_is_opt_in_and_recorded(self):
+        """PHONE 표기는 기본으로 초안 입력에 남고 --strip-phone-annotation일 때만 지워지며 meta에 값·판본이 남는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 프롬프트와 meta를 확인한다.
+        """
+        tickets = [
+            {
+                "ticket_id": ticket_id,
+                "data_split": "train",
+                "channel": "PHONE",
+                "body_language": "en",
+                "inquiry_subject": "Warranty",
+                "inquiry_body": f"Urgency: SAFETY\nBreaker {ticket_id} tripped.",
+                "product_code": "MCCB-ABS-103c",
+            }
+            for ticket_id in ("T1", "T2", "T3", "T4", "T5")
+        ]
+        self.write_manifest(["train"], write_csv(self.root / "t.csv", list(tickets[0]), tickets))
+        for extra, kept, version in (
+            ((), True, "cs-draft-input-v2"),
+            (("--strip-phone-annotation",), False, "cs-draft-input-v1"),
+        ):
+            prompts = []
+
+            def factory(spec, settings, prompts=prompts):
+                def provider(prompt):
+                    prompts.append(prompt)
+                    return Generation("not json", Usage(5, 3, None, None, 8), "fake-v", ["STOP"])
+
+                return provider
+
+            out = self.root / f"strip-{bool(extra)}.json"
+            code, printed = self.run_main("--execute", "--out", str(out), *extra, factory=factory)
+            self.assertEqual(code, 0, printed)
+            meta = json.loads(out.read_text(encoding="utf-8"))["meta"]
+            self.assertEqual(
+                (meta["strip_phone_annotation"], meta["input_version"]), (bool(extra), version)
+            )
+            self.assertTrue(prompts)
+            self.assertTrue(all(("Urgency: SAFETY" in prompt) is kept for prompt in prompts))
+
     def test_ticket_ids_rerun_only_that_subset(self):
         """--ticket-ids는 그 사례만 재실행하고 부분 집합 표시를 단다.
 

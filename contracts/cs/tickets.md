@@ -153,7 +153,7 @@ KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 �
 
 `backend/engine/cs/classification.py`는 모델·DB·파일에 접근하지 않는 순수 함수다. KAN-92의 적재/정규화 어댑터를 대체하지 않는다. `build_input(record, sensitive_values=...)`는 정규화 레코드의 channel/body_language/subject/body만 선택한다. subject는 null을 허용하지만 네 키 모두 필요하다. body_language는 en/ko/en-US 같은 언어 태그 형식이며 빈/주석만 있는 본문은 거부한다. 원본은 수정하지 않는다.
 
-PHONE의 제목·본문에서 알려진 긴급도 enum을 가진 `Urgency: <값>` 주석을 대소문자와 공백 차이를 허용해 제거한다. 반환값의 payload만 모델 입력이며 version(`cs-classification-input-v3`)과 removed_annotations는 실행 감사 기록용이다. 다른 채널의 같은 문구는 이 규칙으로 삭제하지 않는다.
+기본(`cs-classification-input-v4`, 2026-10-29 사용자 결정)은 PHONE 상담원 표기를 지우지 않고 제목·본문 전체를 넣으며 removed_annotations는 0이다. 분석용 `strip_phone_annotation=True`일 때만 PHONE의 제목·본문에서 알려진 긴급도 enum을 가진 `Urgency: <값>` 주석을 대소문자와 공백 차이를 허용해 제거하고 version은 `cs-classification-input-v3`이다. 반환값의 payload만 모델 입력이며 version과 removed_annotations는 실행 감사 기록용이다. 다른 채널의 같은 문구는 이 규칙으로 삭제하지 않는다. 아래 v2 이후의 제거·보류 규칙은 분석용 옵션에만 적용된다.
 
 v2는 `*`·`_`·백틱으로 감싼 라벨/값과 전각 콜론(`：`)도 처리하고, 주석만 있던 본문은 마크다운 표식을 남겨 성공으로 통과시키지 않는다. `Urgency:` 또는 `Urgency：` 라벨이 남는 미지원 값(예: `HIGH`, `SAFETY-extra`, `SITE_DOWN/SAFETY`)은 일부 enum만 지우지 않고 원문 없는 `CS_UNSUPPORTED_PHONE_ANNOTATION`으로 보류한다. `Note-Urgency:`·`x*Urgency:`처럼 접두사가 붙어 제거 형식 밖에 있는 경우에도 남은 라벨을 찾아 보류한다. 라벨과 콜론 또는 값 사이가 줄바꿈으로 나뉜 경우도 자동 삭제하지 않고 보류한다. 줄바꿈을 건너 다음 줄의 단어를 주석 값으로 가져오지 않는다. 호출자는 이를 입력 실패로 기록해야 하며 원본을 다시 모델에 보내는 폴백으로 우회하지 않는다. v1과 v2 결과는 입력 처리 판본으로 구분한다. 이 처리는 명시한 라벨 형식에 한정하며 모든 누설 변형을 탐지한다는 뜻은 아니다.
 

@@ -26,7 +26,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
-from backend.engine.cs.classification import ClassificationInput, build_input
+from backend.engine.cs.classification import (
+    INPUT_VERSION,
+    INPUT_VERSION_STRIPPED,
+    ClassificationInput,
+    build_input,
+)
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
@@ -211,6 +216,7 @@ def dry_run(
     sensitive: Sensitive,
     settings: AISettings,
     prices: Mapping[str, Any],
+    strip_phone_annotation: bool = False,
 ) -> list[dict[str, object]]:
     """후보마다 실제 어댑터로 프롬프트를 만들어 길이·근사 토큰·토큰 상한·예상 비용을 계산한다.
 
@@ -224,6 +230,7 @@ def dry_run(
         sensitive: 민감값과 마스킹 종류.
         settings: AI 설정(출력 토큰 상한).
         prices: load_price_table 결과.
+        strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False).
 
     Returns:
         list[dict]: 후보별 건수(호출·보류), 프롬프트 문자·바이트 수, 근사 입력 토큰(문자/4 올림), 입력 토큰
@@ -244,7 +251,11 @@ def dry_run(
         held = 0
         for record in records.values():
             try:
-                payload = build_input(record, sensitive_values=sensitive).payload
+                payload = build_input(
+                    record,
+                    sensitive_values=sensitive,
+                    strip_phone_annotation=strip_phone_annotation,
+                ).payload
             except ValueError:
                 held += 1
                 continue
@@ -421,6 +432,7 @@ def execute(
     prices: Mapping[str, Any],
     factory: ProviderFactory,
     labels: bool = False,
+    strip_phone_annotation: bool = False,
 ) -> tuple[dict[str, object], dict[str, bytes]]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
@@ -434,6 +446,7 @@ def execute(
         prices: 단가표.
         factory: 후보별 공급자를 만드는 함수(테스트는 fake로 교체).
         labels: True면 후보별 예측 라벨 파일 내용을 만든다.
+        strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
 
     Returns:
         tuple: (결과, 라벨). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·git sha,
@@ -460,6 +473,7 @@ def execute(
         allowed_info_codes=codes,
         price_table=dict(prices),
         return_attempts=labels,
+        strip_phone_annotation=strip_phone_annotation,
     )
     attempts = result.pop("attempts", {})
     files = {
@@ -487,6 +501,8 @@ def execute(
                 }
                 for spec in specs
             ],
+            "strip_phone_annotation": strip_phone_annotation,
+            "input_version": INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION,
             "targets": len(records),
             "target_ids_sha256": hashlib.sha256("\n".join(sorted(records)).encode()).hexdigest(),
             "started_at": started.isoformat(),
@@ -534,6 +550,11 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         type=Path,
         help="후보별 예측 라벨(<name>.labels.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
     )
+    parser.add_argument(
+        "--strip-phone-annotation",
+        action="store_true",
+        help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v3 입력으로 돌린다(기본은 표기 포함 v4).",
+    )
     args = parser.parse_args(argv)
     if (
         args.limit < 1
@@ -562,7 +583,15 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         settings = AISettings()
         prices = load_price_table()
         if not args.execute:
-            rows = dry_run(records, specs, codes, sensitive, settings, prices)
+            rows = dry_run(
+                records,
+                specs,
+                codes,
+                sensitive,
+                settings,
+                prices,
+                strip_phone_annotation=args.strip_phone_annotation,
+            )
             print(
                 "dry-run: 네트워크 호출 없음. 토큰은 문자/4 근사와 UTF-8 바이트 상한이며 실제 과금은 "
                 "실행 후 usage로 확인한다."
@@ -583,6 +612,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             prices,
             factory or default_factory(settings),
             labels=args.labels_out is not None,
+            strip_phone_annotation=args.strip_phone_annotation,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")

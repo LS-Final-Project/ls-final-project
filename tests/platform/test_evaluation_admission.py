@@ -25,7 +25,7 @@ from backend.api.platform.evaluations.cs_smoke import (
     PROMPT_VERSION,
     TARGET_SET_HASH,
 )
-from backend.engine.cs.classification import INPUT_VERSION
+from backend.engine.cs.classification import INPUT_VERSION, INPUT_VERSION_STRIPPED
 from backend.shared.access import Principal
 from backend.shared.errors import ApplicationError
 from tests.platform.test_evaluation_access import client_for
@@ -356,10 +356,15 @@ def test_empty_stage_and_knobs_keep_existing_hashes():
     Returns:
         None: 리터럴 hash와 비교한다.
     """
-    assert canonical_hash(config_payload(smoke_row())) == SMOKE_HASH
-    assert canonical_hash(config_payload(smoke_row(stage=None, knobs={}))) == SMOKE_HASH
-    staged = canonical_hash(config_payload(smoke_row(stage="draft", knobs={})))
-    knobbed = canonical_hash(config_payload(smoke_row(stage="draft", knobs={"temperature": 0.2})))
+    # SMOKE_HASH는 입력 판본 v3 시절 프로필의 리터럴이다. 판본은 v4로 올랐으므로(KAN-105 4차) 같은 v3 값으로 비교한다.
+    legacy = {"input_builder_version": INPUT_VERSION_STRIPPED}
+    assert canonical_hash(config_payload(smoke_row(**legacy))) == SMOKE_HASH
+    assert canonical_hash(config_payload(smoke_row(**legacy, stage=None, knobs={}))) == SMOKE_HASH
+    assert canonical_hash(config_payload(smoke_row())) != SMOKE_HASH
+    staged = canonical_hash(config_payload(smoke_row(**legacy, stage="draft", knobs={})))
+    knobbed = canonical_hash(
+        config_payload(smoke_row(**legacy, stage="draft", knobs={"temperature": 0.2}))
+    )
     assert len({SMOKE_HASH, staged, knobbed}) == 3
 
 

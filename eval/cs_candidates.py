@@ -43,6 +43,7 @@ def run_candidates(
     allowed_info_codes: frozenset[str],
     price_table: dict[str, ModelPrice] | None = None,
     return_attempts: bool = False,
+    strip_phone_annotation: bool = False,
 ) -> dict:
     """후보마다 모든 대상의 최초 시도를 실행하고 기존 지표로 비교표를 만든다.
 
@@ -55,6 +56,7 @@ def run_candidates(
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
         return_attempts: True면 "attempts"(후보 이름 → {대상 ID: ClassificationAttempt})를 더한다. 시도에는
             raw_response가 들어 있으므로 호출자는 이 키를 꺼낸 뒤 결과를 저장한다.
+        strip_phone_annotation: 분석용. True면 PHONE 상담원 표기를 지운 v3 입력으로 돌린다(기본 False).
 
     Returns:
         dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. ranking은 긴급도
@@ -86,6 +88,7 @@ def run_candidates(
                 allowed_info_codes=allowed_info_codes,
                 provider=candidate.provider,
                 attempt_number=1,
+                strip_phone_annotation=strip_phone_annotation,
             )
             for target, record in records.items()
         }

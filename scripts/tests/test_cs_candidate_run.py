@@ -415,6 +415,52 @@ class CandidateRunTests(unittest.TestCase):
         self.assertNotIn("Please take", out.getvalue())
         self.assertEqual(self.run_main("--execute")[0], 1)
 
+    def test_strip_phone_annotation_flag_is_opt_in_and_recorded(self):
+        """PHONE 표기는 기본으로 입력에 남고 --strip-phone-annotation일 때만 지워지며 meta에 값·판본이 남는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 공급자 입력 본문과 meta를 확인한다.
+        """
+        self.write_sources(
+            [
+                {
+                    "ticket_id": f"SYN-{i}",
+                    "data_split": "train",
+                    "channel": "PHONE",
+                    "body_language": "en",
+                    "inquiry_subject": "Return",
+                    "inquiry_body": f"Urgency: SAFETY\nPlease take breaker {i} back.",
+                    "product_code": "MCCB-ABS-103c",
+                }
+                for i in range(2)
+            ]
+        )
+        for extra, kept, version in (
+            ((), True, "cs-classification-input-v4"),
+            (("--strip-phone-annotation",), False, "cs-classification-input-v3"),
+        ):
+            bodies = []
+
+            def factory(spec, codes, settings, bodies=bodies):
+                def provider(payload):
+                    bodies.append(payload.body)
+                    return Generation(ANSWER, Usage(5, 3, None, None, 8), "fake-v", ["STOP"])
+
+                return provider
+
+            out = self.root / f"strip-{bool(extra)}.json"
+            code, printed = self.run_main("--execute", "--out", str(out), *extra, factory=factory)
+            self.assertEqual(code, 0, printed)
+            meta = json.loads(out.read_text(encoding="utf-8"))["meta"]
+            self.assertEqual(
+                (meta["strip_phone_annotation"], meta["input_version"]), (bool(extra), version)
+            )
+            self.assertTrue(bodies)
+            self.assertTrue(all(("Urgency: SAFETY" in body) is kept for body in bodies))
+
     def test_execute_writes_harness_result_with_meta_and_no_secrets(self):
         """--execute는 주입한 공급자로 하네스를 돌려 결과·메타를 쓰고 원문·키·표본 ID를 넣지 않는다.
 

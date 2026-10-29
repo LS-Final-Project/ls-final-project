@@ -9,6 +9,7 @@ import pytest
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import (
     DRAFT_INPUT_VERSION,
+    DRAFT_INPUT_VERSION_STRIPPED,
     DRAFT_PROMPT,
     FORBIDDEN_COMMITMENTS,
     EvidenceSnippet,
@@ -157,12 +158,16 @@ def test_request_codes_exclude_provided_and_already_asked():
     payload = prepared.payload
     assert payload.request_info_codes == ["TEST_PHOTO"]
     assert payload.provided_info == ["TEST_SERIAL"]
-    assert prepared.version == DRAFT_INPUT_VERSION and prepared.removed_annotations == 1
+    assert prepared.version == DRAFT_INPUT_VERSION == "cs-draft-input-v2"
+    assert prepared.removed_annotations == 0
     dumped = payload.model_dump_json()
     for secret in ("GOLD_SECRET", "FUTURE_SECRET", "ZX-PRIVATE", "person@example.test", "김고객"):
         assert secret not in dumped
     assert "[SERIAL_PROVIDED]" in payload.body and "[PERSONAL_PROVIDED]" in payload.body
-    assert "SAFETY" not in payload.body and "300 V에서 트립." in payload.body
+    assert payload.body.startswith("Urgency: SAFETY\n") and "300 V에서 트립." in payload.body
+    stripped = prepare(strip_phone_annotation=True)
+    assert stripped.version == DRAFT_INPUT_VERSION_STRIPPED and stripped.removed_annotations == 1
+    assert "SAFETY" not in stripped.payload.body
     assert RECORD == before
     asked_all = prepare(already_asked_codes=frozenset({"TEST_PHOTO", "TEST_INVOICE"}))
     assert asked_all.payload.request_info_codes == []
@@ -496,7 +501,11 @@ def test_fake_provider_round_trip_keeps_usage_and_masked_prompt():
     assert result.requested_model == "fake" and result.call_attempts == 1
     assert result.model_version == "fake-v1" and result.finish_reasons == ("STOP",)
     assert result.input_sha256 and len(result.input_sha256) == 64
-    assert result.input_version == DRAFT_INPUT_VERSION and result.removed_annotations == 1
+    assert result.input_version == DRAFT_INPUT_VERSION and result.removed_annotations == 0
+    stripped = attempt(Mock(return_value=provider.return_value), strip_phone_annotation=True)
+    assert (
+        stripped.input_version == DRAFT_INPUT_VERSION_STRIPPED and stripped.removed_annotations == 1
+    )
     assert "raw_response=" not in repr(result)
 
 

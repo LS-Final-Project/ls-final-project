@@ -9,6 +9,7 @@ from typing import Literal
 
 from backend.engine.cs.classification import (
     INPUT_VERSION,
+    INPUT_VERSION_STRIPPED,
     ClassificationInput,
     ClassificationOutput,
     build_input,
@@ -82,6 +83,7 @@ def run_classification_attempt(
     allowed_info_codes: frozenset[str],
     provider: Callable[[ClassificationInput], Generation],
     attempt_number: int,
+    strip_phone_annotation: bool = False,
 ) -> ClassificationAttempt:
     """정제 입력을 한 번 호출하고 원시 검사 결과와 사용량을 보존한다.
 
@@ -91,15 +93,23 @@ def run_classification_attempt(
         allowed_info_codes: 검수된 정보 코드 집합. 기본값을 추측하지 않는다.
         provider: 정제된 네 필드만 받아 공통 Generation을 반환하는 호출자.
         attempt_number: 외부 실행기가 부여한 1 이상의 시도 번호.
+        strip_phone_annotation: 분석용. build_input에 그대로 넘긴다(기본 False, 판본은 입력 판본에 남는다).
 
     Returns:
         ClassificationAttempt: 내부 시도 기록. 입력 실패는 호출하지 않으며 자동 재시도하지 않는다.
     """
     if type(attempt_number) is not int or attempt_number < 1:
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
-    result = ClassificationAttempt(attempt_number)
+    result = ClassificationAttempt(
+        attempt_number,
+        input_version=INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION,
+    )
     try:
-        prepared = build_input(record, sensitive_values=sensitive_values)
+        prepared = build_input(
+            record,
+            sensitive_values=sensitive_values,
+            strip_phone_annotation=strip_phone_annotation,
+        )
     except ValueError as error:
         input_code = str(error)
         if input_code not in {

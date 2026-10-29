@@ -74,7 +74,8 @@ record, 명시적 sensitive_values·allowed_info_codes, 1 이상의 attempt_numb
 
 - 입력 실패는 `HELD`와 고정 오류 코드이며 호출하지 않는다. hash·제거 건수·호출 지연은 null이다.
 - 입력 통과 후 제공자를 한 번 호출한다. 정제 입력 JSON을 UTF-8, 키 정렬, 공백 없는 구분자로
-  직렬화한 `input_sha256`, 입력 판본과 PHONE 주석 제거 건수를 남긴다. hash는 제공자 측
+  직렬화한 `input_sha256`, 입력 판본과 PHONE 주석 제거 건수를 남긴다(제거는 분석용
+  `strip_phone_annotation=True`일 때만 하며 기본은 0이다). hash는 제공자 측
   시스템 프롬프트나 전체 HTTP 요청의 hash가 아니며 구성/프롬프트 판본 고정을 대신하지 않는다.
 - 응답은 원시 JSON 그대로 검사한다. `VALID`는 스키마 통과만 의미하며 의미상 정답이나 모델
   완료·품질 합격은 아니다. 잘못된/빈 응답은 `SCHEMA_VIOLATION`이고 응답 당시 사용량을 보존한다.

@@ -87,13 +87,14 @@ PRICES = {
 }
 
 
-def run(records=None, candidates=None, gold=None):
+def run(records=None, candidates=None, gold=None, strip=False):
     """합성 설정으로 하네스를 돌린다.
 
     Args:
         records: 대체 대상.
         candidates: 대체 후보.
         gold: 대체 정답.
+        strip: 분석용 PHONE 표기 제거 옵션.
 
     Returns:
         dict: 비교표.
@@ -105,6 +106,7 @@ def run(records=None, candidates=None, gold=None):
         sensitive_values={},
         allowed_info_codes=frozenset(),
         price_table=PRICES,
+        strip_phone_annotation=strip,
     )
 
 
@@ -133,8 +135,11 @@ def test_candidates_are_ranked_by_critical_misses_then_f1():
     }
     assert rows["oracle"]["model"] == "fake-a" and rows["oracle"]["prompt_version"] == "p1"
     leakage = rows["oracle"]["leakage"]
-    assert leakage["phone_targets"] == 2 and leakage["removed_annotations_total"] == 2
+    # 기본 입력(v4)은 표기를 지우지 않으므로 제거 건수는 0이고, 분석용 옵션에서만 센다.
+    assert leakage["phone_targets"] == 2 and leakage["removed_annotations_total"] == 0
     assert leakage["phone_unsupported_annotation"] == 0
+    stripped = {row["name"]: row for row in run(strip=True)["candidates"]}["oracle"]["leakage"]
+    assert stripped["removed_annotations_total"] == 2
     assert set(leakage["urgency_macro_f1_by_phone"]) == {"PHONE", "NON_PHONE"}
     assert "passed" not in json.dumps(result)
 
@@ -187,7 +192,7 @@ def test_result_has_no_raw_response_or_body():
 
 
 def test_unsupported_phone_annotation_is_counted_without_call():
-    """제거 형식이 아닌 PHONE 주석은 호출 없이 보류되고 누출 점검 건수로 남는다.
+    """분석용 옵션에서 제거 형식이 아닌 PHONE 주석은 호출 없이 보류되고 누출 점검 건수로 남는다.
 
     Args:
         없음.
@@ -196,7 +201,8 @@ def test_unsupported_phone_annotation_is_counted_without_call():
         None: HELD·건수와 후보 간 입력 hash 일치(None)를 확인한다.
     """
     records = RECORDS | {"t4": RECORDS["t4"] | {"body": "Urgency: HIGH\ncase-4 price please"}}
-    row = run(records)["candidates"][2]
+    assert run(records)["candidates"][2]["outcomes"]["HELD"] == 0
+    row = run(records, strip=True)["candidates"][2]
     assert row["outcomes"]["HELD"] == 1
     assert row["leakage"]["phone_unsupported_annotation"] == 1
     assert row["leakage"]["removed_annotations_total"] == 1

@@ -44,7 +44,11 @@ from backend.api.platform.evaluations.admission import (
     register_experiment,
 )
 from backend.api.platform.evaluations.schemas import ExperimentCreate
-from backend.engine.cs.classification import INPUT_VERSION, ClassificationOutput
+from backend.engine.cs.classification import (
+    INPUT_VERSION,
+    INPUT_VERSION_STRIPPED,
+    ClassificationOutput,
+)
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS, GoldLock
@@ -94,8 +98,11 @@ def build_plan(
         data_split: train 또는 valid.
 
     Returns:
-        Plan: 등록 요청과 시도. 라벨 hash·대상 hash·건수·outcome이 결과와 맞지 않거나, 분할이 다르거나,
-            outcome을 하나로 정할 수 없으면 EVAL_IMPORT_INVALID ValueError다. test 분할은 SplitBlocked다.
+        Plan: 등록 요청과 시도. 실험의 input_builder_version은 결과 meta의 실제 입력 판본이다(KAN-105 4차).
+            meta에 input_version이 없으면 그 기록 전 실행이라 PHONE 표기를 지운 v3으로 본다. 라벨 hash·대상
+            hash·건수·outcome이 결과와 맞지 않거나, 분할이 다르거나, outcome을 하나로 정할 수 없거나, 입력
+            판본이 v3·v4가 아니거나 strip_phone_annotation과 맞지 않으면 EVAL_IMPORT_INVALID ValueError다. test
+            분할은 SplitBlocked다.
     """
     run = json.loads(run_bytes)
     labels = json.loads(labels_bytes)
@@ -103,8 +110,13 @@ def build_plan(
     [row] = [item for item in run["result"]["candidates"] if item["name"] == candidate]
     [spec] = [item for item in meta["candidates"] if item["name"] == candidate]
     ids = sorted(labels)
+    # input_version을 남기기 전(KAN-105 4차 이전) 결과는 모두 표기를 지운 v3 입력으로 돌았다.
+    input_version = meta.get("input_version", INPUT_VERSION_STRIPPED)
+    stripped = meta.get("strip_phone_annotation", input_version == INPUT_VERSION_STRIPPED)
     if (
-        data_split not in ("train", "valid")
+        input_version not in (INPUT_VERSION, INPUT_VERSION_STRIPPED)
+        or stripped is not (input_version == INPUT_VERSION_STRIPPED)
+        or data_split not in ("train", "valid")
         or meta["label_files"][candidate] != hashlib.sha256(labels_bytes).hexdigest()
         or meta["targets"] != len(ids)
         or meta["target_ids_sha256"] != hashlib.sha256("\n".join(ids).encode()).hexdigest()
@@ -135,7 +147,7 @@ def build_plan(
         gold_version=GOLD_BUNDLE_ID,
         prompt_version=spec["prompt_version"],
         model_id=spec["model"],
-        input_builder_version=INPUT_VERSION,
+        input_builder_version=input_version,
         stage="classification",
         knobs=knob_fields(spec),
         dataset_manifest={

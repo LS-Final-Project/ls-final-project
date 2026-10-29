@@ -38,8 +38,8 @@ CLASSIFICATION = ClassificationOutput(
 )
 
 
-def test_classification_input_keeps_only_four_fields_and_drops_phone_answer() -> None:
-    """classification.build_input 경계: 정답·사후 칸은 버리고 PHONE Urgency 주석을 지운다.
+def test_classification_input_keeps_only_four_fields_and_phone_annotation() -> None:
+    """classification.build_input 경계: 정답·사후 칸은 버리고 PHONE Urgency 표기는 기본으로 남긴다(KAN-105 4차).
 
     Args:
         없음.
@@ -49,8 +49,11 @@ def test_classification_input_keeps_only_four_fields_and_drops_phone_answer() ->
     """
     prepared = build_input(RECORD, sensitive_values={})
     assert set(prepared.payload.model_dump()) == {"channel", "body_language", "subject", "body"}
-    assert prepared.removed_annotations == 1
-    assert prepared.payload.body.strip() == "The breaker trips at 300 V."
+    assert prepared.removed_annotations == 0
+    assert prepared.payload.body == RECORD["body"]
+    stripped = build_input(RECORD, sensitive_values={}, strip_phone_annotation=True)
+    assert stripped.removed_annotations == 1
+    assert stripped.payload.body.strip() == "The breaker trips at 300 V."
     assert "FUTURE" not in prepared.payload.model_dump_json()
 
 
