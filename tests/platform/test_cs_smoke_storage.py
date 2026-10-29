@@ -3146,7 +3146,9 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "synthetic_quality",
         "locked_quality",
         "comparison_key",
+        "stage_metrics",
     }
+    assert data["stage_metrics"] == []
     assert data["synthetic_quality"] is None and data["locked_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
     assert data["quality_available"] is False
