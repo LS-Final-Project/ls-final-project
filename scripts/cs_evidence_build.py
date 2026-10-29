@@ -10,6 +10,12 @@ hybrid.run_hybrid(FTS만)를 그대로 쓰므로 FLT-042 인용 차단 청크는
 DB 연결 문자열은 환경변수 DATABASE_URL(cs_app, 로컬 docker)에서만 읽고 출력하지 않는다. 결과에는 질의 원문을
 넣지 않는다. 표준 출력(--meta-out이 있으면 그 파일에도)의 meta에는 건수·판본·시각·git sha와 정렬한 (ticket_id, 질의)
 전체의 sha256 하나만 낸다. cs_draft_run --evidence가 최상위 키를 ticket_id로 읽으므로 meta는 근거 파일에 넣지 않는다.
+
+제품 우선(KAN-144 11차): --index-manifest(cs_index_docs --manifest-out)가 있으면 문의의 제품 코드(--product-column)가
+source_name 경로 조각과 정확히 같거나 파일 이름(확장자 제외)이 '-<제품코드>'로 끝나는 문서를 그 제품 문서로 본다.
+필터가 켜져 있으면(기본, --no-product-filter로 끔) 제품 문서로 제한한 검색을 먼저 하고, 모자라면 전역 검색으로
+채운다(중복 chunk_id 제외). 제품 문서가 없는 문의는 전역만 쓴다. --document-sha256s를 함께 주면 두 검색 모두 그
+범위 안이다. meta의 product_hits·product_top1은 최종 근거 기준이라 필터를 끈 실행과 전후를 비교할 수 있다.
 """
 
 import argparse
@@ -20,7 +26,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import psycopg
@@ -31,6 +37,7 @@ from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.search.hybrid import Searcher, run_hybrid
 from backend.engine.search.model import SearchFilters
 from scripts.cs_candidate_run import SplitBlocked, git_sha, load_targets, write_private
+from tests.cs.cs_dev_data import load_dev_tickets
 
 MAX_TERMS = 40
 # 검색기에서 FLT-042 차단분만큼 모자라지 않도록 더 받아 앞 limit개를 쓴다.
@@ -84,6 +91,47 @@ def load_ticket_ids(path: Path) -> list[str]:
     return ids
 
 
+def is_product_document(source_name: str, product_code: str) -> bool:
+    """색인 문서가 그 제품의 문서인지 경로 조각으로 판정한다.
+
+    Args:
+        source_name: 색인 manifest의 --docs 기준 상대 경로.
+        product_code: 문의의 제품 코드.
+
+    Returns:
+        bool: 경로 조각 하나가 제품 코드와 같거나 파일 이름(확장자 제외)이 '-<제품코드>'로 끝나면 True. 이웃
+            코드(예 MCCB-ABS-103c와 403c)를 섞지 않도록 부분 문자열로는 판정하지 않는다.
+    """
+    path = PurePosixPath(source_name.replace("\\", "/"))
+    return bool(product_code) and (
+        product_code in path.parts[:-1]
+        or path.stem == product_code
+        or path.stem.endswith("-" + product_code)
+    )
+
+
+def load_product_documents(path: Path) -> dict[str, str]:
+    """색인 manifest에서 적재된 문서의 source_name → sha256을 읽는다.
+
+    Args:
+        path: cs_index_docs --manifest-out JSON.
+
+    Returns:
+        dict[str, str]: sha256이 있고 reason이 없는 문서만. 형식이 틀리면 CS_EVIDENCE_INDEX_MANIFEST ValueError다.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data.get("documents") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not all(
+        isinstance(row, dict) and isinstance(row.get("source_name"), str) for row in rows
+    ):
+        raise ValueError("CS_EVIDENCE_INDEX_MANIFEST")
+    return {
+        row["source_name"]: row["sha256"]
+        for row in rows
+        if isinstance(row.get("sha256"), str) and row["sha256"] and not row.get("reason")
+    }
+
+
 def build_evidence(
     records: Mapping[str, Mapping[str, object]],
     searcher: Searcher,
@@ -94,8 +142,10 @@ def build_evidence(
     snippet_chars: int,
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     query_from: QuerySource,
+    product_documents: Mapping[str, frozenset[str]] | None = None,
+    product_filter: bool = True,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
-    """문의마다 FTS로 근거 스니펫을 찾는다.
+    """문의마다 FTS로 근거 스니펫을 찾는다. 제품 문서가 주어지면 그 문서를 먼저 찾고 전역으로 채운다.
 
     Args:
         records: {ticket_id: build_input 레코드}.
@@ -106,20 +156,51 @@ def build_evidence(
         snippet_chars: 스니펫 최대 글자 수.
         sensitive_values: build_input에 넘길 {원값: SERIAL|PERSONAL}.
         query_from: 질의에 쓸 필드.
+        product_documents: {ticket_id: 그 문의 제품 문서의 sha256 집합}. None이면 제품 통계도 내지 않는다.
+        product_filter: True면 제품 문서 제한 검색을 먼저 하고 모자라면 전역으로 채운다. False면 전역만 쓰고
+            통계만 낸다(전후 비교용).
 
     Returns:
         tuple: (evidence {ticket_id: [EvidenceSnippet dict]}, 집계 meta). 입력 정제 실패·토큰 없음은 빈 배열로
-            두고 input_failed로 센다. 검색 오류는 그대로 올린다.
+            두고 input_failed로 센다. product_documents가 있으면 meta에 product_filter·tickets_with_product_docs·
+            product_hits(최종 근거에 제품 문서가 하나라도 든 문의 수)·product_top1(1순위가 제품 문서인 문의 수)을
+            더한다. 검색 오류는 그대로 올린다.
     """
+    scope = None if document_sha256s is None else frozenset(document_sha256s)
     filters = SearchFilters(
         document_sha256s=document_sha256s,
         index_version=index_version,
         limit=min(100, limit + SEARCH_MARGIN),
     )
+
+    def snippets(result: Any) -> list[dict[str, Any]]:
+        """검색 결과에서 본문 있는 후보를 근거 형식으로 바꾼다.
+
+        Args:
+            result: run_hybrid 결과.
+
+        Returns:
+            list[dict]: EvidenceSnippet dict(순서 유지).
+        """
+        return [
+            EvidenceSnippet(
+                chunk_id=item.candidate.chunk_id,
+                snippet=item.candidate.text_excerpt[:snippet_chars],
+                section_path=item.candidate.section_path,
+                document_sha256=item.candidate.document_sha256,
+            ).model_dump()
+            for item in result.items
+            if item.candidate.text_excerpt and item.candidate.text_excerpt.strip()
+        ]
+
     evidence: dict[str, list[dict[str, Any]]] = {}
     queries: list[str] = []
-    input_failed = dropped = 0
+    input_failed = dropped = with_docs = hits = top1 = 0
     for ticket_id in sorted(records):
+        docs = (product_documents or {}).get(ticket_id, frozenset())
+        if scope is not None:
+            docs = docs & scope
+        with_docs += bool(docs)
         try:
             payload = build_input(records[ticket_id], sensitive_values=sensitive_values).payload
             query = query_terms(payload.subject, payload.body, query_from)
@@ -130,18 +211,27 @@ def build_evidence(
             input_failed += 1
             continue
         queries.append(f"{ticket_id}\t{query}")
-        result = run_hybrid(query, filters, fts=searcher)
-        dropped += len(result.dropped_blocked)
-        evidence[ticket_id] = [
-            EvidenceSnippet(
-                chunk_id=item.candidate.chunk_id,
-                snippet=item.candidate.text_excerpt[:snippet_chars],
-                section_path=item.candidate.section_path,
-                document_sha256=item.candidate.document_sha256,
-            ).model_dump()
-            for item in result.items
-            if item.candidate.text_excerpt and item.candidate.text_excerpt.strip()
-        ][:limit]
+        rows: list[dict[str, Any]] = []
+        blocked: set[str] = set()
+        if product_filter and docs:
+            first = run_hybrid(
+                query,
+                filters.model_copy(update={"document_sha256s": sorted(docs)}),
+                fts=searcher,
+            )
+            blocked |= set(first.dropped_blocked)
+            rows = snippets(first)[:limit]
+        if len(rows) < limit:
+            result = run_hybrid(query, filters, fts=searcher)
+            blocked |= set(result.dropped_blocked)
+            seen = {row["chunk_id"] for row in rows}
+            rows += [row for row in snippets(result) if row["chunk_id"] not in seen][
+                : limit - len(rows)
+            ]
+        dropped += len(blocked)
+        evidence[ticket_id] = rows
+        hits += any(row["document_sha256"] in docs for row in rows)
+        top1 += bool(rows) and rows[0]["document_sha256"] in docs
     meta = {
         "tickets": len(evidence),
         "with_evidence": sum(bool(rows) for rows in evidence.values()),
@@ -155,6 +245,13 @@ def build_evidence(
         "query_from": query_from,
         "queries_sha256": hashlib.sha256("\n".join(queries).encode()).hexdigest(),
     }
+    if product_documents is not None:
+        meta |= {
+            "product_filter": product_filter,
+            "tickets_with_product_docs": with_docs,
+            "product_hits": hits,
+            "product_top1": top1,
+        }
     return evidence, meta
 
 
@@ -196,14 +293,28 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
     parser.add_argument("--limit-per-ticket", type=int, default=5)
     parser.add_argument("--snippet-chars", type=int, default=800)
     parser.add_argument("--sensitive-values", type=Path)
+    parser.add_argument(
+        "--index-manifest", type=Path, help="cs_index_docs --manifest-out JSON(제품 우선 검색·통계)"
+    )
+    parser.add_argument("--product-column", default="product_code")
+    parser.add_argument(
+        "--no-product-filter",
+        action="store_true",
+        help="제품 우선 검색을 끄고 통계만 낸다(--index-manifest와 함께, 전후 비교용)",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
         "--meta-out", type=Path, help="meta를 파일로도 남길 경로(표준 출력과 같은 내용)"
     )
     args = parser.parse_args(argv)
-    if not 1 <= args.limit_per_ticket <= 100 - SEARCH_MARGIN or args.snippet_chars < 1:
+    if (
+        not 1 <= args.limit_per_ticket <= 100 - SEARCH_MARGIN
+        or args.snippet_chars < 1
+        or (args.no_product_filter and args.index_manifest is None)
+    ):
         print(
-            "CS_EVIDENCE_INVALID_ARGS: --limit-per-ticket은 1~90, --snippet-chars는 1 이상입니다."
+            "CS_EVIDENCE_INVALID_ARGS: --limit-per-ticket은 1~90, --snippet-chars는 1 이상이고 "
+            "--no-product-filter는 --index-manifest와 함께만 씁니다."
         )
         return 1
     started = datetime.now(UTC)
@@ -223,6 +334,22 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
             if args.document_sha256s
             else None
         )
+        product_documents = None
+        if args.index_manifest is not None:
+            indexed = load_product_documents(args.index_manifest)
+            products = {
+                row["ticket_id"]: row[args.product_column]
+                for row in load_dev_tickets(args.manifest)
+                if row["ticket_id"] in set(ids)
+            }
+            product_documents = {
+                ticket_id: frozenset(
+                    sha
+                    for name, sha in indexed.items()
+                    if is_product_document(name, products.get(ticket_id) or "")
+                )
+                for ticket_id in ids
+            }
         evidence, meta = build_evidence(
             {ticket_id: records[ticket_id] for ticket_id in ids},
             (searcher or default_searcher)(args.index_version),
@@ -232,6 +359,8 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
             snippet_chars=args.snippet_chars,
             sensitive_values=sensitive,
             query_from=args.query_from,
+            product_documents=product_documents,
+            product_filter=not args.no_product_filter,
         )
         write_private(args.out, json.dumps(evidence, ensure_ascii=False, indent=2).encode())
         meta |= {

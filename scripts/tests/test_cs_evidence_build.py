@@ -79,6 +79,40 @@ class FakeSearcher:
         return next((rows for word, rows in self.results.items() if word in query), [])
 
 
+class FilteredSearcher:
+    """조건의 document_sha256s가 있으면 제품 후보를, 없으면 전체 후보를 돌려주는 검색기 대역."""
+
+    def __init__(self, *, product, everything):
+        """대역을 만든다.
+
+        Args:
+            product: 제품 문서 제한 검색 결과.
+            everything: 전역 검색 결과.
+        """
+        self.product = product
+        self.everything = everything
+        self.calls = []
+
+    def __call__(self, query, filters):
+        """조건을 기록하고 후보를 돌려준다.
+
+        Args:
+            query: 검색어.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 후보(문서 범위 안의 것만).
+        """
+        self.calls.append((query, filters))
+        rows = (
+            self.product
+            if filters.document_sha256s and "a" * 64 in filters.document_sha256s
+            else self.everything
+        )
+        allowed = filters.document_sha256s
+        return [row for row in rows if allowed is None or row.document_sha256 in allowed]
+
+
 class EvidenceBuildTests(unittest.TestCase):
     def setUp(self):
         """합성 manifest(train 3건)와 대상 ID 파일을 만든다.
@@ -288,6 +322,136 @@ class EvidenceBuildTests(unittest.TestCase):
         ]  # fmt: skip
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(cs_evidence_build.main(argv), 1)
+
+    def write_products(self):
+        """제품 열이 있는 manifest(T1=P-1, T2=P-9, T3=P-1)와 색인 manifest를 쓴다.
+
+        색인 문서: P-1 폴더 문서(a), 다른 제품(b), 이웃 코드 P-10(c), 적재 실패(d).
+
+        Returns:
+            None: m.json·t.csv·index.json을 쓴다.
+        """
+        bodies = {"T1": "Breaker warranty claim", "T2": "Breaker warranty question", "T3": "a"}
+        products = {"T1": "P-1", "T2": "P-9", "T3": "P-1"}
+        tickets = [
+            {
+                "ticket_id": ticket_id,
+                "data_split": "train",
+                "channel": "EMAIL",
+                "body_language": "en",
+                "inquiry_subject": "",
+                "inquiry_body": body,
+                "product_code": products[ticket_id],
+            }
+            for ticket_id, body in bodies.items()
+        ]
+        self.write_manifest(["train"], write_csv(self.root / "t.csv", list(tickets[0]), tickets))
+        documents = [
+            {"source_name": "P-1/DS-P-1.md", "sha256": "a" * 64, "reason": None},
+            {"source_name": "P-2/DS-P-2.md", "sha256": "b" * 64, "reason": None},
+            {"source_name": "P-10/DS-P-10.md", "sha256": "c" * 64, "reason": None},
+            {"source_name": "P-1/IG-P-1.md", "sha256": None, "reason": "CS_INDEX_EXTRACT_FAILED"},
+        ]
+        (self.root / "index.json").write_text(json.dumps({"documents": documents}))
+
+    def test_product_documents_are_searched_first_then_global_fills(self):
+        """제품 문서 제한 검색을 먼저 하고 모자라면 전역으로 채우며(중복 제외), 제품 문서 없는 문의는 전역만 쓴다.
+
+        Returns:
+            None: 검색 호출 조건·근거 순서·meta 통계를 확인한다.
+        """
+        self.write_products()
+        searcher = FilteredSearcher(
+            product=[candidate("p1", "Product warranty text.", 1, sha="a")],
+            everything=[
+                candidate("g1", "Global policy text.", 1, sha="b"),
+                candidate("p1", "Product warranty text.", 2, sha="a"),
+                candidate("g2", "Neighbour product text.", 3, sha="c"),
+            ],
+        )
+        code, printed = self.run_main(
+            "--index-manifest", str(self.root / "index.json"), "--limit-per-ticket", "3",
+            searcher=searcher,
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        evidence = json.loads((self.root / "ev.json").read_text(encoding="utf-8"))
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["p1", "g1", "g2"])
+        self.assertEqual([row["chunk_id"] for row in evidence["T2"]], ["g1", "p1", "g2"])
+        self.assertEqual(
+            [filters.document_sha256s for _, filters in searcher.calls], [["a" * 64], None, None]
+        )
+        meta = json.loads(printed)
+        self.assertEqual(
+            {k: meta[k] for k in ("product_filter", "tickets_with_product_docs", "product_hits", "product_top1")},
+            {"product_filter": True, "tickets_with_product_docs": 2, "product_hits": 1, "product_top1": 1},
+        )  # fmt: skip
+
+    def test_enough_product_hits_skip_the_global_search_and_filter_can_be_turned_off(self):
+        """제품 문서 결과로 상한을 채우면 전역 검색을 하지 않고, --no-product-filter는 전역만 쓰며 통계는 낸다.
+
+        Returns:
+            None: 호출 수와 meta를 확인한다.
+        """
+        self.write_products()
+        searcher = FilteredSearcher(
+            product=[candidate("p1", "Product warranty text.", 1, sha="a")],
+            everything=[
+                candidate("g1", "Global policy text.", 1, sha="b"),
+                candidate("p1", "Product warranty text.", 2, sha="a"),
+            ],
+        )
+        args = ("--index-manifest", str(self.root / "index.json"), "--limit-per-ticket", "1")
+        code, printed = self.run_main(*args, searcher=searcher)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(
+            [filters.document_sha256s for _, filters in searcher.calls], [["a" * 64], None]
+        )
+        searcher.calls.clear()
+        code, printed = self.run_main(*args, "--no-product-filter", searcher=searcher)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual([filters.document_sha256s for _, filters in searcher.calls], [None, None])
+        evidence = json.loads((self.root / "ev.json").read_text(encoding="utf-8"))
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["g1"])
+        meta = json.loads(printed)
+        self.assertEqual(
+            (meta["product_filter"], meta["product_hits"], meta["product_top1"]), (False, 0, 0)
+        )
+        self.assertEqual(self.run_main("--no-product-filter")[0], 1)
+
+    def test_document_scope_limits_both_searches_and_bad_index_manifest_fails(self):
+        """--document-sha256s를 주면 제품 집합은 교집합이고, 색인 manifest 형식이 틀리면 종료 코드 1이다.
+
+        Returns:
+            None: 호출 조건과 종료 코드를 확인한다.
+        """
+        self.write_products()
+        searcher = FilteredSearcher(product=[], everything=[])
+        args = ("--index-manifest", str(self.root / "index.json"))
+        code, printed = self.run_main(*args, "--document-sha256s", "b" * 64, searcher=searcher)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(
+            [filters.document_sha256s for _, filters in searcher.calls], [["b" * 64], ["b" * 64]]
+        )
+        self.assertEqual(json.loads(printed)["tickets_with_product_docs"], 0)
+        (self.root / "index.json").write_text(json.dumps({"documents": [{"sha256": "a"}]}))
+        self.assertEqual(self.run_main(*args)[0], 1)
+
+    def test_product_document_match_uses_whole_path_parts(self):
+        """제품 문서는 경로 조각 일치나 '-<코드>'로 끝나는 파일 이름으로만 판정한다.
+
+        Returns:
+            None: 판정 표를 확인한다.
+        """
+        for name, code, expected in [
+            ("MCCB-ABS-103c/DS-MCCB-ABS-103c.md", "MCCB-ABS-103c", True),
+            ("MCCB-ABS-103c/README.md", "MCCB-ABS-103c", True),
+            ("faq/FAQ-MCCB-ABS-103c.md", "MCCB-ABS-103c", True),
+            ("MCCB-ABS-403c/DS-MCCB-ABS-403c.md", "MCCB-ABS-103c", False),
+            ("MCCB-ABS-103c-old/DS-X.md", "MCCB-ABS-103c", False),
+            ("policy/POL-RETURN.md", "MCCB-ABS-103c", False),
+            ("P-1/DS-P-1.md", "", False),
+        ]:
+            self.assertEqual(cs_evidence_build.is_product_document(name, code), expected, name)
 
     def test_test_split_exits_with_code_2(self):
         """test 분할 manifest는 종료 코드 2다.
