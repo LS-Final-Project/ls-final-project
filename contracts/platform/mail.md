@@ -300,7 +300,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 ## 남은 작업
 
 - 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
-- KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26·C12 마이그레이션, 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
+- KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26(`platform/20261030_KAN-110_mail_link_notify.sql`)·C13(`cs/20261030_KAN-110_customer_mail.sql`) 마이그레이션(C12 `KAN-194_checkpoint_schema`는 메일 연결과 무관), 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
 - `register-ticket`의 웹 중계와 화면(KAN-132)
 - 회신 검토 API의 웹 중계와 화면(KAN-132)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
