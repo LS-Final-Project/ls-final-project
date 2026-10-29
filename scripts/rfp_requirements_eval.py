@@ -6,12 +6,17 @@
 - 조항 트리를 만들고 평가 절마다 Gemini 구조화 출력을 한 번 부른다(자동 재시도 없음).
 - 화면에는 건수·비율·사용량만 낸다. 예측·놓친 정답·남는 예측은 --out 폴더의 JSON에 쓴다(원문 조각 포함).
 - 키는 .env.integrations의 GEMINI_API_KEY를 읽고 출력하지 않는다.
+- --adoption-out이 있으면 eval_adopt --task rfp 입력 형식으로 요구 추출 게이트 2개(재현율·정밀도)를 쓴다(KAN-143 4차).
+  값은 (clause_no, attribute) 키 일치 기준이며 비교 상태는 보지 않는다. report.json의 엄격·관대 점수와 정의가 다르다.
 """
 
 import argparse
 import json
+import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -24,12 +29,77 @@ from backend.engine.documents.router import extract  # noqa: E402
 from backend.engine.rfp.clauses import build_clause_tree  # noqa: E402
 from backend.engine.rfp.requirements import (  # noqa: E402
     EXTRACTION_VERSION,
+    ExtractedRequirement,
     ResponseSchema,
     build_inputs,
     extract_section,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score  # noqa: E402
 from backend.shared.ai import AISettings, create_client, generate  # noqa: E402
+from eval.rfp_metrics import summarize_extraction_keys  # noqa: E402
+
+# 채택 기록 meta에 남기는 측정 정의. 게이트 정의(summarize_requirement_extraction)와 다른 점을 함께 적는다.
+METRIC_DEFINITION = "(clause_no, attribute) 키 일치, 상태 미비교, 재현율 분모=필수 정답"
+VOCABULARY_NOTE = "정답 attribute 어휘 일치 미검증(개발 정답은 저장소 밖)"
+
+
+def adoption_input(
+    gold: Sequence[GoldRequirement],
+    predicted: Sequence[ExtractedRequirement],
+    *,
+    name: str,
+    model: str,
+    version: str,
+    started_at: str,
+    git_sha: str,
+) -> dict[str, object]:
+    """요구 추출 결과를 eval_adopt --task rfp 입력 형식으로 만든다. 원문·값은 넣지 않는다.
+
+    Args:
+        gold: 측정 문서의 정답 요구(clause_no·attribute와 재현율 분모용 mandatory만 쓴다).
+        predicted: 추출한 요구.
+        name: 후보 이름(--candidate-name).
+        model: 호출한 모델 ID.
+        version: 추출 판본(EXTRACTION_VERSION).
+        started_at: 실행 시작 시각(ISO 8601).
+        git_sha: 실행한 커밋.
+
+    Returns:
+        dict: {"meta": {...}, "result": {"candidates": [{"name", rfp_requirement_recall, rfp_requirement_precision}]}}.
+            나머지 게이트 7개는 이 스크립트가 측정하지 않아 넣지 않는다(채택 판정에서 NOT_EVALUABLE).
+    """
+    case = "document-1"
+    keys = {case: [(p.clause_no, p.attribute) for p in predicted]}
+    # 정밀도는 예측 전체를 정답 전체와 맞추고, 재현율은 게이트 정의대로 필수(mandatory) 정답만 분모로 둔다.
+    summary = summarize_extraction_keys({case: [(g.clause_no, g.attribute) for g in gold]}, keys)[
+        "extraction"
+    ]
+    mandatory = summarize_extraction_keys(
+        {case: [(g.clause_no, g.attribute) for g in gold if g.mandatory]}, keys
+    )["extraction"]
+    return {
+        "meta": {
+            "documents": 1,
+            "candidates": [{"name": name, "model": model, "extraction_version": version}],
+            "started_at": started_at,
+            "git_sha": git_sha,
+            "metric_definition": METRIC_DEFINITION,
+            "vocabulary_note": VOCABULARY_NOTE,
+            "counts": {
+                "recall": mandatory["recall_count"],
+                "precision": summary["precision_count"],
+            },
+        },
+        "result": {
+            "candidates": [
+                {
+                    "name": name,
+                    "rfp_requirement_recall": mandatory["recall"],
+                    "rfp_requirement_precision": summary["precision"],
+                }
+            ]
+        },
+    }
 
 
 def main() -> int:
@@ -39,9 +109,14 @@ def main() -> int:
     parser.add_argument("--sections", nargs="+", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
+    parser.add_argument("--adoption-out", type=Path, help="eval_adopt --task rfp 입력 파일(선택)")
+    parser.add_argument("--candidate-name", help="채택 기록 후보 이름(기본 requirements-<모델>)")
     args = parser.parse_args()
     if ROOT in args.out.resolve().parents or args.out.resolve() == ROOT:
         raise SystemExit("STOP: 결과에는 원문 조각이 들어가므로 저장소 밖 폴더에 쓴다")
+    if args.adoption_out and args.adoption_out.exists():
+        raise SystemExit("EVAL_OUTPUT_EXISTS: --adoption-out 파일이 이미 있다")
+    started_at = datetime.now(UTC).isoformat(timespec="seconds")
 
     values = {k: v or "" for k, v in dotenv_values(args.env_file).items()}
     settings = AISettings(
@@ -119,6 +194,21 @@ def main() -> int:
     )
     (args.out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
     print(f"자세한 결과: {args.out / 'report.json'}")
+    if args.adoption_out:
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        record = adoption_input(
+            all_gold,
+            all_pred,
+            name=args.candidate_name or f"requirements-{settings.gemini_model}",
+            model=settings.gemini_model,
+            version=EXTRACTION_VERSION,
+            started_at=started_at,
+            git_sha=sha,
+        )
+        args.adoption_out.write_text(json.dumps(record, ensure_ascii=False, indent=1) + "\n")
+        print(f"채택 기록 입력: {args.adoption_out}")
     return 0
 
 

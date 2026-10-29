@@ -8,7 +8,7 @@ P/R로 따로 본다. 합격 판정과 원문은 결과에 넣지 않는다.
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, get_args
 
@@ -387,6 +387,71 @@ def summarize_candidate_grades(
         "review_unconfirmed_listed": None,
         "excluded_recommended": {"count": len(risky), "denominator": excluded, "keys": risky},
     }
+
+
+def summarize_extraction_keys(
+    gold: Mapping[str, Sequence[Key]], predicted: Mapping[str, Sequence[Key]]
+) -> dict:
+    """상태 없이 (clause_no, attribute) 키만으로 요구 추출 P/R을 센다(KAN-143 4차).
+
+    요구 추출 측정(scripts/rfp_requirements_eval.py)은 비교 상태가 없어 summarize_requirement_extraction에 넣을 수
+    없다. 키 일치·중복 처리는 그 함수와 같다(정답 키 중복은 거부, 예측 키 중복은 첫 건만 매칭하고 나머지는 FP).
+
+    Args:
+        gold: 사례별 정답 키.
+        predicted: 사례별 예측 키. 정답에 없는 사례는 받지 않는다.
+
+    Returns:
+        dict: {"extraction": ...} summarize_requirement_extraction의 extraction 블록과 같은 필드. 잘못된 입력은
+            EVAL_INVALID_INPUT ValueError다.
+    """
+    if set(predicted) - set(gold):
+        raise ValueError("EVAL_INVALID_INPUT")
+    gold_total = predicted_total = matched = duplicates = 0
+    for case_id, keys in gold.items():
+        wanted = [_plain_key(key) for key in keys]
+        if len(set(wanted)) != len(wanted):
+            raise ValueError("EVAL_INVALID_INPUT")
+        gold_total += len(wanted)
+        found: set[Key] = set()
+        for key in (_plain_key(k) for k in predicted.get(case_id, [])):
+            predicted_total += 1
+            if key in found:
+                duplicates += 1
+            found.add(key)
+        matched += len(found & set(wanted))
+    return {
+        "extraction": {
+            "gold": gold_total,
+            "predicted": predicted_total,
+            "matched": matched,
+            "duplicate_predictions": duplicates,
+            "precision": _rate(matched, predicted_total),
+            "recall": _rate(matched, gold_total),
+            "f1": _rate(2 * matched, gold_total + predicted_total),
+            "precision_count": f"{matched}/{predicted_total}",
+            "recall_count": f"{matched}/{gold_total}",
+        }
+    }
+
+
+def _plain_key(value: object) -> Key:
+    """(clause_no, attribute) 튜플을 _key와 같은 규칙으로 검사한다.
+
+    Args:
+        value: 키 후보.
+
+    Returns:
+        Key: 그대로의 키. 형식이 틀리면 EVAL_INVALID_INPUT ValueError다.
+    """
+    if (
+        not isinstance(value, tuple)
+        or len(value) != 2
+        or not isinstance(value[0], str)
+        or not (value[1] is None or isinstance(value[1], str))
+    ):
+        raise ValueError("EVAL_INVALID_INPUT")
+    return value[0], value[1]
 
 
 def gate_values(
