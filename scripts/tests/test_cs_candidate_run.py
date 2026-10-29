@@ -462,6 +462,57 @@ class CandidateRunTests(unittest.TestCase):
         self.assertEqual((code, calls), (1, []))
         self.assertFalse((self.root.parent / "escape.labels.json").exists())
 
+    def test_symlinked_label_file_is_refused_before_any_call(self):
+        """라벨 파일 자리에 심볼릭 링크가 있으면 따라가지 않고 공급자 호출 전에 종료 코드 1로 멈춘다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 링크 대상이 바뀌지 않음과 공급자 미호출을 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        target = self.root / "shared.txt"
+        target.write_text("keep", encoding="utf-8")
+        (labels / "a.labels.json").symlink_to(target)
+        calls = []
+        code, _ = self.run_main(
+            "--execute",
+            "--out",
+            str(self.root / "r.json"),
+            "--labels-out",
+            str(labels),
+            factory=lambda spec, codes, settings: calls.append(spec) or (lambda p: None),
+        )
+        self.assertEqual((code, calls), (1, []))
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+    def test_failed_label_write_leaves_no_result_with_hashes(self):
+        """라벨을 먼저 쓰므로 라벨 쓰기가 실패하면 sha256을 담은 결과 JSON이 남지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드와 빈 결과 파일을 확인한다.
+        """
+        labels = self.root / "labels"
+        labels.mkdir()
+        original = cs_candidate_run.write_private
+
+        def failing(path, data):
+            if data:
+                raise OSError("disk full " + KEY)
+            original(path, data)
+
+        with patch.object(cs_candidate_run, "write_private", failing):
+            code, printed, out = self.labelled_run("--labels-out", str(labels))
+        self.assertEqual(code, 1)
+        self.assertIn("CS_RUN_OUTPUT_FAILED", printed)
+        self.assertEqual(out.read_text(encoding="utf-8"), "")
+        self.assertNotIn(KEY, printed)
+
     def test_label_file_feeds_the_draft_runner_directly(self):
         """분류 라벨 파일을 초안 실행기의 --classification으로 그대로 넣어 dry-run이 된다(왕복).
 

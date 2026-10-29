@@ -345,9 +345,10 @@ def write_private(path: Path, data: bytes) -> None:
         data: 내용.
 
     Returns:
-        None: 쓰지 못하면 OSError다.
+        None: 쓰지 못하거나 경로가 심볼릭 링크면 OSError다.
     """
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # 심볼릭 링크를 따라가지 않는다(비공개 라벨이 링크 대상 위치로 새거나 다른 파일을 덮어쓰지 않게).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     try:
         os.fchmod(fd, 0o600)
         os.write(fd, data)
@@ -548,9 +549,10 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
         return 1
     try:
-        args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 라벨을 먼저 쓰고 결과(라벨 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게 한다.
         for name, data in labels.items():
             write_private(label_path(args.labels_out, name), data)
+        args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         print(
             "CS_RUN_OUTPUT_FAILED: 실행은 끝났지만 결과 파일을 쓰지 못했습니다. --out 경로를 확인하세요."
