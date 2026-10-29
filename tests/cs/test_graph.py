@@ -495,7 +495,7 @@ def citing_draft(prompt):
 )
 def test_zero_evidence_draft_paths_reach_human_review(drafter, valid):
     """근거 0건이면 초안은 여전히 호출된다(설계상 정상 경로). UNCONFIRMED만 쓰면 VALID이고, 없는 근거를 인용하면
-    두 시도 모두 CS_INVALID_OUTPUT으로 남고 초안 없이 사람 확인으로 간다.
+    CS_UNKNOWN_REFERENCE(#266 초안 검증 코드, 결정적 위반이라 재호출 없음)로 남고 초안 없이 사람 확인으로 간다.
 
     Args:
         drafter: 초안 공급자.
@@ -517,7 +517,7 @@ def test_zero_evidence_draft_paths_reach_human_review(drafter, valid):
         assert state.values["draft"] is not None and codes == [] and len(drafts) == 1
     else:
         assert state.values["draft"] is None
-        assert codes == [("draft", "CS_INVALID_OUTPUT")] and len(drafts) == 2
+        assert codes == [("draft", "CS_UNKNOWN_REFERENCE")] and len(drafts) == 1
 
 
 @pytest.mark.parametrize(
