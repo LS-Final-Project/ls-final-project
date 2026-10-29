@@ -147,9 +147,9 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 
 ## 입력과 검증
 
-build_input() 한 곳에서 채널, 본문 언어, 제목, 본문만 분류 입력으로 만든다. 제목 없는 채팅은 본문으로 판정한다. 정답 category·secondary_category·urgency·provided_info와 사후 해결 기록, 별도 에러코드·펌웨어 칸을 입력에 섞지 않는다. PHONE 상담원 표기(`Urgency: <값>`)는 기본 입력(`cs-classification-input-v4`)에 그대로 포함하고, 원본을 보존한 채 표기를 지우는 처리는 분석용 `strip_phone_annotation=True`(`cs-classification-input-v3`)에서만 한다. 어느 쪽이든 처리 판본을 기록한다. 개인정보·시리얼 원값을 마스킹하되 정보 제공 여부를 판정할 수 있는 표시는 보존한다.
+build_input() 한 곳에서 채널, 본문 언어, 제목, 본문만 분류 입력으로 만든다. 제목 없는 채팅은 본문으로 판정한다. 정답 칸(category·secondary_category·urgency·provided_info)과 사후 해결 기록, 별도 에러코드·펌웨어 칸을 입력에 섞지 않는다. 예외는 문의 원문(전화 메모)의 일부인 PHONE 상담원 표기(`Urgency: <값>`)다. 실제 전화 메모에도 상담원이 적는 내용이라 기본 입력(`cs-classification-input-v4`)에 그대로 포함한다(2026-10-29 결정, KAN-105 #245). 합성 데이터에서는 이 표기가 정답과 같다는 점을 알고 둔 것이며, 평가는 전화와 나머지 채널을 나눠 보고한다([평가 명세](../../docs/evaluation.md)). 원본을 보존한 채 표기를 지우는 처리는 분석용 `strip_phone_annotation=True`(`cs-classification-input-v3`)에서만 한다. 어느 쪽이든 처리 판본을 기록한다. 개인정보·시리얼 원값을 마스킹하되 정보 제공 여부를 판정할 수 있는 표시는 보존한다.
 
-KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 반품, 잘못된 enum·키·타입, 정답 주입과 PHONE 주석, 시리얼 비노출 및 FLT-042 인용 차단 회귀가 포함된다. 원시 출력과 재시도·폴백 후 결과를 구분하며, 품질 계산과 분모는 [평가 명세](../../docs/evaluation.md)를 따른다. 이 계약의 확장이 입력 화이트리스트나 안전 정책을 확장하지 않는다.
+KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 반품, 잘못된 enum·키·타입, 정답 칸 주입 차단, PHONE 표기(기본 v4는 보존·제거 0건, `strip_phone_annotation=True`인 v3는 제거·미지원 표기 보류), 시리얼 비노출 및 FLT-042 인용 차단 회귀가 포함된다. 원시 출력과 재시도·폴백 후 결과를 구분하며, 품질 계산과 분모는 [평가 명세](../../docs/evaluation.md)를 따른다. 이 계약의 확장이 입력 화이트리스트나 안전 정책을 확장하지 않는다.
 
 수정 후 `python3 scripts/workspace.py contracts cs`를 실행한다.
 
