@@ -42,6 +42,8 @@ from backend.engine.search.model import ChunkingResult, ChunkMetadata
 SUFFIXES = (".md", ".docx", ".pdf")
 DOC_INDEX_COLUMNS = {"doc_id", "doc_type", "family", "revision", "path"}
 LOCAL_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1", "db"})
+# 운영자 Cloud SQL Proxy 관례 포트. 로컬 주소여도 공용 DB로 이어지므로 원격으로 본다.
+PROXY_PORTS = frozenset({"55434"})
 Store = Callable[[str, ChunkingResult, ChunkMetadata, str, datetime], int]
 
 
@@ -112,7 +114,7 @@ def is_local(dsn: str) -> bool:
     Returns:
         bool: 모든 호스트가 LOCAL_HOSTS이거나 유닉스 소켓(/로 시작)이고 hostaddr가 비었거나 루프백이면 True.
             DSN에 host·hostaddr가 없으면 libpq처럼 PGHOST·PGHOSTADDR를 본다. service(PGSERVICE)는 주소를 알 수
-            없어 False, 해석할 수 없어도 False다.
+            없어 False, 포트(없으면 PGPORT)가 PROXY_PORTS면 False, 해석할 수 없어도 False다.
     """
     try:
         params = conninfo_to_dict(dsn)
@@ -122,6 +124,9 @@ def is_local(dsn: str) -> bool:
         return False
     hosts = str(params.get("host") or os.environ.get("PGHOST") or "").split(",")
     addrs = str(params.get("hostaddr") or os.environ.get("PGHOSTADDR") or "").split(",")
+    ports = str(params.get("port") or os.environ.get("PGPORT") or "").split(",")
+    if any(port.strip() in PROXY_PORTS for port in ports):
+        return False
     return all(host in LOCAL_HOSTS or host.startswith("/") for host in hosts) and all(
         addr in ("", "127.0.0.1", "::1") for addr in addrs
     )

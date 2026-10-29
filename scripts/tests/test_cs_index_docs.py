@@ -108,6 +108,7 @@ class IndexDocsTest(unittest.TestCase):
             ("host=localhost hostaddr=10.0.0.5 dbname=x", False),
             ("host=localhost hostaddr=127.0.0.1 dbname=x", True),
             ("service=team4", False),
+            ("postgresql://u:p@127.0.0.1:55434/x", False),
         ]:
             self.assertEqual(cs_index_docs.is_local(dsn), local, dsn)
         for env, local in [
@@ -115,6 +116,7 @@ class IndexDocsTest(unittest.TestCase):
             ({"PGHOSTADDR": "10.0.0.5"}, False),
             ({"PGSERVICE": "team4"}, False),
             ({"PGHOST": "localhost"}, True),
+            ({"PGPORT": "55434"}, False),
         ]:
             with patch.dict(os.environ, env):
                 self.assertEqual(cs_index_docs.is_local("postgresql:///x"), local, env)
