@@ -10,12 +10,15 @@ from google.oauth2.credentials import Credentials
 from langgraph.checkpoint.memory import InMemorySaver
 
 from backend.agent.cs_runner import (
+    DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
     make_checkpointer,
     resume,
     run_ticket,
 )
+from backend.engine.cs.graph import thread_config
+from backend.engine.cs.providers import GenerationKnobs
 from backend.shared.ai import AISettings, create_client
 from backend.shared.settings import Settings
 from tests.cs.graph_fakes import FILTERS, SECRETS, TICKET, fts_searcher
@@ -204,6 +207,38 @@ def test_runner_retries_invalid_output_and_counts_it(
     assert [a["attempt_number"] for a in outcome.attempts if a["kind"] == "classification"] == (
         [1, 2] if retries else [1]
     )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "tokens", "evidence"),
+    [
+        ({}, 2048, 2),
+        ({"draft_knobs": GenerationKnobs(max_output_tokens=4096), "evidence_limit": 1}, 4096, 1),
+    ],
+    ids=["defaults", "override"],
+)
+def test_runner_draft_uses_measured_output_limit_and_evidence_count(
+    sdk_http, kwargs, tokens, evidence
+):
+    """초안 요청은 DRAFT_DEFAULTS 출력 상한(2048)을 보내고 분류 요청은 설정 기본을 쓰며, 근거 수 상한이 적용된다.
+
+    Args:
+        sdk_http: 가짜 HTTP 요청 목록.
+        kwargs: build_cs_runner에 더할 인자.
+        tokens: 초안 요청의 기대 maxOutputTokens.
+        evidence: 초안에 넘긴 기대 근거 수(가짜 검색기는 2건을 낸다).
+
+    Returns:
+        None: 요청 본문의 출력 상한·근거 수·시도 요약 finish_reasons를 확인한다.
+    """
+    assert DRAFT_DEFAULTS == {"max_output_tokens": 2048, "evidence_limit": 5}
+    graph = runner(InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), **kwargs)
+    outcome = run_ticket(graph, "thread-k", "t-1")
+    classify, draft = (json.loads(request.content)["generationConfig"] for request in sdk_http)
+    assert classify["maxOutputTokens"] == AISettings(gemini_api_key=KEY).gemini_max_output_tokens
+    assert draft["maxOutputTokens"] == tokens
+    assert len(graph.get_state(thread_config("thread-k")).values["evidence"]) == evidence
+    assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"]]
 
 
 def test_runner_refuses_tracing_unless_allowed(sdk_http, monkeypatch):

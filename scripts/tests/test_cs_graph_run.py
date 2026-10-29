@@ -130,6 +130,36 @@ class GraphRunTest(unittest.TestCase):
                 ]
             )
 
+    def test_evidence_limit_flag_reaches_the_graph_and_bad_values_exit_1(self) -> None:
+        """--evidence-limit은 기본 5, 지정하면 그 값으로 그래프에 넘기고 범위 밖 값은 1로 끝난다.
+
+        Returns:
+            None: 그래프 인자·근거 수·종료 코드를 확인한다.
+        """
+        seen = []
+        real = cs_graph_run.build_graph
+
+        def spy(**kwargs):
+            """인자를 기록하고 원래 함수를 부른다.
+
+            Args:
+                kwargs: build_graph 인자.
+
+            Returns:
+                CompiledStateGraph: 그래프.
+            """
+            seen.append(kwargs["evidence_limit"])
+            return real(**kwargs)
+
+        with patch.object(cs_graph_run, "build_graph", spy):
+            self.assertEqual(self.run_main("--thread-id", "t-e1")[0], 0)
+            self.assertEqual(self.run_main("--thread-id", "t-e2", "--evidence-limit", "1")[0], 0)
+        self.assertEqual(seen, [5, 1])
+        for bad in (("--evidence-limit", "0"), ("--draft-max-output-tokens", "0")):
+            code, _, err = self.run_main("--thread-id", "t-bad", *bad)
+            self.assertEqual(code, 1)
+            self.assertIn("CS_GRAPH_INVALID_ARGS", err)
+
     def test_resume_needs_database(self) -> None:
         """--resume은 DATABASE_URL이 없으면 안내와 함께 1로 끝난다.
 

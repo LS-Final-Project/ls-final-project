@@ -16,6 +16,7 @@
 
 - 분기는 `route_after_classify` 하나다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
 - 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
+- 초안 호출 설정(KAN-194 7차): `build_graph(evidence_limit=N)`은 검색 결과 중 앞 N건만 초안 근거로 넘긴다(None이면 전부, 검색 limit·제품 우선 보충은 그대로). 실행기 `build_cs_runner`의 기본은 `DRAFT_DEFAULTS`(초안 실측 PROPOSED 설정 2026-10-29: 출력 상한 2048, 근거 5건)이며 `draft_knobs`·`evidence_limit`으로 바꾼다.
 - 초안 오류 코드(KAN-194 6차): `drafting.validate_output`은 내용 규칙 위반을 `CS_INVALID_OUTPUT`으로 합치지 않고 그 코드를 그대로 올리며, `drafting_call`이 outcome `SCHEMA_VIOLATION`·`error_code=<코드>`로 남긴다. 그래서 결정적 위반(근거 ID 인용 오류 등)은 위 재호출 대상이 아니다.
 
   | `error_code` | 뜻 | 재호출 |
@@ -43,7 +44,7 @@
 | `record` | `build_input`으로 마스킹한 분류 입력(channel·body_language·subject·body)만. 분류 실패면 null |
 | `classification` | `ClassificationOutput` 5필드 |
 | `attempt_ids` | `record_attempt`가 돌려준 시도 ID(분류, 초안 순, 재호출 시도 포함) |
-| `attempts` | 시도 요약 `{kind, attempt_id, attempt_number, outcome, error_code, is_final}`. 원문·raw 없음. 이 키가 생기기 전 체크포인트에는 없을 수 있다 |
+| `attempts` | 시도 요약 `{kind, attempt_id, attempt_number, outcome, error_code, is_final, finish_reasons}`(finish_reasons는 KAN-194 7차, 출력 잘림 확인용). 원문·raw 없음. 이 키가 생기기 전 체크포인트에는 없을 수 있다 |
 | `rules` | `RuleDecision`을 JSON으로 바꾼 값 |
 | `evidence` | `EvidenceSnippet` 목록 |
 | `draft` | `DraftOutput` |
