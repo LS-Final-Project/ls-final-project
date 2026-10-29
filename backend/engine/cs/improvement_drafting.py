@@ -24,11 +24,16 @@ from backend.shared.departments import TRANSFER_DEPARTMENTS
 IMPROVEMENT_DRAFT_INPUT_VERSION = "cs-improvement-draft-input-v1"
 RootCauseType = Literal["SITE_CONDITION", "HARDWARE", "SETTING", "WEAR_PART", "FIRMWARE"]
 NonBlank = Annotated[str, Field(pattern=r"\S")]
+# 요청서 Content의 Text 최대 길이와 제안 부서 최대 수(backend/api/cs/improvements/schemas.py와 같은 값,
+# tests/cs/test_improvement_drafting.py가 일치를 고정한다). 엔진은 API 계층을 import하지 않는다.
+TEXT_MAX_LENGTH = 10_000
+MAX_PROPOSED_DEPTS = 12
 
 
 class EvidenceTicket(_Strict):
     """근거 문의 하나. summary는 어댑터가 만든 마스킹 전 요약이다."""
 
+    # 참조는 evidence_refs 대조 키라 가리지 않는다. 외부 ID나 UUID 같은 식별자만 넣는다.
     ticket_ref: NonBlank
     received_at: AwareDatetime
     product_code: NonBlank
@@ -171,8 +176,8 @@ def build_improvement_draft_input(
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
 
     Returns:
-        PreparedImprovementDraftInput: 정제 입력. 문의 요약·사례 원인·조치·조건 요약을 build_input
-            (channel=EMAIL, subject=None)으로 가리므로 removed_annotations는 항상 0이다. 규칙 위반은
+        PreparedImprovementDraftInput: 정제 입력. 참조·제품·고장 코드 외의 문자열 칸(요약·판본·오류 코드·
+            원인·조치·처리 부서·조건 요약)을 build_input(channel=EMAIL, subject=None)으로 가리므로 removed_annotations는 항상 0이다. 규칙 위반은
             CS_INVALID_INPUT ValueError다.
     """
     if not isinstance(context, ImprovementDraftContext) or _invalid_context(context):
@@ -190,30 +195,48 @@ def build_improvement_draft_input(
         record = {"channel": "EMAIL", "body_language": "und", "subject": None, "body": text}
         return build_input(record, sensitive_values=sensitive_values).payload.body
 
-    summary = context.condition.summary
+    def optional(text: str | None) -> str | None:
+        """비어 있지 않은 선택 칸만 가린다.
+
+        Args:
+            text: 선택 자유 서술.
+
+        Returns:
+            str | None: 가린 텍스트, 비었으면 원래 값.
+        """
+        return mask(text) if text and text.strip() else text
+
     payload = ImprovementDraftInput(
         request_type=context.request_type,
         product_code=context.product_code,
         fault_id=context.fault_id,
         doc_signal=context.doc_signal,
         condition_status=context.condition.condition_status,
-        condition_summary=mask(summary) if summary and summary.strip() else summary,
+        condition_summary=optional(context.condition.summary),
         candidate_depts=list(context.candidate_depts),
         as_of=context.as_of.isoformat(),
         tickets=[
             DraftTicket(
-                **t.model_dump(exclude={"received_at", "summary"}),
+                ticket_ref=t.ticket_ref,
+                product_code=t.product_code,
                 received_at=t.received_at.isoformat(),
+                fw_version_reported=optional(t.fw_version_reported),
+                error_code_reported=optional(t.error_code_reported),
                 summary=mask(t.summary),
             )
             for t in context.tickets
         ],
         cases=[
             DraftCase(
-                **c.model_dump(exclude={"known_at", "root_cause", "action_taken"}),
+                case_ref=c.case_ref,
+                fault_id=c.fault_id,
+                root_cause_type=c.root_cause_type,
                 known_at=c.known_at.isoformat(),
+                fw_version_at_issue=optional(c.fw_version_at_issue),
                 root_cause=mask(c.root_cause),
                 action_taken=mask(c.action_taken),
+                fw_fixed_version=optional(c.fw_fixed_version),
+                resolved_by_dept=mask(c.resolved_by_dept),
             )
             for c in context.cases
         ],
@@ -317,7 +340,8 @@ def validate_output(raw: str, *, context: ImprovementDraftContext) -> Improvemen
         context: 입력에 쓴 맥락.
 
     Returns:
-        ImprovementDraft: 유효한 초안. 형식·참조·부서·유형별 필수 위반은 CS_INVALID_OUTPUT, 형식은 맞지만
+        ImprovementDraft: 유효한 초안. 형식·참조·부서·유형별 필수 위반과 요청서 Content 상한(이어 붙인
+            텍스트 칸 TEXT_MAX_LENGTH자, 제안 부서 MAX_PROPOSED_DEPTS개) 초과는 CS_INVALID_OUTPUT, 형식은 맞지만
             어느 텍스트에든 승인·확정 약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
             원인 단정은 검사하지 않는다.
     """
@@ -332,6 +356,11 @@ def validate_output(raw: str, *, context: ImprovementDraftContext) -> Improvemen
             )
             or not set(draft.proposed_depts) <= set(context.candidate_depts)
             or (fault and (not draft.proposed_depts or not draft.not_claimed))
+            or len(draft.proposed_depts) > MAX_PROPOSED_DEPTS
+            or any(
+                isinstance(value, str) and len(value) > TEXT_MAX_LENGTH
+                for value in to_content_fields(draft)["content"].values()
+            )
         ):
             raise ValueError("CS_CONTEXT_MISMATCH")
     except (ValueError, RecursionError):

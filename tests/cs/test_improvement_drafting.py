@@ -2,12 +2,16 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 
 import pytest
+from annotated_types import MaxLen
 
 from backend.api.cs.improvements import schemas
 from backend.engine.cs.improvement_drafting import (
     IMPROVEMENT_DRAFT_INPUT_VERSION,
+    MAX_PROPOSED_DEPTS,
+    TEXT_MAX_LENGTH,
     ConditionSummary,
     EvidenceCase,
     EvidenceTicket,
@@ -17,6 +21,7 @@ from backend.engine.cs.improvement_drafting import (
     to_content_fields,
     validate_output,
 )
+from backend.shared.departments import TRANSFER_DEPARTMENTS
 
 AS_OF = datetime(2026, 10, 29, 9, 0, tzinfo=UTC)
 TICKET = EvidenceTicket(
@@ -269,6 +274,53 @@ def test_forbidden_commitment_in_any_text_is_rejected(raw):
     """
     with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
         check(raw)
+
+
+def test_identifier_free_text_fields_are_masked_too():
+    """판본·오류 코드·처리 부서 칸에 섞인 민감값도 가린다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 프롬프트에 원값이 없음을 확인한다.
+    """
+    leaky_ticket = TICKET.model_copy(
+        update={"fw_version_reported": "2.0 serial: ZX-FW", "error_code_reported": "E1 김고객"}
+    )
+    leaky_case = CASE.model_copy(
+        update={
+            "fw_version_at_issue": "a@example.test",
+            "fw_fixed_version": "S/N: ZX-FIX",
+            "resolved_by_dept": "TS_LV 김고객",
+        }
+    )
+    context = FAULT.model_copy(update={"tickets": [leaky_ticket], "cases": [leaky_case]})
+    prompt = render_prompt(
+        build_improvement_draft_input(context, sensitive_values=SENSITIVE).payload
+    )
+    for secret in ("ZX-FW", "ZX-FIX", "a@example.test", "김고객"):
+        assert secret not in prompt
+
+
+def test_output_limits_match_request_schema():
+    """상한 상수가 요청서 스키마 제약과 같고, 넘는 출력은 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 값 일치와 이어 붙인 길이·부서 수 초과 거부를 확인한다.
+    """
+    [text_limit] = [m for m in get_args(schemas.Text)[1].metadata if isinstance(m, MaxLen)]
+    [dept_limit] = schemas.Content.model_fields["proposed_depts"].metadata
+    assert (text_limit.max_length, dept_limit.max_length) == (TEXT_MAX_LENGTH, MAX_PROPOSED_DEPTS)
+    half = "a" * (TEXT_MAX_LENGTH // 2)
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(draft(missing_info=[half, half]))  # 줄바꿈 1자가 더해져 상한을 넘는다
+    assert check(draft(missing_info=[half[1:], half]))
+    # 부서 코드가 12개뿐이고 후보·제안 중복을 막으므로 부서 수 상한은 지금 넘을 수 없다.
+    assert len(TRANSFER_DEPARTMENTS) <= MAX_PROPOSED_DEPTS
 
 
 def test_content_fields_round_trip_into_request_schema():
