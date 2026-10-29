@@ -265,3 +265,48 @@ def test_non_numeric_metric_value_is_invalid_input(value):
     data["result"]["candidates"][0]["hit_at_k"]["5"] = value
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         record([json.dumps(data).encode()], task="embedding", adopt="e")
+
+
+def test_adopted_record_needs_a_waiver_for_each_blocker_fail():
+    """ADOPTED인데 blocker FAIL이 남으면 게이트별 예외 승인이 있어야 하고, 메모에 예외 표가 나온다."""
+    from dataclasses import replace
+
+    from eval.adoption import blocker_waiver_errors
+
+    proposed = record([classification_run("2026-10-29T00:00:00+00:00", violations=2)])
+    assert blocker_waiver_errors(proposed) == []
+    with pytest.raises(ValueError, match="ADOPTION_BLOCKER_FAIL_WITHOUT_WAIVER"):
+        replace(proposed, status="ADOPTED")
+    with pytest.raises(ValueError, match="ADOPTION_WAIVER_FIELDS"):
+        replace(proposed, waivers=[{"metric_key": "schema_violation_rate"}])
+    with pytest.raises(ValueError, match="ADOPTION_WAIVER_NOT_BLOCKER_FAIL"):
+        replace(
+            proposed,
+            waivers=[
+                {
+                    "metric_key": "category_macro_f1",
+                    "value": 1.0,
+                    "reason": "x",
+                    "decided_by": "y",
+                    "decided_on": "2026-10-29",
+                }
+            ],
+        )
+    waiver = {
+        "metric_key": "schema_violation_rate",
+        "value": 0.2,
+        "reason": "합성 정답 불일치 2건, 사람이 확인",
+        "decided_by": "결정자",
+        "decided_on": "2026-10-29",
+    }
+    waived = replace(proposed, status="ADOPTED", waivers=[waiver])
+    assert blocker_waiver_errors(waived) == []
+    note = render_decision_note(waived)
+    assert "blocker FAIL 1건은 사람이 예외로 승인해 채택했다" in note
+    assert "예외로 승인해" not in render_decision_note(replace(proposed, waivers=[waiver]))
+    assert (
+        "| schema_violation_rate | 0.2 | 합성 정답 불일치 2건, 사람이 확인 | 결정자 | 2026-10-29 |"
+        in note
+    )
+    assert "예외 승인 없음." in render_decision_note(proposed)
+    assert json.loads(waived.to_json())["waivers"] == [waiver]
