@@ -184,24 +184,49 @@ def candidate(chunk_id: str, position: int, **fields: str | None) -> Candidate:
     )
 
 
-def test_flt_042_variants_are_dropped_and_entity_forms_are_recorded() -> None:
-    """search.hybrid 인용 차단 경계: 표제·소문자 태그·괄호 변형은 빼고, 엔티티·다른 대시는 문자열 차단 밖이다.
+def blocked(candidates: list[Candidate]) -> list[str]:
+    """기본 차단 코드(FLT-042)로 결합하고 빠진 chunk_id를 돌려준다.
 
-    'FLT&#45;042'·'FLT–042'·'FLT 042'는 지금 차단되지 않는다. 문자열 차단의 한계로 기록만 하며, 원천·
-    프롬프트·인용 경계의 ID 기반 차단(docs/evaluation.md)이 따로 맡는다.
+    Args:
+        candidates: FTS 후보.
+
+    Returns:
+        list[str]: dropped_blocked.
     """
-    candidates = [
-        candidate("title", 1, table_title="Flt-042 sensitivity table"),
-        candidate("tagged", 2, snippet="see <b>flt</b>-<b>042</b> advice"),
-        candidate("paren", 3, text_excerpt="Recommended (FLT-042)."),
-        candidate("entity", 4, snippet="FLT&#45;042 advice"),
-        candidate("dash", 5, text_excerpt="FLT–042 advice"),
-        candidate("space", 6, text_excerpt="FLT 042 advice"),
-    ]
     result = run_hybrid(
         "leakage",
         SearchFilters(document_sha256s=None, index_version="chunking-v1", limit=10),
         fts=lambda query, filters: candidates,
     )
-    assert result.dropped_blocked == ["title", "tagged", "paren"]
-    assert [item.candidate.chunk_id for item in result.items] == ["entity", "dash", "space"]
+    assert not {item.candidate.chunk_id for item in result.items} & set(result.dropped_blocked)
+    return result.dropped_blocked
+
+
+def test_flt_042_title_tag_and_parenthesis_variants_are_dropped() -> None:
+    """search.hybrid 인용 차단 경계: 표제의 혼합 대소문자, 소문자 강조 태그, 괄호 안 FLT-042를 뺀다."""
+    candidates = [
+        candidate("title", 1, table_title="Flt-042 sensitivity table"),
+        candidate("tagged", 2, snippet="see <b>flt</b>-<b>042</b> advice"),
+        candidate("paren", 3, text_excerpt="Recommended (FLT-042)."),
+        candidate("clean", 4, text_excerpt="Leakage sensitivity guidance"),
+    ]
+    assert blocked(candidates) == ["title", "tagged", "paren"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="KAN-151: 문자열 차단이 HTML 엔티티·다른 대시·공백 표기의 FLT-042를 막지 못한다.",
+)
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"snippet": "FLT&#45;042 advice"},
+        {"text_excerpt": "FLT–042 advice"},
+        {"text_excerpt": "FLT 042 advice"},
+    ],
+    ids=["entity", "en-dash", "space"],
+)
+def test_flt_042_spelling_variants_should_be_dropped(fields: dict[str, str]) -> None:
+    """search.hybrid 인용 차단 경계: 표기만 다른 FLT-042도 빠져야 한다. 지금은 빈틈이라 xfail로 기록한다."""
+    assert blocked([candidate("variant", 1, **fields)]) == ["variant"]
