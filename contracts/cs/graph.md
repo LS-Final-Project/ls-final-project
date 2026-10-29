@@ -65,7 +65,7 @@
 | `fts_searcher`, `vector_searcher`(선택) | `Searcher` |
 | `search_filters` | 두 검색기에 똑같이 넘기는 `SearchFilters` |
 | `allowed_info_codes` | 검수된 정보 코드 집합 |
-| `load_ticket(ticket_id) -> TicketInputs` | 원문 레코드·민감값·제품 코드·고객 등급·접수 시각·필요/이미 요청한 정보 코드. 노드 안에서만 부른다 |
+| `load_ticket(ticket_id) -> TicketInputs` | 원문 레코드·민감값·제품 코드·고객 등급·접수 시각·필요/이미 요청한 정보 코드. 선택 `required_info_by_category`(제품 계열의 유형별 필요 코드)가 있으면 `draft`는 분류 결과 `category_code`의 행을 쓴다(없는 유형은 빈 집합, 정답 유형 불필요). 노드 안에서만 부른다 |
 | `record_attempt(kind, ticket_id, attempt) -> id` | 분류·초안 시도를 상태 밖에 저장 |
 | `checkpointer` | 검사는 `InMemorySaver`, 운영은 `checkpoint_cs`의 `PostgresSaver` |
 
