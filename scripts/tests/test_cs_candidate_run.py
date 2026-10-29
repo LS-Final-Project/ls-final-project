@@ -693,22 +693,24 @@ class CandidateRunTests(unittest.TestCase):
         Returns:
             None: 링크 대상이 바뀌지 않음과 공급자 미호출을 확인한다.
         """
-        labels = self.root / "labels"
-        labels.mkdir()
         target = self.root / "shared.txt"
-        target.write_text("keep", encoding="utf-8")
-        (labels / "a.labels.json").symlink_to(target)
-        calls = []
-        code, _ = self.run_main(
-            "--execute",
-            "--out",
-            str(self.root / "r.json"),
-            "--labels-out",
-            str(labels),
-            factory=lambda spec, codes, settings: calls.append(spec) or (lambda p: None),
-        )
-        self.assertEqual((code, calls), (1, []))
-        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+        for name in ("a.labels.json", "a.final-labels.json"):
+            with self.subTest(name):
+                labels = self.root / name.replace(".json", "")
+                labels.mkdir()
+                target.write_text("keep", encoding="utf-8")
+                (labels / name).symlink_to(target)
+                calls = []
+                code, _ = self.run_main(
+                    "--execute",
+                    "--out",
+                    str(self.root / "r.json"),
+                    "--labels-out",
+                    str(labels),
+                    factory=lambda spec, codes, settings: calls.append(spec) or (lambda p: None),
+                )
+                self.assertEqual((code, calls), (1, []))
+                self.assertEqual(target.read_text(encoding="utf-8"), "keep")
 
     def test_failed_label_write_leaves_no_result_with_hashes(self):
         """라벨을 먼저 쓰므로 라벨 쓰기가 실패하면 sha256을 담은 결과 JSON이 남지 않는다.
@@ -762,6 +764,69 @@ class CandidateRunTests(unittest.TestCase):
         report = json.loads(printed.getvalue().splitlines()[-1])
         self.assertEqual((report["cases"], report["held_classification"]), (2, 2))
         self.assertEqual(report["no_evidence"], 2)
+
+    def test_final_labels_use_the_retry_prediction_and_feed_the_draft_runner(self):
+        """--labels-out은 최초 라벨과 함께 최종 라벨(시도 2로 회복한 사례는 그 예측)을 쓰고 meta에 hash를 남기며,
+        초안 실행기는 최종 라벨도 같은 형식으로 받는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 두 라벨의 차이·meta·초안 dry-run 보류 수를 확인한다.
+        """
+        seen = set()
+
+        def factory(spec, codes, settings):
+            def provider(payload):
+                first = (spec["name"], payload.body) not in seen
+                seen.add((spec["name"], payload.body))
+                broken = spec["name"] == "b" and "breaker 0" in payload.body and first
+                return Generation("not json" if broken else ANSWER, Usage(), None, [])
+
+            return provider
+
+        labels = self.root / "labels"
+        labels.mkdir()
+        out = self.root / "result.json"
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--labels-out", str(labels), factory=factory
+        )
+        self.assertEqual(code, 0, printed)
+        files = {
+            (name, kind): (labels / f"{name}.{kind}.json").read_bytes()
+            for name in ("a", "b")
+            for kind in ("labels", "final-labels")
+        }
+        for path in labels.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        first, final = json.loads(files["b", "labels"]), json.loads(files["b", "final-labels"])
+        self.assertIsNone(first["SYN-0"])
+        self.assertEqual(final["SYN-0"], json.loads(ANSWER))
+        self.assertEqual({k: v for k, v in final.items() if k != "SYN-0"},
+                         {k: v for k, v in first.items() if k != "SYN-0"})  # fmt: skip
+        self.assertEqual(files["a", "labels"], files["a", "final-labels"])
+        meta = json.loads(out.read_text(encoding="utf-8"))["meta"]
+        for key, kind in (("label_files", "labels"), ("final_label_files", "final-labels")):
+            self.assertEqual(
+                meta[key],
+                {name: hashlib.sha256(files[name, kind]).hexdigest() for name in ("a", "b")},
+            )
+        r = self.root
+        argv = [
+            "--manifest", str(r / "manifest.json"),
+            "--product-column", "product_code",
+            "--classification", str(labels / "b.final-labels.json"),
+            "--allowed-info-codes", str(r / "codes.csv"),
+            "--info-code-column", "code",
+            "--candidates", str(r / "candidates.json"),
+        ]  # fmt: skip
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(cs_draft_run.main(argv), 0)
+        report = json.loads(printed.getvalue().splitlines()[-1])
+        # 최초 라벨로는 SYN-0이 보류였지만 최종 라벨에서는 분류가 있어 보류가 하나 줄어든다.
+        self.assertEqual(report["held_classification"], 1)
 
 
 if __name__ == "__main__":

@@ -427,6 +427,144 @@ class ImportRunTests(unittest.TestCase):
         (self.root / "audit.json").write_text(json.dumps(good, sort_keys=True))
         self.assertEqual(self.run_main("--audit", str(self.root / "audit.json"))[0], 1)
 
+    def write_retry(self, entries, final_labels, *, flag=1, final=None):
+        """재시도 감사·최종 라벨을 쓰고 결과 meta·final 블록을 맞춘다.
+
+        Args:
+            entries: {ticket_id: 시도 2 감사 항목}.
+            final_labels: {ticket_id: 최종 예측 | None}.
+            flag: meta.invalid_output_retries.
+            final: 결과 행 final 블록(없으면 retried·outcomes를 값에서 계산하지 않고 그대로 둔다).
+
+        Returns:
+            None: retry.json·final.json·run.json을 쓴다.
+        """
+        retry = json.dumps(entries, sort_keys=True).encode()
+        labels = json.dumps(final_labels, sort_keys=True).encode()
+        (self.root / "retry.json").write_bytes(retry)
+        (self.root / "final.json").write_bytes(labels)
+        run = json.loads((self.root / "run.json").read_text())
+        run["meta"] |= {
+            "invalid_output_retries": flag,
+            "retry_audit_files": {"a": hashlib.sha256(retry).hexdigest()},
+            "final_label_files": {"a": hashlib.sha256(labels).hexdigest()},
+        }
+        run["result"]["candidates"][0]["final"] = final
+        (self.root / "run.json").write_text(json.dumps(run))
+
+    def retry_scenario(self):
+        """T1 VALID, T2 형식 위반 → 시도 2 VALID, T3 TIMEOUT(재시도 안 함)인 결과를 쓴다.
+
+        Returns:
+            tuple: (감사 항목, 재시도 항목, 최종 라벨, final 블록).
+        """
+        labels = {"T1": PREDICTION, "T2": None, "T3": None}
+        self.write_run(labels, {"SCHEMA_VIOLATION": 1, "TIMEOUT": 1})
+        audit = {
+            "T1": audit_entry("VALID"),
+            "T2": audit_entry("SCHEMA_VIOLATION"),
+            "T3": audit_entry("TIMEOUT", error_code="CS_PROVIDER_TIMEOUT"),
+        }
+        self.write_audit(audit)
+        retry = {"T2": audit_entry("VALID", error_code=None, usage=audit["T2"]["usage"])}
+        final_labels = labels | {"T2": PREDICTION}
+        final = {"retried": 1, "outcomes": {"VALID": 2, "TIMEOUT": 1, "SCHEMA_VIOLATION": 0}}
+        return audit, retry, final_labels, final
+
+    def retry_args(self):
+        """재시도 반입 인자.
+
+        Returns:
+            tuple[str, ...]: --audit·--retry-audit·--final-labels.
+        """
+        return (
+            "--audit", str(self.root / "audit.json"),
+            "--retry-audit", str(self.root / "retry.json"),
+            "--final-labels", str(self.root / "final.json"),
+        )  # fmt: skip
+
+    def test_retry_audit_adds_attempt_two_from_final_labels(self):
+        """재시도 감사와 최종 라벨이 맞으면 시도 2를 계획에 넣고, 요약은 최종 기준 건수와 시도 수를 낸다.
+
+        Returns:
+            None: 계획의 시도 2와 요약을 확인한다.
+        """
+        _, retry, final_labels, final = self.retry_scenario()
+        self.write_retry(retry, final_labels, final=final)
+        code, printed = self.run_main(*self.retry_args())
+        self.assertEqual(code, 0, printed)
+        summary = json.loads(printed)
+        self.assertEqual((summary["cases"], summary["attempts"], summary["retried"]), (3, 4, 1))
+        self.assertEqual(
+            summary["outcomes"], {"VALID": 2, "INVALID_OUTPUT": 0, "FAILED": 1, "HELD": 0}
+        )
+        plan = eval_import_run.build_plan(
+            (self.root / "run.json").read_bytes(),
+            (self.root / "labels.json").read_bytes(),
+            self.root / "m.json",
+            candidate="a",
+            data_split="valid",
+            audit_bytes=(self.root / "audit.json").read_bytes(),
+            retry_audit_bytes=(self.root / "retry.json").read_bytes(),
+            final_labels_bytes=(self.root / "final.json").read_bytes(),
+        )
+        self.assertEqual(list(plan.retries), ["T2"])
+        self.assertEqual(plan.retries["T2"][:2], ("VALID", PREDICTION))
+        self.assertEqual(plan.attempts["T2"], ("SCHEMA_VIOLATION", None))
+
+    def test_inconsistent_retry_inputs_are_rejected(self):
+        """재시도 감사·최종 라벨 조합, hash, 재시도 사례 집합, 최종 라벨·outcome·입력 hash, final 블록이
+        어긋나면 종료 코드 1이다.
+
+        Returns:
+            None: 경우별 종료 코드를 확인한다.
+        """
+        audit, retry, final_labels, final = self.retry_scenario()
+        other = audit_entry("VALID", error_code=None, input_sha256="b" * 64)
+        cases = {
+            "재시도 사례 없음": ({}, final_labels, {}),
+            "재시도 끔인데 시도 2": (retry, final_labels, {"flag": 0}),
+            "재시도 밖 라벨 변경": (retry, final_labels | {"T3": PREDICTION}, {}),
+            "VALID인데 최종 라벨 없음": (retry, final_labels | {"T2": None}, {}),
+            "입력 hash 다름": ({"T2": other}, final_labels, {}),
+            "final 집계 불일치": (retry, final_labels, {"final": final | {"retried": 2}}),
+        }
+        for name, (entries, labels, options) in cases.items():
+            with self.subTest(name):
+                self.write_retry(entries, labels, **({"final": final} | options))
+                code, printed = self.run_main(*self.retry_args())
+                self.assertEqual(code, 1, printed)
+        self.write_retry(retry, final_labels, final=final)
+        for extra in (
+            ("--retry-audit", str(self.root / "retry.json")),
+            ("--audit", str(self.root / "audit.json"), "--retry-audit", str(self.root / "retry.json")),
+            ("--retry-audit", str(self.root / "retry.json"), "--final-labels", str(self.root / "final.json")),
+        ):  # fmt: skip
+            with self.subTest(extra=extra):
+                self.assertEqual(self.run_main(*extra)[0], 1)
+        for key in ("final_label_files", "retry_audit_files"):
+            with self.subTest(key):
+                self.write_retry(retry, final_labels, final=final)
+                run = json.loads((self.root / "run.json").read_text())
+                run["meta"][key] = {"a": "0" * 64}
+                (self.root / "run.json").write_text(json.dumps(run))
+                self.assertEqual(self.run_main(*self.retry_args())[0], 1)
+        # 최초 감사 없이 재시도 감사만 주면 추론 규칙과 상관없이 거부한다.
+        self.write_retry(retry, final_labels, final=final)
+        run = json.loads((self.root / "run.json").read_text())
+        with self.assertRaisesRegex(ValueError, "^EVAL_IMPORT_INVALID$"):
+            eval_import_run._retries(
+                run["meta"],
+                run["result"]["candidates"][0],
+                run["meta"]["candidates"][0],
+                json.loads((self.root / "labels.json").read_text()),
+                None,
+                INPUT_VERSION_STRIPPED,
+                "a",
+                (self.root / "retry.json").read_bytes(),
+                (self.root / "final.json").read_bytes(),
+            )
+
     def test_test_split_exits_with_code_2(self):
         """test 분할을 선언한 manifest는 종료 코드 2다.
 
