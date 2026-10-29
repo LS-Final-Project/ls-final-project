@@ -92,7 +92,7 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 | C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
 | C/S 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/12lSqCl6DiYLkstFWcZno5MqNKv_kJ2AC/view), [PDF](https://drive.google.com/file/d/1iBKkSpim-3UhYEWvz1dt2X2x62ecN3O_/view) |
-| RFP 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view) |
+| RFP 최신 기획서 | [자사 대응·협력사 보완 기획서 최종본 PDF](https://drive.google.com/file/d/1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ/view) (2026-10-28 범위 변경 반영, 2026-10-29 업로드), [RFP API 명세 v1.2](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit). 이전 TFT 인력 구성 기획서([DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view))는 2026-10-28에 폐기된 범위의 역사 기준선이며 개발 기준이 아니다 |
 | 스토리보드 | [Google Docs](https://docs.google.com/document/d/1fprJf4b1P0dqKcv7KbFFSxnX2xn_cZM0/edit) |
 
 `data/`는 **읽기 전용**. 수정·생성·삭제 금지.
