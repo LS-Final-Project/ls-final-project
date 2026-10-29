@@ -7,6 +7,7 @@ import pytest
 
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import EvidenceSnippet
+from backend.engine.cs.drafting_call import DraftAttempt
 from backend.shared.ai import Generation, Usage
 from eval.cs_draft_candidates import (
     SUBSET_NOTE,
@@ -478,3 +479,26 @@ def test_candidate_knobs_are_recorded_on_the_row():
     )
     rows = {row["name"]: row for row in result["candidates"]}
     assert rows["tuned"]["knobs"] == knobs and rows["plain"]["knobs"] == {}
+
+
+def test_return_attempts_adds_selected_attempts_only_when_asked():
+    """return_attempts=True면 후보별 실행 사례의 시도를 더하고, 기본은 기존 형식 그대로다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: attempts 유무·사례 범위·나머지 결과 동일을 확인한다.
+    """
+    plain = run(subset=frozenset({"k2", "k4"}))
+    with_attempts = run(subset=frozenset({"k2", "k4"}), return_attempts=True)
+    assert "attempts" not in plain
+    attempts = with_attempts.pop("attempts")
+    # 지연 시간은 실행마다 달라 비교에서 뺀다.
+    for result in (plain, with_attempts):
+        for row in result["candidates"]:
+            row.pop("latency_ms")
+    assert with_attempts == plain
+    assert set(attempts) == {candidate.name for candidate in CANDIDATES}
+    assert all(set(runs) == {"k2", "k4"} for runs in attempts.values())
+    assert all(isinstance(a, DraftAttempt) for runs in attempts.values() for a in runs.values())

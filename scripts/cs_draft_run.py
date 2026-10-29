@@ -39,14 +39,17 @@ from eval.cs_draft_candidates import DraftCandidate, DraftCase, run_draft_candid
 from eval.cs_draft_metrics import DraftGold
 from scripts.cs_candidate_run import (
     SplitBlocked,
+    audit_entry,
     estimate,
     git_sha,
     knob_fields,
     knobs_of,
+    label_path,
     load_codes,
     load_specs,
     load_targets,
     prepare_output,
+    write_private,
 )
 from tests.cs.cs_dev_data import load_dev_tickets
 
@@ -223,7 +226,8 @@ def execute(
     factory: TextFactory,
     subset: frozenset[str] | None,
     strip_phone_annotation: bool = False,
-) -> dict[str, object]:
+    audit: bool = False,
+) -> tuple[dict[str, object], dict[str, bytes]]:
     """하네스로 실제 비교를 돌리고 실행 메타를 붙인다.
 
     Args:
@@ -236,9 +240,12 @@ def execute(
         factory: 후보별 공급자를 만드는 함수(테스트는 fake로 교체).
         subset: 재실행할 사례 ID(없으면 전체).
         strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
+        audit: True면 후보별 사례 감사 파일 내용을 만든다.
 
     Returns:
-        dict: run_draft_candidates 결과와 meta(후보·판본 지문·건수·기대값 규칙·표본 ID sha256·시각·git sha).
+        tuple: (결과, 감사). 결과는 run_draft_candidates 결과와 meta(후보·판본 지문·건수·기대값 규칙·표본 ID
+            sha256·시각·git sha, 감사를 만들면 그 파일 sha256)다. 감사는 후보 이름 → 파일 바이트이고 내용은
+            {case_id: audit_entry}(실행한 사례만, 키 정렬)이며 초안·근거·요청 코드·원시 응답이 없다.
     """
     started = datetime.now(UTC)
     candidates = [
@@ -258,8 +265,18 @@ def execute(
         price_table=dict(prices),
         subset=subset,
         strip_phone_annotation=strip_phone_annotation,
+        return_attempts=audit,
     )
-    return {
+    audits = {
+        name: json.dumps(
+            {case_id: audit_entry(attempt) for case_id, attempt in runs.items()},
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+        for name, runs in result.pop("attempts", {}).items()
+    }
+    output: dict[str, object] = {
         "meta": {
             "candidates": [
                 {**spec, "prompt_fingerprint": prompt_fingerprint("draft", spec["prompt_version"])}
@@ -276,9 +293,19 @@ def execute(
             "started_at": started.isoformat(),
             "finished_at": datetime.now(UTC).isoformat(),
             "git_sha": git_sha(),
+            **(
+                {
+                    "audit_files": {
+                        name: hashlib.sha256(data).hexdigest() for name, data in audits.items()
+                    }
+                }
+                if audit
+                else {}
+            ),
         },
         "result": result,
     }
+    return output, audits
 
 
 def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> int:
@@ -306,13 +333,25 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--out", type=Path)
     parser.add_argument(
+        "--audit-out",
+        type=Path,
+        help="후보별 사례 감사(<name>.audit.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
+    )
+    parser.add_argument(
         "--strip-phone-annotation",
         action="store_true",
         help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v1 초안 입력으로 돌린다(기본은 표기 포함 v2).",
     )
     args = parser.parse_args(argv)
-    if args.limit < 1 or (args.execute and args.out is None):
-        print("CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요합니다.")
+    if (
+        args.limit < 1
+        or (args.execute and args.out is None)
+        or (args.audit_out is not None and not args.execute)
+    ):
+        print(
+            "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
+            "--audit-out은 --execute와 함께만 쓴다."
+        )
         return 1
     try:
         records = load_targets(args.manifest, args.limit, args.seed)
@@ -367,7 +406,10 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
         for spec in specs:
             prompt_fingerprint("draft", spec["prompt_version"])
         prepare_output(args.out)
-        output = execute(
+        if args.audit_out is not None:
+            for spec in specs:
+                write_private(label_path(args.audit_out, spec["name"], "audit"), b"")
+        output, audits = execute(
             cases,
             gold,
             counts,
@@ -377,6 +419,7 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             factory or default_factory(settings),
             subset,
             strip_phone_annotation=args.strip_phone_annotation,
+            audit=args.audit_out is not None,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
@@ -385,6 +428,9 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
         print("CS_RUN_FAILED: manifest·제품 열·분류·근거·코드북·후보 파일과 환경변수를 확인하세요.")
         return 1
     try:
+        # 감사를 먼저 쓰고 결과(감사 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게 한다.
+        for name, data in audits.items():
+            write_private(label_path(args.audit_out, name, "audit"), data)
         args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         print(

@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 import tempfile
 import unittest
 from decimal import Decimal
@@ -13,7 +14,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from backend.engine.cs.classification import ClassificationOutput
-from backend.engine.cs.drafting import EvidenceSnippet, build_draft_input, render_prompt
+from backend.engine.cs.drafting import (
+    DRAFT_INPUT_VERSION,
+    EvidenceSnippet,
+    build_draft_input,
+    render_prompt,
+)
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.shared.ai import Generation, Usage
 from scripts import cs_draft_run
@@ -236,6 +242,68 @@ class DraftRunTests(unittest.TestCase):
         self.assertEqual(len(prompts), 4)
         for secret in (KEY, "Breaker T1", "ZX-T1", "not json", "Warranty period"):
             self.assertNotIn(secret, text)
+
+    def test_audit_out_writes_private_case_audit_without_draft_text(self):
+        """--audit-out은 후보별 0600 사례 감사를 실행 사례만 쓰고 meta에 sha256을 남기며, 초안·근거·원문은 넣지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 항목 값·권한·meta·부분집합·비노출을 확인한다.
+        """
+
+        def factory(spec, settings):
+            def provider(prompt):
+                return Generation(
+                    "not json",
+                    Usage(1000, 200, 50, None, 1250),
+                    "flash-0429",
+                    ["STOP"],
+                    model="gemini-3.6-flash",
+                    attempts=2,
+                )
+
+            return provider
+
+        audit = self.root / "audit"
+        audit.mkdir()
+        out = self.root / "result.json"
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--audit-out", str(audit), "--ticket-ids", "T4",
+            factory=factory,
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        files = {}
+        for name in ("a", "b"):
+            path = audit / f"{name}.audit.json"
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            files[name] = path.read_bytes()
+            data = json.loads(files[name])
+            self.assertEqual(list(data), ["T4"])
+            entry = data["T4"]
+            self.assertEqual(
+                {k: entry[k] for k in ("outcome", "model", "model_version", "attempts")},
+                {"outcome": "SCHEMA_VIOLATION", "model": "gemini-3.6-flash"}
+                | {"model_version": "flash-0429", "attempts": 2},
+            )
+            self.assertEqual(entry["input_version"], DRAFT_INPUT_VERSION)
+            self.assertRegex(entry["input_sha256"], "^[0-9a-f]{64}$")
+            self.assertEqual(entry["usage"]["total_tokens"], 1250)
+            self.assertTrue(entry["pricing_version"].startswith("gemini-3.6-flash@"))
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(
+            result["meta"]["audit_files"],
+            {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
+        )
+        self.assertNotIn("attempts", result["result"])
+        text = b"".join(files.values()).decode()
+        for secret in (KEY, "Breaker T4", "not json", "Warranty period", "request_codes"):
+            self.assertNotIn(secret, text)
+        self.assertEqual(self.run_main("--audit-out", str(audit))[0], 1)
+        plain = self.root / "plain.json"
+        self.assertEqual(self.run_main("--execute", "--out", str(plain), factory=factory)[0], 0)
+        self.assertNotIn("audit_files", json.loads(plain.read_text())["meta"])
 
     def test_strip_phone_annotation_flag_is_opt_in_and_recorded(self):
         """PHONE 표기는 기본으로 초안 입력에 남고 --strip-phone-annotation일 때만 지워지며 meta에 값·판본이 남는다.
