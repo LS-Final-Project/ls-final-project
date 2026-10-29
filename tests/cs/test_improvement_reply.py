@@ -374,3 +374,44 @@ def test_version_conflict_matches_whole_tokens_only():
     with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
         validate_output(raw(claimed, conflicts=["Request says 2.1.0 is fixed."]), context=CONTEXT)
     assert validate_output(raw(claimed, conflicts=["Dept says v2.1 applies."]), context=CONTEXT)
+
+
+@pytest.mark.parametrize(
+    "fw,conflict,ok",
+    [
+        ("2.1.0", "요청서는 2.1.0에서 수정됐다고 한다.", True),
+        ("2.1", "부서는 v2.1이 적용된다고 함", True),
+        ("2.2.0", "The department says 2.2.0 fixes it, not 2.1.0.", True),
+        ("v1", "Dept cites v10 for the fix.", False),
+        ("1", "Dept cites 1.0 for the fix.", False),
+        ("2.1", "Dept cites 12.1 for the fix.", False),
+        ("2.2.0", "Dept says it is fixed in 2.2.0.", True),
+    ],
+    ids=[
+        "ko-eseo",
+        "ko-i",
+        "en-sentence",
+        "v1-vs-v10",
+        "1-vs-1.0",
+        "2.1-vs-12.1",
+        "sentence-final-period",
+    ],
+)
+def test_version_conflict_matches_with_boundaries(fw, conflict, ok):
+    """판본은 경계 있게 찾는다. 한국어 조사·영어 문장은 맞고 더 긴 판본 안의 부분은 맞지 않는다.
+
+    Args:
+        fw: 주장 판본.
+        conflict: conflicts 문장.
+        ok: 통과해야 하면 True.
+
+    Returns:
+        None: 통과 또는 CS_INVALID_OUTPUT을 확인한다.
+    """
+    context = CONTEXT if fw != "2.1.0" else ctx(fw_fixed_version="3.0.0")
+    text = raw([claim("FW_VERSION", fw=fw)], conflicts=[conflict])
+    if ok:
+        assert validate_output(text, context=context).claims
+    else:
+        with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+            validate_output(text, context=context)
