@@ -171,7 +171,7 @@ class IndexDocsTest(unittest.TestCase):
         self.assertNotIn("PRIVATE DB ERROR", out + err + manifest.read_text())
 
     def test_doc_index_fills_metadata_by_path(self) -> None:
-        """doc_index.csv의 path로 문서를 찾아 doc_type·family·revision을 메타데이터에 넣고, 없는 문서는 전역값을 쓴다.
+        """doc_index.csv path의 꼬리로 문서를 찾아 doc_type·family·revision을 넣고, 없거나 모호하면 전역값을 쓴다.
 
         Returns:
             None: 적재 메타데이터와 manifest doc_id를 확인한다.
@@ -179,7 +179,9 @@ class IndexDocsTest(unittest.TestCase):
         index = self.root / "doc_index.csv"
         index.write_text(
             "doc_id,title,doc_type,product_code,family,revision,path,chars\n"
-            "D-01,Trip,FAQ,ACB-08,ACB,r2,faq/trip.md,20\n",
+            "D-01,Trip,FAQ,ACB-08,ACB,r2,docs/faq/trip.md,20\n"
+            "D-02,W,DS,ACB-08,ACB,r1,docs/x/policy.DOCX,20\n"
+            "D-03,W,DS,ACB-08,ACB,r1,docs/y/policy.DOCX,20\n",
             encoding="utf-8",
         )
         seen = {}
@@ -223,6 +225,7 @@ class IndexDocsTest(unittest.TestCase):
         )
         self.assertEqual((warranty.document_kind, warranty.version), ("CS_DOC", None))
         self.assertIsNone(rows["faq/warranty.docx"]["doc_id"])
+        self.assertIsNone(rows["policy.DOCX"]["doc_id"])
         index.write_text("doc_id,path\nD-01,faq/trip.md\n", encoding="utf-8")
         code, _, err = self.run_main("--doc-index", str(index))
         self.assertEqual(code, 1)
