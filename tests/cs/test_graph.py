@@ -189,3 +189,19 @@ def test_route_after_classify(classification, expected):
     """
     state = initial_state("t") | {"classification": classification}
     assert route_after_classify(state) == expected
+
+
+def test_build_graph_refuses_tracing_unless_allowed(monkeypatch):
+    """추적 환경 변수가 있으면 allow_tracing 없이는 그래프를 만들지 않는다(Settings 밖 진입점 대비).
+
+    Args:
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        None: 기본 거부와 명시 허용을 확인한다.
+    """
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    with pytest.raises(ValueError, match="KAN-89"):
+        make(InMemorySaver())
+    graph, _ = make(InMemorySaver(), allow_tracing=True)
+    assert graph is not None
