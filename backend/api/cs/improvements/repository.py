@@ -181,8 +181,8 @@ async def list_replies(conn: AsyncConnection[Row], request_id: UUID) -> list[Row
 
 async def list_actions(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
     cursor = await conn.execute(
-        "SELECT id, round, dept_code, action, action_scope, action_date, action_evidence, "
-        "recorded_by, recorded_at FROM cs.request_actions WHERE request_id = %s "
+        "SELECT id, round, dept_code, action, action_scope, scope_kind, scope_value, action_date, "
+        "action_evidence, recorded_by, recorded_at FROM cs.request_actions WHERE request_id = %s "
         "ORDER BY recorded_at, id",
         (request_id,),
     )
@@ -285,3 +285,44 @@ async def database_now(conn: AsyncConnection[Row]) -> Any:
     row = await cursor.fetchone()
     assert row is not None
     return row["now"]
+
+
+# --- KAN-117: rounds and the bundle's resolution records ---------------------------------
+
+
+async def list_rounds(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT round, kind, opened_at, opened_by, candidate_index, as_of, new_evidence_note, "
+        "previous_completion FROM cs.request_rounds WHERE request_id = %s ORDER BY round",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_round(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.request_rounds ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(Jsonb(v) if isinstance(v, dict) else v for v in values.values()),
+    )
+
+
+async def bundle_records(conn: AsyncConnection[Row], product_code: str, fault_id: str) -> list[Row]:
+    """Resolution records of the same product and fault, with the ticket's receipt time
+    (occurrence proxy) and customer. Future filtering by as_of is the engine's."""
+    cursor = await conn.execute(
+        "SELECT rc.id AS case_id, rc.ticket_id, t.customer_external_id AS customer_id, "
+        "rc.known_at, t.received_at, rc.fw_version_at_issue FROM cs.resolution_cases rc "
+        "JOIN cs.tickets t ON t.id = rc.ticket_id WHERE rc.product_code = %s AND rc.fault_id = %s "
+        "ORDER BY rc.known_at, rc.id",
+        (product_code, fault_id),
+    )
+    return await cursor.fetchall()
+
+
+async def active_evidence_tickets(conn: AsyncConnection[Row], request_id: UUID) -> set[UUID]:
+    cursor = await conn.execute(
+        "SELECT ticket_id FROM cs.request_evidence WHERE request_id = %s AND removed_at IS NULL",
+        (request_id,),
+    )
+    return {row["ticket_id"] for row in await cursor.fetchall()}

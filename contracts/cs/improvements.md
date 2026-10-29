@@ -39,7 +39,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 
 ## 상태 전이 API (KAN-116)
 
-원본: `backend/api/cs/improvements/transition_routes.py`, 상태 요약 규칙 `transitions.py`. [권한 문서](../platform/permissions.md) 2.2·2.2.1을 그대로 옮긴 것이다. 요청 상태는 사람이 고르지 않고 현재 회차 부서 상태에서 요약한다(2.2.1 표, 위에서부터 처음 맞는 것). 첫 전달 뒤의 **새 회차**(재요청·재발 재개)는 KAN-117이다.
+원본: `backend/api/cs/improvements/transition_routes.py`, 상태 요약 규칙 `transitions.py`. [권한 문서](../platform/permissions.md) 2.2·2.2.1을 그대로 옮긴 것이다. 요청 상태는 사람이 고르지 않고 현재 회차 부서 상태에서 요약한다(2.2.1 표, 위에서부터 처음 맞는 것). 첫 전달 뒤의 **새 회차**(재요청·재발 재개)는 [KAN-117 계약](improvement-followups.md)의 `GET …/followup-signals`·`POST …/rounds`다.
 
 | 경로 (`/api/v1/cs/improvement-requests/{id}` 아래) | 허용 | 전이 |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | `POST /send` (`version`, `dept_codes`?, `reply_due_days`=7) | cs_agent | `REVIEWED` → 1회차. 대상 부서(기본 제안 부서)가 모두 `SENT`, `sent_version`·`reply_due_at`, 요청 `sent_at`. 대상이 없으면 422 `CS_DEPARTMENT_REQUIRED`(문서 요청은 받는 부서 확인 먼저). 부서 메일 발송은 이 서비스가 하지 않는다 |
 | `POST /departments/{dept}/acknowledge` (`version`) | 그 부서 dept_staff | 부서 `SENT` → `ACKNOWLEDGED`. 회신 이력에 `ACKNOWLEDGED` |
 | `POST /departments/{dept}/reply` (`version`, `reply_type`, `reason`) | 그 부서 dept_staff | 부서 `ACKNOWLEDGED` → `ADOPTED`·`INFO_REQUESTED`·`REJECTED`. 회신은 답한 요청 판본(`request_version`)을 남긴다. 반려는 사유 필수(422) |
-| `POST /departments/{dept}/action` (`version`, `action`, `action_scope`, `action_date`, `action_evidence`) | 그 부서 dept_staff | 부서 `ADOPTED` → `ACTION_TAKEN`. 다른 부서를 기다리지 않는다. 조치는 고객 한 명의 수리와 분리 |
+| `POST /departments/{dept}/action` (`version`, `action`, `action_scope`, `action_date`, `action_evidence`) | 그 부서 dept_staff | 부서 `ADOPTED` → `ACTION_TAKEN`. 다른 부서를 기다리지 않는다. 조치는 고객 한 명의 수리와 분리 적용 범위 `scope_kind`·`scope_value`(KAN-117, 기본 `OTHER`)를 함께 받는다 |
 | `POST /departments/{dept}/resend` (`version`, `reason`, `reply_due_days`=7) | cs_agent | 회차 안에서 그 부서만 `SENT`로. `INFO_REQUESTED`(자료 보완), `REJECTED`(반려 뒤 **새 근거**가 있어야 함, 없으면 422 `CS_EVIDENCE_REQUIRED`), `SENT`·`ACKNOWLEDGED`(회신 기한이 지난 뒤에만 재촉, 아니면 409) |
 | `POST /departments/{dept}/review-rejection` (`version`) | cs_agent | 반려 확인. 부서 상태 그대로, `rejection_reviewed_*` 기록. 모든 부서가 반려·확인되면 **반려 종료**(열린 요청 집계 제외) |
 | `POST /followup-plan` (`version`, `followup_plan`) | cs_agent | `ACTION_TAKEN` → `FOLLOW_UP`. 현재 회차 모든 부서가 `ACTION_TAKEN`이거나 반려 확인된 `REJECTED`이고 조치가 1개 이상일 때만. 아니면 409 |

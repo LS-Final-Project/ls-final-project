@@ -26,6 +26,7 @@ from backend.api.cs.improvements.schemas import (
     RequestDepartment,
     RequestDetail,
     RequestList,
+    RequestRound,
     RequestSummary,
     RequestUpdate,
     RequestVersion,
@@ -169,6 +170,10 @@ async def detail(conn: Any, request: Row) -> RequestDetail:
         actions=[
             RequestAction.model_validate(a)
             for a in await repository.list_actions(conn, request["id"])
+        ],
+        rounds=[
+            RequestRound.model_validate(r)
+            for r in await repository.list_rounds(conn, request["id"])
         ],
         next_owners=next_owners(request, departments),
     )

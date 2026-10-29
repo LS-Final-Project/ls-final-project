@@ -1,6 +1,6 @@
-# C/S 개선요청 재요청·조치 후 재발·재개방 계약 (KAN-117, 초안)
+# C/S 개선요청 재요청·조치 후 재발·재개방 계약 (KAN-117)
 
-**상태: 계약 초안(10/31 약속분).** 코드·마이그레이션은 아직 없다. 김종하 님 KAN-133 화면 준비용이며, 아래 "확인할 것"이 정해지면 같은 티켓에서 구현한다(마감 11/2). 근거는 C/S 기획서 4.4(p.11 "재요청"·"조치 뒤 재발" 표, p.13~14 시연), [권한 문서](../platform/permissions.md) 2.2·2.2.1(새 회차 전이·기본 대상 부서), [개선요청 계약](improvements.md)(KAN-112·116), [후보 규칙](improvement-candidates.md)(KAN-113).
+**상태: 구현.** 판정 엔진 `backend/engine/cs/improvement_followups.py`, API `backend/api/cs/improvements/followup_routes.py`, 마이그레이션 `infra/migrations/cs/20261031_KAN-117_followup_rounds.sql`(README C16), 검사 `tests/cs/test_improvement_followups.py`·`test_improvement_followups_db.py`. 2026-10-29 결정: 조치 적용 범위는 구조화된 칸으로 받고, 재요청 3건은 해결 기록 수로 센다. 근거는 C/S 기획서 4.4(p.11 "재요청"·"조치 뒤 재발" 표, p.13~14 시연), [권한 문서](../platform/permissions.md) 2.2·2.2.1(새 회차 전이·기본 대상 부서), [개선요청 계약](improvements.md)(KAN-112·116), [후보 규칙](improvement-candidates.md)(KAN-113).
 
 ## 무엇을 정하는가
 
@@ -31,8 +31,8 @@
 
 - 전달 시각과 같은 시각에 알려진 기록은 "이후"가 아니다(엄격히 뒤만 센다).
 - **회차 기준점**: 재요청·재발 모두 **가장 최근 회차가 열린 시각 뒤에 알려진 기록만** 새 후보의 근거가 된다. 그 앞의 기록은 이전 회차에서 다룬 것으로 `class=IN_EARLIER_ROUND`로만 보인다. 그래서 같은 기록으로 회차를 두 번 열 수 없다.
-- **날짜 비교**: `action_date`는 날짜(시각 없음)라 UTC 날짜로 본다. 문의 접수 시각의 UTC 날짜가 적용일보다 **앞이면 조치 전 발생, 뒤면 조치 뒤 발생, 같은 날이면 미확인**(`SAME_DAY_AS_ACTION`)이다. 같은 날을 재발로 세지 않는다.
-- 원본 날짜는 고치지 않는다. 해결 시각보다 수정판 배포일이 늦은 "시간상 불일치" 기록(기획서 7건)은 판정에서 빼지 않고 `TIME_INCONSISTENT` 표시를 붙인다.
+- **날짜 비교**: `action_date`는 부서가 기록한 현업 달력 날짜라 **Asia/Seoul 날짜**로 본다. 문의 접수 시각을 Asia/Seoul 날짜로 바꿔 적용일보다 **앞이면 조치 전 발생, 뒤면 조치 뒤 발생, 같은 날이면 미확인**(`SAME_DAY_AS_ACTION`)이다. 같은 날을 재발로 세지 않는다.
+- 원본 날짜는 고치지 않는다.
 
 ## 재요청 (`REQUEST_AGAIN`)
 
@@ -47,7 +47,7 @@
 
 조치 = 이 요청에 등록된 부서 조치(`request_actions`). 고객 한 명의 장비 수리와 다르다. 기록 하나를 아래 순서로 나눈다.
 
-1. 문의 접수 시각(발생 대리값)의 UTC 날짜가 그 조치의 적용일보다 앞이면 그 조치와 무관하다(`BEFORE_ACTION_DATE`, 집계만). 같은 날이면 `SAME_DAY_AS_ACTION`(미확인). 조치 전에 발생했지만 조치 뒤에 적재된 기록이 재발로 잡히지 않게, 적재 시각은 여기서 쓰지 않는다.
+1. 문의 접수 시각(발생 대리값)의 Asia/Seoul 날짜가 그 조치의 적용일보다 앞이면 그 조치와 무관하다(`BEFORE_ACTION_DATE`, 집계만). 같은 날이면 `SAME_DAY_AS_ACTION`(미확인). 조치 전에 발생했지만 조치 뒤에 적재된 기록이 재발로 잡히지 않게, 적재 시각은 여기서 쓰지 않는다.
 2. 적용일 뒤에 발생한 기록은 **그 장비에 조치가 적용됐는지**로 나눈다.
 
 | 조치 종류 | 적용됨(→ 재발) | 적용 안 됨(→ 조치 전 장비) | 모름(→ 미확인) |
@@ -79,8 +79,7 @@
              "recurrence": 0, "pre_action_unit": 0, "application_unknown": 0},
   "records": [
     {"ticket_id": "…", "case_id": "…", "known_at": "2026-01-09T…Z", "customer_id": "…",
-     "class": "NEW_SINCE_SENT", "reason_code": "NEW_RECORDS_3", "basis": null,
-     "time_inconsistent": false}
+     "class": "NEW_SINCE_SENT", "reason_code": null, "basis": null, "action_dept": null}
   ],
   "update_notice_customers": [],
   "next_action": "OPEN_ROUND_REQUEST_AGAIN"
@@ -90,6 +89,9 @@
 - `phase`: `BEFORE_ACTION`(재요청 규칙) / `AFTER_ACTION`(재발 규칙) / `NOT_SENT`(아직 전달 전, 판정 없음).
 - `records[].class`: `NEW_SINCE_SENT`·`RECURRENCE`·`PRE_ACTION_UNIT`·`APPLICATION_UNKNOWN`·`BEFORE_ACTION_DATE`·`IN_EARLIER_ROUND`. `APPLICATION_UNKNOWN`에는 `SAME_DAY_AS_ACTION`도 든다. `basis`는 적용 판단에 쓴 값(예: `{"fw_version": "1.60", "action_version": "1.72"}`).
 - `next_action`: `OPEN_ROUND_REQUEST_AGAIN`·`OPEN_ROUND_RECURRENCE`·`NONE`. 화면은 이 값으로 버튼을 보이고, 문구는 사유 코드로 만든다.
+- 요청 판정 사유 `reason_code`: `NEW_RECORDS_3`·`APPLIED_UNIT_RECURRENCE`·`BELOW_3`·`NO_RECURRENCE`·`NOT_SENT`. 기록별 사유는 위 재발 절의 코드다(`NEW_SINCE_SENT` 기록은 null). `action_dept`는 판정에 쓴 조치를 등록한 부서.
+- `as_of`가 없으면 서버 현재 시각이고, 시간대가 없거나 미래면 422 `CS_INVALID_AS_OF`. 과거 시점을 주면 그때까지 열린 회차·기록된 조치만 본다(전달 전 시점이면 `NOT_SENT`).
+- **문서 요청**은 해결 기록 묶음이 없어 대상이 아니다: 409 `CS_FOLLOWUP_FAULT_ONLY`.
 - 시연(기획서 4.5): 가스켓 누유 요청을 2025-11-15 직후 전달하고 조치·반려가 없다고 가정하면, 2026-02-24 기준 새 기록 3건으로 첫 재요청 후보다.
 
 ## 새 회차 열기 (상태 전이)
@@ -102,23 +104,24 @@
 | `kind` | `REQUEST_AGAIN` 또는 `RECURRENCE` |
 | `as_of` | 판정을 읽은 시점(서버 현재 시각 이하). 서버가 **현재 시각**으로 다시 계산해 같은 종류의 후보가 여전히 있는지만 확인한다. 회차 기준 시각 `opened_at`은 서버 현재 시각이다 |
 | `dept_codes` | 생략하면 권한 문서 2.2.1의 기본 대상: 재요청은 `ACTION_TAKEN`과 반려 확인된 `REJECTED`를 뺀 기존 수신 부서(반려 종료면 기존 수신 부서 전체), 재발은 재발한 조치를 등록한 부서 |
-| `new_evidence` | 반려 종료 요청을 후보 없이 열 때만: 반려 사유와 다른 새 근거(근거 문의 ID 1개 이상 + 설명). 없으면 422 `CS_EVIDENCE_REQUIRED` |
+| `new_evidence` | 반려 종료 요청을 후보 없이 열 때만: 반려 사유와 다른 새 근거(`ticket_ids` 1~50개 + `note`). 후보도 새 근거도 없으면 422 `CS_EVIDENCE_REQUIRED`. 같은 제품의 문의가 아니면 422 `CS_EVIDENCE_INVALID` |
 | `reply_due_days` | 기본 7 |
 
-- **허용 상태**: 재요청은 조치 전 상태(위)에서만, 재발은 `ACTION_TAKEN`·`FOLLOW_UP`·`COMPLETED`에서만. 아니면 409 `CS_REQUEST_INVALID_TRANSITION`. 판정이 그 종류가 아니면(후보 없음) 409 `CS_FOLLOWUP_NOT_CANDIDATE`(반려 종료의 새 근거 경로 제외).
+- **허용 상태**: 재요청은 조치 전 상태(`SENT`·`ACKNOWLEDGED`·`ADOPTED`·`INFO_REQUESTED`, 반려 종료)에서만, 재발은 전달된 뒤 어디서든(재발 후보가 있어야 함. 일부 부서만 조치한 `ADOPTED`도 포함). 아니면 409 `CS_REQUEST_INVALID_TRANSITION`. 검사 순서는 조회 범위 404 → 역할 403(`cs_agent`만) → 상태 409 → 판본 409 → 후보·입력. 판정이 그 종류가 아니면(후보 없음) 409 `CS_FOLLOWUP_NOT_CANDIDATE`(반려 종료의 새 근거 경로 제외).
 - **효과**: `current_round` + 1, 대상 부서는 `SENT`, 나머지 기존 부서는 이월(`carried_over`). 요청 상태는 2.2.1 요약으로 다시 계산한다. 근거 기록은 `as_of`가 아니라 **`opened_at`까지 알려진** 후보 기록 전부를 요청 근거(`request_evidence`)에 더한다. 그래서 `as_of`와 `opened_at` 사이에 들어온 기록도 이 회차 근거로 들어가고, 다음 집계에서 빠져 사라지지 않는다. 판본이 오르고 감사에 `transition`과 종류·후보 번호·`as_of`를 남긴다.
-- **완료 기록 보존**: `COMPLETED`·`FOLLOW_UP`에서 재발로 열어도 `completed_by`·`completed_at`·`followup_plan`·`followup_result`는 지우지 않고 그 회차의 기록으로 남긴다. 요청은 다시 요약 상태(`SENT` 등)가 되고, 새 회차를 다시 완료하면 새 완료 기록이 쌓인다.
-- 회차 기록: 새 표 `cs.request_rounds`(요청, 회차, 종류 `FIRST`·`REQUEST_AGAIN`·`RECURRENCE`, 열린 시각 `opened_at`, 연 사람, 후보 번호, `as_of`, 새 근거 설명, 이전 회차의 완료 기록 사본). 첫 전달(KAN-116 `send`)도 `FIRST` 행을 남기도록 맞춘다.
+- **완료 기록 보존**: `COMPLETED`·`FOLLOW_UP`에서 재발로 열면 그 회차의 `followup_plan`·`followup_result`·`completed_by`·`completed_at`을 새 회차 행의 `previous_completion`에 그대로 옮긴 뒤 요청 칸은 비운다. 이전 완료는 회차 기록과 판본 이력·감사에 남고, 요청은 다시 요약 상태(`SENT` 등)가 되어 새 회차를 다시 완료하면 새 완료 기록이 생긴다. 응답 `rounds`(오래된 순)로 보인다.
+- 회차 기록: 표 `cs.request_rounds`(요청, 회차, 종류 `FIRST`·`REQUEST_AGAIN`·`RECURRENCE`, 열린 시각 `opened_at`, 연 사람, 후보 번호, `as_of`, 새 근거 설명, 이전 회차의 완료 기록 사본). 첫 전달(KAN-116 `send`)도 `FIRST` 행을 남긴다. 이 표가 생기기 전에 전달된 요청은 `sent_at`을 1회차로 본다. 서비스 계정은 고치거나 지울 수 없다.
+- 감사: `transition`, `changes.action=open_round`와 종류·회차·대상 부서·더한 근거·`as_of`.
 
-## 확인할 것 (구현 전)
+## 정한 것과 남은 것
 
-1. **조치 적용 범위를 구조화**: 지금 `request_actions.action_scope`는 자유 문장이라 프로그램이 장비 적용 여부를 판단할 수 없다. 조치 등록에 `scope_kind`(`FIRMWARE_VERSION`·`SHIPPED_FROM`·`LOT`·`OTHER`)와 `scope_value`(버전·기준일·로트 목록)를 더하는 마이그레이션을 제안한다. KAN-116 조치 등록 API에 선택 입력으로 붙이고, 없으면 `OTHER`(늘 미확인)다. **김종하 님 화면의 조치 입력 칸에 영향이 있다.**
-2. **출하일·로트**: ERP 출하일·로트는 추가 제공 가정 데이터(기획서 6.1)다. 지금 제공 데이터에는 없어 출하·로트 기준 조치는 시연에서 늘 "미확인"이다. 시연 가정값을 둘지 정한다.
-3. **3건의 단위**: 기획서 문구대로 기록 수로 정했다. 같은 고객의 반복 기록을 1건으로 볼지(고객 수) 팀 확인이 필요하다.
+1. **조치 적용 범위(2026-10-29 결정, 구현)**: 부서 조치 등록(`POST …/departments/{dept}/action`)에 `scope_kind`(`FIRMWARE_VERSION`·`SHIPPED_FROM`·`LOT`·`OTHER`, 기본 `OTHER`)와 `scope_value`를 받는다. `OTHER`면 값이 없어야 하고, 그 밖은 값이 필수다(펌웨어는 `1.72` 형식, 출하 기준은 날짜, 로트는 쉼표 목록). 어기면 422. 기존 자유 문장 `action_scope`는 그대로 받는다.
+2. **출하일·로트**: ERP 출하일·로트는 추가 제공 가정 데이터(기획서 6.1)다. 지금 제공 데이터에는 없어 출하·로트 기준 조치는 늘 "미확인"이다. 시연에서 실제로 판정되는 기준은 펌웨어 버전이다.
+3. **3건의 단위(2026-10-29 결정)**: 해결 기록 수. 같은 고객의 반복 기록도 각각 센다.
 4. **반려 사유와 다른 새 근거**의 판단은 사람이 한다(근거 문의와 설명을 남김). 자동 판정하지 않는다.
-5. **일부 부서만 조치한 요청**: 이 초안은 권한 문서 2.2.1 요약을 따라 재요청 집계와 재발 분류를 함께 쓰고 재발을 우선한다(위 "대상 상태"). 부서별로 따로 셀 필요가 있는지 화면 검토 때 확인한다.
+5. **일부 부서만 조치한 요청**: 권한 문서 2.2.1 요약을 따라 재요청 집계와 재발 분류를 함께 쓰고 재발을 우선한다.
 
-## 검사 계획 (구현 때)
+## 검사
 
 KAN-117 완료 조건 "직전요청후 새3건, 조치적용장비 재발1건, 구형/미적용 별도, 미래정보 차단"에 맞춘 합성 기록 검사:
 
