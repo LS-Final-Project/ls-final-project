@@ -88,6 +88,7 @@ def run_draft_attempt(
             "CS_INVALID_INPUT",
             "CS_EMPTY_INPUT",
             "CS_UNSUPPORTED_PHONE_ANNOTATION",
+            "CS_BLOCKED_EVIDENCE",
         }:
             input_code = "CS_INVALID_INPUT"
         return replace(result, error_code=input_code)

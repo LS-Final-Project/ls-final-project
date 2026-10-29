@@ -94,19 +94,14 @@ def test_draft_rejects_evidence_ids_outside_the_input() -> None:
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="KAN-151: drafting은 EvidenceSnippet의 FLT-042를 막지 않는다. 차단은 search.hybrid 경계뿐이다.",
-)
 def test_draft_input_blocks_flt_042_evidence() -> None:
-    """drafting.build_draft_input 경계: 근거 스니펫에 FLT-042가 있으면 초안 입력을 만들지 않아야 한다.
+    """drafting.build_draft_input 경계: 근거 스니펫에 FLT-042가 있으면 초안 입력을 만들지 않는다.
 
     Args:
         없음.
 
     Returns:
-        None: 지금은 차단이 없어 xfail로 빈틈을 기록한다.
+        None: CS_BLOCKED_EVIDENCE를 확인한다.
     """
     evidence = [
         EvidenceSnippet(
@@ -117,7 +112,7 @@ def test_draft_input_blocks_flt_042_evidence() -> None:
         )
     ]
     record = {key: RECORD[key] for key in ("channel", "body_language", "subject", "body")}
-    try:
+    with pytest.raises(ValueError, match="^CS_BLOCKED_EVIDENCE$"):
         build_draft_input(
             record,
             classification=CLASSIFICATION,
@@ -126,9 +121,6 @@ def test_draft_input_blocks_flt_042_evidence() -> None:
             evidence=evidence,
             sensitive_values={},
         )
-    except ValueError:
-        return
-    raise AssertionError("FLT-042 근거가 초안 입력에 들어갔다.")
 
 
 def test_customer_reply_hides_confirmed_serial_and_email_variants() -> None:

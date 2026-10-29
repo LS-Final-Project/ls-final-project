@@ -9,7 +9,9 @@
 벡터 검색(KAN-144 이후)과 실제 리랭커 모델은 범위 밖이며, 없으면 FTS만·항등 순서로 동작한다.
 """
 
+import html
 import re
+import unicodedata
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 
@@ -24,6 +26,11 @@ CODE = re.compile(
     rf"|[A-Za-z](?=[{EDGE}]*\d)[{EDGE}]+[A-Za-z0-9])(?![{EDGE}])"
 )
 HIGHLIGHT = re.compile(r"</?b>")
+BLOCKED_CODES = frozenset({"FLT-042"})
+# 차단 판정은 표기 변형을 접는다: 영문자와 숫자 사이의 하이픈·각종 대시·공백을 '-' 하나로 본다.
+SEPARATOR = re.compile(r"(?<=[a-z])[-‐‑–—_\s]+(?=\d)")
+# 제로폭 문자(U+200B~U+200D, U+FEFF)와 소프트 하이픈(U+00AD)은 보이지 않으므로 지우고 본다.
+INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u00ad"))
 
 
 class Reranker(Protocol):
@@ -80,20 +87,44 @@ def codes_in(query: str) -> list[str]:
     return list(dict.fromkeys(CODE.findall(query)))
 
 
+def _fold(text: str) -> str:
+    text = unicodedata.normalize("NFKC", html.unescape(text)).translate(INVISIBLE)
+    # 대문자 태그(<B>)도 지우도록 casefold를 태그 제거보다 먼저 한다.
+    return SEPARATOR.sub("-", HIGHLIGHT.sub("", text.casefold()))
+
+
+def mentions_code(text: str, code: str) -> bool:
+    """차단 판정용으로 텍스트가 코드를 언급하는지 본다(hybrid·drafting 공용).
+
+    Args:
+        text: 검사할 문자열. HTML 엔티티·NFKC(전각)·제로폭·소프트 하이픈·강조 태그를 풀고 대소문자를
+            무시한다.
+        code: 차단 코드(예 FLT-042).
+
+    Returns:
+        bool: 영문자와 숫자 사이 구분자(하이픈·대시·밑줄·공백)를 '-'로 접은 뒤 영숫자 경계로 코드가
+            있으면 True. FLT-0420·FLT-04처럼 다른 코드는 아니다. 구분자 없는 FLT042는 접지 않는다
+            (FLT0420 같은 다른 코드와 구분할 수 없어서다).
+    """
+    target = re.escape(_fold(code))
+    return re.search(rf"(?<![a-z0-9]){target}(?![a-z0-9])", _fold(text)) is not None
+
+
 def contains(candidate: Candidate, code: str, *, ignore_case: bool = False) -> bool:
     """후보 문자열에 코드가 하이픈까지 단어 경계로 정확히 들어 있는지 본다.
 
     Args:
         candidate: 검사할 후보. snippet의 ts_headline 강조 태그는 벗기고 본다.
         code: 찾을 코드.
-        ignore_case: 대소문자를 무시할지(차단 검사용).
+        ignore_case: 차단 검사면 True. 이때는 mentions_code로 표기 변형까지 본다.
 
     Returns:
         snippet·text_excerpt·table_title 중 하나에 있으면 True.
     """
-    pattern = re.compile(
-        rf"(?<![{EDGE}]){re.escape(code)}(?![{EDGE}])", re.IGNORECASE if ignore_case else 0
-    )
+    if ignore_case:
+        fields = (candidate.snippet, candidate.text_excerpt, candidate.table_title)
+        return any(mentions_code(field, code) for field in fields if field)
+    pattern = re.compile(rf"(?<![{EDGE}]){re.escape(code)}(?![{EDGE}])")
     fields = (HIGHLIGHT.sub("", candidate.snippet), candidate.text_excerpt, candidate.table_title)
     return any(pattern.search(field) for field in fields if field)
 
@@ -106,7 +137,7 @@ def run_hybrid(
     vector: Searcher | None = None,
     reranker: Reranker | None = None,
     k: int = 60,
-    blocked_codes: frozenset[str] = frozenset({"FLT-042"}),
+    blocked_codes: frozenset[str] = BLOCKED_CODES,
 ) -> HybridResult:
     """FTS·벡터 후보를 RRF로 결합하고 코드 일치·인용 차단을 적용한다.
 
@@ -117,7 +148,7 @@ def run_hybrid(
         vector: 벡터 검색기. None이면 FTS만 쓴다.
         reranker: 리랭커. None이면 RRF 순서를 유지한다.
         k: RRF 상수. 점수는 검색기별 1/(k+position)의 합이다.
-        blocked_codes: 대소문자 무시로 들어 있으면 결과에서 빼는 인용 차단 코드.
+        blocked_codes: mentions_code로 걸리면 결과에서 빼는 인용 차단 코드.
 
     Returns:
         코드 일치 후보가 앞서는 결합 결과. 일치 묶음 안팎은 리랭커 순(없으면 RRF 내림차순, 같으면 문서
