@@ -121,6 +121,16 @@ class EvalAdoptTest(unittest.TestCase):
         self.assertEqual((code, err.strip()), (1, "EVAL_INVALID_INPUT"))
         self.assertFalse((self.root / "record.json").exists())
 
+    def test_failed_note_write_leaves_no_record(self):
+        """--note를 열 수 없으면(없는 디렉터리) 먼저 만든 기록 파일을 지우고 종료 코드 1이다.
+
+        Returns:
+            None: 종료 코드와 기록 파일 미잔존을 확인한다.
+        """
+        code, _, err = self.run_main("--note", str(self.root / "absent" / "note.md"))
+        self.assertEqual((code, err.strip()), (1, "EVAL_INVALID_INPUT"))
+        self.assertFalse((self.root / "record.json").exists())
+
     def test_invalid_inputs_exit_with_code_1(self):
         """모르는 후보·잘못된 --reject·없는 결과 파일은 원문 없이 종료 코드 1이다.
 

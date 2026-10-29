@@ -69,12 +69,17 @@ def main(argv: list[str] | None = None) -> int:
         # 한쪽만 쓰고 멈추지 않도록 둘 다 없는지 먼저 본다.
         if args.out.exists() or args.note.exists():
             raise FileExistsError
-        with (
-            args.out.open("x", encoding="utf-8") as out,
-            args.note.open("x", encoding="utf-8") as md,
-        ):
-            out.write(record.to_json())
-            md.write(note)
+        # 두 번째 파일을 열거나 쓰다 실패하면(없는 디렉터리·권한) 이번에 만든 파일을 지워 빈 기록을 남기지 않는다.
+        created: list[Path] = []
+        try:
+            for path, text in ((args.out, record.to_json()), (args.note, note)):
+                with path.open("x", encoding="utf-8") as handle:
+                    created.append(path)
+                    handle.write(text)
+        except OSError:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise
     except FileExistsError:
         print("EVAL_OUTPUT_EXISTS", file=sys.stderr)
         return 1
