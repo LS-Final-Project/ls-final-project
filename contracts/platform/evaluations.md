@@ -34,7 +34,7 @@ DB 대기 상한은 초기 로컬 보호값으로 lock_timeout=2초, statement_t
 
 ### 마이그레이션과 남은 범위
 
-KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 user_controls migration을 추가로 적용해야 한다.
+KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. `20261030_KAN-90_receipt_origin.sql`은 영수증에 `origin`(ACCEPT·IMPORT, 기존 행 ACCEPT)과 `import_ref`(IMPORT만, 반입 결과 JSON sha256 앞 12자)를 더한다. IMPORT는 `scripts/eval_import_run.py --execute`가 실행과 같은 트랜잭션에서 넣는 반입 영수증이며 run_control은 만들지 않는다. 취소·재개와 작업자 dispatch·만료 처리는 `origin='ACCEPT'` 영수증만 대상으로 한다. 작업자 역할에는 `origin` 열 SELECT만 더한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 user_controls migration을 추가로 적용해야 한다.
 
 최초 응답 저장은 구조화 ID만 보존한다. 실제 모델 실행·운영 dispatcher/worker·외부 호출 복구, SSE, 전체 평가 및 최종 시험 운영은 후속 작업이다. 로컬 합성 접수 성공으로 KAN-69/90 전체 완료를 판단하지 않는다.
 
@@ -450,7 +450,9 @@ gold_sha256·gold_version·scored_target_count가 같을 때만 차이를 계산
 접근 경계는 두 경로 모두 local/test·접수 켬·지정 평가자·실험 생성자=요청자=본인·접수 영수증·
 test split 404·승인 구성 hash(아니면 403 EXPERIMENT_NOT_APPROVED)·구성 hash 재계산(다르면 409)이다.
 실험 purpose가 smoke이면 기존 합성 경로(고정 프로필·fake·local/test runner·고정 대상, 위반 403
-LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따른다. 그 밖은 잠금 경로로, purpose pipeline·rule_replay,
+LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따르며, 영수증 origin이 IMPORT면 smoke 경로는 403
+LOCAL_SMOKE_ONLY다. 반입 실행(IMPORT)은 아래 잠금 경로 검사를 그대로 받는다. 응답 `origin`(ACCEPT·IMPORT)으로
+화면이 반입 실행을 구분한다(KAN-90 4차). 반입 실행은 원시 응답을 저장하지 않으므로 원시 응답 수 0이 그대로 보인다. 그 밖은 잠금 경로로, purpose pipeline·rule_replay,
 실행 provider와 model_id가 fake가 아니고 합성 프로필이 아니며 data_split이 train·valid인 실행만 허용하고
 위반은 403 LOCKED_RUN_REQUIRED다. 잠금 경로는 고정 대상 목록이 없으므로 실험 대상 ID를 정렬해
 줄바꿈으로 이은 SHA-256이 `target_set_hash`와 다르면 409 TARGET_SET_MISMATCH다. production 활성화,

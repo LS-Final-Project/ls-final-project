@@ -2871,6 +2871,59 @@ def store_stage_row(dsn, run_id, version, key, value, *, at, **extra):
         )
 
 
+def test_import_receipt_is_summary_only_and_never_a_smoke_or_control_target(
+    summary_client, settings, cs_access, cs_experiment, cs_run, evaluation_database
+):
+    """영수증 origin이 IMPORT면 작업자 인수·취소 대상이 아니고 smoke 경로 요약은 403이며, ACCEPT면 origin을 낸다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_experiment: 고정 합성 실험.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: origin 경계를 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["origin"] == "ACCEPT"
+    state = asyncio.run(get_run(settings, cs_access, cs_experiment["actor"], cs_run))
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.admission_receipts SET origin='IMPORT',import_ref=%s WHERE run_id=%s",
+            ("0" * 12, cs_run),
+        )
+    with pytest.raises(ApplicationError) as claimed:
+        asyncio.run(claim_run(settings, cs_access, cs_run))
+    assert claimed.value.code == "NOT_FOUND"
+    with pytest.raises(ApplicationError) as cancelled:
+        asyncio.run(
+            control_run(
+                settings,
+                cs_access,
+                cs_experiment["actor"],
+                cs_run,
+                "cancel",
+                str(uuid4()),
+                f'"{state.version}"',
+                uuid4(),
+            )
+        )
+    assert cancelled.value.code == "NOT_FOUND"
+    response = client.get(url)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "LOCAL_SMOKE_ONLY"
+    with psycopg.connect(evaluation_database) as conn, pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "UPDATE evaluation.admission_receipts SET import_ref=NULL WHERE run_id=%s", (cs_run,)
+        )
+
+
 def test_summary_groups_stage_metrics_by_latest_version(
     summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
 ):
@@ -3172,6 +3225,7 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
     assert set(data) == {
         "report_version",
         "run_id",
+        "origin",
         "status",
         "generated_at",
         "data_origin",
@@ -3190,6 +3244,7 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
     assert data["stage_metrics"] == []
     assert data["synthetic_quality"] is None and data["locked_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
+    assert data["origin"] == "ACCEPT"
     assert data["quality_available"] is False
     assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
     assert data["first"]["stored_attempt_count"] == 3

@@ -86,7 +86,7 @@ async def locked_run(
         "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
         "JOIN evaluation.experiments e ON e.id=r.experiment_id "
         "JOIN identity.users u ON u.id=r.requested_by_user_id "
-        "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+        "JOIN evaluation.admission_receipts a ON a.run_id=r.id AND a.origin='ACCEPT' "
         "WHERE c.run_id=%s FOR UPDATE OF c",
         (run_id,),
     )
@@ -424,7 +424,7 @@ async def park_run(
                 "SELECT c.*,r.status,r.job_id,r.needs_review,"
                 "c.lease_expires_at>clock_timestamp() AS lease_live "
                 "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
-                "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+                "JOIN evaluation.admission_receipts a ON a.run_id=r.id AND a.origin='ACCEPT' "
                 "WHERE c.run_id=%s FOR UPDATE OF c",
                 (run_id,),
             )

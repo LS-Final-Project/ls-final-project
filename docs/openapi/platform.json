@@ -763,6 +763,14 @@
               }
             ]
           },
+          "origin": {
+            "enum": [
+              "ACCEPT",
+              "IMPORT"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
           "quality_available": {
             "title": "Quality Available",
             "type": "boolean"
@@ -837,6 +845,7 @@
         },
         "required": [
           "run_id",
+          "origin",
           "status",
           "generated_at",
           "data_origin",

@@ -11,8 +11,9 @@ scripts/cs_candidate_run.py --execute --labels-out의 결과 JSON과 라벨 파�
   거부한다. 사용량·지연·입력 hash·원시 응답은 보고되지 않았으므로 NULL이다.
 - 예측은 잠금 채점이 읽는 parsed_output(VALID면 cases.final_output에도)에 코드만 넣는다. 정답 파일은 채점에만 쓰고
   저장·출력하지 않는다.
-- 접수 영수증(admission_receipts)에는 반입임을 표시할 열이 없어 만들지 않는다. 따라서 실행 요약 API는 이 실행을
-  열지 않는다.
+- 실행과 같은 트랜잭션에서 접수 영수증(admission_receipts)을 origin='IMPORT', import_ref=결과 JSON sha256 앞 12자,
+  새 response_request_id로 한 행 넣는다(KAN-90 4차, 이미 있으면 건너뜀). 접수 기록으로 오인되지 않도록 출처를
+  남기며, 실행 요약 API만 이 실행을 연다. run_control은 만들지 않으므로 상태·목록·취소·재개·작업자 대상이 아니다.
 - 다시 실행하면 같은 구성의 본인 실험을 이어 쓴다. 실행 행이 있으면 새로 만들지 않고, 저장된 잠금 집계가 있으면
   건너뛴다. 모두 있으면 EXISTS로 멈춘다.
 
@@ -78,6 +79,8 @@ class Plan:
     started_at: datetime
     finished_at: datetime
     git_sha: str | None
+    # 반입 결과 JSON sha256 앞 12자. 영수증 import_ref로 남긴다.
+    import_ref: str
 
 
 def build_plan(
@@ -188,6 +191,7 @@ def build_plan(
         datetime.fromisoformat(meta["started_at"]),
         datetime.fromisoformat(meta["finished_at"]),
         meta.get("git_sha"),
+        hashlib.sha256(run_bytes).hexdigest()[:12],
     )
 
 
@@ -291,9 +295,9 @@ def insert_run(
         scoring_version: 실행의 첫 채점 판본.
 
     Returns:
-        UUID: 실행 ID. 같은 실험에 반입이 아닌 실행이 있으면 EVAL_IMPORT_RUN_CONFLICT ValueError다.
+        UUID: 실행 ID. 같은 실험에 반입이 아닌 실행이 있으면 EVAL_IMPORT_RUN_CONFLICT ValueError다. 반입
+            영수증(origin IMPORT)은 같은 트랜잭션에서 넣고, 이미 있으면 그대로 둔다.
     """
-    counts = outcome_counts(plan)
     with conn.transaction():
         existing = conn.execute(
             "SELECT id,runner_ref,provider FROM evaluation.runs WHERE experiment_id=%s",
@@ -302,62 +306,88 @@ def insert_run(
         if existing:
             if len(existing) != 1 or existing[0][1:] != (RUNNER_REF, "gemini"):
                 raise ValueError("EVAL_IMPORT_RUN_CONFLICT")
-            return existing[0][0]
-        run_id = uuid4()
-        status = (
-            "SUCCEEDED"
-            if counts["VALID"] == len(plan.attempts)
-            else "PARTIAL"
-            if counts["VALID"]
-            else "FAILED"
-        )
+            run_id = existing[0][0]
+        else:
+            run_id = _insert_rows(conn, plan, experiment_id, actor, scoring_version)
         conn.execute(
-            "INSERT INTO evaluation.runs (id,experiment_id,status,runner_kind,runner_ref,"
-            "requested_by_user_id,provider,scoring_version,code_version,requested_count,"
-            "valid_output_count,held_count,failed_count,created_at,started_at,finished_at) "
-            "VALUES (%s,%s,%s,'local',%s,%s,'gemini',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (
-                run_id,
-                experiment_id,
-                status,
-                RUNNER_REF,
-                actor,
-                scoring_version,
-                plan.git_sha,
-                len(plan.attempts),
-                counts["VALID"],
-                counts["HELD"],
-                counts["INVALID_OUTPUT"] + counts["FAILED"],
-                plan.started_at,
-                plan.started_at,
-                plan.finished_at,
-            ),
+            "INSERT INTO evaluation.admission_receipts (run_id,response_request_id,origin,import_ref) "
+            "VALUES (%s,%s,'IMPORT',%s) ON CONFLICT (run_id) DO NOTHING",
+            (run_id, uuid4(), plan.import_ref),
         )
-        cases = []
-        attempts = []
-        for ticket_id, (outcome, parsed) in plan.attempts.items():
-            case_id = uuid4()
-            output = Jsonb(parsed) if parsed is not None else None
-            cases.append(
-                (case_id, run_id, experiment_id, ticket_id, CASE_STATUS[outcome], output)
-                + (plan.started_at, plan.finished_at)
-            )
-            attempts.append(
-                (uuid4(), case_id, outcome, plan.model, plan.model, output)
-                + (plan.started_at, plan.finished_at)
-            )
-        with conn.cursor() as cursor:
-            cursor.executemany(
-                "INSERT INTO evaluation.cases (id,run_id,experiment_id,target_ref,status,"
-                "final_output,created_at,completed_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                cases,
-            )
-            cursor.executemany(
-                "INSERT INTO evaluation.case_attempts (id,case_id,step,attempt,is_final,outcome,"
-                "provider,model_id,requested_model,parsed_output,started_at,finished_at) "
-                "VALUES (%s,%s,'classify',1,true,%s,'gemini',%s,%s,%s,%s,%s)",
-                attempts,
-            )
+    return run_id
+
+
+def _insert_rows(
+    conn: psycopg.Connection, plan: Plan, experiment_id: UUID, actor: UUID, scoring_version: str
+) -> UUID:
+    """실행·사례·시도 행을 넣는다(호출자 트랜잭션 안).
+
+    Args:
+        conn: 트랜잭션 중인 연결.
+        plan: 반입 계획.
+        experiment_id: 등록한 실험.
+        actor: 요청자.
+        scoring_version: 실행의 첫 채점 판본.
+
+    Returns:
+        UUID: 새 실행 ID.
+    """
+    counts = outcome_counts(plan)
+    run_id = uuid4()
+    status = (
+        "SUCCEEDED"
+        if counts["VALID"] == len(plan.attempts)
+        else "PARTIAL"
+        if counts["VALID"]
+        else "FAILED"
+    )
+    conn.execute(
+        "INSERT INTO evaluation.runs (id,experiment_id,status,runner_kind,runner_ref,"
+        "requested_by_user_id,provider,scoring_version,code_version,requested_count,"
+        "valid_output_count,held_count,failed_count,created_at,started_at,finished_at) "
+        "VALUES (%s,%s,%s,'local',%s,%s,'gemini',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (
+            run_id,
+            experiment_id,
+            status,
+            RUNNER_REF,
+            actor,
+            scoring_version,
+            plan.git_sha,
+            len(plan.attempts),
+            counts["VALID"],
+            counts["HELD"],
+            counts["INVALID_OUTPUT"] + counts["FAILED"],
+            plan.started_at,
+            plan.started_at,
+            plan.finished_at,
+        ),
+    )
+    cases = []
+    attempts = []
+    for ticket_id, (outcome, parsed) in plan.attempts.items():
+        case_id = uuid4()
+        output = Jsonb(parsed) if parsed is not None else None
+        cases.append(
+            (case_id, run_id, experiment_id, ticket_id, CASE_STATUS[outcome], output)
+            + (plan.started_at, plan.finished_at)
+        )
+        attempts.append(
+            (uuid4(), case_id, outcome, plan.model, plan.model, output)
+            + (plan.started_at, plan.finished_at)
+        )
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO evaluation.cases (id,run_id,experiment_id,target_ref,status,"
+            "final_output,created_at,completed_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            cases,
+        )
+        cursor.executemany(
+            "INSERT INTO evaluation.case_attempts (id,case_id,step,attempt,is_final,outcome,"
+            "provider,model_id,requested_model,parsed_output,started_at,finished_at) "
+            "VALUES (%s,%s,'classify',1,true,%s,'gemini',%s,%s,%s,%s,%s)",
+            attempts,
+        )
     return run_id
 
 
