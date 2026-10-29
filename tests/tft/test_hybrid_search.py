@@ -191,6 +191,7 @@ def test_fts_rows_become_ranked_candidates() -> None:
         ("per FLT-\u200d042 advice", True),
         ("per FLT\ufeff-042 advice", True),
         ("per FLT\u00ad-042 advice", True),
+        ("per FLT-<B>042</B> advice", True),
         ("code FLT042 only", False),
     ],
 )

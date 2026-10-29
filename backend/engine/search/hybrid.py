@@ -89,7 +89,8 @@ def codes_in(query: str) -> list[str]:
 
 def _fold(text: str) -> str:
     text = unicodedata.normalize("NFKC", html.unescape(text)).translate(INVISIBLE)
-    return SEPARATOR.sub("-", HIGHLIGHT.sub("", text).casefold())
+    # 대문자 태그(<B>)도 지우도록 casefold를 태그 제거보다 먼저 한다.
+    return SEPARATOR.sub("-", HIGHLIGHT.sub("", text.casefold()))
 
 
 def mentions_code(text: str, code: str) -> bool:
