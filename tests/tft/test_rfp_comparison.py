@@ -11,6 +11,7 @@ import pytest
 
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.api.tft.rfp.comparison import (
+    Certification,
     Product,
     Requirement,
     SearchTrace,
@@ -250,3 +251,73 @@ if __name__ == "__main__":
     # Regenerates the contract example from the engine.
     EXAMPLE.parent.mkdir(parents=True, exist_ok=True)
     EXAMPLE.write_text(json.dumps(example(), ensure_ascii=False, indent=2) + "\n")
+
+
+def test_a_product_not_on_sale_is_conditional_and_active_products_go_first():
+    requirement = Requirement(
+        clause_no="2.4",
+        item="정격 15 kV",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+    )
+    trace = SearchTrace(filters=[], documents_searched=2, search_failed=False)
+    mature = switchgear("17.5").model_copy(
+        update={"product_code": "SWGR-OLD", "lifecycle_status": "MATURE"}
+    )
+    alone = compare(requirement, [mature], trace)
+    assert (alone.status, alone.unresolved) == (
+        "CONDITIONAL",
+        ["수명주기 MATURE: 공급 지속 여부 확인"],
+    )
+    both = compare(requirement, [mature, switchgear("17.5")], trace)
+    assert (both.status, both.candidates[1].product_code) == ("EVIDENCE_FOUND", "SWGR-TEST")
+
+
+def test_values_that_cannot_be_compared_always_leave_something_to_check():
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    text = Requirement(
+        clause_no="2.4",
+        item="형식",
+        attribute="rated_max_voltage",
+        value="fifteen",
+        unit="kV",
+        operator="GTE",
+    )
+    outcome = compare(text, [switchgear("12")], trace)
+    assert outcome.candidates[0].result == "NOT_COMPARABLE"
+    assert outcome.unresolved == ["값 확인: 요구 fifteen, 자사 12"]
+
+
+def certified(kind, variant=None):
+    return switchgear("15").model_copy(
+        update={
+            "certifications": [
+                Certification(standard="UL 1558", kind=kind, evidence_id="DS-T", variant=variant)
+            ]
+        }
+    )
+
+
+def test_certification_kind_and_variant_decide_gap_or_condition():
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    listed = Requirement(
+        clause_no="2.1",
+        item="UL 1558 Listed",
+        certification_standard="UL 1558",
+        certification_listed=True,
+    )
+    # A test report does not replace a listing: evidence of not meeting → certification gap.
+    gap = compare(listed, [certified("TEST_REPORT")], trace)
+    assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "CERTIFICATION")
+    paths = options_for(gap, "ALLOWED")
+    assert [o.path for o in paths.options] == [
+        "OTHER_OWN_PRODUCT",
+        "EXTERNAL_PRODUCT",
+        "ALTERNATIVE_SPEC",
+    ]
+    assert compare(listed, [certified("LISTED")], trace).status == "EVIDENCE_FOUND"
+    # Held only by a variant model: not widened to the base model.
+    variant = compare(listed, [certified("LISTED", variant="-U")], trace)
+    assert (variant.status, variant.unresolved) == ("CONDITIONAL", ["-U 변형 모델 선택 확인"])
