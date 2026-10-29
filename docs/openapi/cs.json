@@ -737,6 +737,47 @@
         "title": "CustomerLoad",
         "type": "object"
       },
+      "CustomerReply": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "HEADER",
+              "THREAD",
+              "HUMAN"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "reopened": {
+            "title": "Reopened",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "method",
+          "received_at",
+          "reopened",
+          "created_at"
+        ],
+        "title": "CustomerReply",
+        "type": "object"
+      },
       "CustomerRequest": {
         "properties": {
           "evidence_tickets": {
@@ -781,6 +822,218 @@
           "evidence_tickets"
         ],
         "title": "CustomerRequest",
+        "type": "object"
+      },
+      "CustomerSend": {
+        "description": "An approved customer message and what the platform said about it so far.\n\n`request_status` is about handing the message to the platform; `send_status` is the\nplatform's own state (QUEUED, SUBMITTING, ACCEPTED, UNKNOWN, FAILED). ACCEPTED means the\nmail provider took the message, not that the customer received it.",
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "format": "uuid",
+            "title": "Approved By",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "body_type": {
+            "enum": [
+              "text",
+              "html"
+            ],
+            "title": "Body Type",
+            "type": "string"
+          },
+          "cc_addresses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cc Addresses",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "intent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent Id"
+          },
+          "kind": {
+            "enum": [
+              "ANSWER",
+              "INFO_REQUEST"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mailbox_id": {
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When ACCEPTED moved the ticket to ANSWERED or WAITING_CUSTOMER.",
+            "title": "Recorded At"
+          },
+          "request_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Error"
+          },
+          "request_status": {
+            "enum": [
+              "PENDING",
+              "REGISTERED",
+              "REJECTED",
+              "REQUEST_FAILED",
+              "REQUEST_UNKNOWN"
+            ],
+            "title": "Request Status",
+            "type": "string"
+          },
+          "send_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send Error Code"
+          },
+          "send_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send Status"
+          },
+          "sent_copy_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent Copy Confirmed At"
+          },
+          "status_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Checked At"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "to_addresses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "To Addresses",
+            "type": "array"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "workflow_version",
+          "mailbox_id",
+          "subject",
+          "body_type",
+          "body",
+          "to_addresses",
+          "cc_addresses",
+          "payload_sha256",
+          "approved_by",
+          "approved_at",
+          "request_status",
+          "request_error",
+          "intent_id",
+          "send_status",
+          "send_error_code",
+          "attempts",
+          "accepted_at",
+          "sent_copy_confirmed_at",
+          "status_checked_at",
+          "recorded_at",
+          "created_at"
+        ],
+        "title": "CustomerSend",
         "type": "object"
       },
       "CustomerTicket": {
@@ -2597,6 +2850,43 @@
         "title": "JudgementWrite",
         "type": "object"
       },
+      "MailOrigin": {
+        "properties": {
+          "mailbox_id": {
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "registered_by": {
+            "format": "uuid",
+            "title": "Registered By",
+            "type": "string"
+          },
+          "sender_address": {
+            "title": "Sender Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "mailbox_id",
+          "sender_address",
+          "received_at",
+          "registered_by"
+        ],
+        "title": "MailOrigin",
+        "type": "object"
+      },
       "NextOwner": {
         "description": "Who acts next and on what. The C/S owner may still be unassigned (null).",
         "properties": {
@@ -4207,58 +4497,6 @@
         "title": "ReviewRequest",
         "type": "object"
       },
-      "SendRequest": {
-        "additionalProperties": false,
-        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
-        "properties": {
-          "dept_codes": {
-            "anyOf": [
-              {
-                "items": {
-                  "enum": [
-                    "TS_LV",
-                    "TS_MV",
-                    "TS_TRF",
-                    "TS_AUTO",
-                    "TS_ENERGY",
-                    "RND_FW",
-                    "QA_CLAIM",
-                    "FIELD_SVC",
-                    "CERT",
-                    "SALES_OPS",
-                    "SCM",
-                    "WARRANTY_DESK"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dept Codes"
-          },
-          "reply_due_days": {
-            "default": 7,
-            "maximum": 90.0,
-            "minimum": 1.0,
-            "title": "Reply Due Days",
-            "type": "integer"
-          },
-          "version": {
-            "description": "The request version the user decided on.",
-            "minimum": 1.0,
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version"
-        ],
-        "title": "SendRequest",
-        "type": "object"
-      },
       "Side": {
         "description": "\uc870\uac74\uc758 \ud55c\ucabd(\uae30\uc900 \ub610\ub294 \ub300\uc0c1). \ub9c8\uc2a4\ud0b9\ub41c \uac12, \ub610\ub294 null\uacfc \uc0ac\uc720.",
         "properties": {
@@ -5595,6 +5833,22 @@
             ],
             "title": "Closed By"
           },
+          "customer_replies": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerReply"
+            },
+            "title": "Customer Replies",
+            "type": "array"
+          },
+          "customer_sends": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerSend"
+            },
+            "title": "Customer Sends",
+            "type": "array"
+          },
           "customer_sent_at": {
             "anyOf": [
               {
@@ -5614,6 +5868,16 @@
             },
             "title": "Dept Results",
             "type": "array"
+          },
+          "mail_origin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MailOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "owner_user_id": {
             "anyOf": [
@@ -5721,6 +5985,144 @@
           "dept_results"
         ],
         "title": "Workflow",
+        "type": "object"
+      },
+      "backend__api__cs__improvements__schemas__SendRequest": {
+        "additionalProperties": false,
+        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
+        "properties": {
+          "dept_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Codes"
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "SendRequest",
+        "type": "object"
+      },
+      "backend__api__cs__workflow__schemas__SendRequest": {
+        "additionalProperties": false,
+        "description": "A C/S agent approves an answer or an information request for the customer.",
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "body_type": {
+            "default": "text",
+            "enum": [
+              "text",
+              "html"
+            ],
+            "title": "Body Type",
+            "type": "string"
+          },
+          "cc": {
+            "items": {
+              "maxLength": 320,
+              "minLength": 3,
+              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cc",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "ANSWER",
+              "INFO_REQUEST"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mailbox_id": {
+            "description": "The approver's connected mailbox (KAN-81).",
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "subject": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 320,
+                  "minLength": 3,
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recipients. Omitted: the sender of the mail that opened the ticket.",
+            "title": "To"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "mailbox_id",
+          "subject",
+          "body"
+        ],
+        "title": "SendRequest",
         "type": "object"
       }
     }
@@ -8666,7 +9068,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SendRequest"
+                "$ref": "#/components/schemas/backend__api__cs__improvements__schemas__SendRequest"
               }
             }
           },
@@ -10219,7 +10621,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/close": {
       "post": {
-        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.",
+        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
         "operationId": "cs_close_ticket",
         "parameters": [
           {
@@ -10962,6 +11364,334 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/send": {
+      "post": {
+        "description": "Approves an answer or an information request and hands it to the platform.\n\nIN_REVIEW only, one unsettled send at a time, and no department result waiting for\nreview. The workflow version advances on approval; the state changes only once the\nplatform reports ACCEPTED (refresh). The outcome of the hand-over is in the returned\nsend's `request_status`, not in the HTTP status.",
+        "operationId": "cs_send_customer_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__api__cs__workflow__schemas__SendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send Message",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/sends/{send_id}/refresh": {
+      "post": {
+        "description": "Reads the platform status of a registered send. The first ACCEPTED moves the ticket\nto ANSWERED (answer) or WAITING_CUSTOMER (information request).",
+        "operationId": "cs_refresh_customer_send",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "send_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Send Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Refresh Send",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/sends/{send_id}/retry": {
+      "post": {
+        "description": "Calls the platform again for a send it never answered (PENDING, REQUEST_FAILED,\nREQUEST_UNKNOWN). Same version and content, so the platform returns the existing intent\nif the first call did get through.",
+        "operationId": "cs_retry_customer_send",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "send_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Send Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Action"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Retry Send",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/tickets/{ticket_id}/workflow/start-review": {
       "post": {
         "description": "RECEIVED \u2192 IN_REVIEW by a C/S agent, who becomes the owner if there is none.",
@@ -11069,7 +11799,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/transfer": {
       "post": {
-        "description": "IN_REVIEW \u2192 TRANSFERRED. The C/S agent confirms the department and the reason.",
+        "description": "IN_REVIEW \u2192 TRANSFERRED. The C/S agent confirms the department and the reason.\n\nRefused while a customer send is unsettled (KAN-110): the send's outcome must land on\nthe ticket in review first.",
         "operationId": "cs_transfer_ticket",
         "parameters": [
           {

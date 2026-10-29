@@ -24,7 +24,8 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.responses import JSONResponse
 
-from backend.api.platform.mail.links import judge_new_replies
+from backend.api.platform.mail.business import cs_caller
+from backend.api.platform.mail.links import judge_new_replies, notify_cs_replies
 from backend.api.platform.mail.storage import BUCKET_NAME, GcsObjectStore, GoogleAccessToken
 from backend.api.platform.mail.sync import SyncResult, sync_mailbox
 from backend.shared.database import connection
@@ -123,6 +124,9 @@ class SyncData(BaseModel):
     replies_linked: int = 0
     replies_review: int = 0
     replies_failed: int = 0
+    # 연결된 회신을 C/S에 알린 수(KAN-110). 알리지 못한 연결은 다음 실행에서 다시 알린다.
+    replies_notified: int = 0
+    replies_notify_failed: int = 0
 
 
 def dispatch_unavailable() -> ApplicationError:
@@ -314,6 +318,7 @@ async def sync(request: Request) -> JSONResponse:
             storage_client, value.object_bucket, request.app.state.mail_sync_storage_token
         )
         judged = {"LINKED": 0, "REVIEW": 0, "failed": 0}
+        notified = {"notified": 0, "failed": 0}
         try:
             result: SyncResult | None = await sync_mailbox(
                 request.app.state.settings,
@@ -337,6 +342,12 @@ async def sync(request: Request) -> JSONResponse:
             except (psycopg.Error, ApplicationError, HTTPException):
                 # 공용 DB 연결은 DB 오류를 HTTP 503 예외로 바꾼다. 그것도 수집 결과로 번지지 않게 한다.
                 judged["failed"] += 1
+            caller = cs_caller(request)
+            if caller is not None:
+                try:
+                    notified = await notify_cs_replies(request.app.state.settings, caller)
+                except (psycopg.Error, ApplicationError, HTTPException):
+                    notified = {"notified": 0, "failed": 1}
     if result is None:
         data = SyncData(
             mailbox_id=payload.mailbox_id, outcome="SKIPPED", code=code, messages_stored=0
@@ -354,6 +365,8 @@ async def sync(request: Request) -> JSONResponse:
             replies_linked=judged["LINKED"],
             replies_review=judged["REVIEW"],
             replies_failed=judged["failed"],
+            replies_notified=notified["notified"],
+            replies_notify_failed=notified["failed"],
         )
         status = 503 if result.error_code in TRANSIENT else 200
     body = SuccessResponse[SyncData](

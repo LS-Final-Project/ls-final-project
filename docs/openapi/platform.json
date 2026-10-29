@@ -1911,6 +1911,87 @@
         "title": "Reclassification",
         "type": "object"
       },
+      "RegisterTicket": {
+        "additionalProperties": false,
+        "description": "\uc811\uc218 \ub2f4\ub2f9\uc790\uac00 \uba54\uc77c\uc744 \uc77d\uace0 \ud655\uc778\ud55c \uac12. \uc81c\ubaa9\u00b7\ubcf8\ubb38\u00b7\ubcf4\ub0b8 \uc0ac\ub78c\uc740 \uc6d0\ubb38\uc5d0\uc11c \uac00\uc838\uc628\ub2e4.",
+        "properties": {
+          "body_language": {
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Body Language",
+            "type": "string"
+          },
+          "customer_external_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "error_code_reported": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code Reported"
+          },
+          "fw_version_reported": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version Reported"
+          },
+          "product_code": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Product Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_external_id",
+          "product_code",
+          "body_language"
+        ],
+        "title": "RegisterTicket",
+        "type": "object"
+      },
+      "RegisteredTicket": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "ticket_id",
+          "created"
+        ],
+        "title": "RegisteredTicket",
+        "type": "object"
+      },
       "ReplyResult": {
         "description": "\ud68c\uc2e0 \ud310\uc815 \uacb0\uacfc.",
         "properties": {
@@ -2636,6 +2717,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RegisteredTicket_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RegisteredTicket"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RegisteredTicket]",
         "type": "object"
       },
       "SuccessResponse_ReplyResult_": {
@@ -4840,6 +4937,112 @@
         "tags": [
           "jobs"
         ]
+      }
+    },
+    "/api/v1/platform/mail/messages/{message_id}/register-ticket": {
+      "post": {
+        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc778 cs_agent\uac00 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc744 C/S \ubb38\uc758\ub85c \uc811\uc218\ud55c\ub2e4.\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6cc\uc9c4 \uba54\uc77c\uc740 404, \uc774\ubbf8 \uc774 \uba54\uc77c\ub85c \uc811\uc218\ud55c \ubb38\uc758\uac00 \uc788\uc73c\uba74 \uadf8 \ubb38\uc758\uc5d0\n\ub2e4\uc2dc \uc5f0\uacb0\ud558\uace0 200\uc744 \ub3cc\ub824\uc900\ub2e4(\ub450 \ubc88 \uc811\uc218\ud558\uc9c0 \uc54a\uc74c). \uc5c5\ubb34 \uc911\uacc4\uac00 \uaebc\uc838 \uc788\uc73c\uba74 404\ub2e4.",
+        "operationId": "platform_register_mail_ticket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RegisteredTicket_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Register Ticket",
+        "tags": [
+          "mail-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/platform/mail/messages/{message_id}/triage": {

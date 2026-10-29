@@ -8,6 +8,8 @@ from backend.api.cs.improvements.transition_routes import router as improvement_
 from backend.api.cs.stats.routes import router as stats
 from backend.api.cs.tickets.routes import router as tickets
 from backend.api.cs.units.routes import router as units
+from backend.api.cs.workflow.internal_routes import router as customer_mail_internal
+from backend.api.cs.workflow.mail_routes import router as customer_mail
 from backend.api.cs.workflow.routes import case_router
 from backend.api.cs.workflow.routes import router as workflow
 
@@ -16,6 +18,8 @@ router.include_router(tickets)
 router.include_router(units)
 router.include_router(workflow)
 router.include_router(case_router)
+router.include_router(customer_mail)
+router.include_router(customer_mail_internal)
 router.include_router(improvements)
 router.include_router(improvement_transitions)
 router.include_router(comparisons)

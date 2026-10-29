@@ -9,6 +9,7 @@ from backend.api.platform.auth.settings import MicrosoftAuthSettings
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.jobs.tft import TftJobSettings, configure_tft_jobs
 from backend.api.platform.jobs.tft import router as tft_jobs_router
+from backend.api.platform.mail.intake import router as mail_intake_router
 from backend.api.platform.mail.send_http import router as mail_send_user_router
 from backend.api.platform.mail.send_worker import MailSendSettings, configure_mail_send
 from backend.api.platform.mail.send_worker import router as mail_send_router
@@ -53,6 +54,7 @@ def create_app(
     app.include_router(mail_worker_router)
     app.include_router(mail_send_router)
     app.include_router(mail_send_user_router)
+    app.include_router(mail_intake_router)
     app.include_router(tft_jobs_router)
     if app.state.settings.dev_auth_enabled and app.state.settings.environment in {"local", "test"}:
         app.include_router(dev_router)
