@@ -103,6 +103,7 @@ class RunOutcome:
     errors: list[dict[str, str]]
     attempt_ids: list[str]
     # 시도 요약(원문 없음)과 형식 위반 재호출 수·그중 시도 2가 VALID인 수(KAN-194 4차).
+    # retried·recovered는 분류·초안 합산이다. 단계별은 attempts의 kind로 나눈다.
     attempts: list[dict[str, Any]]
     retried: int
     recovered: int
