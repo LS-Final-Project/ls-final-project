@@ -370,15 +370,38 @@ def test_only_the_cs_worker_role_may_run(settings, jobs_database, cs_job):
     assert snapshot(jobs_database, cs_job)[0] == "QUEUED"
 
 
+@pytest.mark.parametrize("status", ["QUEUED", "RUNNING"])
+def test_cancel_requested_after_the_worker_died_ends_cancelled(
+    worker_settings, jobs_database, cs_job, status
+):
+    """취소 요청이 있고 살아 있는 소유자가 없으면 인수하지 않고 CANCELLED로 확정한다(이연 P3, #278)."""
+    orphan(jobs_database, cs_job)
+    admin(jobs_database, "UPDATE runtime.jobs SET status=%s WHERE id=%s", status, cs_job)
+    admin(
+        jobs_database,
+        "UPDATE runtime.job_control SET cancel_requested_at=now() WHERE job_id=%s",
+        cs_job,
+    )
+    harness = Harness()
+    assert harness.run(worker_settings, cs_job) == "CS_JOB_CANCELLED"
+    assert harness.calls == []
+    status_after, released, _, failure, events = snapshot(jobs_database, cs_job)
+    assert (status_after, released, failure) == ("CANCELLED", True, None)
+    assert events[-1] == ("job.completed", {"state": "CANCELLED"})
+    assert "job.started" not in [kind for kind, _ in events]
+
+
 @pytest.mark.parametrize(
     "change",
     [
-        "UPDATE runtime.job_control SET cancel_requested_at=now() WHERE job_id=%s",
         "UPDATE runtime.jobs SET status='SUCCEEDED' WHERE id=%s",
         "UPDATE runtime.job_control SET holder_id=gen_random_uuid(),"
         "lease_expires_at=now()+interval '1 minute' WHERE job_id=%s",
+        # 살아 있는 소유자가 있으면 취소 요청이 있어도 그 worker가 다음 노드 전에 끝낸다.
+        "UPDATE runtime.job_control SET holder_id=gen_random_uuid(),cancel_requested_at=now(),"
+        "lease_expires_at=now()+interval '1 minute' WHERE job_id=%s",
     ],
-    ids=["cancel-requested", "finished", "live-owner"],
+    ids=["finished", "live-owner", "cancel-with-live-owner"],
 )
 def test_jobs_that_must_not_start_are_not_claimed(worker_settings, jobs_database, cs_job, change):
     """취소 요청·종료·살아 있는 다른 소유자면 인수하지 않는다."""

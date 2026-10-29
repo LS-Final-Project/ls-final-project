@@ -9,7 +9,10 @@ from google.oauth2.credentials import Credentials
 
 from backend.engine.cs import prompt_registry
 from backend.engine.cs.classification import ClassificationInput
-from backend.engine.cs.classification_call import ClassificationCallError
+from backend.engine.cs.classification_call import (
+    ClassificationCallError,
+    run_classification_attempt,
+)
 from backend.engine.cs.drafting import DraftOutput
 from backend.engine.cs.prompt_registry import get_prompt
 from backend.engine.cs.providers import (
@@ -19,6 +22,7 @@ from backend.engine.cs.providers import (
 )
 from backend.shared.ai import AISettings, create_client
 from eval.cs_candidates import Candidate, run_candidates
+from tests.cs.test_drafting import attempt as draft_attempt
 
 KEY = "fixture-key-must-not-leak"
 ANSWER = (
@@ -313,3 +317,46 @@ def test_candidate_rows_record_knobs(sdk_http, client):
         allowed_info_codes=CODES,
     )
     assert result["candidates"][0]["knobs"] == knobs
+
+
+def test_exhausted_transient_retries_record_the_real_call_count(sdk_http, monkeypatch):
+    """429가 계속돼 재시도를 다 쓰면 실패 시도에도 실제 호출 수(2)가 남는다(#269 이연 P3)."""
+    _, requests = sdk_http
+    monkeypatch.setattr("backend.shared.ai.time.sleep", lambda seconds: None)
+
+    def limited(_client, request, **kwargs):
+        requests.append(request)
+        body = {"error": {"code": 429, "message": "fixture-provider-text"}}
+        return httpx.Response(429, json=body, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", limited)
+    settings = AISettings(gemini_api_key=KEY, gemini_transient_retries=1)
+    with create_client(settings) as client:
+        provider = gemini_classification_provider(
+            client, settings, model="gemini-3.6-flash", allowed_info_codes=CODES
+        )
+        attempt = run_classification_attempt(
+            {
+                "channel": "EMAIL",
+                "body_language": "en",
+                "subject": "Return",
+                "body": "Take it back.",
+            },
+            sensitive_values={},
+            allowed_info_codes=CODES,
+            provider=provider,
+            attempt_number=1,
+        )
+        assert (attempt.outcome, attempt.error_code, attempt.call_attempts) == (
+            "TRANSPORT_FAILURE",
+            "CS_RATE_LIMITED",
+            2,
+        )
+        assert len(requests) == 2
+        draft = draft_attempt(gemini_text_provider(client, settings, model="gemini-3.6-flash"))
+        assert (draft.outcome, draft.error_code, draft.call_attempts) == (
+            "TRANSPORT_FAILURE",
+            "CS_RATE_LIMITED",
+            2,
+        )
+        assert len(requests) == 4

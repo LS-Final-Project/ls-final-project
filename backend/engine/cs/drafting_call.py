@@ -129,8 +129,10 @@ def run_draft_attempt(
         code: CallErrorCode = "CS_PROVIDER_ERROR"
         usage = Usage()
         http_status = None
+        attempts = None
         if isinstance(error, ClassificationCallError):
             code, usage, http_status = error.code, replace(error.usage), error.http_status
+            attempts = error.call_attempts
         elif isinstance(error, TimeoutError):
             code = "CS_PROVIDER_TIMEOUT"
         return replace(
@@ -141,6 +143,7 @@ def run_draft_attempt(
             http_status=http_status,
             usage=usage,
             latency_ms=round((time.perf_counter() - started) * 1000, 3),
+            call_attempts=attempts,
         )
 
     result = replace(

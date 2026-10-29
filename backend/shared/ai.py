@@ -266,6 +266,23 @@ def create_client(
     )
 
 
+# generate가 실패 예외에 실제 호출 수를 붙이는 속성 이름.
+CALL_ATTEMPTS = "call_attempts"
+
+
+def failed_attempts(error: BaseException) -> int | None:
+    """generate가 올린 실패 예외에 붙인 실제 호출 수.
+
+    Args:
+        error: generate가 올린 예외.
+
+    Returns:
+        int | None: 실패까지의 호출 수. generate가 붙이지 않은 예외면 None이다.
+    """
+    value = getattr(error, CALL_ATTEMPTS, None)
+    return value if type(value) is int and value >= 1 else None
+
+
 def generate(
     client: genai.Client,
     settings: AISettings,
@@ -291,7 +308,7 @@ def generate(
         Generation: 응답 텍스트·사용량·모델 판본·종료 사유. 타임아웃·429·5xx는 settings.gemini_transient_retries만큼
             TRANSIENT_BACKOFF_SECONDS부터 두 배씩 기다려 다시 부르고 attempts에 실제 호출 수를 남긴다. 실패 호출은
             예외라 사용량이 없으므로 usage는 성공 호출 기준이다. 4xx(429 제외) 같은 명확한 거부와 재시도를 다 쓴
-            일시 오류는 그대로 올린다.
+            일시 오류는 그대로 올리되, 그때까지의 실제 호출 수를 예외에 붙인다(failed_attempts로 읽는다).
     """
     thinking = (
         types.ThinkingConfig(thinking_budget=thinking_budget, thinking_level=thinking_level)
@@ -320,6 +337,8 @@ def generate(
                 type(error.code) is int and (error.code == 429 or error.code >= 500)
             )
             if not transient or attempts > settings.gemini_transient_retries:
+                # 재시도 소진 실패도 실제 호출 수를 호출자가 기록할 수 있게 남긴다(#269 이연 P3).
+                setattr(error, CALL_ATTEMPTS, attempts)
                 raise
             time.sleep(TRANSIENT_BACKOFF_SECONDS * 2 ** (attempts - 1))
     elapsed_ms = round((time.perf_counter() - started) * 1000)
