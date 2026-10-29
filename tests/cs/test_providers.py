@@ -126,17 +126,22 @@ def test_text_provider_sends_the_prompt_and_optional_schema(sdk_http, client):
 
 
 @pytest.mark.parametrize(
-    ("status", "error", "code", "http_status"),
+    ("status", "error", "code", "http_status", "calls"),
     [
-        (429, None, "CS_RATE_LIMITED", 429),
-        (503, None, "CS_PROVIDER_ERROR", 503),
-        (400, None, "CS_PROVIDER_ERROR", 400),
-        (200, httpx.ReadTimeout("fixture-timeout " + KEY), "CS_PROVIDER_TIMEOUT", None),
-        (200, httpx.ConnectError("fixture-connect " + KEY), "CS_PROVIDER_ERROR", None),
+        (429, None, "CS_RATE_LIMITED", 429, 2),
+        (503, None, "CS_PROVIDER_ERROR", 503, 2),
+        (400, None, "CS_PROVIDER_ERROR", 400, 1),
+        (200, httpx.ReadTimeout("fixture-timeout " + KEY), "CS_PROVIDER_TIMEOUT", None, 2),
+        (200, httpx.ConnectError("fixture-connect " + KEY), "CS_PROVIDER_ERROR", None, 1),
     ],
 )
-def test_failures_map_to_codes_without_messages(sdk_http, client, status, error, code, http_status):
-    """429·5xx·4xx·타임아웃·연결 실패를 코드로만 올리고 키·제공자 원문을 버린다."""
+def test_failures_map_to_codes_without_messages(
+    sdk_http, client, status, error, code, http_status, calls
+):
+    """429·5xx·4xx·타임아웃·연결 실패를 코드로만 올리고 키·제공자 원문을 버린다.
+
+    일시 오류(429·5xx·타임아웃)는 generate가 기본 1회 다시 부른 뒤 올리므로 공급자당 호출이 2회다(KAN-144 14차).
+    """
     state, requests = sdk_http
     state.update(
         status=status,
@@ -156,7 +161,7 @@ def test_failures_map_to_codes_without_messages(sdk_http, client, status, error,
         assert (raised.value.code, raised.value.http_status) == (code, http_status)
         assert raised.value.__context__ is None and raised.value.__cause__ is None
         assert KEY not in repr(raised.value) and "fixture-provider-text" not in str(raised.value)
-    assert len(requests) == 2
+    assert len(requests) == 2 * calls
 
 
 def test_unknown_version_and_bad_settings_fail_before_any_call(sdk_http, client):
