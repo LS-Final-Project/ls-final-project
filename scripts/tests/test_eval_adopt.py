@@ -99,6 +99,31 @@ class EvalAdoptTest(unittest.TestCase):
         note = (self.root / "note.md").read_text(encoding="utf-8")
         self.assertTrue(note.startswith("# 설정 채택 결정 메모: classification · a"))
 
+    def test_rfp_task_reads_rfp_gates_by_default(self):
+        """--task rfp는 --gates 없이 gates-rfp-v1 9개를 판정하고, 측정값 없는 지표는 NOT_EVALUABLE이다.
+
+        Returns:
+            None: 표준 출력의 게이트 건수와 blocker를 확인한다.
+        """
+        rfp = {
+            "meta": {
+                "candidates": [{"name": "r", "extractor": "rules-v1"}],
+                "documents": 4,
+                "started_at": "2026-10-30T00:00:00+00:00",
+                "git_sha": "1234abc",
+            },
+            "result": {"candidates": [{"name": "r", "rfp_requirement_recall": 0.92}]},
+        }
+        (self.root / "rfp.json").write_text(json.dumps(rfp), encoding="utf-8")
+        code, out, _ = self.run_main(
+            "--task", "rfp", "--results", str(self.root / "rfp.json"), "--adopt", "r"
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            json.loads(out),
+            {"counts": {"PASS": 1, "FAIL": 0, "NOT_EVALUABLE": 8}, "blocker": True},
+        )
+
     def test_existing_output_is_not_overwritten(self):
         """기록이나 메모 파일이 이미 있으면 둘 다 쓰지 않고 종료 코드 1이다.
 

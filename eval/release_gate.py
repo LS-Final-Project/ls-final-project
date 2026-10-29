@@ -1,7 +1,8 @@
 """출시 게이트 판정·퇴행·결함 분류(KAN-156). DB·모델에 접근하지 않는다.
 
-합격선·허용 폭·실패율 상한은 이 모듈이 정하지 않는다. 합격선은 KAN-82에서 잠근 eval/policy/gates-v1.json을
-load_gates로 읽고(이 모듈이 읽는 유일한 파일), 나머지는 기본값 없이 입력으로만 받는다.
+합격선·허용 폭·실패율 상한은 이 모듈이 정하지 않는다. 합격선은 잠근 파일(C/S·검색·규칙은 KAN-82의
+eval/policy/gates-v1.json, RFP는 KAN-143의 gates-rfp-v1.json)을 load_gates로 읽고, 나머지는 기본값 없이 입력으로만
+받는다.
 값이 없거나 유한하지 않으면(NaN·inf) NOT_EVALUABLE이다. contracts/platform/evaluations.md의 "임의로 합격
 처리하지 않는다"에 따라 blocker 게이트는 미달뿐 아니라 측정 불가도 출시를 막고, 퇴행·실패율·측정 불가 결함도
 출시를 막는다. 저장 시각(recorded_at)은 호출자가 붙인다.
@@ -22,7 +23,11 @@ SCHEMA_KEY = "schema_violation_rate"
 FAILURE_KEY = "transport_failure_rate"
 CRITICAL_LABELS = ("SAFETY", "SITE_DOWN")
 GATES_PATH = Path(__file__).parent / "policy" / "gates-v1.json"
+GATES_RFP_PATH = Path(__file__).parent / "policy" / "gates-rfp-v1.json"
 GATE_KEYS = {"metric_key", "comparison", "threshold", "blocker", "segment"}
+# 게이트 항목의 선택 키 definition(분자·분모·보고 방식·측정 도구 상태). 판정에는 쓰지 않고 형식만 본다.
+DEFINITION_KEYS = {"numerator", "denominator", "report", "tool"}
+TOOL_STATUSES = {"IMPLEMENTED", "PARTIAL", "MISSING"}
 REGRESSION_DEFECTS = {
     "QUALITY": "QUALITY_REGRESSION",
     "COST": "COST_REGRESSION",
@@ -63,6 +68,30 @@ class Tolerance:
     kind: MetricKind
 
 
+def _valid_definition(value: Any) -> bool:
+    """게이트 선택 키 definition의 형식을 본다.
+
+    Args:
+        value: definition 값.
+
+    Returns:
+        bool: 네 키가 정확히 있고 문자열·tool 형식이 맞으면 True.
+    """
+
+    def text(item: Any) -> bool:
+        return isinstance(item, str) and bool(item.strip())
+
+    return (
+        isinstance(value, dict)
+        and set(value) == DEFINITION_KEYS
+        and all(text(value[key]) for key in ("numerator", "denominator", "report"))
+        and isinstance(value["tool"], dict)
+        and set(value["tool"]) == {"status", "ref"}
+        and value["tool"]["status"] in TOOL_STATUSES
+        and text(value["tool"]["ref"])
+    )
+
+
 def load_gates(path: Path = GATES_PATH) -> list[Gate]:
     """잠근 합격선 파일을 읽어 Gate 목록으로 만든다.
 
@@ -71,8 +100,9 @@ def load_gates(path: Path = GATES_PATH) -> list[Gate]:
 
     Returns:
         list[Gate]: 파일 순서의 게이트. 모르는 키·빠진 키, 허용 밖 comparison, 유한한 수가 아닌 threshold(bool
-            포함), bool이 아닌 blocker, 빈 metric_key·segment, 같은 (metric_key, segment) 중복은
-            EVAL_INVALID_INPUT ValueError다.
+            포함), bool이 아닌 blocker, 빈 metric_key·segment, 같은 (metric_key, segment) 중복, 형식이 틀린 선택 키
+            definition({numerator, denominator, report: 빈 값 아닌 문자열, tool: {status: IMPLEMENTED·PARTIAL·
+            MISSING, ref: 빈 값 아닌 문자열}})은 EVAL_INVALID_INPUT ValueError다.
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -86,7 +116,8 @@ def load_gates(path: Path = GATES_PATH) -> list[Gate]:
         for item in data["gates"]:
             threshold = item["threshold"]
             if (
-                set(item) != GATE_KEYS
+                set(item) - {"definition"} != GATE_KEYS
+                or ("definition" in item and not _valid_definition(item["definition"]))
                 or item["comparison"] not in (">=", "<=", "==")
                 or type(threshold) not in (int, float)
                 or not math.isfinite(threshold)

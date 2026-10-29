@@ -334,3 +334,51 @@ def test_load_gates_rejects_invalid_files(tmp_path, change):
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         load_gates(path)
+
+
+def test_rfp_gates_file_matches_planning_table(tmp_path):
+    """RFP 합격선(gates-rfp-v1)은 기획서 3.2 값 9개이고 blocker는 두 0건 항목뿐이며, definition 형식을 검사한다.
+
+    Args:
+        tmp_path: 임시 디렉터리.
+
+    Returns:
+        None: 값·blocker·definition 형식 거부를 확인한다.
+    """
+    import json
+
+    from eval.adoption import RFP_METRIC_KEYS
+    from eval.release_gate import GATES_RFP_PATH
+
+    gates = load_gates(GATES_RFP_PATH)
+    assert {(g.metric_key, g.comparison, g.threshold) for g in gates} == {
+        ("rfp_requirement_recall", ">=", 0.90),
+        ("rfp_requirement_precision", ">=", 0.90),
+        ("rfp_status_match_rate", ">=", 0.90),
+        ("rfp_evidence_accuracy", ">=", 0.95),
+        ("rfp_critical_false_fulfillment_count", "==", 0.0),
+        ("rfp_partner_recommendation_precision", ">=", 0.90),
+        ("rfp_integration_responsibility_rate", "==", 1.0),
+        ("rfp_mandatory_constraint_violation_count", "==", 0.0),
+        ("rfp_draft_trace_rate", "==", 1.0),
+    }
+    assert {g.metric_key for g in gates if g.blocker} == {
+        "rfp_critical_false_fulfillment_count",
+        "rfp_mandatory_constraint_violation_count",
+    }
+    assert tuple(g.metric_key for g in gates) == RFP_METRIC_KEYS
+    data = json.loads(GATES_RFP_PATH.read_text(encoding="utf-8"))
+    tools = {item["definition"]["tool"]["status"] for item in data["gates"]}
+    assert tools == {"IMPLEMENTED", "PARTIAL", "MISSING"}
+    for change in (
+        lambda d: d["gates"][0]["definition"].pop("denominator"),
+        lambda d: d["gates"][0]["definition"]["tool"].update(status="DONE"),
+        lambda d: d["gates"][0]["definition"].update(numerator=" "),
+        lambda d: d["gates"][0].update(definition="분자/분모"),
+    ):
+        broken = json.loads(json.dumps(data))
+        change(broken)
+        path = tmp_path / "rfp.json"
+        path.write_text(json.dumps(broken), encoding="utf-8")
+        with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+            load_gates(path)
