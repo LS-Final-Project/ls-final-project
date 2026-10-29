@@ -310,3 +310,39 @@ def test_adopted_record_needs_a_waiver_for_each_blocker_fail():
     )
     assert "예외 승인 없음." in render_decision_note(proposed)
     assert json.loads(waived.to_json())["waivers"] == [waiver]
+
+
+def test_rfp_record_marks_unmeasured_rfp_gates_not_evaluable():
+    """RFP 기록은 gates-rfp-v1 9개를 모두 판정하고, 측정값 없는 지표는 NOT_EVALUABLE(blocker 미측정이면 blocker)이다."""
+    from eval.release_gate import GATES_RFP_PATH
+
+    run = json.dumps(
+        {
+            "meta": {
+                "candidates": [{"name": "r", "extractor": "rules-v1"}],
+                "documents": 4,
+                "started_at": "2026-10-30T00:00:00+00:00",
+                "git_sha": "1234abc",
+            },
+            "result": {
+                "candidates": [
+                    {
+                        "name": "r",
+                        "rfp_requirement_recall": 0.95,
+                        "rfp_requirement_precision": 0.8,
+                        "rfp_mandatory_constraint_violation_count": 0,
+                    }
+                ]
+            },
+        }
+    ).encode()
+    built = record([run], task="rfp", adopt="r", gates=load_gates(GATES_RFP_PATH))
+    status = {g["metric_key"]: g["status"] for g in built.gates["gates"]}
+    assert len(status) == 9 and built.gates["excluded"] == []
+    assert status["rfp_requirement_recall"] == "PASS"
+    assert status["rfp_requirement_precision"] == "FAIL"
+    assert status["rfp_mandatory_constraint_violation_count"] == "PASS"
+    assert status["rfp_critical_false_fulfillment_count"] == "NOT_EVALUABLE"
+    assert built.gates["counts"] == {"PASS": 2, "FAIL": 1, "NOT_EVALUABLE": 6}
+    assert built.gates["blocker"] is True
+    assert built.evidence[0]["targets"] == 4 and built.adopted == {"extractor": "rules-v1"}
