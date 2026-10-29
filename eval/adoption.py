@@ -16,6 +16,7 @@ from eval.release_gate import Gate, MetricValue, evaluate_gates
 
 Task = Literal["classification", "draft", "embedding"]
 Status = Literal["PROPOSED", "ADOPTED"]
+WAIVER_FIELDS = ("metric_key", "value", "reason", "decided_by", "decided_on")
 # 과제별 meta 표본 수 키. search·ocr는 결과 JSON을 내는 실행기가 생기면 더한다.
 SAMPLE_KEYS: dict[str, str] = {
     "classification": "targets",
@@ -39,6 +40,24 @@ class AdoptionRecord:
     status: Status = "PROPOSED"
     # blocker FAIL을 사람이 예외로 승인한 기록. ADOPTED인데 blocker FAIL이 있으면 게이트마다 하나씩 있어야 한다.
     waivers: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """예외 승인의 필수 필드와 대상 게이트, ADOPTED의 blocker FAIL 예외 승인을 검사한다.
+
+        Raises:
+            ValueError: 필수 필드 누락·빈 값, blocker FAIL이 아닌 게이트의 승인, 승인 없는 blocker FAIL(ADOPTED).
+        """
+        failing = {
+            g["metric_key"] for g in self.gates["gates"] if g["status"] == "FAIL" and g["blocker"]
+        }
+        for waiver in self.waivers:
+            missing = [key for key in WAIVER_FIELDS if not str(waiver.get(key, "")).strip()]
+            if missing or set(waiver) - set(WAIVER_FIELDS):
+                raise ValueError("ADOPTION_WAIVER_FIELDS")
+            if waiver["metric_key"] not in failing:
+                raise ValueError("ADOPTION_WAIVER_NOT_BLOCKER_FAIL")
+        if blocker_waiver_errors(self):
+            raise ValueError("ADOPTION_BLOCKER_FAIL_WITHOUT_WAIVER")
 
     def to_json(self) -> str:
         """기록을 JSON 문자열로 만든다.
@@ -305,7 +324,7 @@ def render_decision_note(record: AdoptionRecord) -> str:
         else f"게이트 결과 PASS {counts['PASS']} · FAIL {counts['FAIL']} · "
         f"NOT_EVALUABLE {counts['NOT_EVALUABLE']}, blocker {'있음' if gates['blocker'] else '없음'}."
     )
-    if record.waivers:
+    if record.status == "ADOPTED" and record.waivers:
         verdict += f" blocker FAIL {len(record.waivers)}건은 사람이 예외로 승인해 채택했다(아래 예외 승인 표)."
     adopted = record.evidence[0]["candidate_name"]
     return (

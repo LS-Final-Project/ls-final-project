@@ -275,8 +275,23 @@ def test_adopted_record_needs_a_waiver_for_each_blocker_fail():
 
     proposed = record([classification_run("2026-10-29T00:00:00+00:00", violations=2)])
     assert blocker_waiver_errors(proposed) == []
-    adopted = replace(proposed, status="ADOPTED")
-    assert blocker_waiver_errors(adopted) == ["schema_violation_rate"]
+    with pytest.raises(ValueError, match="ADOPTION_BLOCKER_FAIL_WITHOUT_WAIVER"):
+        replace(proposed, status="ADOPTED")
+    with pytest.raises(ValueError, match="ADOPTION_WAIVER_FIELDS"):
+        replace(proposed, waivers=[{"metric_key": "schema_violation_rate"}])
+    with pytest.raises(ValueError, match="ADOPTION_WAIVER_NOT_BLOCKER_FAIL"):
+        replace(
+            proposed,
+            waivers=[
+                {
+                    "metric_key": "category_macro_f1",
+                    "value": 1.0,
+                    "reason": "x",
+                    "decided_by": "y",
+                    "decided_on": "2026-10-29",
+                }
+            ],
+        )
     waiver = {
         "metric_key": "schema_violation_rate",
         "value": 0.2,
@@ -284,10 +299,11 @@ def test_adopted_record_needs_a_waiver_for_each_blocker_fail():
         "decided_by": "결정자",
         "decided_on": "2026-10-29",
     }
-    waived = replace(adopted, waivers=[waiver])
+    waived = replace(proposed, status="ADOPTED", waivers=[waiver])
     assert blocker_waiver_errors(waived) == []
     note = render_decision_note(waived)
     assert "blocker FAIL 1건은 사람이 예외로 승인해 채택했다" in note
+    assert "예외로 승인해" not in render_decision_note(replace(proposed, waivers=[waiver]))
     assert (
         "| schema_violation_rate | 0.2 | 합성 정답 불일치 2건, 사람이 확인 | 결정자 | 2026-10-29 |"
         in note
