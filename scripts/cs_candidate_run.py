@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from backend.api.platform.evaluations.smoke_worker import attempt_cost
 from backend.engine.cs.classification import (
@@ -34,6 +34,7 @@ from backend.engine.cs.classification import (
     build_input,
 )
 from backend.engine.cs.classification_call import ClassificationAttempt
+from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
@@ -392,18 +393,19 @@ def label_path(directory: Path, name: str, kind: str = "labels") -> Path:
     return directory / f"{name}.{kind}.json"
 
 
-def audit_entry(attempt: ClassificationAttempt) -> dict[str, object]:
+def audit_entry(attempt: ClassificationAttempt | DraftAttempt) -> dict[str, object]:
     """시도 하나의 사례별 감사 항목. evaluation.case_attempts 열과 1:1이며 원문·응답·예측·정답은 없다.
 
     Args:
-        attempt: 첫 분류 시도.
+        attempt: 첫 분류 시도 또는 첫 초안 시도(cs_draft_run). 두 시도는 쓰는 필드가 같다.
 
     Returns:
         dict: outcome·error_code·http_status·model(요청)·model_version(응답)·input_version·input_sha256·
             usage(토큰 5종, 미보고 null)·latency_ms·finish_reasons·attempts(공급자 호출 수)·cost_usd(십진
             문자열)·pricing_version. 비용은 워커와 같은 attempt_cost 규칙이며 계산할 수 없으면 둘 다 null이다.
     """
-    cost, pricing_version = attempt_cost(attempt)
+    # attempt_cost는 requested_model·usage만 읽으며 두 시도 타입의 그 필드는 이름·타입이 같다.
+    cost, pricing_version = attempt_cost(cast(ClassificationAttempt, attempt))
     usage = attempt.usage
     return {
         "outcome": attempt.outcome,

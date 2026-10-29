@@ -91,6 +91,7 @@ def run_draft_candidates(
     price_table: dict[str, ModelPrice] | None = None,
     subset: frozenset[str] | None = None,
     strip_phone_annotation: bool = False,
+    return_attempts: bool = False,
 ) -> dict:
     """후보마다 사례의 최초 초안 시도를 실행하고 기존 초안 지표로 비교표를 만든다.
 
@@ -101,6 +102,8 @@ def run_draft_candidates(
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
         subset: 재실행할 사례 ID. None이면 전체이고, 있으면 cases 안의 비지 않은 집합이어야 한다.
         strip_phone_annotation: 분석용. True면 PHONE 상담원 표기를 지운 v1 초안 입력으로 돌린다(기본 False).
+        return_attempts: True면 "attempts"(후보 이름 → {사례 ID: DraftAttempt}, 실행한 사례만)를 더한다. 시도에는
+            원시 응답·초안이 있으므로 호출자가 공개 산출물에 그대로 쓰지 않는다.
 
     Returns:
         dict: subset(재실행 대상 수·전체 수), note(부분 집합일 때), candidates(후보별 지표 행), ranking.
@@ -190,4 +193,5 @@ def run_draft_candidates(
         **({"note": SUBSET_NOTE} if partial else {}),
         "candidates": rows,
         "ranking": [row["name"] for row in ranking],
+        **({"attempts": runs} if return_attempts else {}),
     }
