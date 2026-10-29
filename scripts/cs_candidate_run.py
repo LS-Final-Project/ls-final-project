@@ -1,6 +1,7 @@
 """C/S 분류 후보 비교 실행기(KAN-144). 기본은 dry-run이며 네트워크를 쓰지 않는다.
 
-dry-run은 대상 건수·근사 입력 토큰·단가표 기준 예상 비용 상한을 후보별로 출력한다. 실제 호출은 승인 뒤
+dry-run은 대상 건수·근사 입력 토큰(문자/4)·입력 토큰 상한(UTF-8 바이트 수)과 단가표 기준 예상 비용·비용 상한을
+후보별로 출력한다. 모두 근사이며 실제 과금은 실행 후 usage로 확인한다. 실제 호출은 승인 뒤
 --execute로만 한다. 키는 환경변수(GEMINI_API_KEY)에서만 읽는다. 스크립트가 .env를 직접 읽지 않으므로
 셸에서 먼저 올린다: set -a; . ./.env; set +a. 레코드는 개발 manifest(load_dev_tickets)로만 받고, test
 분할은 최종 1회 사용 원칙에 따라 종료 코드 2로 거부한다. 정답 파일은 eval/cs_gold_locks의 SHA·열과 같아야
@@ -148,6 +149,7 @@ class _RecordingModels:
 
     def __init__(self) -> None:
         self.lengths: list[int] = []
+        self.bytes: list[int] = []
 
     def generate_content(self, *, model: str, contents: str, config: object) -> object:
         """공급자 어댑터가 만든 프롬프트 길이를 기록한다.
@@ -161,6 +163,7 @@ class _RecordingModels:
             object: generate가 읽는 최소 응답(사용량·후보 없음).
         """
         self.lengths.append(len(contents))
+        self.bytes.append(len(contents.encode("utf-8")))
         return SimpleNamespace(usage_metadata=None, text="", model_version=None, candidates=[])
 
 
@@ -172,7 +175,10 @@ def dry_run(
     settings: AISettings,
     prices: Mapping[str, Any],
 ) -> list[dict[str, object]]:
-    """후보마다 실제 어댑터로 프롬프트를 만들어 길이·근사 토큰·예상 비용 상한을 계산한다.
+    """후보마다 실제 어댑터로 프롬프트를 만들어 길이·근사 토큰·토큰 상한·예상 비용을 계산한다.
+
+    문자/4는 영어 기준 근사라 한국어·JSON 스키마에서는 과소다. 상한은 프롬프트 UTF-8 바이트 수로 잡는다(바이트
+    폴백 토크나이저는 바이트보다 많은 토큰을 만들지 않는다). 공급자 count_tokens는 네트워크 호출이라 쓰지 않는다.
 
     Args:
         records: 대상 레코드.
@@ -183,8 +189,10 @@ def dry_run(
         prices: load_price_table 결과.
 
     Returns:
-        list[dict]: 후보별 건수(호출·보류), 프롬프트 문자 수, 근사 입력 토큰(문자 수/4 올림),
-            예상 입력 비용·출력 비용 상한(max_output_tokens × 호출 수)·합계. 단가가 없으면 비용은 None이다.
+        list[dict]: 후보별 건수(호출·보류), 프롬프트 문자·바이트 수, 근사 입력 토큰(문자/4 올림), 입력 토큰
+            상한(바이트 수), 근사 입력 비용, 입력 비용 상한, 출력 비용 상한(max_output_tokens × 호출 수),
+            합계 상한(입력 상한 + 출력 상한). 단가가 없으면 비용은 None이다. 모두 근사이며 실제 과금은 실행 후
+            usage로 확인한다.
     """
     rows = []
     for spec in specs:
@@ -206,11 +214,13 @@ def dry_run(
             provider(payload)
         chars = sum(recorder.lengths)
         tokens = math.ceil(chars / TOKEN_CHARS)
+        upper = sum(recorder.bytes)
         calls = len(recorder.lengths)
         price = prices.get(spec["model"])
-        input_cost = output_cost = None
+        input_cost = input_upper = output_cost = None
         if price is not None:
             input_cost = Decimal(tokens) * price.input_per_million / Decimal(1_000_000)
+            input_upper = Decimal(upper) * price.input_per_million / Decimal(1_000_000)
             output_cost = (
                 Decimal(calls * settings.gemini_max_output_tokens)
                 * price.output_per_million
@@ -222,13 +232,22 @@ def dry_run(
                 "calls": calls,
                 "held": held,
                 "prompt_chars": chars,
+                "prompt_bytes": upper,
                 "approx_input_tokens": tokens,
+                "input_tokens_upper": upper,
                 "max_output_tokens_per_call": settings.gemini_max_output_tokens,
                 "currency": price.currency if price else None,
                 "estimated_input_cost": None if input_cost is None else format(input_cost, "f"),
+                "input_cost_upper": None if input_upper is None else format(input_upper, "f"),
                 "output_cost_upper": None if output_cost is None else format(output_cost, "f"),
                 "total_cost_upper": (
-                    None if input_cost is None else format(input_cost + output_cost, "f")
+                    None
+                    if input_upper is None or output_cost is None
+                    else format(input_upper + output_cost, "f")
+                ),
+                "note": (
+                    "근사값이다. 실제 과금은 실행 후 usage로 확인한다. 출력 상한은 max_output_tokens 기준이며 "
+                    "thinking 토큰의 별도 과금 여부는 미확인이다."
                 ),
             }
         )
@@ -375,9 +394,15 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         prices = load_price_table()
         if not args.execute:
             rows = dry_run(records, specs, codes, sensitive, settings, prices)
-            print("dry-run: 네트워크 호출 없음. 토큰은 문자 수/4의 근사, 출력 비용은 상한이다.")
+            print(
+                "dry-run: 네트워크 호출 없음. 토큰은 문자/4 근사와 UTF-8 바이트 상한이며 실제 과금은 "
+                "실행 후 usage로 확인한다."
+            )
             print(json.dumps({"targets": len(records), "candidates": rows}, ensure_ascii=False))
             return 0
+        # 유료 호출 전에 결과 파일을 만들 수 있는지 확인한다(빈 파일 생성 시도).
+        with args.out.open("a", encoding="utf-8"):
+            pass
         output = execute(
             records,
             gold,
@@ -394,7 +419,13 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
     except (ValueError, OSError, KeyError, TypeError, csv.Error):
         print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
         return 1
-    args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        print(
+            "CS_RUN_OUTPUT_FAILED: 실행은 끝났지만 결과 파일을 쓰지 못했습니다. --out 경로를 확인하세요."
+        )
+        return 1
     print(json.dumps({"targets": len(records), "out": str(args.out)}))
     return 0
 

@@ -9,6 +9,7 @@ import math
 import os
 import tempfile
 import unittest
+import unittest.mock
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -69,23 +70,9 @@ class CandidateRunTests(unittest.TestCase):
             }
             for i in range(4)
         ]
-        raw = write_csv(self.root / "tickets.csv", list(tickets[0]), tickets)
-        self.write_manifest(["train", "valid"], raw, len(tickets))
-        locks = {}
-        for metric, column, value in (
-            ("category", "category_code", "RETURN"),
-            ("urgency", "urgency_flag", "NONE"),
-        ):
-            data = write_csv(
-                self.root / f"{metric}.csv",
-                ["ticket_id", column],
-                [{"ticket_id": t["ticket_id"], column: value} for t in tickets],
-            )
-            locks[metric] = GoldLock(
-                "v", hashlib.sha256(data).hexdigest(), ("ticket_id", column), ()
-            )
-        self.locks = patch.dict(cs_candidate_run.GOLD_LOCKS, locks)
+        self.locks = patch.dict(cs_candidate_run.GOLD_LOCKS)
         self.locks.start()
+        self.write_sources(tickets)
         write_csv(
             self.root / "codes.csv", ["code", "label"], [{"code": c, "label": c} for c in CODES]
         )
@@ -105,6 +92,30 @@ class CandidateRunTests(unittest.TestCase):
         self.locks.stop()
         self.env.stop()
         self.temp.cleanup()
+
+    def write_sources(self, tickets):
+        """tickets.csv·manifest·잠긴 정답 두 개를 쓰고 정답 잠금을 그 hash로 바꾼다.
+
+        Args:
+            tickets: 합성 문의 행.
+
+        Returns:
+            None: 파일과 잠금을 준비한다.
+        """
+        raw = write_csv(self.root / "tickets.csv", list(tickets[0]), tickets)
+        self.write_manifest(["train", "valid"], raw, len(tickets))
+        for metric, column, value in (
+            ("category", "category_code", "RETURN"),
+            ("urgency", "urgency_flag", "NONE"),
+        ):
+            data = write_csv(
+                self.root / f"{metric}.csv",
+                ["ticket_id", column],
+                [{"ticket_id": t["ticket_id"], column: value} for t in tickets],
+            )
+            cs_candidate_run.GOLD_LOCKS[metric] = GoldLock(
+                "v", hashlib.sha256(data).hexdigest(), ("ticket_id", column), ()
+            )
 
     def write_manifest(self, splits, raw, rows):
         """tickets 항목 하나인 manifest를 쓴다.
@@ -181,33 +192,108 @@ class CandidateRunTests(unittest.TestCase):
             + "\n허용 정보 코드: "
             + json.dumps(sorted(CODES), ensure_ascii=False)
         )
-        chars = sum(
-            len(
-                instruction
-                + "\n\n입력:\n"
-                + build_input(
-                    {
-                        "channel": "EMAIL",
-                        "body_language": "en",
-                        "subject": "Return",
-                        "body": f"Please take breaker {i} back.",
-                    },
-                    sensitive_values={},
-                ).payload.model_dump_json()
-            )
+        prompts = [
+            instruction
+            + "\n\n입력:\n"
+            + build_input(
+                {
+                    "channel": "EMAIL",
+                    "body_language": "en",
+                    "subject": "Return",
+                    "body": f"Please take breaker {i} back.",
+                },
+                sensitive_values={},
+            ).payload.model_dump_json()
             for i in (0, 1, 3)
-        )
+        ]
+        chars = sum(len(prompt) for prompt in prompts)
+        upper = sum(len(prompt.encode("utf-8")) for prompt in prompts)
         tokens = math.ceil(chars / 4)
         priced, unpriced = report["candidates"]
         self.assertEqual((priced["calls"], priced["held"], priced["prompt_chars"]), (3, 1, chars))
-        self.assertEqual(priced["approx_input_tokens"], tokens)
-        input_cost = Decimal(tokens) * Decimal("0.75") / Decimal(1_000_000)
-        output_cost = Decimal(3 * 1024) * Decimal("3.75") / Decimal(1_000_000)
+        self.assertEqual(
+            (priced["approx_input_tokens"], priced["input_tokens_upper"], priced["prompt_bytes"]),
+            (tokens, upper, upper),
+        )
+        million = Decimal(1_000_000)
+        input_cost = Decimal(tokens) * Decimal("0.75") / million
+        input_upper = Decimal(upper) * Decimal("0.75") / million
+        output_cost = Decimal(3 * 1024) * Decimal("3.75") / million
         self.assertEqual(Decimal(priced["estimated_input_cost"]), input_cost)
+        self.assertEqual(Decimal(priced["input_cost_upper"]), input_upper)
         self.assertEqual(Decimal(priced["output_cost_upper"]), output_cost)
-        self.assertEqual(Decimal(priced["total_cost_upper"]), input_cost + output_cost)
+        self.assertEqual(Decimal(priced["total_cost_upper"]), input_upper + output_cost)
+        self.assertGreater(input_upper, input_cost)
+        self.assertIn("usage", priced["note"])
         self.assertEqual(priced["currency"], "USD")
         self.assertIsNone(unpriced["total_cost_upper"])
+        self.assertNotIn(KEY, printed)
+
+    def test_korean_bodies_make_the_byte_upper_bound_far_above_the_char_estimate(self):
+        """한국어 본문은 문자/4 근사보다 실제 토큰이 많을 수 있어 상한(바이트)이 근사의 4배를 넘는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 상한과 근사의 관계를 확인한다.
+        """
+        body = "차단기가 300 V에서 트립되어 반품을 요청합니다. " * 20
+        self.write_sources(
+            [
+                {
+                    "ticket_id": "SYN-KO",
+                    "data_split": "train",
+                    "channel": "EMAIL",
+                    "body_language": "ko",
+                    "inquiry_subject": "반품",
+                    "inquiry_body": body,
+                }
+            ]
+        )
+        code, printed = self.run_main()
+        self.assertEqual(code, 0)
+        row = json.loads(printed.splitlines()[-1])["candidates"][0]
+        self.assertEqual(row["approx_input_tokens"], math.ceil(row["prompt_chars"] / 4))
+        self.assertGreater(row["input_tokens_upper"], 4 * row["approx_input_tokens"])
+        self.assertGreater(
+            Decimal(row["input_cost_upper"]), 4 * Decimal(row["estimated_input_cost"])
+        )
+
+    def test_missing_output_directory_stops_before_paid_calls(self):
+        """--out 부모 디렉터리가 없으면 공급자를 부르기 전에 종료 코드 1로 끝난다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 공급자 미호출을 확인한다.
+        """
+        factory = unittest.mock.Mock()
+        missing = self.root / "no-such-dir" / "result.json"
+        code, printed = self.run_main("--execute", "--out", str(missing), factory=factory)
+        self.assertEqual(code, 1)
+        factory.assert_not_called()
+        self.assertIn("CS_RUN_FAILED", printed)
+
+    def test_final_write_failure_is_reported_without_traceback(self):
+        """실행 뒤 결과 쓰기가 실패하면 트레이스백 없이 종료 코드 1과 안내 문구만 낸다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드와 문구를 확인한다.
+        """
+
+        def factory(spec, codes, settings):
+            return lambda payload: Generation(ANSWER, Usage(), "fake-v", ["STOP"])
+
+        out = self.root / "result.json"
+        with patch.object(Path, "write_text", side_effect=OSError("disk full " + KEY)):
+            code, printed = self.run_main("--execute", "--out", str(out), factory=factory)
+        self.assertEqual(code, 1)
+        self.assertIn("CS_RUN_OUTPUT_FAILED", printed)
         self.assertNotIn(KEY, printed)
 
     def test_test_split_exits_with_code_2(self):
