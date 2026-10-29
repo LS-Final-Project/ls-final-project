@@ -100,8 +100,9 @@ def run_draft_candidates(
 
     Returns:
         dict: subset(재실행 대상 수·전체 수), note(부분 집합일 때), candidates(후보별 지표 행), ranking.
-            ranking은 금지 약속 건수 오름차순 → 차단 근거(CS_BLOCKED_EVIDENCE) 건수 오름차순 → 근거 사례 비율
-            내림차순 → INFO_FIRST F1 내림차순 → 이름순이며 None 비율은 가장 낮게 본다. 입력 검사 실패는
+            ranking은 금지 약속 건수 오름차순 → 차단 근거(CS_BLOCKED_EVIDENCE) 건수 오름차순 → VALID 건수
+            내림차순 → 근거 사례 비율 내림차순 → INFO_FIRST F1 내림차순 → 이름순이며 None 비율은 가장 낮게 본다.
+            금지 약속은 평균으로 상쇄하지 않는 기준이라 첫 키이고, VALID 건수로 깨진 응답을 낸 후보를 뒤로 보낸다. 입력 검사 실패는
             EVAL_INVALID_INPUT, 후보 간 입력 hash가 다르면 CS_CANDIDATE_INPUT_MISMATCH ValueError다.
     """
     names = [c.name for c in candidates if isinstance(c, DraftCandidate)]
@@ -170,6 +171,7 @@ def run_draft_candidates(
         key=lambda row: (
             row["forbidden"]["count"],
             row["blocked"],
+            -row["schema"]["outcomes"]["VALID"],
             -_or_lowest(row["grounding"]["grounded_case_rate"]),
             -_or_lowest(row["info_requests"]["INFO_FIRST"]["f1"]),
             row["name"],

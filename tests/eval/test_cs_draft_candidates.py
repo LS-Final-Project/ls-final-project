@@ -197,6 +197,72 @@ def test_forbidden_then_blocked_rank_before_grounding():
     assert result["ranking"] == ["ungrounded", "blocked", "forbid-one"]
 
 
+def broken(*, only=None):
+    """깨진 JSON을 내는 fake 공급자를 만든다.
+
+    Args:
+        only: 이 사례 번호만 깨뜨린다. None이면 전부 깨뜨린다.
+
+    Returns:
+        Callable: 프롬프트를 받아 Generation을 돌려주는 함수.
+    """
+    good = provider()
+
+    def call(prompt):
+        """fake 응답.
+
+        Args:
+            prompt: 프롬프트.
+
+        Returns:
+            Generation: 합성 응답.
+        """
+        if only is None or f"case-{only} " in prompt:
+            return Generation("RAW_SECRET not json", Usage(10, 2), "fake-v1", ["STOP"])
+        return good(prompt)
+
+    return call
+
+
+def test_broken_candidates_rank_after_valid_ones():
+    """금지·차단이 같으면 깨진 응답이 많은 후보가 뒤로 간다(근거 비율이 높아도).
+
+    Args:
+        없음.
+
+    Returns:
+        None: 전부·일부 깨진 후보의 순위를 확인한다.
+    """
+    result = run(
+        candidates=[
+            DraftCandidate("all-broken", broken(), "fake-a", "p6"),
+            DraftCandidate("one-broken", broken(only="3"), "fake-a", "p7"),
+            CANDIDATES[1],
+        ]
+    )
+    rows = {row["name"]: row for row in result["candidates"]}
+    assert rows["all-broken"]["schema"]["schema_violations"] == 5
+    assert rows["one-broken"]["grounding"]["grounded_case_rate"] == 1.0
+    # 정답 밖 근거만 인용해도 VALID 5건인 후보가 VALID 4건(근거 비율 1.0)보다 앞선다.
+    assert result["ranking"] == ["ungrounded", "one-broken", "all-broken"]
+
+
+def test_forbidden_candidate_ranks_after_all_broken():
+    """금지 약속은 평균으로 상쇄하지 않는다. 아무것도 못 낸 후보가 승인 약속을 낸 후보보다 앞선다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 순위를 확인한다.
+    """
+    forbid_one = DraftCandidate(
+        "forbid-one", provider(text="RMA가 승인되었습니다.", only="2"), "fake-a", "p5"
+    )
+    result = run(candidates=[forbid_one, DraftCandidate("all-broken", broken(), "fake-a", "p6")])
+    assert result["ranking"] == ["all-broken", "forbid-one"]
+
+
 def test_subset_reruns_only_selected_cases():
     """부분 집합은 그 사례만 재실행하고 전체 집계에 쓰지 않는다는 표시를 단다.
 
