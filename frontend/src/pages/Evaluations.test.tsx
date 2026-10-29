@@ -249,6 +249,22 @@ const caseItem = (id: string, sha: string) => ({ case_id: id, target_ref_sha: sh
     model_version: 'fake-v1', latency_ms: 12, parsed_output: { category_code: 'RETURN', secondary_category: null, urgency_flag: 'NONE', return_subtype: null, provided_info: [] } },
 ] });
 
+test('사례별 시도 조회가 실패하면 다시 시도 버튼으로 같은 위치를 다시 읽는다', async () => {
+  let failures = 1;
+  const cases = vi.fn(() => failures-- > 0
+    ? jsonResponse(503, { error: { code: 'DEPENDENCY_UNAVAILABLE', message: 'x', retryable: true, details: [] } })
+    : jsonResponse(200, { data: { items: [caseItem('77777777-7777-4777-8777-777777777773', 'cccccccccccc')], next_cursor: null } }));
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).includes('/cases') ? cases() : jsonResponse(200, { data: summaryFixture() })));
+  view();
+  const retry = await screen.findByRole('button', { name: '다시 시도' });
+  expect(cases).toHaveBeenCalledTimes(1);
+  fireEvent.click(retry);
+  const table = await screen.findByRole('region', { name: '사례별 시도 표' });
+  expect(table.textContent).toContain('cccccccccccc');
+  expect(cases).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull();
+});
+
 test('사례별 시도는 해시 12자·시도 메타데이터를 보이고 더 보기로 다음 커서를 읽으며, https LangSmith 링크만 보인다', async () => {
   const first = '77777777-7777-4777-8777-777777777771';
   const cases = vi.fn((url: string) => url.includes('cursor=')

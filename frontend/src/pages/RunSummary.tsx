@@ -165,6 +165,8 @@ function CasesView({ runId }: { runId: string }) {
   const [pages, setPages] = useState<RunCases[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string>();
+  // 실패한 같은 커서를 다시 읽을 때 늘린다(이미 받은 쪽은 그대로 둔다).
+  const [retries, setRetries] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setError(undefined);
@@ -174,13 +176,14 @@ function CasesView({ runId }: { runId: string }) {
       if (!controller.signal.aborted) setError(reason instanceof EvaluationReadError ? reason.message : '사례를 조회하지 못했습니다.');
     });
     return () => controller.abort();
-  }, [runId, cursor]);
+  }, [runId, cursor, retries]);
   const items = pages.flatMap(page => page.items);
   const next = pages.at(-1)?.next_cursor ?? null;
   return <section aria-labelledby="run-cases-title">
     <h3 id="run-cases-title">사례별 시도</h3>
     <p className="evaluation-caption">사례 ID는 해시 앞 12자입니다. 원문·원시 응답은 저장하지 않으며, 잠금 채점은 실행 단위라 사례별 정답·채점은 표시하지 않습니다. 출력 코드는 분류 단계만 보입니다.</p>
     {error && <p role="alert">{error}</p>}
+    {error && <button onClick={() => setRetries(value => value + 1)}>다시 시도</button>}
     {!error && pages.length === 0 && <p role="status">사례를 확인하고 있습니다.</p>}
     {pages.length > 0 && items.length === 0 && <p>저장된 사례가 없습니다.</p>}
     {items.length > 0 && <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label="사례별 시도 표">
