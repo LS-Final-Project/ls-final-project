@@ -31,7 +31,7 @@ from backend.agent.job_runtime import (
     check_role,
     claim,
     connect,
-    fail,
+    failure,
     finish,
     parse_job_id,
     progress,
@@ -46,8 +46,8 @@ __all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # 진행 이벤트를 남기는 노드(EventPayload.step 값과 같다).
 NODES = ("classify", "rules", "retrieve", "draft")
-# worker가 직접 내는 고정 실패 코드. 그 밖의 ApplicationError는 CS_WORKER_GRAPH_FAILED로 저장한다.
-OWN_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
+# 입력 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 CS_WORKER_GRAPH_FAILED로 저장한다.
+LOAD_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
 
 class CsWorkerSettings(BaseSettings):
@@ -133,6 +133,7 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
         model=ai.gemini_model,
         allowed_info_codes=parts.allowed_info_codes,
         allow_tracing=settings.ai_tracing_allowed,
+        policy_documents=parts.policy_documents,
     )
 
 
@@ -168,8 +169,12 @@ def execute_job(
     lease = claim(settings, "cs", worker.lease_seconds, job_id)
     if lease is None:
         return "NOT_CLAIMED"
+    # 입력 load 구간에서만 CS_WORKER_SOURCE_MISSING을 인정한다. 처리 구간의 같은 코드는 GRAPH_FAILED다.
     try:
         parts = parts_loader(settings)
+    except Exception as error:
+        raise failure(settings, lease, error, LOAD_CODES, "CS_WORKER_GRAPH_FAILED") from None
+    try:
         with checkpointer(settings) as saver:
             graph = build(settings, parts, saver)
             if not run_graph(
@@ -181,18 +186,9 @@ def execute_job(
             return "CS_JOB_SUCCEEDED"
     except LeaseLost:
         return "LEASE_LOST"
-    except ApplicationError as error:
+    except Exception as error:
         # 문의 출처(KAN-107) 등 다른 코드가 올린 코드는 그대로 저장하지 않는다(신뢰 경계).
-        if error.code not in OWN_CODES:
-            fail(settings, lease, "CS_WORKER_GRAPH_FAILED")
-            raise ApplicationError(
-                500, "CS_WORKER_GRAPH_FAILED", "C/S processing failed."
-            ) from None
-        fail(settings, lease, error.code)
-        raise
-    except Exception:
-        fail(settings, lease, "CS_WORKER_GRAPH_FAILED")
-        raise ApplicationError(500, "CS_WORKER_GRAPH_FAILED", "C/S processing failed.") from None
+        raise failure(settings, lease, error, frozenset(), "CS_WORKER_GRAPH_FAILED") from None
 
 
 def main() -> None:

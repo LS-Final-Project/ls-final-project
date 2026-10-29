@@ -149,7 +149,11 @@ def test_bad_processor_events_fail_the_job_with_a_fixed_code(
     assert events[-1][1] == {"state": "FAILED"}
 
 
-@pytest.mark.parametrize("code", ["TFT_TEAM_SPECIFIC_CODE", "not a code: with detail"])
+@pytest.mark.parametrize(
+    "code",
+    # 처리 구간에서는 MISSING 코드도 인정하지 않는다(load 구간에서만 인정, KAN-194 11차).
+    ["TFT_TEAM_SPECIFIC_CODE", "not a code: with detail", "TFT_WORKER_PROCESSOR_MISSING"],
+)
 def test_processor_error_codes_are_replaced_by_the_fixed_code(
     worker_settings, jobs_database, tft_job, code
 ):

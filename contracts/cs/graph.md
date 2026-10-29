@@ -99,6 +99,7 @@
   - 문의 출처(`TicketSource`)는 C/S 고정 모듈 `backend.api.cs.worker_source`의 `build(settings) -> WorkerParts`가 준다(KAN-107). 경로를 환경 변수로 받지 않는다. 모듈이 없으면 인수 뒤 `CS_WORKER_SOURCE_MISSING`으로 실패한다.
   - 허용 정보 코드는 모듈이 비우면 `eval/policy/cs_required_info.csv` required_fields의 합집합이다. 검색 조건은 색인 `chunking-v1`·상위 20건이고 제품 계열은 retrieve가 좁힌다.
   - 공급자는 Gemini(`AISettings`), 검색기는 `cs_search.fts_searcher_from_dsn`이다.
+  - 정책 문서 매핑(KAN-194 11차): `CS_POLICY_DOCUMENTS_FILE`(색인 manifest, `cs_index_docs --manifest-out`)이 있으면 저장된 POL-* 문서의 doc_id → sha256을 `build_cs_runner(policy_documents=)`로 넘겨 정책 유형 문의에 정책 문서 1자리를 예약한다. manifest의 색인 판본이 다르면 load 구간 실패(`CS_WORKER_GRAPH_FAILED`)이고, 설정이 없으면 예약하지 않는다. `cs_graph_run --index-manifest`도 같은 매핑을 쓴다. `CS_WORKER_SOURCE_MISSING`은 입력 load 구간에서만 인정하고 처리 구간의 같은 코드는 `CS_WORKER_GRAPH_FAILED`로 바꾼다(tft worker의 `TFT_WORKER_PROCESSOR_MISSING`도 같다).
 - 플랫폼 접수의 `CS_JOBS_PROCESSOR_CONNECTED`는 KAN-107 모듈 연결 뒤 운영 단계에서 켠다.
 
 ## 범위 밖

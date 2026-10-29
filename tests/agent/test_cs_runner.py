@@ -2,13 +2,16 @@
 
 import json
 from dataclasses import asdict
+from types import SimpleNamespace
 
 import google.auth
 import httpx
 import pytest
 from google.oauth2.credentials import Credentials
 from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import SecretStr
 
+from backend.agent import cs_runner, cs_worker
 from backend.agent.cs_runner import (
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
@@ -17,6 +20,7 @@ from backend.agent.cs_runner import (
     resume,
     run_ticket,
 )
+from backend.agent.ticket_source_registry import WorkerParts
 from backend.engine.cs.graph import thread_config
 from backend.engine.cs.providers import GenerationKnobs
 from backend.shared.ai import AISettings, create_client
@@ -331,3 +335,26 @@ def test_resume_refuses_unknown_or_finished_thread():
     assert resume(graph, "thread-1").stage == "HUMAN_REVIEW"
     with pytest.raises(ValueError, match="^CS_GRAPH_NOTHING_TO_RESUME$"):
         resume(graph, "thread-1")
+
+
+def test_runner_and_worker_pass_the_policy_mapping_to_the_graph(monkeypatch):
+    """build_cs_runner와 cs worker의 build_runner가 정책 문서 매핑을 그래프까지 넘긴다(KAN-194 11차)."""
+    seen = []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: seen.append(kwargs))
+    mapping = {"POL-RETURN": "a" * 64}
+    runner(InMemorySaver(), InMemoryTicketSource({}), policy_documents=mapping)
+    assert seen[-1]["policy_documents"] == mapping
+    monkeypatch.setattr(cs_worker, "create_client", lambda settings: object())
+    monkeypatch.setattr(cs_worker, "fts_searcher_from_dsn", lambda dsn, version: fts_searcher)
+    monkeypatch.setenv("GEMINI_API_KEY", KEY)
+    parts = WorkerParts(
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+        search_filters=FILTERS,
+        policy_documents=mapping,
+    )
+    settings = Settings(
+        _env_file=None, environment="test", database_url=SecretStr("postgresql://x@localhost/y")
+    )
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert seen[-1]["policy_documents"] == mapping

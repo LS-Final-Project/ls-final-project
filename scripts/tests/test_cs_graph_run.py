@@ -160,6 +160,84 @@ class GraphRunTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("CS_GRAPH_INVALID_ARGS", err)
 
+    def test_index_manifest_and_fake_category_reserve_the_policy_document(self) -> None:
+        """--fake-category RETURN과 --index-manifest면 POL-RETURN 문서 청크가 근거에 들어가고, 잘못된 입력은 1이다.
+
+        Returns:
+            None: 그래프 상태의 분류 유형·근거 문서와 종료 코드를 확인한다.
+        """
+        policy_sha = "c" * 64
+        manifest = Path(self.dir.name) / "manifest.json"
+        documents = [
+            {"doc_id": "POL-RETURN", "sha256": policy_sha, "reason": None, "stored": 3},
+            {"doc_id": "POL-ORDER", "sha256": "d" * 64, "reason": "EMPTY", "stored": 0},
+            {"doc_id": None, "sha256": "e" * 64, "reason": None, "stored": 2},
+        ]
+        manifest.write_text(
+            json.dumps({"mode": "execute", "index_version": "chunking-v1", "documents": documents}),
+            encoding="utf-8",
+        )
+        graphs, filters_seen = [], []
+        real_build, real_search = cs_graph_run.build_graph, cs_graph_run.fts_searcher
+
+        def spy(**kwargs):
+            """그래프와 매핑을 기록한다.
+
+            Args:
+                kwargs: build_graph 인자.
+
+            Returns:
+                CompiledStateGraph: 그래프.
+            """
+            graphs.append((real_build(**kwargs), kwargs["policy_documents"]))
+            return graphs[-1][0]
+
+        def searcher(query, filters):
+            """정책 문서 조건이면 그 문서의 청크를 낸다.
+
+            Args:
+                query: 질의.
+                filters: 검색 조건.
+
+            Returns:
+                list[Candidate]: 합성 후보.
+            """
+            filters_seen.append(filters)
+            found = real_search(query, filters)
+            if filters.document_kinds == ["POL"]:
+                return [
+                    c.model_copy(
+                        update={"document_sha256": policy_sha, "chunk_id": f"pol-{c.chunk_id}"}
+                    )
+                    for c in found
+                ]
+            return found
+
+        with (
+            patch.object(cs_graph_run, "build_graph", spy),
+            patch.object(cs_graph_run, "fts_searcher", searcher),
+        ):
+            code, _, err = self.run_main(
+                "--thread-id",
+                "t-pol",
+                "--fake-category",
+                "RETURN",
+                "--index-manifest",
+                str(manifest),
+            )
+        self.assertEqual(code, 0, err)
+        graph, mapping = graphs[0]
+        self.assertEqual(mapping, {"POL-RETURN": policy_sha})
+        state = graph.get_state(cs_graph_run.thread_config("t-pol")).values
+        self.assertEqual(state["classification"]["category_code"], "RETURN")
+        self.assertIn(policy_sha, [e["document_sha256"] for e in state["evidence"]])
+        self.assertTrue(any(f.document_sha256s == [policy_sha] for f in filters_seen))
+        manifest.write_text(json.dumps({"mode": "execute", "index_version": "other"}))
+        code, _, err = self.run_main("--thread-id", "t-bad", "--index-manifest", str(manifest))
+        self.assertEqual((code, err.split(":")[0]), (1, "CS_POLICY_MANIFEST_INDEX_MISMATCH"))
+        code, _, err = self.run_main("--thread-id", "t-x", "--execute", "--fake-category", "RETURN")
+        self.assertEqual((code, err.split(":")[0]), (1, "CS_GRAPH_INVALID_ARGS"))
+
     def test_resume_needs_database(self) -> None:
         """--resume은 DATABASE_URL이 없으면 안내와 함께 1로 끝난다.
 
