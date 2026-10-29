@@ -8,7 +8,7 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -37,6 +37,8 @@ class AdoptionRecord:
     decided_on: str
     rationale: str
     status: Status = "PROPOSED"
+    # blocker FAIL을 사람이 예외로 승인한 기록. ADOPTED인데 blocker FAIL이 있으면 게이트마다 하나씩 있어야 한다.
+    waivers: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> str:
         """기록을 JSON 문자열로 만든다.
@@ -45,6 +47,25 @@ class AdoptionRecord:
             str: 키 순서를 고정한 들여쓰기 JSON(끝 줄바꿈 포함).
         """
         return json.dumps(asdict(self), ensure_ascii=False, indent=2) + "\n"
+
+
+def blocker_waiver_errors(record: AdoptionRecord) -> list[str]:
+    """ADOPTED 기록에서 예외 승인 없이 남은 blocker FAIL 게이트를 찾는다.
+
+    Args:
+        record: 채택 기록.
+
+    Returns:
+        list[str]: 예외 승인(waivers의 metric_key)이 없는 blocker FAIL 게이트의 metric_key. PROPOSED면 빈 목록.
+    """
+    if record.status != "ADOPTED":
+        return []
+    waived = {w.get("metric_key") for w in record.waivers}
+    return [
+        g["metric_key"]
+        for g in record.gates["gates"]
+        if g["status"] == "FAIL" and g["blocker"] and g["metric_key"] not in waived
+    ]
 
 
 def _task_of(meta: Mapping[str, Any]) -> str:
@@ -284,6 +305,8 @@ def render_decision_note(record: AdoptionRecord) -> str:
         else f"게이트 결과 PASS {counts['PASS']} · FAIL {counts['FAIL']} · "
         f"NOT_EVALUABLE {counts['NOT_EVALUABLE']}, blocker {'있음' if gates['blocker'] else '없음'}."
     )
+    if record.waivers:
+        verdict += f" blocker FAIL {len(record.waivers)}건은 사람이 예외로 승인해 채택했다(아래 예외 승인 표)."
     adopted = record.evidence[0]["candidate_name"]
     return (
         "\n\n".join(
@@ -328,6 +351,16 @@ def render_decision_note(record: AdoptionRecord) -> str:
                     ["후보", "사유"],
                     [[item["candidate_name"], item["reason"]] for item in record.rejected],
                 ),
+                "## 예외 승인(blocker FAIL)",
+                _table(
+                    ["지표", "값", "사유", "결정자", "결정일"],
+                    [
+                        [w["metric_key"], w["value"], w["reason"], w["decided_by"], w["decided_on"]]
+                        for w in record.waivers
+                    ],
+                )
+                if record.waivers
+                else "예외 승인 없음.",
                 "## 사유",
                 record.rationale,
             ]
