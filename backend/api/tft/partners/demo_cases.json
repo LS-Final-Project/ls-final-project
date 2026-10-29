@@ -30,7 +30,7 @@
         {"item": "형식: 금속 폐쇄형·고정식·퓨즈 부하개폐기", "clause_no": "2.4", "attribute": "form", "expected_status": "SPEC_GAP", "reason": "형식 다름"},
         {"item": "정격 최대전압 15kV / BIL 95kV", "clause_no": "2.4", "attribute": "rated_max_voltage", "expected_status": "SPEC_GAP", "reason": "전압·절연 모두 낮음"},
         {"item": "단시간 내전류 38kA, 2s", "clause_no": "2.4", "attribute": "short_time_withstand_current", "expected_status": "SPEC_GAP", "reason": "전류 낮음(시간 조건은 별도)"},
-        {"item": "아크 내성 구조, 부품 UL 등 등록", "clause_no": "2.4", "attribute": "arc_resistant", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 아크 내성 시험·등록 근거 없음. IEC 내부 아크 등급은 다른 속성"}
+        {"item": "아크 내성 구조(2.4 A.1), 부품 등록 Listed and labeled(2.2)", "clause_no": "2.4", "attribute": "arc_resistant", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "원문은 arc-resistant(2.4 A.1)와 부품 Listed and labeled(2.2)를 요구. 제공 자료에서 IEEE 아크 내성 시험·등록 근거 없음. IEC 내부 아크 등급은 다른 속성. 원문에 IEEE C37.20.7 명시 없음"}
       ],
       "candidates": [
         {"candidate_code": "P-A", "expected_grade": "REVIEW", "reason": "정격·아크·등록 근거는 있으나 변압기 접속 조건 미확인. 참여 의사·납기도 미확인"},
@@ -50,7 +50,7 @@
         {"item": "아크플래시 저감 4가지 방식 중 하나", "clause_no": "2.6", "attribute": "arc_flash_reduction", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 기능 없음"}
       ],
       "candidates": [
-        {"candidate_code": "L-A", "expected_grade": "REVIEW", "reason": "UL 1558 조립 실적·UL 1066 차단기 사용만 확인. 2.6절 나머지(버스·아크플래시 저감·지정 계전기·계량기 탑재) 근거 미확인"},
+        {"candidate_code": "L-A", "expected_grade": "REVIEW", "reason": "UL 1558 조립 실적·UL 1066 차단기 사용만 확인. 나머지 요구(버스·아크플래시 저감 2.6 H·지정 계전기 SEL-751A 2.6·지정 계량기 ION 9000은 2.7 B) 근거 미확인"},
         {"candidate_code": "L-B", "expected_grade": "EXCLUDED", "reason": "UL 891 Switchboard만 등록. 요구는 UL 1558 Switchgear"}
       ]
     },
