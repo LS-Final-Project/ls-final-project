@@ -1169,6 +1169,35 @@
             "title": "Created At",
             "type": "string"
           },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reviewed AI draft, if any.",
+            "title": "Draft Id"
+          },
+          "draft_option": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONCISE",
+                  "DETAILED",
+                  "INFO_FIRST"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Option"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1357,6 +1386,34 @@
             "maxItems": 50,
             "title": "Cc",
             "type": "array"
+          },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Id"
+          },
+          "draft_option": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONCISE",
+                  "DETAILED",
+                  "INFO_FIRST"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Option"
           },
           "kind": {
             "enum": [

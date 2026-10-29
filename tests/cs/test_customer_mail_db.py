@@ -5,6 +5,7 @@ ACCEPTED. An unsettled send blocks transfer and closing. A linked reply reopens 
 Mail registered through the platform answers its sender by default.
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -16,10 +17,13 @@ from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
 from pydantic import SecretStr
 
+from backend.api.cs.analysis.service import record_draft
 from backend.api.cs.main import create_app
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
 from backend.shared.access import Principal, principal_header
+from backend.shared.database import connection
 from backend.shared.settings import Settings
+from tests.cs.test_analysis_db import draft_options
 from tests.cs.test_workflow_db import AGENT, TRF_STAFF, act, code, ok, state
 from tests.cs.test_workflow_db import ticket as ticket
 
@@ -504,3 +508,78 @@ def test_a_concurrent_registration_of_the_same_mail_is_a_conflict_not_an_error(c
         ).fetchone() == (1,)
     finally:
         admin.execute("DELETE FROM cs.tickets WHERE id=%s", (other,))
+
+
+def stored_draft(cs_database, ticket_id, outcome="VALID"):
+    """A draft run saved through record_draft (KAN-107), as the job runner will."""
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        database_url=SecretStr(make_conninfo(cs_database, user="cs_app", password="test-only")),
+    )
+
+    async def run():
+        async with connection(settings) as conn:
+            return await record_draft(
+                conn,
+                ticket_id,
+                {
+                    "outcome": outcome,
+                    "draft": draft_options() if outcome == "VALID" else None,
+                    "input_version": "cs-draft-input-v1",
+                    "error_code": None if outcome == "VALID" else "CS_DRAFT_INVALID",
+                },
+            )
+
+    return asyncio.run(run())
+
+
+def test_a_reviewed_draft_becomes_the_sent_message_and_a_draft_alone_never_closes(
+    client, admin, cs_database, platform, ticket
+):
+    """KAN-110 draft review: draft → agent review → approved send → ACCEPTED → close."""
+    ok(act(client, ticket, "start-review", version=0))
+    draft = stored_draft(cs_database, ticket)
+    failed = stored_draft(cs_database, ticket, outcome="SCHEMA_VIOLATION")
+    # A draft is not a sent message: closing is still refused.
+    assert code(act(client, ticket, "close", version=1)) == (409, "CS_CLOSE_CONDITION_UNMET")
+
+    assert code(send(client, ticket, 1, draft_id=str(failed["id"]), draft_option="CONCISE")) == (
+        422,
+        "CS_DRAFT_INVALID",
+    )
+    assert code(send(client, ticket, 1, draft_id=str(uuid4()), draft_option="CONCISE")) == (
+        422,
+        "CS_DRAFT_INVALID",
+    )
+    assert send(client, ticket, 1, draft_id=str(draft["id"])).status_code == 422
+    # The agent edits the chosen option before approving; the body is what was approved.
+    edited = "We replaced the gasket. Please check the oil level after 24 hours."
+    data = ok(
+        send(client, ticket, 1, draft_id=str(draft["id"]), draft_option="DETAILED", body=edited)
+    )
+    sent = last_send(data)
+    assert (sent["draft_id"], sent["draft_option"], sent["body"]) == (
+        str(draft["id"]),
+        "DETAILED",
+        edited,
+    )
+    assert platform.intents[UUID(sent["intent_id"])]["body"]["body"] == edited
+    # Approval is not sending: still in review until the platform accepts.
+    assert data["state"] == "IN_REVIEW"
+    assert code(act(client, ticket, "close", version=2)) == (409, "CS_CUSTOMER_SEND_PENDING")
+    platform.settle("ACCEPTED")
+    assert ok(act(client, ticket, f"sends/{sent['id']}/refresh"))["state"] == "ANSWERED"
+    assert ok(act(client, ticket, "close", version=3))["state"] == "CLOSED"
+    approval = admin.execute(
+        "SELECT changes FROM cs.audit_events WHERE entity_type='ticket_workflow' AND entity_id=%s "
+        "AND changes->'action'->>'to'='approve_send'",
+        (ticket,),
+    ).fetchone()[0]
+    assert approval["draft_id"] == {"to": str(draft["id"])}
+    assert approval["draft_option"] == {"to": "DETAILED"}
+    # The stored draft is unchanged by the edit.
+    assert admin.execute(
+        "SELECT draft->'options'->1->'sentences'->0->>'text' FROM cs.ticket_drafts WHERE id=%s",
+        (draft["id"],),
+    ).fetchone() == ("We replaced the gasket.",)

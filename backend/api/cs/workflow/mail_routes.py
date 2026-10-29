@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from backend.api.cs.analysis import repository as analysis_repository
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.workflow import repository, sends
 from backend.api.cs.workflow.mail import platform_mail, unsettled
@@ -80,6 +81,19 @@ async def send_message(
                     "Give recipients: this ticket was not opened from a mail.",
                 )
             to = [origin["sender_address"]]
+        if payload.draft_id is not None:
+            # Only a valid draft of this ticket can be the reviewed source. The option must be
+            # one of its three (always present in a VALID draft, checked when it was stored).
+            draft = await analysis_repository.get_draft(conn, ticket_id, payload.draft_id)
+            if draft is None or draft["outcome"] != "VALID":
+                raise ApplicationError(
+                    422, "CS_DRAFT_INVALID", "Choose a valid draft of this ticket."
+                )
+            labels = {option["label"] for option in draft["draft"]["options"]}
+            if payload.draft_option not in labels:
+                raise ApplicationError(
+                    422, "CS_DRAFT_INVALID", "Choose one of the draft's options."
+                )
         send, _ = await sends.approve(
             conn,
             workflow,
@@ -91,6 +105,8 @@ async def send_message(
             body=payload.body,
             to=to,
             cc=payload.cc,
+            draft_id=payload.draft_id,
+            draft_option=payload.draft_option,
         )
     await sends.submit(request, client, send)
     return await current(request, principal, ticket_id)

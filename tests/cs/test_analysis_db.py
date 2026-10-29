@@ -331,7 +331,7 @@ def draft_options():
     }
 
 
-def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settings, ticket):
+def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settings, admin, ticket):
     run = store(settings, ticket)
     draft = draft_options()
 
@@ -349,6 +349,18 @@ def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settin
         asyncio.run(save(outcome="VALID", draft={"options": draft["options"][:2]}))
     with pytest.raises(ValueError):
         store(settings, ticket, {**AI, "urgency_flag": "URGENT"})
+    # A draft cannot name another ticket's analysis run as its source.
+    other = uuid4()
+    admin.execute(
+        "INSERT INTO cs.tickets (id, source, source_instance, external_id, data_origin, "
+        "derivation_kind, received_at, known_at, channel, body_language, customer_external_id, "
+        "product_code, body) VALUES (%s, 'test', 'kan107', %s, 'synthetic', 'PROVIDED', %s, %s, "
+        "'EMAIL', 'en', 'CUST-0375', 'TRF-OIL-1000', 'Other ticket.')",
+        (other, f"T-{other}", RECEIVED, RECEIVED),
+    )
+    other_run = store(settings, other)
+    with pytest.raises(ValueError, match="CS_DRAFT_ANALYSIS_MISMATCH"):
+        asyncio.run(save(outcome="VALID", draft=draft, analysis_id=other_run["id"]))
     asyncio.run(save(outcome="SCHEMA_VIOLATION", error_code="CS_DRAFT_INVALID"))
     data = analysis(client, ticket)
     assert [d["seq"] for d in data["drafts"]] == [1, 2]

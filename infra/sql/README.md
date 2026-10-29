@@ -79,6 +79,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C12 | `cs/20261029_KAN-194_checkpoint_schema.sql` | 001(`checkpoint_cs` 스키마) | cs_migrator | 가능 | to_regclass('checkpoint_cs.checkpoints') | 미확인 |
 | C13 | `cs/20261030_KAN-110_customer_mail.sql` | C4(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_customer_sends') | 미확인 |
 | C14 | `cs/20261030_KAN-107_ticket_analysis.sql` | C8(헤더, 감사 목록) | cs_migrator | 가능 | to_regclass('cs.ticket_analyses') | 미확인 |
+| C15 | `cs/20261030_KAN-110_send_draft_link.sql` | C13·C14(헤더) | cs_migrator | 가능 | 열 `cs.ticket_customer_sends.draft_id` | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
@@ -174,6 +175,7 @@ python3 scripts/workspace.py migrate cs 20261030_KAN-193_return_subtype_confirme
 python3 scripts/workspace.py migrate cs 20261029_KAN-194_checkpoint_schema.sql
 python3 scripts/workspace.py migrate cs 20261030_KAN-110_customer_mail.sql
 python3 scripts/workspace.py migrate cs 20261030_KAN-107_ticket_analysis.sql
+python3 scripts/workspace.py migrate cs 20261030_KAN-110_send_draft_link.sql
 python3 scripts/workspace.py migrate platform 20261030_KAN-110_mail_link_notify.sql
 python3 scripts/workspace.py migrate tft 20261023_KAN-119_projects.sql
 python3 scripts/workspace.py migrate tft 20261023_KAN-122_staffing_requests.sql

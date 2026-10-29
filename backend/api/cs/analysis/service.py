@@ -57,6 +57,11 @@ async def record_draft(conn: Any, ticket_id: UUID, values: Row) -> Row:
         DraftOutput.model_validate(values["draft"])
     if await tickets.lock_ticket(conn, ticket_id) is None:
         raise ticket_not_found()
+    # The FK only says the run exists; it must also be a run of this ticket.
+    if values.get("analysis_id") is not None and not await repository.run_belongs(
+        conn, ticket_id, values["analysis_id"]
+    ):
+        raise ValueError("CS_DRAFT_ANALYSIS_MISMATCH")
     return await repository.insert_draft(conn, ticket_id, values)
 
 
