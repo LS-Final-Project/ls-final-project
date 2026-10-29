@@ -228,6 +228,16 @@ TECH_SPEC 54건이며, 그중 53건은 null이고 1건의 MANUAL은 별도 매�
 SITE_DOWN은 라인 전체 또는 공장 전체 정지. PROD_IMPACT는 생산 영향 또는 하루 여러 번 반복.
 COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출 기한까지의 회신 요청.
 
+## 분류 프롬프트 판본 (KAN-105)
+
+`backend/engine/cs/prompt_registry.py`의 분류(classification) 판본이다. 지문은 `prompt_fingerprint`(본문 sha256 앞 16자)이며 `tests/cs/test_prompt_registry.py`가 고정한다. 기존 판본 본문은 고치지 않고 새 키로만 더한다. 채택은 실측 후에 정하며, 표에 올린 것만으로 기본 판본이 바뀌지 않는다.
+
+| 판본 | 지문 | 바뀐 점 |
+| --- | --- | --- |
+| v1 | `ec6fefc1c1ba9e79` | 기본 지시문 |
+| v2 | `143d7655ee22fed7` | v1 + 긴급도 신호 지침 한 줄(위 긴급도 정답 잠금의 신호 설명) |
+| v3 | `f299989ca90bcf99` | v2의 return_subtype 줄만 교체: category_code나 secondary_category가 RETURN일 때만 DEFECT·NON_DEFECT, 둘 다 아니면 불량 내용이 있어도 null(예 WARRANTY·보조 DEFECT → null). valid 603 재측정의 형식 위반 1건 대응 |
+
 ## C/S 규칙 평가 분모와 제외 사유 (KAN-95)
 
 2026-10-27 개발 자료(학습 2,800·검증 603, `tickets.dev.csv` SHA-256 `c3fd2b60…`)에서 직접 집계해 잠근

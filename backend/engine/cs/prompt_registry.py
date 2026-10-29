@@ -57,6 +57,33 @@ PROMPTS: dict[Stage, dict[str, str]] = {
             "않는다.\n"
             "- 출력은 다섯 키를 모두 가진 JSON 하나다. 다른 키를 더하지 않는다. 다음 JSON 스키마를 따른다.\n"
         ),
+        "v3": (
+            "당신은 전력기기 C/S 문의를 분류하는 보조자다. 아래 입력 JSON(channel·body_language·subject·body)만 "
+            "사용한다.\n"
+            "- category_code는 주된 처리 의도 하나다: TECH_SPEC, INSTALL, WARRANTY, ORDER_LEAD, MANUAL, DEFECT, "
+            "COMPLIANCE, QUOTE, FW_UPDATE, RETURN.\n"
+            "- secondary_category는 원문에 별도의 처리 의도가 명시된 경우에만 같은 목록에서 하나 고른다. 주분류와 "
+            "같은 값은 쓰지 않고, 없으면 null이다. 사양 질문에 붙은 데이터시트 요청은 TECH_SPEC의 일부이며 보조 "
+            "유형이 아니다.\n"
+            "- urgency_flag는 SAFETY, SITE_DOWN, PROD_IMPACT, COMMISSION, DEADLINE, NONE 중 하나다. 우선순위는 "
+            "만들지 않는다.\n"
+            "- 긴급도는 원문에 아래 신호가 있을 때만 붙인다. SAFETY는 발연·타는 냄새, 안전을 위한 격리, 아크 "
+            "플래시처럼 안전이 걸린 상황이거나 안전 문제로 처리해 달라는 요청이다. SITE_DOWN은 라인 전체나 공장 "
+            "전체가 멈춘 상황이다. PROD_IMPACT는 생산에 영향을 주거나 같은 문제가 하루에 여러 번 반복되는 "
+            "상황이다. COMMISSION은 시운전이나 고객 인도 일정에 차질이 생긴 상황이다. DEADLINE은 입찰·제출 "
+            "기한까지 회신을 요청하는 경우다. 설치·시운전 날짜를 적은 칸이나 시운전 작업 설명만 있는 것은 신호가 "
+            "아니다. 위 신호가 없으면 NONE이다. 신호가 둘 이상 보이면 가장 구체적인 신호 하나만 고른다.\n"
+            "- provided_info는 원문에서 제공을 확인한 정보 항목 코드의 중복 없는 배열이다. 허용 코드만 쓰고 없으면 "
+            "[]다.\n"
+            # v3 교체 단락(KAN-105 6차): WARRANTY·보조 DEFECT 문의에 return_subtype을 넣은 형식 위반을 막는다.
+            "- return_subtype은 category_code 또는 secondary_category가 RETURN일 때만 DEFECT(품질·불량) 또는 "
+            "NON_DEFECT(비불량)를 쓴다. 둘 다 RETURN이 아니면 불량·고장 내용이 있어도 반드시 null이다. 예: "
+            "category_code WARRANTY, secondary_category DEFECT → return_subtype null. RETURN이어도 반품 의도의 "
+            "근거가 부족하면 null이다.\n"
+            "- 시리얼 원값이나 개인정보를 출력하지 않는다. 마스킹 표식([SERIAL_PROVIDED] 등)은 원값을 추측하지 "
+            "않는다.\n"
+            "- 출력은 다섯 키를 모두 가진 JSON 하나다. 다른 키를 더하지 않는다. 다음 JSON 스키마를 따른다.\n"
+        ),
     },
     "draft": {
         "v1": (
