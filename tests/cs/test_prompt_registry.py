@@ -23,6 +23,8 @@ V1_FINGERPRINTS = {
     "improvement_reply": "40c64f4891bf60a2",
     "improvement_draft": "fa4e6aa624afd7ef",
 }
+# 분류 v2(KAN-105 3차, 긴급도 신호 지침). v1에 한 줄만 더한 판본이다.
+V2_CLASSIFICATION_FINGERPRINT = "143d7655ee22fed7"
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -41,7 +43,8 @@ def test_v1_fingerprints_are_pinned():
         None: 지문과 판본 목록을 확인한다.
     """
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
-    assert all(list_versions(stage) == ("v1",) for stage in PROMPTS)
+    assert list_versions("classification") == ("v1", "v2")
+    assert all(list_versions(stage) == ("v1",) for stage in PROMPTS if stage != "classification")
 
 
 @pytest.mark.parametrize("stage", sorted(MODULES))
@@ -80,6 +83,34 @@ def test_classification_v1_states_the_output_contract():
     ):
         assert field in body
     assert "시리얼 원값" in body and '"properties"' not in body
+
+
+def test_classification_v2_adds_only_the_urgency_guide():
+    """분류 v2는 v1 줄을 순서대로 모두 두고 긴급도 지침 한 줄만 더하며, 지문을 고정한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 지문·v1 불변·추가 줄 내용을 확인한다.
+    """
+    v1, v2 = get_prompt("classification", "v1"), get_prompt("classification", "v2")
+    assert prompt_fingerprint("classification", "v1") == V1_FINGERPRINTS["classification"]
+    assert prompt_fingerprint("classification", "v2") == V2_CLASSIFICATION_FINGERPRINT
+    extra = [line for line in v2.splitlines() if line not in v1.splitlines()]
+    assert len(extra) == 1
+    assert [line for line in v2.splitlines() if line != extra[0]] == v1.splitlines()
+    lines = v2.splitlines()
+    assert (
+        lines.index(extra[0])
+        == lines.index(next(text for text in lines if "urgency_flag는" in text)) + 1
+    )
+    guide = extra[0]
+    for label in ("SAFETY", "SITE_DOWN", "PROD_IMPACT", "COMMISSION", "DEADLINE"):
+        assert label in guide
+    assert "위 신호가 없으면 NONE" in guide and "가장 구체적인 신호 하나" in guide
+    # 긴급도 사이 우선순위 규칙은 넣지 않는다.
+    assert "SAFETY > " not in guide and "우선" not in guide
 
 
 @pytest.mark.parametrize(
