@@ -642,3 +642,17 @@ def test_router_detects_markdown_and_rejects_unsafe_text(tmp_path: Path) -> None
     ):
         with pytest.raises(ValueError, match=reason):
             extract_markdown(unsafe)
+
+
+def test_router_uses_source_name_and_mime_for_markdown_bytes() -> None:
+    """바이트 입력은 source_name 확장자(.md)나 text/markdown MIME으로도 Markdown을 판별한다(KAN-99 이연 P3).
+
+    front matter·목록·일반 문장으로 시작해 첫 글자 규칙에 걸리지 않는 본문을 쓴다. 힌트가 없으면 여전히 거부한다.
+    """
+    body = "---\ntitle: FAQ\n---\n- 자주 묻는 질문\n".encode()
+    assert extract(body, source_name="faq.MD").source_kind == "MARKDOWN"
+    assert extract(body, "text/markdown; charset=utf-8").source_kind == "MARKDOWN"
+    assert extract(body, source_name="faq.md").source_name == "faq.md"
+    for hint in ({}, {"source_name": "faq.txt"}, {"mime": "text/plain"}):
+        with pytest.raises(ValueError, match="DOCX·PDF·Markdown만"):
+            extract(body, **hint)
