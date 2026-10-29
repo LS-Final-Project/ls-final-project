@@ -10,7 +10,7 @@
 python3 scripts/workspace.py migrate platform 20261025_KAN-69_job_admission.sql
 ```
 
-`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다. KAN-182가 `owner=tft`의 `rfp.process`·`rfp.export`·`rfp.annotate`를 등록했다([RFP 작업 접수 계약](../tft/rfp-jobs.md)). tft 작업은 내부 접수 경로로만 만들고 전송 의도는 아직 만들지 않는다. KAN-194가 `owner=cs`의 `cs.analyze`를 등록했다(아래 'KAN-194 C/S 처리 작업' 절). cs 작업도 내부 접수 경로로만 만들지만 평가처럼 전송 의도를 만든다.
+`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다. KAN-182가 `owner=tft`의 `rfp.process`·`rfp.export`·`rfp.annotate`를 등록했다([RFP 작업 접수 계약](../tft/rfp-jobs.md)). tft 작업은 내부 접수 경로로만 만들고, KAN-199부터 전송 의도와 작업 제어 행을 함께 만든다(처리기 연결 전에는 503으로 저장하지 않음). KAN-194가 `owner=cs`의 `cs.analyze`를 등록했다(아래 'KAN-194 C/S 처리 작업' 절). cs 작업도 내부 접수 경로로만 만들지만 평가처럼 전송 의도를 만든다.
 
 | 테이블 | 저장 단위와 제약 |
 | --- | --- |
@@ -224,3 +224,10 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
 - 이벤트 payload 허용 키(`EventPayload`): 기존 `state` 외에 `step`(smoke·classify·rules·retrieve·draft), `stage`(그래프 단계), `retried`·`recovered`(0 이상 정수), `classification_outcome`·`draft_outcome`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD). 모르는 키(오류 코드 등)는 버리고 SSE로 내지 않는다.
 - 검증은 전용 PostgreSQL과 합성 Jobs 응답으로 한정한다(`tests/platform/test_cs_job_runtime_db.py`).
 - 3/3: worker(`backend.agent.cs_worker`)의 인수·lease·취소·이벤트·실패 코드는 [C/S 그래프 계약](../cs/graph.md)의 'worker 실행' 절이다.
+
+### KAN-199 RFP 작업 전송 분기와 상태·SSE 접근 — 1/2
+
+- 전송: `require_local`의 허용 종류에 rfp.*(`rfp.process`·`rfp.export`·`rfp.annotate`)를 더했다. local/test에서 `TFT_JOBS_ENABLED`·`TFT_JOBS_PROCESSOR_CONNECTED`가 켜졌을 때만이고, Jobs 전송은 `TFT_WORKER_JOBS_ENABLED`까지 켜져야 한다. 전송 직전 재검사는 C/S와 같은 `runtime.job_control` 규칙(`worker_sendable`)이다. Jobs 호출은 `TFT_WORKER_JOBS_JOB`(기본 `tft-worker`)에 환경 `TFT_JOB_ID`=작업 ID다.
+- 상태·SSE: 검사기 표에 tft를 더했다. 요청 사용자 본인만 보고 그 밖은 404다(역할로 넓히지 않음). 응답은 `TftJobStatus`다.
+- 이벤트 payload: RFP 단계 `step`(parse·extract·search·compare·supplement·candidates·draft·export·annotate), `document_version_id`, `counts{requirements, proposals}`, 기존 `needs_review`.
+- 세부 규칙은 [RFP 작업 계약](../tft/rfp-jobs.md)이다. 검증은 `tests/platform/test_tft_job_runtime_db.py`다.

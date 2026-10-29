@@ -24,18 +24,31 @@ TERMINAL_STATES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"})
 
 
 Outcome = Literal["VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"]
+# RFP 작업 단계(contracts/tft/rfp-jobs.md 표). rfp.process는 parse~draft, rfp.export는 export, rfp.annotate는 annotate.
+RfpStep = Literal[
+    "parse", "extract", "search", "compare", "supplement", "candidates", "export", "annotate"
+]
+
+
+class RfpCounts(BaseModel):
+    """RFP 진행 수(요구사항·제안). 0 이상 정수만."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    requirements: int = Field(ge=0)
+    proposals: int = Field(ge=0)
 
 
 class EventPayload(BaseModel):
     """내부 generation·오류 코드·임의 문자열을 제외한 이벤트 허용 필드.
 
-    C/S 처리(KAN-194)는 그래프 노드(step)·단계(stage)·재호출·회복 수·분류·초안 최종 outcome만 낸다. 모르는 키는
-    버린다(extra ignore). 오류 코드와 원문은 SSE로 내지 않는다.
+    C/S 처리(KAN-194)는 그래프 노드(step)·단계(stage)·재호출·회복 수·분류·초안 최종 outcome만 낸다. RFP 처리
+    (KAN-199)는 단계(step)·문서 판본 ID·진행 수(counts)·검토 필요(needs_review)만 낸다. 모르는 키는 버린다(extra
+    ignore). 오류 코드와 원문은 SSE로 내지 않는다.
     """
 
     model_config = ConfigDict(extra="ignore", strict=True)
     state: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"] | None = None
-    step: Literal["smoke", "classify", "rules", "retrieve", "draft"] | None = None
+    step: Literal["smoke", "classify", "rules", "retrieve", "draft"] | RfpStep | None = None
     stage: (
         Literal[
             "RECEIVED",
@@ -56,6 +69,11 @@ class EventPayload(BaseModel):
     resumed: bool | None = None
     synthetic: bool | None = None
     needs_review: bool | None = None
+    # JSON 문자열로 저장되므로 strict 모드에서 UUID 객체 대신 표준 하이픈 소문자 형식 문자열로 받는다.
+    document_version_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )
+    counts: RfpCounts | None = None
 
 
 class JobEvent(BaseModel):
