@@ -388,3 +388,22 @@ def test_demo_pool_profiles_follow_plan_4_8_expected_grades():
     # 차단기 모델 LA-BRK-4000이 L-A products에 있어 UL 1066 등록이 적용 모델 다름으로 빠지지 않는다.
     _, grades = grade_candidate(profiles["L-A"], B2, CONTEXT, DAY)
     assert "certification:UL 1066" in by_id(grades)[24].mandatory_check.passed
+
+
+def test_designated_model_requirements_are_kept_out_of_partner_grading():
+    """고객 지정 모델 요구는 채점하지 않고 지정품으로 따로 남기며, 전부 지정이면 채점 대상 없음(REVIEW)이다(V_1 ⑧)."""
+    confirmed = profile("P-A", MV_FACTS, [cert("UL 347")])
+    # 채점했다면 40 kV 미달로 EXCLUDED가 되는 요구를 고객 지정 모델로 둔다.
+    designated = req(
+        9, "rated_max_voltage", "40", unit="kV", operator="GTE", designated_model="ACME X-40"
+    )
+    summary, grades = grade_candidate(confirmed, [designated, MV[1], MV[2]], CONTEXT, DAY)
+    assert summary.overall_grade == "MANDATORY_CONFIRMED"
+    assert sorted(g.requirement_id.int for g in grades) == [2, 3]
+    assert [
+        (d.requirement_id.int, d.designated_model, d.note) for d in summary.designated_requirements
+    ] == [(9, "ACME X-40", "고객 지정 조달")]
+    only, grades = grade_candidate(confirmed, [designated], CONTEXT, DAY)
+    assert (only.overall_grade, grades) == ("REVIEW", [])
+    assert "모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음." in only.conditions_to_confirm
+    assert len(only.designated_requirements) == 1

@@ -62,11 +62,21 @@ class RequirementGrade(BaseModel):
     mandatory_check: MandatoryCheck
 
 
+class DesignatedRequirement(BaseModel):
+    """고객 지정 모델 요구. 협력사 후보 채점에 넣지 않고 지정품 조달로 따로 보인다(기획서 V_1 ⑧)."""
+
+    requirement_id: UUID
+    designated_model: str
+    clause_no: str | None
+    note: str = "고객 지정 조달"
+
+
 class CandidateSummary(BaseModel):
     candidate_code: str
     on_customer_manufacturer_list: bool | None
     overall_grade: Grade
     conditions_to_confirm: list[str]
+    designated_requirements: list[DesignatedRequirement] = []
 
 
 def grade_requirement(
@@ -139,6 +149,10 @@ def grade_candidate(
 ) -> tuple[CandidateSummary, list[RequirementGrade]]:
     """후보 하나를 보완 대상 요구 전체에 대해 등급 매기고 후보 요약을 만든다.
 
+    고객 지정 모델(designated_model)이 있는 요구는 자사·협력사 DB에 없는 경우가 많아 협력사 후보 추천과 섞지 않는다
+    (기획서 V_1 ⑧). 그 요구는 채점하지 않고 요약의 designated_requirements에만 남긴다. 남은 요구가 없으면 채점할
+    대상이 없으므로 REVIEW와 그 사유를 낸다.
+
     Args:
         profile: 가상 협력사 프로필.
         requirements: 보완 대상 요구 목록. 비어 있으면 안 된다.
@@ -146,22 +160,38 @@ def grade_candidate(
         reference_date: 인증 유효기한 기준일.
 
     Returns:
-        tuple[CandidateSummary, list[RequirementGrade]]: 후보 요약(요구별 등급에 EXCLUDED가 있으면
-            EXCLUDED, 아니면 가장 낮은 단계)과 요구별 등급.
+        tuple[CandidateSummary, list[RequirementGrade]]: 후보 요약(채점한 요구별 등급에 EXCLUDED가 있으면
+            EXCLUDED, 아니면 가장 낮은 단계, 채점한 요구가 없으면 REVIEW)과 지정 모델 요구를 뺀 요구별 등급.
     """
     if not requirements:
         raise ValueError("At least one requirement is needed to grade a candidate.")
-    grades = [grade_requirement(profile, r, context, reference_date) for r in requirements]
+    designated = [
+        DesignatedRequirement(
+            requirement_id=r.requirement_id,
+            designated_model=r.designated_model,
+            clause_no=r.clause_no,
+        )
+        for r in requirements
+        if r.designated_model
+    ]
+    graded = [r for r in requirements if not r.designated_model]
+    grades = [grade_requirement(profile, r, context, reference_date) for r in graded]
     on_list, conditions = _manufacturer(profile, context)
     found = {g.grade for g in grades}
-    overall: Grade = (
-        "EXCLUDED" if "EXCLUDED" in found else min(found, key=RANK.index)  # type: ignore[arg-type]
-    )
+    overall: Grade
+    if not grades:
+        overall = "REVIEW"
+        conditions = [*conditions, "모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음."]
+    elif "EXCLUDED" in found:
+        overall = "EXCLUDED"
+    else:
+        overall = min(found, key=RANK.index)  # type: ignore[arg-type]
     summary = CandidateSummary(
         candidate_code=profile.candidate_code,
         on_customer_manufacturer_list=on_list,
         overall_grade=overall,
         conditions_to_confirm=conditions,
+        designated_requirements=designated,
     )
     return summary, grades
 
