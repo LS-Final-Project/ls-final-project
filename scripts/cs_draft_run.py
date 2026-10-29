@@ -327,6 +327,9 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
                 json.dumps({"cases": len(cases), **counts, "candidates": rows}, ensure_ascii=False)
             )
             return 0
+        # 유료 호출 전에 모든 후보 판본이 레지스트리에 있는지 확인한다(뒤 후보에서 멈춰 결과를 잃지 않게).
+        for spec in specs:
+            prompt_fingerprint("draft", spec["prompt_version"])
         prepare_output(args.out)
         output = execute(
             cases,

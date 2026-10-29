@@ -309,6 +309,36 @@ class DraftRunTests(unittest.TestCase):
         first, second = json.loads(printed.splitlines()[-1])["candidates"]
         self.assertGreater(first["prompt_chars"], second["prompt_chars"])
 
+    def test_unknown_version_stops_before_any_paid_call(self):
+        """모르는 판본 후보가 뒤에 있어도 --execute는 공급자를 부르기 전에 종료 코드 1로 멈춘다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 공급자 미호출을 확인한다.
+        """
+        (self.root / "cands.json").write_text(
+            json.dumps(
+                [
+                    {"name": "a", "model": "m", "prompt_version": "v1"},
+                    {"name": "b", "model": "m", "prompt_version": "v9"},
+                ]
+            )
+        )
+        calls = []
+
+        def factory(spec, settings):
+            def provider(prompt):
+                calls.append(spec["name"])
+                return Generation("x", Usage(), None, [])
+
+            return provider
+
+        code, _ = self.run_main("--execute", "--out", str(self.root / "r.json"), factory=factory)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [])
+
     def test_invalid_inputs_exit_with_codes(self):
         """test 분할은 2, 잘못된 분류 형식·모르는 재실행 ID·--out 없는 실행·출력 디렉터리 없음은 1이다.
 
