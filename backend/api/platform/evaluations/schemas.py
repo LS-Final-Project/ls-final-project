@@ -64,6 +64,15 @@ BlockedReason = Literal[
 ]
 
 
+class ExperimentRunLink(BaseModel):
+    """실험의 실행 하나로 가는 링크(KAN-139 3차). summary를 열 수 있는 실행(영수증 있음)만 담는다."""
+
+    run_id: UUID
+    origin: Literal["ACCEPT", "IMPORT"]
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"]
+    created_at: datetime
+
+
 class EvaluationExperiment(BaseModel):
     """본인이 만든 실험 하나. 구성 원문·manifest·hash·대상 ID는 담지 않는다."""
 
@@ -81,6 +90,9 @@ class EvaluationExperiment(BaseModel):
     # 접수 규칙(validate_smoke_experiment)을 그대로 적용한 결과. 대상 집합 검사는 접수 때 한다.
     admissible: bool
     blocked_reason: BlockedReason | None
+    # 이 실험의 최근 실행(최신순 최대 EXPERIMENT_RUN_LIMIT개). 반입(IMPORT) 실행도 포함하며 run_control은 보지 않는다.
+    # 최종 시험(test) 분할 실험은 summary가 열리지 않으므로 빈 목록이다.
+    runs: list[ExperimentRunLink] = []
 
 
 class EvaluationExperiments(BaseModel):

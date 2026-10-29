@@ -318,3 +318,22 @@ for (const [name, change] of Object.entries<(e: Record<string, unknown>) => void
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   });
 }
+
+import { listExperiments } from './evaluation-admission.ts';
+
+test('실험 목록은 실행 링크를 투영하고, 없으면 빈 목록, 형식이 틀리면 거부한다', async t => {
+  const base = { experiment_id: '33333333-3333-4333-8333-333333333331', name: 'x', purpose: 'smoke', data_split: null, data_origin: 'synthetic',
+    model_id: 'fake', target_count: 2, created_at: '2026-10-28T01:00:00Z', admissible: true, blocked_reason: null };
+  const link = { run_id: '66666666-6666-4666-8666-666666666661', origin: 'IMPORT', status: 'PARTIAL', created_at: '2026-10-29T03:00:00Z' };
+  let items: unknown[] = [{ ...base, runs: [{ ...link, import_ref: 'secret' }] }, base];
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data: { items } }));
+  const [first, second] = await listExperiments(new AbortController().signal);
+  assert.deepEqual(first.runs, [{ runId: link.run_id, origin: 'IMPORT', status: 'PARTIAL', createdAt: link.created_at }]);
+  assert.deepEqual(second.runs, []);
+  for (const bad of [{ ...link, origin: 'SYNC' }, { ...link, status: 'DONE' }, { ...link, run_id: 'x' }]) {
+    items = [{ ...base, runs: [bad] }];
+    await assert.rejects(listExperiments(new AbortController().signal), /실험 목록/);
+  }
+  items = [{ ...base, runs: Array.from({ length: 11 }, () => link) }];
+  await assert.rejects(listExperiments(new AbortController().signal), /실험 목록/);
+});

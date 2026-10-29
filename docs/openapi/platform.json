@@ -424,6 +424,14 @@
             "title": "Purpose",
             "type": "string"
           },
+          "runs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExperimentRunLink"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
           "stage": {
             "anyOf": [
               {
@@ -1230,6 +1238,50 @@
           "blocked_reason"
         ],
         "title": "ExperimentRegistered",
+        "type": "object"
+      },
+      "ExperimentRunLink": {
+        "description": "\uc2e4\ud5d8\uc758 \uc2e4\ud589 \ud558\ub098\ub85c \uac00\ub294 \ub9c1\ud06c(KAN-139 3\ucc28). summary\ub97c \uc5f4 \uc218 \uc788\ub294 \uc2e4\ud589(\uc601\uc218\uc99d \uc788\uc74c)\ub9cc \ub2f4\ub294\ub2e4.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "ACCEPT",
+              "IMPORT"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "origin",
+          "status",
+          "created_at"
+        ],
+        "title": "ExperimentRunLink",
         "type": "object"
       },
       "HTTPValidationError": {

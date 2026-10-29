@@ -18,6 +18,8 @@ export default function Evaluations() {
 /** 작업별 조회 상태를 분리한다. Args: 작업 ID와 이동 함수. Returns: 조회 폼과 상태. */
 function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: string) => void }) {
   const [input, setInput] = useState(jobId);
+  // 실험별 실행 링크로 연 실행 상세. 반입 실행처럼 작업 상태가 없는 실행도 summary로 연다(KAN-139 3차).
+  const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const valid = isJobId(jobId);
   const [revision, setRevision] = useState(0);
   const [view, setView] = useState<EvaluationView>({ connection: 'loading' });
@@ -52,7 +54,12 @@ function EvaluationLookup({ jobId, onOpen }: { jobId: string; onOpen: (id: strin
       <div><p className="eyebrow">EVALUATIONS</p><h1>평가 실행</h1><p>합성 평가를 접수하고 작업의 현재 상태를 확인하세요.</p></div>
       <span className="evaluation-tag">실행 상태 조회</span>
     </header>
-    <RunAdmission onOpen={onOpen} />
+    <RunAdmission onOpen={onOpen} onOpenRun={setDetailRunId} />
+    {detailRunId && <section aria-labelledby="run-detail-title">
+      <div className="section-title"><h2 id="run-detail-title">실행 상세 <code>{detailRunId.slice(0, 8)}</code></h2>
+        <button onClick={() => setDetailRunId(null)}>닫기</button></div>
+      <RunSummary key={`detail:${detailRunId}`} runId={detailRunId} />
+    </section>}
     <section aria-labelledby="lookup-title">
       <h2 id="lookup-title">작업 조회</h2>
       <form className="evaluation-form" onSubmit={event => {
