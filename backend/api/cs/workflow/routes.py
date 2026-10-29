@@ -488,7 +488,8 @@ async def reassign_owner(
     """Only a manager of the C/S department reassigns the owner. The state does not change.
 
     The C/S service cannot read the identity schema, so the new owner's role is not checked
-    here; the screen offers registered C/S agents only.
+    here. The platform relay checks it before forwarding (KAN-195: an inactive or non-cs_agent
+    owner is 422 CS_INVALID_OWNER); a local direct call to this service skips that check.
     """
     async with connection(request.app.state.settings) as conn:
         workflow, _, _ = await begin(conn, principal, ticket_id)

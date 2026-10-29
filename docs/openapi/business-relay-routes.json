@@ -31,6 +31,20 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis/corrections",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/tickets/{uuid}/units",
       "methods": [
         "GET"
