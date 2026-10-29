@@ -1,6 +1,8 @@
 """합성 평가 접수의 실제 DB 원자성·접근·응답 재생 검사."""
 
 import asyncio
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -9,7 +11,21 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, csrf_token
-from backend.api.platform.evaluations.admission import CONFIG_FIELDS, accept_run, canonical_hash
+from backend.api.platform.evaluations.admission import (
+    CONFIG_FIELDS,
+    SECRET_KNOB_PATTERN,
+    accept_run,
+    canonical_hash,
+    check_stage_knobs,
+    config_payload,
+)
+from backend.api.platform.evaluations.cs_smoke import (
+    DATASET_HASH,
+    PROFILE,
+    PROMPT_VERSION,
+    TARGET_SET_HASH,
+)
+from backend.engine.cs.classification import INPUT_VERSION
 from backend.shared.access import Principal
 from backend.shared.errors import ApplicationError
 from tests.platform.test_evaluation_access import client_for
@@ -302,3 +318,94 @@ def test_changed_configuration_and_targets_fail_closed(
         )
     assert targets.value.code == "TARGET_SET_MISMATCH"
     assert record_counts(evaluation_database) == (0, 0, 0, 0, 0, 0, 0)
+
+
+SMOKE_HASH = "b9fabdbe970550fe11ca806e2c395ee6ac1f9d71fe1559ac3f9cb12d9068217c"
+
+
+def smoke_row(**extra):
+    """고정 C/S smoke 프로필 실험 행을 만든다(DB 없음).
+
+    Args:
+        **extra: 더할 필드(stage·knobs 등).
+
+    Returns:
+        dict: 실험 행.
+    """
+    row = dict.fromkeys(CONFIG_FIELDS)
+    row.update(
+        purpose="smoke",
+        data_origin="synthetic",
+        dataset_hash=DATASET_HASH,
+        prompt_version=PROMPT_VERSION,
+        model_id="fake",
+        input_builder_version=INPUT_VERSION,
+        configuration=PROFILE,
+        target_set_hash=TARGET_SET_HASH,
+    )
+    return row | extra
+
+
+def test_empty_stage_and_knobs_keep_existing_hashes():
+    """stage·knobs가 없거나 비면 기존 smoke 프로필 hash가 그대로고, 값이 있으면 hash가 바뀐다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 리터럴 hash와 비교한다.
+    """
+    assert canonical_hash(config_payload(smoke_row())) == SMOKE_HASH
+    assert canonical_hash(config_payload(smoke_row(stage=None, knobs={}))) == SMOKE_HASH
+    staged = canonical_hash(config_payload(smoke_row(stage="draft", knobs={})))
+    knobbed = canonical_hash(config_payload(smoke_row(stage="draft", knobs={"temperature": 0.2})))
+    assert len({SMOKE_HASH, staged, knobbed}) == 3
+
+
+@pytest.mark.parametrize(
+    ("stage", "knobs", "code"),
+    [
+        ("ranking", {}, "EVALUATION_KNOB_INVALID"),
+        (None, {"gemini_API_KEY": "x"}, "EVALUATION_KNOB_SECRET"),
+        (None, {"refresh.Token": "x"}, "EVALUATION_KNOB_SECRET"),
+        (None, {"db_password": 1}, "EVALUATION_KNOB_SECRET"),
+        (None, {"Credential_ref": "x"}, "EVALUATION_KNOB_SECRET"),
+        (None, {"client-secret": "x"}, "EVALUATION_KNOB_SECRET"),
+        (None, {"bad key": 1}, "EVALUATION_KNOB_INVALID"),
+        (None, {"k" * 65: 1}, "EVALUATION_KNOB_INVALID"),
+        (None, {"nested": {"a": 1}}, "EVALUATION_KNOB_INVALID"),
+        (None, {"note": "x" * 257}, "EVALUATION_KNOB_INVALID"),
+        (None, {f"k{i}": i for i in range(21)}, "EVALUATION_KNOB_INVALID"),
+        (None, ["prompt_version"], "EVALUATION_KNOB_INVALID"),
+    ],
+)
+def test_stage_and_knob_rules(stage, knobs, code):
+    """허용 밖 단계·비밀 키·키 형식·깊이·값 길이·개수 위반을 422로 거부한다.
+
+    Args:
+        stage: 단계.
+        knobs: 조절 항목.
+        code: 기대 오류 코드.
+
+    Returns:
+        None: ApplicationError 422를 확인한다.
+    """
+    with pytest.raises(ApplicationError) as error:
+        check_stage_knobs(stage, knobs)
+    assert (error.value.status_code, error.value.code) == (422, code)
+
+
+def test_allowed_stage_and_knobs_pass_and_db_pattern_matches():
+    """허용 값은 통과하고, 마이그레이션 CHECK의 비밀 키 정규식이 앱 상수와 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 검사 통과와 정규식 일치를 확인한다.
+    """
+    knobs = {"prompt_version": "v1", "rrf_k": 60, "temperature": 0.2, "rerank": True}
+    check_stage_knobs("search", knobs | {f"x.{i}": i for i in range(16)})
+    check_stage_knobs(None, {})
+    sql = Path("infra/migrations/platform/20261029_KAN-90_experiment_stage_knobs.sql").read_text()
+    assert re.findall(r'like_regex "([^"]+)" flag "i"', sql) == [SECRET_KNOB_PATTERN]

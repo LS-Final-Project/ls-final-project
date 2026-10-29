@@ -211,6 +211,10 @@ def evaluation_database(jobs_database):
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
         sql = Path("infra/migrations/platform/20261028_KAN-86_attempt_usage_raw.sql").read_text()
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path(
+            "infra/migrations/platform/20261029_KAN-90_experiment_stage_knobs.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return jobs_database
 
 

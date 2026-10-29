@@ -21,6 +21,7 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationRunRequest,
     EvaluationRuns,
     EvaluationRunStatus,
+    Stage,
 )
 from backend.api.platform.evaluations.summary import EvaluationRunSummary, get_run_summary
 from backend.shared.access import Principal
@@ -67,19 +68,25 @@ async def evaluation_policy(request: Request) -> SuccessResponse[EvaluationPolic
     operation_id="platform_list_evaluation_experiments",
 )
 async def evaluation_experiments(
-    request: Request, principal: Annotated[Principal, Depends(require_evaluator)]
+    request: Request,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+    stage: Stage | None = None,
 ) -> SuccessResponse[EvaluationExperiments]:
     """본인 실험 최근 50개와 접수 가능 여부·막힌 사유를 반환한다.
 
     Args:
         request: 서버 설정·허용 목록·요청 ID를 가진 요청.
         principal: 현재 지정 평가자 세션.
+        stage: 주어지면 그 단계(classification·search·draft·rfp)의 실험만.
 
     Returns:
         SuccessResponse[EvaluationExperiments]: 구성 원문·manifest·hash·대상 ID 없는 목록.
     """
     items = await list_experiments(
-        request.app.state.settings, request.app.state.evaluation_access, principal.user_id
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        stage,
     )
     return SuccessResponse(
         data=EvaluationExperiments(items=items),
