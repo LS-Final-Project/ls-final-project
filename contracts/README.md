@@ -7,6 +7,7 @@
 | 변경 대상 | 직접 수정 | 명령으로 생성 |
 | --- | --- | --- |
 | C/S 문의 | backend/api/cs/tickets/schemas.py, routes.py, backend/api/cs/examples.py | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 개선요청 후보 규칙 | backend/engine/cs/improvement_candidates.py ([후보 규칙](cs/improvement-candidates.md)) | 없음(엔진, HTTP 계약 아님) |
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
 | TFT RFP 자사 대응 | backend/api/tft/rfp/schemas.py, routes.py ([데이터 구조](tft/rfp-data.md)) | docs/openapi/tft.json |
 | TFT RFP 조항 트리·편집 흔적 | backend/engine/rfp/clauses.py, edits.py ([조항 트리](tft/rfp-clauses.md)) | 없음(엔진, HTTP 계약 아님) |
