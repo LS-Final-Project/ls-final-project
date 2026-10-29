@@ -338,6 +338,19 @@ def test_ticket_source_error_codes_are_replaced_by_the_fixed_code(
     assert (status, released, failure) == ("FAILED", True, "CS_WORKER_GRAPH_FAILED")
 
 
+def test_source_missing_code_is_trusted_only_while_loading(worker_settings, jobs_database, cs_job):
+    """처리 구간(그래프 생성·실행)에서 올라온 CS_WORKER_SOURCE_MISSING은 GRAPH_FAILED로 바꾼다."""
+
+    def build(*_args):
+        raise ApplicationError(503, "CS_WORKER_SOURCE_MISSING", "synthetic")
+
+    with pytest.raises(ApplicationError) as error:
+        Harness().run(worker_settings, cs_job, build=build)
+    assert error.value.code == "CS_WORKER_GRAPH_FAILED"
+    status, released, _, failure, _ = snapshot(jobs_database, cs_job)
+    assert (status, released, failure) == ("FAILED", True, "CS_WORKER_GRAPH_FAILED")
+
+
 def test_only_the_cs_worker_role_may_run(settings, jobs_database, cs_job):
     """cs_worker 멤버가 아닌 로그인과 platform_app 로그인으로는 돌지 않고 작업도 건드리지 않는다."""
     with psycopg.connect(jobs_database) as conn:

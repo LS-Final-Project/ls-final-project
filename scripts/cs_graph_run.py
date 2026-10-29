@@ -33,7 +33,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -48,11 +48,12 @@ from backend.agent.cs_runner import (
     run_ticket,
 )
 from backend.agent.cs_search import fts_searcher_from_dsn
+from backend.agent.ticket_source_registry import policy_documents_from_manifest
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting import EvidenceSnippet, build_draft_input, render_prompt
 from backend.engine.cs.drafting_call import DraftAttempt
-from backend.engine.cs.graph import TicketInputs, build_graph, thread_config
+from backend.engine.cs.graph import POLICY_SLOT_DOCUMENTS, TicketInputs, build_graph, thread_config
 from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
 from backend.engine.cs.providers import GenerationKnobs
 from backend.engine.search.hybrid import EXCERPT_CHARS
@@ -426,6 +427,35 @@ def batch_estimate(
     }
 
 
+def fake_classifier(category: str | None) -> Callable[[Any], Any]:
+    """fake 분류 공급자. 유형을 고르면 그 유형으로 바꿔 낸다(정책 문서 예약 확인용).
+
+    Args:
+        category: 정책 유형(RETURN 등). None이면 fake 기본(WARRANTY) 그대로다.
+
+    Returns:
+        Callable: 분류 입력을 받아 Generation을 돌려주는 공급자.
+    """
+    if category is None:
+        return classification_provider
+
+    def provider(payload: Any) -> Any:
+        """fake 분류 결과의 유형만 바꾼다.
+
+        Args:
+            payload: 정제 분류 입력.
+
+        Returns:
+            Generation: 유형을 바꾼 합성 응답.
+        """
+        generation = classification_provider(payload)
+        body = json.loads(generation.text)
+        body["category_code"] = category
+        return replace(generation, text=json.dumps(body))
+
+    return provider
+
+
 def main(
     argv: list[str] | None = None, client_factory: Callable[[AISettings], Any] = create_client
 ) -> int:
@@ -480,7 +510,20 @@ def main(
     parser.add_argument(
         "--debug", action="store_true", help="알 수 없는 오류를 원문 그대로 전파(로컬 디버깅만)"
     )
+    parser.add_argument(
+        "--index-manifest",
+        type=Path,
+        help="색인 manifest(cs_index_docs --manifest-out). POL-* doc_id→sha로 정책 문서 1자리를 예약",
+    )
+    parser.add_argument(
+        "--fake-category",
+        choices=sorted(POLICY_SLOT_DOCUMENTS),
+        help="fake 분류 유형(기본 WARRANTY). 정책 문서 예약 확인용, --execute와 함께 쓰지 않음",
+    )
     args = parser.parse_args(argv)
+    if args.fake_category and args.execute:
+        print("CS_GRAPH_INVALID_ARGS: --fake-category는 fake 실행에서만 씁니다.", file=sys.stderr)
+        return 1
     if args.batch and (args.resume or args.ticket_id or (args.out is None and not args.dry_run)):
         print(
             "CS_GRAPH_INVALID_ARGS: --batch는 --out이 필요하고 --resume·--ticket-id와 함께 쓰지 않습니다.",
@@ -552,6 +595,16 @@ def main(
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
+    try:
+        policy_documents = (
+            policy_documents_from_manifest(args.index_manifest, FILTERS.index_version)
+            if args.index_manifest
+            else None
+        )
+    except (OSError, ValueError) as error:
+        code = str(error) if str(error).startswith("CS_POLICY_") else "CS_POLICY_MANIFEST_INVALID"
+        print(f"{code}: --index-manifest를 읽지 못했습니다.", file=sys.stderr)
+        return 1
     source = UsageRecordingSource(tickets)
     searcher = (
         fts_searcher_from_dsn(settings.database_url.get_secret_value(), FILTERS.index_version)
@@ -582,10 +635,11 @@ def main(
                 invalid_output_retries=args.invalid_output_retries,
                 draft_knobs=GenerationKnobs(max_output_tokens=args.draft_max_output_tokens),
                 evidence_limit=args.evidence_limit,
+                policy_documents=policy_documents,
             )
         else:
             graph = build_graph(
-                classification_provider=classification_provider,
+                classification_provider=fake_classifier(args.fake_category),
                 draft_provider=draft_provider,
                 fts_searcher=searcher,
                 search_filters=FILTERS,
@@ -596,6 +650,7 @@ def main(
                 allow_tracing=settings.ai_tracing_allowed,
                 invalid_output_retries=args.invalid_output_retries,
                 evidence_limit=args.evidence_limit,
+                policy_documents=policy_documents,
             )
         if args.batch:
             try:

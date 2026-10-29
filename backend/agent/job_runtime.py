@@ -257,3 +257,31 @@ def fail(settings: Settings, lease: Lease, code: str) -> None:
         finish(settings, lease, "FAILED", {}, failure_code=code)
     except LeaseLost:
         pass
+
+
+def failure(
+    settings: Settings,
+    lease: Lease,
+    error: Exception,
+    own_codes: frozenset[str],
+    fallback: str,
+) -> ApplicationError:
+    """작업을 FAILED로 남기고 올릴 오류를 돌려준다. worker 밖 코드가 올린 코드는 저장하지 않는다(신뢰 경계).
+
+    Args:
+        settings: worker DB 설정.
+        lease: 소유권.
+        error: 잡은 예외.
+        own_codes: 이 구간에서 그대로 인정할 worker 자신의 코드(예: 입력 load 구간의 *_MISSING).
+        fallback: 그 밖의 예외를 바꿀 고정 코드(*_FAILED).
+
+    Returns:
+        ApplicationError: 인정한 코드면 원래 오류, 아니면 fallback 코드의 새 오류.
+    """
+    code = (
+        error.code if isinstance(error, ApplicationError) and error.code in own_codes else fallback
+    )
+    fail(settings, lease, code)
+    if isinstance(error, ApplicationError) and error.code == code:
+        return error
+    return ApplicationError(500, code, "Processing failed.")

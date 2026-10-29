@@ -26,7 +26,7 @@ from backend.agent.job_runtime import (
     check_role,
     claim,
     connect,
-    fail,
+    failure,
     finish,
     parse_job_id,
     progress,
@@ -49,8 +49,8 @@ STEPS = (
     "export",
     "annotate",
 )
-# worker가 직접 내는 고정 실패 코드. 그 밖의 ApplicationError는 TFT_WORKER_PROCESSING_FAILED로 저장한다.
-OWN_CODES = frozenset({"TFT_WORKER_PROCESSOR_MISSING"})
+# 처리 함수 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 TFT_WORKER_PROCESSING_FAILED로 저장한다.
+LOAD_CODES = frozenset({"TFT_WORKER_PROCESSOR_MISSING"})
 UUID_TEXT = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -143,8 +143,12 @@ def execute_job(
         if not progress(settings, worker.lease_seconds, lease, event_payload(values)):
             raise Cancelled
 
+    # 처리 함수 load 구간에서만 TFT_WORKER_PROCESSOR_MISSING을 인정한다. 처리 구간의 같은 코드는 PROCESSING_FAILED다.
     try:
         processor = processor_loader(settings)
+    except Exception as error:
+        raise failure(settings, lease, error, LOAD_CODES, "TFT_WORKER_PROCESSING_FAILED") from None
+    try:
         try:
             summary = processor(job, emit) or {}
         except Cancelled:
@@ -154,20 +158,9 @@ def execute_job(
         return "TFT_JOB_SUCCEEDED"
     except LeaseLost:
         return "LEASE_LOST"
-    except ApplicationError as error:
+    except Exception as error:
         # 처리 함수(다른 팀 코드)가 올린 코드는 그대로 저장하지 않는다(신뢰 경계).
-        if error.code not in OWN_CODES:
-            fail(settings, lease, "TFT_WORKER_PROCESSING_FAILED")
-            raise ApplicationError(
-                500, "TFT_WORKER_PROCESSING_FAILED", "RFP processing failed."
-            ) from None
-        fail(settings, lease, error.code)
-        raise
-    except Exception:
-        fail(settings, lease, "TFT_WORKER_PROCESSING_FAILED")
-        raise ApplicationError(
-            500, "TFT_WORKER_PROCESSING_FAILED", "RFP processing failed."
-        ) from None
+        raise failure(settings, lease, error, frozenset(), "TFT_WORKER_PROCESSING_FAILED") from None
 
 
 def main() -> None:
