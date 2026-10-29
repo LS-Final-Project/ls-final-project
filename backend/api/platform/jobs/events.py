@@ -12,9 +12,8 @@ from uuid import UUID
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from backend.api.platform.evaluations.access import require_evaluator
-from backend.api.platform.evaluations.admission import check_actor
-from backend.api.platform.jobs.status import read_evaluation_job
+from backend.api.platform.evaluations.access import require_session
+from backend.api.platform.jobs.status import read_job
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 
@@ -24,12 +23,35 @@ BATCH_SIZE = 100
 TERMINAL_STATES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"})
 
 
+Outcome = Literal["VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"]
+
+
 class EventPayload(BaseModel):
-    """내부 generation·오류 코드·임의 문자열을 제외한 합성 이벤트 허용 필드."""
+    """내부 generation·오류 코드·임의 문자열을 제외한 이벤트 허용 필드.
+
+    C/S 처리(KAN-194)는 그래프 노드(step)·단계(stage)·재호출·회복 수·분류·초안 최종 outcome만 낸다. 모르는 키는
+    버린다(extra ignore). 오류 코드와 원문은 SSE로 내지 않는다.
+    """
 
     model_config = ConfigDict(extra="ignore", strict=True)
     state: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"] | None = None
-    step: Literal["smoke"] | None = None
+    step: Literal["smoke", "classify", "rules", "retrieve", "draft"] | None = None
+    stage: (
+        Literal[
+            "RECEIVED",
+            "CLASSIFIED",
+            "CLASSIFY_FAILED",
+            "RULED",
+            "RETRIEVED",
+            "DRAFTED",
+            "HUMAN_REVIEW",
+        ]
+        | None
+    ) = None
+    retried: int | None = Field(default=None, ge=0)
+    recovered: int | None = Field(default=None, ge=0)
+    classification_outcome: Outcome | None = None
+    draft_outcome: Outcome | None = None
     action: Literal["cancel", "resume"] | None = None
     resumed: bool | None = None
     synthetic: bool | None = None
@@ -85,14 +107,16 @@ async def read_event_batch(request: Request, job_id: UUID, after: int) -> EventB
     Returns:
         EventBatch: 최대100개의 오름차순 이벤트와 현재 종료 여부.
     """
-    principal = await require_evaluator(request)
+    principal = await require_session(request)
     settings = request.app.state.settings
-    check_actor(settings, request.app.state.evaluation_access, principal.user_id)
     async with connection(settings) as conn:
         async with conn.transaction():
             await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             await conn.execute("SET LOCAL statement_timeout = '5s'")
-            status = await read_evaluation_job(conn, principal.user_id, job_id)
+            # owner별 검사기(평가·C/S)를 배치마다 다시 적용한다.
+            status = await read_job(
+                conn, settings, request.app.state.evaluation_access, principal, job_id
+            )
             if after > status.last_event_sequence:
                 raise ApplicationError(400, "INVALID_EVENT_CURSOR", "Event cursor is invalid.")
             cursor = await conn.execute(

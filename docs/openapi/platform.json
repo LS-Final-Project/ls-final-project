@@ -148,6 +148,65 @@
         "title": "Candidate",
         "type": "object"
       },
+      "CsJobStatus": {
+        "additionalProperties": false,
+        "description": "C/S \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-194). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "cs.analyze",
+            "default": "cs.analyze",
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "minimum": 0.0,
+            "title": "Last Event Sequence",
+            "type": "integer"
+          },
+          "owner": {
+            "const": "cs",
+            "default": "cs",
+            "title": "Owner",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "ticket_id",
+          "status",
+          "version",
+          "last_event_sequence"
+        ],
+        "title": "CsJobStatus",
+        "type": "object"
+      },
       "DatasetManifest": {
         "additionalProperties": false,
         "description": "{} \ub610\ub294 {\"sources\": [...]}. \uadf8 \ubc16\uc758 \ud0a4\ub294 \ubc1b\uc9c0 \uc54a\ub294\ub2e4.",
@@ -1276,6 +1335,38 @@
           "roles"
         ],
         "title": "Identity",
+        "type": "object"
+      },
+      "JobStatusResponse": {
+        "description": "\uc0c1\ud0dc \uc870\ud68c \uc751\ub2f5. data\ub294 owner(platform\u00b7cs)\ub85c \uad6c\ubd84\ud55c\ub2e4.",
+        "properties": {
+          "data": {
+            "discriminator": {
+              "mapping": {
+                "cs": "#/components/schemas/CsJobStatus",
+                "platform": "#/components/schemas/EvaluationJobStatus"
+              },
+              "propertyName": "owner"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationJobStatus"
+              },
+              {
+                "$ref": "#/components/schemas/CsJobStatus"
+              }
+            ],
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "JobStatusResponse",
         "type": "object"
       },
       "LinkDecision": {
@@ -2683,22 +2774,6 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationExperiments]",
-        "type": "object"
-      },
-      "SuccessResponse_EvaluationJobStatus_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/EvaluationJobStatus"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/ResponseMeta"
-          }
-        },
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "SuccessResponse[EvaluationJobStatus]",
         "type": "object"
       },
       "SuccessResponse_EvaluationPolicy_": {
@@ -4925,7 +5000,7 @@
     },
     "/api/v1/platform/jobs/{job_id}": {
       "get": {
-        "description": "\uba85\uc2dc\uc801\uc73c\ub85c \ud5c8\uc6a9\ub41c local/test \ud569\uc131 \ud3c9\uac00 \uc791\uc5c5\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S)\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4. \ud3c9\uac00\ub294 \uc9c0\uc815 \ud3c9\uac00\uc790 \ubcf8\uc778 \uc791\uc5c5\ub9cc(\ube44\ud3c9\uac00\uc790 403), C/S\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778 \ub610\ub294 cs_agent\ub9cc \ubcf4\uba70 \uadf8 \ubc16\uc740 404\ub2e4.",
         "operationId": "platform_get_evaluation_job",
         "parameters": [
           {
@@ -4944,7 +5019,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_EvaluationJobStatus_"
+                  "$ref": "#/components/schemas/JobStatusResponse"
                 }
               }
             },
@@ -5009,7 +5084,7 @@
     },
     "/api/v1/platform/jobs/{job_id}/events": {
       "get": {
-        "description": "\uc2a4\ud2b8\ub9bc \ud5e4\ub354 \uc804\uc5d0 \ud604\uc7ac \uad8c\ud55c\u00b7\ucee4\uc11c\ub97c \uac80\uc0ac\ud558\uace0 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c \uc7ac\uc0dd\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc124\uc815\u00b7\uc138\uc158 \ucfe0\ud0a4\ub97c \uac00\uc9c4 \uc694\uccad.\n    job_id: \ud50c\ub7ab\ud3fc \ud3c9\uac00 \uc791\uc5c5 UUID.\n    last_event_id: \ucffc\ub9ac\ubcf4\ub2e4 \uc6b0\uc120\ud558\ub294 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n    after: \ud5e4\ub354\uac00 \uc5c6\ub294 \uacbd\uc6b0\uc758 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n\nReturns:\n    Response: SSE \uc751\ub2f5 \ub610\ub294 \uc885\ub8cc \ucee4\uc11c\uc758204. \uac80\uc99d \uc2e4\ud328\ub294 \uacf5\ud1b5 \uc624\ub958 \uc751\ub2f5.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S)\uc758 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c SSE\ub85c \uc7ac\uc0dd\ud55c\ub2e4. \uc811\uadfc \uaddc\uce59\uc740 \uc0c1\ud0dc \uc870\ud68c\uc640 \uac19\uace0 \ubc30\uce58\ub9c8\ub2e4 \ub2e4\uc2dc \uac80\uc0ac\ud55c\ub2e4.",
         "operationId": "platform_stream_evaluation_job_events",
         "parameters": [
           {

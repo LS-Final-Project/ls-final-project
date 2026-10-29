@@ -203,4 +203,23 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
   - 플랫폼 마이그레이션은 runtime 권한만 준다: jobs 조회 열과 status UPDATE, job_events 열 INSERT, job_control.
   - cs 테이블과 checkpoint_cs 권한은 KAN-107의 cs 마이그레이션이 준다.
   - 플랫폼·cs·checkpoint는 같은 Postgres DB(team4)의 스키마로 나뉜다는 전제다.
-- 전송 분기(kind별 대상 Job·환경 `CS_JOB_ID`), 상태·SSE의 owner별 접근 검사, worker 진입점은 2/3·3/3에서 연결한다. 그 전까지 처리기 연결 설정을 켜지 않는다.
+- 전송 분기(kind별 대상 Job·환경 `CS_JOB_ID`)와 상태·SSE의 owner별 접근 검사는 2/3(아래 절), worker 진입점은 3/3에서 연결한다. 3/3 전까지 처리기 연결 설정을 켜지 않는다.
+
+### KAN-194 C/S 작업 전송 분기와 상태·SSE 접근 — 2/3
+
+- 전송 장부는 작업 종류마다 따로 연다(`dispatch.require_local`이 허용 종류 목록을 돌려준다).
+  - 평가(`evaluation.run`): 기존 평가 local 접수 조건 그대로.
+  - C/S(`cs.analyze`): local/test에서 `CS_JOBS_ENABLED`·`CS_JOBS_PROCESSOR_CONNECTED`가 모두 켜지고, Jobs 전송에서는 C/S worker Job 설정(`CS_WORKER_JOBS_ENABLED`, 기본 꺼짐)까지 받았을 때만.
+  - 허용 종류가 없으면 403 `DISPATCH_DISABLED`다. 허용되지 않은 종류의 행은 확보하지 않고 PENDING으로 둔다. C/S 설정을 넘기지 않는 기존 호출자(평가 smoke worker 등)는 평가만 다룬다.
+- 전송 직전 재검사(`begin_send`): C/S는 게이트, 작업 QUEUED·RUNNING, 취소 요청 없음, 살아 있는 worker lease(`runtime.job_control`) 없음을 본다. 아니면 그 시도는 BLOCKED다. 평가는 기존 승인 재검사 그대로다.
+- Jobs 호출(`send_job`): 프로젝트·리전·시간 제한은 공통(`EVALUATION_JOBS_*` 설정)이다.
+  - 평가: `EVALUATION_JOBS_JOB`·`CONTAINER`, 환경 `EVALUATION_RUN_ID`=실행 ID.
+  - C/S: `CS_WORKER_JOBS_JOB`(기본 `cs-worker`)·`CONTAINER`, 환경 `CS_JOB_ID`=작업 ID. 완료 operation의 실행 이름도 그 Job 기준으로 검증한다.
+- 상태 `GET /api/v1/platform/jobs/{job_id}`와 SSE `.../events`는 세션을 먼저 확인(없으면 401)한 뒤 작업 owner의 검사기로 보낸다(`status.CHECKERS`).
+  - platform: 기존 평가 규칙. 지정 평가자가 아니면 403, 평가 조건이 안 맞으면 404.
+  - cs: 요청 사용자 본인 또는 `cs_agent` 역할만. 아니면 404.
+  - 그 밖의 owner(tft 등)와 없는 작업: 404.
+  - SSE는 연결 중에도 배치마다 같은 검사를 다시 한다.
+- 응답 `data`는 owner로 구분한다(OpenAPI `JobStatusResponse`). C/S는 `CsJobStatus{job_id, ticket_id, owner:'cs', kind:'cs.analyze', status, version, last_event_sequence}`다. `version`은 `runtime.job_control.version`이다.
+- 이벤트 payload 허용 키(`EventPayload`): 기존 `state` 외에 `step`(smoke·classify·rules·retrieve·draft), `stage`(그래프 단계), `retried`·`recovered`(0 이상 정수), `classification_outcome`·`draft_outcome`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD). 모르는 키(오류 코드 등)는 버리고 SSE로 내지 않는다.
+- 검증은 전용 PostgreSQL과 합성 Jobs 응답으로 한정한다(`tests/platform/test_cs_job_runtime_db.py`).
