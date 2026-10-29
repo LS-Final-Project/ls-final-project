@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from backend.engine.search.hybrid import candidates_from_fts, codes_in, run_hybrid
+from backend.engine.search.hybrid import candidates_from_fts, codes_in, mentions_code, run_hybrid
 from backend.engine.search.model import Candidate, Fused, SearchFilters, Source
 
 A, B = "a" * 64, "b" * 64
@@ -172,3 +172,28 @@ def test_fts_rows_become_ranked_candidates() -> None:
     assert (first.position, first.score, first.source) == (1, 0.5, "FTS")
     assert first.text_excerpt == row["text"] and first.section_path == ["2.6 Switchgear"]
     assert (second.chunk_id, second.position) == ("c2", 2)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("per FLT&#45;042 advice", True),
+        ("per FLT–042 advice", True),
+        ("per flt — 042 advice", True),
+        ("per FLT 042 advice", True),
+        ("per <b>Flt</b>-<b>042</b>.", True),
+        ("code FLT-0420 only", False),
+        ("code FLT-04 only", False),
+        ("code XFLT-042 only", False),
+        ("per ＦＬＴ－０４２ advice", True),
+        ("per FLT_042 advice", True),
+        ("per F\u200bLT-042 advice", True),
+        ("per FLT-\u200d042 advice", True),
+        ("per FLT\ufeff-042 advice", True),
+        ("per FLT\u00ad-042 advice", True),
+        ("per FLT-<B>042</B> advice", True),
+        ("code FLT042 only", False),
+    ],
+)
+def test_blocked_code_check_folds_spelling_variants(text: str, expected: bool) -> None:
+    assert mentions_code(text, "FLT-042") is expected

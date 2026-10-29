@@ -213,11 +213,6 @@ def test_flt_042_title_tag_and_parenthesis_variants_are_dropped() -> None:
     assert blocked(candidates) == ["title", "tagged", "paren"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="KAN-151: 문자열 차단이 HTML 엔티티·다른 대시·공백 표기의 FLT-042를 막지 못한다.",
-)
 @pytest.mark.parametrize(
     "fields",
     [
@@ -228,5 +223,5 @@ def test_flt_042_title_tag_and_parenthesis_variants_are_dropped() -> None:
     ids=["entity", "en-dash", "space"],
 )
 def test_flt_042_spelling_variants_should_be_dropped(fields: dict[str, str]) -> None:
-    """search.hybrid 인용 차단 경계: 표기만 다른 FLT-042도 빠져야 한다. 지금은 빈틈이라 xfail로 기록한다."""
+    """search.hybrid 인용 차단 경계: HTML 엔티티·다른 대시·공백으로 표기만 다른 FLT-042도 뺀다."""
     assert blocked([candidate("variant", 1, **fields)]) == ["variant"]
