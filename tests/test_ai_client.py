@@ -7,6 +7,7 @@ from decimal import Decimal
 import google.auth
 import httpx
 import pytest
+from google.genai import errors
 from google.oauth2.credentials import Credentials
 
 from backend.shared.ai import (
@@ -95,7 +96,7 @@ def test_vertex_uses_oauth_and_preserves_schema_and_all_token_categories(sdk_htt
     assert "fixture-key-must-not-be-used" not in repr(settings)
 
 
-def test_vertex_failure_does_not_retry_or_fall_back_to_key_and_report_redacts_error(sdk_http):
+def test_vertex_failure_retries_once_without_key_fallback_and_report_redacts_error(sdk_http):
     state, requests = sdk_http
     state.update(
         status=429,
@@ -114,7 +115,8 @@ def test_vertex_failure_does_not_retry_or_fall_back_to_key_and_report_redacts_er
         report = evaluate(provider, "vertex", "fixture")
     finally:
         provider.client.close()
-    assert len(requests) == 2  # One request per synthetic case, no retry or fallback.
+    # 429는 일시 오류라 사례마다 한 번 더 부른다(KAN-144 14차). 키 방식으로 넘어가지는 않는다.
+    assert len(requests) == 4
     assert all(r.url.host == "aiplatform.googleapis.com" for r in requests)
     assert all("x-goog-api-key" not in r.headers for r in requests)
     assert all(row["http_status"] == 429 for row in report["cases"])
@@ -190,6 +192,75 @@ def test_default_provider_uses_gemini_key_without_adc(sdk_http):
     assert requests[0].url.host == "generativelanguage.googleapis.com"
     assert requests[0].headers["x-goog-api-key"] == "fixture-explicit-key"
     assert "authorization" not in requests[0].headers
+
+
+@pytest.mark.parametrize(
+    ("first", "retries", "calls", "succeeds"),
+    [
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 1, 2, True),
+        ({"status": 503}, 1, 2, True),
+        ({"status": 429}, 1, 2, True),
+        ({"status": 400}, 1, 1, False),
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 0, 1, False),
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 2, 2, True),
+    ],
+    ids=["timeout-then-ok", "503-then-ok", "429-then-ok", "400-no-retry", "retries-0", "retries-2"],
+)
+def test_transient_errors_are_retried_and_attempts_count_real_calls(
+    sdk_http, monkeypatch, first, retries, calls, succeeds
+):
+    """타임아웃·5xx·429는 gemini_transient_retries만큼 다시 부르고 attempts에 실제 호출 수를 남기며, 400은 바로 실패한다.
+
+    Args:
+        sdk_http: 가짜 전송.
+        monkeypatch: 첫 호출만 실패시키는 전송 교체·대기 기록.
+        first: 첫 호출의 실패(status 또는 error).
+        retries: 재시도 횟수 설정.
+        calls: 기대 HTTP 호출 수.
+        succeeds: 두 번째 호출에서 성공해야 하는지.
+
+    Returns:
+        None: 호출 수·attempts·사용량·대기를 확인한다.
+    """
+    state, requests = sdk_http
+    ok = state["response"]
+    sleeps = []
+    monkeypatch.setattr("backend.shared.ai.TRANSIENT_BACKOFF_SECONDS", 1.5)
+    monkeypatch.setattr("backend.shared.ai.time.sleep", sleeps.append)
+
+    def send(_client, request, **kwargs):
+        requests.append(request)
+        if len(requests) == 1:
+            if "error" in first:
+                raise first["error"]
+            body = {"error": {"code": first["status"], "message": "fixture-provider-text"}}
+            return httpx.Response(first["status"], json=body, request=request)
+        return httpx.Response(200, json=ok, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    settings = AISettings(gemini_api_key="fixture-key", gemini_transient_retries=retries)
+    with create_client(settings) as client:
+        if succeeds:
+            result = generate(client, settings, "synthetic")
+            assert result.attempts == calls and result.usage.input_tokens == 7
+        else:
+            expected = errors.ClientError if "status" in first else httpx.TimeoutException
+            with pytest.raises(expected):
+                generate(client, settings, "synthetic")
+    assert len(requests) == calls
+    assert sleeps == [1.5] * (calls - 1)
+
+
+def test_transient_retry_setting_is_bounded():
+    """재시도 횟수는 0~2만 받는다.
+
+    Returns:
+        None: 검증 오류를 확인한다.
+    """
+    assert AISettings(gemini_api_key="k").gemini_transient_retries == 1
+    for bad in (-1, 3):
+        with pytest.raises(ValueError):
+            AISettings(gemini_api_key="k", gemini_transient_retries=bad)
 
 
 def test_fake_startup_needs_no_key_but_real_client_fails_before_network(monkeypatch):
