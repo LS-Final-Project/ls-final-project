@@ -6,9 +6,11 @@ scripts/cs_candidate_run.py --execute --labels-out의 결과 JSON과 라벨 파�
 - 실험은 POST /experiments와 같은 등록 함수(register_experiment)로 넣는다. 지정 평가자(--actor)·local/test
   환경·접수 허용 설정을 그대로 따르고 test 분할은 거부된다. 승인 목록은 바꾸지 않으며 admissible=false도 그대로
   출력한다.
-- 결과 파일에는 사례별 기록이 없다. 그래서 시도는 사례마다 attempt 1 하나로 만든다. outcome은 라벨이 있으면 VALID다.
-  null이면 run 행 outcomes에서 0이 아닌 비VALID 종류가 하나뿐이고 그 수가 null 수와 같을 때만 그 값을 쓰며, 아니면
-  거부한다. 사용량·지연·입력 hash·원시 응답은 보고되지 않았으므로 NULL이다.
+- 시도는 사례마다 attempt 1 하나다. --audit(cs_candidate_run --audit-out)이 있으면 outcome·사용량·지연·입력 hash·
+  응답 판본·비용을 감사에서 채운다. 감사가 없으면 결과 파일에 사례별 기록이 없으므로 추론한다. outcome은 라벨이
+  있으면 VALID다. null이면 run 행 outcomes에서 0이 아닌 비VALID 종류가 하나뿐이고 그 수가 null 수와 같을 때만 그
+  값을 쓰며, 아니면 거부한다. 이때 사용량·지연·입력 hash는 보고되지 않았으므로 NULL이다. 원시 응답은 어느 쪽이든
+  넣지 않는다.
 - 예측은 잠금 채점이 읽는 parsed_output(VALID면 cases.final_output에도)에 코드만 넣는다. 정답 파일은 채점에만 쓰고
   저장·출력하지 않는다.
 - 접수 영수증(admission_receipts)에는 반입임을 표시할 열이 없어 만들지 않는다. 따라서 실행 요약 API는 이 실행을
@@ -26,16 +28,19 @@ import hashlib
 import json
 import os
 import sys
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import (
@@ -68,9 +73,42 @@ CASE_STATUS = {
 }
 
 
+class AuditUsage(BaseModel):
+    """감사 항목의 토큰 수. 미보고는 None이다."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    input_tokens: int | None = Field(ge=0)
+    output_tokens: int | None = Field(ge=0)
+    thought_tokens: int | None = Field(ge=0)
+    cached_input_tokens: int | None = Field(ge=0)
+    total_tokens: int | None = Field(ge=0)
+
+
+class AuditEntry(BaseModel):
+    """cs_candidate_run --audit-out의 사례 항목(audit_entry). case_attempts 열 제약과 같은 범위만 받는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    outcome: Literal["VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"]
+    error_code: str | None
+    http_status: int | None = Field(ge=100, le=599)
+    model: str | None
+    model_version: str | None
+    input_version: str
+    input_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    usage: AuditUsage
+    latency_ms: float | None = Field(ge=0)
+    finish_reasons: list[str]
+    attempts: int | None = Field(ge=1)
+    cost_usd: Decimal | None = Field(ge=0)
+    pricing_version: str | None
+
+
 @dataclass(frozen=True)
 class Plan:
-    """반입할 실험 등록 요청과 사례별 시도(사례 ID → (outcome, 예측 코드 또는 None))."""
+    """반입할 실험 등록 요청과 사례별 시도(사례 ID → (outcome, 예측 코드 또는 None)).
+
+    audit은 감사 파일이 있을 때의 사례별 항목이고, 없으면 None이라 사용량 등 열을 NULL로 넣는다.
+    """
 
     body: ExperimentCreate
     attempts: dict[str, tuple[str, dict[str, Any] | None]]
@@ -78,6 +116,7 @@ class Plan:
     started_at: datetime
     finished_at: datetime
     git_sha: str | None
+    audit: dict[str, AuditEntry] | None = None
 
 
 def build_plan(
@@ -87,8 +126,9 @@ def build_plan(
     *,
     candidate: str,
     data_split: str,
+    audit_bytes: bytes | None = None,
 ) -> Plan:
-    """결과·라벨·manifest를 검사하고 실험 등록 요청과 사례별 시도를 만든다.
+    """결과·라벨·manifest(와 감사)를 검사하고 실험 등록 요청과 사례별 시도를 만든다.
 
     Args:
         run_bytes: cs_candidate_run 결과 JSON 바이트.
@@ -96,13 +136,15 @@ def build_plan(
         manifest: 개발 manifest(load_dev_tickets가 SHA·분할·행 수를 검사한다).
         candidate: 후보 이름.
         data_split: train 또는 valid.
+        audit_bytes: 그 후보의 사례 감사 JSON 바이트(선택). 있으면 outcome을 추론하지 않고 감사에서 읽는다.
 
     Returns:
         Plan: 등록 요청과 시도. 실험의 input_builder_version은 결과 meta의 실제 입력 판본이다(KAN-105 4차).
             meta에 input_version이 없으면 그 기록 전 실행이라 PHONE 표기를 지운 v3으로 본다. 라벨 hash·대상
             hash·건수·outcome이 결과와 맞지 않거나, 분할이 다르거나, outcome을 하나로 정할 수 없거나, 입력
-            판본이 v3·v4가 아니거나 strip_phone_annotation과 맞지 않으면 EVAL_IMPORT_INVALID ValueError다. test
-            분할은 SplitBlocked다.
+            판본이 v3·v4가 아니거나 strip_phone_annotation과 맞지 않으면 EVAL_IMPORT_INVALID ValueError다. 감사가
+            있으면 meta.audit_files hash, 사례 ID 집합(KeyError), outcome 집계, VALID ⇔ 라벨 있음, 요청
+            모델(없으면 None)과 입력 판본이 맞아야 한다. test 분할은 SplitBlocked다.
     """
     run = json.loads(run_bytes)
     labels = json.loads(labels_bytes)
@@ -125,8 +167,26 @@ def build_plan(
     outcomes = {key: value for key, value in row["outcomes"].items() if value}
     nulls = sum(value is None for value in labels.values())
     others = {key: value for key, value in outcomes.items() if key != "VALID"}
-    # 합계가 대상 수이고 VALID가 라벨 수면 나머지 합은 null 수다. 그 종류가 둘 이상이면 사례별로 정할 수 없다.
-    if (
+    audit = None
+    if audit_bytes is not None:
+        audit = {
+            key: AuditEntry.model_validate(value) for key, value in json.loads(audit_bytes).items()
+        }
+        if (
+            meta["audit_files"][candidate] != hashlib.sha256(audit_bytes).hexdigest()
+            # 사례 집합이 라벨과 다르면 아래 labels[key]나 시도 생성의 audit[ticket_id]가 KeyError로 거부한다.
+            or Counter(entry.outcome for entry in audit.values()) != Counter(outcomes)
+            or any(
+                (entry.outcome == "VALID") is (labels[key] is None)
+                or entry.model not in (None, spec["model"])
+                or entry.input_version != input_version
+                for key, entry in audit.items()
+            )
+        ):
+            raise ValueError("EVAL_IMPORT_INVALID")
+    # 합계가 대상 수이고 VALID가 라벨 수면 나머지 합은 null 수다. 감사가 없을 때 그 종류가 둘 이상이면 사례별로
+    # 정할 수 없다.
+    elif (
         sum(outcomes.values()) != len(ids)
         or outcomes.get("VALID", 0) != len(ids) - nulls
         or len(others) > 1
@@ -177,7 +237,7 @@ def build_plan(
         ticket_id: (
             ("VALID", ClassificationOutput.model_validate(labels[ticket_id]).model_dump())
             if labels[ticket_id] is not None
-            else (missing, None)
+            else (audit[ticket_id].outcome if audit else missing, None)
         )
         for ticket_id in ids
     }
@@ -188,6 +248,7 @@ def build_plan(
         datetime.fromisoformat(meta["started_at"]),
         datetime.fromisoformat(meta["finished_at"]),
         meta.get("git_sha"),
+        audit,
     )
 
 
@@ -342,9 +403,10 @@ def insert_run(
                 (case_id, run_id, experiment_id, ticket_id, CASE_STATUS[outcome], output)
                 + (plan.started_at, plan.finished_at)
             )
+            entry = plan.audit[ticket_id] if plan.audit else None
             attempts.append(
-                (uuid4(), case_id, outcome, plan.model, plan.model, output)
-                + (plan.started_at, plan.finished_at)
+                (uuid4(), case_id, outcome, plan.model, output, plan.started_at, plan.finished_at)
+                + audit_columns(entry, plan.model)
             )
         with conn.cursor() as cursor:
             cursor.executemany(
@@ -354,11 +416,47 @@ def insert_run(
             )
             cursor.executemany(
                 "INSERT INTO evaluation.case_attempts (id,case_id,step,attempt,is_final,outcome,"
-                "provider,model_id,requested_model,parsed_output,started_at,finished_at) "
-                "VALUES (%s,%s,'classify',1,true,%s,'gemini',%s,%s,%s,%s,%s)",
+                "provider,model_id,parsed_output,started_at,finished_at,requested_model,"
+                "error_code,http_status,model_version,finish_reasons,input_sha256,latency_ms,"
+                "input_tokens,output_tokens,thought_tokens,cached_input_tokens,total_tokens,"
+                "call_attempts,cost_usd,pricing_version) VALUES (%s,%s,'classify',1,true,%s,"
+                "'gemini',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 attempts,
             )
     return run_id
+
+
+def audit_columns(entry: AuditEntry | None, model: str) -> tuple[object, ...]:
+    """감사 항목을 case_attempts 열 값으로 바꾼다. 감사가 없으면 요청 모델만 두고 나머지는 미보고(NULL)다.
+
+    Args:
+        entry: 사례 감사 항목 또는 None.
+        model: 후보 모델(감사가 없거나 항목의 요청 모델이 None일 때 쓴다).
+
+    Returns:
+        tuple: requested_model·error_code·http_status·model_version·finish_reasons·input_sha256·
+            latency_ms(반올림)·토큰 5종·call_attempts·cost_usd·pricing_version 순서.
+    """
+    if entry is None:
+        return (model, None, None, None, [], None, None) + (None,) * 5 + (None, None, None)
+    usage = entry.usage
+    return (
+        entry.model or model,
+        entry.error_code,
+        entry.http_status,
+        entry.model_version,
+        entry.finish_reasons,
+        entry.input_sha256,
+        None if entry.latency_ms is None else round(entry.latency_ms),
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.thought_tokens,
+        usage.cached_input_tokens,
+        usage.total_tokens,
+        entry.attempts,
+        entry.cost_usd,
+        entry.pricing_version,
+    )
 
 
 def store_metrics(
@@ -409,6 +507,7 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--labels", type=Path, required=True)
+    parser.add_argument("--audit", type=Path, help="그 후보의 사례 감사(<name>.audit.json, 선택)")
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--data-split", choices=["train", "valid"], required=True)
@@ -428,6 +527,7 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
             args.manifest,
             candidate=args.candidate,
             data_split=args.data_split,
+            audit_bytes=args.audit.read_bytes() if args.audit else None,
         )
         golds = {
             "category": args.gold_category.read_bytes(),
@@ -444,6 +544,7 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
             "cases": len(plan.attempts),
             "attempts": len(plan.attempts),
             "outcomes": outcome_counts(plan),
+            "audit": plan.audit is not None,
             "model_id": plan.model,
             "prompt_version": plan.body.prompt_version,
             "knobs": plan.body.knobs,
