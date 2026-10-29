@@ -13,8 +13,8 @@ manifest에 blocked_code_chunks 수를 낸다. --manifest-out에는 문서별 so
 
 --doc-index(문서 묶음의 doc_index.csv)가 있으면 path 열로 문서를 찾아 ChunkMetadata를 채운다. doc_type은
 document_kind, family는 product_family, revision은 version이다(product_code는 맞는 필드가 없어 쓰지 않는다).
-문서의 --docs 기준 상대 경로가 path의 꼬리와 같으면(예 path docs/A/x.md ↔ A/x.md) 그 행을 쓴다. 꼬리가
-여러 행에 걸리면 쓰지 않는다. 목록에 없는 문서는 --document-kind 전역값을 쓴다.
+문서의 --docs 기준 상대 경로가 path의 2단계 이상 꼬리와 같으면(예 path docs/A/x.md ↔ A/x.md) 그 행을 쓴다.
+파일 이름만 같은 경우와 꼬리가 여러 행에 걸리는 경우는 쓰지 않는다. 목록에 없는 문서는 --document-kind 전역값을 쓴다.
 """
 
 import argparse
@@ -70,7 +70,7 @@ def load_doc_index(csv_path: Path) -> dict[tuple[str, ...], dict[str, str | None
         csv_path: doc_index.csv 경로.
 
     Returns:
-        dict: path 열의 모든 꼬리(예 docs/A/x.md → (docs, A, x.md)·(A, x.md)·(x.md,)) → {doc_id, document_kind,
+        dict: path 열의 2단계 이상 꼬리(예 docs/A/x.md → (docs, A, x.md)·(A, x.md)) → {doc_id, document_kind,
             product_family, version}. 두 행 이상이 같은 꼬리를 가지면 그 꼬리는 뺀다(모호). 빈 칸은 None이다.
             필수 열(DOC_INDEX_COLUMNS)이 없거나 path가 비거나 겹치면 CS_INDEX_DOC_INDEX_INVALID ValueError다.
     """
@@ -94,7 +94,8 @@ def load_doc_index(csv_path: Path) -> dict[tuple[str, ...], dict[str, str | None
                 ("version", "revision"),
             )
         }
-        for start in range(len(path.parts)):
+        # 파일 이름만 같은 다른 문서가 걸리지 않게 2단계 이상 꼬리만 쓴다(path가 한 단계면 그대로).
+        for start in range(max(len(path.parts) - 1, 1)):
             tail = path.parts[start:]
             if tail in index:
                 ambiguous.add(tail)
