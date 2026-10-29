@@ -72,7 +72,7 @@ def test_vertex_uses_oauth_and_preserves_schema_and_all_token_categories(sdk_htt
     assert "fixture-key-must-not-be-used" not in str(request.url)
     body = json.loads(request.content)
     assert body["generationConfig"]["responseMimeType"] == "application/json"
-    assert "result" in body["generationConfig"]["responseSchema"]["properties"]
+    assert "result" in body["generationConfig"]["responseJsonSchema"]["properties"]
     assert result.usage.input_tokens == 7
     assert result.usage.output_tokens == 4
     assert result.usage.thought_tokens == 11
