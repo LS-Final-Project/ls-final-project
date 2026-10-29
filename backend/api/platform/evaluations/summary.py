@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import (
-    CONFIG_FIELDS,
     canonical_hash,
     check_actor,
+    config_payload,
     validate_smoke_experiment,
 )
 from backend.api.platform.evaluations.cs_smoke import FIXTURES, matches_profile
@@ -417,7 +417,7 @@ def _validate_locked_run(experiment: dict, access: EvaluationAccessSettings) -> 
         or matches_profile(experiment)
     ):
         raise ApplicationError(403, "LOCKED_RUN_REQUIRED", "Summary is unavailable.")
-    if canonical_hash({k: experiment[k] for k in CONFIG_FIELDS}) != experiment["config_hash"]:
+    if canonical_hash(config_payload(experiment)) != experiment["config_hash"]:
         raise ApplicationError(409, "EXPERIMENT_HASH_MISMATCH", "Experiment hash differs.")
 
 

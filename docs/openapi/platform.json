@@ -269,6 +269,27 @@
             "title": "Experiment Id",
             "type": "string"
           },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "title": "Knobs",
+            "type": "object"
+          },
           "model_id": {
             "title": "Model Id",
             "type": "string"
@@ -286,6 +307,23 @@
             "title": "Purpose",
             "type": "string"
           },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
           "target_count": {
             "title": "Target Count",
             "type": "integer"
@@ -298,6 +336,7 @@
           "data_split",
           "data_origin",
           "model_id",
+          "stage",
           "target_count",
           "created_at",
           "admissible",
@@ -497,6 +536,23 @@
             "title": "Run Id",
             "type": "string"
           },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
           "status": {
             "enum": [
               "QUEUED",
@@ -515,6 +571,7 @@
           "run_id",
           "job_id",
           "experiment_id",
+          "stage",
           "status",
           "requested_count",
           "needs_review",
@@ -3269,8 +3326,32 @@
     },
     "/api/v1/platform/evaluations/experiments": {
       "get": {
-        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c\uc640 \uc811\uc218 \uac00\ub2a5 \uc5ec\ubd80\u00b7\ub9c9\ud78c \uc0ac\uc720\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\ud5c8\uc6a9 \ubaa9\ub85d\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse[EvaluationExperiments]: \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID \uc5c6\ub294 \ubaa9\ub85d.",
+        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c\uc640 \uc811\uc218 \uac00\ub2a5 \uc5ec\ubd80\u00b7\ub9c9\ud78c \uc0ac\uc720\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\ud5c8\uc6a9 \ubaa9\ub85d\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n    stage: \uc8fc\uc5b4\uc9c0\uba74 \uadf8 \ub2e8\uacc4(classification\u00b7search\u00b7draft\u00b7rfp)\uc758 \uc2e4\ud5d8\ub9cc.\n\nReturns:\n    SuccessResponse[EvaluationExperiments]: \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID \uc5c6\ub294 \ubaa9\ub85d.",
         "operationId": "platform_list_evaluation_experiments",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "stage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "classification",
+                    "search",
+                    "draft",
+                    "rfp"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3301,6 +3382,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           },
           "503": {
             "content": {

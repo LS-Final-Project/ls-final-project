@@ -2,7 +2,8 @@
 
 import hashlib
 import json
-from typing import Any
+import re
+from typing import Any, get_args
 from uuid import UUID, uuid4
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
@@ -12,6 +13,7 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationExperiment,
     EvaluationRunItem,
     EvaluationRunStatus,
+    Stage,
 )
 from backend.api.platform.jobs.admission import EvaluationJobRequest, admit_evaluation_job
 from backend.shared.database import connection
@@ -33,6 +35,13 @@ CONFIG_FIELDS = (
     "configuration",
     "target_set_hash",
 )
+# 값이 없거나 빈 dict이면 hash에서 생략해 기존 실험·승인 hash를 그대로 둔다.
+OPTIONAL_CONFIG_FIELDS = ("stage", "knobs")
+# 마이그레이션 20261029_KAN-90_experiment_stage_knobs.sql의 CHECK 정규식과 같아야 한다(테스트가 비교).
+SECRET_KNOB_PATTERN = "api_key|token|secret|password|credential"
+KNOB_KEY = re.compile(r"[A-Za-z0-9_.]{1,64}")
+MAX_KNOBS = 20
+MAX_KNOB_TEXT = 256
 
 
 def canonical_hash(value: dict[str, Any]) -> str:
@@ -46,6 +55,50 @@ def canonical_hash(value: dict[str, Any]) -> str:
     """
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def config_payload(experiment: dict[str, Any]) -> dict[str, Any]:
+    """config_hash를 계산할 구성 필드를 고른다.
+
+    Args:
+        experiment: 실험 행 또는 등록할 구성.
+
+    Returns:
+        dict: CONFIG_FIELDS 전부와, 값이 있을 때만 stage·knobs.
+    """
+    payload = {k: experiment[k] for k in CONFIG_FIELDS}
+    payload.update({k: experiment[k] for k in OPTIONAL_CONFIG_FIELDS if experiment.get(k)})
+    return payload
+
+
+def check_stage_knobs(stage: object, knobs: object) -> None:
+    """단계와 조절 항목을 검사한다.
+
+    지금은 단위 테스트와 DB CHECK(비밀 키·객체 여부)로만 강제한다. 실험 등록 API가 생기면 그 경로가 이
+    함수를 호출한다.
+
+    Args:
+        stage: 단계(classification·search·draft·rfp) 또는 None.
+        knobs: 깊이 1 dict. 키는 1~64자 영숫자·_·., 최대 20개, 값은 문자열(256자 이하)·정수·실수·bool.
+
+    Returns:
+        None: 비밀로 보이는 키는 422 EVALUATION_KNOB_SECRET, 그 밖의 위반은 422
+            EVALUATION_KNOB_INVALID ApplicationError다.
+    """
+    if stage is not None and stage not in get_args(Stage):
+        raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Stage is not allowed.")
+    if not isinstance(knobs, dict) or len(knobs) > MAX_KNOBS:
+        raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Knobs are invalid.")
+    for key, value in knobs.items():
+        if isinstance(key, str) and re.search(SECRET_KNOB_PATTERN, key, re.IGNORECASE):
+            raise ApplicationError(422, "EVALUATION_KNOB_SECRET", "Secret knobs are not allowed.")
+        if (
+            not isinstance(key, str)
+            or not KNOB_KEY.fullmatch(key)
+            or not isinstance(value, str | int | float)
+            or (isinstance(value, str) and len(value) > MAX_KNOB_TEXT)
+        ):
+            raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Knobs are invalid.")
 
 
 def admission_available(settings: Settings, access: EvaluationAccessSettings) -> bool:
@@ -101,7 +154,7 @@ def validate_smoke_experiment(experiment: dict[str, Any], access: EvaluationAcce
         or experiment["dataset_manifest"] != {}
     ):
         raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Only synthetic smoke is supported.")
-    if canonical_hash({k: experiment[k] for k in CONFIG_FIELDS}) != experiment["config_hash"]:
+    if canonical_hash(config_payload(experiment)) != experiment["config_hash"]:
         raise ApplicationError(409, "EXPERIMENT_HASH_MISMATCH", "Experiment hash differs.")
 
 
@@ -257,7 +310,7 @@ LIST_LIMIT = 50
 
 
 async def list_experiments(
-    settings: Settings, access: EvaluationAccessSettings, actor: UUID
+    settings: Settings, access: EvaluationAccessSettings, actor: UUID, stage: Stage | None = None
 ) -> list[EvaluationExperiment]:
     """본인 실험을 최근순으로 읽고 접수 가능 여부를 접수와 같은 규칙으로 계산한다.
 
@@ -265,6 +318,7 @@ async def list_experiments(
         settings: DB와 환경 설정.
         access: 현재 서버 허용 목록.
         actor: 현재 세션 사용자(지정 평가자 검사는 라우터가 한다).
+        stage: 주어지면 그 단계의 실험만.
 
     Returns:
         list[EvaluationExperiment]: 최대 50개. 구성 원문·manifest·hash·대상 ID는 없다.
@@ -274,8 +328,9 @@ async def list_experiments(
         cursor = await conn.execute(
             "SELECT e.*, (SELECT count(*) FROM evaluation.experiment_targets t "
             "WHERE t.experiment_id=e.id) AS target_count FROM evaluation.experiments e "
-            "WHERE e.created_by_user_id=%s ORDER BY e.created_at DESC, e.id LIMIT %s",
-            (actor, LIST_LIMIT),
+            "WHERE e.created_by_user_id=%s AND (%s::text IS NULL OR e.stage=%s) "
+            "ORDER BY e.created_at DESC, e.id LIMIT %s",
+            (actor, stage, stage, LIST_LIMIT),
         )
         rows = await cursor.fetchall()
     items = []
@@ -294,6 +349,8 @@ async def list_experiments(
                 data_split=row["data_split"],
                 data_origin=row["data_origin"],
                 model_id=row["model_id"],
+                stage=row["stage"],
+                knobs=row["knobs"],
                 target_count=row["target_count"],
                 created_at=row["created_at"],
                 admissible=reason is None,
@@ -315,8 +372,8 @@ async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT r.id,r.job_id,r.experiment_id,r.status,r.requested_count,r.needs_review,"
-            "r.failure_code,r.created_at FROM evaluation.runs r "
+            "SELECT r.id,r.job_id,r.experiment_id,e.stage,r.status,r.requested_count,"
+            "r.needs_review,r.failure_code,r.created_at FROM evaluation.runs r "
             "JOIN evaluation.experiments e ON e.id=r.experiment_id "
             "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
             "JOIN evaluation.run_control c ON c.run_id=r.id "
@@ -331,6 +388,7 @@ async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
             run_id=row["id"],
             job_id=row["job_id"],
             experiment_id=row["experiment_id"],
+            stage=row["stage"],
             status=row["status"],
             requested_count=row["requested_count"],
             needs_review=row["needs_review"],

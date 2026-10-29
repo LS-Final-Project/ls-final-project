@@ -6,6 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+# 실험이 바꾼 단계. 화면은 이 값으로 실험을 묶어 보여준다.
+Stage = Literal["classification", "search", "draft", "rfp"]
+KnobValue = str | int | float | bool
+
 
 class EvaluationPolicy(BaseModel):
     """실행 기반 연결 전에는 작업과 민감 자료 접근을 활성화하지 않는다."""
@@ -69,6 +73,9 @@ class EvaluationExperiment(BaseModel):
     data_split: Literal["train", "valid", "test"] | None
     data_origin: Literal["synthetic", "demo", "real"]
     model_id: str
+    stage: Stage | None
+    # 비밀 아닌 조절 항목(예 prompt_version, temperature). config_hash에 포함된다.
+    knobs: dict[str, KnobValue] = {}
     target_count: int
     created_at: datetime
     # 접수 규칙(validate_smoke_experiment)을 그대로 적용한 결과. 대상 집합 검사는 접수 때 한다.
@@ -88,6 +95,7 @@ class EvaluationRunItem(BaseModel):
     run_id: UUID
     job_id: UUID
     experiment_id: UUID
+    stage: Stage | None
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "TIMED_OUT"]
     requested_count: int
     needs_review: bool
