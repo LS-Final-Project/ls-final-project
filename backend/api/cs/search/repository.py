@@ -29,6 +29,7 @@ SEARCH = (
     "WHERE tsv @@ q AND index_version = %s "
     "AND (%s::text[] IS NULL OR document_sha256 = ANY(%s::text[])) "
     "AND (%s::text IS NULL OR product_family = %s) "
+    "AND (%s::text[] IS NULL OR document_kind = ANY(%s::text[])) "
     "ORDER BY rank DESC, document_sha256, ordinal LIMIT %s"
 )
 
@@ -116,6 +117,7 @@ async def search_fts(
     index_version: str,
     limit: int = 20,
     product_family: str | None = None,
+    document_kinds: list[str] | None = None,
 ) -> list[Row]:
     """영어 전문 검색으로 청크를 찾는다.
 
@@ -126,6 +128,7 @@ async def search_fts(
         index_version: 검색할 색인 판본.
         limit: 최대 결과 수(1~100).
         product_family: 청크 메타데이터 product_family가 이 값인 청크만 찾는다. None이면 전체.
+        document_kinds: 청크 메타데이터 document_kind가 이 중 하나인 청크만 찾는다. None이면 전체.
 
     Returns:
         chunk_id·document_sha256·ordinal·section_path·snippet·rank·kind·table_title·page_start·
@@ -141,6 +144,6 @@ async def search_fts(
     cursor = await conn.execute(
         SEARCH,
         (query, index_version, document_sha256s, document_sha256s, product_family, product_family)
-        + (limit,),
+        + (document_kinds, document_kinds, limit),
     )
     return await cursor.fetchall()

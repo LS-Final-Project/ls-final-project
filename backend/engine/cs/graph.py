@@ -44,6 +44,42 @@ Stage = Literal[
 ]
 HUMAN_REVIEW = "human_review"
 RETRY_CODE = "CS_INVALID_OUTPUT"
+# 근거에 1자리를 예약할 유형별 정책 문서 doc_id(KAN-194 10차). 실행 이미지에 eval/이 없어 상수로 두며,
+# eval/policy/search_expected_v1.json의 유형별 POL-* 기호와 같아야 한다(tests/cs 동기화 테스트).
+POLICY_SLOT_DOCUMENTS: dict[str, tuple[str, ...]] = {
+    "RETURN": ("POL-RETURN",),
+    "WARRANTY": ("POL-WARRANTY", "POL-SERVICE"),
+    "ORDER_LEAD": ("POL-ORDER",),
+    "QUOTE": ("POL-ORDER",),
+    "DEFECT": ("POL-SERVICE",),
+}
+
+
+def policy_slot(
+    filters: SearchFilters, category: object, policy_documents: Mapping[str, str] | None
+) -> tuple[SearchFilters, int] | None:
+    """분류 유형의 정책 문서(doc_id → sha256로 지정)에서 1자리를 예약하는 조건을 만든다.
+
+    청크 행에는 doc_id 열이 없어 문서는 sha256로 지정한다. 매핑이 없거나 그 유형의 정책 문서가 매핑·검색 범위에
+    없으면 예약하지 않는다.
+
+    Args:
+        filters: 전체 검색 조건(제품 계열 없이 쓴다).
+        category: 분류 결과 category_code.
+        policy_documents: 정책 문서 doc_id(POL-RETURN 등) → document_sha256.
+
+    Returns:
+        tuple | None: scoped_then_global의 reserved 인자.
+    """
+    known = policy_documents or {}
+    wanted = POLICY_SLOT_DOCUMENTS.get(category, ()) if isinstance(category, str) else ()
+    shas = sorted({known[d] for d in wanted if d in known})
+    if filters.document_sha256s is not None:
+        shas = [sha for sha in shas if sha in filters.document_sha256s]
+    if not shas:
+        return None
+    update = {"document_sha256s": shas, "document_kinds": ["POL"], "product_family": None}
+    return filters.model_copy(update=update), 1
 
 
 class CsState(TypedDict):
@@ -183,6 +219,7 @@ def build_graph(
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
     evidence_limit: int | None = None,
+    policy_documents: Mapping[str, str] | None = None,
 ) -> Any:
     """C/S 처리 그래프를 만들어 사람 확인 직전 중단점과 함께 컴파일한다.
 
@@ -201,7 +238,10 @@ def build_graph(
             Settings를 거치지 않는 진입점이라도 그래프를 만들지 않는다(KAN-89).
         invalid_output_retries: 1이면 시도 1의 CS_INVALID_OUTPUT에 시도 2를 한 번 부르고, 0이면 부르지 않는다.
             configurable에는 넣지 않는다(체크포인트 metadata 복사).
-        evidence_limit: 초안에 넘길 근거 상위 개수. None이면 검색 결과를 모두 넘긴다. 검색 limit·보충은 그대로다.
+        evidence_limit: 초안에 넘길 근거 상위 개수. None이면 검색 결과를 모두 넘긴다. 있으면 검색 limit도 이 값을
+            넘지 않게 해 정책 예약 자리가 잘리지 않게 한다.
+        policy_documents: 정책 문서 doc_id → document_sha256. 있으면 정책 유형 문의에 그 유형의 정책 문서 1자리를
+            예약한다(policy_slot). None이면 예약하지 않는다.
 
     Returns:
         CompiledStateGraph: interrupt_before=["human_review"]로 컴파일한 그래프. 주입은 이 인자로만 하고
@@ -319,6 +359,8 @@ def build_graph(
     def retrieve(state: CsState) -> dict[str, Any]:
         """마스킹한 제목·본문의 토큰 OR 질의로 제품 계열 문서를 먼저 찾고, 모자라면 전체로 보충해 근거로 바꾼다.
 
+        policy_documents가 있고 분류 유형이 POLICY_SLOT_DOCUMENTS에 있으면 그 정책 문서 1자리를 예약한다(policy_slot).
+
         websearch_to_tsquery는 문의 전문을 넘기면 모든 어휘의 AND가 되어 거의 맞지 않으므로 hybrid.token_or_query를
         쓴다. 제품 계열은 문의 제품 코드의 rules.product_family이고 청크 메타데이터 product_family와 맞춘다. 모르는
         제품이면 전체만 찾는다. 스니펫은 청크 본문 앞 800자(hybrid.excerpt)이며 ts_headline(<b> 태그)은 쓰지 않는다.
@@ -341,6 +383,7 @@ def build_graph(
         except RuleInputError:
             family = None
         scoped = search_filters.model_copy(update={"product_family": family}) if family else None
+        category = (state["classification"] or {}).get("category_code")
         try:
             items, _ = scoped_then_global(
                 query,
@@ -348,8 +391,9 @@ def build_graph(
                 scoped,
                 fts=fts_searcher,
                 vector=vector_searcher,
-                limit=search_filters.limit,
+                limit=min(search_filters.limit, evidence_limit or search_filters.limit),
                 code_text=text,
+                reserved=policy_slot(search_filters, category, policy_documents),
             )
         except Exception:
             return {"errors": _error(state, "retrieve", "CS_SEARCH_FAILED"), "stage": "RETRIEVED"}

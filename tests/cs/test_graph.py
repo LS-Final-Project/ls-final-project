@@ -598,3 +598,95 @@ def test_build_graph_refuses_tracing_unless_allowed(monkeypatch):
         make(InMemorySaver())
     graph, _ = make(InMemorySaver(), allow_tracing=True)
     assert graph is not None
+
+
+@pytest.mark.parametrize(
+    ("category", "subtype", "mapping"),
+    [("RETURN", "DEFECT", True), ("TECH_SPEC", None, True), ("RETURN", "DEFECT", False)],
+)
+def test_retrieve_reserves_the_category_policy_document(category, subtype, mapping):
+    """정책 매핑이 있고 유형이 RETURN이면 제품 문서가 상위를 채워도 POL-RETURN 청크 1개가 근거 상한 안에 든다.
+    다른 유형이거나 매핑이 없으면 예약하지 않는다.
+
+    Args:
+        category: 분류 결과 유형.
+        subtype: 반품 하위유형(RETURN일 때만).
+        mapping: build_graph에 policy_documents를 넘길지.
+
+    Returns:
+        None: 근거 구성과 예약 검색 조건을 확인한다.
+    """
+    reserved_calls = []
+    pol_return, pol_order = "c" * 64, "d" * 64
+
+    def classify(payload):
+        """주어진 유형으로 분류한다.
+
+        Args:
+            payload: 정제 분류 입력.
+
+        Returns:
+            Generation: 합성 응답.
+        """
+        generation = classification_provider(payload)
+        body = json.loads(generation.text) | {"category_code": category, "return_subtype": subtype}
+        return replace(generation, text=json.dumps(body))
+
+    def searcher(query, filters):
+        """제품 조건이면 제품 청크 6개, 정책 조건이면 지정 문서의 정책 청크, 전체면 제품 청크를 낸다.
+
+        Args:
+            query: 질의.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 합성 후보.
+        """
+        base = fts_searcher(query, filters)[0]
+        if filters.document_kinds == ["POL"]:
+            reserved_calls.append(filters.document_sha256s)
+            return [
+                base.model_copy(update={"chunk_id": f"policy-{sha[0]}", "document_sha256": sha})
+                for sha in filters.document_sha256s
+            ]
+        return [
+            base.model_copy(update={"chunk_id": f"product-{n}", "position": n}) for n in range(1, 7)
+        ]
+
+    graph, _ = make(
+        InMemorySaver(),
+        classification_provider=classify,
+        fts_searcher=searcher,
+        evidence_limit=5,
+        policy_documents={"POL-RETURN": pol_return, "POL-ORDER": pol_order} if mapping else None,
+    )
+    config = thread_config(f"ticket-policy-{category}-{mapping}")
+    graph.invoke(initial_state(f"ticket-policy-{category}-{mapping}"), config)
+    evidence = [e["chunk_id"] for e in graph.get_state(config).values["evidence"]]
+    if category == "RETURN" and mapping:
+        assert evidence == ["product-1", "product-2", "product-3", "product-4", "policy-c"]
+        assert reserved_calls == [[pol_return]]
+    else:
+        assert evidence == [f"product-{n}" for n in range(1, 6)] and reserved_calls == []
+
+
+def test_policy_slot_documents_match_search_expected_policy():
+    """그래프의 유형별 예약 정책 문서는 eval 규칙 표(search_expected_v1)의 유형별 POL-* 기호와 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 두 원본의 동기화를 확인한다.
+    """
+    from backend.engine.cs.graph import POLICY_SLOT_DOCUMENTS
+    from eval.search_expected import load_policy
+
+    table = load_policy()["categories"]
+    expected = {
+        category: {s for s in symbols if s.startswith("POL-")}
+        for category, symbols in table.items()
+    }
+    assert {k: set(v) for k, v in POLICY_SLOT_DOCUMENTS.items()} == {
+        k: v for k, v in expected.items() if v
+    }

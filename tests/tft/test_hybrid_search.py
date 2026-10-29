@@ -248,6 +248,46 @@ def test_scoped_then_global_fills_without_duplicates_or_blocked_chunks() -> None
     assert ids(items) == ["p1", "g1", "g2"]
 
 
+def test_reserved_slot_puts_top_policy_chunk_within_limit() -> None:
+    """예약 조건이 있으면 좁힌 결과 limit-1개 뒤에 예약 범위 상위 1개를 중복 없이 붙인다(KAN-194 10차)."""
+
+    def text(chunk_id: str, position: int) -> Candidate:
+        return cand(chunk_id, "FTS", position, text_excerpt="return policy")
+
+    def searcher(query: str, filters: SearchFilters) -> list[Candidate]:
+        if filters.document_kinds == ["POL"]:
+            return [text("p1", 1), text("pol", 2), text("pol2", 3)]
+        return [text(f"p{n}", n) for n in range(1, 6)]
+
+    filters = FILTERS.model_copy(update={"document_sha256s": None})
+    scoped = filters.model_copy(update={"product_family": "PLC"})
+    policy = (filters.model_copy(update={"document_kinds": ["POL"]}), 1)
+    items, _ = scoped_then_global("q", filters, scoped, fts=searcher, limit=5, reserved=policy)
+    assert ids(items) == ["p1", "p2", "p3", "p4", "pol"]
+    items, _ = scoped_then_global("q", filters, None, fts=searcher, limit=3, reserved=policy)
+    assert ids(items) == ["p1", "p2", "pol"]
+
+
+def test_reserved_slot_falls_back_to_scoped_then_global_when_empty() -> None:
+    """예약 범위가 비면 남은 자리를 좁힌 결과 → 전체 결과로 채우고, 좁힌 단계 검색은 한 번만 한다."""
+    calls: list[tuple[str | None, list[str] | None]] = []
+
+    def searcher(query: str, filters: SearchFilters) -> list[Candidate]:
+        calls.append((filters.product_family, filters.document_kinds))
+        if filters.document_kinds:
+            return []
+        if filters.product_family:
+            return [cand("p1", "FTS", 1, text_excerpt="x"), cand("p2", "FTS", 2, text_excerpt="x")]
+        return [cand("g1", "FTS", 1, text_excerpt="x"), cand("p1", "FTS", 2, text_excerpt="x")]
+
+    filters = FILTERS.model_copy(update={"document_sha256s": None})
+    scoped = filters.model_copy(update={"product_family": "PLC"})
+    policy = (filters.model_copy(update={"document_kinds": ["POL"]}), 1)
+    items, _ = scoped_then_global("q", filters, scoped, fts=searcher, limit=3, reserved=policy)
+    assert ids(items) == ["p1", "p2", "g1"]
+    assert calls == [("PLC", None), (None, ["POL"]), (None, None)]
+
+
 def test_code_text_keeps_exact_code_matches_with_token_queries() -> None:
     """토큰 OR 질의는 'XYZ-123'을 쪼개므로 code_text(원문)로 코드 일치를 뽑아 그 청크를 앞세운다."""
     found = fixed(
