@@ -56,6 +56,8 @@ class SearchFilters(Strict):
     document_sha256s: list[str] | None
     index_version: str
     limit: int = Field(default=20, ge=1, le=100)
+    # 청크 메타데이터 product_family로 좁힌다(C/S 검색기만 쓰고 TFT 검색기는 무시한다). None이면 전체다.
+    product_family: str | None = None
 
 
 class Candidate(Strict):

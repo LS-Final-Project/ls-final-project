@@ -28,6 +28,7 @@ SEARCH = (
     "FROM cs.document_chunks, websearch_to_tsquery('english', %s) AS q "
     "WHERE tsv @@ q AND index_version = %s "
     "AND (%s::text[] IS NULL OR document_sha256 = ANY(%s::text[])) "
+    "AND (%s::text IS NULL OR product_family = %s) "
     "ORDER BY rank DESC, document_sha256, ordinal LIMIT %s"
 )
 
@@ -114,6 +115,7 @@ async def search_fts(
     document_sha256s: list[str] | None,
     index_version: str,
     limit: int = 20,
+    product_family: str | None = None,
 ) -> list[Row]:
     """영어 전문 검색으로 청크를 찾는다.
 
@@ -123,6 +125,7 @@ async def search_fts(
         document_sha256s: 찾을 문서 해시 목록. None이면 전체.
         index_version: 검색할 색인 판본.
         limit: 최대 결과 수(1~100).
+        product_family: 청크 메타데이터 product_family가 이 값인 청크만 찾는다. None이면 전체.
 
     Returns:
         chunk_id·document_sha256·ordinal·section_path·snippet·rank·kind·table_title·page_start·
@@ -136,6 +139,8 @@ async def search_fts(
     if not 1 <= limit <= 100:
         raise ValueError("limit은 1~100이어야 합니다.")
     cursor = await conn.execute(
-        SEARCH, (query, index_version, document_sha256s, document_sha256s, limit)
+        SEARCH,
+        (query, index_version, document_sha256s, document_sha256s, product_family, product_family)
+        + (limit,),
     )
     return await cursor.fetchall()

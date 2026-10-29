@@ -462,6 +462,38 @@ class EvidenceBuildTests(unittest.TestCase):
         self.write_manifest(["train", "test"], (self.root / "t.csv").read_bytes())
         self.assertEqual(self.run_main()[0], 2)
 
+    def test_code_matches_come_from_the_original_text(self):
+        """질의는 토큰 OR이어도 코드 일치는 원문에서 뽑아 문의 코드를 담은 청크를 앞세운다.
+
+        Returns:
+            None: 근거 순서를 확인한다.
+        """
+        searcher = FakeSearcher(
+            {
+                "Breaker": [
+                    candidate("plain", "Trip unit settings.", 1),
+                    candidate("coded", "MCCB-ABS-103c trip unit settings.", 2),
+                ]
+            }
+        )
+        record = {
+            "channel": "EMAIL",
+            "body_language": "en",
+            "subject": None,
+            "body": "Breaker MCCB-ABS-103c tripped",
+        }
+        evidence, _ = cs_evidence_build.build_evidence(
+            {"T1": record},
+            searcher,
+            index_version="cs-chunks-v1",
+            document_sha256s=None,
+            limit=5,
+            snippet_chars=800,
+            sensitive_values={},
+            query_from="subject+body",
+        )
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["coded", "plain"])
+
 
 if __name__ == "__main__":
     unittest.main()

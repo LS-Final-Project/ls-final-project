@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | `classify` | `classification_call.run_classification_attempt`(시도 1, 형식 위반이면 시도 2) | 마스킹한 분류 입력 `record`, `classification`, 시도 ID | `errors`에 코드를 남기고 `stage=CLASSIFY_FAILED`로 **END** |
 | `rules` | `rules.decide` | `rules`(정책 판본·우선순위·부서·SLA·기한, ISO 시각) | 정책 밖 입력은 `CS_RULE_INPUT`을 남기고 계속 |
-| `retrieve` | `search.hybrid.run_hybrid`(FTS, 선택적 벡터) | `evidence`(chunk_id·snippet·section_path·document_sha256) | 검색기 예외는 원문 없이 `CS_SEARCH_FAILED`를 남기고 계속 |
+| `retrieve` | `search.hybrid.token_or_query`(마스킹 제목·본문 토큰 OR) → `scoped_then_global`(문의 제품 `rules.product_family`와 같은 `product_family` 청크 먼저, 모자라면 전체 보충, FLT-042 제외) | `evidence`(chunk_id·snippet=청크 본문 앞 800자·section_path·document_sha256) | 질의 토큰이 없으면 근거 0건, 모르는 제품이면 전체만 검색, 검색기 예외는 원문 없이 `CS_SEARCH_FAILED`를 남기고 계속. 근거 0건이어도 `draft`는 호출한다(문장은 CONDITION·UNCONFIRMED만 허용) |
 | `draft` | `drafting_call.run_draft_attempt`(시도 1, 형식 위반이면 시도 2) | `draft`(3선택지), 시도 ID | 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
 | `human_review` | 없음 | `stage=HUMAN_REVIEW`만 | 없음 |
 

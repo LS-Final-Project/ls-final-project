@@ -22,7 +22,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -34,16 +33,13 @@ import psycopg
 from backend.agent.cs_search import fts_searcher_from_dsn
 from backend.engine.cs.classification import build_input
 from backend.engine.cs.drafting import EvidenceSnippet
-from backend.engine.search.hybrid import Searcher, run_hybrid
+from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import SearchFilters
 from scripts.cs_candidate_run import SplitBlocked, git_sha, load_targets, write_private
 from tests.cs.cs_dev_data import load_dev_tickets
 
-MAX_TERMS = 40
 # 검색기에서 FLT-042 차단분만큼 모자라지 않도록 더 받아 앞 limit개를 쓴다.
 SEARCH_MARGIN = 10
-MASK_MARKER = re.compile(r"\[[A-Z]+_PROVIDED\]")
-WORD = re.compile(r"\w+")
 QuerySource = Literal["subject+body", "subject", "body"]
 
 
@@ -59,14 +55,22 @@ def query_terms(subject: str | None, body: str, source: QuerySource) -> str:
         str: 2자 이상 단어 토큰(마스킹 표식·'or' 제외, casefold 기준 중복 제거, 앞 40개)을 ' or '로 이은
             websearch 질의. 토큰이 없으면 빈 문자열이다.
     """
+    return token_or_query(*query_parts(subject, body, source))
+
+
+def query_parts(subject: str | None, body: str, source: QuerySource) -> list[str]:
+    """질의에 쓸 필드 값(빈 값 제외). 토큰 질의와 코드 일치 원문이 같은 필드를 쓴다.
+
+    Args:
+        subject: 마스킹한 제목.
+        body: 마스킹한 본문.
+        source: 질의에 쓸 필드.
+
+    Returns:
+        list[str]: 고른 필드 값.
+    """
     parts = ([subject] if source != "body" else []) + ([body] if source != "subject" else [])
-    text = MASK_MARKER.sub(" ", " ".join(part for part in parts if part))
-    terms: dict[str, str] = {}
-    for token in WORD.findall(text):
-        key = token.casefold()
-        if len(token) >= 2 and key != "or":
-            terms.setdefault(key, token)
-    return " or ".join(list(terms.values())[:MAX_TERMS])
+    return [part for part in parts if part]
 
 
 def load_ticket_ids(path: Path) -> list[str]:
@@ -173,26 +177,6 @@ def build_evidence(
         limit=min(100, limit + SEARCH_MARGIN),
     )
 
-    def snippets(result: Any) -> list[dict[str, Any]]:
-        """검색 결과에서 본문 있는 후보를 근거 형식으로 바꾼다.
-
-        Args:
-            result: run_hybrid 결과.
-
-        Returns:
-            list[dict]: EvidenceSnippet dict(순서 유지).
-        """
-        return [
-            EvidenceSnippet(
-                chunk_id=item.candidate.chunk_id,
-                snippet=item.candidate.text_excerpt[:snippet_chars],
-                section_path=item.candidate.section_path,
-                document_sha256=item.candidate.document_sha256,
-            ).model_dump()
-            for item in result.items
-            if item.candidate.text_excerpt and item.candidate.text_excerpt.strip()
-        ]
-
     evidence: dict[str, list[dict[str, Any]]] = {}
     queries: list[str] = []
     input_failed = dropped = with_docs = hits = top1 = 0
@@ -204,30 +188,32 @@ def build_evidence(
         try:
             payload = build_input(records[ticket_id], sensitive_values=sensitive_values).payload
             query = query_terms(payload.subject, payload.body, query_from)
+            text = "\n".join(query_parts(payload.subject, payload.body, query_from))
         except ValueError:
-            query = ""
+            query = text = ""
         if not query:
             evidence[ticket_id] = []
             input_failed += 1
             continue
         queries.append(f"{ticket_id}\t{query}")
-        rows: list[dict[str, Any]] = []
-        blocked: set[str] = set()
-        if product_filter and docs:
-            first = run_hybrid(
-                query,
-                filters.model_copy(update={"document_sha256s": sorted(docs)}),
-                fts=searcher,
-            )
-            blocked |= set(first.dropped_blocked)
-            rows = snippets(first)[:limit]
-        if len(rows) < limit:
-            result = run_hybrid(query, filters, fts=searcher)
-            blocked |= set(result.dropped_blocked)
-            seen = {row["chunk_id"] for row in rows}
-            rows += [row for row in snippets(result) if row["chunk_id"] not in seen][
-                : limit - len(rows)
-            ]
+        scoped = (
+            filters.model_copy(update={"document_sha256s": sorted(docs)})
+            if product_filter and docs
+            else None
+        )
+        items, blocked = scoped_then_global(
+            query, filters, scoped, fts=searcher, limit=limit, code_text=text
+        )
+        rows = [
+            EvidenceSnippet(
+                chunk_id=item.candidate.chunk_id,
+                # scoped_then_global이 본문 있는 후보만 남기므로 빈 값은 오지 않는다.
+                snippet=excerpt(item.candidate, snippet_chars) or "",
+                section_path=item.candidate.section_path,
+                document_sha256=item.candidate.document_sha256,
+            ).model_dump()
+            for item in items
+        ]
         dropped += len(blocked)
         evidence[ticket_id] = rows
         hits += any(row["document_sha256"] in docs for row in rows)

@@ -108,8 +108,9 @@ def fts_searcher(query, filters):
             document_sha256="a" * 64,
             ordinal=n,
             section_path=["Warranty"],
-            snippet=f"Warranty clause {n}.",
-            text_excerpt=None,
+            snippet=f"<b>Warranty</b> clause {n}.",
+            # 실제 search_fts는 청크 본문(text)을 항상 돌려준다. retrieve는 이 본문을 근거로 쓴다.
+            text_excerpt=f"Warranty clause {n}.",
             kind="TEXT",
             table_title=None,
             page_start=None,

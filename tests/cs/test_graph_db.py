@@ -1,12 +1,22 @@
 """KAN-194 C/S 그래프 체크포인트. 실제 PostgreSQL의 checkpoint_cs 스키마와 cs_app 권한으로 검사한다."""
 
+import asyncio
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import psycopg
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
+from backend.agent.cs_search import fts_searcher_from_dsn
+from backend.api.cs.search.repository import store_chunks
 from backend.engine.cs.graph import build_graph, initial_state, thread_config
+from backend.engine.documents.model import Block, Position, build_document
+from backend.engine.search.chunking import INDEX_VERSION, chunk_document
+from backend.engine.search.model import ChunkMetadata
 from tests.cs.graph_fakes import (
     FILTERS,
     RAW_INDENT,
@@ -109,3 +119,77 @@ def test_checkpoint_survives_new_connection_and_graph(app_dsn, cs_database):
     assert "chunk-1" in stored  # 상태가 실제로 저장됐다.
     for secret in (*SECRETS, RAW_INDENT, "raw_response"):
         assert secret not in stored
+
+
+def test_retrieve_puts_product_family_chunks_first(cs_database):
+    """실제 cs.document_chunks에서 문의 제품 계열(TRANSFORMER) 청크가 다른 계열보다 먼저 근거가 되고, 다른 계열은
+    전체 검색으로 보충되며, 질의는 문의 전문 AND가 아니라 토큰 OR라서 일부 어휘만 맞는 청크도 찾는다.
+
+    Args:
+        cs_database: 관리자 DSN.
+
+    Returns:
+        None: 근거 순서를 확인한다.
+    """
+    dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
+    known = datetime(2026, 10, 29, 21, 0, tzinfo=UTC)
+    # 다른 계열 문서가 질의 어휘를 더 많이 담아 전체 순위로는 앞선다.
+    docs = (
+        ("LV_BREAKER", "Breaker trips at 300 V. Breaker trips repeatedly; check the trip unit."),
+        ("TRANSFORMER", "Transformer protection trips at overload."),
+    )
+    results = [
+        chunk_document(
+            build_document(
+                "DOCX",
+                f"kan194-retrieve-{family}-{uuid4()}".encode(),
+                [
+                    Block(
+                        block_id="p1",
+                        kind="PARAGRAPH",
+                        text=text,
+                        position=Position(paragraph_index=0),
+                    )
+                ],
+                [],
+                tables=0,
+            )
+        )
+        for family, text in docs
+    ]
+    shas = [result.chunks[0].document_sha256 for result in results]
+
+    async def store():
+        async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+            for (family, _), result, sha in zip(docs, results, shas, strict=True):
+                await store_chunks(
+                    conn,
+                    result,
+                    document_sha256=sha,
+                    metadata=ChunkMetadata(document_kind="CS_MANUAL", product_family=family),
+                    data_origin="synthetic",
+                    known_at=known,
+                )
+
+    try:
+        asyncio.run(store())
+        graph = build_graph(
+            classification_provider=classification_provider,
+            draft_provider=draft_provider,
+            fts_searcher=fts_searcher_from_dsn(dsn, INDEX_VERSION),
+            search_filters=FILTERS.model_copy(
+                update={"document_sha256s": shas, "index_version": INDEX_VERSION}
+            ),
+            allowed_info_codes=frozenset({"TEST_PHOTO"}),
+            load_ticket=lambda ticket_id: TICKET,
+            record_attempt=AttemptStore(),
+            checkpointer=InMemorySaver(),
+        )
+        config = thread_config("kan194-retrieve-db")
+        graph.invoke(initial_state("kan194-retrieve-db"), config)
+        evidence = graph.get_state(config).values["evidence"]
+        assert [item["document_sha256"] for item in evidence] == [shas[1], shas[0]]
+        assert "<b>" not in evidence[0]["snippet"]
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_sha256 = ANY(%s)", (shas,))

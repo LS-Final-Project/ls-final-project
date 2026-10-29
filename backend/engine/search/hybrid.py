@@ -27,6 +27,11 @@ CODE = re.compile(
 )
 HIGHLIGHT = re.compile(r"</?b>")
 BLOCKED_CODES = frozenset({"FLT-042"})
+# 질의 토큰 상한과 근거 스니펫 글자 수(KAN-144 근거 생성기·KAN-194 그래프 retrieve 공용).
+MAX_QUERY_TERMS = 40
+EXCERPT_CHARS = 800
+_MASK_MARKER = re.compile(r"\[[A-Z]+_PROVIDED\]")
+_WORD = re.compile(r"\w+")
 # 차단 판정은 표기 변형을 접는다: 영문자와 숫자 사이의 하이픈·각종 대시·공백을 '-' 하나로 본다.
 SEPARATOR = re.compile(r"(?<=[a-z])[-‐‑–—_\s]+(?=\d)")
 # 제로폭 문자(U+200B~U+200D, U+FEFF)와 소프트 하이픈(U+00AD)은 보이지 않으므로 지우고 본다.
@@ -138,6 +143,7 @@ def run_hybrid(
     reranker: Reranker | None = None,
     k: int = 60,
     blocked_codes: frozenset[str] = BLOCKED_CODES,
+    code_text: str | None = None,
 ) -> HybridResult:
     """FTS·벡터 후보를 RRF로 결합하고 코드 일치·인용 차단을 적용한다.
 
@@ -149,6 +155,8 @@ def run_hybrid(
         reranker: 리랭커. None이면 RRF 순서를 유지한다.
         k: RRF 상수. 점수는 검색기별 1/(k+position)의 합이다.
         blocked_codes: mentions_code로 걸리면 결과에서 빼는 인용 차단 코드.
+        code_text: 코드 일치(codes_in)를 뽑을 원문. None이면 query다. 검색 질의를 토큰 OR로 바꾼 호출자는
+            'UL 1066'·'XYZ-123' 같은 코드가 쪼개지지 않게 원문을 넘긴다.
 
     Returns:
         코드 일치 후보가 앞서는 결합 결과. 일치 묶음 안팎은 리랭커 순(없으면 RRF 내림차순, 같으면 문서
@@ -172,7 +180,7 @@ def run_hybrid(
         for chunk_id, candidate in found.items()
         if any(contains(candidate, code, ignore_case=True) for code in blocked_codes)
     ]
-    codes = codes_in(query)
+    codes = codes_in(query if code_text is None else code_text)
     items = sorted(
         (
             Fused(
@@ -196,3 +204,89 @@ def run_hybrid(
         dropped_blocked=dropped,
         codes_in_query=codes,
     )
+
+
+def token_or_query(*texts: str | None) -> str:
+    """마스킹한 문의 텍스트에서 websearch OR 질의를 만든다.
+
+    websearch_to_tsquery는 공백으로 이은 어휘를 모두 AND로 묶으므로 문의 본문을 통째로 넘기면 거의 맞지 않는다.
+    그래서 단어 토큰을 ' or '로 잇는다.
+
+    Args:
+        *texts: 마스킹한 제목·본문 등(None·빈 값은 건너뛴다).
+
+    Returns:
+        str: 2자 이상 \\w+ 토큰(마스킹 표식 [*_PROVIDED]·'or' 제외, casefold 기준 중복 제거, 앞 40개)을 ' or '로
+            이은 질의. 토큰이 없으면 빈 문자열이다.
+    """
+    text = _MASK_MARKER.sub(" ", " ".join(part for part in texts if part))
+    terms: dict[str, str] = {}
+    for token in _WORD.findall(text):
+        key = token.casefold()
+        if len(token) >= 2 and key != "or":
+            terms.setdefault(key, token)
+    return " or ".join(list(terms.values())[:MAX_QUERY_TERMS])
+
+
+def excerpt(candidate: Candidate, chars: int = EXCERPT_CHARS) -> str | None:
+    """근거로 쓸 청크 본문 앞부분. ts_headline 스니펫(<b> 태그)은 프롬프트에 넣지 않는다.
+
+    Args:
+        candidate: 검색 후보.
+        chars: 최대 글자 수.
+
+    Returns:
+        str | None: text_excerpt 앞 chars자. 본문이 없거나 공백뿐이면 None이다.
+    """
+    text = candidate.text_excerpt
+    return text[:chars] if text and text.strip() else None
+
+
+def scoped_then_global(
+    query: str,
+    filters: SearchFilters,
+    scoped: SearchFilters | None,
+    *,
+    fts: Searcher,
+    limit: int,
+    vector: Searcher | None = None,
+    code_text: str | None = None,
+) -> tuple[list[Fused], set[str]]:
+    """좁힌 조건(제품 등)으로 먼저 찾고, 모자라면 전체 조건으로 보충한다.
+
+    좁힌 단계는 FTS만 쓴다. product_family 같은 조건은 C/S FTS 검색기만 적용하므로 벡터 결과를 섞으면 좁힌 범위
+    밖 청크가 앞설 수 있다. 벡터 검색기는 전체 단계에서만 쓴다.
+
+    Args:
+        query: 질의.
+        filters: 전체 조건.
+        scoped: 먼저 쓸 좁힌 조건. None이면 전체 조건만 쓴다.
+        fts: FTS 검색기.
+        limit: 최대 결과 수.
+        vector: 벡터 검색기(선택, 전체 단계에서만).
+        code_text: 코드 일치를 뽑을 원문(run_hybrid의 code_text).
+
+    Returns:
+        tuple: (본문 있는 결합 후보, 좁힌 결과가 앞서고 chunk_id 중복 없이 limit개 이하; 두 단계에서 인용 차단으로
+            뺀 chunk_id). 두 단계 모두 run_hybrid라 차단 코드(FLT-042) 청크는 결과에 없다.
+    """
+    items: list[Fused] = []
+    blocked: set[str] = set()
+    for stage in (scoped, filters):
+        if stage is None or len(items) >= limit:
+            continue
+        result = run_hybrid(
+            query,
+            stage,
+            fts=fts,
+            vector=vector if stage is filters else None,
+            code_text=code_text,
+        )
+        blocked |= set(result.dropped_blocked)
+        seen = {item.candidate.chunk_id for item in items}
+        items += [
+            item
+            for item in result.items
+            if excerpt(item.candidate) is not None and item.candidate.chunk_id not in seen
+        ][: limit - len(items)]
+    return items, blocked
