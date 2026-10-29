@@ -39,7 +39,7 @@ def test_three_distinct_customers_within_90_days_reach_the_threshold():
     # 도달 시각은 세 번째 고객의 기록이 알려진 시각이다. 같은 고객의 재발은 세지 않는다.
     assert result.reached_at == T0 + timedelta(days=85)
     assert (result.distinct_customers, result.cases_total) == (3, 4)
-    assert result.reason == "90일 안 서로 다른 고객 3/3곳."
+    assert result.reason == "90일 안 서로 다른 고객 3/3곳 도달."
     assert result.condition_status == "UNKNOWN" and len(result.evidence) == 4
 
 
@@ -64,6 +64,9 @@ def test_records_known_after_as_of_are_not_used():
     assert exact.outcome == "ELIGIBLE"
     with pytest.raises(ValueError):
         evaluate([], [], [], as_of=datetime(2026, 1, 1))
+    naive = case(9, "Z", 0).model_copy(update={"known_at": datetime(2025, 10, 1)})
+    with pytest.raises(ValueError, match="known_at"):
+        evaluate([naive], [], [], as_of=LATER)
 
 
 def test_firmware_fix_released_before_the_record_makes_one_customer_enough():
@@ -224,3 +227,13 @@ def test_the_earlier_route_sets_reached_at_when_both_apply():
     # A firmware record without a customer id does not make the group a candidate by itself.
     anonymous = [case(1, None, 5, product="P", fault="F", cause="FIRMWARE", fw="1.0")]
     assert fault_candidates(anonymous, releases, as_of=LATER)[0].outcome != "ELIGIBLE"
+
+
+def test_reason_reports_the_threshold_at_reach_time_not_the_group_maximum():
+    cases = [
+        case(n, c, d)
+        for n, (c, d) in enumerate([("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4)], 1)
+    ]
+    [result] = fault_candidates(cases, [], as_of=LATER)
+    assert result.reason == "90일 안 서로 다른 고객 3/3곳 도달(한 구간 최대 5곳)."
+    assert result.distinct_customers_in_best_window == 5

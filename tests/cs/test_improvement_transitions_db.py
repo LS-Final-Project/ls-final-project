@@ -104,6 +104,11 @@ def test_review_then_send_opens_the_first_round(client, draft):
     rid, v = draft["id"], draft["version"]
     # Sending before review, and a department acting before delivery, are state errors.
     assert code(act(client, rid, "send", version=v)) == (409, "CS_REQUEST_INVALID_TRANSITION")
+    # A fault request keeps at least one proposed department, as the PATCH route requires.
+    assert code(act(client, rid, "review", version=v, proposed_depts=[])) == (
+        422,
+        "CS_DEPARTMENT_REQUIRED",
+    )
     reviewed = ok(act(client, rid, "review", version=v, proposed_depts=["QA_CLAIM", "RND_FW"]))
     assert (reviewed["request"]["status"], reviewed["request"]["reviewed_by"]) == (
         "REVIEWED",
