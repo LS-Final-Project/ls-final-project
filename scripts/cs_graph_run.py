@@ -39,6 +39,8 @@ from tests.cs.graph_fakes import (
     fts_searcher,
 )
 
+RUNNER_ERRORS = frozenset({"CS_GRAPH_THREAD_EXISTS", "CS_GRAPH_NOTHING_TO_RESUME"})
+
 
 def load_tickets(path: Path) -> dict[str, TicketInputs]:
     """사례 입력 JSON을 읽는다.
@@ -95,6 +97,9 @@ def main(
     )
     parser.add_argument("--fts-db", action="store_true", help="DATABASE_URL의 cs FTS 검색기")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--debug", action="store_true", help="알 수 없는 오류를 원문 그대로 전파(로컬 디버깅만)"
+    )
     args = parser.parse_args(argv)
     try:
         settings = Settings()
@@ -175,8 +180,11 @@ def main(
                 else run_ticket(graph, args.thread_id, ticket_id)
             )
         except ValueError as error:
-            # 실행기 오류는 원문 없는 코드다(CS_GRAPH_THREAD_EXISTS·CS_GRAPH_NOTHING_TO_RESUME).
-            print(str(error), file=sys.stderr)
+            # 알려진 실행기 코드만 그대로 출력한다. 그 밖의 ValueError(pydantic 검증 등)는 입력값을 담을 수
+            # 있어 메시지를 내지 않고 CS_GRAPH_FAILED 한 줄만 낸다. --debug일 때만 그대로 전파한다.
+            if args.debug and str(error) not in RUNNER_ERRORS:
+                raise
+            print(str(error) if str(error) in RUNNER_ERRORS else "CS_GRAPH_FAILED", file=sys.stderr)
             return 1
     summary = {
         "mode": "execute" if args.execute else "fake",

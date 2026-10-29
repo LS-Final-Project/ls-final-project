@@ -223,6 +223,35 @@ class GraphRunTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("CS_GRAPH_NOTHING_TO_RESUME", err)
 
+    def test_other_value_errors_print_only_failed_code(self) -> None:
+        """가드 코드가 아닌 ValueError는 메시지 없이 CS_GRAPH_FAILED 한 줄과 종료 1이다.
+
+        Returns:
+            None: 종료 코드와 원문 비출력을 확인한다.
+        """
+
+        def failing(graph, thread_id, ticket_id):
+            """원문이 든 검증 오류를 흉내 낸다.
+
+            Args:
+                graph: 그래프.
+                thread_id: 스레드 ID.
+                ticket_id: 문의 ID.
+
+            Returns:
+                None: 반환하지 않는다.
+            """
+            raise ValueError("ZX-PRIVATE body text")
+
+        with patch.object(cs_graph_run, "run_ticket", failing):
+            code, out, err = self.run_main("--thread-id", "thread-8")
+        self.assertEqual(code, 1)
+        self.assertEqual(err.strip(), "CS_GRAPH_FAILED")
+        self.assertNotIn("ZX-PRIVATE", out + err)
+        with patch.object(cs_graph_run, "run_ticket", failing):
+            with self.assertRaises(ValueError):
+                self.run_main("--thread-id", "thread-8", "--debug")
+
 
 if __name__ == "__main__":
     unittest.main()
