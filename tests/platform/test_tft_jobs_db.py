@@ -52,11 +52,11 @@ def body(jobs_database, registered_user):
     }
     yield value
     with psycopg.connect(jobs_database) as conn:
-        conn.execute(
-            "DELETE FROM runtime.job_events WHERE job_id IN "
-            "(SELECT id FROM runtime.jobs WHERE actor_id=%s)",
-            (value["actor_id"],),
-        )
+        mine = "SELECT id FROM runtime.jobs WHERE actor_id=%s"
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(
+                f"DELETE FROM runtime.{table} WHERE job_id IN ({mine})", (value["actor_id"],)
+            )
         conn.execute("DELETE FROM runtime.jobs WHERE actor_id=%s", (value["actor_id"],))
 
 
@@ -65,7 +65,8 @@ def rows(dsn, actor):
         return conn.execute(
             "SELECT j.owner, j.kind, j.subject_id::text, j.status, "
             "(SELECT count(*) FROM runtime.job_events e WHERE e.job_id=j.id), "
-            "(SELECT count(*) FROM runtime.dispatch_outbox o WHERE o.job_id=j.id) "
+            "(SELECT count(*) FROM runtime.dispatch_outbox o WHERE o.job_id=j.id), "
+            "(SELECT count(*) FROM runtime.job_control c WHERE c.job_id=j.id) "
             "FROM runtime.jobs j WHERE j.actor_id=%s ORDER BY j.created_at",
             (actor,),
         ).fetchall()
@@ -82,7 +83,9 @@ def test_only_the_tft_caller_can_admit(client, jobs_database, body, headers):
     assert rows(jobs_database, body["actor_id"]) == []
 
 
-def test_admission_stores_a_queued_job_without_dispatch(client, jobs_database, body):
+def test_admission_stores_a_queued_job_with_dispatch_intent_and_control(
+    client, jobs_database, body
+):
     first = client.post(URL, json=body, headers=GOOD)
     assert first.status_code == 201
     data = first.json()["data"]
@@ -92,9 +95,9 @@ def test_admission_stores_a_queued_job_without_dispatch(client, jobs_database, b
         body["project_id"],
         True,
     )
-    # 처리 worker 연결 전이라 평가 전송기가 집어 갈 outbox 행이 없다.
+    # KAN-199: 전송 의도와 작업 제어 행을 함께 만든다(전송기는 종류별로 열린다).
     assert rows(jobs_database, body["actor_id"]) == [
-        ("tft", "rfp.process", body["project_id"], "QUEUED", 1, 0)
+        ("tft", "rfp.process", body["project_id"], "QUEUED", 1, 1, 1)
     ]
     replay = client.post(URL, json=body, headers=GOOD)
     assert (replay.status_code, replay.json()["data"]["job_id"]) == (200, data["job_id"])

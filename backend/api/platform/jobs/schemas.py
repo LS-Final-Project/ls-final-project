@@ -40,7 +40,23 @@ class CsJobStatus(BaseModel):
     last_event_sequence: int = Field(ge=0)
 
 
+class TftJobStatus(BaseModel):
+    """RFP 처리 작업 상태와 같은 스냅샷의 이벤트 위치만 공개한다(KAN-199). 원문·오류 코드는 없다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    project_id: UUID
+    owner: Literal["tft"] = "tft"
+    kind: Literal["rfp.process", "rfp.export", "rfp.annotate"]
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
+    version: int = Field(ge=1)
+    last_event_sequence: int = Field(ge=0)
+
+
 class JobStatusResponse(
-    SuccessResponse[Annotated[EvaluationJobStatus | CsJobStatus, Field(discriminator="owner")]]
+    SuccessResponse[
+        Annotated[EvaluationJobStatus | CsJobStatus | TftJobStatus, Field(discriminator="owner")]
+    ]
 ):
-    """상태 조회 응답. data는 owner(platform·cs)로 구분한다."""
+    """상태 조회 응답. data는 owner(platform·cs·tft)로 구분한다."""

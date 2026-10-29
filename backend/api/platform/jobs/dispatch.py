@@ -1,7 +1,8 @@
-"""로컬 작업 전송 장부(평가 evaluation.run·C/S cs.analyze). 외부 호출과 worker 실행 권한을 부여하지 않는다.
+"""로컬 작업 전송 장부(평가 evaluation.run·C/S cs.analyze·RFP rfp.*). 외부 호출과 worker 실행 권한을 부여하지 않는다.
 
-종류마다 따로 연다(KAN-194 9차 2/3). 평가 행은 기존 평가 local 접수 조건, C/S 행은 local/test에서 C/S 접수와
-처리기 연결 설정(CsJobSettings)이 모두 켜졌을 때만 확보한다. C/S 설정을 넘기지 않는 기존 호출자는 평가만 다룬다.
+종류마다 따로 연다(KAN-194 9차 2/3, KAN-199). 평가 행은 기존 평가 local 접수 조건, C/S·RFP 행은 local/test에서
+그 owner의 접수와 처리기 연결 설정(CsJobSettings·TftJobSettings)이 모두 켜졌을 때만 확보한다. 그 설정을 넘기지 않는
+기존 호출자는 평가만 다룬다.
 """
 
 import re
@@ -17,6 +18,8 @@ from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import admission_available
 from backend.api.platform.evaluations.smoke_worker import locked_run
 from backend.api.platform.jobs.cs import CsJobSettings
+from backend.api.platform.jobs.tft import ROUTES as TFT_KINDS
+from backend.api.platform.jobs.tft import TftJobSettings
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -44,21 +47,21 @@ class DispatchLease:
     kind: str = "evaluation.run"
 
 
-def cs_gate_open(settings: Settings, cs: CsJobSettings | None) -> bool:
-    """C/S 작업을 전송해도 되는지(local/test, 접수·처리기 연결 모두 켜짐).
+def gate_open(settings: Settings, owner: CsJobSettings | TftJobSettings | None) -> bool:
+    """C/S·RFP 작업을 전송해도 되는지(local/test, 그 owner의 접수·처리기 연결 모두 켜짐).
 
     Args:
         settings: 실행 환경.
-        cs: C/S 접수 설정. None이면 C/S는 닫힌다.
+        owner: 그 owner의 접수 설정. None이면 닫힌다.
 
     Returns:
         bool: 열렸으면 True.
     """
     return (
-        cs is not None
+        owner is not None
         and settings.environment in {"local", "test"}
-        and cs.enabled
-        and cs.processor_connected
+        and owner.enabled
+        and owner.processor_connected
     )
 
 
@@ -67,6 +70,7 @@ def require_local(
     access: EvaluationAccessSettings,
     dispatch: DispatchSettings,
     cs: CsJobSettings | None = None,
+    tft: TftJobSettings | None = None,
 ) -> list[str]:
     """운영 또는 기본 비활성 상태에서 장부 변경을 거부하고, 전송할 수 있는 작업 종류를 돌려준다.
 
@@ -75,18 +79,14 @@ def require_local(
         access: 합성 평가 접수 허용 설정.
         dispatch: 전송 장부 허용 설정.
         cs: C/S 접수 설정(없으면 C/S 행을 다루지 않는다).
+        tft: RFP 접수 설정(없으면 rfp.* 행을 다루지 않는다).
 
     Returns:
-        list[str]: 허용 종류(evaluation.run·cs.analyze). 하나도 없으면 403 DISPATCH_DISABLED다.
+        list[str]: 허용 종류(evaluation.run·cs.analyze·rfp.*). 하나도 없으면 403 DISPATCH_DISABLED다.
     """
-    kinds = [
-        kind
-        for kind, allowed in (
-            ("evaluation.run", admission_available(settings, access)),
-            ("cs.analyze", cs_gate_open(settings, cs)),
-        )
-        if allowed
-    ]
+    kinds = [kind for kind in ["evaluation.run"] if admission_available(settings, access)]
+    kinds += ["cs.analyze"] if gate_open(settings, cs) else []
+    kinds += list(TFT_KINDS) if gate_open(settings, tft) else []
     if not dispatch.enabled or not kinds:
         raise ApplicationError(403, "DISPATCH_DISABLED", "Dispatch is disabled.")
     return kinds
@@ -128,6 +128,7 @@ async def claim_next(
     access: EvaluationAccessSettings,
     dispatch: DispatchSettings,
     cs: CsJobSettings | None = None,
+    tft: TftJobSettings | None = None,
 ) -> DispatchLease | None:
     """허용 종류의 전송 한 건을 확보하거나 만료된 전송의 불명확 상태를 보존한다.
 
@@ -136,11 +137,12 @@ async def claim_next(
         access: 합성 접수 설정.
         dispatch: 전송 장부 허용·lease·시도 한도.
         cs: C/S 접수 설정(없으면 C/S 행은 집지 않고 PENDING으로 둔다).
+        tft: RFP 접수 설정(없으면 rfp.* 행은 집지 않고 PENDING으로 둔다).
 
     Returns:
         DispatchLease | None: 새 전송 소유권. 만료된 SENDING은 UNKNOWN으로 보류한다.
     """
-    kinds = require_local(settings, access, dispatch, cs)
+    kinds = require_local(settings, access, dispatch, cs, tft)
     async with connection(settings) as conn, conn.transaction():
         cursor = await conn.execute(
             "SELECT o.*,j.business_id,j.kind FROM runtime.dispatch_outbox o "
@@ -216,31 +218,33 @@ async def current_attempt(
     return row
 
 
-async def cs_sendable(
+async def worker_sendable(
     conn: psycopg.AsyncConnection[dict[str, Any]],
     settings: Settings,
-    cs: CsJobSettings | None,
+    gate: CsJobSettings | TftJobSettings | None,
+    owner: str,
     job_id: UUID,
 ) -> bool:
-    """C/S 작업이 지금 전송해도 되는 상태인지 본다(게이트·진행 중·취소 없음·worker lease 없음).
+    """C/S·RFP 작업이 지금 전송해도 되는 상태인지 본다(게이트·진행 중·취소 없음·worker lease 없음).
 
     Args:
         conn: 전송 트랜잭션 연결.
         settings: 실행 환경.
-        cs: C/S 접수 설정.
+        gate: 그 owner의 접수 설정.
+        owner: cs 또는 tft.
         job_id: 작업 ID.
 
     Returns:
         bool: 게이트가 열렸고 작업이 QUEUED·RUNNING이며 취소 요청이 없고 살아 있는 worker lease가 없으면 True.
     """
-    if not cs_gate_open(settings, cs):
+    if not gate_open(settings, gate):
         return False
     cursor = await conn.execute(
         "SELECT j.status,c.cancel_requested_at,"
         "coalesce(c.lease_expires_at>clock_timestamp(),false) AS lease_live "
         "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
-        "WHERE j.id=%s AND j.owner='cs' AND j.kind='cs.analyze'",
-        (job_id,),
+        "WHERE j.id=%s AND j.owner=%s",
+        (job_id, owner),
     )
     job = await cursor.fetchone()
     return (
@@ -257,8 +261,9 @@ async def begin_send(
     dispatch: DispatchSettings,
     lease: DispatchLease,
     cs: CsJobSettings | None = None,
+    tft: TftJobSettings | None = None,
 ) -> bool:
-    """현재 종류별 조건(평가 승인·C/S 게이트와 작업 상태)을 재검사하고 외부 전송 전에 SENDING을 commit한다.
+    """현재 종류별 조건(평가 승인·C/S·RFP 게이트와 작업 상태)을 재검사하고 외부 전송 전에 SENDING을 commit한다.
 
     Args:
         settings: 로컬 DB 설정.
@@ -266,15 +271,17 @@ async def begin_send(
         dispatch: 장부 허용 설정.
         lease: 확보한 전송 소유권.
         cs: C/S 접수 설정(C/S 작업 전송에 필요).
+        tft: RFP 접수 설정(RFP 작업 전송에 필요).
 
     Returns:
         bool: True일 때만 호출자가 트랜잭션 밖에서 전송할 수 있다. 실행 권한은 별도다.
     """
-    require_local(settings, access, dispatch, cs)
+    require_local(settings, access, dispatch, cs, tft)
     async with connection(settings) as conn, conn.transaction():
         row = await current_attempt(conn, lease, "CLAIMED")
-        if lease.kind == "cs.analyze":
-            if not await cs_sendable(conn, settings, cs, lease.job_id):
+        if lease.kind != "evaluation.run":
+            owner, gate = ("cs", cs) if lease.kind == "cs.analyze" else ("tft", tft)
+            if not await worker_sendable(conn, settings, gate, owner, lease.job_id):
                 await finish(conn, row, "BLOCKED")
                 return False
             await start_sending(conn, lease)
@@ -335,6 +342,7 @@ async def record_result(
     result: Literal["ACCEPTED", "REJECTED", "UNKNOWN"],
     operation_name: str | None = None,
     cs: CsJobSettings | None = None,
+    tft: TftJobSettings | None = None,
 ) -> None:
     """전송 결과만 저장하며 평가 상태·worker lease·이벤트는 변경하지 않는다.
 
@@ -346,11 +354,12 @@ async def record_result(
         result: 접수 확인, 명확한 미접수, 결과 불명확 중 하나.
         operation_name: 외부 본문 대신 보존할 operation 식별자.
         cs: C/S 접수 설정(C/S 작업 결과 기록에 필요).
+        tft: RFP 접수 설정(RFP 작업 결과 기록에 필요).
 
     Returns:
         None: 전송 결과를 commit한다. 만료·중복·오래된 결과는 409다.
     """
-    require_local(settings, access, dispatch, cs)
+    require_local(settings, access, dispatch, cs, tft)
     if result not in {"ACCEPTED", "REJECTED", "UNKNOWN"}:
         raise ValueError("Unsupported dispatch result")
     if operation_name is not None and not re.fullmatch(

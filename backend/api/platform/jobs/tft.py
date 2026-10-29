@@ -9,8 +9,8 @@ tft 서비스가 프로젝트 접근 검사와 본문 검증을 마친 뒤 `POST
 - 같은 프로젝트에 진행 중 작업이 있으면 409 `TFT_JOB_IN_PROGRESS`.
 - 처리 worker 연결(`TFT_JOBS_PROCESSOR_CONNECTED`) 전에는 저장하지 않고 503
   `TFT_PROCESSOR_NOT_CONNECTED`다(명세 §4.3).
-- 전송 의도(dispatch_outbox)는 만들지 않는다. 평가 전송기는 outbox의
-  모든 행을 평가 실행으로 보내므로, 연결 전에 tft 행을 넣으면 안 된다.
+- 새 작업은 job.queued 이벤트·전송 의도(dispatch_outbox)·작업 제어 행(runtime.job_control)을 한 트랜잭션에
+  만든다(KAN-199). 전송기는 작업 종류별로 열리며 rfp.* 행은 tft 처리기 연결 설정이 켜졌을 때만 확보한다.
 """
 
 import asyncio
@@ -137,7 +137,7 @@ async def admit_tft_job(
         request: 검증을 마친 접수 입력.
 
     Returns:
-        TftJobAdmission: 새 작업 또는 같은 요청으로 이미 만든 작업.
+        TftJobAdmission: 새 작업(이벤트·전송 의도·제어 행 포함) 또는 같은 요청으로 이미 만든 작업.
 
     Raises:
         ApplicationError: 다른 내용의 같은 키 409, 진행 중 작업 409, 미등록 사용자 422,
@@ -199,6 +199,8 @@ async def admit_tft_job(
         "INSERT INTO runtime.job_events(job_id,sequence,type) VALUES (%s,1,'job.queued')",
         (job_id,),
     )
+    await conn.execute("INSERT INTO runtime.dispatch_outbox(job_id) VALUES (%s)", (job_id,))
+    await conn.execute("INSERT INTO runtime.job_control(job_id) VALUES (%s)", (job_id,))
     return admission(row, True)
 
 

@@ -1,8 +1,9 @@
-"""플랫폼 작업 상태 조회. 작업 owner마다 접근 검사기를 따로 둔다(KAN-194 9차 2/3).
+"""플랫폼 작업 상태 조회. 작업 owner마다 접근 검사기를 따로 둔다(KAN-194 9차 2/3, KAN-199).
 
 - platform(evaluation.run): 기존 평가 규칙. 지정 평가자가 아니면 403, 평가 조건(본인·시험 제외 등)이 안 맞으면 404.
 - cs(cs.analyze): 요청 사용자(actor_id) 본인 또는 cs_agent 역할만. 아니면 404.
-- 그 밖의 owner(tft 등)와 없는 작업: 404. 검사기 표(CHECKERS)에 owner를 더해 확장한다.
+- tft(rfp.*): 요청 사용자(actor_id) 본인만. 아니면 404. 프로젝트 범위(명세 §2.2)는 tft 서비스가 접수 때 검사했다.
+- 그 밖의 owner와 없는 작업: 404. 검사기 표(CHECKERS)에 owner를 더해 확장한다.
 """
 
 from collections.abc import Awaitable, Callable
@@ -14,13 +15,13 @@ from fastapi import HTTPException
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import check_actor
-from backend.api.platform.jobs.schemas import CsJobStatus, EvaluationJobStatus
+from backend.api.platform.jobs.schemas import CsJobStatus, EvaluationJobStatus, TftJobStatus
 from backend.shared.access import Principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
-JobStatus = EvaluationJobStatus | CsJobStatus
+JobStatus = EvaluationJobStatus | CsJobStatus | TftJobStatus
 
 
 async def get_evaluation_job(
@@ -105,6 +106,33 @@ async def read_cs_job(
     return CsJobStatus.model_validate(row)
 
 
+async def read_tft_job(
+    conn: psycopg.AsyncConnection[dict[str, Any]], principal: Principal, job_id: UUID
+) -> TftJobStatus:
+    """요청 사용자 본인에게만 RFP 작업 상태를 같은 스냅샷에서 읽는다(역할로 넓히지 않는다).
+
+    Args:
+        conn: 호출자가 관리하는 플랫폼 DB 연결.
+        principal: 현재 세션 사용자.
+        job_id: 조회할 작업 UUID.
+
+    Returns:
+        TftJobStatus: 종류·프로젝트·상태·판본·마지막 이벤트 sequence. 본인 작업이 아니거나 없으면 404다.
+    """
+    cursor = await conn.execute(
+        "SELECT j.id AS job_id,j.subject_id AS project_id,j.kind,j.status,c.version,"
+        "(SELECT coalesce(max(sequence),0) FROM runtime.job_events "
+        "WHERE job_id=j.id) AS last_event_sequence "
+        "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
+        "WHERE j.id=%s AND j.owner='tft' AND j.actor_id=%s",
+        (job_id, principal.user_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ApplicationError(404, "NOT_FOUND", "Job is unavailable.")
+    return TftJobStatus.model_validate(row)
+
+
 async def read_platform_job(
     conn: psycopg.AsyncConnection[dict[str, Any]],
     settings: Settings,
@@ -158,8 +186,34 @@ async def _cs_checker(
     return await read_cs_job(conn, principal, job_id)
 
 
-# owner별 접근 검사기. 여기 없는 owner(tft 등)는 404다.
-CHECKERS: dict[str, Checker] = {"platform": read_platform_job, "cs": _cs_checker}
+async def _tft_checker(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    principal: Principal,
+    job_id: UUID,
+) -> JobStatus:
+    """RFP 검사기(설정은 쓰지 않는다).
+
+    Args:
+        conn: DB 연결.
+        settings: 실행 환경.
+        access: 평가 설정.
+        principal: 세션 사용자.
+        job_id: 작업 UUID.
+
+    Returns:
+        JobStatus: RFP 작업 상태.
+    """
+    return await read_tft_job(conn, principal, job_id)
+
+
+# owner별 접근 검사기. 여기 없는 owner는 404다.
+CHECKERS: dict[str, Checker] = {
+    "platform": read_platform_job,
+    "cs": _cs_checker,
+    "tft": _tft_checker,
+}
 
 
 async def read_job(
