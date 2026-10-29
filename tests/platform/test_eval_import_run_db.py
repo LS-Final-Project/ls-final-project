@@ -269,33 +269,7 @@ def test_import_with_audit_fills_attempt_columns(
     monkeypatch.setenv("EVALUATION_EVALUATOR_USER_IDS", json.dumps([str(actor)]))
     monkeypatch.setenv("EVALUATION_LOCAL_ADMISSION_ENABLED", "true")
     argv, locks = write_inputs(tmp_path)
-    usage = {
-        "input_tokens": 900,
-        "output_tokens": 40,
-        "thought_tokens": 12,
-        "cached_input_tokens": None,
-        "total_tokens": 952,
-    }
-    entries = {
-        ticket_id: {
-            "outcome": outcome,
-            "error_code": None if outcome == "VALID" else "CS_INVALID_OUTPUT",
-            "http_status": None,
-            "model": "gemini-x",
-            "model_version": "x-0429",
-            "input_version": eval_import_run.INPUT_VERSION_STRIPPED,
-            "input_sha256": f"{index}" * 64,
-            "usage": usage,
-            "latency_ms": 812.6,
-            "finish_reasons": ["STOP"],
-            "attempts": 2,
-            "cost_usd": "0.000123",
-            "pricing_version": "gemini-x@2026-10-01",
-        }
-        for index, (ticket_id, outcome) in enumerate(
-            zip(IDS, ("VALID", "VALID", "SCHEMA_VIOLATION"), strict=True), start=1
-        )
-    }
+    entries = audit_entries(("VALID", "VALID", "SCHEMA_VIOLATION"))
     raw = json.dumps(entries, sort_keys=True).encode()
     (tmp_path / "audit.json").write_bytes(raw)
     run_file = json.loads((tmp_path / "run.json").read_text())
@@ -331,5 +305,134 @@ def test_import_with_audit_fills_attempt_columns(
             (IDS[1], "VALID", None, "x-0429", ["STOP"], "2" * 64, *tail),
             (IDS[2], "SCHEMA_VIOLATION", "CS_INVALID_OUTPUT", "x-0429", ["STOP"], "3" * 64, *tail),
         ]
+    finally:
+        cleanup(evaluation_database, actor)
+
+
+def audit_entries(outcomes, *, ids=IDS, start=1):
+    """사례 감사 항목(cs_candidate_run.audit_entry 모양)을 만든다.
+
+    Args:
+        outcomes: IDS 순서의 outcome.
+        ids: 사례 ID.
+        start: input_sha256을 만드는 숫자 시작값.
+
+    Returns:
+        dict: {사례 ID: 감사 항목}.
+    """
+    usage = {
+        "input_tokens": 900,
+        "output_tokens": 40,
+        "thought_tokens": 12,
+        "cached_input_tokens": None,
+        "total_tokens": 952,
+    }
+    return {
+        ticket_id: {
+            "outcome": outcome,
+            "error_code": None if outcome == "VALID" else "CS_INVALID_OUTPUT",
+            "http_status": None,
+            "model": "gemini-x",
+            "model_version": "x-0429",
+            "input_version": eval_import_run.INPUT_VERSION_STRIPPED,
+            "input_sha256": f"{index}" * 64,
+            "usage": usage,
+            "latency_ms": 812.6,
+            "finish_reasons": ["STOP"],
+            "attempts": 2,
+            "cost_usd": "0.000123",
+            "pricing_version": "gemini-x@2026-10-01",
+        }
+        for index, (ticket_id, outcome) in enumerate(zip(ids, outcomes, strict=True), start=start)
+    }
+
+
+def test_import_with_retry_adds_final_attempt_two(
+    evaluation_database, registered_user, tmp_path, monkeypatch
+):
+    """재시도 감사·최종 라벨이 있으면 시도 1을 최종 아님, 시도 2를 최종으로 넣고 사례·실행은 최종 기준이다.
+    잠금 채점은 시도 1을 읽고, 저장된 최초/최종 비교(compare_stored_attempts)는 시도 2를 최종으로 읽는다.
+
+    Args:
+        evaluation_database: 평가 스키마를 적용한 관리자 DSN.
+        registered_user: 지정 평가자로 쓸 합성 사용자.
+        tmp_path: 입력 파일 디렉터리.
+        monkeypatch: 환경변수 주입.
+
+    Returns:
+        None: 시도·사례·실행 행과 최초·최종 지표를 확인한다.
+    """
+    from eval.cs_gold_locks import GOLD_BUNDLE_ID
+    from eval.cs_stored_metrics import compare_stored_attempts
+
+    _, actor = registered_user
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        make_conninfo(evaluation_database, user="platform_app", password="test-only"),
+    )
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_EVALUATOR_USER_IDS", json.dumps([str(actor)]))
+    monkeypatch.setenv("EVALUATION_LOCAL_ADMISSION_ENABLED", "true")
+    argv, locks = write_inputs(tmp_path)
+    audit = json.dumps(audit_entries(("VALID", "VALID", "SCHEMA_VIOLATION")), sort_keys=True)
+    retry = audit_entries(("VALID",), ids=IDS[2:], start=3)
+    retry[IDS[2]]["error_code"] = None
+    retry_raw = json.dumps(retry, sort_keys=True).encode()
+    labels = json.loads((tmp_path / "labels.json").read_text())
+    final_raw = json.dumps(labels | {IDS[2]: PREDICTION}, sort_keys=True).encode()
+    (tmp_path / "audit.json").write_text(audit)
+    (tmp_path / "retry.json").write_bytes(retry_raw)
+    (tmp_path / "final.json").write_bytes(final_raw)
+    run_file = json.loads((tmp_path / "run.json").read_text())
+    run_file["meta"] |= {
+        "invalid_output_retries": 1,
+        "audit_files": {"a": hashlib.sha256(audit.encode()).hexdigest()},
+        "retry_audit_files": {"a": hashlib.sha256(retry_raw).hexdigest()},
+        "final_label_files": {"a": hashlib.sha256(final_raw).hexdigest()},
+    }
+    run_file["result"]["candidates"][0]["final"] = {"retried": 1, "outcomes": {"VALID": 3}}
+    (tmp_path / "run.json").write_text(json.dumps(run_file))
+    try:
+        code, summary = run(
+            [
+                *argv,
+                *("--audit", str(tmp_path / "audit.json")),
+                *("--retry-audit", str(tmp_path / "retry.json")),
+                *("--final-labels", str(tmp_path / "final.json")),
+                *("--execute", "--actor", str(actor)),
+            ],
+            locks,
+        )
+        assert code == 0, summary
+        assert (summary["attempts"], summary["retried"]) == (4, 1)
+        with psycopg.connect(evaluation_database) as conn:
+            assert conn.execute(
+                "SELECT status,valid_output_count,failed_count FROM evaluation.runs WHERE id=%s",
+                (summary["run_id"],),
+            ).fetchone() == ("SUCCEEDED", 3, 0)
+            rows = conn.execute(
+                "SELECT c.status,c.final_output,a.attempt,a.is_final,a.outcome,a.parsed_output,"
+                "a.input_sha256 FROM evaluation.cases c JOIN evaluation.case_attempts a "
+                "ON a.case_id=c.id WHERE c.run_id=%s AND c.target_ref=%s ORDER BY a.attempt",
+                (summary["run_id"], IDS[2]),
+            ).fetchall()
+            assert rows == [
+                ("VALID", PREDICTION, 1, False, "SCHEMA_VIOLATION", None, "3" * 64),
+                ("VALID", PREDICTION, 2, True, "VALID", PREDICTION, "3" * 64),
+            ]
+            first = dict(
+                conn.execute(
+                    "SELECT metric_key,value FROM evaluation.metrics WHERE run_id=%s "
+                    "AND class_label IS NULL",
+                    (summary["run_id"],),
+                ).fetchall()
+            )
+            assert float(first["cs_locked_category_first_accuracy"]) == pytest.approx(1 / 3)
+            gold = {IDS[0]: "WARRANTY", IDS[1]: "RETURN", IDS[2]: "WARRANTY"}
+            compared = compare_stored_attempts(
+                conn, summary["run_id"], gold, gold_version=GOLD_BUNDLE_ID, metric="category"
+            )
+        assert compared["final"]["accuracy"] == pytest.approx(2 / 3)
+        assert compared["transitions"]["RECOVERED"] == 1
     finally:
         cleanup(evaluation_database, actor)

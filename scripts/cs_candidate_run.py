@@ -423,22 +423,64 @@ def audit_payloads(
     }
 
 
-def audit_meta(audits: AuditFiles) -> dict[str, dict[str, str]]:
-    """결과 meta에 남길 감사 파일 sha256.
+LABEL_KINDS = ("labels", "final-labels")
+
+
+def audit_meta(
+    audits: AuditFiles, kinds: tuple[str, ...] = AUDIT_KINDS
+) -> dict[str, dict[str, str]]:
+    """결과 meta에 남길 비공개 산출물(감사·라벨) 파일 sha256.
 
     Args:
-        audits: audit_payloads 결과.
+        audits: (후보 이름, 종류) → 파일 바이트(audit_payloads·label_payloads 결과).
+        kinds: 종류 목록. 기본은 감사 두 종류다.
 
     Returns:
-        dict: audit_files·retry_audit_files(후보 이름 → sha256).
+        dict: <종류>_files(후보 이름 → sha256). 예: audit_files·retry_audit_files, label_files·
+            final_label_files('labels'는 기존 키 이름 label_files로 남긴다).
     """
     return {
-        f"{kind.replace('-', '_')}_files": {
+        f"{kind.removesuffix('s').replace('-', '_')}_files": {
             name: hashlib.sha256(data).hexdigest()
             for (name, file_kind), data in audits.items()
             if file_kind == kind
         }
-        for kind in AUDIT_KINDS
+        for kind in kinds
+    }
+
+
+def label_payloads(
+    attempts: Mapping[str, Mapping[str, ClassificationAttempt]],
+    retries: Mapping[str, Mapping[str, ClassificationAttempt]],
+) -> AuditFiles:
+    """후보별 예측 라벨(최초 시도 labels, 최종 시도 final-labels) 파일 내용을 만든다.
+
+    Args:
+        attempts: 후보 이름 → {사례 ID: 최초 시도}.
+        retries: 후보 이름 → {사례 ID: attempt 2}.
+
+    Returns:
+        dict: (후보 이름, 종류) → 파일 바이트. 내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}
+            (키 정렬)이다. final-labels는 시도 2가 있는 사례만 그 예측이고 나머지는 최초와 같다.
+    """
+
+    def encode(runs: Mapping[str, ClassificationAttempt]) -> bytes:
+        return json.dumps(
+            {
+                ticket_id: attempt.prediction.model_dump()
+                if attempt.outcome == "VALID" and attempt.prediction is not None
+                else None
+                for ticket_id, attempt in runs.items()
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+
+    return {
+        (name, kind): encode(runs if kind == "labels" else {**runs, **retries.get(name, {})})
+        for name, runs in attempts.items()
+        for kind in LABEL_KINDS
     }
 
 
@@ -525,7 +567,7 @@ def execute(
     strip_phone_annotation: bool = False,
     audit: bool = False,
     invalid_output_retries: int = 1,
-) -> tuple[dict[str, object], dict[str, bytes], AuditFiles]:
+) -> tuple[dict[str, object], AuditFiles, AuditFiles]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
     Args:
@@ -544,10 +586,9 @@ def execute(
 
     Returns:
         tuple: (결과, 라벨, 감사). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·
-            git sha, 라벨·감사를 만들면 그 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 후보 이름 → 파일
-            바이트이고 내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이며 최초 시도
-            기준이다(결과 행의 기존 키와 같은 의미). 사례 식별자가 들어간 비공개 산출물이라 raw_response·원문·
-            usage는 넣지 않는다. 감사는 audit_payloads 형식이다.
+            git sha, 라벨·감사를 만들면 그 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 label_payloads
+            형식(labels는 최초 시도, final-labels는 최종 시도 예측)이다. 사례 식별자가 들어간 비공개 산출물이라
+            raw_response·원문·usage는 넣지 않는다. 감사는 audit_payloads 형식이다.
     """
     started = datetime.now(UTC)
     candidates = [
@@ -573,21 +614,7 @@ def execute(
     )
     attempts = result.pop("attempts", {})
     retries = result.pop("retries", {})
-    files = {
-        name: json.dumps(
-            {
-                ticket_id: attempt.prediction.model_dump()
-                if attempt.outcome == "VALID" and attempt.prediction is not None
-                else None
-                for ticket_id, attempt in runs.items()
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        ).encode("utf-8")
-        for name, runs in attempts.items()
-        if labels
-    }
+    files = label_payloads(attempts, retries) if labels else {}
     audits = audit_payloads(attempts, retries) if audit else {}
     output: dict[str, object] = {
         "meta": {
@@ -608,15 +635,7 @@ def execute(
             "started_at": started.isoformat(),
             "finished_at": datetime.now(UTC).isoformat(),
             "git_sha": git_sha(),
-            **(
-                {
-                    "label_files": {
-                        name: hashlib.sha256(data).hexdigest() for name, data in files.items()
-                    }
-                }
-                if labels
-                else {}
-            ),
+            **(audit_meta(files, LABEL_KINDS) if labels else {}),
             **(audit_meta(audits) if audit else {}),
         },
         "result": result,
@@ -717,7 +736,8 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         prepare_output(args.out)
         if args.labels_out is not None:
             for spec in specs:
-                write_private(label_path(args.labels_out, spec["name"]), b"")
+                for kind in LABEL_KINDS:
+                    write_private(label_path(args.labels_out, spec["name"], kind), b"")
         if args.audit_out is not None:
             for spec in specs:
                 for kind in AUDIT_KINDS:
@@ -745,8 +765,8 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
     try:
         # 라벨·감사를 먼저 쓰고 결과(그 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게
         # 한다.
-        for name, data in labels.items():
-            write_private(label_path(args.labels_out, name), data)
+        for (name, kind), data in labels.items():
+            write_private(label_path(args.labels_out, name, kind), data)
         for (name, kind), data in audits.items():
             write_private(label_path(args.audit_out, name, kind), data)
         args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -31,7 +31,7 @@ import os
 import sys
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -120,6 +120,8 @@ class Plan:
     # 반입 결과 JSON sha256 앞 12자. 영수증 import_ref로 남긴다.
     import_ref: str
     audit: dict[str, AuditEntry] | None = None
+    # 형식 위반으로 다시 부른 사례 → (시도 2 outcome, 최종 라벨 예측 또는 None, 시도 2 감사 항목).
+    retries: dict[str, tuple[str, dict[str, Any] | None, AuditEntry]] = field(default_factory=dict)
 
 
 def build_plan(
@@ -130,6 +132,8 @@ def build_plan(
     candidate: str,
     data_split: str,
     audit_bytes: bytes | None = None,
+    retry_audit_bytes: bytes | None = None,
+    final_labels_bytes: bytes | None = None,
 ) -> Plan:
     """결과·라벨·manifest(와 감사)를 검사하고 실험 등록 요청과 사례별 시도를 만든다.
 
@@ -140,6 +144,9 @@ def build_plan(
         candidate: 후보 이름.
         data_split: train 또는 valid.
         audit_bytes: 그 후보의 사례 감사 JSON 바이트(선택). 있으면 outcome을 추론하지 않고 감사에서 읽는다.
+        retry_audit_bytes: 형식 위반 재호출(시도 2) 감사 JSON 바이트(선택). final_labels_bytes·audit_bytes와
+            함께만 받는다.
+        final_labels_bytes: 최종 시도 예측 라벨 JSON 바이트(선택). 시도 2의 parsed_output을 여기서 읽는다.
 
     Returns:
         Plan: 등록 요청과 시도. 실험의 input_builder_version은 결과 meta의 실제 입력 판본이다(KAN-105 4차).
@@ -147,7 +154,10 @@ def build_plan(
             hash·건수·outcome이 결과와 맞지 않거나, 분할이 다르거나, outcome을 하나로 정할 수 없거나, 입력
             판본이 v3·v4가 아니거나 strip_phone_annotation과 맞지 않으면 EVAL_IMPORT_INVALID ValueError다. 감사가
             있으면 meta.audit_files hash, 사례 ID 집합(KeyError), outcome 집계, VALID ⇔ 라벨 있음, 요청
-            모델(없으면 None)과 입력 판본이 맞아야 한다. test 분할은 SplitBlocked다.
+            모델(없으면 None)과 입력 판본이 맞아야 한다. 재시도 감사가 있으면 retry_audit_files·final_label_files
+            hash, 재시도 사례 = 최초 감사의 CS_INVALID_OUTPUT 사례(meta.invalid_output_retries가 1일 때만), 최종
+            라벨 있음 ⇔ 시도 2 VALID, 시도 2 입력 hash·모델·판본, 재시도 밖 사례의 최종 라벨 = 최초 라벨, 결과
+            행 final.outcomes·retried가 맞아야 한다. test 분할은 SplitBlocked다.
     """
     run = json.loads(run_bytes)
     labels = json.loads(labels_bytes)
@@ -196,6 +206,17 @@ def build_plan(
     ):
         raise ValueError("EVAL_IMPORT_INVALID")
     missing = next(iter(others), "VALID")
+    retries = _retries(
+        meta,
+        row,
+        spec,
+        labels,
+        audit,
+        input_version,
+        candidate,
+        retry_audit_bytes,
+        final_labels_bytes,
+    )
     records = load_targets(manifest, sys.maxsize, 0)
     splits = {item["ticket_id"]: item["data_split"] for item in load_dev_tickets(manifest)}
     if any(splits.get(ticket_id) != data_split for ticket_id in ids):
@@ -253,7 +274,85 @@ def build_plan(
         meta.get("git_sha"),
         hashlib.sha256(run_bytes).hexdigest()[:12],
         audit,
+        retries,
     )
+
+
+def _retries(
+    meta: Mapping[str, Any],
+    row: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    labels: Mapping[str, Any],
+    audit: Mapping[str, AuditEntry] | None,
+    input_version: str,
+    candidate: str,
+    retry_audit_bytes: bytes | None,
+    final_labels_bytes: bytes | None,
+) -> dict[str, tuple[str, dict[str, Any] | None, AuditEntry]]:
+    """재시도 감사·최종 라벨을 검사해 시도 2 기록을 만든다.
+
+    Args:
+        meta: 결과 meta.
+        row: 그 후보의 결과 행(final 블록 포함).
+        spec: 후보 명세.
+        labels: 최초 시도 라벨.
+        audit: 최초 시도 감사.
+        input_version: 결과 meta의 입력 판본.
+        candidate: 후보 이름.
+        retry_audit_bytes: 재시도 감사 바이트 또는 None.
+        final_labels_bytes: 최종 라벨 바이트 또는 None.
+
+    Returns:
+        dict: 사례 ID → (시도 2 outcome, 예측 코드 또는 None, 감사 항목). 둘 다 없으면 빈 dict다. 하나만
+            있거나 최초 감사가 없거나 build_plan에 적은 규칙이 어긋나면 EVAL_IMPORT_INVALID ValueError다.
+    """
+    if retry_audit_bytes is None and final_labels_bytes is None:
+        return {}
+    if retry_audit_bytes is None or final_labels_bytes is None or audit is None:
+        raise ValueError("EVAL_IMPORT_INVALID")
+    final_labels = json.loads(final_labels_bytes)
+    retry_audit = {
+        key: AuditEntry.model_validate(value)
+        for key, value in json.loads(retry_audit_bytes).items()
+    }
+    expected = (
+        {
+            key
+            for key, entry in audit.items()
+            if entry.outcome == "SCHEMA_VIOLATION" and entry.error_code == "CS_INVALID_OUTPUT"
+        }
+        if meta.get("invalid_output_retries") == 1
+        else set()
+    )
+    finals = Counter(retry_audit.get(key, entry).outcome for key, entry in audit.items())
+    final = row["final"]
+    if (
+        meta["retry_audit_files"][candidate] != hashlib.sha256(retry_audit_bytes).hexdigest()
+        or meta["final_label_files"][candidate] != hashlib.sha256(final_labels_bytes).hexdigest()
+        or set(retry_audit) != expected
+        or sorted(final_labels) != sorted(labels)
+        or any(final_labels[key] != labels[key] for key in labels if key not in retry_audit)
+        or any(
+            (entry.outcome == "VALID") is (final_labels[key] is None)
+            or entry.input_sha256 != audit[key].input_sha256
+            or entry.model not in (None, spec["model"])
+            or entry.input_version != input_version
+            for key, entry in retry_audit.items()
+        )
+        or finals != Counter({key: value for key, value in final["outcomes"].items() if value})
+        or final["retried"] != len(retry_audit)
+    ):
+        raise ValueError("EVAL_IMPORT_INVALID")
+    return {
+        key: (
+            entry.outcome,
+            ClassificationOutput.model_validate(final_labels[key]).model_dump()
+            if final_labels[key] is not None
+            else None,
+            entry,
+        )
+        for key, entry in retry_audit.items()
+    }
 
 
 def hashes(body: ExperimentCreate) -> dict[str, str]:
@@ -283,7 +382,7 @@ def hashes(body: ExperimentCreate) -> dict[str, str]:
 
 
 def outcome_counts(plan: Plan) -> dict[str, int]:
-    """사례 상태별 건수.
+    """사례 상태별 건수(최종 시도 기준. 재시도가 없으면 최초 시도와 같다).
 
     Args:
         plan: 반입 계획.
@@ -291,7 +390,10 @@ def outcome_counts(plan: Plan) -> dict[str, int]:
     Returns:
         dict: VALID·INVALID_OUTPUT·FAILED·HELD 건수(0 포함).
     """
-    statuses = [CASE_STATUS[outcome] for outcome, _ in plan.attempts.values()]
+    statuses = [
+        CASE_STATUS[plan.retries[key][0] if key in plan.retries else outcome]
+        for key, (outcome, _) in plan.attempts.items()
+    ]
     return {
         status: statuses.count(status) for status in ("VALID", "INVALID_OUTPUT", "FAILED", "HELD")
     }
@@ -429,15 +531,27 @@ def _insert_rows(
     for ticket_id, (outcome, parsed) in plan.attempts.items():
         case_id = uuid4()
         output = Jsonb(parsed) if parsed is not None else None
+        retry = plan.retries.get(ticket_id)
+        # 재시도 사례는 시도 2가 최종이다(워커와 같이 cases는 최종 시도 기준).
+        final_outcome, final_parsed = (retry[0], retry[1]) if retry else (outcome, parsed)
         cases.append(
-            (case_id, run_id, experiment_id, ticket_id, CASE_STATUS[outcome], output)
+            (case_id, run_id, experiment_id, ticket_id, CASE_STATUS[final_outcome])
+            + (Jsonb(final_parsed) if final_parsed is not None else None,)
             + (plan.started_at, plan.finished_at)
         )
         entry = plan.audit[ticket_id] if plan.audit else None
         attempts.append(
-            (uuid4(), case_id, outcome, plan.model, output, plan.started_at, plan.finished_at)
+            (uuid4(), case_id, 1, retry is None, outcome, plan.model, output)
+            + (plan.started_at, plan.finished_at)
             + audit_columns(entry, plan.model)
         )
+        if retry:
+            attempts.append(
+                (uuid4(), case_id, 2, True, retry[0], plan.model)
+                + (Jsonb(retry[1]) if retry[1] is not None else None,)
+                + (plan.started_at, plan.finished_at)
+                + audit_columns(retry[2], plan.model)
+            )
     with conn.cursor() as cursor:
         cursor.executemany(
             "INSERT INTO evaluation.cases (id,run_id,experiment_id,target_ref,status,"
@@ -449,7 +563,7 @@ def _insert_rows(
             "provider,model_id,parsed_output,started_at,finished_at,requested_model,"
             "error_code,http_status,model_version,finish_reasons,input_sha256,latency_ms,"
             "input_tokens,output_tokens,thought_tokens,cached_input_tokens,total_tokens,"
-            "call_attempts,cost_usd,pricing_version) VALUES (%s,%s,'classify',1,true,%s,"
+            "call_attempts,cost_usd,pricing_version) VALUES (%s,%s,'classify',%s,%s,%s,"
             "'gemini',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             attempts,
         )
@@ -538,6 +652,16 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--labels", type=Path, required=True)
     parser.add_argument("--audit", type=Path, help="그 후보의 사례 감사(<name>.audit.json, 선택)")
+    parser.add_argument(
+        "--retry-audit",
+        type=Path,
+        help="시도 2 감사(<name>.retry-audit.json, --final-labels·--audit 필요)",
+    )
+    parser.add_argument(
+        "--final-labels",
+        type=Path,
+        help="최종 시도 라벨(<name>.final-labels.json, --retry-audit과 함께)",
+    )
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--data-split", choices=["train", "valid"], required=True)
@@ -558,6 +682,8 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
             candidate=args.candidate,
             data_split=args.data_split,
             audit_bytes=args.audit.read_bytes() if args.audit else None,
+            retry_audit_bytes=args.retry_audit.read_bytes() if args.retry_audit else None,
+            final_labels_bytes=args.final_labels.read_bytes() if args.final_labels else None,
         )
         golds = {
             "category": args.gold_category.read_bytes(),
@@ -572,9 +698,10 @@ def main(argv: list[str] | None = None, locks: Mapping[str, GoldLock] | None = N
             "experiments": 1,
             "runs": 1,
             "cases": len(plan.attempts),
-            "attempts": len(plan.attempts),
+            "attempts": len(plan.attempts) + len(plan.retries),
             "outcomes": outcome_counts(plan),
             "audit": plan.audit is not None,
+            "retried": len(plan.retries),
             "model_id": plan.model,
             "prompt_version": plan.body.prompt_version,
             "knobs": plan.body.knobs,
