@@ -39,7 +39,11 @@ class SearchEvalTest(unittest.TestCase):
         result = cs_search_eval.evaluate(
             ["t1", "t2", "t3"],
             {"t1": "A", "t2": "A", "t3": "A"},
-            {"t1": {"category_code": "DEFECT"}, "t2": {"category_code": "TECH_SPEC"}, "t3": None},
+            {
+                "t1": {"category_code": "DEFECT"},
+                "t2": {"category_code": "TECH_SPEC"},
+                "t3": {"category_code": ["DEFECT"]},
+            },
             {"t1": [row("c" * 64), row("b" * 64)], "t2": [row("a" * 64)], "t3": [row("a" * 64)]},
             doc_ids,
             INDEX,

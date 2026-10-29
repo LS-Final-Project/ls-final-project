@@ -73,7 +73,9 @@ def evaluate(
         ranked[ticket_id] = [doc_ids[r["document_sha256"]] for r in rows]
         label = labels.get(ticket_id)
         category = label.get("category_code") if isinstance(label, dict) else None
-        categories[ticket_id] = category if category in policy["categories"] else None
+        categories[ticket_id] = (
+            category if isinstance(category, str) and category in policy["categories"] else None
+        )
         expected[ticket_id] = (
             None
             if categories[ticket_id] is None
