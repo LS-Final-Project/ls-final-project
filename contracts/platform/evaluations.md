@@ -321,6 +321,7 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 - 내용: `experiment_id`·`config_hash`·`dataset_hash`·`target_set_hash`·`target_count`·`admissible`·`blocked_reason`.
 - hash를 돌려주는 까닭: 등록자가 운영자에게 승인을 요청할 때 쓰는 값이다.
 - 목록(`GET /experiments`)은 지금처럼 hash를 보여주지 않는다.
+- KAN-139 3차로 실험 항목에 선택 필드 `runs`(기본 빈 목록)를 더한다. summary를 열 수 있는 실행만 최신순 최대 10개를 {`run_id`, `origin`(ACCEPT·IMPORT), `status`, `created_at`}로 담는다. 조건은 접수 영수증이 있고, 요청자=실험 작성자=본인이며, 실험이 test 분할이 아닌 것이다. run_control은 보지 않으므로 실행 목록·상태 API에 나오지 않는 반입 실행도 여기서 실행 상세(summary)로 들어간다. 조회 전용이며 새로 저장하지 않는다.
 
 **오류**
 

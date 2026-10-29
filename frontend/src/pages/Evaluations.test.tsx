@@ -4,10 +4,11 @@ import Evaluations from './Evaluations';
 import { watchEvaluation, type EvaluationView } from '../api/evaluation-events';
 import { lockedQualityFixture, summaryFixture, syntheticQualityFixture } from '../test/evaluation-summary';
 import { jsonResponse, renderAt } from '../test/render';
+import RunAdmission from './RunAdmission';
 
 vi.mock('../api/evaluation-events', () => ({ watchEvaluation: vi.fn() }));
 // 새 접수·목록 구역은 RunAdmission.test.tsx가 따로 검사한다. 여기서는 상태·집계 fetch만 본다.
-vi.mock('./RunAdmission', () => ({ default: () => null }));
+vi.mock('./RunAdmission', () => ({ default: vi.fn(() => null) }));
 const jobId = '11111111-1111-4111-8111-111111111111';
 let emit: (view: EvaluationView) => void;
 const state = (checkedAt = 1): EvaluationView => ({ connection: 'ended', checkedAt,
@@ -227,4 +228,18 @@ test('실험 설정 표는 단계·조절값·모델·판본과 구성 hash 앞 
   view();
   await screen.findByRole('heading', { name: '실험 설정' });
   expect(screen.getByText('미제공')).toBeTruthy();
+});
+
+test('실험별 실행의 상세 링크는 작업 조회 없이 그 실행의 집계(RunSummary)를 연다', async () => {
+  vi.mocked(RunAdmission).mockImplementation(({ onOpenRun }) => <button onClick={() => onOpenRun?.(summaryFixture().run_id)}>링크</button>);
+  const fetchMock = vi.fn(async () => jsonResponse(200, { data: summaryFixture() }));
+  vi.stubGlobal('fetch', fetchMock);
+  renderAt('/evaluations', '/evaluations', <Evaluations />);
+  fireEvent.click(await screen.findByRole('button', { name: '링크' }));
+  expect(await screen.findByRole('heading', { name: /실행 상세/ })).toBeTruthy();
+  await screen.findByRole('heading', { name: '실험 설정' });
+  expect(fetchMock).toHaveBeenCalledWith(`/api/v1/platform/evaluations/runs/${summaryFixture().run_id}/summary`, expect.anything());
+  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+  expect(screen.queryByRole('heading', { name: /실행 상세/ })).toBeNull();
+  vi.mocked(RunAdmission).mockImplementation(() => null as never);
 });

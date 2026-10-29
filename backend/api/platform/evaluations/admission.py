@@ -315,6 +315,8 @@ async def get_run(
 
 # ponytail: 커서 없이 최근 50개만 준다. 평가자 한 명의 실험·실행이 더 많아지면 커서를 더한다.
 LIST_LIMIT = 50
+# 실험 목록의 실험별 실행 링크 수(KAN-139 3차).
+EXPERIMENT_RUN_LIMIT = 10
 
 
 async def list_experiments(
@@ -333,12 +335,21 @@ async def list_experiments(
     """
     available = admission_available(settings, access)
     async with connection(settings) as conn:
+        # 실행 링크는 summary와 같은 경계(영수증·요청자=작성자=본인·test 분할 제외)로 고르고 run_control은 보지 않는다.
         cursor = await conn.execute(
             "SELECT e.*, (SELECT count(*) FROM evaluation.experiment_targets t "
-            "WHERE t.experiment_id=e.id) AS target_count FROM evaluation.experiments e "
+            "WHERE t.experiment_id=e.id) AS target_count, "
+            "(SELECT coalesce(json_agg(json_build_object('run_id',x.id,'origin',x.origin,"
+            "'status',x.status,'created_at',x.created_at) ORDER BY x.created_at DESC, x.id),'[]') "
+            "FROM (SELECT r.id,a.origin,r.status,r.created_at FROM evaluation.runs r "
+            "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+            "WHERE r.experiment_id=e.id AND r.requested_by_user_id=%s "
+            "AND e.data_split IS DISTINCT FROM 'test' "
+            "ORDER BY r.created_at DESC, r.id LIMIT %s) x) AS runs "
+            "FROM evaluation.experiments e "
             "WHERE e.created_by_user_id=%s AND (%s::text IS NULL OR e.stage=%s) "
             "ORDER BY e.created_at DESC, e.id LIMIT %s",
-            (actor, stage, stage, LIST_LIMIT),
+            (actor, EXPERIMENT_RUN_LIMIT, actor, stage, stage, LIST_LIMIT),
         )
         rows = await cursor.fetchall()
     items = []
@@ -363,6 +374,7 @@ async def list_experiments(
                 created_at=row["created_at"],
                 admissible=reason is None,
                 blocked_reason=reason,
+                runs=row["runs"],
             )
         )
     return items

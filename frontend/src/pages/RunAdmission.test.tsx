@@ -146,3 +146,38 @@ test('결과를 모르는 접수가 남아 있으면 표의 재접수와 실험 
   expect((screen.getByLabelText(/^실험/) as HTMLSelectElement).disabled).toBe(true);
   expect(posts(fetchMock)).toHaveLength(1);
 });
+
+test('실험별 실행 표는 run_id 앞 8자·반입 배지·상태를 보이고 상세 버튼이 실행 상세를 연다', async () => {
+  const imported = '66666666-6666-4666-8666-666666666661';
+  const experiments = [{ ...experiment(READY, '합성 연결 검사', null), runs: [
+    { run_id: imported, origin: 'IMPORT', status: 'PARTIAL', created_at: '2026-10-29T03:00:00Z' },
+    { run_id: RUN, origin: 'ACCEPT', status: 'FAILED', created_at: '2026-10-28T02:00:00Z' },
+  ] }, experiment(FINAL, '최종 시험', 'FINAL_TEST_LOCKED')];
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path === `${BASE}/policy`) return jsonResponse(200, { data: { admission_available: true } });
+    if (path === `${BASE}/experiments`) return jsonResponse(200, { data: { items: experiments } });
+    if (path === `${BASE}/runs`) return jsonResponse(200, { data: { items: [run('FAILED')] } });
+    throw new Error('unexpected ' + path);
+  }));
+  const onOpenRun = vi.fn();
+  renderAt('/evaluations', '/evaluations', <RunAdmission onOpen={vi.fn()} onOpenRun={onOpenRun} />);
+  const table = await screen.findByRole('table', { name: '실험별 실행' });
+  const rows = table.querySelectorAll('tbody tr');
+  expect(rows.length).toBe(2);
+  expect(rows[0].textContent).toContain('66666666');
+  expect(rows[0].textContent).toContain('반입');
+  expect(rows[1].textContent).not.toContain('반입');
+  expect(table.textContent).not.toContain(imported);
+  fireEvent.click(screen.getByRole('button', { name: '실행 66666666 상세' }));
+  expect(onOpenRun).toHaveBeenCalledWith(imported);
+});
+
+test('실행 링크가 없거나 형식이 틀리면 실험별 실행 표를 그리지 않는다', async () => {
+  view();
+  await screen.findByLabelText(/실험/);
+  expect(screen.queryByRole('table', { name: '실험별 실행' })).toBeNull();
+  cleanup();
+  view({ experiments: [{ ...experiment(READY, '합성 연결 검사', null), runs: [{ run_id: 'bad', origin: 'IMPORT', status: 'PARTIAL', created_at: 'x' }] }] as never });
+  expect(await screen.findByRole('alert')).toBeTruthy();
+});

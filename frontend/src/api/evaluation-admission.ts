@@ -1,4 +1,4 @@
-import { evaluationHttpError, isJobId, statusLabels } from './evaluations';
+import { evaluationHttpError, isJobId, statusLabels } from './evaluations.ts';
 
 const BASE = '/api/v1/platform/evaluations';
 const BLOCKED = ['ADMISSION_UNAVAILABLE', 'FINAL_TEST_LOCKED', 'EXPERIMENT_NOT_APPROVED', 'LOCAL_SMOKE_ONLY', 'EXPERIMENT_HASH_MISMATCH'] as const;
@@ -11,9 +11,12 @@ export const blockedLabels: Record<BlockedReason, string> = {
   EXPERIMENT_HASH_MISMATCH: '구성 hash 불일치',
 };
 
+/** 실험의 실행 하나로 가는 링크(KAN-139 3차). 반입(IMPORT) 실행은 실행 목록에 없고 여기서만 열린다. */
+export interface RunLink { runId: string; origin: 'ACCEPT' | 'IMPORT'; status: keyof typeof statusLabels; createdAt: string }
 export interface Experiment {
   experimentId: string; name: string; purpose: string; dataSplit: string | null; dataOrigin: string;
   modelId: string; targetCount: number; createdAt: string; admissible: boolean; blockedReason: BlockedReason | null;
+  runs: RunLink[];
 }
 export interface RunItem {
   runId: string; jobId: string; experimentId: string; status: keyof typeof statusLabels;
@@ -53,6 +56,17 @@ export async function getAdmissionAvailable(signal: AbortSignal): Promise<boolea
   return data.admission_available;
 }
 
+/** 실험의 실행 링크 목록을 확인한다. 없으면(이전 서버) 빈 목록이다. Args: 응답 값. Returns: 링크 목록. */
+function runLinks(value: unknown): RunLink[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 10) throw new AdmissionError('실험 목록을 확인할 수 없습니다.');
+  return value.map(item => {
+    if (!item || !isJobId(item.run_id) || !(item.origin === 'ACCEPT' || item.origin === 'IMPORT')
+        || !Object.hasOwn(statusLabels, item.status) || !time(item.created_at)) throw new AdmissionError('실험 목록을 확인할 수 없습니다.');
+    return { runId: item.run_id, origin: item.origin, status: item.status, createdAt: item.created_at };
+  });
+}
+
 /** 본인 실험 목록을 읽고 형식을 확인한다. Args: 취소 신호. Returns: 실험 목록. */
 export async function listExperiments(signal: AbortSignal): Promise<Experiment[]> {
   const items = (await read('/experiments', signal)).items;
@@ -65,7 +79,7 @@ export async function listExperiments(signal: AbortSignal): Promise<Experiment[]
     return {
       experimentId: item.experiment_id, name: item.name, purpose: item.purpose, dataSplit: item.data_split,
       dataOrigin: item.data_origin, modelId: item.model_id, targetCount: item.target_count, createdAt: item.created_at,
-      admissible: item.admissible, blockedReason: item.blocked_reason,
+      admissible: item.admissible, blockedReason: item.blocked_reason, runs: runLinks(item.runs),
     };
   });
 }

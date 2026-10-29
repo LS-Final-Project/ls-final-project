@@ -180,6 +180,72 @@ def test_runs_list_shows_own_admissions_and_hides_final_test(
             )
 
 
+def test_experiments_link_their_runs_including_imports_but_not_final_test(
+    evaluator, experiment, evaluation_database
+):
+    """실험 목록은 영수증 있는 본인 실행을 최신순 링크로 담고(반입 포함), test 분할 실험은 빈 목록이다(KAN-139 3차).
+
+    Args:
+        evaluator: 지정 평가자 HTTP.
+        experiment: 합성 실험.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: 링크 내용·출처·숨김을 확인한다.
+    """
+    _, before = listed(evaluator, "/experiments")
+    mine = next(i for i in before if i["experiment_id"] == str(experiment["id"]))
+    assert mine["runs"] == []
+    evaluator.headers.update(
+        {
+            "Origin": "https://app.example.invalid",
+            CSRF_HEADER: csrf_token("synthetic-session"),
+            "Idempotency-Key": str(uuid4()),
+        }
+    )
+    accepted = evaluator.post(BASE + "/runs", json={"experiment_id": str(experiment["id"])})
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()["data"]["run_id"]
+    response, items = listed(evaluator, "/experiments")
+    [link] = next(i for i in items if i["experiment_id"] == str(experiment["id"]))["runs"]
+    assert (link["run_id"], link["origin"], link["status"]) == (run_id, "ACCEPT", "QUEUED")
+    assert set(link) == {"run_id", "origin", "status", "created_at"}
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.admission_receipts SET origin='IMPORT',import_ref=%s WHERE run_id=%s",
+            ("0" * 12, run_id),
+        )
+    [link] = next(
+        i
+        for i in listed(evaluator, "/experiments")[1]
+        if i["experiment_id"] == str(experiment["id"])
+    )["runs"]
+    assert link["origin"] == "IMPORT"
+    assert "0" * 12 not in listed(evaluator, "/experiments")[0].text
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET data_split='test', gold_version='g' WHERE id=%s",
+            (experiment["id"],),
+        )
+    try:
+        final = next(
+            i
+            for i in listed(evaluator, "/experiments")[1]
+            if i["experiment_id"] == str(experiment["id"])
+        )
+        assert final["runs"] == []
+    finally:
+        with psycopg.connect(evaluation_database) as conn:
+            conn.execute(
+                "UPDATE evaluation.experiments SET data_split=NULL, gold_version=NULL WHERE id=%s",
+                (experiment["id"],),
+            )
+            conn.execute(
+                "UPDATE evaluation.admission_receipts SET origin='ACCEPT',import_ref=NULL WHERE run_id=%s",
+                (run_id,),
+            )
+
+
 def test_lists_are_for_designated_evaluators_only(settings, access, experiment, monkeypatch):
     client = client_for(())
     client.app.state.settings = settings
