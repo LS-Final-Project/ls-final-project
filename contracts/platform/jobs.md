@@ -193,6 +193,7 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
   - 본문은 `{ticket_id, input_version(SHA-256), idempotency_key, requested_by}`이고 원문·프롬프트는 받지 않는다.
   - 같은 사용자·경로·키의 재전송은 기존 작업(200)이다. 문의·입력 판본이 다르면 409 `IDEMPOTENCY_CONFLICT`다(비교 hash는 플랫폼이 계산한다).
   - `CS_JOBS_PROCESSOR_CONNECTED`(기본 꺼짐) 전에는 저장하지 않고 503 `CS_PROCESSOR_NOT_CONNECTED`다.
+- 적용 순서: `20261031_KAN-194_cs_jobs.sql`(P28)은 `20261029_KAN-182_tft_jobs.sql`(P24) 뒤에 적용한다. `jobs_owner_kind_route`는 마지막 파일(P28)이 평가·tft·cs 합집합으로 정의하므로, P24를 다시 적용하면 P28도 이어서 다시 적용한다(cs 행이 있으면 P24 단독 재적용은 CHECK 추가가 실패한다).
 - 새 작업은 한 트랜잭션에서 `job.queued` 이벤트, 전송 의도(`dispatch_outbox`), 작업 제어 행(`runtime.job_control`)을 함께 만든다. 평가와 같고 tft(전송 의도 없음)와 다르다.
 - `runtime.job_control`은 범용 worker 소유권 표다.
   - 열: generation·holder_id·lease_expires_at·version·cancel_requested_at·failure_code(고정 코드만).

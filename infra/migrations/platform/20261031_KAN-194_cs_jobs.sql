@@ -4,6 +4,8 @@
 -- worker의 lease·취소·실패 코드는 범용 runtime.job_control에 둔다(평가 evaluation.run_control은 그대로).
 -- cs_worker 역할에는 runtime 권한만 준다. cs 테이블·checkpoint_cs 권한은 KAN-107의 cs 마이그레이션이 준다.
 -- 플랫폼·cs·checkpoint는 같은 Postgres DB(team4)의 스키마로 나뉜다는 전제다.
+-- 20261029_KAN-182_tft_jobs.sql(P24) 뒤에 적용한다. P24를 다시 적용하면 이 파일도 이어서 다시 적용한다
+-- (jobs_owner_kind_route를 이 파일이 평가·tft·cs 합집합으로 정의한다).
 -- 관리자 연결로 적용한다. 다시 적용해도 같은 상태가 된다.
 \set ON_ERROR_STOP on
 BEGIN;
