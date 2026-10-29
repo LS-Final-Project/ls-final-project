@@ -26,6 +26,7 @@ DB(DATABASE_URL)에 있을 때만 프로세스를 넘어 생긴다(메모리 체
 
 import argparse
 import json
+import math
 import os
 import statistics
 import sys
@@ -223,7 +224,8 @@ def percentile(values: list[float], fraction: float) -> float | None:
     if not values:
         return None
     ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, max(0, round(fraction * len(ordered)) - 1))]
+    # 최근접 순위는 ceil(p·n)번째다(round는 .5를 짝수로 보내 한 칸 낮아질 수 있다).
+    return ordered[min(len(ordered) - 1, max(0, math.ceil(fraction * len(ordered)) - 1))]
 
 
 def aggregate(path: Path, skipped: int) -> dict[str, Any]:
@@ -286,8 +288,8 @@ def run_batch(
         out: --out(집계 JSON). 줄은 <out>.jsonl에 쓴다.
 
     Returns:
-        dict: aggregate 결과. 문의별 그래프 오류는 failed 줄로 남기고 계속한다. KeyboardInterrupt는 그대로
-            올린다(그때까지의 줄은 남는다).
+        dict: aggregate 결과. 문의별 오류는 종류와 무관하게 failed 줄(code: 실행기 코드 또는 CS_GRAPH_FAILED,
+            원문 없음)로 남기고 계속한다. KeyboardInterrupt는 그대로 올린다(그때까지의 줄은 남는다).
     """
     lines = Path(f"{out}.jsonl")
     fd = os.open(lines, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
@@ -299,9 +301,12 @@ def run_batch(
             started = time.perf_counter()
             try:
                 outcome = run_ticket(graph, thread_id, ticket_id)
-            except ValueError as error:
+            except Exception as error:
+                # 문의 하나의 오류로 묶음 전체를 멈추지 않는다. 알려진 실행기 코드만 그대로 남기고 그 밖은
+                # 원문 없이 CS_GRAPH_FAILED다. KeyboardInterrupt는 Exception이 아니라 그대로 올라간다.
                 status = "failed"
-                if str(error) == "CS_GRAPH_THREAD_EXISTS":
+                code = str(error) if str(error) in RUNNER_ERRORS else "CS_GRAPH_FAILED"
+                if code == "CS_GRAPH_THREAD_EXISTS":
                     # 사람 확인 직전에 멈췄거나 끝난 thread만 건너뛴다. 실행 중 끊긴 thread는 incomplete로 남겨
                     # 단건 --resume으로 잇게 한다(건너뛰면 영영 끝나지 않는다).
                     paused = graph.get_state(thread_config(thread_id)).next in (
@@ -312,7 +317,9 @@ def run_batch(
                 skipped += status == "skipped"
                 source.entries.pop(ticket_id, None)
                 append_line(
-                    handle, {"ticket_id": ticket_id, "thread_id": thread_id, "status": status}
+                    handle,
+                    {"ticket_id": ticket_id, "thread_id": thread_id, "status": status}
+                    | ({"code": code} if status == "failed" else {}),
                 )
                 continue
             values = graph.get_state(thread_config(thread_id)).values

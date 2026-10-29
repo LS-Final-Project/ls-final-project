@@ -469,6 +469,43 @@ class GraphRunTest(unittest.TestCase):
         report = json.loads(printed)
         self.assertEqual(report["statuses"], {"done": 2, "incomplete": 1})
 
+    def test_percentile_uses_nearest_rank(self) -> None:
+        """분위수는 최근접 순위(ceil)다. n=5의 중앙값은 세 번째 값이다.
+
+        Returns:
+            None: 값을 확인한다.
+        """
+        self.assertEqual(cs_graph_run.percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.5), 3.0)
+        self.assertEqual(cs_graph_run.percentile([float(n) for n in range(1, 31)], 0.95), 29.0)
+        self.assertIsNone(cs_graph_run.percentile([], 0.5))
+
+    def test_batch_continues_after_a_ticket_error(self) -> None:
+        """문의 하나가 ValueError가 아닌 예외를 내도 failed 줄(코드만)로 남기고 나머지를 돌려 집계를 쓴다.
+
+        Returns:
+            None: 줄 상태·코드·집계·원문 비노출을 확인한다.
+        """
+        self.write_batch()
+        out = Path(self.dir.name) / "batch.json"
+        real = cs_graph_run.run_ticket
+
+        def flaky(graph, thread_id, ticket_id):
+            if ticket_id == "b-1":
+                raise RuntimeError("PRIVATE_PROVIDER_DETAIL")
+            return real(graph, thread_id, ticket_id)
+
+        with patch.object(cs_graph_run, "run_ticket", flaky):
+            code, printed, err = self.run_main("--batch", "--thread-id", "run", "--out", str(out))
+        self.assertEqual(code, 0, err)
+        lines = [json.loads(text) for text in Path(f"{out}.jsonl").read_text().splitlines()]
+        self.assertEqual(
+            [(line["ticket_id"], line["status"]) for line in lines],
+            [("b-0", "done"), ("b-1", "failed"), ("b-2", "done")],
+        )
+        self.assertEqual(lines[1]["code"], "CS_GRAPH_FAILED")
+        self.assertEqual(json.loads(printed)["statuses"], {"done": 2, "failed": 1})
+        self.assertNotIn("PRIVATE_PROVIDER_DETAIL", Path(f"{out}.jsonl").read_text() + printed)
+
     def test_batch_dry_run_and_argument_errors(self) -> None:
         """--batch --dry-run은 그래프 없이 호출 수·상한을 내고, 잘못된 조합은 1이다.
 
