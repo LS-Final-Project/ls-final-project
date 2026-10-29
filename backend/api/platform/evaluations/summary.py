@@ -282,7 +282,7 @@ class StageMetricBlock(BaseModel):
     """한 단계의 최신 채점 판본 행 묶음."""
 
     model_config = ConfigDict(extra="forbid")
-    stage: Literal["classification", "search", "draft", "rfp"]
+    stage: Literal["search", "draft", "rfp"]
     scoring_version: str
     stored_scoring_version_count: Annotated[int, Field(ge=1)]
     stored_at: datetime

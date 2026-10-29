@@ -2072,7 +2072,6 @@
           },
           "stage": {
             "enum": [
-              "classification",
               "search",
               "draft",
               "rfp"
