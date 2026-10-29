@@ -558,6 +558,81 @@ class CandidateRunTests(unittest.TestCase):
         self.assertNotIn("attempts", result["result"])
         self.assertNotIn("SYN-0", out.read_text(encoding="utf-8"))
 
+    def test_audit_out_writes_private_case_audit_without_predictions(self):
+        """--audit-out은 후보별 0600 사례 감사를 쓰고 meta에 sha256만 남기며, 예측·원문은 넣지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 항목 열·값·권한·meta와 비노출을 확인한다.
+        """
+
+        def factory(spec, codes, settings):
+            def provider(payload):
+                broken = spec["name"] == "b" and "breaker 0" in payload.body
+                usage = Usage(1000, 200, 50, None, 1250)
+                return Generation(
+                    "not json" if broken else ANSWER,
+                    usage,
+                    "flash-0429",
+                    ["STOP"],
+                    model="gemini-3.6-flash",
+                    elapsed_ms=12,
+                    attempts=2,
+                )
+
+            return provider
+
+        audit = self.root / "audit"
+        audit.mkdir()
+        out = self.root / "result.json"
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--audit-out", str(audit), factory=factory
+        )
+        self.assertEqual(code, 0, printed)
+        files = {}
+        for name in ("a", "b"):
+            path = audit / f"{name}.audit.json"
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            files[name] = path.read_bytes()
+            data = json.loads(files[name])
+            self.assertEqual(list(data), ["SYN-0", "SYN-1", "SYN-2", "SYN-3"])
+            entry = data["SYN-1"]
+            self.assertEqual(
+                {k: entry[k] for k in ("outcome", "model", "model_version", "attempts")},
+                {"outcome": "VALID", "model": "gemini-3.6-flash", "model_version": "flash-0429"}
+                | {"attempts": 2},
+            )
+            self.assertEqual(
+                entry["usage"],
+                {
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "thought_tokens": 50,
+                    "cached_input_tokens": None,
+                    "total_tokens": 1250,
+                },
+            )
+            self.assertEqual(entry["finish_reasons"], ["STOP"])
+            self.assertRegex(entry["input_sha256"], "^[0-9a-f]{64}$")
+            self.assertIsNotNone(entry["cost_usd"])
+            self.assertTrue(entry["pricing_version"].startswith("gemini-3.6-flash@"))
+            self.assertEqual(data["SYN-2"]["outcome"], "HELD")
+            self.assertIsNone(data["SYN-2"]["cost_usd"])
+        self.assertEqual(json.loads(files["b"])["SYN-0"]["outcome"], "SCHEMA_VIOLATION")
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(
+            result["meta"]["audit_files"],
+            {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
+        )
+        self.assertNotIn("label_files", result["meta"])
+        self.assertNotIn("attempts", result["result"])
+        text = b"".join(files.values()).decode()
+        for secret in (KEY, "Please take breaker", "RETURN", "category_code"):
+            self.assertNotIn(secret, text)
+        self.assertEqual(self.run_main("--audit-out", str(audit))[0], 1)
+
     def test_no_labels_out_writes_no_label_files_and_bad_requests_stop_early(self):
         """--labels-out이 없으면 라벨 파일·meta 항목이 없고, dry-run과 함께 쓰거나 위험한 후보 이름이면 호출 전에 멈춘다.
 
