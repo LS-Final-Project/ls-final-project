@@ -106,3 +106,81 @@ def test_build_evidence_round_trip_excludes_blocked_chunks(cs_database):
     finally:
         with psycopg.connect(cs_database, autocommit=True) as conn:
             conn.execute("DELETE FROM cs.document_chunks WHERE document_sha256 = ANY(%s)", (shas,))
+
+
+def test_product_documents_come_before_better_global_matches(cs_database):
+    """전역 FTS 순위가 더 높은 다른 문서가 있어도 제품 문서가 근거 1순위다.
+
+    Args:
+        cs_database: 관리자 DSN.
+
+    Returns:
+        None: 필터 끔/켬의 1순위 문서와 meta 통계를 확인한다.
+    """
+    dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
+    texts = (
+        "Breaker trip unit manual.",
+        "Breaker warranty trip reset policy for every breaker warranty trip claim.",
+    )
+    results = [
+        chunk_document(
+            build_document(
+                "DOCX",
+                f"kan144-product-{uuid4()}".encode(),
+                [Block(block_id="p1", kind="PARAGRAPH", text=text, position=Position())],
+                [],
+                tables=0,
+            )
+        )
+        for text in texts
+    ]
+    product, other = (result.chunks[0].document_sha256 for result in results)
+
+    async def store():
+        """두 문서의 청크를 저장한다.
+
+        Returns:
+            None: 저장만 한다.
+        """
+        async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+            for result in results:
+                await store_chunks(
+                    conn,
+                    result,
+                    document_sha256=result.chunks[0].document_sha256,
+                    metadata=ChunkMetadata(document_kind="CS_MANUAL"),
+                    data_origin="synthetic",
+                    known_at=KNOWN,
+                )
+
+    record = {
+        "channel": "EMAIL",
+        "body_language": "en",
+        "subject": "Breaker warranty trip",
+        "body": "Breaker trip warranty claim reset",
+    }
+    try:
+        asyncio.run(store())
+        firsts = {}
+        for product_filter in (False, True):
+            evidence, meta = build_evidence(
+                {"T1": record},
+                fts_searcher_from_dsn(dsn, INDEX_VERSION),
+                index_version=INDEX_VERSION,
+                document_sha256s=[product, other],
+                limit=5,
+                snippet_chars=800,
+                sensitive_values={},
+                query_from="subject+body",
+                product_documents={"T1": frozenset({product})},
+                product_filter=product_filter,
+            )
+            firsts[product_filter] = [row["document_sha256"] for row in evidence["T1"]]
+            assert (meta["product_hits"], meta["product_top1"]) == (1, int(product_filter))
+        assert firsts == {False: [other, product], True: [product, other]}
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute(
+                "DELETE FROM cs.document_chunks WHERE document_sha256 = ANY(%s)",
+                ([product, other],),
+            )
