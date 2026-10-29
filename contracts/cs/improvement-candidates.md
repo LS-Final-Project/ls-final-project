@@ -58,3 +58,20 @@
 
 - 제공 데이터의 기준선(묶음 148개 중 76개가 90일·3곳 도달)과 대조하는 재현 검사는 개발 분할 manifest(`CS_DEV_MANIFEST`)가 있는 환경에서 KAN-117과 함께 추가한다. 이 PR은 합성 기록 검사만 있다.
 - 후보 판정은 묶음 단위 사실 집계이며 원인·책임을 단정하지 않는다. 요청서 문장은 KAN-115가 만든다.
+
+## 완료 조건 대조 (KAN-113, 2026-10-29)
+
+Jira 완료 조건 "해결기록 적재시각, 90일 고객3곳, 확인된 펌웨어1고객, 문서오류근거 기준 테스트"와 검사 위치다. 모두 `tests/cs/test_improvement_candidates.py`의 합성 기록 검사다.
+
+| 완료 조건 | 이 문서의 규칙 | 검사 |
+| --- | --- | --- |
+| 해결 기록 적재 시각 | `known_at` 기준, `as_of` 뒤에 알려진 기록 제외 | `test_records_known_after_as_of_are_not_used` |
+| 90일·고객 3곳 | 90일 창 안 서로 다른 고객 3곳, 창 이동, 91일 간격 제외, 고객 식별자 누락은 1곳으로 세지 않음, 도달 시점 기준 사유 | `test_three_distinct_customers_within_90_days_reach_the_threshold`, `test_the_window_slides_and_a_91_day_spread_does_not_count`, `test_missing_customer_ids_block_the_count_instead_of_counting_as_one`, `test_reason_reports_the_threshold_at_reach_time_not_the_group_maximum` |
+| 확인된 펌웨어 수정판 뒤 1고객 | 수정판 배포 뒤 기록이면 1곳으로 충분, 모르는·이상한 판본은 근거 부족, 먼저 충족된 경로가 `reached_at` | `test_firmware_fix_released_before_the_record_makes_one_customer_enough`, `test_unknown_or_odd_firmware_versions_are_insufficient_not_eligible`, `test_the_earlier_route_sets_reached_at_when_both_apply` |
+| 문서 오류 근거 | 문서 오류는 근거 위치가 있으면 1건, 반복 사양 질문은 3건 | `test_document_errors_need_evidence_not_repetition_and_repeated_specs_need_three` |
+| (공통) | 제품·고장 단위 묶음, 규칙 판본 | `test_groups_are_per_product_and_fault_and_carry_condition_status`, `test_evaluate_bundles_both_kinds_with_the_rule_version` |
+
+**완료 조건 밖으로 남긴 것**
+- 반복 사양 질문 3건은 이 계약의 제안값이다. 기획서에 수치가 없어 **팀 확인 대기**다. 확인되면 위 기준값 표만 고친다.
+- 후보 판정 결과를 DB에 저장하는 연결(개선요청 생성 경로와 잇기)은 하지 않았다. 지금은 순수 함수만 있다.
+- 제공 데이터 기준선(묶음 148개 중 76개) 재현은 위 한계대로 개발 분할 manifest가 있는 환경에서 KAN-117과 함께 한다.
