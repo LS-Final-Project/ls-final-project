@@ -1,0 +1,73 @@
+{
+  "version": "gates-v1",
+  "source": {
+    "document": "docs/evaluation.md 지표 표",
+    "jira": "KAN-82 댓글 10567",
+    "locked_on": "2026-10-29"
+  },
+  "gates": [
+    {
+      "metric_key": "category_macro_f1",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "critical_miss_count",
+      "comparison": "==",
+      "threshold": 0,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "urgency_macro_f1",
+      "comparison": ">=",
+      "threshold": 0.7,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "urgency_non_none_recall",
+      "comparison": ">=",
+      "threshold": 0.85,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "schema_violation_rate",
+      "comparison": "==",
+      "threshold": 0,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "hit_at_5",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "priority_rule_exact",
+      "comparison": "==",
+      "threshold": 1.0,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "dept_rule_policy_match",
+      "comparison": "==",
+      "threshold": 1.0,
+      "blocker": true,
+      "segment": "all"
+    },
+    {
+      "metric_key": "dept_pipeline_exact",
+      "comparison": ">=",
+      "threshold": 0.93,
+      "blocker": true,
+      "segment": "all"
+    }
+  ]
+}
