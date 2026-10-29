@@ -1,15 +1,18 @@
-"""출시 게이트 판정·퇴행·결함 분류(KAN-156). 파일·DB·모델에 접근하지 않는다.
+"""출시 게이트 판정·퇴행·결함 분류(KAN-156). DB·모델에 접근하지 않는다.
 
-합격선·허용 폭·실패율 상한은 이 모듈이 정하지 않는다(KAN-82에서 잠근다). 기본값 없이 입력으로만 받고,
+합격선·허용 폭·실패율 상한은 이 모듈이 정하지 않는다. 합격선은 KAN-82에서 잠근 eval/policy/gates-v1.json을
+load_gates로 읽고(이 모듈이 읽는 유일한 파일), 나머지는 기본값 없이 입력으로만 받는다.
 값이 없거나 유한하지 않으면(NaN·inf) NOT_EVALUABLE이다. contracts/platform/evaluations.md의 "임의로 합격
 처리하지 않는다"에 따라 blocker 게이트는 미달뿐 아니라 측정 불가도 출시를 막고, 퇴행·실패율·측정 불가 결함도
 출시를 막는다. 저장 시각(recorded_at)은 호출자가 붙인다.
 """
 
+import json
 import math
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 Comparison = Literal[">=", "<=", "=="]
@@ -18,6 +21,8 @@ MetricKind = Literal["QUALITY", "COST", "LATENCY"]
 SCHEMA_KEY = "schema_violation_rate"
 FAILURE_KEY = "transport_failure_rate"
 CRITICAL_LABELS = ("SAFETY", "SITE_DOWN")
+GATES_PATH = Path(__file__).parent / "policy" / "gates-v1.json"
+GATE_KEYS = {"metric_key", "comparison", "threshold", "blocker", "segment"}
 REGRESSION_DEFECTS = {
     "QUALITY": "QUALITY_REGRESSION",
     "COST": "COST_REGRESSION",
@@ -56,6 +61,56 @@ class Tolerance:
     direction: Direction
     max_drop: float
     kind: MetricKind
+
+
+def load_gates(path: Path = GATES_PATH) -> list[Gate]:
+    """잠근 합격선 파일을 읽어 Gate 목록으로 만든다.
+
+    Args:
+        path: {"version", "source": {"document", "jira", "locked_on"}, "gates": [...]} 형식의 JSON.
+
+    Returns:
+        list[Gate]: 파일 순서의 게이트. 모르는 키·빠진 키, 허용 밖 comparison, 유한한 수가 아닌 threshold(bool
+            포함), bool이 아닌 blocker, 빈 metric_key·segment, 같은 (metric_key, segment) 중복은
+            EVAL_INVALID_INPUT ValueError다.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if set(data) != {"version", "source", "gates"} or set(data["source"]) != {
+            "document",
+            "jira",
+            "locked_on",
+        }:
+            raise ValueError
+        gates = []
+        for item in data["gates"]:
+            threshold = item["threshold"]
+            if (
+                set(item) != GATE_KEYS
+                or item["comparison"] not in (">=", "<=", "==")
+                or type(threshold) not in (int, float)
+                or not math.isfinite(threshold)
+                or type(item["blocker"]) is not bool
+                or not isinstance(item["metric_key"], str)
+                or not isinstance(item["segment"], str)
+                or not item["metric_key"]
+                or not item["segment"]
+            ):
+                raise ValueError
+            gates.append(
+                Gate(
+                    item["metric_key"],
+                    item["comparison"],
+                    float(threshold),
+                    item["blocker"],
+                    item["segment"],
+                )
+            )
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise ValueError("EVAL_INVALID_INPUT") from None
+    if len({(g.metric_key, g.segment) for g in gates}) != len(gates) or not gates:
+        raise ValueError("EVAL_INVALID_INPUT")
+    return gates
 
 
 def _index(metrics: Iterable[MetricValue]) -> dict[tuple[str, str], MetricValue]:

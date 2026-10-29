@@ -9,6 +9,7 @@ from eval.release_gate import (
     classify_defects,
     detect_regressions,
     evaluate_gates,
+    load_gates,
     rare_risk_misses,
 )
 
@@ -262,3 +263,74 @@ def test_defects_are_classified_by_source():
     assert unmeasured["blocker"] is True  # 시도 0건 측정 불가도 출시를 막는다
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         classify_defects(gates, regressions, outcomes, max_failure_rate=1.5)
+
+
+def test_locked_gates_file_matches_metric_table():
+    """잠근 합격선 파일이 docs/evaluation.md 지표 표의 아홉 기준과 같고 모두 blocker·segment all이다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 값과 게이트 판정 연결을 확인한다.
+    """
+    gates = load_gates()
+    assert {(g.metric_key, g.comparison, g.threshold) for g in gates} == {
+        ("category_macro_f1", ">=", 0.90),
+        ("critical_miss_count", "==", 0.0),
+        ("urgency_macro_f1", ">=", 0.70),
+        ("urgency_non_none_recall", ">=", 0.85),
+        ("schema_violation_rate", "==", 0.0),
+        ("hit_at_5", ">=", 0.90),
+        ("priority_rule_exact", "==", 1.0),
+        ("dept_rule_policy_match", "==", 1.0),
+        ("dept_pipeline_exact", ">=", 0.93),
+    }
+    assert all(g.blocker and g.segment == "all" for g in gates) and len(gates) == 9
+    result = evaluate_gates([MetricValue("category_macro_f1", "all", 0.91, 10)], gates)
+    assert result["counts"] == {"PASS": 1, "FAIL": 0, "NOT_EVALUABLE": 8} and result["blocker"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda d: d["gates"][0].update(extra=1),
+        lambda d: d.update(note="x"),
+        lambda d: d["gates"][0].update(comparison=">"),
+        lambda d: d["gates"][0].update(threshold=True),
+        lambda d: d["gates"][0].update(threshold="0.9"),
+        lambda d: d["gates"][0].update(blocker="yes"),
+        lambda d: d["gates"].append(dict(d["gates"][0])),
+        lambda d: d["source"].pop("jira"),
+    ],
+    ids=[
+        "unknown-gate-key",
+        "unknown-top-key",
+        "bad-comparison",
+        "bool-threshold",
+        "text-threshold",
+        "text-blocker",
+        "duplicate",
+        "missing-source",
+    ],
+)
+def test_load_gates_rejects_invalid_files(tmp_path, change):
+    """모르는 키·빠진 키·허용 밖 비교·수 아닌 합격선·중복을 거부한다.
+
+    Args:
+        tmp_path: 임시 디렉터리.
+        change: 잠근 파일 내용을 바꾸는 함수.
+
+    Returns:
+        None: EVAL_INVALID_INPUT을 확인한다.
+    """
+    import json
+
+    from eval.release_gate import GATES_PATH
+
+    data = json.loads(GATES_PATH.read_text(encoding="utf-8"))
+    change(data)
+    path = tmp_path / "gates.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        load_gates(path)
