@@ -226,6 +226,27 @@ def test_only_the_tft_worker_role_may_run(settings, jobs_database, tft_job):
     assert snapshot(jobs_database, tft_job)[0] == "QUEUED"
 
 
+def test_cancel_requested_after_the_worker_died_ends_cancelled(
+    worker_settings, jobs_database, tft_job
+):
+    """lease가 끊긴 RUNNING 작업에 취소 요청이 있으면 처리 함수를 부르지 않고 CANCELLED로 확정한다(이연 P3, #278)."""
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute("UPDATE runtime.jobs SET status='RUNNING' WHERE id=%s", (tft_job,))
+        conn.execute(
+            "UPDATE runtime.job_control SET holder_id=gen_random_uuid(),"
+            "lease_expires_at=now()-interval '1 second',cancel_requested_at=now() WHERE job_id=%s",
+            (tft_job,),
+        )
+    called = []
+    assert (
+        run(worker_settings, tft_job, lambda job, emit: called.append(job)) == "TFT_JOB_CANCELLED"
+    )
+    assert called == []
+    status, released, failure, events = snapshot(jobs_database, tft_job)
+    assert (status, released, failure) == ("CANCELLED", True, None)
+    assert events[-1] == ("job.completed", {"state": "CANCELLED"})
+
+
 def test_tft_worker_does_not_claim_other_owners_jobs(worker_settings, jobs_database, cs_job):
     """C/S 작업 ID를 받아도 인수하지 않는다."""
     assert run(worker_settings, cs_job, lambda job, emit: None) == "NOT_CLAIMED"

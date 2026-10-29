@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from backend.engine.cs.classification import ClassificationInput, ClassificationOutput
 from backend.engine.cs.classification_call import CallErrorCode, ClassificationCallError
 from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, get_prompt
-from backend.shared.ai import AISettings, Generation, generate
+from backend.shared.ai import AISettings, Generation, failed_attempts, generate
 
 MODEL = re.compile(r"[a-zA-Z0-9._-]+")
 THINKING_LEVELS = frozenset(level.value for level in types.ThinkingLevel)
@@ -92,6 +92,7 @@ def _call(
     """
     code: CallErrorCode = "CS_PROVIDER_ERROR"
     status: int | None = None
+    attempts: int | None = None
     try:
         knobs = generation or GenerationKnobs()
         return generate(
@@ -106,12 +107,13 @@ def _call(
     except errors.APIError as error:
         known = error.code if type(error.code) is int and 100 <= error.code <= 599 else None
         code, status = ("CS_RATE_LIMITED" if known == 429 else "CS_PROVIDER_ERROR"), known
-    except (httpx.TimeoutException, TimeoutError):
-        code = "CS_PROVIDER_TIMEOUT"
+        attempts = failed_attempts(error)
+    except (httpx.TimeoutException, TimeoutError) as error:
+        code, attempts = "CS_PROVIDER_TIMEOUT", failed_attempts(error)
     except Exception:
         pass
     # except 블록 밖에서 올려 원래 예외(요청·키·제공자 메시지)가 __context__로도 남지 않게 한다.
-    raise ClassificationCallError(code, http_status=status)
+    raise ClassificationCallError(code, http_status=status, call_attempts=attempts)
 
 
 def gemini_classification_provider(

@@ -169,6 +169,8 @@ def execute_job(
     lease = claim(settings, "cs", worker.lease_seconds, job_id)
     if lease is None:
         return "NOT_CLAIMED"
+    if lease == "CANCELLED":
+        return "CS_JOB_CANCELLED"
     # 입력 load 구간에서만 CS_WORKER_SOURCE_MISSING을 인정한다. 처리 구간의 같은 코드는 GRAPH_FAILED다.
     try:
         parts = parts_loader(settings)
