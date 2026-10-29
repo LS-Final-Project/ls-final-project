@@ -628,10 +628,32 @@ class CandidateRunTests(unittest.TestCase):
         )
         self.assertNotIn("label_files", result["meta"])
         self.assertNotIn("attempts", result["result"])
-        text = b"".join(files.values()).decode()
+        # b의 SYN-0은 계속 형식 위반이라 attempt 2로 한 번 더 불렀고, 그 감사는 retry-audit에만 있다.
+        retried = {}
+        for name in ("a", "b"):
+            path = audit / f"{name}.retry-audit.json"
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            retried[name] = path.read_bytes()
+        self.assertEqual(json.loads(retried["a"]), {})
+        self.assertEqual(list(json.loads(retried["b"])), ["SYN-0"])
+        self.assertEqual(json.loads(retried["b"])["SYN-0"]["outcome"], "SCHEMA_VIOLATION")
+        self.assertEqual(
+            result["meta"]["retry_audit_files"],
+            {name: hashlib.sha256(data).hexdigest() for name, data in retried.items()},
+        )
+        self.assertEqual(result["meta"]["invalid_output_retries"], 1)
+        self.assertEqual(result["result"]["candidates"][1]["final"]["retried"], 1)
+        text = b"".join([*files.values(), *retried.values()]).decode()
         for secret in (KEY, "Please take breaker", "RETURN", "category_code"):
             self.assertNotIn(secret, text)
         self.assertEqual(self.run_main("--audit-out", str(audit))[0], 1)
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--audit-out", str(audit),
+            "--invalid-output-retries", "0", factory=factory,
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(json.loads((audit / "b.retry-audit.json").read_text()), {})
+        self.assertEqual(json.loads(out.read_text())["meta"]["invalid_output_retries"], 0)
 
     def test_no_labels_out_writes_no_label_files_and_bad_requests_stop_early(self):
         """--labels-out이 없으면 라벨 파일·meta 항목이 없고, dry-run과 함께 쓰거나 위험한 후보 이름이면 호출 전에 멈춘다.

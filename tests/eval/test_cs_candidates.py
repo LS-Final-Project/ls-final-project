@@ -312,3 +312,114 @@ def test_invalid_candidate_setup_is_rejected(kwargs):
     """
     with pytest.raises(ValueError, match="^CS_INVALID_CANDIDATES$"):
         run(**kwargs)
+
+
+def once_broken(targets):
+    """대상별 첫 호출만 형식 위반 원문을 내고 두 번째부터 정답을 내는 fake 공급자.
+
+    Args:
+        targets: 첫 호출을 깨뜨릴 대상 ID.
+
+    Returns:
+        Callable: ClassificationInput을 받아 Generation을 돌려주는 함수.
+    """
+    seen = set()
+    healthy = provider(usage=Usage(10, 2, None, 0, 12))
+    broken = provider(broken=frozenset(targets), usage=Usage(7, 1, None, 0, 8))
+
+    def call(payload: ClassificationInput) -> Generation:
+        """fake 응답.
+
+        Args:
+            payload: 정제 입력.
+
+        Returns:
+            Generation: 처음 본 대상이면 깨진 응답, 아니면 정답.
+        """
+        key = payload.body
+        first = key not in seen
+        seen.add(key)
+        return broken(payload) if first else healthy(payload)
+
+    return call
+
+
+def test_invalid_output_is_retried_once_as_attempt_two():
+    """형식 위반 대상만 attempt 2로 한 번 더 부르고, 기존 키는 최초 시도·final은 최종 시도 지표다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 최초·최종 outcome, 재호출 수, 호출·사용량 합, 시도 번호·입력 hash를 확인한다.
+    """
+    result = run_candidates(
+        RECORDS,
+        gold=GOLD,
+        candidates=[
+            Candidate("recovers", once_broken({"t3"}), "fake-a", "p1"),
+            Candidate("stays", provider(broken=frozenset({"t3"})), "fake-a", "p1"),
+        ],
+        sensitive_values={},
+        allowed_info_codes=frozenset(),
+        return_attempts=True,
+    )
+    rows = {row["name"]: row for row in result["candidates"]}
+    recovers, stays = rows["recovers"], rows["stays"]
+    for row in (recovers, stays):
+        assert row["outcomes"]["SCHEMA_VIOLATION"] == 1
+        assert row["final"]["retried"] == 1 and row["final"]["calls"] == len(RECORDS) + 1
+    assert (recovers["final"]["recovered"], recovers["final"]["outcomes"]["VALID"]) == (1, 6)
+    assert recovers["final"]["category"]["accuracy"] == 1.0
+    assert recovers["category"]["accuracy"] < 1.0
+    # 최초 호출 6번(입력 7)과 재호출 1번(입력 10)을 모두 더한다.
+    assert recovers["final"]["usage"]["input_tokens"]["known_sum"] == 7 * 6 + 10
+    assert (stays["final"]["recovered"], stays["final"]["outcomes"]["SCHEMA_VIOLATION"]) == (0, 1)
+    retry = result["retries"]["recovers"]["t3"]
+    first = result["attempts"]["recovers"]["t3"]
+    assert (first.attempt_number, retry.attempt_number) == (1, 2)
+    assert (first.outcome, retry.outcome) == ("SCHEMA_VIOLATION", "VALID")
+    assert retry.input_sha256 == first.input_sha256
+
+
+def test_retry_can_be_turned_off_and_skips_other_failures():
+    """재호출 0이면 다시 부르지 않고, 전송 오류는 형식 위반이 아니라 재호출하지 않으며, 1 초과는 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 재호출 수와 입력 검사를 확인한다.
+    """
+
+    def failing(payload):
+        raise RuntimeError("provider down")
+
+    off = run_candidates(
+        RECORDS,
+        gold=GOLD,
+        candidates=[Candidate("recovers", once_broken({"t3"}), "fake-a", "p1")],
+        sensitive_values={},
+        allowed_info_codes=frozenset(),
+        invalid_output_retries=0,
+    )
+    [row] = off["candidates"]
+    assert (row["final"]["retried"], row["final"]["outcomes"]["SCHEMA_VIOLATION"]) == (0, 1)
+    down = run_candidates(
+        RECORDS,
+        gold=GOLD,
+        candidates=[Candidate("down", failing, "fake-a", "p1")],
+        sensitive_values={},
+        allowed_info_codes=frozenset(),
+    )
+    assert down["candidates"][0]["final"]["retried"] == 0
+    for retries in (2, True, -1):
+        with pytest.raises(ValueError, match="^CS_INVALID_CANDIDATES$"):
+            run_candidates(
+                RECORDS,
+                gold=GOLD,
+                candidates=[Candidate("oracle", provider(), "fake-a", "p1")],
+                sensitive_values={},
+                allowed_info_codes=frozenset(),
+                invalid_output_retries=retries,
+            )

@@ -6,15 +6,15 @@ KAN-105 cs_candidates와 같은 모양이다. 지표는 cs_draft_metrics.summari
 """
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
 from backend.shared.ai import Generation, ModelPrice, estimate_cost
-from eval.cs_draft_metrics import DraftGold, summarize_draft_first_attempts
-from eval.cs_usage import sum_report
+from eval.cs_draft_metrics import INVALID_OUTPUT, DraftGold, summarize_draft_first_attempts
+from eval.cs_usage import TOKEN_FIELDS, sum_report
 
 BLOCKED = "CS_BLOCKED_EVIDENCE"
 SUBSET_NOTE = "부분 집합 결과는 전체 집계·합격선에 반영하지 않는다"
@@ -92,8 +92,13 @@ def run_draft_candidates(
     subset: frozenset[str] | None = None,
     strip_phone_annotation: bool = False,
     return_attempts: bool = False,
+    invalid_output_retries: int = 1,
 ) -> dict:
     """후보마다 사례의 최초 초안 시도를 실행하고 기존 초안 지표로 비교표를 만든다.
+
+    형식 위반(CS_INVALID_OUTPUT)인 사례만 invalid_output_retries만큼(0 또는 1) 같은 입력으로 attempt 2를 더
+    호출한다. 금지 약속·차단 근거는 재호출하지 않는다(안전 지표를 가리지 않게). 두 시도는 모두 남고, 행의 기존
+    키는 최초 시도 지표이며 final 블록이 최종 시도 지표다.
 
     Args:
         cases: 사례 ID별 초안 입력.
@@ -102,8 +107,10 @@ def run_draft_candidates(
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
         subset: 재실행할 사례 ID. None이면 전체이고, 있으면 cases 안의 비지 않은 집합이어야 한다.
         strip_phone_annotation: 분석용. True면 PHONE 상담원 표기를 지운 v1 초안 입력으로 돌린다(기본 False).
-        return_attempts: True면 "attempts"(후보 이름 → {사례 ID: DraftAttempt}, 실행한 사례만)를 더한다. 시도에는
-            원시 응답·초안이 있으므로 호출자가 공개 산출물에 그대로 쓰지 않는다.
+        return_attempts: True면 "attempts"(후보 이름 → {사례 ID: 최초 DraftAttempt}, 실행한 사례만)와
+            "retries"(후보 이름 → {사례 ID: attempt 2})를 더한다. 시도에는 원시 응답·초안이 있으므로 호출자가 공개
+            산출물에 그대로 쓰지 않는다.
+        invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1, 기본 1).
 
     Returns:
         dict: subset(재실행 대상 수·전체 수), note(부분 집합일 때), candidates(후보별 지표 행), ranking.
@@ -122,6 +129,8 @@ def run_draft_candidates(
         or set(gold) != set(cases)
         or not all(isinstance(case, DraftCase) for case in cases.values())
         or (subset is not None and (not subset or not subset <= set(cases)))
+        or type(invalid_output_retries) is not int
+        or invalid_output_retries not in (0, 1)
     ):
         raise ValueError("EVAL_INVALID_INPUT")
     selected = [case_id for case_id in cases if subset is None or case_id in subset]
@@ -143,11 +152,34 @@ def run_draft_candidates(
         }
         for candidate in candidates
     }
+    retries = {
+        candidate.name: {
+            case_id: run_draft_attempt(
+                cases[case_id].record,
+                classification=cases[case_id].classification,
+                required_info_codes=cases[case_id].required_info_codes,
+                already_asked_codes=cases[case_id].already_asked_codes,
+                evidence=cases[case_id].evidence,
+                sensitive_values=cases[case_id].sensitive_values,
+                provider=candidate.provider,
+                attempt_number=2,
+                prompt_version=candidate.prompt_version,
+                strip_phone_annotation=strip_phone_annotation,
+            )
+            for case_id, attempt in runs[candidate.name].items()
+            if invalid_output_retries and attempt.error_code == INVALID_OUTPUT
+        }
+        for candidate in candidates
+    }
     first = runs[names[0]]
     if any(
         attempts[case_id].input_sha256 != first[case_id].input_sha256
         for attempts in runs.values()
         for case_id in selected
+    ) or any(
+        attempt.input_sha256 != first[case_id].input_sha256
+        for attempts in retries.values()
+        for case_id, attempt in attempts.items()
     ):
         raise ValueError("CS_CANDIDATE_INPUT_MISMATCH")
     scoped = {case_id: gold[case_id] for case_id in selected}
@@ -174,6 +206,7 @@ def run_draft_candidates(
                     {key: row[key] for key in ("case_id", "outcome", "error_code", "grounded")}
                     for row in summary["per_case"]
                 ],
+                "final": _final(candidate, attempts, retries[candidate.name], scoped, price_table),
             }
         )
     ranking = sorted(
@@ -193,5 +226,39 @@ def run_draft_candidates(
         **({"note": SUBSET_NOTE} if partial else {}),
         "candidates": rows,
         "ranking": [row["name"] for row in ranking],
-        **({"attempts": runs} if return_attempts else {}),
+        **({"attempts": runs, "retries": retries} if return_attempts else {}),
+    }
+
+
+def _final(
+    candidate: DraftCandidate,
+    firsts: Mapping[str, DraftAttempt],
+    retries: Mapping[str, DraftAttempt],
+    gold: Mapping[str, DraftGold],
+    price_table: dict[str, ModelPrice] | None,
+) -> dict:
+    """최종 시도(재시도가 있으면 attempt 2, 없으면 최초) 지표와 모든 호출의 비용.
+
+    Args:
+        candidate: 후보.
+        firsts: 사례별 최초 시도.
+        retries: 형식 위반으로 다시 부른 사례별 attempt 2.
+        gold: 실행한 사례의 정답.
+        price_table: 단가표.
+
+    Returns:
+        dict: retried·recovered, 최종 시도 기준 schema·forbidden·grounding·info_requests, calls(호출 시작 수)와
+            두 시도 모든 호출의 usage·cost_usd.
+    """
+    finals = {case_id: retries.get(case_id, attempt) for case_id, attempt in firsts.items()}
+    summary = summarize_draft_first_attempts(gold, finals, final=True)
+    called = [a for a in (*firsts.values(), *retries.values()) if a.call_started]
+    usage = [asdict(a.usage) for a in called]
+    return {
+        "retried": len(retries),
+        "recovered": sum(attempt.outcome == "VALID" for attempt in retries.values()),
+        **{key: summary[key] for key in ("schema", "forbidden", "grounding", "info_requests")},
+        "calls": len(called),
+        "usage": {field: sum_report(usage, field) for field in TOKEN_FIELDS},
+        "cost_usd": _cost(called, candidate.model, price_table or {}),
     }
