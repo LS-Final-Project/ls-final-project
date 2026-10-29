@@ -557,7 +557,7 @@ def test_footnote_marks_in_header_are_not_units() -> None:
     ]
 
 
-MARKDOWN = """\ufeff# 제품 안내
+MARKDOWN = """\ufeff# 제품 안내 ##
 
 차단기 [설명서](https://example.com/manual)를 먼저 본다.
 정격은 ~~630 A~~ 800 A다.
@@ -604,6 +604,7 @@ def test_markdown_headings_paragraphs_tables_and_strike() -> None:
     assert code.kind == "PARAGRAPH" and code.text == "~~그대로~~ [x](y)"
     assert document.summary.tables == 1 and document.summary.strike_runs == 2
     assert document.edit_trace_support
+    assert [b.text for b in extract_markdown(b"# C#\n## F# ##").blocks] == ["C#", "F#"]
 
 
 def test_markdown_chunks_follow_headings() -> None:

@@ -57,7 +57,9 @@ class IndexDocsTest(unittest.TestCase):
         (self.root / ".hidden.docx").write_bytes(docx("hidden"))
         (self.root / ".cache" / "x.docx").write_bytes(docx("hidden"))
         env = patch.dict(
-            os.environ, {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}, clear=True
+            os.environ,
+            {k: v for k, v in os.environ.items() if k != "DATABASE_URL" and not k.startswith("PG")},
+            clear=True,
         )
         env.start()
         self.addCleanup(env.stop)
@@ -103,8 +105,21 @@ class IndexDocsTest(unittest.TestCase):
             ("postgresql://u:p@10.0.0.5/x", False),
             ("postgresql://u:p@team4-sql.example.com/x", False),
             ("postgresql://u:p@localhost,10.0.0.5/x", False),
+            ("host=localhost hostaddr=10.0.0.5 dbname=x", False),
+            ("host=localhost hostaddr=127.0.0.1 dbname=x", True),
+            ("service=team4", False),
         ]:
             self.assertEqual(cs_index_docs.is_local(dsn), local, dsn)
+        for env, local in [
+            ({"PGHOST": "team4-sql.example.com"}, False),
+            ({"PGHOSTADDR": "10.0.0.5"}, False),
+            ({"PGSERVICE": "team4"}, False),
+            ({"PGHOST": "localhost"}, True),
+        ]:
+            with patch.dict(os.environ, env):
+                self.assertEqual(cs_index_docs.is_local("postgresql:///x"), local, env)
+        with patch.dict(os.environ, {"PGHOST": "team4-sql.example.com"}):
+            self.assertTrue(cs_index_docs.is_local("postgresql://u:p@localhost/x"))
 
     def test_dry_run_reports_counts_and_reasons_without_text(self) -> None:
         """dry-run은 적재하지 않고 문서별 수와 사유 코드만 manifest에 쓰며 입력을 바꾸지 않는다.

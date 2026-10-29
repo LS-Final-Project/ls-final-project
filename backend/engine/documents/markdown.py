@@ -25,7 +25,7 @@ from backend.engine.documents.model import (
 )
 from backend.engine.documents.pdf import MAX_BYTES
 
-HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+HEADING = re.compile(r"^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
 SEPARATOR = re.compile(r"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 FENCE = re.compile(r"^\s*```")
 STRIKE = re.compile(r"~~(.+?)~~")

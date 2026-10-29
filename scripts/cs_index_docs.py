@@ -109,14 +109,21 @@ def is_local(dsn: str) -> bool:
         dsn: 연결 문자열.
 
     Returns:
-        bool: 모든 호스트가 LOCAL_HOSTS이거나 유닉스 소켓(/로 시작)이면 True. 해석할 수 없으면 False.
+        bool: 모든 호스트가 LOCAL_HOSTS이거나 유닉스 소켓(/로 시작)이고 hostaddr가 비었거나 루프백이면 True.
+            DSN에 host·hostaddr가 없으면 libpq처럼 PGHOST·PGHOSTADDR를 본다. service(PGSERVICE)는 주소를 알 수
+            없어 False, 해석할 수 없어도 False다.
     """
     try:
         params = conninfo_to_dict(dsn)
     except psycopg.ProgrammingError:
         return False
-    hosts = str(params.get("host") or "").split(",")
-    return all(host in LOCAL_HOSTS or host.startswith("/") for host in hosts)
+    if params.get("service") or os.environ.get("PGSERVICE"):
+        return False
+    hosts = str(params.get("host") or os.environ.get("PGHOST") or "").split(",")
+    addrs = str(params.get("hostaddr") or os.environ.get("PGHOSTADDR") or "").split(",")
+    return all(host in LOCAL_HOSTS or host.startswith("/") for host in hosts) and all(
+        addr in ("", "127.0.0.1", "::1") for addr in addrs
+    )
 
 
 def store_with_dsn(dsn: str) -> Store:
