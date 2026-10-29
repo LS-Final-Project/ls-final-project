@@ -65,7 +65,7 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-85_evaluation_storage
 `purpose`는 `smoke`(합성 연결 점검), `rule_replay`(검수된 입력으로 순수 룰 재현), `pipeline`(AI 예측 입력부터의 전체 파이프라인)이다. 평가 명세의 규칙 단독 평가와 전체 파이프라인을 같은 실험에 섞지 않는다. `smoke`가 아니면 `data_split`과 `gold_version`이 필수다.
 
 - `dataset_manifest`: 원천(`source`, `source_instance`)별 파일 SHA-256, 건수, `data_origin` 구분. 실제·합성 자료를 섞은 실행은 실험의 `data_origin`을 `demo`로 두고 manifest에 원천별 구분을 남긴다. `experiment_targets.data_origin`은 대상별 값이다.
-- `dataset_hash`: manifest가 가리키는 파일 hash를 정렬해 이은 문자열의 SHA-256.
+- `dataset_hash`: manifest가 가리키는 파일 hash(`sources[].file_sha256`)를 정렬해 `\n`으로 이은 문자열의 SHA-256. manifest가 빈 객체면 빈 문자열의 SHA-256이다. 고정 C/S smoke 프로필의 `dataset_hash`는 fixture JSON hash라 이 규칙과 별개다.
 - `target_set_hash`: `target_ref`를 정렬해 `\n`으로 이은 문자열의 SHA-256. 분모를 고정하는 값이며 모델별로 유리한 사례만 골라 바꾸지 않는다.
 - `config_hash`: 아래 필드를 키 순서로 정렬한 canonical JSON(`separators=(",", ":")`, `ensure_ascii=False`)의 SHA-256. `purpose`, `data_origin`, `dataset_hash`, `data_split`, `gold_version`, `policy_version`, `prompt_version`, `model_id`, `index_version`, `input_builder_version`, `configuration`, `target_set_hash`, `stage`, `knobs`. `stage`가 null이거나 `knobs`가 빈 객체이면 그 키를 canonical JSON에서 생략한다. 그래서 두 필드가 생기기 전의 실험·승인 hash는 그대로다. 이름·생성자·시각은 포함하지 않는다. 같은 `config_hash`는 같은 실험이므로 새 실행만 추가한다.
 - `stage`: 실험이 바꾼 단계. `classification`, `search`, `draft`, `rfp` 중 하나이거나 null이다. 목록 `GET /experiments?stage=`로 거를 수 있고 실행 목록에도 실험의 단계가 나온다.
@@ -282,6 +282,61 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 정답 코드·예측·사례/대상 ID·입력/출력 본문·실험 구성·가격표 문자열은 내보내지 않는다.
 내부 보고서 전체를 그대로 직렬화하지 않고 DTO에 열거한 집계만 투영한다. 비용은 아래
 선택적 집계로 연결하며 폴백 상세·정답 인수·품질 점수·실제 모델 실행·운영 활성화는 후속 범위다.
+
+### KAN-90 실험 등록 API
+
+`POST /api/v1/platform/evaluations/experiments`는 실험 정의와 대상 집합을 동결 등록한다.
+
+- **접근**: 현재 세션의 지정 평가자만 등록할 수 있다. `POST /runs`처럼 `Origin`과 세션에 결속된 `X-CSRF-Token`을 검사한다.
+- **환경**: 접수와 같은 잠금을 쓴다. 명시적으로 켠 local/test에서만 동작하고, 아니면 503 `EVALUATION_RUNNER_NOT_CONNECTED`다.
+- **불변**: 등록한 실험과 대상은 바꾸지 않는다(`platform_app`에는 UPDATE·DELETE 권한이 없다). 구성을 바꾸려면 새로 등록한다.
+- **승인 분리**: 승인(`EVALUATION_APPROVED_CONFIG_HASHES`)은 운영자 설정이라 이 API로 바꾸지 않는다. 그래서 등록 직후에는 보통 `admissible=false`이고 `blocked_reason=EXPERIMENT_NOT_APPROVED`다.
+- **최종 시험 제외**: `data_split='test'` 실험은 이 API로 등록할 수 없고 운영자 SQL로만 만든다.
+
+**입력**(extra 금지)
+
+| 필드 | 규칙 |
+| --- | --- |
+| `name` | 1~120자 |
+| `purpose` | `smoke`·`rule_replay`·`pipeline` |
+| `data_origin` | `synthetic`·`demo`·`real` |
+| `data_split` | `train`·`valid` 또는 null. `test`는 거부한다 |
+| `gold_version`·`policy_version`·`prompt_version`·`index_version`·`input_builder_version` | 문자열 또는 null. `purpose`가 `smoke`가 아니면 `data_split`과 `gold_version`이 필수다 |
+| `model_id` | 필수 |
+| `configuration` | 비밀 아닌 객체. 중첩 키까지 비밀 키 이름을 검사한다 |
+| `stage`·`knobs` | 위 규칙 그대로(`check_stage_knobs`) |
+| `dataset_manifest` | `{}` 또는 `{"sources": [{"source", "source_instance", "file_sha256"(64 hex), "count"(0 이상), "data_origin"}]}`. 다른 키는 받지 않는다 |
+| `targets` | 1~5000개. 각 대상은 `target_ref`(1~128자, 중복 금지), `target_kind`, `data_origin`, `attributes`(객체) |
+
+- **attributes**: 원문·정답·비밀을 담지 않는다. 중첩 키까지 검사해 이름에 `body`·`subject`·`gold`·`answer`·`label`이나 비밀 키 단어가 들어가면 거부한다.
+- **출처 일치**: manifest 원천과 대상의 `data_origin`이 두 가지 이상 섞이면 실험 `data_origin`은 `demo`여야 하고, 한 가지면 그 값과 같아야 한다.
+
+**서버 계산**
+
+- `dataset_hash`·`target_set_hash`·`config_hash`는 위 정의대로 서버가 계산한다.
+- 실험 행과 대상 행은 한 트랜잭션에 넣는다. `derivation_kind`는 `DERIVED`, 생성자는 요청자다.
+
+**응답 201**
+
+- 내용: `experiment_id`·`config_hash`·`dataset_hash`·`target_set_hash`·`target_count`·`admissible`·`blocked_reason`.
+- hash를 돌려주는 까닭: 등록자가 운영자에게 승인을 요청할 때 쓰는 값이다.
+- 목록(`GET /experiments`)은 지금처럼 hash를 보여주지 않는다.
+
+**오류**
+
+| 코드 | 상태 | 조건 |
+| --- | --- | --- |
+| `EVALUATION_TEST_SPLIT_REGISTRATION_BLOCKED` | 422 | `data_split='test'` |
+| `EVALUATION_EXPERIMENT_INCOMPLETE` | 422 | `smoke`가 아닌데 `data_split`이나 `gold_version`이 없음 |
+| `EVALUATION_KNOB_SECRET`·`EVALUATION_KNOB_INVALID` | 422 | `stage`·`knobs` 규칙 위반 |
+| `EVALUATION_CONFIGURATION_SECRET` | 422 | `configuration`에 비밀 키 이름 |
+| `EVALUATION_TARGET_DUPLICATE` | 422 | `target_ref` 중복 |
+| `EVALUATION_TARGET_ATTRIBUTE_FORBIDDEN` | 422 | `attributes`에 원문·정답·비밀 키 이름 |
+| `EVALUATION_DATA_ORIGIN_MISMATCH` | 422 | 출처 일치 규칙 위반 |
+| `EVALUATION_EXPERIMENT_EXISTS` | 409 | 같은 `config_hash`가 이미 있음. 본인 실험이면 `details=[{"experiment_id": …}]`를 주고, 다른 평가자의 실험이면 코드만 준다 |
+| `EVALUATION_RUNNER_NOT_CONNECTED` | 503 | 접수 잠금 환경 |
+
+형식 위반(길이·enum·extra 키·manifest 구조)은 공통 요청 검증 오류(422)다. 같은 구성을 동시에 등록하면 먼저 commit한 요청만 201을 받고, 나머지는 409를 받는다. 감사 로그는 지금 평가 기능에 없어 만들지 않았다. 웹 중계에는 아직 이 경로를 열지 않았다.
 
 ### KAN-137 실험·실행 목록과 새 접수 화면
 

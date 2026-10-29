@@ -1,10 +1,10 @@
 """화면이 주지표와 실행 잠금을 구별하기 위한 평가 정책 응답."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # 실험이 바꾼 단계. 화면은 이 값으로 실험을 묶어 보여준다.
 Stage = Literal["classification", "search", "draft", "rfp"]
@@ -107,3 +107,72 @@ class EvaluationRuns(BaseModel):
     """본인 접수 실행 최근 50개."""
 
     items: list[EvaluationRunItem]
+
+
+DataOrigin = Literal["synthetic", "demo", "real"]
+
+
+class ManifestSource(BaseModel):
+    """manifest의 원천 하나. 파일 원문이 아니라 hash·건수·출처 구분만 담는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1, max_length=200)
+    source_instance: str = Field(min_length=1, max_length=200)
+    file_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    count: int = Field(ge=0)
+    data_origin: DataOrigin
+
+
+class DatasetManifest(BaseModel):
+    """{} 또는 {"sources": [...]}. 그 밖의 키는 받지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sources: list[ManifestSource] | None = Field(default=None, min_length=1)
+
+
+class TargetCreate(BaseModel):
+    """동결할 대상 하나. attributes는 보고 분리·제외 플래그이며 원문·정답을 담지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_ref: str = Field(min_length=1, max_length=128)
+    target_kind: str = Field(min_length=1, max_length=64)
+    data_origin: DataOrigin
+    attributes: dict[str, Any] = {}
+
+
+class ExperimentCreate(BaseModel):
+    """새 실험 등록 요청. 등록한 실험은 바꾸지 않으며 구성을 바꾸려면 새로 등록한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    purpose: Literal["smoke", "rule_replay", "pipeline"]
+    data_origin: DataOrigin
+    # test는 받되 등록 함수가 EVALUATION_TEST_SPLIT_REGISTRATION_BLOCKED로 거부한다.
+    data_split: Literal["train", "valid", "test"] | None = None
+    gold_version: str | None = Field(default=None, min_length=1, max_length=200)
+    policy_version: str | None = Field(default=None, min_length=1, max_length=200)
+    prompt_version: str | None = Field(default=None, min_length=1, max_length=200)
+    index_version: str | None = Field(default=None, min_length=1, max_length=200)
+    input_builder_version: str | None = Field(default=None, min_length=1, max_length=200)
+    model_id: str = Field(min_length=1, max_length=200)
+    configuration: dict[str, Any] = {}
+    stage: Stage | None = None
+    knobs: dict[str, KnobValue] = {}
+    dataset_manifest: DatasetManifest = DatasetManifest()
+    targets: list[TargetCreate] = Field(min_length=1, max_length=5000)
+
+
+class ExperimentRegistered(BaseModel):
+    """등록 결과. hash는 운영자가 승인 목록에 넣을 값이라 등록자에게 돌려준다."""
+
+    experiment_id: UUID
+    config_hash: str
+    dataset_hash: str
+    target_set_hash: str
+    target_count: int
+    admissible: bool
+    blocked_reason: BlockedReason | None

@@ -113,6 +113,29 @@
         "title": "Candidate",
         "type": "object"
       },
+      "DatasetManifest": {
+        "additionalProperties": false,
+        "description": "{} \ub610\ub294 {\"sources\": [...]}. \uadf8 \ubc16\uc758 \ud0a4\ub294 \ubc1b\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestSource"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources"
+          }
+        },
+        "title": "DatasetManifest",
+        "type": "object"
+      },
       "DismissDecision": {
         "properties": {
           "note": {
@@ -847,6 +870,248 @@
         "title": "Evidence",
         "type": "object"
       },
+      "ExperimentCreate": {
+        "additionalProperties": false,
+        "description": "\uc0c8 \uc2e4\ud5d8 \ub4f1\ub85d \uc694\uccad. \ub4f1\ub85d\ud55c \uc2e4\ud5d8\uc740 \ubc14\uafb8\uc9c0 \uc54a\uc73c\uba70 \uad6c\uc131\uc744 \ubc14\uafb8\ub824\uba74 \uc0c8\ub85c \ub4f1\ub85d\ud55c\ub2e4.",
+        "properties": {
+          "configuration": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Configuration",
+            "type": "object"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "data_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "valid",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Split"
+          },
+          "dataset_manifest": {
+            "$ref": "#/components/schemas/DatasetManifest",
+            "default": {}
+          },
+          "gold_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gold Version"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "input_builder_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Builder Version"
+          },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "title": "Knobs",
+            "type": "object"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "purpose": {
+            "enum": [
+              "smoke",
+              "rule_replay",
+              "pipeline"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetCreate"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "purpose",
+          "data_origin",
+          "model_id",
+          "targets"
+        ],
+        "title": "ExperimentCreate",
+        "type": "object"
+      },
+      "ExperimentRegistered": {
+        "description": "\ub4f1\ub85d \uacb0\uacfc. hash\ub294 \uc6b4\uc601\uc790\uac00 \uc2b9\uc778 \ubaa9\ub85d\uc5d0 \ub123\uc744 \uac12\uc774\ub77c \ub4f1\ub85d\uc790\uc5d0\uac8c \ub3cc\ub824\uc900\ub2e4.",
+        "properties": {
+          "admissible": {
+            "title": "Admissible",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ADMISSION_UNAVAILABLE",
+                  "FINAL_TEST_LOCKED",
+                  "EXPERIMENT_NOT_APPROVED",
+                  "LOCAL_SMOKE_ONLY",
+                  "EXPERIMENT_HASH_MISMATCH"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "config_hash": {
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "dataset_hash": {
+            "title": "Dataset Hash",
+            "type": "string"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "target_set_hash": {
+            "title": "Target Set Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "config_hash",
+          "dataset_hash",
+          "target_set_hash",
+          "target_count",
+          "admissible",
+          "blocked_reason"
+        ],
+        "title": "ExperimentRegistered",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1503,6 +1768,52 @@
         "title": "MailboxConnections",
         "type": "object"
       },
+      "ManifestSource": {
+        "additionalProperties": false,
+        "description": "manifest\uc758 \uc6d0\ucc9c \ud558\ub098. \ud30c\uc77c \uc6d0\ubb38\uc774 \uc544\ub2c8\ub77c hash\u00b7\uac74\uc218\u00b7\ucd9c\ucc98 \uad6c\ubd84\ub9cc \ub2f4\ub294\ub2e4.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "file_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "File Sha256",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_instance": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Instance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "source_instance",
+          "file_sha256",
+          "count",
+          "data_origin"
+        ],
+        "title": "ManifestSource",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -2056,6 +2367,22 @@
         "title": "SuccessResponse[EvaluationRuns]",
         "type": "object"
       },
+      "SuccessResponse_ExperimentRegistered_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExperimentRegistered"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ExperimentRegistered]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -2562,6 +2889,46 @@
           "per_class"
         ],
         "title": "SyntheticQuality",
+        "type": "object"
+      },
+      "TargetCreate": {
+        "additionalProperties": false,
+        "description": "\ub3d9\uacb0\ud560 \ub300\uc0c1 \ud558\ub098. attributes\ub294 \ubcf4\uace0 \ubd84\ub9ac\u00b7\uc81c\uc678 \ud50c\ub798\uadf8\uc774\uba70 \uc6d0\ubb38\u00b7\uc815\ub2f5\uc744 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Attributes",
+            "type": "object"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "target_kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_ref": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_ref",
+          "target_kind",
+          "data_origin"
+        ],
+        "title": "TargetCreate",
         "type": "object"
       },
       "TokenTotal": {
@@ -3405,6 +3772,86 @@
           }
         },
         "summary": "Evaluation Experiments",
+        "tags": [
+          "evaluations"
+        ]
+      },
+      "post": {
+        "description": "\uc2e4\ud5d8 \uc815\uc758\uc640 \ub300\uc0c1 \uc9d1\ud569\uc744 \ub3d9\uacb0 \ub4f1\ub85d\ud55c\ub2e4. \ub4f1\ub85d\ud55c \uc2e4\ud5d8\uc740 \ubc14\uafb8\uc9c0 \uc54a\uc73c\uba70 \uc2b9\uc778\uc740 \uc6b4\uc601\uc790 \uc124\uc815\uc774\ub2e4. \ucd5c\uc885 \uc2dc\ud5d8(test) \ubd84\ud560\uc740 \ub4f1\ub85d\ud560 \uc218 \uc5c6\ub2e4.",
+        "operationId": "platform_register_evaluation_experiment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ExperimentRegistered_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Register Evaluation Experiment",
         "tags": [
           "evaluations"
         ]
