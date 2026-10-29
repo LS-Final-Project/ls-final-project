@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.tft.partners.grading import Grade
-from backend.api.tft.partners.schemas import Attribute, Scope
+from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -443,7 +443,8 @@ class PartnerCandidate(Model):
     certifications: list[str]
     integrator_capable: dict[str, bool | None]
     on_customer_manufacturer_list: bool | None
-    lead_time: str | None
+    # KAN-184 프로필의 납기 객체 그대로(partner_profiles.lead_time jsonb). 요약 문자열로 바꾸지 않는다.
+    lead_time: LeadTime | None
     warranty: str | None
     confirmation_status: ConfirmationStatus
     overall_grade: Grade

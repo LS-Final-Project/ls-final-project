@@ -1,12 +1,14 @@
 """KAN-182 RFP 상태 값·경로 골격이 명세 v1.1과 맞는지 확인한다(DB 없음)."""
 
 from typing import get_args
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.tft.main import create_app
 from backend.api.tft.rfp import schemas as s
+from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
 # 명세 v1.1 §2.1의 값 그대로. 바꾸려면 명세와 이 표를 함께 고친다.
@@ -85,6 +87,9 @@ def test_candidate_grades_have_no_score():
     assert not {f for f in fields if "score" in f or "similarity" in f}
 
 
+SALES = principal_header(Principal(user_id=uuid4(), roles={"sales"}))
+
+
 @pytest.fixture
 def client():
     return TestClient(create_app(Settings(_env_file=None, environment="test")))
@@ -94,7 +99,7 @@ def test_declared_routes_answer_not_implemented(client):
     response = client.post(
         "/api/v1/tft/projects",
         json={"name": "p", "company_code": "HOST", "data_origin": "synthetic"},
-        headers={"Idempotency-Key": "create-0001"},
+        headers={"Idempotency-Key": "create-0001", **SALES},
     )
     assert (response.status_code, response.json()["error"]["code"]) == (501, "TFT_NOT_IMPLEMENTED")
 
@@ -137,3 +142,15 @@ def test_file_downloads_are_declared_as_binary_only(client):
         assert list(paths[path]["get"]["responses"]["200"]["content"]) == [
             "application/octet-stream"
         ], path
+
+
+def test_every_rfp_route_checks_the_user_before_anything_else(client):
+    body = {"name": "p", "company_code": "HOST", "data_origin": "synthetic"}
+    key = {"Idempotency-Key": "create-0001"}
+    # 사용자 맥락이 없으면 501·422보다 먼저 401이다.
+    assert client.post("/api/v1/tft/projects", json=body, headers=key).status_code == 401
+    assert client.get(f"/api/v1/tft/requirements/{uuid4()}").status_code == 401
+    agent = principal_header(Principal(user_id=uuid4(), roles={"cs_agent"}))
+    assert (
+        client.post("/api/v1/tft/projects", json=body, headers={**key, **agent}).status_code == 403
+    )
