@@ -110,7 +110,8 @@ def main(
         print(str(error), file=sys.stderr)
         return 1
     ticket_id = args.ticket_id or (next(iter(tickets)) if len(tickets) == 1 else None)
-    if ticket_id not in tickets:
+    # 재개는 멈춘 thread만 이어 가므로 사례 선택이 필요 없다.
+    if not args.resume and ticket_id not in tickets:
         print("CS_GRAPH_TICKET_ID: 파일에 사례가 여럿이면 --ticket-id를 고른다.", file=sys.stderr)
         return 1
     allowed = (

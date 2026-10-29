@@ -6,8 +6,11 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+
+from langgraph.checkpoint.memory import InMemorySaver
 
 from backend.shared.settings import Settings
 from scripts import cs_graph_run
@@ -129,6 +132,56 @@ class GraphRunTest(unittest.TestCase):
         code, _, err = self.run_main("--thread-id", "thread-1")
         self.assertEqual(code, 1)
         self.assertIn("CS_GRAPH_TICKET_FILE", err)
+
+    def test_settings_errors_do_not_print_secret_values(self) -> None:
+        """설정 형식 오류 출력에 DSN·키 같은 입력값이 없다(hide_input_in_errors 고정).
+
+        Returns:
+            None: 종료 코드와 출력·예외 문자열을 확인한다.
+        """
+        os.environ["PORT"] = "postgresql://user:SECRETPW@db.example/x"
+        os.environ["DATABASE_URL"] = "postgresql://user:SECRETPW@db.example/x"
+        code, out, err = self.run_main("--thread-id", "thread-1")
+        self.assertEqual(code, 1)
+        self.assertIn("CS_GRAPH_SETTINGS", err)
+        self.assertNotIn("SECRETPW", out + err)
+        del os.environ["PORT"], os.environ["DATABASE_URL"]
+        os.environ["GEMINI_API_KEY"] = "KEY-SECRET-VALUE"
+        os.environ["GEMINI_MODEL"] = "bad model KEY-SECRET-VALUE"
+        with self.assertRaises(ValueError) as raised:
+            self.run_main("--thread-id", "thread-1", "--execute")
+        self.assertNotIn("KEY-SECRET-VALUE", str(raised.exception))
+
+    def test_resume_does_not_need_ticket_id(self) -> None:
+        """사례가 여럿이어도 --resume은 --ticket-id 없이 같은 thread를 이어 끝낸다.
+
+        Returns:
+            None: 실행(--ticket-id)과 재개(없이)의 종료 코드·단계를 확인한다.
+        """
+        tickets = dict(TICKET) | {"t-2": TICKET["t-1"]}
+        self.tickets.write_text(json.dumps(tickets), encoding="utf-8")
+        os.environ["DATABASE_URL"] = "postgresql://unused.example/x"
+        saver = InMemorySaver()
+
+        @contextmanager
+        def shared(settings):
+            """두 실행이 같은 메모리 체크포인터를 쓰게 한다(DB 대신).
+
+            Args:
+                settings: 설정.
+
+            Returns:
+                Iterator: 공유 체크포인터.
+            """
+            yield saver
+
+        with patch.object(cs_graph_run, "make_checkpointer", shared):
+            code, out, err = self.run_main("--thread-id", "thread-9", "--ticket-id", "t-2")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(out)["next_nodes"], ["human_review"])
+            code, out, err = self.run_main("--thread-id", "thread-9", "--resume")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["stage"], "HUMAN_REVIEW")
 
 
 if __name__ == "__main__":
