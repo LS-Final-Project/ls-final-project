@@ -258,7 +258,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 - 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
 - **한계**: 판정은 메일당 한 번이다. `UNMATCHED_REPLY`로 검토에 간 메일은 나중에 그 원 메일이 `link_origin`으로 기록돼도 자동으로 다시 판정되지 않고, 후보가 없어 닫기만 할 수 있다. 메일로 접수한 문의는 접수 때 바로 `link_origin`을 남겨(KAN-110) 회신보다 먼저 근거가 있게 한다.
-- **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 업무 쪽(KAN-110)이 `replies_for(owner_service, business_ref)`로 연결을 읽고 한다.
+- **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 플랫폼이 연결을 C/S에 알리면(아래 KAN-110 절) C/S가 한다. `replies_for(owner_service, business_ref)`는 연결을 읽는 보조 함수로 남는다.
 - **자동 판정**: 수집 워커(`/internal/v1/platform/mail/sync`)가 수집 뒤 `judge_new_replies`로 판정 표시가 없는 받은 메일을 최대 50통 판정한다. 원문 읽기 실패 등은 표시를 남기지 않아 다음 실행에서 다시 하며, 수집 결과·응답 코드는 바꾸지 않는다(`replies_linked`·`replies_review`·`replies_failed`만 알린다).
 
 **메일함 주인의 검토 API** (`MAILBOX_AUTH_ENABLED`가 꺼져 있으면 404, 변경은 동일 출처·세션 CSRF)
@@ -281,12 +281,28 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - **10/28 두 번의 실패 원인**: 회신이 다른 메일(Microsoft 알림)에 보내져 순환 반송(5.4.14)된 것이었다. 정크 메일함 도착도 0통이어서, 수집 범위(받은편지함·보낸편지함)는 바꾸지 않는다.
 - **확인 범위**: 서버 함수 수준이다. 운영 워커(KAN-72)·사서함 연결 화면(KAN-81 HTTP)·검토 API를 거친 흐름은 포함하지 않는다. `THREAD` 근거(헤더 없이 같은 대화)는 합성 검사로만 확인했다.
 
+## C/S 연결 (KAN-110)
+
+`backend/api/platform/mail/business.py`(플랫폼 → C/S 호출), `intake.py`(메일 접수), `links.notify_cs_replies`(회신 통지), 마이그레이션 `20261030_KAN-110_mail_link_notify.sql`. C/S 쪽 계약은 [문의 계약](../cs/tickets.md#담당-검토이관부서-처리-결과종결-kan-108)의 "고객 메일 연결"이다.
+
+| 방향 | 경로 | 인증 | 하는 일 |
+| --- | --- | --- | --- |
+| C/S → 플랫폼 | `POST/GET /internal/v1/platform/mail/send-intents[/{id}]` | C/S 실행 계정 ID 토큰(위 KAN-74) | 승인 발송 넘기기·상태 읽기. C/S는 `business_ref=cs_ticket:<문의 ID>`, `business_version`=승인한 업무 판본 |
+| 플랫폼 → C/S | `POST /internal/v1/cs/tickets/{id}/customer-reply` | 플랫폼 실행 계정 ID 토큰(중계와 같은 호출자 헤더), 사용자 없음 | 연결된 회신 알림 → C/S가 기록·재개 |
+| 플랫폼 → C/S | `POST /internal/v1/cs/tickets/from-mail` | 같은 토큰 + 세션 사용자의 Principal | 메일 접수 |
+| 웹 → 플랫폼 | `POST /api/v1/platform/mail/messages/{message_id}/register-ticket` | 운영 세션(cs_agent)·동일 출처·세션 CSRF, `MAILBOX_AUTH_ENABLED` | 메일함 주인이 받은 메일을 문의로 접수 |
+
+- **회신 통지**: `mail_links`에 `business_notified_at`을 더했다(연결 행은 그대로, 통지 시각만). 수집 워커(`/sync`)가 판정 뒤 `owner_service='cs'`이고 `business_ref`가 문의 UUID인 미통지 `REPLY` 연결을 오래된 순으로 최대 50건 C/S에 알리고, 사람 연결(`reply-reviews/{id}/link`)도 바로 알린다. C/S가 200이면 통지 시각을 쓰고, 404 중 오류 코드가 `CS_TICKET_NOT_FOUND`인 경우만 다시 알리지 않는다. 경로 미배포·비활성 등 다른 404는 통지 시각을 쓰지 않고 다음 실행에서 재시도한다. 연결 실패·5xx는 표시가 없어 다음 실행에서 다시 한다(`replies_notified`·`replies_notify_failed`). 업무 중계가 꺼져 있으면(C/S 주소·토큰 없음) 알리지 않고 둔다.
+- **접수**(`register-ticket`, 본문 `customer_external_id`·`product_code`·`body_language`·선택 `fw_version_reported`·`error_code_reported`): 자기 메일함의 받은편지함 메일만(다른 사람·보낸편지함·지워진 메일은 404). 원문을 객체 저장소에서 읽어 제목·본문 텍스트(text/plain, 없으면 html의 보이는 텍스트, 가리거나 자르지 않음)·보낸 사람(수집 표 `from_address`, 없으면 From 헤더)을 꺼내 C/S `from-mail`로 넘기고, 만든 문의를 원 메일에 `ORIGIN`으로 연결한다(201, `created=true`). C/S가 이미 접수된 메일이라고 답하면(409 `CS_MAIL_ALREADY_REGISTERED`) 그 문의에 연결만 확인하고 200 `created=false`다. 본문이 없으면 422 `MAIL_BODY_EMPTY`, C/S가 답하지 않으면 503 `CS_UNAVAILABLE`. AI 분류(KAN-73)는 접수 조건이 아니다. 업무 중계가 꺼져 있으면 404.
+- **웹 중계 없음**: `register-ticket`은 승인자 API와 같은 이유(플랫폼 자체 경로에 JSON 본문을 넘기는 유형 없음)로 아직 `frontend/server.mjs`에 없다. KAN-132에서 함께 다룬다.
+- **확인 범위**: 합성 C/S·합성 저장소로 검사했다(`tests/platform/test_mail_intake_db.py`). 실제 Cloud Run 사이의 ID 토큰 호출(C/S → 플랫폼, 플랫폼 → C/S)은 운영 적용 뒤 확인한다.
+
 ## 남은 작업
 
 - 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
-- KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 메일로 접수한 문의는 `link_origin`으로 원 메일을 기록하고, 연결된 회신(`replies_for`)으로 문의를 다시 연다. 받는 사람은 원 메일의 보낸 사람에서 정한다
+- KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26·C12 마이그레이션, 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
+- `register-ticket`의 웹 중계와 화면(KAN-132)
 - 회신 검토 API의 웹 중계와 화면(KAN-132)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 수집한 메일을 C/S 문의로 바꾸는 연결(KAN-110, 분류 추천은 위 KAN-73 절)
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

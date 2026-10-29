@@ -77,6 +77,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C10 | `cs/20261029_KAN-99_search_chunks.sql` | 001 | cs_migrator | 가능 | to_regclass('cs.document_chunks') | 미확인 |
 | C11 | `cs/20261030_KAN-193_return_subtype_confirmed.sql` | C4(헤더) | cs_migrator | 가능 | 열 `cs.ticket_workflows.return_subtype_confirmed` | 미확인 |
 | C12 | `cs/20261029_KAN-194_checkpoint_schema.sql` | 001(`checkpoint_cs` 스키마) | cs_migrator | 가능 | to_regclass('checkpoint_cs.checkpoints') | 미확인 |
+| C13 | `cs/20261030_KAN-110_customer_mail.sql` | C4(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_customer_sends') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
@@ -110,6 +111,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P23 | `platform/20261029_KAN-75_mail_links.sql` | P16·P18(헤더)·P17 | platform_migrator | 불가 | to_regclass('integration.mail_links') | 미확인 |
 | P24 | `platform/20261029_KAN-182_tft_jobs.sql` | P7 | platform_migrator | 가능 | 열 `runtime.jobs.subject_id` | 미확인 |
 | P25 | `platform/20261029_KAN-90_experiment_stage_knobs.sql` | P5 | platform_migrator | 가능 | 열 `evaluation.experiments.knobs` | 미확인 |
+| P26 | `platform/20261030_KAN-110_mail_link_notify.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.business_notified_at` | 미확인 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -169,6 +171,8 @@ python3 scripts/workspace.py migrate cs 20261028_KAN-114_condition_comparisons_w
 python3 scripts/workspace.py migrate cs 20261029_KAN-99_search_chunks.sql
 python3 scripts/workspace.py migrate cs 20261030_KAN-193_return_subtype_confirmed.sql
 python3 scripts/workspace.py migrate cs 20261029_KAN-194_checkpoint_schema.sql
+python3 scripts/workspace.py migrate cs 20261030_KAN-110_customer_mail.sql
+python3 scripts/workspace.py migrate platform 20261030_KAN-110_mail_link_notify.sql
 python3 scripts/workspace.py migrate tft 20261023_KAN-119_projects.sql
 python3 scripts/workspace.py migrate tft 20261023_KAN-122_staffing_requests.sql
 python3 scripts/workspace.py migrate tft 20261025_KAN-123_competency_rechecks.sql

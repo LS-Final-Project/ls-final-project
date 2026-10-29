@@ -129,6 +129,27 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/refresh",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/retry",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/stats/overview",
       "methods": [
         "GET"

@@ -68,6 +68,12 @@ class Workflow(BaseModel):
     return_subtype_confirmed_at: datetime | None = None
     transfers: list[Transfer] = Field(description="Oldest first.")
     dept_results: list[DeptResult] = Field(description="Oldest first.")
+    # Customer mail (KAN-110). Shown to users who see every ticket; empty for department users.
+    mail_origin: "MailOrigin | None" = None
+    customer_sends: list["CustomerSend"] = Field(default_factory=list, description="Oldest first.")
+    customer_replies: list["CustomerReply"] = Field(
+        default_factory=list, description="Oldest first."
+    )
 
 
 class Action(BaseModel):
@@ -135,3 +141,102 @@ class ResolutionCaseCreate(Action):
     dept_result_id: UUID | None = Field(
         default=None, description="An accepted department result of this ticket."
     )
+
+
+# --- Customer mail (KAN-110) ---------------------------------------------------------------
+
+SendKind = Literal["ANSWER", "INFO_REQUEST"]
+RequestStatus = Literal["PENDING", "REGISTERED", "REJECTED", "REQUEST_FAILED", "REQUEST_UNKNOWN"]
+Address = Annotated[str, Field(min_length=3, max_length=320, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
+
+
+class CustomerSend(BaseModel):
+    """An approved customer message and what the platform said about it so far.
+
+    `request_status` is about handing the message to the platform; `send_status` is the
+    platform's own state (QUEUED, SUBMITTING, ACCEPTED, UNKNOWN, FAILED). ACCEPTED means the
+    mail provider took the message, not that the customer received it.
+    """
+
+    id: UUID
+    kind: SendKind
+    workflow_version: int
+    mailbox_id: UUID
+    subject: str
+    body_type: Literal["text", "html"]
+    body: str
+    to_addresses: list[str]
+    cc_addresses: list[str]
+    payload_sha256: str
+    approved_by: UUID
+    approved_at: datetime
+    request_status: RequestStatus
+    request_error: str | None
+    intent_id: UUID | None
+    send_status: str | None
+    send_error_code: str | None
+    attempts: int
+    accepted_at: datetime | None
+    sent_copy_confirmed_at: datetime | None
+    status_checked_at: datetime | None
+    recorded_at: datetime | None = Field(
+        description="When ACCEPTED moved the ticket to ANSWERED or WAITING_CUSTOMER."
+    )
+    created_at: datetime
+
+
+class MailOrigin(BaseModel):
+    message_id: UUID
+    mailbox_id: UUID
+    sender_address: str
+    received_at: datetime
+    registered_by: UUID
+
+
+class CustomerReply(BaseModel):
+    message_id: UUID
+    method: Literal["HEADER", "THREAD", "HUMAN"]
+    received_at: datetime
+    reopened: bool
+    created_at: datetime
+
+
+class SendRequest(Action):
+    """A C/S agent approves an answer or an information request for the customer."""
+
+    kind: SendKind
+    mailbox_id: UUID = Field(description="The approver's connected mailbox (KAN-81).")
+    subject: Annotated[str, Field(min_length=1, max_length=500)]
+    body_type: Literal["text", "html"] = "text"
+    body: Annotated[str, Field(min_length=1, max_length=200_000)]
+    to: list[Address] | None = Field(
+        default=None,
+        max_length=50,
+        description="Recipients. Omitted: the sender of the mail that opened the ticket.",
+    )
+    cc: list[Address] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def no_duplicates(self) -> Self:
+        addresses = [a.lower() for a in (self.to or []) + self.cc]
+        if len(addresses) != len(set(addresses)):
+            raise ValueError("Recipients must not repeat")
+        return self
+
+
+class CustomerReplyIn(BaseModel):
+    """The platform reports a customer reply it linked to this ticket (KAN-75)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: UUID
+    method: Literal["HEADER", "THREAD", "HUMAN"]
+    received_at: datetime
+
+
+class CustomerReplyResult(BaseModel):
+    ticket_id: UUID
+    message_id: UUID
+    state: WorkflowState
+    reopened: bool
+    recorded: bool = Field(description="False when this reply was recorded before.")

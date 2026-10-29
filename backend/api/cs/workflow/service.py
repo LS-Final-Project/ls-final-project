@@ -127,6 +127,47 @@ async def record_customer_send(
     )
 
 
+def send_pending() -> ApplicationError:
+    return ApplicationError(
+        409,
+        "CS_CUSTOMER_SEND_PENDING",
+        "A customer message is still with the platform. Refresh its status first.",
+    )
+
+
+async def record_customer_reply(
+    conn: AsyncConnection[Row],
+    ticket_id: UUID,
+    message_id: UUID,
+    method: str,
+    received_at: datetime,
+) -> tuple[Row, bool, bool]:
+    """Records a reply the platform linked (KAN-75) and reopens the ticket when its state
+    allows (KAN-110). Recording the same mail again changes nothing.
+
+    Returns:
+        tuple: (workflow after, whether the ticket was reopened now, whether this call
+        recorded the reply).
+    """
+    workflow = await lock(conn, ticket_id)
+    reopened = workflow["state"] in REOPEN_STATES
+    recorded = await repository.insert_reply(
+        conn,
+        {
+            "message_id": message_id,
+            "ticket_id": ticket_id,
+            "method": method,
+            "received_at": received_at,
+            "reopened": reopened,
+        },
+    )
+    if not recorded:
+        return workflow, False, False
+    if reopened:
+        workflow = await reopen_for_customer_reply(conn, ticket_id, message_id, None)
+    return workflow, reopened, True
+
+
 async def reopen_for_customer_reply(
     conn: AsyncConnection[Row], ticket_id: UUID, message_id: UUID, actor: UUID | None
 ) -> Row:

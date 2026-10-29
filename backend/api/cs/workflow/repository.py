@@ -168,3 +168,113 @@ async def database_now(conn: AsyncConnection[Row]) -> datetime:
     row = await cursor.fetchone()
     assert row is not None
     return row["now"]
+
+
+# --- Customer mail (KAN-110) ---------------------------------------------------------------
+
+SEND_COLUMNS = (
+    "id, ticket_id, kind, workflow_version, mailbox_id, subject, body_type, body, to_addresses, "
+    "cc_addresses, payload_sha256, approved_by, approved_at, request_status, request_error, "
+    "intent_id, send_status, send_error_code, attempts, accepted_at, sent_copy_confirmed_at, "
+    "status_checked_at, recorded_at, created_at"
+)
+# Send columns the platform answer may set. SQL names are built only from this tuple.
+SEND_FIELDS = (
+    "request_status",
+    "request_error",
+    "intent_id",
+    "send_status",
+    "send_error_code",
+    "attempts",
+    "accepted_at",
+    "sent_copy_confirmed_at",
+    "status_checked_at",
+    "recorded_at",
+)
+
+
+async def list_sends(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        f"SELECT {SEND_COLUMNS} FROM cs.ticket_customer_sends WHERE ticket_id = %s "
+        "ORDER BY created_at, id",
+        (ticket_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def lock_send(conn: AsyncConnection[Row], ticket_id: UUID, send_id: UUID) -> Row | None:
+    """Call after locking the ticket row."""
+    cursor = await conn.execute(
+        f"SELECT {SEND_COLUMNS} FROM cs.ticket_customer_sends WHERE ticket_id = %s AND id = %s "
+        "FOR UPDATE",
+        (ticket_id, send_id),
+    )
+    return await cursor.fetchone()
+
+
+async def insert_send(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.ticket_customer_sends ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(
+            Jsonb(v) if name in ("to_addresses", "cc_addresses") else v
+            for name, v in values.items()
+        ),
+    )
+
+
+async def update_send(conn: AsyncConnection[Row], send_id: UUID, values: Row) -> None:
+    unknown = set(values) - set(SEND_FIELDS)
+    assert not unknown, unknown
+    assignments = ", ".join(f"{name} = %s" for name in values)
+    await conn.execute(
+        f"UPDATE cs.ticket_customer_sends SET {assignments}, updated_at = now() WHERE id = %s",
+        (*values.values(), send_id),
+    )
+
+
+async def get_mail_origin(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
+    cursor = await conn.execute(
+        "SELECT ticket_id, message_id, mailbox_id, sender_address, received_at, registered_by, "
+        "created_at FROM cs.ticket_mail_origins WHERE ticket_id = %s",
+        (ticket_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def ticket_for_message(conn: AsyncConnection[Row], message_id: UUID) -> UUID | None:
+    cursor = await conn.execute(
+        "SELECT ticket_id FROM cs.ticket_mail_origins WHERE message_id = %s", (message_id,)
+    )
+    row = await cursor.fetchone()
+    return row["ticket_id"] if row else None
+
+
+async def insert_mail_origin(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.ticket_mail_origins ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def list_replies(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT message_id, ticket_id, method, received_at, reopened, created_at "
+        "FROM cs.ticket_customer_replies WHERE ticket_id = %s ORDER BY received_at, message_id",
+        (ticket_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_reply(conn: AsyncConnection[Row], values: Row) -> bool:
+    """Records a linked reply once. Returns False when the mail was recorded before."""
+    columns = ", ".join(values)
+    cursor = await conn.execute(
+        f"INSERT INTO cs.ticket_customer_replies ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))}) ON CONFLICT (message_id) DO NOTHING",
+        tuple(values.values()),
+    )
+    return cursor.rowcount == 1

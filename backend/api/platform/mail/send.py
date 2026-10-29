@@ -13,7 +13,6 @@
 """
 
 import base64
-import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -30,6 +29,7 @@ from backend.api.platform.mail.storage import ObjectReader, StoredObject, conten
 from backend.api.platform.mail.sync import Conn, MailboxTokenGetter, checked_token
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
+from backend.shared.mail_payload import payload_sha256
 from backend.shared.settings import Settings
 
 # TFT는 개발 중단(2026-10-28)이라 발송 주체에서 뺐다.
@@ -100,42 +100,6 @@ class SendResult:
     error_code: str | None = None
     sent_copy_confirmed: bool = False
     events: list[str] = field(default_factory=list)
-
-
-def payload_sha256(
-    *,
-    subject: str,
-    body_type: str,
-    body: str,
-    to: list[str] | tuple[str, ...],
-    cc: list[str] | tuple[str, ...],
-    attachments: list[dict[str, Any]],
-) -> str:
-    """승인 대상 내용의 정규화 해시. 업무와 플랫폼이 같은 규칙으로 계산한다.
-
-    Args:
-        subject: 제목.
-        body_type: `text` 또는 `html`.
-        body: 본문.
-        to: 받는 사람 주소(입력 순서 유지).
-        cc: 참조 주소.
-        attachments: 첨부(이름·형식·SHA-256·크기). 저장 키는 넣지 않는다.
-
-    Returns:
-        str: 소문자 16진수 SHA-256.
-    """
-    canonical = {
-        "subject": subject,
-        "body_type": body_type,
-        "body": body,
-        "to": list(to),
-        "cc": list(cc),
-        "attachments": [
-            {k: a[k] for k in ("name", "content_type", "sha256", "size")} for a in attachments
-        ],
-    }
-    text = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def invalid(code: str, message: str) -> ApplicationError:
