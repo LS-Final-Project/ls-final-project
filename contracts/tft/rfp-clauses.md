@@ -1,0 +1,68 @@
+# RFP 자사 대응 조항 트리·편집 흔적 (KAN-185, A04)
+
+원본: [RFP API 명세 v1.1](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g) §4.2(조항·삭제 값)·§4.3(parse·extract), 기획서 최종본 4.9·5.2. 입력은 KAN-96 추출 결과(`backend/engine/documents`)이고 저장 구조는 [RFP 데이터 계약](rfp-data.md)의 `clauses`·`clause_deleted_values`·`clause_flags`다.
+
+| 원본 | 파일 |
+| --- | --- |
+| 조항 트리 복원 | `backend/engine/rfp/clauses.py` (`build_clause_tree`) |
+| 편집 흔적 해석 | `backend/engine/rfp/edits.py` (`interpret_edits`, `restore`, `mark`) |
+| 검사(합성 블록) | `tests/tft/test_rfp_clause_tree.py` |
+
+순수 함수다. DB 저장·처리 작업(rfp.process의 parse·extract 단계) 연결과 요구 추출(LLM 구조화 출력)은 다음 PR이다.
+
+## 조항 트리
+
+제공 RFP는 제목 서식·자동 번호가 없다(14번은 문단 703개가 모두 `Normal`, `hints.list_text` 0개). 그래서 문단 앞 번호 글자로 깊이를 정한다.
+
+| 깊이 | 패턴 | 조항 번호 |
+| --- | --- | --- |
+| 1 | `PART 2 - PRODUCTS` | `PART 2` (제목 `PRODUCTS`) |
+| 2 | `2.5 EPOXY …` | `2.5` |
+| 3 | `C.` | `2.5.C` |
+| 4 | `1.` | `2.5.C.1` |
+| 5 | `a.` | `2.5.C.1.a` |
+| 6 | `1)`·`(1)` | `2.5.C.1.a.1` |
+
+| 문서 배치 | 처리 | 표시 |
+| --- | --- | --- |
+| 줄이 중간에서 끊긴 문단 | 앞 조항에 공백으로 잇는다(앞 글이 문장 끝이 아니거나 소문자로 시작) | `LINE_BREAK_REJOINED` |
+| 페이지 머리말·바닥글이 본문 문단으로 들어옴 | 숫자를 지운 모양이 3번 이상 반복되는 번호 없는 짧은 문단, `END OF SECTION` → 조항에서 뺌 | `boilerplate_block_ids` |
+| 번호가 표 칸에 있음(왼쪽 `D.`, 오른쪽 본문) | 그 행을 번호 조항으로 읽는다 | `FROM_TABLE_ROW` |
+| 절 번호가 표 칸에 떠 있음(`2.2 A.`) | 뒤가 본문이면 그 자리에서, 뒤가 번호 칸이면 번호가 `1`로 다시 시작하는 곳에서 절을 연다 | `DEFERRED_ARTICLE` |
+| 한 문단에 항목 두 개(`… open. b. Expulsion …`) | 문장 끝 뒤에 **같은 깊이의 다음 번호**가 대문자 앞에 올 때만 나눈다 | `INLINE_SPLIT` |
+| 번호 건너뜀·반복 | 고쳐 쓰지 않고 남긴다. 반복은 `~2`를 붙인다 | `numbering_issues` |
+
+## 편집 흔적
+
+**현행 텍스트가 요구이고 삭제 값은 이력이다.** 서식을 버린 텍스트 추출은 지운 값과 남은 값이 붙어 읽힌다(2.5 C.1 "5033%"). 조항마다 원문 복원(`original`)과 현행(`current`)을 따로 낸다.
+
+| 종류 | 판정 | 해석 |
+| --- | --- | --- |
+| `RENUMBER` | 번호 자리의 삭제(`label_history`) | 번호만 바뀜. 현행 번호로 조항을 찾는다 |
+| `SCOPE` | 괄호 문구 삭제 | 범위 표시가 지워짐. 조항 전체가 현행 범위 |
+| `TYPO` | 두 글자 이하 영문자가 단어에 붙어 지워짐 | 의미 변화 없음 |
+| `VALUE` | 그 밖(숫자·낱말) | 현행 값을 요구로 쓰고 지운 값은 이력 |
+
+군: 사람이 한 번 판단하면 되는 단위다. 번호 다시 매김은 절마다 한 군, 값·범위·오탈자는 흔적 하나가 한 군이다. PDF는 `status=UNSUPPORTED`("편집 흔적 확인 불가")이며 0건을 "없음"으로 보고하지 않는다.
+
+## 14번 결과 (2026-10-29, `261116.11 … switchgear secondary`, 읽기 전용)
+
+- **블록 배치**: 빈 칸이 아닌 블록 757/757이 조항·머리말·반복 문구 중 한 곳에 들어갔다(빠진 블록 0).
+- **조항**: 490개(PART 3 · 절 26 · 깊이 3~6 461). 절은 1.1~1.9, 2.1~2.9, 3.1~3.8로 원문 목차와 같다.
+  - 이어 붙인 조항 81, 표 행 조항 24, 한 문단에서 나눈 조항 14, 미룬 절 1(2.2)
+  - 반복 문구 88블록 제외
+- **번호 문제**: 3건. 모두 건너뜀이고 원문 확인 대상이다(2.6.C 1→5, 2.6.E.4 e→g, 3.6.C 1→3).
+- **취소선**: 22/22를 보존했다(A02 기준 22곳과 같음). **8군**으로 묶인다.
+
+| 군 | 종류 | 조항 | 처리 전(서식 없는 텍스트) | 처리 후(현행) |
+| --- | --- | --- | --- | --- |
+| 1 | VALUE | 2.5.C.1 | `Secondary: 5033% with fans at 115 degree C` | `Secondary: 33% with fans at 115 degree C` (50은 이력) |
+| 2 | TYPO | 2.5.D | `SCADA systems. The controller` | `SCADA system. The controller` |
+| 3 | RENUMBER ×12 | 2.5.E~P | `~~D.~~E.` … `~~O.~~P.` | 현행 번호 E.~P. |
+| 4 | TYPO | 2.5.G | `Transformer Ttemperature` | `Transformer Temperature` |
+| 5 | VALUE | 2.6.C.1 (표) | `Neutral Bus: NoneRefer to the Contract Drawings` | `Neutral Bus: Refer to the Contract Drawings` |
+| 6 | RENUMBER ×4 | 2.6.E.6~10 | `~~5.~~6.` … `~~8.~~10.` | 현행 번호 |
+| 7 | TYPO | 2.6.E.10 | `turn onff the instantaneous trip` | `turn off the instantaneous trip` |
+| 8 | SCOPE | PART 3 | `EXECUTION (NOT IN CONTRACT)` | `EXECUTION` → PART 3 전체가 계약 범위(3.2 설치·3.6 현장 시험·3.7 적외선 점검·3.8 교육은 수행 과업) |
+
+이 결과는 저장소 밖 원문으로 로컬에서 확인했다. 원문·추출물은 커밋하지 않는다. 검사는 같은 배치를 흉내 낸 합성 블록으로 한다.
