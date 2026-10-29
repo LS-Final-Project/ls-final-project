@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Literal
 
 import google.auth
+import httpx
 from google import genai
 from google.auth.credentials import Credentials
 from google.auth.impersonated_credentials import Credentials as ImpersonatedCredentials
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, Field, SecretStr, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,10 +30,14 @@ class AISettings(BaseSettings):
     gemini_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     gemini_max_output_tokens: int = Field(default=1024, ge=1, le=65536)
     gemini_timeout_ms: int = Field(default=30000, ge=1000, le=300000)
+    # 일시 오류(타임아웃·429·5xx) 재시도 횟수(KAN-144 14차). generate가 직접 다시 불러 실제 호출 수를 남긴다.
+    gemini_transient_retries: int = Field(default=1, ge=0, le=2)
     gemini_api_key: SecretStr | None = Field(default=None, repr=False)
 
 
 PRICES = Path(__file__).with_name("ai_prices.json")
+# 일시 오류 재시도 전 대기(초). n번째 재시도는 이 값의 2^(n-1)배를 기다린다.
+TRANSIENT_BACKOFF_SECONDS = 1.0
 MILLION = Decimal(1_000_000)
 
 
@@ -70,7 +75,8 @@ class Generation:
     usage: Usage
     model_version: str | None
     finish_reasons: list[str]
-    # 요청한 모델 ID, SDK 호출 시간, 시도 횟수(HttpRetryOptions attempts=1), 완료 시각(UTC).
+    # 요청한 모델 ID, 호출 시간(일시 오류 재시도 포함), 실제 호출 수(generate의 일시 오류 재시도 포함, SDK 자체
+    # 재시도는 attempts=1로 끈다), 완료 시각(UTC).
     model: str | None = None
     elapsed_ms: int | None = None
     attempts: int = 1
@@ -282,26 +288,40 @@ def generate(
         max_output_tokens: 이번 호출의 출력 상한(thinking 토큰 포함). None이면 settings.gemini_max_output_tokens다.
 
     Returns:
-        Generation: 응답 텍스트·사용량·모델 판본·종료 사유.
+        Generation: 응답 텍스트·사용량·모델 판본·종료 사유. 타임아웃·429·5xx는 settings.gemini_transient_retries만큼
+            TRANSIENT_BACKOFF_SECONDS부터 두 배씩 기다려 다시 부르고 attempts에 실제 호출 수를 남긴다. 실패 호출은
+            예외라 사용량이 없으므로 usage는 성공 호출 기준이다. 4xx(429 제외) 같은 명확한 거부와 재시도를 다 쓴
+            일시 오류는 그대로 올린다.
     """
     thinking = (
         types.ThinkingConfig(thinking_budget=thinking_budget, thinking_level=thinking_level)
         if thinking_budget is not None or thinking_level is not None
         else None
     )
-    started = time.perf_counter()
-    response = client.models.generate_content(
-        model=settings.gemini_model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            max_output_tokens=max_output_tokens or settings.gemini_max_output_tokens,
-            response_mime_type="application/json" if response_schema else None,
-            # pydantic 모델을 그대로 넘기면 extra="forbid"의 additionalProperties가 Gemini API에서
-            # 400 INVALID_ARGUMENT가 난다. JSON 스키마를 response_json_schema로 넘긴다.
-            response_json_schema=response_schema.model_json_schema() if response_schema else None,
-            thinking_config=thinking,
-        ),
+    config = types.GenerateContentConfig(
+        max_output_tokens=max_output_tokens or settings.gemini_max_output_tokens,
+        response_mime_type="application/json" if response_schema else None,
+        # pydantic 모델을 그대로 넘기면 extra="forbid"의 additionalProperties가 Gemini API에서
+        # 400 INVALID_ARGUMENT가 난다. JSON 스키마를 response_json_schema로 넘긴다.
+        response_json_schema=response_schema.model_json_schema() if response_schema else None,
+        thinking_config=thinking,
     )
+    started = time.perf_counter()
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            response = client.models.generate_content(
+                model=settings.gemini_model, contents=prompt, config=config
+            )
+            break
+        except (errors.APIError, httpx.TimeoutException, TimeoutError) as error:
+            transient = not isinstance(error, errors.APIError) or (
+                type(error.code) is int and (error.code == 429 or error.code >= 500)
+            )
+            if not transient or attempts > settings.gemini_transient_retries:
+                raise
+            time.sleep(TRANSIENT_BACKOFF_SECONDS * 2 ** (attempts - 1))
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     raw = response.usage_metadata
     usage = (
@@ -327,6 +347,7 @@ def generate(
         ],
         model=settings.gemini_model,
         elapsed_ms=elapsed_ms,
+        attempts=attempts,
         finished_at=datetime.now(UTC),
     )
 
