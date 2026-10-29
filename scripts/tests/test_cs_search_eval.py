@@ -58,6 +58,8 @@ class SearchEvalTest(unittest.TestCase):
         )
         self.assertEqual(metrics["by_category"]["DEFECT"], {"n": 1, "hit_at_5": 1.0, "top1": 0.0})
         self.assertNotIn("SECRET", json.dumps(result))
+        self.assertEqual(result["evidence_rows_per_ticket_max"], 2)
+        self.assertEqual(metrics["missing_symbols"], ["POL-ORDER", "POL-SERVICE", "POL-WARRANTY"])
         with self.assertRaises(ValueError):
             cs_search_eval.evaluate(
                 ["t1"],

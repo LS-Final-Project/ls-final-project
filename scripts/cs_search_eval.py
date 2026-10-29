@@ -83,12 +83,24 @@ def evaluate(
                 policy["categories"][category], products.get(ticket_id) or "", doc_index
             )
         )
+    metrics = summarize_hits(ranked, expected, categories, k=K)
+    # 정책 문서 기호가 doc_index에 없으면 그 유형이 조용히 '기대 없음'이 되지 않게 드러낸다.
+    metrics["missing_symbols"] = sorted(
+        {
+            symbol
+            for symbols in policy["categories"].values()
+            for symbol in symbols
+            if symbol.startswith("POL-") and symbol not in doc_index
+        }
+    )
     return {
         "expected_version": policy["version"],
         "basis": policy["basis"],
         "review": policy["review"],
         "k": K,
-        "metrics": summarize_hits(ranked, expected, categories, k=K),
+        # hit@k는 근거 행(청크) 상위 k 기준이다. 근거 파일의 문의별 최대 행 수를 함께 남긴다.
+        "evidence_rows_per_ticket_max": max((len(rows) for rows in ranked.values()), default=0),
+        "metrics": metrics,
     }
 
 
@@ -140,6 +152,13 @@ def main(argv: list[str] | None = None) -> int:
             load_doc_index(args.doc_index),
             load_policy(),
         )
+        result["inputs_sha256"] = {
+            name: hashlib.sha256(getattr(args, name).read_bytes()).hexdigest()
+            for name in ("classification", "doc_index", "index_manifest", "evidence")
+        }
+        args.out.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     except (OSError, ValueError, KeyError, AttributeError) as error:
         code = (
             str(error)
@@ -148,11 +167,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"CS_SEARCH_EVAL_FAILED: {code}", file=sys.stderr)
         return 1
-    result["inputs_sha256"] = {
-        name: hashlib.sha256(getattr(args, name).read_bytes()).hexdigest()
-        for name in ("classification", "doc_index", "index_manifest", "evidence")
-    }
-    args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result["metrics"], ensure_ascii=False))
     return 0
 
