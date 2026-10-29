@@ -179,3 +179,64 @@ def test_make_checkpointer_without_database_is_in_memory():
     """
     with make_checkpointer(Settings(_env_file=None)) as saver:
         assert isinstance(saver, InMemorySaver)
+
+
+def fake_graph(saver, source):
+    """fake 공급자로 그래프를 만든다(네트워크 없음).
+
+    Args:
+        saver: 체크포인터.
+        source: TicketSource.
+
+    Returns:
+        CompiledStateGraph: 그래프.
+    """
+    from backend.engine.cs.graph import build_graph
+    from tests.cs.graph_fakes import classification_provider, draft_provider
+
+    return build_graph(
+        classification_provider=classification_provider,
+        draft_provider=draft_provider,
+        fts_searcher=fts_searcher,
+        search_filters=FILTERS,
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+        load_ticket=source.load_ticket,
+        record_attempt=source.record_attempt,
+        checkpointer=saver,
+    )
+
+
+def test_run_ticket_refuses_existing_thread():
+    """같은 thread_id를 다시 실행하면 상태를 덮거나 공급자를 다시 부르지 않고 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 거부와 시도 수 유지를 확인한다.
+    """
+    source = InMemoryTicketSource({"t-1": TICKET})
+    graph = fake_graph(InMemorySaver(), source)
+    run_ticket(graph, "thread-1", "t-1")
+    with pytest.raises(ValueError, match="^CS_GRAPH_THREAD_EXISTS$"):
+        run_ticket(graph, "thread-1", "t-1")
+    assert len(source.attempts) == 2
+
+
+def test_resume_refuses_unknown_or_finished_thread():
+    """체크포인트가 없거나 이미 끝난 thread는 재개하지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 오타 thread와 끝난 thread의 거부를 확인한다.
+    """
+    source = InMemoryTicketSource({"t-1": TICKET})
+    graph = fake_graph(InMemorySaver(), source)
+    with pytest.raises(ValueError, match="^CS_GRAPH_NOTHING_TO_RESUME$"):
+        resume(graph, "typo-thread")
+    run_ticket(graph, "thread-1", "t-1")
+    assert resume(graph, "thread-1").stage == "HUMAN_REVIEW"
+    with pytest.raises(ValueError, match="^CS_GRAPH_NOTHING_TO_RESUME$"):
+        resume(graph, "thread-1")

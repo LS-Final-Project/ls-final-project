@@ -183,6 +183,46 @@ class GraphRunTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out)["stage"], "HUMAN_REVIEW")
 
+    def test_fts_db_needs_database(self) -> None:
+        """--fts-db는 DATABASE_URL이 없으면 1로 끝난다.
+
+        Returns:
+            None: 종료 코드·안내를 확인한다.
+        """
+        code, _, err = self.run_main("--thread-id", "thread-1", "--fts-db")
+        self.assertEqual(code, 1)
+        self.assertIn("CS_GRAPH_FTS_NEEDS_DB", err)
+
+    def test_rerun_and_bad_resume_exit_1(self) -> None:
+        """같은 thread 재실행과 없는 thread 재개는 공급자를 부르지 않고 코드와 함께 1로 끝난다.
+
+        Returns:
+            None: 종료 코드·코드 문구를 확인한다.
+        """
+        os.environ["DATABASE_URL"] = "postgresql://unused.example/x"
+        saver = InMemorySaver()
+
+        @contextmanager
+        def shared(settings):
+            """두 실행이 같은 메모리 체크포인터를 쓰게 한다.
+
+            Args:
+                settings: 설정.
+
+            Returns:
+                Iterator: 공유 체크포인터.
+            """
+            yield saver
+
+        with patch.object(cs_graph_run, "make_checkpointer", shared):
+            self.assertEqual(self.run_main("--thread-id", "thread-7")[0], 0)
+            code, _, err = self.run_main("--thread-id", "thread-7")
+            self.assertEqual(code, 1)
+            self.assertIn("CS_GRAPH_THREAD_EXISTS", err)
+            code, _, err = self.run_main("--thread-id", "typo", "--resume")
+            self.assertEqual(code, 1)
+            self.assertIn("CS_GRAPH_NOTHING_TO_RESUME", err)
+
 
 if __name__ == "__main__":
     unittest.main()
