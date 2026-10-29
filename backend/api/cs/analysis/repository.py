@@ -132,3 +132,10 @@ async def insert_draft(conn: AsyncConnection[Row], ticket_id: UUID, values: Row)
     row = await cursor.fetchone()
     assert row is not None
     return row
+
+
+async def run_belongs(conn: AsyncConnection[Row], ticket_id: UUID, run_id: UUID) -> bool:
+    cursor = await conn.execute(
+        "SELECT 1 FROM cs.ticket_analyses WHERE id = %s AND ticket_id = %s", (run_id, ticket_id)
+    )
+    return await cursor.fetchone() is not None
