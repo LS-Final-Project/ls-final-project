@@ -185,6 +185,13 @@ def test_fts_rows_become_ranked_candidates() -> None:
         ("code FLT-0420 only", False),
         ("code FLT-04 only", False),
         ("code XFLT-042 only", False),
+        ("per ＦＬＴ－０４２ advice", True),
+        ("per FLT_042 advice", True),
+        ("per F\u200bLT-042 advice", True),
+        ("per FLT-\u200d042 advice", True),
+        ("per FLT\ufeff-042 advice", True),
+        ("per FLT\u00ad-042 advice", True),
+        ("code FLT042 only", False),
     ],
 )
 def test_blocked_code_check_folds_spelling_variants(text: str, expected: bool) -> None:

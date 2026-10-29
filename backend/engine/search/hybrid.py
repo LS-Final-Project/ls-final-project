@@ -11,6 +11,7 @@
 
 import html
 import re
+import unicodedata
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 
@@ -27,7 +28,9 @@ CODE = re.compile(
 HIGHLIGHT = re.compile(r"</?b>")
 BLOCKED_CODES = frozenset({"FLT-042"})
 # 차단 판정은 표기 변형을 접는다: 영문자와 숫자 사이의 하이픈·각종 대시·공백을 '-' 하나로 본다.
-SEPARATOR = re.compile(r"(?<=[a-z])[-‐‑–—\s]+(?=\d)")
+SEPARATOR = re.compile(r"(?<=[a-z])[-‐‑–—_\s]+(?=\d)")
+# 제로폭 문자(U+200B~U+200D, U+FEFF)와 소프트 하이픈(U+00AD)은 보이지 않으므로 지우고 본다.
+INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u00ad"))
 
 
 class Reranker(Protocol):
@@ -85,19 +88,22 @@ def codes_in(query: str) -> list[str]:
 
 
 def _fold(text: str) -> str:
-    return SEPARATOR.sub("-", HIGHLIGHT.sub("", html.unescape(text)).casefold())
+    text = unicodedata.normalize("NFKC", html.unescape(text)).translate(INVISIBLE)
+    return SEPARATOR.sub("-", HIGHLIGHT.sub("", text).casefold())
 
 
 def mentions_code(text: str, code: str) -> bool:
     """차단 판정용으로 텍스트가 코드를 언급하는지 본다(hybrid·drafting 공용).
 
     Args:
-        text: 검사할 문자열. HTML 엔티티와 강조 태그를 풀고 대소문자를 무시한다.
+        text: 검사할 문자열. HTML 엔티티·NFKC(전각)·제로폭·소프트 하이픈·강조 태그를 풀고 대소문자를
+            무시한다.
         code: 차단 코드(예 FLT-042).
 
     Returns:
-        bool: 영문자와 숫자 사이 구분자를 '-'로 접은 뒤 영숫자 경계로 코드가 있으면 True.
-            FLT-0420·FLT-04처럼 다른 코드는 아니다.
+        bool: 영문자와 숫자 사이 구분자(하이픈·대시·밑줄·공백)를 '-'로 접은 뒤 영숫자 경계로 코드가
+            있으면 True. FLT-0420·FLT-04처럼 다른 코드는 아니다. 구분자 없는 FLT042는 접지 않는다
+            (FLT0420 같은 다른 코드와 구분할 수 없어서다).
     """
     target = re.escape(_fold(code))
     return re.search(rf"(?<![a-z0-9]){target}(?![a-z0-9])", _fold(text)) is not None
