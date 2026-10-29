@@ -22,7 +22,7 @@ from backend.api.tft.rfp.comparison import (
 from backend.api.tft.rfp.supplement import options_for
 
 DEMO_CASES = Path("backend/api/tft/partners/demo_cases.json")
-EXAMPLE = Path("contracts/tft/examples/rfp-comparison-demo-a.json")
+EXAMPLE = Path("backend/api/tft/rfp/examples/comparison-demo-a.json")
 
 # 14번 2.5절 요구. 시연 A 표의 항목 순서와 같다.
 DEMO_A = [
@@ -240,7 +240,7 @@ def example():
 
 
 def test_the_contract_example_is_the_current_engine_output():
-    """contracts/tft/examples의 입출력 예시가 지금 엔진 결과와 같다(화면 연결용, 손으로 고치지 않음)."""
+    """backend/api/tft/rfp/examples의 입출력 예시가 지금 엔진 결과와 같다(화면 연결용, 손으로 고치지 않음)."""
     assert json.loads(EXAMPLE.read_text()) == example(), (
         "run: python -m tests.tft.test_rfp_comparison"
     )
