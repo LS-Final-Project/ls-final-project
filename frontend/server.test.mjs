@@ -597,6 +597,7 @@ test('web business relay table matches the shared fixture exactly', () => {
   assert.deepEqual(routeRows(businessRoutes), routeRows(relayRoutes.routes.map(route => [route.path, route.methods, route.query])));
   assert.equal(placeholders['{customer}'], relayRoutes.customer_pattern);
   assert.equal(placeholders['{evidence}'], relayRoutes.evidence_pattern);
+  assert.equal(placeholders['{dept}'], relayRoutes.dept_pattern);
 });
 
 test('web business relay forwards or rejects each shared case before reaching the platform', async () => {

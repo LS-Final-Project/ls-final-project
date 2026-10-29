@@ -311,3 +311,61 @@ class RequestVersion(BaseModel):
 
 class RequestVersionList(BaseModel):
     items: list[RequestVersion]
+
+
+# --- KAN-116: review, delivery, department replies, actions, follow-up -------------------
+
+
+class Versioned(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The request version the user decided on.")
+
+
+class ReviewRequest(Versioned):
+    """DRAFT → REVIEWED. The agent may fix the proposed departments while reviewing."""
+
+    proposed_depts: list[TransferDepartment] | None = None
+
+
+class SendRequest(Versioned):
+    """REVIEWED → first round. Target departments default to the proposed ones."""
+
+    dept_codes: list[TransferDepartment] | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class DeptReplyRequest(Versioned):
+    reply_type: Literal["ADOPTED", "INFO_REQUESTED", "REJECTED"]
+    reason: Reason | None = None
+
+    @model_validator(mode="after")
+    def check_reason(self) -> Self:
+        if self.reply_type == "REJECTED" and self.reason is None:
+            raise ValueError("A rejection needs a reason.")
+        return self
+
+
+class DeptActionRequest(Versioned):
+    """A department's improvement action, kept apart from any one customer's repair."""
+
+    action: Text
+    action_scope: Text
+    action_date: date
+    action_evidence: Text
+
+
+class ResendRequest(Versioned):
+    """Calls one department again inside the current round (supplement, re-request after a
+    rejection with new evidence, or a reminder after the reply deadline)."""
+
+    reason: Reason
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class FollowupPlanRequest(Versioned):
+    followup_plan: Text
+
+
+class CompleteRequest(Versioned):
+    followup_result: Text

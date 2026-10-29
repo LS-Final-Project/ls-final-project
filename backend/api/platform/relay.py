@@ -25,6 +25,8 @@ UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 CUSTOMER_PATH = CUSTOMER_ID
 # 조건 비교 근거 ID. 같은 이유로 첫 글자는 영숫자다(.·.. 세그먼트 차단).
 EVIDENCE_PATH = EVIDENCE_ID
+# Department codes (backend/shared/departments.py): upper-case code, no path separators.
+DEPT_PATH = r"[A-Z][A-Z0-9_]{0,63}"
 # (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
 # 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만
 # 적용한다. 변경 메서드의 query는 경로와 상관없이 400이다(relay()의 query 검사).
@@ -55,6 +57,15 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/improvement-requests/{uuid}/evidence", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/owner", ("PUT",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/review", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/send", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/followup-plan", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/complete", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison", ("GET", "POST"), ("version",)),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements", ("POST",), ()),
     (
@@ -66,7 +77,12 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects", ("GET",), ("limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}", ("GET",), ()),
 )
-_PLACEHOLDERS = {"{uuid}": UUID_PATH, "{customer}": CUSTOMER_PATH, "{evidence}": EVIDENCE_PATH}
+_PLACEHOLDERS = {
+    "{uuid}": UUID_PATH,
+    "{customer}": CUSTOMER_PATH,
+    "{evidence}": EVIDENCE_PATH,
+    "{dept}": DEPT_PATH,
+}
 _COMPILED = [
     (
         re.compile(

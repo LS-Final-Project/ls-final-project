@@ -281,6 +281,29 @@
         "title": "ComparisonEvidence",
         "type": "object"
       },
+      "CompleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "followup_result": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Followup Result",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "followup_result"
+        ],
+        "title": "CompleteRequest",
+        "type": "object"
+      },
       "ConditionComparison": {
         "description": "\ube44\uad50 \uacb0\uacfc \ud55c \ud310\ubcf8.",
         "properties": {
@@ -938,6 +961,50 @@
         "title": "DepartmentCount",
         "type": "object"
       },
+      "DeptActionRequest": {
+        "additionalProperties": false,
+        "description": "A department's improvement action, kept apart from any one customer's repair.",
+        "properties": {
+          "action": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "action_date": {
+            "format": "date",
+            "title": "Action Date",
+            "type": "string"
+          },
+          "action_evidence": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action Evidence",
+            "type": "string"
+          },
+          "action_scope": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action Scope",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "action_scope",
+          "action_date",
+          "action_evidence"
+        ],
+        "title": "DeptActionRequest",
+        "type": "object"
+      },
       "DeptReply": {
         "properties": {
           "dept_code": {
@@ -1000,6 +1067,45 @@
           "replied_at"
         ],
         "title": "DeptReply",
+        "type": "object"
+      },
+      "DeptReplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reply_type": {
+            "enum": [
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED"
+            ],
+            "title": "Reply Type",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reply_type"
+        ],
+        "title": "DeptReplyRequest",
         "type": "object"
       },
       "DeptResult": {
@@ -1495,6 +1601,29 @@
           "evidence_location"
         ],
         "title": "EvidenceWrite",
+        "type": "object"
+      },
+      "FollowupPlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "followup_plan": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Followup Plan",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "followup_plan"
+        ],
+        "title": "FollowupPlanRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3589,6 +3718,37 @@
         "title": "RequestVersionList",
         "type": "object"
       },
+      "ResendRequest": {
+        "additionalProperties": false,
+        "description": "Calls one department again inside the current round (supplement, re-request after a\nrejection with new evidence, or a reminder after the reply deadline).",
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reason"
+        ],
+        "title": "ResendRequest",
+        "type": "object"
+      },
       "ResolutionCase": {
         "properties": {
           "action_taken": {
@@ -3957,49 +4117,56 @@
         "title": "ReturnSubtypeRequest",
         "type": "object"
       },
-      "ReviewRequest": {
+      "SendRequest": {
         "additionalProperties": false,
+        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
         "properties": {
-          "decision": {
-            "enum": [
-              "ACCEPT",
-              "REWORK"
-            ],
-            "title": "Decision",
-            "type": "string"
-          },
-          "note": {
+          "dept_codes": {
             "anyOf": [
               {
-                "maxLength": 2000,
-                "minLength": 1,
-                "type": "string"
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Note"
+            "title": "Dept Codes"
           },
-          "result_version": {
-            "description": "The result version that was reviewed.",
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
             "minimum": 1.0,
-            "title": "Result Version",
+            "title": "Reply Due Days",
             "type": "integer"
           },
           "version": {
-            "description": "The workflow version the user decided on.",
-            "minimum": 0.0,
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
             "title": "Version",
             "type": "integer"
           }
         },
         "required": [
-          "version",
-          "result_version",
-          "decision"
+          "version"
         ],
-        "title": "ReviewRequest",
+        "title": "SendRequest",
         "type": "object"
       },
       "Side": {
@@ -5296,6 +5463,22 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "Versioned": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "Versioned",
+        "type": "object"
+      },
       "Workflow": {
         "properties": {
           "closed_at": {
@@ -5448,6 +5631,96 @@
           "dept_results"
         ],
         "title": "Workflow",
+        "type": "object"
+      },
+      "backend__api__cs__improvements__schemas__ReviewRequest": {
+        "additionalProperties": false,
+        "description": "DRAFT \u2192 REVIEWED. The agent may fix the proposed departments while reviewing.",
+        "properties": {
+          "proposed_depts": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Depts"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ReviewRequest",
+        "type": "object"
+      },
+      "backend__api__cs__workflow__schemas__ReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "ACCEPT",
+              "REWORK"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "result_version": {
+            "description": "The result version that was reviewed.",
+            "minimum": 1.0,
+            "title": "Result Version",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "result_version",
+          "decision"
+        ],
+        "title": "ReviewRequest",
         "type": "object"
       }
     }
@@ -6332,6 +6605,111 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/complete": {
+      "post": {
+        "description": "FOLLOW_UP \u2192 COMPLETED: a person's decision after the follow-up result is recorded.\n\nA department reply or action never completes a request. Monitoring for recurrence\ncontinues after completion (KAN-117 reopens the request in a new round).",
+        "operationId": "cs_complete_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Complete",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/condition-comparison": {
       "get": {
         "description": "\uace0\uc7a5 \uc694\uccad\uc11c \ubb36\uc74c(product_code, fault_id)\uc758 \ube44\uad50 \uacb0\uacfc. \uc694\uccad\uc11c \uc870\ud68c \ubc94\uc704\ub97c \ub530\ub978\ub2e4.\n\nArgs:\n    request_id: \uac1c\uc120\uc694\uccad ID.\n    request: \uc694\uccad.\n    version: \ud310\ubcf8. \uc0dd\ub7b5\ud558\uba74 \ucd5c\uc2e0.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[ConditionComparison]: \ube44\uad50 \uacb0\uacfc \ud55c \ud310\ubcf8.",
@@ -7163,6 +7541,576 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/acknowledge": {
+      "post": {
+        "description": "Department SENT \u2192 ACKNOWLEDGED by that department's staff.",
+        "operationId": "cs_acknowledge_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Acknowledge",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/action": {
+      "post": {
+        "description": "Department ADOPTED \u2192 ACTION_TAKEN with the action, its scope, date and evidence.\n\nAn adopted department does not wait for the others. The action is the department's\nimprovement, not a single customer's repair.",
+        "operationId": "cs_record_improvement_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Record Action",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/reply": {
+      "post": {
+        "description": "Department ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a reason.\n\nThe reply names the request version it answered. A reply is a claim, not a result:\nnothing here completes the request.",
+        "operationId": "cs_reply_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reply",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/resend": {
+      "post": {
+        "description": "Calls one department again inside the current round (C/S agent).\n\nINFO_REQUESTED \u2192 SENT after supplementing; REJECTED \u2192 SENT only with evidence added after\nthe rejection (422 CS_EVIDENCE_REQUIRED otherwise); SENT / ACKNOWLEDGED \u2192 SENT as a\nreminder only after the reply deadline passed (409 otherwise). The round does not change.",
+        "operationId": "cs_resend_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Resend",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/review-rejection": {
+      "post": {
+        "description": "The C/S agent reviewed a rejection and will not re-request. No state change for the\ndepartment; once every department is rejected and reviewed the request is closed by\nrejection and only a new round (KAN-117) reopens it.",
+        "operationId": "cs_review_improvement_rejection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Review Rejection",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/evidence": {
       "post": {
         "description": "Links a ticket (and, for faults, its case). The ticket's state does not matter.",
@@ -7383,6 +8331,111 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/followup-plan": {
+      "post": {
+        "description": "ACTION_TAKEN \u2192 FOLLOW_UP once every department acted or had its rejection reviewed and\nat least one action exists. The plan (target, method, period) is written before checking.",
+        "operationId": "cs_plan_improvement_followup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowupPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Plan Followup",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/owner": {
       "put": {
         "description": "Only a manager of the C/S department reassigns the C/S owner (permissions.md 2.2).",
@@ -7482,6 +8535,216 @@
           }
         },
         "summary": "Reassign Owner",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/review": {
+      "post": {
+        "description": "DRAFT \u2192 REVIEWED by a C/S agent, who becomes the owner if there is none.",
+        "operationId": "cs_review_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__api__cs__improvements__schemas__ReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Review",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/send": {
+      "post": {
+        "description": "REVIEWED \u2192 first round: every target department starts at SENT.\n\nDelivery here records the hand-over; mail to departments is not sent by this service.\nA document request without a confirmed receiver cannot be sent (CONFIRM_RECEIVER first).",
+        "operationId": "cs_send_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send",
         "tags": [
           "improvement-requests"
         ],
@@ -9194,7 +10457,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewRequest"
+                "$ref": "#/components/schemas/backend__api__cs__workflow__schemas__ReviewRequest"
               }
             }
           },
