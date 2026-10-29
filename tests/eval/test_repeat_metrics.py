@@ -138,6 +138,7 @@ def test_cache_ratio_and_unreported_note():
         "cached_known_sum": 300,
         "input_known_sum": 2000,
         "cache_ratio": pytest.approx(0.15),
+        "complete": False,
     }
     assert "note" not in reported
     unreported = summarize_cache([usage(0, None, 1000, missing=4)])
@@ -182,3 +183,41 @@ def test_budget_burn_rate_and_over_budget():
     ):
         with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
             summarize_budget([bad], budget_usd=None, budget_tokens=None)
+
+
+def test_partial_cache_report_marks_ratio_as_lower_bound():
+    """캐시 보고가 일부 빠진 실행의 비율은 complete=False(하한)로 표시한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 실행별·합계 complete를 확인한다.
+    """
+    result = summarize_cache([usage(4, 200, 1000), usage(2, 100, 1000, missing=2)])
+    assert [row["complete"] for row in result["runs"]] == [True, False]
+    assert result["runs"][1]["cache_ratio"] == pytest.approx(0.1)
+    assert result["total"]["complete"] is False
+    assert summarize_cache([usage(4, 200, 1000)])["total"]["complete"] is True
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: summarize_repeat_agreement([RUNS[0], None]),
+        lambda: summarize_budget([{"name": "x", "calls": 1}], budget_usd=1.0, budget_tokens=None),
+        lambda: summarize_cache([usage(4, -5, 1000)]),
+    ],
+    ids=["non-mapping-run", "float-budget", "negative-known-sum"],
+)
+def test_more_invalid_inputs_are_rejected(call):
+    """매핑 아닌 실행·Decimal 아닌 예산·음수 토큰 합을 다른 예외가 아니라 입력 오류로 거부한다.
+
+    Args:
+        call: 잘못된 입력으로 부르는 함수.
+
+    Returns:
+        None: EVAL_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        call()

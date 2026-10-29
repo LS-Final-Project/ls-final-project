@@ -62,7 +62,11 @@ def summarize_repeat_agreement(label_runs: list[Mapping[str, Mapping[str, Any] |
             비율 분모는 전체 사례 수이며 None이 하나라도 있는 사례는 일치로 세지 않는다. 실행 수·ID 집합·출력
             형식이 틀리면 EVAL_INVALID_INPUT ValueError다.
     """
-    if len(label_runs) < 2 or any(set(run) != set(label_runs[0]) for run in label_runs):
+    if (
+        len(label_runs) < 2
+        or not all(isinstance(run, Mapping) for run in label_runs)
+        or any(set(run) != set(label_runs[0]) for run in label_runs)
+    ):
         raise ValueError("EVAL_INVALID_INPUT")
     try:
         runs = [
@@ -128,7 +132,10 @@ def _report(usage: Mapping[str, Any], field: str) -> Mapping[str, Any]:
         or any(
             type(item.get(k)) is not int or item[k] < 0 for k in ("reported_count", "missing_count")
         )
-        or not (item.get("known_sum") is None or type(item["known_sum"]) is int)
+        or not (
+            item.get("known_sum") is None
+            or (type(item["known_sum"]) is int and item["known_sum"] >= 0)
+        )
     ):
         raise ValueError("EVAL_INVALID_INPUT")
     return item
@@ -142,8 +149,8 @@ def summarize_cache(usage_rows: list[Mapping[str, Any]]) -> dict:
 
     Returns:
         dict: 실행별·합계 cached reported/missing/known_sum, input known_sum, 캐시 비율(cached known_sum /
-            input known_sum, 캐시 보고 0건이거나 입력 미보고면 None). 캐시 보고가 0건이면 note로 구분 불가를
-            알린다. 형식이 틀리면 EVAL_INVALID_INPUT ValueError다.
+            input known_sum, 캐시 보고 0건이거나 입력 미보고면 None)과 complete(캐시 누락이 있으면 False이며
+            비율은 하한). 캐시 보고가 0건이면 note로 구분 불가를 알린다. 형식이 틀리면 EVAL_INVALID_INPUT ValueError다.
     """
     if not usage_rows:
         raise ValueError("EVAL_INVALID_INPUT")
@@ -178,6 +185,8 @@ def summarize_cache(usage_rows: list[Mapping[str, Any]]) -> dict:
         row["cache_ratio"] = ratio(
             row["cached_reported"], row["cached_known_sum"], row["input_known_sum"]
         )
+        # 캐시 보고가 일부 빠졌으면 비율은 하한이다.
+        row["complete"] = row["cached_missing"] == 0
     reported = sum(row["cached_reported"] for row in rows)
     cached_sum = sum(row["cached_known_sum"] or 0 for row in rows) if reported else None
     inputs = [row["input_known_sum"] for row in rows if row["input_known_sum"] is not None]
@@ -191,6 +200,7 @@ def summarize_cache(usage_rows: list[Mapping[str, Any]]) -> dict:
             "cached_known_sum": cached_sum,
             "input_known_sum": input_sum,
             "cache_ratio": ratio(reported, cached_sum, input_sum),
+            "complete": all(row["complete"] for row in rows),
         },
         **({"note": CACHE_NOTE} if reported == 0 else {}),
     }
@@ -231,7 +241,12 @@ def summarize_budget(
     """
     if (
         not runs
-        or (budget_usd is not None and (not budget_usd.is_finite() or budget_usd <= 0))
+        or (
+            budget_usd is not None
+            and (
+                not isinstance(budget_usd, Decimal) or not budget_usd.is_finite() or budget_usd <= 0
+            )
+        )
         or (budget_tokens is not None and (type(budget_tokens) is not int or budget_tokens <= 0))
     ):
         raise ValueError("EVAL_INVALID_INPUT")
