@@ -4,12 +4,13 @@ worker 이미지(C/S·tft)에는 `backend.api.platform`이 없으므로 여기�
 
 - 연결은 worker 로그인(그 owner의 worker 역할 멤버) 하나다. 역할 검사는 평가 worker와 같은 규칙이다.
 - 인수: QUEUED이거나 lease가 끊긴 RUNNING이고 취소 요청이 없을 때만. generation+1·holder·lease·RUNNING·job.started.
+  취소 요청이 있고 살아 있는 소유자가 없으면 인수하지 않고 CANCELLED로 확정한다(앞 worker가 죽은 뒤의 취소).
 - 진행: 소유권 재검사·lease 연장·job.progress. 취소 요청이면 쓰지 않고 False.
 - 종료: 소유권을 놓고 상태·종료 이벤트를 남긴다. 실패는 고정 failure_code만. 소유권을 잃었으면 LeaseLost.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -114,7 +115,9 @@ def append(
     )
 
 
-def claim(settings: Settings, owner: str, lease_seconds: int, job_id: UUID) -> Lease | None:
+def claim(
+    settings: Settings, owner: str, lease_seconds: int, job_id: UUID
+) -> Lease | Literal["CANCELLED"] | None:
     """그 owner의 대기 중이거나 lease가 끊긴 실행 중 작업을 인수한다.
 
     Args:
@@ -124,7 +127,9 @@ def claim(settings: Settings, owner: str, lease_seconds: int, job_id: UUID) -> L
         job_id: 작업 ID.
 
     Returns:
-        Lease | None: 새 소유권. 없는 작업·다른 owner·종료·취소 요청·살아 있는 다른 소유자면 None이다.
+        Lease | "CANCELLED" | None: 새 소유권. 취소 요청이 있고 살아 있는 소유자가 없으면 그 자리에서
+            CANCELLED·job.completed로 확정하고 "CANCELLED"다. 없는 작업·다른 owner·종료·살아 있는 다른
+            소유자면 None이다.
     """
     with connect(settings) as conn, conn.transaction():
         row = conn.execute(
@@ -134,13 +139,18 @@ def claim(settings: Settings, owner: str, lease_seconds: int, job_id: UUID) -> L
             "WHERE j.id=%s AND j.owner=%s FOR UPDATE OF j,c",
             (job_id, owner),
         ).fetchone()
-        if (
-            row is None
-            or row["status"] not in {"QUEUED", "RUNNING"}
-            or row["cancel_requested_at"] is not None
-            or row["lease_live"]
-        ):
+        if row is None or row["status"] not in {"QUEUED", "RUNNING"} or row["lease_live"]:
             return None
+        if row["cancel_requested_at"] is not None:
+            # 앞 worker가 죽은 뒤 걸린 취소는 확정할 소유자가 없으므로 여기서 끝낸다.
+            conn.execute(
+                "UPDATE runtime.job_control SET holder_id=NULL,lease_expires_at=NULL,"
+                "version=version+1 WHERE job_id=%s",
+                (job_id,),
+            )
+            conn.execute("UPDATE runtime.jobs SET status='CANCELLED' WHERE id=%s", (job_id,))
+            append(conn, job_id, "job.completed", {"state": "CANCELLED"})
+            return "CANCELLED"
         holder = uuid4()
         claimed = conn.execute(
             "UPDATE runtime.job_control SET generation=generation+1,holder_id=%s,"

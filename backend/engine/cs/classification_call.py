@@ -29,6 +29,7 @@ class ClassificationCallError(Exception):
         *,
         usage: Usage | None = None,
         http_status: int | None = None,
+        call_attempts: int | None = None,
     ) -> None:
         """허용된 오류 코드와 사용량만 복사해 전달한다.
 
@@ -36,6 +37,7 @@ class ClassificationCallError(Exception):
             code: 레이트 제한·타임아웃·기타 호출 실패의 고정 코드.
             usage: 제공자가 알려준 사용량. 미제공 값은 null로 유지한다.
             http_status: 알려진 HTTP 상태. 제공자 메시지는 받지 않는다.
+            call_attempts: 실패까지의 실제 호출 수(재시도 포함). 모르면 None이다.
 
         Returns:
             None: 시도 경계에서 처리할 안전한 오류를 만든다.
@@ -50,6 +52,9 @@ class ClassificationCallError(Exception):
         self.code = code
         self.usage = replace(usage) if usage is not None else Usage()
         self.http_status = http_status
+        self.call_attempts = (
+            call_attempts if type(call_attempts) is int and call_attempts >= 1 else None
+        )
 
 
 @dataclass(frozen=True)
@@ -137,8 +142,10 @@ def run_classification_attempt(
         code: CallErrorCode = "CS_PROVIDER_ERROR"
         usage = Usage()
         http_status = None
+        attempts = None
         if isinstance(error, ClassificationCallError):
             code, usage, http_status = error.code, replace(error.usage), error.http_status
+            attempts = error.call_attempts
         elif isinstance(error, TimeoutError):
             code = "CS_PROVIDER_TIMEOUT"
         return replace(
@@ -149,6 +156,7 @@ def run_classification_attempt(
             http_status=http_status,
             usage=usage,
             latency_ms=round((time.perf_counter() - started) * 1000, 3),
+            call_attempts=attempts,
         )
 
     result = replace(

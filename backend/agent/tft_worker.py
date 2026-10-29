@@ -129,6 +129,8 @@ def execute_job(
     lease = claim(settings, "tft", worker.lease_seconds, job_id)
     if lease is None:
         return "NOT_CLAIMED"
+    if lease == "CANCELLED":
+        return "TFT_JOB_CANCELLED"
     job = TftJob(lease.job_id, lease.kind, lease.subject_id, lease.input_version, lease.actor_id)
 
     def emit(values: dict[str, Any]) -> None:
