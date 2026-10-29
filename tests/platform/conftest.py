@@ -166,6 +166,9 @@ def jobs_database(auth_database):
         # KAN-182 tft 작업 종류. 재실행해도 같은 상태가 된다.
         migration = Path("infra/migrations/platform/20261029_KAN-182_tft_jobs.sql").read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-194 cs 작업 종류. tft 마이그레이션이 CHECK를 다시 만들므로 그 뒤에 적용한다.
+        migration = Path("infra/migrations/platform/20261031_KAN-194_cs_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 
