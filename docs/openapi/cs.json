@@ -17,6 +17,117 @@
         "title": "Action",
         "type": "object"
       },
+      "AnalysisRun": {
+        "properties": {
+          "classification": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The five validated fields; only a VALID run has them.",
+            "title": "Classification"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provenance_kind": {
+            "const": "ai_draft",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "run_seq": {
+            "title": "Run Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_seq",
+          "job_id",
+          "outcome",
+          "classification",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "AnalysisRun",
+        "type": "object"
+      },
       "AuditEvent": {
         "properties": {
           "action": {
@@ -627,6 +738,187 @@
           "target"
         ],
         "title": "ConditionItem",
+        "type": "object"
+      },
+      "Correction": {
+        "properties": {
+          "based_on_analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Based On Analysis Id"
+          },
+          "corrected_by": {
+            "format": "uuid",
+            "title": "Corrected By",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Only the fields this correction changed.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "provenance_kind": {
+            "const": "human_input",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "based_on_analysis_id",
+          "fields",
+          "reason",
+          "corrected_by",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "Correction",
+        "type": "object"
+      },
+      "CorrectionRequest": {
+        "additionalProperties": false,
+        "description": "Only the fields given are corrected. `secondary_category: null` clears it.",
+        "properties": {
+          "analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`latest_valid_run_id` the person read; null only when there is none.",
+            "title": "Analysis Id"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TECH_SPEC",
+                  "INSTALL",
+                  "WARRANTY",
+                  "ORDER_LEAD",
+                  "MANUAL",
+                  "DEFECT",
+                  "COMPLIANCE",
+                  "QUOTE",
+                  "FW_UPDATE",
+                  "RETURN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "provided_info": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provided Info"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "secondary_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TECH_SPEC",
+                  "INSTALL",
+                  "WARRANTY",
+                  "ORDER_LEAD",
+                  "MANUAL",
+                  "DEFECT",
+                  "COMPLIANCE",
+                  "QUOTE",
+                  "FW_UPDATE",
+                  "RETURN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Category"
+          },
+          "urgency_flag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SAFETY",
+                  "SITE_DOWN",
+                  "PROD_IMPACT",
+                  "COMMISSION",
+                  "DEADLINE",
+                  "NONE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Flag"
+          },
+          "version": {
+            "description": "`version` of the analysis the person read.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "analysis_id",
+          "reason"
+        ],
+        "title": "CorrectionRequest",
         "type": "object"
       },
       "CustomerHistory": {
@@ -1267,6 +1559,70 @@
         "title": "DataRange",
         "type": "object"
       },
+      "DeadlineView": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai"
+          },
+          "corrected": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The earlier of the two (2026-10-29).",
+            "title": "Effective"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "ai",
+          "corrected",
+          "effective",
+          "source"
+        ],
+        "title": "DeadlineView",
+        "type": "object"
+      },
       "DepartmentCount": {
         "properties": {
           "dept_code": {
@@ -1633,6 +1989,130 @@
         "title": "DocumentSignal",
         "type": "object"
       },
+      "DraftRun": {
+        "properties": {
+          "analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Three reply options as validated; only a VALID run has them.",
+            "title": "Draft"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provenance_kind": {
+            "const": "ai_draft",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "analysis_id",
+          "job_id",
+          "outcome",
+          "draft",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "DraftRun",
+        "type": "object"
+      },
       "ErrorData": {
         "properties": {
           "code": {
@@ -1940,6 +2420,47 @@
           "evidence_location"
         ],
         "title": "EvidenceWrite",
+        "type": "object"
+      },
+      "FieldView": {
+        "properties": {
+          "ai_value": {
+            "title": "Ai Value"
+          },
+          "corrected": {
+            "title": "Corrected",
+            "type": "boolean"
+          },
+          "corrected_value": {
+            "title": "Corrected Value"
+          },
+          "effective_value": {
+            "title": "Effective Value"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "ai_value",
+          "corrected_value",
+          "effective_value",
+          "source",
+          "corrected"
+        ],
+        "title": "FieldView",
         "type": "object"
       },
       "FollowupPlanRequest": {
@@ -4583,6 +5104,167 @@
         "title": "ReviewRequest",
         "type": "object"
       },
+      "RuleView": {
+        "properties": {
+          "dept": {
+            "title": "Dept",
+            "type": "string"
+          },
+          "dept_rule_id": {
+            "title": "Dept Rule Id",
+            "type": "string"
+          },
+          "escalation_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Condition"
+          },
+          "escalation_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Dept"
+          },
+          "first_response_due": {
+            "format": "date-time",
+            "title": "First Response Due",
+            "type": "string"
+          },
+          "first_response_hours": {
+            "title": "First Response Hours",
+            "type": "integer"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "priority_rule_id": {
+            "title": "Priority Rule Id",
+            "type": "string"
+          },
+          "product_family": {
+            "title": "Product Family",
+            "type": "string"
+          },
+          "resolution_due": {
+            "format": "date-time",
+            "title": "Resolution Due",
+            "type": "string"
+          },
+          "resolution_hours": {
+            "title": "Resolution Hours",
+            "type": "integer"
+          },
+          "review_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Review Reasons",
+            "type": "array"
+          },
+          "sla_id": {
+            "title": "Sla Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_version",
+          "priority",
+          "priority_rule_id",
+          "product_family",
+          "dept",
+          "dept_rule_id",
+          "escalation_dept",
+          "escalation_condition",
+          "review_reasons",
+          "sla_id",
+          "first_response_hours",
+          "resolution_hours",
+          "first_response_due",
+          "resolution_due"
+        ],
+        "title": "RuleView",
+        "type": "object"
+      },
+      "Rules": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rules from the latest valid AI run."
+          },
+          "ai_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Error"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rules from the effective values. Priority, department and review reasons follow these; deadlines are below."
+          },
+          "effective_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Error"
+          },
+          "first_response_due": {
+            "$ref": "#/components/schemas/DeadlineView"
+          },
+          "resolution_due": {
+            "$ref": "#/components/schemas/DeadlineView"
+          }
+        },
+        "required": [
+          "ai",
+          "ai_error",
+          "effective",
+          "effective_error",
+          "first_response_due",
+          "resolution_due"
+        ],
+        "title": "Rules",
+        "type": "object"
+      },
       "SendRequest": {
         "additionalProperties": false,
         "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
@@ -4899,6 +5581,22 @@
         "title": "SuccessResponse[ResolutionCase]",
         "type": "object"
       },
+      "SuccessResponse_TicketAnalysis_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketAnalysis"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketAnalysis]",
+        "type": "object"
+      },
       "SuccessResponse_TicketDetail_": {
         "properties": {
           "data": {
@@ -4993,6 +5691,120 @@
           "meta"
         ],
         "title": "SuccessResponse[Workflow]",
+        "type": "object"
+      },
+      "TicketAnalysis": {
+        "properties": {
+          "corrections": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/Correction"
+            },
+            "title": "Corrections",
+            "type": "array"
+          },
+          "drafts": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/DraftRun"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldView"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_valid_draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Valid Draft Id"
+          },
+          "latest_valid_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send it as analysis_id with a correction.",
+            "title": "Latest Valid Run Id"
+          },
+          "return_subtype_stated": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DEFECT",
+                  "NON_DEFECT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the customer stated (AI). Confirmed only through workflow/return-subtype.",
+            "title": "Return Subtype Stated"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/Rules"
+          },
+          "runs": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "description": "Number of corrections. Send it with a correction.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "version",
+          "latest_run",
+          "latest_valid_run_id",
+          "runs",
+          "drafts",
+          "latest_valid_draft_id",
+          "corrections",
+          "fields",
+          "return_subtype_stated",
+          "rules"
+        ],
+        "title": "TicketAnalysis",
         "type": "object"
       },
       "TicketCounts": {
@@ -10053,6 +10865,206 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/tickets/{ticket_id}/analysis": {
+      "get": {
+        "description": "AI runs, drafts, corrections, the effective values with their source, and the rules\ncomputed from the AI and the effective values. Same read scope as the ticket.",
+        "operationId": "cs_get_ticket_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketAnalysis_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Analysis",
+        "tags": [
+          "analysis"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/analysis/corrections": {
+      "post": {
+        "description": "A C/S agent corrects category, secondary category, urgency or provided information.\n\nStored as its own `human_input` row; the AI row is not changed and a later AI run does not\nreplace it. Only fields that differ from the current effective value are stored. The\nreturn subtype is confirmed through workflow/return-subtype, not here.",
+        "operationId": "cs_correct_ticket_classification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketAnalysis_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Correct",
+        "tags": [
+          "analysis"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/tickets/{ticket_id}/audit": {
       "get": {
         "operationId": "cs_list_ticket_audit",
@@ -10946,7 +11958,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/owner": {
       "put": {
-        "description": "Only a manager of the C/S department reassigns the owner. The state does not change.\n\nThe C/S service cannot read the identity schema, so the new owner's role is not checked\nhere; the screen offers registered C/S agents only.",
+        "description": "Only a manager of the C/S department reassigns the owner. The state does not change.\n\nThe C/S service cannot read the identity schema, so the new owner's role is not checked\nhere. The platform relay checks it before forwarding (KAN-195: an inactive or non-cs_agent\nowner is 422 CS_INVALID_OWNER); a local direct call to this service skips that check.",
         "operationId": "cs_reassign_ticket_owner",
         "parameters": [
           {
