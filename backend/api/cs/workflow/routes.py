@@ -27,11 +27,12 @@ from backend.api.cs.workflow.schemas import (
     OwnerRequest,
     ReasonRequest,
     ResolutionCaseCreate,
-    ReturnSubtypeRequest,
+    ReturnConfirmationRequest,
     ReviewRequest,
     Transfer,
     TransferRequest,
     Workflow,
+    confirmed_subtype,
 )
 from backend.api.cs.workflow.sends import refresh_registered
 from backend.api.cs.workflow.service import (
@@ -516,15 +517,16 @@ async def reassign_owner(
 )
 async def confirm_return_subtype(
     ticket_id: UUID,
-    payload: ReturnSubtypeRequest,
+    payload: ReturnConfirmationRequest,
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[Workflow]:
-    """A C/S agent records the return subtype found by inspection (KAN-193).
+    """A C/S agent records what inspection found for a return (KAN-193).
 
-    This is the only way a return subtype becomes confirmed: the LLM value on the ticket is
-    what the customer stated at intake. Not before review starts and not after closing. The
-    state does not change; confirming again overwrites with a new reason and version.
+    Responsibility, cause type and response note. This is the only way a return becomes
+    confirmed: the LLM `return_subtype` on the ticket is what the customer stated at intake.
+    Not before review starts and not after closing. The state does not change; confirming
+    again overwrites every field with a new version.
     """
     async with connection(request.app.state.settings) as conn:
         workflow, _, _ = await begin(conn, principal, ticket_id)
@@ -536,8 +538,15 @@ async def confirm_return_subtype(
             principal.user_id,
             "confirm_return_subtype",
             {
-                "return_subtype_confirmed": payload.return_subtype,
-                "return_subtype_confirmed_reason": payload.reason,
+                "return_responsibility": payload.responsibility,
+                "return_cause_type": payload.cause_type,
+                "return_non_manufacturing_reason": payload.non_manufacturing_reason,
+                "return_response_note": payload.response_note,
+                # Routing keeps reading the DEFECT/NON_DEFECT subtype; it is derived here so
+                # the enum and rules.route stay unchanged.
+                "return_subtype_confirmed": confirmed_subtype(payload.responsibility),
+                # The C11 reason column is replaced by the response note.
+                "return_subtype_confirmed_reason": None,
                 "return_subtype_confirmed_by": principal.user_id,
                 "return_subtype_confirmed_at": await repository.database_now(conn),
             },

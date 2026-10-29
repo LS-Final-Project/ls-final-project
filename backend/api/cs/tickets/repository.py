@@ -28,7 +28,7 @@ CASE_COLUMNS = (
     "id, external_id, data_origin, derivation_kind, resolved_at, known_at, product_code, "
     "fault_id, fw_version_at_issue, symptom, root_cause, root_cause_type, action_taken, "
     "onsite_visit, rma_no, fw_fixed_version, resolved_by_dept, recurrence_prevention, "
-    "dept_result_id"
+    "dept_result_id, responsibility, non_manufacturing_reason"
 )
 
 Row = dict[str, Any]

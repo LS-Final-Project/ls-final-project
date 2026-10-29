@@ -21,6 +21,7 @@ from backend.shared.departments import CS_DEPARTMENT, TRANSFER_DEPARTMENTS
 from backend.shared.settings import Settings
 
 IDENTITY_DEPARTMENTS = Path("infra/migrations/platform/20261023_KAN-78_manager_scopes.sql")
+RESPONSIBILITY_MIGRATION = Path("infra/migrations/cs/20261031_KAN-193_return_responsibility.sql")
 AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 TRF_STAFF = Principal(user_id=uuid4(), roles={"dept_staff"}, dept="TS_TRF")
 LV_STAFF = Principal(user_id=uuid4(), roles={"dept_staff"}, dept="TS_LV")
@@ -240,89 +241,148 @@ def test_service_cannot_remove_workflow_history(cs_database, client, ticket):
         )
 
 
-def test_return_subtype_is_confirmed_by_a_person_after_review_starts(client, admin, ticket):
+def test_return_is_confirmed_by_a_person_after_review_starts(client, admin, ticket):
+    note = "No fault found; customer ordered the wrong rating"
     # Not at intake: the customer's stated reason is on the ticket, confirmation needs review.
     early = act(
-        client, ticket, "return-subtype", version=0, return_subtype="NON_DEFECT", reason="x"
+        client,
+        ticket,
+        "return-subtype",
+        version=0,
+        responsibility="NON_MANUFACTURING",
+        response_note="x",
     )
     assert code(early) == (409, "CS_INVALID_TRANSITION")
     ok(act(client, ticket, "start-review", version=0))
     # Scope before role (permissions 1.3): a department outside the ticket sees nothing, and a
-    # C/S manager who sees it still may not confirm. A reason is required.
-    staff = act(
-        client,
-        ticket,
-        "return-subtype",
-        user=TRF_STAFF,
-        version=1,
-        return_subtype="DEFECT",
-        reason="Inspected",
-    )
+    # C/S manager who sees it still may not confirm.
+    inspected = {"responsibility": "MANUFACTURING", "response_note": "Inspected"}
+    staff = act(client, ticket, "return-subtype", user=TRF_STAFF, version=1, **inspected)
     assert staff.status_code == 404
-    manager = act(
-        client,
-        ticket,
-        "return-subtype",
-        user=CS_MANAGER,
-        version=1,
-        return_subtype="DEFECT",
-        reason="Inspected",
-    )
+    manager = act(client, ticket, "return-subtype", user=CS_MANAGER, version=1, **inspected)
     assert manager.status_code == 403
-    assert (
-        act(client, ticket, "return-subtype", version=1, return_subtype="DEFECT").status_code == 422
-    )
-    assert (
-        act(
-            client, ticket, "return-subtype", version=1, return_subtype="UNSURE", reason="?"
-        ).status_code
-        == 422
-    )
+    # A response note is required; values outside the lists and a non-manufacturing reason
+    # on another responsibility are refused. The old subtype field is not accepted.
+    for invalid in (
+        {"responsibility": "MANUFACTURING"},
+        {"responsibility": "UNSURE", "response_note": "?"},
+        {**inspected, "cause_type": "TRANSPORT"},
+        {**inspected, "non_manufacturing_reason": "Damaged in transport"},
+        {"return_subtype": "DEFECT", "reason": "Inspected"},
+    ):
+        assert act(client, ticket, "return-subtype", version=1, **invalid).status_code == 422
     first = ok(
         act(
             client,
             ticket,
             "return-subtype",
             version=1,
-            return_subtype="NON_DEFECT",
-            reason="No fault found; customer ordered the wrong rating",
+            responsibility="NON_MANUFACTURING",
+            cause_type="SETTING",
+            non_manufacturing_reason="Wrong rating ordered",
+            response_note=note,
         )
     )
     assert first["state"] == "IN_REVIEW" and first["version"] == 2
+    assert (first["return_responsibility"], first["return_cause_type"]) == (
+        "NON_MANUFACTURING",
+        "SETTING",
+    )
+    assert first["return_non_manufacturing_reason"] == "Wrong rating ordered"
+    assert first["return_response_note"] == note
+    # Routing keeps reading DEFECT/NON_DEFECT, derived from responsibility.
     assert first["return_subtype_confirmed"] == "NON_DEFECT"
     assert first["return_subtype_confirmed_by"] == str(AGENT.user_id)
-    assert first["return_subtype_confirmed_at"] and first["return_subtype_confirmed_reason"]
-    # Confirming again overwrites with a new version; the stale version is refused.
-    assert code(
-        act(client, ticket, "return-subtype", version=1, return_subtype="DEFECT", reason="late")
-    ) == (409, "CS_WORKFLOW_VERSION_CONFLICT")
+    assert first["return_subtype_confirmed_at"]
+    # Confirming again overwrites every field with a new version; the stale version is refused.
+    assert code(act(client, ticket, "return-subtype", version=1, **inspected)) == (
+        409,
+        "CS_WORKFLOW_VERSION_CONFLICT",
+    )
     second = ok(
         act(
             client,
             ticket,
             "return-subtype",
             version=2,
-            return_subtype="DEFECT",
-            reason="Winding insulation failed on test",
+            responsibility="MANUFACTURING",
+            cause_type="HARDWARE",
+            response_note="Winding insulation failed on test",
         )
     )
     assert (second["return_subtype_confirmed"], second["version"]) == ("DEFECT", 3)
+    assert second["return_non_manufacturing_reason"] is None
+    # Inspection could not decide: recorded, but no subtype is confirmed for routing.
+    third = ok(
+        act(
+            client,
+            ticket,
+            "return-subtype",
+            version=3,
+            responsibility="UNDETERMINED",
+            response_note="Unit not yet returned; waiting for the carrier",
+        )
+    )
+    assert (third["return_responsibility"], third["return_subtype_confirmed"]) == (
+        "UNDETERMINED",
+        None,
+    )
+    assert third["return_cause_type"] is None and third["return_subtype_confirmed_by"]
     audits = admin.execute(
         "SELECT changes FROM cs.audit_events WHERE entity_id = %s AND entity_type = 'ticket_workflow' "
         "AND changes->'action'->>'to' = 'confirm_return_subtype' ORDER BY version",
         (ticket,),
     ).fetchall()
-    assert len(audits) == 2
+    assert len(audits) == 3
     assert audits[0][0]["provenance_kind"]["to"] == "human_input"
-    assert audits[1][0]["return_subtype_confirmed"] == {"from": "NON_DEFECT", "to": "DEFECT"}
-    # The four confirmation columns move together, and the value domain stays checked (DB CHECK).
+    assert audits[1][0]["return_responsibility"] == {
+        "from": "NON_MANUFACTURING",
+        "to": "MANUFACTURING",
+    }
+    assert audits[2][0]["return_subtype_confirmed"] == {"from": "DEFECT", "to": None}
+    # The database keeps the confirmation whole and the derived subtype consistent (DB CHECK).
+    for broken in (
+        "return_response_note = NULL",
+        "return_responsibility = 'FOO'",
+        "return_subtype_confirmed = 'DEFECT'",
+        "return_non_manufacturing_reason = 'Transport'",
+        "return_cause_type = 'TRANSPORT'",
+    ):
+        with pytest.raises(psycopg.errors.CheckViolation):
+            admin.execute(
+                f"UPDATE cs.ticket_workflows SET {broken} WHERE ticket_id = %s", (ticket,)
+            )
+
+
+# Runs in the full checkout (auth-database job). The backend test image has no infra files.
+@pytest.mark.skipif(not RESPONSIBILITY_MIGRATION.exists(), reason="infra/migrations not in image")
+def test_a_subtype_confirmed_before_responsibility_is_carried_over(client, admin, ticket):
+    """A row confirmed with the first KAN-193 columns (DEFECT/NON_DEFECT + reason) gets its
+    responsibility and response note when the migration runs again; nothing else changes."""
+    ok(act(client, ticket, "start-review", version=0))
+    confirmed_by = uuid4()
+    admin.execute(
+        "ALTER TABLE cs.ticket_workflows DROP CONSTRAINT ticket_workflows_return_confirmation_check"
+    )
+    admin.execute(
+        "UPDATE cs.ticket_workflows SET return_subtype_confirmed = 'DEFECT', "
+        "return_subtype_confirmed_reason = 'Winding failed', return_subtype_confirmed_by = %s, "
+        "return_subtype_confirmed_at = now() WHERE ticket_id = %s",
+        (confirmed_by, ticket),
+    )
+    migration = RESPONSIBILITY_MIGRATION.read_text().splitlines()
+    admin.execute("\n".join(line for line in migration if not line.startswith("\\")))
+    row = admin.execute(
+        "SELECT return_responsibility, return_cause_type, return_response_note, "
+        "return_subtype_confirmed, return_subtype_confirmed_by FROM cs.ticket_workflows "
+        "WHERE ticket_id = %s",
+        (ticket,),
+    ).fetchone()
+    assert row == ("MANUFACTURING", None, "Winding failed", "DEFECT", confirmed_by)
+    # The constraint is back after the re-run.
     with pytest.raises(psycopg.errors.CheckViolation):
         admin.execute(
-            "UPDATE cs.ticket_workflows SET return_subtype_confirmed_reason = NULL WHERE ticket_id = %s",
-            (ticket,),
-        )
-    with pytest.raises(psycopg.errors.CheckViolation):
-        admin.execute(
-            "UPDATE cs.ticket_workflows SET return_subtype_confirmed = 'FOO' WHERE ticket_id = %s",
+            "UPDATE cs.ticket_workflows SET return_subtype_confirmed = 'NON_DEFECT' "
+            "WHERE ticket_id = %s",
             (ticket,),
         )

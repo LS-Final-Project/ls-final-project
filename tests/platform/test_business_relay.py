@@ -82,6 +82,7 @@ def business_database(auth_database):
             "cs/20261028_KAN-108_resolution_cases.sql",
             "cs/20261028_KAN-112_improvement_requests.sql",
             "cs/20261031_KAN-117_followup_rounds.sql",
+            "cs/20261031_KAN-193_return_responsibility.sql",
             # After the migrations that rebuild the audit entity list (README order C14 > C8).
             "cs/20261030_KAN-107_ticket_analysis.sql",
             "cs/20261030_KAN-110_customer_mail.sql",

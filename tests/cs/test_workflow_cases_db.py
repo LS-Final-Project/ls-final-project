@@ -127,8 +127,28 @@ def test_case_is_registered_once_after_closing_from_an_accepted_result(client, a
     unknown = register(client, ticket, version=5, dept_result_id=str(uuid4()))
     assert code(unknown) == (422, "CS_DEPT_RESULT_NOT_ACCEPTED")
 
-    case = ok(register(client, ticket, version=5, dept_result_id=result_id))
+    # Responsibility is optional (KAN-193); a non-manufacturing reason needs that responsibility.
+    transport = {"non_manufacturing_reason": "Gasket damaged in transport"}
+    assert register(client, ticket, version=5, **transport).status_code == 422
+    assert (
+        register(client, ticket, version=5, responsibility="MANUFACTURING", **transport).status_code
+        == 422
+    )
+    case = ok(
+        register(
+            client,
+            ticket,
+            version=5,
+            dept_result_id=result_id,
+            responsibility="NON_MANUFACTURING",
+            **transport,
+        )
+    )
     assert (case["derivation_kind"], case["dept_result_id"]) == ("SYSTEM", result_id)
+    assert (case["responsibility"], case["non_manufacturing_reason"]) == (
+        "NON_MANUFACTURING",
+        "Gasket damaged in transport",
+    )
     assert datetime.fromisoformat(case["resolved_at"]) == datetime.fromisoformat(
         workflow["closed_at"]
     )
@@ -141,6 +161,7 @@ def test_case_is_registered_once_after_closing_from_an_accepted_result(client, a
     assert datetime.fromisoformat(case["known_at"]) >= datetime.fromisoformat(case["resolved_at"])
     detail = ok(client.get(f"/api/v1/cs/tickets/{ticket}"))
     assert detail["resolution_case"]["id"] == case["id"]
+    assert detail["resolution_case"]["responsibility"] == "NON_MANUFACTURING"
     assert code(register(client, ticket, version=5)) == (409, "CS_RESOLUTION_CASE_EXISTS")
     # Registering a case does not change the workflow.
     assert ok(client.get(f"/api/v1/cs/tickets/{ticket}/workflow"))["version"] == 5

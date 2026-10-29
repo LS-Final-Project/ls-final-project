@@ -17,12 +17,23 @@ ALTER TABLE cs.ticket_workflows
 
 -- A confirmation is a person's decision with its reason and time, or nothing at all.
 -- Named apart from the column's own value CHECK (ticket_workflows_return_subtype_confirmed_check),
--- which stays in place.
-ALTER TABLE cs.ticket_workflows DROP CONSTRAINT IF EXISTS ticket_workflows_return_subtype_confirmed_all_or_none;
-ALTER TABLE cs.ticket_workflows ADD CONSTRAINT ticket_workflows_return_subtype_confirmed_all_or_none CHECK (
-    (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_reason IS NULL)
-    AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_by IS NULL)
-    AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_at IS NULL)
-);
+-- which stays in place. Once 20261031_KAN-193_return_responsibility.sql (C17) has replaced it,
+-- a re-run leaves it out: UNDETERMINED rows have no subtype but do have a confirmer.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'cs' AND table_name = 'ticket_workflows'
+          AND column_name = 'return_responsibility'
+    ) THEN
+        ALTER TABLE cs.ticket_workflows DROP CONSTRAINT IF EXISTS ticket_workflows_return_subtype_confirmed_all_or_none;
+        ALTER TABLE cs.ticket_workflows ADD CONSTRAINT ticket_workflows_return_subtype_confirmed_all_or_none CHECK (
+            (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_reason IS NULL)
+            AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_by IS NULL)
+            AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_at IS NULL)
+        );
+    END IF;
+END
+$$;
 
 COMMIT;

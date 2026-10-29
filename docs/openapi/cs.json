@@ -5165,6 +5165,17 @@
             "title": "Known At",
             "type": "string"
           },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Manufacturing Reason"
+          },
           "onsite_visit": {
             "title": "Onsite Visit",
             "type": "boolean"
@@ -5199,6 +5210,22 @@
           "resolved_by_dept": {
             "title": "Resolved By Dept",
             "type": "string"
+          },
+          "responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibility"
           },
           "rma_no": {
             "anyOf": [
@@ -5301,6 +5328,19 @@
             ],
             "title": "Fw Version At Issue"
           },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Manufacturing Reason"
+          },
           "onsite_visit": {
             "title": "Onsite Visit",
             "type": "boolean"
@@ -5343,6 +5383,22 @@
               }
             ],
             "title": "Resolved By Dept"
+          },
+          "responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibility"
           },
           "rma_no": {
             "anyOf": [
@@ -5414,22 +5470,56 @@
         "title": "ResponseMeta",
         "type": "object"
       },
-      "ReturnSubtypeRequest": {
+      "ReturnConfirmationRequest": {
         "additionalProperties": false,
         "description": "A person's inspection result for a return (KAN-193). Always human_input; a model\nresult cannot be submitted here.",
         "properties": {
-          "reason": {
+          "cause_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SITE_CONDITION",
+                  "HARDWARE",
+                  "SETTING",
+                  "WEAR_PART",
+                  "FIRMWARE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause Type"
+          },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with NON_MANUFACTURING, e.g. damaged in transport.",
+            "title": "Non Manufacturing Reason"
+          },
+          "response_note": {
+            "description": "What was done or will be done for the customer.",
             "maxLength": 2000,
             "minLength": 1,
-            "title": "Reason",
+            "title": "Response Note",
             "type": "string"
           },
-          "return_subtype": {
+          "responsibility": {
             "enum": [
-              "DEFECT",
-              "NON_DEFECT"
+              "MANUFACTURING",
+              "NON_MANUFACTURING",
+              "UNDETERMINED"
             ],
-            "title": "Return Subtype",
+            "title": "Responsibility",
             "type": "string"
           },
           "version": {
@@ -5441,10 +5531,10 @@
         },
         "required": [
           "version",
-          "return_subtype",
-          "reason"
+          "responsibility",
+          "response_note"
         ],
-        "title": "ReturnSubtypeRequest",
+        "title": "ReturnConfirmationRequest",
         "type": "object"
       },
       "ReviewRequest": {
@@ -7397,6 +7487,63 @@
             ],
             "title": "Owner User Id"
           },
+          "return_cause_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SITE_CONDITION",
+                  "HARDWARE",
+                  "SETTING",
+                  "WEAR_PART",
+                  "FIRMWARE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Cause Type"
+          },
+          "return_non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Non Manufacturing Reason"
+          },
+          "return_response_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Response Note"
+          },
+          "return_responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed by a C/S agent after inspection; null until then.",
+            "title": "Return Responsibility"
+          },
           "return_subtype_confirmed": {
             "anyOf": [
               {
@@ -7410,7 +7557,7 @@
                 "type": "null"
               }
             ],
-            "description": "Confirmed by a C/S agent after inspection; null until then.",
+            "description": "Derived from responsibility for routing: MANUFACTURING is DEFECT, NON_MANUFACTURING is NON_DEFECT, UNDETERMINED and unconfirmed are null.",
             "title": "Return Subtype Confirmed"
           },
           "return_subtype_confirmed_at": {
@@ -7436,17 +7583,6 @@
               }
             ],
             "title": "Return Subtype Confirmed By"
-          },
-          "return_subtype_confirmed_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Return Subtype Confirmed Reason"
           },
           "state": {
             "enum": [
@@ -13048,7 +13184,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/return-subtype": {
       "post": {
-        "description": "A C/S agent records the return subtype found by inspection (KAN-193).\n\nThis is the only way a return subtype becomes confirmed: the LLM value on the ticket is\nwhat the customer stated at intake. Not before review starts and not after closing. The\nstate does not change; confirming again overwrites with a new reason and version.",
+        "description": "A C/S agent records what inspection found for a return (KAN-193).\n\nResponsibility, cause type and response note. This is the only way a return becomes\nconfirmed: the LLM `return_subtype` on the ticket is what the customer stated at intake.\nNot before review starts and not after closing. The state does not change; confirming\nagain overwrites every field with a new version.",
         "operationId": "cs_confirm_return_subtype",
         "parameters": [
           {
@@ -13066,7 +13202,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReturnSubtypeRequest"
+                "$ref": "#/components/schemas/ReturnConfirmationRequest"
               }
             }
           },
