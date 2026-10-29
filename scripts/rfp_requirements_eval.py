@@ -102,7 +102,31 @@ def adoption_input(
     }
 
 
-def main() -> int:
+def precheck_adoption(gold: Sequence[GoldRequirement], adoption_out: Path | None) -> str | None:
+    """--adoption-out을 쓸 수 있는지 모델 호출 전에 본다(유료 호출 뒤 실패를 막는다).
+
+    Args:
+        gold: 읽은 정답 요구.
+        adoption_out: 채택 기록 입력 파일 경로(없으면 검사하지 않는다).
+
+    Returns:
+        str | None: 문제가 있으면 고정 코드(EVAL_OUTPUT_EXISTS·EVAL_OUTPUT_DIR_MISSING·EVAL_GOLD_DUPLICATE_KEY),
+            없으면 None.
+    """
+    if adoption_out is None:
+        return None
+    if adoption_out.exists():
+        return "EVAL_OUTPUT_EXISTS"
+    if not adoption_out.parent.is_dir():
+        return "EVAL_OUTPUT_DIR_MISSING"
+    try:
+        summarize_extraction_keys({"document-1": [(g.clause_no, g.attribute) for g in gold]}, {})
+    except ValueError:
+        return "EVAL_GOLD_DUPLICATE_KEY"
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--docx", type=Path, required=True)
     parser.add_argument("--gold", type=Path, required=True)
@@ -111,12 +135,20 @@ def main() -> int:
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
     parser.add_argument("--adoption-out", type=Path, help="eval_adopt --task rfp 입력 파일(선택)")
     parser.add_argument("--candidate-name", help="채택 기록 후보 이름(기본 requirements-<모델>)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if ROOT in args.out.resolve().parents or args.out.resolve() == ROOT:
         raise SystemExit("STOP: 결과에는 원문 조각이 들어가므로 저장소 밖 폴더에 쓴다")
-    if args.adoption_out and args.adoption_out.exists():
-        raise SystemExit("EVAL_OUTPUT_EXISTS: --adoption-out 파일이 이미 있다")
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
+    # 정답과 채택 입력 경로는 키·문서·모델을 쓰기 전에 검사한다.
+    gold = [
+        GoldRequirement.model_validate_json(line)
+        for line in args.gold.read_text().splitlines()
+        if line
+    ]
+    problem = precheck_adoption(gold, args.adoption_out)
+    if problem:
+        print(f"{problem}: --adoption-out을 쓸 수 없어 모델을 부르지 않았다.", file=sys.stderr)
+        return 1
 
     values = {k: v or "" for k, v in dotenv_values(args.env_file).items()}
     settings = AISettings(
@@ -133,11 +165,6 @@ def main() -> int:
         return generate(client, settings, text, response_schema=ResponseSchema)
 
     tree = build_clause_tree(extract(args.docx.read_bytes(), source_name=args.docx.name))
-    gold = [
-        GoldRequirement.model_validate_json(line)
-        for line in args.gold.read_text().splitlines()
-        if line
-    ]
     args.out.mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {
         "version": EXTRACTION_VERSION,

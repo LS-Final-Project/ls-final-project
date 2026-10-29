@@ -9,6 +9,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.engine.rfp.requirements import ExtractedRequirement
 from backend.engine.rfp.scoring import GoldRequirement
@@ -137,6 +138,40 @@ class AdoptionInputTest(unittest.TestCase):
             summarize_extraction_keys({"d": [("2.4.1", "BIL"), ("2.4.1", "BIL")]}, {})
         with self.assertRaisesRegex(ValueError, "EVAL_INVALID_INPUT"):
             summarize_extraction_keys({"d": [("2.4.1", "BIL")]}, {"other": [("2.4.1", "BIL")]})
+
+    def test_bad_adoption_inputs_stop_before_any_model_call(self):
+        """중복 정답 키·없는 출력 폴더·이미 있는 출력이면 모델·문서·키를 쓰기 전에 종료 코드 1이다(#295 이연 P3).
+
+        Returns:
+            None: 종료 코드·오류 코드·클라이언트 미생성을 확인한다.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gold = root / "gold.jsonl"
+            gold.write_text(
+                "\n".join(g.model_dump_json() for g in [*GOLD, GOLD[0]]) + "\n", encoding="utf-8"
+            )
+            (root / "taken.json").write_text("{}", encoding="utf-8")
+            base = ["--docx", str(root / "absent.docx"), "--gold", str(gold), "--sections", "2.4"]
+            cases = [
+                (root / "adopt.json", "EVAL_GOLD_DUPLICATE_KEY"),
+                (root / "absent" / "adopt.json", "EVAL_OUTPUT_DIR_MISSING"),
+                (root / "taken.json", "EVAL_OUTPUT_EXISTS"),
+            ]
+            for target, code in cases:
+                err = io.StringIO()
+                with (
+                    patch.object(rfp_requirements_eval, "create_client") as client,
+                    patch.object(rfp_requirements_eval, "dotenv_values") as env,
+                    contextlib.redirect_stderr(err),
+                ):
+                    result = rfp_requirements_eval.main(
+                        [*base, "--out", str(root / "out"), "--adoption-out", str(target)]
+                    )
+                self.assertEqual((result, err.getvalue().split(":")[0]), (1, code))
+                client.assert_not_called()
+                env.assert_not_called()
+                self.assertFalse((root / "out").exists())
 
 
 if __name__ == "__main__":
