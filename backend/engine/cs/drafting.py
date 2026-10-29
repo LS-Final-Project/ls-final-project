@@ -15,6 +15,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.engine.cs.classification import ClassificationOutput, _unique_object, build_input
+from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 
 DRAFT_INPUT_VERSION = "cs-draft-input-v1"
 OptionLabel = Literal["CONCISE", "DETAILED", "INFO_FIRST"]
@@ -92,6 +93,7 @@ def build_draft_input(
     already_asked_codes: frozenset[str],
     evidence: list[EvidenceSnippet],
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
+    blocked_codes: frozenset[str] = BLOCKED_CODES,
 ) -> PreparedDraftInput:
     """분류와 같은 규칙으로 문의를 정제하고 요청할 정보 코드를 계산한다.
 
@@ -102,10 +104,12 @@ def build_draft_input(
         already_asked_codes: 앞선 답변에서 이미 요청한 정보 코드.
         evidence: 근거 스니펫. chunk_id는 서로 달라야 한다.
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
+        blocked_codes: 근거에 있으면 초안 입력을 만들지 않는 인용 차단 코드(hybrid와 같은 기본값).
 
     Returns:
         PreparedDraftInput: 정제 입력. 요청 코드는 정렬한 required − provided − already_asked다.
-            잘못된 입력은 build_input과 같은 안전한 ValueError다.
+            잘못된 입력은 build_input과 같은 안전한 ValueError다. 근거 snippet·section_path에 차단 코드가
+            있으면 조용히 빼지 않고 CS_BLOCKED_EVIDENCE로 거부한다(검색 경계를 우회했다는 신호).
     """
     prepared = build_input(record, sensitive_values=sensitive_values)
     if (
@@ -120,6 +124,13 @@ def build_draft_input(
         )
     ):
         raise ValueError("CS_INVALID_INPUT")
+    if any(
+        mentions_code(text, code)
+        for e in evidence
+        for text in (e.snippet, *e.section_path)
+        for code in blocked_codes
+    ):
+        raise ValueError("CS_BLOCKED_EVIDENCE")
     provided = classification.provided_info
     request = sorted(required_info_codes - set(provided) - already_asked_codes)
     payload = DraftInput(
@@ -242,7 +253,11 @@ def find_forbidden_commitment(text: str) -> bool:
 
 
 def validate_output(
-    raw: str, *, evidence_chunk_ids: frozenset[str], request_info_codes: frozenset[str]
+    raw: str,
+    *,
+    evidence_chunk_ids: frozenset[str],
+    request_info_codes: frozenset[str],
+    blocked_codes: frozenset[str] = BLOCKED_CODES,
 ) -> DraftOutput:
     """원시 JSON을 폴백 없이 검사하고 금지 약속을 거부한다.
 
@@ -250,10 +265,11 @@ def validate_output(
         raw: 모델 원시 응답.
         evidence_chunk_ids: 입력에 준 근거 chunk_id 집합.
         request_info_codes: 입력에 준 요청 대상 정보 코드 집합.
+        blocked_codes: 문장·질문에 있으면 거부하는 인용 차단 코드(최종 응답 경계).
 
     Returns:
         DraftOutput: 유효한 초안. INFO_FIRST는 request_info_codes를 전부 물어야 한다. 형식·근거·코드 위반은 CS_INVALID_OUTPUT, 형식은 맞지만 승인·확정
-            약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
+            약속이 있으면 CS_FORBIDDEN_COMMITMENT, 차단 코드를 말하면 CS_BLOCKED_EVIDENCE ValueError다.
     """
     try:
         output = DraftOutput.model_validate(json.loads(raw, object_pairs_hook=_unique_object))
@@ -279,6 +295,8 @@ def validate_output(
             *(request.question for request in option.info_requests),
         )
     ]
+    if any(mentions_code(text, code) for text in texts for code in blocked_codes):
+        raise ValueError("CS_BLOCKED_EVIDENCE")
     if any(find_forbidden_commitment(text) for text in texts):
         raise ValueError("CS_FORBIDDEN_COMMITMENT")
     return output

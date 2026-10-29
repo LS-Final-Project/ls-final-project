@@ -117,6 +117,32 @@ def check(text):
     )
 
 
+@pytest.mark.parametrize(
+    ("snippet", "section_path"),
+    [
+        ("Sensitivity per FLT&#45;042 is 100 mA.", ["Faults"]),
+        ("Sensitivity is 100 mA.", ["Faults", "FLT 042 leakage"]),
+    ],
+)
+def test_blocked_code_in_evidence_is_rejected(snippet, section_path):
+    """근거 스니펫·절 경로에 차단 코드가 있으면 조용히 빼지 않고 거부한다.
+
+    Args:
+        snippet: 근거 스니펫.
+        section_path: 근거 절 경로.
+
+    Returns:
+        None: CS_BLOCKED_EVIDENCE를 확인한다.
+    """
+    evidence = [
+        EvidenceSnippet(
+            chunk_id="c9", snippet=snippet, section_path=section_path, document_sha256="b" * 64
+        )
+    ]
+    with pytest.raises(ValueError, match="^CS_BLOCKED_EVIDENCE$"):
+        prepare(evidence=EVIDENCE + evidence)
+
+
 def test_request_codes_exclude_provided_and_already_asked():
     """요청 코드는 필요 − 제공 − 이미 물은 코드이며 정답·사후 기록·민감값은 빠진다.
 
@@ -525,3 +551,42 @@ def test_timeout_and_rejected_input():
     assert typed.outcome == "HELD" and typed.error_code == "CS_INVALID_INPUT"
     with pytest.raises(ValueError, match="^CS_INVALID_ATTEMPT_NUMBER$"):
         attempt(provider, attempt_number=0)
+
+
+def test_blocked_code_in_draft_output_is_rejected():
+    """초안 문장·질문이 차단 코드를 말하면 최종 응답 경계에서 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: CS_BLOCKED_EVIDENCE를 확인한다.
+    """
+    text = raw(
+        option("CONCISE", text="Per FLT 042, set 100 mA.", kind="UNCONFIRMED", ids=()),
+        option("DETAILED"),
+        option("INFO_FIRST"),
+    )
+    with pytest.raises(ValueError, match="^CS_BLOCKED_EVIDENCE$"):
+        check(text)
+
+
+def test_blocked_evidence_input_failure_keeps_its_code():
+    """차단 근거로 입력을 만들지 못한 시도는 호출 없이 CS_BLOCKED_EVIDENCE로 남는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 시도 기록의 오류 코드를 확인한다.
+    """
+    provider = Mock()
+    blocked = EvidenceSnippet(
+        chunk_id="c9",
+        snippet="Sensitivity per FLT-042.",
+        section_path=["Faults"],
+        document_sha256="b" * 64,
+    )
+    result = attempt(provider, evidence=EVIDENCE + [blocked])
+    provider.assert_not_called()
+    assert result.error_code == "CS_BLOCKED_EVIDENCE" and not result.call_started
