@@ -282,7 +282,6 @@ def test_mandatory_gap_judged_found_counts_binding_requirements_only():
             GoldRequirement("1", "b", "INSUFFICIENT_EVIDENCE", "CONDITION_BOUND"),
             GoldRequirement("1", "c", "SPEC_GAP", "PREFERRED"),
             GoldRequirement("1", "d", "INSUFFICIENT_EVIDENCE", "MANDATORY"),
-            GoldRequirement("1", "e", "SPEC_GAP"),
         ]
     }
     predicted = {
@@ -290,7 +289,6 @@ def test_mandatory_gap_judged_found_counts_binding_requirements_only():
             pred("1", "a", "EVIDENCE_FOUND"),
             pred("1", "b", "CONDITIONAL"),
             pred("1", "c", "EVIDENCE_FOUND"),
-            pred("1", "e", "EVIDENCE_FOUND"),
         ]
     }
     found = summarize_requirement_extraction(gold, predicted, run_label="FIRST")["critical_errors"][
@@ -299,9 +297,18 @@ def test_mandatory_gap_judged_found_counts_binding_requirements_only():
     assert found == {
         "count": 1,
         "denominator": 3,
-        "necessity_missing": 1,
+        "necessity_missing": 0,
         "keys": [("A", "1", "a")],
     }
+    # necessity가 없는 정답 요구가 하나라도 있으면(상태와 무관) blocker 값을 내지 않는다.
+    gold["A"].append(GoldRequirement("1", "f", "EVIDENCE_FOUND"))
+    unknown = summarize_requirement_extraction(gold, predicted, run_label="FIRST")
+    partial = unknown["critical_errors"]["mandatory_gap_judged_found"]
+    assert (partial["count"], partial["denominator"], partial["necessity_missing"]) == (
+        None,
+        None,
+        1,
+    )
     bare = {"A": [GoldRequirement("1", "a", "SPEC_GAP")]}
     none = summarize_requirement_extraction(
         bare, {"A": [pred("1", "a", "EVIDENCE_FOUND")]}, run_label="FIRST"
@@ -350,9 +357,11 @@ def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
     assert tuple(values) == RFP_METRIC_KEYS
     assert values["rfp_requirement_recall"] == extraction["extraction"]["recall"]
     assert values["rfp_requirement_precision"] == extraction["extraction"]["precision"]
-    assert values["rfp_status_match_rate"] == 5 / 7
-    assert values["rfp_critical_false_fulfillment_count"] == 1
+    # 픽스처는 정답 사유가 없고(상태만 비교) necessity가 없는 정답 요구가 있어 두 게이트 값은 None이다.
+    assert extraction["status_match"]["rate"] == 5 / 7
     for key in (
+        "rfp_status_match_rate",
+        "rfp_critical_false_fulfillment_count",
         "rfp_evidence_accuracy",
         "rfp_integration_responsibility_rate",
         "rfp_draft_trace_rate",
@@ -367,3 +376,18 @@ def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
     assert both["rfp_partner_recommendation_precision"] == 1.0
     assert both["rfp_mandatory_constraint_violation_count"] == 0
     assert both["rfp_requirement_recall"] is None
+    full = {
+        "A": [
+            GoldRequirement("1", "a", "SPEC_GAP", "MANDATORY", expected_reason="정격 부족"),
+            GoldRequirement("1", "b", "EVIDENCE_FOUND", "PREFERRED", expected_reason="근거 있음"),
+        ]
+    }
+    guessed = {
+        "A": [
+            reasoned("1", "a", "EVIDENCE_FOUND", "x"),
+            reasoned("1", "b", "EVIDENCE_FOUND", "근거  있음"),
+        ]
+    }
+    measured = gate_values(summarize_requirement_extraction(full, guessed, run_label="FIRST"), None)
+    assert measured["rfp_status_match_rate"] == 0.5
+    assert measured["rfp_critical_false_fulfillment_count"] == 1

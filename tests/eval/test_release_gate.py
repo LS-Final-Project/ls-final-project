@@ -369,7 +369,7 @@ def test_rfp_gates_file_matches_planning_table(tmp_path):
     assert tuple(g.metric_key for g in gates) == RFP_METRIC_KEYS
     data = json.loads(GATES_RFP_PATH.read_text(encoding="utf-8"))
     tools = {item["definition"]["tool"]["status"] for item in data["gates"]}
-    assert tools == {"IMPLEMENTED", "MISSING"}
+    assert tools == {"IMPLEMENTED", "PARTIAL", "MISSING"}
     for change in (
         lambda d: d["gates"][0]["definition"].pop("denominator"),
         lambda d: d["gates"][0]["definition"]["tool"].update(status="DONE"),

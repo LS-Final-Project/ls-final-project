@@ -178,7 +178,7 @@ def summarize_requirement_extraction(
             지표, 중대오류 (a) 근거 없는 충족 (b) 미충족·근거 부족을 충족으로 (c) 필수 요구 미추출의 건수와
             키, 경로 정확 일치율·혼동, necessity 정확 일치율, gold_fingerprint. status_match는 상태(정답 사유가 있으면
             사유도)가 맞은 정답 요구 비율이고, critical_errors.mandatory_gap_judged_found는 필수 미충족·미확인을 확정
-            충족으로 판정한 건수와 분모다. 비율의 분모가 0이면 None이다.
+            충족으로 판정한 건수와 분모다(necessity가 없는 정답 요구가 하나라도 있으면 None). 비율의 분모가 0이면 None이다.
             잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     if run_label not in ("FIRST", "REMEASURE") or set(predicted) - set(gold):
@@ -219,6 +219,7 @@ def summarize_requirement_extraction(
                 )
             )
             if expected.necessity is None:
+                # 필수 여부를 모르는 정답 요구가 하나라도 있으면 0건으로 보이지 않게 집계를 None으로 둔다.
                 necessity_missing += 1
             elif (
                 expected.necessity in BINDING_NECESSITIES
@@ -272,10 +273,11 @@ def summarize_requirement_extraction(
             "unsupported_evidence_found": {"count": len(unsupported), "keys": unsupported},
             "gap_judged_found": {"count": len(overclaimed), "keys": overclaimed},
             "mandatory_not_extracted": {"count": len(missed_mandatory), "keys": missed_mandatory},
-            # 필수(MANDATORY·CONDITION_BOUND) 미충족·미확인을 확정 충족으로. 정답에 necessity가 하나도 없으면 None.
+            # 필수(MANDATORY·CONDITION_BOUND) 미충족·미확인을 확정 충족으로. necessity가 없는 정답 요구가 하나라도
+            # 있으면 분모에서 빠진 필수 요구가 있을 수 있어 None(NOT_EVALUABLE)이다.
             "mandatory_gap_judged_found": {
-                "count": None if necessity_missing == gold_total else len(binding_found),
-                "denominator": None if necessity_missing == gold_total else binding_total,
+                "count": None if necessity_missing else len(binding_found),
+                "denominator": None if necessity_missing else binding_total,
                 "necessity_missing": necessity_missing,
                 "keys": binding_found,
             },
@@ -397,13 +399,17 @@ def gate_values(
         grades: summarize_candidate_grades 결과(없으면 None).
 
     Returns:
-        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·통합 책임·초안 추적)는 None이다.
+        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·통합 책임·초안 추적), 사유를 비교하지
+            못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족은 None이다.
     """
     critical = extraction["critical_errors"]["mandatory_gap_judged_found"] if extraction else {}
     return {
         "rfp_requirement_recall": extraction["extraction"]["recall"] if extraction else None,
         "rfp_requirement_precision": extraction["extraction"]["precision"] if extraction else None,
-        "rfp_status_match_rate": extraction["status_match"]["rate"] if extraction else None,
+        # 게이트는 '상태와 사유'가 모두 일치한 비율이다. 사유가 없는 정답 요구가 있으면(상태만 비교) None이다.
+        "rfp_status_match_rate": extraction["status_match"]["rate"]
+        if extraction and extraction["status_match"]["reason_compared"]
+        else None,
         "rfp_evidence_accuracy": None,
         "rfp_critical_false_fulfillment_count": critical.get("count"),
         "rfp_partner_recommendation_precision": grades["mandatory_confirmed_precision"]

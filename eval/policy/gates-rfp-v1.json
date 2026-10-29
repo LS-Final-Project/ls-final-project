@@ -50,7 +50,7 @@
         "report": "비율과 건수를 함께 적는다(예: 19/21). 상태별 결과(혼동표)를 함께 공개한다",
         "tool": {
           "status": "IMPLEMENTED",
-          "ref": "eval.rfp_metrics.summarize_requirement_extraction status_match.rate·count(정답 사유가 있으면 정규화 문장 일치, reason_compared 표기), 혼동표는 status"
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction status_match.rate·count(정답 사유가 있으면 정규화 문장 일치, reason_compared 표기, 사유가 없는 정답 요구가 있으면 gate_values는 None), 혼동표는 status"
         }
       }
     },
@@ -82,7 +82,7 @@
         "report": "'0건 / 발생 가능 N건'으로 적는다",
         "tool": {
           "status": "IMPLEMENTED",
-          "ref": "eval.rfp_metrics.summarize_requirement_extraction critical_errors.mandatory_gap_judged_found.count·denominator(정답 necessity MANDATORY·CONDITION_BOUND, 정답에 necessity가 없으면 None)"
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction critical_errors.mandatory_gap_judged_found.count·denominator(정답 necessity MANDATORY·CONDITION_BOUND, necessity가 없는 정답 요구가 하나라도 있으면 None)"
         }
       }
     },
@@ -97,8 +97,8 @@
         "denominator": "'필수 기술조건 확인 후보'로 분류한 후보 수",
         "report": "비율과 건수를 함께 적는다(예: 19/21). 협력사 평가는 가상 후보에 한정한다",
         "tool": {
-          "status": "IMPLEMENTED",
-          "ref": "eval.rfp_metrics.summarize_candidate_grades mandatory_confirmed_precision·mandatory_confirmed_count(검토 후보 미확인 조건 표시 review_unconfirmed_listed는 조건 목록 입력 전 None, KAN-191)"
+          "status": "PARTIAL",
+          "ref": "eval.rfp_metrics.summarize_candidate_grades mandatory_confirmed_precision·mandatory_confirmed_count — 정답 등급 일치만 비교, 검토 후보 미확인 조건 표시(review_unconfirmed_listed)는 미구현(KAN-191)"
         }
       }
     },
