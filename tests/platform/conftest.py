@@ -163,6 +163,9 @@ def jobs_database(auth_database):
             "infra/migrations/platform/20261028_KAN-69_dispatch_recovery.sql"
         ).read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-182 tft 작업 종류. 재실행해도 같은 상태가 된다.
+        migration = Path("infra/migrations/platform/20261029_KAN-182_tft_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 
