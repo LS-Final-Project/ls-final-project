@@ -256,7 +256,8 @@ class ImportRunTests(unittest.TestCase):
             (body.purpose, body.stage, body.data_split, body.model_id, body.data_origin),
             ("pipeline", "classification", "valid", "gemini-x", "synthetic"),
         )
-        self.assertEqual(body.targets[0].attributes, {"channel": "EMAIL"})
+        # body_language는 등록 규칙의 허용 키라 층화용으로 함께 넣는다(KAN-90).
+        self.assertEqual(body.targets[0].attributes, {"channel": "EMAIL", "body_language": "en"})
 
     def test_inconsistent_inputs_are_rejected(self):
         """outcome을 하나로 정할 수 없거나 라벨·대상·분할·정답이 결과와 맞지 않으면 종료 코드 1이다.

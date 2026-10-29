@@ -319,7 +319,7 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 | `dataset_manifest` | `{}` 또는 `{"sources": [{"source", "source_instance", "file_sha256"(64 hex), "count"(0 이상), "data_origin"}]}`. 다른 키는 받지 않는다 |
 | `targets` | 1~5000개. 각 대상은 `target_ref`(1~128자, 중복 금지), `target_kind`, `data_origin`, `attributes`(객체) |
 
-- **attributes**: 원문·정답·비밀을 담지 않는다. 중첩 키까지 검사해 이름에 `body`·`subject`·`gold`·`answer`·`label`이나 비밀 키 단어가 들어가면 거부한다.
+- **attributes**: 원문·정답·비밀을 담지 않는다. 중첩 키까지 검사해 이름에 `body`·`subject`·`gold`·`answer`·`label`이나 비밀 키 단어가 들어가면 거부한다. 예외는 층화 메타데이터 키 `body_language` 하나뿐이다(정확히 같은 이름만, 잠금 집계 `cs_strata`가 읽음). `email_body`처럼 다른 `body` 포함 키는 계속 거부한다(KAN-90, #244 이연).
 - **출처 일치**: manifest 원천과 대상의 `data_origin`이 두 가지 이상 섞이면 실험 `data_origin`은 `demo`여야 하고, 한 가지면 그 값과 같아야 한다.
 
 **서버 계산**

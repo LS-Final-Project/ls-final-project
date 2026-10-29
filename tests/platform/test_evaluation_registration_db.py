@@ -214,6 +214,43 @@ def test_registration_rules_are_422_with_codes(evaluator, evaluation_database, c
         ).fetchone() == (0,)
 
 
+def test_body_language_is_the_only_allowed_body_key(evaluator, evaluation_database):
+    """층화 키 body_language는 등록되고, body가 들어간 다른 키(email_body 등)는 계속 거부한다(#244 이연)."""
+    allowed = body(
+        targets=[
+            {
+                "target_ref": "a",
+                "target_kind": "k",
+                "data_origin": "synthetic",
+                "attributes": {"channel": "EMAIL", "body_language": "en"},
+            }
+        ]
+    )
+    response = register(evaluator, allowed)
+    assert response.status_code == 201, response.text
+    with psycopg.connect(evaluation_database) as conn:
+        assert conn.execute(
+            "SELECT attributes->>'body_language' FROM evaluation.experiment_targets "
+            "WHERE experiment_id=%s",
+            (response.json()["data"]["experiment_id"],),
+        ).fetchone() == ("en",)
+    for key in ("email_body", "Body_Language_raw", "body"):
+        denied = body(
+            name="합성 거부 실험",
+            targets=[
+                {
+                    "target_ref": "a",
+                    "target_kind": "k",
+                    "data_origin": "synthetic",
+                    "attributes": {key: "en"},
+                }
+            ],
+        )
+        response = register(evaluator, denied)
+        assert response.status_code == 422, (key, response.text)
+        assert response.json()["error"]["code"] == "EVALUATION_TARGET_ATTRIBUTE_FORBIDDEN"
+
+
 def test_mixed_sources_register_only_as_demo(evaluator):
     mixed = body(
         data_origin="demo",
