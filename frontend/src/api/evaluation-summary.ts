@@ -150,6 +150,69 @@ function lockedMetric(value: unknown, spec: Record<string, readonly string[]>): 
   };
 }
 
+type OutcomeQuality = NonNullable<LockedQuality['outcomes']>;
+
+/** 형식 위반율·결과별 건수(KAN-148 2차)를 검증한다. 율은 SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION)과 같아야 한다. Args: 선택 필드 값. Returns: 투영한 값 또는 미저장(null). */
+function outcomeQuality(value: unknown): OutcomeQuality | null {
+  if (value === undefined || value === null) return null;
+  const data = object(value);
+  const outcomes = object(data.outcomes);
+  if (typeof data.scoring_version !== 'string' || !data.scoring_version || data.scoring_version.length > 64
+      || !count(data.stored_scoring_version_count) || data.stored_scoring_version_count < 1
+      || typeof data.stored_at !== 'string' || !Number.isFinite(Date.parse(data.stored_at))
+      || !exactKeys(outcomes, outcomeKeys) || outcomeKeys.some(key => !count(outcomes[key]))) throw invalid();
+  const violations = outcomes.SCHEMA_VIOLATION as number;
+  const received = (outcomes.VALID as number) + violations;
+  if (data.schema_violations !== violations || data.received !== received
+      || data.schema_violation_rate !== (received ? violations / received : null)) throw invalid();
+  return {
+    scoring_version: data.scoring_version, stored_scoring_version_count: data.stored_scoring_version_count,
+    stored_at: data.stored_at, schema_violation_rate: data.schema_violation_rate as number | null,
+    schema_violations: violations, received,
+    outcomes: Object.fromEntries(outcomeKeys.map(key => [key, outcomes[key]])) as OutcomeQuality['outcomes'],
+  };
+}
+
+type StageMetricBlock = NonNullable<RunSummary['stage_metrics']>[number];
+const stageIdentifier = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.=:/-]{1,128}$/.test(value);
+const stages = ['search', 'draft', 'rfp'] as const;
+
+/** 단계별 채점 행(search·draft·rfp)을 검증해 키·값 그대로 투영한다. Args: 선택 필드 값. Returns: 블록 목록(없으면 빈 목록). */
+function stageMetrics(value: unknown): StageMetricBlock[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw invalid();
+  const seen = new Set<string>();
+  return value.map(raw => {
+    const block = object(raw);
+    if (!stages.includes(block.stage as typeof stages[number]) || seen.has(block.stage as string)
+        || typeof block.scoring_version !== 'string' || !block.scoring_version
+        || !count(block.stored_scoring_version_count) || block.stored_scoring_version_count < 1
+        || typeof block.stored_at !== 'string' || !Number.isFinite(Date.parse(block.stored_at))
+        || !Array.isArray(block.items)) throw invalid();
+    seen.add(block.stage as string);
+    const items = block.items.map(rawItem => {
+      const item = object(rawItem);
+      const details = object(item.details);
+      if (!stageIdentifier(item.metric_key) || !stageIdentifier(item.segment)
+          || !(item.class_label === null || stageIdentifier(item.class_label))
+          || !(item.value === null || typeof item.value === 'number' && Number.isFinite(item.value))
+          || !optionalCount(item.support)
+          || !(item.threshold === null || typeof item.threshold === 'number' && Number.isFinite(item.threshold))
+          || !(item.comparison === null || item.comparison === '>=' || item.comparison === '<=' || item.comparison === '=')
+          || !(item.passed === null || typeof item.passed === 'boolean') || item.quality_gate_evaluated !== false
+          || Object.keys(details).some(key => !['tp', 'fp', 'fn'].includes(key) || !count(details[key]))) throw invalid();
+      return {
+        metric_key: item.metric_key, segment: item.segment, class_label: item.class_label as string | null,
+        value: item.value as number | null, support: item.support, threshold: item.threshold as number | null,
+        comparison: item.comparison as StageMetricBlock['items'][number]['comparison'], passed: item.passed as boolean | null,
+        details: { ...details } as StageMetricBlock['items'][number]['details'], quality_gate_evaluated: false as const,
+      };
+    });
+    return { stage: block.stage as StageMetricBlock['stage'], scoring_version: block.scoring_version,
+      stored_scoring_version_count: block.stored_scoring_version_count, stored_at: block.stored_at, items };
+  });
+}
+
 /** 잠금 정답 품질을 검증해 투영한다. Args: 선택 필드 값. Returns: 검증한 품질 또는 미연결(null). */
 function lockedQuality(value: unknown): LockedQuality | null {
   if (value === undefined || value === null) return null;
@@ -158,7 +221,7 @@ function lockedQuality(value: unknown): LockedQuality | null {
   const raw = object(data.metrics);
   if (!exactKeys(raw, lockedMetricKeys)) throw invalid();
   const metrics = Object.fromEntries(lockedMetricKeys.map(key => [key, lockedMetric(raw[key], lockedRows[key])])) as LockedQuality['metrics'];
-  return { bundle_id: data.bundle_id, attempt: 'first', quality_gate_evaluated: false, metrics };
+  return { bundle_id: data.bundle_id, attempt: 'first', quality_gate_evaluated: false, metrics, outcomes: outcomeQuality(data.outcomes) };
 }
 
 /** 비교 키는 형식만 확인한다. Args: 선택 필드 값. Returns: 소문자 hex 키 또는 구버전 미제공(null). */
@@ -242,5 +305,6 @@ export async function getEvaluationSummary(runId: string, signal: AbortSignal): 
     first: attempt(data.first), retry: attempt(data.retry), all: attempt(data.all),
     synthetic_quality: synthetic, locked_quality: locked,
     comparison_key: comparisonKey(data.comparison_key),
+    stage_metrics: stageMetrics(data.stage_metrics),
   };
 }
