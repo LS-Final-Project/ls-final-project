@@ -220,3 +220,86 @@ def test_pdf_reports_edit_traces_as_unsupported_not_none():
     tree = build_clause_tree(doc([p("PART 1 - GENERAL"), p("1.1 SUMMARY")], kind="PDF"))
     report = interpret_edits(tree)
     assert (report.status, report.edit_trace_support) == ("UNSUPPORTED", False)
+
+
+def test_a_broken_line_starting_with_a_decimal_is_not_an_article():
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.4 SWITCHGEAR"),
+        p("C. Rated voltage shall be"),
+        p("13.8 kV class, 3-phase."),
+        p("1. Item under C."),
+    )
+    clauses = by_no(tree)
+    assert "13.8" not in clauses
+    assert clauses["2.4.C"].text == "Rated voltage shall be 13.8 kV class, 3-phase."
+    assert clauses["2.4.C.1"].parent_no == "2.4.C"
+
+
+def test_short_body_lines_repeated_alone_stay_in_their_clauses():
+    blocks = [p("PART 1 - GENERAL"), p("1.1 SUMMARY")]
+    for letter in "ABC":
+        blocks += [p(f"{letter}. Item {letter}:"), p("Provide the following:")]
+    blocks += [p("END OF SECTION 26"), p("11/21/2023 DOC REL 09 - 24")]
+    tree = tree_of(*blocks)
+    assert all(by_no(tree)[f"1.1.{x}"].text.endswith("Provide the following:") for x in "ABC")
+    # END OF SECTION 뒤(마지막 페이지 바닥글)는 반복되지 않아도 절 밖이라 조항에 붙이지 않는다.
+    assert [e.reason for e in tree.excluded] == ["END_OF_SECTION", "AFTER_END_OF_SECTION"]
+    assert tree.excluded[1].text.startswith("11/21/2023")
+
+
+def test_a_floating_article_that_never_restarts_is_opened_and_reported():
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.1 MANUFACTURERS"),
+        p("A. Manufacturers:"),
+        cell(0, 0, 0, "2.2 A."),
+        cell(0, 0, 1, "1."),
+        cell(0, 0, 2, "ABB."),
+        p("2. Eaton."),
+    )
+    clauses = by_no(tree)
+    assert "2.2.A" in clauses and "DEFERRED_ARTICLE" in clauses["2.2.A"].flags
+    assert ("2.2.A", "UNPLACED_ARTICLE") in [(i.clause_no, i.kind) for i in tree.numbering_issues]
+    head = tree.clauses[-1].block_ids
+    assert any(b.startswith("t") for b in head)
+
+
+def test_inline_split_keeps_strikes_in_the_gap_and_the_right_block():
+    first = p("a. First item ends here. b. Second item starts", ("x", 25))
+    second = p("and continues on the next line.")
+    tree = tree_of(p("PART 3 - EXECUTION"), p("3.7 INSPECTION"), p("B. Record:"), first, second)
+    clauses = by_no(tree)
+    a, b = clauses["3.7.B.a"], clauses["3.7.B.b"]
+    assert a.text == "First item ends here."
+    assert b.text == "Second item starts and continues on the next line."
+    # 나눈 자리(공백) 안의 삭제 값을 버리지 않는다.
+    assert [v.text for v in a.deleted_values + b.deleted_values] == ["x"]
+    assert a.block_ids == [first.block_id] and b.block_ids == [first.block_id, second.block_id]
+
+
+def test_letter_parentheses_are_the_seventh_level():
+    tree = tree_of(
+        p("PART 3 - EXECUTION"),
+        p("3.6 TESTS"),
+        p("G. Relays:"),
+        p("2. Electrical Tests:"),
+        p("c. Protective relays:"),
+        p("4) Pickup:"),
+        p("a) Determine pickup."),
+        p("b) Determine time delay."),
+    )
+    clauses = by_no(tree)
+    assert clauses["3.6.G.2.c.4.b"].text == "Determine time delay."
+    assert clauses["3.6.G.2.c.4.b"].depth == 7
+
+
+def test_a_decimal_from_the_same_part_but_out_of_order_is_not_an_article():
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.4 SWITCHGEAR"),
+        p("C. Minimum clearance shall be"),
+        p("2.1 mm between phases."),
+    )
+    assert "2.1" not in by_no(tree)
+    assert by_no(tree)["2.4.C"].text.endswith("2.1 mm between phases.")

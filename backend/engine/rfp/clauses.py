@@ -11,18 +11,25 @@
 | 4 | `1. …` | `2.5.C.1` |
 | 5 | `a. …` | `2.5.C.1.a` |
 | 6 | `1)`·`(1)` | `2.5.C.1.a.1` |
+| 7 | `a)`·`(a)` | `2.5.C.1.a.1.a` |
 
 - 번호 없는 문단은 바로 앞 조항에 붙인다. 앞 글이 문장 끝(`.`·`:`·`;`)이 아니거나 이번 문단이 소문자로
   시작하면 줄이 중간에서 끊긴 것으로 보고 공백으로 잇는다(`LINE_BREAK_REJOINED`). 아니면 줄을 바꿔 붙인다.
 - 표: 한 행의 첫 글자 있는 칸이 번호만이면 그 행을 번호 조항으로 읽는다(14번 2.5 D·G·I…가 이런 배치다).
   그 밖의 표 행은 바로 앞 조항의 `table_rows`에 넣는다.
-- 반복 문구: 숫자를 지운 모양이 3번 이상 나오는 번호 없는 짧은 문단(페이지 머리말·바닥글이 본문에 들어온
-  것), `END OF SECTION …`은 조항에 넣지 않고 `boilerplate_block_ids`에 둔다. 첫 PART 앞 문단은 머리말이다.
+- 반복 문구: 숫자를 지운 모양이 3번 이상 나오는 번호 없는 짧은 문단이 **모양이 다른 같은 종류 문단과 붙어서**
+  나올 때만(페이지 경계의 머리말·바닥글) 뺀다. 혼자 반복되는 `Provide the following:` 같은 본문은 남는다.
+  삭제 값이 있는 문단은 빼지 않는다. 뺀 문단은 글과 함께 `excluded`에 남긴다. `END OF SECTION …`과 그 뒤
+  문단(마지막 페이지 바닥글 등)은 절 밖이라 조항에 붙이지 않는다(`AFTER_END_OF_SECTION`).
+  첫 PART 앞 문단은 머리말이다.
 - 표 칸 하나가 `2.4 A.`처럼 절·항목 번호만이면 그 절과 항목을 연다. 같은 행 뒤가 본문이면 그 본문이
   항목 본문이고, 뒤가 번호 칸(`1.`·`ABB.`)이면 그 칸들은 앞 조항 목록의 이어짐이라 앞 조항에 두고, 절은 번호가
   `1`·`a`로 다시 시작하는 곳에서 연다(`DEFERRED_ARTICLE`).
 - 한 문단에 항목 두 개가 붙어 있으면(PDF 변환, 14번 2.4 C.3 "… open. b. Expulsion …") 문장 끝 바로 뒤에
   **같은 깊이의 다음 번호**가 대문자 글 앞에 올 때만 나눈다(`INLINE_SPLIT`). 그 밖의 "No. 2." 같은 글은 두지 않는다.
+- 절 번호(`2.5`)는 지금 PART 번호와 앞 자리가 같고 그 PART의 앞 절보다 클 때만 절이다. 끊긴 줄이
+  `13.8 kV class`처럼 소수로 시작해도 절로 읽지 않는다. 미뤄 둔 절이 문서 끝이나 다음 절까지 열리지 않으면
+  그 자리에서 열고 `numbering_issues`(`UNPLACED_ARTICLE`)에 남긴다.
 - 같은 번호가 다시 나오면 `~2`를 붙여 구분하고, 건너뛴 번호(c. 다음 e.)와 함께 `numbering_issues`에 남긴다.
   번호를 고쳐 쓰지 않는다.
 - 삭제 값(취소선)은 조항 text 기준 위치로 옮긴다. 번호 자리의 삭제 값은 `label_history`(예전 번호)다.
@@ -47,6 +54,7 @@ LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (4, re.compile(r"^(\d{1,2})\.(?:\s+|$)")),
     (5, re.compile(r"^([a-z])\.(?:\s+|$)")),
     (6, re.compile(r"^\(?(\d{1,2})\)(?:\s+|$)")),
+    (7, re.compile(r"^\(?([a-z])\)(?:\s+|$)")),
 )
 END_OF_SECTION = re.compile(r"^END OF SECTION\b", re.I)
 SENTENCE_END = (".", ":", ";", "?", "!")
@@ -62,7 +70,7 @@ class Clause(Strict):
     clause_no: str
     label: str = Field(description="문단 앞 번호 그대로(PART 2, 2.5, C., 1.).")
     label_history: list[str] = Field(default=[], description="취소선으로 지운 예전 번호.")
-    depth: int = Field(ge=1, le=6)
+    depth: int = Field(ge=1, le=7)
     parent_no: str | None
     ordinal: int = Field(ge=0)
     title: str | None = Field(description="PART·절(깊이 1·2)만. 그 밖에는 null.")
@@ -88,6 +96,14 @@ class NumberingIssue(Strict):
     detail: str
 
 
+class Excluded(Strict):
+    block_id: str
+    text: str
+    reason: str = Field(
+        description="PAGE_NOISE(페이지 머리말·바닥글 묶음), END_OF_SECTION, AFTER_END_OF_SECTION."
+    )
+
+
 class ClauseTree(Strict):
     version: str = CLAUSE_TREE_VERSION
     sha256: str
@@ -96,6 +112,7 @@ class ClauseTree(Strict):
     clauses: list[Clause]
     preamble_block_ids: list[str]
     boilerplate_block_ids: list[str]
+    excluded: list[Excluded]
     numbering_issues: list[NumberingIssue]
 
 
@@ -124,6 +141,8 @@ class _Open:
     rows: list[list[str]] = field(default_factory=list)
     row_deleted: list[TableDeleted] = field(default_factory=list)
     refs: list[CrossReference] = field(default_factory=list)
+    # 이어 붙인 블록마다 text 안 시작 위치. 한 문단 나누기에서 블록 출처를 정한다.
+    starts: list[tuple[int, str]] = field(default_factory=list)
 
 
 def _shape(text: str) -> str:
@@ -181,20 +200,42 @@ def _row_label(cells: list[Block]) -> tuple[int, list[Block]] | None:
     return filled[0], [c for c in cells[filled[0] + 1 :] if c.text.strip()]
 
 
-def _boilerplate(blocks: list[Block]) -> set[str]:
+def _boilerplate(blocks: list[Block]) -> dict[str, str]:
+    """뺄 문단과 이유. 페이지 머리말·바닥글은 모양이 다른 반복 문단끼리 붙어 나온다."""
     counts = Counter(
         _shape(b.text)
         for b in blocks
         if b.kind == "PARAGRAPH" and b.text.strip() and len(b.text) <= BOILERPLATE_MAX
     )
     noisy = {shape for shape, n in counts.items() if n >= BOILERPLATE_REPEAT}
-    out = set()
-    for b in blocks:
+    filled = [b for b in blocks if b.text.strip()]
+
+    def candidate(b: Block) -> bool:
         text = b.text.strip()
-        if b.kind != "PARAGRAPH" or not text:
+        return (
+            b.kind == "PARAGRAPH"
+            and not b.deleted_values
+            and _shape(text) in noisy
+            and _label(text) is None
+        )
+
+    out: dict[str, str] = {}
+    i = 0
+    while i < len(filled):
+        if not candidate(filled[i]):
+            text = filled[i].text.strip()
+            if filled[i].kind == "PARAGRAPH" and END_OF_SECTION.match(text):
+                out[filled[i].block_id] = "END_OF_SECTION"
+            i += 1
             continue
-        if END_OF_SECTION.match(text) or (_shape(text) in noisy and _label(text) is None):
-            out.add(b.block_id)
+        j = i
+        while j < len(filled) and candidate(filled[j]):
+            j += 1
+        run = filled[i:j]
+        if len({_shape(b.text) for b in run}) >= 2:
+            for b in run:
+                out[b.block_id] = "PAGE_NOISE"
+        i = j
     return out
 
 
@@ -208,10 +249,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         ClauseTree: 문서 순서의 조항, 머리말·반복 문구 블록, 번호 문제.
     """
     noise = _boilerplate(document.blocks)
+    texts = {b.block_id: b.text.strip() for b in document.blocks}
     clauses: list[Clause] = []
     issues: list[NumberingIssue] = []
     preamble: list[str] = []
-    boilerplate = sorted(noise, key=lambda x: [b.block_id for b in document.blocks].index(x))
     stack: list[_Open] = []
     current: _Open | None = None
     seen: Counter[str] = Counter()
@@ -219,6 +260,14 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     section_title: str | None = None
     started = False
     pending: tuple[str, str, Block] | None = None
+    part_no: str | None = None
+    last_article: dict[str | None, int] = {}
+
+    def article_ok(major: str, minor: str) -> bool:
+        """절 번호가 지금 PART 안의 다음 절일 때만 참이다(끊긴 줄의 소수를 절로 읽지 않는다)."""
+        if part_no is not None and major != part_no:
+            return False
+        return int(minor) > last_article.get(part_no, 0)
 
     def close() -> None:
         nonlocal current
@@ -239,7 +288,24 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 for v in current.deleted
                 if v.position >= cut
             ]
-            sibling_ids = list(current.block_ids[-1:])
+            # 나눈 자리(공백·번호) 안의 삭제 값도 버리지 않는다. 번호 모양이면 예전 번호, 아니면 다음 항목 첫머리.
+            gap = [v for v in current.deleted if len(head_text) < v.position < cut]
+            gap_history = [v.text.strip() for v in gap if _label(v.text.strip() + " x") is not None]
+            moved = [
+                v.model_copy(update={"position": 0})
+                for v in gap
+                if _label(v.text.strip() + " x") is None
+            ] + moved
+            starts = current.starts or [(0, current.block_ids[0])]
+            split_at = found.start()
+            origin = [bid for start, bid in starts if start <= split_at][-1:]
+            later = [(start - cut, bid) for start, bid in starts if start > split_at]
+            head_ids = [bid for start, bid in starts if start <= split_at]
+            extra_ids = [bid for bid in current.block_ids if bid not in {b for _, b in starts}]
+            sibling_ids = origin + [bid for _, bid in later]
+            sibling_rows, sibling_row_deleted = current.rows, current.row_deleted
+            current.rows, current.row_deleted = [], []
+            current.block_ids = head_ids + extra_ids
             current.text, current.deleted = head_text, kept
             emit(current)
             base = f"{current.parent_no}.{nxt}" if current.parent_no else nxt
@@ -259,7 +325,13 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 block_ids=sibling_ids,
                 page=current.page,
                 flags={"INLINE_SPLIT"},
+                rows=sibling_rows,
+                row_deleted=sibling_row_deleted,
+                starts=[(0, origin[0])] + [(max(0, start), bid) for start, bid in later]
+                if origin
+                else [],
             )
+            sibling.history = gap_history
             if stack and stack[-1] is current:
                 stack[-1] = sibling
             current = sibling
@@ -301,8 +373,12 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         history: list[str],
         extra_ids: list[str],
     ) -> None:
-        nonlocal current
+        nonlocal current, part_no
         close()
+        if depth == 1:
+            part_no = token.split()[-1]
+        elif depth == 2:
+            last_article[part_no] = int(token.split(".")[1])
         while stack and stack[-1].depth >= depth:
             stack.pop()
         parent = stack[-1] if stack else None
@@ -332,6 +408,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             block_ids=[block.block_id, *extra_ids],
             page=block.position.page,
             refs=list(block.cross_references),
+            starts=[(0, block.block_id)],
         )
         stack.append(current)
 
@@ -365,6 +442,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         current.text = joined + sep + text
         current.deleted = current.deleted + _shift(deleted, offset)
         current.block_ids.append(block.block_id)
+        current.starts.append((offset, block.block_id))
         current.refs.extend(block.cross_references)
         if broken:
             current.flags.add("LINE_BREAK_REJOINED")
@@ -398,6 +476,22 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         pending = None
         open_compound(article, letter, head, "", [], [], "DEFERRED_ARTICLE")
 
+    def flush_pending() -> None:
+        """다음 절·문서 끝까지 열리지 않은 미룬 절을 그 자리에서 열고 문제로 남긴다."""
+        nonlocal pending
+        if pending is None:
+            return
+        article, letter, head = pending
+        pending = None
+        open_compound(article, letter, head, "", [], [], "DEFERRED_ARTICLE")
+        issues.append(
+            NumberingIssue(
+                clause_no=f"{article}.{letter}",
+                kind="UNPLACED_ARTICLE",
+                detail="표 칸에 떠 있던 절 번호를 번호가 다시 시작하는 곳에서 찾지 못함",
+            )
+        )
+
     def row_body(rest: list[Block]) -> tuple[str, list[DeletedValue]]:
         body, deleted = "", []
         for cell in rest:
@@ -409,12 +503,22 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
 
     blocks = document.blocks
     i = 0
+    ended = False
     while i < len(blocks):
         block = blocks[i]
         text = block.text.strip()
+        if noise.get(block.block_id) == "END_OF_SECTION":
+            close()
+            stack.clear()
+            ended = True
         if block.block_id in noise:
             i += 1
             continue
+        if ended and text and not PART.match(text):
+            noise[block.block_id] = "AFTER_END_OF_SECTION"
+            i += 1
+            continue
+        ended = ended and not text
         if block.kind == "TABLE_CELL":
             table, row = block.position.table_index, block.position.row
             cells = []
@@ -428,7 +532,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 i += 1
             filled = [c for c in cells if c.text.strip()]
             compound = COMPOUND.match(filled[0].text.strip()) if filled and started else None
+            if compound is not None and not article_ok(compound.group(1), compound.group(2)):
+                compound = None
             if compound is not None:
+                flush_pending()
                 article = f"{compound.group(1)}.{compound.group(2)}"
                 rest = filled[1:]
                 lead = _label(rest[0].text.strip() + " x") if rest else None
@@ -500,7 +607,13 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             i += 1
             continue
         found = _label(text)
+        if found is not None and found[0] == 2:
+            major, minor = found[1].split(".")
+            if not started or not article_ok(major, minor):
+                found = None
         if found is not None and (found[0] == 1 or started):
+            if found[0] <= 2:
+                flush_pending()
             depth, token, label, title = found
             started = True
             cut = block.text.find(label) + len(label)
@@ -529,7 +642,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         else:
             append(block.text.strip(), block.deleted_values, block)
         i += 1
+    flush_pending()
     close()
+    order = [b.block_id for b in document.blocks]
+    boilerplate = sorted(noise, key=order.index)
     return ClauseTree(
         sha256=document.sha256,
         edit_trace_support=document.edit_trace_support,
@@ -537,5 +653,6 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         clauses=clauses,
         preamble_block_ids=preamble,
         boilerplate_block_ids=boilerplate,
+        excluded=[Excluded(block_id=b, text=texts[b], reason=noise[b]) for b in boilerplate],
         numbering_issues=issues,
     )
