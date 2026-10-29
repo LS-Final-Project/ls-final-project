@@ -323,6 +323,21 @@ def test_failures_are_recorded_with_a_fixed_code(
     assert events[-1] == ("job.failed", {"state": "FAILED"})
 
 
+def test_ticket_source_error_codes_are_replaced_by_the_fixed_code(
+    worker_settings, jobs_database, cs_job
+):
+    """문의 출처가 올린 ApplicationError 코드는 저장·종료 코드로 쓰지 않고 고정 코드로 바꾼다."""
+
+    def source_failure(_settings):
+        raise ApplicationError(400, "not a code: with detail", "synthetic detail")
+
+    with pytest.raises(ApplicationError) as error:
+        Harness().run(worker_settings, cs_job, parts_loader=source_failure)
+    assert error.value.code == "CS_WORKER_GRAPH_FAILED"
+    status, released, _, failure, _ = snapshot(jobs_database, cs_job)
+    assert (status, released, failure) == ("FAILED", True, "CS_WORKER_GRAPH_FAILED")
+
+
 def test_only_the_cs_worker_role_may_run(settings, jobs_database, cs_job):
     """cs_worker 멤버가 아닌 로그인과 platform_app 로그인으로는 돌지 않고 작업도 건드리지 않는다."""
     with psycopg.connect(jobs_database) as conn:

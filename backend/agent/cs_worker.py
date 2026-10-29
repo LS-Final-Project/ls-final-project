@@ -15,27 +15,39 @@
 import os
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import psycopg
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.agent.cs_runner import build_cs_runner, make_checkpointer, outcome
 from backend.agent.cs_search import fts_searcher_from_dsn
+from backend.agent.job_runtime import (
+    Lease,
+    LeaseLost,
+    check_role,
+    claim,
+    connect,
+    fail,
+    finish,
+    parse_job_id,
+    progress,
+)
 from backend.agent.ticket_source_registry import WorkerParts, load_parts
 from backend.engine.cs.graph import HUMAN_REVIEW, initial_state, thread_config
 from backend.shared.ai import AISettings, create_client
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
+__all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
+
 # 진행 이벤트를 남기는 노드(EventPayload.step 값과 같다).
 NODES = ("classify", "rules", "retrieve", "draft")
+# worker가 직접 내는 고정 실패 코드. 그 밖의 ApplicationError는 CS_WORKER_GRAPH_FAILED로 저장한다.
+OWN_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
 
 class CsWorkerSettings(BaseSettings):
@@ -45,215 +57,6 @@ class CsWorkerSettings(BaseSettings):
     enabled: bool = False
     # 노드 하나(재호출 포함 모델 호출)가 이 안에 끝나야 한다. 노드마다 연장한다.
     lease_seconds: int = Field(default=120, ge=10, le=900)
-
-
-class LeaseLost(Exception):
-    """다른 worker가 소유권을 가져갔거나 lease가 만료됐다."""
-
-
-@dataclass(frozen=True)
-class Lease:
-    """이 worker가 인수한 작업과 소유권."""
-
-    job_id: UUID
-    ticket_id: UUID
-    holder_id: UUID
-    generation: int
-
-
-def parse_job_id(value: str | None) -> UUID:
-    """표준 하이픈 형식 UUID만 받는다.
-
-    Args:
-        value: CS_JOB_ID 환경 변수.
-
-    Returns:
-        UUID: 작업 ID. 없거나 형식이 다르면 ApplicationError INVALID_JOB_ID다.
-    """
-    try:
-        job_id = UUID(value or "")
-        if str(job_id) != value:
-            raise ValueError
-        return job_id
-    except ValueError:
-        raise ApplicationError(400, "INVALID_JOB_ID", "Job ID is required.") from None
-
-
-def connect(settings: Settings) -> psycopg.Connection[dict[str, Any]]:
-    """worker 로그인(cs_worker 멤버)으로 연결한다.
-
-    Args:
-        settings: database_url이 있는 설정.
-
-    Returns:
-        psycopg.Connection: dict_row 연결.
-    """
-    if settings.database_url is None:
-        raise ApplicationError(503, "CS_WORKER_DATABASE_REQUIRED", "Database is required.")
-    return psycopg.connect(settings.database_url.get_secret_value(), row_factory=dict_row)
-
-
-def check_role(conn: psycopg.Connection[dict[str, Any]]) -> None:
-    """로그인 역할이 cs_worker 멤버이고 앱·마이그레이터·특권 역할이 아닌지 본다(평가 worker와 같은 규칙).
-
-    Args:
-        conn: worker 연결.
-
-    Returns:
-        None. 아니면 ApplicationError WORKER_ROLE_REQUIRED다.
-    """
-    row = conn.execute(
-        "SELECT current_user=session_user AND pg_has_role(current_user,'cs_worker','USAGE') AND NOT "
-        "(rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication) AND NOT EXISTS ("
-        "SELECT 1 FROM pg_roles p WHERE p.rolname IN "
-        "('platform_app','cs_app','tft_app','platform_migrator','cs_migrator','tft_migrator') "
-        "AND pg_has_role(current_user,p.oid,'MEMBER')) AS allowed "
-        "FROM pg_roles WHERE rolname=current_user"
-    ).fetchone()
-    if row is None or not row["allowed"]:
-        raise ApplicationError(403, "WORKER_ROLE_REQUIRED", "Worker role is required.")
-
-
-def append(
-    conn: psycopg.Connection[dict[str, Any]], job_id: UUID, kind: str, payload: dict[str, Any]
-) -> None:
-    """다음 sequence로 이벤트를 남긴다(호출자가 job_control 행을 잠근 상태).
-
-    Args:
-        conn: 진행 중 트랜잭션.
-        job_id: 작업 ID.
-        kind: 이벤트 종류(job.started 등).
-        payload: 허용 키만 담은 payload.
-
-    Returns:
-        None.
-    """
-    conn.execute(
-        "INSERT INTO runtime.job_events(job_id,sequence,type,payload) VALUES (%s,"
-        "(SELECT coalesce(max(sequence),0)+1 FROM runtime.job_events WHERE job_id=%s),%s,%s)",
-        (job_id, job_id, kind, Jsonb(payload)),
-    )
-
-
-def claim(settings: Settings, worker: CsWorkerSettings, job_id: UUID) -> Lease | None:
-    """대기 중이거나 lease가 끊긴 실행 중 작업을 인수한다.
-
-    Args:
-        settings: worker DB 설정.
-        worker: lease 길이.
-        job_id: 작업 ID.
-
-    Returns:
-        Lease | None: 새 소유권. 없는 작업·종료·취소 요청·살아 있는 다른 소유자면 None이다.
-    """
-    with connect(settings) as conn, conn.transaction():
-        row = conn.execute(
-            "SELECT j.status,j.subject_id,c.cancel_requested_at,"
-            "coalesce(c.lease_expires_at>clock_timestamp(),false) AS lease_live "
-            "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
-            "WHERE j.id=%s AND j.owner='cs' AND j.kind='cs.analyze' FOR UPDATE OF j,c",
-            (job_id,),
-        ).fetchone()
-        if (
-            row is None
-            or row["status"] not in {"QUEUED", "RUNNING"}
-            or row["cancel_requested_at"] is not None
-            or row["lease_live"]
-        ):
-            return None
-        holder = uuid4()
-        claimed = conn.execute(
-            "UPDATE runtime.job_control SET generation=generation+1,holder_id=%s,"
-            "lease_expires_at=clock_timestamp()+make_interval(secs=>%s),version=version+1 "
-            "WHERE job_id=%s RETURNING generation",
-            (holder, worker.lease_seconds, job_id),
-        ).fetchone()
-        assert claimed is not None
-        conn.execute("UPDATE runtime.jobs SET status='RUNNING' WHERE id=%s", (job_id,))
-        append(conn, job_id, "job.started", {"state": "RUNNING"})
-    return Lease(job_id, row["subject_id"], holder, claimed["generation"])
-
-
-def held(conn: psycopg.Connection[dict[str, Any]], lease: Lease) -> bool:
-    """소유권을 잠그고 확인한다.
-
-    Args:
-        conn: 진행 중 트랜잭션.
-        lease: 이 worker의 소유권.
-
-    Returns:
-        bool: 취소 요청이 있으면 True. 소유권을 잃었으면 LeaseLost다.
-    """
-    row = conn.execute(
-        "SELECT holder_id,generation,coalesce(lease_expires_at>clock_timestamp(),false) AS live,"
-        "cancel_requested_at FROM runtime.job_control WHERE job_id=%s FOR UPDATE",
-        (lease.job_id,),
-    ).fetchone()
-    if (
-        row is None
-        or row["holder_id"] != lease.holder_id
-        or row["generation"] != lease.generation
-        or not row["live"]
-    ):
-        raise LeaseLost
-    return row["cancel_requested_at"] is not None
-
-
-def progress(
-    settings: Settings, worker: CsWorkerSettings, lease: Lease, payload: dict[str, Any]
-) -> bool:
-    """노드 하나가 끝났음을 남기고 lease를 연장한다.
-
-    Args:
-        settings: worker DB 설정.
-        worker: lease 길이.
-        lease: 소유권.
-        payload: step·stage.
-
-    Returns:
-        bool: 계속하면 True, 취소 요청이 있으면 False(이벤트를 남기지 않는다).
-    """
-    with connect(settings) as conn, conn.transaction():
-        if held(conn, lease):
-            return False
-        conn.execute(
-            "UPDATE runtime.job_control SET "
-            "lease_expires_at=clock_timestamp()+make_interval(secs=>%s) WHERE job_id=%s",
-            (worker.lease_seconds, lease.job_id),
-        )
-        append(conn, lease.job_id, "job.progress", payload)
-    return True
-
-
-def finish(
-    settings: Settings,
-    lease: Lease,
-    state: str,
-    payload: dict[str, Any],
-    failure_code: str | None = None,
-) -> None:
-    """작업 상태를 확정하고 소유권을 놓는다.
-
-    Args:
-        settings: worker DB 설정.
-        lease: 소유권(잃었으면 LeaseLost).
-        state: SUCCEEDED·CANCELLED·FAILED.
-        payload: 종료 이벤트의 추가 키.
-        failure_code: FAILED일 때의 고정 코드.
-
-    Returns:
-        None.
-    """
-    with connect(settings) as conn, conn.transaction():
-        held(conn, lease)
-        conn.execute(
-            "UPDATE runtime.job_control SET holder_id=NULL,lease_expires_at=NULL,"
-            "version=version+1,failure_code=%s WHERE job_id=%s",
-            (failure_code, lease.job_id),
-        )
-        conn.execute("UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, lease.job_id))
-        kind = "job.failed" if state == "FAILED" else "job.completed"
-        append(conn, lease.job_id, kind, {"state": state, **payload})
 
 
 def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool]) -> bool:
@@ -271,7 +74,7 @@ def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool
     current = graph.get_state(config)
     if current.values and tuple(current.next) == (HUMAN_REVIEW,):
         return True
-    inputs = None if current.values else initial_state(str(lease.ticket_id))
+    inputs = None if current.values else initial_state(str(lease.subject_id))
     for update in graph.stream(inputs, config, stream_mode="updates"):
         for node in update:
             if node in NODES:
@@ -361,15 +164,17 @@ def execute_job(
     if settings.environment not in {"local", "test"} or not worker.enabled:
         raise ApplicationError(503, "CS_WORKER_DISABLED", "C/S worker is disabled.")
     with connect(settings) as conn:
-        check_role(conn)
-    lease = claim(settings, worker, job_id)
+        check_role(conn, "cs_worker")
+    lease = claim(settings, "cs", worker.lease_seconds, job_id)
     if lease is None:
         return "NOT_CLAIMED"
     try:
         parts = parts_loader(settings)
         with checkpointer(settings) as saver:
             graph = build(settings, parts, saver)
-            if not run_graph(graph, lease, lambda p: progress(settings, worker, lease, p)):
+            if not run_graph(
+                graph, lease, lambda p: progress(settings, worker.lease_seconds, lease, p)
+            ):
                 finish(settings, lease, "CANCELLED", {})
                 return "CS_JOB_CANCELLED"
             finish(settings, lease, "SUCCEEDED", summary(graph, lease))
@@ -377,28 +182,17 @@ def execute_job(
     except LeaseLost:
         return "LEASE_LOST"
     except ApplicationError as error:
+        # 문의 출처(KAN-107) 등 다른 코드가 올린 코드는 그대로 저장하지 않는다(신뢰 경계).
+        if error.code not in OWN_CODES:
+            fail(settings, lease, "CS_WORKER_GRAPH_FAILED")
+            raise ApplicationError(
+                500, "CS_WORKER_GRAPH_FAILED", "C/S processing failed."
+            ) from None
         fail(settings, lease, error.code)
         raise
     except Exception:
         fail(settings, lease, "CS_WORKER_GRAPH_FAILED")
         raise ApplicationError(500, "CS_WORKER_GRAPH_FAILED", "C/S processing failed.") from None
-
-
-def fail(settings: Settings, lease: Lease, code: str) -> None:
-    """작업을 FAILED·고정 코드로 남긴다. 소유권을 이미 잃었으면 쓰지 않는다.
-
-    Args:
-        settings: worker DB 설정.
-        lease: 소유권.
-        code: failure_code.
-
-    Returns:
-        None.
-    """
-    try:
-        finish(settings, lease, "FAILED", {}, failure_code=code)
-    except LeaseLost:
-        pass
 
 
 def main() -> None:
