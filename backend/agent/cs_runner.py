@@ -205,7 +205,7 @@ def make_checkpointer(settings: Settings) -> Iterator[BaseCheckpointSaver]:
         yield PostgresSaver(conn)
 
 
-def _outcome(graph: Any, thread_id: str) -> RunOutcome:
+def outcome(graph: Any, thread_id: str) -> RunOutcome:
     """체크포인트의 현재 상태를 요약한다.
 
     Args:
@@ -245,7 +245,7 @@ def run_ticket(graph: Any, thread_id: str, ticket_id: str) -> RunOutcome:
     if graph.get_state(thread_config(thread_id)).values:
         raise ValueError("CS_GRAPH_THREAD_EXISTS")
     graph.invoke(initial_state(ticket_id), thread_config(thread_id))
-    return _outcome(graph, thread_id)
+    return outcome(graph, thread_id)
 
 
 def resume(graph: Any, thread_id: str) -> RunOutcome:
@@ -262,4 +262,4 @@ def resume(graph: Any, thread_id: str) -> RunOutcome:
     if not graph.get_state(thread_config(thread_id)).next:
         raise ValueError("CS_GRAPH_NOTHING_TO_RESUME")
     graph.invoke(None, thread_config(thread_id))
-    return _outcome(graph, thread_id)
+    return outcome(graph, thread_id)

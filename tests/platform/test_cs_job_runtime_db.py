@@ -20,10 +20,9 @@ from backend.api.platform.jobs.cloud_run import (
     DeliveryResult,
     dispatch_one,
 )
-from backend.api.platform.jobs.cs import CsJobRequest, CsJobSettings, admit_cs_job
+from backend.api.platform.jobs.cs import CsJobSettings
 from backend.api.platform.jobs.dispatch import DispatchSettings, begin_send, claim_next
 from backend.api.platform.jobs.events import EventPayload
-from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from tests.platform.test_evaluation_access import client_for
 
@@ -101,37 +100,6 @@ def others(auth_database):
             conn.execute("DELETE FROM identity.sessions WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))
-
-
-@pytest.fixture
-def cs_job(settings, jobs_database, registered_user):
-    """registered_user가 요청한 cs 작업을 접수하고 검사 뒤 정리한다.
-
-    Args:
-        settings: platform_app 설정.
-        jobs_database: 관리자 DSN.
-        registered_user: 요청 사용자.
-
-    Returns:
-        UUID: 작업 ID.
-    """
-
-    async def admit():
-        async with connection(settings) as conn, conn.transaction():
-            request = CsJobRequest(
-                ticket_id=uuid4(),
-                input_version="a" * 64,
-                idempotency_key=str(uuid4()),
-                requested_by=registered_user[1],
-            )
-            return (await admit_cs_job(conn, request)).job_id
-
-    job_id = asyncio.run(admit())
-    yield job_id
-    with psycopg.connect(jobs_database) as conn:
-        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
-            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
 
 
 def outbox(dsn, job_id):

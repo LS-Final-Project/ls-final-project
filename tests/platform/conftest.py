@@ -1,5 +1,6 @@
 """OAuth 인가 시도와 운영 세션에서 공유하는 전용 PostgreSQL 검사 준비."""
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -14,6 +15,8 @@ from pydantic import SecretStr
 from backend.api.platform.auth.callback import MicrosoftSubject
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
+from backend.api.platform.jobs.cs import CsJobRequest, admit_cs_job
+from backend.shared.database import connection
 from backend.shared.settings import Settings
 
 
@@ -313,3 +316,34 @@ def access(experiment):
         approved_config_hashes={experiment["config_hash"]},
         local_admission_enabled=True,
     )
+
+
+@pytest.fixture
+def cs_job(settings, jobs_database, registered_user):
+    """registered_user가 요청한 cs 작업을 접수하고 검사 뒤 정리한다.
+
+    Args:
+        settings: platform_app 설정.
+        jobs_database: 관리자 DSN.
+        registered_user: 요청 사용자.
+
+    Returns:
+        UUID: 작업 ID.
+    """
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = CsJobRequest(
+                ticket_id=uuid4(),
+                input_version="a" * 64,
+                idempotency_key=str(uuid4()),
+                requested_by=registered_user[1],
+            )
+            return (await admit_cs_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    yield job_id
+    with psycopg.connect(jobs_database) as conn:
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))

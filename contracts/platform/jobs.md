@@ -223,3 +223,4 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
 - 응답 `data`는 owner로 구분한다(OpenAPI `JobStatusResponse`). C/S는 `CsJobStatus{job_id, ticket_id, owner:'cs', kind:'cs.analyze', status, version, last_event_sequence}`다. `version`은 `runtime.job_control.version`이다.
 - 이벤트 payload 허용 키(`EventPayload`): 기존 `state` 외에 `step`(smoke·classify·rules·retrieve·draft), `stage`(그래프 단계), `retried`·`recovered`(0 이상 정수), `classification_outcome`·`draft_outcome`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD). 모르는 키(오류 코드 등)는 버리고 SSE로 내지 않는다.
 - 검증은 전용 PostgreSQL과 합성 Jobs 응답으로 한정한다(`tests/platform/test_cs_job_runtime_db.py`).
+- 3/3: worker(`backend.agent.cs_worker`)의 인수·lease·취소·이벤트·실패 코드는 [C/S 그래프 계약](../cs/graph.md)의 'worker 실행' 절이다.
