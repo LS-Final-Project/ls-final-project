@@ -1,6 +1,7 @@
 """후보 비교 결과에서 과제별 채택 설정을 고정하는 기록과 결정 메모(KAN-146).
 
-채택은 사람이 정한다. 이 모듈은 scripts/cs_candidate_run·cs_draft_run·cs_embedding_run 결과 JSON에서 채택 후보의
+채택은 사람이 정한다. 이 모듈은 scripts/cs_candidate_run·cs_draft_run·cs_embedding_run 결과 JSON(RFP는 KAN-143 2차의
+최소 형식, 실행기는 KAN-191)에서 채택 후보의
 설정·지표 요약·근거 실행을 묶고, 그 과제 지표에 해당하는 합격선만 release_gate.evaluate_gates로 판정해 기록한다.
 기록에는 원문·사례 ID·키를 넣지 않는다. 결과 파일에 task 필드가 없으므로 meta 모양으로 과제를 판정한다.
 """
@@ -14,7 +15,7 @@ from typing import Any, Literal
 
 from eval.release_gate import Gate, MetricValue, evaluate_gates
 
-Task = Literal["classification", "draft", "embedding"]
+Task = Literal["classification", "draft", "embedding", "rfp"]
 Status = Literal["PROPOSED", "ADOPTED"]
 WAIVER_FIELDS = ("metric_key", "value", "reason", "decided_by", "decided_on")
 # 과제별 meta 표본 수 키. search·ocr는 결과 JSON을 내는 실행기가 생기면 더한다.
@@ -22,7 +23,20 @@ SAMPLE_KEYS: dict[str, str] = {
     "classification": "targets",
     "draft": "cases",
     "embedding": "queries",
+    "rfp": "documents",
 }
+# RFP 후보 행에서 읽는 지표(eval/policy/gates-rfp-v1.json의 metric_key와 같다). 없는 값은 None → NOT_EVALUABLE이다.
+RFP_METRIC_KEYS = (
+    "rfp_requirement_recall",
+    "rfp_requirement_precision",
+    "rfp_status_match_rate",
+    "rfp_evidence_accuracy",
+    "rfp_critical_false_fulfillment_count",
+    "rfp_partner_recommendation_precision",
+    "rfp_integration_responsibility_rate",
+    "rfp_mandatory_constraint_violation_count",
+    "rfp_draft_trace_rate",
+)
 
 
 @dataclass(frozen=True)
@@ -94,7 +108,8 @@ def _task_of(meta: Mapping[str, Any]) -> str:
         meta: 결과 JSON의 meta.
 
     Returns:
-        str: classification(targets)·draft(cases)·embedding(chunks·queries). 모르는 모양은 ValueError다.
+        str: classification(targets)·draft(cases)·embedding(chunks·queries)·rfp(documents). 모르는 모양은
+            ValueError다.
     """
     if "targets" in meta:
         return "classification"
@@ -102,6 +117,8 @@ def _task_of(meta: Mapping[str, Any]) -> str:
         return "draft"
     if "chunks" in meta and "queries" in meta:
         return "embedding"
+    if "documents" in meta:
+        return "rfp"
     raise ValueError
 
 
@@ -119,7 +136,7 @@ def _rate(part: int, whole: int) -> float | None:
 
 
 def _summary(task: str, row: Mapping[str, Any]) -> dict[str, Any]:
-    """후보 행에서 과제별 지표 요약(5키 이내)을 꺼낸다. 값은 행 그대로이며 분류 schema_violation_rate만 계산한다.
+    """후보 행에서 과제별 지표 요약(RFP 9키, 나머지 5키 이내)을 꺼낸다. 값은 행 그대로이며 분류 schema_violation_rate만 계산한다.
 
     Args:
         task: 과제.
@@ -129,7 +146,7 @@ def _summary(task: str, row: Mapping[str, Any]) -> dict[str, Any]:
         dict: 분류는 category_macro_f1·urgency_macro_f1·urgency_non_none_recall·critical_miss_count·
             schema_violation_rate(SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION), 응답 수 분모), 초안은
             schema_violation_rate·forbidden_rate·grounded_sentence_rate·grounded_case_rate·info_f1(라벨별),
-            임베딩은 hit_at_5·mrr. 행 모양이 다르면 KeyError·TypeError다.
+            임베딩은 hit_at_5·mrr, RFP는 RFP_METRIC_KEYS 9개(행에 없으면 None). 행 모양이 다르면 KeyError·TypeError다.
     """
     if task == "classification":
         outcomes = row["outcomes"]
@@ -149,6 +166,8 @@ def _summary(task: str, row: Mapping[str, Any]) -> dict[str, Any]:
             "grounded_case_rate": row["grounding"]["grounded_case_rate"],
             "info_f1": {label: value["f1"] for label, value in row["info_requests"].items()},
         }
+    if task == "rfp":
+        return {key: row.get(key) for key in RFP_METRIC_KEYS}
     # JSON으로 저장되면 hit_at_k 키는 문자열이다. 오류 행은 hit_at_k가 None이다.
     return {"hit_at_5": (row["hit_at_k"] or {}).get("5"), "mrr": row["mrr"]}
 
@@ -230,7 +249,7 @@ def build_record(
 
     Args:
         run_files: 결과 JSON 파일 바이트 목록.
-        task: classification·draft·embedding.
+        task: classification·draft·embedding·rfp.
         adopted_candidate: 채택할 후보 이름.
         gates: 잠근 합격선(load_gates). 과제 지표에 해당하는 것만 평가한다.
         decided_by: 결정자.

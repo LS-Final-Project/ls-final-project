@@ -1,0 +1,154 @@
+{
+  "version": "gates-rfp-v1",
+  "source": {
+    "document": "Drive 1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ 전력사업_RFP_자사대응·협력사보완_AI_Agent_기획서_최종본.pdf 3.2 평가 항목과 개발용 통과 기준안(최종최종본 1OKHJCb5uqcxAm3UrwpCjeOJNv0-4fJpM도 같은 내용)",
+    "jira": "KAN-143 2차",
+    "locked_on": "2026-10-30"
+  },
+  "gates": [
+    {
+      "metric_key": "rfp_requirement_recall",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "평가할 절(문서마다 장비 1~2개 절) 안의 필수 요구 중 추출한 요구 수",
+        "denominator": "미리 고정한 절 안에 전수 표시한 필수 요구 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21)",
+        "tool": {
+          "status": "IMPLEMENTED",
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction extraction.recall·recall_count"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_requirement_precision",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "추출한 요구 중 정답 요구와 맞은 수",
+        "denominator": "추출한 요구 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21)",
+        "tool": {
+          "status": "IMPLEMENTED",
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction extraction.precision·precision_count"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_status_match_rate",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "네 가지 상태와 사유가 정답과 일치한 요구 수",
+        "denominator": "정답 요구 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21). 상태별 결과(혼동표)를 함께 공개한다",
+        "tool": {
+          "status": "PARTIAL",
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction status(혼동표·클래스별 지표만, 일치율 값과 사유 일치 없음) — KAN-186"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_evidence_accuracy",
+      "comparison": ">=",
+      "threshold": 0.95,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "인용 위치의 요구·사양이 판단을 실제로 뒷받침하는 판단 수",
+        "denominator": "인용이 있는 판단 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21)",
+        "tool": {
+          "status": "MISSING",
+          "ref": "KAN-189"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_critical_false_fulfillment_count",
+      "comparison": "==",
+      "threshold": 0,
+      "blocker": true,
+      "segment": "all",
+      "definition": {
+        "numerator": "미충족·미확인 필수 요구를 확정 충족으로 처리한 건수",
+        "denominator": "평가셋의 미충족·미확인 필수 요구 수(발생 가능 N건)",
+        "report": "'0건 / 발생 가능 N건'으로 적는다",
+        "tool": {
+          "status": "PARTIAL",
+          "ref": "eval.rfp_metrics.summarize_requirement_extraction critical_errors.gap_judged_found(필수 한정 없음) — KAN-186"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_partner_recommendation_precision",
+      "comparison": ">=",
+      "threshold": 0.9,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "'필수 기술조건 확인 후보'로 분류한 후보 중 모든 필수 조건의 근거가 실제로 확인된 후보 수. '검토 후보'는 미확인 조건이 빠짐없이 표시됐는지 따로 확인한다",
+        "denominator": "'필수 기술조건 확인 후보'로 분류한 후보 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21). 협력사 평가는 가상 후보에 한정한다",
+        "tool": {
+          "status": "PARTIAL",
+          "ref": "eval.rfp_metrics.summarize_candidate_grades recommendation_precision(분모가 MANDATORY_CONFIRMED·REVIEW 둘 다) — KAN-191"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_integration_responsibility_rate",
+      "comparison": "==",
+      "threshold": 1.0,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고 미확보 시 처리 경로가 제시된 조립품 공급 요구 수",
+        "denominator": "조립품 공급 요구 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21)",
+        "tool": {
+          "status": "MISSING",
+          "ref": "KAN-186"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_mandatory_constraint_violation_count",
+      "comparison": "==",
+      "threshold": 0,
+      "blocker": true,
+      "segment": "all",
+      "definition": {
+        "numerator": "외부 보완 금지·필수 정격 미달 후보가 적합으로 추천된 건수",
+        "denominator": "평가셋의 외부 보완 금지·필수 정격 미달 후보 수(발생 가능 N건)",
+        "report": "'0건 / 발생 가능 N건'으로 적는다",
+        "tool": {
+          "status": "PARTIAL",
+          "ref": "eval.rfp_metrics.summarize_candidate_grades excluded_recommended.count(정답 EXCLUDED를 추천) — KAN-191"
+        }
+      }
+    },
+    {
+      "metric_key": "rfp_draft_trace_rate",
+      "comparison": "==",
+      "threshold": 1.0,
+      "blocker": false,
+      "segment": "all",
+      "definition": {
+        "numerator": "요구·제품·협력사 근거 또는 가정 표시를 찾은 주요 제안 문장 수",
+        "denominator": "초안의 주요 제안 문장 수",
+        "report": "비율과 건수를 함께 적는다(예: 19/21)",
+        "tool": {
+          "status": "MISSING",
+          "ref": "KAN-188"
+        }
+      }
+    }
+  ]
+}
