@@ -149,6 +149,21 @@ def test_bad_processor_events_fail_the_job_with_a_fixed_code(
     assert events[-1][1] == {"state": "FAILED"}
 
 
+@pytest.mark.parametrize("code", ["TFT_TEAM_SPECIFIC_CODE", "not a code: with detail"])
+def test_processor_error_codes_are_replaced_by_the_fixed_code(
+    worker_settings, jobs_database, tft_job, code
+):
+    """처리 함수가 올린 ApplicationError 코드는 저장·종료 코드로 쓰지 않고 고정 코드로 바꾼다."""
+
+    def processor(job, emit):
+        raise ApplicationError(409, code, "synthetic detail")
+
+    with pytest.raises(ApplicationError) as error:
+        run(worker_settings, tft_job, processor)
+    assert error.value.code == "TFT_WORKER_PROCESSING_FAILED"
+    assert snapshot(jobs_database, tft_job)[:3] == ("FAILED", True, "TFT_WORKER_PROCESSING_FAILED")
+
+
 def test_missing_processor_module_fails_with_its_code(worker_settings, jobs_database, tft_job):
     """처리 함수 모듈이 아직 없으면 FAILED·TFT_WORKER_PROCESSOR_MISSING이다."""
     with pytest.raises(ApplicationError) as error:

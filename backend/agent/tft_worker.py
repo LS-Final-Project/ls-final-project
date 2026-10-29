@@ -49,6 +49,8 @@ STEPS = (
     "export",
     "annotate",
 )
+# worker가 직접 내는 고정 실패 코드. 그 밖의 ApplicationError는 TFT_WORKER_PROCESSING_FAILED로 저장한다.
+OWN_CODES = frozenset({"TFT_WORKER_PROCESSOR_MISSING"})
 UUID_TEXT = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -153,6 +155,12 @@ def execute_job(
     except LeaseLost:
         return "LEASE_LOST"
     except ApplicationError as error:
+        # 처리 함수(다른 팀 코드)가 올린 코드는 그대로 저장하지 않는다(신뢰 경계).
+        if error.code not in OWN_CODES:
+            fail(settings, lease, "TFT_WORKER_PROCESSING_FAILED")
+            raise ApplicationError(
+                500, "TFT_WORKER_PROCESSING_FAILED", "RFP processing failed."
+            ) from None
         fail(settings, lease, error.code)
         raise
     except Exception:

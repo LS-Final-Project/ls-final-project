@@ -94,7 +94,7 @@
 - 그래프: thread_id는 작업 ID다.
   - 체크포인트가 없으면 처음부터, 중간 체크포인트가 있으면 그 뒤부터 잇는다. 이미 사람 확인 직전에 멈춘 스레드는 다시 호출하지 않는다.
   - 사람 확인 직전에 멈추면 SUCCEEDED·`job.completed{state, stage, retried, recovered, classification_outcome, draft_outcome}`다. 그래프 안 오류(`CLASSIFY_FAILED` 등)는 상태에 남고 작업은 SUCCEEDED다.
-  - worker 예외는 FAILED·`job.failed{state:FAILED}`이고 `job_control.failure_code`에 고정 코드만 둔다(`CS_WORKER_SOURCE_MISSING`, `CS_WORKER_GRAPH_FAILED` 등). 이벤트에는 오류 코드·원문을 넣지 않는다.
+  - worker 예외는 FAILED·`job.failed{state:FAILED}`이고 `job_control.failure_code`에 고정 코드만 둔다(`CS_WORKER_SOURCE_MISSING`, `CS_WORKER_GRAPH_FAILED` 등). 이벤트에는 오류 코드·원문을 넣지 않는다. 문의 출처 등 worker 밖 코드가 올린 `ApplicationError`의 코드는 쓰지 않고 `CS_WORKER_GRAPH_FAILED`로 바꾼다.
 - 입력(`backend/agent/ticket_source_registry.py`)
   - 문의 출처(`TicketSource`)는 C/S 고정 모듈 `backend.api.cs.worker_source`의 `build(settings) -> WorkerParts`가 준다(KAN-107). 경로를 환경 변수로 받지 않는다. 모듈이 없으면 인수 뒤 `CS_WORKER_SOURCE_MISSING`으로 실패한다.
   - 허용 정보 코드는 모듈이 비우면 `eval/policy/cs_required_info.csv` required_fields의 합집합이다. 검색 조건은 색인 `chunking-v1`·상위 20건이고 제품 계열은 retrieve가 좁힌다.

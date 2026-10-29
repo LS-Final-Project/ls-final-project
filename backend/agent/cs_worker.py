@@ -46,6 +46,8 @@ __all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # 진행 이벤트를 남기는 노드(EventPayload.step 값과 같다).
 NODES = ("classify", "rules", "retrieve", "draft")
+# worker가 직접 내는 고정 실패 코드. 그 밖의 ApplicationError는 CS_WORKER_GRAPH_FAILED로 저장한다.
+OWN_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
 
 class CsWorkerSettings(BaseSettings):
@@ -180,6 +182,12 @@ def execute_job(
     except LeaseLost:
         return "LEASE_LOST"
     except ApplicationError as error:
+        # 문의 출처(KAN-107) 등 다른 코드가 올린 코드는 그대로 저장하지 않는다(신뢰 경계).
+        if error.code not in OWN_CODES:
+            fail(settings, lease, "CS_WORKER_GRAPH_FAILED")
+            raise ApplicationError(
+                500, "CS_WORKER_GRAPH_FAILED", "C/S processing failed."
+            ) from None
         fail(settings, lease, error.code)
         raise
     except Exception:

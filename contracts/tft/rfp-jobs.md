@@ -65,7 +65,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
   - `processor(job, emit)`: `job`은 `TftJob{job_id, kind, project_id, input_version, actor_id}`(원문 없음)다. 프로젝트 접근 검사는 tft 서비스가 접수 때 마쳤다.
   - `emit`이 올리는 취소·소유권 상실 예외를 처리 함수가 삼키지 않는다. 재실행 멱등(이미 만든 판본 행 재사용)은 처리 함수 몫이다.
   - 반환값은 종료 요약(`counts`·`needs_review`·`document_version_id`) 또는 None이다.
-- 결과: 처리 함수가 정상 반환하면 SUCCEEDED·`job.completed{state, counts?, needs_review?, document_version_id?}`다. `needs_review`가 참이어도 SUCCEEDED이고 PARTIAL은 쓰지 않는다. 예외는 FAILED·`job.failed{state:FAILED}`이고 `failure_code`는 `TFT_WORKER_PROCESSOR_MISSING`·`TFT_WORKER_PROCESSING_FAILED` 같은 고정 코드만이다.
+- 결과: 처리 함수가 정상 반환하면 SUCCEEDED·`job.completed{state, counts?, needs_review?, document_version_id?}`다. `needs_review`가 참이어도 SUCCEEDED이고 PARTIAL은 쓰지 않는다. 예외는 FAILED·`job.failed{state:FAILED}`이고 `failure_code`는 `TFT_WORKER_PROCESSOR_MISSING`·`TFT_WORKER_PROCESSING_FAILED` 고정 코드만이다. 처리 함수가 올린 `ApplicationError`의 코드는 쓰지 않고 `TFT_WORKER_PROCESSING_FAILED`로 바꾼다.
 - payload 검사: worker가 처리 함수 값에서 위 허용 키만 형식을 확인해 저장한다. 표에 없는 step, 음수·빠진 counts 키, bool이 아닌 needs_review, UUID가 아닌 문서 판본은 저장하지 않고 FAILED다. 모르는 키(오류 코드·원문)는 버린다.
 
 ## 아직 없는 것
