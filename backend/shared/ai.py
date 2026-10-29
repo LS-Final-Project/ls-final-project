@@ -274,7 +274,9 @@ def generate(
         config=types.GenerateContentConfig(
             max_output_tokens=settings.gemini_max_output_tokens,
             response_mime_type="application/json" if response_schema else None,
-            response_schema=response_schema,
+            # pydantic 모델을 그대로 넘기면 extra="forbid"의 additionalProperties가 Gemini API에서
+            # 400 INVALID_ARGUMENT가 난다. JSON 스키마를 response_json_schema로 넘긴다.
+            response_json_schema=response_schema.model_json_schema() if response_schema else None,
         ),
     )
     elapsed_ms = round((time.perf_counter() - started) * 1000)
