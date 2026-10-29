@@ -118,6 +118,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P26 | `platform/20261030_KAN-110_mail_link_notify.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.business_notified_at` | 미확인 |
 | P27 | `platform/20261030_KAN-90_receipt_origin.sql` | P8·P14(헤더) | platform_migrator | 가능 | 열 `evaluation.admission_receipts.origin` | 미확인 |
 | P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의) | to_regclass('runtime.job_control') | 미확인 |
+| P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | 역할 `tft_worker` | 미확인 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 

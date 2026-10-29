@@ -46,5 +46,10 @@ FROM runtime AS cs-worker
 ENTRYPOINT ["python", "-m", "backend.agent.cs_worker"]
 CMD []
 
+# RFP 처리 Job 이미지(KAN-199). SERVICE_NAME=tft로 빌드한다. production 잠금은 코드에서 유지한다.
+FROM runtime AS tft-worker
+ENTRYPOINT ["python", "-m", "backend.agent.tft_worker"]
+CMD []
+
 # target을 생략한 기존 서비스 빌드의 동작을 유지한다.
 FROM runtime AS default-runtime

@@ -231,3 +231,4 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
 - 상태·SSE: 검사기 표에 tft를 더했다. 요청 사용자 본인만 보고 그 밖은 404다(역할로 넓히지 않음). 응답은 `TftJobStatus`다.
 - 이벤트 payload: RFP 단계 `step`(parse·extract·search·compare·supplement·candidates·draft·export·annotate), `document_version_id`, `counts{requirements, proposals}`, 기존 `needs_review`.
 - 세부 규칙은 [RFP 작업 계약](../tft/rfp-jobs.md)이다. 검증은 `tests/platform/test_tft_job_runtime_db.py`다.
+- 2/2: worker(`backend.agent.tft_worker`, 역할 `tft_worker`·P29)와 처리 함수 등록 규약은 [RFP 작업 계약](../tft/rfp-jobs.md)의 'worker' 절이다. C/S·RFP worker는 소유권·이벤트 기록을 `backend/agent/job_runtime.py`로 공유한다.

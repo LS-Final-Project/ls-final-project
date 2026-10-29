@@ -87,14 +87,14 @@
 
 - 게이트: local/test이고 `CS_WORKER_ENABLED`(기본 꺼짐)일 때만 돈다. 아니면 `CS_WORKER_DISABLED`로 끝난다. `CS_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
 - DB: `DATABASE_URL` 하나(`cs_worker` 멤버 로그인)로 `runtime`·cs 표·`checkpoint_cs`를 쓴다. 앱·마이그레이터 역할 멤버이거나 특권 속성이 있으면 `WORKER_ROLE_REQUIRED`다. cs 표·`checkpoint_cs` 권한은 KAN-107 cs 마이그레이션이 준다.
-- 소유권(`runtime.job_control`)
+- 소유권(`runtime.job_control`, RFP worker와 공통 `backend/agent/job_runtime.py`)
   - 인수: QUEUED이거나 lease가 끊긴 RUNNING이고 취소 요청이 없을 때만이다. generation+1, holder, lease(`CS_WORKER_LEASE_SECONDS`, 기본 120초), RUNNING, `job.started`를 한 트랜잭션에 남긴다. 아니면 `NOT_CLAIMED`다.
   - 노드가 끝날 때마다 holder·generation·lease를 재검사하고 lease를 연장하며 `job.progress{step, stage}`를 남긴다. 소유권을 잃었으면 아무것도 쓰지 않고 `LEASE_LOST`로 끝난다.
   - 취소 요청(`cancel_requested_at`)이 보이면 다음 노드 전에 멈추고 CANCELLED·`job.completed{state:CANCELLED}`로 끝낸다. 취소를 거는 경로는 아직 없다.
 - 그래프: thread_id는 작업 ID다.
   - 체크포인트가 없으면 처음부터, 중간 체크포인트가 있으면 그 뒤부터 잇는다. 이미 사람 확인 직전에 멈춘 스레드는 다시 호출하지 않는다.
   - 사람 확인 직전에 멈추면 SUCCEEDED·`job.completed{state, stage, retried, recovered, classification_outcome, draft_outcome}`다. 그래프 안 오류(`CLASSIFY_FAILED` 등)는 상태에 남고 작업은 SUCCEEDED다.
-  - worker 예외는 FAILED·`job.failed{state:FAILED}`이고 `job_control.failure_code`에 고정 코드만 둔다(`CS_WORKER_SOURCE_MISSING`, `CS_WORKER_GRAPH_FAILED` 등). 이벤트에는 오류 코드·원문을 넣지 않는다.
+  - worker 예외는 FAILED·`job.failed{state:FAILED}`이고 `job_control.failure_code`에 고정 코드만 둔다(`CS_WORKER_SOURCE_MISSING`, `CS_WORKER_GRAPH_FAILED` 등). 이벤트에는 오류 코드·원문을 넣지 않는다. 문의 출처 등 worker 밖 코드가 올린 `ApplicationError`의 코드는 쓰지 않고 `CS_WORKER_GRAPH_FAILED`로 바꾼다.
 - 입력(`backend/agent/ticket_source_registry.py`)
   - 문의 출처(`TicketSource`)는 C/S 고정 모듈 `backend.api.cs.worker_source`의 `build(settings) -> WorkerParts`가 준다(KAN-107). 경로를 환경 변수로 받지 않는다. 모듈이 없으면 인수 뒤 `CS_WORKER_SOURCE_MISSING`으로 실패한다.
   - 허용 정보 코드는 모듈이 비우면 `eval/policy/cs_required_info.csv` required_fields의 합집합이다. 검색 조건은 색인 `chunking-v1`·상위 20건이고 제품 계열은 retrieve가 좁힌다.
