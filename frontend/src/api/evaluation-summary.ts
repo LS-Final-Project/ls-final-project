@@ -213,6 +213,31 @@ function stageMetrics(value: unknown): StageMetricBlock[] {
   });
 }
 
+type SummaryExperiment = NonNullable<RunSummary['experiment']>;
+const optionalText = (value: unknown): value is string | null => value === null || typeof value === 'string' && value.length <= 128;
+
+/** 실행의 실험 설정(KAN-90 5차)을 검증한다. knobs는 문자열·유한수·bool 값만 받는다. Args: 선택 필드 값. Returns: 투영한 설정 또는 미제공(null). */
+function experimentConfig(value: unknown): SummaryExperiment | null {
+  if (value === undefined || value === null) return null;
+  const data = object(value);
+  const knobs = object(data.knobs);
+  if (typeof data.experiment_id !== 'string' || !isJobId(data.experiment_id) || typeof data.name !== 'string' || !data.name || data.name.length > 120
+      || !(data.purpose === 'smoke' || data.purpose === 'rule_replay' || data.purpose === 'pipeline')
+      || !(data.stage === null || data.stage === 'classification' || stages.includes(data.stage as typeof stages[number]))
+      || typeof data.model_id !== 'string' || !data.model_id || !optionalText(data.prompt_version)
+      || !optionalText(data.input_builder_version) || !optionalText(data.index_version)
+      || typeof data.config_hash !== 'string' || !/^[0-9a-f]{64}$/.test(data.config_hash)
+      || !(data.data_split === null || data.data_split === 'train' || data.data_split === 'valid' || data.data_split === 'test')
+      || !(data.data_origin === 'synthetic' || data.data_origin === 'demo' || data.data_origin === 'real')
+      || Object.values(knobs).some(v => !(typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number' && Number.isFinite(v)))) throw invalid();
+  return {
+    experiment_id: data.experiment_id, name: data.name, purpose: data.purpose, stage: data.stage as SummaryExperiment['stage'],
+    knobs: { ...knobs } as SummaryExperiment['knobs'], model_id: data.model_id, prompt_version: data.prompt_version,
+    input_builder_version: data.input_builder_version, index_version: data.index_version, config_hash: data.config_hash,
+    data_split: data.data_split, data_origin: data.data_origin,
+  };
+}
+
 /** 잠금 정답 품질을 검증해 투영한다. Args: 선택 필드 값. Returns: 검증한 품질 또는 미연결(null). */
 function lockedQuality(value: unknown): LockedQuality | null {
   if (value === undefined || value === null) return null;
@@ -306,5 +331,6 @@ export async function getEvaluationSummary(runId: string, signal: AbortSignal): 
     synthetic_quality: synthetic, locked_quality: locked,
     comparison_key: comparisonKey(data.comparison_key),
     stage_metrics: stageMetrics(data.stage_metrics),
+    experiment: experimentConfig(data.experiment),
   };
 }

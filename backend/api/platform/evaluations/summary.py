@@ -20,6 +20,7 @@ from backend.api.platform.evaluations.admission import (
     validate_smoke_experiment,
 )
 from backend.api.platform.evaluations.cs_smoke import FIXTURES, matches_profile
+from backend.api.platform.evaluations.schemas import KnobValue, Stage
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS
@@ -312,6 +313,24 @@ class StageMetricBlock(BaseModel):
     items: list[StageMetric]
 
 
+class SummaryExperiment(BaseModel):
+    """실행의 실험 설정(KAN-90 5차). experiments 표에 이미 있는 값만 옮기며 추가 저장하지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    experiment_id: UUID
+    name: str
+    purpose: Literal["smoke", "rule_replay", "pipeline"]
+    stage: Stage | None
+    knobs: dict[str, KnobValue]
+    model_id: str
+    prompt_version: str | None
+    input_builder_version: str | None
+    index_version: str | None
+    config_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    data_split: Literal["train", "valid", "test"] | None
+    data_origin: Literal["synthetic", "demo", "real"]
+
+
 class EvaluationRunSummary(BaseModel):
     """저장 기록 집계와 잠금 정답 품질 연결 여부를 함께 낸다."""
 
@@ -334,6 +353,8 @@ class EvaluationRunSummary(BaseModel):
     locked_quality: LockedQuality | None = None
     comparison_key: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
     stage_metrics: list[StageMetricBlock] = Field(default_factory=list)
+    # 실험 설정(stage·knobs·판본·config_hash). 이 필드 전 소비자를 위해 선택 필드이며 서버는 항상 채운다.
+    experiment: SummaryExperiment | None = None
 
 
 def get_run_summary(
@@ -458,6 +479,25 @@ def get_run_summary(
                 # 잠금 경로는 서버 비밀 HMAC 키 판본 도입 전까지 비교 키를 내지 않는다.
                 comparison_key=None if locked else comparison_key(row),
                 stage_metrics=_read_stage_metrics(conn, run_id),
+                experiment=SummaryExperiment(
+                    experiment_id=row["id"],
+                    knobs=row["knobs"] or {},
+                    **{
+                        key: row[key]
+                        for key in (
+                            "name",
+                            "purpose",
+                            "stage",
+                            "model_id",
+                            "prompt_version",
+                            "input_builder_version",
+                            "index_version",
+                            "config_hash",
+                            "data_split",
+                            "data_origin",
+                        )
+                    },
+                ),
                 **groups,
             )
     except (psycopg.Error, ValueError):
