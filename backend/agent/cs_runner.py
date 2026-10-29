@@ -206,8 +206,11 @@ def run_ticket(graph: Any, thread_id: str, ticket_id: str) -> RunOutcome:
         ticket_id: 문의 ID.
 
     Returns:
-        RunOutcome: 실행 뒤 상태 요약.
+        RunOutcome: 실행 뒤 상태 요약. 같은 thread_id에 체크포인트가 이미 있으면 다시 호출하지 않고
+            ValueError("CS_GRAPH_THREAD_EXISTS")다(상태 덮어쓰기·중복 유료 호출 방지).
     """
+    if graph.get_state(thread_config(thread_id)).values:
+        raise ValueError("CS_GRAPH_THREAD_EXISTS")
     graph.invoke(initial_state(ticket_id), thread_config(thread_id))
     return _outcome(graph, thread_id)
 
@@ -220,7 +223,10 @@ def resume(graph: Any, thread_id: str) -> RunOutcome:
         thread_id: 체크포인트 스레드 ID.
 
     Returns:
-        RunOutcome: 재개 뒤 상태 요약. 멈춘 곳이 없으면 그대로의 요약이다.
+        RunOutcome: 재개 뒤 상태 요약. 체크포인트가 없거나 멈춘 곳(next)이 없으면(없는 thread·오타·이미
+            끝남) ValueError("CS_GRAPH_NOTHING_TO_RESUME")다.
     """
+    if not graph.get_state(thread_config(thread_id)).next:
+        raise ValueError("CS_GRAPH_NOTHING_TO_RESUME")
     graph.invoke(None, thread_config(thread_id))
     return _outcome(graph, thread_id)

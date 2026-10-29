@@ -2,8 +2,10 @@
 
 시연은 두 번 부른다: 먼저 실행해 사람 확인 직전에 멈추고, 같은 --thread-id로 --resume을 붙여 끝낸다. 별도
 프로세스로 재개하려면 체크포인트가 DB에 있어야 하므로 --resume은 DATABASE_URL(cs_app, checkpoint_cs 적용 DB)이
-필요하다. --execute는 실제 Gemini 공급자를 쓰며(승인 뒤에만), 키는 환경변수 GEMINI_API_KEY에서만 읽는다. 이
-단위의 검색기는 두 모드 모두 메모리 fake다.
+필요하다. --execute는 실제 Gemini 공급자를 쓰며(승인 뒤에만), 키는 환경변수 GEMINI_API_KEY에서만 읽는다. 검색기는
+기본이 메모리 fake이고, --fts-db면 DATABASE_URL(cs_app)의 cs.document_chunks를 FTS로 찾는다(KAN-194 3차).
+같은 --thread-id로 다시 실행하면 CS_GRAPH_THREAD_EXISTS, 멈춘 곳이 없는 thread를 재개하면
+CS_GRAPH_NOTHING_TO_RESUME으로 종료 1이다(중복 유료 호출·오타 재개 방지).
 
 --ticket-file은 {ticket_id: {record, sensitive_values, product_code, customer_tier, received_at(ISO, 시간대 포함),
 required_info_codes, already_asked_codes}} JSON이다. 원문이 들어 있으므로 저장소에 두지 않는다. --out에는 상태
@@ -26,6 +28,7 @@ from backend.agent.cs_runner import (
     resume,
     run_ticket,
 )
+from backend.agent.cs_search import fts_searcher_from_dsn
 from backend.engine.cs.graph import TicketInputs, build_graph
 from backend.shared.ai import AISettings, create_client
 from backend.shared.settings import Settings
@@ -35,6 +38,8 @@ from tests.cs.graph_fakes import (
     draft_provider,
     fts_searcher,
 )
+
+RUNNER_ERRORS = frozenset({"CS_GRAPH_THREAD_EXISTS", "CS_GRAPH_NOTHING_TO_RESUME"})
 
 
 def load_tickets(path: Path) -> dict[str, TicketInputs]:
@@ -90,7 +95,11 @@ def main(
     parser.add_argument(
         "--allowed-codes", help="쉼표 구분 정보 코드. 없으면 파일의 required 합집합"
     )
+    parser.add_argument("--fts-db", action="store_true", help="DATABASE_URL의 cs FTS 검색기")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--debug", action="store_true", help="알 수 없는 오류를 원문 그대로 전파(로컬 디버깅만)"
+    )
     args = parser.parse_args(argv)
     try:
         settings = Settings()
@@ -102,6 +111,11 @@ def main(
         print(
             "CS_GRAPH_RESUME_NEEDS_DB: --resume은 DATABASE_URL(checkpoint_cs를 적용한 DB)이 필요합니다.",
             file=sys.stderr,
+        )
+        return 1
+    if args.fts_db and settings.database_url is None:
+        print(
+            "CS_GRAPH_FTS_NEEDS_DB: --fts-db는 DATABASE_URL(cs_app)이 필요합니다.", file=sys.stderr
         )
         return 1
     try:
@@ -120,6 +134,11 @@ def main(
         else frozenset().union(*(t.required_info_codes for t in tickets.values()))
     )
     source = InMemoryTicketSource(tickets)
+    searcher = (
+        fts_searcher_from_dsn(settings.database_url.get_secret_value(), FILTERS.index_version)
+        if args.fts_db and settings.database_url is not None
+        else fts_searcher
+    )
     with make_checkpointer(settings) as saver:
         if args.execute:
             ai_settings = AISettings()
@@ -135,7 +154,7 @@ def main(
                 ai_settings,
                 client=client,
                 ticket_source=source,
-                fts_searcher=fts_searcher,
+                fts_searcher=searcher,
                 search_filters=FILTERS,
                 checkpointer=saver,
                 model=ai_settings.gemini_model,
@@ -146,7 +165,7 @@ def main(
             graph = build_graph(
                 classification_provider=classification_provider,
                 draft_provider=draft_provider,
-                fts_searcher=fts_searcher,
+                fts_searcher=searcher,
                 search_filters=FILTERS,
                 allowed_info_codes=allowed,
                 load_ticket=source.load_ticket,
@@ -154,11 +173,19 @@ def main(
                 checkpointer=saver,
                 allow_tracing=settings.ai_tracing_allowed,
             )
-        outcome = (
-            resume(graph, args.thread_id)
-            if args.resume
-            else run_ticket(graph, args.thread_id, ticket_id)
-        )
+        try:
+            outcome = (
+                resume(graph, args.thread_id)
+                if args.resume
+                else run_ticket(graph, args.thread_id, ticket_id)
+            )
+        except ValueError as error:
+            # 알려진 실행기 코드만 그대로 출력한다. 그 밖의 ValueError(pydantic 검증 등)는 입력값을 담을 수
+            # 있어 메시지를 내지 않고 CS_GRAPH_FAILED 한 줄만 낸다. --debug일 때만 그대로 전파한다.
+            if args.debug and str(error) not in RUNNER_ERRORS:
+                raise
+            print(str(error) if str(error) in RUNNER_ERRORS else "CS_GRAPH_FAILED", file=sys.stderr)
+            return 1
     summary = {
         "mode": "execute" if args.execute else "fake",
         "thread_id": args.thread_id,
