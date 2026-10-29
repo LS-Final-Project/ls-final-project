@@ -98,8 +98,11 @@ def test_missing_stage_and_zero_for_missing():
     Returns:
         None: 상태·단계 목록·일관성을 확인한다.
     """
-    missing = run(stages(CSV={"macro_f1": None}))["metrics"]["macro_f1"]
+    lost = run(stages(CSV={"macro_f1": None}))
+    missing = lost["metrics"]["macro_f1"]
     assert missing["status"] == "MISSING" and missing["diff_stages"] == ["CSV"]
+    # 앞 단계에 있던 값이 CSV에서 사라졌으므로 일관하지 않다(전 단계 None인 hit_at_5와 다름).
+    assert lost["consistent"] is False
     zero = run(stages(DB={"hit_at_5": 0}))
     assert zero["metrics"]["hit_at_5"]["status"] == "ZERO_FOR_MISSING"
     assert zero["metrics"]["hit_at_5"]["diff_stages"] == ["RAW", "SCREEN", "CSV"]
@@ -136,9 +139,28 @@ def test_partial_run_is_marked_and_not_consistent(status):
     """
     result = run(stages(), run_status=status, evaluated=30)
     assert result["partial"] is True and result["note"] == PARTIAL_NOTE
-    assert result["coverage"] == {"targets": 40, "evaluated": 30, "ratio": 0.75}
+    assert result["coverage"] == {
+        "targets": 40,
+        "evaluated": 30,
+        "incomplete_targets": 10,
+        "ratio": 0.75,
+    }
     assert result["consistent"] is False
     assert run(stages(), targets=0, evaluated=0)["coverage"]["ratio"] is None
+
+
+def test_completed_status_with_unevaluated_targets_is_partial():
+    """상태가 COMPLETED여도 평가를 마치지 못한 대상이 있으면 부분 결과다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: partial·note·consistent를 확인한다.
+    """
+    result = run(stages(), evaluated=39)
+    assert result["partial"] is True and result["note"] == PARTIAL_NOTE
+    assert result["coverage"]["incomplete_targets"] == 1 and result["consistent"] is False
 
 
 @pytest.mark.parametrize(

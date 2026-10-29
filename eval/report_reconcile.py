@@ -2,7 +2,7 @@
 
 호출자가 단계마다 값을 넘긴다(DB 쪽은 eval/cs_stored_metrics.py·cs_report.py가 읽는다). None은 "값 없음"이며
 0으로 바꾸지 않는다. 한 단계가 0이고 다른 단계가 None이면 누락을 0으로 채운 것으로 의심해 따로 표시한다.
-중단·부분 완료 실행은 부분 결과로 표시하고 합격 판정에 쓰지 않는다.
+중단·부분 완료 실행이나 평가를 마치지 못한 대상이 있는 실행은 부분 결과로 표시하고 합격 판정에 쓰지 않는다.
 """
 
 import math
@@ -74,6 +74,21 @@ def _compare(values: Mapping[Stage, Number | None], tolerance: float) -> dict:
     return {"status": status, "values": dict(values), "diff_stages": stages}
 
 
+def _breaks(row: dict) -> bool:
+    """대조 결과가 일관성을 깨는지 본다.
+
+    Args:
+        row: _compare 결과.
+
+    Returns:
+        bool: MISMATCH·ZERO_FOR_MISSING이거나, 일부 단계만 None인 MISSING(단계 사이 값 소실)이면 True.
+            전 단계 None(미계산)은 False다.
+    """
+    if row["status"] == "MISSING":
+        return any(value is not None for value in row["values"].values())
+    return row["status"] in ("MISMATCH", "ZERO_FOR_MISSING")
+
+
 def reconcile(
     stages: list[StageValues],
     *,
@@ -86,7 +101,7 @@ def reconcile(
 
     Args:
         stages: 단계 값. RAW는 필수이고 같은 단계는 하나만 허용한다. 없는 단계는 비교하지 않는다.
-        run_status: 실행 상태. ABORTED·PARTIAL이면 부분 결과다.
+        run_status: 실행 상태. ABORTED·PARTIAL이거나 evaluated < targets면 부분 결과다.
         targets: 고정 대상 수.
         evaluated: 평가를 마친 대상 수. targets 이하.
         tolerance: 허용 절대 차(0 이상).
@@ -94,7 +109,8 @@ def reconcile(
     Returns:
         dict: run_status, partial, coverage(targets·evaluated·ratio, targets 0이면 None), note(부분 결과일 때),
             metrics(key별 status·values·diff_stages), case_count(같은 규칙), summary(상태별 지표 수),
-            consistent(MISMATCH·ZERO_FOR_MISSING이 지표·사례 수 모두 0건이고 부분 결과가 아니면 True).
+            consistent(MISMATCH·ZERO_FOR_MISSING과 일부 단계만 None인 MISSING이 지표·사례 수 모두 0건이고 부분
+            결과가 아니면 True, 전 단계 None인 미계산 지표는 막지 않음), coverage.incomplete_targets.
             한 단계에 key가 없으면 그 단계 값은 None이다. 잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     by_stage = {s.stage: s for s in stages if isinstance(s, StageValues)}
@@ -118,17 +134,17 @@ def reconcile(
         key: _compare({s.stage: s.values.get(key) for s in present}, tolerance) for key in keys
     }
     case_count = _compare({s.stage: s.case_count for s in present}, tolerance)
-    partial = run_status != "COMPLETED"
+    partial = run_status != "COMPLETED" or evaluated < targets
     summary = {status: 0 for status in STATUSES}
     for row in metrics.values():
         summary[row["status"]] += 1
-    bad = {"MISMATCH", "ZERO_FOR_MISSING"}
     return {
         "run_status": run_status,
         "partial": partial,
         "coverage": {
             "targets": targets,
             "evaluated": evaluated,
+            "incomplete_targets": targets - evaluated,
             "ratio": evaluated / targets if targets else None,
         },
         **({"note": PARTIAL_NOTE} if partial else {}),
@@ -136,8 +152,7 @@ def reconcile(
         "case_count": case_count,
         "summary": summary,
         "consistent": not partial
-        and summary["MISMATCH"] + summary["ZERO_FOR_MISSING"] == 0
-        and case_count["status"] not in bad,
+        and not any(_breaks(row) for row in (*metrics.values(), case_count)),
     }
 
 
