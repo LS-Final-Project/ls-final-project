@@ -406,7 +406,15 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
         if response.status_code == 200:
             counts["notified"] += 1
         elif response.status_code == 404:
-            # C/S에 없는 문의(예: 검사용 참조). 같은 연결을 계속 다시 알리지 않는다.
+            # 배포 순서·비활성 경로의 404는 일시 실패다. 문의 없음이 명시된 경우만 끝낸다.
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if not isinstance(error, dict) or error.get("code") != "CS_TICKET_NOT_FOUND":
+                counts["failed"] += 1
+                continue
             counts["missing"] += 1
         else:
             counts["failed"] += 1

@@ -160,6 +160,20 @@ async def retry_send(
             raise ApplicationError(
                 409, "CS_CUSTOMER_SEND_NOT_RETRYABLE", "This send cannot be requested again."
             )
+        other_sends = await repository.list_sends(conn, ticket_id)
+        if any(s["workflow_version"] > send["workflow_version"] for s in other_sends):
+            raise ApplicationError(
+                409,
+                "CS_CUSTOMER_SEND_NOT_RETRYABLE",
+                "A newer message has already been approved.",
+            )
+        if any(s["id"] != send_id and unsettled(s) for s in other_sends):
+            raise send_pending()
+        # Reserve the pending send while holding the workflow lock. In particular,
+        # REQUEST_FAILED otherwise permits a new approval during the network call.
+        await repository.update_send(
+            conn, send_id, {"request_status": "PENDING", "request_error": None}
+        )
     await sends.submit(request, client, send)
     return await current(request, principal, ticket_id)
 

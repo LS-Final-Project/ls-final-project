@@ -49,6 +49,7 @@ class FakeCs:
     def __init__(self):
         self.calls = []
         self.reply_status = 200
+        self.reply_body = {"data": {"state": "IN_REVIEW", "reopened": True, "recorded": True}}
         self.ticket_id = uuid4()
         self.from_mail_status = 201
         self.raise_next = None
@@ -64,7 +65,7 @@ class FakeCs:
         if request.url.path.endswith("/customer-reply"):
             return httpx.Response(
                 self.reply_status,
-                json={"data": {"state": "IN_REVIEW", "reopened": True, "recorded": True}},
+                json=self.reply_body,
             )
         assert request.url.path == FROM_MAIL_PATH
         assert PRINCIPAL_HEADER in request.headers
@@ -160,11 +161,28 @@ def test_failed_notification_is_left_for_the_next_run(settings, notify):
     assert notified(notify, message) is None
     # C/S에 없는 문의는 한 번만 시도한다.
     cs.reply_status = 404
+    cs.reply_body = {"error": {"code": "CS_TICKET_NOT_FOUND"}}
     assert asyncio.run(notify_cs_replies(settings, cs.caller())) == {
         "notified": 0,
         "missing": 1,
         "failed": 0,
     }
+    assert notified(notify, message) is not None
+
+
+@pytest.mark.parametrize("body", [{"detail": "Not Found"}, {}, [], {"error": None}])
+def test_routing_404_is_retried_after_cs_deployment(settings, notify, body):
+    cs = FakeCs()
+    message = link_reply(notify, uuid4())
+    cs.reply_status, cs.reply_body = 404, body
+    assert asyncio.run(notify_cs_replies(settings, cs.caller())) == {
+        "notified": 0,
+        "missing": 0,
+        "failed": 1,
+    }
+    assert notified(notify, message) is None
+    cs.reply_status = 200
+    assert asyncio.run(notify_cs_replies(settings, cs.caller()))["notified"] == 1
     assert notified(notify, message) is not None
 
 

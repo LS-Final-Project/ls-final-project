@@ -373,6 +373,33 @@ def test_unreachable_platform_is_a_failed_request_that_can_be_retried(client, pl
     assert retried["request_status"] == "REGISTERED" and len(platform.intents) == 1
 
 
+def test_new_approval_replaces_failed_request_for_retry(client, platform, ticket):
+    ok(act(client, ticket, "start-review", version=0))
+    platform.fail_next = httpx.ConnectError("refused")
+    old = last_send(ok(send(client, ticket, 1)))
+    ok(send(client, ticket, 2, body="Corrected answer"))
+    posts = platform.posts
+    assert code(act(client, ticket, f"sends/{old['id']}/retry", version=3)) == (
+        409,
+        "CS_CUSTOMER_SEND_NOT_RETRYABLE",
+    )
+    assert platform.posts == posts and len(platform.intents) == 1
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_disabling_mail_does_not_bypass_pending_send_guard(client, platform, ticket, unknown):
+    ok(act(client, ticket, "start-review", version=0))
+    if unknown:
+        platform.fail_next = httpx.ReadTimeout("no answer")
+    ok(send(client, ticket, 1))
+    configure_customer_mail(client.app, CustomerMailSettings(_env_file=None, enabled=False))
+    response = act(client, ticket, "close", version=2)
+    assert response.status_code == (409 if unknown else 404)
+    if unknown:
+        assert code(response)[1] == "CS_CUSTOMER_SEND_PENDING"
+    assert state(client, ticket)["state"] == "IN_REVIEW"
+
+
 def test_mail_registered_ticket_answers_its_sender_and_hides_mail_from_departments(
     client, admin, cs_database, platform
 ):
