@@ -150,6 +150,18 @@ def test_masking_hides_contacts_serials_and_confirmed_unit():
     assert "answered_codes" in prompt and "NOT_MENTIONED" in prompt
 
 
+def test_confirmed_serial_masks_the_whole_containing_token():
+    """확정 시리얼을 품은 더 긴 토큰은 꼬리 없이 표식 하나로 가린다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 원값과 꼬리가 남지 않음을 확인한다.
+    """
+    assert prepare("unit ZX-CONF-00012 trips.").payload.body == "unit [SERIAL_PROVIDED] trips."
+
+
 def test_invalid_input_errors_never_carry_the_confirmed_serial():
     """잘못된 입력 오류 메시지에 확정 시리얼 원값이 들어가지 않는다.
 

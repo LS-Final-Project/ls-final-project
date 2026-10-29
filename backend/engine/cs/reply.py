@@ -145,7 +145,7 @@ def build_reply_input(
         context: 회신을 해석할 문의 맥락.
         reply: 고객 회신 원문.
         confirmed_unit_serial: 확정 장비 시리얼 원값(어댑터 제공). 대조에만 쓰고 정제 입력에 넣지 않으며,
-            회신 본문에 있으면 대소문자와 무관하게 가린다.
+            회신 본문에서 이 값을 포함한 토큰 전체를 대소문자와 무관하게 가린다.
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
 
     Returns:
@@ -162,8 +162,12 @@ def build_reply_input(
         raise ValueError("CS_INVALID_INPUT")
     body = reply.body
     if confirmed_unit_serial is not None:
+        # 경계를 두면 더 긴 시리얼에 든 원값이 그대로 남으므로, 원값을 포함한 토큰 전체를 가린다.
         body = re.sub(
-            re.escape(confirmed_unit_serial.strip()), "[SERIAL_PROVIDED]", body, flags=re.IGNORECASE
+            rf"[{EDGE}]*{re.escape(confirmed_unit_serial.strip())}[{EDGE}]*",
+            "[SERIAL_PROVIDED]",
+            body,
+            flags=re.IGNORECASE,
         )
     prepared = build_input(
         {
