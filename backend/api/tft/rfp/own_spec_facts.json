@@ -1,0 +1,62 @@
+{
+  "_note": "KAN-186 자사 비교 입력. 제공 데이터 ref/product_spec_facts.csv·product_master.csv의 문장을 협력사 프로필(partners/profiles.json)과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(derivation_kind=DERIVED)이다. source_value는 원래 문장이고 바꾼 규칙은 note에 있다. 실제 LS 제품 성능 자료가 아니라 교육용 합성 데이터시트다. 지금은 14번 시연 A의 TRF-DRY-630만 있다.",
+  "data_origin": "synthetic",
+  "derivation_kind": "DERIVED",
+  "products": [
+    {
+      "product_code": "TRF-DRY-630",
+      "family": "TRANSFORMER",
+      "lifecycle_status": "ACTIVE",
+      "standards": ["IEC 60076-11"],
+      "certifications": [
+        {"standard": "IEC 60076-11", "kind": "TEST_REPORT", "evidence_id": "DS-TRF-DRY-630"},
+        {"standard": "KC", "kind": "TEST_REPORT", "evidence_id": "DS-TRF-DRY-630"}
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power", "value": "630", "unit": "kVA",
+          "conditions": [{"name": "cooling", "value": "AN"}],
+          "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "source_value": "630 kVA (AN) / 880 kVA (AF, with fans)"
+        },
+        {
+          "attribute": "forced_air_capacity_increase", "value": "39.7", "unit": "%",
+          "conditions": [{"name": "temperature_rise", "value": "100", "unit": "K"}],
+          "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "source_value": "630 kVA (AN) / 880 kVA (AF, with fans)",
+          "note": "880/630-1 = 39.7%. 온도 상승 조건은 같은 시트 2.2의 100 K(AN 기준)이며 AF 정격의 온도 상승은 시트에 없다"
+        },
+        {
+          "attribute": "primary_voltage", "value": "11", "unit": "kV",
+          "conditions": [], "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "source_value": "11 kV / 0.415 kV"
+        },
+        {
+          "attribute": "secondary_voltage", "value": "415", "unit": "V",
+          "conditions": [], "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "source_value": "11 kV / 0.415 kV",
+          "note": "0.415 kV를 V 단위로 옮김"
+        },
+        {
+          "attribute": "impedance", "value": "6", "unit": "%",
+          "conditions": [{"name": "reference_temperature", "value": "120", "unit": "°C"}],
+          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "source_value": "6% at 120 °C"
+        },
+        {
+          "attribute": "tap", "value": "±2×2.5%", "unit": null,
+          "conditions": [{"name": "tap_type", "value": "off-circuit"}],
+          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "source_value": "±2 x 2.5%",
+          "note": "x를 ×로, 공백 제거"
+        },
+        {
+          "attribute": "insulation_class", "value": "F", "unit": null,
+          "conditions": [{"name": "temperature_rise", "value": "100", "unit": "K"}],
+          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "source_value": "Class F / 100 K"
+        }
+      ]
+    }
+  ]
+}
