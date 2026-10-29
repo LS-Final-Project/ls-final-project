@@ -248,3 +248,20 @@ def test_invalid_inputs_are_rejected(files, task, adopt, overrides):
     }
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         record([raw.get(item, item) for item in files], task=task, adopt=adopt, **overrides)
+
+
+def test_latest_run_is_chosen_by_time_not_by_string():
+    """UTC 오프셋이 다른 시작 시각도 실제 시각으로 비교해 최신 실행으로 게이트를 본다."""
+    later = classification_run("2026-10-29T08:00:00+09:00")  # UTC 2026-10-28T23:00
+    latest = classification_run("2026-10-29T00:00:00+00:00", violations=2)
+    result = record([later, latest])
+    assert result.gates["run_file_sha256"] == hashlib.sha256(latest).hexdigest()
+
+
+@pytest.mark.parametrize("value", [[0.95], "0.95", True])
+def test_non_numeric_metric_value_is_invalid_input(value):
+    """숫자·None이 아닌 지표 값은 TypeError나 float 변환 통과가 아니라 EVAL_INVALID_INPUT이다."""
+    data = json.loads(embedding_run(0.95))
+    data["result"]["candidates"][0]["hit_at_k"]["5"] = value
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        record([json.dumps(data).encode()], task="embedding", adopt="e")

@@ -9,7 +9,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
 from eval.release_gate import Gate, MetricValue, evaluate_gates
@@ -156,10 +156,13 @@ def _gate_summary(evidence: Mapping[str, Any], gates: list[Gate]) -> dict[str, A
 
     Returns:
         dict: run_file_sha256, evaluate_gates 결과(gates·counts·blocker), excluded(과제 지표가 아니라 뺀
-            게이트 키). 평가한 게이트가 없으면 blocker는 False이고 counts는 0이다.
+            게이트 키). 평가한 게이트가 없으면 blocker는 False이고 counts는 0이다. 숫자·None이 아닌 지표 값은
+            ValueError다.
     """
     metrics = evidence["metrics"]
     numeric = {k: v for k, v in metrics.items() if not isinstance(v, dict)}
+    if any(value is not None and type(value) not in (int, float) for value in numeric.values()):
+        raise ValueError
     scoped = [gate for gate in gates if gate.metric_key in numeric]
     values = [
         MetricValue(key, "all", None if value is None else float(value), evidence["targets"])
@@ -198,7 +201,7 @@ def build_record(
     Returns:
         AdoptionRecord: evidence는 후보가 있는 실행 전부(입력 순서), 게이트는 run_started_at이 가장 늦은 실행으로
             본다. 빈 입력, 모르는 과제·후보, 과제 불일치, 실행마다 다른 후보 설정, 모르는 기각 후보, 빈 결정자·
-            사유는 EVAL_INVALID_INPUT ValueError다.
+            사유, ISO가 아닌 시작 시각, 숫자·None이 아닌 지표 값은 EVAL_INVALID_INPUT ValueError다.
     """
     try:
         if not run_files or not decided_by.strip() or not rationale.strip():
@@ -213,15 +216,17 @@ def build_record(
             or not all(isinstance(reason, str) and reason.strip() for reason in rejected.values())
         ):
             raise ValueError
+        evidence = [run["evidence"] for run in found]
+        # 문자열 비교는 UTC 오프셋이 섞이면 순서가 틀리므로 시각으로 비교한다(naive·aware 혼합은 TypeError).
+        latest = max(evidence, key=lambda item: datetime.fromisoformat(item["run_started_at"]))
+        gate_summary = _gate_summary(latest, gates)
     except (ValueError, KeyError, TypeError, AttributeError):
         raise ValueError("EVAL_INVALID_INPUT") from None
-    evidence = [run["evidence"] for run in found]
-    latest = max(evidence, key=lambda item: item["run_started_at"])
     return AdoptionRecord(
         task=task,  # type: ignore[arg-type]
         adopted=found[0]["spec"],
         evidence=evidence,
-        gates=_gate_summary(latest, gates),
+        gates=gate_summary,
         rejected=[{"candidate_name": name, "reason": reason} for name, reason in rejected.items()],
         decided_by=decided_by,
         decided_on=(decided_on or date.today()).isoformat(),

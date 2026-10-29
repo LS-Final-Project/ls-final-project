@@ -38,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: 명령행 인자(테스트 주입용).
 
     Returns:
-        int: 0 성공, 1 입력 오류·이미 있는 출력 파일. 표준 출력에는 게이트 건수·blocker만 낸다.
+        int: 0 성공, 1 입력 오류(--out과 --note가 같은 경로 포함)·이미 있는 출력 파일. 표준 출력에는
+            게이트 건수·blocker만 낸다.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", required=True, choices=["classification", "draft", "embedding"])
@@ -52,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--note", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        # 같은 경로면 두 번째 쓰기가 실패하며 빈 기록 파일이 남는다.
+        if args.out.resolve() == args.note.resolve():
+            raise ValueError
         record = build_record(
             [path.read_bytes() for path in args.results],
             task=args.task,

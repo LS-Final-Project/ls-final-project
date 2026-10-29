@@ -111,6 +111,16 @@ class EvalAdoptTest(unittest.TestCase):
         self.assertFalse((self.root / "record.json").exists())
         self.assertEqual((self.root / "note.md").read_text(encoding="utf-8"), "기존 메모")
 
+    def test_same_out_and_note_path_is_rejected_without_writing(self):
+        """--out과 --note가 같은 경로면 입력 오류이며 빈 파일을 남기지 않는다.
+
+        Returns:
+            None: 종료 코드와 미생성을 확인한다.
+        """
+        code, _, err = self.run_main("--note", str(self.root / "sub" / ".." / "record.json"))
+        self.assertEqual((code, err.strip()), (1, "EVAL_INVALID_INPUT"))
+        self.assertFalse((self.root / "record.json").exists())
+
     def test_invalid_inputs_exit_with_code_1(self):
         """모르는 후보·잘못된 --reject·없는 결과 파일은 원문 없이 종료 코드 1이다.
 
