@@ -1,6 +1,6 @@
 # 보안 회귀 검사 대조표 (KAN-149)
 
-KAN-149 완료 조건 "미등록/다른부서/프로젝트 접근, 개발우회, 이전승인, 프롬프트지시로 도구/발송 실행 차단"을 막는 검사의 위치다. 대부분은 각 기능 PR에서 만든 검사이고, 프롬프트 지시문 회귀는 이 티켓에서 더했다(`tests/cs/test_prompt_injection_regression.py`). 표의 검사 이름은 `tests/test_security_regression_index.py`가 실제로 있는지 확인하므로, 검사 이름을 바꾸면 이 표도 같이 고친다.
+KAN-149 완료 조건 "미등록/다른부서/프로젝트 접근, 개발우회, 이전승인, 프롬프트지시로 도구/발송 실행 차단"을 막는 검사의 위치다. 대부분은 각 기능 PR에서 만든 검사이고, 프롬프트 지시문 회귀는 이 티켓에서 더했다(`tests/cs/test_prompt_injection_regression.py`). 표의 검사 이름은 `tests/platform/test_security_regression_index.py`가 실제로 있는지 확인하므로, 검사 이름을 바꾸면 이 표도 같이 고친다.
 
 **실행**: 모델·DB 없는 검사는 `uv run --frozen pytest -q <파일>`, DB 검사는 [공통 온보딩](team-start.md)의 전용 PostgreSQL과 `AUTH_TEST_DATABASE_URL`로 돌린다. 모두 CI(`application-checks.yml`의 backend·auth-database)에 이미 들어 있다.
 
