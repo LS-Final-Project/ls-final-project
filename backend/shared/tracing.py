@@ -10,6 +10,7 @@ TRACING_SWITCHES = (
     "LANGCHAIN_TRACING_V2",
 )
 TRACING_KEYS = ("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY")
+TRACING_BLOCKED = "LangSmith tracing is disabled until the transfer policy is decided (KAN-89)"
 
 
 def tracing_requested(env: Mapping[str, str]) -> bool:

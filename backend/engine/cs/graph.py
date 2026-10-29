@@ -11,6 +11,7 @@ metadata에 그대로 복사하므로(langgraph.checkpoint.base.get_checkpoint_m
 """
 
 import json
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -31,6 +32,7 @@ from backend.engine.cs.rules import RuleInputError, decide
 from backend.engine.search.hybrid import Searcher, run_hybrid
 from backend.engine.search.model import SearchFilters
 from backend.shared.ai import Generation
+from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
 
 Stage = Literal[
     "RECEIVED", "CLASSIFIED", "CLASSIFY_FAILED", "RULED", "RETRIEVED", "DRAFTED", "HUMAN_REVIEW"
@@ -151,6 +153,7 @@ def build_graph(
     record_attempt: Callable[[str, str, ClassificationAttempt | DraftAttempt], str],
     checkpointer: BaseCheckpointSaver,
     vector_searcher: Searcher | None = None,
+    allow_tracing: bool = False,
 ) -> Any:
     """C/S 처리 그래프를 만들어 사람 확인 직전 중단점과 함께 컴파일한다.
 
@@ -165,12 +168,16 @@ def build_graph(
             kind는 "classification" 또는 "draft"다.
         checkpointer: MemorySaver(검사) 또는 checkpoint_cs 스키마의 PostgresSaver.
         vector_searcher: 벡터 검색기. None이면 FTS만 쓴다.
+        allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed. 추적 환경 변수가 있는데 False면
+            Settings를 거치지 않는 진입점이라도 그래프를 만들지 않는다(KAN-89).
 
     Returns:
         CompiledStateGraph: interrupt_before=["human_review"]로 컴파일한 그래프. 주입은 이 인자로만 하고
             config["configurable"]에는 thread_id만 둔다(thread_config). 분류 실패는 END, 규칙·검색·초안 실패는
-            errors에 코드를 남기고 계속한다.
+            errors에 코드를 남기고 계속한다. 추적이 요청됐는데 허용되지 않으면 TRACING_BLOCKED ValueError다.
     """
+    if tracing_requested(os.environ) and not allow_tracing:
+        raise ValueError(TRACING_BLOCKED)
 
     def classify(state: CsState) -> dict[str, Any]:
         """분류 시도 1회를 실행하고 마스킹한 입력과 결과만 상태에 둔다.

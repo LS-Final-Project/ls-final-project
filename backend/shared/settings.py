@@ -9,10 +9,9 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from backend.shared.tracing import tracing_requested
+from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
 
 ServiceName = Literal["cs", "tft", "platform"]
-TRACING_BLOCKED = "LangSmith tracing is disabled until the transfer policy is decided (KAN-89)"
 logger = logging.getLogger(__name__)
 
 

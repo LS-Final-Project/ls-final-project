@@ -70,7 +70,7 @@
 
 ## 범위 밖
 
-- LangSmith 추적. 정책 확정 전에는 전송하지 않으며, 추적 환경 변수가 있으면 KAN-89 Settings 시작 검사가 프로세스 시작을 막는다.
+- LangSmith 추적. 정책 확정 전에는 전송하지 않으며, 추적 환경 변수가 있으면 KAN-89 Settings 시작 검사가 프로세스 시작을 막는다. Settings를 거치지 않는 진입점도 `build_graph`가 같은 판정으로 거부한다(호출자가 `Settings.ai_tracing_allowed`를 `allow_tracing`으로 넘긴다). 새 진입점은 Settings를 먼저 만들거나 `tracing_requested(os.environ)`를 확인한다.
 - RFP 그래프
 - API·워커 연결, 사람 확인 화면, 체크포인트 보존 기간·정리
 - 재시도(시도 번호는 항상 1)
