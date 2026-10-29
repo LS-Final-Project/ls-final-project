@@ -315,9 +315,14 @@ def test_return_subtype_is_confirmed_by_a_person_after_review_starts(client, adm
     assert len(audits) == 2
     assert audits[0][0]["provenance_kind"]["to"] == "human_input"
     assert audits[1][0]["return_subtype_confirmed"] == {"from": "NON_DEFECT", "to": "DEFECT"}
-    # The four confirmation columns move together (DB CHECK).
+    # The four confirmation columns move together, and the value domain stays checked (DB CHECK).
     with pytest.raises(psycopg.errors.CheckViolation):
         admin.execute(
             "UPDATE cs.ticket_workflows SET return_subtype_confirmed_reason = NULL WHERE ticket_id = %s",
+            (ticket,),
+        )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        admin.execute(
+            "UPDATE cs.ticket_workflows SET return_subtype_confirmed = 'FOO' WHERE ticket_id = %s",
             (ticket,),
         )

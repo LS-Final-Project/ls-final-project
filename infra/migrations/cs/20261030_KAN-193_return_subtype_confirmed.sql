@@ -16,8 +16,10 @@ ALTER TABLE cs.ticket_workflows
     ADD COLUMN IF NOT EXISTS return_subtype_confirmed_at timestamptz;
 
 -- A confirmation is a person's decision with its reason and time, or nothing at all.
-ALTER TABLE cs.ticket_workflows DROP CONSTRAINT IF EXISTS ticket_workflows_return_subtype_confirmed_check;
-ALTER TABLE cs.ticket_workflows ADD CONSTRAINT ticket_workflows_return_subtype_confirmed_check CHECK (
+-- Named apart from the column's own value CHECK (ticket_workflows_return_subtype_confirmed_check),
+-- which stays in place.
+ALTER TABLE cs.ticket_workflows DROP CONSTRAINT IF EXISTS ticket_workflows_return_subtype_confirmed_all_or_none;
+ALTER TABLE cs.ticket_workflows ADD CONSTRAINT ticket_workflows_return_subtype_confirmed_all_or_none CHECK (
     (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_reason IS NULL)
     AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_by IS NULL)
     AND (return_subtype_confirmed IS NULL) = (return_subtype_confirmed_at IS NULL)
