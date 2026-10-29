@@ -613,9 +613,10 @@ def test_shared_cases_forward_or_reject_before_business_service(system, case):
     """
     write = case["method"] != "GET"
     headers = system["write"] | ({"Content-Type": "application/json"} if write else {})
-    result = system["client"].request(
-        case["method"], case["path"], headers=headers, content=b"{}" if write else None
-    )
+    body = b"{}" if write else None
+    if case["method"] == "PUT" and case["path"].endswith("/owner"):
+        body = json.dumps({"version": 1, "owner_user_id": str(system["user_id"])}).encode()
+    result = system["client"].request(case["method"], case["path"], headers=headers, content=body)
     if case["forward"]:
         [(method, url, *_)] = system["calls"]
         sent, asked = urlsplit(url), urlsplit(case["path"])
@@ -704,7 +705,7 @@ def test_real_cs_write_routes_relay_post_and_put_with_the_session_user(system):
     )
     assert started.status_code == 200, started.text
     assert started.json()["data"]["state"] == "IN_REVIEW"
-    owner = uuid4()
+    owner = system["user_id"]
     moved = client.put(
         workflow + "/owner",
         headers=write | forged,
@@ -718,3 +719,56 @@ def test_real_cs_write_routes_relay_post_and_put_with_the_session_user(system):
             Principal.model_validate_json(outgoing[PRINCIPAL_HEADER]).user_id == system["user_id"]
         )
         assert outgoing[CALLER_HEADER] != "forged"
+
+
+def test_assignee_database_filter_and_owner_rejection(system, business_database):
+    """실제 DB에서 비활성·비상담원 제외와 두 owner 경로의 전달 전 검증을 확인한다."""
+    client = system["client"]
+    user_id = system["user_id"]
+    result = client.get("/api/v1/platform/assignees?role=cs_agent")
+    assert result.status_code == 200, result.text
+    assert str(user_id) in {row["user_id"] for row in result.json()["data"]["items"]}
+    inactive = uuid4()
+    with psycopg.connect(business_database) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,is_active) "
+            "VALUES (%s,%s,%s,'inactive@example.invalid','합성 비활성 상담원',false)",
+            (inactive, uuid4(), uuid4()),
+        )
+        conn.execute("INSERT INTO identity.user_roles VALUES (%s,'cs_agent')", (inactive,))
+    try:
+        result = client.get("/api/v1/platform/assignees")
+        assert str(inactive) not in {row["user_id"] for row in result.json()["data"]["items"]}
+        response = client.put(
+            f"/api/v1/cs/tickets/{uuid4()}/workflow/owner",
+            headers=system["write"],
+            json={"version": 0, "owner_user_id": str(inactive)},
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "CS_INVALID_OWNER"
+    finally:
+        with psycopg.connect(business_database) as conn:
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (inactive,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (inactive,))
+    with psycopg.connect(business_database) as conn:
+        conn.execute(
+            "DELETE FROM identity.user_roles WHERE user_id=%s AND role='cs_agent'", (user_id,)
+        )
+    try:
+        result = client.get("/api/v1/platform/assignees")
+        assert result.status_code == 200
+        assert str(user_id) not in {row["user_id"] for row in result.json()["data"]["items"]}
+        for path in (
+            f"/api/v1/cs/tickets/{uuid4()}/workflow/owner",
+            f"/api/v1/cs/improvement-requests/{uuid4()}/owner",
+        ):
+            system["calls"].clear()
+            response = client.put(
+                path, headers=system["write"], json={"version": 1, "owner_user_id": str(user_id)}
+            )
+            assert response.status_code == 422
+            assert response.json()["error"]["code"] == "CS_INVALID_OWNER"
+            assert system["calls"] == []
+    finally:
+        with psycopg.connect(business_database) as conn:
+            conn.execute("INSERT INTO identity.user_roles VALUES (%s,'cs_agent')", (user_id,))

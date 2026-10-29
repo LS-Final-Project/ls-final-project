@@ -10,6 +10,7 @@ const authentication = new Map([
   ['/api/v1/platform/auth/callback', 'POST'],
   ['/api/v1/platform/auth/logout', 'POST'],
   ['/api/v1/platform/me', 'GET'],
+  ['/api/v1/platform/assignees', 'GET'],
 ]);
 const mailboxAuthentication = new Map([
   ['/api/v1/platform/auth/mailbox', 'GET'],
@@ -145,13 +146,15 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       if (evaluationControlRelayEnabled && evaluationControlPath(path, request.method)) {
         return relayEvaluationControl(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
+      const assignees = path === '/api/v1/platform/assignees';
+      if (assignees && ([...parsed.searchParams].some(([key, value]) => key !== 'role' || value !== 'cs_agent') || parsed.searchParams.getAll('role').length > 1)) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
       const [business, businessQuery] = businessRelayEnabled ? businessRoute(path) : [[], []];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
       if (path === '/health') return json(response, 200, { status: 'ok', service: 'web' });
       if (path.startsWith('/api/')) {
-        if ((!allowed.has(path) && !authMethod && !business.length) || (parsed.search && !business.length)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
+        if ((!allowed.has(path) && !authMethod && !business.length) || (parsed.search && !business.length && !assignees)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
         if (authMethod && request.method !== authMethod) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
         if (business.length) {
           if (!business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
@@ -195,7 +198,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
             headers['Content-Type'] = type;
           }
         }
-        const result = await fetcher(new URL(path + (business.length ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
+        const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
         if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json'))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');

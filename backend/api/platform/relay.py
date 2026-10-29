@@ -11,6 +11,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from requests.exceptions import RequestException
 from starlette.responses import Response
 
+from backend.api.platform.assignees.routes import validate_owner
 from backend.api.platform.auth.context import load_session_principal
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, configuration, csrf_token
 from backend.shared.access import PRINCIPAL_HEADER
@@ -286,6 +287,12 @@ async def relay(request: Request, path: str) -> Response:
         if size > REQUEST_LIMIT:
             raise HTTPException(413)
         chunks.append(chunk)
+    body = b"".join(chunks)
+    if request.method == "PUT" and re.fullmatch(
+        rf"/api/v1/cs/(?:tickets/{UUID_PATH}/workflow|improvement-requests/{UUID_PATH})/owner",
+        path,
+    ):
+        await validate_owner(settings, principal, body)
     target = (
         settings.business_cs_url if path.startswith("/api/v1/cs/") else settings.business_tft_url
     )
@@ -308,5 +315,5 @@ async def relay(request: Request, path: str) -> Response:
         request.method,
         target + path + query,
         outgoing,
-        b"".join(chunks),
+        body,
     )

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from backend.api.platform.assignees.routes import router as assignees
 from backend.api.platform.auth.http import router as login
 from backend.api.platform.auth.mailbox_http import router as mailbox
 from backend.api.platform.auth.routes import router as auth
@@ -18,3 +19,5 @@ router.include_router(mail_triage)
 router.include_router(mail_links)
 router.include_router(evaluations)
 router.include_router(jobs)
+
+router.include_router(assignees)
