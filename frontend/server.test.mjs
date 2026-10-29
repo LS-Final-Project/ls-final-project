@@ -503,6 +503,23 @@ test('summary relay is read-only, defaults closed and forwards no browser identi
   assert.equal(calls, 1);
 });
 
+test('cases relay forwards only cursor and limit once and stays read-only', async () => {
+  const path = controlRun + '/cases';
+  const seen = [];
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + path, { method: 'POST' })).status, 405);
+    for (const bad of ['?gold=1', '?limit=1&limit=2', '?cursor=' + 'a'.repeat(65), '?after=1']) assert.equal((await fetch(origin + path + bad)).status, 400);
+    assert.equal((await fetch(origin + path + '/raw')).status, 404);
+    assert.equal((await fetch(origin + path + '?cursor=' + controlRun.slice(-36) + '&limit=20')).status, 200);
+    assert.equal((await fetch(origin + path)).status, 200);
+  }, async (url, options) => {
+    seen.push(String(url));
+    assert.equal(options.method, 'GET');
+    return Response.json({ data: { items: [], next_cursor: null } });
+  }, false, true);
+  assert.deepEqual(seen, ['https://platform.example.invalid' + path + '?cursor=' + controlRun.slice(-36) + '&limit=20', 'https://platform.example.invalid' + path]);
+});
+
 test('mailbox relay is disabled independently and never reaches upstream by default', async () => {
   let calls = 0;
   await fixture(async origin => {

@@ -283,6 +283,17 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 내부 보고서 전체를 그대로 직렬화하지 않고 DTO에 열거한 집계만 투영한다. 비용은 아래
 선택적 집계로 연결하며 폴백 상세·정답 인수·품질 점수·실제 모델 실행·운영 활성화는 후속 범위다.
 
+### KAN-139 사례별 시도 조회와 LangSmith 링크
+
+- `GET /api/v1/platform/evaluations/runs/{run_id}/cases?cursor=&limit=`는 summary와 같은 접근 검사를 쓴다(`summary.open_run`). 영수증, 요청자=실험 작성자=본인, test 분할 404, 평가자·승인 hash 403, smoke 고정 프로필이 다르거나 잠금 구성이 바뀌면 403·409다. 조회 전용이고 새로 저장하지 않는다.
+- 페이지: `case_id` 순이다. `cursor`는 앞 페이지의 마지막 `case_id`(UUID)이고 `limit`은 1~100(기본 20)이다. 범위를 벗어나거나 UUID가 아니면 422이고, `next_cursor`는 다음 사례가 있을 때만 준다.
+- 사례 항목은 {`case_id`, `target_ref_sha`, `status`, `attempts`}다. `target_ref_sha`는 sha256(target_ref) 앞 12자이며, smoke 고정 ID든 ticket_id든 원문 사례 ID를 내지 않는다.
+- 시도 항목은 {`step`, `attempt`, `outcome`, `error_code`, `http_status`, `finish_reasons`, `call_attempts`, `model_version`, `latency_ms`, `parsed_output`}로 step·attempt 순이다. `input_version` 열은 시도 표에 없다. 입력 판본은 실험 단위이고 summary `experiment`에 나온다.
+- `parsed_output`은 step이 `classify`·`smoke`일 때만 코드 다섯 개(`category_code`·`secondary_category`·`urgency_flag`·`return_subtype`·`provided_info`)로 투영한다. 코드 형식(`[A-Za-z0-9_]{1,64}`)이 아닌 값은 null(목록이면 제외)이다. 문장이 들어 있을 수 있는 다른 단계는 null이다.
+- 내지 않는 값: 원문, `raw_output`, `final_output`, `gold_labels`, `input_sha256`, `usage_raw`, 토큰·비용(집계는 summary에 있다). 잠금 채점은 실행 단위라 사례별 정답·채점 결과는 내지 않는다.
+- 웹 중계는 읽기 플래그 아래 `/runs/{uuid}/cases`만 더 허용한다. 쿼리는 `cursor`·`limit` 각각 한 번, 값 64자 이하이며 그 밖은 400이다.
+- 화면: 실행 집계 아래 '사례별 시도' 절(20개씩, '더 보기')이 있다. 빌드 시 `VITE_LANGSMITH_PROJECT_URL`이 https 주소이면 실행 집계 상단에 '추적 보기 (LangSmith 프로젝트)' 링크(새 탭, `noopener noreferrer`)를 보이고, 없거나 https가 아니면 숨긴다. 실행별 trace 매핑은 없으므로 프로젝트 화면으로만 간다.
+
 ### KAN-90 실험 등록 API
 
 `POST /api/v1/platform/evaluations/experiments`는 실험 정의와 대상 집합을 동결 등록한다.

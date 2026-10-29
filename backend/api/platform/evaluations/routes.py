@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.platform.evaluations.access import require_evaluation_write, require_evaluator
 from backend.api.platform.evaluations.admission import (
@@ -14,6 +14,7 @@ from backend.api.platform.evaluations.admission import (
     list_runs,
     register_experiment,
 )
+from backend.api.platform.evaluations.cases import MAX_LIMIT, EvaluationRunCases, list_run_cases
 from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.schemas import (
     EvaluationAdmission,
@@ -297,5 +298,41 @@ def evaluation_run_summary(
     """
     data = get_run_summary(
         request.app.state.settings, request.app.state.evaluation_access, principal.user_id, run_id
+    )
+    return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))
+
+
+@router.get(
+    "/runs/{run_id}/cases",
+    response_model=SuccessResponse[EvaluationRunCases],
+    operation_id="platform_list_evaluation_run_cases",
+    responses={code: {"model": ErrorResponse} for code in (404, 409)},
+)
+def evaluation_run_cases(
+    request: Request,
+    run_id: UUID,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+    cursor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 20,
+) -> SuccessResponse[EvaluationRunCases]:
+    """summary와 같은 접근 검사로 실행의 사례별 시도를 한 페이지 조회한다(KAN-139 4차).
+
+    Args:
+        request: 서버 환경·승인 목록과 요청 ID.
+        run_id: 조회 대상 실행.
+        principal: 현재 세션과 평가자 검사를 통과한 사용자.
+        cursor: 앞 페이지의 마지막 case_id.
+        limit: 페이지 크기(1~100, 기본 20).
+
+    Returns:
+        SuccessResponse: 사례 ID 해시·상태·시도 메타데이터. 원문·정답·원시 응답 없음.
+    """
+    data = list_run_cases(
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        run_id,
+        cursor=cursor,
+        limit=limit,
     )
     return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))

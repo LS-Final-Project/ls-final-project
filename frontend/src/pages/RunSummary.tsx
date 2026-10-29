@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getEvaluationSummary, isLockedPath, type RunSummary as Summary } from '../api/evaluation-summary';
+import { getRunCases, type RunCases } from '../api/evaluation-cases';
 import { EvaluationReadError, statusLabels } from '../api/evaluations';
 
 /** 미보고를 실제 0과 구별한다. Args: 관측값. Returns: 표시 문자열. */
@@ -150,6 +151,57 @@ function LockedQualityView({ data }: { data: Summary }) {
   </section>;
 }
 
+const caseLabels: Record<RunCases['items'][number]['status'], string> = {
+  PENDING: '대기', VALID: '유효', INVALID_OUTPUT: '출력 오류', HELD: '보류', FAILED: '실패', EXCLUDED: '제외',
+};
+// 빌드 시 설정한 LangSmith 프로젝트 주소. https가 아니면 링크를 숨긴다. 실행별 trace 연결은 없다.
+function langsmithUrl(): string | null {
+  const value = import.meta.env.VITE_LANGSMITH_PROJECT_URL;
+  try { return typeof value === 'string' && new URL(value).protocol === 'https:' ? value : null; } catch { return null; }
+}
+
+/** 사례별 시도를 20개씩 더 불러와 보인다(KAN-139 4차). Args: 실행 ID. Returns: 사례 표 구역. */
+function CasesView({ runId }: { runId: string }) {
+  const [pages, setPages] = useState<RunCases[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(undefined);
+    void getRunCases(runId, cursor, controller.signal).then(page => {
+      if (!controller.signal.aborted) setPages(value => [...value, page]);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof EvaluationReadError ? reason.message : '사례를 조회하지 못했습니다.');
+    });
+    return () => controller.abort();
+  }, [runId, cursor]);
+  const items = pages.flatMap(page => page.items);
+  const next = pages.at(-1)?.next_cursor ?? null;
+  return <section aria-labelledby="run-cases-title">
+    <h3 id="run-cases-title">사례별 시도</h3>
+    <p className="evaluation-caption">사례 ID는 해시 앞 12자입니다. 원문·원시 응답은 저장하지 않으며, 잠금 채점은 실행 단위라 사례별 정답·채점은 표시하지 않습니다. 출력 코드는 분류 단계만 보입니다.</p>
+    {error && <p role="alert">{error}</p>}
+    {!error && pages.length === 0 && <p role="status">사례를 확인하고 있습니다.</p>}
+    {pages.length > 0 && items.length === 0 && <p>저장된 사례가 없습니다.</p>}
+    {items.length > 0 && <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label="사례별 시도 표">
+      <table className="evaluation-metrics">
+        <thead><tr><th scope="col">사례</th><th scope="col">상태</th><th scope="col">단계 · 시도</th><th scope="col">결과</th><th scope="col">오류 · HTTP</th><th scope="col">종료 사유</th><th scope="col">호출 수</th><th scope="col">모델 판본</th><th scope="col">지연 ms</th><th scope="col">출력 코드</th></tr></thead>
+        <tbody>{items.flatMap(item => (item.attempts.length ? item.attempts : [null]).map((attempt, index) => <tr key={`${item.case_id}:${index}`}>
+          {index === 0 && <><th scope="row" rowSpan={Math.max(item.attempts.length, 1)}><code>{item.target_ref_sha}</code></th>
+            <td rowSpan={Math.max(item.attempts.length, 1)}>{caseLabels[item.status]}</td></>}
+          {attempt ? <><td>{attempt.step} · {attempt.attempt}</td><td>{attempt.outcome}</td>
+            <td>{attempt.error_code ?? '-'}{attempt.http_status !== null && ` · ${attempt.http_status}`}</td>
+            <td>{attempt.finish_reasons.join(', ') || '-'}</td><td>{attempt.call_attempts ?? '-'}</td>
+            <td>{attempt.model_version ?? '-'}</td><td>{attempt.latency_ms ?? '-'}</td>
+            <td>{attempt.parsed_output ? [attempt.parsed_output.category_code, attempt.parsed_output.secondary_category, attempt.parsed_output.urgency_flag, attempt.parsed_output.return_subtype, ...attempt.parsed_output.provided_info].filter(Boolean).join(' · ') || '-' : '-'}</td></>
+            : <td colSpan={8}>저장된 시도가 없습니다.</td>}
+        </tr>))}</tbody>
+      </table>
+    </div>}
+    {next && !error && <button onClick={() => setCursor(next)}>더 보기</button>}
+  </section>;
+}
+
 /** 상태 조회에 결속된 한 실행의 집계를 표시한다. Args: 실행 ID. Returns: 합성 집계 또는 안전한 오류. */
 export default function RunSummary({ runId }: { runId: string }) {
   const [data, setData] = useState<Summary>();
@@ -166,6 +218,7 @@ export default function RunSummary({ runId }: { runId: string }) {
   }, [runId]);
   return <section aria-labelledby="run-summary-title" aria-busy={!data && !error}>
     <h2 id="run-summary-title">실행 집계{data?.origin === 'IMPORT' && <> <span className="evaluation-tag">반입</span></>}</h2>
+    {langsmithUrl() && <p className="evaluation-caption"><a href={langsmithUrl()!} target="_blank" rel="noopener noreferrer">추적 보기 (LangSmith 프로젝트)</a> · 실행별 추적 연결은 없어 프로젝트 화면으로 이동합니다.</p>}
     {data?.origin === 'IMPORT' && <p className="evaluation-caption">반입 실행(IMPORT)입니다. 후보 비교 실측 결과를 평가 저장소로 들여온 기록이며 원시 응답은 저장하지 않습니다.</p>}
     {data && (isLockedPath(data)
       ? <p>평가 실행 저장 기록입니다 · 데이터 출처 {originLabels[data.data_origin]} · 품질은 잠금 정답 저장값이며 합격 판정이 아닙니다.</p>
@@ -203,6 +256,7 @@ export default function RunSummary({ runId }: { runId: string }) {
       {isLockedPath(data) ? <LockedQualityView data={data} /> : <SyntheticQualityView quality={data.synthetic_quality} />}
       <StageMetricsView blocks={data.stage_metrics ?? []} />
       <p>품질 점수: {data.quality_available ? '잠금 정답 다섯 지표 연결' : data.quality_unavailable_reason === 'GOLD_PARTIAL' ? '잠금 정답 일부 지표만 연결' : '정답 검수·연결 전'}</p>
+      <CasesView runId={runId} />
     </>}
   </section>;
 }
