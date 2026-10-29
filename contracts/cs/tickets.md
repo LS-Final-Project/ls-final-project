@@ -93,11 +93,11 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | `secondary_category` | 원문에 별도의 처리 의도가 명시된 경우 보조 유형 하나. 주분류와 같은 enum이며 주분류와 같은 값은 금지. 복합 의도가 없으면 JSON null. 여러 후보는 고객이 명시한 우선 의도로 선택하고 우선 근거가 없으면 검수 보류. [평가 명세](../../docs/evaluation.md)의 사용자 결정에 따르며 사례별 정답은 KAN-95에서 검수. 사양 질문에 붙은 데이터시트 요청은 TECH_SPEC의 일부이며 보조 유형이 아니다. 따로 요청한 매뉴얼·인증서·설명서만 보조 유형으로 본다 |
 | `urgency_flag` | urgency_codebook의 `SAFETY`, `SITE_DOWN`, `PROD_IMPACT`, `COMMISSION`, `DEADLINE`, `NONE` 중 하나. 우선순위 자체를 생성하지 않음 |
 | `provided_info` | 원문에서 제공 여부를 확인한 정보 항목 코드의 중복 없는 배열. info_field_codebook에 있는 코드만 사용하며 없으면 `[]`. 시리얼 원값이나 개인정보를 반환하지 않음 |
-| `return_subtype` | 반품 의도가 확인되면 품질·불량 반품 `DEFECT` 또는 비불량 반품 `NON_DEFECT`. 반품 의도가 없거나 근거가 부족하면 null. POL-RETURN 및 routing_rules의 NON_DEFECT 예외에 맞춰 KAN-95에서 정답 매핑 검수 |
+| `return_subtype` | **고객이 접수 시 밝힌 반품 사유 유형(주장)**. 품질·불량 반품 `DEFECT` 또는 비불량 반품 `NON_DEFECT`. 반품 의도가 없거나 근거가 부족하면 null. 검사 결과가 아니며 확정 의미가 없다. 검사 뒤 사람이 확정한 값은 업무 상태의 `return_subtype_confirmed`(KAN-193)에 따로 둔다. POL-RETURN 및 routing_rules의 NON_DEFECT 예외에 맞춰 KAN-95에서 정답 매핑 검수 |
 
 다섯 키는 모두 존재해야 하며 허용되지 않은 키·enum, 키 누락과 잘못된 타입은 원시 스키마 위반으로 기록한다. 코드 값은 표시용 한글 이름과 분리한다. 원천 CSV의 빈 값은 어댑터에서 null 또는 빈 배열로 정규화하고 정답 원본을 수정하지 않는다. 분류 실패·보류는 실행 상태로 기록하며 category에 임의의 UNKNOWN 값을 추가하거나 성공으로 숨기지 않는다. return_subtype이 null인 반품은 비불량으로 간주하지 않는다.
 
-규칙 평가는 주분류와 긴급도 및 확인된 입력을 사용한다. 반품 하위유형이 불명확하면 예외 부서를 추측하지 않고 기본 정책과 사람의 확인 절차를 사용한다. secondary_category를 규칙 입력으로 추가하는 변경은 별도 계약과 회귀 검증이 필요하다.
+규칙 평가는 주분류와 긴급도 및 확인된 입력을 사용한다. 반품 하위유형은 확정값(`return_subtype_confirmed`, 검사 뒤 사람이 `human_input`으로 기록)이 있으면 확정값, 없으면 접수 시 주장값을 쓴다. 주장값만으로 비불량 경로(SCM)에 가면 `review_reasons`에 `RETURN_SUBTYPE_STATED_ONLY`를 붙여 사람이 확인하기 전까지 고객에게 확정 안내를 하지 않는다(2026-10-29 LS 엔지니어 특강: 반품 사유·보증 조치는 접수 시점이 아니라 검사 결과로 판단). 반품 하위유형이 불명확하면 예외 부서를 추측하지 않고 기본 정책과 사람의 확인 절차를 사용한다(`RETURN_SUBTYPE_UNCONFIRMED`). secondary_category를 규칙 입력으로 추가하는 변경은 별도 계약과 회귀 검증이 필요하다.
 
 ## 규칙 결과: 우선순위·제품군·담당 부서·SLA (KAN-104)
 
@@ -107,7 +107,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | --- | --- | --- |
 | `decide_priority` | 주분류, 긴급도 | `P1`~`P4`와 규칙 ID(`PR-01`~`PR-07`, 위에서부터 처음 맞는 규칙) |
 | `product_family` | 제품 코드 | 제품군 |
-| `route` | 제품군, **주분류**, 반품 하위유형 | 담당 부서, 규칙 ID·출처, 에스컬레이션 후보와 조건, 사람 확인 사유 |
+| `route` | 제품군, **주분류**, 반품 하위유형(접수 시 주장), 확정 하위유형(선택) | 담당 부서, 규칙 ID·출처, 에스컬레이션 후보와 조건, 사람 확인 사유(`RETURN_SUBTYPE_UNCONFIRMED`·`RETURN_SUBTYPE_STATED_ONLY`) |
 | `sla_target`, `due_times` | 주분류, 고객 등급, 우선순위, 접수 시각 | 첫 응답·해결 목표 시간과 기한 |
 | `sla_elapsed_hours`, `sla_status` | 접수·종료 시각, 고객 대기 시간, 해결 여부 | 경과 시간, `MET`/`BREACHED`/`AT_RISK`/`ON_TRACK`/`N/A` |
 | `decide` | 위 입력 전부 | 위 결과 전부 |

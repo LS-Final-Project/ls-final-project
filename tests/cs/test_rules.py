@@ -7,6 +7,7 @@ import pytest
 
 from backend.engine.cs import rules
 from backend.engine.cs.rules import (
+    RETURN_SUBTYPE_STATED_ONLY,
     RETURN_SUBTYPE_UNCONFIRMED,
     RuleInputError,
     decide,
@@ -84,6 +85,8 @@ def test_unconfirmed_return_is_never_treated_as_non_defect():
     assert (defect.dept, defect.review_reasons) == (unconfirmed.dept, ())
     non_defect = route("TRANSFORMER", "RETURN", "NON_DEFECT")
     assert (non_defect.dept, non_defect.rule_id) == ("SCM", "RT-ALL-RETURN-NON_DEFECT")
+    # Stated by the customer only: the SCM route stands, but a person checks before promising.
+    assert non_defect.review_reasons == (RETURN_SUBTYPE_STATED_ONLY,)
     # The escalation is a suggestion with its condition, not a second department.
     assert non_defect.escalation_dept == "SALES_OPS"
     assert non_defect.escalation_condition
@@ -203,3 +206,44 @@ def test_an_edited_policy_table_is_detected(monkeypatch, tmp_path):
     finally:
         monkeypatch.undo()
         rules.load_policy.cache_clear()
+
+
+def test_a_confirmed_subtype_from_inspection_overrides_what_the_customer_stated():
+    # Customer said non-defective, inspection found a defect: family return department, no review.
+    inspected = route("TRANSFORMER", "RETURN", "NON_DEFECT", confirmed_subtype="DEFECT")
+    assert (inspected.dept, inspected.rule_id, inspected.review_reasons) == (
+        route("TRANSFORMER", "RETURN", "DEFECT").dept,
+        "RT-TRANSFORMER-RETURN",
+        (),
+    )
+    # Confirmed non-defective: SCM without a review reason, whatever was stated at intake.
+    for stated in (None, "DEFECT", "NON_DEFECT"):
+        confirmed = route("TRANSFORMER", "RETURN", stated, confirmed_subtype="NON_DEFECT")
+        assert (confirmed.dept, confirmed.review_reasons) == ("SCM", ())
+    # The confirmed value is checked like the stated one and ignored outside returns.
+    with pytest.raises(RuleInputError):
+        route("TRANSFORMER", "RETURN", None, confirmed_subtype="UNKNOWN")  # type: ignore[arg-type]
+    other = route("TRANSFORMER", "WARRANTY", None, confirmed_subtype="NON_DEFECT")
+    assert other.dept != "SCM" and other.review_reasons == ()
+
+
+def test_decide_passes_the_confirmed_subtype_through():
+    stated_only = decide(
+        category="RETURN",
+        urgency="NONE",
+        product_code="TRF-OIL-1000",
+        customer_tier="GOLD",
+        return_subtype="NON_DEFECT",
+        received_at=RECEIVED,
+    )
+    assert stated_only.routing.review_reasons == (RETURN_SUBTYPE_STATED_ONLY,)
+    confirmed = decide(
+        category="RETURN",
+        urgency="NONE",
+        product_code="TRF-OIL-1000",
+        customer_tier="GOLD",
+        return_subtype="NON_DEFECT",
+        received_at=RECEIVED,
+        confirmed_subtype="NON_DEFECT",
+    )
+    assert (confirmed.routing.dept, confirmed.routing.review_reasons) == ("SCM", ())

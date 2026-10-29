@@ -41,8 +41,12 @@ SlaStatus = Literal["MET", "BREACHED", "AT_RISK", "ON_TRACK", "N/A"]
 CATEGORIES = frozenset(get_args(Category))
 URGENCIES = frozenset(get_args(Urgency))
 TIERS = frozenset(get_args(Tier))
-# The reason routing needs a person: the return subtype was not confirmed.
+# Reasons routing needs a person. UNCONFIRMED: no return subtype at all (the customer did not
+# say and nobody has inspected). STATED_ONLY: the route rests on what the customer stated at
+# intake, with no inspection result yet (LS engineers, 2026-10-29: the return reason is decided
+# by inspection, not at intake).
 RETURN_SUBTYPE_UNCONFIRMED = "RETURN_SUBTYPE_UNCONFIRMED"
+RETURN_SUBTYPE_STATED_ONLY = "RETURN_SUBTYPE_STATED_ONLY"
 
 # priority_rules.csv, evaluated top to bottom. Conditions are written for people in the
 # table, so the same rules are spelled out here and checked against its IDs and priorities.
@@ -184,30 +188,47 @@ def product_family(product_code: str) -> str:
     return family
 
 
-def route(family: str, category: str, return_subtype: ReturnSubtype | None) -> RoutingDecision:
+def route(
+    family: str,
+    category: str,
+    return_subtype: ReturnSubtype | None,
+    *,
+    confirmed_subtype: ReturnSubtype | None = None,
+) -> RoutingDecision:
     """Department for the primary category (routing_rules.csv).
 
-    A return goes to Order & Logistics only when it is confirmed NON_DEFECT. An unconfirmed
-    subtype keeps the family's return department and asks a person to confirm, because a
-    null subtype is not evidence of a non-defective return. The subtype is ignored for other
-    categories, so a secondary return intent cannot move the ticket.
+    `return_subtype` is what the customer stated at intake (the LLM reads it from the message);
+    `confirmed_subtype` is what a person recorded after inspection (KAN-108 workflow). The
+    confirmed value wins when present. A return goes to Order & Logistics (SCM) when the
+    effective subtype is NON_DEFECT; if that rests on the stated value alone the decision carries
+    RETURN_SUBTYPE_STATED_ONLY so a person checks it before anything is promised. No subtype at
+    all keeps the family's return department with RETURN_SUBTYPE_UNCONFIRMED, because a null is
+    not evidence of a non-defective return. The subtype is ignored for other categories, so a
+    secondary return intent cannot move the ticket.
     """
     _require(category, CATEGORIES, "category")
-    if return_subtype not in (None, "DEFECT", "NON_DEFECT"):
-        raise RuleInputError(f"Unknown return subtype: {return_subtype!r}")
+    for name, value in (
+        ("return subtype", return_subtype),
+        ("confirmed subtype", confirmed_subtype),
+    ):
+        if value not in (None, "DEFECT", "NON_DEFECT"):
+            raise RuleInputError(f"Unknown {name}: {value!r}")
+    effective = confirmed_subtype if confirmed_subtype is not None else return_subtype
     policy = load_policy()
     # Checked first so every branch refuses an unknown family, the NON_DEFECT one included.
     if family not in policy.families.values():
         raise RuleInputError(f"Unknown product family: {family!r}")
     reasons: tuple[str, ...] = ()
-    if category == "RETURN" and return_subtype == "NON_DEFECT":
+    if category == "RETURN" and effective == "NON_DEFECT":
         row = policy.non_defect
+        if confirmed_subtype is None:
+            reasons = (RETURN_SUBTYPE_STATED_ONLY,)
     else:
         found = policy.routes.get((family, category))
         if found is None:
             raise RuleInputError(f"No routing rule for {family!r} / {category!r}")
         row = found
-        if category == "RETURN" and return_subtype is None:
+        if category == "RETURN" and effective is None:
             reasons = (RETURN_SUBTYPE_UNCONFIRMED,)
     return RoutingDecision(
         dept=row["primary_dept"],
@@ -283,14 +304,17 @@ def decide(
     customer_tier: str,
     return_subtype: ReturnSubtype | None,
     received_at: datetime,
+    confirmed_subtype: ReturnSubtype | None = None,
 ) -> RuleDecision:
     """All rule results for one ticket from reviewed or classified inputs.
 
-    There is deliberately no secondary_category parameter: it never changes these results.
+    `return_subtype` is the customer's stated reason at intake and `confirmed_subtype` the
+    inspection result a person recorded; see `route`. There is deliberately no
+    secondary_category parameter: it never changes these results.
     """
     priority = decide_priority(category, urgency)
     family = product_family(product_code)
-    routing = route(family, category, return_subtype)
+    routing = route(family, category, return_subtype, confirmed_subtype=confirmed_subtype)
     target = sla_target(category, customer_tier, priority.priority)
     first_due, resolution_due = due_times(received_at, target)
     return RuleDecision(

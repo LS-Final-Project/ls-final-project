@@ -150,6 +150,8 @@ class ClassificationOutput(BaseModel):
     secondary_category: Category | None
     urgency_flag: Urgency
     provided_info: list[str]
+    # What the customer stated at intake (KAN-193). Not an inspection result: a person confirms
+    # the return reason later in the workflow, and the LLM value never counts as confirmed.
     return_subtype: Literal["DEFECT", "NON_DEFECT"] | None
 
     @model_validator(mode="after")
