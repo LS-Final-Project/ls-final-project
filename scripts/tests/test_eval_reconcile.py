@@ -259,6 +259,41 @@ class ReconcileCliTests(unittest.TestCase):
         self.assertEqual(values, {"RAW": 0.5, "DB": 0.5, "SCREEN": 0.5, "CSV": 0.5})
         self.assertEqual(result["result"]["metrics"]["category_macro_f1"]["status"], "MATCH")
 
+    def test_screen_case_count_comes_from_the_optional_path_key(self):
+        """screen-paths의 선택 키 case_count 경로가 SCREEN 사례 수가 되고, 없으면 None·정수가 아니면 종료 코드 1이다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: case_count 상태와 consistent를 확인한다.
+        """
+        _, _, base = self.run_main((summaries(), stored()))
+        total = base["result"]["case_count"]["values"]["RAW"]
+        paths = {"category_macro_f1": ["quality", "f1"], "case_count": ["target_count"]}
+        (self.root / "paths.json").write_text(json.dumps(paths))
+        for count, status in ((total, "MATCH"), (total + 1, "MISMATCH")):
+            payload = {"quality": {"f1": 0.5}, "target_count": count}
+            (self.root / "screen.json").write_text(json.dumps(payload))
+            _, _, result = self.run_main(
+                (summaries(), stored()),
+                "--screen-json", str(self.root / "screen.json"),
+                "--screen-paths", str(self.root / "paths.json"),
+            )  # fmt: skip
+            self.assertEqual(result["result"]["case_count"]["status"], status)
+            self.assertEqual(result["result"]["case_count"]["values"]["SCREEN"], count)
+            self.assertNotIn("case_count", result["result"]["metrics"])
+        self.assertTrue(result["result"]["consistent"] is False)
+        (self.root / "screen.json").write_text(
+            json.dumps({"quality": {"f1": 0.5}, "target_count": 1.0})
+        )
+        code, _, _ = self.run_main(
+            (summaries(), stored()),
+            "--screen-json", str(self.root / "screen.json"),
+            "--screen-paths", str(self.root / "paths.json"),
+        )  # fmt: skip
+        self.assertEqual(code, 1)
+
     def test_non_object_mapping_files_exit_with_code_1(self):
         """--screen-paths·--csv-columns가 JSON 객체가 아니면 트레이스백 없이 종료 코드 1이다.
 

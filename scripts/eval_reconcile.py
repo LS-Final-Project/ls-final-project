@@ -63,6 +63,8 @@ METRIC_MAP: dict[str, tuple[str, tuple[str, ...], str]] = {
 DEFAULT_TOLERANCE = 1e-9
 # 사례 수의 DB 기준: 주분류 정확도 행의 분모(채점 대상 수).
 CASE_COUNT_KEY = "cs_locked_category_first_accuracy"
+# --screen-paths에서 지표가 아니라 화면 사례 수 경로를 담는 선택 키.
+CASE_COUNT_PATH = "case_count"
 RUN_STATUS: dict[str, RunStatus] = {"SUCCEEDED": "COMPLETED", "PARTIAL": "PARTIAL"}
 TARGETS_SQL = (
     "SELECT t.target_ref FROM evaluation.runs r "
@@ -241,7 +243,7 @@ def build_report(
         rows: DB 저장 행.
         keys: 대조할 게이트 키.
         tolerance: 허용 절대 차.
-        screen: (화면 DTO, 키별 경로) 또는 None.
+        screen: (화면 DTO, 키별 경로) 또는 None. 경로의 선택 키 case_count는 사례 수 경로다(정수만).
         csv_input: (CSV 본문, 키별 열) 또는 None.
 
     Returns:
@@ -252,8 +254,21 @@ def build_report(
     stages = [raw, db]
     if screen is not None:
         payload, paths = screen
-        found = screen_payload_values(payload, {k: tuple(v) for k, v in paths.items()})
-        stages.append(StageValues("SCREEN", {key: found.get(key) for key in keys}, None))
+        found = screen_payload_values(
+            payload, {k: tuple(v) for k, v in paths.items() if k != CASE_COUNT_PATH}
+        )
+        # 선택 키 case_count(예: ["target_count"])가 있으면 화면의 사례 수로 쓴다. 없으면 None(미대조)이다.
+        count = (
+            screen_payload_values(payload, {CASE_COUNT_PATH: tuple(paths[CASE_COUNT_PATH])})[
+                CASE_COUNT_PATH
+            ]
+            if CASE_COUNT_PATH in paths
+            else None
+        )
+        # 사례 수는 정수만 받는다(reconcile도 float을 거부하며, 여기서는 타입을 좁힌다).
+        if count is not None and type(count) is not int:
+            raise ValueError("EVAL_INVALID_INPUT")
+        stages.append(StageValues("SCREEN", {key: found.get(key) for key in keys}, count))
     if csv_input is not None:
         stages.append(csv_stage(csv_input[0], csv_input[1], keys))
     result = reconcile(
@@ -296,7 +311,11 @@ def main(argv: list[str] | None = None, reader: Reader | None = None) -> int:
         help="허용 절대 차. 기본값은 DB numeric 저장의 15자리 반올림을 흡수한다",
     )
     parser.add_argument("--screen-json", type=Path)
-    parser.add_argument("--screen-paths", type=Path, help='{"게이트 키": ["경로", ...]} JSON')
+    parser.add_argument(
+        "--screen-paths",
+        type=Path,
+        help='{"게이트 키" 또는 선택 키 "case_count": ["경로", ...]} JSON',
+    )
     parser.add_argument("--csv", type=Path)
     parser.add_argument("--csv-columns", type=Path, help='{"게이트 키": "열 이름"} JSON')
     parser.add_argument("--out", type=Path, required=True)
