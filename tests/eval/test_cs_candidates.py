@@ -423,3 +423,46 @@ def test_retry_can_be_turned_off_and_skips_other_failures():
                 allowed_info_codes=frozenset(),
                 invalid_output_retries=retries,
             )
+
+
+def test_on_case_and_prior_replay_without_calls():
+    """on_case는 후보·대상마다 한 번(재호출은 같은 사례에 함께) 불리고, 그 시도를 prior로 넘기면 호출 없이 같은
+    결과를 낸다. 모르는 후보·대상 prior는 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 기록 수·재호출 묶음·재생 결과·호출 수를 확인한다.
+    """
+    seen = {}
+
+    def record(name, target, first, retry):
+        seen[name, target] = (first, retry)
+
+    candidates = [Candidate("flaky", provider(broken=frozenset({"t2"})), "fake-b", "p2")]
+    kwargs = {
+        "gold": GOLD,
+        "sensitive_values": {},
+        "allowed_info_codes": frozenset(),
+    }
+    live = run_candidates(RECORDS, candidates=candidates, on_case=record, **kwargs)
+    assert len(seen) == len(RECORDS)
+    assert seen["flaky", "t2"][1] is not None and seen["flaky", "t2"][1].attempt_number == 2
+    calls = []
+
+    def counting(payload):
+        calls.append(payload)
+        return provider()(payload)
+
+    prior = {"flaky": {target: pair for (_, target), pair in seen.items()}}
+    replay = run_candidates(
+        RECORDS, candidates=[Candidate("flaky", counting, "fake-b", "p2")], prior=prior, **kwargs
+    )
+    assert calls == []
+    for result in (live, replay):
+        result["candidates"][0].pop("latency_ms")
+    assert replay == live
+    for bad in ({"other": {}}, {"flaky": {"t9": seen["flaky", "t1"]}}):
+        with pytest.raises(ValueError, match="^CS_INVALID_CANDIDATES$"):
+            run_candidates(RECORDS, candidates=candidates, prior=bad, **kwargs)

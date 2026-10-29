@@ -31,6 +31,7 @@ from backend.engine.cs.drafting import (
     build_draft_input,
     render_prompt,
 )
+from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import gemini_text_provider
 from backend.engine.cs.rules import RuleInputError, product_family
@@ -40,9 +41,11 @@ from eval.cs_draft_metrics import DraftGold
 from scripts.cs_candidate_run import (
     AUDIT_KINDS,
     AuditFiles,
+    Prior,
     SplitBlocked,
     audit_meta,
     audit_payloads,
+    case_key,
     estimate,
     git_sha,
     knob_fields,
@@ -51,7 +54,10 @@ from scripts.cs_candidate_run import (
     load_codes,
     load_specs,
     load_targets,
+    open_progress,
     prepare_output,
+    run_fingerprint,
+    stop_run,
     write_private,
 )
 from tests.cs.cs_dev_data import load_dev_tickets
@@ -231,6 +237,9 @@ def execute(
     strip_phone_annotation: bool = False,
     audit: bool = False,
     invalid_output_retries: int = 1,
+    on_case: Callable[..., None] | None = None,
+    prior: Prior | None = None,
+    resumed: Mapping[str, object] | None = None,
 ) -> tuple[dict[str, object], AuditFiles]:
     """하네스로 실제 비교를 돌리고 실행 메타를 붙인다.
 
@@ -246,6 +255,9 @@ def execute(
         strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
         audit: True면 후보별 사례 감사 파일 내용을 만든다.
         invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1). 재호출은 attempt 2로 따로 남는다.
+        on_case: 사례가 끝날 때마다 부를 진행 기록(Progress.record).
+        prior: 재개로 되살린 끝난 사례.
+        resumed: meta에 더할 resumed_from·resumed_cases.
 
     Returns:
         tuple: (결과, 감사). 결과는 run_draft_candidates 결과와 meta(후보·판본 지문·건수·기대값 규칙·표본 ID
@@ -272,6 +284,8 @@ def execute(
         strip_phone_annotation=strip_phone_annotation,
         return_attempts=audit,
         invalid_output_retries=invalid_output_retries,
+        on_case=on_case,
+        prior=prior,
     )
     attempts, retries = result.pop("attempts", {}), result.pop("retries", {})
     audits = audit_payloads(attempts, retries) if audit else {}
@@ -286,6 +300,7 @@ def execute(
             if strip_phone_annotation
             else DRAFT_INPUT_VERSION,
             "invalid_output_retries": invalid_output_retries,
+            **(resumed or {}),
             "cases": len(cases),
             **counts,
             "expected_values": EXPECTED_RULE,
@@ -342,17 +357,24 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
         action="store_true",
         help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v1 초안 입력으로 돌린다(기본은 표기 포함 v2).",
     )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="중단된 실행의 <out>.progress.jsonl. 같은 실행 지문일 때만 끝난 사례를 건너뛰고 이어 쓴다",
+    )
     args = parser.parse_args(argv)
     if (
         args.limit < 1
         or (args.execute and args.out is None)
         or (args.audit_out is not None and not args.execute)
+        or (args.resume is not None and not args.execute)
     ):
         print(
             "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
-            "--audit-out은 --execute와 함께만 쓴다."
+            "--audit-out·--resume은 --execute와 함께만 쓴다."
         )
         return 1
+    progress = None
     try:
         records = load_targets(args.manifest, args.limit, args.seed)
         products = {
@@ -410,6 +432,37 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             for spec in specs:
                 for kind in AUDIT_KINDS:
                     write_private(label_path(args.audit_out, spec["name"], kind), b"")
+        selected = [case_id for case_id in cases if subset is None or case_id in subset]
+        fingerprint = run_fingerprint(
+            {
+                "kind": "draft",
+                "manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+                "product_column": args.product_column,
+                "classification_sha256": hashlib.sha256(
+                    args.classification.read_bytes()
+                ).hexdigest(),
+                "evidence_sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest()
+                if args.evidence
+                else None,
+                "candidates": specs,
+                "seed": args.seed,
+                "limit": args.limit,
+                "strip_phone_annotation": args.strip_phone_annotation,
+                "invalid_output_retries": args.invalid_output_retries,
+                "cases": sorted(case_key(case_id) for case_id in selected),
+                "codes": sorted(codes),
+                "sensitive": run_fingerprint(sensitive),
+            }
+        )
+        progress, prior, resumed = open_progress(
+            args.out,
+            args.resume,
+            fingerprint,
+            selected,
+            [spec["name"] for spec in specs],
+            DraftAttempt,
+            DraftOutput,
+        )
         output, audits = execute(
             cases,
             gold,
@@ -422,13 +475,28 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             strip_phone_annotation=args.strip_phone_annotation,
             audit=args.audit_out is not None,
             invalid_output_retries=args.invalid_output_retries,
+            on_case=progress.record,
+            prior=prior,
+            resumed=resumed,
         )
+        progress.close()
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
         return 2
-    except (ValueError, OSError, KeyError, TypeError, csv.Error):
-        print("CS_RUN_FAILED: manifest·제품 열·분류·근거·코드북·후보 파일과 환경변수를 확인하세요.")
-        return 1
+    except KeyboardInterrupt:
+        return stop_run(progress, "EVAL_RUN_INTERRUPTED", 130)
+    except (ValueError, OSError, KeyError, TypeError, csv.Error) as error:
+        if str(error) == "EVAL_RESUME_MISMATCH":
+            print(
+                "EVAL_RESUME_MISMATCH: 진행 파일이 이번 실행(manifest·후보·seed·limit·판본)과 다릅니다."
+            )
+        else:
+            print(
+                "CS_RUN_FAILED: manifest·제품 열·분류·근거·코드북·후보 파일과 환경변수를 확인하세요."
+            )
+        return stop_run(progress, "EVAL_RUN_FAILED", 1) if progress else 1
+    except Exception:
+        return stop_run(progress, "EVAL_RUN_FAILED", 1)
     try:
         # 감사를 먼저 쓰고 결과(감사 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게 한다.
         for (name, kind), data in audits.items():
@@ -439,6 +507,7 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             "CS_RUN_OUTPUT_FAILED: 실행은 끝났지만 결과 파일을 쓰지 못했습니다. --out 경로를 확인하세요."
         )
         return 1
+    progress.remove()
     print(json.dumps({"cases": len(cases), "out": str(args.out)}))
     return 0
 

@@ -828,6 +828,127 @@ class CandidateRunTests(unittest.TestCase):
         # 최초 라벨로는 SYN-0이 보류였지만 최종 라벨에서는 분류가 있어 보류가 하나 줄어든다.
         self.assertEqual(report["held_classification"], 1)
 
+    def counting_factory(self, calls, stop_after=None):
+        """호출을 기록하고 stop_after번째 뒤에는 KeyboardInterrupt를 내는 공급자 함수(b의 SYN-0은 늘 형식 위반).
+
+        Args:
+            calls: 호출을 쌓을 목록.
+            stop_after: 이 수만큼 호출한 뒤 다음 호출에서 중단한다(None이면 끝까지).
+
+        Returns:
+            Callable: 공급자 함수.
+        """
+
+        def factory(spec, codes, settings):
+            def provider(payload):
+                if stop_after is not None and len(calls) >= stop_after:
+                    raise KeyboardInterrupt
+                calls.append((spec["name"], payload.body))
+                broken = spec["name"] == "b" and "breaker 0" in payload.body
+                return Generation(
+                    "not json" if broken else ANSWER,
+                    Usage(10, 2, None, None, 12),
+                    "flash-0429",
+                    ["STOP"],
+                    model="gemini-3.6-flash",
+                )
+
+            return provider
+
+        return factory
+
+    def run_quiet(self, *extra, factory):
+        """main을 부르고 (종료 코드, 표준 출력, 표준 오류)를 돌려준다.
+
+        Args:
+            *extra: 추가 인자.
+            factory: 공급자 함수.
+
+        Returns:
+            tuple[int, str, str]: 종료 코드, 표준 출력, 표준 오류.
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code, printed = self.run_main("--execute", *extra, factory=factory)
+        return code, printed, err.getvalue()
+
+    def test_interrupted_run_resumes_only_unfinished_cases_with_same_result(self):
+        """중단하면 완료 건수만 남기고 진행 파일(원문·예측 없음)이 남으며, --resume은 남은 사례만 불러 전체 실행과
+        같은 결과를 내고 meta에 재개 출처를 남긴다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드·진행 파일·호출 수·결과 동일·meta·정리를 확인한다.
+        """
+        full_calls = []
+        full = self.root / "full.json"
+        self.assertEqual(
+            self.run_quiet("--out", str(full), factory=self.counting_factory(full_calls))[0], 0
+        )
+        out = self.root / "result.json"
+        progress = self.root / "result.json.progress.jsonl"
+        labels = self.root / "result.json.progress-labels.jsonl"
+        stopped = []
+        code, _, err = self.run_quiet(
+            "--out", str(out), factory=self.counting_factory(stopped, stop_after=2)
+        )
+        # a의 SYN-0·SYN-1을 부르고 SYN-2(보류, 호출 없음)까지 끝낸 뒤 SYN-3 호출에서 멈췄다.
+        self.assertEqual((code, err.strip()), (130, "EVAL_RUN_INTERRUPTED completed=3"))
+        for path in (progress, labels):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        text = progress.read_text(encoding="utf-8")
+        for secret in ("SYN-", "Please take breaker", "category_code", "RETURN", "not json"):
+            self.assertNotIn(secret, text)
+        self.assertIn(hashlib.sha256(b"SYN-0").hexdigest(), text)
+        self.assertIn("RETURN", labels.read_text(encoding="utf-8"))
+        # 쓰다 끊긴 마지막 줄(줄바꿈 없음)은 재개 때 잘라 내고 버린다.
+        with progress.open("a", encoding="utf-8") as handle:
+            handle.write('{"candidate": "b", "case"')
+        before = hashlib.sha256(progress.read_bytes()).hexdigest()
+        self.assertEqual(self.run_quiet("--out", str(out), factory=self.counting_factory([]))[0], 1)
+        resumed_calls = []
+        code, printed, _ = self.run_quiet(
+            "--out", str(out), "--resume", str(progress),
+            factory=self.counting_factory(resumed_calls),
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(len(resumed_calls), len(full_calls) - len(stopped))
+        self.assertTrue(set(resumed_calls).isdisjoint(stopped))
+        result, expected = (json.loads(p.read_text(encoding="utf-8")) for p in (out, full))
+        self.assertEqual(
+            (result["meta"]["resumed_from"], result["meta"]["resumed_cases"]), (before, 3)
+        )
+        for data in (result, expected):
+            for row in data["result"]["candidates"]:
+                row.pop("latency_ms")
+        self.assertEqual(result["result"], expected["result"])
+        self.assertFalse(progress.exists() or labels.exists())
+
+    def test_resume_refuses_a_different_run(self):
+        """진행 파일과 실행 지문(seed·limit 등)이 다르면 호출 없이 EVAL_RESUME_MISMATCH로 종료 1이다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드·출력·호출 없음을 확인한다.
+        """
+        out = self.root / "result.json"
+        progress = self.root / "result.json.progress.jsonl"
+        self.run_quiet("--out", str(out), factory=self.counting_factory([], stop_after=1))
+        for extra in (("--seed", "1"), ("--limit", "3"), ("--invalid-output-retries", "0")):
+            with self.subTest(extra=extra):
+                calls = []
+                code, printed, err = self.run_quiet(
+                    "--out", str(out), "--resume", str(progress), *extra,
+                    factory=self.counting_factory(calls),
+                )  # fmt: skip
+                self.assertEqual((code, calls), (1, []))
+                self.assertTrue(printed.startswith("EVAL_RESUME_MISMATCH"))
+        self.assertEqual(self.run_main("--resume", str(progress))[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

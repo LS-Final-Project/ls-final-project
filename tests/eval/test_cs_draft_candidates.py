@@ -555,3 +555,41 @@ def test_only_malformed_drafts_are_retried_as_attempt_two():
     assert off["candidates"][0]["final"]["retried"] == 0
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         run(invalid_output_retries=2)
+
+
+def test_draft_on_case_and_prior_replay_without_calls():
+    """초안 하네스도 on_case 기록을 prior로 넘기면 호출 없이 같은 결과를 내고, 실행 범위 밖 prior는 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 기록 수·재생 결과·호출 수를 확인한다.
+    """
+    seen = {}
+    live = run(
+        on_case=lambda name, case_id, first, retry: seen.update({(name, case_id): (first, retry)})
+    )
+    assert len(seen) == len(CASES) * len(CANDIDATES)
+    prior = {}
+    for (name, case_id), pair in seen.items():
+        prior.setdefault(name, {})[case_id] = pair
+    calls = []
+
+    def counting(prompt):
+        calls.append(prompt)
+        raise AssertionError("prior 사례는 부르지 않는다")
+
+    replay = run(
+        candidates=[
+            DraftCandidate(c.name, counting, c.model, c.prompt_version) for c in CANDIDATES
+        ],
+        prior=prior,
+    )
+    assert calls == []
+    for result in (live, replay):
+        for row in result["candidates"]:
+            row.pop("latency_ms")
+    assert replay == live
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        run(subset=frozenset({"k1"}), prior={"grounded": {"k2": seen["grounded", "k2"]}})

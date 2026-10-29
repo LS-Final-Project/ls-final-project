@@ -26,18 +26,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, cast
 
+from pydantic import BaseModel
+
 from backend.api.platform.evaluations.smoke_worker import attempt_cost
 from backend.engine.cs.classification import (
     INPUT_VERSION,
     INPUT_VERSION_STRIPPED,
     ClassificationInput,
+    ClassificationOutput,
     build_input,
 )
 from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
-from backend.shared.ai import AISettings, Generation, create_client, load_price_table
+from backend.shared.ai import AISettings, Generation, Usage, create_client, load_price_table
 from eval.cs_candidates import Candidate, run_candidates
 from eval.cs_gold_locks import GOLD_LOCKS
 from tests.cs.cs_dev_data import load_dev_tickets
@@ -554,6 +557,332 @@ def git_sha() -> str | None:
         return None
 
 
+Attempt = ClassificationAttempt | DraftAttempt
+Prior = dict[str, dict[str, tuple[Any, Any]]]
+PROGRESS_VERSION = "cs-run-progress-v1"
+
+
+def run_fingerprint(fields: Mapping[str, Any]) -> str:
+    """재개 일치 판정에 쓰는 실행 지문(정렬 JSON의 sha256).
+
+    Args:
+        fields: manifest sha·후보 명세·seed·limit·입력 판본·재호출 횟수·대상 ID hash 등 실행을 정하는 값.
+
+    Returns:
+        str: 소문자 64자 hash.
+    """
+    encoded = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def case_key(case_id: str) -> str:
+    """진행 파일의 사례 키(ID 원값 대신 sha256).
+
+    Args:
+        case_id: 사례 ID.
+
+    Returns:
+        str: sha256 hex.
+    """
+    return hashlib.sha256(case_id.encode()).hexdigest()
+
+
+def progress_labels_path(progress: Path) -> Path:
+    """진행 파일 옆의 예측 진행 파일 경로.
+
+    Args:
+        progress: <out>.progress.jsonl.
+
+    Returns:
+        Path: <out>.progress-labels.jsonl. 이름이 .progress.jsonl로 끝나지 않으면 ValueError다.
+    """
+    if not progress.name.endswith(".progress.jsonl"):
+        raise ValueError("EVAL_RESUME_MISMATCH")
+    return progress.with_name(
+        progress.name.removesuffix(".progress.jsonl") + ".progress-labels.jsonl"
+    )
+
+
+def _progress_entry(attempt: Attempt) -> dict[str, object]:
+    """시도 하나를 진행 줄 항목으로 만든다(감사 항목 + 재구성용 표식, 원문·예측 없음).
+
+    Args:
+        attempt: 분류 또는 초안 시도.
+
+    Returns:
+        dict: audit_entry에 attempt_number·removed_annotations·call_started·execution_uncertain·has_raw와
+            (초안이면) prompt_version·instruction_fingerprint를 더한 값.
+    """
+    extra = (
+        {
+            "prompt_version": attempt.prompt_version,
+            "instruction_fingerprint": attempt.instruction_fingerprint,
+        }
+        if isinstance(attempt, DraftAttempt)
+        else {}
+    )
+    return (
+        audit_entry(attempt)
+        | extra
+        | {
+            "attempt_number": attempt.attempt_number,
+            "removed_annotations": attempt.removed_annotations,
+            "call_started": attempt.call_started,
+            "execution_uncertain": attempt.execution_uncertain,
+            "has_raw": attempt.raw_response is not None,
+        }
+    )
+
+
+def _rebuild(entry: Mapping[str, Any], prediction: object, attempt_type: type) -> Any:
+    """진행 줄 항목과 예측으로 시도를 되살린다. 원시 응답은 저장하지 않았으므로 있었으면 빈 문자열 표식이다.
+
+    Args:
+        entry: _progress_entry 결과.
+        prediction: 검사한 예측 모델 또는 None.
+        attempt_type: ClassificationAttempt 또는 DraftAttempt.
+
+    Returns:
+        시도. 집계에 쓰는 값(outcome·예측·오류·사용량·지연·원시 응답 유무 등)이 원래 시도와 같다.
+    """
+    usage = entry["usage"]
+    extra = (
+        {
+            "prompt_version": entry["prompt_version"],
+            "instruction_fingerprint": entry["instruction_fingerprint"],
+        }
+        if attempt_type is DraftAttempt
+        else {}
+    )
+    return attempt_type(
+        entry["attempt_number"],
+        outcome=entry["outcome"],
+        input_version=entry["input_version"],
+        input_sha256=entry["input_sha256"],
+        removed_annotations=entry["removed_annotations"],
+        call_started=entry["call_started"],
+        execution_uncertain=entry["execution_uncertain"],
+        error_code=entry["error_code"],
+        http_status=entry["http_status"],
+        latency_ms=entry["latency_ms"],
+        usage=Usage(**usage),
+        raw_response="" if entry["has_raw"] else None,
+        prediction=prediction,
+        model_version=entry["model_version"],
+        finish_reasons=tuple(entry["finish_reasons"]),
+        requested_model=entry["model"],
+        call_attempts=entry["attempts"],
+        **extra,
+    )
+
+
+class Progress:
+    """사례가 끝날 때마다 진행 줄을 0600 파일에 덧붙이는 기록기(on_case로 꽂는다).
+
+    진행 파일(<out>.progress.jsonl)은 첫 줄이 실행 지문이고 이후 줄마다 후보·사례 키(sha256)·최초와 선택 시도 2의
+    진행 항목이다. 예측은 같은 키로 progress-labels 파일에만 쓴다. 원문·원시 응답·사례 ID 원값은 쓰지 않는다.
+    예측을 먼저 쓰고 진행 줄을 나중에 써서, 진행 줄이 있으면 예측도 있다. 줄마다 flush·fsync한다.
+    """
+
+    def __init__(self, path: Path, fingerprint: str, *, resume: bool) -> None:
+        """파일을 연다. 새 실행이면 비어 있지 않은 기존 파일을 거부하고 지문 줄을 쓴다.
+
+        Args:
+            path: 진행 파일 경로.
+            fingerprint: run_fingerprint 결과.
+            resume: 기존 파일에 이어 쓸지(load_progress로 검사한 뒤).
+        """
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+        if not resume:
+            flags |= os.O_EXCL
+        self.completed = 0
+        self.files = []
+        self.paths = (path, progress_labels_path(path))
+        for target in self.paths:
+            fd = os.open(target, flags, 0o600)
+            os.fchmod(fd, 0o600)
+            self.files.append(os.fdopen(fd, "a", encoding="utf-8"))
+        if not resume:
+            self._write(
+                0, {"kind": "header", "version": PROGRESS_VERSION, "fingerprint": fingerprint}
+            )
+
+    def _write(self, index: int, item: Mapping[str, object]) -> None:
+        """한 줄을 쓰고 디스크까지 내린다.
+
+        Args:
+            index: 0 진행 파일, 1 예측 파일(self.paths 순서).
+            item: 줄 내용.
+        """
+        handle = self.files[index]
+        handle.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    def record(self, name: str, case_id: str, first: Attempt, retry: Attempt | None) -> None:
+        """사례 하나의 예측과 진행 줄을 쓴다.
+
+        Args:
+            name: 후보 이름.
+            case_id: 사례 ID(키는 sha256으로 쓴다).
+            first: 최초 시도.
+            retry: 시도 2 또는 None.
+        """
+        key = {"candidate": name, "case": case_key(case_id)}
+        self._write(
+            1,
+            key
+            | {
+                "first": first.prediction.model_dump() if first.prediction else None,
+                "retry": retry.prediction.model_dump() if retry and retry.prediction else None,
+            },
+        )
+        self._write(
+            0,
+            key
+            | {
+                "first": _progress_entry(first),
+                "retry": None if retry is None else _progress_entry(retry),
+            },
+        )
+        self.completed += 1
+
+    def close(self) -> None:
+        """파일을 닫는다."""
+        for handle in self.files:
+            handle.close()
+
+    def remove(self) -> None:
+        """결과 파일까지 쓴 정상 종료 뒤 진행 파일 둘을 지운다(결과에 모두 담겼고 비공개 산출물을 줄인다)."""
+        self.close()
+        for target in self.paths:
+            target.unlink(missing_ok=True)
+
+
+def _read_lines(path: Path) -> list[dict[str, Any]]:
+    """JSONL을 읽는다. 마지막 줄이 줄바꿈 없이 끊겨 있으면(쓰다 중단) 파일에서 잘라 내고 버린다.
+
+    Args:
+        path: 읽을 파일.
+
+    Returns:
+        list[dict]: 완전한 줄. 중간 줄이 깨졌으면 EVAL_RESUME_MISMATCH ValueError다.
+    """
+    data = path.read_bytes()
+    complete = data[: data.rfind(b"\n") + 1]
+    if len(complete) != len(data):
+        os.truncate(path, len(complete))
+    try:
+        return [json.loads(line) for line in complete.decode("utf-8").splitlines()]
+    except ValueError:
+        raise ValueError("EVAL_RESUME_MISMATCH") from None
+
+
+def load_progress(
+    path: Path,
+    fingerprint: str,
+    case_ids: list[str],
+    names: list[str],
+    attempt_type: type,
+    output_model: type[BaseModel],
+) -> tuple[Prior, str, int]:
+    """진행 파일을 검사해 끝난 사례를 되살린다.
+
+    Args:
+        path: --resume 진행 파일.
+        fingerprint: 이번 실행의 지문. 파일 첫 줄과 같아야 한다.
+        case_ids: 이번 실행의 사례 ID(키를 원값으로 되돌릴 때 쓴다).
+        names: 후보 이름.
+        attempt_type: ClassificationAttempt 또는 DraftAttempt.
+        output_model: 예측 모델(ClassificationOutput 또는 DraftOutput).
+
+    Returns:
+        tuple: (prior {후보: {사례: (최초, 시도 2 | None)}}, 읽기 시작 시점의 진행 파일 sha256, 사례 수). 지문·
+            형식·후보·사례 키가 맞지 않거나 예측 줄이 없으면 EVAL_RESUME_MISMATCH ValueError다.
+    """
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        [header, *lines] = _read_lines(path)
+        labels = {
+            (item["candidate"], item["case"]): item
+            for item in _read_lines(progress_labels_path(path))
+        }
+        if header != {"kind": "header", "version": PROGRESS_VERSION, "fingerprint": fingerprint}:
+            raise ValueError
+        ids = {case_key(case_id): case_id for case_id in case_ids}
+        prior: Prior = {}
+        for line in lines:
+            name, key = line["candidate"], line["case"]
+            if name not in names or key not in ids or ids[key] in prior.get(name, {}):
+                raise ValueError
+            predicted = labels[name, key]
+
+            def attempt(entry: Mapping[str, Any] | None, value: object) -> Any:
+                if entry is None:
+                    return None
+                output = None if value is None else output_model.model_validate(value)
+                return _rebuild(entry, output, attempt_type)
+
+            prior.setdefault(name, {})[ids[key]] = (
+                attempt(line["first"], predicted["first"]),
+                attempt(line["retry"], predicted["retry"]),
+            )
+    except (ValueError, KeyError, TypeError):
+        raise ValueError("EVAL_RESUME_MISMATCH") from None
+    return prior, digest, sum(len(cases) for cases in prior.values())
+
+
+def open_progress(
+    out: Path,
+    resume: Path | None,
+    fingerprint: str,
+    case_ids: list[str],
+    names: list[str],
+    attempt_type: type,
+    output_model: type[BaseModel],
+) -> tuple[Progress, Prior | None, dict[str, object]]:
+    """진행 기록기를 열고, 재개면 끝난 사례를 되살린다(분류·초안 실행기 공용).
+
+    Args:
+        out: --out 경로. 새 실행의 진행 파일은 <out>.progress.jsonl이다.
+        resume: --resume 진행 파일 또는 None. 재개 중에도 같은 파일에 이어 쓴다.
+        fingerprint: 이번 실행의 지문.
+        case_ids: 실행 사례 ID.
+        names: 후보 이름.
+        attempt_type: 시도 타입.
+        output_model: 예측 모델.
+
+    Returns:
+        tuple: (기록기, prior 또는 None, meta에 더할 resumed_from·resumed_cases). 새 실행인데 진행 파일이 이미
+            있으면 OSError, 재개 불일치는 EVAL_RESUME_MISMATCH ValueError다.
+    """
+    if resume is None:
+        return Progress(Path(f"{out}.progress.jsonl"), fingerprint, resume=False), None, {}
+    prior, digest, count = load_progress(
+        resume, fingerprint, case_ids, names, attempt_type, output_model
+    )
+    progress = Progress(resume, fingerprint, resume=True)
+    return progress, prior, {"resumed_from": digest, "resumed_cases": count}
+
+
+def stop_run(progress: Progress | None, code: str, status: int) -> int:
+    """중단·실패 시 진행 파일을 닫고 stderr에 코드와 완료 건수만 남긴다(원문·키 없음).
+
+    Args:
+        progress: 열린 기록기 또는 None.
+        code: EVAL_RUN_INTERRUPTED 또는 EVAL_RUN_FAILED.
+        status: 돌려줄 종료 코드.
+
+    Returns:
+        int: status.
+    """
+    completed = 0 if progress is None else progress.completed
+    if progress is not None:
+        progress.close()
+    print(f"{code} completed={completed}", file=sys.stderr)
+    return status
+
+
 def execute(
     records: Mapping[str, Mapping[str, object]],
     gold: Mapping[str, Mapping[str, str]],
@@ -567,6 +896,9 @@ def execute(
     strip_phone_annotation: bool = False,
     audit: bool = False,
     invalid_output_retries: int = 1,
+    on_case: Callable[..., None] | None = None,
+    prior: Prior | None = None,
+    resumed: Mapping[str, object] | None = None,
 ) -> tuple[dict[str, object], AuditFiles, AuditFiles]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
@@ -583,6 +915,9 @@ def execute(
         strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
         audit: True면 후보별 사례 감사 파일 내용을 만든다.
         invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1). 재호출은 attempt 2로 따로 남는다.
+        on_case: 사례가 끝날 때마다 부를 진행 기록(Progress.record).
+        prior: 재개로 되살린 끝난 사례.
+        resumed: meta에 더할 resumed_from·resumed_cases.
 
     Returns:
         tuple: (결과, 라벨, 감사). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·
@@ -611,6 +946,8 @@ def execute(
         return_attempts=labels or audit,
         strip_phone_annotation=strip_phone_annotation,
         invalid_output_retries=invalid_output_retries,
+        on_case=on_case,
+        prior=prior,
     )
     attempts = result.pop("attempts", {})
     retries = result.pop("retries", {})
@@ -630,6 +967,7 @@ def execute(
             "strip_phone_annotation": strip_phone_annotation,
             "input_version": INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION,
             "invalid_output_retries": invalid_output_retries,
+            **(resumed or {}),
             "targets": len(records),
             "target_ids_sha256": hashlib.sha256("\n".join(sorted(records)).encode()).hexdigest(),
             "started_at": started.isoformat(),
@@ -688,18 +1026,25 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         action="store_true",
         help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v3 입력으로 돌린다(기본은 표기 포함 v4).",
     )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="중단된 실행의 <out>.progress.jsonl. 같은 실행 지문일 때만 끝난 사례를 건너뛰고 이어 쓴다",
+    )
     args = parser.parse_args(argv)
     if (
         args.limit < 1
         or (args.execute and args.out is None)
         or (args.labels_out is not None and not args.execute)
         or (args.audit_out is not None and not args.execute)
+        or (args.resume is not None and not args.execute)
     ):
         print(
             "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
-            "--labels-out·--audit-out은 --execute와 함께만 쓴다."
+            "--labels-out·--audit-out·--resume은 --execute와 함께만 쓴다."
         )
         return 1
+    progress = None
     try:
         records = load_targets(args.manifest, args.limit, args.seed)
         ids = set(records)
@@ -742,6 +1087,29 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             for spec in specs:
                 for kind in AUDIT_KINDS:
                     write_private(label_path(args.audit_out, spec["name"], kind), b"")
+        fingerprint = run_fingerprint(
+            {
+                "kind": "classification",
+                "manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+                "candidates": specs,
+                "seed": args.seed,
+                "limit": args.limit,
+                "strip_phone_annotation": args.strip_phone_annotation,
+                "invalid_output_retries": args.invalid_output_retries,
+                "targets": sorted(case_key(target) for target in records),
+                "codes": sorted(codes),
+                "sensitive": run_fingerprint(sensitive),
+            }
+        )
+        progress, prior, resumed = open_progress(
+            args.out,
+            args.resume,
+            fingerprint,
+            list(records),
+            [spec["name"] for spec in specs],
+            ClassificationAttempt,
+            ClassificationOutput,
+        )
         output, labels, audits = execute(
             records,
             gold,
@@ -755,13 +1123,26 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             strip_phone_annotation=args.strip_phone_annotation,
             audit=args.audit_out is not None,
             invalid_output_retries=args.invalid_output_retries,
+            on_case=progress.record,
+            prior=prior,
+            resumed=resumed,
         )
+        progress.close()
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
         return 2
-    except (ValueError, OSError, KeyError, TypeError, csv.Error):
-        print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
-        return 1
+    except KeyboardInterrupt:
+        return stop_run(progress, "EVAL_RUN_INTERRUPTED", 130)
+    except (ValueError, OSError, KeyError, TypeError, csv.Error) as error:
+        if str(error) == "EVAL_RESUME_MISMATCH":
+            print(
+                "EVAL_RESUME_MISMATCH: 진행 파일이 이번 실행(manifest·후보·seed·limit·판본)과 다릅니다."
+            )
+        else:
+            print("CS_RUN_FAILED: manifest·정답 잠금·코드북·후보 파일과 환경변수를 확인하세요.")
+        return stop_run(progress, "EVAL_RUN_FAILED", 1) if progress else 1
+    except Exception:
+        return stop_run(progress, "EVAL_RUN_FAILED", 1)
     try:
         # 라벨·감사를 먼저 쓰고 결과(그 sha256 포함)를 마지막에 써서, 실패 시 해시가 맞지 않는 결과가 남지 않게
         # 한다.
@@ -775,6 +1156,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             "CS_RUN_OUTPUT_FAILED: 실행은 끝났지만 결과 파일을 쓰지 못했습니다. --out 경로를 확인하세요."
         )
         return 1
+    progress.remove()
     print(json.dumps({"targets": len(records), "out": str(args.out)}))
     return 0
 

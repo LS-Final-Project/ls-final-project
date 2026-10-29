@@ -46,6 +46,10 @@ def run_candidates(
     return_attempts: bool = False,
     strip_phone_annotation: bool = False,
     invalid_output_retries: int = 1,
+    on_case: Callable[[str, str, ClassificationAttempt, ClassificationAttempt | None], None]
+    | None = None,
+    prior: Mapping[str, Mapping[str, tuple[ClassificationAttempt, ClassificationAttempt | None]]]
+    | None = None,
 ) -> dict:
     """후보마다 모든 대상의 최초 시도를 실행하고 기존 지표로 비교표를 만든다.
 
@@ -64,6 +68,10 @@ def run_candidates(
             뒤 결과를 저장한다.
         strip_phone_annotation: 분석용. True면 PHONE 상담원 표기를 지운 v3 입력으로 돌린다(기본 False).
         invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1, 기본 1).
+        on_case: 사례 하나(최초와 선택 시도 2)가 끝날 때마다 (후보, 대상, 최초, 시도 2 | None)로 부른다. 진행
+            기록용이며 prior로 넣은 사례에는 부르지 않는다.
+        prior: 이미 끝난 사례 {후보: {대상: (최초, 시도 2 | None)}}. 호출하지 않고 그대로 집계에 넣는다(재개).
+            모르는 후보·대상이 있으면 CS_INVALID_CANDIDATES다.
 
     Returns:
         dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. 순위는 최초 시도 지표로 정한다. ranking은 긴급도
@@ -89,35 +97,41 @@ def run_candidates(
         for target, record in records.items()
         for channel in [record.get("channel")]
     }
-    runs = {
-        candidate.name: {
-            target: run_classification_attempt(
-                record,
-                sensitive_values=sensitive_values,
-                allowed_info_codes=allowed_info_codes,
-                provider=candidate.provider,
-                attempt_number=1,
-                strip_phone_annotation=strip_phone_annotation,
-            )
-            for target, record in records.items()
-        }
-        for candidate in candidates
-    }
-    retries = {
-        candidate.name: {
-            target: run_classification_attempt(
+    done = prior or {}
+    if not set(done) <= set(names) or any(
+        not set(cases) <= set(records) for cases in done.values()
+    ):
+        raise ValueError("CS_INVALID_CANDIDATES")
+    runs: dict[str, dict[str, ClassificationAttempt]] = {name: {} for name in names}
+    retries: dict[str, dict[str, ClassificationAttempt]] = {name: {} for name in names}
+    for candidate in candidates:
+
+        def attempt(target: str, number: int) -> ClassificationAttempt:
+            return run_classification_attempt(
                 records[target],
                 sensitive_values=sensitive_values,
                 allowed_info_codes=allowed_info_codes,
                 provider=candidate.provider,
-                attempt_number=2,
+                attempt_number=number,
                 strip_phone_annotation=strip_phone_annotation,
             )
-            for target, attempt in runs[candidate.name].items()
-            if invalid_output_retries and attempt.error_code == "CS_INVALID_OUTPUT"
-        }
-        for candidate in candidates
-    }
+
+        for target in records:
+            if target in done.get(candidate.name, {}):
+                initial, retry = done[candidate.name][target]
+            else:
+                # 형식 위반은 그 사례의 최초 시도 직후 시도 2로 다시 부른다(사례 단위로 끝내야 진행 기록이 맞다).
+                initial = attempt(target, 1)
+                retry = (
+                    attempt(target, 2)
+                    if invalid_output_retries and initial.error_code == "CS_INVALID_OUTPUT"
+                    else None
+                )
+                if on_case is not None:
+                    on_case(candidate.name, target, initial, retry)
+            runs[candidate.name][target] = initial
+            if retry is not None:
+                retries[candidate.name][target] = retry
     first = runs[names[0]]
     if any(
         attempts[target].input_sha256 != first[target].input_sha256
