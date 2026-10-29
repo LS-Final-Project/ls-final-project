@@ -4,7 +4,15 @@ from typing import Any
 
 import pytest
 
-from backend.engine.search.hybrid import candidates_from_fts, codes_in, mentions_code, run_hybrid
+from backend.engine.search.hybrid import (
+    candidates_from_fts,
+    codes_in,
+    excerpt,
+    mentions_code,
+    run_hybrid,
+    scoped_then_global,
+    token_or_query,
+)
 from backend.engine.search.model import Candidate, Fused, SearchFilters, Source
 
 A, B = "a" * 64, "b" * 64
@@ -197,3 +205,44 @@ def test_fts_rows_become_ranked_candidates() -> None:
 )
 def test_blocked_code_check_folds_spelling_variants(text: str, expected: bool) -> None:
     assert mentions_code(text, "FLT-042") is expected
+
+
+def test_token_or_query_builds_a_masked_or_query() -> None:
+    """토큰 OR 질의는 2자 이상 단어를 중복 없이 ' or '로 잇고 마스킹 표식·'or'·41번째 이후 토큰을 뺀다."""
+    assert (
+        token_or_query("Trip [SERIAL_PROVIDED]", "trip or a b-c Breaker [PERSONAL_PROVIDED]", None)
+        == "Trip or Breaker"
+    )
+    assert token_or_query(None, "") == ""
+    many = " ".join(f"w{i:02d}" for i in range(50))
+    assert len(token_or_query(many).split(" or ")) == 40
+
+
+def test_excerpt_uses_chunk_text_not_the_headline() -> None:
+    """근거 스니펫은 ts_headline(<b> 태그)이 아니라 본문 앞부분이고, 본문이 없거나 공백이면 None이다."""
+    found = cand("c1", "FTS", 1, snippet="<b>UL</b> 1066", text_excerpt="UL 1066 breakers " * 100)
+    assert excerpt(found) == ("UL 1066 breakers " * 100)[:800]
+    assert excerpt(found, 7) == "UL 1066"
+    assert excerpt(cand("c2", "FTS", 2)) is None
+    assert excerpt(cand("c3", "FTS", 3, text_excerpt="  ")) is None
+
+
+def test_scoped_then_global_fills_without_duplicates_or_blocked_chunks() -> None:
+    """좁힌 조건 결과가 앞서고, 모자라면 전체 결과로 중복 없이 채우며, 본문 없는 후보·차단 코드 청크는 뺀다."""
+
+    def text(chunk_id: str, position: int, body: str = "warranty terms") -> Candidate:
+        return cand(chunk_id, "FTS", position, text_excerpt=body)
+
+    def searcher(query: str, filters: SearchFilters) -> list[Candidate]:
+        if filters.product_family == "TRANSFORMER":
+            return [text("p1", 1), cand("p2", "FTS", 2)]
+        return [text("p1", 1), text("blocked", 2, "see FLT-042"), text("g1", 3), text("g2", 4)]
+
+    filters = FILTERS.model_copy(update={"document_sha256s": None})
+    scoped = filters.model_copy(update={"product_family": "TRANSFORMER"})
+    items, blocked = scoped_then_global("q", filters, scoped, fts=searcher, limit=3)
+    assert ids(items) == ["p1", "g1", "g2"] and blocked == {"blocked"}
+    items, _ = scoped_then_global("q", filters, scoped, fts=searcher, limit=1)
+    assert ids(items) == ["p1"]
+    items, _ = scoped_then_global("q", filters, None, fts=searcher, limit=5)
+    assert ids(items) == ["p1", "g1", "g2"]

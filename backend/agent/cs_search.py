@@ -59,6 +59,7 @@ def fts_searcher_from_dsn(dsn: str, index_version: str) -> Searcher:
                     document_sha256s=filters.document_sha256s,
                     index_version=index_version,
                     limit=filters.limit,
+                    product_family=filters.product_family,
                 )
 
         return candidates_from_fts(asyncio.run(run()))

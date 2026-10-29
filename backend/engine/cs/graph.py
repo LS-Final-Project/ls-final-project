@@ -33,8 +33,8 @@ from backend.engine.cs.classification import (
 from backend.engine.cs.classification_call import ClassificationAttempt, run_classification_attempt
 from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
-from backend.engine.cs.rules import RuleInputError, decide
-from backend.engine.search.hybrid import Searcher, run_hybrid
+from backend.engine.cs.rules import RuleInputError, decide, product_family
+from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import SearchFilters
 from backend.shared.ai import Generation
 from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
@@ -293,28 +293,48 @@ def build_graph(
         return {"rules": _plain(decision), "stage": "RULED"}
 
     def retrieve(state: CsState) -> dict[str, Any]:
-        """마스킹한 제목·본문으로 혼합 검색해 근거 스니펫으로 바꾼다.
+        """마스킹한 제목·본문의 토큰 OR 질의로 제품 계열 문서를 먼저 찾고, 모자라면 전체로 보충해 근거로 바꾼다.
+
+        websearch_to_tsquery는 문의 전문을 넘기면 모든 어휘의 AND가 되어 거의 맞지 않으므로 hybrid.token_or_query를
+        쓴다. 제품 계열은 문의 제품 코드의 rules.product_family이고 청크 메타데이터 product_family와 맞춘다. 모르는
+        제품이면 전체만 찾는다. 스니펫은 청크 본문 앞 800자(hybrid.excerpt)이며 ts_headline(<b> 태그)은 쓰지 않는다.
 
         Args:
             state: 규칙 단계가 끝난 상태.
 
         Returns:
-            dict: 상태 갱신. 검색기 예외는 원문 없이 CS_SEARCH_FAILED로 남긴다.
+            dict: 상태 갱신. 질의 토큰이 없으면 검색하지 않고 근거 0건이다. 검색기 예외는 원문 없이
+                CS_SEARCH_FAILED로 남긴다.
         """
         record = state["record"] or {}
-        query = "\n".join(part for part in (record.get("subject"), record.get("body")) if part)
+        query = token_or_query(record.get("subject"), record.get("body"))
+        if not query:
+            return {"evidence": [], "stage": "RETRIEVED"}
         try:
-            result = run_hybrid(query, search_filters, fts=fts_searcher, vector=vector_searcher)
+            family: str | None = product_family(load_ticket(state["ticket_id"]).product_code)
+        except RuleInputError:
+            family = None
+        scoped = search_filters.model_copy(update={"product_family": family}) if family else None
+        try:
+            items, _ = scoped_then_global(
+                query,
+                search_filters,
+                scoped,
+                fts=fts_searcher,
+                vector=vector_searcher,
+                limit=search_filters.limit,
+            )
         except Exception:
             return {"errors": _error(state, "retrieve", "CS_SEARCH_FAILED"), "stage": "RETRIEVED"}
         evidence = [
             EvidenceSnippet(
                 chunk_id=item.candidate.chunk_id,
-                snippet=item.candidate.snippet,
+                # scoped_then_global이 본문 있는 후보만 남기므로 빈 값은 오지 않는다.
+                snippet=excerpt(item.candidate) or "",
                 section_path=list(item.candidate.section_path),
                 document_sha256=item.candidate.document_sha256,
             ).model_dump()
-            for item in result.items
+            for item in items
         ]
         return {"evidence": evidence, "stage": "RETRIEVED"}
 

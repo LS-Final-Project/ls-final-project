@@ -14,6 +14,7 @@ from backend.engine.cs.graph import (
     route_after_classify,
     thread_config,
 )
+from backend.shared.ai import Generation, Usage
 from tests.cs.graph_fakes import (
     FILTERS,
     RAW_INDENT,
@@ -322,6 +323,170 @@ def test_rule_and_search_errors_continue_to_human_review():
     # 근거가 없어 fake 초안 공급자가 실패해도 오류 코드만 남기고 사람 확인으로 간다.
     assert ("draft", "CS_PROVIDER_ERROR") in codes and state.values["draft"] is None
     assert "PRIVATE_SEARCH_ERROR" not in json.dumps(state.values)
+
+
+def test_retrieve_uses_token_or_query_and_product_family_first():
+    """retrieve는 토큰 OR 질의로 제품 계열을 먼저 찾고 모자라면 전체로 보충하며(중복 제외), 스니펫은 본문이다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 검색 호출 순서·조건·근거 순서·스니펫을 확인한다.
+    """
+    calls = []
+
+    def searcher(query, filters):
+        """제품 조건이면 chunk-1만, 전체면 chunk-1·chunk-2를 낸다.
+
+        Args:
+            query: 질의.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 합성 후보.
+        """
+        calls.append((query, filters.product_family))
+        found = fts_searcher(query, filters)
+        return found[:1] if filters.product_family else found
+
+    graph, _ = make(InMemorySaver(), fts_searcher=searcher)
+    config = thread_config("ticket-retrieve")
+    graph.invoke(initial_state("ticket-retrieve"), config)
+    values = graph.get_state(config).values
+    assert [family for _, family in calls] == ["TRANSFORMER", None]
+    query = calls[0][0]
+    assert " or " in query and "PROVIDED" not in query
+    assert [e["chunk_id"] for e in values["evidence"]] == ["chunk-1", "chunk-2"]
+    assert values["evidence"][0]["snippet"] == "Warranty clause 1."
+
+
+def test_retrieve_skips_product_scope_for_unknown_products_and_empty_queries():
+    """정책 밖 제품이면 전체만 찾고, 질의 토큰이 없으면 검색하지 않고 근거 0건이다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 검색 호출과 근거 수를 확인한다.
+    """
+    calls = []
+
+    def searcher(query, filters):
+        """호출을 기록한다.
+
+        Args:
+            query: 질의.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 합성 후보.
+        """
+        calls.append(filters.product_family)
+        return fts_searcher(query, filters)
+
+    graph, _ = make(
+        InMemorySaver(),
+        fts_searcher=searcher,
+        load_ticket=lambda ticket_id: replace(TICKET, product_code="UNKNOWN-1"),
+    )
+    config = thread_config("ticket-unknown")
+    graph.invoke(initial_state("ticket-unknown"), config)
+    assert calls == [None]
+    calls.clear()
+    blank = replace(TICKET, record=TICKET.record | {"subject": None, "body": "a ?"})
+    graph, _ = make(InMemorySaver(), fts_searcher=searcher, load_ticket=lambda ticket_id: blank)
+    config = thread_config("ticket-blank")
+    graph.invoke(initial_state("ticket-blank"), config)
+    assert calls == [] and graph.get_state(config).values["evidence"] == []
+
+
+def unconfirmed_draft(prompt):
+    """근거 없이 모든 문장을 UNCONFIRMED로 쓰는 유효한 초안.
+
+    Args:
+        prompt: 렌더링한 초안 프롬프트.
+
+    Returns:
+        Generation: 합성 응답.
+    """
+    payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+    options = [
+        {
+            "label": label,
+            "sentences": [
+                {"text": "We will check.", "kind": "UNCONFIRMED", "evidence_chunk_ids": []}
+            ],
+            "info_requests": [
+                {"info_code": code, "question": "Please send it."}
+                for code in payload["request_info_codes"]
+            ]
+            if label == "INFO_FIRST"
+            else [],
+        }
+        for label in ("CONCISE", "DETAILED", "INFO_FIRST")
+    ]
+    return Generation(json.dumps({"options": options}), Usage(1, 1), "fake-v1", ["STOP"])
+
+
+def citing_draft(prompt):
+    """근거가 없는데도 없는 chunk_id를 인용하는 초안(EVIDENCE).
+
+    Args:
+        prompt: 렌더링한 초안 프롬프트.
+
+    Returns:
+        Generation: 합성 응답.
+    """
+    payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+    assert payload["evidence"] == []
+    options = [
+        {
+            "label": label,
+            "sentences": [
+                {"text": "Per the manual.", "kind": "EVIDENCE", "evidence_chunk_ids": ["chunk-9"]}
+            ],
+            "info_requests": [
+                {"info_code": code, "question": "Please send it."}
+                for code in payload["request_info_codes"]
+            ]
+            if label == "INFO_FIRST"
+            else [],
+        }
+        for label in ("CONCISE", "DETAILED", "INFO_FIRST")
+    ]
+    return Generation(json.dumps({"options": options}), Usage(1, 1), "fake-v1", ["STOP"])
+
+
+@pytest.mark.parametrize(
+    ("drafter", "valid"),
+    [(unconfirmed_draft, True), (citing_draft, False)],
+)
+def test_zero_evidence_draft_paths_reach_human_review(drafter, valid):
+    """근거 0건이면 초안은 여전히 호출된다(설계상 정상 경로). UNCONFIRMED만 쓰면 VALID이고, 없는 근거를 인용하면
+    두 시도 모두 CS_INVALID_OUTPUT으로 남고 초안 없이 사람 확인으로 간다.
+
+    Args:
+        drafter: 초안 공급자.
+        valid: 초안이 유효해야 하는지.
+
+    Returns:
+        None: 초안 유무·오류 코드·시도 수·중단점을 확인한다.
+    """
+    graph, store = make(
+        InMemorySaver(), fts_searcher=lambda query, filters: [], draft_provider=drafter
+    )
+    config = thread_config("ticket-zero")
+    graph.invoke(initial_state("ticket-zero"), config)
+    state = graph.get_state(config)
+    assert state.next == ("human_review",) and state.values["evidence"] == []
+    codes = [(e["node"], e["code"]) for e in state.values["errors"]]
+    drafts = [attempt for kind, attempt, _ in store.attempts if kind == "draft"]
+    if valid:
+        assert state.values["draft"] is not None and codes == [] and len(drafts) == 1
+    else:
+        assert state.values["draft"] is None
+        assert codes == [("draft", "CS_INVALID_OUTPUT")] and len(drafts) == 2
 
 
 @pytest.mark.parametrize(
