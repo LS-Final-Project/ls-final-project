@@ -13,7 +13,7 @@ from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.workflow import repository, sends
 from backend.api.cs.workflow.mail import platform_mail, unsettled
 from backend.api.cs.workflow.routes import begin, require_role, view
-from backend.api.cs.workflow.schemas import Action, SendRequest, Workflow
+from backend.api.cs.workflow.schemas import Action, CustomerSendRequest, Workflow
 from backend.api.cs.workflow.service import check, lock, send_pending, unreviewed_result
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
@@ -50,7 +50,7 @@ def send_not_found() -> ApplicationError:
 )
 async def send_message(
     ticket_id: UUID,
-    payload: SendRequest,
+    payload: CustomerSendRequest,
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[Workflow]:

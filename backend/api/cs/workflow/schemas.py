@@ -201,7 +201,7 @@ class CustomerReply(BaseModel):
     created_at: datetime
 
 
-class SendRequest(Action):
+class CustomerSendRequest(Action):
     """A C/S agent approves an answer or an information request for the customer."""
 
     kind: SendKind

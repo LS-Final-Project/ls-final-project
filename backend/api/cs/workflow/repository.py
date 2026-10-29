@@ -251,6 +251,17 @@ async def ticket_for_message(conn: AsyncConnection[Row], message_id: UUID) -> UU
     return row["ticket_id"] if row else None
 
 
+async def ticket_for_external_id(
+    conn: AsyncConnection[Row], source: str, source_instance: str, external_id: str
+) -> UUID | None:
+    cursor = await conn.execute(
+        "SELECT id FROM cs.tickets WHERE source = %s AND source_instance = %s AND external_id = %s",
+        (source, source_instance, external_id),
+    )
+    row = await cursor.fetchone()
+    return row["id"] if row else None
+
+
 async def insert_mail_origin(conn: AsyncConnection[Row], values: Row) -> None:
     columns = ", ".join(values)
     await conn.execute(

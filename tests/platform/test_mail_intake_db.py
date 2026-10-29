@@ -285,6 +285,12 @@ def test_registration_needs_the_owners_inbox_mail_and_a_body(web, notify):
     assert register(web, uuid4()).status_code == 404
     empty = received(web, notify, b"From: a@b.invalid\r\nSubject: s\r\n\r\n")
     assert register(web, empty).json()["error"]["code"] == "MAIL_BODY_EMPTY"
+    long_body = b"From: a@b.invalid\r\nSubject: s\r\n\r\n" + b"x" * 50_001 + b"\r\n"
+    too_long = register(web, received(web, notify, long_body))
+    assert (too_long.status_code, too_long.json()["error"]["code"]) == (
+        422,
+        "MAIL_TOO_LONG_FOR_TICKET",
+    )
     no_csrf = web["client"].post(
         f"/api/v1/platform/mail/messages/{sent}/register-ticket",
         json=FIELDS,

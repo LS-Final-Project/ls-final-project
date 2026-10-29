@@ -469,3 +469,38 @@ def test_mail_registered_ticket_answers_its_sender_and_hides_mail_from_departmen
             column = "entity_id" if table == "audit_events" else "ticket_id"
             admin.execute(f"DELETE FROM cs.{table} WHERE {column}=%s", (ticket_id,))
         admin.execute("DELETE FROM cs.tickets WHERE id=%s", (ticket_id,))
+
+
+def test_a_concurrent_registration_of_the_same_mail_is_a_conflict_not_an_error(client, admin):
+    """The other request inserted the ticket between our check and our insert."""
+    mailbox_id, other = uuid4(), uuid4()
+    graph_id = f"AAMk-race-{uuid4()}"
+    admin.execute(
+        "INSERT INTO cs.tickets (id, source, source_instance, external_id, data_origin, "
+        "derivation_kind, received_at, known_at, channel, body_language, customer_external_id, "
+        "product_code, body) VALUES (%s, 'microsoft_graph', %s, %s, 'demo', 'SYSTEM', now(), "
+        "now(), 'EMAIL', 'en', 'CUST-0374', 'TRF-OIL-1000', 'x')",
+        (other, str(mailbox_id), graph_id),
+    )
+    try:
+        response = client.post(
+            "/internal/v1/cs/tickets/from-mail",
+            json={
+                "message_id": str(uuid4()),
+                "mailbox_id": str(mailbox_id),
+                "external_id": graph_id,
+                "sender_address": "plant@customer.invalid",
+                "received_at": datetime(2026, 10, 29, 9, tzinfo=UTC).isoformat(),
+                "body": "Oil leaks.",
+                "body_language": "en",
+                "customer_external_id": "CUST-0374",
+                "product_code": "TRF-OIL-1000",
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["details"] == [{"field": "ticket_id", "reason": str(other)}]
+        assert admin.execute(
+            "SELECT count(*) FROM cs.tickets WHERE external_id=%s", (graph_id,)
+        ).fetchone() == (1,)
+    finally:
+        admin.execute("DELETE FROM cs.tickets WHERE id=%s", (other,))
