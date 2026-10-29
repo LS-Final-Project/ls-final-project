@@ -18,7 +18,7 @@
 | DB 분리 | Cloud SQL 인스턴스 1개, PostgreSQL DB 1개. 서비스별 스키마와 접속 계정 분리 |
 | AI | Gemini, LangChain, LangGraph. 체크포인트는 PostgreSQL |
 | 비동기 실행 | 문서 처리는 Cloud Tasks, 평가는 Cloud Run Jobs, 상태는 PostgreSQL |
-| 운영 도구 | Cloud Build, Secret Manager, LangSmith. LangSmith 요금제는 미정 |
+| 운영 도구 | Cloud Build, Secret Manager, LangSmith(Developer 티어, local 추적만, 2026-10-29 확정) |
 | 연동 | Microsoft 로그인과 실제 메일 읽기 및 발송 포함. 회사 시스템 연동 제외 |
 | 로그인과 API 접근 | 플랫폼의 서버 로그인 및 세션 쿠키. C/S 및 TFT 요청은 플랫폼이 중계 |
 | 일정 | 개발과 배포 시연 준비 11월 3일 완료, 발표 11월 10일 |
