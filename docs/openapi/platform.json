@@ -1586,13 +1586,14 @@
         "type": "object"
       },
       "JobStatusResponse": {
-        "description": "\uc0c1\ud0dc \uc870\ud68c \uc751\ub2f5. data\ub294 owner(platform\u00b7cs)\ub85c \uad6c\ubd84\ud55c\ub2e4.",
+        "description": "\uc0c1\ud0dc \uc870\ud68c \uc751\ub2f5. data\ub294 owner(platform\u00b7cs\u00b7tft)\ub85c \uad6c\ubd84\ud55c\ub2e4.",
         "properties": {
           "data": {
             "discriminator": {
               "mapping": {
                 "cs": "#/components/schemas/CsJobStatus",
-                "platform": "#/components/schemas/EvaluationJobStatus"
+                "platform": "#/components/schemas/EvaluationJobStatus",
+                "tft": "#/components/schemas/TftJobStatus"
               },
               "propertyName": "owner"
             },
@@ -1602,6 +1603,9 @@
               },
               {
                 "$ref": "#/components/schemas/CsJobStatus"
+              },
+              {
+                "$ref": "#/components/schemas/TftJobStatus"
               }
             ],
             "title": "Data"
@@ -3894,6 +3898,69 @@
         "title": "TargetCreate",
         "type": "object"
       },
+      "TftJobStatus": {
+        "additionalProperties": false,
+        "description": "RFP \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-199). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rfp.process",
+              "rfp.export",
+              "rfp.annotate"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "minimum": 0.0,
+            "title": "Last Event Sequence",
+            "type": "integer"
+          },
+          "owner": {
+            "const": "tft",
+            "default": "tft",
+            "title": "Owner",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "project_id",
+          "kind",
+          "status",
+          "version",
+          "last_event_sequence"
+        ],
+        "title": "TftJobStatus",
+        "type": "object"
+      },
       "TokenTotal": {
         "additionalProperties": false,
         "description": "\uad00\uce21 \ubd80\ubd84\ud569\uacfc \ub204\ub77d \uc5c6\ub294 \uc804\uccb4 \ud569\uacc4\ub97c \uad6c\ubcc4\ud55c\ub2e4.",
@@ -5597,7 +5664,7 @@
     },
     "/api/v1/platform/jobs/{job_id}": {
       "get": {
-        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S)\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4. \ud3c9\uac00\ub294 \uc9c0\uc815 \ud3c9\uac00\uc790 \ubcf8\uc778 \uc791\uc5c5\ub9cc(\ube44\ud3c9\uac00\uc790 403), C/S\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778 \ub610\ub294 cs_agent\ub9cc \ubcf4\uba70 \uadf8 \ubc16\uc740 404\ub2e4.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S\u00b7RFP)\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4. \ud3c9\uac00\ub294 \uc9c0\uc815 \ud3c9\uac00\uc790 \ubcf8\uc778 \uc791\uc5c5\ub9cc(\ube44\ud3c9\uac00\uc790 403), C/S\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778 \ub610\ub294 cs_agent, RFP\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778\ub9cc \ubcf4\uba70 \uadf8 \ubc16\uc740 404\ub2e4.",
         "operationId": "platform_get_evaluation_job",
         "parameters": [
           {
@@ -5681,7 +5748,7 @@
     },
     "/api/v1/platform/jobs/{job_id}/events": {
       "get": {
-        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S)\uc758 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c SSE\ub85c \uc7ac\uc0dd\ud55c\ub2e4. \uc811\uadfc \uaddc\uce59\uc740 \uc0c1\ud0dc \uc870\ud68c\uc640 \uac19\uace0 \ubc30\uce58\ub9c8\ub2e4 \ub2e4\uc2dc \uac80\uc0ac\ud55c\ub2e4.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S\u00b7RFP)\uc758 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c SSE\ub85c \uc7ac\uc0dd\ud55c\ub2e4. \uc811\uadfc \uaddc\uce59\uc740 \uc0c1\ud0dc \uc870\ud68c\uc640 \uac19\uace0 \ubc30\uce58\ub9c8\ub2e4 \ub2e4\uc2dc \uac80\uc0ac\ud55c\ub2e4.",
         "operationId": "platform_stream_evaluation_job_events",
         "parameters": [
           {

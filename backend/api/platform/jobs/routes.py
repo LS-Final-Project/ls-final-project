@@ -1,4 +1,4 @@
-"""플랫폼 작업(평가·C/S)의 인증된 상태 조회 경로. 접근은 owner별 검사기가 정한다(status.CHECKERS)."""
+"""플랫폼 작업(평가·C/S·RFP)의 인증된 상태 조회 경로. 접근은 owner별 검사기가 정한다(status.CHECKERS)."""
 
 from typing import Annotated
 from uuid import UUID
@@ -22,8 +22,8 @@ router = APIRouter(prefix="/api/v1/platform/jobs", tags=["jobs"])
     operation_id="platform_get_evaluation_job",
     responses={code: {"model": ErrorResponse} for code in (401, 403, 404, 503)},
     description=(
-        "플랫폼 작업(평가·C/S)의 제한 상태를 조회한다. 평가는 지정 평가자 본인 작업만(비평가자 403), "
-        "C/S는 요청 사용자 본인 또는 cs_agent만 보며 그 밖은 404다."
+        "플랫폼 작업(평가·C/S·RFP)의 제한 상태를 조회한다. 평가는 지정 평가자 본인 작업만(비평가자 403), "
+        "C/S는 요청 사용자 본인 또는 cs_agent, RFP는 요청 사용자 본인만 보며 그 밖은 404다."
     ),
 )
 async def evaluation_job_status(
@@ -56,7 +56,7 @@ async def evaluation_job_status(
     response_class=StreamingResponse,
     operation_id="platform_stream_evaluation_job_events",
     description=(
-        "플랫폼 작업(평가·C/S)의 저장 이벤트를 SSE로 재생한다. 접근 규칙은 상태 조회와 같고 배치마다 다시 검사한다."
+        "플랫폼 작업(평가·C/S·RFP)의 저장 이벤트를 SSE로 재생한다. 접근 규칙은 상태 조회와 같고 배치마다 다시 검사한다."
     ),
     responses={
         200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}},
@@ -74,7 +74,7 @@ async def evaluation_job_events(
 
     Args:
         request: 현재 설정·세션 쿠키를 가진 요청.
-        job_id: 플랫폼 작업(평가·C/S) UUID.
+        job_id: 플랫폼 작업(평가·C/S·RFP) UUID.
         last_event_id: 쿼리보다 우선하는 마지막 수신 sequence.
         after: 헤더가 없는 경우의 마지막 수신 sequence.
 
