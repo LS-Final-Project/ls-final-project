@@ -95,7 +95,8 @@ def test_classification_prompt_has_version_schema_codes_and_input(sdk_http, clie
     generation = provider(PAYLOAD)
     [request] = requests
     text = sent_text(request)
-    assert text.startswith(get_prompt("classification", "v1"))
+    # 기본 판본은 채택한 v3다(KAN-105 7차).
+    assert text.startswith(get_prompt("classification", "v3"))
     assert '"category_code"' in text
     assert "허용 정보 코드: " + json.dumps(sorted(CODES)) in text
     assert text.endswith("입력:\n" + PAYLOAD.model_dump_json())
@@ -295,7 +296,7 @@ def test_candidate_rows_record_knobs(sdk_http, client):
             sdk, settings, model="m", allowed_info_codes=CODES, generation=GenerationKnobs(**knobs)
         ),
         model="m",
-        prompt_version="v1",
+        prompt_version="v3",
         knobs=knobs,
     )
     record = {"channel": "EMAIL", "body_language": "en", "subject": None, "body": "Return it."}
