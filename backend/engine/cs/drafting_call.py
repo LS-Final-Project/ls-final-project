@@ -10,6 +10,7 @@ from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.classification_call import CallErrorCode, ClassificationCallError
 from backend.engine.cs.drafting import (
     DRAFT_INPUT_VERSION,
+    DRAFT_INPUT_VERSION_STRIPPED,
     DraftOutput,
     EvidenceSnippet,
     build_draft_input,
@@ -57,6 +58,7 @@ def run_draft_attempt(
     provider: Callable[[str], Generation],
     attempt_number: int,
     prompt_version: str = "v1",
+    strip_phone_annotation: bool = False,
 ) -> DraftAttempt:
     """정제 입력으로 프롬프트를 만들어 한 번 호출하고 원시 검사 결과와 사용량을 보존한다.
 
@@ -72,6 +74,7 @@ def run_draft_attempt(
         attempt_number: 외부 실행기가 부여한 1 이상의 시도 번호.
         prompt_version: 프롬프트 레지스트리의 draft 판본 키. 모르는 판본은 호출 전에
             CS_UNKNOWN_PROMPT_VERSION ValueError다.
+        strip_phone_annotation: 분석용. build_draft_input에 그대로 넘긴다(기본 False).
 
     Returns:
         DraftAttempt: 내부 시도 기록. 입력 실패는 호출하지 않으며 자동 재시도하지 않는다.
@@ -81,7 +84,12 @@ def run_draft_attempt(
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
     fingerprint = hashlib.sha256(instruction(prompt_version).encode()).hexdigest()[:16]
     result = DraftAttempt(
-        attempt_number, prompt_version=prompt_version, instruction_fingerprint=fingerprint
+        attempt_number,
+        input_version=DRAFT_INPUT_VERSION_STRIPPED
+        if strip_phone_annotation
+        else DRAFT_INPUT_VERSION,
+        prompt_version=prompt_version,
+        instruction_fingerprint=fingerprint,
     )
     try:
         prepared = build_draft_input(
@@ -91,6 +99,7 @@ def run_draft_attempt(
             already_asked_codes=already_asked_codes,
             evidence=evidence,
             sensitive_values=sensitive_values,
+            strip_phone_annotation=strip_phone_annotation,
         )
     except ValueError as error:
         input_code = str(error)

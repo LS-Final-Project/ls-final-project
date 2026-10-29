@@ -24,6 +24,8 @@ from typing import Any
 
 from backend.engine.cs.classification import validate_output
 from backend.engine.cs.drafting import (
+    DRAFT_INPUT_VERSION,
+    DRAFT_INPUT_VERSION_STRIPPED,
     DraftOutput,
     EvidenceSnippet,
     build_draft_input,
@@ -142,6 +144,7 @@ def dry_run(
     specs: list[dict[str, Any]],
     settings: AISettings,
     prices: Mapping[str, Any],
+    strip_phone_annotation: bool = False,
 ) -> list[dict[str, object]]:
     """후보마다 엔진의 render_prompt로 실제 프롬프트를 만들어 크기·비용을 추정한다.
 
@@ -150,6 +153,7 @@ def dry_run(
         specs: 후보 명세(name, model, prompt_version).
         settings: AI 설정(출력 토큰 상한).
         prices: 단가표.
+        strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False).
 
     Returns:
         list[dict]: 후보별 보류 건수(초안 입력 실패)와 estimate() 결과. 네트워크를 쓰지 않는다.
@@ -166,6 +170,7 @@ def dry_run(
                     already_asked_codes=case.already_asked_codes,
                     evidence=case.evidence,
                     sensitive_values=case.sensitive_values,
+                    strip_phone_annotation=strip_phone_annotation,
                 ).payload
             except ValueError:
                 held += 1
@@ -217,6 +222,7 @@ def execute(
     prices: Mapping[str, Any],
     factory: TextFactory,
     subset: frozenset[str] | None,
+    strip_phone_annotation: bool = False,
 ) -> dict[str, object]:
     """하네스로 실제 비교를 돌리고 실행 메타를 붙인다.
 
@@ -229,6 +235,7 @@ def execute(
         prices: 단가표.
         factory: 후보별 공급자를 만드는 함수(테스트는 fake로 교체).
         subset: 재실행할 사례 ID(없으면 전체).
+        strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
 
     Returns:
         dict: run_draft_candidates 결과와 meta(후보·판본 지문·건수·기대값 규칙·표본 ID sha256·시각·git sha).
@@ -245,7 +252,12 @@ def execute(
         for spec in specs
     ]
     result = run_draft_candidates(
-        cases, gold=gold, candidates=candidates, price_table=dict(prices), subset=subset
+        cases,
+        gold=gold,
+        candidates=candidates,
+        price_table=dict(prices),
+        subset=subset,
+        strip_phone_annotation=strip_phone_annotation,
     )
     return {
         "meta": {
@@ -253,6 +265,10 @@ def execute(
                 {**spec, "prompt_fingerprint": prompt_fingerprint("draft", spec["prompt_version"])}
                 for spec in specs
             ],
+            "strip_phone_annotation": strip_phone_annotation,
+            "input_version": DRAFT_INPUT_VERSION_STRIPPED
+            if strip_phone_annotation
+            else DRAFT_INPUT_VERSION,
             "cases": len(cases),
             **counts,
             "expected_values": EXPECTED_RULE,
@@ -289,6 +305,11 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
     parser.add_argument("--ticket-ids", help="쉼표로 구분한 재실행 대상 ID(--execute에서만)")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--strip-phone-annotation",
+        action="store_true",
+        help="분석용. PHONE의 Urgency: <값> 상담원 표기를 지운 v1 초안 입력으로 돌린다(기본은 표기 포함 v2).",
+    )
     args = parser.parse_args(argv)
     if args.limit < 1 or (args.execute and args.out is None):
         print("CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요합니다.")
@@ -327,7 +348,13 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
         prices = load_price_table()
         if not args.execute:
             scoped = {k: v for k, v in cases.items() if subset is None or k in subset}
-            rows = dry_run(scoped, specs, settings, prices)
+            rows = dry_run(
+                scoped,
+                specs,
+                settings,
+                prices,
+                strip_phone_annotation=args.strip_phone_annotation,
+            )
             print(
                 "dry-run: 네트워크 호출 없음. 토큰은 문자/4 근사와 UTF-8 바이트 상한이며 실제 과금은 "
                 "실행 후 usage로 확인한다. 근거 없는 사례는 모든 문장이 CONDITION·UNCONFIRMED여야 한다."
@@ -349,6 +376,7 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             prices,
             factory or default_factory(settings),
             subset,
+            strip_phone_annotation=args.strip_phone_annotation,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")

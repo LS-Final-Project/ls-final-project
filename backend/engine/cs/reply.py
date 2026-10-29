@@ -27,7 +27,8 @@ from backend.engine.cs.classification import (
 from backend.engine.cs.drafting import DraftOutput, InfoRequest, _Strict, find_forbidden_commitment
 from backend.engine.cs.prompt_registry import get_prompt
 
-REPLY_INPUT_VERSION = "cs-reply-input-v1"
+# v2(KAN-105 4차): 분류 입력 v4처럼 PHONE 상담원 표기를 지우지 않는다.
+REPLY_INPUT_VERSION = "cs-reply-input-v2"
 RequestMatch = Literal["APPLIES", "DIFFERENT_REQUEST", "UNCLEAR"]
 # NOT_MENTIONED는 회신이 장비·판본을 말하지 않은 경우, UNCLEAR는 말했지만 모호한 경우다.
 Sameness = Literal["SAME", "DIFFERENT", "NOT_MENTIONED", "UNCLEAR"]

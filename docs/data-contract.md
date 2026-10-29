@@ -147,8 +147,9 @@ version이 없어 최신 checksum은 확인하지 못했다. 10/25 기록의 MD5
 | 사용 이력 | 실행자·시각·대상 파일 hash·접근 split/열·목적·출력 열람자·튜닝/선택 반영 여부 | 모르는 값은 미확인. 독립 최종 여부는 아래 평가 명세에 따름 |
 | 검수 잠금 | 정답 판본·필드별 검수 수준·불일치 조정·보류 사유·지표별 분모/제외 목록 | 미검수 gold를 정답으로 확정하거나 누락 gold를 null 정답으로 만들지 않음 |
 
-manifest와 파일 인수 이후에만 승인된 개발 자료에서 PHONE 주석 제거 판본·전후 hash·
-제거/보류 건수와 채널별 분모를 검증한다. 현재 `cs-classification-input-v2` 합성 회귀 통과는
+manifest와 파일 인수 이후에만 승인된 개발 자료에서 입력 판본·전후 hash·채널별 분모를 검증한다.
+PHONE 주석 제거·보류 건수는 분석용 표기 제거 옵션(`cs-classification-input-v3`)에서만 생기며, 기본
+입력(`cs-classification-input-v4`)은 표기를 포함한다. 합성 회귀 통과는
 제공 개발 자료의 처리가 완료됐다는 증거가 아니다. 상세 [사용 이력 판정](evaluation.md#cs-사용-이력과-검수-준비-kan-83)을 함께 적용한다.
 
 ### KAN-93에서 준비하고 KAN-95에서 판정할 검수표
@@ -242,7 +243,7 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 | 파일 | 내용과 사용 경계 |
 | --- | --- |
 | candidates.jsonl | 성공 사례의 case_id·privacy_review_status와 정제 payload 4필드. 모델 실행 승인 아님 |
-| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
+| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수(분석용 옵션에서만 0 초과)·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
 | review.boundaries.csv | 전건 개인정보와 선정된 경계별 미검수 질문·원문/후보 위치·판정 기록 칸. 본문/정답을 복사하지 않는 사람 검수 전용 |
 | summary.json | 입력/처리 판본·manifest/개발 파일 hash·출력 파일 hash·시간·전체/성공/보류·split/채널별 집계. 사례 ID 없음 |
 
@@ -259,7 +260,8 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 원문 단위 사람 검수·오탐률·민감정보 완전성·실제 품질과 KAN-93 전체 완료는 아직 미확정이다.
 
 
-검수 도구 v2의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류,
+검수 도구 v3의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류(분석용
+`--strip-phone-annotation`에서만),
 원천 SAFETY/SITE_DOWN·보조 의도·회신·금지 참조별로 한 행씩 준비한다. 반품 정답 양식은
 기존 `review.return_subtype.csv`를 사용하며 중복 생성하지 않는다. 그룹은 겹칠 수 있고 선정에
 원천 라벨을 사용하므로 독립적인 맹검 정답 판정용으로 사용하지 않는다. 그룹에 없는 사례도

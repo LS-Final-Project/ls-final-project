@@ -18,7 +18,9 @@ from backend.engine.cs.classification import ClassificationOutput, _unique_objec
 from backend.engine.cs.prompt_registry import get_prompt
 from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 
-DRAFT_INPUT_VERSION = "cs-draft-input-v1"
+# v2(KAN-105 4차): 분류 입력 v4처럼 PHONE 상담원 표기를 지우지 않는다. v1은 분석용 표기 제거 판본이다.
+DRAFT_INPUT_VERSION = "cs-draft-input-v2"
+DRAFT_INPUT_VERSION_STRIPPED = "cs-draft-input-v1"
 OptionLabel = Literal["CONCISE", "DETAILED", "INFO_FIRST"]
 SentenceKind = Literal["EVIDENCE", "CONDITION", "UNCONFIRMED"]
 
@@ -95,6 +97,7 @@ def build_draft_input(
     evidence: list[EvidenceSnippet],
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     blocked_codes: frozenset[str] = BLOCKED_CODES,
+    strip_phone_annotation: bool = False,
 ) -> PreparedDraftInput:
     """분류와 같은 규칙으로 문의를 정제하고 요청할 정보 코드를 계산한다.
 
@@ -106,13 +109,17 @@ def build_draft_input(
         evidence: 근거 스니펫. chunk_id는 서로 달라야 한다.
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
         blocked_codes: 근거에 있으면 초안 입력을 만들지 않는 인용 차단 코드(hybrid와 같은 기본값).
+        strip_phone_annotation: 분석용. True면 build_input이 PHONE 표기를 지우고 판본은
+            DRAFT_INPUT_VERSION_STRIPPED다.
 
     Returns:
         PreparedDraftInput: 정제 입력. 요청 코드는 정렬한 required − provided − already_asked다.
             잘못된 입력은 build_input과 같은 안전한 ValueError다. 근거 snippet·section_path에 차단 코드가
             있으면 조용히 빼지 않고 CS_BLOCKED_EVIDENCE로 거부한다(검색 경계를 우회했다는 신호).
     """
-    prepared = build_input(record, sensitive_values=sensitive_values)
+    prepared = build_input(
+        record, sensitive_values=sensitive_values, strip_phone_annotation=strip_phone_annotation
+    )
     if (
         not isinstance(required_info_codes, frozenset)
         or not isinstance(already_asked_codes, frozenset)
@@ -141,7 +148,8 @@ def build_draft_input(
         request_info_codes=request,
         evidence=list(evidence),
     )
-    return PreparedDraftInput(payload, DRAFT_INPUT_VERSION, prepared.removed_annotations)
+    version = DRAFT_INPUT_VERSION_STRIPPED if strip_phone_annotation else DRAFT_INPUT_VERSION
+    return PreparedDraftInput(payload, version, prepared.removed_annotations)
 
 
 class DraftSentence(_Strict):

@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from backend.engine.cs.classification import INPUT_VERSION
+from backend.engine.cs.classification import INPUT_VERSION, INPUT_VERSION_STRIPPED
 from backend.engine.cs.classification_call import (
     ClassificationCallError,
     run_classification_attempt,
@@ -32,13 +32,14 @@ RAW = json.dumps(
 )
 
 
-def attempt(provider, *, record=None, number=1):
+def attempt(provider, *, record=None, number=1, strip=False):
     """합성 설정으로 단일 시도를 실행한다.
 
     Args:
         provider: 주입할 fake 호출자.
         record: 대체할 합성 입력.
         number: 시도 번호.
+        strip: 분석용 PHONE 표기 제거 옵션.
 
     Returns:
         ClassificationAttempt: 외부 호출 없는 시도 결과.
@@ -49,6 +50,7 @@ def attempt(provider, *, record=None, number=1):
         allowed_info_codes=frozenset({"TEST_SERIAL"}),
         provider=provider,
         attempt_number=number,
+        strip_phone_annotation=strip,
     )
 
 
@@ -66,13 +68,16 @@ def test_only_prepared_input_reaches_provider_once():
     provider.assert_called_once()
     payload = provider.call_args.args[0].model_dump()
     assert set(payload) == {"channel", "body_language", "subject", "body"}
-    for secret in ("GOLD_SECRET", "FUTURE_SECRET", "ZX-PRIVATE", "person@example.test", "SAFETY"):
+    for secret in ("GOLD_SECRET", "FUTURE_SECRET", "ZX-PRIVATE", "person@example.test"):
         assert secret not in json.dumps(payload)
+    assert "SAFETY" in payload["body"]
     assert "[SERIAL_PROVIDED]" in payload["body"]
     assert "[PERSONAL_PROVIDED]" in payload["body"]
     assert result.outcome == "VALID" and result.prediction is not None
     assert result.prediction.return_subtype is None
-    assert result.input_version == INPUT_VERSION and result.removed_annotations == 1
+    assert result.input_version == INPUT_VERSION and result.removed_annotations == 0
+    stripped = attempt(Mock(return_value=provider.return_value), strip=True)
+    assert stripped.input_version == INPUT_VERSION_STRIPPED and stripped.removed_annotations == 1
     assert result.input_sha256 and len(result.input_sha256) == 64
     assert result.raw_response == RAW
     assert result.usage == Usage(10, 3, None, 0, 13)
@@ -100,9 +105,11 @@ def test_rejected_input_never_calls_provider(record, code):
         None: 미호출 상태와 제공되지 않은 메타데이터를 확인한다.
     """
     provider = Mock()
-    result = attempt(provider, record=record)
+    # 표기 관련 보류는 분석용 옵션에서만 생긴다.
+    result = attempt(provider, record=record, strip=True)
     provider.assert_not_called()
     assert result.outcome == "HELD" and result.error_code == code
+    assert result.input_version == INPUT_VERSION_STRIPPED
     assert not result.call_started and not result.execution_uncertain
     assert result.raw_response is result.input_sha256 is result.latency_ms is None
     assert result.removed_annotations is None

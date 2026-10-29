@@ -121,7 +121,7 @@ def check(text, serial_match="NOT_MENTIONED"):
 
 
 def test_masking_hides_contacts_serials_and_confirmed_unit():
-    """이메일·라벨 시리얼·확정 시리얼(대소문자 달라도)·민감값과 PHONE 주석이 입력에서 빠진다.
+    """이메일·라벨 시리얼·확정 시리얼(대소문자 달라도)·민감값이 빠지고 PHONE 표기는 남는다(KAN-105 4차).
 
     Args:
         없음.
@@ -134,7 +134,8 @@ def test_masking_hides_contacts_serials_and_confirmed_unit():
         "also zx-conf-0001 trips at 300 V."
     )
     prepared = prepare(body, sensitive={"김고객": "PERSONAL"}, channel="PHONE")
-    assert prepared.version == REPLY_INPUT_VERSION and prepared.removed_annotations == 1
+    assert prepared.version == REPLY_INPUT_VERSION == "cs-reply-input-v2"
+    assert prepared.removed_annotations == 0
     prompt = render_prompt(prepared.payload)
     for secret in (
         "person@example.test",
@@ -145,7 +146,8 @@ def test_masking_hides_contacts_serials_and_confirmed_unit():
         "2026",
     ):
         assert secret.casefold() not in prompt.casefold()
-    assert "SAFETY" not in prepared.payload.body and "trips at 300 V." in prepared.payload.body
+    assert prepared.payload.body.startswith("Urgency: SAFETY\n")
+    assert "trips at 300 V." in prepared.payload.body
     assert prepared.payload.reply_serial_match == "DIFFERS"
     assert "answered_codes" in prompt and "NOT_MENTIONED" in prompt
 
