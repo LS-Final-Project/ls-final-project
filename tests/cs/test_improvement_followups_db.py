@@ -290,3 +290,33 @@ def test_signal_inputs_are_checked(client, admin):
         "SELECT count(*) FROM cs.request_rounds WHERE request_id=%s", (rid,)
     ).fetchone()
     assert rows == (1,)
+
+
+def test_department_users_do_not_see_other_customers_and_old_requests_get_round_one(client, admin):
+    fault = new_fault()
+    sent = sent_request(client, admin, fault)
+    rid = sent["request"]["id"]
+    for _ in range(3):
+        add_case(admin, fault)
+    agent_view = ok(signals(client, rid))
+    assert all(r["customer_id"] for r in agent_view["records"])
+    staff_view = ok(signals(client, rid, QA_STAFF))
+    assert staff_view["decision"] == "REQUEST_AGAIN"
+    assert {r["customer_id"] for r in staff_view["records"]} == {None}
+    assert staff_view["update_notice_customers"] == []
+    # A request sent before KAN-117 has no round rows (simulated by the admin connection).
+    admin.execute("DELETE FROM cs.request_rounds WHERE request_id=%s", (rid,))
+    opened = ok(
+        act(
+            client,
+            rid,
+            "rounds",
+            version=sent["request"]["version"],
+            kind="REQUEST_AGAIN",
+            as_of=agent_view["as_of"],
+        )
+    )
+    first, second = opened["rounds"]
+    assert (first["kind"], first["round"], second["kind"]) == ("FIRST", 1, "REQUEST_AGAIN")
+    assert first["opened_at"] == sent["request"]["sent_at"]
+    assert first["opened_by"] == str(AGENT.user_id)

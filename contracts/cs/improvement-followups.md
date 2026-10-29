@@ -65,7 +65,7 @@
 
 ## 결과 형태 (화면용)
 
-`GET /api/v1/cs/improvement-requests/{id}/followup-signals?as_of=` (조회 범위는 요청 조회와 같음). 저장하지 않고 읽을 때 계산한다. 아래 값은 형태를 보이기 위한 예시다.
+`GET /api/v1/cs/improvement-requests/{id}/followup-signals?as_of=` (조회 범위는 요청 조회와 같음. 다만 문의 전체를 보지 않는 사용자(dept_staff, 다른 부서 manager)에게는 묶음 안 다른 고객의 식별자를 가린다: `records[].customer_id`는 null, `update_notice_customers`는 빈 목록). 저장하지 않고 읽을 때 계산한다. 아래 값은 형태를 보이기 위한 예시다.
 
 ```json
 {
@@ -110,7 +110,7 @@
 - **허용 상태**: 재요청은 조치 전 상태(`SENT`·`ACKNOWLEDGED`·`ADOPTED`·`INFO_REQUESTED`, 반려 종료)에서만, 재발은 전달된 뒤 어디서든(재발 후보가 있어야 함. 일부 부서만 조치한 `ADOPTED`도 포함). 아니면 409 `CS_REQUEST_INVALID_TRANSITION`. 검사 순서는 조회 범위 404 → 역할 403(`cs_agent`만) → 상태 409 → 판본 409 → 후보·입력. 판정이 그 종류가 아니면(후보 없음) 409 `CS_FOLLOWUP_NOT_CANDIDATE`(반려 종료의 새 근거 경로 제외).
 - **효과**: `current_round` + 1, 대상 부서는 `SENT`, 나머지 기존 부서는 이월(`carried_over`). 요청 상태는 2.2.1 요약으로 다시 계산한다. 근거 기록은 `as_of`가 아니라 **`opened_at`까지 알려진** 후보 기록 전부를 요청 근거(`request_evidence`)에 더한다. 그래서 `as_of`와 `opened_at` 사이에 들어온 기록도 이 회차 근거로 들어가고, 다음 집계에서 빠져 사라지지 않는다. 판본이 오르고 감사에 `transition`과 종류·후보 번호·`as_of`를 남긴다.
 - **완료 기록 보존**: `COMPLETED`·`FOLLOW_UP`에서 재발로 열면 그 회차의 `followup_plan`·`followup_result`·`completed_by`·`completed_at`을 새 회차 행의 `previous_completion`에 그대로 옮긴 뒤 요청 칸은 비운다. 이전 완료는 회차 기록과 판본 이력·감사에 남고, 요청은 다시 요약 상태(`SENT` 등)가 되어 새 회차를 다시 완료하면 새 완료 기록이 생긴다. 응답 `rounds`(오래된 순)로 보인다.
-- 회차 기록: 표 `cs.request_rounds`(요청, 회차, 종류 `FIRST`·`REQUEST_AGAIN`·`RECURRENCE`, 열린 시각 `opened_at`, 연 사람, 후보 번호, `as_of`, 새 근거 설명, 이전 회차의 완료 기록 사본). 첫 전달(KAN-116 `send`)도 `FIRST` 행을 남긴다. 이 표가 생기기 전에 전달된 요청은 `sent_at`을 1회차로 본다. 서비스 계정은 고치거나 지울 수 없다.
+- 회차 기록: 표 `cs.request_rounds`(요청, 회차, 종류 `FIRST`·`REQUEST_AGAIN`·`RECURRENCE`, 열린 시각 `opened_at`, 연 사람, 후보 번호, `as_of`, 새 근거 설명, 이전 회차의 완료 기록 사본). 첫 전달(KAN-116 `send`)도 `FIRST` 행을 남긴다. 이 표가 생기기 전에 전달된 요청은 판정에서 `sent_at`을 1회차로 보고, 새 회차를 열 때 `FIRST` 행(열린 시각 `sent_at`, 연 사람은 감사의 `send` 기록)을 함께 채운다. 서비스 계정은 고치거나 지울 수 없다.
 - 감사: `transition`, `changes.action=open_round`와 종류·회차·대상 부서·더한 근거·`as_of`.
 
 ## 정한 것과 남은 것

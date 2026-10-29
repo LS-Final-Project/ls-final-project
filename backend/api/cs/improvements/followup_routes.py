@@ -23,6 +23,7 @@ from backend.api.cs.improvements.routes import router as base_router
 from backend.api.cs.improvements.schemas import RequestDetail, RoundRequest
 from backend.api.cs.improvements.transition_routes import commit_transition, invalid_transition
 from backend.api.cs.improvements.transitions import rejection_closed, summarize
+from backend.api.cs.tickets.access import sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.engine.cs.improvement_followups import (
     Action,
@@ -118,6 +119,15 @@ async def get_signals(
                 422, "CS_INVALID_AS_OF", "as_of needs a time zone and cannot be in the future."
             )
         signal, _ = await signal_for(conn, row, moment)
+    if not sees_all_tickets(principal):
+        # Department users and other departments' managers may read the request, but the
+        # bundle holds other customers' records: their customer ids are not shown.
+        signal = signal.model_copy(
+            update={
+                "records": [r.model_copy(update={"customer_id": None}) for r in signal.records],
+                "update_notice_customers": [],
+            }
+        )
     return respond(request, signal)
 
 
@@ -150,6 +160,19 @@ async def open_round(
         if payload.as_of > now:
             raise ApplicationError(422, "CS_INVALID_AS_OF", "as_of cannot be in the future.")
         signal, departments = await signal_for(conn, row, now)
+        if not await repository.list_rounds(conn, request_id) and row["sent_at"] is not None:
+            # Sent before KAN-117 recorded rounds: keep the history complete with round 1 at
+            # the original send, by the person the audit trail shows sent it.
+            await repository.insert_round(
+                conn,
+                {
+                    "request_id": request_id,
+                    "round": 1,
+                    "kind": "FIRST",
+                    "opened_at": row["sent_at"],
+                    "opened_by": await repository.sent_by(conn, request_id) or principal.user_id,
+                },
+            )
         closed = rejection_closed(departments)
         if payload.kind == "REQUEST_AGAIN":
             if not (
