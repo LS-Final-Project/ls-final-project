@@ -50,6 +50,9 @@ MAX_KNOBS = 20
 MAX_KNOB_TEXT = 256
 # 대상 attributes에 원문·정답을 담지 못하게 막는 키 이름(대소문자 무시, 부분 일치).
 RAW_TEXT_KEY_PATTERN = "body|subject|gold|answer|label"
+# 위 패턴에 걸리지만 원문이 아닌 층화 메타데이터 키(정확히 같을 때만). 잠금 집계(cs_strata)가 읽는다.
+# 단어 경계로 좁히면 email_body 같은 원문 키도 통과하므로 키 이름을 하나씩 허용한다(KAN-90, #244 이연).
+RAW_TEXT_KEY_EXEMPT = frozenset({"body_language"})
 
 
 def canonical_hash(value: dict[str, Any]) -> str:
@@ -437,8 +440,8 @@ def _keys(value: object) -> Iterator[str]:
             yield from _keys(item)
 
 
-def _has_key(value: object, pattern: str) -> bool:
-    return any(re.search(pattern, key, re.IGNORECASE) for key in _keys(value))
+def _has_key(value: object, pattern: str, exempt: frozenset[str] = frozenset()) -> bool:
+    return any(key not in exempt and re.search(pattern, key, re.IGNORECASE) for key in _keys(value))
 
 
 async def _raise_if_registered(
@@ -492,7 +495,11 @@ def _check_registration(body: ExperimentCreate) -> None:
     if len(set(refs)) != len(refs):
         raise ApplicationError(422, "EVALUATION_TARGET_DUPLICATE", "Target refs must be unique.")
     if any(
-        _has_key(target.attributes, f"{SECRET_KNOB_PATTERN}|{RAW_TEXT_KEY_PATTERN}")
+        _has_key(
+            target.attributes,
+            f"{SECRET_KNOB_PATTERN}|{RAW_TEXT_KEY_PATTERN}",
+            RAW_TEXT_KEY_EXEMPT,
+        )
         for target in body.targets
     ):
         raise ApplicationError(

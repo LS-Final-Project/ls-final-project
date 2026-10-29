@@ -251,9 +251,12 @@ def build_plan(
                 "target_ref": ticket_id,
                 "target_kind": "cs_ticket",
                 "data_origin": origin,
-                # 등록 규칙(RAW_TEXT_KEY_PATTERN의 body)이 body_language 키를 거부하므로 channel만 넣는다.
-                # 잠금 집계 그룹표에서 body_language는 UNKNOWN이 된다.
-                "attributes": {"channel": records[ticket_id]["channel"]},
+                # 잠금 집계 그룹표(cs_strata)가 읽는 층화 키. body_language는 등록 규칙의 허용 키다(KAN-90).
+                "attributes": {
+                    key: records[ticket_id][key]
+                    for key in ("channel", "body_language")
+                    if records[ticket_id].get(key) is not None
+                },
             }
             for ticket_id in ids
         ],
