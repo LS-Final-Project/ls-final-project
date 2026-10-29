@@ -9,7 +9,6 @@ from psycopg.conninfo import make_conninfo
 from backend.agent.cs_search import fts_searcher_from_dsn
 from backend.engine.search.chunking import INDEX_VERSION
 from backend.engine.search.model import SearchFilters
-from scripts.cs_index_docs import index_documents
 
 NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
 
@@ -42,6 +41,9 @@ def test_index_documents_round_trip(cs_database, tmp_path):
     Returns:
         None: 적재 수·검색·재적재를 확인한다.
     """
+    # 백엔드 검사 이미지에는 scripts/가 check_backend.py만 있어, DB가 있을 때(cs_database 통과 뒤)만 가져온다.
+    from scripts.cs_index_docs import index_documents
+
     dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
     (tmp_path / "manual.docx").write_bytes(
         docx("Breaker trip curve settings for KAN99 index test.")
