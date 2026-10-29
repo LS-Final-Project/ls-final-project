@@ -280,18 +280,41 @@ def test_completion_claim_does_not_make_the_request_complete():
     }
 
 
-def test_forbidden_commitments_in_questions_are_rejected():
-    """질문에 승인·확정 약속이 있으면 거부한다.
+@pytest.mark.parametrize(
+    "text",
+    [
+        raw(questions=[("RMA", "Your RMA is approved, can we ship?")]),
+        raw(questions=[("Return is approved", "Which lot?")]),
+        raw(questions=[("lot", "Which lot?")], evidence=[("TICKET", "Your RMA is approved")]),
+    ],
+)
+def test_forbidden_commitments_in_model_guidance_are_rejected(text):
+    """질문·주제·근거 후보 설명에 승인·확정 약속이 있으면 거부한다.
+
+    Args:
+        text: 원시 응답.
+
+    Returns:
+        None: CS_FORBIDDEN_COMMITMENT를 확인한다.
+    """
+    with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
+        validate_output(text, context=ctx(reply_type="INFO_REQUESTED"))
+
+
+def test_department_quotes_in_claims_and_conflicts_are_kept():
+    """부서 회신을 인용한 claims·conflicts의 승인 문구는 기록으로 남긴다.
 
     Args:
         없음.
 
     Returns:
-        None: CS_FORBIDDEN_COMMITMENT를 확인한다.
+        None: 검사 통과를 확인한다.
     """
-    text = raw(questions=[("RMA", "Your RMA is approved, can we ship?")])
-    with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
-        validate_output(text, context=ctx(reply_type="INFO_REQUESTED"))
+    text = raw(
+        [claim("OTHER", "Dept says the RMA is approved.")],
+        conflicts=["Dept says warranty claim is approved; request did not claim it."],
+    )
+    assert validate_output(text, context=CONTEXT).claims[0].text == "Dept says the RMA is approved."
 
 
 @pytest.mark.parametrize(

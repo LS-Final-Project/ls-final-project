@@ -271,7 +271,7 @@ def render_prompt(payload: ImprovementReplyInput) -> str:
 
 
 def validate_output(raw: str, *, context: ImprovementContext) -> ImprovementReplyInterpretation:
-    """원시 JSON을 폴백 없이 검사하고 질문의 금지 약속을 거부한다.
+    """원시 JSON을 폴백 없이 검사하고 모델이 쓴 안내 문구의 금지 약속을 거부한다.
 
     Args:
         raw: 모델 원시 응답.
@@ -279,7 +279,7 @@ def validate_output(raw: str, *, context: ImprovementContext) -> ImprovementRepl
 
     Returns:
         ImprovementReplyInterpretation: 유효한 해석. 형식·확인 필요·맥락 위반은 CS_INVALID_OUTPUT,
-            형식은 맞지만 질문에 승인·확정 약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
+            형식은 맞지만 질문·주제·근거 후보 설명에 승인·확정 약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
     """
     try:
         output = ImprovementReplyInterpretation.model_validate(
@@ -289,7 +289,12 @@ def validate_output(raw: str, *, context: ImprovementContext) -> ImprovementRepl
             raise ValueError("CS_CONTEXT_MISMATCH")
     except (ValueError, RecursionError):
         raise ValueError("CS_INVALID_OUTPUT") from None
-    if any(find_forbidden_commitment(q.question) for q in output.remaining_questions):
+    # 모델이 쓴 안내 문구만 검사한다. claims·conflicts는 부서 회신을 인용한 기록이라 제외한다.
+    texts = [
+        *(text for q in output.remaining_questions for text in (q.topic, q.question)),
+        *(request.description for request in output.evidence_requests),
+    ]
+    if any(find_forbidden_commitment(text) for text in texts):
         raise ValueError("CS_FORBIDDEN_COMMITMENT")
     return output
 
