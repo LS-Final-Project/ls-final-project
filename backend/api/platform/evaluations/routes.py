@@ -12,6 +12,7 @@ from backend.api.platform.evaluations.admission import (
     get_run,
     list_experiments,
     list_runs,
+    register_experiment,
 )
 from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.schemas import (
@@ -21,6 +22,8 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationRunRequest,
     EvaluationRuns,
     EvaluationRunStatus,
+    ExperimentCreate,
+    ExperimentRegistered,
     Stage,
 )
 from backend.api.platform.evaluations.summary import EvaluationRunSummary, get_run_summary
@@ -92,6 +95,42 @@ async def evaluation_experiments(
         data=EvaluationExperiments(items=items),
         meta=ResponseMeta(request_id=request.state.request_id),
     )
+
+
+@router.post(
+    "/experiments",
+    status_code=201,
+    response_model=SuccessResponse[ExperimentRegistered],
+    operation_id="platform_register_evaluation_experiment",
+    dependencies=[Depends(require_evaluation_write)],
+    responses={code: {"model": ErrorResponse} for code in (409, 422, 503)},
+    description=(
+        "실험 정의와 대상 집합을 동결 등록한다. 등록한 실험은 바꾸지 않으며 승인은 운영자 설정이다. "
+        "최종 시험(test) 분할은 등록할 수 없다."
+    ),
+)
+async def register_evaluation_experiment(
+    request: Request,
+    body: ExperimentCreate,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+) -> SuccessResponse[ExperimentRegistered]:
+    """서버가 hash를 계산해 실험과 대상을 한 트랜잭션으로 등록한다.
+
+    Args:
+        request: 서버 설정·평가 허용 설정·요청 ID를 가진 요청.
+        body: 등록 요청.
+        principal: 현재 지정 평가자 세션.
+
+    Returns:
+        SuccessResponse[ExperimentRegistered]: 실험 ID·hash·대상 수·접수 가능 여부.
+    """
+    registered = await register_experiment(
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        body,
+    )
+    return SuccessResponse(data=registered, meta=ResponseMeta(request_id=request.state.request_id))
 
 
 @router.get(

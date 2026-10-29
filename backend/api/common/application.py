@@ -85,7 +85,13 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
     async def handle_application_error(
         request: Request, exception: ApplicationError
     ) -> JSONResponse:
-        return error_response(request, exception.status_code, exception.code, exception.message)
+        return error_response(
+            request,
+            exception.status_code,
+            exception.code,
+            exception.message,
+            details=exception.details,
+        )
 
     @app.middleware("http")
     async def request_context(
