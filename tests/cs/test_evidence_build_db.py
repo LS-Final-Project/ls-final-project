@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import psycopg
+import pytest
 from psycopg.conninfo import make_conninfo
 
 from backend.agent.cs_search import fts_searcher_from_dsn
@@ -12,7 +13,10 @@ from backend.api.cs.search.repository import store_chunks
 from backend.engine.documents.model import Block, Position, build_document
 from backend.engine.search.chunking import INDEX_VERSION, chunk_document
 from backend.engine.search.model import ChunkMetadata
-from scripts.cs_evidence_build import build_evidence
+
+# 백엔드 검사 이미지는 scripts/check_backend.py만 복사하므로 거기서는 건너뛰고, 전체 checkout인 auth-database
+# 작업에서 실행한다.
+build_evidence = pytest.importorskip("scripts.cs_evidence_build").build_evidence
 
 KNOWN = datetime(2026, 10, 29, 9, 30, tzinfo=UTC)
 TEXTS = (
