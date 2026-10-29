@@ -8,12 +8,12 @@ CS_INVALID_OUTPUT만, 금지 약속은 error_code로 따로 센다. 합격 판�
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Literal, cast, get_args
+from typing import Any, Literal, get_args
 
 from backend.engine.cs.drafting import OptionLabel
 from backend.engine.cs.drafting_call import DraftAttempt
 from eval.cs_metrics import OUTCOMES
-from eval.cs_usage import TOKEN_FIELDS, _percentile, _sum_report
+from eval.cs_usage import TOKEN_FIELDS, percentile, sum_report
 
 OPTION_LABELS: tuple[str, ...] = get_args(OptionLabel)
 FORBIDDEN = "CS_FORBIDDEN_COMMITMENT"
@@ -71,6 +71,8 @@ def _check(gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt]) 
             or attempt.outcome not in OUTCOMES
             or (attempt.outcome == "VALID") != (attempt.prediction is not None)
             or (attempt.error_code == FORBIDDEN and attempt.outcome != "SCHEMA_VIOLATION")
+            or (attempt.error_code == INVALID_OUTPUT and attempt.outcome != "SCHEMA_VIOLATION")
+            or (attempt.outcome == "SCHEMA_VIOLATION" and attempt.raw_response is None)
         ):
             raise ValueError("EVAL_INVALID_INPUT")
 
@@ -190,12 +192,11 @@ def summarize_draft_first_attempts(
         },
         "unsupported_assertion": unsupported,
         "usage": {
-            "tokens": {field: _sum_report(usage, field) for field in TOKEN_FIELDS},
+            "tokens": {field: sum_report(usage, field) for field in TOKEN_FIELDS},
             "latency_ms": {
                 "reported_count": len(latency),
-                # _percentile은 정수 지연용으로 선언됐지만 계산은 실수에도 같다.
-                "p50": _percentile(cast(list[int], latency), 0.5),
-                "p95": _percentile(cast(list[int], latency), 0.95),
+                "p50": percentile(latency, 0.5),
+                "p95": percentile(latency, 0.95),
             },
         },
         "per_case": per_case,

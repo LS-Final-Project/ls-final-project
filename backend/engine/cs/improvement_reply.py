@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
@@ -208,6 +209,35 @@ def _same_version(a: str, b: str) -> bool:
     return a.strip().casefold() == b.strip().casefold()
 
 
+def _version_key(version: str) -> str:
+    """판본 비교 키. 앞뒤 공백·끝 마침표를 떼고 casefold하며 숫자 앞 'v'는 뗀다('v2.2.0' = '2.2.0').
+
+    Args:
+        version: 판본 문자열.
+
+    Returns:
+        str: 비교 키.
+    """
+    return re.sub(r"^v(?=\d)", "", version.strip().casefold().rstrip("."))
+
+
+def _mentions_version(text: str, version: str) -> bool:
+    """conflicts 문장에 판본이 경계 있게 적혔는지 본다.
+
+    Args:
+        text: conflicts_with_request 항목.
+        version: 주장한 판본.
+
+    Returns:
+        bool: casefold한 문장에서 선택적 'v' 접두와 판본이 앞에 영숫자·점이 없고 뒤에 영숫자나 '점+영숫자'가
+            없게 나오면 True다. 한국어 조사('2.1.0에서', 'v2.1이')와 문장 끝 마침표는 맞고, 'v1' 대 'v10'·'1.0'은
+            다음 글자가 숫자·점+숫자라 맞지 않는다.
+    """
+    key = _version_key(version)
+    pattern = rf"(?<![a-z0-9.])v?{re.escape(key)}(?![a-z0-9]|\.[a-z0-9])"
+    return bool(key) and re.search(pattern, text.casefold()) is not None
+
+
 def _violates(context: ImprovementContext, output: ImprovementReplyInterpretation) -> bool:
     """요청서 맥락과 어긋나는 해석인지 본다.
 
@@ -220,7 +250,8 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
             요청서와 다른 판본 주장을 conflicts에 적지 않은 경우 True.
     """
     kinds = {claim.kind for claim in output.claims}
-    conflicts = [conflict.casefold() for conflict in output.conflicts_with_request]
+    # 판본은 경계 있게 찾는다('v1'이 'v10'에 맞지 않고 한국어 조사가 붙어도 맞게).
+    conflicts = output.conflicts_with_request
     fixed = context.fw_fixed_version
     return (
         (context.reply_type == "REJECTED" and bool(kinds & NEEDS_EVIDENCE))
@@ -230,7 +261,7 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
             fixed is not None
             and claim.fw_version is not None
             and not _same_version(claim.fw_version, fixed)
-            and not any(claim.fw_version.strip().casefold() in c for c in conflicts)
+            and not any(_mentions_version(c, claim.fw_version) for c in conflicts)
             for claim in output.claims
         )
     )
