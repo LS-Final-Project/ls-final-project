@@ -65,6 +65,23 @@ def test_not_evaluable_blocker_gate_blocks_release():
     assert evaluate_gates(metrics, [Gate("hit_at_5", ">=", 0.7, blocker=False)])["blocker"] is False
 
 
+def test_non_finite_gate_value_is_not_evaluable():
+    """NaN·inf 값은 미달이 아니라 측정 불가이며 blocker 게이트면 출시를 막는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: NOT_EVALUABLE과 blocker를 확인한다.
+    """
+    for value in (float("nan"), float("inf")):
+        result = evaluate_gates(
+            [MetricValue("category_macro_f1", "all", value, 10)],
+            [Gate("category_macro_f1", ">=", 0.8)],
+        )
+        assert result["gates"][0]["status"] == "NOT_EVALUABLE" and result["blocker"] is True
+
+
 @pytest.mark.parametrize(
     "metrics,gates",
     [
@@ -167,6 +184,46 @@ def test_regressions_respect_direction_and_tolerance():
         )
 
 
+def test_non_finite_regression_values_are_not_ok():
+    """이번 값이 NaN·inf면 NOT_EVALUABLE, 기준 값이 비유한이면 NO_BASELINE이며 OK로 통과하지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 상태를 확인한다.
+    """
+    tolerance = [Tolerance("urgency_macro_f1", "higher_better", 0.02, "QUALITY")]
+    base = [MetricValue("urgency_macro_f1", "all", 0.75, 100)]
+    for value in (float("nan"), float("inf"), float("-inf")):
+        current = [MetricValue("urgency_macro_f1", "all", value, 100)]
+        [item] = detect_regressions(current, base, tolerances=tolerance)["items"]
+        assert item["status"] == "NOT_EVALUABLE"
+    current = [MetricValue("urgency_macro_f1", "all", 0.75, 100)]
+    nan_base = [MetricValue("urgency_macro_f1", "all", float("nan"), 100)]
+    [item] = detect_regressions(current, nan_base, tolerances=tolerance)["items"]
+    assert item["status"] == "NO_BASELINE"
+
+
+def test_regression_blocks_release_even_when_gates_pass():
+    """게이트가 모두 PASS여도 퇴행 결함이 있으면 출시를 막는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 반환 blocker와 항목 blocker를 확인한다.
+    """
+    gates = evaluate_gates(
+        [MetricValue("category_macro_f1", "all", 0.9, 10)], [Gate("category_macro_f1", ">=", 0.8)]
+    )
+    assert gates["blocker"] is False
+    regressions = detect_regressions(CURRENT, BASELINE, tolerances=TOLERANCES[:1])
+    result = classify_defects(gates, regressions, {"VALID": 10}, max_failure_rate=0.1)
+    assert [d["type"] for d in result["defects"]] == ["QUALITY_REGRESSION"]
+    assert result["defects"][0]["blocker"] is True and result["blocker"] is True
+
+
 def test_defects_are_classified_by_source():
     """게이트·퇴행·호출 실패를 결함 유형으로 나누고 근거를 남긴다.
 
@@ -202,6 +259,6 @@ def test_defects_are_classified_by_source():
     assert result["blocker"] is True
     unmeasured = classify_defects(evaluate_gates([], []), {"items": []}, {}, max_failure_rate=0.1)
     assert [d["type"] for d in unmeasured["defects"]] == ["UNMEASURED"]
-    assert unmeasured["blocker"] is False
+    assert unmeasured["blocker"] is True  # 시도 0건 측정 불가도 출시를 막는다
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         classify_defects(gates, regressions, outcomes, max_failure_rate=1.5)

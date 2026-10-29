@@ -1,8 +1,9 @@
 """출시 게이트 판정·퇴행·결함 분류(KAN-156). 파일·DB·모델에 접근하지 않는다.
 
 합격선·허용 폭·실패율 상한은 이 모듈이 정하지 않는다(KAN-82에서 잠근다). 기본값 없이 입력으로만 받고,
-값이 없으면 NOT_EVALUABLE이다. contracts/platform/evaluations.md의 "임의로 합격 처리하지 않는다"에 따라
-blocker 게이트는 미달뿐 아니라 측정 불가도 출시를 막는다. 저장 시각(recorded_at)은 호출자가 붙인다.
+값이 없거나 유한하지 않으면(NaN·inf) NOT_EVALUABLE이다. contracts/platform/evaluations.md의 "임의로 합격
+처리하지 않는다"에 따라 blocker 게이트는 미달뿐 아니라 측정 불가도 출시를 막고, 퇴행·실패율·측정 불가 결함도
+출시를 막는다. 저장 시각(recorded_at)은 호출자가 붙인다.
 """
 
 import math
@@ -75,6 +76,19 @@ def _index(metrics: Iterable[MetricValue]) -> dict[tuple[str, str], MetricValue]
     return index
 
 
+def _measured(metric: MetricValue | None) -> float | None:
+    """지표의 유한한 값. 없거나 None·NaN·inf면 None(측정 불가)이다.
+
+    Args:
+        metric: 지표 값 또는 None.
+
+    Returns:
+        float | None: 유한한 값.
+    """
+    value = None if metric is None else metric.value
+    return value if value is not None and math.isfinite(value) else None
+
+
 def _passes(value: float, comparison: Comparison, threshold: float) -> bool:
     """합격선 비교. '=='는 float 오차를 피하려고 math.isclose(abs_tol=1e-9)로 본다.
 
@@ -102,7 +116,7 @@ def evaluate_gates(metrics: list[MetricValue], gates: list[Gate]) -> dict:
 
     Returns:
         dict: gates(게이트별 판정·값·합격선·support·held·errors), 판정별 건수, blocker(blocker 게이트 중
-            FAIL 또는 NOT_EVALUABLE이 하나라도 있으면 True). 값이 None이거나 지표가 없으면 NOT_EVALUABLE이며
+            FAIL 또는 NOT_EVALUABLE이 하나라도 있으면 True). 값이 None·비유한이거나 지표가 없으면 NOT_EVALUABLE이며
             합격 처리하지 않는다. 잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     index = _index(metrics)
@@ -118,7 +132,7 @@ def evaluate_gates(metrics: list[MetricValue], gates: list[Gate]) -> dict:
             raise ValueError("EVAL_INVALID_INPUT")
         seen.add((gate.metric_key, gate.segment))
         metric = index.get((gate.metric_key, gate.segment))
-        value = None if metric is None else metric.value
+        value = _measured(metric)
         status = (
             "NOT_EVALUABLE"
             if value is None
@@ -197,7 +211,7 @@ def detect_regressions(
 
     Returns:
         dict: items(key·segment별 status·값·delta·나빠진 폭), 상태별 건수. 나빠진 폭이 max_drop을 넘으면
-            REGRESSION, 아니면 OK다. 이번 값이 없거나 None이면 NOT_EVALUABLE, 기준 값이 없거나 None이면
+            REGRESSION, 아니면 OK다. 이번 값이 없거나 None·비유한이면 NOT_EVALUABLE, 기준 값이 없거나 None·비유한이면
             NO_BASELINE이다. 잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     now, before = _index(current), _index(baseline)
@@ -216,8 +230,8 @@ def detect_regressions(
         key = tolerance.metric_key
         segments = sorted({s for k, s in (*now, *before) if k == key}) or ["all"]
         for segment in segments:
-            value = getattr(now.get((key, segment)), "value", None)
-            base = getattr(before.get((key, segment)), "value", None)
+            value = _measured(now.get((key, segment)))
+            base = _measured(before.get((key, segment)))
             delta = worse = None
             if value is None:
                 status = "NOT_EVALUABLE"
@@ -264,10 +278,12 @@ def classify_defects(
         max_failure_rate: (TRANSPORT_FAILURE + TIMEOUT) / 전체의 상한. KAN-82에서 잠근 값을 넘긴다.
 
     Returns:
-        dict: defects(type·metric_key·segment·value·blocker·basis), 유형별 건수, blocker(게이트 결과 그대로).
+        dict: defects(type·metric_key·segment·value·blocker·basis), 유형별 건수, blocker(게이트 blocker이거나
+            항목 blocker가 하나라도 True면 True).
             유형은 QUALITY_MISS(게이트 FAIL), SCHEMA(schema_violation_rate 게이트 FAIL, QUALITY_MISS와 중복
             없음), UNMEASURED(게이트 NOT_EVALUABLE·퇴행 NOT_EVALUABLE·시도 0건), QUALITY/COST/LATENCY_REGRESSION
-            (Tolerance.kind), FAILURE_RATE(상한 초과)다. 게이트에서 오지 않은 항목의 blocker는 None이다.
+            (Tolerance.kind), FAILURE_RATE(상한 초과)다. 게이트 항목의 blocker는 그 게이트 설정을 따르고,
+            게이트 밖 결함(퇴행·실패율·측정 불가)은 항상 True다(퇴행·실패율·측정 불가도 출시를 막는다).
             잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     if (
@@ -311,7 +327,7 @@ def classify_defects(
                     "metric_key": item["metric_key"],
                     "segment": item["segment"],
                     "value": item["value"],
-                    "blocker": None,
+                    "blocker": True,
                     "basis": {
                         "baseline": item["baseline"],
                         "delta": item["delta"],
@@ -320,7 +336,7 @@ def classify_defects(
                     },
                 }
             )
-        blocker = bool(gate_result["blocker"])
+        gate_blocker = bool(gate_result["blocker"])
     except (KeyError, TypeError):
         raise ValueError("EVAL_INVALID_INPUT") from None
     total = sum(outcomes.values())
@@ -333,12 +349,12 @@ def classify_defects(
                 "metric_key": FAILURE_KEY,
                 "segment": "all",
                 "value": rate,
-                "blocker": None,
+                "blocker": True,
                 "basis": {"failed": failed, "total": total, "max_failure_rate": max_failure_rate},
             }
         )
     return {
         "defects": defects,
         "counts": dict(sorted(Counter(d["type"] for d in defects).items())),
-        "blocker": blocker,
+        "blocker": gate_blocker or any(d["blocker"] for d in defects),
     }
