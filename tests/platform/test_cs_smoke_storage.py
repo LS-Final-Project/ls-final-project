@@ -2951,6 +2951,45 @@ def test_summary_groups_stage_metrics_by_latest_version(
 
 
 @pytest.mark.parametrize(
+    "field",
+    [
+        {"key": "search_hit at 5: SECRET_TEXT"},
+        {"segment": "doc=" + "x" * 130},
+        {"class_label": "INFO FIRST"},
+    ],
+    ids=["key-with-spaces", "long-segment", "label-with-space"],
+)
+def test_summary_rejects_non_identifier_stage_fields(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, field
+):
+    """식별자 형식이 아닌 단계 행 필드는 부분 표시 없이 503이며 값을 내보내지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        field: 어긋나게 할 필드.
+
+    Returns:
+        None: 503과 원문 비노출을 확인한다.
+    """
+    from datetime import UTC, datetime
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    key = field.pop("key", "search_hit_at_5")
+    store_stage_row(
+        evaluation_database, cs_run, "search-v1", key, 0.5, at=datetime.now(UTC), **field
+    )
+    response = client.get(url)
+    assert response.status_code == 503
+    assert "SECRET_TEXT" not in response.text and "INFO FIRST" not in response.text
+
+
+@pytest.mark.parametrize(
     "tamper", ["missing_row", "judged", "details", "outcomes_array", "class_duplicate_key"]
 )
 def test_summary_invalid_synthetic_quality_rows_are_safe_failure(

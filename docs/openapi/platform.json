@@ -1942,6 +1942,7 @@
           "class_label": {
             "anyOf": [
               {
+                "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
                 "type": "string"
               },
               {
@@ -1982,6 +1983,7 @@
             "type": "object"
           },
           "metric_key": {
+            "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
             "title": "Metric Key",
             "type": "string"
           },
@@ -2003,6 +2005,7 @@
             "type": "boolean"
           },
           "segment": {
+            "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
             "title": "Segment",
             "type": "string"
           },

@@ -260,15 +260,17 @@ STAGE_PREFIXES: dict[str, Literal["search", "draft", "rfp"]] = {
 }
 # details에서 공개하는 키. 정수 건수만 내고 그 밖의 키·값은 버린다(원문성 값 차단).
 STAGE_DETAIL_KEYS = ("tp", "fp", "fn")
+# 단계 행의 metric_key·segment·class_label은 식별자만 낸다. 어긋나면(원문성 값) 부분 표시 없이 503이다.
+StageIdentifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.=:/-]{1,128}$")]
 
 
 class StageMetric(BaseModel):
     """단계 채점 행 하나의 저장 값. 합격 판정은 화면이 내리지 않는다."""
 
     model_config = ConfigDict(extra="forbid")
-    metric_key: str
-    segment: str
-    class_label: str | None
+    metric_key: StageIdentifier
+    segment: StageIdentifier
+    class_label: StageIdentifier | None
     value: float | None
     support: Count | None
     threshold: float | None
