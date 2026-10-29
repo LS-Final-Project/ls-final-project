@@ -16,6 +16,7 @@ from backend.shared.ai import Generation, ModelPrice, estimate_cost
 from eval.cs_metrics import (
     OUTCOMES,
     summarize_category_first_attempts,
+    summarize_final_attempts,
     summarize_urgency_first_attempts,
 )
 from eval.cs_strata import CHANNELS, summarize_first_attempts_by_group
@@ -44,8 +45,12 @@ def run_candidates(
     price_table: dict[str, ModelPrice] | None = None,
     return_attempts: bool = False,
     strip_phone_annotation: bool = False,
+    invalid_output_retries: int = 1,
 ) -> dict:
     """후보마다 모든 대상의 최초 시도를 실행하고 기존 지표로 비교표를 만든다.
+
+    형식 위반(CS_INVALID_OUTPUT)인 대상은 invalid_output_retries만큼(0 또는 1) 같은 입력으로 attempt 2를 더
+    호출한다. 두 시도는 모두 남고, 행의 기존 키는 최초 시도 지표이며 final 블록이 최종 시도 지표다.
 
     Args:
         records: 대상 ID별 정규화 문의. 정답 칸이 있어도 build_input이 고르지 않는다.
@@ -54,12 +59,14 @@ def run_candidates(
         sensitive_values: 어댑터가 식별한 민감값과 마스킹 종류(모든 대상 공통).
         allowed_info_codes: 검수된 정보 코드 집합.
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
-        return_attempts: True면 "attempts"(후보 이름 → {대상 ID: ClassificationAttempt})를 더한다. 시도에는
-            raw_response가 들어 있으므로 호출자는 이 키를 꺼낸 뒤 결과를 저장한다.
+        return_attempts: True면 "attempts"(후보 이름 → {대상 ID: 최초 ClassificationAttempt})와 "retries"(후보
+            이름 → {대상 ID: attempt 2})를 더한다. 시도에는 raw_response가 들어 있으므로 호출자는 이 키를 꺼낸
+            뒤 결과를 저장한다.
         strip_phone_annotation: 분석용. True면 PHONE 상담원 표기를 지운 v3 입력으로 돌린다(기본 False).
+        invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1, 기본 1).
 
     Returns:
-        dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. ranking은 긴급도
+        dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. 순위는 최초 시도 지표로 정한다. ranking은 긴급도
             CRITICAL 누락 오름차순 → 긴급도 macro-F1 내림차순 → 주분류 macro-F1 내림차순(동률은 이름순)이다.
             입력 검사 실패는 CS_INVALID_CANDIDATES, 후보 간 입력 hash가 다르면
             CS_CANDIDATE_INPUT_MISMATCH ValueError다.
@@ -72,6 +79,8 @@ def run_candidates(
         or len(set(names)) != len(names)
         or set(gold) != {"category", "urgency"}
         or not set(gold["category"]) == set(gold["urgency"]) == set(records)
+        or type(invalid_output_retries) is not int
+        or invalid_output_retries not in (0, 1)
     ):
         raise ValueError("CS_INVALID_CANDIDATES")
     # 채널만 층화에 넘긴다. 형식이 틀린 채널은 HELD로 남고 층화에서는 UNKNOWN이다.
@@ -94,15 +103,39 @@ def run_candidates(
         }
         for candidate in candidates
     }
+    retries = {
+        candidate.name: {
+            target: run_classification_attempt(
+                records[target],
+                sensitive_values=sensitive_values,
+                allowed_info_codes=allowed_info_codes,
+                provider=candidate.provider,
+                attempt_number=2,
+                strip_phone_annotation=strip_phone_annotation,
+            )
+            for target, attempt in runs[candidate.name].items()
+            if invalid_output_retries and attempt.error_code == "CS_INVALID_OUTPUT"
+        }
+        for candidate in candidates
+    }
     first = runs[names[0]]
     if any(
         attempts[target].input_sha256 != first[target].input_sha256
         for attempts in runs.values()
         for target in records
+    ) or any(
+        attempt.input_sha256 != first[target].input_sha256
+        for attempts in retries.values()
+        for target, attempt in attempts.items()
     ):
         raise ValueError("CS_CANDIDATE_INPUT_MISMATCH")
     rows = [
         _row(candidate, runs[candidate.name], gold, metadata, price_table or {})
+        | {
+            "final": _final(
+                candidate, runs[candidate.name], retries[candidate.name], gold, price_table or {}
+            )
+        }
         for candidate in candidates
     ]
     ranking = sorted(
@@ -118,7 +151,80 @@ def run_candidates(
         "targets": len(records),
         "candidates": rows,
         "ranking": [row["name"] for row in ranking],
-        **({"attempts": runs} if return_attempts else {}),
+        **({"attempts": runs, "retries": retries} if return_attempts else {}),
+    }
+
+
+def _final(
+    candidate: Candidate,
+    firsts: Mapping[str, ClassificationAttempt],
+    retries: Mapping[str, ClassificationAttempt],
+    gold: Mapping[str, Mapping[str, str]],
+    price_table: dict[str, ModelPrice],
+) -> dict:
+    """최종 시도(재시도가 있으면 attempt 2, 없으면 최초) 지표와 모든 호출의 사용량·비용.
+
+    Args:
+        candidate: 후보.
+        firsts: 대상별 최초 시도.
+        retries: 형식 위반으로 다시 부른 대상별 attempt 2.
+        gold: 주분류·긴급도 정답.
+        price_table: 단가표.
+
+    Returns:
+        dict: retried(재호출 수)·recovered(재호출이 VALID인 수)·category·urgency·outcomes(최종 시도 기준)·
+            calls(호출 시작 수)·usage·cost_usd(두 시도 모든 호출 합).
+    """
+    finals = {target: retries.get(target, attempt) for target, attempt in firsts.items()}
+    category = summarize_final_attempts(gold["category"], finals, metric="category")
+    urgency = summarize_final_attempts(gold["urgency"], finals, metric="urgency")
+    called = [a for a in (*firsts.values(), *retries.values()) if a.call_started]
+    outcomes: Counter[str] = Counter(attempt.outcome for attempt in finals.values())
+    usage = [asdict(attempt.usage) for attempt in called]
+    return {
+        "retried": len(retries),
+        "recovered": sum(attempt.outcome == "VALID" for attempt in retries.values()),
+        "category": {"accuracy": category["accuracy"], "macro_f1": category["macro_f1"]},
+        "urgency": {
+            "macro_f1": urgency["macro_f1"],
+            "non_none_recall": urgency["non_none"]["recall"],
+            "critical": urgency["critical"],
+        },
+        "outcomes": {outcome: outcomes[outcome] for outcome in sorted(OUTCOMES)},
+        "calls": len(called),
+        "usage": {field: sum_report(usage, field) for field in TOKEN_FIELDS},
+        "cost_usd": _cost(called, candidate.model, price_table),
+    }
+
+
+def _cost(
+    called: list[ClassificationAttempt], model: str, price_table: dict[str, ModelPrice]
+) -> dict:
+    """호출한 시도들의 비용 합계(십진 문자열).
+
+    Args:
+        called: 호출을 시작한 시도.
+        model: 단가표 모델 ID.
+        price_table: 단가표.
+
+    Returns:
+        dict: sum_report 형식. 저장 경로(smoke_worker.attempt_cost)와 같이 입력·답변 금액이 모두 있고 USD일
+            때만 확정 비용으로 센다.
+    """
+    estimates = [estimate_cost(a.usage, model, price_table) for a in called]
+    costs = [
+        {
+            "cost": c.total
+            if c.input is not None and c.output is not None and c.currency == "USD"
+            else None
+        }
+        for c in estimates
+    ]
+    cost = sum_report(costs, "cost")
+    # Decimal을 반올림하지 않고 cs_usage처럼 십진 문자열로 둔다.
+    return {
+        key: format(value, "f") if key in {"known_sum", "total"} and value is not None else value
+        for key, value in cost.items()
     }
 
 
@@ -149,17 +255,6 @@ def _row(
     called = [attempt for attempt in attempts.values() if attempt.call_started]
     usage = [asdict(attempt.usage) for attempt in called]
     latency = sorted(a.latency_ms for a in called if a.latency_ms is not None)
-    # 저장 경로(smoke_worker.attempt_cost)와 같은 규칙: 입력·답변 금액이 모두 있고 USD일 때만 확정.
-    estimates = [estimate_cost(a.usage, candidate.model, price_table) for a in called]
-    costs = [
-        {
-            "cost": c.total
-            if c.input is not None and c.output is not None and c.currency == "USD"
-            else None
-        }
-        for c in estimates
-    ]
-    cost = sum_report(costs, "cost")
     outcomes: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
     return {
         "name": candidate.name,
@@ -190,11 +285,5 @@ def _row(
             "p50": percentile(latency, 0.5),
             "p95": percentile(latency, 0.95),
         },
-        # Decimal을 반올림하지 않고 cs_usage처럼 십진 문자열로 둔다.
-        "cost_usd": {
-            key: format(value, "f")
-            if key in {"known_sum", "total"} and value is not None
-            else value
-            for key, value in cost.items()
-        },
+        "cost_usd": _cost(called, candidate.model, price_table),
     }

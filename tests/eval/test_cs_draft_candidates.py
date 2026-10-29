@@ -492,8 +492,9 @@ def test_return_attempts_adds_selected_attempts_only_when_asked():
     """
     plain = run(subset=frozenset({"k2", "k4"}))
     with_attempts = run(subset=frozenset({"k2", "k4"}), return_attempts=True)
-    assert "attempts" not in plain
+    assert "attempts" not in plain and "retries" not in plain
     attempts = with_attempts.pop("attempts")
+    assert with_attempts.pop("retries") == {candidate.name: {} for candidate in CANDIDATES}
     # 지연 시간은 실행마다 달라 비교에서 뺀다.
     for result in (plain, with_attempts):
         for row in result["candidates"]:
@@ -502,3 +503,55 @@ def test_return_attempts_adds_selected_attempts_only_when_asked():
     assert set(attempts) == {candidate.name for candidate in CANDIDATES}
     assert all(set(runs) == {"k2", "k4"} for runs in attempts.values())
     assert all(isinstance(a, DraftAttempt) for runs in attempts.values() for a in runs.values())
+
+
+def test_only_malformed_drafts_are_retried_as_attempt_two():
+    """형식 위반(CS_INVALID_OUTPUT)만 attempt 2로 한 번 더 부르고, 금지 약속은 재호출하지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 최초·최종 지표, 재호출 수, 호출 수, 재호출 끔을 확인한다.
+    """
+    seen = set()
+    healthy = provider()
+
+    def once_broken(prompt):
+        """사례별 첫 호출만 깨진 원문을 낸다.
+
+        Args:
+            prompt: 렌더링한 프롬프트.
+
+        Returns:
+            Generation: 처음이면 깨진 응답, 아니면 근거 있는 응답.
+        """
+        first = prompt not in seen
+        seen.add(prompt)
+        if first:
+            return Generation("RAW_SECRET not json", Usage(10, 2), "fake-v1", ["STOP"])
+        return healthy(prompt)
+
+    result = run(
+        candidates=[
+            DraftCandidate("recovers", once_broken, "fake-a", "v1"),
+            CANDIDATES[0],
+        ],
+        return_attempts=True,
+    )
+    rows = {row["name"]: row for row in result["candidates"]}
+    recovers, forbidden = rows["recovers"], rows["forbidden"]
+    assert recovers["schema"]["schema_violations"] == len(CASES)
+    final = recovers["final"]
+    assert (final["retried"], final["recovered"], final["calls"]) == (5, 5, 10)
+    assert final["schema"]["outcomes"]["VALID"] == len(CASES)
+    assert final["schema"]["schema_violations"] == 0
+    assert (forbidden["final"]["retried"], forbidden["final"]["forbidden"]["count"]) == (0, 5)
+    assert result["retries"]["forbidden"] == {}
+    assert {a.attempt_number for a in result["retries"]["recovers"].values()} == {2}
+    seen.clear()
+    off = run(candidates=[DraftCandidate("recovers", once_broken, "fake-a", "v1")],
+              invalid_output_retries=0)  # fmt: skip
+    assert off["candidates"][0]["final"]["retried"] == 0
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        run(invalid_output_retries=2)

@@ -393,6 +393,55 @@ def label_path(directory: Path, name: str, kind: str = "labels") -> Path:
     return directory / f"{name}.{kind}.json"
 
 
+AUDIT_KINDS = ("audit", "retry-audit")
+AuditFiles = dict[tuple[str, str], bytes]
+
+
+def audit_payloads(
+    attempts: Mapping[str, Mapping[str, ClassificationAttempt | DraftAttempt]],
+    retries: Mapping[str, Mapping[str, ClassificationAttempt | DraftAttempt]],
+) -> AuditFiles:
+    """후보별 사례 감사 파일 내용(최초 시도 audit, 형식 위반 재호출 retry-audit)을 만든다.
+
+    Args:
+        attempts: 후보 이름 → {사례 ID: 최초 시도}.
+        retries: 후보 이름 → {사례 ID: attempt 2}. 재호출이 없으면 빈 dict다.
+
+    Returns:
+        dict: (후보 이름, 종류) → 파일 바이트. 내용은 {사례 ID: audit_entry}(키 정렬)이고 retry-audit은 다시 부른
+            사례만 담는다(없으면 {}). 예측·원문·정답은 없다.
+    """
+    return {
+        (name, kind): json.dumps(
+            {case_id: audit_entry(attempt) for case_id, attempt in runs.items()},
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+        for kind, source in zip(AUDIT_KINDS, (attempts, retries), strict=True)
+        for name, runs in source.items()
+    }
+
+
+def audit_meta(audits: AuditFiles) -> dict[str, dict[str, str]]:
+    """결과 meta에 남길 감사 파일 sha256.
+
+    Args:
+        audits: audit_payloads 결과.
+
+    Returns:
+        dict: audit_files·retry_audit_files(후보 이름 → sha256).
+    """
+    return {
+        f"{kind.replace('-', '_')}_files": {
+            name: hashlib.sha256(data).hexdigest()
+            for (name, file_kind), data in audits.items()
+            if file_kind == kind
+        }
+        for kind in AUDIT_KINDS
+    }
+
+
 def audit_entry(attempt: ClassificationAttempt | DraftAttempt) -> dict[str, object]:
     """시도 하나의 사례별 감사 항목. evaluation.case_attempts 열과 1:1이며 원문·응답·예측·정답은 없다.
 
@@ -475,7 +524,8 @@ def execute(
     labels: bool = False,
     strip_phone_annotation: bool = False,
     audit: bool = False,
-) -> tuple[dict[str, object], dict[str, bytes], dict[str, bytes]]:
+    invalid_output_retries: int = 1,
+) -> tuple[dict[str, object], dict[str, bytes], AuditFiles]:
     """하네스로 실제 비교를 돌리고 결과에 실행 메타를 붙인다.
 
     Args:
@@ -490,13 +540,14 @@ def execute(
         labels: True면 후보별 예측 라벨 파일 내용을 만든다.
         strip_phone_annotation: 분석용 PHONE 표기 제거(기본 False). meta에 값과 입력 판본을 남긴다.
         audit: True면 후보별 사례 감사 파일 내용을 만든다.
+        invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1). 재호출은 attempt 2로 따로 남는다.
 
     Returns:
         tuple: (결과, 라벨, 감사). 결과는 run_candidates 결과와 meta(모델·판본·지문·건수·표본 ID sha256·시각·
             git sha, 라벨·감사를 만들면 그 파일 sha256)이며 원문·키·사례별 예측이 없다. 라벨은 후보 이름 → 파일
-            바이트이고 내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이다. 사례 식별자가
-            들어간 비공개 산출물이라 raw_response·원문·usage는 넣지 않는다. 감사는 후보 이름 → 파일 바이트이고
-            내용은 {ticket_id: audit_entry}(키 정렬)이며 예측·원문·정답이 없다.
+            바이트이고 내용은 {ticket_id: ClassificationOutput dict(VALID만) | null}(키 정렬)이며 최초 시도
+            기준이다(결과 행의 기존 키와 같은 의미). 사례 식별자가 들어간 비공개 산출물이라 raw_response·원문·
+            usage는 넣지 않는다. 감사는 audit_payloads 형식이다.
     """
     started = datetime.now(UTC)
     candidates = [
@@ -518,8 +569,10 @@ def execute(
         price_table=dict(prices),
         return_attempts=labels or audit,
         strip_phone_annotation=strip_phone_annotation,
+        invalid_output_retries=invalid_output_retries,
     )
     attempts = result.pop("attempts", {})
+    retries = result.pop("retries", {})
     files = {
         name: json.dumps(
             {
@@ -535,16 +588,7 @@ def execute(
         for name, runs in attempts.items()
         if labels
     }
-    audits = {
-        name: json.dumps(
-            {ticket_id: audit_entry(attempt) for ticket_id, attempt in runs.items()},
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        ).encode("utf-8")
-        for name, runs in attempts.items()
-        if audit
-    }
+    audits = audit_payloads(attempts, retries) if audit else {}
     output: dict[str, object] = {
         "meta": {
             "candidates": [
@@ -558,6 +602,7 @@ def execute(
             ],
             "strip_phone_annotation": strip_phone_annotation,
             "input_version": INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION,
+            "invalid_output_retries": invalid_output_retries,
             "targets": len(records),
             "target_ids_sha256": hashlib.sha256("\n".join(sorted(records)).encode()).hexdigest(),
             "started_at": started.isoformat(),
@@ -572,15 +617,7 @@ def execute(
                 if labels
                 else {}
             ),
-            **(
-                {
-                    "audit_files": {
-                        name: hashlib.sha256(data).hexdigest() for name, data in audits.items()
-                    }
-                }
-                if audit
-                else {}
-            ),
+            **(audit_meta(audits) if audit else {}),
         },
         "result": result,
     }
@@ -617,7 +654,15 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
     parser.add_argument(
         "--audit-out",
         type=Path,
-        help="후보별 사례 감사(<name>.audit.json, 0600) 디렉터리. 사례 식별자가 포함된 비공개 산출물",
+        help="후보별 사례 감사(<name>.audit.json·<name>.retry-audit.json, 0600) 디렉터리. 사례 식별자가 "
+        "포함된 비공개 산출물",
+    )
+    parser.add_argument(
+        "--invalid-output-retries",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help="형식 위반(CS_INVALID_OUTPUT) 재호출 횟수. 재호출은 attempt 2로 따로 남는다(기본 1)",
     )
     parser.add_argument(
         "--strip-phone-annotation",
@@ -664,7 +709,8 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             )
             print(
                 "dry-run: 네트워크 호출 없음. 토큰은 문자/4 근사와 UTF-8 바이트 상한이며 실제 과금은 "
-                "실행 후 usage로 확인한다."
+                "실행 후 usage로 확인한다. 형식 위반 재호출(--invalid-output-retries 1)은 위반 사례만큼 "
+                "호출을 더하며(최대 2배) 이 상한에 넣지 않았다."
             )
             print(json.dumps({"targets": len(records), "candidates": rows}, ensure_ascii=False))
             return 0
@@ -674,7 +720,8 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
                 write_private(label_path(args.labels_out, spec["name"]), b"")
         if args.audit_out is not None:
             for spec in specs:
-                write_private(label_path(args.audit_out, spec["name"], "audit"), b"")
+                for kind in AUDIT_KINDS:
+                    write_private(label_path(args.audit_out, spec["name"], kind), b"")
         output, labels, audits = execute(
             records,
             gold,
@@ -687,6 +734,7 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
             labels=args.labels_out is not None,
             strip_phone_annotation=args.strip_phone_annotation,
             audit=args.audit_out is not None,
+            invalid_output_retries=args.invalid_output_retries,
         )
     except SplitBlocked:
         print("CS_RUN_TEST_SPLIT: test 분할은 최종 1회 사용 원칙이라 실행하지 않습니다.")
@@ -699,8 +747,8 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
         # 한다.
         for name, data in labels.items():
             write_private(label_path(args.labels_out, name), data)
-        for name, data in audits.items():
-            write_private(label_path(args.audit_out, name, "audit"), data)
+        for (name, kind), data in audits.items():
+            write_private(label_path(args.audit_out, name, kind), data)
         args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         print(

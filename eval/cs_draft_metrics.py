@@ -47,12 +47,15 @@ def _rate(part: int, whole: int) -> float | None:
     return part / whole if whole else None
 
 
-def _check(gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt]) -> None:
+def _check(
+    gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt], *, final: bool = False
+) -> None:
     """정답·시도의 ID 일치, 최초 시도, 결과와 예측·오류 코드의 일관성을 검사한다.
 
     Args:
         gold: 사례별 정답.
-        attempts: 사례별 최초 시도.
+        attempts: 사례별 최초 시도(final이면 사례별 최종 시도, 번호 1 이상).
+        final: 최종 시도 집계인지.
 
     Returns:
         None: 어긋나면 EVAL_INVALID_INPUT ValueError다.
@@ -67,7 +70,9 @@ def _check(gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt]) 
     for attempt in attempts.values():
         if (
             not isinstance(attempt, DraftAttempt)
-            or attempt.attempt_number != 1
+            or type(attempt.attempt_number) is not int
+            or attempt.attempt_number < 1
+            or (not final and attempt.attempt_number != 1)
             or attempt.outcome not in OUTCOMES
             or (attempt.outcome == "VALID") != (attempt.prediction is not None)
             or (attempt.error_code == FORBIDDEN and attempt.outcome != "SCHEMA_VIOLATION")
@@ -78,13 +83,15 @@ def _check(gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt]) 
 
 
 def summarize_draft_first_attempts(
-    gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt]
+    gold: Mapping[str, DraftGold], attempts: Mapping[str, DraftAttempt], *, final: bool = False
 ) -> dict:
     """최초 초안 시도를 스키마·금지 약속·근거·정보 요청·과잉 보류·사용량으로 나눠 집계한다.
 
     Args:
         gold: 사례별 잠긴 정답.
         attempts: 사례별 최초 시도(attempt_number 1). ID 집합이 gold와 같아야 한다.
+        final: True면 호출자가 고른 사례별 최종 시도(번호 1 이상)를 같은 식으로 집계한다(cs_metrics의
+            summarize_final_attempts와 같은 구분). 판본과 선택 의미가 결과에 남는다.
 
     Returns:
         dict: schema(outcome 건수·스키마 위반율), forbidden(건수·비율), grounding(문장·사례 기준 정답 근거
@@ -93,7 +100,7 @@ def summarize_draft_first_attempts(
             사례의 근거 문장 사례 수), usage(토큰·지연), per_case. 비율 분모가 0이면 None이다.
             잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
-    _check(gold, attempts)
+    _check(gold, attempts, final=final)
     outcomes: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
     received = [a for a in attempts.values() if a.raw_response is not None]
     invalid = sum(a.error_code == INVALID_OUTPUT for a in received)
@@ -155,8 +162,8 @@ def summarize_draft_first_attempts(
     latency = sorted(a.latency_ms for a in called if a.latency_ms is not None)
     held = over["all_unconfirmed"] + over["not_valid"]
     return {
-        "version": "cs-draft-first-attempt-v1",
-        "attempt_number": 1,
+        "version": "cs-draft-final-attempt-v1" if final else "cs-draft-first-attempt-v1",
+        **({"selection": "is_final"} if final else {"attempt_number": 1}),
         "quality_gate_evaluated": False,
         "total": len(gold),
         "schema": {

@@ -239,7 +239,9 @@ class DraftRunTests(unittest.TestCase):
             [prompt_fingerprint("draft", "v1")] * 2,
         )
         self.assertEqual(sorted(result["result"]["ranking"]), ["a", "b"])
-        self.assertEqual(len(prompts), 4)
+        # 모든 응답이 형식 위반이라 기본 재호출(attempt 2)까지 사례·후보마다 두 번 부른다.
+        self.assertEqual(len(prompts), 8)
+        self.assertEqual(meta["invalid_output_retries"], 1)
         for secret in (KEY, "Breaker T1", "ZX-T1", "not json", "Warranty period"):
             self.assertNotIn(secret, text)
 
@@ -297,7 +299,15 @@ class DraftRunTests(unittest.TestCase):
             {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
         )
         self.assertNotIn("attempts", result["result"])
-        text = b"".join(files.values()).decode()
+        # 모든 응답이 형식 위반이라 T4를 attempt 2로 한 번 더 불렀고, 그 감사는 retry-audit에 있다.
+        retried = {name: (audit / f"{name}.retry-audit.json").read_bytes() for name in ("a", "b")}
+        for data in retried.values():
+            self.assertEqual(json.loads(data)["T4"]["outcome"], "SCHEMA_VIOLATION")
+        self.assertEqual(
+            result["meta"]["retry_audit_files"],
+            {name: hashlib.sha256(data).hexdigest() for name, data in retried.items()},
+        )
+        text = b"".join([*files.values(), *retried.values()]).decode()
         for secret in (KEY, "Breaker T4", "not json", "Warranty period", "request_codes"):
             self.assertNotIn(secret, text)
         self.assertEqual(self.run_main("--audit-out", str(audit))[0], 1)
