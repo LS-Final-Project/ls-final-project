@@ -458,3 +458,23 @@ def test_each_candidate_runs_its_own_prompt_version(monkeypatch):
     assert seen["test-v2"] and all(
         p.startswith("검사용 초안 판본 본문.\n") for p in seen["test-v2"]
     )
+
+
+def test_candidate_knobs_are_recorded_on_the_row():
+    """초안 후보 행은 조절 항목을 그대로 기록하고 기본은 빈 dict다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 행의 knobs를 확인한다.
+    """
+    knobs = {"thinking_level": "LOW", "max_output_tokens": 2048}
+    result = run(
+        candidates=[
+            DraftCandidate("tuned", provider(), "fake-a", "v1", knobs=knobs),
+            DraftCandidate("plain", provider(), "fake-a", "v1"),
+        ]
+    )
+    rows = {row["name"]: row for row in result["candidates"]}
+    assert rows["tuned"]["knobs"] == knobs and rows["plain"]["knobs"] == {}

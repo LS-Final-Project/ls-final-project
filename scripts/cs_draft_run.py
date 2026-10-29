@@ -39,6 +39,8 @@ from scripts.cs_candidate_run import (
     SplitBlocked,
     estimate,
     git_sha,
+    knob_fields,
+    knobs_of,
     load_codes,
     load_specs,
     load_targets,
@@ -51,7 +53,7 @@ EXPECTED_RULE = (
     "규칙 기반 기대값(정답 아님): input·relevant_chunk_ids=근거 ID 전부, "
     "request_codes=필요 정보 − 분류 provided_info, answerable=근거 있음"
 )
-TextFactory = Callable[[dict[str, str], AISettings], Callable[[str], Generation]]
+TextFactory = Callable[[dict[str, Any], AISettings], Callable[[str], Generation]]
 
 
 def load_required(path: Path = REQUIRED_INFO) -> dict[tuple[str, str], frozenset[str]]:
@@ -137,7 +139,7 @@ def build_cases(
 
 def dry_run(
     cases: Mapping[str, DraftCase],
-    specs: list[dict[str, str]],
+    specs: list[dict[str, Any]],
     settings: AISettings,
     prices: Mapping[str, Any],
 ) -> list[dict[str, object]]:
@@ -175,7 +177,9 @@ def dry_run(
             {
                 **spec,
                 "held": held,
-                **estimate(lengths, sizes, spec["model"], settings, prices),
+                **estimate(
+                    lengths, sizes, spec["model"], settings, prices, spec.get("max_output_tokens")
+                ),
             }
         )
     return rows
@@ -192,9 +196,13 @@ def default_factory(settings: AISettings) -> TextFactory:
     """
     client = create_client(settings)
 
-    def factory(spec: dict[str, str], config: AISettings) -> Callable[[str], Generation]:
+    def factory(spec: dict[str, Any], config: AISettings) -> Callable[[str], Generation]:
         return gemini_text_provider(
-            client, config, model=spec["model"], response_schema=DraftOutput
+            client,
+            config,
+            model=spec["model"],
+            response_schema=DraftOutput,
+            generation=knobs_of(spec),
         )
 
     return factory
@@ -204,7 +212,7 @@ def execute(
     cases: Mapping[str, DraftCase],
     gold: Mapping[str, DraftGold],
     counts: Mapping[str, int],
-    specs: list[dict[str, str]],
+    specs: list[dict[str, Any]],
     settings: AISettings,
     prices: Mapping[str, Any],
     factory: TextFactory,
@@ -232,6 +240,7 @@ def execute(
             provider=factory(spec, settings),
             model=spec["model"],
             prompt_version=spec["prompt_version"],
+            knobs=knob_fields(spec),
         )
         for spec in specs
     ]

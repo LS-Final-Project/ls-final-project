@@ -7,7 +7,7 @@ cs_usage)를 그대로 쓰며 새 계산식을 만들지 않는다. 합격 판�
 import statistics
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 from backend.engine.cs.classification import ClassificationInput
@@ -30,6 +30,8 @@ class Candidate:
     provider: Callable[[ClassificationInput], Generation]
     model: str
     prompt_version: str
+    # 생성 조절 항목(thinking 예산·출력 상한 등). 기록만 하고 입력 hash 검사에는 넣지 않는다.
+    knobs: Mapping[str, int | str] = field(default_factory=dict)
 
 
 def run_candidates(
@@ -160,6 +162,7 @@ def _row(
         "name": candidate.name,
         "model": candidate.model,
         "prompt_version": candidate.prompt_version,
+        "knobs": dict(candidate.knobs),
         "category": {"accuracy": category["accuracy"], "macro_f1": category["macro_f1"]},
         "urgency": {
             "macro_f1": urgency["macro_f1"],

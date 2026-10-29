@@ -12,7 +12,11 @@ from backend.engine.cs.classification import ClassificationInput
 from backend.engine.cs.classification_call import ClassificationCallError
 from backend.engine.cs.drafting import DraftOutput
 from backend.engine.cs.prompt_registry import get_prompt
-from backend.engine.cs.providers import gemini_classification_provider, gemini_text_provider
+from backend.engine.cs.providers import (
+    GenerationKnobs,
+    gemini_classification_provider,
+    gemini_text_provider,
+)
 from backend.shared.ai import AISettings, create_client
 from eval.cs_candidates import Candidate, run_candidates
 
@@ -225,3 +229,81 @@ def test_two_adapters_plug_into_candidate_comparison(sdk_http, client, monkeypat
     assert rows["gemini-test-v2"]["prompt_version"] == "test-v2"
     assert len(requests) == 4
     assert sum(sent_text(r).startswith("검사용 분류 본문.\n") for r in requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("knobs", "expected"),
+    [
+        (None, {"maxOutputTokens": 1024}),
+        (
+            GenerationKnobs(thinking_budget=512, max_output_tokens=4096),
+            {"maxOutputTokens": 4096, "thinkingConfig": {"thinking_budget": 512}},
+        ),
+        (
+            GenerationKnobs(thinking_level="LOW"),
+            {"maxOutputTokens": 1024, "thinkingConfig": {"thinking_level": "LOW"}},
+        ),
+    ],
+)
+def test_generation_knobs_reach_the_request_body(sdk_http, client, knobs, expected):
+    """조절 항목은 요청 generationConfig에 들어가고, 없으면 thinkingConfig 키 없이 설정 기본 상한을 쓴다.
+
+    google-genai 2.32.0은 thinkingConfig 안의 필드를 snake_case로 보낸다(SDK 직렬화 그대로 확인).
+    """
+    _, requests = sdk_http
+    settings, sdk = client
+    for provider, argument in (
+        (
+            gemini_classification_provider(
+                sdk, settings, model="m", allowed_info_codes=CODES, generation=knobs
+            ),
+            PAYLOAD,
+        ),
+        (gemini_text_provider(sdk, settings, model="m", generation=knobs), "prompt"),
+    ):
+        provider(argument)
+    for request in requests:
+        config = json.loads(request.content)["generationConfig"]
+        assert {key: config[key] for key in expected} == expected
+        if knobs is None:
+            assert "thinkingConfig" not in config
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"thinking_budget": 128, "thinking_level": "LOW"},
+        {"thinking_level": "EXTREME"},
+        {"thinking_budget": -2},
+        {"max_output_tokens": 0},
+        {"max_output_tokens": 70000},
+    ],
+)
+def test_invalid_generation_knobs_are_rejected(kwargs):
+    """budget·level 동시 지정과 범위 밖 값은 만들 때 거부한다."""
+    with pytest.raises(ValueError, match="^CS_INVALID_GENERATION$"):
+        GenerationKnobs(**kwargs)
+
+
+def test_candidate_rows_record_knobs(sdk_http, client):
+    """후보 비교 행은 후보의 조절 항목을 그대로 기록한다(입력 hash 검사에는 쓰지 않는다)."""
+    settings, sdk = client
+    knobs = {"thinking_budget": 512, "max_output_tokens": 4096}
+    candidate = Candidate(
+        name="tuned",
+        provider=gemini_classification_provider(
+            sdk, settings, model="m", allowed_info_codes=CODES, generation=GenerationKnobs(**knobs)
+        ),
+        model="m",
+        prompt_version="v1",
+        knobs=knobs,
+    )
+    record = {"channel": "EMAIL", "body_language": "en", "subject": None, "body": "Return it."}
+    result = run_candidates(
+        {"syn-1": record},
+        gold={"category": {"syn-1": "RETURN"}, "urgency": {"syn-1": "NONE"}},
+        candidates=[candidate],
+        sensitive_values={},
+        allowed_info_codes=CODES,
+    )
+    assert result["candidates"][0]["knobs"] == knobs

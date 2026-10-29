@@ -10,10 +10,11 @@ SDK 예외는 원문을 버리고 ClassificationCallError 코드로만 올린다
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import httpx
 from google import genai
-from google.genai import errors
+from google.genai import errors, types
 from pydantic import BaseModel
 
 from backend.engine.cs.classification import ClassificationInput, ClassificationOutput
@@ -22,6 +23,36 @@ from backend.engine.cs.prompt_registry import get_prompt
 from backend.shared.ai import AISettings, Generation, generate
 
 MODEL = re.compile(r"[a-zA-Z0-9._-]+")
+THINKING_LEVELS = frozenset(level.value for level in types.ThinkingLevel)
+
+
+@dataclass(frozen=True)
+class GenerationKnobs:
+    """후보별 생성 조절 항목. None이면 보내지 않는다(설정 기본값·공급자 기본 thinking).
+
+    max_output_tokens는 thinking 토큰을 포함한 출력 상한이다(실측: MAX_TOKENS로 끝난 응답이 thinking 980 + 답변
+    25 ≈ 1024). 그래서 분류 JSON에도 1024는 부족할 수 있다. thinking_budget과 thinking_level은 함께 줄 수 없고,
+    모델이 지원하지 않는 항목은 공급자 400(CS_PROVIDER_ERROR)으로 드러난다.
+    """
+
+    thinking_budget: int | None = None
+    thinking_level: str | None = None
+    max_output_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        """값 범위와 동시 지정을 검사한다.
+
+        Returns:
+            None: 위반은 CS_INVALID_GENERATION ValueError다.
+        """
+        budget, level, limit = self.thinking_budget, self.thinking_level, self.max_output_tokens
+        if (
+            (budget is not None and level is not None)
+            or (budget is not None and (type(budget) is not int or budget < -1))
+            or (level is not None and level not in THINKING_LEVELS)
+            or (limit is not None and (type(limit) is not int or not 1 <= limit <= 65536))
+        ):
+            raise ValueError("CS_INVALID_GENERATION")
 
 
 def _settings(settings: AISettings, model: str) -> AISettings:
@@ -45,6 +76,7 @@ def _call(
     settings: AISettings,
     prompt: str,
     response_schema: type[BaseModel] | None,
+    generation: GenerationKnobs | None = None,
 ) -> Generation:
     """generate를 한 번 부르고 실패를 원문 없는 ClassificationCallError로 바꾼다.
 
@@ -53,6 +85,7 @@ def _call(
         settings: 호출 설정.
         prompt: 완성 프롬프트.
         response_schema: JSON 응답 스키마(없으면 텍스트).
+        generation: 생성 조절 항목(없으면 기본값).
 
     Returns:
         Generation: 공급자 응답 그대로. 실패는 ClassificationCallError이며 원래 예외를 연결하지 않는다.
@@ -60,7 +93,16 @@ def _call(
     code: CallErrorCode = "CS_PROVIDER_ERROR"
     status: int | None = None
     try:
-        return generate(client, settings, prompt, response_schema=response_schema)
+        knobs = generation or GenerationKnobs()
+        return generate(
+            client,
+            settings,
+            prompt,
+            response_schema=response_schema,
+            thinking_budget=knobs.thinking_budget,
+            thinking_level=knobs.thinking_level,
+            max_output_tokens=knobs.max_output_tokens,
+        )
     except errors.APIError as error:
         known = error.code if type(error.code) is int and 100 <= error.code <= 599 else None
         code, status = ("CS_RATE_LIMITED" if known == 429 else "CS_PROVIDER_ERROR"), known
@@ -79,6 +121,7 @@ def gemini_classification_provider(
     model: str,
     allowed_info_codes: frozenset[str],
     prompt_version: str = "v1",
+    generation: GenerationKnobs | None = None,
 ) -> Callable[[ClassificationInput], Generation]:
     """분류 시도(run_classification_attempt)에 꽂을 Gemini 공급자를 만든다.
 
@@ -88,6 +131,8 @@ def gemini_classification_provider(
         model: 호출할 모델 ID.
         allowed_info_codes: 프롬프트에 보여줄 허용 정보 코드(정렬해 넣는다).
         prompt_version: 프롬프트 레지스트리의 classification 판본.
+        generation: thinking 예산·수준·출력 상한(thinking 포함). 분류 출력도 thinking을 포함한 상한이라 1024는
+            부족할 수 있다.
 
     Returns:
         Callable[[ClassificationInput], Generation]: 판본 본문 + ClassificationOutput 스키마 + 허용 코드 +
@@ -116,7 +161,7 @@ def gemini_classification_provider(
             Generation: 공급자 응답. 실패는 ClassificationCallError다.
         """
         prompt = instruction + "\n\n입력:\n" + payload.model_dump_json()
-        return _call(client, configured, prompt, ClassificationOutput)
+        return _call(client, configured, prompt, ClassificationOutput, generation)
 
     return provider
 
@@ -127,6 +172,7 @@ def gemini_text_provider(
     *,
     model: str,
     response_schema: type[BaseModel] | None = None,
+    generation: GenerationKnobs | None = None,
 ) -> Callable[[str], Generation]:
     """완성 프롬프트 문자열을 받는 엔진(초안·회신·개선)에 꽂을 Gemini 공급자를 만든다.
 
@@ -135,6 +181,7 @@ def gemini_text_provider(
         settings: 기본 AI 설정.
         model: 호출할 모델 ID.
         response_schema: 엔진 출력 스키마(예 DraftOutput). 판본은 엔진 render_prompt가 프롬프트에 넣는다.
+        generation: thinking 예산·수준·출력 상한(thinking 포함).
 
     Returns:
         Callable[[str], Generation]: 프롬프트를 그대로 보내는 공급자. 실패는 ClassificationCallError다.
@@ -150,6 +197,6 @@ def gemini_text_provider(
         Returns:
             Generation: 공급자 응답.
         """
-        return _call(client, configured, prompt, response_schema)
+        return _call(client, configured, prompt, response_schema, generation)
 
     return provider
