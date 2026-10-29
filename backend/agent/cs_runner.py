@@ -23,7 +23,11 @@ from backend.engine.cs.drafting import DraftOutput
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.graph import TicketInputs, build_graph, initial_state, thread_config
 from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
-from backend.engine.cs.providers import gemini_classification_provider, gemini_text_provider
+from backend.engine.cs.providers import (
+    GenerationKnobs,
+    gemini_classification_provider,
+    gemini_text_provider,
+)
 from backend.engine.search.hybrid import Searcher
 from backend.engine.search.model import SearchFilters
 from backend.shared.ai import AISettings
@@ -95,6 +99,11 @@ class InMemoryTicketSource:
         return f"{kind}-{len(self.attempts)}"
 
 
+# 제품 경로 초안 기본 설정: 초안 실측 PROPOSED 설정(2026-10-29, adoption draft-proposed-product: flash-lite·
+# max_output_tokens 2048·근거 5건). 출력 상한 기본(AISettings 1024)과 근거 20건으로는 초안 JSON이 잘렸다.
+DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 2048, "evidence_limit": 5}
+
+
 @dataclass(frozen=True)
 class RunOutcome:
     """한 번 실행·재개한 뒤의 상태 요약. 원문·raw_response는 없다."""
@@ -123,6 +132,8 @@ def build_cs_runner(
     prompt_version: str = DEFAULT_VERSIONS["classification"],
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
+    draft_knobs: GenerationKnobs | None = None,
+    evidence_limit: int = DRAFT_DEFAULTS["evidence_limit"],
 ) -> Any:
     """Gemini 분류·초안 공급자를 만들어 C/S 그래프에 꽂는다.
 
@@ -138,6 +149,8 @@ def build_cs_runner(
         prompt_version: 분류 프롬프트 판본. 기본은 prompt_registry.DEFAULT_VERSIONS(채택 판본 v3)다.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed(KAN-89).
         invalid_output_retries: 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(0|1). build_graph에 넘긴다.
+        draft_knobs: 초안 공급자의 생성 조절 항목. None이면 GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS 값)다.
+        evidence_limit: 초안에 넘길 근거 상위 개수(기본 DRAFT_DEFAULTS). build_graph에 넘긴다.
 
     Returns:
         CompiledStateGraph: 사람 확인 직전에 멈추는 그래프. 추적이 요청됐는데 허용되지 않으면 ValueError다.
@@ -151,7 +164,12 @@ def build_cs_runner(
             prompt_version=prompt_version,
         ),
         draft_provider=gemini_text_provider(
-            client, ai_settings, model=model, response_schema=DraftOutput
+            client,
+            ai_settings,
+            model=model,
+            response_schema=DraftOutput,
+            generation=draft_knobs
+            or GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS["max_output_tokens"]),
         ),
         fts_searcher=fts_searcher,
         search_filters=search_filters,
@@ -161,6 +179,7 @@ def build_cs_runner(
         checkpointer=checkpointer,
         allow_tracing=allow_tracing,
         invalid_output_retries=invalid_output_retries,
+        evidence_limit=evidence_limit,
     )
 
 

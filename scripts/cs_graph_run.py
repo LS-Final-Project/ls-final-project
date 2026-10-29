@@ -11,6 +11,8 @@ CS_GRAPH_NOTHING_TO_RESUME으로 종료 1이다(중복 유료 호출·오타 재
 required_info_codes, already_asked_codes}} JSON이다. 원문이 들어 있으므로 저장소에 두지 않는다. --out에는 상태
 요약(단계·다음 노드·오류 코드·시도 ID·시도 요약·재호출 수 retried·회복 수 recovered)만 쓴다.
 --invalid-output-retries(0|1, 기본 1)는 분류·초안 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출이다(KAN-194 4차).
+--evidence-limit(기본 cs_runner.DRAFT_DEFAULTS 5)은 초안에 넘길 근거 수이고, --draft-max-output-tokens(기본 2048)는
+--execute의 초안 출력 상한이다(KAN-194 7차, 초안 실측 PROPOSED 설정).
 """
 
 import argparse
@@ -23,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.agent.cs_runner import (
+    DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
     make_checkpointer,
@@ -31,6 +34,7 @@ from backend.agent.cs_runner import (
 )
 from backend.agent.cs_search import fts_searcher_from_dsn
 from backend.engine.cs.graph import TicketInputs, build_graph
+from backend.engine.cs.providers import GenerationKnobs
 from backend.shared.ai import AISettings, create_client
 from backend.shared.settings import Settings
 from tests.cs.graph_fakes import (
@@ -104,11 +108,29 @@ def main(
         default=1,
         help="형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(기본 1)",
     )
+    parser.add_argument(
+        "--evidence-limit",
+        type=int,
+        default=DRAFT_DEFAULTS["evidence_limit"],
+        help="초안에 넘길 근거 상위 개수(기본 5)",
+    )
+    parser.add_argument(
+        "--draft-max-output-tokens",
+        type=int,
+        default=DRAFT_DEFAULTS["max_output_tokens"],
+        help="--execute 초안 출력 상한(thinking 포함, 기본 2048)",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--debug", action="store_true", help="알 수 없는 오류를 원문 그대로 전파(로컬 디버깅만)"
     )
     args = parser.parse_args(argv)
+    if args.evidence_limit < 1 or not 1 <= args.draft_max_output_tokens <= 65536:
+        print(
+            "CS_GRAPH_INVALID_ARGS: --evidence-limit은 1 이상, --draft-max-output-tokens는 1~65536입니다.",
+            file=sys.stderr,
+        )
+        return 1
     try:
         settings = Settings()
     except ValueError as error:
@@ -169,6 +191,8 @@ def main(
                 allowed_info_codes=allowed,
                 allow_tracing=settings.ai_tracing_allowed,
                 invalid_output_retries=args.invalid_output_retries,
+                draft_knobs=GenerationKnobs(max_output_tokens=args.draft_max_output_tokens),
+                evidence_limit=args.evidence_limit,
             )
         else:
             graph = build_graph(
@@ -182,6 +206,7 @@ def main(
                 checkpointer=saver,
                 allow_tracing=settings.ai_tracing_allowed,
                 invalid_output_retries=args.invalid_output_retries,
+                evidence_limit=args.evidence_limit,
             )
         try:
             outcome = (

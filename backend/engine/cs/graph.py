@@ -165,6 +165,7 @@ def build_graph(
     vector_searcher: Searcher | None = None,
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
+    evidence_limit: int | None = None,
 ) -> Any:
     """C/S 처리 그래프를 만들어 사람 확인 직전 중단점과 함께 컴파일한다.
 
@@ -183,17 +184,21 @@ def build_graph(
             Settings를 거치지 않는 진입점이라도 그래프를 만들지 않는다(KAN-89).
         invalid_output_retries: 1이면 시도 1의 CS_INVALID_OUTPUT에 시도 2를 한 번 부르고, 0이면 부르지 않는다.
             configurable에는 넣지 않는다(체크포인트 metadata 복사).
+        evidence_limit: 초안에 넘길 근거 상위 개수. None이면 검색 결과를 모두 넘긴다. 검색 limit·보충은 그대로다.
 
     Returns:
         CompiledStateGraph: interrupt_before=["human_review"]로 컴파일한 그래프. 주입은 이 인자로만 하고
             config["configurable"]에는 thread_id만 둔다(thread_config). 분류 실패는 END, 규칙·검색·초안 실패는
             errors에 코드를 남기고 계속한다. 추적이 요청됐는데 허용되지 않으면 TRACING_BLOCKED ValueError,
-            invalid_output_retries가 0·1이 아니면 CS_GRAPH_INVALID_RETRIES ValueError다.
+            invalid_output_retries가 0·1이 아니면 CS_GRAPH_INVALID_RETRIES, evidence_limit이 1 이상 정수가 아니면
+            CS_GRAPH_INVALID_EVIDENCE_LIMIT ValueError다.
     """
     if tracing_requested(os.environ) and not allow_tracing:
         raise ValueError(TRACING_BLOCKED)
     if type(invalid_output_retries) is not int or invalid_output_retries not in (0, 1):
         raise ValueError("CS_GRAPH_INVALID_RETRIES")
+    if evidence_limit is not None and (type(evidence_limit) is not int or evidence_limit < 1):
+        raise ValueError("CS_GRAPH_INVALID_EVIDENCE_LIMIT")
 
     def attempt_with_retry(
         state: CsState, kind: str, call: Callable[[int], ClassificationAttempt | DraftAttempt]
@@ -228,6 +233,8 @@ def build_graph(
                     "outcome": attempt.outcome,
                     "error_code": attempt.error_code,
                     "is_final": index == len(tries) - 1,
+                    # 출력 잘림(MAX_TOKENS 등) 원인 확인용. 원문은 넣지 않는다.
+                    "finish_reasons": list(attempt.finish_reasons),
                 }
             )
         return tries[-1], {"attempt_ids": ids, "attempts": log}
@@ -337,7 +344,7 @@ def build_graph(
                 section_path=list(item.candidate.section_path),
                 document_sha256=item.candidate.document_sha256,
             ).model_dump()
-            for item in items
+            for item in items[:evidence_limit]
         ]
         return {"evidence": evidence, "stage": "RETRIEVED"}
 
