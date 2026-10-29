@@ -22,18 +22,24 @@ PATHS: tuple[str, ...] = get_args(SupplementPath)
 GRADES: tuple[str, ...] = get_args(Grade)
 RECOMMENDED = ("MANDATORY_CONFIRMED", "REVIEW")
 UNSUPPORTED_GOLD = ("SPEC_GAP", "INSUFFICIENT_EVIDENCE")
+# 중대한 잘못된 충족의 '필수 요구'(gates-rfp-v1 rfp_critical_false_fulfillment_count).
+BINDING_NECESSITIES = ("MANDATORY", "CONDITION_BOUND")
 Key = tuple[str, str | None]
 
 
 @dataclass(frozen=True)
 class GoldRequirement:
-    """정답 요구 하나. necessity·expected_path가 None이면 그 지표의 분모에서 뺀다."""
+    """정답 요구 하나. necessity·expected_path가 None이면 그 지표의 분모에서 뺀다.
+
+    expected_reason은 엔진 사유 어휘를 그대로 쓴 정답 사유다. 있으면 상태 일치에 사유 일치(정규화 문장)도 요구한다.
+    """
 
     clause_no: str
     attribute: str | None
     expected_status: RequirementStatus
     necessity: Necessity | None = None
     expected_path: SupplementPath | None = None
+    expected_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,7 @@ class PredictedRequirement:
     path: SupplementPath | None
     evidence_block_ids: frozenset[str]
     value_text: str | None
+    reason: str | None = None
 
 
 def _check(value: object, allowed: tuple[str, ...], *, optional: bool = False) -> None:
@@ -109,6 +116,10 @@ def _gold_index(
             _check(requirement.expected_status, STATUSES)
             _check(requirement.necessity, NECESSITIES, optional=True)
             _check(requirement.expected_path, PATHS, optional=True)
+            if requirement.expected_reason is not None and not isinstance(
+                requirement.expected_reason, str
+            ):
+                raise ValueError("EVAL_INVALID_INPUT")
             key = _key(requirement)
             if key in index[case_id]:
                 raise ValueError("EVAL_INVALID_INPUT")
@@ -125,6 +136,8 @@ def _checked_predictions(requirements: list[PredictedRequirement]) -> list[Predi
         _check(requirement.status, STATUSES)
         _check(requirement.necessity, NECESSITIES, optional=True)
         _check(requirement.path, PATHS, optional=True)
+        if requirement.reason is not None and not isinstance(requirement.reason, str):
+            raise ValueError("EVAL_INVALID_INPUT")
         _key(requirement)
     return requirements
 
@@ -163,7 +176,9 @@ def summarize_requirement_extraction(
     Returns:
         dict: 추출 건수·P/R/F1과 "matched/gold"·"matched/predicted" 병기, 상태 4클래스 혼동·클래스별
             지표, 중대오류 (a) 근거 없는 충족 (b) 미충족·근거 부족을 충족으로 (c) 필수 요구 미추출의 건수와
-            키, 경로 정확 일치율·혼동, necessity 정확 일치율, gold_fingerprint. 비율의 분모가 0이면 None이다.
+            키, 경로 정확 일치율·혼동, necessity 정확 일치율, gold_fingerprint. status_match는 상태(정답 사유가 있으면
+            사유도)가 맞은 정답 요구 비율이고, critical_errors.mandatory_gap_judged_found는 필수 미충족·미확인을 확정
+            충족으로 판정한 건수와 분모다(necessity가 없는 정답 요구가 하나라도 있으면 None). 비율의 분모가 0이면 None이다.
             잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
     """
     if run_label not in ("FIRST", "REMEASURE") or set(predicted) - set(gold):
@@ -175,6 +190,9 @@ def summarize_requirement_extraction(
     missed_mandatory: list[tuple[str, str, str | None]] = []
     predicted_total = matched = duplicates = 0
     necessity_total = necessity_hits = 0
+    status_matched = reason_compared = 0
+    binding_total = necessity_missing = 0
+    binding_found: list[tuple[str, str, str | None]] = []
     for case_id, by_key in gold_index.items():
         found: dict[Key, PredictedRequirement] = {}
         for requirement in _checked_predictions(list(predicted.get(case_id, []))):
@@ -190,6 +208,26 @@ def summarize_requirement_extraction(
             guess = found.get(key)
             matched += guess is not None
             status_matrix[expected.expected_status][guess.status if guess else NO_PREDICTION] += 1
+            reason_compared += expected.expected_reason is not None
+            status_matched += bool(
+                guess
+                and guess.status == expected.expected_status
+                and (
+                    expected.expected_reason is None
+                    or guess.reason is not None
+                    and _fold(guess.reason) == _fold(expected.expected_reason)
+                )
+            )
+            if expected.necessity is None:
+                # 필수 여부를 모르는 정답 요구가 하나라도 있으면 0건으로 보이지 않게 집계를 None으로 둔다.
+                necessity_missing += 1
+            elif (
+                expected.necessity in BINDING_NECESSITIES
+                and expected.expected_status in UNSUPPORTED_GOLD
+            ):
+                binding_total += 1
+                if guess and guess.status == "EVIDENCE_FOUND":
+                    binding_found.append((case_id, *key))
             if (
                 guess
                 and expected.expected_status in UNSUPPORTED_GOLD
@@ -223,10 +261,26 @@ def summarize_requirement_extraction(
             "recall_count": f"{matched}/{gold_total}",
         },
         "status": _classes(status_matrix, STATUSES),
+        "status_match": {
+            "matched": status_matched,
+            "total": gold_total,
+            "rate": _rate(status_matched, gold_total),
+            "count": f"{status_matched}/{gold_total}",
+            "reason_compared_count": reason_compared,
+            "reason_compared": bool(gold_total) and reason_compared == gold_total,
+        },
         "critical_errors": {
             "unsupported_evidence_found": {"count": len(unsupported), "keys": unsupported},
             "gap_judged_found": {"count": len(overclaimed), "keys": overclaimed},
             "mandatory_not_extracted": {"count": len(missed_mandatory), "keys": missed_mandatory},
+            # 필수(MANDATORY·CONDITION_BOUND) 미충족·미확인을 확정 충족으로. necessity가 없는 정답 요구가 하나라도
+            # 있으면 분모에서 빠진 필수 요구가 있을 수 있어 None(NOT_EVALUABLE)이다.
+            "mandatory_gap_judged_found": {
+                "count": None if necessity_missing else len(binding_found),
+                "denominator": None if necessity_missing else binding_total,
+                "necessity_missing": necessity_missing,
+                "keys": binding_found,
+            },
         },
         "supplement_path": {
             "total": path_total,
@@ -295,13 +349,15 @@ def summarize_candidate_grades(
 
     Returns:
         dict: 등급 4클래스 혼동(미예측은 NO_PREDICTION)·클래스별 지표, 추천 정밀도(예측 MANDATORY_CONFIRMED·
-            REVIEW 중 정답도 그 둘인 비율, 분모 0이면 None), 위험 오류(정답 EXCLUDED를 추천으로 올림)
-            건수와 (사례, 후보) 목록. 잘못된 입력은 EVAL_INVALID_INPUT ValueError다.
+            REVIEW 중 정답도 그 둘인 비율, 분모 0이면 None), 필수 기술조건 확인 정밀도(예측 MANDATORY_CONFIRMED 중
+            정답도 MANDATORY_CONFIRMED인 비율), 위험 오류(정답 EXCLUDED를 추천으로 올림) 건수·분모(정답 EXCLUDED
+            수)와 (사례, 후보) 목록. review_unconfirmed_listed는 조건 목록 입력이 없어 None이다(KAN-191). 잘못된
+            입력은 EVAL_INVALID_INPUT ValueError다.
     """
     if set(predicted) - set(gold):
         raise ValueError("EVAL_INVALID_INPUT")
     matrix = _matrix(GRADES)
-    recommended = correct = 0
+    recommended = correct = confirmed = confirmed_correct = excluded = 0
     risky: list[tuple[str, str]] = []
     for case_id, grades in gold.items():
         guesses = predicted.get(case_id, {})
@@ -312,6 +368,10 @@ def summarize_candidate_grades(
             guess = guesses.get(candidate)
             _check(guess, GRADES, optional=True)
             matrix[expected][guess or NO_PREDICTION] += 1
+            excluded += expected == "EXCLUDED"
+            if guess == "MANDATORY_CONFIRMED":
+                confirmed += 1
+                confirmed_correct += expected == "MANDATORY_CONFIRMED"
             if guess in RECOMMENDED:
                 recommended += 1
                 correct += expected in RECOMMENDED
@@ -322,5 +382,46 @@ def summarize_candidate_grades(
         "grades": _classes(matrix, GRADES),
         "recommendation_precision": _rate(correct, recommended),
         "recommendation_count": f"{correct}/{recommended}",
-        "excluded_recommended": {"count": len(risky), "keys": risky},
+        "mandatory_confirmed_precision": _rate(confirmed_correct, confirmed),
+        "mandatory_confirmed_count": f"{confirmed_correct}/{confirmed}",
+        "review_unconfirmed_listed": None,
+        "excluded_recommended": {"count": len(risky), "denominator": excluded, "keys": risky},
+    }
+
+
+def gate_values(
+    extraction: Mapping | None, grades: Mapping | None
+) -> dict[str, float | int | None]:
+    """두 요약에서 gates-rfp-v1 게이트 9개 값을 꺼낸다(eval_adopt --task rfp 후보 행 키와 같다).
+
+    Args:
+        extraction: summarize_requirement_extraction 결과(없으면 None).
+        grades: summarize_candidate_grades 결과(없으면 None).
+
+    Returns:
+        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·통합 책임·초안 추적), 사유를 비교하지
+            못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족, 발생 가능 건수가
+            0인 두 0건 게이트, 정의를 다 채우지 못한 협력사 추천 정밀도(검토 후보 미확인 조건 표시 미구현)는 None이다.
+    """
+    critical = extraction["critical_errors"]["mandatory_gap_judged_found"] if extraction else {}
+    excluded = grades["excluded_recommended"] if grades else {}
+    return {
+        "rfp_requirement_recall": extraction["extraction"]["recall"] if extraction else None,
+        "rfp_requirement_precision": extraction["extraction"]["precision"] if extraction else None,
+        # 게이트는 '상태와 사유'가 모두 일치한 비율이다. 사유가 없는 정답 요구가 있으면(상태만 비교) None이다.
+        "rfp_status_match_rate": extraction["status_match"]["rate"]
+        if extraction and extraction["status_match"]["reason_compared"]
+        else None,
+        "rfp_evidence_accuracy": None,
+        # 0건 게이트는 발생 가능 건수(분모)가 0이면 측정한 것이 없으므로 통과로 보이지 않게 None이다.
+        "rfp_critical_false_fulfillment_count": critical.get("count")
+        if critical.get("denominator")
+        else None,
+        # 등급 일치(mandatory_confirmed_precision)만으로는 게이트 정의를 채우지 못한다(KAN-191 전까지 None).
+        "rfp_partner_recommendation_precision": None,
+        "rfp_integration_responsibility_rate": None,
+        "rfp_mandatory_constraint_violation_count": excluded.get("count")
+        if excluded.get("denominator")
+        else None,
+        "rfp_draft_trace_rate": None,
     }

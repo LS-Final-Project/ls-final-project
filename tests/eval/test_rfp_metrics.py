@@ -5,6 +5,7 @@ import pytest
 from eval.rfp_metrics import (
     GoldRequirement,
     PredictedRequirement,
+    gate_values,
     gold_fingerprint,
     summarize_candidate_grades,
     summarize_edit_traces,
@@ -158,7 +159,7 @@ def test_candidate_grades_separate_risky_recommendations():
     predicted = {"A": {"P-A": "MANDATORY_CONFIRMED", "P-B": "REFERENCE_ONLY", "L-A": "REVIEW"}}
     result = summarize_candidate_grades(gold, predicted)  # type: ignore[arg-type]
     assert result["recommendation_precision"] == 0.5 and result["recommendation_count"] == "1/2"
-    assert result["excluded_recommended"] == {"count": 1, "keys": [("A", "L-A")]}
+    assert result["excluded_recommended"] == {"count": 1, "denominator": 1, "keys": [("A", "L-A")]}
     assert result["grades"]["confusion"]["REFERENCE_ONLY"]["NO_PREDICTION"] == 1
     assert result["grades"]["per_class"]["REVIEW"]["fp"] == 1
     assert summarize_candidate_grades({}, {})["recommendation_precision"] is None
@@ -221,3 +222,185 @@ def test_edit_traces_reject_non_text_values():
         summarize_edit_traces(
             {"A": [pred("2.5", "x", "EVIDENCE_FOUND", value=123)]}, {"A": frozenset({"600 V"})}
         )
+
+
+def reasoned(clause, attribute, status, reason):
+    """사유가 있는 예측 요구 하나를 만든다.
+
+    Args:
+        clause: 조항 번호.
+        attribute: 속성.
+        status: 예측 상태.
+        reason: 예측 사유(엔진 사유 문장).
+
+    Returns:
+        PredictedRequirement: 예측.
+    """
+    return PredictedRequirement(
+        clause, attribute, status, None, None, frozenset({"b1"}), "x", reason
+    )
+
+
+def test_status_match_needs_status_and_normalized_reason():
+    """상태 일치는 정답 요구 전체가 분모이고, 정답 사유가 있으면 정규화한 사유 문장까지 같아야 한다."""
+    gold = {
+        "A": [
+            GoldRequirement("1", "a", "SPEC_GAP", expected_reason="정격  전류가 부족함"),
+            GoldRequirement("1", "b", "SPEC_GAP", expected_reason="정격 전압 차이"),
+            GoldRequirement("1", "c", "CONDITIONAL"),
+            GoldRequirement("1", "d", "EVIDENCE_FOUND", expected_reason="근거 있음"),
+            GoldRequirement("1", "e", "EVIDENCE_FOUND"),
+        ]
+    }
+    predicted = {
+        "A": [
+            reasoned("1", "a", "SPEC_GAP", " 정격 전류가  부족함 "),
+            reasoned("1", "b", "SPEC_GAP", "다른 사유"),
+            reasoned("1", "c", "CONDITIONAL", None),
+            reasoned("1", "d", "EVIDENCE_FOUND", None),
+        ]
+    }
+    match = summarize_requirement_extraction(gold, predicted, run_label="FIRST")["status_match"]
+    assert match == {
+        "matched": 2,
+        "total": 5,
+        "rate": 0.4,
+        "count": "2/5",
+        "reason_compared_count": 3,
+        "reason_compared": False,
+    }
+    status_only = summarize_requirement_extraction(GOLD, PREDICTED, run_label="FIRST")
+    assert status_only["status_match"]["reason_compared"] is False
+    assert status_only["status_match"]["count"] == "5/7"
+
+
+def test_mandatory_gap_judged_found_counts_binding_requirements_only():
+    """필수(MANDATORY·CONDITION_BOUND) 미충족·미확인을 확정 충족으로 본 건수와 분모만 세고, necessity가 없으면 None이다."""
+    gold = {
+        "A": [
+            GoldRequirement("1", "a", "SPEC_GAP", "MANDATORY"),
+            GoldRequirement("1", "b", "INSUFFICIENT_EVIDENCE", "CONDITION_BOUND"),
+            GoldRequirement("1", "c", "SPEC_GAP", "PREFERRED"),
+            GoldRequirement("1", "d", "INSUFFICIENT_EVIDENCE", "MANDATORY"),
+        ]
+    }
+    predicted = {
+        "A": [
+            pred("1", "a", "EVIDENCE_FOUND"),
+            pred("1", "b", "CONDITIONAL"),
+            pred("1", "c", "EVIDENCE_FOUND"),
+        ]
+    }
+    found = summarize_requirement_extraction(gold, predicted, run_label="FIRST")["critical_errors"][
+        "mandatory_gap_judged_found"
+    ]
+    assert found == {
+        "count": 1,
+        "denominator": 3,
+        "necessity_missing": 0,
+        "keys": [("A", "1", "a")],
+    }
+    # necessity가 없는 정답 요구가 하나라도 있으면(상태와 무관) blocker 값을 내지 않는다.
+    gold["A"].append(GoldRequirement("1", "f", "EVIDENCE_FOUND"))
+    unknown = summarize_requirement_extraction(gold, predicted, run_label="FIRST")
+    partial = unknown["critical_errors"]["mandatory_gap_judged_found"]
+    assert (partial["count"], partial["denominator"], partial["necessity_missing"]) == (
+        None,
+        None,
+        1,
+    )
+    bare = {"A": [GoldRequirement("1", "a", "SPEC_GAP")]}
+    none = summarize_requirement_extraction(
+        bare, {"A": [pred("1", "a", "EVIDENCE_FOUND")]}, run_label="FIRST"
+    )
+    assert none["critical_errors"]["mandatory_gap_judged_found"]["count"] is None
+    assert none["critical_errors"]["gap_judged_found"]["count"] == 1
+
+
+def test_mandatory_confirmed_precision_and_constraint_denominator():
+    """필수 기술조건 확인 정밀도는 예측 MANDATORY_CONFIRMED만 분모로 하고, 필수 제약 위반은 정답 EXCLUDED 수를 분모로 낸다."""
+    gold = {
+        "A": {
+            "P-A": "MANDATORY_CONFIRMED",
+            "P-B": "REVIEW",
+            "P-C": "MANDATORY_CONFIRMED",
+            "L-A": "EXCLUDED",
+            "L-B": "EXCLUDED",
+        }
+    }
+    predicted = {
+        "A": {
+            "P-A": "MANDATORY_CONFIRMED",
+            "P-B": "MANDATORY_CONFIRMED",
+            "P-C": "REVIEW",
+            "L-A": "REVIEW",
+        }
+    }
+    result = summarize_candidate_grades(gold, predicted)  # type: ignore[arg-type]
+    assert (result["mandatory_confirmed_precision"], result["mandatory_confirmed_count"]) == (
+        0.5,
+        "1/2",
+    )
+    assert result["recommendation_precision"] == 0.75
+    assert result["excluded_recommended"]["count"] == 1
+    assert result["excluded_recommended"]["denominator"] == 2
+    assert result["review_unconfirmed_listed"] is None
+    assert summarize_candidate_grades({}, {})["mandatory_confirmed_precision"] is None
+
+
+def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
+    """gate_values는 RFP_METRIC_KEYS 순서로 9개 값을 내고, 도구가 없거나 요약이 없는 키는 None이다."""
+    from eval.adoption import RFP_METRIC_KEYS
+
+    extraction = summarize_requirement_extraction(GOLD, PREDICTED, run_label="FIRST")
+    values = gate_values(extraction, None)
+    assert tuple(values) == RFP_METRIC_KEYS
+    assert values["rfp_requirement_recall"] == extraction["extraction"]["recall"]
+    assert values["rfp_requirement_precision"] == extraction["extraction"]["precision"]
+    # 픽스처는 정답 사유가 없고(상태만 비교) necessity가 없는 정답 요구가 있어 두 게이트 값은 None이다.
+    assert extraction["status_match"]["rate"] == 5 / 7
+    for key in (
+        "rfp_status_match_rate",
+        "rfp_critical_false_fulfillment_count",
+        "rfp_evidence_accuracy",
+        "rfp_integration_responsibility_rate",
+        "rfp_draft_trace_rate",
+        "rfp_partner_recommendation_precision",
+        "rfp_mandatory_constraint_violation_count",
+    ):
+        assert values[key] is None
+    grades = summarize_candidate_grades(
+        {"A": {"P": "MANDATORY_CONFIRMED", "L": "EXCLUDED"}}, {"A": {"P": "MANDATORY_CONFIRMED"}}
+    )
+    both = gate_values(None, grades)
+    # 협력사 정밀도는 등급 일치만 측정해 게이트 정의에 못 미치므로 None이다(KAN-191).
+    assert grades["mandatory_confirmed_precision"] == 1.0
+    assert both["rfp_partner_recommendation_precision"] is None
+    assert both["rfp_mandatory_constraint_violation_count"] == 0
+    assert both["rfp_requirement_recall"] is None
+    # 발생 가능 0건이면 0건 게이트는 None이다(아무것도 측정하지 않은 통과 방지).
+    no_excluded = summarize_candidate_grades(
+        {"A": {"P": "MANDATORY_CONFIRMED"}}, {"A": {"P": "MANDATORY_CONFIRMED"}}
+    )
+    assert gate_values(None, no_excluded)["rfp_mandatory_constraint_violation_count"] is None
+    no_binding = {
+        "A": [GoldRequirement("1", "a", "EVIDENCE_FOUND", "MANDATORY", expected_reason="r")]
+    }
+    nothing = summarize_requirement_extraction(no_binding, {}, run_label="FIRST")
+    assert nothing["critical_errors"]["mandatory_gap_judged_found"]["denominator"] == 0
+    assert gate_values(nothing, None)["rfp_critical_false_fulfillment_count"] is None
+    full = {
+        "A": [
+            GoldRequirement("1", "a", "SPEC_GAP", "MANDATORY", expected_reason="정격 부족"),
+            GoldRequirement("1", "b", "EVIDENCE_FOUND", "PREFERRED", expected_reason="근거 있음"),
+        ]
+    }
+    guessed = {
+        "A": [
+            reasoned("1", "a", "EVIDENCE_FOUND", "x"),
+            reasoned("1", "b", "EVIDENCE_FOUND", "근거  있음"),
+        ]
+    }
+    measured = gate_values(summarize_requirement_extraction(full, guessed, run_label="FIRST"), None)
+    assert measured["rfp_status_match_rate"] == 0.5
+    assert measured["rfp_critical_false_fulfillment_count"] == 1
