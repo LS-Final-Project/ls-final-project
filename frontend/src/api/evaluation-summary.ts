@@ -228,13 +228,14 @@ export async function getEvaluationSummary(runId: string, signal: AbortSignal): 
   const reason = available ? null : stored ? 'GOLD_PARTIAL' : 'GOLD_NOT_CONNECTED';
   if (typeof data.run_id !== 'string' || data.run_id.toLowerCase() !== runId.toLowerCase()
       || data.report_version !== 'cs-run-summary-v2'
+      || !(data.origin === 'ACCEPT' || data.origin === 'IMPORT')
       || !(data.data_origin === 'synthetic' || data.data_origin === 'demo' || data.data_origin === 'real')
       || data.quality_available !== available || data.quality_unavailable_reason !== reason || synthetic && locked
       || typeof data.status !== 'string' || !Object.hasOwn(statusLabels, data.status)
       || typeof data.generated_at !== 'string' || !Number.isFinite(Date.parse(data.generated_at))
       || !count(data.target_count) || !count(data.targets_without_first_attempt) || data.targets_without_first_attempt > data.target_count) throw invalid();
   return {
-    report_version: data.report_version, run_id: data.run_id, status: data.status as RunSummary['status'],
+    report_version: data.report_version, run_id: data.run_id, origin: data.origin, status: data.status as RunSummary['status'],
     generated_at: data.generated_at, data_origin: data.data_origin, quality_available: available,
     quality_unavailable_reason: reason, target_count: data.target_count,
     targets_without_first_attempt: data.targets_without_first_attempt,
