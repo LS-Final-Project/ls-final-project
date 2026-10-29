@@ -33,6 +33,7 @@ Sameness = Literal["SAME", "DIFFERENT", "NOT_MENTIONED", "UNCLEAR"]
 SerialMatch = Literal["NOT_MENTIONED", "MATCHES", "DIFFERS", "NO_CONFIRMED_UNIT"]
 NextAction = Literal["ESCALATE_TO_AGENT", "CONFIRM_WITH_CUSTOMER", "DRAFT_ANSWER", "REQUEST_AGAIN"]
 MASKS = {"[PERSONAL_PROVIDED]", "[SERIAL_PROVIDED]"}
+EDGE = "A-Za-z0-9-"
 
 
 def _unique_codes(codes: list[str]) -> bool:
@@ -112,8 +113,12 @@ def _serial_match(
         SerialMatch: 시리얼이 없으면 NOT_MENTIONED, 확정 장비가 없으면 NO_CONFIRMED_UNIT, 모두 같으면
             MATCHES, 하나라도 다르면 DIFFERS. 부분 일치·유사도는 쓰지 않는다.
     """
+    # 어댑터 SERIAL 값도 토큰 경계로만 찾아, 더 긴 다른 시리얼 안의 부분 문자열을 일치로 보지 않는다.
     found = {
-        value for value, kind in sensitive_values.items() if kind == "SERIAL" and value in body
+        value
+        for value, kind in sensitive_values.items()
+        if kind == "SERIAL"
+        and re.search(rf"(?<![{EDGE}]){re.escape(value)}(?![{EDGE}])", body, re.IGNORECASE)
     }
     for match in _SERIAL.finditer(body):
         value = match["value"].rstrip(".!?:)")
