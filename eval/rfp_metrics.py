@@ -400,9 +400,11 @@ def gate_values(
 
     Returns:
         dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·통합 책임·초안 추적), 사유를 비교하지
-            못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족은 None이다.
+            못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족, 발생 가능 건수가
+            0인 두 0건 게이트, 정의를 다 채우지 못한 협력사 추천 정밀도(검토 후보 미확인 조건 표시 미구현)는 None이다.
     """
     critical = extraction["critical_errors"]["mandatory_gap_judged_found"] if extraction else {}
+    excluded = grades["excluded_recommended"] if grades else {}
     return {
         "rfp_requirement_recall": extraction["extraction"]["recall"] if extraction else None,
         "rfp_requirement_precision": extraction["extraction"]["precision"] if extraction else None,
@@ -411,13 +413,15 @@ def gate_values(
         if extraction and extraction["status_match"]["reason_compared"]
         else None,
         "rfp_evidence_accuracy": None,
-        "rfp_critical_false_fulfillment_count": critical.get("count"),
-        "rfp_partner_recommendation_precision": grades["mandatory_confirmed_precision"]
-        if grades
+        # 0건 게이트는 발생 가능 건수(분모)가 0이면 측정한 것이 없으므로 통과로 보이지 않게 None이다.
+        "rfp_critical_false_fulfillment_count": critical.get("count")
+        if critical.get("denominator")
         else None,
+        # 등급 일치(mandatory_confirmed_precision)만으로는 게이트 정의를 채우지 못한다(KAN-191 전까지 None).
+        "rfp_partner_recommendation_precision": None,
         "rfp_integration_responsibility_rate": None,
-        "rfp_mandatory_constraint_violation_count": grades["excluded_recommended"]["count"]
-        if grades
+        "rfp_mandatory_constraint_violation_count": excluded.get("count")
+        if excluded.get("denominator")
         else None,
         "rfp_draft_trace_rate": None,
     }

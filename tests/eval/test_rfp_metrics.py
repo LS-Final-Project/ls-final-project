@@ -373,9 +373,22 @@ def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
         {"A": {"P": "MANDATORY_CONFIRMED", "L": "EXCLUDED"}}, {"A": {"P": "MANDATORY_CONFIRMED"}}
     )
     both = gate_values(None, grades)
-    assert both["rfp_partner_recommendation_precision"] == 1.0
+    # 협력사 정밀도는 등급 일치만 측정해 게이트 정의에 못 미치므로 None이다(KAN-191).
+    assert grades["mandatory_confirmed_precision"] == 1.0
+    assert both["rfp_partner_recommendation_precision"] is None
     assert both["rfp_mandatory_constraint_violation_count"] == 0
     assert both["rfp_requirement_recall"] is None
+    # 발생 가능 0건이면 0건 게이트는 None이다(아무것도 측정하지 않은 통과 방지).
+    no_excluded = summarize_candidate_grades(
+        {"A": {"P": "MANDATORY_CONFIRMED"}}, {"A": {"P": "MANDATORY_CONFIRMED"}}
+    )
+    assert gate_values(None, no_excluded)["rfp_mandatory_constraint_violation_count"] is None
+    no_binding = {
+        "A": [GoldRequirement("1", "a", "EVIDENCE_FOUND", "MANDATORY", expected_reason="r")]
+    }
+    nothing = summarize_requirement_extraction(no_binding, {}, run_label="FIRST")
+    assert nothing["critical_errors"]["mandatory_gap_judged_found"]["denominator"] == 0
+    assert gate_values(nothing, None)["rfp_critical_false_fulfillment_count"] is None
     full = {
         "A": [
             GoldRequirement("1", "a", "SPEC_GAP", "MANDATORY", expected_reason="정격 부족"),
