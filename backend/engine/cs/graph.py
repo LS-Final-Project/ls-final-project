@@ -75,6 +75,23 @@ class TicketInputs:
     received_at: datetime
     required_info_codes: frozenset[str]
     already_asked_codes: frozenset[str]
+    # 문의 제품 계열의 유형별 필요 정보 코드(정책 cs_required_info.csv 행). 있으면 초안은 분류 결과 category_code의
+    # 행을 쓰고(없는 유형은 빈 집합), 없으면 required_info_codes를 그대로 쓴다. 정답 유형을 미리 알 필요가 없다.
+    required_info_by_category: Mapping[str, frozenset[str]] | None = None
+
+    def required_for(self, category: str) -> frozenset[str]:
+        """초안에 넘길 필요 정보 코드.
+
+        Args:
+            category: 분류 결과 category_code.
+
+        Returns:
+            frozenset[str]: required_info_by_category가 있으면 그 유형의 행(없으면 빈 집합), 없으면
+                required_info_codes.
+        """
+        if self.required_info_by_category is None:
+            return self.required_info_codes
+        return self.required_info_by_category.get(category, frozenset())
 
 
 def initial_state(ticket_id: str) -> CsState:
@@ -366,7 +383,7 @@ def build_graph(
             lambda number: run_draft_attempt(
                 ticket.record,
                 classification=classification,
-                required_info_codes=ticket.required_info_codes,
+                required_info_codes=ticket.required_for(classification.category_code),
                 already_asked_codes=ticket.already_asked_codes,
                 evidence=evidence,
                 sensitive_values=ticket.sensitive_values,

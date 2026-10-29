@@ -520,6 +520,52 @@ def test_zero_evidence_draft_paths_reach_human_review(drafter, valid):
         assert codes == [("draft", "CS_UNKNOWN_REFERENCE")] and len(drafts) == 1
 
 
+def test_draft_uses_the_classified_category_row_when_given():
+    """유형별 필요 코드 지도가 있으면 초안 요청 코드는 분류 결과 유형(WARRANTY)의 행이고, 지도가 없으면 기존
+    required_info_codes다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 초안 입력의 요청 코드를 확인한다.
+    """
+    seen = []
+
+    def recording(prompt):
+        """요청 코드를 기록하고 fake 초안을 낸다.
+
+        Args:
+            prompt: 렌더링한 초안 프롬프트.
+
+        Returns:
+            Generation: 합성 응답.
+        """
+        seen.append(json.loads(prompt.split("\n\n입력:\n", 1)[1])["request_info_codes"])
+        return draft_provider(prompt)
+
+    mapped = replace(
+        TICKET,
+        required_info_codes=frozenset({"IGNORED"}),
+        required_info_by_category={
+            "WARRANTY": frozenset({"TEST_PHOTO"}),
+            "QUOTE": frozenset({"OTHER"}),
+        },
+    )
+    for ticket, expected in ((mapped, ["TEST_PHOTO"]), (TICKET, ["TEST_PHOTO"])):
+        graph, _ = make(
+            InMemorySaver(),
+            draft_provider=recording,
+            load_ticket=lambda ticket_id, ticket=ticket: ticket,
+            allowed_info_codes=frozenset({"TEST_PHOTO", "OTHER", "IGNORED"}),
+        )
+        config = thread_config(f"ticket-map-{len(seen)}")
+        graph.invoke(initial_state(f"ticket-map-{len(seen)}"), config)
+        assert seen[-1] == expected
+    assert mapped.required_for("RETURN") == frozenset()
+    assert TICKET.required_for("RETURN") == TICKET.required_info_codes
+
+
 @pytest.mark.parametrize(
     "classification,expected",
     [({"category_code": "WARRANTY"}, "rules"), (None, END)],
