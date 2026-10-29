@@ -1,5 +1,7 @@
 """Process settings with a production guard for development authentication."""
 
+import logging
+import os
 import re
 from typing import Literal, Self
 from urllib.parse import urlsplit
@@ -7,7 +9,11 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.shared.tracing import tracing_requested
+
 ServiceName = Literal["cs", "tft", "platform"]
+TRACING_BLOCKED = "LangSmith tracing is disabled until the transfer policy is decided (KAN-89)"
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -30,10 +36,12 @@ class Settings(BaseSettings):
     cs_manual_data_origin: Literal["demo", "real"] | None = None
     database_url: SecretStr | None = None
     cloud_run_service: str | None = Field(default=None, validation_alias="K_SERVICE")
+    # 추적 전송 정책(KAN-89)이 정해지기 전에는 local에서만 명시적으로 허용할 수 있다.
+    ai_tracing_allowed: bool = False
 
     @model_validator(mode="after")
     def validate_auth_environment(self) -> Self:
-        """개발 인증의 운영 유입과 불완전한 업무 중계 설정을 시작 시 거부한다.
+        """추적 전송, 개발 인증의 운영 유입과 불완전한 업무 중계 설정을 시작 시 거부한다.
 
         Args:
             없음. 모델에 주입된 환경·인증·고정 서비스 설정을 확인한다.
@@ -41,6 +49,11 @@ class Settings(BaseSettings):
         Returns:
             Self: 환경과 인증 경계가 일치하는 설정.
         """
+        # LangSmith는 프로세스 환경을 읽으므로 .env가 아니라 os.environ을 본다.
+        if tracing_requested(os.environ):
+            if self.environment != "local" or not self.ai_tracing_allowed:
+                raise ValueError(TRACING_BLOCKED)
+            logger.warning("LangSmith tracing is allowed for local development only (KAN-89)")
         if self.environment == "production" and self.dev_auth_enabled:
             raise ValueError("Development authentication is forbidden in production")
         if self.cloud_run_service and self.environment != "production":

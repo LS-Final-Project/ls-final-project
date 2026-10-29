@@ -76,7 +76,7 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 | 파일 | Cloud Storage |
 | 인증 | Microsoft OAuth (MSAL, PKCE) + `users` 테이블 역할 관리 |
 | 프론트 | React + Vite + TypeScript + TanStack Query, UI 키트 없음 |
-| 오케스트레이션 | LangChain + LangGraph + LangSmith |
+| 오케스트레이션 | LangChain + LangGraph + LangSmith. LangSmith 전송은 정책 확정 전 금지이며, 추적 환경 변수가 있으면 Settings 시작 검증이 거부한다(KAN-89, local의 `AI_TRACING_ALLOWED=true`만 예외) |
 | CI/CD | GitHub Actions 검사 / Cloud Build 이미지 및 CD. dev 개발 통합, main 배포 |
 | 배치·비동기 작업 | Cloud Tasks (RFP 문서 처리) / Cloud Run Jobs (평가 실행, 데이터 초기화) |
 | 스트리밍 | SSE |
