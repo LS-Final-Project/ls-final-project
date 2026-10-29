@@ -315,6 +315,119 @@ class DraftRunTests(unittest.TestCase):
         self.assertEqual(self.run_main("--execute", "--out", str(plain), factory=factory)[0], 0)
         self.assertNotIn("audit_files", json.loads(plain.read_text())["meta"])
 
+    def draft_factory(self, calls, stop_after=None):
+        """입력의 근거로 유효한 세 선택지를 답하고(근거 없으면 UNCONFIRMED) a의 T1 첫 호출만 형식 위반을 내는
+        공급자 함수. stop_after번 호출한 뒤 다음 호출에서 KeyboardInterrupt를 낸다.
+
+        Args:
+            calls: 호출을 쌓을 목록.
+            stop_after: 중단 기준 호출 수(None이면 끝까지).
+
+        Returns:
+            Callable: 공급자 함수.
+        """
+
+        def factory(spec, settings):
+            def provider(prompt):
+                if stop_after is not None and len(calls) >= stop_after:
+                    raise KeyboardInterrupt
+                payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+                first = (spec["name"], prompt) not in calls
+                calls.append((spec["name"], prompt))
+                chunks = [item["chunk_id"] for item in payload["evidence"]]
+                if spec["name"] == "a" and chunks and first:
+                    return Generation("not json", Usage(5, 3, None, None, 8), "fake-v", ["STOP"])
+                sentence = {
+                    "text": "Synthetic answer.",
+                    "kind": "EVIDENCE" if chunks else "UNCONFIRMED",
+                    "evidence_chunk_ids": chunks[:1],
+                }
+                options = [
+                    {
+                        "label": label,
+                        "sentences": [sentence],
+                        "info_requests": [
+                            {"info_code": code, "question": "Please send it."}
+                            for code in payload["request_info_codes"]
+                        ]
+                        if label == "INFO_FIRST"
+                        else [],
+                    }
+                    for label in ("CONCISE", "DETAILED", "INFO_FIRST")
+                ]
+                return Generation(
+                    json.dumps({"options": options}),
+                    Usage(5, 3, None, None, 8),
+                    "fake-v",
+                    ["STOP"],
+                    model="gemini-3.6-flash",
+                )
+
+            return provider
+
+        return factory
+
+    def test_interrupted_draft_run_resumes_with_same_result(self):
+        """초안 실행도 중단하면 진행 파일이 남고(초안 문장은 예측 진행 파일에만), --resume은 남은 사례만 불러 전체
+        실행과 같은 결과를 낸다. 시도 2 재호출은 사례 단위로 함께 기록된다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드·진행 파일·호출 수·결과 동일·불일치 거부를 확인한다.
+        """
+        full_calls = []
+        full = self.root / "full.json"
+        code, printed = self.run_main(
+            "--execute", "--out", str(full), factory=self.draft_factory(full_calls)
+        )
+        self.assertEqual(code, 0, printed)
+        expected = json.loads(full.read_text(encoding="utf-8"))
+        self.assertEqual(expected["result"]["candidates"][0]["final"]["recovered"], 1)
+        out = self.root / "result.json"
+        progress = self.root / "result.json.progress.jsonl"
+        labels = self.root / "result.json.progress-labels.jsonl"
+        stopped = []
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code, _ = self.run_main(
+                "--execute", "--out", str(out), factory=self.draft_factory(stopped, stop_after=3)
+            )
+        # a는 T1(형식 위반 → 시도 2)·T4를 끝냈고 b의 T1 호출에서 멈췄다.
+        self.assertEqual((code, err.getvalue().strip()), (130, "EVAL_RUN_INTERRUPTED completed=2"))
+        text = progress.read_text(encoding="utf-8")
+        for secret in ("Synthetic answer", "T1", "Breaker", "not json"):
+            self.assertNotIn(secret, text)
+        self.assertIn("Synthetic answer", labels.read_text(encoding="utf-8"))
+        mismatch = []
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--resume", str(progress), "--seed", "1",
+            factory=self.draft_factory(mismatch),
+        )  # fmt: skip
+        self.assertEqual((code, mismatch), (1, []))
+        self.assertTrue(printed.startswith("EVAL_RESUME_MISMATCH"))
+        with patch.object(cs_draft_run, "prompt_fingerprint", return_value="0" * 64):
+            code, printed = self.run_main(
+                "--execute", "--out", str(out), "--resume", str(progress),
+                factory=self.draft_factory(mismatch),
+            )  # fmt: skip
+        self.assertEqual((code, mismatch), (1, []))
+        resumed_calls = []
+        code, printed = self.run_main(
+            "--execute", "--out", str(out), "--resume", str(progress),
+            factory=self.draft_factory(resumed_calls),
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(len(resumed_calls), len(full_calls) - len(stopped))
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(result["meta"]["resumed_cases"], 2)
+        for data in (result, expected):
+            for row in data["result"]["candidates"]:
+                row.pop("latency_ms")
+        self.assertEqual(result["result"], expected["result"])
+        self.assertFalse(progress.exists() or labels.exists())
+
     def test_strip_phone_annotation_flag_is_opt_in_and_recorded(self):
         """PHONE 표기는 기본으로 초안 입력에 남고 --strip-phone-annotation일 때만 지워지며 meta에 값·판본이 남는다.
 

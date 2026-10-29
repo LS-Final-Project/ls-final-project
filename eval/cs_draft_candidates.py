@@ -93,6 +93,8 @@ def run_draft_candidates(
     strip_phone_annotation: bool = False,
     return_attempts: bool = False,
     invalid_output_retries: int = 1,
+    on_case: Callable[[str, str, DraftAttempt, DraftAttempt | None], None] | None = None,
+    prior: Mapping[str, Mapping[str, tuple[DraftAttempt, DraftAttempt | None]]] | None = None,
 ) -> dict:
     """후보마다 사례의 최초 초안 시도를 실행하고 기존 초안 지표로 비교표를 만든다.
 
@@ -111,6 +113,10 @@ def run_draft_candidates(
             "retries"(후보 이름 → {사례 ID: attempt 2})를 더한다. 시도에는 원시 응답·초안이 있으므로 호출자가 공개
             산출물에 그대로 쓰지 않는다.
         invalid_output_retries: 형식 위반 재호출 횟수(0 또는 1, 기본 1).
+        on_case: 사례 하나(최초와 선택 시도 2)가 끝날 때마다 (후보, 사례, 최초, 시도 2 | None)로 부른다. 진행
+            기록용이며 prior로 넣은 사례에는 부르지 않는다.
+        prior: 이미 끝난 사례 {후보: {사례: (최초, 시도 2 | None)}}. 호출하지 않고 그대로 집계에 넣는다(재개).
+            모르는 후보이거나 실행 범위 밖 사례면 EVAL_INVALID_INPUT이다.
 
     Returns:
         dict: subset(재실행 대상 수·전체 수), note(부분 집합일 때), candidates(후보별 지표 행), ranking.
@@ -134,43 +140,44 @@ def run_draft_candidates(
     ):
         raise ValueError("EVAL_INVALID_INPUT")
     selected = [case_id for case_id in cases if subset is None or case_id in subset]
-    runs = {
-        candidate.name: {
-            case_id: run_draft_attempt(
-                cases[case_id].record,
-                classification=cases[case_id].classification,
-                required_info_codes=cases[case_id].required_info_codes,
-                already_asked_codes=cases[case_id].already_asked_codes,
-                evidence=cases[case_id].evidence,
-                sensitive_values=cases[case_id].sensitive_values,
+    done = prior or {}
+    if not set(done) <= set(names) or any(not set(ids) <= set(selected) for ids in done.values()):
+        raise ValueError("EVAL_INVALID_INPUT")
+    runs: dict[str, dict[str, DraftAttempt]] = {name: {} for name in names}
+    retries: dict[str, dict[str, DraftAttempt]] = {name: {} for name in names}
+    for candidate in candidates:
+
+        def attempt(case_id: str, number: int) -> DraftAttempt:
+            case = cases[case_id]
+            return run_draft_attempt(
+                case.record,
+                classification=case.classification,
+                required_info_codes=case.required_info_codes,
+                already_asked_codes=case.already_asked_codes,
+                evidence=case.evidence,
+                sensitive_values=case.sensitive_values,
                 provider=candidate.provider,
-                attempt_number=1,
+                attempt_number=number,
                 prompt_version=candidate.prompt_version,
                 strip_phone_annotation=strip_phone_annotation,
             )
-            for case_id in selected
-        }
-        for candidate in candidates
-    }
-    retries = {
-        candidate.name: {
-            case_id: run_draft_attempt(
-                cases[case_id].record,
-                classification=cases[case_id].classification,
-                required_info_codes=cases[case_id].required_info_codes,
-                already_asked_codes=cases[case_id].already_asked_codes,
-                evidence=cases[case_id].evidence,
-                sensitive_values=cases[case_id].sensitive_values,
-                provider=candidate.provider,
-                attempt_number=2,
-                prompt_version=candidate.prompt_version,
-                strip_phone_annotation=strip_phone_annotation,
-            )
-            for case_id, attempt in runs[candidate.name].items()
-            if invalid_output_retries and attempt.error_code == INVALID_OUTPUT
-        }
-        for candidate in candidates
-    }
+
+        for case_id in selected:
+            if case_id in done.get(candidate.name, {}):
+                initial, retry = done[candidate.name][case_id]
+            else:
+                # 형식 위반만 그 사례의 최초 시도 직후 시도 2로 다시 부른다(사례 단위로 끝내야 진행 기록이 맞다).
+                initial = attempt(case_id, 1)
+                retry = (
+                    attempt(case_id, 2)
+                    if invalid_output_retries and initial.error_code == INVALID_OUTPUT
+                    else None
+                )
+                if on_case is not None:
+                    on_case(candidate.name, case_id, initial, retry)
+            runs[candidate.name][case_id] = initial
+            if retry is not None:
+                retries[candidate.name][case_id] = retry
     first = runs[names[0]]
     if any(
         attempts[case_id].input_sha256 != first[case_id].input_sha256
