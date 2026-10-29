@@ -437,6 +437,13 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             {
                 "kind": "draft",
                 "manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+                # 판본 이름이 같아도 프롬프트·지침 본문이나 입력 정제가 바뀌면 다른 실행이다.
+                "prompt_fingerprints": [
+                    prompt_fingerprint("draft", spec["prompt_version"]) for spec in specs
+                ],
+                "input_version": DRAFT_INPUT_VERSION_STRIPPED
+                if args.strip_phone_annotation
+                else DRAFT_INPUT_VERSION,
                 "product_column": args.product_column,
                 "classification_sha256": hashlib.sha256(
                     args.classification.read_bytes()

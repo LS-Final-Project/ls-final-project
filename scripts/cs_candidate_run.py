@@ -685,7 +685,8 @@ class Progress:
     """
 
     def __init__(self, path: Path, fingerprint: str, *, resume: bool) -> None:
-        """파일을 연다. 새 실행이면 비어 있지 않은 기존 파일을 거부하고 지문 줄을 쓴다.
+        """파일을 연다. 새 실행이면 기존 파일을 거부하고(O_EXCL) 지문 줄을 쓴다. 그 전에 실패하면 이번에 만든
+        파일을 지운다.
 
         Args:
             path: 진행 파일 경로.
@@ -698,14 +699,24 @@ class Progress:
         self.completed = 0
         self.files = []
         self.paths = (path, progress_labels_path(path))
-        for target in self.paths:
-            fd = os.open(target, flags, 0o600)
-            os.fchmod(fd, 0o600)
-            self.files.append(os.fdopen(fd, "a", encoding="utf-8"))
-        if not resume:
-            self._write(
-                0, {"kind": "header", "version": PROGRESS_VERSION, "fingerprint": fingerprint}
-            )
+        created = []
+        try:
+            for target in self.paths:
+                fd = os.open(target, flags, 0o600)
+                if not resume:
+                    created.append(target)
+                os.fchmod(fd, 0o600)
+                self.files.append(os.fdopen(fd, "a", encoding="utf-8"))
+            if not resume:
+                self._write(
+                    0, {"kind": "header", "version": PROGRESS_VERSION, "fingerprint": fingerprint}
+                )
+        except BaseException:
+            # 지문 줄을 쓰기 전에 실패하면 이번에 만든 파일만 지워 다음 새 실행을 막지 않는다.
+            self.close()
+            for target in created:
+                target.unlink(missing_ok=True)
+            raise
 
     def _write(self, index: int, item: Mapping[str, object]) -> None:
         """한 줄을 쓰고 디스크까지 내린다.
@@ -1092,6 +1103,13 @@ def main(argv: list[str] | None = None, factory: ProviderFactory | None = None) 
                 "kind": "classification",
                 "manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
                 "candidates": specs,
+                # 판본 이름이 같아도 프롬프트 본문·입력 정제가 바뀌면 다른 실행이다.
+                "prompt_fingerprints": [
+                    prompt_fingerprint("classification", spec["prompt_version"]) for spec in specs
+                ],
+                "input_version": INPUT_VERSION_STRIPPED
+                if args.strip_phone_annotation
+                else INPUT_VERSION,
                 "seed": args.seed,
                 "limit": args.limit,
                 "strip_phone_annotation": args.strip_phone_annotation,

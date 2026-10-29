@@ -407,6 +407,12 @@ class DraftRunTests(unittest.TestCase):
         )  # fmt: skip
         self.assertEqual((code, mismatch), (1, []))
         self.assertTrue(printed.startswith("EVAL_RESUME_MISMATCH"))
+        with patch.object(cs_draft_run, "prompt_fingerprint", return_value="0" * 64):
+            code, printed = self.run_main(
+                "--execute", "--out", str(out), "--resume", str(progress),
+                factory=self.draft_factory(mismatch),
+            )  # fmt: skip
+        self.assertEqual((code, mismatch), (1, []))
         resumed_calls = []
         code, printed = self.run_main(
             "--execute", "--out", str(out), "--resume", str(progress),

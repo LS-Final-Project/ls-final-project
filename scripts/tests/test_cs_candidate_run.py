@@ -948,6 +948,33 @@ class CandidateRunTests(unittest.TestCase):
                 self.assertEqual((code, calls), (1, []))
                 self.assertTrue(printed.startswith("EVAL_RESUME_MISMATCH"))
         self.assertEqual(self.run_main("--resume", str(progress))[0], 1)
+        # 판본 이름이 같아도 프롬프트 본문(레지스트리 지문)이 바뀌면 다른 실행이다.
+        calls = []
+        with patch.object(cs_candidate_run, "prompt_fingerprint", return_value="0" * 64):
+            code, printed, _ = self.run_quiet(
+                "--out", str(out), "--resume", str(progress), factory=self.counting_factory(calls)
+            )
+        self.assertEqual((code, calls), (1, []))
+        self.assertTrue(printed.startswith("EVAL_RESUME_MISMATCH"))
+
+    def test_failed_progress_setup_leaves_no_empty_progress_file(self):
+        """예측 진행 파일만 남아 새 실행의 두 번째 파일 열기가 실패하면, 이번에 만든 빈 진행 파일을 지워 다음 실행을
+        막지 않는다(남아 있던 파일은 건드리지 않는다).
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드·호출 없음·파일 상태를 확인한다.
+        """
+        out = self.root / "result.json"
+        leftover = self.root / "result.json.progress-labels.jsonl"
+        leftover.write_text("keep", encoding="utf-8")
+        calls = []
+        code, _, _ = self.run_quiet("--out", str(out), factory=self.counting_factory(calls))
+        self.assertEqual((code, calls), (1, []))
+        self.assertFalse((self.root / "result.json.progress.jsonl").exists())
+        self.assertEqual(leftover.read_text(encoding="utf-8"), "keep")
 
 
 if __name__ == "__main__":
