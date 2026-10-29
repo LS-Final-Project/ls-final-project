@@ -297,6 +297,28 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - **웹 중계 없음**: `register-ticket`은 승인자 API와 같은 이유(플랫폼 자체 경로에 JSON 본문을 넘기는 유형 없음)로 아직 `frontend/server.mjs`에 없다. KAN-132에서 함께 다룬다.
 - **확인 범위**: 합성 C/S·합성 저장소로 검사했다(`tests/platform/test_mail_intake_db.py`). 실제 Cloud Run 사이의 ID 토큰 호출(C/S → 플랫폼, 플랫폼 → C/S)은 운영 적용 뒤 확인한다.
 
+### 실제 메일 확인 (KAN-110)
+
+2026-10-29 17:50~17:53 KST, 시연용 Outlook 가상 계정 두 개(수집 사서함 `csdesk-01`, 고객 역할 `manager-01`)로 KAN-110 완료 조건 전체를 한 번 돌렸다. 결과는 PASS다.
+
+- **방식**: 로컬 로그인으로 `csdesk-01`의 `Mail.Read`·`Mail.Send` 토큰을 메모리에만 받고, ID 토큰의 계정 이름이 수집 사서함과 같을 때만 진행했다. 새 로컬 PostgreSQL 17에 platform(KAN-71·73·74·75·81 재연결·P26)과 cs 마이그레이션 전체(C13·C14·C15 포함)를 적용했다. C/S 앱은 같은 프로세스의 TestClient로, 플랫폼 수집·판정·발송·회신 통지는 함수로 돌렸다(#242 코드). 제목·본문·주소·ID·토큰은 출력하지 않았고 건수·상태·코드만 남겼다. 받은 원문은 확인 뒤 지웠다.
+- **결과**
+
+| 단계 | 결과 |
+| --- | --- |
+| 고객 메일 수신·수집 | `manager-01`이 보낸 새 메일 1통을 수집 |
+| 문의 등록 | `from-mail` 201, 원 메일 `ORIGIN` 연결. 같은 메일 재등록은 409 `CS_MAIL_ALREADY_REGISTERED` |
+| 종결 차단(읽음·초안) | 검토 전 409 `CS_INVALID_TRANSITION`, 검토만 한 상태 409 `CS_CLOSE_CONDITION_UNMET`, 초안만 있는 상태 409 `CS_CLOSE_CONDITION_UNMET` |
+| 초안 검토 → 승인 | 합성 초안(모델 호출 없음)의 `DETAILED`를 검토해 승인. 승인 뒤에도 `IN_REVIEW`, 수신자는 원 메일 보낸 사람 |
+| 미확정 발송 종결 차단 | 플랫폼 대기(`QUEUED`) 중 종결 409 `CS_CUSTOMER_SEND_PENDING` |
+| 발송 | Graph `sendMail` `ACCEPTED`, 보낸편지함 사본 확인, 상태 읽기 뒤 문의 `ANSWERED` |
+| 회신 검토 | `manager-01`의 회신이 근거 `HEADER`로 이 문의에 연결, C/S 통지 1건(실패 0), 문의 `IN_REVIEW` 재개 |
+| 종결 이력 | `CLOSED`. 업무 감사 순서 `start_review` → `approve_send` → `send_answer` → `customer_reply` → `close` |
+| 잘못 붙이지 않음 | 이 문의 밖으로 연결된 회신 0건. 사서함의 다른 회신 2통(이전 확인의 메일)은 맞는 업무가 없어 `UNMATCHED_REPLY` 검토로 감 |
+
+- **`UNKNOWN` 종결 차단**: 실제 발송에서 결과 불명을 일부러 만들 수 없어, 결과 불명(응답 없음·5xx)과 그 상태의 종결 차단은 합성 플랫폼 검사(`tests/cs/test_customer_mail_db.py`, `test_customer_mail_retry.py`)로 확인했다.
+- **확인하지 않은 것**: 운영(Cloud Run)·공용 DB 환경에서의 왕복(C/S ↔ 플랫폼 ID 토큰 호출 포함)은 운영 적용(KAN-72 운영 묶음) 때 함께 확인한다.
+
 ## 남은 작업
 
 - 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
