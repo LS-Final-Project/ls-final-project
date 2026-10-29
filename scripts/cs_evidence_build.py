@@ -55,8 +55,22 @@ def query_terms(subject: str | None, body: str, source: QuerySource) -> str:
         str: 2자 이상 단어 토큰(마스킹 표식·'or' 제외, casefold 기준 중복 제거, 앞 40개)을 ' or '로 이은
             websearch 질의. 토큰이 없으면 빈 문자열이다.
     """
+    return token_or_query(*query_parts(subject, body, source))
+
+
+def query_parts(subject: str | None, body: str, source: QuerySource) -> list[str]:
+    """질의에 쓸 필드 값(빈 값 제외). 토큰 질의와 코드 일치 원문이 같은 필드를 쓴다.
+
+    Args:
+        subject: 마스킹한 제목.
+        body: 마스킹한 본문.
+        source: 질의에 쓸 필드.
+
+    Returns:
+        list[str]: 고른 필드 값.
+    """
     parts = ([subject] if source != "body" else []) + ([body] if source != "subject" else [])
-    return token_or_query(*parts)
+    return [part for part in parts if part]
 
 
 def load_ticket_ids(path: Path) -> list[str]:
@@ -174,8 +188,9 @@ def build_evidence(
         try:
             payload = build_input(records[ticket_id], sensitive_values=sensitive_values).payload
             query = query_terms(payload.subject, payload.body, query_from)
+            text = "\n".join(query_parts(payload.subject, payload.body, query_from))
         except ValueError:
-            query = ""
+            query = text = ""
         if not query:
             evidence[ticket_id] = []
             input_failed += 1
@@ -186,7 +201,9 @@ def build_evidence(
             if product_filter and docs
             else None
         )
-        items, blocked = scoped_then_global(query, filters, scoped, fts=searcher, limit=limit)
+        items, blocked = scoped_then_global(
+            query, filters, scoped, fts=searcher, limit=limit, code_text=text
+        )
         rows = [
             EvidenceSnippet(
                 chunk_id=item.candidate.chunk_id,

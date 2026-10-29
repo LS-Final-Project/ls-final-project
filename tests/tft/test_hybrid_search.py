@@ -246,3 +246,33 @@ def test_scoped_then_global_fills_without_duplicates_or_blocked_chunks() -> None
     assert ids(items) == ["p1"]
     items, _ = scoped_then_global("q", filters, None, fts=searcher, limit=5)
     assert ids(items) == ["p1", "g1", "g2"]
+
+
+def test_code_text_keeps_exact_code_matches_with_token_queries() -> None:
+    """토큰 OR 질의는 'XYZ-123'을 쪼개므로 code_text(원문)로 코드 일치를 뽑아 그 청크를 앞세운다."""
+    found = fixed(
+        cand("plain", "FTS", 1, text_excerpt="trip settings"),
+        cand("coded", "FTS", 2, text_excerpt="XYZ-123 trip settings"),
+    )
+    query = token_or_query("XYZ-123 trips")
+    assert ids(run_hybrid(query, FILTERS, fts=found).items) == ["plain", "coded"]
+    result = run_hybrid(query, FILTERS, fts=found, code_text="XYZ-123 trips")
+    assert ids(result.items) == ["coded", "plain"] and result.codes_in_query == ["XYZ-123"]
+    items, _ = scoped_then_global(
+        query, FILTERS, None, fts=found, limit=2, code_text="XYZ-123 trips"
+    )
+    assert ids(items) == ["coded", "plain"]
+
+
+def test_scoped_stage_uses_fts_only() -> None:
+    """좁힌 단계는 벡터 검색기를 부르지 않는다(벡터는 product_family를 적용하지 않음). 전체 단계에서만 쓴다."""
+    vector_calls: list[str | None] = []
+
+    def vector(query: str, filters: SearchFilters) -> list[Candidate]:
+        vector_calls.append(filters.product_family)
+        return [cand("v1", "VECTOR", 1, text_excerpt="other family")]
+
+    scoped = FILTERS.model_copy(update={"product_family": "TRANSFORMER"})
+    found = fixed(cand("p1", "FTS", 1, text_excerpt="warranty"))
+    items, _ = scoped_then_global("q", FILTERS, scoped, fts=found, vector=vector, limit=2)
+    assert vector_calls == [None] and ids(items) == ["p1", "v1"]

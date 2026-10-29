@@ -361,6 +361,37 @@ def test_retrieve_uses_token_or_query_and_product_family_first():
     assert values["evidence"][0]["snippet"] == "Warranty clause 1."
 
 
+def test_retrieve_keeps_code_matches_from_the_original_text():
+    """질의는 토큰 OR이어도 코드 일치는 마스킹 원문에서 뽑아, 문의 코드를 담은 청크가 앞선다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 근거 순서를 확인한다.
+    """
+
+    def searcher(query, filters):
+        """chunk-2에만 문의 코드를 넣는다.
+
+        Args:
+            query: 질의.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 합성 후보.
+        """
+        first, second = fts_searcher(query, filters)
+        return [first, second.model_copy(update={"text_excerpt": "MCCB-ABS-103c trip unit."})]
+
+    coded = replace(TICKET, record=TICKET.record | {"body": "MCCB-ABS-103c trips at 300 V."})
+    graph, _ = make(InMemorySaver(), fts_searcher=searcher, load_ticket=lambda ticket_id: coded)
+    config = thread_config("ticket-code")
+    graph.invoke(initial_state("ticket-code"), config)
+    evidence = graph.get_state(config).values["evidence"]
+    assert [e["chunk_id"] for e in evidence] == ["chunk-2", "chunk-1"]
+
+
 def test_retrieve_skips_product_scope_for_unknown_products_and_empty_queries():
     """정책 밖 제품이면 전체만 찾고, 질의 토큰이 없으면 검색하지 않고 근거 0건이다.
 

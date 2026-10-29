@@ -308,6 +308,8 @@ def build_graph(
         """
         record = state["record"] or {}
         query = token_or_query(record.get("subject"), record.get("body"))
+        # 코드 일치 가산(codes_in)은 토큰으로 쪼개지 않은 마스킹 원문에서 뽑는다.
+        text = "\n".join(part for part in (record.get("subject"), record.get("body")) if part)
         if not query:
             return {"evidence": [], "stage": "RETRIEVED"}
         try:
@@ -323,6 +325,7 @@ def build_graph(
                 fts=fts_searcher,
                 vector=vector_searcher,
                 limit=search_filters.limit,
+                code_text=text,
             )
         except Exception:
             return {"errors": _error(state, "retrieve", "CS_SEARCH_FAILED"), "stage": "RETRIEVED"}
