@@ -224,6 +224,11 @@ def test_import_round_trip_registers_scores_and_stops_on_repeat(
         report = get_run_summary(settings, approved, actor, run_id)
         assert (report.origin, report.status, report.target_count) == ("IMPORT", "PARTIAL", 3)
         assert report.all.stored_raw_response_count == 0
+        experiment = report.experiment
+        assert experiment is not None and str(experiment.experiment_id) == summary["experiment_id"]
+        assert (experiment.stage, experiment.model_id, experiment.config_hash) == (
+            "classification", "gemini-x", summary["config_hash"]
+        )  # fmt: skip
         outcomes = report.locked_quality.outcomes
         assert outcomes is not None and outcomes.scoring_version == "kan144-import-test"
         assert (outcomes.schema_violations, outcomes.received) == (1, 3)

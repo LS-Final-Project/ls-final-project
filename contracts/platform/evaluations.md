@@ -462,6 +462,7 @@ LOCAL_SMOKE_ONLY다. 반입 실행(IMPORT)은 아래 잠금 경로 검사를 그
 `quality_unavailable_reason`은 GOLD_NOT_CONNECTED·GOLD_PARTIAL·null이다. 새 선택 필드
 `locked_quality`={`bundle_id`, `attempt=first`, `quality_gate_evaluated=false`, `metrics`}이며 metrics는
 category·urgency·secondary·return_subtype·provided_info 다섯 키를 항상 갖고 저장되지 않은 지표는 null이다.
+KAN-90 5차로 두 경로 모두 선택 필드 `experiment`(서버는 항상 채움, 이전 소비자 호환을 위해 선택)를 더한다. {`experiment_id`, `name`, `purpose`, `stage`, `knobs`, `model_id`, `prompt_version`, `input_builder_version`, `index_version`, `config_hash`, `data_split`, `data_origin`}이며 experiments 표 값을 그대로 옮기고 새로 저장하지 않는다. knobs는 접수 때 비밀 키를 거부한 값이다.
 KAN-148 2차로 locked_quality에 선택 필드 `outcomes`(기본 null)를 더한다. `eval.cs_report.store_outcome_metrics` 행
 (`cs_locked_schema_violation_rate`·`cs_locked_outcome_count`)의 최신 채점 판본이며 {`scoring_version`,
 `stored_scoring_version_count`, `stored_at`, `schema_violation_rate`(SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION),
