@@ -19,6 +19,7 @@ from pydantic import AwareDatetime, Field, model_validator
 from backend.engine.cs.classification import _unique_object, build_input
 from backend.engine.cs.drafting import _Strict, find_forbidden_commitment
 from backend.engine.cs.improvement_reply import ConditionStatus, DocSignal, RequestType
+from backend.engine.cs.prompt_registry import get_prompt
 from backend.shared.departments import TRANSFER_DEPARTMENTS
 
 IMPROVEMENT_DRAFT_INPUT_VERSION = "cs-improvement-draft-input-v1"
@@ -302,34 +303,33 @@ class ImprovementDraft(_Strict):
         return self
 
 
-IMPROVEMENT_DRAFT_PROMPT = (
-    "당신은 전력기기 C/S 담당자가 부서에 보낼 개선요청서 초안을 쓰도록 돕는 보조자다. "
-    "아래 입력 JSON만 사용한다.\n"
-    "- problem_statement는 조사할 내용을 한 문장으로 쓰고 원인을 단정하지 않는다.\n"
-    "- confirmed_facts에는 문의·사례에 있는 사실만 쓰고 evidence_refs에 그 ticket_ref·case_ref를 적는다. "
-    "inconsistencies는 근거끼리 어긋나는 점이며 같은 방식으로 참조를 적는다.\n"
-    "- 근거 없는 추정은 confirmed_facts에 쓰지 않고 missing_info(확인할 정보)나 not_claimed(내리지 않을 "
-    "결론)에 쓴다. FAULT 요청은 not_claimed를 1개 이상 쓴다.\n"
-    "- 조건 판정(condition_status·condition_summary)은 다시 판단하지 않고 주어진 값을 그대로 인용한다.\n"
-    "- proposed_depts는 candidate_depts 안에서만 고르고, FAULT 요청은 1개 이상 고른다. dept_questions는 "
-    "제안한 부서마다 최대 하나이며 그 부서가 답할 수 있는 것만 묻는다.\n"
-    "- RMA·반품 승인, 방문 확정, 보증 승인·무상 처리 확정을 약속하지 않는다.\n"
-    "- 마스킹 표식([SERIAL_PROVIDED] 등)은 원값을 추측하지 않는다.\n"
-    "- 출력은 다음 JSON 스키마를 따르는 JSON 하나다. 다른 키를 더하지 않는다.\n"
-    + json.dumps(ImprovementDraft.model_json_schema(), ensure_ascii=False, sort_keys=True)
-)
+_SCHEMA = json.dumps(ImprovementDraft.model_json_schema(), ensure_ascii=False, sort_keys=True)
+IMPROVEMENT_DRAFT_PROMPT = get_prompt("improvement_draft", "v1") + _SCHEMA
 
 
-def render_prompt(payload: ImprovementDraftInput) -> str:
+def instruction(prompt_version: str = "v1") -> str:
+    """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
+
+    Args:
+        prompt_version: 레지스트리 판본 키.
+
+    Returns:
+        str: 공급자에 보낼 지시문(입력 제외). 모르는 판본은 CS_UNKNOWN_PROMPT_VERSION ValueError다.
+    """
+    return get_prompt("improvement_draft", prompt_version) + _SCHEMA
+
+
+def render_prompt(payload: ImprovementDraftInput, *, prompt_version: str = "v1") -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_improvement_draft_input의 정제 입력.
+        prompt_version: 레지스트리 판본 키. 기본 v1은 IMPROVEMENT_DRAFT_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.
     """
-    return IMPROVEMENT_DRAFT_PROMPT + "\n\n입력:\n" + payload.model_dump_json()
+    return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
 def validate_output(raw: str, *, context: ImprovementDraftContext) -> ImprovementDraft:
