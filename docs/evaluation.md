@@ -341,6 +341,13 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 - 협력사 '검토 후보'의 미확인 조건 표시 확인: 후보별 조건 목록 입력이 필요하다(KAN-191)
 - RFP 후보 비교 결과 파일을 만드는 실행기(KAN-191). `eval/adoption.py`는 meta에 `documents`가 있는 결과를 RFP로 보고, 후보 행의 `rfp_*` 키 9개를 읽는다.
 
+요구 추출 측정에서 채택 기록까지(KAN-143 4차). `scripts/rfp_requirements_eval.py --adoption-out`은 요구 추출 게이트 2개(`rfp_requirement_recall`·`rfp_requirement_precision`)만 `eval_adopt --task rfp` 입력 형식으로 쓴다. 값은 `eval.rfp_metrics.summarize_extraction_keys`의 (clause_no, attribute) 키 일치이며 비교 상태는 보지 않는다. 재현율 분모는 게이트 정의대로 필수(mandatory) 정답만이고, 정밀도는 예측 전체를 정답 전체와 맞춘다(meta `metric_definition`). 이 스크립트의 정답에는 상태가 없어 `summarize_requirement_extraction`에 넣을 수 없기 때문이다. 정답 attribute 어휘가 예측 어휘와 같은지는 검증하지 않았다(개발 정답은 저장소 밖, meta `vocabulary_note`). 나머지 7개는 측정하지 않아 NOT_EVALUABLE이고, 0건 blocker 2개가 미측정이라 blocker는 참이다. `report.json`의 엄격·관대 점수는 정의가 달라 채택 기록에 넣지 않는다.
+
+```bash
+uv run --frozen python scripts/rfp_requirements_eval.py --docx <RFP.docx> --gold <정답.jsonl> --sections 2.4 2.5 --out <저장소 밖 폴더> --adoption-out <저장소 밖 폴더>/rfp-adopt-input.json
+uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖 폴더>/rfp-adopt-input.json --adopt requirements-<모델> --decided-by <이름> --rationale <사유.txt> --out <기록.json> --note <메모.md>
+```
+
 ## 나머지 지표 잠금
 
 OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
