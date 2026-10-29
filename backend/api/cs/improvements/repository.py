@@ -204,3 +204,84 @@ async def insert_audit(
         "VALUES (%s, 'improvement_request', %s, %s, %s, %s, %s)",
         (event_id, request_id, action, version, actor, Jsonb(changes)),
     )
+
+
+# --- KAN-116: delivery rounds, department states, replies and actions ---------------------
+
+
+async def departments_in_round(
+    conn: AsyncConnection[Row], request_id: UUID, round: int
+) -> list[Row]:
+    cursor = await conn.execute(
+        "SELECT round, dept_code, status, carried_over, sent_version, reply_due_at, "
+        "rejection_reviewed_by, rejection_reviewed_at FROM cs.request_departments "
+        "WHERE request_id = %s AND round = %s ORDER BY dept_code FOR UPDATE",
+        (request_id, round),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_department(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.request_departments ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def update_department(
+    conn: AsyncConnection[Row], request_id: UUID, round: int, dept_code: str, values: Row
+) -> None:
+    # Column names come from fixed route values only.
+    assignments = "".join(f"{name} = %s, " for name in values)
+    await conn.execute(
+        f"UPDATE cs.request_departments SET {assignments}updated_at = now() "
+        "WHERE request_id = %s AND round = %s AND dept_code = %s",
+        (*values.values(), request_id, round, dept_code),
+    )
+
+
+async def insert_reply(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.dept_replies ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def insert_action(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.request_actions ({columns}) VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )
+
+
+async def latest_rejection_at(
+    conn: AsyncConnection[Row], request_id: UUID, round: int, dept_code: str
+) -> Any:
+    cursor = await conn.execute(
+        "SELECT max(replied_at) AS at FROM cs.dept_replies WHERE request_id = %s AND round = %s "
+        "AND dept_code = %s AND reply_type = 'REJECTED'",
+        (request_id, round, dept_code),
+    )
+    row = await cursor.fetchone()
+    return row["at"] if row else None
+
+
+async def evidence_added_after(conn: AsyncConnection[Row], request_id: UUID, after: Any) -> int:
+    cursor = await conn.execute(
+        "SELECT count(*) AS n FROM cs.request_evidence WHERE request_id = %s "
+        "AND removed_at IS NULL AND added_at > %s",
+        (request_id, after),
+    )
+    row = await cursor.fetchone()
+    return int(row["n"]) if row else 0
+
+
+async def database_now(conn: AsyncConnection[Row]) -> Any:
+    cursor = await conn.execute("SELECT now() AS now")
+    row = await cursor.fetchone()
+    assert row is not None
+    return row["now"]

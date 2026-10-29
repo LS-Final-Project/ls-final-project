@@ -1,7 +1,8 @@
 {
-  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다.",
+  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다. dept_pattern은 부서 코드(KAN-116 개선요청 부서 동작)로 relay.py DEPT_PATH와 server.mjs placeholders의 {dept}가 같아야 한다.",
   "customer_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
   "evidence_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+  "dept_pattern": "[A-Z][A-Z0-9_]{0,63}",
   "routes": [
     {
       "path": "/api/v1/cs/tickets",
@@ -201,6 +202,69 @@
       "path": "/api/v1/cs/improvement-requests/{uuid}/owner",
       "methods": [
         "PUT"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/review",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-plan",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/complete",
+      "methods": [
+        "POST"
       ],
       "query": []
     },

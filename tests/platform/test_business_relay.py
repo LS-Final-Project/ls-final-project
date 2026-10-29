@@ -567,6 +567,7 @@ def test_platform_business_relay_table_matches_shared_fixture():
     assert rows(relay.BUSINESS_ROUTES) == rows(shared)
     assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
     assert EVIDENCE_ID == relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
+    assert relay.DEPT_PATH == RELAY_ROUTES["dept_pattern"]
 
 
 @pytest.mark.parametrize(
