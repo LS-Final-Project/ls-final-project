@@ -4,15 +4,20 @@
 127.0.0.1·::1·db(compose 서비스 이름)·유닉스 소켓이 아니면 --allow-remote 없이는 거부한다. 기본은 --dry-run
 (추출·청킹만 하고 문서별 블록·청크 수·실패 사유를 출력)이며 --execute일 때만 적재한다.
 
---docs 아래를 재귀로 훑어 .docx·.pdf만(숨김 파일·폴더 제외) 읽는다. 입력 디렉터리는 수정하지 않는다. 실패 문서는
+--docs 아래를 재귀로 훑어 .md·.docx·.pdf만(숨김 파일·폴더 제외) 읽는다. 입력 디렉터리는 수정하지 않는다. 실패 문서는
 건너뛰고 사유 코드만 남긴다(원문·예외 메시지 미출력). 같은 sha256은 store_chunks 규칙대로 지우고 다시 넣는다.
 차단 코드(hybrid.BLOCKED_CODES, 예 FLT-042)를 말하는 청크도 적재하며(차단은 검색 결합 경계에서 한다)
 manifest에 blocked_code_chunks 수를 낸다. --manifest-out에는 문서별 source_name·sha256·size·블록·청크 수·적재
 시각·사유만 쓰고 본문은 쓰지 않는다.
+
+--doc-index(문서 묶음의 doc_index.csv)가 있으면 path 열로 문서를 찾아 ChunkMetadata를 채운다. doc_type은
+document_kind, family는 product_family, revision은 version이다(product_code는 맞는 필드가 없어 쓰지 않는다).
+path는 CSV가 있는 폴더 기준과 --docs 기준을 모두 본다. 목록에 없는 문서는 --document-kind 전역값을 쓴다.
 """
 
 import argparse
 import asyncio
+import csv
 import json
 import os
 import sys
@@ -32,7 +37,8 @@ from backend.engine.search.chunking import INDEX_VERSION, chunk_document
 from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 from backend.engine.search.model import ChunkingResult, ChunkMetadata
 
-SUFFIXES = (".docx", ".pdf")
+SUFFIXES = (".md", ".docx", ".pdf")
+DOC_INDEX_COLUMNS = {"doc_id", "doc_type", "family", "revision", "path"}
 LOCAL_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1", "db"})
 Store = Callable[[str, ChunkingResult, ChunkMetadata, str, datetime], int]
 
@@ -44,7 +50,7 @@ def find_documents(root: Path) -> list[Path]:
         root: --docs 디렉터리.
 
     Returns:
-        list[Path]: .docx·.pdf 파일(대소문자 무시). 이름이 '.'로 시작하는 파일·폴더 아래는 뺀다.
+        list[Path]: .md·.docx·.pdf 파일(대소문자 무시). 이름이 '.'로 시작하는 파일·폴더 아래는 뺀다.
     """
     return sorted(
         path
@@ -53,6 +59,42 @@ def find_documents(root: Path) -> list[Path]:
         and path.suffix.casefold() in SUFFIXES
         and not any(part.startswith(".") for part in path.relative_to(root).parts)
     )
+
+
+def load_doc_index(csv_path: Path, root: Path) -> dict[Path, dict[str, str | None]]:
+    """doc_index.csv를 문서 절대 경로 → 메타데이터로 읽는다.
+
+    Args:
+        csv_path: doc_index.csv 경로.
+        root: --docs 디렉터리.
+
+    Returns:
+        dict: (CSV 폴더 기준, --docs 기준) 두 해석 경로 → {doc_id, document_kind, product_family, version}. 빈
+            칸은 None이다. 필수 열(DOC_INDEX_COLUMNS)이 없거나 path가 비거나 겹치면 CS_INDEX_DOC_INDEX_INVALID
+            ValueError다.
+    """
+    with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not DOC_INDEX_COLUMNS <= set(reader.fieldnames or ()):
+            raise ValueError("CS_INDEX_DOC_INDEX_INVALID")
+        rows = list(reader)
+    paths = [(row.get("path") or "").strip() for row in rows]
+    if not all(paths) or len(set(paths)) != len(paths):
+        raise ValueError("CS_INDEX_DOC_INDEX_INVALID")
+    index: dict[Path, dict[str, str | None]] = {}
+    for row, path in zip(rows, paths, strict=True):
+        value = {
+            key: (row.get(column) or "").strip() or None
+            for key, column in (
+                ("doc_id", "doc_id"),
+                ("document_kind", "doc_type"),
+                ("product_family", "family"),
+                ("version", "revision"),
+            )
+        }
+        for base in (root, csv_path.parent):
+            index.setdefault((base / path).resolve(), value)
+    return index
 
 
 def is_local(dsn: str) -> bool:
@@ -128,6 +170,7 @@ def index_documents(
     dsn: str | None,
     data_origin: str,
     document_kind: str | None,
+    doc_index: dict[Path, dict[str, str | None]] | None = None,
     extractor: Callable[[Path], ExtractedDocument] = extract,
     chunker: Callable[[ExtractedDocument], ChunkingResult] = chunk_document,
     store: Store | None = None,
@@ -139,20 +182,23 @@ def index_documents(
         execute: True면 적재한다.
         dsn: 적재에 쓸 DSN(execute일 때만).
         data_origin: synthetic·demo·real.
-        document_kind: 청크 메타데이터의 문서 종류(선택).
+        document_kind: 청크 메타데이터의 문서 종류(선택). doc_index에 없는 문서에 쓴다.
+        doc_index: load_doc_index 결과(선택).
         extractor: 추출 함수(검사에서 바꾼다).
         chunker: 청킹 함수.
         store: 적재 함수. None이면 store_with_dsn(dsn)이다.
 
     Returns:
-        list[dict]: 문서별 source_name(상대 경로)·sha256·size·blocks·chunks·blocked_code_chunks·stored·stored_at·
+        list[dict]: 문서별 source_name(상대 경로)·doc_id(doc_index에 있을 때)·sha256·size·blocks·chunks·blocked_code_chunks·stored·stored_at·
             reason. 본문·예외 메시지는 없다.
     """
     saver = store or (store_with_dsn(dsn) if execute and dsn else None)
     rows = []
     for path in find_documents(root):
+        entry = (doc_index or {}).get(path.resolve())
         row: dict[str, Any] = {
             "source_name": str(path.relative_to(root)),
+            "doc_id": entry["doc_id"] if entry else None,
             "sha256": None,
             "size": None,
             "blocks": None,
@@ -192,7 +238,13 @@ def index_documents(
             row["stored"] = saver(
                 dsn or "",
                 result,
-                ChunkMetadata(document_kind=document_kind),
+                ChunkMetadata(
+                    document_kind=entry["document_kind"],
+                    product_family=entry["product_family"],
+                    version=entry["version"],
+                )
+                if entry
+                else ChunkMetadata(document_kind=document_kind),
                 data_origin,
                 known_at,
             )
@@ -217,7 +269,8 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
     parser.add_argument("--docs", type=Path, required=True, help="문서 디렉터리(재귀, 읽기 전용)")
     parser.add_argument("--index-version", default=INDEX_VERSION)
     parser.add_argument("--data-origin", choices=("synthetic", "demo", "real"), required=True)
-    parser.add_argument("--document-kind")
+    parser.add_argument("--document-kind", help="doc_index에 없는 문서의 document_kind")
+    parser.add_argument("--doc-index", type=Path, help="문서 묶음의 doc_index.csv(선택)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="기본값. 추출·청킹만")
     mode.add_argument("--execute", action="store_true", help="로컬 DB(DATABASE_URL)에 적재")
@@ -235,6 +288,13 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
             "CS_INDEX_VERSION_MISMATCH: --index-version은 청킹 판본과 같아야 한다.", file=sys.stderr
         )
         return 1
+    doc_index = None
+    if args.doc_index:
+        try:
+            doc_index = load_doc_index(args.doc_index, args.docs)
+        except (OSError, UnicodeDecodeError, csv.Error, ValueError):
+            print("CS_INDEX_DOC_INDEX_INVALID: --doc-index를 읽을 수 없다.", file=sys.stderr)
+            return 1
     dsn = os.environ.get("DATABASE_URL")
     if args.execute and store is None:
         if not dsn:
@@ -255,6 +315,7 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
         dsn=dsn,
         data_origin=args.data_origin,
         document_kind=args.document_kind,
+        doc_index=doc_index,
         store=store,
     )
     manifest = {

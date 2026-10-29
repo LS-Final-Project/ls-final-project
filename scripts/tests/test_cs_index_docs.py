@@ -51,6 +51,9 @@ class IndexDocsTest(unittest.TestCase):
         (self.root / "policy.DOCX").write_bytes(docx("Do not quote FLT-042 to customers."))
         (self.root / "broken.pdf").write_bytes(b"not a pdf at all")
         (self.root / "notes.txt").write_text("SECRET-NOTE", encoding="utf-8")
+        (self.root / "faq" / "trip.md").write_text(
+            "# Trip FAQ\n\nTrip reset steps.\n", encoding="utf-8"
+        )
         (self.root / ".hidden.docx").write_bytes(docx("hidden"))
         (self.root / ".cache" / "x.docx").write_bytes(docx("hidden"))
         env = patch.dict(
@@ -83,7 +86,7 @@ class IndexDocsTest(unittest.TestCase):
             None: 고른 상대 경로를 확인한다.
         """
         found = [str(p.relative_to(self.root)) for p in cs_index_docs.find_documents(self.root)]
-        self.assertEqual(found, ["broken.pdf", "faq/warranty.docx", "policy.DOCX"])
+        self.assertEqual(found, ["broken.pdf", "faq/trip.md", "faq/warranty.docx", "policy.DOCX"])
 
     def test_local_dsn_check(self) -> None:
         """로컬 호스트·소켓만 로컬로 본다.
@@ -122,7 +125,8 @@ class IndexDocsTest(unittest.TestCase):
         self.assertEqual(rows["policy.DOCX"]["blocked_code_chunks"], 1)
         self.assertEqual(len(rows["policy.DOCX"]["sha256"]), 64)
         text = manifest.read_text(encoding="utf-8") + out + err
-        for secret in ("Warranty period", "Do not quote", "SECRET-NOTE"):
+        self.assertEqual(rows["faq/trip.md"]["chunks"], 1)
+        for secret in ("Warranty period", "Do not quote", "SECRET-NOTE", "Trip reset"):
             self.assertNotIn(secret, text)
         self.assertEqual(
             before, sorted((p.name, p.stat().st_mtime_ns) for p in self.root.rglob("*"))
@@ -163,8 +167,66 @@ class IndexDocsTest(unittest.TestCase):
         self.assertEqual(rows["faq/warranty.docx"]["stored"], 1)
         self.assertIsNotNone(rows["faq/warranty.docx"]["stored_at"])
         self.assertEqual(rows["policy.DOCX"]["reason"], "CS_INDEX_STORE_FAILED")
-        self.assertEqual(calls, [("synthetic", "CS_FAQ"), ("synthetic", "CS_FAQ")])
+        self.assertEqual(calls, [("synthetic", "CS_FAQ")] * 3)
         self.assertNotIn("PRIVATE DB ERROR", out + err + manifest.read_text())
+
+    def test_doc_index_fills_metadata_by_path(self) -> None:
+        """doc_index.csv의 path로 문서를 찾아 doc_type·family·revision을 메타데이터에 넣고, 없는 문서는 전역값을 쓴다.
+
+        Returns:
+            None: 적재 메타데이터와 manifest doc_id를 확인한다.
+        """
+        index = self.root / "doc_index.csv"
+        index.write_text(
+            "doc_id,title,doc_type,product_code,family,revision,path,chars\n"
+            "D-01,Trip,FAQ,ACB-08,ACB,r2,faq/trip.md,20\n",
+            encoding="utf-8",
+        )
+        seen = {}
+
+        def store(dsn, result, metadata, origin, known_at):
+            """메타데이터를 모은다.
+
+            Args:
+                dsn: DSN.
+                result: 청킹 결과.
+                metadata: 메타데이터.
+                origin: data_origin.
+                known_at: 알게 된 시각.
+
+            Returns:
+                int: 저장 행 수.
+            """
+            seen[result.chunks[0].document_sha256] = metadata
+            return len(result.chunks)
+
+        manifest = Path(self.dir.name) / "manifest.json"
+        code, _, err = self.run_main(
+            "--execute",
+            "--document-kind",
+            "CS_DOC",
+            "--doc-index",
+            str(index),
+            "--manifest-out",
+            str(manifest),
+            store=store,
+        )
+        self.assertEqual(code, 0, err)
+        rows = {row["source_name"]: row for row in json.loads(manifest.read_text())["documents"]}
+        trip, warranty = (
+            seen[rows["faq/trip.md"]["sha256"]],
+            seen[rows["faq/warranty.docx"]["sha256"]],
+        )
+        self.assertEqual(rows["faq/trip.md"]["doc_id"], "D-01")
+        self.assertEqual(
+            (trip.document_kind, trip.product_family, trip.version), ("FAQ", "ACB", "r2")
+        )
+        self.assertEqual((warranty.document_kind, warranty.version), ("CS_DOC", None))
+        self.assertIsNone(rows["faq/warranty.docx"]["doc_id"])
+        index.write_text("doc_id,path\nD-01,faq/trip.md\n", encoding="utf-8")
+        code, _, err = self.run_main("--doc-index", str(index))
+        self.assertEqual(code, 1)
+        self.assertIn("CS_INDEX_DOC_INDEX_INVALID", err)
 
     def test_execute_requires_local_database(self) -> None:
         """--execute는 DATABASE_URL이 없거나 로컬이 아니면(허용 플래그 없이) 1로 끝난다.
