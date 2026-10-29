@@ -321,6 +321,7 @@ def test_changed_configuration_and_targets_fail_closed(
 
 
 SMOKE_HASH = "b9fabdbe970550fe11ca806e2c395ee6ac1f9d71fe1559ac3f9cb12d9068217c"
+MIGRATIONS = Path(__file__).resolve().parents[2] / "infra" / "migrations" / "platform"
 
 
 def smoke_row(**extra):
@@ -395,17 +396,31 @@ def test_stage_and_knob_rules(stage, knobs, code):
     assert (error.value.status_code, error.value.code) == (422, code)
 
 
-def test_allowed_stage_and_knobs_pass_and_db_pattern_matches():
-    """허용 값은 통과하고, 마이그레이션 CHECK의 비밀 키 정규식이 앱 상수와 같다.
+def test_allowed_stage_and_knobs_pass():
+    """허용 단계·조절 항목(최대 20개, 문자열·정수·실수·bool)은 통과한다.
 
     Args:
         없음.
 
     Returns:
-        None: 검사 통과와 정규식 일치를 확인한다.
+        None: 예외가 없음을 확인한다.
     """
     knobs = {"prompt_version": "v1", "rrf_k": 60, "temperature": 0.2, "rerank": True}
     check_stage_knobs("search", knobs | {f"x.{i}": i for i in range(16)})
     check_stage_knobs(None, {})
-    sql = Path("infra/migrations/platform/20261029_KAN-90_experiment_stage_knobs.sql").read_text()
-    assert re.findall(r'like_regex "([^"]+)" flag "i"', sql) == [SECRET_KNOB_PATTERN]
+
+
+def test_migration_secret_pattern_matches_the_app_constant():
+    """마이그레이션 CHECK의 비밀 키 정규식이 앱 상수와 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 정규식 일치를 확인한다. 저장소가 없는 Docker 검사에서는 건너뛴다.
+    """
+    migration = MIGRATIONS / "20261029_KAN-90_experiment_stage_knobs.sql"
+    if not migration.exists():
+        pytest.skip("마이그레이션 파일은 auth-database 잡에서 검사")
+    pattern = re.findall(r'like_regex "([^"]+)" flag "i"', migration.read_text())
+    assert pattern == [SECRET_KNOB_PATTERN]

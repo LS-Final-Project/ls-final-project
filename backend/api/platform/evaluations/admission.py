@@ -72,7 +72,10 @@ def config_payload(experiment: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_stage_knobs(stage: object, knobs: object) -> None:
-    """실험 등록 전에 단계와 조절 항목을 검사한다. 등록 경로와 fixture가 쓴다.
+    """단계와 조절 항목을 검사한다.
+
+    지금은 단위 테스트와 DB CHECK(비밀 키·객체 여부)로만 강제한다. 실험 등록 API가 생기면 그 경로가 이
+    함수를 호출한다.
 
     Args:
         stage: 단계(classification·search·draft·rfp) 또는 None.

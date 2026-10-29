@@ -12,6 +12,7 @@ from backend.api.platform.evaluations.admission import (
     CONFIG_FIELDS,
     accept_run,
     canonical_hash,
+    config_payload,
     get_run,
     validate_smoke_experiment,
 )
@@ -3202,13 +3203,13 @@ def locked_summary(dsn, run_id, access, monkeypatch, **changes):
             .fetchone()
         )
         experiment.update(changes)
-        digest = canonical_hash({k: experiment[k] for k in CONFIG_FIELDS})
+        digest = canonical_hash(config_payload(experiment))
         for column, value in {**changes, "config_hash": digest}.items():
             conn.execute(
                 psycopg.sql.SQL("UPDATE evaluation.experiments SET {}=%s WHERE id=%s").format(
                     psycopg.sql.Identifier(column)
                 ),
-                (value, experiment["id"]),
+                (Jsonb(value) if isinstance(value, dict) else value, experiment["id"]),
             )
     access.approved_config_hashes = frozenset({digest})
     golds = {metric: locked_gold(metric) for metric in LOCKED_GOLD}
@@ -3216,6 +3217,43 @@ def locked_summary(dsn, run_id, access, monkeypatch, **changes):
     locks = {metric: lock for _, table in golds.values() for metric, lock in table.items()}
     monkeypatch.setattr(summary, "GOLD_LOCKS", locks)
     return golds
+
+
+def test_summary_accepts_locked_run_with_stage_and_knobs(
+    summary_client,
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+):
+    """stage·knobs가 있는 잠금 경로 실험도 요약의 구성 hash 재계산을 통과한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: 잠금표 교체.
+
+    Returns:
+        None: hash 불일치(409) 없이 200을 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    locked_summary(
+        evaluation_database,
+        cs_run,
+        cs_access,
+        monkeypatch,
+        stage="classification",
+        knobs={"temperature": 0.2, "prompt_version": "v1"},
+    )
+    response = client.get(url)
+    assert response.status_code == 200, response.text
 
 
 def store_locked(dsn, run_id, golds, metric, scoring_version="locked-v1"):
