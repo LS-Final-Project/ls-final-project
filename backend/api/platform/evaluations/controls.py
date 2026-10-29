@@ -59,7 +59,7 @@ async def control_run(
                 "c.version,c.lease_expires_at>clock_timestamp() AS lease_live "
                 "FROM evaluation.runs r JOIN evaluation.run_control c ON c.run_id=r.id "
                 "JOIN evaluation.experiments e ON e.id=r.experiment_id "
-                "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+                "JOIN evaluation.admission_receipts a ON a.run_id=r.id AND a.origin='ACCEPT' "
                 "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s "
                 "FOR UPDATE OF c",
                 (run_id, actor, actor),

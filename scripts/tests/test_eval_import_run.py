@@ -245,6 +245,10 @@ class ImportRunTests(unittest.TestCase):
         self.assertEqual(summary["config_hash"], eval_import_run.hashes(plan.body)["config_hash"])
         for text in ("T1", SECRET, "WARRANTY", "RETURN"):
             self.assertNotIn(text, printed)
+        self.assertEqual(
+            plan.import_ref,
+            hashlib.sha256((self.root / "run.json").read_bytes()).hexdigest()[:12],
+        )
         self.assertEqual(plan.attempts["T3"], ("SCHEMA_VIOLATION", None))
         self.assertEqual(plan.attempts["T1"], ("VALID", PREDICTION))
         body = plan.body

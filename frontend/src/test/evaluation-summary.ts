@@ -14,7 +14,7 @@ export function summaryFixture(): RunSummary {
     latency_ms: { reported_count: 3, missing_count: 0, p50: 5, p95: 8 },
   };
   return structuredClone({
-    report_version: 'cs-run-summary-v2', run_id: '22222222-2222-4222-8222-222222222222',
+    report_version: 'cs-run-summary-v2', run_id: '22222222-2222-4222-8222-222222222222', origin: 'ACCEPT',
     status: 'PARTIAL', generated_at: '2026-10-27T10:00:00Z', data_origin: 'synthetic',
     quality_available: false, quality_unavailable_reason: 'GOLD_NOT_CONNECTED',
     target_count: 3, targets_without_first_attempt: 0, first, all: first, synthetic_quality: null, locked_quality: null, comparison_key: 'c'.repeat(64),

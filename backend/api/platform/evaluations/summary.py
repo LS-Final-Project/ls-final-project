@@ -297,6 +297,8 @@ class EvaluationRunSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
     report_version: Literal["cs-run-summary-v2"] = "cs-run-summary-v2"
     run_id: UUID
+    # 접수 영수증 출처. IMPORT는 scripts/eval_import_run.py가 반입한 실측 실행이다(KAN-90 4차).
+    origin: Literal["ACCEPT", "IMPORT"]
     status: RunStatus
     generated_at: datetime
     data_origin: Literal["synthetic", "demo", "real"]
@@ -335,7 +337,8 @@ def get_run_summary(
             conn.execute("SET LOCAL statement_timeout='5s'")
             with conn.cursor(row_factory=dict_row) as cursor:
                 row = cursor.execute(
-                    "SELECT e.*,r.provider,r.runner_kind,r.status,transaction_timestamp() AS generated_at "
+                    "SELECT e.*,r.provider,r.runner_kind,r.status,a.origin,"
+                    "transaction_timestamp() AS generated_at "
                     "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
                     "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
                     "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
@@ -348,8 +351,10 @@ def get_run_summary(
                 _validate_locked_run(row, access)
             else:
                 validate_smoke_experiment(row, access)
+                # 반입 실행은 합성 smoke가 아니므로 smoke 경로로 열지 않는다.
                 if (
-                    not matches_profile(row)
+                    row["origin"] != "ACCEPT"
+                    or not matches_profile(row)
                     or row["provider"] != "fake"
                     or row["runner_kind"] not in {"local", "test"}
                 ):
@@ -413,6 +418,7 @@ def get_run_summary(
             )
             return EvaluationRunSummary(
                 run_id=run_id,
+                origin=row["origin"],
                 status=row["status"],
                 generated_at=row["generated_at"],
                 data_origin=row["data_origin"],

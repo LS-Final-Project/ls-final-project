@@ -6,12 +6,20 @@ import io
 import json
 from pathlib import Path
 
+# 백엔드 검사 이미지는 scripts/check_backend.py만 복사하므로 거기서는 건너뛰고, 전체 checkout인 auth-database
+# 작업에서 실행한다.
+from uuid import UUID
+
 import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
 
-# 백엔드 검사 이미지는 scripts/check_backend.py만 복사하므로 거기서는 건너뛰고, 전체 checkout인 auth-database
-# 작업에서 실행한다.
+from backend.api.platform.evaluations import summary as summary_module
+from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.evaluations.summary import get_run_summary
+from backend.shared.errors import ApplicationError
+from backend.shared.settings import Settings
+
 eval_import_run = pytest.importorskip("scripts.eval_import_run")
 GoldLock = pytest.importorskip("eval.cs_gold_locks").GoldLock
 
@@ -186,12 +194,27 @@ def test_import_round_trip_registers_scores_and_stops_on_repeat(
             )
             assert float(metrics["cs_locked_category_first_accuracy"]) == pytest.approx(1 / 3)
             assert float(metrics["cs_locked_urgency_first_accuracy"]) == pytest.approx(2 / 3)
-            assert not conn.execute(
-                "SELECT 1 FROM evaluation.admission_receipts WHERE run_id=%s",
-                (summary["run_id"],),
-            ).fetchone()
+            receipt = "SELECT origin,import_ref,response_request_id FROM evaluation.admission_receipts WHERE run_id=%s"
+            [first] = conn.execute(receipt, (summary["run_id"],)).fetchall()
+            run_ref = hashlib.sha256((tmp_path / "run.json").read_bytes()).hexdigest()[:12]
+            assert first[:2] == ("IMPORT", run_ref) and first[2] is not None
         again_code, again = run([*argv, "--execute", "--actor", str(actor)], locks)
         assert (again_code, again["status"], again["run_id"]) == (0, "EXISTS", summary["run_id"])
+        with psycopg.connect(evaluation_database) as conn:
+            assert conn.execute(receipt, (summary["run_id"],)).fetchall() == [first]
+        # 영수증이 생겨 summary가 반입 실행을 연다. 승인 목록 검사는 그대로라 승인 전에는 403이다.
+        settings = Settings()
+        access = EvaluationAccessSettings()
+        run_id = UUID(summary["run_id"])
+        with pytest.raises(ApplicationError) as denied:
+            get_run_summary(settings, access, actor, run_id)
+        assert (denied.value.status_code, denied.value.code) == (403, "EXPERIMENT_NOT_APPROVED")
+        # 반입 집계는 합성 잠금표로 저장했으므로 요약도 같은 잠금표로 검증한다.
+        monkeypatch.setattr(summary_module, "GOLD_LOCKS", summary_module.GOLD_LOCKS | locks)
+        approved = access.model_copy(update={"approved_config_hashes": {summary["config_hash"]}})
+        report = get_run_summary(settings, approved, actor, run_id)
+        assert (report.origin, report.status, report.target_count) == ("IMPORT", "PARTIAL", 3)
+        assert report.all.stored_raw_response_count == 0
     finally:
         cleanup(evaluation_database, actor)
 
@@ -213,6 +236,9 @@ def cleanup(evaluation_database, actor):
         conn.execute(f"DELETE FROM evaluation.metrics WHERE run_id IN ({runs})", (actor,))
         conn.execute(f"DELETE FROM evaluation.case_attempts WHERE case_id IN ({cases})", (actor,))
         conn.execute(f"DELETE FROM evaluation.cases WHERE run_id IN ({runs})", (actor,))
+        conn.execute(
+            f"DELETE FROM evaluation.admission_receipts WHERE run_id IN ({runs})", (actor,)
+        )
         conn.execute(f"DELETE FROM evaluation.runs WHERE id IN ({runs})", (actor,))
         conn.execute(
             f"DELETE FROM evaluation.experiment_targets WHERE experiment_id IN ({mine})", (actor,)
@@ -292,6 +318,13 @@ def test_import_with_audit_fills_attempt_columns(
                 "ORDER BY c.target_ref",
                 (summary["run_id"],),
             ).fetchall()
+            # 감사 포함 반입도 같은 트랜잭션에서 IMPORT 영수증 한 행을 남긴다.
+            receipts = conn.execute(
+                "SELECT origin,import_ref FROM evaluation.admission_receipts WHERE run_id=%s",
+                (summary["run_id"],),
+            ).fetchall()
+        run_ref = hashlib.sha256((tmp_path / "run.json").read_bytes()).hexdigest()[:12]
+        assert receipts == [("IMPORT", run_ref)]
         tail = (813, 900, 40, 12, None, 952, 2, "0.000123", "gemini-x@2026-10-01", "gemini-x", None)
         assert rows == [
             (IDS[0], "VALID", None, "x-0429", ["STOP"], "1" * 64, *tail),
