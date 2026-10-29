@@ -206,3 +206,25 @@ test('접수 실행은 반입 배지 없이 단계 지표·형식 위반율 미�
   expect(screen.queryByText('반입')).toBeNull();
   expect(screen.getAllByText('미저장').length).toBe(2);
 });
+
+test('실험 설정 표는 단계·조절값·모델·판본과 구성 hash 앞 12자를 보이고, 없으면 미제공이다', async () => {
+  const data = summaryFixture();
+  Object.assign(data, { experiment: { experiment_id: '33333333-3333-4333-8333-333333333333', name: 'smoke fixed', purpose: 'smoke',
+    stage: 'draft', knobs: { thinking_budget: 512, cached: false }, model_id: 'fake', prompt_version: 'cs-smoke-fixed-v1',
+    input_builder_version: 'cs-classification-input-v4', index_version: null, config_hash: 'abcdef0123456789'.repeat(4),
+    data_split: null, data_origin: 'synthetic' } });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view();
+  const table = await screen.findByRole('region', { name: '실험 설정 표' });
+  expect(table.textContent).toContain('단계(stage)draft');
+  expect(table.textContent).toContain('thinking_budget=512 · cached=false');
+  expect(table.textContent).toContain('구성 hashabcdef012345');
+  expect(table.textContent).not.toContain('abcdef0123456789abcdef');
+  expect(table.textContent).toContain('색인 판본미지정');
+  expect(table.textContent).toContain('분할 해당 없음');
+  cleanup();
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: summaryFixture() })));
+  view();
+  await screen.findByRole('heading', { name: '실험 설정' });
+  expect(screen.getByText('미제공')).toBeTruthy();
+});

@@ -286,3 +286,35 @@ for (const [name, change] of Object.entries(extraChanges)) {
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   });
 }
+
+/** 실험 설정 블록을 만든다. Args: 없음. Returns: 서버 SummaryExperiment 모양의 합성 값. */
+const experimentBlock = () => ({ experiment_id: '33333333-3333-4333-8333-333333333333', name: 'import flash-lite valid', purpose: 'pipeline',
+  stage: 'classification', knobs: { thinking_budget: 0, temperature: 0.2, mode: 'fast', cached: true }, model_id: 'gemini-x',
+  prompt_version: 'v3', input_builder_version: 'cs-classification-input-v4', index_version: null, config_hash: 'd'.repeat(64),
+  data_split: 'valid', data_origin: 'real' });
+
+test('실험 설정은 experiments 값 그대로 투영하고 추가 필드는 버린다', async t => {
+  const data = summaryFixture();
+  Object.assign(data, { experiment: { ...experimentBlock(), dataset_manifest: { secret: 1 } } });
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.deepEqual(result.experiment, experimentBlock());
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});
+
+for (const [name, change] of Object.entries<(e: Record<string, unknown>) => void>({
+  hash: e => { e.config_hash = 'D'.repeat(64); },
+  knob_object: e => { e.knobs = { nested: { a: 1 } }; },
+  stage: e => { e.stage = 'ranking'; },
+  purpose: e => { e.purpose = 'production'; },
+  id: e => { e.experiment_id = 'not-uuid'; },
+})) {
+  test(`실험 설정의 잘못된 ${name} 응답을 거부한다`, async t => {
+    const data: Record<string, any> = summaryFixture();
+    const experiment: Record<string, unknown> = experimentBlock();
+    change(experiment);
+    data.experiment = experiment;
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}

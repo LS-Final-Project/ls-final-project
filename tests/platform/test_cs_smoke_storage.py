@@ -3261,13 +3261,17 @@ def test_summary_comparison_key_changes_with_one_condition(
     assert "policy-secret-v2" not in response.text and "policy-secret-v2" not in caplog.text
 
 
-def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):
+def test_summary_http_preserves_nulls_and_excludes_content(
+    summary_client, settings, cs_access, cs_run, evaluation_database
+):
     """실행 전후의 저장 집계를 허용된 필드만으로 반환한다.
 
     Args:
         summary_client: 실제 세션 HTTP.
         settings: 합성 worker 설정.
         cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB(실험 설정 대조용).
 
     Returns:
         None: 빈 값·부분 보고·민감 필드 비노출·캐시 금지를 검증한다.
@@ -3300,11 +3304,29 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "locked_quality",
         "comparison_key",
         "stage_metrics",
+        "experiment",
     }
     assert data["stage_metrics"] == []
     assert data["synthetic_quality"] is None and data["locked_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
     assert data["origin"] == "ACCEPT"
+    # 실험 설정 블록(KAN-90 5차)은 experiments 표 값 그대로다.
+    experiment = data["experiment"]
+    assert set(experiment) == {
+        "experiment_id", "name", "purpose", "stage", "knobs", "model_id", "prompt_version",
+        "input_builder_version", "index_version", "config_hash", "data_split", "data_origin",
+    }  # fmt: skip
+    with psycopg.connect(evaluation_database) as conn:
+        stored = conn.execute(
+            "SELECT e.id::text,e.name,e.purpose,e.stage,e.knobs,e.model_id,e.prompt_version,"
+            "e.input_builder_version,e.index_version,e.config_hash,e.data_split,e.data_origin "
+            "FROM evaluation.experiments e JOIN evaluation.runs r ON r.experiment_id=e.id WHERE r.id=%s",
+            (cs_run,),
+        ).fetchone()
+    assert tuple(experiment[key] for key in (
+        "experiment_id", "name", "purpose", "stage", "knobs", "model_id", "prompt_version",
+        "input_builder_version", "index_version", "config_hash", "data_split", "data_origin",
+    )) == stored  # fmt: skip
     assert data["quality_available"] is False
     assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
     assert data["first"]["stored_attempt_count"] == 3
@@ -3528,6 +3550,12 @@ def test_summary_accepts_locked_run_with_stage_and_knobs(
     )
     response = client.get(url)
     assert response.status_code == 200, response.text
+    # 실험 설정 블록(KAN-90 5차)이 stage·knobs를 그대로 낸다.
+    experiment = response.json()["data"]["experiment"]
+    assert (experiment["stage"], experiment["knobs"]) == (
+        "classification",
+        {"temperature": 0.2, "prompt_version": "v1"},
+    )
 
 
 def store_locked(dsn, run_id, golds, metric, scoring_version="locked-v1"):

@@ -114,6 +114,27 @@ function StageMetricsView({ blocks }: { blocks: NonNullable<Summary['stage_metri
   </section>;
 }
 
+/** 실험 설정(단계·조절값·모델·판본·구성 hash 앞 12자)을 표시한다. Args: 실험 설정 또는 미제공. Returns: 실험 설정 절. */
+function ExperimentView({ experiment }: { experiment: Summary['experiment'] }) {
+  const knobs = experiment ? Object.entries(experiment.knobs) : [];
+  return <section aria-labelledby="experiment-config-title">
+    <h3 id="experiment-config-title">실험 설정</h3>
+    {!experiment ? <p>미제공</p> : <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label="실험 설정 표">
+      <table className="evaluation-metrics"><caption>{experiment.name} · 목적 {experiment.purpose} · 분할 {experiment.data_split ?? '해당 없음'}</caption>
+        <tbody>{([
+          ['단계(stage)', experiment.stage ?? '미지정'],
+          ['조절값(knobs)', knobs.length ? knobs.map(([key, value]) => `${key}=${String(value)}`).join(' · ') : '없음'],
+          ['모델', experiment.model_id],
+          ['프롬프트 판본', experiment.prompt_version ?? '미지정'],
+          ['입력 판본', experiment.input_builder_version ?? '미지정'],
+          ['색인 판본', experiment.index_version ?? '미지정'],
+          ['구성 hash', experiment.config_hash.slice(0, 12)],
+        ] as const).map(([label, value]) => <tr key={label}><th scope="row">{label}</th><td>{value}</td></tr>)}</tbody>
+      </table>
+    </div>}
+  </section>;
+}
+
 /** 잠금 정답 품질을 응답 값 그대로 표시하고 판정하지 않는다. Args: 검증한 요약. Returns: 잠금 품질 절. */
 function LockedQualityView({ data }: { data: Summary }) {
   const quality = data.locked_quality;
@@ -153,6 +174,7 @@ export default function RunSummary({ runId }: { runId: string }) {
     {error && <p role="alert">{error} 실행 현황의 새로고침으로 다시 확인하세요.</p>}
     {data && <>
       <p>고정 대상 {data.target_count}건 · 최초 시도 미저장 {data.targets_without_first_attempt}건</p>
+      <ExperimentView experiment={data.experiment ?? null} />
       <p className="evaluation-caption">집계 시점 상태: {statusLabels[data.status]} · <time dateTime={data.generated_at}>{new Date(data.generated_at).toLocaleString('ko-KR')}</time></p>
       <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label="최초·재시도·전체 집계 표">
         <table className="evaluation-metrics"><caption>저장된 분류 시도 기준 · 지연 단위 ms</caption>

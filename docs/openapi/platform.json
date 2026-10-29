@@ -745,6 +745,16 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "experiment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryExperiment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "first": {
             "$ref": "#/components/schemas/AttemptSummary"
           },
@@ -3008,6 +3018,150 @@
           "pricing_version_count"
         ],
         "title": "SummaryCost",
+        "type": "object"
+      },
+      "SummaryExperiment": {
+        "additionalProperties": false,
+        "description": "\uc2e4\ud589\uc758 \uc2e4\ud5d8 \uc124\uc815(KAN-90 5\ucc28). experiments \ud45c\uc5d0 \uc774\ubbf8 \uc788\ub294 \uac12\ub9cc \uc62e\uae30\uba70 \ucd94\uac00 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "config_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "data_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "valid",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Split"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "input_builder_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Builder Version"
+          },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Knobs",
+            "type": "object"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "purpose": {
+            "enum": [
+              "smoke",
+              "rule_replay",
+              "pipeline"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "name",
+          "purpose",
+          "stage",
+          "knobs",
+          "model_id",
+          "prompt_version",
+          "input_builder_version",
+          "index_version",
+          "config_hash",
+          "data_split",
+          "data_origin"
+        ],
+        "title": "SummaryExperiment",
         "type": "object"
       },
       "SummaryLatency": {
