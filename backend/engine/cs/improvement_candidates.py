@@ -281,7 +281,10 @@ def fault_candidates(
                 FaultCandidate(
                     outcome="ELIGIBLE",
                     reason_code="REPEAT_90D_3_CUSTOMERS",
-                    reason=f"{WINDOW_DAYS}일 안 서로 다른 고객 {best}/{FAULT_CUSTOMERS}곳.",
+                    reason=(
+                        f"{WINDOW_DAYS}일 안 서로 다른 고객 {FAULT_CUSTOMERS}/{FAULT_CUSTOMERS}곳 도달"
+                        + (f"(한 구간 최대 {best}곳)." if best > FAULT_CUSTOMERS else ".")
+                    ),
                     reached_at=reached,
                     required_customers=FAULT_CUSTOMERS,
                     firmware_rule_applied=False,
@@ -420,6 +423,10 @@ def evaluate(
     """고장·문서 후보를 한 번에 판정한다."""
     if as_of.tzinfo is None:
         raise ValueError("as_of needs a time zone")
+    if any(c.known_at.tzinfo is None for c in cases) or any(
+        d.known_at.tzinfo is None for d in signals
+    ):
+        raise ValueError("known_at needs a time zone")
     return CandidateReport(
         version=CANDIDATE_RULES_VERSION,
         as_of=as_of,

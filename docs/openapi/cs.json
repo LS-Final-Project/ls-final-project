@@ -2194,6 +2194,51 @@
         "title": "ImprovementRequest",
         "type": "object"
       },
+      "ImprovementReviewRequest": {
+        "additionalProperties": false,
+        "description": "DRAFT \u2192 REVIEWED. The agent may fix the proposed departments while reviewing.",
+        "properties": {
+          "proposed_depts": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Depts"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ImprovementReviewRequest",
+        "type": "object"
+      },
       "InstalledUnit": {
         "properties": {
           "commissioning_date": {
@@ -4117,6 +4162,51 @@
         "title": "ReturnSubtypeRequest",
         "type": "object"
       },
+      "ReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "ACCEPT",
+              "REWORK"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "result_version": {
+            "description": "The result version that was reviewed.",
+            "minimum": 1.0,
+            "title": "Result Version",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "result_version",
+          "decision"
+        ],
+        "title": "ReviewRequest",
+        "type": "object"
+      },
       "SendRequest": {
         "additionalProperties": false,
         "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
@@ -5631,96 +5721,6 @@
           "dept_results"
         ],
         "title": "Workflow",
-        "type": "object"
-      },
-      "backend__api__cs__improvements__schemas__ReviewRequest": {
-        "additionalProperties": false,
-        "description": "DRAFT \u2192 REVIEWED. The agent may fix the proposed departments while reviewing.",
-        "properties": {
-          "proposed_depts": {
-            "anyOf": [
-              {
-                "items": {
-                  "enum": [
-                    "TS_LV",
-                    "TS_MV",
-                    "TS_TRF",
-                    "TS_AUTO",
-                    "TS_ENERGY",
-                    "RND_FW",
-                    "QA_CLAIM",
-                    "FIELD_SVC",
-                    "CERT",
-                    "SALES_OPS",
-                    "SCM",
-                    "WARRANTY_DESK"
-                  ],
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proposed Depts"
-          },
-          "version": {
-            "description": "The request version the user decided on.",
-            "minimum": 1.0,
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version"
-        ],
-        "title": "ReviewRequest",
-        "type": "object"
-      },
-      "backend__api__cs__workflow__schemas__ReviewRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "decision": {
-            "enum": [
-              "ACCEPT",
-              "REWORK"
-            ],
-            "title": "Decision",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "result_version": {
-            "description": "The result version that was reviewed.",
-            "minimum": 1.0,
-            "title": "Result Version",
-            "type": "integer"
-          },
-          "version": {
-            "description": "The workflow version the user decided on.",
-            "minimum": 0.0,
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "result_version",
-          "decision"
-        ],
-        "title": "ReviewRequest",
         "type": "object"
       }
     }
@@ -8561,7 +8561,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/backend__api__cs__improvements__schemas__ReviewRequest"
+                "$ref": "#/components/schemas/ImprovementReviewRequest"
               }
             }
           },
@@ -10457,7 +10457,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/backend__api__cs__workflow__schemas__ReviewRequest"
+                "$ref": "#/components/schemas/ReviewRequest"
               }
             }
           },

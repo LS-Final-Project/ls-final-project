@@ -322,7 +322,7 @@ class Versioned(BaseModel):
     version: int = Field(ge=1, description="The request version the user decided on.")
 
 
-class ReviewRequest(Versioned):
+class ImprovementReviewRequest(Versioned):
     """DRAFT → REVIEWED. The agent may fix the proposed departments while reviewing."""
 
     proposed_depts: list[TransferDepartment] | None = None

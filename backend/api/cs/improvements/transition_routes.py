@@ -31,9 +31,9 @@ from backend.api.cs.improvements.schemas import (
     DeptActionRequest,
     DeptReplyRequest,
     FollowupPlanRequest,
+    ImprovementReviewRequest,
     RequestDetail,
     ResendRequest,
-    ReviewRequest,
     SendRequest,
     Versioned,
 )
@@ -123,7 +123,7 @@ async def department_row(conn: Any, request: Row, dept_code: str) -> Row:
 )
 async def review(
     request_id: UUID,
-    payload: ReviewRequest,
+    payload: ImprovementReviewRequest,
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[RequestDetail]:
@@ -138,6 +138,10 @@ async def review(
         if row["cs_owner"] is None:
             values["cs_owner"] = principal.user_id
         if payload.proposed_depts is not None:
+            if row["request_type"] == "FAULT" and not payload.proposed_depts:
+                raise ApplicationError(
+                    422, "CS_DEPARTMENT_REQUIRED", "A fault request needs a proposed department."
+                )
             values["proposed_depts"] = sorted(set(payload.proposed_depts))
         await repository.update_request(conn, request_id, row["version"], values)
         fresh = await commit_transition(
