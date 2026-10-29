@@ -78,7 +78,9 @@ def run_draft_attempt(
 
     Returns:
         DraftAttempt: 내부 시도 기록. 입력 실패는 호출하지 않으며 자동 재시도하지 않는다.
-            금지 약속은 SCHEMA_VIOLATION과 CS_FORBIDDEN_COMMITMENT로 남는다.
+            금지 약속은 SCHEMA_VIOLATION과 CS_FORBIDDEN_COMMITMENT로 남는다. 내용 규칙 위반은
+            SCHEMA_VIOLATION과 validate_output의 코드(drafting.DRAFT_VALIDATION_CODES)로, 파싱·스키마 위반은
+            CS_INVALID_OUTPUT으로 남는다.
     """
     if type(attempt_number) is not int or attempt_number < 1:
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
