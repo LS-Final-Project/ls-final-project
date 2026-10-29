@@ -121,6 +121,13 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/return-subtype",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/stats/overview",
       "methods": [
         "GET"

@@ -48,6 +48,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | `POST /dept-results/{result_id}/review` (`result_version`, `decision`, `note`) | cs_agent | `ACCEPT`: 결과 `ACCEPTED`, 상태 유지. `REWORK`: 결과 `REWORK_REQUESTED`, 같은 부서로 새 회차 `TRANSFERRED`. 보완 요청은 `note` 필수 |
 | `POST /close` | cs_agent | `ANSWERED` 또는 `IN_REVIEW` → `CLOSED` |
 | `PUT /owner` (`owner_user_id`) | C/S 부서(`GCS_L1`) manager | 상태 변경 없음. 담당자 재배정 |
+| `POST /return-subtype` (`return_subtype`, `reason`) | cs_agent | 상태 변경 없음. 검사 뒤 반품 사유 확정(`DEFECT`·`NON_DEFECT`)과 사유·확정자·시각 기록(KAN-193). `RECEIVED`·`CLOSED`에서는 409. 다시 확정하면 덮어쓰고 판본이 오른다 |
 | `POST /api/v1/cs/tickets/{ticket_id}/resolution-case` | cs_agent | `CLOSED`에서만. 상태 변경 없음. 해결 사례 1건 등록(선택) |
 
 - **수신 ≠ 검토 ≠ 완료**: 부서가 등록한 결과는 `SUBMITTED`이고, cs_agent가 채택해야 `ACCEPTED`가 된다. 채택해도 문의는 `IN_REVIEW`로 남고 종결은 cs_agent가 따로 확정한다.
@@ -60,6 +61,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
   - 둘 다 감사에 동작 이름과 `message_id`를 남긴다.
 - **부서 사용자의 조회**: `GET .../workflow`와 모든 동작 응답에서 dept_staff와 다른 부서 manager는 **자기 부서의** 이관 회차와 처리 결과만 본다. 다른 부서가 보고한 내용은 보이지 않는다.
 - **해결 사례 등록**(워크플로 ⑧): 종결된 문의에만, 문의당 1건(이미 있으면 409 `CS_RESOLUTION_CASE_EXISTS`). 요청은 사람이 확인한 `fault_id`(`FLT-000` 형식), 증상·원인·원인 유형(`SITE_CONDITION`·`HARDWARE`·`SETTING`·`WEAR_PART`·`FIRMWARE`)·조치·현장 방문·처리 부서와 선택 칸(RMA 번호, 펌웨어 판본, 재발 방지), 종결 화면의 업무 판본 `version`이다. `dept_result_id`를 주면 이 문의에서 **채택된** 결과만 쓸 수 있다(아니면 422 `CS_DEPT_RESULT_NOT_ACCEPTED`). 서버가 제품 코드(문의 값), 출처(`manual`/`cs_api`, `SYSTEM`, 문의의 `data_origin`), `resolved_at`(종결 시각), `known_at`(등록 시각, DB 시계 기준), `registered_by`를 정한다. 등록 즉시 문의 상세의 근거 사례로 보인다. 종결 뒤 고객 회신으로 문의가 다시 열려도 등록한 사례는 그대로 남는다(재검토 시 처리는 KAN-110에서 정한다). 업무 판본은 바뀌지 않고, 감사에 `resolution_case`와 등록한 업무 판본을 남긴다. 서비스 계정은 사례를 삭제할 수 없다. 마이그레이션은 `20261028_KAN-108_resolution_cases.sql`이다.
+- **반품 사유 확정**(KAN-193): 접수 시 LLM이 읽은 `return_subtype`은 고객 주장이고, 검사 뒤 cs_agent가 `POST /return-subtype`으로 기록한 값만 확정이다(`provenance_kind=human_input`, 감사에 남김). 모델 결과(`ai_draft`)로는 확정할 수 없다. 규칙(`route`)은 확정값을 우선 쓴다. 응답 `return_subtype_confirmed`·`_reason`·`_by`·`_at`은 네 칸이 함께 있거나 함께 null이다(DB CHECK). 마이그레이션은 `20261030_KAN-193_return_subtype_confirmed.sql`이다.
 - **담당자**: C/S 서비스는 identity 스키마를 읽을 수 없어 새 담당자의 역할을 서버에서 확인하지 않는다. 화면은 등록된 cs_agent만 고르게 한다.
 - **부서 코드**: `backend/shared/departments.py`가 `identity.departments`와 같은 목록을 두고, 테스트가 두 목록이 같은지 확인한다.
 - 서비스 계정(cs_app)은 업무 상태·이관·부서 결과 행을 삭제할 수 없다. 문의당 열린 이관은 하나다(부분 유일 인덱스).
@@ -113,7 +115,8 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | `decide` | 위 입력 전부 | 위 결과 전부 |
 
 - **보조 분류는 입력이 아니다.** `decide`에는 `secondary_category` 인자가 없다. 반품 하위유형은 주분류가 `RETURN`일 때만 쓰며, 다른 주분류에 보조 반품 의도가 있어도 부서가 바뀌지 않는다.
-- **반품 하위유형 미확인 ≠ 비불량.** `NON_DEFECT`로 확인된 반품만 SCM(`RT-ALL-RETURN-NON_DEFECT`)으로 간다. 하위유형이 null이면 제품군 기본 반품 부서를 쓰고 `review_reasons`에 `RETURN_SUBTYPE_UNCONFIRMED`를 넣어 사람이 확인하게 한다.
+- **반품 하위유형: 주장과 확정(KAN-193).** `route(family, category, return_subtype, confirmed_subtype=…)`에서 `return_subtype`은 접수 시 고객 주장(LLM 값), `confirmed_subtype`은 검사 뒤 사람이 업무 상태에 기록한 값(`POST …/workflow/return-subtype`)이다. 확정값이 있으면 확정값, 없으면 주장값으로 판단한다. 유효값이 `NON_DEFECT`면 SCM(`RT-ALL-RETURN-NON_DEFECT`)으로 가되, 주장값만으로 간 경우 `review_reasons`에 `RETURN_SUBTYPE_STATED_ONLY`를 넣는다. 유효값이 null이면 제품군 기본 반품 부서를 쓰고 `RETURN_SUBTYPE_UNCONFIRMED`를 넣는다. null은 비불량이 아니다.
+- **사람 확인 사유의 소비 의무.** `review_reasons`는 표시가 아니라 뒤 단계의 조건이다. 규칙 결과를 문의에 저장하는 KAN-107과 답변 초안·발송(KAN-106·KAN-74)은 `RETURN_SUBTYPE_STATED_ONLY`·`RETURN_SUBTYPE_UNCONFIRMED`가 있는 반품에서 반품 사유 확정·보증 해당 여부 확정 문구를 내지 않고, 확정은 cs_agent의 `return-subtype` 기록으로만 해소한다. 이 PR은 사유를 만들기만 하며 차단은 각 소비 지점의 완료 조건이다.
 - **에스컬레이션은 후보다.** `escalation_dept`와 조건 문구를 함께 돌려줄 뿐 자동으로 이관하지 않는다. 조치 유형(RMA·현장·안전)에 따른 에스컬레이션 규칙은 이 함수가 판단하지 않는다.
 - **SLA 시계**: 모든 정책이 24x7 달력 시간이다. 주말·야간 보정이 없고, 고객 회신 대기 시간만 경과 시간에서 뺀다. 위험(`AT_RISK`)은 목표의 75% 이상, 해결 전 목표 이상은 `BREACHED`, 해결 후 목표 이하(같음 포함)는 `MET`. 고객 무응답 종결은 `N/A`.
 - **무효 입력**: 모르는 분류·긴급도·등급·우선순위·제품·제품군·하위유형, 시간대 없는 시각, 종료가 접수보다 이른 시각, 음수 대기 시간은 `RuleInputError`. 추측해서 값을 채우지 않는다.

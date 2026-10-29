@@ -355,6 +355,10 @@
         "customer_sent_at": null,
         "closed_at": null,
         "closed_by": null,
+        "return_subtype_confirmed": null,
+        "return_subtype_confirmed_reason": null,
+        "return_subtype_confirmed_by": null,
+        "return_subtype_confirmed_at": null,
         "transfers": [
           {
             "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",

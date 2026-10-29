@@ -23,6 +23,7 @@ from backend.api.cs.workflow.schemas import (
     OwnerRequest,
     ReasonRequest,
     ResolutionCaseCreate,
+    ReturnSubtypeRequest,
     ReviewRequest,
     Transfer,
     TransferRequest,
@@ -462,6 +463,45 @@ async def reassign_owner(
                 "reassign_owner",
                 {"owner_user_id": payload.owner_user_id},
             )
+        data = await view(conn, workflow, principal)
+    return respond(request, data)
+
+
+@router.post(
+    "/return-subtype",
+    response_model=SuccessResponse[Workflow],
+    operation_id="cs_confirm_return_subtype",
+    openapi_extra=PARTIAL,
+)
+async def confirm_return_subtype(
+    ticket_id: UUID,
+    payload: ReturnSubtypeRequest,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[Workflow]:
+    """A C/S agent records the return subtype found by inspection (KAN-193).
+
+    This is the only way a return subtype becomes confirmed: the LLM value on the ticket is
+    what the customer stated at intake. Not before review starts and not after closing. The
+    state does not change; confirming again overwrites with a new reason and version.
+    """
+    async with connection(request.app.state.settings) as conn:
+        workflow, _, _ = await begin(conn, principal, ticket_id)
+        require_role(principal, "cs_agent")
+        check(workflow, payload.version, "IN_REVIEW", "TRANSFERRED", "WAITING_CUSTOMER", "ANSWERED")
+        workflow = await save(
+            conn,
+            workflow,
+            principal.user_id,
+            "confirm_return_subtype",
+            {
+                "return_subtype_confirmed": payload.return_subtype,
+                "return_subtype_confirmed_reason": payload.reason,
+                "return_subtype_confirmed_by": principal.user_id,
+                "return_subtype_confirmed_at": await repository.database_now(conn),
+            },
+            provenance_kind="human_input",
+        )
         data = await view(conn, workflow, principal)
     return respond(request, data)
 

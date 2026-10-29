@@ -49,6 +49,10 @@ def not_started(ticket_id: UUID) -> Row:
         "customer_sent_at": None,
         "closed_at": None,
         "closed_by": None,
+        "return_subtype_confirmed": None,
+        "return_subtype_confirmed_reason": None,
+        "return_subtype_confirmed_by": None,
+        "return_subtype_confirmed_at": None,
     }
 
 

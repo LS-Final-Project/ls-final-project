@@ -19,6 +19,7 @@ Text = Annotated[str, Field(min_length=1, max_length=10_000)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 ReviewStatus = Literal["SUBMITTED", "ACCEPTED", "REWORK_REQUESTED"]
+ReturnSubtype = Literal["DEFECT", "NON_DEFECT"]
 
 
 class Transfer(BaseModel):
@@ -57,6 +58,14 @@ class Workflow(BaseModel):
     customer_sent_at: datetime | None
     closed_at: datetime | None
     closed_by: UUID | None
+    # KAN-193: what a person confirmed after inspection. The LLM `return_subtype` on the
+    # ticket is the customer's stated reason at intake and never fills these.
+    return_subtype_confirmed: ReturnSubtype | None = Field(
+        default=None, description="Confirmed by a C/S agent after inspection; null until then."
+    )
+    return_subtype_confirmed_reason: str | None = None
+    return_subtype_confirmed_by: UUID | None = None
+    return_subtype_confirmed_at: datetime | None = None
     transfers: list[Transfer] = Field(description="Oldest first.")
     dept_results: list[DeptResult] = Field(description="Oldest first.")
 
@@ -95,6 +104,14 @@ class ReviewRequest(Action):
 
 class OwnerRequest(Action):
     owner_user_id: UUID
+
+
+class ReturnSubtypeRequest(Action):
+    """A person's inspection result for a return (KAN-193). Always human_input; a model
+    result cannot be submitted here."""
+
+    return_subtype: ReturnSubtype
+    reason: Reason
 
 
 class ResolutionCaseCreate(Action):

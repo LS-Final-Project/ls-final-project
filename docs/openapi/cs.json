@@ -3924,6 +3924,39 @@
         "title": "ResponseMeta",
         "type": "object"
       },
+      "ReturnSubtypeRequest": {
+        "additionalProperties": false,
+        "description": "A person's inspection result for a return (KAN-193). Always human_input; a model\nresult cannot be submitted here.",
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "return_subtype": {
+            "enum": [
+              "DEFECT",
+              "NON_DEFECT"
+            ],
+            "title": "Return Subtype",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "return_subtype",
+          "reason"
+        ],
+        "title": "ReturnSubtypeRequest",
+        "type": "object"
+      },
       "ReviewRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5320,6 +5353,57 @@
               }
             ],
             "title": "Owner User Id"
+          },
+          "return_subtype_confirmed": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DEFECT",
+                  "NON_DEFECT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed by a C/S agent after inspection; null until then.",
+            "title": "Return Subtype Confirmed"
+          },
+          "return_subtype_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype Confirmed At"
+          },
+          "return_subtype_confirmed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype Confirmed By"
+          },
+          "return_subtype_confirmed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype Confirmed Reason"
           },
           "state": {
             "enum": [
@@ -9504,6 +9588,111 @@
           }
         },
         "summary": "Return Transfer",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/return-subtype": {
+      "post": {
+        "description": "A C/S agent records the return subtype found by inspection (KAN-193).\n\nThis is the only way a return subtype becomes confirmed: the LLM value on the ticket is\nwhat the customer stated at intake. Not before review starts and not after closing. The\nstate does not change; confirming again overwrites with a new reason and version.",
+        "operationId": "cs_confirm_return_subtype",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnSubtypeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Confirm Return Subtype",
         "tags": [
           "workflow"
         ],
