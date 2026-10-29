@@ -147,24 +147,26 @@ def _clause_traces(clause: Clause) -> list[EditTrace]:
                 meaning=MEANING["RENUMBER"],
             )
         )
-    title_line = clause.depth <= 2
-    base = clause.title or "" if title_line else clause.text
-    for value in clause.deleted_values:
-        kind = classify(base, value)
-        original, current, marked = _window(base, value)
-        traces.append(
-            EditTrace(
-                clause_no=clause.clause_no,
-                kind=kind,
-                location="title" if title_line else "text",
-                deleted=value.text,
-                position=value.position,
-                original=original,
-                current=current,
-                marked=marked,
-                meaning=MEANING[kind],
+    for location, base, values in (
+        ("title", clause.title or "", clause.title_deleted_values),
+        ("text", clause.text, clause.deleted_values),
+    ):
+        for value in values:
+            kind = classify(base, value)
+            original, current, marked = _window(base, value)
+            traces.append(
+                EditTrace(
+                    clause_no=clause.clause_no,
+                    kind=kind,
+                    location=location,  # type: ignore[arg-type]
+                    deleted=value.text,
+                    position=value.position,
+                    original=original,
+                    current=current,
+                    marked=marked,
+                    meaning=MEANING[kind],
+                )
             )
-        )
     for cell in clause.table_deleted_values:
         text = clause.table_rows[cell.row][cell.col]
         kind = classify(text, cell.value)

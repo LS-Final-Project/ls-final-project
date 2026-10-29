@@ -10,6 +10,7 @@
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
 | TFT RFP 자사 대응 | backend/api/tft/rfp/schemas.py, routes.py ([데이터 구조](tft/rfp-data.md)) | docs/openapi/tft.json |
 | TFT RFP 조항 트리·편집 흔적 | backend/engine/rfp/clauses.py, edits.py ([조항 트리](tft/rfp-clauses.md)) | 없음(엔진, HTTP 계약 아님) |
+| TFT RFP 요구 추출 | backend/engine/rfp/requirements.py, scoring.py ([요구 추출](tft/rfp-requirements.md)) | 없음(엔진, HTTP 계약 아님) |
 | TFT RFP 작업 접수 | backend/api/platform/jobs/tft.py, infra/migrations/platform/20261029_KAN-182_tft_jobs.sql ([작업 접수](tft/rfp-jobs.md)) | 없음(내부 경로, OpenAPI 제외) |
 | 플랫폼 사용자 | backend/api/platform/auth/schemas.py, routes.py | docs/openapi/platform.json |
 | 프론트 연결 | frontend/src/api/cs.ts, tft.ts, platform.ts 중 해당 서비스 | frontend/src/api/generated/ 아래 해당 TypeScript 파일 |

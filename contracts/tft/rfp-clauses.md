@@ -8,7 +8,7 @@
 | 편집 흔적 해석 | `backend/engine/rfp/edits.py` (`interpret_edits`, `restore`, `mark`) |
 | 검사(합성 블록) | `tests/tft/test_rfp_clause_tree.py` |
 
-순수 함수다. DB 저장·처리 작업(rfp.process의 parse·extract 단계) 연결과 요구 추출(LLM 구조화 출력)은 다음 PR이다.
+순수 함수다. 요구 추출은 [요구 추출](rfp-requirements.md)에 있다. DB 저장·처리 작업(rfp.process의 parse·extract 단계) 연결은 A07(KAN-188)이다.
 
 ## 조항 트리
 
