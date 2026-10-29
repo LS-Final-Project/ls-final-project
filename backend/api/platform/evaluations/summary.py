@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -357,6 +357,48 @@ class EvaluationRunSummary(BaseModel):
     experiment: SummaryExperiment | None = None
 
 
+def open_run(
+    cursor: psycopg.Cursor[dict[str, Any]],
+    access: EvaluationAccessSettings,
+    actor: UUID,
+    run_id: UUID,
+) -> dict[str, Any]:
+    """요약·사례 조회가 같이 쓰는 실행 접근 검사(영수증·본인·test 404·smoke/잠금 경로 403·409).
+
+    Args:
+        cursor: dict_row 커서(호출자의 읽기 전용 트랜잭션).
+        access: 현재 평가자·구성 승인 목록.
+        actor: 현재 세션 사용자.
+        run_id: 조회할 실행.
+
+    Returns:
+        dict: 실험 전체 열과 provider·runner_kind·status·origin·generated_at. 위반은 ApplicationError다.
+    """
+    row = cursor.execute(
+        "SELECT e.*,r.provider,r.runner_kind,r.status,a.origin,"
+        "transaction_timestamp() AS generated_at "
+        "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
+        "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+        "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
+        (run_id, actor, actor),
+    ).fetchone()
+    if row is None or row["data_split"] == "test":
+        raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
+    if row["purpose"] != "smoke":
+        _validate_locked_run(row, access)
+    else:
+        validate_smoke_experiment(row, access)
+        # 반입 실행은 합성 smoke가 아니므로 smoke 경로로 열지 않는다.
+        if (
+            row["origin"] != "ACCEPT"
+            or not matches_profile(row)
+            or row["provider"] != "fake"
+            or row["runner_kind"] not in {"local", "test"}
+        ):
+            raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Summary is unavailable.")
+    return row
+
+
 def get_run_summary(
     settings: Settings, access: EvaluationAccessSettings, actor: UUID, run_id: UUID
 ) -> EvaluationRunSummary:
@@ -378,29 +420,8 @@ def get_run_summary(
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             conn.execute("SET LOCAL statement_timeout='5s'")
             with conn.cursor(row_factory=dict_row) as cursor:
-                row = cursor.execute(
-                    "SELECT e.*,r.provider,r.runner_kind,r.status,a.origin,"
-                    "transaction_timestamp() AS generated_at "
-                    "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
-                    "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
-                    "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
-                    (run_id, actor, actor),
-                ).fetchone()
-            if row is None or row["data_split"] == "test":
-                raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
+                row = open_run(cursor, access, actor, run_id)
             locked = row["purpose"] != "smoke"
-            if locked:
-                _validate_locked_run(row, access)
-            else:
-                validate_smoke_experiment(row, access)
-                # 반입 실행은 합성 smoke가 아니므로 smoke 경로로 열지 않는다.
-                if (
-                    row["origin"] != "ACCEPT"
-                    or not matches_profile(row)
-                    or row["provider"] != "fake"
-                    or row["runner_kind"] not in {"local", "test"}
-                ):
-                    raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Summary is unavailable.")
             with conn.cursor(row_factory=dict_row) as cursor:
                 targets = cursor.execute(
                     "SELECT target_ref,data_origin,attributes FROM evaluation.experiment_targets "

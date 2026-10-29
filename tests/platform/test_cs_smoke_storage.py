@@ -3985,3 +3985,82 @@ def test_summary_invalid_cost_stays_safe_failure(
     assert response.status_code == 503
     assert response.headers["cache-control"] == "no-store"
     assert "data" not in response.json() and "secret-price" not in response.text
+
+
+def test_run_cases_page_attempts_with_summary_access_and_masked_refs(
+    summary_client, cs_access, cs_run, evaluation_database
+):
+    """사례 조회는 summary와 같은 접근 검사, case_id 커서 페이지, 사례 ID 해시·코드만 투영을 지킨다(KAN-139 4차).
+
+    Args:
+        summary_client: 실제 세션 HTTP와 요약 URL.
+        cs_access: 현재 승인(취소 검사에 쓴다).
+        cs_run: 접수 실행.
+        evaluation_database: 검사 관리자 연결.
+
+    Returns:
+        None: 원문 사례 ID·원시 응답·정답이 응답에 없음을 확인한다.
+    """
+    import hashlib
+
+    client, url = summary_client
+    cases_url = url.removesuffix("/summary") + "/cases"
+    asyncio.run(dispatch_one(client.app.state.settings, cs_access))
+    stored = saved(evaluation_database, cs_run)
+    first = client.get(cases_url, params={"limit": 2})
+    assert first.status_code == 200, first.text
+    page = first.json()["data"]
+    assert len(page["items"]) == 2 and page["next_cursor"] == page["items"][-1]["case_id"]
+    rest = client.get(cases_url, params={"cursor": page["next_cursor"], "limit": 100}).json()[
+        "data"
+    ]
+    assert rest["next_cursor"] is None
+    items = page["items"] + rest["items"]
+    assert [item["case_id"] for item in items] == sorted(item["case_id"] for item in items)
+    assert len(items) == len(FIXTURES)
+    shas = {hashlib.sha256(ref.encode()).hexdigest()[:12] for ref in FIXTURES}
+    assert {item["target_ref_sha"] for item in items} == shas
+    attempts = [attempt for item in items for attempt in item["attempts"]]
+    assert len(attempts) == len(stored)
+    assert set(attempts[0]) == {
+        "step",
+        "attempt",
+        "outcome",
+        "error_code",
+        "http_status",
+        "finish_reasons",
+        "call_attempts",
+        "model_version",
+        "latency_ms",
+        "parsed_output",
+    }
+    valid = next(
+        item
+        for item in items
+        if item["target_ref_sha"] == hashlib.sha256(b"cs-smoke-valid").hexdigest()[:12]
+    )
+    assert valid["attempts"][0]["parsed_output"]["category_code"] == "RETURN"
+    body = first.text + client.get(cases_url, params={"cursor": page["next_cursor"]}).text
+    for ref, case in FIXTURES.items():
+        assert ref not in body and case["body"] not in body
+    for row in stored:
+        assert not row["raw_output"] or row["raw_output"] not in body
+    assert "gold" not in body and "input_sha256" not in body and "usage_raw" not in body
+    for bad in ({"limit": 0}, {"limit": 101}, {"cursor": "x"}):
+        assert client.get(cases_url, params=bad).status_code == 422
+    cs_access.approved_config_hashes = frozenset()
+    assert client.get(cases_url).status_code == client.get(url).status_code == 403
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET data_split='test' "
+            "WHERE id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+            (cs_run,),
+        )
+    assert client.get(cases_url).status_code == 404
+    from backend.api.platform.evaluations.cases import _codes
+
+    assert _codes("draft", {"category_code": "RETURN"}) is None
+    coded = _codes(
+        "classify", {"category_code": "반품 문의", "provided_info": ["MODEL", "모델명 문장"]}
+    )
+    assert coded is not None and coded.category_code is None and coded.provided_info == ["MODEL"]

@@ -111,15 +111,15 @@ test('상태 권한 회수와 탭 숨김에서 집계를 제거하고 늦은 응
 });
 
 test('SSE 연결 상태만 바뀌면 중복 조회하지 않고 새 상태 시점에서만 갱신한다', async () => {
-  const fetcher = vi.fn(async () => jsonResponse(200, { data: summaryFixture() }));
+  const fetcher = vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: summaryFixture() }));
   vi.stubGlobal('fetch', fetcher); view(); await screen.findByRole('table');
   act(() => emit({ ...state(), connection: 'connected' }));
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/summary'))).toHaveLength(1);
   act(() => emit({ connection: 'reconnecting', message: '다시 연결' }));
   expect(screen.queryByRole('table')).toBeNull();
   act(() => emit(state(2)));
   await screen.findByRole('table');
-  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/summary'))).toHaveLength(2);
 });
 
 test('USD 소액·실제0·부분합·혼합 판본을 반올림 없이 표시한다', async () => {
@@ -242,4 +242,35 @@ test('실험별 실행의 상세 링크는 작업 조회 없이 그 실행의 �
   fireEvent.click(screen.getByRole('button', { name: '닫기' }));
   expect(screen.queryByRole('heading', { name: /실행 상세/ })).toBeNull();
   vi.mocked(RunAdmission).mockImplementation(() => null as never);
+});
+
+const caseItem = (id: string, sha: string) => ({ case_id: id, target_ref_sha: sha, status: 'VALID', attempts: [
+  { step: 'classify', attempt: 1, outcome: 'VALID', error_code: null, http_status: null, finish_reasons: ['STOP'], call_attempts: 1,
+    model_version: 'fake-v1', latency_ms: 12, parsed_output: { category_code: 'RETURN', secondary_category: null, urgency_flag: 'NONE', return_subtype: null, provided_info: [] } },
+] });
+
+test('사례별 시도는 해시 12자·시도 메타데이터를 보이고 더 보기로 다음 커서를 읽으며, https LangSmith 링크만 보인다', async () => {
+  const first = '77777777-7777-4777-8777-777777777771';
+  const cases = vi.fn((url: string) => url.includes('cursor=')
+    ? { items: [caseItem('77777777-7777-4777-8777-777777777772', 'bbbbbbbbbbbb')], next_cursor: null }
+    : { items: [caseItem(first, 'aaaaaaaaaaaa')], next_cursor: first });
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => jsonResponse(200, { data: String(url).includes('/cases') ? cases(String(url)) : summaryFixture() })));
+  vi.stubEnv('VITE_LANGSMITH_PROJECT_URL', 'https://smith.langchain.com/o/x/projects/p/y');
+  view();
+  const table = await screen.findByRole('region', { name: '사례별 시도 표' });
+  expect(table.textContent).toContain('aaaaaaaaaaaa');
+  expect(table.textContent).toContain('classify · 1');
+  expect(table.textContent).toContain('RETURN · NONE');
+  const link = screen.getByRole('link', { name: /추적 보기/ }) as HTMLAnchorElement;
+  expect(link.href).toBe('https://smith.langchain.com/o/x/projects/p/y');
+  expect(link.rel).toBe('noopener noreferrer');
+  fireEvent.click(screen.getByRole('button', { name: '더 보기' }));
+  await waitFor(() => expect(table.textContent).toContain('bbbbbbbbbbbb'));
+  expect(cases).toHaveBeenLastCalledWith(`/api/v1/platform/evaluations/runs/${summaryFixture().run_id}/cases?limit=20&cursor=${first}`);
+  expect(screen.queryByRole('button', { name: '더 보기' })).toBeNull();
+  vi.stubEnv('VITE_LANGSMITH_PROJECT_URL', 'http://smith.langchain.com/');
+  cleanup(); view();
+  await screen.findByRole('region', { name: '사례별 시도 표' });
+  expect(screen.queryByRole('link', { name: /추적 보기/ })).toBeNull();
+  vi.unstubAllEnvs();
 });

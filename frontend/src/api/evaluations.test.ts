@@ -337,3 +337,25 @@ test('실험 목록은 실행 링크를 투영하고, 없으면 빈 목록, 형�
   items = [{ ...base, runs: Array.from({ length: 11 }, () => link) }];
   await assert.rejects(listExperiments(new AbortController().signal), /실험 목록/);
 });
+
+import { getRunCases } from './evaluation-cases.ts';
+
+test('사례별 시도는 허용 키만 투영하고 형식이 틀리면 거부하며 커서를 그대로 쿼리로 보낸다', async t => {
+  const run = '22222222-2222-4222-8222-222222222222';
+  const attempt = { step: 'classify', attempt: 1, outcome: 'VALID', error_code: null, http_status: null, finish_reasons: ['STOP'],
+    call_attempts: 1, model_version: null, latency_ms: 3, parsed_output: { category_code: 'RETURN', secondary_category: null,
+      urgency_flag: 'NONE', return_subtype: null, provided_info: ['MODEL'] } };
+  const item = { case_id: '77777777-7777-4777-8777-777777777771', target_ref_sha: 'aaaaaaaaaaaa', status: 'VALID', attempts: [attempt] };
+  let data: unknown = { items: [{ ...item, target_ref: 'TICKET-1', attempts: [{ ...attempt, raw_output: 'secret' }] }], next_cursor: null };
+  const urls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string) => { urls.push(url); return Response.json({ data }); });
+  const page = await getRunCases(run, item.case_id, new AbortController().signal);
+  assert.equal(urls[0], `/api/v1/platform/evaluations/runs/${run}/cases?limit=20&cursor=${item.case_id}`);
+  assert.deepEqual(page, { items: [item], next_cursor: null });
+  for (const bad of [{ ...item, target_ref_sha: 'TICKET-1' }, { ...item, status: 'DONE' },
+    { ...item, attempts: [{ ...attempt, outcome: 'OK' }] }, { ...item, attempts: [{ ...attempt, parsed_output: { ...attempt.parsed_output, category_code: '반품 문의' } }] }]) {
+    data = { items: [bad], next_cursor: null };
+    await assert.rejects(getRunCases(run, null, new AbortController().signal), /사례 응답/);
+  }
+  await assert.rejects(getRunCases(run, 'x', new AbortController().signal), /사례 응답/);
+});

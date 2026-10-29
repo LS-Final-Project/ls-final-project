@@ -148,6 +148,161 @@
         "title": "Candidate",
         "type": "object"
       },
+      "CaseAttemptView": {
+        "additionalProperties": false,
+        "description": "\uc2dc\ub3c4 \ud558\ub098\uc758 \uacb0\uacfc \uba54\ud0c0\ub370\uc774\ud130. \uc6d0\ubb38\u00b7\uc6d0\uc2dc \uc751\ub2f5\u00b7\uc0ac\uc6a9\ub7c9 \uc6d0\ubcf8\uc740 \uc5c6\ub2e4.",
+        "properties": {
+          "attempt": {
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "call_attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Attempts"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finish_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Finish Reasons",
+            "type": "array"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "parsed_output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedCodes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "attempt",
+          "outcome",
+          "error_code",
+          "http_status",
+          "finish_reasons",
+          "call_attempts",
+          "model_version",
+          "latency_ms",
+          "parsed_output"
+        ],
+        "title": "CaseAttemptView",
+        "type": "object"
+      },
+      "CaseView": {
+        "additionalProperties": false,
+        "description": "\uc0ac\ub840 \ud558\ub098. \uc0ac\ub840 ID\ub294 sha256 \uc55e 12\uc790\ub2e4.",
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/CaseAttemptView"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "VALID",
+              "INVALID_OUTPUT",
+              "HELD",
+              "FAILED",
+              "EXCLUDED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_ref_sha": {
+            "pattern": "^[0-9a-f]{12}$",
+            "title": "Target Ref Sha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "target_ref_sha",
+          "status",
+          "attempts"
+        ],
+        "title": "CaseView",
+        "type": "object"
+      },
       "CsJobStatus": {
         "additionalProperties": false,
         "description": "C/S \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-194). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
@@ -617,6 +772,37 @@
           }
         },
         "title": "EvaluationPolicy",
+        "type": "object"
+      },
+      "EvaluationRunCases": {
+        "additionalProperties": false,
+        "description": "\uc0ac\ub840 \ud55c \ud398\uc774\uc9c0\uc640 \ub2e4\uc74c \ucee4\uc11c(\ub2e4\uc74c\uc774 \uc5c6\uc73c\uba74 null).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "EvaluationRunCases",
         "type": "object"
       },
       "EvaluationRunItem": {
@@ -2100,6 +2286,72 @@
         "title": "OutcomeQuality",
         "type": "object"
       },
+      "ParsedCodes": {
+        "additionalProperties": false,
+        "description": "\ubd84\ub958 \ucd9c\ub825\uc758 \ucf54\ub4dc \uac12\ub9cc. \ucf54\ub4dc \ud615\uc2dd\uc774 \uc544\ub2cc \uac12\uc740 null(provided_info\ub294 \ube80\ub2e4)\uc774\ub2e4.",
+        "properties": {
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "provided_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided Info",
+            "type": "array"
+          },
+          "return_subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype"
+          },
+          "secondary_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Category"
+          },
+          "urgency_flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Flag"
+          }
+        },
+        "required": [
+          "category_code",
+          "secondary_category",
+          "urgency_flag",
+          "return_subtype",
+          "provided_info"
+        ],
+        "title": "ParsedCodes",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -2852,6 +3104,22 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationPolicy]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationRunCases_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRunCases"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRunCases]",
         "type": "object"
       },
       "SuccessResponse_EvaluationRunStatus_": {
@@ -4919,6 +5187,129 @@
           }
         },
         "summary": "Evaluation Run Status",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
+    "/api/v1/platform/evaluations/runs/{run_id}/cases": {
+      "get": {
+        "description": "summary\uc640 \uac19\uc740 \uc811\uadfc \uac80\uc0ac\ub85c \uc2e4\ud589\uc758 \uc0ac\ub840\ubcc4 \uc2dc\ub3c4\ub97c \ud55c \ud398\uc774\uc9c0 \uc870\ud68c\ud55c\ub2e4(KAN-139 4\ucc28).\n\nArgs:\n    request: \uc11c\ubc84 \ud658\uacbd\u00b7\uc2b9\uc778 \ubaa9\ub85d\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c \ub300\uc0c1 \uc2e4\ud589.\n    principal: \ud604\uc7ac \uc138\uc158\uacfc \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud55c \uc0ac\uc6a9\uc790.\n    cursor: \uc55e \ud398\uc774\uc9c0\uc758 \ub9c8\uc9c0\ub9c9 case_id.\n    limit: \ud398\uc774\uc9c0 \ud06c\uae30(1~100, \uae30\ubcf8 20).\n\nReturns:\n    SuccessResponse: \uc0ac\ub840 ID \ud574\uc2dc\u00b7\uc0c1\ud0dc\u00b7\uc2dc\ub3c4 \uba54\ud0c0\ub370\uc774\ud130. \uc6d0\ubb38\u00b7\uc815\ub2f5\u00b7\uc6d0\uc2dc \uc751\ub2f5 \uc5c6\uc74c.",
+        "operationId": "platform_list_evaluation_run_cases",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunCases_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Cases",
         "tags": [
           "evaluations"
         ]
