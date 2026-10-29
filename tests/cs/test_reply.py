@@ -237,6 +237,7 @@ def test_full_and_partial_answers_pass_validation():
         (raw(unit="NOT_MENTIONED"), "DIFFERS"),
         (raw(unit="UNCLEAR"), "DIFFERS"),
         (raw(unit="SAME"), "NO_CONFIRMED_UNIT"),
+        (raw(unit="NOT_MENTIONED"), "NO_CONFIRMED_UNIT"),
         (raw(unit="DIFFERENT"), "MATCHES"),
         (raw(unit="GUESSED"), "NOT_MENTIONED"),
         (raw()[:-1] + ', "answered_codes": []}', "NOT_MENTIONED"),
@@ -325,6 +326,25 @@ def test_code_computed_different_serial_overrides_model_and_escalates():
     update = apply_reply(CONTEXT, check(raw(unit="DIFFERENT"), serial_match))
     assert update.next_action == "ESCALATE_TO_AGENT" and update.provided_codes == ["TEST_MODEL"]
     assert update.still_missing == CONTEXT.requested_info_codes
+
+
+def test_serial_without_confirmed_unit_stops_automatic_drafting():
+    """확정 장비 없이 시리얼을 말한 회신은 NOT_MENTIONED를 거부하고 UNCLEAR면 자동 초안으로 가지 않는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 리뷰 재현 입력이 CONFIRM_WITH_CUSTOMER에서 멈춤을 확인한다.
+    """
+    serial_match = prepare(
+        "serial: ZX-X-1, invoice attached.", confirmed=None
+    ).payload.reply_serial_match
+    assert serial_match == "NO_CONFIRMED_UNIT"
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        check(raw(unit="NOT_MENTIONED"), serial_match)
+    update = apply_reply(CONTEXT, check(raw(unit="UNCLEAR"), serial_match))
+    assert update.next_action == "CONFIRM_WITH_CUSTOMER" and update.provided_codes == ["TEST_MODEL"]
 
 
 def test_unclear_reply_answers_are_not_counted_as_provided():

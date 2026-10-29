@@ -240,7 +240,7 @@ REPLY_PROMPT = (
     "- same_request: 회신이 앞서 요청한 정보(requested_info_codes, prior_options)에 대한 답이면 "
     "APPLIES, 다른 문의면 DIFFERENT_REQUEST, 판단할 수 없으면 UNCLEAR다.\n"
     "- same_unit: reply_serial_match가 DIFFERS면 same_unit은 DIFFERENT다. MATCHES면 DIFFERENT를 쓰지 "
-    "않는다. NO_CONFIRMED_UNIT면 SAME을 쓰지 않는다. "
+    "않는다. NO_CONFIRMED_UNIT면 UNCLEAR나 DIFFERENT만 쓴다. "
     "same_version: fw_version_reported와 회신의 펌웨어 판본을 비교한다.\n"
     "- 회신이 장비·판본을 말하지 않으면 NOT_MENTIONED, 말했지만 모호하면 UNCLEAR다. "
     "추측으로 SAME을 판정하지 않는다. 판정마다 reason을 쓴다.\n"
@@ -280,8 +280,9 @@ def validate_output(
     Returns:
         ReplyInterpretation: 유효한 해석. answered는 requested 안, 남은 질문은 requested − answered 안이어야
             한다. 코드가 계산한 시리얼 대조가 모델 판정보다 우선해 DIFFERS면 same_unit은 DIFFERENT여야
-            하고, 확정 장비가 없는(NO_CONFIRMED_UNIT) 회신은 SAME일 수 없다. 형식·코드·시리얼 대조 모순은 CS_INVALID_OUTPUT, 형식은 맞지만 승인·확정 약속이 있으면
-            CS_FORBIDDEN_COMMITMENT ValueError다.
+            하고, 확정 장비가 없는(NO_CONFIRMED_UNIT) 회신은 UNCLEAR나 DIFFERENT여야 한다. 확정 장비가
+            없으면 담당자가 장비 연결 후 다시 해석한다. 형식·코드·시리얼 대조 모순은 CS_INVALID_OUTPUT,
+            형식은 맞지만 승인·확정 약속이 있으면 CS_FORBIDDEN_COMMITMENT ValueError다.
     """
     try:
         output = ReplyInterpretation.model_validate(
@@ -294,7 +295,7 @@ def validate_output(
             or any(q.info_code not in requested_info_codes for q in output.remaining_questions)
             or (serial_match == "DIFFERS" and same_unit != "DIFFERENT")
             or (serial_match == "MATCHES" and same_unit == "DIFFERENT")
-            or (serial_match == "NO_CONFIRMED_UNIT" and same_unit == "SAME")
+            or (serial_match == "NO_CONFIRMED_UNIT" and same_unit not in {"UNCLEAR", "DIFFERENT"})
         ):
             raise ValueError("CS_UNKNOWN_REFERENCE")
     except (ValueError, RecursionError):
