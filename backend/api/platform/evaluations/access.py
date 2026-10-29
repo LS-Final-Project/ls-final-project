@@ -24,6 +24,22 @@ class EvaluationAccessSettings(BaseSettings):
     approved_config_hashes: frozenset[str] = frozenset()
 
 
+async def require_session(request: Request) -> Principal:
+    """현재 운영 세션의 등록 사용자를 돌려준다(업무별 권한은 호출자가 본다).
+
+    Args:
+        request: 서버 세션 쿠키를 가진 요청.
+
+    Returns:
+        Principal: 세션이 유효한 사용자. 로그인이 꺼졌거나 세션이 없으면 401이다.
+    """
+    if not request.app.state.microsoft_auth.enabled:
+        raise HTTPException(401)
+    return await load_session_principal(
+        request.app.state.settings, request.cookies.get(SESSION_COOKIE)
+    )
+
+
 async def require_evaluator(request: Request) -> Principal:
     """현재 운영 세션의 등록 사용자가 지정 평가자인지 검사한다.
 
@@ -33,11 +49,7 @@ async def require_evaluator(request: Request) -> Principal:
     Returns:
         Principal: 세션 유효성과 평가자 지정이 확인된 사용자. 데이터 접근 권한은 별도다.
     """
-    if not request.app.state.microsoft_auth.enabled:
-        raise HTTPException(401)
-    principal = await load_session_principal(
-        request.app.state.settings, request.cookies.get(SESSION_COOKIE)
-    )
+    principal = await require_session(request)
     access: EvaluationAccessSettings = request.app.state.evaluation_access
     if principal.user_id not in access.evaluator_user_ids:
         raise HTTPException(403)

@@ -1,4 +1,8 @@
-"""로컬 합성 평가의 전송 장부. 외부 호출과 worker 실행 권한을 부여하지 않는다."""
+"""로컬 작업 전송 장부(평가 evaluation.run·C/S cs.analyze). 외부 호출과 worker 실행 권한을 부여하지 않는다.
+
+종류마다 따로 연다(KAN-194 9차 2/3). 평가 행은 기존 평가 local 접수 조건, C/S 행은 local/test에서 C/S 접수와
+처리기 연결 설정(CsJobSettings)이 모두 켜졌을 때만 확보한다. C/S 설정을 넘기지 않는 기존 호출자는 평가만 다룬다.
+"""
 
 import re
 from dataclasses import dataclass
@@ -12,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import admission_available
 from backend.api.platform.evaluations.smoke_worker import locked_run
+from backend.api.platform.jobs.cs import CsJobSettings
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -32,26 +37,59 @@ class DispatchLease:
     """평가 실행 generation과 별개인 전송 시도 식별자."""
 
     job_id: UUID
+    # 평가는 실행 ID, C/S는 작업 자신(business_id)이다.
     run_id: UUID
     attempt_no: int
     holder_id: UUID
+    kind: str = "evaluation.run"
 
 
-def require_local(
-    settings: Settings, access: EvaluationAccessSettings, dispatch: DispatchSettings
-) -> None:
-    """운영 또는 기본 비활성 상태에서 장부 변경을 거부한다.
+def cs_gate_open(settings: Settings, cs: CsJobSettings | None) -> bool:
+    """C/S 작업을 전송해도 되는지(local/test, 접수·처리기 연결 모두 켜짐).
 
     Args:
         settings: 실행 환경.
-        access: 합성 접수 허용 설정.
-        dispatch: 전송 장부 허용 설정.
+        cs: C/S 접수 설정. None이면 C/S는 닫힌다.
 
     Returns:
-        None: 명시적으로 허용된 local/test에서만 반환한다.
+        bool: 열렸으면 True.
     """
-    if not dispatch.enabled or not admission_available(settings, access):
+    return (
+        cs is not None
+        and settings.environment in {"local", "test"}
+        and cs.enabled
+        and cs.processor_connected
+    )
+
+
+def require_local(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    dispatch: DispatchSettings,
+    cs: CsJobSettings | None = None,
+) -> list[str]:
+    """운영 또는 기본 비활성 상태에서 장부 변경을 거부하고, 전송할 수 있는 작업 종류를 돌려준다.
+
+    Args:
+        settings: 실행 환경.
+        access: 합성 평가 접수 허용 설정.
+        dispatch: 전송 장부 허용 설정.
+        cs: C/S 접수 설정(없으면 C/S 행을 다루지 않는다).
+
+    Returns:
+        list[str]: 허용 종류(evaluation.run·cs.analyze). 하나도 없으면 403 DISPATCH_DISABLED다.
+    """
+    kinds = [
+        kind
+        for kind, allowed in (
+            ("evaluation.run", admission_available(settings, access)),
+            ("cs.analyze", cs_gate_open(settings, cs)),
+        )
+        if allowed
+    ]
+    if not dispatch.enabled or not kinds:
         raise ApplicationError(403, "DISPATCH_DISABLED", "Dispatch is disabled.")
+    return kinds
 
 
 async def finish(
@@ -86,26 +124,32 @@ async def finish(
 
 
 async def claim_next(
-    settings: Settings, access: EvaluationAccessSettings, dispatch: DispatchSettings
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    dispatch: DispatchSettings,
+    cs: CsJobSettings | None = None,
 ) -> DispatchLease | None:
-    """전송 한 건을 확보하거나 만료된 전송의 불명확 상태를 보존한다.
+    """허용 종류의 전송 한 건을 확보하거나 만료된 전송의 불명확 상태를 보존한다.
 
     Args:
         settings: 로컬 DB 설정.
         access: 합성 접수 설정.
         dispatch: 전송 장부 허용·lease·시도 한도.
+        cs: C/S 접수 설정(없으면 C/S 행은 집지 않고 PENDING으로 둔다).
 
     Returns:
         DispatchLease | None: 새 전송 소유권. 만료된 SENDING은 UNKNOWN으로 보류한다.
     """
-    require_local(settings, access, dispatch)
+    kinds = require_local(settings, access, dispatch, cs)
     async with connection(settings) as conn, conn.transaction():
         cursor = await conn.execute(
-            "SELECT o.*,j.business_id FROM runtime.dispatch_outbox o "
+            "SELECT o.*,j.business_id,j.kind FROM runtime.dispatch_outbox o "
             "JOIN runtime.jobs j ON j.id=o.job_id "
-            "WHERE (o.state IN ('PENDING','REJECTED') AND o.next_attempt_at<=clock_timestamp()) "
-            "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp()) "
-            "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED"
+            "WHERE ((o.state IN ('PENDING','REJECTED') AND o.next_attempt_at<=clock_timestamp()) "
+            "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp())) "
+            "AND j.kind = ANY(%s) "
+            "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED",
+            (kinds,),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -127,7 +171,9 @@ async def claim_next(
                 (row["job_id"],),
             )
             return None
-        lease = DispatchLease(row["job_id"], row["business_id"], row["attempt_no"] + 1, uuid4())
+        lease = DispatchLease(
+            row["job_id"], row["business_id"], row["attempt_no"] + 1, uuid4(), row["kind"]
+        )
         await conn.execute(
             "UPDATE runtime.dispatch_outbox SET state='CLAIMED',attempt_no=%s,holder_id=%s,"
             "lease_expires_at=clock_timestamp()+make_interval(secs => %s) WHERE job_id=%s",
@@ -170,26 +216,69 @@ async def current_attempt(
     return row
 
 
+async def cs_sendable(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    settings: Settings,
+    cs: CsJobSettings | None,
+    job_id: UUID,
+) -> bool:
+    """C/S 작업이 지금 전송해도 되는 상태인지 본다(게이트·진행 중·취소 없음·worker lease 없음).
+
+    Args:
+        conn: 전송 트랜잭션 연결.
+        settings: 실행 환경.
+        cs: C/S 접수 설정.
+        job_id: 작업 ID.
+
+    Returns:
+        bool: 게이트가 열렸고 작업이 QUEUED·RUNNING이며 취소 요청이 없고 살아 있는 worker lease가 없으면 True.
+    """
+    if not cs_gate_open(settings, cs):
+        return False
+    cursor = await conn.execute(
+        "SELECT j.status,c.cancel_requested_at,"
+        "coalesce(c.lease_expires_at>clock_timestamp(),false) AS lease_live "
+        "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
+        "WHERE j.id=%s AND j.owner='cs' AND j.kind='cs.analyze'",
+        (job_id,),
+    )
+    job = await cursor.fetchone()
+    return (
+        job is not None
+        and job["status"] in {"QUEUED", "RUNNING"}
+        and job["cancel_requested_at"] is None
+        and not job["lease_live"]
+    )
+
+
 async def begin_send(
     settings: Settings,
     access: EvaluationAccessSettings,
     dispatch: DispatchSettings,
     lease: DispatchLease,
+    cs: CsJobSettings | None = None,
 ) -> bool:
-    """현재 평가 승인 조건을 재검사하고 외부 전송 전에 SENDING을 commit한다.
+    """현재 종류별 조건(평가 승인·C/S 게이트와 작업 상태)을 재검사하고 외부 전송 전에 SENDING을 commit한다.
 
     Args:
         settings: 로컬 DB 설정.
         access: 현재 지정 평가자·승인 구성.
         dispatch: 장부 허용 설정.
         lease: 확보한 전송 소유권.
+        cs: C/S 접수 설정(C/S 작업 전송에 필요).
 
     Returns:
         bool: True일 때만 호출자가 트랜잭션 밖에서 전송할 수 있다. 실행 권한은 별도다.
     """
-    require_local(settings, access, dispatch)
+    require_local(settings, access, dispatch, cs)
     async with connection(settings) as conn, conn.transaction():
         row = await current_attempt(conn, lease, "CLAIMED")
+        if lease.kind == "cs.analyze":
+            if not await cs_sendable(conn, settings, cs, lease.job_id):
+                await finish(conn, row, "BLOCKED")
+                return False
+            await start_sending(conn, lease)
+            return True
         try:
             run = await locked_run(conn, settings, access, lease.run_id)
         except ApplicationError:
@@ -210,17 +299,32 @@ async def begin_send(
         ):
             await finish(conn, row, "BLOCKED")
             return False
-        # 승인 검사 중 lease가 만료될 수 있으므로 전송 시작 직전에 다시 검사한다.
-        await current_attempt(conn, lease, "CLAIMED")
-        await conn.execute(
-            "UPDATE runtime.dispatch_outbox SET state='SENDING' WHERE job_id=%s", (lease.job_id,)
-        )
-        await conn.execute(
-            "UPDATE runtime.dispatch_attempts SET state='SENDING',sent_at=clock_timestamp() "
-            "WHERE job_id=%s AND attempt_no=%s",
-            (lease.job_id, lease.attempt_no),
-        )
+        await start_sending(conn, lease)
         return True
+
+
+async def start_sending(
+    conn: psycopg.AsyncConnection[dict[str, Any]], lease: DispatchLease
+) -> None:
+    """lease를 다시 확인하고 전송 시작(SENDING)을 기록한다.
+
+    Args:
+        conn: 전송 트랜잭션 연결.
+        lease: 전송 소유권.
+
+    Returns:
+        None: 호출자의 commit으로 확정된다.
+    """
+    # 검사 중 lease가 만료될 수 있으므로 전송 시작 직전에 다시 검사한다.
+    await current_attempt(conn, lease, "CLAIMED")
+    await conn.execute(
+        "UPDATE runtime.dispatch_outbox SET state='SENDING' WHERE job_id=%s", (lease.job_id,)
+    )
+    await conn.execute(
+        "UPDATE runtime.dispatch_attempts SET state='SENDING',sent_at=clock_timestamp() "
+        "WHERE job_id=%s AND attempt_no=%s",
+        (lease.job_id, lease.attempt_no),
+    )
 
 
 async def record_result(
@@ -230,6 +334,7 @@ async def record_result(
     lease: DispatchLease,
     result: Literal["ACCEPTED", "REJECTED", "UNKNOWN"],
     operation_name: str | None = None,
+    cs: CsJobSettings | None = None,
 ) -> None:
     """전송 결과만 저장하며 평가 상태·worker lease·이벤트는 변경하지 않는다.
 
@@ -240,11 +345,12 @@ async def record_result(
         lease: 전송을 시작한 소유권.
         result: 접수 확인, 명확한 미접수, 결과 불명확 중 하나.
         operation_name: 외부 본문 대신 보존할 operation 식별자.
+        cs: C/S 접수 설정(C/S 작업 결과 기록에 필요).
 
     Returns:
         None: 전송 결과를 commit한다. 만료·중복·오래된 결과는 409다.
     """
-    require_local(settings, access, dispatch)
+    require_local(settings, access, dispatch, cs)
     if result not in {"ACCEPTED", "REJECTED", "UNKNOWN"}:
         raise ValueError("Unsupported dispatch result")
     if operation_name is not None and not re.fullmatch(
