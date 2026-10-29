@@ -1,12 +1,14 @@
 """KAN-105 단계별 프롬프트 판본 레지스트리. 모델 호출 없음."""
 
 import hashlib
+import inspect
 from unittest.mock import Mock
 
 import pytest
 
 from backend.engine.cs import drafting, improvement_drafting, improvement_reply, reply
 from backend.engine.cs.prompt_registry import (
+    DEFAULT_VERSIONS,
     PROMPTS,
     get_prompt,
     list_versions,
@@ -113,6 +115,40 @@ def test_classification_v2_adds_only_the_urgency_guide():
     assert "위 신호가 없으면 NONE" in guide and "가장 구체적인 신호 하나" in guide
     # 긴급도 사이 우선순위 규칙은 넣지 않는다.
     assert "SAFETY > " not in guide and "우선" not in guide
+
+
+def test_product_defaults_use_v3_for_classification_only():
+    """제품 경로 기본 판본은 분류만 v3이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 기본 판본과 각 호출부 기본 인자를 확인한다.
+    """
+    from backend.agent.cs_runner import build_cs_runner
+    from backend.engine.cs import providers
+
+    assert DEFAULT_VERSIONS == {
+        "classification": "v3",
+        "draft": "v1",
+        "reply": "v1",
+        "improvement_reply": "v1",
+        "improvement_draft": "v1",
+    }
+    default = DEFAULT_VERSIONS["classification"]
+    for function in (providers.gemini_classification_provider, build_cs_runner):
+        assert inspect.signature(function).parameters["prompt_version"].default == default
+    for stage, module in (
+        ("draft", drafting),
+        ("reply", reply),
+        ("improvement_reply", improvement_reply),
+        ("improvement_draft", improvement_drafting),
+    ):
+        assert (
+            inspect.signature(module.instruction).parameters["prompt_version"].default
+            == (DEFAULT_VERSIONS[stage])
+        )
 
 
 def test_classification_v3_replaces_only_the_return_subtype_rule():

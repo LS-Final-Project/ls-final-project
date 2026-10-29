@@ -12,6 +12,14 @@ import hashlib
 from typing import Literal, get_args
 
 Stage = Literal["classification", "draft", "reply", "improvement_reply", "improvement_draft"]
+# 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 나머지는 채택 전이라 v1이다.
+DEFAULT_VERSIONS: dict[Stage, str] = {
+    "classification": "v3",
+    "draft": "v1",
+    "reply": "v1",
+    "improvement_reply": "v1",
+    "improvement_draft": "v1",
+}
 PROMPTS: dict[Stage, dict[str, str]] = {
     "classification": {
         "v1": (

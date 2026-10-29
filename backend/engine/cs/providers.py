@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from backend.engine.cs.classification import ClassificationInput, ClassificationOutput
 from backend.engine.cs.classification_call import CallErrorCode, ClassificationCallError
-from backend.engine.cs.prompt_registry import get_prompt
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, get_prompt
 from backend.shared.ai import AISettings, Generation, generate
 
 MODEL = re.compile(r"[a-zA-Z0-9._-]+")
@@ -120,7 +120,7 @@ def gemini_classification_provider(
     *,
     model: str,
     allowed_info_codes: frozenset[str],
-    prompt_version: str = "v1",
+    prompt_version: str = DEFAULT_VERSIONS["classification"],
     generation: GenerationKnobs | None = None,
 ) -> Callable[[ClassificationInput], Generation]:
     """분류 시도(run_classification_attempt)에 꽂을 Gemini 공급자를 만든다.
@@ -130,7 +130,7 @@ def gemini_classification_provider(
         settings: 기본 AI 설정.
         model: 호출할 모델 ID.
         allowed_info_codes: 프롬프트에 보여줄 허용 정보 코드(정렬해 넣는다).
-        prompt_version: 프롬프트 레지스트리의 classification 판본.
+        prompt_version: 프롬프트 레지스트리의 classification 판본. 기본은 DEFAULT_VERSIONS(채택 판본 v3)다.
         generation: thinking 예산·수준·출력 상한(thinking 포함). 분류 출력도 thinking을 포함한 상한이라 1024는
             부족할 수 있다.
 
