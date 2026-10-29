@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any, Literal, cast
 
-from eval.cs_usage import _percentile, _sum_report
+from eval.cs_usage import percentile, sum_report
 from eval.document_metrics import Table, summarize_table_structure, summarize_text_extraction
 
 RegionKind = Literal["TEXT", "TABLE"]
@@ -226,7 +226,7 @@ def _row(candidate: OcrCandidate, regions: list[OcrRegion], gold: Mapping[str, O
     table = summarize_table_structure(tables_expected, tables_actual)
     fallback_cer = [cer[i] for i in fallback_ids if i in cer]
     latency = sorted(c.elapsed_ms for c in calls if c.elapsed_ms is not None)
-    cost = _sum_report([{"cost": c.cost_usd} for c in calls], "cost")
+    cost = sum_report([{"cost": c.cost_usd} for c in calls], "cost")
     missing = [row for row in per_region if row["missing"]]
     return {
         "name": candidate.name,
@@ -259,9 +259,8 @@ def _row(candidate: OcrCandidate, regions: list[OcrRegion], gold: Mapping[str, O
         "latency_ms": {
             "reported_count": len(latency),
             "mean": statistics.fmean(latency) if latency else None,
-            # _percentile은 정수 지연용으로 선언됐지만 계산은 실수에도 같다.
-            "p50": _percentile(cast(list[int], latency), 0.5),
-            "p95": _percentile(cast(list[int], latency), 0.95),
+            "p50": percentile(latency, 0.5),
+            "p95": percentile(latency, 0.95),
         },
         # Decimal을 반올림하지 않고 cs_candidates처럼 십진 문자열로 둔다.
         "cost_usd": {

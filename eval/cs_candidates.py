@@ -8,7 +8,7 @@ import statistics
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from backend.engine.cs.classification import ClassificationInput
 from backend.engine.cs.classification_call import ClassificationAttempt, run_classification_attempt
@@ -19,7 +19,7 @@ from eval.cs_metrics import (
     summarize_urgency_first_attempts,
 )
 from eval.cs_strata import CHANNELS, summarize_first_attempts_by_group
-from eval.cs_usage import TOKEN_FIELDS, _percentile, _sum_report
+from eval.cs_usage import TOKEN_FIELDS, percentile, sum_report
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,7 @@ def run_candidates(
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     allowed_info_codes: frozenset[str],
     price_table: dict[str, ModelPrice] | None = None,
+    return_attempts: bool = False,
 ) -> dict:
     """후보마다 모든 대상의 최초 시도를 실행하고 기존 지표로 비교표를 만든다.
 
@@ -50,6 +51,8 @@ def run_candidates(
         sensitive_values: 어댑터가 식별한 민감값과 마스킹 종류(모든 대상 공통).
         allowed_info_codes: 검수된 정보 코드 집합.
         price_table: load_price_table 결과. 없거나 모델 단가가 없으면 비용은 None이다.
+        return_attempts: True면 "attempts"(후보 이름 → {대상 ID: ClassificationAttempt})를 더한다. 시도에는
+            raw_response가 들어 있으므로 호출자는 이 키를 꺼낸 뒤 결과를 저장한다.
 
     Returns:
         dict: {"targets": 대상 수, "candidates": 후보별 행, "ranking": 이름 목록}. ranking은 긴급도
@@ -110,6 +113,7 @@ def run_candidates(
         "targets": len(records),
         "candidates": rows,
         "ranking": [row["name"] for row in ranking],
+        **({"attempts": runs} if return_attempts else {}),
     }
 
 
@@ -150,7 +154,7 @@ def _row(
         }
         for c in estimates
     ]
-    cost = _sum_report(costs, "cost")
+    cost = sum_report(costs, "cost")
     outcomes: Counter[str] = Counter(attempt.outcome for attempt in attempts.values())
     return {
         "name": candidate.name,
@@ -173,13 +177,12 @@ def _row(
                 key: phone[key]["macro_f1"] for key in ("PHONE", "NON_PHONE") if key in phone
             },
         },
-        "usage": {field: _sum_report(usage, field) for field in TOKEN_FIELDS},
+        "usage": {field: sum_report(usage, field) for field in TOKEN_FIELDS},
         "latency_ms": {
             "reported_count": len(latency),
             "mean": statistics.fmean(latency) if latency else None,
-            # _percentile은 정수 지연용으로 선언됐지만 계산은 실수에도 같다.
-            "p50": _percentile(cast(list[int], latency), 0.5),
-            "p95": _percentile(cast(list[int], latency), 0.95),
+            "p50": percentile(latency, 0.5),
+            "p95": percentile(latency, 0.95),
         },
         # Decimal을 반올림하지 않고 cs_usage처럼 십진 문자열로 둔다.
         "cost_usd": {

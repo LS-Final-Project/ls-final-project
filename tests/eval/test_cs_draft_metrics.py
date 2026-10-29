@@ -289,3 +289,40 @@ def test_human_judgement_overrides_judge():
     assert result["confusion_matrix"]["HOLD"]["HOLD"] == 1
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         reconcile_judgements({"a": "MAYBE"}, {})
+
+
+@pytest.mark.parametrize(
+    "attempt",
+    [
+        DraftAttempt(1, "SCHEMA_VIOLATION", error_code="CS_INVALID_OUTPUT"),
+        DraftAttempt(1, "TRANSPORT_FAILURE", error_code="CS_INVALID_OUTPUT"),
+    ],
+    ids=["schema-without-raw", "invalid-output-on-transport"],
+)
+def test_schema_violation_needs_raw_and_matching_outcome(attempt):
+    """원시 응답 없는 스키마 위반과 다른 결과에 붙은 CS_INVALID_OUTPUT은 집계가 어긋나므로 거부한다.
+
+    Args:
+        attempt: 일관성이 깨진 시도.
+
+    Returns:
+        None: EVAL_INVALID_INPUT을 확인한다.
+    """
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        summarize_draft_first_attempts(GOLD, ATTEMPTS | {"h1": attempt})
+
+
+def test_usage_helpers_are_public_with_underscore_aliases():
+    """cs_usage의 공개 이름과 기존 밑줄 별칭이 같은 함수이고 실수 지연도 받는다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 별칭과 계산을 확인한다.
+    """
+    from eval import cs_usage
+
+    assert cs_usage._percentile is cs_usage.percentile
+    assert cs_usage._sum_report is cs_usage.sum_report
+    assert cs_usage.percentile([100.0, 200.5], 0.5) == pytest.approx(150.25)
