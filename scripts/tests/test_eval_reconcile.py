@@ -229,6 +229,56 @@ class ReconcileCliTests(unittest.TestCase):
         self.assertEqual(values, {"RAW": 0.5, "DB": 0.5, "SCREEN": 0.5, "CSV": 0.5})
         self.assertEqual(result["result"]["metrics"]["category_macro_f1"]["status"], "MATCH")
 
+    def test_non_object_mapping_files_exit_with_code_1(self):
+        """--screen-paths·--csv-columns가 JSON 객체가 아니면 트레이스백 없이 종료 코드 1이다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 종료 코드와 안내 문구를 확인한다.
+        """
+        (self.root / "screen.json").write_text("{}")
+        (self.root / "list.json").write_text("[]")
+        (self.root / "export.csv").write_text("f1\n0.5\n", encoding="utf-8")
+        data = (summaries(), stored())
+        for extra in (
+            (
+                "--screen-json",
+                str(self.root / "screen.json"),
+                "--screen-paths",
+                str(self.root / "list.json"),
+            ),
+            ("--csv", str(self.root / "export.csv"), "--csv-columns", str(self.root / "list.json")),
+        ):
+            code, printed, _ = self.run_main(data, *extra)
+            self.assertEqual(code, 1)
+            self.assertIn("CS_RECONCILE_FAILED", printed)
+
+    def test_duplicate_metric_keys_are_removed(self):
+        """--metric-keys의 중복 키는 한 번만 대조하고 미매핑 목록에도 한 번만 남는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 결과 키와 meta를 확인한다.
+        """
+        out = self.root / "dup.json"
+        argv = [
+            "--database-url", URL, "--run-id", RUN,
+            "--gold-category", str(self.root / "cat.csv"),
+            "--gold-urgency", str(self.root / "urg.csv"),
+            "--metric-keys", "hit_at_5,category_macro_f1,hit_at_5", "--out", str(out),
+        ]  # fmt: skip
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                eval_reconcile.main(argv, reader=lambda *a: (summaries(), stored())), 0
+            )
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(result["meta"]["unmapped_keys"], ["hit_at_5"])
+        self.assertEqual(sorted(result["result"]["metrics"]), ["category_macro_f1", "hit_at_5"])
+
     def test_invalid_arguments_and_reader_errors_exit_with_code_1(self):
         """DB 연결 없음·음수 허용 오차·짝 없는 화면/CSV 인자·잘못된 실행 ID·읽기 오류는 원문 없이 1이다.
 

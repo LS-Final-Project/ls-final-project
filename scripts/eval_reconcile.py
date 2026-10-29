@@ -88,6 +88,8 @@ def read_database(
         tuple: ({"category"·"urgency": summarize_stored_first_attempts 결과}, 매핑된 저장 키의 metrics 행).
     """
     with psycopg.connect(url) as conn:
+        # 세 조회(대상·RAW 재계산·저장 행)를 한 스냅샷에서 읽어 진행 중 실행의 가짜 불일치를 막는다.
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         conn.read_only = True
         targets = {row[0] for row in conn.execute(TARGETS_SQL, (run_id,))}
         if not targets:
@@ -259,7 +261,8 @@ def main(argv: list[str] | None = None, reader: Reader | None = None) -> int:
         reader: DB 읽기 함수(테스트는 fake로 교체).
 
     Returns:
-        int: 0 성공, 1 입력·DB·출력 오류. 오류 원문·연결 문자열은 출력하지 않는다.
+        int: 0 성공, 1 입력·DB·출력 오류. 오류 원문·연결 문자열은 출력하지 않는다. 대조 결과가 불일치여도
+            0이며 일관 여부는 출력·결과 JSON의 consistent로 본다.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url")
@@ -294,7 +297,7 @@ def main(argv: list[str] | None = None, reader: Reader | None = None) -> int:
     try:
         run_id = UUID(args.run_id)
         keys = (
-            [key.strip() for key in args.metric_keys.split(",") if key.strip()]
+            list(dict.fromkeys(key.strip() for key in args.metric_keys.split(",") if key.strip()))
             if args.metric_keys
             else list(dict.fromkeys(gate.metric_key for gate in load_gates()))
         )
@@ -316,6 +319,10 @@ def main(argv: list[str] | None = None, reader: Reader | None = None) -> int:
             if args.csv
             else None
         )
+        if (screen is not None and not isinstance(screen[1], dict)) or (
+            csv_input is not None and not isinstance(csv_input[1], dict)
+        ):
+            raise ValueError("CS_RECONCILE_MAPPING_SHAPE")
         summaries, rows = (reader or read_database)(
             url, run_id, args.gold_category, args.gold_urgency
         )
