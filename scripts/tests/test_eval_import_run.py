@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from backend.engine.cs.classification import INPUT_VERSION, INPUT_VERSION_STRIPPED
 from eval.cs_gold_locks import GoldLock
 from scripts import eval_import_run
 from scripts.tests.test_cs_draft_run import write_csv
@@ -235,6 +236,11 @@ class ImportRunTests(unittest.TestCase):
             ("수 불일치", lambda: self.write_run(labels, {"SCHEMA_VIOLATION": 1})),
             ("라벨 hash", lambda: self.write_run(labels, {"TIMEOUT": 2}, label_sha="0" * 64)),
             ("코드 밖 예측", lambda: self.write_run({**labels, "T2": {"x": 1}}, {"TIMEOUT": 1})),
+            (
+                "모르는 입력 판본",
+                lambda: self.tamper_run("input_version", "cs-classification-input-v9"),
+            ),
+            ("판본·옵션 불일치", lambda: self.tamper_run("strip_phone_annotation", False)),
         ]
         for name, prepare in cases:
             with self.subTest(name):
@@ -250,6 +256,38 @@ class ImportRunTests(unittest.TestCase):
         self.assertEqual(
             self.run_main(locks=wrong), (1, "EVAL_IMPORT_FAILED: EVAL_IMPORT_GOLD_MISMATCH\n")
         )
+
+    def test_input_builder_version_follows_the_run_meta(self):
+        """실험 입력 판본은 결과 meta를 따르고, meta에 판본이 없던 이전 결과는 표기 제거 v3으로 기록한다.
+
+        Returns:
+            None: 판본별 등록 요청과 config hash 차이를 확인한다.
+        """
+        versions = {}
+        for name, meta in (
+            ("legacy", {}),
+            ("v4", {"input_version": INPUT_VERSION, "strip_phone_annotation": False}),
+            ("v3", {"input_version": INPUT_VERSION_STRIPPED, "strip_phone_annotation": True}),
+        ):
+            self.write_run({"T1": PREDICTION, "T2": None, "T3": None}, {"TIMEOUT": 2})
+            run = json.loads((self.root / "run.json").read_text())
+            run["meta"] |= meta
+            (self.root / "run.json").write_text(json.dumps(run))
+            plan = eval_import_run.build_plan(
+                (self.root / "run.json").read_bytes(),
+                (self.root / "labels.json").read_bytes(),
+                self.root / "m.json",
+                candidate="a",
+                data_split="valid",
+            )
+            versions[name] = (
+                plan.body.input_builder_version,
+                eval_import_run.hashes(plan.body)["config_hash"],
+            )
+        self.assertEqual(versions["legacy"], versions["v3"])
+        self.assertEqual(versions["v3"][0], INPUT_VERSION_STRIPPED)
+        self.assertEqual(versions["v4"][0], INPUT_VERSION)
+        self.assertNotEqual(versions["v3"][1], versions["v4"][1])
 
     def test_test_split_exits_with_code_2(self):
         """test 분할을 선언한 manifest는 종료 코드 2다.
