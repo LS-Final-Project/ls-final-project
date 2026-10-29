@@ -174,3 +174,35 @@ test('잘못된 합성 품질 값이면 집계 전체를 숨기고 안전한 오
   expect(screen.queryByRole('table')).toBeNull();
   expect(screen.queryByText(/합성 품질/)).toBeNull();
 });
+
+test('반입 실행은 배지를 보이고 형식 위반율(분자/분모)·결과별 건수·단계 지표를 저장값 그대로 표시한다', async () => {
+  const data = lockedSummary((summary, quality) => {
+    Object.assign(summary, { origin: 'IMPORT', stage_metrics: [{ stage: 'draft', scoring_version: 'draft-v1', stored_scoring_version_count: 1,
+      stored_at: '2026-10-29T10:00:00Z', items: [{ metric_key: 'draft_grounded_case_rate', segment: 'all', class_label: null, value: null,
+        support: null, threshold: null, comparison: null, passed: null, details: {}, quality_gate_evaluated: false }] }] });
+    Object.assign(quality, { outcomes: { scoring_version: 'out-v1', stored_scoring_version_count: 1, stored_at: '2026-10-29T11:00:00Z',
+      schema_violation_rate: 0.3333333333333333, schema_violations: 1, received: 3,
+      outcomes: { HELD: 0, NOT_STARTED: 0, SCHEMA_VIOLATION: 1, TIMEOUT: 0, TRANSPORT_FAILURE: 0, VALID: 2 } } });
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data })));
+  view();
+  await screen.findByRole('region', { name: '분류 최초 시도 결과별 건수 표' });
+  expect(screen.getByText('반입')).toBeTruthy();
+  expect(screen.getByText(/반입 실행\(IMPORT\)입니다/)).toBeTruthy();
+  expect(screen.getByText(/형식 위반율 0.3333333333333333 \(1 \/ 3, 분모는 응답 받은 시도/)).toBeTruthy();
+  const outcomes = screen.getByRole('region', { name: '분류 최초 시도 결과별 건수 표' });
+  expect(outcomes.textContent).toContain('SCHEMA_VIOLATION1');
+  const stage = screen.getByRole('region', { name: '초안 단계 지표 표' });
+  // 값 null은 0이 아니라 '계산 불가', 미보고 항목은 '미보고'로 둔다.
+  expect(stage.textContent).toContain('draft_grounded_case_rate');
+  expect(stage.textContent).toContain('계산 불가');
+  expect(stage.textContent).toContain('미보고 / 미보고 / 미보고');
+});
+
+test('접수 실행은 반입 배지 없이 단계 지표·형식 위반율 미저장을 표시한다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: lockedSummary() })));
+  view();
+  await screen.findByRole('heading', { name: '단계별 지표' });
+  expect(screen.queryByText('반입')).toBeNull();
+  expect(screen.getAllByText('미저장').length).toBe(2);
+});

@@ -76,6 +76,44 @@ function LockedMetricView({ label, metric }: { label: string; metric: LockedMetr
   </div>;
 }
 
+/** 형식 위반율(분자/분모)과 분류 최초 시도 결과별 건수를 표시한다. Args: 저장값 또는 미저장. Returns: 형식 위반 절. */
+function OutcomeView({ outcomes }: { outcomes: Locked['outcomes'] }) {
+  return <div>
+    <h4>형식 위반율 (분류 최초 시도)</h4>
+    {!outcomes ? <p>미저장</p> : <>
+      <p>채점 판본 {outcomes.scoring_version}{outcomes.stored_scoring_version_count > 1 ? ` (저장 판본 ${outcomes.stored_scoring_version_count}개 중 최신)` : ''} · 형식 위반율 {raw(outcomes.schema_violation_rate)} ({outcomes.schema_violations} / {outcomes.received}, 분모는 응답 받은 시도 VALID+SCHEMA_VIOLATION)</p>
+      <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label="분류 최초 시도 결과별 건수 표">
+        <table className="evaluation-metrics"><caption>결과별 건수 · 보류·전송 실패·타임아웃·시도 없음은 위반율 분모에서 뺌</caption>
+          <thead><tr><th scope="col">결과</th><th scope="col">건수</th></tr></thead>
+          <tbody>{Object.entries(outcomes.outcomes).map(([key, n]) => <tr key={key}><th scope="row">{key}</th><td>{n}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </>}
+  </div>;
+}
+
+const stageLabels: Record<NonNullable<Summary['stage_metrics']>[number]['stage'], string> = { search: '검색', draft: '초안', rfp: 'RFP' };
+
+/** 검색·초안·RFP 단계 채점 행을 저장 키·값 그대로 표시하고 판정하지 않는다. Args: 단계 블록 목록. Returns: 단계별 지표 절. */
+function StageMetricsView({ blocks }: { blocks: NonNullable<Summary['stage_metrics']> }) {
+  return <section aria-labelledby="stage-metrics-title">
+    <h3 id="stage-metrics-title">단계별 지표</h3>
+    {blocks.length === 0 ? <p>미저장</p> : blocks.map(block => <div key={block.stage}>
+      <h4>{stageLabels[block.stage]} ({block.stage})</h4>
+      <p>채점 판본 {block.scoring_version}{block.stored_scoring_version_count > 1 ? ` (저장 판본 ${block.stored_scoring_version_count}개 중 최신)` : ''}</p>
+      <div className="evaluation-table-scroll" tabIndex={0} role="region" aria-label={`${stageLabels[block.stage]} 단계 지표 표`}>
+        <table className="evaluation-metrics"><caption>저장 키·값 그대로 · 합격 판정 아님</caption>
+          <thead><tr><th scope="col">지표</th><th scope="col">segment</th><th scope="col">클래스</th><th scope="col">값</th><th scope="col">support</th><th scope="col">기준</th><th scope="col">tp / fp / fn</th></tr></thead>
+          <tbody>{block.items.map(item => <tr key={`${item.metric_key}:${item.segment}:${item.class_label ?? ''}`}>
+            <th scope="row">{item.metric_key}</th><td>{item.segment}</td><td>{item.class_label ?? '해당 없음'}</td><td>{raw(item.value)}</td>
+            <td>{item.support ?? '해당 없음'}</td><td>{item.threshold === null || item.comparison === null ? '해당 없음' : `${item.comparison} ${item.threshold}`}</td>
+            <td>{(['tp', 'fp', 'fn'] as const).map(key => item.details[key] ?? '미보고').join(' / ')}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </div>)}
+  </section>;
+}
+
 /** 잠금 정답 품질을 응답 값 그대로 표시하고 판정하지 않는다. Args: 검증한 요약. Returns: 잠금 품질 절. */
 function LockedQualityView({ data }: { data: Summary }) {
   const quality = data.locked_quality;
@@ -86,6 +124,7 @@ function LockedQualityView({ data }: { data: Summary }) {
       <div className="evaluation-note" role="note"><p><strong>quality_gate_evaluated={String(quality.quality_gate_evaluated)} · 합격 판정 아님</strong></p></div>
       <p>정답 묶음 {quality.bundle_id} · {data.quality_available ? '다섯 지표 연결' : `일부 지표만 저장 (${stored}/${metricLabels.length})`}</p>
       {metricLabels.map(([key, label]) => <LockedMetricView key={key} label={label} metric={quality.metrics[key]} />)}
+      <OutcomeView outcomes={quality.outcomes ?? null} />
     </>}
   </section>;
 }
@@ -105,7 +144,8 @@ export default function RunSummary({ runId }: { runId: string }) {
     return () => controller.abort();
   }, [runId]);
   return <section aria-labelledby="run-summary-title" aria-busy={!data && !error}>
-    <h2 id="run-summary-title">실행 집계</h2>
+    <h2 id="run-summary-title">실행 집계{data?.origin === 'IMPORT' && <> <span className="evaluation-tag">반입</span></>}</h2>
+    {data?.origin === 'IMPORT' && <p className="evaluation-caption">반입 실행(IMPORT)입니다. 후보 비교 실측 결과를 평가 저장소로 들여온 기록이며 원시 응답은 저장하지 않습니다.</p>}
     {data && (isLockedPath(data)
       ? <p>평가 실행 저장 기록입니다 · 데이터 출처 {originLabels[data.data_origin]} · 품질은 잠금 정답 저장값이며 합격 판정이 아닙니다.</p>
       : <p>합성 연결 검사 기록입니다. 실제 모델 품질이나 사용량 측정 결과가 아닙니다.</p>)}
@@ -139,6 +179,7 @@ export default function RunSummary({ runId }: { runId: string }) {
       <p className="evaluation-caption">부분합은 보고된 값만 더한 수치입니다. 미보고는 0이 아니며, 캐시·추론 토큰을 총 토큰에 다시 더하지 않습니다. 위반율은 응답이 없거나 증거가 불완전하면 보류합니다.</p>
       <p className="evaluation-caption">비용은 저장된 USD 금액이며 청구액이나 무료 사용 여부를 뜻하지 않습니다. 가격표가 여러 판본이면 각 시도에 기록된 비용의 합이며 공통 단가로 재계산하지 않습니다.</p>
       {isLockedPath(data) ? <LockedQualityView data={data} /> : <SyntheticQualityView quality={data.synthetic_quality} />}
+      <StageMetricsView blocks={data.stage_metrics ?? []} />
       <p>품질 점수: {data.quality_available ? '잠금 정답 다섯 지표 연결' : data.quality_unavailable_reason === 'GOLD_PARTIAL' ? '잠금 정답 일부 지표만 연결' : '정답 검수·연결 전'}</p>
     </>}
   </section>;

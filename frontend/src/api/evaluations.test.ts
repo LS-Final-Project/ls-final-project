@@ -240,3 +240,49 @@ test('비교 키는 누락·null을 미제공으로 통과시키고 형식이 �
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   }
 });
+
+/** 단계 지표 블록 하나를 만든다. Args: 없음. Returns: 서버 StageMetricBlock 모양의 합성 값. */
+const stageBlock = () => ({ stage: 'search', scoring_version: 'search-v1', stored_scoring_version_count: 2, stored_at: '2026-10-29T10:00:00Z',
+  items: [{ metric_key: 'search_hit_at_5', segment: 'all', class_label: null, value: 0.8, support: 50, threshold: 0.9, comparison: '>=', passed: false,
+    details: { tp: 40, fn: 10 }, quality_gate_evaluated: false }] });
+/** 형식 위반 블록을 만든다. Args: 없음. Returns: 율이 분자/분모와 맞는 합성 값. */
+const outcomeBlock = () => ({ scoring_version: 'out-v1', stored_scoring_version_count: 1, stored_at: '2026-10-29T11:00:00Z',
+  schema_violation_rate: 0.25, schema_violations: 1, received: 4,
+  outcomes: { HELD: 1, NOT_STARTED: 0, SCHEMA_VIOLATION: 1, TIMEOUT: 0, TRANSPORT_FAILURE: 0, VALID: 3 } });
+
+test('단계 지표와 형식 위반율은 키·값 그대로 투영하고 추가 필드는 버린다', async t => {
+  const data = summaryFixture();
+  const quality = lockedQualityFixture();
+  Object.assign(data, { origin: 'IMPORT', data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null,
+    stage_metrics: [{ ...stageBlock(), raw: 'secret', items: [{ ...stageBlock().items[0], case_id: 'secret' }] }],
+    locked_quality: { ...quality, outcomes: { ...outcomeBlock(), cases: ['secret'] } } });
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.equal(result.origin, 'IMPORT');
+  assert.deepEqual(result.stage_metrics, [stageBlock()]);
+  assert.deepEqual(result.locked_quality?.outcomes, outcomeBlock());
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});
+
+const extraChanges: Record<string, (data: Record<string, any>) => void> = {
+  stage_unknown: data => { data.stage_metrics = [{ ...stageBlock(), stage: 'classification' }]; },
+  stage_duplicate: data => { data.stage_metrics = [stageBlock(), stageBlock()]; },
+  stage_details_key: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], details: { secret: 1 } }] }]; },
+  stage_key_pattern: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], metric_key: 'bad key' }] }]; },
+  stage_gate: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], quality_gate_evaluated: true }] }]; },
+  outcome_rate: data => { data.locked_quality.outcomes = { ...outcomeBlock(), schema_violation_rate: 0.5 }; },
+  outcome_received: data => { data.locked_quality.outcomes = { ...outcomeBlock(), received: 5 }; },
+  outcome_keys: data => { data.locked_quality.outcomes = { ...outcomeBlock(), outcomes: { VALID: 3 } }; },
+  outcome_zero: data => { data.locked_quality.outcomes = { ...outcomeBlock(), received: 0, schema_violations: 0, schema_violation_rate: 0,
+    outcomes: { HELD: 4, NOT_STARTED: 0, SCHEMA_VIOLATION: 0, TIMEOUT: 0, TRANSPORT_FAILURE: 0, VALID: 0 } }; },
+};
+for (const [name, change] of Object.entries(extraChanges)) {
+  test(`단계 지표·형식 위반율의 잘못된 ${name} 응답을 거부한다`, async t => {
+    const data: Record<string, any> = summaryFixture();
+    Object.assign(data, { data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null,
+      locked_quality: lockedQualityFixture() });
+    change(data);
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
