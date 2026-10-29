@@ -148,6 +148,33 @@ def test_masking_hides_contacts_and_serials_and_omits_action_record():
         )
 
 
+def test_request_free_text_is_masked_like_the_reply_body():
+    """요청서 자유 서술 필드의 이메일·라벨 시리얼·민감값도 모델 입력에서 가린다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 네 필드의 정제 결과를 확인한다.
+    """
+    context = ctx(
+        confirmed_facts="Reported by cs.agent@example.test.",
+        review_task="Check unit serial: ZX-REQ-5.",
+        missing_info="Ask 김요청 for logs.",
+        not_claimed="Do not blame site serial: ZX-REQ-6.",
+    )
+    prepared = build_improvement_reply_input(
+        context,
+        DeptReplyText(body="Checked.", body_language="en"),
+        sensitive_values={"김요청": "PERSONAL"},
+    )
+    prompt = render_prompt(prepared.payload)
+    for secret in ("cs.agent@example.test", "ZX-REQ-5", "김요청", "ZX-REQ-6"):
+        assert secret not in prompt
+    assert prepared.payload.missing_info == "Ask [PERSONAL_PROVIDED] for logs."
+    assert prepared.payload.fault_id == "FLT-017"
+
+
 def test_adopted_with_action_record_is_a_followup_candidate():
     """채택과 조치 기록이 있으면 PLAN_FOLLOWUP 후보이며 조치 주장은 여전히 확인 목록에 남는다.
 

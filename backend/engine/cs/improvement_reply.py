@@ -42,6 +42,8 @@ ClaimKind = Literal["CAUSE", "FIX", "SCOPE", "FW_VERSION", "NO_ISSUE", "OTHER"]
 # 회신 본문만으로 확정되지 않아 항상 확인이 필요한 주장. 반려 회신에는 나올 수 없다.
 NEEDS_EVIDENCE = frozenset({"FIX", "SCOPE", "FW_VERSION"})
 NonBlank = Annotated[str, Field(pattern=r"\S")]
+# 요청서의 자유 서술 필드. 회신 본문과 같은 마스킹을 거쳐 모델에 간다.
+FREE_TEXT = ("confirmed_facts", "review_task", "missing_info", "not_claimed")
 
 
 class ImprovementContext(_Strict):
@@ -111,7 +113,8 @@ def build_improvement_reply_input(
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
 
     Returns:
-        PreparedImprovementReplyInput: 정제 입력. 회신 본문에는 PHONE 주석이 없어 build_input에
+        PreparedImprovementReplyInput: 정제 입력. 회신 본문과 요청서 자유 서술(FREE_TEXT)을 같은 규칙으로
+            가린다. 회신 본문에는 PHONE 주석이 없어 build_input에
             channel=EMAIL로 넘기므로 removed_annotations는 항상 0이다. 잘못된 입력은 CS_INVALID_INPUT
             ValueError다.
     """
@@ -126,8 +129,20 @@ def build_improvement_reply_input(
         },
         sensitive_values=sensitive_values,
     )
+    fields = context.model_dump(exclude={"has_action_record"})
+    # 요청서 자유 서술도 모델에 가므로 subject 자리에 넣어 본문과 같은 규칙으로 가린다.
+    for name in FREE_TEXT:
+        fields[name] = build_input(
+            {
+                "channel": "EMAIL",
+                "body_language": reply.body_language,
+                "subject": fields[name],
+                "body": reply.body,
+            },
+            sensitive_values=sensitive_values,
+        ).payload.subject
     payload = ImprovementReplyInput(
-        **context.model_dump(exclude={"has_action_record"}),
+        **fields,
         body_language=prepared.payload.body_language,
         body=prepared.payload.body,
     )
