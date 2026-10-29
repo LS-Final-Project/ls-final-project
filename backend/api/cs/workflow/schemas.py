@@ -20,6 +20,12 @@ Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 ReviewStatus = Literal["SUBMITTED", "ACCEPTED", "REWORK_REQUESTED"]
 ReturnSubtype = Literal["DEFECT", "NON_DEFECT"]
+# KAN-193: who is responsible for a returned product, decided by a person after inspection.
+# UNDETERMINED records that inspection could not decide; it confirms no subtype.
+Responsibility = Literal["MANUFACTURING", "NON_MANUFACTURING", "UNDETERMINED"]
+# The resolution-case cause types. No new value for transport damage: that is
+# NON_MANUFACTURING with `non_manufacturing_reason`.
+CauseType = Literal["SITE_CONDITION", "HARDWARE", "SETTING", "WEAR_PART", "FIRMWARE"]
 
 
 class Transfer(BaseModel):
@@ -60,10 +66,17 @@ class Workflow(BaseModel):
     closed_by: UUID | None
     # KAN-193: what a person confirmed after inspection. The LLM `return_subtype` on the
     # ticket is the customer's stated reason at intake and never fills these.
-    return_subtype_confirmed: ReturnSubtype | None = Field(
+    return_responsibility: Responsibility | None = Field(
         default=None, description="Confirmed by a C/S agent after inspection; null until then."
     )
-    return_subtype_confirmed_reason: str | None = None
+    return_cause_type: CauseType | None = None
+    return_non_manufacturing_reason: str | None = None
+    return_response_note: str | None = None
+    return_subtype_confirmed: ReturnSubtype | None = Field(
+        default=None,
+        description="Derived from responsibility for routing: MANUFACTURING is DEFECT, "
+        "NON_MANUFACTURING is NON_DEFECT, UNDETERMINED and unconfirmed are null.",
+    )
     return_subtype_confirmed_by: UUID | None = None
     return_subtype_confirmed_at: datetime | None = None
     transfers: list[Transfer] = Field(description="Oldest first.")
@@ -112,12 +125,30 @@ class OwnerRequest(Action):
     owner_user_id: UUID
 
 
-class ReturnSubtypeRequest(Action):
+class ReturnConfirmationRequest(Action):
     """A person's inspection result for a return (KAN-193). Always human_input; a model
     result cannot be submitted here."""
 
-    return_subtype: ReturnSubtype
-    reason: Reason
+    responsibility: Responsibility
+    cause_type: CauseType | None = None
+    non_manufacturing_reason: Reason | None = Field(
+        default=None, description="Only with NON_MANUFACTURING, e.g. damaged in transport."
+    )
+    response_note: Reason = Field(description="What was done or will be done for the customer.")
+
+    @model_validator(mode="after")
+    def check_reason(self) -> Self:
+        if self.non_manufacturing_reason is not None and self.responsibility != "NON_MANUFACTURING":
+            raise ValueError("A non-manufacturing reason needs NON_MANUFACTURING responsibility.")
+        return self
+
+
+def confirmed_subtype(responsibility: Responsibility | None) -> ReturnSubtype | None:
+    """The subtype routing reads (rules.route `confirmed_subtype`). UNDETERMINED confirms none,
+    so routing keeps the customer's stated value with its review reason."""
+    return {"MANUFACTURING": "DEFECT", "NON_MANUFACTURING": "NON_DEFECT"}.get(  # type: ignore[return-value]
+        responsibility or ""
+    )
 
 
 class ResolutionCaseCreate(Action):
@@ -131,7 +162,7 @@ class ResolutionCaseCreate(Action):
     fw_version_at_issue: Code | None = None
     symptom: Text
     root_cause: Text
-    root_cause_type: Literal["SITE_CONDITION", "HARDWARE", "SETTING", "WEAR_PART", "FIRMWARE"]
+    root_cause_type: CauseType
     action_taken: Text
     onsite_visit: bool
     rma_no: Code | None = None
@@ -141,6 +172,15 @@ class ResolutionCaseCreate(Action):
     dept_result_id: UUID | None = Field(
         default=None, description="An accepted department result of this ticket."
     )
+    # KAN-193: optional. Not copied from the workflow confirmation; the person states it here.
+    responsibility: Responsibility | None = None
+    non_manufacturing_reason: Reason | None = None
+
+    @model_validator(mode="after")
+    def check_reason(self) -> Self:
+        if self.non_manufacturing_reason is not None and self.responsibility != "NON_MANUFACTURING":
+            raise ValueError("A non-manufacturing reason needs NON_MANUFACTURING responsibility.")
+        return self
 
 
 # --- Customer mail (KAN-110) ---------------------------------------------------------------

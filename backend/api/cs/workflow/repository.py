@@ -11,8 +11,9 @@ Row = dict[str, Any]
 
 WORKFLOW_COLUMNS = (
     "ticket_id, state, version, owner_user_id, customer_sent_at, closed_at, closed_by, "
-    "return_subtype_confirmed, return_subtype_confirmed_reason, return_subtype_confirmed_by, "
-    "return_subtype_confirmed_at"
+    "return_responsibility, return_cause_type, return_non_manufacturing_reason, "
+    "return_response_note, return_subtype_confirmed, return_subtype_confirmed_by, "
+    "return_subtype_confirmed_at, return_subtype_confirmed_reason"
 )
 TRANSFER_COLUMNS = (
     "id, round, dept_code, status, reason, transferred_by, transferred_at, ended_by, "

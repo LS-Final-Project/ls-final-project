@@ -66,6 +66,9 @@ class ResolutionCase(BaseModel):
         description="Accepted department result the case was written from (KAN-108). "
         "Null for provided cases.",
     )
+    # KAN-193: optional, entered by the person registering the case.
+    responsibility: Literal["MANUFACTURING", "NON_MANUFACTURING", "UNDETERMINED"] | None = None
+    non_manufacturing_reason: str | None = None
 
 
 class TicketDetail(BaseModel):
