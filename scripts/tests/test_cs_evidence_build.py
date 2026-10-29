@@ -307,6 +307,23 @@ class EvidenceBuildTests(unittest.TestCase):
                 self.assertNotIn("secret", printed)
                 self.assertFalse((self.root / "ev.json").exists())
 
+    def test_empty_document_sha256s_items_are_rejected(self):
+        """--document-sha256s의 빈 항목(','·'a,,b'·빈 문자열)은 검색하지 않고 종료 코드 1이다(KAN-144 이연 P3).
+
+        Returns:
+            None: 종료 코드·검색 미호출·출력 파일 미생성을 확인한다.
+        """
+        (self.root / "ids.txt").write_text("T1\n", encoding="utf-8")
+        for value in (",", "a" * 64 + ",," + "b" * 64, ""):
+            with self.subTest(value=value):
+                searcher = FakeSearcher()
+                code, _ = self.run_main("--document-sha256s", value, searcher=searcher)
+                self.assertEqual(code, 1)
+                self.assertEqual(searcher.calls, [])
+                self.assertFalse((self.root / "ev.json").exists())
+        code, _ = self.run_main("--document-sha256s", "a" * 64, searcher=FakeSearcher())
+        self.assertEqual(code, 0)
+
     def test_default_searcher_needs_database_url(self):
         """주입이 없으면 DATABASE_URL이 필요하고, 없으면 종료 코드 1이다.
 
