@@ -304,6 +304,22 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-signals",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "as_of"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/rounds",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects",
       "methods": [
         "GET"

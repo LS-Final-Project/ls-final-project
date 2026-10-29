@@ -200,6 +200,42 @@
         "title": "AuditList",
         "type": "object"
       },
+      "Baseline": {
+        "additionalProperties": false,
+        "properties": {
+          "action_dates": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Action Dates",
+            "type": "array"
+          },
+          "last_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sent At"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_sent_at",
+          "round",
+          "action_dates"
+        ],
+        "title": "Baseline",
+        "type": "object"
+      },
       "CauseItem": {
         "description": "\uc6d0\uc778 \ud310\uc815. finding\u00b7\uae30\uc900\u00b7\ub300\uc0c1 \uac12\uc774 \uc5c6\ub2e4.",
         "properties": {
@@ -919,6 +955,45 @@
           "reason"
         ],
         "title": "CorrectionRequest",
+        "type": "object"
+      },
+      "Counts": {
+        "additionalProperties": false,
+        "properties": {
+          "application_unknown": {
+            "title": "Application Unknown",
+            "type": "integer"
+          },
+          "candidate_index": {
+            "title": "Candidate Index",
+            "type": "integer"
+          },
+          "new_since_sent": {
+            "title": "New Since Sent",
+            "type": "integer"
+          },
+          "pre_action_unit": {
+            "title": "Pre Action Unit",
+            "type": "integer"
+          },
+          "recurrence": {
+            "title": "Recurrence",
+            "type": "integer"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "new_since_sent",
+          "threshold",
+          "candidate_index",
+          "recurrence",
+          "pre_action_unit",
+          "application_unknown"
+        ],
+        "title": "Counts",
         "type": "object"
       },
       "CustomerHistory": {
@@ -1715,7 +1790,7 @@
       },
       "DeptActionRequest": {
         "additionalProperties": false,
-        "description": "A department's improvement action, kept apart from any one customer's repair.",
+        "description": "A department's improvement action, kept apart from any one customer's repair.\n\n`scope_kind`\u00b7`scope_value` say which units the action applies to, so a recurrence on an\napplied unit can be told apart from units that never got the fix (KAN-117). Omitted, the\nscope is OTHER and recurrence stays \"unknown\" for a person to judge.",
         "properties": {
           "action": {
             "maxLength": 10000,
@@ -1739,6 +1814,30 @@
             "minLength": 1,
             "title": "Action Scope",
             "type": "string"
+          },
+          "scope_kind": {
+            "default": "OTHER",
+            "enum": [
+              "FIRMWARE_VERSION",
+              "SHIPPED_FROM",
+              "LOT",
+              "OTHER"
+            ],
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_value": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Value"
           },
           "version": {
             "description": "The request version the user decided on.",
@@ -3551,6 +3650,34 @@
         "title": "MailOrigin",
         "type": "object"
       },
+      "NewEvidence": {
+        "additionalProperties": false,
+        "description": "A person's new evidence, different from the rejection reason (rejection-closed only).",
+        "properties": {
+          "note": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "ticket_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Ticket Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ticket_ids",
+          "note"
+        ],
+        "title": "NewEvidence",
+        "type": "object"
+      },
       "NextOwner": {
         "description": "Who acts next and on what. The C/S owner may still be unassigned (null).",
         "properties": {
@@ -3932,6 +4059,95 @@
         "title": "ReasonRequest",
         "type": "object"
       },
+      "RecordView": {
+        "additionalProperties": false,
+        "properties": {
+          "action_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ud310\uc815\uc5d0 \uc4f4 \uc870\uce58\ub97c \ub4f1\ub85d\ud55c \ubd80\uc11c.",
+            "title": "Action Dept"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "class": {
+            "enum": [
+              "NEW_SINCE_SENT",
+              "RECURRENCE",
+              "PRE_ACTION_UNIT",
+              "APPLICATION_UNKNOWN",
+              "BEFORE_ACTION_DATE",
+              "IN_EARLIER_ROUND"
+            ],
+            "title": "Class",
+            "type": "string"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "case_id",
+          "known_at",
+          "customer_id",
+          "class",
+          "reason_code",
+          "basis"
+        ],
+        "title": "RecordView",
+        "type": "object"
+      },
       "RequestAction": {
         "properties": {
           "action": {
@@ -3973,6 +4189,28 @@
           "round": {
             "title": "Round",
             "type": "integer"
+          },
+          "scope_kind": {
+            "default": "OTHER",
+            "enum": [
+              "FIRMWARE_VERSION",
+              "SHIPPED_FROM",
+              "LOT",
+              "OTHER"
+            ],
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Value"
           }
         },
         "required": [
@@ -4336,6 +4574,14 @@
           },
           "request": {
             "$ref": "#/components/schemas/ImprovementRequest"
+          },
+          "rounds": {
+            "description": "Delivery rounds, oldest first (KAN-117).",
+            "items": {
+              "$ref": "#/components/schemas/RequestRound"
+            },
+            "title": "Rounds",
+            "type": "array"
           }
         },
         "required": [
@@ -4363,6 +4609,91 @@
           "items"
         ],
         "title": "RequestList",
+        "type": "object"
+      },
+      "RequestRound": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "candidate_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Index"
+          },
+          "kind": {
+            "enum": [
+              "FIRST",
+              "REQUEST_AGAIN",
+              "RECURRENCE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_evidence_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Evidence Note"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "opened_by": {
+            "format": "uuid",
+            "title": "Opened By",
+            "type": "string"
+          },
+          "previous_completion": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Completion"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "round",
+          "kind",
+          "opened_at",
+          "opened_by",
+          "candidate_index",
+          "as_of",
+          "new_evidence_note",
+          "previous_completion"
+        ],
+        "title": "RequestRound",
         "type": "object"
       },
       "RequestSummary": {
@@ -5161,6 +5492,84 @@
         "title": "ReviewRequest",
         "type": "object"
       },
+      "RoundRequest": {
+        "additionalProperties": false,
+        "description": "Opens the next round: a re-request before action or a recurrence reopening after it.",
+        "properties": {
+          "as_of": {
+            "description": "The as_of of the signal the person read.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "dept_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Codes"
+          },
+          "kind": {
+            "enum": [
+              "REQUEST_AGAIN",
+              "RECURRENCE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "as_of"
+        ],
+        "title": "RoundRequest",
+        "type": "object"
+      },
       "RuleView": {
         "properties": {
           "dept": {
@@ -5462,6 +5871,80 @@
         "title": "SideWrite",
         "type": "object"
       },
+      "Signal": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/Baseline"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          },
+          "decision": {
+            "enum": [
+              "REQUEST_AGAIN",
+              "RECURRENCE",
+              "NONE"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "next_action": {
+            "enum": [
+              "OPEN_ROUND_REQUEST_AGAIN",
+              "OPEN_ROUND_RECURRENCE",
+              "NONE"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "NOT_SENT",
+              "BEFORE_ACTION",
+              "AFTER_ACTION"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/RecordView"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "update_notice_customers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Update Notice Customers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "phase",
+          "decision",
+          "reason_code",
+          "baseline",
+          "counts",
+          "records",
+          "update_notice_customers",
+          "next_action"
+        ],
+        "title": "Signal",
+        "type": "object"
+      },
       "SuccessResponse_AuditList_": {
         "properties": {
           "data": {
@@ -5636,6 +6119,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ResolutionCase]",
+        "type": "object"
+      },
+      "SuccessResponse_Signal_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Signal"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Signal]",
         "type": "object"
       },
       "SuccessResponse_TicketAnalysis_": {
@@ -9707,6 +10206,120 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/followup-signals": {
+      "get": {
+        "description": "Re-request / recurrence candidate at `as_of`. Same read scope as the request.",
+        "operationId": "cs_get_improvement_followup_signals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Judgement time (time zone required). Default now.",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Judgement time (time zone required). Default now.",
+              "title": "As Of"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Signal_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Signals",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/owner": {
       "put": {
         "description": "Only a manager of the C/S department reassigns the C/S owner (permissions.md 2.2).",
@@ -9911,6 +10524,111 @@
           }
         },
         "summary": "Review",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/rounds": {
+      "post": {
+        "description": "A C/S agent opens the next round for a re-request or a recurrence (permissions.md 2.2).\n\nThe candidate is checked again at the server's current time, which is also the round's\nopening time: records known between the person's `as_of` and now join this round's\nevidence and are not lost from the next count. Completing records of a reopened\nrequest are copied into the round row before the request starts again.",
+        "operationId": "cs_open_improvement_round",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoundRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Open Round",
         "tags": [
           "improvement-requests"
         ],

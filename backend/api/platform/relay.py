@@ -72,6 +72,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/followup-plan", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/complete", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/followup-signals", ("GET",), ("as_of",)),
+    ("/api/v1/cs/improvement-requests/{uuid}/rounds", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison", ("GET", "POST"), ("version",)),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements", ("POST",), ()),
     (

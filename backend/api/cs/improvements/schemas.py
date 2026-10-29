@@ -10,6 +10,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.engine.cs.improvement_candidates import parse_version
+from backend.engine.cs.improvement_followups import ScopeKind
 from backend.shared.departments import TransferDepartment
 
 Text = Annotated[str, Field(min_length=1, max_length=10_000)]
@@ -264,6 +266,9 @@ class RequestAction(BaseModel):
     dept_code: str
     action: str
     action_scope: str
+    # Which units the action applies to (KAN-117); OTHER means a person judges.
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: str | None = None
     action_date: date
     action_evidence: str
     recorded_by: UUID
@@ -299,6 +304,9 @@ class RequestDetail(BaseModel):
     departments: list[RequestDepartment] = Field(description="Departments of the current round.")
     replies: list[DeptReply]
     actions: list[RequestAction]
+    rounds: list["RequestRound"] = Field(
+        default_factory=list, description="Delivery rounds, oldest first (KAN-117)."
+    )
     next_owners: list[NextOwner]
 
 
@@ -347,12 +355,32 @@ class DeptReplyRequest(Versioned):
 
 
 class DeptActionRequest(Versioned):
-    """A department's improvement action, kept apart from any one customer's repair."""
+    """A department's improvement action, kept apart from any one customer's repair.
+
+    `scope_kind`·`scope_value` say which units the action applies to, so a recurrence on an
+    applied unit can be told apart from units that never got the fix (KAN-117). Omitted, the
+    scope is OTHER and recurrence stays "unknown" for a person to judge.
+    """
 
     action: Text
     action_scope: Text
     action_date: date
     action_evidence: Text
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def check_scope(self) -> Self:
+        value = self.scope_value
+        if (self.scope_kind == "OTHER") != (value is None):
+            raise ValueError(
+                "scope_value is required for a structured scope and not allowed for OTHER"
+            )
+        if self.scope_kind == "FIRMWARE_VERSION" and parse_version(value) is None:
+            raise ValueError("scope_value must be a firmware version such as 1.72")
+        if self.scope_kind == "SHIPPED_FROM":
+            date.fromisoformat(value or "")
+        return self
 
 
 class ResendRequest(Versioned):
@@ -369,3 +397,47 @@ class FollowupPlanRequest(Versioned):
 
 class CompleteRequest(Versioned):
     followup_result: Text
+
+
+# --- KAN-117: re-request and recurrence rounds -------------------------------------------
+
+
+class NewEvidence(BaseModel):
+    """A person's new evidence, different from the rejection reason (rejection-closed only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_ids: list[UUID] = Field(min_length=1, max_length=50)
+    note: Reason
+
+
+class RoundRequest(Versioned):
+    """Opens the next round: a re-request before action or a recurrence reopening after it."""
+
+    kind: Literal["REQUEST_AGAIN", "RECURRENCE"]
+    as_of: datetime = Field(description="The as_of of the signal the person read.")
+    dept_codes: list[TransferDepartment] | None = None
+    new_evidence: NewEvidence | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def check(self) -> Self:
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of needs a time zone")
+        if self.new_evidence is not None and self.kind != "REQUEST_AGAIN":
+            raise ValueError("new_evidence only opens a re-request")
+        return self
+
+
+class RequestRound(BaseModel):
+    round: int
+    kind: Literal["FIRST", "REQUEST_AGAIN", "RECURRENCE"]
+    opened_at: datetime
+    opened_by: UUID
+    candidate_index: int | None
+    as_of: datetime | None
+    new_evidence_note: str | None
+    previous_completion: dict[str, Any] | None
+
+
+RequestDetail.model_rebuild()

@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from backend.api.cs.analysis.routes import router as analysis
 from backend.api.cs.comparisons.routes import router as comparisons
+from backend.api.cs.improvements.followup_routes import router as improvement_followups
 from backend.api.cs.improvements.routes import router as improvements
 from backend.api.cs.improvements.transition_routes import router as improvement_transitions
 from backend.api.cs.stats.routes import router as stats
@@ -24,5 +25,6 @@ router.include_router(customer_mail)
 router.include_router(customer_mail_internal)
 router.include_router(improvements)
 router.include_router(improvement_transitions)
+router.include_router(improvement_followups)
 router.include_router(comparisons)
 router.include_router(stats)

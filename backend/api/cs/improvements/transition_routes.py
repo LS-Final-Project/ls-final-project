@@ -196,6 +196,17 @@ async def send(
         await repository.update_request(
             conn, request_id, row["version"], {"status": "SENT", "current_round": 1, "sent_at": now}
         )
+        # Round 1 opens here; re-request and recurrence rounds are KAN-117 (followup_routes).
+        await repository.insert_round(
+            conn,
+            {
+                "request_id": request_id,
+                "round": 1,
+                "kind": "FIRST",
+                "opened_at": now,
+                "opened_by": principal.user_id,
+            },
+        )
         fresh = await commit_transition(
             conn,
             row,
@@ -352,6 +363,8 @@ async def record_action(
                 "dept_code": dept_code,
                 "action": payload.action,
                 "action_scope": payload.action_scope,
+                "scope_kind": payload.scope_kind,
+                "scope_value": payload.scope_value,
                 "action_date": payload.action_date,
                 "action_evidence": payload.action_evidence,
                 "recorded_by": principal.user_id,
