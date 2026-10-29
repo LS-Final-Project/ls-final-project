@@ -303,10 +303,16 @@ def broken_build(*_args):
     raise RuntimeError("synthetic internal detail")
 
 
+def missing_source(name):
+    """C/S 문의 출처 모듈이 없는 이미지."""
+    raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+
+
 @pytest.mark.parametrize(
     ("override", "code"),
     [
-        ({"parts_loader": load_parts}, "CS_WORKER_SOURCE_MISSING"),
+        # KAN-107에서 모듈이 생겼으므로 배포되지 않은 이미지를 import 함수로 흉내 낸다.
+        ({"parts_loader": lambda s: load_parts(s, missing_source)}, "CS_WORKER_SOURCE_MISSING"),
         ({"build": broken_build}, "CS_WORKER_GRAPH_FAILED"),
     ],
     ids=["source-missing", "graph-error"],

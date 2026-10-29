@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from pydantic import SecretStr
 
 from backend.agent.ticket_source_registry import (
     SOURCE_MODULE,
@@ -50,10 +51,25 @@ def test_module_parts_get_policy_defaults_only_where_empty():
     assert (kept.allowed_info_codes, kept.search_filters) == (frozenset({"X"}), given)
 
 
+def missing_source(name):
+    """C/S 문의 출처 모듈이 배포되지 않은 이미지를 흉내 낸다."""
+    raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+
+
+def test_the_connected_module_builds_a_ticket_source(monkeypatch):
+    """KAN-107 모듈이 연결돼 있으면 실제 문의 출처를 준다."""
+    monkeypatch.setenv("CS_JOB_ID", "00000000-0000-4000-8000-000000000001")
+    from backend.api.cs.worker_source import DbTicketSource
+
+    parts = load_parts(SETTINGS.model_copy(update={"database_url": SecretStr("postgresql://x")}))
+    assert isinstance(parts.ticket_source, DbTicketSource)
+
+
 def test_missing_module_is_a_fixed_code_but_other_import_errors_surface():
     """C/S 모듈이 없으면 CS_WORKER_SOURCE_MISSING이고, 모듈 안의 다른 import 실패는 숨기지 않는다."""
     with pytest.raises(ApplicationError) as error:
-        load_parts(SETTINGS)
+        # KAN-107에서 모듈이 생겼으므로 없는 경우는 import 함수로 흉내 낸다.
+        load_parts(SETTINGS, missing_source)
     assert error.value.code == "CS_WORKER_SOURCE_MISSING"
 
     def inner_failure(name):

@@ -87,6 +87,10 @@ def business_database(auth_database):
             "cs/20261030_KAN-107_ticket_analysis.sql",
             "cs/20261030_KAN-110_customer_mail.sql",
             "cs/20261030_KAN-110_send_draft_link.sql",
+            # The worker grants (KAN-107) name the search and checkpoint tables.
+            "cs/20261029_KAN-99_search_chunks.sql",
+            "cs/20261029_KAN-194_checkpoint_schema.sql",
+            "cs/20261101_KAN-107_worker_source.sql",
             "tft/20261023_KAN-119_projects.sql",
             "tft/20261023_KAN-122_staffing_requests.sql",
             "tft/20261025_KAN-123_recommendation_commands.sql",

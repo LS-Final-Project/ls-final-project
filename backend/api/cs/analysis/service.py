@@ -34,28 +34,31 @@ def ticket_not_found() -> ApplicationError:
     return ApplicationError(404, "CS_TICKET_NOT_FOUND", "The ticket was not found.")
 
 
-async def record_analysis(conn: Any, ticket_id: UUID, values: Row) -> Row:
+async def record_analysis(conn: Any, ticket_id: UUID, values: Row, *, lock: bool = True) -> Row:
     """Stores one classification run (`outcome`, `classification` when VALID, input version and
     hash, model and prompt version, error code, optional `job_id`). Returns the stored row.
 
     A VALID classification is checked against the engine's output schema again, so a caller
-    cannot store fields the validator would have refused.
+    cannot store fields the validator would have refused. `lock=False` is for the worker
+    (worker_source.py), which may not lock ticket rows; UNIQUE(ticket_id, run_seq) still stops
+    two runs from taking the same number.
     """
     if values.get("classification") is not None:
         ClassificationOutput.model_validate(values["classification"], strict=False)
-    if await tickets.lock_ticket(conn, ticket_id) is None:
+    if lock and await tickets.lock_ticket(conn, ticket_id) is None:
         raise ticket_not_found()
     return await repository.insert_run(conn, ticket_id, values)
 
 
-async def record_draft(conn: Any, ticket_id: UUID, values: Row) -> Row:
+async def record_draft(conn: Any, ticket_id: UUID, values: Row, *, lock: bool = True) -> Row:
     """Stores one draft run (three options when VALID). Returns the stored row.
 
     The draft is checked against the engine's output schema (three options, one per label).
+    `lock` is as in `record_analysis`.
     """
     if values.get("draft") is not None:
         DraftOutput.model_validate(values["draft"])
-    if await tickets.lock_ticket(conn, ticket_id) is None:
+    if lock and await tickets.lock_ticket(conn, ticket_id) is None:
         raise ticket_not_found()
     # The FK only says the run exists; it must also be a run of this ticket.
     if values.get("analysis_id") is not None and not await repository.run_belongs(

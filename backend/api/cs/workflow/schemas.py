@@ -17,6 +17,8 @@ Code = Annotated[str, Field(min_length=1, max_length=64)]
 
 Text = Annotated[str, Field(min_length=1, max_length=10_000)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
+# An info_field_codebook code (eval/policy/cs_required_info.csv required_fields).
+InfoCode = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 ReviewStatus = Literal["SUBMITTED", "ACCEPTED", "REWORK_REQUESTED"]
 ReturnSubtype = Literal["DEFECT", "NON_DEFECT"]
@@ -224,6 +226,9 @@ class CustomerSend(BaseModel):
         description="When ACCEPTED moved the ticket to ANSWERED or WAITING_CUSTOMER."
     )
     draft_id: UUID | None = Field(default=None, description="Reviewed AI draft, if any.")
+    requested_info_codes: list[str] = Field(
+        default_factory=list, description="Information codes this message asked for."
+    )
     draft_option: DraftLabel | None = None
     created_at: datetime
 
@@ -263,6 +268,10 @@ class CustomerSendRequest(Action):
     # or not; the draft row itself is never changed.
     draft_id: UUID | None = None
     draft_option: DraftLabel | None = None
+    # Information codes this message asks the customer for (KAN-107). Omitted with a draft: the
+    # codes of the chosen option's questions. Omitted without one: nothing asked. Later drafts
+    # do not ask these again once the message was sent.
+    requested_info_codes: list[InfoCode] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def no_duplicates(self) -> Self:
@@ -271,6 +280,9 @@ class CustomerSendRequest(Action):
             raise ValueError("Recipients must not repeat")
         if (self.draft_id is None) != (self.draft_option is None):
             raise ValueError("Give draft_id and draft_option together")
+        codes = self.requested_info_codes or []
+        if len(codes) != len(set(codes)):
+            raise ValueError("Information codes must not repeat")
         return self
 
 

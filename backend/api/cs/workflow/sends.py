@@ -53,6 +53,7 @@ async def approve(
     cc: list[str],
     draft_id: UUID | None = None,
     draft_option: str | None = None,
+    requested_info_codes: list[str] | None = None,
 ) -> tuple[Row, Row]:
     """Writes the approved send and advances the workflow version (same transaction).
 
@@ -78,6 +79,7 @@ async def approve(
         "request_status": "PENDING",
         "draft_id": draft_id,
         "draft_option": draft_option,
+        "requested_info_codes": requested_info_codes or [],
     }
     await repository.insert_send(conn, send)
     workflow = await save(
@@ -92,6 +94,7 @@ async def approve(
         # Draft review trail (KAN-110): which AI draft and option the approval came from.
         draft_id=draft_id,
         draft_option=draft_option,
+        requested_info_codes=requested_info_codes or [],
     )
     return send, workflow
 

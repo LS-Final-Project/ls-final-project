@@ -510,8 +510,9 @@ def test_a_concurrent_registration_of_the_same_mail_is_a_conflict_not_an_error(c
         admin.execute("DELETE FROM cs.tickets WHERE id=%s", (other,))
 
 
-def stored_draft(cs_database, ticket_id, outcome="VALID"):
-    """A draft run saved through record_draft (KAN-107), as the job runner will."""
+def stored_draft(cs_database, ticket_id, outcome="VALID", asks=()):
+    """A draft run saved through record_draft (KAN-107), as the job runner will. `asks` are the
+    information codes the INFO_FIRST option asks for."""
     settings = Settings(
         _env_file=None,
         environment="test",
@@ -525,13 +526,69 @@ def stored_draft(cs_database, ticket_id, outcome="VALID"):
                 ticket_id,
                 {
                     "outcome": outcome,
-                    "draft": draft_options() if outcome == "VALID" else None,
+                    "draft": with_questions(draft_options(), asks) if outcome == "VALID" else None,
                     "input_version": "cs-draft-input-v1",
                     "error_code": None if outcome == "VALID" else "CS_DRAFT_INVALID",
                 },
             )
 
     return asyncio.run(run())
+
+
+def with_questions(draft, codes):
+    for option in draft["options"]:
+        if option["label"] == "INFO_FIRST":
+            option["info_requests"] = [
+                {"info_code": c, "question": "Please send it."} for c in codes
+            ]
+    return draft
+
+
+def test_an_information_request_keeps_the_codes_it_asked_for(
+    client, admin, cs_database, platform, ticket
+):
+    """KAN-107: the codes a sent message asked for are what later drafts treat as asked."""
+    ok(act(client, ticket, "start-review", version=0))
+    draft = stored_draft(cs_database, ticket, asks=("serial_no", "photos"))
+    picked = {"draft_id": str(draft["id"]), "draft_option": "INFO_FIRST"}
+    for invalid in (["not_a_code"], ["serial_no", "serial_no"], ["Serial-No"]):
+        response = send(client, ticket, 1, kind="INFO_REQUEST", requested_info_codes=invalid)
+        assert response.status_code == 422
+    assert code(
+        send(client, ticket, 1, kind="INFO_REQUEST", requested_info_codes=["x_unknown"])
+    ) == (
+        422,
+        "CS_INFO_CODE_UNKNOWN",
+    )
+    # Not given with a draft: the chosen option's questions, sorted.
+    sent = last_send(ok(send(client, ticket, 1, kind="INFO_REQUEST", **picked)))
+    assert sent["requested_info_codes"] == ["photos", "serial_no"]
+    stored = admin.execute(
+        "SELECT requested_info_codes FROM cs.ticket_customer_sends WHERE id=%s", (sent["id"],)
+    ).fetchone()
+    assert stored == (["photos", "serial_no"],)
+    approval = admin.execute(
+        "SELECT changes->'requested_info_codes' FROM cs.audit_events WHERE entity_id=%s "
+        "AND changes->'action'->>'to'='approve_send'",
+        (ticket,),
+    ).fetchone()
+    assert approval == ({"to": ["photos", "serial_no"]},)
+
+
+def test_an_edited_message_can_say_it_asks_nothing(client, admin, cs_database, platform, ticket):
+    ok(act(client, ticket, "start-review", version=0))
+    draft = stored_draft(cs_database, ticket, asks=("serial_no",))
+    data = ok(
+        send(
+            client,
+            ticket,
+            1,
+            draft_id=str(draft["id"]),
+            draft_option="INFO_FIRST",
+            requested_info_codes=[],
+        )
+    )
+    assert last_send(data)["requested_info_codes"] == []
 
 
 def test_a_reviewed_draft_becomes_the_sent_message_and_a_draft_alone_never_closes(
