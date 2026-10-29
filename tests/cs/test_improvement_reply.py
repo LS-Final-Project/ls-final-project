@@ -359,3 +359,18 @@ def test_plan_followup_rejects_interpretation_from_another_context():
     output = validate_output(raw([claim("FIX")]), context=CONTEXT)
     with pytest.raises(ValueError, match="^CS_INVALID_INPUT$"):
         plan_followup(ctx(reply_type="REJECTED"), output)
+
+
+def test_version_conflict_matches_whole_tokens_only():
+    """conflicts의 판본은 토큰 정확 일치로 찾는다. '2.1'은 '2.1.0'에 맞지 않고 'v' 접두는 무시한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 부분 일치 거부와 접두 정규화 통과를 확인한다.
+    """
+    claimed = [claim("FW_VERSION", fw="2.1")]
+    with pytest.raises(ValueError, match="^CS_INVALID_OUTPUT$"):
+        validate_output(raw(claimed, conflicts=["Request says 2.1.0 is fixed."]), context=CONTEXT)
+    assert validate_output(raw(claimed, conflicts=["Dept says v2.1 applies."]), context=CONTEXT)

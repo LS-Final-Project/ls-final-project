@@ -6,6 +6,7 @@
 """
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -15,6 +16,7 @@ Stage = Literal["RAW", "DB", "SCREEN", "CSV"]
 STAGES: tuple[Stage, ...] = ("RAW", "DB", "SCREEN", "CSV")
 RunStatus = Literal["COMPLETED", "ABORTED", "PARTIAL"]
 STATUSES = ("MATCH", "MISMATCH", "MISSING", "ZERO_FOR_MISSING")
+NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 PARTIAL_NOTE = "부분 결과이며 합격 판정에 쓰지 않는다"
 Number = float | int
 
@@ -175,6 +177,9 @@ def csv_totals(rows: list[Mapping[str, str | None]], keys: tuple[str, ...]) -> d
             raw = row.get(key)
             if raw is None or not raw.strip():
                 continue
+            # Decimal이 받는 밑줄('1_000')·NaN 등을 막고 부호·숫자·소수점·지수만 허용한다.
+            if NUMBER.fullmatch(raw.strip()) is None:
+                raise ValueError("EVAL_INVALID_INPUT")
             try:
                 value = Decimal(raw.strip())
             except InvalidOperation:

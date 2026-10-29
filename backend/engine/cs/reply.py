@@ -108,7 +108,8 @@ def _serial_match(
     Args:
         body: 마스킹 전 회신 본문.
         confirmed_unit_serial: 확정 장비 시리얼 원값. 없으면 None.
-        sensitive_values: 어댑터가 식별한 원값과 마스킹 종류.
+        sensitive_values: 어댑터가 식별한 원값과 마스킹 종류. 라벨 없는 시리얼은 여기에 SERIAL로 있을
+            때만 찾는다. KAN-110 어댑터가 본문의 SERIAL을 빠짐없이 넣어야 한다(빠지면 NOT_MENTIONED가 될 수 있다).
 
     Returns:
         SerialMatch: 시리얼이 없으면 NOT_MENTIONED, 확정 장비가 없으면 NO_CONFIRMED_UNIT, 모두 같으면

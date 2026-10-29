@@ -261,7 +261,7 @@ def summarize_edit_traces(
     checked = 0
     hits: list[tuple[str, str, str | None]] = []
     for case_id, values in deleted_values.items():
-        if not isinstance(values, frozenset):
+        if not isinstance(values, frozenset) or not all(isinstance(v, str) for v in values):
             raise ValueError("EVAL_INVALID_INPUT")
         removed = {_fold(value) for value in values}
         if not removed:
@@ -269,6 +269,8 @@ def summarize_edit_traces(
         for requirement in _checked_predictions(list(predicted.get(case_id, []))):
             if requirement.value_text is None:
                 continue
+            if not isinstance(requirement.value_text, str):
+                raise ValueError("EVAL_INVALID_INPUT")
             checked += 1
             if _fold(requirement.value_text) in removed:
                 hits.append((case_id, *_key(requirement)))

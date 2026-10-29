@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
@@ -208,6 +209,34 @@ def _same_version(a: str, b: str) -> bool:
     return a.strip().casefold() == b.strip().casefold()
 
 
+def _version_key(token: str) -> str:
+    """판본 비교 키. 앞뒤 공백·끝 마침표를 떼고 casefold하며 숫자 앞 'v'는 뗀다('v2.2.0' = '2.2.0').
+
+    Args:
+        token: 판본 문자열이나 conflicts 토큰.
+
+    Returns:
+        str: 비교 키.
+    """
+    return re.sub(r"^v(?=\d)", "", token.strip().casefold().rstrip("."))
+
+
+def _version_tokens(text: str) -> set[str]:
+    """conflicts 문장을 공백·구두점으로 나눈 판본 비교 토큰.
+
+    Args:
+        text: conflicts_with_request 항목.
+
+    Returns:
+        set[str]: _version_key 토큰. 판본 안의 점·하이픈은 나누지 않는다.
+    """
+    return {
+        _version_key(token)
+        for token in re.split(r"[\s,;:()\[\]{}<>'\"!?]+", text)
+        if _version_key(token)
+    }
+
+
 def _violates(context: ImprovementContext, output: ImprovementReplyInterpretation) -> bool:
     """요청서 맥락과 어긋나는 해석인지 본다.
 
@@ -220,7 +249,8 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
             요청서와 다른 판본 주장을 conflicts에 적지 않은 경우 True.
     """
     kinds = {claim.kind for claim in output.claims}
-    conflicts = [conflict.casefold() for conflict in output.conflicts_with_request]
+    # 판본은 토큰 정확 일치로 찾는다('v1'이 'v10'에 맞지 않게).
+    conflicts = [_version_tokens(conflict) for conflict in output.conflicts_with_request]
     fixed = context.fw_fixed_version
     return (
         (context.reply_type == "REJECTED" and bool(kinds & NEEDS_EVIDENCE))
@@ -230,7 +260,7 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
             fixed is not None
             and claim.fw_version is not None
             and not _same_version(claim.fw_version, fixed)
-            and not any(claim.fw_version.strip().casefold() in c for c in conflicts)
+            and not any(_version_key(claim.fw_version) in tokens for tokens in conflicts)
             for claim in output.claims
         )
     )

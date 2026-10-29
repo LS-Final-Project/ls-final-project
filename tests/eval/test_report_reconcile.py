@@ -253,3 +253,18 @@ def test_screen_payload_missing_path_is_none():
     assert values == {"macro_f1": 0.8125, "urgency_macro_f1": None, "hit_at_5": None}
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         screen_payload_values({"a": "0.8"}, {"a": ("a",)})
+
+
+def test_csv_totals_accept_plain_numbers_only():
+    """부호·숫자·소수점·지수만 허용하고 Decimal이 받는 밑줄 숫자('1_000')는 거부한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 허용 형식 합계와 밑줄 거부를 확인한다.
+    """
+    totals = csv_totals([{"x": "-0.5"}, {"x": "1e3"}, {"x": "+.5"}], ("x",))
+    assert totals["x"]["total"] == Decimal("1000.0")
+    with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
+        csv_totals([{"x": "1_000"}], ("x",))
