@@ -7,6 +7,8 @@ from backend.api.platform.auth.mailbox_settings import MailboxAuthSettings
 from backend.api.platform.auth.routes import dev_router
 from backend.api.platform.auth.settings import MicrosoftAuthSettings
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.jobs.cs import CsJobSettings, configure_cs_jobs
+from backend.api.platform.jobs.cs import router as cs_jobs_router
 from backend.api.platform.jobs.tft import TftJobSettings, configure_tft_jobs
 from backend.api.platform.jobs.tft import router as tft_jobs_router
 from backend.api.platform.mail.intake import router as mail_intake_router
@@ -28,6 +30,7 @@ def create_app(
     mail_sync_settings: MailSyncSettings | None = None,
     mail_send_settings: MailSendSettings | None = None,
     tft_job_settings: TftJobSettings | None = None,
+    cs_job_settings: CsJobSettings | None = None,
 ) -> FastAPI:
     """플랫폼 앱과 기본 비활성 Microsoft 로그인 설정을 준비한다.
 
@@ -39,6 +42,7 @@ def create_app(
         mail_sync_settings: 기본 비활성 메일 수집 워커 설정(KAN-72).
         mail_send_settings: 기본 비활성 승인 메일 발송 설정(KAN-74).
         tft_job_settings: 기본 비활성 tft 작업 내부 접수 설정(KAN-182).
+        cs_job_settings: 기본 비활성 cs 작업 내부 접수 설정(KAN-194).
 
     Returns:
         FastAPI: 로그인 계약과 기존 개발 경로를 포함한 플랫폼 앱.
@@ -49,6 +53,7 @@ def create_app(
     configure_mail_sync(app, mail_sync_settings or MailSyncSettings())
     configure_mail_send(app, mail_send_settings or MailSendSettings())
     configure_tft_jobs(app, tft_job_settings or TftJobSettings())
+    configure_cs_jobs(app, cs_job_settings or CsJobSettings())
     app.state.evaluation_access = evaluation_access or EvaluationAccessSettings()
     app.include_router(router)
     app.include_router(mail_worker_router)
@@ -56,6 +61,7 @@ def create_app(
     app.include_router(mail_send_user_router)
     app.include_router(mail_intake_router)
     app.include_router(tft_jobs_router)
+    app.include_router(cs_jobs_router)
     if app.state.settings.dev_auth_enabled and app.state.settings.environment in {"local", "test"}:
         app.include_router(dev_router)
     configure_relay(app)
