@@ -2,7 +2,7 @@
 
 원본: `backend/api/cs/improvements/schemas.py`, `routes.py`, `next_owner.py`. 기획서 4.4·6.1과 [권한 문서](../platform/permissions.md) 2.2·2.2.1을 따른다. 마이그레이션은 `infra/migrations/cs/20261028_KAN-112_improvement_requests.sql`이다.
 
-KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회신·조치·후속 확인·완료 전이는 아래 [상태 전이 API](#상태-전이-api-kan-116)(KAN-116), 후보 자동 생성 규칙은 [후보 규칙](improvement-candidates.md)(KAN-113), 재요청·재발 재개(새 회차)는 KAN-117이 같은 테이블을 쓴다.
+KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회신·조치·후속 확인·완료 전이는 아래 [상태 전이 API](#상태-전이-api-kan-116)(KAN-116), 후보 자동 생성 규칙은 [후보 규칙](improvement-candidates.md)(KAN-113), 재요청·재발 재개(새 회차)는 KAN-117이 같은 테이블을 쓴다([재요청·재발 계약 초안](improvement-followups.md)).
 
 ## 저장 구조
 
