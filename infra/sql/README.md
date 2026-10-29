@@ -54,7 +54,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 41개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 42개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -82,6 +82,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | T5 | `tft/20261025_KAN-127_decisions.sql` | T1 | tft_migrator | 가능 | to_regclass('tft.decision_commands') | 미확인 |
 | T6 | `tft/20261029_KAN-99_search_chunks.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.document_chunks') | 미확인 |
 | T7 | `tft/20261029_KAN-182_rfp_response.sql` | T1 | tft_migrator | 가능 | to_regclass('tft.requirement_versions') | 미확인 |
+| T8 | `tft/20261030_KAN-182_rfp_keys.sql` | T7(헤더) | tft_migrator | 가능 | 제약 `product_comparisons_version_key` | 미확인 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
@@ -115,9 +116,11 @@ SELECT to_regclass('cs.tickets') IS NOT NULL;
 -- 열 행
 SELECT EXISTS (SELECT 1 FROM information_schema.columns
   WHERE table_schema = 'cs' AND table_name = 'resolution_cases' AND column_name = 'dept_result_id');
--- 제약 행(P6)
+-- 제약 행(P6, T8)
 SELECT EXISTS (SELECT 1 FROM pg_constraint
   WHERE conname = 'users_dept_fkey' AND conrelid = 'identity.users'::regclass);
+SELECT EXISTS (SELECT 1 FROM pg_constraint
+  WHERE conname = 'product_comparisons_version_key' AND conrelid = 'tft.product_comparisons'::regclass);
 -- 권한 행(P9, P15)
 SELECT has_column_privilege('platform_app', 'evaluation.run_control', 'holder_id', 'UPDATE');
 SELECT has_column_privilege('evaluation_worker', 'evaluation.runs', 'held_count', 'UPDATE');
@@ -168,6 +171,7 @@ python3 scripts/workspace.py migrate tft 20261025_KAN-123_recommendation_command
 python3 scripts/workspace.py migrate tft 20261025_KAN-127_decisions.sql
 python3 scripts/workspace.py migrate tft 20261029_KAN-182_rfp_response.sql
 python3 scripts/workspace.py migrate tft 20261029_KAN-99_search_chunks.sql
+python3 scripts/workspace.py migrate tft 20261030_KAN-182_rfp_keys.sql
 python3 scripts/workspace.py migrate platform 20261022_KAN-78_identity.sql
 python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizations.sql
 python3 scripts/workspace.py migrate platform 20261023_KAN-77_sessions.sql
