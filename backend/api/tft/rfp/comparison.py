@@ -213,48 +213,58 @@ def _certification_match(requirement: Requirement, product: Product) -> Candidat
     wanted = requirement.certification_standard or ""
     held = [c for c in product.certifications if grading._norm(c.standard) == grading._norm(wanted)]
     if held:
-        cert = held[0]
-        evidence = [
-            Evidence(document=cert.evidence_id, clause=None, applicability=cert.kind, limits=None)
-        ]
-
-        def match(
-            status: Status, result: Result, reason: str, unresolved: list[str]
-        ) -> CandidateMatch:
-            return CandidateMatch(
-                product_code=product.product_code,
-                lifecycle_status=product.lifecycle_status,
-                comparable=True,
-                result=result,
-                our_value=cert.standard,
-                our_unit=None,
-                our_conditions=[],
-                evidence=evidence,
-                status=status,
-                reason=reason,
-                unresolved=unresolved,
-            )
-
         head = f"원문 {requirement.clause_no} {wanted}"
-        if requirement.certification_listed and cert.kind != "LISTED":
-            # 시험 성적은 등록을 대신하지 않는다: 미충족 근거가 있는 인증 부족(사양 차이).
+
+        def judge(cert: Certification) -> CandidateMatch:
+            def match(
+                status: Status, result: Result, reason: str, unresolved: list[str]
+            ) -> CandidateMatch:
+                return CandidateMatch(
+                    product_code=product.product_code,
+                    lifecycle_status=product.lifecycle_status,
+                    comparable=True,
+                    result=result,
+                    our_value=cert.standard,
+                    our_unit=None,
+                    our_conditions=[],
+                    evidence=[
+                        Evidence(
+                            document=cert.evidence_id,
+                            clause=None,
+                            applicability=cert.kind,
+                            limits=None,
+                        )
+                    ],
+                    status=status,
+                    reason=reason,
+                    unresolved=unresolved,
+                )
+
+            if requirement.certification_listed and cert.kind != "LISTED":
+                # 시험 성적은 등록을 대신하지 않는다: 미충족 근거가 있는 인증 부족(사양 차이).
+                return match(
+                    "SPEC_GAP",
+                    "DIFFERS",
+                    f"{head} 등록(Listed) 요구, 자사는 {cert.standard} 시험 성적만 있음.",
+                    [],
+                )
+            if cert.variant:
+                # 변형 모델에만 있는 인증: 대응 경로는 있지만 모델 선택이 남는다.
+                return match(
+                    "CONDITIONAL",
+                    "MEETS",
+                    f"{head} 요구, 자사 {cert.standard}({cert.kind})는 {cert.variant} 변형 모델에만 있음.",
+                    [f"{cert.variant} 변형 모델 선택 확인"],
+                )
             return match(
-                "SPEC_GAP",
-                "DIFFERS",
-                f"{head} 등록(Listed) 요구, 자사는 {cert.standard} 시험 성적만 있음.",
+                "EVIDENCE_FOUND",
+                "MEETS",
+                f"{head} 요구, 자사 {cert.standard}({cert.kind}) 보유.",
                 [],
             )
-        if cert.variant:
-            # 변형 모델에만 있는 인증: 대응 경로는 있지만 모델 선택이 남는다.
-            return match(
-                "CONDITIONAL",
-                "MEETS",
-                f"{head} 요구, 자사 {cert.standard}({cert.kind})는 {cert.variant} 변형 모델에만 있음.",
-                [f"{cert.variant} 변형 모델 선택 확인"],
-            )
-        return match(
-            "EVIDENCE_FOUND", "MEETS", f"{head} 요구, 자사 {cert.standard}({cert.kind}) 보유.", []
-        )
+
+        # 같은 규격의 인증이 여럿이면(시험 성적·등록, 기본·변형) 모두 판정하고 가장 좋은 것을 쓴다.
+        return min((judge(c) for c in held), key=lambda m: ORDER.index(m.status))
     systems = sorted({system_of(c.standard) for c in product.certifications} - {"NONE"})
     # 보유 여부를 확인할 자료가 없으면 근거 부족이다. 다른 체계 성적이 있다는 사실만 사유에 둔다.
     other = f" 자사 자료는 {'·'.join(systems)} 체계만 있음." if systems else ""
@@ -371,20 +381,24 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
         else _attribute_match(requirement, p)
         for p in products
     ]
-    # 같은 상태면 판매 중(ACTIVE) 후보를 먼저 본다.
-    best = min(matches, key=lambda m: (ORDER.index(m.status), m.lifecycle_status != "ACTIVE"))
-    if best.status == "EVIDENCE_FOUND" and best.lifecycle_status not in (None, "ACTIVE"):
-        # 근거가 맞아도 판매 중이 아닌 제품(MATURE 등)은 공급 지속 여부가 남아 조건부다.
-        best = best.model_copy(
+    # 판매 중(ACTIVE)이 아닌 제품(MATURE 등)은 근거가 맞아도 공급 지속 여부가 남아 조건부다. 후보별 비교에도
+    # 같은 결과가 보이도록 모든 후보에 먼저 적용한 뒤 가장 좋은 후보를 고른다.
+    matches = [
+        m.model_copy(
             update={
                 "status": "CONDITIONAL",
                 "unresolved": [
-                    *best.unresolved,
-                    f"수명주기 {best.lifecycle_status}: 공급 지속 여부 확인",
+                    *m.unresolved,
+                    f"수명주기 {m.lifecycle_status}: 공급 지속 여부 확인",
                 ],
             }
         )
-        matches = [best if m.product_code == best.product_code else m for m in matches]
+        if m.status == "EVIDENCE_FOUND" and m.lifecycle_status not in (None, "ACTIVE")
+        else m
+        for m in matches
+    ]
+    # 같은 상태면 판매 중 후보를 먼저 본다.
+    best = min(matches, key=lambda m: (ORDER.index(m.status), m.lifecycle_status != "ACTIVE"))
     owner: NextOwner | None = {
         "EVIDENCE_FOUND": None,
         "CONDITIONAL": "TECH",

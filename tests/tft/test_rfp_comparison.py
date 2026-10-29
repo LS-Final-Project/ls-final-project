@@ -273,6 +273,11 @@ def test_a_product_not_on_sale_is_conditional_and_active_products_go_first():
     )
     both = compare(requirement, [mature, switchgear("17.5")], trace)
     assert (both.status, both.candidates[1].product_code) == ("EVIDENCE_FOUND", "SWGR-TEST")
+    # The listed mature candidate shows the same downgrade as when it stood alone.
+    assert (both.candidates[0].status, both.candidates[0].unresolved) == (
+        "CONDITIONAL",
+        ["수명주기 MATURE: 공급 지속 여부 확인"],
+    )
 
 
 def test_values_that_cannot_be_compared_always_leave_something_to_check():
@@ -321,3 +326,23 @@ def test_certification_kind_and_variant_decide_gap_or_condition():
     # Held only by a variant model: not widened to the base model.
     variant = compare(listed, [certified("LISTED", variant="-U")], trace)
     assert (variant.status, variant.unresolved) == ("CONDITIONAL", ["-U 변형 모델 선택 확인"])
+
+
+def test_every_held_certificate_of_the_standard_is_judged_and_the_best_counts():
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    listed = Requirement(
+        clause_no="2.1",
+        item="UL 1558 Listed",
+        certification_standard="UL 1558",
+        certification_listed=True,
+    )
+
+    def holding(*certs):
+        return switchgear("15").model_copy(update={"certifications": list(certs)})
+
+    report = Certification(standard="UL 1558", kind="TEST_REPORT", evidence_id="DS-1")
+    variant = Certification(standard="UL 1558", kind="LISTED", evidence_id="DS-2", variant="-U")
+    base = Certification(standard="UL 1558", kind="LISTED", evidence_id="DS-3")
+    assert compare(listed, [holding(report, base)], trace).status == "EVIDENCE_FOUND"
+    assert compare(listed, [holding(variant, base)], trace).status == "EVIDENCE_FOUND"
+    assert compare(listed, [holding(report, variant)], trace).status == "CONDITIONAL"
