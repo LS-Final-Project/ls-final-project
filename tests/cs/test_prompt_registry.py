@@ -25,6 +25,8 @@ V1_FINGERPRINTS = {
 }
 # 분류 v2(KAN-105 3차, 긴급도 신호 지침). v1에 한 줄만 더한 판본이다.
 V2_CLASSIFICATION_FINGERPRINT = "143d7655ee22fed7"
+# 분류 v3(KAN-105 6차, return_subtype null 규칙 강조). v2의 return_subtype 줄만 바꾼 판본이다.
+V3_CLASSIFICATION_FINGERPRINT = "f299989ca90bcf99"
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -43,7 +45,7 @@ def test_v1_fingerprints_are_pinned():
         None: 지문과 판본 목록을 확인한다.
     """
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
-    assert list_versions("classification") == ("v1", "v2")
+    assert list_versions("classification") == ("v1", "v2", "v3")
     assert all(list_versions(stage) == ("v1",) for stage in PROMPTS if stage != "classification")
 
 
@@ -111,6 +113,32 @@ def test_classification_v2_adds_only_the_urgency_guide():
     assert "위 신호가 없으면 NONE" in guide and "가장 구체적인 신호 하나" in guide
     # 긴급도 사이 우선순위 규칙은 넣지 않는다.
     assert "SAFETY > " not in guide and "우선" not in guide
+
+
+def test_classification_v3_replaces_only_the_return_subtype_rule():
+    """분류 v3는 v2의 return_subtype 줄 하나만 같은 자리에서 바꾸고, v1·v2·v3 지문을 고정한다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 지문·교체 줄 위치·내용을 확인한다.
+    """
+    v2, v3 = get_prompt("classification", "v2"), get_prompt("classification", "v3")
+    assert prompt_fingerprint("classification", "v1") == V1_FINGERPRINTS["classification"]
+    assert prompt_fingerprint("classification", "v2") == V2_CLASSIFICATION_FINGERPRINT
+    assert prompt_fingerprint("classification", "v3") == V3_CLASSIFICATION_FINGERPRINT
+    old, new = v2.splitlines(), v3.splitlines()
+    changed = [i for i, (a, b) in enumerate(zip(old, new, strict=True)) if a != b]
+    assert len(changed) == 1 and old[changed[0]].startswith("- return_subtype은")
+    rule = new[changed[0]]
+    assert rule.startswith(
+        "- return_subtype은 category_code 또는 secondary_category가 RETURN일 때만"
+    )
+    assert "둘 다 RETURN이 아니면 불량·고장 내용이 있어도 반드시 null" in rule
+    assert "category_code WARRANTY, secondary_category DEFECT → return_subtype null" in rule
+    # 긴급도 지침과 출력 형식 줄은 v2 그대로다.
+    assert new[-1] == old[-1] and any("가장 구체적인 신호 하나" in line for line in new)
 
 
 @pytest.mark.parametrize(
