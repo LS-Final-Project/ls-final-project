@@ -251,8 +251,13 @@ def scoped_then_global(
     limit: int,
     vector: Searcher | None = None,
     code_text: str | None = None,
+    reserved: tuple[SearchFilters, int] | None = None,
 ) -> tuple[list[Fused], set[str]]:
     """좁힌 조건(제품 등)으로 먼저 찾고, 모자라면 전체 조건으로 보충한다.
+
+    reserved=(조건, n)이면 첫 단계(좁힌 조건, 없으면 전체)로 limit-n개를 채운 뒤 그 조건(예: 정책 문서)의 상위 n개를
+    중복 없이 붙인다(KAN-194 10차). 예약 결과가 모자라면 남은 자리는 좁힌 조건 → 전체 순으로 채운다. 예약 단계도
+    FTS만 쓴다.
 
     좁힌 단계는 FTS만 쓴다. product_family 같은 조건은 C/S FTS 검색기만 적용하므로 벡터 결과를 섞으면 좁힌 범위
     밖 청크가 앞설 수 있다. 벡터 검색기는 전체 단계에서만 쓴다.
@@ -265,6 +270,7 @@ def scoped_then_global(
         limit: 최대 결과 수.
         vector: 벡터 검색기(선택, 전체 단계에서만).
         code_text: 코드 일치를 뽑을 원문(run_hybrid의 code_text).
+        reserved: 자리를 예약할 조건과 개수(선택).
 
     Returns:
         tuple: (본문 있는 결합 후보, 좁힌 결과가 앞서고 chunk_id 중복 없이 limit개 이하; 두 단계에서 인용 차단으로
@@ -272,21 +278,34 @@ def scoped_then_global(
     """
     items: list[Fused] = []
     blocked: set[str] = set()
-    for stage in (scoped, filters):
-        if stage is None or len(items) >= limit:
-            continue
-        result = run_hybrid(
-            query,
-            stage,
-            fts=fts,
-            vector=vector if stage is filters else None,
-            code_text=code_text,
-        )
-        blocked |= set(result.dropped_blocked)
+    found: dict[int, list[Fused]] = {}
+
+    def add(stage: SearchFilters, room: int) -> None:
+        """단계 결과(한 번만 검색)에서 중복 없이 room개까지 붙인다. 자리가 없으면 검색하지 않는다."""
+        if room <= 0:
+            return
+        if id(stage) not in found:
+            result = run_hybrid(
+                query,
+                stage,
+                fts=fts,
+                vector=vector if stage is filters else None,
+                code_text=code_text,
+            )
+            blocked.update(result.dropped_blocked)
+            found[id(stage)] = [
+                item for item in result.items if excerpt(item.candidate) is not None
+            ]
         seen = {item.candidate.chunk_id for item in items}
-        items += [
-            item
-            for item in result.items
-            if excerpt(item.candidate) is not None and item.candidate.chunk_id not in seen
-        ][: limit - len(items)]
+        items.extend(
+            [item for item in found[id(stage)] if item.candidate.chunk_id not in seen][:room]
+        )
+
+    stages = [stage for stage in (scoped, filters) if stage is not None]
+    slots = min(reserved[1], limit) if reserved else 0
+    add(stages[0], limit - slots)
+    if reserved:
+        add(reserved[0], slots)
+    for stage in stages:
+        add(stage, limit - len(items))
     return items, blocked

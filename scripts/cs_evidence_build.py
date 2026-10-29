@@ -33,6 +33,7 @@ import psycopg
 from backend.agent.cs_search import fts_searcher_from_dsn
 from backend.engine.cs.classification import build_input
 from backend.engine.cs.drafting import EvidenceSnippet
+from backend.engine.cs.graph import policy_slot
 from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import SearchFilters
 from scripts.cs_candidate_run import SplitBlocked, git_sha, load_targets, write_private
@@ -95,6 +96,46 @@ def load_ticket_ids(path: Path) -> list[str]:
     return ids
 
 
+def load_categories(path: Path) -> dict[str, object]:
+    """분류 결과 라벨 JSON에서 문의별 category_code를 읽는다.
+
+    Args:
+        path: {ticket_id: {category_code, ...} | null} 라벨 파일.
+
+    Returns:
+        dict: 문의별 category_code(라벨이 없거나 객체가 아니면 None). 최상위가 객체가 아니면 ValueError다.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("CS_EVIDENCE_CLASSIFICATION")
+    return {
+        key: value.get("category_code") if isinstance(value, dict) else None
+        for key, value in data.items()
+    }
+
+
+def load_policy_documents(path: Path) -> dict[str, str]:
+    """색인 manifest에서 적재된 정책 문서의 doc_id(POL-*) → sha256을 읽는다.
+
+    Args:
+        path: cs_index_docs --manifest-out JSON(doc_id 열 포함).
+
+    Returns:
+        dict[str, str]: reason 없이 적재된 POL-* 문서. 형식이 틀리면 CS_EVIDENCE_INDEX_MANIFEST ValueError다.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data.get("documents") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ValueError("CS_EVIDENCE_INDEX_MANIFEST")
+    return {
+        row["doc_id"]: row["sha256"]
+        for row in rows
+        if str(row.get("doc_id") or "").startswith("POL-")
+        and isinstance(row.get("sha256"), str)
+        and not row.get("reason")
+    }
+
+
 def is_product_document(source_name: str, product_code: str) -> bool:
     """색인 문서가 그 제품의 문서인지 경로 조각으로 판정한다.
 
@@ -148,6 +189,8 @@ def build_evidence(
     query_from: QuerySource,
     product_documents: Mapping[str, frozenset[str]] | None = None,
     product_filter: bool = True,
+    categories: Mapping[str, object] | None = None,
+    policy_documents: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     """문의마다 FTS로 근거 스니펫을 찾는다. 제품 문서가 주어지면 그 문서를 먼저 찾고 전역으로 채운다.
 
@@ -163,6 +206,9 @@ def build_evidence(
         product_documents: {ticket_id: 그 문의 제품 문서의 sha256 집합}. None이면 제품 통계도 내지 않는다.
         product_filter: True면 제품 문서 제한 검색을 먼저 하고 모자라면 전역으로 채운다. False면 전역만 쓰고
             통계만 낸다(전후 비교용).
+        categories: {ticket_id: 분류 결과 category_code}. policy_documents와 함께 있으면 graph.policy_slot과 같은
+            규칙으로 그 유형의 정책 문서 1자리를 예약한다(KAN-194 10차). None이면 예약하지 않는다.
+        policy_documents: 정책 문서 doc_id → sha256(load_policy_documents).
 
     Returns:
         tuple: (evidence {ticket_id: [EvidenceSnippet dict]}, 집계 meta). 입력 정제 실패·토큰 없음은 빈 배열로
@@ -179,7 +225,7 @@ def build_evidence(
 
     evidence: dict[str, list[dict[str, Any]]] = {}
     queries: list[str] = []
-    input_failed = dropped = with_docs = hits = top1 = 0
+    input_failed = dropped = with_docs = hits = top1 = reserved_tickets = 0
     for ticket_id in sorted(records):
         docs = (product_documents or {}).get(ticket_id, frozenset())
         if scope is not None:
@@ -201,8 +247,10 @@ def build_evidence(
             if product_filter and docs
             else None
         )
+        reserved = policy_slot(filters, (categories or {}).get(ticket_id), policy_documents)
+        reserved_tickets += reserved is not None
         items, blocked = scoped_then_global(
-            query, filters, scoped, fts=searcher, limit=limit, code_text=text
+            query, filters, scoped, fts=searcher, limit=limit, code_text=text, reserved=reserved
         )
         rows = [
             EvidenceSnippet(
@@ -231,6 +279,8 @@ def build_evidence(
         "query_from": query_from,
         "queries_sha256": hashlib.sha256("\n".join(queries).encode()).hexdigest(),
     }
+    if categories is not None:
+        meta |= {"policy_slot": True, "reserved_tickets": reserved_tickets}
     if product_documents is not None:
         meta |= {
             "product_filter": product_filter,
@@ -288,6 +338,11 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
         action="store_true",
         help="제품 우선 검색을 끄고 통계만 낸다(--index-manifest와 함께, 전후 비교용)",
     )
+    parser.add_argument(
+        "--classification",
+        type=Path,
+        help="분류 결과 라벨 JSON({ticket_id: {category_code}}). --index-manifest의 정책 문서로 1자리를 예약한다",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
         "--meta-out", type=Path, help="meta를 파일로도 남길 경로(표준 출력과 같은 내용)"
@@ -297,10 +352,11 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
         not 1 <= args.limit_per_ticket <= 100 - SEARCH_MARGIN
         or args.snippet_chars < 1
         or (args.no_product_filter and args.index_manifest is None)
+        or (args.classification is not None and args.index_manifest is None)
     ):
         print(
             "CS_EVIDENCE_INVALID_ARGS: --limit-per-ticket은 1~90, --snippet-chars는 1 이상이고 "
-            "--no-product-filter는 --index-manifest와 함께만 씁니다."
+            "--no-product-filter·--classification은 --index-manifest와 함께만 씁니다."
         )
         return 1
     started = datetime.now(UTC)
@@ -347,6 +403,10 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
             query_from=args.query_from,
             product_documents=product_documents,
             product_filter=not args.no_product_filter,
+            categories=load_categories(args.classification) if args.classification else None,
+            policy_documents=(
+                load_policy_documents(args.index_manifest) if args.classification else None
+            ),
         )
         write_private(args.out, json.dumps(evidence, ensure_ascii=False, indent=2).encode())
         meta |= {

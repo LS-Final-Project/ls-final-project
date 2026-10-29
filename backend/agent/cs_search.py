@@ -60,6 +60,7 @@ def fts_searcher_from_dsn(dsn: str, index_version: str) -> Searcher:
                     index_version=index_version,
                     limit=filters.limit,
                     product_family=filters.product_family,
+                    document_kinds=filters.document_kinds,
                 )
 
         return candidates_from_fts(asyncio.run(run()))

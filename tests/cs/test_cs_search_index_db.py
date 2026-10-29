@@ -183,6 +183,37 @@ def test_fts_ranks_words_titles_and_filters_documents(runtime) -> None:
     assert {hit["document_sha256"] for hit in search(runtime, "UL 1066", None)} >= {a_sha, b_sha}
 
 
+def test_fts_filters_document_kinds(cs_database, runtime) -> None:
+    """document_kinds는 청크 메타데이터 document_kind가 그 중 하나인 청크만 찾는다(KAN-194 10차 정책 예약)."""
+    a, b = spec_a(), spec_b()
+    store(runtime, a)
+    store(runtime, b)
+    a_sha, b_sha = a.chunks[0].document_sha256, b.chunks[0].document_sha256
+    with psycopg.connect(cs_database, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE cs.document_chunks SET document_kind = 'POL' WHERE document_sha256 = %s",
+            (b_sha,),
+        )
+
+    def kinds(values: list[str] | None) -> set[str]:
+        hits = run(
+            runtime,
+            lambda conn: search_fts(
+                conn,
+                "UL 1066",
+                document_sha256s=[a_sha, b_sha],
+                index_version=INDEX_VERSION,
+                document_kinds=values,
+            ),
+        )
+        return {hit["document_sha256"] for hit in hits}
+
+    assert kinds(["POL"]) == {b_sha}
+    assert kinds(["RFP_SPEC"]) == {a_sha}
+    assert kinds(["POL", "RFP_SPEC"]) == kinds(None) == {a_sha, b_sha}
+    assert kinds(["FAQ"]) == set()
+
+
 def test_runtime_role_cannot_update_and_inputs_are_checked(runtime) -> None:
     result = spec_a()
     store(runtime, result)

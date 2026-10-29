@@ -386,6 +386,60 @@ class EvidenceBuildTests(unittest.TestCase):
             {"product_filter": True, "tickets_with_product_docs": 2, "product_hits": 1, "product_top1": 1},
         )  # fmt: skip
 
+    def test_classification_reserves_one_policy_slot_only_for_policy_categories(self):
+        """--classification이 RETURN이면 색인 manifest의 POL-RETURN에서 정책 청크 1개를 limit 안에 넣고, 다른 유형은 그대로다.
+
+        Returns:
+            None: 근거 순서·예약 검색 조건·meta를 확인한다.
+        """
+        self.write_products()
+        index = json.loads((self.root / "index.json").read_text(encoding="utf-8"))
+        index["documents"] += [
+            {
+                "source_name": "policy/POL-RETURN.md",
+                "doc_id": "POL-RETURN",
+                "sha256": "e" * 64,
+                "reason": None,
+            },
+            {
+                "source_name": "policy/POL-ORDER.md",
+                "doc_id": "POL-ORDER",
+                "sha256": "f" * 64,
+                "reason": None,
+            },
+        ]
+        (self.root / "index.json").write_text(json.dumps(index), encoding="utf-8")
+        reserved = []
+
+        def searcher(query, filters):
+            if filters.document_kinds == ["POL"]:
+                reserved.append(filters.document_sha256s)
+                return [
+                    candidate("pol", "Return policy text.", 1, sha=filters.document_sha256s[0][0])
+                ]
+            return [candidate(f"p{n}", "Product text.", n, sha="a") for n in range(1, 4)]
+
+        labels = self.root / "labels.json"
+        labels.write_text(
+            json.dumps({"T1": {"category_code": "RETURN"}, "T2": {"category_code": "TECH_SPEC"}}),
+            encoding="utf-8",
+        )
+        code, printed = self.run_main(
+            "--classification", str(labels), "--limit-per-ticket", "3", searcher=searcher
+        )
+        self.assertEqual(code, 1, printed)  # --classification은 --index-manifest가 있어야 한다.
+        code, printed = self.run_main(
+            "--classification", str(labels), "--index-manifest", str(self.root / "index.json"),
+            "--limit-per-ticket", "3", "--no-product-filter", searcher=searcher,
+        )  # fmt: skip
+        self.assertEqual(code, 0, printed)
+        evidence = json.loads((self.root / "ev.json").read_text(encoding="utf-8"))
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["p1", "p2", "pol"])
+        self.assertEqual([row["chunk_id"] for row in evidence["T2"]], ["p1", "p2", "p3"])
+        self.assertEqual(reserved, [["e" * 64]])
+        meta = json.loads(printed)
+        self.assertEqual((meta["policy_slot"], meta["reserved_tickets"]), (True, 1))
+
     def test_enough_product_hits_skip_the_global_search_and_filter_can_be_turned_off(self):
         """제품 문서 결과로 상한을 채우면 전역 검색을 하지 않고, --no-product-filter는 전역만 쓰며 통계는 낸다.
 
