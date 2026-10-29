@@ -1,4 +1,4 @@
-"""DOCX·PDF 추출 결과의 공통 표현. A04(KAN-185)가 조항 트리 복원과 요구 추출의 입력으로 쓴다."""
+"""DOCX·PDF·Markdown 추출 결과의 공통 표현. A04(KAN-185)가 조항 트리 복원과 요구 추출의 입력으로 쓴다."""
 
 import hashlib
 import re
@@ -6,14 +6,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SourceKind = Literal["DOCX", "PDF"]
+SourceKind = Literal["DOCX", "PDF", "MARKDOWN"]
 BlockKind = Literal["PARAGRAPH", "TABLE_CELL", "IMAGE"]
 Flag = Literal["HIGHLIGHT", "TEMPLATE_PLACEHOLDER", "LINE_BREAK_REJOINED"]
 ReferenceKind = Literal["CLAUSE", "DRAWING", "DOCUMENT", "OTHER"]
 UnprocessedKind = Literal["HEADER", "FOOTER", "FOOTNOTE", "TEXTBOX", "EQUATION", "IMAGE", "OTHER"]
 PLACEHOLDER = re.compile(r"<[^<>]{1,60}>")
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-MIMES: dict[str, str] = {"DOCX": DOCX_MIME, "PDF": "application/pdf"}
+MIMES: dict[str, str] = {
+    "DOCX": DOCX_MIME,
+    "PDF": "application/pdf",
+    "MARKDOWN": "text/markdown",
+}
 
 
 class Strict(BaseModel):
@@ -149,14 +153,14 @@ def build_document(
         highlight_runs: 형광펜 런 수(DOCX만).
 
     Returns:
-        요약을 채운 추출 문서. DOCX만 편집 흔적을 지원한다.
+        요약을 채운 추출 문서. DOCX와 Markdown(~~취소선~~)만 편집 흔적을 지원한다.
     """
     return ExtractedDocument(
         source_kind=source_kind,
         sha256=hashlib.sha256(data).hexdigest(),
         size=len(data),
         mime=MIMES[source_kind],
-        edit_trace_support=source_kind == "DOCX",
+        edit_trace_support=source_kind in ("DOCX", "MARKDOWN"),
         blocks=blocks,
         unprocessed=unprocessed,
         summary=Summary(

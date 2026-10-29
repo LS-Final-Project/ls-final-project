@@ -1,32 +1,38 @@
-"""문서 형식 판별과 추출기 선택. 매직바이트가 기준이고 확장자·MIME은 교차 확인에만 쓴다."""
+"""문서 형식 판별과 추출기 선택. 매직바이트가 기준이고 확장자·MIME은 교차 확인에 쓴다. 매직바이트가 없는
+Markdown만 .md 확장자 또는 첫 글자('#'·'|')로 정한다."""
 
 import io
 import zipfile
 from pathlib import Path
 
 from backend.engine.documents.docx import extract_docx
+from backend.engine.documents.markdown import extract_markdown
 from backend.engine.documents.model import DOCX_MIME, ExtractedDocument, SourceKind
 from backend.engine.documents.pdf import MAX_BYTES, extract_pdf
 
 DECLARED: dict[str, SourceKind] = {
     ".docx": "DOCX",
     ".pdf": "PDF",
+    ".md": "MARKDOWN",
     DOCX_MIME: "DOCX",
     "application/pdf": "PDF",
+    "text/markdown": "MARKDOWN",
 }
 
 
-def _sniff(data: bytes) -> SourceKind:
+def _sniff(data: bytes, suffix: str = "") -> SourceKind:
     """바이트 앞부분과 zip 목록으로 형식을 정한다.
 
     Args:
         data: 파일 바이트.
+        suffix: 경로 확장자(소문자, 없으면 빈 문자열).
 
     Returns:
-        "DOCX" 또는 "PDF".
+        "DOCX"·"PDF"·"MARKDOWN". PDF·zip이 아닌 UTF-8 텍스트는 확장자가 .md이거나 첫 글자가 '#'·'|'이면
+        MARKDOWN이다.
 
     Raises:
-        ValueError: 둘 다 아닐 때(구 .doc·xlsx 같은 다른 zip 포함).
+        ValueError: 셋 다 아닐 때(구 .doc·xlsx 같은 다른 zip 포함).
     """
     if data.startswith(b"%PDF-"):
         return "PDF"
@@ -37,7 +43,14 @@ def _sniff(data: bytes) -> SourceKind:
                     return "DOCX"
         except zipfile.BadZipFile:
             pass
-    raise ValueError("DOCX·PDF만 추출합니다.")
+        raise ValueError("DOCX·PDF·Markdown만 추출합니다.")
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = None
+    if text is not None and (suffix == ".md" or text.lstrip()[:1] in ("#", "|")):
+        return "MARKDOWN"
+    raise ValueError("DOCX·PDF·Markdown만 추출합니다.")
 
 
 def extract(
@@ -60,10 +73,10 @@ def extract(
     if isinstance(source, Path) and source.stat().st_size > MAX_BYTES:
         raise ValueError("문서가 크기 상한(25 MiB)을 넘습니다.")
     data = source.read_bytes() if isinstance(source, Path) else source
-    # 명세 §4.2 업로드 상한을 DOCX·PDF에 같이 적용한다.
+    # 명세 §4.2 업로드 상한을 DOCX·PDF·Markdown에 같이 적용한다.
     if len(data) > MAX_BYTES:
         raise ValueError("문서가 크기 상한(25 MiB)을 넘습니다.")
-    kind = _sniff(data)
+    kind = _sniff(data, source.suffix.lower() if isinstance(source, Path) else "")
     # MIME 파라미터(; charset=…)는 떼고, 형식을 말하지 않는 일반 타입은 확인하지 않는다.
     media_type = (mime or "").split(";", 1)[0].strip().lower()
     declared = [media_type] if media_type and media_type != "application/octet-stream" else []
@@ -72,7 +85,10 @@ def extract(
     for value in declared:
         if DECLARED.get(value.lower()) != kind:
             raise ValueError(f"선언한 형식({value})이 실제 내용({kind})과 다릅니다.")
-    document = extract_docx(data) if kind == "DOCX" else extract_pdf(data)
+    if kind == "MARKDOWN":
+        document = extract_markdown(data)
+    else:
+        document = extract_docx(data) if kind == "DOCX" else extract_pdf(data)
     if source_name is None and isinstance(source, Path):
         source_name = source.name
     return document.model_copy(update={"source_name": source_name})
