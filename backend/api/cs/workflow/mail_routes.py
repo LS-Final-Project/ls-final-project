@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from backend.agent.ticket_source_registry import policy_info_codes
 from backend.api.cs.analysis import repository as analysis_repository
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.workflow import repository, sends
@@ -89,11 +90,24 @@ async def send_message(
                 raise ApplicationError(
                     422, "CS_DRAFT_INVALID", "Choose a valid draft of this ticket."
                 )
-            labels = {option["label"] for option in draft["draft"]["options"]}
-            if payload.draft_option not in labels:
+            options = {option["label"]: option for option in draft["draft"]["options"]}
+            if payload.draft_option not in options:
                 raise ApplicationError(
                     422, "CS_DRAFT_INVALID", "Choose one of the draft's options."
                 )
+        codes = payload.requested_info_codes
+        if codes is None:
+            # Not given: the chosen option's questions, or nothing for a message without a
+            # draft. The agent sends [] to say the edited message asks nothing.
+            codes = (
+                [r["info_code"] for r in options[payload.draft_option]["info_requests"]]
+                if payload.draft_id is not None
+                else []
+            )
+        if set(codes) - policy_info_codes():
+            raise ApplicationError(
+                422, "CS_INFO_CODE_UNKNOWN", "Use information codes from the policy table."
+            )
         send, _ = await sends.approve(
             conn,
             workflow,
@@ -107,6 +121,7 @@ async def send_message(
             cc=payload.cc,
             draft_id=payload.draft_id,
             draft_option=payload.draft_option,
+            requested_info_codes=sorted(set(codes)),
         )
     await sends.submit(request, client, send)
     return await current(request, principal, ticket_id)

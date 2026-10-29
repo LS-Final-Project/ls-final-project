@@ -1342,6 +1342,14 @@
             "title": "Request Status",
             "type": "string"
           },
+          "requested_info_codes": {
+            "description": "Information codes this message asked for.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Requested Info Codes",
+            "type": "array"
+          },
           "send_error_code": {
             "anyOf": [
               {
@@ -1503,6 +1511,22 @@
             "format": "uuid",
             "title": "Mailbox Id",
             "type": "string"
+          },
+          "requested_info_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Info Codes"
           },
           "subject": {
             "maxLength": 500,

@@ -2,7 +2,7 @@
 
 원본: `backend/api/cs/analysis/`(조회·정정·저장 함수), `backend/engine/cs/analysis.py`(유효값·기한 계산), 마이그레이션 `infra/migrations/cs/20261030_KAN-107_ticket_analysis.sql`(README C14). 기획서 4.1 워크플로의 ①(AI 판정은 확정값이 아님)과 ⑥ 담당자 확인 게이트("수정"), p.18 추적성("AI 제안과 사람이 확정한 내용을 구분")을 구현한다.
 
-**상태: 저장·조회·정정 구현, 실행 연결 전.** 처리 작업(runtime.jobs·SSE·중단/재개, KAN-69)과 그래프 실행기(`backend/agent/cs_runner.py`의 `TicketSource`)는 아직 이 저장 함수를 부르지 않는다. 지금 행은 검사·시연용 합성 행뿐이다.
+**상태: 저장·조회·정정 구현, worker 문의 출처 연결(아래 "worker 문의 출처").** 접수 API·발송 시 재개는 아직 없다(다음 PR). 지금 행은 검사·시연용 합성 행뿐이다.
 
 ## 저장
 
@@ -14,6 +14,7 @@
 
 - 세 표 모두 서비스 계정(`cs_app`)이 UPDATE·DELETE할 수 없다. AI 행을 고치지 않고, 정정은 새 행으로만 쌓인다(KAN-73 `mail_triage`와 같은 모양).
 - 저장 함수 `record_analysis(conn, ticket_id, values)`·`record_draft(conn, ticket_id, values)`는 문의 행을 잠그고 다음 순번으로 넣는다. 원문·`raw_response`·시도 기록 본체는 저장하지 않는다(그래프 계약과 같은 원칙).
+- worker는 문의 행을 잠그지 않고(`lock=False`, 문의 UPDATE 권한을 주지 않으려고) 넣는다. 플랫폼이 문의마다 진행 중 작업 하나만 받고, 순번이 겹치면 `UNIQUE(ticket_id, run_seq)`·`UNIQUE(ticket_id, seq)`가 막는다.
 - 사람이 고쳐 승인한 발송 본문은 초안 행이 아니라 발송 기록(KAN-110 `cs.ticket_customer_sends`, `draft_id`·`draft_option`으로 어느 초안·선택지를 검토했는지 연결)에 남는다.
 
 ## 유효값
@@ -43,8 +44,21 @@
 - **입력**: 본문에 넣은 필드만 정정한다. 넣지 않은 필드는 그대로이고, `secondary_category: null`은 보조 분류를 지운다. `category_code`·`urgency_flag`·`provided_info`는 지울 수 없다(422 `CS_CORRECTION_INVALID`). 보조 분류가 주분류와 같으면 422 `CS_CORRECTION_INVALID`. 지금 유효값과 같은 값은 저장하지 않으며, 바뀌는 값이 하나도 없으면 422 `CS_CORRECTION_EMPTY`. `provided_info`는 집합으로 다룬다(순서·중복 무시). 정보 코드는 형식(`^[a-z][a-z0-9_]{0,63}$`)만 검사한다. 검수된 코드표(`info_field_codebook`)가 저장소에 없어서, 코드표 대조는 실행기의 `allowed_info_codes`와 함께 붙인다.
 - **감사**: `cs.audit_events`에 `entity_type=ticket_analysis`, `action=update`, `version`=정정 순번으로 남긴다. 바뀐 필드의 from/to, 그 결과 우선순위와 적용 기한의 from/to, 사유, 기준 분석 실행, `provenance_kind=human_input`.
 
+## worker 문의 출처 (`backend/api/cs/worker_source.py`)
+
+플랫폼 worker(KAN-194 `backend/agent/cs_worker.py`)가 고정 모듈로 부르는 `build(settings) -> WorkerParts`다. 역할 경계는 KAN-107 댓글 10719·10760.
+
+- **`load_ticket`**: `cs.tickets`의 채널·언어·제목·본문·제품·접수 시각과 `cs.ticket_source_records.customer_tier`를 읽는다. 고객 식별자·기록된 정답·사후 기록은 읽지 않는다.
+  - 유형별 필요 정보는 제품 계열(`rules.product_family`)의 `eval/policy/cs_required_info.csv` 행이고, 초안 노드가 분류 결과 유형으로 고른다. 정책 밖 제품은 빈 지도다.
+  - 이미 요청한 정보: 플랫폼이 접수(ACCEPTED)해 업무 상태에 반영된 발송(`recorded_at` 있음)의 `requested_info_codes` 합집합. 승인만 되고 나가지 않은 메시지는 넣지 않는다.
+  - 민감값 목록은 빈 값이다(제공 자료는 적재 때 마스킹, 2026-10-30 결정). 적재 어댑터(KAN-92)가 주면 여기서 읽는다. 고객 등급이 없는 문의(직접 등록)는 빈 값이라 규칙 노드가 `CS_RULE_INPUT`으로 남긴다.
+- **`record_attempt`**: 분류·초안 시도마다 위 표에 한 행씩 `job_id`(worker의 `CS_JOB_ID`)와 함께 넣는다. 초안의 `analysis_id`는 같은 작업의 마지막 `VALID` 분류 실행이다. 형식 위반 재호출(시도 2)도 각각 한 행이다.
+- **업무 상태와 그래프 상태는 따로다**: worker는 `cs.ticket_workflows`를 읽지도 쓰지도 않는다. 그래프 진행은 체크포인트(`checkpoint_cs`, thread_id=작업 ID)에만 있다.
+- **`cs_worker` 권한**(마이그레이션 `20261101_KAN-107_worker_source.sql`, README C18): 위 열의 SELECT, 분석·초안 표의 SELECT·INSERT, 검색용 `cs.document_chunks` SELECT, 체크포인트 표 SELECT·INSERT·UPDATE. 업무 상태·정정·발송 본문 읽기, 결과 수정·삭제, 문의 잠금은 거부된다(`tests/cs/test_worker_source_db.py`).
+
 ## 남은 것 (KAN-107 완료 조건)
 
-- 실행 연결: 처리 작업 접수(runtime.jobs, KAN-69)와 SSE, 그래프 실행기 `TicketSource`가 `record_analysis`·`record_draft`를 부르도록 잇기.
-- DB 업무 상태와 LangGraph 상태 분리 확인, 중단/재개, 같은 문의의 재요청 중복 방지(진행 중 작업 409, 멱등 키).
-- 필수 정보·추가 정보 요청 항목 재계산: 필수 정보 코드는 지금 그래프의 `load_ticket` 입력이다. 정정된 `provided_info`로 부족 정보를 다시 계산하는 연결은 실행 연결과 함께 한다.
+- 접수 API(`POST …/analysis/jobs` → 플랫폼 `POST /internal/v1/platform/jobs/cs`, 진행 중 409·멱등)와 상태·SSE(플랫폼 jobs API).
+- 재개: 담당자의 고객 발송이 플랫폼에 접수된 시점에 `cs_runner.resume(job_id)`로 그래프를 끝낸다(2026-10-30 결정).
+- 로컬 플래그(`CS_JOBS_ENABLED`·`CS_JOBS_PROCESSOR_CONNECTED`·`CS_WORKER_ENABLED`) 종단 확인. 운영은 KAN-159 배포 묶음.
+- 정정된 `provided_info`로 부족 정보를 다시 계산하는 연결.
