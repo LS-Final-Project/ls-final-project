@@ -100,6 +100,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | T12 | `tft/20261105_KAN-199_requirement_assembly_clause.sql` | T7(헤더) | tft_migrator | 가능 | 열 `tft.requirement_versions.assembly_clause` | 미확인 |
 | T13 | `tft/20261106_KAN-199_question_drafts.sql` | T10(헤더) | postgres(역할 없을 때) → tft_migrator | 가능 | 열 `tft.customer_questions.draft_key` | 미확인 |
 | T14 | `tft/20261104_KAN-199_tft_worker.sql` | T7, P29(헤더) | postgres(역할 없을 때) → tft_migrator | 가능 | `has_table_privilege('tft_worker','tft.clauses','INSERT')` | 미확인 |
+| T15 | `tft/20261107_KAN-188_requirement_semantic_fields.sql` | T7(헤더) | tft_migrator | 가능 | 열 `tft.requirement_versions.tolerance` | 미확인 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |

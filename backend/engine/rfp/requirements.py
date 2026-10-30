@@ -372,19 +372,43 @@ def prompt(item: ExtractionInput) -> str:
     )
 
 
+def _names_in(name: str, clause_text: str) -> bool:
+    """이름이 조항에 토큰으로 있는지. 영숫자에 붙어 있으면 다른 낱말이다(switchgear의 GE, AM-20의 AM-2).
+
+    한글 조사가 붙는 것은 막지 않으려고 경계는 ASCII 영숫자만 본다.
+
+    Args:
+        name: 지정 모델 또는 제조사.
+        clause_text: `_space`를 거친 조항 텍스트.
+
+    Returns:
+        bool: 토큰으로 있으면 True.
+    """
+    token = re.escape(_space(name))
+    return re.search(rf"(?<![0-9a-z]){token}(?![0-9a-z])", clause_text) is not None
+
+
+def _model_shaped(model: str) -> bool:
+    """모델명 꼴인지. 영숫자 2자 이상이고 숫자만이 아니어야 한다(750은 정격일 수 있다)."""
+    kept = [c for c in model if c.isalnum()]
+    return len(kept) >= 2 and not all(c.isdigit() for c in kept)
+
+
 def _grounded_designation(
     req: ExtractedRequirement, clause_text: str
 ) -> tuple[ExtractedRequirement, bool]:
-    """지정 모델·제조사가 조항 현행 텍스트에 그대로 있을 때만 남긴다. 비웠으면 (요구, True).
+    """지정 모델·제조사가 조항 현행 텍스트에 토큰으로 있을 때만 남긴다. 비웠으면 (요구, True).
 
     모델이 모델명에서 제조사를 짐작해 쓰거나(SEL → Schweitzer) 없는 모델을 쓰는 것을 막는다. 지운 값(취소선)은
     현행 텍스트에 없으므로 여기서도 걸린다.
     """
     model, maker = req.designated_model, req.designated_manufacturer
     # 설계 기준 제품은 지정이 아니다. 두 칸을 함께 보내면 지정 쪽을 비운다(지정품 조달로 가지 않게).
-    if req.basis_of_design or (model is not None and _space(model) not in clause_text):
+    if req.basis_of_design or (
+        model is not None and not (_model_shaped(model) and _names_in(model, clause_text))
+    ):
         model = None
-    if model is None or (maker is not None and _space(maker) not in clause_text):
+    if model is None or (maker is not None and not _names_in(maker, clause_text)):
         maker = None
     changed = (model, maker) != (req.designated_model, req.designated_manufacturer)
     if not changed:

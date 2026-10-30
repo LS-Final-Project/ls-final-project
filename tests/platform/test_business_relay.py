@@ -650,7 +650,8 @@ def test_shared_cases_forward_or_reject_before_business_service(system, case):
     if case["forward"]:
         [(method, url, *_)] = system["calls"]
         sent, asked = urlsplit(url), urlsplit(case["path"])
-        assert method == case["method"] and sent.scheme + "://" + sent.netloc == CS
+        service = TFT if asked.path.startswith("/api/v1/tft/") else CS
+        assert method == case["method"] and sent.scheme + "://" + sent.netloc == service
         assert unquote(sent.path) == unquote(asked.path)
         assert parse_qsl(sent.query) == parse_qsl(asked.query)
     else:

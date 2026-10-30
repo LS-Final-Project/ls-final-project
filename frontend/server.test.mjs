@@ -236,6 +236,22 @@ test('evaluation read relay defaults closed and allows only GET with bounded cur
   assert.equal(calls, 0);
 });
 
+test('business relay opens only the job status paths of the read relay (RFP status_url)', async () => {
+  const urls = [];
+  await fixture(async origin => {
+    for (const suffix of ['', '/events']) assert.equal((await fetch(origin + jobUrl + suffix)).status, 200);
+    // 평가 읽기·제어는 자기 스위치가 없으면 닫혀 있다.
+    assert.equal((await fetch(origin + '/api/v1/platform/evaluations/policy')).status, 404);
+    assert.equal((await fetch(origin + jobUrl, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(origin + '/api/v1/platform/jobs/not-uuid')).status, 404);
+  }, async url => {
+    urls.push(String(url));
+    const type = String(url).endsWith('/events') ? 'text/event-stream' : 'application/json';
+    return new Response(type === 'application/json' ? '{}' : ': ok\n\n', { headers: { 'Content-Type': type } });
+  }, true);
+  assert.deepEqual(urls.map(url => new URL(url).pathname), [jobUrl, jobUrl + '/events']);
+});
+
 test('evaluation status and error relay preserve status/ETag and discard browser/upstream credentials', async () => {
   for (const status of [200, 401, 403, 404, 410, 503]) {
     await fixture(async origin => {
