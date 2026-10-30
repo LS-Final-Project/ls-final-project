@@ -1,4 +1,4 @@
-"""RFP 쓰기 요청의 멱등 처리(tft.rfp_commands, KAN-189 PR-A).
+"""RFP 쓰기 요청의 멱등 처리(tft.rfp_commands, KAN-189 PR-A)와 감사 기록(tft.rfp_audit_events).
 
 같은 사용자·연산·Idempotency-Key로 같은 요청을 다시 보내면 저장한 결과를 그대로 돌려준다. 같은 키로 다른 요청을
 보내면 409 IDEMPOTENCY_CONFLICT다. 결과 기록은 쓰기와 같은 트랜잭션에서 한다(쓰기만 남고 기록이 없는 일이 없게).
@@ -8,8 +8,9 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from fastapi.encoders import jsonable_encoder
 from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
@@ -39,6 +40,60 @@ OPERATIONS: frozenset[str] = frozenset(
         "annotation.process",
     )
 )
+
+
+# 연산 → (감사 대상, 응답에서 대상 ID를 읽을 칸). 멱등 기록이 곧 쓰기 기록이다.
+AUDIT_TARGETS: dict[str, tuple[str, str]] = {
+    "project.create": ("project", "id"),
+    "document.upload": ("document", "document_version_id"),
+    "supplement.select": ("supplement_selection", "requirement_id"),
+    "question.create": ("question", "question_id"),
+    "question.reply": ("question", "question_id"),
+    "question.confirm": ("question", "question_id"),
+    "project.process": ("job", "job_id"),
+    "annotation.process": ("job", "job_id"),
+}
+# 응답에서 감사 detail로 옮기는 칸(쓰기 뒤 상태). 응답 전체는 남기지 않는다.
+AUDIT_FIELDS = ("status", "version", "target", "target_dept", "path")
+
+
+async def audit(
+    conn: AsyncConnection[dict[str, Any]],
+    *,
+    project_id: UUID,
+    entity: str,
+    entity_id: object,
+    action: str,
+    actor: UUID,
+    detail: Mapping[str, Any] | None = None,
+) -> None:
+    """감사 한 행을 쓰기와 같은 트랜잭션에 남긴다.
+
+    Args:
+        conn: 쓰기와 같은 트랜잭션.
+        project_id: 대상 프로젝트.
+        entity: 표 CHECK의 대상 종류.
+        entity_id: 대상 ID.
+        action: 행동 이름(연산 이름).
+        actor: 요청자.
+        detail: from·to 등 추가 내용.
+
+    Returns:
+        None.
+    """
+    await conn.execute(
+        "INSERT INTO tft.rfp_audit_events (id, project_id, entity, entity_id, action, "
+        "actor_user_id, detail) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (
+            uuid4(),
+            project_id,
+            entity,
+            str(entity_id),
+            action,
+            actor,
+            Jsonb(jsonable_encoder(detail or {})),
+        ),
+    )
 
 
 def request_hash(path_ids: Mapping[str, Any], payload: Mapping[str, Any]) -> str:
@@ -102,11 +157,11 @@ async def remember(
     operation: Operation,
     key: str,
     digest: str,
-    project_id: UUID | None,
+    project_id: UUID,
     status_code: int,
     result: Mapping[str, Any],
 ) -> None:
-    """처리 결과를 저장한다. 같은 키가 동시에 들어오면 기본 키 충돌로 한쪽이 실패한다.
+    """처리 결과와 감사를 저장한다. 같은 키가 동시에 들어오면 기본 키 충돌로 한쪽이 실패한다.
 
     Args:
         conn: 쓰기와 같은 트랜잭션.
@@ -127,6 +182,16 @@ async def remember(
         "request_hash, status_code, result) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (actor, operation, key, project_id, digest, status_code, Jsonb(dict(result))),
     )
+    entity, id_field = AUDIT_TARGETS[operation]
+    await audit(
+        conn,
+        project_id=project_id,
+        entity=entity,
+        entity_id=result[id_field],
+        action=operation,
+        actor=actor,
+        detail={"to": {k: result[k] for k in AUDIT_FIELDS if k in result}},
+    )
 
 
 async def run_command(
@@ -136,7 +201,7 @@ async def run_command(
     operation: Operation,
     key: str,
     digest: str,
-    project_id: UUID | None,
+    project_id: UUID,
     status_code: int,
     work: Callable[[], Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:

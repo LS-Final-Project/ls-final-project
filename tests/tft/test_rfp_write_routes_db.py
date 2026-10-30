@@ -308,3 +308,88 @@ def test_project_read_survives_a_missing_integration_schema(admin, chain):
             await conn.close()
 
     asyncio.run(scenario())
+
+
+def audits(admin, project):
+    with psycopg.connect(admin) as conn:
+        return conn.execute(
+            "SELECT entity, entity_id, action, actor_user_id, detail FROM tft.rfp_audit_events "
+            "WHERE project_id=%s ORDER BY at",
+            (project,),
+        ).fetchall()
+
+
+def test_upload_stops_a_chunked_body_while_receiving(client, chain, tmp_path, monkeypatch):
+    """Content-Length가 없어도 누적 한도를 넘으면 413이고 아무것도 저장하지 않는다."""
+    monkeypatch.setattr(routes_write, "MAX_FORM_BYTES", 100)
+    body = (
+        b'--b\r\nContent-Disposition: form-data; name="file"; filename="a"\r\n\r\n'
+        + PDF
+        + b'\r\n--b\r\nContent-Disposition: form-data; name="title"\r\n\r\n'
+        + b"x" * 200
+        + b"\r\n--b--\r\n"
+    )
+    headers = principal_header(OWNER) | {
+        "Idempotency-Key": uuid4().hex,
+        "Content-Type": "multipart/form-data; boundary=b",
+    }
+    response = client.post(
+        f"/api/v1/tft/projects/{chain['project']}/documents",
+        headers=headers,
+        content=iter([body[:50], body[50:]]),
+    )
+    assert error(response) == (413, "TFT_DOCUMENT_TOO_LARGE")
+    assert "content-length" not in response.request.headers
+    assert not [p for p in tmp_path.rglob("*") if p.is_file()]
+
+
+def test_audit_records_each_write_once_with_the_actor(client, admin, chain):
+    """멱등 쓰기·PATCH 모두 한 행. 재전송과 실패는 남기지 않고 from·to는 값을 그대로 담는다."""
+    key = uuid4().hex
+    created = call(client, "POST", "/projects", OWNER, project_body(), key).json()["data"]
+    call(client, "POST", "/projects", OWNER, project_body(), key)
+    [row] = audits(admin, created["id"])
+    assert row[:4] == ("project", created["id"], "project.create", SALES)
+
+    url = f"/projects/{chain['project']}"
+    stale = {"version": 9, "name": "늦은 수정"}
+    assert call(client, "PATCH", url, OWNER, stale).status_code == 409
+    assert audits(admin, chain["project"]) == []
+    body = {
+        "version": 1,
+        "strategic_customer": True,
+        "integration_responsibility": {"holder": "OWN", "holder_candidate_codes": ["P-A"]},
+    }
+    assert call(client, "PATCH", url, OWNER, body).status_code == 200
+    [update] = audits(admin, chain["project"])
+    assert update[:4] == ("project", str(chain["project"]), "project.update", SALES)
+    assert update[4]["from"]["strategic_customer"] is None
+    assert update[4]["from"]["integration_holder"] == "UNRESOLVED"
+    assert update[4]["to"]["strategic_customer"] is True
+    assert update[4]["to"]["integration_holder_candidates"] == ["P-A"]
+
+    boss = manager(chain)
+    new_sales = uuid4()
+    assigned = {
+        "version": 2,
+        "sales_user_id": str(new_sales),
+        "responsible_user_id": None,
+        "reason": "담당 변경",
+    }
+    assert call(client, "PATCH", f"{url}/assignment", boss, assigned).status_code == 200
+    _, assignment = audits(admin, chain["project"])
+    assert assignment[0] == "assignment" and assignment[2:4] == ("assignment.update", boss.user_id)
+    assert assignment[4]["from"] == {
+        "sales_user_id": str(SALES),
+        "responsible_user_id": str(RESPONSIBLE),
+    }
+    assert assignment[4]["to"] == {"sales_user_id": str(new_sales), "responsible_user_id": None}
+
+    new_owner = Principal(user_id=new_sales, roles=frozenset({"sales"}))
+    version = upload(client, chain, new_owner).json()["data"]
+    assert audits(admin, chain["project"])[-1][:4] == (
+        "document",
+        version["document_version_id"],
+        "document.upload",
+        new_sales,
+    )

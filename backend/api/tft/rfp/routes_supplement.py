@@ -192,7 +192,7 @@ async def select_supplement(
                     project["review_departments"],
                     await repository.department_kinds(conn),
                 )
-                await repository.insert_question(
+                question = await repository.insert_question(
                     conn,
                     project=project,
                     requirement_id=requirement_id,
@@ -204,6 +204,15 @@ async def select_supplement(
                     target="INTERNAL",
                     target_dept=ask["target_dept"],
                     actor=principal.user_id,
+                )
+                await commands.audit(
+                    conn,
+                    project_id=project["id"],
+                    entity="question",
+                    entity_id=question["id"],
+                    action="question.create",
+                    actor=principal.user_id,
+                    detail={"to": {"target": "INTERNAL", "target_dept": ask["target_dept"]}},
                 )
                 decided = "PENDING"
             row = await repository.insert_selection(
