@@ -14,14 +14,15 @@ from typing import Literal, get_args
 Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
-# 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 나머지는 채택 전이라 v1이다.
+# 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 초안·회신·개선요청 네 단계는 v2(KAN-193
+# 확정 금지 지시 추가), 검증은 v1이다. 분류 외에는 채택 전이다.
 DEFAULT_VERSIONS: dict[Stage, str] = {
     "classification": "v3",
-    "draft": "v1",
+    "draft": "v2",
     "verification": "v1",
-    "reply": "v1",
-    "improvement_reply": "v1",
-    "improvement_draft": "v1",
+    "reply": "v2",
+    "improvement_reply": "v2",
+    "improvement_draft": "v2",
 }
 PROMPTS: dict[Stage, dict[str, str]] = {
     "verification": {
@@ -180,6 +181,35 @@ PROMPTS: dict[Stage, dict[str, str]] = {
         ),
     },
 }
+
+
+# KAN-193 v2: 승인 약속 금지 줄 바로 뒤에 반품 사유·제조 책임·고객 과실 확정 금지 줄 하나만 더한다. 같은 내용을
+# 초안 금지 약속(drafting.CONFIRMATION_COMMITMENTS)이 뒤에서 거르며, 이 지시는 모델이 처음부터 쓰지 않게 한다.
+CONFIRMATION_RULE = (
+    "- 반품 사유·제조 불량·책임 소재·고객 과실을 확정해 쓰지 않는다(예: 제조 불량입니다, 당사 책임으로 "
+    "확인되었습니다, 고객 과실로 판정되었습니다). 검사 후 확정된다고 쓴다.\n"
+)
+# 개선요청 회신 해석은 부서 주장을 claims에 그대로 옮기는 단계라, 금지는 질문·근거 요청에만 둔다(Fable 검토 P2).
+IMPROVEMENT_REPLY_CONFIRMATION_RULE = (
+    "- 질문·근거 요청에서 반품 사유·제조 불량·책임 소재·고객 과실을 확정해 쓰지 않는다. 부서 회신의 주장은 "
+    "claims에 주장 그대로 적는다.\n"
+)
+CONFIRMATION_RULES: dict[Stage, str] = {
+    "draft": CONFIRMATION_RULE,
+    "reply": CONFIRMATION_RULE,
+    "improvement_reply": IMPROVEMENT_REPLY_CONFIRMATION_RULE,
+    "improvement_draft": CONFIRMATION_RULE,
+}
+
+
+def _with_confirmation_rule(body: str, rule: str) -> str:
+    """v1 본문의 승인 약속 금지 줄 뒤에 확정 금지 줄을 넣는다."""
+    end = body.index("\n", body.index("약속하지 않는다")) + 1
+    return body[:end] + rule + body[end:]
+
+
+for _stage, _rule in CONFIRMATION_RULES.items():
+    PROMPTS[_stage]["v2"] = _with_confirmation_rule(PROMPTS[_stage]["v1"], _rule)
 
 
 def get_prompt(stage: Stage, version: str) -> str:

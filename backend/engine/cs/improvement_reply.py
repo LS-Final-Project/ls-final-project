@@ -20,7 +20,7 @@ from pydantic import Field, model_validator
 
 from backend.engine.cs.classification import _unique_object, build_input
 from backend.engine.cs.drafting import _Strict, find_forbidden_commitment
-from backend.engine.cs.prompt_registry import get_prompt
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, get_prompt
 
 IMPROVEMENT_REPLY_INPUT_VERSION = "cs-improvement-reply-input-v1"
 RequestType = Literal["FAULT", "DOCUMENT"]
@@ -270,10 +270,12 @@ def _violates(context: ImprovementContext, output: ImprovementReplyInterpretatio
 _SCHEMA = json.dumps(
     ImprovementReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True
 )
-IMPROVEMENT_REPLY_PROMPT = get_prompt("improvement_reply", "v1") + _SCHEMA
+IMPROVEMENT_REPLY_PROMPT = (
+    get_prompt("improvement_reply", DEFAULT_VERSIONS["improvement_reply"]) + _SCHEMA
+)
 
 
-def instruction(prompt_version: str = "v1") -> str:
+def instruction(prompt_version: str = DEFAULT_VERSIONS["improvement_reply"]) -> str:
     """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
 
     Args:
@@ -285,12 +287,14 @@ def instruction(prompt_version: str = "v1") -> str:
     return get_prompt("improvement_reply", prompt_version) + _SCHEMA
 
 
-def render_prompt(payload: ImprovementReplyInput, *, prompt_version: str = "v1") -> str:
+def render_prompt(
+    payload: ImprovementReplyInput, *, prompt_version: str = DEFAULT_VERSIONS["improvement_reply"]
+) -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_improvement_reply_input의 정제 입력.
-        prompt_version: 레지스트리 판본 키. 기본 v1은 IMPROVEMENT_REPLY_PROMPT와 같다.
+        prompt_version: 레지스트리 판본 키. 기본(DEFAULT_VERSIONS)은 IMPROVEMENT_REPLY_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.

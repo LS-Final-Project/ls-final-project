@@ -8,6 +8,7 @@ import pytest
 
 from backend.engine.cs import drafting, improvement_drafting, improvement_reply, reply
 from backend.engine.cs.prompt_registry import (
+    CONFIRMATION_RULES,
     DEFAULT_VERSIONS,
     PROMPTS,
     get_prompt,
@@ -30,6 +31,13 @@ V1_FINGERPRINTS = {
 V2_CLASSIFICATION_FINGERPRINT = "143d7655ee22fed7"
 # 분류 v3(KAN-105 6차, return_subtype null 규칙 강조). v2의 return_subtype 줄만 바꾼 판본이다.
 V3_CLASSIFICATION_FINGERPRINT = "f299989ca90bcf99"
+# KAN-193 v2: 초안·회신·개선요청 네 단계에 확정 금지 줄 하나만 더한 판본이다.
+V2_FINGERPRINTS = {
+    "draft": "a19901526261ff5c",
+    "reply": "1633ea89e7607589",
+    "improvement_reply": "a9d0bafb9f324c2e",
+    "improvement_draft": "9e6f87e3df1112cf",
+}
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -49,7 +57,8 @@ def test_v1_fingerprints_are_pinned():
     """
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
     assert list_versions("classification") == ("v1", "v2", "v3")
-    assert all(list_versions(stage) == ("v1",) for stage in PROMPTS if stage != "classification")
+    assert list_versions("verification") == ("v1",)
+    assert all(list_versions(stage) == ("v1", "v2") for stage in V2_FINGERPRINTS)
 
 
 @pytest.mark.parametrize("stage", sorted(MODULES))
@@ -63,10 +72,28 @@ def test_default_render_matches_existing_constant(stage):
         None: 상수·지시문·렌더 결과를 확인한다.
     """
     module, constant = MODULES[stage]
-    assert constant.startswith(get_prompt(stage, "v1"))
-    assert module.instruction() == module.instruction("v1") == constant
+    default = DEFAULT_VERSIONS[stage]
+    assert constant.startswith(get_prompt(stage, default))
+    assert module.instruction() == module.instruction(default) == constant
     payload = Mock(model_dump_json=Mock(return_value='{"x": 1}'))
     assert module.render_prompt(payload) == constant + '\n\n입력:\n{"x": 1}'
+
+
+@pytest.mark.parametrize("stage", sorted(V2_FINGERPRINTS))
+def test_v2_adds_only_the_confirmation_rule(stage):
+    """v2는 v1의 승인 약속 금지 줄 바로 뒤에 확정 금지 줄 하나만 더하고, 지문을 고정한다(KAN-193).
+
+    Args:
+        stage: 단계.
+
+    Returns:
+        None: 줄 단위 차이와 지문을 확인한다.
+    """
+    v1, v2 = get_prompt(stage, "v1").splitlines(), get_prompt(stage, "v2").splitlines()
+    index = v2.index(CONFIRMATION_RULES[stage].rstrip("\n"))
+    assert v2[:index] + v2[index + 1 :] == v1
+    assert "약속하지 않는다" in v2[index - 1]
+    assert prompt_fingerprint(stage, "v2") == V2_FINGERPRINTS[stage]
 
 
 def test_classification_v1_states_the_output_contract():
@@ -119,7 +146,7 @@ def test_classification_v2_adds_only_the_urgency_guide():
 
 
 def test_product_defaults_use_v3_for_classification_only():
-    """제품 경로 기본 판본은 분류만 v3이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
+    """제품 경로 기본 판본은 분류 v3·검증 v1·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
 
     Args:
         없음.
@@ -132,11 +159,11 @@ def test_product_defaults_use_v3_for_classification_only():
 
     assert DEFAULT_VERSIONS == {
         "classification": "v3",
-        "draft": "v1",
+        "draft": "v2",
         "verification": "v1",
-        "reply": "v1",
-        "improvement_reply": "v1",
-        "improvement_draft": "v1",
+        "reply": "v2",
+        "improvement_reply": "v2",
+        "improvement_draft": "v2",
     }
     default = DEFAULT_VERSIONS["classification"]
     for function in (providers.gemini_classification_provider, build_cs_runner):
@@ -214,8 +241,8 @@ def test_draft_attempt_records_version_and_instruction_fingerprint():
     provider = Mock(return_value=Generation(raw(), Usage(), "fake-v1", ["STOP"]))
     result = attempt(provider)
     expected = hashlib.sha256(drafting.DRAFT_PROMPT.encode()).hexdigest()[:16]
-    assert (result.prompt_version, result.instruction_fingerprint) == ("v1", expected)
-    assert expected != prompt_fingerprint("draft", "v1")
+    assert (result.prompt_version, result.instruction_fingerprint) == ("v2", expected)
+    assert expected != prompt_fingerprint("draft", "v2")
     assert provider.call_args.args[0].startswith(drafting.DRAFT_PROMPT)
     unknown = Mock()
     with pytest.raises(ValueError, match="^CS_UNKNOWN_PROMPT_VERSION$"):

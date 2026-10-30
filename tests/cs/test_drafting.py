@@ -381,10 +381,20 @@ FORBIDDEN_EXAMPLES = {
         "Once again, we confirm it is a manufacturing defect.",
         "Please do not worry that it is a manufacturing defect.",
         "Once again we confirm it is a manufacturing defect.",
+        "There is no doubt that this is a manufacturing defect.",
+        "Without a doubt, it is a manufacturing defect.",
+        "Without any question this is a manufacturing defect.",
+        # no·without이 근거 부재가 아닌 응대 문구일 때(Fable 검토 P1).
+        "We will ship without delay since it is a manufacturing defect.",
+        "No further action is needed on your side as this is a manufacturing defect.",
+        "A replacement will be sent at no cost as this is a manufacturing defect.",
+        "Without exception it is a manufacturing defect.",
+        "No worries this is a manufacturing defect.",
     ],
     FORBIDDEN_COMMITMENTS[18].pattern: [
         "The return reason has been confirmed.",
         "Return reason is determined.",
+        "No charge will apply since the return reason has been confirmed.",
     ],
     FORBIDDEN_COMMITMENTS[19].pattern: [
         "We accept full responsibility for the failure.",
@@ -394,6 +404,7 @@ FORBIDDEN_EXAMPLES = {
     FORBIDDEN_COMMITMENTS[20].pattern: [
         "The damage was determined to be customer misuse.",
         "It is confirmed as improper installation.",
+        "We will proceed without further checks because the failure was determined to be customer misuse.",
     ],
     FORBIDDEN_COMMITMENTS[21].pattern: [
         "제조 불량으로 확인되었습니다.",
@@ -467,6 +478,10 @@ ALLOWED_EXAMPLES = [
     "We take responsibility for following up quickly.",
     "배송 지연은 저희 책임입니다. 사과드립니다.",
     "안내가 늦은 점은 저희 책임입니다.",
+    # no·without 부정과 '~다고 볼 수 없습니다'(Fable 검토).
+    "There is no evidence that this is a manufacturing defect.",
+    "We see no sign that the unit is a manufacturing defect.",
+    "현재 자료만으로는 제조 불량으로 확정되었다고 볼 수 없습니다.",
 ]
 
 
