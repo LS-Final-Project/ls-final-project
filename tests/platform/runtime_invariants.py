@@ -1,7 +1,7 @@
 """작업 실행 DB 불변식(KAN-150). 재시도·동시 인수·중단·복구 시나리오 검사가 끝난 뒤 부른다.
 
 시나리오가 어떤 순서로 겹쳐도 runtime.jobs·job_control·job_events가 서로 맞아야 한다.
-1. 끝난 작업(SUCCEEDED·FAILED·CANCELLED)에는 소유자(holder·lease)가 남지 않는다.
+1. 끝난 작업(SUCCEEDED·PARTIAL·FAILED·CANCELLED)에는 소유자(holder·lease)가 남지 않는다.
 2. 끝난 작업에는 종료 이벤트(job.completed·job.failed)가 정확히 하나 있고, 그 state가 작업 상태와 같다.
 3. 끝나지 않은 작업에는 종료 이벤트가 없다.
 4. 시작 이벤트(job.started) 수는 인수 횟수(generation)와 같다(인수마다 generation이 1 늘고 시작을 한 번 남긴다).
@@ -13,7 +13,8 @@ from uuid import UUID
 
 import psycopg
 
-TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED")
+# runtime.jobs.status CHECK와 backend/api/platform/jobs/events.py TERMINAL_STATES와 같은 종료 상태(PARTIAL 포함).
+TERMINAL = ("SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED")
 FINISH_EVENTS = ("job.completed", "job.failed")
 
 
