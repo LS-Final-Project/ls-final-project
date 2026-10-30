@@ -7,9 +7,9 @@ from psycopg import AsyncConnection
 
 Row = dict[str, Any]
 RECIPIENTS = """
-INSERT INTO runtime.user_notifications(intent_id,user_id)
+INSERT INTO notify.user_notifications(intent_id,user_id)
 SELECT DISTINCT i.id,u.id
-FROM runtime.notification_intents i
+FROM notify.notification_intents i
 CROSS JOIN LATERAL jsonb_array_elements(i.audience) s
 JOIN identity.users u ON u.is_active AND (
     u.id::text=s->>'user'
@@ -30,7 +30,7 @@ async def expand_pending(conn: AsyncConnection[Row], batch_size: int = 100) -> i
     if type(batch_size) is not int or not 1 <= batch_size <= 100:
         raise ValueError("NOTIFICATION_INVALID_BATCH")
     cursor = await conn.execute(
-        "SELECT id FROM runtime.notification_intents WHERE expanded_at IS NULL "
+        "SELECT id FROM notify.notification_intents WHERE expanded_at IS NULL "
         "ORDER BY created_at,id LIMIT %s FOR UPDATE SKIP LOCKED",
         (batch_size,),
     )
@@ -38,7 +38,7 @@ async def expand_pending(conn: AsyncConnection[Row], batch_size: int = 100) -> i
     for row in rows:
         await conn.execute(RECIPIENTS, (row["id"],))
         await conn.execute(
-            "UPDATE runtime.notification_intents SET expanded_at=clock_timestamp() WHERE id=%s",
+            "UPDATE notify.notification_intents SET expanded_at=clock_timestamp() WHERE id=%s",
             (row["id"],),
         )
     return len(rows)
@@ -49,7 +49,7 @@ async def list_mine(
 ) -> list[Row]:
     cursor = await conn.execute(
         "SELECT i.id,i.kind,i.title,i.link_path,i.created_at,n.read_at "
-        "FROM runtime.user_notifications n JOIN runtime.notification_intents i ON i.id=n.intent_id "
+        "FROM notify.user_notifications n JOIN notify.notification_intents i ON i.id=n.intent_id "
         "WHERE n.user_id=%s ORDER BY i.created_at DESC,i.id DESC LIMIT %s OFFSET %s",
         (user_id, limit, offset),
     )
@@ -58,7 +58,7 @@ async def list_mine(
 
 async def unread_count(conn: AsyncConnection[Row], user_id: UUID) -> int:
     cursor = await conn.execute(
-        "SELECT count(*) AS count FROM runtime.user_notifications WHERE user_id=%s AND read_at IS NULL",
+        "SELECT count(*) AS count FROM notify.user_notifications WHERE user_id=%s AND read_at IS NULL",
         (user_id,),
     )
     row = await cursor.fetchone()
@@ -68,7 +68,7 @@ async def unread_count(conn: AsyncConnection[Row], user_id: UUID) -> int:
 
 async def mark_read(conn: AsyncConnection[Row], user_id: UUID, intent_id: UUID) -> bool:
     cursor = await conn.execute(
-        "UPDATE runtime.user_notifications SET read_at=coalesce(read_at,clock_timestamp()) "
+        "UPDATE notify.user_notifications SET read_at=coalesce(read_at,clock_timestamp()) "
         "WHERE user_id=%s AND intent_id=%s",
         (user_id, intent_id),
     )
