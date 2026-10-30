@@ -22,7 +22,7 @@ export default function CsHome() {
     <div className="kv-title">
       <div className="kv-path"><span>C/S 관리</span><span className="sep">›</span><h1>업무 홈</h1><span className="kv-code">CS0001</span></div>
       <div className="kv-btns">
-        <button className="kb primary" onClick={() => queryClient.invalidateQueries()}>조회<small>F8</small></button>
+        <button className="kb primary" onClick={() => queryClient.invalidateQueries()}>조회</button>
         <Link className="kb" to="/cs/tickets">문의 조회</Link>
         <button className="kb" onClick={() => window.print()}>인쇄</button>
       </div>

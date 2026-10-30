@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { businessUiEnabled } from '../components/BusinessAccess';
 import { me } from '../api/platform';
 import logo from './ls-logo.svg';
 import './ls-shell.css';
 
-type Leaf = { label: string; to?: string; end?: boolean };
+type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean };
 type Group = { key: string; label: string; leaves: Leaf[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
 const MENU: Group[] = [
-  { key: 'mail', label: '메일', leaves: [] },
   {
     key: 'cs', label: 'C/S 관리', leaves: [
       { label: '업무 홈', to: '/cs', end: true },
@@ -21,8 +21,10 @@ const MENU: Group[] = [
       { label: '반복 사례 모음' },
     ],
   },
+  { key: 'rfp', label: '제안 지원', leaves: [{ label: '프로젝트 목록', to: '/tft/projects' }] },
+  { key: 'mail', label: '메일', leaves: [] },
   { key: 'stats', label: '통계/보고서', leaves: [] },
-  { key: 'system', label: '시스템 관리', leaves: [] },
+  { key: 'system', label: '시스템 관리', leaves: [{ label: '평가', to: '/evaluations', devOnly: true }] },
 ];
 
 const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -36,16 +38,21 @@ export default function LsShell() {
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [open, setOpen] = useState<Record<string, boolean>>({ cs: true });
   const identity = user.data?.data;
+  // 기존 Layout과 같은 조건이다. 업무 UI가 꺼졌거나 미로그인이면 경로를 열지 않는다.
+  const linked = import.meta.env.DEV || (businessUiEnabled && user.isSuccess && !!user.data);
+  const menu = MENU.map(group => ({
+    ...group, leaves: group.leaves.filter(leaf => !leaf.devOnly || import.meta.env.DEV),
+  }));
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';
   return <div className="ls-root" data-cs="1">
     <input type="checkbox" id="nav-collapse" className="nav-collapse-input" />
     <div className="shell" id="shell">
       <aside className="sidebar" id="sidebar" aria-label="주 메뉴">
-        <div className="brand"><span className="brand-mark"><img src={logo} width="94.7" height="42.619" alt="LS 로고" /></span>업무지원</div>
+        <div className="brand"><span className="brand-mark"><Link to="/" aria-label="포털 홈"><img src={logo} width="94.7" height="42.619" alt="LS 로고" /></Link></span>업무지원</div>
         <div className="km-find"><input type="search" placeholder="메뉴 검색" aria-label="메뉴 검색" autoComplete="off" spellCheck={false} /></div>
         <nav className="km" aria-label="메뉴"><ul>
-          {MENU.map(group => {
+          {menu.map(group => {
             const expanded = !!open[group.key] && group.leaves.length > 0;
             return <li key={group.key} className={expanded ? 'open' : undefined}>
               <button className="km-g" aria-expanded={expanded} title={group.leaves.length ? undefined : '준비 중'}
@@ -53,16 +60,16 @@ export default function LsShell() {
                 <Chevron open={expanded} />{group.label}
               </button>
               {expanded && <ul>{group.leaves.map(leaf => <li key={leaf.label}>
-                {leaf.to
+                {leaf.to && linked
                   ? <NavLink to={leaf.to} end={leaf.end} className={() => undefined}>{leaf.label}</NavLink>
-                  : <a aria-disabled="true" title="준비 중" tabIndex={-1}>{leaf.label}</a>}
+                  : <a aria-disabled="true" title={leaf.to ? '로그인 후 사용할 수 있습니다' : '준비 중'} tabIndex={-1}>{leaf.label}</a>}
               </li>)}</ul>}
             </li>;
           })}
         </ul></nav>
         <div className="km-user">
           <span className="km-av" aria-hidden="true">{name.slice(0, 1) || '?'}</span>
-          <div className="km-who"><b data-testid="layout-user">{name || (user.isPending ? '세션 확인 중' : '로그인 필요')}</b><small>{affiliation}</small></div>
+          <div className="km-who"><b data-testid="layout-user">{name || (user.isPending ? '세션 확인 중' : user.isError ? '세션 확인 실패' : '로그인 필요')}</b><small>{affiliation}</small></div>
           <NavLink to="/account">내 계정</NavLink>
         </div>
       </aside>
