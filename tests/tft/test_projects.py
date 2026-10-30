@@ -35,11 +35,6 @@ def project_row(index: int) -> dict:
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
         "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
-        "integration_holder": "UNRESOLVED",
-        "integration_holder_candidates": [],
-        "integration_note": None,
-        "integration_set_by": None,
-        "integration_set_at": None,
     }
 
 
@@ -69,6 +64,13 @@ REQUIREMENTS = [
 ]
 
 
+HOLDER = {
+    "integration_holder": "UNRESOLVED",
+    "integration_holder_candidates": [],
+    "integration_note": None,
+    "integration_set_by": None,
+    "integration_set_at": None,
+}
 CLAUSE_ID = UUID(int=200)
 INTEGRATION_ROWS = [
     {"clause_id": CLAUSE_ID, "clause_no": "2.3.A", "task": None, "assembly_clause": True},
@@ -102,8 +104,8 @@ def fakes(monkeypatch):
     async def get_project(conn, project_id):
         return next((dict(r) for r in ROWS if r["id"] == project_id), None)
 
-    async def integration_rows(conn, project_id):
-        return only_for(project_id, INTEGRATION_ROWS)
+    async def integration_state(conn, project_id):
+        return HOLDER, only_for(project_id, INTEGRATION_ROWS)
 
     async def list_rfp_requirements(conn, project_id):
         return only_for(project_id, REQUIREMENTS)
@@ -112,7 +114,7 @@ def fakes(monkeypatch):
     monkeypatch.setattr(repository, "list_projects", list_projects)
     monkeypatch.setattr(repository, "get_project", get_project)
     monkeypatch.setattr(repository, "list_rfp_requirements", list_rfp_requirements)
-    monkeypatch.setattr(repository, "integration_rows", integration_rows)
+    monkeypatch.setattr(repository, "integration_state", integration_state)
 
 
 @pytest.fixture
@@ -218,6 +220,18 @@ def test_detail_shows_the_integration_responsibility_with_its_basis_clause(clien
         "HOLD",
     ]
     assert integration["unresolved"]
+
+
+def test_detail_survives_a_database_without_the_rfp_migrations(client, monkeypatch):
+    """T7·T11·T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
+
+    async def missing(conn, project_id):
+        return None
+
+    monkeypatch.setattr(repository, "integration_state", missing)
+    result = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
+    assert result.status_code == 200
+    assert result.json()["data"]["integration_responsibility"] is None
 
 
 def test_unknown_project_returns_feature_error(client):

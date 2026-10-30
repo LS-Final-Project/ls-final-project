@@ -132,8 +132,8 @@ def project_integration(
         holder: 사람이 정한 통합 책임자.
 
     Returns:
-        dict: required·basis_clause_ids·basis_clause_nos·fallback_paths·unresolved. 근거 조항은 조항 번호 순이고,
-            문서가 달라 번호가 같은 조항은 근거인 조항의 ID만 낸다.
+        dict: required·basis_clause_ids·basis_clause_nos·fallback_paths·unresolved. 두 근거 목록은 같은 길이·순서로
+            조항 하나씩 대응한다(조항 번호 순). 문서가 달라 번호가 같은 조항은 근거인 조항만 내고, 둘 다 근거면 둘 다 낸다.
     """
     result = integration_responsibility(requirements, holder)
     basis = sorted(
@@ -143,7 +143,7 @@ def project_integration(
     return {
         "required": result.required,
         "basis_clause_ids": [clause_id for _, clause_id in basis],
-        "basis_clause_nos": result.basis_clause_nos,
+        "basis_clause_nos": [clause_no for clause_no, _ in basis],
         "fallback_paths": result.fallback_paths,
         "unresolved": result.unresolved,
     }

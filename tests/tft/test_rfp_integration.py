@@ -70,3 +70,13 @@ def test_project_integration_gives_the_ids_of_the_basis_clauses_only():
     decided = project_integration(stored, "OWN")
     assert decided["unresolved"] == [] and decided["fallback_paths"] == []
     assert project_integration([], "UNRESOLVED")["required"] is False
+    # 다른 문서의 같은 번호 조항이 둘 다 근거면 둘 다 낸다. 두 목록은 같은 길이·순서로 대응한다.
+    both = project_integration(
+        [
+            StoredRequirement(clause_id=basis, clause_no="2.3.A", assembly_clause=True),
+            StoredRequirement(clause_id=other, clause_no="2.3.A", assembly_clause=True),
+        ],
+        "UNRESOLVED",
+    )
+    assert both["basis_clause_ids"] == [basis, other]
+    assert both["basis_clause_nos"] == ["2.3.A", "2.3.A"]

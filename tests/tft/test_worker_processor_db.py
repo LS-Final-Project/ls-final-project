@@ -20,7 +20,7 @@ from pydantic import SecretStr
 
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.partners.loader import load_profiles
-from backend.api.tft.projects.repository import integration_rows
+from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.worker_processor import make_processor, sections_of
@@ -499,12 +499,14 @@ def test_an_assembly_clause_is_stored_and_read_back_for_the_project(worker_dsn, 
     run(worker_dsn, project, OneRequirement())
 
     async def read():
+        # 운영 API 역할(tft_app)의 실제 권한으로 읽는다.
         async with await psycopg.AsyncConnection.connect(
-            admin, row_factory=dict_row, autocommit=True
+            make_conninfo(admin, user="tft_app", password="test-only"), row_factory=dict_row
         ) as conn:
-            return await integration_rows(conn, project["project"])
+            return await integration_state(conn, project["project"])
 
-    rows = asyncio.run(read())
+    holder, rows = asyncio.run(read())
+    assert holder["integration_holder"] == "UNRESOLVED"
     assert [(r["clause_no"], r["assembly_clause"]) for r in rows] == [("2.1.A", True)]
     result = project_integration([StoredRequirement.model_validate(r) for r in rows], "UNRESOLVED")
     assert result["required"] is True and result["basis_clause_ids"] == [rows[0]["clause_id"]]

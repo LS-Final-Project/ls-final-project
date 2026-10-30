@@ -2130,8 +2130,15 @@
             "type": "string"
           },
           "integration_responsibility": {
-            "$ref": "#/components/schemas/IntegrationResponsibility",
-            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationResponsibility"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when the RFP migrations are not applied yet, which is not the same as not required."
           },
           "known_at": {
             "format": "date-time",

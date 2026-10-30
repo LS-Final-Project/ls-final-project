@@ -74,7 +74,10 @@ class ProjectDetail(BaseModel):
         default=None, description="Responsible sales user (login user ID) who issues requests."
     )
     rfp_requirements: list[RfpRequirement]
-    integration_responsibility: IntegrationResponsibility = Field(
-        default_factory=IntegrationResponsibility,
-        description="Assembly integration responsibility (RFP API spec v1.3 §7), computed on read.",
+    integration_responsibility: IntegrationResponsibility | None = Field(
+        default=None,
+        description=(
+            "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
+            "Null when the RFP migrations are not applied yet, which is not the same as not required."
+        ),
     )
