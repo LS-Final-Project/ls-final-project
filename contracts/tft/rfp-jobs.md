@@ -93,7 +93,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 | 단계 | 하는 일 | 부르는 함수 | 쓰는 표 |
 | --- | --- | --- | --- |
 | `parse` | 접수 입력 판본(아래)의 규격서·추가 문서(`RFP_SPEC`·`ADDENDUM`) 원문을 읽어 조항 트리를 만든다(저장은 compare 트랜잭션에서) | `storage.read_document`, `documents.router.extract`, `clauses.build_clause_tree` | 없음(메모리) |
-| `extract` | 절마다 요구를 뽑는다. 모델 호출이 끝날 때마다 진행(counts 없음)을, 절이 끝날 때마다 누적 counts를 남겨 lease를 연장한다. lease(`TFT_WORKER_LEASE_SECONDS`, 기본 300초)는 호출 하나의 최악 시간 `gemini_timeout_ms`×(`gemini_transient_retries`+1)+재시도 대기보다 커야 한다(기본 30초×2+1초 ≈ 61초). 절 하나는 긴 절 나눠 부르기·빠진 문장 보완으로 여러 번 부를 수 있어 절마다만 남기면 넘을 수 있다. 절은 번호로 하위를 묶는 조항 중 가장 위의 것이다(`PART 2` 아래 `2.1`·`2.2`). 너무 긴 절·실패한 절은 건너뛰고 `needs_review` | `requirements.build_inputs`, `extract_section` | 없음(메모리) |
+| `extract` | 절마다 요구를 뽑는다. 모델 호출이 끝날 때마다 진행(counts 없음)을, 절이 끝날 때마다 누적 counts를 남겨 lease를 연장한다. lease(`TFT_WORKER_LEASE_SECONDS`, 기본 300초)는 호출 하나의 최악 시간 `TFT_EXTRACTION_TIMEOUT_MS`×(`GEMINI_TRANSIENT_RETRIES`+1)+재시도 대기보다 커야 한다(기본 120초×2+1초 = 241초, 아래 'lease 검사'). 절 하나는 긴 절 나눠 부르기·빠진 문장 보완으로 여러 번 부를 수 있어 절마다만 남기면 넘을 수 있다. 절은 번호로 하위를 묶는 조항 중 가장 위의 것이다(`PART 2` 아래 `2.1`·`2.2`). 너무 긴 절·실패한 절은 건너뛰고 `needs_review` | `requirements.build_inputs`, `extract_section` | 없음(메모리) |
 | `search` | 검색기 연결 전이라 자사 제품 전체가 후보 범위다(`search_trace.filters=["own_products=all"]`) | — | 없음 |
 | `compare` | 자사 비교. 인증 요구 비교의 `matched_attribute`는 null. 추출 요구 → 비교 입력 매핑은 `to_comparison` 한 곳(`COMPLIANCE`는 인증 요구, 그 밖은 속성 그대로, 계열 없음. KAN-186 확인 요청 중) | `comparison.compare` | `clauses`, `clause_deleted_values`, `clause_flags`, `requirements`, `requirement_versions`(판본 1, `ai_draft`, 판단·지정품 모델·제조사 포함), `requirement_conditions`, `product_comparisons`, `comparison_evidence` |
 | `supplement` | 보완 선택지. 고객 허용은 `UNSTATED`, 허용 조항은 null(그 값을 정하는 코드가 아직 없다) | `supplement.options_for` | `supplement_options` |
@@ -102,7 +102,8 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 - **접수 입력 판본**: 처리 함수는 `input_version`(정렬 문서 판본 ID의 SHA-256)만 받는다. 프로젝트 문서의 최신 판본 묶음부터 맞춰 보고, 아니면 문서 판본 12개까지 조합을 다 본다. 못 찾으면 실패다.
 - **원문**: local/test는 `TFT_DOCUMENT_ROOT`/`storage_key` 파일을 읽고 판본 행의 sha256·size와 맞는지 본다. GCS 읽기는 업로드 경로(6)를 구현할 때 붙인다.
-- **추출 모델**: `TFT_EXTRACTION_PROVIDER=gemini`(기본, `AI_*`·`GEMINI_*` 설정) 또는 `fake`(요구를 뽑지 않는 고정 응답, 키 없는 로컬).
+- **추출 모델**: `TFT_EXTRACTION_PROVIDER=gemini`(기본) 또는 `fake`(요구를 뽑지 않는 고정 응답, 키 없는 로컬). gemini 호출 값은 공통 AI 기본(출력 1024토큰)이 아니라 추출 전용 `TFT_EXTRACTION_MODEL`(기본 `gemini-3.6-flash`)·`TFT_EXTRACTION_MAX_OUTPUT_TOKENS`(16384)·`TFT_EXTRACTION_TIMEOUT_MS`(120000)이고, 키·공급자·재시도는 공통 `GEMINI_*`다(평가 스크립트와 같은 모델·출력 상한).
+- **lease 검사**: 처리 함수를 만들 때(gemini) `TFT_WORKER_LEASE_SECONDS`가 호출 하나의 최악 시간(시간 제한 × (`GEMINI_TRANSIENT_RETRIES`+1) + 재시도 대기 1·2·…초)보다 길지 않으면 모델 클라이언트를 만들기 전에 `INVALID_WORKER_CONFIGURATION`으로 멈춘다(기본 120초×2+1초 = 241초 < 300초). 인수 뒤의 load 실패라 그 작업은 FAILED(`TFT_WORKER_PROCESSING_FAILED`)로 남는다.
 - **트랜잭션**: 조항과 `compare`부터 `candidates`까지 쓰는 행은 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소·오류) 조항도 요구 행도 남지 않는다. **그래서 조항(경로 9 조항 트리 포함)은 그 문서 판본의 처리가 끝난 뒤에만 보인다**(처리 중에는 빈 목록이다. 경로 9 구현은 KAN-188). `parse` 직후 조항을 읽는 소비자는 없다(2026-10-30 확인: 조항 트리 경로 9는 미구현, 질문의 조항 확인·요구 상세의 조항 조인은 처리가 끝난 뒤에만 의미가 있다).
 - **재실행 멱등**: 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 문서 포함)은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다. 조항이 하나도 없는 문서는 처리 표시가 남지 않지만 절이 없어 모델도 부르지 않는다.
 - **SSE 값**: 단계마다 `counts{requirements, proposals}`(proposals는 0). `skipped` 같은 새 키는 두지 않는다(허용 키 표 그대로).

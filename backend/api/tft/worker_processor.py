@@ -20,9 +20,11 @@ from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.agent.processor_registry import Emit, Processor, TftJob
+from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import comparison, repository, supplement
@@ -36,7 +38,7 @@ from backend.engine.rfp.requirements import (
     build_inputs,
     extract_section,
 )
-from backend.shared.ai import Generation, Usage
+from backend.shared.ai import TRANSIENT_BACKOFF_SECONDS, AISettings, Generation, Usage
 from backend.shared.settings import Settings
 
 Provider = Callable[[str], Generation]
@@ -49,11 +51,18 @@ ONLY_STEP = {"rfp.export": "export", "rfp.annotate": "annotate"}
 
 
 class ProcessorSettings(BaseSettings):
-    """원문 폴더와 추출 모델 선택. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사)."""
+    """원문 폴더와 추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
+
+    추출 값은 공통 AI 기본값(출력 1024토큰)을 쓰지 않는다. 기본은 평가 스크립트(scripts/rfp_requirements_eval.py)와
+    같은 모델·출력 상한이고, 시간 제한은 lease 안에 들도록 120초다. 키·공급자·재시도는 공통 AI 설정(GEMINI_*)이다.
+    """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
     document_root: Path | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
+    extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
+    extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
+    extraction_timeout_ms: int = Field(default=120000, ge=1000, le=300000)
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -70,17 +79,55 @@ def fake_provider(_prompt: str) -> Generation:
     )
 
 
-def gemini_provider() -> Provider:
-    """Gemini 구조화 출력 호출(평가 스크립트와 같은 방식, 설정은 환경의 AI_*·GEMINI_*).
+def extraction_settings(config: ProcessorSettings) -> AISettings:
+    """추출 호출 설정: 공통 AI 설정(키·공급자·재시도)에 추출 전용 모델·출력 상한·시간 제한을 덮는다.
+
+    Args:
+        config: 처리 함수 설정.
+
+    Returns:
+        AISettings: generate에 넘길 설정.
+    """
+    return AISettings(
+        gemini_model=config.extraction_model,
+        gemini_max_output_tokens=config.extraction_max_output_tokens,
+        gemini_timeout_ms=config.extraction_timeout_ms,
+    )
+
+
+def check_lease(ai: AISettings, lease_seconds: int) -> None:
+    """lease가 모델 호출 하나의 최악 시간보다 길어야 한다(호출마다 lease를 연장하므로).
+
+    최악 = 시간 제한 × (일시 오류 재시도 + 1) + 재시도 대기(TRANSIENT_BACKOFF_SECONDS부터 두 배씩).
+
+    Args:
+        ai: 추출 호출 설정.
+        lease_seconds: worker lease 길이(TFT_WORKER_LEASE_SECONDS).
+
+    Returns:
+        None. 짧으면 ValueError(INVALID_WORKER_CONFIGURATION)다.
+    """
+    retries = ai.gemini_transient_retries
+    worst = ai.gemini_timeout_ms / 1000 * (retries + 1) + sum(
+        TRANSIENT_BACKOFF_SECONDS * 2**n for n in range(retries)
+    )
+    if lease_seconds <= worst:
+        raise ValueError("INVALID_WORKER_CONFIGURATION")
+
+
+def gemini_provider(ai: AISettings) -> Provider:
+    """Gemini 구조화 출력 호출(평가 스크립트와 같은 방식).
+
+    Args:
+        ai: 추출 호출 설정(extraction_settings).
 
     Returns:
         Provider: 지시문 → Generation.
     """
-    from backend.shared.ai import AISettings, create_client, generate
+    from backend.shared.ai import create_client, generate
 
-    settings = AISettings()
-    client = create_client(settings)
-    return lambda text: generate(client, settings, text, response_schema=ResponseSchema)
+    client = create_client(ai)
+    return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
 
 
 def build(settings: Settings) -> Processor:
@@ -93,7 +140,14 @@ def build(settings: Settings) -> Processor:
         Processor: 처리 함수.
     """
     config = ProcessorSettings()
-    provider = fake_provider if config.extraction_provider == "fake" else gemini_provider()
+    provider: Provider
+    if config.extraction_provider == "fake":
+        provider = fake_provider
+    else:
+        ai = extraction_settings(config)
+        # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
+        check_lease(ai, TftWorkerSettings().lease_seconds)
+        provider = gemini_provider(ai)
     return make_processor(settings, provider=provider, document_root=config.document_root)
 
 
