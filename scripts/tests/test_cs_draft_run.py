@@ -195,7 +195,7 @@ class DraftRunTests(unittest.TestCase):
                 evidence=evidence,
                 sensitive_values={},
             ).payload
-            prompts.append(render_prompt(payload))
+            prompts.append(render_prompt(payload, prompt_version="v1"))
         priced, unpriced = report["candidates"]
         chars = sum(len(p) for p in prompts)
         upper = sum(len(p.encode("utf-8")) for p in prompts)
