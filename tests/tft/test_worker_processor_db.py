@@ -37,7 +37,7 @@ PART 2 - PRODUCTS
 
 A. The transformer BIL shall be 150 kV minimum.
 
-B. The impedance shall be 5.75 percent.
+B. The impedance shall be 5.75 percent as Eaton Resibloc.
 
 2.2 CERTIFICATION
 
@@ -61,7 +61,7 @@ REQUIREMENTS = [
     },
     {
         "clause_no": "2.1.B",
-        "quote": "The impedance shall be 5.75 percent.",
+        "quote": "The impedance shall be 5.75 percent as Eaton Resibloc.",
         "kind": "SPEC",
         "equipment": "dry-type transformer",
         "task": None,
@@ -72,7 +72,8 @@ REQUIREMENTS = [
         "conditions": [],
         "standard_system": "IEEE",
         "necessity": "MANDATORY",
-        "designated_model": None,
+        "designated_model": "Resibloc",
+        "designated_manufacturer": "Eaton",
     },
     {
         "clause_no": "2.2.A",
@@ -244,12 +245,32 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     """7단계를 순서대로 보고하고 조항·요구·비교·선택지·등급을 저장한다. 다시 돌리면 모델도 행도 그대로다."""
     extractor = FakeExtractor()
     summary, events = run(worker_dsn, project, extractor)
-    assert [e["step"] for e in events] == STEPS
+    # extract는 절(2.1·2.2)마다 누적 counts로 남는다(lease 연장).
+    assert [e["step"] for e in events] == ["parse", "extract", *STEPS[1:]]
     assert events[0] == {"step": "parse", "document_version_id": str(project["docver"])}
-    assert all(e["counts"] == {"requirements": 3, "proposals": 0} for e in events[1:])
+    assert [e["counts"]["requirements"] for e in events[1:3]] == [2, 3]
+    assert all(e["counts"] == {"requirements": 3, "proposals": 0} for e in events[2:])
     assert summary == {"counts": {"requirements": 3, "proposals": 0}, "needs_review": False}
     assert extractor.calls == 2  # 절 두 개, 빠진 요구 문장 없음.
     first = stored(admin, project)
+    with psycopg.connect(admin) as conn:
+        # 인증 요구(2.2.A) 비교는 속성 칸을 비운다.
+        compliance = conn.execute(
+            "SELECT count(*), count(p.matched_attribute) FROM tft.product_comparisons p "
+            "JOIN tft.requirement_versions v ON v.requirement_id = p.requirement_id "
+            "JOIN tft.requirements r ON r.id = v.requirement_id "
+            "WHERE r.project_id=%s AND v.quote LIKE %s",
+            (project["project"], "%UL 1561%"),
+        ).fetchone()
+    assert compliance[0] > 0 and compliance[1] == 0
+    with psycopg.connect(admin) as conn:
+        # 추출 v2(#309)의 지정품 제조사를 판본에 남긴다.
+        assert conn.execute(
+            "SELECT v.designated_model, v.designated_manufacturer FROM tft.requirement_versions v "
+            "JOIN tft.requirements r ON r.id = v.requirement_id "
+            "WHERE r.project_id=%s AND v.designated_model IS NOT NULL",
+            (project["project"],),
+        ).fetchall() == [("Resibloc", "Eaton")]
     assert first["clauses"] == 6 and first["requirements"] == 3 and first["ai_drafts"] == 3
     assert first["comparisons"] > 0 and first["gaps"] >= 1
     assert first["options"] >= first["gaps"] and first["grades"] >= 1

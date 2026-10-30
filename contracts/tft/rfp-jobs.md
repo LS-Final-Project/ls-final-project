@@ -93,9 +93,9 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 | 단계 | 하는 일 | 부르는 함수 | 쓰는 표 |
 | --- | --- | --- | --- |
 | `parse` | 접수 입력 판본(아래)의 규격서·추가 문서(`RFP_SPEC`·`ADDENDUM`) 원문을 읽어 조항 트리를 만든다. 문서 판본마다 한 번 | `storage.read_document`, `documents.router.extract`, `clauses.build_clause_tree` | `clauses`, `clause_deleted_values`, `clause_flags` |
-| `extract` | 절마다 요구를 뽑는다. 절은 번호로 하위를 묶는 조항 중 가장 위의 것이다(`PART 2` 아래 `2.1`·`2.2`). 너무 긴 절·실패한 절은 건너뛰고 `needs_review` | `requirements.build_inputs`, `extract_section` | 없음(메모리) |
+| `extract` | 절마다 요구를 뽑고 절마다 진행(누적 counts)을 남겨 lease를 연장한다. 절은 번호로 하위를 묶는 조항 중 가장 위의 것이다(`PART 2` 아래 `2.1`·`2.2`). 너무 긴 절·실패한 절은 건너뛰고 `needs_review` | `requirements.build_inputs`, `extract_section` | 없음(메모리) |
 | `search` | 검색기 연결 전이라 자사 제품 전체가 후보 범위다(`search_trace.filters=["own_products=all"]`) | — | 없음 |
-| `compare` | 자사 비교. 추출 요구 → 비교 입력 매핑은 `to_comparison` 한 곳(`COMPLIANCE`는 인증 요구, 그 밖은 속성 그대로, 계열 없음. KAN-186 확인 요청 중) | `comparison.compare` | `requirements`, `requirement_versions`(판본 1, `ai_draft`, 판단 포함), `requirement_conditions`, `product_comparisons`, `comparison_evidence` |
+| `compare` | 자사 비교. 인증 요구 비교의 `matched_attribute`는 null. 추출 요구 → 비교 입력 매핑은 `to_comparison` 한 곳(`COMPLIANCE`는 인증 요구, 그 밖은 속성 그대로, 계열 없음. KAN-186 확인 요청 중) | `comparison.compare` | `requirements`, `requirement_versions`(판본 1, `ai_draft`, 판단·지정품 모델·제조사 포함), `requirement_conditions`, `product_comparisons`, `comparison_evidence` |
 | `supplement` | 보완 선택지. 고객 허용은 `UNSTATED`, 허용 조항은 null(그 값을 정하는 코드가 아직 없다) | `supplement.options_for` | `supplement_options` |
 | `candidates` | 사양 차이(`SPEC_GAP`) 요구에 협력사 등급. DB `partner_profiles` 행만 쓰고 없으면 건너뛰고 `needs_review`. RFP 맥락은 기본값(제조사 목록 없음·`UNSTATED`·지역 없음·통합사 불필요) | `grading.grade_candidate` | `partner_grades` |
 | `draft` | 초안 생성(A07) 전이라 counts만 남긴다(실패 아님) | — | 없음 |
@@ -113,5 +113,6 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 ## 아직 없는 것
 
 - 검색기(R10 FTS·벡터) 연결, 고객 허용 조항 해석, RFP 맥락(제조사 목록 등)의 원천, 초안·내보내기·메모 해석 단계.
+- 요구 0건 문서의 처리 표시(후속): 지금은 요구 판본이 있어야 '처리됨'이라, 요구가 0건인 문서는 재실행마다 원문 해석·모델 호출을 다시 한다. 문서 판본 처리 표시(표·열 추가)가 필요하다.
 - 입력 판본 복원(후속): 접수 때 `rfp_commands` 결과에 `document_version_ids`를 남기고 worker가 작업 ID로 읽게 바꾼다(지금은 해시 조합 역산, 판본 12개 상한).
 - 취소를 거는 경로. 지금은 `cancel_requested_at`을 읽기만 한다(KAN-194 이연 P3와 같은 범위).
