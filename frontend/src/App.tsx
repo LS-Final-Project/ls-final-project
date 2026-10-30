@@ -11,6 +11,7 @@ import LsShell from './ls-shell/LsShell';
 import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
 import RfpProjects from './rfp/RfpProjects';
+import RfpSupplement from './rfp/RfpSupplement';
 
 export default function App() {
   return <Routes>
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="cs/tickets/:ticketId" element={<div className="ls-legacy"><TicketDetail /></div>} />
       <Route path="tft" element={<RfpHome />} />
       <Route path="tft/projects" element={<RfpProjects />} />
+      <Route path="tft/projects/:projectId/supplement" element={<RfpSupplement />} />
       <Route path="tft/projects/:projectId" element={<div className="ls-legacy"><ProjectDetail /></div>} />
     </Route>
   </Routes>;

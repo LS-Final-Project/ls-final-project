@@ -49,7 +49,8 @@ const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-h
 // 캔버스 셸(사이드바, 상단 바, 열린 화면 탭). 화면별 제목 줄과 본문은 각 화면이 그린다.
 export default function LsShell() {
   const { pathname } = useLocation();
-  const tab = tabName(pathname);
+  const tab = pathname.endsWith('/supplement') ? '보완 및 협력사 비교' : tabName(pathname);
+  const projectPath = pathname.match(/^\/tft\/projects\/[0-9a-f-]{36}(?=\/|$)/i)?.[0];
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
@@ -61,7 +62,7 @@ export default function LsShell() {
   // 기존 Layout과 같은 조건이다. 업무 UI가 꺼졌거나 미로그인이면 경로를 열지 않는다.
   const linked = import.meta.env.DEV || (businessUiEnabled && user.isSuccess && !!user.data);
   const menu = MENU.map(group => ({
-    ...group, leaves: group.leaves.filter(leaf => !leaf.devOnly || import.meta.env.DEV),
+    ...group, leaves: [...group.leaves.filter(leaf => !leaf.devOnly || import.meta.env.DEV), ...(group.key === 'rfp' && projectPath ? [{ label: '보완 및 협력사 비교', to: `${projectPath}/supplement` }] : [])],
   }));
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';
