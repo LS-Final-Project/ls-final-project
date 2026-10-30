@@ -3,9 +3,11 @@
 비교·등급은 추출 v3의 attribute_key(자사 사양 어휘)를 쓰고, 동의어 표는 없다(#324 표는 v3 연결로 대체해 지웠다).
 """
 
+from uuid import UUID
+
 import pytest
 
-from backend.api.tft.worker_processor import to_comparison
+from backend.api.tft.worker_processor import to_comparison, to_grading
 from backend.engine.rfp.requirements import ExtractedRequirement
 
 
@@ -47,6 +49,12 @@ def test_comparison_input_uses_the_vocabulary_but_certifications_keep_the_standa
     assert to_comparison(requirement("TASK", "field testing")).kind == "TASK"
     basis = requirement("SPEC", "relay").model_copy(update={"basis_of_design": True})
     assert to_comparison(basis).basis_of_design
+    tap = requirement("SPEC", "taps", "tap").model_copy(
+        update={"value": None, "operator": "TEXT", "canonical_value": "±2x2.5%"}
+    )
+    assert (to_comparison(tap).canonical_value, to_comparison(tap).value) == ("±2x2.5%", "±2x2.5%")
+    graded = to_grading(UUID(int=1), tap.model_copy(update={"equipment": "transformer"}))
+    assert graded is not None and graded.canonical_value == "±2x2.5%"
 
 
 def test_grading_input_treats_compliance_as_a_certification_like_the_comparison():
@@ -133,11 +141,9 @@ def test_a_tolerance_on_a_minimum_is_not_a_range_and_an_unreadable_one_is_condit
     assert {c.result for c in outcome.candidates} == {"NOT_COMPARABLE"}
     assert outcome.status == "CONDITIONAL"
     within = unreadable.model_copy(update={"tolerance": "±10%", "standard_system": "NONE"})
-    # 5.175~6.325 % 안의 TRF-DRY-630 6 %(기준 온도 조건 없음, 규격 체계 표시 없음 요구) → 충족 근거.
-    assert (
-        compare_in_family(to_comparison(within), "TRANSFORMER", load_own_products()).status
-        == "EVIDENCE_FOUND"
-    )
+    # 5.175~6.325 % 안의 TRF-DRY-630 6 %. 값은 충족하지만 기준 온도가 요구에 없어 확정하지 않는다.
+    met = compare_in_family(to_comparison(within), "TRANSFORMER", load_own_products())
+    assert (met.status, met.candidates[0].result) == ("CONDITIONAL", "MEETS")
 
 
 def test_a_listing_requirement_reaches_both_comparison_and_grading():

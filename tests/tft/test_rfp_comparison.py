@@ -31,7 +31,12 @@ EXAMPLE = Path("backend/api/tft/rfp/examples/comparison-demo-a.json")
 # IEEE·소음·Listed)은 요구별로 나눴다(2026-10-30 결정).
 _DEMO_A = [
     Requirement(
-        clause_no="2.5.M", item="탭 ±2×2.5%", attribute="tap", value="±2×2.5%", operator="TEXT"
+        clause_no="2.5.M",
+        item="탭 ±2×2.5%",
+        attribute="tap",
+        value="±2×2.5%",
+        operator="TEXT",
+        canonical_value="±2x2.5%",
     ),
     Requirement(clause_no="2.5.I.1", item="절연 Class F", attribute="insulation_class", value="F"),
     Requirement(
@@ -41,7 +46,6 @@ _DEMO_A = [
         value="5.175~6.325",
         unit="%",
         operator="RANGE",
-        conditions=[Condition(name="reference_temperature", value="IEEE C57.12.01 기준")],
     ),
     Requirement(
         clause_no="2.5.C.1",
@@ -202,9 +206,9 @@ def test_demo_a_matches_the_planned_statuses_with_datasheet_evidence():
     assert tap.candidates[0].evidence[0].document == "DS-TRF-DRY-630"
     assert tap.candidates[0].evidence[0].clause == "2.2"
     assert (insulation.candidates[0].result, insulation.next_owner) == ("MEETS", None)
-    # In range, but the datasheet value is at 120 °C, not the IEEE basis the RFP names.
+    # In range, but the datasheet value leans on a 120 °C basis the requirement does not state.
     assert impedance.candidates[0].result == "MEETS"
-    assert "reference_temperature" in impedance.unresolved[0]
+    assert impedance.unresolved[0] == "reference_temperature 요구 미기재, 자사 근거 120 °C"
     assert forced_air.next_owner == "TECH"
     assert (secondary.candidates[0].result, secondary.deficiency_cause) == ("DIFFERS", "RATING")
     assert "415 V" in secondary.reason
@@ -968,6 +972,119 @@ def test_condition_units_ignore_case_after_the_unit_key():
     power = wanted.model_copy(update={"attribute": "rated_power", "unit": "mW", "conditions": []})
     result = compare(power, [rated_product("rated_power", "95", "MW")], trace)
     assert result.candidates[0].result == "NOT_COMPARABLE"
+
+
+def canonical(attribute, wanted, value="문장형 원문", unit=None, operator="TEXT"):
+    return Requirement(
+        clause_no="2.5",
+        item="항목",
+        attribute=attribute,
+        value=value,
+        unit=unit,
+        operator=operator,
+        canonical_value=wanted,
+    )
+
+
+TRACE = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+
+
+@pytest.mark.parametrize(
+    ("wanted", "status", "word"),
+    [
+        ("±2x2.5%", "EVIDENCE_FOUND", "충족"),
+        ("+2x-2x2.5%", "EVIDENCE_FOUND", "충족"),
+        ("±2x2.50%", "EVIDENCE_FOUND", "충족"),
+        ("±4x1.25%", "SPEC_GAP", "탭 구성 다름"),
+        ("±2x1.25%", "SPEC_GAP", "탭 구성 다름"),
+        ("+2x-4x2.5%", "SPEC_GAP", "탭 구성 다름"),
+    ],
+)
+def test_taps_compare_steps_and_spacing_from_the_written_notation(wanted, status, word):
+    """결함 6: 문장형 탭도 자사 ±2×2.5%와 단 수·간격으로 견준다. 원문 value·단위는 판정에 쓰지 않는다."""
+    outcome = compare_in_family(
+        canonical("tap", wanted, value="1.25", unit="%", operator="EQ"),
+        "TRANSFORMER",
+        load_own_products(),
+    )
+    assert outcome.status == status and word in outcome.reason
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize(
+    ("wanted", "own", "status", "word"),
+    [
+        ("LSI", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LG", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LSIG", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LSIG", "LSI", "SPEC_GAP", "보호 기능 없음: G"),
+        ("SI", "LS", "SPEC_GAP", "보호 기능 없음: I"),
+    ],
+)
+def test_protection_functions_are_met_when_required_is_a_subset(wanted, own, status, word):
+    """요구 집합이 자사 집합의 부분집합이면 충족이고, 모자라면 빠진 기능을 말한다."""
+    product = rated_product("protection_functions", own, None)
+    outcome = compare(canonical("protection_functions", wanted), [product], TRACE)
+    assert outcome.status == status and word in outcome.reason
+
+
+def test_a_canonical_value_compares_without_a_written_value():
+    """문장형 요구는 value가 비어도 고객 자료 요청이 아니라 비교로 간다."""
+    wanted = canonical("protection_functions", "LSI", value=None)
+    outcome = compare(wanted, [rated_product("protection_functions", "LSIG", None)], TRACE)
+    assert (outcome.status, outcome.next_owner) == ("EVIDENCE_FOUND", None)
+
+
+def test_an_own_value_outside_the_notation_is_not_decided():
+    """자사 값을 표기로 읽지 못하면 같다고도 다르다고도 하지 않는다."""
+    outcome = compare(canonical("tap", "±2x2.5%"), [rated_product("tap", "수동 탭", None)], TRACE)
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+
+
+def impedance(value="5.175~6.325", **extra):
+    return Requirement(
+        clause_no="2.5",
+        item="임피던스",
+        attribute="impedance",
+        value=value,
+        unit="%",
+        operator="RANGE",
+        **extra,
+    )
+
+
+def test_a_met_value_on_an_unstated_basis_is_only_conditional():
+    """결함 8: 요구에 기준 온도가 없어도 자사 값이 기대면 충족을 확정하지 않는다."""
+    outcome = compare_in_family(impedance(), "TRANSFORMER", load_own_products())
+    assert outcome.status == "CONDITIONAL"
+    assert any("reference_temperature 요구 미기재" in item for item in outcome.unresolved)
+
+
+def test_a_stated_basis_that_matches_stays_confirmed():
+    """요구가 같은 기준을 적으면 그대로 충족이다."""
+    stated = [Condition(name="reference_temperature", value="120", unit="°C")]
+    outcome = compare_in_family(impedance(conditions=stated), "TRANSFORMER", load_own_products())
+    assert outcome.status == "EVIDENCE_FOUND"
+
+
+def test_an_unstated_basis_does_not_soften_a_shortfall():
+    """충족만 낮춘다. 미달은 기준 조건이 있어도 그대로 사양 차이다."""
+    outcome = compare_in_family(impedance("1~2"), "TRANSFORMER", load_own_products())
+    assert outcome.status == "SPEC_GAP"
+    assert not any("요구 미기재" in item for item in outcome.unresolved)
+
+
+def test_conditions_outside_the_basis_set_do_not_lower_a_met_value():
+    """기준 조건이 아닌 조건(차단 용량의 415 V 등)은 요구에 없어도 충족을 낮추지 않는다."""
+    wanted = Requirement(
+        clause_no="2.6",
+        item="차단 용량",
+        attribute="breaking_capacity_icu",
+        value="50",
+        unit="kA",
+        operator="GTE",
+    )
+    assert compare_in_family(wanted, "LV_BREAKER", load_own_products()).status == "EVIDENCE_FOUND"
 
 
 def test_the_operator_decides_a_fixed_rating_and_a_minimum():

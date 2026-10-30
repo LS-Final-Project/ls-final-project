@@ -238,7 +238,8 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
             비교가 '범위를 숫자로 읽을 수 없어 확인 필요'(조건부)가 된다.
     """
     if item.tolerance is None or item.operator != "EQ" or item.value is None:
-        return item.operator, item.value
+        # 문장형 요구는 value가 비어도 비교용 표기로 비교한다.
+        return item.operator, item.value or item.canonical_value
     nominal = grading._number(item.value)
     symmetric, asymmetric = SYMMETRIC.match(item.tolerance), ASYMMETRIC.match(item.tolerance)
     if nominal is None or not (symmetric or asymmetric):
@@ -284,6 +285,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         standard_system=item.standard_system,
         designated_model=item.designated_model,
         basis_of_design=item.basis_of_design,
+        canonical_value=item.canonical_value,
         task=item.task,
         kind=item.kind,
     )
@@ -331,6 +333,7 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         necessity=item.necessity,
         designated_model=item.designated_model,
         clause_no=item.clause_no,
+        canonical_value=item.canonical_value,
     )
 
 

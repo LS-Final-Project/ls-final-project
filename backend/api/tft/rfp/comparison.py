@@ -45,6 +45,8 @@ COMMERCIAL_ATTRIBUTES = frozenset({"warranty_months"})
 # RND: R&D 자문 질문이 열린 요구(명세 v1.3, 질문 생성은 보완 경로 선택 API가 한다).
 NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER", "RND"]
 # 상태가 나쁜 순서. 후보가 여럿이면 가장 좋은 후보의 상태가 요구의 상태다.
+# 값 자체를 바꾸는 기준 조건. 요구에 없어도 자사 값이 여기 기대면 충족을 확정하지 않는다(기획서: 임피던스 기준 온도).
+BASIS_CONDITIONS = frozenset({"reference_temperature"})
 ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
 OWN_FACTS = Path(__file__).with_name("own_spec_facts.json")
@@ -89,6 +91,8 @@ class Requirement(Strict):
     designated_model: str | None = None
     # 설계 기준 제품(동등 이상 허용). 지정이 아니라 참고 기준이라 지정품 조달로 보내지 않는다.
     basis_of_design: bool = False
+    # 문장형 값의 비교용 표기(탭·보호 기능). 있으면 value 대신 이것으로 견준다(grading._canonical_verdict).
+    canonical_value: str | None = None
     task: str | None = None
     # 추출 요구 종류. 과업·문서 요구는 장비 사양이 아니라 계열 검사를 거치지 않는다(`_work_kind`).
     kind: Kind = "SPEC"
@@ -243,6 +247,24 @@ def _system_mismatch(requirement: Requirement, product: Product) -> list[str]:
     return found
 
 
+def _unstated_basis(requirement: Requirement, fact: SpecFact) -> list[str]:
+    """요구에 없는데 자사 값이 기대는 기준 조건. 충족을 확정하지 못하는 이유로 쓴다(미달을 낮추지는 않는다).
+
+    Args:
+        requirement: 요구.
+        fact: 자사 사양 근거.
+
+    Returns:
+        list[str]: 'reference_temperature 요구 미기재, 자사 근거 120 °C' 같은 차이 목록.
+    """
+    stated = {c.name for c in requirement.conditions}
+    return [
+        f"{c.name} 요구 미기재, 자사 근거 {grading._with_unit(c.value, c.unit)}"
+        for c in fact.conditions or []
+        if c.name in BASIS_CONDITIONS and c.name not in stated
+    ]
+
+
 def _attribute_match(requirement: Requirement, product: Product) -> CandidateMatch:
     """같은 속성의 사양 근거로 판정한다. 근거가 여럿이면 가장 좋은 것을 쓴다."""
     head = grading._head(_as_grading(requirement))
@@ -262,10 +284,14 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = grading._value_verdict(_as_grading(requirement), compared)
         gaps = grading._condition_gaps(_as_grading(requirement), compared)
+        if verdict == "passed":
+            gaps += _unstated_basis(requirement, compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).
-        unit_differs = requirement.operator != "TEXT" and grading._unit_key(
-            requirement.unit
-        ) != grading._unit_key(fact.unit)
+        unit_differs = (
+            not requirement.canonical_value
+            and requirement.operator != "TEXT"
+            and grading._unit_key(requirement.unit) != grading._unit_key(fact.unit)
+        )
         if verdict == "passed" and not gaps and note:
             # 환산값은 시험값이 아니라 충족으로 확정하지 않는다.
             status, result = "CONDITIONAL", "MEETS"
@@ -423,6 +449,7 @@ def _as_grading(requirement: Requirement) -> grading.Requirement:
         standard_system="NONE",
         necessity=requirement.necessity,
         clause_no=requirement.clause_no,
+        canonical_value=requirement.canonical_value,
     )
 
 
@@ -542,7 +569,7 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             "TASK" if work == "TASK" else None,
             [],
         )
-    if not requirement.certification_standard and not requirement.value:
+    if not (requirement.certification_standard or requirement.value or requirement.canonical_value):
         # 요구값을 모르면(도면 참조 등) 비교하지 않는다. 고객 자료를 받아야 한다.
         return outcome(
             "INSUFFICIENT_EVIDENCE",
