@@ -184,6 +184,11 @@ class ChangeTests(unittest.TestCase):
         self.assertEqual(result["backends"], [])
         self.assertEqual(result["services"], [])
 
+    def test_deploy_model_changes_run_the_promotion_check(self):
+        result = changes.classify(["infra/deploy_private.py"])
+        self.assertTrue(result["evaluation"])
+        self.assertTrue(result["infrastructure"])
+
     def test_evaluation_spec_runs_evaluation_without_releasing_an_api(self):
         result = changes.classify(["docs/evaluation.md"])
         self.assertTrue(result["evaluation"])

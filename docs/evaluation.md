@@ -356,6 +356,20 @@ uv run --frozen python scripts/rfp_requirements_eval.py --docx <RFP.docx> --gold
 uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖 폴더>/rfp-adopt-input.json --adopt requirements-<모델> --decided-by <이름> --rationale <사유.txt> --out <기록.json> --note <메모.md>
 ```
 
+## 평가 CI와 승격 차단 (KAN-147)
+
+| 언제 | 무엇을 | 실제 모델 호출 |
+| --- | --- | --- |
+| PR·dev 반영 | 평가 검사(`scripts/check_backend.py eval`, 가짜 공급자)와 승격 차단 검사(`tests/eval/test_promotion.py`) | 없음 |
+| 설정 변경 | 모델·프롬프트 판본·출력 상한을 바꾸면 승격 차단 검사가 실패한다. 실측(실제 API 평가) 결과로 새 채택 기록을 만들어 ADOPTED로 승인하고 함께 커밋해야 통과한다 | 실측은 사람이 로컬·플랫폼 평가 작업에서 한다 |
+| 정기 회귀 | `.github/workflows/evaluation-schedule.yml`: 매주 월요일 09:00 KST(수동 실행 가능) dev 기준으로 평가 검사와 승격 차단 검사를 돌린다 | 없음 |
+| 보고서 보관 | 정기 실행 결과(`promotion.json`, JUnit, 커밋)를 CI 보관물로 90일 둔다. 실측 보고서는 채택 기록의 결과 파일 sha256으로 가리킨다 | — |
+
+- **승격 차단**(`eval/promotion.py`): 운영 설정을 코드와 배포 스크립트에서 직접 읽어(`deployed_config`) 단계별 ADOPTED 채택 기록과 비교한다. 단계는 분류·초안·임베딩·RFP 요구 추출이다. 문제는 세 종류다: 설정값이 채택값과 다름(`MISMATCH`), 그 단계의 ADOPTED 기록이 없음(`NO_ADOPTION`), 예외 승인 없는 blocker 불합격(`BLOCKER_UNWAIVED`). PROPOSED 기록은 승격 근거가 아니다.
+- **알려진 문제**(`eval/policy/promotion-exceptions.json`): 사유·티켓이 있는 줄만 통과시키고, 결과의 `excepted`에 그대로 보인다. 해소됐는데 남은 줄도 실패라 목록이 낡지 않는다. blocker 불합격은 이 목록에 둘 수 없고 채택 기록의 `waivers`로만 승인한다.
+- 2026-10-30 기준 알려진 문제 3건: 분류 운영 모델(`gemini-3.6-flash`)이 채택 모델(`gemini-3.5-flash-lite`)과 다름, 초안·RFP 요구 추출은 채택 기록 없음.
+- 실제 API 정기 회귀(키·비용)는 GitHub에서 하지 않는다. 플랫폼 평가 작업을 예약 실행하는 방식은 운영 후속이다.
+
 ## 나머지 지표 잠금
 
 OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.

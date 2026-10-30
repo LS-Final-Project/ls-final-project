@@ -1,0 +1,56 @@
+name: Evaluation regression
+# 정기 회귀 평가(KAN-147). 가짜 공급자 평가 검사와 승격 차단 검사를 dev 기준으로 매주 돌리고 보고서를 보관한다.
+# 실제 모델 API는 부르지 않는다(키를 GitHub에 두지 않음). 실측은 채택 기록(eval/policy/adoptions)으로 들어온다.
+on:
+  schedule:
+    # 매주 월요일 09:00 KST
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: dev
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.10.10'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ github.job }}
+      - run: uv sync --frozen --python 3.12
+      - name: Promotion check
+        id: promotion
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          git rev-parse HEAD > reports/commit.txt
+          uv run --frozen python -m eval.promotion > reports/promotion.json
+      - name: Evaluation checks (fake providers)
+        id: checks
+        continue-on-error: true
+        run: uv run --frozen pytest -q tests/eval tests/test_eval_smoke.py --junitxml=reports/evaluation-junit.xml
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evaluation-regression-${{ github.run_number }}
+          path: reports/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Result
+        if: always()
+        env:
+          PROMOTION: ${{ steps.promotion.outcome }}
+          CHECKS: ${{ steps.checks.outcome }}
+        run: |
+          echo "promotion=$PROMOTION checks=$CHECKS"
+          test "$PROMOTION" = success && test "$CHECKS" = success
