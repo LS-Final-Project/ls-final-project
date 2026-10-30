@@ -222,6 +222,55 @@ def test_explicit_different_equipment_ids_are_excluded() -> None:
     )
 
 
+@pytest.mark.parametrize("word", ["units", "tagged", "tags"])
+def test_equipment_keyword_prefixes_are_not_identifiers(word: str) -> None:
+    a, b = "Required: 800 A.", "Required: 1600 A."
+    output = generate_question_drafts(
+        tree(clause("A", a), clause("B", b)),
+        [
+            req("A", a, "800", equipment=f"switchgear {word}"),
+            req("B", b, "1600", equipment="switchgear unit A"),
+        ],
+    )
+    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+
+
+@pytest.mark.parametrize("keyword", ["unit", "tag"])
+def test_explicit_unit_and_tag_identifiers_still_exclude_different_equipment(keyword: str) -> None:
+    a, b = "Required: 800 A.", "Required: 1600 A."
+    assert (
+        generate_question_drafts(
+            tree(clause("A", a), clause("B", b)),
+            [
+                req("A", a, "800", equipment=f"switchgear {keyword} A"),
+                req("B", b, "1600", equipment=f"switchgear {keyword} B"),
+            ],
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("value", ["1e999999999", "1e999999999999999999999999"])
+@pytest.mark.parametrize("equal", [False, True])
+@pytest.mark.parametrize("in_condition", [False, True])
+def test_unrepresentable_decimal_uses_text_comparison(
+    value: str, equal: bool, in_condition: bool
+) -> None:
+    other = value if equal else "2e999999999999999999999999"
+    if in_condition:
+        a, b = "Required: 800 A.", "Required: 1600 A."
+        left = req("A", a, "800", conditions=[Condition(name="limit", value=value, unit="A")])
+        right = req("B", b, "1600", conditions=[Condition(name="limit", value=other, unit="A")])
+        expected = int(equal)
+    else:
+        a, b = f"Required: {value} A.", f"Required: {other} A."
+        left, right = req("A", a, value), req("B", b, other)
+        expected = int(not equal)
+    output = generate_question_drafts(tree(clause("A", a), clause("B", b)), [left, right])
+    assert len(output) == expected
+    assert all(draft.kind == "INCONSISTENCY" for draft in output)
+
+
 def test_equivalent_conditions_allow_comparison_but_different_conditions_do_not() -> None:
     a, b = "Required: 800 A.", "Required: 1600 A."
     c1 = Condition(name="supply voltage", value="400", unit="V")

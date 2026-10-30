@@ -3,7 +3,7 @@
 import re
 import unicodedata
 from collections.abc import Sequence
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from itertools import combinations
 from typing import Literal
 
@@ -36,7 +36,8 @@ UNCONFIRMED = re.compile(
     re.I,
 )
 EQUIPMENT_ID = re.compile(
-    r"\bunit\s*#?\s*([a-z]|\d+[a-z]?|[a-z]+-\d+[a-z0-9-]*)\b|\btag\s*#?\s*([a-z0-9-]+)\b|"
+    r"\bunit\b\s*#?\s*([a-z]|\d+[a-z]?|[a-z]+-\d+[a-z0-9-]*)\b|"
+    r"\btag\b\s*#?\s*([a-z0-9-]+)\b|"
     r"\b(?:equipment|transformer|switchgear)\s*(?:no\.?|id|#)\s*([a-z0-9-]+)\b|"
     r"\b([a-z]+-\d+[a-z0-9-]*)\b",
     re.I,
@@ -101,7 +102,11 @@ def _quantity(value: str, unit: str | None) -> tuple[str, str]:
         if not suffix or not given_unit or suffix == given_unit:
             effective = suffix or given_unit
             dimension, scale = UNITS.get(effective, (effective, "1"))
-            return str(Decimal(match[1]) * Decimal(scale)), dimension
+            try:
+                return str(Decimal(match[1]) * Decimal(scale)), dimension
+            except DecimalException:
+                # 표현/환산할 수 없는 수치는 원래 문자열로 보수적으로 비교한다.
+                return text, given_unit
     return text, given_unit
 
 
@@ -109,7 +114,10 @@ def _same_quantity(left: tuple[str, str], right: tuple[str, str]) -> bool:
     if left[1] != right[1]:
         return False
     if re.fullmatch(NUMBER, left[0]) and re.fullmatch(NUMBER, right[0]):
-        return Decimal(left[0]) == Decimal(right[0])
+        try:
+            return Decimal(left[0]) == Decimal(right[0])
+        except DecimalException:
+            return left[0] == right[0]
     return left[0] == right[0]
 
 
