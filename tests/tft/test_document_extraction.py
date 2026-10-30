@@ -611,12 +611,12 @@ def test_markdown_chunks_follow_headings() -> None:
     chunks = chunk_document(extract_markdown(MARKDOWN.encode())).chunks
     assert [(c.section_path, c.block_ids[0]) for c in chunks] == [
         (["제품 안내"], "p0"),
+        # v2: 제목만 든 "정격표" 청크는 다음 표 청크 앞에 합친다.
         (["제품 안내", "정격표"], "p2"),
-        (["제품 안내", "정격표"], "t0r0c0"),
         (["제품 안내", "정격표"], "p3"),
     ]
     assert "630 A" not in chunks[0].text
-    assert "모델: ACB-16 | 정격 전류 (A): 1600" in chunks[2].text
+    assert "모델: ACB-16 | 정격 전류 (A): 1600" in chunks[1].text
 
 
 def test_router_detects_markdown_and_rejects_unsafe_text(tmp_path: Path) -> None:

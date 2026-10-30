@@ -14,6 +14,7 @@ from backend.agent.ticket_source_registry import (
     policy_documents_from_manifest,
     policy_info_codes,
 )
+from backend.engine.search.chunking import INDEX_VERSION
 from backend.engine.search.model import SearchFilters
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -91,7 +92,7 @@ def manifest(path, documents, **top):
     Returns:
         Path: 경로.
     """
-    body = {"mode": "execute", "index_version": "chunking-v1", "documents": documents, **top}
+    body = {"mode": "execute", "index_version": INDEX_VERSION, "documents": documents, **top}
     path.write_text(json.dumps(body), encoding="utf-8")
     return path
 
@@ -107,16 +108,16 @@ def test_manifest_gives_only_stored_policy_documents(tmp_path):
         {"doc_id": None, "sha256": "e" * 64, "reason": None, "stored": 3},
     ]
     path = manifest(tmp_path / "m.json", rows)
-    assert policy_documents_from_manifest(path, "chunking-v1") == {"POL-RETURN": "a" * 64}
+    assert policy_documents_from_manifest(path, INDEX_VERSION) == {"POL-RETURN": "a" * 64}
     with pytest.raises(ValueError, match="CS_POLICY_MANIFEST_INDEX_MISMATCH"):
-        policy_documents_from_manifest(path, "chunking-v2")
+        policy_documents_from_manifest(path, "chunking-v0")
     with pytest.raises(ValueError, match="CS_POLICY_MANIFEST_INVALID"):
         policy_documents_from_manifest(
-            manifest(tmp_path / "d.json", rows, mode="dry-run"), "chunking-v1"
+            manifest(tmp_path / "d.json", rows, mode="dry-run"), INDEX_VERSION
         )
     bad = [{"doc_id": "POL-RETURN", "sha256": "A" * 64, "reason": None, "stored": 1}]
     with pytest.raises(ValueError, match="CS_POLICY_MANIFEST_INVALID"):
-        policy_documents_from_manifest(manifest(tmp_path / "b.json", bad), "chunking-v1")
+        policy_documents_from_manifest(manifest(tmp_path / "b.json", bad), INDEX_VERSION)
 
 
 def test_parts_get_policy_documents_from_the_configured_manifest(tmp_path):

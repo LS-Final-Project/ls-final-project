@@ -70,15 +70,15 @@ def test_section_path_follows_heading_and_numbering_levels() -> None:
     result = chunk_document(doc(*SPEC))
     paths = [(chunk.section_path, chunk.block_ids) for chunk in result.chunks]
     assert paths == [
-        (["PART 2 PRODUCTS"], ["h1"]),
-        (["PART 2 PRODUCTS", "2.5 Transformer"], ["h2"]),
+        # v2: 제목만 든 PART·2.5 청크는 따로 두지 않고 다음 청크 앞에 합친다.
         # level 3인 "1."은 경계가 아니라 C. 섹션 본문이다. 경계 문장도 첫 청크에 들어간다.
-        (["PART 2 PRODUCTS", "2.5 Transformer", "C. Ratings"], ["h3", "p1"]),
+        (["PART 2 PRODUCTS", "2.5 Transformer", "C. Ratings"], ["h1", "h2", "h3", "p1"]),
         (["PART 2 PRODUCTS", "2.5 Transformer", "D. Accessories"], ["h4", "p2"]),
+        # 문서 끝의 제목만 청크는 합칠 곳이 없어 그대로 둔다.
         (["PART 2 PRODUCTS", "2.6 Switchgear"], ["h5"]),
     ]
-    assert result.chunks[2].text == "Ratings\nCapacity 630 kVA."
-    assert result.chunks[2].source_position == Position(paragraph_index=2)
+    assert result.chunks[0].text == "PART 2 PRODUCTS\nTransformer\nRatings\nCapacity 630 kVA."
+    assert result.chunks[0].source_position == Position(paragraph_index=0)
     assert all(chunk.kind == "TEXT" and chunk.page_start is None for chunk in result.chunks)
 
 
@@ -143,15 +143,15 @@ TABLE = [
 
 def test_table_rows_use_column_headers_and_title_first() -> None:
     result = chunk_document(doc(*TABLE))
-    text_chunk, table_chunk = result.chunks
-    assert text_chunk.block_ids == ["t0"]
+    # v2: 표제와 같은 캡션 문단(t0)은 제목만 청크라 표 청크에 합치고, 같은 글자는 되풀이하지 않는다.
+    [table_chunk] = result.chunks
     assert table_chunk.kind == "TABLE" and table_chunk.table_title == "Table 1 Ratings"
     assert table_chunk.text == (
         "Table 1 Ratings\nItem: BIL | Value (kV): 95\nItem: Max voltage\nValue (kV): 15"
     )
     # 머리 행 셀은 열 머리로 쓰였으므로 첫 줄 블록에 함께 둔다.
-    assert table_chunk.block_ids == ["c00", "c01", "c10", "c11", "c20", "c31"]
-    assert table_chunk.source_position == Position(table_index=0, row=0, col=0)
+    assert table_chunk.block_ids == ["t0", "c00", "c01", "c10", "c11", "c20", "c31"]
+    assert table_chunk.source_position == Position(paragraph_index=0)
     assert result.skipped_block_ids == ["c21", "c30"]
 
 
@@ -243,3 +243,114 @@ def test_same_input_gives_same_chunks_and_metadata_stays_null() -> None:
         == dict.fromkeys(("document_kind", "product_family", "access_scope", "version"))
         for chunk in first.chunks
     )
+
+
+def test_hintless_clause_numbers_become_section_boundaries() -> None:
+    """v2: 제목·번호 힌트가 없는 문단(PDF에서 바꾼 DOCX)은 줄머리 조항 번호로 경계를 찾는다.
+
+    SECTION·PART·조(2.5)까지만 경계이고 A.·1.은 본문이다. '2.5' 머리가 청크 시작이 된다.
+    """
+    long = "x" * 300
+    result = chunk_document(
+        doc(
+            para("s", "SECTION 261116.11 - SWITCHGEAR", 0),
+            para("p2", "PART 2 - PRODUCTS", 1),
+            para("a24", "2.4 TRANSFORMER", 2),
+            para("b24", f"A. Ratings: {long}.", 3),
+            para("a25", "2.5 EPOXY CAST RESIN", 4),
+            para("b25", f"A. Coils shall be cast. {long}.", 5),
+            para("c25", f"1. Vacuum cast. {long}.", 6),
+        )
+    )
+    starts = [(chunk.section_path, chunk.text.splitlines()[0]) for chunk in result.chunks]
+    assert starts == [
+        (
+            [
+                "SECTION 261116.11 - SWITCHGEAR",
+                "PART 2 - PRODUCTS",
+                "2.4 TRANSFORMER",
+            ],
+            "SECTION 261116.11 - SWITCHGEAR",
+        ),
+        (
+            [
+                "SECTION 261116.11 - SWITCHGEAR",
+                "PART 2 - PRODUCTS",
+                "2.5 EPOXY CAST RESIN",
+            ],
+            "2.5 EPOXY CAST RESIN",
+        ),
+    ]
+    assert result.chunks[1].block_ids == ["a25", "b25", "c25"]
+
+
+def test_title_only_chunks_and_numbered_layout_tables_join_the_next_text() -> None:
+    """v2: 제목만 든 짧은 TEXT와 번호 칸 레이아웃 표는 따로 두지 않고 다음 TEXT 청크 앞에 합친다."""
+    layout = [
+        cell("l0", 0, 0, "1."),
+        cell("l1", 0, 1, "ABB."),
+        cell("l2", 1, 0, "2."),
+        cell("l3", 1, 1, "Eaton."),
+    ]
+    result = chunk_document(
+        doc(
+            numbered("h", "Manufacturers", 0, "2.2", 1),
+            *layout,
+            para("p", "Provide equipment from the listed manufacturers.", 1),
+        )
+    )
+    [chunk] = result.chunks
+    assert chunk.kind == "TEXT"
+    assert chunk.block_ids == ["h", "l0", "l1", "l2", "l3", "p"]
+    assert chunk.text.splitlines() == [
+        "Manufacturers",
+        "1. ABB.",
+        "2. Eaton.",
+        "Provide equipment from the listed manufacturers.",
+    ]
+
+
+def test_decimal_sentences_are_not_clause_boundaries() -> None:
+    """힌트 없는 문단은 제목꼴(80자 이하·끝 문장부호 없음)일 때만 번호 경계다. 소수로 시작하는 본문은 아니다."""
+    result = chunk_document(
+        doc(
+            para("a25", "2.5 EPOXY CAST RESIN", 0),
+            para("body", "2.5 mm 이상의 전선은 단말 처리를 한다.", 1),
+            para("long", "3.5 kV " + "x" * 90, 2),
+        )
+    )
+    [chunk] = result.chunks
+    assert chunk.section_path == ["2.5 EPOXY CAST RESIN"]
+    assert chunk.block_ids == ["a25", "body", "long"]
+
+
+def test_short_trailing_line_stays_in_its_own_section() -> None:
+    """섹션 머리가 아닌 짧은 줄은 다음 섹션 청크에 붙지 않고 제 섹션 경로로 남는다(섹션 머리는 합친다)."""
+    result = chunk_document(
+        doc(
+            para("a24", "2.4 TRANSFORMER", 0),
+            para("body", "Provide a cast resin transformer rated 630 kVA.", 1),
+            para("note", "See drawings E-101", 2),
+            para("a25", "2.5 SWITCHGEAR", 3),
+            para("body2", "Provide metal-enclosed switchgear rated 15 kV.", 4),
+        )
+    )
+    assert [(c.section_path, c.block_ids) for c in result.chunks] == [
+        (["2.4 TRANSFORMER"], ["a24", "body", "note"]),
+        (["2.5 SWITCHGEAR"], ["a25", "body2"]),
+    ]
+    split = chunk_document(
+        doc(
+            para("a24", "2.4 TRANSFORMER", 0),
+            para("body", "x" * 1190 + ".", 1),
+            para("note", "See drawings E-101", 2),
+            para("a25", "2.5 SWITCHGEAR", 3),
+            para("body2", "Provide metal-enclosed switchgear rated 15 kV.", 4),
+        )
+    )
+    # 예산으로 갈라진 짧은 꼬리 줄도 2.5 청크에 붙지 않고 2.4 경로로 따로 남는다.
+    assert [(c.section_path, c.block_ids) for c in split.chunks] == [
+        (["2.4 TRANSFORMER"], ["a24", "body"]),
+        (["2.4 TRANSFORMER"], ["note"]),
+        (["2.5 SWITCHGEAR"], ["a25", "body2"]),
+    ]

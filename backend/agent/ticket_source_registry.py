@@ -6,7 +6,7 @@ worker는 작업을 `CS_WORKER_SOURCE_MISSING`으로 실패 처리한다.
 
 허용 정보 코드와 검색 조건은 모듈이 비워 두면 여기서 정책으로 채운다.
 - 허용 정보 코드: `eval/policy/cs_required_info.csv` required_fields의 합집합(백엔드 정책 폴더에 정보 코드북이 없다).
-- 검색 조건: 색인 판본 chunking-v1, 상위 20건. 제품 계열 좁힘은 그래프 retrieve가 한다.
+- 검색 조건: 색인 판본 INDEX_VERSION(backend/engine/search/chunking.py), 상위 20건. 제품 계열 좁힘은 그래프 retrieve가 한다.
 - 정책 문서 매핑(KAN-194 11차): `CS_POLICY_DOCUMENTS_FILE`(색인 manifest, cs_index_docs --manifest-out)이 있으면
   POL-* doc_id → sha256을 읽어 그래프의 정책 문서 1자리 예약에 쓴다. 청크 행에 doc_id가 없어 manifest로만 잇는다.
   없으면 예약하지 않는다.
