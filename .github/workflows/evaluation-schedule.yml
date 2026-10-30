@@ -37,7 +37,9 @@ jobs:
       - name: Evaluation checks (fake providers)
         id: checks
         continue-on-error: true
-        run: uv run --frozen pytest -q tests/eval tests/test_eval_smoke.py --junitxml=reports/evaluation-junit.xml
+        # PR의 평가 검사(check_backend.py eval)와 같은 범위다. shell: bash는 pipefail이라 검사 실패가 tee에 묻히지 않는다.
+        shell: bash
+        run: uv run --frozen python scripts/check_backend.py eval 2>&1 | tee reports/evaluation.log
       - name: Keep the report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

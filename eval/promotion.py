@@ -11,6 +11,8 @@
   더는 생기지 않는 예외(해소됐는데 남은 줄)는 둘 다 실패다. 예외는 숨기지 않고 결과에 그대로 보인다.
 """
 
+import hashlib
+import inspect
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -76,6 +78,18 @@ def deploy_model(script: Path = DEPLOY_SCRIPT) -> str:
     return found[0]
 
 
+def draft_prompt_version() -> str:
+    """C/S 초안 노드가 실제로 쓰는 프롬프트 판본.
+
+    그래프의 초안 노드(backend/engine/cs/graph.py)는 run_draft_attempt에 prompt_version을 넘기지 않으므로 그 함수의
+    기본값이 실행 판본이다. prompt_registry.DEFAULT_VERSIONS["draft"]는 실행 경로에서 쓰이지 않는다(Fable 2차 리뷰).
+    그래프가 판본을 넘기게 바뀌면 tests/eval/test_promotion.py가 실패해 이 함수도 고치게 된다.
+    """
+    from backend.engine.cs.drafting_call import run_draft_attempt
+
+    return str(inspect.signature(run_draft_attempt).parameters["prompt_version"].default)
+
+
 def deployed_config() -> dict[str, dict[str, Any]]:
     """업무 실행 경로가 쓰는 단계별 설정을 코드 기본값에서 읽는다(환경 변수·.env는 보지 않는다).
 
@@ -93,11 +107,15 @@ def deployed_config() -> dict[str, dict[str, Any]]:
     from backend.api.tft.worker_processor import ProcessorSettings
     from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, prompt_fingerprint
     from backend.engine.rfp.requirements import EXTRACTION_VERSION
+    from backend.engine.rfp.requirements import PROMPT as EXTRACTION_PROMPT
     from backend.shared.ai import AISettings
 
     # model_construct는 환경 변수를 읽지 않고 코드 기본값만 채운다(실행한 PC의 설정이 결과를 바꾸지 않게).
-    model = AISettings.model_construct().gemini_model
+    ai = AISettings.model_construct()
+    model = ai.gemini_model
+    draft_version = draft_prompt_version()
     vector = CsVectorSettings.model_construct()
+    extraction = ProcessorSettings.model_construct()
     task_type = vector.embedding_version.rsplit(":", 1)[-1]
     return {
         "classification": {
@@ -106,10 +124,13 @@ def deployed_config() -> dict[str, dict[str, Any]]:
             "prompt_fingerprint": prompt_fingerprint(
                 "classification", DEFAULT_VERSIONS["classification"]
             ),
+            # 분류 호출은 공통 AI 설정의 출력 상한을 그대로 쓴다(cs_runner가 분류에 knobs를 주지 않음).
+            "max_output_tokens": ai.gemini_max_output_tokens,
         },
         "draft": {
             "model": model,
-            "prompt_version": DEFAULT_VERSIONS["draft"],
+            "prompt_version": draft_version,
+            "prompt_fingerprint": prompt_fingerprint("draft", draft_version),
             "max_output_tokens": DRAFT_DEFAULTS["max_output_tokens"],
             "evidence_limit": DRAFT_DEFAULTS["evidence_limit"],
         },
@@ -119,42 +140,74 @@ def deployed_config() -> dict[str, dict[str, Any]]:
             "task_type": task_type,
         },
         "rfp_extraction": {
-            "model": ProcessorSettings.model_construct().extraction_model,
+            "model": extraction.extraction_model,
             "extraction_version": EXTRACTION_VERSION,
+            # 판본 이름을 그대로 두고 지시문 본문만 고쳐도 잡히게 본문 지문을 같이 본다.
+            "prompt_fingerprint": hashlib.sha256(EXTRACTION_PROMPT.encode()).hexdigest()[:16],
+            "max_output_tokens": extraction.extraction_max_output_tokens,
         },
     }
+
+
+def deploy_setting(name: str, script: Path = DEPLOY_SCRIPT) -> str | None:
+    """배포 스크립트가 넣는 환경 변수 값. 없으면 None, 여러 번 나오면 PROMOTION_DEPLOY_SETTING_UNREADABLE."""
+    found = re.findall(rf"\b{name}=([A-Za-z0-9._-]+)", script.read_text(encoding="utf-8"))
+    if len(found) > 1:
+        raise ValueError("PROMOTION_DEPLOY_SETTING_UNREADABLE")
+    return found[0] if found else None
 
 
 def deploy_drift(
     config: Mapping[str, Mapping[str, Any]], script: Path = DEPLOY_SCRIPT
 ) -> list[Issue]:
-    """배포 스크립트의 GEMINI_MODEL이 코드 기본값과 다른지 본다(배포가 검사한 값과 다른 모델로 돌지 않게).
+    """배포 스크립트가 코드 기본값을 다른 값으로 덮어쓰는지 본다(배포가 검사한 값과 다른 설정으로 돌지 않게).
 
-    C/S 분류·초안은 GEMINI_MODEL을 쓴다. RFP 요구 추출은 TFT_EXTRACTION_MODEL을 쓰므로 여기서 보지 않는다.
+    - GEMINI_MODEL(반드시 있어야 함): C/S 분류·초안 모델.
+    - GEMINI_MAX_OUTPUT_TOKENS: C/S 분류 출력 상한(초안은 자기 상한 DRAFT_DEFAULTS를 쓴다).
+    - TFT_EXTRACTION_MODEL·TFT_EXTRACTION_MAX_OUTPUT_TOKENS: RFP 요구 추출. 배포가 넣지 않으면 코드 기본값이다.
 
     Returns:
-        list[Issue]: 다르면 단계마다 DEPLOY_DIFFERS(deployed=배포값, adopted=코드 기본값).
+        list[Issue]: 다른 값마다 DEPLOY_DIFFERS(deployed=배포값, adopted=코드 기본값).
     """
-    value = deploy_model(script)
-    return [
-        Issue(stage, "DEPLOY_DIFFERS", "model", value, config[stage]["model"])
-        for stage in ("classification", "draft")
-        if config[stage]["model"] != value
+    watched = [
+        ("GEMINI_MODEL", ("classification", "draft"), "model"),
+        ("GEMINI_MAX_OUTPUT_TOKENS", ("classification",), "max_output_tokens"),
+        ("TFT_EXTRACTION_MODEL", ("rfp_extraction",), "model"),
+        ("TFT_EXTRACTION_MAX_OUTPUT_TOKENS", ("rfp_extraction",), "max_output_tokens"),
     ]
+    deploy_model(script)  # GEMINI_MODEL은 정확히 한 번 있어야 한다(형식이 바뀌면 여기서 멈춘다).
+    issues: list[Issue] = []
+    for name, stages, field_name in watched:
+        raw = deploy_setting(name, script)
+        if raw is None:
+            continue
+        for stage in stages:
+            code_value = config[stage][field_name]
+            value: Any = int(raw) if isinstance(code_value, int) and raw.isdigit() else raw
+            if value != code_value:
+                issues.append(Issue(stage, "DEPLOY_DIFFERS", field_name, value, code_value))
+    return issues
 
 
 def load_adoptions(directory: Path = ADOPTIONS) -> list[AdoptionRecord]:
-    """채택 기록 전부. AdoptionRecord가 예외 승인 형식과 ADOPTED의 blocker 불합격 승인을 다시 검사한다."""
-    return [
+    """채택 기록 전부. AdoptionRecord가 예외 승인 형식과 ADOPTED의 blocker 불합격 승인을 다시 검사한다.
+
+    decided_on은 YYYY-MM-DD여야 한다. 최신 기록을 문자열 순서로 고르므로 '2026-1-5'처럼 적으면 옛 기록이 최신으로
+    뽑힐 수 있다(PROMOTION_ADOPTION_DATE).
+    """
+    records = [
         AdoptionRecord(**json.loads(path.read_text(encoding="utf-8")))
         for path in sorted(directory.glob("*.json"))
     ]
+    if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.decided_on) for r in records):
+        raise ValueError("PROMOTION_ADOPTION_DATE")
+    return records
 
 
 def find_issues(
     config: Mapping[str, Mapping[str, Any]], records: Sequence[AdoptionRecord]
 ) -> list[Issue]:
-    """단계마다 설정이 가장 최근 ADOPTED 기록(decided_on)과 맞는지 본다.
+    """단계마다 설정이 가장 최근 ADOPTED 기록(decided_on, YYYY-MM-DD)과 맞는지 본다.
 
     새 기록이 옛 기록을 대신하므로, 옛 채택값으로 되돌리면 불일치다(#326 리뷰 P3). 같은 날짜면 파일 이름 순서의
     뒤 기록이다. 채택 기록에 없는 설정 필드는 비교하지 않는다(채택 때 고정한 값만 본다).
@@ -185,11 +238,13 @@ def find_issues(
             # 없이 설정을 또 바꾸면 막힌다.
             issues.append(Issue(stage, "NO_ADOPTION", deployed=dict(config[stage])))
             continue
-        current = config[stage]
+        current, chosen = config[stage], adopted[-1].adopted
+        # 양쪽의 모든 항목을 본다. 채택 기록에 없는 실행 설정(예: 출력 상한)이나 실행 경로에 없는 채택 항목도
+        # 불일치다. 채택 때 고정하지 않은 설정을 바꿔도 통과하던 빈칸을 막는다(Fable 2차 리뷰).
         issues += [
-            Issue(stage, "MISMATCH", name, current.get(name), value)
-            for name, value in adopted[-1].adopted.items()
-            if current.get(name) != value
+            Issue(stage, "MISMATCH", name, current.get(name), chosen.get(name))
+            for name in sorted(set(current) | set(chosen))
+            if current.get(name) != chosen.get(name)
         ]
     return issues
 
