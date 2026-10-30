@@ -403,6 +403,88 @@ def build(ref: Path) -> dict[str, object]:
     }
 
 
+def rederived(fact_row: dict, rows: dict[str, str]) -> list[list[Fact]]:
+    """사양 행의 원문(source_value)을 모든 규칙에 넣어 그 사실을 만드는 규칙의 출력을 모은다.
+
+    Args:
+        fact_row: 커밋된 사양 행.
+        rows: 같은 제품의 원천 행(강제 공랭의 온도 상승을 읽는다).
+
+    Returns:
+        list[list[Fact]]: 그 행을 그대로 만든 규칙별 출력. 없으면 빈 목록이다.
+    """
+    keys = ("attribute", "value", "unit", "conditions", "note")
+    wanted = {k: fact_row.get(k) for k in keys}
+    outputs = []
+    for name, rule in RULES.items():
+        source = str(fact_row["source_value"])
+        try:
+            made = rated_power(source, rows) if name == "Rated power" else rule(source)
+        except (ValueError, IndexError, AttributeError):
+            continue  # 이 원문을 읽는 규칙이 아니다.
+        if any({k: one.get(k) for k in keys} == wanted for one in made):
+            outputs.append(made)
+    return outputs
+
+
+def stale_facts(data: dict) -> list[str]:
+    """커밋된 JSON이 지금 RULES의 결과와 다른 곳을 찾는다. 제공 데이터 없이 CI에서 돈다.
+
+    원천 속성 이름은 JSON에 없어 모든 규칙을 넣어 본다. 규칙이 행을 만들고, 그 규칙의 출력 전부가 같은 원문의 행에
+    있어야 한다. 인증은 원문이 없어 여기서 보지 않는다(제공 데이터가 있는 --check가 본다).
+
+    Args:
+        data: own_spec_facts.json 내용.
+
+    Returns:
+        list[str]: 다른 곳 설명. 같으면 빈 목록이다.
+    """
+    problems: list[str] = []
+    mapped = unmapped = 0
+    for product in data["products"]:
+        code = product["product_code"]
+        facts = product["spec_facts"]
+        rows = {
+            "Insulation class / temperature rise": str(f["source_value"])
+            for f in facts
+            if f["attribute"] == "insulation_class"
+        }
+        for row in product["unmapped_facts"]:
+            unmapped += 1
+            if row["source_attribute"] in RULES:
+                problems.append(f"{code}: 규칙이 생긴 미변환 행 {row['source_attribute']}")
+        sources = set()
+        for row in facts:
+            if row["attribute"] == "warranty_months":
+                if row["source_value"] != f"warranty_months={row['value']}":
+                    problems.append(f"{code}: 보증 원문과 값이 다름")
+                continue
+            place = (row["evidence_id"], row["section"], row["source_value"])
+            sources.add(place)
+            same_source = [
+                f for f in facts if (f["evidence_id"], f["section"], f["source_value"]) == place
+            ]
+            made = rederived(row, rows)
+            if not any(
+                all(
+                    any(all(one.get(k) == f.get(k) for k in one) for f in same_source)
+                    for one in output
+                )
+                for output in made
+            ):
+                problems.append(f"{code}: {row['attribute']} '{row['source_value']}'")
+        mapped += len(sources)
+    coverage = data["coverage"]
+    if (
+        coverage["products"] != len(data["products"])
+        or coverage["unmapped_rows"] != unmapped
+        or coverage["source_rows"] != coverage["mapped_rows"] + unmapped
+        or coverage["mapped_rows"] != mapped
+    ):
+        problems.append("coverage 수가 행과 다름")
+    return problems
+
+
 def render(data: dict[str, object]) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
