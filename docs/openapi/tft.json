@@ -2914,6 +2914,7 @@
           },
           "status": {
             "enum": [
+              "DRAFT",
               "OPEN",
               "REPLIED"
             ],
@@ -3267,6 +3268,7 @@
           },
           "status": {
             "enum": [
+              "DRAFT",
               "OPEN",
               "REPLIED"
             ],
@@ -7716,6 +7718,7 @@
               "anyOf": [
                 {
                   "enum": [
+                    "DRAFT",
                     "OPEN",
                     "REPLIED"
                   ],
@@ -7970,6 +7973,121 @@
           }
         },
         "summary": "Create Question",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/questions/{question_id}/confirm": {
+      "post": {
+        "description": "31. \uc9c8\ubb38 \ucd08\uc548 \ud655\uc778. DRAFT\ub9cc OPEN\uc73c\ub85c \ubc14\uafbc\ub2e4(\uadf8 \uc804\uc5d0\ub294 \ubcf4\ub0b8 \uc9c8\ubb38\uc774 \uc544\ub2c8\ub2e4).",
+        "operationId": "tft_confirm_rfp_question",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Question_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Confirm Question",
         "tags": [
           "rfp"
         ]

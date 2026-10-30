@@ -154,6 +154,81 @@ async def insert_question(
     return question
 
 
+async def insert_question_draft(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    requirement_id: UUID | None,
+    clause: Mapping[str, Any] | None,
+    issue_type: str,
+    question_text: str,
+    internal_assumption: Mapping[str, Any],
+    draft_key: str,
+    data_origin: str,
+    actor: UUID,
+) -> bool:
+    """처리 함수가 만든 고객 질문 초안을 DRAFT로 넣는다. 같은 draft_key가 있으면 건너뛴다(새 판본 재생성 방지).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        project_id: 프로젝트 ID.
+        requirement_id: 대상 요구(원문으로 하나로 정해질 때만).
+        clause: 원문 조항 행(없으면 None).
+        issue_type: 질문 유형.
+        question_text: 질문 초안 문장.
+        internal_assumption: 회신 전 내부 메모.
+        draft_key: 같은 질문을 가리키는 키(판본과 무관).
+        data_origin: 문서의 data_origin.
+        actor: 작업을 요청한 사용자.
+
+    Returns:
+        bool: 새로 넣었으면 True.
+    """
+    cursor = await conn.execute(
+        "INSERT INTO tft.customer_questions (id, project_id, requirement_id, clause_id, page, "
+        "issue_type, question_text, internal_assumption, status, target, draft_key, data_origin, "
+        "derivation_kind, known_at, created_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'DRAFT','CUSTOMER',%s,%s,'DERIVED',now(),%s) "
+        "ON CONFLICT DO NOTHING",
+        (
+            uuid4(),
+            project_id,
+            requirement_id,
+            clause["id"] if clause else None,
+            clause["page"] if clause else None,
+            issue_type,
+            question_text,
+            Jsonb(dict(internal_assumption)),
+            draft_key,
+            data_origin,
+            actor,
+        ),
+    )
+    return cursor.rowcount == 1
+
+
+async def confirm_question(conn: AsyncConnection[Row], question: Mapping[str, Any]) -> Row:
+    """초안을 사람이 확인해 OPEN으로 바꾼다(경로 31).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        question: 잠근 질문 행.
+
+    Returns:
+        Row: 바뀐 질문(get_question 형식). DRAFT가 아니면 409 TFT_VERSION_CONFLICT다(회신 기록과 같은 규칙).
+    """
+    if question["status"] != "DRAFT":
+        raise version_conflict()
+    await conn.execute(
+        "UPDATE tft.customer_questions SET status = 'OPEN', version = version + 1, "
+        "updated_at = now() WHERE id = %s",
+        (question["id"],),
+    )
+    confirmed = await get_question(conn, question["id"])
+    assert confirmed is not None
+    return confirmed
+
+
 async def get_question(
     conn: AsyncConnection[Row], question_id: UUID, *, lock: bool = False
 ) -> Row | None:
@@ -496,19 +571,19 @@ async def stored_options(
 
 
 async def has_customer_question(conn: AsyncConnection[Row], requirement_id: UUID) -> bool:
-    """요구에 고객 질문이 있는지(지정품 대체 제안의 고객 승인 질문으로 본다).
+    """요구에 고객 질문이 있는지(지정품 대체 제안의 고객 승인 질문으로 본다). 초안(DRAFT)은 보낸 질문이 아니다.
 
     Args:
         conn: dict_row 연결.
         requirement_id: 요구 ID.
 
     Returns:
-        bool: CUSTOMER 질문이 하나라도 있으면 True.
+        bool: 확인된 CUSTOMER 질문이 하나라도 있으면 True.
     """
     # ponytail: 승인 질문 ID 열이 없어 고객 질문 유무로 본다. designated_item.approval_question_id가 저장되면 그 값으로.
     cursor = await conn.execute(
         "SELECT EXISTS (SELECT 1 FROM tft.customer_questions WHERE requirement_id = %s "
-        "AND target = 'CUSTOMER') AS found",
+        "AND target = 'CUSTOMER' AND status <> 'DRAFT') AS found",
         (requirement_id,),
     )
     row = await cursor.fetchone()

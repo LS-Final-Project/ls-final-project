@@ -366,6 +366,25 @@ async def create_question(
 
 
 @router.post(
+    P + "/questions/{question_id}/confirm",
+    response_model=SuccessResponse[s.Question],
+    operation_id="tft_confirm_rfp_question",
+)
+async def confirm_question(
+    project_id: UUID,
+    question_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.Question]:
+    """31. 질문 초안 확인. DRAFT만 OPEN으로 바꾼다(그 전에는 보낸 질문이 아니다)."""
+    data = await routes_questions.confirm_question(
+        request, principal, project_id, question_id, idempotency_key
+    )
+    return respond(request, data)
+
+
+@router.post(
     "/questions/{question_id}/reply",
     response_model=SuccessResponse[s.QuestionReplyResult],
     operation_id="tft_reply_rfp_question",

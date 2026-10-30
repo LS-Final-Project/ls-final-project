@@ -11,7 +11,9 @@
 """
 
 import asyncio
+import hashlib
 import itertools
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
@@ -34,6 +36,7 @@ from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.rfp.storage import read_document
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
+from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
     Operator,
@@ -210,6 +213,12 @@ def sections_of(tree: ClauseTree) -> list[str]:
     return out
 
 
+# 질문 초안 종류 → 질문 유형. 승인 절차는 demo_cases(2.1 제조사 목록)와 같이 조건 누락으로 본다.
+QUESTION_ISSUES = {
+    "PLACEHOLDER": "EMPTY_VALUE",
+    "INCONSISTENCY": "CONFLICT",
+    "APPROVAL_PROCESS": "CONDITION_MISSING",
+}
 # 허용 오차 표기: 대칭(±10%, +/-0.5)과 비대칭(+0/-5%, +10%/-5%). 숫자 부분만 읽는다.
 SYMMETRIC = re.compile(r"^\s*(?:±|\+\s*/\s*-|\+-)\s*(\d+(?:\.\d+)?)\s*%?\s*$")
 ASYMMETRIC = re.compile(r"^\s*\+\s*(\d+(?:\.\d+)?)\s*%?\s*/\s*-\s*(\d+(?:\.\d+)?)\s*%?\s*$")
@@ -474,6 +483,7 @@ async def process(
             for document, tree, clauses in parsed:
                 clauses.update(await repository.store_clauses(conn, document, tree.clauses))
             ids = await store_requirements(conn, job.project_id, extracted, outcomes)
+            await store_question_drafts(conn, job, parsed, extracted, ids)
             emit({"step": "compare", "counts": counts(total)})
             for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes):
                 options = supplement.options_for(
@@ -523,6 +533,88 @@ async def process(
         # 초안 생성(A07)이 오기 전에는 건너뛴다(실패 아님).
         emit({"step": "draft", "counts": counts(total)})
     return {"counts": counts(total), "needs_review": needs_review}
+
+
+def draft_key(draft: QuestionDraft) -> str:
+    """판본과 무관하게 같은 질문을 가리키는 키. 조항 ID는 판본마다 달라 쓰지 않는다.
+
+    Args:
+        draft: 질문 초안.
+
+    Returns:
+        str: 종류와 정렬한 (조항 번호, 원문) 목록의 sha256.
+    """
+    sources = sorted((s.clause_no, s.quote) for s in draft.sources)
+    return hashlib.sha256(json.dumps([draft.kind, sources]).encode()).hexdigest()
+
+
+def draft_requirement(
+    draft: QuestionDraft, stored: Sequence[tuple[UUID, ExtractedRequirement]]
+) -> UUID | None:
+    """초안이 가리키는 요구. 원문으로 하나로 정해질 때만 연결한다.
+
+    같은 조항 번호에서 요구 인용과 출처 원문이 같거나 서로 포함되는 요구만 본다. 조항의 첫 요구로 넘겨짚으면 다른
+    요구의 고객 질문 여부(has_customer_question)가 참이 되어 승인 질문 게이트가 잘못 풀린다.
+
+    Args:
+        draft: 질문 초안.
+        stored: 같은 문서의 (요구 ID, 추출 요구).
+
+    Returns:
+        UUID | None: 하나로 정해진 요구. 없거나 둘 이상으로 갈리면 None(조항만 있는 질문)이다.
+    """
+    matched = {
+        requirement_id
+        for source in draft.sources
+        for requirement_id, item in stored
+        if item.clause_no == source.clause_no
+        and (item.quote in source.quote or source.quote in item.quote)
+    }
+    return matched.pop() if len(matched) == 1 else None
+
+
+async def store_question_drafts(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    job: TftJob,
+    parsed: Sequence[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]],
+    extracted: Sequence[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]],
+    ids: Sequence[UUID],
+) -> None:
+    """문서마다 고객 질문 초안을 DRAFT로 저장한다. 처리된 판본은 parsed에 없어 다시 만들지 않는다.
+
+    Args:
+        conn: 진행 중 트랜잭션(조항·요구와 함께 커밋한다).
+        job: 작업(요청자).
+        parsed: 이번에 처리한 문서.
+        extracted: 추출 요구.
+        ids: extracted와 같은 순서의 요구 ID.
+    """
+    for document, tree, clauses in parsed:
+        stored = [
+            (requirement_id, item)
+            for requirement_id, (origin, _, item) in zip(ids, extracted, strict=True)
+            if origin is document
+        ]
+        for draft in generate_question_drafts(tree, [item for _, item in stored]):
+            numbers = [s.clause_no for s in draft.sources]
+            await repository.insert_question_draft(
+                conn,
+                project_id=job.project_id,
+                requirement_id=draft_requirement(draft, stored),
+                clause=clauses.get(numbers[0]),
+                issue_type=QUESTION_ISSUES[draft.kind],
+                question_text=draft.question,
+                internal_assumption={
+                    "value": draft.pre_reply_note,
+                    "basis_standard": None,
+                    "basis_clause": ", ".join(dict.fromkeys(numbers)),
+                    "approver_user_id": None,
+                    "shown_in_draft": False,
+                },
+                draft_key=draft_key(draft),
+                data_origin=document["data_origin"],
+                actor=job.actor_id,
+            )
 
 
 async def store_requirements(

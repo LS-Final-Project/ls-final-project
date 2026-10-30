@@ -49,7 +49,7 @@ SPEC = {
         "WAIVED",
     ],
     "Grade": ["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"],
-    "QuestionStatus": ["OPEN", "REPLIED"],
+    "QuestionStatus": ["DRAFT", "OPEN", "REPLIED"],
     "ProposalOrigin": ["web", "customer_reply", "pdf_annot"],
     "ProposalStatus": ["PENDING", "APPROVED", "REJECTED"],
     "JobKind": ["rfp.process", "rfp.export", "rfp.annotate"],

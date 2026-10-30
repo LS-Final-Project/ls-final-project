@@ -21,6 +21,7 @@ Operation = Literal[
     "supplement.select",
     "question.create",
     "question.reply",
+    "question.confirm",
     "project.process",
     "annotation.process",
 ]
@@ -29,6 +30,7 @@ OPERATIONS: frozenset[str] = frozenset(
         "supplement.select",
         "question.create",
         "question.reply",
+        "question.confirm",
         "project.process",
         "annotation.process",
     )
