@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
+from backend.api.tft.rfp.integration import FallbackPath
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -205,6 +206,10 @@ class IntegrationResponsibility(IntegrationSummary):
     required: bool = False
     holder_candidate_codes: list[str] = Field(default_factory=list)
     basis_clause_ids: list[UUID] = Field(default_factory=list)
+    # 사람이 근거 조항을 볼 수 있게 ID와 같은 조항의 번호를 함께 낸다(서버 계산).
+    basis_clause_nos: list[str] = Field(default_factory=list)
+    fallback_paths: list[FallbackPath] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
     note: str | None = None
     set_by: UUID | None = None
     set_at: datetime | None = None

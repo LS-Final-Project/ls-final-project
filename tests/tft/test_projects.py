@@ -35,6 +35,11 @@ def project_row(index: int) -> dict:
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
         "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
+        "integration_holder": "UNRESOLVED",
+        "integration_holder_candidates": [],
+        "integration_note": None,
+        "integration_set_by": None,
+        "integration_set_at": None,
     }
 
 
@@ -64,6 +69,13 @@ REQUIREMENTS = [
 ]
 
 
+CLAUSE_ID = UUID(int=200)
+INTEGRATION_ROWS = [
+    {"clause_id": CLAUSE_ID, "clause_no": "2.3.A", "task": None, "assembly_clause": True},
+    {"clause_id": UUID(int=201), "clause_no": "2.5.K", "task": None, "assembly_clause": False},
+]
+
+
 def only_for(project_id: UUID, rows: list) -> list:
     return rows if project_id == PROJECT["id"] else []
 
@@ -90,6 +102,9 @@ def fakes(monkeypatch):
     async def get_project(conn, project_id):
         return next((dict(r) for r in ROWS if r["id"] == project_id), None)
 
+    async def integration_rows(conn, project_id):
+        return only_for(project_id, INTEGRATION_ROWS)
+
     async def list_rfp_requirements(conn, project_id):
         return only_for(project_id, REQUIREMENTS)
 
@@ -97,6 +112,7 @@ def fakes(monkeypatch):
     monkeypatch.setattr(repository, "list_projects", list_projects)
     monkeypatch.setattr(repository, "get_project", get_project)
     monkeypatch.setattr(repository, "list_rfp_requirements", list_rfp_requirements)
+    monkeypatch.setattr(repository, "integration_rows", integration_rows)
 
 
 @pytest.fixture
@@ -184,6 +200,24 @@ def test_detail_of_project_without_requirements_has_an_empty_list(client):
     body = client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}").json()["data"]
     assert body["rfp_requirements"] == []
     assert body["responsible_user_id"] is None
+    assert body["integration_responsibility"]["required"] is False
+    assert body["integration_responsibility"]["basis_clause_ids"] == []
+
+
+def test_detail_shows_the_integration_responsibility_with_its_basis_clause(client):
+    """명세 v1.3 §7(KAN-199): required·근거 조항은 읽을 때 계산하고, 사람이 볼 수 있게 조항 ID와 번호를 함께 낸다."""
+    body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
+    integration = body["integration_responsibility"]
+    assert (integration["required"], integration["holder"]) == (True, "UNRESOLVED")
+    assert integration["basis_clause_ids"] == [str(CLAUSE_ID)]
+    assert integration["basis_clause_nos"] == ["2.3.A"]
+    assert [p["holder"] for p in integration["fallback_paths"]] == [
+        "OWN",
+        "SINGLE_PARTNER",
+        "JOINT",
+        "HOLD",
+    ]
+    assert integration["unresolved"]
 
 
 def test_unknown_project_returns_feature_error(client):

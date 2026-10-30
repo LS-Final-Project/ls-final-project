@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.api.tft.rfp.schemas import IntegrationResponsibility
+
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 FieldTag = Literal[
@@ -72,3 +74,7 @@ class ProjectDetail(BaseModel):
         default=None, description="Responsible sales user (login user ID) who issues requests."
     )
     rfp_requirements: list[RfpRequirement]
+    integration_responsibility: IntegrationResponsibility = Field(
+        default_factory=IntegrationResponsibility,
+        description="Assembly integration responsibility (RFP API spec v1.3 §7), computed on read.",
+    )

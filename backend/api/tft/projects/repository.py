@@ -14,7 +14,9 @@ SUMMARY_COLUMNS = (
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
-    "company_code, name, client_name, status, responsible_user_id, sales_user_id"
+    "company_code, name, client_name, status, responsible_user_id, sales_user_id, "
+    "integration_holder, integration_holder_candidates, integration_note, integration_set_by, "
+    "integration_set_at"
 )
 REQUIREMENT_COLUMNS = (
     "id, requirement_code, field_tag, title, description, document_name, document_id, "
@@ -55,6 +57,25 @@ async def get_project(conn: AsyncConnection[Row], project_id: UUID) -> Row | Non
         f"SELECT {DETAIL_COLUMNS} FROM tft.projects WHERE id = %s", (project_id,)
     )
     return await cursor.fetchone()
+
+
+async def integration_rows(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """최신 요구 판본에서 통합 책임 계산에 쓰는 칸을 읽는다. 조항에 묶인 판본만 근거가 될 수 있다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: clause_id·clause_no·task·assembly_clause.
+    """
+    cursor = await conn.execute(
+        "SELECT v.clause_id, c.clause_no, v.task, v.assembly_clause FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id = r.id AND v.version = r.latest_version "
+        "JOIN tft.clauses c ON c.id = v.clause_id WHERE r.project_id = %s",
+        (project_id,),
+    )
+    return await cursor.fetchall()
 
 
 async def list_rfp_requirements(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:

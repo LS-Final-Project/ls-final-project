@@ -15,6 +15,7 @@ from backend.api.tft.projects.schemas import (
     ProjectSummary,
     RfpRequirement,
 )
+from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -124,8 +125,23 @@ async def get_project(
         ):
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         requirements = await repository.list_rfp_requirements(conn, project_id)
+        integration = await repository.integration_rows(conn, project_id)
     detail = ProjectDetail.model_validate(
-        {**row, "rfp_requirements": [RfpRequirement.model_validate(r) for r in requirements]}
+        {
+            **row,
+            "rfp_requirements": [RfpRequirement.model_validate(r) for r in requirements],
+            "integration_responsibility": {
+                "holder": row["integration_holder"],
+                "holder_candidate_codes": row["integration_holder_candidates"],
+                "note": row["integration_note"],
+                "set_by": row["integration_set_by"],
+                "set_at": row["integration_set_at"],
+                **project_integration(
+                    [StoredRequirement.model_validate(r) for r in integration],
+                    row["integration_holder"],
+                ),
+            },
+        }
     )
     return respond(request, detail)
 
