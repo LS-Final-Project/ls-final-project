@@ -38,7 +38,7 @@ SentenceKind = Literal["EVIDENCE", "CONDITION", "UNCONFIRMED"]
 
 # 승인·확정 약속의 확정형만 잡는다. 조건부 표현(검토 후, 여부, may be eligible)은 통과한다.
 # 패턴과 허용 경계는 tests/cs/test_drafting.py의 예문 표로 고정한다.
-FORBIDDEN_COMMITMENTS = tuple(
+PROMISE_COMMITMENTS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
         r"\bRMA\s+(?:(?:request|claim)\s+)?(?:is\s+|has\s+been\s+)?(?:approved|authori[sz]ed|issued)\b",
@@ -61,31 +61,46 @@ FORBIDDEN_COMMITMENTS = tuple(
         r"\bwe(?:\s+have|[’']ve)\s+approved\s+(?:your|the)\s+(?:RMA|return|warranty\s+claim)\b",
         r"(?:RMA|반품|보증)\s*(?:승인|처리)\s*(?:이|가)?\s*완료\s*(?:되었|됐|했|하였|합니다|입니다)",
         r"(?:기술자|엔지니어|기사)\s*(?:를|을)?\s*파견\s*(?:하겠습니다|해\s*드리)",
-        # KAN-193: 반품 사유·제조 책임 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
-        # 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
-        # 부정한 'that' 인용(We cannot say that it is …)만 허용한다(#354 리뷰 P3). 'We have confirmed that it is …'처럼
-        # 부정 없는 'that' 절은 확정형이라 거부한다(#354 리뷰 P2).
-        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )"
-        r"(?<!not say that )(?<!n't say that )(?<!not confirm that )(?<!n't confirm that )"
-        r"(?<!not sure that )(?<!not determine that )(?<!n't determine that )"
-        r"\b(?:it|this|that|(?:the|your)\s+"
-        r"(?:defect|failure|fault|issue|problem|unit|product))\s+(?:is|was|has\s+been)\s+"
-        r"(?:confirmed\s+(?:as|to\s+be)\s+)?(?:a\s+)?manufacturing\s+(?:defect|fault)\b",
-        r"\breturn\s+reason\s+(?:is|was|has\s+been)\s+(?:confirmed|determined)\b",
-        r"\bwe\s+(?:accept|take)\s+(?:full\s+)?(?:responsibility|liability)\b",
-        # 부정·미확정(not yet been determined …)은 허용한다(#354 리뷰 P3).
-        r"(?<!not )(?<!not yet )(?<!not been )(?<!not yet been )(?<!never been )(?<!n't been )"
-        r"\b(?:confirmed|determined)\s+(?:as|to\s+be)\s+(?:customer\s+(?:misuse|error|damage)|misuse|"
-        r"improper\s+(?:use|installation))\b",
-        r"(?:(?:제조|제품|생산)\s*)?(?:불량|결함|하자)\s*(?:으로|로)\s*(?:확인|확정|판정)\s*"
-        r"(?:되었|됐|했|하였|합니다|됩니다)",
-        r"(?:당사|제조사|저희)\s*(?:의\s*)?책임\s*(?:으로|이)\s*(?:확인|확정|판정|인정)\s*"
-        r"(?:되었|됐|했|하였|합니다|됩니다)",
-        r"반품\s*사유\s*(?:가|는|를)?\s*[^.!?\n]{0,20}?확정\s*(?:되었|됐|했|하였)",
-        r"(?:고객|사용자|설치)\s*(?:측\s*)?(?:과실|부주의|오사용|오설치)\s*(?:으로|로)\s*"
-        r"(?:확인|확정|판정)\s*(?:되었|됐|했|하였|합니다|됩니다)",
     )
 )
+
+# KAN-193: 반품 사유·제조 책임·고객 과실 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
+# 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
+# 조건·부정 문장은 같은 문장 앞부분의 표지(CONDITION_MARKERS)나 한국어 조건 어미(_NOT_CONDITIONAL)로 허용한다.
+_NOT_CONDITIONAL = r"(?!\s*(?:다면|는지|을\s*경우|을지|더라도))"
+_KO_DONE = r"(?:되었|됐|했|하였|합니다|됩니다)" + _NOT_CONDITIONAL
+CONFIRMATION_COMMITMENTS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(?:it|this|that|(?:the|your)\s+(?:defect|failure|fault|issue|problem|unit|product))"
+        r"(?:\s+(?:is|was|has\s+been)|[’']s)\s+"
+        r"(?:(?!(?:not|never|no|possibly|probably|likely|unlikely|potentially)\b)[\w-]+\s+){0,4}?"
+        r"manufacturing\s+(?:defect|fault)\b",
+        r"\breturn\s+reason\s+(?:is|was|has\s+been)\s+(?:confirmed|determined)\b",
+        # 대상(고장·손상) 없는 응대 문구(We take responsibility for following up)는 허용한다(#354 리뷰 P3).
+        r"\bwe\s+(?:accept|take)\s+(?:full\s+)?(?:responsibility|liability)"
+        r"(?:\s+for\s+(?:the|this|your|any)\s+(?:[\w-]+\s+)?(?:defect|failure|fault|damage|malfunction)\b|\s*[.!]|\s*$)",
+        r"\b(?:confirmed|determined)\s+(?:as|to\s+be)\s+(?:customer\s+(?:misuse|error|damage)|misuse|"
+        r"improper\s+(?:use|installation))\b",
+        r"(?:(?:제조|제품|생산)\s*)?(?:불량|결함|하자)\s*(?:이|가|으로|로)\s*(?:확인|확정|판정)\s*"
+        + _KO_DONE,
+        r"(?:당사|제조사|저희)\s*(?:의\s*)?책임\s*(?:으로|이)\s*(?:확인|확정|판정|인정)\s*"
+        + _KO_DONE,
+        r"반품\s*사유\s*(?:가|는|를)?\s*[^.!?\n]{0,20}?확정\s*(?:되었|됐|했|하였)"
+        + _NOT_CONDITIONAL,
+        r"(?:고객|사용자|설치)\s*(?:측\s*)?(?:과실|부주의|오사용|오설치)\s*(?:으로|로)\s*"
+        r"(?:확인|확정|판정)\s*" + _KO_DONE,
+        r"(?:제조|제품|생산)\s*(?:불량|결함|하자)\s*(?:입니다|이었습니다|였습니다|이\s*맞습니다)",
+        r"(?:책임\s*(?:은|이)\s*(?:당사|저희|제조사)\s*(?:에|에게)\s*있습니다|(?:당사|저희|제조사)\s*(?:의\s*)?책임입니다)",
+    )
+)
+# 확정 패턴은 같은 문장에서 앞에 이 표지가 있으면 조건·부정·예정 문장으로 보고 허용한다.
+CONDITION_MARKERS = re.compile(
+    r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never|may|might|could|would|should|"
+    r"will\s+(?:confirm|determine|check|verify|inspect))\b|n[’']t\b|만약|만일|혹시",
+    re.IGNORECASE,
+)
+FORBIDDEN_COMMITMENTS = PROMISE_COMMITMENTS + CONFIRMATION_COMMITMENTS
 
 
 class _Strict(BaseModel):
@@ -325,9 +340,16 @@ def find_forbidden_commitment(text: str) -> bool:
         text: 초안 문장이나 질문.
 
     Returns:
-        bool: FORBIDDEN_COMMITMENTS 중 하나라도 맞으면 True.
+        bool: 약속 패턴이 맞거나, 확정 패턴이 같은 문장의 조건·부정 표지 없이 맞으면 True.
     """
-    return any(pattern.search(text) for pattern in FORBIDDEN_COMMITMENTS)
+    if any(pattern.search(text) for pattern in PROMISE_COMMITMENTS):
+        return True
+    for pattern in CONFIRMATION_COMMITMENTS:
+        for match in pattern.finditer(text):
+            sentence_start = max(text.rfind(mark, 0, match.start()) for mark in ".!?\n") + 1
+            if not CONDITION_MARKERS.search(text, sentence_start, match.start()):
+                return True
+    return False
 
 
 def _validation_code(error: ValidationError) -> str:

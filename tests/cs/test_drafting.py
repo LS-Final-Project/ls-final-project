@@ -367,6 +367,9 @@ FORBIDDEN_EXAMPLES = {
         "We have confirmed that it is a manufacturing defect.",
         "We have determined that your unit is a manufacturing defect.",
         "Our team confirms that this is a manufacturing defect.",
+        "This is a confirmed manufacturing defect.",
+        "It is clearly a manufacturing defect.",
+        "We confirm that it's a manufacturing defect.",
     ],
     FORBIDDEN_COMMITMENTS[18].pattern: [
         "The return reason has been confirmed.",
@@ -375,6 +378,7 @@ FORBIDDEN_EXAMPLES = {
     FORBIDDEN_COMMITMENTS[19].pattern: [
         "We accept full responsibility for the failure.",
         "We take liability for the damage.",
+        "We accept responsibility.",
     ],
     FORBIDDEN_COMMITMENTS[20].pattern: [
         "The damage was determined to be customer misuse.",
@@ -384,6 +388,7 @@ FORBIDDEN_EXAMPLES = {
         "제조 불량으로 확인되었습니다.",
         "제품 결함으로 판정되었습니다.",
         "검사 결과 불량으로 확정됐습니다.",
+        "불량이 확인되었습니다.",
     ],
     FORBIDDEN_COMMITMENTS[22].pattern: [
         "당사 책임으로 확인되었습니다.",
@@ -397,6 +402,8 @@ FORBIDDEN_EXAMPLES = {
         "고객 과실로 판정되었습니다.",
         "설치 부주의로 확인되었습니다.",
     ],
+    FORBIDDEN_COMMITMENTS[25].pattern: ["제조 불량입니다.", "제품 결함이 맞습니다."],
+    FORBIDDEN_COMMITMENTS[26].pattern: ["책임은 당사에 있습니다.", "저희 책임입니다."],
 }
 # 조건부·부정 표현은 허용한다(경계 고정).
 ALLOWED_EXAMPLES = [
@@ -437,6 +444,14 @@ ALLOWED_EXAMPLES = [
     "The return reason is not confirmed yet.",
     "제조 불량으로 확인되지 않았습니다.",
     "아직 고객 과실로 판정되지 않았습니다.",
+    # 같은 문장 앞부분의 조건·예정 표지와 한국어 조건 어미(#354 리뷰 P2).
+    "If inspection shows the failure is a manufacturing defect, it may be covered.",
+    "We will confirm after inspection that it is a manufacturing defect or not.",
+    "It is possibly a manufacturing defect, which inspection will show.",
+    "제조 불량으로 확인되었다면 보증이 적용될 수 있습니다.",
+    "고객 과실로 판정되었는지는 검사 후 안내드립니다.",
+    "당사 책임으로 확인될 경우 별도로 안내드립니다.",
+    "We take responsibility for following up quickly.",
 ]
 
 
@@ -454,6 +469,21 @@ def test_forbidden_pattern_table_is_fixed():
     for pattern in FORBIDDEN_COMMITMENTS:
         for example in FORBIDDEN_EXAMPLES[pattern.pattern]:
             assert pattern.search(example), (pattern.pattern, example)
+
+
+@pytest.mark.parametrize(
+    "text", [example for examples in FORBIDDEN_EXAMPLES.values() for example in examples]
+)
+def test_forbidden_examples_are_rejected(text):
+    """예문 표의 확정형은 문장 단위 예외를 거친 뒤에도 거부된다.
+
+    Args:
+        text: 금지 예문.
+
+    Returns:
+        None: find_forbidden_commitment가 True인지 확인한다.
+    """
+    assert find_forbidden_commitment(text)
 
 
 @pytest.mark.parametrize("text", ALLOWED_EXAMPLES)
