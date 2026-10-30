@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.parse import parse_qsl, unquote, urlsplit
@@ -578,6 +579,23 @@ def test_platform_business_relay_table_matches_shared_fixture():
     assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
     assert EVIDENCE_ID == relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
     assert relay.DEPT_PATH == RELAY_ROUTES["dept_pattern"]
+
+
+def test_every_route_placeholder_is_compiled_not_matched_literally():
+    """허용표의 모든 {...} 자리표시자가 _PLACEHOLDERS와 분리 정규식에 있다(KAN-116 {dept} 누락 재발 방지).
+
+    Returns:
+        None: 자리표시자 집합이 같고, 컴파일한 정규식에 글자 그대로의 중괄호가 남지 않는지 확인한다.
+    """
+    used = {
+        name
+        for template, _methods, _query in relay.BUSINESS_ROUTES
+        for name in re.findall(r"\{[^}]+\}", template)
+    }
+    assert used <= set(relay._PLACEHOLDERS)
+    assert set(relay._SPLIT.pattern[1:-1].replace("\\", "").split("|")) == set(relay._PLACEHOLDERS)
+    for pattern, _methods, _query in relay._COMPILED:
+        assert "\\{" not in pattern.pattern, pattern.pattern
 
 
 @pytest.mark.parametrize(

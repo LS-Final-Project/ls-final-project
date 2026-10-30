@@ -617,6 +617,11 @@ test('web business relay table matches the shared fixture exactly', () => {
   assert.equal(placeholders['{dept}'], relayRoutes.dept_pattern);
 });
 
+test('every route placeholder has a pattern so none is matched literally (KAN-116 {dept})', () => {
+  const used = new Set(relayRoutes.routes.flatMap(route => route.path.match(/\{[^}]+\}/g) ?? []));
+  for (const name of used) assert.ok(name in placeholders, name);
+});
+
 test('web business relay forwards or rejects each shared case before reaching the platform', async () => {
   const calls = [];
   await fixture(async origin => {
