@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { downloadExport, editDraft, getDraft, getDraftIdentity, getDraftProject, getExportJob, sendCommand, UncertainWrite, type Accepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
+import { me, type Identity } from '../api/platform';
+import { downloadExport, editDraft, getDraft, getDraftProject, getExportJob, sendCommand, SessionChanged, UncertainWrite, type Accepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime, Origin } from '../components/tft';
@@ -17,21 +18,35 @@ type Editing = { sentence: Sentence; version: number; text: string; reason: stri
 
 export default function RfpDraft() {
   const { projectId = '' } = useParams();
-  return <DraftWorkspace key={projectId} projectId={projectId} />;
-}
-function DraftWorkspace({ projectId }: { projectId: string }) {
   const access = useBusinessAccess('tft');
   const cache = useQueryClient();
+  const session = useQuery({ queryKey: ['me'], queryFn: me, enabled: access.ready, retry: false });
+  const [notice, setNotice] = useState('');
+  if (!access.ready) return <BusinessGate access={access} title="초안 및 검토 이력" />;
+  if (session.isError) return <main><ErrorState error={session.error} onRetry={() => session.refetch()} /></main>;
+  if (session.isPending || !session.data) return <main>{notice && <p role="alert">{notice}</p>}{session.isFetching ? <Loading label="현재 계정 확인 중" /> : <ErrorState error={new ApiError(401, '로그인이 필요합니다.')} />}</main>;
+  const user = session.data.data;
+  return <DraftWorkspace key={`${user.id}:${projectId}`} projectId={projectId} user={user} notice={notice} onSessionChanged={() => {
+    setNotice(new SessionChanged().message); cache.setQueryData(['me'], null); void session.refetch();
+  }} />;
+}
+function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { projectId: string; user: Identity; notice: string; onSessionChanged: () => void }) {
+  const cache = useQueryClient();
+  const alive = useRef(true);
+  const lifetime = useRef<AbortController | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    const controller = new AbortController(); lifetime.current = controller;
+    return () => { alive.current = false; controller.abort(); };
+  }, []);
   const [version, setVersion] = useState<number>();
   const [versionInput, setVersionInput] = useState('');
   const [view, setView] = useState('all');
   const [section, setSection] = useState('all');
-  const key = ['rfp-draft', projectId, version];
-  const draft = useQuery({ queryKey: key, queryFn: ({ signal }) => getDraft(projectId, version, signal), enabled: access.ready, retry: false });
-  const project = useQuery({ queryKey: ['rfp-draft-project', projectId], queryFn: ({ signal }) => getDraftProject(projectId, signal), enabled: access.ready, retry: false });
-  const identity = useQuery({ queryKey: ['rfp-draft-identity'], queryFn: ({ signal }) => getDraftIdentity(signal), enabled: access.ready, retry: false });
-  const user = identity.data;
-  const canWrite = !!user && !!project.data && !identity.isError && !project.isError && user.roles.some(role => ['sales', 'manager', 'dept_staff'].includes(role)) && [project.data.sales_user_id, project.data.responsible_user_id].includes(user.id);
+  const key = ['rfp-draft', user.id, projectId, version];
+  const draft = useQuery({ queryKey: key, queryFn: ({ signal }) => getDraft(projectId, version, signal), retry: false });
+  const project = useQuery({ queryKey: ['rfp-draft-project', user.id, projectId], queryFn: ({ signal }) => getDraftProject(projectId, signal), retry: false });
+  const canWrite = !!user && !!project.data && !project.isError && user.roles.some(role => ['sales', 'manager', 'dept_staff'].includes(role)) && [project.data.sales_user_id, project.data.responsible_user_id].includes(user.id);
   const [editing, setEditing] = useState<Editing>();
   const [note, setNote] = useState('');
   const [review, setReview] = useState<Review>();
@@ -46,12 +61,14 @@ function DraftWorkspace({ projectId }: { projectId: string }) {
   const [blocked, setBlocked] = useState(false);
   const active = !!accepted;
   const job = useQuery({
-    queryKey: ['rfp-draft-export', projectId, accepted?.job_id],
+    queryKey: ['rfp-draft-export', user.id, projectId, accepted?.job_id],
     queryFn: ({ signal }) => getExportJob(projectId, accepted!.job_id, signal),
-    enabled: access.ready && active, retry: false,
+    enabled: active, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1500 : false,
   });
   const invalid = (failure: unknown) => {
+    if (!alive.current) return;
+    if (failure instanceof SessionChanged) { onSessionChanged(); return; }
     setError(failure);
     if (failure instanceof ApiError && [401, 403].includes(failure.status)) setBlocked(true);
   };
@@ -66,10 +83,12 @@ function DraftWorkspace({ projectId }: { projectId: string }) {
     if (!editing || !writable || inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(undefined); setMessage('');
     try {
-      const result = await editDraft(projectId, { version: editing.version, edits: [{ sentence_id: editing.sentence.sentence_id, text: editing.text, reason: editing.reason, evidence: editing.sentence.evidence }] });
-      cache.setQueryData<Draft>(['rfp-draft', projectId, undefined], result);
+      const result = await editDraft(projectId, user.id, { version: editing.version, edits: [{ sentence_id: editing.sentence.sentence_id, text: editing.text, reason: editing.reason, evidence: editing.sentence.evidence }] }, lifetime.current!.signal);
+      if (!alive.current) return;
+      cache.setQueryData<Draft>(['rfp-draft', user.id, projectId, undefined], result);
       setVersion(undefined); setVersionInput(''); setEditing(undefined); setMessage(`초안 ${result.version}판을 저장했습니다.`);
     } catch (failure) {
+      if (!alive.current) return;
       if (failure instanceof ApiError && failure.status === 409) setMessage('다른 변경이 있습니다. 입력은 보존했습니다. 최신 조회 후 편집을 취소하고 새 판본에서 다시 선택하세요.');
       invalid(failure);
     } finally { inFlight.current = false; setBusy(false); }
@@ -78,13 +97,15 @@ function DraftWorkspace({ projectId }: { projectId: string }) {
     if (inFlight.current || !canWrite || blocked || expiredJob) return;
     inFlight.current = true; setBusy(true); setCommand(next); setError(undefined); setMessage('');
     try {
-      const result = await sendCommand(projectId, next);
+      const result = await sendCommand(projectId, next, lifetime.current!.signal);
+      if (!alive.current) return;
       if (next.kind === 'review') {
         const saved = result as Review; setReview(saved); setReviewInput(String(saved.review_version));
         setMessage(`검토본 ${saved.review_version}판을 저장했습니다. 발송하거나 제안을 확정한 상태가 아닙니다.`);
       } else { setAccepted(result as Accepted); setExportReview(next.body.review_version); }
       setCommand(undefined);
     } catch (failure) {
+      if (!alive.current) return;
       if (!(failure instanceof UncertainWrite) && !(command && failure instanceof ApiError && [401, 403].includes(failure.status))) setCommand(undefined);
       invalid(failure);
     } finally { inFlight.current = false; setBusy(false); }
@@ -94,20 +115,20 @@ function DraftWorkspace({ projectId }: { projectId: string }) {
     inFlight.current = true; setBusy(true); setError(undefined);
     try {
       const blob = await downloadExport(projectId, accepted.export_id);
+      if (!alive.current) return;
       const url = URL.createObjectURL(blob); const link = document.createElement('a');
       link.href = url; link.download = `rfp-${accepted.export_id}.docx`; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (failure) { invalid(failure); }
     finally { inFlight.current = false; setBusy(false); }
   }
-  if (!access.ready) return <BusinessGate access={access} title="초안 및 검토 이력" />;
   return <main>
     <KvTitle path="제안 지원" title="초안 및 검토 이력" code="TF0104">
       <Link to={`/tft/projects/${projectId}`}>프로젝트</Link>{' '}
-      <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', projectId] }); }}>최신 조회</button>
+      <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] }); }}>최신 조회</button>
     </KvTitle>
     <KvNext>근거와 조건을 검토하고 문장을 수정한 뒤 검토본을 저장하세요. 공급·납기 확약과 발송은 사람이 별도로 확인합니다.</KvNext>
-    {identity.isError && <ErrorState error={identity.error} onRetry={() => identity.refetch()} />}
+    {notice && <p role="alert">{notice}</p>}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {!canWrite && <p>조회 전용입니다. 담당 sales·책임자 계정 확인 후 편집할 수 있습니다.</p>}
     {error != null && <ErrorState error={error} />}
@@ -172,12 +193,12 @@ function DraftWorkspace({ projectId }: { projectId: string }) {
     </KvBox>
     <KvBox title="검토본 저장" note="이 화면에서 저장해 받은 결과만 표시합니다. 이력 목록은 제공되지 않습니다.">
       <label>검토 메모<textarea maxLength={1000} value={note} disabled={busy || !!command} onChange={event => setNote(event.target.value)} /></label>
-      <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
+      <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ actorId: user.id, kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
       {review && <><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{formatDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{review.output_status === 'REVIEW_DRAFT' ? '검토본 작성' : review.output_status} / {review.judgement_status === 'OWNER_CONFIRMED' ? '담당자 확인' : review.judgement_status === 'CONDITION_CHECK' ? '조건 확인 필요' : '검토 필요'}</KvField></>}
     </KvBox>
     <KvBox title="DOCX 내보내기">
       <label>내보낼 검토본 판본<input type="number" min="1" step="1" value={reviewInput} disabled={busy || !!command} onChange={event => setReviewInput(event.target.value)} /></label>
-      <button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}
+      <button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ actorId: user.id, kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}
       <button className="kb" disabled title="PDF 내보내기는 아직 지원하지 않습니다.">PDF (미지원)</button>
       {accepted && <>
         <KvField label="요청한 검토본">{exportReview}판</KvField>

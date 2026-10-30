@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import { useQueryClient } from '@tanstack/react-query';
+import { StrictMode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import RfpDraft from './RfpDraft';
 import { errorBody, jsonResponse, renderAt, renderApp } from '../test/render';
@@ -244,4 +246,88 @@ it('문장 필터는 표시만 바꾸며 422 후 메모·선택판본·전체판
   expect((screen.getByLabelText('검토 메모') as HTMLTextAreaElement).value).toBe('숨겨진 문장도 전체 검토');
   fireEvent.change(screen.getByLabelText('보기'), { target: { value: 'all' } });
   expect(await screen.findByText('고객의 장비 검토 문장')).toBeTruthy();
+});
+
+it('A 불명확 요청을 B 세션으로 재확인하면 POST를 막고 이전 입력·캐시를 분리한다', async () => {
+  const B = '77777777-7777-4777-8777-777777777777';
+  let actor = USER;
+  let posts = 0;
+  const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/api/v1/platform/me') return new Response(JSON.stringify({ data: { ...identity, id: actor } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf' } });
+    if (url === `/api/v1/tft/projects/${P}`) return data({ id: P, name: actor, sales_user_id: actor, responsible_user_id: null });
+    if (url.endsWith('/review-versions') && init?.method === 'POST') { ++posts; throw new TypeError('network'); }
+    return data(actor === USER ? draft : { ...draft, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [{ ...draft.sections[0].sentences[0], text: 'B 세션의 초안' }] }] });
+  });
+  vi.stubGlobal('fetch', f);
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
+  fireEvent.change(screen.getByLabelText('검토 메모'), { target: { value: 'A만의 메모' } });
+  fireEvent.click(screen.getByRole('button', { name: '검토본 저장' }));
+  await screen.findByRole('button', { name: '같은 요청 다시 확인' });
+  actor = B;
+  fireEvent.click(screen.getByRole('button', { name: '같은 요청 다시 확인' }));
+  await screen.findByText('B 세션의 초안');
+  expect(posts).toBe(1);
+  expect((screen.getByLabelText('검토 메모') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.queryByRole('button', { name: '같은 요청 다시 확인' })).toBeNull();
+  expect(screen.queryByText('고객의 장비 검토 문장')).toBeNull();
+  expect(screen.getByText(/이전 입력을 전송하지 않았습니다/)).toBeTruthy();
+});
+
+const B_ACTOR = '88888888-8888-4888-8888-888888888888';
+function SwitchActor({ change }: { change: () => void }) {
+  const cache = useQueryClient();
+  return <><button onClick={() => { change(); cache.setQueryData(['me'], { data: { ...identity, id: B_ACTOR } }); }}>계정 전환</button><RfpDraft /></>;
+}
+function accountServer(write?: Handler) {
+  let actor = USER;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/api/v1/platform/me') return new Response(JSON.stringify({ data: { ...identity, id: actor } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'csrf' } });
+    if (url === `/api/v1/tft/projects/${P}`) return data({ id: P, name: actor, sales_user_id: actor, responsible_user_id: null });
+    if (write && (init?.method === 'PATCH' || init?.method === 'POST')) return write(url, init);
+    if (url.includes('/platform/jobs/')) return data(job());
+    return data(actor === USER ? draft : { ...draft, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [{ ...draft.sections[0].sentences[0], text: '새 계정 B 초안' }] }] });
+  }));
+  return () => { actor = B_ACTOR; };
+}
+
+it('실제 identity 변경은 편집/메모/검토본/내보내기 선택을 모두 폐기한다', async () => {
+  const change = accountServer(url => data(url.endsWith('/exports') ? accepted : saved, 201));
+  renderAt(`/tft/projects/${P}/draft`, '/tft/projects/:projectId/draft', <SwitchActor change={change} />);
+  await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '검토본 저장' }));
+  await screen.findByText(/검토본 3판을 저장했습니다/);
+  fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
+  await waitFor(() => expect(disabled('DOCX 다운로드')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '문장 수정' }));
+  fireEvent.change(screen.getByLabelText('수정 문장'), { target: { value: 'A 전용 수정 문장' } });
+  fireEvent.change(screen.getByLabelText('검토 메모'), { target: { value: 'A 전용 메모' } });
+  fireEvent.click(screen.getByRole('button', { name: '계정 전환' }));
+  await screen.findByText('새 계정 B 초안');
+  expect(screen.queryByLabelText('수정 문장')).toBeNull();
+  expect((screen.getByLabelText('검토 메모') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.queryByText(EXPORT)).toBeNull();
+  expect(screen.queryByText('저장한 검토본')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'DOCX 다운로드' })).toBeNull();
+});
+
+it('계정 전환 뒤 늦은 A 편집 응답은 B 캐시나 폼에 적용되지 않는다(StrictMode)', async () => {
+  let resolve: ((response: Response) => void) | undefined;
+  let signal: AbortSignal | undefined;
+  const change = accountServer((_url, init) => { signal = init?.signal as AbortSignal; return new Promise<Response>(done => { resolve = done; }); });
+  renderAt(`/tft/projects/${P}/draft`, '/tft/projects/:projectId/draft', <StrictMode><SwitchActor change={change} /></StrictMode>);
+  await waitFor(() => expect(disabled('문장 수정')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '문장 수정' }));
+  fireEvent.change(screen.getByLabelText('수정 사유'), { target: { value: 'A 수정 확인' } });
+  fireEvent.click(screen.getByRole('button', { name: '문장 저장' }));
+  await waitFor(() => expect(resolve).toBeDefined());
+  fireEvent.click(screen.getByRole('button', { name: '계정 전환' }));
+  await screen.findByText('새 계정 B 초안');
+  expect(signal!.aborted).toBe(true);
+  await act(async () => { resolve!(data({ ...draft, version: 8, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [{ ...draft.sections[0].sentences[0], text: '늦은 A 저장 결과' }] }] })); });
+  await waitFor(() => expect(screen.queryByLabelText('수정 문장')).toBeNull());
+  expect(screen.queryByText('늦은 A 저장 결과')).toBeNull();
+  expect(screen.getByText('새 계정 B 초안')).toBeTruthy();
 });

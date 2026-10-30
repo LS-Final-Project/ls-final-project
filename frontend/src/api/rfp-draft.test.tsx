@@ -7,14 +7,14 @@ const JOB = '22222222-2222-4222-8222-222222222222';
 const EXPORT = '33333333-3333-4333-8333-333333333333';
 afterEach(() => vi.unstubAllGlobals());
 const response = (data: unknown) => Response.json({ data });
-const command = { kind: 'export' as const, key: 'fixed-command-key', body: { review_version: 4, format: 'DOCX' as const } };
+const command = { actorId: P, kind: 'export' as const, key: 'fixed-command-key', body: { review_version: 4, format: 'DOCX' as const } };
 it('세션·CSRF 확인 실패면 예약 POST를 보내지 않는다', async () => {
   const f = vi.fn(async () => new Response('{}', { status: 401 })); vi.stubGlobal('fetch', f);
   await expect(sendCommand(P, command)).rejects.toMatchObject({ status: 401 });
   expect(f).toHaveBeenCalledTimes(1);
 });
 it('잘못된 export 수락 응답은 불명확 상태로 남겨 동일 키 재확인을 허용한다', async () => {
-  const f = vi.fn(async (url: string) => url.endsWith('/me') ? new Response('{}', { headers: { 'X-CSRF-Token': 'csrf' } }) : response({ job_id: JOB, export_id: EXPORT, status_url: 'https://other.invalid/jobs' }));
+  const f = vi.fn(async (url: string) => url.endsWith('/me') ? new Response(JSON.stringify({ data: { id: P } }), { headers: { 'X-CSRF-Token': 'csrf' } }) : response({ job_id: JOB, export_id: EXPORT, status_url: 'https://other.invalid/jobs' }));
   vi.stubGlobal('fetch', f);
   await expect(sendCommand(P, command)).rejects.toBeInstanceOf(UncertainWrite);
 });
