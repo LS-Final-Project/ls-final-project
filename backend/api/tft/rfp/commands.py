@@ -16,8 +16,23 @@ from psycopg.types.json import Jsonb
 
 from backend.shared.errors import ApplicationError
 
-Operation = Literal["supplement.select", "question.create", "question.reply"]
-OPERATIONS: frozenset[str] = frozenset(("supplement.select", "question.create", "question.reply"))
+# 표 CHECK(20261029_KAN-182_rfp_response.sql)의 값 중 지금 쓰는 것. 처리 접수 둘은 경로 11·30이다.
+Operation = Literal[
+    "supplement.select",
+    "question.create",
+    "question.reply",
+    "project.process",
+    "annotation.process",
+]
+OPERATIONS: frozenset[str] = frozenset(
+    (
+        "supplement.select",
+        "question.create",
+        "question.reply",
+        "project.process",
+        "annotation.process",
+    )
+)
 
 
 def request_hash(path_ids: Mapping[str, Any], payload: Mapping[str, Any]) -> str:

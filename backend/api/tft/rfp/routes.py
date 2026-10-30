@@ -3,7 +3,7 @@
 명세 v1.1 §3의 30개 경로 중 아직 없는 28개다(1·3번 목록·상세는 projects/routes.py에 있고
 응답 확장은 구현 작업이 한다). 모든 경로는 구현 전까지 501 `TFT_NOT_IMPLEMENTED`를 돌려준다.
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
-15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py).
+15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py). 11·30 접수는 jobs.py(KAN-199·KAN-188).
 """
 
 from typing import Annotated, Any, NoReturn
@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
-from backend.api.tft.rfp import routes_questions, routes_supplement
+from backend.api.tft.rfp import jobs, routes_questions, routes_supplement
 from backend.api.tft.rfp import schemas as s
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
@@ -215,11 +215,20 @@ async def download_document(document_id: UUID) -> NoReturn:
     status_code=202,
     response_model=SuccessResponse[s.JobAccepted],
     operation_id="tft_process_rfp",
-    openapi_extra=A07,
 )
-async def process(project_id: UUID, payload: s.ProcessRequest, idempotency_key: Key) -> NoReturn:
-    """11. 처리 작업 접수(플랫폼 runtime.jobs, owner=tft, kind=rfp.process)."""
-    not_implemented()
+async def process(
+    project_id: UUID,
+    payload: s.ProcessRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.JobAccepted]:
+    """11. 처리 작업 접수(플랫폼 runtime.jobs, owner=tft, kind=rfp.process).
+
+    담당 sales·책임자만. 프로젝트에 요구가 이미 있으면 reason이 필요하다(422 TFT_REASON_REQUIRED).
+    """
+    data = await jobs.admit(request, principal, project_id, "rfp.process", payload, idempotency_key)
+    return respond(request, data)
 
 
 @router.get(
@@ -502,10 +511,16 @@ async def download_export(project_id: UUID, export_id: UUID) -> NoReturn:
     status_code=202,
     response_model=SuccessResponse[s.JobAccepted],
     operation_id="tft_process_rfp_annotations",
-    openapi_extra=A12,
 )
 async def process_annotations(
-    project_id: UUID, payload: s.AnnotationProcess, idempotency_key: Key
-) -> NoReturn:
-    """30. (A12 조건부) 메모 PDF 해석 → pdf_annot 제안."""
-    not_implemented()
+    project_id: UUID,
+    payload: s.AnnotationProcess,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.JobAccepted]:
+    """30. (A12 조건부) 메모 PDF 해석 → pdf_annot 제안. 접수만 하고 해석 단계는 처리 함수 몫이다."""
+    data = await jobs.admit(
+        request, principal, project_id, "rfp.annotate", payload, idempotency_key
+    )
+    return respond(request, data)

@@ -110,3 +110,31 @@ def can_select_supplement(principal: Principal, project: Mapping[str, Any]) -> b
         bool: 선택할 수 있으면 True.
     """
     return principal.user_id in (project["sales_user_id"], project["responsible_user_id"])
+
+
+def can_run_processing(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """처리 작업(경로 11) 실행: 담당 sales와 책임자만(permissions.md 역할별 행동표).
+
+    Args:
+        principal: 요청 사용자.
+        project: sales_user_id·responsible_user_id가 있는 프로젝트 행.
+
+    Returns:
+        bool: 실행할 수 있으면 True.
+    """
+    return can_select_supplement(principal, project)
+
+
+def can_run_annotations(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """메모 PDF 해석(경로 30) 실행: 담당 sales·책임자·검토 부서 dept_staff.
+
+    Args:
+        principal: 요청 사용자.
+        project: 프로젝트 행(review_departments 포함).
+
+    Returns:
+        bool: 실행할 수 있으면 True.
+    """
+    return can_run_processing(principal, project) or in_review_department(
+        principal, project["review_departments"]
+    )
