@@ -215,6 +215,7 @@ def embed_chunks(
     embedding_version: str,
     model: str,
     embedder: Callable[[], Embedder],
+    limit: int = 2000,
 ) -> dict[str, Any]:
     """그 판본의 임베딩이 없는 청크만 임베딩해 넣는다(KAN-99, C20). 첫 공급자 오류에서 멈추고 다음 실행이 잇는다.
 
@@ -224,6 +225,7 @@ def embed_chunks(
         embedding_version: 모델:차원:task_type.
         model: 단가 조회용 모델 ID.
         embedder: 청크 문자열 → 임베딩 값 함수를 만드는 함수. 대상 청크가 있을 때만 한 번 부른다(지연 생성).
+        limit: 비용 상한. 대상(그 판본이 없는 청크, DB 전체)이 이보다 많으면 호출 없이 CS_EMBED_OVER_LIMIT로 멈춘다.
 
     Returns:
         dict: embedding_version·missing(시작 시 대상 수)·embedded(넣은 수)·calls·chars·reason(멈춘 사유 코드,
@@ -256,6 +258,10 @@ def embed_chunks(
     }
     batch: list[tuple[Any, list[float]]] = []
     call: Embedder | None = None
+    if len(rows) > limit:
+        # 대상은 --docs 범위가 아니라 그 판본이 없는 DB 전체 청크다. 예상보다 많으면 부르지 않는다.
+        summary["reason"] = "CS_EMBED_OVER_LIMIT"
+        rows = []
     if rows:
         try:
             call = embedder()
@@ -413,6 +419,12 @@ def main(
     parser.add_argument("--embed-model", default="gemini-embedding-2")
     parser.add_argument("--embed-dimension", type=int, default=768, choices=(768,))
     parser.add_argument("--embed-task-type", default="RETRIEVAL_DOCUMENT")
+    parser.add_argument(
+        "--embed-limit",
+        type=int,
+        default=2000,
+        help="임베딩 대상(판본 없는 청크, DB 전체) 상한. 넘으면 호출 없이 멈춘다",
+    )
     args = parser.parse_args(argv)
     if args.embed and args.dry_run:
         print("CS_INDEX_EMBED_NEEDS_DB: --embed는 --dry-run과 함께 쓰지 않는다.", file=sys.stderr)
@@ -480,6 +492,7 @@ def main(
                 else lambda: default_embedder(
                     args.embed_model, args.embed_dimension, args.embed_task_type
                 ),
+                limit=args.embed_limit,
             )
         except (psycopg.Error, ValueError, EmbedSetupFailed):
             print("CS_INDEX_EMBED_FAILED: DB·임베딩 키·설정을 확인한다.", file=sys.stderr)

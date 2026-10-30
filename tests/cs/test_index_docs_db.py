@@ -170,3 +170,49 @@ def test_embed_client_setup_failure_is_a_code_and_is_skipped_when_nothing_is_mis
     finally:
         with psycopg.connect(cs_database, autocommit=True) as conn:
             conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_SETUP'")
+
+
+def test_embed_limit_stops_without_calls_when_too_many_chunks_are_missing(
+    cs_database, tmp_path, monkeypatch, capsys
+):
+    """--embed-limit보다 대상이 많으면 호출 없이 CS_EMBED_OVER_LIMIT·종료 1이고, 상한 안이면 넣는다(KAN-99 비용 상한)."""
+    import json
+
+    from scripts.cs_index_docs import main
+
+    monkeypatch.setenv(
+        "DATABASE_URL", make_conninfo(cs_database, user="cs_app", password="test-only")
+    )
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "limit.docx").write_bytes(docx("Embedding limit probe KAN99."))
+    calls = []
+
+    def fake(text):
+        calls.append(text)
+        return [0.125] * 768
+
+    base = [
+        "--docs",
+        str(tmp_path / "docs"),
+        "--data-origin",
+        "synthetic",
+        "--document-kind",
+        "CS_EMBED_LIMIT",
+    ]
+    out = tmp_path / "m.json"
+    try:
+        assert main([*base, "--execute"]) == 0
+        assert (
+            main(
+                [*base, "--embed", "--embed-limit", "0", "--manifest-out", str(out)], embedder=fake
+            )
+            == 1
+        )
+        stopped = json.loads(out.read_text())["embedding"]
+        assert stopped["reason"] == "CS_EMBED_OVER_LIMIT" and stopped["missing"] >= 1
+        assert stopped["calls"] == 0 and calls == []
+        assert main([*base, "--embed", "--embed-limit", "100000"], embedder=fake) == 0
+        assert calls
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_LIMIT'")
