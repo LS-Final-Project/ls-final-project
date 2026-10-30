@@ -340,7 +340,7 @@
       "filters": [
         "family=TRANSFORMER"
       ],
-      "documents_searched": 1,
+      "documents_searched": 2,
       "search_failed": false
     }
   },
@@ -388,13 +388,39 @@
             "status": "EVIDENCE_FOUND",
             "reason": "원문 2.5.M tap 요구 '±2×2.5%', 자사 ±2×2.5%(근거 DS-TRF-DRY-630 2.2): 충족.",
             "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "±2×2.5%",
+            "our_unit": null,
+            "our_conditions": [
+              {
+                "name": "tap_type",
+                "value": "off-circuit",
+                "unit": null
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.2",
+                "applicability": "tap_type off-circuit",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "EVIDENCE_FOUND",
+            "reason": "원문 2.5.M tap 요구 '±2×2.5%', 자사 ±2×2.5%(근거 DS-TRF-OIL-1000 2.2): 충족.",
+            "unresolved": []
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -447,13 +473,28 @@
             "status": "EVIDENCE_FOUND",
             "reason": "원문 2.5.I.1 insulation_class 요구 F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
             "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.I.1 insulation_class 요구 F: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "insulation_class 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -510,13 +551,41 @@
             "unresolved": [
               "reference_temperature 요구 IEEE C57.12.01 기준, 후보 120 °C"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "DIFFERS",
+            "our_value": "5",
+            "our_unit": "%",
+            "our_conditions": [
+              {
+                "name": "reference_temperature",
+                "value": "75",
+                "unit": "°C"
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.2",
+                "applicability": "reference_temperature 75 °C",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "SPEC_GAP",
+            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 5 %(근거 DS-TRF-OIL-1000 2.2): 미달. 조건 차이: reference_temperature 요구 IEEE C57.12.01 기준, 후보 75 °C.",
+            "unresolved": [
+              "reference_temperature 요구 IEEE C57.12.01 기준, 후보 75 °C"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -573,13 +642,28 @@
             "unresolved": [
               "temperature_rise 요구 115 °C, 후보 100 K"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "forced_air_capacity_increase 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -626,13 +710,33 @@
             "status": "SPEC_GAP",
             "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 미달.",
             "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "DIFFERS",
+            "our_value": "433",
+            "our_unit": "V",
+            "our_conditions": [],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.1",
+                "applicability": null,
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "SPEC_GAP",
+            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 433 V(근거 DS-TRF-OIL-1000 2.1): 미달.",
+            "unresolved": []
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -716,7 +820,7 @@
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -760,13 +864,28 @@
             "unresolved": [
               "bil 자료 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.K bil 요구 95 kV 이상: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "bil 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -810,13 +929,28 @@
             "unresolved": [
               "winding_material 자료 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_material 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -860,13 +994,28 @@
             "unresolved": [
               "winding_temperature_sensor 자료 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_temperature_sensor 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -910,13 +1059,28 @@
             "unresolved": [
               "communication_interface 자료 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "communication_interface 자료 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -960,13 +1124,28 @@
             "unresolved": [
               "IEEE C57.12.01 보유 여부 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.I IEEE C57.12.01 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "IEEE C57.12.01 보유 여부 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -1010,13 +1189,28 @@
             "unresolved": [
               "NEMA TR1 보유 여부 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.O NEMA TR1 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "NEMA TR1 보유 여부 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -1060,13 +1254,28 @@
             "unresolved": [
               "UL 보유 여부 확인"
             ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.2.A.1 UL 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "UL 보유 여부 확인"
+            ]
           }
         ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
@@ -1100,7 +1309,7 @@
           "filters": [
             "family=TRANSFORMER"
           ],
-          "documents_searched": 1,
+          "documents_searched": 2,
           "search_failed": false
         }
       },
