@@ -400,6 +400,21 @@
         "title": "DismissDecision",
         "type": "object"
       },
+      "Endpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "Endpoint",
+        "type": "object"
+      },
       "ErrorData": {
         "properties": {
           "code": {
@@ -1621,6 +1636,27 @@
         "title": "JobStatusResponse",
         "type": "object"
       },
+      "Keys": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "maxLength": 22,
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "maxLength": 87,
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "Keys",
+        "type": "object"
+      },
       "LinkDecision": {
         "properties": {
           "business_ref": {
@@ -2441,6 +2477,19 @@
         "title": "ParsedCodes",
         "type": "object"
       },
+      "PublicKey": {
+        "properties": {
+          "public_key": {
+            "title": "Public Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "title": "PublicKey",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -3115,6 +3164,25 @@
         "title": "StageMetricBlock",
         "type": "object"
       },
+      "Subscription": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/Keys"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "Subscription",
+        "type": "object"
+      },
       "SuccessResponse_AssigneeList_": {
         "properties": {
           "data": {
@@ -3353,6 +3421,22 @@
           "meta"
         ],
         "title": "SuccessResponse[NotificationList]",
+        "type": "object"
+      },
+      "SuccessResponse_PublicKey_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[PublicKey]",
         "type": "object"
       },
       "SuccessResponse_ReadinessData_": {
@@ -7116,6 +7200,93 @@
         "summary": "Read Notification",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/push/public-key": {
+      "get": {
+        "operationId": "platform_push_public_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_PublicKey_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Key",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/api/v1/platform/push/subscription": {
+      "delete": {
+        "operationId": "platform_delete_my_push_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Endpoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unsubscribe",
+        "tags": [
+          "push"
+        ]
+      },
+      "put": {
+        "operationId": "platform_put_my_push_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Subscription"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscribe",
+        "tags": [
+          "push"
         ]
       }
     },
