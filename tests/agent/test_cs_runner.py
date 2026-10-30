@@ -171,6 +171,30 @@ def test_runner_pauses_resumes_and_returns_summary_only(sdk_http):
     assert "ZX-PRIVATE" not in sent and "person@example.test" not in sent
 
 
+def test_runner_stores_the_classification_prompt_version(sdk_http):
+    """분류 시도는 판본을 모르므로 실행기가 공급자에 넘긴 판본을 붙여 저장한다(KAN-107).
+
+    Args:
+        sdk_http: 가짜 HTTP 요청 목록.
+
+    Returns:
+        None: 저장 경계로 넘어간 시도의 판본을 확인한다.
+    """
+    seen = []
+
+    class Recording(InMemoryTicketSource):
+        def record_attempt(self, kind, ticket_id, attempt):
+            seen.append((kind, attempt.prompt_version))
+            return super().record_attempt(kind, ticket_id, attempt)
+
+    run_ticket(runner(InMemorySaver(), Recording({"t-1": TICKET})), "thread-v", "t-1")
+    assert seen == [("classification", "v3"), ("draft", "v1")]
+    seen.clear()
+    graph = runner(InMemorySaver(), Recording({"t-1": TICKET}), prompt_version="v2")
+    run_ticket(graph, "thread-v2", "t-1")
+    assert seen[0] == ("classification", "v2")
+
+
 @pytest.mark.parametrize(
     ("retries", "second", "stage", "calls", "retried", "recovered"),
     [

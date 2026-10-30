@@ -17,12 +17,13 @@ from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.agent.cs_worker import execute_job
+from backend.agent.ticket_source_registry import WorkerParts
 from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
 from backend.api.cs.main import create_app as create_cs_app
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
 from backend.api.platform.jobs.cs import configure_cs_jobs
 from backend.api.platform.main import create_app as create_platform_app
-from backend.engine.cs.graph import HUMAN_REVIEW, build_graph, thread_config
+from backend.engine.cs.graph import build_graph, thread_config
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 from tests.cs.graph_fakes import FILTERS, classification_provider, draft_provider, fts_searcher
@@ -183,7 +184,6 @@ def test_an_analysis_runs_end_to_end_and_ends_after_the_send(
         graph = fake_build(None, _parts(), PostgresSaver(conn))
         final = graph.get_state(thread_config(str(job)))
     assert final.next == () and final.values["stage"] == "HUMAN_REVIEW"
-    assert HUMAN_REVIEW not in (final.next or ())
 
 
 def _parts():
@@ -196,8 +196,4 @@ def _parts():
         def record_attempt(self, *_args):
             raise AssertionError("not called")
 
-    class Parts:
-        ticket_source = Unused()
-        allowed_info_codes = frozenset({"none"})
-
-    return Parts()
+    return WorkerParts(ticket_source=Unused(), allowed_info_codes=frozenset({"none"}))

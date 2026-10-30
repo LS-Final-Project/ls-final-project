@@ -5,7 +5,7 @@
 - `load_ticket`: cs 표에서 그래프 입력(채널·언어·제목·본문, 제품, 고객 등급, 접수 시각, 유형별 필요 정보, 이미 요청한
   정보)을 읽는다. 고객 식별자·정답·사후 기록은 읽지 않는다(cs_worker 권한도 그 열만 준다).
 - `record_attempt`: 분류·초안 시도를 `cs.ticket_analyses`·`cs.ticket_drafts`에 작업 ID와 함께 추가한다. 원문과 모델의
-  raw 응답은 저장하지 않는다. 업무 상태(`cs.ticket_workflows`)는 건드리지 않는다: 그래프 상태는 체크포인트에만 있다.
+  raw 응답은 저장하지 않는다. 시도마다 프롬프트 판본과 사용량(지연·토큰·비용)을 같이 남긴다. 업무 상태(`cs.ticket_workflows`)는 건드리지 않는다: 그래프 상태는 체크포인트에만 있다.
 
 worker는 동기 코드이고 cs 저장 함수는 비동기라, 호출마다 `asyncio.run`으로 연결 하나를 열어 같은 저장 함수를 쓴다
 (cs_search.fts_searcher_from_dsn과 같은 방식). 실행 중인 이벤트 루프 안에서는 부를 수 없다.
@@ -31,6 +31,7 @@ from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.graph import TicketInputs
 from backend.engine.cs.rules import RuleInputError, product_family
+from backend.shared.ai import usage_cost
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
@@ -73,6 +74,30 @@ def required_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozen
         )
         table.setdefault(row["family"], {})[row["category"]] = codes
     return table
+
+
+def usage_values(attempt: ClassificationAttempt | DraftAttempt) -> Row:
+    """시도 하나의 사용량 칸(evaluation.case_attempts와 같은 이름·규칙, KAN-85).
+
+    Args:
+        attempt: 분류 또는 초안 시도.
+
+    Returns:
+        Row: 지연(ms 정수)·토큰 5종·비용·가격표 판본. 공급자가 알려 주지 않은 값은 None이다. 비용은 입력·답변
+            토큰이 모두 있고 USD 단가가 있을 때만 계산하며, 그때만 가격표 판본이 붙는다(usage_cost).
+    """
+    usage = attempt.usage
+    cost, pricing = usage_cost(usage, attempt.requested_model)
+    return {
+        "latency_ms": round(attempt.latency_ms) if attempt.latency_ms is not None else None,
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "thought_tokens": usage.thought_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "total_tokens": usage.total_tokens,
+        "cost_usd": cost,
+        "pricing_version": pricing,
+    }
 
 
 class DbTicketSource:
@@ -172,8 +197,9 @@ class DbTicketSource:
             "input_version": attempt.input_version,
             "input_sha256": attempt.input_sha256,
             "model_version": attempt.model_version,
-            "prompt_version": getattr(attempt, "prompt_version", None),
+            "prompt_version": attempt.prompt_version,
             "error_code": attempt.error_code,
+            **usage_values(attempt),
         }
         ticket = UUID(ticket_id)
 
