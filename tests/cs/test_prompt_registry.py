@@ -21,6 +21,7 @@ from tests.cs.test_drafting import attempt, raw
 V1_FINGERPRINTS = {
     "classification": "ec6fefc1c1ba9e79",
     "draft": "963cfe6ef9dff4c1",
+    "verification": "64a3b897c377a39d",
     "reply": "8cea1946d44a09cf",
     "improvement_reply": "40c64f4891bf60a2",
     "improvement_draft": "fa4e6aa624afd7ef",
@@ -132,6 +133,7 @@ def test_product_defaults_use_v3_for_classification_only():
     assert DEFAULT_VERSIONS == {
         "classification": "v3",
         "draft": "v1",
+        "verification": "v1",
         "reply": "v1",
         "improvement_reply": "v1",
         "improvement_draft": "v1",

@@ -1,7 +1,6 @@
 """C/S 처리 그래프(LangGraph) 골격과 체크포인트(KAN-194). contracts/cs/graph.md가 계약이다.
 
-분류 → 규칙 → 근거 검색 → 답변 초안 → 사람 확인 순서로 기존 순수 함수 엔진을 노드 안에서 부른다. 엔진은 고치지
-않는다. 사람 확인 직전에 멈추고(interrupt_before), 같은 thread_id로 invoke(None, config)를 부르면 끝난다.
+분류 → 규칙 → 근거 검색 → 답변 초안 → 문장 검증(필요하면 재작성·재검증) → 사람 확인 순서로 실행한다. 사람 확인 직전에 멈추고(interrupt_before), 같은 thread_id로 invoke(None, config)를 부르면 끝난다.
 
 주입은 build_graph 인자로만 한다. LangGraph는 config["configurable"]·["metadata"]의 문자열·수 값을 체크포인트
 metadata에 그대로 복사하므로(langgraph.checkpoint.base.get_checkpoint_metadata), 원문이나 식별자를 configurable로
@@ -31,9 +30,16 @@ from backend.engine.cs.classification import (
     build_input,
 )
 from backend.engine.cs.classification_call import ClassificationAttempt, run_classification_attempt
-from backend.engine.cs.drafting import EvidenceSnippet
+from backend.engine.cs.drafting import (
+    DraftOutput,
+    EvidenceSnippet,
+    RevisionFeedback,
+    RevisionSentence,
+)
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
 from backend.engine.cs.rules import RuleInputError, decide, product_family
+from backend.engine.cs.verification import build_verification_input, unverified_output
+from backend.engine.cs.verification_call import VerificationAttempt, run_verification_attempt
 from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import SearchFilters
 from backend.shared.ai import Generation
@@ -96,6 +102,9 @@ class CsState(TypedDict):
     rules: dict[str, Any] | None
     evidence: list[dict[str, Any]]
     draft: dict[str, Any] | None
+    draft_attempt_id: str | None
+    verification: dict[str, Any] | None
+    draft_rewritten: bool
     errors: list[dict[str, str]]
     stage: Stage
 
@@ -148,6 +157,9 @@ def initial_state(ticket_id: str) -> CsState:
         rules=None,
         evidence=[],
         draft=None,
+        draft_attempt_id=None,
+        verification=None,
+        draft_rewritten=False,
         errors=[],
         stage="RECEIVED",
     )
@@ -213,8 +225,12 @@ def build_graph(
     search_filters: SearchFilters,
     allowed_info_codes: frozenset[str],
     load_ticket: Callable[[str], TicketInputs],
-    record_attempt: Callable[[str, str, ClassificationAttempt | DraftAttempt], str],
+    record_attempt: Callable[
+        [str, str, ClassificationAttempt | DraftAttempt | VerificationAttempt], str
+    ],
     checkpointer: BaseCheckpointSaver,
+    verification_provider: Callable[[str], Generation] | None = None,
+    verification_enabled: bool = True,
     vector_searcher: Searcher | None = None,
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
@@ -226,12 +242,14 @@ def build_graph(
     Args:
         classification_provider: 정제 분류 입력을 받아 Generation을 돌려주는 공급자(ai.py·providers.py 어댑터).
         draft_provider: 초안 프롬프트를 받아 Generation을 돌려주는 공급자.
+        verification_provider: 문장 검증 공급자. 없으면 미검증으로 넘긴다.
+        verification_enabled: 기본 True. False면 검증 호출을 하지 않고 미검증으로 표시한다.
         fts_searcher: FTS 검색기. vector_searcher와 함께 hybrid.run_hybrid에 넘긴다.
         search_filters: 두 검색기에 똑같이 넘기는 검색 조건.
         allowed_info_codes: 검수된 정보 코드 집합.
         load_ticket: ticket_id로 TicketInputs를 돌려주는 콜러블. 노드 안에서만 부른다.
         record_attempt: (kind, ticket_id, attempt)를 받아 시도를 상태 밖에 저장하고 ID를 돌려준다.
-            kind는 "classification" 또는 "draft"다.
+            kind는 "classification", "draft", "verification"이다.
         checkpointer: MemorySaver(검사) 또는 checkpoint_cs 스키마의 PostgresSaver.
         vector_searcher: 벡터 검색기. None이면 FTS만 쓴다.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed. 추적 환경 변수가 있는데 False면
@@ -258,7 +276,9 @@ def build_graph(
         raise ValueError("CS_GRAPH_INVALID_EVIDENCE_LIMIT")
 
     def attempt_with_retry(
-        state: CsState, kind: str, call: Callable[[int], ClassificationAttempt | DraftAttempt]
+        state: CsState,
+        kind: str,
+        call: Callable[[int], ClassificationAttempt | DraftAttempt | VerificationAttempt],
     ) -> tuple[Any, dict[str, Any]]:
         """시도 1을 부르고 CS_INVALID_OUTPUT이면 시도 2를 한 번 더 부른 뒤 두 시도를 모두 기록한다.
 
@@ -277,6 +297,14 @@ def build_graph(
             and tries[0].error_code == RETRY_CODE
         ):
             tries.append(call(2))
+        return tries[-1], record_tries(state, kind, tries)
+
+    def record_tries(
+        state: CsState,
+        kind: str,
+        tries: list[ClassificationAttempt | DraftAttempt | VerificationAttempt],
+    ) -> dict[str, Any]:
+        """호출 시도별 ID와 원문 없는 요약을 남긴다."""
         ids = list(state["attempt_ids"])
         log = list(state.get("attempts", []))
         for index, attempt in enumerate(tries):
@@ -294,7 +322,7 @@ def build_graph(
                     "finish_reasons": list(attempt.finish_reasons),
                 }
             )
-        return tries[-1], {"attempt_ids": ids, "attempts": log}
+        return {"attempt_ids": ids, "attempts": log}
 
     def classify(state: CsState) -> dict[str, Any]:
         """분류 시도를 실행하고(형식 위반이면 시도 2까지) 마스킹한 입력과 결과만 상태에 둔다.
@@ -442,8 +470,128 @@ def build_graph(
         return {
             **recorded,
             "draft": attempt.prediction.model_dump(mode="json"),
+            "draft_attempt_id": recorded["attempt_ids"][-1],
             "stage": "DRAFTED",
         }
+
+    def verify(state: CsState, *, number: int = 1) -> dict[str, Any]:
+        """문장을 한 번 검증한다. 호출 실패는 미검증으로 남기고 초안은 보존한다."""
+        if state.get("draft") is None:
+            return {
+                "verification": {
+                    "status": "NOT_VERIFIED",
+                    "reason": "CS_DRAFT_MISSING",
+                    "sentences": [],
+                }
+            }
+        try:
+            payload = build_verification_input(
+                DraftOutput.model_validate(state["draft"]),
+                [EvidenceSnippet.model_validate(e) for e in state["evidence"]],
+            )
+        except ValueError:
+            return {
+                "verification": {
+                    "status": "NOT_VERIFIED",
+                    "reason": "CS_VERIFICATION_INPUT_INVALID",
+                    "sentences": [],
+                }
+            }
+        if not verification_enabled or verification_provider is None:
+            reason = (
+                "CS_VERIFICATION_DISABLED"
+                if not verification_enabled
+                else "CS_VERIFICATION_UNAVAILABLE"
+            )
+            return {
+                "verification": {
+                    "status": "NOT_VERIFIED",
+                    "reason": reason,
+                    **unverified_output(payload, reason).model_dump(),
+                }
+            }
+        # 이전 판본 체크포인트에는 draft_attempt_id가 없을 수 있다.
+        draft_id = state.get("draft_attempt_id") or next(
+            (a["attempt_id"] for a in reversed(state.get("attempts", [])) if a["kind"] == "draft"),
+            None,
+        )
+        attempt = run_verification_attempt(
+            payload,
+            provider=verification_provider,
+            attempt_number=number,
+            draft_id=draft_id,
+        )
+        recorded = record_tries(state, "verification", [attempt])
+        if attempt.prediction is None:
+            code = attempt.error_code or attempt.outcome
+            return {
+                **recorded,
+                "verification": {
+                    "status": "NOT_VERIFIED",
+                    "reason": code,
+                    **unverified_output(payload, code).model_dump(),
+                },
+                "errors": _error(state, "verify", code),
+            }
+        verdicts = attempt.prediction
+        status = (
+            "VERIFIED"
+            if all(s.verdict == "SUPPORTED" for s in verdicts.sentences)
+            else "NEEDS_REVIEW"
+        )
+        return {
+            **recorded,
+            "verification": {"status": status, "reason": None, **verdicts.model_dump()},
+        }
+
+    def rewrite(state: CsState) -> dict[str, Any]:
+        """검증 실패 이유로 초안을 모델 호출 한 번만 재작성한다. 실패하면 기존 초안·판정을 보존한다."""
+        ticket = load_ticket(state["ticket_id"])
+        classification = ClassificationOutput.model_validate(state["classification"])
+        feedback = RevisionFeedback(
+            prior_draft=DraftOutput.model_validate(state["draft"]),
+            failed_sentences=[
+                RevisionSentence(
+                    label=s["label"], sentence_index=s["sentence_index"], reason=s["reason"]
+                )
+                for s in (state.get("verification") or {}).get("sentences", [])
+                if s["verdict"] != "SUPPORTED"
+            ],
+        )
+        attempt = run_draft_attempt(
+            ticket.record,
+            classification=classification,
+            required_info_codes=ticket.required_for(classification.category_code),
+            already_asked_codes=ticket.already_asked_codes,
+            evidence=[EvidenceSnippet.model_validate(e) for e in state["evidence"]],
+            sensitive_values=ticket.sensitive_values,
+            provider=draft_provider,
+            attempt_number=1,
+            revision_feedback=feedback,
+        )
+        recorded = record_tries(state, "draft", [attempt])
+        if attempt.prediction is None:
+            return {
+                **recorded,
+                "draft_rewritten": False,
+                "errors": _error(state, "rewrite", attempt.error_code or attempt.outcome),
+            }
+        return {
+            **recorded,
+            "draft": attempt.prediction.model_dump(mode="json"),
+            "draft_attempt_id": recorded["attempt_ids"][-1],
+            "draft_rewritten": True,
+        }
+
+    def after_verify(state: CsState) -> str:
+        return (
+            "rewrite"
+            if (state.get("verification") or {}).get("status") == "NEEDS_REVIEW"
+            else HUMAN_REVIEW
+        )
+
+    def after_rewrite(state: CsState) -> str:
+        return "reverify" if state.get("draft_rewritten") else HUMAN_REVIEW
 
     def human_review(state: CsState) -> dict[str, Any]:
         """사람 확인 단계 표시만 남긴다. 확정·전송은 그래프 밖에서 사람이 한다.
@@ -461,11 +609,17 @@ def build_graph(
     graph.add_node("rules", rules)
     graph.add_node("retrieve", retrieve)
     graph.add_node("draft", draft)
+    graph.add_node("verify", verify)
+    graph.add_node("rewrite", rewrite)
+    graph.add_node("reverify", lambda state: verify(state, number=2))
     graph.add_node(HUMAN_REVIEW, human_review)
     graph.add_edge(START, "classify")
     graph.add_conditional_edges("classify", route_after_classify, ["rules", END])
     graph.add_edge("rules", "retrieve")
     graph.add_edge("retrieve", "draft")
-    graph.add_edge("draft", HUMAN_REVIEW)
+    graph.add_edge("draft", "verify")
+    graph.add_conditional_edges("verify", after_verify, ["rewrite", HUMAN_REVIEW])
+    graph.add_conditional_edges("rewrite", after_rewrite, ["reverify", HUMAN_REVIEW])
+    graph.add_edge("reverify", HUMAN_REVIEW)
     graph.add_edge(HUMAN_REVIEW, END)
     return graph.compile(checkpointer=checkpointer, interrupt_before=[HUMAN_REVIEW])

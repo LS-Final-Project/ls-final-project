@@ -113,6 +113,15 @@ def test_the_graph_has_no_send_or_workflow_path():
     the only side effects it can have are recording attempts and checkpoints."""
     graph, _ = make()
     nodes = set(graph.get_graph().nodes) - {"__start__", "__end__"}
-    assert nodes == {"classify", "rules", "retrieve", "draft", "human_review"}
+    assert nodes == {
+        "classify",
+        "rules",
+        "retrieve",
+        "draft",
+        "verify",
+        "rewrite",
+        "reverify",
+        "human_review",
+    }
     params = set(inspect.signature(build_graph).parameters)
     assert not {p for p in params if any(w in p for w in ("send", "mail", "workflow", "tool"))}

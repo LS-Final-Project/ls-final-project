@@ -28,6 +28,8 @@ from backend.engine.cs.providers import (
     gemini_classification_provider,
     gemini_text_provider,
 )
+from backend.engine.cs.verification import VerificationOutput
+from backend.engine.cs.verification_call import VerificationAttempt
 from backend.engine.search.hybrid import Searcher
 from backend.engine.search.model import SearchFilters
 from backend.shared.ai import AISettings
@@ -49,12 +51,15 @@ class TicketSource(Protocol):
         ...
 
     def record_attempt(
-        self, kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+        self,
+        kind: str,
+        ticket_id: str,
+        attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
     ) -> str:
         """시도를 저장하고 ID를 돌려준다.
 
         Args:
-            kind: "classification" 또는 "draft".
+            kind: "classification", "draft", "verification".
             ticket_id: 문의 ID.
             attempt: 시도 기록(raw_response 포함).
 
@@ -83,7 +88,10 @@ class InMemoryTicketSource:
         return self.tickets[ticket_id]
 
     def record_attempt(
-        self, kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+        self,
+        kind: str,
+        ticket_id: str,
+        attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
     ) -> str:
         """시도의 종류와 문의 ID만 남기고 ID를 돌려준다.
 
@@ -135,6 +143,7 @@ def build_cs_runner(
     draft_knobs: GenerationKnobs | None = None,
     evidence_limit: int = DRAFT_DEFAULTS["evidence_limit"],
     policy_documents: Mapping[str, str] | None = None,
+    verification_enabled: bool = True,
     vector_searcher: Searcher | None = None,
 ) -> Any:
     """Gemini 분류·초안 공급자를 만들어 C/S 그래프에 꽂는다.
@@ -155,6 +164,7 @@ def build_cs_runner(
         evidence_limit: 초안에 넘길 근거 상위 개수(기본 DRAFT_DEFAULTS). build_graph에 넘긴다.
         policy_documents: 정책 문서 doc_id → document_sha256(색인 manifest). 있으면 정책 유형 문의에 정책 문서
             1자리를 예약한다. None이면 예약하지 않는다. build_graph에 넘긴다.
+        verification_enabled: 기본 True. 같은 명시 모델의 검증 공급자를 연결한다.
         vector_searcher: 벡터 검색기(cs_search.vector_searcher_from_dsn). None이면 FTS만 쓴다. build_graph에 넘긴다.
 
     Returns:
@@ -162,7 +172,9 @@ def build_cs_runner(
     """
 
     def record_attempt(
-        kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+        kind: str,
+        ticket_id: str,
+        attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
     ) -> str:
         # 분류 시도는 판본을 모른다(공급자가 고름). 같은 공급자에 넘긴 판본을 붙여 저장해 실행 행만 보고도
         # 어떤 프롬프트였는지 알 수 있게 한다. 초안 시도는 자기 판본을 이미 갖고 있다.
@@ -186,6 +198,17 @@ def build_cs_runner(
             generation=draft_knobs
             or GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS["max_output_tokens"]),
         ),
+        verification_provider=gemini_text_provider(
+            client,
+            ai_settings,
+            model=model,
+            response_schema=VerificationOutput,
+            generation=draft_knobs
+            or GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS["max_output_tokens"]),
+        )
+        if verification_enabled
+        else None,
+        verification_enabled=verification_enabled,
         fts_searcher=fts_searcher,
         vector_searcher=vector_searcher,
         search_filters=search_filters,
@@ -235,7 +258,9 @@ def outcome(graph: Any, thread_id: str) -> RunOutcome:
     state = graph.get_state(thread_config(thread_id))
     values = state.values
     attempts = list(values.get("attempts", []))
-    second = [a for a in attempts if a["attempt_number"] == 2]
+    second = [
+        a for a in attempts if a["kind"] in {"classification", "draft"} and a["attempt_number"] == 2
+    ]
     return RunOutcome(
         stage=values.get("stage", "RECEIVED"),
         next_nodes=tuple(state.next),

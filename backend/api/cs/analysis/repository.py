@@ -159,3 +159,50 @@ async def run_belongs(conn: AsyncConnection[Row], ticket_id: UUID, run_id: UUID)
         "SELECT 1 FROM cs.ticket_analyses WHERE id = %s AND ticket_id = %s", (run_id, ticket_id)
     )
     return await cursor.fetchone() is not None
+
+
+VERIFICATION_COLUMNS = (
+    "id, ticket_id, draft_id, job_id, attempt_number, outcome, sentences, input_version, "
+    "model_version, prompt_version, error_code, created_at"
+)
+
+
+async def list_verifications(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]:
+    cursor = await conn.execute(
+        f"SELECT {VERIFICATION_COLUMNS} FROM cs.ticket_draft_verifications "
+        "WHERE ticket_id = %s ORDER BY created_at, id",
+        (ticket_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_verification(conn: AsyncConnection[Row], ticket_id: UUID, values: Row) -> Row:
+    cursor = await conn.execute(
+        "INSERT INTO cs.ticket_draft_verifications "
+        "(id, ticket_id, draft_id, job_id, attempt_number, outcome, sentences, input_version, "
+        "input_sha256, model_version, requested_model, prompt_version, instruction_fingerprint, "
+        f"error_code, call_attempts, {USAGE_COLUMNS}) "
+        f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {USAGE_SLOTS}) "
+        f"RETURNING {VERIFICATION_COLUMNS}",
+        (
+            uuid4(),
+            ticket_id,
+            values["draft_id"],
+            values.get("job_id"),
+            values["attempt_number"],
+            values["outcome"],
+            Jsonb(values["sentences"]),
+            values["input_version"],
+            values.get("input_sha256"),
+            values.get("model_version"),
+            values.get("requested_model"),
+            values["prompt_version"],
+            values.get("instruction_fingerprint"),
+            values.get("error_code"),
+            values.get("call_attempts"),
+            *usage_params(values),
+        ),
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return row

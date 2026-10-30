@@ -55,6 +55,21 @@ DRAFT = json.dumps(
     }
 )
 
+VERIFICATION = json.dumps(
+    {
+        "sentences": [
+            {
+                "label": label,
+                "sentence_index": 0,
+                "verdict": "SUPPORTED",
+                "reason": "Synthetic only.",
+                "evidence_chunk_ids": ["chunk-1"],
+            }
+            for label in ("CONCISE", "DETAILED", "INFO_FIRST")
+        ]
+    }
+)
+
 
 @pytest.fixture
 def sdk_http(monkeypatch):
@@ -66,7 +81,7 @@ def sdk_http(monkeypatch):
     Returns:
         list: 보낸 요청 목록.
     """
-    return install_http(monkeypatch, [CLASSIFICATION, DRAFT])
+    return install_http(monkeypatch, [CLASSIFICATION, DRAFT, VERIFICATION])
 
 
 def install_http(monkeypatch, texts):
@@ -156,13 +171,17 @@ def test_runner_pauses_resumes_and_returns_summary_only(sdk_http):
     graph = runner(InMemorySaver(), source)
     paused = run_ticket(graph, "thread-1", "t-1")
     assert paused.stage == "DRAFTED" and paused.next_nodes == ("human_review",)
-    assert paused.errors == [] and paused.attempt_ids == ["classification-1", "draft-2"]
+    assert paused.errors == [] and paused.attempt_ids == [
+        "classification-1",
+        "draft-2",
+        "verification-3",
+    ]
     assert (paused.retried, paused.recovered) == (0, 0)
-    assert len(sdk_http) == 2
+    assert len(sdk_http) == 3
     done = resume(graph, "thread-1")
     assert done.stage == "HUMAN_REVIEW" and done.next_nodes == ()
-    assert len(sdk_http) == 2
-    assert source.attempts == [("classification", "t-1"), ("draft", "t-1")]
+    assert len(sdk_http) == 3
+    assert source.attempts == [("classification", "t-1"), ("draft", "t-1"), ("verification", "t-1")]
     dumped = json.dumps([asdict(paused), asdict(done)])
     for secret in (*SECRETS, KEY, "Synthetic answer", "category_code"):
         assert secret not in dumped
@@ -188,7 +207,7 @@ def test_runner_stores_the_classification_prompt_version(sdk_http):
             return super().record_attempt(kind, ticket_id, attempt)
 
     run_ticket(runner(InMemorySaver(), Recording({"t-1": TICKET})), "thread-v", "t-1")
-    assert seen == [("classification", "v3"), ("draft", "v1")]
+    assert seen == [("classification", "v3"), ("draft", "v1"), ("verification", "v1")]
     seen.clear()
     graph = runner(InMemorySaver(), Recording({"t-1": TICKET}), prompt_version="v2")
     run_ticket(graph, "thread-v2", "t-1")
@@ -198,7 +217,7 @@ def test_runner_stores_the_classification_prompt_version(sdk_http):
 @pytest.mark.parametrize(
     ("retries", "second", "stage", "calls", "retried", "recovered"),
     [
-        (1, CLASSIFICATION, "DRAFTED", 3, 1, 1),
+        (1, CLASSIFICATION, "DRAFTED", 4, 1, 1),
         (1, "still not json", "CLASSIFY_FAILED", 2, 1, 0),
         (0, CLASSIFICATION, "CLASSIFY_FAILED", 1, 0, 0),
     ],
@@ -221,7 +240,7 @@ def test_runner_retries_invalid_output_and_counts_it(
     Returns:
         None: 단계·호출 수·요약 수를 확인한다.
     """
-    requests = install_http(monkeypatch, ["not json", second, DRAFT])
+    requests = install_http(monkeypatch, ["not json", second, DRAFT, VERIFICATION])
     source = InMemoryTicketSource({"t-1": TICKET})
     outcome = run_ticket(
         runner(InMemorySaver(), source, invalid_output_retries=retries), "thread-r", "t-1"
@@ -262,11 +281,13 @@ def test_runner_draft_uses_measured_output_limit_and_evidence_count(
     assert DRAFT_DEFAULTS == {"max_output_tokens": 2048, "evidence_limit": 5}
     graph = runner(InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), **kwargs)
     outcome = run_ticket(graph, "thread-k", "t-1")
-    classify, draft = (json.loads(request.content)["generationConfig"] for request in sdk_http)
+    classify, draft, verification = (
+        json.loads(request.content)["generationConfig"] for request in sdk_http
+    )
     assert classify["maxOutputTokens"] == AISettings(gemini_api_key=KEY).gemini_max_output_tokens
-    assert draft["maxOutputTokens"] == tokens
+    assert draft["maxOutputTokens"] == verification["maxOutputTokens"] == tokens
     assert len(graph.get_state(thread_config("thread-k")).values["evidence"]) == evidence
-    assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"]]
+    assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"], ["STOP"]]
 
 
 def test_runner_refuses_tracing_unless_allowed(sdk_http, monkeypatch):
@@ -420,3 +441,22 @@ def test_vector_settings_accept_the_dimension_as_an_env_string(monkeypatch):
     monkeypatch.setenv("CS_EMBEDDING_DIMENSION", "1536")
     with pytest.raises(ValidationError):
         cs_search.CsVectorSettings()
+
+
+def test_runner_verification_can_be_disabled_without_a_call(monkeypatch):
+    requests = install_http(monkeypatch, [CLASSIFICATION, DRAFT])
+    graph = runner(
+        InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), verification_enabled=False
+    )
+    run_ticket(graph, "off", "t-1")
+    assert len(requests) == 2
+    state = graph.get_state(thread_config("off")).values
+    assert state["verification"]["status"] == "NOT_VERIFIED"
+    assert state["verification"]["reason"] == "CS_VERIFICATION_DISABLED"
+
+
+def test_verification_setting_defaults_true_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("CS_DRAFT_VERIFICATION_ENABLED", raising=False)
+    assert Settings(_env_file=None).cs_draft_verification_enabled is True
+    monkeypatch.setenv("CS_DRAFT_VERIFICATION_ENABLED", "false")
+    assert Settings(_env_file=None).cs_draft_verification_enabled is False
