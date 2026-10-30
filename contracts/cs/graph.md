@@ -89,6 +89,7 @@
 플랫폼 전송([작업 계약](../platform/jobs.md) 2/3)이 C/S 이미지의 `cs-worker` 대상(`python -m backend.agent.cs_worker`)을 `CS_JOB_ID`=작업 ID로 실행한다.
 
 - 게이트: local/test이고 `CS_WORKER_ENABLED`(기본 꺼짐)일 때만 돈다. 아니면 `CS_WORKER_DISABLED`로 끝난다. `CS_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
+- 분류 설정: `CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS`(기본 4096, thinking 포함)와 `CS_WORKER_CLASSIFICATION_MODEL`(없으면 공통 `GEMINI_MODEL`)은 분류에만 쓴다. 공통 `GEMINI_MAX_OUTPUT_TOKENS`는 분류·초안이 쓰지 않는다. 값을 바꾸려면 채택 기록이 필요하다(`eval/promotion.py`).
 - DB: `DATABASE_URL` 하나(`cs_worker` 멤버 로그인)로 `runtime`·cs 표·`checkpoint_cs`를 쓴다. 앱·마이그레이터 역할 멤버이거나 특권 속성이 있으면 `WORKER_ROLE_REQUIRED`다. cs 표·`checkpoint_cs` 권한은 KAN-107 cs 마이그레이션이 준다.
 - 소유권(`runtime.job_control`, RFP worker와 공통 `backend/agent/job_runtime.py`)
   - 인수: QUEUED이거나 lease가 끊긴 RUNNING이고 취소 요청이 없을 때만이다. generation+1, holder, lease(`CS_WORKER_LEASE_SECONDS`, 기본 120초), RUNNING, `job.started`를 한 트랜잭션에 남긴다. 아니면 `NOT_CLAIMED`다.
