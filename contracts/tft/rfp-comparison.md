@@ -8,7 +8,7 @@
   - 범위: 계열 필터(`family=`)와 검색 조건(색인 판본·상한·문서 해시 수)을 `search_trace.filters`에 그대로 남긴다. "후보 없음"은 compare 사유에 이 범위와 문서 수를 넣어 그 범위의 결과로만 말한다.
   - 문서 → 제품: 청크에는 제품 코드가 없어 색인 manifest의 문서 해시 → 제품 코드 표로 잇는다. 표에 없는 문서, 자사 후보 목록에 없는 제품은 후보로 만들지 않는다.
   - 질의는 요구 항목·속성·값·단위·인증 규격의 토큰 OR이고, 규격 코드 일치(예: `UL 1066`)는 원문을 따로 넘긴다.
-  - 검색이 없으면 계열 필터만으로 동작한다. 검색이 실패하면 계열 후보로 계속 비교하고 범위에 `document_search=failed`를 남기며, 후보가 하나도 없을 때만 `search_failed`로 판정을 보류한다(검색 실패 ≠ 제품 없음).
+  - 검색이 없으면 계열 필터만으로 동작한다. 검색이 실패하면 계열 후보로 계속 비교하고 범위에 `document_search=failed:<예외 종류>`를 남기며(로그에도 종류만, 메시지는 남기지 않음), 후보가 하나도 없을 때만 `search_failed`로 판정을 보류한다(검색 실패 ≠ 제품 없음).
   - 검색으로 찾은 후보에도 같은 속성·단위·조건 규칙과 IEC→IEEE 확장 금지가 그대로 적용된다(`tests/tft/test_rfp_candidates.py`).
 - **비교 판정**: 같은 속성·같은 단위·같은 조건끼리만 규칙으로 비교한다. 값 비교 함수는 가상 협력사 등급(KAN-187 `partners/grading.py`)의 `_value_verdict`·`_condition_gaps`를 그대로 써서 자사와 협력사가 같은 규칙을 쓴다(decisions.md 가상 협력사 결정).
 - **고객 지정 모델 요구**(KAN-187, 기획서 V_1 ⑧): 가상 협력사 후보 등급 `grade_candidate`는 `designated_model`이 있는 요구를 채점하지 않고 후보 요약 `designated_requirements`(`requirement_id`·`designated_model`·`clause_no`·`note`='고객 지정 조달')로 따로 남긴다. 협력사 후보 추천과 섞지 않기 위해서다. 남은 요구가 없으면 `overall_grade`는 `REVIEW`이고 `conditions_to_confirm`에 '모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음.'을 넣는다.

@@ -24,6 +24,7 @@ MIGRATIONS = (
     "20261030_KAN-182_rfp_keys.sql",
     "20261101_KAN-186_supplement_paths.sql",
     "20261102_KAN-186_rnd_check.sql",
+    "20261103_KAN-186_project_columns.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]
@@ -296,6 +297,62 @@ def test_rnd_check_internal_questions_and_department_kinds_are_stored(admin, app
         "UPDATE tft.requirement_versions SET rnd_check = 'MAYBE' WHERE requirement_id = %s",
         (chain["requirement"],),
     )
+
+
+def test_strategic_customer_integration_and_designated_item_are_stored(admin, chain):
+    """KAN-186 T11(명세 v1.3 §9 A01 남은 열): 전략 고객·통합 책임·지정품·선택의 R&D 확인."""
+    who = uuid4()
+    with psycopg.connect(admin) as conn:
+        row = conn.execute(
+            "SELECT strategic_customer, integration_holder, integration_holder_candidates "
+            "FROM tft.projects WHERE id=%s",
+            (chain["project"],),
+        ).fetchone()
+        # Existing projects: not entered, integration unresolved.
+        assert row == (None, "UNRESOLVED", [])
+        conn.execute(
+            "UPDATE tft.projects SET strategic_customer=true, strategic_customer_note='매출 상위', "
+            "strategic_customer_set_by=%s, strategic_customer_set_at=now(), integration_holder='SINGLE_PARTNER', "
+            "integration_holder_candidates='[\"P-A\"]', integration_set_by=%s, integration_set_at=now() "
+            "WHERE id=%s",
+            (who, who, chain["project"]),
+        )
+    for bad in (
+        "strategic_customer=false, strategic_customer_set_by=NULL, strategic_customer_set_at=NULL",
+        "integration_holder='OWN', integration_set_by=NULL, integration_set_at=NULL",
+        "integration_holder='NOBODY'",
+        "integration_holder_candidates='{}'",
+    ):
+        violates(admin, f"UPDATE tft.projects SET {bad} WHERE id=%s", (chain["project"],))
+    # Specified-item details only with a designated model.
+    violates(
+        admin,
+        "UPDATE tft.requirement_versions SET designated_manufacturer='SEL' WHERE requirement_id=%s",
+        (chain["requirement"],),
+    )
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET designated_model='SEL-751A', "
+            "designated_manufacturer='SEL', designated_procurement='SPECIFIED_PROCUREMENT', "
+            "designated_clause_id=%s WHERE requirement_id=%s",
+            (chain["clause"], chain["requirement"]),
+        )
+    violates(
+        admin,
+        "UPDATE tft.requirement_versions SET designated_procurement='BUY' WHERE requirement_id=%s",
+        (chain["requirement"],),
+    )
+    selection = (
+        "INSERT INTO tft.supplement_selections (requirement_id, version, requirement_version, path, "
+        "role_split, decided_by, rnd_check, rnd_check_waiver_reason, data_origin, derivation_kind, "
+        "known_at) VALUES (%s,%s,1,'EXTERNAL_PRODUCT','외부 조달',%s,%s,%s,'synthetic','DERIVED',now())"
+    )
+    reason = "고객 일정상 R&D 회신을 기다릴 수 없어 외부 조달로 먼저 검토"
+    with psycopg.connect(admin) as conn:
+        conn.execute(selection, (chain["requirement"], 1, who, "WAIVED", reason))
+    # A waiver reason is the record of a WAIVED choice.
+    violates(admin, selection, (chain["requirement"], 2, who, "PENDING", reason))
+    violates(admin, selection, (chain["requirement"], 3, who, "MAYBE", None))
 
 
 def test_virtual_partner_profiles_from_the_json_fit_the_table(admin):

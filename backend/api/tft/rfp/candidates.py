@@ -9,14 +9,17 @@
 - 문서 → 제품: 청크에는 제품 코드가 없어 색인 manifest의 문서 해시 → 제품 코드 표로 잇는다. 표에 없는 문서와 자사
   후보 목록에 없는 제품은 후보로 만들지 않는다(근거 없는 후보 금지).
 - 검색이 없거나 실패해도 비교는 계열 필터만으로 동작한다. 검색 실패를 제품 부재로 확정하지 않는다: 계열 필터 후보가
-  있으면 비교하고 범위에 `document_search=failed`를 남기며, 후보가 하나도 없을 때만 `search_failed`로 판정을 보류한다.
+  있으면 비교하고 범위에 `document_search=failed:<예외 종류>`를 남기며, 후보가 하나도 없을 때만 `search_failed`로 판정을 보류한다.
 """
 
+import logging
 from collections.abc import Mapping, Sequence
 
 from backend.api.tft.rfp.comparison import Product, Requirement, SearchTrace
 from backend.engine.search.hybrid import Searcher, run_hybrid, token_or_query
 from backend.engine.search.model import SearchFilters
+
+logger = logging.getLogger(__name__)
 
 
 def query_for(requirement: Requirement) -> tuple[str, str]:
@@ -78,10 +81,14 @@ def find_candidates(
         query, original = query_for(requirement)
         try:
             result = run_hybrid(query, filters, fts=fts, vector=vector, code_text=original)
-        except Exception:
-            # 검색 실패는 제품 부재가 아니다. 사유를 남기고 계열 필터 후보로 계속한다.
+        except Exception as error:
+            # 검색 실패는 제품 부재가 아니다. 계열 필터 후보로 계속하되, 프로그램 오류가 묻히지 않게 예외 종류를
+            # 범위와 로그에 남긴다(#302 리뷰 P3). 메시지는 원문이 섞일 수 있어 남기지 않는다.
             failed = True
-            scope.append("document_search=failed")
+            scope.append(f"document_search=failed:{type(error).__name__}")
+            logger.warning(
+                "rfp candidate search failed", extra={"error_type": type(error).__name__}
+            )
         else:
             hits = [item.candidate.document_sha256 for item in result.items]
             documents = len(set(hits))

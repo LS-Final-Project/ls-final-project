@@ -126,7 +126,8 @@ def test_a_failed_search_is_not_product_absence():
     # Family candidates exist: compare them and record the failed document search.
     found, trace = find_candidates(VOLTAGE, products(), "SWITCHGEAR", fts=broken, filters=FILTERS)
     assert ([p.product_code for p in found], trace.search_failed) == (["SWGR-TEST"], False)
-    assert "document_search=failed" in trace.filters
+    assert "document_search=failed:RuntimeError" in trace.filters
+    assert trace.documents_searched == 0
     # Nothing at all: the judgement is held, not "no product".
     none, held = find_candidates(VOLTAGE, products(), "GIS", fts=broken, filters=FILTERS)
     assert (none, held.search_failed) == ([], True)

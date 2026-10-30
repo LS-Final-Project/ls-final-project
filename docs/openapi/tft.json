@@ -628,6 +628,67 @@
         "title": "DeletedValue",
         "type": "object"
       },
+      "DesignatedItem": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Question Id"
+          },
+          "clause_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause Id"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "procurement": {
+            "default": "SPECIFIED_PROCUREMENT",
+            "enum": [
+              "SPECIFIED_PROCUREMENT",
+              "ALTERNATIVE_PROPOSAL",
+              "UNDECIDED"
+            ],
+            "title": "Procurement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "model",
+          "clause_id"
+        ],
+        "title": "DesignatedItem",
+        "type": "object"
+      },
       "DocumentDetail": {
         "additionalProperties": false,
         "properties": {
@@ -1116,6 +1177,122 @@
           "service"
         ],
         "title": "HealthData",
+        "type": "object"
+      },
+      "IntegrationResponsibility": {
+        "additionalProperties": false,
+        "description": "\uba85\uc138 v1.3 \u00a77. required\u00b7basis_clause_ids\ub294 \uc11c\ubc84 \uacc4\uc0b0(rfp/integration.py), \ub098\uba38\uc9c0\ub294 \uc0ac\ub78c \uc785\ub825.",
+        "properties": {
+          "basis_clause_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Basis Clause Ids",
+            "type": "array"
+          },
+          "holder": {
+            "default": "UNRESOLVED",
+            "enum": [
+              "OWN",
+              "SINGLE_PARTNER",
+              "JOINT",
+              "UNRESOLVED"
+            ],
+            "title": "Holder",
+            "type": "string"
+          },
+          "holder_candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Holder Candidate Codes",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "set_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set At"
+          },
+          "set_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set By"
+          }
+        },
+        "title": "IntegrationResponsibility",
+        "type": "object"
+      },
+      "IntegrationUpdate": {
+        "additionalProperties": false,
+        "description": "\ud1b5\ud569 \ucc45\uc784 \uc9c0\uc815(\uc0ac\ub78c\uc758 \uacb0\uc815, \ubc14\ub85c human_input \ud310\ubcf8). required\u00b7\uadfc\uac70 \uc870\ud56d\uc740 \uc11c\ubc84\uac00 \uacc4\uc0b0\ud55c\ub2e4.",
+        "properties": {
+          "holder": {
+            "enum": [
+              "OWN",
+              "SINGLE_PARTNER",
+              "JOINT",
+              "UNRESOLVED"
+            ],
+            "title": "Holder",
+            "type": "string"
+          },
+          "holder_candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Holder Candidate Codes",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "holder"
+        ],
+        "title": "IntegrationUpdate",
         "type": "object"
       },
       "InternalAssumption": {
@@ -1790,6 +1967,30 @@
             "maxItems": 20,
             "title": "Review Departments",
             "type": "array"
+          },
+          "strategic_customer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer"
+          },
+          "strategic_customer_note": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Note"
           }
         },
         "required": [
@@ -2087,6 +2288,16 @@
             ],
             "title": "Customer Goal"
           },
+          "integration_responsibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "anyOf": [
               {
@@ -2114,6 +2325,30 @@
               }
             ],
             "title": "Review Departments"
+          },
+          "strategic_customer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer"
+          },
+          "strategic_customer_note": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Note"
           },
           "version": {
             "minimum": 1.0,
@@ -3170,6 +3405,16 @@
             "title": "Conditions",
             "type": "array"
           },
+          "designated_item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DesignatedItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "designated_model": {
             "anyOf": [
               {
@@ -3309,6 +3554,11 @@
               }
             ],
             "title": "Equipment"
+          },
+          "is_designated_item": {
+            "default": false,
+            "title": "Is Designated Item",
+            "type": "boolean"
           },
           "necessity": {
             "enum": [
@@ -3593,6 +3843,9 @@
             "title": "Id",
             "type": "string"
           },
+          "integration_responsibility": {
+            "$ref": "#/components/schemas/IntegrationResponsibility"
+          },
           "judgement_status": {
             "enum": [
               "NEEDS_REVIEW",
@@ -3690,6 +3943,40 @@
               }
             ],
             "title": "Sales User Id"
+          },
+          "strategic_customer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer"
+          },
+          "strategic_customer_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Note"
+          },
+          "strategic_customer_set_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Set By"
           },
           "unresolved_mandatory_count": {
             "title": "Unresolved Mandatory Count",
