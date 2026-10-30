@@ -5,6 +5,15 @@ numbering_level, 없으면 style_name "Heading N"의 N-1, 둘 다 없으면 0이
 오면 경로 스택을 그 깊이까지 자르고 바꾼다. 경로 항목은 "번호 제목"이며 80자를 넘으면 자른다. 경계 블록의
 문장도 그 섹션 첫 청크 본문에 넣는다.
 
+v2(KAN-99·KAN-184): 제목·번호 힌트가 없는 문단(PDF에서 바꾼 DOCX 등)은 줄머리 조항 번호로 경계를 찾는다.
+번호 패턴은 조항 트리(backend/engine/rfp/clauses.py)의 정규식을 그대로 쓰고 깊이도 같다: SECTION 머리 0,
+PART 1, 조(2.5) 2. A.·1.·a.처럼 더 깊은 번호는 경계로 삼지 않고 본문 줄로 둔다(14번 DOCX에서 A.까지 경계로
+삼으면 청크 140개 중 100자 미만 31개, 조까지면 82개 중 3개).
+
+제목만 든 짧은 TEXT 청크(40자 이하, 끝 문장부호 없음)는 따로 두지 않고 다음 청크 앞에 합친다. 번호 칸으로
+목록을 흉내 낸 레이아웃 표(모든 행 첫 칸이 번호뿐)는 행을 문장 줄로 바꿔 다음 TEXT 청크 앞에 합친다. 합칠
+TEXT 청크가 없으면(다음이 표이거나 문서 끝) 그대로 둔다. 합친 청크는 예산을 조금 넘을 수 있다.
+
 본문 청크(TEXT): 같은 섹션 문단을 순서대로 예산(기본 1,200자)까지 묶고, 넘치면 문단 경계에서 나눈다.
 문단 하나가 예산을 넘으면 자르지 않고 단독 청크로 둔다. overlap은 없고 section_path가 연결 문맥이다.
 
@@ -28,12 +37,17 @@ import re
 from dataclasses import dataclass, field
 
 from backend.engine.documents.model import Block, ExtractedDocument
+from backend.engine.rfp.clauses import ARTICLE, LABELS, PART, SECTION_HEAD, SENTENCE_END
 from backend.engine.search.model import Chunk, ChunkingResult, ChunkKind
 
-INDEX_VERSION = "chunking-v1"
+INDEX_VERSION = "chunking-v2"
 BUDGET = 1200
 PATH_LIMIT = 80
 HEADING_STYLE = re.compile(r"(?i)heading\s*(\d)")
+# 이 글자 수 이하이고 끝 문장부호가 없는 TEXT 청크는 제목만 든 것으로 보고 다음 청크에 합친다.
+TITLE_ONLY_MAX = 40
+# 줄머리 번호로 경계를 삼는 가장 깊은 깊이(clauses.py 깊이: SECTION 0·PART 1·조 2·A. 3). 조까지만 쓴다.
+CLAUSE_BOUNDARY_MAX = 2
 
 
 @dataclass
@@ -55,15 +69,94 @@ def _boundary_depth(block: Block) -> int | None:
         int | None: 경계면 깊이(0부터), 아니면 None.
     """
     hints = block.hints
-    if block.kind != "PARAGRAPH" or hints is None:
+    if block.kind != "PARAGRAPH":
         return None
-    level = hints.numbering_level
-    if not hints.is_heading and not (hints.list_text and level is not None and 0 <= level <= 2):
-        return None
+    level = hints.numbering_level if hints else None
+    if hints and (hints.is_heading or hints.list_text):
+        if not hints.is_heading and not (level is not None and 0 <= level <= 2):
+            return None
+        if level is not None:
+            return level
+        match = HEADING_STYLE.search(hints.style_name or "")
+        return max(int(match.group(1)) - 1, 0) if match else 0
     if level is not None:
-        return level
-    match = HEADING_STYLE.search(hints.style_name or "")
-    return max(int(match.group(1)) - 1, 0) if match else 0
+        return None
+    return _clause_depth(block.text)
+
+
+def _clause_depth(text: str) -> int | None:
+    """제목·번호 힌트가 없는 문단의 줄머리 조항 번호 깊이(clauses.py와 같은 패턴·깊이).
+
+    Args:
+        text: 문단 현행 텍스트.
+
+    Returns:
+        int | None: SECTION 머리 0, PART 1, 조(2.5) 2. CLAUSE_BOUNDARY_MAX보다 깊은 번호나 번호가 없으면 None.
+    """
+    line = text.strip()
+    if SECTION_HEAD.match(line):
+        return 0
+    if PART.match(line):
+        return 1
+    if ARTICLE.match(line):
+        return 2
+    for depth, pattern in LABELS:
+        if pattern.match(line):
+            return depth if depth <= CLAUSE_BOUNDARY_MAX else None
+    return None
+
+
+def _title_only(text: str) -> bool:
+    """제목만 든 짧은 TEXT인지.
+
+    Args:
+        text: 청크 text.
+
+    Returns:
+        bool: 40자 이하이고 끝이 문장부호가 아니면 True.
+    """
+    body = text.strip()
+    return 0 < len(body) <= TITLE_ONLY_MAX and not body.endswith(SENTENCE_END)
+
+
+def _label_only(text: str) -> bool:
+    """칸 글자가 번호 하나뿐인지(예: "1.", "a.", "J.").
+
+    Args:
+        text: 표 칸 현행 텍스트.
+
+    Returns:
+        bool: clauses.py 번호 패턴과 글자 전체가 맞으면 True.
+    """
+    cell = text.strip()
+    return any((m := pattern.match(cell)) and m.group(0).strip() == cell for _, pattern in LABELS)
+
+
+def _layout_units(cells: list[Block], skipped: list[str]) -> list[Unit] | None:
+    """모든 행 첫 칸이 번호뿐인 레이아웃 표면 행을 "번호 내용" 문장 줄로 바꾼다.
+
+    Args:
+        cells: 같은 표의 셀 블록.
+        skipped: 빈 셀·세로 병합 이어짐 셀 ID를 더할 목록.
+
+    Returns:
+        list[Unit] | None: 레이아웃 표면 행 줄, 아니면 None(skipped는 건드리지 않는다).
+    """
+    rows: dict[int, list[Block]] = {}
+    empty: list[str] = []
+    for cell in cells:
+        if not cell.text or (cell.cell_state and cell.cell_state.merged_with):
+            empty.append(cell.block_id)
+            continue
+        rows.setdefault(cell.position.row or 0, []).append(cell)
+    ordered = [sorted(rows[r], key=lambda c: c.position.col or 0) for r in sorted(rows)]
+    if not ordered or not all(len(row) >= 2 and _label_only(row[0].text) for row in ordered):
+        return None
+    skipped.extend(empty)
+    return [
+        Unit(" ".join(cell.text for cell in row), row, [n for c in row for n in _notes(c)])
+        for row in ordered
+    ]
 
 
 def _label(block: Block) -> str:
@@ -185,20 +278,74 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
     skipped: list[str] = []
     path: list[tuple[int, str]] = []
     section: list[Unit] = []
+    # 다음 청크 앞에 합칠 묶음: (줄, 레이아웃 표인지, 표제). 제목만 TEXT는 다음 청크(종류 무관)에,
+    # 레이아웃 표는 다음 TEXT 청크에만 합친다.
+    pending: list[tuple[list[Unit], bool, str | None]] = []
 
-    def emit(units: list[Unit], kind: ChunkKind, title: str | None) -> None:
+    def emit(units: list[Unit], kind: ChunkKind, title: str | None, layout: bool = False) -> None:
+        """묶음 하나를 청크로 내거나, 제목만 TEXT·레이아웃 표면 다음 청크에 합치려고 미룬다.
+
+        Args:
+            units: 청크에 넣을 줄.
+            kind: TEXT 또는 TABLE.
+            title: 표제(표 청크만).
+            layout: 번호 칸 레이아웃 표의 행 줄인지.
+
+        Returns:
+            None: chunks에 더하거나 pending에 둔다.
+        """
+        if layout or (kind == "TEXT" and _title_only(_text([], units))):
+            pending.append((units, layout, title))
+            return
+        lead: list[Unit] = []
+        for held, is_layout, held_title in pending:
+            if is_layout and kind == "TABLE":
+                # 레이아웃 표는 표 청크에 합치지 않는다. 앞서 모은 제목과 함께 그대로 낸다.
+                write([*lead, *held], "TABLE", held_title)
+                lead = []
+            else:
+                lead += [Unit(held_title, []), *held] if is_layout and held_title else held
+        pending.clear()
+        write(
+            units if kind == "TABLE" else [*lead, *units],
+            kind,
+            title,
+            lead if kind == "TABLE" else [],
+        )
+
+    def release() -> None:
+        """문서 끝에서 합칠 곳이 없는 묶음을 그대로 낸다.
+
+        Returns:
+            None: 남은 pending을 원래 종류로 낸다.
+        """
+        for held, is_layout, held_title in pending:
+            write(held, "TABLE" if is_layout else "TEXT", held_title)
+        pending.clear()
+
+    def write(
+        units: list[Unit], kind: ChunkKind, title: str | None, lead: list[Unit] | None = None
+    ) -> None:
         """묶음 하나를 청크로 만든다.
 
         Args:
             units: 청크에 넣을 줄.
             kind: TEXT 또는 TABLE.
             title: 표제(표 청크만).
+            lead: 표 청크 표제 앞에 둘 합친 제목 줄.
 
         Returns:
             None: chunks에 더한다.
         """
-        blocks = [block for unit in units for block in unit.blocks]
-        text = _text([title] if title else [], units)
+        head = lead or []
+        blocks = [block for unit in [*head, *units] for block in unit.blocks]
+        # 표 앞 캡션 문단이 표제와 같으면 블록만 넣고 글자는 되풀이하지 않는다.
+        shown = [unit for unit in head if unit.body != title]
+        text = "\n".join(
+            filter(
+                None, [_text([], shown) if shown else "", _text([title] if title else [], units)]
+            )
+        )
         pages = [block.position.page for block in blocks if block.position.page is not None]
         ordinal = len(chunks)
         chunk_key = f"{document.sha256}:{INDEX_VERSION}:{ordinal}"
@@ -251,6 +398,10 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
                 index += 1
             flush()
             title = next((cell.table_title for cell in cells if cell.table_title), None)
+            layout = _layout_units(cells, skipped)
+            if layout is not None:
+                emit(layout, "TABLE", title, layout=True)
+                continue
             prefix = [title] if title else []
             for group in _pack(_table_units(cells, skipped), prefix, budget):
                 emit(group, "TABLE", title)
@@ -267,4 +418,5 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             path.append((depth, _label(block)))
         section.append(Unit(block.text, [block], _notes(block)))
     flush()
+    release()
     return ChunkingResult(chunks=chunks, skipped_block_ids=skipped, index_version=INDEX_VERSION)
