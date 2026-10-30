@@ -37,8 +37,13 @@
 `options_for(비교 결과, 고객 허용, designated, rnd_check, approval_question)`는 `SPEC_GAP`, 타사 지정 모델, 핵심 기기 부재에만 경로를 낸다. 근거 있음·조건부·근거 부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이다.
 
 - **순위 `rank`(path_rank, 저장 안 함)**: 1 자사 계열(`OTHER_OWN_PRODUCT`, `OWN_TERMS_REVIEW`) → 2 자사 개발·수행 확인(`OWN_DEVELOPMENT`, R&D) → 3 협력사 계열(`EXTERNAL_PRODUCT`·`TASK_SUBCONTRACT`·`JOINT_PROPOSAL`·`ALTERNATIVE_SPEC`) → 4 고객 지정품 조달(`CUSTOMER_SPECIFIED_PROCUREMENT`) → 9 `NONE`. 선택지는 이 순서로 정렬하고, 같은 순위 안은 아래 원인별 표의 순서다. 협력사는 자사 대응 가능성 확인보다 앞서지 않는다.
-- **게이트 `gate`**: 협력사 계열 4개는 `requires=OWN_DEVELOPMENT_CHECK`, 나머지는 `NONE`. `status`는 요구의 R&D 확인 상태 `rnd_check`(`NOT_REQUIRED`·`PENDING`·`CONFIRMED_FEASIBLE`·`CONFIRMED_NOT_FEASIBLE`·`CONFIRMED_SCHEDULE_MISMATCH`·`WAIVED`)다. `CONFIRMED_FEASIBLE`이면 협력사 계열은 `allowed=false`, `blocked_reason=OWN_DEVELOPMENT_FEASIBLE`(자사 개발이 되는데 협력사로 가지 않음).
-- `rnd_check` 계산(R&D 자문 질문·답변), `OWN_DEVELOPMENT` 선택 시 내부 질문 생성, 열린 R&D 질문이 있는 협력사 선택의 422 `TFT_RND_CHECK_REQUIRED`·면제 사유는 다음 KAN-186 PR이다. 이 엔진은 `rnd_check`를 입력으로 받는다.
+- **게이트 `gate`**: 협력사 계열 4개는 `requires=OWN_DEVELOPMENT_CHECK`, 나머지는 `NONE`. 자사 개발로 풀 수 없는 원인(상업 조건 `COMMERCIAL`, 지정품 `DESIGNATED_MODEL`)의 경로에는 게이트를 걸지 않는다. `status`는 요구의 R&D 확인 상태 `rnd_check`(`NOT_REQUIRED`·`PENDING`·`CONFIRMED_FEASIBLE`·`CONFIRMED_NOT_FEASIBLE`·`CONFIRMED_SCHEDULE_MISMATCH`·`WAIVED`)다. `CONFIRMED_FEASIBLE`이면 협력사 계열은 `allowed=false`, `blocked_reason=OWN_DEVELOPMENT_FEASIBLE`(자사 개발이 되는데 협력사로 가지 않음).
+- **R&D 확인 흐름**(`backend/api/tft/rfp/rnd.py`, 명세 v1.3 §5.2·§5.3). 저장·HTTP 연결은 A07(KAN-188)·A08(KAN-189)이 이 함수를 부른다.
+  - `rnd_check_of(R&D 질문들, 면제 시각)`: 질문이 없으면 `NOT_REQUIRED`, 열린 질문이 있으면 `PENDING`. 마지막 답이 `FEASIBLE`이면 `CONFIRMED_FEASIBLE`, `NOT_FEASIBLE`이면 `CONFIRMED_NOT_FEASIBLE`, `FEASIBLE_WITH_SCHEDULE`이면 `schedule_fits`가 참이면 `CONFIRMED_FEASIBLE`·거짓이면 `CONFIRMED_SCHEDULE_MISMATCH`이고, 그 밖(`UNDETERMINED`, 일정 미기재)은 `PENDING` 유지다. 면제 뒤 새 질문이 없으면 `WAIVED`다. 기준 질문 ID(`rnd_question_id`)를 함께 돌려준다.
+  - `rnd_question_for`: `OWN_DEVELOPMENT`를 고르면 검토 부서 중 분류 `RND`인 첫 부서에 내부 질문(`target=INTERNAL`, `issue_type=RND_FEASIBILITY`, 본문은 요구 요약)을 만든다. 호출자는 `next_owner_field=RND`, `rnd_check=PENDING`으로 두고 요구 상태는 바꾸지 않는다. R&D 부서가 없으면 422 `VALIDATION_ERROR`("검토 부서에 R&D 부서를 추가하세요").
+  - `check_selection`: 막혔거나 선택지에 없는 경로는 409 `TFT_INVALID_TRANSITION`. 게이트가 있는 협력사 경로를 `rnd_check=PENDING`에서 고르면 면제 사유(20자 이상)가 필요하고, 없으면 422 `TFT_RND_CHECK_REQUIRED`(details에 열린 질문 ID)다. 사유가 있으면 선택 판본에 `WAIVED`가 남는다(초안 ASSUMPTIONS 문장은 KAN-188).
+  - `check_reply_fields`: `rnd_feasibility`·`earliest_available_on`·`schedule_fits`는 분류 `RND` 부서 대상 내부 질문에만 받는다(아니면 422 `TFT_QUESTION_FIELD_NOT_ALLOWED`). 일정 칸만 있고 개발 가능성이 없으면 422 `VALIDATION_ERROR`.
+  - 부서 분류는 `tft.department_kinds`이고 매핑이 없는 부서는 `TECH`다. 시드는 시연 계정 부서(`SALES_OPS` 영업, `RND_FW` R&D, `TS_TRF`·`TS_MV`·`TS_LV`·`CERT` 기술, `SCM` 구매)뿐이다.
 - `OWN_TERMS_REVIEW`는 명세 v1.3에 없고 추가를 요청 중이다(KAN-186 댓글, 제안 순위 1).
 
 | 부족 원인 | 경로(순서) |
@@ -63,7 +68,7 @@
 - 14번 2.5절 몰드 변압기 요구 **14개**(`demo_cases.json` 시연 A)의 기대 상태와 판정이 모두 같다: 근거 있음 2, 조건부 3, 사양 차이 1, 근거 부족 8. 혼동표 대각선 14/14.
   - 기획서 4.7 표는 9개 행이고, 묶인 두 행(7: BIL·알루미늄 권선·이중 온도센서·ModBus, 8: IEEE C57.12.01·소음 NEMA TR1·Listed and labeled)을 요구별로 나눴다(`table_row`로 표의 행을 남김, 2026-10-30 결정). 조항은 14번 원문 2.5.K·L·G.1·E·I·O와 2.2.A.1이다.
   - "시연 A 결과"의 확인 조건 ①~⑪은 근거 있음 두 요구(탭·절연)를 뺀 12개 요구에 하나씩 대응한다(⑨ IEEE 시험·UL 등록이 두 요구). 검사 `test_the_eleven_demo_conditions_each_remain_open`.
-- 입출력 예시: [`backend/api/tft/rfp/examples/comparison-demo-a.json`](../../backend/api/tft/rfp/examples/comparison-demo-a.json)(백엔드 검사 이미지에 들어가도록 백엔드 폴더에 둔다). 입력은 요구 9개와 후보 필터, 출력은 요구마다 `comparison`(상태·사유·미확인·다음 담당·부족 원인·후보별 근거)과 `supplement`(경로). 검사 `test_the_contract_example_is_the_current_engine_output`가 이 파일이 지금 엔진 결과와 같은지 확인한다. 다시 만들 때는 `python -m tests.tft.test_rfp_comparison`.
+- 입출력 예시: [`backend/api/tft/rfp/examples/comparison-demo-a.json`](../../backend/api/tft/rfp/examples/comparison-demo-a.json)(백엔드 검사 이미지에 들어가도록 백엔드 폴더에 둔다). 입력은 요구 14개와 후보 필터, 출력은 요구마다 `comparison`(상태·사유·미확인·다음 담당·부족 원인·후보별 근거)과 `supplement`(경로). 검사 `test_the_contract_example_is_the_current_engine_output`가 이 파일이 지금 엔진 결과와 같은지 확인한다. 다시 만들 때는 `python -m tests.tft.test_rfp_comparison`.
 - 요구값은 14번 원문(개발 문서)에서 옮겼고 평가 문서(10·11·12·18)는 쓰지 않았다.
 
 ## 남은 것 (KAN-186 완료 조건)

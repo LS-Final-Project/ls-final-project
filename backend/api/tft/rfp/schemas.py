@@ -8,11 +8,11 @@
 - 사람 판단과 AI 결과는 `provenance_kind`로 구분한다.
 """
 
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
@@ -66,7 +66,20 @@ RndCheck = Literal[
 ]
 CustomerPermission = Literal["ALLOWED", "FORBIDDEN", "UNSTATED"]
 QuestionStatus = Literal["OPEN", "REPLIED"]
-QuestionIssue = Literal["EMPTY_VALUE", "CONFLICT", "SCOPE_UNCLEAR", "CONDITION_MISSING"]
+QuestionIssue = Literal[
+    "EMPTY_VALUE",
+    "CONFLICT",
+    "SCOPE_UNCLEAR",
+    "CONDITION_MISSING",
+    # 내부 자문 질문(target=INTERNAL)에만 쓴다(명세 v1.3 §4 #19).
+    "RND_FEASIBILITY",
+    "TECH_ADVICE",
+    "PURCHASE_TERMS",
+]
+INTERNAL_ISSUES = frozenset({"RND_FEASIBILITY", "TECH_ADVICE", "PURCHASE_TERMS"})
+QuestionTarget = Literal["CUSTOMER", "INTERNAL"]
+RndFeasibility = Literal["FEASIBLE", "FEASIBLE_WITH_SCHEDULE", "NOT_FEASIBLE", "UNDETERMINED"]
+DepartmentKind = Literal["SALES", "RND", "TECH", "PURCHASE", "OTHER"]
 ProposalOrigin = Literal["web", "customer_reply", "pdf_annot"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED"]
 ProposerKind = Literal["user", "system"]
@@ -313,6 +326,9 @@ class Judgement(Model):
     provenance_kind: ProvenanceKind
     decided_by: UUID | None
     decided_at: datetime | None
+    # 명세 v1.3 §5.2: R&D 질문·답변에서 서버가 계산한다. 열린 R&D 질문(없으면 마지막 R&D 질문).
+    rnd_check: RndCheck = "NOT_REQUIRED"
+    rnd_question_id: UUID | None = None
 
 
 class RequirementLinks(Model):
@@ -337,6 +353,7 @@ class RequirementSummary(Model):
     open_questions: int
     needs_rereview: bool
     version: int
+    rnd_check: RndCheck = "NOT_REQUIRED"
 
 
 class RequirementList(Model):
@@ -437,6 +454,8 @@ class SupplementSelection(Model):
     role_split: str = Field(min_length=1, max_length=2000)
     conditions: list[str] = Field(default_factory=list)
     note: str | None = Field(default=None, max_length=1000)
+    # 열린 R&D 질문이 있는데 협력사 계열 경로를 고를 때만 쓴다(명세 v1.3 §5.2, 20자 이상).
+    rnd_check_waiver_reason: str | None = Field(default=None, min_length=20, max_length=1000)
 
 
 class SupplementSelected(Provenance):
@@ -513,6 +532,17 @@ class QuestionCreate(Model):
     issue_type: QuestionIssue
     question_text: str = Field(min_length=1, max_length=4000)
     internal_assumption: InternalAssumption | None = None
+    # 명세 v1.3 §5.3: INTERNAL은 프로젝트 검토 부서 안의 target_dept가 필요하다(서버가 범위를 검사한다).
+    target: QuestionTarget = "CUSTOMER"
+    target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def check_target(self) -> Self:
+        if (self.target == "INTERNAL") != (self.target_dept is not None):
+            raise ValueError("target_dept is required for INTERNAL questions only")
+        if self.issue_type in INTERNAL_ISSUES and self.target != "INTERNAL":
+            raise ValueError("This issue type is for internal questions")
+        return self
 
 
 class QuestionReply(Model):
@@ -521,6 +551,10 @@ class QuestionReply(Model):
     received_at: datetime
     # 메일 ID 등 참조만. 메일 본문은 저장하지 않는다.
     source_ref: str | None = Field(default=None, max_length=512)
+    # R&D 부서 대상 내부 질문에만 받는다(아니면 422 TFT_QUESTION_FIELD_NOT_ALLOWED, rnd.check_reply_fields).
+    rnd_feasibility: RndFeasibility | None = None
+    earliest_available_on: date | None = None
+    schedule_fits: bool | None = None
 
 
 class Question(Provenance):
@@ -534,6 +568,9 @@ class Question(Provenance):
     reply_received_at: datetime | None
     created_by: UUID
     created_at: datetime
+    target: QuestionTarget = "CUSTOMER"
+    target_dept: str | None = None
+    rnd_feasibility: RndFeasibility | None = None
 
 
 class QuestionList(Model):

@@ -175,3 +175,28 @@ def test_every_rfp_route_checks_the_user_before_anything_else(client):
     assert (
         client.post("/api/v1/tft/projects", json=body, headers={**key, **agent}).status_code == 403
     )
+
+
+def test_internal_questions_need_a_department_and_internal_issue_types_stay_internal():
+    """명세 v1.3 §5.3: INTERNAL 질문은 target_dept가 있어야 하고, 내부 자문 유형은 INTERNAL에만 쓴다."""
+    base = {
+        "requirement_id": None,
+        "origin": {"clause_id": None, "page": None},
+        "question_text": "?",
+    }
+    ok = s.QuestionCreate(
+        **base, issue_type="RND_FEASIBILITY", target="INTERNAL", target_dept="RND_FW"
+    )
+    assert ok.target == "INTERNAL"
+    assert s.QuestionCreate(**base, issue_type="EMPTY_VALUE").target == "CUSTOMER"
+    for bad in (
+        {"issue_type": "RND_FEASIBILITY", "target": "INTERNAL"},
+        {"issue_type": "EMPTY_VALUE", "target_dept": "RND_FW"},
+        {"issue_type": "TECH_ADVICE"},
+    ):
+        with pytest.raises(ValueError):
+            s.QuestionCreate(**base, **bad)
+    with pytest.raises(ValueError):
+        s.SupplementSelection(
+            version=1, path="EXTERNAL_PRODUCT", role_split="x", rnd_check_waiver_reason="짧음"
+        )
