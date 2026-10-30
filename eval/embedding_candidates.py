@@ -23,13 +23,18 @@ class _ProviderFailed(Exception):
 
 @dataclass(frozen=True)
 class EmbeddingCandidate:
-    """비교할 임베딩 후보. embed는 문자열 배치를 받아 같은 순서의 벡터 배치를 돌려준다."""
+    """비교할 임베딩 후보. embed는 문자열 배치를 받아 같은 순서의 벡터 배치를 돌려준다.
+
+    usage는 선택이다. 있으면 후보 실행이 끝난 뒤 한 번 불러 사용량 요약(호출 수·토큰·문자 수 등)을 후보 행에 그대로
+    남긴다(KAN-144). 하네스는 값을 해석하지 않는다.
+    """
 
     name: str
     embed: Callable[[list[str]], list[list[float]]]
     model: str
     dimension: int | None
     normalize: bool = True
+    usage: Callable[[], Mapping[str, Any]] | None = None
 
 
 def _unit(vector: Sequence[float], dimension: int | None, normalize: bool) -> list[float]:
@@ -121,7 +126,8 @@ def run_embedding_candidates(
 
     Returns:
         dict: candidates(후보 행: name·model·dimension(실측)·recall_at_k·hit_at_k·mrr·embed_calls·elapsed_ms·
-            chunk_count·query_count·error)와 ranking. 순위 동률은 chunk_id 정렬로 정한다. 공급자 예외는
+            chunk_count·query_count·error·usage(후보 usage 콜러블 결과, 없으면 None))와 ranking, per_query(성공한
+            후보마다 질의별 {query_id, candidate, first_hit_rank, top_ids(상위 5 chunk_id)}). 순위 동률은 chunk_id 정렬로 정한다. 공급자 예외는
             error=PROVIDER_ERROR로 두고 지표·실측 차원은 None이다(원문 없음). ranking은 hit@5(없으면 가장 큰 k)
             내림차순 → MRR 내림차순 → 이름순이며 오류 행은 지표가 None이라 뒤로 간다. 입력·벡터 위반(차원 불일치·0 벡터·개수
             불일치)은 EVAL_INVALID_INPUT ValueError다.
@@ -146,6 +152,7 @@ def run_embedding_candidates(
     query_ids = list(queries)
     depth = max(k_values)
     rows = []
+    per_query: list[dict[str, Any]] = []
     for candidate in candidates:
         started = time.perf_counter()
         row: dict[str, Any] = {
@@ -172,6 +179,7 @@ def run_embedding_candidates(
                     "embed_calls": None,
                     "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                     "error": PROVIDER_ERROR,
+                    "usage": dict(candidate.usage()) if candidate.usage else None,
                 }
             )
             continue
@@ -185,6 +193,15 @@ def run_embedding_candidates(
             ]
             ranked[query_id] = [chunk_id for _, chunk_id in sorted(scores)[:depth]]
         summary = summarize_retrieval(ranked, gold, k_values=k_values, input_mode=input_mode)
+        per_query += [
+            {
+                "query_id": item["query_id"],
+                "candidate": candidate.name,
+                "first_hit_rank": item["first_hit_rank"],
+                "top_ids": ranked[item["query_id"]][:5],
+            }
+            for item in summary["per_query"]
+        ]
         rows.append(
             row
             | {"dimension": len(chunk_vectors[0])}
@@ -193,6 +210,7 @@ def run_embedding_candidates(
                 "embed_calls": chunk_calls + query_calls,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                 "error": None,
+                "usage": dict(candidate.usage()) if candidate.usage else None,
             }
         )
     key = 5 if 5 in k_values else max(k_values)
@@ -217,6 +235,7 @@ def run_embedding_candidates(
         "ranking_key": f"hit_at_{key}",
         "candidates": rows,
         "ranking": [row["name"] for row in sorted(rows, key=order)],
+        "per_query": per_query,
     }
 
 

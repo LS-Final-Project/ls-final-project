@@ -221,7 +221,9 @@ class EmbeddingRunTests(unittest.TestCase):
 
         def fake_embed(client, model, text, *, dimensions=None, task_type=None):
             calls.append((client, model, text, dimensions, task_type))
-            return SimpleNamespace(values=fake_vector(text))
+            return SimpleNamespace(
+                values=fake_vector(text), input_tokens=len(text), billable_characters=None
+            )
 
         settings = cs_embedding_run.AISettings()
         with (
@@ -240,6 +242,76 @@ class EmbeddingRunTests(unittest.TestCase):
             ],
         )
         self.assertEqual(vectors, [fake_vector("trip a"), fake_vector("탭 b")])
+        recorder = factory(spec, settings)
+        with patch.object(cs_embedding_run, "embed", fake_embed):
+            recorder(["trip a", "탭 b"])
+        self.assertEqual(
+            recorder.usage(),
+            {
+                "calls": 2,
+                "chars": 9,
+                "input_tokens": 9.0,
+                "tokens_reported": 2,
+                "billable_characters": None,
+            },
+        )
+        cost = cs_embedding_run.usage_cost(
+            recorder.usage(), "gemini-embedding-001", cs_embedding_run.load_price_table()
+        )
+        self.assertEqual(cost["currency"], "USD")
+        self.assertEqual(
+            cs_embedding_run.Decimal(cost["input_cost"]),
+            cs_embedding_run.Decimal(9)
+            * cs_embedding_run.load_price_table()["gemini-embedding-001"].input_per_million
+            / cs_embedding_run.Decimal(1_000_000),
+        )
+        self.assertIsNone(cs_embedding_run.usage_cost(None, "gemini-embedding-001", {}))
+
+    def test_execute_records_usage_and_cost_and_drops_partial_tokens(self):
+        """--execute는 후보 임베딩의 usage를 행에 남기고 단가표 모델만 비용을 낸다. 토큰을 일부만 알려주면 input_tokens는 None이다.
+
+        Returns:
+            None: 후보 행 usage·cost와 per_query를 확인한다.
+        """
+
+        class Recorder:
+            """토큰을 한 번은 알려주지 않는 가짜 공급자."""
+
+            def __init__(self, partial):
+                self.recorder = cs_embedding_run.RecordingEmbed(
+                    None, {"model": "m", "dimension": None, "task_type": None}
+                )
+                self.partial = partial
+
+            def __call__(self, batch):
+                def fake(client, model, text, *, dimensions=None, task_type=None):
+                    missing = self.partial and text == batch[0]
+                    return SimpleNamespace(
+                        values=fake_vector(text),
+                        input_tokens=None if missing else 2,
+                        billable_characters=None,
+                    )
+
+                with patch.object(cs_embedding_run, "embed", fake):
+                    return self.recorder(batch)
+
+            def usage(self):
+                return self.recorder.usage()
+
+        def factory(spec, settings):
+            return Recorder(partial=spec["name"] == "e2")
+
+        out = self.root / "usage.json"
+        code, printed = self.run_main("--execute", "--out", str(out), factory=factory)
+        self.assertEqual(code, 0, printed)
+        result = json.loads(out.read_text(encoding="utf-8"))["result"]
+        rows = {row["name"]: row for row in result["candidates"]}
+        self.assertEqual(rows["e1"]["usage"]["calls"], 5)
+        self.assertEqual(rows["e1"]["usage"]["input_tokens"], 10.0)
+        self.assertEqual(rows["e1"]["cost"]["currency"], "USD")
+        self.assertIsNone(rows["e2"]["usage"]["input_tokens"])
+        self.assertIsNone(rows["e2"]["cost"])
+        self.assertEqual({item["candidate"] for item in result["per_query"]}, {"e1", "e2"})
 
     def test_test_in_input_path_prints_a_warning(self):
         """입력 경로에 'test'가 있으면 경고 한 줄을 낸다(실행은 계속한다).

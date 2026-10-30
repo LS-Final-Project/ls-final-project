@@ -198,6 +198,7 @@ def test_provider_error_row_and_fts_baseline_side_by_side():
         "chunk_count",
         "query_count",
         "error",
+        "usage",
     }
 
 
@@ -224,3 +225,29 @@ def test_invalid_setup_is_rejected(kwargs):
     args = {"gold": GOLD, "candidates": [EmbeddingCandidate("a", table_embed, "m", 3)]} | kwargs
     with pytest.raises(ValueError, match="^EVAL_INVALID_INPUT$"):
         run_embedding_candidates(CHUNKS, QUERIES, **({"k_values": (1, 3, 5)} | args))
+
+
+def test_per_query_ranks_and_usage_hook_are_recorded():
+    """per_query는 성공한 후보마다 질의별 첫 적중 순위·상위 5 chunk_id를 남기고, usage 콜러블 결과를 후보 행에 둔다(KAN-144)."""
+    stats = {"calls": 0}
+
+    def counted(texts):
+        stats["calls"] += len(texts)
+        return table_embed(texts)
+
+    result = run_embedding_candidates(
+        CHUNKS,
+        QUERIES,
+        gold=GOLD,
+        candidates=[EmbeddingCandidate("table", counted, "m", None, usage=lambda: dict(stats))],
+    )
+    row = result["candidates"][0]
+    assert row["usage"] == {"calls": len(CHUNKS) + len(QUERIES)}
+    entries = {item["query_id"]: item for item in result["per_query"]}
+    assert set(entries) == set(QUERIES)
+    assert all(
+        item["candidate"] == "table" and len(item["top_ids"]) == 5 for item in entries.values()
+    )
+    for query_id, item in entries.items():
+        rank = item["first_hit_rank"]
+        assert rank is None or rank > 5 or item["top_ids"][rank - 1] in GOLD[query_id]
