@@ -97,3 +97,16 @@ def can_reply(
     return principal.user_id in (project["sales_user_id"], project["responsible_user_id"]) or (
         "dept_staff" in principal.roles and principal.dept == question["target_dept"]
     )
+
+
+def can_select_supplement(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """보완 경로·후보·역할 분담 선택: 담당 sales와 책임자만(permissions.md 역할별 행동표).
+
+    Args:
+        principal: 요청 사용자.
+        project: id·sales_user_id·responsible_user_id가 있는 프로젝트 행.
+
+    Returns:
+        bool: 선택할 수 있으면 True.
+    """
+    return principal.user_id in (project["sales_user_id"], project["responsible_user_id"])

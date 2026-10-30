@@ -679,6 +679,12 @@ class ProposalList(Model):
     items: list[Proposal]
 
 
+class QuestionReplyResult(Question):
+    """20. 회신 결과: 회신된 질문. CUSTOMER 회신이 판단을 바꿀 제안을 만들었을 때만 created_proposal이 있다."""
+
+    created_proposal: Proposal | None = None
+
+
 # --- 초안·검토본 (§4.9) -----------------------------------------------------------------
 
 
