@@ -8,6 +8,14 @@ from pathlib import Path
 
 BACKENDS = ("cs", "tft", "platform")
 SERVICES = ("web", *BACKENDS)
+# 평가 검사(tests/eval·eval/)가 직접 import하는 api 경로(2026-10-30 grep). 여기가 바뀌면 평가 검사도 돈다.
+# 예: KAN-199 #329가 rfp 비교 입력을 바꿨지만 evaluation이 꺼져 tests/eval 실패를 못 잡았다.
+EVALUATION_API = (
+    "backend/api/tft/rfp/",
+    "backend/api/tft/partners/",
+    "backend/api/tft/worker_processor.py",
+    "backend/api/platform/evaluations/cs_smoke.py",
+)
 
 
 def classify(paths: list[str]) -> dict:
@@ -62,6 +70,8 @@ def classify(paths: list[str]) -> dict:
             release.add(service)
             contracts.add(service)
             frontend = True
+            if path.startswith(EVALUATION_API):
+                evaluation = True
         elif any(path.startswith(f"tests/{service}/") for service in BACKENDS):
             contracts.add(path.split("/")[1])
         elif path.startswith("backend/") or path in {"Dockerfile", "pyproject.toml", "uv.lock"}:
