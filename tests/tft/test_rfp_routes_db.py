@@ -171,6 +171,7 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         "system",
     )
     assert proposal["proposer_user_id"] is None
+    assert proposal["rationale"] == "회신 내용 미검증(담당자 확인 필요). 고객 회신: 확인했습니다"
     assert proposal["source_ref"]["question_id"] == asked["question_id"]
     assert proposal["current"]["unresolved"] == ["BIL 시험 조건"]
     assert proposal["proposed"] == {**proposal["current"], "unresolved": []}
