@@ -12,7 +12,7 @@ export default function DevCheck() {
   const user = useQuery({queryKey: ['me'], queryFn: me, enabled: import.meta.env.DEV});
   const readiness = useQuery({queryKey: ['readiness'], queryFn: () => Promise.all((import.meta.env.DEV ? ['cs','tft','platform'] : ['platform']).map(service => request(`/api/v1/${service}/ready`)))});
   const tickets = useQuery({queryKey: ['tickets',mode], queryFn: () => listTickets(), enabled: import.meta.env.DEV});
-  const projects = useQuery({queryKey: ['projects',mode], queryFn: listProjects, enabled: import.meta.env.DEV});
+  const projects = useQuery({queryKey: ['projects',mode], queryFn: () => listProjects(), enabled: import.meta.env.DEV});
   const account = useMutation({mutationFn: selectAccount, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
   const signout = useMutation({mutationFn: logout, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
   return <main>
