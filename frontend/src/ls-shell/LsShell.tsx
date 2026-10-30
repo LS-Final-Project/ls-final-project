@@ -21,11 +21,26 @@ const MENU: Group[] = [
       { label: '반복 사례 모음' },
     ],
   },
-  { key: 'rfp', label: '제안 지원', leaves: [{ label: '프로젝트 목록', to: '/tft/projects' }] },
+  {
+    key: 'rfp', label: '제안 지원', leaves: [
+      { label: '업무 홈', to: '/tft', end: true },
+      { label: '프로젝트 목록', to: '/tft/projects' },
+    ],
+  },
   { key: 'mail', label: '메일', leaves: [] },
   { key: 'stats', label: '통계/보고서', leaves: [] },
   { key: 'system', label: '시스템 관리', leaves: [{ label: '평가', to: '/evaluations', devOnly: true }] },
 ];
+
+// 열린 화면 탭 이름.
+function tabName(pathname: string) {
+  if (pathname === '/cs' || pathname === '/tft') return '업무 홈';
+  if (pathname === '/cs/tickets') return '문의 조회';
+  if (pathname.startsWith('/cs/tickets/')) return '문의 처리';
+  if (pathname === '/tft/projects') return '프로젝트 목록';
+  if (pathname.startsWith('/tft/projects/')) return '프로젝트';
+  return 'C/S 관리';
+}
 
 const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-hidden="true">
   <path d={open ? 'M3 4.5l3 3 3-3' : 'M4.5 3l3 3-3 3'} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
@@ -34,9 +49,9 @@ const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-h
 // 캔버스 셸(사이드바, 상단 바, 열린 화면 탭). 화면별 제목 줄과 본문은 각 화면이 그린다.
 export default function LsShell() {
   const { pathname } = useLocation();
-  const tab = pathname === '/cs' ? '업무 홈' : pathname === '/cs/tickets' ? '문의 조회' : pathname.startsWith('/cs/tickets/') ? '문의 처리' : 'C/S 관리';
+  const tab = tabName(pathname);
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
-  const [open, setOpen] = useState<Record<string, boolean>>({ cs: true });
+  const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
   const [toggled, setToggled] = useState(false);
   useEffect(() => {

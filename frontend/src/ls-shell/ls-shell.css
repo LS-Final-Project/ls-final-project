@@ -326,7 +326,7 @@
 
 /* 단계 막대 (RFP) */
 .ls-root .stage i.now { background: var(--red); }
-.ls-root .kv { border-left: 1px solid var(--line); padding-left: 20px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.ls-root .kv { padding-left: 20px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
 .ls-root .kv div b:where(:not(.ls-legacy *)) { font-size: 26px; font-weight: 800; }
 .ls-root .kv div b small { font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 3px; }
 .ls-root .kv div span:where(:not(.ls-legacy *)) { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -632,3 +632,7 @@
 .ls-root .kv .ls-legacy{font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif!important;font-size:16px;line-height:normal;letter-spacing:normal;color:#152739;font-weight:400;min-height:calc(100vh - 72px)}
 /* 좁은 화면: 화면이 인라인으로 정한 두 열 격자를 한 열로 풀고, 장식 배경이 페이지 가로 스크롤을 만들지 않게 자른다. */
 @media (max-width:800px){.ls-root .kv-split,.ls-root .kv-box>.body{grid-template-columns:minmax(0,1fr)!important}.ls-root{overflow-x:clip}}
+/* 앞 세 열 고정은 C/S 목록(선택·번호·문서번호) 배치다. 공용 표는 고정하지 않는다. */
+.ls-root .kv-grid.free td{position:static}
+.ls-root .kv-grid.free th{left:auto!important}
+.ls-root .kv-grid.free td:nth-child(-n+3){background:inherit}
