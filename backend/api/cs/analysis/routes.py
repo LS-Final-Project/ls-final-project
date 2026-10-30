@@ -4,17 +4,19 @@ Checks follow permissions.md 1.3: scope (404), role (403), state (409), version 
 input (422).
 """
 
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 
 from backend.api.cs.analysis import repository, service
-from backend.api.cs.analysis.schemas import CorrectionRequest, TicketAnalysis
+from backend.api.cs.analysis.jobs import input_version, platform_jobs
+from backend.api.cs.analysis.schemas import AnalysisJob, CorrectionRequest, TicketAnalysis
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import require_ticket_write
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
 from backend.api.cs.workflow import repository as workflow
+from backend.api.cs.workflow.mail import PlatformRejected, PlatformUnknown, PlatformUnreachable
 from backend.api.cs.workflow.service import json_value
 from backend.engine.cs.analysis import CORRECTABLE_FIELDS
 from backend.shared.access import Principal, current_principal
@@ -55,6 +57,73 @@ async def get_analysis(
         await check_visible(conn, principal, ticket_id)
         data = await service.build(conn, ticket_id)
     return respond(request, data)
+
+
+Key = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)]
+# Platform refusals passed through as they are; anything else is the platform being unavailable.
+PASSED_THROUGH = {409: ("CS_JOB_IN_PROGRESS", "IDEMPOTENCY_CONFLICT")}
+
+
+@router.post(
+    "",
+    status_code=202,
+    response_model=SuccessResponse[AnalysisJob],
+    operation_id="cs_start_ticket_analysis",
+    # Off until the operator connects the platform job (CS_ANALYSIS_ENABLED); 404 while off.
+    openapi_extra={**PARTIAL, "x-activation": "CS_ANALYSIS_ENABLED"},
+)
+async def start_analysis(
+    ticket_id: UUID,
+    request: Request,
+    idempotency_key: Key,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[AnalysisJob]:
+    """A C/S agent asks for an AI analysis (classification, rules, evidence, three drafts).
+
+    The platform runs it as a job and the graph stops before human review; results appear in
+    `GET …/analysis`. One job per ticket at a time (409 `CS_JOB_IN_PROGRESS`); resending the
+    same Idempotency-Key returns the earlier job. Not for a closed ticket.
+    """
+    client = platform_jobs(request)
+    async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, ticket_id)
+        ticket = await tickets.get_ticket(conn, ticket_id)
+        if ticket is None:
+            raise not_found()
+        require_ticket_write(principal)
+        state = await workflow.get_workflow(conn, ticket_id)
+        if state is not None and state["state"] == "CLOSED":
+            raise ApplicationError(
+                409, "CS_INVALID_TRANSITION", "The ticket state does not allow this action."
+            )
+    body = {
+        "ticket_id": str(ticket_id),
+        "input_version": input_version(ticket),
+        "idempotency_key": idempotency_key,
+        "requested_by": str(principal.user_id),
+    }
+    try:
+        data = await client.create_cs_job(body)
+    except PlatformRejected as error:
+        if error.code in PASSED_THROUGH.get(error.status, ()):
+            raise ApplicationError(
+                error.status, error.code, "The platform refused the job."
+            ) from None
+        if error.status == 503 or error.code == "CS_PROCESSOR_NOT_CONNECTED":
+            raise ApplicationError(
+                503, "CS_ANALYSIS_UNAVAILABLE", "AI analysis is not connected yet."
+            ) from None
+        raise ApplicationError(
+            503, "CS_PLATFORM_UNAVAILABLE", "The platform did not accept the job."
+        ) from None
+    except (PlatformUnreachable, PlatformUnknown):
+        raise ApplicationError(
+            503, "CS_PLATFORM_UNAVAILABLE", "The platform did not answer the job request."
+        ) from None
+    job = AnalysisJob.model_validate(
+        {k: data.get(k) for k in ("job_id", "status", "status_url", "created")}
+    )
+    return respond(request, job)
 
 
 @router.post(

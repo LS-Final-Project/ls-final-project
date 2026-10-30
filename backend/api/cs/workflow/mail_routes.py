@@ -158,8 +158,11 @@ async def refresh_send(
         send = await repository.lock_send(conn, ticket_id, send_id)
         if send is None:
             raise send_not_found()
-        workflow = await sends.apply_status(conn, workflow, send, values)
+        workflow, recorded = await sends.apply_status(conn, workflow, send, values)
         data = await view(conn, workflow, principal)
+    if recorded:
+        # The send now counts (state moved); end the analysis graph after human review.
+        await request.app.state.analysis_resume(request, ticket_id)
     return respond(request, data)
 
 

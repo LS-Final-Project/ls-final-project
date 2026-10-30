@@ -102,7 +102,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 
 ## 문의 분석 결과와 사람 정정 (KAN-107)
 
-저장 표, `GET /api/v1/cs/tickets/{id}/analysis`, `POST …/analysis/corrections`, 유효값과 SLA 기한 규칙은 [분석 계약](analysis.md)에 있다.
+저장 표, `GET /api/v1/cs/tickets/{id}/analysis`, AI 분석 작업 접수 `POST …/analysis`, `POST …/analysis/corrections`, 유효값과 SLA 기한 규칙은 [분석 계약](analysis.md)에 있다.
 
 ## 문의 분류 출력 계약
 

@@ -2,7 +2,7 @@
 
 원본: `backend/api/cs/analysis/`(조회·정정·저장 함수), `backend/engine/cs/analysis.py`(유효값·기한 계산), 마이그레이션 `infra/migrations/cs/20261030_KAN-107_ticket_analysis.sql`(README C14). 기획서 4.1 워크플로의 ①(AI 판정은 확정값이 아님)과 ⑥ 담당자 확인 게이트("수정"), p.18 추적성("AI 제안과 사람이 확정한 내용을 구분")을 구현한다.
 
-**상태: 저장·조회·정정 구현, worker 문의 출처 연결(아래 "worker 문의 출처").** 접수 API·발송 시 재개는 아직 없다(다음 PR). 지금 행은 검사·시연용 합성 행뿐이다.
+**상태: 저장·조회·정정, worker 문의 출처, 작업 접수·발송 뒤 재개 구현(로컬 종단 검사).** 운영 적용은 KAN-159 묶음이다.
 
 ## 저장
 
@@ -56,9 +56,18 @@
 - **업무 상태와 그래프 상태는 따로다**: worker는 `cs.ticket_workflows`를 읽지도 쓰지도 않는다. 그래프 진행은 체크포인트(`checkpoint_cs`, thread_id=작업 ID)에만 있다.
 - **`cs_worker` 권한**(마이그레이션 `20261101_KAN-107_worker_source.sql`, README C18): 위 열의 SELECT, 분석·초안 표의 SELECT·INSERT, 검색용 `cs.document_chunks` SELECT, 체크포인트 표 SELECT·INSERT·UPDATE. 업무 상태·정정·발송 본문 읽기, 결과 수정·삭제, 문의 잠금은 거부된다(`tests/cs/test_worker_source_db.py`).
 
+## 분석 작업 접수와 재개 (`backend/api/cs/analysis/jobs.py`)
+
+- **`POST /api/v1/cs/tickets/{id}/analysis`** (헤더 `Idempotency-Key` 8~128자, 본문 없음) → 202 `AnalysisJob`(`job_id`, `status`, `status_url`, `created`). cs_agent만(manager 403, 범위 밖 404), 종결된 문의는 409 `CS_INVALID_TRANSITION`. 접수 직후(업무 상태 없음)부터 요청할 수 있다.
+  - cs가 접근·역할·상태를 검사한 뒤 플랫폼 `POST /internal/v1/platform/jobs/cs`(`ticket_id`, `input_version`, `idempotency_key`, `requested_by`)를 C/S 실행 계정 ID 토큰으로 부른다. `input_version`은 그래프 입력 칸(채널·언어·제목·본문·제품)의 SHA-256이라 문의를 고치면 바뀐다.
+  - 플랫폼 답: 같은 문의 진행 중 409 `CS_JOB_IN_PROGRESS`, 같은 키·다른 판본 409 `IDEMPOTENCY_CONFLICT`는 그대로 옮기고, 같은 키 재전송은 기존 작업(`created=false`). 처리기 미연결(플랫폼 503 `CS_PROCESSOR_NOT_CONNECTED`)은 503 `CS_ANALYSIS_UNAVAILABLE`, 그 밖의 거절·무응답은 503 `CS_PLATFORM_UNAVAILABLE`.
+  - 상태·진행 이벤트는 플랫폼 `GET /api/v1/platform/jobs/{id}`·`/events`(SSE)다. 결과는 끝난 뒤 `GET …/analysis`의 실행·초안으로 보인다.
+- **재개(2026-10-30 결정)**: 고객 발송이 플랫폼에 접수(ACCEPTED)돼 업무 상태가 바뀌는 그 갱신(`…/sends/{id}/refresh` 또는 화면 읽기의 상태 갱신)이 끝난 뒤, 그 문의의 마지막 작업 그래프를 사람 확인 다음으로 이어 끝낸다. 사람 확인 직전에 멈춘 경우만 잇고(`NOTHING_TO_RESUME`), 모델·검색은 부르지 않는다. 재개 실패는 발송 결과를 바꾸지 않고 작업 ID만 기록한다.
+- **업무 상태 ≠ 그래프 상태**: 그래프는 업무 상태를 바꾸지 않고(접수 직후 문의는 분석이 끝나도 `RECEIVED`), 업무 상태 변화(검토 시작·발송·종결)는 사람의 API 동작으로만 일어난다. 그래프 재개는 그 결과를 따라갈 뿐이다.
+- **활성화**: C/S `CS_ANALYSIS_ENABLED=true`, `CS_ANALYSIS_PLATFORM_URL`(플랫폼 HTTPS origin). 플랫폼 `CS_JOBS_ENABLED`·`CS_JOBS_SERVICE_URL`·`CS_JOBS_INVOKER_EMAIL`·`CS_JOBS_PROCESSOR_CONNECTED`, worker `CS_WORKER_ENABLED`. 꺼져 있으면 접수는 404이고 재개도 하지 않는다.
+- **종단 검사**(`tests/platform/test_cs_analysis_e2e_db.py`): 전용 PostgreSQL 하나에서 C/S 접수 → 플랫폼 작업(QUEUED) → worker(cs_worker 로그인, 실제 문의 출처·체크포인터, 가짜 모델) SUCCEEDED → 같은 작업 재실행은 `NOT_CLAIMED` → `GET …/analysis`에 결과, 업무 상태는 `RECEIVED` 그대로 → 검토·추가 정보 요청 발송 접수 → 그래프 끝남. 두 서비스 사이 HTTP는 같은 프로세스의 ASGI 전송, ID 토큰은 합성 검증기다.
+
 ## 남은 것 (KAN-107 완료 조건)
 
-- 접수 API(`POST …/analysis/jobs` → 플랫폼 `POST /internal/v1/platform/jobs/cs`, 진행 중 409·멱등)와 상태·SSE(플랫폼 jobs API).
-- 재개: 담당자의 고객 발송이 플랫폼에 접수된 시점에 `cs_runner.resume(job_id)`로 그래프를 끝낸다(2026-10-30 결정).
-- 로컬 플래그(`CS_JOBS_ENABLED`·`CS_JOBS_PROCESSOR_CONNECTED`·`CS_WORKER_ENABLED`) 종단 확인. 운영은 KAN-159 배포 묶음.
+- 운영 확인: 실제 ID 토큰·Cloud Run Jobs 전송·공용 DB 마이그레이션(C18)은 KAN-159 배포 묶음.
 - 정정된 `provided_info`로 부족 정보를 다시 계산하는 연결.

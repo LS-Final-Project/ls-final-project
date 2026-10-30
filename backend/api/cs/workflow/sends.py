@@ -169,18 +169,21 @@ async def read_status(client: PlatformMail, send: Row) -> Row:
         ) from None
 
 
-async def apply_status(conn: Any, workflow: Row, send: Row, values: Row) -> Row:
+async def apply_status(conn: Any, workflow: Row, send: Row, values: Row) -> tuple[Row, bool]:
     """Stores read-back status (send row locked by the caller) and, on the first ACCEPTED,
-    moves the ticket (IN_REVIEW → ANSWERED / WAITING_CUSTOMER). Returns the workflow after.
+    moves the ticket (IN_REVIEW → ANSWERED / WAITING_CUSTOMER). Returns the workflow after and
+    whether this call recorded the send (the caller then resumes the analysis graph, KAN-107,
+    after its transaction).
 
     The ticket is still IN_REVIEW here because transfer and close refuse while a send is
     unsettled. If it is not, the status is cached and the move is left for a later refresh.
     """
-    if (
+    recorded = (
         values["send_status"] == "ACCEPTED"
         and send["recorded_at"] is None
         and workflow["state"] == "IN_REVIEW"
-    ):
+    )
+    if recorded:
         workflow = await record_customer_send(
             conn,
             workflow["ticket_id"],
@@ -191,7 +194,7 @@ async def apply_status(conn: Any, workflow: Row, send: Row, values: Row) -> Row:
         )
         values = {**values, "recorded_at": datetime.now(UTC)}
     await repository.update_send(conn, send["id"], values)
-    return workflow
+    return workflow, recorded
 
 
 async def refresh_registered(request: Request, sends: list[Row]) -> None:
@@ -209,5 +212,8 @@ async def refresh_registered(request: Request, sends: list[Row]) -> None:
         async with connection(request.app.state.settings) as conn:
             workflow = await lock(conn, send["ticket_id"])
             locked = await repository.lock_send(conn, send["ticket_id"], send["id"])
+            recorded = False
             if locked is not None:
-                await apply_status(conn, workflow, locked, values)
+                _, recorded = await apply_status(conn, workflow, locked, values)
+        if recorded:
+            await request.app.state.analysis_resume(request, send["ticket_id"])

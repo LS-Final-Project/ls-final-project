@@ -33,7 +33,8 @@
     {
       "path": "/api/v1/cs/tickets/{uuid}/analysis",
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "query": []
     },

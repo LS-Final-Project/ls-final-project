@@ -17,6 +17,46 @@
         "title": "Action",
         "type": "object"
       },
+      "AnalysisJob": {
+        "description": "\ud50c\ub7ab\ud3fc\uc5d0 \ub4f1\ub85d\ub41c AI \ubd84\uc11d \uc791\uc5c5(KAN-107). \ub4f1\ub85d\uc774 \ucc98\ub9ac \uc2dc\uc791\uc744 \ub73b\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "created": {
+            "description": "False when the same Idempotency-Key returned an earlier job.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_url": {
+            "description": "Platform job status; events at status_url + '/events'.",
+            "title": "Status Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "status_url",
+          "created"
+        ],
+        "title": "AnalysisJob",
+        "type": "object"
+      },
       "AnalysisRun": {
         "properties": {
           "classification": {
@@ -6059,6 +6099,22 @@
         "title": "Signal",
         "type": "object"
       },
+      "SuccessResponse_AnalysisJob_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AnalysisJob"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AnalysisJob]",
+        "type": "object"
+      },
       "SuccessResponse_AuditList_": {
         "properties": {
           "data": {
@@ -11892,6 +11948,111 @@
         "tags": [
           "analysis"
         ],
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "A C/S agent asks for an AI analysis (classification, rules, evidence, three drafts).\n\nThe platform runs it as a job and the graph stops before human review; results appear in\n`GET \u2026/analysis`. One job per ticket at a time (409 `CS_JOB_IN_PROGRESS`); resending the\nsame Idempotency-Key returns the earlier job. Not for a closed ticket.",
+        "operationId": "cs_start_ticket_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AnalysisJob_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start Analysis",
+        "tags": [
+          "analysis"
+        ],
+        "x-activation": "CS_ANALYSIS_ENABLED",
         "x-implementation-status": "partial"
       }
     },
