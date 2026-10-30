@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import rfp_own_spec_facts as own
 
@@ -167,6 +168,72 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(own.render(own.build(REF)), own.OUTPUT.read_text(encoding="utf-8"))
         coverage = json.loads(own.OUTPUT.read_text(encoding="utf-8"))["coverage"]
         self.assertEqual((coverage["products"], coverage["source_rows"]), (23, 169))
+
+
+class CommittedFileTest(unittest.TestCase):
+    """제공 데이터 없이 도는 재생성 검사. 데이터가 있는 환경의 전체 비교(--check)를 대신하지는 않는다."""
+
+    def setUp(self):
+        self.data = json.loads(own.OUTPUT.read_text(encoding="utf-8"))
+
+    def fact_of(self, attribute):
+        return next(
+            f for p in self.data["products"] for f in p["spec_facts"] if f["attribute"] == attribute
+        )
+
+    def test_the_committed_file_matches_the_current_rules(self):
+        self.assertEqual(own.stale_facts(self.data), [])
+
+    def test_a_hand_edited_value_is_found(self):
+        self.fact_of("impedance")["value"] = "9.9"
+        self.assertTrue(any("impedance" in p for p in own.stale_facts(self.data)))
+
+    def test_a_hand_edited_condition_is_found(self):
+        self.fact_of("impedance")["conditions"] = []
+        self.assertTrue(any("impedance" in p for p in own.stale_facts(self.data)))
+
+    def test_a_changed_rule_is_found(self):
+        original = own.RULES["Off-circuit tap range"]
+        changed = lambda v: [{**f, "value": "다른 값"} for f in original(v)]  # noqa: E731
+        with mock.patch.dict(own.RULES, {"Off-circuit tap range": changed}):
+            self.assertTrue(any(": tap " in p for p in own.stale_facts(self.data)))
+
+    def test_a_rule_that_starts_to_emit_more_facts_is_found(self):
+        original = own.RULES["Off-circuit tap range"]
+        more = lambda v: [*original(v), own.fact("bil", "1", "kV")]  # noqa: E731
+        with mock.patch.dict(own.RULES, {"Off-circuit tap range": more}):
+            self.assertTrue(any(": tap " in p for p in own.stale_facts(self.data)))
+
+    def test_a_new_rule_for_an_unmapped_row_is_found(self):
+        name = next(
+            r["source_attribute"] for p in self.data["products"] for r in p["unmapped_facts"]
+        )
+        with mock.patch.dict(own.RULES, {name: own.text("vector_group")}):
+            self.assertTrue(any(name in p for p in own.stale_facts(self.data)))
+
+    def test_a_dropped_spec_row_breaks_the_coverage_count(self):
+        facts = self.data["products"][0]["spec_facts"]
+        facts.remove(next(f for f in facts if f["attribute"] != "warranty_months"))
+        self.assertIn("coverage 수가 행과 다름", own.stale_facts(self.data))
+
+    def test_a_hand_added_row_on_the_same_source_is_found(self):
+        facts = self.data["products"][0]["spec_facts"]
+        row = next(f for f in facts if f["attribute"] != "warranty_months")
+        facts.append({**row, "attribute": "bil", "value": "1"})
+        self.assertTrue(any(": bil " in p for p in own.stale_facts(self.data)))
+
+    def test_an_edited_coverage_number_is_found(self):
+        self.data["coverage"]["unmapped_rows"] += 1
+        self.assertIn("coverage 수가 행과 다름", own.stale_facts(self.data))
+
+    def test_a_warranty_that_differs_from_its_source_is_found(self):
+        self.fact_of("warranty_months")["value"] = "999"
+        self.assertTrue(any("보증" in p for p in own.stale_facts(self.data)))
+
+    def test_a_dropped_row_breaks_the_coverage_count(self):
+        product = next(p for p in self.data["products"] if p["unmapped_facts"])
+        product["unmapped_facts"].pop()
+        self.assertIn("coverage 수가 행과 다름", own.stale_facts(self.data))
 
 
 if __name__ == "__main__":

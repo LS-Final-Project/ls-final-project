@@ -88,7 +88,7 @@
 
 ## 자사 사양 (`own_spec_facts.json`, 23종)
 
-`scripts/rfp_own_spec_facts.py --ref <제공 데이터 ref>`가 `ref/product_master.csv`(23종)·`product_spec_facts.csv`(169행)에서 만든다. 손으로 고치지 않는다(`--check`, 검사 `scripts/tests/test_rfp_own_spec_facts.py`는 원천이 있으면 결과 파일이 최신인지 본다). 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이고, 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 실제 LS 제품 성능 자료가 아니다.
+`scripts/rfp_own_spec_facts.py --ref <제공 데이터 ref>`가 `ref/product_master.csv`(23종)·`product_spec_facts.csv`(169행)에서 만든다. 손으로 고치지 않는다(`--check`, 검사 `scripts/tests/test_rfp_own_spec_facts.py`는 원천이 있으면 결과 파일이 최신인지 본다). 원천이 없는 CI에서는 `stale_facts`가 커밋된 파일의 `source_value`를 지금 `RULES`에 다시 넣어 사양 행·미변환 행·보증·`coverage`가 맞는지 본다. 인증 목록은 원문이 파일에 없어 이 검사로 보지 않는다. 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이고, 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 실제 LS 제품 성능 자료가 아니다.
 
 - **범위**: RFP 요구와 비교하는 정격·형식·통신·보호 속성만 정해진 이름·단위·조건으로 옮긴다. 원천 169행 중 58행을 옮겼고, 나머지 111행(손실·기계 수명·메모리 등)은 `unmapped_facts`에 원문으로 보존만 한다. 그런 요구는 근거 부족이 된다(미기재 ≠ 미충족).
 - **같은 숫자라도 다른 속성은 합치지 않는다**: 정격 사용 전압(Ue, `rated_operational_voltage`) ≠ 정격 최대전압(`rated_max_voltage`), 모선 정격 전류(`busbar_rated_current`) ≠ 정격 전류(`rated_current`), 단시간 내전류는 시간 조건(`duration`)을 함께 두고, IEC 내부 아크 등급(`internal_arc_classification`, 시험 전류·시간 조건)은 IEEE 아크 내성(`arc_resistant`)과 다르다. 차단 용량 Icu는 전압 조건(415 V AC)을 함께 둔다.
