@@ -66,7 +66,7 @@ def test_reply_requires_both_recorded_and_reopened(monkeypatch, recorded, reopen
     reopen = AsyncMock(return_value=workflow(owner))
     monkeypatch.setattr(service, "reopen_for_customer_reply", reopen)
     result = asyncio.run(
-        service.record_customer_reply(conn, TICKET, MESSAGE, "MAIL", datetime.now(UTC))
+        service.record_customer_reply(conn, TICKET, MESSAGE, "HEADER", datetime.now(UTC))
     )
     assert result[1:] == ((reopened, True) if recorded else (False, False))
     assert len(conn.inserts) == int(recorded and reopened)
@@ -83,7 +83,9 @@ def test_duplicate_reply_and_notification_failure_do_not_reopen_twice(monkeypatc
     reopen = AsyncMock(return_value=workflow())
     monkeypatch.setattr(service, "reopen_for_customer_reply", reopen)
     for _ in range(2):
-        asyncio.run(service.record_customer_reply(conn, TICKET, MESSAGE, "MAIL", datetime.now(UTC)))
+        asyncio.run(
+            service.record_customer_reply(conn, TICKET, MESSAGE, "HEADER", datetime.now(UTC))
+        )
     reopen.assert_awaited_once()
     assert conn.inserts == [] and [r.getMessage() for r in caplog.records] == [
         "NOTIFICATION_INTENT_FAILED"
@@ -150,15 +152,20 @@ def test_transfer_ids_match_dedupe_and_notification_failure_preserves_primary(
 
 
 @pytest.mark.parametrize("path", ["transfer", "REWORK"])
-@pytest.mark.parametrize("failure", ["insert", "authorization"])
+@pytest.mark.parametrize("failure", ["insert", "authorization", "save"])
 def test_transfer_primary_errors_are_outside_notification_boundary(monkeypatch, path, failure):
     conn = Conn()
     insert = setup_transfer(monkeypatch, conn)
     if path == "transfer":
         monkeypatch.setattr(routes, "begin", AsyncMock(return_value=(workflow(), [], [])))
-    insert.side_effect = RuntimeError("primary transfer failure")
-    principal = PRINCIPAL if failure == "insert" else Principal(user_id=ACTOR, roles={"sales"})
-    with pytest.raises(RuntimeError if failure == "insert" else HTTPException):
+    if failure == "save":
+        routes.save.side_effect = RuntimeError("primary transfer failure")
+    else:
+        insert.side_effect = RuntimeError("primary transfer failure")
+    principal = (
+        PRINCIPAL if failure in {"insert", "save"} else Principal(user_id=ACTOR, roles={"sales"})
+    )
+    with pytest.raises(RuntimeError if failure in {"insert", "save"} else HTTPException):
         if path == "transfer":
             asyncio.run(
                 routes.transfer(

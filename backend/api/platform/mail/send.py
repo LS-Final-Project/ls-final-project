@@ -342,7 +342,7 @@ async def finish(
                 await notify_unknown(conn, intent_id)
 
 
-async def notify_unknown(conn: Any, intent_id: UUID) -> None:
+async def notify_unknown(conn: Conn, intent_id: UUID) -> None:
     """알림 조회·INSERT만 savepoint로 격리한다. UNKNOWN 전이가 실제 일어난 경로에서만 부른다."""
     try:
         async with conn.transaction():
