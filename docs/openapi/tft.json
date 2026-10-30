@@ -1278,7 +1278,8 @@
                   "SALES",
                   "TECH",
                   "PURCHASE",
-                  "CUSTOMER"
+                  "CUSTOMER",
+                  "RND"
                 ],
                 "type": "string"
               },
@@ -1293,10 +1294,13 @@
               {
                 "enum": [
                   "OTHER_OWN_PRODUCT",
+                  "OWN_DEVELOPMENT",
+                  "OWN_TERMS_REVIEW",
                   "ALTERNATIVE_SPEC",
                   "EXTERNAL_PRODUCT",
                   "TASK_SUBCONTRACT",
                   "JOINT_PROPOSAL",
+                  "CUSTOMER_SPECIFIED_PROCUREMENT",
                   "NONE"
                 ],
                 "type": "string"
@@ -1408,6 +1412,38 @@
           "unknown"
         ],
         "title": "MandatoryCheck",
+        "type": "object"
+      },
+      "OptionGate": {
+        "additionalProperties": false,
+        "description": "\ud611\ub825\uc0ac \uacc4\uc5f4 \uacbd\ub85c\ub294 \uc790\uc0ac \uac1c\ubc1c \ud655\uc778(R&D)\uc744 \uac70\uce5c\ub2e4(\uba85\uc138 v1.3 \u00a75.2).",
+        "properties": {
+          "requires": {
+            "enum": [
+              "OWN_DEVELOPMENT_CHECK",
+              "NONE"
+            ],
+            "title": "Requires",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "NOT_REQUIRED",
+              "PENDING",
+              "CONFIRMED_FEASIBLE",
+              "CONFIRMED_NOT_FEASIBLE",
+              "CONFIRMED_SCHEDULE_MISMATCH",
+              "WAIVED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requires",
+          "status"
+        ],
+        "title": "OptionGate",
         "type": "object"
       },
       "PartnerCandidate": {
@@ -1539,7 +1575,11 @@
                 "tap",
                 "forced_air_capacity_increase",
                 "protection_functions",
-                "arc_flash_reduction"
+                "arc_flash_reduction",
+                "winding_material",
+                "winding_temperature_sensor",
+                "communication_interface",
+                "warranty_months"
               ],
               "type": "string"
             },
@@ -3163,10 +3203,13 @@
               {
                 "enum": [
                   "OTHER_OWN_PRODUCT",
+                  "OWN_DEVELOPMENT",
+                  "OWN_TERMS_REVIEW",
                   "ALTERNATIVE_SPEC",
                   "EXTERNAL_PRODUCT",
                   "TASK_SUBCONTRACT",
                   "JOINT_PROPOSAL",
+                  "CUSTOMER_SPECIFIED_PROCUREMENT",
                   "NONE"
                 ],
                 "type": "string"
@@ -4259,17 +4302,27 @@
             "title": "Conditions To Confirm",
             "type": "array"
           },
+          "gate": {
+            "$ref": "#/components/schemas/OptionGate"
+          },
           "path": {
             "enum": [
               "OTHER_OWN_PRODUCT",
+              "OWN_DEVELOPMENT",
+              "OWN_TERMS_REVIEW",
               "ALTERNATIVE_SPEC",
               "EXTERNAL_PRODUCT",
               "TASK_SUBCONTRACT",
               "JOINT_PROPOSAL",
+              "CUSTOMER_SPECIFIED_PROCUREMENT",
               "NONE"
             ],
             "title": "Path",
             "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
           },
           "required_expertise": {
             "items": {
@@ -4281,6 +4334,8 @@
         },
         "required": [
           "path",
+          "rank",
+          "gate",
           "allowed",
           "conditions_to_confirm",
           "required_expertise",
@@ -4318,7 +4373,10 @@
                   "RATING",
                   "CERTIFICATION",
                   "FORM",
-                  "TASK"
+                  "TASK",
+                  "DESIGNATED_MODEL",
+                  "COMMERCIAL",
+                  "CORE_EQUIPMENT_MISSING"
                 ],
                 "type": "string"
               },
@@ -4452,10 +4510,13 @@
           "path": {
             "enum": [
               "OTHER_OWN_PRODUCT",
+              "OWN_DEVELOPMENT",
+              "OWN_TERMS_REVIEW",
               "ALTERNATIVE_SPEC",
               "EXTERNAL_PRODUCT",
               "TASK_SUBCONTRACT",
               "JOINT_PROPOSAL",
+              "CUSTOMER_SPECIFIED_PROCUREMENT",
               "NONE"
             ],
             "title": "Path",
@@ -4536,10 +4597,13 @@
           "path": {
             "enum": [
               "OTHER_OWN_PRODUCT",
+              "OWN_DEVELOPMENT",
+              "OWN_TERMS_REVIEW",
               "ALTERNATIVE_SPEC",
               "EXTERNAL_PRODUCT",
               "TASK_SUBCONTRACT",
               "JOINT_PROPOSAL",
+              "CUSTOMER_SPECIFIED_PROCUREMENT",
               "NONE"
             ],
             "title": "Path",

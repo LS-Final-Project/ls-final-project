@@ -27,8 +27,21 @@ from backend.api.tft.partners.schemas import Condition, SpecFact
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
 Result = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
-Cause = Literal["RATING", "CERTIFICATION", "FORM", "TASK"]
-NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER"]
+# 명세 v1.3 §2. DESIGNATED_MODEL: 타사 모델 지정(지정품). COMMERCIAL: 상업 조건(보증 기간 등).
+# CORE_EQUIPMENT_MISSING: 사업의 핵심 기기가 제공 자료에 없음(기획서 4.4 마지막 두 줄).
+Cause = Literal[
+    "RATING",
+    "CERTIFICATION",
+    "FORM",
+    "TASK",
+    "DESIGNATED_MODEL",
+    "COMMERCIAL",
+    "CORE_EQUIPMENT_MISSING",
+]
+# 제품 성능이 아니라 계약 조건인 속성. 부족하면 협력사로 풀지 않고 자사 조건 변경 검토로 간다.
+COMMERCIAL_ATTRIBUTES = frozenset({"warranty_months"})
+# RND: R&D 자문 질문이 열린 요구(명세 v1.3, 질문 생성은 보완 경로 선택 API가 한다).
+NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER", "RND"]
 # 상태가 나쁜 순서. 후보가 여럿이면 가장 좋은 후보의 상태가 요구의 상태다.
 ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
@@ -55,6 +68,9 @@ class Requirement(Strict):
     certification_listed: bool = False
     designated_model: str | None = None
     task: str | None = None
+    # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
+    # 자료 보완 요청 → 공동 제안 → 참여 보류 검토로 간다(기획서 4.4).
+    core_equipment: bool = False
 
 
 class Certification(Strict):
@@ -128,7 +144,9 @@ def _evidence(fact: SpecFact) -> Evidence:
         document=fact.evidence_id,
         clause=fact.section,
         applicability=grading._conditions_text(fact.conditions or []) or None,
-        limits="합성 데이터시트 문장을 정규화한 값(DERIVED)",
+        limits="제품 마스터 표준 조건(합성)"
+        if fact.evidence_id == "product_master"
+        else "합성 데이터시트 문장을 정규화한 값(DERIVED)",
     )
 
 
@@ -298,6 +316,8 @@ def _cause(requirement: Requirement) -> Cause:
         return "CERTIFICATION"
     if requirement.attribute == "form":
         return "FORM"
+    if requirement.attribute in COMMERCIAL_ATTRIBUTES:
+        return "COMMERCIAL"
     return "RATING"
 
 
@@ -342,7 +362,8 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             "자사 제품과 같다고 보지 않음. 지정품 조달 또는 동등품 대체(발주처 승인) 확인.",
             ["동등품 허용 여부(발주처 승인)"],
             "CUSTOMER",
-            None,
+            # 지정품은 협력사 보완과 섞지 않는다(명세 v1.3 §5.1): 원인을 남겨 보완 경로가 지정품 조달로 간다.
+            "DESIGNATED_MODEL",
             [],
         )
     if trace.search_failed:
@@ -366,10 +387,27 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
         )
     if not products:
         scope = ", ".join(trace.filters) or "필터 없음"
+        reason = (
+            f"검색 범위({scope}, 문서 {trace.documents_searched}건)에서 자사 후보를 찾지 못함. "
+            "회사 전체 미보유나 참여 불가를 뜻하지 않음."
+        )
+        if requirement.core_equipment:
+            # 미기재 ≠ 미충족이라 상태는 근거 부족 그대로다. 원인만 남겨 보완 경로(자료 보완 → 공동 제안 →
+            # 보류 의견)를 고를 수 있게 한다.
+            return outcome(
+                "INSUFFICIENT_EVIDENCE",
+                reason + " 사업의 핵심 기기라 단순 외부 조달로 보지 않음.",
+                [
+                    "자사 자료 보완 요청(다른 사업부·제품 자료)",
+                    "다른 자료 범위 검색 또는 담당 부서 확인",
+                ],
+                "SALES",
+                "CORE_EQUIPMENT_MISSING",
+                [],
+            )
         return outcome(
             "INSUFFICIENT_EVIDENCE",
-            f"검색 범위({scope}, 문서 {trace.documents_searched}건)에서 자사 후보를 찾지 못함. "
-            "회사 전체 미보유나 참여 불가를 뜻하지 않음.",
+            reason,
             ["다른 자료 범위 검색 또는 담당 부서 확인"],
             "TECH",
             None,
@@ -406,6 +444,9 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
         "INSUFFICIENT_EVIDENCE": "TECH",
     }[best.status]
     cause = _cause(requirement) if best.status == "SPEC_GAP" else None
+    if cause == "COMMERCIAL":
+        # 계약 조건 차이는 기술이 아니라 영업·보증 담당이 본다.
+        owner = "SALES"
     return outcome(best.status, best.reason, best.unresolved, owner, cause, matches)
 
 

@@ -91,6 +91,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | T6 | `tft/20261029_KAN-99_search_chunks.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.document_chunks') | 미확인 |
 | T7 | `tft/20261029_KAN-182_rfp_response.sql` | T1 | tft_migrator | 가능 | to_regclass('tft.requirement_versions') | 미확인 |
 | T8 | `tft/20261030_KAN-182_rfp_keys.sql` | T7(헤더) | tft_migrator | 가능 | 제약 `product_comparisons_version_key` | 미확인 |
+| T9 | `tft/20261101_KAN-186_supplement_paths.sql` | T7(헤더) | tft_migrator | 가능 | 제약 `supplement_options_deficiency_cause_check`에 `CORE_EQUIPMENT_MISSING` | 미확인 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
@@ -195,6 +196,7 @@ python3 scripts/workspace.py migrate tft 20261025_KAN-127_decisions.sql
 python3 scripts/workspace.py migrate tft 20261029_KAN-182_rfp_response.sql
 python3 scripts/workspace.py migrate tft 20261029_KAN-99_search_chunks.sql
 python3 scripts/workspace.py migrate tft 20261030_KAN-182_rfp_keys.sql
+python3 scripts/workspace.py migrate tft 20261101_KAN-186_supplement_paths.sql
 python3 scripts/workspace.py migrate platform 20261022_KAN-78_identity.sql
 python3 scripts/workspace.py migrate platform 20261023_KAN-77_oauth_authorizations.sql
 python3 scripts/workspace.py migrate platform 20261023_KAN-77_sessions.sql

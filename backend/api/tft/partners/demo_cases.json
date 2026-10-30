@@ -9,16 +9,22 @@
       "clause_no": "2.5",
       "own_product": "TRF-DRY-630",
       "requirements": [
-        {"item": "탭 ±2×2.5%", "clause_no": "2.5", "attribute": "tap", "expected_status": "EVIDENCE_FOUND", "reason": "같은 속성·같은 값"},
-        {"item": "절연 Class F", "clause_no": "2.5", "attribute": "insulation_class", "expected_status": "EVIDENCE_FOUND", "reason": "같은 등급"},
-        {"item": "임피던스 5.75% ±10%", "clause_no": "2.5", "attribute": "impedance", "expected_status": "CONDITIONAL", "reason": "범위 안이지만 기준 온도가 IEEE 조건과 같은지 기술 검토"},
-        {"item": "강제 공랭 시 용량 증대 33%(115℃ 상승)", "clause_no": "2.5 C.1", "attribute": "forced_air_capacity_increase", "expected_status": "CONDITIONAL", "reason": "수치는 넘지만 요구 조건에서의 값인지 근거 없음. 115℃ 상승 조건의 AF 정격 확인"},
-        {"item": "2차 전압 480Y/277V", "clause_no": "2.5", "attribute": "secondary_voltage", "expected_status": "SPEC_GAP", "reason": "2차 전압이 다름. 변형 모델 가능 여부를 변압기 기술부서에 자문"},
-        {"item": "1차 전압·용량(도면 참조)", "clause_no": "2.5", "attribute": "primary_voltage", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "요구값을 아직 모름(도면 미확보). 도면 요청 후 비교"},
-        {"item": "BIL 95kV·알루미늄 권선·이중 온도센서·ModBus 연동", "clause_no": "2.5", "attribute": "bil", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청"},
-        {"item": "IEEE C57.12.01·소음 NEMA TR1·부품 Listed and labeled", "clause_no": "2.5", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 기준 시험·등록·소음 근거를 찾을 수 없음. 인증·시험 자료 요청"},
-        {"item": "설계 기준: 타사 몰드 변압기 모델", "clause_no": "2.5", "attribute": null, "expected_status": "CONDITIONAL", "reason": "기준 모델은 참고 기준. 동등 이상 제안 가능 여부를 고객에게 확인"}
+        {"item": "탭 ±2×2.5%", "clause_no": "2.5", "attribute": "tap", "expected_status": "EVIDENCE_FOUND", "reason": "같은 속성·같은 값", "table_row": 1},
+        {"item": "절연 Class F", "clause_no": "2.5", "attribute": "insulation_class", "expected_status": "EVIDENCE_FOUND", "reason": "같은 등급", "table_row": 2},
+        {"item": "임피던스 5.75% ±10%", "clause_no": "2.5", "attribute": "impedance", "expected_status": "CONDITIONAL", "reason": "범위 안이지만 기준 온도가 IEEE 조건과 같은지 기술 검토", "table_row": 3},
+        {"item": "강제 공랭 시 용량 증대 33%(115℃ 상승)", "clause_no": "2.5 C.1", "attribute": "forced_air_capacity_increase", "expected_status": "CONDITIONAL", "reason": "수치는 넘지만 요구 조건에서의 값인지 근거 없음. 115℃ 상승 조건의 AF 정격 확인", "table_row": 4},
+        {"item": "2차 전압 480Y/277V", "clause_no": "2.5", "attribute": "secondary_voltage", "expected_status": "SPEC_GAP", "reason": "2차 전압이 다름. 변형 모델 가능 여부를 변압기 기술부서에 자문", "table_row": 5},
+        {"item": "1차 전압·용량(도면 참조)", "clause_no": "2.5", "attribute": "primary_voltage", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "요구값을 아직 모름(도면 미확보). 도면 요청 후 비교", "table_row": 6},
+        {"item": "BIL 95kV", "clause_no": "2.5.K", "attribute": "bil", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
+        {"item": "알루미늄 권선", "clause_no": "2.5.L", "attribute": "winding_material", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
+        {"item": "이중 온도센서", "clause_no": "2.5.G.1", "attribute": "winding_temperature_sensor", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
+        {"item": "ModBus RS-485 연동", "clause_no": "2.5.E", "attribute": "communication_interface", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
+        {"item": "IEEE C57.12.01", "clause_no": "2.5.I", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 기준 시험·등록·소음 근거를 찾을 수 없음. 인증·시험 자료 요청", "table_row": 8},
+        {"item": "소음 NEMA TR1(측정 ANSI C57.12.90)", "clause_no": "2.5.O", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 기준 시험·등록·소음 근거를 찾을 수 없음. 인증·시험 자료 요청", "table_row": 8},
+        {"item": "부품 Listed and labeled(NFPA 70)", "clause_no": "2.2.A.1", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "IEEE 기준 시험·등록·소음 근거를 찾을 수 없음. 인증·시험 자료 요청", "table_row": 8},
+        {"item": "설계 기준: 타사 몰드 변압기 모델", "clause_no": "2.5", "attribute": null, "expected_status": "CONDITIONAL", "reason": "기준 모델은 참고 기준. 동등 이상 제안 가능 여부를 고객에게 확인", "table_row": 9}
       ],
+      "note": "기획서 4.7 표 9개 행 중 묶인 두 행(7: BIL·권선·센서·ModBus, 8: IEEE·소음·Listed)을 요구별로 나눴다(KAN-186, 2026-10-30 결정). 확인 조건 ①~⑪은 근거 있음 두 요구를 뺀 12개 요구에 대응하고 ⑨ IEEE 시험·UL 등록이 두 요구다.",
       "result": "자사 변형 모델 확인 필요(공급 미확정). 확인 전에는 내부 검토 대안으로만 표시"
     },
     {

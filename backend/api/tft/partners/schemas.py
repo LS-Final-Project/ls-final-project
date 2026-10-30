@@ -26,6 +26,11 @@ Attribute = Literal[
     "forced_air_capacity_increase",
     "protection_functions",
     "arc_flash_reduction",
+    # KAN-186 시연 A를 요구별로 나눈 속성(14번 2.5.L·G.1·E)과 상업 조건(보증, 18번).
+    "winding_material",
+    "winding_temperature_sensor",
+    "communication_interface",
+    "warranty_months",
 ]
 
 
