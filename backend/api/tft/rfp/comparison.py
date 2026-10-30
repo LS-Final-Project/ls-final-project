@@ -52,6 +52,22 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class Origin(Strict):
+    """요구의 원문 위치(기획서 4.2 "원문" 칸). 판정마다 그대로 돌려줘 원문으로 돌아갈 수 있게 한다.
+
+    API에서는 RequirementOrigin(document_version_id·clause_id·quote)으로 옮긴다(A07). 엔진은 문서 판본이 아직 없는
+    입력(시연 예시)도 받도록 식별자를 문자열로 둔다.
+    """
+
+    document: str
+    document_version_id: str | None = None
+    clause_id: str | None = None
+    clause_no: str | None = None
+    # 취소선을 뺀 현행 원문. 원문에 값이 없으면 None이고 note에 이유를 적는다.
+    quote: str | None = None
+    note: str | None = None
+
+
 class Requirement(Strict):
     """A04 추출 요구 하나. 인증 요구는 attribute 대신 certification_standard를 쓴다."""
 
@@ -71,6 +87,7 @@ class Requirement(Strict):
     # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
     # 자료 보완 요청 → 공동 제안 → 참여 보류 검토로 간다(기획서 4.4).
     core_equipment: bool = False
+    origin: Origin | None = None
 
 
 class Certification(Strict):
@@ -124,6 +141,8 @@ class Outcome(Strict):
 
     clause_no: str
     item: str
+    # 요구 쪽 원문 근거(제품 쪽 근거는 candidates[].evidence). 입력에 없으면 None이다.
+    origin: Origin | None
     status: Status
     reason: str
     unresolved: list[str]
@@ -344,6 +363,7 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
         return Outcome(
             clause_no=requirement.clause_no,
             item=requirement.item,
+            origin=requirement.origin,
             status=status,
             reason=reason,
             unresolved=unresolved,

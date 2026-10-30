@@ -4,7 +4,12 @@
 
 ## 후보 찾기와 비교 판정을 나눈다
 
-- **후보 찾기**: 제품 마스터 계열 필터(`master_filter`)로 자사 후보를 넓게 찾는다. 문서 검색(R10 하이브리드, #184)은 같은 자리에 붙는다(A07). 찾은 범위는 `search_trace`(필터·문서 수·실패 여부)로 같이 돌려준다.
+- **후보 찾기**(`backend/api/tft/rfp/candidates.py` `find_candidates`): 제품 마스터 계열 필터와 문서 검색(R10 하이브리드 `run_hybrid`)을 함께 쓴다. **검색 엔진(R08~R11: 청킹·FTS·벡터·RRF·리랭킹)은 다른 담당자 구현이고, 이 티켓은 그 결과를 후보 제품과 검색 범위로 바꿔 판정 근거로 잇고 "후보 없음"과 "근거 부족"을 구분하는 소비자 쪽이다.**
+  - 범위: 계열 필터(`family=`)와 검색 조건(색인 판본·상한·문서 해시 수)을 `search_trace.filters`에 그대로 남긴다. "후보 없음"은 compare 사유에 이 범위와 문서 수를 넣어 그 범위의 결과로만 말한다.
+  - 문서 → 제품: 청크에는 제품 코드가 없어 색인 manifest의 문서 해시 → 제품 코드 표로 잇는다. 표에 없는 문서, 자사 후보 목록에 없는 제품은 후보로 만들지 않는다.
+  - 질의는 요구 항목·속성·값·단위·인증 규격의 토큰 OR이고, 규격 코드 일치(예: `UL 1066`)는 원문을 따로 넘긴다.
+  - 검색이 없으면 계열 필터만으로 동작한다. 검색이 실패하면 계열 후보로 계속 비교하고 범위에 `document_search=failed`를 남기며, 후보가 하나도 없을 때만 `search_failed`로 판정을 보류한다(검색 실패 ≠ 제품 없음).
+  - 검색으로 찾은 후보에도 같은 속성·단위·조건 규칙과 IEC→IEEE 확장 금지가 그대로 적용된다(`tests/tft/test_rfp_candidates.py`).
 - **비교 판정**: 같은 속성·같은 단위·같은 조건끼리만 규칙으로 비교한다. 값 비교 함수는 가상 협력사 등급(KAN-187 `partners/grading.py`)의 `_value_verdict`·`_condition_gaps`를 그대로 써서 자사와 협력사가 같은 규칙을 쓴다(decisions.md 가상 협력사 결정).
 - **고객 지정 모델 요구**(KAN-187, 기획서 V_1 ⑧): 가상 협력사 후보 등급 `grade_candidate`는 `designated_model`이 있는 요구를 채점하지 않고 후보 요약 `designated_requirements`(`requirement_id`·`designated_model`·`clause_no`·`note`='고객 지정 조달')로 따로 남긴다. 협력사 후보 추천과 섞지 않기 위해서다. 남은 요구가 없으면 `overall_grade`는 `REVIEW`이고 `conditions_to_confirm`에 '모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음.'을 넣는다.
 - **나눈 이유**(Jira 주의 사항): 검색은 비슷한 것을 찾는 일이라 15 kV 요구에 자사 12 kV 개폐장치도 후보로 나온다. 그 후보를 충족으로 볼지는 유사도가 아니라 정격전압 15 kV 이상인지로 정해야 한다. 그래서 비교는 숫자·단위·조건 규칙으로만 하고 점수를 만들지 않는다(검사 `test_search_finds_similar_products_but_rules_compare_only_same_unit`).
@@ -71,7 +76,12 @@
 - 입출력 예시: [`backend/api/tft/rfp/examples/comparison-demo-a.json`](../../backend/api/tft/rfp/examples/comparison-demo-a.json)(백엔드 검사 이미지에 들어가도록 백엔드 폴더에 둔다). 입력은 요구 14개와 후보 필터, 출력은 요구마다 `comparison`(상태·사유·미확인·다음 담당·부족 원인·후보별 근거)과 `supplement`(경로). 검사 `test_the_contract_example_is_the_current_engine_output`가 이 파일이 지금 엔진 결과와 같은지 확인한다. 다시 만들 때는 `python -m tests.tft.test_rfp_comparison`.
 - 요구값은 14번 원문(개발 문서)에서 옮겼고 평가 문서(10·11·12·18)는 쓰지 않았다.
 
+## 원문·제품 근거 링크
+
+- **요구 쪽**: 입력 요구의 `origin`(문서, 문서 판본 ID, 조항 ID, 조항 번호, 취소선을 뺀 현행 인용, 메모)을 판정 결과 `origin`으로 그대로 돌려준다. 원문에 값이 없으면 인용은 null이고 메모에 이유를 적는다(예: 1차 전압·용량은 도면 참조). API에서는 `RequirementOrigin`(`document_version_id`·`clause_id`·`quote`)으로 옮긴다(A07). A04 추출 결과의 조항·인용을 그대로 넣으면 된다.
+- **제품 쪽**: 후보마다 `candidates[].evidence`(데이터시트 문서·절·적용 조건·한계)다.
+- 시연 A 14개 판정 모두 14번 원문 위치를 갖고, 13개는 원문 인용이 있다(검사 `test_every_demo_judgement_links_back_to_the_rfp_clause`).
+
 ## 남은 것 (KAN-186 완료 조건)
 
-- 원문 근거 링크: 요구 쪽은 지금 조항 번호만 있다. 문서 판본·조항 ID 연결은 A04 저장 결과를 받는 A07에서 붙인다.
-- 문서 검색(R10)으로 후보를 찾는 연결과 자사 사양 23종 정규화.
+- 자사 사양 23종 정규화(지금 `own_spec_facts.json`은 TRF-DRY-630뿐). 문서 해시 → 제품 코드 표는 제품 문서 색인 manifest에서 만든다(A07·KAN-199 처리 함수).

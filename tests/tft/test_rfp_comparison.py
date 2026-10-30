@@ -12,6 +12,7 @@ import pytest
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.api.tft.rfp.comparison import (
     Certification,
+    Origin,
     Product,
     Requirement,
     SearchTrace,
@@ -27,7 +28,7 @@ EXAMPLE = Path("backend/api/tft/rfp/examples/comparison-demo-a.json")
 
 # 14번 2.5절 요구(취소선 뺀 현행 원문). 시연 A 표의 항목 순서이고, 묶인 두 행(BIL·권선·센서·ModBus,
 # IEEE·소음·Listed)은 요구별로 나눴다(2026-10-30 결정).
-DEMO_A = [
+_DEMO_A = [
     Requirement(
         clause_no="2.5.M", item="탭 ±2×2.5%", attribute="tap", value="±2×2.5%", operator="TEXT"
     ),
@@ -99,6 +100,84 @@ DEMO_A = [
         item="설계 기준: 타사 몰드 변압기 모델",
         designated_model="Eaton Resibloc",
     ),
+]
+
+
+# 14번 문서(RFP 데이터셋, Section 261116.11)의 원문 위치. 취소선을 뺀 현행 문장이다. 시연 예시라 문서 판본 ID 대신
+# 데이터셋 번호를 쓴다(API는 document_version_id·clause_id, A07).
+DOC14 = "RFP-14 261116.11"
+_ORIGINS = {
+    "탭 ±2×2.5%": (
+        "2.5.M",
+        "Full-Capacity Voltage Taps: Four nominal 2.5 percent taps, two above and two below rated primary voltage.",
+        None,
+    ),
+    "절연 Class F": (
+        "2.5.I.1",
+        "The electrical insulation system shall utilize Class F materials in a fully rated 155 degrees C system.",
+        None,
+    ),
+    "임피던스 5.75% ±10%": ("2.5.N", "Impedance: 5.75 percent, +/-10%.", None),
+    "강제 공랭 시 용량 증대 33%(115℃ 상승)": (
+        "2.5.C.1",
+        "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+        None,
+    ),
+    "2차 전압 480Y/277V": (
+        "2.5.C.1",
+        "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+        "2차 전압은 2.5.C의 2차 전압별 항목에 있다",
+    ),
+    "1차 전압·용량(도면 참조)": (
+        "2.5",
+        None,
+        "원문에 1차 전압·용량 값이 없다(도면 참조). 인용할 문장 없음",
+    ),
+    "BIL 95kV": ("2.5.K", "BIL: 95 kV.", None),
+    "알루미늄 권선": (
+        "2.5.L",
+        "Windings: The high and low voltage windings shall be aluminum.",
+        None,
+    ),
+    "이중 온도센서": (
+        "2.5.G.1",
+        "Dual temperature sensors shall be applied to the winding of each phase of the transformer.",
+        None,
+    ),
+    "ModBus RS-485 연동": (
+        "2.5.E",
+        "Transformer mounted serial communications module shall render the following data via RS-485 ModBus interface",
+        None,
+    ),
+    "IEEE C57.12.01": ("2.5.I", "Insulation Materials: IEEE C57.12.01.", None),
+    "소음 NEMA TR1(측정 ANSI C57.12.90)": (
+        "2.5.O",
+        "The transformer shall comply with the sound level standards for dry transformers as defined in NEMA TR1. The measurement procedure shall be as specified in ANSI C57.12.90",
+        None,
+    ),
+    "부품 Listed and labeled(NFPA 70)": (
+        "2.2.A.1",
+        "Electrical Components, Devices, and Accessories: Listed and labeled as defined in NFPA 70, by a qualified testing agency, and marked for intended location and application.",
+        None,
+    ),
+    "설계 기준: 타사 몰드 변압기 모델": (
+        "2.5.A",
+        "Style: Indoor, ventilated, insulated with epoxy, reinforced with glass fiber. 1. Basis of design: Eaton Resibloc",
+        None,
+    ),
+}
+DEMO_A = [
+    r.model_copy(
+        update={
+            "origin": Origin(
+                document=DOC14,
+                clause_no=_ORIGINS[r.item][0],
+                quote=_ORIGINS[r.item][1],
+                note=_ORIGINS[r.item][2],
+            )
+        }
+    )
+    for r in _DEMO_A
 ]
 
 
@@ -599,3 +678,17 @@ def test_commercial_and_designated_alternatives_are_not_gated_by_rnd():
     designated = options_for(demo_a()[13], "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
     alternative = next(o for o in designated.options if o.path == "ALTERNATIVE_SPEC")
     assert (alternative.allowed, alternative.gate.requires) == (True, "NONE")
+
+
+def test_every_demo_judgement_links_back_to_the_rfp_clause():
+    """완료 조건 "원문·제품 근거 링크": 판정마다 요구의 원문 조항·인용(제품 쪽은 후보 근거)을 돌려준다."""
+    outcomes = demo_a()
+    assert all(o.origin is not None and o.origin.document == DOC14 for o in outcomes)
+    quoted = [o for o in outcomes if o.origin.quote]
+    # 1차 전압·용량은 원문에 값이 없어(도면 참조) 인용 대신 이유를 남긴다.
+    assert len(quoted) == 13
+    missing = outcomes[5].origin
+    assert (missing.quote, "도면 참조" in missing.note) == (None, True)
+    assert "aluminum" in outcomes[7].origin.quote and outcomes[7].origin.clause_no == "2.5.L"
+    # Product-side evidence stays on the candidates.
+    assert outcomes[0].candidates[0].evidence[0].document == "DS-TRF-DRY-630"
