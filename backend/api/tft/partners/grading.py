@@ -4,6 +4,7 @@
 명령문이 결과를 바꾸지 못한다(기획서 5.4). 유사도 점수는 만들지 않는다.
 """
 
+import re
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -24,6 +25,9 @@ RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
 # 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
 MAX_ESTIMATE_SECONDS = Decimal(3)
+# 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
+UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
+SECONDS = frozenset({"s", "sec", "secs", "second", "seconds"})
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
@@ -283,6 +287,24 @@ def _head(requirement: Requirement) -> str:
     return f"{where}{requirement.attribute} 요구 {wanted}"
 
 
+def _unit_key(unit: str | None) -> str:
+    """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
+
+    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초 표기를 s로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
+    대소문자는 크기를 가르므로(mV·MV) 그대로 둔다.
+
+    Args:
+        unit: 원문 단위.
+
+    Returns:
+        str: 비교용 단위. 없으면 빈 문자열.
+    """
+    words = [w for w in re.split(r"[\s,()]+", unit or "") if w]
+    kept = [w for w in words if w.casefold().strip(".") not in UNIT_QUALIFIERS]
+    key = " ".join(kept)
+    return "s" if key.casefold() in SECONDS else key
+
+
 def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, str]:
     """같은 속성의 후보 값 하나를 요구와 비교한다.
 
@@ -300,7 +322,7 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
         return "unknown", "요구값 미정(자리표시자), 판정 제외"
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
-        if " ".join((requirement.unit or "").split()) != " ".join((fact.unit or "").split()):
+        if _unit_key(requirement.unit) != _unit_key(fact.unit):
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
         if requirement.operator == "RANGE":
@@ -349,7 +371,7 @@ def _at_required_duration(requirement: Requirement, facts: Sequence[SpecFact]) -
         for f in facts
         if any(
             c.name == "duration"
-            and (_number(c.value), _norm(c.unit)) == (_number(want.value), _norm(want.unit))
+            and (_number(c.value), _unit_key(c.unit)) == (_number(want.value), _unit_key(want.unit))
             for c in f.conditions or []
         )
     ]
@@ -379,7 +401,7 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> Converted |
         return None
     want = next((c for c in requirement.conditions if c.name == "duration"), None)
     got = next((c for c in fact.conditions or [] if c.name == "duration"), None)
-    if want is None or got is None or _norm(want.unit) != "s" or _norm(got.unit) != "s":
+    if want is None or got is None or _unit_key(want.unit) != "s" or _unit_key(got.unit) != "s":
         return None
     wanted, given, current = _number(want.value), _number(got.value), _number(fact.value)
     if wanted is None or given is None or current is None or wanted <= 0 or given <= 0:
@@ -415,7 +437,7 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
         got = given.get(want.name)
         if got is None:
             gaps.append(f"{want.name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
-        elif (_norm(got.value), _norm(got.unit)) != (_norm(want.value), _norm(want.unit)):
+        elif (_norm(got.value), _unit_key(got.unit)) != (_norm(want.value), _unit_key(want.unit)):
             gaps.append(
                 f"{want.name} 요구 {_with_unit(want.value, want.unit)}, "
                 f"후보 {_with_unit(got.value, got.unit)}"

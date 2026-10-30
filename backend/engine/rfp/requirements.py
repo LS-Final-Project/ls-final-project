@@ -26,9 +26,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.engine.rfp.clauses import ClauseTree
 from backend.engine.rfp.vocabulary import (
     ATTRIBUTE_KEYS,
+    CONDITION_NAMES,
     EQUIPMENT_FAMILIES,
     OTHER,
     AttributeKeyOrOther,
+    ConditionNameOrOther,
     FamilyOrOther,
 )
 from backend.shared.ai import Generation, Usage
@@ -37,7 +39,8 @@ from backend.shared.ai import Generation, Usage
 # v3(KAN-185 의미 구조화): 모델이 내부 속성 키·제품 계열·허용 오차·Listed 여부를 같은 호출 안에서 연결한다.
 # v4(KAN-185): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구를 assembly_clause로 표시한다.
 # v5(KAN-185): 대체·동등품을 승인 조건부로 허용하는데 절차가 없는 요구를 approval_procedure_missing으로 표시한다.
-EXTRACTION_VERSION = "rfp-requirements-v5"
+# v6(KAN-185): operator 판단 기준과 조건 이름 어휘(conditions.name). 단위 수식어는 비교 쪽 코드가 뗀다.
+EXTRACTION_VERSION = "rfp-requirements-v6"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -72,7 +75,10 @@ class ExtractionInput(Strict):
 
 
 class Condition(Strict):
-    name: str = Field(description="조건 이름(예: secondary voltage, temperature rise, ambient).")
+    # 어휘는 응답 스키마 enum과 validate_output(_outside_lists)이 지킨다. 이 모델은 다른 입력도 받는다.
+    name: str = Field(
+        description="조건 이름(vocabulary.ConditionName). 없으면 OTHER이고 value에 원문 문구를 그대로 둔다."
+    )
     value: str
     unit: str | None = None
 
@@ -162,7 +168,7 @@ class _Loose(BaseModel):
 
 
 class ConditionSchema(_Loose):
-    name: str
+    name: ConditionNameOrOther
     value: str
     unit: str | None = None
 
@@ -287,7 +293,13 @@ Return JSON matching the schema. Rules:
 - One requirement = one attribute of one equipment or one task. Split a clause that states several values.
 - quote: copy a contiguous span of the clause text exactly (current text only). value must appear in quote.
 - For a requirement without a measurable value (operator TEXT), set value to null or to an exact span of quote.
-- Keep conditions attached to a value (e.g. secondary voltage, temperature rise, ambient) in conditions.
+- Keep conditions attached to a value in conditions. name comes from this list only: {condition_names}.
+  value is the number or phrase and unit goes in unit (e.g. duration, value "3", unit "s"). If no name fits,
+  use "OTHER" with the whole condition phrase in value.
+- operator: GTE for a minimum, either stated ("at least", "not less than", "minimum") or implied because a
+  higher rating also satisfies it (withstand current, interrupting or breaking capacity, continuous current).
+  LTE for a maximum limit ("not more than", "maximum"). EQ for a specified value with no such sense (a system
+  voltage, an insulation level or a nominal rating stated as a fixed value). RANGE for a stated range.
 - Imperatives ("Provide ...", "Comply with ...") are requirements too.
 - necessity: MANDATORY for shall/must/imperative, PREFERRED for should/preferred, CONDITION_BOUND when the
   requirement applies only under a stated condition, UNDETERMINED when the text does not say.
@@ -334,6 +346,7 @@ def prompt(item: ExtractionInput) -> str:
         section_title=item.section_title or "",
         clauses=clauses,
         attribute_keys=", ".join(sorted(ATTRIBUTE_KEYS)),
+        condition_names=", ".join(sorted(CONDITION_NAMES)),
         families=", ".join(sorted(EQUIPMENT_FAMILIES)),
     )
 
@@ -366,7 +379,7 @@ TOLERANCE_MARK = re.compile(
 
 
 def _outside_lists(data: dict[str, object]) -> set[int]:
-    """목록 밖 attribute_key·equipment_family를 OTHER로 바꾼다(제자리). 모델의 연결을 믿지 않은 요구 번호를 돌려준다.
+    """목록 밖 attribute_key·equipment_family·조건 이름을 OTHER로 바꾼다(제자리). 바꾼 요구 번호를 돌려준다.
 
     Args:
         data: 모델 응답 JSON(엄격 검사 전).
@@ -389,6 +402,14 @@ def _outside_lists(data: dict[str, object]) -> set[int]:
         if family not in (None, OTHER) and family not in EQUIPMENT_FAMILIES:
             req["equipment_family"] = OTHER
             changed.add(index)
+        conditions = req.get("conditions")
+        for condition in conditions if isinstance(conditions, list) else []:
+            if not isinstance(condition, dict):
+                continue
+            name = condition.get("name")
+            if name != OTHER and name not in CONDITION_NAMES:
+                condition["name"] = OTHER
+                changed.add(index)
     return changed
 
 

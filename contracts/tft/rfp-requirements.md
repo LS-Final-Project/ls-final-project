@@ -17,6 +17,8 @@
 2. **모델**: Gemini 구조화 출력으로 요구를 낸다. 요구 하나는 장비 하나의 속성 하나 또는 과업 하나다.
    - 출력 항목: `clause_no`, 근거 `quote`, `kind`, `equipment`, `task`, `attribute`, `value`, `unit`, `operator`
    - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`, `designated_manufacturer`
+   - 연산자 기준(v6): 최소 요구는 `GTE`(문구가 '이상'이거나, 내전류·차단 용량·연속 전류처럼 더 높은 정격이 요구를 만족하는 양), 최대 제한은 `LTE`, 고정된 지정값(계통 전압, 고정값으로 적힌 절연 수준·공칭 정격)은 `EQ`, 범위는 `RANGE`다.
+   - 조건 이름(v6): `conditions.name`은 어휘(`vocabulary.ConditionName`) 안의 값 또는 `OTHER`다. 자사·협력사 사양 근거의 조건 이름도 이 어휘 안에 있어야 한다(검사가 확인). `OTHER`면 `value`에 원문 문구를 그대로 둔다. 응답 스키마는 enum 하나다.
    - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
      - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
      - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
@@ -35,7 +37,7 @@
    - `VALUE_NOT_IN_QUOTE`: 수치 값이 인용에 없음
    - 문장형 요구(`operator=TEXT`)의 값이 인용에 없으면 모델이 바꿔 쓴 말이므로 **값만 비우고 요구는 남긴다**(`value_dropped`).
    - 의미 칸 검사(v3). 요구를 버리지 않고 `needs_review`로 표시한다. `needs_review`는 코드만 정하며 응답 스키마에 없다.
-     - 목록 밖 `attribute_key`·`equipment_family`는 엄격 검사 전에 `OTHER`로 바꾸고 검토로 둔다. 응답 전체를 스키마 위반으로 버리지 않는다
+     - 목록 밖 `attribute_key`·`equipment_family`·조건 이름은 엄격 검사 전에 `OTHER`로 바꾸고 검토로 둔다. 응답 전체를 스키마 위반으로 버리지 않는다
      - `tolerance`가 인용 안에 그대로 없으면 지우고 검토로 둔다
      - 값이 숫자인데 인용에 허용 오차 표기(±, +/-, +0/-5, tolerance, plus or minus)가 있고 `tolerance`가 비었으면 검토로 둔다
    - 지정 모델·제조사는 그 조항 현행 텍스트에 그대로 있을 때만 남긴다. 없으면 **그 칸만 비우고 요구는 남긴다**(`designated_dropped`). 모델명에서 제조사를 짐작한 값(SEL-751A → Schweitzer), 취소선으로 지운 옛 모델, 원문에 없는 모델이 여기서 걸린다. 모델이 비면 제조사도 비운다.
