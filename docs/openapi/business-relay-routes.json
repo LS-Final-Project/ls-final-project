@@ -743,6 +743,43 @@
       "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/remove",
       "forward": false,
       "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/acknowledge",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/reply",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/action",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/resend",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/review-rejection",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/ts_lv/reply",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS%2FLV/reply",
+      "forward": false,
+      "status": 404
     }
   ]
 }

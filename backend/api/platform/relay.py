@@ -91,13 +91,12 @@ _PLACEHOLDERS = {
     "{evidence}": EVIDENCE_PATH,
     "{dept}": DEPT_PATH,
 }
+# 분리 정규식은 _PLACEHOLDERS 키에서 만든다. 손으로 쓴 목록에 {dept}가 빠져 부서 경로 5개가 늘 404였다(KAN-116).
+_SPLIT = re.compile("(" + "|".join(re.escape(key) for key in _PLACEHOLDERS) + ")")
 _COMPILED = [
     (
         re.compile(
-            "".join(
-                _PLACEHOLDERS.get(part, re.escape(part))
-                for part in re.split(r"(\{uuid\}|\{customer\}|\{evidence\})", template)
-            )
+            "".join(_PLACEHOLDERS.get(part, re.escape(part)) for part in _SPLIT.split(template))
         ),
         set(methods),
         set(query),
