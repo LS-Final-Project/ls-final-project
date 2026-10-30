@@ -66,7 +66,8 @@ RndCheck = Literal[
     "WAIVED",
 ]
 CustomerPermission = Literal["ALLOWED", "FORBIDDEN", "UNSTATED"]
-QuestionStatus = Literal["OPEN", "REPLIED"]
+# DRAFT: 처리 함수가 만든 초안. 사람이 확인(경로 31)해야 OPEN이 되고, 그 전에는 보낸 질문이 아니다.
+QuestionStatus = Literal["DRAFT", "OPEN", "REPLIED"]
 QuestionIssue = Literal[
     "EMPTY_VALUE",
     "CONFLICT",

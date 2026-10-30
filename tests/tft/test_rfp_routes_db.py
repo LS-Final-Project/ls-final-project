@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
 from backend.api.tft.main import create_app
-from backend.api.tft.rfp import commands
+from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -297,3 +297,101 @@ def test_requests_replay_by_key_and_concurrent_keys_conflict(client, gap, admin,
     with pytest.raises(ApplicationError) as conflict:
         asyncio.run(main())
     assert (conflict.value.status_code, conflict.value.code) == (409, "IDEMPOTENCY_CONFLICT")
+
+
+def draft(admin, chain, **extra):
+    """처리 함수가 넣는 것과 같은 고객 질문 초안 한 행(DRAFT, 요구 연결)."""
+    question_id = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.customer_questions (id, project_id, requirement_id, clause_id, "
+            "issue_type, question_text, status, target, draft_key, data_origin, derivation_kind, "
+            "known_at, created_by) VALUES (%s,%s,%s,%s,'EMPTY_VALUE','값을 알려 주세요','DRAFT',"
+            "'CUSTOMER',%s,'synthetic','DERIVED',now(),%s)",
+            (
+                question_id,
+                chain["project"],
+                chain["requirement"],
+                chain["clause"],
+                uuid4().hex + uuid4().hex,
+                OWNER.user_id,
+            ),
+        )
+    return question_id
+
+
+def customer_question_seen(admin, chain):
+    async def read():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            return await repository.has_customer_question(conn, chain["requirement"])
+
+    return asyncio.run(read())
+
+
+def test_a_draft_is_not_a_sent_question_until_a_person_confirms_it(client, admin, chain):
+    """경로 31(KAN-199): 초안은 목록에 상태로 구분되고 has_customer_question은 거짓이다. 확인하면 OPEN·참이다."""
+    question_id = draft(admin, chain)
+    url = f"/projects/{chain['project']}/questions"
+    listed = call(client, "GET", f"{url}?status=DRAFT", OWNER).json()["data"]["items"]
+    assert [q["question_id"] for q in listed] == [str(question_id)]
+    assert call(client, "GET", f"{url}?status=OPEN", OWNER).json()["data"]["items"] == []
+    assert customer_question_seen(admin, chain) is False
+    # 초안에는 회신을 기록할 수 없다.
+    refused = answer(client, {"question_id": question_id}, OWNER)
+    assert refused.status_code == 409
+
+    key = uuid4().hex
+    confirmed = call(client, "POST", f"{url}/{question_id}/confirm", OWNER, None, key)
+    assert confirmed.status_code == 200, confirmed.text
+    body = confirmed.json()["data"]
+    assert (body["status"], body["version"]) == ("OPEN", 2)
+    assert customer_question_seen(admin, chain) is True
+    # 같은 키는 첫 결과를 다시 준다. 새 키로 다시 부르면 이미 확인된 질문이라 409다.
+    again = call(client, "POST", f"{url}/{question_id}/confirm", OWNER, None, key)
+    assert (again.status_code, again.json()["data"]["version"]) == (200, 2)
+    assert error(
+        call(client, "POST", f"{url}/{question_id}/confirm", OWNER, None, uuid4().hex)
+    ) == (
+        409,
+        "TFT_VERSION_CONFLICT",
+    )
+    assert (
+        call(client, "GET", f"{url}?status=OPEN", OWNER).json()["data"]["items"][0]["status"]
+        == "OPEN"
+    )
+
+
+def test_confirm_follows_question_create_permission_and_project_scope(client, admin, chain):
+    """확인 권한은 질문 작성과 같다. 다른 프로젝트 경로로는 질문이 없는 것과 같다."""
+    question_id = draft(admin, chain)
+    url = f"/projects/{chain['project']}/questions/{question_id}/confirm"
+    # 볼 수 있지만 작성 권한이 없는 관리자는 403, 범위 밖 사용자는 없는 것과 같다.
+    manager = Principal(
+        user_id=uuid4(), roles=frozenset({"manager"}), managed_projects={chain["project"]}
+    )
+    assert call(client, "POST", url, manager, None, uuid4().hex).status_code == 403
+    stranger = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
+    assert error(call(client, "POST", url, stranger, None, uuid4().hex)) == (
+        404,
+        "TFT_PROJECT_NOT_FOUND",
+    )
+    assert call(client, "POST", url, OWNER).status_code == 422  # Idempotency-Key 필수.
+    # 내가 담당인 다른 프로젝트의 경로로는 이 질문을 확인할 수 없다.
+    other = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.projects (id, source, source_instance, data_origin, derivation_kind, "
+            "known_at, company_code, name, sales_user_id) "
+            "VALUES (%s,'test','kan199','synthetic','PROVIDED',now(),'HOST','다른 프로젝트',%s)",
+            (other, SALES),
+        )
+    elsewhere = f"/projects/{other}/questions/{question_id}/confirm"
+    assert error(call(client, "POST", elsewhere, OWNER, None, uuid4().hex)) == (
+        404,
+        "TFT_QUESTION_NOT_FOUND",
+    )
+    missing = f"/projects/{chain['project']}/questions/{uuid4()}/confirm"
+    assert error(call(client, "POST", missing, OWNER, None, uuid4().hex)) == (
+        404,
+        "TFT_QUESTION_NOT_FOUND",
+    )

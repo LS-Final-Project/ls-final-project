@@ -23,9 +23,11 @@ from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
-from backend.api.tft.worker_processor import make_processor, sections_of
+from backend.api.tft.worker_processor import draft_requirement, make_processor, sections_of
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import build_clause_tree
+from backend.engine.rfp.questions import QuestionDraft, QuestionSource
+from backend.engine.rfp.requirements import ExtractedRequirement
 from backend.shared.ai import Generation, Usage
 from backend.shared.settings import Settings
 
@@ -448,9 +450,12 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
     ("printed", "review"), [("5.75 percent ±10%", True), ("5.75 percent", False)]
 )
 def test_a_requirement_level_review_reaches_the_job_summary(
-    worker_dsn, admin, tmp_path, printed, review
+    worker_dsn, admin, tmp_path, profile, printed, review
 ):
-    """KAN-199: 추출은 VALID여도 요구별 검토 표시(원문의 허용 오차가 빠짐, KAN-185)가 있으면 작업 요약이 검토다."""
+    """KAN-199: 추출은 VALID여도 요구별 검토 표시(원문의 허용 오차가 빠짐, KAN-185)가 있으면 작업 요약이 검토다.
+
+    프로필이 없으면 그것만으로 검토가 되므로 profile을 넣어 요구별 표시만 본다.
+    """
     quote = f"The impedance shall be {printed}."
     spec = f"# SECTION 26 12 19\n\nPART 2 - PRODUCTS\n\n2.1 TRANSFORMERS\n\nA. {quote}\n".encode()
     wanted = {**REQUIREMENTS[1], "clause_no": "2.1.A", "quote": quote, "designated_model": None}
@@ -510,3 +515,184 @@ def test_an_assembly_clause_is_stored_and_read_back_for_the_project(worker_dsn, 
     assert [(r["clause_no"], r["assembly_clause"]) for r in rows] == [("2.1.A", True)]
     result = project_integration([StoredRequirement.model_validate(r) for r in rows], "UNRESOLVED")
     assert result["required"] is True and result["basis_clause_ids"] == [rows[0]["clause_id"]]
+
+
+class OneResponse(FakeExtractor):
+    """정해진 요구 목록을 돌려준다."""
+
+    def __init__(self, requirements):
+        super().__init__()
+        self.requirements = requirements
+
+    def __call__(self, _prompt):
+        self.calls += 1
+        return Generation(
+            text=json.dumps({"requirements": self.requirements}),
+            usage=Usage(),
+            model_version="fake",
+            finish_reasons=[],
+        )
+
+
+def spec_of(*sentences):
+    body = "\n\n".join(f"{letter}. {text}" for letter, text in zip("ABCD", sentences, strict=False))
+    return f"# SECTION 26 12 19\n\nPART 2 - PRODUCTS\n\n2.1 UNIT\n\n{body}\n".encode()
+
+
+def placeholder(clause_no, quote):
+    return {
+        **REQUIREMENTS[0],
+        "clause_no": clause_no,
+        "quote": quote,
+        "attribute": "voltage",
+        "attribute_key": "OTHER",
+        "value": "<Insert value>",
+        "unit": "kV",
+        "operator": "EQ",
+    }
+
+
+def drafts_of(admin, project):
+    with psycopg.connect(admin, row_factory=dict_row) as conn:
+        return conn.execute(
+            "SELECT status, issue_type, target, derivation_kind, requirement_id, clause_id, draft_key, "
+            "internal_assumption FROM tft.customer_questions WHERE project_id=%s ORDER BY created_at",
+            (project["project"],),
+        ).fetchall()
+
+
+def test_question_drafts_are_stored_as_drafts_with_the_tft_worker_role(worker_dsn, admin, tmp_path):
+    """KAN-199: 처리 함수(tft_worker 권한)가 미정 항목 질문을 DRAFT로 저장한다. 다시 돌려도 늘지 않는다."""
+    quote = "The voltage shall be <Insert value> kV."
+    project = make_project(admin, tmp_path, spec_of(quote))
+    extractor = OneResponse([placeholder("2.1.A", quote)])
+    run(worker_dsn, project, extractor)
+    [draft] = drafts_of(admin, project)
+    assert (draft["status"], draft["issue_type"], draft["target"], draft["derivation_kind"]) == (
+        "DRAFT",
+        "EMPTY_VALUE",
+        "CUSTOMER",
+        "DERIVED",
+    )
+    assert draft["requirement_id"] is not None and draft["clause_id"] is not None
+    # 회신 전 메모와 출처 조항은 InternalAssumption 형식으로 남는다.
+    assert draft["internal_assumption"]["basis_clause"] == "2.1.A"
+    assert draft["internal_assumption"]["value"].startswith("미정")
+    run(worker_dsn, project, extractor)
+    assert len(drafts_of(admin, project)) == 1
+
+
+def test_a_new_document_version_does_not_repeat_the_same_question(worker_dsn, admin, tmp_path):
+    """같은 조항 번호·같은 문장이면 판본이 달라도 같은 질문이다(draft_key). 문장이 바뀌면 새 질문이다."""
+    quote = "The voltage shall be <Insert value> kV."
+    project = make_project(admin, tmp_path, spec_of(quote))
+    run(worker_dsn, project, OneResponse([placeholder("2.1.A", quote)]))
+
+    def new_version(number, text):
+        document_version = uuid4()
+        key = f"rfp/{document_version}.md"
+        body = spec_of(text)
+        (project["root"] / key).write_bytes(body)
+        with psycopg.connect(admin) as conn:
+            conn.execute(
+                "INSERT INTO tft.document_versions (id, document_id, version, mime, storage_key, sha256, "
+                "size, edit_trace_support, data_origin, derivation_kind, known_at, uploaded_by) "
+                "VALUES (%s,%s,%s,'text/markdown',%s,%s,%s,false,'synthetic','PROVIDED',now(),%s)",
+                (
+                    document_version,
+                    project["document"],
+                    number,
+                    key,
+                    hashlib.sha256(body).hexdigest(),
+                    len(body),
+                    uuid4(),
+                ),
+            )
+            conn.execute(
+                "UPDATE tft.documents SET latest_version=%s WHERE id=%s",
+                (number, project["document"]),
+            )
+        return document_version
+
+    same = new_version(2, quote)
+    run(
+        worker_dsn,
+        project,
+        OneResponse([placeholder("2.1.A", quote)]),
+        version=input_version([same]),
+    )
+    assert len(drafts_of(admin, project)) == 1
+    changed = "The voltage shall be <Insert value> kV at 60 Hz."
+    other = new_version(3, changed)
+    run(
+        worker_dsn,
+        project,
+        OneResponse([placeholder("2.1.A", changed)]),
+        version=input_version([other]),
+    )
+    assert len(drafts_of(admin, project)) == 2
+
+
+def test_a_draft_links_only_the_requirement_its_source_quotes(worker_dsn, admin, tmp_path):
+    """KAN-199: 한 조항의 요구가 둘이면 원문이 맞는 요구에만 연결한다(조항의 첫 요구로 넘겨짚지 않는다)."""
+    first, second = "The rating shall be 1500 kVA minimum", "Alternates need Owner approval"
+    project = make_project(admin, tmp_path, spec_of(f"{first}. {second}."))
+    requirements = [
+        {**REQUIREMENTS[0], "quote": first},
+        {
+            **REQUIREMENTS[0],
+            "quote": second,
+            "attribute": "alternates",
+            "attribute_key": "OTHER",
+            "value": None,
+            "unit": None,
+            "operator": "TEXT",
+            "approval_procedure_missing": True,
+        },
+    ]
+    run(worker_dsn, project, OneResponse(requirements))
+    [draft] = drafts_of(admin, project)
+    assert draft["issue_type"] == "CONDITION_MISSING"
+    with psycopg.connect(admin) as conn:
+        linked = conn.execute(
+            "SELECT quote FROM tft.requirement_versions WHERE requirement_id=%s",
+            (draft["requirement_id"],),
+        ).fetchone()
+    assert linked == (second,)
+
+
+def test_a_placeholder_covering_two_requirements_stays_clause_only(worker_dsn, admin, tmp_path):
+    """미정 항목 출처는 조항 전체 문장이라 요구 둘이 모두 포함되면 갈린다: 넘겨짚지 않고 조항만 있는 질문이다."""
+    first, second = "The rating shall be 1500 kVA minimum", "The voltage shall be <Insert value> kV"
+    project = make_project(admin, tmp_path, spec_of(f"{first}. {second}."))
+    run(
+        worker_dsn,
+        project,
+        OneResponse([{**REQUIREMENTS[0], "quote": first}, placeholder("2.1.A", second)]),
+    )
+    [draft] = drafts_of(admin, project)
+    assert draft["requirement_id"] is None and draft["clause_id"] is not None
+
+
+def test_a_draft_stays_clause_only_when_the_requirement_is_not_settled():
+    """연결 규칙: 같은 조항에 원문이 맞는 요구가 없거나 둘 이상으로 갈리면 조항만 있는 질문이다."""
+    source = QuestionDraft(
+        kind="PLACEHOLDER",
+        sources=[QuestionSource(clause_no="2.1.A", quote="voltage <Insert value> kV")],
+        question="q",
+        pre_reply_note="n",
+    )
+
+    def item(clause_no, quote):
+        return ExtractedRequirement.model_validate(
+            {**placeholder(clause_no, quote), "conditions": []}
+        )
+
+    a, b = uuid4(), uuid4()
+    other_quote = (a, item("2.1.A", "rating 1500 kVA"))
+    assert draft_requirement(source, [other_quote]) is None
+    other_clause = (a, item("2.1.B", "voltage <Insert value> kV"))
+    assert draft_requirement(source, [other_clause]) is None
+    same = (a, item("2.1.A", "voltage <Insert value> kV"))
+    assert draft_requirement(source, [same, other_quote]) == a
+    assert draft_requirement(source, [same, (b, same[1])]) is None
