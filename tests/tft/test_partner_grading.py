@@ -122,7 +122,9 @@ MV_FACTS = [
     fact("short_time_withstand_current", "38", "kA", conditions=DURATION),
     fact("arc_resistant", "IEEE C37.20.7"),
 ]
-P_A = profile("P-A", MV_FACTS, [cert("UL 347")], integration=None)
+# 실제 P-A처럼 IEEE C37.20.7 인증이 있다(요구 2.4 E의 IEEE 체계 근거, KAN-199 규격 체계 규칙).
+MV_CERTS = [cert("UL 347"), cert("IEEE C37.20.7")]
+P_A = profile("P-A", MV_FACTS, MV_CERTS, integration=None)
 
 
 def by_id(grades: list[RequirementGrade]) -> dict[int, RequirementGrade]:
@@ -141,8 +143,28 @@ def test_p_a_is_review_with_ratings_passed_and_connection_unknown():
 
 
 def test_all_checks_confirmed_gives_mandatory_confirmed():
-    summary, _ = grade_candidate(profile("P-A", MV_FACTS, [cert("UL 347")]), MV, CONTEXT, DAY)
+    summary, _ = grade_candidate(profile("P-A", MV_FACTS, MV_CERTS), MV, CONTEXT, DAY)
     assert summary.overall_grade == "MANDATORY_CONFIRMED"
+
+
+def test_a_value_under_another_standard_system_is_not_confirmed_but_a_shortfall_stays():
+    """KAN-199: 요구 체계(IEEE)가 제안 모델 인증의 체계(UL)와 다르면 충족이어도 확인 필요다. 미달은 낮추지 않는다."""
+    only_ul = profile("P-A", MV_FACTS, [cert("UL 347")])
+    row = grade_requirement(only_ul, MV[4], CONTEXT, DAY)
+    assert "arc_resistant" in row.mandatory_check.unknown
+    assert "규격 체계 다름: 요구 IEEE, 근거 UL 347, 시험 규격 확인" in " ".join(row.reasons)
+    weak = profile(
+        "P-A",
+        [*MV_FACTS[:1], fact("rated_max_voltage", "12", "kV"), *MV_FACTS[2:]],
+        [cert("UL 347")],
+    )
+    ieee_voltage = MV[1].model_copy(update={"standard_system": "IEEE"})
+    assert grade_requirement(weak, ieee_voltage, CONTEXT, DAY).mandatory_check.failed == [
+        "rated_max_voltage"
+    ]
+    # 근거 체계를 모르면(인증 없음) 지금처럼 판정한다.
+    bare = profile("P-A", MV_FACTS, [])
+    assert "arc_resistant" in grade_requirement(bare, MV[4], CONTEXT, DAY).mandatory_check.passed
 
 
 def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence():
