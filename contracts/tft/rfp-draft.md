@@ -58,6 +58,9 @@
 일반 가정을 발명하지 않는다. 선택지는 검토안/미선택으로 표시하며 사람 선택도 이행 확약으로 바꾸지 않는다.
 `CONDITIONAL`·`INSUFFICIENT_EVIDENCE`·`SPEC_GAP`, 조건부 필수와 미정 항목·판정 미확인,
 후보의 적용 조건과 자료 제한, R&D `PENDING`/`WAIVED`, 재검토 표시는 조건/미확인으로 남긴다.
+제공된 `spec.tolerance`는 원문 그대로 조건에 보존하며 null을 허용 오차 없음으로 확정하지 않는다.
+`needs_review`(시스템 추출 검토 표시)와 `needs_rereview` 중 하나라도 true이면 관련 문장의
+`needs_rereview`·`unconfirmed`에 반영한다. 두 입력 필드 자체를 수정하거나 같은 의미로 저장하지 않는다.
 모든 문장은 `provenance_kind=system_record`이며, 사람 입력의 내용을 인용해도 코드 생성 문장 자체를
 사람이 승인한 문장으로 표시하지 않는다. 근거 있음은 해당 요구의 기록이며 전체 공급 가능 판단이 아니다.
 

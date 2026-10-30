@@ -597,3 +597,40 @@ def test_project_question_without_requirement_does_not_invent_requirement_refere
     rows = sentences(result)
     assert len(rows) == 1 and rows[0].evidence == [s.Evidence(type="question", id=str(QUESTION))]
     assert "초안·미발송" in rows[0].text
+
+
+@pytest.mark.parametrize("tolerance", ["±5%", "+0/-3%", None])
+def test_latest_schema_tolerance_is_preserved_without_assuming_null_means_none(
+    snapshot: dict[str, Any], tolerance: str | None
+) -> None:
+    snapshot["requirements"][0].spec.tolerance = tolerance
+    rows = sentences(build_draft(**snapshot), "CUSTOMER_GOAL_SCOPE")
+    assert len(rows) == 1
+    if tolerance is not None:
+        assert f"요구 허용 오차(원문): {tolerance}" in rows[0].conditions
+    else:
+        assert not any("허용 오차" in item for item in rows[0].conditions)
+        assert "허용 오차 없음" not in rows[0].text
+
+
+def test_latest_system_review_flag_propagates_to_related_sentences(
+    snapshot: dict[str, Any],
+) -> None:
+    req = snapshot["requirements"][0]
+    req.needs_review = True
+    req.needs_rereview = False
+    req.judgement.status = "EVIDENCE_FOUND"
+    snapshot["questions"][0].status = "REPLIED"
+    snapshot["integration"].holder = "OWN"
+    result = build_draft(**snapshot)
+    related = [
+        row
+        for row in sentences(result)
+        if any(e.type == "requirement" and e.id == str(REQ) for e in row.evidence)
+    ]
+    assert related and all(row.needs_rereview and row.unconfirmed for row in related)
+    assert (
+        "추출 결과의 원문·허용 오차 등 검토 필요"
+        in sentences(result, "CUSTOMER_GOAL_SCOPE")[0].conditions
+    )
+    assert req.needs_review is True and req.needs_rereview is False

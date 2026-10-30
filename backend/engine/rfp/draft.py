@@ -44,6 +44,10 @@ def _requirement_evidence(req: s.RequirementDetail) -> list[s.Evidence]:
 
 def _conditions(req: s.RequirementDetail) -> list[str]:
     result = [f"{c.name}: {c.value} {c.unit or ''}".strip() for c in req.spec.conditions]
+    if req.spec.tolerance is not None:
+        result.append(f"요구 허용 오차(원문): {req.spec.tolerance}")
+    if req.needs_review:
+        result.append("추출 결과의 원문·허용 오차 등 검토 필요")
     result.extend(req.spec.undetermined_items)
     result.extend(req.judgement.unresolved)
     if req.spec.necessity == "CONDITION_BOUND":
@@ -257,9 +261,8 @@ def build_draft(
     for req in sorted(requirements, key=lambda r: str(r.requirement_id)):
         evidence = _requirement_evidence(req)
         conditions = _conditions(req)
-        unconfirmed = (
-            req.judgement.status != "EVIDENCE_FOUND" or bool(conditions) or req.needs_rereview
-        )
+        review = req.needs_rereview or req.needs_review
+        unconfirmed = req.judgement.status != "EVIDENCE_FOUND" or bool(conditions) or review
         label = f"요구 {req.code}"
         emit(
             "CUSTOMER_GOAL_SCOPE",
@@ -267,7 +270,7 @@ def build_draft(
             evidence,
             conditions=conditions,
             unconfirmed=unconfirmed,
-            rereview=req.needs_rereview,
+            rereview=review,
         )
         comp = comps.get(req.requirement_id)
         if comp:
@@ -291,7 +294,7 @@ def build_draft(
                     [*evidence, s.Evidence(type="product", id=candidate.product_code)],
                     conditions=candidate_conditions,
                     unconfirmed=True,
-                    rereview=req.needs_rereview,
+                    rereview=review,
                 )
         if unconfirmed or req.judgement.status == "SPEC_GAP":
             section: s.DraftSection = (
@@ -303,7 +306,7 @@ def build_draft(
                 evidence,
                 conditions=conditions,
                 unconfirmed=True,
-                rereview=req.needs_rereview,
+                rereview=review,
             )
         option_set = opts.get(req.requirement_id)
         if option_set:
@@ -341,7 +344,7 @@ def build_draft(
                     path_evidence,
                     conditions=path_conditions,
                     unconfirmed=True,
-                    rereview=req.needs_rereview,
+                    rereview=review,
                 )
                 for code in sorted(option.candidate_codes if option.path in PARTNER_PATHS else []):
                     partner = candidates[code]
@@ -360,7 +363,7 @@ def build_draft(
                             *grade.mandatory_check.unknown,
                         ],
                         unconfirmed=True,
-                        rereview=req.needs_rereview,
+                        rereview=review,
                     )
         if req.judgement.next_owner_field:
             emit(
@@ -369,7 +372,7 @@ def build_draft(
                 evidence,
                 conditions=conditions,
                 unconfirmed=True,
-                rereview=req.needs_rereview,
+                rereview=review,
             )
 
     if integration.required:
@@ -389,7 +392,7 @@ def build_draft(
             evidence,
             conditions=conditions,
             unconfirmed=unresolved,
-            rereview=any(r.needs_rereview for r in basis),
+            rereview=any(r.needs_rereview or r.needs_review for r in basis),
         )
     for question in sorted(questions, key=lambda q: str(q.question_id)):
         question_evidence = [s.Evidence(type="question", id=str(question.question_id))]
@@ -413,7 +416,7 @@ def build_draft(
             f"{target} [{state}]: 「{question.question_text}」.",
             question_evidence,
             unconfirmed=question.status != "REPLIED",
-            rereview=bool(related and related.needs_rereview),
+            rereview=bool(related and (related.needs_rereview or related.needs_review)),
         )
         assumption = question.internal_assumption
         if assumption and assumption.shown_in_draft and assumption.value.strip():
@@ -423,7 +426,7 @@ def build_draft(
                 question_evidence,
                 conditions=[assumption.value],
                 unconfirmed=True,
-                rereview=bool(related and related.needs_rereview),
+                rereview=bool(related and (related.needs_rereview or related.needs_review)),
             )
     return s.Draft(
         project_id=project_id,
