@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { evaluationReadPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
+import { evaluationReadPath, jobStatusPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
 
 const allowed = new Set(['/api/v1/platform/health', '/api/v1/platform/ready']);
 const authentication = new Map([
@@ -157,7 +157,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
       if (path.startsWith('/api/v1/platform/auth/mailbox/') && !mailboxAuthEnabled) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      if (evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) {
+      if ((evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) || (businessRelayEnabled && jobStatusPath(path))) {
         return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       if (evaluationControlRelayEnabled && evaluationControlPath(path, request.method)) {
