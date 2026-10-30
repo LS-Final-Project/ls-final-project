@@ -69,3 +69,41 @@ def test_an_alias_outside_the_given_vocabulary_keeps_the_original():
     assert canonical("basic impulse insulation level", {"impedance"}) == (
         "basic impulse insulation level"
     )
+
+
+def test_grading_input_treats_compliance_as_a_certification_like_the_comparison():
+    """협력사 등급 입력도 COMPLIANCE는 인증 요구다(attribute='certification', 규격은 value 우선, 없으면 attribute).
+
+    그래야 grade_requirement가 사양이 아니라 certifications 배열로 판정한다(KAN-199).
+    """
+    from datetime import date
+    from uuid import UUID
+
+    from backend.api.tft.partners.grading import RfpContext, grade_requirement
+    from backend.api.tft.partners.loader import load_profiles
+    from backend.api.tft.worker_processor import to_grading
+
+    labelled = requirement("COMPLIANCE", "standard compliance").model_copy(
+        update={"value": "UL 347", "unit": None, "operator": "TEXT"}
+    )
+    grade_input = to_grading(UUID(int=1), labelled)
+    assert grade_input is not None
+    assert (grade_input.attribute, grade_input.value) == ("certification", "UL 347")
+    bare = requirement("COMPLIANCE", "UL 1561").model_copy(update={"value": None})
+    assert to_grading(UUID(int=2), bare).value == "UL 1561"
+    spec = to_grading(UUID(int=3), requirement("SPEC", "basic impulse insulation level"))
+    assert (spec.attribute, spec.value) == ("bil", "95")
+    [p_a] = [p for p in load_profiles() if p.candidate_code == "P-A"]
+    context = RfpContext(
+        manufacturer_list=None,
+        off_list_permission="UNSTATED",
+        supply_region=None,
+        requires_integrator=False,
+    )
+    row = grade_requirement(p_a, grade_input, context, date(2026, 10, 30))
+    checked = [
+        *row.mandatory_check.passed,
+        *row.mandatory_check.failed,
+        *row.mandatory_check.unknown,
+    ]
+    assert "certification:UL 347" in checked

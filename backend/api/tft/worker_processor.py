@@ -240,6 +240,9 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
 def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requirement | None:
     """추출 요구 → 협력사 등급 입력. 장비·값이 없는 요구는 등급을 매길 수 없어 None이다.
 
+    COMPLIANCE는 자사 비교(to_comparison)와 같은 규칙으로 인증 요구다: attribute='certification', 규격은 value
+    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199).
+
     Args:
         requirement_id: 저장한 요구 ID.
         item: 추출 요구.
@@ -247,14 +250,16 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
     Returns:
         grading.Requirement | None: 등급 입력.
     """
-    if item.equipment is None or item.value is None:
+    certification = item.kind == "COMPLIANCE"
+    value = (item.value or item.attribute) if certification else item.value
+    if item.equipment is None or value is None:
         return None
     return grading.Requirement(
         requirement_id=requirement_id,
         equipment=item.equipment,
         task=item.task,
-        attribute=canonical(item.attribute),
-        value=item.value,
+        attribute="certification" if certification else canonical(item.attribute),
+        value=value,
         unit=item.unit,
         operator=item.operator,
         conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],

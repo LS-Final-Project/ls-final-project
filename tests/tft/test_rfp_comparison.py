@@ -17,6 +17,7 @@ from backend.api.tft.rfp.comparison import (
     Requirement,
     SearchTrace,
     compare,
+    compare_in_family,
     confusion,
     load_own_products,
     master_filter,
@@ -500,6 +501,174 @@ def test_the_contract_example_is_the_current_engine_output():
     assert json.loads(EXAMPLE.read_text()) == example(), (
         "run: python -m tests.tft.test_rfp_comparison"
     )
+
+
+def test_a_transformer_requirement_is_not_met_by_breaker_evidence():
+    """재현(KAN-199, Codex 검토): 변압기 rated_current 요구가 다른 계열(MCCB)의 같은 이름 근거로 충족되지 않는다.
+
+    전체 제품과 비교하면 MCCB의 600 A가 근거가 되지만, 요구 계열(TRANSFORMER) 후보만 보면 같은 속성 근거가 없다.
+    """
+    products = load_own_products()
+    wanted = Requirement(
+        clause_no="2.5.X",
+        item="변압기 정격전류 400 A",
+        attribute="rated_current",
+        value="400",
+        unit="A",
+        operator="GTE",
+    )
+    everything = SearchTrace(
+        filters=["own_products=all"], documents_searched=0, search_failed=False
+    )
+    assert compare(wanted, products, everything).status == "EVIDENCE_FOUND"
+    scoped = compare_in_family(wanted, "TRANSFORMER", products)
+    assert scoped.status == "INSUFFICIENT_EVIDENCE"
+    assert scoped.search_trace.filters == ["family=TRANSFORMER"]
+    assert {c.product_code for c in scoped.candidates} == {"TRF-DRY-630", "TRF-OIL-1000"}
+    assert compare_in_family(wanted, "LV_BREAKER", products).status == "EVIDENCE_FOUND"
+
+
+@pytest.mark.parametrize("family", [None, "OTHER"])
+def test_an_unknown_family_is_not_compared(family):
+    """계열을 모르면 비교하지 않고 근거 부족이다(trace에 family가 남는다). 지정 모델 요구는 지정품 판정 그대로다."""
+    products = load_own_products()
+    wanted = Requirement(
+        clause_no="2.1",
+        item="정격전류",
+        attribute="rated_current",
+        value="400",
+        unit="A",
+        operator="GTE",
+    )
+    outcome = compare_in_family(wanted, family, products)
+    assert (outcome.status, outcome.candidates, outcome.unresolved) == (
+        "INSUFFICIENT_EVIDENCE",
+        [],
+        ["요구 장비 계열 확인"],
+    )
+    assert outcome.search_trace.filters == [f"family={family or 'NONE'}"]
+    designated = wanted.model_copy(update={"designated_model": "SEL-751A"})
+    assert compare_in_family(designated, family, products).deficiency_cause == "DESIGNATED_MODEL"
+
+
+def test_a_shortfall_under_a_different_condition_is_conditional_not_a_gap():
+    """KAN-199: 미달이어도 조건이 다르면 사양 차이로 확정하지 않는다. 조건이 같을 때만 SPEC_GAP이다."""
+    trace = SearchTrace(filters=["family=TRANSFORMER"], documents_searched=1, search_failed=False)
+
+    def product(temperature):
+        fact = SpecFact(
+            product_code="X-1",
+            attribute="impedance",
+            value="5",
+            unit="%",
+            conditions=[Condition(name="reference_temperature", value=temperature, unit="°C")],
+            evidence_id="DS-X",
+            section="2",
+        )
+        return Product(
+            product_code="X-1",
+            family="TRANSFORMER",
+            lifecycle_status="ACTIVE",
+            standards=[],
+            certifications=[],
+            spec_facts=[fact],
+        )
+
+    wanted = Requirement(
+        clause_no="2.5.N",
+        item="임피던스",
+        attribute="impedance",
+        value="5.75",
+        unit="%",
+        operator="GTE",
+        conditions=[Condition(name="reference_temperature", value="85", unit="°C")],
+    )
+    other = compare(wanted, [product("75")], trace)
+    assert (other.status, other.candidates[0].result, other.deficiency_cause) == (
+        "CONDITIONAL",
+        "DIFFERS",
+        None,
+    )
+    assert "값이 미달이나 조건이 달라 확인 필요" in other.reason
+    assert "reference_temperature" in other.unresolved[0]
+    same = compare(wanted, [product("85")], trace)
+    assert (same.status, same.deficiency_cause) == ("SPEC_GAP", "RATING")
+
+
+@pytest.mark.parametrize(
+    ("current", "duration", "status", "converted"),
+    [
+        # B-1(기획서 기대 SPEC_GAP): 25 kA·3 s → 2 s 30.6 kA < 38 kA.
+        ("25", "3", "SPEC_GAP", "30.6 kA"),
+        # 지속시간이 짧은 쪽도 같은 식: 40 kA·1 s → 28.3 kA < 38 kA.
+        ("40", "1", "SPEC_GAP", "28.3 kA"),
+        # 환산으로 충족해도 시험값이 아니라 조건부다: 60 kA·1 s → 42.4 kA.
+        ("60", "1", "CONDITIONAL", "42.4 kA"),
+    ],
+)
+def test_short_time_current_is_converted_to_the_required_duration(
+    current, duration, status, converted
+):
+    """단시간 내전류의 지속시간만은 I²t 일정으로 요구 지속시간 값으로 환산해 견주고 사유에 환산값을 적는다(KAN-199)."""
+    fact = SpecFact(
+        product_code="X-1",
+        attribute="short_time_withstand_current",
+        value=current,
+        unit="kA",
+        conditions=[Condition(name="duration", value=duration, unit="s")],
+        evidence_id="DS-X",
+        section="2",
+    )
+    product = Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[fact],
+    )
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류 38kA, 2s",
+        attribute="short_time_withstand_current",
+        value="38",
+        unit="kA",
+        operator="GTE",
+        conditions=[Condition(name="duration", value="2", unit="s")],
+    )
+    trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
+    outcome = compare(wanted, [product], trace)
+    assert outcome.status == status
+    assert f"I²t 일정 환산: {current} kA·{duration} s → 2 s {converted}" in outcome.reason
+    # 후보 원래 값·조건은 그대로 보인다(환산값은 사유에만).
+    assert (outcome.candidates[0].our_value, outcome.candidates[0].our_conditions) == (
+        current,
+        fact.conditions,
+    )
+    if status == "CONDITIONAL":
+        assert "요구 지속시간의 시험값 확인(환산 충족)" in outcome.unresolved
+
+
+def test_demo_b1_short_time_current_stays_a_spec_gap_for_the_own_mv_products():
+    """기획서 B-1(2.4 단시간 내전류 38 kA·2 s, 기대 SPEC_GAP): 자사 MV 후보 25 kA·3 s는 환산해도 미달이다."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류 38kA, 2s",
+        attribute="short_time_withstand_current",
+        value="38",
+        unit="kA",
+        operator="GTE",
+        conditions=[Condition(name="duration", value="2", unit="s")],
+    )
+    outcome = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    [b1] = [
+        r
+        for c in json.loads(DEMO_CASES.read_text())["cases"]
+        if c["case"] == "B-1"
+        for r in c["requirements"]
+        if r["attribute"] == "short_time_withstand_current"
+    ]
+    assert outcome.status == b1["expected_status"] == "SPEC_GAP"
 
 
 if __name__ == "__main__":

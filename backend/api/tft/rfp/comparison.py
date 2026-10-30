@@ -9,7 +9,7 @@
 - EVIDENCE_FOUND: 같은 속성 근거가 있고 값·조건이 맞음.
 - CONDITIONAL: 값은 맞지만 조건이 다르거나 단위가 달라 비교할 수 없음, 또는 대응 경로(타사 지정 모델의
   조달·대체)가 있고 조건이 남음.
-- SPEC_GAP: 같은 속성·단위로 비교해 미달인 근거가 있음.
+- SPEC_GAP: 같은 속성·단위·조건으로 비교해 미달인 근거가 있음. 조건이 다르면 미달이어도 조건부다(KAN-199).
 - INSUFFICIENT_EVIDENCE: 요구값을 모름, 같은 속성 근거가 없음, 검색 범위에 후보가 없음. 미기재는
   미충족이 아니며 "제품 없음"은 검색한 범위의 결과로만 말한다.
 """
@@ -202,30 +202,45 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         )
     judged = []
     for fact in facts:
-        verdict, word = grading._value_verdict(_as_grading(requirement), fact)
-        gaps = grading._condition_gaps(_as_grading(requirement), fact)
+        # 단시간 내전류는 지속시간을 요구 값으로 환산해 견준다(I²t 일정, grading._duration_converted).
+        converted = grading._duration_converted(_as_grading(requirement), fact)
+        compared, note = converted if converted else (fact, None)
+        verdict, word = grading._value_verdict(_as_grading(requirement), compared)
+        gaps = grading._condition_gaps(_as_grading(requirement), compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).
         unit_differs = requirement.operator != "TEXT" and " ".join(
             (requirement.unit or "").split()
         ) != " ".join((fact.unit or "").split())
-        if verdict == "passed" and not gaps:
+        if verdict == "passed" and not gaps and note:
+            # 환산값은 시험값이 아니라 충족으로 확정하지 않는다.
+            status, result = "CONDITIONAL", "MEETS"
+            word = "환산 충족(시험값 아님), 확인 필요"
+        elif verdict == "passed" and not gaps:
             status, result = "EVIDENCE_FOUND", "MEETS"
         elif verdict == "passed":
             # 값은 맞지만 요구 조건(온도·지속시간 등)에서의 값이라는 근거가 없다. 협력사 등급과 같은 말을 쓴다.
             status, result = "CONDITIONAL", "MEETS"
             word = "값은 충족하나 조건이 달라 확인 필요"
+        elif verdict == "failed" and gaps:
+            # 미달이어도 요구와 다른 조건에서의 값이다. 같은 조건에서 미달이라는 근거가 없어 사양 차이로 확정하지 않는다.
+            status, result = "CONDITIONAL", "DIFFERS"
+            word = "값이 미달이나 조건이 달라 확인 필요"
         elif verdict == "failed":
             status, result = "SPEC_GAP", "DIFFERS"
         else:
             # 단위가 다르거나 숫자로 읽을 수 없어 비교하지 못했다. 같다고도 다르다고도 하지 않는다.
             status, result = "CONDITIONAL", "NOT_COMPARABLE"
-        judged.append((ORDER.index(status), status, result, word, fact, gaps, unit_differs))
-    _, status, result, word, fact, gaps, unit_differs = min(judged, key=lambda j: j[0])
+        judged.append((ORDER.index(status), status, result, word, fact, gaps, unit_differs, note))
+    _, status, result, word, fact, gaps, unit_differs, note = min(judged, key=lambda j: j[0])
     cited = f"근거 {fact.evidence_id} {fact.section}"
     reason = f"{head}, 자사 {grading._with_unit(fact.value, fact.unit)}({cited}): {word}."
+    if note:
+        reason += f" {note}."
     if gaps:
         reason += f" 조건 차이: {'; '.join(gaps)}."
     unresolved = list(gaps)
+    if note and result == "MEETS":
+        unresolved.append("요구 지속시간의 시험값 확인(환산 충족)")
     if unit_differs:
         unresolved.append(f"단위 확인: 요구 {requirement.unit}, 자사 {fact.unit}")
     elif result == "NOT_COMPARABLE":
@@ -530,8 +545,42 @@ def load_own_products(path: Path = OWN_FACTS) -> list[Product]:
     return products
 
 
+def compare_in_family(
+    requirement: Requirement, family: str | None, products: Sequence[Product]
+) -> Outcome:
+    """요구 장비 계열의 자사 후보로만 비교한다(KAN-199). 다른 계열 제품의 같은 이름 속성은 근거로 쓰지 않는다.
+
+    계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
+
+    Args:
+        requirement: 비교 입력.
+        family: 요구 장비의 제품 계열(own_spec_facts family 값) 또는 "OTHER"·None.
+        products: 자사 후보 전체.
+
+    Returns:
+        Outcome: 판정. search_trace.filters에 family를 남긴다.
+    """
+    if family in (None, "OTHER") and not requirement.designated_model:
+        return Outcome(
+            clause_no=requirement.clause_no,
+            item=requirement.item,
+            origin=requirement.origin,
+            status="INSUFFICIENT_EVIDENCE",
+            reason=f"원문 {requirement.clause_no} {requirement.item}: 요구 장비 계열을 정하지 못해 비교하지 않음.",
+            unresolved=["요구 장비 계열 확인"],
+            next_owner="TECH",
+            deficiency_cause=None,
+            candidates=[],
+            search_trace=SearchTrace(
+                filters=[f"family={family or 'NONE'}"], documents_searched=0, search_failed=False
+            ),
+        )
+    found, trace = master_filter(products, family or "OTHER")
+    return compare(requirement, found, trace)
+
+
 def master_filter(products: Sequence[Product], family: str) -> tuple[list[Product], SearchTrace]:
-    """제품 마스터 계열 필터. 문서 검색(R10)과 합치는 연결은 A07(KAN-188)에서 한다.
+    """제품 마스터 계열 필터(compare_in_family가 쓴다). 문서 검색(R10)과 합치는 연결은 A07(KAN-188)에서 한다.
 
     Args:
         products: 자사 후보 전체.

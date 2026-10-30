@@ -19,11 +19,12 @@
 | 상태 | 언제 | 결과(`result`) | 다음 담당 |
 | --- | --- | --- | --- |
 | `EVIDENCE_FOUND` | 같은 속성 근거가 있고 값·조건이 맞음, 또는 요구 인증을 그대로 보유 | `MEETS` | 없음 |
-| `CONDITIONAL` | 값은 맞지만 요구 조건에서의 값이라는 근거가 없음(조건 차이), 단위가 달라 비교 못 함(`NOT_COMPARABLE`), 타사 지정 모델(조달·대체 경로가 있고 발주처 승인이 남음) | `MEETS`·`NOT_COMPARABLE` | `TECH`(지정 모델은 `CUSTOMER`) |
-| `SPEC_GAP` | 같은 속성·단위로 비교해 미달 근거가 있음. 부족 원인(`RATING`·`CERTIFICATION`·`FORM`·`TASK`·`COMMERCIAL`)을 함께 냄 | `DIFFERS` | `TECH`(상업 조건은 `SALES`) |
+| `CONDITIONAL` | 값은 맞지만 요구 조건에서의 값이라는 근거가 없음(조건 차이), 미달이어도 조건이 달라 같은 조건의 미달 근거가 없음(KAN-199, `DIFFERS`), 단시간 내전류를 I²t 일정으로 환산해 충족(시험값 아님), 단위가 달라 비교 못 함(`NOT_COMPARABLE`), 타사 지정 모델(조달·대체 경로가 있고 발주처 승인이 남음) | `MEETS`·`NOT_COMPARABLE`·`DIFFERS` | `TECH`(지정 모델은 `CUSTOMER`) |
+| `SPEC_GAP` | 같은 속성·단위·조건으로 비교해 미달 근거가 있음(단시간 내전류는 지속시간을 요구 값으로 I²t 일정 환산해 견주고 사유에 환산값을 적는다). 부족 원인(`RATING`·`CERTIFICATION`·`FORM`·`TASK`·`COMMERCIAL`)을 함께 냄 | `DIFFERS` | `TECH`(상업 조건은 `SALES`) |
 | `INSUFFICIENT_EVIDENCE` | 요구값을 모름(도면 참조 등, `CUSTOMER`), 같은 속성 근거가 없음, 요구 인증 보유 자료가 없음, 검색 범위에 후보 없음, 검색 실패. 핵심 기기(`core_equipment`)가 검색 범위에 없으면 부족 원인 `CORE_EQUIPMENT_MISSING` | `NO_DATA` | `CUSTOMER`·`TECH`(핵심 기기는 `SALES`) |
 
 - **미기재 ≠ 미충족**: 자료에 없는 값은 `SPEC_GAP`이 아니라 `INSUFFICIENT_EVIDENCE`다.
+- **계열 안에서만 비교(KAN-199)**: `compare_in_family(요구, 계열, 자사 제품)`은 요구 장비 계열(`own_spec_facts` family)의 후보만 `master_filter`로 골라 비교한다. 다른 계열 제품의 같은 이름 속성(예: MCCB `rated_current`)은 변압기 요구의 근거가 아니다. 계열을 모르면(`None`·`OTHER`) 비교하지 않고 `INSUFFICIENT_EVIDENCE`("요구 장비 계열 확인", trace `family=NONE|OTHER`)이며, 지정 모델 요구는 지정품 판정 그대로다. 협력사 등급(`partners/grading.py`)도 같은 조건 차이·환산 규칙을 쓴다.
 - **"제품 없음"은 검색 범위의 결과**: 사유에 필터와 문서 수를 적고 "회사 전체 미보유나 참여 불가를 뜻하지 않음"을 붙인다.
 - **인증**: IEC 시험 성적을 UL·IEEE 요구의 충족으로 넓히지 않는다(기획서 4.2).
   - 같은 인증의 보유 자료가 없으면 근거 부족이고, 사유에 자사가 가진 규격 체계를 적는다.
