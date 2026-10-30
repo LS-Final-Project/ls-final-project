@@ -604,6 +604,8 @@ def test_a_shortfall_under_a_different_condition_is_conditional_not_a_gap():
         ("40", "1", "SPEC_GAP", "28.3 kA"),
         # 환산으로 충족해도 시험값이 아니라 조건부다: 60 kA·1 s → 42.4 kA.
         ("60", "1", "CONDITIONAL", "42.4 kA"),
+        # 경계: 53.68 kA·1 s → 37.957… kA는 미달이다(문구에만 38.0으로 반올림, 판정은 반올림 전 값).
+        ("53.68", "1", "SPEC_GAP", "38.0 kA"),
     ],
 )
 def test_short_time_current_is_converted_to_the_required_duration(

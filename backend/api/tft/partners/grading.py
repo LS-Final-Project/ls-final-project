@@ -342,12 +342,14 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecF
         return None
     if wanted == given:
         return None
-    value = (current * (given / wanted).sqrt()).quantize(Decimal("0.1"))
+    # 판정은 반올림하지 않은 값으로 한다(경계에서 미달이 충족으로 바뀌지 않게). 사유 문구에만 0.1로 반올림한다.
+    value = current * (given / wanted).sqrt()
     conditions = [want if c.name == "duration" else c for c in fact.conditions or []]
     converted = fact.model_copy(update={"value": str(value), "conditions": conditions})
+    shown = str(value.quantize(Decimal("0.1")))
     note = (
         f"I²t 일정 환산: {_with_unit(fact.value, fact.unit)}·{_with_unit(got.value, got.unit)} → "
-        f"{_with_unit(want.value, want.unit)} {_with_unit(str(value), fact.unit)}"
+        f"{_with_unit(want.value, want.unit)} {_with_unit(shown, fact.unit)}"
     )
     return converted, note
 
