@@ -23,6 +23,7 @@ MIGRATIONS = (
     "20261029_KAN-182_rfp_response.sql",
     "20261030_KAN-182_rfp_keys.sql",
     "20261101_KAN-186_supplement_paths.sql",
+    "20261102_KAN-186_rnd_check.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]
@@ -234,6 +235,67 @@ def test_spec_v1_3_paths_and_causes_are_stored_and_others_refused(admin, chain):
         )
     violates(admin, insert, (uuid4(), chain["requirement"], "CORE_EQUIPMENT", "NONE", True, None))
     violates(admin, insert, (uuid4(), chain["requirement"], "RATING", "OWN_TERMS", True, None))
+
+
+def test_rnd_check_internal_questions_and_department_kinds_are_stored(admin, app_dsn, chain):
+    """KAN-186 T10(명세 v1.3 §5.2·§5.3·§9): R&D 확인 상태, 내부 자문 질문, R&D 답변 칸, 부서 분류."""
+    with psycopg.connect(admin) as conn:
+        # Existing requirement versions read as NOT_REQUIRED.
+        assert conn.execute(
+            "SELECT rnd_check FROM tft.requirement_versions WHERE requirement_id=%s",
+            (chain["requirement"],),
+        ).fetchone() == ("NOT_REQUIRED",)
+        kinds = dict(
+            conn.execute("SELECT dept_code, dept_kind FROM tft.department_kinds").fetchall()
+        )
+        assert kinds["RND_FW"] == "RND" and kinds["SALES_OPS"] == "SALES"
+    question = (
+        "INSERT INTO tft.customer_questions (id, project_id, requirement_id, issue_type, "
+        "question_text, target, target_dept, data_origin, derivation_kind, known_at, created_by) "
+        "VALUES (%s,%s,%s,%s,'R&D 확인',%s,%s,'synthetic','DERIVED',now(),%s)"
+    )
+    internal = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            question,
+            (
+                internal,
+                chain["project"],
+                chain["requirement"],
+                "RND_FEASIBILITY",
+                "INTERNAL",
+                "RND_FW",
+                uuid4(),
+            ),
+        )
+    # INTERNAL needs a department, CUSTOMER none; internal issue types only for INTERNAL.
+    for bad in (
+        ("RND_FEASIBILITY", "INTERNAL", None),
+        ("EMPTY_VALUE", "CUSTOMER", "RND_FW"),
+        ("TECH_ADVICE", "CUSTOMER", None),
+    ):
+        violates(admin, question, (uuid4(), chain["project"], chain["requirement"], *bad, uuid4()))
+    reply = (
+        "INSERT INTO tft.question_replies (id, question_id, reply_text, received_at, recorded_by, "
+        "rnd_feasibility, earliest_available_on, schedule_fits, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,%s,'가능',now(),%s,%s,%s,%s,'synthetic','DERIVED',now())"
+    )
+    violates(admin, reply, (uuid4(), internal, uuid4(), None, "2027-03-01", None))
+    violates(admin, reply, (uuid4(), internal, uuid4(), "MAYBE", None, None))
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            reply, (uuid4(), internal, uuid4(), "FEASIBLE_WITH_SCHEDULE", "2027-03-01", False)
+        )
+    # The runtime role reads the department map but cannot change it.
+    with psycopg.connect(app_dsn) as conn:
+        assert conn.execute("SELECT count(*) FROM tft.department_kinds").fetchone()[0] >= 1
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("INSERT INTO tft.department_kinds VALUES ('X', 'RND')")
+    violates(
+        admin,
+        "UPDATE tft.requirement_versions SET rnd_check = 'MAYBE' WHERE requirement_id = %s",
+        (chain["requirement"],),
+    )
 
 
 def test_virtual_partner_profiles_from_the_json_fit_the_table(admin):

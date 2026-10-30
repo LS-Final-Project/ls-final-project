@@ -56,6 +56,9 @@ RANK: dict[Path, int] = {
 PARTNER: frozenset[Path] = frozenset(
     {"EXTERNAL_PRODUCT", "TASK_SUBCONTRACT", "JOINT_PROPOSAL", "ALTERNATIVE_SPEC"}
 )
+# 자사 개발로 풀 수 없는 원인: 계약 조건(보증 등)과 고객 지정품. 이 원인의 대체 제안에는 R&D 게이트를 걸지 않는다
+# (#299 리뷰 P3, 2026-10-30).
+NOT_RND: frozenset[Cause] = frozenset({"COMMERCIAL", "DESIGNATED_MODEL"})
 # 부족 원인별 "먼저 보는 경로"(기획서 최종본 V_1 4.4 표). 응답은 이 순서를 RANK로 다시 정렬한다.
 FIRST_PATHS: dict[Cause, tuple[Path, ...]] = {
     "RATING": ("OTHER_OWN_PRODUCT", "OWN_DEVELOPMENT", "EXTERNAL_PRODUCT"),
@@ -136,10 +139,14 @@ def _option(
     path: Path,
     rnd_check: RndCheck,
     *,
+    gated: bool = True,
     blocked: str | None = None,
     extra: list[str] | None = None,
 ) -> Option:
-    gate = Gate(requires="OWN_DEVELOPMENT_CHECK" if path in PARTNER else "NONE", status=rnd_check)
+    gate = Gate(
+        requires="OWN_DEVELOPMENT_CHECK" if gated and path in PARTNER else "NONE",
+        status=rnd_check,
+    )
     return Option(
         path=path,
         rank=RANK[path],
@@ -182,6 +189,7 @@ def options_for(
         paths = FIRST_PATHS[cause]
     else:
         return Options(deficiency_cause=cause, customer_permission=permission, options=[])
+    gated = cause not in NOT_RND
     options = []
     for path in paths:
         if path == "NONE":
@@ -189,7 +197,7 @@ def options_for(
             continue
         extra = []
         blocked = None
-        if path in PARTNER and rnd_check == "CONFIRMED_FEASIBLE":
+        if gated and path in PARTNER and rnd_check == "CONFIRMED_FEASIBLE":
             # 자사 개발이 되는데 협력사로 가지 않는다. 바꾸려면 R&D 질문을 다시 올린다.
             blocked = OWN_DEVELOPMENT_FEASIBLE
         elif path in EXTERNAL and permission == "FORBIDDEN":
@@ -201,10 +209,12 @@ def options_for(
             extra.append("고객 승인")
             if not approval_question:
                 extra.append("고객 질문 작성 필요")
-        options.append(_option(path, rnd_check, blocked=blocked, extra=extra))
+        options.append(_option(path, rnd_check, gated=gated, blocked=blocked, extra=extra))
     if cause == "DESIGNATED_MODEL":
         # 지정품 요구의 다른 경로는 고를 수 없음을 이유와 함께 보여 준다.
-        options += [_option(p, rnd_check, blocked=DESIGNATED_ITEM) for p in DESIGNATED_BLOCKED]
+        options += [
+            _option(p, rnd_check, gated=False, blocked=DESIGNATED_ITEM) for p in DESIGNATED_BLOCKED
+        ]
     # 고를 경로가 없으면 보류 의견을 덧붙인다(핵심 기기는 이미 NONE을 마지막에 둔다).
     if not any(o.allowed for o in options):
         options.append(_option("NONE", rnd_check))

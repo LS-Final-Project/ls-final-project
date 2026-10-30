@@ -916,7 +916,7 @@
             "path": "ALTERNATIVE_SPEC",
             "rank": 3,
             "gate": {
-              "requires": "OWN_DEVELOPMENT_CHECK",
+              "requires": "NONE",
               "status": "NOT_REQUIRED"
             },
             "allowed": true,
@@ -934,7 +934,7 @@
             "path": "EXTERNAL_PRODUCT",
             "rank": 3,
             "gate": {
-              "requires": "OWN_DEVELOPMENT_CHECK",
+              "requires": "NONE",
               "status": "NOT_REQUIRED"
             },
             "allowed": false,
@@ -948,7 +948,7 @@
             "path": "TASK_SUBCONTRACT",
             "rank": 3,
             "gate": {
-              "requires": "OWN_DEVELOPMENT_CHECK",
+              "requires": "NONE",
               "status": "NOT_REQUIRED"
             },
             "allowed": false,
@@ -962,7 +962,7 @@
             "path": "JOINT_PROPOSAL",
             "rank": 3,
             "gate": {
-              "requires": "OWN_DEVELOPMENT_CHECK",
+              "requires": "NONE",
               "status": "NOT_REQUIRED"
             },
             "allowed": false,

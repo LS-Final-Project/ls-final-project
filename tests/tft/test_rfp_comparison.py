@@ -577,3 +577,25 @@ def test_partner_paths_are_blocked_once_rnd_confirms_own_development():
         ("EXTERNAL_PRODUCT", False),
         ("ALTERNATIVE_SPEC", False),
     ]
+
+
+def test_commercial_and_designated_alternatives_are_not_gated_by_rnd():
+    """#299 리뷰 P3: 보증 같은 계약 조건과 지정품의 대체 제안은 자사 개발과 무관하다."""
+    warranty = Requirement(
+        clause_no="1.6",
+        item="보증 60개월",
+        attribute="warranty_months",
+        value="60",
+        unit="month",
+        operator="GTE",
+    )
+    products, trace = master_filter(load_own_products(), "TRANSFORMER")
+    gap = compare(warranty, products, trace)
+    result = options_for(gap, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    assert [(o.path, o.allowed, o.gate.requires) for o in result.options] == [
+        ("OWN_TERMS_REVIEW", True, "NONE"),
+        ("ALTERNATIVE_SPEC", True, "NONE"),
+    ]
+    designated = options_for(demo_a()[13], "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    alternative = next(o for o in designated.options if o.path == "ALTERNATIVE_SPEC")
+    assert (alternative.allowed, alternative.gate.requires) == (True, "NONE")

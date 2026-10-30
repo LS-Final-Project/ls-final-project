@@ -1324,6 +1324,31 @@
             "title": "Reason",
             "type": "string"
           },
+          "rnd_check": {
+            "default": "NOT_REQUIRED",
+            "enum": [
+              "NOT_REQUIRED",
+              "PENDING",
+              "CONFIRMED_FEASIBLE",
+              "CONFIRMED_NOT_FEASIBLE",
+              "CONFIRMED_SCHEDULE_MISMATCH",
+              "WAIVED"
+            ],
+            "title": "Rnd Check",
+            "type": "string"
+          },
+          "rnd_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Question Id"
+          },
           "status": {
             "enum": [
               "EVIDENCE_FOUND",
@@ -2504,7 +2529,10 @@
               "EMPTY_VALUE",
               "CONFLICT",
               "SCOPE_UNCLEAR",
-              "CONDITION_MISSING"
+              "CONDITION_MISSING",
+              "RND_FEASIBILITY",
+              "TECH_ADVICE",
+              "PURCHASE_TERMS"
             ],
             "title": "Issue Type",
             "type": "string"
@@ -2550,6 +2578,23 @@
             ],
             "title": "Requirement Id"
           },
+          "rnd_feasibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FEASIBLE",
+                  "FEASIBLE_WITH_SCHEDULE",
+                  "NOT_FEASIBLE",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Feasibility"
+          },
           "status": {
             "enum": [
               "OPEN",
@@ -2557,6 +2602,26 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "target": {
+            "default": "CUSTOMER",
+            "enum": [
+              "CUSTOMER",
+              "INTERNAL"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
           },
           "version": {
             "minimum": 1.0,
@@ -2601,7 +2666,10 @@
               "EMPTY_VALUE",
               "CONFLICT",
               "SCOPE_UNCLEAR",
-              "CONDITION_MISSING"
+              "CONDITION_MISSING",
+              "RND_FEASIBILITY",
+              "TECH_ADVICE",
+              "PURCHASE_TERMS"
             ],
             "title": "Issue Type",
             "type": "string"
@@ -2626,6 +2694,28 @@
               }
             ],
             "title": "Requirement Id"
+          },
+          "target": {
+            "default": "CUSTOMER",
+            "enum": [
+              "CUSTOMER",
+              "INTERNAL"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
           }
         },
         "required": [
@@ -2657,6 +2747,18 @@
       "QuestionReply": {
         "additionalProperties": false,
         "properties": {
+          "earliest_available_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Available On"
+          },
           "received_at": {
             "format": "date-time",
             "title": "Received At",
@@ -2667,6 +2769,34 @@
             "minLength": 1,
             "title": "Reply Text",
             "type": "string"
+          },
+          "rnd_feasibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FEASIBLE",
+                  "FEASIBLE_WITH_SCHEDULE",
+                  "NOT_FEASIBLE",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Feasibility"
+          },
+          "schedule_fits": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Fits"
           },
           "source_ref": {
             "anyOf": [
@@ -3223,6 +3353,19 @@
           "requirement_id": {
             "format": "uuid",
             "title": "Requirement Id",
+            "type": "string"
+          },
+          "rnd_check": {
+            "default": "NOT_REQUIRED",
+            "enum": [
+              "NOT_REQUIRED",
+              "PENDING",
+              "CONFIRMED_FEASIBLE",
+              "CONFIRMED_NOT_FEASIBLE",
+              "CONFIRMED_SCHEDULE_MISMATCH",
+              "WAIVED"
+            ],
+            "title": "Rnd Check",
             "type": "string"
           },
           "status": {
@@ -4608,6 +4751,19 @@
             ],
             "title": "Path",
             "type": "string"
+          },
+          "rnd_check_waiver_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Check Waiver Reason"
           },
           "role_split": {
             "maxLength": 2000,
