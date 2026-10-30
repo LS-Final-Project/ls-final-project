@@ -15,10 +15,10 @@
       "stage": "classification",
       "kind": "MISMATCH",
       "field": "max_output_tokens",
-      "reason": "분류 채택 기록(2026-10-29)에 출력 상한을 남기지 않았다. 실행은 공통 AI 설정 기본 1024를 쓴다. 실측 때 같은 값이었는지 확인해 채택 기록에 넣으면 이 줄을 지운다",
+      "reason": "분류 채택 기록(2026-10-29)에 출력 상한을 남기지 않았다. 실행은 분류 전용 상한 4096을 쓴다(공통 1024에서 3.6-flash 50건 중 13건이 잘림). 3.6-flash 재측정 채택 기록에 넣으면 이 줄을 지운다",
       "ticket": "KAN-147",
       "recorded_on": "2026-10-30",
-      "deployed": 1024,
+      "deployed": 4096,
       "adopted": null
     },
     {

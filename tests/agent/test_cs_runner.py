@@ -13,6 +13,7 @@ from pydantic import SecretStr, ValidationError
 
 from backend.agent import cs_runner, cs_search, cs_worker
 from backend.agent.cs_runner import (
+    CLASSIFICATION_DEFAULTS,
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
@@ -284,7 +285,7 @@ def test_runner_draft_uses_measured_output_limit_and_evidence_count(
     classify, draft, verification = (
         json.loads(request.content)["generationConfig"] for request in sdk_http
     )
-    assert classify["maxOutputTokens"] == AISettings(gemini_api_key=KEY).gemini_max_output_tokens
+    assert classify["maxOutputTokens"] == CLASSIFICATION_DEFAULTS["max_output_tokens"]
     assert draft["maxOutputTokens"] == verification["maxOutputTokens"] == tokens
     assert len(graph.get_state(thread_config("thread-k")).values["evidence"]) == evidence
     assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"], ["STOP"]]
@@ -403,6 +404,66 @@ def test_runner_and_worker_pass_the_policy_mapping_to_the_graph(monkeypatch):
     )
     cs_worker.build_runner(settings, parts, InMemorySaver())
     assert seen[-1]["policy_documents"] == mapping
+
+
+def test_the_worker_gives_classification_its_own_model_and_limit(monkeypatch):
+    """분류만 전용 값을 쓴다. 기본 상한은 4096이고 모델은 공통이며, 초안 공급자는 공통 모델 그대로다."""
+    classification, text = [], []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cs_runner,
+        "gemini_classification_provider",
+        lambda *args, **kwargs: classification.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cs_runner, "gemini_text_provider", lambda *args, **kwargs: text.append(kwargs)
+    )
+    monkeypatch.setattr(cs_worker, "create_client", lambda settings, embedding=False: None)
+    monkeypatch.setattr(cs_worker, "fts_searcher_from_dsn", lambda dsn, version: fts_searcher)
+    monkeypatch.setenv("GEMINI_API_KEY", KEY)
+    monkeypatch.setenv("GEMINI_MODEL", "m-common")
+    monkeypatch.setenv("GEMINI_MAX_OUTPUT_TOKENS", "1024")
+    monkeypatch.delenv("CS_VECTOR_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("CS_WORKER_CLASSIFICATION_MODEL", raising=False)
+    monkeypatch.delenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", raising=False)
+    parts = WorkerParts(
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+        search_filters=FILTERS,
+    )
+    settings = Settings(
+        _env_file=None, environment="test", database_url=SecretStr("postgresql://x@localhost/y")
+    )
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert classification[-1]["model"] == "m-common"
+    assert classification[-1]["generation"].max_output_tokens == 4096
+    monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MODEL", "m-lite")
+    monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", "2048")
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert classification[-1]["model"] == "m-lite"
+    assert classification[-1]["generation"].max_output_tokens == 2048
+    assert {call["model"] for call in text} == {"m-common"}
+
+
+def test_the_runner_defaults_classification_to_its_own_limit(monkeypatch):
+    """worker를 거치지 않는 호출자(로컬 실행기)도 분류 상한은 공통 값이 아니다."""
+    seen = []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cs_runner, "gemini_classification_provider", lambda *args, **kwargs: seen.append(kwargs)
+    )
+    monkeypatch.setattr(cs_runner, "gemini_text_provider", lambda *args, **kwargs: None)
+    build_cs_runner(
+        SimpleNamespace(),
+        client=None,
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        fts_searcher=fts_searcher,
+        search_filters=FILTERS,
+        checkpointer=None,
+        model="m-common",
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+    )
+    assert (seen[-1]["model"], seen[-1]["generation"].max_output_tokens) == ("m-common", 4096)
 
 
 def test_worker_builds_a_vector_searcher_only_when_enabled(monkeypatch):
