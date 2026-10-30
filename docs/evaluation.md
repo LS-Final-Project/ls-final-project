@@ -364,11 +364,11 @@ uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖
 | PR·dev 반영 | 평가 검사(`scripts/check_backend.py eval`, 가짜 공급자)와 승격 차단 검사(`tests/eval/test_promotion.py`) | 없음 |
 | 설정 변경 | 모델·프롬프트 판본·출력 상한을 바꾸면 승격 차단 검사가 실패한다. 실측(실제 API 평가) 결과로 새 채택 기록을 만들어 ADOPTED로 승인하고 함께 커밋해야 통과한다 | 실측은 사람이 로컬·플랫폼 평가 작업에서 한다 |
 | 정기 회귀 | `.github/workflows/evaluation-schedule.yml`: 매주 월요일 09:00 KST(수동 실행 가능) dev 기준으로 평가 검사와 승격 차단 검사를 돌린다. GitHub 예약 실행은 기본 브랜치의 워크플로 파일만 쓰며, 이 저장소의 기본 브랜치는 dev다(기본 브랜치를 바꾸면 그 브랜치에 이 파일이 있어야 한다) | 없음 |
-| 보고서 보관 | 정기 실행 결과(`promotion.json`, JUnit, 커밋)를 CI 보관물로 90일 둔다. 실측 보고서는 채택 기록의 결과 파일 sha256으로 가리킨다 | — |
+| 보고서 보관 | 정기 실행 결과(`promotion.json`, 평가 검사 로그 `evaluation.log`, 커밋)를 CI 보관물로 90일 둔다. 정기 실행의 평가 검사는 PR과 같은 `check_backend.py eval`이다. 실측 보고서는 채택 기록의 결과 파일 sha256으로 가리킨다 | — |
 
-- **승격 차단**(`eval/promotion.py`): 업무 실행 경로가 쓰는 설정을 코드 기본값에서 직접 읽어(`deployed_config`, 환경 변수는 보지 않음) 단계별 ADOPTED 채택 기록과 비교한다. C/S 분류·초안은 C/S worker가 함께 쓰는 공통 모델(`GEMINI_MODEL` 기본값), RFP 요구 추출은 추출 전용 `TFT_EXTRACTION_MODEL` 기본값을 본다. 배포 스크립트의 `GEMINI_MODEL`이 코드 기본값과 다르면 `DEPLOY_DIFFERS`로 따로 잡는다. 단계는 분류·초안·임베딩·RFP 요구 추출이다. 단계마다 가장 최근 ADOPTED 기록(decided_on)만 기준이라, 옛 채택값으로 되돌려도 막힌다. 문제는 세 종류다: 설정값이 채택값과 다름(`MISMATCH`), 그 단계의 ADOPTED 기록이 없음(`NO_ADOPTION`), 예외 승인 없는 blocker 불합격(`BLOCKER_UNWAIVED`). PROPOSED 기록은 승격 근거가 아니다.
+- **승격 차단**(`eval/promotion.py`): 업무 실행 경로가 쓰는 설정을 코드 기본값에서 직접 읽어(`deployed_config`, 환경 변수는 보지 않음) 단계별 ADOPTED 채택 기록과 비교한다. C/S 분류·초안은 C/S worker가 함께 쓰는 공통 모델(`GEMINI_MODEL` 기본값), RFP 요구 추출은 추출 전용 `TFT_EXTRACTION_MODEL` 기본값을 본다. 배포 스크립트가 코드 기본값을 덮어쓰면 `DEPLOY_DIFFERS`로 따로 잡는다(`GEMINI_MODEL`·`GEMINI_MAX_OUTPUT_TOKENS`·`TFT_EXTRACTION_MODEL`·`TFT_EXTRACTION_MAX_OUTPUT_TOKENS`). 단계별로 보는 값: 모델, 프롬프트 판본과 본문 지문(초안은 그래프 노드가 실제로 쓰는 `run_draft_attempt` 기본 판본, RFP 추출은 지시문 본문 sha256), 출력 상한, 초안 근거 수, 임베딩 차원·task_type. 실행 설정과 채택 기록 **양쪽의 모든 항목**을 비교하므로, 채택 기록에 없는 실행 설정이나 실행 경로에 없는 채택 항목도 불일치다. 채택 기록 `decided_on`은 YYYY-MM-DD여야 한다. 단계는 분류·초안·임베딩·RFP 요구 추출이다. 단계마다 가장 최근 ADOPTED 기록(decided_on)만 기준이라, 옛 채택값으로 되돌려도 막힌다. 문제는 세 종류다: 설정값이 채택값과 다름(`MISMATCH`), 그 단계의 ADOPTED 기록이 없음(`NO_ADOPTION`), 예외 승인 없는 blocker 불합격(`BLOCKER_UNWAIVED`). PROPOSED 기록은 승격 근거가 아니다.
 - **알려진 문제**(`eval/policy/promotion-exceptions.json`): 사유·티켓이 있는 줄만 통과시킨다. 불일치(`MISMATCH`·`DEPLOY_DIFFERS`) 줄은 운영값·채택값까지, 채택 기록 없음(`NO_ADOPTION`) 줄은 그 단계의 지금 설정 전체를 적고 그 값 그대로일 때만 허용한다. 알려진 문제 위에서 설정을 또 바꾸면 막힌다. 예외는 결과의 `excepted`에 그대로 보인다. 해소됐는데 남은 줄도 실패라 목록이 낡지 않는다. blocker 불합격은 이 목록에 둘 수 없고 채택 기록의 `waivers`로만 승인한다.
-- 2026-10-30 기준 알려진 문제 3건: 분류 운영 모델(`gemini-3.6-flash`)이 채택 모델(`gemini-3.5-flash-lite`)과 다름, 초안·RFP 요구 추출은 채택 기록 없음.
+- 2026-10-30 기준 알려진 문제 4건: 분류 운영 모델(`gemini-3.6-flash`)이 채택 모델(`gemini-3.5-flash-lite`)과 다름, 분류 채택 기록에 출력 상한(1024)이 없음, 초안·RFP 요구 추출은 채택 기록 없음.
 - 실제 API 정기 회귀(키·비용)는 GitHub에서 하지 않는다. 플랫폼 평가 작업을 예약 실행하는 방식은 운영 후속이다.
 
 ## 나머지 지표 잠금

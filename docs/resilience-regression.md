@@ -2,7 +2,7 @@
 
 KAN-150 완료 조건 "Tasks 중복/순서변경, checkpoint재개, 토큰철회, 메일결과불명, DB상태 불변식"을 막는 검사의 위치다. 대부분은 각 기능 PR에서 만든 검사다. 이 티켓에서 더한 것은 `tests/platform/test_job_resilience_db.py`(동시 인수 경합, 끝난 작업의 늦은 재전달, TFT 인수 거부, 시나리오 뒤 불변식)와 공통 불변식 검사 `tests/platform/runtime_invariants.py`다. 표의 검사 이름은 `tests/platform/test_resilience_regression_index.py`가 실제로 있는지 확인하므로, 검사 이름을 바꾸면 이 표도 같이 고친다.
 
-**실행**: DB 검사는 [공통 온보딩](team-start.md)의 전용 PostgreSQL과 `AUTH_TEST_DATABASE_URL`로 돌린다. 모두 CI(`application-checks.yml`의 auth-database)에 들어 있다. 실제 모델·Graph·Cloud Tasks는 부르지 않고 가짜 공급자·가짜 응답을 쓴다.
+**실행**: DB 검사는 [공통 온보딩](team-start.md)의 전용 PostgreSQL(`pgvector/pgvector:pg17`)과 `AUTH_TEST_DATABASE_URL`로 돌린다. DB 검사는 CI(`application-checks.yml`)의 auth-database 작업에, DB가 필요 없는 검사(`tests/cs/test_graph.py`)는 backend-cs 작업에 들어 있다. 실제 모델·Graph·Cloud Tasks는 부르지 않고 가짜 공급자·가짜 응답을 쓴다.
 
 ## 1. 작업 전달 중복·순서 바뀜
 
