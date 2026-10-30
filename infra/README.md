@@ -40,6 +40,8 @@ DB Secret은 해당 실행 계정에만, Gemini Secret의 새 직접 권한은 C
 | setup_cloud_build.sh | 이미지 생성 계정·저장소·빌드 소스 버킷 준비 |
 | setup_mail_bucket.sh | 메일 원문·첨부 객체 버킷 준비, platform-runtime에 객체 생성·읽기만 허용(KAN-71 후속) |
 | setup_rfp_bucket.sh | RFP 원문 객체 버킷 준비, tft-runtime에 객체 생성·읽기만 허용(KAN-188). 사용자가 직접 실행한다 |
+| setup_worker_jobs.py | C/S·RFP worker 실행 계정·권한·전송 주기·서비스 설정(KAN-159). `prepare`·`grant`·`enable` 단계, 기본 미리보기, `--apply`만 바꾼다. `enable`이 실제 처리와 모델 호출을 켠다 |
+| deploy_workers.py | worker 이미지 빌드 결과로 Cloud Run Job 배포(KAN-159). 기본 미리보기, `--apply`. 이미지는 `python3 infra/release.py build --service tft-worker`로 만든다. 자동 배포에 들어가지 않는다 |
 | setup_service_delivery.sh | 실행·배포 계정과 저장소 main 전용 GitHub OIDC 준비 |
 | register_gemini_secret.py | Gemini Secret 준비 및 C/S·TFT 접근 권한 연결 |
 
