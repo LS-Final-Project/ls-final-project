@@ -370,6 +370,11 @@ FORBIDDEN_EXAMPLES = {
         "This is a confirmed manufacturing defect.",
         "It is clearly a manufacturing defect.",
         "We confirm that it's a manufacturing defect.",
+        # 조동사가 앞에 있어도 확정이다(#354 리뷰 P2).
+        "We would like to inform you that your unit is a manufacturing defect.",
+        "We will confirm it is a manufacturing defect.",
+        "We should note that this is a manufacturing defect.",
+        "You may be glad to know this is a manufacturing defect.",
     ],
     FORBIDDEN_COMMITMENTS[18].pattern: [
         "The return reason has been confirmed.",
@@ -444,9 +449,8 @@ ALLOWED_EXAMPLES = [
     "The return reason is not confirmed yet.",
     "제조 불량으로 확인되지 않았습니다.",
     "아직 고객 과실로 판정되지 않았습니다.",
-    # 같은 문장 앞부분의 조건·예정 표지와 한국어 조건 어미(#354 리뷰 P2).
+    # 같은 문장 앞부분의 조건·부정 표지와 한국어 조건 어미(#354 리뷰 P2).
     "If inspection shows the failure is a manufacturing defect, it may be covered.",
-    "We will confirm after inspection that it is a manufacturing defect or not.",
     "It is possibly a manufacturing defect, which inspection will show.",
     "제조 불량으로 확인되었다면 보증이 적용될 수 있습니다.",
     "고객 과실로 판정되었는지는 검사 후 안내드립니다.",

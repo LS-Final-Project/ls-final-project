@@ -94,10 +94,10 @@ CONFIRMATION_COMMITMENTS = tuple(
         r"(?:책임\s*(?:은|이)\s*(?:당사|저희|제조사)\s*(?:에|에게)\s*있습니다|(?:당사|저희|제조사)\s*(?:의\s*)?책임입니다)",
     )
 )
-# 확정 패턴은 같은 문장에서 앞에 이 표지가 있으면 조건·부정·예정 문장으로 보고 허용한다.
+# 확정 패턴은 같은 문장에서 앞에 이 표지가 있으면 조건·부정 문장으로 보고 허용한다.
 CONDITION_MARKERS = re.compile(
-    r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never|may|might|could|would|should|"
-    r"will\s+(?:confirm|determine|check|verify|inspect))\b|n[’']t\b|만약|만일|혹시",
+    # 조동사(would·should·may·will)는 정중한 확정문에도 흔해 표지로 쓰지 않는다(#354 리뷰 P2).
+    r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never)\b|n[’']t\b|만약|만일|혹시",
     re.IGNORECASE,
 )
 FORBIDDEN_COMMITMENTS = PROMISE_COMMITMENTS + CONFIRMATION_COMMITMENTS
