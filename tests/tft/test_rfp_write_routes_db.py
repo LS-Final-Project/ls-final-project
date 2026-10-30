@@ -5,6 +5,7 @@
 
 # ruff: noqa: F811
 
+import asyncio
 import hashlib
 import io
 import zipfile
@@ -13,8 +14,10 @@ from uuid import uuid4
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.rows import dict_row
 
 from backend.api.tft.main import create_app
+from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp import routes_write
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
@@ -281,3 +284,27 @@ def test_upload_is_for_the_sales_owner_and_responsible(client, chain):
         assert upload(client, chain, who).status_code == 403
     assert error(upload(client, chain, OTHER_SALES)) == (404, "TFT_PROJECT_NOT_FOUND")
 
+
+def test_project_read_survives_a_missing_integration_schema(admin, chain):
+    """마이그레이션 전 칸이 없으면 통합 책임만 None이고 같은 트랜잭션의 조회는 이어진다.
+
+    트랜잭션 안에서 칸 이름을 바꾸고 되돌리므로 DB에 적용된 마이그레이션과 상관없이 같은 결과다.
+    """
+
+    async def scenario():
+        conn = await psycopg.AsyncConnection.connect(admin, row_factory=dict_row)
+        try:
+            assert await integration_state(conn, chain["project"]) is not None
+            await conn.execute(
+                "ALTER TABLE tft.projects RENAME COLUMN integration_holder TO integration_old"
+            )
+            assert await integration_state(conn, chain["project"]) is None
+            cursor = await conn.execute(
+                "SELECT name FROM tft.projects WHERE id=%s", (chain["project"],)
+            )
+            assert await cursor.fetchone() == {"name": "합성 프로젝트"}
+        finally:
+            await conn.rollback()
+            await conn.close()
+
+    asyncio.run(scenario())

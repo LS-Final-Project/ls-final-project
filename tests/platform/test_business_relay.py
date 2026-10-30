@@ -306,8 +306,8 @@ def test_tft_scope_is_enforced_and_revoked_on_next_request(system, business_data
     assert [p["id"] for p in listing.json()["data"]["items"]] == [str(visible)]
     detail = client.get(f"/api/v1/tft/projects/{visible}")
     assert detail.status_code == 200
-    # 이 DB는 RFP 마이그레이션(T7·T11·T12) 전 스키마다. 조회는 살아 있고 통합 책임만 비어 있다.
-    assert detail.json()["data"]["integration_responsibility"] is None
+    # 값은 DB에 적용된 마이그레이션에 따라 다르다. 스키마가 없을 때의 동작은 test_rfp_write_routes_db가 맡는다.
+    assert "integration_responsibility" in detail.json()["data"]
     assert client.get(f"/api/v1/tft/projects/{hidden}").status_code == 404
     with psycopg.connect(business_database) as conn:
         conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (system["user_id"],))
