@@ -425,6 +425,13 @@ ALLOWED_EXAMPLES = [
     "책임 소재는 점검 결과에 따라 판단합니다.",
     "고객 과실 여부는 확인 후 안내드립니다.",
     "불량 여부를 확인하고 있습니다.",
+    # 부정·미확정 서술도 허용한다(#354 리뷰 P3).
+    "It has not yet been determined to be customer misuse.",
+    "It has not been confirmed as improper installation.",
+    "We cannot say that it is a manufacturing defect.",
+    "The return reason is not confirmed yet.",
+    "제조 불량으로 확인되지 않았습니다.",
+    "아직 고객 과실로 판정되지 않았습니다.",
 ]
 
 

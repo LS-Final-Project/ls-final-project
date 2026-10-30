@@ -63,11 +63,14 @@ FORBIDDEN_COMMITMENTS = tuple(
         r"(?:기술자|엔지니어|기사)\s*(?:를|을)?\s*파견\s*(?:하겠습니다|해\s*드리)",
         # KAN-193: 반품 사유·제조 책임 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
         # 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
-        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )\b(?:it|this|that|(?:the|your)\s+"
+        # 'that it is …'(We cannot say that it is …)는 단정이 아니라 인용이라 허용한다(#354 리뷰 P3).
+        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )(?<!that )\b(?:it|this|that|(?:the|your)\s+"
         r"(?:defect|failure|fault|issue|problem|unit|product))\s+(?:is|was|has\s+been)\s+"
         r"(?:confirmed\s+(?:as|to\s+be)\s+)?(?:a\s+)?manufacturing\s+(?:defect|fault)\b",
         r"\breturn\s+reason\s+(?:is|was|has\s+been)\s+(?:confirmed|determined)\b",
         r"\bwe\s+(?:accept|take)\s+(?:full\s+)?(?:responsibility|liability)\b",
+        # 부정·미확정(not yet been determined …)은 허용한다(#354 리뷰 P3).
+        r"(?<!not )(?<!not yet )(?<!not been )(?<!not yet been )(?<!never been )(?<!n't been )"
         r"\b(?:confirmed|determined)\s+(?:as|to\s+be)\s+(?:customer\s+(?:misuse|error|damage)|misuse|"
         r"improper\s+(?:use|installation))\b",
         r"(?:(?:제조|제품|생산)\s*)?(?:불량|결함|하자)\s*(?:으로|로)\s*(?:확인|확정|판정)\s*"
