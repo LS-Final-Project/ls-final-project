@@ -56,7 +56,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 68개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 69개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -135,6 +135,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의) | to_regclass('runtime.job_control') | 미확인 |
 | P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | 역할 `tft_worker` | 미확인 |
 | P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | 운영자(CREATE SCHEMA) → platform_migrator | 가능 | to_regclass('notify.notification_intents') | 미확인 |
+| P31 | `platform/20261102_KAN-201_web_push.sql` | P30 | platform_migrator | 가능 | notify.push_subscriptions / push_deliveries | 미확인 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -359,3 +360,20 @@ P30은 운영자 연결에서 `CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION 
 양쪽 스키마에 동명 표가 있으면 `NOTIFICATION_SCHEMA_CONFLICT`로 전체 마이그레이션을 중단한다.
 어느 이력도 삭제·자동 병합하지 않고 운영자가 충돌 원인을 확인한다. 두 표는 함께 notify로 이동하므로
 업무 앱의 runtime 작업 표 접근은 여전히 허용하지 않는다.
+
+
+### KAN-201 Web Push 적용 (P31)
+
+P30 뒤 `python3 scripts/workspace.py migrate platform 20261102_KAN-201_web_push.sql`을 적용한다.
+재실행은 기존 구독·전송 장부·PK/FK를 보존하고 신규 표 권한만 재설정한다. platform_app만 구독을
+조회/등록/삭제하고 장부를 생성·갱신한다. cs_app/tft_app 및 worker에는 신규 권한이 없다.
+실제 DB/역할/재적용 검사는 CI 전용 DB로 확인하며 여기의 미확인은 적용 성공을 뜻하지 않는다.
+
+운영자 준비 순서(코딩 에이전트 실행 금지): O2 `infra/setup_notification_push.sh --prepare-identities`
+preview 확인 → 운영자 `--prepare-identities --apply`로 전용 계정 준비 → O1 `infra/register_vapid_secret.py`
+preview 확인 및 운영자 `--apply`로 키 버전 1 등록 → 공개키/운영 연락처/플랫폼 URL/프로젝트 번호와
+플랫폼 digest 이미지 설정 → O2 preview 확인 및 운영자 `--apply` → DB/설정/실행 권한 확인 후
+Scheduler 명시 resume. O2는 Job을 배포하지만 실행하지 않으며 Scheduler를 pause한다.
+개인키는 Job 실행 계정에만 접근을 허용하고 API에는 공개키만 주입한다. 원래 공개키를 분실한 기존
+Secret은 O1이 읽거나 교체하지 않는다. 해당 키와 맞는 기존 설정을 운영자가 확인한다.
+운영 스크립트 작성·정적 검사와 실제 GCP 준비·푸시 수신 검증을 구분한다.

@@ -10,10 +10,12 @@ from backend.api.platform.evaluations.routes import router as evaluations
 from backend.api.platform.jobs.routes import router as jobs
 from backend.api.platform.mail.links import router as mail_links
 from backend.api.platform.mail.triage import router as mail_triage
+from backend.api.platform.notifications.push_routes import router as push
 from backend.api.platform.notifications.routes import router as notifications
 
 router = APIRouter()
 router.include_router(notifications)
+router.include_router(push)
 router.include_router(auth)
 router.include_router(login)
 router.include_router(mailbox)

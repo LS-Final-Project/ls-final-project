@@ -17,6 +17,11 @@ from backend.api.platform.mail.send_worker import MailSendSettings, configure_ma
 from backend.api.platform.mail.send_worker import router as mail_send_router
 from backend.api.platform.mail.worker import MailSyncSettings, configure_mail_sync
 from backend.api.platform.mail.worker import router as mail_worker_router
+from backend.api.platform.notifications.push_dispatch import configure_push
+from backend.api.platform.notifications.push_dispatch import (
+    router as push_worker_router,
+)
+from backend.api.platform.notifications.push_settings import PushSettings
 from backend.api.platform.relay import configure_relay
 from backend.api.platform.routes import router
 from backend.shared.settings import Settings
@@ -31,6 +36,7 @@ def create_app(
     mail_send_settings: MailSendSettings | None = None,
     tft_job_settings: TftJobSettings | None = None,
     cs_job_settings: CsJobSettings | None = None,
+    push_settings: PushSettings | None = None,
 ) -> FastAPI:
     """플랫폼 앱과 기본 비활성 Microsoft 로그인 설정을 준비한다.
 
@@ -43,11 +49,14 @@ def create_app(
         mail_send_settings: 기본 비활성 승인 메일 발송 설정(KAN-74).
         tft_job_settings: 기본 비활성 tft 작업 내부 접수 설정(KAN-182).
         cs_job_settings: 기본 비활성 cs 작업 내부 접수 설정(KAN-194).
+        push_settings: 기본 비활성 구독/별도 Job 실행 설정(KAN-201).
 
     Returns:
         FastAPI: 로그인 계약과 기존 개발 경로를 포함한 플랫폼 앱.
     """
     app = create_application("platform", settings)
+    configure_push(app, push_settings or PushSettings())
+    app.include_router(push_worker_router)
     configure_auth(app, auth_settings or MicrosoftAuthSettings())
     configure_mailbox_auth(app, mailbox_settings or MailboxAuthSettings())
     configure_mail_sync(app, mail_sync_settings or MailSyncSettings())
