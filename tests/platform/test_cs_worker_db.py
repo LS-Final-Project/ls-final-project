@@ -22,6 +22,7 @@ from tests.cs.graph_fakes import (
     classification_provider,
     draft_provider,
     fts_searcher,
+    verification_provider,
 )
 
 WORKER = CsWorkerSettings(_env_file=None, enabled=True, lease_seconds=60)
@@ -99,6 +100,7 @@ class Harness:
         return build_graph(
             classification_provider=self.classify,
             draft_provider=self.draft,
+            verification_provider=verification_provider,
             fts_searcher=fts_searcher,
             search_filters=FILTERS,
             allowed_info_codes=frozenset({"TEST_PHOTO"}),
@@ -197,7 +199,7 @@ def test_worker_runs_to_human_review_and_records_allowed_events(
     assert harness.run(worker_settings, cs_job) == "CS_JOB_SUCCEEDED"
     status, released, generation, failure, events = snapshot(jobs_database, cs_job)
     assert (status, released, generation, failure) == ("SUCCEEDED", True, 1, None)
-    assert [kind for kind, _ in events] == ["job.queued", "job.started"] + ["job.progress"] * 4 + [
+    assert [kind for kind, _ in events] == ["job.queued", "job.started"] + ["job.progress"] * 5 + [
         "job.completed"
     ]
     assert [p["step"] for kind, p in events if kind == "job.progress"] == [
@@ -205,6 +207,7 @@ def test_worker_runs_to_human_review_and_records_allowed_events(
         "rules",
         "retrieve",
         "draft",
+        "draft",  # verify도 기존 SSE draft 단계로 기록한다.
     ]
     completed = events[-1][1]
     assert completed["state"] == "SUCCEEDED"
@@ -242,7 +245,11 @@ def test_rerun_continues_from_the_last_checkpoint(worker_settings, jobs_database
     assert harness.run(worker_settings, cs_job) == "CS_JOB_SUCCEEDED"
     assert harness.calls == ["classify", "draft"]
     *_, events = snapshot(jobs_database, cs_job)
-    assert [p["step"] for kind, p in events if kind == "job.progress"] == ["retrieve", "draft"]
+    assert [p["step"] for kind, p in events if kind == "job.progress"] == [
+        "retrieve",
+        "draft",
+        "draft",
+    ]
 
 
 def snapshot_ticket(dsn, job_id):

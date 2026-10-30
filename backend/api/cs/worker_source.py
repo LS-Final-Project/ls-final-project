@@ -31,6 +31,7 @@ from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.graph import TicketInputs
 from backend.engine.cs.rules import RuleInputError, product_family
+from backend.engine.cs.verification_call import VerificationAttempt
 from backend.shared.ai import usage_cost
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -76,7 +77,7 @@ def required_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozen
     return table
 
 
-def usage_values(attempt: ClassificationAttempt | DraftAttempt) -> Row:
+def usage_values(attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt) -> Row:
     """시도 하나의 사용량 칸(evaluation.case_attempts와 같은 이름·규칙, KAN-85).
 
     Args:
@@ -178,12 +179,15 @@ class DbTicketSource:
         return self._run(work)
 
     def record_attempt(
-        self, kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+        self,
+        kind: str,
+        ticket_id: str,
+        attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
     ) -> str:
         """시도 하나를 추가하고 저장한 행 ID를 돌려준다.
 
         Args:
-            kind: "classification" 또는 "draft".
+            kind: "classification", "draft", "verification".
             ticket_id: 문의 ID.
             attempt: 시도 기록. raw_response는 저장하지 않는다.
 
@@ -223,6 +227,22 @@ class DbTicketSource:
                     ticket,
                     {**values, "draft": prediction, "analysis_id": run["id"] if run else None},
                     lock=False,
+                )
+            elif kind == "verification" and isinstance(attempt, VerificationAttempt):
+                if attempt.draft_id is None:
+                    raise ValueError("CS_VERIFICATION_DRAFT_MISMATCH")
+                row = await service.record_verification(
+                    conn,
+                    ticket,
+                    {
+                        **values,
+                        "draft_id": UUID(attempt.draft_id),
+                        "attempt_number": attempt.attempt_number,
+                        "sentences": attempt.output.model_dump()["sentences"],
+                        "requested_model": attempt.requested_model,
+                        "instruction_fingerprint": attempt.instruction_fingerprint,
+                        "call_attempts": attempt.call_attempts,
+                    },
                 )
             else:
                 raise ValueError("CS_ATTEMPT_KIND")

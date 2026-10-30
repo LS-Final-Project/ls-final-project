@@ -56,6 +56,7 @@ from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.graph import POLICY_SLOT_DOCUMENTS, TicketInputs, build_graph, thread_config
 from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
 from backend.engine.cs.providers import GenerationKnobs
+from backend.engine.cs.verification_call import VerificationAttempt
 from backend.engine.search.hybrid import EXCERPT_CHARS
 from backend.shared.ai import AISettings, create_client, load_price_table
 from backend.shared.settings import Settings
@@ -65,6 +66,7 @@ from tests.cs.graph_fakes import (
     classification_provider,
     draft_provider,
     fts_searcher,
+    verification_provider,
 )
 
 RUNNER_ERRORS = frozenset({"CS_GRAPH_THREAD_EXISTS", "CS_GRAPH_NOTHING_TO_RESUME"})
@@ -132,7 +134,10 @@ class UsageRecordingSource(InMemoryTicketSource):
     entries: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def record_attempt(
-        self, kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+        self,
+        kind: str,
+        ticket_id: str,
+        attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
     ) -> str:
         """감사 항목을 모으고 기본 기록을 한다(raw_response는 버린다).
 
@@ -344,6 +349,7 @@ def batch_estimate(
     settings: AISettings,
     evidence_limit: int,
     draft_max_output_tokens: int,
+    verification_enabled: bool = True,
 ) -> dict[str, Any]:
     """묶음 실행 전 호출 수와 비용 상한을 잰다(네트워크 없음).
 
@@ -355,8 +361,8 @@ def batch_estimate(
         draft_max_output_tokens: 초안 출력 상한.
 
     Returns:
-        dict: 건수, 호출 수(분류·초안 각 1, 재호출 최대 2배), 분류·초안 estimate 결과, 합계 상한과 재호출 최대
-            합계 상한. 초안 입력은 근거 evidence_limit개×800자를 넣은 상한 프롬프트다.
+        dict: 건수, 검증 활성 시 최대7회(분류2·최초초안2·재작성1·검증2), 비활성 시 최대4회.
+            활성 시 검증·피드백 크기 상한이 미확정이므로 총비용 상한은 null이다. 초안 입력은 근거 evidence_limit개×800자를 넣은 상한 프롬프트다.
     """
     prices = load_price_table()
     records = {ticket_id: ticket.record for ticket_id, ticket in tickets.items()}
@@ -418,12 +424,24 @@ def batch_estimate(
     return {
         "mode": "dry-run",
         "tickets": len(tickets),
-        "calls": {"classification": len(tickets), "draft": len(tickets)},
-        "max_calls_with_retries": 4 * len(tickets),
+        "calls": {
+            "classification": len(tickets),
+            "draft": len(tickets),
+            "verification": len(tickets) if verification_enabled else 0,
+        },
+        "max_rewrite_calls": len(tickets) if verification_enabled else 0,
+        "max_verification_calls": 2 * len(tickets) if verification_enabled else 0,
+        "verification_enabled": verification_enabled,
+        "max_calls_with_retries": (7 if verification_enabled else 4) * len(tickets),
         "classification": classification,
         "draft": draft,
-        "total_upper_usd": None if upper is None else format(upper, "f"),
-        "total_upper_with_retries_usd": None if upper is None else format(2 * upper, "f"),
+        "total_upper_usd": None if verification_enabled or upper is None else format(upper, "f"),
+        "cost_bound_reason": "CS_VERIFICATION_INPUT_BOUND_UNKNOWN"
+        if verification_enabled
+        else None,
+        "total_upper_with_retries_usd": None
+        if verification_enabled or upper is None
+        else format(2 * upper, "f"),
     }
 
 
@@ -592,6 +610,7 @@ def main(
             AISettings(),
             args.evidence_limit,
             args.draft_max_output_tokens,
+            verification_enabled=settings.cs_draft_verification_enabled,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
@@ -632,6 +651,7 @@ def main(
                 model=ai_settings.gemini_model,
                 allowed_info_codes=allowed,
                 allow_tracing=settings.ai_tracing_allowed,
+                verification_enabled=settings.cs_draft_verification_enabled,
                 invalid_output_retries=args.invalid_output_retries,
                 draft_knobs=GenerationKnobs(max_output_tokens=args.draft_max_output_tokens),
                 evidence_limit=args.evidence_limit,
@@ -641,6 +661,7 @@ def main(
             graph = build_graph(
                 classification_provider=fake_classifier(args.fake_category),
                 draft_provider=draft_provider,
+                verification_provider=verification_provider,
                 fts_searcher=searcher,
                 search_filters=FILTERS,
                 allowed_info_codes=allowed,
@@ -648,6 +669,7 @@ def main(
                 record_attempt=source.record_attempt,
                 checkpointer=saver,
                 allow_tracing=settings.ai_tracing_allowed,
+                verification_enabled=settings.cs_draft_verification_enabled,
                 invalid_output_retries=args.invalid_output_retries,
                 evidence_limit=args.evidence_limit,
                 policy_documents=policy_documents,

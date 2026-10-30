@@ -70,6 +70,7 @@ def draft_provider(prompt):
         Generation: 합성 응답.
     """
     payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+    payload = payload.get("input", payload)
     chunk = payload["evidence"][0]["chunk_id"]
     options = [
         {
@@ -146,3 +147,29 @@ class AttemptStore:
         """
         self.attempts.append((kind, ticket_id, attempt))
         return f"attempt-{len(self.attempts)}"
+
+
+def verification_provider(prompt):
+    """입력 문장마다 지원 판정을 내는 흐름 검사 fake. 실제 근거 품질의 증거가 아니다."""
+    payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+    return Generation(
+        json.dumps(
+            {
+                "sentences": [
+                    {
+                        "label": s["label"],
+                        "sentence_index": s["sentence_index"],
+                        "verdict": "SUPPORTED" if s["evidence_chunk_ids"] else "UNVERIFIABLE",
+                        "reason": "Synthetic verification only.",
+                        "evidence_chunk_ids": s["evidence_chunk_ids"],
+                    }
+                    for s in payload["sentences"]
+                ]
+            }
+        ),
+        Usage(10, 5),
+        "fake-v1",
+        ["STOP"],
+        model="fake",
+        attempts=1,
+    )

@@ -9,6 +9,7 @@
 | 표 | 출처 | 내용 |
 | --- | --- | --- |
 | `cs.ticket_analyses` | `ai_draft` | 분류 실행 1회 = 1행. `run_seq`(문의별 순번), `job_id`(KAN-69 전에는 null), `outcome`(`VALID`·`SCHEMA_VIOLATION`·`TRANSPORT_FAILURE`·`TIMEOUT`·`HELD`), `VALID`일 때만 분류 5필드 `classification`, 입력 판본·해시, 모델·프롬프트 판본(worker 저장분은 실행기가 공급자에 넘긴 분류 판본), 오류 코드, 시도 사용량(`latency_ms`·토큰 5종·`cost_usd`·`pricing_version`, 마이그레이션 `20261102_KAN-107_attempt_usage.sql`, `evaluation.case_attempts`와 같은 이름·검사. 비용은 입력·답변 토큰과 USD 단가가 모두 있을 때만, 그때 가격표 판본 필수. 조회 응답에는 내지 않음) |
+| `cs.ticket_draft_verifications` | `ai_draft` | KAN-200 문장 검증 1회 = append-only 1행. 실제 `draft_id`·`ticket_id`·`job_id`, 검증 round(1 또는 2), 호출 `outcome`·오류, 문장별 판정·이유·인용 ID, 입력/프롬프트 판본·해시·지문, 요청/응답 모델, 공급자 호출 수 및 기존 시도와 같은 토큰·지연·비용. raw 응답과 문의 원문은 저장하지 않는다. C21 적용 필요 |
 | `cs.ticket_drafts` | `ai_draft` | 답변 초안 실행 1회 = 1행. `VALID`일 때만 3선택지 `draft`, 근거가 된 분석 실행 `analysis_id`, 분석 실행과 같은 시도 사용량 칸 |
 | `cs.ticket_classification_corrections` | `human_input` | 사람 정정 1회 = 1행. `seq`, 바꾼 필드만 담은 `fields`, 사유(필수, 1~2000자), 정정자, 기준이 된 분석 실행 `based_on_analysis_id` |
 
@@ -71,3 +72,22 @@
 
 - 운영 확인: 실제 ID 토큰·Cloud Run Jobs 전송·공용 DB 마이그레이션(C18)은 KAN-159 배포 묶음.
 - 정정된 `provided_info`로 부족 정보를 다시 계산하는 연결.
+
+
+## 초안 문장 검증 (KAN-200)
+
+기존 `GET …/analysis`의 `drafts[]`에 `verification_status`와 `verifications`를 추가한다. 실제 프론트 화면은
+이번 범위 밖이며, 이 API 확장만으로 화면 표시가 완료된 것은 아니다.
+
+- `NOT_VERIFIED`: 과거/수동 초안, `CS_DRAFT_VERIFICATION_ENABLED=false`, 검증 공급자 없음 또는 검증 호출 실패.
+  기록이 없으면 `verifications=[]`다. 실패 기록이 있으면 `outcome`·`error_code`와 모든 문장의
+  `UNVERIFIABLE`·고정 오류 이유가 있어 모델의 정상 판정과 구분된다.
+- `VERIFIED`: 해당 초안의 마지막 검증 호출이 `VALID`이며 모든 문장이 `SUPPORTED`.
+- `NEEDS_REVIEW`: 정상 검증에 `UNSUPPORTED` 또는 `UNVERIFIABLE`이 하나라도 있음. 사람의 승인 상태가 아니다.
+- 검증 기록은 해당 초안별 생성 순서다. 문장 키는 선택지 `label`과 0부터 시작하는 `sentence_index`,
+  항목은 `verdict`·`reason`·`evidence_chunk_ids`다. 입력 문장 전수의 누락·중복·알 수 없는 인용을 거부한다.
+- `record_verification`은 같은 문의·작업의 `VALID` 초안인지 검사한다. 다른 문의/작업의 초안 ID는
+  `CS_VERIFICATION_DRAFT_MISMATCH`다. `DbTicketSource.record_attempt`는 별도 `verification` kind로 저장한다.
+- 재작성은 새 `cs.ticket_drafts` 행으로 추가한다. 성공 시 그 행을 재검증하고 기존 `latest_valid_draft_id`
+  규칙이 새 초안을 가리킨다. 실패한 재작성은 이전 유효 초안과 그 판정을 보존한다. 검증 실패가 초안을 숨기거나
+  업무 발송·최종 승인 권한을 대신하지 않는다.

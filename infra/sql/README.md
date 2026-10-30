@@ -54,7 +54,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 63개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 64개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -85,6 +85,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C18 | `cs/20261101_KAN-107_worker_source.sql` | C10·C12·C13·C14(헤더) | 관리자(역할 생성) → cs_migrator | 가능 | 열 `cs.ticket_customer_sends.requested_info_codes` | 미확인 |
 | C19 | `cs/20261102_KAN-107_attempt_usage.sql` | C14·C18(헤더) | cs_migrator | 가능 | 열 `cs.ticket_analyses.cost_usd` | 미확인 |
 | C20 | `cs/20261103_KAN-99_chunk_embeddings.sql` | C10·C18, pgvector 확장(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | to_regclass('cs.chunk_embeddings') | 미확인 |
+| C21 | `cs/20261104_KAN-200_draft_verification.sql` | C14·C18·C19(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_draft_verifications') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
@@ -311,3 +312,18 @@ platform_app의 UPDATE를 열 단위로 바꾼다(소유자·Microsoft 식별자
 표 적용만으로 발송이 켜지지 않는다. 상세는 [메일 수집 계약](../../contracts/platform/mail.md)의 발송 절을 따른다.
 
 근거: [PostgreSQL 스키마 권한](https://www.postgresql.org/docs/17/ddl-schemas.html), [생성자별 기본 권한](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html), [Cloud SQL 사용자 생성](https://docs.cloud.google.com/sql/docs/postgres/create-manage-users).
+
+
+### KAN-200 초안 검증 적용 (C21)
+
+C14(분석·초안), C18(worker 역할), C19(시도 사용량) 이후 C21을 적용하고 KAN-200 worker·C/S API를 배포한다.
+파일명 정렬에서는 C20 뒤다. 새 로컬 DB와 C/S 테스트 fixture는 폴더 정렬로 포함한다.
+
+```sh
+python3 scripts/workspace.py migrate cs 20261104_KAN-200_draft_verification.sql
+```
+
+재실행은 표·인덱스를 유지하고 권한만 같은 형태로 재설정한다. `cs_worker`는 SELECT·INSERT만,
+`cs_app`은 SELECT만 가지며 둘 다 UPDATE·DELETE·TRUNCATE할 수 없다. 기존 초안 행은 변경하지 않는다.
+검증 결과는 기존 초안 조회의 `verification_status`·`verifications`에서 확인한다. 적용 및 DB 검사는
+운영자/CI에서 확인해야 하며 이 문서의 표는 적용 성공 기록이 아니다.

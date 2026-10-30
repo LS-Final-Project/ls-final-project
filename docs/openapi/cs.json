@@ -2314,6 +2314,23 @@
           "seq": {
             "title": "Seq",
             "type": "integer"
+          },
+          "verification_status": {
+            "default": "NOT_VERIFIED",
+            "enum": [
+              "NOT_VERIFIED",
+              "VERIFIED",
+              "NEEDS_REVIEW"
+            ],
+            "title": "Verification Status",
+            "type": "string"
+          },
+          "verifications": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationRun"
+            },
+            "title": "Verifications",
+            "type": "array"
           }
         },
         "required": [
@@ -5937,6 +5954,57 @@
         "title": "SendRequest",
         "type": "object"
       },
+      "SentenceVerdict": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Chunk Ids",
+            "type": "array"
+          },
+          "label": {
+            "enum": [
+              "CONCISE",
+              "DETAILED",
+              "INFO_FIRST"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Reason",
+            "type": "string"
+          },
+          "sentence_index": {
+            "minimum": 0.0,
+            "title": "Sentence Index",
+            "type": "integer"
+          },
+          "verdict": {
+            "enum": [
+              "SUPPORTED",
+              "UNSUPPORTED",
+              "UNVERIFIABLE"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "sentence_index",
+          "verdict",
+          "reason",
+          "evidence_chunk_ids"
+        ],
+        "title": "SentenceVerdict",
+        "type": "object"
+      },
       "Side": {
         "description": "\uc870\uac74\uc758 \ud55c\ucabd(\uae30\uc900 \ub610\ub294 \ub300\uc0c1). \ub9c8\uc2a4\ud0b9\ub41c \uac12, \ub610\ub294 null\uacfc \uc0ac\uc720.",
         "properties": {
@@ -7465,6 +7533,104 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VerificationRun": {
+        "properties": {
+          "attempt_number": {
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "sentences": {
+            "items": {
+              "$ref": "#/components/schemas/SentenceVerdict"
+            },
+            "title": "Sentences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "draft_id",
+          "job_id",
+          "attempt_number",
+          "outcome",
+          "sentences",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "created_at"
+        ],
+        "title": "VerificationRun",
         "type": "object"
       },
       "Versioned": {

@@ -5,6 +5,7 @@ runner (KAN-69, cs_runner.TicketSource) calls them once connected; tests and dem
 with synthetic rows. They lock the ticket row so run numbers stay in order.
 """
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from backend.api.cs.analysis.schemas import (
     Rules,
     RuleView,
     TicketAnalysis,
+    VerificationRun,
 )
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.workflow import repository as workflow
@@ -25,6 +27,8 @@ from backend.engine.cs import analysis
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import DraftOutput
 from backend.engine.cs.rules import RuleDecision
+from backend.engine.cs.verification import VerificationInput, VerificationSentence
+from backend.engine.cs.verification import validate_output as validate_verification
 from backend.shared.errors import ApplicationError
 
 Row = dict[str, Any]
@@ -68,6 +72,43 @@ async def record_draft(conn: Any, ticket_id: UUID, values: Row, *, lock: bool = 
     return await repository.insert_draft(conn, ticket_id, values)
 
 
+async def record_verification(conn: Any, ticket_id: UUID, values: Row) -> Row:
+    """별도 저장 검증이 실제 같은 문의·작업의 유효 초안을 가리키는지 확인한다."""
+    draft = await repository.get_draft(conn, ticket_id, values["draft_id"])
+    if draft is None or draft["outcome"] != "VALID" or draft["job_id"] != values.get("job_id"):
+        raise ValueError("CS_VERIFICATION_DRAFT_MISMATCH")
+    parsed = DraftOutput.model_validate(draft["draft"])
+    payload = VerificationInput(
+        sentences=[
+            VerificationSentence(label=o.label, sentence_index=i, **s.model_dump())
+            for o in parsed.options
+            for i, s in enumerate(o.sentences)
+        ],
+        evidence=[],
+    )
+    validate_verification(json.dumps({"sentences": values["sentences"]}), payload=payload)
+    return await repository.insert_verification(conn, ticket_id, values)
+
+
+def verified_draft(draft: Row, verifications: list[Row]) -> DraftRun:
+    """검증 호출 실패와 과거 미검증을 정상 지원 판정과 구분해 조회에 붙인다."""
+    rows = [v for v in verifications if v["draft_id"] == draft["id"]]
+    status = "NOT_VERIFIED"
+    if rows and rows[-1]["outcome"] == "VALID":
+        status = (
+            "VERIFIED"
+            if all(s["verdict"] == "SUPPORTED" for s in rows[-1]["sentences"])
+            else "NEEDS_REVIEW"
+        )
+    return DraftRun.model_validate(
+        {
+            **draft,
+            "verification_status": status,
+            "verifications": [VerificationRun.model_validate(v) for v in rows],
+        }
+    )
+
+
 def rule_view(decision: RuleDecision | None) -> RuleView | None:
     if decision is None:
         return None
@@ -100,6 +141,7 @@ async def build(conn: Any, ticket_id: UUID) -> TicketAnalysis:
         raise ticket_not_found()
     runs = await repository.list_runs(conn, ticket_id)
     drafts = await repository.list_drafts(conn, ticket_id)
+    verifications = await repository.list_verifications(conn, ticket_id)
     corrections = await repository.list_corrections(conn, ticket_id)
     state = await workflow.get_workflow(conn, ticket_id)
     tier = await repository.customer_tier(conn, ticket_id)
@@ -141,7 +183,7 @@ async def build(conn: Any, ticket_id: UUID) -> TicketAnalysis:
         latest_run=AnalysisRun.model_validate(runs[-1]) if runs else None,
         latest_valid_run_id=valid["id"] if valid else None,
         runs=[AnalysisRun.model_validate(r) for r in runs],
-        drafts=[DraftRun.model_validate(d) for d in drafts],
+        drafts=[verified_draft(d, verifications) for d in drafts],
         latest_valid_draft_id=valid_draft["id"] if valid_draft else None,
         corrections=[Correction.model_validate(c) for c in corrections],
         fields={name: FieldView(**vars(value)) for name, value in fields.items()},

@@ -49,7 +49,7 @@ from backend.shared.settings import Settings
 __all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # 진행 이벤트를 남기는 노드(EventPayload.step 값과 같다).
-NODES = ("classify", "rules", "retrieve", "draft")
+NODES = ("classify", "rules", "retrieve", "draft", "verify", "rewrite", "reverify")
 # 입력 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 CS_WORKER_GRAPH_FAILED로 저장한다.
 LOAD_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
@@ -83,7 +83,12 @@ def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool
         for node in update:
             if node in NODES:
                 stage = graph.get_state(config).values.get("stage")
-                if not on_node({"step": node, "stage": stage}):
+                if not on_node(
+                    {
+                        "step": "draft" if node in {"verify", "rewrite", "reverify"} else node,
+                        "stage": stage,
+                    }
+                ):
                     return False
     return True
 
@@ -143,6 +148,7 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
         model=ai.gemini_model,
         allowed_info_codes=parts.allowed_info_codes,
         allow_tracing=settings.ai_tracing_allowed,
+        verification_enabled=settings.cs_draft_verification_enabled,
         policy_documents=parts.policy_documents,
     )
 

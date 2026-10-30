@@ -40,6 +40,7 @@ from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import GenerationKnobs, gemini_classification_provider
+from backend.engine.cs.verification_call import VerificationAttempt
 from backend.shared.ai import AISettings, Generation, Usage, create_client, load_price_table
 from eval.cs_candidates import Candidate, run_candidates
 from eval.cs_gold_locks import GOLD_LOCKS
@@ -487,7 +488,9 @@ def label_payloads(
     }
 
 
-def audit_entry(attempt: ClassificationAttempt | DraftAttempt) -> dict[str, object]:
+def audit_entry(
+    attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt,
+) -> dict[str, object]:
     """시도 하나의 사례별 감사 항목. evaluation.case_attempts 열과 1:1이며 원문·응답·예측·정답은 없다.
 
     Args:

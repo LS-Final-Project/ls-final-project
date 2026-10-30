@@ -4,7 +4,7 @@
 
 ## 노드 순서와 분기
 
-`classify → rules → retrieve → draft → human_review → END`
+`classify → rules → retrieve → draft → verify → [rewrite → reverify] → human_review → END`
 
 | 노드 | 호출하는 엔진 | 상태 갱신 | 실패 시 |
 | --- | --- | --- | --- |
@@ -12,9 +12,12 @@
 | `rules` | `rules.decide` | `rules`(정책 판본·우선순위·부서·SLA·기한, ISO 시각) | 정책 밖 입력은 `CS_RULE_INPUT`을 남기고 계속 |
 | `retrieve` | `search.hybrid.token_or_query`(마스킹 제목·본문 토큰 OR) → `scoped_then_global`(문의 제품 `rules.product_family`와 같은 `product_family` 청크 먼저, 모자라면 전체 보충, FLT-042 제외) | `evidence`(chunk_id·snippet=청크 본문 앞 800자·section_path·document_sha256) | 질의 토큰이 없으면 근거 0건, 모르는 제품이면 전체만 검색, 검색기 예외는 원문 없이 `CS_SEARCH_FAILED`를 남기고 계속. 근거 0건이어도 `draft`는 호출한다(문장은 CONDITION·UNCONFIRMED만 허용) |
 | `draft` | `drafting_call.run_draft_attempt`(시도 1, 형식 위반이면 시도 2) | `draft`(3선택지), 시도 ID | 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
+| `verify` | `verification_call.run_verification_attempt` 1회 | 문장별 판정·시도 ID | 호출 실패는 미검증으로 사람 확인, 정상 판정 실패는 rewrite |
+| `rewrite` | 피드백으로 `run_draft_attempt` 1회(형식 재시도 없음) | 새 초안·시도 ID | 기존 초안·판정을 보존해 사람 확인 |
+| `reverify` | 새 초안의 검증 1회 | 최종 문장 판정·시도 ID | 결과와 무관하게 사람 확인 |
 | `human_review` | 없음 | `stage=HUMAN_REVIEW`만 | 없음 |
 
-- 분기는 `route_after_classify` 하나다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
+- 분류 분기는 `route_after_classify`다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
 - 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
 - 초안 호출 설정(KAN-194 7차): `build_graph(evidence_limit=N)`은 검색 결과 중 앞 N건만 초안 근거로 넘긴다(None이면 전부, 검색 limit·제품 우선 보충은 그대로). 실행기 `build_cs_runner`의 기본은 `DRAFT_DEFAULTS`(초안 실측 PROPOSED 설정 2026-10-29: 출력 상한 2048, 근거 5건)이며 `draft_knobs`·`evidence_limit`으로 바꾼다.
 - 초안 오류 코드(KAN-194 6차): `drafting.validate_output`은 내용 규칙 위반을 `CS_INVALID_OUTPUT`으로 합치지 않고 그 코드를 그대로 올리며, `drafting_call`이 outcome `SCHEMA_VIOLATION`·`error_code=<코드>`로 남긴다. 그래서 결정적 위반(근거 ID 인용 오류 등)은 위 재호출 대상이 아니다.
@@ -27,11 +30,11 @@
   | `CS_EVIDENCE_REQUIRED` | 근거 ID 없는 EVIDENCE 문장 | 안 함 |
   | `CS_DUPLICATE_EVIDENCE`·`CS_DUPLICATE_INFO`·`CS_DUPLICATE_OPTION` | 근거 ID·정보 요청·선택지 라벨 중복 | 안 함 |
   | `CS_FORBIDDEN_COMMITMENT`·`CS_BLOCKED_EVIDENCE` | 승인·확정 약속, 차단 코드 언급 | 안 함 |
-- 엔진은 고치지 않는다. 모델 호출은 `backend/shared/ai.py`·`providers.py` 어댑터를 그대로 쓰며 LangChain 모델 래퍼는 쓰지 않는다.
+- 기존 엔진의 안전·출력 검사는 유지한다. 모델 호출은 `backend/shared/ai.py`·`providers.py` 어댑터를 그대로 쓰며 LangChain 모델 래퍼는 쓰지 않는다.
 
 ## 중단점과 재개
 
-- `interrupt_before=["human_review"]`로 컴파일한다. 첫 `invoke(initial_state(ticket_id), thread_config(ticket_id))`는 초안 뒤에 멈춘다. 이때 `get_state(config).next == ("human_review",)`이다.
+- `interrupt_before=["human_review"]`로 컴파일한다. 첫 `invoke(initial_state(ticket_id), thread_config(ticket_id))`는 검증(필요하면 재작성·재검증) 뒤 사람 확인 직전에 멈춘다. 이때 `get_state(config).next == ("human_review",)`이다.
 - 사람이 확인한 뒤 같은 thread로 `invoke(None, config)`를 부르면 `human_review`를 지나 END가 된다.
 - 분류 실패는 중단 없이 바로 끝난다.
 - thread_id는 문의 ID다. 체크포인트가 DB에 있으므로 새 프로세스·새 그래프 인스턴스도 같은 thread를 이어간다.
@@ -108,3 +111,33 @@
 - RFP 그래프
 - API 연결(KAN-107), 사람 확인 화면, 체크포인트 보존 기간·정리
 - 재시도(시도 번호는 항상 1)
+
+
+## 문장 검증·유한 재작성 (KAN-200)
+
+- `verify`는 선택지의 모든 문장과 그 문장이 인용한 근거만 `verification_call.run_verification_attempt`로
+  한 번 보낸다. 레지스트리 `verification/v1`, 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
+  입력 문장 전수 1:1 대응과 입력 인용 범위를 검사한다. 문의 원문·정답을 새 입력으로 추가하지 않는다.
+- 정상 검증에서 `UNSUPPORTED` 또는 `UNVERIFIABLE`이 있으면 `rewrite`로 간다. 기존 초안과 실패 문장 이유를
+  정제 초안 입력에 붙여 **공급자 호출 한 번만** 재작성한다. 재작성에는 기존 형식 재시도를 적용하지 않는다.
+  최초 draft의 기존 형식 재시도(0/1회)는 유지한다. 기존 draft/v1 지시문·입력은 재작성 이외에는 바뀌지 않는다.
+- 재작성 성공이면 `reverify`로 새 초안 전체를 한 번 더 검사한다. 결과에 관계없이 사람 확인으로 간다.
+  재작성 실패면 이전 초안·판정을 남기고 바로 사람 확인으로 간다. 검증 노드 자체의 형식 재시도는 없으며
+  그래프에 되돌아가는 간선이 없다. 공급자 내부의 전송 재시도는 기존 정책이며 시도 `call_attempts`로 구분한다.
+- 검증 timeout/전송/출력검사 실패는 재작성하지 않고 `NOT_VERIFIED` 및 문장별 미검증 이유로 남긴다.
+  초안이 없으면 검증 호출이 없고 사람 확인으로 간다. 비활성·공급자 없는 경로도 미검증으로 표시한다.
+- `CsState` 추가 키: `draft_attempt_id`, `verification`(status·reason·sentences), `draft_rewritten`.
+  기존 체크포인트의 누락 키는 기본값으로 읽고 과거 draft ID는 시도 요약에서 찾는다. raw·모델 시도 본체는
+  상태에 넣지 않는다. `attempt_ids`·`attempts`에는 검증도 포함하지만 `retried/recovered`는 분류·초안 형식
+  재시도만 세며 round=2 검증을 재시도로 세지 않는다.
+- `build_graph` 주입에 `verification_provider`·`verification_enabled`를 추가한다. 공급자가 없는 경로는
+  미검증이고 제품 `build_cs_runner`는 같은 명시 모델의 `gemini_text_provider(VerificationOutput)`를 연결한다.
+  `Settings.cs_draft_verification_enabled`(환경 변수 `CS_DRAFT_VERIFICATION_ENABLED`) 기본은 true다.
+  실제 모델의 근거 판정 품질은 이번 fake 검사의 검증 대상이 아니다.
+- worker는 verify/rewrite/reverify마다 기존 `step=draft`, `stage=DRAFTED`로 진행을 기록하고 lease·취소를
+  확인한다. 플랫폼 SSE 스키마를 확장하지 않는다. 사람 확인 재개는 모델을 다시 부르지 않는다.
+- 저장·담당자 조회 API는 [분석 계약](analysis.md#초안-문장-검증-kan-200), C21 마이그레이션 적용 후 사용한다.
+- `scripts/cs_graph_run.py`는 검증 사용량을 기존 감사 합계에 포함한다. fake는 외부 호출하지 않는다.
+  batch dry-run은 정상 경로 3회, 형식 재시도 및 재작성·재검증 포함 논리 호출 최대 7회/문의
+  (분류2+초안2+재작성1+검증2)로 안내한다. 비활성은 기존 최대4회다. 검증·피드백 입력 크기 상한은 아직
+  증명하지 않아 활성 시 총비용 상한은 null(`CS_VERIFICATION_INPUT_BOUND_UNKNOWN`)이다.
