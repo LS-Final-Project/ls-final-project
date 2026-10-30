@@ -71,7 +71,12 @@
 - 입출력 예시: [`backend/api/tft/rfp/examples/comparison-demo-a.json`](../../backend/api/tft/rfp/examples/comparison-demo-a.json)(백엔드 검사 이미지에 들어가도록 백엔드 폴더에 둔다). 입력은 요구 14개와 후보 필터, 출력은 요구마다 `comparison`(상태·사유·미확인·다음 담당·부족 원인·후보별 근거)과 `supplement`(경로). 검사 `test_the_contract_example_is_the_current_engine_output`가 이 파일이 지금 엔진 결과와 같은지 확인한다. 다시 만들 때는 `python -m tests.tft.test_rfp_comparison`.
 - 요구값은 14번 원문(개발 문서)에서 옮겼고 평가 문서(10·11·12·18)는 쓰지 않았다.
 
+## 원문·제품 근거 링크
+
+- **요구 쪽**: 입력 요구의 `origin`(문서, 문서 판본 ID, 조항 ID, 조항 번호, 취소선을 뺀 현행 인용, 메모)을 판정 결과 `origin`으로 그대로 돌려준다. 원문에 값이 없으면 인용은 null이고 메모에 이유를 적는다(예: 1차 전압·용량은 도면 참조). API에서는 `RequirementOrigin`(`document_version_id`·`clause_id`·`quote`)으로 옮긴다(A07). A04 추출 결과의 조항·인용을 그대로 넣으면 된다.
+- **제품 쪽**: 후보마다 `candidates[].evidence`(데이터시트 문서·절·적용 조건·한계)다.
+- 시연 A 14개 판정 모두 14번 원문 위치를 갖고, 13개는 원문 인용이 있다(검사 `test_every_demo_judgement_links_back_to_the_rfp_clause`).
+
 ## 남은 것 (KAN-186 완료 조건)
 
-- 원문 근거 링크: 요구 쪽은 지금 조항 번호만 있다. 문서 판본·조항 ID 연결은 A04 저장 결과를 받는 A07에서 붙인다.
 - 문서 검색(R10)으로 후보를 찾는 연결과 자사 사양 23종 정규화.
