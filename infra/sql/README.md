@@ -359,3 +359,16 @@ P30은 운영자 연결에서 `CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION 
 양쪽 스키마에 동명 표가 있으면 `NOTIFICATION_SCHEMA_CONFLICT`로 전체 마이그레이션을 중단한다.
 어느 이력도 삭제·자동 병합하지 않고 운영자가 충돌 원인을 확인한다. 두 표는 함께 notify로 이동하므로
 업무 앱의 runtime 작업 표 접근은 여전히 허용하지 않는다.
+
+## worker 로그인 (KAN-159)
+
+`cs_worker`·`tft_worker`는 NOLOGIN 역할이다. worker는 그 역할의 멤버 로그인으로 접속하고, 앱·마이그레이터 역할 멤버이면 시작을 거부한다. 공용 DB에는 관리자가 한 번 만든다. 비밀번호는 명령 기록에 남기지 않는다(`\password`).
+
+```sql
+CREATE ROLE cs_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE tft_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT cs_worker TO cs_worker_login;
+GRANT tft_worker TO tft_worker_login;
+```
+
+같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
