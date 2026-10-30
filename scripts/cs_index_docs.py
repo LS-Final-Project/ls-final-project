@@ -25,6 +25,7 @@ import os
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -32,7 +33,7 @@ import psycopg
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 
-from backend.api.cs.search.repository import store_chunks
+from backend.api.cs.search.repository import missing_embeddings, store_chunks, store_embeddings
 from backend.engine.documents.model import ExtractedDocument
 from backend.engine.documents.router import extract
 from backend.engine.search.chunking import INDEX_VERSION, chunk_document
@@ -45,6 +46,13 @@ LOCAL_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1", "db"})
 # 운영자 Cloud SQL Proxy 관례 포트. 로컬 주소여도 공용 DB로 이어지므로 원격으로 본다.
 PROXY_PORTS = frozenset({"55434"})
 Store = Callable[[str, ChunkingResult, ChunkMetadata, str, datetime], int]
+# 청크 문자열 하나를 임베딩 값으로 바꾸는 함수(--embed). 기본은 ai.embed(RETRIEVAL_DOCUMENT, 768차원)다.
+Embedder = Callable[[str], list[float]]
+EMBED_BATCH = 64
+
+
+class EmbedSetupFailed(Exception):
+    """임베딩 클라이언트를 만들지 못했다(키·설정). 원문·키 없이 CS_INDEX_EMBED_FAILED로만 알린다."""
 
 
 def find_documents(root: Path) -> list[Path]:
@@ -181,6 +189,109 @@ def store_with_dsn(dsn: str) -> Store:
     return store
 
 
+def default_embedder(model: str, dimensions: int, task_type: str) -> Embedder:
+    """Gemini 임베딩 호출 함수를 만든다(키는 환경변수 GEMINI_API_KEY에서만).
+
+    Args:
+        model: 임베딩 모델 ID.
+        dimensions: 출력 차원.
+        task_type: 문서 쪽 task_type.
+
+    Returns:
+        Embedder: 문자열 하나당 API 1회.
+    """
+    from backend.shared.ai import AISettings, create_client, embed
+
+    client = create_client(AISettings(), embedding=True)
+    return lambda text: (
+        embed(client, model, text, dimensions=dimensions, task_type=task_type).values
+    )
+
+
+def embed_chunks(
+    dsn: str,
+    *,
+    index_version: str,
+    embedding_version: str,
+    model: str,
+    embedder: Callable[[], Embedder],
+    limit: int = 2000,
+) -> dict[str, Any]:
+    """그 판본의 임베딩이 없는 청크만 임베딩해 넣는다(KAN-99, C20). 첫 공급자 오류에서 멈추고 다음 실행이 잇는다.
+
+    Args:
+        dsn: cs_app 로컬 DSN.
+        index_version: 청크 색인 판본.
+        embedding_version: 모델:차원:task_type.
+        model: 단가 조회용 모델 ID.
+        embedder: 청크 문자열 → 임베딩 값 함수를 만드는 함수. 대상 청크가 있을 때만 한 번 부른다(지연 생성).
+        limit: 비용 상한. 대상(그 판본이 없는 청크, DB 전체)이 이보다 많으면 호출 없이 CS_EMBED_OVER_LIMIT로 멈춘다.
+
+    Returns:
+        dict: embedding_version·missing(시작 시 대상 수)·embedded(넣은 수)·calls·chars·reason(멈춘 사유 코드,
+            없으면 None)·approx_input_cost(문자/4 × ai_prices 단가, 단가가 없으면 None). 원문·벡터는 넣지 않는다.
+            클라이언트를 만들지 못하면 EmbedSetupFailed다.
+    """
+    from backend.shared.ai import load_price_table
+
+    async def connect() -> psycopg.AsyncConnection[dict[str, Any]]:
+        return await psycopg.AsyncConnection.connect(dsn, row_factory=dict_row, autocommit=True)
+
+    async def load() -> list[dict[str, Any]]:
+        async with await connect() as conn:
+            return await missing_embeddings(
+                conn, index_version=index_version, embedding_version=embedding_version
+            )
+
+    async def save(batch: list[tuple[Any, list[float]]]) -> int:
+        async with await connect() as conn:
+            return await store_embeddings(conn, batch, embedding_version=embedding_version)
+
+    rows = asyncio.run(load())
+    summary: dict[str, Any] = {
+        "embedding_version": embedding_version,
+        "missing": len(rows),
+        "embedded": 0,
+        "calls": 0,
+        "chars": 0,
+        "reason": None,
+    }
+    batch: list[tuple[Any, list[float]]] = []
+    call: Embedder | None = None
+    if len(rows) > limit:
+        # 대상은 --docs 범위가 아니라 그 판본이 없는 DB 전체 청크다. 예상보다 많으면 부르지 않는다.
+        summary["reason"] = "CS_EMBED_OVER_LIMIT"
+        rows = []
+    if rows:
+        try:
+            call = embedder()
+        except Exception:
+            raise EmbedSetupFailed from None
+    for row in rows:
+        assert call is not None
+        try:
+            values = call(row["text"])
+        except Exception:
+            # 공급자 원문은 남기지 않는다. 이미 넣은 행은 유지되고 다음 실행이 남은 청크부터 잇는다.
+            summary["reason"] = "CS_EMBED_PROVIDER_ERROR"
+            break
+        summary["calls"] += 1
+        summary["chars"] += len(row["text"])
+        batch.append((row["id"], values))
+        if len(batch) == EMBED_BATCH:
+            summary["embedded"] += asyncio.run(save(batch))
+            batch = []
+    if batch:
+        summary["embedded"] += asyncio.run(save(batch))
+    price = load_price_table().get(model)
+    summary["approx_input_cost"] = (
+        None
+        if price is None
+        else str(Decimal(summary["chars"]) / 4 * price.input_per_million / Decimal(1_000_000))
+    )
+    return summary
+
+
 def index_documents(
     root: Path,
     *,
@@ -273,12 +384,18 @@ def index_documents(
     return rows
 
 
-def main(argv: list[str] | None = None, store: Store | None = None) -> int:
+def main(
+    argv: list[str] | None = None, store: Store | None = None, embedder: Embedder | None = None
+) -> int:
     """인자를 읽어 dry-run 표를 출력하거나 --execute로 적재하고 manifest를 쓴다.
+
+    --embed는 적재 뒤(또는 --execute 없이 단독으로) 임베딩이 없는 청크만 임베딩한다. 단독이면 문서를 다시
+    적재하지 않는다(재적재는 청크 행을 바꿔 임베딩이 CASCADE로 지워진다).
 
     Args:
         argv: 명령행 인자. None이면 sys.argv.
         store: 적재 함수(검사에서 바꾼다).
+        embedder: 임베딩 함수(검사에서 바꾼다). None이면 Gemini를 부른다.
 
     Returns:
         int: 성공 0(문서별 실패는 manifest의 reason), 인자·DB 경계 위반 1.
@@ -296,7 +413,22 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
         "--allow-remote", action="store_true", help="로컬이 아닌 DSN 허용(공용 DB 금지)"
     )
     parser.add_argument("--manifest-out", type=Path)
+    parser.add_argument(
+        "--embed", action="store_true", help="임베딩이 없는 청크만 임베딩(로컬 DB, 실제 호출)"
+    )
+    parser.add_argument("--embed-model", default="gemini-embedding-2")
+    parser.add_argument("--embed-dimension", type=int, default=768, choices=(768,))
+    parser.add_argument("--embed-task-type", default="RETRIEVAL_DOCUMENT")
+    parser.add_argument(
+        "--embed-limit",
+        type=int,
+        default=2000,
+        help="임베딩 대상(판본 없는 청크, DB 전체) 상한. 넘으면 호출 없이 멈춘다",
+    )
     args = parser.parse_args(argv)
+    if args.embed and args.dry_run:
+        print("CS_INDEX_EMBED_NEEDS_DB: --embed는 --dry-run과 함께 쓰지 않는다.", file=sys.stderr)
+        return 1
     if not args.docs.is_dir():
         print("CS_INDEX_DOCS_MISSING: --docs는 디렉터리여야 한다.", file=sys.stderr)
         return 1
@@ -314,10 +446,10 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
             print("CS_INDEX_DOC_INDEX_INVALID: --doc-index를 읽을 수 없다.", file=sys.stderr)
             return 1
     dsn = os.environ.get("DATABASE_URL")
-    if args.execute and store is None:
+    if (args.execute and store is None) or args.embed:
         if not dsn:
             print(
-                "CS_INDEX_NEEDS_DB: --execute는 DATABASE_URL(cs_app, 로컬 DB)이 필요하다.",
+                "CS_INDEX_NEEDS_DB: --execute·--embed는 DATABASE_URL(cs_app, 로컬 DB)이 필요하다.",
                 file=sys.stderr,
             )
             return 1
@@ -327,20 +459,44 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-    rows = index_documents(
-        args.docs,
-        execute=args.execute,
-        dsn=dsn,
-        data_origin=args.data_origin,
-        document_kind=args.document_kind,
-        doc_index=doc_index,
-        store=store,
+    # --embed 단독이면 문서를 다시 적재하지 않는다.
+    rows = (
+        []
+        if args.embed and not args.execute
+        else index_documents(
+            args.docs,
+            execute=args.execute,
+            dsn=dsn,
+            data_origin=args.data_origin,
+            document_kind=args.document_kind,
+            doc_index=doc_index,
+            store=store,
+        )
     )
-    manifest = {
-        "mode": "execute" if args.execute else "dry-run",
+    manifest: dict[str, Any] = {
+        "mode": "execute" if args.execute else "embed" if args.embed else "dry-run",
         "index_version": INDEX_VERSION,
         "documents": rows,
     }
+    if args.embed:
+        assert dsn is not None
+        version = f"{args.embed_model}:{args.embed_dimension}:{args.embed_task_type}"
+        try:
+            manifest["embedding"] = embed_chunks(
+                dsn,
+                index_version=INDEX_VERSION,
+                embedding_version=version,
+                model=args.embed_model,
+                embedder=(lambda: embedder)
+                if embedder
+                else lambda: default_embedder(
+                    args.embed_model, args.embed_dimension, args.embed_task_type
+                ),
+                limit=args.embed_limit,
+            )
+        except (psycopg.Error, ValueError, EmbedSetupFailed):
+            print("CS_INDEX_EMBED_FAILED: DB·임베딩 키·설정을 확인한다.", file=sys.stderr)
+            return 1
     text = json.dumps(manifest, ensure_ascii=False, indent=2)
     if args.manifest_out:
         args.manifest_out.write_text(text + "\n", encoding="utf-8")
@@ -349,7 +505,9 @@ def main(argv: list[str] | None = None, store: Store | None = None) -> int:
             f"{row['source_name']}\tblocks={row['blocks']}\tchunks={row['chunks']}"
             f"\tblocked={row['blocked_code_chunks']}\tstored={row['stored']}\treason={row['reason']}"
         )
-    return 0
+    if "embedding" in manifest:
+        print(json.dumps(manifest["embedding"], ensure_ascii=False))
+    return 1 if manifest.get("embedding", {}).get("reason") else 0
 
 
 if __name__ == "__main__":

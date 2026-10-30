@@ -37,3 +37,12 @@ md의 경로 없는 청크 1개는 문서 머리(front matter)다. 14번은 v1�
 - 재색인 전 v1 색인만 있는 DB에서는 v2 검색 결과가 없다. v1 manifest를 쓰는 worker는 load 구간에서 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다.
 - 로컬 재색인(`cs_index_docs`, 로컬 DB 전용):
   `uv run --frozen python -m scripts.cs_index_docs --docs <문서 디렉터리> --data-origin demo --doc-index <doc_index.csv> --execute --manifest-out <manifest.json>`
+
+## C/S 청크 임베딩 (KAN-99, C20)
+
+- 표: `cs.chunk_embeddings(chunk_row_id → cs.document_chunks.id ON DELETE CASCADE, embedding_version, embedding vector(768), created_at)`, 기본 키는 (청크 행, embedding_version)이다. HNSW 코사인 인덱스를 둔다. 청크 표에 열을 더하지 않는다.
+- `embedding_version`은 `모델:차원:task_type`(예: `gemini-embedding-2:768:RETRIEVAL_DOCUMENT`, 채택 KAN-144)이다. 모델·차원이 바뀌면 새 판본 행을 만들고 섞지 않는다. 청크 색인 판본(`index_version`)과는 따로 둔다.
+- 재적재(`store_chunks`의 삭제·삽입)는 청크 행 ID를 바꾸므로 그 문서의 임베딩이 지워진다. 다시 임베딩해야 한다.
+- 권한: `cs_app` SELECT·INSERT·DELETE(UPDATE 없음), `cs_worker` SELECT. pgvector 확장은 관리자가 설치하며 마이그레이션은 만들지 않는다.
+- 적재: `scripts/cs_index_docs.py --embed`(로컬 DB만). 그 판본 임베딩이 없는 청크만 문자열마다 1회 호출해 넣는다. 첫 공급자 오류에서 사유 코드(`CS_EMBED_PROVIDER_ERROR`)로 멈추고, 다음 실행이 남은 청크부터 잇는다. `--execute` 없이 쓰면 문서를 다시 적재하지 않는다. 대상은 `--docs` 범위가 아니라 그 판본이 없는 DB 전체 청크이며, `--embed-limit`(기본 2000)을 넘으면 호출 없이 `CS_EMBED_OVER_LIMIT`로 멈춘다. manifest `embedding`에는 판본·대상 수·넣은 수·호출 수·문자 수·사유·근사 비용(문자/4 × `ai_prices.json`)이 들어간다.
+- 검색: `repository.search_vector`는 `search_fts`와 같은 조건(문서 해시·product_family·document_kinds·limit)으로 코사인 거리 오름차순(같으면 문서·순번)이다. 검색기 결합(RRF)은 후속 PR이다.

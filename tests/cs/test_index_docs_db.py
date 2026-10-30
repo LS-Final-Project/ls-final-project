@@ -71,3 +71,148 @@ def test_index_documents_round_trip(cs_database, tmp_path):
             conn.execute(
                 "DELETE FROM cs.document_chunks WHERE document_kind='CS_MANUAL' AND data_origin='synthetic'"
             )
+
+
+def test_embed_mode_fills_only_missing_chunks_and_stops_on_provider_error(
+    cs_database, tmp_path, monkeypatch, capsys
+):
+    """--embed는 적재 뒤 임베딩이 없는 청크만 넣고, 단독 재실행은 0건이며, 공급자 오류면 사유 코드로 멈춘다(KAN-99)."""
+    import json
+
+    from scripts.cs_index_docs import main
+
+    dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
+    monkeypatch.setenv("DATABASE_URL", dsn)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "embed.docx").write_bytes(docx("Embedding probe KAN99 vector chunk."))
+    calls = []
+
+    def fake(text):
+        calls.append(len(text))
+        return [0.5] * 768
+
+    def broken(text):
+        raise RuntimeError("PRIVATE_PROVIDER_MESSAGE")
+
+    base = [
+        "--docs",
+        str(tmp_path / "docs"),
+        "--data-origin",
+        "synthetic",
+        "--document-kind",
+        "CS_EMBED_TEST",
+    ]
+    try:
+        out = tmp_path / "m.json"
+        assert main([*base, "--execute", "--embed", "--manifest-out", str(out)], embedder=fake) == 0
+        embedding = json.loads(out.read_text())["embedding"]
+        assert embedding["embedding_version"] == "gemini-embedding-2:768:RETRIEVAL_DOCUMENT"
+        assert (
+            embedding["embedded"] >= 1
+            and embedding["calls"] == len(calls)
+            and embedding["reason"] is None
+        )
+        assert embedding["approx_input_cost"] is not None
+        calls.clear()
+        assert main([*base, "--embed", "--manifest-out", str(out)], embedder=fake) == 0
+        again = json.loads(out.read_text())
+        assert again["mode"] == "embed" and again["documents"] == []
+        assert again["embedding"]["embedded"] == 0
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute(
+                "DELETE FROM cs.chunk_embeddings e USING cs.document_chunks c WHERE c.id = e.chunk_row_id AND c.document_kind = 'CS_EMBED_TEST'"
+            )
+        capsys.readouterr()
+        assert main([*base, "--embed", "--manifest-out", str(out)], embedder=broken) == 1
+        failed = json.loads(out.read_text())["embedding"]
+        assert failed["reason"] == "CS_EMBED_PROVIDER_ERROR" and failed["embedded"] == 0
+        assert "PRIVATE_PROVIDER_MESSAGE" not in capsys.readouterr().out + out.read_text()
+        assert main([*base, "--dry-run", "--embed"], embedder=fake) == 1
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_TEST'")
+
+
+def test_embed_client_setup_failure_is_a_code_and_is_skipped_when_nothing_is_missing(
+    cs_database, tmp_path, monkeypatch, capsys
+):
+    """임베딩 클라이언트를 만들지 못하면 CS_INDEX_EMBED_FAILED·종료 1(원문·키 미노출)이고, 대상이 0건이면 만들지 않는다."""
+    import scripts.cs_index_docs as cli
+
+    dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
+    monkeypatch.setenv("DATABASE_URL", dsn)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "setup.docx").write_bytes(docx("Embedding setup probe KAN99."))
+    made = []
+
+    def no_key(*args):
+        made.append(args)
+        raise RuntimeError("PRIVATE_KEY_AIzaSECRET")
+
+    monkeypatch.setattr(cli, "default_embedder", no_key)
+    base = [
+        "--docs",
+        str(tmp_path / "docs"),
+        "--data-origin",
+        "synthetic",
+        "--document-kind",
+        "CS_EMBED_SETUP",
+    ]
+    try:
+        assert cli.main([*base, "--execute", "--embed"]) == 1
+        err = capsys.readouterr().err
+        assert "CS_INDEX_EMBED_FAILED" in err and "PRIVATE_KEY" not in err and "AIza" not in err
+        assert len(made) == 1
+        assert cli.main([*base, "--embed"], embedder=lambda text: [0.25] * 768) == 0
+        made.clear()
+        assert cli.main([*base, "--embed"]) == 0
+        assert made == []
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_SETUP'")
+
+
+def test_embed_limit_stops_without_calls_when_too_many_chunks_are_missing(
+    cs_database, tmp_path, monkeypatch, capsys
+):
+    """--embed-limit보다 대상이 많으면 호출 없이 CS_EMBED_OVER_LIMIT·종료 1이고, 상한 안이면 넣는다(KAN-99 비용 상한)."""
+    import json
+
+    from scripts.cs_index_docs import main
+
+    monkeypatch.setenv(
+        "DATABASE_URL", make_conninfo(cs_database, user="cs_app", password="test-only")
+    )
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "limit.docx").write_bytes(docx("Embedding limit probe KAN99."))
+    calls = []
+
+    def fake(text):
+        calls.append(text)
+        return [0.125] * 768
+
+    base = [
+        "--docs",
+        str(tmp_path / "docs"),
+        "--data-origin",
+        "synthetic",
+        "--document-kind",
+        "CS_EMBED_LIMIT",
+    ]
+    out = tmp_path / "m.json"
+    try:
+        assert main([*base, "--execute"]) == 0
+        assert (
+            main(
+                [*base, "--embed", "--embed-limit", "0", "--manifest-out", str(out)], embedder=fake
+            )
+            == 1
+        )
+        stopped = json.loads(out.read_text())["embedding"]
+        assert stopped["reason"] == "CS_EMBED_OVER_LIMIT" and stopped["missing"] >= 1
+        assert stopped["calls"] == 0 and calls == []
+        assert main([*base, "--embed", "--embed-limit", "100000"], embedder=fake) == 0
+        assert calls
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_LIMIT'")
