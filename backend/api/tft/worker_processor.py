@@ -275,7 +275,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         standard_system=item.standard_system,
         designated_model=item.designated_model,
         task=item.task,
-        non_equipment=item.kind in ("TASK", "DOCUMENT"),
+        kind=item.kind,
     )
 
 

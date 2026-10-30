@@ -694,14 +694,113 @@ def test_a_rating_at_the_required_duration_is_not_overridden_by_an_estimate():
     assert compare(wanted, [product], trace).status == "SPEC_GAP"
 
 
-@pytest.mark.parametrize("kwargs", [{"task": "field testing"}, {"non_equipment": True}])
+@pytest.mark.parametrize(
+    ("kwargs", "check", "cause"),
+    [
+        ({"task": "field testing"}, "수행 주체 확인(자사/협력사)", "TASK"),
+        # task 칸이 비어도 kind가 TASK면 같은 규칙이다.
+        ({"kind": "TASK"}, "수행 주체 확인(자사/협력사)", "TASK"),
+        ({"kind": "DOCUMENT"}, "제출 자료 준비 확인", None),
+        # 문서 요구가 task 칸을 채워도 문서 요구다(kind가 먼저다).
+        ({"kind": "DOCUMENT", "task": "submit drawings"}, "제출 자료 준비 확인", None),
+    ],
+)
 @pytest.mark.parametrize("family", [None, "OTHER"])
-def test_task_and_document_requirements_skip_the_family_check(kwargs, family):
-    """과업·문서 요구는 계열이 없어도 '계열을 정하지 못해'로 끝나지 않고 기존 비교 경로로 간다."""
+def test_task_and_document_requirements_are_decided_internally(kwargs, check, cause, family):
+    """과업·문서 요구는 계열 검사 없이 내부 확인으로 간다. 고객에게 묻지 않고 과업만 보완 경로가 있다."""
     wanted = Requirement(clause_no="3.2", item="현장 시험", attribute="OTHER", **kwargs)
     outcome = compare_in_family(wanted, family, load_own_products())
     assert "계열" not in outcome.reason and "연결하지 못해" not in outcome.reason
-    assert "요구값이 원문에 없음" in outcome.reason
+    assert (outcome.status, outcome.next_owner, outcome.deficiency_cause) == (
+        "INSUFFICIENT_EVIDENCE",
+        "TECH",
+        cause,
+    )
+    assert outcome.unresolved == [check] and check in outcome.reason
+    paths = [o.path for o in options_for(outcome, "ALLOWED").options]
+    assert paths == (["OWN_DEVELOPMENT", "TASK_SUBCONTRACT"] if cause else [])
+
+
+@pytest.mark.parametrize("kind", ["TASK", "DOCUMENT"])
+@pytest.mark.parametrize("family", [None, "OTHER"])
+def test_a_valued_task_or_document_without_a_family_is_still_an_internal_check(kind, family):
+    """값과 속성이 있어도 계열이 없으면 견줄 후보가 없다. '자사 후보 없음'이 아니라 내부 확인이다."""
+    wanted = Requirement(
+        clause_no="3.2",
+        item="시험 전압",
+        attribute="power_frequency_withstand",
+        value="28",
+        unit="kV",
+        operator="GTE",
+        kind=kind,
+    )
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert (outcome.status, outcome.next_owner) == ("INSUFFICIENT_EVIDENCE", "TECH")
+    assert "후보를 찾지 못함" not in outcome.reason
+    assert outcome.deficiency_cause == ("TASK" if kind == "TASK" else None)
+    # 계열이 정해지면 같은 값으로 실제 비교한다(후보가 있으면 내부 확인으로 가지 않는다).
+    known = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    assert known.candidates and "수행 주체" not in known.reason
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"), [("OTHER", None), (None, None), ("OTHER", "3 days"), ("bil", None)]
+)
+def test_a_task_without_a_comparable_value_asks_who_performs_it(attribute, value):
+    """비교할 값이 없는 수행 과업은 고객 질문이 아니라 내부 수행 주체 확인이고, 자사 수행 → 위탁 경로가 나온다."""
+    wanted = Requirement(
+        clause_no="3.2", item="현장 시험", attribute=attribute, value=value, task="field testing"
+    )
+    outcome = compare_in_family(wanted, None, load_own_products())
+    assert (outcome.status, outcome.next_owner, outcome.deficiency_cause) == (
+        "INSUFFICIENT_EVIDENCE",
+        "TECH",
+        "TASK",
+    )
+    assert outcome.unresolved == ["수행 주체 확인(자사/협력사)"] and outcome.candidates == []
+    allowed = options_for(outcome, "ALLOWED")
+    assert [(o.path, o.rank, o.gate.requires) for o in allowed.options] == [
+        ("OWN_DEVELOPMENT", 2, "NONE"),
+        ("TASK_SUBCONTRACT", 3, "OWN_DEVELOPMENT_CHECK"),
+    ]
+    forbidden = options_for(outcome, "FORBIDDEN")
+    assert [(o.path, o.allowed) for o in forbidden.options] == [
+        ("OWN_DEVELOPMENT", True),
+        ("TASK_SUBCONTRACT", False),
+    ]
+    # R&D가 자사 수행 가능이라고 답하면 위탁은 막힌다(다른 원인과 같은 게이트).
+    feasible = options_for(outcome, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    assert [o.allowed for o in feasible.options] == [True, False]
+
+
+def test_a_task_with_a_real_comparison_and_other_insufficient_results_keep_their_paths():
+    """비교할 값이 있는 과업은 기존 판정(사양 차이 → TASK), 원인 없는 근거 부족은 경로가 없다."""
+    linked = Requirement(
+        clause_no="3.1",
+        item="현장 시운전",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+        task="commissioning",
+    )
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(linked, [switchgear("12")], trace).status == "SPEC_GAP"
+    # 원인도 같은 판단을 쓴다: task 칸이 비어도 kind TASK의 사양 차이는 TASK다.
+    by_kind = linked.model_copy(update={"task": None, "kind": "TASK"})
+    assert compare(by_kind, [switchgear("12")], trace).deficiency_cause == "TASK"
+    no_value = Requirement(clause_no="2.1", item="정격", attribute="bil")
+    outcome = compare(no_value, [switchgear("12")], trace)
+    assert (outcome.next_owner, outcome.deficiency_cause) == ("CUSTOMER", None)
+    assert options_for(outcome, "ALLOWED").options == []
+    # 미정 표시는 과업이어도 고객 회신이 먼저다.
+    placeholder = no_value.model_copy(update={"task": "testing", "value": "<Insert value>"})
+    assert compare(placeholder, [switchgear("12")], trace).next_owner == "CUSTOMER"
+    # 인증 요구는 과업 칸이 있어도 인증 경로다.
+    certification = no_value.model_copy(
+        update={"task": "testing", "certification_standard": "UL 1558", "attribute": None}
+    )
+    assert "수행 주체" not in compare(certification, [switchgear("12")], trace).reason
 
 
 def test_certifications_and_designated_models_keep_their_order_for_task_requirements():
@@ -711,9 +810,7 @@ def test_certifications_and_designated_models_keep_their_order_for_task_requirem
         clause_no="2.1", item="등록", certification_standard="UL 1558", task="testing"
     )
     assert "계열" in compare_in_family(certification, None, products).reason
-    designated = Requirement(
-        clause_no="2.2", item="계전기", designated_model="X-100", non_equipment=True
-    )
+    designated = Requirement(clause_no="2.2", item="계전기", designated_model="X-100", kind="TASK")
     outcome = compare_in_family(designated, None, products)
     assert outcome.deficiency_cause == "DESIGNATED_MODEL"
 

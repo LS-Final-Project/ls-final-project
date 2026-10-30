@@ -28,7 +28,11 @@
 - **등록(Listed)(KAN-199)**: 추출 `certification_listed`가 자사 비교 `certification_listed`로, 협력사 등급에는 `listing=listed` 조건으로 간다. 시험 성적은 등록을 대신하지 않는다.
 - **규격 체계 차이(KAN-199)**: 요구 `standard_system`이 근거 제품의 체계(`Product.standards`)에 없으면 충족(`EVIDENCE_FOUND`)을 `CONDITIONAL`로 낮춘다("규격 체계 다름: 요구 UL, 근거 IEC 60947-2, 시험 규격 확인"). 잘못된 충족을 막는 규칙이라 `SPEC_GAP`은 낮추지 않는다(정격 전압처럼 시험 규격과 무관한 물리 정격의 미달은 체계가 달라도 사양 차이다). 요구가 `NONE`이거나 제품 `standards`가 비어 있으면 그대로다. 그 체계의 인증이 `variant`가 있는 것뿐이면(MCCB-ABS-403c의 UL -U) 근거 체계에서 빼고 "변형 모델 값 확인"을 남긴다. 협력사 등급도 같은 규칙이며, 프로필에는 제품별 규격이 없어 제안 모델에 적용되는 `certifications`의 체계를 근거로 본다(`passed` → `unknown`, `failed`는 그대로).
 - **계열 안에서만 비교(KAN-199)**: `compare_in_family(요구, 계열, 자사 제품)`은 요구 장비 계열(`own_spec_facts` family)의 후보만 `master_filter`로 골라 비교한다. 다른 계열 제품의 같은 이름 속성(예: MCCB `rated_current`)은 변압기 요구의 근거가 아니다. 계열을 모르면(`None`·`OTHER`) 비교하지 않고 `INSUFFICIENT_EVIDENCE`("요구 장비 계열 확인", trace `family=NONE|OTHER`)이며, 지정 모델 요구는 지정품 판정 그대로다. 협력사 등급(`partners/grading.py`)도 같은 조건 차이·환산 규칙을 쓴다.
-- **과업·문서 요구(KAN-199)**: `Requirement.task`가 있거나 `non_equipment`(추출 kind `TASK`·`DOCUMENT`)면 장비 사양이 아니라 계열·속성 연결 검사 없이 `compare`로 간다. 인증 요구는 인증 경로, 지정 모델은 지정품 판정이 먼저다. 보완 경로는 지금도 `SPEC_GAP`에서만 나온다(`options_for`).
+- **과업·문서 요구(KAN-199)**: 판단은 `comparison._work_kind` 한 곳이다. 추출 `kind`가 `DOCUMENT`면 문서 요구, `TASK`이거나 `task` 칸이 있으면 과업이다. 장비 사양이 아니라 계열·속성 연결 검사 없이 `compare`로 간다. 인증 요구는 인증 경로, 지정 모델은 지정품 판정이 먼저이고, 미정 값은 고객 회신이 먼저다.
+  - 견줄 것이 없으면(값이 없거나, 속성이 `OTHER`이거나, 계열 미정 등으로 후보가 없으면) 근거 부족을 유지하되 고객에게 묻지 않고 '자사 후보 없음'으로도 쓰지 않는다. 다음 담당은 `TECH`다.
+  - 과업: 사유·미해결 '수행 주체 확인(자사/협력사)', 원인 `TASK`. 자사 수행 확인(`OWN_DEVELOPMENT`) → 과업 위탁(`TASK_SUBCONTRACT`, 게이트·고객 허용 규칙 그대로) 경로가 나온다.
+  - 문서: 사유·미해결 '제출 자료 준비 확인', 원인 없음, 보완 경로 없음.
+  - 값·속성·후보가 모두 있으면 기존 판정이다(사양 차이의 원인은 `TASK`).
 - **미정 값(KAN-199)**: 요구값이 자리표시자(`<Insert value>`, TBD, `[ ]`, `___`, `vocabulary.PLACEHOLDER`)면 값이 없는 것으로 본다. 비교하지 않고 근거 부족(다음 담당 `CUSTOMER`, 사유 '요구값 미정', 미해결 '요구값 확정(고객 회신)')이다. 협력사 값 판정도 같은 규칙으로 미확인이다.
 - **지속시간 추정(KAN-199)**: 단시간 내전류의 최소 요구(GTE)에서 후보 지속시간이 다르면 I₂ = I₁·√(t₁/t₂)로 요구 지속시간 값을 추정한다. 사유 문구는 '열 등가 추정(I²t), 시험값 아님'이다. 공개 근거로 확인한 것은 IEC 61439 저압 조립품(3 s까지, 정격 피크 이하 조건)뿐이고 고압·IEEE 장비에는 추정이다. 표준 근거라고 표시하지 않는다.
   - 요구·후보 지속시간 중 하나라도 3 s를 넘으면 추정하지 않고 조건 차이다.
@@ -51,7 +55,7 @@
 
 ## 보완 경로 (기획서 4.4)
 
-`options_for(비교 결과, 고객 허용, designated, rnd_check, approval_question)`는 `SPEC_GAP`, 타사 지정 모델, 핵심 기기 부재에만 경로를 낸다. 근거 있음·조건부·근거 부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이다.
+`options_for(비교 결과, 고객 허용, designated, rnd_check, approval_question)`는 `SPEC_GAP`, 타사 지정 모델, 핵심 기기 부재, 수행 과업에만 경로를 낸다. 근거 있음·조건부·근거 부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이다.
 
 - **순위 `rank`(path_rank, 저장 안 함)**: 1 자사 계열(`OTHER_OWN_PRODUCT`, `OWN_TERMS_REVIEW`) → 2 자사 개발·수행 확인(`OWN_DEVELOPMENT`, R&D) → 3 협력사 계열(`EXTERNAL_PRODUCT`·`TASK_SUBCONTRACT`·`JOINT_PROPOSAL`·`ALTERNATIVE_SPEC`) → 4 고객 지정품 조달(`CUSTOMER_SPECIFIED_PROCUREMENT`) → 9 `NONE`. 선택지는 이 순서로 정렬하고, 같은 순위 안은 아래 원인별 표의 순서다. 협력사는 자사 대응 가능성 확인보다 앞서지 않는다.
 - **게이트 `gate`**: 협력사 계열 4개는 `requires=OWN_DEVELOPMENT_CHECK`, 나머지는 `NONE`. 자사 개발로 풀 수 없는 원인(상업 조건 `COMMERCIAL`, 지정품 `DESIGNATED_MODEL`)의 경로에는 게이트를 걸지 않는다. `status`는 요구의 R&D 확인 상태 `rnd_check`(`NOT_REQUIRED`·`PENDING`·`CONFIRMED_FEASIBLE`·`CONFIRMED_NOT_FEASIBLE`·`CONFIRMED_SCHEDULE_MISMATCH`·`WAIVED`)다. `CONFIRMED_FEASIBLE`이면 협력사 계열은 `allowed=false`, `blocked_reason=OWN_DEVELOPMENT_FEASIBLE`(자사 개발이 되는데 협력사로 가지 않음).
