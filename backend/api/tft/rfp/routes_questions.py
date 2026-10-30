@@ -340,6 +340,15 @@ async def reply_question(
                         proposed={**current, "unresolved": left},
                         reply_text=payload.reply_text,
                     )
+                    await commands.audit(
+                        conn,
+                        project_id=project["id"],
+                        entity="proposal",
+                        entity_id=proposal["id"],
+                        action="proposal.create",
+                        actor=principal.user_id,
+                        detail={"to": {"origin": "customer_reply"}},
+                    )
             result = s.QuestionReplyResult(
                 **question_out(replied).model_dump(),
                 created_proposal=proposal_out(proposal) if proposal else None,
