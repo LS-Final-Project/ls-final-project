@@ -113,8 +113,8 @@
         "denominator": "조립품 공급 요구 수",
         "report": "비율과 건수를 함께 적는다(예: 19/21)",
         "tool": {
-          "status": "MISSING",
-          "ref": "KAN-186"
+          "status": "IMPLEMENTED",
+          "ref": "eval.rfp_metrics.summarize_integration_responsibility rate·count·denominator(조립품 공급 요구 단위, 엔진 backend/api/tft/rfp/integration.py, KAN-186). 분모가 0이면 gate_values는 None"
         }
       }
     },

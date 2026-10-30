@@ -389,6 +389,50 @@ def summarize_candidate_grades(
     }
 
 
+def summarize_integration_responsibility(
+    gold: Mapping[str, Sequence[str]], predicted: Mapping[str, Mapping]
+) -> dict:
+    """통합 책임 확인(gates-rfp-v1 rfp_integration_responsibility_rate)을 조립품 공급 요구 단위로 센다.
+
+    분자는 조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고(`check_item_listed`, 근거 조항에 그 요구가
+    들어 있음), 책임자가 미확보면 처리 경로(`fallback_paths`)가 제시된 조립품 공급 요구다. 분모는 정답의 조립품
+    공급 요구 전부다. 미예측 문서는 분자에 들어가지 않는다.
+
+    Args:
+        gold: 문서(사례)별 조립품 공급 요구의 조항 번호.
+        predicted: 문서별 `integration.integration_responsibility` 결과(model_dump). 정답에 없는 문서는 받지 않는다.
+
+    Returns:
+        dict: rate(분모 0이면 None)·count('n/m')·denominator·missed(문서, 조항) 목록. 잘못된 입력은
+            EVAL_INVALID_INPUT ValueError다.
+    """
+    if set(predicted) - set(gold):
+        raise ValueError("EVAL_INVALID_INPUT")
+    hits = total = 0
+    missed: list[tuple[str, str]] = []
+    for case_id, clauses in gold.items():
+        if isinstance(clauses, str) or not all(isinstance(c, str) for c in clauses):
+            raise ValueError("EVAL_INVALID_INPUT")
+        guess = predicted.get(case_id) or {}
+        listed = bool(guess.get("check_item_listed"))
+        basis = set(guess.get("basis_clause_nos") or [])
+        resolved = guess.get("holder") not in (None, "UNRESOLVED")
+        handled = resolved or bool(guess.get("fallback_paths"))
+        for clause in clauses:
+            total += 1
+            if listed and clause in basis and handled:
+                hits += 1
+            else:
+                missed.append((case_id, clause))
+    return {
+        "quality_gate_evaluated": False,
+        "rate": _rate(hits, total),
+        "count": f"{hits}/{total}",
+        "denominator": total,
+        "missed": missed,
+    }
+
+
 def summarize_extraction_keys(
     gold: Mapping[str, Sequence[Key]], predicted: Mapping[str, Sequence[Key]]
 ) -> dict:
@@ -455,16 +499,17 @@ def _plain_key(value: object) -> Key:
 
 
 def gate_values(
-    extraction: Mapping | None, grades: Mapping | None
+    extraction: Mapping | None, grades: Mapping | None, integration: Mapping | None = None
 ) -> dict[str, float | int | None]:
     """두 요약에서 gates-rfp-v1 게이트 9개 값을 꺼낸다(eval_adopt --task rfp 후보 행 키와 같다).
 
     Args:
         extraction: summarize_requirement_extraction 결과(없으면 None).
         grades: summarize_candidate_grades 결과(없으면 None).
+        integration: summarize_integration_responsibility 결과(없으면 None). 분모가 0이면 None이다.
 
     Returns:
-        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·통합 책임·초안 추적), 사유를 비교하지
+        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·초안 추적), 사유를 비교하지
             못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족, 발생 가능 건수가
             0인 두 0건 게이트, 정의를 다 채우지 못한 협력사 추천 정밀도(검토 후보 미확인 조건 표시 미구현)는 None이다.
     """
@@ -484,7 +529,9 @@ def gate_values(
         else None,
         # 등급 일치(mandatory_confirmed_precision)만으로는 게이트 정의를 채우지 못한다(KAN-191 전까지 None).
         "rfp_partner_recommendation_precision": None,
-        "rfp_integration_responsibility_rate": None,
+        "rfp_integration_responsibility_rate": integration.get("rate")
+        if integration and integration.get("denominator")
+        else None,
         "rfp_mandatory_constraint_violation_count": excluded.get("count")
         if excluded.get("denominator")
         else None,

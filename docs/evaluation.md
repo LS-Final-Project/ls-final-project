@@ -314,7 +314,7 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 | `rfp_evidence_accuracy` | 원문 근거 정확성 | 인용 위치의 요구·사양이 판단을 실제로 뒷받침하는 판단 / 인용이 있는 판단 | ≥ 0.95 | 아니오 | 미구현(KAN-189) |
 | `rfp_critical_false_fulfillment_count` | 중대한 잘못된 충족 | 미충족·미확인 필수 요구를 확정 충족으로 처리한 건수 | == 0 | 예 | 구현: `critical_errors.mandatory_gap_judged_found.count`·`denominator`(정답 necessity MANDATORY·CONDITION_BOUND, necessity가 없는 정답 요구가 하나라도 있으면 None, 발생 가능 건수가 0이면 게이트 값 None) |
 | `rfp_partner_recommendation_precision` | 협력사 추천 적합성 | '필수 기술조건 확인 후보' 중 모든 필수 조건의 근거가 실제로 확인된 후보 / '필수 기술조건 확인 후보'. '검토 후보'는 미확인 조건이 빠짐없이 표시됐는지 따로 확인 | ≥ 0.90 | 아니오 | 일부: `summarize_candidate_grades` `mandatory_confirmed_precision`·`mandatory_confirmed_count`는 정답 등급 일치만 비교한다. 검토 후보 미확인 조건 표시(`review_unconfirmed_listed`)는 미구현이라 None(KAN-191). 정의를 다 채우기 전까지 게이트 값은 None |
-| `rfp_integration_responsibility_rate` | 통합 책임 확인 | 조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고 미확보 시 처리 경로가 제시된 조립품 공급 요구 / 조립품 공급 요구 | == 1.0 | 아니오 | 미구현(KAN-186) |
+| `rfp_integration_responsibility_rate` | 통합 책임 확인 | 조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고 미확보 시 처리 경로가 제시된 조립품 공급 요구 / 조립품 공급 요구 | == 1.0 | 아니오 | 구현: `summarize_integration_responsibility` `rate`·`count`·`denominator`(정답의 조립품 공급 요구 조항마다, 예측의 필수 확인 항목 표시·근거 조항 포함·책임자 확정 또는 처리 경로 제시를 모두 볼 때 분자. 미예측 문서는 분자 밖, 분모 0이면 게이트 값 None). 엔진 `backend/api/tft/rfp/integration.py`(KAN-186) |
 | `rfp_mandatory_constraint_violation_count` | 필수 제약 처리 | 외부 보완 금지·필수 정격 미달 후보가 적합으로 추천된 건수 | == 0 | 예 | 구현: `summarize_candidate_grades` `excluded_recommended.count`·`denominator`(정답 EXCLUDED를 추천, 분모가 0이면 게이트 값 None) |
 | `rfp_draft_trace_rate` | 초안 근거 추적 | 요구·제품·협력사 근거 또는 가정 표시를 찾은 주요 제안 문장 / 주요 제안 문장 | == 1.0 | 아니오 | 미구현(KAN-188) |
 
@@ -331,12 +331,11 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 
 미국 문서는 정답이 '판단 근거 부족'에 몰릴 수 있으므로 평가 사례에 네 가지 상태가 고르게 들어가게 고른다. 협력사 평가는 가상 후보에 한정한다.
 
-정답 사유(`expected_reason`)는 엔진 사유 어휘를 그대로 쓴다. 사유 코드 체계가 아직 없어 공백을 접고 대소문자를 맞춘 문장 일치로 비교한다. `eval.rfp_metrics.gate_values(extraction, grades)`는 두 요약에서 게이트 키 9개 값을 `eval/adoption.py`의 `RFP_METRIC_KEYS` 순서로 꺼내며, 측정 도구가 없는 키와 요약이 없는 키는 None이다.
+정답 사유(`expected_reason`)는 엔진 사유 어휘를 그대로 쓴다. 사유 코드 체계가 아직 없어 공백을 접고 대소문자를 맞춘 문장 일치로 비교한다. `eval.rfp_metrics.gate_values(extraction, grades, integration)`는 세 요약에서 게이트 키 9개 값을 `eval/adoption.py`의 `RFP_METRIC_KEYS` 순서로 꺼내며, 측정 도구가 없는 키와 요약이 없는 키는 None이다.
 
 미구현이거나 일부만 있는 측정 도구는 다음과 같다. 평가 문서 첫 실행의 공식 점수는 KAN-191에서 낸다.
 
 - 원문 근거 정확성 판정(KAN-189)
-- 통합 책임 확인(KAN-186)
 - 초안 근거 추적(KAN-188)
 - 협력사 '검토 후보'의 미확인 조건 표시 확인: 후보별 조건 목록 입력이 필요하다(KAN-191)
 - RFP 후보 비교 결과 파일을 만드는 실행기(KAN-191). `eval/adoption.py`는 meta에 `documents`가 있는 결과를 RFP로 보고, 후보 행의 `rfp_*` 키 9개를 읽는다.
