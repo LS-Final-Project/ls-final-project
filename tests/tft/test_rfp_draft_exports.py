@@ -204,3 +204,67 @@ def test_command_receipt_audits_review_or_export_resource(operation, result, ent
     assert record.call_args.kwargs["entity"] == entity
     assert record.call_args.kwargs["entity_id"] == target
     assert record.call_args.kwargs["actor"] == actor
+
+
+def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot, tmp_path):
+    """파일 저장 후 중단해도 현재 요구의 검토 표시와 무관하게 같은 검토본 바이트를 재사용한다."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from backend.agent.processor_registry import TftJob
+    from backend.api.tft.rfp import draft_repository as db
+    from backend.api.tft.rfp.storage import LocalDocumentStore
+
+    original = build_draft(**snapshot)
+    changed = original.model_copy(deep=True)
+    changed.sections[0].sentences[0].needs_rereview = True
+    export_id = UUID(int=99)
+    job = TftJob(
+        job_id=UUID(int=98),
+        kind="rfp.export",
+        project_id=original.project_id,
+        input_version=draft_exports.input_version(export_id),
+        actor_id=UUID(int=97),
+    )
+    row = dict(
+        id=export_id,
+        review_version=1,
+        job_id=None,
+        created_by=job.actor_id,
+        format="DOCX",
+        completed_at=None,
+    )
+    conn = AsyncMock()
+
+    async def execute(sql, params):
+        if "FROM tft.exports" in sql:
+            return SimpleNamespace(fetchall=AsyncMock(return_value=[row]))
+        if "FROM tft.review_versions" in sql:
+            return SimpleNamespace(
+                fetchone=AsyncMock(return_value={"draft_version": original.version})
+            )
+        return AsyncMock()
+
+    conn.execute.side_effect = execute
+    store = LocalDocumentStore(tmp_path)
+    events = []
+
+    def interrupt_after_put(event):
+        events.append(event)
+        if len(events) == 2:
+            raise RuntimeError("crash after object creation")
+
+    with (
+        patch.object(db, "load", new=AsyncMock(side_effect=[original, changed])) as live,
+        patch.object(db, "load_snapshot", new=AsyncMock(return_value=original)) as frozen,
+        patch.object(draft_exports, "audit", new_callable=AsyncMock) as audit,
+    ):
+        with pytest.raises(RuntimeError, match="crash after object"):
+            asyncio.run(draft_exports.process(conn, job, interrupt_after_put, store))
+        path = tmp_path / f"rfp/{job.project_id}/exports/{export_id}.docx"
+        expected = draft_exports.render_docx(original, 1)
+        assert path.read_bytes() == expected
+        result = asyncio.run(draft_exports.process(conn, job, lambda event: None, store))
+        assert result["needs_review"] is False and path.read_bytes() == expected
+        assert frozen.await_count == 2 and live.await_count == 0
+        audit.assert_awaited_once()

@@ -42,7 +42,20 @@ async def generated(conn: AsyncConnection[Row], project_id: UUID, job_id: UUID) 
 async def load(
     conn: AsyncConnection[Row], project_id: UUID, version: int | None = None
 ) -> s.Draft | None:
-    """지정 판본(또는 최신)의 문장·조건·근거와 현재 열린 문장 재검토 표시를 읽는다."""
+    """지정 판본(또는 최신)에 현재 재검토 표시를 합산해 읽는다. 편집·검토본 검사용이다."""
+    return await _load(conn, project_id, version, live_review=True)
+
+
+async def load_snapshot(
+    conn: AsyncConnection[Row], project_id: UUID, version: int
+) -> s.Draft | None:
+    """내보내기용 불변 판본. 현재 요구/mark를 조회하지 않고 저장된 flags만 반환한다."""
+    return await _load(conn, project_id, version, live_review=False)
+
+
+async def _load(
+    conn: AsyncConnection[Row], project_id: UUID, version: int | None, *, live_review: bool
+) -> s.Draft | None:
     cursor = await conn.execute(
         "SELECT v.* FROM tft.drafts d JOIN tft.draft_versions v ON v.project_id = d.project_id "
         "AND v.version = coalesce(%s, d.latest_version) WHERE d.project_id = %s",
@@ -51,15 +64,20 @@ async def load(
     metadata = await cursor.fetchone()
     if metadata is None:
         return None
+    review_sql = "s.needs_rereview"
+    if live_review:
+        review_sql += (
+            " OR EXISTS (SELECT 1 FROM tft.rereview_marks m "
+            "WHERE m.project_id = s.project_id AND m.target_kind = 'draft_sentence' "
+            "AND m.target_id = s.sentence_key AND m.cleared_at IS NULL) "
+            "OR EXISTS (SELECT 1 FROM tft.draft_sentence_evidence e "
+            "JOIN tft.requirements req ON e.evidence_id = req.id::text "
+            "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+            "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
+            f"AND (v.needs_review OR ({NEEDS_REREVIEW.format(requirement='req.id')}))) "
+        )
     cursor = await conn.execute(
-        "SELECT s.*, s.needs_rereview OR EXISTS (SELECT 1 FROM tft.rereview_marks m "
-        "WHERE m.project_id = s.project_id AND m.target_kind = 'draft_sentence' "
-        "AND m.target_id = s.sentence_key AND m.cleared_at IS NULL) "
-        "OR EXISTS (SELECT 1 FROM tft.draft_sentence_evidence e "
-        "JOIN tft.requirements req ON e.evidence_id = req.id::text "
-        "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
-        "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
-        f"AND (v.needs_review OR ({NEEDS_REREVIEW.format(requirement='req.id')}))) AS review_needed "
+        f"SELECT s.*, {review_sql} AS review_needed "
         "FROM tft.draft_sentences s WHERE s.project_id = %s AND s.draft_version = %s "
         "ORDER BY s.section, s.ordinal",
         (project_id, metadata["version"]),
@@ -85,9 +103,13 @@ async def load(
                 text=row["text"],
                 evidence=evidence,
                 conditions=row["conditions"],
-                unconfirmed=row["unconfirmed"] or row["review_needed"],
+                unconfirmed=(row["unconfirmed"] or row["review_needed"])
+                if live_review
+                else row["unconfirmed"],
                 needs_rereview=row["review_needed"],
-                evidence_missing=row["evidence_missing"] or not evidence,
+                evidence_missing=(row["evidence_missing"] or not evidence)
+                if live_review
+                else row["evidence_missing"],
                 provenance_kind=row["provenance_kind"],
             )
         )

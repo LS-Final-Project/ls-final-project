@@ -185,7 +185,7 @@ async def process(
     review = await cursor.fetchone()
     if review is None:
         raise ValueError("TFT_REVIEW_VERSION_NOT_FOUND")
-    draft = await db.load(conn, job.project_id, review["draft_version"])
+    draft = await db.load_snapshot(conn, job.project_id, review["draft_version"])
     if draft is None:
         raise ValueError("TFT_DRAFT_NOT_FOUND")
     data = await asyncio.to_thread(render_docx, draft, row["review_version"])

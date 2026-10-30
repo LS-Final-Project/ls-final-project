@@ -140,7 +140,9 @@ reportlab·글꼴·의존성·이미지를 추가하지 않는다.
 
 DOCX는 stdlib ZIP/XML의 실제 OOXML 패키지로, 고정 고지·모든 절/문장·공개 ID·조건·근거·미확약/검토 표시를 싣는다.
 XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존하고 유효하지 않은 XML 문자는 삭제하지 않고 실패한다.
-검토본 판본에 대해 바이트가 결정적이다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
+검토본 판본에 대해 바이트가 결정적이다. 내보내기는 `draft_repository.load_snapshot`으로 해당 판본의 저장된
+본문·근거·조건·flags만 읽는다. 이후 요구의 `needs_review`나 `rereview_marks`는 파일에 합산하지 않는다.
+일반 `load`를 쓰는 GET·PATCH·검토본 저장 검사는 현재 재검토 표시를 계속 합산한다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
 `rfp/{project}/exports/{export}.docx`로 저장하며 25 MiB 상한·해시·크기를 기록한다.
 객체 생성 후 DB commit 전에 실패하면 private 객체만 남을 수 있다(기존 업로드와 동일).
 재시도는 같은 바이트일 때만 기존 객체를 인정하며 다른 바이트를 덮어쓰지 않는다.

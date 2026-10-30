@@ -50,7 +50,8 @@ def generate(app_dsn, chain, job_id):
 def call(client, method, chain, suffix="", body=None, key=None, user=OWNER):
     headers = principal_header(user)
     if key:
-        headers["Idempotency-Key"] = key
+        # 명령 키는 actor/operation 범위다. 매개변수화된 다른 프로젝트 사례와 충돌하지 않게 한다.
+        headers["Idempotency-Key"] = f"{key}:{chain['project']}"
     return client.request(
         method, f"/api/v1/tft/projects/{chain['project']}/draft{suffix}", json=body, headers=headers
     )
@@ -344,3 +345,101 @@ def test_later_requirement_review_flag_is_visible_and_blocks_old_draft_review(
     blocked = call(client, "POST", chain, "/review-versions", {"version": 1}, "later-needs-review")
     assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
     assert any(detail["field"] == "sentence_id" for detail in blocked.json()["error"]["details"])
+
+
+@pytest.mark.parametrize("change", ["requirement", "mark"])
+def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
+    client, app_dsn, chain, admin, tmp_path, worker_dsn, change
+):
+    """불변 review의 파일은 현재 검토 표시와 무관하고, 저장 객체만 남은 재시도도 완료한다."""
+    from backend.api.tft.rfp import draft_repository as db
+
+    ready(app_dsn, admin, chain)
+    saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "snapshot-review")
+    assert saved.status_code == 201, saved.text
+    jobs = Jobs()
+    client.app.state.processing_jobs = jobs
+    accepted = call(
+        client,
+        "POST",
+        chain,
+        "/exports",
+        {"review_version": 1, "format": "DOCX"},
+        "snapshot-export",
+    )
+    assert accepted.status_code == 202, accepted.text
+    export_id = accepted.json()["data"]["export_id"]
+    job = TftJob(
+        job_id=jobs.id,
+        kind="rfp.export",
+        project_id=chain["project"],
+        input_version=jobs.calls[0][1]["input_version"],
+        actor_id=SALES,
+    )
+    store = LocalDocumentStore(tmp_path)
+
+    async def frozen():
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
+            return await db.load_snapshot(conn, chain["project"], 1)
+
+    original = asyncio.run(frozen())
+    expected = draft_exports.render_docx(original, 1)
+    events = []
+
+    def crash_after_put(event):
+        events.append(event)
+        if len(events) == 2:
+            raise RuntimeError("crash after file before DB")
+
+    async def execute(emit):
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
+            return await draft_exports.process(conn, job, emit, store)
+
+    with pytest.raises(RuntimeError, match="crash after file"):
+        asyncio.run(execute(crash_after_put))
+    path = tmp_path / f"rfp/{chain['project']}/exports/{export_id}.docx"
+    assert path.read_bytes() == expected
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT completed_at FROM tft.exports WHERE id=%s", (export_id,)
+            ).fetchone()[0]
+            is None
+        )
+        if change == "requirement":
+            conn.execute(
+                "UPDATE tft.requirement_versions SET needs_review=true WHERE requirement_id=%s",
+                (chain["requirement"],),
+            )
+        else:
+            proposal = uuid4()
+            conn.execute(
+                "INSERT INTO tft.change_proposals (id,project_id,requirement_id,base_requirement_version,origin,current,proposed,rationale,proposer_kind,proposer_user_id,data_origin,derivation_kind,known_at) "
+                "VALUES (%s,%s,%s,1,'web','{}','{}','후속 검토','user',%s,'synthetic','PROVIDED',now())",
+                (proposal, chain["project"], chain["requirement"], SALES),
+            )
+            conn.execute(
+                "INSERT INTO tft.rereview_marks (id,project_id,target_kind,target_id,cause_proposal_id) VALUES (%s,%s,'draft_sentence',%s,%s)",
+                (
+                    uuid4(),
+                    chain["project"],
+                    original.sections[0].sentences[0].sentence_id,
+                    proposal,
+                ),
+            )
+    current = call(client, "GET", chain, suffix="?version=1").json()["data"]
+    assert first_sentence(current)["needs_rereview"] is True
+    blocked = call(
+        client, "POST", chain, "/review-versions", {"version": 1}, "current-review-blocked"
+    )
+    assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
+    assert draft_exports.render_docx(asyncio.run(frozen()), 1) == expected
+    asyncio.run(execute(lambda event: None))
+    response = call(client, "GET", chain, f"/exports/{export_id}/file")
+    assert response.status_code == 200 and response.content == expected
+    assert path.read_bytes() == expected
+    with psycopg.connect(admin) as conn:
+        completed_at, digest = conn.execute(
+            "SELECT completed_at,sha256 FROM tft.exports WHERE id=%s", (export_id,)
+        ).fetchone()
+        assert completed_at is not None and digest == hashlib.sha256(expected).hexdigest()
