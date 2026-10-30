@@ -51,11 +51,17 @@ def requirement(kind, attribute):
 
 
 def test_comparison_input_uses_the_vocabulary_but_certifications_keep_the_standard():
-    """비교 입력 속성은 어휘로 바꾸고, 인증 요구는 규격 원문을 그대로 쓴다."""
+    """비교 입력 속성은 어휘로 바꾸고, 인증 요구는 추출 value의 규격 원문을 쓴다."""
     spec = to_comparison(requirement("SPEC", "basic impulse insulation level"))
     assert (spec.attribute, spec.certification_standard) == ("bil", None)
-    compliance = to_comparison(requirement("COMPLIANCE", "UL 1561"))
-    assert (compliance.attribute, compliance.certification_standard) == (None, "UL 1561")
+    # 규격은 추출 value에 있다(attribute는 이름표). value가 없으면 attribute를 쓴다.
+    labelled = requirement("COMPLIANCE", "standard compliance").model_copy(
+        update={"value": "IEEE C37.121"}
+    )
+    compliance = to_comparison(labelled)
+    assert (compliance.attribute, compliance.certification_standard) == (None, "IEEE C37.121")
+    bare = requirement("COMPLIANCE", "UL 1561").model_copy(update={"value": None})
+    assert to_comparison(bare).certification_standard == "UL 1561"
 
 
 def test_an_alias_outside_the_given_vocabulary_keeps_the_original():
