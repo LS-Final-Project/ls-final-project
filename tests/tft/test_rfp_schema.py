@@ -116,13 +116,7 @@ def client():
     return TestClient(create_app(Settings(_env_file=None, environment="test")))
 
 
-def test_declared_routes_answer_not_implemented(client):
-    project = "11111111-1111-4111-8111-111111111111"
-    response = client.get(f"/api/v1/tft/projects/{project}/proposals", headers=SALES)
-    assert (response.status_code, response.json()["error"]["code"]) == (501, "TFT_NOT_IMPLEMENTED")
-
-
-def test_openapi_lists_the_spec_routes_as_planned(client):
+def test_openapi_lists_all_spec_routes_as_implemented(client):
     paths = client.get("/openapi.json").json()["paths"]
     planned = [
         (path, method)
@@ -130,8 +124,8 @@ def test_openapi_lists_the_spec_routes_as_planned(client):
         for method, op in ops.items()
         if op.get("x-implementation-status") == "planned"
     ]
-    # 초안 25~29 구현 뒤 남은 골격은 변경 제안의 조회·작성·승인·기각 네 경로다.
-    assert len(planned) == 4
+    # 변경 제안 4경로와 초안 5경로 통합으로 명세 경로에 남은 골격이 없다.
+    assert planned == []
     assert ("/api/v1/tft/requirements/{requirement_id}/supplement-selection", "post") not in planned
     upload = paths["/api/v1/tft/projects/{project_id}/documents"]["post"]
     assert "multipart/form-data" in upload["requestBody"]["content"]
@@ -150,7 +144,7 @@ def test_every_state_creating_post_requires_an_idempotency_key(client):
             or op.get("operationId") in {"tft_save_rfp_review_version", "tft_export_rfp_draft"}
         )
     ]
-    assert len(posts) == 5
+    assert len(posts) == 2
     for path, op in posts:
         keys = [x for x in op.get("parameters", []) if x["name"] == "Idempotency-Key"]
         assert keys and keys[0]["in"] == "header" and keys[0]["required"], path

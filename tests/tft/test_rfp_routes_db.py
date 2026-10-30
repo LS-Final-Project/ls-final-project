@@ -849,3 +849,223 @@ def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
         with psycopg.connect(admin) as conn:
             conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
             conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
+
+
+# --- 경로 21~24 변경 제안 ---------------------------------------------------------
+
+
+def propose(client, gap, who=OWNER, key=None, **proposed):
+    body = {
+        "requirement_id": str(gap["requirement"]),
+        "proposed": proposed or {"status": "EVIDENCE_FOUND", "reason": "자료 확인"},
+        "rationale": "시험 성적서 확인",
+    }
+    return call(
+        client, "POST", f"/projects/{gap['project']}/proposals", who, body, key or uuid4().hex
+    )
+
+
+def decide(client, proposal, action="approve", who=OWNER, key=None, **body):
+    url = f"/proposals/{proposal['proposal_id']}/{action}"
+    payload = {"version": proposal["version"], **body}
+    return call(client, "POST", url, who, payload, key or uuid4().hex)
+
+
+def test_proposals_are_listed_with_filters_and_replayed(client, gap, admin):
+    """21·22: 값이 온 칸만 바꾸고 나머지는 잇는다. 같은 키는 같은 제안, 필터는 SQL에서."""
+    key = uuid4().hex
+    made = propose(client, gap, key=key)
+    assert made.status_code == 201, made.text
+    proposal = made.json()["data"]
+    assert (proposal["origin"], proposal["status"], proposal["proposer_kind"]) == (
+        "web",
+        "PENDING",
+        "user",
+    )
+    assert proposal["proposer_user_id"] == str(SALES)
+    assert proposal["proposed"]["status"] == "EVIDENCE_FOUND"
+    assert proposal["proposed"]["necessity"] == proposal["current"]["necessity"]
+    assert proposal["proposed"]["unresolved"] == proposal["current"]["unresolved"]
+    assert propose(client, gap, key=key).json()["data"] == proposal
+    url = f"/projects/{gap['project']}/proposals"
+    assert [p["proposal_id"] for p in data(get(client, url))["items"]] == [proposal["proposal_id"]]
+    assert data(get(client, f"{url}?status=APPROVED"))["items"] == []
+    assert data(get(client, f"{url}?origin=pdf_annot"))["items"] == []
+    assert audit_actions(admin, gap["project"]).count("proposal.create") == 1
+
+
+def test_proposal_refuses_no_change_and_other_project_requirements(client, gap):
+    """22: 바뀌는 칸이 없으면 422, 다른 프로젝트 요구는 404."""
+    same = propose(client, gap, status="SPEC_GAP").json()
+    assert error_of(same) == "VALIDATION_ERROR"
+    body = {
+        "requirement_id": str(uuid4()),
+        "proposed": {"status": "EVIDENCE_FOUND"},
+        "rationale": "근거",
+    }
+    url = f"/projects/{gap['project']}/proposals"
+    assert error(call(client, "POST", url, OWNER, body, uuid4().hex)) == (
+        404,
+        "TFT_REQUIREMENT_NOT_FOUND",
+    )
+
+
+def error_of(body):
+    return body["error"]["code"]
+
+
+def test_proposal_permissions_follow_the_role_table(client, gap):
+    """22는 검토 부서도 되고, 23·24는 담당 sales·책임자만, 범위 밖은 404."""
+    made = propose(client, gap, who=TECH)
+    assert made.status_code == 201, made.text
+    proposal = made.json()["data"]
+    assert error(propose(client, gap, who=OUTSIDER)) == (404, "TFT_PROJECT_NOT_FOUND")
+    assert decide(client, proposal, who=TECH).status_code == 403
+    assert decide(client, proposal, "reject", who=TECH, reason="x").status_code == 403
+    assert error(decide(client, proposal, who=OUTSIDER)) == (404, "TFT_PROPOSAL_NOT_FOUND")
+    manager = Principal(
+        user_id=uuid4(), roles=frozenset({"manager"}), managed_projects={gap["project"]}
+    )
+    assert decide(client, proposal, who=manager).status_code == 403
+    assert propose(client, gap, who=manager).status_code == 403
+    assert data(get(client, f"/projects/{gap['project']}/proposals", manager))["items"]
+
+
+def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin):
+    """23: 판단 칸만 바뀌고 나머지 칸·보완 선택지는 이어지며, 감사에 제안자·승인자가 남는다."""
+    selected = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"])
+    assert selected.status_code == 200, selected.text
+    proposal = propose(
+        client,
+        gap,
+        who=TECH,
+        **{
+            "status": "EVIDENCE_FOUND",
+            "necessity": "PREFERRED",
+            "reason": "자료 확인",
+            "unresolved": [],
+            "conditions": [{"name": "시험", "value": "형식", "unit": None}],
+        },
+    ).json()["data"]
+    done = decide(client, proposal, note="확인함")
+    assert done.status_code == 200, done.text
+    detail = done.json()["data"]
+    assert detail["version"] == 2
+    assert detail["judgement"]["status"] == "EVIDENCE_FOUND"
+    assert detail["spec"]["necessity"] == "PREFERRED"
+    assert detail["origin"]["quote"] == "BIL 95 kV"
+    assert detail["needs_rereview"] is False
+    with psycopg.connect(admin) as conn:
+        version = conn.execute(
+            "SELECT provenance_kind, decided_by, proposal_id::text, attribute, value, unit, "
+            "document_version_id FROM tft.requirement_versions "
+            "WHERE requirement_id=%s AND version=2",
+            (gap["requirement"],),
+        ).fetchone()
+        assert version[:6] == (
+            "human_input",
+            SALES,
+            proposal["proposal_id"],
+            "BIL",
+            "95",
+            "kV",
+        )
+        assert version[6] == gap["docver"]
+        assert conn.execute(
+            "SELECT name, value, unit FROM tft.requirement_conditions "
+            "WHERE requirement_id=%s AND version=2",
+            (gap["requirement"],),
+        ).fetchall() == [("시험", "형식", None)]
+        kinds = conn.execute(
+            "SELECT target_kind FROM tft.rereview_marks WHERE cause_proposal_id=%s ORDER BY 1",
+            (proposal["proposal_id"],),
+        ).fetchall()
+        assert kinds == [("supplement",)]
+        audit = conn.execute(
+            "SELECT entity_id, actor_user_id, proposer_user_id, approver_user_id "
+            "FROM tft.rfp_audit_events WHERE action='proposal.approve' AND project_id=%s",
+            (gap["project"],),
+        ).fetchall()
+    assert audit == [(proposal["proposal_id"], SALES, TECH.user_id, SALES)]
+    listed = data(get(client, f"/projects/{gap['project']}/proposals?status=APPROVED"))["items"]
+    assert [p["decided_by"] for p in listed] == [str(SALES)]
+
+
+def test_reselecting_the_supplement_clears_the_rereview_marks(client, gap, admin):
+    """재검토 표시는 같은 요구의 보완 선택을 다시 저장하면 해소된다(사람 재확인)."""
+    assert choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"]).status_code == 200
+    proposal = propose(client, gap, reason="다시 본 사유").json()["data"]
+    assert decide(client, proposal).status_code == 200
+    url = f"/requirements/{gap['requirement']}"
+    assert data(get(client, url))["needs_rereview"] is True
+    # 새 판본에는 선택지 행이 없어도 저장된 후보를 그대로 읽는다.
+    options = data(get(client, f"{url}/supplement-options"))
+    external = [o for o in options["options"] if o["path"] == "EXTERNAL_PRODUCT"]
+    assert external and external[0]["candidate_codes"] == ["P-A"]
+    again = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"], version=2)
+    assert again.status_code == 200, again.text
+    assert data(get(client, url))["needs_rereview"] is False
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(
+            "SELECT count(*), count(cleared_at), min(cleared_by::text) FROM tft.rereview_marks "
+            "WHERE cause_proposal_id=%s",
+            (proposal["proposal_id"],),
+        ).fetchone() == (2, 2, str(SALES))
+
+
+def test_decisions_are_once_only_and_against_the_latest_version(client, gap):
+    """결정은 한 번, 판본이 다르면 409, 재전송은 첫 결과, 뒤처진 제안은 승인 못 하고 기각만 된다."""
+    first = propose(client, gap, reason="첫 제안").json()["data"]
+    late = propose(client, gap, reason="늦은 제안").json()["data"]
+    stale = decide(client, {**first, "version": 9})
+    assert error(stale) == (409, "TFT_VERSION_CONFLICT")
+    key = uuid4().hex
+    done = decide(client, first, key=key)
+    assert done.status_code == 200, done.text
+    assert decide(client, first, key=key).json()["data"] == done.json()["data"]
+    assert error(decide(client, first)) == (409, "TFT_PROPOSAL_DECIDED")
+    assert error(decide(client, late)) == (409, "TFT_VERSION_CONFLICT")
+    rejected = decide(client, late, "reject", reason="이미 반영됨")
+    assert rejected.status_code == 200, rejected.text
+    body = rejected.json()["data"]
+    assert (body["status"], body["decided_by"], body["version"]) == ("REJECTED", str(SALES), 2)
+    assert error(decide(client, {**late, "version": 2})) == (409, "TFT_PROPOSAL_DECIDED")
+    assert data(get(client, f"/requirements/{gap['requirement']}"))["version"] == 2
+
+
+def test_note_without_a_requirement_can_only_be_rejected(client, gap, admin):
+    """조항을 못 맞춘 메모 제안은 승인 422, 기각은 된다."""
+    proposal_id = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id, project_id, clause_unresolved, origin, current, "
+            "proposed, rationale, proposer_kind, data_origin, derivation_kind, known_at) "
+            "VALUES (%s,%s,true,'pdf_annot','{}','{}','메모','system','synthetic','DERIVED',now())",
+            (proposal_id, gap["project"]),
+        )
+    proposal = {"proposal_id": proposal_id, "version": 1}
+    assert error(decide(client, proposal)) == (422, "VALIDATION_ERROR")
+    assert decide(client, proposal, "reject", reason="조항 없음").status_code == 200
+
+
+def unresolved_count(client, gap, version):
+    url = f"/projects/{gap['project']}"
+    return data(call(client, "PATCH", url, OWNER, {"version": version}))[
+        "unresolved_mandatory_count"
+    ]
+
+
+def test_evidence_found_approval_leaves_the_unresolved_count(client, gap, admin):
+    """근거 확인 승인은 사람 재확인이라 요구 표시가 없고 미해결 필수 집계에서 빠진다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET necessity='MANDATORY' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+    assert unresolved_count(client, gap, 1) == 1
+    proposal = propose(
+        client, gap, status="EVIDENCE_FOUND", reason="성적서 확인", unresolved=[]
+    ).json()["data"]
+    done = decide(client, proposal).json()["data"]
+    assert done["needs_rereview"] is False
+    assert unresolved_count(client, gap, 2) == 0

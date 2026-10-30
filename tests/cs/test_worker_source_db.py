@@ -187,7 +187,7 @@ def test_the_graph_runs_on_the_worker_login_and_stops_before_human_review(
     )
     assert admin.execute(
         "SELECT prompt_version FROM cs.ticket_drafts WHERE ticket_id=%s", (ticket,)
-    ).fetchone() == ("v1",)
+    ).fetchone() == ("v2",)
 
 
 def test_a_priced_attempt_stores_its_cost_and_price_version(worker_dsn, ticket):

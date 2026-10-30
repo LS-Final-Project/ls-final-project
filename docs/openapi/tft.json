@@ -7644,9 +7644,7 @@
         "summary": "List Proposals",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       },
       "post": {
         "description": "22. \uc6f9 \uc218\uc815 \uc81c\uc548(web).",
@@ -7759,9 +7757,7 @@
         "summary": "Create Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/questions": {
@@ -8521,9 +8517,7 @@
         "summary": "Approve Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/proposals/{proposal_id}/reject": {
@@ -8638,9 +8632,7 @@
         "summary": "Reject Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/questions/{question_id}/reply": {

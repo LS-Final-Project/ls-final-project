@@ -125,6 +125,32 @@ def can_run_processing(principal: Principal, project: Mapping[str, Any]) -> bool
     return can_select_supplement(principal, project)
 
 
+def can_propose_change(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """변경 제안 작성(경로 22): 담당 sales·책임자·검토 부서 dept_staff(permissions.md 4.2).
+
+    Args:
+        principal: 요청 사용자.
+        project: sales_user_id·responsible_user_id·review_departments가 있는 프로젝트 행.
+
+    Returns:
+        bool: 제안할 수 있으면 True.
+    """
+    return can_create_question(principal, project)
+
+
+def can_decide_proposal(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """변경 제안 승인·기각(경로 23·24): 담당 sales와 책임자만(permissions.md 4.2).
+
+    Args:
+        principal: 요청 사용자.
+        project: sales_user_id·responsible_user_id가 있는 프로젝트 행.
+
+    Returns:
+        bool: 결정할 수 있으면 True.
+    """
+    return can_select_supplement(principal, project)
+
+
 def can_edit_project(principal: Principal, project: Mapping[str, Any]) -> bool:
     """프로젝트 속성·검토 부서 수정(경로 4): 담당 sales와 책임자만(permissions.md 4.2).
 

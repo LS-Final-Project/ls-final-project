@@ -25,6 +25,9 @@ Operation = Literal[
     "question.create",
     "question.reply",
     "question.confirm",
+    "proposal.create",
+    "proposal.approve",
+    "proposal.reject",
     "project.process",
     "annotation.process",
     "review_version.create",
@@ -38,6 +41,9 @@ OPERATIONS: frozenset[str] = frozenset(
         "question.create",
         "question.reply",
         "question.confirm",
+        "proposal.create",
+        "proposal.approve",
+        "proposal.reject",
         "project.process",
         "annotation.process",
         "review_version.create",
@@ -46,7 +52,8 @@ OPERATIONS: frozenset[str] = frozenset(
 )
 
 
-# 연산 → (감사 대상, 응답에서 대상 ID를 읽을 칸). 멱등 기록이 곧 쓰기 기록이다.
+# 연산 → (감사 대상, 응답에서 대상 ID를 읽을 칸). 멱등 기록이 곧 쓰기 기록이다. proposal.approve는
+# 응답이 요구 상세이고 제안자·승인자를 함께 남겨야 해서 경로가 직접 기록한다.
 AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "project.create": ("project", "id"),
     "document.upload": ("document", "document_version_id"),
@@ -54,6 +61,8 @@ AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "question.create": ("question", "question_id"),
     "question.reply": ("question", "question_id"),
     "question.confirm": ("question", "question_id"),
+    "proposal.create": ("proposal", "proposal_id"),
+    "proposal.reject": ("proposal", "proposal_id"),
     "project.process": ("job", "job_id"),
     "annotation.process": ("job", "job_id"),
     "review_version.create": ("review_version", "review_version"),
@@ -71,6 +80,8 @@ async def audit(
     entity_id: object,
     action: str,
     actor: UUID,
+    proposer: UUID | None = None,
+    approver: UUID | None = None,
     detail: Mapping[str, Any] | None = None,
 ) -> None:
     """감사 한 행을 쓰기와 같은 트랜잭션에 남긴다.
@@ -82,6 +93,8 @@ async def audit(
         entity_id: 대상 ID.
         action: 행동 이름(연산 이름).
         actor: 요청자.
+        proposer: 승인한 제안의 제안자(시스템 제안이면 None).
+        approver: 승인자.
         detail: from·to 등 추가 내용.
 
     Returns:
@@ -89,7 +102,8 @@ async def audit(
     """
     await conn.execute(
         "INSERT INTO tft.rfp_audit_events (id, project_id, entity, entity_id, action, "
-        "actor_user_id, detail) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        "actor_user_id, proposer_user_id, approver_user_id, detail) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (
             uuid4(),
             project_id,
@@ -97,6 +111,8 @@ async def audit(
             str(entity_id),
             action,
             actor,
+            proposer,
+            approver,
             Jsonb(jsonable_encoder(detail or {})),
         ),
     )
@@ -188,16 +204,17 @@ async def remember(
         "request_hash, status_code, result) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (actor, operation, key, project_id, digest, status_code, Jsonb(dict(result))),
     )
-    entity, id_field = AUDIT_TARGETS[operation]
-    await audit(
-        conn,
-        project_id=project_id,
-        entity=entity,
-        entity_id=result[id_field],
-        action=operation,
-        actor=actor,
-        detail={"to": {k: result[k] for k in AUDIT_FIELDS if k in result}},
-    )
+    if operation in AUDIT_TARGETS:
+        entity, id_field = AUDIT_TARGETS[operation]
+        await audit(
+            conn,
+            project_id=project_id,
+            entity=entity,
+            entity_id=result[id_field],
+            action=operation,
+            actor=actor,
+            detail={"to": {k: result[k] for k in AUDIT_FIELDS if k in result}},
+        )
 
 
 async def run_command(

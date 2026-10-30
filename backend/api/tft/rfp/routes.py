@@ -1,7 +1,7 @@
 """RFP 자사 대응 경로의 골격(KAN-182, A01). OpenAPI 초안을 만들기 위한 선언이다.
 
 명세 v1.1 §3의 30개 경로 중 아직 없는 28개다(1·3번 목록·상세는 projects/routes.py에 있고
-응답 확장은 구현 작업이 한다). 아직 남은 변경 제안 경로만 501 `TFT_NOT_IMPLEMENTED`를 돌려준다. 초안 25~29는 routes_draft.py다.
+응답 확장은 구현 작업이 한다). 변경 제안은 routes_proposals.py, 초안 25~29는 routes_draft.py가 처리한다.
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
 15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py). 7~10·12~14·17 읽기는 KAN-188(routes_read.py)이다. 11·30 접수는 jobs.py(KAN-199·KAN-188).
 """
@@ -15,6 +15,7 @@ from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
     jobs,
     routes_draft,
+    routes_proposals,
     routes_questions,
     routes_read,
     routes_supplement,
@@ -456,16 +457,20 @@ async def reply_question(
     P + "/proposals",
     response_model=SuccessResponse[s.ProposalList],
     operation_id="tft_list_rfp_proposals",
-    openapi_extra=A08,
 )
 async def list_proposals(
+    request: Request,
+    user: User,
     project_id: UUID,
     status: s.ProposalStatus | None = None,
     origin: s.ProposalOrigin | None = None,
     requirement_id: UUID | None = None,
-) -> NoReturn:
+) -> SuccessResponse[s.ProposalList]:
     """21. 승인 대기 목록(세 입구 공통)."""
-    not_implemented()
+    data = await routes_proposals.list_proposals(
+        request, user, project_id, status=status, origin=origin, requirement_id=requirement_id
+    )
+    return respond(request, data)
 
 
 @router.post(
@@ -473,39 +478,53 @@ async def list_proposals(
     status_code=201,
     response_model=SuccessResponse[s.Proposal],
     operation_id="tft_create_rfp_proposal",
-    openapi_extra=A08,
 )
 async def create_proposal(
-    project_id: UUID, payload: s.ProposalCreate, idempotency_key: Key
-) -> NoReturn:
+    request: Request, user: User, project_id: UUID, payload: s.ProposalCreate, idempotency_key: Key
+) -> SuccessResponse[s.Proposal]:
     """22. 웹 수정 제안(web)."""
-    not_implemented()
+    data = await routes_proposals.create_proposal(
+        request, user, project_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.post(
     "/proposals/{proposal_id}/approve",
     response_model=SuccessResponse[s.RequirementDetail],
     operation_id="tft_approve_rfp_proposal",
-    openapi_extra=A08,
 )
 async def approve_proposal(
-    proposal_id: UUID, payload: s.ProposalDecision, idempotency_key: Key
-) -> NoReturn:
+    request: Request,
+    user: User,
+    proposal_id: UUID,
+    payload: s.ProposalDecision,
+    idempotency_key: Key,
+) -> SuccessResponse[s.RequirementDetail]:
     """23. 승인 → 요구 새 판본(human_input), 연결 객체 재검토 표시, 감사에 제안자·승인자."""
-    not_implemented()
+    data = await routes_proposals.approve_proposal(
+        request, user, proposal_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.post(
     "/proposals/{proposal_id}/reject",
     response_model=SuccessResponse[s.Proposal],
     operation_id="tft_reject_rfp_proposal",
-    openapi_extra=A08,
 )
 async def reject_proposal(
-    proposal_id: UUID, payload: s.ProposalRejection, idempotency_key: Key
-) -> NoReturn:
+    request: Request,
+    user: User,
+    proposal_id: UUID,
+    payload: s.ProposalRejection,
+    idempotency_key: Key,
+) -> SuccessResponse[s.Proposal]:
     """24. 기각. 사유 필수."""
-    not_implemented()
+    data = await routes_proposals.reject_proposal(
+        request, user, proposal_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.get(P + "/draft", response_model=SuccessResponse[s.Draft], operation_id="tft_get_rfp_draft")
