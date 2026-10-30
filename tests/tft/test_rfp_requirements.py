@@ -880,3 +880,48 @@ def test_the_prompt_and_schema_carry_basis_of_design_and_canonical_value():
     assert {"basis_of_design", "canonical_value"} <= set(
         ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["required"]
     )
+
+
+def designation_section(text):
+    blocks = [p("PART 2 - PRODUCTS"), p("2.1 EQUIPMENT"), p(f"A. {text}")]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+@pytest.mark.parametrize(
+    ("text", "model", "kept"),
+    [
+        ("Provide metal-enclosed switchgear.", "GE", False),
+        ("Transformer shall be rated 750 kVA.", "750", False),
+        ("Transformer shall be rated 7-50 kVA.", "7-50", False),
+        ("Meter shall be AM-20.", "AM-2", False),
+        ("Meter shall be AM-20.", "M-20", False),
+        ("Relay shall be type X.", "X", False),
+        ("Meter shall be AM-20.", "am-20", True),
+        ("Meter shall be (AM-20), factory set.", "AM-20", True),
+        ("Relay shall be GE, factory set.", "GE", True),
+        ("Meter shall be Power Meter 8650.", "Power Meter 8650", True),
+        ("계량기는 AM-20을 쓴다.", "AM-20", True),
+    ],
+)
+def test_a_designated_model_must_be_a_model_shaped_token_of_the_clause(text, model, kept):
+    """부분 문자열·숫자만·한 글자는 지정이 아니다. 요구는 남고 지정 칸만 빈다."""
+    raw = json.dumps({"requirements": [req("2.1.A", text, "item", designated_model=model)]})
+    result, rejected, _, undesignated = validate_output(raw, designation_section(text))
+    assert rejected == [] and len(result) == 1
+    assert result[0].designated_model == (model if kept else None)
+    assert undesignated == (0 if kept else 1)
+
+
+def test_a_designated_manufacturer_must_be_a_token_of_the_clause():
+    """제조사도 같은 토큰 대조다. 모델은 맞으면 남는다."""
+    text = "Switchgear relay shall be R-100."
+    raw = json.dumps(
+        {
+            "requirements": [
+                req("2.1.A", text, "relay", designated_model="R-100", designated_manufacturer="GE")
+            ]
+        }
+    )
+    result = validate_output(raw, designation_section(text))[0][0]
+    assert (result.designated_model, result.designated_manufacturer) == ("R-100", None)
