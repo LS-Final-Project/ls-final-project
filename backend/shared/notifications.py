@@ -29,7 +29,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "rfp.failed": ("tft", "RFP 처리 실패", "/tft/projects/"),
 }
 INSERT_INTENT = (
-    "INSERT INTO runtime.notification_intents "
+    "INSERT INTO notify.notification_intents "
     "(id,owner,kind,title,link_path,audience,actor_id,dedupe_key) "
     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING"
 )

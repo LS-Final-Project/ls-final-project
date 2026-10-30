@@ -6,9 +6,11 @@
 | --- | --- | --- |
 | `cs_app` | `cs_migrator` | `cs`, `checkpoint_cs` |
 | `tft_app` | `tft_migrator` | `tft`, `checkpoint_tft` |
-| `platform_app` | `platform_migrator` | `identity`, `integration`, `catalog`, `evaluation` |
+| `platform_app` | `platform_migrator` | `identity`, `integration`, `catalog`, `evaluation`, `notify` |
 
 실행 계정에는 자기 서비스 스키마의 USAGE와 앞으로 생성할 테이블의 SELECT, INSERT, UPDATE, DELETE, 시퀀스의 USAGE 및 SELECT, 함수의 EXECUTE를 부여한다. CREATE, TRUNCATE, 역할 관리와 DB 생성 권한은 부여하지 않는다. `public`은 관리자 설치 확장용으로 USAGE만 허용한다.
+
+`notify`는 P30의 지정 열·메타데이터별 최소 권한을 적용하며 위 일반 CRUD 기본 권한을 부여하지 않는다.
 
 마이그레이션 역할은 NOLOGIN이다. 관리자가 `SET ROLE`로 전환해 해당 서비스의 테이블을 생성하거나 변경한다. 앱 실행 계정에는 마이그레이션 역할을 부여하지 않는다. 배포용 마이그레이션 로그인 주체는 후속 CI/CD 설정에서 연결한다.
 
@@ -132,8 +134,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P27 | `platform/20261030_KAN-90_receipt_origin.sql` | P8·P14(헤더) | platform_migrator | 가능 | 열 `evaluation.admission_receipts.origin` | 미확인 |
 | P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의) | to_regclass('runtime.job_control') | 미확인 |
 | P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | 역할 `tft_worker` | 미확인 |
-
-| P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | platform_migrator | 가능 | to_regclass('runtime.notification_intents') | 미확인 |
+| P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | 운영자(CREATE SCHEMA) → platform_migrator | 가능 | to_regclass('notify.notification_intents') | 미확인 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -339,7 +340,7 @@ python3 scripts/workspace.py migrate cs 20261104_KAN-200_draft_verification.sql
 C22는 C4·C18 뒤, T16은 T1·T14 뒤에 적용한다. P30은 P1·P4·P7·P28·P29 이후에 적용한다.
 서비스 간 순서는 C22/T16/P30 어느 쪽이 먼저여도 된다(기존 worker 역할을 이용하며 identity 조회 권한은 추가하지 않는다).
 세 파일을 모두 적용한 뒤 N1/N2/E1 코드를 배포한다. C18 또는 T14를 다시 적용하면 해당 worker의 업무 표 권한이
-초기화되므로 각각 C22 또는 T16도 다시 적용한다. P30은 신규 두 표의 권한만 정리하며 기존 표 권한은 건드리지 않는다.
+초기화되므로 각각 C22 또는 T16도 다시 적용한다. P30은 notify 스키마의 알림 두 표 권한을 정리한다. 구버전 P30이 부여한 cs_app/tft_app의 runtime USAGE는 회수하며 기존 worker/platform의 runtime 권한은 유지한다.
 
 ```sh
 python3 scripts/workspace.py migrate cs 20261105_KAN-201_worker_notifications.sql
@@ -350,3 +351,11 @@ python3 scripts/workspace.py migrate platform 20261101_KAN-201_notifications.sql
 writer는 신규 intent의 지정 열 INSERT만 가지며 SELECT/RETURNING을 전제하지 않는다. 플랫폼만 펼침 메타데이터와
 읽음 시각을 갱신한다. 최소 권한·중복 INSERT·동시 펼침·실패 시 rollback은 CI의 전용 DB 검사로 확인한다.
 위 표의 공용 적용 상태는 실행 근거 없이 완료로 바꾸지 않는다.
+
+
+P30은 운영자 연결에서 `CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION platform_migrator` 뒤 소유 역할로 전환한다.
+새 포괄 CREATE 권한은 부여하지 않는다. 구버전 `runtime.notification_intents`·`runtime.user_notifications`가 있으면
+`SET SCHEMA notify`로 옮겨 의도·수신·읽음 행과 PK/FK·인덱스를 보존한다. 새 설치와 2회 재적용을 지원한다.
+양쪽 스키마에 동명 표가 있으면 `NOTIFICATION_SCHEMA_CONFLICT`로 전체 마이그레이션을 중단한다.
+어느 이력도 삭제·자동 병합하지 않고 운영자가 충돌 원인을 확인한다. 두 표는 함께 notify로 이동하므로
+업무 앱의 runtime 작업 표 접근은 여전히 허용하지 않는다.

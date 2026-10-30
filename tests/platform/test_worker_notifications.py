@@ -68,7 +68,7 @@ def test_notification_savepoint_failure_preserves_succeeded_job_and_event(
     def broken(sql, params=()):
         if failure == "lookup_error" and sql.startswith("SELECT"):
             raise psycopg.errors.InsufficientPrivilege("private owner lookup failure")
-        if sql.startswith("INSERT INTO runtime.notification_intents"):
+        if sql.startswith("INSERT INTO notify.notification_intents"):
             if failure == "missing_table":
                 raise psycopg.errors.UndefinedTable("private missing table")
             conn.writes.append(("notification_partial", params))
@@ -127,7 +127,7 @@ def test_rfp_includes_initiator_as_recipient_without_actor_exclusion(monkeypatch
     # Real helper collapses the two identical user scopes before INSERT.
     job_runtime.finish(None, current, state, {"needs_review": True})
     insert = [
-        p for sql, p in conn.writes if sql.startswith("INSERT INTO runtime.notification_intents")
+        p for sql, p in conn.writes if sql.startswith("INSERT INTO notify.notification_intents")
     ]
     assert len(insert) == 1
     assert insert[0][5].obj == [{"user": str(current.actor_id)}]
@@ -143,7 +143,7 @@ def test_cs_one_intent_and_owner_fallback_and_safety_expansion(monkeypatch, kind
     conn = setup(monkeypatch, owner)
     job_runtime.finish(None, current, "SUCCEEDED", {}, notification_kind=kind)
     insert = [
-        p for sql, p in conn.writes if sql.startswith("INSERT INTO runtime.notification_intents")
+        p for sql, p in conn.writes if sql.startswith("INSERT INTO notify.notification_intents")
     ]
     assert len(insert) == 1 and insert[0][2] == kind
     audience = insert[0][5].obj

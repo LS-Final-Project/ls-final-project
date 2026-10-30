@@ -16,10 +16,10 @@
 - audience는 1~64개의 단일 키 범위다: `{user: UUID}`, `{role: cs_agent}`, `{dept: 부서코드}`, `{manager_dept: 부서코드}`.
   같은 항목은 합친다. actor_id가 있으면 펼침에서 그 사용자를 제외한다. 시스템 RFP 완료/실패는 actor_id=null이고
   접수자는 audience.user로 포함한다. 알림의 actor와 작업의 접수자를 같은 개념으로 사용하지 않는다.
-- `runtime.notification_intents` payload는 append-only다. 플랫폼만 처리 메타데이터 expanded_at을 갱신한다.
-  `runtime.user_notifications`는 `(intent_id,user_id)` PK이며 플랫폼만 read_at을 갱신한다. push 필드는 없다.
-- writer cs_app/cs_worker/tft_worker는 intent 지정 열 INSERT만 가진다. 신규 intent 조회·수정·삭제, 수신 표 접근,
-  identity 읽기 권한을 주지 않는다. 기존 역할의 다른 업무 표 권한을 변경하는 정책은 아니다.
+- `notify.notification_intents` payload는 append-only다. 플랫폼만 처리 메타데이터 expanded_at을 갱신한다.
+  `notify.user_notifications`는 `(intent_id,user_id)` PK이며 플랫폼만 read_at을 갱신한다. push 필드는 없다.
+- writer cs_app/tft_app/cs_worker/tft_worker는 intent 지정 열 INSERT만 가진다. 신규 intent 조회·수정·삭제, 수신 표 접근,
+  identity 읽기 권한을 주지 않는다. 업무 앱(cs_app/tft_app)에는 runtime USAGE를 주지 않는다. 기존 역할의 다른 업무 표 권한을 변경하는 정책은 아니다.
 
 ## 펼침·조회 N2
 
@@ -71,3 +71,9 @@ CS 시스템 완료 시에도 기존 계획대로 lease.actor_id를 제외한다
 실제 writer 역할의 최초/중복 INSERT가 SELECT 권한 없이 되는지, 신규 표 권한, SKIP LOCKED 동시성·rollback·본인 API·CSRF·Origin·
 안전/확인 대기 상호배제·RFP 접수자 포함을 검증한다. 로컬에 전용 DB가 없으면 실제 DB 검사는 미실행으로 구분하고 CI에 위임한다.
 단위 fake 성공은 실제 DB 동시성·운영 배포·화면 표시·Web Push 성공의 근거가 아니다.
+
+
+알림은 전용 `notify` 스키마(platform_migrator 소유)에만 저장한다. 플랫폼과 writer는 필요한 notify USAGE만 받으며
+기존 작업용 runtime 권한을 확장하지 않는다. P30 재적용은 구버전 runtime 알림 표를 데이터·PK/FK와 함께 notify로
+이동하고 잘못된 업무 앱 runtime USAGE를 회수한다. worker/platform의 기존 runtime 권한은 유지한다.
+양쪽에 동명 표가 있는 비정상 상태는 `NOTIFICATION_SCHEMA_CONFLICT`로 중단하며 데이터를 조용히 버리지 않는다.
