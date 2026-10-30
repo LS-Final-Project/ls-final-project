@@ -26,6 +26,8 @@
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
      - `assembly_clause`(v4): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true, 장비가 나열되기만 하면 false. 통합 책임 판별(`rfp/integration.py`)의 입력이다. 처리 흐름 연결은 후속이다
      - `approval_procedure_missing`(v5): 대체품·동등품·목록 밖 제조사를 승인 조건부로 허용하는데 받은 본문 안에 승인 절차·제출 자료가 없을 때만 true. 대체 불허이거나 절차가 적혀 있으면 false. 고객 질문 판별의 입력이다(영어 정규식 대신 의미 판단). 한계: 긴 절은 부분별로 추출되므로 절차가 다른 부분에 있으면 true가 될 수 있다. 오탐은 질문이 하나 더 생기는 안전한 방향이다
+     - `basis_of_design`(v7): 특정 제품을 대체 불가 지정이 아니라 설계 기준으로 들고 동등 이상을 허용할 때만 true다. 이때 제품명은 `value`(연산자 `TEXT`)에 두고 `designated_model`·`designated_manufacturer`는 null이다. 함께 보내면 `validate_output`이 지정 칸을 비운다.
+     - `canonical_value`(v7): 문장으로 적힌 값의 비교용 표기 또는 null. `value`·`quote`는 원문 그대로다. 탭은 `±NxS%` 또는 `+Nx-MxS%`(곱하기는 영문 소문자 x), 보호 기능은 L·S·I·G 순서의 문자 집합이다(예 `LSI`). 표기는 `vocabulary.CANONICAL_FORMS` 한 곳에 있다. 그 속성의 표기가 아니면 `validate_output`이 지우고 `needs_review`로 둔다. 형식만 검사하고 의미 대조는 하지 않는다. 판정 사용은 후속 PR이다.
      - 어휘·계열은 `backend/engine/rfp/vocabulary.py` 단일 원본이다. 사양 사실 형식(`partners.schemas.Attribute`)도 같은 목록이고, 자사 사양 파일은 그 부분집합이다(검사가 확인)
      - 지시문은 목록과 '모르면 OTHER, 비슷한 말로 추측하지 않음'을 싣는다. 예시는 14번 문구를 쓰지 않는다
    - 명령문("Provide…", "Comply with…")도 요구로 읽는다.

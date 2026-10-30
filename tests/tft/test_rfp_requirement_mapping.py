@@ -45,6 +45,8 @@ def test_comparison_input_uses_the_vocabulary_but_certifications_keep_the_standa
     assert to_comparison(bare).certification_standard == "UL 1561"
     # 요구 종류를 그대로 넘긴다(과업·문서 판단은 comparison._work_kind 한 곳이다).
     assert to_comparison(requirement("TASK", "field testing")).kind == "TASK"
+    basis = requirement("SPEC", "relay").model_copy(update={"basis_of_design": True})
+    assert to_comparison(basis).basis_of_design
 
 
 def test_grading_input_treats_compliance_as_a_certification_like_the_comparison():

@@ -32,6 +32,7 @@ from backend.engine.rfp.vocabulary import (
     AttributeKeyOrOther,
     ConditionNameOrOther,
     FamilyOrOther,
+    is_canonical,
 )
 from backend.shared.ai import Generation, Usage
 
@@ -40,7 +41,8 @@ from backend.shared.ai import Generation, Usage
 # v4(KAN-185): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구를 assembly_clause로 표시한다.
 # v5(KAN-185): 대체·동등품을 승인 조건부로 허용하는데 절차가 없는 요구를 approval_procedure_missing으로 표시한다.
 # v6(KAN-185): operator 판단 기준과 조건 이름 어휘(conditions.name). 단위 수식어는 비교 쪽 코드가 뗀다.
-EXTRACTION_VERSION = "rfp-requirements-v6"
+# v7(KAN-185): 설계 기준 제품(basis_of_design)을 지정 모델과 나누고, 문장형 값의 비교용 표기(canonical_value).
+EXTRACTION_VERSION = "rfp-requirements-v7"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -129,6 +131,14 @@ class ExtractedRequirement(Strict):
             "true. 대체 불허이거나 절차가 적혀 있으면 false."
         ),
     )
+    basis_of_design: bool = Field(
+        default=False,
+        description="특정 모델이 대체 불가 지정이 아니라 설계 기준이고 동등 이상을 허용할 때만 true. 지정 모델은 null.",
+    )
+    canonical_value: str | None = Field(
+        default=None,
+        description="탭·보호 기능 값의 비교용 표기(vocabulary.CANONICAL_FORMS). 없으면 null. value는 원문 그대로다.",
+    )
     # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
     needs_review: bool = False
 
@@ -196,6 +206,8 @@ class RequirementSchema(_Loose):
     certification_listed: bool
     assembly_clause: bool
     approval_procedure_missing: bool
+    basis_of_design: bool
+    canonical_value: str | None
 
 
 class ResponseSchema(_Loose):
@@ -307,7 +319,7 @@ Return JSON matching the schema. Rules:
   DESIGNATED_PRODUCT (named model or manufacturer).
 - designated_model: a specific product model the clause names for supply (e.g. "SEL-751A",
   "PowerLogic ION 9000"), copied exactly as written; else null. A list of acceptable manufacturers is not a
-  designated model.
+  designated model, and neither is a basis-of-design product.
 - designated_manufacturer: the maker of that model only when its name is written in the clause; else null.
   Do not infer a maker from the model name.
 - standard_system from the cited standard family (IEEE/ANSI -> IEEE, UL, NEMA, IEC), else NONE.
@@ -329,6 +341,15 @@ Return JSON matching the schema. Rules:
   manufacturer outside a list subject to approval, and the clauses you received give no approval procedure or
   required submittals for it. False when substitution is not allowed, or when the procedure or submittals are
   stated.
+- basis_of_design: true only when the clause names a specific product as a design basis or reference that an
+  equal or better product may replace (a basis-of-design product, a product "or equal"). Then kind is SPEC,
+  operator is TEXT, value is the product name as written, and designated_model and designated_manufacturer
+  are null. False for a product that must be supplied with no alternative.
+- canonical_value: a fixed notation for comparing a value written in words. Keep value and quote as written.
+  For attribute_key tap: "±NxS%" for N steps of S percent both above and below, "+Nx-MxS%" for N steps above and
+  M below (e.g. "±4x1.25%", "+2x-3x2.5%", with a plain letter x). For attribute_key protection_functions: the
+  letters among L (long-time), S (short-time), I (instantaneous), G (ground-fault) in that order (e.g. "LSI").
+  null for any other attribute_key or when the steps or functions are not stated.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
 
@@ -360,7 +381,8 @@ def _grounded_designation(
     현행 텍스트에 없으므로 여기서도 걸린다.
     """
     model, maker = req.designated_model, req.designated_manufacturer
-    if model is not None and _space(model) not in clause_text:
+    # 설계 기준 제품은 지정이 아니다. 두 칸을 함께 보내면 지정 쪽을 비운다(지정품 조달로 가지 않게).
+    if req.basis_of_design or (model is not None and _space(model) not in clause_text):
         model = None
     if model is None or (maker is not None and _space(maker) not in clause_text):
         maker = None
@@ -419,13 +441,15 @@ def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequireme
     - tolerance가 인용 안에 그대로 없으면 지우고 검토로 둔다(지어낸 허용 오차).
     - 값이 숫자인데 인용에 허용 오차 표기가 있고 tolerance가 비었으면 검토로 둔다(빠진 허용 오차).
     - 목록 밖 키·계열을 OTHER로 바꿨으면 검토로 둔다.
+    - canonical_value가 그 속성의 정해진 표기가 아니면 지우고 검토로 둔다. 의미 대조는 하지 않는다(원문 표기가
+      'two above and two below'처럼 숫자가 아닐 수 있다).
 
     Args:
         req: 인용·값 검사를 통과한 요구.
         distrusted: _outside_lists가 바꾼 요구인지.
 
     Returns:
-        ExtractedRequirement: tolerance·needs_review를 정한 요구.
+        ExtractedRequirement: tolerance·canonical_value·needs_review를 정한 요구.
     """
     tolerance = req.tolerance
     review = distrusted
@@ -434,7 +458,12 @@ def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequireme
     numeric = req.value is not None and re.search(r"\d", req.value) is not None
     if tolerance is None and numeric and TOLERANCE_MARK.search(req.quote):
         review = True
-    return req.model_copy(update={"tolerance": tolerance, "needs_review": review})
+    canonical = req.canonical_value
+    if canonical is not None and not is_canonical(req.attribute_key, canonical):
+        canonical, review = None, True
+    return req.model_copy(
+        update={"tolerance": tolerance, "canonical_value": canonical, "needs_review": review}
+    )
 
 
 def validate_output(

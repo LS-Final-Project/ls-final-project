@@ -784,3 +784,99 @@ def test_spec_fact_condition_names_are_in_the_vocabulary():
     facts = [f for p in load_own_products() for f in p.spec_facts]
     facts += [f for p in load_profiles() for f in p.spec_facts]
     assert {c.name for f in facts for c in f.conditions or []} <= CONDITION_NAMES
+
+
+def basis_section():
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 RELAYS AND TAPS"),
+        p("A. Relay: Model R-100 or equal."),
+        p("B. Meter shall be Model M-200, no substitution."),
+        p("C. Provide four 1.25 percent taps, two above and two below rated voltage."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_basis_of_design_is_not_a_designation():
+    """설계 기준과 지정을 함께 보내도 지정 칸은 비고, 진짜 지정은 그대로다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "Relay: Model R-100 or equal",
+                    "relay",
+                    "Model R-100",
+                    operator="TEXT",
+                    basis_of_design=True,
+                    designated_model="Model R-100",
+                    designated_manufacturer="Model",
+                ),
+                req(
+                    "2.1.B",
+                    "Meter shall be Model M-200, no substitution",
+                    "meter",
+                    designated_model="Model M-200",
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, undesignated = validate_output(raw, basis_section())
+    assert rejected == [] and undesignated == 1
+    assert kept[0].basis_of_design and kept[0].value == "Model R-100"
+    assert (kept[0].designated_model, kept[0].designated_manufacturer) == (None, None)
+    assert designated_item(kept[0]) is None
+    assert not kept[1].basis_of_design and designated_item(kept[1]) is not None
+
+
+@pytest.mark.parametrize(
+    ("key", "canonical", "kept"),
+    [
+        ("tap", "±4x1.25%", True),
+        ("tap", "+2x-3x2.5%", True),
+        ("protection_functions", "LSIG", True),
+        ("protection_functions", "LI", True),
+        ("tap", "±4×1.25%", False),
+        ("tap", "4 taps", False),
+        ("tap", "±4x1.25", False),
+        ("protection_functions", "GILS", False),
+        ("protection_functions", "LSIT", False),
+        ("protection_functions", "", False),
+        ("bil", "±4x1.25%", False),
+        ("OTHER", "LSI", False),
+    ],
+)
+def test_canonical_value_keeps_only_the_fixed_notation(key, canonical, kept):
+    """정해진 표기만 남는다. 어긋나면 지우고 검토로 두며, 원문 value·quote는 그대로다."""
+    quote = "Provide four 1.25 percent taps, two above and two below rated voltage"
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.C",
+                    quote,
+                    "taps",
+                    "four 1.25 percent taps",
+                    operator="TEXT",
+                    attribute_key=key,
+                    canonical_value=canonical,
+                )
+            ]
+        }
+    )
+    result = validate_output(raw, basis_section())[0][0]
+    assert result.canonical_value == (canonical if kept else None)
+    assert result.needs_review is not kept
+    assert (result.value, result.quote) == ("four 1.25 percent taps", quote)
+
+
+def test_the_prompt_and_schema_carry_basis_of_design_and_canonical_value():
+    """지시문 규칙과 응답 스키마 칸. 스키마는 단순 타입이다."""
+    text = prompt(basis_section())
+    assert "basis_of_design: true only when" in text and '"+Nx-MxS%"' in text
+    properties = ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["properties"]
+    assert properties["basis_of_design"]["type"] == "boolean"
+    assert {"basis_of_design", "canonical_value"} <= set(
+        ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["required"]
+    )
