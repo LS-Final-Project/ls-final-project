@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -65,6 +65,17 @@ describe('셸 메뉴', () => {
     expect(hrefs(container)).toContain('/account');
     fireEvent.click(screen.getByRole('button', { name: '시스템 관리' }));
     expect(screen.queryByText('평가')).toBeNull();
+  });
+
+  it.each([[true, false], [false, true]])('좁은 화면 %s: 화면을 옮기면 메뉴를 닫고, 넓은 화면은 접기를 유지한다', async (narrow, kept) => {
+    vi.stubGlobal('matchMedia', () => ({ matches: narrow }));
+    const { container } = show('/cs');
+    const shell = () => container.querySelector('#shell')!;
+    expect(shell().classList.contains('menu-open')).toBe(false);
+    fireEvent.click(container.querySelector('#nav-collapse')!);
+    expect(shell().classList.contains('menu-open')).toBe(true);
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '문의 조회' }));
+    await waitFor(() => expect(shell().classList.contains('menu-open')).toBe(kept));
   });
 
   it('세션 장애를 로그아웃으로 표시하지 않는다', async () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { businessUiEnabled } from '../components/BusinessAccess';
@@ -37,6 +37,11 @@ export default function LsShell() {
   const tab = pathname === '/cs' ? '업무 홈' : pathname === '/cs/tickets' ? '문의 조회' : pathname.startsWith('/cs/tickets/') ? '문의 처리' : 'C/S 관리';
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [open, setOpen] = useState<Record<string, boolean>>({ cs: true });
+  // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
+  const [toggled, setToggled] = useState(false);
+  useEffect(() => {
+    if (window.matchMedia?.('(max-width:800px)').matches) setToggled(false);
+  }, [pathname]);
   const identity = user.data?.data;
   // 기존 Layout과 같은 조건이다. 업무 UI가 꺼졌거나 미로그인이면 경로를 열지 않는다.
   const linked = import.meta.env.DEV || (businessUiEnabled && user.isSuccess && !!user.data);
@@ -46,8 +51,8 @@ export default function LsShell() {
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';
   return <div className="ls-root" data-cs="1">
-    <input type="checkbox" id="nav-collapse" className="nav-collapse-input" />
-    <div className="shell" id="shell">
+    <input type="checkbox" id="nav-collapse" className="nav-collapse-input" checked={toggled} onChange={event => setToggled(event.target.checked)} />
+    <div className={toggled ? 'shell menu-open' : 'shell'} id="shell">
       <aside className="sidebar" id="sidebar" aria-label="주 메뉴">
         <div className="brand"><span className="brand-mark"><Link to="/" aria-label="포털 홈"><img src={logo} width="94.7" height="42.619" alt="LS 로고" /></Link></span>업무지원</div>
         <div className="km-find"><input type="search" placeholder="메뉴 검색" aria-label="메뉴 검색" autoComplete="off" spellCheck={false} /></div>

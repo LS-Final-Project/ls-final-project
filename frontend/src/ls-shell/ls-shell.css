@@ -78,7 +78,7 @@
 .ls-root td:last-child:where(:not(.ls-legacy *)),.ls-root th:last-child:where(:not(.ls-legacy *)) { padding-right: 22px; }
 .ls-root input:where(:not(.ls-legacy *)) { display: block; width: 100%; min-height: 46px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); margin-top: 8px; padding: 10px 12px; }
 @media (max-width:800px) { .ls-root .sidebar { display: none; } }
-@media (max-width:800px) { .ls-root .shell.menu-open .sidebar { display: flex; position: fixed; z-index: 10; top: 44px; bottom: 0; left: 0; width: 248px; box-shadow: 20px 0 60px oklch(18% 0 0 / .15); overflow-y: auto; } }
+@media (max-width:800px) { .ls-root .shell.menu-open .sidebar { display: flex; position: fixed; z-index: 10; top: 40px; bottom: 0; left: 0; width: 248px; box-shadow: 20px 0 60px oklch(18% 0 0 / .15); overflow-y: auto; } }
 @media (max-width:800px) { .ls-root .ls-topbar { height: 68px; } }
 @media (max-width:520px) { .ls-root .login-story .brand { font-size: 15px; } }
 @media (prefers-reduced-motion:reduce) { .ls-root * { transition: none !important; } }
@@ -478,8 +478,11 @@
 .ls-root .nav-collapse-input:focus-visible~.shell .nav-toggle{outline:2px solid #fff;outline-offset:-2px}
 .ls-root .kt-left{padding-left:4px}
 .ls-root:has(#shell) .shell{transition:grid-template-columns .2s ease-out}
+/* 접기는 넓은 화면 전용이다. 800px 이하에서는 같은 토글이 .menu-open으로 메뉴를 연다. */
+@media (min-width:801px){
 .ls-root:has(#nav-collapse:checked) .shell{grid-template-columns:0 minmax(0,1fr)!important}
 .ls-root:has(#nav-collapse:checked) .sidebar{width:0;min-width:0;padding:0!important;border-right:0!important;overflow:hidden;visibility:hidden}
+}
 @media (prefers-reduced-motion:reduce){.ls-root:has(#shell) .shell{transition:none}}
 .ls-root .km-user{margin-top:auto;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--erp-side-border);color:var(--erp-side-text);font-size:12px}
 .ls-root .km-av{width:28px;height:28px;border-radius:50%;background:#3a4a6d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:400}
@@ -627,3 +630,5 @@
 .ls-root .tm div.k,.ls-root .tm div.k b{color:#fff}
 /* 옛 화면 영역: 셸에서 상속되는 글꼴·색·줄 간격을 style.css 기준으로 되돌린다. */
 .ls-root .kv .ls-legacy{font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif!important;font-size:16px;line-height:normal;letter-spacing:normal;color:#152739;font-weight:400;min-height:calc(100vh - 72px)}
+/* 좁은 화면: 화면이 인라인으로 정한 두 열 격자를 한 열로 풀고, 장식 배경이 페이지 가로 스크롤을 만들지 않게 자른다. */
+@media (max-width:800px){.ls-root .kv-split,.ls-root .kv-box>.body{grid-template-columns:minmax(0,1fr)!important}.ls-root{overflow-x:clip}}
