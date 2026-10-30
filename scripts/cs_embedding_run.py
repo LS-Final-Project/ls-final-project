@@ -4,7 +4,9 @@
 파일의 함수를 쓴다. 하네스는 eval/embedding_candidates(run_embedding_candidates·fts_baseline)다.
 
 backend.shared.ai.embed는 문자열 하나당 API 호출 한 번이다. 그래서 하네스 배치(--batch-size)와 실제 API 호출
-수(청크 수 + 질의 수)가 다르며 dry-run은 둘을 따로 보여준다. 하네스는 청크와 질의에 같은 임베딩 함수를 쓰므로
+수(청크 수 + 질의 수)가 다르며 dry-run은 둘을 따로 보여준다. 실행 결과의 후보 행에는 실제 API 호출 수·응답이
+알려준 입력 토큰·문자 수(usage)와 ai_prices 단가로 계산한 비용(cost)을 남긴다. 토큰을 알려주지 않는 공급자는
+문자/4 근사 비용만 approx로 낸다. 하네스는 청크와 질의에 같은 임베딩 함수를 쓰므로
 task_type은 후보마다 하나(문서·질의 같은 값)만 줄 수 있다. RETRIEVAL_DOCUMENT/QUERY처럼 비대칭으로 주려면
 하네스 변경이 필요하다. 임베딩은 입력만 과금하므로 비용은 입력 근사(문자/4)와 상한(UTF-8 바이트)만 내며 실제
 과금은 실행 후 usage로 확인한다. 키는 환경변수(GEMINI_API_KEY)에서만 읽는다(셸에서 set -a; . ./.env; set +a).
@@ -18,6 +20,7 @@ import math
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, get_args
 
@@ -164,6 +167,90 @@ def dry_run(
     return rows
 
 
+class RecordingEmbed:
+    """ai.embed를 문자열마다 부르고 사용량을 모으는 배치 함수(후보 하나에 하나). 하네스의 usage 콜러블도 준다."""
+
+    def __init__(self, client: Any, spec: dict[str, Any]) -> None:
+        """후보 명세와 클라이언트를 받는다.
+
+        Args:
+            client: create_client(embedding=True) 클라이언트.
+            spec: 후보 명세.
+        """
+        self.client, self.spec = client, spec
+        self.calls = self.chars = self.tokens_reported = self.billable = 0
+        self.tokens = 0.0
+
+    def __call__(self, batch: list[str]) -> list[list[float]]:
+        """배치의 문자열마다 API를 한 번 부른다.
+
+        Args:
+            batch: 문자열 배치.
+
+        Returns:
+            list[list[float]]: 같은 순서의 벡터.
+        """
+        vectors = []
+        for text in batch:
+            result = embed(
+                self.client,
+                self.spec["model"],
+                text,
+                dimensions=self.spec["dimension"],
+                task_type=self.spec["task_type"],
+            )
+            self.calls += 1
+            self.chars += len(text)
+            if result.input_tokens is not None:
+                self.tokens_reported += 1
+                self.tokens += result.input_tokens
+            self.billable += result.billable_characters or 0
+            vectors.append(result.values)
+        return vectors
+
+    def usage(self) -> dict[str, Any]:
+        """모은 사용량. 응답이 토큰을 모두 알려준 경우에만 input_tokens를 낸다.
+
+        Returns:
+            dict: calls·chars·input_tokens(일부라도 빠지면 None)·tokens_reported·billable_characters.
+        """
+        complete = self.calls > 0 and self.tokens_reported == self.calls
+        return {
+            "calls": self.calls,
+            "chars": self.chars,
+            "input_tokens": self.tokens if complete else None,
+            "tokens_reported": self.tokens_reported,
+            "billable_characters": self.billable or None,
+        }
+
+
+def usage_cost(
+    usage: Mapping[str, Any] | None, model: str, prices: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """사용량에 단가를 곱한다(임베딩은 입력만 과금).
+
+    Args:
+        usage: RecordingEmbed.usage() 결과(없으면 None).
+        model: 모델 ID.
+        prices: load_price_table 결과.
+
+    Returns:
+        dict | None: currency·as_of와 input_cost(응답 토큰 기준, 모르면 None)·approx_input_cost(문자/4 근사).
+            사용량이나 단가가 없으면 None이다.
+    """
+    price = prices.get(model)
+    if usage is None or price is None:
+        return None
+    per_token = price.input_per_million / Decimal(1_000_000)
+    tokens = usage.get("input_tokens")
+    return {
+        "currency": price.currency,
+        "as_of": price.as_of.isoformat(),
+        "input_cost": None if tokens is None else str(Decimal(str(tokens)) * per_token),
+        "approx_input_cost": str(Decimal(usage["chars"]) / 4 * per_token),
+    }
+
+
 def default_factory(settings: AISettings) -> EmbedFactory:
     """임베딩용 실제 클라이언트를 한 번 만들고 후보마다 ai.embed를 감싼 배치 함수를 낸다.
 
@@ -176,19 +263,7 @@ def default_factory(settings: AISettings) -> EmbedFactory:
     client = create_client(settings, embedding=True)
 
     def factory(spec: dict[str, Any], config: AISettings) -> Embed:
-        def call(batch: list[str]) -> list[list[float]]:
-            return [
-                embed(
-                    client,
-                    spec["model"],
-                    text,
-                    dimensions=spec["dimension"],
-                    task_type=spec["task_type"],
-                ).values
-                for text in batch
-            ]
-
-        return call
+        return RecordingEmbed(client, spec)
 
     return factory
 
@@ -223,15 +298,18 @@ def execute(
         dict: run_embedding_candidates 결과(+ fts 행)와 meta(후보·건수·청크·질의 ID sha256·시각·git sha). 벡터·본문 없음.
     """
     started = datetime.now(UTC)
-    candidates = [
-        EmbeddingCandidate(
-            name=spec["name"],
-            embed=factory(spec, settings),
-            model=spec["model"],
-            dimension=spec["dimension"],
+    candidates = []
+    for spec in specs:
+        call = factory(spec, settings)
+        candidates.append(
+            EmbeddingCandidate(
+                name=spec["name"],
+                embed=call,
+                model=spec["model"],
+                dimension=spec["dimension"],
+                usage=getattr(call, "usage", None),
+            )
         )
-        for spec in specs
-    ]
     result = run_embedding_candidates(
         chunks,
         queries,
@@ -243,6 +321,9 @@ def execute(
     )
     if fts is not None:
         result["fts"] = fts_baseline(fts, gold, k_values, input_mode=input_mode)
+    prices = load_price_table()
+    for row in result["candidates"]:
+        row["cost"] = usage_cost(row["usage"], row["model"], prices)
     return {
         "meta": {
             "candidates": specs,
