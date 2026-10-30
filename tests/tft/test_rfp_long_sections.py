@@ -173,14 +173,38 @@ def test_cost_guard_counts_existing_first_level_splits():
         build_inputs(synthetic_tree(groups=MAX_SECTION_PARTS + 1, children=1, chars=2100), ["3.1"])
 
 
-@pytest.mark.parametrize("chars", [2100, 5989])
-def test_first_level_group_at_or_below_hard_limit_stays_together(chars):
+@pytest.mark.parametrize("chars", [2500, 4000, 5989])
+def test_first_level_group_above_target_is_split_at_clause_boundaries(chars):
     item = build_inputs(synthetic_tree(groups=1, children=2, chars=chars), ["3.1"])[0]
-    assert PART_CHARS < sum(len(c.text) for c in item.clauses) <= MAX_SECTION_CHARS
+    assert 5000 <= sum(len(c.text) for c in item.clauses) <= MAX_SECTION_CHARS
+    parts = split_input(item)
+    assert len(parts) == (2 if chars < PART_CHARS else 3)
+    assert [c for part in parts for c in part.clauses] == item.clauses
+    for part in parts:
+        assert sum(len(c.text) for c in part.clauses) <= PART_CHARS or len(part.clauses) == 1
+
+
+@pytest.mark.parametrize("chars", [PART_CHARS + 1, MAX_SECTION_CHARS])
+def test_individual_clause_above_target_is_a_standalone_part(chars):
+    item = build_inputs(synthetic_tree(groups=1, children=1, chars=chars), ["3.1"])[0]
+    parts = split_input(item)
+    assert len(parts) == 2
+    assert parts[0].clauses == item.clauses[:1]
+    assert parts[1].clauses == item.clauses[1:]
+    assert len(parts[1].clauses[0].text) == chars
+
+
+def test_custom_target_controls_first_level_group_splitting():
+    item = build_inputs(synthetic_tree(groups=1, children=2, chars=100), ["3.1"])[0]
     assert split_input(item) == [item]
+    parts = split_input(item, limit=150)
+    assert [len(part.clauses) for part in parts] == [2, 1]
+    assert [c for part in parts for c in part.clauses] == item.clauses
 
 
-def test_short_section_remains_one_input_and_one_part():
-    inputs = build_inputs(synthetic_tree(groups=1, children=1, chars=100), ["3.1"])
+@pytest.mark.parametrize("chars", [100, 2488, 3950, 3978])
+def test_section_at_or_below_target_remains_one_input_and_one_part(chars):
+    inputs = build_inputs(synthetic_tree(groups=1, children=1, chars=chars), ["3.1"])
     assert len(inputs) == 1
+    assert sum(len(c.text) for c in inputs[0].clauses) <= PART_CHARS
     assert split_input(inputs[0]) == inputs

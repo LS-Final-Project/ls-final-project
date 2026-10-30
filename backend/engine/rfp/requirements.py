@@ -513,11 +513,12 @@ def _call(
 def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[ExtractionInput]:
     """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다.
 
-    12000자 초과 묶음만 개별 조항 경계로 재묶는다. 조항 텍스트는 자르지 않는다.
+    목표 길이를 넘는 묶음은 개별 조항 경계로 재묶는다. 조항 텍스트는 자르지 않는다.
+    build_inputs의 개별 조항 길이·부분 수 사전 검사를 거친 입력을 전제한다.
 
     Args:
         item: 절 입력.
-        limit: 부분 하나의 목표 본문 길이(글자). 12000자 이하 묶음은 목표보다 길어도 유지한다.
+        limit: 부분 하나의 목표 본문 길이(글자). 이를 넘는 개별 조항은 단독 부분으로 유지한다.
 
     Returns:
         list[ExtractionInput]: 부분 입력. 절이 상한 안이면 [item] 그대로다.
@@ -534,7 +535,7 @@ def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[Extracti
             groups.append([clause])
     expanded: list[list[ClauseInput]] = []
     for group in groups:
-        if sum(len(_clause_text(c)) for c in group) <= MAX_SECTION_CHARS:
+        if sum(len(_clause_text(c)) for c in group) <= limit:
             expanded.append(group)
             continue
         batch: list[ClauseInput] = []
