@@ -78,6 +78,10 @@ QuestionIssue = Literal[
 ]
 INTERNAL_ISSUES = frozenset({"RND_FEASIBILITY", "TECH_ADVICE", "PURCHASE_TERMS"})
 QuestionTarget = Literal["CUSTOMER", "INTERNAL"]
+# 명세 v1.3 §7: 조립품의 조립·시험·연동·보증 책임자. 사람이 정하고 기본은 미확보다.
+IntegrationHolder = Literal["OWN", "SINGLE_PARTNER", "JOINT", "UNRESOLVED"]
+# 명세 v1.3 §5.1: 지정품 처리 방식. 기본은 지정품 조달이고 바꾸는 입력은 변경 제안이다.
+DesignatedProcurement = Literal["SPECIFIED_PROCUREMENT", "ALTERNATIVE_PROPOSAL", "UNDECIDED"]
 RndFeasibility = Literal["FEASIBLE", "FEASIBLE_WITH_SCHEDULE", "NOT_FEASIBLE", "UNDETERMINED"]
 DepartmentKind = Literal["SALES", "RND", "TECH", "PURCHASE", "OTHER"]
 ProposalOrigin = Literal["web", "customer_reply", "pdf_annot"]
@@ -140,6 +144,17 @@ class ProjectCreate(Model):
     review_departments: list[str] = Field(default_factory=list, max_length=20)
     # 기본값 없이 호출자가 밝힌다.
     data_origin: DataOrigin
+    # 영업 입력 표시값(가설). 상태·등급·경로 순위·검토본 조건·평가 어디에도 입력으로 쓰지 않는다(명세 v1.3 §6).
+    strategic_customer: bool | None = None
+    strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class IntegrationUpdate(Model):
+    """통합 책임 지정(사람의 결정, 바로 human_input 판본). required·근거 조항은 서버가 계산한다."""
+
+    holder: IntegrationHolder
+    holder_candidate_codes: list[str] = Field(default_factory=list, max_length=10)
+    note: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 class ProjectUpdate(Model):
@@ -148,6 +163,10 @@ class ProjectUpdate(Model):
     client_name: str | None = Field(default=None, max_length=200)
     customer_goal: str | None = Field(default=None, max_length=4000)
     review_departments: list[str] | None = Field(default=None, max_length=20)
+    # 본문에 있는 필드만 바꾼다(strategic_customer: null은 미입력으로 되돌림).
+    strategic_customer: bool | None = None
+    strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
+    integration_responsibility: IntegrationUpdate | None = None
 
 
 class Assignment(Model):
@@ -176,6 +195,21 @@ class JobRef(Model):
     step: JobStep | None
 
 
+class IntegrationSummary(Model):
+    holder: IntegrationHolder = "UNRESOLVED"
+
+
+class IntegrationResponsibility(IntegrationSummary):
+    """명세 v1.3 §7. required·basis_clause_ids는 서버 계산(rfp/integration.py), 나머지는 사람 입력."""
+
+    required: bool = False
+    holder_candidate_codes: list[str] = Field(default_factory=list)
+    basis_clause_ids: list[UUID] = Field(default_factory=list)
+    note: str | None = None
+    set_by: UUID | None = None
+    set_at: datetime | None = None
+
+
 class RfpProjectSummary(Provenance):
     id: UUID
     name: str
@@ -189,6 +223,9 @@ class RfpProjectSummary(Provenance):
     unresolved_mandatory_count: int
     pending_proposals_count: int
     created_at: datetime
+    # 명세 v1.3 §4 #1: 화면은 "전략 고객(영업 입력, 가설)" 배지로만 보여 준다.
+    strategic_customer: bool | None = None
+    integration_responsibility: IntegrationSummary = Field(default_factory=IntegrationSummary)
 
 
 class RfpProjectList(Model):
@@ -206,6 +243,11 @@ class RfpProjectDetail(RfpProjectSummary):
     draft_version: int | None
     review_version: int | None
     documents_count: int
+    strategic_customer_note: str | None = None
+    strategic_customer_set_by: UUID | None = None
+    integration_responsibility: IntegrationResponsibility = Field(
+        default_factory=IntegrationResponsibility
+    )
 
 
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
@@ -302,6 +344,14 @@ class RequirementOrigin(Model):
     edit_trace_support: bool
 
 
+class DesignatedItem(Model):
+    manufacturer: str | None
+    model: str
+    clause_id: UUID | None
+    procurement: DesignatedProcurement = "SPECIFIED_PROCUREMENT"
+    approval_question_id: UUID | None = None
+
+
 class RequirementSpec(Model):
     equipment: str | None
     task: str | None
@@ -315,6 +365,8 @@ class RequirementSpec(Model):
     # 타사 지정 모델. 없으면 null.
     designated_model: str | None
     undetermined_items: list[str]
+    # 명세 v1.3 §5.1: designated_model이 null이면 null이다. 추출(KAN-185)이 채운다.
+    designated_item: DesignatedItem | None = None
 
 
 class Judgement(Model):
@@ -354,6 +406,7 @@ class RequirementSummary(Model):
     needs_rereview: bool
     version: int
     rnd_check: RndCheck = "NOT_REQUIRED"
+    is_designated_item: bool = False
 
 
 class RequirementList(Model):

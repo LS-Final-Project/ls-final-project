@@ -200,3 +200,25 @@ def test_internal_questions_need_a_department_and_internal_issue_types_stay_inte
         s.SupplementSelection(
             version=1, path="EXTERNAL_PRODUCT", role_split="x", rnd_check_waiver_reason="짧음"
         )
+
+
+def test_project_strategic_customer_and_integration_fields_follow_spec_v1_3():
+    """명세 v1.3 §4 #2·#3·#4·§6·§7: 전략 고객은 선택 표시값, 통합 책임은 사람이 정하는 4값."""
+    created = s.ProjectCreate(name="14번", company_code="HOST", data_origin="synthetic")
+    assert (created.strategic_customer, created.strategic_customer_note) == (None, None)
+    update = s.ProjectUpdate(
+        version=1,
+        strategic_customer=True,
+        integration_responsibility={"holder": "SINGLE_PARTNER", "holder_candidate_codes": ["P-A"]},
+    )
+    assert update.integration_responsibility.holder == "SINGLE_PARTNER"
+    for bad in (
+        {"strategic_customer_note": "x" * 201},
+        {"integration_responsibility": {"holder": "NOBODY"}},
+    ):
+        with pytest.raises(ValueError):
+            s.ProjectUpdate(version=1, **bad)
+    # Responses default to "not entered" and "unresolved" for projects stored before v1.3.
+    assert s.IntegrationResponsibility().holder == "UNRESOLVED"
+    item = s.DesignatedItem(manufacturer="SEL", model="SEL-751A", clause_id=None)
+    assert item.procurement == "SPECIFIED_PROCUREMENT"
