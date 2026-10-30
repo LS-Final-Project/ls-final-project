@@ -458,11 +458,17 @@ def test_vector_searcher_fills_narrow_filters_through_hnsw_and_falls_back(
     with pytest.raises(ValueError, match="CS_SEARCH_INDEX_MISMATCH"):
         searcher("ticket text", narrow.model_copy(update={"index_version": "other"}))
 
+    broken_calls = []
+
     def broken(text: str) -> list[float]:
+        broken_calls.append(text)
         raise RuntimeError("PRIVATE_PROVIDER_MESSAGE")
 
     failing = VectorSearcher(forced, INDEX_VERSION, version, broken)
     with caplog.at_level(logging.WARNING, logger="backend.agent.cs_search"):
         assert failing("ticket text", narrow) == [] and failing.failures == 1
+        # 같은 문의의 다음 단계(전체 조건)는 임베딩을 다시 부르지 않고 실패도 다시 세지 않는다.
+        assert failing("ticket text", wide) == [] and failing.failures == 1
+    assert broken_calls == ["ticket text"]
     assert "CS_VECTOR_SEARCH_FAILED RuntimeError" in caplog.text
     assert "PRIVATE_PROVIDER_MESSAGE" not in caplog.text and "ticket text" not in caplog.text

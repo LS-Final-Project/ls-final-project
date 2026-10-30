@@ -9,7 +9,7 @@ import httpx
 import pytest
 from google.oauth2.credentials import Credentials
 from langgraph.checkpoint.memory import InMemorySaver
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from backend.agent import cs_runner, cs_search, cs_worker
 from backend.agent.cs_runner import (
@@ -411,3 +411,12 @@ def test_worker_builds_a_vector_searcher_only_when_enabled(monkeypatch):
     assert isinstance(searcher, cs_search.VectorSearcher) and clients[1:] == [False, True]
     assert searcher.embedding_version == "gemini-embedding-2:768:RETRIEVAL_DOCUMENT"
     assert searcher.index_version == FILTERS.index_version
+
+
+def test_vector_settings_accept_the_dimension_as_an_env_string(monkeypatch):
+    """환경 변수 CS_EMBEDDING_DIMENSION='768'(문자열)로 만들 수 있고, 768이 아니면 거부한다(.env.example 값)."""
+    monkeypatch.setenv("CS_EMBEDDING_DIMENSION", "768")
+    assert cs_search.CsVectorSettings().embedding_dimension == 768
+    monkeypatch.setenv("CS_EMBEDDING_DIMENSION", "1536")
+    with pytest.raises(ValidationError):
+        cs_search.CsVectorSettings()

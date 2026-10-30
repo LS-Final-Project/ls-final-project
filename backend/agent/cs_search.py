@@ -4,10 +4,11 @@ import asyncio
 import logging
 from collections.abc import Callable
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.cs.search.repository import search_fts, search_vector
@@ -30,7 +31,8 @@ class CsVectorSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CS_", extra="ignore")
     vector_search_enabled: bool = False
     embedding_model: str = "gemini-embedding-2"
-    embedding_dimension: Literal[768] = 768
+    # 환경 변수는 문자열('768')로 오므로 Literal[768](변환 없음) 대신 int로 받고 768만 허용한다(C20 vector(768)).
+    embedding_dimension: int = Field(default=768, ge=768, le=768)
     embedding_query_task_type: str = "RETRIEVAL_DOCUMENT"
 
     @property
@@ -143,11 +145,27 @@ class VectorSearcher:
             dsn: cs_app·cs_worker 연결 문자열.
             index_version: 검색할 청크 색인 판본. SearchFilters.index_version과 같아야 한다.
             embedding_version: 청크 임베딩 판본(CsVectorSettings.embedding_version).
-            embed: 질의 원문 → 768차원 값. 같은 원문은 lru_cache로 한 번만 부른다(단계마다 재호출하지 않음).
+            embed: 질의 원문 → 768차원 값. 같은 원문은 성공·실패 모두 lru_cache로 한 번만 부른다(단계마다
+                재호출하지 않음, 실패하면 다음 단계도 호출 없이 []).
         """
         self.dsn, self.index_version, self.embedding_version = dsn, index_version, embedding_version
-        self.embed = lru_cache(maxsize=8)(embed)
         self.failures = 0
+
+        @lru_cache(maxsize=8)
+        def embed_once(text: str) -> tuple[float, ...] | None:
+            """원문 하나를 임베딩한다. 실패는 None으로 캐시해 같은 문의의 다음 단계가 다시 부르지 않게 한다."""
+            try:
+                return tuple(embed(text))
+            except Exception as error:
+                self._failed(error)
+                return None
+
+        self.embed = embed_once
+
+    def _failed(self, error: Exception) -> None:
+        """실패를 세고 사유 코드와 예외 클래스 이름만 경고로 남긴다(공급자·DB 원문·메시지 미기록)."""
+        self.failures += 1
+        LOGGER.warning("CS_VECTOR_SEARCH_FAILED %s", type(error).__name__)
 
     def __call__(self, query: str, filters: SearchFilters) -> list[Candidate]:
         """질의 하나를 벡터로 찾는다.
@@ -158,7 +176,7 @@ class VectorSearcher:
 
         Returns:
             list[Candidate]: 거리 순 벡터 후보. 임베딩·DB 오류면 [](failures를 늘리고 CS_VECTOR_SEARCH_FAILED와 예외
-                클래스 이름만 경고로 남긴다). 실행 중인
+                클래스 이름만 경고로 남긴다). 임베딩 실패는 원문당 한 번만 세고, DB 오류는 단계마다 센다. 실행 중인
                 이벤트 루프 안이면 RuntimeError("CS_SEARCH_IN_EVENT_LOOP"), 판본이 다르면
                 ValueError("CS_SEARCH_INDEX_MISMATCH")다.
         """
@@ -193,12 +211,14 @@ class VectorSearcher:
                         document_kinds=filters.document_kinds,
                     )
 
+        vector = self.embed(query)
+        if vector is None:
+            return []
         try:
-            rows = asyncio.run(run(self.embed(query)))
+            rows = asyncio.run(run(list(vector)))
         except Exception as error:
-            # 공급자·DB 원문·메시지는 남기지 않는다(예외 클래스 이름만). 그 단계는 FTS 결과만 쓴다.
-            self.failures += 1
-            LOGGER.warning("CS_VECTOR_SEARCH_FAILED %s", type(error).__name__)
+            # 그 단계는 FTS 결과만 쓴다.
+            self._failed(error)
             return []
         return candidates_from_vector(rows)
 
