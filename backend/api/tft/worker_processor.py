@@ -12,8 +12,10 @@
 
 import asyncio
 import itertools
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -34,6 +36,7 @@ from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
+    Operator,
     ResponseSchema,
     build_inputs,
     extract_section,
@@ -207,12 +210,47 @@ def sections_of(tree: ClauseTree) -> list[str]:
     return out
 
 
+# 허용 오차 표기: 대칭(±10%, +/-0.5)과 비대칭(+0/-5%, +10%/-5%). 숫자 부분만 읽는다.
+SYMMETRIC = re.compile(r"^\s*(?:±|\+\s*/\s*-|\+-)\s*(\d+(?:\.\d+)?)\s*%?\s*$")
+ASYMMETRIC = re.compile(r"^\s*\+\s*(\d+(?:\.\d+)?)\s*%?\s*/\s*-\s*(\d+(?:\.\d+)?)\s*%?\s*$")
+
+
+def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
+    """명목값(EQ)과 원문 허용 오차로 비교 범위를 만든다(KAN-199). 계산은 코드가 하고 원문 값은 그대로 저장한다.
+
+    '%'가 붙은 오차는 명목값에 대한 비율이다(값 단위가 %여도: 5.75% ±10% → 5.175~6.325). '%'가 없으면 같은 단위의
+    절대값이다(±0.5 → v-0.5~v+0.5). 경계는 반올림하지 않는다.
+
+    Args:
+        item: 추출 요구.
+
+    Returns:
+        tuple: (연산자, 값). 허용 오차가 없거나 EQ가 아니면 원래 그대로다. 읽지 못하면 ("RANGE", 원래 값)이라
+            비교가 '범위를 숫자로 읽을 수 없어 확인 필요'(조건부)가 된다.
+    """
+    if item.tolerance is None or item.operator != "EQ" or item.value is None:
+        return item.operator, item.value
+    nominal = grading._number(item.value)
+    symmetric, asymmetric = SYMMETRIC.match(item.tolerance), ASYMMETRIC.match(item.tolerance)
+    if nominal is None or not (symmetric or asymmetric):
+        return "RANGE", item.value
+    if symmetric:
+        up = down = symmetric.group(1)
+    else:
+        assert asymmetric is not None
+        up, down = asymmetric.groups()
+    scale = abs(nominal) / 100 if "%" in item.tolerance else Decimal(1)
+    low, high = nominal - Decimal(down) * scale, nominal + Decimal(up) * scale
+    return "RANGE", f"{format(low.normalize(), 'f')}~{format(high.normalize(), 'f')}"
+
+
 def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
     COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은 추출의 attribute_key(자사 사양
     어휘, 연결하지 못했으면 OTHER → 비교하지 않음)다. 제품 계열은 equipment_family로 compare_in_family가 고른다
-    (KAN-199). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
+    (KAN-199). 허용 오차가 있는 명목값은 범위로 바꾸고(tolerance_range), 등록(Listed) 요구와 규격 체계도 넘긴다.
+    저장하는 요구 판본의 attribute·value는 추출 원문 그대로다.
 
     Args:
         item: 추출 요구.
@@ -221,17 +259,20 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         comparison.Requirement: 비교 입력.
     """
     certification = item.kind == "COMPLIANCE"
+    operator, value = tolerance_range(item)
     return comparison.Requirement(
         clause_no=item.clause_no,
         item=item.equipment or item.task or item.attribute,
         attribute=None if certification else item.attribute_key,
-        value=item.value,
+        value=value,
         unit=item.unit,
-        operator=item.operator,
+        operator=operator,
         conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
         necessity=item.necessity,
         # 추출은 규격을 value에 둔다(attribute는 'standard compliance' 같은 이름표, 14번 실측).
         certification_standard=(item.value or item.attribute) if certification else None,
+        certification_listed=item.certification_listed,
+        standard_system=item.standard_system,
         designated_model=item.designated_model,
         task=item.task,
     )
@@ -241,7 +282,8 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
     """추출 요구 → 협력사 등급 입력. 장비·값이 없는 요구는 등급을 매길 수 없어 None이다.
 
     COMPLIANCE는 자사 비교(to_comparison)와 같은 규칙으로 인증 요구다: attribute='certification', 규격은 value
-    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199).
+    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199). 등록(Listed) 요구는
+    grading이 읽는 listing=listed 조건으로, 허용 오차는 자사 비교와 같은 범위로 넘긴다.
 
     Args:
         requirement_id: 저장한 요구 ID.
@@ -251,7 +293,13 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         grading.Requirement | None: 등급 입력.
     """
     certification = item.kind == "COMPLIANCE"
-    value = (item.value or item.attribute) if certification else item.value
+    operator, value = tolerance_range(item)
+    value = (item.value or item.attribute) if certification else value
+    conditions = [Condition.model_validate(c.model_dump()) for c in item.conditions]
+    if item.certification_listed and not any(
+        c.name == "listing" and grading._norm(c.value) == "listed" for c in conditions
+    ):
+        conditions.append(Condition(name="listing", value="listed"))
     # 속성을 사양 항목에 연결하지 못한 요구(OTHER)는 같은 속성 근거를 찾을 수 없어 등급을 매기지 않는다.
     if (
         item.equipment is None
@@ -266,8 +314,8 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         attribute="certification" if certification else item.attribute_key,
         value=value,
         unit=item.unit,
-        operator=item.operator,
-        conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
+        operator=operator,
+        conditions=conditions,
         standard_system=item.standard_system,
         necessity=item.necessity,
         designated_model=item.designated_model,
@@ -398,7 +446,10 @@ async def process(
                 if stopped:
                     # extract_section은 공급자 예외를 결과 코드로 바꾸므로 취소·소유권 상실을 여기서 다시 올린다.
                     raise stopped[0]
-                needs_review |= result.outcome != "VALID"
+                # 요구별 검토 표시(허용 오차 불일치·목록 밖 키, KAN-185)도 작업 요약에 모은다.
+                needs_review |= result.outcome != "VALID" or any(
+                    r.needs_review for r in result.requirements
+                )
                 extracted += [(document, clauses, r) for r in result.requirements]
                 emit({"step": "extract", "counts": counts(len(extracted))})
                 called = True

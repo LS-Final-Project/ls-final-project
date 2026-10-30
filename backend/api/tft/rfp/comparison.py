@@ -82,6 +82,8 @@ class Requirement(Strict):
     certification_standard: str | None = None
     # 등록(Listed)을 요구하면 시험 성적은 대신하지 못한다(기획서 4.2 "IEC 형식시험 ↔ UL 등록 요구").
     certification_listed: bool = False
+    # 요구가 기대는 규격 체계(IEC·IEEE·UL·NEMA, 없으면 NONE). 근거 제품의 체계와 다르면 충족을 확정하지 않는다.
+    standard_system: str = "NONE"
     designated_model: str | None = None
     task: str | None = None
     # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
@@ -188,6 +190,53 @@ def _no_data(
     )
 
 
+def _evidence_systems(product: Product) -> tuple[set[str], set[str]]:
+    """근거 제품의 규격 체계와, 변형 모델에만 있는 체계를 나눈다(KAN-199).
+
+    체계는 Product.standards의 앞 낱말(system_of)이다. 변형 판별은 문자열이 아니라 certifications 구조로 한다: 그 체계의
+    인증이 variant가 있는 것뿐이면(예: MCCB-ABS-403c의 UL -U) 기본 모델 값이 그 체계로 시험됐다는 근거가 없어
+    근거 체계에서 뺀다.
+
+    Args:
+        product: 자사 후보.
+
+    Returns:
+        tuple[set[str], set[str]]: (근거 체계, 변형 모델에만 있는 체계). NONE은 넣지 않는다.
+    """
+    with_variant = {system_of(c.standard) for c in product.certifications if c.variant}
+    without_variant = {system_of(c.standard) for c in product.certifications if not c.variant}
+    variant_only = (with_variant - without_variant) - {"NONE"}
+    systems = {system_of(s) for s in product.standards} - {"NONE"}
+    return systems - variant_only, variant_only
+
+
+def _system_mismatch(requirement: Requirement, product: Product) -> list[str]:
+    """충족 판정을 확정하지 못하게 하는 규격 체계 차이를 찾는다(KAN-199).
+
+    잘못된 충족을 막는 규칙이라 충족(EVIDENCE_FOUND)에만 쓴다. 미달(SPEC_GAP)은 낮추지 않는다: 정격 전압처럼 시험
+    규격과 무관한 물리 정격의 미달(예: B-1 15 kV 요구 vs 12 kV, 요구 IEEE·근거 IEC)은 체계가 달라도 사양 차이다.
+    조건 차이(주위 온도·지속시간 등)는 값 자체를 바꾸므로 미달도 조건부로 두는 것과 성격이 다르다.
+
+    Args:
+        requirement: 비교 입력.
+        product: 자사 후보.
+
+    Returns:
+        list[str]: 확인할 항목. 요구 체계가 NONE이거나, 근거 체계를 모르거나(standards 비어 있음), 같으면 빈 목록.
+    """
+    wanted = requirement.standard_system
+    if wanted == "NONE":
+        return []
+    systems, variant_only = _evidence_systems(product)
+    found = []
+    if systems and wanted not in systems:
+        basis = ", ".join(s for s in product.standards if system_of(s) in systems)
+        found.append(f"규격 체계 다름: 요구 {wanted}, 근거 {basis}, 시험 규격 확인")
+    if wanted in variant_only:
+        found.append(f"{wanted} 체계는 변형 모델에만 있음: 변형 모델 값 확인")
+    return found
+
+
 def _attribute_match(requirement: Requirement, product: Product) -> CandidateMatch:
     """같은 속성의 사양 근거로 판정한다. 근거가 여럿이면 가장 좋은 것을 쓴다."""
     head = grading._head(_as_grading(requirement))
@@ -241,6 +290,11 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
     unresolved = list(gaps)
     if note and result == "MEETS":
         unresolved.append("요구 지속시간의 시험값 확인(환산 충족)")
+    mismatch = _system_mismatch(requirement, product) if status == "EVIDENCE_FOUND" else []
+    if mismatch:
+        status = "CONDITIONAL"
+        reason += f" {'; '.join(mismatch)}."
+        unresolved += mismatch
     if unit_differs:
         unresolved.append(f"단위 확인: 요구 {requirement.unit}, 자사 {fact.unit}")
     elif result == "NOT_COMPARABLE":

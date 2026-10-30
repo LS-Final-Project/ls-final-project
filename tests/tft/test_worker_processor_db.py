@@ -438,3 +438,29 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
         processor(job, emit)
     assert extractor.calls == 1 and seen[-1] == {"step": "extract"}
     assert stored(admin, project)["requirements"] == 0
+
+
+@pytest.mark.parametrize(
+    ("printed", "review"), [("5.75 percent ±10%", True), ("5.75 percent", False)]
+)
+def test_a_requirement_level_review_reaches_the_job_summary(
+    worker_dsn, admin, tmp_path, printed, review
+):
+    """KAN-199: 추출은 VALID여도 요구별 검토 표시(원문의 허용 오차가 빠짐, KAN-185)가 있으면 작업 요약이 검토다."""
+    quote = f"The impedance shall be {printed}."
+    spec = f"# SECTION 26 12 19\n\nPART 2 - PRODUCTS\n\n2.1 TRANSFORMERS\n\nA. {quote}\n".encode()
+    wanted = {**REQUIREMENTS[1], "clause_no": "2.1.A", "quote": quote, "designated_model": None}
+    del wanted["designated_manufacturer"]
+
+    class OneRequirement(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text=json.dumps({"requirements": [wanted]}),
+                usage=Usage(),
+                model_version="fake",
+                finish_reasons=[],
+            )
+
+    summary, _ = run(worker_dsn, make_project(admin, tmp_path, spec), OneRequirement())
+    assert summary["needs_review"] is review
