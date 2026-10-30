@@ -210,7 +210,7 @@ def sections_of(tree: ClauseTree) -> list[str]:
 def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
-    기본값(2026-10-30, KAN-186 확인 요청 중): COMPLIANCE는 인증 요구(certification_standard=attribute), 그 밖은
+    기본값(2026-10-30, KAN-186 확인 요청 중): COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은
     attribute를 자사 사양 어휘로 맞춘 값(attributes.canonical, 확실하지 않으면 원문), 제품 계열은 정하지 않는다
     (search 단계가 자사 제품 전체와 비교). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
 
@@ -230,7 +230,8 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         operator=item.operator,
         conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
         necessity=item.necessity,
-        certification_standard=item.attribute if certification else None,
+        # 추출은 규격을 value에 둔다(attribute는 'standard compliance' 같은 이름표, 14번 실측).
+        certification_standard=(item.value or item.attribute) if certification else None,
         designated_model=item.designated_model,
         task=item.task,
     )
