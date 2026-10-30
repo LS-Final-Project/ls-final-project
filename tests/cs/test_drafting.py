@@ -359,6 +359,65 @@ FORBIDDEN_EXAMPLES = {
         "기술자를 파견하겠습니다.",
         "엔지니어를 파견해 드리겠습니다.",
     ],
+    # KAN-193 반품 사유·제조 책임 확정.
+    FORBIDDEN_COMMITMENTS[17].pattern: [
+        "This is a manufacturing defect.",
+        "The failure has been confirmed as a manufacturing defect.",
+        "Your unit was confirmed to be a manufacturing fault.",
+        "We have confirmed that it is a manufacturing defect.",
+        "We have determined that your unit is a manufacturing defect.",
+        "Our team confirms that this is a manufacturing defect.",
+        "This is a confirmed manufacturing defect.",
+        "It is clearly a manufacturing defect.",
+        "We confirm that it's a manufacturing defect.",
+        # 조동사가 앞에 있어도 확정이다(#354 리뷰 P2).
+        "We would like to inform you that your unit is a manufacturing defect.",
+        "We will confirm it is a manufacturing defect.",
+        "We should note that this is a manufacturing defect.",
+        "You may be glad to know this is a manufacturing defect.",
+        # 앞 절·응대 문구의 부정은 확정을 부정하지 않는다(#354 리뷰 P2).
+        "Please do not worry, this is a manufacturing defect.",
+        "Please don't hesitate to contact us; it is a manufacturing defect.",
+        "Once again, we confirm it is a manufacturing defect.",
+        "Please do not worry that it is a manufacturing defect.",
+        "Once again we confirm it is a manufacturing defect.",
+    ],
+    FORBIDDEN_COMMITMENTS[18].pattern: [
+        "The return reason has been confirmed.",
+        "Return reason is determined.",
+    ],
+    FORBIDDEN_COMMITMENTS[19].pattern: [
+        "We accept full responsibility for the failure.",
+        "We take liability for the damage.",
+        "We accept responsibility.",
+    ],
+    FORBIDDEN_COMMITMENTS[20].pattern: [
+        "The damage was determined to be customer misuse.",
+        "It is confirmed as improper installation.",
+    ],
+    FORBIDDEN_COMMITMENTS[21].pattern: [
+        "제조 불량으로 확인되었습니다.",
+        "제품 결함으로 판정되었습니다.",
+        "검사 결과 불량으로 확정됐습니다.",
+        "불량이 확인되었습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[22].pattern: [
+        "당사 책임으로 확인되었습니다.",
+        "저희 책임이 인정됩니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[23].pattern: [
+        "반품 사유가 제조 불량으로 확정되었습니다.",
+        "반품 사유는 단순 변심으로 확정했습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[24].pattern: [
+        "고객 과실로 판정되었습니다.",
+        "설치 부주의로 확인되었습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[25].pattern: ["제조 불량입니다.", "제품 결함이 맞습니다."],
+    FORBIDDEN_COMMITMENTS[26].pattern: [
+        "이번 불량은 저희 책임입니다.",
+        "제품 고장의 책임은 당사에 있습니다.",
+    ],
 }
 # 조건부·부정 표현은 허용한다(경계 고정).
 ALLOWED_EXAMPLES = [
@@ -379,6 +438,35 @@ ALLOWED_EXAMPLES = [
     "We will check whether your unit is covered under warranty.",
     "We will confirm whether or not it is covered under warranty.",
     "In case it is covered under warranty, we will let you know.",
+    # KAN-193: 반품 사유·책임은 검사 뒤 확정한다는 조건부 표현은 허용한다.
+    "We will confirm whether it is a manufacturing defect after inspection.",
+    "If the failure is a manufacturing defect, it may be covered under warranty.",
+    "The return reason will be confirmed after inspection.",
+    "It is not a manufacturing defect yet.",
+    "Responsibility will be decided after the inspection.",
+    "반품 사유는 검사 후 확정됩니다.",
+    "제조 불량 여부는 검사 후 확인하겠습니다.",
+    "책임 소재는 점검 결과에 따라 판단합니다.",
+    "고객 과실 여부는 확인 후 안내드립니다.",
+    "불량 여부를 확인하고 있습니다.",
+    # 부정·미확정 서술도 허용한다(#354 리뷰 P3).
+    "It has not yet been determined to be customer misuse.",
+    "It has not been confirmed as improper installation.",
+    "We cannot say that it is a manufacturing defect.",
+    "We can't confirm that it is a manufacturing defect yet.",
+    "We are not sure that the failure is a manufacturing defect.",
+    "The return reason is not confirmed yet.",
+    "제조 불량으로 확인되지 않았습니다.",
+    "아직 고객 과실로 판정되지 않았습니다.",
+    # 같은 문장 앞부분의 조건·부정 표지와 한국어 조건 어미(#354 리뷰 P2).
+    "If inspection shows the failure is a manufacturing defect, it may be covered.",
+    "It is possibly a manufacturing defect, which inspection will show.",
+    "제조 불량으로 확인되었다면 보증이 적용될 수 있습니다.",
+    "고객 과실로 판정되었는지는 검사 후 안내드립니다.",
+    "당사 책임으로 확인될 경우 별도로 안내드립니다.",
+    "We take responsibility for following up quickly.",
+    "배송 지연은 저희 책임입니다. 사과드립니다.",
+    "안내가 늦은 점은 저희 책임입니다.",
 ]
 
 
@@ -396,6 +484,21 @@ def test_forbidden_pattern_table_is_fixed():
     for pattern in FORBIDDEN_COMMITMENTS:
         for example in FORBIDDEN_EXAMPLES[pattern.pattern]:
             assert pattern.search(example), (pattern.pattern, example)
+
+
+@pytest.mark.parametrize(
+    "text", [example for examples in FORBIDDEN_EXAMPLES.values() for example in examples]
+)
+def test_forbidden_examples_are_rejected(text):
+    """예문 표의 확정형은 문장 단위 예외를 거친 뒤에도 거부된다.
+
+    Args:
+        text: 금지 예문.
+
+    Returns:
+        None: find_forbidden_commitment가 True인지 확인한다.
+    """
+    assert find_forbidden_commitment(text)
 
 
 @pytest.mark.parametrize("text", ALLOWED_EXAMPLES)
