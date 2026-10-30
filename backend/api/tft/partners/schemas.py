@@ -8,42 +8,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.engine.rfp.vocabulary import AttributeKey
+
 Scope = Literal["SUPPLY", "ASSEMBLY", "INSTALL", "TEST", "CALC", "TRAINING"]
-Attribute = Literal[
-    "form",
-    "rated_max_voltage",
-    "bil",
-    "short_time_withstand_current",
-    "rated_current",
-    "arc_resistant",
-    "internal_arc_classification",
-    "secondary_voltage",
-    "primary_voltage",
-    "rated_power",
-    "insulation_class",
-    "impedance",
-    "tap",
-    "forced_air_capacity_increase",
-    "protection_functions",
-    "arc_flash_reduction",
-    # KAN-186 시연 A를 요구별로 나눈 속성(14번 2.5.L·G.1·E)과 상업 조건(보증, 18번).
-    "winding_material",
-    "winding_temperature_sensor",
-    "communication_interface",
-    "warranty_months",
-    # 자사 사양 23종 정규화(KAN-186 scripts/rfp_own_spec_facts.py). 같은 숫자라도 다른 속성은 합치지 않는다:
-    # 정격 사용 전압(Ue)은 정격 최대전압과, 모선 정격 전류는 정격 전류와 다른 속성이다.
-    "rated_operational_voltage",
-    "busbar_rated_current",
-    "power_frequency_withstand",
-    "breaking_capacity_icu",
-    "breaking_capacity_ics",
-    "rated_short_circuit_breaking_current",
-    "frame_size",
-    "number_of_poles",
-    "vector_group",
-    "protection_degree",
-]
+# 속성 어휘는 엔진 쪽 단일 원본(KAN-185)이다. 추출 요구의 attribute_key와 같은 목록이다.
+Attribute = AttributeKey
 
 
 class Strict(BaseModel):

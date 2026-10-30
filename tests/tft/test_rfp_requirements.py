@@ -8,6 +8,7 @@ from backend.engine.documents.model import Block, DeletedValue, Position, build_
 from backend.engine.rfp.clauses import build_clause_tree
 from backend.engine.rfp.edits import interpret_edits
 from backend.engine.rfp.requirements import (
+    CODE_ONLY_FIELDS,
     ExtractedRequirement,
     ExtractionOutput,
     ResponseSchema,
@@ -87,7 +88,11 @@ def test_response_schema_matches_the_strict_model_without_additional_properties(
     assert fields(ResponseSchema).keys() == fields(ExtractionOutput).keys()
     from backend.engine.rfp.requirements import Condition, ConditionSchema, RequirementSchema
 
-    assert RequirementSchema.model_fields.keys() == ExtractedRequirement.model_fields.keys()
+    # needs_review는 코드가 정한다(모델 응답 스키마에 없다).
+    assert (
+        RequirementSchema.model_fields.keys()
+        == ExtractedRequirement.model_fields.keys() - CODE_ONLY_FIELDS
+    )
     assert ConditionSchema.model_fields.keys() == Condition.model_fields.keys()
     # Gemini는 additionalProperties를 받지 않는다.
     assert "additionalProperties" not in json.dumps(ResponseSchema.model_json_schema())
@@ -410,3 +415,155 @@ def test_a_long_section_is_split_by_first_level_groups_and_merged():
     ]
     assert result.sentences == len(requirement_sentences(item))
     assert result.usage.input_tokens == 20 and len(calls) == 3
+
+
+def breaker_section():
+    """일반 표현의 합성 절(차단기). 의미 칸 검사에 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 LOW-VOLTAGE CIRCUIT BREAKERS"),
+        p("A. Rated current shall be 630 A ±5%."),
+        p("B. Breakers shall be listed and labeled to the applicable product standard."),
+        p("C. Enclosure paint color shall be light grey."),
+        p("D. Rated operational voltage shall be 415 V with a tolerance of +10/-15 percent."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def semantic(clause_no, quote, attribute, value, unit, key, family, tolerance=None, **extra):
+    return req(
+        clause_no,
+        quote,
+        attribute,
+        value,
+        unit,
+        attribute_key=key,
+        equipment_family=family,
+        tolerance=tolerance,
+        certification_listed=extra.pop("listed", False),
+        **extra,
+    )
+
+
+def test_semantic_fields_are_kept_when_they_are_in_the_lists_and_the_quote():
+    """속성 키·계열·허용 오차·Listed는 목록과 인용에 맞으면 그대로 남고 검토 표시가 없다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                semantic(
+                    "2.1.A",
+                    "Rated current shall be 630 A ±5%",
+                    "rated current",
+                    "630",
+                    "A",
+                    "rated_current",
+                    "LV_BREAKER",
+                    "±5%",
+                ),
+                semantic(
+                    "2.1.B",
+                    "Breakers shall be listed and labeled",
+                    "listing",
+                    None,
+                    None,
+                    "OTHER",
+                    "LV_BREAKER",
+                    operator="TEXT",
+                    listed=True,
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, breaker_section())
+    assert rejected == []
+    assert [
+        (r.attribute_key, r.equipment_family, r.tolerance, r.certification_listed, r.needs_review)
+        for r in kept
+    ] == [
+        ("rated_current", "LV_BREAKER", "±5%", False, False),
+        ("OTHER", "LV_BREAKER", None, True, False),
+    ]
+    # 원문 칸은 그대로다(정규화는 코드가 한다).
+    assert (kept[0].attribute, kept[0].value, kept[0].unit) == ("rated current", "630", "A")
+
+
+def test_names_outside_the_lists_become_other_and_are_reviewed():
+    """목록 밖 키·계열은 OTHER로 바꾸고 검토로 둔다(모델의 추측을 믿지 않는다). 섹션 전체를 버리지 않는다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                semantic(
+                    "2.1.C",
+                    "Enclosure paint color shall be light grey",
+                    "paint color",
+                    "light grey",
+                    None,
+                    "paint_color",
+                    "ENCLOSURE",
+                    operator="TEXT",
+                )
+            ]
+        }
+    )
+    [kept], _, _, _ = validate_output(raw, breaker_section())
+    assert (kept.attribute_key, kept.equipment_family, kept.needs_review) == (
+        "OTHER",
+        "OTHER",
+        True,
+    )
+
+
+def test_a_tolerance_outside_the_quote_is_cleared_and_a_missing_one_is_reviewed():
+    """인용에 없는 허용 오차는 지우고 검토, 인용에 허용 오차가 있는데 비운 수치 요구도 검토다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                semantic(
+                    "2.1.A",
+                    "Rated current shall be 630 A",
+                    "rated current",
+                    "630",
+                    "A",
+                    "rated_current",
+                    "LV_BREAKER",
+                    "±10%",
+                ),
+                semantic(
+                    "2.1.D",
+                    "Rated operational voltage shall be 415 V with a tolerance of +10/-15 percent",
+                    "rated operational voltage",
+                    "415",
+                    "V",
+                    "rated_operational_voltage",
+                    "LV_BREAKER",
+                ),
+            ]
+        }
+    )
+    invented, missing = validate_output(raw, breaker_section())[0]
+    assert (invented.tolerance, invented.needs_review) == (None, True)
+    assert (missing.tolerance, missing.needs_review) == (None, True)
+
+
+def test_the_prompt_lists_the_vocabulary_without_rfp_wording():
+    """지시문은 단일 원본의 어휘·계열 목록을 싣고 모르면 OTHER라고 말한다."""
+    text = prompt(breaker_section())
+    assert "rated_short_circuit_breaking_current" in text and "LV_BREAKER" in text
+    assert '"OTHER"' in text and "Never compute a range" in text
+
+
+def test_the_vocabulary_is_one_source_for_spec_facts_and_extraction():
+    """협력사·자사 사양 속성 형식과 추출 키가 같은 원본이고, 자사 사양 파일은 그 부분집합이다."""
+    from backend.api.tft.partners.schemas import Attribute
+    from backend.api.tft.rfp.comparison import load_own_products
+    from backend.engine.rfp.vocabulary import (
+        ATTRIBUTE_KEYS,
+        EQUIPMENT_FAMILIES,
+        AttributeKey,
+    )
+
+    assert Attribute is AttributeKey
+    products = load_own_products()
+    assert {f.attribute for p in products for f in p.spec_facts} <= ATTRIBUTE_KEYS
+    assert {p.family for p in products} <= EQUIPMENT_FAMILIES

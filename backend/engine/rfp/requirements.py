@@ -24,10 +24,19 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.engine.rfp.clauses import ClauseTree
+from backend.engine.rfp.vocabulary import (
+    ATTRIBUTE_KEYS,
+    EQUIPMENT_FAMILIES,
+    OTHER,
+    AttributeKey,
+    EquipmentFamily,
+    Other,
+)
 from backend.shared.ai import Generation, Usage
 
 # v2: 지정품 제조사(designated_manufacturer)와 원문 대조(명세 v1.3 §5.1·§11). v1 측정치는 계약 문서 표에 있다.
-EXTRACTION_VERSION = "rfp-requirements-v2"
+# v3(KAN-185 의미 구조화): 모델이 내부 속성 키·제품 계열·허용 오차·Listed 여부를 같은 호출 안에서 연결한다.
+EXTRACTION_VERSION = "rfp-requirements-v3"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -85,6 +94,27 @@ class ExtractedRequirement(Strict):
         default=None,
         description="지정 모델의 제조사가 원문에 적혀 있을 때만 그 이름. 추측하지 않는다. 없으면 null.",
     )
+    # v3 의미 칸. 어휘·계열은 vocabulary 단일 원본이고, 목록 밖 값은 validate_output이 OTHER로 바꾼다.
+    attribute_key: AttributeKey | Other = Field(
+        default=OTHER,
+        description="같은 물리량인 내부 사양 항목 하나. 확실하지 않으면 OTHER(추측하지 않는다).",
+    )
+    equipment_family: EquipmentFamily | Other | None = Field(
+        default=None,
+        description="대상 장비의 제품 계열. 모르면 OTHER, 과업·문서 요구는 null.",
+    )
+    tolerance: str | None = Field(
+        default=None, description="원문의 허용 오차 표기 그대로(예: ±10%, +0/-5%). 없으면 null."
+    )
+    certification_listed: bool = Field(
+        default=False, description="원문이 Listed·labeled 등록을 요구할 때만 true."
+    )
+    # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
+    needs_review: bool = False
+
+
+# 모델이 채우지 않고 코드가 정하는 칸. 응답 스키마와 필드를 맞출 때 뺀다.
+CODE_ONLY_FIELDS = frozenset({"needs_review"})
 
 
 class DesignatedItem(Strict):
@@ -138,6 +168,11 @@ class RequirementSchema(_Loose):
     necessity: Necessity
     designated_model: str | None
     designated_manufacturer: str | None = None
+    # 목록은 enum으로 준다(Gemini 구조화 출력). 받은 값은 validate_output이 다시 확인한다.
+    attribute_key: AttributeKey | Other
+    equipment_family: EquipmentFamily | Other | None
+    tolerance: str | None
+    certification_listed: bool
 
 
 class ResponseSchema(_Loose):
@@ -240,6 +275,16 @@ Return JSON matching the schema. Rules:
 - designated_manufacturer: the maker of that model only when its name is written in the clause; else null.
   Do not infer a maker from the model name.
 - standard_system from the cited standard family (IEEE/ANSI -> IEEE, UL, NEMA, IEC), else NONE.
+- attribute_key: the internal spec key for the SAME physical quantity, from this list only:
+  {attribute_keys}. If the text is not clearly the same quantity, use "OTHER". Do not guess from a similar word
+  (e.g. a momentary current is not a short-time withstand current; an enclosure paint color is OTHER).
+  Keep attribute as the clause wording; attribute_key is only the link.
+- equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
+  sure; null for a task or document requirement.
+- tolerance: a tolerance printed in the quote, copied exactly (e.g. "±10%", "+0/-5%"); else null. Keep value
+  as the nominal value only. Never compute a range.
+- certification_listed: true only when the text requires a listing or label (e.g. "listed", "labeled",
+  "bearing the mark"); a test report or "in accordance with" a standard is false.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
 
@@ -253,7 +298,11 @@ def prompt(item: ExtractionInput) -> str:
     """모델에 보낼 지시문. 조항은 JSON으로 넣어 지시문과 섞이지 않게 한다."""
     clauses = json.dumps([c.model_dump() for c in item.clauses], ensure_ascii=False, indent=1)
     return PROMPT.format(
-        section_no=item.section_no, section_title=item.section_title or "", clauses=clauses
+        section_no=item.section_no,
+        section_title=item.section_title or "",
+        clauses=clauses,
+        attribute_keys=", ".join(sorted(ATTRIBUTE_KEYS)),
+        families=", ".join(sorted(EQUIPMENT_FAMILIES)),
     )
 
 
@@ -278,6 +327,63 @@ def _grounded_designation(
     ), True
 
 
+# 원문에 허용 오차가 적혀 있다는 표시(±, +/-, +0/-5, tolerance, plus or minus).
+TOLERANCE_MARK = re.compile(
+    r"±|\+\s*/\s*-|\+\s*\d[\d.]*\s*/\s*-|tolerance|plus or minus", re.IGNORECASE
+)
+
+
+def _outside_lists(data: dict[str, object]) -> set[int]:
+    """목록 밖 attribute_key·equipment_family를 OTHER로 바꾼다(제자리). 모델의 연결을 믿지 않은 요구 번호를 돌려준다.
+
+    Args:
+        data: 모델 응답 JSON(엄격 검사 전).
+
+    Returns:
+        set[int]: 값을 바꾼 요구의 순번.
+    """
+    changed: set[int] = set()
+    requirements = data.get("requirements")
+    if not isinstance(requirements, list):
+        return changed
+    for index, req in enumerate(requirements):
+        if not isinstance(req, dict):
+            continue
+        key = req.get("attribute_key", OTHER)
+        if key != OTHER and key not in ATTRIBUTE_KEYS:
+            req["attribute_key"] = OTHER
+            changed.add(index)
+        family = req.get("equipment_family")
+        if family not in (None, OTHER) and family not in EQUIPMENT_FAMILIES:
+            req["equipment_family"] = OTHER
+            changed.add(index)
+    return changed
+
+
+def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequirement:
+    """허용 오차를 원문과 맞추고 사람이 볼지 정한다. 모델이 보낸 needs_review는 쓰지 않는다.
+
+    - tolerance가 인용 안에 그대로 없으면 지우고 검토로 둔다(지어낸 허용 오차).
+    - 값이 숫자인데 인용에 허용 오차 표기가 있고 tolerance가 비었으면 검토로 둔다(빠진 허용 오차).
+    - 목록 밖 키·계열을 OTHER로 바꿨으면 검토로 둔다.
+
+    Args:
+        req: 인용·값 검사를 통과한 요구.
+        distrusted: _outside_lists가 바꾼 요구인지.
+
+    Returns:
+        ExtractedRequirement: tolerance·needs_review를 정한 요구.
+    """
+    tolerance = req.tolerance
+    review = distrusted
+    if tolerance is not None and _space(tolerance) not in _space(req.quote):
+        tolerance, review = None, True
+    numeric = req.value is not None and re.search(r"\d", req.value) is not None
+    if tolerance is None and numeric and TOLERANCE_MARK.search(req.quote):
+        review = True
+    return req.model_copy(update={"tolerance": tolerance, "needs_review": review})
+
+
 def validate_output(
     raw: str, item: ExtractionInput
 ) -> tuple[list[ExtractedRequirement], list[Rejected], int, int]:
@@ -294,15 +400,17 @@ def validate_output(
         ValueError: JSON·스키마 위반(RFP_INVALID_OUTPUT).
     """
     try:
-        output = ExtractionOutput.model_validate(json.loads(raw))
-    except (json.JSONDecodeError, ValidationError, TypeError):
+        data = json.loads(raw)
+        distrusted = _outside_lists(data)
+        output = ExtractionOutput.model_validate(data)
+    except (json.JSONDecodeError, ValidationError, TypeError, AttributeError):
         raise ValueError("RFP_INVALID_OUTPUT") from None
     texts = {c.clause_no: _space(_clause_text(c)) for c in item.clauses}
     kept: list[ExtractedRequirement] = []
     rejected: list[Rejected] = []
     dropped = 0
     undesignated = 0
-    for req in output.requirements:
+    for index, req in enumerate(output.requirements):
         reason: RejectReason | None = None
         if req.clause_no not in texts:
             reason = "UNKNOWN_CLAUSE"
@@ -317,7 +425,7 @@ def validate_output(
         if reason is None:
             req, cleared = _grounded_designation(req, texts[req.clause_no])
             undesignated += cleared
-            kept.append(req)
+            kept.append(_reviewed(req, index in distrusted))
         else:
             rejected.append(
                 Rejected(clause_no=req.clause_no, attribute=req.attribute, reason=reason)

@@ -29,12 +29,12 @@
       "stage": "rfp_extraction",
       "kind": "NO_ADOPTION",
       "field": null,
-      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다",
+      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v3 의미 칸(KAN-185), 채택 전",
       "ticket": "KAN-147",
       "recorded_on": "2026-10-30",
       "deployed": {
         "model": "gemini-3.6-flash",
-        "extraction_version": "rfp-requirements-v2"
+        "extraction_version": "rfp-requirements-v3"
       }
     }
   ]

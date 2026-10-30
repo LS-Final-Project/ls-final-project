@@ -17,6 +17,13 @@
 2. **모델**: Gemini 구조화 출력으로 요구를 낸다. 요구 하나는 장비 하나의 속성 하나 또는 과업 하나다.
    - 출력 항목: `clause_no`, 근거 `quote`, `kind`, `equipment`, `task`, `attribute`, `value`, `unit`, `operator`
    - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`, `designated_manufacturer`
+   - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
+     - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
+     - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
+     - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
+     - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
+     - 어휘·계열은 `backend/engine/rfp/vocabulary.py` 단일 원본이다. 사양 사실 형식(`partners.schemas.Attribute`)도 같은 목록이고, 자사 사양 파일은 그 부분집합이다(검사가 확인)
+     - 지시문은 목록과 '모르면 OTHER, 비슷한 말로 추측하지 않음'을 싣는다. 예시는 14번 문구를 쓰지 않는다
    - 명령문("Provide…", "Comply with…")도 요구로 읽는다.
    - `<Insert value>` 같은 빈 값은 값 그대로 남겨 고객 질문으로 보낸다.
    - 가격·표준 납기는 뽑지 않는다.
@@ -25,10 +32,14 @@
    - `QUOTE_NOT_IN_CLAUSE`: 인용이 그 조항 현행 텍스트에 없음(지운 값을 쓰면 여기서 걸린다)
    - `VALUE_NOT_IN_QUOTE`: 수치 값이 인용에 없음
    - 문장형 요구(`operator=TEXT`)의 값이 인용에 없으면 모델이 바꿔 쓴 말이므로 **값만 비우고 요구는 남긴다**(`value_dropped`).
+   - 의미 칸 검사(v3). 요구를 버리지 않고 `needs_review`로 표시한다. `needs_review`는 코드만 정하며 응답 스키마에 없다.
+     - 목록 밖 `attribute_key`·`equipment_family`는 엄격 검사 전에 `OTHER`로 바꾸고 검토로 둔다. 응답 전체를 스키마 위반으로 버리지 않는다
+     - `tolerance`가 인용 안에 그대로 없으면 지우고 검토로 둔다
+     - 값이 숫자인데 인용에 허용 오차 표기(±, +/-, +0/-5, tolerance, plus or minus)가 있고 `tolerance`가 비었으면 검토로 둔다
    - 지정 모델·제조사는 그 조항 현행 텍스트에 그대로 있을 때만 남긴다. 없으면 **그 칸만 비우고 요구는 남긴다**(`designated_dropped`). 모델명에서 제조사를 짐작한 값(SEL-751A → Schweitzer), 취소선으로 지운 옛 모델, 원문에 없는 모델이 여기서 걸린다. 모델이 비면 제조사도 비운다.
 4. **빠진 문장 보완** `coverage`: 조항을 문장으로 나눠, 요구 문장마다 채택한 요구의 인용이 겹치는지 본다. `:`로 끝나는 머리글은 요구 문장에서 뺀다. 빠진 문장이 있으면 **그 문장만** 모아 한 번 더 부른다. 보완 결과도 원 조항 기준으로 같은 검사를 받는다. 그 밖의 자동 재시도는 없다.
 
-모델에 주는 스키마(`ResponseSchema`)는 엄격 모델(`ExtractionOutput`)과 필드가 같다. 다른 점은 `extra=forbid`가 없다는 것이다. Gemini가 `additionalProperties`를 받지 않아서(400 INVALID_ARGUMENT) 이렇게 둔다. 받은 응답은 엄격 모델로 다시 검사한다.
+모델에 주는 스키마(`ResponseSchema`)는 엄격 모델(`ExtractionOutput`)과 필드가 같다(코드만 정하는 `needs_review` 제외). 다른 점은 `extra=forbid`가 없다는 것이다. Gemini가 `additionalProperties`를 받지 않아서(400 INVALID_ARGUMENT) 이렇게 둔다. 받은 응답은 엄격 모델로 다시 검사한다.
 
 ## 지정품 (명세 v1.3 §5.1·§11, 판본 `rfp-requirements-v2`)
 
