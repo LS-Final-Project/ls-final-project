@@ -745,10 +745,11 @@ async def all_document_versions(conn: AsyncConnection[Row], project_id: UUID) ->
         project_id: 프로젝트 ID.
 
     Returns:
-        list[Row]: document_versions 열과 kind·latest(최신 판본인지).
+        list[Row]: document_versions 열과 kind·title·latest(최신 판본인지).
     """
     cursor = await conn.execute(
-        "SELECT dv.*, d.kind, dv.version = d.latest_version AS latest FROM tft.document_versions dv "
+        "SELECT dv.*, d.kind, d.title, dv.version = d.latest_version AS latest "
+        "FROM tft.document_versions dv "
         "JOIN tft.documents d ON d.id = dv.document_id WHERE d.project_id = %s ORDER BY dv.id",
         (project_id,),
     )

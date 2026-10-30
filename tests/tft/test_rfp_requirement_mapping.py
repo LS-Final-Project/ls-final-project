@@ -7,8 +7,20 @@ from uuid import UUID
 
 import pytest
 
-from backend.api.tft.worker_processor import to_comparison, to_grading
+from backend.api.tft.partners.loader import (
+    PROFILE_FAMILIES,
+    load_document_pools,
+    load_profiles,
+)
+from backend.api.tft.worker_processor import (
+    candidate_pool,
+    grading_groups,
+    integration_of,
+    to_comparison,
+    to_grading,
+)
 from backend.engine.rfp.requirements import ExtractedRequirement
+from backend.engine.rfp.vocabulary import EQUIPMENT_FAMILIES
 
 
 def requirement(kind, attribute, attribute_key="OTHER"):
@@ -170,3 +182,71 @@ def test_a_listing_requirement_reaches_both_comparison_and_grading():
         ).conditions
         == []
     )
+
+
+@pytest.mark.parametrize(
+    ("titles", "numbers"),
+    [
+        (["RFP-14 261116.11"], ["14"]),
+        (["14 전 RFP-14 시연본"], ["14"]),
+        (["RFP-14", "RFP-10 부록"], ["14", "10"]),
+        (["RFP-140"], None),
+        (["RFP-14a"], None),
+        (["XRFP-14"], None),
+        (["RFP-99"], None),
+        (["합성 규격서"], None),
+        (["RFP-14", "합성 규격서"], None),
+        ([], None),
+    ],
+)
+def test_the_candidate_pool_reads_the_whole_number_from_document_titles(titles, numbers):
+    """번호는 숫자 경계로 읽는다(RFP-140은 14가 아니다). 모르는 문서가 있으면 후보를 줄이지 않는다."""
+    pools = load_document_pools()
+    expected = None if numbers is None else frozenset().union(*(pools[n] for n in numbers))
+    assert candidate_pool(titles) == expected
+
+
+def test_every_shipped_profile_has_an_equipment_family():
+    """표에 없는 후보는 조용히 채점에서 빠지므로 시드 프로필은 모두 표에 있어야 한다."""
+    assert {p.product_family for p in load_profiles()} <= set(PROFILE_FAMILIES)
+    assert set(PROFILE_FAMILIES.values()) <= EQUIPMENT_FAMILIES
+
+
+def test_a_document_with_two_families_grades_each_candidate_on_its_own_family():
+    """14번 B-1·B-2가 함께 있어도 후보는 기획서 기대 등급이다. 풀 밖·계열 없는 후보는 채점하지 않는다."""
+    from backend.api.tft.partners import grading
+    from tests.tft.test_partner_grading import B1, B2, CONTEXT, DAY
+
+    profiles = load_profiles()
+    pool = frozenset(load_document_pools()["14"])
+    targets = [(r, "MV_EQUIP") for r in B1] + [(r, "LV_BREAKER") for r in B2]
+    groups = grading_groups(targets, profiles, pool)
+    grades = {
+        p.candidate_code: grading.grade_candidate(p, mine, CONTEXT, DAY)[0].overall_grade
+        for p, mine in groups
+    }
+    assert grades == {
+        "P-A": "REVIEW",
+        "P-B": "EXCLUDED",
+        "P-C": "REFERENCE_ONLY",
+        "L-A": "REVIEW",
+        "L-B": "EXCLUDED",
+    }
+    assert {p.candidate_code for p, _ in grading_groups(targets, profiles, None)} >= {"M-A", "L-C"}
+
+
+@pytest.mark.parametrize("family", [None, "OTHER", "PLC"])
+def test_a_requirement_without_a_candidate_family_is_not_graded(family):
+    """계열을 모르거나 맞는 후보가 없는 요구는 채점하지 않는다. 표에 없는 후보도 null 요구에 맞지 않는다."""
+    from tests.tft.test_partner_grading import B1
+
+    unknown = load_profiles()[0].model_copy(update={"product_family": "표에 없는 제품군"})
+    assert grading_groups([(B1[0], family)], [*load_profiles(), unknown], None) == []
+
+
+def test_integration_is_decided_from_the_extracted_requirements():
+    """조립품 조항이 있으면 통합 책임이 필요하다."""
+    plain = requirement("SPEC", "rating", "rated_power")
+    marked = plain.model_copy(update={"assembly_clause": True})
+    assert not integration_of([plain]).required
+    assert integration_of([plain, marked]).required

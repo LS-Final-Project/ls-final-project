@@ -74,11 +74,17 @@ OWN = [
         ],
     )
 ]
+
+
+def mv_profile(code, **extra):
+    return profile(code, product_family="15kV 퓨즈 부하개폐기반", **extra)
+
+
 PROFILES = [
-    profile("P-A", facts=[fact("rated_max_voltage", "38", "kV")]),
+    mv_profile("P-A", facts=[fact("rated_max_voltage", "38", "kV")]),
     # 다른 속성 근거만 있어 정격 전압은 확인 필요(검토 후보).
-    profile("P-B", facts=[fact("bil", "150", "kV")]),
-    profile("P-Z", facts=[fact("rated_max_voltage", "38", "kV")]),
+    mv_profile("P-B", facts=[fact("bil", "150", "kV")]),
+    mv_profile("P-Z", facts=[fact("rated_max_voltage", "38", "kV")]),
 ]
 GOLD = GoldFile.model_validate(
     {
@@ -151,8 +157,37 @@ def test_an_assembly_clause_reaches_the_integration_measure():
             ]
         )
 
-    run = run_document(tree(), GOLD.documents[0], marked, OWN, PROFILES, date(2026, 11, 20))
+    # 통합 책임 능력이 확인되지 않은 후보. 조립품 조항이 없으면 확정 후보다.
+    unsure = mv_profile("P-A", facts=[fact("rated_max_voltage", "38", "kV")], integration=None)
+    run = run_document(tree(), GOLD.documents[0], marked, OWN, [unsure], date(2026, 11, 20))
     assert run.integration["basis_clause_nos"] == ["2.6.A", "2.6.B"]
+    # 정답 맥락이 False여도 처리 함수처럼 추출 결과로 통합 책임을 본다(확인 전에는 확정 후보가 아니다).
+    assert GOLD.documents[0].context.requires_integrator is False
+    assert run.grades["P-A"] == "REVIEW"
+
+
+def test_the_evaluation_grades_insufficient_requirements_like_the_processor():
+    """근거 부족 요구도 평가에서 채점한다(처리 함수와 같은 대상)."""
+
+    def unknown(text):
+        return gen(
+            [
+                req(
+                    "2.6.A",
+                    QUOTE_A,
+                    "BIL",
+                    "38",
+                    "kV",
+                    operator="GTE",
+                    attribute_key="bil",
+                    equipment_family="MV_EQUIP",
+                )
+            ]
+        )
+
+    run = run_document(tree(), GOLD.documents[0], unknown, OWN, PROFILES, date(2026, 11, 20))
+    assert {r.status for r in run.predicted} == {"INSUFFICIENT_EVIDENCE"}
+    assert set(run.grades) == {"P-A", "P-B"}
 
 
 def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
@@ -163,7 +198,8 @@ def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
     assert run.grades["P-A"] == "MANDATORY_CONFIRMED" and run.grades["P-B"] == "REVIEW"
     assert run.unconfirmed["P-B"] == ["rated_max_voltage"]
     summary = summarize(GOLD, [run], "FIRST")
-    # 정답에 없는 후보(P-Z)는 채점하지 않는다.
+    # 14번 풀 밖 후보(P-Z)는 처리 함수처럼 채점하지 않는다.
+    assert "P-Z" not in run.grades
     assert summary["grades"]["mandatory_confirmed_count"] == "1/1"
     assert summary["grades"]["review_unconfirmed_listed"]["count"] == "1/1"
     assert summary["integration"]["count"] == "1/1"
