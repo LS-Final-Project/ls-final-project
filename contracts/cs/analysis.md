@@ -8,8 +8,8 @@
 
 | 표 | 출처 | 내용 |
 | --- | --- | --- |
-| `cs.ticket_analyses` | `ai_draft` | 분류 실행 1회 = 1행. `run_seq`(문의별 순번), `job_id`(KAN-69 전에는 null), `outcome`(`VALID`·`SCHEMA_VIOLATION`·`TRANSPORT_FAILURE`·`TIMEOUT`·`HELD`), `VALID`일 때만 분류 5필드 `classification`, 입력 판본·해시, 모델·프롬프트 판본, 오류 코드 |
-| `cs.ticket_drafts` | `ai_draft` | 답변 초안 실행 1회 = 1행. `VALID`일 때만 3선택지 `draft`, 근거가 된 분석 실행 `analysis_id` |
+| `cs.ticket_analyses` | `ai_draft` | 분류 실행 1회 = 1행. `run_seq`(문의별 순번), `job_id`(KAN-69 전에는 null), `outcome`(`VALID`·`SCHEMA_VIOLATION`·`TRANSPORT_FAILURE`·`TIMEOUT`·`HELD`), `VALID`일 때만 분류 5필드 `classification`, 입력 판본·해시, 모델·프롬프트 판본(worker 저장분은 실행기가 공급자에 넘긴 분류 판본), 오류 코드, 시도 사용량(`latency_ms`·토큰 5종·`cost_usd`·`pricing_version`, 마이그레이션 `20261102_KAN-107_attempt_usage.sql`, `evaluation.case_attempts`와 같은 이름·검사. 비용은 입력·답변 토큰과 USD 단가가 모두 있을 때만, 그때 가격표 판본 필수. 조회 응답에는 내지 않음) |
+| `cs.ticket_drafts` | `ai_draft` | 답변 초안 실행 1회 = 1행. `VALID`일 때만 3선택지 `draft`, 근거가 된 분석 실행 `analysis_id`, 분석 실행과 같은 시도 사용량 칸 |
 | `cs.ticket_classification_corrections` | `human_input` | 사람 정정 1회 = 1행. `seq`, 바꾼 필드만 담은 `fields`, 사유(필수, 1~2000자), 정정자, 기준이 된 분석 실행 `based_on_analysis_id` |
 
 - 세 표 모두 서비스 계정(`cs_app`)이 UPDATE·DELETE할 수 없다. AI 행을 고치지 않고, 정정은 새 행으로만 쌓인다(KAN-73 `mail_triage`와 같은 모양).
@@ -62,7 +62,7 @@
   - cs가 접근·역할·상태를 검사한 뒤 플랫폼 `POST /internal/v1/platform/jobs/cs`(`ticket_id`, `input_version`, `idempotency_key`, `requested_by`)를 C/S 실행 계정 ID 토큰으로 부른다. `input_version`은 그래프 입력 칸(채널·언어·제목·본문·제품)의 SHA-256이라 문의를 고치면 바뀐다.
   - 플랫폼 답: 같은 문의 진행 중 409 `CS_JOB_IN_PROGRESS`, 같은 키·다른 판본 409 `IDEMPOTENCY_CONFLICT`는 그대로 옮기고, 같은 키 재전송은 기존 작업(`created=false`). 처리기 미연결(플랫폼 503 `CS_PROCESSOR_NOT_CONNECTED`)은 503 `CS_ANALYSIS_UNAVAILABLE`, 그 밖의 거절·무응답은 503 `CS_PLATFORM_UNAVAILABLE`.
   - 상태·진행 이벤트는 플랫폼 `GET /api/v1/platform/jobs/{id}`·`/events`(SSE)다. 결과는 끝난 뒤 `GET …/analysis`의 실행·초안으로 보인다.
-- **재개(2026-10-30 결정)**: 고객 발송이 플랫폼에 접수(ACCEPTED)돼 업무 상태가 바뀌는 그 갱신(`…/sends/{id}/refresh` 또는 화면 읽기의 상태 갱신)이 끝난 뒤, 그 문의의 마지막 작업 그래프를 사람 확인 다음으로 이어 끝낸다. 사람 확인 직전에 멈춘 경우만 잇고(`NOTHING_TO_RESUME`), 모델·검색은 부르지 않는다. 재개 실패는 발송 결과를 바꾸지 않고 작업 ID만 기록한다.
+- **재개(2026-10-30 결정)**: 고객 발송이 플랫폼에 접수(ACCEPTED)돼 업무 상태가 바뀌는 그 갱신(`…/sends/{id}/refresh` 또는 화면 읽기의 상태 갱신)이 끝난 뒤, 그 문의의 마지막 작업 그래프를 사람 확인 다음으로 이어 끝낸다. 사람 확인 직전에 멈춘 경우만 잇고(`NOTHING_TO_RESUME`), 모델·검색은 부르지 않는다. 재개가 실패하면(체크포인트 DB 일시 오류 등) 0.5초·2초 뒤 두 번 더 시도하고, 그래도 실패하면 발송 결과를 바꾸지 않고 작업 ID·예외 종류만 기록한다(`RESUME_FAILED`). 이때 그래프는 사람 확인 직전에 멈춘 채 남으며, 같은 발송을 다시 갱신해도 재개하지 않는다(이미 반영된 발송이라 `recorded=false`). 남은 그래프 정리는 운영 작업으로 둔다.
 - **업무 상태 ≠ 그래프 상태**: 그래프는 업무 상태를 바꾸지 않고(접수 직후 문의는 분석이 끝나도 `RECEIVED`), 업무 상태 변화(검토 시작·발송·종결)는 사람의 API 동작으로만 일어난다. 그래프 재개는 그 결과를 따라갈 뿐이다.
 - **활성화**: C/S `CS_ANALYSIS_ENABLED=true`, `CS_ANALYSIS_PLATFORM_URL`(플랫폼 HTTPS origin). 플랫폼 `CS_JOBS_ENABLED`·`CS_JOBS_SERVICE_URL`·`CS_JOBS_INVOKER_EMAIL`·`CS_JOBS_PROCESSOR_CONNECTED`, worker `CS_WORKER_ENABLED`. 꺼져 있으면 접수는 404이고 재개도 하지 않는다.
 - **종단 검사**(`tests/platform/test_cs_analysis_e2e_db.py`): 전용 PostgreSQL 하나에서 C/S 접수 → 플랫폼 작업(QUEUED) → worker(cs_worker 로그인, 실제 문의 출처·체크포인터, 가짜 모델) SUCCEEDED → 같은 작업 재실행은 `NOT_CLAIMED` → `GET …/analysis`에 결과, 업무 상태는 `RECEIVED` 그대로 → 검토·추가 정보 요청 발송 접수 → 그래프 끝남. 두 서비스 사이 HTTP는 같은 프로세스의 ASGI 전송, ID 토큰은 합성 검증기다.

@@ -7,7 +7,7 @@
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 import psycopg
@@ -158,6 +158,16 @@ def build_cs_runner(
     Returns:
         CompiledStateGraph: 사람 확인 직전에 멈추는 그래프. 추적이 요청됐는데 허용되지 않으면 ValueError다.
     """
+
+    def record_attempt(
+        kind: str, ticket_id: str, attempt: ClassificationAttempt | DraftAttempt
+    ) -> str:
+        # 분류 시도는 판본을 모른다(공급자가 고름). 같은 공급자에 넘긴 판본을 붙여 저장해 실행 행만 보고도
+        # 어떤 프롬프트였는지 알 수 있게 한다. 초안 시도는 자기 판본을 이미 갖고 있다.
+        if isinstance(attempt, ClassificationAttempt) and attempt.prompt_version is None:
+            attempt = replace(attempt, prompt_version=prompt_version)
+        return ticket_source.record_attempt(kind, ticket_id, attempt)
+
     return build_graph(
         classification_provider=gemini_classification_provider(
             client,
@@ -178,7 +188,7 @@ def build_cs_runner(
         search_filters=search_filters,
         allowed_info_codes=allowed_info_codes,
         load_ticket=ticket_source.load_ticket,
-        record_attempt=ticket_source.record_attempt,
+        record_attempt=record_attempt,
         checkpointer=checkpointer,
         allow_tracing=allow_tracing,
         invalid_output_retries=invalid_output_retries,
