@@ -536,8 +536,14 @@ async def get_comparison(
     """
     async with connection(request.app.state.settings) as conn:
         requirement = await latest_visible_requirement(conn, principal, requirement_id)
-        rows = await repository.latest_comparisons(conn, requirement_id)
-        evidence = await repository.comparison_evidence(conn, [row["id"] for row in rows])
+        return await comparison_of(conn, requirement)
+
+
+async def comparison_of(conn: AsyncConnection[Row], requirement: Mapping[str, Any]) -> s.Comparison:
+    """같은 연결에서 읽은 최신 요구에 대응하는 비교 응답을 만든다."""
+    requirement_id = requirement["requirement_id"]
+    rows = await repository.latest_comparisons(conn, requirement_id)
+    evidence = await repository.comparison_evidence(conn, [row["id"] for row in rows])
     if not rows:
         family = requirement["equipment_family"] or "NONE"
         return s.Comparison(

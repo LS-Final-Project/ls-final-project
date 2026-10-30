@@ -1,7 +1,7 @@
 """RFP 자사 대응 경로의 골격(KAN-182, A01). OpenAPI 초안을 만들기 위한 선언이다.
 
 명세 v1.1 §3의 30개 경로 중 아직 없는 28개다(1·3번 목록·상세는 projects/routes.py에 있고
-응답 확장은 구현 작업이 한다). 모든 경로는 구현 전까지 501 `TFT_NOT_IMPLEMENTED`를 돌려준다.
+응답 확장은 구현 작업이 한다). 아직 남은 변경 제안 경로만 501 `TFT_NOT_IMPLEMENTED`를 돌려준다. 초안 25~29는 routes_draft.py다.
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
 15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py). 7~10·12~14·17 읽기는 KAN-188(routes_read.py)이다. 11·30 접수는 jobs.py(KAN-199·KAN-188).
 """
@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
     jobs,
+    routes_draft,
     routes_questions,
     routes_read,
     routes_supplement,
@@ -507,26 +508,22 @@ async def reject_proposal(
     not_implemented()
 
 
-@router.get(
-    P + "/draft",
-    response_model=SuccessResponse[s.Draft],
-    operation_id="tft_get_rfp_draft",
-    openapi_extra=A07,
-)
-async def get_draft(project_id: UUID, version: int | None = Query(None, ge=1)) -> NoReturn:
-    """25. 현재(또는 지정) 초안."""
-    not_implemented()
+@router.get(P + "/draft", response_model=SuccessResponse[s.Draft], operation_id="tft_get_rfp_draft")
+async def get_draft(
+    request: Request, user: User, project_id: UUID, version: int | None = Query(None, ge=1)
+) -> SuccessResponse[s.Draft]:
+    """25. 현재 또는 지정 초안 판본."""
+    return respond(request, await routes_draft.get_draft(request, user, project_id, version))
 
 
 @router.patch(
-    P + "/draft",
-    response_model=SuccessResponse[s.Draft],
-    operation_id="tft_edit_rfp_draft",
-    openapi_extra=A08,
+    P + "/draft", response_model=SuccessResponse[s.Draft], operation_id="tft_edit_rfp_draft"
 )
-async def edit_draft(project_id: UUID, payload: s.DraftEdit) -> NoReturn:
-    """26. 문장 수정 → 초안 새 판본. 근거 없는 문장은 evidence_missing."""
-    not_implemented()
+async def edit_draft(
+    request: Request, user: User, project_id: UUID, payload: s.DraftEdit
+) -> SuccessResponse[s.Draft]:
+    """26. 이유를 남기고 초안 새 판본을 만든다."""
+    return respond(request, await routes_draft.edit_draft(request, user, project_id, payload))
 
 
 @router.post(
@@ -534,40 +531,52 @@ async def edit_draft(project_id: UUID, payload: s.DraftEdit) -> NoReturn:
     status_code=201,
     response_model=SuccessResponse[s.ReviewVersion],
     operation_id="tft_save_rfp_review_version",
-    openapi_extra=A08,
 )
 async def save_review_version(
-    project_id: UUID, payload: s.ReviewVersionCreate, idempotency_key: Key
-) -> NoReturn:
-    """27. 검토본 저장. 조건 미충족이면 422 TFT_DRAFT_INCOMPLETE."""
-    not_implemented()
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.ReviewVersionCreate,
+    idempotency_key: Key,
+) -> SuccessResponse[s.ReviewVersion]:
+    """27. 근거·다음 행동·통합 책임을 확인하고 검토본 저장."""
+    return respond(
+        request, await routes_draft.save_review(request, user, project_id, payload, idempotency_key)
+    )
 
 
 @router.post(
     P + "/draft/exports",
     status_code=202,
-    response_model=SuccessResponse[s.JobAccepted],
+    response_model=SuccessResponse[s.ExportAccepted],
     operation_id="tft_export_rfp_draft",
-    openapi_extra=A07,
 )
 async def export_draft(
-    project_id: UUID, payload: s.ExportRequest, idempotency_key: Key
-) -> NoReturn:
-    """28. 검토본 내보내기 작업(rfp.export)."""
-    not_implemented()
+    request: Request, user: User, project_id: UUID, payload: s.ExportRequest, idempotency_key: Key
+) -> SuccessResponse[s.ExportAccepted]:
+    """28. DOCX 비동기 내보내기. PDF는 명시적 422 미지원."""
+    return respond(
+        request, await routes_draft.export(request, user, project_id, payload, idempotency_key)
+    )
 
 
 @router.get(
     P + "/draft/exports/{export_id}/file",
     operation_id="tft_download_rfp_export",
-    response_model=None,
+    responses={
+        200: {
+            "content": {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
+            }
+        }
+    },
     response_class=Response,
-    openapi_extra=A07,
-    responses={200: {"content": {"application/octet-stream": {}}}},
 )
-async def download_export(project_id: UUID, export_id: UUID) -> NoReturn:
-    """29. 내보낸 파일."""
-    not_implemented()
+async def download_export(
+    request: Request, user: User, project_id: UUID, export_id: UUID
+) -> Response:
+    """29. 완료된 검토본 내보내기를 첨부로 내려받는다."""
+    return await routes_draft.download(request, user, project_id, export_id)
 
 
 @router.post(

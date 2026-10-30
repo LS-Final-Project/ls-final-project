@@ -128,6 +128,7 @@ def worker_dsn(admin):
     """tft_worker 권한만 상속하는 로그인(이 PR의 마이그레이션 적용)."""
     with psycopg.connect(admin, autocommit=True) as conn:
         apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
+        apply(conn, Path("infra/migrations/tft/20261109_KAN-188_draft_execution.sql"))
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='test_tft_proc'").fetchone():
             conn.execute("CREATE ROLE test_tft_proc LOGIN PASSWORD 'test-only'")
             conn.execute("GRANT tft_worker TO test_tft_proc")
@@ -286,6 +287,21 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     assert extractor.calls == 2  # 절 두 개, 빠진 요구 문장 없음.
     first = stored(admin, project)
     with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.draft_versions WHERE project_id=%s AND source_job_id IS NOT NULL",
+                (project["project"],),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.draft_sentences WHERE project_id=%s",
+                (project["project"],),
+            ).fetchone()[0]
+            > 0
+        )
+    with psycopg.connect(admin) as conn:
         # 인증 요구(2.2.A) 비교는 속성 칸을 비운다.
         compliance = conn.execute(
             "SELECT count(*), count(p.matched_attribute) FROM tft.product_comparisons p "
@@ -367,12 +383,16 @@ def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
     assert all(trace["filters"] == ["family=TRANSFORMER"] for _, trace in compared)
 
 
-def test_export_and_annotate_report_their_step_only(worker_dsn, project):
-    """내보내기·메모 해석은 단계가 아직 없어 그 단계 counts 0만 남긴다."""
-    for kind, step in (("rfp.export", "export"), ("rfp.annotate", "annotate")):
-        summary, events = run(worker_dsn, project, FakeExtractor(), kind=kind)
-        assert events == [{"step": step, "counts": {"requirements": 0, "proposals": 0}}]
-        assert summary["needs_review"] is False
+def test_annotate_reports_its_pending_step_only(worker_dsn, project):
+    """메모 해석은 아직 단계가 없어 counts 0을 남긴다. export 실제 동작은 draft routes DB 검사에서 확인한다."""
+    summary, events = run(worker_dsn, project, FakeExtractor(), kind="rfp.annotate")
+    assert events == [{"step": "annotate", "counts": {"requirements": 0, "proposals": 0}}]
+    assert summary["needs_review"] is False
+
+
+def test_export_without_a_reservation_fails_instead_of_reporting_success(worker_dsn, project):
+    with pytest.raises(ValueError, match="TFT_EXPORT_NOT_FOUND"):
+        run(worker_dsn, project, FakeExtractor(), kind="rfp.export")
 
 
 def test_unknown_input_or_changed_file_fails(worker_dsn, project, admin):

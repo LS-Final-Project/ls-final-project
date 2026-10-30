@@ -370,6 +370,12 @@ class JobAccepted(Model):
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
 
 
+class ExportAccepted(JobAccepted):
+    """DOCX 접수 결과의 파일 식별자. process/annotate의 응답은 바꾸지 않는다."""
+
+    export_id: UUID
+
+
 # --- 요구 (§4.4) ------------------------------------------------------------------------
 
 

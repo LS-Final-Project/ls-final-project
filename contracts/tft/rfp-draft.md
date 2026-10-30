@@ -100,3 +100,51 @@ OPEN은 확인된 질문이지만 발송 여부는 별도 확인, REPLIED는 회
 분모가 0인 빈 초안의 추적률도 1.0으로 보고하지 않는다.
 기획서 4.10 원문과 Jira 전체 완료조건은 이 구현에 별도로 제공되지 않았으므로 이 계약은
 supervisor가 승인한 순수 엔진 범위다. 기획 원문 전체 구현·HTTP/저장/배포·실제 업무 성능 완료를 뜻하지 않는다.
+
+## 처리 흐름·저장·HTTP 연결 (KAN-188 후속)
+
+순수 엔진 자체는 그대로이며 `drafts.py`가 같은 DB 연결의 공개 snapshot 변환을 조합한다.
+처리 흐름은 compare~draft를 한 트랜잭션으로 묶고, 초안 작업 ID당 한 판본만 저장한다.
+같은 `source_job_id` 재시도는 원래 생성 판본을 읽으며 그 사이 사람 편집으로 바뀐 head를 덮어쓰지 않는다.
+다른 작업 ID로 명시적으로 재처리하면 새 초안 판본을 만든다. 생성/편집/검토본 저장/내보내기는
+동일 프로젝트 advisory transaction lock으로 직렬화한다.
+
+T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표시), `draft_versions.source_job_id`
+(부분 unique index) 두 열만 추가하고 필요한 표의 worker 조회·초안 추가·head/내보내기 결과 열 갱신 권한만 준다.
+기존 `rereview_marks`는 `cause_proposal_id`가 필수이므로 시스템 추출 검토 표시 저장을 대신할 수 없다.
+표는 새로 만들지 않는다. 로컬·배포 DB에는 운영자가 T14 이후 T17을 적용해야 한다.
+
+- **25 GET draft**: 최신 또는 `?version=N`. 고지·여섯 절·문장 근거·조건·미확약·검토 표시를 반환한다.
+  공개 `sentence_id`는 `sentence_key`, 물리 판본 행 ID는 내부 전용이다. 요구 상세 링크도 최신 공개 키를 반환한다.
+- **26 PATCH draft**: 담당 sales·책임자만 가능. `DraftEdit.version` CAS, 문장별 사유와 audit,
+  불변 이전 판본을 유지한다. 기존 문장 수정/절 이동에서도 조건·미확약·검토 표시·공개 ID를 보존한다.
+  새 문장은 section이 필수다. 원문 없는 자유문장 또는 프로젝트 안에서 확인 못한 evidence는
+  `evidence_missing=true`로 표시·합산하고 검토본 저장을 막는다. 변경 DTO로 고지나 검토 표시를 지울 수 없다.
+- **27 POST review-versions**: 담당 sales·책임자, Idempotency-Key 필수. 최신 초안 version 일치,
+  근거 누락/문장 재검토 0, 필수 요구 해결 또는 `unresolved+next_owner_field`, 통합 책임 필요 시 확보,
+  빈 초안 아님을 확인한다. 실패는 422 `TFT_DRAFT_INCOMPLETE`(대상 ID를 details에 표시), stale은 409.
+  성공 시 `REVIEW_DRAFT`가 되고 미해결 필수가 있으면 `CONDITION_CHECK`, 없으면 `OWNER_CONFIRMED`다.
+  이는 담당자의 저장 행위이며 공급·수주 승인이 아니다. 같은 키 재전송은 원래 검토본을 반환한다.
+- **28 POST exports**: 담당 sales·책임자, Idempotency-Key 필수. 지정된 불변 review_version 예약과 플랫폼
+  `rfp.export` 접수. `ExportAccepted(JobAccepted)`에 `export_id`를 추가하여 파일 GET과 연결하며,
+  같은 요청 재전송은 같은 export_id다. process/annotate는 기존 JobAccepted를 유지한다.
+- **29 GET exports/{export_id}/file**: 기존 프로젝트 조회 범위, 다른 프로젝트/없는 자원은 404,
+  미완료는 409 `TFT_EXPORT_NOT_READY`. 완료 파일은 sha256/size 확인 후 DOCX MIME·attachment·no-store·nosniff로 반환한다.
+  파일 누락/손상은 안전한 503이며 내부 storage_key는 응답에 포함하지 않는다.
+
+### 내보내기 포맷과 파일
+
+ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **이번 구현은 DOCX만**이며 PDF는 예약/DB 쓰기/
+플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 생성은 별도 후속 작업이다.
+reportlab·글꼴·의존성·이미지를 추가하지 않는다.
+
+DOCX는 stdlib ZIP/XML의 실제 OOXML 패키지로, 고정 고지·모든 절/문장·공개 ID·조건·근거·미확약/검토 표시를 싣는다.
+XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존하고 유효하지 않은 XML 문자는 삭제하지 않고 실패한다.
+검토본 판본에 대해 바이트가 결정적이다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
+`rfp/{project}/exports/{export}.docx`로 저장하며 25 MiB 상한·해시·크기를 기록한다.
+객체 생성 후 DB commit 전에 실패하면 private 객체만 남을 수 있다(기존 업로드와 동일).
+재시도는 같은 바이트일 때만 기존 객체를 인정하며 다른 바이트를 덮어쓰지 않는다.
+
+서버/플랫폼 웹 중계는 이 다섯 경로와 정확한 export 파일 경로의 DOCX 응답을 허용한다.
+본체 JSON 경로에 바이너리를 허용하지 않는다. 실제 모델·외부 발송·공식 추적률 평가 연결은 포함하지 않는다.
+로컬 일반 합성/파일/HTTP 검증과 전용 PostgreSQL CI 검증을 분리하며 DB 미실행을 통과로 보고하지 않는다.

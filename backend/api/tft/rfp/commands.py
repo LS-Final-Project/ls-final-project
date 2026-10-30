@@ -26,6 +26,8 @@ Operation = Literal[
     "question.confirm",
     "project.process",
     "annotation.process",
+    "review_version.create",
+    "export.create",
 ]
 OPERATIONS: frozenset[str] = frozenset(
     (
@@ -37,6 +39,8 @@ OPERATIONS: frozenset[str] = frozenset(
         "question.confirm",
         "project.process",
         "annotation.process",
+        "review_version.create",
+        "export.create",
     )
 )
 

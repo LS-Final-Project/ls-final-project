@@ -910,3 +910,25 @@ def test_upload_relay_passes_multipart_only_on_its_path(system, monkeypatch):
     no_csrf = {"Origin": write["Origin"]} | multipart
     assert client.post(UPLOAD_URL, headers=no_csrf, content=b"x").status_code == 403
     assert not calls
+
+
+def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch):
+    """새 export 첨부 경로만 바이너리를 허용하고 일반 draft JSON 경로에는 허용하지 않는다."""
+    from fastapi import HTTPException
+
+    from backend.api.platform import relay
+
+    path = "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file"
+    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    fake_upstream(
+        monkeypatch,
+        kind=mime,
+        body=b"PK\x03\x04docx",
+        headers={"Content-Disposition": 'attachment; filename="review.docx"'},
+    )
+    result = relay.forward("GET", "https://tft.example.invalid" + path, {}, b"")
+    assert result.body == b"PK\x03\x04docx" and result.headers["content-type"] == mime
+    assert result.headers["content-disposition"] == 'attachment; filename="review.docx"'
+    assert result.headers["cache-control"] == "no-store"
+    with pytest.raises(HTTPException):
+        relay.forward("GET", "https://tft.example.invalid" + path.split("/exports/")[0], {}, b"")

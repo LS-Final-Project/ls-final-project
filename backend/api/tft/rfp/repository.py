@@ -1501,8 +1501,12 @@ async def requirement_detail_parts(
         requirement_id,
     )
     sentences = await rows(
-        "SELECT DISTINCT sentence_id FROM tft.draft_sentence_evidence "
-        "WHERE evidence_type = 'requirement' AND evidence_id = %s ORDER BY sentence_id",
+        "SELECT DISTINCT s.sentence_key AS sentence_id FROM tft.draft_sentence_evidence e "
+        "JOIN tft.draft_sentences s ON s.id = e.sentence_id "
+        "JOIN tft.drafts d ON d.project_id = s.project_id AND d.latest_version = s.draft_version "
+        "WHERE s.project_id = %s AND e.evidence_type = 'requirement' "
+        "AND e.evidence_id = %s ORDER BY sentence_id",
+        requirement["project_id"],
         str(requirement_id),
     )
     selection = await latest_selection(conn, requirement_id)

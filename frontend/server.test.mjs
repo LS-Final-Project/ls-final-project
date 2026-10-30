@@ -728,3 +728,17 @@ test('assignee lookup forwards only the cs_agent selector and session', async ()
   });
   assert.deepEqual(calls, ['https://platform.example.invalid/api/v1/platform/assignees?role=cs_agent']);
 });
+
+test('web relay preserves DOCX attachment on the exact RFP export file route', async () => {
+  const path = '/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file';
+  const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  await fixture(async origin => {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), mime);
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="review.docx"');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(await response.text(), 'PK-docx');
+    assert.equal((await fetch(origin + path.split('/exports/')[0])).status, 502);
+  }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
+});

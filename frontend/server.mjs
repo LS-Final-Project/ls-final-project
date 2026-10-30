@@ -76,6 +76,10 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],
   ['/api/v1/tft/documents/{uuid}', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/draft', ['GET', 'PATCH'], ['version']],
+  ['/api/v1/tft/projects/{uuid}/draft/review-versions', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/exports', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'has_open_question']],
@@ -94,7 +98,7 @@ export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-
 const fileLimit = 26 * 1024 * 1024;
 const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
 const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
-const downloadPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/file$`);
+const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid}']}/file|/api/v1/tft/projects/${placeholders['{uuid}']}/draft/exports/${placeholders['{uuid}']}/file)$`);
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
