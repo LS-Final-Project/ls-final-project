@@ -1,0 +1,194 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { ApiError } from '../api/client';
+import { downloadExport, editDraft, getDraft, getDraftIdentity, getDraftProject, getExportJob, sendCommand, UncertainWrite, type Accepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
+import { ErrorState, Loading } from '../components/states';
+import { formatDateTime, Origin } from '../components/tft';
+import { KvBox, KvField, KvNext, KvSplit, KvTitle } from '../ls-shell/kv';
+
+const SECTIONS: Record<string, string> = {
+  CUSTOMER_GOAL_SCOPE: '고객 목표와 범위', OUR_RESPONSE: '자사 대응', DEVIATIONS: '차이 사항',
+  PARTNER_SUPPLEMENT: '협력사 보완', ASSUMPTIONS_EXCLUSIONS: '가정과 제외', QUESTIONS_NEXT_ACTIONS: '질문과 다음 행동',
+};
+const JOB_LABEL = { QUEUED: '대기 중', RUNNING: '내보내는 중', SUCCEEDED: '완료', PARTIAL: '일부 완료 — 파일 확인 필요', FAILED: '실패', CANCELLED: '취소됨' };
+type Editing = { sentence: Sentence; version: number; text: string; reason: string };
+
+export default function RfpDraft() {
+  const { projectId = '' } = useParams();
+  return <DraftWorkspace key={projectId} projectId={projectId} />;
+}
+function DraftWorkspace({ projectId }: { projectId: string }) {
+  const access = useBusinessAccess('tft');
+  const cache = useQueryClient();
+  const [version, setVersion] = useState<number>();
+  const [versionInput, setVersionInput] = useState('');
+  const [view, setView] = useState('all');
+  const [section, setSection] = useState('all');
+  const key = ['rfp-draft', projectId, version];
+  const draft = useQuery({ queryKey: key, queryFn: ({ signal }) => getDraft(projectId, version, signal), enabled: access.ready, retry: false });
+  const project = useQuery({ queryKey: ['rfp-draft-project', projectId], queryFn: ({ signal }) => getDraftProject(projectId, signal), enabled: access.ready, retry: false });
+  const identity = useQuery({ queryKey: ['rfp-draft-identity'], queryFn: ({ signal }) => getDraftIdentity(signal), enabled: access.ready, retry: false });
+  const user = identity.data;
+  const canWrite = !!user && !!project.data && !identity.isError && !project.isError && user.roles.some(role => ['sales', 'manager', 'dept_staff'].includes(role)) && [project.data.sales_user_id, project.data.responsible_user_id].includes(user.id);
+  const [editing, setEditing] = useState<Editing>();
+  const [note, setNote] = useState('');
+  const [review, setReview] = useState<Review>();
+  const [reviewInput, setReviewInput] = useState('');
+  const [command, setCommand] = useState<Command>();
+  const [accepted, setAccepted] = useState<Accepted>();
+  const [exportReview, setExportReview] = useState<number>();
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState<unknown>();
+  const [message, setMessage] = useState('');
+  const [blocked, setBlocked] = useState(false);
+  const active = !!accepted;
+  const job = useQuery({
+    queryKey: ['rfp-draft-export', projectId, accepted?.job_id],
+    queryFn: ({ signal }) => getExportJob(projectId, accepted!.job_id, signal),
+    enabled: access.ready && active, retry: false,
+    refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1500 : false,
+  });
+  const invalid = (failure: unknown) => {
+    setError(failure);
+    if (failure instanceof ApiError && [401, 403].includes(failure.status)) setBlocked(true);
+  };
+  const expiredJob = job.error instanceof ApiError && [401, 403].includes(job.error.status);
+  const writable = canWrite && !blocked && !expiredJob && !draft.isError && !busy && !command;
+  const data = draft.isError ? undefined : draft.data;
+  const sentences = data?.sections.flatMap(part => part.sentences);
+  const needsReview = sentences?.filter(row => row.needs_rereview).length;
+  const matches = (row: Sentence) => view === 'all' || (view === 'review' ? row.needs_rereview : view === 'evidence' ? row.evidence_missing : row.unconfirmed);
+  const latest = version === undefined;
+  async function saveEdit() {
+    if (!editing || !writable || inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError(undefined); setMessage('');
+    try {
+      const result = await editDraft(projectId, { version: editing.version, edits: [{ sentence_id: editing.sentence.sentence_id, text: editing.text, reason: editing.reason, evidence: editing.sentence.evidence }] });
+      cache.setQueryData<Draft>(['rfp-draft', projectId, undefined], result);
+      setVersion(undefined); setVersionInput(''); setEditing(undefined); setMessage(`초안 ${result.version}판을 저장했습니다.`);
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 409) setMessage('다른 변경이 있습니다. 입력은 보존했습니다. 최신 조회 후 편집을 취소하고 새 판본에서 다시 선택하세요.');
+      invalid(failure);
+    } finally { inFlight.current = false; setBusy(false); }
+  }
+  async function submit(next: Command) {
+    if (inFlight.current || !canWrite || blocked || expiredJob) return;
+    inFlight.current = true; setBusy(true); setCommand(next); setError(undefined); setMessage('');
+    try {
+      const result = await sendCommand(projectId, next);
+      if (next.kind === 'review') {
+        const saved = result as Review; setReview(saved); setReviewInput(String(saved.review_version));
+        setMessage(`검토본 ${saved.review_version}판을 저장했습니다. 발송하거나 제안을 확정한 상태가 아닙니다.`);
+      } else { setAccepted(result as Accepted); setExportReview(next.body.review_version); }
+      setCommand(undefined);
+    } catch (failure) {
+      if (!(failure instanceof UncertainWrite) && !(command && failure instanceof ApiError && [401, 403].includes(failure.status))) setCommand(undefined);
+      invalid(failure);
+    } finally { inFlight.current = false; setBusy(false); }
+  }
+  async function download() {
+    if (!accepted || job.data?.status !== 'SUCCEEDED' || inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError(undefined);
+    try {
+      const blob = await downloadExport(projectId, accepted.export_id);
+      const url = URL.createObjectURL(blob); const link = document.createElement('a');
+      link.href = url; link.download = `rfp-${accepted.export_id}.docx`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (failure) { invalid(failure); }
+    finally { inFlight.current = false; setBusy(false); }
+  }
+  if (!access.ready) return <BusinessGate access={access} title="초안 및 검토 이력" />;
+  return <main>
+    <KvTitle path="제안 지원" title="초안 및 검토 이력" code="TF0104">
+      <Link to={`/tft/projects/${projectId}`}>프로젝트</Link>{' '}
+      <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', projectId] }); }}>최신 조회</button>
+    </KvTitle>
+    <KvNext>근거와 조건을 검토하고 문장을 수정한 뒤 검토본을 저장하세요. 공급·납기 확약과 발송은 사람이 별도로 확인합니다.</KvNext>
+    {identity.isError && <ErrorState error={identity.error} onRetry={() => identity.refetch()} />}
+    {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
+    {!canWrite && <p>조회 전용입니다. 담당 sales·책임자 계정 확인 후 편집할 수 있습니다.</p>}
+    {error != null && <ErrorState error={error} />}
+    {message && <p role="status">{message}</p>}
+    {command && <KvBox title="요청 결과 재확인">
+      <p>전송한 내용과 요청 키를 보존했습니다. 결과를 확인하기 전에는 새 요청을 만들 수 없습니다.</p>
+      <button className="kb" disabled={busy || blocked} onClick={() => submit(command)}>같은 요청 다시 확인</button>
+    </KvBox>}
+    <KvBox title="조회조건">
+      <KvField label="보기"><select aria-label="보기" value={view} disabled={!data} onChange={event => setView(event.target.value)}>
+        <option value="all">전체 문장 {sentences?.length ?? '-'}</option>
+        <option value="review">재검토 문장만 {needsReview ?? '-'}</option>
+        <option value="evidence">근거 없는 문장만 {sentences?.filter(row => row.evidence_missing).length ?? '-'}</option>
+        <option value="unconfirmed">미확약 문장만 {sentences?.filter(row => row.unconfirmed).length ?? '-'}</option>
+      </select></KvField>
+      <KvField label="구역"><select aria-label="구역" value={section} disabled={!data} onChange={event => setSection(event.target.value)}><option value="all">전체</option>{Object.entries(SECTIONS).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></KvField>
+      <KvField label="프로젝트">{project.data?.name ?? projectId}</KvField>
+      <p>보기·구역 필터는 표시만 바꿉니다. 편집과 검토본 저장은 숨겨진 문장까지 포함한 전체 초안 판본을 기준으로 처리합니다.</p>
+    </KvBox>
+    <KvBox title="초안 판본" note="판본·검토본·내보내기 이력 목록은 제공되지 않습니다.">
+      <form onSubmit={event => { event.preventDefault(); setVersion(versionInput ? Number(versionInput) : undefined); }}>
+        <label>조회할 초안 판본 (비우면 최신)<input type="number" min="1" step="1" value={versionInput} onChange={event => setVersionInput(event.target.value)} /></label>
+        <button className="kb" disabled={busy || !!editing || !!command}>판본 조회</button>
+      </form>
+      {!latest && <p>지정 판본 조회 중입니다. 편집·검토본 저장은 최신 판본에서 진행하세요.</p>}
+      {draft.isPending && <Loading />}
+      {draft.isError && <ErrorState error={draft.error} onRetry={() => draft.refetch()} />}
+      {data && <>
+        <p role="note"><strong>{data.disclaimer}</strong></p>
+        <KvField label="초안 판본">{data.version} / {formatDateTime(data.known_at)}</KvField>
+        <KvField label="근거 누락">{data.evidence_missing_count}문장</KvField>
+        <KvField label="출처"><Origin dataOrigin={data.data_origin} derivationKind={data.derivation_kind} /></KvField>
+      </>}
+    </KvBox>
+    <KvSplit columns="minmax(0, 1.6fr) minmax(280px, 1fr)"><div>
+    {data?.sections.filter(part => section === 'all' || section === part.section).map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`}>
+
+      {!part.sentences.filter(matches).length && <p>{part.sentences.length ? '선택한 조건의 문장이 없습니다.' : '저장된 문장이 없습니다.'}</p>}
+      {part.sentences.filter(matches).map(row => <article key={row.sentence_id} aria-label={`문장 ${row.sentence_id}`}>
+        <KvField label="문장 ID"><span style={{ overflowWrap: 'anywhere' }}>{row.sentence_id}</span></KvField>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{row.text}</p>
+        <p>{[row.unconfirmed && '미확약·미확인', row.needs_rereview && '재검토 필요', row.evidence_missing && '근거 누락'].filter(Boolean).join(' / ')}</p>
+        <KvField label="작성">{row.provenance_kind === 'human_input' ? '직접 입력' : row.provenance_kind === 'ai_draft' ? 'AI 초안' : '시스템 기록'}</KvField>
+        <KvField label="근거">{row.evidence.length ? <ul>{row.evidence.map((e, i) => <li key={`${e.type}:${e.id}:${i}`}>{e.type}: {e.id}</li>)}</ul> : '저장된 근거 없음'}</KvField>
+        {row.conditions.length > 0 && <KvField label="조건"><ul>{row.conditions.map((condition, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{condition}</li>)}</ul></KvField>}
+        <button className="kb" disabled={!writable || !latest || !!editing} onClick={() => { setEditing({ sentence: row, version: data.version, text: row.text, reason: '' }); setError(undefined); }}>문장 수정</button>
+      </article>)}
+    </KvBox>)}
+    {editing && <KvBox title="문장 편집" note={`초안 ${editing.version}판 기준. 근거·조건·검토 표시는 보존됩니다.`}>
+      <form onSubmit={event => { event.preventDefault(); void saveEdit(); }}>
+        <label>수정 문장<textarea required maxLength={4000} rows={6} value={editing.text} disabled={busy} onChange={event => setEditing({ ...editing, text: event.target.value })} /></label>
+        <label>수정 사유<textarea required maxLength={500} value={editing.reason} disabled={busy} onChange={event => setEditing({ ...editing, reason: event.target.value })} /></label>
+        <button className="kb primary" disabled={!writable || !editing.text.trim() || !editing.reason.trim()}>문장 저장</button>{' '}
+        <button className="kb" type="button" disabled={busy} onClick={() => setEditing(undefined)}>편집 취소</button>
+      </form>
+    </KvBox>}
+    </div><div>
+    <KvBox title="검토본 저장 조건">
+      <KvField label="근거 없는 문장">{data ? `${data.evidence_missing_count}문장` : '조회 전'}</KvField>
+      <KvField label="재검토 문장">{needsReview === undefined ? '조회 전' : `${needsReview}문장`}</KvField>
+      <p>필수 요구의 근거 또는 다음 행동과 통합 책임은 저장 시 서버에서 확인합니다. 문장 수정만으로 재검토 표시가 자동 해제되지 않습니다.</p>
+    </KvBox>
+    <KvBox title="검토본 저장" note="이 화면에서 저장해 받은 결과만 표시합니다. 이력 목록은 제공되지 않습니다.">
+      <label>검토 메모<textarea maxLength={1000} value={note} disabled={busy || !!command} onChange={event => setNote(event.target.value)} /></label>
+      <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
+      {review && <><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{formatDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{review.output_status === 'REVIEW_DRAFT' ? '검토본 작성' : review.output_status} / {review.judgement_status === 'OWNER_CONFIRMED' ? '담당자 확인' : review.judgement_status === 'CONDITION_CHECK' ? '조건 확인 필요' : '검토 필요'}</KvField></>}
+    </KvBox>
+    <KvBox title="DOCX 내보내기">
+      <label>내보낼 검토본 판본<input type="number" min="1" step="1" value={reviewInput} disabled={busy || !!command} onChange={event => setReviewInput(event.target.value)} /></label>
+      <button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}
+      <button className="kb" disabled title="PDF 내보내기는 아직 지원하지 않습니다.">PDF (미지원)</button>
+      {accepted && <>
+        <KvField label="요청한 검토본">{exportReview}판</KvField>
+        <KvField label="내보내기 ID"><span style={{ overflowWrap: 'anywhere' }}>{accepted.export_id}</span></KvField>
+        {job.isPending && <Loading label="내보내기 상태 확인 중" />}
+        {job.isError && <ErrorState error={job.error} onRetry={() => job.refetch()} />}
+        {!job.isError && job.data && <p role="status">{JOB_LABEL[job.data.status]}</p>}
+        {job.data && ['FAILED', 'PARTIAL', 'CANCELLED'].includes(job.data.status) && <p>파일을 다운로드할 수 없습니다. 상태를 확인한 후 새 내보내기를 요청하세요.</p>}
+        <button className="kb" disabled={busy || blocked || job.isError || job.data?.status !== 'SUCCEEDED'} onClick={download}>DOCX 다운로드</button>
+      </>}
+    </KvBox>
+    </div></KvSplit>
+  </main>;
+}
