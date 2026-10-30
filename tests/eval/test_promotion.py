@@ -304,6 +304,23 @@ def test_deploy_overrides_of_limits_and_the_extraction_model_are_reported(tmp_pa
     assert [(i.stage, i.field, i.deployed, i.adopted) for i in drift] == expected
 
 
+def test_a_classification_model_override_takes_the_shared_model_off_classification(tmp_path):
+    """분류 전용 모델이 있으면 공통 모델과 비교하지 않는다(#355 리뷰). 초안은 공통 모델 그대로 본다."""
+    config = copy.deepcopy(CONFIG)
+    config["classification"]["model"] = "m-lite"
+    script = tmp_path / "deploy.py"
+    script.write_text('"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert promotion.deploy_drift(config, script) == []
+    script.write_text('"GEMINI_MODEL=m-other,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert [(i.stage, i.deployed) for i in promotion.deploy_drift(config, script)] == [
+        ("draft", "m-other")
+    ]
+    script.write_text('"GEMINI_MODEL=m-a"')
+    assert [(i.stage, i.deployed, i.adopted) for i in promotion.deploy_drift(config, script)] == [
+        ("classification", "m-a", "m-lite")
+    ]
+
+
 def test_adoption_dates_must_be_iso(tmp_path):
     import json
     from dataclasses import asdict
