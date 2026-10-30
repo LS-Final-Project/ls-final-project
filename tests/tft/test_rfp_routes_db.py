@@ -594,6 +594,17 @@ def test_the_file_is_a_checked_attachment_or_unavailable(
     # 저장 mime이 HTML이어도 화면에서 열리지 않고 내려받는다.
     assert done.headers["content-disposition"].startswith("attachment;")
     assert done.headers["x-content-type-options"] == "nosniff"
+    # permissions.md 1.1·4.2: manager는 역할만으로 받지 못하고 관리 대상 프로젝트 안에서만 받는다.
+    managing = Principal(
+        user_id=uuid4(), roles=frozenset({"manager"}), managed_projects={chain["project"]}
+    )
+    assert get(client, url, managing).status_code == 200
+    other_manager = Principal(
+        user_id=uuid4(), roles=frozenset({"manager"}), managed_projects={uuid4()}
+    )
+    assert error(get(client, url, other_manager)) == (404, "TFT_DOCUMENT_NOT_FOUND")
+    bare_manager = Principal(user_id=uuid4(), roles=frozenset({"manager"}))
+    assert error(get(client, url, bare_manager)) == (404, "TFT_DOCUMENT_NOT_FOUND")
     (tmp_path / "doc.bin").write_bytes(b"changed document!!")
     changed = get(client, url)
     assert error(changed) == (503, "TFT_DOCUMENT_UNAVAILABLE")
