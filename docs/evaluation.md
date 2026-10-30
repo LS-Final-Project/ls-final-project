@@ -341,7 +341,9 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다.
 
 - 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
-- 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓰며 덮어쓰지 않는다. 결과에는 원문·인용·값을 넣지 않는다.
+- 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓴다. 결과는 새 파일로만 만들고, 실행 중에 같은 경로가 생기면 덮어쓰지 않고 옆 파일(시각을 붙인 이름)에 남긴 뒤 실패로 끝낸다. 결과에는 원문·인용·값을 넣지 않는다.
+- 정답 파일의 `document_number`가 겹치면 받지 않는다(`EVAL_GOLD_DUPLICATE_DOCUMENT`).
+- **공식 실행 1회**: 평가 문서의 `FIRST` 실행은 저장소 밖 공식 실행 기록 `--official-ledger`(JSON Lines)가 필수다. 원문 확인 뒤 모델 호출 직전에, 파일 잠금 안에서 같은 manifest 판본·문서의 기록을 확인하고 `STARTED`를 남긴다. 끝나면 결과 파일 sha256을 담은 `COMPLETED`를 더한다. 기록이 이미 있으면 `EVAL_OFFICIAL_ALREADY_RECORDED`로 멈추고, 그 뒤는 `REMEASURE`(참고값)다. 도중에 실패한 첫 실행도 `STARTED`로 남아 공식 자리를 쓴 것으로 본다. 공식 결과는 `COMPLETED`의 해시를 Jira(KAN-191)에 함께 남겨 가리킨다.
 - 평가 문서는 `--confirm-evaluation` 없이는 모델을 부르기 전에 멈춘다. 용도가 다른 문서(평가·개발·회귀)는 한 실행에 섞지 않는다. `meta.official`은 평가 문서의 `--run-label FIRST` 실행만 참이고, `REMEASURE`와 개발·회귀 실행은 참고값이다. `meta.git_sha`는 코드 폴더에 커밋 안 한 변경이 있으면 `+dirty`가 붙는다.
 - 보완 경로 예측은 시스템이 1순위로 내미는 열린 선택지다(사람이 고르기 전 제안). 협력사 맥락(고객 제조사 목록·목록 외 허용·공급 지역·조립품 공급 여부)은 사람이 프로젝트에 입력하는 값이라 정답 파일이 준다.
 - 정답 파일(`eval.rfp_candidates.GoldFile`, 저장소 밖): `gold_version`, 문서마다 `document_number`·`sections`(평가 절)·`requirements`(`clause_no`·`attribute`·`expected_status`·`necessity`·`expected_path`·`expected_reason`)·`candidates`(후보 코드 → `grade`, REVIEW면 `unconfirmed` 항목 이름 목록 필수)·`assembly_clauses`·`context`.
