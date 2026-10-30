@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
 
 from backend.api.tft.rfp.rnd import DeptKind, RndQuestion, rnd_check_of
 from backend.api.tft.rfp.supplement import RndCheck
@@ -141,7 +142,7 @@ async def insert_question(
             page,
             issue_type,
             question_text,
-            json.dumps(internal_assumption) if internal_assumption is not None else None,
+            Jsonb(dict(internal_assumption)) if internal_assumption is not None else None,
             target,
             target_dept,
             project["data_origin"],
@@ -454,3 +455,158 @@ async def list_change_proposals(
         (project_id, requirement_id, requirement_id),
     )
     return await cursor.fetchall()
+
+
+async def requirement_project(conn: AsyncConnection[Row], requirement_id: UUID) -> UUID | None:
+    """요구가 속한 프로젝트.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+
+    Returns:
+        UUID | None: 프로젝트 ID. 요구가 없으면 None.
+    """
+    cursor = await conn.execute(
+        "SELECT project_id FROM tft.requirements WHERE id = %s", (requirement_id,)
+    )
+    row = await cursor.fetchone()
+    return row["project_id"] if row else None
+
+
+async def stored_options(
+    conn: AsyncConnection[Row], requirement_id: UUID, version: int
+) -> list[Row]:
+    """요구 판본에 저장된 보완 선택지 행(원인·고객 허용·경로별 후보만 쓴다).
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+        version: 요구 판본.
+
+    Returns:
+        list[Row]: supplement_options 행.
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.supplement_options WHERE requirement_id = %s AND requirement_version = %s "
+        "ORDER BY known_at, id",
+        (requirement_id, version),
+    )
+    return await cursor.fetchall()
+
+
+async def has_customer_question(conn: AsyncConnection[Row], requirement_id: UUID) -> bool:
+    """요구에 고객 질문이 있는지(지정품 대체 제안의 고객 승인 질문으로 본다).
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+
+    Returns:
+        bool: CUSTOMER 질문이 하나라도 있으면 True.
+    """
+    # ponytail: 승인 질문 ID 열이 없어 고객 질문 유무로 본다. designated_item.approval_question_id가 저장되면 그 값으로.
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM tft.customer_questions WHERE requirement_id = %s "
+        "AND target = 'CUSTOMER') AS found",
+        (requirement_id,),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["found"])
+
+
+async def judgement_of(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any]
+) -> dict[str, Any]:
+    """변경 제안의 current로 쓰는 요구 판본의 판단 필드(status·necessity·reason·conditions·unresolved).
+
+    Args:
+        conn: dict_row 연결.
+        requirement: latest_requirement_version 행.
+
+    Returns:
+        dict: ProposedChange 형식.
+    """
+    cursor = await conn.execute(
+        "SELECT name, value, unit FROM tft.requirement_conditions WHERE requirement_id = %s "
+        "AND version = %s ORDER BY ordinal",
+        (requirement["requirement_id"], requirement["version"]),
+    )
+    return {
+        "status": requirement["status"],
+        "necessity": requirement["necessity"],
+        "reason": requirement["reason"],
+        "conditions": await cursor.fetchall(),
+        "unresolved": list(requirement["unresolved"]),
+    }
+
+
+async def insert_reply_proposal(
+    conn: AsyncConnection[Row],
+    question: Mapping[str, Any],
+    requirement: Mapping[str, Any],
+    *,
+    current: Mapping[str, Any],
+    proposed: Mapping[str, Any],
+    reply_text: str,
+) -> Row:
+    """고객 회신에서 시스템이 만드는 변경 제안(origin customer_reply, PENDING).
+
+    Args:
+        conn: 회신 기록과 같은 트랜잭션.
+        question: 회신된 질문(get_question 행).
+        requirement: 질문 요구의 최신 판본.
+        current: 지금 판단 필드.
+        proposed: 바꿀 판단 필드.
+        reply_text: 회신 본문(앞 200자를 근거 문장에 쓴다).
+
+    Returns:
+        Row: change_proposals 행.
+    """
+    cursor = await conn.execute(
+        "SELECT id FROM tft.question_replies WHERE question_id = %s", (question["id"],)
+    )
+    reply = await cursor.fetchone()
+    assert reply is not None
+    cursor = await conn.execute(
+        "INSERT INTO tft.change_proposals (id, project_id, requirement_id, base_requirement_version, "
+        "origin, source_ref, current, proposed, rationale, proposer_kind, data_origin, "
+        "derivation_kind, known_at) VALUES (%s,%s,%s,%s,'customer_reply',%s,%s,%s,%s,'system',%s,"
+        "'DERIVED',%s) RETURNING *",
+        (
+            uuid4(),
+            question["project_id"],
+            requirement["requirement_id"],
+            requirement["version"],
+            Jsonb({"question_id": str(question["id"]), "reply_id": str(reply["id"])}),
+            Jsonb(dict(current)),
+            Jsonb(dict(proposed)),
+            "고객 회신: " + reply_text[:200],
+            question["data_origin"],
+            question["reply_received_at"],
+        ),
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return row
+
+
+async def clause_in_project(conn: AsyncConnection[Row], project_id: UUID, clause_id: UUID) -> bool:
+    """조항이 프로젝트 문서의 조항인지(질문 원문 위치 검사).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        clause_id: 조항 ID.
+
+    Returns:
+        bool: 프로젝트 문서의 조항이면 True.
+    """
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM tft.clauses c "
+        "JOIN tft.document_versions dv ON dv.id = c.document_version_id "
+        "JOIN tft.documents d ON d.id = dv.document_id WHERE c.id = %s AND d.project_id = %s) AS found",
+        (clause_id, project_id),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["found"])

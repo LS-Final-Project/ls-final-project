@@ -3069,6 +3069,183 @@
         "title": "QuestionReply",
         "type": "object"
       },
+      "QuestionReplyResult": {
+        "additionalProperties": false,
+        "description": "20. \ud68c\uc2e0 \uacb0\uacfc: \ud68c\uc2e0\ub41c \uc9c8\ubb38. CUSTOMER \ud68c\uc2e0\uc774 \ud310\ub2e8\uc744 \ubc14\uafc0 \uc81c\uc548\uc744 \ub9cc\ub4e4\uc5c8\uc744 \ub54c\ub9cc created_proposal\uc774 \uc788\ub2e4.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Proposal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "internal_assumption": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InternalAssumption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issue_type": {
+            "enum": [
+              "EMPTY_VALUE",
+              "CONFLICT",
+              "SCOPE_UNCLEAR",
+              "CONDITION_MISSING",
+              "RND_FEASIBILITY",
+              "TECH_ADVICE",
+              "PURCHASE_TERMS"
+            ],
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ClauseRef"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_text": {
+            "title": "Question Text",
+            "type": "string"
+          },
+          "reply_received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Received At"
+          },
+          "requirement_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Id"
+          },
+          "rnd_feasibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FEASIBLE",
+                  "FEASIBLE_WITH_SCHEDULE",
+                  "NOT_FEASIBLE",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Feasibility"
+          },
+          "status": {
+            "enum": [
+              "OPEN",
+              "REPLIED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "default": "CUSTOMER",
+            "enum": [
+              "CUSTOMER",
+              "INTERNAL"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "data_origin",
+          "derivation_kind",
+          "known_at",
+          "question_id",
+          "requirement_id",
+          "origin",
+          "issue_type",
+          "question_text",
+          "internal_assumption",
+          "status",
+          "reply_received_at",
+          "created_by",
+          "created_at"
+        ],
+        "title": "QuestionReplyResult",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -4580,6 +4757,22 @@
           "meta"
         ],
         "title": "SuccessResponse[QuestionList]",
+        "type": "object"
+      },
+      "SuccessResponse_QuestionReplyResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/QuestionReplyResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[QuestionReplyResult]",
         "type": "object"
       },
       "SuccessResponse_Question_": {
@@ -7434,7 +7627,7 @@
     },
     "/api/v1/tft/projects/{project_id}/questions": {
       "get": {
-        "description": "18. \uace0\uac1d \uc9c8\ubb38 \ubaa9\ub85d.",
+        "description": "18. \uace0\uac1d\u00b7\ub0b4\ubd80 \uc790\ubb38 \uc9c8\ubb38 \ubaa9\ub85d.",
         "operationId": "tft_list_rfp_questions",
         "parameters": [
           {
@@ -7482,6 +7675,44 @@
                 }
               ],
               "title": "Requirement Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "CUSTOMER",
+                    "INTERNAL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Dept"
             }
           }
         ],
@@ -7560,9 +7791,7 @@
         "summary": "List Questions",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       },
       "post": {
         "description": "19. \uc9c8\ubb38 \uc791\uc131. \ud68c\uc2e0 \uc804 \uc694\uad6c\uac12\uc740 UNDETERMINED\ub85c \uc720\uc9c0\ud55c\ub2e4.",
@@ -7675,9 +7904,7 @@
         "summary": "Create Question",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/requirements": {
@@ -8165,7 +8392,7 @@
     },
     "/api/v1/tft/questions/{question_id}/reply": {
       "post": {
-        "description": "20. \ud68c\uc2e0 \uae30\ub85d \u2192 \ubcc0\uacbd \uc81c\uc548(customer_reply). \uc2b9\uc778 \uc804\uc5d0\ub294 \uc694\uad6c\uac00 \ubc14\ub00c\uc9c0 \uc54a\ub294\ub2e4.",
+        "description": "20. \ud68c\uc2e0 \uae30\ub85d. CUSTOMER \ud68c\uc2e0\uc774 \ubbf8\ud574\uacb0 \ud56d\ubaa9\uc744 \uc904\uc774\uba74 \ubcc0\uacbd \uc81c\uc548(customer_reply)\uc744 \ud568\uaed8 \ub9cc\ub4e0\ub2e4.\n\n\uc2b9\uc778 \uc804\uc5d0\ub294 \uc694\uad6c\uac00 \ubc14\ub00c\uc9c0 \uc54a\ub294\ub2e4.",
         "operationId": "tft_reply_rfp_question",
         "parameters": [
           {
@@ -8205,7 +8432,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_Proposal_"
+                  "$ref": "#/components/schemas/SuccessResponse_QuestionReplyResult_"
                 }
               }
             },
@@ -8275,9 +8502,7 @@
         "summary": "Reply Question",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/ready": {
@@ -8594,9 +8819,7 @@
         "summary": "Get Supplement Options",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/requirements/{requirement_id}/supplement-selection": {
@@ -8711,9 +8934,7 @@
         "summary": "Select Supplement",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/health": {
