@@ -313,7 +313,7 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 | `rfp_status_match_rate` | 사양 비교 | 네 가지 상태와 사유가 정답과 일치한 요구 / 정답 요구. 상태별 혼동표를 함께 공개 | ≥ 0.90 | 아니오 | 구현: `summarize_requirement_extraction` `status_match.rate`·`count`(정답 사유가 있으면 정규화 문장 일치, `reason_compared` 표기), 혼동표는 `status`. 사유가 없는 정답 요구가 있으면 게이트 값은 None |
 | `rfp_evidence_accuracy` | 원문 근거 정확성 | 인용 위치의 요구·사양이 판단을 실제로 뒷받침하는 판단 / 인용이 있는 판단 | ≥ 0.95 | 아니오 | 미구현(KAN-189) |
 | `rfp_critical_false_fulfillment_count` | 중대한 잘못된 충족 | 미충족·미확인 필수 요구를 확정 충족으로 처리한 건수 | == 0 | 예 | 구현: `critical_errors.mandatory_gap_judged_found.count`·`denominator`(정답 necessity MANDATORY·CONDITION_BOUND, necessity가 없는 정답 요구가 하나라도 있으면 None, 발생 가능 건수가 0이면 게이트 값 None) |
-| `rfp_partner_recommendation_precision` | 협력사 추천 적합성 | '필수 기술조건 확인 후보' 중 모든 필수 조건의 근거가 실제로 확인된 후보 / '필수 기술조건 확인 후보'. '검토 후보'는 미확인 조건이 빠짐없이 표시됐는지 따로 확인 | ≥ 0.90 | 아니오 | 일부: `summarize_candidate_grades` `mandatory_confirmed_precision`·`mandatory_confirmed_count`는 정답 등급 일치만 비교한다. 검토 후보 미확인 조건 표시(`review_unconfirmed_listed`)는 미구현이라 None(KAN-191). 정의를 다 채우기 전까지 게이트 값은 None |
+| `rfp_partner_recommendation_precision` | 협력사 추천 적합성 | '필수 기술조건 확인 후보' 중 모든 필수 조건의 근거가 실제로 확인된 후보 / '필수 기술조건 확인 후보'. '검토 후보'는 미확인 조건이 빠짐없이 표시됐는지 따로 확인 | ≥ 0.90 | 아니오 | 구현: 게이트 값은 `summarize_candidate_grades` `mandatory_confirmed_precision`·`mandatory_confirmed_count`. 검토 후보 미확인 조건 표시는 `review_unconfirmed_listed`(정답·예측 모두 REVIEW인 후보 중 정답 미확인 항목을 빠짐없이 표시한 비율·건수·빠진 항목, KAN-191)로 따로 공개한다. 항목은 문장이 아니라 등급 판정의 검사 이름(`eval.rfp_metrics.unconfirmed_items`: 속성명, `certification:규격`, `integrator_capable.항목`, 제조사 목록 확인 `manufacturer_list`)으로 대조한다. 표시를 같이 재지 않으면 게이트 값은 None |
 | `rfp_integration_responsibility_rate` | 통합 책임 확인 | 조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고 미확보 시 처리 경로가 제시된 조립품 공급 요구 / 조립품 공급 요구 | == 1.0 | 아니오 | 구현: `summarize_integration_responsibility` `rate`·`count`·`denominator`(정답의 조립품 공급 요구 조항마다, 예측의 필수 확인 항목 표시·근거 조항 포함·책임자 확정 또는 처리 경로 제시를 모두 볼 때 분자. 미예측 문서는 분자 밖, 분모 0이면 게이트 값 None). 엔진 `backend/api/tft/rfp/integration.py`(KAN-186) |
 | `rfp_mandatory_constraint_violation_count` | 필수 제약 처리 | 외부 보완 금지·필수 정격 미달 후보가 적합으로 추천된 건수 | == 0 | 예 | 구현: `summarize_candidate_grades` `excluded_recommended.count`·`denominator`(정답 EXCLUDED를 추천, 분모가 0이면 게이트 값 None) |
 | `rfp_draft_trace_rate` | 초안 근거 추적 | 요구·제품·협력사 근거 또는 가정 표시를 찾은 주요 제안 문장 / 주요 제안 문장 | == 1.0 | 아니오 | 미구현(KAN-188) |
@@ -337,8 +337,15 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 
 - 원문 근거 정확성 판정(KAN-189)
 - 초안 근거 추적(KAN-188)
-- 협력사 '검토 후보'의 미확인 조건 표시 확인: 후보별 조건 목록 입력이 필요하다(KAN-191)
-- RFP 후보 비교 결과 파일을 만드는 실행기(KAN-191). `eval/adoption.py`는 meta에 `documents`가 있는 결과를 RFP로 보고, 후보 행의 `rfp_*` 키 9개를 읽는다.
+
+RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다.
+
+- 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
+- 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓰며 덮어쓰지 않는다. 결과에는 원문·인용·값을 넣지 않는다.
+- 평가 문서는 `--confirm-evaluation` 없이는 모델을 부르기 전에 멈춘다. 용도가 다른 문서(평가·개발·회귀)는 한 실행에 섞지 않는다. `meta.official`은 평가 문서의 `--run-label FIRST` 실행만 참이고, `REMEASURE`와 개발·회귀 실행은 참고값이다. `meta.git_sha`는 코드 폴더에 커밋 안 한 변경이 있으면 `+dirty`가 붙는다.
+- 보완 경로 예측은 시스템이 1순위로 내미는 열린 선택지다(사람이 고르기 전 제안). 협력사 맥락(고객 제조사 목록·목록 외 허용·공급 지역·조립품 공급 여부)은 사람이 프로젝트에 입력하는 값이라 정답 파일이 준다.
+- 정답 파일(`eval.rfp_candidates.GoldFile`, 저장소 밖): `gold_version`, 문서마다 `document_number`·`sections`(평가 절)·`requirements`(`clause_no`·`attribute`·`expected_status`·`necessity`·`expected_path`·`expected_reason`)·`candidates`(후보 코드 → `grade`, REVIEW면 `unconfirmed` 항목 이름 목록 필수)·`assembly_clauses`·`context`.
+- 회귀 문서 15번은 문서 manifest `rfp-documents-20261029-v1`에 없어 아직 돌릴 수 없다. manifest에 15번(파일명·sha256·`split=regression`)을 더해야 한다.
 
 요구 추출 측정에서 채택 기록까지(KAN-143 4차). `scripts/rfp_requirements_eval.py --adoption-out`은 요구 추출 게이트 2개(`rfp_requirement_recall`·`rfp_requirement_precision`)만 `eval_adopt --task rfp` 입력 형식으로 쓴다. 값은 `eval.rfp_metrics.summarize_extraction_keys`의 (clause_no, attribute) 키 일치이며 비교 상태는 보지 않는다. 재현율 분모는 게이트 정의대로 필수(mandatory) 정답만이고, 정밀도는 예측 전체를 정답 전체와 맞춘다(meta `metric_definition`). 이 스크립트의 정답에는 상태가 없어 `summarize_requirement_extraction`에 넣을 수 없기 때문이다. 정답 attribute 어휘가 예측 어휘와 같은지는 검증하지 않았다(개발 정답은 저장소 밖, meta `vocabulary_note`). 나머지 7개는 측정하지 않아 NOT_EVALUABLE이고, 0건 blocker 2개가 미측정이라 blocker는 참이다. `report.json`의 엄격·관대 점수는 정의가 달라 채택 기록에 넣지 않는다.
 
