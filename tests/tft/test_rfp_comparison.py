@@ -99,7 +99,9 @@ _DEMO_A = [
     Requirement(
         clause_no="2.5.A",
         item="설계 기준: 타사 몰드 변압기 모델",
-        designated_model="Eaton Resibloc",
+        value="Eaton Resibloc",
+        operator="TEXT",
+        basis_of_design=True,
     ),
 ]
 
@@ -443,10 +445,17 @@ def test_core_equipment_missing_from_the_data_goes_to_joint_proposal_or_hold():
     assert plain.deficiency_cause is None and options_for(plain, "ALLOWED").options == []
 
 
+def designated_outcome():
+    """대체 불가 지정 요구의 판정. 시연 A의 설계 기준(참고 기준)과 다르다."""
+    wanted = Requirement(clause_no="2.5.A", item="계전기", designated_model="Model X")
+    return compare_in_family(wanted, "TRANSFORMER", load_own_products())
+
+
 def test_designated_model_and_non_gaps_get_the_right_paths():
     outcomes = demo_a()
-    assert outcomes[13].deficiency_cause == "DESIGNATED_MODEL"
-    designated = options_for(outcomes[13], "UNSTATED")
+    named = designated_outcome()
+    assert named.deficiency_cause == "DESIGNATED_MODEL"
+    designated = options_for(named, "UNSTATED")
     # Spec v1.3 §5.1: only the specified-item procurement and an alternative (customer approval)
     # can be chosen; the other paths are shown as blocked with the reason.
     allowed = {o.path: o for o in designated.options if o.allowed}
@@ -466,7 +475,7 @@ def test_designated_model_and_non_gaps_get_the_right_paths():
         ],
         "DESIGNATED_ITEM",
     )
-    asked = options_for(outcomes[13], "UNSTATED", approval_question=True)
+    asked = options_for(named, "UNSTATED", approval_question=True)
     alt = next(o for o in asked.options if o.path == "ALTERNATIVE_SPEC")
     assert "고객 질문 작성 필요" not in alt.conditions_to_confirm
     # Evidence, conditions and missing data are next actions, not supplement paths.
@@ -835,6 +844,32 @@ def test_a_placeholder_value_is_left_out_of_the_judgement(value):
     assert "미정" in outcome.reason and outcome.unresolved == ["요구값 확정(고객 회신)"]
 
 
+@pytest.mark.parametrize("family", ["TRANSFORMER", "OTHER", None])
+def test_a_basis_of_design_product_asks_the_customer_about_equals_without_designation(family):
+    """결함 13: 설계 기준은 지정이 아니다. 계열·속성이 없어도 조건부이고 지정품 경로로 가지 않는다."""
+    wanted = Requirement(
+        clause_no="2.5",
+        item="변압기",
+        attribute="OTHER",
+        value="Model X",
+        operator="TEXT",
+        basis_of_design=True,
+    )
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert (outcome.status, outcome.next_owner) == ("CONDITIONAL", "CUSTOMER")
+    assert outcome.deficiency_cause is None and "지정 모델" not in outcome.reason
+    assert "Model X" in outcome.reason
+    assert options_for(outcome, "ALLOWED").options == []
+
+
+def test_a_designated_model_keeps_its_procurement_path():
+    """대체 불가 지정은 그대로 지정품이다. 설계 기준과 섞이지 않는다."""
+    wanted = Requirement(clause_no="2.5", item="계전기", designated_model="Model X")
+    outcome = compare_in_family(wanted, "OTHER", load_own_products())
+    assert (outcome.status, outcome.deficiency_cause) == ("CONDITIONAL", "DESIGNATED_MODEL")
+    assert "지정 모델 Model X" in outcome.reason
+
+
 def short_time(unit="kA", operator="GTE", duration_unit="s"):
     return Requirement(
         clause_no="2.4",
@@ -877,6 +912,9 @@ def rated_product(attribute, value, unit, duration=None):
         ("kA rms, symmetrical", "seconds"),
         ("kA (sym)", "sec"),
         ("kA r.m.s.", "s"),
+        ("kA", "Sec"),
+        ("kA", "SEC"),
+        ("kA", "Seconds"),
     ],
 )
 def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
@@ -900,6 +938,36 @@ def test_units_that_change_the_quantity_are_not_stripped(unit):
     )
     assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
     assert any("단위 확인" in item for item in outcome.unresolved)
+
+
+def test_condition_units_ignore_case_after_the_unit_key():
+    """조건 단위는 대소문자로 크기가 갈리지 않는다(#347 리뷰). 'HZ'와 'Hz'는 조건 차이가 아니다."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="BIL",
+        attribute="bil",
+        value="95",
+        unit="kV",
+        operator="GTE",
+        conditions=[Condition(name="frequency", value="50", unit="HZ")],
+    )
+    plain = rated_product("bil", "95", "kV")
+    fact = plain.spec_facts[0].model_copy(
+        update={"conditions": [Condition(name="frequency", value="50", unit="Hz")]}
+    )
+    product = plain.model_copy(update={"spec_facts": [fact]})
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(wanted, [product], trace).status == "EVIDENCE_FOUND"
+    # 'S'는 지멘스다. 초로 맞추지 않는다(#347 리뷰).
+    conductance = wanted.model_copy(
+        update={"attribute": "rated_power", "unit": "S", "conditions": []}
+    )
+    result = compare(conductance, [rated_product("rated_power", "95", "s")], trace)
+    assert result.candidates[0].result == "NOT_COMPARABLE"
+    # 값 단위는 대소문자가 크기를 가른다(mW·MW). 같은 양으로 보지 않는다.
+    power = wanted.model_copy(update={"attribute": "rated_power", "unit": "mW", "conditions": []})
+    result = compare(power, [rated_product("rated_power", "95", "MW")], trace)
+    assert result.candidates[0].result == "NOT_COMPARABLE"
 
 
 def test_the_operator_decides_a_fixed_rating_and_a_minimum():
@@ -1251,7 +1319,7 @@ def test_commercial_and_designated_alternatives_are_not_gated_by_rnd():
         ("OWN_TERMS_REVIEW", True, "NONE"),
         ("ALTERNATIVE_SPEC", True, "NONE"),
     ]
-    designated = options_for(demo_a()[13], "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    designated = options_for(designated_outcome(), "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
     alternative = next(o for o in designated.options if o.path == "ALTERNATIVE_SPEC")
     assert (alternative.allowed, alternative.gate.requires) == (True, "NONE")
 

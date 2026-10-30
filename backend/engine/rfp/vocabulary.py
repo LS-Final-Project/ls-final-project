@@ -82,9 +82,29 @@ FamilyOrOther = Literal[EquipmentFamily, Other]
 ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
+# 문장으로 적힌 값의 비교용 표기(canonical_value). 탭은 ±NxS% 또는 +Nx-MxS%(위 N·아래 M단, 단 간격 S%),
+# 보호 기능은 L·S·I·G 순서의 문자 집합이다(업계 표기라 알파벳순이 아니다).
+CANONICAL_FORMS: dict[str, re.Pattern[str]] = {
+    "tap": re.compile(r"(?:±\d+|\+\d+x-\d+)x\d+(?:\.\d+)?%"),
+    "protection_functions": re.compile(r"(?=.)L?S?I?G?"),
+}
 ATTRIBUTE_KEYS: frozenset[str] = frozenset(get_args(AttributeKey))
 EQUIPMENT_FAMILIES: frozenset[str] = frozenset(get_args(EquipmentFamily))
 CONDITION_NAMES: frozenset[str] = frozenset(get_args(ConditionName))
+
+
+def is_canonical(attribute_key: str, value: str) -> bool:
+    """값이 그 속성의 정해진 비교용 표기인지.
+
+    Args:
+        attribute_key: 속성 어휘.
+        value: 비교용 표기.
+
+    Returns:
+        bool: 표기가 정해진 속성이고 형식이 맞으면 True.
+    """
+    form = CANONICAL_FORMS.get(attribute_key)
+    return form is not None and form.fullmatch(value) is not None
 
 
 def is_placeholder(value: str | None) -> bool:

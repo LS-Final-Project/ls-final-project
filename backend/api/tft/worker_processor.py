@@ -283,6 +283,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         certification_listed=item.certification_listed,
         standard_system=item.standard_system,
         designated_model=item.designated_model,
+        basis_of_design=item.basis_of_design,
         task=item.task,
         kind=item.kind,
     )
