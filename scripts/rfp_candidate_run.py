@@ -21,6 +21,8 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 ROOT = Path(__file__).resolve().parents[1]
 # 측정 결과에 영향을 주는 코드 폴더. 저장소 루트의 다른 미추적 파일은 판본 표시에 넣지 않는다.
 CODE_DIRS = ("backend", "eval", "scripts")
@@ -32,7 +34,13 @@ from backend.api.tft.worker_processor import fake_provider  # noqa: E402
 from backend.engine.documents.router import extract  # noqa: E402
 from backend.engine.rfp.clauses import build_clause_tree  # noqa: E402
 from backend.shared.ai import Generation  # noqa: E402
-from eval.rfp_candidates import GoldFile, result_file, run_document, summarize  # noqa: E402
+from eval.rfp_candidates import (  # noqa: E402
+    GoldFile,
+    precheck,
+    result_file,
+    run_document,
+    summarize,
+)
 
 
 def check_inputs(
@@ -73,8 +81,51 @@ def check_inputs(
     return None
 
 
+def _recorded(text: str, manifest_version: str) -> set[int] | None:
+    """기록 파일 본문에서 그 manifest 판본으로 공식 기록이 있는 문서 번호. 읽을 수 없는 줄이 있으면 None.
+
+    빈 줄은 건너뛴다. 공식 판정의 기준 파일이라, 손으로 고치다 깨진 줄은 건너뛰지 않는다(#322 리뷰 P3).
+    """
+    found: set[int] = set()
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            version, numbers = entry["manifest_version"], set(entry["document_numbers"])
+        except (ValueError, KeyError, TypeError):
+            return None
+        if version == manifest_version:
+            found |= numbers
+    return found
+
+
+def official_recorded(ledger: Path, manifest_version: str, numbers: list[int]) -> str | None:
+    """재측정(REMEASURE) 전에 그 문서들의 공식 실행 기록이 모두 있는지 본다.
+
+    공식 실행 없이 재측정부터 돌려 점수를 본 뒤 FIRST로 돌리면 "첫 실행이 공식" 규칙이 뚫린다(Fable 2차 리뷰 P1).
+
+    Returns:
+        str | None: 기록 파일이 없거나 빠진 문서가 있으면 EVAL_OFFICIAL_NOT_RECORDED, 깨진 줄이 있으면
+            EVAL_OFFICIAL_LEDGER_CORRUPT, 모두 있으면 None.
+    """
+    if not ledger.exists():
+        return "EVAL_OFFICIAL_NOT_RECORDED"
+    with ledger.open(encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_SH)
+        found = _recorded(handle.read(), manifest_version)
+    if found is None:
+        return "EVAL_OFFICIAL_LEDGER_CORRUPT"
+    return None if set(numbers) <= found else "EVAL_OFFICIAL_NOT_RECORDED"
+
+
 def claim_official(
-    ledger: Path, manifest_version: str, numbers: list[int], started_at: str, sha: str
+    ledger: Path,
+    manifest_version: str,
+    numbers: list[int],
+    started_at: str,
+    sha: str,
+    model: str = "unknown",
 ) -> str | None:
     """평가 문서 공식(FIRST) 실행 자리를 모델 호출 전에 차지한다. 같은 manifest·문서로 기록이 있으면 거부한다.
 
@@ -88,6 +139,7 @@ def claim_official(
         numbers: 실행할 문서 번호.
         started_at: 실행 시작 시각.
         sha: 실행한 코드 판본.
+        model: 추출 모델 ID(기록에 남겨 어떤 모델의 공식 실행인지 사후에 구분한다).
 
     Returns:
         str | None: 이미 기록이 있으면 EVAL_OFFICIAL_ALREADY_RECORDED, 읽을 수 없는 줄이 있으면
@@ -96,23 +148,18 @@ def claim_official(
     with ledger.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         handle.seek(0)
-        for line in handle.read().splitlines():
-            if not line.strip():
-                continue
-            # 공식 판정의 기준 파일이라, 손으로 고치다 깨진 줄은 건너뛰지 않고 멈춘다(#322 리뷰 P3).
-            try:
-                entry = json.loads(line)
-                recorded = entry["manifest_version"], set(entry["document_numbers"])
-            except (ValueError, KeyError, TypeError):
-                return "EVAL_OFFICIAL_LEDGER_CORRUPT"
-            if recorded[0] == manifest_version and recorded[1] & set(numbers):
-                return "EVAL_OFFICIAL_ALREADY_RECORDED"
+        found = _recorded(handle.read(), manifest_version)
+        if found is None:
+            return "EVAL_OFFICIAL_LEDGER_CORRUPT"
+        if found & set(numbers):
+            return "EVAL_OFFICIAL_ALREADY_RECORDED"
         record = {
             "event": "STARTED",
             "manifest_version": manifest_version,
             "document_numbers": numbers,
             "started_at": started_at,
             "git_sha": sha,
+            "model": model,
         }
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     return None
@@ -216,24 +263,33 @@ def main(argv: list[str] | None = None) -> int:
 
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     manifest = json.loads(args.manifest.read_text())
-    gold = GoldFile.model_validate_json(args.gold.read_text())
+    try:
+        gold = GoldFile.model_validate_json(args.gold.read_text())
+    except ValidationError as error:
+        # 정답 오류는 모델을 부르기 전에 코드로 알린다(원문이 섞일 수 있어 값은 출력하지 않는다).
+        codes = sorted({str(e.get("ctx", {}).get("error", e["type"])) for e in error.errors()})
+        print(f"EVAL_GOLD_INVALID {codes}: 모델을 부르지 않았다.", file=sys.stderr)
+        return 1
     problem = check_inputs(
         manifest, args.documents, gold, args.out, confirm_evaluation=args.confirm_evaluation
-    )
+    ) or precheck(gold, args.documents, args.run_label)
     entries = {d["document_number"]: d for d in manifest["documents"]}
-    official = (
-        not problem
-        and args.run_label == "FIRST"
-        and entries[args.documents[0]]["split"] == "evaluation"
-    )
-    if official:
+    evaluation = not problem and entries[args.documents[0]]["split"] == "evaluation"
+    official = evaluation and args.run_label == "FIRST"
+    if evaluation:
         ledger = args.official_ledger
-        if ledger is None:
+        if official and args.provider == "fake":
+            # 가짜 모델 실행은 경로 점검일 뿐이라 공식 기회를 쓰지 않게 막는다(Fable 2차 리뷰 P2).
+            problem = "EVAL_FAKE_CANNOT_BE_OFFICIAL"
+        elif ledger is None:
             problem = "EVAL_OFFICIAL_LEDGER_REQUIRED"
         elif ROOT == ledger.resolve() or ROOT in ledger.resolve().parents:
             problem = "EVAL_OFFICIAL_LEDGER_INSIDE_REPOSITORY"
         elif not ledger.parent.is_dir():
             problem = "EVAL_OFFICIAL_LEDGER_DIR_MISSING"
+        elif not official:
+            # 평가 문서 재측정은 공식 실행 기록이 있을 때만(첫 실행 전에 미리 점수를 보지 않게).
+            problem = official_recorded(ledger, manifest["manifest_version"], args.documents)
     if problem:
         print(f"{problem}: 모델을 부르지 않았다.", file=sys.stderr)
         return 1
@@ -258,7 +314,12 @@ def main(argv: list[str] | None = None) -> int:
     if official:
         # 준비가 끝난 뒤, 첫 모델 호출 직전에 공식 자리를 차지한다.
         refused = claim_official(
-            args.official_ledger, manifest["manifest_version"], args.documents, started_at, sha
+            args.official_ledger,
+            manifest["manifest_version"],
+            args.documents,
+            started_at,
+            sha,
+            model,
         )
         if refused:
             hint = {
@@ -273,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             "document_numbers": args.documents,
             "started_at": started_at,
             "git_sha": sha,
+            "model": model,
         }
     runs = []
     for n in args.documents:
