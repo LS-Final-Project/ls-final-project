@@ -6,11 +6,13 @@ numbering_level, 없으면 style_name "Heading N"의 N-1, 둘 다 없으면 0이
 문장도 그 섹션 첫 청크 본문에 넣는다.
 
 v2(KAN-99·KAN-184): 제목·번호 힌트가 없는 문단(PDF에서 바꾼 DOCX 등)은 줄머리 조항 번호로 경계를 찾는다.
+제목꼴(80자 이하, 끝 문장부호 없음)인 줄만 경계로 본다.
 번호 패턴은 조항 트리(backend/engine/rfp/clauses.py)의 정규식을 그대로 쓰고 깊이도 같다: SECTION 머리 0,
 PART 1, 조(2.5) 2. A.·1.·a.처럼 더 깊은 번호는 경계로 삼지 않고 본문 줄로 둔다(14번 DOCX에서 A.까지 경계로
 삼으면 청크 140개 중 100자 미만 31개, 조까지면 82개 중 3개).
 
-제목만 든 짧은 TEXT 청크(40자 이하, 끝 문장부호 없음)는 따로 두지 않고 다음 청크 앞에 합친다. 번호 칸으로
+제목만 든 짧은 TEXT 청크(40자 이하, 끝 문장부호 없음)는 따로 두지 않고 다음 청크 앞에 합친다. 섹션 머리가
+아닌 짧은 줄은 다음 청크가 같은 섹션일 때만 합친다(앞 섹션 끝 줄이 다음 섹션 경로로 색인되지 않게). 번호 칸으로
 목록을 흉내 낸 레이아웃 표(모든 행 첫 칸이 번호뿐)는 행을 문장 줄로 바꿔 다음 TEXT 청크 앞에 합친다. 합칠
 TEXT 청크가 없으면(다음이 표이거나 문서 끝) 그대로 둔다. 합친 청크는 예산을 조금 넘을 수 있다.
 
@@ -92,8 +94,12 @@ def _clause_depth(text: str) -> int | None:
 
     Returns:
         int | None: SECTION 머리 0, PART 1, 조(2.5) 2. CLAUSE_BOUNDARY_MAX보다 깊은 번호나 번호가 없으면 None.
+            제목꼴이 아닌 줄(80자 초과이거나 끝 문장부호가 있음)은 번호로 시작해도 None이다. 문서 구조 맥락 없이
+            보므로 "2.5 mm 이상의 전선은 …"처럼 소수로 시작하는 본문 문장을 경계로 잡지 않게 한다.
     """
     line = text.strip()
+    if len(line) > PATH_LIMIT or line.endswith(SENTENCE_END):
+        return None
     if SECTION_HEAD.match(line):
         return 0
     if PART.match(line):
@@ -278,9 +284,11 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
     skipped: list[str] = []
     path: list[tuple[int, str]] = []
     section: list[Unit] = []
-    # 다음 청크 앞에 합칠 묶음: (줄, 레이아웃 표인지, 표제). 제목만 TEXT는 다음 청크(종류 무관)에,
-    # 레이아웃 표는 다음 TEXT 청크에만 합친다.
-    pending: list[tuple[list[Unit], bool, str | None]] = []
+    # 섹션 경계 블록 ID. 제목만 청크가 섹션 머리인지 볼 때 쓴다.
+    heads: set[str] = set()
+    # 다음 청크 앞에 합칠 묶음: (줄, 레이아웃 표인지, 표제, 그때의 섹션 경로). 제목만 TEXT는 다음 청크(종류
+    # 무관)에, 레이아웃 표는 다음 TEXT 청크에만 합친다. 섹션 머리가 아닌 묶음은 같은 섹션 안에서만 합친다.
+    pending: list[tuple[list[Unit], bool, str | None, list[str]]] = []
 
     def emit(units: list[Unit], kind: ChunkKind, title: str | None, layout: bool = False) -> None:
         """묶음 하나를 청크로 내거나, 제목만 TEXT·레이아웃 표면 다음 청크에 합치려고 미룬다.
@@ -294,14 +302,20 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
         Returns:
             None: chunks에 더하거나 pending에 둔다.
         """
+        current = [label for _, label in path]
         if layout or (kind == "TEXT" and _title_only(_text([], units))):
-            pending.append((units, layout, title))
+            pending.append((units, layout, title, current))
             return
         lead: list[Unit] = []
-        for held, is_layout, held_title in pending:
-            if is_layout and kind == "TABLE":
+        for held, is_layout, held_title, held_path in pending:
+            head = not is_layout and held[0].blocks[0].block_id in heads
+            if held_path != current and not head:
+                # 앞 섹션 끝의 짧은 줄·레이아웃 표는 다른 섹션 청크에 붙이지 않고 제 경로로 그대로 낸다.
+                write([*lead, *held], "TABLE" if is_layout else "TEXT", held_title, None, held_path)
+                lead = []
+            elif is_layout and kind == "TABLE":
                 # 레이아웃 표는 표 청크에 합치지 않는다. 앞서 모은 제목과 함께 그대로 낸다.
-                write([*lead, *held], "TABLE", held_title)
+                write([*lead, *held], "TABLE", held_title, None, held_path)
                 lead = []
             else:
                 lead += [Unit(held_title, []), *held] if is_layout and held_title else held
@@ -319,12 +333,16 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
         Returns:
             None: 남은 pending을 원래 종류로 낸다.
         """
-        for held, is_layout, held_title in pending:
-            write(held, "TABLE" if is_layout else "TEXT", held_title)
+        for held, is_layout, held_title, held_path in pending:
+            write(held, "TABLE" if is_layout else "TEXT", held_title, None, held_path)
         pending.clear()
 
     def write(
-        units: list[Unit], kind: ChunkKind, title: str | None, lead: list[Unit] | None = None
+        units: list[Unit],
+        kind: ChunkKind,
+        title: str | None,
+        lead: list[Unit] | None = None,
+        section_path: list[str] | None = None,
     ) -> None:
         """묶음 하나를 청크로 만든다.
 
@@ -333,6 +351,7 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             kind: TEXT 또는 TABLE.
             title: 표제(표 청크만).
             lead: 표 청크 표제 앞에 둘 합친 제목 줄.
+            section_path: 미뤄 둔 묶음을 낼 때의 원래 섹션 경로. 없으면 지금 경로다.
 
         Returns:
             None: chunks에 더한다.
@@ -355,7 +374,9 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
                 document_sha256=document.sha256,
                 ordinal=ordinal,
                 index_version=INDEX_VERSION,
-                section_path=[label for _, label in path],
+                section_path=section_path
+                if section_path is not None
+                else [label for _, label in path],
                 block_ids=[block.block_id for block in blocks],
                 source_position=blocks[0].position,
                 text=text,
@@ -412,6 +433,7 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             continue
         depth = _boundary_depth(block)
         if depth is not None:
+            heads.add(block.block_id)
             flush()
             while path and path[-1][0] >= depth:
                 path.pop()

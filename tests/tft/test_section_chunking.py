@@ -308,3 +308,49 @@ def test_title_only_chunks_and_numbered_layout_tables_join_the_next_text() -> No
         "2. Eaton.",
         "Provide equipment from the listed manufacturers.",
     ]
+
+
+def test_decimal_sentences_are_not_clause_boundaries() -> None:
+    """힌트 없는 문단은 제목꼴(80자 이하·끝 문장부호 없음)일 때만 번호 경계다. 소수로 시작하는 본문은 아니다."""
+    result = chunk_document(
+        doc(
+            para("a25", "2.5 EPOXY CAST RESIN", 0),
+            para("body", "2.5 mm 이상의 전선은 단말 처리를 한다.", 1),
+            para("long", "3.5 kV " + "x" * 90, 2),
+        )
+    )
+    [chunk] = result.chunks
+    assert chunk.section_path == ["2.5 EPOXY CAST RESIN"]
+    assert chunk.block_ids == ["a25", "body", "long"]
+
+
+def test_short_trailing_line_stays_in_its_own_section() -> None:
+    """섹션 머리가 아닌 짧은 줄은 다음 섹션 청크에 붙지 않고 제 섹션 경로로 남는다(섹션 머리는 합친다)."""
+    result = chunk_document(
+        doc(
+            para("a24", "2.4 TRANSFORMER", 0),
+            para("body", "Provide a cast resin transformer rated 630 kVA.", 1),
+            para("note", "See drawings E-101", 2),
+            para("a25", "2.5 SWITCHGEAR", 3),
+            para("body2", "Provide metal-enclosed switchgear rated 15 kV.", 4),
+        )
+    )
+    assert [(c.section_path, c.block_ids) for c in result.chunks] == [
+        (["2.4 TRANSFORMER"], ["a24", "body", "note"]),
+        (["2.5 SWITCHGEAR"], ["a25", "body2"]),
+    ]
+    split = chunk_document(
+        doc(
+            para("a24", "2.4 TRANSFORMER", 0),
+            para("body", "x" * 1190 + ".", 1),
+            para("note", "See drawings E-101", 2),
+            para("a25", "2.5 SWITCHGEAR", 3),
+            para("body2", "Provide metal-enclosed switchgear rated 15 kV.", 4),
+        )
+    )
+    # 예산으로 갈라진 짧은 꼬리 줄도 2.5 청크에 붙지 않고 2.4 경로로 따로 남는다.
+    assert [(c.section_path, c.block_ids) for c in split.chunks] == [
+        (["2.4 TRANSFORMER"], ["a24", "body"]),
+        (["2.4 TRANSFORMER"], ["note"]),
+        (["2.5 SWITCHGEAR"], ["a25", "body2"]),
+    ]
