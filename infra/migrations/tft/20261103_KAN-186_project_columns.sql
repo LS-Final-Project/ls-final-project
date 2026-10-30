@@ -53,7 +53,11 @@ ALTER TABLE tft.supplement_selections
     ADD COLUMN IF NOT EXISTS rnd_check text
         CHECK (rnd_check IN ('NOT_REQUIRED', 'PENDING', 'CONFIRMED_FEASIBLE',
                              'CONFIRMED_NOT_FEASIBLE', 'CONFIRMED_SCHEDULE_MISMATCH', 'WAIVED'));
--- A waiver reason is the record of a WAIVED choice.
+-- A waiver reason is the record of a WAIVED choice. Rows saved with a reason after T10 and before
+-- this column existed were waived choices: fill them first so the constraint can be validated
+-- (#303 review P3).
+UPDATE tft.supplement_selections SET rnd_check = 'WAIVED'
+WHERE rnd_check IS NULL AND rnd_check_waiver_reason IS NOT NULL;
 ALTER TABLE tft.supplement_selections DROP CONSTRAINT IF EXISTS supplement_selections_waiver_check;
 ALTER TABLE tft.supplement_selections ADD CONSTRAINT supplement_selections_waiver_check CHECK (
     (rnd_check_waiver_reason IS NULL) OR (rnd_check = 'WAIVED')

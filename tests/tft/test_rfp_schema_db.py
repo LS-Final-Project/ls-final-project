@@ -355,6 +355,27 @@ def test_strategic_customer_integration_and_designated_item_are_stored(admin, ch
     violates(admin, selection, (chain["requirement"], 3, who, "MAYBE", None))
 
 
+def test_a_waiver_saved_before_t11_is_carried_over_as_waived(admin, chain):
+    """#303 리뷰 P3: T10 뒤 T11 전에 면제 사유만 저장된 선택은 T11이 WAIVED로 채우고 제약을 건다."""
+    reason = "고객 일정상 R&D 회신을 기다릴 수 없어 외부 조달로 먼저 검토"
+    with psycopg.connect(admin, autocommit=True) as conn:
+        conn.execute(
+            "ALTER TABLE tft.supplement_selections DROP CONSTRAINT supplement_selections_waiver_check"
+        )
+        conn.execute(
+            "INSERT INTO tft.supplement_selections (requirement_id, version, requirement_version, path, "
+            "role_split, decided_by, rnd_check_waiver_reason, data_origin, derivation_kind, known_at) "
+            "VALUES (%s,9,1,'EXTERNAL_PRODUCT','외부 조달',%s,%s,'synthetic','DERIVED',now())",
+            (chain["requirement"], uuid4(), reason),
+        )
+        apply(conn, Path("infra/migrations/tft/20261103_KAN-186_project_columns.sql"))
+        row = conn.execute(
+            "SELECT rnd_check FROM tft.supplement_selections WHERE requirement_id=%s AND version=9",
+            (chain["requirement"],),
+        ).fetchone()
+    assert row == ("WAIVED",)
+
+
 def test_virtual_partner_profiles_from_the_json_fit_the_table(admin):
     profiles = load_profiles()
     with psycopg.connect(admin) as conn:

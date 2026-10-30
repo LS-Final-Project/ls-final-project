@@ -92,7 +92,8 @@ class Requirement(Strict):
 
 class Certification(Strict):
     standard: str
-    kind: Literal["LISTED", "TEST_REPORT"]
+    # MARK: 제품 마스터에 인증 이름만 있고 등록·시험 구분이 없음(UL·CE·KC 등). 충족을 확정하지 않는다(기획서 2.3).
+    kind: Literal["LISTED", "TEST_REPORT", "MARK"]
     evidence_id: str
     # 인증이 변형 모델(예: -U)에만 있으면 기본 모델의 인증으로 넓히지 않는다(기획서 4.2).
     variant: str | None = None
@@ -277,6 +278,18 @@ def _certification_match(requirement: Requirement, product: Product) -> Candidat
                     unresolved=unresolved,
                 )
 
+            if cert.kind == "MARK":
+                # 사양표에 인증명이 있어도 해당 프로젝트 인증 충족으로 확정하지 않는다: 종류(등록/시험)와 적용
+                # 모델·유효성 확인이 남는다(기획서 2.3 "사양표에 인증명이 있음").
+                return match(
+                    "CONDITIONAL",
+                    "MEETS",
+                    f"{head} 요구, 자사 자료에 {cert.standard} 표시만 있음(등록·시험 구분 미기재).",
+                    [
+                        f"{cert.standard} 인증 종류(등록/시험 성적)·적용 모델·유효성 확인",
+                        *([f"{cert.variant} 변형 모델 선택 확인"] if cert.variant else []),
+                    ],
+                )
             if requirement.certification_listed and cert.kind != "LISTED":
                 # 시험 성적은 등록을 대신하지 않는다: 미충족 근거가 있는 인증 부족(사양 차이).
                 return match(

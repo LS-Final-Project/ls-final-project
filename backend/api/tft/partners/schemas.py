@@ -31,6 +31,18 @@ Attribute = Literal[
     "winding_temperature_sensor",
     "communication_interface",
     "warranty_months",
+    # 자사 사양 23종 정규화(KAN-186 scripts/rfp_own_spec_facts.py). 같은 숫자라도 다른 속성은 합치지 않는다:
+    # 정격 사용 전압(Ue)은 정격 최대전압과, 모선 정격 전류는 정격 전류와 다른 속성이다.
+    "rated_operational_voltage",
+    "busbar_rated_current",
+    "power_frequency_withstand",
+    "breaking_capacity_icu",
+    "breaking_capacity_ics",
+    "rated_short_circuit_breaking_current",
+    "frame_size",
+    "number_of_poles",
+    "vector_group",
+    "protection_degree",
 ]
 
 

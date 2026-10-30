@@ -692,3 +692,41 @@ def test_every_demo_judgement_links_back_to_the_rfp_clause():
     assert "aluminum" in outcomes[7].origin.quote and outcomes[7].origin.clause_no == "2.5.L"
     # Product-side evidence stays on the candidates.
     assert outcomes[0].candidates[0].evidence[0].document == "DS-TRF-DRY-630"
+
+
+def test_all_23_own_products_load_with_their_family_and_warranty():
+    """KAN-186 자사 사양 23종(scripts/rfp_own_spec_facts.py가 만든 파일)."""
+    products = load_own_products()
+    assert len(products) == 23 and len({p.product_code for p in products}) == 23
+    assert all(any(f.attribute == "warranty_months" for f in p.spec_facts) for p in products)
+    switchgear_12 = next(p for p in products if p.product_code == "SWGR-MV-12kV")
+    attributes = {f.attribute for f in switchgear_12.spec_facts}
+    assert {
+        "rated_max_voltage",
+        "bil",
+        "short_time_withstand_current",
+        "internal_arc_classification",
+    } <= attributes
+
+
+def test_a_certification_mark_alone_is_conditional_not_met():
+    """기획서 2.3: 사양표에 인증명만 있으면 해당 프로젝트 인증 충족으로 확정하지 않는다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    marked = switchgear("15").model_copy(
+        update={
+            "certifications": [
+                Certification(standard="UL", kind="MARK", evidence_id="product_master")
+            ]
+        }
+    )
+    for listed in (False, True):
+        outcome = compare(
+            Requirement(
+                clause_no="2.2", item="UL", certification_standard="UL", certification_listed=listed
+            ),
+            [marked],
+            trace,
+        )
+        assert outcome.status == "CONDITIONAL"
+        assert "등록·시험 구분 미기재" in outcome.reason
+        assert outcome.unresolved[0].startswith("UL 인증 종류")
