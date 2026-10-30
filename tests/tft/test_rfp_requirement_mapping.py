@@ -3,6 +3,8 @@
 비교·등급은 추출 v3의 attribute_key(자사 사양 어휘)를 쓰고, 동의어 표는 없다(#324 표는 v3 연결로 대체해 지웠다).
 """
 
+import pytest
+
 from backend.api.tft.worker_processor import to_comparison
 from backend.engine.rfp.requirements import ExtractedRequirement
 
@@ -81,3 +83,80 @@ def test_grading_input_treats_compliance_as_a_certification_like_the_comparison(
         *row.mandatory_check.unknown,
     ]
     assert "certification:UL 347" in checked
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "tolerance", "expected"),
+    [
+        # '%' 오차는 명목값에 대한 비율이다(값 단위가 %여도): 시연 A 임피던스 5.75% ±10%.
+        ("5.75", "%", "±10%", ("RANGE", "5.175~6.325")),
+        ("100", "kVA", "+0/-5%", ("RANGE", "95~100")),
+        ("100", "kVA", "+10%/-5%", ("RANGE", "95~110")),
+        # '%'가 없으면 같은 단위의 절대값이다.
+        ("13.8", "kV", "±0.5", ("RANGE", "13.3~14.3")),
+        # 읽지 못하면 RANGE에 원래 값: 비교가 '범위를 숫자로 읽을 수 없어 확인 필요'가 된다.
+        ("5", "%", "about 10%", ("RANGE", "5")),
+        ("5.75", "%", None, ("EQ", "5.75")),
+    ],
+)
+def test_a_nominal_value_with_a_tolerance_becomes_a_range(value, unit, tolerance, expected):
+    """KAN-199: 허용 오차는 원문 그대로 받고, 범위 계산은 코드가 한다(EQ 명목값에만)."""
+    from backend.api.tft.worker_processor import to_grading, tolerance_range
+
+    item = requirement("SPEC", "impedance", "impedance").model_copy(
+        update={"value": value, "unit": unit, "operator": "EQ", "tolerance": tolerance}
+    )
+    assert tolerance_range(item) == expected
+    compared = to_comparison(item)
+    assert (compared.operator, compared.value) == expected
+    from uuid import UUID
+
+    graded = to_grading(UUID(int=1), item)
+    assert (graded.operator, graded.value) == expected
+
+
+def test_a_tolerance_on_a_minimum_is_not_a_range_and_an_unreadable_one_is_conditional():
+    """GTE·LTE에 붙은 허용 오차는 쓰지 않는다. 읽지 못한 허용 오차는 같다고도 다르다고도 하지 않는다(조건부)."""
+    from backend.api.tft.rfp.comparison import compare_in_family, load_own_products
+    from backend.api.tft.worker_processor import tolerance_range
+
+    minimum = requirement("SPEC", "impedance", "impedance").model_copy(update={"tolerance": "±10%"})
+    assert tolerance_range(minimum) == ("GTE", "95")
+    unreadable = requirement("SPEC", "impedance", "impedance").model_copy(
+        update={"value": "5.75", "unit": "%", "operator": "EQ", "tolerance": "about 10%"}
+    )
+    outcome = compare_in_family(to_comparison(unreadable), "TRANSFORMER", load_own_products())
+    assert {c.result for c in outcome.candidates} == {"NOT_COMPARABLE"}
+    assert outcome.status == "CONDITIONAL"
+    within = unreadable.model_copy(update={"tolerance": "±10%", "standard_system": "NONE"})
+    # 5.175~6.325 % 안의 TRF-DRY-630 6 %(기준 온도 조건 없음, 규격 체계 표시 없음 요구) → 충족 근거.
+    assert (
+        compare_in_family(to_comparison(within), "TRANSFORMER", load_own_products()).status
+        == "EVIDENCE_FOUND"
+    )
+
+
+def test_a_listing_requirement_reaches_both_comparison_and_grading():
+    """certification_listed는 자사 비교 입력으로, 협력사 등급에는 grading이 읽는 listing=listed 조건으로 간다."""
+    from uuid import UUID
+
+    from backend.api.tft.worker_processor import to_grading
+
+    listed = requirement("COMPLIANCE", "standard compliance").model_copy(
+        update={"value": "UL 347", "unit": None, "operator": "TEXT", "certification_listed": True}
+    )
+    assert to_comparison(listed).certification_listed is True
+    graded = to_grading(UUID(int=1), listed)
+    assert [(c.name, c.value) for c in graded.conditions] == [("listing", "listed")]
+    assert (
+        to_comparison(
+            listed.model_copy(update={"certification_listed": False})
+        ).certification_listed
+        is False
+    )
+    assert (
+        to_grading(
+            UUID(int=2), listed.model_copy(update={"certification_listed": False})
+        ).conditions
+        == []
+    )

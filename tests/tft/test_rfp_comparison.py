@@ -725,6 +725,89 @@ def test_demo_b1_short_time_current_stays_a_spec_gap_for_the_own_mv_products():
     assert outcome.status == b1["expected_status"] == "SPEC_GAP"
 
 
+def own(code):
+    """자사 제품 하나.
+
+    Args:
+        code: 제품 코드.
+
+    Returns:
+        Product: own_spec_facts의 그 제품.
+    """
+    [product] = [p for p in load_own_products() if p.product_code == code]
+    return product
+
+
+def test_a_met_value_under_another_standard_system_is_conditional():
+    """KAN-199: 요구 UL interrupting capacity를 IEC Icu 근거로 충족 판정하지 않는다(규격 체계 다름 → 조건부)."""
+    trace = SearchTrace(filters=["family=LV_BREAKER"], documents_searched=1, search_failed=False)
+    wanted = Requirement(
+        clause_no="2.6",
+        item="차단 용량",
+        attribute="breaking_capacity_icu",
+        value="10",
+        unit="kA",
+        operator="GTE",
+        standard_system="UL",
+    )
+    iec_only = compare(wanted, [own("MCCB-ABS-103c")], trace)
+    assert iec_only.status == "CONDITIONAL"
+    assert "규격 체계 다름: 요구 UL, 근거 IEC 60947-2, 시험 규격 확인" in iec_only.unresolved
+    # 체계 표시가 없는 요구는 지금처럼 충족이다.
+    plain = wanted.model_copy(update={"standard_system": "NONE"})
+    assert compare(plain, [own("MCCB-ABS-103c")], trace).status == "EVIDENCE_FOUND"
+    # UL이 -U 변형 모델 인증에만 있으면(certifications.variant) 근거 체계에 넣지 않는다.
+    variant = compare(wanted, [own("MCCB-ABS-403c")], trace)
+    assert variant.status == "CONDITIONAL"
+    assert "UL 체계는 변형 모델에만 있음: 변형 모델 값 확인" in variant.unresolved
+    assert any(
+        u.startswith("규격 체계 다름: 요구 UL, 근거 IEC 60947-2,") for u in variant.unresolved
+    )
+
+
+def test_a_same_system_product_is_not_downgraded():
+    """변형 표시 없이 UL 인증이 있는 제품(CONT-MC-32a: IEC·UL 60947-4-1)은 UL 요구에 체계 차이로 낮추지 않는다."""
+    product = own("CONT-MC-32a")
+    fact = product.spec_facts[0]
+    wanted = Requirement(
+        clause_no="2.7",
+        item="접촉기",
+        attribute=fact.attribute,
+        value=fact.value,
+        unit=fact.unit,
+        operator="TEXT" if fact.unit is None else "EQ",
+        conditions=list(fact.conditions or []),
+        standard_system="UL",
+    )
+    trace = SearchTrace(filters=["family=CONTROL"], documents_searched=1, search_failed=False)
+    assert not any("규격 체계" in u for u in compare(wanted, [product], trace).unresolved)
+
+
+def test_demo_b1_voltage_gap_stays_a_gap_under_another_standard_system():
+    """기획서 B-1(15 kV 요구, 요구 IEEE·근거 IEC 62271-200, 자사 SWGR-MV-12kV 12 kV): 물리 정격 미달은 체계가 달라도
+    사양 차이다(규격 체계 규칙은 충족만 낮춘다)."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="정격 최대전압 15kV",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+        standard_system="IEEE",
+    )
+    trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
+    outcome = compare(wanted, [own("SWGR-MV-12kV")], trace)
+    [b1] = [
+        r
+        for c in json.loads(DEMO_CASES.read_text())["cases"]
+        if c["case"] == "B-1"
+        for r in c["requirements"]
+        if r["attribute"] == "rated_max_voltage"
+    ]
+    assert outcome.status == b1["expected_status"] == "SPEC_GAP"
+    assert not any("규격 체계" in u for u in outcome.unresolved)
+
+
 if __name__ == "__main__":
     # Regenerates the contract example from the engine.
     EXAMPLE.parent.mkdir(parents=True, exist_ok=True)
