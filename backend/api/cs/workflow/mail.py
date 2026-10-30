@@ -68,6 +68,10 @@ class PlatformRejected(Exception):
 class PlatformMail:
     """HTTP client for the platform's internal send API, authenticated as the C/S runtime."""
 
+    # 5xx answers whose error code means "refused, nothing stored" rather than "unknown".
+    # The mail API has none: any 5xx may have stored an intent.
+    known_server_refusals: frozenset[str] = frozenset()
+
     def __init__(
         self,
         base_url: str,
@@ -99,12 +103,16 @@ class PlatformMail:
             raise PlatformUnreachable() from None
         except httpx.HTTPError:
             raise PlatformUnknown() from None
-        if response.status_code >= 500:
-            raise PlatformUnknown()
         try:
             payload = response.json()
         except ValueError:
             raise PlatformUnknown() from None
+        if response.status_code >= 500:
+            error = payload.get("error") if isinstance(payload, dict) else None
+            code = error.get("code") if isinstance(error, dict) else None
+            if code in self.known_server_refusals:
+                raise PlatformRejected(response.status_code, code)
+            raise PlatformUnknown()
         if response.status_code >= 400:
             code = "PLATFORM_ERROR"
             if isinstance(payload, dict) and isinstance(payload.get("error"), dict):

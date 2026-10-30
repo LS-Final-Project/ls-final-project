@@ -138,3 +138,14 @@ class CorrectionRequest(BaseModel):
     secondary_category: Category | None = None
     urgency_flag: Urgency | None = None
     provided_info: list[InfoCode] | None = Field(default=None, max_length=50)
+
+
+class AnalysisJob(BaseModel):
+    """플랫폼에 등록된 AI 분석 작업(KAN-107). 등록이 처리 시작을 뜻하지 않는다."""
+
+    job_id: UUID
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
+    status_url: str = Field(description="Platform job status; events at status_url + '/events'.")
+    created: bool = Field(
+        description="False when the same Idempotency-Key returned an earlier job."
+    )
