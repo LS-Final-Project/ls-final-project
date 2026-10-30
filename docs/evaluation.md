@@ -238,6 +238,15 @@ COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출
 | v2 | `143d7655ee22fed7` | v1 + 긴급도 신호 지침 한 줄(위 긴급도 정답 잠금의 신호 설명) |
 | v3 | `f299989ca90bcf99` | v2의 return_subtype 줄만 교체: category_code나 secondary_category가 RETURN일 때만 DEFECT·NON_DEFECT, 둘 다 아니면 불량 내용이 있어도 null(예 WARRANTY·보조 DEFECT → null). valid 603 재측정의 형식 위반 1건 대응. **채택 2026-10-29, 기본 판본** |
 
+## 초안·회신·개선요청 프롬프트 판본 (KAN-193)
+
+초안(draft)·회신 해석(reply)·개선요청 회신(improvement_reply)·개선요청 초안(improvement_draft)은 채택 기록이 없어(초안은 승격 검사 예외 `NO_ADOPTION`) 실측 전에도 기본 판본을 바꿀 수 있다. 검증(verification)은 v1이다.
+
+| 판본 | 지문(draft·reply·improvement_reply·improvement_draft) | 바뀐 점 |
+| --- | --- | --- |
+| v1 | `963cfe6e…`·`8cea1946…`·`40c64f48…`·`fa4e6aa6…` | 첫 지시문(2026-10-30까지 기본) |
+| v2 | `a1990152…`·`1633ea89…`·`a9d0bafb…`·`9e6f87e3…` | v1의 승인 약속 금지 줄 뒤에 반품 사유·제조 불량·책임 소재·고객 과실 확정 금지 줄 하나만 추가(`prompt_registry.CONFIRMATION_RULES`. 개선요청 회신은 부서 주장을 그대로 옮기는 단계라 질문·근거 요청에만 적용). 같은 내용을 초안 금지 약속(`drafting.CONFIRMATION_COMMITMENTS`)이 뒤에서 거른다. **기본 판본(2026-10-31), 채택 실측 전** |
+
 ## C/S 규칙 평가 분모와 제외 사유 (KAN-95)
 
 2026-10-27 개발 자료(학습 2,800·검증 603, `tickets.dev.csv` SHA-256 `c3fd2b60…`)에서 직접 집계해 잠근

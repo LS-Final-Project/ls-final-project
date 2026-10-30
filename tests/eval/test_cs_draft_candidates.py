@@ -429,7 +429,7 @@ def test_each_candidate_runs_its_own_prompt_version(monkeypatch):
         None: 후보별 공급자가 받은 프롬프트 첫머리를 확인한다.
     """
     from backend.engine.cs import prompt_registry
-    from backend.engine.cs.drafting import DRAFT_PROMPT
+    from backend.engine.cs.drafting import instruction
 
     monkeypatch.setitem(prompt_registry.PROMPTS["draft"], "test-v2", "검사용 초안 판본 본문.\n")
     seen: dict[str, list[str]] = {"v1": [], "test-v2": []}
@@ -456,7 +456,7 @@ def test_each_candidate_runs_its_own_prompt_version(monkeypatch):
             DraftCandidate("v2", recording("test-v2"), "fake-a", "test-v2"),
         ]
     )
-    assert seen["v1"] and all(p.startswith(DRAFT_PROMPT) for p in seen["v1"])
+    assert seen["v1"] and all(p.startswith(instruction("v1")) for p in seen["v1"])
     assert seen["test-v2"] and all(
         p.startswith("검사용 초안 판본 본문.\n") for p in seen["test-v2"]
     )

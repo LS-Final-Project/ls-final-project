@@ -454,6 +454,27 @@ async def latest_visible_requirement(
     return requirement
 
 
+async def requirement_out(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any]
+) -> s.RequirementDetail:
+    """최신 판본 행 → 상세(경로 13과 승인 응답이 같이 쓴다).
+
+    Args:
+        conn: dict_row 연결.
+        requirement: latest_requirement_version 행.
+
+    Returns:
+        s.RequirementDetail: 상세.
+    """
+    requirement_id = requirement["requirement_id"]
+    parts = await repository.requirement_detail_parts(conn, requirement)
+    state, question = await repository.rnd_check(conn, requirement_id)
+    rereview = await repository.needs_rereview(conn, requirement_id)
+    return detail_of(
+        requirement, parts, state=state, rnd_question=question, needs_rereview=rereview
+    )
+
+
 async def get_requirement(
     request: Request, principal: Principal, requirement_id: UUID
 ) -> s.RequirementDetail:
@@ -469,12 +490,7 @@ async def get_requirement(
     """
     async with connection(request.app.state.settings) as conn:
         requirement = await latest_visible_requirement(conn, principal, requirement_id)
-        parts = await repository.requirement_detail_parts(conn, requirement)
-        state, question = await repository.rnd_check(conn, requirement_id)
-        rereview = await repository.needs_rereview(conn, requirement_id)
-    return detail_of(
-        requirement, parts, state=state, rnd_question=question, needs_rereview=rereview
-    )
+        return await requirement_out(conn, requirement)
 
 
 def candidate_out(

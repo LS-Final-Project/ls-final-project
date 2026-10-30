@@ -87,6 +87,9 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}/questions', ['GET', 'POST'], ['status', 'requirement_id', 'target', 'target_dept']],
   ['/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm', ['POST'], []],
   ['/api/v1/tft/questions/{uuid}/reply', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/proposals', ['GET', 'POST'], ['status', 'origin', 'requirement_id']],
+  ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
+  ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };

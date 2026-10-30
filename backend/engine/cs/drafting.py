@@ -15,7 +15,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from backend.engine.cs.classification import ClassificationOutput, _unique_object, build_input
-from backend.engine.cs.prompt_registry import get_prompt
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, get_prompt
 from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 
 # v2(KAN-105 4차): 분류 입력 v4처럼 PHONE 상담원 표기를 지우지 않는다. v1은 분석용 표기 제거 판본이다.
@@ -67,7 +67,7 @@ PROMISE_COMMITMENTS = tuple(
 # KAN-193: 반품 사유·제조 책임·고객 과실 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
 # 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
 # 조건·부정 문장은 같은 문장 앞부분의 표지(CONDITION_MARKERS)나 한국어 조건 어미(_NOT_CONDITIONAL)로 허용한다.
-_NOT_CONDITIONAL = r"(?!\s*(?:다면|는지|을\s*경우|을지|더라도))"
+_NOT_CONDITIONAL = r"(?!\s*(?:다면|는지|을\s*경우|을지|더라도|다고\s*(?:볼|단정할|말할)\s*수\s*없))"
 _KO_DONE = r"(?:되었|됐|했|하였|합니다|됩니다)" + _NOT_CONDITIONAL
 CONFIRMATION_COMMITMENTS = tuple(
     re.compile(pattern, re.IGNORECASE)
@@ -100,7 +100,10 @@ CONFIRMATION_COMMITMENTS = tuple(
 # 응대 문구(do not worry·don't hesitate)의 부정과 once again은 조건이 아니므로 먼저 지운다(#354 리뷰 P2).
 CONDITION_MARKERS = re.compile(
     # 조동사(would·should·may·will)는 정중한 확정문에도 흔해 표지로 쓰지 않는다(#354 리뷰 P2).
-    r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never)\b|n[’']t\b|만약|만일|혹시",
+    r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never)\b|n[’']t\b|만약|만일|혹시"
+    # no·without은 근거 부재일 때만 표지다. at no cost·without delay 같은 응대 문구는 표지가 아니다(Fable 검토 P1).
+    r"|\bno\s+(?:evidence|sign|indication|proof|basis|confirmation)\b"
+    r"|\bwithout\s+(?:evidence|confirmation|inspection|verification)\b",
     re.IGNORECASE,
 )
 _CLAUSE_BREAKS = ".!?;:,\n"
@@ -299,10 +302,10 @@ REVISION_INSTRUCTION = (
 
 
 _SCHEMA = json.dumps(DraftOutput.model_json_schema(), ensure_ascii=False, sort_keys=True)
-DRAFT_PROMPT = get_prompt("draft", "v1") + _SCHEMA
+DRAFT_PROMPT = get_prompt("draft", DEFAULT_VERSIONS["draft"]) + _SCHEMA
 
 
-def instruction(prompt_version: str = "v1") -> str:
+def instruction(prompt_version: str = DEFAULT_VERSIONS["draft"]) -> str:
     """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
 
     Args:
@@ -317,14 +320,14 @@ def instruction(prompt_version: str = "v1") -> str:
 def render_prompt(
     payload: DraftInput,
     *,
-    prompt_version: str = "v1",
+    prompt_version: str = DEFAULT_VERSIONS["draft"],
     revision_feedback: RevisionFeedback | None = None,
 ) -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_draft_input의 정제 입력.
-        prompt_version: 레지스트리 판본 키. 기본 v1은 DRAFT_PROMPT와 같다.
+        prompt_version: 레지스트리 판본 키. 기본(DEFAULT_VERSIONS)은 DRAFT_PROMPT와 같다.
         revision_feedback: 재작성에만 붙일 기존 초안과 실패 문장 이유. 없으면 기존 입력 그대로다.
 
     Returns:

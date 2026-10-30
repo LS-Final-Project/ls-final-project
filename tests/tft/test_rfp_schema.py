@@ -131,7 +131,7 @@ def test_openapi_lists_the_spec_routes_as_planned(client):
         if op.get("x-implementation-status") == "planned"
     ]
     # 명세 §3의 30개 중 기존 목록·상세 2개, KAN-189의 15·16·18·19·20, 접수 11·30, KAN-188 읽기 8개를 뺀 13개.
-    assert len(planned) == 9
+    assert len(planned) == 5
     assert ("/api/v1/tft/requirements/{requirement_id}/supplement-selection", "post") not in planned
     upload = paths["/api/v1/tft/projects/{project_id}/documents"]["post"]
     assert "multipart/form-data" in upload["requestBody"]["content"]
@@ -146,7 +146,7 @@ def test_every_state_creating_post_requires_an_idempotency_key(client):
         for method, op in ops.items()
         if method == "post" and op.get("x-implementation-status") == "planned"
     ]
-    assert len(posts) == 5
+    assert len(posts) == 2
     for path, op in posts:
         keys = [x for x in op.get("parameters", []) if x["name"] == "Idempotency-Key"]
         assert keys and keys[0]["in"] == "header" and keys[0]["required"], path

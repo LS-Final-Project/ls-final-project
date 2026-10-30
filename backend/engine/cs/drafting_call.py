@@ -21,6 +21,7 @@ from backend.engine.cs.drafting import (
     render_prompt,
     validate_output,
 )
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
 from backend.shared.ai import Generation, Usage
 
 
@@ -45,7 +46,7 @@ class DraftAttempt:
     finish_reasons: tuple[str, ...] = field(default=(), repr=False)
     requested_model: str | None = field(default=None, repr=False)
     call_attempts: int | None = None
-    prompt_version: str = "v1"
+    prompt_version: str = DEFAULT_VERSIONS["draft"]
     # 공급자에 보낸 지시문 전체(판본 본문 + 출력 스키마, 입력 제외)의 sha256 앞 16자.
     instruction_fingerprint: str | None = None
 
@@ -60,7 +61,7 @@ def run_draft_attempt(
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     provider: Callable[[str], Generation],
     attempt_number: int,
-    prompt_version: str = "v1",
+    prompt_version: str = DEFAULT_VERSIONS["draft"],
     strip_phone_annotation: bool = False,
     revision_feedback: RevisionFeedback | None = None,
 ) -> DraftAttempt:
