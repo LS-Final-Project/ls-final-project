@@ -373,7 +373,12 @@ P30 뒤 `python3 scripts/workspace.py migrate platform 20261102_KAN-201_web_push
 preview 확인 → 운영자 `--prepare-identities --apply`로 전용 계정 준비 → O1 `infra/register_vapid_secret.py`
 preview 확인 및 운영자 `--apply`로 키 버전 1 등록 → 공개키/운영 연락처/플랫폼 URL/프로젝트 번호와
 플랫폼 digest 이미지 설정 → O2 preview 확인 및 운영자 `--apply` → DB/설정/실행 권한 확인 후
-Scheduler 명시 resume. O2는 Job을 배포하지만 실행하지 않으며 Scheduler를 pause한다.
+별도 활성화. O2는 기존 Scheduler를 첫 변경으로 pause하고 API를 OFF로 둔 채 Job을 배포한다.
+Scheduler는 POST `/health` 비발송 대상으로 생성/갱신하고 다시 pause 및 PAUSED를 확인한다.
+마지막 공개 설정도 OFF를 유지한다. 중간 실패 시 새로 활성화된 dispatch를 남기지 않는다.
+운영자는 기존 진행 중 요청/Job과 모든 serving revision의 OFF를 확인한 후, paused Scheduler의
+URI를 실제 내부 dispatch로 변경하고 PAUSED를 확인 → API 명시 활성화 → Scheduler 명시 resume한다.
+준비 스크립트는 활성화/Job 실행을 하지 않으며 pause 이전에 시작한 작업을 소급 취소하지 않는다.
 개인키는 Job 실행 계정에만 접근을 허용하고 API에는 공개키만 주입한다. 원래 공개키를 분실한 기존
 Secret은 O1이 읽거나 교체하지 않는다. 해당 키와 맞는 기존 설정을 운영자가 확인한다.
 운영 스크립트 작성·정적 검사와 실제 GCP 준비·푸시 수신 검증을 구분한다.

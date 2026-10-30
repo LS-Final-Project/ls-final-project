@@ -50,6 +50,20 @@ fi
 [[ "$NOTIFICATION_PUSH_SUBJECT" =~ ^mailto:[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$ ]] || exit 2
 [[ "$NOTIFICATION_PUSH_PROJECT_NUMBER" =~ ^[1-9][0-9]{5,19}$ ]] || exit 2
 [[ "$NOTIFICATION_PUSH_SERVICE_URL" =~ ^https://[a-z0-9-]+\.[a-z0-9.-]+\.run\.app$ ]] || exit 2
+# Inspect first; for an existing Scheduler, pause is the first mutating operation.
+# A failed list/pause stops setup. Requests/executions started before pause need
+# separate operator inspection; this script cannot undo already accepted work.
+LS_PUSH_SCHEDULER_ACTION=create
+if "$LS_PUSH_APPLY"; then
+  LS_PUSH_SCHEDULERS=$(gcloud scheduler jobs list --location="$LS_PUSH_REGION" "${LS_PUSH_FLAGS[@]}" --format='value(name.basename())')
+  if printf '%s\n' "$LS_PUSH_SCHEDULERS" | grep -Fxq notification-push-dispatch; then
+    LS_PUSH_SCHEDULER_ACTION=update
+    ls_push_run scheduler jobs pause notification-push-dispatch --location="$LS_PUSH_REGION"
+  fi
+fi
+# Preparation never enables dispatch. Do this before changing the worker or IAM.
+ls_push_run run services update team4-platform --region="$LS_PUSH_REGION" \
+  --update-env-vars=NOTIFICATION_PUSH_ENABLED=false
 ls_push_run services enable run.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com sqladmin.googleapis.com
 ls_push_run projects add-iam-policy-binding "$LS_PUSH_PROJECT" --member="serviceAccount:$LS_PUSH_WORKER" --role=roles/cloudsql.client --condition=None --format=none
 ls_push_run secrets add-iam-policy-binding platform-db-password --member="serviceAccount:$LS_PUSH_WORKER" --role=roles/secretmanager.secretAccessor --condition=None --format=none
@@ -62,18 +76,22 @@ ls_push_run run jobs deploy notification-push --region="$LS_PUSH_REGION" --image
 # Existing platform runtime may launch only this Job, with no env overrides permission.
 ls_push_run run jobs add-iam-policy-binding notification-push --region="$LS_PUSH_REGION" --member="serviceAccount:$LS_PUSH_PLATFORM" --role=roles/run.invoker --condition=None --format=none
 ls_push_run run services add-iam-policy-binding team4-platform --region="$LS_PUSH_REGION" --member="serviceAccount:$LS_PUSH_INVOKER" --role=roles/run.invoker --condition=None --format=none
-# Only public config is applied to the API. No VAPID private secret binding there.
-ls_push_run run services update team4-platform --region="$LS_PUSH_REGION" \
-  --update-env-vars="NOTIFICATION_PUSH_ENABLED=true,NOTIFICATION_PUSH_PUBLIC_KEY=$NOTIFICATION_PUSH_PUBLIC_KEY,NOTIFICATION_PUSH_SERVICE_URL=$NOTIFICATION_PUSH_SERVICE_URL,NOTIFICATION_PUSH_INVOKER_EMAIL=$LS_PUSH_INVOKER,NOTIFICATION_PUSH_PROJECT_NUMBER=$NOTIFICATION_PUSH_PROJECT_NUMBER"
-LS_PUSH_SCHEDULER_ACTION=create
-if "$LS_PUSH_APPLY"; then
-  LS_PUSH_SCHEDULERS=$(gcloud scheduler jobs list --location="$LS_PUSH_REGION" "${LS_PUSH_FLAGS[@]}" --format='value(name.basename())')
-  if printf '%s\n' "$LS_PUSH_SCHEDULERS" | grep -Fxq notification-push-dispatch; then LS_PUSH_SCHEDULER_ACTION=update; fi
-fi
+# Never create/update an active target pointing at dispatch. POST /health is an
+# inert parked target (the application's health route accepts GET only). This is
+# safe even if create starts enabled, update changes state, or API traffic still
+# includes an old revision. No unsupported create --paused flag is assumed.
 ls_push_run scheduler jobs "$LS_PUSH_SCHEDULER_ACTION" http notification-push-dispatch --location="$LS_PUSH_REGION" \
   --schedule='* * * * *' --time-zone=Asia/Seoul \
-  --uri="$NOTIFICATION_PUSH_SERVICE_URL/internal/v1/platform/notifications/push" --http-method=POST \
+  --uri="$NOTIFICATION_PUSH_SERVICE_URL/health" --http-method=POST \
   --oidc-service-account-email="$LS_PUSH_INVOKER" --oidc-token-audience="$NOTIFICATION_PUSH_SERVICE_URL" \
   --attempt-deadline=30s --max-retry-attempts=0
 ls_push_run scheduler jobs pause notification-push-dispatch --location="$LS_PUSH_REGION"
-echo 'READY: Scheduler paused. Operator verifies migrations/config/permissions before explicit resume. No Job executed by setup.'
+if "$LS_PUSH_APPLY"; then
+  LS_PUSH_STATE=$(gcloud scheduler jobs describe notification-push-dispatch --location="$LS_PUSH_REGION" "${LS_PUSH_FLAGS[@]}" --format='value(state)')
+  [[ "$LS_PUSH_STATE" == PAUSED ]] || { echo 'Scheduler pause not confirmed; dispatch remains disabled/parked.' >&2; exit 1; }
+fi
+# Only public config is applied to the API. No VAPID private secret binding there.
+ls_push_run run services update team4-platform --region="$LS_PUSH_REGION" \
+  --update-env-vars="NOTIFICATION_PUSH_ENABLED=false,NOTIFICATION_PUSH_PUBLIC_KEY=$NOTIFICATION_PUSH_PUBLIC_KEY,NOTIFICATION_PUSH_SERVICE_URL=$NOTIFICATION_PUSH_SERVICE_URL,NOTIFICATION_PUSH_INVOKER_EMAIL=$LS_PUSH_INVOKER,NOTIFICATION_PUSH_PROJECT_NUMBER=$NOTIFICATION_PUSH_PROJECT_NUMBER"
+echo 'READY: API config OFF; Scheduler paused with inert POST /health target. Verify serving revisions; no activation/run command is issued.'
+echo 'Operator separately verifies serving revisions OFF and prior in-flight work, then configures the dispatch URI while paused, enables the API and explicitly resumes Scheduler.'

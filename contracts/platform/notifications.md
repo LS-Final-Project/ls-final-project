@@ -179,6 +179,17 @@ VAPID private scalar는 전용 notification-push-runtime의 Secret Manager 버�
 API는 공개키만 받는다. Job은 시작 시 공개/개인키 일치와 mailto 운영 연락처를 검사한다.
 임의 키회전·latest 버전·로컬 키파일 생성은 없다. 설정/권한/구독 표는 platform 소유이며
 업무앱/기존 worker의 identity/runtime/notify 접근 권한을 확대하지 않는다.
-O1/O2는 기본 preview 및 명시 --apply 보호를 제공한다. 실행은 운영자만 하며 O2는 Scheduler를
-pause하고 실제 Job 실행/푸시를 수행하지 않는다. DB·GCP 배포·Chrome 실수신은 CI/운영 후속
+O1/O2는 기본 preview 및 명시 --apply 보호를 제공한다. 실행은 운영자만 한다.
+O2 재적용은 기존 Scheduler 조회 후 pause를 첫 변경으로 수행하며 조회/pause 실패는 즉시 중단한다.
+그 뒤 API dispatch를 OFF로 설정하고 Job/IAM을 준비한다. Scheduler create/update는 실제 dispatch
+경로 대신 안전한 POST `/health` 대상(405)을 사용한다. create가 활성 상태로 시작하거나 update가
+상태를 바꾸거나 기존 API revision이 남아 있어도 이 대상은 발송을 요청할 수 없다.
+다시 pause 및 PAUSED 확인 뒤 공개 API 설정만 OFF 상태로 적용한다. 준비 스크립트는 활성화하지
+않는다. 중간 실패에서 새 dispatch를 활성화하는 경로는 없고 생성/갱신 후 남은 Scheduler는
+비발송 대상이다. 선행 조회/pause/OFF 갱신 자체가 실패하면 즉시 중단하고 기존 상태를 운영자가
+확인한다. 또한 OFF 설정이 모든 serving revision에 적용됐다고 자동 가정하지 않는다. 이미 실행 중이던
+요청/Job을 소급 취소하지 않으므로 운영자가 pause 이전의 진행 중 작업도 별도로 확인해야 한다.
+활성화는 운영자의 별도 행동이다. 모든 serving revision의 OFF/기존 진행 작업을 확인한 뒤
+paused Scheduler의 URI를 실제 dispatch로 변경하고 PAUSED를 확인한 상태에서 API를 켠 뒤
+명시 resume한다. 이 활성화 명령은 준비 스크립트가 실행하지 않는다. DB·GCP 배포·Chrome 실수신은 CI/운영 후속
 검증으로 남기고 fake 전송 성공을 실제 수신 성공으로 보고하지 않는다.
