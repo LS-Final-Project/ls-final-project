@@ -649,6 +649,58 @@ def test_short_time_current_is_converted_to_the_required_duration(
         assert "요구 지속시간의 시험값 확인(환산 충족)" in outcome.unresolved
 
 
+def test_an_unlinked_attribute_is_not_compared_but_certifications_are():
+    """attribute_key가 OTHER(사양 항목에 연결 못 함)면 계열이 맞아도 비교하지 않는다. 인증 요구는 규격으로 비교한다."""
+    products = load_own_products()
+    unlinked = Requirement(
+        clause_no="2.5", item="권선 재질", attribute="OTHER", value="copper", operator="TEXT"
+    )
+    outcome = compare_in_family(unlinked, "TRANSFORMER", products)
+    assert (outcome.status, outcome.candidates, outcome.unresolved) == (
+        "INSUFFICIENT_EVIDENCE",
+        [],
+        ["요구 속성(사양 항목) 확인"],
+    )
+    certification = Requirement(
+        clause_no="2.2", item="UL 1561", certification_standard="UL 1561", operator="TEXT"
+    )
+    assert compare_in_family(certification, "TRANSFORMER", products).candidates
+
+
+@pytest.mark.parametrize("operator", ["LTE", "EQ"])
+def test_short_time_current_is_converted_only_for_a_minimum(operator):
+    """I²t 환산은 최소 요구(GTE)에만 쓴다. 다른 연산자는 환산 없이 기존 판정(조건 차이)이다."""
+    fact = SpecFact(
+        product_code="X-1",
+        attribute="short_time_withstand_current",
+        value="25",
+        unit="kA",
+        conditions=[Condition(name="duration", value="3", unit="s")],
+        evidence_id="DS-X",
+        section="2",
+    )
+    product = Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[fact],
+    )
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="short_time_withstand_current",
+        value="38",
+        unit="kA",
+        operator=operator,
+        conditions=[Condition(name="duration", value="2", unit="s")],
+    )
+    trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
+    outcome = compare(wanted, [product], trace)
+    assert "환산" not in outcome.reason and "duration" in outcome.unresolved[0]
+
+
 def test_demo_b1_short_time_current_stays_a_spec_gap_for_the_own_mv_products():
     """기획서 B-1(2.4 단시간 내전류 38 kA·2 s, 기대 SPEC_GAP): 자사 MV 후보 25 kA·3 s는 환산해도 미달이다."""
     wanted = Requirement(

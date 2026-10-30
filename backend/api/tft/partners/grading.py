@@ -320,7 +320,7 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecF
     """단시간 내전류의 지속시간이 요구와 다르면 후보 값을 요구 지속시간 값으로 환산한다(KAN-199).
 
     단시간 내전류는 열 등가(I²t 일정)로 지속시간을 바꿔 견준다: I₂ = I₁·√(t₁/t₂). 후보 지속시간이 길든 짧든 같은
-    식을 쓴다. 환산값은 시험값이 아니므로, 환산으로 충족하면 호출자가 확정하지 않고 조건부로 둔다. 미달이면 같은
+    식을 쓴다. 최소 요구(GTE)에만 쓴다(다른 연산자에서는 환산 뜻이 정해지지 않는다). 환산값은 시험값이 아니므로, 환산으로 충족하면 호출자가 확정하지 않고 조건부로 둔다. 미달이면 같은
     조건(요구 지속시간)에서 미달인 근거다.
 
     Args:
@@ -329,9 +329,9 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecF
 
     Returns:
         tuple[SpecFact, str] | None: (지속시간을 요구 값으로 바꾸고 값을 환산한 근거, 환산 설명). 단시간 내전류가
-            아니거나, 두 쪽 지속시간이 같거나 하나라도 없거나, 단위가 다르거나 숫자로 읽을 수 없으면 None.
+            아니거나 GTE가 아니거나, 두 쪽 지속시간이 같거나 하나라도 없거나, 단위가 다르거나 숫자로 읽을 수 없으면 None.
     """
-    if requirement.attribute != "short_time_withstand_current":
+    if requirement.attribute != "short_time_withstand_current" or requirement.operator != "GTE":
         return None
     want = next((c for c in requirement.conditions if c.name == "duration"), None)
     got = next((c for c in fact.conditions or [] if c.name == "duration"), None)

@@ -32,7 +32,7 @@ def test_canonical_maps_only_certain_names(raw, expected):
     assert canonical(raw) == expected
 
 
-def requirement(kind, attribute):
+def requirement(kind, attribute, attribute_key="OTHER"):
     return ExtractedRequirement(
         clause_no="2.5.C",
         quote="q",
@@ -47,13 +47,17 @@ def requirement(kind, attribute):
         standard_system="IEEE",
         necessity="MANDATORY",
         designated_model=None,
+        attribute_key=attribute_key,
+        equipment_family="TRANSFORMER",
     )
 
 
 def test_comparison_input_uses_the_vocabulary_but_certifications_keep_the_standard():
-    """비교 입력 속성은 어휘로 바꾸고, 인증 요구는 추출 value의 규격 원문을 쓴다."""
-    spec = to_comparison(requirement("SPEC", "basic impulse insulation level"))
+    """비교 입력 속성은 추출의 attribute_key(자사 어휘, KAN-199)이고, 인증 요구는 추출 value의 규격 원문을 쓴다."""
+    spec = to_comparison(requirement("SPEC", "basic impulse insulation level", "bil"))
     assert (spec.attribute, spec.certification_standard) == ("bil", None)
+    # 연결하지 못한 속성은 OTHER 그대로다(동의어 표로 추측하지 않는다). compare_in_family가 비교하지 않는다.
+    assert to_comparison(requirement("SPEC", "basic impulse insulation level")).attribute == "OTHER"
     # 규격은 추출 value에 있다(attribute는 이름표). value가 없으면 attribute를 쓴다.
     labelled = requirement("COMPLIANCE", "standard compliance").model_copy(
         update={"value": "IEEE C37.121"}
@@ -91,8 +95,10 @@ def test_grading_input_treats_compliance_as_a_certification_like_the_comparison(
     assert (grade_input.attribute, grade_input.value) == ("certification", "UL 347")
     bare = requirement("COMPLIANCE", "UL 1561").model_copy(update={"value": None})
     assert to_grading(UUID(int=2), bare).value == "UL 1561"
-    spec = to_grading(UUID(int=3), requirement("SPEC", "basic impulse insulation level"))
+    spec = to_grading(UUID(int=3), requirement("SPEC", "basic impulse insulation level", "bil"))
     assert (spec.attribute, spec.value) == ("bil", "95")
+    # 속성을 연결하지 못한 사양 요구(OTHER)는 같은 속성 근거가 없어 등급을 매기지 않는다.
+    assert to_grading(UUID(int=4), requirement("SPEC", "material")) is None
     [p_a] = [p for p in load_profiles() if p.candidate_code == "P-A"]
     context = RfpContext(
         manufacturer_list=None,

@@ -550,7 +550,8 @@ def compare_in_family(
 ) -> Outcome:
     """요구 장비 계열의 자사 후보로만 비교한다(KAN-199). 다른 계열 제품의 같은 이름 속성은 근거로 쓰지 않는다.
 
-    계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
+    계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 속성을 자사 사양 항목에 연결하지 못한 요구
+    (attribute "OTHER", 인증 요구 제외)도 비교하지 않는다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
 
     Args:
         requirement: 비교 입력.
@@ -560,14 +561,15 @@ def compare_in_family(
     Returns:
         Outcome: 판정. search_trace.filters에 family를 남긴다.
     """
-    if family in (None, "OTHER") and not requirement.designated_model:
+
+    def not_compared(reason: str, unresolved: str) -> Outcome:
         return Outcome(
             clause_no=requirement.clause_no,
             item=requirement.item,
             origin=requirement.origin,
             status="INSUFFICIENT_EVIDENCE",
-            reason=f"원문 {requirement.clause_no} {requirement.item}: 요구 장비 계열을 정하지 못해 비교하지 않음.",
-            unresolved=["요구 장비 계열 확인"],
+            reason=f"원문 {requirement.clause_no} {requirement.item}: {reason}",
+            unresolved=[unresolved],
             next_owner="TECH",
             deficiency_cause=None,
             candidates=[],
@@ -575,6 +577,17 @@ def compare_in_family(
                 filters=[f"family={family or 'NONE'}"], documents_searched=0, search_failed=False
             ),
         )
+
+    if requirement.designated_model is None:
+        if family in (None, "OTHER"):
+            return not_compared(
+                "요구 장비 계열을 정하지 못해 비교하지 않음.", "요구 장비 계열 확인"
+            )
+        if requirement.certification_standard is None and requirement.attribute in (None, "OTHER"):
+            return not_compared(
+                "요구 속성을 자사 사양 항목에 연결하지 못해 비교하지 않음.",
+                "요구 속성(사양 항목) 확인",
+            )
     found, trace = master_filter(products, family or "OTHER")
     return compare(requirement, found, trace)
 
