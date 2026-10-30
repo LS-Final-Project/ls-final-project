@@ -6,16 +6,18 @@
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
+from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 
-from backend.api.tft.partners.loader import load_profiles
+from backend.api.tft.partners.loader import PROFILES, load_profiles
+from backend.api.tft.partners.schemas import PartnerProfile
 
 MIGRATIONS = (
     "20261023_KAN-119_projects.sql",
@@ -588,3 +590,66 @@ def test_rereview_mark_cause_must_be_a_proposal_of_the_same_project(admin, chain
         "VALUES (%s,%s,'requirement',%s,%s)",
         (uuid4(), other, chain["requirement"], proposal),
     )
+
+
+def test_seed_script_puts_the_file_profiles_and_flags_drift(
+    admin, app_dsn, tmp_path, monkeypatch, capsys
+):
+    """시드 스크립트(KAN-184): --execute 뒤 DB 행을 worker 방식으로 되돌리면 파일과 같고, 재실행은 0행이며,
+    같은 판본 내용이 바뀌면 DIFFERENT, 새 판본이면 MISSING으로 종료 1이고 원격 DSN은 거부한다."""
+    # 백엔드 검사 이미지에는 scripts/가 없어 DB가 있을 때(admin 통과 뒤)만 가져온다.
+    from scripts.rfp_seed_partner_profiles import main
+
+    def run(*argv):
+        code = main(list(argv))
+        out = capsys.readouterr().out
+        return code, json.loads(out.strip().splitlines()[-1]) if out.strip() else None
+
+    monkeypatch.setenv("DATABASE_URL", app_dsn)
+    profiles = load_profiles()
+    code, summary = run("--execute")
+    assert code == 0 and summary["SAME"] == len(profiles)
+    assert run("--execute") == (
+        0,
+        {"inserted": 0, "SAME": len(profiles), "MISSING": 0, "DIFFERENT": 0},
+    )
+    with psycopg.connect(admin, row_factory=dict_row) as conn:
+        rows = {
+            (r["candidate_code"], r["profile_version"]): r
+            for r in conn.execute("SELECT * FROM tft.partner_profiles").fetchall()
+        }
+    # worker_processor와 같은 변환(known_at.date())으로 되돌려도 파일과 같다.
+    assert [
+        PartnerProfile.model_validate(
+            {
+                **rows[(p.candidate_code, p.profile_version)],
+                "known_at": rows[(p.candidate_code, p.profile_version)]["known_at"].date(),
+            }
+        )
+        for p in profiles
+    ] == profiles
+    # 날짜는 그날 00:00 UTC로 저장한다(세션 시간대와 무관한 값).
+    assert {rows[(p.candidate_code, p.profile_version)]["known_at"] for p in profiles} == {
+        datetime.combine(p.known_at, time(), UTC) for p in profiles
+    }
+    changed = json.loads(PROFILES.read_text(encoding="utf-8"))
+    changed[0]["notes"] = "바뀐 메모"
+    changed[1]["profile_version"] += 100
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(changed, ensure_ascii=False), encoding="utf-8")
+    code, summary = run("--profiles", str(path))
+    assert code == 1 and (summary["DIFFERENT"], summary["MISSING"]) == (1, 1)
+    code, summary = run("--execute", "--profiles", str(path))
+    assert code == 1 and summary["inserted"] == 1 and summary["DIFFERENT"] == 1
+    with psycopg.connect(admin) as conn:
+        kept = conn.execute(
+            "SELECT notes FROM tft.partner_profiles WHERE candidate_code=%s AND profile_version=%s",
+            (profiles[0].candidate_code, profiles[0].profile_version),
+        ).fetchone()[0]
+        conn.execute(
+            "DELETE FROM tft.partner_profiles WHERE candidate_code=%s AND profile_version=%s",
+            (changed[1]["candidate_code"], changed[1]["profile_version"]),
+        )
+    assert kept == profiles[0].notes
+    monkeypatch.setenv("DATABASE_URL", "postgresql://tft_app:x@db.example.invalid:5432/team4")
+    assert main([]) == 1 and "TFT_SEED_NEEDS_LOCAL_DB" in capsys.readouterr().err

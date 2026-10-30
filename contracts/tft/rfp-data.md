@@ -110,6 +110,7 @@ erDiagram
 | 멱등 기록 | `rfp_commands`(사용자·동작·`Idempotency-Key`마다 첫 결과) | — | 없음 |
 | 감사 | `rfp_audit_events`(모든 쓰기, 승인은 제안자·승인자 함께) | — | 없음 |
 
+- **협력사 프로필 시드(KAN-184)**: `profiles.json`이 원천이고 `scripts/rfp_seed_partner_profiles.py`가 `tft.partner_profiles`로 옮긴다(로컬 DB·`tft_app`만). 기본은 파일과 DB 대조(`SAME`·`MISSING`·`DIFFERENT`, 어긋나면 종료 1)이고, `--execute`는 없는 판본만 넣는다(`ON CONFLICT DO NOTHING`). 같은 판본의 내용을 바꿨으면 덮어쓰지 않으니 `profile_version`을 올린다. `known_at`은 그날 00:00 UTC다. 행이 없으면 RFP 처리 함수의 등급 단계는 건너뛴다.
 - **모든 업무 행**에 `version`·`data_origin`·`derivation_kind`·`known_at`을 둔다. 예외는 업무 판단이 아니라 사람 행동·시스템 기록이거나 부모 판본에 딸린 행이며, 출처는 부모 또는 행위자·시각 열로 대신한다.
   - 부모를 따르는 세부 행: `clause_deleted_values`·`clause_flags`(조항), `comparison_evidence`(비교), `draft_sentences`·`draft_sentence_evidence`(초안 판본), `requirement_conditions`(요구 판본)
   - 사람 행동 기록(행위자·시각 열): `project_assignments`, `review_versions`, `exports`, `rereview_marks`
