@@ -14,6 +14,7 @@
 
 import base64
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -28,11 +29,15 @@ from backend.api.platform.mail.graph import GRAPH_BASE
 from backend.api.platform.mail.storage import ObjectReader, StoredObject, content_key
 from backend.api.platform.mail.sync import Conn, MailboxTokenGetter, checked_token
 from backend.shared.database import connection
+from backend.shared.departments import CS_DEPARTMENT
 from backend.shared.errors import ApplicationError
 from backend.shared.mail_payload import payload_sha256
+from backend.shared.notifications import enqueue_notification
 from backend.shared.settings import Settings
 
 # TFT는 개발 중단(2026-10-28)이라 발송 주체에서 뺐다.
+logger = logging.getLogger(__name__)
+
 OwnerService = Literal["cs", "platform"]
 # 보낸편지함에서 발송 의도를 찾는 숨은 확장 속성(이 서비스 전용 고정 GUID).
 INTENT_PROPERTY = "String {6f1c2a9e-3b7d-4e58-9a41-74c0d2e8b5a3} Name Team4SendIntentId"
@@ -333,6 +338,35 @@ async def finish(
         )
         if await cursor.fetchone() is not None:
             await add_event(conn, intent_id, event, code=code)
+            if status == "UNKNOWN":
+                await notify_unknown(conn, intent_id)
+
+
+async def notify_unknown(conn: Any, intent_id: UUID) -> None:
+    """알림 조회·INSERT만 savepoint로 격리한다. UNKNOWN 전이가 실제 일어난 경로에서만 부른다."""
+    try:
+        async with conn.transaction():
+            cursor = await conn.execute(
+                "SELECT business_ref,approved_by,attempts FROM integration.mail_send_intents WHERE id=%s",
+                (intent_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None or not row["business_ref"].startswith("cs_ticket:"):
+                return
+            reference = row["business_ref"].removeprefix("cs_ticket:")
+            ticket_id = UUID(reference)
+            if str(ticket_id) != reference:
+                raise ValueError("NOTIFICATION_INVALID_REFERENCE")
+            await enqueue_notification(
+                conn,
+                kind="mail.unknown",
+                subject_id=ticket_id,
+                audience=[{"user": row["approved_by"]}, {"manager_dept": CS_DEPARTMENT}],
+                actor_id=None,
+                dedupe_key=f"mail.unknown:{intent_id}:{row['attempts']}",
+            )
+    except Exception:
+        logger.warning("NOTIFICATION_INTENT_FAILED")
 
 
 async def defer(settings: Settings, row: dict[str, Any], code: str) -> SendResult:
@@ -783,6 +817,7 @@ async def expire_submitting(settings: Settings, older_than: timedelta) -> int:
         ids = [r["id"] for r in await cursor.fetchall()]
         for intent_id in ids:
             await add_event(conn, intent_id, "UNKNOWN", code="MAIL_SUBMIT_INTERRUPTED")
+            await notify_unknown(conn, intent_id)
     return len(ids)
 
 

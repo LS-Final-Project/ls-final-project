@@ -39,6 +39,7 @@ from backend.api.cs.workflow.service import (
     check,
     json_value,
     not_started,
+    notify_cs,
     save,
     send_pending,
     unreviewed_result,
@@ -191,10 +192,11 @@ async def transfer(
             raise unreviewed_result()
         if any(unsettled(s) for s in await repository.list_sends(conn, ticket_id)):
             raise send_pending()
+        transfer_id = uuid4()
         await repository.insert_transfer(
             conn,
             {
-                "id": uuid4(),
+                "id": transfer_id,
                 "ticket_id": ticket_id,
                 "dept_code": payload.dept_code,
                 "reason": payload.reason,
@@ -209,6 +211,14 @@ async def transfer(
             {"state": "TRANSFERRED"},
             dept_code=payload.dept_code,
             reason=payload.reason,
+        )
+        await notify_cs(
+            conn,
+            kind="cs.transfer",
+            ticket_id=ticket_id,
+            audience=[{"dept": payload.dept_code}, {"manager_dept": payload.dept_code}],
+            actor_id=principal.user_id,
+            dedupe_key=f"cs.transfer:{transfer_id}",
         )
         data = await view(conn, workflow, principal)
     return respond(request, data)
@@ -400,15 +410,24 @@ async def review_dept_result(
         )
         values: Row = {}
         if status == "REWORK_REQUESTED":
+            transfer_id = uuid4()
             await repository.insert_transfer(
                 conn,
                 {
-                    "id": uuid4(),
+                    "id": transfer_id,
                     "ticket_id": ticket_id,
                     "dept_code": result["dept_code"],
                     "reason": payload.note,
                     "transferred_by": principal.user_id,
                 },
+            )
+            await notify_cs(
+                conn,
+                kind="cs.transfer",
+                ticket_id=ticket_id,
+                audience=[{"dept": result["dept_code"]}, {"manager_dept": result["dept_code"]}],
+                actor_id=principal.user_id,
+                dedupe_key=f"cs.transfer:{transfer_id}",
             )
             values["state"] = "TRANSFERRED"
         workflow = await save(
