@@ -9,6 +9,8 @@ from backend.api.platform.auth.settings import MicrosoftAuthSettings
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.jobs.cs import CsJobSettings, configure_cs_jobs
 from backend.api.platform.jobs.cs import router as cs_jobs_router
+from backend.api.platform.jobs.sweep import JobsSweepSettings, configure_jobs_sweep
+from backend.api.platform.jobs.sweep import router as jobs_sweep_router
 from backend.api.platform.jobs.tft import TftJobSettings, configure_tft_jobs
 from backend.api.platform.jobs.tft import router as tft_jobs_router
 from backend.api.platform.mail.intake import router as mail_intake_router
@@ -36,6 +38,7 @@ def create_app(
     mail_send_settings: MailSendSettings | None = None,
     tft_job_settings: TftJobSettings | None = None,
     cs_job_settings: CsJobSettings | None = None,
+    jobs_sweep_settings: JobsSweepSettings | None = None,
     push_settings: PushSettings | None = None,
 ) -> FastAPI:
     """플랫폼 앱과 기본 비활성 Microsoft 로그인 설정을 준비한다.
@@ -49,6 +52,7 @@ def create_app(
         mail_send_settings: 기본 비활성 승인 메일 발송 설정(KAN-74).
         tft_job_settings: 기본 비활성 tft 작업 내부 접수 설정(KAN-182).
         cs_job_settings: 기본 비활성 cs 작업 내부 접수 설정(KAN-194).
+        jobs_sweep_settings: 기본 비활성 작업 전송 트리거 설정(KAN-159).
         push_settings: 기본 비활성 구독/별도 Job 실행 설정(KAN-201).
 
     Returns:
@@ -63,12 +67,14 @@ def create_app(
     configure_mail_send(app, mail_send_settings or MailSendSettings())
     configure_tft_jobs(app, tft_job_settings or TftJobSettings())
     configure_cs_jobs(app, cs_job_settings or CsJobSettings())
+    configure_jobs_sweep(app, jobs_sweep_settings or JobsSweepSettings())
     app.state.evaluation_access = evaluation_access or EvaluationAccessSettings()
     app.include_router(router)
     app.include_router(mail_worker_router)
     app.include_router(mail_send_router)
     app.include_router(mail_send_user_router)
     app.include_router(mail_intake_router)
+    app.include_router(jobs_sweep_router)
     app.include_router(tft_jobs_router)
     app.include_router(cs_jobs_router)
     if app.state.settings.dev_auth_enabled and app.state.settings.environment in {"local", "test"}:

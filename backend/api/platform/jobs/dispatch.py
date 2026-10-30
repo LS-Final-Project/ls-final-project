@@ -1,6 +1,6 @@
 """로컬 작업 전송 장부(평가 evaluation.run·C/S cs.analyze·RFP rfp.*). 외부 호출과 worker 실행 권한을 부여하지 않는다.
 
-종류마다 따로 연다(KAN-194 9차 2/3, KAN-199). 평가 행은 기존 평가 local 접수 조건, C/S·RFP 행은 local/test에서
+종류마다 따로 연다(KAN-194 9차 2/3, KAN-199). 평가 행은 기존 평가 local 접수 조건, C/S·RFP 행은
 그 owner의 접수와 처리기 연결 설정(CsJobSettings·TftJobSettings)이 모두 켜졌을 때만 확보한다. 그 설정을 넘기지 않는
 기존 호출자는 평가만 다룬다.
 """
@@ -47,22 +47,16 @@ class DispatchLease:
     kind: str = "evaluation.run"
 
 
-def gate_open(settings: Settings, owner: CsJobSettings | TftJobSettings | None) -> bool:
-    """C/S·RFP 작업을 전송해도 되는지(local/test, 그 owner의 접수·처리기 연결 모두 켜짐).
+def gate_open(owner: CsJobSettings | TftJobSettings | None) -> bool:
+    """C/S·RFP 작업을 전송해도 되는지(그 owner의 접수·처리기 연결이 모두 켜짐, 기본 꺼짐).
 
     Args:
-        settings: 실행 환경.
         owner: 그 owner의 접수 설정. None이면 닫힌다.
 
     Returns:
         bool: 열렸으면 True.
     """
-    return (
-        owner is not None
-        and settings.environment in {"local", "test"}
-        and owner.enabled
-        and owner.processor_connected
-    )
+    return owner is not None and owner.enabled and owner.processor_connected
 
 
 def require_local(
@@ -85,8 +79,8 @@ def require_local(
         list[str]: 허용 종류(evaluation.run·cs.analyze·rfp.*). 하나도 없으면 403 DISPATCH_DISABLED다.
     """
     kinds = [kind for kind in ["evaluation.run"] if admission_available(settings, access)]
-    kinds += ["cs.analyze"] if gate_open(settings, cs) else []
-    kinds += list(TFT_KINDS) if gate_open(settings, tft) else []
+    kinds += ["cs.analyze"] if gate_open(cs) else []
+    kinds += list(TFT_KINDS) if gate_open(tft) else []
     if not dispatch.enabled or not kinds:
         raise ApplicationError(403, "DISPATCH_DISABLED", "Dispatch is disabled.")
     return kinds
@@ -237,7 +231,7 @@ async def worker_sendable(
     Returns:
         bool: 게이트가 열렸고 작업이 QUEUED·RUNNING이며 취소 요청이 없고 살아 있는 worker lease가 없으면 True.
     """
-    if not gate_open(settings, gate):
+    if not gate_open(gate):
         return False
     cursor = await conn.execute(
         "SELECT j.status,c.cancel_requested_at,"

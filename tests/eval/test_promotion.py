@@ -20,8 +20,6 @@ def test_the_repository_config_matches_adopted_records_or_known_exceptions():
     assert result["passed"], result
     # 알려진 문제는 숨지 않고 결과에 보인다.
     assert {(e["stage"], e["kind"], e["field"]) for e in result["excepted"]} == {
-        ("classification", "MISMATCH", "model"),
-        ("classification", "MISMATCH", "max_output_tokens"),
         ("draft", "NO_ADOPTION", None),
         ("rfp_extraction", "NO_ADOPTION", None),
     }

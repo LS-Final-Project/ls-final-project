@@ -3,7 +3,7 @@
 플랫폼 전송(2/3)이 cs-worker Job을 `CS_JOB_ID`=작업 ID로 실행한다. 이 모듈은 C/S 이미지(SERVICE_NAME=cs)에서
 돌므로 `backend.api.platform`을 import하지 않는다.
 
-- 게이트: local/test이고 `CS_WORKER_ENABLED`(기본 꺼짐)일 때만. 로그인 역할은 `cs_worker` 멤버여야 한다.
+- 게이트: `CS_WORKER_ENABLED`(기본 꺼짐)가 켜졌을 때만. 로그인 역할은 `cs_worker` 멤버여야 한다.
 - 소유권: `runtime.job_control`의 generation·holder·lease. 인수할 때 RUNNING·job.started를 남기고, 노드마다 소유권을
   재검사·연장하며 job.progress를 남긴다. 소유권을 잃으면 아무것도 쓰지 않고 멈춘다(LEASE_LOST).
 - 취소 요청(`cancel_requested_at`)이 보이면 다음 노드 전에 멈추고 CANCELLED로 끝낸다.
@@ -203,7 +203,7 @@ def execute_job(
         str: CS_JOB_SUCCEEDED·CS_JOB_CANCELLED·NOT_CLAIMED·LEASE_LOST. 실패는 작업을 FAILED로 남기고
             ApplicationError(고정 코드)를 올린다.
     """
-    if settings.environment not in {"local", "test"} or not worker.enabled:
+    if not worker.enabled:
         raise ApplicationError(503, "CS_WORKER_DISABLED", "C/S worker is disabled.")
     with connect(settings) as conn:
         check_role(conn, "cs_worker")

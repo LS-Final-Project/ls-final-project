@@ -425,14 +425,14 @@ def test_jobs_that_must_not_start_are_not_claimed(worker_settings, jobs_database
 
 
 def test_worker_is_gated_and_needs_a_canonical_job_id(worker_settings):
-    """기본 비활성·운영 환경이면 돌지 않고, 작업 ID는 표준 UUID만 받는다."""
-    for worker, settings in (
-        (CsWorkerSettings(_env_file=None), worker_settings),
-        (WORKER, worker_settings.model_copy(update={"environment": "production"})),
-    ):
+    """설정이 꺼지면 어떤 환경에서도 돌지 않고, 작업 ID는 표준 UUID만 받는다."""
+    production = worker_settings.model_copy(update={"environment": "production"})
+    for settings in (worker_settings, production):
         with pytest.raises(ApplicationError) as error:
-            execute_job(settings, worker, uuid4())
+            execute_job(settings, CsWorkerSettings(_env_file=None), uuid4())
         assert error.value.code == "CS_WORKER_DISABLED"
+    # 환경이 아니라 설정이 연다. 켜면 운영 환경에서도 역할 검사·인수까지 간다.
+    assert execute_job(production, WORKER, uuid4()) == "NOT_CLAIMED"
     job_id = uuid4()
     assert parse_job_id(str(job_id)) == job_id
     for value in (None, "", str(job_id).upper(), str(job_id).replace("-", "")):

@@ -1069,3 +1069,21 @@ def test_evidence_found_approval_leaves_the_unresolved_count(client, gap, admin)
     done = decide(client, proposal).json()["data"]
     assert done["needs_rereview"] is False
     assert unresolved_count(client, gap, 2) == 0
+
+
+def test_review_department_sees_the_project_in_routes_1_and_3(client, chain):
+    """검토 부서 dept_staff는 경로 7·12처럼 1·3도 본다. 다른 부서는 목록에 없고 상세는 404다."""
+    url = f"/projects/{chain['project']}"
+    assert str(chain["project"]) in [
+        p["id"] for p in data(get(client, "/projects?limit=100", RND))["items"]
+    ]
+    assert data(get(client, url, RND))["id"] == str(chain["project"])
+    other = Principal(user_id=uuid4(), roles=frozenset({"dept_staff"}), dept="QA")
+    assert str(chain["project"]) not in [
+        p["id"] for p in data(get(client, "/projects?limit=100", other))["items"]
+    ]
+    assert get(client, url, other).status_code == 404
+    # 부서가 같아도 dept_staff가 아니면 검토 부서 범위가 아니다.
+    sales = Principal(user_id=uuid4(), roles=frozenset({"sales"}), dept="RND_FW")
+    assert data(get(client, "/projects?limit=100", sales))["items"] == []
+    assert get(client, url, sales).status_code == 404

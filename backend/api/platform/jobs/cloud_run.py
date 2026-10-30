@@ -83,7 +83,7 @@ def require_transport(
         tft: RFP 접수 설정(RFP 전송에만).
 
     Returns:
-        None: local/test의 명시적 허용과 lease보다 짧은 전송 제한일 때 반환한다.
+        None: 명시적 허용과 lease보다 짧은 전송 제한일 때 반환한다.
     """
     require_local(settings, access, dispatch, cs, tft)
     if not jobs.enabled or jobs.timeout_seconds + 1 >= dispatch.lease_seconds:
@@ -172,7 +172,7 @@ async def send_job(
     CS_JOB_ID=job_id, RFP(rfp.*)는 tft_worker.job에 TFT_JOB_ID=job_id다.
 
     Args:
-        settings: local/test 실행 환경.
+        settings: 실행 환경.
         access: 합성 평가 허용 설정.
         dispatch: 전송 장부 설정.
         jobs: 고정 Job과 전체 요청 시간 제한.

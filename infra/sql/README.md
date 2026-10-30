@@ -385,3 +385,16 @@ URI를 실제 내부 dispatch로 변경하고 PAUSED를 확인 → API 명시 �
 개인키는 Job 실행 계정에만 접근을 허용하고 API에는 공개키만 주입한다. 원래 공개키를 분실한 기존
 Secret은 O1이 읽거나 교체하지 않는다. 해당 키와 맞는 기존 설정을 운영자가 확인한다.
 운영 스크립트 작성·정적 검사와 실제 GCP 준비·푸시 수신 검증을 구분한다.
+
+## worker 로그인 (KAN-159)
+
+`cs_worker`·`tft_worker`는 NOLOGIN 역할이다. worker는 그 역할의 멤버 로그인으로 접속하고, 앱·마이그레이터 역할 멤버이면 시작을 거부한다. 공용 DB에는 관리자가 한 번 만든다. 비밀번호는 명령 기록에 남기지 않는다(`\password`).
+
+```sql
+CREATE ROLE cs_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE tft_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT cs_worker TO cs_worker_login;
+GRANT tft_worker TO tft_worker_login;
+```
+
+같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
