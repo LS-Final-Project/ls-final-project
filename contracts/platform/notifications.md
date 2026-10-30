@@ -106,3 +106,96 @@ C/S 링크는 business_ref가 `cs_ticket:{정규 UUID}`일 때만 생성한다. 
 새 권한이나 표·API는 추가하지 않는다. cs_app의 기존 workflow 조회와 P30의 notify INSERT 열 권한,
 platform_app의 기존 메일 metadata SELECT와 P30의 notify INSERT 열 권한을 재사용한다. identity 조회는 추가하지 않는다.
 실제 역할의 중복·전이·SAVEPOINT 실패 격리는 전용 CI DB 검사로 확인하며, 로컬 fake 성공을 DB 검증으로 보고하지 않는다.
+
+
+## Web Push P1/P2 (KAN-201)
+
+앱 내 수신함이 원본이다. Web Push는 Chrome 데스크톱의 추가 알림이며 브라우저 종료/권한 거부,
+네트워크 장애에서 수신을 보장하지 않는다. 화면·서비스워커·실제 발송·운영 스크립트 실행은 이번
+서버 변경 검증 범위 밖이다. 기본 `NOTIFICATION_PUSH_ENABLED=false`이며 운영자가 명시 구성한다.
+
+### 구독 API
+
+기존 세션 `me`의 활성 사용자를 사용한다. 다른 user_id/수신자 지정은 받지 않는다.
+모든 응답은 no-store이며 endpoint/p256dh/auth/개인키를 응답·로그에 넣지 않는다.
+
+| 경로 | 입력/응답 | 권한 |
+| --- | --- | --- |
+| GET `/api/v1/platform/push/public-key` | SuccessResponse.data.public_key | 로그인 필수 |
+| PUT `/api/v1/platform/push/subscription` | `{endpoint,keys:{p256dh,auth}}`, 204 | 기존 Origin·CSRF 정책 |
+| DELETE `/api/v1/platform/push/subscription` | `{endpoint}`, 소유 여부와 무관하게 204 | 현재 사용자 소유 구독만 삭제, 기존 Origin·CSRF |
+
+쿼리/추가 필드는 거부한다. endpoint는 HTTPS `fcm.googleapis.com`의 `/fcm/send/` 또는 `/wp/`
+토큰 경로만 허용한다. 포트 명시/userinfo/query/fragment/다른 호스트/인코딩 우회는 거부한다.
+키는 canonical base64url, auth 16 bytes, p256dh는 유효한 uncompressed P-256 65 bytes이다.
+`notify.push_subscriptions`는 사용자/브라우저 구독을 보관한다. 같은 endpoint·사용자·키 재등록은
+멱등이며 생성 시각을 유지한다. 사용자 또는 키 변경은 구세대를 삭제하고 새 UUID/생성 시각으로
+교체한다. 제공 endpoint의 소유권은 현재 세션으로 이동한다(동일 브라우저 계정 전환 계약).
+다른 사용자의 endpoint 조회/삭제는 제공하지 않는다.
+
+platform_app은 구독 표 SELECT/INSERT/DELETE와 `UPDATE(lock_marker)`만 가진다.
+`lock_marker`는 PostgreSQL `FOR UPDATE`의 열 권한 요구를 충족하는 비업무 메타데이터이며
+발송/등록 코드가 그 값을 갱신하지 않는다. id/user_id/endpoint/p256dh/auth/created_at UPDATE는
+허용하지 않는다. 세대 교체는 기존 DELETE+INSERT이며 발송의 `FOR UPDATE OF s,d`를 유지한다.
+P31 재적용은 기존 행을 보존하고 이 최소 열 권한을 다시 설정한다.
+
+### 요청 밖 발송과 중복/실패
+
+Scheduler는 Google OIDC의 고정 audience 및 지정 실행 계정으로만
+`POST /internal/v1/platform/notifications/push`를 호출한다. 본문·쿼리는 받지 않는다.
+이 경로는 고정 프로젝트/서울 리전/Job에 실행 요청만 보내고 202를 반환한다. 앱 요청 내 Web Push,
+BackgroundTasks/비동기 잔여 작업을 사용하지 않는다. Job launch 응답 불명/실패는 503이다.
+중복 실행 요청이 여러 Job을 만들 수 있지만 실제 발송 확보는 DB에서 배제한다.
+
+별도 `python -m backend.api.platform.notifications.push_worker` Job은 유한 batch(기본100)로
+기존 펼침을 실행하고 현재 활성 사용자·미읽음·생성 후 1시간 이내 알림만 처리한다.
+새 구독 이전 과거 알림은 발송하지 않는다. 플랫폼 최초 polling/Job 펼침 시점의 수신자 정책을
+그대로 사용한다. `notify.push_deliveries`는 (intent_id,subscription_id) 유일 키다.
+SKIP LOCKED로 한 시도를 확보하고 SENDING/시도 수를 별도 TX로 commit한 뒤 구독 세대를
+다시 잠가 현재 소유권·미읽음·활성·TTL을 확인한다. 확인 실패는 SKIPPED이다.
+
+외부 발송 동안 구독 세대 row 잠금을 유지한다. 이는 동시에 계정 변경/삭제가 성공한 뒤 이전
+사용자 알림이 전송되거나 구세대 410이 신구독을 삭제하는 일을 막기 위한 직렬화다.
+발송은 별도 자식 프로세스에서 DNS/암호화/HTTP 전체를 수행한다. 부모는 시작 후 10초 대기하고
+초과하면 kill 및 1초 join 후 종료를 확인해 UNKNOWN으로 기록한다(프로세스 시작/DB lock 획득 시간은 별도).
+종료가 확인되지 않는 예외적 OS 장애에서는 고정 경고만 남기고 kill/join을 반복하며 구독 잠금을
+유지한다. 이 비정상 종료대기에는 11초 상한을 주장하지 않는다. 부모 예외/취소도 종료확인 뒤에만
+TX를 해제한다. 종료 미확인 상태는 DB 연결·구독 잠금을 장시간 점유할 수 있으므로 운영자가
+Job 및 DB 잠금을 확인해야 한다. 정상 재확인은 1초 join, join 예외도 1초 대기를 사용한다.
+spawn 실패/자식 결과 없음/비정상 종료는 UNKNOWN이다.
+서버/Job 종료로 결과 기록을 못한 SENDING은 2분 후 UNKNOWN으로 복구한다.
+응답불명·timeout·중단은 자동 재발송하지 않는다. 중복보다 전달손실을 허용하는 승인 정책이다.
+
+HTTP 200~202는 공급자 접수 SENT이며 브라우저 수신 확인이 아니다. 404/410은 잠근 구독 UUID만
+삭제하고 해당 세대 장부는 FK cascade된다. 429/503의 명시 응답만 Retry-After(초 또는 HTTP-date,
+누락/잘못된 값은60초)를 따라 PENDING으로 전환한다. 1시간보다 긴 Retry-After는 FAILED이다.
+총 시도 최대3회/알림1시간 TTL 밖으로는 재시도하지 않는다. 그 외 HTTP 실패는 FAILED이다.
+어떤 푸시 실패도 앱 내 알림/본업무를 롤백하지 않는다.
+
+### 전송·비밀·운영 경계
+
+pywebpush==2.5.0의 requests_session 주입점만 사용한다. TTL3600, Urgency normal,
+본문은 고정 title·안전 앱내 url·알림 UUID만 포함한다. DNS의 모든 반환 주소가 global이어야 하며
+그 중 검증 주소 하나에 소켓을 고정한다. TLS SNI/인증서는 원래 fcm.googleapis.com으로 검증한다.
+redirect/proxy환경/라이브러리 재시도는 비활성이다. connect/read 각각5초와 별개로 전체 시도는
+위 자식 프로세스 제한을 받는다. 응답은 헤더 후 즉시 close하고 본문은 읽지 않는다.
+외부 예외 문자열/provider 본문/능력 URL은 기록하지 않는다.
+
+VAPID private scalar는 전용 notification-push-runtime의 Secret Manager 버전1에만 주입한다.
+API는 공개키만 받는다. Job은 시작 시 공개/개인키 일치와 mailto 운영 연락처를 검사한다.
+임의 키회전·latest 버전·로컬 키파일 생성은 없다. 설정/권한/구독 표는 platform 소유이며
+업무앱/기존 worker의 identity/runtime/notify 접근 권한을 확대하지 않는다.
+O1/O2는 기본 preview 및 명시 --apply 보호를 제공한다. 실행은 운영자만 한다.
+O2 재적용은 기존 Scheduler 조회 후 pause를 첫 변경으로 수행하며 조회/pause 실패는 즉시 중단한다.
+그 뒤 API dispatch를 OFF로 설정하고 Job/IAM을 준비한다. Scheduler create/update는 실제 dispatch
+경로 대신 안전한 POST `/health` 대상(405)을 사용한다. create가 활성 상태로 시작하거나 update가
+상태를 바꾸거나 기존 API revision이 남아 있어도 이 대상은 발송을 요청할 수 없다.
+다시 pause 및 PAUSED 확인 뒤 공개 API 설정만 OFF 상태로 적용한다. 준비 스크립트는 활성화하지
+않는다. 중간 실패에서 새 dispatch를 활성화하는 경로는 없고 생성/갱신 후 남은 Scheduler는
+비발송 대상이다. 선행 조회/pause/OFF 갱신 자체가 실패하면 즉시 중단하고 기존 상태를 운영자가
+확인한다. 또한 OFF 설정이 모든 serving revision에 적용됐다고 자동 가정하지 않는다. 이미 실행 중이던
+요청/Job을 소급 취소하지 않으므로 운영자가 pause 이전의 진행 중 작업도 별도로 확인해야 한다.
+활성화는 운영자의 별도 행동이다. 모든 serving revision의 OFF/기존 진행 작업을 확인한 뒤
+paused Scheduler의 URI를 실제 dispatch로 변경하고 PAUSED를 확인한 상태에서 API를 켠 뒤
+명시 resume한다. 이 활성화 명령은 준비 스크립트가 실행하지 않는다. DB·GCP 배포·Chrome 실수신은 CI/운영 후속
+검증으로 남기고 fake 전송 성공을 실제 수신 성공으로 보고하지 않는다.

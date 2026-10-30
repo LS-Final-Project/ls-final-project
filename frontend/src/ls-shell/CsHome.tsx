@@ -1,6 +1,7 @@
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { KvNext, KvTitle } from './kv';
 
 const STEPS = ['접수', '검토중', '부서 검토', '고객 회신 대기', '오늘 종결'];
 const TERMS: [string, string][] = [
@@ -19,15 +20,12 @@ export default function CsHome() {
   const queryClient = useQueryClient();
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
   return <main>
-    <div className="kv-title">
-      <div className="kv-path"><span>C/S 관리</span><span className="sep">›</span><h1>업무 홈</h1><span className="kv-code">CS0001</span></div>
-      <div className="kv-btns">
-        <button className="kb primary" onClick={() => queryClient.invalidateQueries()}>조회</button>
-        <Link className="kb" to="/cs/tickets">문의 조회</Link>
-        <button className="kb" onClick={() => window.print()}>인쇄</button>
-      </div>
-    </div>
-    <div className="kv-next"><span className="k">다음 할 일</span><span>{PENDING}</span></div>
+    <KvTitle path="C/S 관리" title="업무 홈" code="CS0001">
+      <button className="kb primary" onClick={() => queryClient.invalidateQueries()}>조회</button>
+      <Link className="kb" to="/cs/tickets">문의 조회</Link>
+      <button className="kb" onClick={() => window.print()}>인쇄</button>
+    </KvTitle>
+    <KvNext>{PENDING}</KvNext>
     <div className="kv-split" style={{ gridTemplateColumns: '1fr 1.15fr' }}>
       <section className="kv-box">
         <h2>업무 개요<small>팀 전체, 받아 온 목록을 상태별로 센 것</small></h2>

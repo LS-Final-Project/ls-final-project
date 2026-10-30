@@ -321,6 +321,41 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/condition-comparisons",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code",
+        "fault_id",
+        "version"
+      ]
+    },
+    {
       "path": "/api/v1/tft/projects",
       "methods": [
         "GET",
@@ -363,6 +398,37 @@
     },
     {
       "path": "/api/v1/tft/documents/{uuid}/file",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/review-versions",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file",
       "methods": [
         "GET"
       ],
@@ -488,41 +554,6 @@
     },
     {
       "path": "/api/v1/tft/proposals/{uuid}/reject",
-      "methods": [
-        "POST"
-      ],
-      "query": []
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison",
-      "methods": [
-        "GET",
-        "POST"
-      ],
-      "query": [
-        "version"
-      ]
-    },
-    {
-      "path": "/api/v1/cs/condition-comparisons",
-      "methods": [
-        "GET"
-      ],
-      "query": [
-        "product_code",
-        "fault_id",
-        "version"
-      ]
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements",
-      "methods": [
-        "POST"
-      ],
-      "query": []
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove",
       "methods": [
         "POST"
       ],
@@ -1039,6 +1070,43 @@
       "path": "/api/v1/tft/projects/not-a-uuid/documents",
       "forward": false,
       "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?version=1",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?secret=1",
+      "forward": false,
+      "status": 400
     }
   ]
 }

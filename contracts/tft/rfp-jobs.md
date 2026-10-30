@@ -50,7 +50,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
   - 플랫폼 409 `TFT_JOB_IN_PROGRESS`·`IDEMPOTENCY_CONFLICT`와 503 `TFT_PROCESSOR_NOT_CONNECTED`는 그대로 옮긴다.
   - tft 설정 `TFT_PROCESSING_ENABLED`(기본 꺼짐, `TFT_PROCESSING_PLATFORM_URL`=플랫폼 HTTPS origin)가 꺼져 있으면 플랫폼을 부르지 않고 503 `TFT_PROCESSOR_NOT_CONNECTED`다.
   - 연결 실패·결과 모름·그 밖의 거절(예: 422 `JOB_ACTOR_UNKNOWN`), 2xx지만 접수 결과로 읽을 수 없는 본문은 503 `DEPENDENCY_UNAVAILABLE`이다.
-- 28 내보내기 접수는 초안 생성(A07) 뒤에 같은 틀로 붙인다.
+- 28 내보내기는 담당 sales·책임자가 저장된 검토본을 DOCX로 접수한다. `ExportAccepted`는 기존 접수 필드에 `export_id`를 더한다. `input_version`은 예약 UUID 문자열의 SHA-256이며 process/annotate의 문서 판본 hash와 구분한다. PDF enum은 유지하지만 예약·접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`로 거부한다(PDF 생성 후속).
 - 검사: `tests/tft/test_rfp_jobs_db.py`(가짜 플랫폼, `tft_app`).
 
 ## 전송 (KAN-199 1/2)
@@ -101,7 +101,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 | `compare` | 자사 비교. 인증 요구 비교의 `matched_attribute`는 null. 추출 요구 → 비교 입력 매핑은 `to_comparison` 한 곳(`COMPLIANCE`는 인증 요구이고 규격은 추출 `value`(없으면 `attribute`. 14번 실측에서 `attribute`는 'standard compliance' 같은 이름표였다), 그 밖은 추출 v3의 `attribute_key`(자사 사양 어휘 단일 원본 `backend/engine/rfp/vocabulary.py`, 연결하지 못했으면 `OTHER` → 비교하지 않음), 계열은 `equipment_family`로 고른다). 동의어 표는 없다(#324의 `canonical`은 v3 연결로 대체해 지웠다. 14번 문구 동의어를 코드에 두지 않는다). 등급 입력·비교의 `matched_attribute`도 같은 `attribute_key`를 쓰고, 요구 판본의 `attribute`는 추출 원문 그대로 저장한다 | `comparison.compare` | `clauses`, `clause_deleted_values`, `clause_flags`, `requirements`, `requirement_versions`(판본 1, `ai_draft`, 판단·지정품 모델·제조사 포함), `requirement_conditions`, `product_comparisons`, `comparison_evidence` |
 | `supplement` | 보완 선택지. 고객 허용은 `UNSTATED`, 허용 조항은 null(그 값을 정하는 코드가 아직 없다) | `supplement.options_for` | `supplement_options` |
 | `candidates` | 사양 차이(`SPEC_GAP`)·근거 부족(`INSUFFICIENT_EVIDENCE`) 요구에 협력사 등급. 문서 제목의 데이터셋 번호(`RFP-14`)로 `document_pools.json` 풀을 고르고(번호나 풀을 모르는 문서가 있으면 전체 후보), 후보는 자기 계열 요구만 채점한다(`partners/loader.PROFILE_FAMILIES`, 계열이 `OTHER`·null인 요구는 채점하지 않음). `requires_integrator`는 이번 처리의 추출 요구로 정한다. DB `partner_profiles` 행만 쓰고 없으면 건너뛰고 `needs_review`. 나머지 RFP 맥락은 기본값(제조사 목록 없음·`UNSTATED`·지역 없음) | `grading.grade_candidate` | `partner_grades` |
-| `draft` | 초안 생성(A07) 전이라 counts만 남긴다(실패 아님) | — | 없음 |
+| `draft` | 같은 연결의 최신 공개 snapshot → `build_draft` → 불변 초안 판본·문장·근거 저장. 같은 source_job_id 재시도는 원래 판본을 재사용하고 사람 편집 head를 덮어쓰지 않음 | `drafts.generate` | `drafts`, `draft_versions`, `draft_sentences`, `draft_sentence_evidence`, `rfp_audit_events` |
 
 - **접수 입력 판본**: 처리 함수는 `input_version`(정렬 문서 판본 ID의 SHA-256)만 받는다. 프로젝트 문서의 최신 판본 묶음부터 맞춰 보고, 아니면 문서 판본 12개까지 조합을 다 본다. 못 찾으면 실패다.
 - **원문**: local/test는 `TFT_DOCUMENT_ROOT`/`storage_key` 파일을 읽고 판본 행의 sha256·size와 맞는지 본다. 운영은 `TFT_DOCUMENT_BUCKET` 버킷을 읽고, 둘 다 있으면 버킷이 먼저다(`rfp/storage.py`).
@@ -110,12 +110,12 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - **트랜잭션**: 조항과 `compare`부터 `candidates`까지 쓰는 행은 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소·오류) 조항도 요구 행도 남지 않는다. **그래서 조항(경로 9 조항 트리 포함)은 그 문서 판본의 처리가 끝난 뒤에만 보인다**(처리 중에는 빈 목록이다. 경로 9 구현은 KAN-188). `parse` 직후 조항을 읽는 소비자는 없다(2026-10-30 확인: 조항 트리 경로 9는 미구현, 질문의 조항 확인·요구 상세의 조항 조인은 처리가 끝난 뒤에만 의미가 있다).
 - **재실행 멱등**: 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 문서 포함)은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다. 조항이 하나도 없는 문서는 처리 표시가 남지 않지만 절이 없어 모델도 부르지 않는다.
 - **SSE 값**: 단계마다 `counts{requirements, proposals}`(proposals는 0). `skipped` 같은 새 키는 두지 않는다(허용 키 표 그대로).
-- `rfp.export`·`rfp.annotate`는 단계가 아직 없어 그 단계 하나(counts 0)만 남기고 SUCCEEDED다.
+- `rfp.export`는 예약·작업 입력 판본·actor/job을 확인하고 저장된 검토본의 실제 DOCX를 private DocumentStore에 쓴 뒤 해시·크기·완료를 기록한다. 완료 재시도는 기존 파일의 무결성을 확인한다. 누락 예약·파일 실패를 성공으로 숨기지 않는다. `rfp.annotate`는 아직 단계 하나(counts 0)만 남긴다.
 - **권한(`20261104_KAN-199_tft_worker.sql`)**: `tft_worker`는 문서·문서 판본·요구 판본·협력사 프로필 SELECT, 조항 SELECT·INSERT, 위 표 INSERT만 가진다. UPDATE·DELETE는 없다.
 - 검사: `tests/tft/test_worker_processor_db.py`(가짜 추출기·합성 Markdown·`tft_worker` 권한), 종단 `tests/platform/test_tft_worker_db.py::test_worker_runs_the_real_processor_end_to_end`.
 
 ## 아직 없는 것
 
-- 검색기(R10 FTS·벡터) 연결, 고객 허용 조항 해석, RFP 맥락(제조사 목록 등)의 원천, 초안·내보내기·메모 해석 단계.
+- 검색기(R10 FTS·벡터) 연결, 고객 허용 조항 해석, RFP 맥락(제조사 목록 등)의 원천, PDF 생성·메모 해석 단계.
 - 입력 판본 복원(후속): 접수 때 `rfp_commands` 결과에 `document_version_ids`를 남기고 worker가 작업 ID로 읽게 바꾼다(지금은 해시 조합 역산, 판본 12개 상한).
 - 취소를 거는 경로. 지금은 `cancel_requested_at`을 읽기만 한다(KAN-194 이연 P3와 같은 범위).

@@ -3,11 +3,11 @@
 나영님 엔진 함수를 부르는 접착만 한다. 새 판정 규칙은 없다(contracts/tft/rfp-jobs.md '처리 함수' 절).
 
 - rfp.process 단계: parse(원문 → 조항 트리 저장) → extract(절마다 모델 추출) → search(후보 범위) → compare(자사 비교)
-  → supplement(보완 선택지) → candidates(협력사 등급) → draft(아직 없음, counts 0).
+  → supplement(보완 선택지) → candidates(협력사 등급) → draft(근거 있는 제안 검토 초안 저장).
 - 조항·요구·판본(판단 포함)·조건·비교·선택지·등급은 compare부터 candidates까지 한 트랜잭션에 쓴다. 도중에 멈추면
   아무것도 남지 않아 다시 돌리면 처음부터 한다.
 - 재실행: 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 포함)은 다시 처리하지 않는다(모델을 다시 부르지 않음).
-- rfp.export·rfp.annotate는 아직 단계가 없어 그 단계 counts 0만 남기고 끝낸다.
+- rfp.export는 저장된 검토본 DOCX를 만들고, rfp.annotate는 아직 counts 0만 남긴다.
 """
 
 import asyncio
@@ -31,7 +31,14 @@ from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pools
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
-from backend.api.tft.rfp import comparison, integration, repository, supplement
+from backend.api.tft.rfp import (
+    comparison,
+    draft_exports,
+    drafts,
+    integration,
+    repository,
+    supplement,
+)
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.rfp.storage import (
     DocumentStorageSettings,
@@ -187,12 +194,23 @@ def make_processor(
     own = list(products) if products is not None else comparison.load_own_products()
 
     def processor(job: TftJob, emit: Emit) -> dict[str, Any] | None:
+        if job.kind == "rfp.export":
+            return asyncio.run(export_job(settings, job, emit, store))
         if job.kind in ONLY_STEP:
             emit({"step": ONLY_STEP[job.kind], "counts": ZERO})
             return {"counts": ZERO, "needs_review": False}
         return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor
+
+
+async def export_job(
+    settings: Settings, job: TftJob, emit: Emit, store: DocumentStore | None
+) -> dict[str, Any]:
+    """기존 작업 런타임의 소유권 검사를 유지하며 예약된 검토본을 내보낸다."""
+    dsn = settings.database_url.get_secret_value() if settings.database_url else ""
+    async with await psycopg.AsyncConnection.connect(dsn, row_factory=dict_row) as conn:
+        return await draft_exports.process(conn, job, emit, store)
 
 
 def sections_of(tree: ClauseTree) -> list[str]:
@@ -567,6 +585,7 @@ async def process(
             for row in await repository.partner_profiles(conn)
         ]
         async with conn.transaction():
+            await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             for document, tree, clauses in parsed:
                 clauses.update(await repository.store_clauses(conn, document, tree.clauses))
             ids = await store_requirements(conn, job.project_id, extracted, outcomes)
@@ -620,9 +639,14 @@ async def process(
                             grade=grade.model_dump(mode="json"),
                             data_origin=origin_of[grade.requirement_id],
                         )
-        emit({"step": "candidates", "counts": counts(total)})
-        # 초안 생성(A07)이 오기 전에는 건너뛴다(실패 아님).
-        emit({"step": "draft", "counts": counts(total)})
+            emit({"step": "candidates", "counts": counts(total)})
+            proposal = await drafts.generate(conn, job.project_id, job.actor_id, job.job_id)
+            needs_review |= any(
+                row.evidence_missing or row.needs_rereview
+                for part in proposal.sections
+                for row in part.sentences
+            )
+            emit({"step": "draft", "counts": counts(total)})
     return {"counts": counts(total), "needs_review": needs_review}
 
 

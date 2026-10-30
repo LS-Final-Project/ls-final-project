@@ -384,6 +384,6 @@ def test_commands_replay_the_same_request_and_refuse_a_reused_key(app_dsn, chain
         run(
             app_dsn,
             lambda conn: commands.replay(
-                conn, actor=actor, operation="export.create", key=key, digest=digest
+                conn, actor=actor, operation="unknown.operation", key=key, digest=digest
             ),  # type: ignore[arg-type]
         )

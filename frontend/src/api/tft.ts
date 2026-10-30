@@ -6,5 +6,6 @@ export type ProjectDetailResponse = paths['/api/v1/tft/projects/{project_id}']['
 export type ProjectDetail = ProjectDetailResponse['data'];
 export type RfpRequirement = ProjectDetail['rfp_requirements'][number];
 
-export const listProjects = () => request<ProjectListResponse>('/api/v1/tft/projects');
+export type ProjectSummary = ProjectListResponse['data']['items'][number];
+export const listProjects = (cursor?: string) => request<ProjectListResponse>(`/api/v1/tft/projects${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
 export const getProject = (id: string) => request<ProjectDetailResponse>(`/api/v1/tft/projects/${encodeURIComponent(id)}`);
