@@ -19,6 +19,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
 from backend.api.tft.rfp.rnd import DeptKind, RndQuestion, rnd_check_of
+from backend.api.tft.rfp.schemas import UploadForm
 from backend.api.tft.rfp.supplement import RndCheck
 from backend.shared.errors import ApplicationError
 
@@ -68,6 +69,219 @@ async def project_scope(conn: AsyncConnection[Row], project_id: UUID) -> Row | N
         (project_id,),
     )
     return await cursor.fetchone()
+
+
+async def insert_project(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    sales_user_id: UUID,
+    known_at: datetime,
+    values: Mapping[str, Any],
+) -> None:
+    """접수한 프로젝트를 넣는다. 출처는 웹 입력(PROVIDED)이다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 새 프로젝트 ID.
+        sales_user_id: 담당 sales(접수자).
+        known_at: 입력 시각.
+        values: 코드가 정한 칸 이름 → 값.
+    """
+    columns = ["id", "source", "source_instance", "derivation_kind", "known_at", "sales_user_id"]
+    params = [project_id, "rfp", "web", "PROVIDED", known_at, sales_user_id]
+    columns += values
+    params += values.values()
+    await conn.execute(
+        f"INSERT INTO tft.projects ({', '.join(columns)}) "
+        f"VALUES ({', '.join(['%s'] * len(columns))})",
+        params,
+    )
+
+
+async def update_project(
+    conn: AsyncConnection[Row], project_id: UUID, version: int, values: Mapping[str, Any]
+) -> int:
+    """읽은 판본이 최신일 때만 프로젝트 칸을 바꾸고 판본을 올린다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        version: 요청이 읽은 판본.
+        values: 코드가 정한 칸 이름 → 값.
+
+    Returns:
+        int: 새 판본. 다르면 409 TFT_VERSION_CONFLICT다.
+    """
+    assignments = "".join(f"{column} = %s, " for column in values)
+    cursor = await conn.execute(
+        f"UPDATE tft.projects SET {assignments}version = version + 1, updated_at = now() "
+        "WHERE id = %s AND version = %s RETURNING version",
+        (*values.values(), project_id, version),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise version_conflict()
+    return int(row["version"])
+
+
+async def insert_assignment(
+    conn: AsyncConnection[Row],
+    *,
+    project: Mapping[str, Any],
+    project_version: int,
+    sales_user_id: UUID | None,
+    responsible_user_id: UUID | None,
+    reason: str,
+    changed_by: UUID,
+) -> None:
+    """담당 지정 이력 한 행을 남긴다(이전·신규 두 대상 모두).
+
+    Args:
+        conn: dict_row 연결.
+        project: 지정 전 project_scope 행.
+        project_version: 지정 뒤 프로젝트 판본.
+        sales_user_id: 새 담당 sales.
+        responsible_user_id: 새 책임자.
+        reason: 사유.
+        changed_by: 지정한 manager.
+    """
+    await conn.execute(
+        "INSERT INTO tft.project_assignments (id, project_id, project_version, "
+        "previous_sales_user_id, sales_user_id, previous_responsible_user_id, "
+        "responsible_user_id, reason, changed_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (
+            uuid4(),
+            project["id"],
+            project_version,
+            project["sales_user_id"],
+            sales_user_id,
+            project["responsible_user_id"],
+            responsible_user_id,
+            reason,
+            changed_by,
+        ),
+    )
+
+
+async def project_detail_parts(
+    conn: AsyncConnection[Row], project_id: UUID
+) -> tuple[Row, list[Row], dict[str, int]]:
+    """프로젝트 상세를 만들 행들.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 있는 프로젝트 ID.
+
+    Returns:
+        tuple: (프로젝트 행+documents_count·draft_version, 최신 요구별 status·necessity·unresolved·
+            open_questions·needs_rereview, 승인 대기 제안의 입구별 수).
+    """
+    cursor = await conn.execute(
+        "SELECT p.*, (SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
+        "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
+        "AS draft_version FROM tft.projects p WHERE p.id = %s",
+        (project_id,),
+    )
+    project = await cursor.fetchone()
+    if project is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    rereview = NEEDS_REREVIEW.format(requirement="req.id")
+    cursor = await conn.execute(
+        "SELECT v.status, v.necessity, v.unresolved, "
+        "(SELECT count(*) FROM tft.customer_questions q "
+        "WHERE q.requirement_id = req.id AND q.status = 'OPEN') AS open_questions, "
+        f"({rereview}) AS needs_rereview FROM tft.requirements req "
+        "JOIN tft.requirement_versions v ON v.requirement_id = req.id "
+        "AND v.version = req.latest_version WHERE req.project_id = %s",
+        (project_id,),
+    )
+    requirements = await cursor.fetchall()
+    cursor = await conn.execute(
+        "SELECT origin, count(*) AS n FROM tft.change_proposals "
+        "WHERE project_id = %s AND status = 'PENDING' GROUP BY origin",
+        (project_id,),
+    )
+    pending = {row["origin"]: row["n"] for row in await cursor.fetchall()}
+    return project, requirements, pending
+
+
+async def insert_document_version(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    version_id: UUID,
+    form: UploadForm,
+    mime: str,
+    storage_key: str,
+    sha256: str,
+    size: int,
+    edit_trace_support: bool,
+    actor: UUID,
+) -> UUID:
+    """업로드 판본을 넣는다. 다음 판본이면 문서의 최신 판본 번호를 원자적으로 올린다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        version_id: 새 판본 ID.
+        form: 검증한 폼 칸.
+        mime: 내용으로 판별한 형식.
+        storage_key: 저장 키.
+        sha256: 파일 해시.
+        size: 파일 크기.
+        edit_trace_support: 편집 흔적을 읽을 수 있는 형식인지.
+        actor: 올린 사용자.
+
+    Returns:
+        UUID: 문서 ID.
+    """
+    document_id = form.supersedes_document_id
+    if document_id is None:
+        document_id, version = uuid4(), 1
+        await conn.execute(
+            "INSERT INTO tft.documents (id, project_id, kind, title, note, base_document_id, "
+            "data_origin, derivation_kind, known_at, created_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s)",
+            (
+                document_id,
+                project_id,
+                form.kind,
+                form.title,
+                form.note,
+                form.base_document_id,
+                form.data_origin,
+                actor,
+            ),
+        )
+    else:
+        cursor = await conn.execute(
+            "UPDATE tft.documents SET latest_version = latest_version + 1 WHERE id = %s "
+            "RETURNING latest_version",
+            (document_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise ValueError("TFT_DOCUMENT_MISSING")
+        version = row["latest_version"]
+    await conn.execute(
+        "INSERT INTO tft.document_versions (id, document_id, version, mime, storage_key, sha256, "
+        "size, edit_trace_support, data_origin, derivation_kind, known_at, uploaded_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s)",
+        (
+            version_id,
+            document_id,
+            version,
+            mime,
+            storage_key,
+            sha256,
+            size,
+            edit_trace_support,
+            form.data_origin,
+            actor,
+        ),
+    )
+    return document_id
 
 
 async def department_kinds(conn: AsyncConnection[Row]) -> dict[str, DeptKind]:

@@ -4,17 +4,27 @@
 페이지 일부나 과거 판본으로 합산하지 않는다. 상태 변경이나 DB 쓰기는 하지 않는다.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from backend.api.tft.rfp.schemas import RequirementDetail
 
 
-def is_unresolved_mandatory(requirement: RequirementDetail) -> bool:
+def is_unresolved(
+    necessity: str, status: str, unresolved: Sequence[object], needs_rereview: bool
+) -> bool:
     """필수·조건부 필수 중 근거 미확정·미확인 사항·재검토가 남았는지 판정한다."""
-    return requirement.spec.necessity in {"MANDATORY", "CONDITION_BOUND"} and (
-        requirement.judgement.status != "EVIDENCE_FOUND"
-        or bool(requirement.judgement.unresolved)
-        or requirement.needs_rereview
+    return necessity in {"MANDATORY", "CONDITION_BOUND"} and (
+        status != "EVIDENCE_FOUND" or bool(unresolved) or needs_rereview
+    )
+
+
+def is_unresolved_mandatory(requirement: RequirementDetail) -> bool:
+    """상세 응답 모델로 is_unresolved를 판정한다."""
+    return is_unresolved(
+        requirement.spec.necessity,
+        requirement.judgement.status,
+        requirement.judgement.unresolved,
+        requirement.needs_rereview,
     )
 
 
