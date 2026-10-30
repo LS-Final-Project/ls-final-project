@@ -26,7 +26,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.engine.rfp.clauses import ClauseTree
 from backend.shared.ai import Generation, Usage
 
-EXTRACTION_VERSION = "rfp-requirements-v1"
+# v2: 지정품 제조사(designated_manufacturer)와 원문 대조(명세 v1.3 §5.1·§11). v1 측정치는 계약 문서 표에 있다.
+EXTRACTION_VERSION = "rfp-requirements-v2"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -74,7 +75,30 @@ class ExtractedRequirement(Strict):
     standard_system: StandardSystem
     necessity: Necessity
     designated_model: str | None = Field(
-        description="지정 모델·제조사(예: Eaton Resibloc). 없으면 null."
+        description="원문에 적힌 지정 모델명 그대로(예: SEL-751A, PowerLogic ION 9000). 없으면 null."
+    )
+    designated_manufacturer: str | None = Field(
+        default=None,
+        description="지정 모델의 제조사가 원문에 적혀 있을 때만 그 이름. 추측하지 않는다. 없으면 null.",
+    )
+
+
+class DesignatedItem(Strict):
+    """고객 지정품(명세 v1.3 §5.1). 조항 ID(clause_id)는 저장(A07)이 clause_no로 tft.clauses에서 찾는다."""
+
+    manufacturer: str | None
+    model: str
+    clause_no: str
+
+
+def designated_item(requirement: ExtractedRequirement) -> DesignatedItem | None:
+    """요구의 지정품. designated_model이 없으면 None(명세: designated_item도 null)."""
+    if requirement.designated_model is None:
+        return None
+    return DesignatedItem(
+        manufacturer=requirement.designated_manufacturer,
+        model=requirement.designated_model,
+        clause_no=requirement.clause_no,
     )
 
 
@@ -109,6 +133,7 @@ class RequirementSchema(_Loose):
     standard_system: StandardSystem
     necessity: Necessity
     designated_model: str | None
+    designated_manufacturer: str | None = None
 
 
 class ResponseSchema(_Loose):
@@ -128,6 +153,8 @@ class SectionResult:
     requirements: list[ExtractedRequirement] = field(default_factory=list)
     rejected: list[Rejected] = field(default_factory=list)
     value_dropped: int = 0
+    # 지정 모델·제조사가 조항 원문에 없어 비운 요구 수(요구 자체는 남긴다).
+    designated_dropped: int = 0
     sentences: int = 0
     covered_first: int = 0
     covered_final: int = 0
@@ -200,6 +227,11 @@ Return JSON matching the schema. Rules:
   requirement applies only under a stated condition, UNDETERMINED when the text does not say.
 - kind: SPEC (rating/feature), TASK (work to perform), DOCUMENT (submittal), COMPLIANCE (listed/standard),
   DESIGNATED_PRODUCT (named model or manufacturer).
+- designated_model: a specific product model the clause names for supply (e.g. "SEL-751A",
+  "PowerLogic ION 9000"), copied exactly as written; else null. A list of acceptable manufacturers is not a
+  designated model.
+- designated_manufacturer: the maker of that model only when its name is written in the clause; else null.
+  Do not infer a maker from the model name.
 - standard_system from the cited standard family (IEEE/ANSI -> IEEE, UL, NEMA, IEC), else NONE.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
@@ -218,9 +250,30 @@ def prompt(item: ExtractionInput) -> str:
     )
 
 
+def _grounded_designation(
+    req: ExtractedRequirement, clause_text: str
+) -> tuple[ExtractedRequirement, bool]:
+    """지정 모델·제조사가 조항 현행 텍스트에 그대로 있을 때만 남긴다. 비웠으면 (요구, True).
+
+    모델이 모델명에서 제조사를 짐작해 쓰거나(SEL → Schweitzer) 없는 모델을 쓰는 것을 막는다. 지운 값(취소선)은
+    현행 텍스트에 없으므로 여기서도 걸린다.
+    """
+    model, maker = req.designated_model, req.designated_manufacturer
+    if model is not None and _space(model) not in clause_text:
+        model = None
+    if model is None or (maker is not None and _space(maker) not in clause_text):
+        maker = None
+    changed = (model, maker) != (req.designated_model, req.designated_manufacturer)
+    if not changed:
+        return req, False
+    return req.model_copy(
+        update={"designated_model": model, "designated_manufacturer": maker}
+    ), True
+
+
 def validate_output(
     raw: str, item: ExtractionInput
-) -> tuple[list[ExtractedRequirement], list[Rejected], int]:
+) -> tuple[list[ExtractedRequirement], list[Rejected], int, int]:
     """모델 출력을 검사한다. 근거가 조항 현행 텍스트에 없는 요구는 버린다.
 
     Args:
@@ -228,7 +281,7 @@ def validate_output(
         item: 그 응답을 만든 입력.
 
     Returns:
-        (채택한 요구, 버린 요구와 이유, 값만 비운 문장형 요구 수).
+        (채택한 요구, 버린 요구와 이유, 값만 비운 문장형 요구 수, 지정 모델·제조사를 비운 요구 수).
 
     Raises:
         ValueError: JSON·스키마 위반(RFP_INVALID_OUTPUT).
@@ -241,6 +294,7 @@ def validate_output(
     kept: list[ExtractedRequirement] = []
     rejected: list[Rejected] = []
     dropped = 0
+    undesignated = 0
     for req in output.requirements:
         reason: RejectReason | None = None
         if req.clause_no not in texts:
@@ -254,12 +308,14 @@ def validate_output(
             else:
                 reason = "VALUE_NOT_IN_QUOTE"
         if reason is None:
+            req, cleared = _grounded_designation(req, texts[req.clause_no])
+            undesignated += cleared
             kept.append(req)
         else:
             rejected.append(
                 Rejected(clause_no=req.clause_no, attribute=req.attribute, reason=reason)
             )
-    return kept, rejected, dropped
+    return kept, rejected, dropped, undesignated
 
 
 def _sum_usage(a: Usage, b: Usage) -> Usage:
@@ -315,7 +371,7 @@ def coverage(
 
 def _call(
     item: ExtractionInput, check: ExtractionInput, provider: Callable[[str], Generation]
-) -> tuple[Generation, list[ExtractedRequirement], list[Rejected], int]:
+) -> tuple[Generation, list[ExtractedRequirement], list[Rejected], int, int]:
     response = provider(prompt(item))
     return response, *validate_output(response.text, check)
 
@@ -331,7 +387,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
         SectionResult: 채택·버린 요구, 문장 포괄, 사용량(두 호출 합). 실패·스키마 위반은 outcome으로 구분한다.
     """
     try:
-        response, kept, rejected, dropped = _call(item, item, provider)
+        response, kept, rejected, dropped, undesignated = _call(item, item, provider)
     except ValueError:
         return SectionResult(section_no=item.section_no, outcome="SCHEMA_VIOLATION")
     except Exception:
@@ -357,11 +413,20 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
             }
         )
         try:
-            extra_response, more, more_rejected, more_dropped = _call(gap, item, provider)
+            extra_response, more, more_rejected, more_dropped, more_undesignated = _call(
+                gap, item, provider
+            )
         except Exception:
             # 보완 호출 실패는 1차 결과를 지우지 않는다. 빠진 문장 수로 드러난다.
-            more, more_rejected, more_dropped, extra_response = [], [], 0, None
+            more, more_rejected, more_dropped, more_undesignated, extra_response = (
+                [],
+                [],
+                0,
+                0,
+                None,
+            )
         kept, rejected, dropped = kept + more, rejected + more_rejected, dropped + more_dropped
+        undesignated += more_undesignated
         added = len(more)
         if extra_response is not None:
             usage = _sum_usage(usage, extra_response.usage)
@@ -372,6 +437,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
         requirements=kept,
         rejected=rejected,
         value_dropped=dropped,
+        designated_dropped=undesignated,
         sentences=total,
         covered_first=first,
         covered_final=final,

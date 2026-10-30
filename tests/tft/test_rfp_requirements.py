@@ -13,6 +13,7 @@ from backend.engine.rfp.requirements import (
     ResponseSchema,
     build_inputs,
     coverage,
+    designated_item,
     extract_section,
     prompt,
     validate_output,
@@ -127,7 +128,7 @@ def test_quotes_and_values_must_come_from_the_clause_text():
             ]
         }
     )
-    kept, rejected, dropped = validate_output(raw, item)
+    kept, rejected, dropped, _ = validate_output(raw, item)
     assert [(r.clause_no, r.value) for r in kept] == [("2.5.C.1", "33%"), ("2.5.D", None)]
     assert kept[0].conditions[0].value == "480Y/277V"
     assert [r.reason for r in rejected] == [
@@ -271,3 +272,92 @@ def test_a_second_section_in_one_file_restarts_numbering_and_is_reported():
     numbers = [c.clause_no for c in tree_.clauses]
     assert numbers == ["PART 1", "1.1", "1.2", "PART 1~2", "1.1~2", "1.1~2.A"]
     assert "MULTIPLE_SECTIONS" in [i.kind for i in tree_.numbering_issues]
+
+
+def metering_tree():
+    """지정 모델이 있는 합성 절. 2.7 B는 취소선으로 지운 옛 모델명을 품는다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.6 SECONDARY SWITCHGEAR"),
+        p("A. In addition to the integrated trip unit, provide a SEL-751A protection relay."),
+        p("2.7 METERING"),
+        p("A. Microprocessor-based power meter. Model # PowerLogic ION 9000 with Ethernet."),
+        p("B. Feeder meter by Acme Meters, model AM-20.", ("AM-10 ", 39)),
+    ]
+    return build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+
+
+def test_a_designated_model_and_maker_stay_only_when_the_clause_names_them():
+    six, seven = build_inputs(metering_tree(), ["2.6", "2.7"])
+    designated = {"kind": "DESIGNATED_PRODUCT", "operator": "TEXT"}
+    relay = req(
+        "2.6.A",
+        "provide a SEL-751A protection relay",
+        "protection relay",
+        designated_model="SEL-751A",
+        # 제조사 이름이 원문에 없다: 모델명에서 짐작한 값은 비운다.
+        designated_manufacturer="Schweitzer Engineering Laboratories",
+        **designated,
+    )
+    kept, _, _, cleared = validate_output(json.dumps({"requirements": [relay]}), six)
+    assert designated_item(kept[0]).model_dump() == {
+        "manufacturer": None,
+        "model": "SEL-751A",
+        "clause_no": "2.6.A",
+    }
+    assert cleared == 1
+    meters = [
+        req(
+            "2.7.A",
+            "Model # PowerLogic ION 9000",
+            "power meter",
+            designated_model="PowerLogic ION 9000",
+            **designated,
+        ),
+        req(
+            "2.7.B",
+            "Feeder meter by Acme Meters, model AM-20",
+            "feeder meter",
+            designated_model="AM-20",
+            designated_manufacturer="Acme Meters",
+            **designated,
+        ),
+        # 지운 옛 모델(AM-10)과 원문에 없는 모델은 지정품이 아니다. 요구는 남긴다.
+        req(
+            "2.7.B",
+            "Feeder meter by Acme Meters",
+            "feeder meter",
+            designated_model="AM-10",
+            designated_manufacturer="Acme Meters",
+            **designated,
+        ),
+        req("2.7.A", "Microprocessor-based power meter", "meter", designated_model="ION 8650"),
+    ]
+    kept, rejected, _, cleared = validate_output(json.dumps({"requirements": meters}), seven)
+    assert rejected == [] and cleared == 2
+    assert [designated_item(r) and designated_item(r).model_dump() for r in kept] == [
+        {"manufacturer": None, "model": "PowerLogic ION 9000", "clause_no": "2.7.A"},
+        {"manufacturer": "Acme Meters", "model": "AM-20", "clause_no": "2.7.B"},
+        None,
+        None,
+    ]
+    # 모델이 비면 제조사도 비운다(명세: designated_model이 null이면 designated_item도 null).
+    assert kept[2].designated_manufacturer is None
+    assert "Do not infer a maker" in prompt(six)
+
+
+def test_the_section_result_counts_cleared_designations():
+    six = build_inputs(metering_tree(), ["2.6"])[0]
+    output = gen(
+        [
+            req(
+                "2.6.A",
+                "In addition to the integrated trip unit, provide a SEL-751A protection relay",
+                "protection relay",
+                operator="TEXT",
+                designated_model="SEL-751B",
+            )
+        ]
+    )
+    result = extract_section(six, lambda _text: output)
+    assert result.designated_dropped == 1 and result.requirements[0].designated_model is None

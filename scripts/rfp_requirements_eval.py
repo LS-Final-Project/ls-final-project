@@ -32,6 +32,7 @@ from backend.engine.rfp.requirements import (  # noqa: E402
     ExtractedRequirement,
     ResponseSchema,
     build_inputs,
+    designated_item,
     extract_section,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score  # noqa: E402
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         usage = result.usage
         print(
             f"{item.section_no}: {result.outcome} 채택 {len(result.requirements)} 버림 {len(result.rejected)}"
-            f" 값만 비움 {result.value_dropped}"
+            f" 값만 비움 {result.value_dropped} 지정품 비움 {result.designated_dropped}"
             f" | 요구 문장 포괄 1차 {result.covered_first}/{result.sentences}"
             f" 보완 후 {result.covered_final}/{result.sentences} (보완 +{result.gap_fill_added})"
             f" | 엄격 재현율 {strict.recall} 정밀도 {strict.precision}"
@@ -201,6 +202,13 @@ def main(argv: list[str] | None = None) -> int:
             "model_version": result.model_version,
             "usage": {k: v for k, v in asdict(usage).items() if k != "raw"},
             "rejected": [r.model_dump() for r in result.rejected],
+            # 지정품(명세 v1.3 §5.1). 원문에 없어 비운 지정 모델·제조사 수도 함께 둔다.
+            "designated_items": [
+                found.model_dump()
+                for found in (designated_item(r) for r in result.requirements)
+                if found is not None
+            ],
+            "designated_dropped": result.designated_dropped,
             "predicted": [r.model_dump() for r in result.requirements],
             "strict": {
                 "recall": strict.recall,

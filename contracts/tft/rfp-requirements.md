@@ -1,6 +1,6 @@
 # RFP 자사 대응 요구 추출 (KAN-185, A04)
 
-원본: [RFP API 명세 v1.1](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g) §4.3(extract 단계)·§4.4(요구 응답), 기획서 최종본 3.2(평가 기준)·4.2·5.2. 입력은 [조항 트리](rfp-clauses.md)이고 저장 구조는 [RFP 데이터 계약](rfp-data.md)의 `requirements`·`requirement_versions`·`requirement_conditions`다.
+원본: [RFP API 명세 v1.3](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g) §4.3(extract 단계)·§4.4(요구 응답), 기획서 최종본 3.2(평가 기준)·4.2·5.2. 입력은 [조항 트리](rfp-clauses.md)이고 저장 구조는 [RFP 데이터 계약](rfp-data.md)의 `requirements`·`requirement_versions`·`requirement_conditions`다.
 
 | 원본 | 파일 |
 | --- | --- |
@@ -16,7 +16,7 @@
 1. **입력** `build_inputs(tree, ["2.4", "2.5"])`: 절마다 하위 조항의 **현행 텍스트**와 상위 조항 문맥(`path`)을 모은다. 취소선으로 지운 값은 보내지 않는다.
 2. **모델**: Gemini 구조화 출력으로 요구를 낸다. 요구 하나는 장비 하나의 속성 하나 또는 과업 하나다.
    - 출력 항목: `clause_no`, 근거 `quote`, `kind`, `equipment`, `task`, `attribute`, `value`, `unit`, `operator`
-   - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`
+   - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`, `designated_manufacturer`
    - 명령문("Provide…", "Comply with…")도 요구로 읽는다.
    - `<Insert value>` 같은 빈 값은 값 그대로 남겨 고객 질문으로 보낸다.
    - 가격·표준 납기는 뽑지 않는다.
@@ -25,9 +25,19 @@
    - `QUOTE_NOT_IN_CLAUSE`: 인용이 그 조항 현행 텍스트에 없음(지운 값을 쓰면 여기서 걸린다)
    - `VALUE_NOT_IN_QUOTE`: 수치 값이 인용에 없음
    - 문장형 요구(`operator=TEXT`)의 값이 인용에 없으면 모델이 바꿔 쓴 말이므로 **값만 비우고 요구는 남긴다**(`value_dropped`).
+   - 지정 모델·제조사는 그 조항 현행 텍스트에 그대로 있을 때만 남긴다. 없으면 **그 칸만 비우고 요구는 남긴다**(`designated_dropped`). 모델명에서 제조사를 짐작한 값(SEL-751A → Schweitzer), 취소선으로 지운 옛 모델, 원문에 없는 모델이 여기서 걸린다. 모델이 비면 제조사도 비운다.
 4. **빠진 문장 보완** `coverage`: 조항을 문장으로 나눠, 요구 문장마다 채택한 요구의 인용이 겹치는지 본다. `:`로 끝나는 머리글은 요구 문장에서 뺀다. 빠진 문장이 있으면 **그 문장만** 모아 한 번 더 부른다. 보완 결과도 원 조항 기준으로 같은 검사를 받는다. 그 밖의 자동 재시도는 없다.
 
 모델에 주는 스키마(`ResponseSchema`)는 엄격 모델(`ExtractionOutput`)과 필드가 같다. 다른 점은 `extra=forbid`가 없다는 것이다. Gemini가 `additionalProperties`를 받지 않아서(400 INVALID_ARGUMENT) 이렇게 둔다. 받은 응답은 엄격 모델로 다시 검사한다.
+
+## 지정품 (명세 v1.3 §5.1·§11, 판본 `rfp-requirements-v2`)
+
+`designated_item(requirement)`이 `{manufacturer, model, clause_no}`를 돌려준다. `designated_model`이 null이면 null이다(API `designated_item`도 null).
+
+- `manufacturer`는 원문에 제조사 이름이 적혀 있을 때만 채운다. 14번 2.6.E.5 `SEL-751A`, 2.7.B `PowerLogic ION 9000`은 조항에 제조사 이름이 없어 null이다.
+- 응답의 `clause_id`는 저장(A07 KAN-188)이 `clause_no`로 `tft.clauses`에서 찾아 `requirement_versions.designated_clause_id`에 넣는다. `procurement`는 저장 기본값 `SPECIFIED_PROCUREMENT`이고 추출은 정하지 않는다.
+- 허용 제조사 목록(2.1 MANUFACTURERS)은 지정품이 아니다.
+- v2는 지시문과 출력 칸이 바뀌었다. 아래 측정치는 v1 결과다.
 
 ## 채점
 
