@@ -131,3 +131,42 @@ def test_embed_mode_fills_only_missing_chunks_and_stops_on_provider_error(
     finally:
         with psycopg.connect(cs_database, autocommit=True) as conn:
             conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_TEST'")
+
+
+def test_embed_client_setup_failure_is_a_code_and_is_skipped_when_nothing_is_missing(
+    cs_database, tmp_path, monkeypatch, capsys
+):
+    """임베딩 클라이언트를 만들지 못하면 CS_INDEX_EMBED_FAILED·종료 1(원문·키 미노출)이고, 대상이 0건이면 만들지 않는다."""
+    import scripts.cs_index_docs as cli
+
+    dsn = make_conninfo(cs_database, user="cs_app", password="test-only")
+    monkeypatch.setenv("DATABASE_URL", dsn)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "setup.docx").write_bytes(docx("Embedding setup probe KAN99."))
+    made = []
+
+    def no_key(*args):
+        made.append(args)
+        raise RuntimeError("PRIVATE_KEY_AIzaSECRET")
+
+    monkeypatch.setattr(cli, "default_embedder", no_key)
+    base = [
+        "--docs",
+        str(tmp_path / "docs"),
+        "--data-origin",
+        "synthetic",
+        "--document-kind",
+        "CS_EMBED_SETUP",
+    ]
+    try:
+        assert cli.main([*base, "--execute", "--embed"]) == 1
+        err = capsys.readouterr().err
+        assert "CS_INDEX_EMBED_FAILED" in err and "PRIVATE_KEY" not in err and "AIza" not in err
+        assert len(made) == 1
+        assert cli.main([*base, "--embed"], embedder=lambda text: [0.25] * 768) == 0
+        made.clear()
+        assert cli.main([*base, "--embed"]) == 0
+        assert made == []
+    finally:
+        with psycopg.connect(cs_database, autocommit=True) as conn:
+            conn.execute("DELETE FROM cs.document_chunks WHERE document_kind='CS_EMBED_SETUP'")

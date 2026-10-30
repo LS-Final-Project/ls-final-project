@@ -51,6 +51,10 @@ Embedder = Callable[[str], list[float]]
 EMBED_BATCH = 64
 
 
+class EmbedSetupFailed(Exception):
+    """임베딩 클라이언트를 만들지 못했다(키·설정). 원문·키 없이 CS_INDEX_EMBED_FAILED로만 알린다."""
+
+
 def find_documents(root: Path) -> list[Path]:
     """색인할 문서 경로를 정렬해 고른다.
 
@@ -205,7 +209,12 @@ def default_embedder(model: str, dimensions: int, task_type: str) -> Embedder:
 
 
 def embed_chunks(
-    dsn: str, *, index_version: str, embedding_version: str, model: str, embedder: Embedder
+    dsn: str,
+    *,
+    index_version: str,
+    embedding_version: str,
+    model: str,
+    embedder: Callable[[], Embedder],
 ) -> dict[str, Any]:
     """그 판본의 임베딩이 없는 청크만 임베딩해 넣는다(KAN-99, C20). 첫 공급자 오류에서 멈추고 다음 실행이 잇는다.
 
@@ -214,11 +223,12 @@ def embed_chunks(
         index_version: 청크 색인 판본.
         embedding_version: 모델:차원:task_type.
         model: 단가 조회용 모델 ID.
-        embedder: 청크 문자열 → 임베딩 값.
+        embedder: 청크 문자열 → 임베딩 값 함수를 만드는 함수. 대상 청크가 있을 때만 한 번 부른다(지연 생성).
 
     Returns:
         dict: embedding_version·missing(시작 시 대상 수)·embedded(넣은 수)·calls·chars·reason(멈춘 사유 코드,
             없으면 None)·approx_input_cost(문자/4 × ai_prices 단가, 단가가 없으면 None). 원문·벡터는 넣지 않는다.
+            클라이언트를 만들지 못하면 EmbedSetupFailed다.
     """
     from backend.shared.ai import load_price_table
 
@@ -245,9 +255,16 @@ def embed_chunks(
         "reason": None,
     }
     batch: list[tuple[Any, list[float]]] = []
-    for row in rows:
+    call: Embedder | None = None
+    if rows:
         try:
-            values = embedder(row["text"])
+            call = embedder()
+        except Exception:
+            raise EmbedSetupFailed from None
+    for row in rows:
+        assert call is not None
+        try:
+            values = call(row["text"])
         except Exception:
             # 공급자 원문은 남기지 않는다. 이미 넣은 행은 유지되고 다음 실행이 남은 청크부터 잇는다.
             summary["reason"] = "CS_EMBED_PROVIDER_ERROR"
@@ -458,11 +475,14 @@ def main(
                 index_version=INDEX_VERSION,
                 embedding_version=version,
                 model=args.embed_model,
-                embedder=embedder
-                or default_embedder(args.embed_model, args.embed_dimension, args.embed_task_type),
+                embedder=(lambda: embedder)
+                if embedder
+                else lambda: default_embedder(
+                    args.embed_model, args.embed_dimension, args.embed_task_type
+                ),
             )
-        except (psycopg.Error, ValueError):
-            print("CS_INDEX_EMBED_FAILED: DB·설정을 확인한다.", file=sys.stderr)
+        except (psycopg.Error, ValueError, EmbedSetupFailed):
+            print("CS_INDEX_EMBED_FAILED: DB·임베딩 키·설정을 확인한다.", file=sys.stderr)
             return 1
     text = json.dumps(manifest, ensure_ascii=False, indent=2)
     if args.manifest_out:
