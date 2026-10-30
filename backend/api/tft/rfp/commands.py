@@ -30,6 +30,8 @@ Operation = Literal[
     "proposal.reject",
     "project.process",
     "annotation.process",
+    "review_version.create",
+    "export.create",
 ]
 OPERATIONS: frozenset[str] = frozenset(
     (
@@ -44,6 +46,8 @@ OPERATIONS: frozenset[str] = frozenset(
         "proposal.reject",
         "project.process",
         "annotation.process",
+        "review_version.create",
+        "export.create",
     )
 )
 
@@ -61,6 +65,8 @@ AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "proposal.reject": ("proposal", "proposal_id"),
     "project.process": ("job", "job_id"),
     "annotation.process": ("job", "job_id"),
+    "review_version.create": ("review_version", "review_version"),
+    "export.create": ("export", "export_id"),
 }
 # 응답에서 감사 detail로 옮기는 칸(쓰기 뒤 상태). 응답 전체는 남기지 않는다.
 AUDIT_FIELDS = ("status", "version", "target", "target_dept", "path")

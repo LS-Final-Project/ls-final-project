@@ -30,6 +30,8 @@ MIGRATIONS = (
     "20261105_KAN-199_requirement_assembly_clause.sql",
     "20261106_KAN-199_question_drafts.sql",
     "20261107_KAN-188_requirement_semantic_fields.sql",
+    "20261104_KAN-199_tft_worker.sql",
+    "20261109_KAN-188_draft_execution.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]

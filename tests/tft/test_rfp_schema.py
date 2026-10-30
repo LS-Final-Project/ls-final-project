@@ -116,13 +116,7 @@ def client():
     return TestClient(create_app(Settings(_env_file=None, environment="test")))
 
 
-def test_declared_routes_answer_not_implemented(client):
-    project = "11111111-1111-4111-8111-111111111111"
-    response = client.get(f"/api/v1/tft/projects/{project}/draft", headers=SALES)
-    assert (response.status_code, response.json()["error"]["code"]) == (501, "TFT_NOT_IMPLEMENTED")
-
-
-def test_openapi_lists_the_spec_routes_as_planned(client):
+def test_openapi_lists_all_spec_routes_as_implemented(client):
     paths = client.get("/openapi.json").json()["paths"]
     planned = [
         (path, method)
@@ -130,8 +124,8 @@ def test_openapi_lists_the_spec_routes_as_planned(client):
         for method, op in ops.items()
         if op.get("x-implementation-status") == "planned"
     ]
-    # 명세 §3의 30개 중 기존 목록·상세 2개, KAN-189의 15·16·18·19·20, 접수 11·30, KAN-188 읽기 8개를 뺀 13개.
-    assert len(planned) == 5
+    # 변경 제안 4경로와 초안 5경로 통합으로 명세 경로에 남은 골격이 없다.
+    assert planned == []
     assert ("/api/v1/tft/requirements/{requirement_id}/supplement-selection", "post") not in planned
     upload = paths["/api/v1/tft/projects/{project_id}/documents"]["post"]
     assert "multipart/form-data" in upload["requestBody"]["content"]
@@ -144,7 +138,11 @@ def test_every_state_creating_post_requires_an_idempotency_key(client):
         (path, op)
         for path, ops in paths.items()
         for method, op in ops.items()
-        if method == "post" and op.get("x-implementation-status") == "planned"
+        if method == "post"
+        and (
+            op.get("x-implementation-status") == "planned"
+            or op.get("operationId") in {"tft_save_rfp_review_version", "tft_export_rfp_draft"}
+        )
     ]
     assert len(posts) == 2
     for path, op in posts:
@@ -154,13 +152,12 @@ def test_every_state_creating_post_requires_an_idempotency_key(client):
 
 def test_file_downloads_are_declared_as_binary_only(client):
     paths = client.get("/openapi.json").json()["paths"]
-    for path in (
-        "/api/v1/tft/documents/{document_id}/file",
-        "/api/v1/tft/projects/{project_id}/draft/exports/{export_id}/file",
-    ):
-        assert list(paths[path]["get"]["responses"]["200"]["content"]) == [
-            "application/octet-stream"
-        ], path
+    expected = {
+        "/api/v1/tft/documents/{document_id}/file": "application/octet-stream",
+        "/api/v1/tft/projects/{project_id}/draft/exports/{export_id}/file": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    for path, mime in expected.items():
+        assert list(paths[path]["get"]["responses"]["200"]["content"]) == [mime], path
 
 
 def test_every_rfp_route_checks_the_user_before_anything_else(client):

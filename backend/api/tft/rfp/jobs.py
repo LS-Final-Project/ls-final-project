@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_run_annotations, can_run_processing
-from backend.api.tft.rfp import commands, repository
+from backend.api.tft.rfp import commands, draft_exports, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.shared.access import Principal
@@ -40,7 +40,7 @@ TFT_JOBS = "/internal/v1/platform/jobs/tft"
 NOT_CONNECTED = "TFT_PROCESSOR_NOT_CONNECTED"
 # 플랫폼 거절 중 그대로 옮기는 것. 나머지는 플랫폼을 쓸 수 없는 것으로 본다.
 PASSED_THROUGH = {409: ("TFT_JOB_IN_PROGRESS", "IDEMPOTENCY_CONFLICT"), 503: (NOT_CONNECTED,)}
-Kind = Literal["rfp.process", "rfp.annotate"]
+Kind = Literal["rfp.process", "rfp.annotate", "rfp.export"]
 
 
 class TftProcessingSettings(BaseSettings):
@@ -109,7 +109,7 @@ async def admit(
     principal: Principal,
     project_id: UUID,
     kind: Kind,
-    payload: s.ProcessRequest | s.AnnotationProcess,
+    payload: s.ProcessRequest | s.AnnotationProcess | s.ExportRequest,
     key: str,
 ) -> s.JobAccepted:
     """범위·권한·입력을 검사하고 플랫폼에 작업을 접수한다.
@@ -125,15 +125,21 @@ async def admit(
     Returns:
         s.JobAccepted: 작업 ID·상태·상태 경로. 같은 키 재전송이면 기존 작업이다.
     """
-    operation: commands.Operation = (
-        "project.process" if kind == "rfp.process" else "annotation.process"
-    )
+    if isinstance(payload, s.ExportRequest):
+        draft_exports.require_docx(payload.format)
+    operation: commands.Operation
+    if kind == "rfp.process":
+        operation = "project.process"
+    elif kind == "rfp.export":
+        operation = "export.create"
+    else:
+        operation = "annotation.process"
     digest = commands.request_hash({"project_id": project_id}, payload.model_dump(mode="json"))
     async with connection(request.app.state.settings) as conn:
         project = await visible_project(
             conn, principal, project_id, "TFT_PROJECT_NOT_FOUND", "The project was not found."
         )
-        allowed = can_run_processing if kind == "rfp.process" else can_run_annotations
+        allowed = can_run_annotations if kind == "rfp.annotate" else can_run_processing
         if not allowed(principal, project):
             raise HTTPException(403)
         # 같은 키를 이미 접수했으면 입력 검사를 다시 하지 않는다(그 사이 요구가 생겨도 재전송은 기존 작업이다).
@@ -143,6 +149,11 @@ async def admit(
         )
         if known is not None:
             frozen = known[1]["input_version"]
+        elif isinstance(payload, s.ExportRequest):
+            reserved = await draft_exports.reserve(
+                conn, project_id, principal.user_id, key, payload
+            )
+            frozen = draft_exports.input_version(reserved)
         else:
             frozen = input_version(await check_inputs(conn, project_id, payload))
     client = getattr(request.app.state, "processing_jobs", None)
@@ -178,6 +189,15 @@ async def admit(
         async with connection(request.app.state.settings) as conn:
             try:
                 async with conn.transaction():
+                    if isinstance(payload, s.ExportRequest):
+                        await conn.execute(
+                            "UPDATE tft.exports SET job_id=%s WHERE id=%s AND (job_id IS NULL OR job_id=%s)",
+                            (
+                                accepted.job_id,
+                                draft_exports.export_id(project_id, principal.user_id, key),
+                                accepted.job_id,
+                            ),
+                        )
                     await commands.remember(
                         conn,
                         actor=principal.user_id,
@@ -186,7 +206,19 @@ async def admit(
                         digest=digest,
                         project_id=project_id,
                         status_code=202,
-                        result={**accepted.model_dump(mode="json"), "input_version": frozen},
+                        result={
+                            **accepted.model_dump(mode="json"),
+                            "input_version": frozen,
+                            **(
+                                {
+                                    "export_id": str(
+                                        draft_exports.export_id(project_id, principal.user_id, key)
+                                    )
+                                }
+                                if isinstance(payload, s.ExportRequest)
+                                else {}
+                            ),
+                        },
                     )
             except UniqueViolation:
                 # 같은 키가 동시에 접수됐다. 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 그대로 둔다.

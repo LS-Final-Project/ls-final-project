@@ -31,7 +31,9 @@ FILE_TYPES = frozenset(
     )
 )
 UPLOAD_PATH = re.compile(rf"/api/v1/tft/projects/{UUID_PATH}/documents")
-DOWNLOAD_PATH = re.compile(rf"/api/v1/tft/documents/{UUID_PATH}/file")
+DOWNLOAD_PATH = re.compile(
+    rf"(?:/api/v1/tft/documents/{UUID_PATH}/file|/api/v1/tft/projects/{UUID_PATH}/draft/exports/{UUID_PATH}/file)"
+)
 # 디코드한 경로에서 검사한다. C/S 입력과 같은 고객 ID 규약이라 ?·#·/와 .·.. 세그먼트가
 # upstream URL을 바꾸지 못한다.
 CUSTOMER_PATH = CUSTOMER_ID
@@ -99,6 +101,10 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),
     ("/api/v1/tft/documents/{uuid}", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/file", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft", ("GET", "PATCH"), ("version",)),
+    ("/api/v1/tft/projects/{uuid}/draft/review-versions", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/exports", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/clauses", ("GET",), ("parent", "limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
     (

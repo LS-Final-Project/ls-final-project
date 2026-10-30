@@ -1118,6 +1118,46 @@
         "title": "Evidence",
         "type": "object"
       },
+      "ExportAccepted": {
+        "additionalProperties": false,
+        "description": "DOCX \uc811\uc218 \uacb0\uacfc\uc758 \ud30c\uc77c \uc2dd\ubcc4\uc790. process/annotate\uc758 \uc751\ub2f5\uc740 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "export_id": {
+            "format": "uuid",
+            "title": "Export Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_url": {
+            "title": "Status Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status_url",
+          "status",
+          "export_id"
+        ],
+        "title": "ExportAccepted",
+        "type": "object"
+      },
       "ExportRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4726,6 +4766,22 @@
         "title": "SuccessResponse[Draft]",
         "type": "object"
       },
+      "SuccessResponse_ExportAccepted_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExportAccepted"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ExportAccepted]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -6671,7 +6727,7 @@
     },
     "/api/v1/tft/projects/{project_id}/draft": {
       "get": {
-        "description": "25. \ud604\uc7ac(\ub610\ub294 \uc9c0\uc815) \ucd08\uc548.",
+        "description": "25. \ud604\uc7ac \ub610\ub294 \uc9c0\uc815 \ucd08\uc548 \ud310\ubcf8.",
         "operationId": "tft_get_rfp_draft",
         "parameters": [
           {
@@ -6777,12 +6833,10 @@
         "summary": "Get Draft",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       },
       "patch": {
-        "description": "26. \ubb38\uc7a5 \uc218\uc815 \u2192 \ucd08\uc548 \uc0c8 \ud310\ubcf8. \uadfc\uac70 \uc5c6\ub294 \ubb38\uc7a5\uc740 evidence_missing.",
+        "description": "26. \uc774\uc720\ub97c \ub0a8\uae30\uace0 \ucd08\uc548 \uc0c8 \ud310\ubcf8\uc744 \ub9cc\ub4e0\ub2e4.",
         "operationId": "tft_edit_rfp_draft",
         "parameters": [
           {
@@ -6881,14 +6935,12 @@
         "summary": "Edit Draft",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/draft/exports": {
       "post": {
-        "description": "28. \uac80\ud1a0\ubcf8 \ub0b4\ubcf4\ub0b4\uae30 \uc791\uc5c5(rfp.export).",
+        "description": "28. DOCX \ube44\ub3d9\uae30 \ub0b4\ubcf4\ub0b4\uae30. PDF\ub294 \uba85\uc2dc\uc801 422 \ubbf8\uc9c0\uc6d0.",
         "operationId": "tft_export_rfp_draft",
         "parameters": [
           {
@@ -6928,7 +6980,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_JobAccepted_"
+                  "$ref": "#/components/schemas/SuccessResponse_ExportAccepted_"
                 }
               }
             },
@@ -6998,14 +7050,12 @@
         "summary": "Export Draft",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/draft/exports/{export_id}/file": {
       "get": {
-        "description": "29. \ub0b4\ubcf4\ub0b8 \ud30c\uc77c.",
+        "description": "29. \uc644\ub8cc\ub41c \uac80\ud1a0\ubcf8 \ub0b4\ubcf4\ub0b4\uae30\ub97c \ucca8\ubd80\ub85c \ub0b4\ub824\ubc1b\ub294\ub2e4.",
         "operationId": "tft_download_rfp_export",
         "parameters": [
           {
@@ -7032,7 +7082,7 @@
         "responses": {
           "200": {
             "content": {
-              "application/octet-stream": {}
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
             },
             "description": "Successful Response"
           },
@@ -7100,14 +7150,12 @@
         "summary": "Download Export",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/draft/review-versions": {
       "post": {
-        "description": "27. \uac80\ud1a0\ubcf8 \uc800\uc7a5. \uc870\uac74 \ubbf8\ucda9\uc871\uc774\uba74 422 TFT_DRAFT_INCOMPLETE.",
+        "description": "27. \uadfc\uac70\u00b7\ub2e4\uc74c \ud589\ub3d9\u00b7\ud1b5\ud569 \ucc45\uc784\uc744 \ud655\uc778\ud558\uace0 \uac80\ud1a0\ubcf8 \uc800\uc7a5.",
         "operationId": "tft_save_rfp_review_version",
         "parameters": [
           {
@@ -7217,9 +7265,7 @@
         "summary": "Save Review Version",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/partner-candidates": {
