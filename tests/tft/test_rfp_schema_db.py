@@ -22,6 +22,7 @@ MIGRATIONS = (
     "20261023_KAN-122_staffing_requests.sql",
     "20261029_KAN-182_rfp_response.sql",
     "20261030_KAN-182_rfp_keys.sql",
+    "20261101_KAN-186_supplement_paths.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]
@@ -203,6 +204,36 @@ def test_forbidden_path_is_never_allowed_and_blocking_needs_a_reason(admin, chai
     )
     violates(admin, base, (uuid4(), chain["requirement"], "FORBIDDEN", True, None))
     violates(admin, base, (uuid4(), chain["requirement"], "UNSTATED", False, None))
+
+
+def test_spec_v1_3_paths_and_causes_are_stored_and_others_refused(admin, chain):
+    """KAN-186: 명세 v1.3 경로·원인 값(OWN_TERMS_REVIEW는 추가 요청 중)을 받고, 옛 이름은 거부한다."""
+    insert = (
+        "INSERT INTO tft.supplement_options (id, requirement_id, requirement_version, "
+        "deficiency_cause, customer_permission, path, allowed, blocked_reason, data_origin, "
+        "derivation_kind, known_at) VALUES (%s,%s,1,%s,'UNSTATED',%s,%s,%s,'synthetic','DERIVED',now())"
+    )
+    with psycopg.connect(admin) as conn:
+        for cause, path in (
+            ("DESIGNATED_MODEL", "CUSTOMER_SPECIFIED_PROCUREMENT"),
+            ("COMMERCIAL", "OWN_TERMS_REVIEW"),
+            ("CORE_EQUIPMENT_MISSING", "JOINT_PROPOSAL"),
+            ("RATING", "OWN_DEVELOPMENT"),
+        ):
+            conn.execute(insert, (uuid4(), chain["requirement"], cause, path, True, None))
+        conn.execute(
+            insert,
+            (
+                uuid4(),
+                chain["requirement"],
+                "DESIGNATED_MODEL",
+                "EXTERNAL_PRODUCT",
+                False,
+                "DESIGNATED_ITEM",
+            ),
+        )
+    violates(admin, insert, (uuid4(), chain["requirement"], "CORE_EQUIPMENT", "NONE", True, None))
+    violates(admin, insert, (uuid4(), chain["requirement"], "RATING", "OWN_TERMS", True, None))
 
 
 def test_virtual_partner_profiles_from_the_json_fit_the_table(admin):

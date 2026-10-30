@@ -55,6 +55,11 @@
           "conditions": [{"name": "temperature_rise", "value": "100", "unit": "K"}],
           "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
           "source_value": "Class F / 100 K"
+        },
+        {
+          "attribute": "warranty_months", "value": "24", "unit": "month", "conditions": [],
+          "evidence_id": "product_master", "section": "warranty_months",
+          "source_value": "warranty_months=24", "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
         }
       ]
     }

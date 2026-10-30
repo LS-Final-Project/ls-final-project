@@ -25,7 +25,8 @@ from backend.api.tft.rfp.supplement import options_for
 DEMO_CASES = Path("backend/api/tft/partners/demo_cases.json")
 EXAMPLE = Path("backend/api/tft/rfp/examples/comparison-demo-a.json")
 
-# 14번 2.5절 요구. 시연 A 표의 항목 순서와 같다.
+# 14번 2.5절 요구(취소선 뺀 현행 원문). 시연 A 표의 항목 순서이고, 묶인 두 행(BIL·권선·센서·ModBus,
+# IEEE·소음·Listed)은 요구별로 나눴다(2026-10-30 결정).
 DEMO_A = [
     Requirement(
         clause_no="2.5.M", item="탭 ±2×2.5%", attribute="tap", value="±2×2.5%", operator="TEXT"
@@ -60,7 +61,39 @@ DEMO_A = [
     Requirement(
         clause_no="2.5.K", item="BIL 95kV", attribute="bil", value="95", unit="kV", operator="GTE"
     ),
+    Requirement(
+        clause_no="2.5.L",
+        item="알루미늄 권선",
+        attribute="winding_material",
+        value="aluminum",
+        operator="TEXT",
+    ),
+    Requirement(
+        clause_no="2.5.G.1",
+        item="이중 온도센서",
+        attribute="winding_temperature_sensor",
+        value="dual",
+        operator="TEXT",
+    ),
+    Requirement(
+        clause_no="2.5.E",
+        item="ModBus RS-485 연동",
+        attribute="communication_interface",
+        value="RS-485 ModBus",
+        operator="TEXT",
+    ),
     Requirement(clause_no="2.5.I", item="IEEE C57.12.01", certification_standard="IEEE C57.12.01"),
+    Requirement(
+        clause_no="2.5.O",
+        item="소음 NEMA TR1(측정 ANSI C57.12.90)",
+        certification_standard="NEMA TR1",
+    ),
+    Requirement(
+        clause_no="2.2.A.1",
+        item="부품 Listed and labeled(NFPA 70)",
+        certification_standard="UL",
+        certification_listed=True,
+    ),
     Requirement(
         clause_no="2.5.A",
         item="설계 기준: 타사 몰드 변압기 모델",
@@ -96,7 +129,8 @@ def test_demo_a_matches_the_planned_statuses_with_datasheet_evidence():
 
 
 def test_unknown_and_missing_values_are_insufficient_not_unmet():
-    primary, bil, cert = demo_a()[5:8]
+    outcomes = demo_a()
+    primary, bil, cert = outcomes[5], outcomes[6], outcomes[10]
     assert (primary.status, primary.next_owner, primary.candidates) == (
         "INSUFFICIENT_EVIDENCE",
         "CUSTOMER",
@@ -107,6 +141,34 @@ def test_unknown_and_missing_values_are_insufficient_not_unmet():
     # An IEC type test is not widened to an IEEE requirement.
     assert cert.status == "INSUFFICIENT_EVIDENCE"
     assert "IEC 체계만" in cert.reason
+    # The split rows: no datasheet attribute and no listing evidence are missing data too.
+    assert [o.status for o in outcomes[7:13]] == ["INSUFFICIENT_EVIDENCE"] * 6
+
+
+def test_the_eleven_demo_conditions_each_remain_open():
+    """기획서 4.7 "시연 A 결과"의 확인 조건 ①~⑪: 근거 있음 두 요구(탭·절연)를 뺀 12개 요구가 하나씩
+    남는다(⑨ IEEE 시험·UL 등록이 두 요구). 사양 차이는 상태로, 나머지는 미확인 항목으로 남는다."""
+    outcomes = demo_a()
+    conditions = {
+        "① 2차 전압": [4],
+        "② 1차 전압·용량": [5],
+        "③ 공랭 증대율 시험 조건": [3],
+        "④ 임피던스 기준 온도": [2],
+        "⑤ BIL 95kV": [6],
+        "⑥ 알루미늄 권선": [7],
+        "⑦ 이중 온도센서": [8],
+        "⑧ ModBus 연동": [9],
+        "⑨ IEEE 시험·UL 등록": [10, 12],
+        "⑩ 소음 NEMA TR1": [11],
+        "⑪ 기준 모델 동등 인정": [13],
+    }
+    rows = sorted(i for indexes in conditions.values() for i in indexes)
+    assert rows == list(range(2, 14))
+    for name, indexes in conditions.items():
+        for i in indexes:
+            open_item = outcomes[i].status == "SPEC_GAP" or bool(outcomes[i].unresolved)
+            assert outcomes[i].status != "EVIDENCE_FOUND" and open_item, name
+    assert [o.status for o in outcomes[:2]] == ["EVIDENCE_FOUND", "EVIDENCE_FOUND"]
 
 
 def test_no_candidate_is_reported_as_the_search_scope_result():
@@ -169,9 +231,13 @@ def test_search_finds_similar_products_but_rules_compare_only_same_unit():
 @pytest.mark.parametrize(
     ("permission", "paths", "allowed"),
     [
-        ("ALLOWED", ["OTHER_OWN_PRODUCT", "EXTERNAL_PRODUCT"], [True, True]),
-        ("FORBIDDEN", ["OTHER_OWN_PRODUCT", "EXTERNAL_PRODUCT"], [True, False]),
-        ("UNSTATED", ["OTHER_OWN_PRODUCT", "EXTERNAL_PRODUCT"], [True, True]),
+        ("ALLOWED", ["OTHER_OWN_PRODUCT", "OWN_DEVELOPMENT", "EXTERNAL_PRODUCT"], [True] * 3),
+        (
+            "FORBIDDEN",
+            ["OTHER_OWN_PRODUCT", "OWN_DEVELOPMENT", "EXTERNAL_PRODUCT"],
+            [True, True, False],
+        ),
+        ("UNSTATED", ["OTHER_OWN_PRODUCT", "OWN_DEVELOPMENT", "EXTERNAL_PRODUCT"], [True] * 3),
     ],
 )
 def test_rating_gap_paths_follow_the_cause_and_customer_permission(permission, paths, allowed):
@@ -179,14 +245,16 @@ def test_rating_gap_paths_follow_the_cause_and_customer_permission(permission, p
     result = options_for(secondary, permission)
     assert [o.path for o in result.options] == paths
     assert [o.allowed for o in result.options] == allowed
-    external = result.options[1]
+    # Own development (R&D) comes before any partner path (proposal V_1 4.4).
+    assert result.options[1].required_expertise == ["R&D"]
+    external = result.options[2]
     if permission == "FORBIDDEN":
         assert external.blocked_reason == "RFP가 외부 보완을 금지함"
     if permission == "UNSTATED":
         assert any("허용 여부가 없음" in c for c in external.conditions_to_confirm)
 
 
-def test_task_gap_with_forbidden_subcontract_leaves_no_path_but_a_hold():
+def test_task_gap_checks_own_performance_before_a_forbidden_subcontract():
     outcome = compare(
         Requirement(
             clause_no="3.1",
@@ -203,16 +271,124 @@ def test_task_gap_with_forbidden_subcontract_leaves_no_path_but_a_hold():
     result = options_for(outcome, "FORBIDDEN")
     assert outcome.deficiency_cause == "TASK"
     assert [(o.path, o.allowed) for o in result.options] == [
+        ("OWN_DEVELOPMENT", True),
         ("TASK_SUBCONTRACT", False),
+    ]
+
+
+def test_a_forbidden_external_path_alone_leaves_a_hold(monkeypatch):
+    """경로가 모두 막히면 보류 의견(NONE)을 덧붙인다. 지금 표에는 그런 원인이 없어 표를 바꿔 확인한다."""
+    from backend.api.tft.rfp import supplement
+
+    monkeypatch.setitem(supplement.FIRST_PATHS, "RATING", ("EXTERNAL_PRODUCT",))
+    result = options_for(demo_a()[4], "FORBIDDEN")
+    assert [(o.path, o.allowed) for o in result.options] == [
+        ("EXTERNAL_PRODUCT", False),
         ("NONE", True),
     ]
 
 
+def test_a_form_gap_starts_with_own_development():
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    form = Requirement(
+        clause_no="2.4",
+        item="형식",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+    )
+    gap = compare(form, [switchgear("12")], trace).model_copy(update={"deficiency_cause": "FORM"})
+    assert [o.path for o in options_for(gap, "ALLOWED").options] == [
+        "OWN_DEVELOPMENT",
+        "EXTERNAL_PRODUCT",
+        "ALTERNATIVE_SPEC",
+    ]
+
+
+def test_a_commercial_gap_is_reviewed_by_sales_not_solved_by_partners():
+    """기획서 4.4: 보증 5년 요구 ↔ 자사 24개월(18번 예). 자사 조건 변경 검토 → 대체 조건 제안."""
+    warranty = Requirement(
+        clause_no="1.6",
+        item="보증 60개월",
+        attribute="warranty_months",
+        value="60",
+        unit="month",
+        operator="GTE",
+    )
+    products, trace = master_filter(load_own_products(), "TRANSFORMER")
+    gap = compare(warranty, products, trace)
+    assert (gap.status, gap.deficiency_cause, gap.next_owner) == ("SPEC_GAP", "COMMERCIAL", "SALES")
+    assert gap.candidates[0].evidence[0].limits == "제품 마스터 표준 조건(합성)"
+    paths = options_for(gap, "FORBIDDEN")
+    assert [(o.path, o.allowed) for o in paths.options] == [
+        ("OWN_TERMS_REVIEW", True),
+        ("ALTERNATIVE_SPEC", True),
+    ]
+    assert paths.options[0].required_expertise == ["영업·보증"]
+    met = compare(warranty.model_copy(update={"value": "24"}), products, trace)
+    assert met.status == "EVIDENCE_FOUND"
+
+
+def test_core_equipment_missing_from_the_data_goes_to_joint_proposal_or_hold():
+    """기획서 4.4: 154 kV GIS 같은 핵심 기기가 제공 자료에 없으면 단순 외부 조달로 보지 않는다."""
+    gis = Requirement(
+        clause_no="2.1",
+        item="154 kV GIS",
+        attribute="rated_max_voltage",
+        value="154",
+        unit="kV",
+        operator="GTE",
+        core_equipment=True,
+    )
+    trace = SearchTrace(filters=["family=GIS"], documents_searched=0, search_failed=False)
+    outcome = compare(gis, [], trace)
+    # Missing data is not unmet: the state stays insufficient evidence.
+    assert (outcome.status, outcome.deficiency_cause, outcome.next_owner) == (
+        "INSUFFICIENT_EVIDENCE",
+        "CORE_EQUIPMENT_MISSING",
+        "SALES",
+    )
+    assert "자사 자료 보완 요청" in outcome.unresolved[0]
+    allowed = options_for(outcome, "UNSTATED")
+    assert [o.path for o in allowed.options] == ["JOINT_PROPOSAL", "NONE"]
+    assert "EXTERNAL_PRODUCT" not in [o.path for o in allowed.options]
+    forbidden = options_for(outcome, "FORBIDDEN")
+    assert [(o.path, o.allowed) for o in forbidden.options] == [
+        ("JOINT_PROPOSAL", False),
+        ("NONE", True),
+    ]
+    # Not core equipment: the same empty search is only missing data, without a path.
+    plain = compare(gis.model_copy(update={"core_equipment": False}), [], trace)
+    assert plain.deficiency_cause is None and options_for(plain, "ALLOWED").options == []
+
+
 def test_designated_model_and_non_gaps_get_the_right_paths():
     outcomes = demo_a()
-    designated = options_for(outcomes[8], "UNSTATED", designated=True)
-    assert [o.path for o in designated.options] == ["EXTERNAL_PRODUCT", "ALTERNATIVE_SPEC"]
-    assert "발주처 승인" in designated.options[1].conditions_to_confirm[0]
+    assert outcomes[13].deficiency_cause == "DESIGNATED_MODEL"
+    designated = options_for(outcomes[13], "UNSTATED")
+    # Spec v1.3 §5.1: only the specified-item procurement and an alternative (customer approval)
+    # can be chosen; the other paths are shown as blocked with the reason.
+    allowed = {o.path: o for o in designated.options if o.allowed}
+    assert set(allowed) == {"CUSTOMER_SPECIFIED_PROCUREMENT", "ALTERNATIVE_SPEC"}
+    assert allowed["CUSTOMER_SPECIFIED_PROCUREMENT"].rank == 4
+    assert {"고객 승인", "고객 질문 작성 필요"} <= set(
+        allowed["ALTERNATIVE_SPEC"].conditions_to_confirm
+    )
+    blocked = {o.path: o.blocked_reason for o in designated.options if not o.allowed}
+    assert blocked == dict.fromkeys(
+        [
+            "OTHER_OWN_PRODUCT",
+            "OWN_DEVELOPMENT",
+            "EXTERNAL_PRODUCT",
+            "TASK_SUBCONTRACT",
+            "JOINT_PROPOSAL",
+        ],
+        "DESIGNATED_ITEM",
+    )
+    asked = options_for(outcomes[13], "UNSTATED", approval_question=True)
+    alt = next(o for o in asked.options if o.path == "ALTERNATIVE_SPEC")
+    assert "고객 질문 작성 필요" not in alt.conditions_to_confirm
     # Evidence, conditions and missing data are next actions, not supplement paths.
     for outcome in (outcomes[0], outcomes[2], outcomes[5]):
         assert options_for(outcome, "ALLOWED").options == []
@@ -346,3 +522,58 @@ def test_every_held_certificate_of_the_standard_is_judged_and_the_best_counts():
     assert compare(listed, [holding(report, base)], trace).status == "EVIDENCE_FOUND"
     assert compare(listed, [holding(variant, base)], trace).status == "EVIDENCE_FOUND"
     assert compare(listed, [holding(report, variant)], trace).status == "CONDITIONAL"
+
+
+def test_options_come_in_path_rank_order_with_a_gate_on_partner_paths():
+    """명세 v1.3 §5.2: 자사(1) → 자사 개발(2) → 협력사 계열(3) → 지정품(4) → 없음(9)."""
+    result = options_for(demo_a()[4], "ALLOWED", rnd_check="PENDING")
+    assert [(o.path, o.rank) for o in result.options] == [
+        ("OTHER_OWN_PRODUCT", 1),
+        ("OWN_DEVELOPMENT", 2),
+        ("EXTERNAL_PRODUCT", 3),
+    ]
+    gates = {o.path: (o.gate.requires, o.gate.status) for o in result.options}
+    assert gates == {
+        "OTHER_OWN_PRODUCT": ("NONE", "PENDING"),
+        "OWN_DEVELOPMENT": ("NONE", "PENDING"),
+        "EXTERNAL_PRODUCT": ("OWN_DEVELOPMENT_CHECK", "PENDING"),
+    }
+
+
+@pytest.mark.parametrize(
+    "rnd_check",
+    ["NOT_REQUIRED", "PENDING", "CONFIRMED_NOT_FEASIBLE", "CONFIRMED_SCHEDULE_MISMATCH", "WAIVED"],
+)
+def test_only_a_confirmed_own_development_blocks_partner_paths(rnd_check):
+    result = options_for(demo_a()[4], "ALLOWED", rnd_check=rnd_check)
+    assert all(o.allowed for o in result.options)
+
+
+def test_partner_paths_are_blocked_once_rnd_confirms_own_development():
+    """자사 개발이 되는데 협력사로 가지 않는다(OWN_DEVELOPMENT_FEASIBLE)."""
+    result = options_for(demo_a()[4], "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    assert [(o.path, o.allowed, o.blocked_reason) for o in result.options] == [
+        ("OTHER_OWN_PRODUCT", True, None),
+        ("OWN_DEVELOPMENT", True, None),
+        ("EXTERNAL_PRODUCT", False, "OWN_DEVELOPMENT_FEASIBLE"),
+    ]
+    # Every partner-family path is gated, the alternative proposal included.
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    form = compare(
+        Requirement(
+            clause_no="2.4",
+            item="형식",
+            attribute="rated_max_voltage",
+            value="15",
+            unit="kV",
+            operator="GTE",
+        ),
+        [switchgear("12")],
+        trace,
+    ).model_copy(update={"deficiency_cause": "FORM"})
+    gated = options_for(form, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    assert [(o.path, o.allowed) for o in gated.options] == [
+        ("OWN_DEVELOPMENT", True),
+        ("EXTERNAL_PRODUCT", False),
+        ("ALTERNATIVE_SPEC", False),
+    ]

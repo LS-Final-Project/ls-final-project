@@ -13,7 +13,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.I.1",
@@ -27,7 +28,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.N",
@@ -47,7 +49,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.C.1",
@@ -67,7 +70,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5",
@@ -81,7 +85,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5",
@@ -95,7 +100,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.K",
@@ -109,7 +115,53 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
+      },
+      {
+        "clause_no": "2.5.L",
+        "item": "알루미늄 권선",
+        "attribute": "winding_material",
+        "value": "aluminum",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "designated_model": null,
+        "task": null,
+        "core_equipment": false
+      },
+      {
+        "clause_no": "2.5.G.1",
+        "item": "이중 온도센서",
+        "attribute": "winding_temperature_sensor",
+        "value": "dual",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "designated_model": null,
+        "task": null,
+        "core_equipment": false
+      },
+      {
+        "clause_no": "2.5.E",
+        "item": "ModBus RS-485 연동",
+        "attribute": "communication_interface",
+        "value": "RS-485 ModBus",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "designated_model": null,
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.I",
@@ -123,7 +175,38 @@
         "certification_standard": "IEEE C57.12.01",
         "certification_listed": false,
         "designated_model": null,
-        "task": null
+        "task": null,
+        "core_equipment": false
+      },
+      {
+        "clause_no": "2.5.O",
+        "item": "소음 NEMA TR1(측정 ANSI C57.12.90)",
+        "attribute": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": "NEMA TR1",
+        "certification_listed": false,
+        "designated_model": null,
+        "task": null,
+        "core_equipment": false
+      },
+      {
+        "clause_no": "2.2.A.1",
+        "item": "부품 Listed and labeled(NFPA 70)",
+        "attribute": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": "UL",
+        "certification_listed": true,
+        "designated_model": null,
+        "task": null,
+        "core_equipment": false
       },
       {
         "clause_no": "2.5.A",
@@ -137,7 +220,8 @@
         "certification_standard": null,
         "certification_listed": false,
         "designated_model": "Eaton Resibloc",
-        "task": null
+        "task": null,
+        "core_equipment": false
       }
     ],
     "candidate_filter": {
@@ -406,6 +490,11 @@
         "options": [
           {
             "path": "OTHER_OWN_PRODUCT",
+            "rank": 1,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
             "allowed": true,
             "conditions_to_confirm": [
               "모델·구성·환경별 적용성과 추가 자료 확인"
@@ -416,7 +505,28 @@
             "blocked_reason": null
           },
           {
+            "path": "OWN_DEVELOPMENT",
+            "rank": 2,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": true,
+            "conditions_to_confirm": [
+              "R&D 개발(과업이면 자사 수행) 가능 여부와 시점, 요구 납기와의 정합 확인"
+            ],
+            "required_expertise": [
+              "R&D"
+            ],
+            "blocked_reason": null
+          },
+          {
             "path": "EXTERNAL_PRODUCT",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
             "allowed": true,
             "conditions_to_confirm": [
               "외부 제품 인터페이스·보증 책임 확인",
@@ -500,6 +610,132 @@
     },
     {
       "comparison": {
+        "clause_no": "2.5.L",
+        "item": "알루미늄 권선",
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "winding_material 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_material 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 1,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.G.1",
+        "item": "이중 온도센서",
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "winding_temperature_sensor 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_temperature_sensor 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 1,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.E",
+        "item": "ModBus RS-485 연동",
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "communication_interface 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "communication_interface 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 1,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
         "clause_no": "2.5.I",
         "item": "IEEE C57.12.01",
         "status": "INSUFFICIENT_EVIDENCE",
@@ -542,16 +778,32 @@
     },
     {
       "comparison": {
-        "clause_no": "2.5.A",
-        "item": "설계 기준: 타사 몰드 변압기 모델",
-        "status": "CONDITIONAL",
-        "reason": "원문 2.5.A 설계 기준 Eaton Resibloc: 타사 지정 모델이라 자사 제품과 같다고 보지 않음. 지정품 조달 또는 동등품 대체(발주처 승인) 확인.",
+        "clause_no": "2.5.O",
+        "item": "소음 NEMA TR1(측정 ANSI C57.12.90)",
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.O NEMA TR1 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
         "unresolved": [
-          "동등품 허용 여부(발주처 승인)"
+          "NEMA TR1 보유 여부 확인"
         ],
-        "next_owner": "CUSTOMER",
+        "next_owner": "TECH",
         "deficiency_cause": null,
-        "candidates": [],
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.O NEMA TR1 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "NEMA TR1 보유 여부 확인"
+            ]
+          }
+        ],
         "search_trace": {
           "filters": [
             "family=TRANSFORMER"
@@ -563,27 +815,176 @@
       "supplement": {
         "deficiency_cause": null,
         "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.2.A.1",
+        "item": "부품 Listed and labeled(NFPA 70)",
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.2.A.1 UL 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+        "unresolved": [
+          "UL 보유 여부 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.2.A.1 UL 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "UL 보유 여부 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 1,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.A",
+        "item": "설계 기준: 타사 몰드 변압기 모델",
+        "status": "CONDITIONAL",
+        "reason": "원문 2.5.A 설계 기준 Eaton Resibloc: 타사 지정 모델이라 자사 제품과 같다고 보지 않음. 지정품 조달 또는 동등품 대체(발주처 승인) 확인.",
+        "unresolved": [
+          "동등품 허용 여부(발주처 승인)"
+        ],
+        "next_owner": "CUSTOMER",
+        "deficiency_cause": "DESIGNATED_MODEL",
+        "candidates": [],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 1,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": "DESIGNATED_MODEL",
+        "customer_permission": "UNSTATED",
         "options": [
           {
-            "path": "EXTERNAL_PRODUCT",
+            "path": "OTHER_OWN_PRODUCT",
+            "rank": 1,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": false,
+            "conditions_to_confirm": [],
+            "required_expertise": [
+              "자사 기술"
+            ],
+            "blocked_reason": "DESIGNATED_ITEM"
+          },
+          {
+            "path": "OWN_DEVELOPMENT",
+            "rank": 2,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": false,
+            "conditions_to_confirm": [],
+            "required_expertise": [
+              "R&D"
+            ],
+            "blocked_reason": "DESIGNATED_ITEM"
+          },
+          {
+            "path": "ALTERNATIVE_SPEC",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
             "allowed": true,
             "conditions_to_confirm": [
-              "외부 제품 인터페이스·보증 책임 확인",
-              "RFP에 외부 보완 허용 여부가 없음: 발주처 확인"
+              "요구 변경 허용 여부와 기술 영향 확인(Deviation, 발주처 승인)",
+              "고객 승인",
+              "고객 질문 작성 필요"
             ],
             "required_expertise": [
-              "구매"
+              "기술영업·기술 검토"
             ],
             "blocked_reason": null
           },
           {
-            "path": "ALTERNATIVE_SPEC",
+            "path": "EXTERNAL_PRODUCT",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": false,
+            "conditions_to_confirm": [],
+            "required_expertise": [
+              "구매"
+            ],
+            "blocked_reason": "DESIGNATED_ITEM"
+          },
+          {
+            "path": "TASK_SUBCONTRACT",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": false,
+            "conditions_to_confirm": [],
+            "required_expertise": [
+              "구매·시공"
+            ],
+            "blocked_reason": "DESIGNATED_ITEM"
+          },
+          {
+            "path": "JOINT_PROPOSAL",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": false,
+            "conditions_to_confirm": [],
+            "required_expertise": [
+              "사업 책임"
+            ],
+            "blocked_reason": "DESIGNATED_ITEM"
+          },
+          {
+            "path": "CUSTOMER_SPECIFIED_PROCUREMENT",
+            "rank": 4,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
             "allowed": true,
             "conditions_to_confirm": [
-              "요구 변경 허용 여부와 기술 영향 확인(Deviation, 발주처 승인)"
+              "지정품 조달 방식과 공급 범위 확인"
             ],
             "required_expertise": [
-              "기술영업·기술 검토"
+              "구매"
             ],
             "blocked_reason": null
           }

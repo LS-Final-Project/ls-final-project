@@ -35,13 +35,35 @@ RequirementStatus = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFF
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
 SupplementPath = Literal[
     "OTHER_OWN_PRODUCT",
+    # 자사 개발·수행 가능 여부(R&D 확인), 자사 상업 조건 변경 검토(KAN-186, 기획서 최종본 V_1 4.4).
+    "OWN_DEVELOPMENT",
+    # OWN_TERMS_REVIEW는 명세 v1.3에 추가 요청 중이다(KAN-186 댓글). 나머지는 명세 v1.3 §2의 8값이다.
+    "OWN_TERMS_REVIEW",
     "ALTERNATIVE_SPEC",
     "EXTERNAL_PRODUCT",
     "TASK_SUBCONTRACT",
     "JOINT_PROPOSAL",
+    "CUSTOMER_SPECIFIED_PROCUREMENT",
     "NONE",
 ]
-DeficiencyCause = Literal["RATING", "CERTIFICATION", "FORM", "TASK"]
+DeficiencyCause = Literal[
+    "RATING",
+    "CERTIFICATION",
+    "FORM",
+    "TASK",
+    "DESIGNATED_MODEL",
+    "COMMERCIAL",
+    "CORE_EQUIPMENT_MISSING",
+]
+# 요구 단위 R&D 확인 상태(명세 v1.3 §5.2). 서버가 R&D 질문·답변에서 계산하고 WAIVED만 사람이 넣는다.
+RndCheck = Literal[
+    "NOT_REQUIRED",
+    "PENDING",
+    "CONFIRMED_FEASIBLE",
+    "CONFIRMED_NOT_FEASIBLE",
+    "CONFIRMED_SCHEDULE_MISMATCH",
+    "WAIVED",
+]
 CustomerPermission = Literal["ALLOWED", "FORBIDDEN", "UNSTATED"]
 QuestionStatus = Literal["OPEN", "REPLIED"]
 QuestionIssue = Literal["EMPTY_VALUE", "CONFLICT", "SCOPE_UNCLEAR", "CONDITION_MISSING"]
@@ -64,7 +86,7 @@ DocumentKind = Literal["RFP_SPEC", "DRAWING", "ADDENDUM", "DATASHEET", "ANNOTATE
 ClauseFlag = Literal["HIGHLIGHT", "TEMPLATE_PLACEHOLDER", "LINE_BREAK_REJOINED"]
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
-NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER"]
+NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER", "RND"]
 ComparisonResult = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
 DraftSection = Literal[
     "CUSTOMER_GOAL_SCOPE",
@@ -379,9 +401,20 @@ class Comparison(Provenance):
 # --- 보완 경로·협력사 (§4.6) ------------------------------------------------------------
 
 
+class OptionGate(Model):
+    """협력사 계열 경로는 자사 개발 확인(R&D)을 거친다(명세 v1.3 §5.2)."""
+
+    requires: Literal["OWN_DEVELOPMENT_CHECK", "NONE"]
+    status: RndCheck
+
+
 class SupplementOption(Model):
     path: SupplementPath
-    # 고객이 금지한 경로는 false로 내고 추천하지 않는다.
+    # path_rank: 1 자사 계열 · 2 자사 개발 · 3 협력사 계열 · 4 지정품 조달 · 9 없음. 저장하지 않는 계산값이다.
+    rank: int
+    gate: OptionGate
+    # 고객이 금지한 경로, 지정품 요구의 협력사 경로(DESIGNATED_ITEM), 자사 개발이 가능한데 협력사 경로
+    # (OWN_DEVELOPMENT_FEASIBLE)는 false로 내고 추천하지 않는다.
     allowed: bool
     conditions_to_confirm: list[str]
     required_expertise: list[str]
