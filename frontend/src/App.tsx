@@ -23,8 +23,8 @@ export default function App() {
     </Route>
     <Route element={<LsShell />}>
       <Route path="cs" element={<CsHome />} />
-      <Route path="cs/tickets" element={<Tickets />} />
-      <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
+      <Route path="cs/tickets" element={<div className="ls-legacy"><Tickets /></div>} />
+      <Route path="cs/tickets/:ticketId" element={<div className="ls-legacy"><TicketDetail /></div>} />
     </Route>
   </Routes>;
 }

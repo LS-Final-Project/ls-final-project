@@ -67,7 +67,7 @@ export default function LsShell() {
         </div>
       </aside>
       <div className="main">
-        <header className="topbar kt">
+        <header className="ls-topbar kt">
           <div className="kt-left"><label htmlFor="nav-collapse" className="nav-toggle" title="메뉴 접기/펼치기" aria-label="메뉴 접기/펼치기">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </label></div>
