@@ -1,6 +1,7 @@
 """C/S 검색기 어댑터. 비동기 search_fts(KAN-194 3차)·search_vector(KAN-99, C20)를 hybrid.Searcher(동기 콜러블)로 감싼다."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Any, Literal
@@ -14,6 +15,7 @@ from backend.engine.search.hybrid import Searcher, candidates_from_fts
 from backend.engine.search.model import Candidate, SearchFilters
 from backend.shared.ai import embed
 
+LOGGER = logging.getLogger(__name__)
 # 벡터 후보 snippet 길이(FTS의 ts_headline 대신 본문 앞부분).
 VECTOR_SNIPPET_CHARS = 200
 
@@ -155,7 +157,8 @@ class VectorSearcher:
             filters: 문서 해시·판본·product_family·document_kinds·개수 조건.
 
         Returns:
-            list[Candidate]: 거리 순 벡터 후보. 임베딩·DB 오류면 [](원문 없이 failures만 늘린다). 실행 중인
+            list[Candidate]: 거리 순 벡터 후보. 임베딩·DB 오류면 [](failures를 늘리고 CS_VECTOR_SEARCH_FAILED와 예외
+                클래스 이름만 경고로 남긴다). 실행 중인
                 이벤트 루프 안이면 RuntimeError("CS_SEARCH_IN_EVENT_LOOP"), 판본이 다르면
                 ValueError("CS_SEARCH_INDEX_MISMATCH")다.
         """
@@ -192,9 +195,10 @@ class VectorSearcher:
 
         try:
             rows = asyncio.run(run(self.embed(query)))
-        except Exception:
-            # 공급자·DB 원문은 남기지 않는다. 그 단계는 FTS 결과만 쓴다.
+        except Exception as error:
+            # 공급자·DB 원문·메시지는 남기지 않는다(예외 클래스 이름만). 그 단계는 FTS 결과만 쓴다.
             self.failures += 1
+            LOGGER.warning("CS_VECTOR_SEARCH_FAILED %s", type(error).__name__)
             return []
         return candidates_from_vector(rows)
 

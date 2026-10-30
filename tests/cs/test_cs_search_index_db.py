@@ -1,6 +1,7 @@
 """KAN-99 cs.document_chunks 저장과 FTS 검색. 실제 PostgreSQL과 cs_app 권한으로 검사한다."""
 
 import asyncio
+import logging
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -400,7 +401,7 @@ def axis(*weights: tuple[int, float]) -> list[float]:
 
 
 def test_vector_searcher_fills_narrow_filters_through_hnsw_and_falls_back(
-    cs_database, runtime
+    cs_database, runtime, caplog
 ) -> None:
     """HNSW를 강제(seqscan·sort 끔, ef_search 10)해도 좁은 문서 필터가 limit만큼 차고(iterative_scan), 질의 임베딩은
     원문당 1회이며, 임베딩 실패는 []·failures로 FTS에 맡긴다(KAN-99/100)."""
@@ -461,4 +462,7 @@ def test_vector_searcher_fills_narrow_filters_through_hnsw_and_falls_back(
         raise RuntimeError("PRIVATE_PROVIDER_MESSAGE")
 
     failing = VectorSearcher(forced, INDEX_VERSION, version, broken)
-    assert failing("ticket text", narrow) == [] and failing.failures == 1
+    with caplog.at_level(logging.WARNING, logger="backend.agent.cs_search"):
+        assert failing("ticket text", narrow) == [] and failing.failures == 1
+    assert "CS_VECTOR_SEARCH_FAILED RuntimeError" in caplog.text
+    assert "PRIVATE_PROVIDER_MESSAGE" not in caplog.text and "ticket text" not in caplog.text
