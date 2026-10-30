@@ -28,6 +28,7 @@ from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import comparison, repository, supplement
+from backend.api.tft.rfp.attributes import canonical
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.rfp.storage import read_document
 from backend.engine.documents.router import extract
@@ -210,7 +211,8 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
     기본값(2026-10-30, KAN-186 확인 요청 중): COMPLIANCE는 인증 요구(certification_standard=attribute), 그 밖은
-    attribute 그대로, 제품 계열은 정하지 않는다(search 단계가 자사 제품 전체와 비교).
+    attribute를 자사 사양 어휘로 맞춘 값(attributes.canonical, 확실하지 않으면 원문), 제품 계열은 정하지 않는다
+    (search 단계가 자사 제품 전체와 비교). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
 
     Args:
         item: 추출 요구.
@@ -222,7 +224,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     return comparison.Requirement(
         clause_no=item.clause_no,
         item=item.equipment or item.task or item.attribute,
-        attribute=None if certification else item.attribute,
+        attribute=None if certification else canonical(item.attribute),
         value=item.value,
         unit=item.unit,
         operator=item.operator,
@@ -250,7 +252,7 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         requirement_id=requirement_id,
         equipment=item.equipment,
         task=item.task,
-        attribute=item.attribute,
+        attribute=canonical(item.attribute),
         value=item.value,
         unit=item.unit,
         operator=item.operator,
@@ -519,7 +521,7 @@ async def store_requirements(
                 requirement_id,
                 candidate.model_dump(mode="json"),
                 # 인증 요구는 속성이 아니라 규격으로 비교한다(to_comparison과 같은 기준).
-                matched_attribute=None if item.kind == "COMPLIANCE" else item.attribute,
+                matched_attribute=None if item.kind == "COMPLIANCE" else canonical(item.attribute),
                 search_trace=outcome.search_trace.model_dump(),
                 data_origin=document["data_origin"],
             )
