@@ -70,10 +70,12 @@ export const businessRoutes = [
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove', ['POST'], []],
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
-  ['/api/v1/tft/projects', ['GET'], ['limit', 'cursor']],
-  ['/api/v1/tft/projects/{uuid}', ['GET'], []],
-  ['/api/v1/tft/projects/{uuid}/documents', ['GET'], []],
+  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}', ['GET', 'PATCH'], []],
+  ['/api/v1/tft/projects/{uuid}/assignment', ['PATCH'], []],
+  ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],
   ['/api/v1/tft/documents/{uuid}', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'has_open_question']],
@@ -88,6 +90,11 @@ export const businessRoutes = [
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
+// 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
+const fileLimit = 26 * 1024 * 1024;
+const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
+const downloadPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/file$`);
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
@@ -189,16 +196,17 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
             // 브라우저가 제시한 내부 사용자·호출자·Authorization 헤더는 전달하지 않는다.
             for (const name of ['if-match', 'idempotency-key', 'x-request-id']) if (request.headers[name]) headers[name] = request.headers[name];
             if (request.method !== 'GET') {
-              if ((request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json') return json(response, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE' } });
+              const upload = request.method === 'POST' && uploadPath.test(path);
+              if ((request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase() !== (upload ? 'multipart/form-data' : 'application/json')) return json(response, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE' } });
               const chunks = [];
               let size = 0;
               for await (const chunk of request) {
                 size += chunk.length;
-                if (size > 1024 * 1024) return json(response, 413, { error: { code: 'REQUEST_TOO_LARGE' } });
+                if (size > (upload ? fileLimit : 1024 * 1024)) return json(response, 413, { error: { code: 'REQUEST_TOO_LARGE' } });
                 chunks.push(chunk);
               }
               form = Buffer.concat(chunks);
-              headers['Content-Type'] = 'application/json';
+              headers['Content-Type'] = upload ? request.headers['content-type'] : 'application/json';
             }
           }
           if (path === '/api/v1/platform/auth/callback' || (mailboxAuthEnabled && mailboxForms.has(path))) {
@@ -216,11 +224,13 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
           }
         }
         const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
-        if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json'))) {
+        const resultType = (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && downloadPath.test(path) && fileTypes.has(resultType);
+        if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && resultType !== 'application/json' && !isFile))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');
         }
-        const body = business.length ? await limitedBody(result, 8 * 1024 * 1024) : await result.text();
+        const body = business.length ? await limitedBody(result, isFile ? fileLimit : 8 * 1024 * 1024) : await result.text();
         const outgoing = { 'Content-Type': result.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' };
         if (authMethod) {
           for (const name of ['Location', 'X-CSRF-Token', 'X-Request-ID', 'Content-Security-Policy']) {
@@ -229,6 +239,11 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
           }
           const cookies = result.headers.getSetCookie();
           if (cookies.length) outgoing['Set-Cookie'] = cookies;
+        }
+        if (isFile) {
+          const disposition = result.headers.get('content-disposition') || '';
+          outgoing['Content-Type'] = resultType;
+          outgoing['Content-Disposition'] = disposition.startsWith('attachment;') ? disposition : 'attachment';
         }
         if (business.length) {
           for (const name of ['ETag', 'X-Request-ID']) {

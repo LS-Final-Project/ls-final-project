@@ -259,6 +259,44 @@ class RfpProjectDetail(RfpProjectSummary):
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
 
 
+# 저장 행에서 그대로 옮기는 프로젝트 칸. 집계 칸은 routes_write.project_detail이 채운다.
+PROJECT_COLUMNS = (
+    "id",
+    "version",
+    "data_origin",
+    "derivation_kind",
+    "known_at",
+    "name",
+    "client_name",
+    "company_code",
+    "output_status",
+    "judgement_status",
+    "sales_user_id",
+    "responsible_user_id",
+    "created_at",
+    "strategic_customer",
+    "purpose",
+    "customer_goal",
+    "review_departments",
+    "draft_version",
+    "review_version",
+    "documents_count",
+    "strategic_customer_note",
+    "strategic_customer_set_by",
+)
+
+
+class UploadForm(Model):
+    """경로 6 multipart 폼 칸(routes.UPLOAD_BODY와 같다). 파일은 따로 읽는다."""
+
+    kind: DocumentKind
+    title: str = Field(min_length=1, max_length=300)
+    note: str | None = Field(default=None, max_length=2000)
+    supersedes_document_id: UUID | None = None
+    base_document_id: UUID | None = None
+    data_origin: DataOrigin
+
+
 class DocumentVersion(Provenance):
     document_id: UUID
     document_version_id: UUID

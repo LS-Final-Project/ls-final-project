@@ -5,7 +5,7 @@
 | 원본 | 파일 |
 | --- | --- |
 | 상태 값·HTTP 모델(OpenAPI 초안의 원본) | `backend/api/tft/rfp/schemas.py` |
-| 경로 골격 13개(구현 전 501 `TFT_NOT_IMPLEMENTED`, OpenAPI `x-implementation-status: planned`). 15·16·18·19·20은 구현(KAN-189), 11·30 접수는 [작업 계약](rfp-jobs.md#tft-접수-경로-1130-kan-199kan-188) | `backend/api/tft/rfp/routes.py`, `routes_supplement.py`, `routes_questions.py`, `jobs.py` |
+| 경로 골격 9개(구현 전 501 `TFT_NOT_IMPLEMENTED`, OpenAPI `x-implementation-status: planned`). 15·16·18·19·20은 구현(KAN-189), 11·30 접수는 [작업 계약](rfp-jobs.md#tft-접수-경로-1130-kan-199kan-188) | `backend/api/tft/rfp/routes.py`, `routes_supplement.py`, `routes_questions.py`, `jobs.py` |
 | 저장 구조 | `infra/migrations/tft/20261029_KAN-182_rfp_response.sql` |
 | 생성 OpenAPI | `docs/openapi/tft.json` |
 
@@ -113,13 +113,20 @@ erDiagram
 - **읽기 경로(KAN-188, `rfp/routes_read.py`)**: 7~10·12~14·17이다. 범위 밖은 없는 것과 같이 404다(`TFT_PROJECT_NOT_FOUND`·`TFT_DOCUMENT_NOT_FOUND`·`TFT_REQUIREMENT_NOT_FOUND`).
   - 문서 경로 8~10은 문서의 최신 판본 기준이다. 목록(7)은 판본 전부다.
   - 조항(9)은 `parent`가 없으면 전체 조항을 문서 순서(`ordinal`)로 낸다. 화면이 `parent_clause_id`로 트리를 만든다.
-  - 원문(10)은 항상 `attachment`·`nosniff`이고, 저장 해시·크기가 맞을 때만 낸다. `TFT_DOCUMENT_ROOT`가 없거나 읽지 못하면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
+  - 원문(10)은 항상 `attachment`·`nosniff`이고, 저장 해시·크기가 맞을 때만 낸다. 저장소(`TFT_DOCUMENT_BUCKET` 또는 `TFT_DOCUMENT_ROOT`)가 없거나 읽지 못하면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
   - 요구 목록(12)의 필터는 모두 SQL에서 걸어 쪽이 어긋나지 않는다. `open_questions`는 `OPEN`만 센다(`DRAFT` 제외).
   - `tolerance`(원문 표기, `spec`)와 `needs_review`(시스템 표시, 목록·상세 최상위)는 T15 칸이다. `tolerance`의 `null`은 '오차 없음'이 아니라 '없거나 모름'이다(T15 전 판본은 재처리 전까지 `null`·`false`). `attribute_key`·`equipment_family`는 저장만 하고 응답에 내지 않는다.
   - `links.comparison_summary`는 후보 수와 결과 요약, `links.supplement_summary`는 최신 선택의 경로 코드다. 화면 표시용 자유 문자열이다.
   - 비교(14)는 비교가 저장된 가장 최근 요구 판본을 내고 그 판본을 `requirement_version`에 적는다. 후보가 없으면 저장 행이 없으므로 저장된 `equipment_family`로 `search_trace.filters`를 만든다(`family=…`, 모르면 `family=NONE`).
   - 협력사 후보(17)는 저장된 등급 행이 있는 후보만 낸다. `overall_grade`는 `grading.overall_grade`로 저장 등급 전체에서 계산하고(`partner_grade_summaries`는 쓰지 않음), `requirement_id` 필터는 `grades`만 좁힌다. `conditions_to_confirm`은 `mandatory_check.unknown` 합집합, `on_customer_manufacturer_list`는 제조사 목록 입력 전이라 `null`이다.
-- **웹 중계(KAN-188)**: 구현한 RFP 경로는 `backend/api/platform/relay.py`·`frontend/server.mjs` 허용표와 공유 픽스처 `docs/openapi/business-relay-routes.json`에 함께 등록한다(셋이 다르면 검사가 실패한다). 경로 10 원문 내려받기는 등록하지 않는다: 중계는 JSON 응답만 통과시키므로 바이너리는 별도 설계가 필요하다. 쓰기 요청은 `application/json`만 받으므로 본문이 없는 경로 31도 화면은 `{}`를 보낸다. 처리 작업 `status_url`(`/api/v1/platform/jobs/{id}`, `/events`)은 플랫폼 자체 경로라 허용표가 아니라 웹의 작업 상태 중계로 열리고(업무 중계를 켜면 함께 열림), 접근은 플랫폼이 요청 사용자 본인으로 검사한다.
+- **쓰기 경로(KAN-188, `rfp/routes_write.py`)**: 2·4·5·6이다. 응답은 `RfpProjectDetail`이고 `latest_job`은 플랫폼 runtime 소유라 쓰기 응답에서 항상 `null`이다(상태는 플랫폼 작업 경로로 본다).
+  - 2 접수: `sales`만. 호출자가 담당이 되고 책임자는 자동 지정하지 않는다. `review_departments`는 `department_kinds`에 있어야 한다.
+  - 4 수정: 담당 `sales`·책임자만. 본문에 있는 칸만 바꾼다. `name`·`review_departments`·`integration_responsibility`의 `null`은 422, `strategic_customer: null`은 입력자·메모와 함께 지운다.
+  - 5 지정: 관리 대상 `manager`만(범위 밖 404, 볼 수만 있으면 403). 호출마다 `project_assignments` 한 행이다. 다른 manager의 관리 범위는 tft가 읽지 못해 책임자 후보는 새 담당 `sales`·기존 책임자·호출한 manager다.
+  - 6 업로드: 담당 `sales`·책임자만. 25 MiB 초과 413 `TFT_DOCUMENT_TOO_LARGE`. 형식은 내용으로 판별한다(PDF는 `%PDF-`, DOCX는 zip 안 `word/document.xml`). 다음 판본은 같은 프로젝트·같은 `kind`만 되고 제목·메모는 첫 판본 것을 유지한다. 저장소가 없으면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
+  - 원문은 `rfp/{project_id}/{document_version_id}`에 쓴 뒤 DB를 커밋한다. DB 실패 시 객체가 남을 수 있다(실행 계정에 삭제 권한이 없다).
+- **지정품 상세(KAN-199 댓글 10926)**: 처리 함수가 지정 모델이 있는 요구에 `designated_clause_id`(요구의 조항)와 `designated_procurement`(시작값 `SPECIFIED_PROCUREMENT`)를 저장한다. 이 칸이 비어 있는 이전 행은 상세 응답에서 요구 조항과 기본값으로 낸다.
+- **웹 중계(KAN-188)**: 구현한 RFP 경로는 `backend/api/platform/relay.py`·`frontend/server.mjs` 허용표와 공유 픽스처 `docs/openapi/business-relay-routes.json`에 함께 등록한다(셋이 다르면 검사가 실패한다). 파일이 지나가는 두 경로만 JSON·1 MiB 규칙의 예외다: 업로드(6)는 `multipart/form-data` 요청 26 MiB, 원문(10)은 PDF·DOCX 응답 26 MiB이고 `attachment`·`nosniff`를 중계가 강제한다. 세션·CSRF·Origin 검사와 사용자 헤더 재발급은 같고, 원문 범위(manager는 관리 대상 프로젝트만)는 tft가 판단한다. 두 층이 파일을 메모리에 모으므로 동시 업로드 수만큼 메모리를 쓴다. 업로드 외 쓰기 요청은 `application/json`만 받으므로 본문이 없는 경로 31도 화면은 `{}`를 보낸다. 처리 작업 `status_url`(`/api/v1/platform/jobs/{id}`, `/events`)은 플랫폼 자체 경로라 허용표가 아니라 웹의 작업 상태 중계로 열리고(업무 중계를 켜면 함께 열림), 접근은 플랫폼이 요청 사용자 본인으로 검사한다.
 - **질문 초안(KAN-199)**: 처리 함수가 `generate_question_drafts` 결과를 조항·요구와 같은 트랜잭션에서 `customer_questions`에 `DRAFT`로 넣는다(`CUSTOMER`, `DERIVED`, 요청자가 `created_by`). `draft_key`(종류와 조항 번호·원문의 sha256)로 프로젝트 안 같은 질문을 한 번만 만든다. 조항 ID는 판본마다 달라 키에 쓰지 않고, 미정 항목 문구는 조항과 무관해 문구도 쓰지 않는다. 종류 매핑은 `PLACEHOLDER`→`EMPTY_VALUE`, `INCONSISTENCY`→`CONFLICT`, `APPROVAL_PROCESS`→`CONDITION_MISSING`이고, 회신 전 메모는 `internal_assumption.value`, 출처 조항은 `basis_clause`다. `requirement_id`는 같은 조항에서 인용이 출처 원문과 같거나 서로 포함되는 요구가 정확히 하나일 때만 연결하고, 없거나 갈리면 NULL이다. `DRAFT`는 보낸 질문이 아니다: 목록에 상태로 구분되고, `has_customer_question`에서 빠지며, 회신은 409다. 사람이 경로 31(`POST .../questions/{id}/confirm`)로 `OPEN`으로 바꾼다. `OPEN`·`REPLIED`에 부르면 409 `TFT_VERSION_CONFLICT`이고 같은 멱등 키 재전송은 첫 결과를 준다.
 - **협력사 프로필 시드(KAN-184)**: `profiles.json`이 원천이고 `scripts/rfp_seed_partner_profiles.py`가 `tft.partner_profiles`로 옮긴다(로컬 DB·`tft_app`만). 기본은 파일과 DB 대조(`SAME`·`MISSING`·`DIFFERENT`, 어긋나면 종료 1)이고, `--execute`는 없는 판본만 넣는다(`ON CONFLICT DO NOTHING`). 같은 판본의 내용을 바꿨으면 덮어쓰지 않으니 `profile_version`을 올린다. `known_at`은 그날 00:00 UTC다. 행이 없으면 RFP 처리 함수의 등급 단계는 건너뛴다.
 - **모든 업무 행**에 `version`·`data_origin`·`derivation_kind`·`known_at`을 둔다. 예외는 업무 판단이 아니라 사람 행동·시스템 기록이거나 부모 판본에 딸린 행이며, 출처는 부모 또는 행위자·시각 열로 대신한다.

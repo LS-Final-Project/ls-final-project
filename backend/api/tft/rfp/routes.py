@@ -12,7 +12,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
-from backend.api.tft.rfp import jobs, routes_questions, routes_read, routes_supplement
+from backend.api.tft.rfp import (
+    jobs,
+    routes_questions,
+    routes_read,
+    routes_supplement,
+    routes_write,
+)
 from backend.api.tft.rfp import schemas as s
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
@@ -78,33 +84,38 @@ P = "/projects/{project_id}"
     status_code=201,
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_create_rfp_project",
-    openapi_extra=A07,
 )
-async def create_project(payload: s.ProjectCreate, idempotency_key: Key) -> NoReturn:
-    """2. 접수. 호출자가 담당 sales가 된다."""
-    not_implemented()
+async def create_project(
+    request: Request, user: User, payload: s.ProjectCreate, idempotency_key: Key
+) -> SuccessResponse[s.RfpProjectDetail]:
+    """2. 접수. 호출자가 담당 sales가 된다. latest_job은 쓰기 응답에서 항상 null이다."""
+    return respond(
+        request, await routes_write.create_project(request, user, payload, idempotency_key)
+    )
 
 
 @router.patch(
     P,
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_update_rfp_project",
-    openapi_extra=A07,
 )
-async def update_project(project_id: UUID, payload: s.ProjectUpdate) -> NoReturn:
+async def update_project(
+    request: Request, user: User, project_id: UUID, payload: s.ProjectUpdate
+) -> SuccessResponse[s.RfpProjectDetail]:
     """4. 이름·고객 목표·검토 부서 목록. 상태 두 개는 직접 쓰지 못한다."""
-    not_implemented()
+    return respond(request, await routes_write.update_project(request, user, project_id, payload))
 
 
 @router.patch(
     P + "/assignment",
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_assign_rfp_project",
-    openapi_extra=A07,
 )
-async def assign_project(project_id: UUID, payload: s.Assignment) -> NoReturn:
+async def assign_project(
+    request: Request, user: User, project_id: UUID, payload: s.Assignment
+) -> SuccessResponse[s.RfpProjectDetail]:
     """5. manager가 담당 sales·책임자를 지정한다. 이력을 남긴다."""
-    not_implemented()
+    return respond(request, await routes_write.assign_project(request, user, project_id, payload))
 
 
 UPLOAD_BODY = {
@@ -149,14 +160,19 @@ UPLOAD_BODY = {
     status_code=201,
     response_model=SuccessResponse[s.DocumentVersion],
     operation_id="tft_upload_rfp_document",
-    openapi_extra={**A07, **UPLOAD_BODY},
+    responses={413: {"model": ErrorResponse, "description": "TFT_DOCUMENT_TOO_LARGE"}},
+    openapi_extra=UPLOAD_BODY,
 )
-async def upload_document(project_id: UUID, idempotency_key: Key) -> NoReturn:
+async def upload_document(
+    request: Request, user: User, project_id: UUID, idempotency_key: Key
+) -> SuccessResponse[s.DocumentVersion]:
     """6. DOCX·PDF 25 MiB 이하(multipart). 업로드만으로는 파싱하지 않는다.
 
-    본문 형식은 OpenAPI에 직접 적었다. 구현(KAN-188) 때 multipart 파서를 붙인다.
+    본문 형식은 OpenAPI에 직접 적었다. 형식은 내용으로 판별한다.
     """
-    not_implemented()
+    return respond(
+        request, await routes_write.upload_document(request, user, project_id, idempotency_key)
+    )
 
 
 @router.get(

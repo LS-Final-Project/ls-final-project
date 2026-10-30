@@ -4,7 +4,7 @@ import asyncio
 import hmac
 import re
 from collections.abc import Awaitable, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -21,6 +21,17 @@ from backend.shared.service_auth import CALLER_HEADER, metadata_token
 REQUEST_LIMIT = 1024 * 1024
 RESPONSE_LIMIT = 8 * 1024 * 1024
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+# 파일이 지나가는 두 경로만 위 한도와 JSON 규칙의 예외다. 인증·CSRF·Origin 검사는 같다.
+# 웹 frontend/server.mjs의 uploadPath·downloadPath와 같아야 한다.
+FILE_LIMIT = 26 * 1024 * 1024
+FILE_TYPES = frozenset(
+    (
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+)
+UPLOAD_PATH = re.compile(rf"/api/v1/tft/projects/{UUID_PATH}/documents")
+DOWNLOAD_PATH = re.compile(rf"/api/v1/tft/documents/{UUID_PATH}/file")
 # 디코드한 경로에서 검사한다. C/S 입력과 같은 고객 ID 규약이라 ?·#·/와 .·.. 세그먼트가
 # upstream URL을 바꾸지 못한다.
 CUSTOMER_PATH = CUSTOMER_ID
@@ -82,10 +93,12 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         (),
     ),
     ("/api/v1/cs/condition-comparisons", ("GET",), ("product_code", "fault_id", "version")),
-    ("/api/v1/tft/projects", ("GET",), ("limit", "cursor")),
-    ("/api/v1/tft/projects/{uuid}", ("GET",), ()),
-    ("/api/v1/tft/projects/{uuid}/documents", ("GET",), ()),
+    ("/api/v1/tft/projects", ("GET", "POST"), ("limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}", ("GET", "PATCH"), ()),
+    ("/api/v1/tft/projects/{uuid}/assignment", ("PATCH",), ()),
+    ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),
     ("/api/v1/tft/documents/{uuid}", ("GET",), ()),
+    ("/api/v1/tft/documents/{uuid}/file", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/clauses", ("GET",), ("parent", "limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
     (
@@ -201,20 +214,34 @@ def forward(method: str, url: str, headers: dict[str, str], body: bytes) -> Resp
             allow_redirects=False,
             stream=True,
         ) as upstream:
-            content_type = upstream.headers.get("Content-Type", "")
+            content_type = upstream.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            is_file = (
+                method == "GET"
+                and upstream.status_code == 200
+                and content_type in FILE_TYPES
+                and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+            )
             if 300 <= upstream.status_code < 400 or (
-                upstream.status_code != 204
-                and content_type.split(";", 1)[0].strip().lower() != "application/json"
+                upstream.status_code != 204 and content_type != "application/json" and not is_file
             ):
                 raise HTTPException(503)
             chunks = []
             size = 0
             for chunk in upstream.iter_content(65536):
                 size += len(chunk)
-                if size > RESPONSE_LIMIT:
+                if size > (FILE_LIMIT if is_file else RESPONSE_LIMIT):
                     raise HTTPException(503)
                 chunks.append(chunk)
             outgoing = {"Cache-Control": "no-store", "Content-Type": "application/json"}
+            if is_file:
+                disposition = upstream.headers.get("Content-Disposition", "")
+                outgoing |= {
+                    "Content-Type": content_type,
+                    "Content-Disposition": disposition
+                    if disposition.startswith("attachment;")
+                    else "attachment",
+                    "X-Content-Type-Options": "nosniff",
+                }
             for name in ("ETag", "X-Request-ID"):
                 if name in upstream.headers:
                     outgoing[name] = upstream.headers[name]
@@ -298,6 +325,7 @@ async def relay(request: Request, path: str) -> Response:
     if origin and origin != auth.app_origin.rstrip("/"):
         raise HTTPException(403)
     token = request.cookies.get(SESSION_COOKIE)
+    upload = request.method == "POST" and UPLOAD_PATH.fullmatch(path) is not None
     if request.method != "GET":
         if origin != auth.app_origin.rstrip("/"):
             raise HTTPException(403)
@@ -305,9 +333,8 @@ async def relay(request: Request, path: str) -> Response:
             request.headers.get(CSRF_HEADER, "").encode(), csrf_token(token).encode()
         ):
             raise HTTPException(403)
-        if (
-            request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            != "application/json"
+        if request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != (
+            "multipart/form-data" if upload else "application/json"
         ):
             raise HTTPException(415)
     principal = await load_session_principal(settings, token)
@@ -318,7 +345,7 @@ async def relay(request: Request, path: str) -> Response:
     size = 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > REQUEST_LIMIT:
+        if size > (FILE_LIMIT if upload else REQUEST_LIMIT):
             raise HTTPException(413)
         chunks.append(chunk)
     body = b"".join(chunks)
@@ -342,7 +369,8 @@ async def relay(request: Request, path: str) -> Response:
         if name in request.headers:
             outgoing[name] = request.headers[name]
     if request.method != "GET":
-        outgoing["Content-Type"] = "application/json"
+        # 경계값이 든 원래 형식을 그대로 넘긴다. 위에서 multipart/form-data임을 확인했다.
+        outgoing["Content-Type"] = request.headers["Content-Type"] if upload else "application/json"
     query = "?" + urlencode(pairs) if pairs else ""
     return await asyncio.to_thread(
         request.app.state.business_forwarder,

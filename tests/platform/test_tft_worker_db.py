@@ -15,6 +15,7 @@ from backend.agent.tft_worker import TftWorkerSettings, execute_job, parse_job_i
 from backend.api.platform.jobs.events import EventPayload
 from backend.api.platform.jobs.tft import TftJobRequest, admit_tft_job
 from backend.api.tft.rfp.jobs import input_version
+from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.api.tft.worker_processor import make_processor
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -340,7 +341,7 @@ def test_worker_runs_the_real_processor_end_to_end(
         WORKER,
         job_id,
         processor_loader=lambda s: make_processor(
-            s, provider=extractor, document_root=project["root"]
+            s, provider=extractor, store=LocalDocumentStore(project["root"])
         ),
     )
     assert result == "TFT_JOB_SUCCEEDED"

@@ -245,15 +245,15 @@ async def download_document(request: Request, principal: Principal, document_id:
     """
     async with connection(request.app.state.settings) as conn:
         row = await visible_document(conn, principal, document_id)
-    root = storage.DocumentStorageSettings().document_root
+    store = storage.document_store(storage.DocumentStorageSettings())
     unavailable = ApplicationError(
         503, "TFT_DOCUMENT_UNAVAILABLE", "The document file is not available."
     )
-    if root is None:
+    if store is None:
         raise unavailable
     try:
-        data = storage.read_document(root, row["storage_key"], row["sha256"], row["size"])
-    except (OSError, ValueError):
+        data = await storage.read_document(store, row["storage_key"], row["sha256"], row["size"])
+    except storage.DocumentUnavailable:
         raise unavailable from None
     return Response(
         content=data,

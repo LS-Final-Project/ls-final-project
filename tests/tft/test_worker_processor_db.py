@@ -23,6 +23,7 @@ from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
+from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.api.tft.worker_processor import draft_requirement, make_processor, sections_of
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import build_clause_tree
@@ -218,7 +219,7 @@ def run(worker_dsn, project, extractor, kind="rfp.process", version=None):
     processor = make_processor(
         settings,
         provider=extractor,
-        document_root=project["root"],
+        store=LocalDocumentStore(project["root"]),
         today=lambda: date(2026, 10, 30),
     )
     job = TftJob(
@@ -297,11 +298,20 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     with psycopg.connect(admin) as conn:
         # 추출 v2(#309)의 지정품 제조사를 판본에 남긴다.
         assert conn.execute(
-            "SELECT v.designated_model, v.designated_manufacturer FROM tft.requirement_versions v "
+            "SELECT v.designated_model, v.designated_manufacturer, v.designated_procurement, "
+            "v.designated_clause_id = v.clause_id FROM tft.requirement_versions v "
             "JOIN tft.requirements r ON r.id = v.requirement_id "
             "WHERE r.project_id=%s AND v.designated_model IS NOT NULL",
             (project["project"],),
-        ).fetchall() == [("Resibloc", "Eaton")]
+        ).fetchall() == [("Resibloc", "Eaton", "SPECIFIED_PROCUREMENT", True)]
+        # 지정 모델이 없는 요구에는 지정품 상세를 두지 않는다.
+        assert conn.execute(
+            "SELECT count(*) FROM tft.requirement_versions v "
+            "JOIN tft.requirements r ON r.id = v.requirement_id WHERE r.project_id=%s "
+            "AND v.designated_model IS NULL "
+            "AND (v.designated_clause_id IS NOT NULL OR v.designated_procurement IS NOT NULL)",
+            (project["project"],),
+        ).fetchone() == (0,)
     assert first["clauses"] == 6 and first["requirements"] == 3 and first["ai_drafts"] == 3
     assert first["comparisons"] > 0 and first["gaps"] >= 1
     assert first["options"] >= first["gaps"] and first["grades"] >= 1
@@ -378,7 +388,9 @@ def test_unknown_input_or_changed_file_fails(worker_dsn, project, admin):
 def test_a_stop_after_compare_leaves_no_requirement_rows(worker_dsn, project, admin):
     """조항~candidates는 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소) 조항도 요구 행도 남지 않는다."""
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
-    processor = make_processor(settings, provider=FakeExtractor(), document_root=project["root"])
+    processor = make_processor(
+        settings, provider=FakeExtractor(), store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",
@@ -430,7 +442,9 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
 
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
     extractor = FakeExtractor()
-    processor = make_processor(settings, provider=extractor, document_root=project["root"])
+    processor = make_processor(
+        settings, provider=extractor, store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",
