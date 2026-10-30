@@ -651,3 +651,318 @@ async def has_requirements(conn: AsyncConnection[Row], project_id: UUID) -> bool
     )
     row = await cursor.fetchone()
     return bool(row and row["found"])
+
+
+# --- 처리 함수(worker_processor) 저장, KAN-199·KAN-188 -------------------------------------------
+
+
+async def all_document_versions(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """프로젝트 문서의 모든 판본(처리 함수가 접수 입력 판본을 찾는 후보).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: document_versions 열과 kind·latest(최신 판본인지).
+    """
+    cursor = await conn.execute(
+        "SELECT dv.*, d.kind, dv.version = d.latest_version AS latest FROM tft.document_versions dv "
+        "JOIN tft.documents d ON d.id = dv.document_id WHERE d.project_id = %s ORDER BY dv.id",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def document_processed(conn: AsyncConnection[Row], document_version_id: UUID) -> bool:
+    """이 문서 판본으로 만든 요구 판본이 이미 있는지(재실행이면 그 문서를 다시 처리하지 않는다).
+
+    Args:
+        conn: dict_row 연결.
+        document_version_id: 문서 판본 ID.
+
+    Returns:
+        bool: 있으면 True.
+    """
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM tft.requirement_versions WHERE document_version_id = %s) AS found",
+        (document_version_id,),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["found"])
+
+
+async def store_clauses(
+    conn: AsyncConnection[Row], document_version: Mapping[str, Any], clauses: Sequence[Any]
+) -> dict[str, Row]:
+    """조항 트리를 저장한다. 그 판본의 조항이 이미 있으면 쓰지 않고 있는 행을 돌려준다.
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        document_version: document_versions 행.
+        clauses: clauses.Clause 목록(트리 순서).
+
+    Returns:
+        dict: 조항 번호 → 조항 행(id·page).
+    """
+    cursor = await conn.execute(
+        "SELECT id, clause_no, page FROM tft.clauses WHERE document_version_id = %s",
+        (document_version["id"],),
+    )
+    stored = {row["clause_no"]: row for row in await cursor.fetchall()}
+    if stored:
+        return stored
+    allowed_flags = {"HIGHLIGHT", "TEMPLATE_PLACEHOLDER", "LINE_BREAK_REJOINED"}
+    for ordinal, clause in enumerate(clauses):
+        clause_id = uuid4()
+        parent = stored.get(clause.parent_no) if clause.parent_no else None
+        await conn.execute(
+            "INSERT INTO tft.clauses (id, document_version_id, clause_no, parent_clause_id, depth, "
+            "ordinal, title, text, page, cross_references, data_origin, derivation_kind, known_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
+            (
+                clause_id,
+                document_version["id"],
+                clause.clause_no[:64],
+                parent["id"] if parent else None,
+                clause.depth,
+                ordinal,
+                clause.title,
+                clause.text,
+                clause.page,
+                Jsonb([ref.model_dump(mode="json") for ref in clause.cross_references]),
+                document_version["data_origin"],
+            ),
+        )
+        for n, value in enumerate(clause.deleted_values):
+            await conn.execute(
+                "INSERT INTO tft.clause_deleted_values (clause_id, ordinal, text, position) "
+                "VALUES (%s,%s,%s,%s)",
+                (clause_id, n, value.text, value.position),
+            )
+        for flag in sorted(set(clause.flags) & allowed_flags):
+            await conn.execute(
+                "INSERT INTO tft.clause_flags (clause_id, flag) VALUES (%s,%s)", (clause_id, flag)
+            )
+        stored[clause.clause_no] = {
+            "id": clause_id,
+            "clause_no": clause.clause_no,
+            "page": clause.page,
+        }
+    return stored
+
+
+async def insert_requirement(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    code: str,
+    document_version: Mapping[str, Any],
+    clause: Mapping[str, Any] | None,
+    spec: Mapping[str, Any],
+    judgement: Mapping[str, Any],
+) -> UUID:
+    """AI 초안 요구와 판본 1(판단 포함)·조건을 쓴다.
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        project_id: 프로젝트 ID.
+        code: 프로젝트 안에서 유일한 요구 코드.
+        document_version: 원문 문서 판본 행.
+        clause: 원문 조항 행(없으면 None).
+        spec: quote·equipment·task·attribute·value·unit·operator·standard_system·necessity·designated_model·
+            conditions(name·value·unit 목록).
+        judgement: status·reason·unresolved·next_owner.
+
+    Returns:
+        UUID: 요구 ID.
+    """
+    requirement_id = uuid4()
+    origin = document_version["data_origin"]
+    await conn.execute(
+        "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,%s,%s,%s,'DERIVED',now())",
+        (requirement_id, project_id, code[:64], origin),
+    )
+    await conn.execute(
+        "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
+        "clause_id, page, quote, equipment, task, attribute, value, unit, operator, standard_system, "
+        "necessity, designated_model, status, reason, unresolved, next_owner_field, provenance_kind, "
+        "data_origin, derivation_kind, known_at) VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        "%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        (
+            requirement_id,
+            document_version["id"],
+            clause["id"] if clause else None,
+            clause["page"] if clause else None,
+            spec["quote"],
+            spec["equipment"],
+            spec["task"],
+            spec["attribute"],
+            spec["value"],
+            spec["unit"],
+            spec["operator"],
+            spec["standard_system"],
+            spec["necessity"],
+            spec["designated_model"],
+            judgement["status"],
+            judgement["reason"],
+            Jsonb(list(judgement["unresolved"])),
+            judgement["next_owner"],
+            origin,
+        ),
+    )
+    for ordinal, condition in enumerate(spec["conditions"]):
+        await conn.execute(
+            "INSERT INTO tft.requirement_conditions (requirement_id, version, ordinal, name, value, unit) "
+            "VALUES (%s,1,%s,%s,%s,%s)",
+            (requirement_id, ordinal, condition["name"], condition["value"], condition["unit"]),
+        )
+    return requirement_id
+
+
+async def insert_comparison(
+    conn: AsyncConnection[Row],
+    requirement_id: UUID,
+    candidate: Mapping[str, Any],
+    *,
+    matched_attribute: str | None,
+    search_trace: Mapping[str, Any],
+    data_origin: str,
+) -> None:
+    """자사 후보 비교 한 건과 근거를 쓴다(요구 판본 1).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        requirement_id: 요구 ID.
+        candidate: comparison.CandidateMatch 덤프.
+        matched_attribute: 비교한 속성(인증 요구면 None).
+        search_trace: 후보를 찾은 범위.
+        data_origin: 요구의 자료 출처.
+    """
+    comparison_id = uuid4()
+    await conn.execute(
+        "INSERT INTO tft.product_comparisons (id, requirement_id, requirement_version, product_code, "
+        "lifecycle_status, matched_attribute, our_value, our_unit, our_conditions, comparable, result, "
+        "search_trace, provenance_kind, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        (
+            comparison_id,
+            requirement_id,
+            candidate["product_code"],
+            candidate["lifecycle_status"],
+            matched_attribute,
+            candidate["our_value"],
+            candidate["our_unit"],
+            Jsonb(candidate["our_conditions"]),
+            candidate["comparable"],
+            candidate["result"],
+            Jsonb(dict(search_trace)),
+            data_origin,
+        ),
+    )
+    for ordinal, evidence in enumerate(candidate["evidence"]):
+        await conn.execute(
+            "INSERT INTO tft.comparison_evidence (comparison_id, ordinal, document, clause, "
+            "applicability, limits) VALUES (%s,%s,%s,%s,%s,%s)",
+            (
+                comparison_id,
+                ordinal,
+                evidence["document"],
+                evidence["clause"],
+                evidence["applicability"],
+                evidence["limits"],
+            ),
+        )
+
+
+async def insert_option(
+    conn: AsyncConnection[Row],
+    requirement_id: UUID,
+    option: Mapping[str, Any],
+    *,
+    deficiency_cause: str | None,
+    customer_permission: str,
+    data_origin: str,
+) -> None:
+    """보완 선택지 한 행을 쓴다(요구 판본 1, 계산 시점의 값).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        requirement_id: 요구 ID.
+        option: supplement.Option 덤프.
+        deficiency_cause: 부족 원인.
+        customer_permission: 고객 허용.
+        data_origin: 요구의 자료 출처.
+    """
+    await conn.execute(
+        "INSERT INTO tft.supplement_options (id, requirement_id, requirement_version, deficiency_cause, "
+        "customer_permission, path, allowed, conditions_to_confirm, required_expertise, blocked_reason, "
+        "data_origin, derivation_kind, known_at) VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
+        (
+            uuid4(),
+            requirement_id,
+            deficiency_cause,
+            customer_permission,
+            option["path"],
+            option["allowed"],
+            Jsonb(option["conditions_to_confirm"]),
+            Jsonb(option["required_expertise"]),
+            option["blocked_reason"],
+            data_origin,
+        ),
+    )
+
+
+async def partner_profiles(conn: AsyncConnection[Row]) -> list[Row]:
+    """협력사 후보마다 최신 프로필 판본.
+
+    Args:
+        conn: dict_row 연결.
+
+    Returns:
+        list[Row]: partner_profiles 행(후보 코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (candidate_code) * FROM tft.partner_profiles "
+        "ORDER BY candidate_code, profile_version DESC"
+    )
+    return await cursor.fetchall()
+
+
+async def insert_grade(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    candidate_code: str,
+    profile_version: int,
+    grade: Mapping[str, Any],
+    data_origin: str,
+) -> None:
+    """후보 × 요구 등급 한 행을 쓴다(요구 판본 1).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        project_id: 프로젝트 ID.
+        candidate_code: 후보 코드.
+        profile_version: 프로필 판본.
+        grade: grading.RequirementGrade 덤프.
+        data_origin: 요구의 자료 출처.
+    """
+    await conn.execute(
+        "INSERT INTO tft.partner_grades (id, project_id, candidate_code, profile_version, "
+        "requirement_id, requirement_version, grade, reasons, exclusion_reasons, mandatory_check, "
+        "data_origin, derivation_kind, known_at) VALUES (%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%s,'DERIVED',now())",
+        (
+            uuid4(),
+            project_id,
+            candidate_code,
+            profile_version,
+            grade["requirement_id"],
+            grade["grade"],
+            Jsonb(grade["reasons"]),
+            Jsonb(grade["exclusion_reasons"]),
+            Jsonb(grade["mandatory_check"]),
+            data_origin,
+        ),
+    )

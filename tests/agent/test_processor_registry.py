@@ -29,8 +29,12 @@ def test_module_build_gives_the_processor():
 
 def test_missing_module_is_a_fixed_code_but_other_import_errors_surface():
     """모듈이 없으면 TFT_WORKER_PROCESSOR_MISSING이고, 모듈 안의 다른 import 실패는 숨기지 않는다."""
+
+    def missing(name):
+        raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+
     with pytest.raises(ApplicationError) as error:
-        load_processor(SETTINGS)
+        load_processor(SETTINGS, missing)
     assert error.value.code == "TFT_WORKER_PROCESSOR_MISSING"
 
     def inner_failure(name):
