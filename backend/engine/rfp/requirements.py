@@ -35,7 +35,8 @@ from backend.shared.ai import Generation, Usage
 
 # v2: 지정품 제조사(designated_manufacturer)와 원문 대조(명세 v1.3 §5.1·§11). v1 측정치는 계약 문서 표에 있다.
 # v3(KAN-185 의미 구조화): 모델이 내부 속성 키·제품 계열·허용 오차·Listed 여부를 같은 호출 안에서 연결한다.
-EXTRACTION_VERSION = "rfp-requirements-v3"
+# v4(KAN-185): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구를 assembly_clause로 표시한다.
+EXTRACTION_VERSION = "rfp-requirements-v4"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -110,6 +111,10 @@ class ExtractedRequirement(Strict):
     certification_listed: bool = Field(
         default=False, description="원문이 Listed·labeled 등록을 요구할 때만 true."
     )
+    assembly_clause: bool = Field(
+        default=False,
+        description="여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true. 나열만이면 false.",
+    )
     # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
     needs_review: bool = False
 
@@ -175,6 +180,7 @@ class RequirementSchema(_Loose):
     equipment_family: FamilyOrOther | None
     tolerance: str | None
     certification_listed: bool
+    assembly_clause: bool
 
 
 class ResponseSchema(_Loose):
@@ -295,6 +301,9 @@ Return JSON matching the schema. Rules:
   as the nominal value only. Never compute a range.
 - certification_listed: true only when the text requires a listing or label (e.g. "listed", "labeled",
   "bearing the mark"); a test report or "in accordance with" a standard is false.
+- assembly_clause: true only when the requirement makes several pieces of equipment be delivered as one
+  assembled unit or under a single supplier's responsibility (e.g. "factory-assembled as one unit", "furnished
+  by one manufacturer with unit responsibility"). Equipment that is merely listed together is false.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
 

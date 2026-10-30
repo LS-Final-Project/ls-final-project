@@ -112,6 +112,24 @@ GOLD = GoldFile.model_validate(
 )
 
 
+def test_the_evaluation_compares_inside_the_family_like_the_processor():
+    """평가는 운영과 같은 파이프라인을 잰다(compare_in_family): 다른 계열 제품의 충족 값은 근거가 아니다."""
+    other_family = OWN[0].model_copy(
+        update={
+            "product_code": "OWN-LV",
+            "family": "LV_BREAKER",
+            "spec_facts": [
+                f.model_copy(update={"product_code": "OWN-LV", "value": "40"})
+                for f in OWN[0].spec_facts
+            ],
+        }
+    )
+    run = run_document(
+        tree(), GOLD.documents[0], provider, [*OWN, other_family], PROFILES, date(2026, 11, 20)
+    )
+    assert [(r.clause_no, r.status) for r in run.predicted][0] == ("2.6.A", "SPEC_GAP")
+
+
 def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
     run = run_document(tree(), GOLD.documents[0], provider, OWN, PROFILES, date(2026, 11, 20))
     assert run.section_outcomes == {"2.6": "VALID"}

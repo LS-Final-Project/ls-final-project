@@ -24,6 +24,9 @@
 | `INSUFFICIENT_EVIDENCE` | 요구값을 모름(도면 참조 등, `CUSTOMER`), 같은 속성 근거가 없음, 요구 인증 보유 자료가 없음, 검색 범위에 후보 없음, 검색 실패. 핵심 기기(`core_equipment`)가 검색 범위에 없으면 부족 원인 `CORE_EQUIPMENT_MISSING` | `NO_DATA` | `CUSTOMER`·`TECH`(핵심 기기는 `SALES`) |
 
 - **미기재 ≠ 미충족**: 자료에 없는 값은 `SPEC_GAP`이 아니라 `INSUFFICIENT_EVIDENCE`다.
+- **허용 오차(KAN-199)**: 원문 표기는 추출 `tolerance`에 그대로 두고, 범위 계산은 코드(`worker_processor.tolerance_range`)가 한다. `EQ` 명목값에만 적용해 `RANGE`로 바꾼다. `%`가 붙은 오차는 명목값에 대한 비율이고(값 단위가 %여도, 5.75 % ±10% → 5.175~6.325), `%`가 없으면 같은 단위의 절대값이다. `+0/-5%`처럼 비대칭도 받는다. 읽지 못하면 비교하지 않고 `CONDITIONAL`(`NOT_COMPARABLE`)이다. `GTE`·`LTE`에 붙은 오차는 쓰지 않는다.
+- **등록(Listed)(KAN-199)**: 추출 `certification_listed`가 자사 비교 `certification_listed`로, 협력사 등급에는 `listing=listed` 조건으로 간다. 시험 성적은 등록을 대신하지 않는다.
+- **규격 체계 차이(KAN-199)**: 요구 `standard_system`이 근거 제품의 체계(`Product.standards`)에 없으면 충족(`EVIDENCE_FOUND`)을 `CONDITIONAL`로 낮춘다("규격 체계 다름: 요구 UL, 근거 IEC 60947-2, 시험 규격 확인"). 잘못된 충족을 막는 규칙이라 `SPEC_GAP`은 낮추지 않는다(정격 전압처럼 시험 규격과 무관한 물리 정격의 미달은 체계가 달라도 사양 차이다). 요구가 `NONE`이거나 제품 `standards`가 비어 있으면 그대로다. 그 체계의 인증이 `variant`가 있는 것뿐이면(MCCB-ABS-403c의 UL -U) 근거 체계에서 빼고 "변형 모델 값 확인"을 남긴다. 협력사 등급도 같은 규칙이며, 프로필에는 제품별 규격이 없어 제안 모델에 적용되는 `certifications`의 체계를 근거로 본다(`passed` → `unknown`, `failed`는 그대로).
 - **계열 안에서만 비교(KAN-199)**: `compare_in_family(요구, 계열, 자사 제품)`은 요구 장비 계열(`own_spec_facts` family)의 후보만 `master_filter`로 골라 비교한다. 다른 계열 제품의 같은 이름 속성(예: MCCB `rated_current`)은 변압기 요구의 근거가 아니다. 계열을 모르면(`None`·`OTHER`) 비교하지 않고 `INSUFFICIENT_EVIDENCE`("요구 장비 계열 확인", trace `family=NONE|OTHER`)이며, 지정 모델 요구는 지정품 판정 그대로다. 협력사 등급(`partners/grading.py`)도 같은 조건 차이·환산 규칙을 쓴다.
 - **"제품 없음"은 검색 범위의 결과**: 사유에 필터와 문서 수를 적고 "회사 전체 미보유나 참여 불가를 뜻하지 않음"을 붙인다.
 - **인증**: IEC 시험 성적을 UL·IEEE 요구의 충족으로 넓히지 않는다(기획서 4.2).

@@ -103,7 +103,7 @@ def grade_requirement(
     if requirement.attribute == "certification":
         item = _certification_check(requirement, profile, models, reference_date)
     else:
-        item = _spec_check(requirement, profile, codes)
+        item = _spec_check(requirement, profile, codes, models)
     checks = _constraints(profile, context)
     reasons: list[str] = []
     if requirement.necessity in ("MANDATORY", "CONDITION_BOUND"):
@@ -378,7 +378,9 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
     return gaps
 
 
-def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[str]) -> Check:
+def _spec_check(
+    requirement: Requirement, profile: PartnerProfile, codes: set[str], models: set[str]
+) -> Check:
     """제안 모델의 같은 속성 사양 근거로 요구 하나를 판정한다.
 
     값이 충족이어도, 미달이어도 조건(시간·온도 등)이 다르면 확약하지 않고 미확인으로 둔다(KAN-199). 조건이 같을
@@ -388,9 +390,11 @@ def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[st
         requirement: 요구.
         profile: 프로필.
         codes: 제안 모델의 제품 코드.
+        models: 제안 모델명(규격 체계 판단용).
 
     Returns:
-        Check: (속성, 결과, 사유 문장).
+        Check: (속성, 결과, 사유 문장). 충족이어도 요구 규격 체계가 근거 체계와 다르면 미확인이다(자사 비교와 같은 규칙,
+            미달은 낮추지 않는다). 프로필에는 제품별 규격이 없어 제안 모델에 적용되는 certifications의 체계를 근거로 본다.
     """
     facts = [
         f
@@ -418,6 +422,17 @@ def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[st
         rank = ("passed", "unknown", "failed").index(verdict)
         judged.append((rank, verdict, word, fact, gaps, note))
     _, verdict, word, fact, gaps, note = min(judged, key=lambda j: j[0])
+    systems = {
+        _system(c.standard) for c in profile.certifications if models & set(c.applicable_models)
+    } - {"NONE"}
+    wanted = requirement.standard_system
+    if verdict == "passed" and wanted != "NONE" and systems and wanted not in systems:
+        basis = ", ".join(
+            c.standard
+            for c in profile.certifications
+            if models & set(c.applicable_models) and _system(c.standard) in systems
+        )
+        verdict, word = "unknown", f"규격 체계 다름: 요구 {wanted}, 근거 {basis}, 시험 규격 확인"
     cited = " ".join(filter(None, ("근거", fact.evidence_id, fact.section)))
     sentence = f"{_head(requirement)}, 후보 {_with_unit(fact.value, fact.unit)}({cited}): {word}."
     if note:

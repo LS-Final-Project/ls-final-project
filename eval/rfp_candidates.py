@@ -44,10 +44,6 @@ from eval.rfp_metrics import (
 )
 
 RunLabel = Literal["FIRST", "REMEASURE"]
-# 검색기 연결 전 처리 함수와 같은 범위(자사 제품 전체).
-TRACE = comparison.SearchTrace(
-    filters=["own_products=all"], documents_searched=0, search_failed=False
-)
 
 
 class Strict(BaseModel):
@@ -182,7 +178,11 @@ def run_document(
         if result.model_version:
             run.model_versions.add(result.model_version)
         extracted += result.requirements
-    outcomes = [comparison.compare(to_comparison(r), products, TRACE) for r in extracted]
+    # 운영 처리 함수(worker_processor)와 같은 호출이다: 요구 장비 계열의 후보 안에서만 비교한다.
+    outcomes = [
+        comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
+        for r in extracted
+    ]
     run.predicted = [_predicted(r, o) for r, o in zip(extracted, outcomes, strict=True)]
     targets = [
         g
