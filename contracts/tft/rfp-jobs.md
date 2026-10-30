@@ -28,7 +28,7 @@
 tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `tft_app`에는 runtime 권한을 주지 않고 플랫폼(`platform_app`)이 저장한다.
 
 - **기본 비활성(404)**. `TFT_JOBS_ENABLED=true`, `TFT_JOBS_SERVICE_URL`(플랫폼 서비스 주소, ID 토큰 audience), `TFT_JOBS_INVOKER_EMAIL`(tft 실행 서비스 계정)을 함께 정해야 켜진다. 켜면 `Authorization: Bearer <Google ID 토큰>`을 고정 Google 서명키·audience·실행 계정으로 다시 검증한다(Cloud Run IAM과 별도, 불일치 401).
-- **`TFT_JOBS_PROCESSOR_CONNECTED`를 켜는 조건**: 전송기의 종류 구분, tft 작업 상태·SSE 접근 검사, 처리 worker(아래 'worker' 절)는 KAN-199로 갖췄다. 남은 조건은 (1) 처리 함수 모듈(`backend.api.tft.worker_processor`, KAN-186·KAN-184 구현)과 그 tft 표 권한 마이그레이션, (2) P29 적용과 `tft_worker` 로그인, (3) `TFT_WORKER_JOBS_ENABLED`·`TFT_WORKER_ENABLED`다. 그 전에 켜면 작업이 FAILED(`TFT_WORKER_PROCESSOR_MISSING`)나 QUEUED로 남는다.
+- **`TFT_JOBS_PROCESSOR_CONNECTED`를 켜는 조건**: 전송기의 종류 구분, tft 작업 상태·SSE 접근 검사, 처리 worker(아래 'worker' 절), 처리 함수(아래 '처리 함수' 절)는 갖췄다. 남은 조건은 (1) P29와 `infra/migrations/tft/20261104_KAN-199_tft_worker.sql`(tft 표 권한) 적용과 `tft_worker` 로그인, (2) 원문 읽기 설정 `TFT_DOCUMENT_ROOT`와 추출 모델 설정, (3) `TFT_WORKER_JOBS_ENABLED`·`TFT_WORKER_ENABLED`다. 그 전에 켜면 작업이 FAILED나 QUEUED로 남는다.
 - **처리기 연결 전에는 저장하지 않는다.** `TFT_JOBS_PROCESSOR_CONNECTED=false`(기본)이면 호출자 검증 뒤 503 `TFT_PROCESSOR_NOT_CONNECTED`를 돌려주고 행을 만들지 않는다. worker 없이 저장하면 QUEUED가 남아 그 프로젝트의 다음 접수가 계속 409가 되기 때문이다. tft 처리 worker를 연결할 때 함께 켠다.
 - 호출자 검증은 본문 검증보다 먼저 한다(비활성 404·불일치 401이 422보다 앞선다).
 - **본문**: `actor_id`, `kind`, `project_id`, `input_version`(동결 입력 SHA-256), `idempotency_key`(8~128자), `request_hash`(정규화 원 요청 SHA-256). 다른 키는 422다. 원문·프롬프트·모델 응답은 받지 않는다.
@@ -86,7 +86,32 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - 결과: 처리 함수가 정상 반환하면 SUCCEEDED·`job.completed{state, counts?, needs_review?, document_version_id?}`다. `needs_review`가 참이어도 SUCCEEDED이고 PARTIAL은 쓰지 않는다. 예외는 FAILED·`job.failed{state:FAILED}`이고 `failure_code`는 `TFT_WORKER_PROCESSOR_MISSING`·`TFT_WORKER_PROCESSING_FAILED` 고정 코드만이다. 처리 함수가 올린 `ApplicationError`의 코드는 쓰지 않고 `TFT_WORKER_PROCESSING_FAILED`로 바꾼다.
 - payload 검사: worker가 처리 함수 값에서 위 허용 키만 형식을 확인해 저장한다. 표에 없는 step, 음수·빠진 counts 키, bool이 아닌 needs_review, UUID가 아닌 문서 판본은 저장하지 않고 FAILED다. 모르는 키(오류 코드·원문)는 버린다.
 
+## 처리 함수 (KAN-199 완료 조건 4, KAN-188 접착)
+
+`backend/api/tft/worker_processor.py`의 `build(settings)`. 나영님 엔진 함수를 부르기만 하고 새 판정 규칙은 없다.
+
+| 단계 | 하는 일 | 부르는 함수 | 쓰는 표 |
+| --- | --- | --- | --- |
+| `parse` | 접수 입력 판본(아래)의 규격서·추가 문서(`RFP_SPEC`·`ADDENDUM`) 원문을 읽어 조항 트리를 만든다. 문서 판본마다 한 번 | `storage.read_document`, `documents.router.extract`, `clauses.build_clause_tree` | `clauses`, `clause_deleted_values`, `clause_flags` |
+| `extract` | 절마다 요구를 뽑는다. 절은 번호로 하위를 묶는 조항 중 가장 위의 것이다(`PART 2` 아래 `2.1`·`2.2`). 너무 긴 절·실패한 절은 건너뛰고 `needs_review` | `requirements.build_inputs`, `extract_section` | 없음(메모리) |
+| `search` | 검색기 연결 전이라 자사 제품 전체가 후보 범위다(`search_trace.filters=["own_products=all"]`) | — | 없음 |
+| `compare` | 자사 비교. 추출 요구 → 비교 입력 매핑은 `to_comparison` 한 곳(`COMPLIANCE`는 인증 요구, 그 밖은 속성 그대로, 계열 없음. KAN-186 확인 요청 중) | `comparison.compare` | `requirements`, `requirement_versions`(판본 1, `ai_draft`, 판단 포함), `requirement_conditions`, `product_comparisons`, `comparison_evidence` |
+| `supplement` | 보완 선택지. 고객 허용은 `UNSTATED`, 허용 조항은 null(그 값을 정하는 코드가 아직 없다) | `supplement.options_for` | `supplement_options` |
+| `candidates` | 사양 차이(`SPEC_GAP`) 요구에 협력사 등급. DB `partner_profiles` 행만 쓰고 없으면 건너뛰고 `needs_review`. RFP 맥락은 기본값(제조사 목록 없음·`UNSTATED`·지역 없음·통합사 불필요) | `grading.grade_candidate` | `partner_grades` |
+| `draft` | 초안 생성(A07) 전이라 counts만 남긴다(실패 아님) | — | 없음 |
+
+- **접수 입력 판본**: 처리 함수는 `input_version`(정렬 문서 판본 ID의 SHA-256)만 받는다. 프로젝트 문서의 최신 판본 묶음부터 맞춰 보고, 아니면 문서 판본 12개까지 조합을 다 본다. 못 찾으면 실패다.
+- **원문**: local/test는 `TFT_DOCUMENT_ROOT`/`storage_key` 파일을 읽고 판본 행의 sha256·size와 맞는지 본다. GCS 읽기는 업로드 경로(6)를 구현할 때 붙인다.
+- **추출 모델**: `TFT_EXTRACTION_PROVIDER=gemini`(기본, `AI_*`·`GEMINI_*` 설정) 또는 `fake`(요구를 뽑지 않는 고정 응답, 키 없는 로컬).
+- **트랜잭션**: `compare`부터 `candidates`까지 쓰는 행은 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소·오류) 요구 행이 남지 않는다. 조항 트리는 `parse` 때 따로 저장한다.
+- **재실행 멱등**: 이미 요구 판본을 만든 문서 판본은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다.
+- **SSE 값**: 단계마다 `counts{requirements, proposals}`(proposals는 0). `skipped` 같은 새 키는 두지 않는다(허용 키 표 그대로).
+- `rfp.export`·`rfp.annotate`는 단계가 아직 없어 그 단계 하나(counts 0)만 남기고 SUCCEEDED다.
+- **권한(`20261104_KAN-199_tft_worker.sql`)**: `tft_worker`는 문서·문서 판본·요구 판본·협력사 프로필 SELECT, 조항 SELECT·INSERT, 위 표 INSERT만 가진다. UPDATE·DELETE는 없다.
+- 검사: `tests/tft/test_worker_processor_db.py`(가짜 추출기·합성 Markdown·`tft_worker` 권한), 종단 `tests/platform/test_tft_worker_db.py::test_worker_runs_the_real_processor_end_to_end`.
+
 ## 아직 없는 것
 
-- 처리 함수 구현(`backend.api.tft.worker_processor`)과 그 tft 표 권한: KAN-186 판정·KAN-184 후보 풀.
+- 검색기(R10 FTS·벡터) 연결, 고객 허용 조항 해석, RFP 맥락(제조사 목록 등)의 원천, 초안·내보내기·메모 해석 단계.
+- 입력 판본 복원(후속): 접수 때 `rfp_commands` 결과에 `document_version_ids`를 남기고 worker가 작업 ID로 읽게 바꾼다(지금은 해시 조합 역산, 판본 12개 상한).
 - 취소를 거는 경로. 지금은 `cancel_requested_at`을 읽기만 한다(KAN-194 이연 P3와 같은 범위).

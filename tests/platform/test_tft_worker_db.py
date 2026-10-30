@@ -1,5 +1,8 @@
 """KAN-199 2/2 RFP worker를 전용 PostgreSQL·tft_worker 로그인·합성 처리 함수로 확인한다. 행은 합성이다."""
 
+# ruff: noqa: F811
+
+import asyncio
 from uuid import uuid4
 
 import psycopg
@@ -10,7 +13,14 @@ from pydantic import SecretStr
 from backend.agent.processor_registry import load_processor
 from backend.agent.tft_worker import TftWorkerSettings, execute_job, parse_job_id
 from backend.api.platform.jobs.events import EventPayload
+from backend.api.platform.jobs.tft import TftJobRequest, admit_tft_job
+from backend.api.tft.rfp.jobs import input_version
+from backend.api.tft.worker_processor import make_processor
+from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
+
+# tft 고정물(마이그레이션 적용·합성 프로젝트와 원문)을 가져와 쓴다.
+from tests.tft.test_worker_processor_db import admin, project  # noqa: F401
 
 WORKER = TftWorkerSettings(_env_file=None, enabled=True, lease_seconds=60)
 COUNTS = {"requirements": 4, "proposals": 2}
@@ -169,9 +179,18 @@ def test_processor_error_codes_are_replaced_by_the_fixed_code(
 
 
 def test_missing_processor_module_fails_with_its_code(worker_settings, jobs_database, tft_job):
-    """처리 함수 모듈이 아직 없으면 FAILED·TFT_WORKER_PROCESSOR_MISSING이다."""
+    """처리 함수 모듈을 찾지 못하면 FAILED·TFT_WORKER_PROCESSOR_MISSING이다."""
+
+    def missing(name):
+        raise ModuleNotFoundError(name=name)
+
     with pytest.raises(ApplicationError) as error:
-        execute_job(worker_settings, WORKER, tft_job, processor_loader=load_processor)
+        execute_job(
+            worker_settings,
+            WORKER,
+            tft_job,
+            processor_loader=lambda s: load_processor(s, import_module=missing),
+        )
     assert error.value.code == "TFT_WORKER_PROCESSOR_MISSING"
     assert snapshot(jobs_database, tft_job)[:3] == ("FAILED", True, "TFT_WORKER_PROCESSOR_MISSING")
 
@@ -290,3 +309,50 @@ def test_worker_is_gated_and_needs_a_canonical_job_id(worker_settings):
     assert parse_job_id(str(job_id)) == job_id
     with pytest.raises(ApplicationError):
         parse_job_id(str(job_id).upper())
+
+
+def test_worker_runs_the_real_processor_end_to_end(
+    settings, worker_settings, jobs_database, registered_user, project, admin
+):
+    """접수한 rfp.process 작업을 실제 처리 함수(가짜 추출기)로 끝까지 돌린다: 7단계 진행과 요구 저장."""
+    from tests.tft.test_worker_processor_db import STEPS, FakeExtractor
+    from tests.tft.test_worker_processor_db import apply as apply_tft
+
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = TftJobRequest(
+                actor_id=registered_user[1],
+                kind="rfp.process",
+                project_id=project["project"],
+                input_version=input_version([project["docver"]]),
+                idempotency_key=str(uuid4()),
+                request_hash="c" * 64,
+            )
+            return (await admit_tft_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    extractor = FakeExtractor()
+    result = execute_job(
+        worker_settings,
+        WORKER,
+        job_id,
+        processor_loader=lambda s: make_processor(
+            s, provider=extractor, document_root=project["root"]
+        ),
+    )
+    assert result == "TFT_JOB_SUCCEEDED"
+    status, released, failure, events = snapshot(jobs_database, job_id)
+    assert (status, released, failure) == ("SUCCEEDED", True, None)
+    progress = [payload["step"] for kind, payload in events if kind == "job.progress"]
+    assert progress == STEPS
+    assert events[-1][1]["counts"] == {"requirements": 3, "proposals": 0}
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM tft.requirements WHERE project_id=%s", (project["project"],)
+        ).fetchone() == (3,)
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
