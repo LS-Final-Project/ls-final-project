@@ -3,6 +3,7 @@
 명세 v1.1 §3의 30개 경로 중 아직 없는 28개다(1·3번 목록·상세는 projects/routes.py에 있고
 응답 확장은 구현 작업이 한다). 모든 경로는 구현 전까지 501 `TFT_NOT_IMPLEMENTED`를 돌려준다.
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
+15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py).
 """
 
 from typing import Annotated, Any, NoReturn
@@ -11,11 +12,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
+from backend.api.tft.rfp import routes_questions, routes_supplement
 from backend.api.tft.rfp import schemas as s
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind_path_ids
-from backend.shared.models import ErrorResponse, SuccessResponse
+from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 
 
 def rfp_principal(request: Request) -> Principal:
@@ -48,6 +50,13 @@ router = APIRouter(
         501: {"model": ErrorResponse, "description": "Declared in KAN-182, not implemented yet"},
     },
 )
+
+
+def respond(request: Request, data: Any) -> SuccessResponse[Any]:
+    return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))
+
+
+User = Annotated[Principal, Depends(rfp_principal)]
 
 
 def planned(ticket: str) -> dict[str, Any]:
@@ -261,24 +270,32 @@ async def get_comparison(requirement_id: UUID) -> NoReturn:
     "/requirements/{requirement_id}/supplement-options",
     response_model=SuccessResponse[s.SupplementOptions],
     operation_id="tft_get_rfp_supplement_options",
-    openapi_extra=A07,
 )
-async def get_supplement_options(requirement_id: UUID) -> NoReturn:
+async def get_supplement_options(
+    requirement_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.SupplementOptions]:
     """15. 보완 경로 선택지. 금지 경로는 allowed=false."""
-    not_implemented()
+    data = await routes_supplement.get_supplement_options(request, principal, requirement_id)
+    return respond(request, data)
 
 
 @router.post(
     "/requirements/{requirement_id}/supplement-selection",
     response_model=SuccessResponse[s.SupplementSelected],
     operation_id="tft_select_rfp_supplement",
-    openapi_extra=A07,
 )
 async def select_supplement(
-    requirement_id: UUID, payload: s.SupplementSelection, idempotency_key: Key
-) -> NoReturn:
+    requirement_id: UUID,
+    payload: s.SupplementSelection,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.SupplementSelected]:
     """16. 경로·후보·역할 분담 선택(사람 결정, human_input 새 판본)."""
-    not_implemented()
+    data = await routes_supplement.select_supplement(
+        request, principal, requirement_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.get(
@@ -296,13 +313,27 @@ async def list_partner_candidates(project_id: UUID, requirement_id: UUID | None 
     P + "/questions",
     response_model=SuccessResponse[s.QuestionList],
     operation_id="tft_list_rfp_questions",
-    openapi_extra=A07,
 )
 async def list_questions(
-    project_id: UUID, status: s.QuestionStatus | None = None, requirement_id: UUID | None = None
-) -> NoReturn:
-    """18. 고객 질문 목록."""
-    not_implemented()
+    project_id: UUID,
+    request: Request,
+    principal: User,
+    status: s.QuestionStatus | None = None,
+    requirement_id: UUID | None = None,
+    target: s.QuestionTarget | None = None,
+    target_dept: str | None = Query(None, min_length=1, max_length=32),
+) -> SuccessResponse[s.QuestionList]:
+    """18. 고객·내부 자문 질문 목록."""
+    data = await routes_questions.list_questions(
+        request,
+        principal,
+        project_id,
+        status=status,
+        requirement_id=requirement_id,
+        target=target,
+        target_dept=target_dept,
+    )
+    return respond(request, data)
 
 
 @router.post(
@@ -310,26 +341,41 @@ async def list_questions(
     status_code=201,
     response_model=SuccessResponse[s.Question],
     operation_id="tft_create_rfp_question",
-    openapi_extra=A07,
 )
 async def create_question(
-    project_id: UUID, payload: s.QuestionCreate, idempotency_key: Key
-) -> NoReturn:
+    project_id: UUID,
+    payload: s.QuestionCreate,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.Question]:
     """19. 질문 작성. 회신 전 요구값은 UNDETERMINED로 유지한다."""
-    not_implemented()
+    data = await routes_questions.create_question(
+        request, principal, project_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.post(
     "/questions/{question_id}/reply",
-    response_model=SuccessResponse[s.Proposal],
+    response_model=SuccessResponse[s.QuestionReplyResult],
     operation_id="tft_reply_rfp_question",
-    openapi_extra=A08,
 )
 async def reply_question(
-    question_id: UUID, payload: s.QuestionReply, idempotency_key: Key
-) -> NoReturn:
-    """20. 회신 기록 → 변경 제안(customer_reply). 승인 전에는 요구가 바뀌지 않는다."""
-    not_implemented()
+    question_id: UUID,
+    payload: s.QuestionReply,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.QuestionReplyResult]:
+    """20. 회신 기록. CUSTOMER 회신이 미해결 항목을 줄이면 변경 제안(customer_reply)을 함께 만든다.
+
+    승인 전에는 요구가 바뀌지 않는다.
+    """
+    data = await routes_questions.reply_question(
+        request, principal, question_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.get(

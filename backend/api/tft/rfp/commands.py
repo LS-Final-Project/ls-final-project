@@ -6,11 +6,12 @@
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
 from uuid import UUID
 
 from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 
 from backend.shared.errors import ApplicationError
@@ -105,3 +106,54 @@ async def remember(
         "request_hash, status_code, result) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (actor, operation, key, project_id, digest, status_code, Jsonb(dict(result))),
     )
+
+
+async def run_command(
+    conn: AsyncConnection[dict[str, Any]],
+    *,
+    actor: UUID,
+    operation: Operation,
+    key: str,
+    digest: str,
+    project_id: UUID | None,
+    status_code: int,
+    work: Callable[[], Awaitable[dict[str, Any]]],
+) -> dict[str, Any]:
+    """기록이 있으면 재생하고, 없으면 work를 실행해 결과를 같은 트랜잭션에 기록한다.
+
+    상태에 따른 검사(판본 409 등)는 work 안에 둔다. 재전송은 상태가 바뀐 뒤에도 첫 결과를 받아야 한다.
+
+    Args:
+        conn: 진행 중 트랜잭션(커밋은 호출자의 connection이 한다).
+        actor: 요청자.
+        operation: 연산.
+        key: Idempotency-Key.
+        digest: request_hash 결과.
+        project_id: 대상 프로젝트.
+        status_code: 처음 처리의 응답 상태.
+        work: 쓰기를 하고 응답 data(JSON 객체)를 돌려주는 함수.
+
+    Returns:
+        dict: 응답 data. 같은 키가 동시에 처리되면 늦은 쪽은 409 IDEMPOTENCY_CONFLICT다(트랜잭션이 중단돼 같은
+            트랜잭션에서 다시 읽을 수 없다. 다시 보내면 먼저 끝난 결과를 재생한다).
+    """
+    stored = await replay(conn, actor=actor, operation=operation, key=key, digest=digest)
+    if stored is not None:
+        return stored[1]
+    result = await work()
+    try:
+        await remember(
+            conn,
+            actor=actor,
+            operation=operation,
+            key=key,
+            digest=digest,
+            project_id=project_id,
+            status_code=status_code,
+            result=result,
+        )
+    except UniqueViolation:
+        raise ApplicationError(
+            409, "IDEMPOTENCY_CONFLICT", "The same request key is in progress. Retry later."
+        ) from None
+    return result
