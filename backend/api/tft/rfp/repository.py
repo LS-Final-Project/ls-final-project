@@ -950,7 +950,12 @@ async def insert_approved_version(
 
 
 async def mark_rereview(
-    conn: AsyncConnection[Row], project_id: UUID, requirement_id: UUID, proposal_id: UUID
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    requirement_id: UUID,
+    proposal_id: UUID,
+    *,
+    requirement_too: bool,
 ) -> None:
     """승인한 제안의 연결 객체(요구·비교·보완·최신 초안 문장)마다 재검토 표시를 남긴다.
 
@@ -959,11 +964,13 @@ async def mark_rereview(
         project_id: 프로젝트 ID.
         requirement_id: 요구 ID.
         proposal_id: 원인 제안.
+        requirement_too: 요구 자체에도 표시를 남길지.
     """
     await conn.execute(
         "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, cause_proposal_id) "
         "SELECT gen_random_uuid(), %(project)s, kind, target, %(proposal)s FROM ("
         "SELECT 'requirement' AS kind, %(requirement)s::uuid AS target "
+        "WHERE %(requirement_too)s "
         "UNION SELECT 'comparison', %(requirement)s FROM tft.product_comparisons "
         "WHERE requirement_id = %(requirement)s "
         "UNION SELECT 'supplement', %(requirement)s FROM tft.supplement_selections "
@@ -978,6 +985,7 @@ async def mark_rereview(
             "proposal": proposal_id,
             "requirement": requirement_id,
             "requirement_text": str(requirement_id),
+            "requirement_too": requirement_too,
         },
     )
 

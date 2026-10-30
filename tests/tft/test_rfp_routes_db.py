@@ -954,7 +954,7 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
     assert detail["judgement"]["status"] == "EVIDENCE_FOUND"
     assert detail["spec"]["necessity"] == "PREFERRED"
     assert detail["origin"]["quote"] == "BIL 95 kV"
-    assert detail["needs_rereview"] is True
+    assert detail["needs_rereview"] is False
     with psycopg.connect(admin) as conn:
         version = conn.execute(
             "SELECT provenance_kind, decided_by, proposal_id::text, attribute, value, unit, "
@@ -980,17 +980,13 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
             "SELECT target_kind FROM tft.rereview_marks WHERE cause_proposal_id=%s ORDER BY 1",
             (proposal["proposal_id"],),
         ).fetchall()
-        assert kinds == [("requirement",), ("supplement",)]
+        assert kinds == [("supplement",)]
         audit = conn.execute(
             "SELECT entity_id, actor_user_id, proposer_user_id, approver_user_id "
             "FROM tft.rfp_audit_events WHERE action='proposal.approve' AND project_id=%s",
             (gap["project"],),
         ).fetchall()
     assert audit == [(proposal["proposal_id"], SALES, TECH.user_id, SALES)]
-    # 한계(계약): 근거 확인으로 승인되면 고를 경로가 없어 표시를 해소할 수 없다.
-    stuck = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"], version=2)
-    assert error(stuck) == (409, "TFT_INVALID_TRANSITION")
-    assert data(get(client, f"/requirements/{gap['requirement']}"))["needs_rereview"] is True
     listed = data(get(client, f"/projects/{gap['project']}/proposals?status=APPROVED"))["items"]
     assert [p["decided_by"] for p in listed] == [str(SALES)]
 
@@ -1050,3 +1046,26 @@ def test_note_without_a_requirement_can_only_be_rejected(client, gap, admin):
     proposal = {"proposal_id": proposal_id, "version": 1}
     assert error(decide(client, proposal)) == (422, "VALIDATION_ERROR")
     assert decide(client, proposal, "reject", reason="조항 없음").status_code == 200
+
+
+def unresolved_count(client, gap, version):
+    url = f"/projects/{gap['project']}"
+    return data(call(client, "PATCH", url, OWNER, {"version": version}))[
+        "unresolved_mandatory_count"
+    ]
+
+
+def test_evidence_found_approval_leaves_the_unresolved_count(client, gap, admin):
+    """근거 확인 승인은 사람 재확인이라 요구 표시가 없고 미해결 필수 집계에서 빠진다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET necessity='MANDATORY' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+    assert unresolved_count(client, gap, 1) == 1
+    proposal = propose(
+        client, gap, status="EVIDENCE_FOUND", reason="성적서 확인", unresolved=[]
+    ).json()["data"]
+    done = decide(client, proposal).json()["data"]
+    assert done["needs_rereview"] is False
+    assert unresolved_count(client, gap, 2) == 0

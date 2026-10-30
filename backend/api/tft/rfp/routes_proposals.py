@@ -1,8 +1,8 @@
 """경로 21~24: 변경 제안 목록·작성·승인·기각(KAN-189).
 
 요구의 상태·성격·조건·사유는 제안 승인으로만 바뀐다. 승인은 요구의 새 판본(human_input)을 쓰고 연결 객체에 재검토
-표시를 남긴다. 표시는 같은 요구의 보완 선택을 다시 저장하면 해소된다(routes_supplement). 범위 밖은 404, 볼 수만
-있으면 403이다. 시연에서는 자기 제안을 자기가 승인할 수 있다.
+표시를 남긴다. EVIDENCE_FOUND 승인은 요구 자체에는 남기지 않는다. 표시는 같은 요구의 보완 선택을 다시 저장하면
+해소된다(routes_supplement). 범위 밖은 404, 볼 수만 있으면 403이다. 시연에서는 자기 제안을 자기가 승인할 수 있다.
 """
 
 from typing import Any
@@ -205,7 +205,14 @@ async def approve_proposal(
             await repository.decide_proposal(
                 conn, proposal_id, "APPROVED", principal.user_id, payload.note
             )
-            await repository.mark_rereview(conn, project["id"], requirement_id, proposal_id)
+            # 근거 확인으로 승인한 것 자체가 사람 재확인이고, 그 요구는 고를 보완 경로도 없다.
+            await repository.mark_rereview(
+                conn,
+                project["id"],
+                requirement_id,
+                proposal_id,
+                requirement_too=proposal["proposed"]["status"] != "EVIDENCE_FOUND",
+            )
             await commands.audit(
                 conn,
                 project_id=project["id"],
