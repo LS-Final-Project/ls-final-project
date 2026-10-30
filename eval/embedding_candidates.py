@@ -128,7 +128,7 @@ def run_embedding_candidates(
         dict: candidates(후보 행: name·model·dimension(실측)·recall_at_k·hit_at_k·mrr·embed_calls·elapsed_ms·
             chunk_count·query_count·error·usage(후보 usage 콜러블 결과, 없으면 None))와 ranking, per_query(성공한
             후보마다 질의별 {query_id, candidate, first_hit_rank, top_ids(상위 5 chunk_id)}). 순위 동률은 chunk_id 정렬로 정한다. 공급자 예외는
-            error=PROVIDER_ERROR로 두고 지표·실측 차원은 None이다(원문 없음). ranking은 hit@5(없으면 가장 큰 k)
+            error=PROVIDER_ERROR로 두고 지표·실측 차원은 None이며 usage에는 partial=True를 단다(원문 없음). ranking은 hit@5(없으면 가장 큰 k)
             내림차순 → MRR 내림차순 → 이름순이며 오류 행은 지표가 None이라 뒤로 간다. 입력·벡터 위반(차원 불일치·0 벡터·개수
             불일치)은 EVAL_INVALID_INPUT ValueError다.
     """
@@ -179,7 +179,8 @@ def run_embedding_candidates(
                     "embed_calls": None,
                     "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                     "error": PROVIDER_ERROR,
-                    "usage": dict(candidate.usage()) if candidate.usage else None,
+                    # 실패 직전까지의 부분 합계라 완전한 사용량으로 읽히지 않게 partial을 단다.
+                    "usage": {**candidate.usage(), "partial": True} if candidate.usage else None,
                 }
             )
             continue

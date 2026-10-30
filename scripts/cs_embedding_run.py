@@ -323,7 +323,8 @@ def execute(
         result["fts"] = fts_baseline(fts, gold, k_values, input_mode=input_mode)
     prices = load_price_table()
     for row in result["candidates"]:
-        row["cost"] = usage_cost(row["usage"], row["model"], prices)
+        # 공급자 오류 행의 사용량은 부분 합계라 비용을 내지 않는다.
+        row["cost"] = None if row["error"] else usage_cost(row["usage"], row["model"], prices)
     return {
         "meta": {
             "candidates": specs,

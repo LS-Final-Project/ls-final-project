@@ -172,13 +172,14 @@ def test_provider_error_row_and_fts_baseline_side_by_side():
 
     result = run(
         [
-            EmbeddingCandidate("broken", failing, "fake-x", 3),
+            EmbeddingCandidate("broken", failing, "fake-x", 3, usage=lambda: {"calls": 0}),
             EmbeddingCandidate("table", table_embed, "fake-a", 3),
         ]
     )
     rows = {row["name"]: row for row in result["candidates"]}
     assert rows["broken"]["error"] == "PROVIDER_ERROR"
     assert rows["broken"]["hit_at_k"] is None and rows["broken"]["mrr"] is None
+    assert rows["broken"]["usage"] == {"calls": 0, "partial": True}
     assert result["ranking"] == ["table", "broken"]
     fts = fts_baseline({"q1": ["c1"], "q2": ["c3", "c9"], "q3": [], "q4": ["c8"]}, GOLD, (1, 3, 5))
     assert fts["name"] == "FTS" and fts["hit_at_k"] == pytest.approx({1: 0.75, 3: 0.75, 5: 0.75})
