@@ -27,7 +27,8 @@ SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
 MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
 UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
-SECONDS = frozenset({"s", "sec", "secs", "second", "seconds"})
+# 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
+SECONDS = frozenset({"sec", "secs", "second", "seconds"})
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
@@ -291,7 +292,7 @@ def _unit_key(unit: str | None) -> str:
     """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
 
     양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초 표기를 s로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
-    대소문자는 크기를 가르므로(mV·MV) 그대로 둔다.
+    값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
 
     Args:
         unit: 원문 단위.
@@ -371,7 +372,8 @@ def _at_required_duration(requirement: Requirement, facts: Sequence[SpecFact]) -
         for f in facts
         if any(
             c.name == "duration"
-            and (_number(c.value), _unit_key(c.unit)) == (_number(want.value), _unit_key(want.unit))
+            and (_number(c.value), _norm(_unit_key(c.unit)))
+            == (_number(want.value), _norm(_unit_key(want.unit)))
             for c in f.conditions or []
         )
     ]
@@ -437,7 +439,10 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
         got = given.get(want.name)
         if got is None:
             gaps.append(f"{want.name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
-        elif (_norm(got.value), _unit_key(got.unit)) != (_norm(want.value), _unit_key(want.unit)):
+        elif (_norm(got.value), _norm(_unit_key(got.unit))) != (
+            _norm(want.value),
+            _norm(_unit_key(want.unit)),
+        ):
             gaps.append(
                 f"{want.name} 요구 {_with_unit(want.value, want.unit)}, "
                 f"후보 {_with_unit(got.value, got.unit)}"

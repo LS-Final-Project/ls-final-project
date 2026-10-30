@@ -87,6 +87,8 @@ class Requirement(Strict):
     # 요구가 기대는 규격 체계(IEC·IEEE·UL·NEMA, 없으면 NONE). 근거 제품의 체계와 다르면 충족을 확정하지 않는다.
     standard_system: str = "NONE"
     designated_model: str | None = None
+    # 설계 기준 제품(동등 이상 허용). 지정이 아니라 참고 기준이라 지정품 조달로 보내지 않는다.
+    basis_of_design: bool = False
     task: str | None = None
     # 추출 요구 종류. 과업·문서 요구는 장비 사양이 아니라 계열 검사를 거치지 않는다(`_work_kind`).
     kind: Kind = "SPEC"
@@ -483,12 +485,22 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             search_trace=trace,
         )
 
+    if requirement.basis_of_design:
+        return outcome(
+            "CONDITIONAL",
+            f"원문 {requirement.clause_no} 설계 기준 {requirement.value or requirement.item}: "
+            "지정이 아니라 참고 기준이라 동등 이상 제안이 가능한지 고객 확인 필요.",
+            ["동등 이상 제안 가능 여부(고객 확인)"],
+            "CUSTOMER",
+            None,
+            [],
+        )
     if requirement.designated_model:
         # 타사 지정 모델은 자사 제품과 같다고 보지 않는다. 지정품 조달 또는 대체 제안(고객 승인)으로
         # 나누는 대응 경로가 있어 조건부다(기획서 4.2·4.4).
         return outcome(
             "CONDITIONAL",
-            f"원문 {requirement.clause_no} 설계 기준 {requirement.designated_model}: 타사 지정 모델이라 "
+            f"원문 {requirement.clause_no} 지정 모델 {requirement.designated_model}: 타사 지정 모델이라 "
             "자사 제품과 같다고 보지 않음. 지정품 조달 또는 동등품 대체(발주처 승인) 확인.",
             ["동등품 허용 여부(발주처 승인)"],
             "CUSTOMER",
@@ -687,7 +699,8 @@ def compare_in_family(
         )
 
     not_equipment = requirement.certification_standard is None and _work_kind(requirement)
-    if requirement.designated_model is None and not not_equipment:
+    named = requirement.designated_model is not None or requirement.basis_of_design
+    if not named and not not_equipment:
         if family in (None, "OTHER"):
             return not_compared(
                 "요구 장비 계열을 정하지 못해 비교하지 않음.", "요구 장비 계열 확인"
