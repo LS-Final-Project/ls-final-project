@@ -359,6 +359,41 @@ FORBIDDEN_EXAMPLES = {
         "기술자를 파견하겠습니다.",
         "엔지니어를 파견해 드리겠습니다.",
     ],
+    # KAN-193 반품 사유·제조 책임 확정.
+    FORBIDDEN_COMMITMENTS[17].pattern: [
+        "This is a manufacturing defect.",
+        "The failure has been confirmed as a manufacturing defect.",
+        "Your unit was confirmed to be a manufacturing fault.",
+    ],
+    FORBIDDEN_COMMITMENTS[18].pattern: [
+        "The return reason has been confirmed.",
+        "Return reason is determined.",
+    ],
+    FORBIDDEN_COMMITMENTS[19].pattern: [
+        "We accept full responsibility for the failure.",
+        "We take liability for the damage.",
+    ],
+    FORBIDDEN_COMMITMENTS[20].pattern: [
+        "The damage was determined to be customer misuse.",
+        "It is confirmed as improper installation.",
+    ],
+    FORBIDDEN_COMMITMENTS[21].pattern: [
+        "제조 불량으로 확인되었습니다.",
+        "제품 결함으로 판정되었습니다.",
+        "검사 결과 불량으로 확정됐습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[22].pattern: [
+        "당사 책임으로 확인되었습니다.",
+        "저희 책임이 인정됩니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[23].pattern: [
+        "반품 사유가 제조 불량으로 확정되었습니다.",
+        "반품 사유는 단순 변심으로 확정했습니다.",
+    ],
+    FORBIDDEN_COMMITMENTS[24].pattern: [
+        "고객 과실로 판정되었습니다.",
+        "설치 부주의로 확인되었습니다.",
+    ],
 }
 # 조건부·부정 표현은 허용한다(경계 고정).
 ALLOWED_EXAMPLES = [
@@ -379,6 +414,17 @@ ALLOWED_EXAMPLES = [
     "We will check whether your unit is covered under warranty.",
     "We will confirm whether or not it is covered under warranty.",
     "In case it is covered under warranty, we will let you know.",
+    # KAN-193: 반품 사유·책임은 검사 뒤 확정한다는 조건부 표현은 허용한다.
+    "We will confirm whether it is a manufacturing defect after inspection.",
+    "If the failure is a manufacturing defect, it may be covered under warranty.",
+    "The return reason will be confirmed after inspection.",
+    "It is not a manufacturing defect yet.",
+    "Responsibility will be decided after the inspection.",
+    "반품 사유는 검사 후 확정됩니다.",
+    "제조 불량 여부는 검사 후 확인하겠습니다.",
+    "책임 소재는 점검 결과에 따라 판단합니다.",
+    "고객 과실 여부는 확인 후 안내드립니다.",
+    "불량 여부를 확인하고 있습니다.",
 ]
 
 

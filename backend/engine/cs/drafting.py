@@ -61,6 +61,22 @@ FORBIDDEN_COMMITMENTS = tuple(
         r"\bwe(?:\s+have|[’']ve)\s+approved\s+(?:your|the)\s+(?:RMA|return|warranty\s+claim)\b",
         r"(?:RMA|반품|보증)\s*(?:승인|처리)\s*(?:이|가)?\s*완료\s*(?:되었|됐|했|하였|합니다|입니다)",
         r"(?:기술자|엔지니어|기사)\s*(?:를|을)?\s*파견\s*(?:하겠습니다|해\s*드리)",
+        # KAN-193: 반품 사유·제조 책임 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
+        # 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
+        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )\b(?:it|this|that|(?:the|your)\s+"
+        r"(?:defect|failure|fault|issue|problem|unit|product))\s+(?:is|was|has\s+been)\s+"
+        r"(?:confirmed\s+(?:as|to\s+be)\s+)?(?:a\s+)?manufacturing\s+(?:defect|fault)\b",
+        r"\breturn\s+reason\s+(?:is|was|has\s+been)\s+(?:confirmed|determined)\b",
+        r"\bwe\s+(?:accept|take)\s+(?:full\s+)?(?:responsibility|liability)\b",
+        r"\b(?:confirmed|determined)\s+(?:as|to\s+be)\s+(?:customer\s+(?:misuse|error|damage)|misuse|"
+        r"improper\s+(?:use|installation))\b",
+        r"(?:(?:제조|제품|생산)\s*)?(?:불량|결함|하자)\s*(?:으로|로)\s*(?:확인|확정|판정)\s*"
+        r"(?:되었|됐|했|하였|합니다|됩니다)",
+        r"(?:당사|제조사|저희)\s*(?:의\s*)?책임\s*(?:으로|이)\s*(?:확인|확정|판정|인정)\s*"
+        r"(?:되었|됐|했|하였|합니다|됩니다)",
+        r"반품\s*사유\s*(?:가|는|를)?\s*[^.!?\n]{0,20}?확정\s*(?:되었|됐|했|하였)",
+        r"(?:고객|사용자|설치)\s*(?:측\s*)?(?:과실|부주의|오사용|오설치)\s*(?:으로|로)\s*"
+        r"(?:확인|확정|판정)\s*(?:되었|됐|했|하였|합니다|됩니다)",
     )
 )
 
