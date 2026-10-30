@@ -145,7 +145,10 @@ def check_selection(
                 422,
                 "TFT_RND_CHECK_REQUIRED",
                 "Confirm own development with R&D first, or give a waiver reason.",
-                details=[{"field": "rnd_check_waiver_reason", "reason": str(rnd_question_id)}],
+                # 열린 질문 ID를 알 때만 알려 준다(없으면 "None" 문자열을 내보내지 않는다, #300 리뷰 P3).
+                details=[{"field": "rnd_question_id", "reason": str(rnd_question_id)}]
+                if rnd_question_id is not None
+                else [],
             )
         # 초안 ASSUMPTIONS에 "자사 개발 가능성 미확인 상태에서 협력사 경로 선택"이 생긴다(KAN-188).
         return "WAIVED"

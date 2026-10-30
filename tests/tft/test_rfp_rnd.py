@@ -85,7 +85,10 @@ def test_a_partner_path_while_rnd_is_open_needs_a_waiver_reason():
     with pytest.raises(ApplicationError) as refused:
         check_selection(options["EXTERNAL_PRODUCT"], "PENDING", None, qid)
     assert (refused.value.status_code, refused.value.code) == (422, "TFT_RND_CHECK_REQUIRED")
-    assert refused.value.details[0]["reason"] == str(qid)
+    assert refused.value.details == [{"field": "rnd_question_id", "reason": str(qid)}]
+    with pytest.raises(ApplicationError) as unknown:
+        check_selection(options["EXTERNAL_PRODUCT"], "PENDING", None, None)
+    assert unknown.value.details == []
     with pytest.raises(ApplicationError):
         check_selection(options["EXTERNAL_PRODUCT"], "PENDING", "too short", qid)
     reason = "고객 일정상 R&D 회신을 기다릴 수 없어 외부 조달로 먼저 검토"

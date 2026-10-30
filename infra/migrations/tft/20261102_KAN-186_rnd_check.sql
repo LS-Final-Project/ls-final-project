@@ -35,8 +35,9 @@ ALTER TABLE tft.customer_questions ADD CONSTRAINT customer_questions_issue_type_
     OR (target = 'INTERNAL' AND issue_type IN ('RND_FEASIBILITY', 'TECH_ADVICE', 'PURCHASE_TERMS'))
 );
 
--- R&D answer fields: only on an answer to an internal question of an R&D department (the API
--- checks the department kind; the table keeps the values consistent).
+-- R&D answer fields. That they come only with an internal question to an R&D department is
+-- checked by the API (rnd.check_reply_fields), not by the table; the table only refuses
+-- schedule fields without a feasibility value.
 ALTER TABLE tft.question_replies
     ADD COLUMN IF NOT EXISTS rnd_feasibility text
         CHECK (rnd_feasibility IN ('FEASIBLE', 'FEASIBLE_WITH_SCHEDULE', 'NOT_FEASIBLE', 'UNDETERMINED')),

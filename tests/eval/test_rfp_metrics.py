@@ -9,6 +9,7 @@ from eval.rfp_metrics import (
     gold_fingerprint,
     summarize_candidate_grades,
     summarize_edit_traces,
+    summarize_integration_responsibility,
     summarize_requirement_extraction,
 )
 
@@ -404,3 +405,45 @@ def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
     measured = gate_values(summarize_requirement_extraction(full, guessed, run_label="FIRST"), None)
     assert measured["rfp_status_match_rate"] == 0.5
     assert measured["rfp_critical_false_fulfillment_count"] == 1
+
+
+def test_integration_responsibility_counts_assembly_requirements_with_a_check_and_a_path():
+    """gates-rfp-v1 rfp_integration_responsibility_rate: 조립품 공급 요구 단위(KAN-186)."""
+    from backend.api.tft.rfp.integration import Requirement, integration_responsibility
+
+    unit = [
+        Requirement(clause_no="2.3.A", assembly_clause=True),
+        Requirement(clause_no="2.9.B", task="FACTORY_TEST"),
+    ]
+    gold = {"14": ["2.3.A", "2.9.B"], "10": ["2.2"]}
+    predicted = {
+        # Unresolved holder with the fallback paths: both assembly requirements count.
+        "14": integration_responsibility(unit).model_dump(mode="json"),
+        # The engine did not see 2.2 as assembly supply: missed.
+        "10": integration_responsibility([Requirement(clause_no="2.2")]).model_dump(mode="json"),
+    }
+    summary = summarize_integration_responsibility(gold, predicted)
+    assert (summary["count"], summary["denominator"], summary["missed"]) == (
+        "2/3",
+        3,
+        [("10", "2.2")],
+    )
+    assert summary["rate"] == pytest.approx(2 / 3)
+    assert gate_values(None, None, summary)["rfp_integration_responsibility_rate"] == pytest.approx(
+        2 / 3
+    )
+    # Listed but neither a holder nor a path: not handled.
+    bare = {**predicted["14"], "fallback_paths": []}
+    assert summarize_integration_responsibility({"14": ["2.3.A"]}, {"14": bare})["rate"] == 0.0
+    decided = integration_responsibility(unit, "OWN").model_dump(mode="json")
+    assert summarize_integration_responsibility({"14": ["2.3.A"]}, {"14": decided})["rate"] == 1.0
+    # A document that was not predicted counts against, an unknown document is refused.
+    assert summarize_integration_responsibility({"14": ["2.3.A"]}, {})["count"] == "0/1"
+    with pytest.raises(ValueError):
+        summarize_integration_responsibility({"14": ["2.3.A"]}, {"99": decided})
+    with pytest.raises(ValueError):
+        summarize_integration_responsibility({"14": "2.3.A"}, {})
+    # Nothing to measure: the gate stays unmeasured.
+    empty = summarize_integration_responsibility({}, {})
+    assert empty["rate"] is None
+    assert gate_values(None, None, empty)["rfp_integration_responsibility_rate"] is None
