@@ -127,8 +127,6 @@ def worker_dsn(admin):
     """tft_worker 권한만 상속하는 로그인(이 PR의 마이그레이션 적용)."""
     with psycopg.connect(admin, autocommit=True) as conn:
         apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
-        # 20261104가 tft_worker 권한을 다시 만들므로 질문 초안 권한은 그 뒤에 다시 준다(README T13).
-        apply(conn, Path("infra/migrations/tft/20261106_KAN-199_question_drafts.sql"))
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='test_tft_proc'").fetchone():
             conn.execute("CREATE ROLE test_tft_proc LOGIN PASSWORD 'test-only'")
             conn.execute("GRANT tft_worker TO test_tft_proc")

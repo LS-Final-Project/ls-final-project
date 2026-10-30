@@ -4,8 +4,8 @@
 -- version, and the placeholder wording is the same for every clause), so a new version does not
 -- create it again. Questions written by people keep draft_key NULL.
 -- The worker only inserts. Inserting without a conflict target needs no SELECT.
--- Needs 20261102_KAN-186_rnd_check.sql (T10) and 20261104_KAN-199_tft_worker.sql: re-applying that
--- file revokes every tft_worker privilege, so re-apply this file after it. Re-runnable.
+-- Needs 20261102_KAN-186_rnd_check.sql (T10). 20261104_KAN-199_tft_worker.sql grants the same INSERT.
+-- Re-runnable.
 \set ON_ERROR_STOP on
 BEGIN;
 DO $$
