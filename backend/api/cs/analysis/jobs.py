@@ -29,6 +29,9 @@ LATEST_JOB = (
     "ORDER BY run_seq DESC LIMIT 1"
 )
 logger = logging.getLogger(__name__)
+# 재개 실패 시 기다렸다 다시 시도하는 간격(초). 체크포인트 DB의 일시 오류(연결 끊김·재시작)를 넘기려는 것이라
+# 짧게 두 번만 한다. 그래도 실패하면 작업 ID를 로그로 남기고, 사람 확인 직전에 멈춘 그래프로 남는다.
+RESUME_RETRY_DELAYS = (0.5, 2.0)
 
 
 class CsAnalysisSettings(CustomerMailSettings):
@@ -146,7 +149,8 @@ async def resume_after_send(request: Request, ticket_id: UUID) -> str | None:
         ticket_id: 발송한 문의.
 
     Returns:
-        str | None: 재개 결과. 분석 작업이 꺼져 있거나 작업 기록이 없으면 None.
+        str | None: 재개 결과. 분석 작업이 꺼져 있거나 작업 기록이 없으면 None. 재개가 실패하면
+            RESUME_RETRY_DELAYS만큼 기다려 다시 하고, 모두 실패하면 RESUME_FAILED다.
     """
     if getattr(request.app.state, "analysis_jobs", None) is None:
         return None
@@ -157,9 +161,15 @@ async def resume_after_send(request: Request, ticket_id: UUID) -> str | None:
         row = await (await conn.execute(LATEST_JOB, (ticket_id,))).fetchone()
     if row is None:
         return None
-    try:
-        return await asyncio.to_thread(resume_graph, settings, row["job_id"])
-    except Exception:
-        # 원문·상태를 남기지 않고 작업 ID만 기록한다.
-        logger.warning("cs analysis resume failed", extra={"job_id": str(row["job_id"])})
-        return "RESUME_FAILED"
+    for delay in (*RESUME_RETRY_DELAYS, None):
+        try:
+            return await asyncio.to_thread(resume_graph, settings, row["job_id"])
+        except Exception as error:
+            # 원문·상태를 남기지 않고 작업 ID와 예외 종류만 기록한다.
+            extra = {"job_id": str(row["job_id"]), "error_type": type(error).__name__}
+            if delay is None:
+                logger.warning("cs analysis resume failed", extra=extra)
+                return "RESUME_FAILED"
+            logger.info("cs analysis resume retry", extra={**extra, "delay_s": delay})
+            await asyncio.sleep(delay)
+    raise AssertionError("unreachable")

@@ -79,6 +79,8 @@ class ClassificationAttempt:
     # 응답의 Generation.model·attempts. 공급자 예외로 Generation이 없으면 None이다.
     requested_model: str | None = field(default=None, repr=False)
     call_attempts: int | None = None
+    # 분류 프롬프트 판본. 공급자가 판본을 고르므로 이 함수는 모르고, 저장 직전에 실행기(build_cs_runner)가 채운다.
+    prompt_version: str | None = None
 
 
 def run_classification_attempt(

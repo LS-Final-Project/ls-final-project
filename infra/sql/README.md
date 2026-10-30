@@ -83,6 +83,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C16 | `cs/20261031_KAN-117_followup_rounds.sql` | C6(헤더) | cs_migrator | 가능 | to_regclass('cs.request_rounds') | 미확인 |
 | C17 | `cs/20261031_KAN-193_return_responsibility.sql` | C5·C11(헤더) | cs_migrator | 가능 | 열 `cs.ticket_workflows.return_responsibility` | 미확인 |
 | C18 | `cs/20261101_KAN-107_worker_source.sql` | C10·C12·C13·C14(헤더) | 관리자(역할 생성) → cs_migrator | 가능 | 열 `cs.ticket_customer_sends.requested_info_codes` | 미확인 |
+| C19 | `cs/20261102_KAN-107_attempt_usage.sql` | C14·C18(헤더) | cs_migrator | 가능 | 열 `cs.ticket_analyses.cost_usd` | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
@@ -188,6 +189,7 @@ python3 scripts/workspace.py migrate cs 20261030_KAN-110_send_draft_link.sql
 python3 scripts/workspace.py migrate cs 20261031_KAN-117_followup_rounds.sql
 python3 scripts/workspace.py migrate cs 20261031_KAN-193_return_responsibility.sql
 python3 scripts/workspace.py migrate cs 20261101_KAN-107_worker_source.sql
+python3 scripts/workspace.py migrate cs 20261102_KAN-107_attempt_usage.sql
 python3 scripts/workspace.py migrate platform 20261030_KAN-110_mail_link_notify.sql
 python3 scripts/workspace.py migrate platform 20261030_KAN-90_receipt_origin.sql
 python3 scripts/workspace.py migrate tft 20261023_KAN-119_projects.sql

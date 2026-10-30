@@ -4,16 +4,20 @@
 플랫폼 답을 어떻게 옮기는지, 발송 접수 뒤 그래프를 사람 확인 다음으로 끝내는지를 본다.
 """
 
+import asyncio
 import json
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import httpx
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.conninfo import make_conninfo
 from pydantic import SecretStr
 
+from backend.api.cs.analysis import jobs as jobs_module
 from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs, resume_graph
 from backend.api.cs.main import create_app
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
@@ -262,7 +266,7 @@ def test_the_real_resume_finds_the_ticket_job_after_the_send_is_accepted(
 ):
     settings = settings_for(cs_database)
     job = uuid4()
-    graph = stopped_graph(settings, job, ticket)
+    stopped_graph(settings, job, ticket)
     admin.execute(
         "INSERT INTO cs.ticket_analyses (id, ticket_id, run_seq, job_id, outcome, input_version) "
         "VALUES (%s, %s, 1, %s, 'SCHEMA_VIOLATION', 'cs-classification-input-v4')",
@@ -305,3 +309,34 @@ def test_the_real_resume_finds_the_ticket_job_after_the_send_is_accepted(
     assert admin.execute(
         "SELECT state FROM cs.ticket_workflows WHERE ticket_id=%s", (ticket,)
     ).fetchone() == ("WAITING_CUSTOMER",)
+
+
+@pytest.mark.parametrize(
+    ("failures", "expected", "calls"), [(1, "RESUMED", 2), (3, "RESUME_FAILED", 3)]
+)
+def test_a_failed_resume_is_retried_before_it_is_given_up(
+    cs_database, admin, ticket, monkeypatch, failures, expected, calls
+):
+    """체크포인트 DB 일시 오류로 재개가 실패하면 다시 시도하고, 계속 실패할 때만 포기한다(#298 리뷰 P3)."""
+    settings = settings_for(cs_database)
+    job = uuid4()
+    admin.execute(
+        "INSERT INTO cs.ticket_analyses (id, ticket_id, run_seq, job_id, outcome, input_version) "
+        "VALUES (%s, %s, 1, %s, 'SCHEMA_VIOLATION', 'cs-classification-input-v4')",
+        (uuid4(), ticket, job),
+    )
+    seen = []
+
+    def flaky(_settings, job_id):
+        seen.append(job_id)
+        if len(seen) <= failures:
+            raise psycopg.OperationalError("checkpoint database restarting")
+        return "RESUMED"
+
+    monkeypatch.setattr(jobs_module, "resume_graph", flaky)
+    monkeypatch.setattr(jobs_module, "RESUME_RETRY_DELAYS", (0, 0))
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(analysis_jobs=object(), settings=settings))
+    )
+    assert asyncio.run(jobs_module.resume_after_send(request, ticket)) == expected
+    assert seen == [job] * calls

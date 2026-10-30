@@ -20,7 +20,7 @@ from backend.api.platform.evaluations.admission import (
 )
 from backend.api.platform.evaluations.cs_smoke import run_case
 from backend.engine.cs.classification_call import ClassificationAttempt
-from backend.shared.ai import estimate_cost, load_price_table
+from backend.shared.ai import load_price_table, usage_cost
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -39,12 +39,10 @@ def attempt_cost(attempt: ClassificationAttempt) -> tuple[Decimal | None, str | 
             없어도 0으로 본다. 단가가 없거나 USD가 아니어도 (None, None)이다. 금액은 DB
             numeric(14,6)에 저장되며 소수 6자리로 반올림된다.
     """
+    # C/S worker(backend/api/cs/worker_source.py)와 같은 규칙을 쓴다(KAN-107).
     if attempt.requested_model is None:
         return None, None
-    cost = estimate_cost(attempt.usage, attempt.requested_model, load_price_table())
-    if cost.input is None or cost.output is None or cost.currency != "USD":
-        return None, None
-    return cost.total, f"{attempt.requested_model}@{cost.price_as_of}"
+    return usage_cost(attempt.usage, attempt.requested_model, load_price_table())
 
 
 @dataclass(frozen=True)
