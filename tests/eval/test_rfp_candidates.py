@@ -37,7 +37,17 @@ def provider(text):
     assert "power meter" not in text
     return gen(
         [
-            req("2.6.A", QUOTE_A, "rated_max_voltage", "38", "kV", operator="GTE"),
+            # 추출 v3 의미 칸: 비교는 attribute_key·equipment_family로 한다(KAN-199 #329).
+            req(
+                "2.6.A",
+                QUOTE_A,
+                "rated_max_voltage",
+                "38",
+                "kV",
+                operator="GTE",
+                attribute_key="rated_max_voltage",
+                equipment_family="MV_EQUIP",
+            ),
             req("2.6.B", QUOTE_B, "factory test", operator="TEXT", task="FACTORY_TEST"),
         ]
     )
@@ -46,7 +56,8 @@ def provider(text):
 OWN = [
     Product(
         product_code="OWN-15",
-        family="switchgear",
+        # 자사 사양 계열 어휘(vocabulary.EquipmentFamily) 값이어야 계열 안 비교가 고른다.
+        family="MV_EQUIP",
         lifecycle_status="ACTIVE",
         standards=[],
         certifications=[],

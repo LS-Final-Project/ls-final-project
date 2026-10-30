@@ -316,6 +316,44 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     return "unknown", "값이 달라 확인 필요"
 
 
+def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecFact, str] | None:
+    """단시간 내전류의 지속시간이 요구와 다르면 후보 값을 요구 지속시간 값으로 환산한다(KAN-199).
+
+    단시간 내전류는 열 등가(I²t 일정)로 지속시간을 바꿔 견준다: I₂ = I₁·√(t₁/t₂). 후보 지속시간이 길든 짧든 같은
+    식을 쓴다. 최소 요구(GTE)에만 쓴다(다른 연산자에서는 환산 뜻이 정해지지 않는다). 환산값은 시험값이 아니므로, 환산으로 충족하면 호출자가 확정하지 않고 조건부로 둔다. 미달이면 같은
+    조건(요구 지속시간)에서 미달인 근거다.
+
+    Args:
+        requirement: 요구.
+        fact: 같은 속성의 후보 사양 근거.
+
+    Returns:
+        tuple[SpecFact, str] | None: (지속시간을 요구 값으로 바꾸고 값을 환산한 근거, 환산 설명). 단시간 내전류가
+            아니거나 GTE가 아니거나, 두 쪽 지속시간이 같거나 하나라도 없거나, 단위가 다르거나 숫자로 읽을 수 없으면 None.
+    """
+    if requirement.attribute != "short_time_withstand_current" or requirement.operator != "GTE":
+        return None
+    want = next((c for c in requirement.conditions if c.name == "duration"), None)
+    got = next((c for c in fact.conditions or [] if c.name == "duration"), None)
+    if want is None or got is None or _norm(want.unit) != _norm(got.unit):
+        return None
+    wanted, given, current = _number(want.value), _number(got.value), _number(fact.value)
+    if wanted is None or given is None or current is None or wanted <= 0 or given <= 0:
+        return None
+    if wanted == given:
+        return None
+    # 판정은 반올림하지 않은 값으로 한다(경계에서 미달이 충족으로 바뀌지 않게). 사유 문구에만 0.1로 반올림한다.
+    value = current * (given / wanted).sqrt()
+    conditions = [want if c.name == "duration" else c for c in fact.conditions or []]
+    converted = fact.model_copy(update={"value": str(value), "conditions": conditions})
+    shown = str(value.quantize(Decimal("0.1")))
+    note = (
+        f"I²t 일정 환산: {_with_unit(fact.value, fact.unit)}·{_with_unit(got.value, got.unit)} → "
+        f"{_with_unit(want.value, want.unit)} {_with_unit(shown, fact.unit)}"
+    )
+    return converted, note
+
+
 def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
     """요구 조건과 후보 근거 조건의 차이를 찾는다.
 
@@ -343,8 +381,8 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
 def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[str]) -> Check:
     """제안 모델의 같은 속성 사양 근거로 요구 하나를 판정한다.
 
-    값이 충족이어도 조건(시간·온도 등)이 다르면 확약하지 않고 미확인으로 둔다. 미달이면 조건 차이를
-    사유에 함께 남긴다. 여러 제품 중 하나라도 충족하면 충족이다.
+    값이 충족이어도, 미달이어도 조건(시간·온도 등)이 다르면 확약하지 않고 미확인으로 둔다(KAN-199). 조건이 같을
+    때만 미달이다. 여러 제품 중 하나라도 충족하면 충족이다.
 
     Args:
         requirement: 요구.
@@ -367,14 +405,23 @@ def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[st
         )
     judged = []
     for fact in facts:
-        verdict, word = _value_verdict(requirement, fact)
-        gaps = _condition_gaps(requirement, fact)
+        converted = _duration_converted(requirement, fact)
+        compared, note = converted if converted else (fact, None)
+        verdict, word = _value_verdict(requirement, compared)
+        gaps = _condition_gaps(requirement, compared)
         if verdict == "passed" and gaps:
             verdict, word = "unknown", "값은 충족하나 조건이 달라 확인 필요"
-        judged.append((("passed", "unknown", "failed").index(verdict), verdict, word, fact, gaps))
-    _, verdict, word, fact, gaps = min(judged, key=lambda j: j[0])
+        elif verdict == "failed" and gaps:
+            verdict, word = "unknown", "값이 미달이나 조건이 달라 확인 필요"
+        elif verdict == "passed" and note:
+            verdict, word = "unknown", "환산 충족(시험값 아님), 확인 필요"
+        rank = ("passed", "unknown", "failed").index(verdict)
+        judged.append((rank, verdict, word, fact, gaps, note))
+    _, verdict, word, fact, gaps, note = min(judged, key=lambda j: j[0])
     cited = " ".join(filter(None, ("근거", fact.evidence_id, fact.section)))
     sentence = f"{_head(requirement)}, 후보 {_with_unit(fact.value, fact.unit)}({cited}): {word}."
+    if note:
+        sentence += f" {note}."
     if gaps:
         sentence += f" 조건 차이: {'; '.join(gaps)}."
     return requirement.attribute, verdict, sentence

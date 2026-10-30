@@ -35,7 +35,7 @@ PART 2 - PRODUCTS
 
 2.1 TRANSFORMERS
 
-A. The transformer BIL shall be 150 kV minimum.
+A. The transformer rating shall be 1500 kVA minimum.
 
 B. The impedance shall be 5.75 percent as Eaton Resibloc.
 
@@ -46,13 +46,16 @@ A. The transformer shall be UL 1561 listed.
 REQUIREMENTS = [
     {
         "clause_no": "2.1.A",
-        "quote": "The transformer BIL shall be 150 kV minimum.",
+        # 자사 변압기(630·1000 kVA)가 같은 계열 안에서 미달인 요구(SPEC_GAP → 보완 선택지·협력사 등급).
+        "quote": "The transformer rating shall be 1500 kVA minimum.",
         "kind": "SPEC",
         "equipment": "dry-type transformer",
         "task": None,
-        "attribute": "bil",
-        "value": "150",
-        "unit": "kV",
+        "attribute": "rating",
+        "attribute_key": "rated_power",
+        "equipment_family": "TRANSFORMER",
+        "value": "1500",
+        "unit": "kVA",
         "operator": "GTE",
         "conditions": [],
         "standard_system": "IEEE",
@@ -66,6 +69,8 @@ REQUIREMENTS = [
         "equipment": "dry-type transformer",
         "task": None,
         "attribute": "impedance",
+        "attribute_key": "impedance",
+        "equipment_family": "TRANSFORMER",
         "value": "5.75",
         "unit": "%",
         "operator": "EQ",
@@ -82,6 +87,7 @@ REQUIREMENTS = [
         "equipment": "dry-type transformer",
         "task": None,
         "attribute": "UL 1561",
+        "equipment_family": "TRANSFORMER",
         "value": None,
         "unit": None,
         "operator": "TEXT",
@@ -124,10 +130,24 @@ def worker_dsn(admin):
 @pytest.fixture
 def project(admin, tmp_path):
     """요구가 없는 프로젝트와 원문 폴더에 둔 Markdown 규격서 판본 하나."""
+    return make_project(admin, tmp_path, SPEC)
+
+
+def make_project(admin, tmp_path, spec):
+    """원문 spec(Markdown 바이트)으로 프로젝트·문서·판본을 만든다.
+
+    Args:
+        admin: 관리자 DSN.
+        tmp_path: 원문 폴더.
+        spec: 규격서 원문.
+
+    Returns:
+        dict: project·document·docver ID와 root.
+    """
     ids = {k: uuid4() for k in ("project", "document", "docver")}
     key = f"rfp/{ids['docver']}.md"
     (tmp_path / "rfp").mkdir()
-    (tmp_path / key).write_bytes(SPEC)
+    (tmp_path / key).write_bytes(spec)
     with psycopg.connect(admin) as conn:
         conn.execute(
             "INSERT INTO tft.projects (id, source, source_instance, data_origin, derivation_kind, "
@@ -148,8 +168,8 @@ def project(admin, tmp_path):
                 ids["docver"],
                 ids["document"],
                 key,
-                hashlib.sha256(SPEC).hexdigest(),
-                len(SPEC),
+                hashlib.sha256(spec).hexdigest(),
+                len(spec),
                 uuid4(),
             ),
         )
@@ -280,6 +300,50 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     assert extractor.calls == 2
     assert again["counts"] == {"requirements": 0, "proposals": 0}
     assert stored(admin, project) == first
+
+
+def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
+    worker_dsn, admin, tmp_path
+):
+    """재현(KAN-199 #329 리뷰): 처리 함수가 변압기 rated_current 400 A 요구를 MCCB 600 A 근거로 EVIDENCE_FOUND로
+    두지 않는다. 요구 계열(TRANSFORMER) 후보만 비교하고, 비교 행의 search_trace에 family가 남는다."""
+    quote = "The transformer rated current shall be 400 A minimum."
+    spec = f"# SECTION 26 12 19\n\nPART 2 - PRODUCTS\n\n2.1 TRANSFORMERS\n\nA. {quote}\n".encode()
+    wanted = {
+        **REQUIREMENTS[0],
+        "quote": quote,
+        "attribute": "rated current",
+        "attribute_key": "rated_current",
+        "value": "400",
+        "unit": "A",
+    }
+
+    class OneRequirement(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text=json.dumps({"requirements": [wanted]}),
+                usage=Usage(),
+                model_version="fake",
+                finish_reasons=[],
+            )
+
+    project = make_project(admin, tmp_path, spec)
+    run(worker_dsn, project, OneRequirement())
+    with psycopg.connect(admin) as conn:
+        status = conn.execute(
+            "SELECT v.status FROM tft.requirement_versions v JOIN tft.requirements r ON r.id = v.requirement_id "
+            "WHERE r.project_id=%s",
+            (project["project"],),
+        ).fetchall()
+        compared = conn.execute(
+            "SELECT p.product_code, p.search_trace FROM tft.product_comparisons p "
+            "JOIN tft.requirements r ON r.id = p.requirement_id WHERE r.project_id=%s",
+            (project["project"],),
+        ).fetchall()
+    assert status == [("INSUFFICIENT_EVIDENCE",)]
+    assert {code for code, _ in compared} == {"TRF-DRY-630", "TRF-OIL-1000"}
+    assert all(trace["filters"] == ["family=TRANSFORMER"] for _, trace in compared)
 
 
 def test_export_and_annotate_report_their_step_only(worker_dsn, project):
