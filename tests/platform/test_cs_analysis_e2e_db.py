@@ -40,6 +40,8 @@ CS_MIGRATIONS = sorted(Path("infra/migrations/cs").glob("*.sql"))
 def cs_tables(jobs_database):
     """같은 DB에 C/S 마이그레이션 전부(재실행 가능)를 적용한다. cs 검사 conftest와 같은 준비다."""
     with psycopg.connect(jobs_database, autocommit=True) as conn:
+        # C20(chunk_embeddings)의 vector(768). tests/cs/conftest.py와 같이 관리자가 확장을 만든다.
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         for role in ("cs_migrator", "cs_app"):
             if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
                 conn.execute(SQL("CREATE ROLE {} NOLOGIN").format(Identifier(role)))
