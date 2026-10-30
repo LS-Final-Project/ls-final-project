@@ -1,5 +1,6 @@
 """가상 협력사 프로필 파일 읽기. 이 파일이 tft.partner_profiles 시드의 원천이다(scripts/rfp_seed_partner_profiles.py)."""
 
+import json
 from datetime import UTC, datetime, time
 from pathlib import Path
 from typing import Any
@@ -10,10 +11,30 @@ from pydantic import TypeAdapter
 from backend.api.tft.partners.schemas import PartnerProfile
 
 PROFILES = Path(__file__).with_name("profiles.json")
+POOLS = Path(__file__).with_name("document_pools.json")
+# 프로필 product_family(표시 문구) → 요구 equipment_family. 후보를 자기 계열 요구로만 채점할 때 쓴다.
+PROFILE_FAMILIES = {
+    "15kV 퓨즈 부하개폐기반": "MV_EQUIP",
+    "15kV metal-clad VCB 개폐장치": "MV_EQUIP",
+    "저압 배전반": "LV_BREAKER",
+    "몰드 변압기": "TRANSFORMER",
+}
 # tft.partner_profiles의 jsonb 열. similar_tasks·supply_regions는 text[]다.
 JSON_COLUMNS = frozenset(
     {"products", "integrator_capable", "spec_facts", "certifications", "lead_time", "confirmation"}
 )
+
+
+def load_document_pools(path: Path = POOLS) -> dict[str, list[str]]:
+    """문서별 후보 풀(데이터셋 번호 → 후보 코드)을 읽는다.
+
+    Args:
+        path: 풀 JSON 파일 경로.
+
+    Returns:
+        dict[str, list[str]]: 번호 문자열별 후보 코드.
+    """
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def load_profiles(path: Path = PROFILES) -> list[PartnerProfile]:

@@ -15,7 +15,7 @@ import hashlib
 import itertools
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -30,8 +30,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.agent.processor_registry import Emit, Processor, TftJob
 from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
+from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pools
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
-from backend.api.tft.rfp import comparison, repository, supplement
+from backend.api.tft.rfp import comparison, integration, repository, supplement
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.rfp.storage import read_document
 from backend.engine.documents.router import extract
@@ -394,6 +395,83 @@ def counts(requirements: int) -> dict[str, int]:
     return {"requirements": requirements, "proposals": 0}
 
 
+# 협력사 등급 대상. 충족·조건부는 보완 대상이 아니다.
+GRADED_STATUSES = frozenset({"SPEC_GAP", "INSUFFICIENT_EVIDENCE"})
+# ponytail: 문서에 데이터셋 번호 칸이 없어 제목에서 읽는다. 풀은 시연·평가 전용 가상 후보라 칸을 만들 값이 아니다.
+# 제목에 RFP-번호가 없으면 풀을 못 쓰고 전체 후보가 된다. 실제 후보 풀을 운영하게 되면 문서에 칸을 둔다.
+DOCUMENT_NUMBER = re.compile(r"\bRFP-(\d+)\b")
+
+
+def integration_of(items: Iterable[ExtractedRequirement]) -> integration.IntegrationResponsibility:
+    """추출 요구로 통합 책임 필요 여부를 정한다.
+
+    Args:
+        items: 이번 처리의 추출 요구.
+
+    Returns:
+        integration.IntegrationResponsibility: 필요 여부와 근거 조항.
+    """
+    return integration.integration_responsibility(
+        [
+            integration.Requirement(
+                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+            )
+            for r in items
+        ]
+    )
+
+
+def candidate_pool(titles: Iterable[str]) -> frozenset[str] | None:
+    """처리 문서들의 후보 풀. 문서 제목의 데이터셋 번호(RFP-14)로 찾는다.
+
+    Args:
+        titles: 문서 제목들.
+
+    Returns:
+        frozenset[str] | None: 풀의 합집합. 번호나 풀을 모르는 문서가 있으면 None(후보를 줄이지 않는다).
+    """
+    pools = load_document_pools()
+    picked: set[str] = set()
+    known = False
+    for title in titles:
+        found = DOCUMENT_NUMBER.search(title)
+        pool = pools.get(found.group(1)) if found else None
+        if pool is None:
+            return None
+        picked.update(pool)
+        known = True
+    return frozenset(picked) if known else None
+
+
+def grading_groups(
+    targets: Sequence[tuple[grading.Requirement, str | None]],
+    profiles: Sequence[PartnerProfile],
+    pool: frozenset[str] | None,
+) -> list[tuple[PartnerProfile, list[grading.Requirement]]]:
+    """후보별로 채점할 요구를 고른다. 풀 안의 후보를 자기 계열 요구로만 채점한다.
+
+    한 문서에 여러 계열이 있으면 다른 계열 요구가 후보를 EXCLUDED로 만든다(14번 B-1·B-2). 계열을 모르는 요구는 어느
+    후보도 채점하지 않는다.
+
+    Args:
+        targets: (요구, 추출 equipment_family).
+        profiles: 협력사 프로필.
+        pool: 후보 풀. None이면 줄이지 않는다.
+
+    Returns:
+        list: (후보, 그 후보의 요구). 채점할 요구가 없는 후보는 뺀다.
+    """
+    groups = []
+    for profile in profiles:
+        if pool is not None and profile.candidate_code not in pool:
+            continue
+        family = PROFILE_FAMILIES.get(profile.product_family)
+        mine = [g for g, wanted in targets if family is not None and wanted == family]
+        if mine:
+            groups.append((profile, mine))
+    return groups
+
+
 async def process(
     settings: Settings,
     job: TftJob,
@@ -503,27 +581,31 @@ async def process(
                         data_origin=document["data_origin"],
                     )
             emit({"step": "supplement", "counts": counts(total)})
+            # 근거 부족 요구도 협력사로 메울 수 있어 채점한다. 충족·조건부는 보완 대상이 아니다.
             gaps = [
-                (to_grading(requirement_id, item), document["data_origin"])
+                (to_grading(requirement_id, item), document["data_origin"], item.equipment_family)
                 for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes)
-                if outcome.status == "SPEC_GAP"
+                if outcome.status in GRADED_STATUSES
             ]
-            targets = [(g, origin) for g, origin in gaps if g is not None]
+            targets = [(g, origin, family) for g, origin, family in gaps if g is not None]
             if not profiles:
                 # 프로필 시드 전(KAN-184): 등급을 매기지 않고 검토가 필요하다고 남긴다.
                 needs_review = True
             elif targets:
-                origin_of = {g.requirement_id: origin for g, origin in targets}
+                origin_of = {g.requirement_id: origin for g, origin, _ in targets}
                 context = grading.RfpContext(
                     manufacturer_list=None,
                     off_list_permission="UNSTATED",
                     supply_region=None,
-                    requires_integrator=False,
+                    requires_integrator=integration_of(r for _, _, r in extracted).required,
                 )
-                for profile in profiles:
-                    _, grades = grading.grade_candidate(
-                        profile, [g for g, _ in targets], context, today
-                    )
+                groups = grading_groups(
+                    [(g, family) for g, _, family in targets],
+                    profiles,
+                    candidate_pool(d["title"] for d in documents),
+                )
+                for profile, mine in groups:
+                    _, grades = grading.grade_candidate(profile, mine, context, today)
                     for grade in grades:
                         await repository.insert_grade(
                             conn,

@@ -20,10 +20,17 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from backend.api.tft.partners import grading
+from backend.api.tft.partners.loader import load_document_pools
 from backend.api.tft.partners.schemas import PartnerProfile
-from backend.api.tft.rfp import comparison, integration, supplement
+from backend.api.tft.rfp import comparison, supplement
 from backend.api.tft.rfp.schemas import Necessity, RequirementStatus, SupplementPath
-from backend.api.tft.worker_processor import to_comparison, to_grading
+from backend.api.tft.worker_processor import (
+    GRADED_STATUSES,
+    grading_groups,
+    integration_of,
+    to_comparison,
+    to_grading,
+)
 from backend.engine.rfp.clauses import ClauseTree
 from backend.engine.rfp.requirements import (
     EXTRACTION_VERSION,
@@ -196,25 +203,23 @@ def run_document(
     ]
     run.predicted = [_predicted(r, o) for r, o in zip(extracted, outcomes, strict=True)]
     targets = [
-        g
+        (g, r.equipment_family)
         for index, (r, o) in enumerate(zip(extracted, outcomes, strict=True))
-        if o.status == "SPEC_GAP" and (g := to_grading(UUID(int=index + 1), r)) is not None
+        if o.status in GRADED_STATUSES and (g := to_grading(UUID(int=index + 1), r)) is not None
     ]
-    if targets:
-        for profile in profiles:
-            summary, grades = grading.grade_candidate(profile, targets, gold.context, today)
-            run.grades[profile.candidate_code] = summary.overall_grade
-            run.unconfirmed[profile.candidate_code] = sorted(
-                unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
-            )
-    run.integration = integration.integration_responsibility(
-        [
-            integration.Requirement(
-                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
-            )
-            for r in extracted
-        ]
-    ).model_dump()
+    responsibility = integration_of(extracted)
+    # 운영 처리 함수와 같게 통합 책임은 추출 결과로 정한다(정답 맥락의 값을 쓰면 추출 누락이 가려진다).
+    context = gold.context.model_copy(update={"requires_integrator": responsibility.required})
+    pool = load_document_pools().get(str(gold.document_number))
+    for profile, mine in grading_groups(
+        targets, profiles, None if pool is None else frozenset(pool)
+    ):
+        summary, grades = grading.grade_candidate(profile, mine, context, today)
+        run.grades[profile.candidate_code] = summary.overall_grade
+        run.unconfirmed[profile.candidate_code] = sorted(
+            unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
+        )
+    run.integration = responsibility.model_dump()
     return run
 
 

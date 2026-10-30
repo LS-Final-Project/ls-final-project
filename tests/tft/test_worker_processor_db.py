@@ -187,7 +187,12 @@ def profile(admin):
     """합성 협력사 프로필 한 판본을 DB에 넣고 검사 뒤 지운다."""
     source = load_profiles()[0]
     code = "Q-" + chr(ord("A") + uuid4().int % 26)
-    row = source.model_dump(mode="json") | {"candidate_code": code, "profile_version": 1}
+    # 합성 문서의 요구가 변압기라 같은 계열 후보로 넣는다(후보는 자기 계열 요구만 채점한다).
+    row = source.model_dump(mode="json") | {
+        "candidate_code": code,
+        "profile_version": 1,
+        "product_family": "몰드 변압기",
+    }
     columns = [k for k in row if k != "known_at"]
     with psycopg.connect(admin) as conn:
         conn.execute(
@@ -473,6 +478,39 @@ def test_a_requirement_level_review_reaches_the_job_summary(
 
     summary, _ = run(worker_dsn, make_project(admin, tmp_path, spec), OneRequirement())
     assert summary["needs_review"] is review
+
+
+def test_insufficient_requirements_are_graded_and_an_assembly_needs_an_integrator(
+    worker_dsn, project, admin, profile
+):
+    """근거 부족 요구도 등급 대상이고, 조립품 조항이 있으면 통합 책임이 후보 제약으로 들어간다."""
+    wanted = {
+        **REQUIREMENTS[0],
+        "attribute_key": "arc_flash_reduction",
+        "assembly_clause": True,
+    }
+
+    class OneRequirement(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text=json.dumps({"requirements": [wanted]}),
+                usage=Usage(),
+                model_version="fake",
+                finish_reasons=[],
+            )
+
+    run(worker_dsn, project, OneRequirement())
+    with psycopg.connect(admin) as conn:
+        status, grade, reasons = conn.execute(
+            "SELECT v.status, g.grade, g.reasons FROM tft.partner_grades g "
+            "JOIN tft.requirement_versions v ON v.requirement_id = g.requirement_id "
+            "WHERE g.project_id=%s AND g.candidate_code=%s",
+            (project["project"], profile),
+        ).fetchone()
+    assert status == "INSUFFICIENT_EVIDENCE"
+    assert grade != "MANDATORY_CONFIRMED"
+    assert "통합 책임" in " ".join(reasons)
 
 
 def test_an_assembly_clause_is_stored_and_read_back_for_the_project(worker_dsn, admin, tmp_path):

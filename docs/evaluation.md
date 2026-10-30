@@ -338,7 +338,7 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 - 원문 근거 정확성 판정(KAN-189)
 - 초안 근거 추적(KAN-188)
 
-RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다.
+RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다. 협력사 등급은 처리 함수와 같은 대상·후보 고르기를 쓴다: 사양 차이·근거 부족 요구(`GRADED_STATUSES`)를, 문서 후보 풀 안의 후보가 자기 계열 요구로만 채점하고(`grading_groups`), 통합 책임 필요 여부는 정답 맥락이 아니라 추출 결과로 정한다(`integration_of`). 채점할 요구가 없는 정답 후보는 `NO_PREDICTION`이다.
 
 - 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
 - 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓴다. 결과는 새 파일로만 만들고, 실행 중에 같은 경로가 생기면 덮어쓰지 않고 옆 파일(시각을 붙인 이름)에 남긴 뒤 실패로 끝낸다. 결과에는 원문·인용·값을 넣지 않는다.
