@@ -229,6 +229,7 @@ async def select_supplement(
                 waiver_reason=payload.rnd_check_waiver_reason if decided == "WAIVED" else None,
                 actor=principal.user_id,
             )
+            await repository.clear_rereview(conn, requirement_id, principal.user_id)
             return selected_out(row).model_dump(mode="json")
 
         result = await commands.run_command(

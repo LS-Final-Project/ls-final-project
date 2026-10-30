@@ -128,6 +128,13 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     ("/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm", ("POST",), ()),
     ("/api/v1/tft/questions/{uuid}/reply", ("POST",), ()),
+    (
+        "/api/v1/tft/projects/{uuid}/proposals",
+        ("GET", "POST"),
+        ("status", "origin", "requirement_id"),
+    ),
+    ("/api/v1/tft/proposals/{uuid}/approve", ("POST",), ()),
+    ("/api/v1/tft/proposals/{uuid}/reject", ("POST",), ()),
 )
 _PLACEHOLDERS = {
     "{uuid}": UUID_PATH,
