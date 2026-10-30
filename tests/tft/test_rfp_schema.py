@@ -133,8 +133,8 @@ def test_openapi_lists_the_spec_routes_as_planned(client):
         for method, op in ops.items()
         if op.get("x-implementation-status") == "planned"
     ]
-    # 명세 §3의 30개 중 기존 목록·상세 2개, KAN-189가 구현한 15·16·18·19·20, 접수 11·30을 뺀 21개.
-    assert len(planned) == 21
+    # 명세 §3의 30개 중 기존 목록·상세 2개, KAN-189의 15·16·18·19·20, 접수 11·30, KAN-188 읽기 8개를 뺀 13개.
+    assert len(planned) == 13
     assert ("/api/v1/tft/requirements/{requirement_id}/supplement-selection", "post") not in planned
     upload = paths["/api/v1/tft/projects/{project_id}/documents"]["post"]
     assert "multipart/form-data" in upload["requestBody"]["content"]

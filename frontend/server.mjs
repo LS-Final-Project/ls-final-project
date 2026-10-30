@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { evaluationReadPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
+import { evaluationReadPath, jobStatusPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
 
 const allowed = new Set(['/api/v1/platform/health', '/api/v1/platform/ready']);
 const authentication = new Map([
@@ -72,6 +72,19 @@ export const businessRoutes = [
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
   ['/api/v1/tft/projects', ['GET'], ['limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/documents', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'has_open_question']],
+  ['/api/v1/tft/requirements/{uuid}', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/comparison', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/supplement-options', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/supplement-selection', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/partner-candidates', ['GET'], ['requirement_id']],
+  ['/api/v1/tft/projects/{uuid}/questions', ['GET', 'POST'], ['status', 'requirement_id', 'target', 'target_dept']],
+  ['/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm', ['POST'], []],
+  ['/api/v1/tft/questions/{uuid}/reply', ['POST'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
@@ -144,7 +157,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
       if (path.startsWith('/api/v1/platform/auth/mailbox/') && !mailboxAuthEnabled) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      if (evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) {
+      if ((evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) || (businessRelayEnabled && jobStatusPath(path))) {
         return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       if (evaluationControlRelayEnabled && evaluationControlPath(path, request.method)) {
