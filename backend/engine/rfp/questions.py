@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.engine.rfp.clauses import Clause, ClauseTree
 from backend.engine.rfp.requirements import ExtractedRequirement
 
-QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY"]
+QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY", "APPROVAL_PROCESS"]
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
 EQUIPMENT_ID = re.compile(
     r"\bunit\b\s*#?\s*([a-z]|\d+[a-z]?|[a-z]+-\d+[a-z0-9-]*)\b|"
@@ -177,7 +177,7 @@ def generate_question_drafts(
         requirements: 현행 조항에서 추출한 요구. 없는 조항·오래된 인용은 제외한다.
 
     Returns:
-        list[QuestionDraft]: 자리표시자, 조항 간 불일치 후보 순서의 초안.
+        list[QuestionDraft]: 자리표시자, 조항 간 불일치 후보, 승인 절차 질문 순서의 초안.
             미정 항목은 회신 전 판정 제외 메모를 포함한다. 자동 판정·승인은 하지 않는다.
     """
     clauses = {c.clause_no: c for c in tree.clauses}
@@ -231,4 +231,27 @@ def generate_question_drafts(
             )
         )
 
+    approval_seen: set[tuple[str, str]] = set()
+    for requirement in requirements:
+        approval_clause = clauses.get(requirement.clause_no)
+        source = (requirement.clause_no, requirement.quote)
+        if (
+            not requirement.approval_procedure_missing
+            or approval_clause is None
+            or not requirement.quote.strip()
+            or not any(requirement.quote in text for text in _pieces(approval_clause))
+            or source in approval_seen
+        ):
+            continue
+        approval_seen.add(source)
+        drafts.append(
+            QuestionDraft(
+                kind="APPROVAL_PROCESS",
+                sources=[QuestionSource(clause_no=source[0], quote=source[1])],
+                question="대체품 검토를 위한 승인 요청 방법·담당자·시점과 제출 자료 목록을 "
+                "알려 주시겠습니까?",
+                pre_reply_note="대체 허용은 승인 완료가 아닙니다. 회신 및 고객 승인 전까지 "
+                "승인 여부는 미정으로 유지합니다.",
+            )
+        )
     return drafts

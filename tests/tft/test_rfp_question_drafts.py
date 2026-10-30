@@ -376,6 +376,64 @@ def test_stale_deleted_value_and_quote_are_excluded() -> None:
     assert len(generate_question_drafts(t, [req("A", a, "125"), req("B", b, "300")])) == 1
 
 
+@pytest.mark.parametrize("where", ["text", "title", "table"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_approval_question_uses_extracted_flag_and_current_source(
+    where: str, missing: bool
+) -> None:
+    quote = "지정 목록 밖 제조사는 고객 승인 조건으로 허용한다."
+    c = clause(
+        "A",
+        f"도입. {quote} 끝." if where == "text" else "장비 요구사항.",
+        title=quote if where == "title" else None,
+        table_rows=[["대체품", quote]] if where == "table" else [],
+    )
+    r = req(
+        "A",
+        quote,
+        None,
+        kind="DOCUMENT",
+        equipment_family=None,
+        attribute_key="OTHER",
+        approval_procedure_missing=missing,
+    )
+    output = generate_question_drafts(tree(c), [r, r])
+    if not missing:
+        assert output == []
+        return
+    assert len(output) == 1 and output[0].kind == "APPROVAL_PROCESS"
+    assert [(s.clause_no, s.quote) for s in output[0].sources] == [("A", quote)]
+    assert "승인 요청 방법" in output[0].question and "제출 자료 목록" in output[0].question
+    assert "승인 완료가 아닙니다" in output[0].pre_reply_note
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_approval_question_does_not_infer_from_english_text(missing: bool) -> None:
+    text = "Provide a relay or approved equal. Submit drawings for approval before procurement."
+    output = generate_question_drafts(
+        tree(clause("A", text)),
+        [req("A", text, None, approval_procedure_missing=missing)],
+    )
+    assert len(output) == int(missing)
+    assert all(d.kind == "APPROVAL_PROCESS" for d in output)
+
+
+@pytest.mark.parametrize(
+    ("no", "quote"),
+    [("missing", "Current approval clause."), ("A", "Old approval clause."), ("A", " \t ")],
+)
+def test_approval_question_rejects_missing_clause_stale_or_blank_quote(no: str, quote: str) -> None:
+    c = clause(
+        "A",
+        "Current approval clause.",
+        deleted_values=[DeletedValue(text="Old approval clause.", position=0, origin="STRIKE")],
+    )
+    assert (
+        generate_question_drafts(tree(c), [req(no, quote, None, approval_procedure_missing=True)])
+        == []
+    )
+
+
 @pytest.mark.parametrize("change", [{"operator": "GTE"}, {"tolerance": "±5%"}])
 def test_operator_and_tolerance_differences_are_clarification_candidates(
     change: dict[str, object],
