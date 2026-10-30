@@ -26,22 +26,31 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.engine.rfp.clauses import ClauseTree
 from backend.engine.rfp.vocabulary import (
     ATTRIBUTE_KEYS,
+    CONDITION_NAMES,
     EQUIPMENT_FAMILIES,
     OTHER,
     AttributeKeyOrOther,
+    ConditionNameOrOther,
     FamilyOrOther,
+    is_canonical,
 )
 from backend.shared.ai import Generation, Usage
 
 # v2: 지정품 제조사(designated_manufacturer)와 원문 대조(명세 v1.3 §5.1·§11). v1 측정치는 계약 문서 표에 있다.
 # v3(KAN-185 의미 구조화): 모델이 내부 속성 키·제품 계열·허용 오차·Listed 여부를 같은 호출 안에서 연결한다.
-EXTRACTION_VERSION = "rfp-requirements-v3"
+# v4(KAN-185): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구를 assembly_clause로 표시한다.
+# v5(KAN-185): 대체·동등품을 승인 조건부로 허용하는데 절차가 없는 요구를 approval_procedure_missing으로 표시한다.
+# v6(KAN-185): operator 판단 기준과 조건 이름 어휘(conditions.name). 단위 수식어는 비교 쪽 코드가 뗀다.
+# v7(KAN-185): 설계 기준 제품(basis_of_design)을 지정 모델과 나누고, 문장형 값의 비교용 표기(canonical_value).
+EXTRACTION_VERSION = "rfp-requirements-v7"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
 Kind = Literal["SPEC", "TASK", "DOCUMENT", "COMPLIANCE", "DESIGNATED_PRODUCT"]
 RejectReason = Literal["UNKNOWN_CLAUSE", "QUOTE_NOT_IN_CLAUSE", "VALUE_NOT_IN_QUOTE"]
 MAX_SECTION_CHARS = 12000
+# 승인된 절별 비용 한도: 최초 12회 + 부분별 보완 최대 12회(공급자 전송 재시도 제외).
+MAX_SECTION_PARTS = 12
 # 한 번에 부를 절 본문 상한(글자). Gemini는 추론 토큰도 출력 상한에 들어가, 14번 2.5(3972자)가 이미 답 5345 + 추론
 # 6609토큰을 썼고 2.6(7560자)은 상한 16384를 넘어 응답이 잘렸다. 이보다 긴 절은 첫 단계 조항 묶음으로 나눠 부른다.
 # v1 측정 절(2.4 2510자·2.5 3972자)은 이 아래라 나뉘지 않는다.
@@ -68,7 +77,10 @@ class ExtractionInput(Strict):
 
 
 class Condition(Strict):
-    name: str = Field(description="조건 이름(예: secondary voltage, temperature rise, ambient).")
+    # 어휘는 응답 스키마 enum과 validate_output(_outside_lists)이 지킨다. 이 모델은 다른 입력도 받는다.
+    name: str = Field(
+        description="조건 이름(vocabulary.ConditionName). 없으면 OTHER이고 value에 원문 문구를 그대로 둔다."
+    )
     value: str
     unit: str | None = None
 
@@ -107,6 +119,25 @@ class ExtractedRequirement(Strict):
     )
     certification_listed: bool = Field(
         default=False, description="원문이 Listed·labeled 등록을 요구할 때만 true."
+    )
+    assembly_clause: bool = Field(
+        default=False,
+        description="여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true. 나열만이면 false.",
+    )
+    approval_procedure_missing: bool = Field(
+        default=False,
+        description=(
+            "대체품·동등품·목록 밖 제조사를 승인 조건부로 허용하는데 받은 본문에 승인 절차·제출 자료가 없을 때만 "
+            "true. 대체 불허이거나 절차가 적혀 있으면 false."
+        ),
+    )
+    basis_of_design: bool = Field(
+        default=False,
+        description="특정 모델이 대체 불가 지정이 아니라 설계 기준이고 동등 이상을 허용할 때만 true. 지정 모델은 null.",
+    )
+    canonical_value: str | None = Field(
+        default=None,
+        description="탭·보호 기능 값의 비교용 표기(vocabulary.CANONICAL_FORMS). 없으면 null. value는 원문 그대로다.",
     )
     # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
     needs_review: bool = False
@@ -147,7 +178,7 @@ class _Loose(BaseModel):
 
 
 class ConditionSchema(_Loose):
-    name: str
+    name: ConditionNameOrOther
     value: str
     unit: str | None = None
 
@@ -173,6 +204,10 @@ class RequirementSchema(_Loose):
     equipment_family: FamilyOrOther | None
     tolerance: str | None
     certification_listed: bool
+    assembly_clause: bool
+    approval_procedure_missing: bool
+    basis_of_design: bool
+    canonical_value: str | None
 
 
 class ResponseSchema(_Loose):
@@ -220,13 +255,17 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
 
     Args:
         tree: 조항 트리.
-        section_nos: 절 번호 목록(예: ["2.4", "2.5"]). 미리 고정한 평가 절이다.
+        section_nos: 처리할 절 번호 목록(예: ["2.4", "2.5"]).
 
     Returns:
-        list[ExtractionInput]: 절마다 하나. 본문이 없는 조항은 문맥으로만 쓴다.
+        list[ExtractionInput]: 요청 절마다 입력 하나. 요청 절 순서와 원문 조항 순서를 유지한다.
+            본문이 없는 조항은 문맥으로만 쓴다. 나눔과 결과 합산은 extract_section이 맡는다.
+            실제 추출 부분 수는 승인된 비용 한도인 12개 이하다.
+            상한 12는 감독 제공 최장 개발 절 본문 23908자에 여유를 둔 정책이다.
 
     Raises:
-        ValueError: 절이 없거나 너무 길면(RFP_SECTION_NOT_FOUND·RFP_SECTION_TOO_LONG).
+        ValueError: 절 없음(RFP_SECTION_NOT_FOUND), 개별 조항 길이 초과
+            (RFP_SECTION_TOO_LONG), 절별 호출 부분 수 초과(RFP_SECTION_TOO_MANY_PARTS).
     """
     by_no = {c.clause_no: c for c in tree.clauses}
     out: list[ExtractionInput] = []
@@ -252,8 +291,11 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                 )
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)
-        if sum(len(_clause_text(c)) for c in clauses) > MAX_SECTION_CHARS:
+        if any(len(_clause_text(c)) > MAX_SECTION_CHARS for c in clauses):
             raise ValueError("RFP_SECTION_TOO_LONG")
+        # 실제 최초 호출 수를 호출 전에 검사한다. 보완은 부분별 최대 한 번이다.
+        if len(split_input(item)) > MAX_SECTION_PARTS:
+            raise ValueError("RFP_SECTION_TOO_MANY_PARTS")
         out.append(item)
     return out
 
@@ -263,7 +305,13 @@ Return JSON matching the schema. Rules:
 - One requirement = one attribute of one equipment or one task. Split a clause that states several values.
 - quote: copy a contiguous span of the clause text exactly (current text only). value must appear in quote.
 - For a requirement without a measurable value (operator TEXT), set value to null or to an exact span of quote.
-- Keep conditions attached to a value (e.g. secondary voltage, temperature rise, ambient) in conditions.
+- Keep conditions attached to a value in conditions. name comes from this list only: {condition_names}.
+  value is the number or phrase and unit goes in unit (e.g. duration, value "3", unit "s"). If no name fits,
+  use "OTHER" with the whole condition phrase in value.
+- operator: GTE for a minimum, either stated ("at least", "not less than", "minimum") or implied because a
+  higher rating also satisfies it (withstand current, interrupting or breaking capacity, continuous current).
+  LTE for a maximum limit ("not more than", "maximum"). EQ for a specified value with no such sense (a system
+  voltage, an insulation level or a nominal rating stated as a fixed value). RANGE for a stated range.
 - Imperatives ("Provide ...", "Comply with ...") are requirements too.
 - necessity: MANDATORY for shall/must/imperative, PREFERRED for should/preferred, CONDITION_BOUND when the
   requirement applies only under a stated condition, UNDETERMINED when the text does not say.
@@ -271,7 +319,7 @@ Return JSON matching the schema. Rules:
   DESIGNATED_PRODUCT (named model or manufacturer).
 - designated_model: a specific product model the clause names for supply (e.g. "SEL-751A",
   "PowerLogic ION 9000"), copied exactly as written; else null. A list of acceptable manufacturers is not a
-  designated model.
+  designated model, and neither is a basis-of-design product.
 - designated_manufacturer: the maker of that model only when its name is written in the clause; else null.
   Do not infer a maker from the model name.
 - standard_system from the cited standard family (IEEE/ANSI -> IEEE, UL, NEMA, IEC), else NONE.
@@ -286,6 +334,22 @@ Return JSON matching the schema. Rules:
   as the nominal value only. Never compute a range.
 - certification_listed: true only when the text requires a listing or label (e.g. "listed", "labeled",
   "bearing the mark"); a test report or "in accordance with" a standard is false.
+- assembly_clause: true only when the requirement makes several pieces of equipment be delivered as one
+  assembled unit or under a single supplier's responsibility (e.g. "factory-assembled as one unit", "furnished
+  by one manufacturer with unit responsibility"). Equipment that is merely listed together is false.
+- approval_procedure_missing: true only when the requirement allows a substitute, an equal product, or a
+  manufacturer outside a list subject to approval, and the clauses you received give no approval procedure or
+  required submittals for it. False when substitution is not allowed, or when the procedure or submittals are
+  stated.
+- basis_of_design: true only when the clause names a specific product as a design basis or reference that an
+  equal or better product may replace (a basis-of-design product, a product "or equal"). Then kind is SPEC,
+  operator is TEXT, value is the product name as written, and designated_model and designated_manufacturer
+  are null. False for a product that must be supplied with no alternative.
+- canonical_value: a fixed notation for comparing a value written in words. Keep value and quote as written.
+  For attribute_key tap: "±NxS%" for N steps of S percent both above and below, "+Nx-MxS%" for N steps above and
+  M below (e.g. "±4x1.25%", "+2x-3x2.5%", with a plain letter x). For attribute_key protection_functions: the
+  letters among L (long-time), S (short-time), I (instantaneous), G (ground-fault) in that order (e.g. "LSI").
+  null for any other attribute_key or when the steps or functions are not stated.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
 
@@ -303,22 +367,48 @@ def prompt(item: ExtractionInput) -> str:
         section_title=item.section_title or "",
         clauses=clauses,
         attribute_keys=", ".join(sorted(ATTRIBUTE_KEYS)),
+        condition_names=", ".join(sorted(CONDITION_NAMES)),
         families=", ".join(sorted(EQUIPMENT_FAMILIES)),
     )
+
+
+def _names_in(name: str, clause_text: str) -> bool:
+    """이름이 조항에 토큰으로 있는지. 영숫자에 붙어 있으면 다른 낱말이다(switchgear의 GE, AM-20의 AM-2).
+
+    한글 조사가 붙는 것은 막지 않으려고 경계는 ASCII 영숫자만 본다.
+
+    Args:
+        name: 지정 모델 또는 제조사.
+        clause_text: `_space`를 거친 조항 텍스트.
+
+    Returns:
+        bool: 토큰으로 있으면 True.
+    """
+    token = re.escape(_space(name))
+    return re.search(rf"(?<![0-9a-z]){token}(?![0-9a-z])", clause_text) is not None
+
+
+def _model_shaped(model: str) -> bool:
+    """모델명 꼴인지. 영숫자 2자 이상이고 숫자만이 아니어야 한다(750은 정격일 수 있다)."""
+    kept = [c for c in model if c.isalnum()]
+    return len(kept) >= 2 and not all(c.isdigit() for c in kept)
 
 
 def _grounded_designation(
     req: ExtractedRequirement, clause_text: str
 ) -> tuple[ExtractedRequirement, bool]:
-    """지정 모델·제조사가 조항 현행 텍스트에 그대로 있을 때만 남긴다. 비웠으면 (요구, True).
+    """지정 모델·제조사가 조항 현행 텍스트에 토큰으로 있을 때만 남긴다. 비웠으면 (요구, True).
 
     모델이 모델명에서 제조사를 짐작해 쓰거나(SEL → Schweitzer) 없는 모델을 쓰는 것을 막는다. 지운 값(취소선)은
     현행 텍스트에 없으므로 여기서도 걸린다.
     """
     model, maker = req.designated_model, req.designated_manufacturer
-    if model is not None and _space(model) not in clause_text:
+    # 설계 기준 제품은 지정이 아니다. 두 칸을 함께 보내면 지정 쪽을 비운다(지정품 조달로 가지 않게).
+    if req.basis_of_design or (
+        model is not None and not (_model_shaped(model) and _names_in(model, clause_text))
+    ):
         model = None
-    if model is None or (maker is not None and _space(maker) not in clause_text):
+    if model is None or (maker is not None and not _names_in(maker, clause_text)):
         maker = None
     changed = (model, maker) != (req.designated_model, req.designated_manufacturer)
     if not changed:
@@ -335,7 +425,7 @@ TOLERANCE_MARK = re.compile(
 
 
 def _outside_lists(data: dict[str, object]) -> set[int]:
-    """목록 밖 attribute_key·equipment_family를 OTHER로 바꾼다(제자리). 모델의 연결을 믿지 않은 요구 번호를 돌려준다.
+    """목록 밖 attribute_key·equipment_family·조건 이름을 OTHER로 바꾼다(제자리). 바꾼 요구 번호를 돌려준다.
 
     Args:
         data: 모델 응답 JSON(엄격 검사 전).
@@ -358,6 +448,14 @@ def _outside_lists(data: dict[str, object]) -> set[int]:
         if family not in (None, OTHER) and family not in EQUIPMENT_FAMILIES:
             req["equipment_family"] = OTHER
             changed.add(index)
+        conditions = req.get("conditions")
+        for condition in conditions if isinstance(conditions, list) else []:
+            if not isinstance(condition, dict):
+                continue
+            name = condition.get("name")
+            if name != OTHER and name not in CONDITION_NAMES:
+                condition["name"] = OTHER
+                changed.add(index)
     return changed
 
 
@@ -367,13 +465,15 @@ def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequireme
     - tolerance가 인용 안에 그대로 없으면 지우고 검토로 둔다(지어낸 허용 오차).
     - 값이 숫자인데 인용에 허용 오차 표기가 있고 tolerance가 비었으면 검토로 둔다(빠진 허용 오차).
     - 목록 밖 키·계열을 OTHER로 바꿨으면 검토로 둔다.
+    - canonical_value가 그 속성의 정해진 표기가 아니면 지우고 검토로 둔다. 의미 대조는 하지 않는다(원문 표기가
+      'two above and two below'처럼 숫자가 아닐 수 있다).
 
     Args:
         req: 인용·값 검사를 통과한 요구.
         distrusted: _outside_lists가 바꾼 요구인지.
 
     Returns:
-        ExtractedRequirement: tolerance·needs_review를 정한 요구.
+        ExtractedRequirement: tolerance·canonical_value·needs_review를 정한 요구.
     """
     tolerance = req.tolerance
     review = distrusted
@@ -382,7 +482,12 @@ def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequireme
     numeric = req.value is not None and re.search(r"\d", req.value) is not None
     if tolerance is None and numeric and TOLERANCE_MARK.search(req.quote):
         review = True
-    return req.model_copy(update={"tolerance": tolerance, "needs_review": review})
+    canonical = req.canonical_value
+    if canonical is not None and not is_canonical(req.attribute_key, canonical):
+        canonical, review = None, True
+    return req.model_copy(
+        update={"tolerance": tolerance, "canonical_value": canonical, "needs_review": review}
+    )
 
 
 def validate_output(
@@ -493,11 +598,14 @@ def _call(
 
 
 def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[ExtractionInput]:
-    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다. 묶음 하나는 쪼개지 않는다.
+    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다.
+
+    목표 길이를 넘는 묶음은 개별 조항 경계로 재묶는다. 조항 텍스트는 자르지 않는다.
+    build_inputs의 개별 조항 길이·부분 수 사전 검사를 거친 입력을 전제한다.
 
     Args:
         item: 절 입력.
-        limit: 부분 하나의 본문 상한(글자). 묶음 하나가 상한보다 길면 그 묶음만 한 부분이 된다.
+        limit: 부분 하나의 목표 본문 길이(글자). 이를 넘는 개별 조항은 단독 부분으로 유지한다.
 
     Returns:
         list[ExtractionInput]: 부분 입력. 절이 상한 안이면 [item] 그대로다.
@@ -512,8 +620,26 @@ def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[Extracti
             groups[-1].append(clause)
         else:
             groups.append([clause])
-    parts: list[list[ClauseInput]] = [[]]
+    expanded: list[list[ClauseInput]] = []
     for group in groups:
+        if sum(len(_clause_text(c)) for c in group) <= limit:
+            expanded.append(group)
+            continue
+        batch: list[ClauseInput] = []
+        size = 0
+        for clause in group:
+            clause_size = len(_clause_text(clause))
+            if clause_size > MAX_SECTION_CHARS:
+                raise ValueError("RFP_SECTION_TOO_LONG")
+            if batch and size + clause_size > limit:
+                expanded.append(batch)
+                batch, size = [], 0
+            batch.append(clause)
+            size += clause_size
+        if batch:
+            expanded.append(batch)
+    parts: list[list[ClauseInput]] = [[]]
+    for group in expanded:
         size = sum(len(_clause_text(c)) for c in parts[-1] + group)
         if parts[-1] and size > limit:
             parts.append([])

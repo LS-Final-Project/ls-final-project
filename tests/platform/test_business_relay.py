@@ -304,7 +304,10 @@ def test_tft_scope_is_enforced_and_revoked_on_next_request(system, business_data
     listing = client.get("/api/v1/tft/projects?limit=10")
     assert listing.status_code == 200
     assert [p["id"] for p in listing.json()["data"]["items"]] == [str(visible)]
-    assert client.get(f"/api/v1/tft/projects/{visible}").status_code == 200
+    detail = client.get(f"/api/v1/tft/projects/{visible}")
+    assert detail.status_code == 200
+    # 값은 DB에 적용된 마이그레이션에 따라 다르다. 스키마가 없을 때의 동작은 test_rfp_write_routes_db가 맡는다.
+    assert "integration_responsibility" in detail.json()["data"]
     assert client.get(f"/api/v1/tft/projects/{hidden}").status_code == 404
     with psycopg.connect(business_database) as conn:
         conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (system["user_id"],))
@@ -647,7 +650,8 @@ def test_shared_cases_forward_or_reject_before_business_service(system, case):
     if case["forward"]:
         [(method, url, *_)] = system["calls"]
         sent, asked = urlsplit(url), urlsplit(case["path"])
-        assert method == case["method"] and sent.scheme + "://" + sent.netloc == CS
+        service = TFT if asked.path.startswith("/api/v1/tft/") else CS
+        assert method == case["method"] and sent.scheme + "://" + sent.netloc == service
         assert unquote(sent.path) == unquote(asked.path)
         assert parse_qsl(sent.query) == parse_qsl(asked.query)
     else:
@@ -799,3 +803,110 @@ def test_assignee_database_filter_and_owner_rejection(system, business_database)
     finally:
         with psycopg.connect(business_database) as conn:
             conn.execute("INSERT INTO identity.user_roles VALUES (%s,'cs_agent')", (user_id,))
+
+
+FILE_URL = "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/file"
+UPLOAD_URL = "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/documents"
+
+
+def fake_upstream(monkeypatch, *, status=200, kind="application/pdf", body=b"%PDF", headers=None):
+    """플랫폼 뒤 업무 서비스 응답을 고정하고 받은 호출을 기록한다.
+
+    Args:
+        monkeypatch: 대체 도구.
+        status: 응답 상태.
+        kind: 응답 Content-Type.
+        body: 응답 본문.
+        headers: 추가 응답 헤더.
+
+    Returns:
+        list: (method, url, headers, data) 호출 기록.
+    """
+    calls = []
+
+    def fake(method, url, *, headers: dict, data, **options):
+        calls.append((method, url, headers, data))
+        upstream = Mock(status_code=status, headers={"Content-Type": kind, **extra})
+        upstream.__enter__ = Mock(return_value=upstream)
+        upstream.__exit__ = Mock(return_value=False)
+        upstream.iter_content = Mock(return_value=iter([body]))
+        return upstream
+
+    extra = headers or {}
+    monkeypatch.setattr(requests, "request", fake)
+    return calls
+
+
+def test_download_relay_forces_attachment_and_keeps_the_user_scope(system, monkeypatch):
+    """원문 응답만 JSON 예외다. 파일명은 attachment일 때만 넘기고, 범위 판단은 tft에 사용자로 맡긴다."""
+    named = {"Content-Disposition": "attachment; filename*=UTF-8''a.pdf"}
+    calls = fake_upstream(monkeypatch, body=b"x" * (9 * 1024 * 1024), headers=named)
+    done = system["client"].get(FILE_URL)
+    assert done.status_code == 200 and len(done.content) == 9 * 1024 * 1024
+    assert done.headers["content-type"] == "application/pdf"
+    assert done.headers["content-disposition"] == named["Content-Disposition"]
+    assert done.headers["x-content-type-options"] == "nosniff"
+    assert done.headers["cache-control"] == "no-store"
+    [(_, _, sent, _)] = calls
+    principal = json.loads(sent[PRINCIPAL_HEADER])
+    assert principal["user_id"] == str(system["user_id"])
+    assert principal["managed_projects"] == [str(system["projects"][0])]
+    fake_upstream(monkeypatch, headers={"Content-Disposition": "inline"})
+    assert system["client"].get(FILE_URL).headers["content-disposition"] == "attachment"
+
+
+def test_download_relay_passes_a_scope_refusal_without_a_file(system, monkeypatch):
+    """manager가 관리 대상 밖이면 tft의 404 JSON이 그대로 간다(permissions.md 1.1·4.2)."""
+    body = b'{"error":{"code":"TFT_DOCUMENT_NOT_FOUND"}}'
+    fake_upstream(monkeypatch, status=404, kind="application/json", body=body)
+    refused = system["client"].get(FILE_URL)
+    assert refused.status_code == 404 and refused.content == body
+    assert "content-disposition" not in refused.headers
+
+
+@pytest.mark.parametrize(
+    ("kind", "body", "path"),
+    [
+        ("text/html", b"<html>", FILE_URL),
+        ("application/pdf", b"x" * (relay.FILE_LIMIT + 1), FILE_URL),
+        ("application/pdf", b"%PDF", "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111"),
+    ],
+    ids=["html", "too-large", "other-path"],
+)
+def test_download_relay_refuses_anything_but_a_bounded_document(
+    system, monkeypatch, kind, body, path
+):
+    """허용 형식·크기·경로가 아니면 본문을 넘기지 않는다."""
+    fake_upstream(monkeypatch, kind=kind, body=body)
+    refused = system["client"].get(path)
+    assert refused.status_code == 503 and b"%PDF" not in refused.content
+
+
+def test_upload_relay_passes_multipart_only_on_its_path(system, monkeypatch):
+    """업로드만 multipart·26 MiB다. CSRF·Origin 검사는 같고 경계값은 그대로 넘긴다."""
+    calls = fake_upstream(monkeypatch, status=201, kind="application/json", body=b"{}")
+    client, write = system["client"], system["write"]
+    multipart = {
+        "Content-Type": "multipart/form-data; boundary=synthetic",
+        "Idempotency-Key": "k" * 8,
+    }
+    body = b"x" * (2 * 1024 * 1024)
+    done = client.post(UPLOAD_URL, headers=write | multipart, content=body)
+    assert done.status_code == 201
+    [(_, _, sent, data)] = calls
+    assert sent["Content-Type"] == multipart["Content-Type"] and data == body
+    assert sent["Idempotency-Key"] == "k" * 8
+    calls.clear()
+    json_body = {"Content-Type": "application/json"}
+    assert client.post(UPLOAD_URL, headers=write | json_body, content=b"{}").status_code == 415
+    other = "/api/v1/tft/projects"
+    assert client.post(other, headers=write | multipart, content=b"x").status_code == 415
+    # 파일 예외는 업로드 경로 밖으로 번지지 않는다.
+    assert client.post(other, headers=write | json_body, content=body).status_code == 413
+    large = b"x" * (relay.FILE_LIMIT + 1)
+    assert client.post(UPLOAD_URL, headers=write | multipart, content=large).status_code == 413
+    wrong_origin = write | multipart | {"Origin": "https://evil.example.invalid"}
+    assert client.post(UPLOAD_URL, headers=wrong_origin, content=b"x").status_code == 403
+    no_csrf = {"Origin": write["Origin"]} | multipart
+    assert client.post(UPLOAD_URL, headers=no_csrf, content=b"x").status_code == 403
+    assert not calls

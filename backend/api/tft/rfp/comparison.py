@@ -24,6 +24,8 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
+from backend.engine.rfp.requirements import Kind
+from backend.engine.rfp.vocabulary import is_placeholder
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
 Result = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
@@ -44,6 +46,8 @@ COMMERCIAL_ATTRIBUTES = frozenset({"warranty_months"})
 NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER", "RND"]
 # 상태가 나쁜 순서. 후보가 여럿이면 가장 좋은 후보의 상태가 요구의 상태다.
 ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE")
+# 값 자체를 바꾸는 기준 조건. 요구에 없어도 자사 값이 여기 기대면 충족을 확정하지 않는다(기획서: 임피던스 기준 온도).
+BASIS_CONDITIONS = frozenset({"reference_temperature"})
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
 OWN_FACTS = Path(__file__).with_name("own_spec_facts.json")
 
@@ -82,8 +86,16 @@ class Requirement(Strict):
     certification_standard: str | None = None
     # 등록(Listed)을 요구하면 시험 성적은 대신하지 못한다(기획서 4.2 "IEC 형식시험 ↔ UL 등록 요구").
     certification_listed: bool = False
+    # 요구가 기대는 규격 체계(IEC·IEEE·UL·NEMA, 없으면 NONE). 근거 제품의 체계와 다르면 충족을 확정하지 않는다.
+    standard_system: str = "NONE"
     designated_model: str | None = None
+    # 설계 기준 제품(동등 이상 허용). 지정이 아니라 참고 기준이라 지정품 조달로 보내지 않는다.
+    basis_of_design: bool = False
+    # 문장형 값의 비교용 표기(탭·보호 기능). 있으면 value 대신 이것으로 견준다(grading._canonical_verdict).
+    canonical_value: str | None = None
     task: str | None = None
+    # 추출 요구 종류. 과업·문서 요구는 장비 사양이 아니라 계열 검사를 거치지 않는다(`_work_kind`).
+    kind: Kind = "SPEC"
     # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
     # 자료 보완 요청 → 공동 제안 → 참여 보류 검토로 간다(기획서 4.4).
     core_equipment: bool = False
@@ -188,6 +200,71 @@ def _no_data(
     )
 
 
+def _evidence_systems(product: Product) -> tuple[set[str], set[str]]:
+    """근거 제품의 규격 체계와, 변형 모델에만 있는 체계를 나눈다(KAN-199).
+
+    체계는 Product.standards의 앞 낱말(system_of)이다. 변형 판별은 문자열이 아니라 certifications 구조로 한다: 그 체계의
+    인증이 variant가 있는 것뿐이면(예: MCCB-ABS-403c의 UL -U) 기본 모델 값이 그 체계로 시험됐다는 근거가 없어
+    근거 체계에서 뺀다.
+
+    Args:
+        product: 자사 후보.
+
+    Returns:
+        tuple[set[str], set[str]]: (근거 체계, 변형 모델에만 있는 체계). NONE은 넣지 않는다.
+    """
+    with_variant = {system_of(c.standard) for c in product.certifications if c.variant}
+    without_variant = {system_of(c.standard) for c in product.certifications if not c.variant}
+    variant_only = (with_variant - without_variant) - {"NONE"}
+    systems = {system_of(s) for s in product.standards} - {"NONE"}
+    return systems - variant_only, variant_only
+
+
+def _system_mismatch(requirement: Requirement, product: Product) -> list[str]:
+    """충족 판정을 확정하지 못하게 하는 규격 체계 차이를 찾는다(KAN-199).
+
+    잘못된 충족을 막는 규칙이라 충족(EVIDENCE_FOUND)에만 쓴다. 미달(SPEC_GAP)은 낮추지 않는다: 정격 전압처럼 시험
+    규격과 무관한 물리 정격의 미달(예: B-1 15 kV 요구 vs 12 kV, 요구 IEEE·근거 IEC)은 체계가 달라도 사양 차이다.
+    조건 차이(주위 온도·지속시간 등)는 값 자체를 바꾸므로 미달도 조건부로 두는 것과 성격이 다르다.
+
+    Args:
+        requirement: 비교 입력.
+        product: 자사 후보.
+
+    Returns:
+        list[str]: 확인할 항목. 요구 체계가 NONE이거나, 근거 체계를 모르거나(standards 비어 있음), 같으면 빈 목록.
+    """
+    wanted = requirement.standard_system
+    if wanted == "NONE":
+        return []
+    systems, variant_only = _evidence_systems(product)
+    found = []
+    if systems and wanted not in systems:
+        basis = ", ".join(s for s in product.standards if system_of(s) in systems)
+        found.append(f"규격 체계 다름: 요구 {wanted}, 근거 {basis}, 시험 규격 확인")
+    if wanted in variant_only:
+        found.append(f"{wanted} 체계는 변형 모델에만 있음: 변형 모델 값 확인")
+    return found
+
+
+def _unstated_basis(requirement: Requirement, fact: SpecFact) -> list[str]:
+    """요구에 없는데 자사 값이 기대는 기준 조건. 충족을 확정하지 못하는 이유로 쓴다(미달을 낮추지는 않는다).
+
+    Args:
+        requirement: 요구.
+        fact: 자사 사양 근거.
+
+    Returns:
+        list[str]: 'reference_temperature 요구 미기재, 자사 근거 120 °C' 같은 차이 목록.
+    """
+    stated = {c.name for c in requirement.conditions}
+    return [
+        f"{c.name} 요구 미기재, 자사 근거 {grading._with_unit(c.value, c.unit)}"
+        for c in fact.conditions or []
+        if c.name in BASIS_CONDITIONS and c.name not in stated
+    ]
+
+
 def _attribute_match(requirement: Requirement, product: Product) -> CandidateMatch:
     """같은 속성의 사양 근거로 판정한다. 근거가 여럿이면 가장 좋은 것을 쓴다."""
     head = grading._head(_as_grading(requirement))
@@ -201,20 +278,24 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             [f"{requirement.attribute} 자료 확인"],
         )
     judged = []
-    for fact in facts:
-        # 단시간 내전류는 지속시간을 요구 값으로 환산해 견준다(I²t 일정, grading._duration_converted).
+    for fact in grading._at_required_duration(_as_grading(requirement), facts):
+        # 단시간 내전류는 지속시간을 요구 값으로 추정해 견준다(열 등가 추정, grading._duration_converted).
         converted = grading._duration_converted(_as_grading(requirement), fact)
-        compared, note = converted if converted else (fact, None)
+        compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = grading._value_verdict(_as_grading(requirement), compared)
         gaps = grading._condition_gaps(_as_grading(requirement), compared)
+        if verdict == "passed":
+            gaps += _unstated_basis(requirement, compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).
-        unit_differs = requirement.operator != "TEXT" and " ".join(
-            (requirement.unit or "").split()
-        ) != " ".join((fact.unit or "").split())
+        unit_differs = (
+            not requirement.canonical_value
+            and requirement.operator != "TEXT"
+            and grading._unit_key(requirement.unit) != grading._unit_key(fact.unit)
+        )
         if verdict == "passed" and not gaps and note:
             # 환산값은 시험값이 아니라 충족으로 확정하지 않는다.
             status, result = "CONDITIONAL", "MEETS"
-            word = "환산 충족(시험값 아님), 확인 필요"
+            word = "환산 충족(시험값 아님), 정격 피크 확인 필요"
         elif verdict == "passed" and not gaps:
             status, result = "EVIDENCE_FOUND", "MEETS"
         elif verdict == "passed":
@@ -225,13 +306,21 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             # 미달이어도 요구와 다른 조건에서의 값이다. 같은 조건에서 미달이라는 근거가 없어 사양 차이로 확정하지 않는다.
             status, result = "CONDITIONAL", "DIFFERS"
             word = "값이 미달이나 조건이 달라 확인 필요"
+        elif verdict == "failed" and shorter:
+            # 짧은 시간 값을 내린 추정은 실제 정격보다 낮게 나온다. 미달 근거가 아니다.
+            status, result = "CONDITIONAL", "DIFFERS"
+            word = grading.SHORTER_SHORTFALL
         elif verdict == "failed":
             status, result = "SPEC_GAP", "DIFFERS"
         else:
             # 단위가 다르거나 숫자로 읽을 수 없어 비교하지 못했다. 같다고도 다르다고도 하지 않는다.
             status, result = "CONDITIONAL", "NOT_COMPARABLE"
-        judged.append((ORDER.index(status), status, result, word, fact, gaps, unit_differs, note))
-    _, status, result, word, fact, gaps, unit_differs, note = min(judged, key=lambda j: j[0])
+        judged.append(
+            (ORDER.index(status), status, result, word, fact, gaps, unit_differs, note, shorter)
+        )
+    _, status, result, word, fact, gaps, unit_differs, note, shorter = min(
+        judged, key=lambda j: j[0]
+    )
     cited = f"근거 {fact.evidence_id} {fact.section}"
     reason = f"{head}, 자사 {grading._with_unit(fact.value, fact.unit)}({cited}): {word}."
     if note:
@@ -240,7 +329,14 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         reason += f" 조건 차이: {'; '.join(gaps)}."
     unresolved = list(gaps)
     if note and result == "MEETS":
-        unresolved.append("요구 지속시간의 시험값 확인(환산 충족)")
+        unresolved += ["요구 지속시간의 시험값 확인(환산 충족)", "정격 피크 확인"]
+    elif note and shorter:
+        unresolved.append("요구 지속시간의 시험값 확인(짧은 시간 값의 추정)")
+    mismatch = _system_mismatch(requirement, product) if status == "EVIDENCE_FOUND" else []
+    if mismatch:
+        status = "CONDITIONAL"
+        reason += f" {'; '.join(mismatch)}."
+        unresolved += mismatch
     if unit_differs:
         unresolved.append(f"단위 확인: 요구 {requirement.unit}, 자사 {fact.unit}")
     elif result == "NOT_COMPARABLE":
@@ -353,11 +449,26 @@ def _as_grading(requirement: Requirement) -> grading.Requirement:
         standard_system="NONE",
         necessity=requirement.necessity,
         clause_no=requirement.clause_no,
+        canonical_value=requirement.canonical_value,
     )
 
 
+def _work_kind(requirement: Requirement) -> Literal["TASK", "DOCUMENT"] | None:
+    """장비 사양이 아닌 요구의 종류. 판단은 이 함수 한 곳이다.
+
+    Args:
+        requirement: 비교 입력.
+
+    Returns:
+        Literal | None: 문서 요구면 DOCUMENT, 과업이면 TASK(kind가 TASK이거나 task 칸이 있음), 장비 사양이면 None.
+    """
+    if requirement.kind == "DOCUMENT":
+        return "DOCUMENT"
+    return "TASK" if requirement.kind == "TASK" or requirement.task else None
+
+
 def _cause(requirement: Requirement) -> Cause:
-    if requirement.task:
+    if _work_kind(requirement) == "TASK":
         return "TASK"
     if requirement.certification_standard:
         return "CERTIFICATION"
@@ -401,12 +512,22 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             search_trace=trace,
         )
 
+    if requirement.basis_of_design:
+        return outcome(
+            "CONDITIONAL",
+            f"원문 {requirement.clause_no} 설계 기준 {requirement.value or requirement.item}: "
+            "지정이 아니라 참고 기준이라 동등 이상 제안이 가능한지 고객 확인 필요.",
+            ["동등 이상 제안 가능 여부(고객 확인)"],
+            "CUSTOMER",
+            None,
+            [],
+        )
     if requirement.designated_model:
         # 타사 지정 모델은 자사 제품과 같다고 보지 않는다. 지정품 조달 또는 대체 제안(고객 승인)으로
         # 나누는 대응 경로가 있어 조건부다(기획서 4.2·4.4).
         return outcome(
             "CONDITIONAL",
-            f"원문 {requirement.clause_no} 설계 기준 {requirement.designated_model}: 타사 지정 모델이라 "
+            f"원문 {requirement.clause_no} 지정 모델 {requirement.designated_model}: 타사 지정 모델이라 "
             "자사 제품과 같다고 보지 않음. 지정품 조달 또는 동등품 대체(발주처 승인) 확인.",
             ["동등품 허용 여부(발주처 승인)"],
             "CUSTOMER",
@@ -423,7 +544,32 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             None,
             [],
         )
-    if not requirement.certification_standard and not requirement.value:
+    if is_placeholder(requirement.certification_standard or requirement.value):
+        # 미정 표시(<Insert value> 등)는 값이 아니다. 판정에서 빼고 고객 회신을 받는다(기획서 4.9).
+        return outcome(
+            "INSUFFICIENT_EVIDENCE",
+            f"원문 {requirement.clause_no} {requirement.item}: 요구값 미정(자리표시자). 충족 판정에서 제외.",
+            ["요구값 확정(고객 회신)"],
+            "CUSTOMER",
+            None,
+            [],
+        )
+    work = None if requirement.certification_standard else _work_kind(requirement)
+    if work and (not requirement.value or requirement.attribute in (None, "OTHER") or not products):
+        # 과업·문서 요구에 견줄 값이나 후보(계열 미정 포함)가 없으면 고객에게 물을 일이 아니라 내부에서 정한다
+        # (기획서 4.9). '자사 후보 없음'도 수행 가능 여부와 무관해 쓰지 않는다. 미기재 ≠
+        # 미충족이라 상태는 근거 부족이다. 과업만 원인을 남겨 자사 수행 확인 → 과업 위탁 경로를 낸다.
+        check = "수행 주체 확인(자사/협력사)" if work == "TASK" else "제출 자료 준비 확인"
+        kind_word = "수행 과업 요구" if work == "TASK" else "제출 문서 요구"
+        return outcome(
+            "INSUFFICIENT_EVIDENCE",
+            f"원문 {requirement.clause_no} {requirement.item}: {kind_word}. {check} 필요.",
+            [check],
+            "TECH",
+            "TASK" if work == "TASK" else None,
+            [],
+        )
+    if not (requirement.certification_standard or requirement.value or requirement.canonical_value):
         # 요구값을 모르면(도면 참조 등) 비교하지 않는다. 고객 자료를 받아야 한다.
         return outcome(
             "INSUFFICIENT_EVIDENCE",
@@ -552,6 +698,7 @@ def compare_in_family(
 
     계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 속성을 자사 사양 항목에 연결하지 못한 요구
     (attribute "OTHER", 인증 요구 제외)도 비교하지 않는다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
+    과업·문서 요구(`_work_kind`)는 장비 사양이 아니라 이 두 검사 없이 `compare`로 간다(인증 요구는 인증 경로).
 
     Args:
         requirement: 비교 입력.
@@ -578,7 +725,9 @@ def compare_in_family(
             ),
         )
 
-    if requirement.designated_model is None:
+    not_equipment = requirement.certification_standard is None and _work_kind(requirement)
+    named = requirement.designated_model is not None or requirement.basis_of_design
+    if not named and not not_equipment:
         if family in (None, "OTHER"):
             return not_compared(
                 "요구 장비 계열을 정하지 못해 비교하지 않음.", "요구 장비 계열 확인"

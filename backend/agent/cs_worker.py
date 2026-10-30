@@ -15,7 +15,7 @@
 import os
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -23,7 +23,12 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from backend.agent.cs_runner import build_cs_runner, make_checkpointer, outcome
+from backend.agent.cs_runner import (
+    CLASSIFICATION_DEFAULTS,
+    build_cs_runner,
+    make_checkpointer,
+    outcome,
+)
 from backend.agent.cs_search import (
     CsVectorSettings,
     fts_searcher_from_dsn,
@@ -42,6 +47,7 @@ from backend.agent.job_runtime import (
 )
 from backend.agent.ticket_source_registry import WorkerParts, load_parts
 from backend.engine.cs.graph import HUMAN_REVIEW, initial_state, thread_config
+from backend.engine.cs.providers import GenerationKnobs
 from backend.shared.ai import AISettings, create_client
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -49,18 +55,23 @@ from backend.shared.settings import Settings
 __all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # 진행 이벤트를 남기는 노드(EventPayload.step 값과 같다).
-NODES = ("classify", "rules", "retrieve", "draft")
+NODES = ("classify", "rules", "retrieve", "draft", "verify", "rewrite", "reverify")
 # 입력 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 CS_WORKER_GRAPH_FAILED로 저장한다.
 LOAD_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
 
 class CsWorkerSettings(BaseSettings):
-    """worker 실행 허용과 lease 길이. 기본 비활성이다."""
+    """worker 실행 허용, lease 길이, 분류 전용 모델·출력 상한. 기본 비활성이다."""
 
     model_config = SettingsConfigDict(env_prefix="CS_WORKER_", extra="ignore")
     enabled: bool = False
     # 노드 하나(재호출 포함 모델 호출)가 이 안에 끝나야 한다. 노드마다 연장한다.
     lease_seconds: int = Field(default=120, ge=10, le=900)
+    # 없으면 공통 GEMINI_MODEL을 분류·초안에 함께 쓴다. 바꾸려면 채택 기록이 필요하다(eval/promotion.py).
+    classification_model: str | None = None
+    classification_max_output_tokens: int = Field(
+        default=CLASSIFICATION_DEFAULTS["max_output_tokens"], ge=1, le=65536
+    )
 
 
 def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool]) -> bool:
@@ -83,7 +94,12 @@ def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool
         for node in update:
             if node in NODES:
                 stage = graph.get_state(config).values.get("stage")
-                if not on_node({"step": node, "stage": stage}):
+                if not on_node(
+                    {
+                        "step": "draft" if node in {"verify", "rewrite", "reverify"} else node,
+                        "stage": stage,
+                    }
+                ):
                     return False
     return True
 
@@ -111,6 +127,15 @@ def summary(graph: Any, lease: Lease) -> dict[str, Any]:
     return values
 
 
+def review_notification(graph: Any, lease: Lease) -> Literal["cs.review_wait", "cs.safety"] | None:
+    """재작성·재개 후에도 실제 최종 human_review 정지만 알린다. 분류 실패 END는 제외한다."""
+    checkpoint = graph.get_state(thread_config(str(lease.job_id)))
+    if tuple(checkpoint.next) != (HUMAN_REVIEW,):
+        return None
+    classification = checkpoint.values.get("classification") or {}
+    return "cs.safety" if classification.get("urgency_flag") == "SAFETY" else "cs.review_wait"
+
+
 def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheckpointSaver) -> Any:
     """Gemini 공급자와 cs FTS 검색기(CS_VECTOR_SEARCH_ENABLED면 벡터 검색기도)로 그래프를 만든다.
 
@@ -125,6 +150,7 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
     assert settings.database_url is not None
     assert parts.allowed_info_codes is not None and parts.search_filters is not None
     ai = AISettings()
+    worker = CsWorkerSettings()
     dsn = settings.database_url.get_secret_value()
     index_version = parts.search_filters.index_version
     vector = CsVectorSettings()
@@ -141,8 +167,13 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
         search_filters=parts.search_filters,
         checkpointer=checkpointer,
         model=ai.gemini_model,
+        classification_model=worker.classification_model,
+        classification_knobs=GenerationKnobs(
+            max_output_tokens=worker.classification_max_output_tokens
+        ),
         allowed_info_codes=parts.allowed_info_codes,
         allow_tracing=settings.ai_tracing_allowed,
+        verification_enabled=settings.cs_draft_verification_enabled,
         policy_documents=parts.policy_documents,
     )
 
@@ -194,7 +225,13 @@ def execute_job(
             ):
                 finish(settings, lease, "CANCELLED", {})
                 return "CS_JOB_CANCELLED"
-            finish(settings, lease, "SUCCEEDED", summary(graph, lease))
+            finish(
+                settings,
+                lease,
+                "SUCCEEDED",
+                summary(graph, lease),
+                notification_kind=review_notification(graph, lease),
+            )
             return "CS_JOB_SUCCEEDED"
     except LeaseLost:
         return "LEASE_LOST"

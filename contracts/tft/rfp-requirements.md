@@ -13,15 +13,21 @@
 
 ## 흐름
 
-1. **입력** `build_inputs(tree, ["2.4", "2.5"])`: 절마다 하위 조항의 **현행 텍스트**와 상위 조항 문맥(`path`)을 모은다. 취소선으로 지운 값은 보내지 않는다.
+1. **입력** `build_inputs(tree, ["2.4", "2.5"])`: 절마다 하위 조항의 **현행 텍스트**와 상위 조항 문맥(`path`)을 모은다. 취소선으로 지운 값은 보내지 않는다. 반환 타입은 평탄한 `list[ExtractionInput]`이며 요청 절 순서와 절 안 원문 조항 순서를 유지한다. 길이에 관계없이 요청 절마다 입력 하나를 반환한다. 나눔과 부분 결과 합산은 `extract_section`이 맡는다. 모든 부분은 원래 `section_no`·`section_title`·`clause_no`·`path`를 유지한다.
 2. **모델**: Gemini 구조화 출력으로 요구를 낸다. 요구 하나는 장비 하나의 속성 하나 또는 과업 하나다.
    - 출력 항목: `clause_no`, 근거 `quote`, `kind`, `equipment`, `task`, `attribute`, `value`, `unit`, `operator`
    - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`, `designated_manufacturer`
+   - 연산자 기준(v6): 최소 요구는 `GTE`(문구가 '이상'이거나, 내전류·차단 용량·연속 전류처럼 더 높은 정격이 요구를 만족하는 양), 최대 제한은 `LTE`, 고정된 지정값(계통 전압, 고정값으로 적힌 절연 수준·공칭 정격)은 `EQ`, 범위는 `RANGE`다.
+   - 조건 이름(v6): `conditions.name`은 어휘(`vocabulary.ConditionName`) 안의 값 또는 `OTHER`다. 자사·협력사 사양 근거의 조건 이름도 이 어휘 안에 있어야 한다(검사가 확인). `OTHER`면 `value`에 원문 문구를 그대로 둔다. 응답 스키마는 enum 하나다.
    - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
      - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
      - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
      - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
+     - `assembly_clause`(v4): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true, 장비가 나열되기만 하면 false. 통합 책임 판별(`rfp/integration.py`)의 입력이다. 처리 흐름 연결은 후속이다
+     - `approval_procedure_missing`(v5): 대체품·동등품·목록 밖 제조사를 승인 조건부로 허용하는데 받은 본문 안에 승인 절차·제출 자료가 없을 때만 true. 대체 불허이거나 절차가 적혀 있으면 false. 고객 질문 판별의 입력이다(영어 정규식 대신 의미 판단). 한계: 긴 절은 부분별로 추출되므로 절차가 다른 부분에 있으면 true가 될 수 있다. 오탐은 질문이 하나 더 생기는 안전한 방향이다
+     - `basis_of_design`(v7): 특정 제품을 대체 불가 지정이 아니라 설계 기준으로 들고 동등 이상을 허용할 때만 true다. 이때 제품명은 `value`(연산자 `TEXT`)에 두고 `designated_model`·`designated_manufacturer`는 null이다. 함께 보내면 `validate_output`이 지정 칸을 비운다.
+     - `canonical_value`(v7): 문장으로 적힌 값의 비교용 표기 또는 null. `value`·`quote`는 원문 그대로다. 탭은 `±NxS%` 또는 `+Nx-MxS%`(곱하기는 영문 소문자 x), 보호 기능은 L·S·I·G 순서의 문자 집합이다(예 `LSI`). 표기는 `vocabulary.CANONICAL_FORMS` 한 곳에 있다. 그 속성의 표기가 아니면 `validate_output`이 지우고 `needs_review`로 둔다. 형식만 검사하고 의미 대조는 하지 않는다. 판정 사용은 후속 PR이다.
      - 어휘·계열은 `backend/engine/rfp/vocabulary.py` 단일 원본이다. 사양 사실 형식(`partners.schemas.Attribute`)도 같은 목록이고, 자사 사양 파일은 그 부분집합이다(검사가 확인)
      - 지시문은 목록과 '모르면 OTHER, 비슷한 말로 추측하지 않음'을 싣는다. 예시는 14번 문구를 쓰지 않는다
    - 명령문("Provide…", "Comply with…")도 요구로 읽는다.
@@ -33,10 +39,10 @@
    - `VALUE_NOT_IN_QUOTE`: 수치 값이 인용에 없음
    - 문장형 요구(`operator=TEXT`)의 값이 인용에 없으면 모델이 바꿔 쓴 말이므로 **값만 비우고 요구는 남긴다**(`value_dropped`).
    - 의미 칸 검사(v3). 요구를 버리지 않고 `needs_review`로 표시한다. `needs_review`는 코드만 정하며 응답 스키마에 없다.
-     - 목록 밖 `attribute_key`·`equipment_family`는 엄격 검사 전에 `OTHER`로 바꾸고 검토로 둔다. 응답 전체를 스키마 위반으로 버리지 않는다
+     - 목록 밖 `attribute_key`·`equipment_family`·조건 이름은 엄격 검사 전에 `OTHER`로 바꾸고 검토로 둔다. 응답 전체를 스키마 위반으로 버리지 않는다
      - `tolerance`가 인용 안에 그대로 없으면 지우고 검토로 둔다
      - 값이 숫자인데 인용에 허용 오차 표기(±, +/-, +0/-5, tolerance, plus or minus)가 있고 `tolerance`가 비었으면 검토로 둔다
-   - 지정 모델·제조사는 그 조항 현행 텍스트에 그대로 있을 때만 남긴다. 없으면 **그 칸만 비우고 요구는 남긴다**(`designated_dropped`). 모델명에서 제조사를 짐작한 값(SEL-751A → Schweitzer), 취소선으로 지운 옛 모델, 원문에 없는 모델이 여기서 걸린다. 모델이 비면 제조사도 비운다.
+   - 지정 모델·제조사는 그 조항 현행 텍스트에 토큰으로 있을 때만 남긴다(앞뒤가 ASCII 영숫자면 다른 낱말이다). 모델명은 영숫자 2자 이상이고 숫자만이면 안 된다. 없으면 **그 칸만 비우고 요구는 남긴다**(`designated_dropped`). 모델명에서 제조사를 짐작한 값(SEL-751A → Schweitzer), 취소선으로 지운 옛 모델, 원문에 없는 모델이 여기서 걸린다. 모델이 비면 제조사도 비운다.
 4. **빠진 문장 보완** `coverage`: 조항을 문장으로 나눠, 요구 문장마다 채택한 요구의 인용이 겹치는지 본다. `:`로 끝나는 머리글은 요구 문장에서 뺀다. 빠진 문장이 있으면 **그 문장만** 모아 한 번 더 부른다. 보완 결과도 원 조항 기준으로 같은 검사를 받는다. 그 밖의 자동 재시도는 없다.
 
 모델에 주는 스키마(`ResponseSchema`)는 엄격 모델(`ExtractionOutput`)과 필드가 같다(코드만 정하는 `needs_review` 제외). 다른 점은 `extra=forbid`가 없다는 것이다. Gemini가 `additionalProperties`를 받지 않아서(400 INVALID_ARGUMENT) 이렇게 둔다. 받은 응답은 엄격 모델로 다시 검사한다.
@@ -53,10 +59,14 @@
 
 ## 긴 절 나눠 부르기 (`split_input`)
 
-Gemini는 추론 토큰도 출력 상한(16384)에 들어간다. 14번 2.5(3972자)가 이미 답 5345 + 추론 6609토큰을 썼고, 2.6(7560자, 조항 62개)은 한 번에 부르면 응답이 잘려 `SCHEMA_VIOLATION`이었다. 그래서 본문이 `PART_CHARS`(4000자)를 넘는 절은 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눠 부르고 결과를 합친다. 묶음 하나는 쪼개지 않는다.
+`build_inputs`는 절 전체 길이와 관계없이 절마다 입력 하나를 반환한다. `extract_section`이 `split_input`으로 나눠 부르고 요구와 결과를 합산한다. `split_input`은 본문(표 행 포함)이 `PART_CHARS`(4000자)를 넘으면 첫 단계 하위 조항 묶음 단위로 순서대로 나눈다. 절 전체가 목표 길이 이하면 입력을 그대로 반환한다. 첫 단계 묶음이 목표 길이(`limit`, 기본 4000자)를 넘으면 그 묶음만 개별 하위 조항 경계로 같은 목표 길이에 맞춰 재묶는다. 개별 조항은 자르지 않으므로 목표 길이를 넘는 조항은 단독 부분이 된다. 조항 순서·번호·문맥을 보존하며 중복 호출하지 않는다. `split_input`은 `build_inputs`의 개별 조항 길이·부분 수 사전 검사를 거친 입력을 전제한다.
 
-- 모든 부분이 `VALID`일 때만 절이 `VALID`다. 실패한 부분이 있으면 그 결과 코드이고, 성공한 부분의 요구는 남기며 `parts_failed`로 드러난다. 문장 포괄 분모는 절 전체 문장 수다.
-- v1 측정 절(2.4 2510자, 2.5 3972자)은 상한 아래라 나뉘지 않는다. 2.6은 2부분, 실패 0.
+- 기존 절 전체 12000자 제한은 **개별 조항** 제한으로 이동한다. 개별 조항 본문(표 행 포함)이 12000자를 초과하면 문장·표를 강제로 자르지 않고 `RFP_SECTION_TOO_LONG`으로 호출 전에 거부한다.
+- 절별 재분할 결과는 `MAX_SECTION_PARTS`(12부분)까지 허용하며 초과하면 `RFP_SECTION_TOO_MANY_PARTS`로 호출 전에 거부한다. `build_inputs`에서 `split_input(item)`의 실제 추출 부분 수를 검사한다. 최초 호출 최대 12회 + 부분별 빠진 문장 보완 최대 12회 = 절별 논리 호출 최대 24회다. 공급자 전송 재시도는 이 수와 별개로 공급자 정책을 따른다.
+
+- `extract_section`은 원래 절의 모든 부분이 `VALID`일 때만 `VALID`다. 실패한 부분이 있으면 그 결과 코드이고, 성공한 부분의 요구는 남기며 `parts_failed`로 드러난다. 문장 포괄 분모는 실패한 부분까지 포함한 원래 절 전체 요구 문장 수다. 부분별 요구·실패·포괄 집계도 `extract_section`이 담당한다.
+- 입력 생성의 `RFP_SECTION_TOO_LONG`·`RFP_SECTION_TOO_MANY_PARTS`는 `ValueError`다. worker는 해당 절을 건너뛰고 `needs_review`로 남기는 흐름을 유지한다.
+- v1 측정 절(2.4 2510자, 2.5 3972자)은 상한 아래라 나뉘지 않는다. 2.6의 기존 실측은 2부분, 실패 0이며 목표 길이 초과 묶음 재분할 변경 후 실측은 미실행이다.
 
 ## 채점
 

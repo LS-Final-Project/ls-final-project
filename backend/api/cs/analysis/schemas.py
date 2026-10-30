@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.engine.cs.classification import Category, Urgency
+from backend.engine.cs.verification import SentenceVerdict, VerificationStatus
 
 Source = Literal["ai_draft", "human_input"]
 InfoCode = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
@@ -34,6 +35,20 @@ class AnalysisRun(BaseModel):
     created_at: datetime
 
 
+class VerificationRun(BaseModel):
+    id: UUID
+    draft_id: UUID
+    job_id: UUID | None
+    attempt_number: int
+    outcome: Literal["VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"]
+    sentences: list[SentenceVerdict]
+    input_version: str
+    model_version: str | None
+    prompt_version: str
+    error_code: str | None
+    created_at: datetime
+
+
 class DraftRun(BaseModel):
     id: UUID
     seq: int
@@ -49,6 +64,8 @@ class DraftRun(BaseModel):
     error_code: str | None
     provenance_kind: Literal["ai_draft"]
     created_at: datetime
+    verification_status: VerificationStatus = "NOT_VERIFIED"
+    verifications: list[VerificationRun] = Field(default_factory=list)
 
 
 class Correction(BaseModel):

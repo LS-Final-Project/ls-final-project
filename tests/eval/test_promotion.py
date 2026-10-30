@@ -19,10 +19,11 @@ def test_the_repository_config_matches_adopted_records_or_known_exceptions():
     )
     assert result["passed"], result
     # 알려진 문제는 숨지 않고 결과에 보인다.
-    assert {(e["stage"], e["kind"]) for e in result["excepted"]} == {
-        ("classification", "MISMATCH"),
-        ("draft", "NO_ADOPTION"),
-        ("rfp_extraction", "NO_ADOPTION"),
+    assert {(e["stage"], e["kind"], e["field"]) for e in result["excepted"]} == {
+        ("classification", "MISMATCH", "model"),
+        ("classification", "MISMATCH", "max_output_tokens"),
+        ("draft", "NO_ADOPTION", None),
+        ("rfp_extraction", "NO_ADOPTION", None),
     }
 
 
@@ -49,7 +50,7 @@ CONFIG = {
 }
 RECORDS = [
     record("classification", {"model": "m-a", "prompt_version": "v3"}),
-    record("draft", {"model": "m-a"}),
+    record("draft", {"model": "m-a", "prompt_version": "v1"}),
     record("embedding", {"model": "e-1", "dimension": 768}),
     record("rfp", {"model": "m-a", "extraction_version": "x2"}),
 ]
@@ -192,7 +193,7 @@ def test_settings_come_from_the_runtime_paths_not_the_local_environment(monkeypa
 
 def test_a_deploy_script_overriding_the_default_model_is_reported(tmp_path):
     script = tmp_path / "deploy.py"
-    script.write_text('",AI_PROVIDER=gemini,GEMINI_MODEL=m-deploy,GEMINI_MAX_OUTPUT_TOKENS=1024"')
+    script.write_text('",AI_PROVIDER=gemini,GEMINI_MODEL=m-deploy"')
     drift = promotion.deploy_drift(CONFIG, script)
     assert [(i.stage, i.kind, i.deployed, i.adopted) for i in drift] == [
         ("classification", "DEPLOY_DIFFERS", "m-deploy", "m-a"),
@@ -201,3 +202,130 @@ def test_a_deploy_script_overriding_the_default_model_is_reported(tmp_path):
     assert not promotion.check(CONFIG, RECORDS, [], drift)["passed"]
     script.write_text('"GEMINI_MODEL=m-a"')
     assert promotion.deploy_drift(CONFIG, script) == []
+
+
+def test_the_classification_stage_reads_its_own_limit_and_keeps_the_shared_default():
+    """분류는 전용 상한을 쓰고 공통 기본 1024는 그대로다. 전용 모델이 없으면 공통 모델이다."""
+    from backend.agent.cs_runner import CLASSIFICATION_DEFAULTS
+    from backend.shared.ai import AISettings
+
+    config = promotion.deployed_config()
+    shared = AISettings.model_construct()
+    assert config["classification"]["max_output_tokens"] == 4096
+    assert (
+        config["classification"]["max_output_tokens"]
+        == (CLASSIFICATION_DEFAULTS["max_output_tokens"])
+    )
+    assert shared.gemini_max_output_tokens == 1024
+    assert config["classification"]["model"] == shared.gemini_model
+
+
+def test_settings_missing_on_either_side_are_mismatches():
+    """채택 기록에 없는 실행 설정과 실행 경로에 없는 채택 항목도 불일치다(채택 때 고정 안 한 설정 변경을 막는다)."""
+    extra = copy.deepcopy(CONFIG)
+    extra["classification"]["max_output_tokens"] = 1024
+    result = promotion.check(extra, RECORDS, [])
+    assert result["blocked"] == [
+        {
+            "stage": "classification",
+            "kind": "MISMATCH",
+            "field": "max_output_tokens",
+            "deployed": 1024,
+            "adopted": None,
+        }
+    ]
+    records = [
+        *RECORDS[:2],
+        record("embedding", {"model": "e-1", "dimension": 768, "k": 5}),
+        RECORDS[3],
+    ]
+    missing = promotion.check(CONFIG, records, [])
+    assert [(i["field"], i["deployed"], i["adopted"]) for i in missing["blocked"]] == [
+        ("k", None, 5)
+    ]
+
+
+def test_the_draft_prompt_version_comes_from_the_node_that_runs_it():
+    """초안 판본은 그래프 노드가 실제로 쓰는 run_draft_attempt 기본값이다. 그래프가 판본을 넘기게 바뀌면 여기서 알린다."""
+    from pathlib import Path
+
+    from backend.engine.cs.prompt_registry import prompt_fingerprint
+
+    config = promotion.deployed_config()
+    assert config["draft"]["prompt_version"] == promotion.draft_prompt_version()
+    assert config["draft"]["prompt_fingerprint"] == prompt_fingerprint(
+        "draft", config["draft"]["prompt_version"]
+    )
+    graph = Path("backend/engine/cs/graph.py").read_text()
+    assert "run_draft_attempt(" in graph and "prompt_version" not in graph
+
+
+def test_editing_the_rfp_extraction_prompt_changes_the_checked_config(monkeypatch):
+    from backend.engine.rfp import requirements
+
+    before = promotion.deployed_config()["rfp_extraction"]
+    monkeypatch.setattr(requirements, "PROMPT", requirements.PROMPT + "\n- one more rule")
+    after = promotion.deployed_config()["rfp_extraction"]
+    assert after["extraction_version"] == before["extraction_version"]
+    assert after["prompt_fingerprint"] != before["prompt_fingerprint"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # 공통 상한은 분류가 쓰지 않는다. 다른 호출을 위해 배포가 1024를 넣어도 불일치가 아니다.
+        ('"GEMINI_MODEL=m-a,GEMINI_MAX_OUTPUT_TOKENS=1024"', []),
+        ('"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS=4096"', []),
+        (
+            '"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS=256"',
+            [("classification", "max_output_tokens", 256, 4096)],
+        ),
+        (
+            '"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MODEL=m-lite"',
+            [("classification", "model", "m-lite", "m-a")],
+        ),
+        (
+            '"GEMINI_MODEL=m-a,TFT_EXTRACTION_MODEL=m-other"',
+            [("rfp_extraction", "model", "m-other", "m-a")],
+        ),
+        (
+            '"GEMINI_MODEL=m-a,TFT_EXTRACTION_MAX_OUTPUT_TOKENS=2048"',
+            [("rfp_extraction", "max_output_tokens", 2048, 16384)],
+        ),
+    ],
+)
+def test_deploy_overrides_of_limits_and_the_extraction_model_are_reported(tmp_path, text, expected):
+    config = copy.deepcopy(CONFIG)
+    config["classification"]["max_output_tokens"] = 4096
+    config["rfp_extraction"]["max_output_tokens"] = 16384
+    script = tmp_path / "deploy.py"
+    script.write_text(text)
+    drift = promotion.deploy_drift(config, script)
+    assert [(i.stage, i.field, i.deployed, i.adopted) for i in drift] == expected
+
+
+def test_a_classification_model_override_takes_the_shared_model_off_classification(tmp_path):
+    """분류 전용 모델이 있으면 공통 모델과 비교하지 않는다(#355 리뷰). 초안은 공통 모델 그대로 본다."""
+    config = copy.deepcopy(CONFIG)
+    config["classification"]["model"] = "m-lite"
+    script = tmp_path / "deploy.py"
+    script.write_text('"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert promotion.deploy_drift(config, script) == []
+    script.write_text('"GEMINI_MODEL=m-other,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert [(i.stage, i.deployed) for i in promotion.deploy_drift(config, script)] == [
+        ("draft", "m-other")
+    ]
+    script.write_text('"GEMINI_MODEL=m-a"')
+    assert [(i.stage, i.deployed, i.adopted) for i in promotion.deploy_drift(config, script)] == [
+        ("classification", "m-a", "m-lite")
+    ]
+
+
+def test_adoption_dates_must_be_iso(tmp_path):
+    import json
+    from dataclasses import asdict
+
+    bad = asdict(record("embedding", {"model": "e-1"}, decided_on="2026-1-5"))
+    (tmp_path / "x.json").write_text(json.dumps(bad))
+    with pytest.raises(ValueError, match="PROMOTION_ADOPTION_DATE"):
+        promotion.load_adoptions(tmp_path)

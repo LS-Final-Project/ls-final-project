@@ -187,7 +187,7 @@ def test_the_graph_runs_on_the_worker_login_and_stops_before_human_review(
     )
     assert admin.execute(
         "SELECT prompt_version FROM cs.ticket_drafts WHERE ticket_id=%s", (ticket,)
-    ).fetchone() == ("v1",)
+    ).fetchone() == ("v2",)
 
 
 def test_a_priced_attempt_stores_its_cost_and_price_version(worker_dsn, ticket):
@@ -209,6 +209,15 @@ def test_a_priced_attempt_stores_its_cost_and_price_version(worker_dsn, ticket):
             (run_id,),
         ).fetchone()
     assert row == ("v3", 13, Decimal("0.750000"), "gemini-3.6-flash@2026-10-28")
+
+
+def test_worker_can_read_only_notification_owner_columns(worker_dsn):
+    with psycopg.connect(worker_dsn) as conn:
+        conn.execute("SELECT ticket_id, owner_user_id FROM cs.ticket_workflows LIMIT 1")
+    for column in ("state", "version", "updated_at"):
+        with psycopg.connect(worker_dsn) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(f"SELECT {column} FROM cs.ticket_workflows LIMIT 1")
 
 
 @pytest.mark.parametrize("table", ["ticket_analyses", "ticket_drafts"])
@@ -252,3 +261,68 @@ def test_build_reads_the_job_id_of_the_worker(monkeypatch, worker_dsn):
     assert isinstance(parts.ticket_source, worker_source.DbTicketSource)
     assert parts.ticket_source.job_id == job
     assert parts.allowed_info_codes is None and parts.search_filters is None
+
+
+def test_verification_is_linked_to_the_draft_visible_in_analysis_and_append_only(
+    worker_dsn, admin, ticket
+):
+    import asyncio
+    from pathlib import Path
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from backend.api.cs.analysis import service
+    from tests.cs.graph_fakes import verification_provider
+
+    # Reapply the same migration: table, index and grants must remain safe and idempotent.
+    migration = Path("infra/migrations/cs/20261104_KAN-200_draft_verification.sql")
+    admin.execute(
+        "\n".join(line for line in migration.read_text().splitlines() if not line.startswith("\\"))
+    )
+    source = worker_source.DbTicketSource(worker_dsn, uuid4())
+    graph = build_graph(
+        classification_provider=classification_provider,
+        draft_provider=draft_provider,
+        verification_provider=verification_provider,
+        fts_searcher=fts_searcher,
+        search_filters=FILTERS,
+        allowed_info_codes=policy_info_codes(),
+        load_ticket=source.load_ticket,
+        record_attempt=source.record_attempt,
+        checkpointer=InMemorySaver(),
+    )
+    config = thread_config(str(uuid4()))
+    graph.invoke(initial_state(str(ticket)), config)
+    draft_id = graph.get_state(config).values["draft_attempt_id"]
+    with psycopg.connect(worker_dsn, row_factory=dict_row) as conn:
+        row = conn.execute(
+            "SELECT * FROM cs.ticket_draft_verifications WHERE draft_id=%s", (draft_id,)
+        ).fetchone()
+    assert row["outcome"] == "VALID" and row["prompt_version"] == "v1"
+    assert row["input_tokens"] == 10 and row["call_attempts"] == 1
+    assert len(row["sentences"]) == 3
+    for role in ("cs_worker", "cs_app"):
+        for permission in ("UPDATE", "DELETE", "TRUNCATE"):
+            assert admin.execute(
+                "SELECT has_table_privilege(%s, 'cs.ticket_draft_verifications', %s)",
+                (role, permission),
+            ).fetchone() == (False,)
+
+    app_dsn = make_conninfo(admin.info.dsn, user="cs_app", password="test-only")
+
+    async def view():
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await service.build(conn, ticket)
+
+    result = asyncio.run(view())
+    assert result.latest_valid_draft_id == row["draft_id"]
+    assert result.drafts[-1].verification_status == "VERIFIED"
+    assert result.drafts[-1].verifications[0].id == row["id"]
+    mismatch = {"draft_id": row["draft_id"], "job_id": uuid4(), "sentences": row["sentences"]}
+
+    async def wrong_job():
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
+            await service.record_verification(conn, ticket, mismatch)
+
+    with pytest.raises(ValueError, match="CS_VERIFICATION_DRAFT_MISMATCH"):
+        asyncio.run(wrong_job())

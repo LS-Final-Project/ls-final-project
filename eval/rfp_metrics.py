@@ -346,7 +346,8 @@ def unconfirmed_items(summary: Mapping, grades: Sequence[Mapping]) -> set[str]:
     """후보 하나가 화면에 '확인 필요'로 보이는 항목 이름(검토 후보 미확인 조건 표시 확인용).
 
     등급 판정(backend/api/tft/partners/grading.py)의 검사 항목 이름을 그대로 쓴다: 요구별 mandatory_check.unknown
-    (속성명, certification:규격, integrator_capable.항목, supply_region)과, 후보 요약의 제조사 목록 확인 문구가
+    (속성명, certification:규격, integrator_capable.항목.
+    supply_region은 판정이 passed·failed뿐이라 나오지 않는다)과, 후보 요약의 제조사 목록 확인 문구가
     있으면 manufacturer_list. 문장은 표현이 바뀌면 대조가 깨지므로 이름만 본다.
 
     Args:

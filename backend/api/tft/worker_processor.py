@@ -11,10 +11,13 @@
 """
 
 import asyncio
+import hashlib
 import itertools
-from collections.abc import Callable, Mapping, Sequence
+import json
+import re
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
-from pathlib import Path
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -26,14 +29,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.agent.processor_registry import Emit, Processor, TftJob
 from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
+from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pools
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
-from backend.api.tft.rfp import comparison, repository, supplement
+from backend.api.tft.rfp import comparison, integration, repository, supplement
 from backend.api.tft.rfp.jobs import input_version
-from backend.api.tft.rfp.storage import read_document
+from backend.api.tft.rfp.storage import (
+    DocumentStorageSettings,
+    DocumentStore,
+    document_store,
+    read_document,
+)
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
+from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
+    Operator,
     ResponseSchema,
     build_inputs,
     extract_section,
@@ -52,14 +63,13 @@ ONLY_STEP = {"rfp.export": "export", "rfp.annotate": "annotate"}
 
 
 class ProcessorSettings(BaseSettings):
-    """원문 폴더와 추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
+    """추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
 
     추출 값은 공통 AI 기본값(출력 1024토큰)을 쓰지 않는다. 기본은 평가 스크립트(scripts/rfp_requirements_eval.py)와
     같은 모델·출력 상한이고, 시간 제한은 lease 안에 들도록 120초다. 키·공급자·재시도는 공통 AI 설정(GEMINI_*)이다.
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
-    document_root: Path | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -149,14 +159,16 @@ def build(settings: Settings) -> Processor:
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
-    return make_processor(settings, provider=provider, document_root=config.document_root)
+    return make_processor(
+        settings, provider=provider, store=document_store(DocumentStorageSettings())
+    )
 
 
 def make_processor(
     settings: Settings,
     *,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product] | None = None,
     today: Callable[[], date] = date.today,
 ) -> Processor:
@@ -165,7 +177,7 @@ def make_processor(
     Args:
         settings: DB 설정.
         provider: 추출 모델 호출.
-        document_root: 원문 폴더. 없으면 원문이 필요한 작업은 실패한다.
+        store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
 
@@ -178,7 +190,7 @@ def make_processor(
         if job.kind in ONLY_STEP:
             emit({"step": ONLY_STEP[job.kind], "counts": ZERO})
             return {"counts": ZERO, "needs_review": False}
-        return asyncio.run(process(settings, job, emit, provider, document_root, own, today()))
+        return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor
 
@@ -207,12 +219,54 @@ def sections_of(tree: ClauseTree) -> list[str]:
     return out
 
 
+# 질문 초안 종류 → 질문 유형. 승인 절차는 demo_cases(2.1 제조사 목록)와 같이 조건 누락으로 본다.
+QUESTION_ISSUES = {
+    "PLACEHOLDER": "EMPTY_VALUE",
+    "INCONSISTENCY": "CONFLICT",
+    "APPROVAL_PROCESS": "CONDITION_MISSING",
+}
+# 허용 오차 표기: 대칭(±10%, +/-0.5)과 비대칭(+0/-5%, +10%/-5%). 숫자 부분만 읽는다.
+SYMMETRIC = re.compile(r"^\s*(?:±|\+\s*/\s*-|\+-)\s*(\d+(?:\.\d+)?)\s*%?\s*$")
+ASYMMETRIC = re.compile(r"^\s*\+\s*(\d+(?:\.\d+)?)\s*%?\s*/\s*-\s*(\d+(?:\.\d+)?)\s*%?\s*$")
+
+
+def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
+    """명목값(EQ)과 원문 허용 오차로 비교 범위를 만든다(KAN-199). 계산은 코드가 하고 원문 값은 그대로 저장한다.
+
+    '%'가 붙은 오차는 명목값에 대한 비율이다(값 단위가 %여도: 5.75% ±10% → 5.175~6.325). '%'가 없으면 같은 단위의
+    절대값이다(±0.5 → v-0.5~v+0.5). 경계는 반올림하지 않는다.
+
+    Args:
+        item: 추출 요구.
+
+    Returns:
+        tuple: (연산자, 값). 허용 오차가 없거나 EQ가 아니면 원래 그대로다. 읽지 못하면 ("RANGE", 원래 값)이라
+            비교가 '범위를 숫자로 읽을 수 없어 확인 필요'(조건부)가 된다.
+    """
+    if item.tolerance is None or item.operator != "EQ" or item.value is None:
+        # 문장형 요구는 value가 비어도 비교용 표기로 비교한다.
+        return item.operator, item.value or item.canonical_value
+    nominal = grading._number(item.value)
+    symmetric, asymmetric = SYMMETRIC.match(item.tolerance), ASYMMETRIC.match(item.tolerance)
+    if nominal is None or not (symmetric or asymmetric):
+        return "RANGE", item.value
+    if symmetric:
+        up = down = symmetric.group(1)
+    else:
+        assert asymmetric is not None
+        up, down = asymmetric.groups()
+    scale = abs(nominal) / 100 if "%" in item.tolerance else Decimal(1)
+    low, high = nominal - Decimal(down) * scale, nominal + Decimal(up) * scale
+    return "RANGE", f"{format(low.normalize(), 'f')}~{format(high.normalize(), 'f')}"
+
+
 def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
     COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은 추출의 attribute_key(자사 사양
     어휘, 연결하지 못했으면 OTHER → 비교하지 않음)다. 제품 계열은 equipment_family로 compare_in_family가 고른다
-    (KAN-199). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
+    (KAN-199). 허용 오차가 있는 명목값은 범위로 바꾸고(tolerance_range), 등록(Listed) 요구와 규격 체계도 넘긴다.
+    저장하는 요구 판본의 attribute·value는 추출 원문 그대로다.
 
     Args:
         item: 추출 요구.
@@ -221,19 +275,25 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         comparison.Requirement: 비교 입력.
     """
     certification = item.kind == "COMPLIANCE"
+    operator, value = tolerance_range(item)
     return comparison.Requirement(
         clause_no=item.clause_no,
         item=item.equipment or item.task or item.attribute,
         attribute=None if certification else item.attribute_key,
-        value=item.value,
+        value=value,
         unit=item.unit,
-        operator=item.operator,
+        operator=operator,
         conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
         necessity=item.necessity,
         # 추출은 규격을 value에 둔다(attribute는 'standard compliance' 같은 이름표, 14번 실측).
         certification_standard=(item.value or item.attribute) if certification else None,
+        certification_listed=item.certification_listed,
+        standard_system=item.standard_system,
         designated_model=item.designated_model,
+        basis_of_design=item.basis_of_design,
+        canonical_value=item.canonical_value,
         task=item.task,
+        kind=item.kind,
     )
 
 
@@ -241,7 +301,8 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
     """추출 요구 → 협력사 등급 입력. 장비·값이 없는 요구는 등급을 매길 수 없어 None이다.
 
     COMPLIANCE는 자사 비교(to_comparison)와 같은 규칙으로 인증 요구다: attribute='certification', 규격은 value
-    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199).
+    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199). 등록(Listed) 요구는
+    grading이 읽는 listing=listed 조건으로, 허용 오차는 자사 비교와 같은 범위로 넘긴다.
 
     Args:
         requirement_id: 저장한 요구 ID.
@@ -251,7 +312,13 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         grading.Requirement | None: 등급 입력.
     """
     certification = item.kind == "COMPLIANCE"
-    value = (item.value or item.attribute) if certification else item.value
+    operator, value = tolerance_range(item)
+    value = (item.value or item.attribute) if certification else value
+    conditions = [Condition.model_validate(c.model_dump()) for c in item.conditions]
+    if item.certification_listed and not any(
+        c.name == "listing" and grading._norm(c.value) == "listed" for c in conditions
+    ):
+        conditions.append(Condition(name="listing", value="listed"))
     # 속성을 사양 항목에 연결하지 못한 요구(OTHER)는 같은 속성 근거를 찾을 수 없어 등급을 매기지 않는다.
     if (
         item.equipment is None
@@ -266,12 +333,13 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         attribute="certification" if certification else item.attribute_key,
         value=value,
         unit=item.unit,
-        operator=item.operator,
-        conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
+        operator=operator,
+        conditions=conditions,
         standard_system=item.standard_system,
         necessity=item.necessity,
         designated_model=item.designated_model,
         clause_no=item.clause_no,
+        canonical_value=item.canonical_value,
     )
 
 
@@ -332,12 +400,89 @@ def counts(requirements: int) -> dict[str, int]:
     return {"requirements": requirements, "proposals": 0}
 
 
+# 협력사 등급 대상. 충족·조건부는 보완 대상이 아니다.
+GRADED_STATUSES = frozenset({"SPEC_GAP", "INSUFFICIENT_EVIDENCE"})
+# ponytail: 문서에 데이터셋 번호 칸이 없어 제목에서 읽는다. 풀은 시연·평가 전용 가상 후보라 칸을 만들 값이 아니다.
+# 제목에 RFP-번호가 없으면 풀을 못 쓰고 전체 후보가 된다. 실제 후보 풀을 운영하게 되면 문서에 칸을 둔다.
+DOCUMENT_NUMBER = re.compile(r"\bRFP-(\d+)\b")
+
+
+def integration_of(items: Iterable[ExtractedRequirement]) -> integration.IntegrationResponsibility:
+    """추출 요구로 통합 책임 필요 여부를 정한다.
+
+    Args:
+        items: 이번 처리의 추출 요구.
+
+    Returns:
+        integration.IntegrationResponsibility: 필요 여부와 근거 조항.
+    """
+    return integration.integration_responsibility(
+        [
+            integration.Requirement(
+                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+            )
+            for r in items
+        ]
+    )
+
+
+def candidate_pool(titles: Iterable[str]) -> frozenset[str] | None:
+    """처리 문서들의 후보 풀. 문서 제목의 데이터셋 번호(RFP-14)로 찾는다.
+
+    Args:
+        titles: 문서 제목들.
+
+    Returns:
+        frozenset[str] | None: 풀의 합집합. 번호나 풀을 모르는 문서가 있으면 None(후보를 줄이지 않는다).
+    """
+    pools = load_document_pools()
+    picked: set[str] = set()
+    known = False
+    for title in titles:
+        found = DOCUMENT_NUMBER.search(title)
+        pool = pools.get(found.group(1)) if found else None
+        if pool is None:
+            return None
+        picked.update(pool)
+        known = True
+    return frozenset(picked) if known else None
+
+
+def grading_groups(
+    targets: Sequence[tuple[grading.Requirement, str | None]],
+    profiles: Sequence[PartnerProfile],
+    pool: frozenset[str] | None,
+) -> list[tuple[PartnerProfile, list[grading.Requirement]]]:
+    """후보별로 채점할 요구를 고른다. 풀 안의 후보를 자기 계열 요구로만 채점한다.
+
+    한 문서에 여러 계열이 있으면 다른 계열 요구가 후보를 EXCLUDED로 만든다(14번 B-1·B-2). 계열을 모르는 요구는 어느
+    후보도 채점하지 않는다.
+
+    Args:
+        targets: (요구, 추출 equipment_family).
+        profiles: 협력사 프로필.
+        pool: 후보 풀. None이면 줄이지 않는다.
+
+    Returns:
+        list: (후보, 그 후보의 요구). 채점할 요구가 없는 후보는 뺀다.
+    """
+    groups = []
+    for profile in profiles:
+        if pool is not None and profile.candidate_code not in pool:
+            continue
+        family = PROFILE_FAMILIES.get(profile.product_family)
+        mine = [g for g, wanted in targets if family is not None and wanted == family]
+        if mine:
+            groups.append((profile, mine))
+    return groups
+
+
 async def process(
     settings: Settings,
     job: TftJob,
     emit: Emit,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
 ) -> dict[str, Any]:
@@ -348,7 +493,7 @@ async def process(
         job: 작업.
         emit: 단계 보고(소유권·취소 검사).
         provider: 추출 모델 호출.
-        document_root: 원문 폴더.
+        store: 원문 저장소.
         products: 자사 제품.
         today: 인증 유효기한 기준일.
 
@@ -372,10 +517,10 @@ async def process(
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
         for document in documents:
             if not await repository.document_processed(conn, document["id"]):
-                if document_root is None:
+                if store is None:
                     raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
-                data = read_document(
-                    document_root, document["storage_key"], document["sha256"], document["size"]
+                data = await read_document(
+                    store, document["storage_key"], document["sha256"], document["size"]
                 )
                 tree = build_clause_tree(extract(data, mime=document["mime"]))
                 # 조항 번호 → 조항 행. compare 트랜잭션에서 채운다(추출 요구가 같은 dict를 가리킨다).
@@ -398,7 +543,10 @@ async def process(
                 if stopped:
                     # extract_section은 공급자 예외를 결과 코드로 바꾸므로 취소·소유권 상실을 여기서 다시 올린다.
                     raise stopped[0]
-                needs_review |= result.outcome != "VALID"
+                # 요구별 검토 표시(허용 오차 불일치·목록 밖 키, KAN-185)도 작업 요약에 모은다.
+                needs_review |= result.outcome != "VALID" or any(
+                    r.needs_review for r in result.requirements
+                )
                 extracted += [(document, clauses, r) for r in result.requirements]
                 emit({"step": "extract", "counts": counts(len(extracted))})
                 called = True
@@ -422,6 +570,7 @@ async def process(
             for document, tree, clauses in parsed:
                 clauses.update(await repository.store_clauses(conn, document, tree.clauses))
             ids = await store_requirements(conn, job.project_id, extracted, outcomes)
+            await store_question_drafts(conn, job, parsed, extracted, ids)
             emit({"step": "compare", "counts": counts(total)})
             for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes):
                 options = supplement.options_for(
@@ -437,27 +586,31 @@ async def process(
                         data_origin=document["data_origin"],
                     )
             emit({"step": "supplement", "counts": counts(total)})
+            # 근거 부족 요구도 협력사로 메울 수 있어 채점한다. 충족·조건부는 보완 대상이 아니다.
             gaps = [
-                (to_grading(requirement_id, item), document["data_origin"])
+                (to_grading(requirement_id, item), document["data_origin"], item.equipment_family)
                 for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes)
-                if outcome.status == "SPEC_GAP"
+                if outcome.status in GRADED_STATUSES
             ]
-            targets = [(g, origin) for g, origin in gaps if g is not None]
+            targets = [(g, origin, family) for g, origin, family in gaps if g is not None]
             if not profiles:
                 # 프로필 시드 전(KAN-184): 등급을 매기지 않고 검토가 필요하다고 남긴다.
                 needs_review = True
             elif targets:
-                origin_of = {g.requirement_id: origin for g, origin in targets}
+                origin_of = {g.requirement_id: origin for g, origin, _ in targets}
                 context = grading.RfpContext(
                     manufacturer_list=None,
                     off_list_permission="UNSTATED",
                     supply_region=None,
-                    requires_integrator=False,
+                    requires_integrator=integration_of(r for _, _, r in extracted).required,
                 )
-                for profile in profiles:
-                    _, grades = grading.grade_candidate(
-                        profile, [g for g, _ in targets], context, today
-                    )
+                groups = grading_groups(
+                    [(g, family) for g, _, family in targets],
+                    profiles,
+                    candidate_pool(d["title"] for d in documents),
+                )
+                for profile, mine in groups:
+                    _, grades = grading.grade_candidate(profile, mine, context, today)
                     for grade in grades:
                         await repository.insert_grade(
                             conn,
@@ -471,6 +624,88 @@ async def process(
         # 초안 생성(A07)이 오기 전에는 건너뛴다(실패 아님).
         emit({"step": "draft", "counts": counts(total)})
     return {"counts": counts(total), "needs_review": needs_review}
+
+
+def draft_key(draft: QuestionDraft) -> str:
+    """판본과 무관하게 같은 질문을 가리키는 키. 조항 ID는 판본마다 달라 쓰지 않는다.
+
+    Args:
+        draft: 질문 초안.
+
+    Returns:
+        str: 종류와 정렬한 (조항 번호, 원문) 목록의 sha256.
+    """
+    sources = sorted((s.clause_no, s.quote) for s in draft.sources)
+    return hashlib.sha256(json.dumps([draft.kind, sources]).encode()).hexdigest()
+
+
+def draft_requirement(
+    draft: QuestionDraft, stored: Sequence[tuple[UUID, ExtractedRequirement]]
+) -> UUID | None:
+    """초안이 가리키는 요구. 원문으로 하나로 정해질 때만 연결한다.
+
+    같은 조항 번호에서 요구 인용과 출처 원문이 같거나 서로 포함되는 요구만 본다. 조항의 첫 요구로 넘겨짚으면 다른
+    요구의 고객 질문 여부(has_customer_question)가 참이 되어 승인 질문 게이트가 잘못 풀린다.
+
+    Args:
+        draft: 질문 초안.
+        stored: 같은 문서의 (요구 ID, 추출 요구).
+
+    Returns:
+        UUID | None: 하나로 정해진 요구. 없거나 둘 이상으로 갈리면 None(조항만 있는 질문)이다.
+    """
+    matched = {
+        requirement_id
+        for source in draft.sources
+        for requirement_id, item in stored
+        if item.clause_no == source.clause_no
+        and (item.quote in source.quote or source.quote in item.quote)
+    }
+    return matched.pop() if len(matched) == 1 else None
+
+
+async def store_question_drafts(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    job: TftJob,
+    parsed: Sequence[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]],
+    extracted: Sequence[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]],
+    ids: Sequence[UUID],
+) -> None:
+    """문서마다 고객 질문 초안을 DRAFT로 저장한다. 처리된 판본은 parsed에 없어 다시 만들지 않는다.
+
+    Args:
+        conn: 진행 중 트랜잭션(조항·요구와 함께 커밋한다).
+        job: 작업(요청자).
+        parsed: 이번에 처리한 문서.
+        extracted: 추출 요구.
+        ids: extracted와 같은 순서의 요구 ID.
+    """
+    for document, tree, clauses in parsed:
+        stored = [
+            (requirement_id, item)
+            for requirement_id, (origin, _, item) in zip(ids, extracted, strict=True)
+            if origin is document
+        ]
+        for draft in generate_question_drafts(tree, [item for _, item in stored]):
+            numbers = [s.clause_no for s in draft.sources]
+            await repository.insert_question_draft(
+                conn,
+                project_id=job.project_id,
+                requirement_id=draft_requirement(draft, stored),
+                clause=clauses.get(numbers[0]),
+                issue_type=QUESTION_ISSUES[draft.kind],
+                question_text=draft.question,
+                internal_assumption={
+                    "value": draft.pre_reply_note,
+                    "basis_standard": None,
+                    "basis_clause": ", ".join(dict.fromkeys(numbers)),
+                    "approver_user_id": None,
+                    "shown_in_draft": False,
+                },
+                draft_key=draft_key(draft),
+                data_origin=document["data_origin"],
+                actor=job.actor_id,
+            )
 
 
 async def store_requirements(
@@ -510,6 +745,11 @@ async def store_requirements(
                 "necessity",
                 "designated_model",
                 "designated_manufacturer",
+                "assembly_clause",
+                "tolerance",
+                "needs_review",
+                "attribute_key",
+                "equipment_family",
                 "conditions",
             }
         )

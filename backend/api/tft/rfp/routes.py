@@ -3,7 +3,7 @@
 명세 v1.1 §3의 30개 경로 중 아직 없는 28개다(1·3번 목록·상세는 projects/routes.py에 있고
 응답 확장은 구현 작업이 한다). 모든 경로는 구현 전까지 501 `TFT_NOT_IMPLEMENTED`를 돌려준다.
 구현 담당: 경로 1~19·25·28·29는 KAN-188(A07), 질문·제안·검토본은 KAN-189(A08), 30은 KAN-192(A12).
-15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py). 11·30 접수는 jobs.py(KAN-199·KAN-188).
+15·16·18·19·20은 KAN-189가 구현했다(routes_supplement.py·routes_questions.py). 7~10·12~14·17 읽기는 KAN-188(routes_read.py)이다. 11·30 접수는 jobs.py(KAN-199·KAN-188).
 """
 
 from typing import Annotated, Any, NoReturn
@@ -12,7 +12,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
-from backend.api.tft.rfp import jobs, routes_questions, routes_supplement
+from backend.api.tft.rfp import (
+    jobs,
+    routes_proposals,
+    routes_questions,
+    routes_read,
+    routes_supplement,
+    routes_write,
+)
 from backend.api.tft.rfp import schemas as s
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
@@ -78,33 +85,38 @@ P = "/projects/{project_id}"
     status_code=201,
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_create_rfp_project",
-    openapi_extra=A07,
 )
-async def create_project(payload: s.ProjectCreate, idempotency_key: Key) -> NoReturn:
-    """2. 접수. 호출자가 담당 sales가 된다."""
-    not_implemented()
+async def create_project(
+    request: Request, user: User, payload: s.ProjectCreate, idempotency_key: Key
+) -> SuccessResponse[s.RfpProjectDetail]:
+    """2. 접수. 호출자가 담당 sales가 된다. latest_job은 쓰기 응답에서 항상 null이다."""
+    return respond(
+        request, await routes_write.create_project(request, user, payload, idempotency_key)
+    )
 
 
 @router.patch(
     P,
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_update_rfp_project",
-    openapi_extra=A07,
 )
-async def update_project(project_id: UUID, payload: s.ProjectUpdate) -> NoReturn:
+async def update_project(
+    request: Request, user: User, project_id: UUID, payload: s.ProjectUpdate
+) -> SuccessResponse[s.RfpProjectDetail]:
     """4. 이름·고객 목표·검토 부서 목록. 상태 두 개는 직접 쓰지 못한다."""
-    not_implemented()
+    return respond(request, await routes_write.update_project(request, user, project_id, payload))
 
 
 @router.patch(
     P + "/assignment",
     response_model=SuccessResponse[s.RfpProjectDetail],
     operation_id="tft_assign_rfp_project",
-    openapi_extra=A07,
 )
-async def assign_project(project_id: UUID, payload: s.Assignment) -> NoReturn:
+async def assign_project(
+    request: Request, user: User, project_id: UUID, payload: s.Assignment
+) -> SuccessResponse[s.RfpProjectDetail]:
     """5. manager가 담당 sales·책임자를 지정한다. 이력을 남긴다."""
-    not_implemented()
+    return respond(request, await routes_write.assign_project(request, user, project_id, payload))
 
 
 UPLOAD_BODY = {
@@ -149,52 +161,63 @@ UPLOAD_BODY = {
     status_code=201,
     response_model=SuccessResponse[s.DocumentVersion],
     operation_id="tft_upload_rfp_document",
-    openapi_extra={**A07, **UPLOAD_BODY},
+    responses={413: {"model": ErrorResponse, "description": "TFT_DOCUMENT_TOO_LARGE"}},
+    openapi_extra=UPLOAD_BODY,
 )
-async def upload_document(project_id: UUID, idempotency_key: Key) -> NoReturn:
+async def upload_document(
+    request: Request, user: User, project_id: UUID, idempotency_key: Key
+) -> SuccessResponse[s.DocumentVersion]:
     """6. DOCX·PDF 25 MiB 이하(multipart). 업로드만으로는 파싱하지 않는다.
 
-    본문 형식은 OpenAPI에 직접 적었다. 구현(KAN-188) 때 multipart 파서를 붙인다.
+    본문 형식은 OpenAPI에 직접 적었다. 형식은 내용으로 판별한다.
     """
-    not_implemented()
+    return respond(
+        request, await routes_write.upload_document(request, user, project_id, idempotency_key)
+    )
 
 
 @router.get(
     P + "/documents",
     response_model=SuccessResponse[s.DocumentList],
     operation_id="tft_list_rfp_documents",
-    openapi_extra=A07,
 )
-async def list_documents(project_id: UUID) -> NoReturn:
+async def list_documents(
+    project_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.DocumentList]:
     """7. 문서·판본 목록."""
-    not_implemented()
+    return respond(request, await routes_read.list_documents(request, principal, project_id))
 
 
 @router.get(
     "/documents/{document_id}",
     response_model=SuccessResponse[s.DocumentDetail],
     operation_id="tft_get_rfp_document",
-    openapi_extra=A07,
 )
-async def get_document(document_id: UUID) -> NoReturn:
-    """8. 판본·편집 흔적 지원 여부·조항 수·삭제 값 수."""
-    not_implemented()
+async def get_document(
+    document_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.DocumentDetail]:
+    """8. 최신 판본·편집 흔적 지원 여부·조항 수·삭제 값 수."""
+    return respond(request, await routes_read.get_document(request, principal, document_id))
 
 
 @router.get(
     "/documents/{document_id}/clauses",
     response_model=SuccessResponse[s.ClauseList],
     operation_id="tft_list_rfp_clauses",
-    openapi_extra=A07,
 )
 async def list_clauses(
     document_id: UUID,
+    request: Request,
+    principal: User,
     parent: UUID | None = None,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = None,
-) -> NoReturn:
-    """9. 조항 트리. 취소선 값은 deleted_values로만 낸다."""
-    not_implemented()
+) -> SuccessResponse[s.ClauseList]:
+    """9. 조항 트리(문서 순서). parent가 없으면 전체다. 취소선 값은 deleted_values로만 낸다."""
+    data = await routes_read.list_clauses(
+        request, principal, document_id, parent=parent, limit=limit, cursor=cursor
+    )
+    return respond(request, data)
 
 
 @router.get(
@@ -202,12 +225,14 @@ async def list_clauses(
     operation_id="tft_download_rfp_document",
     response_model=None,
     response_class=Response,
-    openapi_extra=A07,
-    responses={200: {"content": {"application/octet-stream": {}}}},
+    responses={
+        200: {"content": {"application/octet-stream": {}}},
+        503: {"model": ErrorResponse, "description": "TFT_DOCUMENT_UNAVAILABLE"},
+    },
 )
-async def download_document(document_id: UUID) -> NoReturn:
+async def download_document(document_id: UUID, request: Request, principal: User) -> Response:
     """10. 원문 내려받기. 접근 검사는 프로젝트 조회와 같다."""
-    not_implemented()
+    return await routes_read.download_document(request, principal, document_id)
 
 
 @router.post(
@@ -235,10 +260,11 @@ async def process(
     P + "/requirements",
     response_model=SuccessResponse[s.RequirementList],
     operation_id="tft_list_rfp_requirements",
-    openapi_extra=A07,
 )
 async def list_requirements(
     project_id: UUID,
+    request: Request,
+    principal: User,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = None,
     document_version_id: UUID | None = None,
@@ -248,31 +274,49 @@ async def list_requirements(
     status: s.RequirementStatus | None = None,
     needs_rereview: bool | None = None,
     has_open_question: bool | None = None,
-) -> NoReturn:
+) -> SuccessResponse[s.RequirementList]:
     """12. 요구 목록·필터 7개."""
-    not_implemented()
+    data = await routes_read.list_requirements(
+        request,
+        principal,
+        project_id,
+        filters={
+            "document_version_id": document_version_id,
+            "equipment": equipment,
+            "task": task,
+            "necessity": necessity,
+            "status": status,
+            "needs_rereview": needs_rereview,
+            "has_open_question": has_open_question,
+        },
+        limit=limit,
+        cursor=cursor,
+    )
+    return respond(request, data)
 
 
 @router.get(
     "/requirements/{requirement_id}",
     response_model=SuccessResponse[s.RequirementDetail],
     operation_id="tft_get_rfp_requirement",
-    openapi_extra=A07,
 )
-async def get_requirement(requirement_id: UUID) -> NoReturn:
+async def get_requirement(
+    requirement_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.RequirementDetail]:
     """13. 원문·요구·판단·연결."""
-    not_implemented()
+    return respond(request, await routes_read.get_requirement(request, principal, requirement_id))
 
 
 @router.get(
     "/requirements/{requirement_id}/comparison",
     response_model=SuccessResponse[s.Comparison],
     operation_id="tft_get_rfp_comparison",
-    openapi_extra=A07,
 )
-async def get_comparison(requirement_id: UUID) -> NoReturn:
+async def get_comparison(
+    requirement_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.Comparison]:
     """14. 자사 비교. 같은 속성·단위·조건끼리만 비교한다."""
-    not_implemented()
+    return respond(request, await routes_read.get_comparison(request, principal, requirement_id))
 
 
 @router.get(
@@ -311,11 +355,13 @@ async def select_supplement(
     P + "/partner-candidates",
     response_model=SuccessResponse[s.PartnerCandidateList],
     operation_id="tft_list_rfp_partner_candidates",
-    openapi_extra=A07,
 )
-async def list_partner_candidates(project_id: UUID, requirement_id: UUID | None = None) -> NoReturn:
+async def list_partner_candidates(
+    project_id: UUID, request: Request, principal: User, requirement_id: UUID | None = None
+) -> SuccessResponse[s.PartnerCandidateList]:
     """17. 가상 협력사 후보와 요구별 등급. 점수는 내지 않는다."""
-    not_implemented()
+    data = await routes_read.list_partner_candidates(request, principal, project_id, requirement_id)
+    return respond(request, data)
 
 
 @router.get(
@@ -366,6 +412,25 @@ async def create_question(
 
 
 @router.post(
+    P + "/questions/{question_id}/confirm",
+    response_model=SuccessResponse[s.Question],
+    operation_id="tft_confirm_rfp_question",
+)
+async def confirm_question(
+    project_id: UUID,
+    question_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.Question]:
+    """31. 질문 초안 확인. DRAFT만 OPEN으로 바꾼다(그 전에는 보낸 질문이 아니다)."""
+    data = await routes_questions.confirm_question(
+        request, principal, project_id, question_id, idempotency_key
+    )
+    return respond(request, data)
+
+
+@router.post(
     "/questions/{question_id}/reply",
     response_model=SuccessResponse[s.QuestionReplyResult],
     operation_id="tft_reply_rfp_question",
@@ -391,16 +456,20 @@ async def reply_question(
     P + "/proposals",
     response_model=SuccessResponse[s.ProposalList],
     operation_id="tft_list_rfp_proposals",
-    openapi_extra=A08,
 )
 async def list_proposals(
+    request: Request,
+    user: User,
     project_id: UUID,
     status: s.ProposalStatus | None = None,
     origin: s.ProposalOrigin | None = None,
     requirement_id: UUID | None = None,
-) -> NoReturn:
+) -> SuccessResponse[s.ProposalList]:
     """21. 승인 대기 목록(세 입구 공통)."""
-    not_implemented()
+    data = await routes_proposals.list_proposals(
+        request, user, project_id, status=status, origin=origin, requirement_id=requirement_id
+    )
+    return respond(request, data)
 
 
 @router.post(
@@ -408,39 +477,53 @@ async def list_proposals(
     status_code=201,
     response_model=SuccessResponse[s.Proposal],
     operation_id="tft_create_rfp_proposal",
-    openapi_extra=A08,
 )
 async def create_proposal(
-    project_id: UUID, payload: s.ProposalCreate, idempotency_key: Key
-) -> NoReturn:
+    request: Request, user: User, project_id: UUID, payload: s.ProposalCreate, idempotency_key: Key
+) -> SuccessResponse[s.Proposal]:
     """22. 웹 수정 제안(web)."""
-    not_implemented()
+    data = await routes_proposals.create_proposal(
+        request, user, project_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.post(
     "/proposals/{proposal_id}/approve",
     response_model=SuccessResponse[s.RequirementDetail],
     operation_id="tft_approve_rfp_proposal",
-    openapi_extra=A08,
 )
 async def approve_proposal(
-    proposal_id: UUID, payload: s.ProposalDecision, idempotency_key: Key
-) -> NoReturn:
+    request: Request,
+    user: User,
+    proposal_id: UUID,
+    payload: s.ProposalDecision,
+    idempotency_key: Key,
+) -> SuccessResponse[s.RequirementDetail]:
     """23. 승인 → 요구 새 판본(human_input), 연결 객체 재검토 표시, 감사에 제안자·승인자."""
-    not_implemented()
+    data = await routes_proposals.approve_proposal(
+        request, user, proposal_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.post(
     "/proposals/{proposal_id}/reject",
     response_model=SuccessResponse[s.Proposal],
     operation_id="tft_reject_rfp_proposal",
-    openapi_extra=A08,
 )
 async def reject_proposal(
-    proposal_id: UUID, payload: s.ProposalRejection, idempotency_key: Key
-) -> NoReturn:
+    request: Request,
+    user: User,
+    proposal_id: UUID,
+    payload: s.ProposalRejection,
+    idempotency_key: Key,
+) -> SuccessResponse[s.Proposal]:
     """24. 기각. 사유 필수."""
-    not_implemented()
+    data = await routes_proposals.reject_proposal(
+        request, user, proposal_id, payload, idempotency_key
+    )
+    return respond(request, data)
 
 
 @router.get(

@@ -13,6 +13,7 @@ from pydantic import SecretStr, ValidationError
 
 from backend.agent import cs_runner, cs_search, cs_worker
 from backend.agent.cs_runner import (
+    CLASSIFICATION_DEFAULTS,
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
@@ -55,6 +56,21 @@ DRAFT = json.dumps(
     }
 )
 
+VERIFICATION = json.dumps(
+    {
+        "sentences": [
+            {
+                "label": label,
+                "sentence_index": 0,
+                "verdict": "SUPPORTED",
+                "reason": "Synthetic only.",
+                "evidence_chunk_ids": ["chunk-1"],
+            }
+            for label in ("CONCISE", "DETAILED", "INFO_FIRST")
+        ]
+    }
+)
+
 
 @pytest.fixture
 def sdk_http(monkeypatch):
@@ -66,7 +82,7 @@ def sdk_http(monkeypatch):
     Returns:
         list: 보낸 요청 목록.
     """
-    return install_http(monkeypatch, [CLASSIFICATION, DRAFT])
+    return install_http(monkeypatch, [CLASSIFICATION, DRAFT, VERIFICATION])
 
 
 def install_http(monkeypatch, texts):
@@ -156,13 +172,17 @@ def test_runner_pauses_resumes_and_returns_summary_only(sdk_http):
     graph = runner(InMemorySaver(), source)
     paused = run_ticket(graph, "thread-1", "t-1")
     assert paused.stage == "DRAFTED" and paused.next_nodes == ("human_review",)
-    assert paused.errors == [] and paused.attempt_ids == ["classification-1", "draft-2"]
+    assert paused.errors == [] and paused.attempt_ids == [
+        "classification-1",
+        "draft-2",
+        "verification-3",
+    ]
     assert (paused.retried, paused.recovered) == (0, 0)
-    assert len(sdk_http) == 2
+    assert len(sdk_http) == 3
     done = resume(graph, "thread-1")
     assert done.stage == "HUMAN_REVIEW" and done.next_nodes == ()
-    assert len(sdk_http) == 2
-    assert source.attempts == [("classification", "t-1"), ("draft", "t-1")]
+    assert len(sdk_http) == 3
+    assert source.attempts == [("classification", "t-1"), ("draft", "t-1"), ("verification", "t-1")]
     dumped = json.dumps([asdict(paused), asdict(done)])
     for secret in (*SECRETS, KEY, "Synthetic answer", "category_code"):
         assert secret not in dumped
@@ -188,7 +208,7 @@ def test_runner_stores_the_classification_prompt_version(sdk_http):
             return super().record_attempt(kind, ticket_id, attempt)
 
     run_ticket(runner(InMemorySaver(), Recording({"t-1": TICKET})), "thread-v", "t-1")
-    assert seen == [("classification", "v3"), ("draft", "v1")]
+    assert seen == [("classification", "v3"), ("draft", "v2"), ("verification", "v1")]
     seen.clear()
     graph = runner(InMemorySaver(), Recording({"t-1": TICKET}), prompt_version="v2")
     run_ticket(graph, "thread-v2", "t-1")
@@ -198,7 +218,7 @@ def test_runner_stores_the_classification_prompt_version(sdk_http):
 @pytest.mark.parametrize(
     ("retries", "second", "stage", "calls", "retried", "recovered"),
     [
-        (1, CLASSIFICATION, "DRAFTED", 3, 1, 1),
+        (1, CLASSIFICATION, "DRAFTED", 4, 1, 1),
         (1, "still not json", "CLASSIFY_FAILED", 2, 1, 0),
         (0, CLASSIFICATION, "CLASSIFY_FAILED", 1, 0, 0),
     ],
@@ -221,7 +241,7 @@ def test_runner_retries_invalid_output_and_counts_it(
     Returns:
         None: 단계·호출 수·요약 수를 확인한다.
     """
-    requests = install_http(monkeypatch, ["not json", second, DRAFT])
+    requests = install_http(monkeypatch, ["not json", second, DRAFT, VERIFICATION])
     source = InMemoryTicketSource({"t-1": TICKET})
     outcome = run_ticket(
         runner(InMemorySaver(), source, invalid_output_retries=retries), "thread-r", "t-1"
@@ -262,11 +282,13 @@ def test_runner_draft_uses_measured_output_limit_and_evidence_count(
     assert DRAFT_DEFAULTS == {"max_output_tokens": 2048, "evidence_limit": 5}
     graph = runner(InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), **kwargs)
     outcome = run_ticket(graph, "thread-k", "t-1")
-    classify, draft = (json.loads(request.content)["generationConfig"] for request in sdk_http)
-    assert classify["maxOutputTokens"] == AISettings(gemini_api_key=KEY).gemini_max_output_tokens
-    assert draft["maxOutputTokens"] == tokens
+    classify, draft, verification = (
+        json.loads(request.content)["generationConfig"] for request in sdk_http
+    )
+    assert classify["maxOutputTokens"] == CLASSIFICATION_DEFAULTS["max_output_tokens"]
+    assert draft["maxOutputTokens"] == verification["maxOutputTokens"] == tokens
     assert len(graph.get_state(thread_config("thread-k")).values["evidence"]) == evidence
-    assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"]]
+    assert [a["finish_reasons"] for a in outcome.attempts] == [["STOP"], ["STOP"], ["STOP"]]
 
 
 def test_runner_refuses_tracing_unless_allowed(sdk_http, monkeypatch):
@@ -384,6 +406,66 @@ def test_runner_and_worker_pass_the_policy_mapping_to_the_graph(monkeypatch):
     assert seen[-1]["policy_documents"] == mapping
 
 
+def test_the_worker_gives_classification_its_own_model_and_limit(monkeypatch):
+    """분류만 전용 값을 쓴다. 기본 상한은 4096이고 모델은 공통이며, 초안 공급자는 공통 모델 그대로다."""
+    classification, text = [], []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cs_runner,
+        "gemini_classification_provider",
+        lambda *args, **kwargs: classification.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cs_runner, "gemini_text_provider", lambda *args, **kwargs: text.append(kwargs)
+    )
+    monkeypatch.setattr(cs_worker, "create_client", lambda settings, embedding=False: None)
+    monkeypatch.setattr(cs_worker, "fts_searcher_from_dsn", lambda dsn, version: fts_searcher)
+    monkeypatch.setenv("GEMINI_API_KEY", KEY)
+    monkeypatch.setenv("GEMINI_MODEL", "m-common")
+    monkeypatch.setenv("GEMINI_MAX_OUTPUT_TOKENS", "1024")
+    monkeypatch.delenv("CS_VECTOR_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("CS_WORKER_CLASSIFICATION_MODEL", raising=False)
+    monkeypatch.delenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", raising=False)
+    parts = WorkerParts(
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+        search_filters=FILTERS,
+    )
+    settings = Settings(
+        _env_file=None, environment="test", database_url=SecretStr("postgresql://x@localhost/y")
+    )
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert classification[-1]["model"] == "m-common"
+    assert classification[-1]["generation"].max_output_tokens == 4096
+    monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MODEL", "m-lite")
+    monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", "2048")
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert classification[-1]["model"] == "m-lite"
+    assert classification[-1]["generation"].max_output_tokens == 2048
+    assert {call["model"] for call in text} == {"m-common"}
+
+
+def test_the_runner_defaults_classification_to_its_own_limit(monkeypatch):
+    """worker를 거치지 않는 호출자(로컬 실행기)도 분류 상한은 공통 값이 아니다."""
+    seen = []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cs_runner, "gemini_classification_provider", lambda *args, **kwargs: seen.append(kwargs)
+    )
+    monkeypatch.setattr(cs_runner, "gemini_text_provider", lambda *args, **kwargs: None)
+    build_cs_runner(
+        SimpleNamespace(),
+        client=None,
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        fts_searcher=fts_searcher,
+        search_filters=FILTERS,
+        checkpointer=None,
+        model="m-common",
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+    )
+    assert (seen[-1]["model"], seen[-1]["generation"].max_output_tokens) == ("m-common", 4096)
+
+
 def test_worker_builds_a_vector_searcher_only_when_enabled(monkeypatch):
     """CS_VECTOR_SEARCH_ENABLED가 없으면 벡터 검색기를 넘기지 않고, 켜면 임베딩 클라이언트로 만들어 그래프까지 넘긴다."""
     seen = []
@@ -420,3 +502,22 @@ def test_vector_settings_accept_the_dimension_as_an_env_string(monkeypatch):
     monkeypatch.setenv("CS_EMBEDDING_DIMENSION", "1536")
     with pytest.raises(ValidationError):
         cs_search.CsVectorSettings()
+
+
+def test_runner_verification_can_be_disabled_without_a_call(monkeypatch):
+    requests = install_http(monkeypatch, [CLASSIFICATION, DRAFT])
+    graph = runner(
+        InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), verification_enabled=False
+    )
+    run_ticket(graph, "off", "t-1")
+    assert len(requests) == 2
+    state = graph.get_state(thread_config("off")).values
+    assert state["verification"]["status"] == "NOT_VERIFIED"
+    assert state["verification"]["reason"] == "CS_VERIFICATION_DISABLED"
+
+
+def test_verification_setting_defaults_true_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("CS_DRAFT_VERIFICATION_ENABLED", raising=False)
+    assert Settings(_env_file=None).cs_draft_verification_enabled is True
+    monkeypatch.setenv("CS_DRAFT_VERIFICATION_ENABLED", "false")
+    assert Settings(_env_file=None).cs_draft_verification_enabled is False

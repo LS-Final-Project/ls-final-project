@@ -22,6 +22,7 @@ GRANT SELECT ON tft.documents, tft.document_versions, tft.requirement_versions,
 GRANT SELECT, INSERT ON tft.clauses TO tft_worker;
 GRANT INSERT ON tft.clause_deleted_values, tft.clause_flags, tft.requirements,
     tft.requirement_versions, tft.requirement_conditions, tft.product_comparisons,
-    tft.comparison_evidence, tft.supplement_options, tft.partner_grades TO tft_worker;
+    tft.comparison_evidence, tft.supplement_options, tft.partner_grades,
+    tft.customer_questions TO tft_worker;
 
 COMMIT;

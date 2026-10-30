@@ -1,4 +1,4 @@
-"""경로 18·19·20: 자문·고객 질문 목록·작성·회신 기록(KAN-189 PR-B).
+"""경로 18·19·20·31: 자문·고객 질문 목록·작성·회신 기록(KAN-189 PR-B)과 초안 확인(KAN-199).
 
 범위 밖 프로젝트·질문은 없는 것과 같이 404, 볼 수는 있지만 쓸 수 없으면 403이다. 쓰기는 commands.run_command로
 멱등 처리하고, 상태에 따른 검사(판본 409 등)는 재전송이 첫 결과를 받도록 기록 안쪽(work)에 둔다.
@@ -106,7 +106,7 @@ async def list_questions(
         request: 요청(설정).
         principal: 요청 사용자.
         project_id: 프로젝트 ID.
-        status: OPEN·REPLIED 필터.
+        status: DRAFT·OPEN·REPLIED 필터.
         requirement_id: 요구 필터.
         target: CUSTOMER·INTERNAL 필터.
         target_dept: 대상 부서 필터.
@@ -212,6 +212,50 @@ async def create_question(
     return s.Question.model_validate(result)
 
 
+async def confirm_question(
+    request: Request, principal: Principal, project_id: UUID, question_id: UUID, key: str
+) -> s.Question:
+    """31. 처리 함수가 만든 초안을 사람이 확인해 OPEN으로 바꾼다. 권한은 질문 작성과 같다.
+
+    Args:
+        request: 요청(설정).
+        principal: 요청 사용자.
+        project_id: 프로젝트 ID.
+        question_id: 질문 ID.
+        key: Idempotency-Key.
+
+    Returns:
+        s.Question: 확인한(또는 같은 키로 처음 확인했던) 질문. OPEN·REPLIED는 409다.
+    """
+    async with connection(request.app.state.settings) as conn:
+        project = await visible_project(
+            conn, principal, project_id, "TFT_PROJECT_NOT_FOUND", "The project was not found."
+        )
+        if not can_create_question(principal, project):
+            raise HTTPException(403)
+
+        async def work() -> dict[str, Any]:
+            question = await repository.get_question(conn, question_id, lock=True)
+            if question is None or question["project_id"] != project_id:
+                raise ApplicationError(404, "TFT_QUESTION_NOT_FOUND", "The question was not found.")
+            row = await repository.confirm_question(conn, question)
+            return question_out(row).model_dump(mode="json")
+
+        result = await commands.run_command(
+            conn,
+            actor=principal.user_id,
+            operation="question.confirm",
+            key=key,
+            digest=commands.request_hash(
+                {"project_id": project_id, "question_id": question_id}, {}
+            ),
+            project_id=project_id,
+            status_code=200,
+            work=work,
+        )
+    return s.Question.model_validate(result)
+
+
 def without_answered(unresolved: list[str], question_text: str) -> list[str]:
     """질문 본문에 그대로 들어 있는 미해결 항목을 뺀다(질문과 항목을 잇는 열이 없어서다, rfp-data.md).
 
@@ -295,6 +339,15 @@ async def reply_question(
                         current=current,
                         proposed={**current, "unresolved": left},
                         reply_text=payload.reply_text,
+                    )
+                    await commands.audit(
+                        conn,
+                        project_id=project["id"],
+                        entity="proposal",
+                        entity_id=proposal["id"],
+                        action="proposal.create",
+                        actor=principal.user_id,
+                        detail={"to": {"origin": "customer_reply"}},
                     )
             result = s.QuestionReplyResult(
                 **question_out(replied).model_dump(),

@@ -20,10 +20,17 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from backend.api.tft.partners import grading
+from backend.api.tft.partners.loader import load_document_pools
 from backend.api.tft.partners.schemas import PartnerProfile
-from backend.api.tft.rfp import comparison, integration, supplement
+from backend.api.tft.rfp import comparison, supplement
 from backend.api.tft.rfp.schemas import Necessity, RequirementStatus, SupplementPath
-from backend.api.tft.worker_processor import to_comparison, to_grading
+from backend.api.tft.worker_processor import (
+    GRADED_STATUSES,
+    grading_groups,
+    integration_of,
+    to_comparison,
+    to_grading,
+)
 from backend.engine.rfp.clauses import ClauseTree
 from backend.engine.rfp.requirements import (
     EXTRACTION_VERSION,
@@ -44,10 +51,6 @@ from eval.rfp_metrics import (
 )
 
 RunLabel = Literal["FIRST", "REMEASURE"]
-# 검색기 연결 전 처리 함수와 같은 범위(자사 제품 전체).
-TRACE = comparison.SearchTrace(
-    filters=["own_products=all"], documents_searched=0, search_failed=False
-)
 
 
 class Strict(BaseModel):
@@ -84,6 +87,17 @@ class GoldDocument(Strict):
         supply_region=None,
         requires_integrator=False,
     )
+
+    @model_validator(mode="after")
+    def _complete(self) -> "GoldDocument":
+        # 채점 단계에서야 걸리는 정답 오류를 읽을 때 막는다. 모델 호출(비용)과 공식 실행 기회를 쓴 뒤 실패하면
+        # 그 문서의 공식 점수를 다시 낼 수 없다(Fable 2차 리뷰 P1).
+        keys = [(r.clause_no, r.attribute) for r in self.requirements]
+        if len(keys) != len(set(keys)):
+            raise ValueError("EVAL_GOLD_DUPLICATE_REQUIREMENT")
+        if any(c.grade == "REVIEW" and c.unconfirmed is None for c in self.candidates.values()):
+            raise ValueError("EVAL_GOLD_REVIEW_UNCONFIRMED_MISSING")
+        return self
 
 
 class GoldFile(Strict):
@@ -182,24 +196,44 @@ def run_document(
         if result.model_version:
             run.model_versions.add(result.model_version)
         extracted += result.requirements
-    outcomes = [comparison.compare(to_comparison(r), products, TRACE) for r in extracted]
+    # 운영 처리 함수(worker_processor)와 같은 호출이다: 요구 장비 계열의 후보 안에서만 비교한다.
+    outcomes = [
+        comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
+        for r in extracted
+    ]
     run.predicted = [_predicted(r, o) for r, o in zip(extracted, outcomes, strict=True)]
     targets = [
-        g
+        (g, r.equipment_family)
         for index, (r, o) in enumerate(zip(extracted, outcomes, strict=True))
-        if o.status == "SPEC_GAP" and (g := to_grading(UUID(int=index + 1), r)) is not None
+        if o.status in GRADED_STATUSES and (g := to_grading(UUID(int=index + 1), r)) is not None
     ]
-    if targets:
-        for profile in profiles:
-            summary, grades = grading.grade_candidate(profile, targets, gold.context, today)
-            run.grades[profile.candidate_code] = summary.overall_grade
-            run.unconfirmed[profile.candidate_code] = sorted(
-                unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
-            )
-    run.integration = integration.integration_responsibility(
-        [integration.Requirement(clause_no=r.clause_no, task=r.task) for r in extracted]
-    ).model_dump()
+    responsibility = integration_of(extracted)
+    # 운영 처리 함수와 같게 통합 책임은 추출 결과로 정한다(정답 맥락의 값을 쓰면 추출 누락이 가려진다).
+    context = gold.context.model_copy(update={"requires_integrator": responsibility.required})
+    pool = load_document_pools().get(str(gold.document_number))
+    for profile, mine in grading_groups(
+        targets, profiles, None if pool is None else frozenset(pool)
+    ):
+        summary, grades = grading.grade_candidate(profile, mine, context, today)
+        run.grades[profile.candidate_code] = summary.overall_grade
+        run.unconfirmed[profile.candidate_code] = sorted(
+            unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
+        )
+    run.integration = responsibility.model_dump()
     return run
+
+
+def precheck(gold: GoldFile, numbers: Sequence[int], run_label: RunLabel) -> str | None:
+    """모델을 부르기 전에 정답만으로 채점이 끝까지 되는지 본다(예측 없는 빈 실행으로 summarize를 돌린다).
+
+    Returns:
+        str | None: 정답 쪽 문제가 있으면 EVAL_GOLD_UNSCORABLE, 없으면 None.
+    """
+    try:
+        summarize(gold, [DocumentRun(document_number=n) for n in numbers], run_label)
+    except (ValueError, KeyError):
+        return "EVAL_GOLD_UNSCORABLE"
+    return None
 
 
 def summarize(gold: GoldFile, runs: Sequence[DocumentRun], run_label: RunLabel) -> dict:

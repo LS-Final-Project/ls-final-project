@@ -19,12 +19,33 @@
 | 상태 | 언제 | 결과(`result`) | 다음 담당 |
 | --- | --- | --- | --- |
 | `EVIDENCE_FOUND` | 같은 속성 근거가 있고 값·조건이 맞음, 또는 요구 인증을 그대로 보유 | `MEETS` | 없음 |
-| `CONDITIONAL` | 값은 맞지만 요구 조건에서의 값이라는 근거가 없음(조건 차이), 미달이어도 조건이 달라 같은 조건의 미달 근거가 없음(KAN-199, `DIFFERS`), 단시간 내전류를 I²t 일정으로 환산해 충족(시험값 아님), 단위가 달라 비교 못 함(`NOT_COMPARABLE`), 타사 지정 모델(조달·대체 경로가 있고 발주처 승인이 남음) | `MEETS`·`NOT_COMPARABLE`·`DIFFERS` | `TECH`(지정 모델은 `CUSTOMER`) |
-| `SPEC_GAP` | 같은 속성·단위·조건으로 비교해 미달 근거가 있음(단시간 내전류는 지속시간을 요구 값으로 I²t 일정 환산해 견주고 사유에 환산값을 적는다). 부족 원인(`RATING`·`CERTIFICATION`·`FORM`·`TASK`·`COMMERCIAL`)을 함께 냄 | `DIFFERS` | `TECH`(상업 조건은 `SALES`) |
+| `CONDITIONAL` | 값은 맞지만 요구 조건에서의 값이라는 근거가 없음(조건 차이), 미달이어도 조건이 달라 같은 조건의 미달 근거가 없음(KAN-199, `DIFFERS`), 단시간 내전류의 지속시간 추정으로 충족(시험값 아님, 정격 피크 확인이 남음), 짧은 시간 값의 추정이 미달(실제 정격이 더 높을 수 있어 확정하지 않음, `DIFFERS`), 단위가 달라 비교 못 함(`NOT_COMPARABLE`), 타사 지정 모델(조달·대체 경로가 있고 발주처 승인이 남음) | `MEETS`·`NOT_COMPARABLE`·`DIFFERS` | `TECH`(지정 모델은 `CUSTOMER`) |
+| `SPEC_GAP` | 같은 속성·단위·조건으로 비교해 미달 근거가 있음(단시간 내전류는 긴 시간 값을 요구 지속시간으로 추정해도 미달일 때 포함한다. 아래 '지속시간 추정' 참고). 부족 원인(`RATING`·`CERTIFICATION`·`FORM`·`TASK`·`COMMERCIAL`)을 함께 냄 | `DIFFERS` | `TECH`(상업 조건은 `SALES`) |
 | `INSUFFICIENT_EVIDENCE` | 요구값을 모름(도면 참조 등, `CUSTOMER`), 같은 속성 근거가 없음, 요구 인증 보유 자료가 없음, 검색 범위에 후보 없음, 검색 실패. 핵심 기기(`core_equipment`)가 검색 범위에 없으면 부족 원인 `CORE_EQUIPMENT_MISSING` | `NO_DATA` | `CUSTOMER`·`TECH`(핵심 기기는 `SALES`) |
 
 - **미기재 ≠ 미충족**: 자료에 없는 값은 `SPEC_GAP`이 아니라 `INSUFFICIENT_EVIDENCE`다.
+- **허용 오차(KAN-199)**: 원문 표기는 추출 `tolerance`에 그대로 두고, 범위 계산은 코드(`worker_processor.tolerance_range`)가 한다. `EQ` 명목값에만 적용해 `RANGE`로 바꾼다. `%`가 붙은 오차는 명목값에 대한 비율이고(값 단위가 %여도, 5.75 % ±10% → 5.175~6.325), `%`가 없으면 같은 단위의 절대값이다. `+0/-5%`처럼 비대칭도 받는다. 읽지 못하면 비교하지 않고 `CONDITIONAL`(`NOT_COMPARABLE`)이다. `GTE`·`LTE`에 붙은 오차는 쓰지 않는다.
+- **등록(Listed)(KAN-199)**: 추출 `certification_listed`가 자사 비교 `certification_listed`로, 협력사 등급에는 `listing=listed` 조건으로 간다. 시험 성적은 등록을 대신하지 않는다.
+- **규격 체계 차이(KAN-199)**: 요구 `standard_system`이 근거 제품의 체계(`Product.standards`)에 없으면 충족(`EVIDENCE_FOUND`)을 `CONDITIONAL`로 낮춘다("규격 체계 다름: 요구 UL, 근거 IEC 60947-2, 시험 규격 확인"). 잘못된 충족을 막는 규칙이라 `SPEC_GAP`은 낮추지 않는다(정격 전압처럼 시험 규격과 무관한 물리 정격의 미달은 체계가 달라도 사양 차이다). 요구가 `NONE`이거나 제품 `standards`가 비어 있으면 그대로다. 그 체계의 인증이 `variant`가 있는 것뿐이면(MCCB-ABS-403c의 UL -U) 근거 체계에서 빼고 "변형 모델 값 확인"을 남긴다. 협력사 등급도 같은 규칙이며, 프로필에는 제품별 규격이 없어 제안 모델에 적용되는 `certifications`의 체계를 근거로 본다(`passed` → `unknown`, `failed`는 그대로).
 - **계열 안에서만 비교(KAN-199)**: `compare_in_family(요구, 계열, 자사 제품)`은 요구 장비 계열(`own_spec_facts` family)의 후보만 `master_filter`로 골라 비교한다. 다른 계열 제품의 같은 이름 속성(예: MCCB `rated_current`)은 변압기 요구의 근거가 아니다. 계열을 모르면(`None`·`OTHER`) 비교하지 않고 `INSUFFICIENT_EVIDENCE`("요구 장비 계열 확인", trace `family=NONE|OTHER`)이며, 지정 모델 요구는 지정품 판정 그대로다. 협력사 등급(`partners/grading.py`)도 같은 조건 차이·환산 규칙을 쓴다.
+- **과업·문서 요구(KAN-199)**: 판단은 `comparison._work_kind` 한 곳이다. 추출 `kind`가 `DOCUMENT`면 문서 요구, `TASK`이거나 `task` 칸이 있으면 과업이다. 장비 사양이 아니라 계열·속성 연결 검사 없이 `compare`로 간다. 인증 요구는 인증 경로, 지정 모델은 지정품 판정이 먼저이고, 미정 값은 고객 회신이 먼저다.
+  - 견줄 것이 없으면(값이 없거나, 속성이 `OTHER`이거나, 계열 미정 등으로 후보가 없으면) 근거 부족을 유지하되 고객에게 묻지 않고 '자사 후보 없음'으로도 쓰지 않는다. 다음 담당은 `TECH`다.
+  - 과업: 사유·미해결 '수행 주체 확인(자사/협력사)', 원인 `TASK`. 자사 수행 확인(`OWN_DEVELOPMENT`) → 과업 위탁(`TASK_SUBCONTRACT`, 게이트·고객 허용 규칙 그대로) 경로가 나온다.
+  - 문서: 사유·미해결 '제출 자료 준비 확인', 원인 없음, 보완 경로 없음.
+  - 값·속성·후보가 모두 있으면 기존 판정이다(사양 차이의 원인은 `TASK`).
+- **미정 값(KAN-199)**: 요구값이 자리표시자(`<Insert value>`, TBD, `[ ]`, `___`, `vocabulary.PLACEHOLDER`)면 값이 없는 것으로 본다. 비교하지 않고 근거 부족(다음 담당 `CUSTOMER`, 사유 '요구값 미정', 미해결 '요구값 확정(고객 회신)')이다. 협력사 값 판정도 같은 규칙으로 미확인이다.
+- **설계 기준 제품(KAN-185)**: `basis_of_design=true`는 지정이 아니라 참고 기준이다. 계열·속성과 무관하게 조건부이고 `동등 이상 제안 가능 여부(고객 확인)`로 고객 회신을 받는다. 원인은 없어서 지정품 조달 경로로 가지 않는다. 대체 불가 지정(`designated_model`)은 기존대로 원인 `DESIGNATED_MODEL`이다.
+- **비교용 표기(KAN-185)**: 요구에 `canonical_value`가 있으면 값·단위 대신 이것으로 견준다. `value`가 비어도 비교한다. 자사·협력사 값은 `vocabulary.read_canonical`이 같은 표기로 읽는다(`±2×2.5%` → `±2x2.5%`). 어느 쪽이든 정해진 표기가 아니면 비교 불가다.
+  - 탭: 위·아래 단 수와 간격이 모두 같으면 충족, 아니면 미달(`탭 구성 다름`)이다. 자사 단이 더 많아도 충족으로 넓히지 않는다.
+  - 보호 기능: 요구 집합이 자사 집합의 부분집합이면 충족, 아니면 빠진 기능을 적고 미달이다.
+- **기준 조건(KAN-185)**: 요구에 조건이 없어도 자사 값이 `BASIS_CONDITIONS`(`reference_temperature`)에 기대면 충족을 `CONDITIONAL`로 낮추고 확인 항목을 남긴다. 미달은 낮추지 않는다. 요구가 같은 기준을 적으면 충족 그대로다. 현재 자사 사양에서 이 조건을 가진 속성은 임피던스뿐이다. 자사 비교에만 적용한다. 협력사 사양 조건에는 기준 조건이 없어 등급 쪽에는 두지 않았다.
+- **비교용 단위(KAN-185)**: 저장은 원문 단위 그대로이고, 비교할 때만 `grading._unit_key`로 맞춘다. 양을 바꾸지 않는 수식어(`SYM`, `RMS`, `AC`)를 떼고 긴 초 표기(`sec`, `Sec`, `SEC`, `seconds`, `Seconds` 등)를 `s`로 맞춘다. 한 글자 대문자 `S`는 지멘스라 초가 아니다. `peak`·`crest`·`asym`은 다른 양이라 떼지 않아 단위 확인으로 남는다. 값 단위의 대소문자는 크기를 가르므로 그대로이고, 조건 단위(`Hz`, `°C`)는 대소문자를 가리지 않는다.
+- **지속시간 추정(KAN-199)**: 단시간 내전류의 최소 요구(GTE)에서 후보 지속시간이 다르면 I₂ = I₁·√(t₁/t₂)로 요구 지속시간 값을 추정한다. 사유 문구는 '열 등가 추정(I²t), 시험값 아님'이다. 공개 근거로 확인한 것은 IEC 61439 저압 조립품(3 s까지, 정격 피크 이하 조건)뿐이고 고압·IEEE 장비에는 추정이다. 표준 근거라고 표시하지 않는다.
+  - 요구·후보 지속시간 중 하나라도 3 s를 넘으면 추정하지 않고 조건 차이다.
+  - 같은 후보에 요구 지속시간의 실제 값이 있으면 그 값만 본다.
+  - 추정 충족: 어느 방향이든 `CONDITIONAL`, 미해결에 시험값 확인과 '정격 피크 확인'(협력사는 미확인).
+  - 후보가 더 짧은 시간 값이고 추정 미달: `CONDITIONAL`(`DIFFERS`), 협력사는 미확인. 짧은 시간 값을 내린 추정은 실제 정격보다 낮게 나오기 때문이다.
+  - 후보가 더 긴 시간 값이고 추정 미달: `SPEC_GAP`, 협력사는 미달이다.
 - **"제품 없음"은 검색 범위의 결과**: 사유에 필터와 문서 수를 적고 "회사 전체 미보유나 참여 불가를 뜻하지 않음"을 붙인다.
 - **인증**: IEC 시험 성적을 UL·IEEE 요구의 충족으로 넓히지 않는다(기획서 4.2).
   - 같은 인증의 보유 자료가 없으면 근거 부족이고, 사유에 자사가 가진 규격 체계를 적는다.
@@ -40,7 +61,7 @@
 
 ## 보완 경로 (기획서 4.4)
 
-`options_for(비교 결과, 고객 허용, designated, rnd_check, approval_question)`는 `SPEC_GAP`, 타사 지정 모델, 핵심 기기 부재에만 경로를 낸다. 근거 있음·조건부·근거 부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이다.
+`options_for(비교 결과, 고객 허용, designated, rnd_check, approval_question)`는 `SPEC_GAP`, 타사 지정 모델, 핵심 기기 부재, 수행 과업에만 경로를 낸다. 근거 있음·조건부·근거 부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이다.
 
 - **순위 `rank`(path_rank, 저장 안 함)**: 1 자사 계열(`OTHER_OWN_PRODUCT`, `OWN_TERMS_REVIEW`) → 2 자사 개발·수행 확인(`OWN_DEVELOPMENT`, R&D) → 3 협력사 계열(`EXTERNAL_PRODUCT`·`TASK_SUBCONTRACT`·`JOINT_PROPOSAL`·`ALTERNATIVE_SPEC`) → 4 고객 지정품 조달(`CUSTOMER_SPECIFIED_PROCUREMENT`) → 9 `NONE`. 선택지는 이 순서로 정렬하고, 같은 순위 안은 아래 원인별 표의 순서다. 협력사는 자사 대응 가능성 확인보다 앞서지 않는다.
 - **게이트 `gate`**: 협력사 계열 4개는 `requires=OWN_DEVELOPMENT_CHECK`, 나머지는 `NONE`. 자사 개발로 풀 수 없는 원인(상업 조건 `COMMERCIAL`, 지정품 `DESIGNATED_MODEL`)의 경로에는 게이트를 걸지 않는다. `status`는 요구의 R&D 확인 상태 `rnd_check`(`NOT_REQUIRED`·`PENDING`·`CONFIRMED_FEASIBLE`·`CONFIRMED_NOT_FEASIBLE`·`CONFIRMED_SCHEDULE_MISMATCH`·`WAIVED`)다. `CONFIRMED_FEASIBLE`이면 협력사 계열은 `allowed=false`, `blocked_reason=OWN_DEVELOPMENT_FEASIBLE`(자사 개발이 되는데 협력사로 가지 않음).
@@ -67,7 +88,7 @@
 
 ## 자사 사양 (`own_spec_facts.json`, 23종)
 
-`scripts/rfp_own_spec_facts.py --ref <제공 데이터 ref>`가 `ref/product_master.csv`(23종)·`product_spec_facts.csv`(169행)에서 만든다. 손으로 고치지 않는다(`--check`, 검사 `scripts/tests/test_rfp_own_spec_facts.py`는 원천이 있으면 결과 파일이 최신인지 본다). 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이고, 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 실제 LS 제품 성능 자료가 아니다.
+`scripts/rfp_own_spec_facts.py --ref <제공 데이터 ref>`가 `ref/product_master.csv`(23종)·`product_spec_facts.csv`(169행)에서 만든다. 손으로 고치지 않는다(`--check`, 검사 `scripts/tests/test_rfp_own_spec_facts.py`는 원천이 있으면 결과 파일이 최신인지 본다). 원천이 없는 CI에서는 `stale_facts`가 커밋된 파일의 `source_value`를 지금 `RULES`에 다시 넣어 사양 행·미변환 행·보증·`coverage`가 맞는지 본다. 인증 목록은 원문이 파일에 없어 이 검사로 보지 않는다. 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이고, 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 실제 LS 제품 성능 자료가 아니다.
 
 - **범위**: RFP 요구와 비교하는 정격·형식·통신·보호 속성만 정해진 이름·단위·조건으로 옮긴다. 원천 169행 중 58행을 옮겼고, 나머지 111행(손실·기계 수명·메모리 등)은 `unmapped_facts`에 원문으로 보존만 한다. 그런 요구는 근거 부족이 된다(미기재 ≠ 미충족).
 - **같은 숫자라도 다른 속성은 합치지 않는다**: 정격 사용 전압(Ue, `rated_operational_voltage`) ≠ 정격 최대전압(`rated_max_voltage`), 모선 정격 전류(`busbar_rated_current`) ≠ 정격 전류(`rated_current`), 단시간 내전류는 시간 조건(`duration`)을 함께 두고, IEC 내부 아크 등급(`internal_arc_classification`, 시험 전류·시간 조건)은 IEEE 아크 내성(`arc_resistant`)과 다르다. 차단 용량 Icu는 전압 조건(415 V AC)을 함께 둔다.

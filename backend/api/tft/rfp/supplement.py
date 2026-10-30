@@ -167,8 +167,8 @@ def options_for(
 ) -> Options:
     """비교 결과에 맞는 보완 경로를 path_rank 순으로 낸다.
 
-    사양 차이, 타사 지정 모델(지정품), 핵심 기기 부재만 경로를 계산한다. 근거 있음·조건부·근거 부족은 경로가
-    아니라 다음 행동(조건 확인·자료 요청)이라 빈 목록이다.
+    사양 차이, 타사 지정 모델(지정품), 핵심 기기 부재, 수행 과업만 경로를 계산한다. 그 밖의 근거 있음·조건부·근거
+    부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이라 빈 목록이다.
 
     Args:
         outcome: `comparison.compare` 결과.
@@ -182,8 +182,8 @@ def options_for(
         Options: 원인·허용과 경로 목록.
     """
     cause = "DESIGNATED_MODEL" if designated else outcome.deficiency_cause
-    if cause in ("DESIGNATED_MODEL", "CORE_EQUIPMENT_MISSING"):
-        # 지정품·핵심 기기 부재는 사양 차이가 아니어도 경로를 낸다(참여 판단에 필요한 다음 단계).
+    if cause in ("DESIGNATED_MODEL", "CORE_EQUIPMENT_MISSING", "TASK"):
+        # 지정품·핵심 기기 부재·수행 과업은 사양 차이가 아니어도 경로를 낸다(참여 판단에 필요한 다음 단계).
         paths = FIRST_PATHS[cause]
     elif outcome.status == "SPEC_GAP" and cause is not None:
         paths = FIRST_PATHS[cause]

@@ -1,6 +1,7 @@
 """C/S 답변 초안 단일 시도의 연결 경계(KAN-106). SDK 생성·재시도·DB 저장은 수행하지 않는다."""
 
 import hashlib
+import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -11,13 +12,16 @@ from backend.engine.cs.classification_call import CallErrorCode, ClassificationC
 from backend.engine.cs.drafting import (
     DRAFT_INPUT_VERSION,
     DRAFT_INPUT_VERSION_STRIPPED,
+    REVISION_INSTRUCTION,
     DraftOutput,
     EvidenceSnippet,
+    RevisionFeedback,
     build_draft_input,
     instruction,
     render_prompt,
     validate_output,
 )
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
 from backend.shared.ai import Generation, Usage
 
 
@@ -42,7 +46,7 @@ class DraftAttempt:
     finish_reasons: tuple[str, ...] = field(default=(), repr=False)
     requested_model: str | None = field(default=None, repr=False)
     call_attempts: int | None = None
-    prompt_version: str = "v1"
+    prompt_version: str = DEFAULT_VERSIONS["draft"]
     # 공급자에 보낸 지시문 전체(판본 본문 + 출력 스키마, 입력 제외)의 sha256 앞 16자.
     instruction_fingerprint: str | None = None
 
@@ -57,8 +61,9 @@ def run_draft_attempt(
     sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
     provider: Callable[[str], Generation],
     attempt_number: int,
-    prompt_version: str = "v1",
+    prompt_version: str = DEFAULT_VERSIONS["draft"],
     strip_phone_annotation: bool = False,
+    revision_feedback: RevisionFeedback | None = None,
 ) -> DraftAttempt:
     """정제 입력으로 프롬프트를 만들어 한 번 호출하고 원시 검사 결과와 사용량을 보존한다.
 
@@ -74,6 +79,7 @@ def run_draft_attempt(
         attempt_number: 외부 실행기가 부여한 1 이상의 시도 번호.
         prompt_version: 프롬프트 레지스트리의 draft 판본 키. 모르는 판본은 호출 전에
             CS_UNKNOWN_PROMPT_VERSION ValueError다.
+        revision_feedback: 재작성의 기존 초안·실패 이유. 이 함수 자체는 한 번만 호출하며 그래프가 반복을 제한한다.
         strip_phone_annotation: 분석용. build_draft_input에 그대로 넘긴다(기본 False).
 
     Returns:
@@ -84,7 +90,8 @@ def run_draft_attempt(
     """
     if type(attempt_number) is not int or attempt_number < 1:
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
-    fingerprint = hashlib.sha256(instruction(prompt_version).encode()).hexdigest()[:16]
+    fixed = instruction(prompt_version) + (REVISION_INSTRUCTION if revision_feedback else "")
+    fingerprint = hashlib.sha256(fixed.encode()).hexdigest()[:16]
     result = DraftAttempt(
         attempt_number,
         input_version=DRAFT_INPUT_VERSION_STRIPPED
@@ -115,15 +122,26 @@ def run_draft_attempt(
         return replace(result, error_code=input_code)
 
     payload = prepared.payload
+    input_json = payload.model_dump_json()
+    if revision_feedback is not None:
+        input_json = json.dumps(
+            {"input": payload.model_dump(), "revision_feedback": revision_feedback.model_dump()},
+            ensure_ascii=False,
+        )
+        result = replace(result, input_version="cs-draft-revision-input-v1")
     result = replace(
         result,
-        input_sha256=hashlib.sha256(payload.model_dump_json().encode("utf-8")).hexdigest(),
+        input_sha256=hashlib.sha256(input_json.encode("utf-8")).hexdigest(),
         removed_annotations=prepared.removed_annotations,
         call_started=True,
     )
     started = time.perf_counter()
     try:
-        response = provider(render_prompt(payload, prompt_version=prompt_version))
+        response = provider(
+            render_prompt(
+                payload, prompt_version=prompt_version, revision_feedback=revision_feedback
+            )
+        )
     except Exception as error:
         # 실패 원문이나 임의 예외 이름을 기록하지 않는다. 원격 미실행으로 단정하지 않는다.
         code: CallErrorCode = "CS_PROVIDER_ERROR"

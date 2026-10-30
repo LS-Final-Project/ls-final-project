@@ -12,15 +12,26 @@
       "adopted": "gemini-3.5-flash-lite"
     },
     {
+      "stage": "classification",
+      "kind": "MISMATCH",
+      "field": "max_output_tokens",
+      "reason": "분류 채택 기록(2026-10-29)에 출력 상한을 남기지 않았다. 실행은 분류 전용 상한 4096을 쓴다(공통 1024에서 3.6-flash 50건 중 13건이 잘림). 3.6-flash 재측정 채택 기록에 넣으면 이 줄을 지운다",
+      "ticket": "KAN-147",
+      "recorded_on": "2026-10-30",
+      "deployed": 4096,
+      "adopted": null
+    },
+    {
       "stage": "draft",
       "kind": "NO_ADOPTION",
       "field": null,
-      "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(max_output_tokens 2048·근거 5건)은 2026-10-29 초안 실측의 PROPOSED 설정이고 ADOPTED 승인 전이다",
+      "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(max_output_tokens 2048·근거 5건)은 2026-10-29 초안 실측의 PROPOSED 설정이고 ADOPTED 승인 전이다. 2026-10-31 KAN-193에서 판본을 v2(반품 사유·제조 책임·고객 과실 확정 금지 지시 한 줄 추가)로 올렸고, 10-29 실측은 v1 기준이라 채택 실측은 v2로 다시 한다",
       "ticket": "KAN-147",
-      "recorded_on": "2026-10-30",
+      "recorded_on": "2026-10-31",
       "deployed": {
         "model": "gemini-3.6-flash",
-        "prompt_version": "v1",
+        "prompt_version": "v2",
+        "prompt_fingerprint": "a19901526261ff5c",
         "max_output_tokens": 2048,
         "evidence_limit": 5
       }
@@ -29,12 +40,14 @@
       "stage": "rfp_extraction",
       "kind": "NO_ADOPTION",
       "field": null,
-      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v3 의미 칸(KAN-185), 채택 전",
+      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v6 의미 칸(KAN-185, assembly_clause·approval_procedure_missing·연산자 기준·조건 이름 어휘·basis_of_design·canonical_value 포함), 채택 전",
       "ticket": "KAN-147",
       "recorded_on": "2026-10-30",
       "deployed": {
         "model": "gemini-3.6-flash",
-        "extraction_version": "rfp-requirements-v3"
+        "extraction_version": "rfp-requirements-v7",
+        "prompt_fingerprint": "4f69cdaa1a5b266c",
+        "max_output_tokens": 16384
       }
     }
   ]

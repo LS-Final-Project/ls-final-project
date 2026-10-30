@@ -31,7 +31,12 @@ EXAMPLE = Path("backend/api/tft/rfp/examples/comparison-demo-a.json")
 # IEEE·소음·Listed)은 요구별로 나눴다(2026-10-30 결정).
 _DEMO_A = [
     Requirement(
-        clause_no="2.5.M", item="탭 ±2×2.5%", attribute="tap", value="±2×2.5%", operator="TEXT"
+        clause_no="2.5.M",
+        item="탭 ±2×2.5%",
+        attribute="tap",
+        value="±2×2.5%",
+        operator="TEXT",
+        canonical_value="±2x2.5%",
     ),
     Requirement(clause_no="2.5.I.1", item="절연 Class F", attribute="insulation_class", value="F"),
     Requirement(
@@ -41,7 +46,6 @@ _DEMO_A = [
         value="5.175~6.325",
         unit="%",
         operator="RANGE",
-        conditions=[Condition(name="reference_temperature", value="IEEE C57.12.01 기준")],
     ),
     Requirement(
         clause_no="2.5.C.1",
@@ -99,7 +103,9 @@ _DEMO_A = [
     Requirement(
         clause_no="2.5.A",
         item="설계 기준: 타사 몰드 변압기 모델",
-        designated_model="Eaton Resibloc",
+        value="Eaton Resibloc",
+        operator="TEXT",
+        basis_of_design=True,
     ),
 ]
 
@@ -200,9 +206,9 @@ def test_demo_a_matches_the_planned_statuses_with_datasheet_evidence():
     assert tap.candidates[0].evidence[0].document == "DS-TRF-DRY-630"
     assert tap.candidates[0].evidence[0].clause == "2.2"
     assert (insulation.candidates[0].result, insulation.next_owner) == ("MEETS", None)
-    # In range, but the datasheet value is at 120 °C, not the IEEE basis the RFP names.
+    # In range, but the datasheet value leans on a 120 °C basis the requirement does not state.
     assert impedance.candidates[0].result == "MEETS"
-    assert "reference_temperature" in impedance.unresolved[0]
+    assert impedance.unresolved[0] == "reference_temperature 요구 미기재, 자사 근거 120 °C"
     assert forced_air.next_owner == "TECH"
     assert (secondary.candidates[0].result, secondary.deficiency_cause) == ("DIFFERS", "RATING")
     assert "415 V" in secondary.reason
@@ -443,10 +449,17 @@ def test_core_equipment_missing_from_the_data_goes_to_joint_proposal_or_hold():
     assert plain.deficiency_cause is None and options_for(plain, "ALLOWED").options == []
 
 
+def designated_outcome():
+    """대체 불가 지정 요구의 판정. 시연 A의 설계 기준(참고 기준)과 다르다."""
+    wanted = Requirement(clause_no="2.5.A", item="계전기", designated_model="Model X")
+    return compare_in_family(wanted, "TRANSFORMER", load_own_products())
+
+
 def test_designated_model_and_non_gaps_get_the_right_paths():
     outcomes = demo_a()
-    assert outcomes[13].deficiency_cause == "DESIGNATED_MODEL"
-    designated = options_for(outcomes[13], "UNSTATED")
+    named = designated_outcome()
+    assert named.deficiency_cause == "DESIGNATED_MODEL"
+    designated = options_for(named, "UNSTATED")
     # Spec v1.3 §5.1: only the specified-item procurement and an alternative (customer approval)
     # can be chosen; the other paths are shown as blocked with the reason.
     allowed = {o.path: o for o in designated.options if o.allowed}
@@ -466,7 +479,7 @@ def test_designated_model_and_non_gaps_get_the_right_paths():
         ],
         "DESIGNATED_ITEM",
     )
-    asked = options_for(outcomes[13], "UNSTATED", approval_question=True)
+    asked = options_for(named, "UNSTATED", approval_question=True)
     alt = next(o for o in asked.options if o.path == "ALTERNATIVE_SPEC")
     assert "고객 질문 작성 필요" not in alt.conditions_to_confirm
     # Evidence, conditions and missing data are next actions, not supplement paths.
@@ -596,28 +609,31 @@ def test_a_shortfall_under_a_different_condition_is_conditional_not_a_gap():
 
 
 @pytest.mark.parametrize(
-    ("current", "duration", "status", "converted"),
+    ("current", "have", "want", "need", "status", "result", "peak", "note"),
     [
-        # B-1(기획서 기대 SPEC_GAP): 25 kA·3 s → 2 s 30.6 kA < 38 kA.
-        ("25", "3", "SPEC_GAP", "30.6 kA"),
-        # 지속시간이 짧은 쪽도 같은 식: 40 kA·1 s → 28.3 kA < 38 kA.
-        ("40", "1", "SPEC_GAP", "28.3 kA"),
-        # 환산으로 충족해도 시험값이 아니라 조건부다: 60 kA·1 s → 42.4 kA.
-        ("60", "1", "CONDITIONAL", "42.4 kA"),
-        # 경계: 53.68 kA·1 s → 37.957… kA는 미달이다(문구에만 38.0으로 반올림, 판정은 반올림 전 값).
-        ("53.68", "1", "SPEC_GAP", "38.0 kA"),
+        # i2t-basis.md 표 5행. 짧은 시간 값의 추정 미달은 확정하지 않는다(실제 정격이 I²t보다 높다).
+        ("85", "1", "65", "3", "CONDITIONAL", "DIFFERS", False, "49.1 kA"),
+        ("63", "1", "40", "3", "CONDITIONAL", "DIFFERS", False, "36.4 kA"),
+        # 3 s를 넘으면 추정하지 않고 조건 차이다.
+        ("25", "1", "10", "5", "CONDITIONAL", "MEETS", False, None),
+        # 추정 충족은 조건부이고 정격 피크 확인이 남는다.
+        ("25", "3", "30", "2", "CONDITIONAL", "MEETS", True, "30.6 kA"),
+        # B-1(기획서 기대 SPEC_GAP): 긴 시간 값을 올려도 모자라면 미달이다.
+        ("25", "3", "38", "2", "SPEC_GAP", "DIFFERS", False, "30.6 kA"),
+        # 경계: 53.68 kA·1 s → 3 s 30.99… kA < 31은 짧은 시간 값이라 확정하지 않는다(문구만 반올림).
+        ("53.68", "1", "31", "3", "CONDITIONAL", "DIFFERS", False, "31.0 kA"),
     ],
 )
-def test_short_time_current_is_converted_to_the_required_duration(
-    current, duration, status, converted
+def test_short_time_current_estimates_follow_the_direction(
+    current, have, want, need, status, result, peak, note
 ):
-    """단시간 내전류의 지속시간만은 I²t 일정으로 요구 지속시간 값으로 환산해 견주고 사유에 환산값을 적는다(KAN-199)."""
+    """지속시간 추정은 3 s까지만 쓰고, 방향에 따라 판정이 다르다(열 등가 추정, 시험값 아님)."""
     fact = SpecFact(
         product_code="X-1",
         attribute="short_time_withstand_current",
         value=current,
         unit="kA",
-        conditions=[Condition(name="duration", value=duration, unit="s")],
+        conditions=[Condition(name="duration", value=have, unit="s")],
         evidence_id="DS-X",
         section="2",
     )
@@ -631,24 +647,469 @@ def test_short_time_current_is_converted_to_the_required_duration(
     )
     wanted = Requirement(
         clause_no="2.4",
-        item="단시간 내전류 38kA, 2s",
+        item="단시간 내전류",
         attribute="short_time_withstand_current",
-        value="38",
+        value=want,
         unit="kA",
         operator="GTE",
-        conditions=[Condition(name="duration", value="2", unit="s")],
+        conditions=[Condition(name="duration", value=need, unit="s")],
     )
     trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
     outcome = compare(wanted, [product], trace)
-    assert outcome.status == status
-    assert f"I²t 일정 환산: {current} kA·{duration} s → 2 s {converted}" in outcome.reason
-    # 후보 원래 값·조건은 그대로 보인다(환산값은 사유에만).
+    assert (outcome.status, outcome.candidates[0].result) == (status, result)
+    if note:
+        assert (
+            f"열 등가 추정(I²t), 시험값 아님: {current} kA·{have} s → {need} s {note}"
+            in outcome.reason
+        )
+    else:
+        assert "추정" not in outcome.reason and "duration" in outcome.unresolved[0]
+    assert ("정격 피크 확인" in outcome.unresolved) is peak
+    # 후보 원래 값·조건은 그대로 보인다(추정값은 사유에만).
     assert (outcome.candidates[0].our_value, outcome.candidates[0].our_conditions) == (
         current,
         fact.conditions,
     )
-    if status == "CONDITIONAL":
-        assert "요구 지속시간의 시험값 확인(환산 충족)" in outcome.unresolved
+
+
+def test_a_rating_at_the_required_duration_is_not_overridden_by_an_estimate():
+    """요구 지속시간의 실제 값이 미달이면 다른 시간 값의 추정으로 덮지 않는다."""
+
+    def rated(value, seconds):
+        return SpecFact(
+            product_code="X-1",
+            attribute="short_time_withstand_current",
+            value=value,
+            unit="kA",
+            conditions=[Condition(name="duration", value=seconds, unit="s")],
+            evidence_id="DS-X",
+            section="2",
+        )
+
+    product = Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[rated("85", "1"), rated("42", "3")],
+    )
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="short_time_withstand_current",
+        value="65",
+        unit="kA",
+        operator="GTE",
+        conditions=[Condition(name="duration", value="3", unit="s")],
+    )
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(wanted, [product], trace).status == "SPEC_GAP"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "check", "cause"),
+    [
+        ({"task": "field testing"}, "수행 주체 확인(자사/협력사)", "TASK"),
+        # task 칸이 비어도 kind가 TASK면 같은 규칙이다.
+        ({"kind": "TASK"}, "수행 주체 확인(자사/협력사)", "TASK"),
+        ({"kind": "DOCUMENT"}, "제출 자료 준비 확인", None),
+        # 문서 요구가 task 칸을 채워도 문서 요구다(kind가 먼저다).
+        ({"kind": "DOCUMENT", "task": "submit drawings"}, "제출 자료 준비 확인", None),
+    ],
+)
+@pytest.mark.parametrize("family", [None, "OTHER"])
+def test_task_and_document_requirements_are_decided_internally(kwargs, check, cause, family):
+    """과업·문서 요구는 계열 검사 없이 내부 확인으로 간다. 고객에게 묻지 않고 과업만 보완 경로가 있다."""
+    wanted = Requirement(clause_no="3.2", item="현장 시험", attribute="OTHER", **kwargs)
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert "계열" not in outcome.reason and "연결하지 못해" not in outcome.reason
+    assert (outcome.status, outcome.next_owner, outcome.deficiency_cause) == (
+        "INSUFFICIENT_EVIDENCE",
+        "TECH",
+        cause,
+    )
+    assert outcome.unresolved == [check] and check in outcome.reason
+    paths = [o.path for o in options_for(outcome, "ALLOWED").options]
+    assert paths == (["OWN_DEVELOPMENT", "TASK_SUBCONTRACT"] if cause else [])
+
+
+@pytest.mark.parametrize("kind", ["TASK", "DOCUMENT"])
+@pytest.mark.parametrize("family", [None, "OTHER"])
+def test_a_valued_task_or_document_without_a_family_is_still_an_internal_check(kind, family):
+    """값과 속성이 있어도 계열이 없으면 견줄 후보가 없다. '자사 후보 없음'이 아니라 내부 확인이다."""
+    wanted = Requirement(
+        clause_no="3.2",
+        item="시험 전압",
+        attribute="power_frequency_withstand",
+        value="28",
+        unit="kV",
+        operator="GTE",
+        kind=kind,
+    )
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert (outcome.status, outcome.next_owner) == ("INSUFFICIENT_EVIDENCE", "TECH")
+    assert "후보를 찾지 못함" not in outcome.reason
+    assert outcome.deficiency_cause == ("TASK" if kind == "TASK" else None)
+    # 계열이 정해지면 같은 값으로 실제 비교한다(후보가 있으면 내부 확인으로 가지 않는다).
+    known = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    assert known.candidates and "수행 주체" not in known.reason
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"), [("OTHER", None), (None, None), ("OTHER", "3 days"), ("bil", None)]
+)
+def test_a_task_without_a_comparable_value_asks_who_performs_it(attribute, value):
+    """비교할 값이 없는 수행 과업은 고객 질문이 아니라 내부 수행 주체 확인이고, 자사 수행 → 위탁 경로가 나온다."""
+    wanted = Requirement(
+        clause_no="3.2", item="현장 시험", attribute=attribute, value=value, task="field testing"
+    )
+    outcome = compare_in_family(wanted, None, load_own_products())
+    assert (outcome.status, outcome.next_owner, outcome.deficiency_cause) == (
+        "INSUFFICIENT_EVIDENCE",
+        "TECH",
+        "TASK",
+    )
+    assert outcome.unresolved == ["수행 주체 확인(자사/협력사)"] and outcome.candidates == []
+    allowed = options_for(outcome, "ALLOWED")
+    assert [(o.path, o.rank, o.gate.requires) for o in allowed.options] == [
+        ("OWN_DEVELOPMENT", 2, "NONE"),
+        ("TASK_SUBCONTRACT", 3, "OWN_DEVELOPMENT_CHECK"),
+    ]
+    forbidden = options_for(outcome, "FORBIDDEN")
+    assert [(o.path, o.allowed) for o in forbidden.options] == [
+        ("OWN_DEVELOPMENT", True),
+        ("TASK_SUBCONTRACT", False),
+    ]
+    # R&D가 자사 수행 가능이라고 답하면 위탁은 막힌다(다른 원인과 같은 게이트).
+    feasible = options_for(outcome, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    assert [o.allowed for o in feasible.options] == [True, False]
+
+
+def test_a_task_with_a_real_comparison_and_other_insufficient_results_keep_their_paths():
+    """비교할 값이 있는 과업은 기존 판정(사양 차이 → TASK), 원인 없는 근거 부족은 경로가 없다."""
+    linked = Requirement(
+        clause_no="3.1",
+        item="현장 시운전",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+        task="commissioning",
+    )
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(linked, [switchgear("12")], trace).status == "SPEC_GAP"
+    # 원인도 같은 판단을 쓴다: task 칸이 비어도 kind TASK의 사양 차이는 TASK다.
+    by_kind = linked.model_copy(update={"task": None, "kind": "TASK"})
+    assert compare(by_kind, [switchgear("12")], trace).deficiency_cause == "TASK"
+    no_value = Requirement(clause_no="2.1", item="정격", attribute="bil")
+    outcome = compare(no_value, [switchgear("12")], trace)
+    assert (outcome.next_owner, outcome.deficiency_cause) == ("CUSTOMER", None)
+    assert options_for(outcome, "ALLOWED").options == []
+    # 미정 표시는 과업이어도 고객 회신이 먼저다.
+    placeholder = no_value.model_copy(update={"task": "testing", "value": "<Insert value>"})
+    assert compare(placeholder, [switchgear("12")], trace).next_owner == "CUSTOMER"
+    # 인증 요구는 과업 칸이 있어도 인증 경로다.
+    certification = no_value.model_copy(
+        update={"task": "testing", "certification_standard": "UL 1558", "attribute": None}
+    )
+    assert "수행 주체" not in compare(certification, [switchgear("12")], trace).reason
+
+
+def test_certifications_and_designated_models_keep_their_order_for_task_requirements():
+    """인증 요구는 과업 칸이 있어도 계열 검사를 지나고, 지정 모델은 그대로 지정품 판정이다."""
+    products = load_own_products()
+    certification = Requirement(
+        clause_no="2.1", item="등록", certification_standard="UL 1558", task="testing"
+    )
+    assert "계열" in compare_in_family(certification, None, products).reason
+    designated = Requirement(clause_no="2.2", item="계전기", designated_model="X-100", kind="TASK")
+    outcome = compare_in_family(designated, None, products)
+    assert outcome.deficiency_cause == "DESIGNATED_MODEL"
+
+
+@pytest.mark.parametrize("value", ["<Insert value>", "< insert kV rating >", "TBD", "[ ]", "____"])
+def test_a_placeholder_value_is_left_out_of_the_judgement(value):
+    """미정 표시는 값이 아니다. 비교하지 않고 고객 회신을 받는 근거 부족으로 둔다."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="rated_max_voltage",
+        value=value,
+        unit="kV",
+        operator="EQ",
+    )
+    outcome = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    assert (outcome.status, outcome.next_owner, outcome.candidates) == (
+        "INSUFFICIENT_EVIDENCE",
+        "CUSTOMER",
+        [],
+    )
+    assert "미정" in outcome.reason and outcome.unresolved == ["요구값 확정(고객 회신)"]
+
+
+@pytest.mark.parametrize("family", ["TRANSFORMER", "OTHER", None])
+def test_a_basis_of_design_product_asks_the_customer_about_equals_without_designation(family):
+    """결함 13: 설계 기준은 지정이 아니다. 계열·속성이 없어도 조건부이고 지정품 경로로 가지 않는다."""
+    wanted = Requirement(
+        clause_no="2.5",
+        item="변압기",
+        attribute="OTHER",
+        value="Model X",
+        operator="TEXT",
+        basis_of_design=True,
+    )
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert (outcome.status, outcome.next_owner) == ("CONDITIONAL", "CUSTOMER")
+    assert outcome.deficiency_cause is None and "지정 모델" not in outcome.reason
+    assert "Model X" in outcome.reason
+    assert options_for(outcome, "ALLOWED").options == []
+
+
+def test_a_designated_model_keeps_its_procurement_path():
+    """대체 불가 지정은 그대로 지정품이다. 설계 기준과 섞이지 않는다."""
+    wanted = Requirement(clause_no="2.5", item="계전기", designated_model="Model X")
+    outcome = compare_in_family(wanted, "OTHER", load_own_products())
+    assert (outcome.status, outcome.deficiency_cause) == ("CONDITIONAL", "DESIGNATED_MODEL")
+    assert "지정 모델 Model X" in outcome.reason
+
+
+def short_time(unit="kA", operator="GTE", duration_unit="s"):
+    return Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="short_time_withstand_current",
+        value="38",
+        unit=unit,
+        operator=operator,
+        conditions=[Condition(name="duration", value="2", unit=duration_unit)],
+    )
+
+
+def rated_product(attribute, value, unit, duration=None):
+    conditions = [Condition(name="duration", value=duration, unit="s")] if duration else None
+    return Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[
+            SpecFact(
+                product_code="X-1",
+                attribute=attribute,
+                value=value,
+                unit=unit,
+                conditions=conditions,
+                evidence_id="DS-X",
+                section="2",
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("unit", "duration_unit"),
+    [
+        ("kA", "s"),
+        ("kA SYM RMS", "s"),
+        ("kA rms, symmetrical", "seconds"),
+        ("kA (sym)", "sec"),
+        ("kA r.m.s.", "s"),
+        ("kA", "Sec"),
+        ("kA", "SEC"),
+        ("kA", "Seconds"),
+    ],
+)
+def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
+    """결함 11: 양을 바꾸지 않는 수식어나 초 표기 때문에 비교·추정이 멈추지 않는다. B-1은 어느 표기든 사양 차이다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    outcome = compare(
+        short_time(unit, duration_unit=duration_unit),
+        [rated_product("short_time_withstand_current", "25", "kA", "3")],
+        trace,
+    )
+    assert outcome.status == "SPEC_GAP" and "30.6 kA" in outcome.reason
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize("unit", ["kA peak", "kA asym", "kA crest", "A"])
+def test_units_that_change_the_quantity_are_not_stripped(unit):
+    """peak·asym·crest와 다른 크기는 다른 양이다. 같다고도 다르다고도 하지 않는다(단위 확인)."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    outcome = compare(
+        short_time(unit), [rated_product("short_time_withstand_current", "25", "kA", "2")], trace
+    )
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+    assert any("단위 확인" in item for item in outcome.unresolved)
+
+
+def test_condition_units_ignore_case_after_the_unit_key():
+    """조건 단위는 대소문자로 크기가 갈리지 않는다(#347 리뷰). 'HZ'와 'Hz'는 조건 차이가 아니다."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="BIL",
+        attribute="bil",
+        value="95",
+        unit="kV",
+        operator="GTE",
+        conditions=[Condition(name="frequency", value="50", unit="HZ")],
+    )
+    plain = rated_product("bil", "95", "kV")
+    fact = plain.spec_facts[0].model_copy(
+        update={"conditions": [Condition(name="frequency", value="50", unit="Hz")]}
+    )
+    product = plain.model_copy(update={"spec_facts": [fact]})
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(wanted, [product], trace).status == "EVIDENCE_FOUND"
+    # 'S'는 지멘스다. 초로 맞추지 않는다(#347 리뷰).
+    conductance = wanted.model_copy(
+        update={"attribute": "rated_power", "unit": "S", "conditions": []}
+    )
+    result = compare(conductance, [rated_product("rated_power", "95", "s")], trace)
+    assert result.candidates[0].result == "NOT_COMPARABLE"
+    # 값 단위는 대소문자가 크기를 가른다(mW·MW). 같은 양으로 보지 않는다.
+    power = wanted.model_copy(update={"attribute": "rated_power", "unit": "mW", "conditions": []})
+    result = compare(power, [rated_product("rated_power", "95", "MW")], trace)
+    assert result.candidates[0].result == "NOT_COMPARABLE"
+
+
+def canonical(attribute, wanted, value="문장형 원문", unit=None, operator="TEXT"):
+    return Requirement(
+        clause_no="2.5",
+        item="항목",
+        attribute=attribute,
+        value=value,
+        unit=unit,
+        operator=operator,
+        canonical_value=wanted,
+    )
+
+
+TRACE = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+
+
+@pytest.mark.parametrize(
+    ("wanted", "status", "word"),
+    [
+        ("±2x2.5%", "EVIDENCE_FOUND", "충족"),
+        ("+2x-2x2.5%", "EVIDENCE_FOUND", "충족"),
+        ("±2x2.50%", "EVIDENCE_FOUND", "충족"),
+        ("±4x1.25%", "SPEC_GAP", "탭 구성 다름"),
+        ("±2x1.25%", "SPEC_GAP", "탭 구성 다름"),
+        ("+2x-4x2.5%", "SPEC_GAP", "탭 구성 다름"),
+    ],
+)
+def test_taps_compare_steps_and_spacing_from_the_written_notation(wanted, status, word):
+    """결함 6: 문장형 탭도 자사 ±2×2.5%와 단 수·간격으로 견준다. 원문 value·단위는 판정에 쓰지 않는다."""
+    outcome = compare_in_family(
+        canonical("tap", wanted, value="1.25", unit="%", operator="EQ"),
+        "TRANSFORMER",
+        load_own_products(),
+    )
+    assert outcome.status == status and word in outcome.reason
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize(
+    ("wanted", "own", "status", "word"),
+    [
+        ("LSI", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LG", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LSIG", "LSIG", "EVIDENCE_FOUND", "충족"),
+        ("LSIG", "LSI", "SPEC_GAP", "보호 기능 없음: G"),
+        ("SI", "LS", "SPEC_GAP", "보호 기능 없음: I"),
+    ],
+)
+def test_protection_functions_are_met_when_required_is_a_subset(wanted, own, status, word):
+    """요구 집합이 자사 집합의 부분집합이면 충족이고, 모자라면 빠진 기능을 말한다."""
+    product = rated_product("protection_functions", own, None)
+    outcome = compare(canonical("protection_functions", wanted), [product], TRACE)
+    assert outcome.status == status and word in outcome.reason
+
+
+def test_a_canonical_value_compares_without_a_written_value():
+    """문장형 요구는 value가 비어도 고객 자료 요청이 아니라 비교로 간다."""
+    wanted = canonical("protection_functions", "LSI", value=None)
+    outcome = compare(wanted, [rated_product("protection_functions", "LSIG", None)], TRACE)
+    assert (outcome.status, outcome.next_owner) == ("EVIDENCE_FOUND", None)
+
+
+def test_an_own_value_outside_the_notation_is_not_decided():
+    """자사 값을 표기로 읽지 못하면 같다고도 다르다고도 하지 않는다."""
+    outcome = compare(canonical("tap", "±2x2.5%"), [rated_product("tap", "수동 탭", None)], TRACE)
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+
+
+def test_a_malformed_requirement_notation_is_not_decided_and_does_not_raise():
+    """요구 표기가 어긋나도 비교 전체가 멈추지 않는다(#352 리뷰). 추출 검증을 거치지 않은 입력도 같다."""
+    outcome = compare(canonical("tap", "LSI"), [rated_product("tap", "±2×2.5%", None)], TRACE)
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+
+
+def impedance(value="5.175~6.325", **extra):
+    return Requirement(
+        clause_no="2.5",
+        item="임피던스",
+        attribute="impedance",
+        value=value,
+        unit="%",
+        operator="RANGE",
+        **extra,
+    )
+
+
+def test_a_met_value_on_an_unstated_basis_is_only_conditional():
+    """결함 8: 요구에 기준 온도가 없어도 자사 값이 기대면 충족을 확정하지 않는다."""
+    outcome = compare_in_family(impedance(), "TRANSFORMER", load_own_products())
+    assert outcome.status == "CONDITIONAL"
+    assert any("reference_temperature 요구 미기재" in item for item in outcome.unresolved)
+
+
+def test_a_stated_basis_that_matches_stays_confirmed():
+    """요구가 같은 기준을 적으면 그대로 충족이다."""
+    stated = [Condition(name="reference_temperature", value="120", unit="°C")]
+    outcome = compare_in_family(impedance(conditions=stated), "TRANSFORMER", load_own_products())
+    assert outcome.status == "EVIDENCE_FOUND"
+
+
+def test_an_unstated_basis_does_not_soften_a_shortfall():
+    """충족만 낮춘다. 미달은 기준 조건이 있어도 그대로 사양 차이다."""
+    outcome = compare_in_family(impedance("1~2"), "TRANSFORMER", load_own_products())
+    assert outcome.status == "SPEC_GAP"
+    assert not any("요구 미기재" in item for item in outcome.unresolved)
+
+
+def test_conditions_outside_the_basis_set_do_not_lower_a_met_value():
+    """기준 조건이 아닌 조건(차단 용량의 415 V 등)은 요구에 없어도 충족을 낮추지 않는다."""
+    wanted = Requirement(
+        clause_no="2.6",
+        item="차단 용량",
+        attribute="breaking_capacity_icu",
+        value="50",
+        unit="kA",
+        operator="GTE",
+    )
+    assert compare_in_family(wanted, "LV_BREAKER", load_own_products()).status == "EVIDENCE_FOUND"
+
+
+def test_the_operator_decides_a_fixed_rating_and_a_minimum():
+    """결함 9: 정해진 값(EQ)은 더 높은 정격으로 충족되지 않고, 최소 요구(GTE)는 충족된다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    product = rated_product("bil", "125", "kV")
+
+    def wanted(operator):
+        return Requirement(
+            clause_no="2.4",
+            item="BIL",
+            attribute="bil",
+            value="95",
+            unit="kV",
+            operator=operator,
+        )
+
+    assert compare(wanted("EQ"), [product], trace).status == "SPEC_GAP"
+    assert compare(wanted("GTE"), [product], trace).status == "EVIDENCE_FOUND"
 
 
 def test_an_unlinked_attribute_is_not_compared_but_certifications_are():
@@ -723,6 +1184,89 @@ def test_demo_b1_short_time_current_stays_a_spec_gap_for_the_own_mv_products():
         if r["attribute"] == "short_time_withstand_current"
     ]
     assert outcome.status == b1["expected_status"] == "SPEC_GAP"
+
+
+def own(code):
+    """자사 제품 하나.
+
+    Args:
+        code: 제품 코드.
+
+    Returns:
+        Product: own_spec_facts의 그 제품.
+    """
+    [product] = [p for p in load_own_products() if p.product_code == code]
+    return product
+
+
+def test_a_met_value_under_another_standard_system_is_conditional():
+    """KAN-199: 요구 UL interrupting capacity를 IEC Icu 근거로 충족 판정하지 않는다(규격 체계 다름 → 조건부)."""
+    trace = SearchTrace(filters=["family=LV_BREAKER"], documents_searched=1, search_failed=False)
+    wanted = Requirement(
+        clause_no="2.6",
+        item="차단 용량",
+        attribute="breaking_capacity_icu",
+        value="10",
+        unit="kA",
+        operator="GTE",
+        standard_system="UL",
+    )
+    iec_only = compare(wanted, [own("MCCB-ABS-103c")], trace)
+    assert iec_only.status == "CONDITIONAL"
+    assert "규격 체계 다름: 요구 UL, 근거 IEC 60947-2, 시험 규격 확인" in iec_only.unresolved
+    # 체계 표시가 없는 요구는 지금처럼 충족이다.
+    plain = wanted.model_copy(update={"standard_system": "NONE"})
+    assert compare(plain, [own("MCCB-ABS-103c")], trace).status == "EVIDENCE_FOUND"
+    # UL이 -U 변형 모델 인증에만 있으면(certifications.variant) 근거 체계에 넣지 않는다.
+    variant = compare(wanted, [own("MCCB-ABS-403c")], trace)
+    assert variant.status == "CONDITIONAL"
+    assert "UL 체계는 변형 모델에만 있음: 변형 모델 값 확인" in variant.unresolved
+    assert any(
+        u.startswith("규격 체계 다름: 요구 UL, 근거 IEC 60947-2,") for u in variant.unresolved
+    )
+
+
+def test_a_same_system_product_is_not_downgraded():
+    """변형 표시 없이 UL 인증이 있는 제품(CONT-MC-32a: IEC·UL 60947-4-1)은 UL 요구에 체계 차이로 낮추지 않는다."""
+    product = own("CONT-MC-32a")
+    fact = product.spec_facts[0]
+    wanted = Requirement(
+        clause_no="2.7",
+        item="접촉기",
+        attribute=fact.attribute,
+        value=fact.value,
+        unit=fact.unit,
+        operator="TEXT" if fact.unit is None else "EQ",
+        conditions=list(fact.conditions or []),
+        standard_system="UL",
+    )
+    trace = SearchTrace(filters=["family=CONTROL"], documents_searched=1, search_failed=False)
+    assert not any("규격 체계" in u for u in compare(wanted, [product], trace).unresolved)
+
+
+def test_demo_b1_voltage_gap_stays_a_gap_under_another_standard_system():
+    """기획서 B-1(15 kV 요구, 요구 IEEE·근거 IEC 62271-200, 자사 SWGR-MV-12kV 12 kV): 물리 정격 미달은 체계가 달라도
+    사양 차이다(규격 체계 규칙은 충족만 낮춘다)."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="정격 최대전압 15kV",
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+        standard_system="IEEE",
+    )
+    trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
+    outcome = compare(wanted, [own("SWGR-MV-12kV")], trace)
+    [b1] = [
+        r
+        for c in json.loads(DEMO_CASES.read_text())["cases"]
+        if c["case"] == "B-1"
+        for r in c["requirements"]
+        if r["attribute"] == "rated_max_voltage"
+    ]
+    assert outcome.status == b1["expected_status"] == "SPEC_GAP"
+    assert not any("규격 체계" in u for u in outcome.unresolved)
 
 
 if __name__ == "__main__":
@@ -898,7 +1442,7 @@ def test_commercial_and_designated_alternatives_are_not_gated_by_rnd():
         ("OWN_TERMS_REVIEW", True, "NONE"),
         ("ALTERNATIVE_SPEC", True, "NONE"),
     ]
-    designated = options_for(demo_a()[13], "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
+    designated = options_for(designated_outcome(), "ALLOWED", rnd_check="CONFIRMED_FEASIBLE")
     alternative = next(o for o in designated.options if o.path == "ALTERNATIVE_SPEC")
     assert (alternative.allowed, alternative.gate.requires) == (True, "NONE")
 

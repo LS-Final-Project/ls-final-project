@@ -576,3 +576,352 @@ def test_the_vocabulary_is_one_source_for_spec_facts_and_extraction():
     products = load_own_products()
     assert {f.attribute for p in products for f in p.spec_facts} <= ATTRIBUTE_KEYS
     assert {p.family for p in products} <= EQUIPMENT_FAMILIES
+
+
+def assembly_section():
+    """조립품 공급 요구(양성)와 장비 나열(반례)의 합성 절. 일반 표현만 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 POWER DISTRIBUTION CENTER"),
+        p("A. Breakers, relays and meters shall be factory-assembled and tested as one unit."),
+        p(
+            "B. The drive and motor shall be furnished by one manufacturer with unit responsibility."
+        ),
+        p("C. Provide circuit breakers, relays and meters."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_assembly_clause_is_kept_for_a_single_unit_and_not_for_a_list():
+    """조립품·단일 공급 책임 요구는 true, 장비 나열은 false로 남고 통합 책임 판별 입력이 된다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "factory-assembled and tested as one unit",
+                    "assembly",
+                    operator="TEXT",
+                    assembly_clause=True,
+                ),
+                req(
+                    "2.1.B",
+                    "furnished by one manufacturer with unit responsibility",
+                    "supply responsibility",
+                    operator="TEXT",
+                    assembly_clause=True,
+                ),
+                req(
+                    "2.1.C",
+                    "Provide circuit breakers, relays and meters",
+                    "included equipment",
+                    operator="TEXT",
+                    assembly_clause=False,
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, assembly_section())
+    assert rejected == []
+    assert [(r.clause_no, r.assembly_clause) for r in kept] == [
+        ("2.1.A", True),
+        ("2.1.B", True),
+        ("2.1.C", False),
+    ]
+    from backend.api.tft.rfp.integration import Requirement, integration_responsibility
+
+    result = integration_responsibility(
+        [
+            Requirement(clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause)
+            for r in kept
+        ]
+    )
+    assert (result.required, result.basis_clause_nos) == (True, ["2.1.A", "2.1.B"])
+
+
+def test_a_model_answer_without_assembly_clause_stays_false_and_the_prompt_explains_it():
+    """옛 응답처럼 칸이 없으면 기본 false다. 응답 스키마는 필수이고 지시문은 나열은 false라고 말한다."""
+    from backend.engine.rfp.requirements import RequirementSchema
+
+    raw = json.dumps({"requirements": [req("2.1.C", "Provide circuit breakers", "equipment")]})
+    assert validate_output(raw, assembly_section())[0][0].assembly_clause is False
+    assert RequirementSchema.model_fields["assembly_clause"].is_required()
+    text = prompt(assembly_section())
+    assert "assembly_clause" in text and "merely listed together is false" in text
+
+
+def approval_section():
+    """승인 조건부 대체(양성)·절차가 적힌 대체(반례)·대체 불허(반례)의 합성 절. 일반 표현만 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 PROTECTIVE RELAYS"),
+        p("A. Products of other makers may be offered if accepted by the purchaser."),
+        p(
+            "B. Alternative makers may be offered; send type-test reports and a reference list "
+            "with the tender for acceptance."
+        ),
+        p("C. Alternative makers will not be accepted."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_a_missing_approval_procedure_is_kept_only_for_a_conditional_substitute():
+    """승인 조건부 대체에 절차가 없을 때만 true, 절차가 있거나 대체 불허면 false로 남는다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "Products of other makers may be offered if accepted by the purchaser",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=True,
+                ),
+                req(
+                    "2.1.B",
+                    "Alternative makers may be offered",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=False,
+                ),
+                req(
+                    "2.1.C",
+                    "Alternative makers will not be accepted",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=False,
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, approval_section())
+    assert rejected == []
+    assert [(r.clause_no, r.approval_procedure_missing) for r in kept] == [
+        ("2.1.A", True),
+        ("2.1.B", False),
+        ("2.1.C", False),
+    ]
+
+
+def test_a_model_answer_without_the_approval_flag_stays_false_and_the_prompt_explains_it():
+    """옛 응답처럼 칸이 없으면 기본 false다. 응답 스키마는 필수이고 지시문은 대체 불허·절차 있음을 false라고 말한다."""
+    from backend.engine.rfp.requirements import RequirementSchema
+
+    raw = json.dumps({"requirements": [req("2.1.C", "Alternative makers", "substitution")]})
+    assert validate_output(raw, approval_section())[0][0].approval_procedure_missing is False
+    assert RequirementSchema.model_fields["approval_procedure_missing"].is_required()
+    text = prompt(approval_section())
+    assert "approval_procedure_missing" in text
+    assert "False when substitution is not allowed" in text
+
+
+def condition_section():
+    """조건·연산자 합성 절. 일반 표현만 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 MEDIUM-VOLTAGE BREAKERS"),
+        p("A. Withstand current shall be 31.5 kA for 3 s at 50 Hz."),
+        p("B. Terminals shall be suitable for humid coastal sites."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_condition_names_come_from_the_vocabulary_and_others_become_other():
+    """어휘 안 조건 이름은 그대로, 밖이면 OTHER·검토다. 값은 그대로라 섹션을 버리지 않는다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "Withstand current shall be 31.5 kA for 3 s at 50 Hz",
+                    "withstand current",
+                    "31.5",
+                    "kA",
+                    operator="GTE",
+                    conditions=[
+                        {"name": "duration", "value": "3", "unit": "s"},
+                        {"name": "frequency", "value": "50", "unit": "Hz"},
+                    ],
+                ),
+                req(
+                    "2.1.B",
+                    "Terminals shall be suitable for humid coastal sites",
+                    "terminal suitability",
+                    operator="TEXT",
+                    conditions=[{"name": "site climate", "value": "humid coastal"}],
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, condition_section())
+    assert rejected == []
+    assert [c.name for c in kept[0].conditions] == ["duration", "frequency"]
+    assert not kept[0].needs_review
+    assert (kept[1].conditions[0].name, kept[1].conditions[0].value) == ("OTHER", "humid coastal")
+    assert kept[1].needs_review
+
+
+def test_the_prompt_states_the_operator_rule_and_the_condition_names():
+    """연산자 기준(결함 9)과 조건 이름 목록(결함 11)이 지시문에 있고, 응답 스키마는 enum 하나다."""
+    text = prompt(condition_section())
+    assert (
+        "GTE for a minimum" in text and "LTE for a maximum" in text and "EQ for a specified" in text
+    )
+    assert "ambient_temperature" in text and "reference_temperature" in text
+    schema = ResponseSchema.model_json_schema()["$defs"]["ConditionSchema"]["properties"]["name"]
+    assert "anyOf" not in schema and {"duration", "OTHER"} <= set(schema["enum"])
+
+
+def test_spec_fact_condition_names_are_in_the_vocabulary():
+    """자사·협력사 사양 근거의 조건 이름이 어휘 안에 있어야 요구 조건과 맞물린다."""
+    from backend.api.tft.partners.loader import load_profiles
+    from backend.api.tft.rfp.comparison import load_own_products
+    from backend.engine.rfp.vocabulary import CONDITION_NAMES
+
+    facts = [f for p in load_own_products() for f in p.spec_facts]
+    facts += [f for p in load_profiles() for f in p.spec_facts]
+    assert {c.name for f in facts for c in f.conditions or []} <= CONDITION_NAMES
+
+
+def basis_section():
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 RELAYS AND TAPS"),
+        p("A. Relay: Model R-100 or equal."),
+        p("B. Meter shall be Model M-200, no substitution."),
+        p("C. Provide four 1.25 percent taps, two above and two below rated voltage."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_basis_of_design_is_not_a_designation():
+    """설계 기준과 지정을 함께 보내도 지정 칸은 비고, 진짜 지정은 그대로다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "Relay: Model R-100 or equal",
+                    "relay",
+                    "Model R-100",
+                    operator="TEXT",
+                    basis_of_design=True,
+                    designated_model="Model R-100",
+                    designated_manufacturer="Model",
+                ),
+                req(
+                    "2.1.B",
+                    "Meter shall be Model M-200, no substitution",
+                    "meter",
+                    designated_model="Model M-200",
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, undesignated = validate_output(raw, basis_section())
+    assert rejected == [] and undesignated == 1
+    assert kept[0].basis_of_design and kept[0].value == "Model R-100"
+    assert (kept[0].designated_model, kept[0].designated_manufacturer) == (None, None)
+    assert designated_item(kept[0]) is None
+    assert not kept[1].basis_of_design and designated_item(kept[1]) is not None
+
+
+@pytest.mark.parametrize(
+    ("key", "canonical", "kept"),
+    [
+        ("tap", "±4x1.25%", True),
+        ("tap", "+2x-3x2.5%", True),
+        ("protection_functions", "LSIG", True),
+        ("protection_functions", "LI", True),
+        ("tap", "±4×1.25%", False),
+        ("tap", "4 taps", False),
+        ("tap", "±4x1.25", False),
+        ("protection_functions", "GILS", False),
+        ("protection_functions", "LSIT", False),
+        ("protection_functions", "", False),
+        ("bil", "±4x1.25%", False),
+        ("OTHER", "LSI", False),
+    ],
+)
+def test_canonical_value_keeps_only_the_fixed_notation(key, canonical, kept):
+    """정해진 표기만 남는다. 어긋나면 지우고 검토로 두며, 원문 value·quote는 그대로다."""
+    quote = "Provide four 1.25 percent taps, two above and two below rated voltage"
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.C",
+                    quote,
+                    "taps",
+                    "four 1.25 percent taps",
+                    operator="TEXT",
+                    attribute_key=key,
+                    canonical_value=canonical,
+                )
+            ]
+        }
+    )
+    result = validate_output(raw, basis_section())[0][0]
+    assert result.canonical_value == (canonical if kept else None)
+    assert result.needs_review is not kept
+    assert (result.value, result.quote) == ("four 1.25 percent taps", quote)
+
+
+def test_the_prompt_and_schema_carry_basis_of_design_and_canonical_value():
+    """지시문 규칙과 응답 스키마 칸. 스키마는 단순 타입이다."""
+    text = prompt(basis_section())
+    assert "basis_of_design: true only when" in text and '"+Nx-MxS%"' in text
+    properties = ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["properties"]
+    assert properties["basis_of_design"]["type"] == "boolean"
+    assert {"basis_of_design", "canonical_value"} <= set(
+        ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["required"]
+    )
+
+
+def designation_section(text):
+    blocks = [p("PART 2 - PRODUCTS"), p("2.1 EQUIPMENT"), p(f"A. {text}")]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+@pytest.mark.parametrize(
+    ("text", "model", "kept"),
+    [
+        ("Provide metal-enclosed switchgear.", "GE", False),
+        ("Transformer shall be rated 750 kVA.", "750", False),
+        ("Transformer shall be rated 7-50 kVA.", "7-50", False),
+        ("Meter shall be AM-20.", "AM-2", False),
+        ("Meter shall be AM-20.", "M-20", False),
+        ("Relay shall be type X.", "X", False),
+        ("Meter shall be AM-20.", "am-20", True),
+        ("Meter shall be (AM-20), factory set.", "AM-20", True),
+        ("Relay shall be GE, factory set.", "GE", True),
+        ("Meter shall be Power Meter 8650.", "Power Meter 8650", True),
+        ("계량기는 AM-20을 쓴다.", "AM-20", True),
+    ],
+)
+def test_a_designated_model_must_be_a_model_shaped_token_of_the_clause(text, model, kept):
+    """부분 문자열·숫자만·한 글자는 지정이 아니다. 요구는 남고 지정 칸만 빈다."""
+    raw = json.dumps({"requirements": [req("2.1.A", text, "item", designated_model=model)]})
+    result, rejected, _, undesignated = validate_output(raw, designation_section(text))
+    assert rejected == [] and len(result) == 1
+    assert result[0].designated_model == (model if kept else None)
+    assert undesignated == (0 if kept else 1)
+
+
+def test_a_designated_manufacturer_must_be_a_token_of_the_clause():
+    """제조사도 같은 토큰 대조다. 모델은 맞으면 남는다."""
+    text = "Switchgear relay shall be R-100."
+    raw = json.dumps(
+        {
+            "requirements": [
+                req("2.1.A", text, "relay", designated_model="R-100", designated_manufacturer="GE")
+            ]
+        }
+    )
+    result = validate_output(raw, designation_section(text))[0][0]
+    assert (result.designated_model, result.designated_manufacturer) == ("R-100", None)

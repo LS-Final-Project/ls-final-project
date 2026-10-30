@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
+from backend.api.tft.rfp.integration import FallbackPath
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -65,7 +66,8 @@ RndCheck = Literal[
     "WAIVED",
 ]
 CustomerPermission = Literal["ALLOWED", "FORBIDDEN", "UNSTATED"]
-QuestionStatus = Literal["OPEN", "REPLIED"]
+# DRAFT: 처리 함수가 만든 초안. 사람이 확인(경로 31)해야 OPEN이 되고, 그 전에는 보낸 질문이 아니다.
+QuestionStatus = Literal["DRAFT", "OPEN", "REPLIED"]
 QuestionIssue = Literal[
     "EMPTY_VALUE",
     "CONFLICT",
@@ -205,6 +207,10 @@ class IntegrationResponsibility(IntegrationSummary):
     required: bool = False
     holder_candidate_codes: list[str] = Field(default_factory=list)
     basis_clause_ids: list[UUID] = Field(default_factory=list)
+    # 사람이 근거 조항을 볼 수 있게 basis_clause_ids와 같은 길이·순서로 조항 번호를 낸다(서버 계산).
+    basis_clause_nos: list[str] = Field(default_factory=list)
+    fallback_paths: list[FallbackPath] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
     note: str | None = None
     set_by: UUID | None = None
     set_at: datetime | None = None
@@ -251,6 +257,44 @@ class RfpProjectDetail(RfpProjectSummary):
 
 
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
+
+
+# 저장 행에서 그대로 옮기는 프로젝트 칸. 집계 칸은 routes_write.project_detail이 채운다.
+PROJECT_COLUMNS = (
+    "id",
+    "version",
+    "data_origin",
+    "derivation_kind",
+    "known_at",
+    "name",
+    "client_name",
+    "company_code",
+    "output_status",
+    "judgement_status",
+    "sales_user_id",
+    "responsible_user_id",
+    "created_at",
+    "strategic_customer",
+    "purpose",
+    "customer_goal",
+    "review_departments",
+    "draft_version",
+    "review_version",
+    "documents_count",
+    "strategic_customer_note",
+    "strategic_customer_set_by",
+)
+
+
+class UploadForm(Model):
+    """경로 6 multipart 폼 칸(routes.UPLOAD_BODY와 같다). 파일은 따로 읽는다."""
+
+    kind: DocumentKind
+    title: str = Field(min_length=1, max_length=300)
+    note: str | None = Field(default=None, max_length=2000)
+    supersedes_document_id: UUID | None = None
+    base_document_id: UUID | None = None
+    data_origin: DataOrigin
 
 
 class DocumentVersion(Provenance):
@@ -359,6 +403,8 @@ class RequirementSpec(Model):
     attribute: str | None
     value: str | None
     unit: str | None
+    # 원문 허용 오차 표기 그대로. null은 '없음'이 아니라 없거나 T15 전 판본(모름)이다.
+    tolerance: str | None = None
     operator: Operator
     conditions: list[Condition]
     standard_system: StandardSystem
@@ -405,6 +451,8 @@ class RequirementSummary(Model):
     path: SupplementPath | None
     open_questions: int
     needs_rereview: bool
+    # 시스템 표시(추출 허용 오차 불일치·목록 밖 키 등). 요구 내용이 아니라 사람이 볼 요구를 가리킨다.
+    needs_review: bool = False
     version: int
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
@@ -423,6 +471,7 @@ class RequirementDetail(Provenance):
     judgement: Judgement
     links: RequirementLinks
     needs_rereview: bool
+    needs_review: bool = False
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------

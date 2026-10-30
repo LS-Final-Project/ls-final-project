@@ -83,7 +83,7 @@ class GraphRunTest(unittest.TestCase):
         self.assertEqual(summary["mode"], "fake")
         self.assertEqual(summary["stage"], "DRAFTED")
         self.assertEqual(summary["next_nodes"], ["human_review"])
-        self.assertEqual(summary["attempt_ids"], ["classification-1", "draft-2"])
+        self.assertEqual(summary["attempt_ids"], ["classification-1", "draft-2", "verification-3"])
         text = out.read_text(encoding="utf-8")
         for secret in ("ZX-PRIVATE", "person@example.test", "Breaker trips"):
             self.assertNotIn(secret, text)
@@ -114,7 +114,7 @@ class GraphRunTest(unittest.TestCase):
             self.assertEqual(self.run_main("--thread-id", "t-a", "--out", str(out))[0], 0)
             summary = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual((summary["retried"], summary["recovered"]), (0, 0))
-            self.assertEqual([a["attempt_number"] for a in summary["attempts"]], [1, 1])
+            self.assertEqual([a["attempt_number"] for a in summary["attempts"]], [1, 1, 1])
             code = self.run_main("--thread-id", "t-b", "--invalid-output-retries", "0")[0]
             self.assertEqual(code, 0)
         self.assertEqual(seen, [1, 0])
@@ -437,10 +437,10 @@ class GraphRunTest(unittest.TestCase):
         )
         self.assertEqual(
             [(a["kind"], a["outcome"]) for a in first["attempts"]],
-            [("classification", "VALID"), ("draft", "VALID")],
+            [("classification", "VALID"), ("draft", "VALID"), ("verification", "VALID")],
         )
-        self.assertEqual(first["usage"]["input_tokens"], 30)
-        self.assertEqual((first["cost_usd"], first["cost_unknown_attempts"]), (None, 2))
+        self.assertEqual(first["usage"]["input_tokens"], 40)
+        self.assertEqual((first["cost_usd"], first["cost_unknown_attempts"]), (None, 3))
         report = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(json.loads(printed), report)
         self.assertEqual(report["tickets"], 3)
@@ -597,9 +597,13 @@ class GraphRunTest(unittest.TestCase):
         report = json.loads(printed)
         self.assertEqual(
             (report["tickets"], report["calls"], report["max_calls_with_retries"]),
-            (3, {"classification": 3, "draft": 3}, 12),
+            (3, {"classification": 3, "draft": 3, "verification": 3}, 21),
         )
         self.assertEqual(report["draft"]["calls"], 3)
+        self.assertEqual(report["max_rewrite_calls"], 3)
+        self.assertEqual(report["max_verification_calls"], 6)
+        self.assertIsNone(report["total_upper_with_retries_usd"])
+        self.assertEqual(report["cost_bound_reason"], "CS_VERIFICATION_INPUT_BOUND_UNKNOWN")
         # 초안 입력 상한은 근거 5건×800자를 넣은 프롬프트다.
         self.assertGreater(report["draft"]["prompt_bytes"], 3 * 5 * 800)
         for args in (

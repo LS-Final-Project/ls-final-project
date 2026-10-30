@@ -19,6 +19,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
 from backend.api.tft.rfp.rnd import DeptKind, RndQuestion, rnd_check_of
+from backend.api.tft.rfp.schemas import UploadForm
 from backend.api.tft.rfp.supplement import RndCheck
 from backend.shared.errors import ApplicationError
 
@@ -28,6 +29,18 @@ QUESTION_COLUMNS = (
     "q.internal_assumption, q.status, q.version, q.target, q.target_dept, q.data_origin, "
     "q.derivation_kind, q.known_at, q.created_by, q.created_at, "
     "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility"
+)
+
+
+# 요구를 다시 봐야 하는지. 해소 안 된 재검토 표시가 있거나, R&D 답변이 최신 보완 선택보다 뒤다.
+NEEDS_REREVIEW = (
+    "EXISTS (SELECT 1 FROM tft.rereview_marks WHERE target_kind = 'requirement' "
+    "AND target_id = {requirement} AND cleared_at IS NULL) "
+    "OR coalesce((SELECT max(r.recorded_at) FROM tft.question_replies r "
+    "JOIN tft.customer_questions q ON q.id = r.question_id WHERE q.requirement_id = {requirement} "
+    "AND q.target = 'INTERNAL' AND q.issue_type = 'RND_FEASIBILITY') "
+    "> (SELECT max(decided_at) FROM tft.supplement_selections "
+    "WHERE requirement_id = {requirement}), false)"
 )
 
 
@@ -58,6 +71,248 @@ async def project_scope(conn: AsyncConnection[Row], project_id: UUID) -> Row | N
     return await cursor.fetchone()
 
 
+async def insert_project(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    sales_user_id: UUID,
+    known_at: datetime,
+    values: Mapping[str, Any],
+) -> None:
+    """접수한 프로젝트를 넣는다. 출처는 웹 입력(PROVIDED)이다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 새 프로젝트 ID.
+        sales_user_id: 담당 sales(접수자).
+        known_at: 입력 시각.
+        values: 코드가 정한 칸 이름 → 값.
+    """
+    columns = ["id", "source", "source_instance", "derivation_kind", "known_at", "sales_user_id"]
+    params = [project_id, "rfp", "web", "PROVIDED", known_at, sales_user_id]
+    columns += values
+    params += values.values()
+    await conn.execute(
+        f"INSERT INTO tft.projects ({', '.join(columns)}) "
+        f"VALUES ({', '.join(['%s'] * len(columns))})",
+        params,
+    )
+
+
+async def update_project(
+    conn: AsyncConnection[Row], project_id: UUID, version: int, values: Mapping[str, Any]
+) -> int:
+    """읽은 판본이 최신일 때만 프로젝트 칸을 바꾸고 판본을 올린다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        version: 요청이 읽은 판본.
+        values: 코드가 정한 칸 이름 → 값.
+
+    Returns:
+        int: 새 판본. 다르면 409 TFT_VERSION_CONFLICT다.
+    """
+    assignments = "".join(f"{column} = %s, " for column in values)
+    cursor = await conn.execute(
+        f"UPDATE tft.projects SET {assignments}version = version + 1, updated_at = now() "
+        "WHERE id = %s AND version = %s RETURNING version",
+        (*values.values(), project_id, version),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise version_conflict()
+    return int(row["version"])
+
+
+async def project_values(
+    conn: AsyncConnection[Row], project_id: UUID, columns: Sequence[str]
+) -> Row:
+    """바꾸기 전 프로젝트 칸을 잠그고 읽는다(감사의 from).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 있는 프로젝트 ID.
+        columns: 코드가 정한 칸 이름.
+
+    Returns:
+        Row: 칸 이름 → 값.
+    """
+    if not columns:
+        return {}
+    cursor = await conn.execute(
+        f"SELECT {', '.join(columns)} FROM tft.projects WHERE id = %s FOR UPDATE", (project_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return row
+
+
+async def insert_assignment(
+    conn: AsyncConnection[Row],
+    *,
+    project: Mapping[str, Any],
+    project_version: int,
+    sales_user_id: UUID | None,
+    responsible_user_id: UUID | None,
+    reason: str,
+    changed_by: UUID,
+) -> UUID:
+    """담당 지정 이력 한 행을 남긴다(이전·신규 두 대상 모두).
+
+    Args:
+        conn: dict_row 연결.
+        project: 지정 전 project_scope 행.
+        project_version: 지정 뒤 프로젝트 판본.
+        sales_user_id: 새 담당 sales.
+        responsible_user_id: 새 책임자.
+        reason: 사유.
+        changed_by: 지정한 manager.
+
+    Returns:
+        UUID: 이력 행 ID.
+    """
+    assignment_id = uuid4()
+    await conn.execute(
+        "INSERT INTO tft.project_assignments (id, project_id, project_version, "
+        "previous_sales_user_id, sales_user_id, previous_responsible_user_id, "
+        "responsible_user_id, reason, changed_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (
+            assignment_id,
+            project["id"],
+            project_version,
+            project["sales_user_id"],
+            sales_user_id,
+            project["responsible_user_id"],
+            responsible_user_id,
+            reason,
+            changed_by,
+        ),
+    )
+    return assignment_id
+
+
+async def project_detail_parts(
+    conn: AsyncConnection[Row], project_id: UUID
+) -> tuple[Row, list[Row], dict[str, int]]:
+    """프로젝트 상세를 만들 행들.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 있는 프로젝트 ID.
+
+    Returns:
+        tuple: (프로젝트 행+documents_count·draft_version, 최신 요구별 status·necessity·unresolved·
+            open_questions·needs_rereview, 승인 대기 제안의 입구별 수).
+    """
+    cursor = await conn.execute(
+        "SELECT p.*, (SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
+        "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
+        "AS draft_version FROM tft.projects p WHERE p.id = %s",
+        (project_id,),
+    )
+    project = await cursor.fetchone()
+    if project is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    rereview = NEEDS_REREVIEW.format(requirement="req.id")
+    cursor = await conn.execute(
+        "SELECT v.status, v.necessity, v.unresolved, "
+        "(SELECT count(*) FROM tft.customer_questions q "
+        "WHERE q.requirement_id = req.id AND q.status = 'OPEN') AS open_questions, "
+        f"({rereview}) AS needs_rereview FROM tft.requirements req "
+        "JOIN tft.requirement_versions v ON v.requirement_id = req.id "
+        "AND v.version = req.latest_version WHERE req.project_id = %s",
+        (project_id,),
+    )
+    requirements = await cursor.fetchall()
+    cursor = await conn.execute(
+        "SELECT origin, count(*) AS n FROM tft.change_proposals "
+        "WHERE project_id = %s AND status = 'PENDING' GROUP BY origin",
+        (project_id,),
+    )
+    pending = {row["origin"]: row["n"] for row in await cursor.fetchall()}
+    return project, requirements, pending
+
+
+async def insert_document_version(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    version_id: UUID,
+    form: UploadForm,
+    mime: str,
+    storage_key: str,
+    sha256: str,
+    size: int,
+    edit_trace_support: bool,
+    actor: UUID,
+) -> UUID:
+    """업로드 판본을 넣는다. 다음 판본이면 문서의 최신 판본 번호를 원자적으로 올린다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        version_id: 새 판본 ID.
+        form: 검증한 폼 칸.
+        mime: 내용으로 판별한 형식.
+        storage_key: 저장 키.
+        sha256: 파일 해시.
+        size: 파일 크기.
+        edit_trace_support: 편집 흔적을 읽을 수 있는 형식인지.
+        actor: 올린 사용자.
+
+    Returns:
+        UUID: 문서 ID.
+    """
+    document_id = form.supersedes_document_id
+    if document_id is None:
+        document_id, version = uuid4(), 1
+        await conn.execute(
+            "INSERT INTO tft.documents (id, project_id, kind, title, note, base_document_id, "
+            "data_origin, derivation_kind, known_at, created_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s)",
+            (
+                document_id,
+                project_id,
+                form.kind,
+                form.title,
+                form.note,
+                form.base_document_id,
+                form.data_origin,
+                actor,
+            ),
+        )
+    else:
+        cursor = await conn.execute(
+            "UPDATE tft.documents SET latest_version = latest_version + 1 WHERE id = %s "
+            "RETURNING latest_version",
+            (document_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise ValueError("TFT_DOCUMENT_MISSING")
+        version = row["latest_version"]
+    await conn.execute(
+        "INSERT INTO tft.document_versions (id, document_id, version, mime, storage_key, sha256, "
+        "size, edit_trace_support, data_origin, derivation_kind, known_at, uploaded_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s)",
+        (
+            version_id,
+            document_id,
+            version,
+            mime,
+            storage_key,
+            sha256,
+            size,
+            edit_trace_support,
+            form.data_origin,
+            actor,
+        ),
+    )
+    return document_id
+
+
 async def department_kinds(conn: AsyncConnection[Row]) -> dict[str, DeptKind]:
     """부서 코드 → 분류(SALES·RND·TECH·PURCHASE·OTHER).
 
@@ -83,10 +338,10 @@ async def latest_requirement_version(
         lock: 참이면 요구 행을 잠근다(같은 요구의 선택·질문 생성을 줄 세운다).
 
     Returns:
-        Row | None: requirement_versions 열과 project_id·latest_version·clause_no. 없으면 None.
+        Row | None: requirement_versions 열과 project_id·latest_version·code·clause_no. 없으면 None.
     """
     cursor = await conn.execute(
-        "SELECT v.*, req.project_id, req.latest_version, c.clause_no "
+        "SELECT v.*, req.project_id, req.latest_version, req.code, c.clause_no "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
         "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
@@ -152,6 +407,81 @@ async def insert_question(
     question = await get_question(conn, question_id)
     assert question is not None
     return question
+
+
+async def insert_question_draft(
+    conn: AsyncConnection[Row],
+    *,
+    project_id: UUID,
+    requirement_id: UUID | None,
+    clause: Mapping[str, Any] | None,
+    issue_type: str,
+    question_text: str,
+    internal_assumption: Mapping[str, Any],
+    draft_key: str,
+    data_origin: str,
+    actor: UUID,
+) -> bool:
+    """처리 함수가 만든 고객 질문 초안을 DRAFT로 넣는다. 같은 draft_key가 있으면 건너뛴다(새 판본 재생성 방지).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        project_id: 프로젝트 ID.
+        requirement_id: 대상 요구(원문으로 하나로 정해질 때만).
+        clause: 원문 조항 행(없으면 None).
+        issue_type: 질문 유형.
+        question_text: 질문 초안 문장.
+        internal_assumption: 회신 전 내부 메모.
+        draft_key: 같은 질문을 가리키는 키(판본과 무관).
+        data_origin: 문서의 data_origin.
+        actor: 작업을 요청한 사용자.
+
+    Returns:
+        bool: 새로 넣었으면 True.
+    """
+    cursor = await conn.execute(
+        "INSERT INTO tft.customer_questions (id, project_id, requirement_id, clause_id, page, "
+        "issue_type, question_text, internal_assumption, status, target, draft_key, data_origin, "
+        "derivation_kind, known_at, created_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'DRAFT','CUSTOMER',%s,%s,'DERIVED',now(),%s) "
+        "ON CONFLICT DO NOTHING",
+        (
+            uuid4(),
+            project_id,
+            requirement_id,
+            clause["id"] if clause else None,
+            clause["page"] if clause else None,
+            issue_type,
+            question_text,
+            Jsonb(dict(internal_assumption)),
+            draft_key,
+            data_origin,
+            actor,
+        ),
+    )
+    return cursor.rowcount == 1
+
+
+async def confirm_question(conn: AsyncConnection[Row], question: Mapping[str, Any]) -> Row:
+    """초안을 사람이 확인해 OPEN으로 바꾼다(경로 31).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        question: 잠근 질문 행.
+
+    Returns:
+        Row: 바뀐 질문(get_question 형식). DRAFT가 아니면 409 TFT_VERSION_CONFLICT다(회신 기록과 같은 규칙).
+    """
+    if question["status"] != "DRAFT":
+        raise version_conflict()
+    await conn.execute(
+        "UPDATE tft.customer_questions SET status = 'OPEN', version = version + 1, "
+        "updated_at = now() WHERE id = %s",
+        (question["id"],),
+    )
+    confirmed = await get_question(conn, question["id"])
+    assert confirmed is not None
+    return confirmed
 
 
 async def get_question(
@@ -345,13 +675,7 @@ async def needs_rereview(conn: AsyncConnection[Row], requirement_id: UUID) -> bo
         bool: 재검토가 필요하면 True.
     """
     cursor = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM tft.rereview_marks WHERE target_kind = 'requirement' "
-        "AND target_id = %s AND cleared_at IS NULL) "
-        "OR coalesce((SELECT max(r.recorded_at) FROM tft.question_replies r "
-        "JOIN tft.customer_questions q ON q.id = r.question_id WHERE q.requirement_id = %s "
-        "AND q.target = 'INTERNAL' AND q.issue_type = 'RND_FEASIBILITY') "
-        "> (SELECT max(decided_at) FROM tft.supplement_selections WHERE requirement_id = %s), false) "
-        "AS needs",
+        f"SELECT {NEEDS_REREVIEW.format(requirement='%s')} AS needs",
         (requirement_id, requirement_id, requirement_id),
     )
     row = await cursor.fetchone()
@@ -437,7 +761,12 @@ async def insert_selection(
 
 
 async def list_change_proposals(
-    conn: AsyncConnection[Row], project_id: UUID, requirement_id: UUID | None = None
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    requirement_id: UUID | None = None,
+    *,
+    status: str | None = None,
+    origin: str | None = None,
 ) -> list[Row]:
     """변경 제안 목록(읽기만, 작성 순).
 
@@ -445,16 +774,238 @@ async def list_change_proposals(
         conn: dict_row 연결.
         project_id: 프로젝트 ID.
         requirement_id: 요구 필터.
+        status: 상태 필터.
+        origin: 입구 필터.
 
     Returns:
         list[Row]: change_proposals 행.
     """
     cursor = await conn.execute(
         "SELECT * FROM tft.change_proposals WHERE project_id = %s "
-        "AND (%s::uuid IS NULL OR requirement_id = %s) ORDER BY known_at, id",
-        (project_id, requirement_id, requirement_id),
+        "AND (%s::uuid IS NULL OR requirement_id = %s) "
+        "AND (%s::text IS NULL OR status = %s) AND (%s::text IS NULL OR origin = %s) "
+        "ORDER BY known_at, id",
+        (project_id, requirement_id, requirement_id, status, status, origin, origin),
     )
     return await cursor.fetchall()
+
+
+async def get_proposal(
+    conn: AsyncConnection[Row], proposal_id: UUID, *, lock: bool = False
+) -> Row | None:
+    """변경 제안 한 건.
+
+    Args:
+        conn: dict_row 연결.
+        proposal_id: 제안 ID.
+        lock: 참이면 결정이 끝날 때까지 행을 잠근다.
+
+    Returns:
+        Row | None: change_proposals 행.
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.change_proposals WHERE id = %s" + (" FOR UPDATE" if lock else ""),
+        (proposal_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def insert_web_proposal(
+    conn: AsyncConnection[Row],
+    requirement: Mapping[str, Any],
+    *,
+    current: Mapping[str, Any],
+    proposed: Mapping[str, Any],
+    rationale: str,
+    evidence_refs: Sequence[str],
+    actor: UUID,
+) -> Row:
+    """사람이 웹에서 쓴 변경 제안(origin web, PENDING).
+
+    Args:
+        conn: 진행 중 트랜잭션.
+        requirement: 요구의 최신 판본(잠근 행).
+        current: 지금 판단 필드.
+        proposed: 바꿀 뒤 판단 필드 전체.
+        rationale: 제안 사유.
+        evidence_refs: 근거 참조.
+        actor: 제안자.
+
+    Returns:
+        Row: change_proposals 행.
+    """
+    cursor = await conn.execute(
+        "INSERT INTO tft.change_proposals (id, project_id, requirement_id, "
+        "base_requirement_version, origin, current, proposed, rationale, evidence_refs, "
+        "proposer_kind, proposer_user_id, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,%s,%s,%s,'web',%s,%s,%s,%s,'user',%s,%s,'PROVIDED',now()) RETURNING *",
+        (
+            uuid4(),
+            requirement["project_id"],
+            requirement["requirement_id"],
+            requirement["version"],
+            Jsonb(dict(current)),
+            Jsonb(dict(proposed)),
+            rationale,
+            Jsonb(list(evidence_refs)),
+            actor,
+            requirement["data_origin"],
+        ),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROPOSAL_MISSING")
+    return row
+
+
+async def decide_proposal(
+    conn: AsyncConnection[Row], proposal_id: UUID, status: str, actor: UUID, note: str | None
+) -> Row:
+    """제안의 결정을 기록하고 판본을 올린다.
+
+    Args:
+        conn: 잠근 제안과 같은 트랜잭션.
+        proposal_id: 제안 ID.
+        status: APPROVED·REJECTED.
+        actor: 결정한 사용자.
+        note: 승인 메모 또는 기각 사유.
+
+    Returns:
+        Row: 결정한 제안.
+    """
+    cursor = await conn.execute(
+        "UPDATE tft.change_proposals SET status = %s, decided_by = %s, decided_at = now(), "
+        "decision_note = %s, version = version + 1 WHERE id = %s RETURNING *",
+        (status, actor, note, proposal_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROPOSAL_MISSING")
+    return row
+
+
+async def insert_approved_version(
+    conn: AsyncConnection[Row],
+    requirement: Mapping[str, Any],
+    proposal: Mapping[str, Any],
+    actor: UUID,
+) -> None:
+    """승인한 제안을 요구의 새 판본(human_input)으로 쓴다. 판단 칸만 바꾸고 나머지 칸은 잇는다.
+
+    칸 목록을 표에서 읽어 마이그레이션이 더한 칸도 빠뜨리지 않는다.
+
+    Args:
+        conn: 요구를 잠근 트랜잭션.
+        requirement: 최신 판본(latest_requirement_version(lock=True)).
+        proposal: 승인할 제안.
+        actor: 승인자.
+    """
+    requirement_id = requirement["requirement_id"]
+    cursor = await conn.execute(
+        "SELECT * FROM tft.requirement_versions WHERE requirement_id = %s AND version = %s",
+        (requirement_id, requirement["version"]),
+    )
+    base = await cursor.fetchone()
+    if base is None:
+        raise ValueError("TFT_REQUIREMENT_MISSING")
+    proposed = proposal["proposed"]
+    changed = {
+        "version": requirement["version"] + 1,
+        "status": proposed["status"],
+        "necessity": proposed["necessity"],
+        "reason": proposed["reason"],
+        "unresolved": Jsonb(proposed["unresolved"]),
+        "provenance_kind": "human_input",
+        "decided_by": actor,
+        "proposal_id": proposal["id"],
+        "derivation_kind": "PROVIDED",
+    }
+    kept = [
+        c for c in base if c not in changed and c not in ("decided_at", "known_at", "created_at")
+    ]
+    await conn.execute(
+        f"INSERT INTO tft.requirement_versions ({', '.join(kept)}, {', '.join(changed)}, "
+        f"decided_at, known_at) SELECT {', '.join(kept)}, "
+        f"{', '.join(['%s'] * len(changed))}, now(), now() FROM tft.requirement_versions "
+        "WHERE requirement_id = %s AND version = %s",
+        (*changed.values(), requirement_id, requirement["version"]),
+    )
+    for ordinal, condition in enumerate(proposed["conditions"]):
+        await conn.execute(
+            "INSERT INTO tft.requirement_conditions (requirement_id, version, ordinal, name, value, "
+            "unit) VALUES (%s,%s,%s,%s,%s,%s)",
+            (
+                requirement_id,
+                changed["version"],
+                ordinal,
+                condition["name"],
+                condition["value"],
+                condition["unit"],
+            ),
+        )
+    await conn.execute(
+        "UPDATE tft.requirements SET latest_version = %s WHERE id = %s",
+        (changed["version"], requirement_id),
+    )
+
+
+async def mark_rereview(
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    requirement_id: UUID,
+    proposal_id: UUID,
+    *,
+    requirement_too: bool,
+) -> None:
+    """승인한 제안의 연결 객체(요구·비교·보완·최신 초안 문장)마다 재검토 표시를 남긴다.
+
+    Args:
+        conn: 승인과 같은 트랜잭션.
+        project_id: 프로젝트 ID.
+        requirement_id: 요구 ID.
+        proposal_id: 원인 제안.
+        requirement_too: 요구 자체에도 표시를 남길지.
+    """
+    await conn.execute(
+        "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, cause_proposal_id) "
+        "SELECT gen_random_uuid(), %(project)s, kind, target, %(proposal)s FROM ("
+        "SELECT 'requirement' AS kind, %(requirement)s::uuid AS target "
+        "WHERE %(requirement_too)s "
+        "UNION SELECT 'comparison', %(requirement)s FROM tft.product_comparisons "
+        "WHERE requirement_id = %(requirement)s "
+        "UNION SELECT 'supplement', %(requirement)s FROM tft.supplement_selections "
+        "WHERE requirement_id = %(requirement)s "
+        "UNION SELECT 'draft_sentence', s.sentence_key FROM tft.draft_sentences s "
+        "JOIN tft.drafts d ON d.project_id = s.project_id AND d.latest_version = s.draft_version "
+        "JOIN tft.draft_sentence_evidence e ON e.sentence_id = s.id "
+        "WHERE s.project_id = %(project)s AND e.evidence_type = 'requirement' "
+        "AND e.evidence_id = %(requirement_text)s) AS linked",
+        {
+            "project": project_id,
+            "proposal": proposal_id,
+            "requirement": requirement_id,
+            "requirement_text": str(requirement_id),
+            "requirement_too": requirement_too,
+        },
+    )
+
+
+async def clear_rereview(conn: AsyncConnection[Row], requirement_id: UUID, actor: UUID) -> None:
+    """보완 선택을 다시 저장한 사람이 요구를 다시 확인한 것으로 보고 표시를 해소한다.
+
+    초안 문장 표시는 문장을 고칠 때의 일이라 여기서 지우지 않는다.
+
+    Args:
+        conn: 보완 선택과 같은 트랜잭션.
+        requirement_id: 요구 ID.
+        actor: 다시 확인한 사용자.
+    """
+    await conn.execute(
+        "UPDATE tft.rereview_marks SET cleared_by = %s, cleared_at = now() "
+        "WHERE target_id = %s AND target_kind IN ('requirement', 'comparison', 'supplement') "
+        "AND cleared_at IS NULL",
+        (actor, requirement_id),
+    )
 
 
 async def requirement_project(conn: AsyncConnection[Row], requirement_id: UUID) -> UUID | None:
@@ -477,7 +1028,7 @@ async def requirement_project(conn: AsyncConnection[Row], requirement_id: UUID) 
 async def stored_options(
     conn: AsyncConnection[Row], requirement_id: UUID, version: int
 ) -> list[Row]:
-    """요구 판본에 저장된 보완 선택지 행(원인·고객 허용·경로별 후보만 쓴다).
+    """요구 판본까지 저장된 가장 최근 보완 선택지 행(승인 판본은 선택지를 새로 만들지 않는다)(원인·고객 허용·경로별 후보만 쓴다).
 
     Args:
         conn: dict_row 연결.
@@ -488,27 +1039,28 @@ async def stored_options(
         list[Row]: supplement_options 행.
     """
     cursor = await conn.execute(
-        "SELECT * FROM tft.supplement_options WHERE requirement_id = %s AND requirement_version = %s "
-        "ORDER BY known_at, id",
-        (requirement_id, version),
+        "SELECT * FROM tft.supplement_options WHERE requirement_id = %s AND requirement_version = "
+        "(SELECT max(requirement_version) FROM tft.supplement_options "
+        "WHERE requirement_id = %s AND requirement_version <= %s) ORDER BY known_at, id",
+        (requirement_id, requirement_id, version),
     )
     return await cursor.fetchall()
 
 
 async def has_customer_question(conn: AsyncConnection[Row], requirement_id: UUID) -> bool:
-    """요구에 고객 질문이 있는지(지정품 대체 제안의 고객 승인 질문으로 본다).
+    """요구에 고객 질문이 있는지(지정품 대체 제안의 고객 승인 질문으로 본다). 초안(DRAFT)은 보낸 질문이 아니다.
 
     Args:
         conn: dict_row 연결.
         requirement_id: 요구 ID.
 
     Returns:
-        bool: CUSTOMER 질문이 하나라도 있으면 True.
+        bool: 확인된 CUSTOMER 질문이 하나라도 있으면 True.
     """
     # ponytail: 승인 질문 ID 열이 없어 고객 질문 유무로 본다. designated_item.approval_question_id가 저장되면 그 값으로.
     cursor = await conn.execute(
         "SELECT EXISTS (SELECT 1 FROM tft.customer_questions WHERE requirement_id = %s "
-        "AND target = 'CUSTOMER') AS found",
+        "AND target = 'CUSTOMER' AND status <> 'DRAFT') AS found",
         (requirement_id,),
     )
     row = await cursor.fetchone()
@@ -664,10 +1216,11 @@ async def all_document_versions(conn: AsyncConnection[Row], project_id: UUID) ->
         project_id: 프로젝트 ID.
 
     Returns:
-        list[Row]: document_versions 열과 kind·latest(최신 판본인지).
+        list[Row]: document_versions 열과 kind·title·latest(최신 판본인지).
     """
     cursor = await conn.execute(
-        "SELECT dv.*, d.kind, dv.version = d.latest_version AS latest FROM tft.document_versions dv "
+        "SELECT dv.*, d.kind, d.title, dv.version = d.latest_version AS latest "
+        "FROM tft.document_versions dv "
         "JOIN tft.documents d ON d.id = dv.document_id WHERE d.project_id = %s ORDER BY dv.id",
         (project_id,),
     )
@@ -773,7 +1326,8 @@ async def insert_requirement(
         document_version: 원문 문서 판본 행.
         clause: 원문 조항 행(없으면 None).
         spec: quote·equipment·task·attribute·value·unit·operator·standard_system·necessity·designated_model·
-            designated_manufacturer·conditions(name·value·unit 목록).
+            designated_manufacturer·assembly_clause·tolerance·needs_review·attribute_key·
+            equipment_family·conditions(name·value·unit 목록).
         judgement: status·reason·unresolved·next_owner.
 
     Returns:
@@ -781,6 +1335,7 @@ async def insert_requirement(
     """
     requirement_id = uuid4()
     origin = document_version["data_origin"]
+    designated = spec["designated_model"] is not None
     await conn.execute(
         "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, known_at) "
         "VALUES (%s,%s,%s,%s,'DERIVED',now())",
@@ -789,9 +1344,12 @@ async def insert_requirement(
     await conn.execute(
         "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
         "clause_id, page, quote, equipment, task, attribute, value, unit, operator, standard_system, "
-        "necessity, designated_model, designated_manufacturer, status, reason, unresolved, "
+        "necessity, designated_model, designated_manufacturer, designated_clause_id, "
+        "designated_procurement, assembly_clause, tolerance, "
+        "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
         "next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        "'ai_draft',%s,'DERIVED',now())",
         (
             requirement_id,
             document_version["id"],
@@ -808,6 +1366,14 @@ async def insert_requirement(
             spec["necessity"],
             spec["designated_model"],
             spec["designated_manufacturer"],
+            # 지정품 상세는 지정 모델이 있을 때만 둔다(표 CHECK). 조달 방식의 시작값은 명세 기본이다.
+            clause["id"] if clause and designated else None,
+            "SPECIFIED_PROCUREMENT" if designated else None,
+            spec["assembly_clause"],
+            spec["tolerance"],
+            spec["needs_review"],
+            spec["attribute_key"],
+            spec["equipment_family"],
             judgement["status"],
             judgement["reason"],
             Jsonb(list(judgement["unresolved"])),
@@ -969,3 +1535,322 @@ async def insert_grade(
             data_origin,
         ),
     )
+
+
+# --- 읽기 경로(KAN-188, 경로 7~10·12~14·17) ------------------------------------------------
+
+
+async def document_project(conn: AsyncConnection[Row], document_id: UUID) -> UUID | None:
+    """문서가 속한 프로젝트.
+
+    Args:
+        conn: dict_row 연결.
+        document_id: 문서 ID.
+
+    Returns:
+        UUID | None: 프로젝트 ID. 문서가 없으면 None.
+    """
+    cursor = await conn.execute(
+        "SELECT project_id FROM tft.documents WHERE id = %s", (document_id,)
+    )
+    row = await cursor.fetchone()
+    return row["project_id"] if row else None
+
+
+async def list_document_versions(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """프로젝트의 문서 판본 전부(문서 순, 같은 문서는 새 판본 먼저).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: document_versions 열과 kind·title·base_document_id.
+    """
+    cursor = await conn.execute(
+        "SELECT dv.*, d.kind, d.title, d.base_document_id FROM tft.document_versions dv "
+        "JOIN tft.documents d ON d.id = dv.document_id WHERE d.project_id = %s "
+        "ORDER BY d.created_at, d.id, dv.version DESC",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def latest_document_version(conn: AsyncConnection[Row], document_id: UUID) -> Row | None:
+    """문서의 최신 판본과 조항·삭제 값 수.
+
+    Args:
+        conn: dict_row 연결.
+        document_id: 문서 ID.
+
+    Returns:
+        Row | None: document_versions 열과 kind·title·base_document_id·clauses_count·deleted_values_count.
+    """
+    cursor = await conn.execute(
+        "SELECT dv.*, d.kind, d.title, d.base_document_id, "
+        "(SELECT count(*) FROM tft.clauses c WHERE c.document_version_id = dv.id) AS clauses_count, "
+        "(SELECT count(*) FROM tft.clause_deleted_values cd JOIN tft.clauses c ON c.id = cd.clause_id "
+        "WHERE c.document_version_id = dv.id) AS deleted_values_count "
+        "FROM tft.documents d JOIN tft.document_versions dv "
+        "ON dv.document_id = d.id AND dv.version = d.latest_version WHERE d.id = %s",
+        (document_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def list_clauses(
+    conn: AsyncConnection[Row],
+    document_version_id: UUID,
+    *,
+    parent: UUID | None,
+    after: int | None,
+    limit: int,
+) -> list[Row]:
+    """조항을 문서 순서(ordinal)로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
+
+    Args:
+        conn: dict_row 연결.
+        document_version_id: 문서 판본 ID.
+        parent: 이 조항의 바로 아래만. None이면 전체 조항이다.
+        after: 이 ordinal 다음부터.
+        limit: 쪽 크기.
+
+    Returns:
+        list[Row]: clauses 열과 deleted_values·flags·requirement_ids.
+    """
+    cursor = await conn.execute(
+        "SELECT c.*, "
+        "(SELECT coalesce(jsonb_agg(jsonb_build_object('text', d.text, 'position', d.position) "
+        "ORDER BY d.ordinal), '[]'::jsonb) FROM tft.clause_deleted_values d "
+        "WHERE d.clause_id = c.id) AS deleted_values, "
+        "ARRAY(SELECT f.flag FROM tft.clause_flags f WHERE f.clause_id = c.id ORDER BY f.flag) "
+        "AS flags, "
+        "ARRAY(SELECT req.id FROM tft.requirements req JOIN tft.requirement_versions v "
+        "ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "WHERE v.clause_id = c.id ORDER BY req.code) AS requirement_ids "
+        "FROM tft.clauses c WHERE c.document_version_id = %s "
+        "AND (%s::uuid IS NULL OR c.parent_clause_id = %s) AND (%s::int IS NULL OR c.ordinal > %s) "
+        "ORDER BY c.ordinal LIMIT %s",
+        (document_version_id, parent, parent, after, after, limit + 1),
+    )
+    return await cursor.fetchall()
+
+
+async def clause_ids_by_no(
+    conn: AsyncConnection[Row], document_version_id: UUID
+) -> dict[str, UUID]:
+    """판본의 조항 번호 → 조항 ID(교차 참조 연결용).
+
+    Args:
+        conn: dict_row 연결.
+        document_version_id: 문서 판본 ID.
+
+    Returns:
+        dict[str, UUID]: 번호별 조항 ID.
+    """
+    cursor = await conn.execute(
+        "SELECT clause_no, id FROM tft.clauses WHERE document_version_id = %s",
+        (document_version_id,),
+    )
+    return {row["clause_no"]: row["id"] for row in await cursor.fetchall()}
+
+
+async def list_requirements(
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    *,
+    filters: Mapping[str, Any],
+    after: str | None,
+    limit: int,
+) -> list[Row]:
+    """최신 요구 판본을 코드 순으로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
+
+    필터는 쪽이 어긋나지 않게 모두 SQL에서 건다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        filters: document_version_id·equipment·task·necessity·status·needs_rereview·has_open_question.
+            None인 키는 조건이 아니다.
+        after: 이 코드 다음부터.
+        limit: 쪽 크기.
+
+    Returns:
+        list[Row]: 요구 요약 칸과 open_questions·needs_rereview.
+    """
+    rereview = NEEDS_REREVIEW.format(requirement="req.id")
+    open_questions = (
+        "(SELECT count(*) FROM tft.customer_questions q "
+        "WHERE q.requirement_id = req.id AND q.status = 'OPEN')"
+    )
+    where = ["req.project_id = %s"]
+    params: list[Any] = [project_id]
+    for column in ("document_version_id", "equipment", "task", "necessity", "status"):
+        if filters.get(column) is not None:
+            where.append(f"v.{column} = %s")
+            params.append(filters[column])
+    if filters.get("needs_rereview") is not None:
+        where.append(f"({rereview}) = %s")
+        params.append(filters["needs_rereview"])
+    if filters.get("has_open_question") is not None:
+        where.append(f"({open_questions} > 0) = %s")
+        params.append(filters["has_open_question"])
+    if after is not None:
+        where.append("req.code > %s")
+        params.append(after)
+    cursor = await conn.execute(
+        "SELECT req.id AS requirement_id, req.code, v.equipment, v.task, v.attribute, v.value, v.unit, "
+        "v.necessity, v.status, v.path, v.version, v.designated_model, v.needs_review, "
+        f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview "
+        "FROM tft.requirements req JOIN tft.requirement_versions v "
+        "ON v.requirement_id = req.id AND v.version = req.latest_version "
+        f"WHERE {' AND '.join(where)} ORDER BY req.code LIMIT %s",
+        (*params, limit + 1),
+    )
+    return await cursor.fetchall()
+
+
+async def requirement_detail_parts(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any]
+) -> dict[str, Any]:
+    """요구 상세의 조건·원문 삭제 값·연결 ID를 읽는다.
+
+    Args:
+        conn: dict_row 연결.
+        requirement: latest_requirement_version 행.
+
+    Returns:
+        dict: conditions·deleted_values·edit_trace_support·question_ids·pending_proposal_ids·
+            partner_candidate_ids·draft_sentence_ids·comparison_results·selected_path.
+    """
+    requirement_id = requirement["requirement_id"]
+
+    async def rows(sql: str, *params: Any) -> list[Row]:
+        cursor = await conn.execute(sql, params)
+        return await cursor.fetchall()
+
+    conditions = await rows(
+        "SELECT name, value, unit FROM tft.requirement_conditions "
+        "WHERE requirement_id = %s AND version = %s ORDER BY ordinal",
+        requirement_id,
+        requirement["version"],
+    )
+    deleted = await rows(
+        "SELECT text, position FROM tft.clause_deleted_values WHERE clause_id = %s ORDER BY ordinal",
+        requirement["clause_id"],
+    )
+    trace = await rows(
+        "SELECT edit_trace_support FROM tft.document_versions WHERE id = %s",
+        requirement["document_version_id"],
+    )
+    questions = await rows(
+        "SELECT id FROM tft.customer_questions WHERE requirement_id = %s ORDER BY created_at, id",
+        requirement_id,
+    )
+    proposals = await rows(
+        "SELECT id FROM tft.change_proposals WHERE requirement_id = %s AND status = 'PENDING' "
+        "ORDER BY id",
+        requirement_id,
+    )
+    partners = await rows(
+        "SELECT DISTINCT candidate_code FROM tft.partner_grades WHERE requirement_id = %s "
+        "ORDER BY candidate_code",
+        requirement_id,
+    )
+    sentences = await rows(
+        "SELECT DISTINCT sentence_id FROM tft.draft_sentence_evidence "
+        "WHERE evidence_type = 'requirement' AND evidence_id = %s ORDER BY sentence_id",
+        str(requirement_id),
+    )
+    selection = await latest_selection(conn, requirement_id)
+    return {
+        "conditions": conditions,
+        "deleted_values": deleted,
+        "edit_trace_support": trace[0]["edit_trace_support"],
+        "question_ids": [r["id"] for r in questions],
+        "pending_proposal_ids": [r["id"] for r in proposals],
+        "partner_candidate_ids": [r["candidate_code"] for r in partners],
+        "draft_sentence_ids": [r["sentence_id"] for r in sentences],
+        "comparison_results": [r["result"] for r in await latest_comparisons(conn, requirement_id)],
+        "selected_path": selection["path"] if selection else None,
+    }
+
+
+async def latest_comparisons(conn: AsyncConnection[Row], requirement_id: UUID) -> list[Row]:
+    """비교가 저장된 가장 최근 요구 판본의 후보별 최신 비교. 처리 함수는 판본 1에만 비교를 쓴다.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+
+    Returns:
+        list[Row]: product_comparisons 행(제품 코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (p.product_code, p.variant) p.* FROM tft.product_comparisons p "
+        "WHERE p.requirement_id = %s AND p.requirement_version = (SELECT max(requirement_version) "
+        "FROM tft.product_comparisons WHERE requirement_id = %s) "
+        "ORDER BY p.product_code, p.variant, p.version DESC",
+        (requirement_id, requirement_id),
+    )
+    return await cursor.fetchall()
+
+
+async def comparison_evidence(
+    conn: AsyncConnection[Row], comparison_ids: Sequence[UUID]
+) -> list[Row]:
+    """비교의 제품 쪽 근거.
+
+    Args:
+        conn: dict_row 연결.
+        comparison_ids: product_comparisons ID.
+
+    Returns:
+        list[Row]: comparison_evidence 행(비교·순번 순).
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.comparison_evidence WHERE comparison_id = ANY(%s) "
+        "ORDER BY comparison_id, ordinal",
+        (list(comparison_ids),),
+    )
+    return await cursor.fetchall()
+
+
+async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """후보×요구마다 저장된 최신 등급. 대상은 저장된 등급 행이 정한다(특정 요구 상태에 묶지 않는다).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: partner_grades 행(후보 코드·요구 순).
+    """
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (candidate_code, requirement_id) * FROM tft.partner_grades "
+        "WHERE project_id = %s "
+        "ORDER BY candidate_code, requirement_id, profile_version DESC, requirement_version DESC, "
+        "version DESC",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def profiles_of(
+    conn: AsyncConnection[Row], keys: Sequence[tuple[str, int]]
+) -> dict[tuple[str, int], Row]:
+    """등급이 가리키는 프로필 판본.
+
+    Args:
+        conn: dict_row 연결.
+        keys: (후보 코드, 프로필 판본).
+
+    Returns:
+        dict: (후보 코드, 프로필 판본) → partner_profiles 행.
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.partner_profiles WHERE candidate_code = ANY(%s)",
+        (sorted({code for code, _ in keys}),),
+    )
+    rows = await cursor.fetchall()
+    return {(r["candidate_code"], r["profile_version"]): r for r in rows}

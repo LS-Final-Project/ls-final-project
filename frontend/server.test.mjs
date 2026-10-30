@@ -172,7 +172,7 @@ test('business allowlist rejects unknown paths, query injection, methods, format
   await fixture(async origin => {
     for (const path of ['/api/v1/cs/tickets?target=https://evil.invalid', '/api/v1/cs/tickets?limit=1&limit=2', '/api/v1/tft/projects?cursor=' + 'x'.repeat(201)]) assert.equal((await fetch(origin + path)).status, 400);
     for (const path of ['/api/v1/tft/projects/unknown', '/api/v1/tft/projects/00000000-0000-0000-0000-000000000001/staffing-requests', '/api/v1/platform/dev/accounts']) assert.equal((await fetch(origin + path)).status, 404);
-    assert.equal((await fetch(origin + '/api/v1/tft/projects', { method: 'POST' })).status, 405);
+    assert.equal((await fetch(origin + '/api/v1/tft/projects', { method: 'DELETE' })).status, 405);
     assert.equal((await fetch(origin + '/api/v1/cs/tickets', { method: 'HEAD' })).status, 405);
     assert.equal((await fetch(origin + '/api/v1/cs/tickets', { method: 'POST', body: '{}' })).status, 415);
     assert.equal((await fetch(origin + '/api/v1/cs/tickets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(1024 * 1024 + 1) })).status, 413);
@@ -234,6 +234,22 @@ test('evaluation read relay defaults closed and allows only GET with bounded cur
     for (const path of ['/api/v1/platform/jobs/not-uuid/events', jobUrl + '/cancel', '/api/v1/platform/evaluations/experiments/extra', '/api/v1/platform/evaluations/run']) assert.equal((await fetch(origin + path)).status, 404);
   }, fetcher, false, true);
   assert.equal(calls, 0);
+});
+
+test('business relay opens only the job status paths of the read relay (RFP status_url)', async () => {
+  const urls = [];
+  await fixture(async origin => {
+    for (const suffix of ['', '/events']) assert.equal((await fetch(origin + jobUrl + suffix)).status, 200);
+    // 평가 읽기·제어는 자기 스위치가 없으면 닫혀 있다.
+    assert.equal((await fetch(origin + '/api/v1/platform/evaluations/policy')).status, 404);
+    assert.equal((await fetch(origin + jobUrl, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(origin + '/api/v1/platform/jobs/not-uuid')).status, 404);
+  }, async url => {
+    urls.push(String(url));
+    const type = String(url).endsWith('/events') ? 'text/event-stream' : 'application/json';
+    return new Response(type === 'application/json' ? '{}' : ': ok\n\n', { headers: { 'Content-Type': type } });
+  }, true);
+  assert.deepEqual(urls.map(url => new URL(url).pathname), [jobUrl, jobUrl + '/events']);
 });
 
 test('evaluation status and error relay preserve status/ETag and discard browser/upstream credentials', async () => {
@@ -646,6 +662,53 @@ test('web business relay forwards or rejects each shared case before reaching th
   }, async (url, options) => { calls.push([String(url), options.method]); return Response.json({ data: {} }); }, true);
 });
 
+
+const fileUrl = '/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/file';
+const uploadUrl = '/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/documents';
+
+test('web relay passes a document only on the download path, as an attachment', async () => {
+  await fixture(async origin => {
+    const done = await fetch(origin + fileUrl);
+    assert.equal(done.status, 200);
+    assert.equal(done.headers.get('content-type'), 'application/pdf');
+    assert.equal(done.headers.get('content-disposition'), 'attachment');
+    assert.equal(done.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(done.headers.get('cache-control'), 'no-store');
+    assert.equal((await done.arrayBuffer()).byteLength, 9 * 1024 * 1024);
+    assert.equal((await fetch(origin + fileUrl.replace('/file', ''))).status, 502);
+  }, async () => new Response(new Uint8Array(9 * 1024 * 1024), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline' } }), true);
+  await fixture(async origin => {
+    const refused = await fetch(origin + fileUrl);
+    assert.equal(refused.status, 502);
+    assert.ok(!(await refused.text()).includes('<html>'));
+  }, async () => new Response('<html>', { headers: { 'Content-Type': 'text/html' } }), true);
+  await fixture(async origin => {
+    assert.equal((await fetch(origin + fileUrl)).status, 502);
+  }, async () => new Response(new Uint8Array(26 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'application/pdf' } }), true);
+  await fixture(async origin => {
+    const refused = await fetch(origin + fileUrl);
+    assert.equal(refused.status, 404);
+    assert.equal(refused.headers.get('content-disposition'), null);
+  }, async () => Response.json({ error: { code: 'TFT_DOCUMENT_NOT_FOUND' } }, { status: 404 }), true);
+});
+
+test('web relay takes multipart only on the upload path, up to the file limit', async () => {
+  const calls = [];
+  const post = (origin, path, type, body) => fetch(origin + path, { method: 'POST', headers: { 'Content-Type': type }, body });
+  await fixture(async origin => {
+    const multipart = 'multipart/form-data; boundary=synthetic';
+    const body = new Uint8Array(2 * 1024 * 1024);
+    assert.equal((await post(origin, uploadUrl, multipart, body)).status, 201);
+    assert.equal(calls.at(-1).headers['Content-Type'], multipart);
+    assert.equal(calls.at(-1).body.length, body.length);
+    const before = calls.length;
+    assert.equal((await post(origin, uploadUrl, 'application/json', '{}')).status, 415);
+    assert.equal((await post(origin, '/api/v1/tft/projects', multipart, 'x')).status, 415);
+    assert.equal((await post(origin, '/api/v1/tft/projects', 'application/json', body)).status, 413);
+    assert.equal((await post(origin, uploadUrl, multipart, new Uint8Array(26 * 1024 * 1024 + 1))).status, 413);
+    assert.equal(calls.length, before);
+  }, async (url, options) => { calls.push(options); return Response.json({ data: {} }, { status: 201 }); }, true);
+});
 
 test('assignee lookup forwards only the cs_agent selector and session', async () => {
   const calls = [];

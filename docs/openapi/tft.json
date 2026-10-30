@@ -1142,6 +1142,39 @@
         "title": "ExportRequest",
         "type": "object"
       },
+      "FallbackPath": {
+        "additionalProperties": false,
+        "properties": {
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OWN",
+                  "SINGLE_PARTNER",
+                  "JOINT",
+                  "UNRESOLVED"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "HOLD",
+                "type": "string"
+              }
+            ],
+            "title": "Holder"
+          }
+        },
+        "required": [
+          "holder",
+          "condition"
+        ],
+        "title": "FallbackPath",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1189,6 +1222,20 @@
               "type": "string"
             },
             "title": "Basis Clause Ids",
+            "type": "array"
+          },
+          "basis_clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Basis Clause Nos",
+            "type": "array"
+          },
+          "fallback_paths": {
+            "items": {
+              "$ref": "#/components/schemas/FallbackPath"
+            },
+            "title": "Fallback Paths",
             "type": "array"
           },
           "holder": {
@@ -1248,6 +1295,13 @@
               }
             ],
             "title": "Set By"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unresolved",
+            "type": "array"
           }
         },
         "title": "IntegrationResponsibility",
@@ -2075,6 +2129,17 @@
             "title": "Id",
             "type": "string"
           },
+          "integration_responsibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationResponsibility"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when the RFP migrations are not applied yet, which is not the same as not required."
+          },
           "known_at": {
             "format": "date-time",
             "title": "Known At",
@@ -2849,6 +2914,7 @@
           },
           "status": {
             "enum": [
+              "DRAFT",
               "OPEN",
               "REPLIED"
             ],
@@ -3202,6 +3268,7 @@
           },
           "status": {
             "enum": [
+              "DRAFT",
               "OPEN",
               "REPLIED"
             ],
@@ -3376,6 +3443,11 @@
           },
           "needs_rereview": {
             "title": "Needs Rereview",
+            "type": "boolean"
+          },
+          "needs_review": {
+            "default": false,
+            "title": "Needs Review",
             "type": "boolean"
           },
           "origin": {
@@ -3674,6 +3746,17 @@
             ],
             "title": "Task"
           },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
           "undetermined_items": {
             "items": {
               "type": "string"
@@ -3766,6 +3849,11 @@
           },
           "needs_rereview": {
             "title": "Needs Rereview",
+            "type": "boolean"
+          },
+          "needs_review": {
+            "default": false,
+            "title": "Needs Review",
             "type": "boolean"
           },
           "open_questions": {
@@ -5333,7 +5421,7 @@
   "paths": {
     "/api/v1/tft/documents/{document_id}": {
       "get": {
-        "description": "8. \ud310\ubcf8\u00b7\ud3b8\uc9d1 \ud754\uc801 \uc9c0\uc6d0 \uc5ec\ubd80\u00b7\uc870\ud56d \uc218\u00b7\uc0ad\uc81c \uac12 \uc218.",
+        "description": "8. \ucd5c\uc2e0 \ud310\ubcf8\u00b7\ud3b8\uc9d1 \ud754\uc801 \uc9c0\uc6d0 \uc5ec\ubd80\u00b7\uc870\ud56d \uc218\u00b7\uc0ad\uc81c \uac12 \uc218.",
         "operationId": "tft_get_rfp_document",
         "parameters": [
           {
@@ -5422,14 +5510,12 @@
         "summary": "Get Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/documents/{document_id}/clauses": {
       "get": {
-        "description": "9. \uc870\ud56d \ud2b8\ub9ac. \ucde8\uc18c\uc120 \uac12\uc740 deleted_values\ub85c\ub9cc \ub0b8\ub2e4.",
+        "description": "9. \uc870\ud56d \ud2b8\ub9ac(\ubb38\uc11c \uc21c\uc11c). parent\uac00 \uc5c6\uc73c\uba74 \uc804\uccb4\ub2e4. \ucde8\uc18c\uc120 \uac12\uc740 deleted_values\ub85c\ub9cc \ub0b8\ub2e4.",
         "operationId": "tft_list_rfp_clauses",
         "parameters": [
           {
@@ -5563,9 +5649,7 @@
         "summary": "List Clauses",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/documents/{document_id}/file": {
@@ -5650,14 +5734,22 @@
               }
             },
             "description": "Declared in KAN-182, not implemented yet"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_DOCUMENT_UNAVAILABLE"
           }
         },
         "summary": "Download Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/health": {
@@ -5805,7 +5897,7 @@
         "x-implementation-status": "partial"
       },
       "post": {
-        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4.",
+        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4. latest_job\uc740 \uc4f0\uae30 \uc751\ub2f5\uc5d0\uc11c \ud56d\uc0c1 null\uc774\ub2e4.",
         "operationId": "tft_create_rfp_project",
         "parameters": [
           {
@@ -5905,9 +5997,7 @@
         "summary": "Create Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}": {
@@ -6093,9 +6183,7 @@
         "summary": "Update Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/annotations/process": {
@@ -6314,9 +6402,7 @@
         "summary": "Assign Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/documents": {
@@ -6410,12 +6496,10 @@
         "summary": "List Documents",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       },
       "post": {
-        "description": "6. DOCX\u00b7PDF 25 MiB \uc774\ud558(multipart). \uc5c5\ub85c\ub4dc\ub9cc\uc73c\ub85c\ub294 \ud30c\uc2f1\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\ubcf8\ubb38 \ud615\uc2dd\uc740 OpenAPI\uc5d0 \uc9c1\uc811 \uc801\uc5c8\ub2e4. \uad6c\ud604(KAN-188) \ub54c multipart \ud30c\uc11c\ub97c \ubd99\uc778\ub2e4.",
+        "description": "6. DOCX\u00b7PDF 25 MiB \uc774\ud558(multipart). \uc5c5\ub85c\ub4dc\ub9cc\uc73c\ub85c\ub294 \ud30c\uc2f1\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\ubcf8\ubb38 \ud615\uc2dd\uc740 OpenAPI\uc5d0 \uc9c1\uc811 \uc801\uc5c8\ub2e4. \ud615\uc2dd\uc740 \ub0b4\uc6a9\uc73c\ub85c \ud310\ubcc4\ud55c\ub2e4.",
         "operationId": "tft_upload_rfp_document",
         "parameters": [
           {
@@ -6548,6 +6632,16 @@
             },
             "description": "TFT_VERSION_CONFLICT and similar"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_DOCUMENT_TOO_LARGE"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6572,9 +6666,7 @@
         "summary": "Upload Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/draft": {
@@ -7238,9 +7330,7 @@
         "summary": "List Partner Candidates",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/process": {
@@ -7508,9 +7598,7 @@
         "summary": "List Proposals",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       },
       "post": {
         "description": "22. \uc6f9 \uc218\uc815 \uc81c\uc548(web).",
@@ -7623,9 +7711,7 @@
         "summary": "Create Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/questions": {
@@ -7651,6 +7737,7 @@
               "anyOf": [
                 {
                   "enum": [
+                    "DRAFT",
                     "OPEN",
                     "REPLIED"
                   ],
@@ -7910,6 +7997,121 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/questions/{question_id}/confirm": {
+      "post": {
+        "description": "31. \uc9c8\ubb38 \ucd08\uc548 \ud655\uc778. DRAFT\ub9cc OPEN\uc73c\ub85c \ubc14\uafbc\ub2e4(\uadf8 \uc804\uc5d0\ub294 \ubcf4\ub0b8 \uc9c8\ubb38\uc774 \uc544\ub2c8\ub2e4).",
+        "operationId": "tft_confirm_rfp_question",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Question_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Confirm Question",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/requirements": {
       "get": {
         "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 7\uac1c.",
@@ -8154,9 +8356,7 @@
         "summary": "List Requirements",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/proposals/{proposal_id}/approve": {
@@ -8271,9 +8471,7 @@
         "summary": "Approve Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/proposals/{proposal_id}/reject": {
@@ -8388,9 +8586,7 @@
         "summary": "Reject Proposal",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-189"
+        ]
       }
     },
     "/api/v1/tft/questions/{question_id}/reply": {
@@ -8630,9 +8826,7 @@
         "summary": "Get Requirement",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/requirements/{requirement_id}/comparison": {
@@ -8726,9 +8920,7 @@
         "summary": "Get Comparison",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/requirements/{requirement_id}/supplement-options": {
