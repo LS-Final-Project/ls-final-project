@@ -12,7 +12,8 @@
 """
 
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -38,6 +39,12 @@ class Requirement(Strict):
     clause_no: str
     task: str | None = None
     assembly_clause: bool = False
+
+
+class StoredRequirement(Requirement):
+    """저장된 최신 요구 판본. 근거 조항을 화면에서 열 수 있게 조항 ID를 함께 둔다."""
+
+    clause_id: UUID
 
 
 class FallbackPath(Strict):
@@ -70,6 +77,11 @@ FALLBACKS = (
 )
 
 
+def _is_basis(requirement: Requirement) -> bool:
+    """요구가 조립품 공급의 근거인지(사람·추출이 표시한 조항이거나 조립품 과업)."""
+    return requirement.assembly_clause or requirement.task in ASSEMBLY_TASKS
+
+
 def integration_responsibility(
     requirements: Sequence[Requirement], holder: Holder = "UNRESOLVED"
 ) -> IntegrationResponsibility:
@@ -82,9 +94,7 @@ def integration_responsibility(
     Returns:
         IntegrationResponsibility: 필요 여부와 근거 조항, 필수 확인 항목, 처리 경로, 초안 전제 문장, 저장 차단 여부.
     """
-    basis = sorted(
-        {r.clause_no for r in requirements if r.assembly_clause or (r.task in ASSEMBLY_TASKS)}
-    )
+    basis = sorted({r.clause_no for r in requirements if _is_basis(r)})
     required = bool(basis)
     if not required:
         return IntegrationResponsibility(
@@ -110,3 +120,30 @@ def integration_responsibility(
         ),
         review_save_blocked=unresolved,
     )
+
+
+def project_integration(
+    requirements: Sequence[StoredRequirement], holder: Holder
+) -> dict[str, Any]:
+    """저장된 요구로 프로젝트 응답의 서버 계산 칸을 만든다. 값은 저장하지 않고 읽을 때 계산한다(명세 v1.3 §7).
+
+    Args:
+        requirements: 프로젝트의 최신 요구 판본 전부.
+        holder: 사람이 정한 통합 책임자.
+
+    Returns:
+        dict: required·basis_clause_ids·basis_clause_nos·fallback_paths·unresolved. 두 근거 목록은 같은 길이·순서로
+            조항 하나씩 대응한다(조항 번호 순). 문서가 달라 번호가 같은 조항은 근거인 조항만 내고, 둘 다 근거면 둘 다 낸다.
+    """
+    result = integration_responsibility(requirements, holder)
+    basis = sorted(
+        {(r.clause_no, r.clause_id) for r in requirements if _is_basis(r)},
+        key=lambda item: (item[0], str(item[1])),
+    )
+    return {
+        "required": result.required,
+        "basis_clause_ids": [clause_id for _, clause_id in basis],
+        "basis_clause_nos": [clause_no for clause_no, _ in basis],
+        "fallback_paths": result.fallback_paths,
+        "unresolved": result.unresolved,
+    }

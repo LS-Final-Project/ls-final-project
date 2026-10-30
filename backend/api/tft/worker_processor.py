@@ -562,6 +562,7 @@ async def store_requirements(
                 "necessity",
                 "designated_model",
                 "designated_manufacturer",
+                "assembly_clause",
                 "conditions",
             }
         )

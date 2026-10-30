@@ -197,7 +197,12 @@ def run_document(
                 unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
             )
     run.integration = integration.integration_responsibility(
-        [integration.Requirement(clause_no=r.clause_no, task=r.task) for r in extracted]
+        [
+            integration.Requirement(
+                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+            )
+            for r in extracted
+        ]
     ).model_dump()
     return run
 

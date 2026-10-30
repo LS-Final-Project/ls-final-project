@@ -1142,6 +1142,39 @@
         "title": "ExportRequest",
         "type": "object"
       },
+      "FallbackPath": {
+        "additionalProperties": false,
+        "properties": {
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OWN",
+                  "SINGLE_PARTNER",
+                  "JOINT",
+                  "UNRESOLVED"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "HOLD",
+                "type": "string"
+              }
+            ],
+            "title": "Holder"
+          }
+        },
+        "required": [
+          "holder",
+          "condition"
+        ],
+        "title": "FallbackPath",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1189,6 +1222,20 @@
               "type": "string"
             },
             "title": "Basis Clause Ids",
+            "type": "array"
+          },
+          "basis_clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Basis Clause Nos",
+            "type": "array"
+          },
+          "fallback_paths": {
+            "items": {
+              "$ref": "#/components/schemas/FallbackPath"
+            },
+            "title": "Fallback Paths",
             "type": "array"
           },
           "holder": {
@@ -1248,6 +1295,13 @@
               }
             ],
             "title": "Set By"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unresolved",
+            "type": "array"
           }
         },
         "title": "IntegrationResponsibility",
@@ -2074,6 +2128,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "integration_responsibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationResponsibility"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when the RFP migrations are not applied yet, which is not the same as not required."
           },
           "known_at": {
             "format": "date-time",

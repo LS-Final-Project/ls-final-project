@@ -5,6 +5,7 @@
 
 # ruff: noqa: F811
 
+import asyncio
 import hashlib
 import json
 from datetime import date
@@ -14,10 +15,13 @@ from uuid import uuid4
 import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
+from psycopg.rows import dict_row
 from pydantic import SecretStr
 
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.partners.loader import load_profiles
+from backend.api.tft.projects.repository import integration_state
+from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.worker_processor import make_processor, sections_of
 from backend.engine.documents.router import extract
@@ -464,3 +468,45 @@ def test_a_requirement_level_review_reaches_the_job_summary(
 
     summary, _ = run(worker_dsn, make_project(admin, tmp_path, spec), OneRequirement())
     assert summary["needs_review"] is review
+
+
+def test_an_assembly_clause_is_stored_and_read_back_for_the_project(worker_dsn, admin, tmp_path):
+    """KAN-199: 추출 assembly_clause를 판본에 저장하고, 프로젝트 읽기 질의가 근거 조항을 돌려준다(읽을 때 계산)."""
+    quote = "The unit shall be supplied as one assembly."
+    spec = f"# SECTION 26 12 19\n\nPART 2 - PRODUCTS\n\n2.1 UNIT\n\nA. {quote}\n".encode()
+    wanted = {
+        **REQUIREMENTS[0],
+        "quote": quote,
+        "attribute": "assembly",
+        "attribute_key": "OTHER",
+        "value": None,
+        "unit": None,
+        "operator": "TEXT",
+        "assembly_clause": True,
+    }
+
+    class OneRequirement(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text=json.dumps({"requirements": [wanted]}),
+                usage=Usage(),
+                model_version="fake",
+                finish_reasons=[],
+            )
+
+    project = make_project(admin, tmp_path, spec)
+    run(worker_dsn, project, OneRequirement())
+
+    async def read():
+        # 운영 API 역할(tft_app)의 실제 권한으로 읽는다.
+        async with await psycopg.AsyncConnection.connect(
+            make_conninfo(admin, user="tft_app", password="test-only"), row_factory=dict_row
+        ) as conn:
+            return await integration_state(conn, project["project"])
+
+    holder, rows = asyncio.run(read())
+    assert holder["integration_holder"] == "UNRESOLVED"
+    assert [(r["clause_no"], r["assembly_clause"]) for r in rows] == [("2.1.A", True)]
+    result = project_integration([StoredRequirement.model_validate(r) for r in rows], "UNRESOLVED")
+    assert result["required"] is True and result["basis_clause_ids"] == [rows[0]["clause_id"]]

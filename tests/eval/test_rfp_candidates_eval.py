@@ -130,6 +130,31 @@ def test_the_evaluation_compares_inside_the_family_like_the_processor():
     assert [(r.clause_no, r.status) for r in run.predicted][0] == ("2.6.A", "SPEC_GAP")
 
 
+def test_an_assembly_clause_reaches_the_integration_measure():
+    """조항 표시(assembly_clause)도 통합 책임 측정의 근거다(운영 읽기 계산과 같은 입력, KAN-199)."""
+
+    def marked(text):
+        return gen(
+            [
+                req(
+                    "2.6.A",
+                    QUOTE_A,
+                    "rated_max_voltage",
+                    "38",
+                    "kV",
+                    operator="GTE",
+                    attribute_key="rated_max_voltage",
+                    equipment_family="MV_EQUIP",
+                    assembly_clause=True,
+                ),
+                req("2.6.B", QUOTE_B, "factory test", operator="TEXT", task="FACTORY_TEST"),
+            ]
+        )
+
+    run = run_document(tree(), GOLD.documents[0], marked, OWN, PROFILES, date(2026, 11, 20))
+    assert run.integration["basis_clause_nos"] == ["2.6.A", "2.6.B"]
+
+
 def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
     run = run_document(tree(), GOLD.documents[0], provider, OWN, PROFILES, date(2026, 11, 20))
     assert run.section_outcomes == {"2.6": "VALID"}
