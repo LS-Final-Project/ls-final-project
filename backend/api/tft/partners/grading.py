@@ -14,7 +14,12 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
-from backend.engine.rfp.vocabulary import is_placeholder
+from backend.engine.rfp.vocabulary import (
+    CANONICAL_FORMS,
+    is_canonical,
+    is_placeholder,
+    read_canonical,
+)
 
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
 Verdict = Literal["passed", "failed", "unknown"]
@@ -48,6 +53,8 @@ class Requirement(BaseModel):
     necessity: Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
     designated_model: str | None = None
     clause_no: str | None = None
+    # 문장형 값의 비교용 표기(추출 canonical_value). 있으면 value 대신 이것으로 견준다.
+    canonical_value: str | None = None
 
 
 class RfpContext(BaseModel):
@@ -290,7 +297,7 @@ def _head(requirement: Requirement) -> str:
     Returns:
         str: '원문 2.4 short_time_withstand_current 요구 38 kA 이상'.
     """
-    wanted = _with_unit(requirement.value, requirement.unit)
+    wanted = requirement.canonical_value or _with_unit(requirement.value, requirement.unit)
     wanted = {"GTE": f"{wanted} 이상", "LTE": f"{wanted} 이하", "TEXT": f"'{wanted}'"}.get(
         requirement.operator, wanted
     )
@@ -316,6 +323,34 @@ def _unit_key(unit: str | None) -> str:
     return "s" if key.casefold() in SECONDS else key
 
 
+def _canonical_verdict(attribute: str, wanted: str, value: str) -> tuple[Verdict, str]:
+    """비교용 표기로 견준다. 탭은 위·아래 단 수와 간격이 모두 같아야 하고, 보호 기능은 요구가 자사의 부분집합이면 된다.
+
+    Args:
+        attribute: 속성 어휘.
+        wanted: 요구의 비교용 표기.
+        value: 사양 근거의 값.
+
+    Returns:
+        tuple[Verdict, str]: 결과와 판정 말.
+    """
+    got = read_canonical(attribute, value)
+    if got is None or not is_canonical(attribute, wanted):
+        return "unknown", "값을 비교 표기로 읽을 수 없어 확인 필요"
+    if attribute == "tap":
+        return ("passed", "충족") if _tap(wanted) == _tap(got) else ("failed", "탭 구성 다름")
+    missing = "".join(c for c in wanted if c not in got)
+    return ("failed", f"보호 기능 없음: {missing}") if missing else ("passed", "충족")
+
+
+def _tap(canonical: str) -> tuple[int, int, Decimal]:
+    """탭 표기를 (위 단 수, 아래 단 수, 간격)으로 나눈다. is_canonical을 통과한 값만 받는다."""
+    match = CANONICAL_FORMS["tap"].fullmatch(canonical)
+    assert match is not None
+    both, up, down, step = match.groups()
+    return int(both or up), int(both or down), Decimal(step)
+
+
 def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, str]:
     """같은 속성의 후보 값 하나를 요구와 비교한다.
 
@@ -331,6 +366,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     """
     if is_placeholder(requirement.value):
         return "unknown", "요구값 미정(자리표시자), 판정 제외"
+    if requirement.canonical_value:
+        return _canonical_verdict(requirement.attribute, requirement.canonical_value, fact.value)
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
         if _unit_key(requirement.unit) != _unit_key(fact.unit):
