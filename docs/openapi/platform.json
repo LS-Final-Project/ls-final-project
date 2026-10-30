@@ -2218,6 +2218,91 @@
         "title": "ManifestSource",
         "type": "object"
       },
+      "Notification": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "cs.review_wait",
+              "cs.safety",
+              "cs.reply",
+              "mail.unknown",
+              "cs.transfer",
+              "rfp.done",
+              "rfp.failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "link_path": {
+            "title": "Link Path",
+            "type": "string"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "link_path",
+          "created_at",
+          "read_at"
+        ],
+        "title": "Notification",
+        "type": "object"
+      },
+      "NotificationList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "required": [
+          "items",
+          "next_offset"
+        ],
+        "title": "NotificationList",
+        "type": "object"
+      },
       "OutcomeQuality": {
         "additionalProperties": false,
         "description": "\ubd84\ub958 \ucd5c\ucd08 \uc2dc\ub3c4 \uacb0\uacfc\ub85c \uc800\uc7a5\ud55c \ud615\uc2dd \uc704\ubc18\uc728\u00b7\uacb0\uacfc\ubcc4 \uac74\uc218(KAN-148 2\ucc28). \uc815\ub2f5\uc774 \ud544\uc694 \uc5c6\uace0 \ud569\uaca9 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.",
@@ -3254,6 +3339,22 @@
         "title": "SuccessResponse[MailboxConnections]",
         "type": "object"
       },
+      "SuccessResponse_NotificationList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[NotificationList]",
+        "type": "object"
+      },
       "SuccessResponse_ReadinessData_": {
         "properties": {
           "data": {
@@ -3364,6 +3465,22 @@
           "meta"
         ],
         "title": "SuccessResponse[SentCopyCheck]",
+        "type": "object"
+      },
+      "SuccessResponse_UnreadCount_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnreadCount"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnreadCount]",
         "type": "object"
       },
       "SummaryCost": {
@@ -4003,6 +4120,19 @@
           "total"
         ],
         "title": "TokenTotal",
+        "type": "object"
+      },
+      "UnreadCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "UnreadCount",
         "type": "object"
       },
       "ValidationError": {
@@ -6782,6 +6912,210 @@
         "summary": "Me",
         "tags": [
           "identity"
+        ]
+      }
+    },
+    "/api/v1/platform/notifications": {
+      "get": {
+        "operationId": "platform_list_my_notifications",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NotificationList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/notifications/unread-count": {
+      "get": {
+        "operationId": "platform_count_my_unread_notifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnreadCount_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Count Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/notifications/{intent_id}/read": {
+      "post": {
+        "operationId": "platform_read_my_notification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Notification",
+        "tags": [
+          "notifications"
         ]
       }
     },

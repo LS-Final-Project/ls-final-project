@@ -18,6 +18,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from backend.shared.errors import ApplicationError
+from backend.shared.notifications import enqueue_notification_sync
 from backend.shared.settings import Settings
 
 
@@ -227,6 +228,7 @@ def finish(
     state: str,
     payload: dict[str, Any],
     failure_code: str | None = None,
+    notification_kind: Literal["cs.review_wait", "cs.safety"] | None = None,
 ) -> None:
     """작업 상태를 확정하고 소유권을 놓는다.
 
@@ -250,6 +252,44 @@ def finish(
         conn.execute("UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, lease.job_id))
         kind = "job.failed" if state == "FAILED" else "job.completed"
         append(conn, lease.job_id, kind, {"state": state, **payload})
+        if lease.kind == "rfp.process" and state in {"SUCCEEDED", "FAILED"}:
+            responsible = conn.execute(
+                "SELECT responsible_user_id FROM tft.projects WHERE id=%s", (lease.subject_id,)
+            ).fetchone()
+            audience = [{"user": lease.actor_id}]
+            if responsible and responsible["responsible_user_id"]:
+                audience.append({"user": responsible["responsible_user_id"]})
+            event_kind = "rfp.done" if state == "SUCCEEDED" else "rfp.failed"
+            enqueue_notification_sync(
+                conn,
+                kind=event_kind,
+                subject_id=lease.subject_id,
+                audience=audience,
+                actor_id=None,
+                dedupe_key=f"{event_kind}:{lease.job_id}",
+                needs_review=state == "SUCCEEDED" and payload.get("needs_review") is True,
+            )
+        elif lease.kind == "cs.analyze" and state == "SUCCEEDED" and notification_kind:
+            owner = conn.execute(
+                "SELECT owner_user_id FROM cs.ticket_workflows WHERE ticket_id=%s",
+                (lease.subject_id,),
+            ).fetchone()
+            cs_audience: list[dict[str, Any]] = []
+            if owner and owner["owner_user_id"]:
+                cs_audience.append({"user": owner["owner_user_id"]})
+            if notification_kind == "cs.safety":
+                cs_audience.extend([{"role": "cs_agent"}, {"manager_dept": "GCS_L1"}])
+            elif not cs_audience:
+                cs_audience.append({"role": "cs_agent"})
+            key_id = lease.subject_id if notification_kind == "cs.safety" else lease.job_id
+            enqueue_notification_sync(
+                conn,
+                kind=notification_kind,
+                subject_id=lease.subject_id,
+                audience=cs_audience,
+                actor_id=lease.actor_id,
+                dedupe_key=f"{notification_kind}:{key_id}",
+            )
 
 
 def fail(settings: Settings, lease: Lease, code: str) -> None:

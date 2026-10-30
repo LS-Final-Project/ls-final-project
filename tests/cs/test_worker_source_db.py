@@ -211,6 +211,15 @@ def test_a_priced_attempt_stores_its_cost_and_price_version(worker_dsn, ticket):
     assert row == ("v3", 13, Decimal("0.750000"), "gemini-3.6-flash@2026-10-28")
 
 
+def test_worker_can_read_only_notification_owner_columns(worker_dsn):
+    with psycopg.connect(worker_dsn) as conn:
+        conn.execute("SELECT ticket_id, owner_user_id FROM cs.ticket_workflows LIMIT 1")
+    for column in ("state", "version", "updated_at"):
+        with psycopg.connect(worker_dsn) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(f"SELECT {column} FROM cs.ticket_workflows LIMIT 1")
+
+
 @pytest.mark.parametrize("table", ["ticket_analyses", "ticket_drafts"])
 def test_cost_without_a_price_version_is_refused(admin, ticket, table):
     seq = "run_seq" if table == "ticket_analyses" else "seq"

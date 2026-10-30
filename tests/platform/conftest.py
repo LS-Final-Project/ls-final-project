@@ -19,6 +19,8 @@ from backend.api.platform.jobs.cs import CsJobRequest, admit_cs_job
 from backend.api.platform.jobs.tft import TftJobRequest, admit_tft_job
 from backend.shared.database import connection
 from backend.shared.settings import Settings
+from tests.cs.conftest import cs_database  # noqa: F401
+from tests.tft.conftest import tft_database  # noqa: F401
 
 
 @pytest.fixture(scope="session")
@@ -134,7 +136,7 @@ def registered_user(auth_database):
 
 
 @pytest.fixture(scope="session")
-def jobs_database(auth_database):
+def jobs_database(auth_database, request):
     """기존 전용 인증 검사 DB에 작업 접수 마이그레이션을 적용한다.
 
     Args:
@@ -143,6 +145,8 @@ def jobs_database(auth_database):
     Returns:
         str: 관리자 연결 문자열.
     """
+    request.getfixturevalue("cs_database")
+    request.getfixturevalue("tft_database")
     with psycopg.connect(auth_database, autocommit=True) as conn:
         if conn.execute("SELECT to_regclass('runtime.jobs')").fetchone()[0] is None:
             migration = Path(
@@ -175,6 +179,8 @@ def jobs_database(auth_database):
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
         # KAN-199 tft_worker 역할. job_control이 필요하므로 cs 마이그레이션 뒤에 적용한다.
         migration = Path("infra/migrations/platform/20261031_KAN-199_tft_worker.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path("infra/migrations/platform/20261101_KAN-201_notifications.sql").read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 

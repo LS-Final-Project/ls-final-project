@@ -141,3 +141,5 @@
   batch dry-run은 정상 경로 3회, 형식 재시도 및 재작성·재검증 포함 논리 호출 최대 7회/문의
   (분류2+초안2+재작성1+검증2)로 안내한다. 비활성은 기존 최대4회다. 검증·피드백 입력 크기 상한은 아직
   증명하지 않아 활성 시 총비용 상한은 null(`CS_VERIFICATION_INPUT_BOUND_UNKNOWN`)이다.
+
+`cs_graph_run`의 `calls.verification`은 재작성·재검증 없는 정상 경로 기준이며, 최대 호출 수는 `max_calls_with_retries`로 확인한다.
