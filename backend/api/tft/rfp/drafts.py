@@ -5,12 +5,11 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
-from psycopg.types.json import Jsonb
 
 from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.projects.routes import integration_body
+from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import draft_repository as db
-from backend.api.tft.rfp import repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import question_out
 from backend.api.tft.rfp.routes_read import comparison_of, detail_of, partner_candidate
@@ -100,33 +99,16 @@ async def generate(
         questions=[question_out(q) for q in await repository.list_questions(conn, project_id)],
     )
     await db.save(conn, result, actor=actor, source_job_id=job_id)
-    await audit(
+    await commands.audit(
         conn,
-        project_id,
-        actor,
-        "draft",
-        str(result.version),
-        "draft.generate",
-        {"job_id": str(job_id)},
+        project_id=project_id,
+        actor=actor,
+        entity="draft",
+        entity_id=result.version,
+        action="draft.generate",
+        detail={"job_id": str(job_id)},
     )
     return result
-
-
-async def audit(
-    conn: AsyncConnection[Row],
-    project_id: UUID,
-    actor: UUID,
-    entity: str,
-    entity_id: str,
-    action: str,
-    detail: Row,
-) -> None:
-    """업무 쓰기와 같은 트랜잭션에 행위·대상·사유를 기록한다."""
-    await conn.execute(
-        "INSERT INTO tft.rfp_audit_events (id,project_id,entity,entity_id,action,actor_user_id,detail) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (uuid4(), project_id, entity, entity_id, action, actor, Jsonb(detail)),
-    )
 
 
 def edit(

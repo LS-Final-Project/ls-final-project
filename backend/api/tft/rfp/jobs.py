@@ -206,7 +206,19 @@ async def admit(
                         digest=digest,
                         project_id=project_id,
                         status_code=202,
-                        result={**accepted.model_dump(mode="json"), "input_version": frozen},
+                        result={
+                            **accepted.model_dump(mode="json"),
+                            "input_version": frozen,
+                            **(
+                                {
+                                    "export_id": str(
+                                        draft_exports.export_id(project_id, principal.user_id, key)
+                                    )
+                                }
+                                if isinstance(payload, s.ExportRequest)
+                                else {}
+                            ),
+                        },
                     )
             except UniqueViolation:
                 # 같은 키가 동시에 접수됐다. 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 그대로 둔다.

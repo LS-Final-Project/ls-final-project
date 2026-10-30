@@ -57,14 +57,14 @@ async def edit_draft(
             current, payload, await drafts.valid_references(conn, project_id)
         )
         await db.save(conn, result, actor=principal.user_id, reasons=reasons)
-        await drafts.audit(
+        await commands.audit(
             conn,
-            project_id,
-            principal.user_id,
-            "draft",
-            str(result.version),
-            "draft.edit",
-            {
+            project_id=project_id,
+            actor=principal.user_id,
+            entity="draft",
+            entity_id=result.version,
+            action="draft.edit",
+            detail={
                 "previous_version": current.version,
                 "reasons": {str(k): v for k, v in reasons.items()},
             },
@@ -161,15 +161,6 @@ async def save_review(
             await conn.execute(
                 "UPDATE tft.projects SET review_version=%s,output_status='REVIEW_DRAFT',judgement_status=%s,version=version+1 WHERE id=%s",
                 (review_version, judgement, project_id),
-            )
-            await drafts.audit(
-                conn,
-                project_id,
-                principal.user_id,
-                "review_version",
-                str(review_version),
-                "review_version.create",
-                {"draft_version": current.version, "note": payload.note},
             )
             return s.ReviewVersion(
                 project_id=project_id,

@@ -72,7 +72,14 @@ def test_docx_rejects_invalid_xml_characters_instead_of_losing_content(snapshot,
 def test_pdf_is_rejected_before_reservation_connection_or_platform_call(entry):
     payload = s.ExportRequest(review_version=1, format="PDF")
     user = Principal(user_id=UUID(int=1), roles=frozenset({"sales"}))
-    with patch.object(jobs, "connection", side_effect=AssertionError("must not open a connection")):
+    with (
+        patch.object(jobs, "connection", side_effect=AssertionError("must not open a connection")),
+        patch.object(
+            jobs.commands, "replay", side_effect=AssertionError("must not touch commands")
+        ),
+        patch.object(jobs.commands, "audit", side_effect=AssertionError("must not audit PDF")),
+        patch.object(draft_exports, "reserve", side_effect=AssertionError("must not reserve PDF")),
+    ):
         with pytest.raises(ApplicationError) as caught:
             if entry == "route":
                 asyncio.run(routes_draft.export(None, user, UUID(int=2), payload, "export-pdf-key"))
@@ -158,3 +165,42 @@ def test_stale_edit_has_no_mutation(snapshot):
     with pytest.raises(ApplicationError) as caught:
         drafts.edit(current, payload, set())
     assert caught.value.code == "TFT_VERSION_CONFLICT" and current == before
+
+
+@pytest.mark.parametrize(
+    ("operation", "result", "entity", "target"),
+    [
+        ("review_version.create", {"review_version": 3, "draft_version": 2}, "review_version", 3),
+        (
+            "export.create",
+            {"export_id": str(UUID(int=9)), "job_id": str(UUID(int=8)), "status": "QUEUED"},
+            "export",
+            str(UUID(int=9)),
+        ),
+    ],
+)
+def test_command_receipt_audits_review_or_export_resource(operation, result, entity, target):
+    """새 공통 감사 매핑이 job ID 대신 실제 검토본/내보내기를 기록한다(merge 회귀)."""
+    from unittest.mock import AsyncMock
+
+    from backend.api.tft.rfp import commands
+
+    conn = AsyncMock()
+    actor, project_id = UUID(int=1), UUID(int=2)
+    with patch.object(commands, "audit", new_callable=AsyncMock) as record:
+        asyncio.run(
+            commands.remember(
+                conn,
+                actor=actor,
+                operation=operation,
+                key="receipt-key",
+                digest="0" * 64,
+                project_id=project_id,
+                status_code=202 if operation == "export.create" else 201,
+                result=result,
+            )
+        )
+    record.assert_awaited_once()
+    assert record.call_args.kwargs["entity"] == entity
+    assert record.call_args.kwargs["entity_id"] == target
+    assert record.call_args.kwargs["actor"] == actor

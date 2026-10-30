@@ -22,6 +22,7 @@ from backend.engine.rfp.draft import DISCLAIMER
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
+from tests.tft.test_worker_processor_db import worker_dsn  # noqa: F401
 
 OWNER = Principal(user_id=SALES, roles=frozenset({"sales"}))
 OUTSIDER = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
@@ -31,6 +32,7 @@ REVIEWER = Principal(user_id=uuid4(), roles=frozenset({"dept_staff"}), dept="TS_
 @pytest.fixture
 def client(app_dsn, monkeypatch, tmp_path):
     monkeypatch.setenv("TFT_DOCUMENT_ROOT", str(tmp_path))
+    monkeypatch.setenv("TFT_DOCUMENT_BUCKET", "")
     with TestClient(
         create_app(Settings(_env_file=None, environment="test", database_url=app_dsn))
     ) as result:
@@ -174,21 +176,42 @@ class Jobs:
     def __init__(self):
         self.calls = []
         self.id = uuid4()
+        self.before_response = None
 
     async def post(self, path, body):
         self.calls.append((path, body))
+        if self.before_response is not None:
+            await self.before_response(body)
         return {
             "job_id": str(self.id),
-            "status": "QUEUED",
+            "status": "SUCCEEDED" if self.before_response is not None else "QUEUED",
             "status_url": f"/api/v1/platform/jobs/{self.id}",
         }
 
 
-def test_export_id_replay_docx_file_scope_and_integrity(client, app_dsn, chain, admin, tmp_path):
+@pytest.mark.parametrize("finish_before_receipt", [False, True])
+def test_export_id_replay_docx_file_scope_and_integrity(
+    client, app_dsn, chain, admin, tmp_path, worker_dsn, finish_before_receipt
+):
     ready(app_dsn, admin, chain)
     saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "review-for-export")
     assert saved.status_code == 201, saved.text
     jobs = Jobs()
+    store = LocalDocumentStore(tmp_path)
+
+    async def early(body):
+        early_job = TftJob(
+            job_id=jobs.id,
+            kind="rfp.export",
+            project_id=chain["project"],
+            input_version=body["input_version"],
+            actor_id=SALES,
+        )
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
+            await draft_exports.process(conn, early_job, lambda event: None, store)
+
+    if finish_before_receipt:
+        jobs.before_response = early
     client.app.state.processing_jobs = jobs
     payload = {"review_version": 1, "format": "DOCX"}
     received = call(client, "POST", chain, "/exports", payload, "export-stable-key")
@@ -196,8 +219,11 @@ def test_export_id_replay_docx_file_scope_and_integrity(client, app_dsn, chain, 
     data = received.json()["data"]
     repeat = call(client, "POST", chain, "/exports", payload, "export-stable-key")
     assert repeat.json()["data"]["export_id"] == data["export_id"]
+    assert data["status"] == ("SUCCEEDED" if finish_before_receipt else "QUEUED")
     file_path = f"/exports/{data['export_id']}/file"
-    assert call(client, "GET", chain, file_path).status_code == 409
+    assert call(client, "GET", chain, file_path).status_code == (
+        200 if finish_before_receipt else 409
+    )
     job = TftJob(
         job_id=jobs.id,
         kind="rfp.export",
@@ -208,7 +234,7 @@ def test_export_id_replay_docx_file_scope_and_integrity(client, app_dsn, chain, 
     store = LocalDocumentStore(tmp_path)
 
     async def execute():
-        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
             return await draft_exports.process(conn, job, lambda event: None, store)
 
     asyncio.run(execute())
@@ -231,6 +257,18 @@ def test_export_id_replay_docx_file_scope_and_integrity(client, app_dsn, chain, 
     with psycopg.connect(admin, row_factory=dict_row) as conn:
         row = conn.execute("SELECT * FROM tft.exports WHERE id=%s", (data["export_id"],)).fetchone()
         assert row["sha256"] == hashlib.sha256(response.content).hexdigest()
+        receipt = conn.execute(
+            "SELECT result FROM tft.rfp_commands WHERE project_id=%s AND operation='export.create'",
+            (chain["project"],),
+        ).fetchone()["result"]
+        assert receipt["export_id"] == data["export_id"]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.rfp_audit_events WHERE project_id=%s AND action='export.create' AND entity_id=%s",
+                (chain["project"], data["export_id"]),
+            ).fetchone()["count"]
+            == 1
+        )
         assert row["size"] == len(response.content) and row["completed_at"]
         assert (
             conn.execute(

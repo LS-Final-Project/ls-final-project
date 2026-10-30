@@ -13,7 +13,7 @@ from psycopg import AsyncConnection
 from backend.agent.processor_registry import Emit, TftJob
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
-from backend.api.tft.rfp.drafts import audit
+from backend.api.tft.rfp.commands import audit
 from backend.api.tft.rfp.storage import DocumentStore, DocumentUnavailable, read_document
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.shared.errors import ApplicationError
@@ -86,12 +86,12 @@ async def reserve(
     )
     await audit(
         conn,
-        project_id,
-        actor,
-        "export",
-        str(id),
-        "export.reserve",
-        {"review_version": payload.review_version, "format": payload.format},
+        project_id=project_id,
+        actor=actor,
+        entity="export",
+        entity_id=id,
+        action="export.reserve",
+        detail={"review_version": payload.review_version, "format": payload.format},
     )
     return id
 
@@ -204,11 +204,11 @@ async def process(
     )
     await audit(
         conn,
-        job.project_id,
-        job.actor_id,
-        "export",
-        str(row["id"]),
-        "export.complete",
-        {"job_id": str(job.job_id), "sha256": digest, "size": len(data)},
+        project_id=job.project_id,
+        actor=job.actor_id,
+        entity="export",
+        entity_id=row["id"],
+        action="export.complete",
+        detail={"job_id": str(job.job_id), "sha256": digest, "size": len(data)},
     )
     return {"counts": {"requirements": 0, "proposals": 0}, "needs_review": False}
