@@ -3445,6 +3445,11 @@
             "title": "Needs Rereview",
             "type": "boolean"
           },
+          "needs_review": {
+            "default": false,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
           "origin": {
             "$ref": "#/components/schemas/RequirementOrigin"
           },
@@ -3741,6 +3746,17 @@
             ],
             "title": "Task"
           },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
           "undetermined_items": {
             "items": {
               "type": "string"
@@ -3833,6 +3849,11 @@
           },
           "needs_rereview": {
             "title": "Needs Rereview",
+            "type": "boolean"
+          },
+          "needs_review": {
+            "default": false,
+            "title": "Needs Review",
             "type": "boolean"
           },
           "open_questions": {
@@ -5400,7 +5421,7 @@
   "paths": {
     "/api/v1/tft/documents/{document_id}": {
       "get": {
-        "description": "8. \ud310\ubcf8\u00b7\ud3b8\uc9d1 \ud754\uc801 \uc9c0\uc6d0 \uc5ec\ubd80\u00b7\uc870\ud56d \uc218\u00b7\uc0ad\uc81c \uac12 \uc218.",
+        "description": "8. \ucd5c\uc2e0 \ud310\ubcf8\u00b7\ud3b8\uc9d1 \ud754\uc801 \uc9c0\uc6d0 \uc5ec\ubd80\u00b7\uc870\ud56d \uc218\u00b7\uc0ad\uc81c \uac12 \uc218.",
         "operationId": "tft_get_rfp_document",
         "parameters": [
           {
@@ -5489,14 +5510,12 @@
         "summary": "Get Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/documents/{document_id}/clauses": {
       "get": {
-        "description": "9. \uc870\ud56d \ud2b8\ub9ac. \ucde8\uc18c\uc120 \uac12\uc740 deleted_values\ub85c\ub9cc \ub0b8\ub2e4.",
+        "description": "9. \uc870\ud56d \ud2b8\ub9ac(\ubb38\uc11c \uc21c\uc11c). parent\uac00 \uc5c6\uc73c\uba74 \uc804\uccb4\ub2e4. \ucde8\uc18c\uc120 \uac12\uc740 deleted_values\ub85c\ub9cc \ub0b8\ub2e4.",
         "operationId": "tft_list_rfp_clauses",
         "parameters": [
           {
@@ -5630,9 +5649,7 @@
         "summary": "List Clauses",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/documents/{document_id}/file": {
@@ -5717,14 +5734,22 @@
               }
             },
             "description": "Declared in KAN-182, not implemented yet"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_DOCUMENT_UNAVAILABLE"
           }
         },
         "summary": "Download Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/health": {
@@ -6477,9 +6502,7 @@
         "summary": "List Documents",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       },
       "post": {
         "description": "6. DOCX\u00b7PDF 25 MiB \uc774\ud558(multipart). \uc5c5\ub85c\ub4dc\ub9cc\uc73c\ub85c\ub294 \ud30c\uc2f1\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\ubcf8\ubb38 \ud615\uc2dd\uc740 OpenAPI\uc5d0 \uc9c1\uc811 \uc801\uc5c8\ub2e4. \uad6c\ud604(KAN-188) \ub54c multipart \ud30c\uc11c\ub97c \ubd99\uc778\ub2e4.",
@@ -7305,9 +7328,7 @@
         "summary": "List Partner Candidates",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/process": {
@@ -8337,9 +8358,7 @@
         "summary": "List Requirements",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/proposals/{proposal_id}/approve": {
@@ -8813,9 +8832,7 @@
         "summary": "Get Requirement",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/requirements/{requirement_id}/comparison": {
@@ -8909,9 +8926,7 @@
         "summary": "Get Comparison",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/requirements/{requirement_id}/supplement-options": {

@@ -31,6 +31,18 @@ QUESTION_COLUMNS = (
 )
 
 
+# 요구를 다시 봐야 하는지. 해소 안 된 재검토 표시가 있거나, R&D 답변이 최신 보완 선택보다 뒤다.
+NEEDS_REREVIEW = (
+    "EXISTS (SELECT 1 FROM tft.rereview_marks WHERE target_kind = 'requirement' "
+    "AND target_id = {requirement} AND cleared_at IS NULL) "
+    "OR coalesce((SELECT max(r.recorded_at) FROM tft.question_replies r "
+    "JOIN tft.customer_questions q ON q.id = r.question_id WHERE q.requirement_id = {requirement} "
+    "AND q.target = 'INTERNAL' AND q.issue_type = 'RND_FEASIBILITY') "
+    "> (SELECT max(decided_at) FROM tft.supplement_selections "
+    "WHERE requirement_id = {requirement}), false)"
+)
+
+
 def version_conflict() -> ApplicationError:
     """읽은 판본이 최신과 다를 때의 오류.
 
@@ -83,10 +95,10 @@ async def latest_requirement_version(
         lock: 참이면 요구 행을 잠근다(같은 요구의 선택·질문 생성을 줄 세운다).
 
     Returns:
-        Row | None: requirement_versions 열과 project_id·latest_version·clause_no. 없으면 None.
+        Row | None: requirement_versions 열과 project_id·latest_version·code·clause_no. 없으면 None.
     """
     cursor = await conn.execute(
-        "SELECT v.*, req.project_id, req.latest_version, c.clause_no "
+        "SELECT v.*, req.project_id, req.latest_version, req.code, c.clause_no "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
         "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
@@ -420,13 +432,7 @@ async def needs_rereview(conn: AsyncConnection[Row], requirement_id: UUID) -> bo
         bool: 재검토가 필요하면 True.
     """
     cursor = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM tft.rereview_marks WHERE target_kind = 'requirement' "
-        "AND target_id = %s AND cleared_at IS NULL) "
-        "OR coalesce((SELECT max(r.recorded_at) FROM tft.question_replies r "
-        "JOIN tft.customer_questions q ON q.id = r.question_id WHERE q.requirement_id = %s "
-        "AND q.target = 'INTERNAL' AND q.issue_type = 'RND_FEASIBILITY') "
-        "> (SELECT max(decided_at) FROM tft.supplement_selections WHERE requirement_id = %s), false) "
-        "AS needs",
+        f"SELECT {NEEDS_REREVIEW.format(requirement='%s')} AS needs",
         (requirement_id, requirement_id, requirement_id),
     )
     row = await cursor.fetchone()
@@ -1052,3 +1058,322 @@ async def insert_grade(
             data_origin,
         ),
     )
+
+
+# --- 읽기 경로(KAN-188, 경로 7~10·12~14·17) ------------------------------------------------
+
+
+async def document_project(conn: AsyncConnection[Row], document_id: UUID) -> UUID | None:
+    """문서가 속한 프로젝트.
+
+    Args:
+        conn: dict_row 연결.
+        document_id: 문서 ID.
+
+    Returns:
+        UUID | None: 프로젝트 ID. 문서가 없으면 None.
+    """
+    cursor = await conn.execute(
+        "SELECT project_id FROM tft.documents WHERE id = %s", (document_id,)
+    )
+    row = await cursor.fetchone()
+    return row["project_id"] if row else None
+
+
+async def list_document_versions(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """프로젝트의 문서 판본 전부(문서 순, 같은 문서는 새 판본 먼저).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: document_versions 열과 kind·title·base_document_id.
+    """
+    cursor = await conn.execute(
+        "SELECT dv.*, d.kind, d.title, d.base_document_id FROM tft.document_versions dv "
+        "JOIN tft.documents d ON d.id = dv.document_id WHERE d.project_id = %s "
+        "ORDER BY d.created_at, d.id, dv.version DESC",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def latest_document_version(conn: AsyncConnection[Row], document_id: UUID) -> Row | None:
+    """문서의 최신 판본과 조항·삭제 값 수.
+
+    Args:
+        conn: dict_row 연결.
+        document_id: 문서 ID.
+
+    Returns:
+        Row | None: document_versions 열과 kind·title·base_document_id·clauses_count·deleted_values_count.
+    """
+    cursor = await conn.execute(
+        "SELECT dv.*, d.kind, d.title, d.base_document_id, "
+        "(SELECT count(*) FROM tft.clauses c WHERE c.document_version_id = dv.id) AS clauses_count, "
+        "(SELECT count(*) FROM tft.clause_deleted_values cd JOIN tft.clauses c ON c.id = cd.clause_id "
+        "WHERE c.document_version_id = dv.id) AS deleted_values_count "
+        "FROM tft.documents d JOIN tft.document_versions dv "
+        "ON dv.document_id = d.id AND dv.version = d.latest_version WHERE d.id = %s",
+        (document_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def list_clauses(
+    conn: AsyncConnection[Row],
+    document_version_id: UUID,
+    *,
+    parent: UUID | None,
+    after: int | None,
+    limit: int,
+) -> list[Row]:
+    """조항을 문서 순서(ordinal)로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
+
+    Args:
+        conn: dict_row 연결.
+        document_version_id: 문서 판본 ID.
+        parent: 이 조항의 바로 아래만. None이면 전체 조항이다.
+        after: 이 ordinal 다음부터.
+        limit: 쪽 크기.
+
+    Returns:
+        list[Row]: clauses 열과 deleted_values·flags·requirement_ids.
+    """
+    cursor = await conn.execute(
+        "SELECT c.*, "
+        "(SELECT coalesce(jsonb_agg(jsonb_build_object('text', d.text, 'position', d.position) "
+        "ORDER BY d.ordinal), '[]'::jsonb) FROM tft.clause_deleted_values d "
+        "WHERE d.clause_id = c.id) AS deleted_values, "
+        "ARRAY(SELECT f.flag FROM tft.clause_flags f WHERE f.clause_id = c.id ORDER BY f.flag) "
+        "AS flags, "
+        "ARRAY(SELECT req.id FROM tft.requirements req JOIN tft.requirement_versions v "
+        "ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "WHERE v.clause_id = c.id ORDER BY req.code) AS requirement_ids "
+        "FROM tft.clauses c WHERE c.document_version_id = %s "
+        "AND (%s::uuid IS NULL OR c.parent_clause_id = %s) AND (%s::int IS NULL OR c.ordinal > %s) "
+        "ORDER BY c.ordinal LIMIT %s",
+        (document_version_id, parent, parent, after, after, limit + 1),
+    )
+    return await cursor.fetchall()
+
+
+async def clause_ids_by_no(
+    conn: AsyncConnection[Row], document_version_id: UUID
+) -> dict[str, UUID]:
+    """판본의 조항 번호 → 조항 ID(교차 참조 연결용).
+
+    Args:
+        conn: dict_row 연결.
+        document_version_id: 문서 판본 ID.
+
+    Returns:
+        dict[str, UUID]: 번호별 조항 ID.
+    """
+    cursor = await conn.execute(
+        "SELECT clause_no, id FROM tft.clauses WHERE document_version_id = %s",
+        (document_version_id,),
+    )
+    return {row["clause_no"]: row["id"] for row in await cursor.fetchall()}
+
+
+async def list_requirements(
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    *,
+    filters: Mapping[str, Any],
+    after: str | None,
+    limit: int,
+) -> list[Row]:
+    """최신 요구 판본을 코드 순으로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
+
+    필터는 쪽이 어긋나지 않게 모두 SQL에서 건다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        filters: document_version_id·equipment·task·necessity·status·needs_rereview·has_open_question.
+            None인 키는 조건이 아니다.
+        after: 이 코드 다음부터.
+        limit: 쪽 크기.
+
+    Returns:
+        list[Row]: 요구 요약 칸과 open_questions·needs_rereview.
+    """
+    rereview = NEEDS_REREVIEW.format(requirement="req.id")
+    open_questions = (
+        "(SELECT count(*) FROM tft.customer_questions q "
+        "WHERE q.requirement_id = req.id AND q.status = 'OPEN')"
+    )
+    where = ["req.project_id = %s"]
+    params: list[Any] = [project_id]
+    for column in ("document_version_id", "equipment", "task", "necessity", "status"):
+        if filters.get(column) is not None:
+            where.append(f"v.{column} = %s")
+            params.append(filters[column])
+    if filters.get("needs_rereview") is not None:
+        where.append(f"({rereview}) = %s")
+        params.append(filters["needs_rereview"])
+    if filters.get("has_open_question") is not None:
+        where.append(f"({open_questions} > 0) = %s")
+        params.append(filters["has_open_question"])
+    if after is not None:
+        where.append("req.code > %s")
+        params.append(after)
+    cursor = await conn.execute(
+        "SELECT req.id AS requirement_id, req.code, v.equipment, v.task, v.attribute, v.value, v.unit, "
+        "v.necessity, v.status, v.path, v.version, v.designated_model, v.needs_review, "
+        f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview "
+        "FROM tft.requirements req JOIN tft.requirement_versions v "
+        "ON v.requirement_id = req.id AND v.version = req.latest_version "
+        f"WHERE {' AND '.join(where)} ORDER BY req.code LIMIT %s",
+        (*params, limit + 1),
+    )
+    return await cursor.fetchall()
+
+
+async def requirement_detail_parts(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any]
+) -> dict[str, Any]:
+    """요구 상세의 조건·원문 삭제 값·연결 ID를 읽는다.
+
+    Args:
+        conn: dict_row 연결.
+        requirement: latest_requirement_version 행.
+
+    Returns:
+        dict: conditions·deleted_values·edit_trace_support·question_ids·pending_proposal_ids·
+            partner_candidate_ids·draft_sentence_ids·comparison_results·selected_path.
+    """
+    requirement_id = requirement["requirement_id"]
+
+    async def rows(sql: str, *params: Any) -> list[Row]:
+        cursor = await conn.execute(sql, params)
+        return await cursor.fetchall()
+
+    conditions = await rows(
+        "SELECT name, value, unit FROM tft.requirement_conditions "
+        "WHERE requirement_id = %s AND version = %s ORDER BY ordinal",
+        requirement_id,
+        requirement["version"],
+    )
+    deleted = await rows(
+        "SELECT text, position FROM tft.clause_deleted_values WHERE clause_id = %s ORDER BY ordinal",
+        requirement["clause_id"],
+    )
+    trace = await rows(
+        "SELECT edit_trace_support FROM tft.document_versions WHERE id = %s",
+        requirement["document_version_id"],
+    )
+    questions = await rows(
+        "SELECT id FROM tft.customer_questions WHERE requirement_id = %s ORDER BY created_at, id",
+        requirement_id,
+    )
+    proposals = await rows(
+        "SELECT id FROM tft.change_proposals WHERE requirement_id = %s AND status = 'PENDING' "
+        "ORDER BY id",
+        requirement_id,
+    )
+    partners = await rows(
+        "SELECT DISTINCT candidate_code FROM tft.partner_grades WHERE requirement_id = %s "
+        "ORDER BY candidate_code",
+        requirement_id,
+    )
+    sentences = await rows(
+        "SELECT DISTINCT sentence_id FROM tft.draft_sentence_evidence "
+        "WHERE evidence_type = 'requirement' AND evidence_id = %s ORDER BY sentence_id",
+        str(requirement_id),
+    )
+    selection = await latest_selection(conn, requirement_id)
+    return {
+        "conditions": conditions,
+        "deleted_values": deleted,
+        "edit_trace_support": trace[0]["edit_trace_support"],
+        "question_ids": [r["id"] for r in questions],
+        "pending_proposal_ids": [r["id"] for r in proposals],
+        "partner_candidate_ids": [r["candidate_code"] for r in partners],
+        "draft_sentence_ids": [r["sentence_id"] for r in sentences],
+        "comparison_results": [r["result"] for r in await latest_comparisons(conn, requirement_id)],
+        "selected_path": selection["path"] if selection else None,
+    }
+
+
+async def latest_comparisons(conn: AsyncConnection[Row], requirement_id: UUID) -> list[Row]:
+    """비교가 저장된 가장 최근 요구 판본의 후보별 최신 비교. 처리 함수는 판본 1에만 비교를 쓴다.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+
+    Returns:
+        list[Row]: product_comparisons 행(제품 코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (p.product_code, p.variant) p.* FROM tft.product_comparisons p "
+        "WHERE p.requirement_id = %s AND p.requirement_version = (SELECT max(requirement_version) "
+        "FROM tft.product_comparisons WHERE requirement_id = %s) "
+        "ORDER BY p.product_code, p.variant, p.version DESC",
+        (requirement_id, requirement_id),
+    )
+    return await cursor.fetchall()
+
+
+async def comparison_evidence(
+    conn: AsyncConnection[Row], comparison_ids: Sequence[UUID]
+) -> list[Row]:
+    """비교의 제품 쪽 근거.
+
+    Args:
+        conn: dict_row 연결.
+        comparison_ids: product_comparisons ID.
+
+    Returns:
+        list[Row]: comparison_evidence 행(비교·순번 순).
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.comparison_evidence WHERE comparison_id = ANY(%s) "
+        "ORDER BY comparison_id, ordinal",
+        (list(comparison_ids),),
+    )
+    return await cursor.fetchall()
+
+
+async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """후보×요구마다 저장된 최신 등급. 대상은 저장된 등급 행이 정한다(특정 요구 상태에 묶지 않는다).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        list[Row]: partner_grades 행(후보 코드·요구 순).
+    """
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (candidate_code, requirement_id) * FROM tft.partner_grades "
+        "WHERE project_id = %s "
+        "ORDER BY candidate_code, requirement_id, profile_version DESC, requirement_version DESC, "
+        "version DESC",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def profiles_of(
+    conn: AsyncConnection[Row], keys: Sequence[tuple[str, int]]
+) -> dict[tuple[str, int], Row]:
+    """등급이 가리키는 프로필 판본.
+
+    Args:
+        conn: dict_row 연결.
+        keys: (후보 코드, 프로필 판본).
+
+    Returns:
+        dict: (후보 코드, 프로필 판본) → partner_profiles 행.
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM tft.partner_profiles WHERE candidate_code = ANY(%s)",
+        (sorted({code for code, _ in keys}),),
+    )
+    rows = await cursor.fetchall()
+    return {(r["candidate_code"], r["profile_version"]): r for r in rows}

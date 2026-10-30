@@ -6,14 +6,17 @@
 # ruff: noqa: F811
 
 import asyncio
+import hashlib
 from uuid import uuid4
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from backend.api.tft.main import create_app
+from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
@@ -395,3 +398,431 @@ def test_confirm_follows_question_create_permission_and_project_scope(client, ad
         404,
         "TFT_QUESTION_NOT_FOUND",
     )
+
+
+# --- 읽기 경로(KAN-188) ---------------------------------------------------------------------
+
+STRANGER = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
+
+
+def get(client, path, who=OWNER):
+    return call(client, "GET", path, who)
+
+
+def data(response):
+    assert response.status_code == 200, response.text
+    return response.json()["data"]
+
+
+def add_clause(admin, chain, clause_no, ordinal, **extra):
+    """조항 하나를 더한다.
+
+    Args:
+        admin: 관리자 DSN.
+        chain: 합성 프로젝트.
+        clause_no: 조항 번호.
+        ordinal: 문서 순서.
+        extra: parent_clause_id·cross_references.
+
+    Returns:
+        UUID: 조항 ID.
+    """
+    clause_id = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.clauses (id, document_version_id, clause_no, parent_clause_id, depth, "
+            "ordinal, text, cross_references, data_origin, derivation_kind, known_at) "
+            "VALUES (%s,%s,%s,%s,3,%s,'본문',%s,'synthetic','DERIVED',now())",
+            (
+                clause_id,
+                chain["docver"],
+                clause_no,
+                extra.get("parent_clause_id"),
+                ordinal,
+                Jsonb(extra.get("cross_references", [])),
+            ),
+        )
+    return clause_id
+
+
+def add_requirement(admin, chain, code, **columns):
+    """최신 판본 1의 요구 하나를 더한다.
+
+    Args:
+        admin: 관리자 DSN.
+        chain: 합성 프로젝트.
+        code: 요구 코드.
+        columns: requirement_versions 열 값.
+
+    Returns:
+        UUID: 요구 ID.
+    """
+    requirement_id = uuid4()
+    row = {
+        "quote": code,
+        "operator": "EQ",
+        "standard_system": "NONE",
+        "necessity": "MANDATORY",
+        "status": "EVIDENCE_FOUND",
+        "reason": "근거 있음",
+        **columns,
+    }
+    names = ", ".join(row)
+    slots = ", ".join(["%s"] * len(row))
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, "
+            "known_at) VALUES (%s,%s,%s,'synthetic','DERIVED',now())",
+            (requirement_id, chain["project"], code),
+        )
+        conn.execute(
+            f"INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
+            f"clause_id, provenance_kind, data_origin, derivation_kind, known_at, {names}) "
+            f"VALUES (%s,1,%s,%s,'ai_draft','synthetic','DERIVED',now(),{slots})",
+            (requirement_id, chain["docver"], chain["clause"], *row.values()),
+        )
+    return requirement_id
+
+
+def test_every_read_route_hides_other_projects_as_not_found(client, chain):
+    """범위 밖 사용자에게는 모든 읽기 경로가 없는 것과 같다."""
+    project, document, requirement = chain["project"], chain["document"], chain["requirement"]
+    for path, code in (
+        (f"/projects/{project}/documents", "TFT_PROJECT_NOT_FOUND"),
+        (f"/projects/{project}/requirements", "TFT_PROJECT_NOT_FOUND"),
+        (f"/projects/{project}/partner-candidates", "TFT_PROJECT_NOT_FOUND"),
+        (f"/documents/{document}", "TFT_DOCUMENT_NOT_FOUND"),
+        (f"/documents/{document}/clauses", "TFT_DOCUMENT_NOT_FOUND"),
+        (f"/documents/{document}/file", "TFT_DOCUMENT_NOT_FOUND"),
+        (f"/requirements/{requirement}", "TFT_REQUIREMENT_NOT_FOUND"),
+        (f"/requirements/{requirement}/comparison", "TFT_REQUIREMENT_NOT_FOUND"),
+    ):
+        assert error(get(client, path, STRANGER)) == (404, code), path
+    assert error(get(client, f"/documents/{uuid4()}")) == (404, "TFT_DOCUMENT_NOT_FOUND")
+
+
+def test_documents_list_versions_and_detail_uses_the_latest(client, admin, chain):
+    """목록은 판본 전부(새 판본 먼저), 상세는 최신 판본과 조항·삭제 값 수다."""
+    newer = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.document_versions (id, document_id, version, mime, storage_key, sha256, "
+            "size, edit_trace_support, data_origin, derivation_kind, known_at, uploaded_by) "
+            "VALUES (%s,%s,2,'application/pdf','k2',%s,20,false,'synthetic','PROVIDED',now(),%s)",
+            (newer, chain["document"], "1" * 64, uuid4()),
+        )
+        conn.execute("UPDATE tft.documents SET latest_version=2 WHERE id=%s", (chain["document"],))
+    items = data(get(client, f"/projects/{chain['project']}/documents"))["items"]
+    assert [i["document_version_id"] for i in items] == [str(newer), str(chain["docver"])]
+    detail = data(get(client, f"/documents/{chain['document']}"))
+    assert (detail["document_version_id"], detail["version"]) == (str(newer), 2)
+    assert (detail["clauses_count"], detail["edit_trace_support"]) == (0, False)
+    with psycopg.connect(admin) as conn:
+        conn.execute("UPDATE tft.documents SET latest_version=1 WHERE id=%s", (chain["document"],))
+        conn.execute(
+            "INSERT INTO tft.clause_deleted_values (clause_id, ordinal, text, position) "
+            "VALUES (%s,0,'33',4)",
+            (chain["clause"],),
+        )
+    old = data(get(client, f"/documents/{chain['document']}"))
+    assert (old["clauses_count"], old["deleted_values_count"]) == (1, 1)
+
+
+def test_clauses_are_paged_in_document_order_with_their_links(client, admin, chain):
+    """조항: 문서 순서·쪽 나눔·아래 조항 필터·삭제 값·표시·교차 참조·연결 요구."""
+    second = add_clause(
+        admin,
+        chain,
+        "2.5.D",
+        1,
+        parent_clause_id=chain["clause"],
+        cross_references=[
+            {"target_hint": "2.5.C", "resolved": True},
+            {"target_hint": "2.9", "resolved": False},
+        ],
+    )
+    add_clause(admin, chain, "2.5.E", 2, parent_clause_id=chain["clause"])
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.clause_deleted_values (clause_id, ordinal, text, position) "
+            "VALUES (%s,0,'33',4)",
+            (chain["clause"],),
+        )
+        conn.execute(
+            "INSERT INTO tft.clause_flags (clause_id, flag) VALUES (%s,'HIGHLIGHT')",
+            (chain["clause"],),
+        )
+    url = f"/documents/{chain['document']}/clauses"
+    first = data(get(client, f"{url}?limit=2"))
+    assert [c["clause_no"] for c in first["items"]] == ["2.5.C", "2.5.D"]
+    top, child = first["items"]
+    assert top["deleted_values"] == [{"text": "33", "position": 4}]
+    assert top["flags"] == ["HIGHLIGHT"]
+    assert top["requirement_ids"] == [str(chain["requirement"])]
+    assert child["cross_references"] == [
+        {"target": "2.5.C", "resolved_clause_id": str(chain["clause"])},
+        {"target": "2.9", "resolved_clause_id": None},
+    ]
+    rest = data(get(client, f"{url}?limit=2&cursor={first['next_cursor']}"))
+    assert [c["clause_no"] for c in rest["items"]] == ["2.5.E"] and rest["next_cursor"] is None
+    children = data(get(client, f"{url}?parent={chain['clause']}"))
+    assert [c["clause_id"] for c in children["items"]][0] == str(second)
+    assert len(children["items"]) == 2
+    assert error(get(client, f"{url}?cursor=not-a-cursor")) == (400, "TFT_INVALID_CURSOR")
+
+
+def test_the_file_is_a_checked_attachment_or_unavailable(
+    client, admin, chain, tmp_path, monkeypatch
+):
+    """원문: 저장 해시가 맞으면 내려받기, 설정이 없거나 다르면 경로 없이 503이다."""
+    body = b"synthetic document"
+    (tmp_path / "doc.bin").write_bytes(body)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.document_versions SET storage_key='doc.bin', sha256=%s, size=%s, "
+            "mime='text/html' WHERE id=%s",
+            (hashlib.sha256(body).hexdigest(), len(body), chain["docver"]),
+        )
+    url = f"/documents/{chain['document']}/file"
+    monkeypatch.delenv("TFT_DOCUMENT_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    unavailable = get(client, url)
+    assert error(unavailable) == (503, "TFT_DOCUMENT_UNAVAILABLE")
+    monkeypatch.setenv("TFT_DOCUMENT_ROOT", str(tmp_path))
+    done = get(client, url)
+    assert (done.status_code, done.content) == (200, body)
+    # 저장 mime이 HTML이어도 화면에서 열리지 않고 내려받는다.
+    assert done.headers["content-disposition"].startswith("attachment;")
+    assert done.headers["x-content-type-options"] == "nosniff"
+    (tmp_path / "doc.bin").write_bytes(b"changed document!!")
+    changed = get(client, url)
+    assert error(changed) == (503, "TFT_DOCUMENT_UNAVAILABLE")
+    assert "doc.bin" not in changed.text and str(tmp_path) not in changed.text
+
+
+def test_requirements_filter_and_page_in_sql(client, admin, chain):
+    """요구 목록: 코드 순 쪽 나눔, 필터는 쪽 안에서가 아니라 전체에 걸리고, 시스템 표시가 보인다."""
+    review = add_requirement(admin, chain, "R-2", needs_review=True, equipment="변압기")
+    asked = add_requirement(admin, chain, "R-3", status="SPEC_GAP", value="95", unit="kV")
+    add_requirement(admin, chain, "R-4", task="FACTORY_TEST", designated_model="SEL-751A")
+    draft(admin, {**chain, "requirement": review})
+    ask(client, {**chain, "requirement": asked})
+    url = f"/projects/{chain['project']}/requirements"
+    first = data(get(client, f"{url}?limit=2"))
+    assert [i["code"] for i in first["items"]] == ["R-1", "R-2"]
+    second = data(get(client, f"{url}?limit=2&cursor={first['next_cursor']}"))
+    assert [i["code"] for i in second["items"]] == ["R-3", "R-4"]
+    assert second["next_cursor"] is None
+    by_code = {i["code"]: i for i in (*first["items"], *second["items"])}
+    assert by_code["R-2"]["needs_review"] is True and by_code["R-1"]["needs_review"] is False
+    # 초안은 열린 질문이 아니다.
+    assert (by_code["R-2"]["open_questions"], by_code["R-3"]["open_questions"]) == (0, 1)
+    assert by_code["R-3"]["value_text"] == "95 kV"
+    assert by_code["R-4"]["is_designated_item"] is True
+
+    def codes(query):
+        return [i["code"] for i in data(get(client, f"{url}?{query}"))["items"]]
+
+    # 첫 쪽 밖의 행도 찾는다(limit=1이어도 조건에 맞는 첫 행).
+    assert codes("has_open_question=true&limit=1") == ["R-3"]
+    assert codes("status=SPEC_GAP") == ["R-1", "R-3"]
+    assert codes("equipment=%EB%B3%80%EC%95%95%EA%B8%B0") == ["R-2"]
+    assert codes("task=FACTORY_TEST") == ["R-4"]
+    assert codes("necessity=PREFERRED") == []
+    assert codes(f"document_version_id={uuid4()}") == []
+    assert codes("needs_rereview=true") == []
+    proposal = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id, project_id, requirement_id, origin, current, "
+            "proposed, rationale, proposer_kind, data_origin, derivation_kind, known_at) VALUES "
+            "(%s,%s,%s,'web','{}','{}','합성','system','synthetic','DERIVED',now())",
+            (proposal, chain["project"], review),
+        )
+        conn.execute(
+            "INSERT INTO tft.rereview_marks (id, project_id, target_kind, target_id, "
+            "cause_proposal_id) VALUES (%s,%s,'requirement',%s,%s)",
+            (uuid4(), chain["project"], review, proposal),
+        )
+    assert codes("needs_rereview=true") == ["R-2"]
+    assert codes("needs_rereview=false") == ["R-1", "R-3", "R-4"]
+    pending = data(get(client, f"/requirements/{review}"))["links"]["pending_proposal_ids"]
+    assert pending == [str(proposal)]
+
+
+def test_requirement_detail_links_origin_spec_and_judgement(client, admin, chain):
+    """요구 상세: 원문·허용 오차·조건·지정품·연결·시스템 표시."""
+    requirement = add_requirement(
+        admin,
+        chain,
+        "R-9",
+        value="5.75",
+        unit="%",
+        tolerance="±10%",
+        needs_review=True,
+        designated_model="Resibloc",
+        designated_manufacturer="Eaton",
+    )
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.requirement_conditions (requirement_id, version, ordinal, name, value, unit) "
+            "VALUES (%s,1,0,'reference_temperature','85','°C')",
+            (requirement,),
+        )
+        conn.execute(
+            "INSERT INTO tft.clause_deleted_values (clause_id, ordinal, text, position) "
+            "VALUES (%s,0,'33',4)",
+            (chain["clause"],),
+        )
+    question = draft(admin, {**chain, "requirement": requirement})
+    body = data(get(client, f"/requirements/{requirement}"))
+    assert (
+        body["code"] == "R-9" and body["needs_review"] is True and body["needs_rereview"] is False
+    )
+    assert body["origin"]["clause_no"] == "2.5.C"
+    assert body["origin"]["deleted_values"] == [{"text": "33", "position": 4}]
+    assert body["origin"]["edit_trace_support"] is True
+    assert (body["spec"]["value"], body["spec"]["tolerance"]) == ("5.75", "±10%")
+    assert body["spec"]["conditions"] == [
+        {"name": "reference_temperature", "value": "85", "unit": "°C"}
+    ]
+    assert body["spec"]["designated_item"]["manufacturer"] == "Eaton"
+    assert body["spec"]["designated_item"]["clause_id"] == str(chain["clause"])
+    assert body["judgement"]["status"] == "EVIDENCE_FOUND"
+    assert body["links"]["question_ids"] == [str(question)]
+    assert body["links"]["comparison_summary"] is None
+    plain = data(get(client, f"/requirements/{chain['requirement']}"))
+    # T15 전 판본의 NULL은 그대로 null이다('오차 없음'이 아니다).
+    assert plain["spec"]["tolerance"] is None and plain["spec"]["designated_item"] is None
+
+
+def add_comparison(admin, chain, *, product, result="MEETS", requirement_version=1, version=1):
+    comparison_id = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.product_comparisons (id, requirement_id, requirement_version, "
+            "product_code, scope, lifecycle_status, matched_attribute, our_value, our_unit, "
+            "our_conditions, comparable, result, search_trace, provenance_kind, version, data_origin, "
+            "derivation_kind, known_at) VALUES (%s,%s,%s,%s,'[]','ACTIVE','bil','95','kV',%s,true,%s,"
+            "%s,'ai_draft',%s,'synthetic','DERIVED',now())",
+            (
+                comparison_id,
+                chain["requirement"],
+                requirement_version,
+                product,
+                Jsonb([{"name": "duration", "value": "2", "unit": "s"}]),
+                result,
+                Jsonb(
+                    {
+                        "filters": ["family=TRANSFORMER"],
+                        "documents_searched": 2,
+                        "search_failed": False,
+                    }
+                ),
+                version,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO tft.comparison_evidence (comparison_id, ordinal, document, clause, "
+            "applicability, limits) VALUES (%s,0,'DS-1','2.1',NULL,NULL)",
+            (comparison_id,),
+        )
+    return comparison_id
+
+
+def test_comparison_uses_the_latest_stored_version_and_rebuilds_an_empty_scope(
+    client, admin, chain
+):
+    """비교: 저장된 가장 최근 판본의 후보별 최신 행, 후보가 없으면 저장된 계열로 범위를 만든다."""
+    url = f"/requirements/{chain['requirement']}/comparison"
+    empty = data(get(client, url))
+    assert empty["candidates"] == []
+    # T15 전 판본은 계열을 모른다.
+    assert empty["search_trace"] == {
+        "filters": ["family=NONE"],
+        "documents_searched": 0,
+        "search_failed": False,
+    }
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET equipment_family='OTHER' WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    assert data(get(client, url))["search_trace"]["filters"] == ["family=OTHER"]
+
+    add_comparison(admin, chain, product="TRF-1", result="DIFFERS")
+    add_comparison(admin, chain, product="TRF-1", result="MEETS", version=2)
+    add_comparison(admin, chain, product="TRF-2", result="NOT_COMPARABLE")
+    body = data(get(client, url))
+    assert body["requirement_version"] == 1
+    assert body["search_trace"]["filters"] == ["family=TRANSFORMER"]
+    assert [(c["product_code"], c["attribute_match"]["result"]) for c in body["candidates"]] == [
+        ("TRF-1", "MEETS"),
+        ("TRF-2", "NOT_COMPARABLE"),
+    ]
+    match = body["candidates"][0]["attribute_match"]
+    assert match["our_conditions"] == [{"name": "duration", "value": "2", "unit": "s"}]
+    assert match["evidence"][0]["document"] == "DS-1"
+    links = data(get(client, f"/requirements/{chain['requirement']}"))["links"]
+    assert links["comparison_summary"] == "후보 2개: 충족 1, 비교 불가 1"
+
+
+def add_grade(admin, chain, requirement, code, grade, unknown=()):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.partner_grades (id, project_id, candidate_code, profile_version, "
+            "requirement_id, requirement_version, grade, reasons, exclusion_reasons, mandatory_check, "
+            "data_origin, derivation_kind, known_at) "
+            "VALUES (%s,%s,%s,%s,%s,1,%s,%s,%s,%s,'synthetic','DERIVED',now())",
+            (
+                uuid4(),
+                chain["project"],
+                code,
+                1,
+                requirement,
+                grade,
+                Jsonb(["사유"]),
+                Jsonb(["제외"] if grade == "EXCLUDED" else []),
+                Jsonb({"passed": [], "failed": [], "unknown": list(unknown)}),
+            ),
+        )
+
+
+def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
+    """후보: 저장된 등급이 있는 후보만, 후보 등급은 전체 기준, 요구 필터는 등급 목록만 좁힌다."""
+    code = "Q-" + chr(ord("A") + uuid4().int % 26)
+    profile = load_profiles()[1]
+    row = profile.model_dump(mode="json") | {"candidate_code": code, "profile_version": 1}
+    columns = [k for k in row if k != "known_at"]
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            f"INSERT INTO tft.partner_profiles ({', '.join(columns)}, known_at) "
+            f"VALUES ({', '.join(['%s'] * len(columns))}, now())",
+            [
+                Jsonb(row[k])
+                if isinstance(row[k], dict | list) and k not in ("similar_tasks", "supply_regions")
+                else row[k]
+                for k in columns
+            ],
+        )
+    url = f"/projects/{chain['project']}/partner-candidates"
+    assert data(get(client, url))["items"] == []
+    other = add_requirement(admin, chain, "R-5", status="INSUFFICIENT_EVIDENCE")
+    add_grade(admin, chain, chain["requirement"], code, "MANDATORY_CONFIRMED")
+    add_grade(admin, chain, other, code, "REVIEW", unknown=["bil", "bil", "form"])
+    try:
+        [candidate] = data(get(client, url))["items"]
+        assert candidate["candidate_code"] == code
+        assert candidate["overall_grade"] == "REVIEW"
+        assert candidate["conditions_to_confirm"] == ["bil", "form"]
+        assert candidate["on_customer_manufacturer_list"] is None
+        assert len(candidate["grades"]) == 2
+        [narrow] = data(get(client, f"{url}?requirement_id={chain['requirement']}"))["items"]
+        assert [g["grade"] for g in narrow["grades"]] == ["MANDATORY_CONFIRMED"]
+        # 후보 등급은 요구 필터와 무관하게 전체 기준이다.
+        assert narrow["overall_grade"] == "REVIEW"
+        assert data(get(client, f"{url}?requirement_id={uuid4()}"))["items"] == []
+    finally:
+        with psycopg.connect(admin) as conn:
+            conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+            conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
