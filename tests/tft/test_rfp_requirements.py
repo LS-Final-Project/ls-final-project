@@ -576,3 +576,76 @@ def test_the_vocabulary_is_one_source_for_spec_facts_and_extraction():
     products = load_own_products()
     assert {f.attribute for p in products for f in p.spec_facts} <= ATTRIBUTE_KEYS
     assert {p.family for p in products} <= EQUIPMENT_FAMILIES
+
+
+def assembly_section():
+    """조립품 공급 요구(양성)와 장비 나열(반례)의 합성 절. 일반 표현만 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 POWER DISTRIBUTION CENTER"),
+        p("A. Breakers, relays and meters shall be factory-assembled and tested as one unit."),
+        p(
+            "B. The drive and motor shall be furnished by one manufacturer with unit responsibility."
+        ),
+        p("C. Provide circuit breakers, relays and meters."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_assembly_clause_is_kept_for_a_single_unit_and_not_for_a_list():
+    """조립품·단일 공급 책임 요구는 true, 장비 나열은 false로 남고 통합 책임 판별 입력이 된다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "factory-assembled and tested as one unit",
+                    "assembly",
+                    operator="TEXT",
+                    assembly_clause=True,
+                ),
+                req(
+                    "2.1.B",
+                    "furnished by one manufacturer with unit responsibility",
+                    "supply responsibility",
+                    operator="TEXT",
+                    assembly_clause=True,
+                ),
+                req(
+                    "2.1.C",
+                    "Provide circuit breakers, relays and meters",
+                    "included equipment",
+                    operator="TEXT",
+                    assembly_clause=False,
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, assembly_section())
+    assert rejected == []
+    assert [(r.clause_no, r.assembly_clause) for r in kept] == [
+        ("2.1.A", True),
+        ("2.1.B", True),
+        ("2.1.C", False),
+    ]
+    from backend.api.tft.rfp.integration import Requirement, integration_responsibility
+
+    result = integration_responsibility(
+        [
+            Requirement(clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause)
+            for r in kept
+        ]
+    )
+    assert (result.required, result.basis_clause_nos) == (True, ["2.1.A", "2.1.B"])
+
+
+def test_a_model_answer_without_assembly_clause_stays_false_and_the_prompt_explains_it():
+    """옛 응답처럼 칸이 없으면 기본 false다. 응답 스키마는 필수이고 지시문은 나열은 false라고 말한다."""
+    from backend.engine.rfp.requirements import RequirementSchema
+
+    raw = json.dumps({"requirements": [req("2.1.C", "Provide circuit breakers", "equipment")]})
+    assert validate_output(raw, assembly_section())[0][0].assembly_clause is False
+    assert RequirementSchema.model_fields["assembly_clause"].is_required()
+    text = prompt(assembly_section())
+    assert "assembly_clause" in text and "merely listed together is false" in text
