@@ -82,11 +82,13 @@ def test_search_widens_beyond_the_family_but_never_invents_a_product():
         filters=FILTERS,
         document_products={**DOCS, UNKNOWN_DOC: "NOT-OURS"},
     )
-    assert [p.product_code for p in found] == ["TRF-DRY-630", "SWGR-TEST"]
-    # The transformer has no rated_max_voltage fact: missing data, not unmet; the best is the gap.
+    # Both own transformers (23 products, KAN-186) plus the switchgear found by the search.
+    assert [p.product_code for p in found] == ["TRF-DRY-630", "TRF-OIL-1000", "SWGR-TEST"]
+    # The transformers have no rated_max_voltage fact: missing data, not unmet; the best is the gap.
     outcome = compare(VOLTAGE, found, trace)
     assert {c.product_code: c.status for c in outcome.candidates} == {
         "TRF-DRY-630": "INSUFFICIENT_EVIDENCE",
+        "TRF-OIL-1000": "INSUFFICIENT_EVIDENCE",
         "SWGR-TEST": "SPEC_GAP",
     }
 
@@ -136,7 +138,7 @@ def test_a_failed_search_is_not_product_absence():
 
 def test_without_r10_the_family_filter_alone_works():
     found, trace = find_candidates(DEMO_A[0], products(), "TRANSFORMER")
-    assert [p.product_code for p in found] == ["TRF-DRY-630"]
-    assert trace.filters == ["family=TRANSFORMER"] and trace.documents_searched == 1
+    assert [p.product_code for p in found] == ["TRF-DRY-630", "TRF-OIL-1000"]
+    assert trace.filters == ["family=TRANSFORMER"] and trace.documents_searched == 2
     with pytest.raises(ValueError):
         find_candidates(DEMO_A[0], products(), "TRANSFORMER", fts=searcher())

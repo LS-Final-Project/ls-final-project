@@ -1,65 +1,2251 @@
 {
-  "_note": "KAN-186 자사 비교 입력. 제공 데이터 ref/product_spec_facts.csv·product_master.csv의 문장을 협력사 프로필(partners/profiles.json)과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(derivation_kind=DERIVED)이다. source_value는 원래 문장이고 바꾼 규칙은 note에 있다. 실제 LS 제품 성능 자료가 아니라 교육용 합성 데이터시트다. 지금은 14번 시연 A의 TRF-DRY-630만 있다.",
+  "_note": "KAN-186 자사 비교 입력. scripts/rfp_own_spec_facts.py가 제공 데이터 ref/product_master.csv·product_spec_facts.csv에서 만든다(손으로 고치지 않음). 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(derivation_kind=DERIVED)이고 source_value는 원래 문장, note는 바꾼 규칙이다. unmapped_facts는 비교 속성으로 옮기지 않은 원문 행이다. 실제 LS 제품 성능 자료가 아니라 교육용 합성 데이터시트다.",
   "data_origin": "synthetic",
   "derivation_kind": "DERIVED",
+  "coverage": {
+    "products": 23,
+    "source_rows": 169,
+    "mapped_rows": 58,
+    "unmapped_rows": 111
+  },
   "products": [
+    {
+      "product_code": "MCCB-ABS-103c",
+      "family": "LV_BREAKER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-2"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "CB",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "frame_size",
+          "value": "100",
+          "unit": "AF",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.1",
+          "source_value": "100AF"
+        },
+        {
+          "attribute": "rated_current",
+          "value": "100",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.1",
+          "source_value": "15, 20, 30, 40, 50, 60, 75, 100 A",
+          "note": "선택 정격 중 최댓값"
+        },
+        {
+          "attribute": "rated_operational_voltage",
+          "value": "690",
+          "unit": "V",
+          "conditions": [
+            {
+              "name": "current_type",
+              "value": "AC"
+            }
+          ],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.1",
+          "source_value": "AC 690 V max"
+        },
+        {
+          "attribute": "breaking_capacity_icu",
+          "value": "37",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "voltage",
+              "value": "415",
+              "unit": "V"
+            },
+            {
+              "name": "current_type",
+              "value": "AC"
+            }
+          ],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.2",
+          "source_value": "37 kA"
+        },
+        {
+          "attribute": "breaking_capacity_ics",
+          "value": "75",
+          "unit": "% of Icu",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.2",
+          "source_value": "75% of Icu"
+        },
+        {
+          "attribute": "number_of_poles",
+          "value": "2P / 3P / 4P",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.1",
+          "source_value": "2P / 3P / 4P"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "18",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=18",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Mechanical endurance",
+          "source_value": "8,500 operations",
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Electrical endurance",
+          "source_value": "1,500 operations at In",
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Terminal tightening torque",
+          "source_value": "3.5 N·m (M5)",
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "3.1"
+        },
+        {
+          "source_attribute": "Magnetic trip setting",
+          "source_value": "Fixed, 10 x In",
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "MCCB-ABS-403c",
+      "family": "LV_BREAKER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-2",
+        "UL 489 (-U variant)"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "CB",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master",
+          "variant": "-U"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "frame_size",
+          "value": "400",
+          "unit": "AF",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.1",
+          "source_value": "400AF"
+        },
+        {
+          "attribute": "rated_current",
+          "value": "400",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.1",
+          "source_value": "250, 300, 350, 400 A",
+          "note": "선택 정격 중 최댓값"
+        },
+        {
+          "attribute": "breaking_capacity_icu",
+          "value": "50",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "voltage",
+              "value": "415",
+              "unit": "V"
+            },
+            {
+              "name": "current_type",
+              "value": "AC"
+            }
+          ],
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.2",
+          "source_value": "50 kA"
+        },
+        {
+          "attribute": "breaking_capacity_ics",
+          "value": "100",
+          "unit": "% of Icu",
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.2",
+          "source_value": "100% of Icu"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "18",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=18",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Thermal trip adjustment",
+          "source_value": "0.8 to 1.0 x In",
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Magnetic trip adjustment",
+          "source_value": "5 to 10 x In",
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Mechanical endurance",
+          "source_value": "7,000 operations",
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Terminal tightening torque",
+          "source_value": "18 N·m (M10)",
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "3.1"
+        },
+        {
+          "source_attribute": "UL 489 interrupting rating at 480 V (-U variant)",
+          "source_value": "35 kA",
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "2.2"
+        }
+      ]
+    },
+    {
+      "product_code": "ACB-AS-2000",
+      "family": "LV_BREAKER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-2"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "CB",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_current",
+          "value": "2000",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.1",
+          "source_value": "2000 A"
+        },
+        {
+          "attribute": "breaking_capacity_icu",
+          "value": "85",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "voltage",
+              "value": "415",
+              "unit": "V"
+            },
+            {
+              "name": "current_type",
+              "value": "AC"
+            }
+          ],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.2",
+          "source_value": "85 kA"
+        },
+        {
+          "attribute": "short_time_withstand_current",
+          "value": "65",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "duration",
+              "value": "1",
+              "unit": "s"
+            }
+          ],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.2",
+          "source_value": "65 kA"
+        },
+        {
+          "attribute": "protection_functions",
+          "value": "LSIG",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.4",
+          "source_value": "L (long-time), S (short-time), I (instantaneous), G (ground fault)",
+          "note": "기능 머리글자만 남김"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "Modbus RTU (RS-485)",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.5",
+          "source_value": "Modbus RTU (RS-485)"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Motor operator control voltage",
+          "source_value": "AC/DC 110-240 V",
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.5"
+        },
+        {
+          "source_attribute": "Closing time",
+          "source_value": "≤ 70 ms",
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Mechanical endurance (with maintenance)",
+          "source_value": "20,000 operations",
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "2.3"
+        }
+      ]
+    },
+    {
+      "product_code": "VCB-25kV-1250",
+      "family": "MV_EQUIP",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62271-100"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KEMA",
+          "kind": "TEST_REPORT",
+          "evidence_id": "DS-VCB-25kV-1250"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_max_voltage",
+          "value": "25.8",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.1",
+          "source_value": "25.8 kV"
+        },
+        {
+          "attribute": "rated_current",
+          "value": "1250",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.1",
+          "source_value": "1250 A"
+        },
+        {
+          "attribute": "rated_short_circuit_breaking_current",
+          "value": "25",
+          "unit": "kA",
+          "conditions": [],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.2",
+          "source_value": "25 kA"
+        },
+        {
+          "attribute": "short_time_withstand_current",
+          "value": "25",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "duration",
+              "value": "3",
+              "unit": "s"
+            }
+          ],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.2",
+          "source_value": "25 kA / 3 s"
+        },
+        {
+          "attribute": "bil",
+          "value": "125",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.2",
+          "source_value": "125 kV"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Mechanical endurance class",
+          "source_value": "M2 (10,000 operations)",
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Electrical endurance class",
+          "source_value": "E2",
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Spring charging motor voltage",
+          "source_value": "DC 110 V / DC 125 V / AC 220 V",
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "ELCB-EBN-203c",
+      "family": "LV_BREAKER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-2 Annex B"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_current",
+          "value": "200",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.1",
+          "source_value": "125, 150, 175, 200 A",
+          "note": "선택 정격 중 최댓값"
+        },
+        {
+          "attribute": "breaking_capacity_icu",
+          "value": "37",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "voltage",
+              "value": "415",
+              "unit": "V"
+            },
+            {
+              "name": "current_type",
+              "value": "AC"
+            }
+          ],
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.2",
+          "source_value": "37 kA"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "18",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=18",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Rated residual operating current IΔn",
+          "source_value": "30 / 100 / 300 / 500 mA selectable",
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Residual current type",
+          "source_value": "Type AC (Type A optional)",
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Operating time at IΔn",
+          "source_value": "≤ 0.1 s (instantaneous setting)",
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Test button operating voltage range",
+          "source_value": "AC 200-460 V",
+          "evidence_id": "DS-ELCB-EBN-203c",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "CONT-MC-32a",
+      "family": "CONTROL",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-4-1",
+        "UL 60947-4-1"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "CCC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "warranty_months",
+          "value": "18",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=18",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Rated operational current AC-3 at 400 V",
+          "source_value": "32 A",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Motor power AC-3 at 400 V",
+          "source_value": "15 kW",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Coil voltage options",
+          "source_value": "AC 24/48/110/220/380/440 V, DC 24/48/110/220 V",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Coil pick-up voltage",
+          "source_value": "80-110% of rated coil voltage",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Mechanical endurance",
+          "source_value": "10 million operations",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Electrical endurance AC-3",
+          "source_value": "1.2 million operations",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Auxiliary contacts",
+          "source_value": "1a1b built-in",
+          "evidence_id": "DS-CONT-MC-32a",
+          "section": "2.1"
+        }
+      ]
+    },
+    {
+      "product_code": "RELAY-GMR-22",
+      "family": "CONTROL",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60947-4-1"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "warranty_months",
+          "value": "18",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=18",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Current setting ranges",
+          "source_value": "0.1-0.16 A up to 16-22 A (13 ranges)",
+          "evidence_id": "DS-RELAY-GMR-22",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Trip class",
+          "source_value": "Class 10A",
+          "evidence_id": "DS-RELAY-GMR-22",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Phase-loss sensitivity",
+          "source_value": "Yes (differential mechanism)",
+          "evidence_id": "DS-RELAY-GMR-22",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Reset mode",
+          "source_value": "Manual / automatic selectable",
+          "evidence_id": "DS-RELAY-GMR-22",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Ambient temperature compensation",
+          "source_value": "-25 to +55 °C",
+          "evidence_id": "DS-RELAY-GMR-22",
+          "section": "2.2"
+        }
+      ]
+    },
+    {
+      "product_code": "INV-LSLV0075-S100",
+      "family": "DRIVE",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 61800-5-1",
+        "IEC 61800-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "7.5",
+          "unit": "kW",
+          "conditions": [
+            {
+              "name": "duty",
+              "value": "heavy"
+            }
+          ],
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.1",
+          "source_value": "7.5 kW / 16 A"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "RS-485 Modbus RTU / LS INV protocol",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.3",
+          "source_value": "RS-485 Modbus RTU / LS INV protocol"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Input voltage",
+          "source_value": "3-phase AC 380-480 V (-15% to +10%), 50/60 Hz",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Overload capacity (heavy duty)",
+          "source_value": "150% for 1 minute",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Control method",
+          "source_value": "V/F, slip compensation, sensorless vector",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Output frequency range",
+          "source_value": "0.01-400 Hz",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Safe Torque Off",
+          "source_value": "STO, SIL3 / PLe",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Built-in EMC filter",
+          "source_value": "Category C3",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Braking",
+          "source_value": "Built-in braking transistor (external resistor)",
+          "evidence_id": "DS-INV-LSLV0075-S100",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "INV-LSLV0220-H100",
+      "family": "DRIVE",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 61800-5-1",
+        "IEC 61800-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "22",
+          "unit": "kW",
+          "conditions": [
+            {
+              "name": "duty",
+              "value": "normal"
+            }
+          ],
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.1",
+          "source_value": "22 kW / 45 A"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "BACnet MS/TP, Modbus RTU, Metasys N2",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.3",
+          "source_value": "BACnet MS/TP, Modbus RTU, Metasys N2"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Overload capacity (normal duty)",
+          "source_value": "120% for 1 minute",
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Fire mode",
+          "source_value": "Yes (fault-ignore run, logged)",
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "PID controllers",
+          "source_value": "Main PID + 2 external PID",
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Multi-motor control",
+          "source_value": "Up to 5 pumps (MMC)",
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Built-in DC reactor",
+          "source_value": "Yes",
+          "evidence_id": "DS-INV-LSLV0220-H100",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "INV-LSLV0750-iS7",
+      "family": "DRIVE",
+      "lifecycle_status": "MATURE",
+      "standards": [
+        "IEC 61800-5-1",
+        "IEC 61800-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "75",
+          "unit": "kW",
+          "conditions": [
+            {
+              "name": "duty",
+              "value": "heavy"
+            }
+          ],
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.1",
+          "source_value": "75 kW / 150 A"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "Profibus-DP, EtherNet/IP, Modbus TCP, CANopen",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.3",
+          "source_value": "Profibus-DP, EtherNet/IP, Modbus TCP, CANopen"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Overload capacity (heavy duty)",
+          "source_value": "150% for 1 minute",
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Control method",
+          "source_value": "V/F, sensorless vector, sensored vector (encoder option)",
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Built-in DC reactor",
+          "source_value": "Yes",
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Encoder option input",
+          "source_value": "Line driver / open collector, up to 200 kHz",
+          "evidence_id": "DS-INV-LSLV0750-iS7",
+          "section": "2.3"
+        }
+      ]
+    },
+    {
+      "product_code": "PLC-XGB-XBM-DR16S",
+      "family": "PLC",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 61131-2"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "RS-232C 1 ch + RS-485 1 ch",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.3",
+          "source_value": "RS-232C 1 ch + RS-485 1 ch"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Built-in I/O",
+          "source_value": "8 DC inputs (24 V) / 8 relay outputs",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Program capacity",
+          "source_value": "20 k steps",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Processing speed",
+          "source_value": "0.16 µs/step (basic instruction)",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Max expansion modules",
+          "source_value": "7 modules",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Relay output rating",
+          "source_value": "AC 250 V / DC 24 V, 2 A per point",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Backup battery life",
+          "source_value": "Approx. 5 years (lithium)",
+          "evidence_id": "DS-PLC-XGB-XBM-DR16S",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "PLC-XGI-CPUU",
+      "family": "PLC",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 61131-2",
+        "IEC 61131-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Programming languages",
+          "source_value": "LD, ST, SFC, FBD, IL (IEC 61131-3)",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Program memory",
+          "source_value": "1 MB",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Processing speed",
+          "source_value": "8.5 ns/step (LD basic)",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Max local I/O points",
+          "source_value": "6,144 points",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Built-in Ethernet",
+          "source_value": "1 port, 100 Mbps, Modbus TCP server/client",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Max expansion bases",
+          "source_value": "7 bases",
+          "evidence_id": "DS-PLC-XGI-CPUU",
+          "section": "2.1"
+        }
+      ]
+    },
+    {
+      "product_code": "HMI-XGT-eXP60",
+      "family": "HMI",
+      "lifecycle_status": "MATURE",
+      "standards": [
+        "IEC 61131-2"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "Ethernet 1 port, RS-232C, RS-422/485, USB host",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.3",
+          "source_value": "Ethernet 1 port, RS-232C, RS-422/485, USB host"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Display",
+          "source_value": "6-inch TFT, 800 x 480, 65k colors",
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Power supply",
+          "source_value": "DC 24 V (19.2-28.8 V)",
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Front protection",
+          "source_value": "IP65",
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "User memory",
+          "source_value": "64 MB",
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Backlight life",
+          "source_value": "Approx. 50,000 hours",
+          "evidence_id": "DS-HMI-XGT-eXP60",
+          "section": "2.1"
+        }
+      ]
+    },
+    {
+      "product_code": "HMI-XGT-iXP90",
+      "family": "HMI",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 61131-2"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "Ethernet 2 ports, RS-232C, RS-422/485, USB host 2",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.3",
+          "source_value": "Ethernet 2 ports, RS-232C, RS-422/485, USB host 2"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Display",
+          "source_value": "10.1-inch TFT, 1280 x 800, multi-touch",
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Processor",
+          "source_value": "Quad-core 1.0 GHz",
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Remote access",
+          "source_value": "Web server, VNC server",
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Front protection",
+          "source_value": "IP66",
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Power consumption",
+          "source_value": "Max 18 W",
+          "evidence_id": "DS-HMI-XGT-iXP90",
+          "section": "2.1"
+        }
+      ]
+    },
     {
       "product_code": "TRF-DRY-630",
       "family": "TRANSFORMER",
       "lifecycle_status": "ACTIVE",
-      "standards": ["IEC 60076-11"],
+      "standards": [
+        "IEC 60076-11"
+      ],
       "certifications": [
-        {"standard": "IEC 60076-11", "kind": "TEST_REPORT", "evidence_id": "DS-TRF-DRY-630"},
-        {"standard": "KC", "kind": "TEST_REPORT", "evidence_id": "DS-TRF-DRY-630"}
+        {
+          "standard": "IEC 60076-11",
+          "kind": "TEST_REPORT",
+          "evidence_id": "DS-TRF-DRY-630"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
       ],
       "spec_facts": [
         {
-          "attribute": "rated_power", "value": "630", "unit": "kVA",
-          "conditions": [{"name": "cooling", "value": "AN"}],
-          "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "attribute": "rated_power",
+          "value": "630",
+          "unit": "kVA",
+          "conditions": [
+            {
+              "name": "cooling",
+              "value": "AN"
+            }
+          ],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.1",
           "source_value": "630 kVA (AN) / 880 kVA (AF, with fans)"
         },
         {
-          "attribute": "forced_air_capacity_increase", "value": "39.7", "unit": "%",
-          "conditions": [{"name": "temperature_rise", "value": "100", "unit": "K"}],
-          "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "attribute": "forced_air_capacity_increase",
+          "value": "39.7",
+          "unit": "%",
+          "conditions": [
+            {
+              "name": "temperature_rise",
+              "value": "100",
+              "unit": "K"
+            }
+          ],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.1",
           "source_value": "630 kVA (AN) / 880 kVA (AF, with fans)",
           "note": "880/630-1 = 39.7%. 온도 상승 조건은 같은 시트 2.2의 100 K(AN 기준)이며 AF 정격의 온도 상승은 시트에 없다"
         },
         {
-          "attribute": "primary_voltage", "value": "11", "unit": "kV",
-          "conditions": [], "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "attribute": "primary_voltage",
+          "value": "11",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.1",
           "source_value": "11 kV / 0.415 kV"
         },
         {
-          "attribute": "secondary_voltage", "value": "415", "unit": "V",
-          "conditions": [], "evidence_id": "DS-TRF-DRY-630", "section": "2.1",
+          "attribute": "secondary_voltage",
+          "value": "415",
+          "unit": "V",
+          "conditions": [],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.1",
           "source_value": "11 kV / 0.415 kV",
           "note": "0.415 kV를 V 단위로 옮김"
         },
         {
-          "attribute": "impedance", "value": "6", "unit": "%",
-          "conditions": [{"name": "reference_temperature", "value": "120", "unit": "°C"}],
-          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "attribute": "vector_group",
+          "value": "Dyn11",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.1",
+          "source_value": "Dyn11"
+        },
+        {
+          "attribute": "impedance",
+          "value": "6",
+          "unit": "%",
+          "conditions": [
+            {
+              "name": "reference_temperature",
+              "value": "120",
+              "unit": "°C"
+            }
+          ],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.2",
           "source_value": "6% at 120 °C"
         },
         {
-          "attribute": "tap", "value": "±2×2.5%", "unit": null,
-          "conditions": [{"name": "tap_type", "value": "off-circuit"}],
-          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "attribute": "tap",
+          "value": "±2×2.5%",
+          "unit": null,
+          "conditions": [
+            {
+              "name": "tap_type",
+              "value": "off-circuit"
+            }
+          ],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.2",
           "source_value": "±2 x 2.5%",
           "note": "x를 ×로, 공백 제거"
         },
         {
-          "attribute": "insulation_class", "value": "F", "unit": null,
-          "conditions": [{"name": "temperature_rise", "value": "100", "unit": "K"}],
-          "evidence_id": "DS-TRF-DRY-630", "section": "2.2",
+          "attribute": "insulation_class",
+          "value": "F",
+          "unit": null,
+          "conditions": [
+            {
+              "name": "temperature_rise",
+              "value": "100",
+              "unit": "K"
+            }
+          ],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.2",
           "source_value": "Class F / 100 K"
         },
         {
-          "attribute": "warranty_months", "value": "24", "unit": "month", "conditions": [],
-          "evidence_id": "product_master", "section": "warranty_months",
-          "source_value": "warranty_months=24", "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "No-load loss",
+          "source_value": "1,300 W",
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Load loss at 120 °C",
+          "source_value": "6,500 W",
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Environmental / climatic / fire class",
+          "source_value": "E2 / C2 / F1",
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Winding temperature alarm / trip",
+          "source_value": "140 °C / 155 °C (PT100)",
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "2.5"
+        }
+      ]
+    },
+    {
+      "product_code": "TRF-OIL-1000",
+      "family": "TRANSFORMER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 60076-1",
+        "IEC 60076-2"
+      ],
+      "certifications": [
+        {
+          "standard": "IEC 60076",
+          "kind": "TEST_REPORT",
+          "evidence_id": "DS-TRF-OIL-1000"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "1000",
+          "unit": "kVA",
+          "conditions": [
+            {
+              "name": "cooling",
+              "value": "ONAN"
+            }
+          ],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.1",
+          "source_value": "1000 kVA (ONAN)"
+        },
+        {
+          "attribute": "primary_voltage",
+          "value": "11",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.1",
+          "source_value": "11 kV / 0.433 kV"
+        },
+        {
+          "attribute": "secondary_voltage",
+          "value": "433",
+          "unit": "V",
+          "conditions": [],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.1",
+          "source_value": "11 kV / 0.433 kV",
+          "note": "0.433 kV를 V 단위로 옮김"
+        },
+        {
+          "attribute": "vector_group",
+          "value": "Dyn11",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.1",
+          "source_value": "Dyn11"
+        },
+        {
+          "attribute": "impedance",
+          "value": "5",
+          "unit": "%",
+          "conditions": [
+            {
+              "name": "reference_temperature",
+              "value": "75",
+              "unit": "°C"
+            }
+          ],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.2",
+          "source_value": "5% at 75 °C"
+        },
+        {
+          "attribute": "tap",
+          "value": "±2×2.5%",
+          "unit": null,
+          "conditions": [
+            {
+              "name": "tap_type",
+              "value": "off-circuit"
+            }
+          ],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.2",
+          "source_value": "±2 x 2.5%",
+          "note": "x를 ×로, 공백 제거"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Insulating liquid",
+          "source_value": "Mineral oil (IEC 60296)",
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Top-oil temperature alarm / trip",
+          "source_value": "90 °C / 100 °C",
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.5"
+        },
+        {
+          "source_attribute": "Protection devices",
+          "source_value": "Buchholz relay, pressure relief device, oil & winding temperature indicators",
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.5"
+        },
+        {
+          "source_attribute": "No-load loss",
+          "source_value": "1,100 W",
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Load loss at 75 °C",
+          "source_value": "9,500 W",
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "2.3"
+        }
+      ]
+    },
+    {
+      "product_code": "METER-LP3500-3P4W",
+      "family": "METER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62053-22",
+        "IEC 61557-12"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "Modbus RTU (RS-485), Modbus TCP option",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.3",
+          "source_value": "Modbus RTU (RS-485), Modbus TCP option"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Accuracy class (active energy)",
+          "source_value": "Class 0.5S (IEC 62053-22)",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Voltage input",
+          "source_value": "3P4W 57.7-400 V L-N",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Current input",
+          "source_value": "CT secondary 5 A or 1 A",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Harmonic measurement",
+          "source_value": "Up to 31st order",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Data logging memory",
+          "source_value": "8 MB (approx. 1 year at 15-min interval)",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Auxiliary supply",
+          "source_value": "AC/DC 85-265 V",
+          "evidence_id": "DS-METER-LP3500-3P4W",
+          "section": "2.1"
+        }
+      ]
+    },
+    {
+      "product_code": "METER-LPB-DIN",
+      "family": "METER",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62053-21",
+        "EN 50470-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "MID",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "Modbus RTU (RS-485)",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-METER-LPB-DIN",
+          "section": "2.3",
+          "source_value": "Modbus RTU (RS-485)"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Accuracy class",
+          "source_value": "Class 1 (IEC 62053-21) / MID class B",
+          "evidence_id": "DS-METER-LPB-DIN",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Maximum current (direct connection)",
+          "source_value": "80 A",
+          "evidence_id": "DS-METER-LPB-DIN",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Wiring",
+          "source_value": "1P2W or 3P4W (model dependent)",
+          "evidence_id": "DS-METER-LPB-DIN",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Pulse output",
+          "source_value": "Open collector, 1000 imp/kWh",
+          "evidence_id": "DS-METER-LPB-DIN",
+          "section": "2.3"
+        }
+      ]
+    },
+    {
+      "product_code": "ESS-PCS-100kW",
+      "family": "ESS",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62477-1",
+        "IEC 62116",
+        "IEC 61000-6-2/-4"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "UL 1741 SB",
+          "kind": "MARK",
+          "evidence_id": "product_master",
+          "variant": "-U"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "100",
+          "unit": "kW",
+          "conditions": [],
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.1",
+          "source_value": "100 kW"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "Modbus TCP",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.3",
+          "source_value": "Modbus TCP"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "36",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=36",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "AC grid connection",
+          "source_value": "3-phase 400 V, 50/60 Hz",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "DC voltage range",
+          "source_value": "600-900 V",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Max efficiency",
+          "source_value": "97.5%",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Battery interface",
+          "source_value": "CAN 2.0B to BMS",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.3"
+        },
+        {
+          "source_attribute": "Anti-islanding",
+          "source_value": "IEC 62116 compliant",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Grid code profiles",
+          "source_value": "Selectable country profiles (parameter G-01)",
+          "evidence_id": "DS-ESS-PCS-100kW",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "ESS-BMS-V3",
+      "family": "ESS",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62619",
+        "UL 1973 (component)"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "communication_interface",
+          "value": "CAN 2.0B (PCS), Modbus TCP (EMS)",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.3",
+          "source_value": "CAN 2.0B (PCS), Modbus TCP (EMS)"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "36",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=36",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Cell chemistry",
+          "source_value": "LFP",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Cells monitored per rack",
+          "source_value": "Up to 240 cells in series",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Cell voltage accuracy",
+          "source_value": "±5 mV",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "SOC estimation accuracy",
+          "source_value": "±3%",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Cell over-voltage protection (default)",
+          "source_value": "3.65 V",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.4"
+        },
+        {
+          "source_attribute": "Cell over-temperature protection (default)",
+          "source_value": "55 °C",
+          "evidence_id": "DS-ESS-BMS-V3",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "PV-INV-SOLAR-25",
+      "family": "PV",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62109-1",
+        "IEC 62109-2",
+        "IEC 61727",
+        "IEC 62116"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "VDE-AR-N 4105",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "25",
+          "unit": "kW",
+          "conditions": [],
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.1",
+          "source_value": "25 kW"
+        },
+        {
+          "attribute": "protection_degree",
+          "value": "IP66",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.4",
+          "source_value": "IP66"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "RS-485 Modbus, Wi-Fi dongle option",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.3",
+          "source_value": "RS-485 Modbus, Wi-Fi dongle option"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "60",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=60",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Max DC input voltage",
+          "source_value": "1100 V",
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "MPPT voltage range",
+          "source_value": "200-1000 V",
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Number of MPPT / strings",
+          "source_value": "3 MPPT / 2 strings each",
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Max efficiency",
+          "source_value": "98.6%",
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Insulation resistance threshold (default)",
+          "source_value": "100 kΩ",
+          "evidence_id": "DS-PV-INV-SOLAR-25",
+          "section": "2.4"
+        }
+      ]
+    },
+    {
+      "product_code": "SWGR-MV-12kV",
+      "family": "MV_EQUIP",
+      "lifecycle_status": "ACTIVE",
+      "standards": [
+        "IEC 62271-200"
+      ],
+      "certifications": [
+        {
+          "standard": "KEMA",
+          "kind": "TEST_REPORT",
+          "evidence_id": "DS-SWGR-MV-12kV"
+        },
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_max_voltage",
+          "value": "12",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.1",
+          "source_value": "12 kV"
+        },
+        {
+          "attribute": "busbar_rated_current",
+          "value": "1250",
+          "unit": "A",
+          "conditions": [],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.1",
+          "source_value": "1250 A (up to 2500 A)",
+          "note": "기본값. 원문 '1250 A (up to 2500 A)'"
+        },
+        {
+          "attribute": "short_time_withstand_current",
+          "value": "25",
+          "unit": "kA",
+          "conditions": [
+            {
+              "name": "duration",
+              "value": "3",
+              "unit": "s"
+            }
+          ],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.2",
+          "source_value": "25 kA / 3 s"
+        },
+        {
+          "attribute": "internal_arc_classification",
+          "value": "IAC AFLR",
+          "unit": null,
+          "conditions": [
+            {
+              "name": "arc_current",
+              "value": "25",
+              "unit": "kA"
+            },
+            {
+              "name": "duration",
+              "value": "1",
+              "unit": "s"
+            }
+          ],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.2",
+          "source_value": "IAC AFLR 25 kA 1 s"
+        },
+        {
+          "attribute": "power_frequency_withstand",
+          "value": "28",
+          "unit": "kV",
+          "conditions": [
+            {
+              "name": "duration",
+              "value": "1",
+              "unit": "min"
+            }
+          ],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.2",
+          "source_value": "28 kV / 1 min"
+        },
+        {
+          "attribute": "bil",
+          "value": "75",
+          "unit": "kV",
+          "conditions": [],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.2",
+          "source_value": "75 kV"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Loss of service continuity",
+          "source_value": "LSC2B-PM",
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "2.2"
+        }
+      ]
+    },
+    {
+      "product_code": "UPS-LSU-10K",
+      "family": "UPS",
+      "lifecycle_status": "MATURE",
+      "standards": [
+        "IEC 62040-1",
+        "IEC 62040-3"
+      ],
+      "certifications": [
+        {
+          "standard": "CE",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        },
+        {
+          "standard": "KC",
+          "kind": "MARK",
+          "evidence_id": "product_master"
+        }
+      ],
+      "spec_facts": [
+        {
+          "attribute": "rated_power",
+          "value": "10",
+          "unit": "kVA",
+          "conditions": [],
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.1",
+          "source_value": "10 kVA / 9 kW",
+          "note": "원문 '10 kVA / 9 kW'의 첫 값"
+        },
+        {
+          "attribute": "communication_interface",
+          "value": "RS-232, USB, SNMP card slot",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.3",
+          "source_value": "RS-232, USB, SNMP card slot"
+        },
+        {
+          "attribute": "warranty_months",
+          "value": "24",
+          "unit": "month",
+          "conditions": [],
+          "evidence_id": "product_master",
+          "section": "warranty_months",
+          "source_value": "warranty_months=24",
+          "note": "제품 마스터의 표준 보증 개월 수(상업 조건 비교용)"
+        }
+      ],
+      "unmapped_facts": [
+        {
+          "source_attribute": "Input / output",
+          "source_value": "1-phase 220/230/240 V, 50/60 Hz",
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Efficiency (online mode)",
+          "source_value": "94%",
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Transfer time (mains to battery)",
+          "source_value": "0 ms",
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.2"
+        },
+        {
+          "source_attribute": "Battery",
+          "source_value": "External, 16 x 12 V (192 V DC)",
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.1"
+        },
+        {
+          "source_attribute": "Input voltage window (default)",
+          "source_value": "176-276 V at full load",
+          "evidence_id": "DS-UPS-LSU-10K",
+          "section": "2.2"
         }
       ]
     }

@@ -1,4 +1,4 @@
-# RFP 자사 비교·네 가지 상태·보완 경로 (KAN-186 A05, 중간)
+# RFP 자사 비교·네 가지 상태·보완 경로 (KAN-186 A05)
 
 원본: `backend/api/tft/rfp/comparison.py`(비교·상태·혼동표), `backend/api/tft/rfp/supplement.py`(보완 경로), 자사 사양 `backend/api/tft/rfp/own_spec_facts.json`. 기획서(RFP 최종본 V_1) 4.2~4.4와 RFP API 명세 v1.3(2026-10-30) §2·§5를 따른다. **상태: 순수 함수와 시연 A 검사.** API 응답(`Comparison`·`SupplementOptions`)과 저장(`product_comparisons` 등)에 붙이는 일은 A07(KAN-188)이다.
 
@@ -64,9 +64,17 @@
 - 외부 경로(조달·위탁·공동 제안)는 RFP가 금지하면(`FORBIDDEN`) `allowed=false`·`blocked_reason`으로 남겨 추천하지 않는다. 허용 여부가 적혀 있지 않으면(`UNSTATED`) "발주처 확인" 확인 조건을 붙인다. 대체 사양은 늘 발주처 승인 조건이 붙는다.
 - 고를 수 있는 경로가 하나도 없으면 `NONE`(보류 의견과 해결할 조건)을 덧붙인다.
 
-## 자사 사양 (`own_spec_facts.json`)
+## 자사 사양 (`own_spec_facts.json`, 23종)
 
-제공 데이터 `ref/product_spec_facts.csv`·`product_master.csv`의 문장을 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이다. 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 예: `630 kVA (AN) / 880 kVA (AF)` → 강제 공랭 증가 39.7%(온도 상승 조건은 AN 기준 100 K뿐이라 조건 차이로 남음). 지금은 시연 A의 TRF-DRY-630만 있다. 23종 전체 정규화는 A07과 함께 한다. 실제 LS 제품 성능 자료가 아니다.
+`scripts/rfp_own_spec_facts.py --ref <제공 데이터 ref>`가 `ref/product_master.csv`(23종)·`product_spec_facts.csv`(169행)에서 만든다. 손으로 고치지 않는다(`--check`, 검사 `scripts/tests/test_rfp_own_spec_facts.py`는 원천이 있으면 결과 파일이 최신인지 본다). 협력사 프로필과 같은 열(속성·값·단위·조건·근거 ID·절)로 옮긴 파생값(`derivation_kind=DERIVED`)이고, 항목마다 원래 문장(`source_value`)과 바꾼 규칙(`note`)을 남긴다. 실제 LS 제품 성능 자료가 아니다.
+
+- **범위**: RFP 요구와 비교하는 정격·형식·통신·보호 속성만 정해진 이름·단위·조건으로 옮긴다. 원천 169행 중 58행을 옮겼고, 나머지 111행(손실·기계 수명·메모리 등)은 `unmapped_facts`에 원문으로 보존만 한다. 그런 요구는 근거 부족이 된다(미기재 ≠ 미충족).
+- **같은 숫자라도 다른 속성은 합치지 않는다**: 정격 사용 전압(Ue, `rated_operational_voltage`) ≠ 정격 최대전압(`rated_max_voltage`), 모선 정격 전류(`busbar_rated_current`) ≠ 정격 전류(`rated_current`), 단시간 내전류는 시간 조건(`duration`)을 함께 두고, IEC 내부 아크 등급(`internal_arc_classification`, 시험 전류·시간 조건)은 IEEE 아크 내성(`arc_resistant`)과 다르다. 차단 용량 Icu는 전압 조건(415 V AC)을 함께 둔다.
+- **여러 정격이 있으면** 가장 큰 값을 두고 `note`에 적는다(그 계열에서 고를 수 있는 상한).
+- **변압기**: `630 kVA (AN) / 880 kVA (AF)` → 정격 용량 630 kVA(냉각 AN)와 강제 공랭 증가 39.7%(온도 상승 조건은 같은 시트의 AN 기준 100 K뿐이라 조건 차이로 남음). 전압비는 1차(kV)·2차(V), 임피던스는 기준 온도 조건, 탭은 off-circuit 조건.
+- **인증**: 제품 마스터의 인증 목록. "Type test report (…)"·"KEMA type test report"는 시험 성적(`TEST_REPORT`, 근거는 데이터시트), 그 밖의 표시(UL·CE·KC·CB 등)는 등록·시험 구분이 적혀 있지 않아 **표시(`MARK`)**다. 비교는 표시만으로 충족을 확정하지 않고 조건부("인증 종류·적용 모델·유효성 확인")로 둔다(기획서 2.3 "사양표에 인증명이 있음"). "(-U variant)"는 변형 모델에만 있는 인증이다.
+- **상업 조건**: 제품 마스터의 표준 보증 개월 수(`warranty_months`).
+- 시연 A는 변압기 계열 2종(TRF-DRY-630, TRF-OIL-1000)을 후보로 비교하고, 14개 요구 모두 가장 좋은 후보는 TRF-DRY-630이다(상태는 그대로 14/14).
 
 ## 시연 A와 입출력 예시
 
@@ -84,4 +92,4 @@
 
 ## 남은 것 (KAN-186 완료 조건)
 
-- 자사 사양 23종 정규화(지금 `own_spec_facts.json`은 TRF-DRY-630뿐). 문서 해시 → 제품 코드 표는 제품 문서 색인 manifest에서 만든다(A07·KAN-199 처리 함수).
+- 없음(KAN-186 완료 조건 모두 반영). 이어지는 일: 문서 해시 → 제품 코드 표는 제품 문서 색인 manifest에서 만든다(KAN-199 처리 함수), HTTP·저장 연결은 A07(KAN-188).
