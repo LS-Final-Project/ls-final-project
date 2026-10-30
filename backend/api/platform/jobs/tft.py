@@ -268,4 +268,6 @@ async def admit(
         data = await admit_tft_job(conn, body)
     if not data.created:
         response.status_code = 200
+    else:
+        await request.app.state.jobs_dispatch_soon(request.app)
     return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))

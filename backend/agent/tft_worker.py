@@ -3,7 +3,7 @@
 플랫폼 전송(KAN-199 1/2)이 tft-worker Job을 `TFT_JOB_ID`=작업 ID로 실행한다. 이 모듈은 tft 이미지
 (SERVICE_NAME=tft)에서 돌므로 `backend.api.platform`·`backend.api.cs`를 import하지 않는다.
 
-- 게이트: local/test이고 `TFT_WORKER_ENABLED`(기본 꺼짐)일 때만. 로그인 역할은 `tft_worker` 멤버여야 한다.
+- 게이트: `TFT_WORKER_ENABLED`(기본 꺼짐)가 켜졌을 때만. 로그인 역할은 `tft_worker` 멤버여야 한다.
 - 소유권·이벤트는 `job_runtime`(C/S worker와 공통)이다. 처리 함수가 단계마다 emit을 부르면 소유권을 재검사·연장하고
   job.progress를 남긴다. 소유권을 잃으면 아무것도 쓰지 않고 멈추고(LEASE_LOST), 취소 요청이면 CANCELLED로 끝낸다.
 - 처리 함수가 정상 반환하면 SUCCEEDED다(needs_review여도 같다. PARTIAL은 쓰지 않는다). 예외는 FAILED와 고정
@@ -122,7 +122,7 @@ def execute_job(
         str: TFT_JOB_SUCCEEDED·TFT_JOB_CANCELLED·NOT_CLAIMED·LEASE_LOST. 실패는 작업을 FAILED로 남기고
             ApplicationError(고정 코드)를 올린다.
     """
-    if settings.environment not in {"local", "test"} or not worker.enabled:
+    if not worker.enabled:
         raise ApplicationError(503, "TFT_WORKER_DISABLED", "RFP worker is disabled.")
     with connect(settings) as conn:
         check_role(conn, "tft_worker")

@@ -55,8 +55,9 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 ## 전송 (KAN-199 1/2)
 
-- 전송 장부는 종류별로 열린다. rfp.* 행은 local/test에서 `TFT_JOBS_ENABLED`·`TFT_JOBS_PROCESSOR_CONNECTED`가 켜졌을 때만 확보하고, 그렇지 않으면 PENDING으로 남는다. 평가·C/S 전송은 rfp 행을 집지 않는다.
+- 전송 장부는 종류별로 열린다. rfp.* 행은 `TFT_JOBS_ENABLED`·`TFT_JOBS_PROCESSOR_CONNECTED`가 켜졌을 때만 확보하고(사용자 결정: 환경이 아니라 명시 설정으로만 연다, 평가는 local/test 잠금 그대로), 그렇지 않으면 PENDING으로 남는다. 평가·C/S 전송은 rfp 행을 집지 않는다.
 - 전송 직전 재검사는 C/S와 같은 `runtime.job_control` 규칙이다: 게이트, 작업 QUEUED·RUNNING, 취소 요청 없음, 살아 있는 worker lease 없음. 아니면 그 시도는 BLOCKED다.
+- 트리거(KAN-159, `jobs/sweep.py`): `JOBS_SWEEP_ENABLED`가 켜지면 Scheduler가 `POST /internal/v1/platform/jobs/dispatch`를 호출 계정 ID 토큰으로 부르고(호출당 최대 5건), 접수 직후에도 한 건을 먼저 보낸다. 접수 직후 전송 실패는 접수를 실패시키지 않는다. 결과가 `UNKNOWN`인 RFP·C/S 행의 자동 복구는 없다(`recovery`는 평가 전용): 그 프로젝트의 다음 접수가 409로 남는다.
 - Jobs 호출: `TFT_WORKER_JOBS_JOB`(기본 `tft-worker`)·`TFT_WORKER_JOBS_CONTAINER`, 환경 `TFT_JOB_ID`=작업 ID. `TFT_WORKER_JOBS_ENABLED`(기본 꺼짐)가 없으면 rfp 행을 확보하지 않는다. 프로젝트·리전·시간 제한은 평가 Jobs 설정(`EVALUATION_JOBS_*`)을 같이 쓴다.
 
 ## 상태 조회·SSE 접근 (KAN-199 1/2)
@@ -73,7 +74,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 플랫폼 전송이 tft 이미지의 `tft-worker` 대상(`python -m backend.agent.tft_worker`)을 `TFT_JOB_ID`=작업 ID로 실행한다. 이 이미지에는 `backend/api/platform`·`backend/api/cs`가 없다.
 
-- 게이트: local/test이고 `TFT_WORKER_ENABLED`(기본 꺼짐)일 때만 돈다. 아니면 `TFT_WORKER_DISABLED`다. `TFT_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
+- 게이트: `TFT_WORKER_ENABLED`(기본 꺼짐)가 켜졌을 때만 돈다. 아니면 `TFT_WORKER_DISABLED`다. `TFT_JOB_ID`는 표준 하이픈 UUID만 받는다(`INVALID_JOB_ID`).
 - DB: `DATABASE_URL` 하나(`tft_worker` 멤버 로그인). 앱·마이그레이터 역할 멤버이거나 특권 속성이 있으면 `WORKER_ROLE_REQUIRED`다. P29는 runtime 열 권한만 준다(jobs 조회 열·status UPDATE, job_events 열 INSERT, job_control SELECT와 취소 열을 뺀 UPDATE). tft 표 권한은 처리 함수 쪽 tft 마이그레이션이 준다.
 - 소유권(`runtime.job_control`, C/S worker와 공통 `job_runtime`)
   - 인수: owner가 tft이고 QUEUED이거나 lease가 끊긴 RUNNING이며 취소 요청이 없을 때만이다. generation+1·holder·lease(`TFT_WORKER_LEASE_SECONDS`, 기본 300초)·RUNNING·`job.started`. 아니면 `NOT_CLAIMED`다.

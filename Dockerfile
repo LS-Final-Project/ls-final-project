@@ -41,12 +41,12 @@ FROM runtime AS evaluation-worker
 ENTRYPOINT ["python", "-m", "backend.api.platform.evaluations.job_worker"]
 CMD []
 
-# C/S 문의 처리 Job 이미지(KAN-194). SERVICE_NAME=cs로 빌드한다. production 잠금은 코드에서 유지한다.
+# C/S 문의 처리 Job 이미지(KAN-194). SERVICE_NAME=cs로 빌드한다. CS_WORKER_ENABLED를 켜야 돈다.
 FROM runtime AS cs-worker
 ENTRYPOINT ["python", "-m", "backend.agent.cs_worker"]
 CMD []
 
-# RFP 처리 Job 이미지(KAN-199). SERVICE_NAME=tft로 빌드한다. production 잠금은 코드에서 유지한다.
+# RFP 처리 Job 이미지(KAN-199). SERVICE_NAME=tft로 빌드한다. TFT_WORKER_ENABLED를 켜야 돈다.
 FROM runtime AS tft-worker
 ENTRYPOINT ["python", "-m", "backend.agent.tft_worker"]
 CMD []

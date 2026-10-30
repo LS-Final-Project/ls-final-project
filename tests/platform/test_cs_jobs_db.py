@@ -128,8 +128,15 @@ def test_only_the_cs_caller_can_admit(client, jobs_database, body, headers):
 
 def test_admission_stores_job_event_dispatch_intent_and_control(client, jobs_database, body):
     """접수는 QUEUED 작업·job.queued·전송 의도·제어 행을 함께 만들고, 같은 요청 재전송은 그 작업이다."""
+    sent = []
+
+    async def soon(app):
+        sent.append(app)
+
+    client.app.state.jobs_dispatch_soon = soon
     first = client.post(URL, json=body, headers=GOOD)
     assert first.status_code == 201
+    assert len(sent) == 1
     data = first.json()["data"]
     assert data["status_url"] == f"/api/v1/platform/jobs/{data['job_id']}"
     assert (data["ticket_id"], data["status"], data["created"]) == (
