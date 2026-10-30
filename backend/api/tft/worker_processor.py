@@ -655,6 +655,10 @@ async def store_requirements(
                 "designated_model",
                 "designated_manufacturer",
                 "assembly_clause",
+                "tolerance",
+                "needs_review",
+                "attribute_key",
+                "equipment_family",
                 "conditions",
             }
         )

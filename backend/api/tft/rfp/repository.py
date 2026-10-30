@@ -848,7 +848,8 @@ async def insert_requirement(
         document_version: 원문 문서 판본 행.
         clause: 원문 조항 행(없으면 None).
         spec: quote·equipment·task·attribute·value·unit·operator·standard_system·necessity·designated_model·
-            designated_manufacturer·assembly_clause·conditions(name·value·unit 목록).
+            designated_manufacturer·assembly_clause·tolerance·needs_review·attribute_key·
+            equipment_family·conditions(name·value·unit 목록).
         judgement: status·reason·unresolved·next_owner.
 
     Returns:
@@ -864,9 +865,11 @@ async def insert_requirement(
     await conn.execute(
         "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
         "clause_id, page, quote, equipment, task, attribute, value, unit, operator, standard_system, "
-        "necessity, designated_model, designated_manufacturer, assembly_clause, status, reason, "
-        "unresolved, next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "necessity, designated_model, designated_manufacturer, assembly_clause, tolerance, "
+        "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
+        "next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
+        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        "'ai_draft',%s,'DERIVED',now())",
         (
             requirement_id,
             document_version["id"],
@@ -884,6 +887,10 @@ async def insert_requirement(
             spec["designated_model"],
             spec["designated_manufacturer"],
             spec["assembly_clause"],
+            spec["tolerance"],
+            spec["needs_review"],
+            spec["attribute_key"],
+            spec["equipment_family"],
             judgement["status"],
             judgement["reason"],
             Jsonb(list(judgement["unresolved"])),

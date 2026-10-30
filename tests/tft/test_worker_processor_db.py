@@ -696,3 +696,41 @@ def test_a_draft_stays_clause_only_when_the_requirement_is_not_settled():
     same = (a, item("2.1.A", "voltage <Insert value> kV"))
     assert draft_requirement(source, [same, other_quote]) == a
     assert draft_requirement(source, [same, (b, same[1])]) is None
+
+
+def test_the_semantic_fields_are_stored_with_the_requirement_version(worker_dsn, admin, tmp_path):
+    """KAN-188(T15): 허용 오차·검토 표시·속성 키·계열을 판본에 저장한다(값은 원문 그대로)."""
+    quote = "The impedance shall be 5.75 percent ±10%."
+    wanted = {
+        **placeholder("2.1.A", quote),
+        "attribute": "impedance",
+        "attribute_key": "impedance",
+        "value": "5.75",
+        "unit": "%",
+        "tolerance": "±10%",
+    }
+    missing = "The BIL shall be 95 kV +/- 5."
+    without = {
+        **wanted,
+        "clause_no": "2.1.B",
+        "quote": missing,
+        "attribute_key": "bil",
+        "value": "95",
+        "unit": "kV",
+        "tolerance": None,
+        "equipment_family": "OTHER",
+    }
+    project = make_project(admin, tmp_path, spec_of(quote, missing))
+    run(worker_dsn, project, OneResponse([wanted, without]))
+    with psycopg.connect(admin) as conn:
+        rows = conn.execute(
+            "SELECT v.value, v.tolerance, v.needs_review, v.attribute_key, v.equipment_family "
+            "FROM tft.requirement_versions v JOIN tft.requirements r ON r.id = v.requirement_id "
+            "WHERE r.project_id=%s ORDER BY v.value",
+            (project["project"],),
+        ).fetchall()
+    assert rows == [
+        ("5.75", "±10%", False, "impedance", "TRANSFORMER"),
+        # 인용에 허용 오차 표기가 있는데 칸이 비면 코드가 검토로 둔다.
+        ("95", None, True, "bil", "OTHER"),
+    ]
