@@ -11,6 +11,7 @@ import json
 import logging
 import multiprocessing
 import socket
+import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -170,7 +171,15 @@ def stop_child(process: Any) -> None:
                 logging.getLogger(__name__).error("NOTIFICATION_PUSH_CHILD_STOP_UNCONFIRMED")
                 warned = True
         except BaseException:
-            # Repeated parent cancellation must not bypass the stop confirmation.
+            # Repeated cancellation must not bypass confirmation or busy-spin if
+            # a platform join implementation raises immediately. Keep the lock.
+            if not warned:
+                logging.getLogger(__name__).error("NOTIFICATION_PUSH_CHILD_STOP_UNCONFIRMED")
+                warned = True
+            try:
+                time.sleep(1)
+            except BaseException:
+                pass
             continue
         # Exceptional kernel/process-stop failure: fail closed while keeping the
         # caller's generation lock, rather than assume the child stopped sending.

@@ -1,7 +1,7 @@
 """Real encryption with a fake wire, and fake process deadlines; never connect externally."""
 
 import base64
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 from uuid import uuid4
 
 import pytest
@@ -271,3 +271,15 @@ def test_unknown_transport_has_no_retry_or_error_payload(monkeypatch):
     pipe = Mock()
     push_send.child_send(pipe, row(), config())
     pipe.send.assert_called_once_with(("UNKNOWN", 0))
+
+
+def test_repeated_parent_cancel_has_bounded_fake_wait_and_one_warning(monkeypatch, caplog):
+    process = Mock(pid=123)
+    process.is_alive.side_effect = [True, True, True, True, False, False]
+    process.join.side_effect = [KeyboardInterrupt(), KeyboardInterrupt(), None]
+    sleep = Mock()
+    monkeypatch.setattr(push_send.time, "sleep", sleep)
+    push_send.stop_child(process)
+    assert sleep.call_args_list == [call(1), call(1)]
+    assert caplog.text.count("NOTIFICATION_PUSH_CHILD_STOP_UNCONFIRMED") == 1
+    process.close.assert_called_once()
