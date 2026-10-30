@@ -22,6 +22,7 @@
      - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
      - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
+     - `assembly_clause`(v4): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true, 장비가 나열되기만 하면 false. 통합 책임 판별(`rfp/integration.py`)의 입력이다. 처리 흐름 연결은 후속이다
      - 어휘·계열은 `backend/engine/rfp/vocabulary.py` 단일 원본이다. 사양 사실 형식(`partners.schemas.Attribute`)도 같은 목록이고, 자사 사양 파일은 그 부분집합이다(검사가 확인)
      - 지시문은 목록과 '모르면 OTHER, 비슷한 말로 추측하지 않음'을 싣는다. 예시는 14번 문구를 쓰지 않는다
    - 명령문("Provide…", "Comply with…")도 요구로 읽는다.
