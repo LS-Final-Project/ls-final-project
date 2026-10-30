@@ -172,8 +172,11 @@ def deploy_drift(
     Returns:
         list[Issue]: 다른 값마다 DEPLOY_DIFFERS(deployed=배포값, adopted=코드 기본값).
     """
+    # 분류 전용 모델을 넣으면 분류는 공통 GEMINI_MODEL을 쓰지 않는다.
+    separate = deploy_setting("CS_WORKER_CLASSIFICATION_MODEL", script)
+    shared = ("draft",) if separate else ("classification", "draft")
     watched = [
-        ("GEMINI_MODEL", ("classification", "draft"), "model"),
+        ("GEMINI_MODEL", shared, "model"),
         ("CS_WORKER_CLASSIFICATION_MODEL", ("classification",), "model"),
         ("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", ("classification",), "max_output_tokens"),
         ("TFT_EXTRACTION_MODEL", ("rfp_extraction",), "model"),
