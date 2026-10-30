@@ -15,7 +15,7 @@
 import os
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -127,6 +127,15 @@ def summary(graph: Any, lease: Lease) -> dict[str, Any]:
     return values
 
 
+def review_notification(graph: Any, lease: Lease) -> Literal["cs.review_wait", "cs.safety"] | None:
+    """재작성·재개 후에도 실제 최종 human_review 정지만 알린다. 분류 실패 END는 제외한다."""
+    checkpoint = graph.get_state(thread_config(str(lease.job_id)))
+    if tuple(checkpoint.next) != (HUMAN_REVIEW,):
+        return None
+    classification = checkpoint.values.get("classification") or {}
+    return "cs.safety" if classification.get("urgency_flag") == "SAFETY" else "cs.review_wait"
+
+
 def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheckpointSaver) -> Any:
     """Gemini 공급자와 cs FTS 검색기(CS_VECTOR_SEARCH_ENABLED면 벡터 검색기도)로 그래프를 만든다.
 
@@ -216,7 +225,13 @@ def execute_job(
             ):
                 finish(settings, lease, "CANCELLED", {})
                 return "CS_JOB_CANCELLED"
-            finish(settings, lease, "SUCCEEDED", summary(graph, lease))
+            finish(
+                settings,
+                lease,
+                "SUCCEEDED",
+                summary(graph, lease),
+                notification_kind=review_notification(graph, lease),
+            )
             return "CS_JOB_SUCCEEDED"
     except LeaseLost:
         return "LEASE_LOST"
