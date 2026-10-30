@@ -366,7 +366,10 @@ P30은 운영자 연결에서 `CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION 
 
 P30 뒤 `python3 scripts/workspace.py migrate platform 20261102_KAN-201_web_push.sql`을 적용한다.
 재실행은 기존 구독·전송 장부·PK/FK를 보존하고 신규 표 권한만 재설정한다. platform_app만 구독을
-조회/등록/삭제하고 장부를 생성·갱신한다. cs_app/tft_app 및 worker에는 신규 권한이 없다.
+조회/등록/삭제하고 장부를 생성·갱신한다. 구독의 `lock_marker` 비업무 열 UPDATE만 추가 허용하여
+PostgreSQL `FOR UPDATE` 권한 요구를 충족한다. 구독 id/소유권/endpoint/키/생성 시각 UPDATE는
+허용하지 않고 기존 세대 잠금과 DELETE+INSERT 교체를 유지한다. 재적용은 누락 열을 추가하고
+기존 구독 열 ACL도 회수 후 이 최소 권한만 재부여한다. cs_app/tft_app 및 worker에는 신규 권한이 없다.
 실제 DB/역할/재적용 검사는 CI 전용 DB로 확인하며 여기의 미확인은 적용 성공을 뜻하지 않는다.
 
 운영자 준비 순서(코딩 에이전트 실행 금지): O2 `infra/setup_notification_push.sh --prepare-identities`

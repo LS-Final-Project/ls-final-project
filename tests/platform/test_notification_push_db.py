@@ -225,3 +225,85 @@ def test_no_push_for_past_read_or_inactive(push_db, case):
         pytest.fail("Ineligible push must not be sent")
 
     assert asyncio.run(push_worker.run(settings, config(), sender=sender)) == 0
+
+
+def test_platform_app_lock_attempt_fake_send_and_reapply_preserve_generation(push_db):
+    dsn, settings, users, intent = push_db
+
+    async def register():
+        async with connection(settings) as conn:
+            role = await (await conn.execute("SELECT current_user AS role")).fetchone()
+            assert role["role"] == "platform_app"
+            await push_repository.subscribe(conn, users[0], ENDPOINT, PUBLIC, AUTH)
+            return await (
+                await conn.execute(
+                    "SELECT * FROM notify.push_subscriptions WHERE endpoint=%s", (ENDPOINT,)
+                )
+            ).fetchone()
+
+    original = asyncio.run(register())
+    seed(dsn, users[0], intent)
+    sends = []
+
+    def sender(row, push):
+        # Reaching the fake sender requires the actual platform_app connection to
+        # successfully execute lock_attempt's FOR UPDATE OF s,d first.
+        assert row["id"] == intent and row["endpoint"] == ENDPOINT
+        sends.append(row)
+        return "SENT", 0
+
+    assert asyncio.run(push_worker.run(settings, config(), sender=sender)) == 1
+    sql = "\n".join(
+        line for line in MIGRATION.read_text().splitlines() if not line.startswith("\\")
+    )
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as conn:
+        conn.execute(sql)
+        conn.execute(sql)
+        row = conn.execute(
+            "SELECT * FROM notify.push_subscriptions WHERE id=%s", (original["id"],)
+        ).fetchone()
+        assert row == original
+        delivery = conn.execute(
+            "SELECT subscription_id,status,attempts FROM notify.push_deliveries WHERE intent_id=%s",
+            (intent,),
+        ).fetchone()
+        assert delivery == {"subscription_id": original["id"], "status": "SENT", "attempts": 1}
+    assert asyncio.run(push_worker.run(settings, config(), sender=sender)) == 0
+    assert len(sends) == 1
+
+
+def test_platform_app_update_is_only_nonbusiness_lock_marker_after_reapply(push_db):
+    dsn, settings, users, _ = push_db
+    sql = "\n".join(
+        line for line in MIGRATION.read_text().splitlines() if not line.startswith("\\")
+    )
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        # An old column ACL must not survive table-level REVOKE on reapplication.
+        conn.execute("GRANT UPDATE(auth,user_id) ON notify.push_subscriptions TO platform_app")
+        conn.execute(sql)
+        conn.execute(sql)
+
+    async def check():
+        async with connection(settings) as conn:
+            await push_repository.subscribe(conn, users[0], ENDPOINT, PUBLIC, AUTH)
+            assert await (
+                await conn.execute(
+                    "SELECT has_table_privilege(current_user,'notify.push_subscriptions','UPDATE') AS broad"
+                )
+            ).fetchone() == {"broad": False}
+            cursor = await conn.execute(
+                "UPDATE notify.push_subscriptions SET lock_marker=lock_marker WHERE endpoint=%s",
+                (ENDPOINT,),
+            )
+            assert cursor.rowcount == 1
+        for column in ("id", "user_id", "endpoint", "p256dh", "auth", "created_at"):
+            async with connection(settings) as conn:
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    await conn.execute(
+                        SQL("UPDATE notify.push_subscriptions SET {}={} WHERE endpoint=%s").format(
+                            Identifier(column), Identifier(column)
+                        ),
+                        (ENDPOINT,),
+                    )
+
+    asyncio.run(check())

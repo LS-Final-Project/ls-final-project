@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS notify.push_subscriptions (
     auth text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+-- PostgreSQL row-lock clauses require UPDATE on at least one column. Keep this
+-- permission on a dedicated non-business marker, never owner/key/generation fields.
+ALTER TABLE notify.push_subscriptions ADD COLUMN IF NOT EXISTS lock_marker boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS notify.push_deliveries (
     intent_id uuid NOT NULL REFERENCES notify.notification_intents(id),
     subscription_id uuid NOT NULL REFERENCES notify.push_subscriptions(id) ON DELETE CASCADE,
@@ -23,7 +26,12 @@ CREATE INDEX IF NOT EXISTS push_deliveries_pending ON notify.push_deliveries(nex
     WHERE status='PENDING';
 REVOKE ALL ON notify.push_subscriptions,notify.push_deliveries
     FROM PUBLIC,cs_app,tft_app,cs_worker,tft_worker,platform_app;
+-- Table REVOKE does not clear column ACLs: reapplication must also remove old
+-- column grants before restoring exactly the supported subscription permissions.
+REVOKE ALL(id,user_id,endpoint,p256dh,auth,created_at,lock_marker) ON notify.push_subscriptions
+    FROM PUBLIC,cs_app,tft_app,cs_worker,tft_worker,platform_app;
 GRANT SELECT,INSERT,DELETE ON notify.push_subscriptions TO platform_app;
+GRANT UPDATE(lock_marker) ON notify.push_subscriptions TO platform_app;
 GRANT SELECT,INSERT ON notify.push_deliveries TO platform_app;
 GRANT UPDATE(status,attempts,started_at,next_attempt_at) ON notify.push_deliveries TO platform_app;
 COMMIT;

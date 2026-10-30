@@ -133,6 +133,12 @@ platform_app의 기존 메일 metadata SELECT와 P30의 notify INSERT 열 권한
 교체한다. 제공 endpoint의 소유권은 현재 세션으로 이동한다(동일 브라우저 계정 전환 계약).
 다른 사용자의 endpoint 조회/삭제는 제공하지 않는다.
 
+platform_app은 구독 표 SELECT/INSERT/DELETE와 `UPDATE(lock_marker)`만 가진다.
+`lock_marker`는 PostgreSQL `FOR UPDATE`의 열 권한 요구를 충족하는 비업무 메타데이터이며
+발송/등록 코드가 그 값을 갱신하지 않는다. id/user_id/endpoint/p256dh/auth/created_at UPDATE는
+허용하지 않는다. 세대 교체는 기존 DELETE+INSERT이며 발송의 `FOR UPDATE OF s,d`를 유지한다.
+P31 재적용은 기존 행을 보존하고 이 최소 열 권한을 다시 설정한다.
+
 ### 요청 밖 발송과 중복/실패
 
 Scheduler는 Google OIDC의 고정 audience 및 지정 실행 계정으로만
