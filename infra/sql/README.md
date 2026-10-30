@@ -54,7 +54,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 50개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 60개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -84,6 +84,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C17 | `cs/20261031_KAN-193_return_responsibility.sql` | C5·C11(헤더) | cs_migrator | 가능 | 열 `cs.ticket_workflows.return_responsibility` | 미확인 |
 | C18 | `cs/20261101_KAN-107_worker_source.sql` | C10·C12·C13·C14(헤더) | 관리자(역할 생성) → cs_migrator | 가능 | 열 `cs.ticket_customer_sends.requested_info_codes` | 미확인 |
 | C19 | `cs/20261102_KAN-107_attempt_usage.sql` | C14·C18(헤더) | cs_migrator | 가능 | 열 `cs.ticket_analyses.cost_usd` | 미확인 |
+| C20 | `cs/20261103_KAN-99_chunk_embeddings.sql` | C10·C18, pgvector 확장(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | to_regclass('cs.chunk_embeddings') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |

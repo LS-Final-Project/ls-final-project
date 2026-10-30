@@ -22,6 +22,8 @@ def cs_database():
         pytest.skip("전용 PostgreSQL 검사는 AUTH_TEST_DATABASE_URL이 필요합니다.")
     with psycopg.connect(dsn, autocommit=True) as conn:
         assert conn.info.dbname == "kan77_auth_test", "전용 테스트 DB만 사용할 수 있습니다."
+        # C20(chunk_embeddings)의 vector(768). 운영처럼 관리자가 설치하고 마이그레이션은 만들지 않는다.
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         for role in ("cs_migrator", "cs_app"):
             if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
                 conn.execute(SQL("CREATE ROLE {} NOLOGIN").format(Identifier(role)))
