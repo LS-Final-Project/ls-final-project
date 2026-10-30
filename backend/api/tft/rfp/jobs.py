@@ -15,6 +15,9 @@ from typing import Any, Literal, Self
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
+from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_run_annotations, can_run_processing
@@ -122,6 +125,10 @@ async def admit(
     Returns:
         s.JobAccepted: 작업 ID·상태·상태 경로. 같은 키 재전송이면 기존 작업이다.
     """
+    operation: commands.Operation = (
+        "project.process" if kind == "rfp.process" else "annotation.process"
+    )
+    digest = commands.request_hash({"project_id": project_id}, payload.model_dump(mode="json"))
     async with connection(request.app.state.settings) as conn:
         project = await visible_project(
             conn, principal, project_id, "TFT_PROJECT_NOT_FOUND", "The project was not found."
@@ -129,22 +136,15 @@ async def admit(
         allowed = can_run_processing if kind == "rfp.process" else can_run_annotations
         if not allowed(principal, project):
             raise HTTPException(403)
-        if isinstance(payload, s.ProcessRequest):
-            wanted = payload.document_version_ids
-            versions = await repository.project_document_versions(conn, project_id, wanted)
-            if not versions:
-                raise invalid("document_version_ids", "no document in the project")
-            if wanted and len(versions) != len(set(wanted)):
-                raise invalid("document_version_ids", "not in the project")
-            if payload.reason is None and await repository.has_requirements(conn, project_id):
-                raise ApplicationError(
-                    422, "TFT_REASON_REQUIRED", "Give a reason to process the project again."
-                )
+        # 같은 키를 이미 접수했으면 입력 검사를 다시 하지 않는다(그 사이 요구가 생겨도 재전송은 기존 작업이다).
+        # 다른 본문이면 여기서 409 IDEMPOTENCY_CONFLICT다.
+        known = await commands.replay(
+            conn, actor=principal.user_id, operation=operation, key=key, digest=digest
+        )
+        if known is not None:
+            frozen = known[1]["input_version"]
         else:
-            wanted = [payload.document_version_id, payload.base_document_version_id]
-            versions = await repository.project_document_versions(conn, project_id, wanted)
-            if len(versions) != len(set(wanted)):
-                raise invalid("document_version_id", "not in the project")
+            frozen = input_version(await check_inputs(conn, project_id, payload))
     client = getattr(request.app.state, "processing_jobs", None)
     if client is None:
         raise ApplicationError(503, NOT_CONNECTED, "RFP processing is not connected yet.")
@@ -152,14 +152,15 @@ async def admit(
         "actor_id": str(principal.user_id),
         "kind": kind,
         "project_id": str(project_id),
-        "input_version": input_version(versions),
+        "input_version": frozen,
         "idempotency_key": key,
-        "request_hash": commands.request_hash(
-            {"project_id": project_id}, payload.model_dump(mode="json")
-        ),
+        "request_hash": digest,
     }
     try:
         data = await client.post(TFT_JOBS, body)
+        accepted = s.JobAccepted.model_validate(
+            {k: data.get(k) for k in ("job_id", "status", "status_url")}
+        )
     except PlatformRejected as error:
         if error.code in PASSED_THROUGH.get(error.status, ()):
             raise ApplicationError(
@@ -168,10 +169,61 @@ async def admit(
         raise ApplicationError(
             503, "DEPENDENCY_UNAVAILABLE", "The platform did not accept the job."
         ) from None
-    except (PlatformUnreachable, PlatformUnknown):
+    except (PlatformUnreachable, PlatformUnknown, ValidationError):
+        # 2xx라도 본문을 읽을 수 없으면 접수 여부를 모르는 것과 같다.
         raise ApplicationError(
             503, "DEPENDENCY_UNAVAILABLE", "The platform did not answer the job request."
         ) from None
-    return s.JobAccepted.model_validate(
-        {k: data.get(k) for k in ("job_id", "status", "status_url")}
+    if known is None:
+        async with connection(request.app.state.settings) as conn:
+            try:
+                async with conn.transaction():
+                    await commands.remember(
+                        conn,
+                        actor=principal.user_id,
+                        operation=operation,
+                        key=key,
+                        digest=digest,
+                        project_id=project_id,
+                        status_code=202,
+                        result={**accepted.model_dump(mode="json"), "input_version": frozen},
+                    )
+            except UniqueViolation:
+                # 같은 키가 동시에 접수됐다. 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 그대로 둔다.
+                pass
+    return accepted
+
+
+async def check_inputs(
+    conn: AsyncConnection[dict[str, Any]],
+    project_id: UUID,
+    payload: s.ProcessRequest | s.AnnotationProcess,
+) -> list[UUID]:
+    """처음 접수하는 요청의 문서 판본·사유를 검사한다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        payload: 처리 요청 본문.
+
+    Returns:
+        list[UUID]: 처리할 문서 판본(입력 판본 계산용).
+    """
+    if isinstance(payload, s.AnnotationProcess):
+        wanted = [payload.document_version_id, payload.base_document_version_id]
+        versions = await repository.project_document_versions(conn, project_id, wanted)
+        if len(versions) != len(set(wanted)):
+            raise invalid("document_version_id", "not in the project")
+        return versions
+    versions = await repository.project_document_versions(
+        conn, project_id, payload.document_version_ids
     )
+    if not versions:
+        raise invalid("document_version_ids", "no document in the project")
+    if payload.document_version_ids and len(versions) != len(set(payload.document_version_ids)):
+        raise invalid("document_version_ids", "not in the project")
+    if payload.reason is None and await repository.has_requirements(conn, project_id):
+        raise ApplicationError(
+            422, "TFT_REASON_REQUIRED", "Give a reason to process the project again."
+        )
+    return versions

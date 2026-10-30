@@ -44,11 +44,12 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
   - 11: `document_version_ids`가 비면 프로젝트 문서마다 최신 판본을 처리한다. 프로젝트 밖 판본이 섞였거나 처리할 문서가 없으면 422 `VALIDATION_ERROR`다. 프로젝트에 요구가 이미 있으면(다시 처리하는 것이면) `reason`이 필요하고 없으면 422 `TFT_REASON_REQUIRED`다. tft는 `runtime.jobs`를 읽지 못하므로 '두 번째 실행'을 요구 유무로 판정한다.
   - 30: 두 판본이 모두 프로젝트 것이어야 한다(아니면 422).
 - **플랫폼 본문**: `actor_id`=요청 사용자, `kind`(`rfp.process`·`rfp.annotate`), `project_id`, `input_version`=정렬한 문서 판본 ID 목록 JSON의 SHA-256, `idempotency_key`=요청 헤더, `request_hash`=경로 ID와 본문의 정렬 JSON SHA-256. 호출은 tft 실행 계정 ID 토큰이다(`backend/shared/platform_jobs.py`. tft 이미지에 `backend/api/cs`가 없어 C/S 클라이언트와 같은 동작을 shared에 따로 둔다).
+- **재전송**: 플랫폼이 받은 접수는 `tft.rfp_commands`(`project.process`·`annotation.process`)에 키·본문 해시·입력 판본과 함께 남긴다. 같은 키·같은 본문이 다시 오면 입력 검사(사유·판본)를 다시 하지 않고 남긴 입력 판본으로 플랫폼을 부른다(첫 접수 뒤 요구가 생겨도 422가 아니라 기존 작업이다). 같은 키·다른 본문은 플랫폼을 부르지 않고 409 `IDEMPOTENCY_CONFLICT`다. 같은 키가 동시에 오면 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 둔다.
 - **응답**: 202 `JobAccepted{job_id, status, status_url}`. 같은 키 재전송도 202이고 `status`는 기존 작업의 지금 상태(플랫폼 6값)다.
 - **오류**
   - 플랫폼 409 `TFT_JOB_IN_PROGRESS`·`IDEMPOTENCY_CONFLICT`와 503 `TFT_PROCESSOR_NOT_CONNECTED`는 그대로 옮긴다.
   - tft 설정 `TFT_PROCESSING_ENABLED`(기본 꺼짐, `TFT_PROCESSING_PLATFORM_URL`=플랫폼 HTTPS origin)가 꺼져 있으면 플랫폼을 부르지 않고 503 `TFT_PROCESSOR_NOT_CONNECTED`다.
-  - 연결 실패·결과 모름·그 밖의 거절(예: 422 `JOB_ACTOR_UNKNOWN`)은 503 `DEPENDENCY_UNAVAILABLE`이다.
+  - 연결 실패·결과 모름·그 밖의 거절(예: 422 `JOB_ACTOR_UNKNOWN`), 2xx지만 접수 결과로 읽을 수 없는 본문은 503 `DEPENDENCY_UNAVAILABLE`이다.
 - 28 내보내기 접수는 초안 생성(A07) 뒤에 같은 틀로 붙인다.
 - 검사: `tests/tft/test_rfp_jobs_db.py`(가짜 플랫폼, `tft_app`).
 

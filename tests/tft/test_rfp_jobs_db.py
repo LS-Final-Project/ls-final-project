@@ -9,6 +9,7 @@ import json
 from uuid import uuid4
 
 import httpx
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -158,3 +159,56 @@ def test_processing_switched_off_is_not_connected(app_dsn, platform, chain):
     )
     assert error(process(off, chain, reason="재처리")) == (503, "TFT_PROCESSOR_NOT_CONNECTED")
     assert platform.bodies == []
+
+
+@pytest.fixture
+def fresh(admin):
+    """요구가 아직 없는 프로젝트와 문서 판본 하나."""
+    ids = {k: uuid4() for k in ("project", "document", "docver")}
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.projects (id, source, source_instance, data_origin, derivation_kind, "
+            "known_at, company_code, name, sales_user_id, responsible_user_id, review_departments) "
+            "VALUES (%s,'test','kan199','synthetic','PROVIDED',now(),'HOST','합성',%s,%s,%s)",
+            (ids["project"], SALES, uuid4(), ["RND_FW"]),
+        )
+        conn.execute(
+            "INSERT INTO tft.documents (id, project_id, kind, title, data_origin, derivation_kind, "
+            "known_at, created_by) VALUES (%s,%s,'RFP_SPEC','합성 규격서','synthetic','PROVIDED',now(),%s)",
+            (ids["document"], ids["project"], uuid4()),
+        )
+        conn.execute(
+            "INSERT INTO tft.document_versions (id, document_id, version, mime, storage_key, sha256, "
+            "size, edit_trace_support, data_origin, derivation_kind, known_at, uploaded_by) "
+            "VALUES (%s,%s,1,'text/markdown','k',%s,10,false,'synthetic','PROVIDED',now(),%s)",
+            (ids["docver"], ids["document"], "0" * 64, uuid4()),
+        )
+    return ids
+
+
+def test_a_resend_replays_even_after_requirements_appear(client, platform, fresh, admin):
+    """첫 접수(사유 없음) 뒤 요구가 생겨도 같은 키 재전송은 사유 검사 없이 기존 작업 202, 다른 본문은 409."""
+    first = process(client, fresh, key="process-fresh-1")
+    assert first.status_code == 202, first.text
+    job_id = first.json()["data"]["job_id"]
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, "
+            "known_at) VALUES (%s,%s,'R-1','synthetic','DERIVED',now())",
+            (uuid4(), fresh["project"]),
+        )
+    assert error(process(client, fresh)) == (422, "TFT_REASON_REQUIRED")
+    platform.answer = (200, {"data": {"job_id": job_id, "status": "SUCCEEDED"}})
+    again = process(client, fresh, key="process-fresh-1")
+    assert (again.status_code, again.json()["data"]["status"]) == (202, "SUCCEEDED")
+    assert platform.bodies[-1]["input_version"] == platform.bodies[0]["input_version"]
+    calls = len(platform.bodies)
+    changed = process(client, fresh, key="process-fresh-1", reason="본문이 다르다")
+    assert error(changed) == (409, "IDEMPOTENCY_CONFLICT")
+    assert len(platform.bodies) == calls
+
+
+def test_an_unreadable_platform_answer_is_unavailable(client, platform, chain):
+    """플랫폼 2xx 본문이 접수 결과로 읽히지 않으면 500이 아니라 503 DEPENDENCY_UNAVAILABLE."""
+    platform.answer = (201, {"data": {"job_id": str(uuid4()), "status": "SOMETHING"}})
+    assert error(process(client, chain, reason="재처리")) == (503, "DEPENDENCY_UNAVAILABLE")
