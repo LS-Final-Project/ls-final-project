@@ -337,6 +337,11 @@ def summarize_edit_traces(
     }
 
 
+# 등급 판정이 고객 목록 밖 제조사에 붙이는 확인 문구(grading._manufacturer). 이 문구가 있을 때만 manufacturer_list를
+# 표시한 것으로 본다(지정 모델 안내 같은 다른 확인 문구는 제조사 확인이 아니다, #318 리뷰 P3).
+MANUFACTURER_CONDITIONS = frozenset({"발주처 승인 필요", "목록 밖 제조사 허용 여부 확인 필요"})
+
+
 def unconfirmed_items(summary: Mapping, grades: Sequence[Mapping]) -> set[str]:
     """후보 하나가 화면에 '확인 필요'로 보이는 항목 이름(검토 후보 미확인 조건 표시 확인용).
 
@@ -352,9 +357,8 @@ def unconfirmed_items(summary: Mapping, grades: Sequence[Mapping]) -> set[str]:
         set[str]: 표시된 미확인 항목 이름.
     """
     names = {name for g in grades for name in g["mandatory_check"]["unknown"]}
-    if summary.get("on_customer_manufacturer_list") is False and summary.get(
-        "conditions_to_confirm"
-    ):
+    shown = set(summary.get("conditions_to_confirm") or ())
+    if summary.get("on_customer_manufacturer_list") is False and MANUFACTURER_CONDITIONS & shown:
         names.add("manufacturer_list")
     return names
 
@@ -593,7 +597,8 @@ def gate_values(
         # 게이트 값은 '필수 기술조건 확인 후보' 정밀도다. 정의의 나머지 절반(검토 후보 미확인 조건 표시)을 같이
         # 재지 않았으면 None이다. 표시 결과는 review_unconfirmed_listed로 따로 공개한다(게이트 정의 "따로 확인").
         "rfp_partner_recommendation_precision": grades["mandatory_confirmed_precision"]
-        if grades and grades.get("review_unconfirmed_listed") is not None
+        # 대상(정답·예측 모두 REVIEW) 후보가 0건이면 잰 것이 없으므로 None이다(#318 리뷰 P3).
+        if grades and (grades.get("review_unconfirmed_listed") or {}).get("rate") is not None
         else None,
         "rfp_integration_responsibility_rate": integration.get("rate")
         if integration and integration.get("denominator")

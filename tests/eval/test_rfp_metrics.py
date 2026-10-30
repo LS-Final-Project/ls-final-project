@@ -452,8 +452,9 @@ def test_integration_responsibility_counts_assembly_requirements_with_a_check_an
 def test_review_candidates_must_show_every_unconfirmed_item_of_the_gold():
     """검토 후보 미확인 조건 표시(KAN-191): 실제 등급 판정의 미확인 항목 이름을 정답 목록과 대조한다."""
     from backend.api.tft.partners.grading import RfpContext, grade_candidate
-    from eval.rfp_metrics import unconfirmed_items
+    from eval.rfp_metrics import MANUFACTURER_CONDITIONS, unconfirmed_items
     from tests.tft.test_partner_grading import DAY, MV, fact, profile
+    from tests.tft.test_partner_grading import req as grading_req
 
     context = RfpContext(
         manufacturer_list=["Listed Maker"],
@@ -486,6 +487,27 @@ def test_review_candidates_must_show_every_unconfirmed_item_of_the_gold():
     # 표시를 같이 쟀을 때만 게이트 값(필수 기술조건 확인 정밀도)이 나온다.
     assert result["mandatory_confirmed_count"] == "0/1"
     assert gate_values(None, result)["rfp_partner_recommendation_precision"] == 0.0
+    # 검토 후보 대상이 0건이면(0/0) 표시를 잰 것이 없으므로 게이트 값은 None이다.
+    none_review = summarize_candidate_grades(
+        {"B": {"P-A": "MANDATORY_CONFIRMED"}}, {"B": {"P-A": "MANDATORY_CONFIRMED"}}, {}, {}
+    )
+    assert none_review["review_unconfirmed_listed"]["count"] == "0/0"
+    assert gate_values(None, none_review)["rfp_partner_recommendation_precision"] is None
+    # 제조사 확인 문구가 아닌 확인 사항(지정 모델 안내)만 있으면 manufacturer_list로 세지 않는다.
+    designated_only = [grading_req(9, "relay", "SEL-751A", designated_model="SEL-751A")]
+    forbidden = context.model_copy(update={"off_list_permission": "FORBIDDEN"})
+    only, only_grades = grade_candidate(partner, designated_only, forbidden, DAY)
+    assert only.on_customer_manufacturer_list is False and only.conditions_to_confirm
+    dumped = [g.model_dump() for g in only_grades]
+    assert "manufacturer_list" not in unconfirmed_items(only.model_dump(), dumped)
+    # 등급 판정의 제조사 확인 문구가 MANUFACTURER_CONDITIONS와 같은지(문구가 바뀌면 여기서 걸린다).
+    for permission in ("ALLOWED", "UNSTATED"):
+        other = context.model_copy(update={"off_list_permission": permission})
+        made, _ = grade_candidate(partner, MV[:1], other, DAY)
+        assert (
+            set(made.conditions_to_confirm)
+            and set(made.conditions_to_confirm) <= MANUFACTURER_CONDITIONS
+        )
     # 정답 REVIEW 후보에 미확인 목록이 없으면 정답이 덜 만들어진 것이라 받지 않는다.
     with pytest.raises(ValueError, match="EVAL_INVALID_INPUT"):
         summarize_candidate_grades(gold, predicted, {"B": {"P-A": []}}, predicted_items)  # type: ignore[arg-type]
