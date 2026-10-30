@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from backend.engine.documents.model import CrossReference, DeletedValue
+from backend.engine.documents.model import DeletedValue
 from backend.engine.rfp.clauses import Clause, ClauseTree, TableDeleted
 from backend.engine.rfp.questions import generate_question_drafts
 from backend.engine.rfp.requirements import Condition, ExtractedRequirement
@@ -164,6 +164,10 @@ def test_same_family_form_difference_is_a_question_despite_equipment_wording() -
         ("0.4", "kV", "400", "V"),
         ("25", "percent", "25.0", "%"),
         ("1", "s", "1000", "ms"),
+        ("1", "MW", "1000000", "W"),
+        ("1", "MVA", "1000000", "VA"),
+        ("1e3", None, "1000.0", None),
+        ("1e-7", None, "0.0000001", None),
         ("Metal–Clad", None, "metal-clad", None),
     ],
 )
@@ -178,6 +182,85 @@ def test_equivalent_units_and_notation_are_not_conflicts(
         generate_question_drafts(
             tree(clause("A", a), clause("B", b)),
             [req("A", a, v1, unit=u1), req("B", b, v2, unit=u2)],
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(("left_unit", "right_unit"), [("mW", "MW"), ("mw", "MW"), ("mVA", "MVA")])
+@pytest.mark.parametrize("inline", [False, True])
+def test_case_sensitive_or_ambiguous_units_are_not_equivalent(
+    left_unit: str, right_unit: str, inline: bool
+) -> None:
+    a, b = f"Required: 1 {left_unit}.", f"Required: 1 {right_unit}."
+    left = req("A", a, f"1 {left_unit}" if inline else "1", unit=None if inline else left_unit)
+    right = req("B", b, f"1 {right_unit}" if inline else "1", unit=None if inline else right_unit)
+    output = generate_question_drafts(tree(clause("A", a), clause("B", b)), [left, right])
+    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+
+
+def test_case_sensitive_condition_units_do_not_match() -> None:
+    a, b = "Required: 800 A.", "Required: 1600 A."
+    assert (
+        generate_question_drafts(
+            tree(clause("A", a), clause("B", b)),
+            [
+                req("A", a, "800", conditions=[Condition(name="power", value="1", unit="mW")]),
+                req("B", b, "1600", conditions=[Condition(name="power", value="1", unit="MW")]),
+            ],
+        )
+        == []
+    )
+
+
+def test_unsupported_unit_keeps_literal_numeric_notation() -> None:
+    a, b = "Required: 1 mw.", "Required: 1.0 mw."
+    output = generate_question_drafts(
+        tree(clause("A", a), clause("B", b)),
+        [req("A", a, "1", unit="mw"), req("B", b, "1.0", unit="mw")],
+    )
+    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+
+
+def test_hyphenated_equipment_properties_are_not_identifiers() -> None:
+    a, b = "Required: 800 A.", "Required: 1600 A."
+    output = generate_question_drafts(
+        tree(clause("A", a), clause("B", b)),
+        [
+            req("A", a, "800", equipment="switchgear IP-54"),
+            req("B", b, "1600", equipment="switchgear IP-65"),
+        ],
+    )
+    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+
+
+@pytest.mark.parametrize(
+    ("current", "stale"),
+    [("1,125", "125"), ("1.25", "25"), ("1250", "125"), ("125.5", "125"), ("125,000", "125")],
+)
+def test_numeric_fragments_are_not_current_values(current: str, stale: str) -> None:
+    a, b = f"Required: {current} A.", "Required: 300 A."
+    t = tree(clause("A", a), clause("B", b))
+    assert generate_question_drafts(t, [req("A", a, stale), req("B", b, "300")]) == []
+    assert len(generate_question_drafts(t, [req("A", a, current), req("B", b, "300")])) == 1
+
+
+@pytest.mark.parametrize("text", ["Required: 125.", "Required,125, nominal.", "(125)."])
+def test_punctuation_around_whole_numeric_values_is_allowed(text: str) -> None:
+    b = "Required: 300."
+    output = generate_question_drafts(
+        tree(clause("A", text), clause("B", b)),
+        [req("A", text, "125", unit=None), req("B", b, "300", unit=None)],
+    )
+    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+
+
+def test_whitespace_value_is_not_comparable() -> None:
+    a, b = "Required: 125 A.", "Required: 300 A."
+    assert (
+        generate_question_drafts(
+            tree(clause("A", a), clause("B", b)),
+            [req("A", a, " \t "), req("B", b, "300")],
         )
         == []
     )
@@ -214,8 +297,8 @@ def test_explicit_different_equipment_ids_are_excluded() -> None:
         generate_question_drafts(
             tree(clause("A", a), clause("B", b)),
             [
-                req("A", a, "800", equipment="switchgear SWG-1"),
-                req("B", b, "1600", equipment="switchgear SWG-2"),
+                req("A", a, "800", equipment="switchgear tag SWG-1"),
+                req("B", b, "1600", equipment="switchgear tag SWG-2"),
             ],
         )
         == []
@@ -291,107 +374,6 @@ def test_stale_deleted_value_and_quote_are_excluded() -> None:
     assert generate_question_drafts(t, [req("A", a, "25"), req("B", b, "300")]) == []
     assert generate_question_drafts(t, [req("A", "Current: 25 A.", "25"), req("B", b, "300")]) == []
     assert len(generate_question_drafts(t, [req("A", a, "125"), req("B", b, "300")])) == 1
-
-
-@pytest.mark.parametrize(
-    "phrase", ["or approved equal", "with Owner approval", "subject to Owner approval"]
-)
-def test_alternative_without_process_or_materials_needs_question(phrase: str) -> None:
-    text = f"Provide the specified relay {phrase}."
-    output = generate_question_drafts(tree(clause("A", text)), [])
-    assert len(output) == 1 and output[0].kind == "APPROVAL_PROCESS"
-    assert output[0].sources[0].quote == text
-    assert "승인 요청 방법" in output[0].question and "제출 자료 목록" in output[0].question
-    assert "승인 완료가 아닙니다" in output[0].pre_reply_note
-
-
-@pytest.mark.parametrize("where", ["local", "ancestor", "child", "reference"])
-def test_relevant_approval_instructions_suppress_question(where: str) -> None:
-    instructions = (
-        "Submit datasheets and test reports to the Owner for approval before procurement."
-    )
-    base = clause("A", "Provide the specified relay or approved equal.")
-    extra: list[Clause] = []
-    if where == "local":
-        base = base.model_copy(update={"text": base.text + " " + instructions})
-    elif where == "ancestor":
-        base = base.model_copy(update={"parent_no": "P"})
-        extra = [clause("P", instructions)]
-    elif where == "child":
-        extra = [clause("A.1", instructions, parent_no="A")]
-    else:
-        base = base.model_copy(
-            update={
-                "cross_references": [
-                    CrossReference(
-                        text="see clause B",
-                        target_kind="CLAUSE",
-                        target_hint="B",
-                        resolved=True,
-                        target_block_id="B",
-                    )
-                ]
-            }
-        )
-        extra = [clause("B", instructions)]
-    assert generate_question_drafts(tree(base, *extra), []) == []
-
-
-def test_unrelated_sibling_procedure_does_not_hide_question() -> None:
-    t = tree(
-        clause("P", "Equipment requirements."),
-        clause("A", "Provide a relay or approved equal.", parent_no="P"),
-        clause("B", "Submit drawings for approval before installation.", parent_no="P"),
-    )
-    output = generate_question_drafts(t, [])
-    assert len(output) == 1 and output[0].sources[0].clause_no == "A"
-
-
-@pytest.mark.parametrize(
-    ("instructions", "missing", "present"),
-    [
-        ("Obtain Owner approval before procurement.", "제출 자료 목록", "승인 요청 방법"),
-        ("Provide datasheets and test reports.", "승인 요청 방법", "제출 자료 목록"),
-    ],
-)
-def test_only_missing_approval_information_is_requested(
-    instructions: str,
-    missing: str,
-    present: str,
-) -> None:
-    c = clause("A", "Provide a relay with Owner approval. " + instructions)
-    output = generate_question_drafts(tree(c), [])
-    assert len(output) == 1
-    assert missing in output[0].question and present not in output[0].question
-
-
-@pytest.mark.parametrize(
-    "instruction",
-    [
-        "Do not submit drawings for approval.",
-        "No need to submit datasheets for approval.",
-        "Submit drawings for approval; procedure and materials TBD.",
-        "Submit TBD drawings for approval.",
-        "Submit drawings for approval under a procedure to be defined.",
-        "Submit drawings for approval pending confirmation.",
-    ],
-)
-def test_negative_or_unconfirmed_instructions_do_not_suppress_question(instruction: str) -> None:
-    # 세미콜론 뒤의 미정 문구도 그 지시의 일부이므로 같은 문장에 유지한다.
-    text = "Provide a relay or approved equal. " + instruction
-    output = generate_question_drafts(tree(clause("A", text)), [])
-    approval = [d for d in output if d.kind == "APPROVAL_PROCESS"]
-    assert len(approval) == 1
-    assert "승인 요청 방법" in approval[0].question and "제출 자료 목록" in approval[0].question
-
-
-def test_confirmed_sentence_is_not_hidden_by_an_unrelated_tbd_sentence() -> None:
-    text = (
-        "Provide a relay or approved equal. Delivery date TBD. "
-        "Submit drawings for Owner approval before procurement."
-    )
-    output = generate_question_drafts(tree(clause("A", text)), [])
-    assert [d.kind for d in output] == ["PLACEHOLDER"]
 
 
 @pytest.mark.parametrize("change", [{"operator": "GTE"}, {"tolerance": "±5%"}])

@@ -12,55 +12,45 @@ from pydantic import BaseModel, ConfigDict
 from backend.engine.rfp.clauses import Clause, ClauseTree
 from backend.engine.rfp.requirements import ExtractedRequirement
 
-QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY", "APPROVAL_PROCESS"]
+QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY"]
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
-ALTERNATIVE = re.compile(
-    r"\bor\s+approved\s+equal\b|\b(?:with|subject\s+to)\s+(?:the\s+)?owner(?:'s)?\s+approval\b",
-    re.I,
-)
-# 단순 언급이 아니라 제출/승인 행동과 시점을 명시한 문장만 절차 근거로 쓴다.
-PROCEDURE = re.compile(
-    r"\bsubmit\b[^.;\n]*\bfor\s+(?:the\s+)?(?:owner(?:'s)?\s+)?approval\b|"
-    r"\b(?:obtain|request)\b[^.;\n]*\bapproval\b[^.;\n]*\b(?:before|prior|within)\b|"
-    r"\bapproval\b[^.;\n]*\b(?:before|prior|within)\b",
-    re.I,
-)
-MATERIALS = re.compile(
-    r"\b(?:submit|provide|attach|include)\b[^.;\n]*\b(?:data\s*sheets?|drawings?|"
-    r"test\s+reports?|certificates?|comparison\s+(?:tables?|sheets?)|technical\s+data)\b",
-    re.I,
-)
-UNCONFIRMED = re.compile(
-    r"\b(?:not|never|no|without|pending|undetermined|undefined|unspecified)\b|"
-    r"\bto\s+be\s+(?:defined|provided|confirmed|determined)\b",
-    re.I,
-)
 EQUIPMENT_ID = re.compile(
     r"\bunit\b\s*#?\s*([a-z]|\d+[a-z]?|[a-z]+-\d+[a-z0-9-]*)\b|"
     r"\btag\b\s*#?\s*([a-z0-9-]+)\b|"
-    r"\b(?:equipment|transformer|switchgear)\s*(?:no\.?|id|#)\s*([a-z0-9-]+)\b|"
-    r"\b([a-z]+-\d+[a-z0-9-]*)\b",
+    r"\b(?:equipment|transformer|switchgear)\s*(?:no\.?|id|#)\s*([a-z0-9-]+)\b",
     re.I,
 )
 # 이 질문 함수에서만 쓰는 좁은 환산 목록. RMS 등 수식어는 버리지 않는다.
 UNITS: dict[str, tuple[str, str]] = {
+    "V": ("V", "1"),
     "v": ("V", "1"),
+    "kV": ("V", "1000"),
     "kv": ("V", "1000"),
+    "A": ("A", "1"),
     "a": ("A", "1"),
+    "kA": ("A", "1000"),
     "ka": ("A", "1000"),
+    "VA": ("VA", "1"),
     "va": ("VA", "1"),
+    "kVA": ("VA", "1000"),
     "kva": ("VA", "1000"),
-    "mva": ("VA", "1000000"),
+    "MVA": ("VA", "1000000"),
+    "W": ("W", "1"),
     "w": ("W", "1"),
+    "kW": ("W", "1000"),
     "kw": ("W", "1000"),
-    "mw": ("W", "1000000"),
+    "MW": ("W", "1000000"),
     "s": ("s", "1"),
     "ms": ("s", "0.001"),
+    "Hz": ("Hz", "1"),
     "hz": ("Hz", "1"),
+    "kHz": ("Hz", "1000"),
     "khz": ("Hz", "1000"),
     "%": ("%", "1"),
     "percent": ("%", "1"),
+    "°C": ("°C", "1"),
     "°c": ("°C", "1"),
+    "degC": ("°C", "1"),
     "degc": ("°C", "1"),
     "mm": ("m", "0.001"),
     "cm": ("m", "0.01"),
@@ -85,34 +75,39 @@ class QuestionDraft(BaseModel):
     pre_reply_note: str
 
 
-def _norm(text: str | None) -> str:
-    return " ".join(unicodedata.normalize("NFKC", text or "").casefold().split()).translate(
-        str.maketrans("–—‑‐", "----")
-    )
+def _norm(text: str | None, *, preserve_case: bool = False) -> str:
+    normalized = unicodedata.normalize("NFKC", text or "")
+    if not preserve_case:
+        normalized = normalized.casefold()
+    return " ".join(normalized.split()).translate(str.maketrans("–—‑‐", "----"))
 
 
 def _quantity(value: str, unit: str | None) -> tuple[str, str]:
-    text = _norm(value)
+    text = _norm(value, preserve_case=True)
     # 정당한 천 단위 쉼표만 제거한다. 쉼표 소수·범위·복합 수치는 추측하지 않는다.
     text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
-    match = re.fullmatch(rf"({NUMBER})\s*([a-z%°]*)", text)
-    given_unit = _norm(unit)
+    match = re.fullmatch(rf"({NUMBER})\s*([a-zA-Z%°]*)", text)
+    given_unit = _norm(unit, preserve_case=True)
     if match:
         suffix = match[2]
         if not suffix or not given_unit or suffix == given_unit:
             effective = suffix or given_unit
-            dimension, scale = UNITS.get(effective, (effective, "1"))
+            if effective and effective not in UNITS:
+                return text, given_unit
+            dimension, scale = UNITS.get(effective, ("", "1"))
             try:
                 return str(Decimal(match[1]) * Decimal(scale)), dimension
             except DecimalException:
                 # 표현/환산할 수 없는 수치는 원래 문자열로 보수적으로 비교한다.
                 return text, given_unit
-    return text, given_unit
+    return (text if re.search(r"\d", text) else _norm(value)), given_unit
 
 
 def _same_quantity(left: tuple[str, str], right: tuple[str, str]) -> bool:
     if left[1] != right[1]:
         return False
+    if left[1] and left[1] not in {dimension for dimension, _ in UNITS.values()}:
+        return left[0] == right[0]
     if re.fullmatch(NUMBER, left[0]) and re.fullmatch(NUMBER, right[0]):
         try:
             return Decimal(left[0]) == Decimal(right[0])
@@ -162,45 +157,14 @@ def _eligible(req: ExtractedRequirement, clauses: dict[str, Clause]) -> bool:
         return False
     # 이전 추출 결과를 받아도 현행 본문에 없는 값은 사용하지 않는다.
     current = any(req.quote in text for text in _pieces(clause))
-    value_present = re.search(
-        r"(?<!\w)" + re.escape(_norm(req.value)) + r"(?!\w)", _norm(req.quote)
-    )
+    value = _norm(req.value)
+    if not value:
+        return False
+    # 쉼표/소수점으로 연결된 숫자 일부를 현행 값으로 사용하지 않는다.
+    start = r"(?<!\w)(?<!\d[.,])" if value[0] in "+-.0123456789" else r"(?<!\w)"
+    end = r"(?!\w)(?![.,]\d)" if value[-1] in ".0123456789" else r"(?!\w)"
+    value_present = re.search(start + re.escape(value) + end, _norm(req.quote))
     return current and value_present is not None
-
-
-def _confirmed_instruction(source: QuestionSource, pattern: re.Pattern[str]) -> bool:
-    # 문장 단위로 분리하여 다른 문장의 부정/미정 표기와 섞지 않는다.
-    return any(
-        pattern.search(sentence) is not None
-        and not UNCONFIRMED.search(sentence)
-        and not PLACEHOLDER.search(sentence)
-        for sentence in re.split(r"[.\n]+", source.quote)
-    )
-
-
-def _context(clause: Clause, clauses: dict[str, Clause]) -> list[Clause]:
-    selected = {clause.clause_no}
-    parent = clause.parent_no
-    while parent in clauses and parent not in selected:
-        selected.add(parent)
-        parent = clauses[parent].parent_no
-    # 대체 허용 조항의 하위만 포함한다. 상위의 다른 자식은 포함하지 않는다.
-    pending = [clause.clause_no]
-    while pending:
-        current = pending.pop()
-        for child in clauses.values():
-            if child.parent_no == current and child.clause_no not in selected:
-                selected.add(child.clause_no)
-                pending.append(child.clause_no)
-    # 포함 문맥에서 해결된 직접 참조만 따라간다(참조의 참조는 확장하지 않는다).
-    targets = {
-        ref.target_block_id
-        for no in selected
-        for ref in clauses[no].cross_references
-        if ref.target_kind == "CLAUSE" and ref.resolved and ref.target_block_id
-    }
-    selected.update(c.clause_no for c in clauses.values() if targets.intersection(c.block_ids))
-    return [c for c in clauses.values() if c.clause_no in selected]
 
 
 def generate_question_drafts(
@@ -213,7 +177,7 @@ def generate_question_drafts(
         requirements: 현행 조항에서 추출한 요구. 없는 조항·오래된 인용은 제외한다.
 
     Returns:
-        list[QuestionDraft]: 자리표시자, 조항 간 불일치 후보, 대체 승인 절차 질문 순서의 초안.
+        list[QuestionDraft]: 자리표시자, 조항 간 불일치 후보 순서의 초안.
             미정 항목은 회신 전 판정 제외 메모를 포함한다. 자동 판정·승인은 하지 않는다.
     """
     clauses = {c.clause_no: c for c in tree.clauses}
@@ -267,29 +231,4 @@ def generate_question_drafts(
             )
         )
 
-    for clause in tree.clauses:
-        local = [s for s in _sources(clause) if ALTERNATIVE.search(s.quote)]
-        if not local:
-            continue
-        context = [s for c in _context(clause, clauses) for s in _sources(c)]
-        procedure = [s for s in context if _confirmed_instruction(s, PROCEDURE)]
-        materials = [s for s in context if _confirmed_instruction(s, MATERIALS)]
-        missing = []
-        if not procedure:
-            missing.append("승인 요청 방법·담당자·시점")
-        if not materials:
-            missing.append("제출 자료 목록")
-        if missing:
-            evidence = list(
-                dict.fromkeys((s.clause_no, s.quote) for s in [*local, *procedure, *materials])
-            )
-            drafts.append(
-                QuestionDraft(
-                    kind="APPROVAL_PROCESS",
-                    sources=[QuestionSource(clause_no=no, quote=quote) for no, quote in evidence],
-                    question="대체품 검토를 위한 " + " 및 ".join(missing) + "을 알려 주시겠습니까?",
-                    pre_reply_note="대체 허용은 승인 완료가 아닙니다. 회신 및 고객 승인 전까지 "
-                    "승인 여부는 미정으로 유지합니다. 참조 문서의 누락 여부도 확인합니다.",
-                )
-            )
     return drafts
