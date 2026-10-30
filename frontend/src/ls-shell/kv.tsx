@@ -55,13 +55,15 @@ export type KvColumn<T> = {
 
 // 표. label은 스크린 리더용 이름이고, rows가 비면 fallback을 표 안에 보여 준다.
 // frozen은 앞 세 열(선택·번호·문서번호)을 고정하는 C/S 목록 배치이고 기본은 고정하지 않는다.
-export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = false }: {
+export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = false, selectedKey }: {
   label: string;
   columns: KvColumn<T>[];
   rows: readonly T[];
   rowKey: (row: T) => string;
   fallback: ReactNode;
   frozen?: boolean;
+  // 고른 행을 표시한다. 행을 고르는 동작은 셀 안의 버튼이 맡는다(키보드 접근).
+  selectedKey?: string;
 }) {
   return <div className="kv-tablewrap">
     <table className={frozen ? 'kv-grid' : 'kv-grid free'} aria-label={label}>
@@ -70,7 +72,7 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
       <tbody>
         {rows.length === 0
           ? <tr><td colSpan={columns.length}>{fallback}</td></tr>
-          : rows.map(row => <tr key={rowKey(row)}>
+          : rows.map(row => <tr key={rowKey(row)} className={rowKey(row) === selectedKey ? 'sel' : undefined}>
             {columns.map(c => <td key={c.key} className={c.className}>{c.cell(row)}</td>)}
           </tr>)}
       </tbody>

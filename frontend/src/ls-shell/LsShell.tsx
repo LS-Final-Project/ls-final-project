@@ -38,6 +38,7 @@ function tabName(pathname: string) {
   if (pathname === '/cs/tickets') return '문의 조회';
   if (pathname.startsWith('/cs/tickets/')) return '문의 처리';
   if (pathname === '/tft/projects') return '프로젝트 목록';
+  if (pathname.endsWith('/table')) return '자사 대응표';
   if (pathname.startsWith('/tft/projects/')) return '프로젝트';
   return 'C/S 관리';
 }
