@@ -347,7 +347,8 @@ def test_worker_runs_the_real_processor_end_to_end(
     status, released, failure, events = snapshot(jobs_database, job_id)
     assert (status, released, failure) == ("SUCCEEDED", True, None)
     progress = [payload["step"] for kind, payload in events if kind == "job.progress"]
-    assert progress == ["parse", "extract", *STEPS[1:]]  # extract는 절마다
+    # extract는 모델 호출마다·절마다 남는다(절 2개, 호출 2번).
+    assert progress == ["parse", *["extract"] * 4, *STEPS[2:]]
     assert events[-1][1]["counts"] == {"requirements": 3, "proposals": 0}
     with psycopg.connect(admin) as conn:
         assert conn.execute(

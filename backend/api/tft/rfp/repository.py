@@ -675,17 +675,19 @@ async def all_document_versions(conn: AsyncConnection[Row], project_id: UUID) ->
 
 
 async def document_processed(conn: AsyncConnection[Row], document_version_id: UUID) -> bool:
-    """이 문서 판본으로 만든 요구 판본이 이미 있는지(재실행이면 그 문서를 다시 처리하지 않는다).
+    """이 문서 판본을 끝까지 처리했는지(재실행이면 그 문서를 다시 처리하지 않는다).
+
+    처리 함수는 조항을 요구·비교와 같은 트랜잭션에 쓰므로 조항이 있으면 끝까지 처리한 판본이다(요구 0건 포함).
 
     Args:
         conn: dict_row 연결.
         document_version_id: 문서 판본 ID.
 
     Returns:
-        bool: 있으면 True.
+        bool: 조항이 있으면 True.
     """
     cursor = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM tft.requirement_versions WHERE document_version_id = %s) AS found",
+        "SELECT EXISTS (SELECT 1 FROM tft.clauses WHERE document_version_id = %s) AS found",
         (document_version_id,),
     )
     row = await cursor.fetchone()

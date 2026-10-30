@@ -4,9 +4,9 @@
 
 - rfp.process 단계: parse(원문 → 조항 트리 저장) → extract(절마다 모델 추출) → search(후보 범위) → compare(자사 비교)
   → supplement(보완 선택지) → candidates(협력사 등급) → draft(아직 없음, counts 0).
-- 요구·판본(판단 포함)·조건·비교·선택지·등급은 compare부터 candidates까지 한 트랜잭션에 쓴다. 도중에 멈추면 아무것도
-  남지 않아 다시 돌리면 처음부터 한다. 조항 트리는 parse 때 판본마다 한 번 쓴다.
-- 재실행: 이미 요구 판본을 만든 문서 판본은 다시 처리하지 않는다(모델을 다시 부르지 않음).
+- 조항·요구·판본(판단 포함)·조건·비교·선택지·등급은 compare부터 candidates까지 한 트랜잭션에 쓴다. 도중에 멈추면
+  아무것도 남지 않아 다시 돌리면 처음부터 한다.
+- 재실행: 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 포함)은 다시 처리하지 않는다(모델을 다시 부르지 않음).
 - rfp.export·rfp.annotate는 아직 단계가 없어 그 단계 counts 0만 남기고 끝낸다.
 """
 
@@ -230,6 +230,37 @@ def pick_documents(versions: Sequence[Mapping[str, Any]], wanted: str) -> list[M
     raise ValueError("TFT_WORKER_INPUT_NOT_FOUND")
 
 
+def lease_keeping(provider: Provider, emit: Emit) -> tuple[Provider, list[BaseException]]:
+    """모델 호출이 끝날 때마다 extract 진행을 남겨 lease를 연장하는 공급자.
+
+    절 하나가 여러 번 부를 수 있어(긴 절 나눠 부르기·빠진 문장 보완) 절마다 남기면 lease를 넘을 수 있다. 호출마다
+    남기면 사이 간격은 호출 하나(gemini_timeout_ms×(재시도+1)+대기)다. emit이 올린 취소·소유권 상실은 엔진이
+    삼키지 않게 담아 두고, 그 뒤 호출은 하지 않는다.
+
+    Args:
+        provider: 추출 모델 호출.
+        emit: 단계 보고.
+
+    Returns:
+        tuple: (감싼 공급자, 멈춤 예외 목록 — 비어 있지 않으면 호출자가 올린다).
+    """
+    stopped: list[BaseException] = []
+
+    def tracked(prompt: str) -> Generation:
+        if stopped:
+            raise stopped[0]
+        try:
+            return provider(prompt)
+        finally:
+            try:
+                emit({"step": "extract"})
+            except BaseException as error:
+                stopped.append(error)
+                raise
+
+    return tracked, stopped
+
+
 def counts(requirements: int) -> dict[str, int]:
     return {"requirements": requirements, "proposals": 0}
 
@@ -269,7 +300,8 @@ async def process(
             )
             if d["kind"] in SPEC_KINDS
         ]
-        # parse: 아직 처리하지 않은 판본만 원문을 읽는다.
+        # parse: 아직 처리하지 않은 판본만 원문을 읽는다. 조항은 여기서 쓰지 않고 compare 트랜잭션에서 요구와 함께
+        # 쓴다. 그래서 조항이 있으면 그 판본은 끝까지 처리된 것이다(요구 0건 문서 포함).
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
         for document in documents:
             if not await repository.document_processed(conn, document["id"]):
@@ -279,15 +311,15 @@ async def process(
                     document_root, document["storage_key"], document["sha256"], document["size"]
                 )
                 tree = build_clause_tree(extract(data, mime=document["mime"]))
-                async with conn.transaction():
-                    clauses = await repository.store_clauses(conn, document, tree.clauses)
-                parsed.append((document, tree, clauses))
+                # 조항 번호 → 조항 행. compare 트랜잭션에서 채운다(추출 요구가 같은 dict를 가리킨다).
+                parsed.append((document, tree, {}))
             emit({"step": "parse", "document_version_id": str(document["id"])})
 
         # extract: 절마다 모델을 부른다. 너무 긴 절·실패한 절은 건너뛰고 검토가 필요하다고 표시한다.
         # 절마다 진행을 남겨 lease를 연장한다(절이 많으면 모델 호출 중 lease가 끝나 다른 worker가 다시 부르지 않게).
         extracted: list[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]] = []
         called = False
+        tracked, stopped = lease_keeping(provider, emit)
         for document, tree, clauses in parsed:
             for section in sections_of(tree):
                 try:
@@ -295,7 +327,10 @@ async def process(
                 except ValueError:
                     needs_review = True
                     continue
-                result = await asyncio.to_thread(extract_section, section_input, provider)
+                result = await asyncio.to_thread(extract_section, section_input, tracked)
+                if stopped:
+                    # extract_section은 공급자 예외를 결과 코드로 바꾸므로 취소·소유권 상실을 여기서 다시 올린다.
+                    raise stopped[0]
                 needs_review |= result.outcome != "VALID"
                 extracted += [(document, clauses, r) for r in result.requirements]
                 emit({"step": "extract", "counts": counts(len(extracted))})
@@ -316,6 +351,8 @@ async def process(
             for row in await repository.partner_profiles(conn)
         ]
         async with conn.transaction():
+            for document, tree, clauses in parsed:
+                clauses.update(await repository.store_clauses(conn, document, tree.clauses))
             ids = await store_requirements(conn, job.project_id, extracted, outcomes)
             emit({"step": "compare", "counts": counts(total)})
             for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes):
