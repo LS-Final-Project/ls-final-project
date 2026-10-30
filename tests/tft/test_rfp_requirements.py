@@ -649,3 +649,69 @@ def test_a_model_answer_without_assembly_clause_stays_false_and_the_prompt_expla
     assert RequirementSchema.model_fields["assembly_clause"].is_required()
     text = prompt(assembly_section())
     assert "assembly_clause" in text and "merely listed together is false" in text
+
+
+def approval_section():
+    """승인 조건부 대체(양성)·절차가 적힌 대체(반례)·대체 불허(반례)의 합성 절. 일반 표현만 쓴다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 PROTECTIVE RELAYS"),
+        p("A. Products of other makers may be offered if accepted by the purchaser."),
+        p(
+            "B. Alternative makers may be offered; send type-test reports and a reference list "
+            "with the tender for acceptance."
+        ),
+        p("C. Alternative makers will not be accepted."),
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree, ["2.1"])[0]
+
+
+def test_a_missing_approval_procedure_is_kept_only_for_a_conditional_substitute():
+    """승인 조건부 대체에 절차가 없을 때만 true, 절차가 있거나 대체 불허면 false로 남는다."""
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    "Products of other makers may be offered if accepted by the purchaser",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=True,
+                ),
+                req(
+                    "2.1.B",
+                    "Alternative makers may be offered",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=False,
+                ),
+                req(
+                    "2.1.C",
+                    "Alternative makers will not be accepted",
+                    "substitution",
+                    operator="TEXT",
+                    approval_procedure_missing=False,
+                ),
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, approval_section())
+    assert rejected == []
+    assert [(r.clause_no, r.approval_procedure_missing) for r in kept] == [
+        ("2.1.A", True),
+        ("2.1.B", False),
+        ("2.1.C", False),
+    ]
+
+
+def test_a_model_answer_without_the_approval_flag_stays_false_and_the_prompt_explains_it():
+    """옛 응답처럼 칸이 없으면 기본 false다. 응답 스키마는 필수이고 지시문은 대체 불허·절차 있음을 false라고 말한다."""
+    from backend.engine.rfp.requirements import RequirementSchema
+
+    raw = json.dumps({"requirements": [req("2.1.C", "Alternative makers", "substitution")]})
+    assert validate_output(raw, approval_section())[0][0].approval_procedure_missing is False
+    assert RequirementSchema.model_fields["approval_procedure_missing"].is_required()
+    text = prompt(approval_section())
+    assert "approval_procedure_missing" in text
+    assert "False when substitution is not allowed" in text

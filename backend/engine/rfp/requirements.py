@@ -36,13 +36,16 @@ from backend.shared.ai import Generation, Usage
 # v2: 지정품 제조사(designated_manufacturer)와 원문 대조(명세 v1.3 §5.1·§11). v1 측정치는 계약 문서 표에 있다.
 # v3(KAN-185 의미 구조화): 모델이 내부 속성 키·제품 계열·허용 오차·Listed 여부를 같은 호출 안에서 연결한다.
 # v4(KAN-185): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구를 assembly_clause로 표시한다.
-EXTRACTION_VERSION = "rfp-requirements-v4"
+# v5(KAN-185): 대체·동등품을 승인 조건부로 허용하는데 절차가 없는 요구를 approval_procedure_missing으로 표시한다.
+EXTRACTION_VERSION = "rfp-requirements-v5"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
 Kind = Literal["SPEC", "TASK", "DOCUMENT", "COMPLIANCE", "DESIGNATED_PRODUCT"]
 RejectReason = Literal["UNKNOWN_CLAUSE", "QUOTE_NOT_IN_CLAUSE", "VALUE_NOT_IN_QUOTE"]
 MAX_SECTION_CHARS = 12000
+# 승인된 절별 비용 한도: 최초 12회 + 부분별 보완 최대 12회(공급자 전송 재시도 제외).
+MAX_SECTION_PARTS = 12
 # 한 번에 부를 절 본문 상한(글자). Gemini는 추론 토큰도 출력 상한에 들어가, 14번 2.5(3972자)가 이미 답 5345 + 추론
 # 6609토큰을 썼고 2.6(7560자)은 상한 16384를 넘어 응답이 잘렸다. 이보다 긴 절은 첫 단계 조항 묶음으로 나눠 부른다.
 # v1 측정 절(2.4 2510자·2.5 3972자)은 이 아래라 나뉘지 않는다.
@@ -113,6 +116,13 @@ class ExtractedRequirement(Strict):
         default=False,
         description="여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true. 나열만이면 false.",
     )
+    approval_procedure_missing: bool = Field(
+        default=False,
+        description=(
+            "대체품·동등품·목록 밖 제조사를 승인 조건부로 허용하는데 받은 본문에 승인 절차·제출 자료가 없을 때만 "
+            "true. 대체 불허이거나 절차가 적혀 있으면 false."
+        ),
+    )
     # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
     needs_review: bool = False
 
@@ -179,6 +189,7 @@ class RequirementSchema(_Loose):
     tolerance: str | None
     certification_listed: bool
     assembly_clause: bool
+    approval_procedure_missing: bool
 
 
 class ResponseSchema(_Loose):
@@ -226,13 +237,17 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
 
     Args:
         tree: 조항 트리.
-        section_nos: 절 번호 목록(예: ["2.4", "2.5"]). 미리 고정한 평가 절이다.
+        section_nos: 처리할 절 번호 목록(예: ["2.4", "2.5"]).
 
     Returns:
-        list[ExtractionInput]: 절마다 하나. 본문이 없는 조항은 문맥으로만 쓴다.
+        list[ExtractionInput]: 요청 절마다 입력 하나. 요청 절 순서와 원문 조항 순서를 유지한다.
+            본문이 없는 조항은 문맥으로만 쓴다. 나눔과 결과 합산은 extract_section이 맡는다.
+            실제 추출 부분 수는 승인된 비용 한도인 12개 이하다.
+            상한 12는 감독 제공 최장 개발 절 본문 23908자에 여유를 둔 정책이다.
 
     Raises:
-        ValueError: 절이 없거나 너무 길면(RFP_SECTION_NOT_FOUND·RFP_SECTION_TOO_LONG).
+        ValueError: 절 없음(RFP_SECTION_NOT_FOUND), 개별 조항 길이 초과
+            (RFP_SECTION_TOO_LONG), 절별 호출 부분 수 초과(RFP_SECTION_TOO_MANY_PARTS).
     """
     by_no = {c.clause_no: c for c in tree.clauses}
     out: list[ExtractionInput] = []
@@ -258,8 +273,11 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                 )
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)
-        if sum(len(_clause_text(c)) for c in clauses) > MAX_SECTION_CHARS:
+        if any(len(_clause_text(c)) > MAX_SECTION_CHARS for c in clauses):
             raise ValueError("RFP_SECTION_TOO_LONG")
+        # 실제 최초 호출 수를 호출 전에 검사한다. 보완은 부분별 최대 한 번이다.
+        if len(split_input(item)) > MAX_SECTION_PARTS:
+            raise ValueError("RFP_SECTION_TOO_MANY_PARTS")
         out.append(item)
     return out
 
@@ -295,6 +313,10 @@ Return JSON matching the schema. Rules:
 - assembly_clause: true only when the requirement makes several pieces of equipment be delivered as one
   assembled unit or under a single supplier's responsibility (e.g. "factory-assembled as one unit", "furnished
   by one manufacturer with unit responsibility"). Equipment that is merely listed together is false.
+- approval_procedure_missing: true only when the requirement allows a substitute, an equal product, or a
+  manufacturer outside a list subject to approval, and the clauses you received give no approval procedure or
+  required submittals for it. False when substitution is not allowed, or when the procedure or submittals are
+  stated.
 - Do not extract prices or standard lead times. Do not invent values. Placeholders like <Insert value> stay as
   value "<Insert value>" so they become customer questions.
 
@@ -502,11 +524,14 @@ def _call(
 
 
 def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[ExtractionInput]:
-    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다. 묶음 하나는 쪼개지 않는다.
+    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다.
+
+    목표 길이를 넘는 묶음은 개별 조항 경계로 재묶는다. 조항 텍스트는 자르지 않는다.
+    build_inputs의 개별 조항 길이·부분 수 사전 검사를 거친 입력을 전제한다.
 
     Args:
         item: 절 입력.
-        limit: 부분 하나의 본문 상한(글자). 묶음 하나가 상한보다 길면 그 묶음만 한 부분이 된다.
+        limit: 부분 하나의 목표 본문 길이(글자). 이를 넘는 개별 조항은 단독 부분으로 유지한다.
 
     Returns:
         list[ExtractionInput]: 부분 입력. 절이 상한 안이면 [item] 그대로다.
@@ -521,8 +546,26 @@ def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[Extracti
             groups[-1].append(clause)
         else:
             groups.append([clause])
-    parts: list[list[ClauseInput]] = [[]]
+    expanded: list[list[ClauseInput]] = []
     for group in groups:
+        if sum(len(_clause_text(c)) for c in group) <= limit:
+            expanded.append(group)
+            continue
+        batch: list[ClauseInput] = []
+        size = 0
+        for clause in group:
+            clause_size = len(_clause_text(clause))
+            if clause_size > MAX_SECTION_CHARS:
+                raise ValueError("RFP_SECTION_TOO_LONG")
+            if batch and size + clause_size > limit:
+                expanded.append(batch)
+                batch, size = [], 0
+            batch.append(clause)
+            size += clause_size
+        if batch:
+            expanded.append(batch)
+    parts: list[list[ClauseInput]] = [[]]
+    for group in expanded:
         size = sum(len(_clause_text(c)) for c in parts[-1] + group)
         if parts[-1] and size > limit:
             parts.append([])

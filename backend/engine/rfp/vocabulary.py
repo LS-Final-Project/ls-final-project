@@ -6,6 +6,7 @@
 - 어휘에 없으면 `OTHER`다. 엔진(engine)은 api를 import하지 않으므로 이 모듈은 다른 모듈에 기대지 않는다.
 """
 
+import re
 from typing import Literal, get_args
 
 AttributeKey = Literal[
@@ -63,5 +64,19 @@ OTHER: Other = "OTHER"
 # 중첩 Literal은 하나로 펼쳐진다(PEP 586). 목록은 위 원본 그대로다.
 AttributeKeyOrOther = Literal[AttributeKey, Other]
 FamilyOrOther = Literal[EquipmentFamily, Other]
+# 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
+PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
 ATTRIBUTE_KEYS: frozenset[str] = frozenset(get_args(AttributeKey))
 EQUIPMENT_FAMILIES: frozenset[str] = frozenset(get_args(EquipmentFamily))
+
+
+def is_placeholder(value: str | None) -> bool:
+    """값 자리에 실제 값 대신 미정 표시가 있는지.
+
+    Args:
+        value: 요구값.
+
+    Returns:
+        bool: 자리표시자면 True.
+    """
+    return value is not None and PLACEHOLDER.search(value) is not None
