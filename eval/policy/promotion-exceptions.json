@@ -2,26 +2,6 @@
   "_note": "eval/promotion.py가 읽는 알려진 승격 문제 목록(KAN-147). 줄마다 사유·티켓이 있어야 하고, MISMATCH는 운영값(deployed)·채택값(adopted)이, NO_ADOPTION은 그 단계의 설정 전체(deployed)가 그대로일 때만 허용되며, 해소되면 이 줄을 지워야 검사가 통과한다. blocker 불합격은 여기에 둘 수 없고 채택 기록의 waivers로만 승인한다.",
   "exceptions": [
     {
-      "stage": "classification",
-      "kind": "MISMATCH",
-      "field": "model",
-      "reason": "C/S worker는 공통 AI 설정의 모델 하나(코드 기본 gemini-3.6-flash, 배포 GEMINI_MODEL도 같은 값)를 분류·초안에 함께 쓴다. 분류 채택 모델은 gemini-3.5-flash-lite(2026-10-29 ADOPTED). 운영을 채택 모델로 바꿀지, 3.6-flash를 실측해 다시 채택할지 결정 대기",
-      "ticket": "KAN-147",
-      "recorded_on": "2026-10-30",
-      "deployed": "gemini-3.6-flash",
-      "adopted": "gemini-3.5-flash-lite"
-    },
-    {
-      "stage": "classification",
-      "kind": "MISMATCH",
-      "field": "max_output_tokens",
-      "reason": "분류 채택 기록(2026-10-29)에 출력 상한을 남기지 않았다. 실행은 분류 전용 상한 4096을 쓴다(공통 1024에서 3.6-flash 50건 중 13건이 잘림). 3.6-flash 재측정 채택 기록에 넣으면 이 줄을 지운다",
-      "ticket": "KAN-147",
-      "recorded_on": "2026-10-30",
-      "deployed": 4096,
-      "adopted": null
-    },
-    {
       "stage": "draft",
       "kind": "NO_ADOPTION",
       "field": null,

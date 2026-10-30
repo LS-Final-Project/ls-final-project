@@ -1,0 +1,45 @@
+# 설정 채택 결정 메모: classification · flash-3.6-v3-out4096
+
+상태 ADOPTED · 결정자 오새결 · 결정일 2026-10-31
+
+> 최신 근거 실행의 표본 603건 기준 기록이며 합격 판정이 아니다. 게이트 결과 PASS 5 · FAIL 0 · NOT_EVALUABLE 0, blocker 없음.
+
+## 채택 설정
+
+| 항목 | 값 |
+| --- | --- |
+| model | gemini-3.6-flash |
+| prompt_version | v3 |
+| max_output_tokens | 4096 |
+| prompt_fingerprint | f299989ca90bcf99 |
+
+## 근거 실행
+
+| 결과 파일 sha256 | 표본 | 시작 | git | 지표 |
+| --- | --- | --- | --- | --- |
+| d1847aec1cfb | 50 | 2026-10-30T14:52:14.799222+00:00 | 2e2eb690323ca58059b385244632c5f19fed10cd | {"category_macro_f1": 0.9423076923076923, "urgency_macro_f1": 0.8333333333333334, "urgency_non_none_recall": 1.0, "critical_miss_count": 0, "schema_violation_rate": 0.0} |
+| 4f3a5dbc0164 | 603 | 2026-10-30T14:59:17.446225+00:00 | 2e2eb690323ca58059b385244632c5f19fed10cd | {"category_macro_f1": 0.9623626720844074, "urgency_macro_f1": 0.9844570863894538, "urgency_non_none_recall": 0.9832402234636871, "critical_miss_count": 0, "schema_violation_rate": 0.0} |
+
+## 게이트 (근거 4f3a5dbc0164)
+
+| 지표 | 비교 | 합격선 | 값 | 판정 | blocker |
+| --- | --- | --- | --- | --- | --- |
+| category_macro_f1 | >= | 0.9 | 0.9623626720844074 | PASS | True |
+| critical_miss_count | == | 0.0 | 0.0 | PASS | True |
+| urgency_macro_f1 | >= | 0.7 | 0.9844570863894538 | PASS | True |
+| urgency_non_none_recall | >= | 0.85 | 0.9832402234636871 | PASS | True |
+| schema_violation_rate | == | 0.0 | 0.0 | PASS | True |
+
+과제 밖이라 제외한 게이트: hit_at_5, priority_rule_exact, dept_rule_policy_match, dept_pipeline_exact
+
+## 기각 후보
+
+없음
+
+## 예외 승인(blocker FAIL)
+
+예외 승인 없음.
+
+## 사유
+
+사용자 결정(2026-10-31). 검증 603건(대상 해시 3d47474c, 지난 채택 실행과 같은 표본), 입력 v4, 지시문 v3, 출력 상한 4096, 재호출 켬. gemini-3.6-flash는 유효 603/603(형식 위반 0, 재호출 0), 주분류 macro-F1 0.962, 긴급도 macro-F1 0.984, 비NONE 재현율 0.983, CRITICAL 누락 0/27이다. 같은 표본의 flash-lite 3.5 v3은 0.941, 0.930, 0.983, CRITICAL 누락 1건(예외 승인)이었다. 비용은 0.31 USD에서 3.40 USD로 약 10.8배, 평균 지연은 1.13초에서 6.81초로 약 6배이고 이를 받아들였다. 2027-01-01부터 단가가 2배가 된다. 이 표본은 지시문 v1~v3 튜닝에 쓰였으므로 독립 성능이 아니다.
