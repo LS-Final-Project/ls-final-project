@@ -15,7 +15,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -40,7 +40,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -71,7 +71,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -102,7 +102,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -127,7 +127,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -152,7 +152,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -177,7 +177,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -202,7 +202,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -227,7 +227,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -252,7 +252,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -277,7 +277,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -302,7 +302,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -327,7 +327,7 @@
         "standard_system": "NONE",
         "designated_model": null,
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",
@@ -352,7 +352,7 @@
         "standard_system": "NONE",
         "designated_model": "Eaton Resibloc",
         "task": null,
-        "non_equipment": false,
+        "kind": "SPEC",
         "core_equipment": false,
         "origin": {
           "document": "RFP-14 261116.11",

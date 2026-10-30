@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
+from backend.engine.rfp.requirements import Kind
 from backend.engine.rfp.vocabulary import is_placeholder
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
@@ -87,8 +88,8 @@ class Requirement(Strict):
     standard_system: str = "NONE"
     designated_model: str | None = None
     task: str | None = None
-    # 과업·문서 요구처럼 장비 사양이 아닌 요구인지(추출 kind TASK·DOCUMENT). 계열 검사를 거치지 않는다.
-    non_equipment: bool = False
+    # 추출 요구 종류. 과업·문서 요구는 장비 사양이 아니라 계열 검사를 거치지 않는다(`_work_kind`).
+    kind: Kind = "SPEC"
     # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
     # 자료 보완 요청 → 공동 제안 → 참여 보류 검토로 간다(기획서 4.4).
     core_equipment: bool = False
@@ -423,8 +424,22 @@ def _as_grading(requirement: Requirement) -> grading.Requirement:
     )
 
 
+def _work_kind(requirement: Requirement) -> Literal["TASK", "DOCUMENT"] | None:
+    """장비 사양이 아닌 요구의 종류. 판단은 이 함수 한 곳이다.
+
+    Args:
+        requirement: 비교 입력.
+
+    Returns:
+        Literal | None: 문서 요구면 DOCUMENT, 과업이면 TASK(kind가 TASK이거나 task 칸이 있음), 장비 사양이면 None.
+    """
+    if requirement.kind == "DOCUMENT":
+        return "DOCUMENT"
+    return "TASK" if requirement.kind == "TASK" or requirement.task else None
+
+
 def _cause(requirement: Requirement) -> Cause:
-    if requirement.task:
+    if _work_kind(requirement) == "TASK":
         return "TASK"
     if requirement.certification_standard:
         return "CERTIFICATION"
@@ -498,6 +513,21 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             ["요구값 확정(고객 회신)"],
             "CUSTOMER",
             None,
+            [],
+        )
+    work = None if requirement.certification_standard else _work_kind(requirement)
+    if work and (not requirement.value or requirement.attribute in (None, "OTHER") or not products):
+        # 과업·문서 요구에 견줄 값이나 후보(계열 미정 포함)가 없으면 고객에게 물을 일이 아니라 내부에서 정한다
+        # (기획서 4.9). '자사 후보 없음'도 수행 가능 여부와 무관해 쓰지 않는다. 미기재 ≠
+        # 미충족이라 상태는 근거 부족이다. 과업만 원인을 남겨 자사 수행 확인 → 과업 위탁 경로를 낸다.
+        check = "수행 주체 확인(자사/협력사)" if work == "TASK" else "제출 자료 준비 확인"
+        kind_word = "수행 과업 요구" if work == "TASK" else "제출 문서 요구"
+        return outcome(
+            "INSUFFICIENT_EVIDENCE",
+            f"원문 {requirement.clause_no} {requirement.item}: {kind_word}. {check} 필요.",
+            [check],
+            "TECH",
+            "TASK" if work == "TASK" else None,
             [],
         )
     if not requirement.certification_standard and not requirement.value:
@@ -629,7 +659,7 @@ def compare_in_family(
 
     계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 속성을 자사 사양 항목에 연결하지 못한 요구
     (attribute "OTHER", 인증 요구 제외)도 비교하지 않는다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
-    과업·문서 요구(`non_equipment`·`task`)는 장비 사양이 아니라 이 두 검사 없이 `compare`로 간다(인증 요구는 인증 경로).
+    과업·문서 요구(`_work_kind`)는 장비 사양이 아니라 이 두 검사 없이 `compare`로 간다(인증 요구는 인증 경로).
 
     Args:
         requirement: 비교 입력.
@@ -656,9 +686,7 @@ def compare_in_family(
             ),
         )
 
-    not_equipment = requirement.certification_standard is None and (
-        requirement.non_equipment or requirement.task is not None
-    )
+    not_equipment = requirement.certification_standard is None and _work_kind(requirement)
     if requirement.designated_model is None and not not_equipment:
         if family in (None, "OTHER"):
             return not_compared(
