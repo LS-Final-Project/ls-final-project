@@ -168,6 +168,7 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
     ).json()["data"]
     data = answer(client, asked, OWNER).json()["data"]
     proposal = data["created_proposal"]
+    assert audit_actions(admin, gap["project"]).count("proposal.create") == 1
     assert (proposal["origin"], proposal["status"], proposal["proposer_kind"]) == (
         "customer_reply",
         "PENDING",
@@ -189,7 +190,7 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         ).fetchone() == (1,)
 
 
-def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, gap):
+def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, gap, admin):
     """OWN_DEVELOPMENT 선택은 R&D 질문을 만들고 협력사 경로 게이트가 PENDING이 된다. dept_staff는 고를 수 없다."""
     before = options(client, gap)
     assert before["EXTERNAL_PRODUCT"]["candidate_codes"] == ["P-A"]
@@ -209,6 +210,9 @@ def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, g
     chosen = choose(client, gap, "OWN_DEVELOPMENT")
     assert chosen.status_code == 200, chosen.text
     assert chosen.json()["data"]["path"] == "OWN_DEVELOPMENT"
+    # 자동 질문도 쓰기다. 선택 감사와 따로 남는다.
+    assert audit_actions(admin, gap["project"]).count("question.create") == 1
+    assert audit_actions(admin, gap["project"]).count("supplement.select") == 1
     questions = call(client, "GET", f"/projects/{gap['project']}/questions?target=INTERNAL", OWNER)
     items = questions.json()["data"]["items"]
     assert [(q["target_dept"], q["issue_type"], q["status"]) for q in items] == [
@@ -403,6 +407,14 @@ def test_confirm_follows_question_create_permission_and_project_scope(client, ad
 # --- 읽기 경로(KAN-188) ---------------------------------------------------------------------
 
 STRANGER = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
+
+
+def audit_actions(admin, project):
+    with psycopg.connect(admin) as conn:
+        rows = conn.execute(
+            "SELECT action FROM tft.rfp_audit_events WHERE project_id=%s", (project,)
+        ).fetchall()
+    return [row[0] for row in rows]
 
 
 def get(client, path, who=OWNER):

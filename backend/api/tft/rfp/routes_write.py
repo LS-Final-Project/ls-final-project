@@ -19,6 +19,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 from starlette.datastructures import UploadFile
+from starlette.types import Message
 
 from backend.api.tft.projects.access import can_edit_project, can_run_processing, manages_project
 from backend.api.tft.projects.repository import integration_state
@@ -36,7 +37,7 @@ from backend.shared.errors import ApplicationError
 Row = dict[str, Any]
 PROJECT_NOT_FOUND = ("TFT_PROJECT_NOT_FOUND", "The project was not found.")
 MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
-# 파일 하나와 폼 칸의 틀. 넘으면 파일을 읽기 전에 거절한다.
+# 파일 하나와 폼 칸의 틀. 받는 동안 넘으면 멈춘다(임시 파일이 한도를 넘지 않게).
 MAX_FORM_BYTES = MAX_DOCUMENT_BYTES + 1024 * 1024
 
 
@@ -235,12 +236,25 @@ async def update_project(
         if (integration := fields.get("integration_responsibility")) is not None:
             values |= {
                 "integration_holder": integration.holder,
-                "integration_holder_candidates": Jsonb(integration.holder_candidate_codes),
+                "integration_holder_candidates": integration.holder_candidate_codes,
                 "integration_note": integration.note,
                 "integration_set_by": principal.user_id,
                 "integration_set_at": now,
             }
-        await repository.update_project(conn, project_id, payload.version, values)
+        before = await repository.project_values(conn, project_id, list(values))
+        stored = dict(values)
+        if "integration_holder_candidates" in stored:
+            stored["integration_holder_candidates"] = Jsonb(stored["integration_holder_candidates"])
+        await repository.update_project(conn, project_id, payload.version, stored)
+        await commands.audit(
+            conn,
+            project_id=project_id,
+            entity="project",
+            entity_id=project_id,
+            action="project.update",
+            actor=principal.user_id,
+            detail={"from": before, "to": values},
+        )
         return await project_detail(conn, project_id)
 
 
@@ -281,7 +295,7 @@ async def assign_project(
                 "responsible_user_id": payload.responsible_user_id,
             },
         )
-        await repository.insert_assignment(
+        assignment_id = await repository.insert_assignment(
             conn,
             project=project,
             project_version=version,
@@ -289,6 +303,21 @@ async def assign_project(
             responsible_user_id=payload.responsible_user_id,
             reason=payload.reason,
             changed_by=principal.user_id,
+        )
+        await commands.audit(
+            conn,
+            project_id=project_id,
+            entity="assignment",
+            entity_id=assignment_id,
+            action="assignment.update",
+            actor=principal.user_id,
+            detail={
+                "from": {k: project[k] for k in ("sales_user_id", "responsible_user_id")},
+                "to": {
+                    "sales_user_id": payload.sales_user_id,
+                    "responsible_user_id": payload.responsible_user_id,
+                },
+            },
         )
         return await project_detail(conn, project_id)
 
@@ -321,10 +350,18 @@ async def read_upload(request: Request) -> tuple[s.UploadForm, bytes]:
     Returns:
         tuple: (폼 칸, 파일 바이트). 크기 초과는 413, 형식 오류는 422다.
     """
-    length = request.headers.get("content-length", "")
-    if length.isdigit() and int(length) > MAX_FORM_BYTES:
-        raise too_large()
-    async with request.form(max_files=1, max_fields=10) as body:
+    received = 0
+
+    async def limited() -> Message:
+        # Content-Length가 없는 chunked 요청도 받는 동안 멈춘다.
+        nonlocal received
+        message = await request.receive()
+        received += len(message.get("body", b""))
+        if received > MAX_FORM_BYTES:
+            raise too_large()
+        return message
+
+    async with Request(request.scope, limited).form(max_files=1, max_fields=10) as body:
         upload = body.get("file")
         if not isinstance(upload, UploadFile):
             raise invalid("file", "required")

@@ -108,7 +108,7 @@ erDiagram
 | 초안·검토본 | `drafts`, `draft_versions`, `draft_sentences`, `draft_sentence_evidence`, `review_versions`, `exports` | 초안 판본 | `drafts.latest_version`, `exports`의 `job_id`(접수 뒤)·파일 열(완료 기록) |
 | 재검토 표시 | `rereview_marks`(제안 승인 때 연결 요구·비교·보완·초안 문장마다 한 행) | — | `cleared_by`·`cleared_at`(사람이 다시 확인) |
 | 멱등 기록 | `rfp_commands`(사용자·동작·`Idempotency-Key`마다 첫 결과) | — | 없음 |
-| 감사 | `rfp_audit_events`(모든 쓰기, 승인은 제안자·승인자 함께) | — | 없음 |
+| 감사 | `rfp_audit_events`(HTTP 쓰기). `commands.remember`가 멱등 쓰기·처리 접수를 기록하고, 멱등 키가 없는 4·5와 쓰기의 부수 행(회신 제안, R&D 자동 질문)은 `commands.audit`을 직접 부른다. 재전송은 다시 기록하지 않는다. 멱등 쓰기의 detail은 쓰기 뒤 상태(`to`)만, 4·5는 `from`·`to`다. worker가 쓰는 행은 접수 감사(`job`)로 대신한다 | — | 없음 |
 
 - **읽기 경로(KAN-188, `rfp/routes_read.py`)**: 7~10·12~14·17이다. 범위 밖은 없는 것과 같이 404다(`TFT_PROJECT_NOT_FOUND`·`TFT_DOCUMENT_NOT_FOUND`·`TFT_REQUIREMENT_NOT_FOUND`).
   - 문서 경로 8~10은 문서의 최신 판본 기준이다. 목록(7)은 판본 전부다.
@@ -122,8 +122,8 @@ erDiagram
 - **쓰기 경로(KAN-188, `rfp/routes_write.py`)**: 2·4·5·6이다. 응답은 `RfpProjectDetail`이고 `latest_job`은 플랫폼 runtime 소유라 쓰기 응답에서 항상 `null`이다(상태는 플랫폼 작업 경로로 본다).
   - 2 접수: `sales`만. 호출자가 담당이 되고 책임자는 자동 지정하지 않는다. `review_departments`는 `department_kinds`에 있어야 한다.
   - 4 수정: 담당 `sales`·책임자만. 본문에 있는 칸만 바꾼다. `name`·`review_departments`·`integration_responsibility`의 `null`은 422, `strategic_customer: null`은 입력자·메모와 함께 지운다.
-  - 5 지정: 관리 대상 `manager`만(범위 밖 404, 볼 수만 있으면 403). 호출마다 `project_assignments` 한 행이다. 다른 manager의 관리 범위는 tft가 읽지 못해 책임자 후보는 새 담당 `sales`·기존 책임자·호출한 manager다.
-  - 6 업로드: 담당 `sales`·책임자만. 25 MiB 초과 413 `TFT_DOCUMENT_TOO_LARGE`. 형식은 내용으로 판별한다(PDF는 `%PDF-`, DOCX는 zip 안 `word/document.xml`). 다음 판본은 같은 프로젝트·같은 `kind`만 되고 제목·메모는 첫 판본 것을 유지한다. 저장소가 없으면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
+  - 5 지정: 관리 대상 `manager`만(범위 밖 404, 볼 수만 있으면 403). 호출마다 `project_assignments` 한 행이다. 다른 manager의 관리 범위는 tft가 읽지 못해 책임자 후보는 새 담당 `sales`·기존 책임자·호출한 manager다. `sales_user_id`는 검증하지 않는다: identity를 읽지 못하므로 없는 사용자나 `sales` 역할이 없는 ID도 들어간다.
+  - 6 업로드: 담당 `sales`·책임자만. 25 MiB 초과 413 `TFT_DOCUMENT_TOO_LARGE`(Content-Length가 없어도 받는 동안 멈춘다). 형식은 내용으로 판별한다(PDF는 `%PDF-`, DOCX는 zip 안 `word/document.xml`). 다음 판본은 같은 프로젝트·같은 `kind`만 되고 제목·메모는 첫 판본 것을 유지한다. 저장소가 없으면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
   - 원문은 `rfp/{project_id}/{document_version_id}`에 쓴 뒤 DB를 커밋한다. DB 실패 시 객체가 남을 수 있다(실행 계정에 삭제 권한이 없다).
 - **지정품 상세(KAN-199 댓글 10926)**: 처리 함수가 지정 모델이 있는 요구에 `designated_clause_id`(요구의 조항)와 `designated_procurement`(시작값 `SPECIFIED_PROCUREMENT`)를 저장한다. 이 칸이 비어 있는 이전 행은 상세 응답에서 요구 조항과 기본값으로 낸다.
 - **웹 중계(KAN-188)**: 구현한 RFP 경로는 `backend/api/platform/relay.py`·`frontend/server.mjs` 허용표와 공유 픽스처 `docs/openapi/business-relay-routes.json`에 함께 등록한다(셋이 다르면 검사가 실패한다). 파일이 지나가는 두 경로만 JSON·1 MiB 규칙의 예외다: 업로드(6)는 `multipart/form-data` 요청 26 MiB, 원문(10)은 PDF·DOCX 응답 26 MiB이고 `attachment`·`nosniff`를 중계가 강제한다. 세션·CSRF·Origin 검사와 사용자 헤더 재발급은 같고, 원문 범위(manager는 관리 대상 프로젝트만)는 tft가 판단한다. 두 층이 파일을 메모리에 모으므로 동시 업로드 수만큼 메모리를 쓴다. 업로드 외 쓰기 요청은 `application/json`만 받으므로 본문이 없는 경로 31도 화면은 `{}`를 보낸다. 처리 작업 `status_url`(`/api/v1/platform/jobs/{id}`, `/events`)은 플랫폼 자체 경로라 허용표가 아니라 웹의 작업 상태 중계로 열리고(업무 중계를 켜면 함께 열림), 접근은 플랫폼이 요청 사용자 본인으로 검사한다.

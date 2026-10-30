@@ -125,6 +125,30 @@ async def update_project(
     return int(row["version"])
 
 
+async def project_values(
+    conn: AsyncConnection[Row], project_id: UUID, columns: Sequence[str]
+) -> Row:
+    """바꾸기 전 프로젝트 칸을 잠그고 읽는다(감사의 from).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 있는 프로젝트 ID.
+        columns: 코드가 정한 칸 이름.
+
+    Returns:
+        Row: 칸 이름 → 값.
+    """
+    if not columns:
+        return {}
+    cursor = await conn.execute(
+        f"SELECT {', '.join(columns)} FROM tft.projects WHERE id = %s FOR UPDATE", (project_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return row
+
+
 async def insert_assignment(
     conn: AsyncConnection[Row],
     *,
@@ -134,7 +158,7 @@ async def insert_assignment(
     responsible_user_id: UUID | None,
     reason: str,
     changed_by: UUID,
-) -> None:
+) -> UUID:
     """담당 지정 이력 한 행을 남긴다(이전·신규 두 대상 모두).
 
     Args:
@@ -145,13 +169,17 @@ async def insert_assignment(
         responsible_user_id: 새 책임자.
         reason: 사유.
         changed_by: 지정한 manager.
+
+    Returns:
+        UUID: 이력 행 ID.
     """
+    assignment_id = uuid4()
     await conn.execute(
         "INSERT INTO tft.project_assignments (id, project_id, project_version, "
         "previous_sales_user_id, sales_user_id, previous_responsible_user_id, "
         "responsible_user_id, reason, changed_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (
-            uuid4(),
+            assignment_id,
             project["id"],
             project_version,
             project["sales_user_id"],
@@ -162,6 +190,7 @@ async def insert_assignment(
             changed_by,
         ),
     )
+    return assignment_id
 
 
 async def project_detail_parts(

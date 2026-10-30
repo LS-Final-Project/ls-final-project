@@ -17,10 +17,11 @@ from backend.api.cs.tickets.access import require_ticket_write
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
 from backend.api.cs.workflow import repository as workflow
 from backend.api.cs.workflow.mail import PlatformRejected, PlatformUnknown, PlatformUnreachable
-from backend.api.cs.workflow.service import json_value
+from backend.api.cs.workflow.service import json_value, notify_cs
 from backend.engine.cs.analysis import CORRECTABLE_FIELDS
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
+from backend.shared.departments import CS_DEPARTMENT
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind_path_ids
 from backend.shared.models import ErrorResponse, SuccessResponse
@@ -236,4 +237,17 @@ async def correct(
         await workflow.insert_audit(
             conn, uuid4(), "ticket_analysis", ticket_id, "update", seq, principal.user_id, audit
         )
+        if changed.get("urgency_flag") == "SAFETY":
+            audience: list[dict[str, Any]] = (
+                [{"user": state["owner_user_id"]}] if state["owner_user_id"] else []
+            )
+            audience.extend([{"role": "cs_agent"}, {"manager_dept": CS_DEPARTMENT}])
+            await notify_cs(
+                conn,
+                kind="cs.safety",
+                ticket_id=ticket_id,
+                audience=audience,
+                actor_id=principal.user_id,
+                dedupe_key=f"cs.safety:{ticket_id}",
+            )
     return respond(request, after)
