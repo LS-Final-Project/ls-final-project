@@ -558,7 +558,7 @@ async def insert_reply_proposal(
         requirement: 질문 요구의 최신 판본.
         current: 지금 판단 필드.
         proposed: 바꿀 판단 필드.
-        reply_text: 회신 본문(앞 200자를 근거 문장에 쓴다).
+        reply_text: 회신 본문(앞 200자를 미검증 표시와 함께 근거 문장에 쓴다).
 
     Returns:
         Row: change_proposals 행.
@@ -581,7 +581,8 @@ async def insert_reply_proposal(
             Jsonb({"question_id": str(question["id"]), "reply_id": str(reply["id"])}),
             Jsonb(dict(current)),
             Jsonb(dict(proposed)),
-            "고객 회신: " + reply_text[:200],
+            # 짝짓기는 질문 본문 포함만 본다. 회신이 실제로 답했는지는 사람이 확인한다.
+            "회신 내용 미검증(담당자 확인 필요). 고객 회신: " + reply_text[:200],
             question["data_origin"],
             question["reply_received_at"],
         ),
