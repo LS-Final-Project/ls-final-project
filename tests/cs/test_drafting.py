@@ -375,6 +375,12 @@ FORBIDDEN_EXAMPLES = {
         "We will confirm it is a manufacturing defect.",
         "We should note that this is a manufacturing defect.",
         "You may be glad to know this is a manufacturing defect.",
+        # 앞 절·응대 문구의 부정은 확정을 부정하지 않는다(#354 리뷰 P2).
+        "Please do not worry, this is a manufacturing defect.",
+        "Please don't hesitate to contact us; it is a manufacturing defect.",
+        "Once again, we confirm it is a manufacturing defect.",
+        "Please do not worry that it is a manufacturing defect.",
+        "Once again we confirm it is a manufacturing defect.",
     ],
     FORBIDDEN_COMMITMENTS[18].pattern: [
         "The return reason has been confirmed.",
@@ -408,7 +414,10 @@ FORBIDDEN_EXAMPLES = {
         "설치 부주의로 확인되었습니다.",
     ],
     FORBIDDEN_COMMITMENTS[25].pattern: ["제조 불량입니다.", "제품 결함이 맞습니다."],
-    FORBIDDEN_COMMITMENTS[26].pattern: ["책임은 당사에 있습니다.", "저희 책임입니다."],
+    FORBIDDEN_COMMITMENTS[26].pattern: [
+        "이번 불량은 저희 책임입니다.",
+        "제품 고장의 책임은 당사에 있습니다.",
+    ],
 }
 # 조건부·부정 표현은 허용한다(경계 고정).
 ALLOWED_EXAMPLES = [
@@ -456,6 +465,8 @@ ALLOWED_EXAMPLES = [
     "고객 과실로 판정되었는지는 검사 후 안내드립니다.",
     "당사 책임으로 확인될 경우 별도로 안내드립니다.",
     "We take responsibility for following up quickly.",
+    "배송 지연은 저희 책임입니다. 사과드립니다.",
+    "안내가 늦은 점은 저희 책임입니다.",
 ]
 
 

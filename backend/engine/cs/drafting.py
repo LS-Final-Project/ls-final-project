@@ -91,13 +91,21 @@ CONFIRMATION_COMMITMENTS = tuple(
         r"(?:고객|사용자|설치)\s*(?:측\s*)?(?:과실|부주의|오사용|오설치)\s*(?:으로|로)\s*"
         r"(?:확인|확정|판정)\s*" + _KO_DONE,
         r"(?:제조|제품|생산)\s*(?:불량|결함|하자)\s*(?:입니다|이었습니다|였습니다|이\s*맞습니다)",
-        r"(?:책임\s*(?:은|이)\s*(?:당사|저희|제조사)\s*(?:에|에게)\s*있습니다|(?:당사|저희|제조사)\s*(?:의\s*)?책임입니다)",
+        # 대상(불량·고장 등) 없는 사과(배송 지연은 저희 책임입니다)는 허용한다(#354 리뷰 P3).
+        r"(?:불량|결함|하자|고장|파손|손상)[^.!?\n]{0,15}?(?:책임\s*(?:은|이)\s*(?:당사|저희|제조사)\s*(?:에|에게)\s*"
+        r"있습니다|(?:당사|저희|제조사)\s*(?:의\s*)?책임입니다)",
     )
 )
-# 확정 패턴은 같은 문장에서 앞에 이 표지가 있으면 조건·부정 문장으로 보고 허용한다.
+# 확정 패턴은 같은 절(쉼표·세미콜론·문장 끝으로 나눔)에서 앞에 이 표지가 있으면 조건·부정 문장으로 보고 허용한다.
+# 응대 문구(do not worry·don't hesitate)의 부정과 once again은 조건이 아니므로 먼저 지운다(#354 리뷰 P2).
 CONDITION_MARKERS = re.compile(
     # 조동사(would·should·may·will)는 정중한 확정문에도 흔해 표지로 쓰지 않는다(#354 리뷰 P2).
     r"\b(?:if|whether|unless|in\s+case|once|until|not|cannot|never)\b|n[’']t\b|만약|만일|혹시",
+    re.IGNORECASE,
+)
+_CLAUSE_BREAKS = ".!?;:,\n"
+_NOT_A_CONDITION = re.compile(
+    r"\b(?:do\s+not|don[’']t|never)\s+(?:worry|hesitate|mind)\b|\bnot\s+(?:only|to\s+worry)\b|\bonce\s+(?:again|more)\b",
     re.IGNORECASE,
 )
 FORBIDDEN_COMMITMENTS = PROMISE_COMMITMENTS + CONFIRMATION_COMMITMENTS
@@ -340,14 +348,15 @@ def find_forbidden_commitment(text: str) -> bool:
         text: 초안 문장이나 질문.
 
     Returns:
-        bool: 약속 패턴이 맞거나, 확정 패턴이 같은 문장의 조건·부정 표지 없이 맞으면 True.
+        bool: 약속 패턴이 맞거나, 확정 패턴이 같은 절의 조건·부정 표지 없이 맞으면 True.
     """
     if any(pattern.search(text) for pattern in PROMISE_COMMITMENTS):
         return True
     for pattern in CONFIRMATION_COMMITMENTS:
         for match in pattern.finditer(text):
-            sentence_start = max(text.rfind(mark, 0, match.start()) for mark in ".!?\n") + 1
-            if not CONDITION_MARKERS.search(text, sentence_start, match.start()):
+            clause_start = max(text.rfind(mark, 0, match.start()) for mark in _CLAUSE_BREAKS) + 1
+            clause = _NOT_A_CONDITION.sub(" ", text[clause_start : match.start()])
+            if not CONDITION_MARKERS.search(clause):
                 return True
     return False
 
