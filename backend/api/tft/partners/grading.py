@@ -27,7 +27,7 @@ SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
 MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
 UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
-# 초 표기는 대소문자를 구분한다. 대문자 S는 지멘스라 초가 아니다.
+# 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
 SECONDS = frozenset({"sec", "secs", "second", "seconds"})
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
@@ -303,7 +303,7 @@ def _unit_key(unit: str | None) -> str:
     words = [w for w in re.split(r"[\s,()]+", unit or "") if w]
     kept = [w for w in words if w.casefold().strip(".") not in UNIT_QUALIFIERS]
     key = " ".join(kept)
-    return "s" if key in SECONDS else key
+    return "s" if key.casefold() in SECONDS else key
 
 
 def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, str]:

@@ -912,6 +912,9 @@ def rated_product(attribute, value, unit, duration=None):
         ("kA rms, symmetrical", "seconds"),
         ("kA (sym)", "sec"),
         ("kA r.m.s.", "s"),
+        ("kA", "Sec"),
+        ("kA", "SEC"),
+        ("kA", "Seconds"),
     ],
 )
 def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
