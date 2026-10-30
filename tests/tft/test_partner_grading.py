@@ -167,6 +167,20 @@ def test_a_value_under_another_standard_system_is_not_confirmed_but_a_shortfall_
     assert "arc_resistant" in grade_requirement(bare, MV[4], CONTEXT, DAY).mandatory_check.passed
 
 
+def test_a_partner_value_is_compared_by_the_canonical_notation():
+    """협력사 등급도 비교용 표기로 견주고(×·공백 표기 포함), 모자라면 사유에 요구 표기가 나온다."""
+    tap = req(1, "tap", "문장형 원문", canonical_value="±2x2.5%")
+    same = profile("P-A", [fact("tap", "±2 × 2.5%")])
+    assert "tap" in grade_requirement(same, tap, CONTEXT, DAY).mandatory_check.passed
+    other = profile("P-A", [fact("tap", "±4×1.25%")])
+    assert grade_requirement(other, tap, CONTEXT, DAY).mandatory_check.failed == ["tap"]
+    wanted = req(2, "protection_functions", "문장형 원문", canonical_value="LSIG")
+    short = profile("P-A", [fact("protection_functions", "LSI")])
+    row = grade_requirement(short, wanted, CONTEXT, DAY)
+    assert row.mandatory_check.failed == ["protection_functions"]
+    assert "LSIG" in " ".join(row.exclusion_reasons) and "G" in " ".join(row.exclusion_reasons)
+
+
 def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence():
     facts = [f for f in MV_FACTS if f["attribute"] != "short_time_withstand_current"]
     weak = fact(

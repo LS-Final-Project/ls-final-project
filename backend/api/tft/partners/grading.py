@@ -14,7 +14,12 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
-from backend.engine.rfp.vocabulary import CANONICAL_FORMS, is_placeholder, read_canonical
+from backend.engine.rfp.vocabulary import (
+    CANONICAL_FORMS,
+    is_canonical,
+    is_placeholder,
+    read_canonical,
+)
 
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
 Verdict = Literal["passed", "failed", "unknown"]
@@ -330,7 +335,7 @@ def _canonical_verdict(attribute: str, wanted: str, value: str) -> tuple[Verdict
         tuple[Verdict, str]: 결과와 판정 말.
     """
     got = read_canonical(attribute, value)
-    if got is None:
+    if got is None or not is_canonical(attribute, wanted):
         return "unknown", "값을 비교 표기로 읽을 수 없어 확인 필요"
     if attribute == "tap":
         return ("passed", "충족") if _tap(wanted) == _tap(got) else ("failed", "탭 구성 다름")

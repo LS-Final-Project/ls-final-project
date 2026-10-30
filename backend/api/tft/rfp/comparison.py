@@ -45,9 +45,9 @@ COMMERCIAL_ATTRIBUTES = frozenset({"warranty_months"})
 # RND: R&D 자문 질문이 열린 요구(명세 v1.3, 질문 생성은 보완 경로 선택 API가 한다).
 NextOwner = Literal["SALES", "TECH", "PURCHASE", "CUSTOMER", "RND"]
 # 상태가 나쁜 순서. 후보가 여럿이면 가장 좋은 후보의 상태가 요구의 상태다.
+ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE")
 # 값 자체를 바꾸는 기준 조건. 요구에 없어도 자사 값이 여기 기대면 충족을 확정하지 않는다(기획서: 임피던스 기준 온도).
 BASIS_CONDITIONS = frozenset({"reference_temperature"})
-ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
 OWN_FACTS = Path(__file__).with_name("own_spec_facts.json")
 

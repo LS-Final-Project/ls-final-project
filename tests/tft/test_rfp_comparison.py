@@ -1041,6 +1041,12 @@ def test_an_own_value_outside_the_notation_is_not_decided():
     assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
 
 
+def test_a_malformed_requirement_notation_is_not_decided_and_does_not_raise():
+    """요구 표기가 어긋나도 비교 전체가 멈추지 않는다(#352 리뷰). 추출 검증을 거치지 않은 입력도 같다."""
+    outcome = compare(canonical("tap", "LSI"), [rated_product("tap", "±2×2.5%", None)], TRACE)
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+
+
 def impedance(value="5.175~6.325", **extra):
     return Requirement(
         clause_no="2.5",
