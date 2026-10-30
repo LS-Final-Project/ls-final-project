@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
+from backend.engine.rfp.vocabulary import is_placeholder
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
 Result = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
@@ -86,6 +87,8 @@ class Requirement(Strict):
     standard_system: str = "NONE"
     designated_model: str | None = None
     task: str | None = None
+    # 과업·문서 요구처럼 장비 사양이 아닌 요구인지(추출 kind TASK·DOCUMENT). 계열 검사를 거치지 않는다.
+    non_equipment: bool = False
     # 사업의 중심 기기(예: 154 kV GIS)인지. 사람이 정한다. 검색 범위에 후보가 없으면 단순 외부 조달이 아니라
     # 자료 보완 요청 → 공동 제안 → 참여 보류 검토로 간다(기획서 4.4).
     core_equipment: bool = False
@@ -250,10 +253,10 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             [f"{requirement.attribute} 자료 확인"],
         )
     judged = []
-    for fact in facts:
-        # 단시간 내전류는 지속시간을 요구 값으로 환산해 견준다(I²t 일정, grading._duration_converted).
+    for fact in grading._at_required_duration(_as_grading(requirement), facts):
+        # 단시간 내전류는 지속시간을 요구 값으로 추정해 견준다(열 등가 추정, grading._duration_converted).
         converted = grading._duration_converted(_as_grading(requirement), fact)
-        compared, note = converted if converted else (fact, None)
+        compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = grading._value_verdict(_as_grading(requirement), compared)
         gaps = grading._condition_gaps(_as_grading(requirement), compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).
@@ -263,7 +266,7 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         if verdict == "passed" and not gaps and note:
             # 환산값은 시험값이 아니라 충족으로 확정하지 않는다.
             status, result = "CONDITIONAL", "MEETS"
-            word = "환산 충족(시험값 아님), 확인 필요"
+            word = "환산 충족(시험값 아님), 정격 피크 확인 필요"
         elif verdict == "passed" and not gaps:
             status, result = "EVIDENCE_FOUND", "MEETS"
         elif verdict == "passed":
@@ -274,13 +277,21 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             # 미달이어도 요구와 다른 조건에서의 값이다. 같은 조건에서 미달이라는 근거가 없어 사양 차이로 확정하지 않는다.
             status, result = "CONDITIONAL", "DIFFERS"
             word = "값이 미달이나 조건이 달라 확인 필요"
+        elif verdict == "failed" and shorter:
+            # 짧은 시간 값을 내린 추정은 실제 정격보다 낮게 나온다. 미달 근거가 아니다.
+            status, result = "CONDITIONAL", "DIFFERS"
+            word = grading.SHORTER_SHORTFALL
         elif verdict == "failed":
             status, result = "SPEC_GAP", "DIFFERS"
         else:
             # 단위가 다르거나 숫자로 읽을 수 없어 비교하지 못했다. 같다고도 다르다고도 하지 않는다.
             status, result = "CONDITIONAL", "NOT_COMPARABLE"
-        judged.append((ORDER.index(status), status, result, word, fact, gaps, unit_differs, note))
-    _, status, result, word, fact, gaps, unit_differs, note = min(judged, key=lambda j: j[0])
+        judged.append(
+            (ORDER.index(status), status, result, word, fact, gaps, unit_differs, note, shorter)
+        )
+    _, status, result, word, fact, gaps, unit_differs, note, shorter = min(
+        judged, key=lambda j: j[0]
+    )
     cited = f"근거 {fact.evidence_id} {fact.section}"
     reason = f"{head}, 자사 {grading._with_unit(fact.value, fact.unit)}({cited}): {word}."
     if note:
@@ -289,7 +300,9 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         reason += f" 조건 차이: {'; '.join(gaps)}."
     unresolved = list(gaps)
     if note and result == "MEETS":
-        unresolved.append("요구 지속시간의 시험값 확인(환산 충족)")
+        unresolved += ["요구 지속시간의 시험값 확인(환산 충족)", "정격 피크 확인"]
+    elif note and shorter:
+        unresolved.append("요구 지속시간의 시험값 확인(짧은 시간 값의 추정)")
     mismatch = _system_mismatch(requirement, product) if status == "EVIDENCE_FOUND" else []
     if mismatch:
         status = "CONDITIONAL"
@@ -477,6 +490,16 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             None,
             [],
         )
+    if is_placeholder(requirement.certification_standard or requirement.value):
+        # 미정 표시(<Insert value> 등)는 값이 아니다. 판정에서 빼고 고객 회신을 받는다(기획서 4.9).
+        return outcome(
+            "INSUFFICIENT_EVIDENCE",
+            f"원문 {requirement.clause_no} {requirement.item}: 요구값 미정(자리표시자). 충족 판정에서 제외.",
+            ["요구값 확정(고객 회신)"],
+            "CUSTOMER",
+            None,
+            [],
+        )
     if not requirement.certification_standard and not requirement.value:
         # 요구값을 모르면(도면 참조 등) 비교하지 않는다. 고객 자료를 받아야 한다.
         return outcome(
@@ -606,6 +629,7 @@ def compare_in_family(
 
     계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 속성을 자사 사양 항목에 연결하지 못한 요구
     (attribute "OTHER", 인증 요구 제외)도 비교하지 않는다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
+    과업·문서 요구(`non_equipment`·`task`)는 장비 사양이 아니라 이 두 검사 없이 `compare`로 간다(인증 요구는 인증 경로).
 
     Args:
         requirement: 비교 입력.
@@ -632,7 +656,10 @@ def compare_in_family(
             ),
         )
 
-    if requirement.designated_model is None:
+    not_equipment = requirement.certification_standard is None and (
+        requirement.non_equipment or requirement.task is not None
+    )
+    if requirement.designated_model is None and not not_equipment:
         if family in (None, "OTHER"):
             return not_compared(
                 "요구 장비 계열을 정하지 못해 비교하지 않음.", "요구 장비 계열 확인"
