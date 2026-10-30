@@ -6,6 +6,7 @@
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import psycopg
@@ -17,7 +18,9 @@ from pydantic import SecretStr
 
 from backend.agent.ticket_source_registry import policy_info_codes
 from backend.api.cs import worker_source
+from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.graph import HUMAN_REVIEW, build_graph, initial_state, thread_config
+from backend.shared.ai import Usage
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from tests.cs.graph_fakes import FILTERS, classification_provider, draft_provider, fts_searcher
@@ -163,6 +166,61 @@ def test_the_graph_runs_on_the_worker_login_and_stops_before_human_review(
         "SELECT row_to_json(a)::text FROM cs.ticket_analyses a WHERE ticket_id=%s", (ticket,)
     ).fetchone()[0]
     assert "Oil leakage" not in stored and "       " not in stored
+    # Usage per attempt (KAN-107). The fake model has no price, so cost stays null.
+    usage = (
+        "SELECT input_tokens, output_tokens, latency_ms IS NOT NULL, cost_usd, pricing_version "
+        "FROM cs.{} WHERE ticket_id=%s"
+    )
+    assert admin.execute(usage.format("ticket_analyses"), (ticket,)).fetchone() == (
+        10,
+        2,
+        True,
+        None,
+        None,
+    )
+    assert admin.execute(usage.format("ticket_drafts"), (ticket,)).fetchone() == (
+        20,
+        5,
+        True,
+        None,
+        None,
+    )
+    assert admin.execute(
+        "SELECT prompt_version FROM cs.ticket_drafts WHERE ticket_id=%s", (ticket,)
+    ).fetchone() == ("v1",)
+
+
+def test_a_priced_attempt_stores_its_cost_and_price_version(worker_dsn, ticket):
+    attempt = ClassificationAttempt(
+        attempt_number=1,
+        outcome="TRANSPORT_FAILURE",
+        latency_ms=12.6,
+        usage=Usage(input_tokens=1_000_000, output_tokens=0, total_tokens=1_000_000),
+        requested_model="gemini-3.6-flash",
+        prompt_version="v3",
+        error_code="CS_TRANSPORT",
+    )
+    source = worker_source.DbTicketSource(worker_dsn, None)
+    run_id = source.record_attempt("classification", str(ticket), attempt)
+    with psycopg.connect(worker_dsn) as conn:
+        row = conn.execute(
+            "SELECT prompt_version, latency_ms, cost_usd, pricing_version "
+            "FROM cs.ticket_analyses WHERE id=%s",
+            (run_id,),
+        ).fetchone()
+    assert row == ("v3", 13, Decimal("0.750000"), "gemini-3.6-flash@2026-10-28")
+
+
+@pytest.mark.parametrize("table", ["ticket_analyses", "ticket_drafts"])
+def test_cost_without_a_price_version_is_refused(admin, ticket, table):
+    seq = "run_seq" if table == "ticket_analyses" else "seq"
+    with pytest.raises(psycopg.errors.CheckViolation) as refused:
+        admin.execute(
+            f"INSERT INTO cs.{table} (id, ticket_id, {seq}, outcome, input_version, cost_usd) "
+            "VALUES (%s, %s, 99, 'HELD', 'x', 0.1)",
+            (uuid4(), ticket),
+        )
+    assert refused.value.diag.constraint_name == f"{table}_cost_needs_pricing"
 
 
 @pytest.mark.parametrize(
