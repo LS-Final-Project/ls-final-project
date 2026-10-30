@@ -88,7 +88,7 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after, managed_projects, user_id):
+    async def list_projects(conn, limit, after, managed_projects, user_id, department=None):
         rows = [
             r
             for r in ROWS
@@ -110,6 +110,10 @@ def fakes(monkeypatch):
     async def list_rfp_requirements(conn, project_id):
         return only_for(project_id, REQUIREMENTS)
 
+    async def review_departments(conn, project_id):
+        return []
+
+    monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_projects", list_projects)
     monkeypatch.setattr(repository, "get_project", get_project)
