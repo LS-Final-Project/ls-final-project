@@ -5,7 +5,7 @@
 | 원본 | 파일 |
 | --- | --- |
 | 상태 값·HTTP 모델(OpenAPI 초안의 원본) | `backend/api/tft/rfp/schemas.py` |
-| 경로 골격 23개(구현 전 501 `TFT_NOT_IMPLEMENTED`, OpenAPI `x-implementation-status: planned`). 15·16·18·19·20은 구현(KAN-189) | `backend/api/tft/rfp/routes.py`, `routes_supplement.py`, `routes_questions.py` |
+| 경로 골격 21개(구현 전 501 `TFT_NOT_IMPLEMENTED`, OpenAPI `x-implementation-status: planned`). 15·16·18·19·20은 구현(KAN-189), 11·30 접수는 [작업 계약](rfp-jobs.md#tft-접수-경로-1130-kan-199kan-188) | `backend/api/tft/rfp/routes.py`, `routes_supplement.py`, `routes_questions.py`, `jobs.py` |
 | 저장 구조 | `infra/migrations/tft/20261029_KAN-182_rfp_response.sql` |
 | 생성 OpenAPI | `docs/openapi/tft.json` |
 

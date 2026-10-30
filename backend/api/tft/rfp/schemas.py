@@ -322,7 +322,8 @@ class ProcessRequest(Model):
 class JobAccepted(Model):
     job_id: UUID
     status_url: str
-    status: Literal["QUEUED"]
+    # 새 작업은 QUEUED, 같은 Idempotency-Key 재전송은 기존 작업의 지금 상태다(플랫폼 작업 상태 6값).
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
 
 
 # --- 요구 (§4.4) ------------------------------------------------------------------------

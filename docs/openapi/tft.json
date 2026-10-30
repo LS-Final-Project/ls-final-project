@@ -1361,7 +1361,14 @@
             "type": "string"
           },
           "status": {
-            "const": "QUEUED",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -6093,7 +6100,7 @@
     },
     "/api/v1/tft/projects/{project_id}/annotations/process": {
       "post": {
-        "description": "30. (A12 \uc870\uac74\ubd80) \uba54\ubaa8 PDF \ud574\uc11d \u2192 pdf_annot \uc81c\uc548.",
+        "description": "30. (A12 \uc870\uac74\ubd80) \uba54\ubaa8 PDF \ud574\uc11d \u2192 pdf_annot \uc81c\uc548. \uc811\uc218\ub9cc \ud558\uace0 \ud574\uc11d \ub2e8\uacc4\ub294 \ucc98\ub9ac \ud568\uc218 \ubaab\uc774\ub2e4.",
         "operationId": "tft_process_rfp_annotations",
         "parameters": [
           {
@@ -6203,9 +6210,7 @@
         "summary": "Process Annotations",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-192"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/assignment": {
@@ -7240,7 +7245,7 @@
     },
     "/api/v1/tft/projects/{project_id}/process": {
       "post": {
-        "description": "11. \ucc98\ub9ac \uc791\uc5c5 \uc811\uc218(\ud50c\ub7ab\ud3fc runtime.jobs, owner=tft, kind=rfp.process).",
+        "description": "11. \ucc98\ub9ac \uc791\uc5c5 \uc811\uc218(\ud50c\ub7ab\ud3fc runtime.jobs, owner=tft, kind=rfp.process).\n\n\ub2f4\ub2f9 sales\u00b7\ucc45\uc784\uc790\ub9cc. \ud504\ub85c\uc81d\ud2b8\uc5d0 \uc694\uad6c\uac00 \uc774\ubbf8 \uc788\uc73c\uba74 reason\uc774 \ud544\uc694\ud558\ub2e4(422 TFT_REASON_REQUIRED).",
         "operationId": "tft_process_rfp",
         "parameters": [
           {
@@ -7350,9 +7355,7 @@
         "summary": "Process",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/proposals": {

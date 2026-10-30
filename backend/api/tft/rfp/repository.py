@@ -610,3 +610,43 @@ async def clause_in_project(conn: AsyncConnection[Row], project_id: UUID, clause
     )
     row = await cursor.fetchone()
     return bool(row and row["found"])
+
+
+async def project_document_versions(
+    conn: AsyncConnection[Row], project_id: UUID, ids: Sequence[UUID]
+) -> list[UUID]:
+    """처리할 문서 판본. ids가 비면 프로젝트 문서마다 최신 판본, 있으면 그중 프로젝트 문서의 것만.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        ids: 요청한 문서 판본 ID(빈 목록이면 최신 판본 전부).
+
+    Returns:
+        list[UUID]: 프로젝트에 속한 문서 판본 ID(정렬). ids의 일부만 나오면 나머지는 프로젝트 밖이다.
+    """
+    cursor = await conn.execute(
+        "SELECT dv.id FROM tft.document_versions dv JOIN tft.documents d ON d.id = dv.document_id "
+        "WHERE d.project_id = %s AND (CASE WHEN cardinality(%s::uuid[]) = 0 "
+        "THEN dv.version = d.latest_version ELSE dv.id = ANY(%s::uuid[]) END) ORDER BY dv.id",
+        (project_id, list(ids), list(ids)),
+    )
+    return [row["id"] for row in await cursor.fetchall()]
+
+
+async def has_requirements(conn: AsyncConnection[Row], project_id: UUID) -> bool:
+    """프로젝트에 요구가 이미 있는지(처리를 다시 돌리는 것이면 사유가 필요하다).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        bool: 요구가 하나라도 있으면 True.
+    """
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM tft.requirements WHERE project_id = %s) AS found",
+        (project_id,),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["found"])
