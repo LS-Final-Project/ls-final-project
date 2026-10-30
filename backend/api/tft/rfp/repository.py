@@ -1077,6 +1077,7 @@ async def insert_requirement(
     """
     requirement_id = uuid4()
     origin = document_version["data_origin"]
+    designated = spec["designated_model"] is not None
     await conn.execute(
         "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, known_at) "
         "VALUES (%s,%s,%s,%s,'DERIVED',now())",
@@ -1085,10 +1086,11 @@ async def insert_requirement(
     await conn.execute(
         "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
         "clause_id, page, quote, equipment, task, attribute, value, unit, operator, standard_system, "
-        "necessity, designated_model, designated_manufacturer, assembly_clause, tolerance, "
+        "necessity, designated_model, designated_manufacturer, designated_clause_id, "
+        "designated_procurement, assembly_clause, tolerance, "
         "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
         "next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+        "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
         "'ai_draft',%s,'DERIVED',now())",
         (
             requirement_id,
@@ -1106,6 +1108,9 @@ async def insert_requirement(
             spec["necessity"],
             spec["designated_model"],
             spec["designated_manufacturer"],
+            # 지정품 상세는 지정 모델이 있을 때만 둔다(표 CHECK). 조달 방식의 시작값은 명세 기본이다.
+            clause["id"] if clause and designated else None,
+            "SPECIFIED_PROCUREMENT" if designated else None,
             spec["assembly_clause"],
             spec["tolerance"],
             spec["needs_review"],

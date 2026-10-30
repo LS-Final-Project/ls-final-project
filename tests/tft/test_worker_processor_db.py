@@ -293,11 +293,20 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     with psycopg.connect(admin) as conn:
         # 추출 v2(#309)의 지정품 제조사를 판본에 남긴다.
         assert conn.execute(
-            "SELECT v.designated_model, v.designated_manufacturer FROM tft.requirement_versions v "
+            "SELECT v.designated_model, v.designated_manufacturer, v.designated_procurement, "
+            "v.designated_clause_id = v.clause_id FROM tft.requirement_versions v "
             "JOIN tft.requirements r ON r.id = v.requirement_id "
             "WHERE r.project_id=%s AND v.designated_model IS NOT NULL",
             (project["project"],),
-        ).fetchall() == [("Resibloc", "Eaton")]
+        ).fetchall() == [("Resibloc", "Eaton", "SPECIFIED_PROCUREMENT", True)]
+        # 지정 모델이 없는 요구에는 지정품 상세를 두지 않는다.
+        assert conn.execute(
+            "SELECT count(*) FROM tft.requirement_versions v "
+            "JOIN tft.requirements r ON r.id = v.requirement_id WHERE r.project_id=%s "
+            "AND v.designated_model IS NULL "
+            "AND (v.designated_clause_id IS NOT NULL OR v.designated_procurement IS NOT NULL)",
+            (project["project"],),
+        ).fetchone() == (0,)
     assert first["clauses"] == 6 and first["requirements"] == 3 and first["ai_drafts"] == 3
     assert first["comparisons"] > 0 and first["gaps"] >= 1
     assert first["options"] >= first["gaps"] and first["grades"] >= 1
