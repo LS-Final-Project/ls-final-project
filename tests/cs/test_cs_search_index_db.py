@@ -464,11 +464,18 @@ def test_vector_searcher_fills_narrow_filters_through_hnsw_and_falls_back(
         broken_calls.append(text)
         raise RuntimeError("PRIVATE_PROVIDER_MESSAGE")
 
-    failing = VectorSearcher(forced, INDEX_VERSION, version, broken)
+    now = [100.0]
+    failing = VectorSearcher(forced, INDEX_VERSION, version, broken, clock=lambda: now[0])
     with caplog.at_level(logging.WARNING, logger="backend.agent.cs_search"):
         assert failing("ticket text", narrow) == [] and failing.failures == 1
-        # 같은 문의의 다음 단계(전체 조건)는 임베딩을 다시 부르지 않고 실패도 다시 세지 않는다.
+        # 같은 문의의 다음 단계(30초 안, 같은 원문)는 임베딩을 다시 부르지 않고 세지도 않는다.
+        now[0] += 1
         assert failing("ticket text", wide) == [] and failing.failures == 1
-    assert broken_calls == ["ticket text"]
+        assert broken_calls == ["ticket text"]
+        # 같은 원문은 30초가 지나면 다시 시도하고(실패를 영구 기억하지 않음), 다른 원문은 바로 시도한다.
+        now[0] += 30
+        assert failing("ticket text", narrow) == [] and failing.failures == 2
+        assert failing("other ticket", narrow) == [] and failing.failures == 3
+    assert broken_calls == ["ticket text", "ticket text", "other ticket"]
     assert "CS_VECTOR_SEARCH_FAILED RuntimeError" in caplog.text
     assert "PRIVATE_PROVIDER_MESSAGE" not in caplog.text and "ticket text" not in caplog.text

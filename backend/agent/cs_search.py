@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
@@ -17,6 +18,8 @@ from backend.engine.search.model import Candidate, SearchFilters
 from backend.shared.ai import embed
 
 LOGGER = logging.getLogger(__name__)
+# 같은 원문의 임베딩 실패를 다시 시도하지 않는 시간(초). 한 문의의 단계 사이 중복 호출만 막는다.
+FAILURE_MEMORY_SECONDS = 30.0
 # 벡터 후보 snippet 길이(FTS의 ts_headline 대신 본문 앞부분).
 VECTOR_SNIPPET_CHARS = 200
 
@@ -138,6 +141,7 @@ class VectorSearcher:
         index_version: str,
         embedding_version: str,
         embed: Callable[[str], list[float]],
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """연결·판본·임베딩 함수를 받는다.
 
@@ -145,22 +149,40 @@ class VectorSearcher:
             dsn: cs_app·cs_worker 연결 문자열.
             index_version: 검색할 청크 색인 판본. SearchFilters.index_version과 같아야 한다.
             embedding_version: 청크 임베딩 판본(CsVectorSettings.embedding_version).
-            embed: 질의 원문 → 768차원 값. 같은 원문은 성공·실패 모두 lru_cache로 한 번만 부른다(단계마다
-                재호출하지 않음, 실패하면 다음 단계도 호출 없이 []).
+            embed: 질의 원문 → 768차원 값. 성공은 lru_cache로 원문당 한 번만 부른다.
+            clock: 실패 기억 시계(검사에서 바꾼다).
         """
         self.dsn, self.index_version, self.embedding_version = dsn, index_version, embedding_version
         self.failures = 0
+        self.clock = clock
+        # 성공만 캐시한다(lru_cache는 예외를 캐시하지 않는다).
+        self._embed = lru_cache(maxsize=8)(lambda text: tuple(embed(text)))
+        # 마지막 실패(원문, 시각). 같은 원문이 FAILURE_MEMORY_SECONDS 안에 다시 오면 호출하지 않는다.
+        self._last_failure: tuple[str, float] | None = None
 
-        @lru_cache(maxsize=8)
-        def embed_once(text: str) -> tuple[float, ...] | None:
-            """원문 하나를 임베딩한다. 실패는 None으로 캐시해 같은 문의의 다음 단계가 다시 부르지 않게 한다."""
-            try:
-                return tuple(embed(text))
-            except Exception as error:
-                self._failed(error)
-                return None
+    def embed(self, text: str) -> tuple[float, ...] | None:
+        """질의 원문을 임베딩한다.
 
-        self.embed = embed_once
+        Args:
+            text: 질의 원문.
+
+        Returns:
+            tuple[float, ...] | None: 임베딩 값. 실패하면 None(세고 경고한다). 같은 원문이 마지막 실패 뒤 30초 안에
+                다시 오면 호출 없이 None(세지 않는다). 30초가 지나거나 다른 원문이면 다시 시도한다.
+        """
+        now = self.clock()
+        if (
+            self._last_failure is not None
+            and self._last_failure[0] == text
+            and now - self._last_failure[1] < FAILURE_MEMORY_SECONDS
+        ):
+            return None
+        try:
+            return self._embed(text)
+        except Exception as error:
+            self._last_failure = (text, now)
+            self._failed(error)
+            return None
 
     def _failed(self, error: Exception) -> None:
         """실패를 세고 사유 코드와 예외 클래스 이름만 경고로 남긴다(공급자·DB 원문·메시지 미기록)."""
@@ -176,7 +198,7 @@ class VectorSearcher:
 
         Returns:
             list[Candidate]: 거리 순 벡터 후보. 임베딩·DB 오류면 [](failures를 늘리고 CS_VECTOR_SEARCH_FAILED와 예외
-                클래스 이름만 경고로 남긴다). 임베딩 실패는 원문당 한 번만 세고, DB 오류는 단계마다 센다. 실행 중인
+                클래스 이름만 경고로 남긴다). failures는 실제 시도마다 센다(30초 안의 같은 원문은 시도하지 않음). 실행 중인
                 이벤트 루프 안이면 RuntimeError("CS_SEARCH_IN_EVENT_LOOP"), 판본이 다르면
                 ValueError("CS_SEARCH_INDEX_MISMATCH")다.
         """
