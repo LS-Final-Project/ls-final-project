@@ -206,7 +206,7 @@ def test_a_result_appearing_during_the_run_is_not_overwritten(tmp_path):
     assert (out.read_text(), other.read_text()) == ("first", "second")
 
 
-def evaluation_run(tmp_path, monkeypatch, *extra):
+def evaluation_run(tmp_path, monkeypatch, *extra, provider="fake"):
     """합성 평가 문서(10번)를 가짜 모델로 main까지 돌린다. 원문 해석은 합성 조항 트리로 바꿔 끼운다."""
     data = manifest(tmp_path)
     (tmp_path / "manifest.json").write_text(json.dumps(data))
@@ -221,7 +221,7 @@ def evaluation_run(tmp_path, monkeypatch, *extra):
             "--docs", str(tmp_path),
             "--documents", "10",
             "--gold", str(tmp_path / "gold.json"),
-            "--provider", "fake",
+            "--provider", provider,
             "--confirm-evaluation",
             *extra,
         ]
@@ -268,3 +268,31 @@ def test_a_failed_first_run_still_uses_up_the_official_slot(tmp_path):
     # 완료 기록 없이 끝난(실패한) 첫 실행 뒤에도 다시 공식으로 돌 수 없다. 다른 manifest 판본은 별개다.
     assert rfp_candidate_run.claim_official(ledger, *claim) == "EVAL_OFFICIAL_ALREADY_RECORDED"
     assert rfp_candidate_run.claim_official(ledger, "m2", [10], "t", "abc") is None
+
+
+def test_a_setup_failure_does_not_use_up_the_official_slot(tmp_path, monkeypatch, capsys):
+    """모델 설정이 깨져 첫 호출 전에 실패하면 공식 기록을 남기지 않는다(#322 리뷰 P2)."""
+    ledger = tmp_path / "official.jsonl"
+
+    def broken(_env_file):
+        raise KeyError("GEMINI_API_KEY")
+
+    monkeypatch.setattr(rfp_candidate_run, "gemini", broken)
+    args = ["--run-label", "FIRST", "--official-ledger", str(ledger)]
+    with pytest.raises(KeyError):
+        evaluation_run(
+            tmp_path, monkeypatch, *args, "--out", str(tmp_path / "a.json"), provider="gemini"
+        )
+    assert not ledger.exists() or not ledger.read_text().strip()
+    # 고친 뒤 다시 돌리면 공식 실행이 된다.
+    assert evaluation_run(tmp_path, monkeypatch, *args, "--out", str(tmp_path / "b.json")) == 0
+    assert json.loads((tmp_path / "b.json").read_text())["meta"]["official"] is True
+
+
+@pytest.mark.parametrize("line", ["{not json", '{"event": "STARTED"}', "[1]"])
+def test_a_broken_ledger_line_stops_the_official_run(tmp_path, line):
+    ledger = tmp_path / "official.jsonl"
+    ledger.write_text(f"\n{line}\n")
+    code = rfp_candidate_run.claim_official(ledger, "m1", [10], "t", "abc")
+    assert code == "EVAL_OFFICIAL_LEDGER_CORRUPT"
+    assert ledger.read_text() == f"\n{line}\n"

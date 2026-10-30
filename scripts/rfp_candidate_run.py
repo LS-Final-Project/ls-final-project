@@ -90,16 +90,22 @@ def claim_official(
         sha: 실행한 코드 판본.
 
     Returns:
-        str | None: 이미 기록이 있으면 EVAL_OFFICIAL_ALREADY_RECORDED, 차지했으면 None.
+        str | None: 이미 기록이 있으면 EVAL_OFFICIAL_ALREADY_RECORDED, 읽을 수 없는 줄이 있으면
+            EVAL_OFFICIAL_LEDGER_CORRUPT, 차지했으면 None. 빈 줄은 건너뛴다.
     """
     with ledger.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         handle.seek(0)
         for line in handle.read().splitlines():
-            entry = json.loads(line)
-            if entry["manifest_version"] == manifest_version and set(
-                entry["document_numbers"]
-            ) & set(numbers):
+            if not line.strip():
+                continue
+            # 공식 판정의 기준 파일이라, 손으로 고치다 깨진 줄은 건너뛰지 않고 멈춘다(#322 리뷰 P3).
+            try:
+                entry = json.loads(line)
+                recorded = entry["manifest_version"], set(entry["document_numbers"])
+            except (ValueError, KeyError, TypeError):
+                return "EVAL_OFFICIAL_LEDGER_CORRUPT"
+            if recorded[0] == manifest_version and recorded[1] & set(numbers):
                 return "EVAL_OFFICIAL_ALREADY_RECORDED"
         record = {
             "event": "STARTED",
@@ -239,24 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         for n in args.documents
     }
     sha = git_sha()
-    claim: dict | None = None
-    if official:
-        # 원문 확인까지 끝난 뒤, 모델 호출 직전에 공식 자리를 차지한다.
-        if claim_official(
-            args.official_ledger, manifest["manifest_version"], args.documents, started_at, sha
-        ):
-            print(
-                "EVAL_OFFICIAL_ALREADY_RECORDED: 이 문서의 공식 실행이 이미 있다. "
-                "--run-label REMEASURE(참고값)로 돌린다. 모델을 부르지 않았다.",
-                file=sys.stderr,
-            )
-            return 1
-        claim = {
-            "manifest_version": manifest["manifest_version"],
-            "document_numbers": args.documents,
-            "started_at": started_at,
-            "git_sha": sha,
-        }
+    # 모델 설정·자사 제품·협력사 프로필을 먼저 다 읽는다. 여기서 실패하면 공식 자리를 쓰지 않는다(#322 리뷰 P2).
     provider: Callable[[str], Generation]
     if args.provider == "fake":
         model, provider = "fake", fake_provider
@@ -265,6 +254,26 @@ def main(argv: list[str] | None = None) -> int:
     products, profiles = load_own_products(), load_profiles()
     by_number = {d.document_number: d for d in gold.documents}
     today = args.today or date.today()
+    claim: dict | None = None
+    if official:
+        # 준비가 끝난 뒤, 첫 모델 호출 직전에 공식 자리를 차지한다.
+        refused = claim_official(
+            args.official_ledger, manifest["manifest_version"], args.documents, started_at, sha
+        )
+        if refused:
+            hint = {
+                "EVAL_OFFICIAL_ALREADY_RECORDED": "이 문서의 공식 실행이 이미 있다. "
+                "--run-label REMEASURE(참고값)로 돌린다.",
+                "EVAL_OFFICIAL_LEDGER_CORRUPT": "공식 실행 기록에 읽을 수 없는 줄이 있다. 사람이 확인한다.",
+            }[refused]
+            print(f"{refused}: {hint} 모델을 부르지 않았다.", file=sys.stderr)
+            return 1
+        claim = {
+            "manifest_version": manifest["manifest_version"],
+            "document_numbers": args.documents,
+            "started_at": started_at,
+            "git_sha": sha,
+        }
     runs = []
     for n in args.documents:
         run = run_document(trees[n], by_number[n], provider, products, profiles, today)
