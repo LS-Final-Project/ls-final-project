@@ -93,6 +93,7 @@ def draft_prompt_version() -> str:
 def deployed_config() -> dict[str, dict[str, Any]]:
     """업무 실행 경로가 쓰는 단계별 설정을 코드 기본값에서 읽는다(환경 변수·.env는 보지 않는다).
 
+    - C/S 분류 전용 모델·출력 상한: CsWorkerSettings(없으면 공통 모델). 공통 출력 상한은 분류가 쓰지 않는다.
     - C/S 분류·초안: C/S worker(backend/agent/cs_worker.py)가 공통 AI 설정의 gemini_model 하나를 두 단계에 함께 넘긴다.
     - RFP 요구 추출: 처리 함수(backend/api/tft/worker_processor.py)의 추출 전용 설정 extraction_model(TFT_EXTRACTION_MODEL)이다.
       공통 GEMINI_MODEL과 별개다.
@@ -104,6 +105,7 @@ def deployed_config() -> dict[str, dict[str, Any]]:
     """
     from backend.agent.cs_runner import DRAFT_DEFAULTS
     from backend.agent.cs_search import CsVectorSettings
+    from backend.agent.cs_worker import CsWorkerSettings
     from backend.api.tft.worker_processor import ProcessorSettings
     from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, prompt_fingerprint
     from backend.engine.rfp.requirements import EXTRACTION_VERSION
@@ -112,6 +114,7 @@ def deployed_config() -> dict[str, dict[str, Any]]:
 
     # model_construct는 환경 변수를 읽지 않고 코드 기본값만 채운다(실행한 PC의 설정이 결과를 바꾸지 않게).
     ai = AISettings.model_construct()
+    worker = CsWorkerSettings.model_construct()
     model = ai.gemini_model
     draft_version = draft_prompt_version()
     vector = CsVectorSettings.model_construct()
@@ -119,13 +122,12 @@ def deployed_config() -> dict[str, dict[str, Any]]:
     task_type = vector.embedding_version.rsplit(":", 1)[-1]
     return {
         "classification": {
-            "model": model,
+            "model": worker.classification_model or model,
             "prompt_version": DEFAULT_VERSIONS["classification"],
             "prompt_fingerprint": prompt_fingerprint(
                 "classification", DEFAULT_VERSIONS["classification"]
             ),
-            # 분류 호출은 공통 AI 설정의 출력 상한을 그대로 쓴다(cs_runner가 분류에 knobs를 주지 않음).
-            "max_output_tokens": ai.gemini_max_output_tokens,
+            "max_output_tokens": worker.classification_max_output_tokens,
         },
         "draft": {
             "model": model,
@@ -163,15 +165,20 @@ def deploy_drift(
     """배포 스크립트가 코드 기본값을 다른 값으로 덮어쓰는지 본다(배포가 검사한 값과 다른 설정으로 돌지 않게).
 
     - GEMINI_MODEL(반드시 있어야 함): C/S 분류·초안 모델.
-    - GEMINI_MAX_OUTPUT_TOKENS: C/S 분류 출력 상한(초안은 자기 상한 DRAFT_DEFAULTS를 쓴다).
+    - CS_WORKER_CLASSIFICATION_MODEL·CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS: C/S 분류 전용 값.
+      공통 GEMINI_MAX_OUTPUT_TOKENS는 분류·초안이 쓰지 않아 보지 않는다.
     - TFT_EXTRACTION_MODEL·TFT_EXTRACTION_MAX_OUTPUT_TOKENS: RFP 요구 추출. 배포가 넣지 않으면 코드 기본값이다.
 
     Returns:
         list[Issue]: 다른 값마다 DEPLOY_DIFFERS(deployed=배포값, adopted=코드 기본값).
     """
+    # 분류 전용 모델을 넣으면 분류는 공통 GEMINI_MODEL을 쓰지 않는다.
+    separate = deploy_setting("CS_WORKER_CLASSIFICATION_MODEL", script)
+    shared = ("draft",) if separate else ("classification", "draft")
     watched = [
-        ("GEMINI_MODEL", ("classification", "draft"), "model"),
-        ("GEMINI_MAX_OUTPUT_TOKENS", ("classification",), "max_output_tokens"),
+        ("GEMINI_MODEL", shared, "model"),
+        ("CS_WORKER_CLASSIFICATION_MODEL", ("classification",), "model"),
+        ("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", ("classification",), "max_output_tokens"),
         ("TFT_EXTRACTION_MODEL", ("rfp_extraction",), "model"),
         ("TFT_EXTRACTION_MAX_OUTPUT_TOKENS", ("rfp_extraction",), "max_output_tokens"),
     ]

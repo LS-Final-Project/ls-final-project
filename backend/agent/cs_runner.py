@@ -110,6 +110,9 @@ class InMemoryTicketSource:
 # 제품 경로 초안 기본 설정: 초안 실측 PROPOSED 설정(2026-10-29, adoption draft-proposed-product: flash-lite·
 # max_output_tokens 2048·근거 5건). 출력 상한 기본(AISettings 1024)과 근거 20건으로는 초안 JSON이 잘렸다.
 DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 2048, "evidence_limit": 5}
+# 분류 출력 상한은 thinking을 포함한다. 공통 기본 1024로는 3.6-flash 50건 중 13건이 잘렸고 4096에서는 0건이었다
+# (2026-10-29 실측, classification-remeasure). 공통 기본값은 다른 호출이 쓰므로 그대로 둔다.
+CLASSIFICATION_DEFAULTS: dict[str, int] = {"max_output_tokens": 4096}
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,8 @@ def build_cs_runner(
     prompt_version: str = DEFAULT_VERSIONS["classification"],
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
+    classification_model: str | None = None,
+    classification_knobs: GenerationKnobs | None = None,
     draft_knobs: GenerationKnobs | None = None,
     evidence_limit: int = DRAFT_DEFAULTS["evidence_limit"],
     policy_documents: Mapping[str, str] | None = None,
@@ -160,6 +165,8 @@ def build_cs_runner(
         prompt_version: 분류 프롬프트 판본. 기본은 prompt_registry.DEFAULT_VERSIONS(채택 판본 v3)다.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed(KAN-89).
         invalid_output_retries: 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(0|1). build_graph에 넘긴다.
+        classification_model: 분류 전용 모델 ID. None이면 model을 쓴다.
+        classification_knobs: 분류 공급자의 생성 조절 항목. None이면 CLASSIFICATION_DEFAULTS의 출력 상한이다.
         draft_knobs: 초안 공급자의 생성 조절 항목. None이면 GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS 값)다.
         evidence_limit: 초안에 넘길 근거 상위 개수(기본 DRAFT_DEFAULTS). build_graph에 넘긴다.
         policy_documents: 정책 문서 doc_id → document_sha256(색인 manifest). 있으면 정책 유형 문의에 정책 문서
@@ -186,9 +193,11 @@ def build_cs_runner(
         classification_provider=gemini_classification_provider(
             client,
             ai_settings,
-            model=model,
+            model=classification_model or model,
             allowed_info_codes=allowed_info_codes,
             prompt_version=prompt_version,
+            generation=classification_knobs
+            or GenerationKnobs(max_output_tokens=CLASSIFICATION_DEFAULTS["max_output_tokens"]),
         ),
         draft_provider=gemini_text_provider(
             client,

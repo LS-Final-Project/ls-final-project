@@ -204,6 +204,22 @@ def test_a_deploy_script_overriding_the_default_model_is_reported(tmp_path):
     assert promotion.deploy_drift(CONFIG, script) == []
 
 
+def test_the_classification_stage_reads_its_own_limit_and_keeps_the_shared_default():
+    """분류는 전용 상한을 쓰고 공통 기본 1024는 그대로다. 전용 모델이 없으면 공통 모델이다."""
+    from backend.agent.cs_runner import CLASSIFICATION_DEFAULTS
+    from backend.shared.ai import AISettings
+
+    config = promotion.deployed_config()
+    shared = AISettings.model_construct()
+    assert config["classification"]["max_output_tokens"] == 4096
+    assert (
+        config["classification"]["max_output_tokens"]
+        == (CLASSIFICATION_DEFAULTS["max_output_tokens"])
+    )
+    assert shared.gemini_max_output_tokens == 1024
+    assert config["classification"]["model"] == shared.gemini_model
+
+
 def test_settings_missing_on_either_side_are_mismatches():
     """채택 기록에 없는 실행 설정과 실행 경로에 없는 채택 항목도 불일치다(채택 때 고정 안 한 설정 변경을 막는다)."""
     extra = copy.deepcopy(CONFIG)
@@ -257,10 +273,16 @@ def test_editing_the_rfp_extraction_prompt_changes_the_checked_config(monkeypatc
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
+        # 공통 상한은 분류가 쓰지 않는다. 다른 호출을 위해 배포가 1024를 넣어도 불일치가 아니다.
         ('"GEMINI_MODEL=m-a,GEMINI_MAX_OUTPUT_TOKENS=1024"', []),
+        ('"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS=4096"', []),
         (
-            '"GEMINI_MODEL=m-a,GEMINI_MAX_OUTPUT_TOKENS=256"',
-            [("classification", "max_output_tokens", 256, 1024)],
+            '"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS=256"',
+            [("classification", "max_output_tokens", 256, 4096)],
+        ),
+        (
+            '"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MODEL=m-lite"',
+            [("classification", "model", "m-lite", "m-a")],
         ),
         (
             '"GEMINI_MODEL=m-a,TFT_EXTRACTION_MODEL=m-other"',
@@ -274,12 +296,29 @@ def test_editing_the_rfp_extraction_prompt_changes_the_checked_config(monkeypatc
 )
 def test_deploy_overrides_of_limits_and_the_extraction_model_are_reported(tmp_path, text, expected):
     config = copy.deepcopy(CONFIG)
-    config["classification"]["max_output_tokens"] = 1024
+    config["classification"]["max_output_tokens"] = 4096
     config["rfp_extraction"]["max_output_tokens"] = 16384
     script = tmp_path / "deploy.py"
     script.write_text(text)
     drift = promotion.deploy_drift(config, script)
     assert [(i.stage, i.field, i.deployed, i.adopted) for i in drift] == expected
+
+
+def test_a_classification_model_override_takes_the_shared_model_off_classification(tmp_path):
+    """분류 전용 모델이 있으면 공통 모델과 비교하지 않는다(#355 리뷰). 초안은 공통 모델 그대로 본다."""
+    config = copy.deepcopy(CONFIG)
+    config["classification"]["model"] = "m-lite"
+    script = tmp_path / "deploy.py"
+    script.write_text('"GEMINI_MODEL=m-a,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert promotion.deploy_drift(config, script) == []
+    script.write_text('"GEMINI_MODEL=m-other,CS_WORKER_CLASSIFICATION_MODEL=m-lite"')
+    assert [(i.stage, i.deployed) for i in promotion.deploy_drift(config, script)] == [
+        ("draft", "m-other")
+    ]
+    script.write_text('"GEMINI_MODEL=m-a"')
+    assert [(i.stage, i.deployed, i.adopted) for i in promotion.deploy_drift(config, script)] == [
+        ("classification", "m-a", "m-lite")
+    ]
 
 
 def test_adoption_dates_must_be_iso(tmp_path):

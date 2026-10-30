@@ -23,7 +23,12 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from backend.agent.cs_runner import build_cs_runner, make_checkpointer, outcome
+from backend.agent.cs_runner import (
+    CLASSIFICATION_DEFAULTS,
+    build_cs_runner,
+    make_checkpointer,
+    outcome,
+)
 from backend.agent.cs_search import (
     CsVectorSettings,
     fts_searcher_from_dsn,
@@ -42,6 +47,7 @@ from backend.agent.job_runtime import (
 )
 from backend.agent.ticket_source_registry import WorkerParts, load_parts
 from backend.engine.cs.graph import HUMAN_REVIEW, initial_state, thread_config
+from backend.engine.cs.providers import GenerationKnobs
 from backend.shared.ai import AISettings, create_client
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
@@ -55,12 +61,17 @@ LOAD_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
 
 
 class CsWorkerSettings(BaseSettings):
-    """worker 실행 허용과 lease 길이. 기본 비활성이다."""
+    """worker 실행 허용, lease 길이, 분류 전용 모델·출력 상한. 기본 비활성이다."""
 
     model_config = SettingsConfigDict(env_prefix="CS_WORKER_", extra="ignore")
     enabled: bool = False
     # 노드 하나(재호출 포함 모델 호출)가 이 안에 끝나야 한다. 노드마다 연장한다.
     lease_seconds: int = Field(default=120, ge=10, le=900)
+    # 없으면 공통 GEMINI_MODEL을 분류·초안에 함께 쓴다. 바꾸려면 채택 기록이 필요하다(eval/promotion.py).
+    classification_model: str | None = None
+    classification_max_output_tokens: int = Field(
+        default=CLASSIFICATION_DEFAULTS["max_output_tokens"], ge=1, le=65536
+    )
 
 
 def run_graph(graph: Any, lease: Lease, on_node: Callable[[dict[str, Any]], bool]) -> bool:
@@ -139,6 +150,7 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
     assert settings.database_url is not None
     assert parts.allowed_info_codes is not None and parts.search_filters is not None
     ai = AISettings()
+    worker = CsWorkerSettings()
     dsn = settings.database_url.get_secret_value()
     index_version = parts.search_filters.index_version
     vector = CsVectorSettings()
@@ -155,6 +167,10 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
         search_filters=parts.search_filters,
         checkpointer=checkpointer,
         model=ai.gemini_model,
+        classification_model=worker.classification_model,
+        classification_knobs=GenerationKnobs(
+            max_output_tokens=worker.classification_max_output_tokens
+        ),
         allowed_info_codes=parts.allowed_info_codes,
         allow_tracing=settings.ai_tracing_allowed,
         verification_enabled=settings.cs_draft_verification_enabled,

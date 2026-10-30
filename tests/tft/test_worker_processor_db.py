@@ -23,6 +23,7 @@ from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
+from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.api.tft.worker_processor import draft_requirement, make_processor, sections_of
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import build_clause_tree
@@ -187,7 +188,12 @@ def profile(admin):
     """합성 협력사 프로필 한 판본을 DB에 넣고 검사 뒤 지운다."""
     source = load_profiles()[0]
     code = "Q-" + chr(ord("A") + uuid4().int % 26)
-    row = source.model_dump(mode="json") | {"candidate_code": code, "profile_version": 1}
+    # 합성 문서의 요구가 변압기라 같은 계열 후보로 넣는다(후보는 자기 계열 요구만 채점한다).
+    row = source.model_dump(mode="json") | {
+        "candidate_code": code,
+        "profile_version": 1,
+        "product_family": "몰드 변압기",
+    }
     columns = [k for k in row if k != "known_at"]
     with psycopg.connect(admin) as conn:
         conn.execute(
@@ -213,7 +219,7 @@ def run(worker_dsn, project, extractor, kind="rfp.process", version=None):
     processor = make_processor(
         settings,
         provider=extractor,
-        document_root=project["root"],
+        store=LocalDocumentStore(project["root"]),
         today=lambda: date(2026, 10, 30),
     )
     job = TftJob(
@@ -292,11 +298,20 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     with psycopg.connect(admin) as conn:
         # 추출 v2(#309)의 지정품 제조사를 판본에 남긴다.
         assert conn.execute(
-            "SELECT v.designated_model, v.designated_manufacturer FROM tft.requirement_versions v "
+            "SELECT v.designated_model, v.designated_manufacturer, v.designated_procurement, "
+            "v.designated_clause_id = v.clause_id FROM tft.requirement_versions v "
             "JOIN tft.requirements r ON r.id = v.requirement_id "
             "WHERE r.project_id=%s AND v.designated_model IS NOT NULL",
             (project["project"],),
-        ).fetchall() == [("Resibloc", "Eaton")]
+        ).fetchall() == [("Resibloc", "Eaton", "SPECIFIED_PROCUREMENT", True)]
+        # 지정 모델이 없는 요구에는 지정품 상세를 두지 않는다.
+        assert conn.execute(
+            "SELECT count(*) FROM tft.requirement_versions v "
+            "JOIN tft.requirements r ON r.id = v.requirement_id WHERE r.project_id=%s "
+            "AND v.designated_model IS NULL "
+            "AND (v.designated_clause_id IS NOT NULL OR v.designated_procurement IS NOT NULL)",
+            (project["project"],),
+        ).fetchone() == (0,)
     assert first["clauses"] == 6 and first["requirements"] == 3 and first["ai_drafts"] == 3
     assert first["comparisons"] > 0 and first["gaps"] >= 1
     assert first["options"] >= first["gaps"] and first["grades"] >= 1
@@ -373,7 +388,9 @@ def test_unknown_input_or_changed_file_fails(worker_dsn, project, admin):
 def test_a_stop_after_compare_leaves_no_requirement_rows(worker_dsn, project, admin):
     """조항~candidates는 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소) 조항도 요구 행도 남지 않는다."""
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
-    processor = make_processor(settings, provider=FakeExtractor(), document_root=project["root"])
+    processor = make_processor(
+        settings, provider=FakeExtractor(), store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",
@@ -425,7 +442,9 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
 
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
     extractor = FakeExtractor()
-    processor = make_processor(settings, provider=extractor, document_root=project["root"])
+    processor = make_processor(
+        settings, provider=extractor, store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",
@@ -473,6 +492,39 @@ def test_a_requirement_level_review_reaches_the_job_summary(
 
     summary, _ = run(worker_dsn, make_project(admin, tmp_path, spec), OneRequirement())
     assert summary["needs_review"] is review
+
+
+def test_insufficient_requirements_are_graded_and_an_assembly_needs_an_integrator(
+    worker_dsn, project, admin, profile
+):
+    """근거 부족 요구도 등급 대상이고, 조립품 조항이 있으면 통합 책임이 후보 제약으로 들어간다."""
+    wanted = {
+        **REQUIREMENTS[0],
+        "attribute_key": "arc_flash_reduction",
+        "assembly_clause": True,
+    }
+
+    class OneRequirement(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text=json.dumps({"requirements": [wanted]}),
+                usage=Usage(),
+                model_version="fake",
+                finish_reasons=[],
+            )
+
+    run(worker_dsn, project, OneRequirement())
+    with psycopg.connect(admin) as conn:
+        status, grade, reasons = conn.execute(
+            "SELECT v.status, g.grade, g.reasons FROM tft.partner_grades g "
+            "JOIN tft.requirement_versions v ON v.requirement_id = g.requirement_id "
+            "WHERE g.project_id=%s AND g.candidate_code=%s",
+            (project["project"], profile),
+        ).fetchone()
+    assert status == "INSUFFICIENT_EVIDENCE"
+    assert grade != "MANDATORY_CONFIRMED"
+    assert "통합 책임" in " ".join(reasons)
 
 
 def test_an_assembly_clause_is_stored_and_read_back_for_the_project(worker_dsn, admin, tmp_path):

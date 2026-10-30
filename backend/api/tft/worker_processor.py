@@ -15,10 +15,9 @@ import hashlib
 import itertools
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
@@ -30,10 +29,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.agent.processor_registry import Emit, Processor, TftJob
 from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
+from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pools
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
-from backend.api.tft.rfp import comparison, repository, supplement
+from backend.api.tft.rfp import comparison, integration, repository, supplement
 from backend.api.tft.rfp.jobs import input_version
-from backend.api.tft.rfp.storage import read_document
+from backend.api.tft.rfp.storage import (
+    DocumentStorageSettings,
+    DocumentStore,
+    document_store,
+    read_document,
+)
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
@@ -58,14 +63,13 @@ ONLY_STEP = {"rfp.export": "export", "rfp.annotate": "annotate"}
 
 
 class ProcessorSettings(BaseSettings):
-    """원문 폴더와 추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
+    """추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
 
     추출 값은 공통 AI 기본값(출력 1024토큰)을 쓰지 않는다. 기본은 평가 스크립트(scripts/rfp_requirements_eval.py)와
     같은 모델·출력 상한이고, 시간 제한은 lease 안에 들도록 120초다. 키·공급자·재시도는 공통 AI 설정(GEMINI_*)이다.
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
-    document_root: Path | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -155,14 +159,16 @@ def build(settings: Settings) -> Processor:
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
-    return make_processor(settings, provider=provider, document_root=config.document_root)
+    return make_processor(
+        settings, provider=provider, store=document_store(DocumentStorageSettings())
+    )
 
 
 def make_processor(
     settings: Settings,
     *,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product] | None = None,
     today: Callable[[], date] = date.today,
 ) -> Processor:
@@ -171,7 +177,7 @@ def make_processor(
     Args:
         settings: DB 설정.
         provider: 추출 모델 호출.
-        document_root: 원문 폴더. 없으면 원문이 필요한 작업은 실패한다.
+        store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
 
@@ -184,7 +190,7 @@ def make_processor(
         if job.kind in ONLY_STEP:
             emit({"step": ONLY_STEP[job.kind], "counts": ZERO})
             return {"counts": ZERO, "needs_review": False}
-        return asyncio.run(process(settings, job, emit, provider, document_root, own, today()))
+        return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor
 
@@ -394,12 +400,89 @@ def counts(requirements: int) -> dict[str, int]:
     return {"requirements": requirements, "proposals": 0}
 
 
+# 협력사 등급 대상. 충족·조건부는 보완 대상이 아니다.
+GRADED_STATUSES = frozenset({"SPEC_GAP", "INSUFFICIENT_EVIDENCE"})
+# ponytail: 문서에 데이터셋 번호 칸이 없어 제목에서 읽는다. 풀은 시연·평가 전용 가상 후보라 칸을 만들 값이 아니다.
+# 제목에 RFP-번호가 없으면 풀을 못 쓰고 전체 후보가 된다. 실제 후보 풀을 운영하게 되면 문서에 칸을 둔다.
+DOCUMENT_NUMBER = re.compile(r"\bRFP-(\d+)\b")
+
+
+def integration_of(items: Iterable[ExtractedRequirement]) -> integration.IntegrationResponsibility:
+    """추출 요구로 통합 책임 필요 여부를 정한다.
+
+    Args:
+        items: 이번 처리의 추출 요구.
+
+    Returns:
+        integration.IntegrationResponsibility: 필요 여부와 근거 조항.
+    """
+    return integration.integration_responsibility(
+        [
+            integration.Requirement(
+                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+            )
+            for r in items
+        ]
+    )
+
+
+def candidate_pool(titles: Iterable[str]) -> frozenset[str] | None:
+    """처리 문서들의 후보 풀. 문서 제목의 데이터셋 번호(RFP-14)로 찾는다.
+
+    Args:
+        titles: 문서 제목들.
+
+    Returns:
+        frozenset[str] | None: 풀의 합집합. 번호나 풀을 모르는 문서가 있으면 None(후보를 줄이지 않는다).
+    """
+    pools = load_document_pools()
+    picked: set[str] = set()
+    known = False
+    for title in titles:
+        found = DOCUMENT_NUMBER.search(title)
+        pool = pools.get(found.group(1)) if found else None
+        if pool is None:
+            return None
+        picked.update(pool)
+        known = True
+    return frozenset(picked) if known else None
+
+
+def grading_groups(
+    targets: Sequence[tuple[grading.Requirement, str | None]],
+    profiles: Sequence[PartnerProfile],
+    pool: frozenset[str] | None,
+) -> list[tuple[PartnerProfile, list[grading.Requirement]]]:
+    """후보별로 채점할 요구를 고른다. 풀 안의 후보를 자기 계열 요구로만 채점한다.
+
+    한 문서에 여러 계열이 있으면 다른 계열 요구가 후보를 EXCLUDED로 만든다(14번 B-1·B-2). 계열을 모르는 요구는 어느
+    후보도 채점하지 않는다.
+
+    Args:
+        targets: (요구, 추출 equipment_family).
+        profiles: 협력사 프로필.
+        pool: 후보 풀. None이면 줄이지 않는다.
+
+    Returns:
+        list: (후보, 그 후보의 요구). 채점할 요구가 없는 후보는 뺀다.
+    """
+    groups = []
+    for profile in profiles:
+        if pool is not None and profile.candidate_code not in pool:
+            continue
+        family = PROFILE_FAMILIES.get(profile.product_family)
+        mine = [g for g, wanted in targets if family is not None and wanted == family]
+        if mine:
+            groups.append((profile, mine))
+    return groups
+
+
 async def process(
     settings: Settings,
     job: TftJob,
     emit: Emit,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
 ) -> dict[str, Any]:
@@ -410,7 +493,7 @@ async def process(
         job: 작업.
         emit: 단계 보고(소유권·취소 검사).
         provider: 추출 모델 호출.
-        document_root: 원문 폴더.
+        store: 원문 저장소.
         products: 자사 제품.
         today: 인증 유효기한 기준일.
 
@@ -434,10 +517,10 @@ async def process(
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
         for document in documents:
             if not await repository.document_processed(conn, document["id"]):
-                if document_root is None:
+                if store is None:
                     raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
-                data = read_document(
-                    document_root, document["storage_key"], document["sha256"], document["size"]
+                data = await read_document(
+                    store, document["storage_key"], document["sha256"], document["size"]
                 )
                 tree = build_clause_tree(extract(data, mime=document["mime"]))
                 # 조항 번호 → 조항 행. compare 트랜잭션에서 채운다(추출 요구가 같은 dict를 가리킨다).
@@ -503,27 +586,31 @@ async def process(
                         data_origin=document["data_origin"],
                     )
             emit({"step": "supplement", "counts": counts(total)})
+            # 근거 부족 요구도 협력사로 메울 수 있어 채점한다. 충족·조건부는 보완 대상이 아니다.
             gaps = [
-                (to_grading(requirement_id, item), document["data_origin"])
+                (to_grading(requirement_id, item), document["data_origin"], item.equipment_family)
                 for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes)
-                if outcome.status == "SPEC_GAP"
+                if outcome.status in GRADED_STATUSES
             ]
-            targets = [(g, origin) for g, origin in gaps if g is not None]
+            targets = [(g, origin, family) for g, origin, family in gaps if g is not None]
             if not profiles:
                 # 프로필 시드 전(KAN-184): 등급을 매기지 않고 검토가 필요하다고 남긴다.
                 needs_review = True
             elif targets:
-                origin_of = {g.requirement_id: origin for g, origin in targets}
+                origin_of = {g.requirement_id: origin for g, origin, _ in targets}
                 context = grading.RfpContext(
                     manufacturer_list=None,
                     off_list_permission="UNSTATED",
                     supply_region=None,
-                    requires_integrator=False,
+                    requires_integrator=integration_of(r for _, _, r in extracted).required,
                 )
-                for profile in profiles:
-                    _, grades = grading.grade_candidate(
-                        profile, [g for g, _ in targets], context, today
-                    )
+                groups = grading_groups(
+                    [(g, family) for g, _, family in targets],
+                    profiles,
+                    candidate_pool(d["title"] for d in documents),
+                )
+                for profile, mine in groups:
+                    _, grades = grading.grade_candidate(profile, mine, context, today)
                     for grade in grades:
                         await repository.insert_grade(
                             conn,

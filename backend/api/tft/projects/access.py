@@ -125,6 +125,32 @@ def can_run_processing(principal: Principal, project: Mapping[str, Any]) -> bool
     return can_select_supplement(principal, project)
 
 
+def can_edit_project(principal: Principal, project: Mapping[str, Any]) -> bool:
+    """프로젝트 속성·검토 부서 수정(경로 4): 담당 sales와 책임자만(permissions.md 4.2).
+
+    Args:
+        principal: 요청 사용자.
+        project: sales_user_id·responsible_user_id가 있는 프로젝트 행.
+
+    Returns:
+        bool: 수정할 수 있으면 True.
+    """
+    return can_select_supplement(principal, project)
+
+
+def manages_project(principal: Principal, project_id: object) -> bool:
+    """담당·책임자 지정(경로 5): 그 프로젝트를 관리 대상으로 가진 manager만(permissions.md 3.3).
+
+    Args:
+        principal: 요청 사용자.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        bool: 지정할 수 있으면 True.
+    """
+    return principal.has("manager") and project_id in principal.managed_projects
+
+
 def can_run_annotations(principal: Principal, project: Mapping[str, Any]) -> bool:
     """메모 PDF 해석(경로 30) 실행: 담당 sales·책임자·검토 부서 dept_staff.
 

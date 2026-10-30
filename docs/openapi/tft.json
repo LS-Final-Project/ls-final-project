@@ -5897,7 +5897,7 @@
         "x-implementation-status": "partial"
       },
       "post": {
-        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4.",
+        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4. latest_job\uc740 \uc4f0\uae30 \uc751\ub2f5\uc5d0\uc11c \ud56d\uc0c1 null\uc774\ub2e4.",
         "operationId": "tft_create_rfp_project",
         "parameters": [
           {
@@ -5997,9 +5997,7 @@
         "summary": "Create Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}": {
@@ -6185,9 +6183,7 @@
         "summary": "Update Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/annotations/process": {
@@ -6406,9 +6402,7 @@
         "summary": "Assign Project",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/documents": {
@@ -6505,7 +6499,7 @@
         ]
       },
       "post": {
-        "description": "6. DOCX\u00b7PDF 25 MiB \uc774\ud558(multipart). \uc5c5\ub85c\ub4dc\ub9cc\uc73c\ub85c\ub294 \ud30c\uc2f1\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\ubcf8\ubb38 \ud615\uc2dd\uc740 OpenAPI\uc5d0 \uc9c1\uc811 \uc801\uc5c8\ub2e4. \uad6c\ud604(KAN-188) \ub54c multipart \ud30c\uc11c\ub97c \ubd99\uc778\ub2e4.",
+        "description": "6. DOCX\u00b7PDF 25 MiB \uc774\ud558(multipart). \uc5c5\ub85c\ub4dc\ub9cc\uc73c\ub85c\ub294 \ud30c\uc2f1\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\ubcf8\ubb38 \ud615\uc2dd\uc740 OpenAPI\uc5d0 \uc9c1\uc811 \uc801\uc5c8\ub2e4. \ud615\uc2dd\uc740 \ub0b4\uc6a9\uc73c\ub85c \ud310\ubcc4\ud55c\ub2e4.",
         "operationId": "tft_upload_rfp_document",
         "parameters": [
           {
@@ -6638,6 +6632,16 @@
             },
             "description": "TFT_VERSION_CONFLICT and similar"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_DOCUMENT_TOO_LARGE"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6662,9 +6666,7 @@
         "summary": "Upload Document",
         "tags": [
           "rfp"
-        ],
-        "x-implementation-status": "planned",
-        "x-implementation-ticket": "KAN-188"
+        ]
       }
     },
     "/api/v1/tft/projects/{project_id}/draft": {

@@ -338,7 +338,7 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 - 원문 근거 정확성 판정(KAN-189)
 - 초안 근거 추적(KAN-188)
 
-RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다.
+RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다. 협력사 등급은 처리 함수와 같은 대상·후보 고르기를 쓴다: 사양 차이·근거 부족 요구(`GRADED_STATUSES`)를, 문서 후보 풀 안의 후보가 자기 계열 요구로만 채점하고(`grading_groups`), 통합 책임 필요 여부는 정답 맥락이 아니라 추출 결과로 정한다(`integration_of`). 채점할 요구가 없는 정답 후보는 `NO_PREDICTION`이다.
 
 - 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
 - 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓴다. 결과는 새 파일로만 만들고, 실행 중에 같은 경로가 생기면 덮어쓰지 않고 옆 파일(시각을 붙인 이름)에 남긴 뒤 실패로 끝낸다. 결과에는 원문·인용·값을 넣지 않는다.
@@ -368,7 +368,7 @@ uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖
 
 - **승격 차단**(`eval/promotion.py`): 업무 실행 경로가 쓰는 설정을 코드 기본값에서 직접 읽어(`deployed_config`, 환경 변수는 보지 않음) 단계별 ADOPTED 채택 기록과 비교한다. C/S 분류·초안은 C/S worker가 함께 쓰는 공통 모델(`GEMINI_MODEL` 기본값), RFP 요구 추출은 추출 전용 `TFT_EXTRACTION_MODEL` 기본값을 본다. 배포 스크립트가 코드 기본값을 덮어쓰면 `DEPLOY_DIFFERS`로 따로 잡는다(`GEMINI_MODEL`·`GEMINI_MAX_OUTPUT_TOKENS`·`TFT_EXTRACTION_MODEL`·`TFT_EXTRACTION_MAX_OUTPUT_TOKENS`). 단계별로 보는 값: 모델, 프롬프트 판본과 본문 지문(초안은 그래프 노드가 실제로 쓰는 `run_draft_attempt` 기본 판본, RFP 추출은 지시문 본문 sha256), 출력 상한, 초안 근거 수, 임베딩 차원·task_type. 실행 설정과 채택 기록 **양쪽의 모든 항목**을 비교하므로, 채택 기록에 없는 실행 설정이나 실행 경로에 없는 채택 항목도 불일치다. 채택 기록 `decided_on`은 YYYY-MM-DD여야 한다. 단계는 분류·초안·임베딩·RFP 요구 추출이다. 단계마다 가장 최근 ADOPTED 기록(decided_on)만 기준이라, 옛 채택값으로 되돌려도 막힌다. 문제는 세 종류다: 설정값이 채택값과 다름(`MISMATCH`), 그 단계의 ADOPTED 기록이 없음(`NO_ADOPTION`), 예외 승인 없는 blocker 불합격(`BLOCKER_UNWAIVED`). PROPOSED 기록은 승격 근거가 아니다.
 - **알려진 문제**(`eval/policy/promotion-exceptions.json`): 사유·티켓이 있는 줄만 통과시킨다. 불일치(`MISMATCH`·`DEPLOY_DIFFERS`) 줄은 운영값·채택값까지, 채택 기록 없음(`NO_ADOPTION`) 줄은 그 단계의 지금 설정 전체를 적고 그 값 그대로일 때만 허용한다. 알려진 문제 위에서 설정을 또 바꾸면 막힌다. 예외는 결과의 `excepted`에 그대로 보인다. 해소됐는데 남은 줄도 실패라 목록이 낡지 않는다. blocker 불합격은 이 목록에 둘 수 없고 채택 기록의 `waivers`로만 승인한다.
-- 2026-10-30 기준 알려진 문제 4건: 분류 운영 모델(`gemini-3.6-flash`)이 채택 모델(`gemini-3.5-flash-lite`)과 다름, 분류 채택 기록에 출력 상한(1024)이 없음, 초안·RFP 요구 추출은 채택 기록 없음.
+- 2026-10-30 기준 알려진 문제 4건: 분류 운영 모델(`gemini-3.6-flash`)이 채택 모델(`gemini-3.5-flash-lite`)과 다름, 분류 채택 기록에 출력 상한(분류 전용 4096)이 없음, 초안·RFP 요구 추출은 채택 기록 없음.
 - 실제 API 정기 회귀(키·비용)는 GitHub에서 하지 않는다. 플랫폼 평가 작업을 예약 실행하는 방식은 운영 후속이다.
 
 ## 나머지 지표 잠금
