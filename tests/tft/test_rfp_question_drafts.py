@@ -168,6 +168,7 @@ def test_same_family_form_difference_is_a_question_despite_equipment_wording() -
         ("1", "MVA", "1000000", "VA"),
         ("1e3", None, "1000.0", None),
         ("1e-7", None, "0.0000001", None),
+        ("−1.2", "kA", "-1200", "A"),
         ("Metal–Clad", None, "metal-clad", None),
     ],
 )

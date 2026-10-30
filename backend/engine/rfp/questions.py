@@ -11,9 +11,9 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.engine.rfp.clauses import Clause, ClauseTree
 from backend.engine.rfp.requirements import ExtractedRequirement
+from backend.engine.rfp.vocabulary import is_placeholder
 
 QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY", "APPROVAL_PROCESS"]
-PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
 EQUIPMENT_ID = re.compile(
     r"\bunit\b\s*#?\s*([a-z]|\d+[a-z]?|[a-z]+-\d+[a-z0-9-]*)\b|"
     r"\btag\b\s*#?\s*([a-z0-9-]+)\b|"
@@ -79,7 +79,7 @@ def _norm(text: str | None, *, preserve_case: bool = False) -> str:
     normalized = unicodedata.normalize("NFKC", text or "")
     if not preserve_case:
         normalized = normalized.casefold()
-    return " ".join(normalized.split()).translate(str.maketrans("–—‑‐", "----"))
+    return " ".join(normalized.split()).translate(str.maketrans("–—‑‐−", "-----"))
 
 
 def _quantity(value: str, unit: str | None) -> tuple[str, str]:
@@ -152,7 +152,7 @@ def _eligible(req: ExtractedRequirement, clauses: dict[str, Clause]) -> bool:
         or req.attribute_key == "OTHER"
         or not req.value
         or not req.quote.strip()
-        or PLACEHOLDER.search(req.quote)
+        or is_placeholder(req.quote)
     ):
         return False
     # 이전 추출 결과를 받아도 현행 본문에 없는 값은 사용하지 않는다.
@@ -183,7 +183,7 @@ def generate_question_drafts(
     clauses = {c.clause_no: c for c in tree.clauses}
     drafts: list[QuestionDraft] = []
     for clause in tree.clauses:
-        sources = [s for s in _sources(clause) if PLACEHOLDER.search(s.quote)]
+        sources = [s for s in _sources(clause) if is_placeholder(s.quote)]
         if sources:
             drafts.append(
                 QuestionDraft(
