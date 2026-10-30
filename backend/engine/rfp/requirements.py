@@ -225,10 +225,9 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
         section_nos: 처리할 절 번호 목록(예: ["2.4", "2.5"]).
 
     Returns:
-        list[ExtractionInput]: 요청 절 순서와 원문 조항 순서를 유지한 평탄 목록.
-            12000자 초과 절은 복수 입력이며 조항 번호·문맥은 그대로다.
-            본문이 없는 조항은 문맥으로만 쓴다. 첫 단계 묶음이 12000자를 넘으면
-            개별 조항 경계로 재묶는다. 실제 추출 부분 수는 승인된 비용 한도인 12개 이하다.
+        list[ExtractionInput]: 요청 절마다 입력 하나. 요청 절 순서와 원문 조항 순서를 유지한다.
+            본문이 없는 조항은 문맥으로만 쓴다. 나눔과 결과 합산은 extract_section이 맡는다.
+            실제 추출 부분 수는 승인된 비용 한도인 12개 이하다.
             상한 12는 감독 제공 최장 개발 절 본문 23908자에 여유를 둔 정책이다.
 
     Raises:
@@ -259,32 +258,12 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                 )
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)
-        pieces: list[ExtractionInput] = []
-        for piece in split_input(item):
-            if sum(len(_clause_text(c)) for c in piece.clauses) <= MAX_SECTION_CHARS:
-                pieces.append(piece)
-                continue
-            # 첫 단계 묶음이 너무 크면 개별 하위 조항 경계로만 재묶는다.
-            batch: list[ClauseInput] = []
-            size = 0
-            for child in piece.clauses:
-                clause_size = len(_clause_text(child))
-                if clause_size > MAX_SECTION_CHARS:
-                    raise ValueError("RFP_SECTION_TOO_LONG")
-                if batch and size + clause_size > PART_CHARS:
-                    pieces.append(piece.model_copy(update={"clauses": batch}))
-                    batch, size = [], 0
-                batch.append(child)
-                size += clause_size
-            if batch:
-                pieces.append(piece.model_copy(update={"clauses": batch}))
-        # 재분할 뒤 실제 최초 호출 수에 적용한다. 빠진 문장 보완은 부분별 최대 한 번이다.
-        if len(pieces) > MAX_SECTION_PARTS:
+        if any(len(_clause_text(c)) > MAX_SECTION_CHARS for c in clauses):
+            raise ValueError("RFP_SECTION_TOO_LONG")
+        # 실제 최초 호출 수를 호출 전에 검사한다. 보완은 부분별 최대 한 번이다.
+        if len(split_input(item)) > MAX_SECTION_PARTS:
             raise ValueError("RFP_SECTION_TOO_MANY_PARTS")
-        if sum(len(_clause_text(c)) for c in clauses) > MAX_SECTION_CHARS:
-            out.extend(pieces)
-        else:
-            out.append(item)
+        out.append(item)
     return out
 
 
@@ -523,11 +502,13 @@ def _call(
 
 
 def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[ExtractionInput]:
-    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다. 묶음 하나는 쪼개지 않는다.
+    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다.
+
+    12000자 초과 묶음만 개별 조항 경계로 재묶는다. 조항 텍스트는 자르지 않는다.
 
     Args:
         item: 절 입력.
-        limit: 부분 하나의 본문 상한(글자). 묶음 하나가 상한보다 길면 그 묶음만 한 부분이 된다.
+        limit: 부분 하나의 목표 본문 길이(글자). 12000자 이하 묶음은 목표보다 길어도 유지한다.
 
     Returns:
         list[ExtractionInput]: 부분 입력. 절이 상한 안이면 [item] 그대로다.
@@ -542,8 +523,26 @@ def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[Extracti
             groups[-1].append(clause)
         else:
             groups.append([clause])
-    parts: list[list[ClauseInput]] = [[]]
+    expanded: list[list[ClauseInput]] = []
     for group in groups:
+        if sum(len(_clause_text(c)) for c in group) <= MAX_SECTION_CHARS:
+            expanded.append(group)
+            continue
+        batch: list[ClauseInput] = []
+        size = 0
+        for clause in group:
+            clause_size = len(_clause_text(clause))
+            if clause_size > MAX_SECTION_CHARS:
+                raise ValueError("RFP_SECTION_TOO_LONG")
+            if batch and size + clause_size > limit:
+                expanded.append(batch)
+                batch, size = [], 0
+            batch.append(clause)
+            size += clause_size
+        if batch:
+            expanded.append(batch)
+    parts: list[list[ClauseInput]] = [[]]
+    for group in expanded:
         size = sum(len(_clause_text(c)) for c in parts[-1] + group)
         if parts[-1] and size > limit:
             parts.append([])
