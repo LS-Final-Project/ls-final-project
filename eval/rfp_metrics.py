@@ -337,22 +337,81 @@ def summarize_edit_traces(
     }
 
 
+def unconfirmed_items(summary: Mapping, grades: Sequence[Mapping]) -> set[str]:
+    """후보 하나가 화면에 '확인 필요'로 보이는 항목 이름(검토 후보 미확인 조건 표시 확인용).
+
+    등급 판정(backend/api/tft/partners/grading.py)의 검사 항목 이름을 그대로 쓴다: 요구별 mandatory_check.unknown
+    (속성명, certification:규격, integrator_capable.항목, supply_region)과, 후보 요약의 제조사 목록 확인 문구가
+    있으면 manufacturer_list. 문장은 표현이 바뀌면 대조가 깨지므로 이름만 본다.
+
+    Args:
+        summary: CandidateSummary를 dict로 덤프한 것(on_customer_manufacturer_list·conditions_to_confirm).
+        grades: 그 후보의 RequirementGrade dict 목록.
+
+    Returns:
+        set[str]: 표시된 미확인 항목 이름.
+    """
+    names = {name for g in grades for name in g["mandatory_check"]["unknown"]}
+    if summary.get("on_customer_manufacturer_list") is False and summary.get(
+        "conditions_to_confirm"
+    ):
+        names.add("manufacturer_list")
+    return names
+
+
+def _review_listing(
+    gold: Mapping[str, Mapping[str, Grade]],
+    predicted: Mapping[str, Mapping[str, Grade]],
+    gold_unconfirmed: Mapping[str, Mapping[str, Sequence[str]]],
+    predicted_unconfirmed: Mapping[str, Mapping[str, Sequence[str]]],
+) -> dict:
+    """정답·예측 모두 REVIEW인 후보마다 정답 미확인 항목이 예측 표시에 빠짐없이 있는지 센다."""
+    listed = total = 0
+    missing: list[tuple[str, str, list[str]]] = []
+    for case_id, grades in gold.items():
+        for candidate, expected in grades.items():
+            if expected != "REVIEW" or predicted.get(case_id, {}).get(candidate) != "REVIEW":
+                continue
+            needed = gold_unconfirmed.get(case_id, {}).get(candidate)
+            if needed is None:
+                # 정답 REVIEW 후보에 미확인 항목 목록이 없으면 정답이 덜 만들어진 것이다.
+                raise ValueError("EVAL_INVALID_INPUT")
+            shown = set(predicted_unconfirmed.get(case_id, {}).get(candidate, ()))
+            total += 1
+            lacking = sorted(set(needed) - shown)
+            if lacking:
+                missing.append((case_id, candidate, lacking))
+            else:
+                listed += 1
+    return {
+        "rate": _rate(listed, total),
+        "count": f"{listed}/{total}",
+        "missing": missing,
+    }
+
+
 def summarize_candidate_grades(
     gold: Mapping[str, Mapping[str, Grade]],
     predicted: Mapping[str, Mapping[str, Grade]],
+    gold_unconfirmed: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
+    predicted_unconfirmed: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
 ) -> dict:
     """협력사 후보 등급의 혼동·추천 정밀도·위험 오류를 모은다.
 
     Args:
         gold: 사례별 후보 코드 → 정답 등급.
         predicted: 사례별 후보 코드 → 예측 등급. 정답에 없는 사례·후보는 받지 않는다.
+        gold_unconfirmed: 사례별 후보 코드 → 정답 REVIEW 후보가 표시해야 할 미확인 항목 이름(unconfirmed_items와
+            같은 이름). 정답 REVIEW 후보마다 있어야 한다.
+        predicted_unconfirmed: 사례별 후보 코드 → 예측 결과에 표시된 미확인 항목 이름(unconfirmed_items 결과).
 
     Returns:
         dict: 등급 4클래스 혼동(미예측은 NO_PREDICTION)·클래스별 지표, 추천 정밀도(예측 MANDATORY_CONFIRMED·
             REVIEW 중 정답도 그 둘인 비율, 분모 0이면 None), 필수 기술조건 확인 정밀도(예측 MANDATORY_CONFIRMED 중
             정답도 MANDATORY_CONFIRMED인 비율), 위험 오류(정답 EXCLUDED를 추천으로 올림) 건수·분모(정답 EXCLUDED
-            수)와 (사례, 후보) 목록. review_unconfirmed_listed는 조건 목록 입력이 없어 None이다(KAN-191). 잘못된
-            입력은 EVAL_INVALID_INPUT ValueError다.
+            수)와 (사례, 후보) 목록. review_unconfirmed_listed는 정답·예측 모두 REVIEW인 후보 중 정답 미확인 항목을
+            빠짐없이 표시한 비율·건수·빠진 항목(KAN-191)이며, 미확인 항목 입력이 없으면 None이다. 잘못된 입력은
+            EVAL_INVALID_INPUT ValueError다.
     """
     if set(predicted) - set(gold):
         raise ValueError("EVAL_INVALID_INPUT")
@@ -384,7 +443,11 @@ def summarize_candidate_grades(
         "recommendation_count": f"{correct}/{recommended}",
         "mandatory_confirmed_precision": _rate(confirmed_correct, confirmed),
         "mandatory_confirmed_count": f"{confirmed_correct}/{confirmed}",
-        "review_unconfirmed_listed": None,
+        "review_unconfirmed_listed": _review_listing(
+            gold, predicted, gold_unconfirmed, predicted_unconfirmed
+        )
+        if gold_unconfirmed is not None and predicted_unconfirmed is not None
+        else None,
         "excluded_recommended": {"count": len(risky), "denominator": excluded, "keys": risky},
     }
 
@@ -511,7 +574,7 @@ def gate_values(
     Returns:
         dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·초안 추적), 사유를 비교하지
             못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족, 발생 가능 건수가
-            0인 두 0건 게이트, 정의를 다 채우지 못한 협력사 추천 정밀도(검토 후보 미확인 조건 표시 미구현)는 None이다.
+            0인 두 0건 게이트, 검토 후보 미확인 조건 표시를 같이 재지 않은 협력사 추천 정밀도는 None이다.
     """
     critical = extraction["critical_errors"]["mandatory_gap_judged_found"] if extraction else {}
     excluded = grades["excluded_recommended"] if grades else {}
@@ -527,8 +590,11 @@ def gate_values(
         "rfp_critical_false_fulfillment_count": critical.get("count")
         if critical.get("denominator")
         else None,
-        # 등급 일치(mandatory_confirmed_precision)만으로는 게이트 정의를 채우지 못한다(KAN-191 전까지 None).
-        "rfp_partner_recommendation_precision": None,
+        # 게이트 값은 '필수 기술조건 확인 후보' 정밀도다. 정의의 나머지 절반(검토 후보 미확인 조건 표시)을 같이
+        # 재지 않았으면 None이다. 표시 결과는 review_unconfirmed_listed로 따로 공개한다(게이트 정의 "따로 확인").
+        "rfp_partner_recommendation_precision": grades["mandatory_confirmed_precision"]
+        if grades and grades.get("review_unconfirmed_listed") is not None
+        else None,
         "rfp_integration_responsibility_rate": integration.get("rate")
         if integration and integration.get("denominator")
         else None,

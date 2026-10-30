@@ -374,7 +374,7 @@ def test_gate_values_match_rfp_metric_keys_and_leave_missing_tools_none():
         {"A": {"P": "MANDATORY_CONFIRMED", "L": "EXCLUDED"}}, {"A": {"P": "MANDATORY_CONFIRMED"}}
     )
     both = gate_values(None, grades)
-    # 협력사 정밀도는 등급 일치만 측정해 게이트 정의에 못 미치므로 None이다(KAN-191).
+    # 검토 후보 미확인 조건 표시를 같이 재지 않았으면 협력사 정밀도 게이트는 None이다(KAN-191).
     assert grades["mandatory_confirmed_precision"] == 1.0
     assert both["rfp_partner_recommendation_precision"] is None
     assert both["rfp_mandatory_constraint_violation_count"] == 0
@@ -447,3 +447,45 @@ def test_integration_responsibility_counts_assembly_requirements_with_a_check_an
     empty = summarize_integration_responsibility({}, {})
     assert empty["rate"] is None
     assert gate_values(None, None, empty)["rfp_integration_responsibility_rate"] is None
+
+
+def test_review_candidates_must_show_every_unconfirmed_item_of_the_gold():
+    """검토 후보 미확인 조건 표시(KAN-191): 실제 등급 판정의 미확인 항목 이름을 정답 목록과 대조한다."""
+    from backend.api.tft.partners.grading import RfpContext, grade_candidate
+    from eval.rfp_metrics import unconfirmed_items
+    from tests.tft.test_partner_grading import DAY, MV, fact, profile
+
+    context = RfpContext(
+        manufacturer_list=["Listed Maker"],
+        off_list_permission="UNSTATED",
+        supply_region="US",
+        requires_integrator=True,
+    )
+    # 정격 전압 근거만 있고 형식 근거·통합 책임(연동)은 없다. 제조사는 고객 목록 밖(허용 여부 미기재).
+    partner = profile("P-A", facts=[fact("rated_max_voltage", "15", "kV")], integration=None)
+    summary, grades = grade_candidate(partner, MV[:2], context, DAY)
+    assert summary.overall_grade == "REVIEW"
+    shown = unconfirmed_items(summary.model_dump(), [g.model_dump() for g in grades])
+    assert shown == {"form", "integrator_capable.integration", "manufacturer_list"}
+
+    gold = {"B": {"P-A": "REVIEW", "P-B": "REVIEW", "P-C": "REVIEW", "L-B": "EXCLUDED"}}
+    predicted = {"B": {"P-A": "REVIEW", "P-B": "REVIEW", "P-C": "MANDATORY_CONFIRMED"}}
+    gold_items = {
+        "B": {
+            "P-A": ["form", "manufacturer_list"],
+            "P-B": ["form", "integrator_capable.integration"],
+            "P-C": ["bil"],
+        }
+    }
+    predicted_items = {"B": {"P-A": sorted(shown), "P-B": ["form"]}}
+    result = summarize_candidate_grades(gold, predicted, gold_items, predicted_items)  # type: ignore[arg-type]
+    listing = result["review_unconfirmed_listed"]
+    # 분모는 정답·예측 모두 REVIEW인 후보(P-A·P-B). P-C는 등급 자체가 틀려 등급 지표에서 센다.
+    assert (listing["count"], listing["rate"]) == ("1/2", 0.5)
+    assert listing["missing"] == [("B", "P-B", ["integrator_capable.integration"])]
+    # 표시를 같이 쟀을 때만 게이트 값(필수 기술조건 확인 정밀도)이 나온다.
+    assert result["mandatory_confirmed_count"] == "0/1"
+    assert gate_values(None, result)["rfp_partner_recommendation_precision"] == 0.0
+    # 정답 REVIEW 후보에 미확인 목록이 없으면 정답이 덜 만들어진 것이라 받지 않는다.
+    with pytest.raises(ValueError, match="EVAL_INVALID_INPUT"):
+        summarize_candidate_grades(gold, predicted, {"B": {"P-A": []}}, predicted_items)  # type: ignore[arg-type]

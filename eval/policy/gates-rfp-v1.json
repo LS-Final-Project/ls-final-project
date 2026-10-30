@@ -97,8 +97,8 @@
         "denominator": "'필수 기술조건 확인 후보'로 분류한 후보 수",
         "report": "비율과 건수를 함께 적는다(예: 19/21). 협력사 평가는 가상 후보에 한정한다",
         "tool": {
-          "status": "PARTIAL",
-          "ref": "eval.rfp_metrics.summarize_candidate_grades mandatory_confirmed_precision·mandatory_confirmed_count — 정답 등급 일치만 비교, 검토 후보 미확인 조건 표시(review_unconfirmed_listed)는 미구현(KAN-191). 정의를 다 채우기 전까지 gate_values는 None"
+          "status": "IMPLEMENTED",
+          "ref": "eval.rfp_metrics.summarize_candidate_grades mandatory_confirmed_precision·mandatory_confirmed_count(게이트 값), 검토 후보 미확인 조건 표시는 review_unconfirmed_listed(정답·예측 모두 REVIEW인 후보 중 정답 미확인 항목을 빠짐없이 표시한 비율·건수, 항목 이름은 eval.rfp_metrics.unconfirmed_items). 표시를 같이 재지 않으면 gate_values는 None"
         }
       }
     },
