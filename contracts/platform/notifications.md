@@ -1,7 +1,7 @@
 # 앱 내 알림 N1/N2/E1 (KAN-201)
 
 수신 범위를 업무 트랜잭션에 기록하고 플랫폼이 활성 사용자로 펼친다. 앱 내 알림이 원본이다.
-이 구현은 N1/N2와 worker 이벤트 E1까지만 포함한다. 화면·중계 U, C/S 업무 E2·메일 E3, Web Push·구독·키·외부 호출은 포함하지 않는다.
+이 구현은 N1/N2와 worker E1·C/S 업무 E2·메일 E3 이벤트를 포함한다. 화면·중계 U, Web Push·구독·키·외부 호출은 포함하지 않는다.
 
 ## 쓰기 계약 N1
 
@@ -28,7 +28,8 @@
 user 범위는 해당 사용자, role은 cs_agent 역할, dept는 부서 일치 및 dept_staff 역할,
 manager_dept는 manager 역할 및 identity.manager_departments 범위가 모두 필요하다.
 수신 INSERT는 PK 충돌을 무시하며 expanded_at과 **같은 트랜잭션**에 쓴다. 수신자 0명도 펼침 완료다.
-이후 활성화/역할 변경으로 과거 알림을 소급 전송하지 않는다. 실패는 빈 성공으로 숨기지 않고 전체 rollback한다.
+수신자는 플랫폼이 polling에서 의도를 최초로 펼치는 시점의 활성 상태·역할·부서·관리범위로 정한다.
+이벤트 발생 시점의 수신자 스냅샷을 저장하지 않으며, 펼침 완료 뒤 변경은 소급 반영하지 않는다. 이는 시연 범위에서 승인된 동작이다. 실패는 빈 성공으로 숨기지 않고 전체 rollback한다.
 
 | API | 동작 |
 | --- | --- |
@@ -77,3 +78,31 @@ CS 시스템 완료 시에도 기존 계획대로 lease.actor_id를 제외한다
 기존 작업용 runtime 권한을 확장하지 않는다. P30 재적용은 구버전 runtime 알림 표를 데이터·PK/FK와 함께 notify로
 이동하고 잘못된 업무 앱 runtime USAGE를 회수한다. worker/platform의 기존 runtime 권한은 유지한다.
 양쪽에 동명 표가 있는 비정상 상태는 `NOTIFICATION_SCHEMA_CONFLICT`로 중단하며 데이터를 조용히 버리지 않는다.
+
+
+## C/S 업무 E2 및 메일 E3
+
+기존 업무/문의 잠금·버전·역할·승인·발송 처리는 유지한다. 알림은 같은 업무 conn의 SAVEPOINT 안에서만 쓰고
+별도 commit이나 외부 호출을 하지 않는다. 알림용 조회·검증·INSERT 실패는 그 부분만 rollback한 뒤
+`NOTIFICATION_INTENT_FAILED` 고정 경고만 남긴다. 본업무는 정상 진행하며 원문·참조·승인자 ID를 경고에 넣지 않는다.
+이관 INSERT/인가/상태 저장 오류, 정정·감사 저장 오류, 메일 본 UPDATE/이벤트 오류는 이 경계 밖이며 기존대로 전파한다.
+정상 알림도 outer 업무 transaction의 일부이므로 뒤의 본업무 실패·rollback 시 함께 취소된다.
+
+| 이벤트 | 정확한 생성 조건 | 수신 범위·actor | dedupe_key |
+| --- | --- | --- | --- |
+| 고객 회신 재투입 | record_customer_reply가 이번 호출에서 recorded AND reopened | owner, 없으면 cs_agent 전체; 외부 회신이므로 actor=null | cs.reply:{message_id} |
+| 이관 수신 | transfer 또는 부서 결과 REWORK의 insert_transfer 성공 | 대상 dept의 dept_staff와 manager_dept; actor=행동한 principal.user_id | cs.transfer:{실제 저장 transfer_id} |
+| 사람 안전 정정 | 현재 effective urgency와 비교해 changed.urgency_flag가 SAFETY인 실제 전이 | owner+cs_agent 전체+manager_dept GCS_L1; actor=정정자 | cs.safety:{ticket_id} |
+| 발송 결과 불명 | mail.finish 또는 expire_submitting의 UPDATE가 실제 반환한 행이 UNKNOWN으로 전이 | approved_by+manager_dept GCS_L1; 시스템 결과이므로 actor=null | mail.unknown:{intent_id}:{attempts} |
+
+중복 회신, 검토/이관 중의 재투입 없는 회신, ACCEPT 검토, 이미 SAFETY인 문의의 다른 필드 정정은 알리지 않는다.
+안전 알림은 E1과 같은 문의 단위 키를 사용해 AI와 사람이 함께 감지해도 한 번만 남는다.
+이관은 INSERT에 사용한 UUID를 그대로 키에 쓰며 재작업은 새 transfer UUID로 구분한다.
+메일 알림 metadata(business_ref·approved_by·attempts) 조회도 SAVEPOINT 안에 있으며, 기존 UPDATE는 변경하지 않는다.
+같은 attempts의 재호출은 중복 알림을 만들지 않는다. 만료 전환은 UPDATE RETURNING의 ID만 순회한다.
+C/S 링크는 business_ref가 `cs_ticket:{정규 UUID}`일 때만 생성한다. 다른 업무 참조에는 임의 링크를 만들지 않고,
+잘못된 cs_ticket 참조는 알림 실패로만 표시한다. 승인·수신자·첨부·발송·재발송 검증은 바꾸지 않는다.
+
+새 권한이나 표·API는 추가하지 않는다. cs_app의 기존 workflow 조회와 P30의 notify INSERT 열 권한,
+platform_app의 기존 메일 metadata SELECT와 P30의 notify INSERT 열 권한을 재사용한다. identity 조회는 추가하지 않는다.
+실제 역할의 중복·전이·SAVEPOINT 실패 격리는 전용 CI DB 검사로 확인하며, 로컬 fake 성공을 DB 검증으로 보고하지 않는다.
