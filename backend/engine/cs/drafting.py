@@ -63,8 +63,12 @@ FORBIDDEN_COMMITMENTS = tuple(
         r"(?:기술자|엔지니어|기사)\s*(?:를|을)?\s*파견\s*(?:하겠습니다|해\s*드리)",
         # KAN-193: 반품 사유·제조 책임 확정은 검사 뒤 cs_agent의 return-subtype 기록으로만 한다. 초안은 확정형으로
         # 쓰지 않는다(contracts/cs/tickets.md '사람 확인 사유의 소비 의무'). 보증 적용 확정은 위 보증 패턴들이 막는다.
-        # 'that it is …'(We cannot say that it is …)는 단정이 아니라 인용이라 허용한다(#354 리뷰 P3).
-        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )(?<!that )\b(?:it|this|that|(?:the|your)\s+"
+        # 부정한 'that' 인용(We cannot say that it is …)만 허용한다(#354 리뷰 P3). 'We have confirmed that it is …'처럼
+        # 부정 없는 'that' 절은 확정형이라 거부한다(#354 리뷰 P2).
+        r"(?<!whether )(?<!if )(?<!whether or not )(?<!in case )"
+        r"(?<!not say that )(?<!n't say that )(?<!not confirm that )(?<!n't confirm that )"
+        r"(?<!not sure that )(?<!not determine that )(?<!n't determine that )"
+        r"\b(?:it|this|that|(?:the|your)\s+"
         r"(?:defect|failure|fault|issue|problem|unit|product))\s+(?:is|was|has\s+been)\s+"
         r"(?:confirmed\s+(?:as|to\s+be)\s+)?(?:a\s+)?manufacturing\s+(?:defect|fault)\b",
         r"\breturn\s+reason\s+(?:is|was|has\s+been)\s+(?:confirmed|determined)\b",

@@ -364,6 +364,9 @@ FORBIDDEN_EXAMPLES = {
         "This is a manufacturing defect.",
         "The failure has been confirmed as a manufacturing defect.",
         "Your unit was confirmed to be a manufacturing fault.",
+        "We have confirmed that it is a manufacturing defect.",
+        "We have determined that your unit is a manufacturing defect.",
+        "Our team confirms that this is a manufacturing defect.",
     ],
     FORBIDDEN_COMMITMENTS[18].pattern: [
         "The return reason has been confirmed.",
@@ -429,6 +432,8 @@ ALLOWED_EXAMPLES = [
     "It has not yet been determined to be customer misuse.",
     "It has not been confirmed as improper installation.",
     "We cannot say that it is a manufacturing defect.",
+    "We can't confirm that it is a manufacturing defect yet.",
+    "We are not sure that the failure is a manufacturing defect.",
     "The return reason is not confirmed yet.",
     "제조 불량으로 확인되지 않았습니다.",
     "아직 고객 과실로 판정되지 않았습니다.",
