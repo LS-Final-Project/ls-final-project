@@ -256,11 +256,10 @@ def scoped_then_global(
     """좁힌 조건(제품 등)으로 먼저 찾고, 모자라면 전체 조건으로 보충한다.
 
     reserved=(조건, n)이면 첫 단계(좁힌 조건, 없으면 전체)로 limit-n개를 채운 뒤 그 조건(예: 정책 문서)의 상위 n개를
-    중복 없이 붙인다(KAN-194 10차). 예약 결과가 모자라면 남은 자리는 좁힌 조건 → 전체 순으로 채운다. 예약 단계도
-    FTS만 쓴다.
+    중복 없이 붙인다(KAN-194 10차). 예약 결과가 모자라면 남은 자리는 좁힌 조건 → 전체 순으로 채운다.
 
-    좁힌 단계는 FTS만 쓴다. product_family 같은 조건은 C/S FTS 검색기만 적용하므로 벡터 결과를 섞으면 좁힌 범위
-    밖 청크가 앞설 수 있다. 벡터 검색기는 전체 단계에서만 쓴다.
+    벡터 검색기는 좁힌 단계와 전체 단계에서 FTS와 함께 쓰고(KAN-99/100, C/S 벡터 검색기도 product_family·문서
+    해시·document_kinds를 적용한다), 예약 단계는 FTS만 쓴다.
 
     Args:
         query: 질의.
@@ -268,7 +267,7 @@ def scoped_then_global(
         scoped: 먼저 쓸 좁힌 조건. None이면 전체 조건만 쓴다.
         fts: FTS 검색기.
         limit: 최대 결과 수.
-        vector: 벡터 검색기(선택, 전체 단계에서만).
+        vector: 벡터 검색기(선택, 예약 단계 밖에서만).
         code_text: 코드 일치를 뽑을 원문(run_hybrid의 code_text).
         reserved: 자리를 예약할 조건과 개수(선택).
 
@@ -289,7 +288,7 @@ def scoped_then_global(
                 query,
                 stage,
                 fts=fts,
-                vector=vector if stage is filters else None,
+                vector=None if reserved and stage is reserved[0] else vector,
                 code_text=code_text,
             )
             blocked.update(result.dropped_blocked)

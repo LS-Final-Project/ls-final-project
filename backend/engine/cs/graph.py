@@ -390,7 +390,8 @@ def build_graph(
                 search_filters,
                 scoped,
                 fts=fts_searcher,
-                vector=vector_searcher,
+                # 벡터는 FTS용 어휘 OR 문자열이 아니라 마스킹 원문을 임베딩한다(KAN-99, 임베딩 실측과 같은 입력).
+                vector=(lambda _query, f: vector_searcher(text, f)) if vector_searcher else None,
                 limit=min(search_filters.limit, evidence_limit or search_filters.limit),
                 code_text=text,
                 reserved=policy_slot(search_filters, category, policy_documents),

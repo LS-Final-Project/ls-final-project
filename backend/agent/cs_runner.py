@@ -135,6 +135,7 @@ def build_cs_runner(
     draft_knobs: GenerationKnobs | None = None,
     evidence_limit: int = DRAFT_DEFAULTS["evidence_limit"],
     policy_documents: Mapping[str, str] | None = None,
+    vector_searcher: Searcher | None = None,
 ) -> Any:
     """Gemini 분류·초안 공급자를 만들어 C/S 그래프에 꽂는다.
 
@@ -154,6 +155,7 @@ def build_cs_runner(
         evidence_limit: 초안에 넘길 근거 상위 개수(기본 DRAFT_DEFAULTS). build_graph에 넘긴다.
         policy_documents: 정책 문서 doc_id → document_sha256(색인 manifest). 있으면 정책 유형 문의에 정책 문서
             1자리를 예약한다. None이면 예약하지 않는다. build_graph에 넘긴다.
+        vector_searcher: 벡터 검색기(cs_search.vector_searcher_from_dsn). None이면 FTS만 쓴다. build_graph에 넘긴다.
 
     Returns:
         CompiledStateGraph: 사람 확인 직전에 멈추는 그래프. 추적이 요청됐는데 허용되지 않으면 ValueError다.
@@ -185,6 +187,7 @@ def build_cs_runner(
             or GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS["max_output_tokens"]),
         ),
         fts_searcher=fts_searcher,
+        vector_searcher=vector_searcher,
         search_filters=search_filters,
         allowed_info_codes=allowed_info_codes,
         load_ticket=ticket_source.load_ticket,

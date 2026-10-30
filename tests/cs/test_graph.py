@@ -361,6 +361,42 @@ def test_retrieve_uses_token_or_query_and_product_family_first():
     assert values["evidence"][0]["snippet"] == "Warranty clause 1."
 
 
+def test_retrieve_embeds_the_masked_text_for_the_vector_searcher_in_both_stages():
+    """벡터 검색기는 FTS용 토큰 OR이 아니라 마스킹 원문을 받고, 제품 단계와 전체 단계에서 불린다(KAN-99/100).
+
+    Args:
+        없음.
+
+    Returns:
+        None: 벡터 질의·단계·근거를 확인한다.
+    """
+    calls = []
+
+    def vector(query, filters):
+        """벡터 후보 하나(chunk-v)를 낸다.
+
+        Args:
+            query: 질의 원문.
+            filters: 검색 조건.
+
+        Returns:
+            list[Candidate]: 합성 후보.
+        """
+        calls.append((query, filters.product_family))
+        [first, *_] = fts_searcher(query, filters)
+        return [first.model_copy(update={"chunk_id": "chunk-v", "source": "VECTOR"})]
+
+    graph, _ = make(InMemorySaver(), vector_searcher=vector)
+    config = thread_config("ticket-vector")
+    graph.invoke(initial_state("ticket-vector"), config)
+    values = graph.get_state(config).values
+    record = values["record"]
+    assert [family for _, family in calls] == ["TRANSFORMER", None]
+    assert {query for query, _ in calls} == {f"{record['subject']}\n{record['body']}"}
+    assert not any(secret in calls[0][0] for secret in SECRETS)
+    assert "chunk-v" in [e["chunk_id"] for e in values["evidence"]]
+
+
 def test_retrieve_keeps_code_matches_from_the_original_text():
     """질의는 토큰 OR이어도 코드 일치는 마스킹 원문에서 뽑아, 문의 코드를 담은 청크가 앞선다.
 

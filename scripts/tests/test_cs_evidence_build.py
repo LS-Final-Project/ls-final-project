@@ -565,6 +565,62 @@ class EvidenceBuildTests(unittest.TestCase):
         )
         self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["coded", "plain"])
 
+    def test_vector_gets_the_masked_text_and_is_fused_with_fts(self):
+        """--vector 경로: 벡터 검색기는 토큰 OR 대신 마스킹 원문을 받고, 결과는 FTS와 함께 근거에 들며 meta에 남는다.
+
+        Returns:
+            None: 벡터 질의·근거·meta를 확인한다.
+        """
+        fts = FakeSearcher({"Breaker": [candidate("c1", "Trip unit settings.", 1)]})
+        vector = FakeSearcher(
+            {
+                "Breaker": [
+                    candidate("v1", "Similar trip case.", 1, sha="b").model_copy(
+                        update={"source": "VECTOR"}
+                    )
+                ]
+            }
+        )
+        vector.embedding_version, vector.failures = "m:768:RETRIEVAL_DOCUMENT", 0
+        record = {
+            "channel": "EMAIL",
+            "body_language": "en",
+            "subject": "Breaker",
+            "body": "Breaker ZX-SECRET-77 tripped",
+        }
+        evidence, meta = cs_evidence_build.build_evidence(
+            {"T1": record},
+            fts,
+            index_version="cs-chunks-v1",
+            document_sha256s=None,
+            limit=5,
+            snippet_chars=800,
+            sensitive_values={SERIAL: "SERIAL"},
+            query_from="subject+body",
+            vector=vector,
+        )
+        [(fts_query, _)] = fts.calls
+        [(vector_query, _)] = vector.calls
+        self.assertIn(" or ", fts_query)
+        self.assertNotIn(" or ", vector_query)
+        self.assertTrue(vector_query.startswith("Breaker\nBreaker") and SERIAL not in vector_query)
+        self.assertEqual({row["chunk_id"] for row in evidence["T1"]}, {"c1", "v1"})
+        self.assertEqual(
+            meta["vector"], {"embedding_version": "m:768:RETRIEVAL_DOCUMENT", "failures": 0}
+        )
+        argv = [
+            "--manifest", str(self.root / "m.json"),
+            "--ticket-ids", str(self.root / "ids.txt"),
+            "--index-version", "cs-chunks-v1",
+            "--out", str(self.root / "ev.json"),
+            "--vector",
+        ]  # fmt: skip
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            code = cs_evidence_build.main(argv, searcher=lambda v: fts, vector=lambda v: vector)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(printed.getvalue())["vector"]["failures"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

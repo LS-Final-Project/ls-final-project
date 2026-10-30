@@ -1,6 +1,7 @@
 """KAN-99 cs.document_chunks 저장과 FTS 검색. 실제 PostgreSQL과 cs_app 권한으로 검사한다."""
 
 import asyncio
+import random
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,7 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
+from backend.agent.cs_search import VectorSearcher
 from backend.api.cs.search.repository import (
     missing_embeddings,
     search_fts,
@@ -23,7 +25,7 @@ from backend.api.cs.search.repository import (
 )
 from backend.engine.documents.model import Block, CellState, Hints, Position, build_document
 from backend.engine.search.chunking import INDEX_VERSION, chunk_document
-from backend.engine.search.model import ChunkingResult, ChunkMetadata
+from backend.engine.search.model import ChunkingResult, ChunkMetadata, SearchFilters
 
 T = TypeVar("T")
 KNOWN = datetime(2026, 10, 29, tzinfo=UTC)
@@ -380,3 +382,83 @@ def test_chunk_embeddings_store_search_isolate_and_cascade(cs_database, runtime)
             (scope,),
         ).fetchall()
     assert dict(remaining) == {b_sha: len(b.chunks)}
+
+
+def axis(*weights: tuple[int, float]) -> list[float]:
+    """지정한 축에만 값이 있는 768차원 벡터.
+
+    Args:
+        weights: (축, 값).
+
+    Returns:
+        list[float]: 벡터.
+    """
+    values = [0.0] * 768
+    for index, value in weights:
+        values[index] = value
+    return values
+
+
+def test_vector_searcher_fills_narrow_filters_through_hnsw_and_falls_back(
+    cs_database, runtime
+) -> None:
+    """HNSW를 강제(seqscan·sort 끔, ef_search 10)해도 좁은 문서 필터가 limit만큼 차고(iterative_scan), 질의 임베딩은
+    원문당 1회이며, 임베딩 실패는 []·failures로 FTS에 맡긴다(KAN-99/100)."""
+    version = "test-embed:768:RETRIEVAL_DOCUMENT"
+    # 앞 검사들이 지운 임베딩 행이 HNSW 그래프에 죽은 노드로 남아 탐색을 막지 않게 먼저 정리한다.
+    with psycopg.connect(cs_database, autocommit=True) as conn:
+        conn.execute("VACUUM cs.chunk_embeddings")
+    crowd, targets = [spec_b() for _ in range(120)], [spec_b() for _ in range(8)]
+    for result in (*crowd, *targets):
+        store(runtime, result)
+    # 질의(0축) 가까이 몰린 무리와 조금 먼 대상. 축 정렬 벡터는 HNSW 이웃 정리로 대상에 들어오는 연결이 끊겨
+    # (실측) 어느 설정으로도 대상에 닿지 않으므로 고정 시드 난수로 만든다.
+    rng = random.Random(0)
+
+    def near(scale: float) -> list[float]:
+        return [(1.0 if i == 0 else 0.0) + rng.gauss(0, scale) for i in range(768)]
+
+    vectors = [(result, near(0.01)) for result in crowd] + [
+        (result, near(0.02)) for result in targets
+    ]
+    shas = [result.chunks[0].document_sha256 for result, _ in vectors]
+    with psycopg.connect(cs_database) as conn:
+        ids = dict(
+            conn.execute(
+                "SELECT document_sha256, id FROM cs.document_chunks WHERE document_sha256 = ANY(%s) "
+                "AND index_version = %s",
+                (shas, INDEX_VERSION),
+            ).fetchall()
+        )
+    rows = [(ids[result.chunks[0].document_sha256], vector) for result, vector in vectors]
+    run(runtime, lambda c: store_embeddings(c, rows, embedding_version=version))
+    calls = []
+
+    def embed(text: str) -> list[float]:
+        calls.append(text)
+        return axis((0, 1.0))
+
+    # 행이 적으면 플래너가 정확 탐색(PK + 정렬)을 고르므로 순차 스캔·정렬을 꺼서 HNSW 인덱스 순서를 강제한다.
+    forced = make_conninfo(
+        runtime, options="-c enable_seqscan=off -c enable_sort=off -c hnsw.ef_search=10"
+    )
+    searcher = VectorSearcher(forced, INDEX_VERSION, version, embed)
+    target_shas = [result.chunks[0].document_sha256 for result in targets]
+    narrow = SearchFilters(document_sha256s=target_shas, index_version=INDEX_VERSION, limit=5)
+    found = searcher("ticket text", narrow)
+    assert len(found) == 5 and {c.document_sha256 for c in found} <= set(target_shas)
+    assert [c.position for c in found] == [1, 2, 3, 4, 5] and {c.source for c in found} == {
+        "VECTOR"
+    }
+    scores = [c.score for c in found]
+    assert scores == sorted(scores, reverse=True)
+    wide = narrow.model_copy(update={"document_sha256s": shas})
+    assert len(searcher("ticket text", wide)) == 5 and calls == ["ticket text"]
+    with pytest.raises(ValueError, match="CS_SEARCH_INDEX_MISMATCH"):
+        searcher("ticket text", narrow.model_copy(update={"index_version": "other"}))
+
+    def broken(text: str) -> list[float]:
+        raise RuntimeError("PRIVATE_PROVIDER_MESSAGE")
+
+    failing = VectorSearcher(forced, INDEX_VERSION, version, broken)
+    assert failing("ticket text", narrow) == [] and failing.failures == 1
