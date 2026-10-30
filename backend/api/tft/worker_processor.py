@@ -285,7 +285,9 @@ async def process(
             emit({"step": "parse", "document_version_id": str(document["id"])})
 
         # extract: 절마다 모델을 부른다. 너무 긴 절·실패한 절은 건너뛰고 검토가 필요하다고 표시한다.
+        # 절마다 진행을 남겨 lease를 연장한다(절이 많으면 모델 호출 중 lease가 끝나 다른 worker가 다시 부르지 않게).
         extracted: list[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]] = []
+        called = False
         for document, tree, clauses in parsed:
             for section in sections_of(tree):
                 try:
@@ -296,8 +298,11 @@ async def process(
                 result = await asyncio.to_thread(extract_section, section_input, provider)
                 needs_review |= result.outcome != "VALID"
                 extracted += [(document, clauses, r) for r in result.requirements]
+                emit({"step": "extract", "counts": counts(len(extracted))})
+                called = True
         total = len(extracted)
-        emit({"step": "extract", "counts": counts(total)})
+        if not called:
+            emit({"step": "extract", "counts": counts(total)})
 
         # search: 검색기 연결 전에는 자사 제품 전체가 범위다(범위는 trace에 남는다).
         trace = comparison.SearchTrace(
@@ -399,6 +404,7 @@ async def store_requirements(
                 "standard_system",
                 "necessity",
                 "designated_model",
+                "designated_manufacturer",
                 "conditions",
             }
         )
@@ -421,7 +427,8 @@ async def store_requirements(
                 conn,
                 requirement_id,
                 candidate.model_dump(mode="json"),
-                matched_attribute=item.attribute,
+                # 인증 요구는 속성이 아니라 규격으로 비교한다(to_comparison과 같은 기준).
+                matched_attribute=None if item.kind == "COMPLIANCE" else item.attribute,
                 search_trace=outcome.search_trace.model_dump(),
                 data_origin=document["data_origin"],
             )
