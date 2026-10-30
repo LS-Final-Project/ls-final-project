@@ -7,18 +7,28 @@ from uuid import uuid4
 import httpx
 import psycopg
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.jobs import sweep as sweep_module
 from backend.api.platform.jobs.cloud_run import (
     CloudRunJobsSettings,
     DeliveryResult,
     TftWorkerJobSettings,
     dispatch_one,
 )
-from backend.api.platform.jobs.dispatch import DispatchSettings, begin_send, claim_next
+from backend.api.platform.jobs.dispatch import (
+    TFT_KINDS,
+    DispatchSettings,
+    begin_send,
+    claim_next,
+    require_local,
+)
 from backend.api.platform.jobs.events import EventPayload
+from backend.api.platform.jobs.sweep import JobsSweepSettings, configure_jobs_sweep
 from backend.api.platform.jobs.tft import TftJobSettings
+from backend.api.platform.main import create_app
 from backend.shared.errors import ApplicationError
 from tests.platform.test_cs_job_runtime_db import add_user, cs_settings, outbox, session_client
 
@@ -80,6 +90,139 @@ def test_rfp_rows_are_dispatched_only_when_the_tft_gate_is_open(settings, jobs_d
     lease = asyncio.run(claim_next(settings, CLOSED, DISPATCH, None, tft_settings()))
     assert (lease.job_id, lease.run_id, lease.kind) == (tft_job, tft_job, "rfp.process")
     assert outbox(jobs_database, tft_job) == "CLAIMED"
+
+
+@pytest.mark.parametrize(
+    "off",
+    ["tft-none", "tft-disabled", "not-connected", "dispatch", "jobs", "worker"],
+)
+def test_production_stays_closed_while_any_setting_is_off(settings, jobs_database, tft_job, off):
+    """운영 환경도 설정 하나만 꺼지면 전송하지 않고 행은 PENDING이다."""
+    production = settings.model_copy(update={"environment": "production"})
+    tft = tft_settings(connected=off != "not-connected")
+    posts = []
+
+    def handler(request):
+        posts.append(request)
+        return httpx.Response(200, json={})
+
+    async def token():
+        return SecretStr("synthetic-access-token")
+
+    if off == "tft-none":
+        tft = None
+    if off == "tft-disabled":
+        tft = tft_settings().model_copy(update={"enabled": False})
+    with pytest.raises(ApplicationError) as error:
+        asyncio.run(
+            dispatch_one(
+                production,
+                CLOSED,
+                DISPATCH.model_copy(update={"enabled": off != "dispatch"}),
+                JOBS.model_copy(update={"enabled": off != "jobs"}),
+                token,
+                transport=httpx.MockTransport(handler),
+                tft=tft,
+                tft_worker=WORKER.model_copy(update={"enabled": off != "worker"}),
+            )
+        )
+    assert error.value.code in {"DISPATCH_DISABLED", "JOBS_TRANSPORT_DISABLED"}
+    assert posts == [] and outbox(jobs_database, tft_job) == "PENDING"
+
+
+def test_production_sends_rfp_only_and_keeps_evaluation_locked(settings, jobs_database, tft_job):
+    """모든 설정을 켜면 운영에서 RFP를 보낸다. 평가는 허용을 켜도 종류에 없다."""
+    production = settings.model_copy(update={"environment": "production"})
+    open_access = EvaluationAccessSettings(_env_file=None, local_admission_enabled=True)
+    assert require_local(production, open_access, DISPATCH, None, tft_settings()) == list(TFT_KINDS)
+    with pytest.raises(ApplicationError) as error:
+        require_local(production, open_access, DISPATCH)
+    assert error.value.code == "DISPATCH_DISABLED"
+    operation = f"projects/123456789012/locations/{JOBS.region}/operations/synthetic-op"
+
+    async def token():
+        return SecretStr("synthetic-access-token")
+
+    result = asyncio.run(
+        dispatch_one(
+            production,
+            CLOSED,
+            DISPATCH,
+            JOBS,
+            token,
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"name": operation})),
+            tft=tft_settings(),
+            tft_worker=WORKER,
+        )
+    )
+    assert result == DeliveryResult("ACCEPTED", operation)
+    assert outbox(jobs_database, tft_job) == "ACCEPTED"
+
+
+def test_sweep_route_needs_the_invoker_and_sends_queued_jobs(
+    settings, jobs_database, tft_job, monkeypatch
+):
+    """전송 경로: 꺼지면 404, 토큰이 없으면 401, 호출 계정이면 전송하고 게이트가 닫히면 0건이다."""
+    operation = f"projects/123456789012/locations/{JOBS.region}/operations/synthetic-op"
+    posts = []
+
+    def handler(request):
+        posts.append(request)
+        return httpx.Response(200, json={"name": operation})
+
+    class Caller:
+        def verify(self, token):
+            assert token == "scheduler-token"
+
+    async def token():
+        return "synthetic-access-token"
+
+    monkeypatch.setenv("EVALUATION_DISPATCH_ENABLED", "true")
+    monkeypatch.setenv("TFT_WORKER_JOBS_ENABLED", "true")
+    url = "/internal/v1/platform/jobs/dispatch"
+    closed = TestClient(create_app(settings, tft_job_settings=tft_settings()))
+    assert closed.post(url).status_code == 404
+    sweep = JobsSweepSettings(
+        _env_file=None,
+        enabled=True,
+        service_url="https://platform.example.run.app",
+        invoker_email="jobs-dispatch-invoker@proj-test.iam.gserviceaccount.com",
+    )
+    app = create_app(settings, tft_job_settings=tft_settings(), jobs_sweep_settings=None)
+    configure_jobs_sweep(
+        app,
+        sweep,
+        caller=Caller(),
+        token=token,
+        jobs=JOBS,
+        transport=httpx.MockTransport(handler),
+    )
+    client = TestClient(app)
+    assert client.post(url).status_code == 401
+    bearer = {"Authorization": "Bearer scheduler-token"}
+    done = client.post(url, headers=bearer)
+    assert done.status_code == 200 and done.json()["data"]["sent"] == 1
+    assert str(posts[0].url).endswith("/jobs/tft-worker:run")
+    assert client.post(url, headers=bearer).json()["data"]["sent"] == 0
+    monkeypatch.setenv("EVALUATION_DISPATCH_ENABLED", "false")
+    assert client.post(url, headers=bearer).json()["data"]["sent"] == 0
+
+
+def test_admission_sends_at_once_and_survives_a_failed_send(settings, monkeypatch):
+    """접수 직후 전송은 켜졌을 때 한 번 부르고, 실패해도 접수를 망치지 않는다."""
+    app = create_app(settings)
+    calls = []
+
+    async def failing(target, limit):
+        calls.append(limit)
+        raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(sweep_module, "sweep", failing)
+    asyncio.run(sweep_module.dispatch_soon(app))
+    assert calls == []
+    app.state.jobs_sweep_caller = object()
+    asyncio.run(sweep_module.dispatch_soon(app))
+    assert calls == [1]
 
 
 def test_cs_dispatch_leaves_rfp_rows_pending(settings, jobs_database, cs_job, tft_job):

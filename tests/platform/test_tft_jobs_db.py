@@ -86,8 +86,15 @@ def test_only_the_tft_caller_can_admit(client, jobs_database, body, headers):
 def test_admission_stores_a_queued_job_with_dispatch_intent_and_control(
     client, jobs_database, body
 ):
+    sent = []
+
+    async def soon(app):
+        sent.append(app)
+
+    client.app.state.jobs_dispatch_soon = soon
     first = client.post(URL, json=body, headers=GOOD)
     assert first.status_code == 201
+    assert len(sent) == 1
     data = first.json()["data"]
     assert data["status_url"] == f"/api/v1/platform/jobs/{data['job_id']}"
     assert (data["kind"], data["project_id"], data["created"]) == (
