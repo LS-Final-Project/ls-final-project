@@ -447,6 +447,17 @@ def test_invalid_or_blocked_selection_is_rejected(snapshot: dict[str, Any], case
         build_draft(**snapshot)
 
 
+def test_forbidden_unselected_option_does_not_block_draft(snapshot: dict[str, Any]) -> None:
+    snapshot["options"][0].customer_permission = "FORBIDDEN"
+    assert snapshot["options"][0].options[0].allowed is True
+    assert snapshot["selections"] == []
+    result = build_draft(**snapshot)
+    assert sentences(result, "CUSTOMER_GOAL_SCOPE")
+    assert sentences(result, "OUR_RESPONSE")
+    assert sentences(result, "PARTNER_SUPPLEMENT") == []
+    assert result.disclaimer == DISCLAIMER
+
+
 @pytest.mark.parametrize("summary", [False, True])
 def test_excluded_partner_is_not_recommended(snapshot: dict[str, Any], summary: bool) -> None:
     if summary:

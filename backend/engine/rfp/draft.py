@@ -171,8 +171,6 @@ def build_draft(
             if not set(option.candidate_codes).issubset(available):
                 raise ValueError("RFP_DRAFT_UNKNOWN_REFERENCE")
             if option.path in PARTNER_PATHS:
-                if option.allowed and opt.customer_permission == "FORBIDDEN":
-                    raise ValueError("RFP_DRAFT_BLOCKED_SELECTION")
                 for code in option.candidate_codes:
                     if not any(
                         g.requirement_id == opt.requirement_id for g in candidates[code].grades
@@ -190,6 +188,8 @@ def build_draft(
         if not set(selection_row.candidate_codes).issubset(selected_option.candidate_codes):
             raise ValueError("RFP_DRAFT_UNKNOWN_REFERENCE")
         if selected_option.path in PARTNER_PATHS:
+            if option_set is None or option_set.customer_permission == "FORBIDDEN":
+                raise ValueError("RFP_DRAFT_BLOCKED_SELECTION")
             for code in selection_row.candidate_codes:
                 partner = candidates[code]
                 grade = next(
@@ -312,7 +312,14 @@ def build_draft(
         if option_set:
             selection = chosen.get(req.requirement_id)
             for option in sorted(option_set.options, key=lambda v: (v.rank, v.path)):
-                if not option.allowed or option.blocked_reason:
+                if (
+                    not option.allowed
+                    or option.blocked_reason
+                    or (
+                        option.path in PARTNER_PATHS
+                        and option_set.customer_permission == "FORBIDDEN"
+                    )
+                ):
                     continue
                 is_selected = selection is not None and selection.path == option.path
                 path_conditions = [*conditions, *option.conditions_to_confirm]
