@@ -245,11 +245,11 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     """7단계를 순서대로 보고하고 조항·요구·비교·선택지·등급을 저장한다. 다시 돌리면 모델도 행도 그대로다."""
     extractor = FakeExtractor()
     summary, events = run(worker_dsn, project, extractor)
-    # extract는 절(2.1·2.2)마다 누적 counts로 남는다(lease 연장).
-    assert [e["step"] for e in events] == ["parse", "extract", *STEPS[1:]]
+    # extract는 모델 호출마다(counts 없음)와 절(2.1·2.2)마다(누적 counts) 남는다(lease 연장).
+    assert [e["step"] for e in events] == ["parse", *["extract"] * 4, *STEPS[2:]]
     assert events[0] == {"step": "parse", "document_version_id": str(project["docver"])}
-    assert [e["counts"]["requirements"] for e in events[1:3]] == [2, 3]
-    assert all(e["counts"] == {"requirements": 3, "proposals": 0} for e in events[2:])
+    assert [e.get("counts", {}).get("requirements") for e in events[1:5]] == [None, 2, None, 3]
+    assert all(e["counts"] == {"requirements": 3, "proposals": 0} for e in events[5:])
     assert summary == {"counts": {"requirements": 3, "proposals": 0}, "needs_review": False}
     assert extractor.calls == 2  # 절 두 개, 빠진 요구 문장 없음.
     first = stored(admin, project)
@@ -301,7 +301,7 @@ def test_unknown_input_or_changed_file_fails(worker_dsn, project, admin):
 
 
 def test_a_stop_after_compare_leaves_no_requirement_rows(worker_dsn, project, admin):
-    """compare~candidates는 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소) 요구 행이 남지 않는다."""
+    """조항~candidates는 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소) 조항도 요구 행도 남지 않는다."""
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
     processor = make_processor(settings, provider=FakeExtractor(), document_root=project["root"])
     job = TftJob(
@@ -319,5 +319,58 @@ def test_a_stop_after_compare_leaves_no_requirement_rows(worker_dsn, project, ad
     with pytest.raises(RuntimeError):
         processor(job, emit)
     after = stored(admin, project)
-    assert (after["requirements"], after["comparisons"], after["options"]) == (0, 0, 0)
-    assert after["clauses"] == 6  # 조항 트리는 parse 때 이미 저장했다.
+    # 조항도 같은 트랜잭션이라 남지 않는다(조항 = 끝까지 처리했다는 표시).
+    assert (after["clauses"], after["requirements"], after["comparisons"], after["options"]) == (
+        0,
+        0,
+        0,
+        0,
+    )
+
+
+def test_a_document_without_requirements_is_not_extracted_again(worker_dsn, project, admin):
+    """요구가 0건인 문서도 조항이 저장돼 처리됨으로 남고, 다시 돌리면 모델을 부르지 않는다."""
+
+    class Empty(FakeExtractor):
+        def __call__(self, _prompt):
+            self.calls += 1
+            return Generation(
+                text='{"requirements": []}', usage=Usage(), model_version="fake", finish_reasons=[]
+            )
+
+    extractor = Empty()
+    summary, _ = run(worker_dsn, project, extractor)
+    assert summary["counts"]["requirements"] == 0 and extractor.calls >= 2
+    calls = extractor.calls
+    assert stored(admin, project)["clauses"] == 6
+    run(worker_dsn, project, extractor)
+    assert extractor.calls == calls
+
+
+def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_dsn, project, admin):
+    """모델 호출마다 진행을 남긴다. 그 진행에서 멈추면(취소·소유권 상실) 엔진이 삼키지 않고 바로 멈춘다."""
+
+    class Stop(Exception):
+        pass
+
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    extractor = FakeExtractor()
+    processor = make_processor(settings, provider=extractor, document_root=project["root"])
+    job = TftJob(
+        job_id=uuid4(),
+        kind="rfp.process",
+        project_id=project["project"],
+        input_version=input_version([project["docver"]]),
+        actor_id=SALES,
+    )
+    seen = []
+
+    def emit(values):
+        seen.append(values)
+        if values == {"step": "extract"}:
+            raise Stop
+
+    with pytest.raises(Stop):
+        processor(job, emit)
+    assert extractor.calls == 1 and seen[-1] == {"step": "extract"}
+    assert stored(admin, project)["requirements"] == 0
