@@ -42,6 +42,8 @@ Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
 Kind = Literal["SPEC", "TASK", "DOCUMENT", "COMPLIANCE", "DESIGNATED_PRODUCT"]
 RejectReason = Literal["UNKNOWN_CLAUSE", "QUOTE_NOT_IN_CLAUSE", "VALUE_NOT_IN_QUOTE"]
 MAX_SECTION_CHARS = 12000
+# 승인된 절별 비용 한도: 최초 12회 + 부분별 보완 최대 12회(공급자 전송 재시도 제외).
+MAX_SECTION_PARTS = 12
 # 한 번에 부를 절 본문 상한(글자). Gemini는 추론 토큰도 출력 상한에 들어가, 14번 2.5(3972자)가 이미 답 5345 + 추론
 # 6609토큰을 썼고 2.6(7560자)은 상한 16384를 넘어 응답이 잘렸다. 이보다 긴 절은 첫 단계 조항 묶음으로 나눠 부른다.
 # v1 측정 절(2.4 2510자·2.5 3972자)은 이 아래라 나뉘지 않는다.
@@ -220,13 +222,18 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
 
     Args:
         tree: 조항 트리.
-        section_nos: 절 번호 목록(예: ["2.4", "2.5"]). 미리 고정한 평가 절이다.
+        section_nos: 처리할 절 번호 목록(예: ["2.4", "2.5"]).
 
     Returns:
-        list[ExtractionInput]: 절마다 하나. 본문이 없는 조항은 문맥으로만 쓴다.
+        list[ExtractionInput]: 요청 절 순서와 원문 조항 순서를 유지한 평탄 목록.
+            12000자 초과 절은 복수 입력이며 조항 번호·문맥은 그대로다.
+            본문이 없는 조항은 문맥으로만 쓴다. 첫 단계 묶음이 12000자를 넘으면
+            개별 조항 경계로 재묶는다. 실제 추출 부분 수는 승인된 비용 한도인 12개 이하다.
+            상한 12는 감독 제공 최장 개발 절 본문 23908자에 여유를 둔 정책이다.
 
     Raises:
-        ValueError: 절이 없거나 너무 길면(RFP_SECTION_NOT_FOUND·RFP_SECTION_TOO_LONG).
+        ValueError: 절 없음(RFP_SECTION_NOT_FOUND), 개별 조항 길이 초과
+            (RFP_SECTION_TOO_LONG), 절별 호출 부분 수 초과(RFP_SECTION_TOO_MANY_PARTS).
     """
     by_no = {c.clause_no: c for c in tree.clauses}
     out: list[ExtractionInput] = []
@@ -252,9 +259,32 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                 )
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)
+        pieces: list[ExtractionInput] = []
+        for piece in split_input(item):
+            if sum(len(_clause_text(c)) for c in piece.clauses) <= MAX_SECTION_CHARS:
+                pieces.append(piece)
+                continue
+            # 첫 단계 묶음이 너무 크면 개별 하위 조항 경계로만 재묶는다.
+            batch: list[ClauseInput] = []
+            size = 0
+            for child in piece.clauses:
+                clause_size = len(_clause_text(child))
+                if clause_size > MAX_SECTION_CHARS:
+                    raise ValueError("RFP_SECTION_TOO_LONG")
+                if batch and size + clause_size > PART_CHARS:
+                    pieces.append(piece.model_copy(update={"clauses": batch}))
+                    batch, size = [], 0
+                batch.append(child)
+                size += clause_size
+            if batch:
+                pieces.append(piece.model_copy(update={"clauses": batch}))
+        # 재분할 뒤 실제 최초 호출 수에 적용한다. 빠진 문장 보완은 부분별 최대 한 번이다.
+        if len(pieces) > MAX_SECTION_PARTS:
+            raise ValueError("RFP_SECTION_TOO_MANY_PARTS")
         if sum(len(_clause_text(c)) for c in clauses) > MAX_SECTION_CHARS:
-            raise ValueError("RFP_SECTION_TOO_LONG")
-        out.append(item)
+            out.extend(pieces)
+        else:
+            out.append(item)
     return out
 
 
