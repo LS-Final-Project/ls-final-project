@@ -42,8 +42,26 @@ class Issue:
     deployed: Any = None
     adopted: Any = None
 
-    def key(self) -> tuple[str, str, str | None]:
-        return self.stage, self.kind, self.field
+    def key(self) -> tuple[str, str, str | None, str, str]:
+        # 불일치는 값까지 맞아야 같은 문제다. 알려진 불일치 위에서 설정을 또 바꾸면 새 문제가 된다(#326 리뷰 P2).
+        return (
+            self.stage,
+            self.kind,
+            self.field,
+            json.dumps(self.deployed, sort_keys=True),
+            json.dumps(self.adopted, sort_keys=True),
+        )
+
+
+def exception_key(entry: Mapping[str, Any]) -> tuple[str, str, str | None, str, str]:
+    """예외 줄의 비교 키(Issue.key와 같은 모양)."""
+    return (
+        entry["stage"],
+        entry["kind"],
+        entry.get("field"),
+        json.dumps(entry.get("deployed"), sort_keys=True),
+        json.dumps(entry.get("adopted"), sort_keys=True),
+    )
 
 
 def deploy_model(script: Path = DEPLOY_SCRIPT) -> str:
@@ -107,10 +125,10 @@ def load_adoptions(directory: Path = ADOPTIONS) -> list[AdoptionRecord]:
 def find_issues(
     config: Mapping[str, Mapping[str, Any]], records: Sequence[AdoptionRecord]
 ) -> list[Issue]:
-    """단계마다 설정이 ADOPTED 기록 중 하나와 맞는지 본다.
+    """단계마다 설정이 가장 최근 ADOPTED 기록(decided_on)과 맞는지 본다.
 
-    기록이 여럿이면 하나라도 채택값이 설정과 모두 같으면 통과다. 없으면 가장 최근 기록(decided_on)과의 차이를
-    필드별로 낸다. 채택 기록에 없는 설정 필드는 비교하지 않는다(채택 때 고정한 값만 본다).
+    새 기록이 옛 기록을 대신하므로, 옛 채택값으로 되돌리면 불일치다(#326 리뷰 P3). 같은 날짜면 파일 이름 순서의
+    뒤 기록이다. 채택 기록에 없는 설정 필드는 비교하지 않는다(채택 때 고정한 값만 본다).
 
     Args:
         config: deployed_config 결과.
@@ -137,27 +155,27 @@ def find_issues(
             issues.append(Issue(stage, "NO_ADOPTION"))
             continue
         current = config[stage]
-
-        def differences(record: AdoptionRecord) -> list[Issue]:
-            return [
-                Issue(stage, "MISMATCH", name, current.get(name), value)
-                for name, value in record.adopted.items()
-                if current.get(name) != value
-            ]
-
-        if not any(not differences(r) for r in adopted):
-            issues += differences(adopted[-1])
+        issues += [
+            Issue(stage, "MISMATCH", name, current.get(name), value)
+            for name, value in adopted[-1].adopted.items()
+            if current.get(name) != value
+        ]
     return issues
 
 
 def load_exceptions(path: Path = EXCEPTIONS) -> list[dict[str, Any]]:
-    """알려진 어긋남 목록. 줄마다 stage·kind·field(없으면 null)·reason·ticket·recorded_on이 있어야 한다."""
+    """알려진 어긋남 목록. 줄마다 stage·kind·field(없으면 null)·reason·ticket·recorded_on이 있어야 한다.
+
+    MISMATCH 줄은 deployed(운영값)·adopted(채택값)도 있어야 하고, 두 값이 그대로일 때만 허용된다.
+    """
     data = json.loads(path.read_text(encoding="utf-8"))
     for entry in data["exceptions"]:
         missing = [
             k for k in ("stage", "kind", "reason", "ticket", "recorded_on") if not entry.get(k)
         ]
         if missing or entry["kind"] not in ISSUE_KINDS or entry["stage"] not in STAGE_TASKS:
+            raise ValueError("PROMOTION_EXCEPTION_FIELDS")
+        if entry["kind"] == "MISMATCH" and not {"field", "deployed", "adopted"} <= set(entry):
             raise ValueError("PROMOTION_EXCEPTION_FIELDS")
         if entry["kind"] == "BLOCKER_UNWAIVED":
             # blocker 불합격은 채택 기록의 waivers로만 승인한다(여기서 우회하지 않는다).
@@ -176,7 +194,7 @@ def check(
         dict: passed, blocked(예외 없는 문제), stale(해소된 예외), excepted(알려진 문제와 사유).
     """
     issues = find_issues(config, records)
-    allowed = {(e["stage"], e["kind"], e.get("field")): e for e in exceptions}
+    allowed = {exception_key(e): e for e in exceptions}
     found = {issue.key(): issue for issue in issues}
     blocked = [i for k, i in found.items() if k not in allowed]
     stale = [e for k, e in allowed.items() if k not in found]

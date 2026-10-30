@@ -66,11 +66,16 @@ def test_changing_a_setting_without_a_new_adopted_record_blocks_promotion():
             "adopted": "v3",
         }
     ]
-    # 새 판본을 실측해 ADOPTED로 승인한 기록이 함께 들어오면 통과한다(옛 기록이 남아 있어도 된다).
+    # 새 판본을 실측해 ADOPTED로 승인한 기록이 함께 들어오면 통과한다.
     newer = record(
         "classification", {"model": "m-a", "prompt_version": "v4"}, decided_on="2026-11-01"
     )
     assert promotion.check(changed, [*RECORDS, newer], [])["passed"]
+    # 새 기록이 옛 기록을 대신한다. 옛 채택값(v3)으로 되돌리면 막힌다(#326 리뷰 P3).
+    reverted = promotion.check(CONFIG, [*RECORDS, newer], [])
+    assert [(i["field"], i["deployed"], i["adopted"]) for i in reverted["blocked"]] == [
+        ("prompt_version", "v3", "v4")
+    ]
     # PROPOSED(승인 전) 기록은 승격 근거가 아니다.
     proposed = record("classification", {"model": "m-a", "prompt_version": "v4"}, status="PROPOSED")
     assert not promotion.check(changed, [*RECORDS, proposed], [])["passed"]
@@ -124,3 +129,35 @@ def test_the_deploy_model_must_be_readable_in_one_place(tmp_path, text):
     script.write_text(text)
     with pytest.raises(ValueError, match="PROMOTION_DEPLOY_MODEL_UNREADABLE"):
         promotion.deploy_model(script)
+
+
+def test_a_known_mismatch_does_not_cover_a_further_change():
+    """알려진 불일치(운영 m-b, 채택 m-a) 위에서 운영값을 또 바꾸면 막힌다(#326 리뷰 P2)."""
+    known = {
+        "stage": "classification",
+        "kind": "MISMATCH",
+        "field": "model",
+        "deployed": "m-b",
+        "adopted": "m-a",
+        "reason": "합성",
+        "ticket": "KAN-147",
+        "recorded_on": "2026-10-30",
+    }
+    deployed = copy.deepcopy(CONFIG)
+    deployed["classification"]["model"] = "m-b"
+    assert promotion.check(deployed, RECORDS, [known])["passed"]
+    deployed["classification"]["model"] = "m-untested"
+    result = promotion.check(deployed, RECORDS, [known])
+    assert not result["passed"]
+    assert [i["deployed"] for i in result["blocked"]] == ["m-untested"]
+    assert result["stale"] == [known]
+
+
+def test_a_mismatch_exception_must_name_both_values(tmp_path):
+    path = tmp_path / "exceptions.json"
+    path.write_text(
+        '{"exceptions": [{"stage": "classification", "kind": "MISMATCH", "field": "model", '
+        '"reason": "r", "ticket": "KAN-147", "recorded_on": "2026-10-30"}]}'
+    )
+    with pytest.raises(ValueError, match="PROMOTION_EXCEPTION_FIELDS"):
+        promotion.load_exceptions(path)
