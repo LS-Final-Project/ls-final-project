@@ -261,9 +261,9 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         verdict, word = grading._value_verdict(_as_grading(requirement), compared)
         gaps = grading._condition_gaps(_as_grading(requirement), compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).
-        unit_differs = requirement.operator != "TEXT" and " ".join(
-            (requirement.unit or "").split()
-        ) != " ".join((fact.unit or "").split())
+        unit_differs = requirement.operator != "TEXT" and grading._unit_key(
+            requirement.unit
+        ) != grading._unit_key(fact.unit)
         if verdict == "passed" and not gaps and note:
             # 환산값은 시험값이 아니라 충족으로 확정하지 않는다.
             status, result = "CONDITIONAL", "MEETS"

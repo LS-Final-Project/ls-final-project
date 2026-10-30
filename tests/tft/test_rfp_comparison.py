@@ -835,6 +835,92 @@ def test_a_placeholder_value_is_left_out_of_the_judgement(value):
     assert "미정" in outcome.reason and outcome.unresolved == ["요구값 확정(고객 회신)"]
 
 
+def short_time(unit="kA", operator="GTE", duration_unit="s"):
+    return Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="short_time_withstand_current",
+        value="38",
+        unit=unit,
+        operator=operator,
+        conditions=[Condition(name="duration", value="2", unit=duration_unit)],
+    )
+
+
+def rated_product(attribute, value, unit, duration=None):
+    conditions = [Condition(name="duration", value=duration, unit="s")] if duration else None
+    return Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[
+            SpecFact(
+                product_code="X-1",
+                attribute=attribute,
+                value=value,
+                unit=unit,
+                conditions=conditions,
+                evidence_id="DS-X",
+                section="2",
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("unit", "duration_unit"),
+    [
+        ("kA", "s"),
+        ("kA SYM RMS", "s"),
+        ("kA rms, symmetrical", "seconds"),
+        ("kA (sym)", "sec"),
+        ("kA r.m.s.", "s"),
+    ],
+)
+def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
+    """결함 11: 양을 바꾸지 않는 수식어나 초 표기 때문에 비교·추정이 멈추지 않는다. B-1은 어느 표기든 사양 차이다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    outcome = compare(
+        short_time(unit, duration_unit=duration_unit),
+        [rated_product("short_time_withstand_current", "25", "kA", "3")],
+        trace,
+    )
+    assert outcome.status == "SPEC_GAP" and "30.6 kA" in outcome.reason
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize("unit", ["kA peak", "kA asym", "kA crest", "A"])
+def test_units_that_change_the_quantity_are_not_stripped(unit):
+    """peak·asym·crest와 다른 크기는 다른 양이다. 같다고도 다르다고도 하지 않는다(단위 확인)."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    outcome = compare(
+        short_time(unit), [rated_product("short_time_withstand_current", "25", "kA", "2")], trace
+    )
+    assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
+    assert any("단위 확인" in item for item in outcome.unresolved)
+
+
+def test_the_operator_decides_a_fixed_rating_and_a_minimum():
+    """결함 9: 정해진 값(EQ)은 더 높은 정격으로 충족되지 않고, 최소 요구(GTE)는 충족된다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    product = rated_product("bil", "125", "kV")
+
+    def wanted(operator):
+        return Requirement(
+            clause_no="2.4",
+            item="BIL",
+            attribute="bil",
+            value="95",
+            unit="kV",
+            operator=operator,
+        )
+
+    assert compare(wanted("EQ"), [product], trace).status == "SPEC_GAP"
+    assert compare(wanted("GTE"), [product], trace).status == "EVIDENCE_FOUND"
+
+
 def test_an_unlinked_attribute_is_not_compared_but_certifications_are():
     """attribute_key가 OTHER(사양 항목에 연결 못 함)면 계열이 맞아도 비교하지 않는다. 인증 요구는 규격으로 비교한다."""
     products = load_own_products()

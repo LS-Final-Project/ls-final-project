@@ -57,6 +57,21 @@ EquipmentFamily = Literal[
     "TRANSFORMER",
     "UPS",
 ]
+# 값에 붙는 조건 이름. 자사·협력사 사양 근거의 conditions와 같은 이름이라 조건 비교가 맞물린다(자유 문구면 어긋난다).
+ConditionName = Literal[
+    "duration",
+    "ambient_temperature",
+    "temperature_rise",
+    "reference_temperature",
+    "frequency",
+    "altitude",
+    "voltage",
+    "current_type",
+    "duty",
+    "cooling",
+    "tap_type",
+    "arc_current",
+]
 Other = Literal["OTHER"]
 OTHER: Other = "OTHER"
 # 추출 응답 스키마용 단일 Literal. Gemini 구조화 출력은 enum 둘의 anyOf(AttributeKey | Other)를 400
@@ -64,10 +79,12 @@ OTHER: Other = "OTHER"
 # 중첩 Literal은 하나로 펼쳐진다(PEP 586). 목록은 위 원본 그대로다.
 AttributeKeyOrOther = Literal[AttributeKey, Other]
 FamilyOrOther = Literal[EquipmentFamily, Other]
+ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
 ATTRIBUTE_KEYS: frozenset[str] = frozenset(get_args(AttributeKey))
 EQUIPMENT_FAMILIES: frozenset[str] = frozenset(get_args(EquipmentFamily))
+CONDITION_NAMES: frozenset[str] = frozenset(get_args(ConditionName))
 
 
 def is_placeholder(value: str | None) -> bool:
