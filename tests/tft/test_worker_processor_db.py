@@ -23,6 +23,7 @@ from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.projects.repository import integration_state
 from backend.api.tft.rfp.integration import StoredRequirement, project_integration
 from backend.api.tft.rfp.jobs import input_version
+from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.api.tft.worker_processor import draft_requirement, make_processor, sections_of
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import build_clause_tree
@@ -213,7 +214,7 @@ def run(worker_dsn, project, extractor, kind="rfp.process", version=None):
     processor = make_processor(
         settings,
         provider=extractor,
-        document_root=project["root"],
+        store=LocalDocumentStore(project["root"]),
         today=lambda: date(2026, 10, 30),
     )
     job = TftJob(
@@ -373,7 +374,9 @@ def test_unknown_input_or_changed_file_fails(worker_dsn, project, admin):
 def test_a_stop_after_compare_leaves_no_requirement_rows(worker_dsn, project, admin):
     """조항~candidates는 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소) 조항도 요구 행도 남지 않는다."""
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
-    processor = make_processor(settings, provider=FakeExtractor(), document_root=project["root"])
+    processor = make_processor(
+        settings, provider=FakeExtractor(), store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",
@@ -425,7 +428,9 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
 
     settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
     extractor = FakeExtractor()
-    processor = make_processor(settings, provider=extractor, document_root=project["root"])
+    processor = make_processor(
+        settings, provider=extractor, store=LocalDocumentStore(project["root"])
+    )
     job = TftJob(
         job_id=uuid4(),
         kind="rfp.process",

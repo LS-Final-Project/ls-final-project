@@ -18,7 +18,6 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
@@ -33,7 +32,12 @@ from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import comparison, repository, supplement
 from backend.api.tft.rfp.jobs import input_version
-from backend.api.tft.rfp.storage import read_document
+from backend.api.tft.rfp.storage import (
+    DocumentStorageSettings,
+    DocumentStore,
+    document_store,
+    read_document,
+)
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
@@ -58,14 +62,13 @@ ONLY_STEP = {"rfp.export": "export", "rfp.annotate": "annotate"}
 
 
 class ProcessorSettings(BaseSettings):
-    """원문 폴더와 추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
+    """추출 모델 설정. fake는 요구를 뽑지 않는 고정 응답이다(키 없는 로컬 시연·검사).
 
     추출 값은 공통 AI 기본값(출력 1024토큰)을 쓰지 않는다. 기본은 평가 스크립트(scripts/rfp_requirements_eval.py)와
     같은 모델·출력 상한이고, 시간 제한은 lease 안에 들도록 120초다. 키·공급자·재시도는 공통 AI 설정(GEMINI_*)이다.
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
-    document_root: Path | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -155,14 +158,16 @@ def build(settings: Settings) -> Processor:
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
-    return make_processor(settings, provider=provider, document_root=config.document_root)
+    return make_processor(
+        settings, provider=provider, store=document_store(DocumentStorageSettings())
+    )
 
 
 def make_processor(
     settings: Settings,
     *,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product] | None = None,
     today: Callable[[], date] = date.today,
 ) -> Processor:
@@ -171,7 +176,7 @@ def make_processor(
     Args:
         settings: DB 설정.
         provider: 추출 모델 호출.
-        document_root: 원문 폴더. 없으면 원문이 필요한 작업은 실패한다.
+        store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
 
@@ -184,7 +189,7 @@ def make_processor(
         if job.kind in ONLY_STEP:
             emit({"step": ONLY_STEP[job.kind], "counts": ZERO})
             return {"counts": ZERO, "needs_review": False}
-        return asyncio.run(process(settings, job, emit, provider, document_root, own, today()))
+        return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor
 
@@ -399,7 +404,7 @@ async def process(
     job: TftJob,
     emit: Emit,
     provider: Provider,
-    document_root: Path | None,
+    store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
 ) -> dict[str, Any]:
@@ -410,7 +415,7 @@ async def process(
         job: 작업.
         emit: 단계 보고(소유권·취소 검사).
         provider: 추출 모델 호출.
-        document_root: 원문 폴더.
+        store: 원문 저장소.
         products: 자사 제품.
         today: 인증 유효기한 기준일.
 
@@ -434,10 +439,10 @@ async def process(
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
         for document in documents:
             if not await repository.document_processed(conn, document["id"]):
-                if document_root is None:
+                if store is None:
                     raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
-                data = read_document(
-                    document_root, document["storage_key"], document["sha256"], document["size"]
+                data = await read_document(
+                    store, document["storage_key"], document["sha256"], document["size"]
                 )
                 tree = build_clause_tree(extract(data, mime=document["mime"]))
                 # 조항 번호 → 조항 행. compare 트랜잭션에서 채운다(추출 요구가 같은 dict를 가리킨다).
