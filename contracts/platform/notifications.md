@@ -46,7 +46,11 @@ manager_dept는 manager 역할 및 identity.manager_departments 범위가 모두
 ## worker 이벤트 E1
 
 기존 `job_runtime.finish`의 동기 트랜잭션 안에서 held의 holder/generation/lease 검사 뒤 상태·종료 이벤트·알림을 함께 쓴다.
-알림 INSERT 실패는 상태와 이벤트까지 rollback한다. 기존 소유권 상실·중복 완료의 LeaseLost 동작을 유지하며 외부 발송은 없다.
+알림용 owner/책임자 조회와 INSERT는 같은 outer transaction 안의 별도 SAVEPOINT로 격리한다.
+알림 표 미적용·조회 권한/INSERT 오류가 나면 알림 부분만 rollback하고 원문 없는 고정 경고
+`NOTIFICATION_INTENT_FAILED`를 남긴다. 본작업 상태와 종료 이벤트는 정상 완료한다(예: SUCCEEDED·job.completed).
+이는 위 N1의 일반적인 caller rollback 규칙과 다르다. 정상 알림은 별도 commit 없이 같은 outer transaction에 속하고 dedupe도 유지한다.
+본작업 상태 갱신·종료 이벤트 오류와 소유권 상실·중복 완료의 LeaseLost는 삼키지 않으며 기존 동작을 유지한다. 외부 발송은 없다.
 취소와 CS worker 실패에는 알림을 만들지 않는다. 강제 종료처럼 finish를 지나지 않는 실패도 이 범위에서 알리지 못한다.
 
 | 이벤트 | 조건·범위 | dedupe_key |

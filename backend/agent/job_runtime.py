@@ -9,6 +9,7 @@ worker 이미지(C/S·tft)에는 `backend.api.platform`이 없으므로 여기�
 - 종료: 소유권을 놓고 상태·종료 이벤트를 남긴다. 실패는 고정 failure_code만. 소유권을 잃었으면 LeaseLost.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -20,6 +21,8 @@ from psycopg.types.json import Jsonb
 from backend.shared.errors import ApplicationError
 from backend.shared.notifications import enqueue_notification_sync
 from backend.shared.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class LeaseLost(Exception):
@@ -252,44 +255,53 @@ def finish(
         conn.execute("UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, lease.job_id))
         kind = "job.failed" if state == "FAILED" else "job.completed"
         append(conn, lease.job_id, kind, {"state": state, **payload})
-        if lease.kind == "rfp.process" and state in {"SUCCEEDED", "FAILED"}:
-            responsible = conn.execute(
-                "SELECT responsible_user_id FROM tft.projects WHERE id=%s", (lease.subject_id,)
-            ).fetchone()
-            audience = [{"user": lease.actor_id}]
-            if responsible and responsible["responsible_user_id"]:
-                audience.append({"user": responsible["responsible_user_id"]})
-            event_kind = "rfp.done" if state == "SUCCEEDED" else "rfp.failed"
-            enqueue_notification_sync(
-                conn,
-                kind=event_kind,
-                subject_id=lease.subject_id,
-                audience=audience,
-                actor_id=None,
-                dedupe_key=f"{event_kind}:{lease.job_id}",
-                needs_review=state == "SUCCEEDED" and payload.get("needs_review") is True,
-            )
-        elif lease.kind == "cs.analyze" and state == "SUCCEEDED" and notification_kind:
-            owner = conn.execute(
-                "SELECT owner_user_id FROM cs.ticket_workflows WHERE ticket_id=%s",
-                (lease.subject_id,),
-            ).fetchone()
-            cs_audience: list[dict[str, Any]] = []
-            if owner and owner["owner_user_id"]:
-                cs_audience.append({"user": owner["owner_user_id"]})
-            if notification_kind == "cs.safety":
-                cs_audience.extend([{"role": "cs_agent"}, {"manager_dept": "GCS_L1"}])
-            elif not cs_audience:
-                cs_audience.append({"role": "cs_agent"})
-            key_id = lease.subject_id if notification_kind == "cs.safety" else lease.job_id
-            enqueue_notification_sync(
-                conn,
-                kind=notification_kind,
-                subject_id=lease.subject_id,
-                audience=cs_audience,
-                actor_id=lease.actor_id,
-                dedupe_key=f"{notification_kind}:{key_id}",
-            )
+        # 본작업 상태·종료 이벤트는 유지하고, 부가 알림의 조회·INSERT만 SAVEPOINT로 격리한다.
+        try:
+            with conn.transaction():
+                if lease.kind == "rfp.process" and state in {"SUCCEEDED", "FAILED"}:
+                    responsible = conn.execute(
+                        "SELECT responsible_user_id FROM tft.projects WHERE id=%s",
+                        (lease.subject_id,),
+                    ).fetchone()
+                    audience = [{"user": lease.actor_id}]
+                    if responsible and responsible["responsible_user_id"]:
+                        audience.append({"user": responsible["responsible_user_id"]})
+                    event_kind = "rfp.done" if state == "SUCCEEDED" else "rfp.failed"
+                    enqueue_notification_sync(
+                        conn,
+                        kind=event_kind,
+                        subject_id=lease.subject_id,
+                        audience=audience,
+                        actor_id=None,
+                        dedupe_key=f"{event_kind}:{lease.job_id}",
+                        needs_review=state == "SUCCEEDED" and payload.get("needs_review") is True,
+                    )
+                elif lease.kind == "cs.analyze" and state == "SUCCEEDED" and notification_kind:
+                    owner = conn.execute(
+                        "SELECT owner_user_id FROM cs.ticket_workflows WHERE ticket_id=%s",
+                        (lease.subject_id,),
+                    ).fetchone()
+                    cs_audience: list[dict[str, Any]] = []
+                    if owner and owner["owner_user_id"]:
+                        cs_audience.append({"user": owner["owner_user_id"]})
+                    if notification_kind == "cs.safety":
+                        cs_audience.extend([{"role": "cs_agent"}, {"manager_dept": "GCS_L1"}])
+                    elif not cs_audience:
+                        cs_audience.append({"role": "cs_agent"})
+                    key_id = lease.subject_id if notification_kind == "cs.safety" else lease.job_id
+                    enqueue_notification_sync(
+                        conn,
+                        kind=notification_kind,
+                        subject_id=lease.subject_id,
+                        audience=cs_audience,
+                        actor_id=lease.actor_id,
+                        dedupe_key=f"{notification_kind}:{key_id}",
+                    )
+        except LeaseLost:
+            raise
+        except Exception:
+            # DB·검증 오류 원문이나 수신 범위/사용자 ID는 경고에 넣지 않는다.
+            logger.warning("NOTIFICATION_INTENT_FAILED")
 
 
 def fail(settings: Settings, lease: Lease, code: str) -> None:

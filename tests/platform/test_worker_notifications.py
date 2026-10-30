@@ -54,16 +54,70 @@ def setup(monkeypatch, owner=None):
     return conn
 
 
-def test_notification_failure_rolls_back_job_and_terminal_event(monkeypatch):
+@pytest.mark.parametrize("kind", ["rfp.process", "cs.analyze"])
+@pytest.mark.parametrize("failure", ["missing_table", "insert_error", "lookup_error"])
+def test_notification_savepoint_failure_preserves_succeeded_job_and_event(
+    monkeypatch, caplog, kind, failure
+):
+    import psycopg
+
     conn = setup(monkeypatch)
+    current = lease(kind)
+    execute = conn.execute
 
-    def fail(*args, **kwargs):
-        raise RuntimeError("synthetic insert failure")
+    def broken(sql, params=()):
+        if failure == "lookup_error" and sql.startswith("SELECT"):
+            raise psycopg.errors.InsufficientPrivilege("private owner lookup failure")
+        if sql.startswith("INSERT INTO runtime.notification_intents"):
+            if failure == "missing_table":
+                raise psycopg.errors.UndefinedTable("private missing table")
+            conn.writes.append(("notification_partial", params))
+            raise RuntimeError("private insert failure")
+        return execute(sql, params)
 
-    monkeypatch.setattr(job_runtime, "enqueue_notification_sync", fail)
-    with pytest.raises(RuntimeError, match="insert failure"):
+    conn.execute = broken
+    job_runtime.finish(
+        None,
+        current,
+        "SUCCEEDED",
+        {},
+        notification_kind="cs.review_wait" if kind == "cs.analyze" else None,
+    )
+    assert conn.rolled_back
+    assert (
+        "UPDATE runtime.jobs SET status=%s WHERE id=%s",
+        ("SUCCEEDED", current.job_id),
+    ) in conn.writes
+    assert ("event", (current.job_id, "job.completed", {"state": "SUCCEEDED"})) in conn.writes
+    assert not any(
+        sql.startswith("INSERT") or sql == "notification_partial" for sql, _ in conn.writes
+    )
+    assert [record.getMessage() for record in caplog.records] == ["NOTIFICATION_INTENT_FAILED"]
+    assert "private" not in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["job_update", "terminal_event"])
+def test_primary_job_errors_still_propagate_and_roll_back(monkeypatch, caplog, failure):
+    conn = setup(monkeypatch)
+    if failure == "job_update":
+        execute = conn.execute
+
+        def broken(sql, params=()):
+            if sql.startswith("UPDATE runtime.jobs"):
+                raise RuntimeError("primary job failure")
+            return execute(sql, params)
+
+        conn.execute = broken
+    else:
+
+        def broken_event(*args):
+            raise RuntimeError("primary event failure")
+
+        monkeypatch.setattr(job_runtime, "append", broken_event)
+    with pytest.raises(RuntimeError, match="primary"):
         job_runtime.finish(None, lease(), "SUCCEEDED", {})
     assert conn.rolled_back and conn.writes == []
+    assert not caplog.records
 
 
 @pytest.mark.parametrize("state", ["SUCCEEDED", "FAILED"])

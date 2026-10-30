@@ -201,9 +201,8 @@ def test_skip_locked_and_failed_expansion_roll_back_both_metadata_and_recipients
     asyncio.run(run())
 
 
-def test_worker_finish_insert_failure_rolls_back_status_events_and_retry_is_deduped(
-    settings, jobs_database, tft_job, monkeypatch
-):
+@pytest.fixture
+def notification_worker(settings, jobs_database):
     worker_name = "test_notification_tft_worker"
     with psycopg.connect(jobs_database) as conn:
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (worker_name,)).fetchone():
@@ -211,34 +210,61 @@ def test_worker_finish_insert_failure_rolls_back_status_events_and_retry_is_dedu
                 SQL("CREATE ROLE {} LOGIN PASSWORD 'test-only'").format(Identifier(worker_name))
             )
         conn.execute(SQL("GRANT tft_worker TO {}").format(Identifier(worker_name)))
-    worker = settings.model_copy(
+    return settings.model_copy(
         update={
             "database_url": SecretStr(
                 make_conninfo(jobs_database, user=worker_name, password="test-only")
             )
         }
     )
+
+
+@pytest.mark.parametrize("failure", ["missing_table", "insert_error"])
+def test_worker_notification_sql_failure_commits_succeeded_job_and_completed_event(
+    notification_worker, jobs_database, tft_job, monkeypatch, caplog, failure
+):
+    worker = notification_worker
     lease = job_runtime.claim(worker, "tft", 60, tft_job)
     original = job_runtime.enqueue_notification_sync
 
-    def broken(*args, **kwargs):
-        raise RuntimeError("synthetic notification insert failure")
+    def broken(conn, **values):
+        if failure == "missing_table":
+            conn.execute(
+                "INSERT INTO runtime.kan201_missing_notifications(id) VALUES (%s)", (uuid4(),)
+            )
+        else:
+            original(conn, **values)
+            # An actual failing INSERT aborts the subtransaction after a partial notification write.
+            conn.execute("INSERT INTO runtime.notification_intents(id) VALUES (%s)", (uuid4(),))
 
     monkeypatch.setattr(job_runtime, "enqueue_notification_sync", broken)
-    with pytest.raises(RuntimeError):
-        job_runtime.finish(worker, lease, "SUCCEEDED", {})
+    job_runtime.finish(worker, lease, "SUCCEEDED", {})
     with psycopg.connect(jobs_database) as conn:
         assert conn.execute(
             "SELECT status FROM runtime.jobs WHERE id=%s", (tft_job,)
-        ).fetchone() == ("RUNNING",)
+        ).fetchone() == ("SUCCEEDED",)
         assert conn.execute(
-            "SELECT count(*) FROM runtime.job_events WHERE job_id=%s AND type='job.completed'",
+            "SELECT type,payload->>'state' FROM runtime.job_events WHERE job_id=%s AND type='job.completed'",
             (tft_job,),
+        ).fetchall() == [("job.completed", "SUCCEEDED")]
+        assert conn.execute(
+            "SELECT count(*) FROM runtime.notification_intents WHERE dedupe_key=%s",
+            (f"rfp.done:{tft_job}",),
         ).fetchone() == (0,)
-    monkeypatch.setattr(job_runtime, "enqueue_notification_sync", original)
-    job_runtime.finish(worker, lease, "SUCCEEDED", {})
+    assert [r.getMessage() for r in caplog.records if r.name == job_runtime.__name__] == [
+        "NOTIFICATION_INTENT_FAILED"
+    ]
     with pytest.raises(job_runtime.LeaseLost):
         job_runtime.finish(worker, lease, "SUCCEEDED", {})
+
+
+def test_worker_notification_success_and_duplicate_finish_are_preserved(
+    notification_worker, jobs_database, tft_job
+):
+    lease = job_runtime.claim(notification_worker, "tft", 60, tft_job)
+    job_runtime.finish(notification_worker, lease, "SUCCEEDED", {})
+    with pytest.raises(job_runtime.LeaseLost):
+        job_runtime.finish(notification_worker, lease, "SUCCEEDED", {})
     with psycopg.connect(jobs_database) as conn:
         assert conn.execute(
             "SELECT count(*) FROM runtime.notification_intents WHERE dedupe_key=%s",
