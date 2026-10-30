@@ -1,11 +1,11 @@
 {
-  "_note": "eval/promotion.py가 읽는 알려진 승격 문제 목록(KAN-147). 줄마다 사유·티켓이 있어야 하고, MISMATCH는 운영값(deployed)·채택값(adopted)이 그대로일 때만 허용되며, 해소되면 이 줄을 지워야 검사가 통과한다. blocker 불합격은 여기에 둘 수 없고 채택 기록의 waivers로만 승인한다.",
+  "_note": "eval/promotion.py가 읽는 알려진 승격 문제 목록(KAN-147). 줄마다 사유·티켓이 있어야 하고, MISMATCH는 운영값(deployed)·채택값(adopted)이, NO_ADOPTION은 그 단계의 설정 전체(deployed)가 그대로일 때만 허용되며, 해소되면 이 줄을 지워야 검사가 통과한다. blocker 불합격은 여기에 둘 수 없고 채택 기록의 waivers로만 승인한다.",
   "exceptions": [
     {
       "stage": "classification",
       "kind": "MISMATCH",
       "field": "model",
-      "reason": "배포 스크립트(infra/deploy_private.py)가 C/S 서비스 전체에 GEMINI_MODEL=gemini-3.6-flash 하나를 넣는다. 분류 채택 모델은 gemini-3.5-flash-lite(2026-10-29 ADOPTED). 운영을 채택 모델로 바꿀지, 3.6-flash를 실측해 다시 채택할지 결정 대기",
+      "reason": "C/S worker는 공통 AI 설정의 모델 하나(코드 기본 gemini-3.6-flash, 배포 GEMINI_MODEL도 같은 값)를 분류·초안에 함께 쓴다. 분류 채택 모델은 gemini-3.5-flash-lite(2026-10-29 ADOPTED). 운영을 채택 모델로 바꿀지, 3.6-flash를 실측해 다시 채택할지 결정 대기",
       "ticket": "KAN-147",
       "recorded_on": "2026-10-30",
       "deployed": "gemini-3.6-flash",
@@ -17,7 +17,13 @@
       "field": null,
       "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(max_output_tokens 2048·근거 5건)은 2026-10-29 초안 실측의 PROPOSED 설정이고 ADOPTED 승인 전이다",
       "ticket": "KAN-147",
-      "recorded_on": "2026-10-30"
+      "recorded_on": "2026-10-30",
+      "deployed": {
+        "model": "gemini-3.6-flash",
+        "prompt_version": "v1",
+        "max_output_tokens": 2048,
+        "evidence_limit": 5
+      }
     },
     {
       "stage": "rfp_extraction",
@@ -25,7 +31,11 @@
       "field": null,
       "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다",
       "ticket": "KAN-147",
-      "recorded_on": "2026-10-30"
+      "recorded_on": "2026-10-30",
+      "deployed": {
+        "model": "gemini-3.6-flash",
+        "extraction_version": "rfp-requirements-v2"
+      }
     }
   ]
 }

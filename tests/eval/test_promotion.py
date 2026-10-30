@@ -10,8 +10,12 @@ from eval.adoption import AdoptionRecord
 
 def test_the_repository_config_matches_adopted_records_or_known_exceptions():
     """운영 설정이 ADOPTED 기록과 다르거나 기록이 없으면, 예외 목록에 사유가 있어야 통과한다."""
+    config = promotion.deployed_config()
     result = promotion.check(
-        promotion.deployed_config(), promotion.load_adoptions(), promotion.load_exceptions()
+        config,
+        promotion.load_adoptions(),
+        promotion.load_exceptions(),
+        promotion.deploy_drift(config),
     )
     assert result["passed"], result
     # 알려진 문제는 숨지 않고 결과에 보인다.
@@ -91,12 +95,18 @@ def test_a_stage_without_an_adopted_record_is_blocked_unless_listed():
         "stage": "rfp_extraction",
         "kind": "NO_ADOPTION",
         "field": None,
+        "deployed": CONFIG["rfp_extraction"],
         "reason": "합성",
         "ticket": "KAN-147",
         "recorded_on": "2026-10-30",
     }
     passed = promotion.check(CONFIG, records, [listed])
     assert passed["passed"] and passed["excepted"][0]["reason"] == "합성"
+    # 채택 기록이 없는 단계도 설정을 또 바꾸면 막힌다(예외는 적어 둔 설정 그대로일 때만).
+    changed = copy.deepcopy(CONFIG)
+    changed["rfp_extraction"]["model"] = "m-untested"
+    moved = promotion.check(changed, records, [listed])
+    assert not moved["passed"] and moved["blocked"][0]["deployed"]["model"] == "m-untested"
     # 해소됐는데 남은 예외는 실패다(목록이 낡지 않게).
     stale = promotion.check(CONFIG, RECORDS, [listed])
     assert not stale["passed"] and stale["stale"] == [listed]
@@ -161,3 +171,33 @@ def test_a_mismatch_exception_must_name_both_values(tmp_path):
     )
     with pytest.raises(ValueError, match="PROMOTION_EXCEPTION_FIELDS"):
         promotion.load_exceptions(path)
+
+
+def test_settings_come_from_the_runtime_paths_not_the_local_environment(monkeypatch):
+    """실행한 PC의 환경 변수가 검사 결과를 바꾸지 않는다. RFP 추출은 공통 모델이 아니라 추출 전용 설정이다."""
+    before = promotion.deployed_config()
+    monkeypatch.setenv("GEMINI_MODEL", "local-model")
+    monkeypatch.setenv("TFT_EXTRACTION_MODEL", "local-model")
+    monkeypatch.setenv("CS_EMBEDDING_MODEL", "local-model")
+    assert promotion.deployed_config() == before
+    from backend.api.tft.worker_processor import ProcessorSettings
+    from backend.shared.ai import AISettings
+
+    assert (
+        before["rfp_extraction"]["model"]
+        == ProcessorSettings.model_fields["extraction_model"].default
+    )
+    assert before["classification"]["model"] == AISettings.model_fields["gemini_model"].default
+
+
+def test_a_deploy_script_overriding_the_default_model_is_reported(tmp_path):
+    script = tmp_path / "deploy.py"
+    script.write_text('",AI_PROVIDER=gemini,GEMINI_MODEL=m-deploy,GEMINI_MAX_OUTPUT_TOKENS=1024"')
+    drift = promotion.deploy_drift(CONFIG, script)
+    assert [(i.stage, i.kind, i.deployed, i.adopted) for i in drift] == [
+        ("classification", "DEPLOY_DIFFERS", "m-deploy", "m-a"),
+        ("draft", "DEPLOY_DIFFERS", "m-deploy", "m-a"),
+    ]
+    assert not promotion.check(CONFIG, RECORDS, [], drift)["passed"]
+    script.write_text('"GEMINI_MODEL=m-a"')
+    assert promotion.deploy_drift(CONFIG, script) == []

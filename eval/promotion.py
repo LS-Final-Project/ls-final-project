@@ -6,7 +6,7 @@
 (키·비용·저장소 밖 개발 데이터). CI는 그 결과인 채택 기록이 있는지만 본다.
 
 - 문제 종류: MISMATCH(설정값 ≠ 채택값), NO_ADOPTION(그 단계의 ADOPTED 기록이 없음), BLOCKER_UNWAIVED(ADOPTED
-  기록에 예외 승인 없는 blocker 불합격).
+  기록에 예외 승인 없는 blocker 불합격), DEPLOY_DIFFERS(배포 스크립트가 코드 기본 모델을 다른 값으로 덮어씀).
 - 이미 알고 있는 어긋남은 `eval/policy/promotion-exceptions.json`에 사유·티켓과 함께 적어 둔다. 목록에 없는 문제와,
   더는 생기지 않는 예외(해소됐는데 남은 줄)는 둘 다 실패다. 예외는 숨기지 않고 결과에 그대로 보인다.
 """
@@ -31,7 +31,7 @@ STAGE_TASKS = {
     "embedding": "embedding",
     "rfp_extraction": "rfp",
 }
-ISSUE_KINDS = ("MISMATCH", "NO_ADOPTION", "BLOCKER_UNWAIVED")
+ISSUE_KINDS = ("MISMATCH", "NO_ADOPTION", "BLOCKER_UNWAIVED", "DEPLOY_DIFFERS")
 
 
 @dataclass(frozen=True)
@@ -76,20 +76,28 @@ def deploy_model(script: Path = DEPLOY_SCRIPT) -> str:
     return found[0]
 
 
-def deployed_config(script: Path = DEPLOY_SCRIPT) -> dict[str, dict[str, Any]]:
-    """운영에 나가는 단계별 설정을 코드·배포 스크립트에서 읽는다.
+def deployed_config() -> dict[str, dict[str, Any]]:
+    """업무 실행 경로가 쓰는 단계별 설정을 코드 기본값에서 읽는다(환경 변수·.env는 보지 않는다).
+
+    - C/S 분류·초안: C/S worker(backend/agent/cs_worker.py)가 공통 AI 설정의 gemini_model 하나를 두 단계에 함께 넘긴다.
+    - RFP 요구 추출: 처리 함수(backend/api/tft/worker_processor.py)의 추출 전용 설정 extraction_model(TFT_EXTRACTION_MODEL)이다.
+      공통 GEMINI_MODEL과 별개다.
+    - 임베딩: C/S 벡터 검색 설정의 모델·차원과 문서 쪽 적재 판본의 task_type.
+    배포가 기본값을 덮어쓰는지는 deploy_drift가 따로 본다.
 
     Returns:
         dict: 단계 → 필드 → 값. 채택 기록의 adopted 키와 같은 이름을 쓴다.
     """
     from backend.agent.cs_runner import DRAFT_DEFAULTS
     from backend.agent.cs_search import CsVectorSettings
+    from backend.api.tft.worker_processor import ProcessorSettings
     from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, prompt_fingerprint
     from backend.engine.rfp.requirements import EXTRACTION_VERSION
+    from backend.shared.ai import AISettings
 
-    model = deploy_model(script)
-    vector = CsVectorSettings(_env_file=None)
-    # 문서 쪽 적재 판본(embedding_version)의 task_type. 채택 기록의 task_type과 같은 값이다.
+    # model_construct는 환경 변수를 읽지 않고 코드 기본값만 채운다(실행한 PC의 설정이 결과를 바꾸지 않게).
+    model = AISettings.model_construct().gemini_model
+    vector = CsVectorSettings.model_construct()
     task_type = vector.embedding_version.rsplit(":", 1)[-1]
     return {
         "classification": {
@@ -110,8 +118,29 @@ def deployed_config(script: Path = DEPLOY_SCRIPT) -> dict[str, dict[str, Any]]:
             "dimension": vector.embedding_dimension,
             "task_type": task_type,
         },
-        "rfp_extraction": {"model": model, "extraction_version": EXTRACTION_VERSION},
+        "rfp_extraction": {
+            "model": ProcessorSettings.model_construct().extraction_model,
+            "extraction_version": EXTRACTION_VERSION,
+        },
     }
+
+
+def deploy_drift(
+    config: Mapping[str, Mapping[str, Any]], script: Path = DEPLOY_SCRIPT
+) -> list[Issue]:
+    """배포 스크립트의 GEMINI_MODEL이 코드 기본값과 다른지 본다(배포가 검사한 값과 다른 모델로 돌지 않게).
+
+    C/S 분류·초안은 GEMINI_MODEL을 쓴다. RFP 요구 추출은 TFT_EXTRACTION_MODEL을 쓰므로 여기서 보지 않는다.
+
+    Returns:
+        list[Issue]: 다르면 단계마다 DEPLOY_DIFFERS(deployed=배포값, adopted=코드 기본값).
+    """
+    value = deploy_model(script)
+    return [
+        Issue(stage, "DEPLOY_DIFFERS", "model", value, config[stage]["model"])
+        for stage in ("classification", "draft")
+        if config[stage]["model"] != value
+    ]
 
 
 def load_adoptions(directory: Path = ADOPTIONS) -> list[AdoptionRecord]:
@@ -152,7 +181,9 @@ def find_issues(
             key=lambda r: r.decided_on,
         )
         if not adopted:
-            issues.append(Issue(stage, "NO_ADOPTION"))
+            # 채택 기록이 없는 단계도 지금 설정값을 함께 남긴다. 예외 줄이 이 값을 그대로 적어야 통과하므로, 기록
+            # 없이 설정을 또 바꾸면 막힌다.
+            issues.append(Issue(stage, "NO_ADOPTION", deployed=dict(config[stage])))
             continue
         current = config[stage]
         issues += [
@@ -166,7 +197,8 @@ def find_issues(
 def load_exceptions(path: Path = EXCEPTIONS) -> list[dict[str, Any]]:
     """알려진 어긋남 목록. 줄마다 stage·kind·field(없으면 null)·reason·ticket·recorded_on이 있어야 한다.
 
-    MISMATCH 줄은 deployed(운영값)·adopted(채택값)도 있어야 하고, 두 값이 그대로일 때만 허용된다.
+    MISMATCH·DEPLOY_DIFFERS 줄은 deployed(운영값)·adopted(채택값)도 있어야 하고, 두 값이 그대로일 때만 허용된다.
+    NO_ADOPTION 줄은 deployed에 그 단계의 지금 설정 전체를 적고, 설정이 그대로일 때만 허용된다.
     """
     data = json.loads(path.read_text(encoding="utf-8"))
     for entry in data["exceptions"]:
@@ -175,7 +207,13 @@ def load_exceptions(path: Path = EXCEPTIONS) -> list[dict[str, Any]]:
         ]
         if missing or entry["kind"] not in ISSUE_KINDS or entry["stage"] not in STAGE_TASKS:
             raise ValueError("PROMOTION_EXCEPTION_FIELDS")
-        if entry["kind"] == "MISMATCH" and not {"field", "deployed", "adopted"} <= set(entry):
+        if entry["kind"] == "NO_ADOPTION" and not isinstance(entry.get("deployed"), dict):
+            raise ValueError("PROMOTION_EXCEPTION_FIELDS")
+        if entry["kind"] in ("MISMATCH", "DEPLOY_DIFFERS") and not {
+            "field",
+            "deployed",
+            "adopted",
+        } <= set(entry):
             raise ValueError("PROMOTION_EXCEPTION_FIELDS")
         if entry["kind"] == "BLOCKER_UNWAIVED":
             # blocker 불합격은 채택 기록의 waivers로만 승인한다(여기서 우회하지 않는다).
@@ -187,13 +225,14 @@ def check(
     config: Mapping[str, Mapping[str, Any]],
     records: Sequence[AdoptionRecord],
     exceptions: Sequence[Mapping[str, Any]],
+    drift: Sequence[Issue] = (),
 ) -> dict:
     """승격 판정. 목록에 없는 문제나 해소됐는데 남은 예외가 있으면 passed=False다.
 
     Returns:
         dict: passed, blocked(예외 없는 문제), stale(해소된 예외), excepted(알려진 문제와 사유).
     """
-    issues = find_issues(config, records)
+    issues = [*find_issues(config, records), *drift]
     allowed = {exception_key(e): e for e in exceptions}
     found = {issue.key(): issue for issue in issues}
     blocked = [i for k, i in found.items() if k not in allowed]
@@ -213,7 +252,8 @@ def check(
 
 def main() -> int:
     """CI·정기 실행 입구. 결과 JSON을 표준 출력에 내고, 통과하지 못하면 1이다."""
-    result = check(deployed_config(), load_adoptions(), load_exceptions())
+    config = deployed_config()
+    result = check(config, load_adoptions(), load_exceptions(), deploy_drift(config))
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0 if result["passed"] else 1
 
