@@ -102,7 +102,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | T11 | `tft/20261103_KAN-186_project_columns.sql` | T7·T10(헤더) | tft_migrator | 가능 | 열 `tft.projects.integration_holder` | 미확인 |
 | T12 | `tft/20261105_KAN-199_requirement_assembly_clause.sql` | T7(헤더) | tft_migrator | 가능 | 열 `tft.requirement_versions.assembly_clause` | 미확인 |
 | T13 | `tft/20261106_KAN-199_question_drafts.sql` | T10(헤더) | postgres(역할 없을 때) → tft_migrator | 가능 | 열 `tft.customer_questions.draft_key` | 미확인 |
-| T14 | `tft/20261104_KAN-199_tft_worker.sql` | T7, P29(헤더) | postgres(역할 없을 때) → tft_migrator | 가능 | `has_table_privilege('tft_worker','tft.clauses','INSERT')` | 미확인 |
+| T14 | `tft/20261104_KAN-199_tft_worker.sql` | T7·T10·T11, P29(헤더) | postgres(역할 없을 때) → tft_migrator | 가능 | `has_table_privilege('tft_worker','tft.clauses','INSERT')` | 미확인 |
 | T15 | `tft/20261107_KAN-188_requirement_semantic_fields.sql` | T7(헤더) | tft_migrator | 가능 | 열 `tft.requirement_versions.tolerance` | 미확인 |
 | T16 | `tft/20261108_KAN-201_worker_notifications.sql` | T1·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | tft_worker의 `tft.projects.responsible_user_id` SELECT | 미확인 |
 | T17 | `tft/20261109_KAN-188_draft_execution.sql` | T7·T10~T15(헤더) | postgres(역할 확인) → tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `draft_sentences.needs_rereview`·`draft_versions.source_job_id` 및 제한 worker 권한 | 미확인 |

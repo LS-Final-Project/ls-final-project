@@ -50,7 +50,7 @@ async def edit_draft(
     async with connection(request.app.state.settings) as conn:
         await visible(conn, principal, project_id, write=True)
         await db.lock(conn, project_id)
-        current = await db.load(conn, project_id)
+        current = await db.load_snapshot(conn, project_id, await db.head(conn, project_id))
         if current is None:
             raise ApplicationError(404, "TFT_DRAFT_NOT_FOUND", "The draft was not found.")
         result, reasons = drafts.edit(
@@ -69,7 +69,9 @@ async def edit_draft(
                 "reasons": {str(k): v for k, v in reasons.items()},
             },
         )
-    return result
+        display = await db.load(conn, project_id, result.version)
+        assert display is not None
+    return display
 
 
 async def save_review(

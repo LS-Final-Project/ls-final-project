@@ -42,14 +42,14 @@ async def generated(conn: AsyncConnection[Row], project_id: UUID, job_id: UUID) 
 async def load(
     conn: AsyncConnection[Row], project_id: UUID, version: int | None = None
 ) -> s.Draft | None:
-    """지정 판본(또는 최신)에 현재 재검토 표시를 합산해 읽는다. 편집·검토본 검사용이다."""
+    """지정 판본(또는 최신)에 현재 재검토 표시를 합산해 읽는다. 표시·검토본 검사용이다."""
     return await _load(conn, project_id, version, live_review=True)
 
 
 async def load_snapshot(
     conn: AsyncConnection[Row], project_id: UUID, version: int
 ) -> s.Draft | None:
-    """내보내기용 불변 판본. 현재 요구/mark를 조회하지 않고 저장된 flags만 반환한다."""
+    """편집 저장·내보내기용 불변 판본. 현재 요구/mark를 조회하지 않고 저장된 flags만 반환한다."""
     return await _load(conn, project_id, version, live_review=False)
 
 

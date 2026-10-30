@@ -443,3 +443,114 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             "SELECT completed_at,sha256 FROM tft.exports WHERE id=%s", (export_id,)
         ).fetchone()
         assert completed_at is not None and digest == hashlib.sha256(expected).hexdigest()
+
+
+@pytest.mark.parametrize("change", ["requirement", "mark"])
+def test_edit_does_not_persist_live_review_flags(client, app_dsn, chain, admin, change):
+    """일시적인 검토 표시 중 다른 문장을 편집해도 해소 후 정적 flags로 고착되지 않는다."""
+    from backend.api.tft.rfp import draft_repository as db
+
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='EVIDENCE_FOUND',unresolved='[]',next_owner_field=NULL WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    generate(app_dsn, chain, uuid4())
+    goal = first_sentence(call(client, "GET", chain).json()["data"])
+    added = call(
+        client,
+        "PATCH",
+        chain,
+        body={
+            "version": 1,
+            "edits": [
+                {
+                    "sentence_id": None,
+                    "section": "QUESTIONS_NEXT_ACTIONS",
+                    "text": "별도 검토 행동",
+                    "reason": "검토 추가",
+                    "evidence": goal["evidence"],
+                }
+            ],
+        },
+    )
+    assert added.status_code == 200, added.text
+
+    async def frozen(version):
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await db.load_snapshot(conn, chain["project"], version)
+
+    original = asyncio.run(frozen(2))
+    sentences = [row for part in original.sections for row in part.sentences]
+    tracked = next(
+        row
+        for row in sentences
+        if not row.needs_rereview
+        and not row.unconfirmed
+        and any(e.type == "requirement" for e in row.evidence)
+    )
+    other = next(row for row in sentences if row.sentence_id != tracked.sentence_id)
+    mark = uuid4()
+    with psycopg.connect(admin) as conn:
+        if change == "requirement":
+            conn.execute(
+                "UPDATE tft.requirement_versions SET needs_review=true WHERE requirement_id=%s",
+                (chain["requirement"],),
+            )
+        else:
+            proposal = uuid4()
+            conn.execute(
+                "INSERT INTO tft.change_proposals (id,project_id,requirement_id,base_requirement_version,origin,current,proposed,rationale,proposer_kind,proposer_user_id,data_origin,derivation_kind,known_at) "
+                "VALUES (%s,%s,%s,1,'web','{}','{}','후속 검토','user',%s,'synthetic','PROVIDED',now())",
+                (proposal, chain["project"], chain["requirement"], SALES),
+            )
+            conn.execute(
+                "INSERT INTO tft.rereview_marks (id,project_id,target_kind,target_id,cause_proposal_id) VALUES (%s,%s,'draft_sentence',%s,%s)",
+                (mark, chain["project"], tracked.sentence_id, proposal),
+            )
+    body = {
+        "version": 2,
+        "edits": [
+            {
+                "sentence_id": str(other.sentence_id),
+                "text": "다른 문장의 사람 수정",
+                "reason": "문구 확인",
+                "evidence": [e.model_dump() for e in other.evidence],
+            }
+        ],
+    }
+    edited = call(client, "PATCH", chain, body=body)
+    assert edited.status_code == 200, edited.text
+    displayed = {
+        row["sentence_id"]: row
+        for part in edited.json()["data"]["sections"]
+        for row in part["sentences"]
+    }
+    assert displayed[str(tracked.sentence_id)]["needs_rereview"] is True
+    assert displayed[str(tracked.sentence_id)]["unconfirmed"] is True
+    snapshot3 = asyncio.run(frozen(3))
+    stored = {row.sentence_id: row for part in snapshot3.sections for row in part.sentences}
+    assert stored[tracked.sentence_id] == tracked
+    # 엔진에서 저장한 정적 flags는 편집하지 않은 문장 모두에 보존된다.
+    for row in sentences:
+        if row.sentence_id != other.sentence_id:
+            assert stored[row.sentence_id] == row
+    with psycopg.connect(admin) as conn:
+        if change == "requirement":
+            conn.execute(
+                "UPDATE tft.requirement_versions SET needs_review=false WHERE requirement_id=%s",
+                (chain["requirement"],),
+            )
+        else:
+            conn.execute(
+                "UPDATE tft.rereview_marks SET cleared_by=%s,cleared_at=now() WHERE id=%s",
+                (SALES, mark),
+            )
+    current = call(client, "GET", chain).json()["data"]
+    displayed = {
+        row["sentence_id"]: row for part in current["sections"] for row in part["sentences"]
+    }
+    assert displayed[str(tracked.sentence_id)]["needs_rereview"] is False
+    assert displayed[str(tracked.sentence_id)]["unconfirmed"] is False
+    assert asyncio.run(frozen(2)) == original
+    assert asyncio.run(frozen(3)) == snapshot3

@@ -268,3 +268,69 @@ def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot,
         assert result["needs_review"] is False and path.read_bytes() == expected
         assert frozen.await_count == 2 and live.await_count == 0
         audit.assert_awaited_once()
+
+
+def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
+    """DB 없는 경계 검사: live 합산 flags를 편집 저장 입력으로 재사용하지 않는다."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from backend.api.tft.rfp import draft_repository as db
+
+    stored = build_draft(**snapshot)
+    row = stored.sections[0].sentences[0]
+    row.needs_rereview = row.unconfirmed = row.evidence_missing = False
+    live = stored.model_copy(deep=True)
+    live.version += 1
+    flagged = live.sections[0].sentences[0]
+    flagged.needs_rereview = flagged.unconfirmed = flagged.evidence_missing = True
+    payload = s.DraftEdit(
+        version=stored.version,
+        edits=[
+            s.SentenceEdit(
+                sentence_id=None,
+                text="별도 문장 편집",
+                reason="확인",
+                section="CUSTOMER_GOAL_SCOPE",
+                evidence=row.evidence,
+            )
+        ],
+    )
+
+    @asynccontextmanager
+    async def connect(_settings):
+        yield object()
+
+    app = create_app(Settings(_env_file=None, environment="test"))
+    with (
+        patch.object(routes_draft, "connection", connect),
+        patch.object(routes_draft, "visible", new_callable=AsyncMock),
+        patch.object(db, "lock", new_callable=AsyncMock),
+        patch.object(db, "head", new_callable=AsyncMock, return_value=stored.version),
+        patch.object(db, "load_snapshot", new_callable=AsyncMock, return_value=stored) as frozen,
+        patch.object(db, "load", new_callable=AsyncMock, return_value=live) as display,
+        patch.object(db, "save", new_callable=AsyncMock) as save,
+        patch.object(
+            drafts,
+            "valid_references",
+            new_callable=AsyncMock,
+            return_value={(e.type, e.id) for e in row.evidence},
+        ),
+        patch.object(routes_draft.commands, "audit", new_callable=AsyncMock),
+        TestClient(app) as client,
+    ):
+        result = client.patch(
+            f"/api/v1/tft/projects/{stored.project_id}/draft",
+            json=payload.model_dump(mode="json"),
+            headers=principal_header(Principal(user_id=UUID(int=1), roles={"sales"})),
+        )
+    assert result.status_code == 200, result.text
+    persisted = save.call_args.args[1].sections[0].sentences[0]
+    assert (
+        not persisted.needs_rereview
+        and not persisted.unconfirmed
+        and not persisted.evidence_missing
+    )
+    assert result.json()["data"]["sections"][0]["sentences"][0]["needs_rereview"] is True
+    frozen.assert_awaited_once()
+    display.assert_awaited_once()
