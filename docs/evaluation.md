@@ -337,7 +337,15 @@ RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3
 
 - 원문 근거 정확성 판정(KAN-189)
 - 초안 근거 추적(KAN-188)
-- RFP 후보 비교 결과 파일을 만드는 실행기(KAN-191). `eval/adoption.py`는 meta에 `documents`가 있는 결과를 RFP로 보고, 후보 행의 `rfp_*` 키 9개를 읽는다.
+
+RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다.
+
+- 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
+- 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓰며 덮어쓰지 않는다. 결과에는 원문·인용·값을 넣지 않는다.
+- 평가 문서는 `--confirm-evaluation` 없이는 모델을 부르기 전에 멈춘다. 용도가 다른 문서(평가·개발·회귀)는 한 실행에 섞지 않는다. `meta.official`은 평가 문서의 `--run-label FIRST` 실행만 참이고, `REMEASURE`와 개발·회귀 실행은 참고값이다. `meta.git_sha`는 코드 폴더에 커밋 안 한 변경이 있으면 `+dirty`가 붙는다.
+- 보완 경로 예측은 시스템이 1순위로 내미는 열린 선택지다(사람이 고르기 전 제안). 협력사 맥락(고객 제조사 목록·목록 외 허용·공급 지역·조립품 공급 여부)은 사람이 프로젝트에 입력하는 값이라 정답 파일이 준다.
+- 정답 파일(`eval.rfp_candidates.GoldFile`, 저장소 밖): `gold_version`, 문서마다 `document_number`·`sections`(평가 절)·`requirements`(`clause_no`·`attribute`·`expected_status`·`necessity`·`expected_path`·`expected_reason`)·`candidates`(후보 코드 → `grade`, REVIEW면 `unconfirmed` 항목 이름 목록 필수)·`assembly_clauses`·`context`.
+- 회귀 문서 15번은 문서 manifest `rfp-documents-20261029-v1`에 없어 아직 돌릴 수 없다. manifest에 15번(파일명·sha256·`split=regression`)을 더해야 한다.
 
 요구 추출 측정에서 채택 기록까지(KAN-143 4차). `scripts/rfp_requirements_eval.py --adoption-out`은 요구 추출 게이트 2개(`rfp_requirement_recall`·`rfp_requirement_precision`)만 `eval_adopt --task rfp` 입력 형식으로 쓴다. 값은 `eval.rfp_metrics.summarize_extraction_keys`의 (clause_no, attribute) 키 일치이며 비교 상태는 보지 않는다. 재현율 분모는 게이트 정의대로 필수(mandatory) 정답만이고, 정밀도는 예측 전체를 정답 전체와 맞춘다(meta `metric_definition`). 이 스크립트의 정답에는 상태가 없어 `summarize_requirement_extraction`에 넣을 수 없기 때문이다. 정답 attribute 어휘가 예측 어휘와 같은지는 검증하지 않았다(개발 정답은 저장소 밖, meta `vocabulary_note`). 나머지 7개는 측정하지 않아 NOT_EVALUABLE이고, 0건 blocker 2개가 미측정이라 blocker는 참이다. `report.json`의 엄격·관대 점수는 정의가 달라 채택 기록에 넣지 않는다.
 
