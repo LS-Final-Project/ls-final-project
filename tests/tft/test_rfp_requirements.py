@@ -96,6 +96,13 @@ def test_response_schema_matches_the_strict_model_without_additional_properties(
     assert ConditionSchema.model_fields.keys() == Condition.model_fields.keys()
     # Gemini는 additionalProperties를 받지 않는다.
     assert "additionalProperties" not in json.dumps(ResponseSchema.model_json_schema())
+    # Gemini 구조화 출력은 enum 둘 이상의 anyOf를 400 INVALID_ARGUMENT로 거절한다(2026-10-30 실측).
+    # 어휘 + OTHER는 enum 하나로 펼친다. null과의 anyOf(enum 하나 + null)는 받는다.
+    properties = ResponseSchema.model_json_schema()["$defs"]["RequirementSchema"]["properties"]
+    for name, schema in properties.items():
+        enums = [part for part in schema.get("anyOf", []) if "enum" in part]
+        assert len(enums) <= 1, name
+    assert "OTHER" in properties["attribute_key"]["enum"]
 
 
 def test_model_input_has_current_text_only_and_context():
@@ -551,6 +558,8 @@ def test_the_prompt_lists_the_vocabulary_without_rfp_wording():
     text = prompt(breaker_section())
     assert "rated_short_circuit_breaking_current" in text and "LV_BREAKER" in text
     assert '"OTHER"' in text and "Never compute a range" in text
+    # 계기용 변압기는 전력 변압기 계열이 아니다(검증 세트 실측 오분류, 일반 지침).
+    assert "Instrument transformers" in text
 
 
 def test_the_vocabulary_is_one_source_for_spec_facts_and_extraction():

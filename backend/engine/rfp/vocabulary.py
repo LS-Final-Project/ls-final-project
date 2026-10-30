@@ -58,5 +58,10 @@ EquipmentFamily = Literal[
 ]
 Other = Literal["OTHER"]
 OTHER: Other = "OTHER"
+# 추출 응답 스키마용 단일 Literal. Gemini 구조화 출력은 enum 둘의 anyOf(AttributeKey | Other)를 400
+# INVALID_ARGUMENT로 거절한다(2026-10-30 실측). 그래서 OTHER를 같은 enum 안에 넣는다.
+# 중첩 Literal은 하나로 펼쳐진다(PEP 586). 목록은 위 원본 그대로다.
+AttributeKeyOrOther = Literal[AttributeKey, Other]
+FamilyOrOther = Literal[EquipmentFamily, Other]
 ATTRIBUTE_KEYS: frozenset[str] = frozenset(get_args(AttributeKey))
 EQUIPMENT_FAMILIES: frozenset[str] = frozenset(get_args(EquipmentFamily))

@@ -28,9 +28,8 @@ from backend.engine.rfp.vocabulary import (
     ATTRIBUTE_KEYS,
     EQUIPMENT_FAMILIES,
     OTHER,
-    AttributeKey,
-    EquipmentFamily,
-    Other,
+    AttributeKeyOrOther,
+    FamilyOrOther,
 )
 from backend.shared.ai import Generation, Usage
 
@@ -95,11 +94,11 @@ class ExtractedRequirement(Strict):
         description="지정 모델의 제조사가 원문에 적혀 있을 때만 그 이름. 추측하지 않는다. 없으면 null.",
     )
     # v3 의미 칸. 어휘·계열은 vocabulary 단일 원본이고, 목록 밖 값은 validate_output이 OTHER로 바꾼다.
-    attribute_key: AttributeKey | Other = Field(
+    attribute_key: AttributeKeyOrOther = Field(
         default=OTHER,
         description="같은 물리량인 내부 사양 항목 하나. 확실하지 않으면 OTHER(추측하지 않는다).",
     )
-    equipment_family: EquipmentFamily | Other | None = Field(
+    equipment_family: FamilyOrOther | None = Field(
         default=None,
         description="대상 장비의 제품 계열. 모르면 OTHER, 과업·문서 요구는 null.",
     )
@@ -168,9 +167,10 @@ class RequirementSchema(_Loose):
     necessity: Necessity
     designated_model: str | None
     designated_manufacturer: str | None = None
-    # 목록은 enum으로 준다(Gemini 구조화 출력). 받은 값은 validate_output이 다시 확인한다.
-    attribute_key: AttributeKey | Other
-    equipment_family: EquipmentFamily | Other | None
+    # 목록은 enum 하나로 준다(Gemini 구조화 출력은 enum 둘의 anyOf를 거절한다). 받은 값은 validate_output이 다시
+    # 확인한다.
+    attribute_key: AttributeKeyOrOther
+    equipment_family: FamilyOrOther | None
     tolerance: str | None
     certification_listed: bool
 
@@ -280,7 +280,8 @@ Return JSON matching the schema. Rules:
   (e.g. a momentary current is not a short-time withstand current; an enclosure paint color is OTHER).
   Keep attribute as the clause wording; attribute_key is only the link.
 - equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
-  sure; null for a task or document requirement.
+  sure; null for a task or document requirement. Instrument transformers (voltage/potential or current
+  transformers) feeding meters or relays are not TRANSFORMER: use OTHER.
 - tolerance: a tolerance printed in the quote, copied exactly (e.g. "±10%", "+0/-5%"); else null. Keep value
   as the nominal value only. Never compute a range.
 - certification_listed: true only when the text requires a listing or label (e.g. "listed", "labeled",
