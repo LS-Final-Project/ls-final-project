@@ -11,7 +11,7 @@ from google.oauth2.credentials import Credentials
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
 
-from backend.agent import cs_runner, cs_worker
+from backend.agent import cs_runner, cs_search, cs_worker
 from backend.agent.cs_runner import (
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
@@ -382,3 +382,32 @@ def test_runner_and_worker_pass_the_policy_mapping_to_the_graph(monkeypatch):
     )
     cs_worker.build_runner(settings, parts, InMemorySaver())
     assert seen[-1]["policy_documents"] == mapping
+
+
+def test_worker_builds_a_vector_searcher_only_when_enabled(monkeypatch):
+    """CS_VECTOR_SEARCH_ENABLED가 없으면 벡터 검색기를 넘기지 않고, 켜면 임베딩 클라이언트로 만들어 그래프까지 넘긴다."""
+    seen = []
+    clients = []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: seen.append(kwargs))
+    monkeypatch.setattr(
+        cs_worker, "create_client", lambda settings, embedding=False: clients.append(embedding)
+    )
+    monkeypatch.setattr(cs_worker, "fts_searcher_from_dsn", lambda dsn, version: fts_searcher)
+    monkeypatch.setenv("GEMINI_API_KEY", KEY)
+    monkeypatch.delenv("CS_VECTOR_SEARCH_ENABLED", raising=False)
+    parts = WorkerParts(
+        ticket_source=SimpleNamespace(load_ticket=None, record_attempt=None),
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+        search_filters=FILTERS,
+    )
+    settings = Settings(
+        _env_file=None, environment="test", database_url=SecretStr("postgresql://x@localhost/y")
+    )
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    assert seen[-1]["vector_searcher"] is None and clients == [False]
+    monkeypatch.setenv("CS_VECTOR_SEARCH_ENABLED", "true")
+    cs_worker.build_runner(settings, parts, InMemorySaver())
+    searcher = seen[-1]["vector_searcher"]
+    assert isinstance(searcher, cs_search.VectorSearcher) and clients[1:] == [False, True]
+    assert searcher.embedding_version == "gemini-embedding-2:768:RETRIEVAL_DOCUMENT"
+    assert searcher.index_version == FILTERS.index_version

@@ -16,6 +16,10 @@ source_name 경로 조각과 정확히 같거나 파일 이름(확장자 제외)
 필터가 켜져 있으면(기본, --no-product-filter로 끔) 제품 문서로 제한한 검색을 먼저 하고, 모자라면 전역 검색으로
 채운다(중복 chunk_id 제외). 제품 문서가 없는 문의는 전역만 쓴다. --document-sha256s를 함께 주면 두 검색 모두 그
 범위 안이다. meta의 product_hits·product_top1은 최종 근거 기준이라 필터를 끈 실행과 전후를 비교할 수 있다.
+
+벡터(KAN-99/100): --vector면 cs_search.VectorSearcher(CsVectorSettings, GEMINI_API_KEY)를 FTS와 RRF로 함께 쓴다(정책 예약
+단계 제외). 벡터에는 토큰 OR이 아니라 마스킹 원문(subject·body)을 넘긴다. 질의 임베딩은 문의당 1회(실제 API 호출)이고,
+임베딩·DB 오류 단계는 FTS만 쓴 채 meta vector.failures로 센다.
 """
 
 import argparse
@@ -25,17 +29,22 @@ import os
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import psycopg
 
-from backend.agent.cs_search import fts_searcher_from_dsn
+from backend.agent.cs_search import (
+    CsVectorSettings,
+    fts_searcher_from_dsn,
+    vector_searcher_from_settings,
+)
 from backend.engine.cs.classification import build_input
 from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.graph import policy_slot
 from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
-from backend.engine.search.model import SearchFilters
+from backend.engine.search.model import Candidate, SearchFilters
 from scripts.cs_candidate_run import SplitBlocked, git_sha, load_targets, write_private
 from tests.cs.cs_dev_data import load_dev_tickets
 
@@ -177,6 +186,21 @@ def load_product_documents(path: Path) -> dict[str, str]:
     }
 
 
+def by_text(vector: Searcher, text: str, _query: str, filters: SearchFilters) -> list[Candidate]:
+    """벡터 검색기에 FTS용 토큰 OR 대신 마스킹 원문을 넘긴다(partial로 원문을 묶어 Searcher로 쓴다).
+
+    Args:
+        vector: 벡터 검색기.
+        text: 마스킹 원문.
+        _query: scoped_then_global이 넘기는 토큰 OR 질의(쓰지 않음).
+        filters: 단계 조건.
+
+    Returns:
+        list[Candidate]: 벡터 후보.
+    """
+    return vector(text, filters)
+
+
 def build_evidence(
     records: Mapping[str, Mapping[str, object]],
     searcher: Searcher,
@@ -191,6 +215,7 @@ def build_evidence(
     product_filter: bool = True,
     categories: Mapping[str, object] | None = None,
     policy_documents: Mapping[str, str] | None = None,
+    vector: Searcher | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     """문의마다 FTS로 근거 스니펫을 찾는다. 제품 문서가 주어지면 그 문서를 먼저 찾고 전역으로 채운다.
 
@@ -209,6 +234,7 @@ def build_evidence(
         categories: {ticket_id: 분류 결과 category_code}. policy_documents와 함께 있으면 graph.policy_slot과 같은
             규칙으로 그 유형의 정책 문서 1자리를 예약한다(KAN-194 10차). None이면 예약하지 않는다.
         policy_documents: 정책 문서 doc_id → sha256(load_policy_documents).
+        vector: 벡터 검색기(선택). 마스킹 원문을 질의로 받는다. 있으면 meta에 vector(embedding_version·failures)를 더한다.
 
     Returns:
         tuple: (evidence {ticket_id: [EvidenceSnippet dict]}, 집계 meta). 입력 정제 실패·토큰 없음은 빈 배열로
@@ -250,7 +276,14 @@ def build_evidence(
         reserved = policy_slot(filters, (categories or {}).get(ticket_id), policy_documents)
         reserved_tickets += reserved is not None
         items, blocked = scoped_then_global(
-            query, filters, scoped, fts=searcher, limit=limit, code_text=text, reserved=reserved
+            query,
+            filters,
+            scoped,
+            fts=searcher,
+            vector=partial(by_text, vector, text) if vector else None,
+            limit=limit,
+            code_text=text,
+            reserved=reserved,
         )
         rows = [
             EvidenceSnippet(
@@ -281,6 +314,11 @@ def build_evidence(
     }
     if categories is not None:
         meta |= {"policy_slot": True, "reserved_tickets": reserved_tickets}
+    if vector is not None:
+        meta["vector"] = {
+            "embedding_version": getattr(vector, "embedding_version", None),
+            "failures": getattr(vector, "failures", None),
+        }
     if product_documents is not None:
         meta |= {
             "product_filter": product_filter,
@@ -306,12 +344,36 @@ def default_searcher(index_version: str) -> Searcher:
     return fts_searcher_from_dsn(dsn, index_version)
 
 
-def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | None = None) -> int:
+def default_vector_searcher(index_version: str) -> Searcher:
+    """DATABASE_URL(cs_app)과 GEMINI_API_KEY로 벡터 검색기를 만든다(CsVectorSettings, 활성 여부는 --vector로 정함).
+
+    Args:
+        index_version: 검색할 청크 색인 판본.
+
+    Returns:
+        Searcher: VectorSearcher. DSN·키가 없으면 ValueError다.
+    """
+    from backend.shared.ai import AISettings, create_client
+
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        raise ValueError("CS_EVIDENCE_NO_DATABASE_URL")
+    return vector_searcher_from_settings(
+        dsn, index_version, CsVectorSettings(), create_client(AISettings(), embedding=True)
+    )
+
+
+def main(
+    argv: list[str] | None = None,
+    searcher: Callable[[str], Searcher] | None = None,
+    vector: Callable[[str], Searcher] | None = None,
+) -> int:
     """인자를 읽어 근거 파일(--out)을 쓰고 meta를 표준 출력에 낸다.
 
     Args:
         argv: 명령행 인자(테스트 주입용).
         searcher: 색인 판본을 받아 검색기를 만드는 함수(테스트 주입용). 없으면 DATABASE_URL을 쓴다.
+        vector: --vector일 때 색인 판본을 받아 벡터 검색기를 만드는 함수(테스트 주입용). 없으면 Gemini를 부른다.
 
     Returns:
         int: 0 성공, 2 test 분할 거부, 1 입력·DB·출력 오류. 오류 원문·연결 문자열은 출력하지 않는다.
@@ -342,6 +404,11 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
         "--classification",
         type=Path,
         help="분류 결과 라벨 JSON({ticket_id: {category_code}}). --index-manifest의 정책 문서로 1자리를 예약한다",
+    )
+    parser.add_argument(
+        "--vector",
+        action="store_true",
+        help="벡터 검색기도 함께 쓴다(KAN-99/100, 로컬 DB·GEMINI_API_KEY, 문의당 임베딩 1회)",
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
@@ -408,6 +475,7 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
             policy_documents=(
                 load_policy_documents(args.index_manifest) if args.classification else None
             ),
+            vector=(vector or default_vector_searcher)(args.index_version) if args.vector else None,
         )
         write_private(args.out, json.dumps(evidence, ensure_ascii=False, indent=2).encode())
         meta |= {
@@ -422,7 +490,8 @@ def main(argv: list[str] | None = None, searcher: Callable[[str], Searcher] | No
         return 2
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, psycopg.Error):
         print(
-            "CS_EVIDENCE_FAILED: manifest·대상 ID·민감값 파일과 DATABASE_URL·색인 판본을 확인하세요."
+            "CS_EVIDENCE_FAILED: manifest·대상 ID·민감값 파일과 DATABASE_URL·색인 판본"
+            "(--vector면 GEMINI_API_KEY)을 확인하세요."
         )
         return 1
     print(json.dumps(meta, ensure_ascii=False))

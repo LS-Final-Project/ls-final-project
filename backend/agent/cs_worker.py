@@ -24,7 +24,11 @@ from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.agent.cs_runner import build_cs_runner, make_checkpointer, outcome
-from backend.agent.cs_search import fts_searcher_from_dsn
+from backend.agent.cs_search import (
+    CsVectorSettings,
+    fts_searcher_from_dsn,
+    vector_searcher_from_settings,
+)
 from backend.agent.job_runtime import (
     Lease,
     LeaseLost,
@@ -108,7 +112,7 @@ def summary(graph: Any, lease: Lease) -> dict[str, Any]:
 
 
 def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheckpointSaver) -> Any:
-    """Gemini 공급자와 cs FTS 검색기로 그래프를 만든다.
+    """Gemini 공급자와 cs FTS 검색기(CS_VECTOR_SEARCH_ENABLED면 벡터 검색기도)로 그래프를 만든다.
 
     Args:
         settings: worker 설정(DSN·추적 허용).
@@ -121,13 +125,19 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
     assert settings.database_url is not None
     assert parts.allowed_info_codes is not None and parts.search_filters is not None
     ai = AISettings()
+    dsn = settings.database_url.get_secret_value()
+    index_version = parts.search_filters.index_version
+    vector = CsVectorSettings()
     return build_cs_runner(
         ai,
         client=create_client(ai),
         ticket_source=parts.ticket_source,
-        fts_searcher=fts_searcher_from_dsn(
-            settings.database_url.get_secret_value(), parts.search_filters.index_version
-        ),
+        fts_searcher=fts_searcher_from_dsn(dsn, index_version),
+        vector_searcher=vector_searcher_from_settings(
+            dsn, index_version, vector, create_client(ai, embedding=True)
+        )
+        if vector.vector_search_enabled
+        else None,
         search_filters=parts.search_filters,
         checkpointer=checkpointer,
         model=ai.gemini_model,

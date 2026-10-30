@@ -304,15 +304,23 @@ def test_code_text_keeps_exact_code_matches_with_token_queries() -> None:
     assert ids(items) == ["coded", "plain"]
 
 
-def test_scoped_stage_uses_fts_only() -> None:
-    """좁힌 단계는 벡터 검색기를 부르지 않는다(벡터는 product_family를 적용하지 않음). 전체 단계에서만 쓴다."""
-    vector_calls: list[str | None] = []
+def test_vector_is_used_in_scoped_and_global_stages_but_not_reserved() -> None:
+    """벡터 검색기는 좁힌 단계·전체 단계에서 FTS와 함께 쓰고, 정책 예약 단계에서는 부르지 않는다(KAN-99/100)."""
+    vector_calls: list[tuple[str | None, list[str] | None]] = []
 
     def vector(query: str, filters: SearchFilters) -> list[Candidate]:
-        vector_calls.append(filters.product_family)
-        return [cand("v1", "VECTOR", 1, text_excerpt="other family")]
+        vector_calls.append((filters.product_family, filters.document_kinds))
+        return [cand(f"v-{filters.product_family}", "VECTOR", 1, text_excerpt="vector hit")]
+
+    def fts(query: str, filters: SearchFilters) -> list[Candidate]:
+        if filters.document_kinds == ["POL"]:
+            return [cand("pol", "FTS", 1, text_excerpt="return policy")]
+        return [cand(f"f-{filters.product_family}", "FTS", 1, text_excerpt="fts hit")]
 
     scoped = FILTERS.model_copy(update={"product_family": "TRANSFORMER"})
-    found = fixed(cand("p1", "FTS", 1, text_excerpt="warranty"))
-    items, _ = scoped_then_global("q", FILTERS, scoped, fts=found, vector=vector, limit=2)
-    assert vector_calls == [None] and ids(items) == ["p1", "v1"]
+    policy = (FILTERS.model_copy(update={"document_kinds": ["POL"]}), 1)
+    items, _ = scoped_then_global(
+        "q", FILTERS, scoped, fts=fts, vector=vector, limit=6, reserved=policy
+    )
+    assert vector_calls == [("TRANSFORMER", None), (None, None)]
+    assert set(ids(items)) == {"f-TRANSFORMER", "v-TRANSFORMER", "pol", "f-None", "v-None"}
