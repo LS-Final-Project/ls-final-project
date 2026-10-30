@@ -25,7 +25,7 @@ from backend.engine.cs.classification import (
     build_input,
 )
 from backend.engine.cs.drafting import DraftOutput, InfoRequest, _Strict, find_forbidden_commitment
-from backend.engine.cs.prompt_registry import get_prompt
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS, get_prompt
 
 # v2(KAN-105 4차): 분류 입력 v4처럼 PHONE 상담원 표기를 지우지 않는다.
 REPLY_INPUT_VERSION = "cs-reply-input-v2"
@@ -239,10 +239,10 @@ class ReplyInterpretation(_Strict):
 
 
 _SCHEMA = json.dumps(ReplyInterpretation.model_json_schema(), ensure_ascii=False, sort_keys=True)
-REPLY_PROMPT = get_prompt("reply", "v1") + _SCHEMA
+REPLY_PROMPT = get_prompt("reply", DEFAULT_VERSIONS["reply"]) + _SCHEMA
 
 
-def instruction(prompt_version: str = "v1") -> str:
+def instruction(prompt_version: str = DEFAULT_VERSIONS["reply"]) -> str:
     """판본 지시문과 출력 스키마를 붙인 고정 지시문을 만든다.
 
     Args:
@@ -254,12 +254,14 @@ def instruction(prompt_version: str = "v1") -> str:
     return get_prompt("reply", prompt_version) + _SCHEMA
 
 
-def render_prompt(payload: ReplyInterpretationInput, *, prompt_version: str = "v1") -> str:
+def render_prompt(
+    payload: ReplyInterpretationInput, *, prompt_version: str = DEFAULT_VERSIONS["reply"]
+) -> str:
     """고정 지시문 뒤에 정제 입력 JSON을 붙인다.
 
     Args:
         payload: build_reply_input의 정제 입력.
-        prompt_version: 레지스트리 판본 키. 기본 v1은 REPLY_PROMPT와 같다.
+        prompt_version: 레지스트리 판본 키. 기본(DEFAULT_VERSIONS)은 REPLY_PROMPT와 같다.
 
     Returns:
         str: 공급자에 그대로 보낼 프롬프트.
