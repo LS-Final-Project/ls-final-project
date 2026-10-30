@@ -7,12 +7,13 @@
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
+from backend.engine.rfp.vocabulary import is_placeholder
 
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
 Verdict = Literal["passed", "failed", "unknown"]
@@ -21,6 +22,9 @@ Check = tuple[str, Verdict, str]
 # EXCLUDED를 뺀 등급의 낮은 순서. 후보 요약은 요구별 등급 중 가장 낮은 단계다.
 RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
+# 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
+MAX_ESTIMATE_SECONDS = Decimal(3)
+SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
 
@@ -292,6 +296,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     Returns:
         tuple[Verdict, str]: 결과와 판정 말.
     """
+    if is_placeholder(requirement.value):
+        return "unknown", "요구값 미정(자리표시자), 판정 제외"
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
         if " ".join((requirement.unit or "").split()) != " ".join((fact.unit or "").split()):
@@ -316,31 +322,69 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     return "unknown", "값이 달라 확인 필요"
 
 
-def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecFact, str] | None:
-    """단시간 내전류의 지속시간이 요구와 다르면 후보 값을 요구 지속시간 값으로 환산한다(KAN-199).
+class Converted(NamedTuple):
+    """지속시간을 요구 값으로 바꾼 사양 근거."""
 
-    단시간 내전류는 열 등가(I²t 일정)로 지속시간을 바꿔 견준다: I₂ = I₁·√(t₁/t₂). 후보 지속시간이 길든 짧든 같은
-    식을 쓴다. 최소 요구(GTE)에만 쓴다(다른 연산자에서는 환산 뜻이 정해지지 않는다). 환산값은 시험값이 아니므로, 환산으로 충족하면 호출자가 확정하지 않고 조건부로 둔다. 미달이면 같은
-    조건(요구 지속시간)에서 미달인 근거다.
+    fact: SpecFact
+    note: str
+    # 후보 지속시간이 요구보다 짧은지. 이때 환산값은 실제 정격보다 낮게 나오는 쪽이라 미달 근거가 되지 못한다.
+    shorter: bool
+
+
+def _at_required_duration(requirement: Requirement, facts: Sequence[SpecFact]) -> list[SpecFact]:
+    """요구 지속시간의 실측 값이 있으면 그것만 본다(같은 후보의 다른 지속시간 값으로 환산해 덮지 않는다).
+
+    Args:
+        requirement: 요구.
+        facts: 같은 속성의 후보 사양 근거.
+
+    Returns:
+        list[SpecFact]: 지속시간이 요구와 같은 근거. 없으면 전부다.
+    """
+    want = next((c for c in requirement.conditions if c.name == "duration"), None)
+    if want is None:
+        return list(facts)
+    same = [
+        f
+        for f in facts
+        if any(
+            c.name == "duration"
+            and (_number(c.value), _norm(c.unit)) == (_number(want.value), _norm(want.unit))
+            for c in f.conditions or []
+        )
+    ]
+    return same or list(facts)
+
+
+def _duration_converted(requirement: Requirement, fact: SpecFact) -> Converted | None:
+    """단시간 내전류의 지속시간이 요구와 다르면 후보 값을 요구 지속시간 값으로 추정한다(KAN-199).
+
+    I₂ = I₁·√(t₁/t₂)의 열 등가 추정이며 시험값이 아니다. 공개 근거로 확인한 것은 IEC 61439 저압 조립품(3 s까지, 정격
+    피크 이하 조건)뿐이고, 고압·IEEE 장비에는 추정으로만 쓴다. 정격 피크 값은 자료에 없어 검사하지 못하므로 호출자가
+    확인 항목으로 남긴다. 최소 요구(GTE)에만 쓴다. 호출자의 판정은 방향에 따라 다르다.
+
+    - 충족: 어느 방향이든 확정하지 않고 조건부로 둔다.
+    - 미달, 후보가 더 긴 시간 값: 미달이다(올린 값으로도 모자라다).
+    - 미달, 후보가 더 짧은 시간 값(`shorter`): 미달로 확정하지 않는다. 짧은 시간 값을 내리면 실제 정격보다 낮게 나온다.
 
     Args:
         requirement: 요구.
         fact: 같은 속성의 후보 사양 근거.
 
     Returns:
-        tuple[SpecFact, str] | None: (지속시간을 요구 값으로 바꾸고 값을 환산한 근거, 환산 설명). 단시간 내전류가
-            아니거나 GTE가 아니거나, 두 쪽 지속시간이 같거나 하나라도 없거나, 단위가 다르거나 숫자로 읽을 수 없으면 None.
+        Converted | None: 지속시간을 요구 값으로 바꾸고 값을 추정한 근거. 단시간 내전류가 아니거나 GTE가 아니거나, 두
+            쪽 지속시간이 같거나 하나라도 없거나, 초 단위가 아니거나, 하나라도 3 s를 넘거나, 숫자로 읽을 수 없으면 None.
     """
     if requirement.attribute != "short_time_withstand_current" or requirement.operator != "GTE":
         return None
     want = next((c for c in requirement.conditions if c.name == "duration"), None)
     got = next((c for c in fact.conditions or [] if c.name == "duration"), None)
-    if want is None or got is None or _norm(want.unit) != _norm(got.unit):
+    if want is None or got is None or _norm(want.unit) != "s" or _norm(got.unit) != "s":
         return None
     wanted, given, current = _number(want.value), _number(got.value), _number(fact.value)
     if wanted is None or given is None or current is None or wanted <= 0 or given <= 0:
         return None
-    if wanted == given:
+    if wanted == given or max(wanted, given) > MAX_ESTIMATE_SECONDS:
         return None
     # 판정은 반올림하지 않은 값으로 한다(경계에서 미달이 충족으로 바뀌지 않게). 사유 문구에만 0.1로 반올림한다.
     value = current * (given / wanted).sqrt()
@@ -348,10 +392,11 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> tuple[SpecF
     converted = fact.model_copy(update={"value": str(value), "conditions": conditions})
     shown = str(value.quantize(Decimal("0.1")))
     note = (
-        f"I²t 일정 환산: {_with_unit(fact.value, fact.unit)}·{_with_unit(got.value, got.unit)} → "
-        f"{_with_unit(want.value, want.unit)} {_with_unit(shown, fact.unit)}"
+        f"열 등가 추정(I²t), 시험값 아님: {_with_unit(fact.value, fact.unit)}·"
+        f"{_with_unit(got.value, got.unit)} → {_with_unit(want.value, want.unit)} "
+        f"{_with_unit(shown, fact.unit)}"
     )
-    return converted, note
+    return Converted(converted, note, given < wanted)
 
 
 def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
@@ -408,17 +453,19 @@ def _spec_check(
             f"{_head(requirement)}: 제안 모델에 같은 속성 근거가 없어 확인 필요.",
         )
     judged = []
-    for fact in facts:
+    for fact in _at_required_duration(requirement, facts):
         converted = _duration_converted(requirement, fact)
-        compared, note = converted if converted else (fact, None)
+        compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = _value_verdict(requirement, compared)
         gaps = _condition_gaps(requirement, compared)
         if verdict == "passed" and gaps:
             verdict, word = "unknown", "값은 충족하나 조건이 달라 확인 필요"
         elif verdict == "failed" and gaps:
             verdict, word = "unknown", "값이 미달이나 조건이 달라 확인 필요"
+        elif verdict == "failed" and shorter:
+            verdict, word = "unknown", SHORTER_SHORTFALL
         elif verdict == "passed" and note:
-            verdict, word = "unknown", "환산 충족(시험값 아님), 확인 필요"
+            verdict, word = "unknown", "환산 충족(시험값 아님), 정격 피크 확인 필요"
         rank = ("passed", "unknown", "failed").index(verdict)
         judged.append((rank, verdict, word, fact, gaps, note))
     _, verdict, word, fact, gaps, note = min(judged, key=lambda j: j[0])

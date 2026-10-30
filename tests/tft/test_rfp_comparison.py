@@ -596,28 +596,31 @@ def test_a_shortfall_under_a_different_condition_is_conditional_not_a_gap():
 
 
 @pytest.mark.parametrize(
-    ("current", "duration", "status", "converted"),
+    ("current", "have", "want", "need", "status", "result", "peak", "note"),
     [
-        # B-1(기획서 기대 SPEC_GAP): 25 kA·3 s → 2 s 30.6 kA < 38 kA.
-        ("25", "3", "SPEC_GAP", "30.6 kA"),
-        # 지속시간이 짧은 쪽도 같은 식: 40 kA·1 s → 28.3 kA < 38 kA.
-        ("40", "1", "SPEC_GAP", "28.3 kA"),
-        # 환산으로 충족해도 시험값이 아니라 조건부다: 60 kA·1 s → 42.4 kA.
-        ("60", "1", "CONDITIONAL", "42.4 kA"),
-        # 경계: 53.68 kA·1 s → 37.957… kA는 미달이다(문구에만 38.0으로 반올림, 판정은 반올림 전 값).
-        ("53.68", "1", "SPEC_GAP", "38.0 kA"),
+        # i2t-basis.md 표 5행. 짧은 시간 값의 추정 미달은 확정하지 않는다(실제 정격이 I²t보다 높다).
+        ("85", "1", "65", "3", "CONDITIONAL", "DIFFERS", False, "49.1 kA"),
+        ("63", "1", "40", "3", "CONDITIONAL", "DIFFERS", False, "36.4 kA"),
+        # 3 s를 넘으면 추정하지 않고 조건 차이다.
+        ("25", "1", "10", "5", "CONDITIONAL", "MEETS", False, None),
+        # 추정 충족은 조건부이고 정격 피크 확인이 남는다.
+        ("25", "3", "30", "2", "CONDITIONAL", "MEETS", True, "30.6 kA"),
+        # B-1(기획서 기대 SPEC_GAP): 긴 시간 값을 올려도 모자라면 미달이다.
+        ("25", "3", "38", "2", "SPEC_GAP", "DIFFERS", False, "30.6 kA"),
+        # 경계: 53.68 kA·1 s → 3 s 30.99… kA < 31은 짧은 시간 값이라 확정하지 않는다(문구만 반올림).
+        ("53.68", "1", "31", "3", "CONDITIONAL", "DIFFERS", False, "31.0 kA"),
     ],
 )
-def test_short_time_current_is_converted_to_the_required_duration(
-    current, duration, status, converted
+def test_short_time_current_estimates_follow_the_direction(
+    current, have, want, need, status, result, peak, note
 ):
-    """단시간 내전류의 지속시간만은 I²t 일정으로 요구 지속시간 값으로 환산해 견주고 사유에 환산값을 적는다(KAN-199)."""
+    """지속시간 추정은 3 s까지만 쓰고, 방향에 따라 판정이 다르다(열 등가 추정, 시험값 아님)."""
     fact = SpecFact(
         product_code="X-1",
         attribute="short_time_withstand_current",
         value=current,
         unit="kA",
-        conditions=[Condition(name="duration", value=duration, unit="s")],
+        conditions=[Condition(name="duration", value=have, unit="s")],
         evidence_id="DS-X",
         section="2",
     )
@@ -631,24 +634,108 @@ def test_short_time_current_is_converted_to_the_required_duration(
     )
     wanted = Requirement(
         clause_no="2.4",
-        item="단시간 내전류 38kA, 2s",
+        item="단시간 내전류",
         attribute="short_time_withstand_current",
-        value="38",
+        value=want,
         unit="kA",
         operator="GTE",
-        conditions=[Condition(name="duration", value="2", unit="s")],
+        conditions=[Condition(name="duration", value=need, unit="s")],
     )
     trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
     outcome = compare(wanted, [product], trace)
-    assert outcome.status == status
-    assert f"I²t 일정 환산: {current} kA·{duration} s → 2 s {converted}" in outcome.reason
-    # 후보 원래 값·조건은 그대로 보인다(환산값은 사유에만).
+    assert (outcome.status, outcome.candidates[0].result) == (status, result)
+    if note:
+        assert (
+            f"열 등가 추정(I²t), 시험값 아님: {current} kA·{have} s → {need} s {note}"
+            in outcome.reason
+        )
+    else:
+        assert "추정" not in outcome.reason and "duration" in outcome.unresolved[0]
+    assert ("정격 피크 확인" in outcome.unresolved) is peak
+    # 후보 원래 값·조건은 그대로 보인다(추정값은 사유에만).
     assert (outcome.candidates[0].our_value, outcome.candidates[0].our_conditions) == (
         current,
         fact.conditions,
     )
-    if status == "CONDITIONAL":
-        assert "요구 지속시간의 시험값 확인(환산 충족)" in outcome.unresolved
+
+
+def test_a_rating_at_the_required_duration_is_not_overridden_by_an_estimate():
+    """요구 지속시간의 실제 값이 미달이면 다른 시간 값의 추정으로 덮지 않는다."""
+
+    def rated(value, seconds):
+        return SpecFact(
+            product_code="X-1",
+            attribute="short_time_withstand_current",
+            value=value,
+            unit="kA",
+            conditions=[Condition(name="duration", value=seconds, unit="s")],
+            evidence_id="DS-X",
+            section="2",
+        )
+
+    product = Product(
+        product_code="X-1",
+        family="MV_EQUIP",
+        lifecycle_status="ACTIVE",
+        standards=[],
+        certifications=[],
+        spec_facts=[rated("85", "1"), rated("42", "3")],
+    )
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="short_time_withstand_current",
+        value="65",
+        unit="kA",
+        operator="GTE",
+        conditions=[Condition(name="duration", value="3", unit="s")],
+    )
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    assert compare(wanted, [product], trace).status == "SPEC_GAP"
+
+
+@pytest.mark.parametrize("kwargs", [{"task": "field testing"}, {"non_equipment": True}])
+@pytest.mark.parametrize("family", [None, "OTHER"])
+def test_task_and_document_requirements_skip_the_family_check(kwargs, family):
+    """과업·문서 요구는 계열이 없어도 '계열을 정하지 못해'로 끝나지 않고 기존 비교 경로로 간다."""
+    wanted = Requirement(clause_no="3.2", item="현장 시험", attribute="OTHER", **kwargs)
+    outcome = compare_in_family(wanted, family, load_own_products())
+    assert "계열" not in outcome.reason and "연결하지 못해" not in outcome.reason
+    assert "요구값이 원문에 없음" in outcome.reason
+
+
+def test_certifications_and_designated_models_keep_their_order_for_task_requirements():
+    """인증 요구는 과업 칸이 있어도 계열 검사를 지나고, 지정 모델은 그대로 지정품 판정이다."""
+    products = load_own_products()
+    certification = Requirement(
+        clause_no="2.1", item="등록", certification_standard="UL 1558", task="testing"
+    )
+    assert "계열" in compare_in_family(certification, None, products).reason
+    designated = Requirement(
+        clause_no="2.2", item="계전기", designated_model="X-100", non_equipment=True
+    )
+    outcome = compare_in_family(designated, None, products)
+    assert outcome.deficiency_cause == "DESIGNATED_MODEL"
+
+
+@pytest.mark.parametrize("value", ["<Insert value>", "< insert kV rating >", "TBD", "[ ]", "____"])
+def test_a_placeholder_value_is_left_out_of_the_judgement(value):
+    """미정 표시는 값이 아니다. 비교하지 않고 고객 회신을 받는 근거 부족으로 둔다."""
+    wanted = Requirement(
+        clause_no="2.4",
+        item="단시간 내전류",
+        attribute="rated_max_voltage",
+        value=value,
+        unit="kV",
+        operator="EQ",
+    )
+    outcome = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    assert (outcome.status, outcome.next_owner, outcome.candidates) == (
+        "INSUFFICIENT_EVIDENCE",
+        "CUSTOMER",
+        [],
+    )
+    assert "미정" in outcome.reason and outcome.unresolved == ["요구값 확정(고객 회신)"]
 
 
 def test_an_unlinked_attribute_is_not_compared_but_certifications_are():

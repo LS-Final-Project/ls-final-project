@@ -191,7 +191,7 @@ def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence()
         "PB-DS-07",
         "미달",
         # 지속시간이 달라 I²t 일정으로 요구 2 s 값으로 환산해 견준다(KAN-199): 25 kA·3 s → 30.6 kA < 38 kA.
-        "I²t 일정 환산: 25 kA·3 s → 2 s 30.6 kA",
+        "열 등가 추정(I²t), 시험값 아님: 25 kA·3 s → 2 s 30.6 kA",
     ):
         assert part in sentence
     # 같은 지속시간이면 환산 없이 바로 미달이다(실제 profiles.json의 P-B).
@@ -358,10 +358,11 @@ def test_unit_mismatch_and_condition_gap_stay_unknown():
             )
         ],
     )
-    # 지속시간이 짧은 후보도 같은 식으로 환산한다: 40 kA·1 s → 2 s 28.3 kA < 38 kA.
+    # 짧은 시간 값의 추정 미달은 제외 근거가 아니다(실제 정격이 더 높을 수 있다): 40 kA·1 s → 2 s 28.3 kA.
     row = grade_requirement(short, MV[3], CONTEXT, DAY)
-    assert row.mandatory_check.failed == ["short_time_withstand_current"]
-    assert "I²t 일정 환산: 40 kA·1 s → 2 s 28.3 kA" in row.exclusion_reasons[-1]
+    assert row.mandatory_check.failed == [] and row.exclusion_reasons == []
+    assert row.mandatory_check.unknown[-1] == "short_time_withstand_current"
+    assert "열 등가 추정(I²t), 시험값 아님: 40 kA·1 s → 2 s 28.3 kA" in row.reasons[-1]
     strong = profile(
         "P-X",
         [
@@ -377,6 +378,20 @@ def test_unit_mismatch_and_condition_gap_stay_unknown():
     row = grade_requirement(strong, MV[3], CONTEXT, DAY)
     assert row.mandatory_check.unknown[-1] == "short_time_withstand_current"
     assert "환산 충족(시험값 아님)" in row.reasons[-1] and "42.4 kA" in row.reasons[-1]
+    assert "정격 피크 확인" in row.reasons[-1]
+
+
+def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
+    """미정 표시는 값이 아니다. 형식(form)처럼 다르면 미달인 속성도 미확인으로 남고 제외되지 않는다."""
+    row = grade_requirement(
+        profile("P-X", [fact("form", "metal-clad")]),
+        req(9, "form", "<Insert value>"),
+        CONTEXT,
+        DAY,
+    )
+    assert row.mandatory_check.failed == [] and row.exclusion_reasons == []
+    assert row.mandatory_check.unknown[-1] == "form"
+    assert "요구값 미정" in row.reasons[-1]
 
 
 def test_range_and_form_mismatch():
