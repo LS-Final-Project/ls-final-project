@@ -34,24 +34,32 @@ async def list_projects(
     after: tuple[datetime, UUID] | None,
     managed_projects: list[UUID],
     user_id: UUID,
+    department: str | None = None,
 ) -> list[Row]:
     """Newest first, only projects the user may see (access.sees_project).
 
-    Fetches one extra row so the caller knows whether a next page exists.
+    Fetches one extra row so the caller knows whether a next page exists. `department` is the
+    dept_staff department: review_departments comes from a later migration, so only that
+    caller touches the column.
     """
-    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s)"
+    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s"
+    params: list[Any] = [managed_projects, user_id, user_id]
+    if department is not None:
+        scope += " OR %s = ANY(p.review_departments)"
+        params.append(department)
+    scope += ")"
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, user_id, limit + 1),
+            (*params, limit + 1),
         )
     else:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "AND (p.created_at, p.id) < (%s, %s) "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, user_id, *after, limit + 1),
+            (*params, *after, limit + 1),
         )
     return await cursor.fetchall()
 
@@ -61,6 +69,23 @@ async def get_project(conn: AsyncConnection[Row], project_id: UUID) -> Row | Non
         f"SELECT {DETAIL_COLUMNS} FROM tft.projects WHERE id = %s", (project_id,)
     )
     return await cursor.fetchone()
+
+
+async def review_departments(conn: AsyncConnection[Row], project_id: UUID) -> list[str]:
+    """The project's review departments (dept_staff scope, permissions.md 4.2).
+
+    Args:
+        conn: dict_row connection.
+        project_id: Project ID.
+
+    Returns:
+        list[str]: Department codes.
+    """
+    cursor = await conn.execute(
+        "SELECT review_departments FROM tft.projects WHERE id = %s", (project_id,)
+    )
+    row = await cursor.fetchone()
+    return list(row["review_departments"]) if row else []
 
 
 async def integration_state(
