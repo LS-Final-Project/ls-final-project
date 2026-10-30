@@ -81,6 +81,17 @@ class GoldDocument(Strict):
         requires_integrator=False,
     )
 
+    @model_validator(mode="after")
+    def _complete(self) -> "GoldDocument":
+        # 채점 단계에서야 걸리는 정답 오류를 읽을 때 막는다. 모델 호출(비용)과 공식 실행 기회를 쓴 뒤 실패하면
+        # 그 문서의 공식 점수를 다시 낼 수 없다(Fable 2차 리뷰 P1).
+        keys = [(r.clause_no, r.attribute) for r in self.requirements]
+        if len(keys) != len(set(keys)):
+            raise ValueError("EVAL_GOLD_DUPLICATE_REQUIREMENT")
+        if any(c.grade == "REVIEW" and c.unconfirmed is None for c in self.candidates.values()):
+            raise ValueError("EVAL_GOLD_REVIEW_UNCONFIRMED_MISSING")
+        return self
+
 
 class GoldFile(Strict):
     gold_version: str
@@ -205,6 +216,19 @@ def run_document(
         ]
     ).model_dump()
     return run
+
+
+def precheck(gold: GoldFile, numbers: Sequence[int], run_label: RunLabel) -> str | None:
+    """모델을 부르기 전에 정답만으로 채점이 끝까지 되는지 본다(예측 없는 빈 실행으로 summarize를 돌린다).
+
+    Returns:
+        str | None: 정답 쪽 문제가 있으면 EVAL_GOLD_UNSCORABLE, 없으면 None.
+    """
+    try:
+        summarize(gold, [DocumentRun(document_number=n) for n in numbers], run_label)
+    except (ValueError, KeyError):
+        return "EVAL_GOLD_UNSCORABLE"
+    return None
 
 
 def summarize(gold: GoldFile, runs: Sequence[DocumentRun], run_label: RunLabel) -> dict:
