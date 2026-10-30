@@ -17,7 +17,7 @@ from backend.api.tft.partners.grading import (
     grade_requirement,
 )
 from backend.api.tft.partners.loader import load_profiles
-from backend.api.tft.partners.schemas import PartnerProfile
+from backend.api.tft.partners.schemas import Condition, PartnerProfile
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -168,9 +168,47 @@ def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence()
         "25 kA",
         "PB-DS-07",
         "미달",
-        "duration 요구 2 s, 후보 3 s",
+        # 지속시간이 달라 I²t 일정으로 요구 2 s 값으로 환산해 견준다(KAN-199): 25 kA·3 s → 30.6 kA < 38 kA.
+        "I²t 일정 환산: 25 kA·3 s → 2 s 30.6 kA",
     ):
         assert part in sentence
+    # 같은 지속시간이면 환산 없이 바로 미달이다(실제 profiles.json의 P-B).
+    same = fact(
+        "short_time_withstand_current",
+        "25",
+        "kA",
+        evidence_id="PB-DS-07",
+        conditions=[{"name": "duration", "value": "2", "unit": "s"}],
+    )
+    _, grades = grade_candidate(profile("P-B", [*facts, same], [cert("UL 347")]), MV, CONTEXT, DAY)
+    [direct] = by_id(grades)[4].exclusion_reasons
+    assert "미달" in direct and "환산" not in direct
+
+
+def test_a_shortfall_under_another_condition_is_unknown_not_excluded():
+    """KAN-199: 지속시간 외 조건이 다르면 미달이어도 제외하지 않고 확인 필요로 둔다(조건이 같을 때만 미달)."""
+    facts = [f for f in MV_FACTS if f["attribute"] != "short_time_withstand_current"]
+    other = fact(
+        "short_time_withstand_current",
+        "25",
+        "kA",
+        conditions=[
+            {"name": "duration", "value": "2", "unit": "s"},
+            {"name": "frequency", "value": "50", "unit": "Hz"},
+        ],
+    )
+    wanted = MV[3].model_copy(
+        update={
+            "conditions": [
+                *MV[3].conditions,
+                Condition(name="frequency", value="60", unit="Hz"),
+            ]
+        }
+    )
+    row = grade_requirement(profile("P-B", [*facts, other], [cert("UL 347")]), wanted, CONTEXT, DAY)
+    assert row.grade == "REVIEW" and not row.exclusion_reasons
+    assert "short_time_withstand_current" in row.mandatory_check.unknown
+    assert "값이 미달이나 조건이 달라 확인 필요" in row.reasons[-1]
 
 
 def test_p_c_without_datasheet_or_test_evidence_is_reference_only():
@@ -298,9 +336,25 @@ def test_unit_mismatch_and_condition_gap_stay_unknown():
             )
         ],
     )
+    # 지속시간이 짧은 후보도 같은 식으로 환산한다: 40 kA·1 s → 2 s 28.3 kA < 38 kA.
     row = grade_requirement(short, MV[3], CONTEXT, DAY)
+    assert row.mandatory_check.failed == ["short_time_withstand_current"]
+    assert "I²t 일정 환산: 40 kA·1 s → 2 s 28.3 kA" in row.exclusion_reasons[-1]
+    strong = profile(
+        "P-X",
+        [
+            fact(
+                "short_time_withstand_current",
+                "60",
+                "kA",
+                conditions=[{"name": "duration", "value": "1", "unit": "s"}],
+            )
+        ],
+    )
+    # 환산으로 충족(60 kA·1 s → 42.4 kA)이어도 시험값이 아니라 확정하지 않는다.
+    row = grade_requirement(strong, MV[3], CONTEXT, DAY)
     assert row.mandatory_check.unknown[-1] == "short_time_withstand_current"
-    assert "duration 요구 2 s, 후보 1 s" in row.reasons[-1]
+    assert "환산 충족(시험값 아님)" in row.reasons[-1] and "42.4 kA" in row.reasons[-1]
 
 
 def test_range_and_form_mismatch():

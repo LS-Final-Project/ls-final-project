@@ -28,7 +28,6 @@ from backend.agent.tft_worker import TftWorkerSettings
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import comparison, repository, supplement
-from backend.api.tft.rfp.attributes import canonical
 from backend.api.tft.rfp.jobs import input_version
 from backend.api.tft.rfp.storage import read_document
 from backend.engine.documents.router import extract
@@ -39,6 +38,7 @@ from backend.engine.rfp.requirements import (
     build_inputs,
     extract_section,
 )
+from backend.engine.rfp.vocabulary import OTHER
 from backend.shared.ai import TRANSIENT_BACKOFF_SECONDS, AISettings, Generation, Usage
 from backend.shared.settings import Settings
 
@@ -210,9 +210,9 @@ def sections_of(tree: ClauseTree) -> list[str]:
 def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
-    기본값(2026-10-30, KAN-186 확인 요청 중): COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은
-    attribute를 자사 사양 어휘로 맞춘 값(attributes.canonical, 확실하지 않으면 원문), 제품 계열은 정하지 않는다
-    (search 단계가 자사 제품 전체와 비교). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
+    COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은 추출의 attribute_key(자사 사양
+    어휘, 연결하지 못했으면 OTHER → 비교하지 않음)다. 제품 계열은 equipment_family로 compare_in_family가 고른다
+    (KAN-199). 저장하는 요구 판본의 attribute는 추출 원문 그대로다.
 
     Args:
         item: 추출 요구.
@@ -224,7 +224,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
     return comparison.Requirement(
         clause_no=item.clause_no,
         item=item.equipment or item.task or item.attribute,
-        attribute=None if certification else canonical(item.attribute),
+        attribute=None if certification else item.attribute_key,
         value=item.value,
         unit=item.unit,
         operator=item.operator,
@@ -240,6 +240,9 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
 def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requirement | None:
     """추출 요구 → 협력사 등급 입력. 장비·값이 없는 요구는 등급을 매길 수 없어 None이다.
 
+    COMPLIANCE는 자사 비교(to_comparison)와 같은 규칙으로 인증 요구다: attribute='certification', 규격은 value
+    우선(없으면 attribute). 그래야 협력사 등급도 certifications 배열로 판정한다(KAN-199).
+
     Args:
         requirement_id: 저장한 요구 ID.
         item: 추출 요구.
@@ -247,14 +250,21 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
     Returns:
         grading.Requirement | None: 등급 입력.
     """
-    if item.equipment is None or item.value is None:
+    certification = item.kind == "COMPLIANCE"
+    value = (item.value or item.attribute) if certification else item.value
+    # 속성을 사양 항목에 연결하지 못한 요구(OTHER)는 같은 속성 근거를 찾을 수 없어 등급을 매기지 않는다.
+    if (
+        item.equipment is None
+        or value is None
+        or (not certification and item.attribute_key == OTHER)
+    ):
         return None
     return grading.Requirement(
         requirement_id=requirement_id,
         equipment=item.equipment,
         task=item.task,
-        attribute=canonical(item.attribute),
-        value=item.value,
+        attribute="certification" if certification else item.attribute_key,
+        value=value,
         unit=item.unit,
         operator=item.operator,
         conditions=[Condition.model_validate(c.model_dump()) for c in item.conditions],
@@ -396,13 +406,14 @@ async def process(
         if not called:
             emit({"step": "extract", "counts": counts(total)})
 
-        # search: 검색기 연결 전에는 자사 제품 전체가 범위다(범위는 trace에 남는다).
-        trace = comparison.SearchTrace(
-            filters=["own_products=all"], documents_searched=0, search_failed=False
-        )
+        # search: 문서 검색기 연결 전에는 요구마다 제품 마스터의 같은 계열 후보가 범위다(compare_in_family, trace에 남음).
         emit({"step": "search", "counts": counts(total)})
 
-        outcomes = [comparison.compare(to_comparison(r), products, trace) for _, _, r in extracted]
+        # 요구 장비 계열의 자사 후보 안에서만 비교한다(KAN-199). 계열을 모르면 비교하지 않는다.
+        outcomes = [
+            comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
+            for _, _, r in extracted
+        ]
         profiles = [
             PartnerProfile.model_validate({**row, "known_at": row["known_at"].date()})
             for row in await repository.partner_profiles(conn)
@@ -522,7 +533,7 @@ async def store_requirements(
                 requirement_id,
                 candidate.model_dump(mode="json"),
                 # 인증 요구는 속성이 아니라 규격으로 비교한다(to_comparison과 같은 기준).
-                matched_attribute=None if item.kind == "COMPLIANCE" else canonical(item.attribute),
+                matched_attribute=None if item.kind == "COMPLIANCE" else item.attribute_key,
                 search_trace=outcome.search_trace.model_dump(),
                 data_origin=document["data_origin"],
             )
