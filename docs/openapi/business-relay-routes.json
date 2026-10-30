@@ -558,41 +558,6 @@
         "POST"
       ],
       "query": []
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison",
-      "methods": [
-        "GET",
-        "POST"
-      ],
-      "query": [
-        "version"
-      ]
-    },
-    {
-      "path": "/api/v1/cs/condition-comparisons",
-      "methods": [
-        "GET"
-      ],
-      "query": [
-        "product_code",
-        "fault_id",
-        "version"
-      ]
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements",
-      "methods": [
-        "POST"
-      ],
-      "query": []
-    },
-    {
-      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove",
-      "methods": [
-        "POST"
-      ],
-      "query": []
     }
   ],
   "cases": [
