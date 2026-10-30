@@ -7,6 +7,15 @@ GCS 읽기는 업로드 경로(6, KAN-188)를 구현할 때 같은 함수 뒤에
 import hashlib
 from pathlib import Path
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class DocumentStorageSettings(BaseSettings):
+    """원문 폴더. 처리 함수와 같은 `TFT_DOCUMENT_ROOT`다. 없으면 원문을 내려받을 수 없다."""
+
+    model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
+    document_root: Path | None = None
+
 
 def read_document(root: Path, storage_key: str, sha256: str, size: int) -> bytes:
     """저장 키의 원문을 읽고 해시·크기를 확인한다.

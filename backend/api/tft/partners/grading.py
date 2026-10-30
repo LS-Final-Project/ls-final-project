@@ -5,7 +5,7 @@
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Literal, NamedTuple
@@ -150,6 +150,23 @@ def grade_requirement(
     )
 
 
+def overall_grade(grades: Iterable[Grade]) -> Grade:
+    """요구별 등급을 후보 등급으로 모은다(처리 시 요약과 저장 행 읽기가 같은 규칙을 쓴다).
+
+    Args:
+        grades: 채점한 요구별 등급.
+
+    Returns:
+        Grade: 하나라도 EXCLUDED면 EXCLUDED, 아니면 가장 낮은 단계, 없으면 REVIEW.
+    """
+    found = set(grades)
+    if not found:
+        return "REVIEW"
+    if "EXCLUDED" in found:
+        return "EXCLUDED"
+    return min(found, key=RANK.index)
+
+
 def grade_candidate(
     profile: PartnerProfile,
     requirements: Sequence[Requirement],
@@ -186,19 +203,12 @@ def grade_candidate(
     graded = [r for r in requirements if not r.designated_model]
     grades = [grade_requirement(profile, r, context, reference_date) for r in graded]
     on_list, conditions = _manufacturer(profile, context)
-    found = {g.grade for g in grades}
-    overall: Grade
     if not grades:
-        overall = "REVIEW"
         conditions = [*conditions, "모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음."]
-    elif "EXCLUDED" in found:
-        overall = "EXCLUDED"
-    else:
-        overall = min(found, key=RANK.index)  # type: ignore[arg-type]
     summary = CandidateSummary(
         candidate_code=profile.candidate_code,
         on_customer_manufacturer_list=on_list,
-        overall_grade=overall,
+        overall_grade=overall_grade(g.grade for g in grades),
         conditions_to_confirm=conditions,
         designated_requirements=designated,
     )

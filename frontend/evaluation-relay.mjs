@@ -7,6 +7,15 @@ const evaluations = '/api/v1/platform/evaluations';
 const readLists = new Set([`${evaluations}/policy`, `${evaluations}/experiments`, `${evaluations}/runs`]);
 
 /**
+ * 작업 상태·SSE 경로만 식별한다. RFP·C/S 처리 접수의 status_url이 가리키는 곳이고, 접근은 플랫폼이 owner별로 검사한다.
+ * Args: path는 디코딩된 URL 경로다.
+ * Returns: 작업 상태·SSE 경로일 때만 true.
+ */
+export function jobStatusPath(path) {
+  return jobPath.test(path);
+}
+
+/**
  * 평가 작업의 고정 읽기 경로만 식별한다.
  * Args: path는 디코딩된 URL 경로, method는 요청 메서드다.
  * Returns: 상태·SSE·실행 집계·사례별 시도와 정책·목록 GET일 때만 true.

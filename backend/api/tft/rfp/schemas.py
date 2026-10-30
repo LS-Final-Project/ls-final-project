@@ -365,6 +365,8 @@ class RequirementSpec(Model):
     attribute: str | None
     value: str | None
     unit: str | None
+    # 원문 허용 오차 표기 그대로. null은 '없음'이 아니라 없거나 T15 전 판본(모름)이다.
+    tolerance: str | None = None
     operator: Operator
     conditions: list[Condition]
     standard_system: StandardSystem
@@ -411,6 +413,8 @@ class RequirementSummary(Model):
     path: SupplementPath | None
     open_questions: int
     needs_rereview: bool
+    # 시스템 표시(추출 허용 오차 불일치·목록 밖 키 등). 요구 내용이 아니라 사람이 볼 요구를 가리킨다.
+    needs_review: bool = False
     version: int
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
@@ -429,6 +433,7 @@ class RequirementDetail(Provenance):
     judgement: Judgement
     links: RequirementLinks
     needs_rereview: bool
+    needs_review: bool = False
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
