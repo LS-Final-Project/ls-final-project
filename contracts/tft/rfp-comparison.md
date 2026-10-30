@@ -41,7 +41,7 @@
 - **R&D 확인 흐름**(`backend/api/tft/rfp/rnd.py`, 명세 v1.3 §5.2·§5.3). 저장·HTTP 연결은 A07(KAN-188)·A08(KAN-189)이 이 함수를 부른다.
   - `rnd_check_of(R&D 질문들, 면제 시각)`: 질문이 없으면 `NOT_REQUIRED`, 열린 질문이 있으면 `PENDING`. 마지막 답이 `FEASIBLE`이면 `CONFIRMED_FEASIBLE`, `NOT_FEASIBLE`이면 `CONFIRMED_NOT_FEASIBLE`, `FEASIBLE_WITH_SCHEDULE`이면 `schedule_fits`가 참이면 `CONFIRMED_FEASIBLE`·거짓이면 `CONFIRMED_SCHEDULE_MISMATCH`이고, 그 밖(`UNDETERMINED`, 일정 미기재)은 `PENDING` 유지다. 면제 뒤 새 질문이 없으면 `WAIVED`다. 기준 질문 ID(`rnd_question_id`)를 함께 돌려준다.
   - `rnd_question_for`: `OWN_DEVELOPMENT`를 고르면 검토 부서 중 분류 `RND`인 첫 부서에 내부 질문(`target=INTERNAL`, `issue_type=RND_FEASIBILITY`, 본문은 요구 요약)을 만든다. 호출자는 `next_owner_field=RND`, `rnd_check=PENDING`으로 두고 요구 상태는 바꾸지 않는다. R&D 부서가 없으면 422 `VALIDATION_ERROR`("검토 부서에 R&D 부서를 추가하세요").
-  - `check_selection`: 막혔거나 선택지에 없는 경로는 409 `TFT_INVALID_TRANSITION`. 게이트가 있는 협력사 경로를 `rnd_check=PENDING`에서 고르면 면제 사유(20자 이상)가 필요하고, 없으면 422 `TFT_RND_CHECK_REQUIRED`(details에 열린 질문 ID)다. 사유가 있으면 선택 판본에 `WAIVED`가 남는다(초안 ASSUMPTIONS 문장은 KAN-188).
+  - `check_selection`: 막혔거나 선택지에 없는 경로는 409 `TFT_INVALID_TRANSITION`. 게이트가 있는 협력사 경로를 `rnd_check=PENDING`에서 고르면 면제 사유(20자 이상)가 필요하고, 없으면 422 `TFT_RND_CHECK_REQUIRED`(details에 `{field: rnd_question_id, reason: 열린 질문 ID}`, ID를 모르면 빈 목록)다. 사유가 있으면 선택 판본에 `WAIVED`가 남는다(초안 ASSUMPTIONS 문장은 KAN-188).
   - `check_reply_fields`: `rnd_feasibility`·`earliest_available_on`·`schedule_fits`는 분류 `RND` 부서 대상 내부 질문에만 받는다(아니면 422 `TFT_QUESTION_FIELD_NOT_ALLOWED`). 일정 칸만 있고 개발 가능성이 없으면 422 `VALIDATION_ERROR`.
   - 부서 분류는 `tft.department_kinds`이고 매핑이 없는 부서는 `TECH`다. 시드는 시연 계정 부서(`SALES_OPS` 영업, `RND_FW` R&D, `TS_TRF`·`TS_MV`·`TS_LV`·`CERT` 기술, `SCM` 구매)뿐이다.
 - `OWN_TERMS_REVIEW`는 명세 v1.3에 없고 추가를 요청 중이다(KAN-186 댓글, 제안 순위 1).
