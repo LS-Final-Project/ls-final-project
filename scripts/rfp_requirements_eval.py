@@ -182,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         all_gold += section_gold
         usage = result.usage
         print(
-            f"{item.section_no}: {result.outcome} 채택 {len(result.requirements)} 버림 {len(result.rejected)}"
+            f"{item.section_no}: {result.outcome} 부분 {result.parts}(실패 {result.parts_failed})"
+            f" 채택 {len(result.requirements)} 버림 {len(result.rejected)}"
             f" 값만 비움 {result.value_dropped} 지정품 비움 {result.designated_dropped}"
             f" | 요구 문장 포괄 1차 {result.covered_first}/{result.sentences}"
             f" 보완 후 {result.covered_final}/{result.sentences} (보완 +{result.gap_fill_added})"
@@ -193,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         report["sections"][item.section_no] = {  # type: ignore[index]
             "outcome": result.outcome,
+            "parts": {"count": result.parts, "failed": result.parts_failed},
             "coverage": {
                 "sentences": result.sentences,
                 "first": result.covered_first,

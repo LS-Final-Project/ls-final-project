@@ -16,6 +16,8 @@ from backend.engine.rfp.requirements import (
     designated_item,
     extract_section,
     prompt,
+    requirement_sentences,
+    split_input,
     validate_output,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score
@@ -361,3 +363,50 @@ def test_the_section_result_counts_cleared_designations():
     )
     result = extract_section(six, lambda _text: output)
     assert result.designated_dropped == 1 and result.requirements[0].designated_model is None
+
+
+def long_tree():
+    """첫 단계 조항 셋(A·B·C)이 각각 긴 합성 절."""
+    filler = "The relay shall report status. " * 40
+    blocks = [p("PART 2 - PRODUCTS"), p("2.6 SWITCHGEAR")]
+    for letter in "ABC":
+        blocks += [p(f"{letter}. Group {letter}:"), p(f"1. {filler}"), p(f"2. {filler}")]
+    return build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+
+
+def test_a_long_section_is_split_by_first_level_groups_and_merged():
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    # 묶음 하나가 약 2.5천 자라 기본 상한(4000자)에서 묶음마다 한 부분이 된다.
+    pieces = split_input(item)
+    # 묶음(2.6.A와 그 하위)은 쪼개지 않고 순서를 지킨다.
+    assert [[c.clause_no for c in piece.clauses] for piece in pieces] == [
+        ["2.6.A", "2.6.A.1", "2.6.A.2"],
+        ["2.6.B", "2.6.B.1", "2.6.B.2"],
+        ["2.6.C", "2.6.C.1", "2.6.C.2"],
+    ]
+    assert split_input(section()) == [section()]
+    calls = []
+
+    def provider(text):
+        calls.append(text)
+        if "2.6.B.1" in text:
+            raise TimeoutError("provider timeout")
+        letter = "A" if "2.6.A.1" in text else "C"
+        return gen(
+            [
+                req(f"2.6.{letter}.{n}", "The relay shall report status", "status", operator="TEXT")
+                for n in (1, 2)
+            ]
+        )
+
+    result = extract_section(item, provider)
+    # 실패한 부분이 있으면 VALID가 아니지만, 성공한 부분의 요구는 남는다.
+    assert (result.outcome, result.parts, result.parts_failed) == ("TRANSPORT_FAILURE", 3, 1)
+    assert [r.clause_no for r in result.requirements] == [
+        "2.6.A.1",
+        "2.6.A.2",
+        "2.6.C.1",
+        "2.6.C.2",
+    ]
+    assert result.sentences == len(requirement_sentences(item))
+    assert result.usage.input_tokens == 20 and len(calls) == 3

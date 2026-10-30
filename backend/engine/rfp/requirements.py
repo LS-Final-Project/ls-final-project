@@ -34,6 +34,10 @@ Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
 Kind = Literal["SPEC", "TASK", "DOCUMENT", "COMPLIANCE", "DESIGNATED_PRODUCT"]
 RejectReason = Literal["UNKNOWN_CLAUSE", "QUOTE_NOT_IN_CLAUSE", "VALUE_NOT_IN_QUOTE"]
 MAX_SECTION_CHARS = 12000
+# 한 번에 부를 절 본문 상한(글자). Gemini는 추론 토큰도 출력 상한에 들어가, 14번 2.5(3972자)가 이미 답 5345 + 추론
+# 6609토큰을 썼고 2.6(7560자)은 상한 16384를 넘어 응답이 잘렸다. 이보다 긴 절은 첫 단계 조항 묶음으로 나눠 부른다.
+# v1 측정 절(2.4 2510자·2.5 3972자)은 이 아래라 나뉘지 않는다.
+PART_CHARS = 4000
 
 
 class Strict(BaseModel):
@@ -159,6 +163,9 @@ class SectionResult:
     covered_first: int = 0
     covered_final: int = 0
     gap_fill_added: int = 0
+    # 나눠 부른 부분 수와 그중 실패한 부분 수(나누지 않았으면 1·0).
+    parts: int = 1
+    parts_failed: int = 0
     usage: Usage = field(default_factory=Usage)
     model_version: str | None = None
     raw_response: str | None = field(default=None, repr=False)
@@ -376,8 +383,78 @@ def _call(
     return response, *validate_output(response.text, check)
 
 
+def split_input(item: ExtractionInput, limit: int = PART_CHARS) -> list[ExtractionInput]:
+    """긴 절을 첫 단계 조항(2.6.A, 2.6.B …) 묶음 단위로 순서대로 나눈다. 묶음 하나는 쪼개지 않는다.
+
+    Args:
+        item: 절 입력.
+        limit: 부분 하나의 본문 상한(글자). 묶음 하나가 상한보다 길면 그 묶음만 한 부분이 된다.
+
+    Returns:
+        list[ExtractionInput]: 부분 입력. 절이 상한 안이면 [item] 그대로다.
+    """
+    if sum(len(_clause_text(c)) for c in item.clauses) <= limit:
+        return [item]
+    depth = item.section_no.count(".") + 2
+    groups: list[list[ClauseInput]] = []
+    for clause in item.clauses:
+        key = ".".join(clause.clause_no.split(".")[:depth])
+        if groups and ".".join(groups[-1][0].clause_no.split(".")[:depth]) == key:
+            groups[-1].append(clause)
+        else:
+            groups.append([clause])
+    parts: list[list[ClauseInput]] = [[]]
+    for group in groups:
+        size = sum(len(_clause_text(c)) for c in parts[-1] + group)
+        if parts[-1] and size > limit:
+            parts.append([])
+        parts[-1].extend(group)
+    return [item.model_copy(update={"clauses": clauses}) for clauses in parts]
+
+
 def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]) -> SectionResult:
-    """절 하나를 부르고, 빠진 요구 문장이 있으면 그 문장만 한 번 더 부른다. 그 밖의 재시도는 없다.
+    """절 하나를 뽑는다. 긴 절은 `split_input`으로 나눠 부르고 결과를 합친다.
+
+    Args:
+        item: 절 입력.
+        provider: 지시문을 받아 공통 Generation을 돌려주는 호출.
+
+    Returns:
+        SectionResult: 모든 부분이 VALID일 때만 VALID다. 실패한 부분이 있으면 그 결과 코드이고, 요구는 성공한
+            부분 것만 담기며 parts_failed로 드러난다(성공한 부분을 버리지 않는다). 나눴으면 raw_response는 없다.
+    """
+    pieces = split_input(item)
+    if len(pieces) == 1:
+        return _extract_part(item, provider)
+    results = [_extract_part(piece, provider) for piece in pieces]
+    failed = [r for r in results if r.outcome != "VALID"]
+    # 실패한 부분은 공급자 응답이 없어 사용량을 알 수 없으므로 합계에서 빠진다.
+    usage = Usage(0, 0, 0, 0, 0)
+    for r in results:
+        if r.outcome == "VALID":
+            usage = _sum_usage(usage, r.usage)
+    valid = [r for r in results if r.outcome == "VALID"]
+    return SectionResult(
+        section_no=item.section_no,
+        outcome=failed[0].outcome if failed else "VALID",
+        requirements=[req for r in valid for req in r.requirements],
+        rejected=[rej for r in valid for rej in r.rejected],
+        value_dropped=sum(r.value_dropped for r in valid),
+        designated_dropped=sum(r.designated_dropped for r in valid),
+        # 분모는 실패한 부분 문장까지 센다(부분이 절을 나눠 가지므로 절 전체 문장 수와 같다).
+        sentences=len(requirement_sentences(item)),
+        covered_first=sum(r.covered_first for r in valid),
+        covered_final=sum(r.covered_final for r in valid),
+        gap_fill_added=sum(r.gap_fill_added for r in valid),
+        parts=len(results),
+        parts_failed=len(failed),
+        usage=usage if valid else Usage(),
+        model_version=valid[0].model_version if valid else None,
+    )
+
+
+def _extract_part(item: ExtractionInput, provider: Callable[[str], Generation]) -> SectionResult:
+    """절(또는 그 부분) 하나를 부르고, 빠진 요구 문장이 있으면 그 문장만 한 번 더 부른다. 그 밖의 재시도는 없다.
 
     Args:
         item: 절 입력.
