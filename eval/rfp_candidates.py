@@ -17,7 +17,7 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import PartnerProfile
@@ -89,6 +89,14 @@ class GoldDocument(Strict):
 class GoldFile(Strict):
     gold_version: str
     documents: list[GoldDocument]
+
+    @model_validator(mode="after")
+    def _unique_documents(self) -> "GoldFile":
+        # 번호가 겹치면 뒤 항목이 앞 항목을 조용히 덮어 점수가 바뀐다(#318 리뷰 P3).
+        numbers = [d.document_number for d in self.documents]
+        if len(numbers) != len(set(numbers)):
+            raise ValueError("EVAL_GOLD_DUPLICATE_DOCUMENT")
+        return self
 
 
 @dataclass

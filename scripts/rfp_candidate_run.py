@@ -12,6 +12,7 @@
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import subprocess
@@ -72,6 +73,81 @@ def check_inputs(
     return None
 
 
+def claim_official(
+    ledger: Path, manifest_version: str, numbers: list[int], started_at: str, sha: str
+) -> str | None:
+    """평가 문서 공식(FIRST) 실행 자리를 모델 호출 전에 차지한다. 같은 manifest·문서로 기록이 있으면 거부한다.
+
+    기록은 저장소 밖 JSON Lines 파일이고 줄마다 {"event": STARTED|COMPLETED, ...}다. 확인과 추가를 파일 잠금 안에서
+    한 번에 해 두 실행이 동시에 차지하지 못한다. 도중에 실패한 첫 실행도 STARTED로 남으므로, 그 뒤 실행은
+    REMEASURE(참고값)다(기획서 3.2: 첫 실행이 공식 점수).
+
+    Args:
+        ledger: 공식 실행 기록 파일.
+        manifest_version: 문서 manifest 판본.
+        numbers: 실행할 문서 번호.
+        started_at: 실행 시작 시각.
+        sha: 실행한 코드 판본.
+
+    Returns:
+        str | None: 이미 기록이 있으면 EVAL_OFFICIAL_ALREADY_RECORDED, 읽을 수 없는 줄이 있으면
+            EVAL_OFFICIAL_LEDGER_CORRUPT, 차지했으면 None. 빈 줄은 건너뛴다.
+    """
+    with ledger.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.seek(0)
+        for line in handle.read().splitlines():
+            if not line.strip():
+                continue
+            # 공식 판정의 기준 파일이라, 손으로 고치다 깨진 줄은 건너뛰지 않고 멈춘다(#322 리뷰 P3).
+            try:
+                entry = json.loads(line)
+                recorded = entry["manifest_version"], set(entry["document_numbers"])
+            except (ValueError, KeyError, TypeError):
+                return "EVAL_OFFICIAL_LEDGER_CORRUPT"
+            if recorded[0] == manifest_version and recorded[1] & set(numbers):
+                return "EVAL_OFFICIAL_ALREADY_RECORDED"
+        record = {
+            "event": "STARTED",
+            "manifest_version": manifest_version,
+            "document_numbers": numbers,
+            "started_at": started_at,
+            "git_sha": sha,
+        }
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return None
+
+
+def complete_official(ledger: Path, claim: dict, result_sha256: str) -> None:
+    """공식 실행 결과 파일의 sha256을 기록에 더한다(Jira에 같은 해시를 남겨 공식 결과를 가리킨다)."""
+    with ledger.open("a", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        record = {**claim, "event": "COMPLETED", "result_sha256": result_sha256}
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def write_new(out: Path, text: str) -> Path:
+    """결과를 새 파일로만 쓴다. 실행 중에 같은 경로가 생겼으면 덮어쓰지 않고 옆 파일에 남긴다(유료 호출 결과 보존).
+
+    Args:
+        out: 결과 파일 경로.
+        text: 결과 JSON.
+
+    Returns:
+        Path: 실제로 쓴 경로. out이 아니면 경로 충돌이 있었던 것이다.
+    """
+    try:
+        with out.open("x", encoding="utf-8") as handle:
+            handle.write(text)
+        return out
+    except FileExistsError:
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+        other = out.with_name(f"{out.stem}.{stamp}{out.suffix}")
+        with other.open("x", encoding="utf-8") as handle:
+            handle.write(text)
+        return other
+
+
 def read_verified(directory: Path, entry: dict) -> bytes:
     """manifest 해시와 같은 원문만 돌려준다. 다르면 EVAL_DOCUMENT_HASH_MISMATCH ValueError다."""
     data = (directory / entry["filename"]).read_bytes()
@@ -127,6 +203,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="저장소 밖 결과 JSON")
     parser.add_argument("--run-label", choices=["FIRST", "REMEASURE"], required=True)
     parser.add_argument("--confirm-evaluation", action="store_true")
+    parser.add_argument(
+        "--official-ledger",
+        type=Path,
+        help="저장소 밖 공식 실행 기록(JSON Lines). 평가 문서 FIRST 실행에 필수",
+    )
     parser.add_argument("--provider", choices=["gemini", "fake"], default="gemini")
     parser.add_argument("--candidate-name", help="결과 후보 이름(기본 rfp-<모델>)")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
@@ -139,10 +220,23 @@ def main(argv: list[str] | None = None) -> int:
     problem = check_inputs(
         manifest, args.documents, gold, args.out, confirm_evaluation=args.confirm_evaluation
     )
+    entries = {d["document_number"]: d for d in manifest["documents"]}
+    official = (
+        not problem
+        and args.run_label == "FIRST"
+        and entries[args.documents[0]]["split"] == "evaluation"
+    )
+    if official:
+        ledger = args.official_ledger
+        if ledger is None:
+            problem = "EVAL_OFFICIAL_LEDGER_REQUIRED"
+        elif ROOT == ledger.resolve() or ROOT in ledger.resolve().parents:
+            problem = "EVAL_OFFICIAL_LEDGER_INSIDE_REPOSITORY"
+        elif not ledger.parent.is_dir():
+            problem = "EVAL_OFFICIAL_LEDGER_DIR_MISSING"
     if problem:
         print(f"{problem}: 모델을 부르지 않았다.", file=sys.stderr)
         return 1
-    entries = {d["document_number"]: d for d in manifest["documents"]}
     # 원문 해시를 모델 호출 전에 모두 확인한다.
     trees = {
         n: build_clause_tree(
@@ -150,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         for n in args.documents
     }
+    sha = git_sha()
+    # 모델 설정·자사 제품·협력사 프로필을 먼저 다 읽는다. 여기서 실패하면 공식 자리를 쓰지 않는다(#322 리뷰 P2).
     provider: Callable[[str], Generation]
     if args.provider == "fake":
         model, provider = "fake", fake_provider
@@ -158,6 +254,26 @@ def main(argv: list[str] | None = None) -> int:
     products, profiles = load_own_products(), load_profiles()
     by_number = {d.document_number: d for d in gold.documents}
     today = args.today or date.today()
+    claim: dict | None = None
+    if official:
+        # 준비가 끝난 뒤, 첫 모델 호출 직전에 공식 자리를 차지한다.
+        refused = claim_official(
+            args.official_ledger, manifest["manifest_version"], args.documents, started_at, sha
+        )
+        if refused:
+            hint = {
+                "EVAL_OFFICIAL_ALREADY_RECORDED": "이 문서의 공식 실행이 이미 있다. "
+                "--run-label REMEASURE(참고값)로 돌린다.",
+                "EVAL_OFFICIAL_LEDGER_CORRUPT": "공식 실행 기록에 읽을 수 없는 줄이 있다. 사람이 확인한다.",
+            }[refused]
+            print(f"{refused}: {hint} 모델을 부르지 않았다.", file=sys.stderr)
+            return 1
+        claim = {
+            "manifest_version": manifest["manifest_version"],
+            "document_numbers": args.documents,
+            "started_at": started_at,
+            "git_sha": sha,
+        }
     runs = []
     for n in args.documents:
         run = run_document(trees[n], by_number[n], provider, products, profiles, today)
@@ -174,15 +290,26 @@ def main(argv: list[str] | None = None) -> int:
         manifest_version=manifest["manifest_version"],
         gold_version=gold.gold_version,
         started_at=started_at,
-        git_sha=git_sha(),
+        git_sha=sha,
     )
-    args.out.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    written = write_new(args.out, text)
+    if claim is not None:
+        complete_official(
+            args.official_ledger, claim, hashlib.sha256(text.encode("utf-8")).hexdigest()
+        )
     meta = data["meta"]
     print(
         f"{args.run_label}({'공식' if meta['official'] else '참고값'}) 문서 {meta['documents']}건 | "
         + " | ".join(f"{k} {v}" for k, v in meta["counts"].items())
     )
-    print(f"결과: {args.out}")
+    print(f"결과: {written}")
+    if written != args.out:
+        print(
+            f"EVAL_OUTPUT_EXISTS: 실행 중 {args.out}가 생겨 덮어쓰지 않고 위 경로에 남겼다.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

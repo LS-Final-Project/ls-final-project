@@ -189,3 +189,110 @@ def test_results_never_go_inside_the_repository_and_hashes_must_match(tmp_path):
     (tmp_path / "doc.docx").write_bytes(b"changed")
     with pytest.raises(ValueError, match="EVAL_DOCUMENT_HASH_MISMATCH"):
         rfp_candidate_run.read_verified(tmp_path, entry)
+
+
+def test_gold_document_numbers_must_be_unique():
+    data = GOLD.model_dump()
+    data["documents"] = data["documents"] * 2
+    with pytest.raises(ValueError, match="EVAL_GOLD_DUPLICATE_DOCUMENT"):
+        GoldFile.model_validate(data)
+
+
+def test_a_result_appearing_during_the_run_is_not_overwritten(tmp_path):
+    out = tmp_path / "result.json"
+    assert rfp_candidate_run.write_new(out, "first") == out
+    other = rfp_candidate_run.write_new(out, "second")
+    assert other != out and other.parent == tmp_path
+    assert (out.read_text(), other.read_text()) == ("first", "second")
+
+
+def evaluation_run(tmp_path, monkeypatch, *extra, provider="fake"):
+    """합성 평가 문서(10번)를 가짜 모델로 main까지 돌린다. 원문 해석은 합성 조항 트리로 바꿔 끼운다."""
+    data = manifest(tmp_path)
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    gold = GOLD.model_dump()
+    gold["documents"][0]["document_number"] = 10
+    (tmp_path / "gold.json").write_text(json.dumps(gold))
+    monkeypatch.setattr(rfp_candidate_run, "extract", lambda *_a, **_k: None)
+    monkeypatch.setattr(rfp_candidate_run, "build_clause_tree", lambda _doc: tree())
+    return rfp_candidate_run.main(
+        [
+            "--manifest", str(tmp_path / "manifest.json"),
+            "--docs", str(tmp_path),
+            "--documents", "10",
+            "--gold", str(tmp_path / "gold.json"),
+            "--provider", provider,
+            "--confirm-evaluation",
+            *extra,
+        ]
+    )  # fmt: skip
+
+
+def test_the_official_first_run_is_recorded_once_before_the_model_is_called(
+    tmp_path, monkeypatch, capsys
+):
+    ledger = tmp_path / "official.jsonl"
+    first = ["--run-label", "FIRST", "--out"]
+    # 공식 실행은 기록 파일 없이는 시작하지 않는다.
+    assert evaluation_run(tmp_path, monkeypatch, *first, str(tmp_path / "a.json")) == 1
+    assert "EVAL_OFFICIAL_LEDGER_REQUIRED" in capsys.readouterr().err
+    assert not (tmp_path / "a.json").exists()
+    with_ledger = ["--official-ledger", str(ledger)]
+    assert (
+        evaluation_run(tmp_path, monkeypatch, *first, str(tmp_path / "a.json"), *with_ledger) == 0
+    )
+    started, completed = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert (started["event"], completed["event"], started["document_numbers"]) == (
+        "STARTED",
+        "COMPLETED",
+        [10],
+    )
+    result = (tmp_path / "a.json").read_bytes()
+    assert completed["result_sha256"] == hashlib.sha256(result).hexdigest()
+    assert json.loads(result)["meta"]["official"] is True
+    # 같은 문서의 두 번째 FIRST는 모델을 부르기 전에 거부한다. 재측정은 참고값으로 돈다.
+    assert (
+        evaluation_run(tmp_path, monkeypatch, *first, str(tmp_path / "b.json"), *with_ledger) == 1
+    )
+    assert "EVAL_OFFICIAL_ALREADY_RECORDED" in capsys.readouterr().err
+    assert not (tmp_path / "b.json").exists() and len(ledger.read_text().splitlines()) == 2
+    again = ["--run-label", "REMEASURE", "--out", str(tmp_path / "c.json")]
+    assert evaluation_run(tmp_path, monkeypatch, *again) == 0
+    assert json.loads((tmp_path / "c.json").read_text())["meta"]["official"] is False
+
+
+def test_a_failed_first_run_still_uses_up_the_official_slot(tmp_path):
+    ledger = tmp_path / "official.jsonl"
+    claim = ("m1", [10], "2026-11-04T00:00:00+00:00", "abc")
+    assert rfp_candidate_run.claim_official(ledger, *claim) is None
+    # 완료 기록 없이 끝난(실패한) 첫 실행 뒤에도 다시 공식으로 돌 수 없다. 다른 manifest 판본은 별개다.
+    assert rfp_candidate_run.claim_official(ledger, *claim) == "EVAL_OFFICIAL_ALREADY_RECORDED"
+    assert rfp_candidate_run.claim_official(ledger, "m2", [10], "t", "abc") is None
+
+
+def test_a_setup_failure_does_not_use_up_the_official_slot(tmp_path, monkeypatch, capsys):
+    """모델 설정이 깨져 첫 호출 전에 실패하면 공식 기록을 남기지 않는다(#322 리뷰 P2)."""
+    ledger = tmp_path / "official.jsonl"
+
+    def broken(_env_file):
+        raise KeyError("GEMINI_API_KEY")
+
+    monkeypatch.setattr(rfp_candidate_run, "gemini", broken)
+    args = ["--run-label", "FIRST", "--official-ledger", str(ledger)]
+    with pytest.raises(KeyError):
+        evaluation_run(
+            tmp_path, monkeypatch, *args, "--out", str(tmp_path / "a.json"), provider="gemini"
+        )
+    assert not ledger.exists() or not ledger.read_text().strip()
+    # 고친 뒤 다시 돌리면 공식 실행이 된다.
+    assert evaluation_run(tmp_path, monkeypatch, *args, "--out", str(tmp_path / "b.json")) == 0
+    assert json.loads((tmp_path / "b.json").read_text())["meta"]["official"] is True
+
+
+@pytest.mark.parametrize("line", ["{not json", '{"event": "STARTED"}', "[1]"])
+def test_a_broken_ledger_line_stops_the_official_run(tmp_path, line):
+    ledger = tmp_path / "official.jsonl"
+    ledger.write_text(f"\n{line}\n")
+    code = rfp_candidate_run.claim_official(ledger, "m1", [10], "t", "abc")
+    assert code == "EVAL_OFFICIAL_LEDGER_CORRUPT"
+    assert ledger.read_text() == f"\n{line}\n"
