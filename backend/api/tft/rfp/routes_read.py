@@ -708,7 +708,7 @@ async def list_partner_candidates(
         s.PartnerCandidateList: 후보 코드 순 후보.
     """
     async with connection(request.app.state.settings) as conn:
-        await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         await visible_project(conn, principal, project_id, *PROJECT_NOT_FOUND)
         inputs = await repository.project_constraints(conn, project_id)
         cursor = await conn.execute("SELECT version FROM tft.projects WHERE id=%s", (project_id,))

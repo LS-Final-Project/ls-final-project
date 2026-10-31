@@ -167,8 +167,31 @@
             "title": "Grade",
             "type": "string"
           },
+          "known_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known At"
+          },
           "mandatory_check": {
             "$ref": "#/components/schemas/MandatoryCheck"
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Version"
           },
           "reasons": {
             "items": {
@@ -181,6 +204,28 @@
             "format": "uuid",
             "title": "Requirement Id",
             "type": "string"
+          },
+          "requirement_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Version"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "required": [
@@ -1975,12 +2020,29 @@
       "PartnerCandidateList": {
         "additionalProperties": false,
         "properties": {
+          "input_project_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Project Version"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/PartnerCandidate"
             },
             "title": "Items",
             "type": "array"
+          },
+          "manufacturer_list_basis": {
+            "const": "CURRENT_PROJECT_INPUT",
+            "default": "CURRENT_PROJECT_INPUT",
+            "title": "Manufacturer List Basis",
+            "type": "string"
           }
         },
         "required": [

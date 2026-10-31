@@ -51,3 +51,12 @@ def test_sparse_patch_preserves_omitted_inputs_and_explicit_null_clears_them():
         "supply_region": None,
         "customer_manufacturer_list": None,
     }
+
+
+def test_existing_create_requests_do_not_gain_new_required_fields_in_api_schema():
+    required = ProjectCreate.model_json_schema()["required"]
+    assert not set(required) & {
+        "supply_region",
+        "customer_manufacturer_list",
+        "off_list_permission",
+    }

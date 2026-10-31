@@ -169,7 +169,13 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
     setStarted(undefined);
     setFinished(jobStatus);
     for (const key of ['projects', 'rfp-documents', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
-  }, [jobId, jobStatus, client, mode]);
+    client.invalidateQueries({ queryKey: ['rfp-supplement', mode] });
+    client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, projectId] });
+    if (actorId) {
+      client.invalidateQueries({ queryKey: ['rfp-draft', actorId, projectId] });
+      client.invalidateQueries({ queryKey: ['rfp-draft-project', actorId, projectId] });
+    }
+  }, [jobId, jobStatus, client, mode, projectId, actorId]);
   const title = (buttons?: ReactNode) => <KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{before}{buttons}{after}</KvTitle>;
   if (project.isPending) return <main>{title()}{list}<Loading /></main>;
   if (project.isError) return <main>{title()}{list}<ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;

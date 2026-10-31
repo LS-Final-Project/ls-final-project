@@ -1658,13 +1658,26 @@ async def project_constraints(conn: AsyncConnection[Row], project_id: UUID) -> R
 async def stored_grading_requirements(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     """페이지 제한 없이 현행 판본과 그 판본의 실제 저장 조건을 읽는다."""
     cursor = await conn.execute(
-        "SELECT v.*, c.clause_no, coalesce((SELECT jsonb_agg(jsonb_build_object("
+        "SELECT v.*, c.clause_no, d.title AS document_title, coalesce((SELECT jsonb_agg(jsonb_build_object("
         "'name',rc.name,'value',rc.value,'unit',rc.unit) ORDER BY rc.ordinal) "
         "FROM tft.requirement_conditions rc WHERE rc.requirement_id=v.requirement_id "
         "AND rc.version=v.version),'[]'::jsonb) AS conditions "
         "FROM tft.requirements r JOIN tft.requirement_versions v "
         "ON v.requirement_id=r.id AND v.version=r.latest_version "
-        "LEFT JOIN tft.clauses c ON c.id=v.clause_id WHERE r.project_id=%s ORDER BY r.id",
+        "LEFT JOIN tft.clauses c ON c.id=v.clause_id "
+        "LEFT JOIN tft.document_versions dv ON dv.id=v.document_version_id "
+        "LEFT JOIN tft.documents d ON d.id=dv.document_id WHERE r.project_id=%s ORDER BY r.id",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def prior_grades_for_regrading(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """과거 의미 미보존 행의 비상승 경계만 위한 마지막 판정. 공개 최신 조회에는 쓰지 않는다."""
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (candidate_code,requirement_id) * FROM tft.partner_grades "
+        "WHERE project_id=%s ORDER BY candidate_code,requirement_id,requirement_version DESC,"
+        "profile_version DESC,version DESC",
         (project_id,),
     )
     return await cursor.fetchall()
@@ -1994,7 +2007,7 @@ async def requirement_detail_parts(
         requirement_id,
     )
     partners = await rows(
-        "SELECT DISTINCT candidate_code FROM tft.partner_grades WHERE requirement_id = %s "
+        f"SELECT candidate_code FROM ({LATEST_GRADES}) g WHERE requirement_id = %s "
         "ORDER BY candidate_code",
         requirement_id,
     )

@@ -48,7 +48,7 @@ export default function ProjectConstraintsForm({ project, onClose }: { project: 
   const [refreshError, setRefreshError] = useState<unknown>();
   const save = useMutation({
     mutationFn: () => updateProjectConstraints(project.id, version, constraintsBody(input)),
-    onSuccess: () => { if (!active.current) return; client.invalidateQueries({ queryKey: ['projects', mode] }); client.invalidateQueries({ queryKey: ['rfp-candidates', mode] }); onClose(); },
+    onSuccess: () => { if (!active.current) return; client.invalidateQueries({ queryKey: ['projects', mode] }); client.invalidateQueries({ queryKey: ['rfp-supplement', mode] }); client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, project.id] }); onClose(); },
     onError: error => { if (active.current && error instanceof ApiError && error.status === 409) setStale(true); },
   });
   const reload = async () => {

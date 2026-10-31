@@ -134,7 +134,8 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
             return_value=[{**profile.model_dump(), "known_at": profile_row(profile)["known_at"]}]
         ),
     )
-    monkeypatch.setattr(repository, "project_grades", AsyncMock(return_value=[]))
+    monkeypatch.setattr(repository, "prior_grades_for_regrading", AsyncMock(return_value=[]))
+    monkeypatch.setattr(worker.draft_repository, "generated", AsyncMock(return_value=None))
     insert = AsyncMock()
     monkeypatch.setattr(repository, "insert_grade", insert)
     draft = AsyncMock(return_value=SimpleNamespace(sections=[]))
@@ -170,6 +171,11 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
     assert "supply_region" in saved["grade"]["mandatory_check"]["failed"]
     draft.assert_awaited_once_with(conn, project_id, job.actor_id, job.job_id)
     assert summary["counts"]["requirements"] == 0  # 새 추출은 0, 저장 요구의 재채점은 실행했다.
+    worker.draft_repository.generated.return_value = 1
+    processor(job, lambda _: None)
+    assert insert.await_count == 1  # 이미 커밋된 같은 job 재시도는 등급을 또 쌓지 않는다.
+    extraction.assert_not_called()
+    rewrite.assert_not_called()
 
 
 def test_legacy_missing_semantics_are_never_inferred_or_upgraded():
@@ -199,3 +205,116 @@ def test_legacy_missing_semantics_are_never_inferred_or_upgraded():
         )
         assert result.grade == expected
         assert "extraction_semantics" in result.mandatory_check.unknown
+
+
+def test_grade_append_uses_real_requirement_version_and_never_rewrites_a_grade():
+    conn = AsyncMock()
+    grade = {
+        "requirement_id": uuid4(),
+        "grade": "REVIEW",
+        "reasons": [],
+        "exclusion_reasons": [],
+        "mandatory_check": {"passed": [], "failed": [], "unknown": []},
+    }
+    asyncio.run(
+        repository.insert_grade(
+            conn,
+            project_id=uuid4(),
+            candidate_code="P-A",
+            profile_version=2,
+            requirement_version=3,
+            grade=grade,
+            data_origin="synthetic",
+        )
+    )
+    query, values = conn.execute.await_args.args
+    assert query.count("%s") == len(values)
+    assert values[3] == values[-3] == 2  # 같은 프로필 판본 안에서만 append
+    assert values[5] == values[-1] == 3
+    assert "coalesce(max(version),0)+1" in query
+    assert "UPDATE" not in query and "DELETE" not in query
+
+
+def test_worker_store_whitelist_keeps_all_three_actual_extraction_facts(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.api.tft import worker_processor as worker
+
+    item = ExtractedRequirement(
+        clause_no="1.1.A",
+        quote="Synthetic.",
+        kind="COMPLIANCE",
+        equipment="enclosure",
+        task=None,
+        attribute="UL 50",
+        value=None,
+        unit=None,
+        operator="TEXT",
+        standard_system="UL",
+        necessity="MANDATORY",
+        designated_model=None,
+        certification_listed=True,
+        canonical_value=None,
+    )
+    insert = AsyncMock(return_value=uuid4())
+    monkeypatch.setattr(repository, "insert_requirement", insert)
+    asyncio.run(
+        worker.store_requirements(
+            AsyncMock(),
+            uuid4(),
+            [({"id": uuid4(), "data_origin": "synthetic"}, {}, item)],
+            [
+                SimpleNamespace(
+                    status="SPEC_GAP",
+                    reason="합성",
+                    unresolved=[],
+                    next_owner="TECH",
+                    candidates=[],
+                )
+            ],
+        )
+    )
+    saved = insert.await_args.kwargs["spec"]
+    assert (saved["kind"], saved["certification_listed"], saved["canonical_value"]) == (
+        "COMPLIANCE",
+        True,
+        None,
+    )
+
+
+def test_candidate_membership_uses_current_input_but_grade_keeps_actual_saved_time():
+    from datetime import UTC, datetime
+
+    from backend.api.tft.partners.loader import load_profiles, profile_row
+    from backend.api.tft.rfp.routes_read import partner_candidate
+
+    profile = load_profiles()[0]
+    known = datetime(2026, 10, 30, tzinfo=UTC)
+    grade = {
+        "requirement_id": uuid4(),
+        "requirement_version": 3,
+        "profile_version": profile.profile_version,
+        "version": 2,
+        "known_at": known,
+        "grade": "REVIEW",
+        "reasons": ["과거 판정"],
+        "exclusion_reasons": [],
+        "mandatory_check": {"passed": [], "failed": [], "unknown": []},
+    }
+    row = {**profile.model_dump(), "known_at": profile_row(profile)["known_at"]}
+    candidate = partner_candidate(
+        row, [grade], [grade], manufacturer_list=["  " + profile.manufacturer_name.upper() + " "]
+    )
+    assert candidate.on_customer_manufacturer_list is True
+    assert candidate.grades[0].grade == "REVIEW"
+    assert (
+        candidate.grades[0].requirement_version,
+        candidate.grades[0].version,
+        candidate.grades[0].known_at,
+    ) == (3, 2, known)
+    assert (
+        partner_candidate(
+            row, [grade], [grade], manufacturer_list=None
+        ).on_customer_manufacturer_list
+        is None
+    )

@@ -6,7 +6,8 @@
   → supplement(보완 선택지) → candidates(협력사 등급) → draft(근거 있는 제안 검토 초안 저장).
 - 조항·요구·판본(판단 포함)·조건·비교·선택지·등급은 compare부터 candidates까지 한 트랜잭션에 쓴다. 도중에 멈추면
   아무것도 남지 않아 다시 돌리면 처음부터 한다.
-- 재실행: 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 포함)은 다시 처리하지 않는다(모델을 다시 부르지 않음).
+- 재실행: 조항이 저장된 문서 판본은 재추출하지 않는다. 현행 저장 요구는 무모델로 재채점하고 초안으로 잇는다.
+  이미 커밋된 같은 job의 초안이 있으면 등급도 중복 저장하지 않는다.
 - rfp.export는 저장된 검토본 DOCX를 만들고, rfp.annotate는 아직 counts 0만 남긴다.
 """
 
@@ -34,6 +35,7 @@ from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import (
     comparison,
     draft_exports,
+    draft_repository,
     draft_rewrite,
     drafts,
     integration,
@@ -585,7 +587,9 @@ def legacy_grade(
         getattr(check, verdict).append(name)
     exclusion = [reason for _, verdict, reason in checks if verdict == "failed"]
     if previous and previous["grade"] == "EXCLUDED":
-        exclusion += previous["exclusion_reasons"]
+        exclusion += previous["exclusion_reasons"] or [
+            "과거 제외 판정을 유지하며 추출 의미를 확인해야 합니다."
+        ]
     value: grading.Grade = "EXCLUDED" if exclusion else "REVIEW"
     if previous and previous["grade"] == "REFERENCE_ONLY" and not exclusion:
         value = "REFERENCE_ONLY"
@@ -608,6 +612,9 @@ async def regrade_stored(
     await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,187))", (str(project_id),))
     rows = await repository.stored_grading_requirements(conn, project_id)
     inputs = await repository.project_constraints(conn, project_id)
+    titles = [r.get("document_title") for r in rows]
+    if titles and all(title is not None for title in titles):
+        pool = candidate_pool(title for title in titles if title is not None)
     context = grading.RfpContext(
         manufacturer_list=inputs["customer_manufacturer_list"],
         off_list_permission=inputs["off_list_permission"],
@@ -629,7 +636,7 @@ async def regrade_stored(
     ]
     previous = {
         (g["candidate_code"], g["requirement_id"]): g
-        for g in await repository.project_grades(conn, project_id)
+        for g in await repository.prior_grades_for_regrading(conn, project_id)
     }
     targets, legacy = [], []
     by_id = {r["requirement_id"]: r for r in rows}
@@ -784,12 +791,13 @@ async def process(
                     )
             emit({"step": "supplement", "counts": counts(total)})
             # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
-            needs_review |= await regrade_stored(
-                conn,
-                job.project_id,
-                today,
-                candidate_pool(d["title"] for d in documents),
-            )
+            if await draft_repository.generated(conn, job.project_id, job.job_id) is None:
+                needs_review |= await regrade_stored(
+                    conn,
+                    job.project_id,
+                    today,
+                    candidate_pool(d["title"] for d in documents),
+                )
             emit({"step": "candidates", "counts": counts(total)})
             proposal = await drafts.generate(conn, job.project_id, job.actor_id, job.job_id)
             needs_review |= any(
