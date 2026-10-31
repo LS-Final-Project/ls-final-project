@@ -111,7 +111,7 @@ export function UploadForm({ projectId, documents, onCancel, onDone }: {
           if (next && !title) setTitle(next.name.replace(/\.[^.]+$/, ''));
         }} /></div>
       {problem && <p role="alert" style={{ margin: '6px 0 0', color: 'var(--ls-red)' }}>{problem}</p>}
-      <Select id="upload-kind" label="종류" value={kind} onChange={setKind} options={DOCUMENT_KIND_LABEL} />
+      <Select id="upload-kind" label="종류" value={kind} onChange={setKind} options={Object.fromEntries(Object.entries(DOCUMENT_KIND_LABEL).filter(([kind]) => kind !== 'ANNOTATED_PDF'))} />
       <div className="kv-field"><label htmlFor="upload-title" className="req">제목</label><input id="upload-title" type="text" maxLength={300} value={title} onChange={event => setTitle(event.target.value)} /></div>
       <Select id="upload-base" label="새 판본" value={base} onChange={setBase} options={{ '': '아니오, 새 문서', ...Object.fromEntries(latest.map(d => [d.document_id, `${d.title} (v${d.version})의 새 판본`])) }} />
       <div className="kv-field"><label htmlFor="upload-note">메모</label><input id="upload-note" type="text" maxLength={2000} value={note} onChange={event => setNote(event.target.value)} /></div>

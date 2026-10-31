@@ -1,4 +1,4 @@
-"""불변 검토본을 실제 DOCX로 만들고 같은 원문 저장소에 보관한다(KAN-188). PDF는 후속이다."""
+"""불변 검토본을 실제 DOCX로 만들고 같은 원문 저장소에 보관한다(KAN-188). PDF 내보내기는 지원하지 않는다."""
 
 import asyncio
 import hashlib
@@ -48,7 +48,7 @@ def require_docx(format: s.ExportFormat) -> None:
     """PDF enum은 유지하되 예약·접수·파일 생성 전에 명시적으로 거부한다."""
     if format != "DOCX":
         raise ApplicationError(
-            422, "TFT_EXPORT_FORMAT_UNAVAILABLE", "PDF export is not available yet."
+            422, "TFT_EXPORT_FORMAT_UNAVAILABLE", "Only Word (DOCX) export is supported."
         )
 
 

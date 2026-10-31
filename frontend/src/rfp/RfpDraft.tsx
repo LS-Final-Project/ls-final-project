@@ -278,8 +278,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     </KvBox>
     <KvBox title="DOCX 내보내기" note="저장된 검토본 판본 지정">
       <label className="draft-input">내보낼 검토본 판본<input type="number" min="1" step="1" value={reviewInput} disabled={busy || !!command} onChange={event => setReviewInput(event.target.value)} /></label>
-      <div className="draft-buttons"><button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ actorId: user.id, kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}
-      <button className="kb" disabled title="PDF 내보내기는 아직 지원하지 않습니다.">PDF (미지원)</button></div>
+      <div className="draft-buttons"><button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ actorId: user.id, kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}</div>
       {accepted && <div className="draft-receipt">
         <KvField label="요청한 검토본">{exportReview}판</KvField>
         <KvField label="내보내기 ID">{accepted.export_id}</KvField>

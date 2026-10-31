@@ -383,11 +383,9 @@ def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
     assert all(trace["filters"] == ["family=TRANSFORMER"] for _, trace in compared)
 
 
-def test_annotate_reports_its_pending_step_only(worker_dsn, project):
-    """메모 해석은 아직 단계가 없어 counts 0을 남긴다. export 실제 동작은 draft routes DB 검사에서 확인한다."""
-    summary, events = run(worker_dsn, project, FakeExtractor(), kind="rfp.annotate")
-    assert events == [{"step": "annotate", "counts": {"requirements": 0, "proposals": 0}}]
-    assert summary["needs_review"] is False
+def test_annotate_fails_instead_of_reporting_empty_success(worker_dsn, project):
+    with pytest.raises(ValueError, match="TFT_ANNOTATION_UNAVAILABLE"):
+        run(worker_dsn, project, FakeExtractor(), kind="rfp.annotate")
 
 
 def test_export_without_a_reservation_fails_instead_of_reporting_success(worker_dsn, project):

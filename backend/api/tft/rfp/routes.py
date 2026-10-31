@@ -649,7 +649,7 @@ async def process_annotations(
     request: Request,
     principal: User,
 ) -> SuccessResponse[s.JobAccepted]:
-    """30. (A12 조건부) 메모 PDF 해석 → pdf_annot 제안. 접수만 하고 해석 단계는 처리 함수 몫이다."""
+    """30. 범위 밖인 메모 PDF 해석은 접수 전에 명시적 422로 거절한다."""
     data = await jobs.admit(
         request, principal, project_id, "rfp.annotate", payload, idempotency_key
     )

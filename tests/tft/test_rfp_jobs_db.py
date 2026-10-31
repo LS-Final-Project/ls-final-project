@@ -106,7 +106,7 @@ def test_owner_starts_processing_and_the_platform_gets_frozen_inputs(client, pla
 
 
 def test_scope_permission_and_inputs_are_checked_before_the_platform(client, platform, chain):
-    """범위 밖 404, 검토 부서는 처리 403·메모 해석 202, 요구가 있으면 사유 422, 다른 프로젝트 판본 422."""
+    """범위 밖 404, 검토 부서는 처리 403·메모 해석 422, 요구가 있으면 사유 422, 다른 프로젝트 판본 422."""
     assert error(process(client, chain, who=OUTSIDER, reason="x")) == (
         404,
         "TFT_PROJECT_NOT_FOUND",
@@ -126,8 +126,8 @@ def test_scope_permission_and_inputs_are_checked_before_the_platform(client, pla
         },
         headers={**principal_header(REVIEWER), "Idempotency-Key": uuid4().hex},
     )
-    assert annotate.status_code == 202, annotate.text
-    assert platform.bodies[-1]["kind"] == "rfp.annotate"
+    assert error(annotate) == (422, "TFT_ANNOTATION_UNAVAILABLE")
+    assert platform.bodies == []
 
 
 @pytest.mark.parametrize(
