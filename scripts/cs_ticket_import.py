@@ -2,6 +2,7 @@
 
 기본은 파일 검사만 한다. --execute일 때만 등록한다. 입력은 문의 객체의 JSON 배열 또는 머리글 있는 CSV이고
 칸은 TicketCreate와 같다. 모든 행이 검사를 통과해야 한 건이라도 보낸다(중간까지만 들어가는 일을 막는다).
+내용이 완전히 같은 행은 거절한다.
 data_origin은 synthetic으로 고정해 보내고, 응답이 synthetic이 아니면 멈춘다.
 
 세션은 환경변수 CS_IMPORT_COOKIE(브라우저의 세션 쿠키)에서만 읽고 출력하지 않는다. CSRF 토큰은 /api/v1/platform/me
@@ -61,6 +62,7 @@ def check_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[s
     """
     bodies: list[dict[str, Any]] = []
     problems: list[str] = []
+    seen: dict[str, int] = {}
     for number, row in enumerate(rows, 1):
         if row.get("data_origin", ORIGIN) != ORIGIN:
             problems.append(f"{number}행: data_origin은 {ORIGIN}만 쓸 수 있습니다.")
@@ -71,7 +73,13 @@ def check_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[s
             fields = sorted({".".join(map(str, e["loc"])) for e in error.errors()})
             problems.append(f"{number}행: {', '.join(fields)} 칸이 맞지 않습니다.")
             continue
-        bodies.append(ticket.model_dump(exclude_none=True))
+        body = ticket.model_dump(exclude_none=True)
+        # 원장 키가 같으면 한 건만 들어가야 할지 두 건인지 알 수 없다. 사람이 입력을 고치게 한다.
+        if row_key(body) in seen:
+            problems.append(f"{number}행: {seen[row_key(body)]}행과 내용이 같습니다.")
+            continue
+        seen[row_key(body)] = number
+        bodies.append(body)
     return bodies, problems
 
 

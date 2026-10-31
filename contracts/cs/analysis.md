@@ -61,7 +61,7 @@
 - **`load_ticket`**: `cs.tickets`의 채널·언어·제목·본문·제품·접수 시각과 고객 등급(`cs.tickets.customer_tier`, 없으면 제공 기록)을 읽는다. 고객 식별자·기록된 정답·사후 기록은 읽지 않는다.
   - 유형별 필요 정보는 제품 계열(`rules.product_family`)의 `eval/policy/cs_required_info.csv` 행이고, 초안 노드가 분류 결과 유형으로 고른다. 정책 밖 제품은 빈 지도다.
   - 이미 요청한 정보: 플랫폼이 접수(ACCEPTED)해 업무 상태에 반영된 발송(`recorded_at` 있음)의 `requested_info_codes` 합집합. 승인만 되고 나가지 않은 메시지는 넣지 않는다.
-  - 민감값 목록은 빈 값이다(제공 자료는 적재 때 마스킹, 2026-10-30 결정). 적재 어댑터(KAN-92)가 주면 여기서 읽는다. 고객 등급이 없는 문의(직접 등록)는 빈 값이라 규칙 노드가 `CS_RULE_INPUT`으로 남긴다.
+  - 민감값 목록은 빈 값이다(제공 자료는 적재 때 마스킹, 2026-10-30 결정). 적재 어댑터(KAN-92)가 주면 여기서 읽는다. 고객 등급이 없는 문의(메일 등록 등)는 빈 값이고 규칙 노드가 `STANDARD`로 계산한다. 실패로 남기지 않는다.
 - **`record_attempt`**: 분류·초안 시도마다 위 표에 한 행씩 `job_id`(worker의 `CS_JOB_ID`)와 함께 넣는다. 초안의 `analysis_id`는 같은 작업의 마지막 `VALID` 분류 실행이다. 형식 위반 재호출(시도 2)도 각각 한 행이다.
 - **업무 상태와 그래프 상태는 따로다**: worker는 `cs.ticket_workflows`를 읽지도 쓰지도 않는다. 그래프 진행은 체크포인트(`checkpoint_cs`, thread_id=작업 ID)에만 있다.
 - **`cs_worker` 권한**(마이그레이션 `20261101_KAN-107_worker_source.sql`, README C18): 위 열의 SELECT, 분석·초안 표의 SELECT·INSERT, 검색용 `cs.document_chunks` SELECT, 체크포인트 표 SELECT·INSERT·UPDATE. 업무 상태·정정·발송 본문 읽기, 결과 수정·삭제, 문의 잠금은 거부된다(`tests/cs/test_worker_source_db.py`).
