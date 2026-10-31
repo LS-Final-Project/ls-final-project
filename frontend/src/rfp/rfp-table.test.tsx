@@ -285,6 +285,11 @@ describe('변경 제안', () => {
     expect(posts('/proposals')[1].body.proposed).toEqual({ unresolved: ['A', '내 항목'] });
   });
 
+  it('요구 상세로 간다', async () => {
+    await form();
+    expect(screen.getByRole('link', { name: '요구 상세' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/${MOCK_DETAIL.requirement_id}`);
+  });
+
   it('저장 충돌은 폼과 입력을 지키고 최신 내용을 다시 읽는다', async () => {
     write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
     await form();

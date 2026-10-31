@@ -10,6 +10,7 @@ import LsShell from './ls-shell/LsShell';
 import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
 import RfpIntake from './rfp/RfpIntake';
+import RfpRequirement from './rfp/RfpRequirement';
 import RfpProjects from './rfp/RfpProjects';
 import RfpSupplement from './rfp/RfpSupplement';
 import RfpApprovals from './rfp/RfpApprovals';
@@ -34,6 +35,7 @@ export default function App() {
       <Route path="tft/projects/:projectId/table" element={<RfpTable />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />
       <Route path="tft/projects/:projectId/draft" element={<RfpDraft />} />
+      <Route path="tft/projects/:projectId/requirements/:requirementId" element={<RfpRequirement />} />
       <Route path="tft/projects/:projectId" element={<RfpIntake />} />
     </Route>
   </Routes>;

@@ -1,6 +1,6 @@
 import type { components } from './generated/tft';
 import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
-import { MOCK_COMPARISON, MOCK_DETAIL, MOCK_PROPOSALS, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
+import { MOCK_CLAUSES, MOCK_COMPARISON, MOCK_DETAIL, MOCK_PROPOSALS, MOCK_QUESTIONS, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
 
 type Schemas = components['schemas'];
 export type RequirementSummary = Schemas['RequirementSummary'];
@@ -119,5 +119,24 @@ export const getJob = (id: string) => request<Envelope<JobStatus>>(
 export type Question = Schemas['Question'];
 export const listQuestions = (projectId: string, status?: string) => request<Envelope<Schemas['QuestionList']>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions${status ? `?status=${status}` : ''}`,
-  { mockFallback: mock({ items: [] }) },
+  { mockFallback: mock({ items: MOCK_QUESTIONS }) },
+);
+export const createQuestion = (projectId: string, body: Schemas['QuestionCreate'], key: string) => request<Envelope<Question>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions`,
+  { ...json(key, body), mockFallback: mock(MOCK_QUESTIONS[0]) },
+);
+export const confirmQuestion = (projectId: string, id: string, key: string) => request<Envelope<Question>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions/${encodeURIComponent(id)}/confirm`,
+  { ...json(key, {}), mockFallback: mock(MOCK_QUESTIONS[0]) },
+);
+export const replyQuestion = (id: string, body: Schemas['QuestionReply'], key: string) => request<Envelope<Schemas['QuestionReplyResult']>>(
+  `/api/v1/tft/questions/${encodeURIComponent(id)}/reply`,
+  { ...json(key, body), mockFallback: mock({ ...MOCK_QUESTIONS[0], created_proposal: null }) },
+);
+
+export type Clause = Schemas['Clause'];
+// 경로의 document_id는 문서 판본 ID다. parent를 빼면 전체 조항을 문서 순서로 준다.
+export const listClauses = (documentVersionId: string, cursor?: string) => request<Envelope<Schemas['ClauseList']>>(
+  `/api/v1/tft/documents/${encodeURIComponent(documentVersionId)}/clauses?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+  { mockFallback: mock({ items: MOCK_CLAUSES, next_cursor: null }) },
 );
