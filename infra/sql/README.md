@@ -397,6 +397,8 @@ CREATE ROLE cs_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICAT
 CREATE ROLE tft_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 GRANT cs_worker TO cs_worker_login;
 GRANT tft_worker TO tft_worker_login;
+-- 001_service_roles.sql이 PUBLIC 접속을 막고 앱·마이그레이터에만 CONNECT를 준다. worker 로그인은 따로 준다.
+GRANT CONNECT ON DATABASE team4 TO cs_worker_login, tft_worker_login;
 ```
 
 같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
