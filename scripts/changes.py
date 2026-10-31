@@ -36,6 +36,9 @@ def classify(paths: list[str]) -> dict:
         # 협업 도구와 워크플로는 문서 확장자라도 자동화 회귀를 실행한다.
         if path.startswith(("scripts/", ".github/")):
             infrastructure = True
+        # 두 표를 대조하는 scripts/tests/test_rfp_display_labels.py가 인프라 작업에 있다.
+        if path in {"backend/engine/rfp/vocabulary.py", "frontend/src/rfp/labels.ts"}:
+            infrastructure = True
         if path.startswith("backend/engine/cs/"):
             release.update(("cs", "platform"))
             evaluation = True
