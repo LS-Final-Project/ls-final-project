@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 from datetime import UTC, datetime, time
 from pathlib import Path
 from uuid import uuid4
@@ -668,3 +669,41 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
     assert kept == profiles[0].notes
     monkeypatch.setenv("DATABASE_URL", "postgresql://tft_app:x@db.example.invalid:5432/team4")
     assert main([]) == 1 and "TFT_SEED_NEEDS_LOCAL_DB" in capsys.readouterr().err
+
+
+def test_rewrite_command_survives_entire_migration_reapplication(admin, chain):
+    actor = uuid4()
+    insert = (
+        "INSERT INTO tft.rfp_commands(actor_user_id,operation,idempotency_key,project_id,"
+        "request_hash,status_code,result) VALUES (%s,%s,'rewrite-rerun',%s,%s,202,%s)"
+    )
+    payload = json.dumps({"job_id": str(uuid4())})
+    with psycopg.connect(admin) as conn:
+        conn.execute(insert, (actor, "draft.rewrite", chain["project"], "a" * 64, payload))
+    with psycopg.connect(admin, autocommit=True) as conn:
+        # T13에서 T19 명령을 거부하지 않으며 전체 재적용 순서도 유지한다.
+        for name in RERUNNABLE:
+            apply(conn, Path("infra/migrations/tft") / name)
+        assert conn.execute(
+            "SELECT operation,result FROM tft.rfp_commands WHERE actor_user_id=%s", (actor,)
+        ).fetchone() == ("draft.rewrite", json.loads(payload))
+    with psycopg.connect(admin) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation) as error:
+            conn.execute(
+                insert, (uuid4(), "unknown.operation", chain["project"], "b" * 64, payload)
+            )
+        assert error.value.diag.constraint_name == "rfp_commands_operation_check"
+
+
+def test_reapplied_command_constraints_match_runtime_operations():
+    from backend.api.tft.rfp.commands import OPERATIONS
+
+    for name in ("20261106_KAN-199_question_drafts.sql", "20261111_KAN-188_draft_rewrite.sql"):
+        sql = (Path("infra/migrations/tft") / name).read_text()
+        check = re.search(
+            r"ADD CONSTRAINT rfp_commands_operation_check\s+CHECK \(operation IN \((.*?)\)\)",
+            sql,
+            re.S,
+        )
+        assert check is not None
+        assert set(re.findall(r"'([^']+)'", check[1])) == OPERATIONS

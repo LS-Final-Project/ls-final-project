@@ -178,6 +178,24 @@ async def apply_result(
     return True
 
 
+async def saved_completion(conn: AsyncConnection[Row], job: TftJob, record: Row) -> Row:
+    """완료 재전달은 최신 live 상태가 아닌 저장 판본·호출 원장의 최종 결과를 복원한다."""
+    async with conn.transaction():
+        version = await db.generated(conn, job.project_id, job.job_id)
+        if version is None:
+            return completed(fallback=True)  # 사람 저장이 앞선 discarded 작업
+        snapshot = await db.load_snapshot(conn, job.project_id, version)
+        if snapshot is None:
+            raise ValueError("TFT_DRAFT_VERSION_MISSING")
+        cursor = await conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM tft.draft_rewrite_calls WHERE rewrite_id=%s "
+            "AND outcome IN ('skipped','error','truncated','fallback')) AS fallback",
+            (record["id"],),
+        )
+        outcome = await cursor.fetchone()
+        return completed(snapshot, bool(outcome and outcome["fallback"]))
+
+
 async def process(
     conn: AsyncConnection[Row],
     job: TftJob,
@@ -187,11 +205,13 @@ async def process(
 ) -> Row:
     record, snapshot = await snapshot_for(conn, job)
     if snapshot is None:
-        return completed(fallback=True)
+        return await saved_completion(conn, job, record)
     result = await asyncio.to_thread(
         rewrite, snapshot, provider, progress=lambda: emit({"step": "draft", "counts": ZERO})
     )
     # 모델 호출이 끝나고 소유권/취소를 재검사한 뒤에만 저장한다.
     emit({"step": "draft", "counts": ZERO})
     applied = await apply_result(conn, job, record, result, model)
-    return completed(result.draft if applied else None, bool(result.fallback) if applied else True)
+    if not applied:
+        return await saved_completion(conn, job, record)
+    return completed(result.draft, bool(result.fallback))

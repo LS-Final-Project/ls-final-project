@@ -140,21 +140,20 @@ def rewrite_provider(config: ProcessorSettings) -> Provider:
 
     if (config.draft_rewrite_provider or config.extraction_provider) == "fake":
         return fake_rewrite
+    ai = AISettings(
+        gemini_model=config.draft_rewrite_model,
+        gemini_max_output_tokens=config.draft_rewrite_max_output_tokens,
+        gemini_timeout_ms=config.draft_rewrite_timeout_ms,
+        gemini_transient_retries=0,
+    )
+    check_lease(ai, TftWorkerSettings().lease_seconds)
     client = None
-    ai = None
 
     def provide(text: str) -> Generation:
-        nonlocal client, ai
+        nonlocal client
         from backend.shared.ai import create_client, generate
 
-        if ai is None:
-            ai = AISettings(
-                gemini_model=config.draft_rewrite_model,
-                gemini_max_output_tokens=config.draft_rewrite_max_output_tokens,
-                gemini_timeout_ms=config.draft_rewrite_timeout_ms,
-                gemini_transient_retries=0,
-            )
-            check_lease(ai, TftWorkerSettings().lease_seconds)
+        if client is None:
             client = create_client(ai)
         return generate(client, ai, text, response_schema=RewriteOutput)
 

@@ -1,6 +1,7 @@
 """실제 호출 없이 fake DB 경계로 잠금/재시도/CAS 및 사용량 기록을 검증한다."""
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from unittest.mock import AsyncMock
@@ -11,6 +12,7 @@ import pytest
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.rfp import draft_rewrite as service
 from backend.engine.rfp.draft_rewrite import fake_provider
+from backend.shared.ai import Generation, Usage
 from tests.tft.test_rfp_draft_rewrite import draft
 
 
@@ -54,6 +56,14 @@ class Connection:
             self.record["state"] = "discarded"
         if "SET state='saved'" in sql:
             self.record["state"] = "saved"
+        if sql.startswith("SELECT EXISTS"):
+            return Cursor(
+                {
+                    "fallback": any(
+                        c[3] in ("skipped", "error", "truncated", "fallback") for c in self.calls
+                    )
+                }
+            )
         if sql.startswith("INSERT INTO tft.draft_rewrite_calls"):
             self.calls.append(params)
         return Cursor(None)
@@ -77,7 +87,7 @@ def setup(monkeypatch):
         return conn.generated
 
     async def load(c, p, v):
-        return source.model_copy(deep=True)
+        return (conn.saved if v == conn.generated else source).model_copy(deep=True)
 
     async def save(c, result, **kwargs):
         assert conn.in_transaction and result.version == conn.version + 1
@@ -123,13 +133,19 @@ def test_provider_runs_outside_transaction_and_human_edit_wins_cas(monkeypatch, 
 
 def test_retry_after_saved_or_stale_head_never_calls_provider(monkeypatch):
     conn, _, job = setup(monkeypatch)
-    asyncio.run(service.process(conn, job, lambda _: None, fake_provider, "gemini-3.6-flash"))
+    first = asyncio.run(
+        service.process(conn, job, lambda _: None, fake_provider, "gemini-3.6-flash")
+    )
+    assert first["needs_review"] is False
     called = len(conn.calls)
 
     def forbidden(_):
         raise AssertionError("must not call")
 
-    asyncio.run(service.process(conn, job, lambda _: None, forbidden, "gemini-3.6-flash"))
+    replayed = asyncio.run(
+        service.process(conn, job, lambda _: None, forbidden, "gemini-3.6-flash")
+    )
+    assert replayed == first
     assert conn.version == 2 and len(conn.calls) == called
     conn.generated = None
     conn.record["state"] = "reserved"
@@ -199,3 +215,66 @@ def test_trace_input_payload_is_identical_before_and_after_rewrite(monkeypatch):
         trace.trace_input(TraceConnection(result, UUID(int=101)), source.project_id)
     )
     assert before == after
+
+
+@pytest.mark.parametrize("kind", ["fallback", "static_flag"])
+def test_saved_redelivery_preserves_original_review_summary_without_provider(monkeypatch, kind):
+    conn, source, job = setup(monkeypatch)
+    if kind == "static_flag":
+        source.sections[0].sentences[0].needs_rereview = True
+
+    def provider(prompt):
+        if kind == "fallback":
+            raise TimeoutError("fake")
+        return fake_provider(prompt)
+
+    first = asyncio.run(service.process(conn, job, lambda _: None, provider, "gemini-3.6-flash"))
+    assert first["needs_review"] is True
+    conn.version = 3  # 나중 판본이 생겨도 저장 당시 결과를 반환한다.
+
+    def forbidden(_):
+        pytest.fail("saved redelivery called provider")
+
+    before = len(conn.calls)
+    assert (
+        asyncio.run(service.process(conn, job, lambda _: None, forbidden, "gemini-3.6-flash"))
+        == first
+    )
+    assert len(conn.calls) == before
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_redelivery_matches_successful_retry_and_mixed_fallback(monkeypatch, mixed):
+    conn, source, job = setup(monkeypatch)
+    if mixed:
+        other = source.sections[0].sentences[0].model_copy(deep=True)
+        other.sentence_id = UUID(int=99)
+        other.text = "내부 검토. 대표 항목: 「rated_current」."
+        source.sections[0].sentences.append(other)  # 입력 차단 문장 + 성공 문장의 혼합
+    attempts = 0
+
+    def provider(prompt):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return Generation(
+                text=json.dumps([]),
+                usage=Usage(1, 1, 0, 0, 2),
+                model_version="fake",
+                finish_reasons=["STOP"],
+            )
+        return fake_provider(prompt)
+
+    first = asyncio.run(service.process(conn, job, lambda _: None, provider, "gemini-3.6-flash"))
+    assert attempts == 2
+    assert first["needs_review"] is mixed
+    assert [c[3] for c in conn.calls if c[2] != 0] == ["retry", "passed"]
+
+    def forbidden(_):
+        pytest.fail("redelivery must not call provider")
+
+    assert (
+        asyncio.run(service.process(conn, job, lambda _: None, forbidden, "gemini-3.6-flash"))
+        == first
+    )
+    assert attempts == 2
