@@ -28,6 +28,9 @@ Check = tuple[str, Verdict, str]
 # EXCLUDED를 뺀 등급의 낮은 순서. 후보 요약은 요구별 등급 중 가장 낮은 단계다.
 RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
+# 같은 장비를 서로 다른 제품군으로 규정해 한쪽 등록이 다른 쪽 미충족을 뜻하는 규격 쌍(_norm 표기).
+# UL 891은 배전반(Switchboard), UL 1558은 저압 차단기 배전반(Switchgear)이다.
+RIVAL_STANDARDS = (frozenset({"ul 891", "ul 1558"}),)
 # 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
 MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
@@ -568,8 +571,9 @@ def _certification_check(
 ) -> Check:
     """certifications 배열로 인증 요구 하나를 판정한다.
 
-    다른 규격 체계의 근거(IEC 시험 성적 등)는 UL·IEEE 요구의 충족으로 넓히지 않고 미확인으로 둔다.
-    같은 체계의 다른 규격만 있으면(UL 891 vs UL 1558) 미달이다.
+    다른 규격의 근거는 요구의 충족으로 넓히지 않고 확인 필요로 둔다. 체계가 같아도 그렇다. 후보가
+    요구 규격을 갖고 있지 않다는 것은 자료에 없다는 뜻이지 미달이 아니다(미기재는 미충족이 아니다).
+    다만 같은 장비를 다른 제품군으로 규정하는 규격(RIVAL_STANDARDS)만 가졌으면 미달이다.
 
     Args:
         requirement: attribute가 certification이고 value가 규격명인 요구.
@@ -587,15 +591,16 @@ def _certification_check(
     )
     same = [c for c in profile.certifications if _norm(c.standard) == _norm(requirement.value)]
     if not same:
-        system = _system(requirement.value)
-        others = [
-            c for c in profile.certifications if system != "NONE" and _system(c.standard) == system
+        rival = [
+            c
+            for c in profile.certifications
+            if frozenset({_norm(c.standard), _norm(requirement.value)}) in RIVAL_STANDARDS
         ]
-        if others:
-            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in others)
-            return name, "failed", f"{head}, 후보는 같은 체계의 다른 규격 {held}만 있음: 미달."
+        if rival:
+            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in rival)
+            return name, "failed", f"{head}, 후보는 다른 제품군 규격 {held}만 있음: 미달."
         foreign = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in profile.certifications)
-        tail = f" 다른 규격 체계 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
+        tail = f" 다른 규격 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
         return name, "unknown", f"{head}: 후보에 같은 규격 근거가 없어 확인 필요.{tail}"
     covering = [c for c in same if models & set(c.applicable_models)]
     if not covering:
