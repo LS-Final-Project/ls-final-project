@@ -250,7 +250,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
       - name: Scan history for secrets
         run: |
-          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --no-banner --exit-code 1 \
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1 \
             --log-opts="--all" .
   required:
     name: Application result
