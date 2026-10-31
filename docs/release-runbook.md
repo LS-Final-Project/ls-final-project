@@ -1,7 +1,8 @@
 # 배포 확인과 되돌리기 런북 (KAN-157)
 
 시연 환경을 배포한 뒤 확인할 것, 문제가 생겼을 때 이전 리비전으로 되돌리는 법, DB 백업 복구 훈련 순서를 적는다.
-순서대로 따라 하고 결과를 KAN-157(배포 묶음이면 KAN-159)에 남긴다.
+순서대로 따라 하고 결과를 KAN-157(배포 묶음이면 KAN-159)에 남긴다. 11/3 배포의 전체 순서(마이그레이션·worker·설정)는
+[배포 승인 점검표](release-approval.md)에 있다.
 
 - 대상: 교육장 프로젝트 `proj-skkuls0106-183255377938`, 계정 `skkuls0106@skkukdp.re.kr`, 서울 `asia-northeast3`
 - 서비스: Cloud Run `team4-web`, `team4-platform`, `team4-cs`, `team4-tft`. worker는 Cloud Run Jobs(`infra/deploy_workers.py`).
