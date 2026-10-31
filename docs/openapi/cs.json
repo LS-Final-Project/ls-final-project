@@ -7161,6 +7161,19 @@
             "title": "Id",
             "type": "string"
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "C/S agent in charge. None until review starts.",
+            "title": "Owner User Id"
+          },
           "product_code": {
             "title": "Product Code",
             "type": "string"
@@ -11825,6 +11838,177 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "EMAIL",
+                    "PARTNER_PORTAL",
+                    "WEB_FORM",
+                    "PHONE",
+                    "CHAT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          },
+          {
+            "description": "Exact customer ID.",
+            "in": "query",
+            "name": "customer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact customer ID.",
+              "title": "Customer"
+            }
+          },
+          {
+            "description": "Owner (C/S agent) user ID.",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Owner (C/S agent) user ID.",
+              "title": "Owner"
+            }
+          },
+          {
+            "description": "Received at or after (inclusive).",
+            "in": "query",
+            "name": "received_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received at or after (inclusive).",
+              "title": "Received From"
+            }
+          },
+          {
+            "description": "Received before (exclusive).",
+            "in": "query",
+            "name": "received_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received before (exclusive).",
+              "title": "Received To"
+            }
+          },
+          {
+            "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "received_at_desc",
+              "enum": [
+                "received_at_desc",
+                "received_at_asc"
+              ],
+              "title": "Sort",
+              "type": "string"
             }
           }
         ],

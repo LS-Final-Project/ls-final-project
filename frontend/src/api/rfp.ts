@@ -30,6 +30,7 @@ export type RequirementFilters = {
   status?: RequirementStatus;
   necessity?: Necessity;
   needs_rereview?: boolean;
+  needs_review?: boolean;
   has_open_question?: boolean;
   next_owner_field?: string;
   unresolved_mandatory?: boolean;

@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from 'react';
 
 // 업무 화면 공용 조각(국내 ERP 문법). 새 화면은 ls-shell.css의 kv- 클래스를 직접 쓰지 않고 이 조각을 조립한다.
 
@@ -145,4 +145,19 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
       </tbody>
     </table>
   </div>;
+}
+
+// 대화상자. 바깥을 누르거나 Esc를 누르면 onClose가 불린다. 안의 첫 입력칸으로 초점을 옮긴다.
+export function KvModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const id = useId();
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { box.current?.querySelector<HTMLElement>('select,textarea,input,button')?.focus(); }, []);
+  useHotkey('Escape', onClose);
+  return <>
+    <div className="kv-modal-bg" onClick={onClose} />
+    <div className="kv-modal" role="dialog" aria-modal="true" aria-labelledby={id} ref={box}>
+      <h2 id={id}>{title}</h2>
+      <div className="body">{children}</div>
+    </div>
+  </>;
 }

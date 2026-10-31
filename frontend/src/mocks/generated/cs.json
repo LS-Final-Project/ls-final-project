@@ -15,7 +15,8 @@
             "received_at": "2025-10-14T08:18:51Z",
             "channel": "PHONE",
             "product_code": "TRF-OIL-1000",
-            "workflow_state": "IN_REVIEW"
+            "workflow_state": "IN_REVIEW",
+            "owner_user_id": null
           },
           {
             "id": "22222222-2222-4222-8222-222222222222",
@@ -26,7 +27,8 @@
             "received_at": "2025-10-05T16:42:59Z",
             "channel": "PARTNER_PORTAL",
             "product_code": "TRF-OIL-1000",
-            "workflow_state": "CLOSED"
+            "workflow_state": "CLOSED",
+            "owner_user_id": null
           }
         ],
         "next_cursor": null
