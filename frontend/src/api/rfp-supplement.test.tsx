@@ -21,15 +21,17 @@ test('정식 읽기 경로·필터를 인코딩하고 응답을 그대로 반환
 test('운영 CSRF가 없으면 전송하지 않고 기존 me 응답 토큰을 선택 요청에 사용한다', async () => {
   vi.stubEnv('DEV', false);
   setApiMode('live');
-  const fetcher = vi.fn(async () => new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'bound-token' } }));
+  let token = '';
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ data: { id: 'actor' } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token } }));
   vi.stubGlobal('fetch', fetcher);
-  await expect(selectSupplement('requirement', payload, 'same-key-123')).rejects.toThrow(/세션 확인/);
-  expect(fetcher).not.toHaveBeenCalled();
+  await expect(selectSupplement('requirement', payload, 'same-key-123', 'actor')).rejects.toThrow(/세션 확인/);
+  expect(fetcher.mock.calls).toHaveLength(1);
+  token = 'bound-token';
   await request('/api/v1/platform/me');
-  await selectSupplement('requirement', payload, 'same-key-123');
-  const args = fetcher.mock.calls[1] as unknown as [string, RequestInit];
+  await selectSupplement('requirement', payload, 'same-key-123', 'actor');
+  const args = fetcher.mock.calls.at(-1) as unknown as [string, RequestInit];
   expect(args[1].method).toBe('POST');
   expect(args[1].body).toBe(JSON.stringify(payload));
   expect(args[1].credentials).toBe('same-origin');
-  expect(args[1].headers).toMatchObject({ 'Idempotency-Key': 'same-key-123', 'X-CSRF-Token': 'bound-token' });
+  expect(args[1].headers).toMatchObject({ 'Idempotency-Key': 'same-key-123', 'X-CSRF-Token': token });
 });

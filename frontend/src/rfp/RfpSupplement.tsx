@@ -38,6 +38,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
   const prefix = ['rfp-supplement', mode, userId, projectId];
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [requirementId, setRequirementId] = useState('');
+  const attempts = useRef(new Map<string, string>());
   const cursor = cursors.at(-1);
   const project = useQuery({ queryKey: [...prefix, 'project'], queryFn: () => getProject(projectId) });
   const requirements = useQuery({ queryKey: [...prefix, 'requirements', cursor], queryFn: () => listSupplementRequirements(projectId, cursor), enabled: project.isSuccess });
@@ -64,19 +65,18 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
         <button className="kb" disabled={requirements.isFetching} onClick={() => { setRequirementId(''); void requirements.refetch(); }}>요구 목록 조회</button>{' '}
         <button className="kb" disabled={requirements.isFetching || cursors.length === 1} onClick={() => page(cursors.slice(0, -1))}>이전</button>{' '}
         <button className="kb" disabled={requirements.isFetching || !requirements.data?.data.next_cursor} onClick={() => page([...cursors, requirements.data!.data.next_cursor!])}>다음</button>
-        {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : <KvGrid label="보완 대상 요구" columns={columns} rows={rows} rowKey={r => r.requirement_id} fallback={requirements.isPending ? <Loading /> : '정리된 요구가 없습니다.'} />}
+        {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : <KvGrid label="요구 목록" columns={columns} rows={rows} rowKey={r => r.requirement_id} fallback={requirements.isPending ? <Loading /> : '정리된 요구가 없습니다.'} />}
       </KvBox>
-      {selected && requirements.isSuccess && <RequirementSupplement key={selected.requirement_id} projectId={projectId} requirement={selected} canSelect={canSelect} prefix={prefix} />}
+      {selected && requirements.isSuccess && <RequirementSupplement key={selected.requirement_id} projectId={projectId} requirement={selected} canSelect={canSelect} prefix={prefix} actorId={userId} attempts={attempts.current} />}
     </>}
   </main>;
 }
 
-function RequirementSupplement({ projectId, requirement, canSelect, prefix }: {
-  projectId: string; requirement: RequirementSummary; canSelect: boolean; prefix: string[];
+function RequirementSupplement({ projectId, requirement, canSelect, prefix, attempts, actorId }: {
+  projectId: string; requirement: RequirementSummary; canSelect: boolean; prefix: string[]; attempts: Map<string, string>; actorId: string;
 }) {
   const queryClient = useQueryClient();
   const [saved, setSaved] = useState<SupplementSelected | null>(null);
-  const attempts = useRef(new Map<string, string>());
   const options = useQuery({ queryKey: [...prefix, requirement.requirement_id, 'options'], queryFn: () => getSupplementOptions(requirement.requirement_id), refetchOnWindowFocus: false });
   const candidates = useQuery({ queryKey: [...prefix, requirement.requirement_id, 'candidates'], queryFn: () => listSupplementCandidates(projectId, requirement.requirement_id), refetchOnWindowFocus: false });
   const refresh = () => {
@@ -98,14 +98,15 @@ function RequirementSupplement({ projectId, requirement, canSelect, prefix }: {
       <KvField label="자료 기준 시각">{formatDateTime(options.data.data.known_at)}</KvField>
       {options.data.data.version !== requirement.version
         ? <p role="alert">요구 판본이 변경되었습니다. 보완 최신 조회 후 내용을 확인하세요.</p>
-        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} attempts={attempts.current} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); }} />}
+        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} actorId={actorId} attempts={attempts} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); }} />}
     </>}
   </KvBox>;
 }
 
-function SelectionEditor({ options, candidates, canSelect, onSaved, attempts }: {
-  attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaved: (value: SupplementSelected) => void;
+function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, actorId }: {
+  actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaved: (value: SupplementSelected) => void;
 }) {
+  const queryClient = useQueryClient();
   const [path, setPath] = useState<SupplementOption['path'] | ''>('');
   const [codes, setCodes] = useState<string[]>([]);
   const [roleSplit, setRoleSplit] = useState('');
@@ -117,11 +118,12 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts }: 
   const needsWaiver = option?.gate.requires === 'OWN_DEVELOPMENT_CHECK' && option.gate.status === 'PENDING';
   const excluded = (code: string) => candidates.find(c => c.candidate_code === code)?.grades.some(g => g.requirement_id === options.requirement_id && g.grade === 'EXCLUDED') === true;
   const save = useMutation({ mutationFn: async (payload: SupplementSelection) => {
-    const body = JSON.stringify(payload);
+    const body = JSON.stringify([options.requirement_id, payload]);
     if (!attempts.has(body)) attempts.set(body, crypto.randomUUID());
-    return selectSupplement(options.requirement_id, payload, attempts.get(body)!);
+    return selectSupplement(options.requirement_id, payload, attempts.get(body)!, actorId);
   }, retry: false, onSuccess: value => onSaved(value.data), onError: error => {
     if (error instanceof ApiError && error.status === 409) setConflict(true);
+    if (error instanceof ApiError && (error.code === 'SESSION_CHANGED' || error.status === 401)) void queryClient.invalidateQueries({ queryKey: ['me'] });
   } });
   const valid = canSelect && !conflict && !!option?.allowed && !!roleSplit.trim() && codes.every(c => option.candidate_codes.includes(c) && !excluded(c)) && (!needsWaiver || waiver.trim().length >= 20);
   const columns: KvColumn<SupplementOption>[] = [

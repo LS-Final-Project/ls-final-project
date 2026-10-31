@@ -1,5 +1,6 @@
 import type { paths } from './generated/tft';
 import { ApiError, request, sessionCsrfToken } from './client';
+import { me } from './platform';
 
 type Json<T> = T extends { content: { 'application/json': infer Body } } ? Body : never;
 type Requirements = paths['/api/v1/tft/projects/{project_id}/requirements']['get'];
@@ -23,7 +24,9 @@ export const getSupplementOptions = (requirementId: string) =>
   request<Json<Options['responses'][200]>>(`/api/v1/tft/requirements/${encodeURIComponent(requirementId)}/supplement-options`);
 export const listSupplementCandidates = (projectId: string, requirementId: string) =>
   request<Json<Candidates['responses'][200]>>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}/partner-candidates?${new URLSearchParams({ requirement_id: requirementId })}`);
-export async function selectSupplement(requirementId: string, payload: SupplementSelection, key: string) {
+export async function selectSupplement(requirementId: string, payload: SupplementSelection, key: string, actorId: string) {
+  const actor = await me();
+  if (!actor || actor.data.id !== actorId) throw new ApiError(409, '세션 사용자가 변경되었습니다. 선택 내용을 다시 확인해 주세요.', undefined, 'SESSION_CHANGED');
   const csrf = sessionCsrfToken();
   if (!csrf && !import.meta.env.DEV) throw new ApiError(403, '세션 확인 후 다시 선택해 주세요.');
   return request<Json<Selection['responses'][200]>>(`/api/v1/tft/requirements/${encodeURIComponent(requirementId)}/supplement-selection`, {

@@ -216,3 +216,30 @@ test('요구 페이지 전환은 커서를 사용하고 이전 선택 입력을 
   expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('');
   expect(f.mock.calls.some(([url]) => String(url).includes('cursor=next'))).toBe(true);
 });
+
+test('결과 불명 뒤 다른 요구를 보고 돌아와도 원래 본문 재시도 키를 보존한다', async () => {
+  const f = live((url, init) => init?.method === 'POST' ? jsonResponse(503, errorBody('UNKNOWN', '결과 불명 유지')) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`); await choose();
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText('결과 불명 유지');
+  fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
+  await screen.findByRole('heading', { name: 'R-024 보완 선택' });
+  await choose();
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText('결과 불명 유지');
+  const posts = f.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => init!);
+  expect(posts).toHaveLength(2);
+  expect(posts[0].body).toBe(posts[1].body);
+  expect((posts[0].headers as Record<string, string>)['Idempotency-Key']).toBe((posts[1].headers as Record<string, string>)['Idempotency-Key']);
+});
+
+test('저장 직전 실제 세션이 바뀌면 다른 사용자 명의 POST를 보내지 않는다', async () => {
+  let active = U;
+  const f = live(url => url.endsWith('/platform/me') ? new Response(JSON.stringify({ data: { id: active, roles: ['sales'] } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'fresh-session-token' } }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`); await choose();
+  active = '22222222-2222-4222-8222-222222222222';
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText(/읽기 전용/);
+  expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  expect(screen.queryByRole('textbox', { name: '역할 분담' })).toBeNull();
+});
