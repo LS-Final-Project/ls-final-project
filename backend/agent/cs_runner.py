@@ -109,7 +109,7 @@ class InMemoryTicketSource:
 
 # 제품 경로 초안 기본 설정: 초안 실측 PROPOSED 설정(2026-10-29, adoption draft-proposed-product: flash-lite·
 # max_output_tokens 2048·근거 5건). 출력 상한 기본(AISettings 1024)과 근거 20건으로는 초안 JSON이 잘렸다.
-# 2026-10-31 50건 측정: 4096에서도 초안 4.3%·검증 9.1%가 잘려 초안·검증 모두 6000으로 올렸다(채택 전).
+# 2026-10-31 50건 측정: 4096에서도 초안 4.3%·검증 9.1%가 잘려 초안·검증 모두 6000으로 올렸다.
 DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 6000, "evidence_limit": 5}
 # 2026-10-31 5차 측정: 근거 문장이 늘어 6000에서 검증 2/62가 잘렸다(5,980·5,983토큰, 최대 31.4초).
 # 검증 상한만 올린다. 이 값으로 잰 적은 아직 없다. 잘림 재시도는 비용만 늘어 넣지 않는다.
