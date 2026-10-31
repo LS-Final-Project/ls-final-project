@@ -581,7 +581,7 @@ def summarize_draft_trace(drafts: Mapping[str, Mapping]) -> dict:
             "references": [[종류, ID], ...]}. references는 그 프로젝트에 있는 근거 전부다.
 
     Returns:
-        dict: count(찾은 문장)·denominator·rate(분모 0이면 None)·assumption_only(가정 표시로만 찾은
+        dict: count(찾은 문장)·denominator·rate(분모가 0인 문서가 있으면 None)·assumption_only(가정 표시로만 찾은
             문장)·unresolved_references(프로젝트에 없는 근거 수)·by_case.
     """
     count = denominator = assumption_only = unresolved = 0
@@ -605,7 +605,10 @@ def summarize_draft_trace(drafts: Mapping[str, Mapping]) -> dict:
     return {
         "count": count,
         "denominator": denominator,
-        "rate": count / denominator if denominator else None,
+        # 초안이 빈 문서가 하나라도 있으면 그 문서를 재지 못한 것이다. 나머지로 1.0을 내지 않는다.
+        "rate": count / denominator
+        if by_case and all(c["denominator"] for c in by_case.values())
+        else None,
         "assumption_only": assumption_only,
         "unresolved_references": unresolved,
         "by_case": by_case,

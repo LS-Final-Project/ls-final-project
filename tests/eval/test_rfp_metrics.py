@@ -545,6 +545,17 @@ def test_draft_trace_counts_found_evidence_or_an_assumption_mark():
     assert values["rfp_draft_trace_rate"] == 0.5
 
 
+def test_one_document_without_a_draft_leaves_the_rate_unmeasured():
+    """문서 하나의 초안이 빠졌으면 나머지가 다 찾혀도 값이 없다(게이트 == 1.0 통과 방지)."""
+    full = {
+        "references": [["requirement", "r1"]],
+        "sentences": [sentence(evidence=[("requirement", "r1")])],
+    }
+    summary = summarize_draft_trace({"D1": full, "D2": {"references": [], "sentences": []}})
+    assert summary["rate"] is None and (summary["count"], summary["denominator"]) == (1, 1)
+    assert summary["by_case"]["D2"] == {"count": 0, "denominator": 0}
+
+
 def test_empty_draft_has_no_trace_rate():
     """문장이 없으면 잰 것이 없다. 1.0으로 보고하지 않는다."""
     summary = summarize_draft_trace({"D14": {"references": [], "sentences": []}})
