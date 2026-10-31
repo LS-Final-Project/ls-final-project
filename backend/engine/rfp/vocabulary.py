@@ -84,6 +84,13 @@ FamilyOrOther = Literal[EquipmentFamily, Other]
 ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
+# 한글 미정 표시는 일반 계약 문장에도 나온다("납기는 별도 협의"). 그래서 값 전체가 그 말일 때만 본다.
+# 앞에 라벨 하나는 허용한다("용량: 미정"). 값이 함께 있는 문장을 미정으로 읽으면 판정이 사라진다.
+OPEN_VALUE = re.compile(
+    r"\s*(?:[^.。;:：\n]{1,30}[:：]\s*)?"
+    r"(?:미정|(?:추후|차후|별도)\s*(?:협의|결정|확정|통보)|협의\s*(?:후|하여)\s*(?:결정|확정))"
+    r"(?:임|입니다|이다)?\s*[.。]?\s*"
+)
 # 문장으로 적힌 값의 비교용 표기(canonical_value). 탭은 ±NxS% 또는 +Nx-MxS%(위 N·아래 M단, 단 간격 S%),
 # 보호 기능은 L·S·I·G 순서의 문자 집합이다(업계 표기라 알파벳순이 아니다).
 CANONICAL_FORMS: dict[str, re.Pattern[str]] = {
@@ -132,31 +139,58 @@ def is_placeholder(value: str | None) -> bool:
     Returns:
         bool: 자리표시자면 True.
     """
-    return value is not None and PLACEHOLDER.search(value) is not None
+    if value is None:
+        return False
+    return PLACEHOLDER.search(value) is not None or OPEN_VALUE.fullmatch(value) is not None
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
-# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 부하개폐기(load break, load interrupter)는
+# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 한글도 같다. 단독 유입(빗물 유입), 몰드(몰드 케이스),
+# 퓨즈(제어회로 퓨즈), 개폐는 형식을 말하지 않는다. 부하개폐기(load break, load interrupter)는
 # 퓨즈가 없을 수 있고, epoxy는 코팅·도장에도 쓰며, metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있다.
 FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {
     "switching": {
-        "FUSE_SWITCH": ("fused", "fusible"),
-        "VCB": ("vcb", "vacuum circuit breaker"),
-        "ACB": ("acb", "air circuit breaker"),
-        "MCCB": ("mccb", "molded case", "moulded case"),
+        "FUSE_SWITCH": (
+            "fused",
+            "fusible",
+            "퓨즈 개폐기",
+            "퓨즈 부하개폐기",
+            "퓨즈부 개폐기",
+            "퓨즈부 부하개폐기",
+            "퓨즈 내장",
+        ),
+        "VCB": ("vcb", "vacuum circuit breaker", "진공 차단기"),
+        "ACB": ("acb", "air circuit breaker", "기중 차단기", "공기 차단기"),
+        "MCCB": ("mccb", "molded case", "moulded case", "배선용 차단기", "몰드 케이스"),
     },
     "mounting": {
-        "FIXED": ("fixed mount",),
-        "DRAWOUT": ("drawout", "draw out", "withdrawable"),
+        "FIXED": ("fixed mount", "고정식", "고정형"),
+        "DRAWOUT": ("drawout", "draw out", "withdrawable", "인출식", "인출형"),
     },
     "insulation": {
-        "CAST_RESIN": ("cast resin",),
-        "OIL": ("oil immersed", "liquid filled"),
+        "CAST_RESIN": (
+            "cast resin",
+            "몰드 변압기",
+            "몰드형 변압기",
+            "몰드식 변압기",
+            "수지 몰드",
+            "캐스트 레진",
+        ),
+        "OIL": ("oil immersed", "liquid filled", "유입식", "유입형", "유입 변압기"),
     },
 }
 _FORM_NEGATION = re.compile(
     r"\b(?:not|non|no|un|without|w/o|except|excluding|other than|instead of|rather than)\b"
+    # 외는 옥외·외함에 걸리지 않게 낱말로 설 때만 본다.
+    r"|아닌|아니|제외|없는|없이|불가|금지|이외|대신|(?<![가-힣])외(?:에|의)?(?![가-힣])"
 )
+
+
+def _form_word(word: str) -> str:
+    """축 단어의 검색식. 한글은 조사가 붙고 띄어쓰기가 갈려 앞 글자만 막는다."""
+    if word.isascii():
+        return rf"\b{word}\b"
+    return "(?<![가-힣a-z0-9])" + word.replace(" ", r"\s*")
 
 
 def form_axes(text: str) -> dict[str, str]:
@@ -176,7 +210,7 @@ def form_axes(text: str) -> dict[str, str]:
         found = [
             value
             for value, words in values.items()
-            if any(re.search(rf"\b{word}\b", plain) for word in words)
+            if any(re.search(_form_word(word), plain) for word in words)
         ]
         if len(found) == 1:
             axes[axis] = found[0]

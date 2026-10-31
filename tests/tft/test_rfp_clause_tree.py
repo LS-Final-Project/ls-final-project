@@ -419,3 +419,105 @@ def test_korean_table_decimal_current_is_not_an_english_compound_article():
     )
     assert list(by_no(tree)) == ["제1장", "제1조", "제1조.1"]
     assert by_no(tree)["제1조.1"].table_rows == [["1.5 A.", "상한 값"]]
+
+
+def test_korean_reference_paragraphs_do_not_open_fake_articles():
+    references = [
+        "제3조 제2항에 따라 자료를 확인한다.",
+        "제2조(정의)에 따른 조건을 확인한다.",
+        "제 4 조 (범위)의 내용을 확인한다.",
+        "제5조 제1호를 참조한다.",
+    ]
+    tree = tree_of(
+        p("제1장 일반"),
+        p("제1조(목적) 자료를 보존한다."),
+        *(p(s) for s in references),
+        p("제2조 절차"),
+    )
+    assert [c.clause_no for c in tree.clauses] == ["제1장", "제1조", "제2조"]
+    assert all(reference in by_no(tree)["제1조"].text for reference in references)
+
+
+def test_korean_decimal_headings_follow_actual_numeric_parents():
+    tree = tree_of(
+        p("1. 일반"),
+        p("1.1 범위"),
+        p("본문 자료를 보존한다."),
+        p("1.1.1 세부 범위"),
+        p("확인 이력을 기록한다."),
+        p("1.2 자료"),
+        p("원문 자료를 보존한다."),
+        p("2. 절차"),
+        p("2.1 검토"),
+        p("담당자가 검토한다."),
+    )
+    assert [c.clause_no for c in tree.clauses] == ["1", "1.1", "1.1.1", "1.2", "2", "2.1"]
+    assert [c.parent_no for c in tree.clauses] == [None, "1", "1.1", "1", None, "2"]
+    assert [c.depth for c in tree.clauses] == [2, 3, 4, 3, 2, 3]
+    assert by_no(tree)["1.1"].title == "범위"
+    assert by_no(tree)["1.1.1"].text == "확인 이력을 기록한다."
+
+
+def test_korean_decimal_quantity_reference_sentence_and_orphan_stay_body():
+    body = [
+        "본문의 1.1 항목을 확인한다.",
+        "1.1 밀리미터 범위를 확인한다.",
+        "1.2 조에 따른 자료",
+        "1.3 자료를 확인한다.",
+        "8.1 다른 번호",
+        "1.1.1 부모 없는 항목",
+        "1.4 kV 기준",
+        "1.5 개 부품",
+    ]
+    tree = tree_of(p("1. 일반"), *(p(s) for s in body))
+    assert [c.clause_no for c in tree.clauses] == ["1"]
+    assert all(line in tree.clauses[0].text for line in body)
+
+
+def test_korean_chapter_decimal_context_restores_english_after_part():
+    tree = tree_of(
+        p("제1장 일반"),
+        p("1.1 범위"),
+        p("1.1.1 세부 범위"),
+        p("본문을 보존한다."),
+        p("PART 2 - PRODUCTS"),
+        p("2.1 EQUIPMENT"),
+        p("A. Enclosure shall be painted."),
+    )
+    assert [c.clause_no for c in tree.clauses] == [
+        "제1장",
+        "1.1",
+        "1.1.1",
+        "PART 2",
+        "2.1",
+        "2.1.A",
+    ]
+    assert by_no(tree)["1.1"].parent_no == "제1장"
+    assert by_no(tree)["2.1.A"].depth == 3
+
+
+def test_korean_decimal_titles_do_not_split_nouns_into_unit_and_particle():
+    tree = tree_of(
+        p("1. 일반"),
+        p("1.1 회의 절차"),
+        p("검토 자료를 기록한다."),
+        p("1.2 명의 변경"),
+        p("이력 자료를 보존한다."),
+    )
+    assert [c.clause_no for c in tree.clauses] == ["1", "1.1", "1.2"]
+    assert [c.title for c in tree.clauses] == ["일반", "회의 절차", "명의 변경"]
+    assert [c.parent_no for c in tree.clauses] == [None, "1", "1"]
+
+
+def test_korean_decimal_number_and_standalone_unit_are_quantities_not_titles():
+    quantities = [
+        "1.1 밀리미터",
+        "1.2 볼트 범위",
+        "1.3 회",
+        "1.4 명",
+        "1.5 개 부품",
+        "1.6 암페어 조건",
+    ]
+    tree = tree_of(p("1. 일반"), *(p(line) for line in quantities))
+    assert [c.clause_no for c in tree.clauses] == ["1"]
+    assert all(line in tree.clauses[0].text for line in quantities)

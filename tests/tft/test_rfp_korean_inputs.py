@@ -99,3 +99,11 @@ def test_english_leaf_and_group_input_and_logical_calls_are_unchanged():
         ],
     }
     assert len(split_input(item)) == 1
+
+
+def test_korean_decimal_leaf_body_is_extracted_without_repeating_chapter_title():
+    tree = tree_of("제1장 일반", "1.1 범위", "외함은 도장한다.")
+    assert sections_of(tree) == ["1.1"]
+    [item] = build_inputs(tree, sections_of(tree))
+    assert item.section_title == "범위"
+    assert [(c.clause_no, c.text) for c in item.clauses] == [("1.1", "외함은 도장한다.")]

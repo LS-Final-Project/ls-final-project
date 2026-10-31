@@ -790,3 +790,11 @@
 .ls-root .kv-err h2{margin:0 0 6px;font-size:15px;font-weight:500}
 .ls-root .kv-err p{margin:0 0 10px;font-size:12.5px;line-height:1.6}
 .ls-root .kv-err .meta{font-size:12px;color:var(--erp-muted);margin-top:8px}
+
+/* 옛 화면 영역(.ls-legacy.ls-compact) 안의 글씨·간격을 셸의 촘촘한 크기에 맞춘다. 표시 모양만 바꾼다. */
+.ls-root .ls-legacy.ls-compact{font-size:12.5px;line-height:1.5}
+.ls-root .ls-legacy.ls-compact h2{font-size:13px;margin:0 0 6px;font-weight:500}
+.ls-root .ls-legacy.ls-compact h3{font-size:12.5px;margin:8px 0 4px;font-weight:500}
+.ls-root .ls-legacy.ls-compact p,.ls-root .ls-legacy.ls-compact dd,.ls-root .ls-legacy.ls-compact dt{font-size:12.5px;line-height:1.5;margin:0 0 4px}
+.ls-root .ls-legacy.ls-compact section{margin-top:8px;padding:10px;border-radius:2px;border-color:var(--erp-border)}
+.ls-root .ls-legacy.ls-compact button,.ls-root .ls-legacy.ls-compact select,.ls-root .ls-legacy.ls-compact input,.ls-root .ls-legacy.ls-compact textarea{font-size:12.5px;padding:3px 8px;border-radius:2px}
