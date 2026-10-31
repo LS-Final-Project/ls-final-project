@@ -240,7 +240,7 @@ COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출
 
 ## 초안·회신·개선요청 프롬프트 판본 (KAN-193)
 
-초안(draft)·회신 해석(reply)·개선요청 회신(improvement_reply)·개선요청 초안(improvement_draft)은 채택 기록이 없어(초안은 승격 검사 예외 `NO_ADOPTION`) 실측 전에도 기본 판본을 바꿀 수 있다. 검증(verification)은 v1이다.
+초안(draft)은 v4로 채택했다(`eval/policy/adoptions/draft-20261101-flash36-v4.md`). 기본 판본을 바꾸면 승격 검사가 막으므로 재측정과 채택 갱신이 필요하다. 회신 해석(reply)·개선요청 회신(improvement_reply)·개선요청 초안(improvement_draft)은 채택 기록이 없어 실측 전에도 기본 판본을 바꿀 수 있다. 검증(verification)은 v1이다.
 
 | 판본 | 지문(draft·reply·improvement_reply·improvement_draft) | 바뀐 점 |
 | --- | --- | --- |

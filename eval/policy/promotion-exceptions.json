@@ -2,22 +2,6 @@
   "_note": "eval/promotion.py가 읽는 알려진 승격 문제 목록(KAN-147). 줄마다 사유·티켓이 있어야 하고, MISMATCH는 운영값(deployed)·채택값(adopted)이, NO_ADOPTION은 그 단계의 설정 전체(deployed)가 그대로일 때만 허용되며, 해소되면 이 줄을 지워야 검사가 통과한다. blocker 불합격은 여기에 둘 수 없고 채택 기록의 waivers로만 승인한다.",
   "exceptions": [
     {
-      "stage": "draft",
-      "kind": "NO_ADOPTION",
-      "field": null,
-      "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(초안 max_output_tokens 6000·검증 8192·근거 5건)은 2026-10-31 50건 측정의 잘림(4096에서 초안 4.3%·검증 9.1%, 6000에서 검증 2/62)으로 올린 값이고 검증 8192로 잰 적은 없으며 ADOPTED 승인 전이다. 2026-10-31 KAN-200에서 판본을 v4(문서 사실만 EVIDENCE, 인사 문장 쓰지 않음, 미확인 구분 유지)로 올렸고 v4 실측은 아직 없다. v3는 4차 측정에서 UNCONFIRMED가 사라지고 간결안 요청이 줄어 대체했다. 그 전 2026-10-31 KAN-193에서 판본을 v2(반품 사유·제조 책임·고객 과실 확정 금지 지시 한 줄 추가)로 올렸고, 10-29 실측은 v1 기준이라 채택 실측은 v2로 다시 한다",
-      "ticket": "KAN-147",
-      "recorded_on": "2026-10-31",
-      "deployed": {
-        "model": "gemini-3.6-flash",
-        "prompt_version": "v4",
-        "prompt_fingerprint": "1c35a30973e5c1b7",
-        "max_output_tokens": 6000,
-        "verification_max_output_tokens": 8192,
-        "evidence_limit": 5
-      }
-    },
-    {
       "stage": "rfp_extraction",
       "kind": "NO_ADOPTION",
       "field": null,

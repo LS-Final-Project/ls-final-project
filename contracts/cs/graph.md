@@ -21,7 +21,7 @@
 
 - 분류 분기는 `route_after_classify`다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
 - 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 같은 입력으로 다시 부르지 않는다(금지 약속은 아래 문장 재작성으로 간다). 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
-- 초안 호출 설정(KAN-194 7차): `build_graph(evidence_limit=N)`은 검색 결과 중 앞 N건만 초안 근거로 넘긴다(None이면 전부, 검색 limit·제품 우선 보충은 그대로). 실행기 `build_cs_runner`의 기본은 `DRAFT_DEFAULTS`(측정 뒤 PROPOSED 설정 2026-10-31: 출력 상한 6000, 근거 5건)이며 `draft_knobs`·`evidence_limit`으로 바꾼다.
+- 초안 호출 설정(KAN-194 7차): `build_graph(evidence_limit=N)`은 검색 결과 중 앞 N건만 초안 근거로 넘긴다(None이면 전부, 검색 limit·제품 우선 보충은 그대로). 실행기 `build_cs_runner`의 기본은 `DRAFT_DEFAULTS`(채택 2026-11-01: 출력 상한 6000, 근거 5건)이며 `draft_knobs`·`evidence_limit`으로 바꾼다.
 - 초안 오류 코드(KAN-194 6차): `drafting.validate_output`은 내용 규칙 위반을 `CS_INVALID_OUTPUT`으로 합치지 않고 그 코드를 그대로 올리며, `drafting_call`이 outcome `SCHEMA_VIOLATION`·`error_code=<코드>`로 남긴다. 그래서 결정적 위반(근거 ID 인용 오류 등)은 위 재호출 대상이 아니다.
 
   | `error_code` | 뜻 | 재호출 |
@@ -126,7 +126,7 @@
   한 번 보낸다. 레지스트리 `verification/v1`, 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
   `EVIDENCE` 문장 전수 1:1 대응과 입력 인용 범위를 검사한다. 문의 원문·정답을 새 입력으로 추가하지 않는다.
 - 검증 대상은 `EVIDENCE` 문장뿐이다(입력 판본 `cs-verification-input-v2`). `CONDITION`·`UNCONFIRMED` 문장은 근거를 달지 않아 입력에서 뺀다. 참조·차단어 검사는 모든 문장에 그대로 한다. `EVIDENCE` 문장이 없으면 호출 없이 `NOT_VERIFIED`, 사유 `CS_NO_EVIDENCE_SENTENCES`다.
-- 사례 상태: `EVIDENCE` 문장이 모두 `SUPPORTED`면 `VERIFIED`, 하나라도 아니면 `NEEDS_REVIEW`다. `UNVERIFIABLE`은 재작성하지 않고 표시만 한다. 기본 출력 상한은 초안 6000, 검증 8192다(채택 전, 8192로 측정한 적 없음). 잘림 재시도는 없다. 두 호출의 시간 제한은 60초이고 전용 클라이언트(`draft_ai_settings`)를 쓴다. 공용 `gemini_timeout_ms`(30초)와 분류는 그대로다. 일시 오류 재시도 1회면 호출 하나의 최악은 121초다. lease는 노드마다 연장하고 노드 안에 형식 재호출이 있어 노드 최악은 242초다. `CS_WORKER_LEASE_SECONDS` 기본은 300이고, `main`이 시작할 때 `check_lease(calls=2)`로 더 짧은 설정을 `INVALID_WORKER_CONFIGURATION`으로 막는다.
+- 사례 상태: `EVIDENCE` 문장이 모두 `SUPPORTED`면 `VERIFIED`, 하나라도 아니면 `NEEDS_REVIEW`다. `UNVERIFIABLE`은 재작성하지 않고 표시만 한다. 기본 출력 상한은 초안 6000, 검증 8192다(채택 `draft-20261101-flash36-v4`, 측정은 검증 6000이고 8192로 측정한 적 없음). 잘림 재시도는 없다. 두 호출의 시간 제한은 60초이고 전용 클라이언트(`draft_ai_settings`)를 쓴다. 공용 `gemini_timeout_ms`(30초)와 분류는 그대로다. 일시 오류 재시도 1회면 호출 하나의 최악은 121초다. lease는 노드마다 연장하고 노드 안에 형식 재호출이 있어 노드 최악은 242초다. `CS_WORKER_LEASE_SECONDS` 기본은 300이고, `main`이 시작할 때 `check_lease(calls=2)`로 더 짧은 설정을 `INVALID_WORKER_CONFIGURATION`으로 막는다.
 - 정상 검증에서 `UNSUPPORTED`가 있으면 `rewrite`로 간다. 기존 초안과 실패 문장 이유를
   정제 초안 입력에 붙여 **공급자 호출 한 번만** 재작성한다. 재작성에는 기존 형식 재시도를 적용하지 않는다.
   최초 draft의 기존 형식 재시도(0/1회)는 유지한다. 기존 draft/v1 지시문·입력은 재작성 이외에는 바뀌지 않는다.
