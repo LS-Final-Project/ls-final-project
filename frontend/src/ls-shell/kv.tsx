@@ -161,3 +161,9 @@ export function KvModal({ title, onClose, children }: { title: string; onClose: 
     </div>
   </>;
 }
+
+// 정보 띠(.kv-form). 이름표와 값이 한 칸이고 행마다 columns칸이다.
+export const KvFormRow = ({ children, columns = 4 }: { children: ReactNode; columns?: number }) =>
+  <div className="row" style={{ gridTemplateColumns: `repeat(${columns},1fr)` }}>{children}</div>;
+export const KvFormCell = ({ label, children }: { label: string; children: ReactNode }) =>
+  <label><span>{label}</span><div className="v">{children}</div></label>;
