@@ -109,7 +109,8 @@ class InMemoryTicketSource:
 
 # 제품 경로 초안 기본 설정: 초안 실측 PROPOSED 설정(2026-10-29, adoption draft-proposed-product: flash-lite·
 # max_output_tokens 2048·근거 5건). 출력 상한 기본(AISettings 1024)과 근거 20건으로는 초안 JSON이 잘렸다.
-DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 2048, "evidence_limit": 5}
+# 2026-10-31 50건 측정: 4096에서도 초안 4.3%·검증 9.1%가 잘려 초안·검증 모두 6000으로 올렸다(채택 전).
+DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 6000, "evidence_limit": 5}
 # 분류 출력 상한은 thinking을 포함한다. 공통 기본 1024로는 3.6-flash 50건 중 13건이 잘렸고 4096에서는 0건이었다
 # (2026-10-29 실측, classification-remeasure). 공통 기본값은 다른 호출이 쓰므로 그대로 둔다.
 CLASSIFICATION_DEFAULTS: dict[str, int] = {"max_output_tokens": 4096}

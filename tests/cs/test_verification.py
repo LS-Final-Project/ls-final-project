@@ -12,8 +12,19 @@ import pytest
 
 from backend.api.cs.analysis import service
 from backend.engine.cs.drafting import DraftOutput, EvidenceSnippet
-from backend.engine.cs.verification import build_verification_input, instruction, validate_output
+from backend.engine.cs.verification import (
+    NO_EVIDENCE_SENTENCES,
+    VerificationInput,
+    VerificationOutput,
+    VerificationSentence,
+    build_verification_input,
+    case_status,
+    instruction,
+    rewrite_targets,
+    validate_output,
+)
 from backend.engine.cs.verification_call import run_verification_attempt
+from backend.engine.search.hybrid import BLOCKED_CODES
 from backend.shared.ai import Generation, Usage
 from tests.cs.graph_fakes import draft_provider, verification_provider
 
@@ -225,3 +236,107 @@ def test_api_view_distinguishes_history_failures_and_supported_results():
     assert view.verification_status == "NOT_VERIFIED" and len(view.verifications) == 2
     unsupported = {**row, "sentences": [{**s, "verdict": "UNSUPPORTED"} for s in row["sentences"]]}
     assert service.verified_draft(draft, [unsupported]).verification_status == "NEEDS_REVIEW"
+
+
+EVIDENCE = [
+    EvidenceSnippet(
+        chunk_id="c1", snippet="Synthetic answer.", section_path=[], document_sha256="a" * 64
+    )
+]
+
+
+def mixed_draft(*kinds):
+    """첫 선택지 앞에 비근거 문장을 끼운 합성 초안. 문장 번호가 건너뛰는지 본다."""
+    data = json.loads(
+        draft_provider(
+            "\n\n입력:\n" + json.dumps({"evidence": [{"chunk_id": "c1"}], "request_info_codes": []})
+        ).text
+    )
+    extra = [{"text": "합성 조건 문장", "kind": kind, "evidence_chunk_ids": []} for kind in kinds]
+    data["options"][0]["sentences"] = [*extra, *data["options"][0]["sentences"]]
+    return DraftOutput.model_validate(data)
+
+
+def test_only_evidence_sentences_are_sent_and_keep_their_index():
+    draft = mixed_draft("CONDITION", "UNCONFIRMED")
+    item = build_verification_input(draft, EVIDENCE)
+    assert {s.kind for s in item.sentences} == {"EVIDENCE"}
+    first = draft.options[0].label
+    assert [s.sentence_index for s in item.sentences if s.label == first] == [2]
+
+
+def test_a_draft_without_evidence_sentences_has_nothing_to_verify():
+    draft = mixed_draft("CONDITION")
+    for option in draft.options:
+        option.sentences[:] = [s for s in option.sentences if s.kind != "EVIDENCE"]
+    data = draft.model_dump()
+    for option in data["options"]:
+        option["sentences"] = option["sentences"] or [
+            {"text": "합성 조건 문장", "kind": "CONDITION", "evidence_chunk_ids": []}
+        ]
+    with pytest.raises(ValueError, match=NO_EVIDENCE_SENTENCES):
+        build_verification_input(DraftOutput.model_validate(data), EVIDENCE)
+
+
+def test_excluded_sentences_are_still_checked_for_references_and_blocked_codes():
+    draft = mixed_draft("CONDITION").model_dump()
+    draft["options"][0]["sentences"][0]["evidence_chunk_ids"] = ["missing"]
+    with pytest.raises(ValueError, match="CS_UNKNOWN_REFERENCE"):
+        build_verification_input(DraftOutput.model_validate(draft), EVIDENCE)
+    draft = mixed_draft("CONDITION").model_dump()
+    draft["options"][0]["sentences"][0]["text"] = f"합성 {sorted(BLOCKED_CODES)[0]} 문장"
+    with pytest.raises(ValueError, match="CS_BLOCKED_EVIDENCE"):
+        build_verification_input(DraftOutput.model_validate(draft), EVIDENCE)
+
+
+def test_stored_path_payload_of_every_sentence_expects_only_evidence_verdicts():
+    """저장 경로(service.record_verification)는 초안 전체 문장으로 payload를 만든다."""
+    draft = mixed_draft("CONDITION")
+    every = VerificationInput(
+        sentences=[
+            VerificationSentence(label=o.label, sentence_index=i, **s.model_dump())
+            for o in draft.options
+            for i, s in enumerate(o.sentences)
+        ],
+        evidence=[],
+    )
+    narrow = build_verification_input(draft, EVIDENCE)
+    raw = verification_provider("\n\n입력:\n" + narrow.model_dump_json()).text
+    assert validate_output(raw, payload=every).sentences
+    data = json.loads(raw)
+    data["sentences"].append(
+        {
+            "label": draft.options[0].label,
+            "sentence_index": 0,
+            "verdict": "UNVERIFIABLE",
+            "reason": "합성",
+            "evidence_chunk_ids": [],
+        }
+    )
+    with pytest.raises(ValueError, match="CS_VERIFICATION_SENTENCE_MISMATCH"):
+        validate_output(json.dumps(data), payload=every)
+
+
+@pytest.mark.parametrize(
+    ("verdicts", "status", "rewrite"),
+    [
+        (["SUPPORTED", "SUPPORTED"], "VERIFIED", 0),
+        (["SUPPORTED", "UNVERIFIABLE"], "NEEDS_REVIEW", 0),
+        (["UNSUPPORTED", "UNVERIFIABLE"], "NEEDS_REVIEW", 1),
+    ],
+)
+def test_case_status_and_rewrite_follow_the_verdicts(verdicts, status, rewrite):
+    output = VerificationOutput(
+        sentences=[
+            {
+                "label": "INFO_FIRST",
+                "sentence_index": index,
+                "verdict": verdict,
+                "reason": "합성",
+                "evidence_chunk_ids": ["c1"] if verdict == "SUPPORTED" else [],
+            }
+            for index, verdict in enumerate(verdicts)
+        ]
+    )
+    assert case_status(output) == status
+    assert len(rewrite_targets(output)) == rewrite

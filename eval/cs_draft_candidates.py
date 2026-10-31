@@ -13,7 +13,12 @@ from typing import Literal
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import EvidenceSnippet, RevisionFeedback, RevisionSentence
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
-from backend.engine.cs.verification import build_verification_input
+from backend.engine.cs.verification import (
+    NO_EVIDENCE_SENTENCES,
+    build_verification_input,
+    case_status,
+    rewrite_targets,
+)
 from backend.engine.cs.verification_call import VerificationAttempt, run_verification_attempt
 from backend.shared.ai import Generation, ModelPrice, estimate_cost
 from eval.cs_draft_metrics import INVALID_OUTPUT, DraftGold, summarize_draft_first_attempts
@@ -109,13 +114,15 @@ def _verify_case(
         return VerificationRun(skipped="CS_DRAFT_MISSING")
     try:
         payload = build_verification_input(drafted.prediction, case.evidence)
-    except ValueError:
-        return VerificationRun(skipped="CS_VERIFICATION_INPUT_INVALID")
+    except ValueError as error:
+        nothing = error.args == (NO_EVIDENCE_SENTENCES,)
+        return VerificationRun(
+            skipped=NO_EVIDENCE_SENTENCES if nothing else "CS_VERIFICATION_INPUT_INVALID"
+        )
     first = run_verification_attempt(payload, provider=verifier, attempt_number=1)
     failed = [
         RevisionSentence(label=s.label, sentence_index=s.sentence_index, reason=s.reason)
-        for s in (first.prediction.sentences if first.prediction else [])
-        if s.verdict != "SUPPORTED"
+        for s in (rewrite_targets(first.prediction) if first.prediction else [])
     ]
     if not failed:
         return VerificationRun(first=first)
@@ -155,8 +162,7 @@ def _status(attempt: VerificationAttempt | None) -> str:
     """
     if attempt is None or attempt.prediction is None:
         return "NOT_VERIFIED"
-    good = all(s.verdict == "SUPPORTED" for s in attempt.prediction.sentences)
-    return "VERIFIED" if good else "NEEDS_REVIEW"
+    return case_status(attempt.prediction)
 
 
 def _verification_row(

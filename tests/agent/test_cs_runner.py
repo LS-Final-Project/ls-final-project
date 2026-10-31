@@ -279,7 +279,7 @@ def test_runner_draft_uses_measured_output_limit_and_evidence_count(
     Returns:
         None: 요청 본문의 출력 상한·근거 수·시도 요약 finish_reasons를 확인한다.
     """
-    assert DRAFT_DEFAULTS == {"max_output_tokens": 2048, "evidence_limit": 5}
+    assert DRAFT_DEFAULTS == {"max_output_tokens": 6000, "evidence_limit": 5}
     graph = runner(InMemorySaver(), InMemoryTicketSource({"t-1": TICKET}), **kwargs)
     outcome = run_ticket(graph, "thread-k", "t-1")
     classify, draft, verification = (
@@ -441,7 +441,7 @@ def test_the_worker_gives_classification_its_own_model_and_limit(monkeypatch):
     monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", "2048")
     cs_worker.build_runner(settings, parts, InMemorySaver())
     assert classification[-1]["model"] == "m-lite"
-    assert classification[-1]["generation"].max_output_tokens == 2048
+    assert classification[-1]["generation"].max_output_tokens == 6000
     assert {call["model"] for call in text} == {"m-common"}
 
 

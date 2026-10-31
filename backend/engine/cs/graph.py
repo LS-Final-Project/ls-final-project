@@ -38,7 +38,14 @@ from backend.engine.cs.drafting import (
 )
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
 from backend.engine.cs.rules import RuleInputError, decide, product_family
-from backend.engine.cs.verification import build_verification_input, unverified_output
+from backend.engine.cs.verification import (
+    NO_EVIDENCE_SENTENCES,
+    VerificationOutput,
+    build_verification_input,
+    case_status,
+    rewrite_targets,
+    unverified_output,
+)
 from backend.engine.cs.verification_call import VerificationAttempt, run_verification_attempt
 from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import SearchFilters
@@ -489,11 +496,12 @@ def build_graph(
                 DraftOutput.model_validate(state["draft"]),
                 [EvidenceSnippet.model_validate(e) for e in state["evidence"]],
             )
-        except ValueError:
+        except ValueError as error:
+            nothing = error.args == (NO_EVIDENCE_SENTENCES,)
             return {
                 "verification": {
                     "status": "NOT_VERIFIED",
-                    "reason": "CS_VERIFICATION_INPUT_INVALID",
+                    "reason": NO_EVIDENCE_SENTENCES if nothing else "CS_VERIFICATION_INPUT_INVALID",
                     "sentences": [],
                 }
             }
@@ -534,14 +542,13 @@ def build_graph(
                 "errors": _error(state, "verify", code),
             }
         verdicts = attempt.prediction
-        status = (
-            "VERIFIED"
-            if all(s.verdict == "SUPPORTED" for s in verdicts.sentences)
-            else "NEEDS_REVIEW"
-        )
         return {
             **recorded,
-            "verification": {"status": status, "reason": None, **verdicts.model_dump()},
+            "verification": {
+                "status": case_status(verdicts),
+                "reason": None,
+                **verdicts.model_dump(),
+            },
         }
 
     def rewrite(state: CsState) -> dict[str, Any]:
@@ -555,7 +562,7 @@ def build_graph(
                     label=s["label"], sentence_index=s["sentence_index"], reason=s["reason"]
                 )
                 for s in (state.get("verification") or {}).get("sentences", [])
-                if s["verdict"] != "SUPPORTED"
+                if s["verdict"] == "UNSUPPORTED"
             ],
         )
         attempt = run_draft_attempt(
@@ -584,11 +591,12 @@ def build_graph(
         }
 
     def after_verify(state: CsState) -> str:
-        return (
-            "rewrite"
-            if (state.get("verification") or {}).get("status") == "NEEDS_REVIEW"
-            else HUMAN_REVIEW
-        )
+        # 미검증 답도 UNVERIFIABLE로 채워지지만 상태가 NEEDS_REVIEW가 아니라 재작성하지 않는다.
+        verification = state.get("verification") or {}
+        if verification.get("status") != "NEEDS_REVIEW":
+            return HUMAN_REVIEW
+        found = VerificationOutput.model_validate({"sentences": verification["sentences"]})
+        return "rewrite" if rewrite_targets(found) else HUMAN_REVIEW
 
     def after_rewrite(state: CsState) -> str:
         return "reverify" if state.get("draft_rewritten") else HUMAN_REVIEW
