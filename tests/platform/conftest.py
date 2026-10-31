@@ -184,6 +184,10 @@ def jobs_database(auth_database, request):
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
         migration = Path("infra/migrations/platform/20261108_KAN-159_job_reap.sql").read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path(
+            "infra/migrations/platform/20261109_KAN-188_draft_rewrite_jobs.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 

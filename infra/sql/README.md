@@ -107,6 +107,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | T16 | `tft/20261108_KAN-201_worker_notifications.sql` | T1·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | tft_worker의 `tft.projects.responsible_user_id` SELECT | 미확인 |
 | T17 | `tft/20261109_KAN-188_draft_execution.sql` | T7·T10~T15(헤더) | postgres(역할 확인) → tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `draft_sentences.needs_rereview`·`draft_versions.source_job_id` 및 제한 worker 권한 | 미확인 |
 | T18 | `tft/20261110_KAN-188_worker_output_status.sql` | T1·T7·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `has_column_privilege('tft_worker','tft.projects','output_status','UPDATE')` | 미적용 |
+| T19 | `tft/20261111_KAN-188_draft_rewrite.sql` | T14·T17 | tft_migrator | 가능 | template_text·모델 사용량/대체 사유 저장 | 미적용 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
@@ -139,6 +140,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | 운영자(CREATE SCHEMA) → platform_migrator | 가능 | to_regclass('notify.notification_intents') | 미확인 |
 | P31 | `platform/20261102_KAN-201_web_push.sql` | P30 | platform_migrator | 가능 | notify.push_subscriptions / push_deliveries | 미확인 |
 | P32 | `platform/20261108_KAN-159_job_reap.sql` | P28(헤더) | platform_migrator | 가능 | has_column_privilege('platform_app','runtime.job_control','failure_code','UPDATE') | 미적용 |
+| P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능 | rfp.draft_rewrite 접수 제약 | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 

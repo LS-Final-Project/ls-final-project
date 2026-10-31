@@ -1123,7 +1123,7 @@ def test_replaced_source_does_not_cover_a_different_path_or_new_condition(snapsh
     original = build_draft(**snapshot)
     old = sentences(original, "DEVIATIONS")[0].model_copy(deep=True)
     # 같은 절과 근거 집합만으로는 다른 경로의 문장을 대체할 수 없다.
-    old.text = "다른 보완 경로의 원래 자동 제목."
+    old.text = old.template_text = "다른 보완 경로의 원래 자동 제목."
     result = build_draft(**snapshot, replaced=[s.Section(section="DEVIATIONS", sentences=[old])])
     assert result == original
     old = sentences(original, "CUSTOMER_GOAL_SCOPE")[0]
@@ -1199,3 +1199,15 @@ def test_replacement_fingerprint_uses_full_original_snapshot_after_human_referen
         str(second.requirement_id)
     }
     assert next(row for row in goal if row.provenance_kind == "human_input") == before
+
+
+def test_rewritten_template_fingerprint_survives_human_edit_and_regeneration(snapshot):
+    original = build_draft(**snapshot)
+    automatic = sentences(original, "OUR_RESPONSE")[0].model_copy(deep=True)
+    automatic.text = "모델이 한국어로 다시 작성한 문장"
+    automatic.provenance_kind = "ai_draft"
+    regenerated = build_draft(
+        **snapshot, replaced=[s.Section(section="OUR_RESPONSE", sentences=[automatic])]
+    )
+    assert sentences(regenerated, "OUR_RESPONSE") == []
+    assert automatic.template_text != automatic.text

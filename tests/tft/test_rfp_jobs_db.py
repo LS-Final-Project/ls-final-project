@@ -317,3 +317,36 @@ def test_an_unexpected_failure_while_reading_the_answer_restores_the_status(
     client.app.state.processing_jobs.post = broken
     assert process(client, chain, reason="재처리").status_code == 500
     assert detail(client, chain)["output_status"] == "REVIEW_DRAFT"
+
+
+def test_explicit_draft_rewrite_version_is_authorized_idempotent_and_stale_safe(
+    client, app_dsn, chain, platform
+):
+    from tests.tft.test_rfp_draft_routes_db import generate
+
+    generate(app_dsn, chain, uuid4())
+    url = f"/api/v1/tft/projects/{chain['project']}/draft/rewrite"
+    key = uuid4().hex
+    headers = {**principal_header(OWNER), "Idempotency-Key": key}
+    accepted = client.post(url, json={"version": 1}, headers=headers)
+    assert accepted.status_code == 202, accepted.text
+    assert platform.bodies[-1]["kind"] == "rfp.draft_rewrite"
+    replay = client.post(url, json={"version": 1}, headers=headers)
+    assert replay.status_code == 202 and replay.json()["data"] == accepted.json()["data"]
+    calls = len(platform.bodies)
+    changed = client.post(url, json={"version": 2}, headers=headers)
+    assert changed.status_code == 409 and len(platform.bodies) == calls
+    stale = client.post(
+        url,
+        json={"version": 2},
+        headers={**principal_header(OWNER), "Idempotency-Key": uuid4().hex},
+    )
+    assert stale.status_code == 409 and len(platform.bodies) == calls
+    for who, status in ((REVIEWER, 403), (OUTSIDER, 404)):
+        denied = client.post(
+            url,
+            json={"version": 1},
+            headers={**principal_header(who), "Idempotency-Key": uuid4().hex},
+        )
+        assert denied.status_code == status
+    assert len(platform.bodies) == calls

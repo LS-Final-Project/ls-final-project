@@ -77,6 +77,7 @@ export const businessRoutes = [
   ['/api/v1/tft/documents/{uuid}', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
   ['/api/v1/tft/projects/{uuid}/draft', ['GET', 'PATCH'], ['version']],
+  ['/api/v1/tft/projects/{uuid}/draft/rewrite', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/review-versions', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/exports', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file', ['GET'], []],

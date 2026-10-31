@@ -89,7 +89,7 @@ DepartmentKind = Literal["SALES", "RND", "TECH", "PURCHASE", "OTHER"]
 ProposalOrigin = Literal["web", "customer_reply", "pdf_annot"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED"]
 ProposerKind = Literal["user", "system"]
-JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate"]
+JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite"]
 JobStep = Literal[
     "parse",
     "extract",
@@ -765,6 +765,7 @@ class Evidence(Model):
 
 
 class Sentence(Model):
+    template_text: str | None = Field(default=None, max_length=4000)
     sentence_id: UUID
     text: str
     evidence: list[Evidence]
@@ -800,6 +801,10 @@ class SentenceEdit(Model):
 class DraftEdit(Model):
     version: int = Field(ge=1)
     edits: list[SentenceEdit] = Field(min_length=1, max_length=50)
+
+
+class DraftRewrite(Model):
+    version: int = Field(ge=1)
 
 
 class ReviewVersionCreate(Model):

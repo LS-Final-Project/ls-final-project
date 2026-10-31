@@ -56,3 +56,28 @@ def test_a_lease_shorter_than_one_model_call_refuses_to_start(monkeypatch, lease
     else:
         worker_processor.build(settings)
         assert len(created) == 1
+
+
+def test_rewrite_provider_is_lazy_uses_array_schema_and_disables_transport_retries(monkeypatch):
+    from backend.engine.rfp.draft_rewrite import RewriteOutput
+
+    created, seen = [], {}
+    monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "client")
+
+    def generate(client, settings, text, *, response_schema):
+        seen.update(schema=response_schema, settings=settings)
+        return "generation"
+
+    monkeypatch.setattr(ai, "generate", generate)
+    provider = worker_processor.rewrite_provider(
+        ProcessorSettings(_env_file=None, draft_rewrite_provider="gemini")
+    )
+    assert created == []
+    assert provider("fake prompt") == "generation"
+    assert seen["schema"] is RewriteOutput
+    assert (
+        seen["settings"].gemini_max_output_tokens,
+        seen["settings"].gemini_timeout_ms,
+        seen["settings"].gemini_transient_retries,
+    ) == (8192, 120000, 0)
+    assert provider("another fake prompt") == "generation" and len(created) == 1
