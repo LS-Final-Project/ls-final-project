@@ -54,6 +54,9 @@ export const submitDeptResult = (ticketId: string, body: DeptResultBody, signal:
 export const returnTransfer = (ticketId: string, body: { reason: string; version: number }, signal: AbortSignal) => postTo(`${base(ticketId)}/return`, body, signal, 'POST', 'dept_staff');
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
+// 한국어 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
+export const createTicketSummary = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/summary`, {}, signal);
+
 export const isResultVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_DEPT_RESULT_VERSION_CONFLICT';
 export const isResolutionExists = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_RESOLUTION_CASE_EXISTS';
 export const isInvalidOwner = (error: unknown) => error instanceof ApiError && error.status === 422 && error.code === 'CS_INVALID_OWNER';
