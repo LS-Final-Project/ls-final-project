@@ -668,11 +668,8 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
         )
     assert kept == profiles[0].notes
     monkeypatch.setenv("DATABASE_URL", "postgresql://tft_app:x@db.example.invalid:5432/team4")
-<<<<<<< HEAD
     assert main([]) == 0
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["mode"] == "dry-run"
-=======
-    assert main([]) == 1 and "TFT_SEED_NEEDS_LOCAL_DB" in capsys.readouterr().err
 
 
 def test_rewrite_command_survives_entire_migration_reapplication(admin, chain):
@@ -712,4 +709,3 @@ def test_reapplied_command_constraints_match_runtime_operations(admin):
         )
         assert check is not None
         assert set(re.findall(r"'([^']+)'", check[1])) == OPERATIONS
->>>>>>> origin/dev
