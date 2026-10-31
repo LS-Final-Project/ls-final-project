@@ -5,7 +5,7 @@ import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { getApiMode } from '../api/client';
-import { getTicket } from '../api/cs';
+import { getTicket, getTicketAnalysis } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
 import { KvKey, KvMore, KvTitle, useHotkey } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
@@ -24,6 +24,9 @@ export default function TicketDetail() {
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
   const ticket = useQuery({ queryKey: ['tickets', mode, ticketId], queryFn: ({ signal }) => getTicket(ticketId, signal), enabled: access.ready && ticketId !== '' });
+  // 기한을 읽는 사람이 등급이 추정임을 알아야 한다. 안내일 뿐이라 분석을 못 읽어도 화면은 그대로다.
+  const analysis = useQuery({ queryKey: ['ticket-analysis', mode, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
+  const tierNote = analysis.data?.data?.rules?.tier_note;
   useHotkey('Escape', () => navigate('/cs/tickets'), access.ready);
   if (!access.ready) return <BusinessGate access={access} title="문의 처리" />;
   const data = ticket.isSuccess ? ticket.data.data : undefined;
@@ -49,6 +52,8 @@ export default function TicketDetail() {
       <button className="kb" style={{ marginLeft: 'auto', flex: 'none', whiteSpace: 'nowrap' }} disabled={ticket.isFetching} onClick={() => void ticket.refetch()}>최신 상태 조회</button>
     </div>
     <div className="kv-sub" style={{ margin: '4px 14px 0' }}>API 조회 상태와 상태별 일반 안내입니다. 실행 권한이나 후속 작업의 완료를 보장하지 않습니다. 요약, 분류, 문안은 아직 없음, KAN-103과 106 뒤</div>
+
+    {tierNote && <div className="kv-sub" role="note" style={{ margin: '4px 14px 0' }}>{tierNote}</div>}
 
     {ticket.isPending && <Loading />}
     {ticket.isError && <ErrorState error={ticket.error} onRetry={() => void ticket.refetch()} />}

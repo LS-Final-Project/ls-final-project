@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from backend.engine.cs import rules
 
+TIER_UNKNOWN_NOTE = "등급 미확인, 표준 기준 계산"
 CORRECTABLE_FIELDS = ("category_code", "secondary_category", "urgency_flag", "provided_info")
 Source = Literal["ai_draft", "human_input"]
 
@@ -73,6 +74,11 @@ def merge_deadline(ai: datetime | None, corrected: datetime | None) -> Deadline:
     return Deadline(ai, corrected, ai, "ai_draft")
 
 
+def tier_note(customer_tier: str | None) -> str | None:
+    """Why the deadlines may not fit this customer, for the person reading them."""
+    return None if customer_tier else TIER_UNKNOWN_NOTE
+
+
 def decide_or_none(
     values: dict[str, Any],
     *,
@@ -82,11 +88,13 @@ def decide_or_none(
     confirmed_subtype: rules.ReturnSubtype | None,
     received_at: datetime,
 ) -> tuple[rules.RuleDecision | None, str | None]:
-    """Runs the rules, or says why it cannot (missing input or a value outside the policy)."""
+    """Runs the rules, or says why it cannot (missing input or a value outside the policy).
+
+    An unknown tier is not a failure: the standard tier is used and nothing is stored. The caller
+    shows the reason, see `tier_note`.
+    """
     if values.get("category_code") is None or values.get("urgency_flag") is None:
         return None, "CS_CLASSIFICATION_MISSING"
-    if not customer_tier:
-        return None, "CS_CUSTOMER_TIER_UNKNOWN"
     # The stated return reason only applies while the primary category is RETURN.
     stated = return_subtype if values["category_code"] == "RETURN" else None
     try:
@@ -95,7 +103,7 @@ def decide_or_none(
                 category=values["category_code"],
                 urgency=values["urgency_flag"],
                 product_code=product_code,
-                customer_tier=customer_tier,
+                customer_tier=customer_tier or rules.DEFAULT_CUSTOMER_TIER,
                 return_subtype=stated,
                 received_at=received_at,
                 confirmed_subtype=confirmed_subtype,

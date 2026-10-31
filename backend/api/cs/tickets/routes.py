@@ -200,13 +200,12 @@ async def create_ticket(
         "source": "manual",
         "source_instance": "cs_api",
         "external_id": None,
-        "data_origin": (
-            settings.cs_manual_data_origin if settings.business_relay_enabled else "demo"
-        ),
         "derivation_kind": "SYSTEM",
         "received_at": now,
         "known_at": now,
         **payload.model_dump(),
+        "data_origin": payload.data_origin
+        or (settings.cs_manual_data_origin if settings.business_relay_enabled else "demo"),
     }
     bind(ticket_id=values["id"])
     # The original body is immutable and stays in the ticket row, not in the audit trail.

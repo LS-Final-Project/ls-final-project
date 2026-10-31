@@ -113,9 +113,32 @@ def test_create_sets_server_owned_fields_and_audits_without_the_body(client, sto
     assert audit[0]["changes"]["product_code"] == {"to": "TRF-OIL-1000"}
 
 
+def test_create_keeps_the_given_tier_and_marks_a_loaded_ticket_synthetic(client, store):
+    given = {**NEW, "customer_tier": "GOLD", "data_origin": "synthetic"}
+    result = client.post("/api/v1/cs/tickets", json=given)
+    assert result.status_code == 201
+    assert result.json()["data"]["data_origin"] == "synthetic"
+    tickets, _ = store
+    saved = next(iter(tickets.values()))
+    assert saved["customer_tier"] == "GOLD"
+
+
+def test_create_leaves_an_unknown_tier_empty(client, store):
+    create(client)
+    tickets, _ = store
+    assert next(iter(tickets.values()))["customer_tier"] is None
+
+
 @pytest.mark.parametrize(
     "extra",
-    [{"data_origin": "real"}, {"external_id": "CSV1-1"}, {"version": 3}, {"known_at": "2020"}],
+    [
+        {"data_origin": "real"},
+        {"data_origin": "demo"},
+        {"customer_tier": "VIP"},
+        {"external_id": "CSV1-1"},
+        {"version": 3},
+        {"known_at": "2020"},
+    ],
 )
 def test_create_rejects_server_owned_fields(client, extra):
     assert client.post("/api/v1/cs/tickets", json={**NEW, **extra}).status_code == 422

@@ -30,7 +30,7 @@
 - 규칙(`rules.decide`)을 두 번 계산한다. AI 값으로 한 번(`rules.ai`), 유효값으로 한 번(`rules.effective`). 정정이 없으면 둘은 같다.
 - 우선순위·담당 부서·에스컬레이션 후보·사람 확인 사유는 `rules.effective`를 따른다.
 - 첫 응답·해결 기한은 각각 **AI 기준 기한과 정정 기준 기한 중 이른 쪽**이다. 둘 다 접수 시각부터 센다. 긴급도를 올리는 정정은 기한을 당기고, 낮추는 정정은 기한을 AI 기준보다 늦추지 못한다. 같으면 AI 기한이고 출처는 `ai_draft`다. 정정이 늦었으면 바로 위반 시각이 지나 있을 수 있다.
-- 규칙을 못 돌리면 이유를 돌려준다: 분석 없음 `CS_ANALYSIS_MISSING`, 분류·긴급도 없음 `CS_CLASSIFICATION_MISSING`, 고객 등급 없음(수동 접수 문의) `CS_CUSTOMER_TIER_UNKNOWN`, 정책 밖 값 `CS_RULE_INPUT`. 고객 등급은 제공 기록(`cs.ticket_source_records.customer_tier`)에서만 읽는다.
+- 규칙을 못 돌리면 이유를 돌려준다: 분석 없음 `CS_ANALYSIS_MISSING`, 분류·긴급도 없음 `CS_CLASSIFICATION_MISSING`, 정책 밖 값 `CS_RULE_INPUT`. 고객 등급은 접수 때 받은 `cs.tickets.customer_tier`, 없으면 제공 기록 `cs.ticket_source_records.customer_tier`다. 둘 다 없으면(메일 등록 등) 실패하지 않고 `STANDARD`로 계산하며 `rules.tier_note`에 `등급 미확인, 표준 기준 계산`을 낸다. 없는 값을 저장하지 않으므로 고객 등급 표가 생기면 그대로 채울 수 있다.
 - 반품: 주장값(`return_subtype`, AI)은 유효 주분류가 `RETURN`일 때만 쓰고, 사람 확정값(업무 상태)이 있으면 그것을 우선한다(KAN-193).
 
 ## 부족 정보
@@ -58,7 +58,7 @@
 
 플랫폼 worker(KAN-194 `backend/agent/cs_worker.py`)가 고정 모듈로 부르는 `build(settings) -> WorkerParts`다. 역할 경계는 KAN-107 댓글 10719·10760.
 
-- **`load_ticket`**: `cs.tickets`의 채널·언어·제목·본문·제품·접수 시각과 `cs.ticket_source_records.customer_tier`를 읽는다. 고객 식별자·기록된 정답·사후 기록은 읽지 않는다.
+- **`load_ticket`**: `cs.tickets`의 채널·언어·제목·본문·제품·접수 시각과 고객 등급(`cs.tickets.customer_tier`, 없으면 제공 기록)을 읽는다. 고객 식별자·기록된 정답·사후 기록은 읽지 않는다.
   - 유형별 필요 정보는 제품 계열(`rules.product_family`)의 `eval/policy/cs_required_info.csv` 행이고, 초안 노드가 분류 결과 유형으로 고른다. 정책 밖 제품은 빈 지도다.
   - 이미 요청한 정보: 플랫폼이 접수(ACCEPTED)해 업무 상태에 반영된 발송(`recorded_at` 있음)의 `requested_info_codes` 합집합. 승인만 되고 나가지 않은 메시지는 넣지 않는다.
   - 민감값 목록은 빈 값이다(제공 자료는 적재 때 마스킹, 2026-10-30 결정). 적재 어댑터(KAN-92)가 주면 여기서 읽는다. 고객 등급이 없는 문의(직접 등록)는 빈 값이라 규칙 노드가 `CS_RULE_INPUT`으로 남긴다.

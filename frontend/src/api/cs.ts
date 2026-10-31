@@ -10,3 +10,6 @@ export type TicketUnitsResponse = paths['/api/v1/cs/tickets/{ticket_id}/units'][
 export type UnitHistoryResponse = paths['/api/v1/cs/tickets/{ticket_id}/unit-history']['get']['responses'][200]['content']['application/json'];
 export const getTicketUnits = (id: string, signal?:AbortSignal) => request<TicketUnitsResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/units`, {signal});
 export const getUnitHistory = (id: string, signal?:AbortSignal) => request<UnitHistoryResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/unit-history`, {signal});
+
+export type TicketAnalysisResponse = paths['/api/v1/cs/tickets/{ticket_id}/analysis']['get']['responses'][200]['content']['application/json'];
+export const getTicketAnalysis = (id: string, signal?:AbortSignal) => request<TicketAnalysisResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/analysis`, {signal, mockFallback: () => ({ data: { rules: { tier_note: null } } })});

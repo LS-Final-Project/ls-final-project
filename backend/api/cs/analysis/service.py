@@ -249,6 +249,7 @@ async def build(conn: Any, ticket_id: UUID) -> TicketAnalysis:
             ai_error=ai_error,
             effective=rule_view(effective_rules),
             effective_error=effective_error,
+            tier_note=analysis.tier_note(tier),
             first_response_due=DeadlineView(**vars(first)),
             resolution_due=DeadlineView(**vars(resolution)),
         ),
