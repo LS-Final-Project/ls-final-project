@@ -26,7 +26,7 @@
 
 | 메서드 | 허용 | 동작 |
 | --- | --- | --- |
-| `GET` | 문의 조회 범위 | 가장 최근의 성공한 요약(`summary`, 없으면 null)과 가장 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다. 요약 뒤 원문이나 프롬프트 판본이 바뀌었으면 `summary.stale = true` |
+| `GET` | 문의 조회 범위 | 지금 원문·프롬프트 판본에 맞는 성공한 요약, 없으면 가장 최근의 성공한 요약(`summary`, 없으면 null)과 가장 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다. 요약 뒤 원문이나 프롬프트 판본이 바뀌었으면 `summary.stale = true` |
 | `POST` | cs_agent(범위 안) | 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 200으로 준다. 없으면 모델을 불러 저장하고 201. 같은 문의에 동시에 온 요청은 프로세스 안에서 줄 세워 모델을 한 번만 부르고, 다른 인스턴스가 먼저 저장했으면 고유 색인으로 중복 없이 그것을 200으로 준다. 실패하면 시도를 저장하고 502 `CS_SUMMARY_FAILED`(`details[0].code`에 위 코드 또는 `CS_PROVIDER_TIMEOUT`·`CS_RATE_LIMITED`·`CS_PROVIDER_ERROR`) |
 
 - 순서는 permissions.md 1.3: 범위 밖 문의 404 `CS_TICKET_NOT_FOUND`, 역할 403. 요약할 수 없는 문의(빈 본문·잘못된 언어 표기 등)에 POST하면 422 `CS_SUMMARY_INPUT_INVALID`이고, GET은 저장본을 `stale = true`로 보여 준다.

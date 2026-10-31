@@ -162,7 +162,11 @@ async def get_summary(
         except ApplicationError:
             # 요약할 수 없는 문의여도 저장본 조회는 된다. 지금 원문 기준으로는 오래된 것으로 본다.
             sha = None
-        valid = await repository.latest(conn, ticket_id, valid=True)
+        # 지금 원문·판본에 맞는 요약이 있으면 그것을 보인다. 원문을 고쳤다가 되돌린 뒤 그사이 다른 요약이 생겼어도
+        # 맞는 요약이 오래된 것으로 보이지 않게 한다. 없으면 가장 최근 요약을 stale로 보인다.
+        valid = (
+            await repository.matching(conn, ticket_id, sha, SUMMARY_PROMPT_VERSION) if sha else None
+        ) or await repository.latest(conn, ticket_id, valid=True)
         last = await repository.latest(conn, ticket_id, valid=False)
     view = TicketSummaryView(
         ticket_id=ticket_id,

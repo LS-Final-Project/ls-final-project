@@ -136,6 +136,21 @@ def test_an_edited_ticket_makes_the_summary_stale_and_a_new_one_can_be_made(
     assert client.get(path(ticket)).json()["data"]["summary"]["stale"] is False
 
 
+def test_reverting_the_ticket_shows_the_summary_that_matches_it_again(client, model, admin, ticket):
+    """원문을 고쳐 새 요약을 만든 뒤 되돌리면, 되돌린 원문에 맞는 처음 요약을 오래되지 않은 것으로 보인다."""
+    first = client.post(path(ticket)).json()["data"]["summary"]["id"]
+    original = admin.execute("SELECT body FROM cs.tickets WHERE id = %s", (ticket,)).fetchone()[0]
+    admin.execute(
+        "UPDATE cs.tickets SET body = body || ' It started yesterday.' WHERE id = %s", (ticket,)
+    )
+    second = client.post(path(ticket)).json()["data"]["summary"]["id"]
+    assert second != first
+    admin.execute("UPDATE cs.tickets SET body = %s WHERE id = %s", (original, ticket))
+    view = client.get(path(ticket)).json()["data"]["summary"]
+    assert (view["id"], view["stale"]) == (first, False)
+    assert len(model.prompts) == 2
+
+
 @pytest.mark.parametrize(
     ("reply", "outcome", "code"),
     [
