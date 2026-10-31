@@ -340,10 +340,11 @@ test('판단·성격 조회는 서버 필터를 사용하고 첫 선택을 다�
 });
 
 test('후보를 바꾸면 전체 인증·이유·필수 확인 원문을 해당 후보 상세에서 확인한다', async () => {
-  live(url => url.includes('/partner-candidates?') ? response({ items: candidates().map((c, i) => ({ ...c, certifications: [i ? 'IEC 전체 인증 원문' : 'UL 전체 인증 원문'], grades: c.grades.map(g => ({ ...g, mandatory_check: { passed: ['rated_max_voltage', 'integrator_capable.assembly'], failed: [], unknown: ['integrator_capable.integration', 'integrator_capable.warranty'] } })) })) }) : undefined);
+  live(url => url.includes('/partner-candidates?') ? response({ items: candidates().map((c, i) => ({ ...c, certifications: [i ? 'IEC 전체 인증 원문' : 'UL 전체 인증 원문'], grades: c.grades.map(g => ({ ...g, reasons: ['원문 rated_max_voltage 15kV, integrator_capable.assembly 확인'], mandatory_check: { passed: ['rated_max_voltage', 'integrator_capable.assembly'], failed: [], unknown: ['integrator_capable.integration', 'integrator_capable.warranty'] } })) })) }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
   await screen.findByRole('heading', { name: /P-A 후보 근거/ });
   expect(screen.getByText(/필수 충족: 정격 최대전압 · 조립 책임/)).toBeTruthy();
+  expect(screen.getAllByText('원문 정격 최대전압 15kV, 조립 책임 확인').length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole('button', { name: 'L-A' }));
   await screen.findByRole('heading', { name: /L-A 후보 근거/ });
   expect(screen.getByText(/제외 사유: 필수 인증 미충족/)).toBeTruthy();
@@ -351,5 +352,6 @@ test('후보를 바꾸면 전체 인증·이유·필수 확인 원문을 해당 
   expect(screen.getByText('인증 전체: IEC 전체 인증 원문')).toBeTruthy();
   const original = screen.getByText(/필수 확인 원문 · 충족: rated_max_voltage/);
   expect(original.closest('details')?.hasAttribute('open')).toBe(true);
+  expect(screen.getByText('이유 원문: 원문 rated_max_voltage 15kV, integrator_capable.assembly 확인')).toBeTruthy();
   expect(screen.getByText(/미확인: 통합 책임 · 보증 책임/)).toBeTruthy();
 });

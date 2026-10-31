@@ -195,6 +195,7 @@ const checkLabel = (value: string) => {
   const attribute: Record<string, string> = { rated_max_voltage: '정격 최대전압', bil: '뇌충격 내전압', short_time_withstand_current: '단시간 내전류' };
   return value.startsWith('integrator_capable.') ? responsibility[value.slice('integrator_capable.'.length)] ?? '통합 수행 항목(원문 상세)' : attribute[value] ?? (/^[a-z][a-z0-9_.]*$/.test(value) ? '사양 항목(원문 상세)' : value);
 };
+const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\brated_max_voltage\b|\bbil\b|\bshort_time_withstand_current\b/g, checkLabel);
 function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerCandidate[]; requirementId: string }) {
   const [code, setCode] = useState('');
   const selected = candidates.find(c => c.candidate_code === code) ?? candidates[0];
@@ -207,14 +208,14 @@ function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerC
     { key: 'delivery', header: '납기', width: 52, className: 'c', cell: c => c.lead_time ? `${c.lead_time.value}주` : '미확인' },
     { key: 'warranty', header: '보증', width: 60, cell: c => c.warranty ?? '미확인' },
     { key: 'grade', header: '등급', width: 110, cell: c => grades(c).length ? grades(c).map(g => GRADE[g.grade] ?? g.grade).join(' · ') : '등급 없음' },
-    { key: 'reason', header: '이유', width: 120, cell: c => grades(c).map(g => <span key={g.requirement_id} title={text([...g.reasons, ...g.exclusion_reasons])}>{text([...g.reasons, ...g.exclusion_reasons])}</span>) },
+    { key: 'reason', header: '이유', width: 120, cell: c => grades(c).map(g => <span key={g.requirement_id} title={text([...g.reasons, ...g.exclusion_reasons])}>{text([...g.reasons, ...g.exclusion_reasons].map(reasonLabel))}</span>) },
     { key: 'mandatory', header: '필수 확인', width: 66, className: 'c', cell: c => grades(c).map(g => <span key={g.requirement_id} title={`충족 ${text(g.mandatory_check.passed.map(checkLabel))} / 미충족 ${text(g.mandatory_check.failed.map(checkLabel))} / 미확인 ${text(g.mandatory_check.unknown.map(checkLabel))}`}>{g.mandatory_check.passed.length} / {g.mandatory_check.passed.length + g.mandatory_check.failed.length + g.mandatory_check.unknown.length}</span>) },
   ];
   return <>
     <KvGrid label="협력사 후보 근거" columns={columns} rows={candidates} rowKey={c => c.candidate_code} selectedKey={selected?.candidate_code} fallback="이 요구의 저장된 후보 등급이 없습니다." />
     {selected && <KvBox title={`${selected.candidate_code} 후보 근거`} note="현재 선택 요구 기준">
-      {grades(selected).map(g => <div key={g.requirement_id}><p>{text(g.reasons)}</p><p>제외 사유: {text(g.exclusion_reasons)}</p><p>필수 충족: {text(g.mandatory_check.passed.map(checkLabel))} · 미충족: {text(g.mandatory_check.failed.map(checkLabel))} · 미확인: {text(g.mandatory_check.unknown.map(checkLabel))}</p></div>)}
-      <details><summary>프로필·전체 등급·원문 항목 상세</summary><p>수행 범위: {text(selected.scope.map(value => SCOPE[value] ?? value))}</p><p>인증 전체: {text(selected.certifications)}</p>{grades(selected).map(g => <p key={g.requirement_id}>필수 확인 원문 · 충족: {text(g.mandatory_check.passed)} / 미충족: {text(g.mandatory_check.failed)} / 미확인: {text(g.mandatory_check.unknown)}</p>)}<p>출처: 가상 협력사 · 프로필 판본 {selected.profile_version} · {CONFIRMATION[selected.confirmation_status]}</p><p>사양 속성 원문: {text(selected.spec_facts_attributes)}</p><p>납기: {selected.lead_time ? selected.lead_time.ex_works ? '공장 출고 기준' : '공장 출고 기준 아님' : '미확인'}</p><p>전체 등급·추가 확인: {GRADE[selected.overall_grade]} · {text(selected.conditions_to_confirm)}</p></details>
+      {grades(selected).map(g => <div key={g.requirement_id}><p>{text(g.reasons.map(reasonLabel))}</p><p>제외 사유: {text(g.exclusion_reasons.map(reasonLabel))}</p><p>필수 충족: {text(g.mandatory_check.passed.map(checkLabel))} · 미충족: {text(g.mandatory_check.failed.map(checkLabel))} · 미확인: {text(g.mandatory_check.unknown.map(checkLabel))}</p></div>)}
+      <details><summary>프로필·전체 등급·원문 항목 상세</summary><p>수행 범위: {text(selected.scope.map(value => SCOPE[value] ?? value))}</p><p>인증 전체: {text(selected.certifications)}</p>{grades(selected).map(g => <div key={g.requirement_id}><p>이유 원문: {text(g.reasons)}</p><p>제외 사유 원문: {text(g.exclusion_reasons)}</p><p>필수 확인 원문 · 충족: {text(g.mandatory_check.passed)} / 미충족: {text(g.mandatory_check.failed)} / 미확인: {text(g.mandatory_check.unknown)}</p></div>)}<p>출처: 가상 협력사 · 프로필 판본 {selected.profile_version} · {CONFIRMATION[selected.confirmation_status]}</p><p>사양 속성 원문: {text(selected.spec_facts_attributes)}</p><p>납기: {selected.lead_time ? selected.lead_time.ex_works ? '공장 출고 기준' : '공장 출고 기준 아님' : '미확인'}</p><p>전체 등급·추가 확인: {GRADE[selected.overall_grade]} · {text(selected.conditions_to_confirm)}</p></details>
     </KvBox>}
   </>;
 }
