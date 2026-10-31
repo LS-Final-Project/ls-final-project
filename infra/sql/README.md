@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 75개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 76개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -117,6 +117,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | T17 | `tft/20261109_KAN-188_draft_execution.sql` | T7·T10~T15(헤더) | postgres(역할 확인) → tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `draft_sentences.needs_rereview`·`draft_versions.source_job_id` 및 제한 worker 권한 | 미확인 |
 | T18 | `tft/20261110_KAN-188_worker_output_status.sql` | T1·T7·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `has_column_privilege('tft_worker','tft.projects','output_status','UPDATE')` | 미적용 |
 | T19 | `tft/20261111_KAN-188_draft_rewrite.sql` | T14·T17 | tft_migrator | 가능 | template_text·모델 사용량/대체 사유 저장 | 미적용 |
+| T21 | `tft/20261113_KAN-188_rewrite_summary.sql` | T19 | tft_migrator | 가능 | `has_table_privilege('tft_app','tft.draft_rewrite_calls','SELECT')` | 미적용 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |

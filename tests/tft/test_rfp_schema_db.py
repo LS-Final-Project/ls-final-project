@@ -35,6 +35,7 @@ MIGRATIONS = (
     "20261109_KAN-188_draft_execution.sql",
     "20261110_KAN-188_worker_output_status.sql",
     "20261111_KAN-188_draft_rewrite.sql",
+    "20261113_KAN-188_rewrite_summary.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]

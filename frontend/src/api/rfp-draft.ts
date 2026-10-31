@@ -9,6 +9,7 @@ export type DraftEdit = components['schemas']['DraftEdit'];
 export type Review = components['schemas']['ReviewVersion'];
 export type Accepted = components['schemas']['ExportAccepted'];
 export type RewriteAccepted = components['schemas']['JobAccepted'];
+export type RewriteSummary = components['schemas']['RewriteSummary'];
 export type Job = Platform['schemas']['TftJobStatus'];
 type ReviewInput = components['schemas']['ReviewVersionCreate'];
 type ExportInput = components['schemas']['ExportRequest'];
@@ -89,6 +90,7 @@ async function getDraftJob(project: string, jobId: string, kind: 'rfp.export' | 
 }
 export const getExportJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.export', signal);
 export const getRewriteJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.draft_rewrite', signal);
+export const getRewriteSummary = (project: string, jobId: string, signal?: AbortSignal) => read<RewriteSummary>(`${base(project)}/rewrites/${encodeURIComponent(jobId)}`, signal);
 export async function downloadExport(project: string, exportId: string): Promise<Blob> {
   const response = await fetch(`${base(project)}/exports/${encodeURIComponent(exportId)}/file`, { credentials: 'same-origin', cache: 'no-store', signal: deadline() });
   if (!response.ok) throw await failure(response);
