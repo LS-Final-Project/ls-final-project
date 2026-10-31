@@ -14,14 +14,14 @@ const flow = (state: string, version: number, extra: Record<string, unknown> = {
 type Post = { url: string; init: RequestInit };
 
 // 문의 상세·업무 흐름 조회와 쓰기 호출을 한 곳에서 받는 가짜 서버. post가 Promise를 돌려주면 응답을 늦출 수 있다.
-function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown, detailExtra: Record<string, unknown> = {}) {
+function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown, detailExtra: Record<string, unknown> = {}, flowExtra: Record<string, unknown> = {}) {
   const posts: Post[] = [];
   const get = vi.fn();
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles: ['cs_agent'] } }), { status: 200, headers: { 'X-CSRF-Token': 'synthetic-csrf' } });
     if ((init?.method ?? 'GET') === 'POST') { const call = { url: path, init: init! }; posts.push(call); return post(call); }
-    if (path.endsWith('/workflow')) { get(path); return jsonResponse(200, flow(state, version)); }
+    if (path.endsWith('/workflow')) { get(path); return jsonResponse(200, flow(state, version, flowExtra)); }
     if (path.endsWith('/analysis')) return analysis ? jsonResponse(200, analysis) : jsonResponse(404, errorBody('CS_ANALYSIS_MISSING', '분석 없음'));
     return jsonResponse(200, { data: { ...base, workflow_state: state, ...detailExtra } });
   }));
@@ -230,4 +230,50 @@ test('해결 기록이 이미 등록된 경우(409)는 다시 보내지 않고 �
   fillResolution(); fireEvent.click(screen.getByRole('button', { name: '해결 기록 저장' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/이미 해결 기록이 있습니다/);
   expect(api.posts).toHaveLength(1);
+});
+
+const transfer = (extra: Record<string, unknown> = {}) => ({ id: 't1', dept_code: 'TS_AUTO', end_reason: null, ended_at: null, ended_by: null, reason: '터치 무반응 확인', round: 1, status: 'RESULT_SUBMITTED', transferred_at: '2026-10-28T01:30:00Z', transferred_by: 'u1', ...extra });
+const answer = (status: string) => ({ id: 'r1', transfer_id: 't1', dept_code: 'TS_AUTO', result: 'FW 2.33 적용 후 재현 없음', reply_content: 'Please update the firmware.', review_status: status, review_note: null, reviewed_at: null, reviewed_by: null, submitted_at: '2026-10-28T05:05:00Z', submitted_by: 'd1', version: 3 });
+
+test('확인 전 부서 답변이 있으면 부서 검토 요청과 종결을 막고 답변 확인 상자를 보인다', async () => {
+  const api = server('IN_REVIEW', 5, undefined, undefined, undefined, { transfers: [transfer()], dept_results: [answer('SUBMITTED')] });
+  view(); await screen.findByRole('region', { name: '검토 답변 확인' });
+  expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).title).toBe('확인 전 답변이 있으면 요청할 수 없습니다');
+  expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).disabled).toBe(true);
+  openMore(); expect(menu('종결').disabled).toBe(true); expect(menu('종결').textContent).toContain('확인 전 답변이 있으면 불가');
+  expect(screen.getByText('확인 전', { selector: 'td' })).toBeTruthy();
+  expect(api.posts).toHaveLength(0);
+});
+
+test('부서 답변 확인은 결과 판본과 업무 판본을 함께 보낸다', async () => {
+  const api = server('IN_REVIEW', 5, () => jsonResponse(200, flow('IN_REVIEW', 6)), undefined, undefined, { transfers: [transfer()], dept_results: [answer('SUBMITTED')] });
+  view(); await screen.findByRole('region', { name: '검토 답변 확인' });
+  await waitFor(() => expect((screen.getByRole('button', { name: '검토 저장' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '검토 저장' }));
+  await screen.findByText('부서 답변을 확인했습니다.');
+  expect(api.posts[0].url).toMatch(/\/workflow\/dept-results\/r1\/review$/);
+  expect(body(api.posts[0])).toEqual({ decision: 'ACCEPT', note: null, result_version: 3, version: 5 });
+  expect(api.posts[0].init.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
+});
+
+test('다시 요청은 메모를 보내고 부서 답변이 바뀌었으면(409) 다시 보내지 않고 안내한다', async () => {
+  const api = server('IN_REVIEW', 5, () => jsonResponse(409, errorBody('CS_DEPT_RESULT_VERSION_CONFLICT', 'conflict')), undefined, undefined, { transfers: [transfer()], dept_results: [answer('SUBMITTED')] });
+  view(); await screen.findByRole('region', { name: '검토 답변 확인' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  fireEvent.click(screen.getByLabelText('다시 요청'));
+  fireEvent.change(screen.getByLabelText('메모'), { target: { value: '접지 점검 추가' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: '검토 저장' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '검토 저장' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/부서 답변이 그 사이 바뀌었습니다/);
+  expect(body(api.posts[0])).toEqual({ decision: 'REWORK', note: '접지 점검 추가', result_version: 3, version: 5 });
+  expect(api.posts).toHaveLength(1);
+});
+
+test('이미 확인한 답변은 확인 상자를 보이지 않고 이력에 확인 완료로 적고 요청·종결을 막지 않는다', async () => {
+  const api = server('IN_REVIEW', 5, undefined, undefined, undefined, { transfers: [transfer({ status: 'RESULT_SUBMITTED' })], dept_results: [answer('ACCEPTED')] });
+  view(); await screen.findByText('확인 완료', { selector: 'td' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  expect(screen.queryByRole('region', { name: '검토 답변 확인' })).toBeNull();
+  await waitFor(() => expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).disabled).toBe(false));
+  openMore(); expect(menu('종결').disabled).toBe(false);
 });

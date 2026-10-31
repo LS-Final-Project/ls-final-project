@@ -5,10 +5,11 @@ import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
 import ResolutionCaseForm from '../components/ResolutionCaseForm';
+import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, getTicketWorkflow, isResolutionExists, isVersionConflict, recallTransfer, registerResolutionCase, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, getTicketWorkflow, isResolutionExists, isResultVersionConflict, isVersionConflict, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
@@ -63,14 +64,19 @@ export default function TicketDetail() {
   // 응답이 계약 모양(판본 숫자, 이력 배열)이 아니면 쓰지 않는다.
   const wf = workflow.isSuccess && typeof workflow.data.data?.version === 'number' && Array.isArray(workflow.data.data.transfers) ? workflow.data.data : undefined;
   const state = data ? STATE_LABEL[data.workflow_state] ?? '알 수 없는 상태, 확인 필요' : '-';
+  // 부서가 답했지만 아직 확인하지 않은 가장 최근 답변. 확인하기 전에는 부서 검토 요청과 종결을 막는다.
+  const pendingResult = (wf?.dept_results ?? []).filter(item => item.review_status === 'SUBMITTED').at(-1);
+  const roundOf = (transferId: string) => wf?.transfers.find(item => item.id === transferId)?.round ?? null;
+  const REVIEW_LABEL = { SUBMITTED: '확인 전', ACCEPTED: '확인 완료', REWORK_REQUESTED: '다시 요청' } as const;
+  const reviewOf = (transferId: string) => { const found = (wf?.dept_results ?? []).filter(item => item.transfer_id === transferId).at(-1); return found ? REVIEW_LABEL[found.review_status] ?? found.review_status : '-'; };
   const canWrite = import.meta.env.DEV && mode === 'live';
   const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : '실제 API 개발 모드에서만 실행할 수 있습니다';
   const st = data?.workflow_state;
   const reasons = {
     start: why(st === 'RECEIVED', '이미 검토중'),
-    transfer: why(st === 'IN_REVIEW', '검토중인 문의만 요청할 수 있습니다'),
+    transfer: why(st === 'IN_REVIEW' && !pendingResult, pendingResult ? '확인 전 답변이 있으면 요청할 수 없습니다' : '검토중인 문의만 요청할 수 있습니다'),
     recall: why(st === 'TRANSFERRED', '진행 중인 요청 없음'),
-    close: why(st === 'ANSWERED' || st === 'IN_REVIEW', '종결할 수 없는 상태입니다'),
+    close: why((st === 'ANSWERED' || st === 'IN_REVIEW') && !pendingResult, pendingResult ? '확인 전 답변이 있으면 불가' : '종결할 수 없는 상태입니다'),
     resolution: why(st === 'CLOSED' && !rc, rc ? '이미 해결 기록이 있습니다(문의당 한 건)' : '종결 후 한 건'),
   };
   const owner = wf?.owner_user_id ? (identity.data?.data?.id === wf.owner_user_id ? '나' : `사용자 ${wf.owner_user_id.slice(0, 8)}`) : wf ? '미지정' : '-';
@@ -91,6 +97,7 @@ export default function TicketDetail() {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : isResultVersionConflict(error) ? '부서 답변이 그 사이 바뀌었습니다. 최신 답변을 다시 읽었으니 확인한 뒤 다시 저장하세요.'
         : isResolutionExists(error) ? '이 문의에는 이미 해결 기록이 있습니다. 문의당 한 건만 등록할 수 있고 고치는 경로는 없습니다.'
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
           : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 상태를 읽었습니다. 반영 여부를 확인하세요.' });
@@ -124,6 +131,7 @@ export default function TicketDetail() {
     { key: 'status', header: '상태', width: 80, className: 'c', cell: item => TRANSFER_STATUS[item.status] ?? item.status },
     { key: 'reason', header: '사유', cell: item => item.reason },
     { key: 'at', header: '요청 일시', width: 130, className: 'd', cell: item => formatStamp(item.transferred_at) },
+    { key: 'review', header: '답변 확인', width: 68, className: 'c', cell: item => reviewOf(item.id) },
   ];
 
   return <main>
@@ -192,6 +200,9 @@ export default function TicketDetail() {
           {wf
             ? <KvGrid label="검토 요청 이력" columns={transferColumns} rows={wf.transfers} rowKey={item => item.id} fallback="요청 이력 없음" />
             : <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-muted)' }}>{workflow.isError ? '요청 이력을 불러오지 못했습니다.' : '요청 이력을 읽는 중입니다.'}</div>}
+          {pendingResult && <div style={{ marginTop: 8 }}><DeptResultReview key={pendingResult.id} result={pendingResult} round={roundOf(pendingResult.transfer_id)} busy={busy}
+            blocked={canWrite ? undefined : '실제 API 개발 모드에서만 실행할 수 있습니다'}
+            onSubmit={form => void run(form.decision === 'ACCEPT' ? '부서 답변을 확인했습니다.' : '같은 부서에 다시 요청했습니다.', signal => reviewDeptResult(ticketId, pendingResult.id, { ...form, version }, signal))} /></div>}
           <div className="kv-sub" style={{ margin: '12px 0 0' }}>알려진 해결 사례</div>
           <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-text)' }}>
             {rc
