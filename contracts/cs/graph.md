@@ -116,6 +116,8 @@
 
 ## 문장 검증·유한 재작성 (KAN-200)
 
+채택 측정은 `scripts/cs_draft_run.py --verify`가 같은 순서로 돈다(분류는 입력 파일을 쓴다). 호출·비용·판정 분포와 재작성을 반영한 초안 지표를 기록하고 합격 판정은 하지 않는다. 합격선은 사람이 정한다. 검증 출력 상한은 후보의 `verification_max_output_tokens`(없으면 `max_output_tokens`)다.
+
 - `verify`는 선택지의 모든 문장과 그 문장이 인용한 근거만 `verification_call.run_verification_attempt`로
   한 번 보낸다. 레지스트리 `verification/v1`, 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
   입력 문장 전수 1:1 대응과 입력 인용 범위를 검사한다. 문의 원문·정답을 새 입력으로 추가하지 않는다.

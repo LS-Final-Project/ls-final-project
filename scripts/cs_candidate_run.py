@@ -154,7 +154,8 @@ def load_specs(path: Path) -> list[dict[str, Any]]:
         or any(
             not isinstance(spec, dict)
             or not {"name", "model", "prompt_version"} <= set(spec)
-            or not set(spec) <= {"name", "model", "prompt_version", *KNOB_FIELDS}
+            or not set(spec)
+            <= {"name", "model", "prompt_version", "verification_max_output_tokens", *KNOB_FIELDS}
             or not all(
                 isinstance(spec[key], str) and spec[key]
                 for key in ("name", "model", "prompt_version")
@@ -166,6 +167,9 @@ def load_specs(path: Path) -> list[dict[str, Any]]:
         raise ValueError("CS_CANDIDATES_INVALID")
     for spec in specs:
         knobs_of(spec)
+        # 검증 상한도 초안 상한과 같은 규칙이다. 없으면 초안 값을 쓴다.
+        if "verification_max_output_tokens" in spec:
+            knobs_of({**spec, "max_output_tokens": spec["verification_max_output_tokens"]})
     return specs
 
 
