@@ -178,10 +178,10 @@ ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **이번 구현은 DO
 플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 생성은 별도 후속 작업이다.
 reportlab·글꼴·의존성·이미지를 추가하지 않는다.
 
-DOCX는 stdlib ZIP/XML의 실제 OOXML 패키지로, 고정 고지·모든 절/문장·공개 ID·조건·근거·미확약/검토 표시를 싣는다.
+DOCX는 stdlib ZIP/XML의 실제 OOXML 패키지로, 고정 고지·모든 절/문장·문장 번호·조건·근거·미확약/검토 표시를 싣는다.
 XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존하고 유효하지 않은 XML 문자는 삭제하지 않고 실패한다.
-검토본 판본에 대해 바이트가 결정적이다. 내보내기는 `draft_repository.load_snapshot`으로 해당 판본의 저장된
-본문·근거·조건·flags만 읽는다. 이후 요구의 `needs_review`나 `rereview_marks`는 파일에 합산하지 않는다.
+같은 내보내기 작업에 대해 바이트가 결정적이다. 내보내기는 `draft_repository.load_snapshot`으로 해당 판본의 저장된
+본문·근거·조건·flags를 읽고, 머리는 접수 때 고정한 `title`, 근거 번호표는 불변인 요구·조항 번호를 읽는다. 이후 요구의 `needs_review`나 `rereview_marks`는 파일에 합산하지 않는다.
 일반 `load`를 쓰는 GET·PATCH 응답과 검토본 저장 검사는 현재 재검토 표시를 계속 합산한다.
 편집 저장 입력은 `load_snapshot`의 정적 flags를 보존하며, 일시적인 live 검토 표시를 새 판본에 저장하지 않는다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
 `rfp/{project}/exports/{export}.docx`로 저장하며 25 MiB 상한·해시·크기를 기록한다.
@@ -262,6 +262,8 @@ INPUT_BLOCKED로 양식을 유지한다. 양식에서 제목/대표를 분리할
 코드값은 저장·판정에 그대로 쓰고 초안·DOCX·화면에 나갈 때만 바꾼다. 조건 이름은 `CONDITION_TEXT`, 속성 키는 `ATTRIBUTE_TEXT`, 협력사 필수 확인 항목은 `check_text`로 바꾼다(`backend/engine/rfp/vocabulary.py`). 조건 문구는 초안을 만들 때 정해지므로 이전 판본 문장은 다시 처리해야 바뀐다.
 
 근거 저장값은 ID다. 경로25 응답의 `evidence_labels`와 DOCX는 요구 `2.4.E.1.a-2`, 조항 번호, 질문 `Q1`로 보여 준다. DOCX는 근거를 종류별 한 줄로 묶고 문장은 화면과 같은 `S1` 번호로 표시한다. 번호를 모르는 ID는 빼지 않고 그대로 둔다.
+
+DOCX 머리는 접수 번호와 프로젝트 이름, 검토본·초안 번호다. `data_origin`은 지우지 않고(`docs/data-contract.md`) `자료 구분: 합성 자료·시연 자료(합성·가정 포함)·실제 자료`로 보여 주며 기준 시각은 KST다. 합성 표시는 빼지 않는다. 접수 번호·이름은 내보내기를 접수할 때 `tft_app`이 `tft.exports.title`에 고정한다. worker는 프로젝트 이름을 읽을 권한이 없고 이 행만 읽으므로 재시도와 이름 변경에도 파일이 같다.
 
 모델 입력·출력의 내부 코드 검사(`CODE_WORDS`)는 식별자 꼴(밑줄·전체 대문자)만 본다. 고객 원문의 voltage 같은 일반 단어는 내부 코드가 아니다. 금액·UUID·근거 ID·협력사 코드 검사와 `KAN-`·`SYN-`·`DS-` 표기 차단은 그대로다.
 

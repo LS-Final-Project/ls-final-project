@@ -63,6 +63,23 @@ def test_docx_is_valid_ooxml_with_all_sections_proofs_conditions_and_unicode(sna
                 assert line in texts
 
 
+@pytest.mark.parametrize(
+    ("origin", "text"),
+    [("synthetic", "합성 자료"), ("demo", "시연 자료(합성·가정 포함)"), ("real", "실제 자료")],
+)
+def test_docx_head_names_the_project_and_keeps_the_data_origin(snapshot, origin, text):
+    """머리에 내부 ID·코드값 대신 접수 번호·이름과 자료 구분을 쓴다. 합성 표시는 남는다."""
+    draft = build_draft(**snapshot).model_copy(update={"data_origin": origin})
+    data = draft_exports.render_docx(draft, 7, title="P26-0005 변전 설비")
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    texts = [node.text or "" for node in root.iter(draft_exports.W + "t")]
+    assert texts[1] == f"P26-0005 변전 설비 / 검토본 7 / 초안 {draft.version}"
+    assert texts[2].startswith(f"자료 구분: {text} / 기준 시각: ") and texts[2].endswith(" KST")
+    assert str(draft.project_id) not in " ".join(texts)
+    assert f": {origin} " not in texts[2]
+
+
 def test_evidence_is_grouped_by_kind_with_readable_numbers():
     """근거는 종류별 한 줄이고 번호를 모르는 ID도 빠지지 않는다."""
     row = s.Sentence.model_construct(
@@ -245,6 +262,7 @@ def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot,
         actor_id=UUID(int=97),
     )
     row = dict(
+        title="P26-0001 합성 프로젝트",
         id=export_id,
         review_version=1,
         job_id=None,
@@ -275,12 +293,13 @@ def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot,
     with (
         patch.object(db, "load", new=AsyncMock(side_effect=[original, changed])) as live,
         patch.object(db, "load_snapshot", new=AsyncMock(return_value=original)) as frozen,
+        patch.object(db, "evidence_labels", new=AsyncMock(return_value={})),
         patch.object(draft_exports, "audit", new_callable=AsyncMock) as audit,
     ):
         with pytest.raises(RuntimeError, match="crash after object"):
             asyncio.run(draft_exports.process(conn, job, interrupt_after_put, store))
         path = tmp_path / f"rfp/{job.project_id}/exports/{export_id}.docx"
-        expected = draft_exports.render_docx(original, 1)
+        expected = draft_exports.render_docx(original, 1, {}, "P26-0001 합성 프로젝트")
         assert path.read_bytes() == expected
         result = asyncio.run(draft_exports.process(conn, job, lambda event: None, store))
         assert result["needs_review"] is False and path.read_bytes() == expected

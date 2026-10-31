@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID, uuid5
 from xml.etree import ElementTree as ET
+from zoneinfo import ZoneInfo
 
 from psycopg import AsyncConnection
 
@@ -23,6 +24,9 @@ Row = dict[str, Any]
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MAX_EXPORT_BYTES = 25 * 1024 * 1024
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+KST = ZoneInfo("Asia/Seoul")
+# docs/data-contract.md: data_origin은 산출물까지 전달한다. 합성 표시는 지우지 않는다.
+ORIGIN_TEXT = {"synthetic": "합성 자료", "demo": "시연 자료(합성·가정 포함)", "real": "실제 자료"}
 EVIDENCE_TEXT = {
     "requirement": "요구",
     "clause": "조항",
@@ -89,8 +93,16 @@ async def reserve(
             404, "TFT_REVIEW_VERSION_NOT_FOUND", "The review version was not found."
         )
     await conn.execute(
-        "INSERT INTO tft.exports (id,project_id,review_version,format,created_by) VALUES (%s,%s,%s,%s,%s)",
-        (id, project_id, payload.review_version, payload.format, actor),
+        "INSERT INTO tft.exports (id,project_id,review_version,format,created_by,title) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (
+            id,
+            project_id,
+            payload.review_version,
+            payload.format,
+            actor,
+            await db.project_title(conn, project_id),
+        ),
     )
     await audit(
         conn,
@@ -128,7 +140,10 @@ def evidence_lines(row: s.Sentence, labels: Mapping[str, str]) -> list[str]:
 
 
 def render_docx(
-    draft: s.Draft, review_version: int, labels: Mapping[str, str] | None = None
+    draft: s.Draft,
+    review_version: int,
+    labels: Mapping[str, str] | None = None,
+    title: str = "",
 ) -> bytes:
     """고지·모든 절/문장·조건·근거·검토 표시를 실제 OOXML에 보존한다. 파일 생성은 결정적이다."""
     root = ET.Element(W + "document")
@@ -159,8 +174,10 @@ def render_docx(
 
     number = 0
     paragraph(DISCLAIMER)
-    paragraph(f"프로젝트 {draft.project_id} / 검토본 {review_version} / 초안 {draft.version}")
-    paragraph(f"데이터 출처: {draft.data_origin} / 기준 시각: {draft.known_at.isoformat()}")
+    head = [title, f"검토본 {review_version}", f"초안 {draft.version}"]
+    paragraph(" / ".join(part for part in head if part))
+    known = draft.known_at.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+    paragraph(f"자료 구분: {ORIGIN_TEXT[draft.data_origin]} / 기준 시각: {known} KST")
     for section in draft.sections:
         paragraph(SECTION_TITLES[section.section])
         for row in section.sentences:
@@ -225,7 +242,9 @@ async def process(
     if draft is None:
         raise ValueError("TFT_DRAFT_NOT_FOUND")
     labels = await db.evidence_labels(conn, job.project_id)
-    data = await asyncio.to_thread(render_docx, draft, row["review_version"], labels)
+    data = await asyncio.to_thread(
+        render_docx, draft, row["review_version"], labels, row["title"] or ""
+    )
     digest = hashlib.sha256(data).hexdigest()
     key = f"rfp/{job.project_id}/exports/{row['id']}.docx"
     try:

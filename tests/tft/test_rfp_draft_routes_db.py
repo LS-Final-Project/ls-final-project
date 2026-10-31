@@ -447,13 +447,16 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
             return await db.load_snapshot(conn, chain["project"], 1)
 
-    async def labels():
+    async def head():
         async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
-            return await db.evidence_labels(conn, chain["project"])
+            return (
+                await db.evidence_labels(conn, chain["project"]),
+                await db.project_title(conn, chain["project"]),
+            )
 
     original = asyncio.run(frozen())
-    names = asyncio.run(labels())
-    expected = draft_exports.render_docx(original, 1, names)
+    names, title = asyncio.run(head())
+    expected = draft_exports.render_docx(original, 1, names, title)
     events = []
 
     def crash_after_put(event):
@@ -470,6 +473,13 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
     path = tmp_path / f"rfp/{chain['project']}/exports/{export_id}.docx"
     assert path.read_bytes() == expected
     with psycopg.connect(admin) as conn:
+        # 재적용 뒤에도 worker는 이름을 읽지 못하고, 접수 때 고정한 머리로 같은 파일을 만든다.
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','name','SELECT')"
+        ).fetchone() == (False,)
+        conn.execute(
+            "UPDATE tft.projects SET name='바뀐 프로젝트 이름' WHERE id=%s", (chain["project"],)
+        )
         assert (
             conn.execute(
                 "SELECT completed_at FROM tft.exports WHERE id=%s", (export_id,)
@@ -503,7 +513,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         client, "POST", chain, "/review-versions", {"version": 1}, "current-review-blocked"
     )
     assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
-    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names) == expected
+    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names, title) == expected
     asyncio.run(execute(lambda event: None))
     response = call(client, "GET", chain, f"/exports/{export_id}/file")
     assert response.status_code == 200 and response.content == expected
