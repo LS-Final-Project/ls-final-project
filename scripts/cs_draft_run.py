@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from backend.agent.cs_runner import draft_ai_settings
 from backend.engine.cs.classification import validate_output
 from backend.engine.cs.drafting import (
     DRAFT_INPUT_VERSION,
@@ -213,7 +214,7 @@ def default_factory(settings: AISettings) -> TextFactory:
     Returns:
         TextFactory: (명세, 설정) → DraftOutput 스키마로 부르는 공급자.
     """
-    client = create_client(settings)
+    client = create_client(draft_ai_settings(settings))
 
     def factory(spec: dict[str, Any], config: AISettings) -> Callable[[str], Generation]:
         return gemini_text_provider(
@@ -236,7 +237,7 @@ def verification_factory(settings: AISettings) -> TextFactory:
     Returns:
         TextFactory: (명세, 설정) → VerificationOutput 스키마로 부르는 공급자.
     """
-    client = create_client(settings)
+    client = create_client(draft_ai_settings(settings))
 
     def factory(spec: dict[str, Any], config: AISettings) -> Callable[[str], Generation]:
         limit = spec.get("verification_max_output_tokens")

@@ -20,12 +20,13 @@ from uuid import UUID
 
 import psycopg
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from pydantic import Field, ValidationError
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.agent.cs_runner import (
     CLASSIFICATION_DEFAULTS,
     build_cs_runner,
+    draft_ai_settings,
     make_checkpointer,
     outcome,
 )
@@ -48,7 +49,7 @@ from backend.agent.job_runtime import (
 from backend.agent.ticket_source_registry import WorkerParts, load_parts
 from backend.engine.cs.graph import HUMAN_REVIEW, initial_state, thread_config
 from backend.engine.cs.providers import GenerationKnobs
-from backend.shared.ai import AISettings, create_client
+from backend.shared.ai import AISettings, check_lease, create_client
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
@@ -65,8 +66,9 @@ class CsWorkerSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="CS_WORKER_", extra="ignore")
     enabled: bool = False
+    # 초안·검증 호출 하나의 최악(60초 2번 + 대기 1초 = 121초)보다 길어야 한다(main이 막는다).
     # 노드 하나(재호출 포함 모델 호출)가 이 안에 끝나야 한다. 노드마다 연장한다.
-    lease_seconds: int = Field(default=120, ge=10, le=900)
+    lease_seconds: int = Field(default=180, ge=10, le=900)
     # 없으면 공통 GEMINI_MODEL을 분류·초안에 함께 쓴다. 바꾸려면 채택 기록이 필요하다(eval/promotion.py).
     classification_model: str | None = None
     classification_max_output_tokens: int = Field(
@@ -157,6 +159,7 @@ def build_runner(settings: Settings, parts: WorkerParts, checkpointer: BaseCheck
     return build_cs_runner(
         ai,
         client=create_client(ai),
+        draft_client=create_client(draft_ai_settings(ai)),
         ticket_source=parts.ticket_source,
         fts_searcher=fts_searcher_from_dsn(dsn, index_version),
         vector_searcher=vector_searcher_from_settings(
@@ -251,10 +254,12 @@ def main() -> None:
     """
     try:
         job_id = parse_job_id(os.getenv("CS_JOB_ID"))
-        result = execute_job(Settings(), CsWorkerSettings(), job_id)
+        worker = CsWorkerSettings()
+        check_lease(draft_ai_settings(AISettings()), worker.lease_seconds)
+        result = execute_job(Settings(), worker, job_id)
     except ApplicationError as error:
         raise SystemExit(error.code) from None
-    except ValidationError:
+    except ValueError:
         raise SystemExit("INVALID_WORKER_CONFIGURATION") from None
     except psycopg.Error:
         raise SystemExit("DEPENDENCY_UNAVAILABLE") from None

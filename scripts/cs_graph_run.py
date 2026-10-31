@@ -43,6 +43,7 @@ from backend.agent.cs_runner import (
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
+    draft_ai_settings,
     make_checkpointer,
     resume,
     run_ticket,
@@ -644,6 +645,7 @@ def main(
             graph = build_cs_runner(
                 ai_settings,
                 client=client,
+                draft_client=client_factory(draft_ai_settings(ai_settings)),
                 ticket_source=source,
                 fts_searcher=searcher,
                 search_filters=FILTERS,

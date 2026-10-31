@@ -17,6 +17,7 @@ from backend.agent.cs_runner import (
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
+    draft_ai_settings,
     make_checkpointer,
     resume,
     run_ticket,
@@ -24,7 +25,8 @@ from backend.agent.cs_runner import (
 from backend.agent.ticket_source_registry import WorkerParts
 from backend.engine.cs.graph import thread_config
 from backend.engine.cs.providers import GenerationKnobs
-from backend.shared.ai import AISettings, create_client
+from backend.shared import ai
+from backend.shared.ai import AISettings, check_lease, create_client
 from backend.shared.settings import Settings
 from tests.cs.graph_fakes import FILTERS, SECRETS, TICKET, fts_searcher
 
@@ -260,7 +262,7 @@ def test_runner_retries_invalid_output_and_counts_it(
 @pytest.mark.parametrize(
     ("kwargs", "tokens", "evidence"),
     [
-        ({}, 2048, 2),
+        ({}, 6000, 2),
         ({"draft_knobs": GenerationKnobs(max_output_tokens=4096), "evidence_limit": 1}, 4096, 1),
     ],
     ids=["defaults", "override"],
@@ -268,7 +270,7 @@ def test_runner_retries_invalid_output_and_counts_it(
 def test_runner_draft_uses_measured_output_limit_and_evidence_count(
     sdk_http, kwargs, tokens, evidence
 ):
-    """초안 요청은 DRAFT_DEFAULTS 출력 상한(2048)을 보내고 분류 요청은 설정 기본을 쓰며, 근거 수 상한이 적용된다.
+    """초안 요청은 DRAFT_DEFAULTS 출력 상한(6000)을 보내고 분류 요청은 설정 기본을 쓰며, 근거 수 상한이 적용된다.
 
     Args:
         sdk_http: 가짜 HTTP 요청 목록.
@@ -441,7 +443,7 @@ def test_the_worker_gives_classification_its_own_model_and_limit(monkeypatch):
     monkeypatch.setenv("CS_WORKER_CLASSIFICATION_MAX_OUTPUT_TOKENS", "2048")
     cs_worker.build_runner(settings, parts, InMemorySaver())
     assert classification[-1]["model"] == "m-lite"
-    assert classification[-1]["generation"].max_output_tokens == 6000
+    assert classification[-1]["generation"].max_output_tokens == 2048
     assert {call["model"] for call in text} == {"m-common"}
 
 
@@ -486,11 +488,11 @@ def test_worker_builds_a_vector_searcher_only_when_enabled(monkeypatch):
         _env_file=None, environment="test", database_url=SecretStr("postgresql://x@localhost/y")
     )
     cs_worker.build_runner(settings, parts, InMemorySaver())
-    assert seen[-1]["vector_searcher"] is None and clients == [False]
+    assert seen[-1]["vector_searcher"] is None and clients == [False, False]
     monkeypatch.setenv("CS_VECTOR_SEARCH_ENABLED", "true")
     cs_worker.build_runner(settings, parts, InMemorySaver())
     searcher = seen[-1]["vector_searcher"]
-    assert isinstance(searcher, cs_search.VectorSearcher) and clients[1:] == [False, True]
+    assert isinstance(searcher, cs_search.VectorSearcher) and clients[2:] == [False, False, True]
     assert searcher.embedding_version == "gemini-embedding-2:768:RETRIEVAL_DOCUMENT"
     assert searcher.index_version == FILTERS.index_version
 
@@ -521,3 +523,64 @@ def test_verification_setting_defaults_true_and_reads_environment(monkeypatch):
     assert Settings(_env_file=None).cs_draft_verification_enabled is True
     monkeypatch.setenv("CS_DRAFT_VERIFICATION_ENABLED", "false")
     assert Settings(_env_file=None).cs_draft_verification_enabled is False
+
+
+def test_only_draft_and_verification_get_the_long_client(monkeypatch):
+    """분류는 공용 30초 클라이언트, 초안·검증은 60초 클라이언트를 쓴다."""
+    seen = []
+    monkeypatch.setattr(cs_runner, "build_graph", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cs_runner,
+        "gemini_classification_provider",
+        lambda client, *args, **kwargs: seen.append(("classification", client)),
+    )
+    monkeypatch.setattr(
+        cs_runner,
+        "gemini_text_provider",
+        lambda client, *args, **kwargs: seen.append(("text", client)),
+    )
+    settings = AISettings(gemini_api_key=KEY)
+    build_cs_runner(
+        settings,
+        client="short",
+        draft_client="long",
+        ticket_source=InMemoryTicketSource({}),
+        fts_searcher=fts_searcher,
+        search_filters=FILTERS,
+        checkpointer=InMemorySaver(),
+        model="gemini-3.6-flash",
+        allowed_info_codes=frozenset({"TEST_PHOTO"}),
+    )
+    assert seen == [("classification", "short"), ("text", "long"), ("text", "long")]
+    assert draft_ai_settings(settings).gemini_timeout_ms == 60000
+    assert (
+        settings.gemini_timeout_ms == AISettings.model_fields["gemini_timeout_ms"].default == 30000
+    )
+
+
+@pytest.mark.parametrize(("lease", "allowed"), [(120, False), (122, True), (180, True)])
+def test_lease_must_outlast_the_worst_draft_call(monkeypatch, lease, allowed):
+    """60초 2번과 재시도 대기 1초, 최악 121초다."""
+    monkeypatch.setattr(ai, "TRANSIENT_BACKOFF_SECONDS", 1.0)
+    settings = draft_ai_settings(AISettings(gemini_api_key=KEY, gemini_transient_retries=1))
+    if allowed:
+        check_lease(settings, lease)
+    else:
+        with pytest.raises(ValueError, match="INVALID_WORKER_CONFIGURATION"):
+            check_lease(settings, lease)
+
+
+def test_the_default_lease_passes_and_a_short_one_stops_the_worker_at_start(monkeypatch):
+    called = []
+    monkeypatch.setenv("CS_JOB_ID", "11111111-1111-4111-8111-111111111111")
+    monkeypatch.setenv("GEMINI_API_KEY", KEY)
+    monkeypatch.delenv("GEMINI_TIMEOUT_MS", raising=False)
+    monkeypatch.delenv("CS_WORKER_LEASE_SECONDS", raising=False)
+    monkeypatch.setattr(cs_worker, "execute_job", lambda *args: called.append(args) or "DONE")
+    monkeypatch.setattr(cs_worker, "Settings", lambda: None)
+    cs_worker.main()
+    assert called[0][1].lease_seconds == 180
+    monkeypatch.setenv("CS_WORKER_LEASE_SECONDS", "120")
+    with pytest.raises(SystemExit, match="INVALID_WORKER_CONFIGURATION"):
+        cs_worker.main()
+    assert len(called) == 1
