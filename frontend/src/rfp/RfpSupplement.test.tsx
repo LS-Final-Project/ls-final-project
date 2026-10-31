@@ -31,6 +31,7 @@ function live(handler: Handler = () => undefined, owner = U) {
     if (url.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: U, tid: U, oid: U, display_name: '담당자', email: 'test@example.invalid', roles: ['sales'], dept: null } }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'session-test' } });
     if (url.endsWith(`/projects/${P}`)) return response({ id: P, name: '실제 응답 프로젝트', responsible_user_id: owner, sales_user_id: null });
     if (url.includes('/requirements?')) return response({ items: [requirement(R, 'R-021'), requirement(R2, 'R-024')], next_cursor: null });
+    if (url.endsWith(`/requirements/${R}`) || url.endsWith(`/requirements/${R2}`)) return response({ origin: { clause_no: url.includes(R2) ? '1.2' : '1.1', page: 3, quote: '인증 원문 근거' } });
     if (url.endsWith('/supplement-options')) return response(options(url.includes(R2) ? R2 : R));
     if (url.includes('/partner-candidates?')) return response({ items: candidates(url.includes(R2) ? R2 : R) });
     if (init?.method === 'POST') return response(saved(url.includes(R2) ? R2 : R));
@@ -56,7 +57,7 @@ test('보드 순서대로 선택지·후보근거·사람 선택을 Kv조각으�
   expect((screen.getByRole('checkbox', { name: '후보 L-A' }) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole('checkbox', { name: '후보 P-A' }) as HTMLInputElement).disabled).toBe(false);
   const table = screen.getByRole('table', { name: '협력사 후보 근거' });
-  expect(within(table).getByRole('columnheader', { name: '이 요구의 등급' })).toBeTruthy();
+  expect(within(table).getByRole('columnheader', { name: '등급' })).toBeTruthy();
   expect(within(table).getByText('필수 기술조건 확인')).toBeTruthy();
   expect(within(table).getByText(/UL 근거 확인/)).toBeTruthy();
   expect(within(table).getByText(/필수 인증 미충족/)).toBeTruthy();
@@ -127,7 +128,7 @@ test('요구 전환 뒤 늦게 온 저장 결과는 새 폼을 덮지 않는다'
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await waitFor(() => expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
-  await screen.findByRole('heading', { name: 'R-024 보완 선택' });
+  await screen.findByLabelText('R-024 보완 선택');
   resolve(response(saved()));
   await waitFor(() => expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe(''));
   expect(screen.queryByText(/보완 선택 저장 완료/)).toBeNull();
@@ -135,7 +136,7 @@ test('요구 전환 뒤 늦게 온 저장 결과는 새 폼을 덮지 않는다'
 
 test('빈 요구·조회 오류·로그인 없음은 가짜 자료 없이 구분한다', async () => {
   live(url => url.includes('/requirements?') ? response({ items: [], next_cursor: null }) : undefined);
-  renderApp(`/tft/projects/${P}/supplement`); await screen.findByText('정리된 요구가 없습니다.');
+  renderApp(`/tft/projects/${P}/supplement`); await screen.findByText('조회조건에 맞는 정리된 요구가 없습니다.');
   expect(screen.queryByRole('table', { name: '협력사 후보 근거' })).toBeNull();
 });
 
@@ -178,7 +179,7 @@ test('늦은 옵션 조회 응답도 다른 요구에 붙지 않는다', async (
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
   await screen.findByRole('radio', { name: '외부 제품' });
   finish(response(options(R, 5)));
-  await waitFor(() => expect(screen.getByRole('heading', { name: 'R-024 보완 선택' })).toBeTruthy());
+  await waitFor(() => expect(screen.getByLabelText('R-024 보완 선택')).toBeTruthy());
   expect(screen.queryByText(/요구 판본이 변경되었습니다/)).toBeNull();
 });
 
@@ -223,7 +224,7 @@ test('결과 불명 뒤 다른 요구를 보고 돌아와도 원래 본문 재�
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await screen.findByText('결과 불명 유지');
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
-  await screen.findByRole('heading', { name: 'R-024 보완 선택' });
+  await screen.findByLabelText('R-024 보완 선택');
   await choose();
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await screen.findByText('결과 불명 유지');
@@ -262,10 +263,9 @@ test.each([
 ])('판단 %s·성격 %s는 공용 보드 문구로 표시한다', async (status, necessity, statusText, necessityText) => {
   live(url => url.includes('/requirements?') ? response({ items: [{ ...requirement(R, 'R-021'), status, necessity }], next_cursor: null }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  const table = await screen.findByRole('table', { name: '요구 목록' });
-  await within(table).findByText(statusText);
-  expect(within(table).getByText(necessityText)).toBeTruthy();
-  expect(within(table).queryByText(status)).toBeNull();
+  const list = await screen.findByRole('navigation', { name: '요구 목록' });
+  expect(await within(list).findByTitle(new RegExp(`${statusText} · ${necessityText}`))).toBeTruthy();
+  expect(within(list).queryByText(status)).toBeNull();
 });
 
 test.each(['TFT_CANDIDATE_EXCLUDED', 'TFT_RND_CHECK_REQUIRED'])('서버 %s 거부는 최신 조건 확인 없이 다시 전송하지 않는다', async code => {
@@ -317,4 +317,39 @@ test('저장 뒤 옵션·후보를 재조회하고 재확인한 최신 요구 �
   const requests = f.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => init!);
   expect(requests.map(init => JSON.parse(init.body as string).version)).toEqual([1, 2]);
   expect((requests[0].headers as Record<string, string>)['Idempotency-Key']).not.toBe((requests[1].headers as Record<string, string>)['Idempotency-Key']);
+});
+
+
+test('첫 요구와 첫 후보 근거를 자동으로 보여주고 원문 조항을 상세 링크로 사용한다', async () => {
+  const f = live(); renderApp(`/tft/projects/${P}/supplement`);
+  await screen.findByRole('table', { name: '협력사 후보 근거' });
+  expect(screen.getByRole('button', { name: 'R-021' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button', { name: 'P-A' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('link', { name: '1.1 인증' }).getAttribute('href')).toBe(`/tft/projects/${P}/requirements/${R}`);
+  fireEvent.click(screen.getByText('원문·요구 상세 / 판본과 출처 확인'));
+  expect(screen.getByText('인증 원문 근거')).toBeTruthy();
+  expect(f.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+});
+test('판단·성격 조회는 서버 필터를 사용하고 첫 선택을 다시 확인한다', async () => {
+  const f = live(); renderApp(`/tft/projects/${P}/supplement`);
+  await screen.findByRole('button', { name: 'R-021' });
+  fireEvent.change(screen.getByLabelText('판단', { selector: 'select' }), { target: { value: 'SPEC_GAP' } });
+  fireEvent.change(screen.getByLabelText('성격', { selector: 'select' }), { target: { value: 'MANDATORY' } });
+  fireEvent.click(screen.getByRole('button', { name: /^조회$/ }));
+  await waitFor(() => expect(f.mock.calls.some(([url]) => String(url).includes('status=SPEC_GAP&necessity=MANDATORY'))).toBe(true));
+});
+
+test('후보를 바꾸면 전체 인증·이유·필수 확인 원문을 해당 후보 상세에서 확인한다', async () => {
+  live(url => url.includes('/partner-candidates?') ? response({ items: candidates().map((c, i) => ({ ...c, certifications: [i ? 'IEC 전체 인증 원문' : 'UL 전체 인증 원문'], grades: c.grades.map(g => ({ ...g, mandatory_check: { passed: ['rated_max_voltage', 'integrator_capable.assembly'], failed: [], unknown: ['integrator_capable.integration', 'integrator_capable.warranty'] } })) })) }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  await screen.findByRole('heading', { name: /P-A 후보 근거/ });
+  expect(screen.getByText(/필수 충족: 정격 최대전압 · 조립 책임/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'L-A' }));
+  await screen.findByRole('heading', { name: /L-A 후보 근거/ });
+  expect(screen.getByText(/제외 사유: 필수 인증 미충족/)).toBeTruthy();
+  fireEvent.click(screen.getByText('프로필·전체 등급·원문 항목 상세'));
+  expect(screen.getByText('인증 전체: IEC 전체 인증 원문')).toBeTruthy();
+  const original = screen.getByText(/필수 확인 원문 · 충족: rated_max_voltage/);
+  expect(original.closest('details')?.hasAttribute('open')).toBe(true);
+  expect(screen.getByText(/미확인: 통합 책임 · 보증 책임/)).toBeTruthy();
 });

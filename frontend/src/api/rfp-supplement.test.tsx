@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { listRequirements } from './rfp';
 import { clearSessionCsrfToken, request, setApiMode } from './client';
-import { getSupplementOptions, listSupplementCandidates, listSupplementRequirements, selectSupplement, type SupplementSelection } from './rfp-supplement';
+import { getSupplementRequirement, getSupplementOptions, listSupplementCandidates, listSupplementRequirements, selectSupplement, type SupplementSelection } from './rfp-supplement';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); clearSessionCsrfToken(); setApiMode('mock'); });
 const payload: SupplementSelection = { version: 3, path: 'NONE', candidate_codes: [], role_split: '자사 확인', conditions: [], note: null, rnd_check_waiver_reason: null };
@@ -60,4 +60,14 @@ test('보완의 useMockFallback:false에서는 HTTP 실패를 가짜 요구로 �
   vi.stubGlobal('fetch', fetcher);
   await expect(listSupplementRequirements('actual-project')).rejects.toMatchObject({ status: 503, message: '실제 조회 실패' });
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+test('보완 원문 상세도 실 API를 사용하고 필터를 공용 요구 조회로 전달한다', async () => {
+  setApiMode('mock'); const f = vi.fn(async () => Response.json({ data: { items: [] } })); vi.stubGlobal('fetch', f);
+  await getSupplementRequirement('clause/id');
+  await listSupplementRequirements('project', undefined, { status: 'SPEC_GAP', necessity: 'MANDATORY' });
+  expect(f.mock.calls.map(call => String((call as unknown[])[0]))).toEqual([
+    '/api/v1/tft/requirements/clause%2Fid',
+    '/api/v1/tft/projects/project/requirements?limit=20&status=SPEC_GAP&necessity=MANDATORY',
+  ]);
 });
