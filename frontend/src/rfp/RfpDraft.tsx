@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { me, type Identity } from '../api/platform';
-import { downloadExport, editDraft, getDraft, getDraftProject, getExportJob, getRewriteJob, sendCommand, SessionChanged, UncertainWrite, type Accepted, type RewriteAccepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
+import { downloadExport, editDraft, getDraft, getDraftProject, getExportJob, getRewriteJob, getRewriteSummary, sendCommand, SessionChanged, UncertainWrite, type Accepted, type RewriteAccepted, type RewriteSummary, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
@@ -19,6 +19,21 @@ const SECTIONS: Record<string, string> = {
 const EVIDENCE_LABEL: Record<string, string> = { requirement: '요구', clause: '조항', product: '제품', partner: '협력사', question: '질문' };
 const JOB_LABEL = { QUEUED: '대기 중', RUNNING: '내보내는 중', SUCCEEDED: '완료', PARTIAL: '일부 완료 — 파일 확인 필요', FAILED: '실패', CANCELLED: '취소됨' };
 type Editing = { sentence: Sentence; version: number; text: string; reason: string };
+
+const REWRITE_REASON: Record<string, string> = {
+  INPUT_BLOCKED: '내부 용어 검사', INPUT_INCOMPLETE: '값 보존 검사', INPUT_LIMIT: '절당 문장 수 초과',
+  CALL_FAILED: '호출 실패', OUTPUT_TRUNCATED: '출력 잘림', STRUCTURE: '응답 형식', NUMBERING: '문장 번호',
+};
+
+function RewriteOutcome({ summary }: { summary?: RewriteSummary }) {
+  if (!summary || summary.outcome === 'PENDING') return <p role="status">작업은 끝났지만 결과 요약을 읽지 못했습니다. 최신 초안의 문장 표시를 확인하세요.</p>;
+  if (summary.outcome === 'DISCARDED') return <p role="status">사람 저장이 먼저 들어와 모델 결과를 버렸습니다. 저장된 판본은 그대로입니다.</p>;
+  const reasons = Object.entries(summary.failures ?? {}).map(([code, count]) => `${REWRITE_REASON[code] ?? '내용 검사'} ${count}`).join(', ');
+  const kept = summary.human_sentences ? ` 사람 문장 ${summary.human_sentences}개는 바꾸지 않았습니다.` : '';
+  if (summary.outcome === 'FAILED') return <p role="alert">모델 문장을 쓰지 못했습니다. 양식 문장 {summary.template_sentences}개를 유지합니다. 사유: {reasons}.{kept}</p>;
+  if (summary.outcome === 'PARTIAL') return <p role="status">일부만 작성했습니다. 모델 문장 {summary.model_sentences}개, 양식 유지 {summary.template_sentences}개. 사유: {reasons}.{kept}</p>;
+  return <p role="status">모델 문장 {summary.model_sentences}개를 작성했습니다.{kept}</p>;
+}
 
 export default function RfpDraft() {
   const { projectId = '' } = useParams();
@@ -79,13 +94,18 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     enabled: !!rewriteAccepted, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1500 : false,
   });
+  const rewriteFinished = !!rewriteJob.data && ['SUCCEEDED', 'PARTIAL'].includes(rewriteJob.data.status);
+  const rewriteResult = useQuery({
+    queryKey: ['rfp-draft-rewrite-result', user.id, projectId, rewriteAccepted?.job_id],
+    queryFn: ({ signal }) => getRewriteSummary(projectId, rewriteAccepted!.job_id, signal),
+    enabled: rewriteFinished, retry: false, staleTime: Infinity,
+  });
   useEffect(() => {
     const finished = rewriteJob.data;
     if (!finished || !['SUCCEEDED', 'PARTIAL'].includes(finished.status) || refreshedRewrite.current === finished.job_id) return;
     refreshedRewrite.current = finished.job_id;
     setVersion(undefined); setVersionInput('');
     void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] });
-    setMessage('모델 작성 작업이 끝났습니다. 최신 초안의 모델 작성·양식 문장 표시를 확인하세요. 그사이 저장된 사람 편집이 있으면 모델 결과를 적용하지 않습니다.');
   }, [rewriteJob.data, cache, user.id, projectId]);
   const invalid = (failure: unknown) => {
     if (!alive.current) return;
@@ -179,6 +199,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       {rewriteJob.isPending && <Loading label="모델 작성 상태 확인 중" />}
       {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}
       {!rewriteJob.isError && rewriteJob.data && <p role="status">모델 문장 작성: {rewriteJob.data.status === 'RUNNING' ? '작성 중' : rewriteJob.data.status === 'QUEUED' ? '대기 중' : rewriteJob.data.status === 'SUCCEEDED' ? '작업 완료' : rewriteJob.data.status === 'PARTIAL' ? '일부 완료·최신 초안 확인' : rewriteJob.data.status === 'CANCELLED' ? '취소됨·양식 초안 유지' : '실패·양식 초안 유지'}</p>}
+      {rewriteFinished && !rewriteResult.isPending && <RewriteOutcome summary={rewriteResult.data} />}
     </div>}
     {notice && <p className="draft-notice" role="alert">{notice}</p>}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}

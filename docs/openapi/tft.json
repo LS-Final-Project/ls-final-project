@@ -4391,6 +4391,68 @@
         "title": "ReviewVersionCreate",
         "type": "object"
       },
+      "RewriteSummary": {
+        "additionalProperties": false,
+        "description": "\ubaa8\ub378 \uc791\uc131 \uacb0\uacfc. failures\ub294 \uc591\uc2dd\uc73c\ub85c \ub0a8\uc740 \ubb38\uc7a5\uc758 \uace0\uc815 \uc0ac\uc720 \ucf54\ub4dc\ubcc4 \uac74\uc218\ub2e4.",
+        "properties": {
+          "failures": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Failures",
+            "type": "object"
+          },
+          "human_sentences": {
+            "default": 0,
+            "title": "Human Sentences",
+            "type": "integer"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "model_sentences": {
+            "default": 0,
+            "title": "Model Sentences",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "PENDING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "DISCARDED"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "result_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Version"
+          },
+          "template_sentences": {
+            "default": 0,
+            "title": "Template Sentences",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "outcome",
+          "result_version"
+        ],
+        "title": "RewriteSummary",
+        "type": "object"
+      },
       "RfpProjectDetail": {
         "additionalProperties": false,
         "properties": {
@@ -5331,6 +5393,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReviewVersion]",
+        "type": "object"
+      },
+      "SuccessResponse_RewriteSummary_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RewriteSummary"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RewriteSummary]",
         "type": "object"
       },
       "SuccessResponse_RfpProjectDetail_": {
@@ -7765,6 +7843,110 @@
           }
         },
         "summary": "Rewrite Draft",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/draft/rewrites/{job_id}": {
+      "get": {
+        "description": "33. \ubaa8\ub378 \uc791\uc131 \uc791\uc5c5\uc758 \uacb0\uacfc \uc694\uc57d.",
+        "operationId": "tft_get_rfp_draft_rewrite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RewriteSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Get Draft Rewrite",
         "tags": [
           "rfp"
         ]

@@ -246,6 +246,7 @@ INPUT_BLOCKED로 양식을 유지한다. 양식에서 제목/대표를 분리할
 - 내용/구조 실패: 그 문장만 실패 코드와 함께 절별1회 재작성. 성공한 다른 문장은 재작성하지 않는다.
 - 호출 오류/시간초과/출력 잘림: 해당 절 전체를 양식으로 두며 운송 재시도는 하지 않는다.
 - 두 번째도 검사 실패한 문장은 양식 유지. N은 삭제/수정하지 않으며 호출 실패를 작업 전체 실패로 만들지 않는다.
+- 문장 글자와 작성 표시가 입력 N과 모두 같으면 새 판본을 만들지 않는다. 이때 `draft_rewrites`는 `state=saved`·`result_version` 없음이다. 앞선 모델 문장이 양식으로 돌아가면 바뀐 문장이므로 N+1을 만든다.
 - 공급자 실패는 안전 코드만 저장하고 원문 예외/프롬프트/응답을 기록하지 않는다.
 - 반환 후 프로젝트 잠금 안에서 최신 초안이 여전히 N인지 CAS 확인. 사람이 먼저 저장했으면 모델 결과를
   버리며 기존 사람 판본은 바꾸지 않는다. 같으면 N+1을 source_job_id로 멱등 저장한다.
@@ -255,6 +256,14 @@ INPUT_BLOCKED로 양식을 유지한다. 양식에서 제목/대표를 분리할
   저장한다. attempt0·skipped는 미호출(0토큰·0비용·provider_attempts0)이며 성공 호출로 계산하지 않는다.
   실패에서 공급자가 미보고한 토큰·비용은 null로 두며 0비용 성공으로 꾸미지 않는다.
 - 기존 검토본 저장/내보내기 인가·완전성 검사·불변 snapshot·PDF422는 그대로다.
+
+### 경로33: 모델 작성 결과 요약
+
+`GET /api/v1/tft/projects/{id}/draft/rewrites/{job_id}`는 프로젝트를 볼 수 있는 사용자에게 작업 결과를 준다. 없는 작업은 404 `TFT_DRAFT_REWRITE_NOT_FOUND`다.
+
+`outcome`은 PENDING, SUCCEEDED(양식으로 남은 문장 0), PARTIAL(모델·양식 혼합), FAILED(모델 문장 0), DISCARDED(사람 저장이 앞서 버림)다. `model_sentences`·`template_sentences`·`human_sentences`와 고정 코드별 건수 `failures`를 함께 준다. 문장 글자는 주지 않는다. 호출 원장의 skipped·error·truncated·fallback 행으로 세며 재시도로 통과한 문장은 넣지 않는다.
+
+플랫폼 작업 상태는 그대로 SUCCEEDED다. worker는 PARTIAL을 쓰지 않는다(rfp-jobs). 플랫폼 상태는 작업이 끝났는지만 말하고, 결과 구분은 이 경로가 맡는다. 화면은 FAILED를 경고로 보여 준다.
 
 설정은 TFT_DRAFT_REWRITE_PROVIDER(gemini/fake, 미설정 시 추출 provider), TFT_DRAFT_REWRITE_MODEL
 (기본 gemini-3.6-flash), TFT_DRAFT_REWRITE_MAX_OUTPUT_TOKENS(8192), TFT_DRAFT_REWRITE_TIMEOUT_MS(120000)다.

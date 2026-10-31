@@ -8,7 +8,15 @@ from psycopg import AsyncConnection
 
 from backend.api.tft.projects.access import can_edit_project
 from backend.api.tft.projects.repository import integration_state
-from backend.api.tft.rfp import commands, draft_exports, drafts, jobs, repository, storage
+from backend.api.tft.rfp import (
+    commands,
+    draft_exports,
+    draft_rewrite,
+    drafts,
+    jobs,
+    repository,
+    storage,
+)
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.counts import count_unresolved_mandatory, is_unresolved_mandatory
@@ -41,6 +49,15 @@ async def get_draft(
     if result is None:
         raise ApplicationError(404, "TFT_DRAFT_NOT_FOUND", "The draft version was not found.")
     return result
+
+
+async def rewrite_summary(
+    request: Request, principal: Principal, project_id: UUID, job_id: UUID
+) -> s.RewriteSummary:
+    """프로젝트를 볼 수 있으면 모델 작성 작업의 결과 요약을 준다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id)
+        return await draft_rewrite.summary(conn, project_id, job_id)
 
 
 async def edit_draft(

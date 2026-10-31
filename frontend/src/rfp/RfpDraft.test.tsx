@@ -463,6 +463,33 @@ it.each(['FAILED', 'CANCELLED'])('모델 작성 %s는 양식 문장을 그대로
   expect(screen.getByText('양식 문장')).toBeTruthy();
 });
 
+it.each([
+  [{ outcome: 'SUCCEEDED', model_sentences: 20, template_sentences: 0, human_sentences: 1, failures: {} }, 'status', /모델 문장 20개를 작성했습니다. 사람 문장 1개는 바꾸지 않았습니다/],
+  [{ outcome: 'PARTIAL', model_sentences: 21, template_sentences: 27, human_sentences: 0, failures: { INPUT_BLOCKED: 27 } }, 'status', /일부만 작성했습니다. 모델 문장 21개, 양식 유지 27개. 사유: 내부 용어 검사 27/],
+  [{ outcome: 'FAILED', model_sentences: 0, template_sentences: 48, human_sentences: 0, failures: { CALL_FAILED: 21, INPUT_BLOCKED: 27 } }, 'alert', /모델 문장을 쓰지 못했습니다. 양식 문장 48개를 유지합니다. 사유: 호출 실패 21, 내부 용어 검사 27/],
+  [{ outcome: 'DISCARDED', model_sentences: 0, template_sentences: 0, human_sentences: 0, failures: {} }, 'status', /사람 저장이 먼저 들어와 모델 결과를 버렸습니다/],
+] as const)('모델 작성 결과를 구분해 보여 준다 %#', async (result, role, text) => {
+  serve((url, init) => url.endsWith('/draft/rewrite') && init?.method === 'POST'
+    ? data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202)
+    : url.includes('/platform/jobs/') ? data({ ...job('SUCCEEDED'), kind: 'rfp.draft_rewrite' })
+      : url.includes('/draft/rewrites/') ? data({ job_id: JOB, result_version: null, ...result }) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await waitFor(() => expect(screen.getAllByRole(role).some(node => text.test(node.textContent ?? ''))).toBe(true));
+});
+
+it('결과 요약을 읽지 못해도 끝난 사실을 알린다', async () => {
+  serve((url, init) => url.endsWith('/draft/rewrite') && init?.method === 'POST'
+    ? data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202)
+    : url.includes('/platform/jobs/') ? data({ ...job('SUCCEEDED'), kind: 'rfp.draft_rewrite' })
+      : url.includes('/draft/rewrites/') ? data({ error: { code: 'X', message: 'x' } }, 500) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await screen.findByText(/결과 요약을 읽지 못했습니다/);
+});
+
 it('모델 작업 조회도 페이지 이동 시 취소한다', async () => {
   let signal: AbortSignal | undefined;
   serve((url, init) => {
