@@ -56,6 +56,22 @@ async def list_corrections(conn: AsyncConnection[Row], ticket_id: UUID) -> list[
     return await cursor.fetchall()
 
 
+async def asked_info_codes(conn: AsyncConnection[Row], ticket_id: UUID) -> frozenset[str]:
+    """Codes asked in messages that actually reached the customer (same rule as the worker).
+
+    A send counts once the platform accepted it and the workflow recorded it. An approved but
+    unsent message has not asked anything yet.
+    """
+    cursor = await conn.execute(
+        "SELECT requested_info_codes FROM cs.ticket_customer_sends "
+        "WHERE ticket_id = %s AND recorded_at IS NOT NULL",
+        (ticket_id,),
+    )
+    return frozenset(
+        code for row in await cursor.fetchall() for code in row["requested_info_codes"]
+    )
+
+
 async def customer_tier(conn: AsyncConnection[Row], ticket_id: UUID) -> str | None:
     """Tier recorded with the provided ticket. Manual tickets have none."""
     cursor = await conn.execute(
