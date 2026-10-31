@@ -303,3 +303,119 @@ def test_a_decimal_from_the_same_part_but_out_of_order_is_not_an_article():
     )
     assert "2.1" not in by_no(tree)
     assert by_no(tree)["2.4.C"].text.endswith("2.1 mm between phases.")
+
+
+def test_korean_chapter_article_and_numbered_items_keep_hierarchy_and_body():
+    tree = tree_of(
+        p("제 1 장 공통 기준"),
+        p("제1조(목적) 필요한 자료를 제출한다."),
+        p("1. 적용 범위"),
+        p("가. 최초 자료를 확인한다."),
+        p("나. 변경 이력을 보존한다."),
+        p("제2조 절차"),
+        p("1. 담당자가 검토한다."),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == [
+        "제1장",
+        "제1조",
+        "제1조.1",
+        "제1조.1.가",
+        "제1조.1.나",
+        "제2조",
+        "제2조.1",
+    ]
+    assert [c.depth for c in tree.clauses] == [1, 2, 3, 4, 4, 2, 3]
+    assert clauses["제1조"].parent_no == "제1장"
+    assert clauses["제1조.1.나"].parent_no == "제1조.1"
+    assert clauses["제1장"].label == "제 1 장"
+    assert clauses["제1조"].text == "(목적) 필요한 자료를 제출한다."
+    assert tree.numbering_issues == []
+
+
+def test_korean_article_can_start_without_a_chapter_or_english_part():
+    head = p("머리말 자료")
+    tree = tree_of(head, p("제7조(확인) 사람이 기록을 검토한다."))
+    [article] = tree.clauses
+    assert article.clause_no == "제7조" and article.parent_no is None
+    assert article.text == "(확인) 사람이 기록을 검토한다."
+    assert tree.preamble_block_ids == [head.block_id]
+
+
+def test_korean_simple_sections_preserve_decimal_quantities_as_body():
+    tree = tree_of(
+        p("문서 안내"),
+        p("1. 일반"),
+        p("검토 결과를 기록한다."),
+        p("13.8 kV 기준을 적용한다."),
+        p("0.5 밀리미터 범위를 확인한다."),
+        p("2.수행 절차"),
+        p("가. 담당자가 확인한다."),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == ["1", "2", "2.가"]
+    assert clauses["1"].title == "일반" and clauses["2"].title == "수행 절차"
+    assert "13.8 kV" in clauses["1"].text and "0.5 밀리미터" in clauses["1"].text
+    assert clauses["2.가"].parent_no == "2"
+
+
+def test_mixed_korean_and_english_parts_restore_english_depth_and_preamble():
+    cover = p("1. 한글 안내")
+    tree = tree_of(
+        cover,
+        p("PART 2 - PRODUCTS"),
+        p("2.1 SCOPE"),
+        p("A. Main assembly."),
+        p("1. Supply item."),
+        p("제3장 확인 절차"),
+        p("제1조 기록"),
+        p("1. 현행 값을 보존한다."),
+        p("3.5 kV 조건을 적용한다."),
+        p("제1장치를 확인한다."),
+        p("제7조립품을 확인한다."),
+        p("PART 4 - EXECUTION"),
+        p("4.1 TEST"),
+        p("A. Verify the record."),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == [
+        "PART 2",
+        "2.1",
+        "2.1.A",
+        "2.1.A.1",
+        "제3장",
+        "제1조",
+        "제1조.1",
+        "PART 4",
+        "4.1",
+        "4.1.A",
+    ]
+    assert cover.block_id in tree.preamble_block_ids
+    assert clauses["2.1.A.1"].depth == 4 and clauses["4.1.A"].depth == 3
+    assert all(value in clauses["제1조.1"].text for value in ("3.5 kV", "제1장치를", "제7조립품을"))
+
+
+def test_korean_table_items_and_deleted_values_keep_source_offsets():
+    tree = tree_of(
+        p("제1장 기록"),
+        p("제1조 제출"),
+        cell(0, 0, 0, "1."),
+        cell(0, 0, 1, "현행 값 20을 보존한다.", ("10", 5)),
+    )
+    clause = by_no(tree)["제1조.1"]
+    assert clause.depth == 3 and clause.parent_no == "제1조"
+    assert clause.label == "1." and "FROM_TABLE_ROW" in clause.flags
+    assert clause.deleted_values[0].text == "10"
+    assert clause.deleted_values[0].position == 5
+
+
+def test_korean_table_decimal_current_is_not_an_english_compound_article():
+    tree = tree_of(
+        p("제1장 확인"),
+        p("제1조 전류"),
+        p("1. 시험 값을 기록한다."),
+        cell(0, 0, 0, "1.5 A."),
+        cell(0, 0, 1, "상한 값"),
+    )
+    assert list(by_no(tree)) == ["제1장", "제1조", "제1조.1"]
+    assert by_no(tree)["제1조.1"].table_rows == [["1.5 A.", "상한 값"]]

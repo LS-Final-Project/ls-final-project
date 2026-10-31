@@ -1,5 +1,6 @@
 """추출 문서(ExtractedDocument)에서 조항 트리를 복원한다(KAN-185, 기획서 5.2). DB·모델 호출이 없다.
 
+영문 PART와 일반 한글 장·조·숫자 항목을 본문 번호로 읽는다.
 제공 RFP는 제목 서식·자동 번호 없이 번호를 본문 글자로 적는다(14번은 모든 문단이 Normal). 그래서 문단 앞
 번호 패턴으로 깊이를 정한다.
 
@@ -13,6 +14,9 @@
 | 6 | `1)`·`(1)` | `2.5.C.1.a.1` |
 | 7 | `a)`·`(a)` | `2.5.C.1.a.1.a` |
 
+- 한글은 장(깊이 1)·조(2)·숫자 항목(3)·가/나 항목(4) 순서다. 장/조/PART가 없는 문서의
+  `1. 일반` 같은 한글 숫자 제목은 깊이 2 절로 시작한다. 조의 괄호 제목·본문은 text에 보존한다.
+  한글 번호 문맥의 소수는 절로 승격하지 않으며 다음 영문 PART부터 기존 영문 깊이로 돌아간다.
 - 번호 없는 문단은 바로 앞 조항에 붙인다. 앞 글이 문장 끝(`.`·`:`·`;`)이 아니거나 이번 문단이 소문자로
   시작하면 줄이 중간에서 끊긴 것으로 보고 공백으로 잇는다(`LINE_BREAK_REJOINED`). 아니면 줄을 바꿔 붙인다.
 - 표: 한 행의 첫 글자 있는 칸이 번호만이면 그 행을 번호 조항으로 읽는다(14번 2.5 D·G·I…가 이런 배치다).
@@ -48,14 +52,20 @@ from backend.engine.documents.model import Block, CrossReference, DeletedValue, 
 
 CLAUSE_TREE_VERSION = "clause-tree-v1"
 PART = re.compile(r"^PART\s+(\d+)\s*[-–—]\s*(.+)$")
+KOREAN_CHAPTER = re.compile(r"^(제\s*(\d+)\s*장)(?=\s|[（(.:]|$)\s*(.*)$")
+KOREAN_ARTICLE = re.compile(r"^(제\s*(\d+)\s*조)(?=\s|[（(.:]|$)\s*(.*)$")
+KOREAN_NUMBER = re.compile(r"^(\d+)\.\s*([가-힣].*)$")
+KOREAN_LETTERS = "가나다라마바사아자차카타파하"
 ARTICLE = re.compile(r"^(\d+)\.(\d+)\s+(\S.*)$")
 # PDF에서 바꾼 문서는 절 번호와 첫 항목 번호가 표 칸 하나에 함께 떠 있다(14번 "2.2 A.").
 COMPOUND = re.compile(r"^(\d+)\.(\d+)\s+([A-Z])\.$")
 LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (3, re.compile(r"^([A-Z])\.(?:\s+|$)")),
     (4, re.compile(r"^(\d{1,2})\.(?:\s+|$)")),
+    (5, re.compile(r"^([가나다라마바사아자차카타파하])\.(?:\s+|$)")),
     (5, re.compile(r"^([a-z])\.(?:\s+|$)")),
     (6, re.compile(r"^\(?(\d{1,2})\)(?:\s+|$)")),
+    (7, re.compile(r"^\(?([가나다라마바사아자차카타파하])\)(?:\s+|$)")),
     (7, re.compile(r"^\(?([a-z])\)(?:\s+|$)")),
 )
 END_OF_SECTION = re.compile(r"^END OF SECTION\b", re.I)
@@ -124,6 +134,9 @@ class ClauseTree(Strict):
 
 
 def _next(token: str) -> str | None:
+    if token in KOREAN_LETTERS:
+        at = KOREAN_LETTERS.index(token) + 1
+        return KOREAN_LETTERS[at] if at < len(KOREAN_LETTERS) else None
     if token.isdigit():
         return str(int(token) + 1)
     if len(token) == 1 and token.isalpha() and token not in "zZ":
@@ -163,11 +176,17 @@ def _label(text: str) -> tuple[int, str, str, str | None] | None:
     Returns:
         (깊이, 번호 토큰, 번호 글자 그대로, 제목) 또는 None. 제목은 PART·절만.
     """
+    if m := KOREAN_CHAPTER.match(text):
+        return 1, f"제{m.group(2)}장", m.group(1), m.group(3).strip() or None
+    if m := KOREAN_ARTICLE.match(text):
+        return 2, f"제{m.group(2)}조", m.group(1), None
     if m := PART.match(text):
         head = text[: m.start(2)].strip()
         return 1, f"PART {m.group(1)}", head, m.group(2).strip()
     if m := ARTICLE.match(text):
         return 2, f"{m.group(1)}.{m.group(2)}", f"{m.group(1)}.{m.group(2)}", m.group(3).strip()
+    if m := KOREAN_NUMBER.match(text):
+        return 4, m.group(1), f"{m.group(1)}.", None
     for depth, pattern in LABELS:
         if m := pattern.match(text):
             return depth, m.group(1), m.group(0).strip(), None
@@ -269,6 +288,35 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     started = False
     pending: tuple[str, str, Block] | None = None
     part_no: str | None = None
+    korean = False
+    # PART·장·조가 있는 문서는 그 앞 표지를 숫자 절로 승격하지 않는다.
+    simple_korean = not any(
+        PART.match(b.text.strip())
+        or KOREAN_CHAPTER.match(b.text.strip())
+        or KOREAN_ARTICLE.match(b.text.strip())
+        for b in document.blocks
+    )
+
+    def contextual_label(text: str) -> tuple[int, str, str, str | None] | None:
+        found = _label(text)
+        if found is None:
+            return None
+        depth, token, label, title = found
+        if simple_korean and KOREAN_NUMBER.match(text):
+            return 2, token, label, title
+        if korean:
+            # 한글 장/조 문맥에서 소수를 영문 PART의 2.5 절로 오인하지 않는다.
+            if depth == 2 and not KOREAN_ARTICLE.match(text):
+                return None
+            if (
+                depth == 4
+                or (depth == 5 and token in KOREAN_LETTERS)
+                or depth == 6
+                or (depth == 7 and token in KOREAN_LETTERS)
+            ):
+                depth -= 1
+        return depth, token, label, title
+
     last_article: dict[str | None, int] = {}
 
     def article_ok(major: str, minor: str) -> bool:
@@ -385,8 +433,8 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         nonlocal current, part_no
         close()
         if depth == 1:
-            part_no = token.split()[-1]
-        elif depth == 2:
+            part_no = re.sub(r"\D", "", token)
+        elif depth == 2 and "." in token:
             last_article[part_no] = int(token.split(".")[1])
         while stack and stack[-1].depth >= depth:
             stack.pop()
@@ -427,8 +475,11 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         last_token[key] = token
         if previous is None or depth <= 2:
             return
+        expected: str | None
         if previous.isdigit() and token.isdigit():
             expected = str(int(previous) + 1)
+        elif previous in KOREAN_LETTERS and token in KOREAN_LETTERS:
+            expected = _next(previous)
         elif len(previous) == 1 and len(token) == 1 and previous.isalpha():
             expected = chr(ord(previous) + 1)
         else:
@@ -540,7 +591,11 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 cells.append(blocks[i])
                 i += 1
             filled = [c for c in cells if c.text.strip()]
-            compound = COMPOUND.match(filled[0].text.strip()) if filled and started else None
+            compound = (
+                COMPOUND.match(filled[0].text.strip())
+                if filled and started and not korean
+                else None
+            )
             if compound is not None and not article_ok(compound.group(1), compound.group(2)):
                 compound = None
             if compound is not None:
@@ -568,7 +623,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             if labeled is not None and started:
                 at, rest = labeled
                 head = cells[at]
-                found = _label(head.text.strip() + " x")
+                found = contextual_label(head.text.strip() + " x")
                 assert found is not None
                 depth, token, label, _ = found
                 history = [v.text.strip() for v in head.deleted_values if v.position == 0]
@@ -632,19 +687,32 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             preamble.append(block.block_id)
             i += 1
             continue
-        found = _label(text)
-        if found is not None and found[0] == 2:
+        if PART.match(text):
+            korean = False
+        elif (
+            KOREAN_CHAPTER.match(text)
+            or KOREAN_ARTICLE.match(text)
+            or (simple_korean and KOREAN_NUMBER.match(text))
+        ):
+            korean = True
+        found = contextual_label(text)
+        if found is not None and found[0] == 2 and ARTICLE.match(text):
             major, minor = found[1].split(".")
             if not started or not article_ok(major, minor):
                 found = None
-        if found is not None and (found[0] == 1 or started):
+        if found is not None and (
+            found[0] == 1
+            or started
+            or KOREAN_ARTICLE.match(text)
+            or (simple_korean and KOREAN_NUMBER.match(text))
+        ):
             if found[0] <= 2:
                 flush_pending()
             depth, token, label, title = found
             started = True
             cut = block.text.find(label) + len(label)
             body, deleted, history = _strip(block.text, block.deleted_values, cut)
-            if depth <= 2:
+            if depth <= 2 and not KOREAN_ARTICLE.match(text):
                 # 제목 줄의 삭제 값(예: PART 3의 "(NOT IN CONTRACT)")은 제목 기준으로 따로 둔다.
                 open_clause(depth, token, label, body.strip() or title, block, "", [], history, [])
                 if current is not None:
