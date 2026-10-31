@@ -608,8 +608,7 @@ async def regrade_stored(
     reference_date: date,
     pool: frozenset[str] | None,
 ) -> bool:
-    """현재 요구·프로필·사람 입력을 같은 업무 TX에서 재채점한다. 원문/provider/별도 commit 없음."""
-    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,187))", (str(project_id),))
+    """호출자가 프로젝트 잠금을 보유한 업무 TX에서 재채점한다. 원문/provider/별도 commit 없음."""
     rows = await repository.stored_grading_requirements(conn, project_id)
     inputs = await repository.project_constraints(conn, project_id)
     titles = [r.get("document_title") for r in rows]
@@ -769,43 +768,54 @@ async def process(
             comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
             for _, _, r in extracted
         ]
-        async with conn.transaction():
-            await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            for document, tree, clauses in parsed:
-                clauses.update(await repository.store_clauses(conn, document, tree.clauses))
-            ids = await store_requirements(conn, job.project_id, extracted, outcomes)
-            await store_question_drafts(conn, job, parsed, extracted, ids)
-            emit({"step": "compare", "counts": counts(total)})
-            for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes):
-                options = supplement.options_for(
-                    outcome, "UNSTATED", designated=item.designated_model is not None
-                )
-                for option in options.options:
-                    await repository.insert_option(
-                        conn,
-                        requirement_id,
-                        option.model_dump(),
-                        deficiency_cause=options.deficiency_cause,
-                        customer_permission=options.customer_permission,
-                        data_origin=document["data_origin"],
+        # 잠금 SELECT 자체도 snapshot을 만든다. autocommit 문장에서 기다린 뒤 RR을 시작해야
+        # 선행 작업이 커밋한 등급을 첫 데이터 snapshot에 포함한다. 업무 TX 종료까지 같은 키를 보유한다.
+        await conn.execute(
+            "SELECT pg_advisory_lock(hashtextextended(%s,187))", (str(job.project_id),)
+        )
+        try:
+            async with conn.transaction():
+                await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                for document, tree, clauses in parsed:
+                    clauses.update(await repository.store_clauses(conn, document, tree.clauses))
+                ids = await store_requirements(conn, job.project_id, extracted, outcomes)
+                await store_question_drafts(conn, job, parsed, extracted, ids)
+                emit({"step": "compare", "counts": counts(total)})
+                for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes):
+                    options = supplement.options_for(
+                        outcome, "UNSTATED", designated=item.designated_model is not None
                     )
-            emit({"step": "supplement", "counts": counts(total)})
-            # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
-            if await draft_repository.generated(conn, job.project_id, job.job_id) is None:
-                needs_review |= await regrade_stored(
-                    conn,
-                    job.project_id,
-                    today,
-                    candidate_pool(d["title"] for d in documents),
+                    for option in options.options:
+                        await repository.insert_option(
+                            conn,
+                            requirement_id,
+                            option.model_dump(),
+                            deficiency_cause=options.deficiency_cause,
+                            customer_permission=options.customer_permission,
+                            data_origin=document["data_origin"],
+                        )
+                emit({"step": "supplement", "counts": counts(total)})
+                # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
+                if await draft_repository.generated(conn, job.project_id, job.job_id) is None:
+                    needs_review |= await regrade_stored(
+                        conn,
+                        job.project_id,
+                        today,
+                        candidate_pool(d["title"] for d in documents),
+                    )
+                emit({"step": "candidates", "counts": counts(total)})
+                proposal = await drafts.generate(conn, job.project_id, job.actor_id, job.job_id)
+                needs_review |= any(
+                    row.evidence_missing or row.needs_rereview
+                    for part in proposal.sections
+                    for row in part.sentences
                 )
-            emit({"step": "candidates", "counts": counts(total)})
-            proposal = await drafts.generate(conn, job.project_id, job.actor_id, job.job_id)
-            needs_review |= any(
-                row.evidence_missing or row.needs_rereview
-                for part in proposal.sections
-                for row in part.sentences
+                emit({"step": "draft", "counts": counts(total)})
+        finally:
+            # commit/rollback 뒤 해제한다. 취소나 unlock 실패 시에도 바깥 연결 종료가 잠금을 해제한다.
+            await conn.execute(
+                "SELECT pg_advisory_unlock(hashtextextended(%s,187))", (str(job.project_id),)
             )
-            emit({"step": "draft", "counts": counts(total)})
     return {"counts": counts(total), "needs_review": needs_review}
 
 

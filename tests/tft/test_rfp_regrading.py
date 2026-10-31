@@ -4,6 +4,8 @@ import asyncio
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from backend.api.tft.rfp import repository
 from backend.engine.rfp.requirements import ExtractedRequirement
 
@@ -49,7 +51,10 @@ def test_new_requirement_preserves_actual_extraction_semantics_without_dto_chang
     assert params[-4:-1] == ("SPEC", False, "overcurrent")
 
 
-def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models(monkeypatch):
+@pytest.mark.parametrize("failure", [None, "draft", "cancel", "unlock", "acquire"])
+def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models(
+    monkeypatch, failure
+):
     from contextlib import asynccontextmanager
     from datetime import date
     from types import SimpleNamespace
@@ -85,17 +90,48 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         "status": "SPEC_GAP",
     }
 
+    events = []
+
     class Connection:
-        execute = AsyncMock()
+        in_transaction = False
+
+        async def execute(self, query, params=None):
+            if "pg_advisory_unlock" in query:
+                assert not self.in_transaction
+                assert params == (str(project_id),)
+                events.append("unlock")
+                if failure == "unlock":
+                    raise RuntimeError("synthetic unlock failure")
+            elif "pg_advisory_lock" in query:
+                assert not self.in_transaction
+                assert params == (str(project_id),)
+                events.append("lock")
+                if failure == "acquire":
+                    raise RuntimeError("synthetic acquire failure")
+            else:
+                assert self.in_transaction
+                assert query == "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+                events.append("RR")
 
         @asynccontextmanager
         async def transaction(self):
-            yield
+            events.append("BEGIN")
+            self.in_transaction = True
+            try:
+                yield
+            except BaseException:
+                events.append("rollback")
+                raise
+            else:
+                events.append("commit")
+            finally:
+                self.in_transaction = False
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_):
+            events.append("close")
             return False
 
     conn = Connection()
@@ -135,10 +171,23 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         ),
     )
     monkeypatch.setattr(repository, "prior_grades_for_regrading", AsyncMock(return_value=[]))
-    monkeypatch.setattr(worker.draft_repository, "generated", AsyncMock(return_value=None))
+
+    async def first_data(*_):
+        assert conn.in_transaction
+        assert events[-1] == "RR"
+        events.append("first data")
+        return None
+
+    monkeypatch.setattr(worker.draft_repository, "generated", AsyncMock(side_effect=first_data))
     insert = AsyncMock()
     monkeypatch.setattr(repository, "insert_grade", insert)
-    draft = AsyncMock(return_value=SimpleNamespace(sections=[]))
+    draft_error = (
+        asyncio.CancelledError() if failure == "cancel" else RuntimeError("synthetic draft failure")
+    )
+    draft = AsyncMock(
+        return_value=SimpleNamespace(sections=[]),
+        side_effect=draft_error if failure in {"draft", "cancel"} else None,
+    )
     monkeypatch.setattr(worker.drafts, "generate", draft)
     read = AsyncMock(side_effect=AssertionError("원문 재읽기 금지"))
     monkeypatch.setattr(worker, "read_document", read)
@@ -159,7 +208,21 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         input_version=input_version([document_id]),
         actor_id=uuid4(),
     )
+    if failure:
+        expected = asyncio.CancelledError if failure == "cancel" else RuntimeError
+        with pytest.raises(expected):
+            processor(job, lambda _: None)
+        if failure == "acquire":
+            assert events == ["lock", "close"]
+        else:
+            ending = "rollback" if failure in {"draft", "cancel"} else "commit"
+            assert events == ["lock", "BEGIN", "RR", "first data", ending, "unlock", "close"]
+        extraction.assert_not_called()
+        rewrite.assert_not_called()
+        read.assert_not_awaited()
+        return
     summary = processor(job, lambda _: None)
+    assert events == ["lock", "BEGIN", "RR", "first data", "commit", "unlock", "close"]
     extraction.assert_not_called()
     rewrite.assert_not_called()
     read.assert_not_awaited()
@@ -171,6 +234,7 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
     assert "supply_region" in saved["grade"]["mandatory_check"]["failed"]
     draft.assert_awaited_once_with(conn, project_id, job.actor_id, job.job_id)
     assert summary["counts"]["requirements"] == 0  # 새 추출은 0, 저장 요구의 재채점은 실행했다.
+    worker.draft_repository.generated.side_effect = None
     worker.draft_repository.generated.return_value = 1
     processor(job, lambda _: None)
     assert insert.await_count == 1  # 이미 커밋된 같은 job 재시도는 등급을 또 쌓지 않는다.
