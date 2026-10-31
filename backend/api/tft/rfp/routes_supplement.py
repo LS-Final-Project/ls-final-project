@@ -248,6 +248,7 @@ async def select_supplement(
             await check_candidates(conn, requirement_id, options, payload)
             # 열린 질문이 있거나 가능하다고 답을 받았으면 다시 묻지 않는다. 답을 받은 뒤 같은
             # 경로를 다시 저장해 재검토를 푸는 흐름이 질문을 되살리면 끝나지 않는다.
+            # 불가 답이면 경로가 막혀 여기 오지 않는다.
             if payload.path == "OWN_DEVELOPMENT" and decided not in (
                 "PENDING",
                 "CONFIRMED_FEASIBLE",

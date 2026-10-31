@@ -24,6 +24,7 @@ from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
+from tests.tft.test_rfp_draft_routes_db import generate
 
 # 고정물을 가져와 쓴다(pytest가 이름으로 찾는다).
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
@@ -292,14 +293,28 @@ def test_keeping_own_development_after_a_yes_does_not_ask_again(client, gap):
     assert options(client, gap)["EXTERNAL_PRODUCT"]["gate"]["status"] == "CONFIRMED_FEASIBLE"
 
 
-def test_keeping_own_development_after_a_no_asks_again(client, gap):
-    """불가 답을 받고도 자사 개발을 고르면 다시 묻는다."""
+def test_a_no_blocks_own_development_until_someone_asks_again(client, gap, app_dsn, admin):
+    """불가 답이면 자사 개발은 막히고 초안 생성은 실패하지 않는다. 새 질문이 다시 연다."""
     assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
     url = f"/projects/{gap['project']}/questions?target=INTERNAL"
     [question] = call(client, "GET", url, OWNER).json()["data"]["items"]
     assert answer(client, question, RND, rnd_feasibility="NOT_FEASIBLE").status_code == 200
-    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
-    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 2
+    blocked = options(client, gap)["OWN_DEVELOPMENT"]
+    assert (blocked["allowed"], blocked["blocked_reason"]) == (
+        False,
+        "OWN_DEVELOPMENT_NOT_FEASIBLE",
+    )
+    assert error(choose(client, gap, "OWN_DEVELOPMENT")) == (409, "TFT_INVALID_TRANSITION")
+    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 1
+    # 선택이 막힌 경로에 남아 있어도 재처리의 초안 생성이 끝난다.
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.supplement_options SET candidate_codes='{}' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+    generate(app_dsn, gap, uuid4())
+    assert ask(client, gap).status_code == 201
+    assert options(client, gap)["OWN_DEVELOPMENT"]["allowed"] is True
 
 
 def test_partner_path_while_rnd_is_pending_needs_a_waiver(client, gap, admin):

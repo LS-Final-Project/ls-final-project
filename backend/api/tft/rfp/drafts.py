@@ -69,7 +69,9 @@ async def generate(
         _, option = await options_of(conn, raw)
         options.append(option)
         selected = await repository.latest_selection(conn, req.requirement_id)
-        if selected:
+        # 회신·승인으로 막히거나 사라진 경로의 선택은 결정으로 쓰지 않는다. 처리를 실패시키지
+        # 않고, 재검토 표시로 사람에게 돌아간다.
+        if selected and any(o.path == selected["path"] and o.allowed for o in option.options):
             selections.append(selected_out(selected))
     grades = await repository.project_grades(conn, project_id)
     profiles = await repository.profiles_of(
