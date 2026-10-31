@@ -106,6 +106,8 @@ export type KvColumn<T> = {
   width?: number;
   // c 가운데, n 숫자, t 제목 등 kv-grid 셀 클래스.
   className?: string;
+  // 머리글만 다른 클래스를 쓸 때(예: 날짜 열은 값만 가운데, 머리글은 왼쪽). 없으면 className을 쓴다.
+  headClass?: string;
   // 서버가 주는 순서를 알린다. 눌러서 바꾸는 정렬이 아니라 표시만이다.
   sort?: 'ascending' | 'descending';
   cell: (row: T, index: number) => ReactNode;
@@ -113,13 +115,15 @@ export type KvColumn<T> = {
 
 // 표. label은 스크린 리더용 이름이고, rows가 비면 fallback을 표 안에 보여 준다.
 // frozen은 앞 세 열(선택·번호·문서번호)을 고정하는 C/S 목록 배치이고 기본은 고정하지 않는다.
-export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = false, selectedKey, onRow, scroll = false, rowClass }: {
+export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = false, sortable = false, selectedKey, onRow, scroll = false, rowClass }: {
   label: string;
   columns: KvColumn<T>[];
   rows: readonly T[];
   rowKey: (row: T) => string;
   fallback: ReactNode;
   frozen?: boolean;
+  // 머리글을 눌러 정렬하는 표(머리글에 손 모양 커서와 마우스를 올렸을 때 정렬 표시).
+  sortable?: boolean;
   // 고른 행을 표시한다. 행을 고르는 동작은 셀 안의 버튼이 맡는다(키보드 접근).
   selectedKey?: string;
   // 행 어디를 눌러도 고른다. 키보드는 셀 안의 링크가 맡는다.
@@ -129,9 +133,9 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
   rowClass?: (row: T) => string | undefined;
 }) {
   return <div className={scroll ? 'kv-tablewrap scroll' : 'kv-tablewrap'}>
-    <table className={frozen ? 'kv-grid' : 'kv-grid free'} aria-label={label}>
+    <table className={`kv-grid${frozen ? '' : ' free'}${sortable ? ' sortable' : ''}`} aria-label={label}>
       <colgroup>{columns.map(c => <col key={c.key} style={c.width ? { width: c.width } : undefined} />)}</colgroup>
-      <thead><tr>{columns.map(c => <th key={c.key} className={c.className} aria-sort={c.sort}>{c.header}</th>)}</tr></thead>
+      <thead><tr>{columns.map(c => <th key={c.key} className={c.headClass ?? c.className} aria-sort={c.sort}>{c.header}</th>)}</tr></thead>
       <tbody>
         {rows.length === 0
           ? <tr><td colSpan={columns.length}>{fallback}</td></tr>
