@@ -38,7 +38,9 @@ _DEMO_A = [
         operator="TEXT",
         canonical_value="±2x2.5%",
     ),
-    Requirement(clause_no="2.5.I.1", item="절연 Class F", attribute="insulation_class", value="F"),
+    Requirement(
+        clause_no="2.5.I.1", item="절연 Class F", attribute="insulation_class", value="Class F"
+    ),
     Requirement(
         clause_no="2.5.N",
         item="임피던스 5.75% ±10%",
@@ -1173,7 +1175,11 @@ def test_demo_b1_short_time_current_stays_a_spec_gap_for_the_own_mv_products():
         value="38",
         unit="kA",
         operator="GTE",
-        conditions=[Condition(name="duration", value="2", unit="s")],
+        conditions=[
+            Condition(name="duration", value="2", unit="s"),
+            # 값이 아닌 문구가 조건으로 들어와도 미달이 조건부로 약해지지 않는다.
+            Condition(name="OTHER", value="600 A Continuous Current Ratings", unit=None),
+        ],
     )
     outcome = compare_in_family(wanted, "MV_EQUIP", load_own_products())
     [b1] = [

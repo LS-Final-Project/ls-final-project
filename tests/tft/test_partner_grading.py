@@ -13,11 +13,12 @@ from backend.api.tft.partners.grading import (
     Requirement,
     RequirementGrade,
     RfpContext,
+    _value_verdict,
     grade_candidate,
     grade_requirement,
 )
 from backend.api.tft.partners.loader import load_profiles
-from backend.api.tft.partners.schemas import Condition, PartnerProfile
+from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -219,6 +220,36 @@ def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence()
     _, grades = grade_candidate(profile("P-B", [*facts, same], [cert("UL 347")]), MV, CONTEXT, DAY)
     [direct] = by_id(grades)[4].exclusion_reasons
     assert "미달" in direct and "환산" not in direct
+
+
+def test_an_unreadable_condition_does_not_soften_a_shortfall_but_still_blocks_a_pass():
+    """어휘 밖 조건(OTHER)은 문구다. 미달은 그대로 미달, 충족은 확정하지 않는다."""
+    wanted = MV[3].model_copy(
+        update={"conditions": [*MV[3].conditions, Condition(name="OTHER", value="문구", unit=None)]}
+    )
+    facts = [f for f in MV_FACTS if f["attribute"] != "short_time_withstand_current"]
+    duration = [{"name": "duration", "value": "2", "unit": "s"}]
+    weak = fact("short_time_withstand_current", "25", "kA", conditions=duration)
+    strong = fact("short_time_withstand_current", "40", "kA", conditions=duration)
+    failed = grade_requirement(
+        profile("P-B", [*facts, weak], [cert("UL 347")]), wanted, CONTEXT, DAY
+    )
+    assert failed.grade == "EXCLUDED" and "미달" in failed.exclusion_reasons[0]
+    passed = grade_requirement(
+        profile("P-B", [*facts, strong], [cert("UL 347")]), wanted, CONTEXT, DAY
+    )
+    assert passed.grade == "REVIEW"
+    assert "short_time_withstand_current" in passed.mandatory_check.unknown
+
+
+@pytest.mark.parametrize(
+    ("wanted", "held", "name"),
+    [("Class F", "F", "passed"), ("F", "class f", "passed"), ("Class H", "F", "unknown")],
+)
+def test_class_values_compare_without_the_label(wanted, held, name):
+    row = req(9, "insulation_class", wanted, operator="TEXT")
+    verdict, _ = _value_verdict(row, SpecFact.model_validate(fact("insulation_class", held)))
+    assert verdict == name
 
 
 def test_a_shortfall_under_another_condition_is_unknown_not_excluded():
