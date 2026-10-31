@@ -84,6 +84,8 @@ FamilyOrOther = Literal[EquipmentFamily, Other]
 ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
+# 확정 수치: 단위가 붙은 숫자. 조건으로 시작하는 구절(at 60 Hz)과 규격 번호(IEC 60076)는 아니다.
+QUANTITY = re.compile(r"^(?!\s*(?:at|per|for|in|with|under)\b).*\d\s*[a-zµΩ%°]", re.I)
 # 한글 미정 표시는 일반 계약 문장에도 나온다("납기는 별도 협의"). 그래서 값 전체가 그 말일 때만 본다.
 # 앞에 라벨 하나는 허용한다("용량: 미정"). 값이 함께 있는 문장을 미정으로 읽으면 판정이 사라진다.
 OPEN_VALUE = re.compile(
@@ -130,22 +132,59 @@ def read_canonical(attribute_key: str, text: str) -> str | None:
     return compact if is_canonical(attribute_key, compact) else None
 
 
+def has_placeholder(text: str | None) -> bool:
+    """문장 안에 미정 항목이 있는지. 조항에 물어볼 것이 있는지를 판단한다.
+
+    Args:
+        text: 조항 문장이나 인용.
+
+    Returns:
+        bool: 미정 표시가 어디든 있으면 True.
+    """
+    if text is None:
+        return False
+    return PLACEHOLDER.search(text) is not None or OPEN_VALUE.fullmatch(text) is not None
+
+
+def _marker_is_for_another_item(value: str) -> bool:
+    """앞 구절에 확정 수치가 있고 표지는 이름을 가진 다른 항목에 붙었는지.
+
+    기본은 미정이다. 조건·규격의 숫자(at 40 C, IEC 60076)는 값이 아니므로 이 둘이 함께일 때만 참이다.
+
+    Args:
+        value: 미정 표지가 든 값.
+
+    Returns:
+        bool: "630A, delivery TBD" 꼴이면 True.
+    """
+    parts = re.split(r"[.;,]\s+", value)
+    marked = next((i for i, part in enumerate(parts) if PLACEHOLDER.search(part)), 0)
+    named = re.search(r"[^\W\d_]", PLACEHOLDER.split(parts[marked])[0]) is not None
+    return named and any(QUANTITY.search(part) for part in parts[:marked])
+
+
 def is_placeholder(value: str | None) -> bool:
     """값 자리에 실제 값 대신 미정 표시가 있는지.
 
+    "Rated current 630 A. Delivery TBD."의 TBD는 다른 항목의 것이고, "<Insert value> kV"는 값 자리
+    자체가 비어 있다. 문장 어디든 미정이 있는지는 has_placeholder가 본다.
+    ponytail: 구절로만 가른다. "630 A <Insert date>"처럼 한 구절에 섞이면 미정이다(비교 제외 쪽).
+
     Args:
-        value: 요구값.
+        value: 요구값이나 값의 인용.
 
     Returns:
         bool: 자리표시자면 True.
     """
     if value is None:
         return False
-    return PLACEHOLDER.search(value) is not None or OPEN_VALUE.fullmatch(value) is not None
+    if OPEN_VALUE.fullmatch(value) is not None:
+        return True
+    return PLACEHOLDER.search(value) is not None and not _marker_is_for_another_item(value)
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
-# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 한글도 같다. 단독 유입(빗물 유입), 몰드(몰드 케이스),
+# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 한글도 같다. 단독 유입(빗물 유입), 단독 몰드(몰드 케이스는 MCCB),
 # 퓨즈(제어회로 퓨즈), 개폐는 형식을 말하지 않는다. 부하개폐기(load break, load interrupter)는
 # 퓨즈가 없을 수 있고, epoxy는 코팅·도장에도 쓰며, metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있다.
 FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {
