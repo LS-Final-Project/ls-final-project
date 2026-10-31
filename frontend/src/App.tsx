@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
 import AccountGate from './pages/AccountGate';
+import MailSent from './pages/MailSent';
 import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
 import CsAdmin from './pages/CsAdmin';
@@ -32,6 +33,7 @@ export default function App() {
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<CsImprovements />} />
       <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
+      <Route path="mail/sent" element={<MailSent />} />
       <Route path="cs/customers" element={<CsCustomers />} />
       <Route path="cs/admin" element={<CsAdmin />} />
       <Route path="cs/tickets" element={<Tickets />} />
