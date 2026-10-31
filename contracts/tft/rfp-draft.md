@@ -224,6 +224,8 @@ worker가 parse/extract를 건너뛰므로 모델 재호출 없이 승인·보�
 backfill하지 않으며 같은 sentence_key의 실제 자동 기원을 찾는다. 새 T19 migration은 양식 기원과
 rewrite 접수·사용량/실패대체 사유 기록을 저장한다. 기존 고지 문구는 변경하지 않는다.
 
+요구가 뽑히지 않은 조항의 질문도 초안에 들어간다. 근거는 그 조항이다. `build_draft`는 프로젝트 문서의 조항 ID 전부(`clause_ids`)로 질문의 조항을 대조하므로, 프로젝트에 없는 조항은 그대로 `RFP_DRAFT_UNKNOWN_REFERENCE`다.
+
 ## 경로32: 모델 문장 작성
 
 `POST /api/v1/tft/projects/{id}/draft/rewrite`의 입력은 `{version:N}`뿐이다. 초안 생성과 동일한
