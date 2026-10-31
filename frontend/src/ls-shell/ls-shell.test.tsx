@@ -26,9 +26,10 @@ describe('업무 셸과 옛 화면의 스타일 경계', () => {
     expect(read('./ls-shell.css')).toMatch(/\.ls-root :where\([^)]*\):where\(:not\(\.ls-legacy \*\)\)\{all:revert\}/);
   });
 
-  it.each(['/cs/improvements'])('%s 는 셸 안의 옛 화면 영역에 그린다', path => {
-    const { container } = show(path);
-    expect(container.querySelector('.ls-root .ls-legacy')).not.toBeNull();
+  it('개선요청은 새 제목 줄(CS0301)로 그리고 입력 도구는 조회가 끝난 뒤 옛 화면 영역 안에 둔다', () => {
+    const { container } = show('/cs/improvements');
+    expect(container.querySelector('.kv-code')?.textContent).toBe('CS0301');
+    expect(container.querySelector('.ls-legacy')).toBeNull();
   });
 
   it('로그인한 계정 화면은 새 셸 안에서 내 정보(CM0202)로 그린다', async () => {
