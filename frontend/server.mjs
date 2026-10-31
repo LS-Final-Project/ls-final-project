@@ -110,13 +110,13 @@ const notificationRoutes = [
   [/^\/api\/v1\/platform\/push\/public-key$/, ['GET'], []],
   [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
 ];
-// 메일 화면의 읽기와, 결과 불명 발송을 다루는 쓰기 2개만 플랫폼으로 보낸다(KAN-178). 재전송 조건은 서버가 검사한다
-// (contracts/platform/mail.md). 분류 변경·회신 연결·문의 접수는 넣지 않는다.
+// 메일 화면의 읽기, 분류 변경, 결과 불명 발송을 다루는 쓰기 2개만 플랫폼으로 보낸다(KAN-178). 재전송 조건은
+// 서버가 검사한다(contracts/platform/mail.md). 회신 연결·문의 접수는 넣지 않는다.
 const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/send-intents$/, ['GET'], ['status']],
   [/^\/api\/v1\/platform\/mail\/send-intents\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:check-sent-copy|resend)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews$/, ['GET'], []],
-  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET', 'POST'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
