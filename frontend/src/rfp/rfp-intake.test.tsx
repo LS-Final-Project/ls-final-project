@@ -6,7 +6,7 @@ import { setApiMode } from '../api/client';
 import { Link } from 'react-router-dom';
 import { errorBody, jsonResponse, renderApp, renderAt } from '../test/render';
 import { fileProblem, latestVersions } from './IntakeForms';
-import { DEPARTMENT_LABEL } from './labels';
+import { DEPARTMENT_LABEL, requirementNo, shortDateTime } from './labels';
 import RfpIntake from './RfpIntake';
 
 // 서버 tft.department_kinds와 대조되는 목록이다(tests/tft/test_rfp_schema.py).
@@ -63,12 +63,12 @@ describe('프로젝트 화면', () => {
   it('프로젝트·요구 요약·문서·할 일을 보드 말로 보여 준다', async () => {
     await open();
     expect(screen.getByText('근거 있음 29, 조건부 검토 8, 사양 차이 6, 근거 부족 5')).toBeTruthy();
-    expect(screen.getByText('조건 확인 필요')).toBeTruthy();
+    expect(screen.getAllByText('조건 확인 필요').length).toBeGreaterThan(0);
     expect(screen.getByText('판본 5')).toBeTruthy();
     expect(screen.getByText('구매팀')).toBeTruthy();
     expect(next()).toContain('요구 48건, 미해결 필수 3, 승인 대기 4, 열린 질문 2');
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
-    expect(document.querySelector('.kv-btns a[href$="/table"]')?.getAttribute('href')).toBe(`${PATH}/table`);
+    expect(screen.getByRole('link', { name: '자사 대응표 (TF0102)' }).getAttribute('href')).toBe(`${PATH}/table`);
     expect(document.querySelector('.ls-legacy')).toBeNull();
     expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['접수 및 요구 검토']);
   });
@@ -158,6 +158,117 @@ describe('프로젝트 화면', () => {
     renderApp(PATH);
     await waitFor(() => expect(document.querySelector('.ls-root')).not.toBeNull());
     expect(calls.some(c => c.url.includes(`/tft/projects/${ID}`))).toBe(false);
+  });
+});
+
+describe('목록과 고른 프로젝트 한 화면', () => {
+  const summary = (id: string, name: string) => ({ ...base, id, name, created_at: '2026-10-20T09:00:00Z' });
+  const listing = (detail: (id: string) => Record<string, unknown>) => {
+    const inner = vi.mocked(fetch).getMockImplementation() as typeof fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/tft/projects')) return ok({ items: [summary(ID, '첫째'), summary('p2', '둘째')], next_cursor: null });
+      if (url.endsWith('/tft/projects/p2')) return ok(detail('p2'));
+      if (url.endsWith(`/tft/projects/${ID}`)) return ok(detail(ID));
+      if (url.includes('/requirements?')) return ok({ items: [{ requirement_id: 'r1', code: 'abc:2.1:1', attribute: 'rating', attribute_key: 'rated_current', status: 'SPEC_GAP', open_questions: 2 }] });
+      if (url.includes('/documents/')) return ok({ clauses_count: 212, deleted_values_count: 9 });
+      return inner(input, init);
+    }));
+  };
+
+  it('경로에 프로젝트가 없으면 첫 프로젝트를 고른다', async () => {
+    listing(id => ({ ...base, id, name: '첫째 상세' }));
+    renderApp('/tft/projects');
+    await screen.findByText('첫째 상세');
+    expect(screen.getByRole('table', { name: '접수 및 요구 검토' }).querySelector('tr.sel')?.textContent).toContain('첫째');
+  });
+
+  it('행을 누르면 같은 화면에서 그 프로젝트로 바뀐다', async () => {
+    listing(id => ({ ...base, id, name: id === 'p2' ? '둘째 상세' : '첫째 상세' }));
+    renderApp('/tft/projects');
+    await screen.findByText('첫째 상세');
+    fireEvent.click(screen.getByText('둘째').closest('tr') as HTMLElement);
+    await screen.findByText('둘째 상세');
+    expect(screen.getByRole('table', { name: '접수 및 요구 검토' })).toBeTruthy();
+  });
+
+  it('문서 표에 조항·삭제 값을 보이고 이전 판본은 흐리게 비운다', async () => {
+    listing(id => ({ ...base, id }));
+    renderApp(PATH);
+    const table = await screen.findByRole('table', { name: '문서와 판본' });
+    await within(table).findAllByText('212');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows[0].classList.contains('old')).toBe(true);
+    expect(rows[0].textContent).not.toContain('212');
+    expect(rows[1].textContent).toContain('212');
+    expect(rows[1].textContent).toContain('9');
+    const documentCalls = vi.mocked(fetch).mock.calls.map(([u]) => String(u)).filter(u => /\/documents\/[^/?]+$/.test(u));
+    expect(documentCalls.some(u => u.endsWith('/documents/a'))).toBe(true);
+    expect(documentCalls.some(u => u.includes('-v'))).toBe(false);
+  });
+
+  it('미해결 필수 표는 서버 필터로 읽고 한글 속성·표시 번호로 잇는다', async () => {
+    listing(id => ({ ...base, id }));
+    renderApp(PATH);
+    const table = await screen.findByRole('table', { name: '미해결 필수' });
+    const link = await within(table).findByRole('link', { name: '2.1-1' });
+    expect(link.getAttribute('href')).toBe(`${PATH}/requirements/r1`);
+    expect(table.textContent).toContain('질문 2');
+    expect(table.textContent).toContain('정격 전류');
+    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('unresolved_mandatory=true') && String(u).includes('limit=5'))).toBe(true);
+  });
+
+  it('사용자 ID를 모아 이름을 한 번에 읽고, 못 찾으면 지정으로 둔다', async () => {
+    listing(id => ({ ...base, id, sales_user_id: 'u1', responsible_user_id: 'u2' }));
+    const inner = vi.mocked(fetch).getMockImplementation() as typeof fetch;
+    const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/platform/users?') ? ok({ items: [{ user_id: 'u1', display_name: '합성 담당' }] }) : inner(input, init));
+    vi.stubGlobal('fetch', f);
+    renderApp(PATH);
+    await waitFor(() => expect(screen.getAllByText('합성 담당').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('지정').length).toBeGreaterThan(0);
+    const urls = f.mock.calls.map(([u]) => String(u)).filter(u => u.includes('/platform/users?'));
+    expect(urls.every(u => !/ids=.*u1.*u1/.test(u))).toBe(true);
+  });
+
+  it('할 일 표를 못 읽으면 없다고 하지 않는다', async () => {
+    listing(id => ({ ...base, id }));
+    const inner = vi.mocked(fetch).getMockImplementation() as typeof fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('unresolved_mandatory') ? jsonResponse(400, errorBody('BAD_REQUEST', 'x')) : inner(input, init)));
+    renderApp(PATH);
+    const table = await screen.findByRole('table', { name: '미해결 필수' });
+    await waitFor(() => expect(table.textContent).toContain('읽지 못했습니다'));
+    expect(table.textContent).not.toContain('없습니다');
+  });
+
+  it('회신 대기 질문과 원문 내려받기가 잇는다', async () => {
+    await open();
+    expect(screen.getByRole('table', { name: '회신 대기 질문' }).textContent).toContain('값을 확인해 주세요');
+    expect(screen.getByRole('link', { name: '원문 내려받기' }).getAttribute('href')).toBe('/api/v1/tft/documents/a/file');
+  });
+
+  it('F8은 목록을 다시 읽는다', async () => {
+    await open();
+    const lists = () => calls.filter(c => c.url.endsWith('/tft/projects')).length;
+    const before = lists();
+    fireEvent.keyDown(window, { key: 'F8' });
+    await waitFor(() => expect(lists()).toBeGreaterThan(before));
+  });
+
+  it('엑셀은 고른 프로젝트만, 고르지 않으면 표시한 행 전체를 CSV로 낸다', async () => {
+    const created: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => { created.push(blob); return 'blob:x'; });
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    listing(id => ({ ...base, id }));
+    renderApp('/tft/projects');
+    await screen.findByLabelText('둘째 선택');
+    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
+    expect(await created[0].text()).toContain('둘째');
+    fireEvent.click(screen.getByLabelText('첫째 선택'));
+    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
+    expect(await created[1].text()).not.toContain('둘째');
+    expect(click).toHaveBeenCalledTimes(2);
+    click.mockRestore();
   });
 });
 
@@ -337,5 +448,15 @@ describe('경로 안에서 프로젝트 이동', () => {
     const upload = await screen.findByRole('button', { name: '문서 올리기' }) as HTMLButtonElement;
     await waitFor(() => expect(upload.disabled).toBe(false));
     expect(next()).not.toContain('30초마다');
+  });
+});
+
+describe('표시 값', () => {
+  it('요구 번호에서 원시 값을 지운다', () => {
+    expect(requirementNo('738dbba4:1.1.A.1:1')).toBe('1.1.A.1-1');
+    expect(requirementNo('R-01')).toBe('R-01');
+  });
+  it('일시를 표 칸에 맞게 줄인다', () => {
+    expect(shortDateTime(new Date(2026, 9, 26, 14, 5).toISOString())).toBe('2026-10-26 14:05');
   });
 });

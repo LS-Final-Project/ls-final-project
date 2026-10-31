@@ -31,6 +31,8 @@ export type RequirementFilters = {
   necessity?: Necessity;
   needs_rereview?: boolean;
   has_open_question?: boolean;
+  next_owner_field?: string;
+  unresolved_mandatory?: boolean;
 };
 
 export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean } = {}) {
@@ -139,4 +141,14 @@ export type Clause = Schemas['Clause'];
 export const listClauses = (documentVersionId: string, cursor?: string) => request<Envelope<Schemas['ClauseList']>>(
   `/api/v1/tft/documents/${encodeURIComponent(documentVersionId)}/clauses?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
   { mockFallback: mock({ items: MOCK_CLAUSES, next_cursor: null }) },
+);
+
+export const getDocument = (id: string) => request<Envelope<Schemas['DocumentDetail']>>(
+  `/api/v1/tft/documents/${encodeURIComponent(id)}`, { mockFallback: mock({ clauses_count: 0, deleted_values_count: 0 }) },
+);
+
+export type UserName = { user_id: string; display_name: string };
+// 이름 묶음 조회. 없는 ID는 응답에서 빠진다. 한 번에 100개까지다.
+export const listUsers = (ids: string[]) => request<Envelope<{ items: UserName[] }>>(
+  `/api/v1/platform/users?ids=${ids.map(encodeURIComponent).join(',')}`, { mockFallback: mock({ items: [] }) },
 );

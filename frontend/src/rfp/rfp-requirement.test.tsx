@@ -36,10 +36,11 @@ beforeEach(() => {
     const cursor = new URL(url, 'http://x').searchParams.get('cursor') ?? '';
     if (url.includes('/platform/me')) return new Response(JSON.stringify({ data: { display_name: '합성', dept: null, roles: ['sales'] }, meta: { request_id: 'x' } }), { status: 200, headers: { 'X-CSRF-Token': 'c' } });
     if (url.includes('/clauses')) return ok(clausePages[cursor]);
+    if (url.endsWith('/documents')) return ok({ items: [{ document_id: 'd1', document_version_id: MOCK_DETAIL.origin.document_version_id, title: '사양서', version: 2 }] });
     if (url.includes('/questions')) return ok({ items: questions });
     if (url.includes('/requirements?')) return ok(url.includes('needs_rereview') ? { items: [row('z', 'R-9')], next_cursor: null } : pages[cursor]);
     if (url.includes('/requirements/')) return ok(detail);
-    return ok({ review_departments: ['RND_FW', 'SCM'] });
+    return ok({ name: '합성', review_departments: ['RND_FW', 'SCM'], requirements_count: 1, unresolved_mandatory_count: 0, requirement_counts: { needs_rereview: 0 } });
   }));
   setApiMode('live');
 });
@@ -57,6 +58,13 @@ describe('요구 상세', () => {
     expect(screen.getByText('이 프로젝트 질문 1건, 회신 대기 1')).toBeTruthy();
   });
 
+  it('속성은 어휘면 한글이고 원문 속성을 함께 보인다', async () => {
+    detail = { ...MOCK_DETAIL, spec: { ...MOCK_DETAIL.spec, attribute: 'rating', attribute_key: 'rated_current' } };
+    await open();
+    expect(screen.getByText('정격 전류')).toBeTruthy();
+    expect(screen.getByText('rating')).toBeTruthy();
+  });
+
   it('요구를 못 읽으면 오류를 보인다', async () => {
     detail = undefined;
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(500, errorBody('X', '실패'))));
@@ -72,6 +80,25 @@ describe('요구 상세', () => {
   });
 });
 
+describe('제목 줄', () => {
+  it('F6은 변경 제안을 열고 Esc는 폼이 없을 때만 대응표로 돌아간다', async () => {
+    await open();
+    fireEvent.keyDown(window, { key: 'F6' });
+    await screen.findByRole('button', { name: '제안 저장' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: '제안 저장' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+  });
+
+  it('프로젝트·문서·조항 띠와 원문 내려받기를 문서 ID로 잇는다', async () => {
+    await open();
+    await screen.findByText('사양서 v2');
+    expect(screen.getByRole('link', { name: '원문 내려받기' }).getAttribute('href')).toBe('/api/v1/tft/documents/d1/file');
+  });
+});
+
 describe('원문', () => {
   it('인용과 삭제 값을 나눠 보여 준다', async () => {
     detail = withOrigin({ quote: '인용 문구', deleted_values: [{ text: '25 kA', position: 1 }] });
@@ -84,7 +111,7 @@ describe('원문', () => {
   it('조항을 고르면 현행 문구를 보이고 요구 원문으로 돌아온다', async () => {
     detail = withOrigin({ quote: '인용 문구', clause_id: 'c-2.1.A' });
     await open();
-    fireEvent.click(await screen.findByRole('button', { name: /^1\b/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^1p/ }));
     expect(screen.getByText('첫 조항')).toBeTruthy();
     expect(screen.queryByText('인용 문구')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '요구 원문으로' }));
@@ -94,8 +121,19 @@ describe('원문', () => {
   it('조항은 쪽 단위로 더 읽고 판본 ID로 부른다', async () => {
     await open();
     fireEvent.click(await screen.findByRole('button', { name: '조항 더 보기' }));
-    await screen.findByRole('button', { name: /^9\b/ });
+    await screen.findByRole('button', { name: /^9p/ });
     expect(calls.some(c => c.url.includes(`/documents/${MOCK_DETAIL.origin.document_version_id}/clauses?limit=100&cursor=c2`))).toBe(true);
+    expect(screen.queryByRole('button', { name: '조항 더 보기' })).toBeNull();
+  });
+
+  it('요구의 조항이 뒤쪽 쪽에 있으면 찾을 때까지 읽어 표시한다', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    detail = withOrigin({ clause_id: 'c-9' });
+    await open();
+    const row = await screen.findByRole('button', { name: /^9p/ });
+    expect(row.getAttribute('aria-current')).toBe('true');
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: '조항 더 보기' })).toBeNull();
   });
 
@@ -110,7 +148,7 @@ describe('순회', () => {
   const walk = () => within(screen.getByRole('group', { name: '순회' }));
   it('쪽을 넘겨 끝까지 읽고 앞뒤 요구로 간다', async () => {
     await open();
-    await walk().findByText('3건 중 2번째');
+    await walk().findByText(/전체 3건 중 2번째/);
     expect(walk().getByRole('link', { name: '이전 요구 R-1' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/a`);
     expect(walk().getByRole('link', { name: '다음 요구 R-3' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/b`);
   });
@@ -118,23 +156,35 @@ describe('순회', () => {
   it('처음과 끝에서는 막힌다', async () => {
     pages = { '': { items: [row(ID, 'R-2')], next_cursor: null } };
     await open();
-    await walk().findByText('1건 중 1번째');
+    await walk().findByText(/전체 1건 중 1번째/);
     expect((walk().getByRole('button', { name: '이전 요구' }) as HTMLButtonElement).disabled).toBe(true);
     expect((walk().getByRole('button', { name: '다음 요구' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('조건을 바꾸면 서버 필터로 읽고 이 요구가 없으면 첫 요구로 간다', async () => {
     await open();
-    fireEvent.click(walk().getByRole('button', { name: '재검토 필요만' }));
-    await walk().findByText('조건에 맞는 요구 1건, 이 요구는 없음');
+    fireEvent.change(walk().getByLabelText('순회 조건'), { target: { value: 'rereview' } });
+    await walk().findByText(/조건에 맞는 요구 1건, 이 요구는 없음/);
     expect(calls.some(c => c.url.includes('needs_rereview=true'))).toBe(true);
     expect(walk().getByRole('link', { name: '다음 요구 R-9' })).toBeTruthy();
   });
 
+  it('미해결 필수만은 서버 필터로 읽는다', async () => {
+    await open();
+    fireEvent.change(walk().getByLabelText('순회 조건'), { target: { value: 'unresolved' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('unresolved_mandatory=true'))).toBe(true));
+  });
+
+  it('제목 줄 다음 요구가 순회와 같은 요구로 간다', async () => {
+    await open();
+    await walk().findByText(/전체 3건 중 2번째/);
+    expect(within(document.querySelector('.kv-btns') as HTMLElement).getByRole('link', { name: '다음 요구' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/b`);
+  });
+
   it('요구를 옮기면 열린 폼을 닫는다', async () => {
     await open();
-    await walk().findByText('3건 중 2번째');
-    fireEvent.click(screen.getByRole('button', { name: '질문 작성' }));
+    await walk().findByText(/전체 3건 중 2번째/);
+    fireEvent.click(screen.getAllByRole('button', { name: '질문 작성' })[0]);
     fireEvent.click(walk().getByRole('link', { name: '이전 요구 R-1' }));
     await waitFor(() => expect(calls.some(c => c.url.endsWith('/requirements/a'))).toBe(true));
     await screen.findByText('이상 1500 kVA');
@@ -143,7 +193,7 @@ describe('순회', () => {
 });
 
 describe('질문', () => {
-  const form = async () => { await open(); fireEvent.click(screen.getByRole('button', { name: '질문 작성' })); };
+  const form = async () => { await open(); fireEvent.click(screen.getAllByRole('button', { name: '질문 작성' })[0]); };
 
   it('질문을 저장하면 가정값 없이 고객 질문으로 보낸다', async () => {
     await form();
@@ -189,7 +239,7 @@ describe('질문', () => {
     questions = [question('q1', { status: 'DRAFT' })];
     await open();
     expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '보낸 질문으로' }));
+    fireEvent.click(screen.getByRole('button', { name: '질문 확인' }));
     await waitFor(() => expect(posts('/confirm')).toHaveLength(1));
     expect(posts('/confirm')[0].url).toContain(`/projects/${PROJECT}/questions/q1/confirm`);
     expect(posts('/confirm')[0].key).toBeTruthy();
@@ -199,7 +249,7 @@ describe('질문', () => {
     questions = [question('q1', { status: 'DRAFT' })];
     write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'x'));
     await open();
-    fireEvent.click(screen.getByRole('button', { name: '보낸 질문으로' }));
+    fireEvent.click(screen.getByRole('button', { name: '질문 확인' }));
     expect((await screen.findByRole('alert')).textContent).toContain('이미 확인됐습니다');
     questions = [question('q1')];
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
@@ -278,7 +328,7 @@ describe('회신', () => {
 });
 
 describe('내부 질문', () => {
-  const form = async () => { await open(); fireEvent.click(screen.getByRole('button', { name: '질문 작성' })); await within(screen.getByLabelText('대상')).findByRole('option', { name: 'R&D' }); };
+  const form = async () => { await open(); fireEvent.click(screen.getAllByRole('button', { name: '질문 작성' })[0]); await within(screen.getByLabelText('대상')).findByRole('option', { name: 'R&D' }); };
   const options = () => within(screen.getByLabelText('유형')).getAllByRole('option').map(o => o.textContent);
 
   it('검토 부서만 대상으로 고른다', async () => {
@@ -385,7 +435,7 @@ describe('변경 제안', () => {
   it('이 화면에서 제안을 저장한다', async () => {
     write = () => ok(MOCK_DETAIL);
     await open();
-    fireEvent.click(screen.getByRole('button', { name: '변경 제안' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '변경 제안' })[0]);
     fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
     fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '사유' } });
     fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));

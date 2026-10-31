@@ -53,6 +53,12 @@ export function requirementNo(code: string) {
   const [, clause, order] = code.split(':');
   return clause ? `${clause}-${order}` : code;
 }
+// 표 칸에 맞는 짧은 일시(2026-10-26 14:20, 사용자 시간대).
+export function shortDateTime(at: string) {
+  const d = new Date(at);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
 // attribute_key(backend/engine/rfp/vocabulary.py) → 화면 이름. 어휘에 없거나 OTHER면 원문 속성을 그대로 쓴다.
 export const ATTRIBUTE_LABEL: Record<string, string> = {
   form: '형식', rated_max_voltage: '정격 최대전압', bil: '기준 충격 절연', short_time_withstand_current: '단시간 내전류', rated_current: '정격 전류',
@@ -63,3 +69,7 @@ export const ATTRIBUTE_LABEL: Record<string, string> = {
   breaking_capacity_icu: '정격 한계 차단 용량', breaking_capacity_ics: '정격 사용 차단 용량', rated_short_circuit_breaking_current: '정격 단락 차단 전류',
   frame_size: '프레임 크기', number_of_poles: '극수', vector_group: '결선', protection_degree: '보호 등급',
 };
+export const PROVENANCE_LABEL: Record<string, string> = { ai_draft: 'AI 작성', human_input: '직접 입력', system_record: '시스템' };
+// 속성은 어휘에 있으면 한글, 없으면(OTHER·null) 원문 그대로다.
+export const attributeName = (key: string | null | undefined, text: string | null | undefined) =>
+  key && ATTRIBUTE_LABEL[key] ? ATTRIBUTE_LABEL[key] : text ?? '';
