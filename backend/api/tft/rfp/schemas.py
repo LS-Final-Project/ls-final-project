@@ -804,7 +804,7 @@ class Section(Model):
 class Draft(Provenance):
     project_id: UUID
     sections: list[Section]
-    # 고정 문구: 시연용 검토본이며 실제 제안서가 아니다.
+    # 고정 문구: 검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.
     disclaimer: str
     evidence_missing_count: int
 

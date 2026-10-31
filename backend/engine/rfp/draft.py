@@ -11,7 +11,7 @@ from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.integration import CHECK_ITEM, HOLDER_TEXT
 from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS, CONDITION_NAMES
 
-DISCLAIMER = "시연용 검토본이며 실제 제안서가 아니다."
+DISCLAIMER = "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
 PATH_TEXT: dict[s.SupplementPath, str] = {
     "OTHER_OWN_PRODUCT": "다른 자사 제품 검토",
     "OWN_DEVELOPMENT": "자사 개발·수행 가능 여부 확인",

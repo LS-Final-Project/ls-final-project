@@ -169,3 +169,89 @@ def test_filters_never_widen_a_department_users_scope(client, admin, customer):
         headers=principal_header(staff),
     )
     assert [item["id"] for item in response.json()["data"]["items"]] == [visible]
+
+
+def transfer(admin, ticket_id, dept, status="OPEN", round_no=1):
+    ended = status != "OPEN"
+    admin.execute(
+        "INSERT INTO cs.ticket_transfers (id, ticket_id, round, dept_code, status, reason, "
+        "transferred_by, ended_by, ended_at, end_reason) "
+        "VALUES (%s, %s, %s, %s, %s, 'test', %s, %s, %s, %s)",
+        (
+            uuid4(),
+            ticket_id,
+            round_no,
+            dept,
+            status,
+            AGENT.user_id,
+            AGENT.user_id if ended else None,
+            BASE if ended else None,
+            "test" if ended else None,
+        ),
+    )
+
+
+def received(client, customer, user=AGENT, **params):
+    response = client.get(
+        "/api/v1/cs/tickets",
+        params={"customer": customer, **params},
+        headers=principal_header(user),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["data"]
+
+
+def test_the_department_filter_lists_what_it_received_with_the_latest_transfer(
+    client, admin, customer
+):
+    both = add_ticket(admin, customer, 2)
+    returned = add_ticket(admin, customer, 1)
+    other = add_ticket(admin, customer, 0)
+    transfer(admin, both, "QA_CLAIM", "RETURNED_BY_DEPT", 1)
+    transfer(admin, both, "QA_CLAIM", "OPEN", 2)
+    transfer(admin, returned, "QA_CLAIM", "RETURNED_BY_DEPT")
+    transfer(admin, other, "TS_LV")
+
+    items = received(client, customer, dept="QA_CLAIM")["items"]
+    assert [i["id"] for i in items] == [str(both), str(returned)]
+    assert items[0]["transfer"]["round"] == 2 and items[0]["transfer"]["status"] == "OPEN"
+    assert items[0]["transfer"]["dept_code"] == "QA_CLAIM"
+    assert items[1]["transfer"]["status"] == "RETURNED_BY_DEPT"
+
+    opened = received(client, customer, dept="QA_CLAIM", transfer_status="OPEN")["items"]
+    assert [i["id"] for i in opened] == [str(both)]
+    # 최신 회차의 상태만 본다. 지난 회차가 반송이어도 지금 열려 있으면 반송 목록이 아니다.
+    back = received(client, customer, dept="QA_CLAIM", transfer_status="RETURNED_BY_DEPT")["items"]
+    assert [i["id"] for i in back] == [str(returned)]
+    assert all(i["transfer"] is None for i in received(client, customer)["items"])
+
+
+def test_the_department_filter_pages_with_the_same_cursor(client, admin, customer):
+    for hours in range(3):
+        transfer(admin, add_ticket(admin, customer, hours), "QA_CLAIM")
+    first = received(client, customer, dept="QA_CLAIM", limit=2)
+    assert len(first["items"]) == 2 and first["next_cursor"]
+    second = received(client, customer, dept="QA_CLAIM", limit=2, cursor=first["next_cursor"])
+    assert len(second["items"]) == 1 and second["items"][0]["transfer"] is not None
+
+
+def test_the_department_filter_never_widens_a_department_user(client, admin, customer):
+    staff = Principal(user_id=uuid4(), roles={"dept_staff"}, dept="QA_CLAIM")
+    manager = Principal(user_id=uuid4(), roles={"manager"}, managed_departments={"TS_LV"})
+    shared = add_ticket(admin, customer, 1)
+    transfer(admin, shared, "QA_CLAIM", "RESULT_SUBMITTED", 1)
+    transfer(admin, shared, "TS_LV", "OPEN", 2)
+    assert [i["id"] for i in received(client, customer, staff, dept="QA_CLAIM")["items"]] == [
+        str(shared)
+    ]
+    # 두 부서에 간 문의라도 다른 부서의 이관 정보는 주지 않는다.
+    assert received(client, customer, staff, dept="TS_LV")["items"] == []
+    assert received(client, customer, manager, dept="QA_CLAIM")["items"] == []
+    assert len(received(client, customer, manager, dept="TS_LV")["items"]) == 1
+
+
+def test_transfer_status_needs_a_department(client):
+    response = client.get("/api/v1/cs/tickets", params={"transfer_status": "OPEN"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "CS_INVALID_FILTER"
+    assert client.get("/api/v1/cs/tickets", params={"dept": "GCS_L1"}).status_code == 422
