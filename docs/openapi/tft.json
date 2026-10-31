@@ -3956,6 +3956,17 @@
             ],
             "title": "Attribute"
           },
+          "attribute_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Key"
+          },
           "conditions": {
             "items": {
               "$ref": "#/components/schemas/Condition"
