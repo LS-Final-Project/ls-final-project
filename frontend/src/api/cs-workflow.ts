@@ -7,6 +7,8 @@ export type WorkflowResponse = paths[Wf]['get']['responses'][200]['content']['ap
 export type WorkflowRecord = WorkflowResponse['data'];
 export type TransferBody = paths[`${Wf}/transfer`]['post']['requestBody']['content']['application/json'];
 export type DeptCode = TransferBody['dept_code'];
+export type ReviewBody = paths[`${Wf}/dept-results/{result_id}/review`]['post']['requestBody']['content']['application/json'];
+export type DeptResultRow = WorkflowRecord['dept_results'][number];
 export type ReturnBody = paths[`${Wf}/return-subtype`]['post']['requestBody']['content']['application/json'];
 
 const ticketBase = (ticketId: string) => `/api/v1/cs/tickets/${encodeURIComponent(ticketId)}`;
@@ -34,7 +36,10 @@ export const confirmReturn = (ticketId: string, body: ReturnBody, signal: AbortS
 // 종결된 문의에 해결 사례를 한 건 등록한다(워크플로 ⑧). 상태 판본은 바뀌지 않는다.
 export type ResolutionBody = paths['/api/v1/cs/tickets/{ticket_id}/resolution-case']['post']['requestBody']['content']['application/json'];
 export const registerResolutionCase = (ticketId: string, body: ResolutionBody, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/resolution-case`, body, signal);
+// 부서 답변을 확인(ACCEPT)하거나 같은 부서에 다시 요청(REWORK, 메모 필수)한다. 업무 판본과 결과 판본을 함께 보낸다.
+export const reviewDeptResult = (ticketId: string, resultId: string, body: ReviewBody, signal: AbortSignal) => post(ticketId, `/dept-results/${encodeURIComponent(resultId)}/review`, body, signal);
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
+export const isResultVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_DEPT_RESULT_VERSION_CONFLICT';
 export const isResolutionExists = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_RESOLUTION_CASE_EXISTS';
 export const isVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_WORKFLOW_VERSION_CONFLICT';
