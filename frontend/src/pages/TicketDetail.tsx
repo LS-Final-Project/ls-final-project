@@ -14,6 +14,7 @@ import { listCsAssignees, me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
 import TicketAudit from '../components/TicketAudit';
+import TicketSummary from '../components/TicketSummary';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
@@ -189,7 +190,7 @@ export default function TicketDetail() {
         <section className="kv-box">
           <h2>대화<small>최신이 위</small></h2>
           <div className="body">
-            <div className="kv-sub" style={{ margin: '0 0 6px', display: 'flex', alignItems: 'center' }}>한국어 요약<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></div>
+            <TicketSummary ticketId={ticketId} canWrite={canWrite} />
             <CustomerThread original={data} workflow={wf} />
           </div>
         </section>
