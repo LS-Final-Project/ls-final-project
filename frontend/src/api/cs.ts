@@ -28,3 +28,6 @@ export const listDeptRequests = (dept: DeptCode, status: TransferStatus | '', cu
   if (cursor) query.set('cursor', cursor);
   return request<TicketListResponse>(`/api/v1/cs/tickets?${query}`, { signal, mockFallback: () => ({ data: { items: [], next_cursor: null } }) });
 };
+
+export type TicketAuditResponse = paths['/api/v1/cs/tickets/{ticket_id}/audit']['get']['responses'][200]['content']['application/json'];
+export const getTicketAudit = (id: string, signal?: AbortSignal) => request<TicketAuditResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/audit`, { signal });

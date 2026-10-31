@@ -802,3 +802,12 @@
 /* 한 줄 설명(요청 사유 등). 보드 CS_K_Dept_Result의 .kv-line */
 .ls-root .kv-line.full{margin:6px 14px 0;padding:6px 10px;background:#fff;border:1px solid var(--erp-border);color:var(--erp-text);font-size:12.5px}
 .ls-root .kv-line.full b{font-weight:400;color:var(--erp-muted);margin-right:8px;font-size:inherit!important}
+
+/* 대화 흐름(최신이 위). 보드 CS_K_Process_Reply의 .kv-thread */
+.ls-root .kv-thread{border:1px solid var(--erp-border-soft);background:#fafbfc}
+.ls-root .kv-thread .msg{padding:8px 10px;border-top:1px solid var(--erp-border-soft);font-size:12.5px;line-height:1.6;white-space:pre-wrap}
+.ls-root .kv-thread .msg:first-child{border-top:0}
+.ls-root .kv-thread .msg .hd{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--erp-muted);margin-bottom:4px}
+.ls-root .kv-thread .msg .hd b{font-weight:400;color:var(--erp-text);font-size:inherit!important}
+.ls-root .kv-thread .msg.new{background:#fff}
+.ls-root .kv-thread .kv-text{border:0;background:none;padding:0;min-height:0}

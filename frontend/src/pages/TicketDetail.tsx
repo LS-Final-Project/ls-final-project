@@ -12,6 +12,8 @@ import { getTicket, getTicketAnalysis } from '../api/cs';
 import { closeTicket, confirmReturn, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
+import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
+import TicketAudit from '../components/TicketAudit';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
@@ -64,6 +66,7 @@ export default function TicketDetail() {
   const rc = data?.resolution_case;
   // 응답이 계약 모양(판본 숫자, 이력 배열)이 아니면 쓰지 않는다.
   const wf = workflow.isSuccess && typeof workflow.data.data?.version === 'number' && Array.isArray(workflow.data.data.transfers) ? workflow.data.data : undefined;
+  const replyArrived = latestUnansweredReply(wf);
   const state = data ? STATE_LABEL[data.workflow_state] ?? '알 수 없는 상태, 확인 필요' : '-';
   // 부서가 답했지만 아직 확인하지 않은 가장 최근 답변. 확인하기 전에는 부서 검토 요청과 종결을 막는다.
   const pendingResult = (wf?.dept_results ?? []).filter(item => item.review_status === 'SUBMITTED').at(-1);
@@ -155,6 +158,7 @@ export default function TicketDetail() {
 
     <div className="kv-next">
       <span className="k">다음 할 일</span>
+      {replyArrived && <><span><b>고객 회신 도착</b> {formatStamp(replyArrived.received_at)}{replyArrived.reopened ? ', 검토중으로 복귀' : ''}</span><span className="sep">|</span></>}
       {data ? <TicketWorkflow state={data.workflow_state} /> : <span>{ticket.isPending ? '불러오는 중' : '문의를 불러오지 못했습니다.'}</span>}
       <button className="kb" style={{ marginLeft: 'auto', flex: 'none', whiteSpace: 'nowrap' }} disabled={ticket.isFetching || busy} onClick={() => { void ticket.refetch(); void workflow.refetch(); }}>최신 상태 조회</button>
     </div>
@@ -183,12 +187,10 @@ export default function TicketDetail() {
 
       <div className="kv-split c3">
         <section className="kv-box">
-          <h2>고객 원문<small>수신 {formatStamp(data.received_at)}</small></h2>
+          <h2>대화<small>최신이 위</small></h2>
           <div className="body">
-            <div className="kv-sub" style={{ margin: '0 0 4px', display: 'flex', alignItems: 'center' }}>한국어 요약<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></div>
-            <div className="kv-sub" style={{ margin: '10px 0 4px', color: 'var(--erp-text)' }}>{data.subject || '(제목 없음)'}</div>
-            <div className="kv-text en scroll">{data.body}</div>
-            <div className="kv-sub" style={{ margin: '8px 0 4px' }}>보고된 오류 코드 {data.error_code_reported ?? '-'}, 보고된 FW {data.fw_version_reported ?? '-'}</div>
+            <div className="kv-sub" style={{ margin: '0 0 6px', display: 'flex', alignItems: 'center' }}>한국어 요약<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></div>
+            <CustomerThread original={data} workflow={wf} />
           </div>
         </section>
         <section className="kv-box">
@@ -217,11 +219,7 @@ export default function TicketDetail() {
         </div>
         <div>
           <div className="kv-sub" style={{ margin: '0 0 6px' }}>처리 기록</div>
-          <div className="kv-tablewrap"><table className="kv-grid">
-            <colgroup><col style={{ width: 130 }} /><col style={{ width: 44 }} /><col style={{ width: 110 }} /><col /><col style={{ width: 44 }} /></colgroup>
-            <thead><tr><th>일시</th><th className="c">구분</th><th>처리자</th><th>바뀐 내용</th><th className="c">순번</th></tr></thead>
-            <tbody><tr><td colSpan={5}>처리 기록 조회는 {PENDING}</td></tr></tbody>
-          </table></div>
+          <TicketAudit ticketId={ticketId} />
         </div>
       </div>
     </>}
