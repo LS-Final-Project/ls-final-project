@@ -7,6 +7,7 @@ export type WorkflowResponse = paths[Wf]['get']['responses'][200]['content']['ap
 export type WorkflowRecord = WorkflowResponse['data'];
 export type TransferBody = paths[`${Wf}/transfer`]['post']['requestBody']['content']['application/json'];
 export type DeptCode = TransferBody['dept_code'];
+export type ReturnBody = paths[`${Wf}/return-subtype`]['post']['requestBody']['content']['application/json'];
 
 const base = (ticketId: string) => `/api/v1/cs/tickets/${encodeURIComponent(ticketId)}/workflow`;
 
@@ -27,6 +28,7 @@ async function post(ticketId: string, action: string, body: object, signal: Abor
 export const startReview = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/start-review', { version }, signal);
 export const transferTicket = (ticketId: string, body: TransferBody, signal: AbortSignal) => post(ticketId, '/transfer', body, signal);
 export const recallTransfer = (ticketId: string, body: { reason: string; version: number }, signal: AbortSignal) => post(ticketId, '/recall', body, signal);
+export const confirmReturn = (ticketId: string, body: ReturnBody, signal: AbortSignal) => post(ticketId, '/return-subtype', body, signal);
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
 export const isVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_WORKFLOW_VERSION_CONFLICT';

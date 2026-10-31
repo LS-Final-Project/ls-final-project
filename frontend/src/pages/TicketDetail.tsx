@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
+import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
@@ -41,6 +42,8 @@ export default function TicketDetail() {
   // 기한을 읽는 사람이 등급이 추정임을 알아야 한다. 안내일 뿐이라 분석을 못 읽어도 화면은 그대로다.
   const analysis = useQuery({ queryKey: ['ticket-analysis', mode, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
   const tierNote = analysis.data?.data?.rules?.tier_note;
+  // 분석 응답이 계약 모양(필드 표)이 아니면 쓰지 않는다. 모의 모드의 빈 응답도 여기서 걸러진다.
+  const analysisData = analysis.isSuccess && analysis.data.data && typeof analysis.data.data.fields === 'object' && analysis.data.data.fields ? analysis.data.data : undefined;
   // 상태 표시는 문의 상세의 값을 쓴다. 업무 흐름 조회는 판본(version), 담당, 검토 요청 이력만 읽는다.
   const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
   // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
@@ -48,6 +51,8 @@ export default function TicketDetail() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  // 반품 확정 입력 칸을 비우는 데 쓴다. 확정은 모든 칸을 덮어쓰는 기록이라 입력이 다른 문의나 다음 확정에 남으면 안 된다.
+  const [returnFormKey, setReturnFormKey] = useState(0);
   const running = useRef<AbortController | null>(null);
   useHotkey('Escape', () => navigate('/cs/tickets'), access.ready && dialog === null);
 
@@ -70,8 +75,8 @@ export default function TicketDetail() {
 
   // 한 번에 한 동작만 실행한다. 실패하거나 결과를 알 수 없으면(408·5xx) 같은 요청을 다시 보내지 않고 최신 상태를 읽는다.
   // 판본이 바뀌면 서버가 409를 주므로 이미 반영된 동작이 두 번 적용되지 않는다.
-  async function run(done: string, call: (signal: AbortSignal) => Promise<unknown>) {
-    if (busy) return;
+  async function run(done: string, call: (signal: AbortSignal) => Promise<unknown>): Promise<boolean> {
+    if (busy) return false;
     const controller = new AbortController();
     running.current = controller;
     setBusy(true); setNotice(null);
@@ -79,13 +84,15 @@ export default function TicketDetail() {
       await call(controller.signal);
       setNotice({ kind: 'ok', text: done });
       setDialog(null);
+      return true;
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
           : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 상태를 읽었습니다. 반영 여부를 확인하세요.' });
       setDialog(null);
+      return false;
     } finally {
       await Promise.allSettled([ticket.refetch(), workflow.refetch()]);
       setBusy(false);
@@ -172,16 +179,8 @@ export default function TicketDetail() {
           <h2>설치 장비 확인<small>확인 전</small></h2>
           <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} /></div>
         </section>
-        <section className="kv-box ai-pre">
-          <h2>AI 분류<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></h2>
-          <div className="body">
-            <div className="kv-field"><span>주분류</span><select aria-label="주분류" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>보조분류</span><select aria-label="보조분류" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>긴급 여부</span><select aria-label="긴급 여부" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>반품 유형</span><select aria-label="반품 유형" disabled><option>-</option></select></div>
-            <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류·담당자 수정 결과는 아직 연결되지 않았습니다. 원문 정보와 구분해 확인하세요.</div>
-          </div>
-        </section>
+        <TicketAnalysisPanel key={`${ticketId}:${returnFormKey}`} analysis={analysisData} pending={analysis.isPending} workflow={wf} ticketState={data.workflow_state} canWrite={canWrite} busy={busy}
+          onConfirm={form => void run('반품 사유를 확정했습니다.', signal => confirmReturn(ticketId, { ...form, version }, signal)).then(ok => { if (ok) setReturnFormKey(key => key + 1); })} />
       </div>
 
       <div className="kv-split">
