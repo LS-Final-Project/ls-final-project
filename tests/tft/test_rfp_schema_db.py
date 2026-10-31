@@ -35,6 +35,7 @@ MIGRATIONS = (
     "20261109_KAN-188_draft_execution.sql",
     "20261110_KAN-188_worker_output_status.sql",
     "20261111_KAN-188_draft_rewrite.sql",
+    "20261112_KAN-187_project_constraints.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]
@@ -709,3 +710,34 @@ def test_reapplied_command_constraints_match_runtime_operations(admin):
         )
         assert check is not None
         assert set(re.findall(r"'([^']+)'", check[1])) == OPERATIONS
+
+
+def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admin, chain):
+    migration = Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql")
+    project = chain["project"]
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply(conn, migration)
+        conn.execute(
+            "UPDATE tft.projects SET supply_region='한국',customer_manufacturer_list=ARRAY['제조사 A'],"
+            "off_list_permission='FORBIDDEN' WHERE id=%s",
+            (project,),
+        )
+        apply(conn, migration)
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE tft_worker")
+            assert conn.execute(
+                "SELECT supply_region,customer_manufacturer_list,off_list_permission "
+                "FROM tft.projects WHERE id=%s",
+                (project,),
+            ).fetchone() == ("한국", ["제조사 A"], "FORBIDDEN")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with conn.transaction():
+                conn.execute("SET LOCAL ROLE tft_worker")
+                conn.execute(
+                    "UPDATE tft.projects SET supply_region='다른 지역' WHERE id=%s", (project,)
+                )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE tft.projects SET customer_manufacturer_list=ARRAY[]::text[] WHERE id=%s",
+                (project,),
+            )

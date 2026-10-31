@@ -16,7 +16,7 @@ SUMMARY_COLUMNS = (
     "p.id, p.external_id, p.name, p.company_code, p.status, p.data_origin, p.derivation_kind, "
     "p.responsible_user_id, p.sales_user_id, p.created_at, p.version, p.known_at, p.client_name, "
     "p.output_status, p.judgement_status, p.strategic_customer, p.integration_holder, "
-    + PROJECT_COUNTS
+    "p.supply_region, p.customer_manufacturer_list, p.off_list_permission, " + PROJECT_COUNTS
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "

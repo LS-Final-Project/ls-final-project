@@ -9,10 +9,10 @@
 """
 
 from datetime import date, datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
@@ -134,10 +134,20 @@ class Provenance(Model):
     known_at: datetime
 
 
+OffListPermission = Literal["ALLOWED", "FORBIDDEN", "UNSTATED"]
+ConstraintText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+]
+ManufacturerList = Annotated[list[ConstraintText], Field(min_length=1, max_length=100)]
+
+
 # --- 프로젝트 (§4.1) --------------------------------------------------------------------
 
 
 class ProjectCreate(Model):
+    supply_region: ConstraintText | None = None
+    customer_manufacturer_list: ManufacturerList | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     name: str = Field(min_length=1, max_length=200)
     client_name: str | None = Field(default=None, max_length=200)
     company_code: str = Field(min_length=1, max_length=40)
@@ -160,6 +170,9 @@ class IntegrationUpdate(Model):
 
 
 class ProjectUpdate(Model):
+    supply_region: ConstraintText | None = None
+    customer_manufacturer_list: ManufacturerList | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=200)
     client_name: str | None = Field(default=None, max_length=200)
@@ -219,6 +232,9 @@ class IntegrationResponsibility(IntegrationSummary):
 
 
 class RfpProjectSummary(Provenance):
+    supply_region: ConstraintText | None = None
+    customer_manufacturer_list: ManufacturerList | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     id: UUID
     # 접수 표시 번호(P26-0001). 번호 발급 전 프로젝트는 null이다.
     external_id: str | None = None
@@ -281,6 +297,9 @@ PROJECT_COLUMNS = (
     "responsible_user_id",
     "created_at",
     "strategic_customer",
+    "supply_region",
+    "customer_manufacturer_list",
+    "off_list_permission",
     "purpose",
     "customer_goal",
     "review_departments",

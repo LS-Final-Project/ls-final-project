@@ -76,3 +76,5 @@ export const attributeName = (key: string | null | undefined, text: string | nul
 export const INTEGRATION_HOLDER_LABEL: Record<string, string> = {
   UNRESOLVED: '미확보', OWN: '자사 통합', SINGLE_PARTNER: '단일 협력사', JOINT: '공동 제안', HOLD: '참여 보류 검토',
 };
+
+export const OFF_LIST_PERMISSION_LABEL: Record<string, string> = { ALLOWED: '허용', FORBIDDEN: '금지', UNSTATED: '미확인' };

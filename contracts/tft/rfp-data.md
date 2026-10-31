@@ -213,3 +213,7 @@ PREFERRED SPEC_GAP 1건이면 미해결 필수는 2건이다. EVIDENCE_FOUND라�
 통과하고 담당 sales 또는 책임자가 저장한 시점에만 판단 상태를 정한다. 미해결이
 남아도 요구별 상태·근거 또는 다음 행동이 갖춰지고 초안 문장의 근거·재검토 조건을
 통과하면 검토본 저장은 가능하되 `CONDITION_CHECK`를 유지한다.
+
+### 프로젝트의 사람 입력 제약(KAN-187)
+
+`supply_region`은 nullable text, `customer_manufacturer_list`는 nullable text[]이다. null은 미제공이며 명시한 빈 목록은 거부한다. 목록 항목과 공급지역은 비어 있지 않은 사람 입력만 허용한다. `off_list_permission`은 ALLOWED/FORBIDDEN/UNSTATED(기본) 코드이며 목록 존재만으로 FORBIDDEN을 추론하지 않는다. 회사·고객명·문서명·모델 출력에서 값을 추측하지 않는다. 접수 생성/PATCH/조회에 동일 필드를 제공하며 PATCH의 생략은 보존, 지역·목록의 명시 null은 미제공으로 되돌린다. 변경은 기존 등급의 재계산을 뜻하지 않으며 저장 요구를 대상으로 한 재실행이 필요하다. T20은 작성만 했으며 공용 DB 적용은 운영자가 수행한다.

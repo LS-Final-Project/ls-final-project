@@ -2091,6 +2091,24 @@
             ],
             "title": "Customer Goal"
           },
+          "customer_manufacturer_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Manufacturer List"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -2104,6 +2122,16 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
+            "type": "string"
+          },
+          "off_list_permission": {
+            "default": "UNSTATED",
+            "enum": [
+              "ALLOWED",
+              "FORBIDDEN",
+              "UNSTATED"
+            ],
+            "title": "Off List Permission",
             "type": "string"
           },
           "purpose": {
@@ -2143,6 +2171,19 @@
               }
             ],
             "title": "Strategic Customer Note"
+          },
+          "supply_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Region"
           }
         },
         "required": [
@@ -2185,6 +2226,20 @@
               }
             ],
             "title": "Customer Goal"
+          },
+          "customer_manufacturer_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Manufacturer List"
           },
           "data_origin": {
             "enum": [
@@ -2273,6 +2328,16 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "off_list_permission": {
+            "default": "UNSTATED",
+            "enum": [
+              "ALLOWED",
+              "FORBIDDEN",
+              "UNSTATED"
+            ],
+            "title": "Off List Permission",
             "type": "string"
           },
           "open_questions_count": {
@@ -2401,6 +2466,17 @@
             ],
             "title": "Strategic Customer Set By"
           },
+          "supply_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Region"
+          },
           "unresolved_mandatory_count": {
             "title": "Unresolved Mandatory Count",
             "type": "integer"
@@ -2493,6 +2569,20 @@
             "title": "Created At",
             "type": "string"
           },
+          "customer_manufacturer_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Manufacturer List"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -2547,6 +2637,16 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "off_list_permission": {
+            "default": "UNSTATED",
+            "enum": [
+              "ALLOWED",
+              "FORBIDDEN",
+              "UNSTATED"
+            ],
+            "title": "Off List Permission",
             "type": "string"
           },
           "open_questions_count": {
@@ -2617,6 +2717,17 @@
             ],
             "title": "Strategic Customer"
           },
+          "supply_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Region"
+          },
           "unresolved_mandatory_count": {
             "title": "Unresolved Mandatory Count",
             "type": "integer"
@@ -2677,6 +2788,24 @@
             ],
             "title": "Customer Goal"
           },
+          "customer_manufacturer_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Manufacturer List"
+          },
           "integration_responsibility": {
             "anyOf": [
               {
@@ -2699,6 +2828,16 @@
               }
             ],
             "title": "Name"
+          },
+          "off_list_permission": {
+            "default": "UNSTATED",
+            "enum": [
+              "ALLOWED",
+              "FORBIDDEN",
+              "UNSTATED"
+            ],
+            "title": "Off List Permission",
+            "type": "string"
           },
           "review_departments": {
             "anyOf": [
@@ -2738,6 +2877,19 @@
               }
             ],
             "title": "Strategic Customer Note"
+          },
+          "supply_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Region"
           },
           "version": {
             "minimum": 1.0,
@@ -4425,6 +4577,24 @@
             ],
             "title": "Customer Goal"
           },
+          "customer_manufacturer_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Manufacturer List"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -4504,6 +4674,16 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "off_list_permission": {
+            "default": "UNSTATED",
+            "enum": [
+              "ALLOWED",
+              "FORBIDDEN",
+              "UNSTATED"
+            ],
+            "title": "Off List Permission",
             "type": "string"
           },
           "open_questions_count": {
@@ -4613,6 +4793,19 @@
               }
             ],
             "title": "Strategic Customer Set By"
+          },
+          "supply_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Region"
           },
           "unresolved_mandatory_count": {
             "title": "Unresolved Mandatory Count",
