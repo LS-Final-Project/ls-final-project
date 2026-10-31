@@ -300,3 +300,20 @@ def test_a_resend_of_an_accepted_job_does_not_mark_again(client, platform, chain
         )
     assert process(client, chain, key="resend-0001", reason="재처리").status_code == 202
     assert detail(client, chain)["output_status"] == "INTAKE"
+
+
+def test_an_unexpected_failure_while_reading_the_answer_restores_the_status(
+    client, platform, chain, admin
+):
+    """처리하지 않는 예외여도 접수를 확인하지 못했으면 분석 중으로 남기지 않는다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET output_status='REVIEW_DRAFT' WHERE id=%s", (chain["project"],)
+        )
+
+    async def broken(path, body):
+        raise RuntimeError("synthetic")
+
+    client.app.state.processing_jobs.post = broken
+    assert process(client, chain, reason="재처리").status_code == 500
+    assert detail(client, chain)["output_status"] == "REVIEW_DRAFT"
