@@ -479,6 +479,13 @@ class CandidateCollect(BaseModel):
     )
 
 
+class CandidateSkipped(BaseModel):
+    data_origin: Literal["synthetic", "demo", "real"]
+    product_code: str
+    fault_id: str
+    reason_code: Literal["NO_PROPOSED_DEPARTMENT"]
+
+
 class CandidateCollected(BaseModel):
     run_id: UUID
     as_of: datetime
@@ -487,4 +494,7 @@ class CandidateCollected(BaseModel):
     eligible: int = Field(description="Eligible groups, saved or not.")
     created: int
     already_requested: int
+    skipped: list[CandidateSkipped] = Field(
+        description="Eligible groups not saved. A fault request needs a proposed department."
+    )
     request_ids: list[UUID]

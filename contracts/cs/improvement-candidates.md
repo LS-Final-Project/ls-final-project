@@ -69,9 +69,9 @@
 
 - **`condition_status`**: 조건 비교의 `computed_condition_status`와 같은 규칙이다. 조건 항목이 1개 이상이고 모두 `CONFIRMED`일 때만 `CONFIRMED`다.
 - **`data_origin`**: 출처별로 따로 판정한다. 합성 기록이 실제 기록의 고객 수를 채우지 않는다. 응답 항목과 저장 요청에 그 출처가 있다.
-- **멱등**: 같은 묶음(출처·제품·고장)에 요청이 이미 있으면 사람이 쓴 요청이어도 만들지 않는다. 동시 실행은 부분 유일 색인 `improvement_requests_candidate_group`이 막는다. 다시 돌려도 근거를 덧붙이지 않는다. 재요청·재발은 KAN-117 경로다. `already_requested`는 `ELIGIBLE`이지만 이번에 만들지 않은 묶음 수다.
-- **저장 내용**: 근거는 `as_of`까지 알려진 그 묶음의 기록 전부다. 문장은 규칙의 사실만 옮긴다(요청서 문장 작성은 KAN-115). `cs_owner`는 비어 있고 검토한 사람이 맡는다. 제안 부서는 근거 사례의 `resolved_by_dept` 중 이관 부서 코드다. `candidate_reason_code`·`candidate_reached_at`·`candidate_rules_version`·`candidate_as_of`에 판정 당시 값을 남기고 `GET /improvement-requests/{id}`로 읽는다. 이후 검토·전달은 일반 요청과 같다.
-- **감사**: 호출마다 `audit_events`에 `improvement_candidate_run` 한 행(`as_of`, 규칙 판본, `eligible`, `created`, 실행자)을 남긴다. 만든 요청은 `improvement_request`의 `create`에 `run_id`를 남긴다.
+- **멱등**: 같은 묶음(출처·제품·고장)에 요청이 이미 있으면 사람이 쓴 요청이어도 만들지 않는다. 동시 실행은 부분 유일 색인 `improvement_requests_candidate_group`이 막는다. 다시 돌려도 근거를 덧붙이지 않는다. 재요청·재발은 KAN-117 경로다. `already_requested`는 요청이 이미 있어 만들지 않은 묶음 수다.
+- **저장 내용**: 근거는 `as_of`까지 알려진 그 묶음의 기록 전부다. 문장은 규칙의 사실만 옮긴다(요청서 문장 작성은 KAN-115). `cs_owner`는 비어 있고 검토한 사람이 맡는다. 제안 부서는 근거 사례의 `resolved_by_dept` 중 이관 부서 코드다. 고장 요청은 제안 부서가 필요하므로(`CS_DEPARTMENT_REQUIRED`), 이관 부서가 하나도 없는 묶음(모두 `GCS_L1`이 해결 등)은 저장하지 않고 응답 `skipped`에 `NO_PROPOSED_DEPARTMENT`로 돌려준다. 조회에서는 그대로 `ELIGIBLE`이고 `request_id`는 null이다. 사람이 부서를 정해 직접 작성한다. `candidate_reason_code`·`candidate_reached_at`·`candidate_rules_version`·`candidate_as_of`에 판정 당시 값을 남기고 `GET /improvement-requests/{id}`로 읽는다. 이후 검토·전달은 일반 요청과 같다.
+- **감사**: 호출마다 `audit_events`에 `improvement_candidate_run` 한 행(`as_of`, 규칙 판본, `eligible`, `created`, `already_requested`, `skipped` 건수, 실행자)을 남긴다. 만든 요청은 `improvement_request`의 `create`에 `run_id`를 남긴다.
 - **제외되는 기록**: `fault_id`가 `FLT-000` 형식이 아닌 해결 기록은 요청이 될 수 없어 보지 않는다. 목록 밖 `root_cause_type`은 없는 값으로 본다.
 - **문서 후보 미연결**: 조회·수집 응답의 `document_candidates`는 지금 항상 `NOT_CONNECTED`다. 문서 신호를 쓰는 원천이 아직 없기 때문이다([조건 비교 계약](condition-comparison.md)). 규칙(`document_candidates()`)은 있지만 호출하지 않는다. 문서 후보가 0건이라는 뜻이 아니다.
 - **비용**: 조회마다 알려진 해결 기록 전부를 다시 판정한다. 기록이 늘어 느려지면 표를 둔다(`ponytail:` 주석).

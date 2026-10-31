@@ -338,6 +338,14 @@
             "format": "uuid",
             "title": "Run Id",
             "type": "string"
+          },
+          "skipped": {
+            "description": "Eligible groups not saved. A fault request needs a proposed department.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
           }
         },
         "required": [
@@ -347,6 +355,7 @@
           "eligible",
           "created",
           "already_requested",
+          "skipped",
           "request_ids"
         ],
         "title": "CandidateCollected",
@@ -597,6 +606,40 @@
           "items"
         ],
         "title": "CandidateList",
+        "type": "object"
+      },
+      "CandidateSkipped": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_PROPOSED_DEPARTMENT",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_origin",
+          "product_code",
+          "fault_id",
+          "reason_code"
+        ],
+        "title": "CandidateSkipped",
         "type": "object"
       },
       "CauseItem": {

@@ -20,6 +20,7 @@ from backend.api.cs.improvements.schemas import (
     CandidateCollected,
     CandidateItem,
     CandidateList,
+    CandidateSkipped,
     DisplayState,
 )
 from backend.api.cs.tickets.access import sees_all_tickets
@@ -193,6 +194,8 @@ async def collect_candidates(
     at = judgement_time(payload.as_of)
     run_id = uuid4()
     created: list[UUID] = []
+    skipped: list[CandidateSkipped] = []
+    already_requested = 0
     async with connection(request.app.state.settings) as conn:
         rows = await repository.candidate_cases(conn, at)
         departments = {str(row["case_id"]): row["resolved_by_dept"] for row in rows}
@@ -200,10 +203,24 @@ async def collect_candidates(
         requests = await repository.fault_requests(conn)
         for origin, candidate in judged:
             if (origin, candidate.product_code, candidate.fault_id) in requests:
+                already_requested += 1
                 continue
-            proposed = {departments[str(e.case_id)] for e in candidate.evidence}
-            values = draft(origin, candidate, sorted(proposed & TRANSFER_DEPARTMENTS), at)
+            resolved = {departments[str(e.case_id)] for e in candidate.evidence}
+            proposed = sorted(resolved & TRANSFER_DEPARTMENTS)
+            # A fault request needs a department (CS_DEPARTMENT_REQUIRED). No candidate skips that.
+            if not proposed:
+                skipped.append(
+                    CandidateSkipped(
+                        data_origin=origin,
+                        product_code=candidate.product_code,
+                        fault_id=candidate.fault_id,
+                        reason_code="NO_PROPOSED_DEPARTMENT",
+                    )
+                )
+                continue
+            values = draft(origin, candidate, proposed, at)
             if not await repository.insert_candidate(conn, values):
+                already_requested += 1
                 continue
             stored = await repository.get_request(conn, values["id"])
             assert stored is not None
@@ -239,6 +256,8 @@ async def collect_candidates(
                 "rules_version": CANDIDATE_RULES_VERSION,
                 "eligible": len(judged),
                 "created": len(created),
+                "already_requested": already_requested,
+                "skipped": len(skipped),
             },
         )
     return respond(
@@ -249,7 +268,8 @@ async def collect_candidates(
             rules_version=CANDIDATE_RULES_VERSION,
             eligible=len(judged),
             created=len(created),
-            already_requested=len(judged) - len(created),
+            already_requested=already_requested,
+            skipped=skipped,
             request_ids=created,
         ),
     )

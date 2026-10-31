@@ -348,6 +348,26 @@ def test_a_saved_candidate_keeps_its_origin_and_proposes_known_departments(clien
     assert row[5] == "demo" and row[7] == ["QA_CLAIM", "TS_LV"]
 
 
+def test_a_group_with_no_department_to_propose_is_skipped_with_its_reason(client, admin, product):
+    for day in (0, 1, 2):
+        add_case(admin, product, day, f"CUST-{day}", dept="GCS_L1")
+    data = collect(client)
+    assert requests_of(admin, product) == []
+    assert {
+        "data_origin": "synthetic",
+        "product_code": product,
+        "fault_id": FAULT,
+        "reason_code": "NO_PROPOSED_DEPARTMENT",
+    } in data["skipped"]
+    assert data["eligible"] == data["created"] + data["already_requested"] + len(data["skipped"])
+    audit = admin.execute(
+        "SELECT changes FROM cs.audit_events WHERE entity_id = %s", (data["run_id"],)
+    ).fetchone()[0]
+    assert audit["skipped"] == len(data["skipped"])
+    [item] = group(client, product)
+    assert item["outcome"] == "ELIGIBLE" and item["request_id"] is None
+
+
 def test_a_record_the_rules_or_requests_cannot_hold_is_left_out(client, admin, product):
     add_case(admin, product, 0, "CUST-1", fault="OTHER-1")
     three_customers(admin, product)
