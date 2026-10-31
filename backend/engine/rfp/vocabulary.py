@@ -340,6 +340,20 @@ CHECK_TEXT: dict[str, str] = {
 }
 
 
+def condition_text(name: str) -> str:
+    """조건 이름을 표시 이름으로 바꾼다.
+
+    Args:
+        name: 조건 이름 코드 또는 원문 이름.
+
+    Returns:
+        str: 표시 이름. 어휘에 없으면 밑줄만 뺀 원문이다.
+    """
+    if name == "OTHER":
+        return "기타 조건"
+    return CONDITION_TEXT.get(name) or ATTRIBUTE_TEXT.get(name) or name.replace("_", " ")
+
+
 def check_text(name: str) -> str:
     """협력사 필수 확인 항목 이름을 표시 이름으로 바꾼다.
 
@@ -352,6 +366,10 @@ def check_text(name: str) -> str:
     _, dot, tail = name.partition("integrator_capable.")
     if dot:
         return RESPONSIBILITY_TEXT.get(tail, "통합 수행 항목")
+    # certification:IEEE C37.13처럼 항목 뒤에 원문 값이 붙은 꼴이다.
+    head, colon, value = name.partition(":")
+    if colon and head in CHECK_TEXT:
+        return f"{CHECK_TEXT[head]}: {value}"
     for table in (ATTRIBUTE_TEXT, CONDITION_TEXT, CHECK_TEXT):
         if name in table:
             return table[name]
