@@ -130,22 +130,44 @@ def read_canonical(attribute_key: str, text: str) -> str | None:
     return compact if is_canonical(attribute_key, compact) else None
 
 
+def has_placeholder(text: str | None) -> bool:
+    """문장 안에 미정 항목이 있는지. 조항에 물어볼 것이 있는지를 판단한다.
+
+    Args:
+        text: 조항 문장이나 인용.
+
+    Returns:
+        bool: 미정 표시가 어디든 있으면 True.
+    """
+    if text is None:
+        return False
+    return PLACEHOLDER.search(text) is not None or OPEN_VALUE.fullmatch(text) is not None
+
+
 def is_placeholder(value: str | None) -> bool:
     """값 자리에 실제 값 대신 미정 표시가 있는지.
 
+    표지를 빼고 숫자가 남으면 확정 값이 있다. "Rated current 630 A. Delivery TBD."의 TBD는 다른
+    항목의 것이고, "<Insert value> kV"는 값 자리 자체가 비어 있다.
+    ponytail: 숫자로만 가른다. "Copper, finish TBD"처럼 글자 값은 미정으로 남는다(비교 제외 쪽).
+
     Args:
-        value: 요구값.
+        value: 요구값이나 값의 인용.
 
     Returns:
         bool: 자리표시자면 True.
     """
     if value is None:
         return False
-    return PLACEHOLDER.search(value) is not None or OPEN_VALUE.fullmatch(value) is not None
+    if OPEN_VALUE.fullmatch(value) is not None:
+        return True
+    return PLACEHOLDER.search(value) is not None and not re.search(
+        r"\d", PLACEHOLDER.sub("", value)
+    )
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
-# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 한글도 같다. 단독 유입(빗물 유입), 몰드(몰드 케이스),
+# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 한글도 같다. 단독 유입(빗물 유입), 단독 몰드(몰드 케이스는 MCCB),
 # 퓨즈(제어회로 퓨즈), 개폐는 형식을 말하지 않는다. 부하개폐기(load break, load interrupter)는
 # 퓨즈가 없을 수 있고, epoxy는 코팅·도장에도 쓰며, metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있다.
 FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {

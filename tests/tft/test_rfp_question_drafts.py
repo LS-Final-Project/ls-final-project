@@ -8,6 +8,7 @@ from backend.engine.documents.model import DeletedValue
 from backend.engine.rfp.clauses import Clause, ClauseTree, TableDeleted
 from backend.engine.rfp.questions import _identifiers, generate_question_drafts
 from backend.engine.rfp.requirements import Condition, ExtractedRequirement
+from backend.engine.rfp.vocabulary import has_placeholder, is_placeholder
 
 
 def clause(no: str, text: str, **updates: object) -> Clause:
@@ -99,6 +100,24 @@ def req(no: str, quote: str, value: str | None, **updates: object) -> ExtractedR
 
 def test_a_korean_field_left_open_becomes_a_question() -> None:
     output = generate_question_drafts(tree(clause("3.1.A", "정격 전류: 미정")), [])
+    assert [d.kind for d in output] == ["PLACEHOLDER"]
+
+
+def test_a_marker_for_another_item_still_asks_but_keeps_the_value() -> None:
+    text = "Rated current 630 A. Delivery TBD."
+    assert [d.kind for d in generate_question_drafts(tree(clause("3.1.A", text)), [])] == [
+        "PLACEHOLDER"
+    ]
+    assert has_placeholder(text) and not is_placeholder(text)
+
+
+def test_an_empty_value_beside_other_numbers_is_not_an_inconsistency() -> None:
+    open_value = "Voltage <Insert value> kV at 60 Hz."
+    known = "Voltage 15 kV at 60 Hz."
+    output = generate_question_drafts(
+        tree(clause("A", open_value), clause("B", known)),
+        [req("A", open_value, "<Insert value>"), req("B", known, "15")],
+    )
     assert [d.kind for d in output] == ["PLACEHOLDER"]
 
 
