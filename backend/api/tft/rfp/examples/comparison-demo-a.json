@@ -32,7 +32,7 @@
         "clause_no": "2.5.I.1",
         "item": "절연 Class F",
         "attribute": "insulation_class",
-        "value": "F",
+        "value": "Class F",
         "unit": null,
         "operator": "EQ",
         "conditions": [],
@@ -493,7 +493,7 @@
           "note": null
         },
         "status": "EVIDENCE_FOUND",
-        "reason": "원문 2.5.I.1 insulation_class 요구 F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
+        "reason": "원문 2.5.I.1 insulation_class 요구 Class F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
         "unresolved": [],
         "next_owner": null,
         "deficiency_cause": null,
@@ -521,7 +521,7 @@
               }
             ],
             "status": "EVIDENCE_FOUND",
-            "reason": "원문 2.5.I.1 insulation_class 요구 F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
+            "reason": "원문 2.5.I.1 insulation_class 요구 Class F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
             "unresolved": []
           },
           {
@@ -534,7 +534,7 @@
             "our_conditions": [],
             "evidence": [],
             "status": "INSUFFICIENT_EVIDENCE",
-            "reason": "원문 2.5.I.1 insulation_class 요구 F: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "reason": "원문 2.5.I.1 insulation_class 요구 Class F: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
             "unresolved": [
               "insulation_class 자료 확인"
             ]
