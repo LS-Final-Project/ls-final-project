@@ -17,7 +17,7 @@ export default function DevCheck() {
   const projects = useQuery({queryKey: ['projects',mode], queryFn: () => listProjects(), enabled: import.meta.env.DEV});
   async function beforeAccountChange() {
     setCleanupWarning(null);
-    try { await clearPush(); } catch { setCleanupWarning('OS 알림 정리를 확인하지 못했습니다. 브라우저 사이트 알림 설정을 확인하세요.'); }
+    try { await clearPush(undefined, user.data?.data.id ?? null); } catch { setCleanupWarning('OS 알림 정리를 확인하지 못했습니다. 브라우저 사이트 알림 설정을 확인하세요.'); }
     await cache.cancelQueries({ queryKey: ['notifications'] });
     cache.removeQueries({ queryKey: ['notifications'] });
     cache.setQueryData(['me'], null);

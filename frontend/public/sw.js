@@ -6,6 +6,10 @@ const OWNER_URL = new URL('/__notification_owner__', self.location.origin).href;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LINK = /^\/(?:cs\/tickets|tft\/projects)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function owner() { const cache = await caches.open(OWNER_CACHE); const value = await cache.match(OWNER_URL); return value ? (await value.json()).id : null; }
+async function sameOwner(revision, id) {
+  const current = await owner();
+  return revision === ownerRevision && current === id;
+}
 async function bind(id) {
   const cache = await caches.open(OWNER_CACHE);
   if (id) await cache.put(OWNER_URL, new Response(JSON.stringify({ id })));
@@ -64,7 +68,7 @@ self.addEventListener('push', event => {
     await self.registration.showNotification(item.title, { tag, data: { id: item.id, ownerId: id } });
     // showNotification may finish after logout has already closed the old list.
     // Close this owner's late result without closing a new owner's same intent.
-    if (revision !== ownerRevision || await owner() !== id) {
+    if (!await sameOwner(revision, id)) {
       for (const shown of await self.registration.getNotifications({ tag })) {
         if (shown.data?.ownerId === id) shown.close();
       }
@@ -72,6 +76,7 @@ self.addEventListener('push', event => {
   })().catch(() => {}));
 });
 self.addEventListener('notificationclick', event => {
+  const revision = ownerRevision;
   event.notification.close();
   event.waitUntil((async () => {
     const data = event.notification.data;
@@ -79,9 +84,10 @@ self.addEventListener('notificationclick', event => {
     if (!item) return;
     const target = new URL(item.link_path, self.location.origin).href;
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (!await sameOwner(revision, data.ownerId)) return;
     const same = windows.filter(client => new URL(client.url).origin === self.location.origin);
     const existing = same.find(client => new URL(client.url).href === target) || same[0];
-    if (existing) { const opened = new URL(existing.url).href === target ? existing : await existing.navigate(target); if (opened) await opened.focus(); }
+    if (existing) { const opened = new URL(existing.url).href === target ? existing : await existing.navigate(target); if (opened && await sameOwner(revision, data.ownerId)) await opened.focus(); }
     else await self.clients.openWindow(target);
   })().catch(() => {}));
 });

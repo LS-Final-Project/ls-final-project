@@ -43,12 +43,12 @@ function Toggle({ actorId }: { actorId: string }) {
   }
   async function turnOff() {
     setBusy(true); setError(undefined);
-    try { await clearPush(actorId); if (alive.current) setEnabled(false); } catch (failure) { if (alive.current) { setError(failure); if (pushOwner() !== actorId) setEnabled(false); } } finally { if (alive.current) setBusy(false); }
+    try { await clearPush(actorId); if (alive.current) setEnabled(false); } catch (failure) { if (alive.current) { setError(failure); if (pushOwner() !== actorId) setEnabled(false); if (failure instanceof NotificationSessionChanged) { cache.setQueryData(['me'], null); void cache.invalidateQueries({ queryKey: ['me'] }); } } } finally { if (alive.current) setBusy(false); }
   }
   const off = key.error instanceof ApiError && key.error.status === 404;
   return <KvBox title="OS 알림">
     <p>담당 업무 알림을 이 브라우저의 OS 알림으로 받습니다. 앱 내 알림이 원본이며 브라우저 종료 시 수신되지 않을 수 있습니다.</p>
-    {!supported ? <p>이 환경은 Web Push를 지원하지 않습니다. 앱 내 알림을 이용하세요.</p> : <>
+    {!supported ? <p>이 환경에서는 OS 알림을 사용할 수 없습니다. 앱 내 알림을 이용하세요.</p> : <>
       {permission === 'denied' && <p>알림 권한이 거부되었습니다. 브라우저의 사이트 설정에서 변경하세요.</p>}
       {off ? <p>서버의 OS 알림 기능이 꺼져 있습니다.</p> : !available && <p>공개키를 확인할 수 없어 OS 알림을 켤 수 없습니다.</p>}
       {enabled && available && !off && <p role="status">이 계정의 OS 알림 켜짐</p>}

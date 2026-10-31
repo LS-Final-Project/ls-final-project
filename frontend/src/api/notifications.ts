@@ -28,14 +28,19 @@ export async function unreadCount(signal?: AbortSignal) {
 export const listNotifications = (offset = 0, signal?: AbortSignal) => read<NotificationList>(`/api/v1/platform/notifications?limit=50&offset=${offset}`, signal);
 export const pushPublicKey = (signal?: AbortSignal) => read<components['schemas']['PublicKey']>('/api/v1/platform/push/public-key', signal);
 
-// 요청 소유자와 현재 세션을 비교한 뒤 변경한다.
-export async function notificationMutation(actorId: string, path: string, method: 'POST' | 'PUT' | 'DELETE', body: unknown, signal?: AbortSignal): Promise<void> {
+// The caller revalidates identity after acquiring the browser subscription lock.
+export async function notificationSession(actorId: string | null, signal?: AbortSignal): Promise<string | null> {
   const session = await fetch('/api/v1/platform/me', { credentials: 'same-origin', cache: 'no-store', signal: signalFor(signal) });
+  if (session.status === 401 && actorId === null) return null;
   if (!session.ok) throw await error(session);
-  const csrf = session.headers.get('X-CSRF-Token');
   const current = await session.json();
   if (current?.data?.id !== actorId) throw new NotificationSessionChanged();
   signal?.throwIfAborted();
+  return session.headers.get('X-CSRF-Token');
+}
+// 요청 소유자와 현재 세션을 비교한 뒤 변경한다.
+export async function notificationMutation(actorId: string, path: string, method: 'POST' | 'PUT' | 'DELETE', body: unknown, signal?: AbortSignal): Promise<void> {
+  const csrf = await notificationSession(actorId, signal);
   if (!csrf) throw new ApiError(403, '세션 보안 정보를 확인할 수 없습니다. 다시 로그인하세요.');
   const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', signal: signalFor(signal), headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
   if (!response.ok) throw await error(response);

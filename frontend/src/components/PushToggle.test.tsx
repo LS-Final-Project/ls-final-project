@@ -34,7 +34,7 @@ it('denied는 다시 권한 요청하지 않고 사이트 설정 안내를 표�
 it('미지원은 앱 내 알림으로 안내하고 구독/권한을 요청하지 않는다', async () => {
   vi.mocked(pushSupported).mockReturnValue(false); const f = vi.fn(); vi.stubGlobal('fetch', f);
   renderAt('/account', '/account', <PushToggle actorId={A} />);
-  await screen.findByText(/이 환경은 Web Push를 지원하지 않습니다/); expect(f).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled();
+  await screen.findByText(/이 환경에서는 OS 알림을 사용할 수 없습니다/); expect(f).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled();
 });
 it('권한 응답 대기 중 계정 화면을 떠나면 이전 사용자의 구독을 만들지 않는다', async () => {
   let resolve: ((value: string) => void) | undefined;

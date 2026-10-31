@@ -10,13 +10,14 @@ import { ErrorState, Loading } from './states';
 import { formatDateTime } from './tft';
 
 export default function NotificationBell() {
+  const cache = useQueryClient();
   const session = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [cleanupError, setCleanupError] = useState<unknown>();
   const actorId = session.data?.data.id ?? null;
   useEffect(() => {
     let current = true;
     setCleanupError(undefined);
-    if (session.isSuccess) void reconcilePush(actorId).catch(error => { if (current) setCleanupError(error); });
+    if (session.isSuccess) void reconcilePush(actorId).catch(error => { if (current) { setCleanupError(error); if (error instanceof NotificationSessionChanged) { cache.setQueryData(['me'], null); void cache.invalidateQueries({ queryKey: ['me'] }); } } });
     return () => { current = false; };
   }, [session.isSuccess, actorId]);
   return <>{cleanupError != null && <ErrorState error={cleanupError} />}{!session.isError && actorId && <Inbox key={actorId} actorId={actorId} />}</>;
