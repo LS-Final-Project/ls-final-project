@@ -92,6 +92,10 @@ class OwnerLoad(BaseModel):
         description="Not closed now, whenever received: the owner's current load. Unlike "
         "the overview's open count, the period does not limit it."
     )
+    by_state: dict[WorkflowState, int] = Field(
+        description="Current state of the owner's tickets, whenever received (the period does "
+        "not limit it). Every state is present."
+    )
 
 
 class OwnerList(BaseModel):
