@@ -167,6 +167,9 @@ def load_specs(path: Path) -> list[dict[str, Any]]:
         raise ValueError("CS_CANDIDATES_INVALID")
     for spec in specs:
         knobs_of(spec)
+        # 검증 상한도 초안 상한과 같은 규칙이다. 없으면 초안 값을 쓴다.
+        if "verification_max_output_tokens" in spec:
+            knobs_of({**spec, "max_output_tokens": spec["verification_max_output_tokens"]})
     return specs
 
 
