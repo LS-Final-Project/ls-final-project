@@ -108,7 +108,7 @@
   - 실행 순서: 8개를 export → `--dry-run` → 실제 실행. 값은 화면에 남기지 않는다.
 - [ ] **[비용, Cloud Build]** E에서 병합된 main 커밋으로 worker 이미지를 빌드한다: `python3 infra/release.py build --service cs-worker`(`tft-worker`). CD는 worker 이미지를 만들지 않는다.
 - [ ] worker마다 `python3 infra/deploy_workers.py <worker 이미지 빌드 ID> --worker cs`(`tft`)로 Job을 배포한다. 미리보기를 확인한 뒤 `--apply`로 실행한다.
-  - C/S worker 모델은 `gemini-3.6-flash`다. 분류 4096, 초안·검증 6000 출력 상한은 코드가 호출마다 준다(`backend/agent/cs_worker.py`·`cs_runner.py`). Job 환경의 `GEMINI_MAX_OUTPUT_TOKENS=1024`는 이 호출들에 쓰이지 않는다.
+  - C/S worker 모델은 `gemini-3.6-flash`다. 분류 4096, 초안 6000, 검증 8192 출력 상한은 코드가 호출마다 준다(`backend/agent/cs_worker.py`·`cs_runner.py`). Job 환경의 `GEMINI_MAX_OUTPUT_TOKENS=1024`는 이 호출들에 쓰이지 않는다.
 - [ ] `python3 infra/setup_worker_jobs.py grant`로 권한을 준다(미리보기 → `--apply`).
 - [ ] **[비용] `python3 infra/setup_worker_jobs.py enable`로 처리를 켠다(미리보기 → `--apply`).** 실제 처리와 모델 호출이 여기서 켜진다.
   - 플랫폼에 켜지는 설정:

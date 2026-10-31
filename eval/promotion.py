@@ -103,7 +103,7 @@ def deployed_config() -> dict[str, dict[str, Any]]:
     Returns:
         dict: 단계 → 필드 → 값. 채택 기록의 adopted 키와 같은 이름을 쓴다.
     """
-    from backend.agent.cs_runner import DRAFT_DEFAULTS
+    from backend.agent.cs_runner import DRAFT_DEFAULTS, VERIFICATION_DEFAULTS
     from backend.agent.cs_search import CsVectorSettings
     from backend.agent.cs_worker import CsWorkerSettings
     from backend.api.tft.worker_processor import ProcessorSettings
@@ -134,6 +134,7 @@ def deployed_config() -> dict[str, dict[str, Any]]:
             "prompt_version": draft_version,
             "prompt_fingerprint": prompt_fingerprint("draft", draft_version),
             "max_output_tokens": DRAFT_DEFAULTS["max_output_tokens"],
+            "verification_max_output_tokens": VERIFICATION_DEFAULTS["max_output_tokens"],
             "evidence_limit": DRAFT_DEFAULTS["evidence_limit"],
         },
         "embedding": {
