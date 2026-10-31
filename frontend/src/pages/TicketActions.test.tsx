@@ -13,7 +13,7 @@ const flow = (state: string, version: number, extra: Record<string, unknown> = {
 type Post = { url: string; init: RequestInit };
 
 // 문의 상세·업무 흐름 조회와 쓰기 호출을 한 곳에서 받는 가짜 서버. post가 Promise를 돌려주면 응답을 늦출 수 있다.
-function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1))) {
+function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown) {
   const posts: Post[] = [];
   const get = vi.fn();
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -21,6 +21,7 @@ function server(state: string, version: number, post: (call: Post) => Response |
     if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles: ['cs_agent'] } }), { status: 200, headers: { 'X-CSRF-Token': 'synthetic-csrf' } });
     if ((init?.method ?? 'GET') === 'POST') { const call = { url: path, init: init! }; posts.push(call); return post(call); }
     if (path.endsWith('/workflow')) { get(path); return jsonResponse(200, flow(state, version)); }
+    if (path.endsWith('/analysis')) return analysis ? jsonResponse(200, analysis) : jsonResponse(404, errorBody('CS_ANALYSIS_MISSING', '분석 없음'));
     return jsonResponse(200, { data: { ...base, workflow_state: state } });
   }));
   return { posts, get };
@@ -134,4 +135,36 @@ test('모의 응답 모드에서는 상태를 바꾸는 동작을 열지 않는�
   await waitFor(() => expect(screen.getByRole('button', { name: '부서 검토 요청' }).getAttribute('title')).toBe('실제 API 개발 모드에서만 실행할 수 있습니다'));
   expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).disabled).toBe(true);
   expect(fetch.mock.calls.every(([, init]) => (init as RequestInit | undefined)?.method !== 'POST')).toBe(true);
+});
+
+const field = (value: unknown) => ({ ai_value: value, corrected: false, corrected_value: null, effective_value: value, source: 'ai_draft' });
+const returnAnalysis = { data: { ticket_id: 'x', version: 1, corrections: [], drafts: [], runs: [], latest_valid_draft_id: null, latest_valid_run_id: null, latest_run: null, missing_info: { ai: null, effective: null, error: null }, return_subtype_stated: 'NON_DEFECT', rules: { effective: null, first_response_due: {}, resolution_due: {} },
+  fields: { category_code: field('RETURN'), secondary_category: field(null), urgency_flag: field(false), provided_info: field([]) } } };
+
+test('반품 확정은 읽은 판본과 보호 토큰을 보내고 끝나면 최신 상태를 다시 읽는다', async () => {
+  const api = server('IN_REVIEW', 6, () => jsonResponse(200, flow('IN_REVIEW', 7)), returnAnalysis);
+  view(); await screen.findByRole('form', { name: '반품 확정' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  fireEvent.change(screen.getByLabelText('책임 구분'), { target: { value: 'MANUFACTURING' } });
+  fireEvent.change(screen.getByLabelText('대응 내용'), { target: { value: '교체 발송' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '반품 확정' }));
+  await screen.findByText('반품 사유를 확정했습니다.');
+  expect(api.posts).toHaveLength(1);
+  expect(api.posts[0].url).toMatch(/\/workflow\/return-subtype$/);
+  expect(body(api.posts[0])).toEqual({ responsibility: 'MANUFACTURING', cause_type: null, non_manufacturing_reason: null, response_note: '교체 발송', version: 6 });
+  expect(api.posts[0].init.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
+  await waitFor(() => expect(api.get.mock.calls.length).toBeGreaterThanOrEqual(2));
+});
+
+test('반품 확정의 판본 충돌 409는 다시 보내지 않고 최신 상태를 읽어 안내한다', async () => {
+  const api = server('IN_REVIEW', 6, () => jsonResponse(409, errorBody('CS_WORKFLOW_VERSION_CONFLICT', 'conflict')), returnAnalysis);
+  view(); await screen.findByRole('form', { name: '반품 확정' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  fireEvent.change(screen.getByLabelText('책임 구분'), { target: { value: 'UNDETERMINED' } });
+  fireEvent.change(screen.getByLabelText('대응 내용'), { target: { value: '재검사' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '반품 확정' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/다른 사용자가 먼저 상태를 바꿨습니다/);
+  expect(api.posts).toHaveLength(1);
 });

@@ -65,3 +65,15 @@ export const derivationName = (kind: string) => DERIVATION_LABEL[kind] ?? kind;
 
 // 통계 API의 미확인 지표 이름.
 export const UNCONFIRMED_LABEL: Record<string, string> = { SLA_DUE: 'SLA 기한', RULE_ASSIGNED_DEPT: '규칙상 담당 부서' };
+
+// 분석 API의 주분류 코드(contracts/cs/tickets.md). 이름은 화면용이고 코드는 같이 적는다.
+export const CATEGORY_LABEL: Record<string, string> = {
+  TECH_SPEC: '기술 사양', INSTALL: '설치', WARRANTY: '보증', ORDER_LEAD: '주문·납기', MANUAL: '매뉴얼',
+  DEFECT: '고장·불량', COMPLIANCE: '규격·인증', QUOTE: '견적', FW_UPDATE: '펌웨어', RETURN: '반품',
+};
+export const categoryName = (code: unknown) => typeof code === 'string' ? `${CATEGORY_LABEL[code] ?? code} (${code})` : '-';
+
+// 반품: 접수 때 고객이 밝힌 사유 유형(주장). 검사 결과가 아니다.
+export const RETURN_STATED_LABEL: Record<string, string> = { DEFECT: '품질·불량 반품', NON_DEFECT: '비불량 반품' };
+export const RESPONSIBILITY_LABEL: Record<string, string> = { MANUFACTURING: '제조 책임', NON_MANUFACTURING: '제조 외 책임', UNDETERMINED: '검사로 정하지 못함' };
+export const CAUSE_LABEL: Record<string, string> = { SITE_CONDITION: '현장 조건', HARDWARE: '하드웨어', SETTING: '설정', WEAR_PART: '소모품', FIRMWARE: '펌웨어' };

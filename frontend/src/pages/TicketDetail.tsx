@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
+import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
@@ -41,6 +42,8 @@ export default function TicketDetail() {
   // 기한을 읽는 사람이 등급이 추정임을 알아야 한다. 안내일 뿐이라 분석을 못 읽어도 화면은 그대로다.
   const analysis = useQuery({ queryKey: ['ticket-analysis', mode, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
   const tierNote = analysis.data?.data?.rules?.tier_note;
+  // 분석 응답이 계약 모양(필드 표)이 아니면 쓰지 않는다. 모의 모드의 빈 응답도 여기서 걸러진다.
+  const analysisData = analysis.isSuccess && analysis.data.data && typeof analysis.data.data.fields === 'object' && analysis.data.data.fields ? analysis.data.data : undefined;
   // 상태 표시는 문의 상세의 값을 쓴다. 업무 흐름 조회는 판본(version), 담당, 검토 요청 이력만 읽는다.
   const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
   // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
@@ -172,16 +175,8 @@ export default function TicketDetail() {
           <h2>설치 장비 확인<small>확인 전</small></h2>
           <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} /></div>
         </section>
-        <section className="kv-box ai-pre">
-          <h2>AI 분류<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></h2>
-          <div className="body">
-            <div className="kv-field"><span>주분류</span><select aria-label="주분류" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>보조분류</span><select aria-label="보조분류" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>긴급 여부</span><select aria-label="긴급 여부" disabled><option>-</option></select></div>
-            <div className="kv-field"><span>반품 유형</span><select aria-label="반품 유형" disabled><option>-</option></select></div>
-            <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류·담당자 수정 결과는 아직 연결되지 않았습니다. 원문 정보와 구분해 확인하세요.</div>
-          </div>
-        </section>
+        <TicketAnalysisPanel analysis={analysisData} pending={analysis.isPending} workflow={wf} ticketState={data.workflow_state} canWrite={canWrite} busy={busy}
+          onConfirm={form => void run('반품 사유를 확정했습니다.', signal => confirmReturn(ticketId, { ...form, version }, signal))} />
       </div>
 
       <div className="kv-split">
