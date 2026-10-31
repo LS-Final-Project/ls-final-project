@@ -1,3 +1,4 @@
+import TicketWorkflow from '../components/TicketWorkflow';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -13,7 +14,7 @@ export default function Tickets() {
   const cursor=cursors.at(-1);
   const [product,setProduct]=useState('');
   const [search,setSearch]=useState('');const [channel,setChannel]=useState('');const [sort,setSort]=useState('newest');
-  const tickets = useQuery({queryKey: ['tickets', mode, cursor], queryFn: ()=>listTickets(cursor), enabled: access.ready});
+  const tickets = useQuery({queryKey: ['tickets', mode, cursor], queryFn: ({signal})=>listTickets(cursor, signal), enabled: access.ready});
   if (!access.ready) return <BusinessGate access={access} title="C/S 문의" />;
   const items = tickets.isSuccess ? tickets.data.data.items.filter(item=>(!product||item.product_code===product)&&(!channel||item.channel===channel)&&`${item.subject??''} ${item.product_code} ${item.external_id??''}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).slice().sort((a,b)=>sort==='subject'?(a.subject??'').localeCompare(b.subject??''):sort==='oldest'?Date.parse(a.received_at)-Date.parse(b.received_at):Date.parse(b.received_at)-Date.parse(a.received_at)) : undefined;
   return <main>
@@ -29,11 +30,11 @@ export default function Tickets() {
       {tickets.isPending && <Loading />}
       {tickets.isError && <ErrorState error={tickets.error} onRetry={() => tickets.refetch()} />}
       {items && items.length === 0 && <Empty message={tickets.data?.data.items.length ? "현재 페이지에서 조건에 맞는 문의가 없습니다." : "문의가 없습니다."} />}
-      {items && items.length > 0 && <table><thead><tr><th>제목</th><th>채널</th><th>제품</th><th>접수</th><th>출처</th></tr></thead>
-        <tbody>{items.map(item => <tr key={item.id}><td><Link to={item.id}>{item.subject || '(제목 없음)'}</Link></td><td>{item.channel}</td><td>{item.product_code}</td><td>{new Date(item.received_at).toLocaleString('ko-KR')}</td><td><small>{item.data_origin}</small></td></tr>)}</tbody></table>}
+      {items && items.length > 0 && <table><thead><tr><th>제목</th><th>채널</th><th>제품</th><th>접수</th><th>출처</th><th>업무 상태·안내</th></tr></thead>
+        <tbody>{items.map(item => <tr key={item.id}><td><Link to={item.id}>{item.subject || '(제목 없음)'}</Link></td><td>{item.channel}</td><td>{item.product_code}</td><td>{new Date(item.received_at).toLocaleString('ko-KR')}</td><td><small>{item.data_origin}</small></td><td><TicketWorkflow state={item.workflow_state}/></td></tr>)}</tbody></table>}
     <button disabled={tickets.isFetching||cursors.length===1} onClick={()=>setCursors(cursors.slice(0,-1))}>이전 페이지</button>
       <button disabled={tickets.isFetching||!tickets.isSuccess||!tickets.data.data.next_cursor} onClick={()=>{if(tickets.data?.data.next_cursor)setCursors([...cursors,tickets.data.data.next_cursor]);}}>다음 페이지</button>
-      <p>다음 작업: 문의 제목을 열어 원문과 고객·제품 정보를 확인하세요. AI 분류와 담당자 변경은 연결 준비 중입니다.</p>
+      <p>업무 상태는 API 조회 결과입니다. 다음 작업 안내는 상태별 일반 권고이며 실행 권한이나 처리 완료를 뜻하지 않습니다. 문의 제목에서 원문을 확인하세요. AI 분류와 담당자 변경은 연결 준비 중입니다.</p>
     </section>
   </main>;
 }
