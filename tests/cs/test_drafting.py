@@ -21,7 +21,7 @@ from backend.engine.cs.drafting import (
     validate_output,
 )
 from backend.engine.cs.drafting_call import run_draft_attempt
-from backend.engine.cs.prompt_registry import EVIDENCE_RULE
+from backend.engine.cs.prompt_registry import EVIDENCE_RULE_V4
 from backend.engine.cs.verification import build_verification_input
 from backend.shared.ai import Generation, Usage
 
@@ -710,7 +710,7 @@ def test_fake_provider_gets_the_rule_and_a_greeting_stays_out_of_verification():
     generation = Generation(json.dumps(draft), usage, "fake-v1", ["STOP"], model="fake", attempts=1)
     provider = Mock(return_value=generation)
     result = attempt(provider)
-    assert EVIDENCE_RULE in provider.call_args.args[0]
+    assert EVIDENCE_RULE_V4 in provider.call_args.args[0]
     assert result.outcome == "VALID" and result.prediction is not None
     payload = build_verification_input(result.prediction, EVIDENCE)
     assert payload.sentences and all(s.text != greeting for s in payload.sentences)
