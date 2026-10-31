@@ -33,13 +33,13 @@ export type RequirementFilters = {
   has_open_question?: boolean;
 };
 
-export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string) {
+export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean } = {}) {
   const query = new URLSearchParams({ limit: String(limit) });
   for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value));
   if (cursor) query.set('cursor', cursor);
   return request<Envelope<Schemas['RequirementList']>>(
     `/api/v1/tft/projects/${encodeURIComponent(projectId)}/requirements?${query}`,
-    { mockFallback: mock({ items: MOCK_REQUIREMENTS, next_cursor: null }) },
+    options.useMockFallback === false ? {} : { mockFallback: mock({ items: MOCK_REQUIREMENTS, next_cursor: null }) },
   );
 }
 
