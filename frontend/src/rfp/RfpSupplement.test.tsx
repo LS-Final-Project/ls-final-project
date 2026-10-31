@@ -276,3 +276,45 @@ test.each(['TFT_CANDIDATE_EXCLUDED', 'TFT_RND_CHECK_REQUIRED'])('서버 %s 거�
   expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
   expect(f.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
 });
+
+test('저장 뒤 옵션·후보를 재조회하고 재확인한 최신 요구 판본으로 연속 저장한다', async () => {
+  let version = 1;
+  let posts = 0;
+  let finishOptions!: (value: Response) => void;
+  let finishCandidates!: (value: Response) => void;
+  const f = live((url, init) => {
+    if (init?.method === 'POST') {
+      posts++; version = 2;
+      return response({ ...saved(), version: posts + 1 });
+    }
+    if (url.includes('/requirements?')) return response({ items: [{ ...requirement(R, 'R-021'), version }], next_cursor: null });
+    if (url.endsWith('/supplement-options')) return posts === 1
+      ? new Promise<Response>(resolve => { finishOptions = resolve; }) : response(options(R, version));
+    if (url.includes('/partner-candidates?')) return posts === 1
+      ? new Promise<Response>(resolve => { finishCandidates = resolve; }) : response({ items: candidates() });
+    return undefined;
+  });
+  renderApp(`/tft/projects/${P}/supplement`); await choose();
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText(/보완 선택 저장 완료/);
+  await waitFor(() => {
+    expect(finishOptions).toBeTypeOf('function');
+    expect(finishCandidates).toBeTypeOf('function');
+  });
+  expect((screen.queryByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement | null)?.disabled ?? true).toBe(true);
+  finishOptions(response(options(R, 2)));
+  await waitFor(() => expect((screen.getByRole('radio', { name: '외부 제품' }) as HTMLInputElement).disabled).toBe(true));
+  finishCandidates(response({ items: candidates() }));
+  await waitFor(() => expect((screen.getByRole('radio', { name: '외부 제품' }) as HTMLInputElement).disabled).toBe(false));
+  expect((screen.getByRole('radio', { name: '외부 제품' }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('');
+  const shownVersion = screen.getAllByText('요구 판본').find(node => node.tagName === 'SPAN');
+  expect(shownVersion?.parentElement?.textContent).toContain('2');
+  expect(posts).toBe(1);
+  await choose();
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await waitFor(() => expect(posts).toBe(2));
+  const requests = f.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => init!);
+  expect(requests.map(init => JSON.parse(init.body as string).version)).toEqual([1, 2]);
+  expect((requests[0].headers as Record<string, string>)['Idempotency-Key']).not.toBe((requests[1].headers as Record<string, string>)['Idempotency-Key']);
+});
