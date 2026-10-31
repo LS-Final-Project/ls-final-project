@@ -25,6 +25,11 @@ UNSUPPORTED_GOLD = ("SPEC_GAP", "INSUFFICIENT_EVIDENCE")
 # 중대한 잘못된 충족의 '필수 요구'(gates-rfp-v1 rfp_critical_false_fulfillment_count).
 BINDING_NECESSITIES = ("MANDATORY", "CONDITION_BOUND")
 Key = tuple[str, str | None]
+# 초안의 주요 제안 문장(gates-rfp-v1 rfp_draft_trace_rate의 분모). 고객 요구 인용과 질문·다음 행동은
+# 제안이 아니다.
+PROPOSAL_SECTIONS = ("OUR_RESPONSE", "DEVIATIONS", "PARTNER_SUPPLEMENT", "ASSUMPTIONS_EXCLUSIONS")
+# 분자로 치는 근거 종류. 조항·질문만 달린 문장은 제안의 근거를 찾은 것이 아니다.
+TRACE_EVIDENCE = ("requirement", "product", "partner")
 
 
 @dataclass(frozen=True)
@@ -566,8 +571,52 @@ def _plain_key(value: object) -> Key:
     return value[0], value[1]
 
 
+def summarize_draft_trace(drafts: Mapping[str, Mapping]) -> dict:
+    """초안의 주요 제안 문장 중 근거나 가정 표시를 찾은 비율을 잰다.
+
+    생성기가 근거를 붙였다는 표시를 믿지 않고, 근거가 그 프로젝트에 실제로 있는지 대조한다.
+
+    Args:
+        drafts: 사례 → {"sentences": [{section, evidence: [{type, id}], unconfirmed}],
+            "references": [[종류, ID], ...]}. references는 그 프로젝트에 있는 근거 전부다.
+
+    Returns:
+        dict: count(찾은 문장)·denominator·rate(분모 0이면 None)·assumption_only(가정 표시로만 찾은
+            문장)·unresolved_references(프로젝트에 없는 근거 수)·by_case.
+    """
+    count = denominator = assumption_only = unresolved = 0
+    by_case = {}
+    for case, draft in drafts.items():
+        known = {tuple(reference) for reference in draft["references"]}
+        found = total = 0
+        for sentence in draft["sentences"]:
+            if sentence["section"] not in PROPOSAL_SECTIONS:
+                continue
+            total += 1
+            refs = [(e["type"], e["id"]) for e in sentence["evidence"]]
+            unresolved += sum(ref not in known for ref in refs)
+            traced = any(ref in known and ref[0] in TRACE_EVIDENCE for ref in refs)
+            if traced or sentence["unconfirmed"]:
+                found += 1
+            if sentence["unconfirmed"] and not traced:
+                assumption_only += 1
+        count, denominator = count + found, denominator + total
+        by_case[case] = {"count": found, "denominator": total}
+    return {
+        "count": count,
+        "denominator": denominator,
+        "rate": count / denominator if denominator else None,
+        "assumption_only": assumption_only,
+        "unresolved_references": unresolved,
+        "by_case": by_case,
+    }
+
+
 def gate_values(
-    extraction: Mapping | None, grades: Mapping | None, integration: Mapping | None = None
+    extraction: Mapping | None,
+    grades: Mapping | None,
+    integration: Mapping | None = None,
+    draft_trace: Mapping | None = None,
 ) -> dict[str, float | int | None]:
     """두 요약에서 gates-rfp-v1 게이트 9개 값을 꺼낸다(eval_adopt --task rfp 후보 행 키와 같다).
 
@@ -575,6 +624,7 @@ def gate_values(
         extraction: summarize_requirement_extraction 결과(없으면 None).
         grades: summarize_candidate_grades 결과(없으면 None).
         integration: summarize_integration_responsibility 결과(없으면 None). 분모가 0이면 None이다.
+        draft_trace: summarize_draft_trace 결과(없으면 None). 분모가 0이면 None이다.
 
     Returns:
         dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·초안 추적), 사유를 비교하지
@@ -607,5 +657,5 @@ def gate_values(
         "rfp_mandatory_constraint_violation_count": excluded.get("count")
         if excluded.get("denominator")
         else None,
-        "rfp_draft_trace_rate": None,
+        "rfp_draft_trace_rate": draft_trace["rate"] if draft_trace else None,
     }

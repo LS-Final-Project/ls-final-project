@@ -7,6 +7,8 @@
 
 import asyncio
 import hashlib
+import importlib.util
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
@@ -1209,3 +1211,49 @@ def test_project_list_filters_in_sql_with_literal_search_terms(client, gap, admi
     assert found("output_status=ANALYZING&q=ACME")
     assert get(client, "/projects?q=a").status_code == 422
     assert get(client, "/projects?output_status=NOPE").status_code == 422
+
+
+def test_draft_trace_input_reads_the_latest_draft_and_project_references(admin, app_dsn, chain):
+    """초안 추적률 입력: 최신 판본 문장만, 근거와 프로젝트 안 참조를 함께 낸다."""
+    spec = importlib.util.spec_from_file_location(
+        "rfp_draft_trace_input", Path("scripts/rfp_draft_trace_input.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    old, new = uuid4(), uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.drafts (project_id, latest_version, data_origin, derivation_kind, "
+            "known_at) VALUES (%s,2,'synthetic','SYSTEM',now())",
+            (chain["project"],),
+        )
+        for version, sentence in ((1, old), (2, new)):
+            conn.execute(
+                "INSERT INTO tft.draft_versions (project_id, version, provenance_kind, data_origin, "
+                "derivation_kind, known_at) VALUES (%s,%s,'system_record','synthetic','SYSTEM',now())",
+                (chain["project"], version),
+            )
+            conn.execute(
+                "INSERT INTO tft.draft_sentences (id, project_id, draft_version, section, ordinal, "
+                "sentence_key, text, unconfirmed, evidence_missing, provenance_kind) "
+                "VALUES (%s,%s,%s,'OUR_RESPONSE',0,%s,'문장',false,false,'system_record')",
+                (sentence, chain["project"], version, uuid4()),
+            )
+        conn.execute(
+            "INSERT INTO tft.draft_sentence_evidence VALUES (%s,0,'requirement',%s)",
+            (new, str(chain["requirement"])),
+        )
+
+    async def main():
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await module.trace_input(conn, chain["project"])
+
+    data = asyncio.run(main())
+    assert data["sentences"] == [
+        {
+            "section": "OUR_RESPONSE",
+            "unconfirmed": False,
+            "evidence": [{"type": "requirement", "id": str(chain["requirement"])}],
+        }
+    ]
+    assert ("requirement", str(chain["requirement"])) in data["references"]
