@@ -1442,7 +1442,18 @@ def test_options_come_in_path_rank_order_with_a_gate_on_partner_paths():
 )
 def test_only_a_confirmed_own_development_blocks_partner_paths(rnd_check):
     result = options_for(demo_a()[4], "ALLOWED", rnd_check=rnd_check)
-    assert all(o.allowed for o in result.options)
+    assert all(o.allowed for o in result.options if o.path != "OWN_DEVELOPMENT")
+
+
+def test_a_no_blocks_only_own_development():
+    result = options_for(demo_a()[4], "ALLOWED", rnd_check="CONFIRMED_NOT_FEASIBLE")
+    assert [(o.path, o.allowed, o.blocked_reason) for o in result.options] == [
+        ("OTHER_OWN_PRODUCT", True, None),
+        ("OWN_DEVELOPMENT", False, "OWN_DEVELOPMENT_NOT_FEASIBLE"),
+        ("EXTERNAL_PRODUCT", True, None),
+    ]
+    mismatch = options_for(demo_a()[4], "ALLOWED", rnd_check="CONFIRMED_SCHEDULE_MISMATCH")
+    assert all(o.allowed for o in mismatch.options)
 
 
 def test_partner_paths_are_blocked_once_rnd_confirms_own_development():

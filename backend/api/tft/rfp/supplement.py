@@ -106,6 +106,7 @@ EXPERTISE: dict[Path, str] = {
 }
 DESIGNATED_ITEM = "DESIGNATED_ITEM"
 OWN_DEVELOPMENT_FEASIBLE = "OWN_DEVELOPMENT_FEASIBLE"
+OWN_DEVELOPMENT_NOT_FEASIBLE = "OWN_DEVELOPMENT_NOT_FEASIBLE"
 
 
 class Gate(BaseModel):
@@ -179,7 +180,7 @@ def options_for(
         permission: RFP의 외부 보완 허용 조항(허용·금지·미기재).
         designated: 타사 지정 모델 요구인지. outcome의 원인이 DESIGNATED_MODEL이어도 지정품으로 본다.
         rnd_check: 요구의 R&D 확인 상태(서버가 질문·답변에서 계산). 게이트 상태로 보이고,
-            CONFIRMED_FEASIBLE이면 협력사 계열 경로를 막는다.
+            CONFIRMED_FEASIBLE이면 협력사 계열 경로를, CONFIRMED_NOT_FEASIBLE이면 자사 개발을 막는다.
         approval_question: 지정품 대체 제안의 고객 승인 질문이 이미 있는지.
         partner_graded: 이 요구에 제외되지 않은 등급의 협력사 후보가 있는지.
         own_certification: 자사 후보가 있는 인증 요구인지.
@@ -209,7 +210,10 @@ def options_for(
             continue
         extra = []
         blocked = None
-        if gated and path in PARTNER and rnd_check == "CONFIRMED_FEASIBLE":
+        if path == "OWN_DEVELOPMENT" and rnd_check == "CONFIRMED_NOT_FEASIBLE":
+            # R&D가 불가라고 답했다. 다시 보려면 사람이 새 질문을 쓴다.
+            blocked = OWN_DEVELOPMENT_NOT_FEASIBLE
+        elif gated and path in PARTNER and rnd_check == "CONFIRMED_FEASIBLE":
             # 자사 개발이 되는데 협력사로 가지 않는다. 바꾸려면 R&D 질문을 다시 올린다.
             blocked = OWN_DEVELOPMENT_FEASIBLE
         elif path in EXTERNAL and permission == "FORBIDDEN":

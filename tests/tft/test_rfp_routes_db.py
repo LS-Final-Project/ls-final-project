@@ -24,6 +24,7 @@ from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
+from tests.tft.test_rfp_draft_routes_db import generate
 
 # 고정물을 가져와 쓴다(pytest가 이름으로 찾는다).
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
@@ -275,6 +276,45 @@ def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, g
     assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
     again = call(client, "GET", f"/projects/{gap['project']}/questions?target=INTERNAL", OWNER)
     assert len(again.json()["data"]["items"]) == 1
+
+
+def test_keeping_own_development_after_a_yes_does_not_ask_again(client, gap):
+    """R&D가 가능하다고 답한 뒤 같은 경로를 다시 저장하면 재검토만 풀리고 질문은 그대로다."""
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    url = f"/projects/{gap['project']}/questions?target=INTERNAL"
+    [question] = call(client, "GET", url, OWNER).json()["data"]["items"]
+    replied = answer(client, question, RND, rnd_feasibility="FEASIBLE")
+    assert replied.status_code == 200, replied.text
+    detail = f"/requirements/{gap['requirement']}"
+    assert data(get(client, detail))["needs_rereview"] is True
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    assert data(get(client, detail))["needs_rereview"] is False
+    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 1
+    assert options(client, gap)["EXTERNAL_PRODUCT"]["gate"]["status"] == "CONFIRMED_FEASIBLE"
+
+
+def test_a_no_blocks_own_development_until_someone_asks_again(client, gap, app_dsn, admin):
+    """불가 답이면 자사 개발은 막히고 초안 생성은 실패하지 않는다. 새 질문이 다시 연다."""
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    url = f"/projects/{gap['project']}/questions?target=INTERNAL"
+    [question] = call(client, "GET", url, OWNER).json()["data"]["items"]
+    assert answer(client, question, RND, rnd_feasibility="NOT_FEASIBLE").status_code == 200
+    blocked = options(client, gap)["OWN_DEVELOPMENT"]
+    assert (blocked["allowed"], blocked["blocked_reason"]) == (
+        False,
+        "OWN_DEVELOPMENT_NOT_FEASIBLE",
+    )
+    assert error(choose(client, gap, "OWN_DEVELOPMENT")) == (409, "TFT_INVALID_TRANSITION")
+    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 1
+    # 선택이 막힌 경로에 남아 있어도 재처리의 초안 생성이 끝난다.
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.supplement_options SET candidate_codes='{}' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+    generate(app_dsn, gap, uuid4())
+    assert ask(client, gap).status_code == 201
+    assert options(client, gap)["OWN_DEVELOPMENT"]["allowed"] is True
 
 
 def test_partner_path_while_rnd_is_pending_needs_a_waiver(client, gap, admin):
@@ -618,6 +658,10 @@ def test_clauses_are_paged_in_document_order_with_their_links(client, admin, cha
     url = f"/documents/{chain['document']}/clauses"
     first = data(get(client, f"{url}?limit=2"))
     assert [c["clause_no"] for c in first["items"]] == ["2.5.C", "2.5.D"]
+    # 요구 화면은 인용한 판본 ID로 부른다. 범위 검사는 같다.
+    by_version = f"/documents/{chain['docver']}/clauses?limit=2"
+    assert data(get(client, by_version))["items"] == first["items"]
+    assert get(client, by_version, OUTSIDER).status_code == 404
     top, child = first["items"]
     assert top["deleted_values"] == [{"text": "33", "position": 4}]
     assert top["flags"] == ["HIGHLIGHT"]
