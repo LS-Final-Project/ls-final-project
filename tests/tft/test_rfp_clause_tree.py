@@ -494,3 +494,30 @@ def test_korean_chapter_decimal_context_restores_english_after_part():
     ]
     assert by_no(tree)["1.1"].parent_no == "제1장"
     assert by_no(tree)["2.1.A"].depth == 3
+
+
+def test_korean_decimal_titles_do_not_split_nouns_into_unit_and_particle():
+    tree = tree_of(
+        p("1. 일반"),
+        p("1.1 회의 절차"),
+        p("검토 자료를 기록한다."),
+        p("1.2 명의 변경"),
+        p("이력 자료를 보존한다."),
+    )
+    assert [c.clause_no for c in tree.clauses] == ["1", "1.1", "1.2"]
+    assert [c.title for c in tree.clauses] == ["일반", "회의 절차", "명의 변경"]
+    assert [c.parent_no for c in tree.clauses] == [None, "1", "1"]
+
+
+def test_korean_decimal_number_and_standalone_unit_are_quantities_not_titles():
+    quantities = [
+        "1.1 밀리미터",
+        "1.2 볼트 범위",
+        "1.3 회",
+        "1.4 명",
+        "1.5 개 부품",
+        "1.6 암페어 조건",
+    ]
+    tree = tree_of(p("1. 일반"), *(p(line) for line in quantities))
+    assert [c.clause_no for c in tree.clauses] == ["1"]
+    assert all(line in tree.clauses[0].text for line in quantities)

@@ -59,8 +59,8 @@ KOREAN_NUMBER = re.compile(r"^(\d+)\.\s*([가-힣].*)$")
 KOREAN_DECIMAL = re.compile(r"^(\d+(?:\.\d+)+)\s+([가-힣].*)$")
 # 문단 앞 소수 수량/조항 참조를 제목으로 승격하지 않는다.
 KOREAN_MEASURE = re.compile(
-    r"^(?:밀리미터|센티미터|킬로미터|미터|킬로볼트|볼트|킬로암페어|암페어|퍼센트|"
-    r"킬로그램|그램|리터|초|분|시간|일|개월|년|개|회|명|배)(?:\s|[은는이가을를의]|$)"
+    r"^\d+(?:\.\d+)+\s*(?:밀리미터|센티미터|킬로미터|미터|킬로볼트|볼트|킬로암페어|암페어|퍼센트|"
+    r"킬로그램|그램|리터|초|분|시간|일|개월|년|개|회|명|배)(?:\s|$)"
 )
 KOREAN_REFERENCE = re.compile(r"^(?:제\s*\d+\s*(?:장|조|항|호)|(?:조|항|호)(?:에|의|를))")
 KOREAN_LETTERS = "가나다라마바사아자차카타파하"
@@ -346,7 +346,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 depth <= 7
                 and has_parent
                 and len(title) <= 80
-                and not KOREAN_MEASURE.match(title)
+                and not KOREAN_MEASURE.match(text)
                 and not KOREAN_REFERENCE.match(title)
                 and not title.endswith((".", "…", "다", ":", ";", "?", "!"))
             ):
