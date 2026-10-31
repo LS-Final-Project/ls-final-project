@@ -383,3 +383,24 @@ it('제목줄 문장 수정은 실제 선택한 표시 문장을 열고 전송�
   expect((screen.getByLabelText('수정 문장') as HTMLTextAreaElement).value).toBe(second.text);
   expect(f.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false);
 });
+
+it('공용 라벨에 없는 출처와 검토 상태는 원문으로 표시한다', async () => {
+  serve((url, init) => url.endsWith('/review-versions') && init?.method === 'POST'
+    ? data({ ...saved, output_status: 'FUTURE_OUTPUT', judgement_status: 'FUTURE_JUDGEMENT' }, 201)
+    : data({ ...draft, data_origin: 'future_source' }));
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText('future_source');
+  await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '검토본 저장' }));
+  await screen.findByText('FUTURE_OUTPUT / FUTURE_JUDGEMENT');
+});
+
+it('전체가 빈 초안은 구역별 빈 문구를 반복하지 않는다', async () => {
+  serve(() => data({ ...draft, sections: draft.sections.map(part => ({ ...part, sentences: [] })) }));
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText(draft.disclaimer);
+  const list = screen.getByLabelText('초안 문장 목록');
+  expect(within(list).queryAllByRole('heading')).toHaveLength(0);
+  expect(within(list).getAllByText('선택한 조건의 문장이 없습니다.')).toHaveLength(1);
+  expect(within(list).queryByText('저장된 문장이 없습니다.')).toBeNull();
+});
