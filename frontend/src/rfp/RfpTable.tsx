@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
@@ -85,7 +85,7 @@ function Detail({ projectId, id, proposing, onPropose, onClose }: {
 
 const SIZES = [50, 100];
 
-// 자사 대응표(TF0102). 보드에 있어도 API에 없는 값(다음 담당 필터, 작성 열, 전체 건수)은 넣지 않는다.
+// 자사 대응표(TF0102). 보드에 있어도 API에 없는 값(다음 담당 필터, 작성 열)은 넣지 않는다.
 export default function RfpTable() {
   const { projectId = '' } = useParams();
   const mode = getApiMode();
@@ -109,17 +109,26 @@ export default function RfpTable() {
     queryFn: ({ pageParam }) => listRequirements(projectId, filters, size, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: last => last.data.next_cursor ?? undefined,
+    // 조건을 바꾸는 동안 표를 비우지 않는다. 행 단추가 사라지면 누르던 클릭이 유실된다.
+    placeholderData: keepPreviousData,
     enabled,
   });
   if (!access.ready) return <BusinessGate access={access} title="자사 대응표" />;
   const filter = (change: RequirementFilters) => {
-    setFilters({ ...filters, ...change });
+    const next = { ...filters, ...change };
+    // 값이 그대로면 선택과 입력 중인 제안을 지키고 다시 부르지 않는다.
+    if (JSON.stringify(next) === JSON.stringify(filters)) return;
+    setFilters(next);
     setSelected(undefined);
     setProposing(false);
   };
+  const applyText = () => filter({ equipment: equipment.trim() || undefined, task: task.trim() || undefined });
   const tri = (value: string) => value === '' ? undefined : value === 'true';
   const triValue = (value: boolean | undefined) => value === undefined ? '' : String(value);
   const items = requirements.data?.pages.flatMap(page => page.data.items) ?? [];
+  const detail = project.data?.data;
+  // 전체 건수는 프로젝트 합계라 조건을 걸지 않았을 때만 뜻이 맞다.
+  const unfiltered = Object.values(filters).every(value => value === undefined);
   // 승인은 담당 영업·책임자만 된다. 부서 검토 계정은 단추를 막고, 나머지는 서버가 다시 검사한다.
   const roles = access.user.data?.data.roles;
   const canDecide = !roles || roles.includes('sales') || roles.includes('manager');
@@ -144,20 +153,22 @@ export default function RfpTable() {
       {canDecide
         ? <Link className="kb" to={`/tft/projects/${projectId}/table/approvals`}>{approvals}</Link>
         : <button className="kb" disabled title="담당 또는 책임자만 승인합니다">{approvals}</button>}
-      <button className="kb" disabled={requirements.isFetching} onClick={() => requirements.refetch()}>조회</button>
+      <button className="kb" disabled={requirements.isFetching} onClick={() => { applyText(); requirements.refetch(); }}>조회</button>
     </KvTitle>
     <KvNext>
-      {project.data?.data.name ?? (project.isError ? '프로젝트 정보를 불러오지 못했습니다' : '불러오는 중')}
-      {pendingCount ? `, 승인 대기 ${pendingCount}건 처리` : ''}. 승인하면 요구 새 판본, 연결된 비교와 초안 문장에 재검토 표시
+      {detail
+        ? `${detail.name}, 요구 ${detail.requirements_count}건, 미해결 필수 ${detail.unresolved_mandatory_count}, 재검토 ${detail.requirement_counts.needs_rereview}`
+        : project.isError ? '프로젝트 정보를 불러오지 못했습니다' : '불러오는 중'}
+      {pendingCount ? `. 다음 승인 대기 ${pendingCount}건 처리` : ''}. 승인하면 요구 새 판본, 연결된 비교와 초안 문장에 재검토 표시
     </KvNext>
-    <KvCond onSearch={() => filter({ equipment: equipment.trim() || undefined, task: task.trim() || undefined })}>
+    <KvCond onSearch={applyText}>
       <KvCondRow>
         <KvCondField label="문서 판본"><select aria-label="문서 판본" value={filters.document_version_id ?? ''} onChange={event => filter({ document_version_id: event.target.value || undefined })}>
           <option value="">전체</option>
           {documents.data?.data.items.map(d => <option key={d.document_version_id} value={d.document_version_id}>{d.title}</option>)}
         </select></KvCondField>
-        <KvCondField label="장비"><input aria-label="장비" type="text" value={equipment} onChange={event => setEquipment(event.target.value)} onBlur={() => filter({ equipment: equipment.trim() || undefined })} /></KvCondField>
-        <KvCondField label="작업"><input aria-label="작업" type="text" value={task} onChange={event => setTask(event.target.value)} onBlur={() => filter({ task: task.trim() || undefined })} /></KvCondField>
+        <KvCondField label="장비"><input aria-label="장비" type="text" value={equipment} onChange={event => setEquipment(event.target.value)} /></KvCondField>
+        <KvCondField label="작업"><input aria-label="작업" type="text" value={task} onChange={event => setTask(event.target.value)} /></KvCondField>
         <KvCondField label="성격"><select aria-label="성격" value={filters.necessity ?? ''} onChange={event => filter({ necessity: (event.target.value || undefined) as Necessity | undefined })}>
           <option value="">전체</option>
           {Object.entries(NECESSITY_LABEL).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
@@ -175,6 +186,7 @@ export default function RfpTable() {
           <option value="">전체</option><option value="true">있음</option><option value="false">없음</option>
         </select></KvCondField>
       </KvCondRow>
+      <button type="submit" hidden>검색</button>
     </KvCond>
     <div className="kv-gridhead"><span>요구 {items.length}건 표시, 요구 번호를 누르면 아래에 자사 비교와 판단</span></div>
     {requirements.isError
@@ -189,7 +201,7 @@ export default function RfpTable() {
           fallback={requirements.isPending ? <Loading /> : '조건에 맞는 요구가 없습니다.'}
         />
         <KvFoot
-          count={`표시 ${items.length}건`}
+          count={`표시 ${items.length}건${unfiltered && detail ? ` / 조회 ${detail.requirements_count}건` : ''}`}
           more={requirements.hasNextPage
             ? <button className="kb" disabled={requirements.isFetchingNextPage} onClick={() => requirements.fetchNextPage()}>{size}건 더 보기</button>
             : '마지막입니다'}

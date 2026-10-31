@@ -28,7 +28,7 @@ function server() {
     if (url.endsWith('/documents')) return ok({ items: [{ document_version_id: 'd1', title: '사양서 v2' }] });
     if (url.includes('/requirements?')) return ok({ items: url.includes('cursor=next') ? [{ ...MOCK_REQUIREMENTS[3], requirement_id: 'more', code: 'R-99' }] : requirements, next_cursor: url.includes('cursor=next') ? null : nextCursor });
     if (url.includes('/requirements/')) return ok(MOCK_DETAIL);
-    return ok({ name: '합성 프로젝트' });
+    return ok({ name: '합성 프로젝트', requirements_count: 48, unresolved_mandatory_count: 3, requirement_counts: { needs_rereview: 2 } });
   }));
   setApiMode('live');
 }
@@ -68,7 +68,8 @@ describe('자사 대응표', () => {
     );
     expect(table.classList.contains('free')).toBe(true);
     expect(screen.getByRole('tab').textContent).toContain('자사 대응표');
-    await screen.findByText(/합성 프로젝트/);
+    await screen.findByText(/합성 프로젝트, 요구 48건, 미해결 필수 3, 재검토 2/);
+    await screen.findByText('표시 4건 / 조회 48건');
     const button = screen.getByRole('button', { name: 'R-01' });
     fireEvent.click(button);
     await waitFor(() => expect(button.closest('tr')?.classList.contains('sel')).toBe(true));
@@ -84,6 +85,37 @@ describe('자사 대응표', () => {
     fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'CONDITIONAL' } });
     await waitFor(() => expect(calls.some(c => c.url.includes('status=CONDITIONAL'))).toBe(true));
     expect(calls.find(c => c.url.includes('status=CONDITIONAL'))?.url).not.toContain('needs_rereview');
+  });
+
+  it('값이 그대로면 선택과 입력 중인 제안을 지키고 다시 부르지 않는다', async () => {
+    await open();
+    fireEvent.click(screen.getAllByRole('button', { name: '변경 제안' })[0]);
+    await screen.findByRole('button', { name: '제안 저장' });
+    const lists = () => calls.filter(c => c.url.includes('/requirements?')).length;
+    const before = lists();
+    fireEvent.blur(screen.getByLabelText('장비'));
+    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
+    expect(screen.getByRole('table', { name: '자사 비교' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '제안 저장' })).toBeTruthy();
+    expect(lists()).toBe(before);
+  });
+
+  it('입력칸을 떠나는 것만으로는 조회하지 않고, 조건을 바꿔도 표를 비우지 않는다', async () => {
+    renderApp(PATH);
+    const row = await screen.findByRole('button', { name: 'R-01' });
+    fireEvent.change(screen.getByLabelText('장비'), { target: { value: '변압기' } });
+    fireEvent.blur(screen.getByLabelText('장비'));
+    expect(calls.some(c => decodeURIComponent(c.url).includes('equipment='))).toBe(false);
+    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
+    expect(screen.getByRole('button', { name: 'R-01' })).toBe(row);
+    await waitFor(() => expect(calls.some(c => decodeURIComponent(c.url).includes('equipment=변압기'))).toBe(true));
+  });
+
+  it('조건을 걸면 프로젝트 전체 건수를 표시하지 않는다', async () => {
+    renderApp(PATH);
+    await screen.findByText('표시 4건 / 조회 48건');
+    fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'SPEC_GAP' } });
+    await screen.findByText('표시 4건');
   });
 
   it('문서 판본·장비·작업도 서버 필터다', async () => {
@@ -102,7 +134,7 @@ describe('자사 대응표', () => {
     fireEvent.click(await screen.findByRole('button', { name: '50건 더 보기' }));
     await screen.findByRole('button', { name: 'R-99' });
     expect(screen.getByRole('button', { name: 'R-01' })).toBeTruthy();
-    expect(screen.getByText('표시 5건')).toBeTruthy();
+    expect(screen.getByText('표시 5건 / 조회 48건')).toBeTruthy();
     expect(screen.getByText('마지막입니다')).toBeTruthy();
     expect(calls.some(c => c.url.includes('limit=50') && c.url.includes('cursor=next'))).toBe(true);
   });

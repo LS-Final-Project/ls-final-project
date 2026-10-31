@@ -2,6 +2,10 @@
 export const STATUS_LABEL: Record<string, string> = {
   EVIDENCE_FOUND: '근거 있음', CONDITIONAL: '조건부 검토', SPEC_GAP: '사양 차이', INSUFFICIENT_EVIDENCE: '근거 부족',
 };
+export const OUTPUT_LABEL: Record<string, string> = { INTAKE: '접수', ANALYZING: '분석 중', REVIEW_DRAFT: '검토본 작성' };
+export const JUDGEMENT_LABEL: Record<string, string> = {
+  NEEDS_REVIEW: '검토 필요', CONDITION_CHECK: '조건 확인 필요', OWNER_CONFIRMED: '담당자 확인',
+};
 export const NECESSITY_LABEL: Record<string, string> = {
   MANDATORY: '필수', PREFERRED: '우선', CONDITION_BOUND: '조건 따름', UNDETERMINED: '미정',
 };
