@@ -312,12 +312,24 @@ def test_the_real_resume_finds_the_ticket_job_after_the_send_is_accepted(
 
 
 @pytest.mark.parametrize(
-    ("failures", "expected", "calls"), [(1, "RESUMED", 2), (3, "RESUME_FAILED", 3)]
+    ("errors", "expected", "calls", "sleeps"),
+    [
+        ([psycopg.OperationalError], "RESUMED", 2, [0.5]),
+        ([psycopg.errors.AdminShutdown] * 3, "RESUME_FAILED", 3, [0.5, 2.0]),
+        ([psycopg.errors.InsufficientPrivilege], "RESUME_FAILED", 1, []),
+        ([ValueError], "RESUME_FAILED", 1, []),
+        # 분류는 시도마다 한다: 일시 오류 뒤 다른 오류가 나면 거기서 멈춘다.
+        ([psycopg.OperationalError, ValueError], "RESUME_FAILED", 2, [0.5]),
+    ],
+    ids=["transient-then-ok", "transient-always", "privilege", "code-error", "transient-then-code"],
 )
-def test_a_failed_resume_is_retried_before_it_is_given_up(
-    cs_database, admin, ticket, monkeypatch, failures, expected, calls
+def test_only_transient_resume_failures_are_retried(
+    cs_database, admin, ticket, monkeypatch, errors, expected, calls, sleeps
 ):
-    """체크포인트 DB 일시 오류로 재개가 실패하면 다시 시도하고, 계속 실패할 때만 포기한다(#298 리뷰 P3)."""
+    """체크포인트 DB 일시 오류만 기다려 다시 시도하고, 권한·코드 오류는 기다리지 않고 바로 포기한다(#306 리뷰 P3).
+
+    대기가 발송 갱신 응답 안에서 일어나므로, 다시 해도 같은 오류에 응답을 늦추지 않는다.
+    """
     settings = settings_for(cs_database)
     job = uuid4()
     admin.execute(
@@ -326,17 +338,41 @@ def test_a_failed_resume_is_retried_before_it_is_given_up(
         (uuid4(), ticket, job),
     )
     seen = []
+    waited = []
 
     def flaky(_settings, job_id):
         seen.append(job_id)
-        if len(seen) <= failures:
-            raise psycopg.OperationalError("checkpoint database restarting")
+        if len(seen) <= len(errors):
+            raise errors[len(seen) - 1]("resume failed")
         return "RESUMED"
 
+    async def fake_sleep(delay):
+        waited.append(delay)
+
     monkeypatch.setattr(jobs_module, "resume_graph", flaky)
-    monkeypatch.setattr(jobs_module, "RESUME_RETRY_DELAYS", (0, 0))
+    monkeypatch.setattr(jobs_module.asyncio, "sleep", fake_sleep)
     request = SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(analysis_jobs=object(), settings=settings))
     )
     assert asyncio.run(jobs_module.resume_after_send(request, ticket)) == expected
     assert seen == [job] * calls
+    assert waited == sleeps
+
+
+def test_resume_bounds_the_checkpoint_connection_wait(cs_database, monkeypatch):
+    """발송 뒤 재개는 체크포인트 연결 대기에 상한을 둔다. 응답 없는 DB에 응답이 1~2분 묶이지 않게(#306 리뷰 P3)."""
+    from psycopg.conninfo import conninfo_to_dict
+
+    from backend.agent import cs_runner
+
+    seen = []
+
+    def refuse(dsn, **_kwargs):
+        seen.append(conninfo_to_dict(dsn))
+        raise psycopg.OperationalError("connection timeout expired")
+
+    monkeypatch.setattr(cs_runner.psycopg, "connect", refuse)
+    with pytest.raises(psycopg.OperationalError):
+        resume_graph(settings_for(cs_database), uuid4())
+    assert seen[0]["connect_timeout"] == str(jobs_module.RESUME_CONNECT_TIMEOUT_S)
+    assert seen[0]["options"] == "-c search_path=checkpoint_cs"

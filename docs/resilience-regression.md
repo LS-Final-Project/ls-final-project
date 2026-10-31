@@ -34,7 +34,7 @@ KAN-150 완료 조건 "Tasks 중복/순서변경, checkpoint재개, 토큰철회
 | 체크포인트는 새 연결·새 그래프에서도 남음 | `tests/cs/test_graph_db.py::test_checkpoint_survives_new_connection_and_graph` |
 | 형식 위반 재호출 뒤 재개는 모델을 다시 부르지 않음 | `tests/cs/test_graph.py::test_invalid_output_is_retried_once_and_resume_does_not_call_again` |
 | 발송 접수 뒤 그래프는 한 번만 재개 | `tests/cs/test_analysis_jobs_db.py::test_an_accepted_send_resumes_the_graph_once` |
-| 재개 실패는 다시 시도한 뒤에만 포기 | `tests/cs/test_analysis_jobs_db.py::test_a_failed_resume_is_retried_before_it_is_given_up` |
+| 재개는 체크포인트 DB 일시 오류만 다시 시도하고, 그 밖의 오류는 바로 포기 | `tests/cs/test_analysis_jobs_db.py::test_only_transient_resume_failures_are_retried` |
 | 소유자가 죽은 뒤 걸린 취소는 CANCELLED로 확정 | `tests/platform/test_cs_worker_db.py::test_cancel_requested_after_the_worker_died_ends_cancelled` |
 
 ## 3. 토큰·권한 철회
