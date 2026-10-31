@@ -14,11 +14,12 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDateTime, Origin } from '../components/tft';
 import type { RequirementFilters } from '../api/rfp';
 import './RfpSupplement.css';
-import { BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
+import { ATTRIBUTE_LABEL, requirementNo, BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
 import { KvBox, KvField, KvGrid, KvNext, KvTitle, KvSplit, KvCond, KvCondRow, KvCondField, type KvColumn } from '../ls-shell/kv';
 
 const CAUSE: Record<string, string> = { RATING: '정격', CERTIFICATION: '인증', FORM: '구조·형식', TASK: '수행 작업', DESIGNATED_MODEL: '지정 모델', COMMERCIAL: '거래 조건', CORE_EQUIPMENT_MISSING: '핵심 장비 없음' };
 const PERMISSION = { ALLOWED: '허용', FORBIDDEN: '금지', UNSTATED: '미기재' };
+const attributeName = (r: RequirementSummary) => r.attribute_key && r.attribute_key !== 'OTHER' ? label(ATTRIBUTE_LABEL, r.attribute_key) : r.attribute;
 const text = (items: readonly string[]) => items.length ? items.join(' · ') : '없음';
 
 export default function RfpSupplement() {
@@ -58,7 +59,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
       {selected && <><a className="kb" href="#supplement-candidates">후보 비교</a><Link className="kb" to={`/tft/projects/${projectId}/requirements/${selected.requirement_id}`}>요구 상세</Link></>}
       <Link className="kb" to={`/tft/projects/${projectId}`}>목록</Link>
     </KvTitle>
-    <KvNext>{selected ? `${selected.equipment ?? selected.task ?? '선택 요구'} · ${selected.attribute ?? '속성 미기재'} · ${label(NECESSITY_LABEL, selected.necessity)} · ${label(STATUS_LABEL, selected.status)} | 다음: 보완 경로·후보 근거 확인 후 선택 저장` : '조회조건을 확인하고 보완할 요구를 선택하세요.'}</KvNext>
+    <KvNext>{selected ? `${selected.equipment ?? selected.task ?? '선택 요구'} · ${attributeName(selected) ?? '속성 미기재'} · ${label(NECESSITY_LABEL, selected.necessity)} · ${label(STATUS_LABEL, selected.status)} | 다음: 보완 경로·후보 근거 확인 후 선택 저장` : '조회조건을 확인하고 보완할 요구를 선택하세요.'}</KvNext>
     <KvCond onSearch={search}><KvCondRow columns={4}>
       <KvCondField label="프로젝트"><input aria-label="프로젝트" value={project.data?.data.name ?? ''} readOnly /></KvCondField>
       <KvCondField label="판단"><select aria-label="판단" value={status} onChange={e => setStatus(e.target.value)}><option value="">전체</option>{Object.entries(STATUS_LABEL).map(([code, value]) => <option key={code} value={code}>{value}</option>)}</select></KvCondField>
@@ -69,7 +70,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {project.isSuccess && <>
       <div className="supplement-list-heading"><span>조회 요구 {rows.length}건 · {cursors.length}쪽 · {canSelect ? '담당 영업·책임자 선택 가능' : '읽기 전용 — 담당 영업·책임자만 선택 가능'}</span><span><button className="kb" disabled={requirements.isFetching || cursors.length === 1} onClick={() => page(cursors.slice(0, -1))}>이전</button> <button className="kb" disabled={requirements.isFetching || !requirements.data?.data.next_cursor} onClick={() => page([...cursors, requirements.data!.data.next_cursor!])}>다음</button></span></div>
-      {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : <nav className="supplement-requirements" aria-label="요구 목록">{rows.map(row => <button key={row.requirement_id} aria-label={row.code} title={`${row.equipment ?? row.task ?? ''} ${row.attribute ?? ''} · ${label(STATUS_LABEL, row.status)} · ${label(NECESSITY_LABEL, row.necessity)}`} aria-pressed={row.requirement_id === selected?.requirement_id} onClick={() => setRequirementId(row.requirement_id)}>{row.code.includes(':') ? row.code.split(':').slice(1).join('-') : row.code} {row.attribute ?? row.equipment} {row.path ? '· 선택 완료' : ''}</button>)}{requirements.isPending ? <Loading /> : !rows.length && <p>조회조건에 맞는 정리된 요구가 없습니다.</p>}</nav>}
+      {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : <nav className="supplement-requirements" aria-label="요구 목록">{rows.map(row => <button key={row.requirement_id} aria-label={requirementNo(row.code)} title={`${row.equipment ?? row.task ?? ''} ${attributeName(row) ?? ''} · ${label(STATUS_LABEL, row.status)} · ${label(NECESSITY_LABEL, row.necessity)}`} aria-pressed={row.requirement_id === selected?.requirement_id} onClick={() => setRequirementId(row.requirement_id)}>{requirementNo(row.code)} {attributeName(row) ?? row.equipment} {row.path ? '· 선택 완료' : ''}</button>)}{requirements.isPending ? <Loading /> : !rows.length && <p>조회조건에 맞는 정리된 요구가 없습니다.</p>}</nav>}
       {selected && requirements.isSuccess && <RequirementSupplement key={selected.requirement_id} projectId={projectId} projectName={project.data.data.name} requirement={selected} canSelect={canSelect} prefix={prefix} actorId={userId} attempts={attempts.current} />}
     </>}
   </main>;
@@ -88,11 +89,11 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
     void detail.refetch(); void options.refetch(); void candidates.refetch();
   };
   const info = options.data?.data;
-  const no = detail.data?.data.origin.clause_no ?? (requirement.code.includes(':') ? requirement.code.split(':').slice(1).join('-') : requirement.code);
-  return <div className="supplement-detail" aria-label={`${requirement.code} 보완 선택`}>
+  const no = detail.data?.data.origin.clause_no ?? requirementNo(requirement.code);
+  return <div className="supplement-detail" aria-label={`${requirementNo(requirement.code)} 보완 선택`}>
     <div className="supplement-summary">
       <KvField label="프로젝트">{projectName}</KvField>
-      <KvField label="요구"><Link to={`/tft/projects/${projectId}/requirements/${requirement.requirement_id}`}>{no} {requirement.attribute}</Link></KvField>
+      <KvField label="요구"><Link to={`/tft/projects/${projectId}/requirements/${requirement.requirement_id}`}>{no} {attributeName(requirement)}</Link></KvField>
       <KvField label="요구값">{requirement.value_text ?? '미기재'}</KvField>
       <KvField label="성격">{label(NECESSITY_LABEL, requirement.necessity)}</KvField>
       <KvField label="상태">{label(STATUS_LABEL, requirement.status)}</KvField>
@@ -192,10 +193,9 @@ const SCOPE: Record<string, string> = { SUPPLY: '공급', ASSEMBLY: '조립', IN
 const CONFIRMATION: Record<string, string> = { UNCONFIRMED: '미확인', CONTACT_PLANNED: '확인 예정', CONFIRMED: '확인됨' };
 const checkLabel = (value: string) => {
   const responsibility: Record<string, string> = { assembly: '조립 책임', supply: '공급 책임', install: '설치 책임', test: '시험 책임', calc: '계산 책임', training: '교육 책임', integration: '통합 책임', warranty: '보증 책임' };
-  const attribute: Record<string, string> = { rated_max_voltage: '정격 최대전압', bil: '뇌충격 내전압', short_time_withstand_current: '단시간 내전류' };
-  return value.startsWith('integrator_capable.') ? responsibility[value.slice('integrator_capable.'.length)] ?? '통합 수행 항목(원문 상세)' : attribute[value] ?? (/^[a-z][a-z0-9_.]*$/.test(value) ? '사양 항목(원문 상세)' : value);
+  return value.startsWith('integrator_capable.') ? responsibility[value.slice('integrator_capable.'.length)] ?? '통합 수행 항목(원문 상세)' : ATTRIBUTE_LABEL[value] ?? (/^[a-z][a-z0-9_.]*$/.test(value) ? '사양 항목(원문 상세)' : value);
 };
-const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\brated_max_voltage\b|\bbil\b|\bshort_time_withstand_current\b/g, checkLabel);
+const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\b[a-z]+(?:_[a-z]+)+\b|\bbil\b/g, key => key.startsWith('integrator_capable.') || ATTRIBUTE_LABEL[key] ? checkLabel(key) : key);
 function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerCandidate[]; requirementId: string }) {
   const [code, setCode] = useState('');
   const selected = candidates.find(c => c.candidate_code === code) ?? candidates[0];
@@ -215,7 +215,7 @@ function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerC
     <KvGrid label="협력사 후보 근거" columns={columns} rows={candidates} rowKey={c => c.candidate_code} selectedKey={selected?.candidate_code} fallback="이 요구의 저장된 후보 등급이 없습니다." />
     {selected && <KvBox title={`${selected.candidate_code} 후보 근거`} note="현재 선택 요구 기준">
       {grades(selected).map(g => <div key={g.requirement_id}><p>{text(g.reasons.map(reasonLabel))}</p><p>제외 사유: {text(g.exclusion_reasons.map(reasonLabel))}</p><p>필수 충족: {text(g.mandatory_check.passed.map(checkLabel))} · 미충족: {text(g.mandatory_check.failed.map(checkLabel))} · 미확인: {text(g.mandatory_check.unknown.map(checkLabel))}</p></div>)}
-      <details><summary>프로필·전체 등급·원문 항목 상세</summary><p>수행 범위: {text(selected.scope.map(value => SCOPE[value] ?? value))}</p><p>인증 전체: {text(selected.certifications)}</p>{grades(selected).map(g => <div key={g.requirement_id}><p>이유 원문: {text(g.reasons)}</p><p>제외 사유 원문: {text(g.exclusion_reasons)}</p><p>필수 확인 원문 · 충족: {text(g.mandatory_check.passed)} / 미충족: {text(g.mandatory_check.failed)} / 미확인: {text(g.mandatory_check.unknown)}</p></div>)}<p>출처: 가상 협력사 · 프로필 판본 {selected.profile_version} · {CONFIRMATION[selected.confirmation_status]}</p><p>사양 속성 원문: {text(selected.spec_facts_attributes)}</p><p>납기: {selected.lead_time ? selected.lead_time.ex_works ? '공장 출고 기준' : '공장 출고 기준 아님' : '미확인'}</p><p>전체 등급·추가 확인: {GRADE[selected.overall_grade]} · {text(selected.conditions_to_confirm)}</p></details>
+      <details><summary>프로필·전체 등급·원문 항목 상세</summary><p>수행 범위: {text(selected.scope.map(value => SCOPE[value] ?? value))}</p><p>인증 전체: {text(selected.certifications)}</p>{grades(selected).map(g => <div key={g.requirement_id}><p>이유 원문: {text(g.reasons)}</p><p>제외 사유 원문: {text(g.exclusion_reasons)}</p><p>필수 확인 원문 · 충족: {text(g.mandatory_check.passed)} / 미충족: {text(g.mandatory_check.failed)} / 미확인: {text(g.mandatory_check.unknown)}</p></div>)}<p>출처: 가상 협력사 · 프로필 판본 {selected.profile_version} · {CONFIRMATION[selected.confirmation_status]}</p><p>사양 속성: {text(selected.spec_facts_attributes.map(value => label(ATTRIBUTE_LABEL, value)))}</p><p>사양 속성 원문: {text(selected.spec_facts_attributes)}</p><p>납기: {selected.lead_time ? selected.lead_time.ex_works ? '공장 출고 기준' : '공장 출고 기준 아님' : '미확인'}</p><p>전체 등급·추가 확인: {GRADE[selected.overall_grade]} · {text(selected.conditions_to_confirm)}</p></details>
     </KvBox>}
   </>;
 }

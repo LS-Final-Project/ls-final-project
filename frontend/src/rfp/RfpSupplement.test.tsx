@@ -355,3 +355,17 @@ test('후보를 바꾸면 전체 인증·이유·필수 확인 원문을 해당 
   expect(screen.getByText('이유 원문: 원문 rated_max_voltage 15kV, integrator_capable.assembly 확인')).toBeTruthy();
   expect(screen.getByText(/미확인: 통합 책임 · 보증 책임/)).toBeTruthy();
 });
+
+test.each([
+  ['rated_max_voltage', '정격 최대전압'],
+  ['OTHER', '자유 원문 속성'],
+  [undefined, '자유 원문 속성'],
+])('공용 속성키 %s와 짧은 조항 번호를 사용하고 원문 속성을 보존한다', async (key, shown) => {
+  live(url => url.includes('/requirements?') ? response({ items: [{ ...requirement(R, '738dbba4:2.4.E.1.a:1'), attribute_key: key, attribute: '자유 원문 속성' }], next_cursor: null }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  const tab = await screen.findByRole('button', { name: '2.4.E.1.a-1' });
+  expect(tab.textContent).toContain(shown);
+  expect(tab.textContent).not.toContain('738dbba4');
+  fireEvent.click(screen.getByText('원문·요구 상세 / 판본과 출처 확인'));
+  expect(await screen.findByText(/속성 원문: 자유 원문 속성/)).toBeTruthy();
+});
