@@ -743,6 +743,67 @@ test('web relay preserves DOCX attachment on the exact RFP export file route', a
   }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
 });
 
+test('mail relay forwards the screen reads and the two sent-mail actions only', async () => {
+  const calls = [];
+  const id = '11111111-1111-4111-8111-111111111111';
+  await fixture(async origin => {
+    const cookie = { Cookie: '__Host-team4_session=bound; other=dropped' };
+    for (const path of [
+      '/api/v1/platform/mail/send-intents',
+      '/api/v1/platform/mail/send-intents?status=FAILED',
+      '/api/v1/platform/mail/reply-reviews',
+      `/api/v1/platform/mail/messages/${id}/triage`,
+    ]) {
+      const response = await fetch(origin + path, { headers: { ...cookie, 'X-User-ID': 'forged' } });
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+    const total = calls.length;
+    for (const path of [
+      '/api/v1/platform/mail/send-intents?status=FAILED&status=QUEUED',
+      '/api/v1/platform/mail/send-intents?user=someone',
+      '/api/v1/platform/mail/reply-reviews?limit=1',
+      `/api/v1/platform/mail/messages/${id}/triage?version=1`,
+      '/api/v1/platform/mail/messages/not-a-uuid/triage',
+      `/api/v1/platform/mail/messages/${id}`,
+      `/api/v1/platform/mail/send-intents/${id}`,
+      `/api/v1/platform/mail/send-intents/${id}/resend`,
+      `/api/v1/platform/mail/send-intents/${id}/check-sent-copy`,
+      '/api/v1/platform/mail/send-intents/not-a-uuid/resend',
+    ]) assert.ok((await fetch(origin + path)).status >= 400, path);
+    const write = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': 'csrf', ...cookie };
+    for (const path of [
+      '/api/v1/platform/mail/send-intents',
+      '/api/v1/platform/mail/reply-reviews',
+      `/api/v1/platform/mail/messages/${id}/triage`,
+      `/api/v1/platform/mail/send-intents/not-a-uuid/resend`,
+      `/api/v1/platform/mail/send-intents/${id}/cancel`,
+      `/api/v1/platform/mail/send-intents/${id}/resend?force=1`,
+      `/api/v1/platform/mail/reply-reviews/${id}/link`,
+      `/api/v1/platform/mail/reply-reviews/${id}/dismiss`,
+      `/api/v1/platform/mail/messages/${id}/register-ticket`,
+    ]) {
+      const response = await fetch(origin + path, { method: 'POST', headers: write, body: '{}' });
+      assert.ok([400, 404, 405].includes(response.status), path);
+    }
+    assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/resend`, { method: 'POST', headers: { ...write, 'Content-Type': 'text/plain' }, body: '{}' })).status, 415);
+    assert.equal(calls.length, total);
+    assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/resend`, { method: 'POST', headers: { ...write, 'X-User-ID': 'forged' }, body: '{"reason":"synthetic"}' })).status, 200);
+    assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/check-sent-copy`, { method: 'POST', headers: write })).status, 200);
+  }, async (url, options) => {
+    calls.push(String(url));
+    assert.equal(options.headers.Authorization, 'Bearer fixture-server-token');
+    assert.equal(options.headers.Cookie, '__Host-team4_session=bound');
+    assert.equal(options.headers['X-User-ID'], undefined);
+    if (options.method === 'POST') {
+      assert.equal(options.headers['X-CSRF-Token'], 'csrf');
+      assert.match(options.headers.Origin, /^http:/);
+    }
+    return Response.json({ data: {} });
+  });
+  assert.equal(calls.length, 6);
+});
+
 test('notification relay forwards only session-owned public endpoints and bounded query/body', async () => {
   const calls = [];
   const id = '11111111-1111-4111-8111-111111111111';

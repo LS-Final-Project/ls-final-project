@@ -110,6 +110,14 @@ const notificationRoutes = [
   [/^\/api\/v1\/platform\/push\/public-key$/, ['GET'], []],
   [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
 ];
+// 메일 화면의 읽기와, 결과 불명 발송을 다루는 쓰기 2개만 플랫폼으로 보낸다(KAN-178). 재전송 조건은 서버가 검사한다
+// (contracts/platform/mail.md). 분류 변경·회신 연결·문의 접수는 넣지 않는다.
+const mailRoutes = [
+  [/^\/api\/v1\/platform\/mail\/send-intents$/, ['GET'], ['status']],
+  [/^\/api\/v1\/platform\/mail\/send-intents\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:check-sent-copy|resend)$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/mail\/reply-reviews$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET'], []],
+];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
 // 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
@@ -196,7 +204,8 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       if (assignees && ([...parsed.searchParams].some(([key, value]) => key !== 'role' || value !== 'cs_agent') || parsed.searchParams.getAll('role').length > 1)) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
       const notification = notificationRoutes.find(([pattern]) => pattern.test(path));
-      const [business, businessQuery] = notification ? notification.slice(1) : businessRelayEnabled ? businessRoute(path) : [[], []];
+      const direct = notification || mailRoutes.find(([pattern]) => pattern.test(path));
+      const [business, businessQuery] = direct ? direct.slice(1) : businessRelayEnabled ? businessRoute(path) : [[], []];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
       if (path === '/health') return json(response, 200, { status: 'ok', service: 'web' });

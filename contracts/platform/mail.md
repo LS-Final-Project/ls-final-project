@@ -230,7 +230,10 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 화면에서 쓰려면 웹 중계(`frontend/server.mjs`)에 이 경로를 추가해야 한다. 지금 중계는 플랫폼 자체 경로에 JSON 본문을 넘기는 유형이 없어(업무 경로는 플랫폼이 C/S로 다시 넘긴다) 새 유형이 필요하다. 화면 연결(KAN-132)과 함께 다룬다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
+- 회신 연결·무시, 문의 접수, 분류 변경은 웹 중계에 없다. 분류 변경은 화면이 개발 모드에서만 호출한다.
+- `business-relay-routes.json`은 업무 중계(`relay.BUSINESS_ROUTES`) 표라 플랫폼 자체 경로를 넣지 않는다.
 
 ## 회신·스레드·업무 연결 (KAN-75)
 
