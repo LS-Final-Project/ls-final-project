@@ -348,3 +348,38 @@ it('보드 배치의 문장 번호와 접힌 전체 근거를 유지하고 편�
   fireEvent.change(screen.getByLabelText('구역'), { target: { value: 'OUR_RESPONSE' } });
   expect((screen.getByLabelText('수정 문장') as HTMLTextAreaElement).value).toBe('필터를 바꿔도 보존하는 편집');
 });
+
+it('근거 미리보기에는 종류별 건수만 보이고 원형 ID는 상세에 보존한다', async () => {
+  const clauseId = 'a568c6a8-5519-4359-94c5-6636b343502a';
+  const row = { ...draft.sections[0].sentences[0], evidence: [{ type: 'clause', id: clauseId }, { type: 'requirement', id: '8b8c4590-e77f-4e3c-95ac-23b94f9227f1' }] };
+  serve(url => url === BASE ? data({ ...draft, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [row] }] }) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  const article = await screen.findByRole('article', { name: `문장 ${SENTENCE}` });
+  expect(within(article).getByText('요구 1건 · 조항 1건')).toBeTruthy();
+  expect(article.querySelector('.draft-proof-preview')?.textContent).not.toContain('a568c6a8');
+  expect(within(article).getByText(`clause: ${clauseId}`)).toBeTruthy();
+});
+
+it('필터에서는 0문장 구역을 빼고 전체 0건은 빈 상태를 한 번만 표시한다', async () => {
+  serve(); renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText(draft.disclaimer);
+  fireEvent.change(screen.getByLabelText('보기'), { target: { value: 'review' } });
+  const list = screen.getByLabelText('초안 문장 목록');
+  expect(within(list).getByRole('heading', { name: /고객 목표와 범위/ })).toBeTruthy();
+  expect(within(list).queryByRole('heading', { name: /자사 대응/ })).toBeNull();
+  fireEvent.change(screen.getByLabelText('보기'), { target: { value: 'evidence' } });
+  expect(within(list).queryAllByRole('heading')).toHaveLength(0);
+  expect(within(list).getAllByText('선택한 조건의 문장이 없습니다.')).toHaveLength(1);
+  expect(disabled('선택 문장 수정')).toBe(true);
+});
+
+it('제목줄 문장 수정은 실제 선택한 표시 문장을 열고 전송하지 않는다', async () => {
+  const second = { ...draft.sections[0].sentences[0], sentence_id: '66666666-6666-4666-8666-666666666666', text: '두 번째 실제 문장' };
+  const f = serve(url => url === BASE ? data({ ...draft, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [draft.sections[0].sentences[0], second] }] }) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('선택 문장 수정')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'S2 선택' }));
+  fireEvent.click(screen.getByRole('button', { name: '선택 문장 수정' }));
+  expect((screen.getByLabelText('수정 문장') as HTMLTextAreaElement).value).toBe(second.text);
+  expect(f.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false);
+});

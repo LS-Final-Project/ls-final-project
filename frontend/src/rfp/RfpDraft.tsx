@@ -46,6 +46,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const [version, setVersion] = useState<number>();
   const [versionInput, setVersionInput] = useState('');
   const [view, setView] = useState('all');
+  const [selectedSentenceId, setSelectedSentenceId] = useState<string>();
   const [section, setSection] = useState('all');
   const key = ['rfp-draft', user.id, projectId, version];
   const draft = useQuery({ queryKey: key, queryFn: ({ signal }) => getDraft(projectId, version, signal), retry: false });
@@ -82,7 +83,19 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const sentences = data?.sections.flatMap(part => part.sentences);
   const needsReview = sentences?.filter(row => row.needs_rereview).length;
   const matches = (row: Sentence) => view === 'all' || (view === 'review' ? row.needs_rereview : view === 'evidence' ? row.evidence_missing : row.unconfirmed);
+  const displayedSections = data?.sections.filter(part => (section === 'all' || section === part.section) && (view === 'all' || part.sentences.some(matches))) ?? [];
+  const visibleSentences = displayedSections.flatMap(part => part.sentences.filter(matches));
+  const selectedSentence = visibleSentences.find(row => row.sentence_id === selectedSentenceId) ?? visibleSentences[0];
   const latest = version === undefined;
+  useEffect(() => {
+    if (editing) document.getElementById(`draft-sentence-${editing.sentence.sentence_id}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [editing?.sentence.sentence_id]);
+  function startEdit(row: Sentence | undefined) {
+    if (!row || !data || !writable || !latest || editing) return;
+    setSelectedSentenceId(row.sentence_id);
+    setEditing({ sentence: row, version: data.version, text: row.text, reason: '' });
+    setError(undefined);
+  }
   async function saveEdit() {
     if (!editing || !writable || inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(undefined); setMessage('');
@@ -130,14 +143,15 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const lastReview = review?.review_version ?? project.data?.review_version;
   const editingVisible = data?.sections.some(part => (section === 'all' || section === part.section) && part.sentences.some(row => matches(row) && row.sentence_id === editing?.sentence.sentence_id));
   const editor = editing && <form className="draft-editor" aria-label="문장 편집" onSubmit={event => { event.preventDefault(); void saveEdit(); }}>
-    <label>수정 문장<textarea required maxLength={4000} rows={5} value={editing.text} disabled={busy} onChange={event => setEditing({ ...editing, text: event.target.value })} /></label>
-    <label>수정 사유<textarea required maxLength={500} rows={2} value={editing.reason} disabled={busy} onChange={event => setEditing({ ...editing, reason: event.target.value })} /></label>
+    <label><span>수정 문장</span><textarea required maxLength={4000} rows={3} value={editing.text} disabled={busy} onChange={event => setEditing({ ...editing, text: event.target.value })} /></label>
+    <label><span>수정 사유</span><textarea required maxLength={500} rows={2} value={editing.reason} disabled={busy} onChange={event => setEditing({ ...editing, reason: event.target.value })} /></label>
     <p>초안 {editing.version}판 기준 · 근거·조건은 보존됩니다. 고쳐 저장한 문장만 다시 확인합니다.</p>
-    <button className="kb" type="button" disabled={busy} onClick={() => setEditing(undefined)}>편집 취소</button>{' '}
-    <button className="kb primary" disabled={!writable || !editing.text.trim() || !editing.reason.trim()}>문장 저장</button>
+    <div className="draft-editor-actions"><button className="kb" type="button" disabled={busy} onClick={() => setEditing(undefined)}>편집 취소</button>{' '}
+    <button className="kb primary" disabled={!writable || !editing.text.trim() || !editing.reason.trim()}>문장 저장</button></div>
   </form>;
   return <main className="rfp-draft">
     <KvTitle path="제안 지원" title="초안 및 검토 이력" code="TF0104">
+      <button className="kb" aria-label="선택 문장 수정" title={selectedSentence ? `S${sentenceNumbers.get(selectedSentence.sentence_id)} 문장 수정` : '표시된 문장이 없습니다.'} disabled={!writable || !latest || !!editing || !selectedSentence} onClick={() => startEdit(selectedSentence)}>문장 수정</button>
       <Link to={`/tft/projects/${projectId}`}>프로젝트</Link>{' '}
       <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] }); }}>최신 조회</button>
     </KvTitle>
@@ -171,20 +185,24 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     {draft.isError && <ErrorState error={draft.error} onRetry={() => draft.refetch()} />}
     <div className="draft-layout"><KvSplit columns="minmax(0, 1.49fr) minmax(330px, 1fr)">
     <div className="draft-sections" aria-label="초안 문장 목록">
-    {data?.sections.filter(part => section === 'all' || section === part.section).map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`} bodyStyle={{ padding: 0 }}>
+    {data && visibleSentences.length === 0 && <p className="draft-empty" role="status">선택한 조건의 문장이 없습니다.</p>}
+    {displayedSections.filter(part => visibleSentences.length > 0 || part.sentences.length > 0).map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`} bodyStyle={{ padding: 0 }}>
       {!part.sentences.filter(matches).length && <p className="draft-empty">{part.sentences.length ? '선택한 조건의 문장이 없습니다.' : '저장된 문장이 없습니다.'}</p>}
-      {part.sentences.filter(matches).map(row => <article className={editing?.sentence.sentence_id === row.sentence_id ? 'draft-sentence is-editing' : 'draft-sentence'} key={row.sentence_id} aria-label={`문장 ${row.sentence_id}`}>
-        <span className="draft-sentence-number">S{sentenceNumbers.get(row.sentence_id)}</span>
+      {part.sentences.filter(matches).map(row => <article className={`draft-sentence${editing?.sentence.sentence_id === row.sentence_id ? ' is-editing' : selectedSentence?.sentence_id === row.sentence_id ? ' is-selected' : ''}`} id={`draft-sentence-${row.sentence_id}`} key={row.sentence_id} aria-label={`문장 ${row.sentence_id}`}>
+        <button type="button" className="draft-sentence-number" aria-label={`S${sentenceNumbers.get(row.sentence_id)} 선택`} aria-pressed={selectedSentence?.sentence_id === row.sentence_id} onClick={() => setSelectedSentenceId(row.sentence_id)}>S{sentenceNumbers.get(row.sentence_id)}</button>
         <div className="draft-sentence-body">
           {editing?.sentence.sentence_id === row.sentence_id ? editor : <>
             <p className="draft-sentence-text">{row.text}</p>
-            <button className="kb sm draft-edit-button" disabled={!writable || !latest || !!editing} onClick={() => { setEditing({ sentence: row, version: data.version, text: row.text, reason: '' }); setError(undefined); }}>문장 수정</button>
+            <button className="kb sm draft-edit-button" disabled={!writable || !latest || !!editing} onClick={() => startEdit(row)}>문장 수정</button>
           </>}
         </div>
         <div className="draft-proof">
           <p>{row.provenance_kind === 'human_input' ? '직접 입력' : row.provenance_kind === 'ai_draft' ? 'AI 초안' : '시스템 기록'}</p>
           <p className={row.needs_rereview || row.evidence_missing ? 'draft-attention' : 'draft-state'}>{[row.unconfirmed && '미확약·미확인', row.needs_rereview && '재검토 필요', row.evidence_missing && '근거 누락'].filter(Boolean).join(' / ')}</p>
-          <p className="draft-proof-preview">{row.evidence.slice(0, 2).map(e => `${EVIDENCE_LABEL[e.type]} ${/^[0-9a-f-]{36}$/i.test(e.id) ? e.id.slice(0, 8) : e.id}`).join(' · ')}{row.evidence.length > 2 && ` 외 ${row.evidence.length - 2}건`}</p>
+          <p className="draft-proof-preview">{Object.entries(EVIDENCE_LABEL).map(([kind, label]) => {
+            const count = row.evidence.filter(e => e.type === kind).length;
+            return count ? `${label} ${count}건` : '';
+          }).filter(Boolean).join(' · ')}</p>
           <details><summary>근거 {row.evidence.length}건 · 조건 {row.conditions.length}건</summary>
             <KvField label="문장 ID"><span>{row.sentence_id}</span></KvField>
             <KvField label="근거">{row.evidence.length ? <ul>{row.evidence.map((e, i) => <li key={`${e.type}:${e.id}:${i}`}>{e.type}: {e.id}</li>)}</ul> : '저장된 근거 없음'}</KvField>
@@ -226,7 +244,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
         <button className="kb" disabled={busy || blocked || job.isError || job.data?.status !== 'SUCCEEDED'} onClick={download}>DOCX 다운로드</button>
       </div>}
     </KvBox>
-    <KvBox title="판본 및 검토 이력" note="목록 API 미제공">
+    <KvBox title="판본 및 검토 이력" note="이력 목록 미제공">
       <p className="draft-help">판본·검토본·내보내기 이력 목록은 제공되지 않습니다.</p>
       <form className="draft-version-form" onSubmit={event => { event.preventDefault(); setVersion(versionInput ? Number(versionInput) : undefined); }}>
         <label className="draft-input">조회할 초안 판본 (비우면 최신)<input type="number" min="1" step="1" value={versionInput} onChange={event => setVersionInput(event.target.value)} /></label>

@@ -10,7 +10,9 @@
 .rfp-draft .draft-sections>section{margin-bottom:8px}
 .rfp-draft .draft-sentence{display:grid;grid-template-columns:42px minmax(0,1fr) minmax(130px,.56fr);gap:8px;border-bottom:1px solid var(--erp-border-soft);padding:8px 10px;align-items:start}
 .rfp-draft .draft-sentence:last-child{border-bottom:0}
-.rfp-draft .draft-sentence-number{color:var(--erp-muted);font-size:12px;line-height:1.7}
+.rfp-draft .draft-sentence-number{border:0;background:transparent;padding:0;text-align:left;color:var(--erp-accent);font:inherit;font-size:12px;line-height:1.7;cursor:pointer}
+.rfp-draft .is-selected{background:#f8fafd}
+.rfp-draft .draft-sentence-number[aria-pressed=true]{font-weight:600;text-decoration:underline}
 .rfp-draft .draft-sentence-body{min-width:0}
 .rfp-draft .draft-sentence-text{margin:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:12px}
 .rfp-draft .draft-edit-button{font-size:11px;opacity:.85}
@@ -38,9 +40,11 @@
 .rfp-draft .draft-version-form label{flex:1;margin:0}
 .rfp-draft .draft-receipt{margin-top:8px;font-size:12px;overflow-wrap:anywhere}
 .rfp-draft .is-editing{background:#eef3fa}
-.rfp-draft .draft-editor label{display:block;font-size:12px;margin:0 0 8px}
-.rfp-draft .draft-editor textarea{display:block;box-sizing:border-box;width:100%;padding:6px;border:1px solid var(--erp-line);font:inherit;margin-top:4px;resize:vertical}
-.rfp-draft .draft-editor p{font-size:11px;color:var(--erp-muted)}
+.rfp-draft .draft-editor label{display:grid;grid-template-columns:68px minmax(0,1fr);align-items:start;gap:8px;font-size:12px;margin:0 0 6px}
+.rfp-draft .draft-editor label>span{padding-top:6px;color:var(--erp-muted)}
+.rfp-draft .draft-editor textarea{display:block;box-sizing:border-box;width:100%;padding:6px;border:1px solid var(--erp-line);font:inherit;margin-top:0;resize:vertical}
+.rfp-draft .draft-editor p{font-size:11px;color:var(--erp-muted);margin:4px 0 6px;padding-left:76px}
+.rfp-draft .draft-editor-actions{padding-left:76px;display:flex;gap:4px;flex-wrap:wrap}
 .rfp-draft .draft-empty{padding:8px 10px;margin:0;color:var(--erp-muted);font-size:12px}
 @media(max-width:1000px){.rfp-draft .draft-overview{grid-template-columns:1fr 1fr}.rfp-draft .draft-checks>div{flex-wrap:wrap}.rfp-draft .draft-sentence{grid-template-columns:30px minmax(0,1fr)}.rfp-draft .draft-proof{grid-column:2}}
 @media(max-width:800px){.rfp-draft .draft-sections{height:auto;max-height:none;overflow:visible}.rfp-draft .draft-overview{grid-template-columns:1fr}.rfp-draft .draft-version-form{align-items:stretch;flex-direction:column}}
