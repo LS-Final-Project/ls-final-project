@@ -636,3 +636,31 @@
 .ls-root .kv-grid.free td{position:static}
 .ls-root .kv-grid.free th{left:auto!important}
 .ls-root .kv-grid.free td:nth-child(-n+3){background:inherit}
+/* 보드의 조회조건·표 아래 줄·판단 상자(TF_K_Table). */
+.ls-root .kv-cond{margin:8px 14px 0;border:1px solid var(--erp-border);background:#fff}
+.ls-root .kv-cond .row{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--erp-border-soft)}
+.ls-root .kv-cond .row:first-child{border-top:0}
+.ls-root .kv-cond label{display:flex;align-items:center;min-height:30px;border-left:1px solid var(--erp-border-soft)}
+.ls-root .kv-cond label:first-child{border-left:0}
+.ls-root .kv-cond label>span{flex:none;width:80px;height:100%;display:flex;align-items:center;padding:0 10px;background:var(--erp-head);color:var(--erp-text);font-weight:400;border-right:1px solid var(--erp-border-soft)}
+.ls-root .kv-cond input,.ls-root .kv-cond select{flex:1;min-width:0;height:24px;margin:0 6px;padding:0 6px;border:1px solid var(--erp-line);border-radius:2px;background:#fff;font:inherit;font-size:12px;color:var(--erp-text)}
+.ls-root .kv-cond em{font-style:normal;color:var(--erp-muted)}
+.ls-root .kv-cond input[type=date]{flex:none;width:112px}
+.ls-root .kv-cond label:has(em) input[type=date]:first-of-type{margin-right:0}
+.ls-root .kv-cond label:has(em) input[type=date]:last-of-type{margin-left:0}
+.ls-root .kv-foot{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:0 14px;padding:5px 8px;border:1px solid var(--erp-border);border-top:0;background:#fff;color:var(--erp-muted);font-size:12px;font-variant-numeric:tabular-nums}
+.ls-root .kv-foot .pager{display:flex;align-items:center;gap:8px;justify-self:center}
+.ls-root .kv-foot>select{justify-self:end;width:auto!important;max-width:76px}
+.ls-root .kv-foot .pager b{color:var(--erp-text);min-width:14px;text-align:center;font-weight:500;font-size:inherit!important}
+.ls-root .kv-foot .pager a{color:var(--erp-muted)}
+.ls-root .kv-foot select{height:22px;line-height:20px;padding:0 4px;border:1px solid var(--erp-line);border-radius:2px;background:#fff;font:inherit;font-size:12px;color:var(--erp-text)}
+.ls-root .kv-text{white-space:pre-wrap;font-size:12.5px;line-height:1.6;border:1px solid var(--erp-border-soft);background:#fafbfc;padding:8px 10px;min-height:96px;color:var(--erp-text)}
+.ls-root .kv-text.en{font-family:var(--erp-font);color:#374151}
+.ls-root .kv-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:8px}
+.ls-root .kv-foot .more{display:flex;align-items:center;gap:8px;justify-self:center}
+.ls-root .kv-text.scroll{max-height:168px;overflow-y:auto}
+.ls-root .kv-err .kv-actions{justify-content:flex-start;margin-top:12px}
+.ls-root .kv-flags{display:inline-flex;gap:6px;margin-left:6px;font-size:11px;color:var(--erp-muted)}
+.ls-root .kv-flags i{font-style:normal;border:1px solid var(--erp-line);border-radius:2px;padding:0 4px;line-height:16px;white-space:nowrap}
+.ls-root .kv-flags i.rr{border-color:var(--erp-text);color:var(--erp-text)}
+.ls-root .kv-sent .s .kv-actions{margin-top:2px;justify-content:flex-start}

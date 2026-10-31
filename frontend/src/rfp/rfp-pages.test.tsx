@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderApp } from '../test/render';
 
-const project = (id: string, name: string, status = 'COMPOSING') => ({
-  id, name, status, external_id: null, company_code: 'HOST', data_origin: 'synthetic', derivation_kind: 'ASSUMED',
-  responsible_user_id: null, sales_user_id: null, created_at: '2026-10-20T09:00:00Z',
+const project = (id: string, name: string, output_status = 'ANALYZING', extra: Record<string, unknown> = {}) => ({
+  id, name, status: 'COMPOSING', external_id: 'P26-0001', company_code: 'HOST', data_origin: 'synthetic', derivation_kind: 'ASSUMED',
+  responsible_user_id: null, sales_user_id: 's', created_at: '2026-10-20T09:00:00Z', known_at: '2026-10-20T09:00:00Z', version: 1,
+  client_name: '가상 고객', output_status, judgement_status: 'CONDITION_CHECK', requirements_count: 48, unresolved_mandatory_count: 3,
+  pending_proposals_count: 4, open_questions_count: 2, strategic_customer: null, integration_responsibility: { holder: 'UNRESOLVED' }, ...extra,
 });
 const page = (items: unknown[], next_cursor: string | null = null) =>
   jsonResponse(200, { data: { items, next_cursor }, meta: { request_id: 'x' } });
@@ -25,12 +27,15 @@ describe('프로젝트 목록', () => {
   it('목록을 셸 안에 그리고 상세로 잇는다', async () => {
     renderApp('/tft/projects');
     const link = await screen.findByRole('link', { name: /해저케이블/ });
-    const table = screen.getByRole('table', { name: '프로젝트 목록' });
+    const table = screen.getByRole('table', { name: '접수 및 요구 검토' });
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
-    expect(within(table).getByText('구성안 작성')).toBeTruthy();
+    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
+      ['No', '프로젝트', '프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '담당', '책임자', '접수일'],
+    );
+    expect(within(table).getAllByText('접수').length).toBeGreaterThan(0);
     expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
     expect(table.classList.contains('free')).toBe(true); // C/S 목록의 앞 세 열 고정을 쓰지 않는다
-    expect(screen.getByRole('tab').textContent).toContain('프로젝트 목록');
+    expect(screen.getByRole('tab').textContent).toContain('접수 및 요구 검토');
   });
 
   it('커서로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
@@ -66,16 +71,56 @@ describe('프로젝트 목록', () => {
   });
 });
 
+describe('프로젝트 조회조건', () => {
+  const server = () => live(url => url.includes('/tft/projects') ? page([project('1', '합성')]) : jsonResponse(401, errorBody('X', '세션')));
+
+  it('진행·판단·검색어를 서버로 보내고 첫 쪽으로 돌아간다', async () => {
+    const f = server();
+    renderApp('/tft/projects');
+    await screen.findByText('합성');
+    fireEvent.change(screen.getByLabelText('진행'), { target: { value: 'INTAKE' } });
+    fireEvent.change(screen.getByLabelText('판단'), { target: { value: 'NEEDS_REVIEW' } });
+    fireEvent.change(screen.getByLabelText('검색어'), { target: { value: ' 변전 ' } });
+    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
+    await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('output_status=INTAKE') && String(u).includes('judgement_status=NEEDS_REVIEW') && decodeURIComponent(String(u)).includes('q=변전'))).toBe(true));
+    expect(screen.getByText('합성')).toBeTruthy(); // 새 응답을 기다리는 동안에도 표가 남는다
+  });
+
+  it('한 글자 검색어는 보내지 않고 알린다', async () => {
+    const f = server();
+    renderApp('/tft/projects');
+    await screen.findByText('합성');
+    fireEvent.change(screen.getByLabelText('검색어'), { target: { value: '변' } });
+    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
+    expect(screen.getByText('검색어는 두 글자 이상 입력하세요.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '조회' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(f.mock.calls.some(([u]) => String(u).includes('q='))).toBe(false);
+  });
+
+  it('요구가 없는 접수 단계는 건수를 0으로 보이지 않는다', async () => {
+    live(url => url.includes('/tft/projects') ? page([project('1', '합성', 'INTAKE', { requirements_count: 0, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
+    renderApp('/tft/projects');
+    const row = (await screen.findByText('합성')).closest('tr')!;
+    expect(within(row).getByText('없음')).toBeTruthy();
+    expect(within(row).queryByText('0')).toBeNull();
+  });
+});
+
 describe('업무 홈', () => {
   it('받아 온 목록을 상태별로 센다', async () => {
-    live(url => url.includes('/projects') ? page([project('1', '가', 'COMPOSING'), project('2', '나', 'COMPOSING'), project('3', '다', 'INITIAL_REVIEW')]) : jsonResponse(401, errorBody('X', '세션')));
+    live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
     await screen.findByRole('link', { name: '가' });
-    expect(screen.getByText(/받아 온 첫 쪽/)).toBeTruthy();
+    expect(screen.getByText(/첫 쪽 기준/)).toBeTruthy();
     const steps = document.querySelector('.kv-steps')!.textContent!;
-    expect(steps).toContain('구성안 작성 2');
-    expect(steps).toContain('초기검토 1');
-    expect(steps).toContain('확정 0');
+    expect(steps).toContain('분석 중 2');
+    expect(steps).toContain('접수 1');
+    expect(steps).toContain('검토본 작성 0');
+    expect(document.querySelector('.kv-next')?.textContent).toContain('내 프로젝트 3, 할 일 있는 프로젝트 2 | 미해결 필수 3, 승인 대기 4, 열린 질문 2');
+    const table = screen.getByRole('table', { name: '내 프로젝트' });
+    expect(within(table).getByText('승인 대기 4건 처리, 열린 질문 2건 회신 기록, 미해결 필수 3건 판단')).toBeTruthy();
+    expect(within(table).getByText('없음')).toBeTruthy();
+    expect(within(table).getByText('문서 올리기, 처리 실행')).toBeTruthy();
   });
 
   it('조회 전이나 실패 때 0건으로 보이지 않는다', async () => {

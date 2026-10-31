@@ -4,25 +4,45 @@ import { getApiMode } from '../api/client';
 import { listProjects, type ProjectSummary } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
-import { formatDateTime, PROJECT_STATUS_LABEL } from '../components/tft';
 import { KvBox, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
+import { JUDGEMENT_LABEL, label, OUTPUT_LABEL } from './labels';
 
 const TERMS: [string, string][] = [
-  ['요구', '규격서 조항에서 뽑은 항목 하나. 값과 근거 조항이 함께 붙습니다.'],
-  ['근거 확인', '자사 자료로 요구를 충족한다고 확인된 상태입니다.'],
-  ['조건부', '값은 맞을 수 있지만 조건이나 단위 확인이 남은 상태입니다.'],
-  ['사양 차이', '같은 조건에서 비교해 요구에 못 미치는 상태입니다.'],
-  ['근거 부족', '판단할 자료가 없는 상태. 자료에 없다고 미충족은 아닙니다.'],
-  ['보완 경로', '사양 차이나 근거 부족을 메우는 방법(자사 대안, 협력사 등)입니다.'],
+  ['진행', '프로젝트가 어디까지 왔는지. 접수, 분석 중, 검토본 작성 중 하나입니다.'],
+  ['판단', '사람 확인이 어디까지 됐는지. 검토 필요, 조건 확인 필요, 담당자 확인 순입니다.'],
+  ['미해결 필수', '꼭 맞춰야 하는데 아직 우리 제품으로 된다는 근거를 못 찾은 요구. 0이어야 제안서를 낼 수 있습니다.'],
+  ['승인 대기', '누군가 판단을 바꾸자고 올렸는데 책임자가 아직 승인하지 않은 변경 제안.'],
+  ['열린 질문', '고객에게 물어봤는데 아직 답을 받지 못한 질문.'],
+  ['검토본', '요구 하나하나에 대응 여부와 근거를 적은 결과물. 제안서 작성의 바탕입니다.'],
 ];
 
+// 보드의 다음 행동 열. 남은 일을 급한 순서로 적는다.
+function nextAction(p: ProjectSummary) {
+  if (p.requirements_count === 0) return '문서 올리기, 처리 실행';
+  const todo = [
+    p.pending_proposals_count > 0 && `승인 대기 ${p.pending_proposals_count}건 처리`,
+    p.open_questions_count > 0 && `열린 질문 ${p.open_questions_count}건 회신 기록`,
+    p.unresolved_mandatory_count > 0 && `미해결 필수 ${p.unresolved_mandatory_count}건 판단`,
+  ].filter(Boolean);
+  return todo.join(', ') || '없음';
+}
 const COLUMNS: KvColumn<ProjectSummary>[] = [
-  { key: 'name', header: '프로젝트', className: 't', cell: p => <Link to={`/tft/projects/${p.id}`}>{p.name}</Link> },
-  { key: 'status', header: '상태', width: 96, className: 'c', cell: p => PROJECT_STATUS_LABEL[p.status] ?? p.status },
-  { key: 'created', header: '접수일시', width: 168, className: 'd', cell: p => formatDateTime(p.created_at) },
+  { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => index + 1 },
+  { key: 'code', header: '프로젝트', width: 96, cell: p => p.external_id ?? '' },
+  { key: 'name', header: '프로젝트명', className: 't', cell: p => <Link to={`/tft/projects/${p.id}`}>{p.name}</Link> },
+  { key: 'output', header: '진행', width: 84, className: 'c', cell: p => label(OUTPUT_LABEL, p.output_status) },
+  { key: 'judgement', header: '판단', width: 104, className: 'c', cell: p => label(JUDGEMENT_LABEL, p.judgement_status) },
+  { key: 'unresolved', header: '미해결 필수', width: 76, className: 'n', cell: p => p.requirements_count ? p.unresolved_mandatory_count : '' },
+  { key: 'pending', header: '승인 대기', width: 64, className: 'n', cell: p => p.requirements_count ? p.pending_proposals_count : '' },
+  { key: 'questions', header: '열린 질문', width: 64, className: 'n', cell: p => p.requirements_count ? p.open_questions_count : '' },
+  { key: 'next', header: '다음 행동', cell: nextAction },
 ];
+const PENDING = '연결 전입니다. 처리 기록 API가 연결되면 표시됩니다.';
+const blank = (key: string, header: string, width?: number): KvColumn<string> => ({ key, header, width, cell: value => value });
+const EMPTY_LOG = [blank('at', '일시', 56), blank('project', '프로젝트', 84), blank('what', '내용'), blank('by', '처리자', 64)];
+const EMPTY_NOTICE = [blank('at', '날짜', 56), blank('what', '내용')];
 
-// 업무 홈 TF0001. 프로젝트별 건수는 조회 API에 없어 받아 온 목록을 상태별로 세는 데까지만 보여 준다.
+// 업무 홈 TF0001(TF_K_Home). 건수는 받아 온 첫 쪽을 더한 값이다. 최근 작업과 공지는 API가 없다.
 export default function RfpHome() {
   const mode = getApiMode();
   const access = useBusinessAccess('tft');
@@ -30,36 +50,51 @@ export default function RfpHome() {
   const projects = useQuery({ queryKey: ['projects', mode, undefined], queryFn: () => listProjects(), enabled: access.ready });
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
   const items = projects.data?.data.items ?? [];
-  const count = (status: string) => items.filter(p => p.status === status).length;
+  const count = (status: string) => items.filter(p => p.output_status === status).length;
+  const sum = (pick: (p: ProjectSummary) => number) => items.reduce((total, p) => total + pick(p), 0);
+  const todo = items.filter(p => nextAction(p) !== '없음').length;
   return <main>
     <KvTitle path="제안 지원" title="업무 홈" code="TF0001">
       <button className="kb primary" onClick={() => queryClient.invalidateQueries()}>조회</button>
-      <Link className="kb" to="/tft/projects">프로젝트 목록</Link>
+      <Link className="kb" to="/tft/projects">접수 및 요구 검토</Link>
+      <button className="kb" onClick={() => window.print()}>인쇄</button>
     </KvTitle>
-    <KvNext>프로젝트를 열어 요구와 근거를 확인하세요. 프로젝트별 할 일 건수는 조회 API가 연결되면 표시됩니다.</KvNext>
+    <KvNext>{projects.isSuccess
+      ? `내 프로젝트 ${items.length}, 할 일 있는 프로젝트 ${todo} | 미해결 필수 ${sum(p => p.unresolved_mandatory_count)}, 승인 대기 ${sum(p => p.pending_proposals_count)}, 열린 질문 ${sum(p => p.open_questions_count)}`
+      : '내 프로젝트를 불러오는 중입니다.'}</KvNext>
     <KvSplit columns="1fr 1.15fr">
-      <KvBox title="업무 개요" note="받아 온 첫 쪽을 상태별로 센 것" bodyStyle={{ padding: 0 }}>
+      <KvBox title="업무 개요" note={projects.isSuccess ? `내 프로젝트 ${items.length}건, 단계별, 첫 쪽 기준` : undefined} bodyStyle={{ padding: 0 }}>
         <div className="kv-steps" style={{ margin: 0, border: 0, borderBottom: '1px solid var(--erp-border-soft)' }}>
-          {Object.entries(PROJECT_STATUS_LABEL).map(([code, label]) =>
-            <span key={code} style={{ height: 30, lineHeight: '30px' }}>{label} <b style={{ fontWeight: 400, fontSize: 'inherit' }}>{projects.isSuccess ? count(code) : '-'}</b></span>)}
+          {Object.entries(OUTPUT_LABEL).map(([code, text]) =>
+            <span key={code} style={{ height: 30, lineHeight: '30px' }}>{text} <b style={{ fontWeight: 400, fontSize: 'inherit' }}>{projects.isSuccess ? count(code) : '-'}</b></span>)}
         </div>
         <div style={{ padding: '8px 10px', fontSize: '12.5px', lineHeight: 1.55, color: 'var(--erp-text)' }}>
-          규격서를 올리면 AI가 조항에서 요구를 뽑아 자사 자료와 견줍니다. 담당자는 근거를 확인하고, 모자란 요구는 보완 경로를 정한 뒤 초안을 만듭니다.
+          고객 제안요청서(사양서, 도면)를 올리면 AI가 요구사항을 뽑아 우리 제품 자료와 맞춰 봅니다. 영업 담당자는 못 맞춘 필수 요구를 판단하고, 변경 제안을 승인하고, 고객 질문의 답을 기록합니다. 모두 정리되면 검토본을 내보내 제안서에 씁니다.
         </div>
       </KvBox>
       <KvBox title="용어 풀이" bodyStyle={{ padding: '6px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 14px' }}>
         {TERMS.map(([term, text]) => <KvField key={term} label={term}>{text}</KvField>)}
       </KvBox>
     </KvSplit>
-    <div className="kv-gridhead"><span>최근 프로젝트</span></div>
+    <div className="kv-gridhead"><span>내 프로젝트{projects.isSuccess ? ` ${items.length}건` : ''}</span></div>
     {projects.isError
       ? <ErrorState error={projects.error} onRetry={() => projects.refetch()} />
       : <KvGrid
-        label="최근 프로젝트"
+        label="내 프로젝트"
         columns={COLUMNS}
         rows={items}
         rowKey={p => p.id}
         fallback={projects.isPending ? <Loading /> : '프로젝트가 없습니다.'}
       />}
+    <KvSplit>
+      <div>
+        <div className="kv-sub" style={{ margin: '12px 0 6px' }}>최근 작업, 오늘</div>
+        <KvGrid label="최근 작업" columns={EMPTY_LOG} rows={[]} rowKey={String} fallback={PENDING} />
+      </div>
+      <div>
+        <div className="kv-sub" style={{ margin: '12px 0 6px' }}>공지</div>
+        <KvGrid label="공지" columns={EMPTY_NOTICE} rows={[]} rowKey={String} fallback="공지 API가 아직 없습니다." />
+      </div>
+    </KvSplit>
   </main>;
 }
