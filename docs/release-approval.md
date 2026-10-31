@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 운영 리비전 | 서비스 4개 모두 main `5188b7e`(2026-10-26) | 아래 확인 |
 | 배포되지 않은 변경 | dev가 main보다 384커밋 앞섬 | `git rev-list --count origin/main..origin/dev` |
-| 공용 DB에 적용할 마이그레이션 | 66개: cs C3–C26(24), platform P10–P33(24), tft T2–T19(18). 번호 빠짐 없음(10/31 저녁 기준, C23 고객 등급 #435·C24 검색 문맥 #439·C25 한국어 요약·C26 개선 후보·T19·P33 초안 작성 추가) | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
+| 공용 DB에 적용할 마이그레이션 | 66개: cs C3–C26(24), platform P10–P33(24), tft T2–T19(18). 번호 빠짐 없음(10/31 저녁 dev `9f0b93a` 기준. 열린 PR #469·#470이 tft 마이그레이션을 더하면 병합 뒤 다시 센다. C23 고객 등급 #435·C24 검색 문맥 #439·C25 한국어 요약·C26 개선 후보·T19·P33 초안 작성 추가) | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
 | worker Job | 접속 검증 Job 3개뿐. 평가·C/S·RFP worker Job 없음 | 댓글 10729 |
 | 공용 DB 적용 상태 | 적용 기록 없음. 공용 상태 열은 T18·P32만 `미적용`, 나머지는 `미확인` | `infra/sql/README.md` |
 
@@ -29,7 +29,7 @@
 | 꺼져 있는 설정 | 웹 `EVALUATION_READ_RELAY_ENABLED`·`EVALUATION_CONTROL_RELAY_ENABLED`·`MAILBOX_AUTH_ENABLED` 없음, `CS_MAIL_ENABLED` 없음 |
 | 모델 설정 | cs·tft `GEMINI_MODEL=gemini-3.6-flash`, `GEMINI_MAX_OUTPUT_TOKENS=1024`. LangSmith 변수 없음 |
 | 공개 웹 | `/` 200, `/health` 200, `/api/v1/platform/ready` 200(database·vector·fts 모두 true) |
-| Cloud SQL | `db-custom-2-8192`(2 vCPU·8GB), ENTERPRISE, SSD 20GB, ZONAL, POSTGRES_17. 자동 백업 매일 성공(최근 2026-10-30), **시점 복구(PITR) 꺼짐**: 복구는 하루 단위 백업 시점으로만 된다 |
+| Cloud SQL | `db-custom-2-8192`(2 vCPU·8GB), ENTERPRISE, SSD 20GB, ZONAL, POSTGRES_17. 자동 백업 매일 성공(최근 2026-10-30), **시점 복구(PITR) 꺼짐**: 복구는 하루 단위 백업 시점으로만 된다. 배포 때 켜기로 함(A, 댓글 10964) |
 
 ## 1. 선행 결과
 
@@ -53,6 +53,7 @@
   - 2026-10-31 결과: block 0·review 38, main tests 428 passed, 스냅샷 14,179줄 차이 0.
 - [ ] **운영 서비스의 커밋**: 서비스 4개의 `commit-sha`가 모두 `5188b7e`인지 확인한다(런북 §1). 다르면 그 커밋으로 호환 검사를 다시 한다.
 - [ ] **공용 DB 적용 상태**: SQL 안내 표의 "적용 전 확인" 쿼리(읽기 전용)로 본다. C1–C2·P1–P9·T1은 적용돼 있고 C3 이후는 없어야 한다. 결과는 공용 상태 열에 적는다.
+- [ ] **시점 복구(PITR)**: 켜기로 했다(오새결, 댓글 10964). 켜기 전에 비용과 인스턴스 재시작 여부를 확인하고, 마이그레이션(B) 전에 켠다. 켠 뒤 `gcloud sql instances describe team4-sql --format='value(settings.backupConfiguration.pointInTimeRecoveryEnabled)'`이 `True`인지 기록한다.
 - [ ] **worker 준비물**: `setup_worker_jobs.py prepare`가 기대하는 두 가지가 있는지 본다. Secret `gemini-api-key`와 버킷 `proj-skkuls0106-183255377938-team4-rfp-documents`다.
 
 ### B. 공용 DB 마이그레이션 (운영자 터미널, 관리자 연결)
@@ -76,7 +77,7 @@
 
 **위험: 재색인 전에 새 코드가 뜨면 C/S 근거가 0건이다.** `INDEX_VERSION`이 코드에 박혀 있어 worker는 `chunking-v3` 행만 찾는다. 오류 없이 근거 0건 초안이 나오므로 로그로는 알아채기 어렵다. 색인을 서비스 배포보다 먼저 맞춘다.
 
-순서: C24 적용 → v3 재색인 → 정책 manifest 재생성 → 행 수 확인 → 서비스 배포. 재색인은 옛 판본 행을 지우지 않으므로 옛 코드가 도는 동안 해도 안전하다. 되돌릴 때는 코드만 되돌리면 옛 판본 행으로 검색한다.
+순서: C24 적용 → v3 재색인 → 정책 manifest 재생성 → 행 수 845 확인 → 서비스 배포(오새결, 댓글 10964). 재색인은 옛 판본 행을 지우지 않으므로 옛 코드가 도는 동안 해도 안전하다. 되돌릴 때는 코드만 되돌리면 옛 판본 행으로 검색한다.
 
 - [ ] C24(`cs/20261107_KAN-99_search_context.sql`)를 적용한다. 재색인이 `search_context` 칸에 쓰므로 먼저 필요하다. 표를 다시 쓰는 동안 배타 잠금이 걸린다.
 
@@ -118,7 +119,7 @@
   - team4-cs에 켜지는 설정: `CS_ANALYSIS_ENABLED`·`CS_ANALYSIS_PLATFORM_URL`
   - Scheduler `jobs-dispatch`를 다시 켠다(매 분 dispatch 호출).
   - 서비스 3개에 새 리비전이 생긴다. 뒤의 CD 재배포는 `--update-env-vars`라 이 설정을 지우지 않는다.
-  - 평가 worker Job(`evaluation-worker`)은 이번 묶음에서 만들지 않는다. 운영에서는 평가 실행을 접수하지 않고 반입 실행 요약만 조회한다. **오새결 님 확인 필요.**
+  - 평가 worker Job(`evaluation-worker`)은 이번 묶음에서 만들지 않는다. 운영에서는 평가 실행을 접수하지 않고 반입 실행 요약만 조회한다(오새결 확인, 댓글 10964).
 
 ### G. 화면·메일·검색 설정
 
@@ -140,7 +141,9 @@
 ### H. 평가 화면
 
 - [ ] 플랫폼 `EVALUATION_APPROVED_CONFIG_HASHES`에 화면에 보일 실행의 config_hash를 등록하고, 평가자 ID를 정한다.
-  - 댓글 10721의 해시(`303739fa…`)는 flash-lite v3 기준이다. 그 뒤 #370으로 3.6-flash v3가 채택됐으므로 **오새결 님이 지금 쓸 해시를 다시 확인**한다.
+  - 지금 등록할 해시는 없다(오새결, 댓글 10964). 채택 기록에는 config_hash가 없고, 3.6-flash v3로 화면에 보일 실행을 반입해야 그 실행의 값이 나온다. 반입 뒤 그 값을 등록한다.
+  - 댓글 10721의 옛 해시 `303739fa…`(flash-lite v3)는 등록하지 않는다.
+  - 반입 전에는 평가 화면에 승인된 실행이 없다. 배포 승인 보고서의 "평가 화면" 항목은 반입 뒤에 채운다.
 - [ ] `EVALUATION_LOCAL_ADMISSION_ENABLED`는 꺼 둔다(기본 false, production에서는 켜도 무효).
 - [ ] G의 웹 `EVALUATION_READ_RELAY_ENABLED=true`가 들어갔는지 본다.
 
@@ -198,7 +201,9 @@
 | worker 환경에 LangSmith 키가 있으면 `INVALID_WORKER_CONFIGURATION` | 철회. 원인은 로컬 명령이었다. 운영에는 LangSmith 변수 자체를 두지 않는다 | 댓글 10785 |
 | worker 이미지에 `cs_required_info.csv`가 없음 | 철회. runtime 이미지가 `eval/`을 복사한다 | 댓글 10791, `Dockerfile` |
 | `EVALUATION_READ_RELAY_ENABLED`를 켤지 결정 | 웹 서버 설정이다. 평가 화면을 보이려면 켜야 한다(2-G). 10/31 운영 웹에는 없다 | `frontend/server.mjs` |
-| 평가 승인 해시 `303739fa…` | 채택이 3.6-flash v3로 바뀌어 다시 확인 필요 | #370, 2-H |
+| 평가 승인 해시 `303739fa…` | 등록하지 않는다. 3.6-flash v3 실행 반입 뒤 그 값을 등록 | 댓글 10964, 2-H |
+| 평가 worker Job | 이번 묶음에서 뺀다 | 댓글 10964, 2-F |
+| 시점 복구(PITR) | 배포 때 켠다(비용·재시작 확인 뒤) | 댓글 10964, 2-A |
 | 분류 출력 상한 | 4096(호출마다 지정). Job 환경 1024와 무관 | `cs_worker.py` `classification_max_output_tokens` |
 
 ## 5. 승인 보고서 (배포 뒤 채움)
@@ -220,5 +225,5 @@ KAN-159에 아래를 채워 붙이고 검토자(김종하)에게 확인받는다
 마이그레이션: C3–C26 / P10–P33 / T2–T19 적용 시각, 공용 상태 열 갱신 여부
 켠 설정: 3절 목록 중 켠 것
 미검증 한계: (예) 배포 환경 부하는 소규모만, 복구 훈련 미실행(비용 승인 대기), 초안·검증 모델 설정은 채택 전,
-  PITR 꺼짐(복구는 하루 단위), 모델 품질은 평가 세트 기준
+  PITR 켠 시각(못 켰으면 하루 단위 복구), 모델 품질은 평가 세트 기준
 ```
