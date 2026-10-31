@@ -1,8 +1,8 @@
-# C/S 문의 분석 결과와 사람 정정 계약 (KAN-107, 중간)
+# C/S 문의 분석 결과와 사람 정정 계약 (KAN-107)
 
 원본: `backend/api/cs/analysis/`(조회·정정·저장 함수), `backend/engine/cs/analysis.py`(유효값·기한 계산), 마이그레이션 `infra/migrations/cs/20261030_KAN-107_ticket_analysis.sql`(README C14). 기획서 4.1 워크플로의 ①(AI 판정은 확정값이 아님)과 ⑥ 담당자 확인 게이트("수정"), p.18 추적성("AI 제안과 사람이 확정한 내용을 구분")을 구현한다.
 
-**상태: 저장·조회·정정, worker 문의 출처, 작업 접수·발송 뒤 재개 구현(로컬 종단 검사).** 운영 적용은 KAN-159 묶음이다.
+**상태: KAN-107 완료 조건 구현 완료(2026-10-31, 로컬 종단 검사).** 업무 상태와 그래프 상태 분리, 중단·재개, 재요청 중복 방지가 들어 있다. 저장·조회·정정, worker 문의 출처, 작업 접수, 발송 뒤 재개, 부족 정보 재계산도 포함한다. 운영 적용과 확인은 KAN-159 배포 묶음이고, 화면 연결은 KAN-131이다.
 
 ## 저장
 
@@ -77,9 +77,19 @@
 - **활성화**: C/S `CS_ANALYSIS_ENABLED=true`, `CS_ANALYSIS_PLATFORM_URL`(플랫폼 HTTPS origin). 플랫폼 `CS_JOBS_ENABLED`·`CS_JOBS_SERVICE_URL`·`CS_JOBS_INVOKER_EMAIL`·`CS_JOBS_PROCESSOR_CONNECTED`, worker `CS_WORKER_ENABLED`. 꺼져 있으면 접수는 404이고 재개도 하지 않는다.
 - **종단 검사**(`tests/platform/test_cs_analysis_e2e_db.py`): 전용 PostgreSQL 하나에서 C/S 접수 → 플랫폼 작업(QUEUED) → worker(cs_worker 로그인, 실제 문의 출처·체크포인터, 가짜 모델) SUCCEEDED → 같은 작업 재실행은 `NOT_CLAIMED` → `GET …/analysis`에 결과, 업무 상태는 `RECEIVED` 그대로 → 검토·추가 정보 요청 발송 접수 → 그래프 끝남. 두 서비스 사이 HTTP는 같은 프로세스의 ASGI 전송, ID 토큰은 합성 검증기다.
 
-## 남은 것 (KAN-107 완료 조건)
+## 완료 조건과 근거 (KAN-107)
 
-- 운영 확인: 실제 ID 토큰·Cloud Run Jobs 전송·공용 DB 마이그레이션(C18)은 KAN-159 배포 묶음.
+| 완료 조건 | 구현 | 검사 |
+| --- | --- | --- |
+| DB 업무 상태와 LangGraph 상태 분리 | 그래프는 업무 상태를 바꾸지 않는다. 분석이 끝나도 접수 직후 문의는 `RECEIVED`이고, 업무 상태는 사람의 API 동작으로만 바뀐다(#298) | `tests/platform/test_cs_analysis_e2e_db.py` |
+| 중단·재개 | 그래프가 사람 확인 직전에 멈추고, 고객 발송이 접수되면 재개해 끝낸다. 체크포인트 DB 일시 오류만 다시 시도하고, 연결 3초·문장 5초 상한을 둔다(#298·#306·#413·#421) | `tests/cs/test_analysis_jobs_db.py` |
+| 재요청 중복 방지 | 같은 문의에 진행 중 작업이 있으면 409 `CS_JOB_IN_PROGRESS`, 같은 멱등 키는 기존 작업을 돌려준다(#298) | `tests/cs/test_analysis_jobs_db.py` |
+
+함께 넣은 것(기획서 ⑥ 확인 게이트 범위): 사람 정정 API와 SLA 재계산(#239), 정정된 제공 정보·주분류로 부족 정보 재계산(#426).
+
+넘긴 것:
+- 운영 확인(실제 ID 토큰·Cloud Run Jobs 전송·공용 DB 마이그레이션 C18·C19)은 KAN-159 배포 묶음([배포 승인 점검표](../../docs/release-approval.md))이다.
+- 분석 화면 연결은 KAN-131이다.
 
 
 ## 초안 문장 검증 (KAN-200)
