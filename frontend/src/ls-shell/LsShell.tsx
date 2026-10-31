@@ -8,7 +8,7 @@ import NotificationBell from '../components/NotificationBell';
 import './ls-shell.css';
 
 // inProject: 프로젝트를 열면 그 프로젝트 안으로 가는 화면. 경로 뒷부분을 적는다(빈 값은 프로젝트 화면).
-type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean; inProject?: string };
+type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean; inProject?: string; also?: RegExp };
 type Group = { key: string; label: string; leaves: Leaf[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
@@ -26,7 +26,7 @@ const MENU: Group[] = [
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
-      { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '' },
+      { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '', also: /\/requirements\// },
       { label: '자사 대응표', inProject: 'table' },
       { label: '보완 및 협력사 비교', inProject: 'supplement' },
       { label: '초안 및 검토 이력', inProject: 'draft' },
@@ -91,7 +91,9 @@ export default function LsShell() {
               </button>
               {expanded && <ul>{group.leaves.map(leaf => <li key={leaf.label}>
                 {leaf.to && linked
-                  ? <NavLink to={leaf.to} end={leaf.end} className={() => undefined}>{leaf.label}</NavLink>
+                  ? leaf.also?.test(pathname)
+                    ? <Link to={leaf.to} aria-current="page">{leaf.label}</Link>
+                    : <NavLink to={leaf.to} end={leaf.end} className={() => undefined}>{leaf.label}</NavLink>
                   : <a aria-disabled="true" title={leaf.to ? '로그인 후 사용할 수 있습니다' : leaf.inProject ? '프로젝트를 먼저 여세요' : '준비 중'} tabIndex={-1}>{leaf.label}</a>}
               </li>)}</ul>}
             </li>;
