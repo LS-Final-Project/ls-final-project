@@ -43,6 +43,18 @@ export const KvSplit = ({ columns, children }: { columns?: string; children: Rea
 export const KvField = ({ label, children }: { label: string; children: ReactNode }) =>
   <div className="kv-field"><span>{label}</span><div className="ro">{children}</div></div>;
 
+// 조회조건 격자. 자식은 KvCondRow이고, Enter나 조회 단추로 onSearch가 불린다.
+export const KvCond = ({ onSearch, children }: { onSearch?: () => void; children: ReactNode }) =>
+  <form className="kv-cond" aria-label="조회조건" onSubmit={event => { event.preventDefault(); onSearch?.(); }}>{children}</form>;
+export const KvCondRow = ({ children, columns = 4 }: { children: ReactNode; columns?: number }) =>
+  <div className="row" style={{ gridTemplateColumns: `repeat(${columns},1fr)` }}>{children}</div>;
+export const KvCondField = ({ label, children }: { label: string; children: ReactNode }) =>
+  <label><span>{label}</span>{children}</label>;
+
+// 표 아래 줄: 왼쪽 건수, 가운데 이동, 오른쪽 표시 개수.
+export const KvFoot = ({ count, more, size }: { count: ReactNode; more?: ReactNode; size?: ReactNode }) =>
+  <div className="kv-foot"><span>{count}</span><span className="more">{more}</span>{size}</div>;
+
 export type KvColumn<T> = {
   key: string;
   header: ReactNode;
@@ -50,7 +62,7 @@ export type KvColumn<T> = {
   width?: number;
   // c 가운데, n 숫자, t 제목 등 kv-grid 셀 클래스.
   className?: string;
-  cell: (row: T) => ReactNode;
+  cell: (row: T, index: number) => ReactNode;
 };
 
 // 표. label은 스크린 리더용 이름이고, rows가 비면 fallback을 표 안에 보여 준다.
@@ -72,8 +84,8 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
       <tbody>
         {rows.length === 0
           ? <tr><td colSpan={columns.length}>{fallback}</td></tr>
-          : rows.map(row => <tr key={rowKey(row)} className={rowKey(row) === selectedKey ? 'sel' : undefined}>
-            {columns.map(c => <td key={c.key} className={c.className}>{c.cell(row)}</td>)}
+          : rows.map((row, index) => <tr key={rowKey(row)} className={rowKey(row) === selectedKey ? 'sel' : undefined}>
+            {columns.map(c => <td key={c.key} className={c.className}>{c.cell(row, index)}</td>)}
           </tr>)}
       </tbody>
     </table>

@@ -25,12 +25,12 @@ describe('프로젝트 목록', () => {
   it('목록을 셸 안에 그리고 상세로 잇는다', async () => {
     renderApp('/tft/projects');
     const link = await screen.findByRole('link', { name: /해저케이블/ });
-    const table = screen.getByRole('table', { name: '프로젝트 목록' });
+    const table = screen.getByRole('table', { name: '접수 및 요구 검토' });
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
     expect(within(table).getByText('구성안 작성')).toBeTruthy();
     expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
     expect(table.classList.contains('free')).toBe(true); // C/S 목록의 앞 세 열 고정을 쓰지 않는다
-    expect(screen.getByRole('tab').textContent).toContain('프로젝트 목록');
+    expect(screen.getByRole('tab').textContent).toContain('접수 및 요구 검토');
   });
 
   it('커서로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
@@ -71,7 +71,7 @@ describe('업무 홈', () => {
     live(url => url.includes('/projects') ? page([project('1', '가', 'COMPOSING'), project('2', '나', 'COMPOSING'), project('3', '다', 'INITIAL_REVIEW')]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
     await screen.findByRole('link', { name: '가' });
-    expect(screen.getByText(/받아 온 첫 쪽/)).toBeTruthy();
+    expect(screen.getByText(/첫 쪽 기준/)).toBeTruthy();
     const steps = document.querySelector('.kv-steps')!.textContent!;
     expect(steps).toContain('구성안 작성 2');
     expect(steps).toContain('초기검토 1');

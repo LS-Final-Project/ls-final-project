@@ -1,30 +1,32 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setApiMode } from '../api/client';
+import { sessionCsrfToken, setApiMode } from '../api/client';
 import { MOCK_COMPARISON, MOCK_DETAIL, MOCK_PROPOSALS, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
 import { errorBody, jsonResponse, renderApp } from '../test/render';
 
 const PROJECT = '33333333-3333-4333-8333-333333333333';
 const PATH = `/tft/projects/${PROJECT}/table`;
 const ok = (data: unknown) => jsonResponse(200, { data, meta: { request_id: 'x' } });
-type Call = { url: string; method: string; body: Record<string, unknown>; key: string | null };
+type Call = { url: string; method: string; body: Record<string, unknown>; key: string | null; csrf: string | null };
 let calls: Call[];
 let write: (call: Call) => Response;
 let proposals: unknown[];
 let requirements: unknown[];
+let nextCursor: string | null;
 
 function server() {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
-    const call = { url, method, body: JSON.parse((init?.body as string) || '{}'), key: new Headers(init?.headers).get('Idempotency-Key') };
+    const call = { url, method, body: JSON.parse((init?.body as string) || '{}'), key: new Headers(init?.headers).get('Idempotency-Key'), csrf: new Headers(init?.headers).get('X-CSRF-Token') };
     calls.push(call);
     if (method === 'POST') return write(call);
-    if (url.includes('/platform/me')) return jsonResponse(401, errorBody('X', '세션'));
+    if (url.includes('/platform/me')) return new Response(JSON.stringify({ data: { display_name: '합성', dept: null, roles: ['sales'] }, meta: { request_id: 'x' } }), { status: 200, headers: { 'X-CSRF-Token': 'csrf-1' } });
     if (url.includes('/comparison')) return ok(MOCK_COMPARISON);
     if (url.includes('/proposals')) return ok({ items: proposals });
-    if (url.includes('/requirements?') || url.endsWith('/requirements')) return ok({ items: requirements, next_cursor: null });
+    if (url.endsWith('/documents')) return ok({ items: [{ document_version_id: 'd1', title: '사양서 v2' }] });
+    if (url.includes('/requirements?')) return ok({ items: url.includes('cursor=next') ? [{ ...MOCK_REQUIREMENTS[3], requirement_id: 'more', code: 'R-99' }] : requirements, next_cursor: url.includes('cursor=next') ? null : nextCursor });
     if (url.includes('/requirements/')) return ok(MOCK_DETAIL);
     return ok({ name: '합성 프로젝트' });
   }));
@@ -35,6 +37,7 @@ beforeEach(() => {
   calls = [];
   proposals = MOCK_PROPOSALS;
   requirements = MOCK_REQUIREMENTS;
+  nextCursor = null;
   write = () => ok(MOCK_DETAIL);
   server();
 });
@@ -45,35 +48,73 @@ const open = async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'R-01' }));
   await screen.findByRole('table', { name: '자사 비교' });
 };
+const dept = () => {
+  const inner = vi.mocked(globalThis.fetch);
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/platform/me')
+    ? jsonResponse(200, { data: { display_name: '합성', dept: 'RND_FW', roles: ['dept_staff'] }, meta: { request_id: 'x' } })
+    : inner(input, init)));
+};
 const posts = (part: string) => calls.filter(c => c.method === 'POST' && c.url.includes(part));
 
-describe('자사 대응표 목록', () => {
-  it('요구를 라벨로 보여 주고 고른 행을 표시한다', async () => {
+describe('자사 대응표', () => {
+  it('보드의 말과 열로 요구를 보여 주고 고른 행을 표시한다', async () => {
     renderApp(PATH);
     const table = await screen.findByRole('table', { name: '자사 대응표' });
     await within(table).findByText('사양 차이');
-    expect(within(table).getByText('근거 부족')).toBeTruthy();
+    expect(within(table).getByText('근거 있음')).toBeTruthy();
+    expect(within(table).getByText('조건부 검토')).toBeTruthy();
+    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
+      ['No', '요구', '장비', '작업', '속성', '요구값', '성격', '상태', '보완 경로', '질문', '재검토'],
+    );
     expect(table.classList.contains('free')).toBe(true);
     expect(screen.getByRole('tab').textContent).toContain('자사 대응표');
-    await screen.findByText('합성 프로젝트');
+    await screen.findByText(/합성 프로젝트/);
     const button = screen.getByRole('button', { name: 'R-01' });
     fireEvent.click(button);
     await waitFor(() => expect(button.closest('tr')?.classList.contains('sel')).toBe(true));
   });
 
-  it('조회조건을 서버 필터로 보내고 쪽과 선택을 처음으로 돌린다', async () => {
+  it('조회조건을 서버 필터로 보내고 선택을 푼다', async () => {
     await open();
     fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'SPEC_GAP' } });
-    fireEvent.click(screen.getByLabelText('재검토만'));
-    await waitFor(() => expect(calls.some(c => c.url.includes('status=SPEC_GAP') && c.url.includes('needs_rereview=true'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('재검토'), { target: { value: 'false' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('status=SPEC_GAP') && c.url.includes('needs_rereview=false'))).toBe(true));
     expect(screen.queryByRole('table', { name: '자사 비교' })).toBeNull();
-    fireEvent.click(screen.getByLabelText('재검토만'));
+    fireEvent.change(screen.getByLabelText('재검토'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'CONDITIONAL' } });
     await waitFor(() => expect(calls.some(c => c.url.includes('status=CONDITIONAL'))).toBe(true));
     expect(calls.find(c => c.url.includes('status=CONDITIONAL'))?.url).not.toContain('needs_rereview');
   });
 
-  it('빈 결과와 오류를 구분한다', async () => {
+  it('문서 판본·장비·작업도 서버 필터다', async () => {
+    renderApp(PATH);
+    await screen.findByRole('button', { name: 'R-01' });
+    await screen.findByRole('option', { name: '사양서 v2' });
+    fireEvent.change(screen.getByLabelText('문서 판본'), { target: { value: 'd1' } });
+    fireEvent.change(screen.getByLabelText('장비'), { target: { value: ' 변압기 ' } });
+    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
+    await waitFor(() => expect(calls.some(c => c.url.includes('document_version_id=d1') && decodeURIComponent(c.url).includes('equipment=변압기'))).toBe(true));
+  });
+
+  it('더 보기는 뒤에 이어 붙이고 끝을 알린다', async () => {
+    nextCursor = 'next';
+    renderApp(PATH);
+    fireEvent.click(await screen.findByRole('button', { name: '50건 더 보기' }));
+    await screen.findByRole('button', { name: 'R-99' });
+    expect(screen.getByRole('button', { name: 'R-01' })).toBeTruthy();
+    expect(screen.getByText('표시 5건')).toBeTruthy();
+    expect(screen.getByText('마지막입니다')).toBeTruthy();
+    expect(calls.some(c => c.url.includes('limit=50') && c.url.includes('cursor=next'))).toBe(true);
+  });
+
+  it('한 번에 볼 건수를 바꾼다', async () => {
+    renderApp(PATH);
+    await screen.findByRole('button', { name: 'R-01' });
+    fireEvent.change(screen.getByLabelText('한 번에'), { target: { value: '100' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('limit=100'))).toBe(true));
+  });
+
+  it('빈 결과를 표 안에 보여 준다', async () => {
     requirements = [];
     renderApp(PATH);
     await screen.findByText('조건에 맞는 요구가 없습니다.');
@@ -91,50 +132,175 @@ describe('자사 대응표 목록', () => {
     renderApp(PATH);
     await waitFor(() => expect(document.querySelector('.ls-root')).not.toBeNull());
     expect(calls.some(c => c.url.includes('/requirements'))).toBe(false);
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('요구를 고르기 전에는 변경 제안을 열 수 없다', async () => {
+    renderApp(PATH);
+    await screen.findByRole('button', { name: 'R-01' });
+    expect((screen.getByRole('button', { name: '변경 제안' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('승인 대기 건수로 승인 화면에 간다', async () => {
+    renderApp(PATH);
+    const link = await screen.findByRole('link', { name: '승인 대기 1' });
+    expect(link.getAttribute('href')).toBe(`${PATH}/approvals`);
+  });
+
+  it('부서 검토 계정은 승인 대기를 막고 이유를 보인다', async () => {
+    dept();
+    renderApp(PATH);
+    const button = await screen.findByRole('button', { name: /승인 대기/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe('담당 또는 책임자만 승인합니다');
   });
 });
 
-describe('요구 상세', () => {
-  it('원문 인용과 판단, 자사 비교 근거를 보여 준다', async () => {
+describe('자사 비교와 판단', () => {
+  it('비교 근거와 판단을 나란히 보여 준다', async () => {
     await open();
-    expect(screen.getByText(/1500 kVA minimum/)).toBeTruthy();
-    expect(screen.getByText('1500 kVA 이상', { selector: '.kv-box .ro' })).toBeTruthy();
-    expect(screen.getByText(/AI 작성/)).toBeTruthy();
     const table = screen.getByRole('table', { name: '자사 비교' });
     await within(table).findByText('합성-TRF-1000');
-    expect(within(table).getByText('차이')).toBeTruthy();
+    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
+      ['자사 제품', '변형', '수행 범위', '상태', '자사 값', '비교 가능', '결과', '근거'],
+    );
+    expect(within(table).getByText('다름')).toBeTruthy();
+    expect(within(table).getByText('현행')).toBeTruthy();
     expect(within(table).getByText('합성 데이터시트 2.2')).toBeTruthy();
+    expect(screen.getByText(/1500 kVA minimum/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /판단, R-01/ }).textContent).toContain('AI 작성');
+    await screen.findByText('검색: 문서 2건, 실패 없음. 가격과 표준 납기는 비교하지 않음');
   });
 });
 
 describe('변경 제안', () => {
-  it('승인은 제안 판본과 멱등 키를 보내고 표를 새로 읽는다', async () => {
+  const form = async () => {
     await open();
-    const before = calls.filter(c => c.url.includes('/requirements?') || c.url.endsWith('/requirements')).length;
-    fireEvent.click(await screen.findByRole('button', { name: '승인' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '변경 제안' })[0]);
+    await screen.findByRole('heading', { name: /변경 제안, R-01/ });
+    return screen.getByRole('button', { name: '제안 저장' }) as HTMLButtonElement;
+  };
+
+  it('바꾸는 칸만 보내고, 바뀌는 칸과 사유가 없으면 저장할 수 없다', async () => {
+    write = () => ok(MOCK_PROPOSALS[0]);
+    const submit = await form();
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
+    expect(submit.disabled).toBe(true); // 사유가 없다
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'SPEC_GAP' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '근거' } });
+    expect(submit.disabled).toBe(true); // 지금 상태와 같아 바뀌는 칸이 없다
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
+    fireEvent.change(screen.getByLabelText('근거'), { target: { value: '조항 2.1, 성적서' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
+    expect(posts('/proposals')[0].body).toEqual({
+      requirement_id: MOCK_DETAIL.requirement_id, proposed: { status: 'CONDITIONAL' }, rationale: '근거', evidence_refs: ['조항 2.1', '성적서'],
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: '제안 저장' })).toBeNull());
+  });
+
+  it('미확인을 바꾸면 목록으로 보낸다', async () => {
+    write = () => ok(MOCK_PROPOSALS[0]);
+    const submit = await form();
+    fireEvent.change(screen.getByLabelText('미확인'), { target: { value: '시험 성적서, 고객 허용' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '근거' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
+    expect(posts('/proposals')[0].body.proposed).toEqual({ unresolved: ['시험 성적서', '고객 허용'] });
+  });
+
+  it('취소하면 닫힌다', async () => {
+    await form();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.queryByRole('button', { name: '제안 저장' })).toBeNull();
+  });
+});
+
+describe('승인 화면', () => {
+  const APPROVALS = `${PATH}/approvals`;
+  const open = async () => {
+    renderApp(APPROVALS);
+    fireEvent.click(await screen.findByRole('button', { name: MOCK_PROPOSALS[0].proposal_id.slice(0, 8) }));
+    await screen.findByRole('heading', { name: /제안, 요구/ });
+  };
+
+  it('세 입구가 한 목록이고 기본은 승인 대기다', async () => {
+    renderApp(APPROVALS);
+    const table = await screen.findByRole('table', { name: '변경 제안' });
+    await within(table).findByText('화면 수정');
+    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
+      ['No', '제안', '들어온 곳', '요구', '항목', '현재', '제안', '제안자', '일시', '상태'],
+    );
+    expect(within(table).getByText(/사양 차이/)).toBeTruthy();
+    expect(within(table).getByText(/조건부 검토/)).toBeTruthy();
+    await within(table).findByText('R-01');
+    expect(calls.some(c => c.url.includes('/proposals?status=PENDING'))).toBe(true);
+    fireEvent.change(screen.getByLabelText('들어온 곳'), { target: { value: 'customer_reply' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('origin=customer_reply'))).toBe(true));
+  });
+
+  it('승인은 제안 판본·메모·멱등 키를 보내고 결과를 알린다', async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText('메모'), { target: { value: ' 확인함 ' } });
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
     await waitFor(() => expect(posts('/approve')).toHaveLength(1));
     const [call] = posts('/approve');
-    expect(call.body).toEqual({ version: MOCK_PROPOSALS[0].version });
+    expect(call.body).toEqual({ version: MOCK_PROPOSALS[0].version, note: '확인함' });
     expect(call.key).toBeTruthy();
-    await waitFor(() => expect(calls.filter(c => c.url.includes('/requirements?') || c.url.endsWith('/requirements')).length).toBeGreaterThan(before));
+    await screen.findByText(/승인 완료, 요구 R-01 판본 1/);
+  });
+
+  it('세션의 CSRF 토큰을 쓰기 요청에 싣는다', async () => {
+    await open();
+    await waitFor(() => expect(sessionCsrfToken()).toBe('csrf-1'));
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
+    await waitFor(() => expect(posts('/approve')).toHaveLength(1));
+    expect(posts('/approve')[0].csrf).toBe('csrf-1');
+  });
+
+  it('5xx 뒤 입력을 바꾸면 새 키로 보낸다', async () => {
+    write = () => jsonResponse(500, errorBody('TFT_X', '실패'));
+    await open();
+    fireEvent.change(screen.getByLabelText('기각 사유'), { target: { value: 'A' } });
+    fireEvent.click(screen.getByRole('button', { name: '기각' }));
+    await waitFor(() => expect(posts('/reject')).toHaveLength(1));
+    await screen.findByRole('alert');
+    fireEvent.change(screen.getByLabelText('기각 사유'), { target: { value: 'B' } });
+    fireEvent.click(screen.getByRole('button', { name: '기각' }));
+    await waitFor(() => expect(posts('/reject')).toHaveLength(2));
+    const [a, b] = posts('/reject');
+    expect((a.body as { reason: string }).reason).toBe('A');
+    expect((b.body as { reason: string }).reason).toBe('B');
+    expect(a.key).not.toBe(b.key);
+  });
+
+  it('메모가 없으면 version만 보낸다', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
+    await waitFor(() => expect(posts('/approve')).toHaveLength(1));
+    expect(posts('/approve')[0].body).toEqual({ version: 1 });
   });
 
   it('판본 충돌은 다음 행동을 알리고 입력을 지키며 기각은 그대로 된다', async () => {
     write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
     await open();
-    const reason = await screen.findByLabelText('기각 사유') as HTMLInputElement;
+    const reason = screen.getByLabelText('기각 사유') as HTMLInputElement;
     fireEvent.change(reason, { target: { value: '근거 부족' } });
+    fireEvent.change(screen.getByLabelText('메모'), { target: { value: '메모' } });
     fireEvent.click(screen.getByRole('button', { name: '승인' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('다시 제안');
-    expect(reason.value).toBe('근거 부족');
+    expect((await screen.findByRole('alert')).textContent).toContain('다른 사람이 먼저 바꿨습니다');
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    await waitFor(() => expect(reason.value).toBe('근거 부족'));
+    expect((screen.getByLabelText('메모') as HTMLInputElement).value).toBe('메모');
     expect((screen.getByRole('button', { name: '기각' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('이미 결정된 제안은 다시 불러오게 한다', async () => {
+  it('이미 처리된 제안은 다시 불러오게 한다', async () => {
     write = () => jsonResponse(409, errorBody('TFT_PROPOSAL_DECIDED', 'decided'));
     await open();
-    fireEvent.click(await screen.findByRole('button', { name: '승인' }));
-    await screen.findByText(/이미 결정된/);
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
+    await screen.findByText(/이미 처리된/);
     const before = calls.length;
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
     await waitFor(() => expect(calls.length).toBeGreaterThan(before));
@@ -143,7 +309,7 @@ describe('변경 제안', () => {
   it('기각은 사유가 있어야 하고 사유를 보낸다', async () => {
     write = () => ok(MOCK_PROPOSALS[0]);
     await open();
-    const reject = await screen.findByRole('button', { name: '기각' }) as HTMLButtonElement;
+    const reject = screen.getByRole('button', { name: '기각' }) as HTMLButtonElement;
     expect(reject.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('기각 사유'), { target: { value: '  원문과 다름 ' } });
     fireEvent.click(reject);
@@ -155,14 +321,14 @@ describe('변경 제안', () => {
     let status = 500;
     write = () => jsonResponse(status, errorBody('TFT_X', '실패'));
     await open();
-    const approve = await screen.findByRole('button', { name: '승인' });
+    const approve = screen.getByRole('button', { name: '승인' }) as HTMLButtonElement;
     fireEvent.click(approve);
     await waitFor(() => expect(posts('/approve')).toHaveLength(1));
     await screen.findByRole('alert');
     status = 403;
     fireEvent.click(approve);
     await waitFor(() => expect(posts('/approve')).toHaveLength(2));
-    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(approve.disabled).toBe(false));
     fireEvent.click(approve);
     await waitFor(() => expect(posts('/approve')).toHaveLength(3));
     const [a, b, c] = posts('/approve').map(x => x.key);
@@ -170,40 +336,46 @@ describe('변경 제안', () => {
     expect(c).not.toBe(b);
   });
 
-  it('새 제안은 바뀌는 칸만 보내고, 바뀌는 칸과 근거가 없으면 보낼 수 없다', async () => {
-    write = () => ok(MOCK_PROPOSALS[0]);
-    proposals = [];
+  it('처리된 제안은 결정 단추 없이 기록만 보인다', async () => {
+    proposals = [{ ...MOCK_PROPOSALS[0], status: 'APPROVED', decided_at: '2026-10-28T09:41:00Z' }];
     await open();
-    await screen.findByText('대기 중인 제안이 없습니다.');
-    const submit = screen.getByRole('button', { name: '변경 제안' }) as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('바꿀 상태'), { target: { value: 'CONDITIONAL' } });
-    expect(submit.disabled).toBe(true); // 근거가 없다
-    fireEvent.change(screen.getByLabelText('바꿀 상태'), { target: { value: 'SPEC_GAP' } });
-    fireEvent.change(screen.getByLabelText('제안 근거'), { target: { value: '근거' } });
-    expect(submit.disabled).toBe(true); // 지금 상태와 같아 바뀌는 칸이 없다
-    fireEvent.change(screen.getByLabelText('바꿀 상태'), { target: { value: 'CONDITIONAL' } });
-    expect(submit.disabled).toBe(false);
-    fireEvent.click(submit);
-    await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
-    expect(posts('/proposals')[0].body).toEqual({ requirement_id: MOCK_DETAIL.requirement_id, proposed: { status: 'CONDITIONAL' }, rationale: '근거' });
-    await waitFor(() => expect((screen.getByLabelText('제안 근거') as HTMLTextAreaElement).value).toBe(''));
+    await screen.findByText(/처리된 제안은 다시 바꿀 수 없습니다/);
+    expect(screen.queryByRole('button', { name: '승인' })).toBeNull();
   });
 
   it('부서 검토 계정에는 승인·기각을 내지 않는다', async () => {
-    const roles = (url: string) => url.includes('/platform/me');
-    const inner = vi.mocked(globalThis.fetch);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => roles(String(input))
-      ? jsonResponse(200, { data: { display_name: '합성', dept: 'RND_FW', roles: ['dept_staff'] }, meta: { request_id: 'x' } })
-      : inner(input, init)));
+    dept();
     await open();
-    await screen.findByText(/기술 검토 의견/);
-    await waitFor(() => expect(screen.queryByRole('button', { name: '승인' })).toBeNull());
-    expect(screen.getByRole('button', { name: '변경 제안' })).toBeTruthy();
+    await screen.findByText('담당 또는 책임자만 승인합니다.');
+    expect(screen.queryByRole('button', { name: '승인' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '기각' })).toBeNull();
+  });
+
+  it('목록이 실패하면 빈 목록으로 보이지 않는다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/proposals') ? jsonResponse(500, errorBody('TFT_X', '실패')) : jsonResponse(401, errorBody('X', '세션'))));
+    renderApp(APPROVALS);
+    expect((await screen.findByRole('alert')).textContent).toContain('실패');
+    expect(screen.queryByText('조건에 맞는 제안이 없습니다.')).toBeNull();
+  });
+});
+
+describe('셸 메뉴', () => {
+  const links = () => [...document.querySelectorAll('.sidebar a')].map(a => [a.textContent, a.getAttribute('href')]);
+  it('보드의 제안 지원 묶음이고 자사 대응표는 프로젝트를 연 뒤에 간다', async () => {
+    renderApp(PATH);
+    await waitFor(() => expect(links().map(l => l[0])).toEqual(expect.arrayContaining(['업무 홈', '접수 및 요구 검토', '자사 대응표', '보완 및 협력사 비교', '초안 및 검토 이력'])));
+    expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBe(PATH);
+    expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['자사 대응표']);
+    cleanup();
+    renderApp('/tft');
+    await waitFor(() => expect(links().find(l => l[0] === '자사 대응표')).toBeTruthy());
+    expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBeNull();
   });
 });
 
 it('옛 프로젝트 상세에서 대응표로 간다', async () => {
+  setApiMode('mock');
   renderApp(`/tft/projects/${PROJECT}`);
-  expect((await screen.findByRole('link', { name: '자사 대응표' })).getAttribute('href')).toBe(PATH);
+  await waitFor(() => expect(document.querySelector('.ls-legacy a[href$="/table"]')).not.toBeNull());
+  expect(document.querySelector('.ls-legacy a[href$="/table"]')?.getAttribute('href')).toBe(PATH);
 });
