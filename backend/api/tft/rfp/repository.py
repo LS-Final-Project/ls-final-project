@@ -1308,6 +1308,25 @@ async def clause_in_project(conn: AsyncConnection[Row], project_id: UUID, clause
     return bool(row and row["found"])
 
 
+async def project_clause_ids(conn: AsyncConnection[Row], project_id: UUID) -> set[UUID]:
+    """프로젝트 문서의 조항 ID 전부. 요구가 뽑히지 않은 조항도 포함한다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        set[UUID]: 조항 ID.
+    """
+    cursor = await conn.execute(
+        "SELECT c.id FROM tft.clauses c JOIN tft.document_versions dv "
+        "ON dv.id = c.document_version_id JOIN tft.documents d ON d.id = dv.document_id "
+        "WHERE d.project_id = %s",
+        (project_id,),
+    )
+    return {row["id"] for row in await cursor.fetchall()}
+
+
 async def project_document_versions(
     conn: AsyncConnection[Row], project_id: UUID, ids: Sequence[UUID]
 ) -> list[UUID]:

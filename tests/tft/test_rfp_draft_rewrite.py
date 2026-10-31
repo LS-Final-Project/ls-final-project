@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 from backend.api.tft.rfp import schemas as s
+from backend.engine.rfp import draft_rewrite
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.engine.rfp.draft_rewrite import fake_provider, rewrite
 from backend.shared.ai import Generation, Usage
@@ -280,3 +281,40 @@ def test_input_partition_cannot_silently_drop_numeric_representatives_and_produc
     row.evidence.append(s.Evidence(type="product", id="LumenPanel"))
     result = rewrite(source, mutate(lambda text: text.replace("LumenPanel", "다른 제품")))
     assert result.fallback == 1 and result.calls[-1].reasons == {1: "IDENTIFIER_CHANGED"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Medium-voltage switchgear duration form tap frequency impedance",
+        "BIL: 15 kV, 95 kV",
+    ],
+)
+def test_customer_words_are_not_internal_codes(text):
+    """고객 원문의 일반 단어는 내부 코드가 아니다."""
+    assert not draft_rewrite.CODE_WORDS.search(text)
+    assert not draft_rewrite.forbidden(text, draft().sections[0].sentences[0])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "rated_max_voltage 값",
+        "integrator_capable.assembly 확인",
+        "SPEC_GAP 상태",
+        "상태 PENDING",
+        "KAN-188 참조",
+        "SYN-001 참조",
+        "DS-TRF-630 참조",
+        "11111111-1111-4111-8111-111111111111 참조",
+        "가격 $100",
+        "단가 100 USD",
+        "금액 3억원",
+        "PARTNER-1 후보",
+    ],
+)
+def test_internal_codes_money_ids_and_partner_codes_stay_blocked(text):
+    """식별자 꼴·금액·UUID·근거 ID·협력사 코드는 계속 막는다."""
+    row = draft().sections[0].sentences[0]
+    row.evidence.append(s.Evidence(type="partner", id="PARTNER-1"))
+    assert draft_rewrite.forbidden(text, row)

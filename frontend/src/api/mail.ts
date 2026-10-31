@@ -1,5 +1,5 @@
 import type { paths } from './generated/platform';
-import { ApiError, request } from './client';
+import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
 
 export type SendIntent = paths['/api/v1/platform/mail/send-intents']['get']['responses'][200]['content']['application/json']['data']['items'][number];
 export type SendStatus = SendIntent['status'];
@@ -75,5 +75,22 @@ export async function getMailTriage(messageId: string, signal?: AbortSignal): Pr
   const body = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/triage`, { signal, mockFallback: () => triageSample(messageId) });
   const data = (body as { data?: unknown } | null)?.data;
   if (!isTriage(data)) throw new ApiError(502, '자동 분류를 확인할 수 없습니다.');
+  return data;
+}
+
+export type Reclassification = paths['/api/v1/platform/mail/messages/{message_id}/triage']['post']['requestBody']['content']['application/json'];
+export const isTriageVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
+
+/**
+ * 사람이 메일 분류를 바꿔 새 판본으로 남긴다. 읽은 판본(version)이 최신이 아니면 서버가 409로 거부한다.
+ * 서버 상태를 바꾸므로 개발 모드의 실제 API에서만 연다(모의 응답으로 성공한 척하지 않는다).
+ */
+export async function reclassifyMail(messageId: string, body: Reclassification, signal?: AbortSignal): Promise<MailTriage> {
+  if (!import.meta.env.DEV || getApiMode() !== 'live') throw new ApiError(403, '실제 API 개발 모드에서만 실행할 수 있습니다.');
+  const token = sessionCsrfToken();
+  if (!token) throw new ApiError(403, '세션 확인 정보가 없습니다. 세션을 다시 확인하세요.');
+  const reply = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/triage`, { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
+  const data = (reply as { data?: unknown } | null)?.data;
+  if (!isTriage(data)) throw new ApiError(502, '저장 결과를 확인할 수 없습니다. 최신 분류를 다시 읽어 확인하세요.');
   return data;
 }

@@ -250,7 +250,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
           }).filter(Boolean).join(' · ')}</p>
           <details><summary>근거 {row.evidence.length}건 · 조건 {row.conditions.length}건</summary>
             <KvField label="문장 ID"><span>{row.sentence_id}</span></KvField>
-            <KvField label="근거">{row.evidence.length ? <ul>{row.evidence.map((e, i) => <li key={`${e.type}:${e.id}:${i}`}>{e.type}: {e.id}</li>)}</ul> : '저장된 근거 없음'}</KvField>
+            <KvField label="근거">{row.evidence.length ? <ul>{row.evidence.map((e, i) => <li key={`${e.type}:${e.id}:${i}`}>{EVIDENCE_LABEL[e.type] ?? e.type}: {data?.evidence_labels?.[e.id] ?? e.id}</li>)}</ul> : '저장된 근거 없음'}</KvField>
             {row.conditions.length > 0 && <KvField label="조건"><ul>{row.conditions.map((condition, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{condition}</li>)}</ul></KvField>}
           </details>
         </div>

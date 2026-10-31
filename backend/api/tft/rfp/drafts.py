@@ -124,6 +124,7 @@ async def generate(
         partners=partners,
         questions=[question_out(q) for q in await repository.list_questions(conn, project_id)],
         replaced=replacements,
+        clause_ids=await repository.project_clause_ids(conn, project_id),
     )
     result = preserve_human(result, previous, await valid_references(conn, project_id))
     await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)

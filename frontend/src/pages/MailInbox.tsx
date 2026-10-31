@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getApiMode } from '../api/client';
-import { getMailTriage, listReplyReviews, type MailTriage, type ReplyReview } from '../api/mail';
+import { ApiError, getApiMode } from '../api/client';
+import { getMailTriage, isTriageVersionConflict, listReplyReviews, reclassifyMail, type MailTriage, type ReplyReview } from '../api/mail';
 import { ErrorState, Loading, Preparing } from '../components/states';
-import { KvBox, KvField, KvGrid, KvKey, KvMore, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { KvBox, KvField, KvGrid, KvKey, KvModal, KvMore, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { formatStamp } from '../ls-shell/cs-labels';
 
 const REASON_LABEL: Record<ReplyReview['reason'], string> = {
@@ -22,7 +22,8 @@ const uuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 const day = (iso: string) => formatStamp(iso).slice(0, 10);
 
 // 받은 메일 검토 MB0101. 연결 대상을 사람이 정해야 하는 고객 답장을 읽어 보인다.
-// 이 API는 보낸 사람·제목·첨부를 주지 않아 보드의 해당 열은 없다. 연결·무시·다시 분류는 서버 상태를 바꾸는 동작이라 아직 연결하지 않는다.
+// 이 API는 보낸 사람·제목·첨부를 주지 않아 보드의 해당 열은 없다. 다시 분류는 새 판본만 남기는 동작이라 연결하고,
+// 연결·무시는 다른 업무 상태까지 바꾸므로 아직 연결하지 않는다.
 export default function MailInbox() {
   if (!import.meta.env.DEV) return <Preparing title="받은 메일 검토" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
   return <InboxView />;
@@ -34,6 +35,10 @@ function InboxView() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [picked, setPicked] = useState('');
+  const [dialog, setDialog] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const client = useQueryClient();
   const list = useQuery({ queryKey: ['reply-reviews', mode], queryFn: ({ signal }) => listReplyReviews(signal), retry: false, staleTime: 0 });
   const fetchAgain = () => { void list.refetch(); };
   useHotkey('F8', fetchAgain, !list.isFetching);
@@ -45,6 +50,29 @@ function InboxView() {
   const shown = invalid ? [] : rows;
   const selected = shown.find(item => item.message_id === picked) ?? shown[0];
   const triage = useQuery({ queryKey: ['mail-triage', mode, selected?.message_id], queryFn: ({ signal }) => getMailTriage(selected!.message_id, signal), enabled: !!selected, retry: false, staleTime: 0 });
+
+  const canReclassify = triage.isSuccess && triage.data.is_latest;
+  async function saveReclass(form: FormData) {
+    if (!selected || !triage.data || busy) return;
+    const suggestion = String(form.get('suggestion') ?? '');
+    setBusy(true); setNotice(null);
+    try {
+      await reclassifyMail(selected.message_id, {
+        version: triage.data.version, mail_type: String(form.get('type')) as MailTriage['mail_type'], reason: String(form.get('reason') ?? '').trim(),
+        link_suggestion: suggestion === '' ? null : suggestion as NonNullable<MailTriage['link_suggestion']>, needs_review: form.get('review') === 'on',
+      });
+      setNotice({ kind: 'ok', text: '분류를 새 판본으로 저장했습니다.' });
+      setDialog(false);
+    } catch (error) {
+      setNotice({ kind: 'error', text: isTriageVersionConflict(error) ? '다른 판본이 먼저 저장됐습니다. 최신 분류를 다시 읽었으니 확인한 뒤 다시 저장하세요.'
+        : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
+          : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 분류를 읽었습니다. 반영 여부를 확인하세요.' });
+      setDialog(false);
+    } finally {
+      setBusy(false);
+      await client.invalidateQueries({ queryKey: ['mail-triage', mode] });
+    }
+  }
 
   const columns: KvColumn<ReplyReview>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
@@ -59,7 +87,7 @@ function InboxView() {
       <button className="kb primary" disabled={list.isFetching} onClick={fetchAgain}>조회<KvKey>F8</KvKey></button>
       <button className="kb" disabled title="서버 상태를 바꾸는 동작이라 아직 연결하지 않았습니다">연결</button>
       <button className="kb" disabled title="서버 상태를 바꾸는 동작이라 아직 연결하지 않았습니다">무시</button>
-      <button className="kb" disabled title="서버 상태를 바꾸는 동작이라 아직 연결하지 않았습니다">다시 분류</button>
+      <button className="kb" disabled={!canReclassify || busy} title={canReclassify ? undefined : '최신 분류를 읽은 뒤에 바꿀 수 있습니다'} onClick={() => setDialog(true)}>다시 분류</button>
       <KvMore items={[{ label: '프로젝트 만들기', note: '메일에서 바로 만드는 경로 아직 없음' }, { label: '본문 열기', note: '본문은 메일 계정에서, 여기 저장하지 않음' }]} />
     </KvTitle>
     {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 합성 예시이며 실제 메일이 아닙니다.</div>}
@@ -75,11 +103,12 @@ function InboxView() {
         </div></label>
       </div>
     </form>
+    {notice && <div className="kv-sub" role={notice.kind === 'error' ? 'alert' : 'status'} style={{ margin: '6px 14px 0' }}>{notice.text}</div>}
     {invalid && <div className="kv-sub" role="alert" style={{ margin: '6px 14px 0' }}>종료일은 시작일보다 빠를 수 없습니다.</div>}
     {list.isFetching && <Loading />}
     {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
     {!list.isFetching && list.isSuccess && <>
-      <div className="kv-gridhead"><span>사람이 연결 대상을 정해야 하는 고객 답장 {shown.length}건, 받은 시각 내림차순</span><Link className="right" to="/account">메일 계정</Link></div>
+      <div className="kv-gridhead"><span>사람이 연결 대상을 정해야 하는 고객 답장 {shown.length}건, 받은 시각 내림차순</span><Link className="right" to="/mail/account">메일 계정</Link></div>
       <KvGrid label="검토 대기 메일" columns={columns} rows={shown} rowKey={row => row.message_id} selectedKey={selected?.message_id} fallback="검토할 메일이 없습니다." />
       {selected && <>
         <div style={{ marginTop: 8 }}>
@@ -109,7 +138,24 @@ function InboxView() {
         </div>
       </>}
     </>}
+    {dialog && selected && triage.data && <KvModal title={`다시 분류, ${selected.message_id.slice(0, 8)}`} onClose={() => !busy && setDialog(false)}>
+      <ReclassForm triage={triage.data} busy={busy} onCancel={() => setDialog(false)} onSubmit={form => void saveReclass(form)} />
+    </KvModal>}
   </main>;
+}
+
+function ReclassForm({ triage, busy, onCancel, onSubmit }: { triage: MailTriage; busy: boolean; onCancel: () => void; onSubmit: (form: FormData) => void }) {
+  return <form onSubmit={event => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>
+    <div className="kv-field"><span>지금</span><span className="ro">{TYPE_LABEL[triage.mail_type]}, {triage.link_suggestion ? SUGGESTION_LABEL[triage.link_suggestion] : '추천 없음'}, 판본 {triage.version}</span></div>
+    <div className="kv-field"><span className="req">유형</span>
+      <select name="type" aria-label="유형" defaultValue={triage.mail_type}>{(Object.keys(TYPE_LABEL) as MailTriage['mail_type'][]).map(key => <option key={key} value={key}>{TYPE_LABEL[key]}</option>)}</select></div>
+    <div className="kv-field"><span>연결 추천</span>
+      <select name="suggestion" aria-label="연결 추천" defaultValue={triage.link_suggestion ?? ''}><option value="">없음</option>{(Object.keys(SUGGESTION_LABEL) as (keyof typeof SUGGESTION_LABEL)[]).map(key => <option key={key} value={key}>{SUGGESTION_LABEL[key]}</option>)}</select></div>
+    <div className="kv-field"><span>확인 필요</span><div className="kv-check"><label><input type="checkbox" name="review" defaultChecked={triage.needs_review} />다른 사람이 한 번 더 봐야 함</label></div></div>
+    <div className="kv-field"><span className="req">사유</span><textarea name="reason" aria-label="사유" rows={2} required maxLength={2000} /></div>
+    <div className="kv-sub" style={{ margin: '8px 0 0' }}>사람이 바꾼 분류는 새 판본으로 남고 누가 왜 바꿨는지 기록됩니다. 내가 읽은 판본이 아니면 저장이 거부됩니다</div>
+    <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={onCancel}>취소</button><button type="submit" className="kb primary" disabled={busy}>{busy ? '저장 중' : '저장'}</button></div>
+  </form>;
 }
 
 function TriageFields({ triage }: { triage: MailTriage }) {

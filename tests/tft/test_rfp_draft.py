@@ -9,6 +9,7 @@ import pytest
 
 from backend.api.tft.rfp import schemas as s
 from backend.engine.rfp import draft as engine
+from backend.engine.rfp import vocabulary
 from backend.engine.rfp.draft import DISCLAIMER, build_draft
 
 NOW = datetime(2026, 10, 30, tzinfo=UTC)
@@ -602,6 +603,29 @@ def test_question_and_known_clause_must_belong_to_same_requirement(
     snapshot["questions"][0].origin.clause_id = other.origin.clause_id
     with pytest.raises(ValueError, match="QUESTION_CLAUSE_MISMATCH"):
         build_draft(**snapshot)
+
+
+def test_a_question_on_a_clause_without_requirements_is_kept_when_the_clause_exists(
+    snapshot: dict[str, Any],
+) -> None:
+    question = snapshot["questions"][0]
+    question.requirement_id = None
+    question.origin.clause_id = UUID(int=901)
+    values = {
+        "project_id": PROJECT,
+        "version": 1,
+        "data_origin": "synthetic",
+        "known_at": NOW,
+        "requirements": [],
+        "integration": s.IntegrationResponsibility(),
+        "questions": [question],
+    }
+    # 프로젝트에 없는 조항은 그대로 거절한다.
+    with pytest.raises(ValueError, match="UNKNOWN_REFERENCE"):
+        build_draft(**values, clause_ids={UUID(int=902)})
+    result = build_draft(**values, clause_ids={UUID(int=901), UUID(int=902)})
+    evidence = [e for row in sentences(result) for e in row.evidence]
+    assert ("clause", str(UUID(int=901))) in {(e.type, e.id) for e in evidence}
 
 
 def test_project_question_without_requirement_does_not_invent_requirement_reference(
@@ -1215,3 +1239,45 @@ def test_rewritten_template_fingerprint_survives_human_edit_and_regeneration(sna
     )
     assert sentences(regenerated, "OUR_RESPONSE") == []
     assert automatic.template_text != automatic.text
+
+
+def test_every_internal_name_has_a_display_name():
+    """어휘가 늘면 표시 이름도 있어야 한다. 화면 표 대조는 scripts/tests가 한다."""
+    assert set(vocabulary.ATTRIBUTE_TEXT) == set(vocabulary.ATTRIBUTE_KEYS)
+    assert set(vocabulary.CONDITION_TEXT) == set(vocabulary.CONDITION_NAMES)
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("integrator_capable.assembly", "조립 책임"),
+        ("integrator_capable.new_duty", "통합 수행 항목"),
+        ("bil", "기준 충격 절연"),
+        ("duration", "지속 시간"),
+        ("supply_region", "공급 지역"),
+        ("some_new_check", "사양 항목"),
+        ("Rated Current at 40C", "Rated Current at 40C"),
+        ("Rated Current at 40.5C", "Rated Current at 40.5C"),
+    ],
+)
+def test_check_names_become_display_names(name, text):
+    assert vocabulary.check_text(name) == text
+
+
+def test_conditions_and_unknown_checks_reach_the_draft_in_plain_words(snapshot):
+    """조건 이름과 협력사 미확인 항목이 내부 이름 그대로 문장 조건에 나가지 않는다."""
+    item = snapshot["requirements"][0]
+    item.spec.conditions = [s.Condition(name="duration", value="2", unit="s")]
+    conditions = engine._conditions(item)
+    assert "지속 시간: 2 s" in conditions
+    assert not any("duration" in text for text in conditions)
+
+
+def test_unknown_partner_checks_reach_the_draft_in_plain_words(snapshot: dict[str, Any]) -> None:
+    """협력사 미확인 항목은 내부 키가 아니라 표시 이름으로 조건에 들어간다."""
+    grade = snapshot["partners"][0].grades[0]
+    grade.mandatory_check.unknown = ["integrator_capable.assembly", "supply_region"]
+    rows = sentences(build_draft(**snapshot), "PARTNER_SUPPLEMENT")
+    conditions = [text for row in rows for text in row.conditions]
+    assert "조립 책임" in conditions and "공급 지역" in conditions
+    assert not any("integrator_capable" in text or "supply_region" in text for text in conditions)
