@@ -233,14 +233,15 @@ def test_invalid_output_is_retried_once_and_resume_does_not_call_again():
 @pytest.mark.parametrize(
     ("drafter", "code", "calls"),
     [
-        (forbidden_draft, "CS_FORBIDDEN_COMMITMENT", 1),
         (Mock(side_effect=TimeoutError()), "TIMEOUT", 1),
         (broken_text, "CS_INVALID_OUTPUT", 2),
     ],
-    ids=["forbidden", "timeout", "twice-invalid"],
+    ids=["timeout", "twice-invalid"],
 )
 def test_only_invalid_output_is_retried(drafter, code, calls):
-    """금지 약속·타임아웃은 다시 부르지 않고, 형식 위반은 두 번까지 부른 뒤 사람 확인으로 넘긴다.
+    """타임아웃은 다시 부르지 않고, 형식 위반은 두 번까지 부른 뒤 사람 확인으로 넘긴다.
+
+    금지 약속은 같은 입력으로 다시 부르지 않고 문장 재작성으로 간다(test_graph_forbidden_rewrite.py).
 
     Args:
         drafter: 초안 공급자.

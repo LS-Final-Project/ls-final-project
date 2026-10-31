@@ -344,6 +344,16 @@ def render_prompt(
     return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
+def _unconditional(pattern: re.Pattern[str], text: str) -> bool:
+    """패턴이 같은 절 앞부분의 조건·부정 표지 없이 맞는 곳이 있으면 True."""
+    for match in pattern.finditer(text):
+        clause_start = max(text.rfind(mark, 0, match.start()) for mark in _CLAUSE_BREAKS) + 1
+        clause = _NOT_A_CONDITION.sub(" ", text[clause_start : match.start()])
+        if not CONDITION_MARKERS.search(clause):
+            return True
+    return False
+
+
 def find_forbidden_commitment(text: str) -> bool:
     """승인·확정 약속 문구가 있는지 본다.
 
@@ -351,17 +361,44 @@ def find_forbidden_commitment(text: str) -> bool:
         text: 초안 문장이나 질문.
 
     Returns:
-        bool: 약속 패턴이 맞거나, 확정 패턴이 같은 절의 조건·부정 표지 없이 맞으면 True.
+        bool: 약속·확정 패턴이 같은 절의 조건·부정 표지 없이 맞으면 True. 약속 패턴도 조건 문장
+            ("If the return is approved, …", "Whether the return is approved will be …")은 허용한다(KAN-193).
     """
-    if any(pattern.search(text) for pattern in PROMISE_COMMITMENTS):
-        return True
-    for pattern in CONFIRMATION_COMMITMENTS:
-        for match in pattern.finditer(text):
-            clause_start = max(text.rfind(mark, 0, match.start()) for mark in _CLAUSE_BREAKS) + 1
-            clause = _NOT_A_CONDITION.sub(" ", text[clause_start : match.start()])
-            if not CONDITION_MARKERS.search(clause):
-                return True
-    return False
+    return any(_unconditional(pattern, text) for pattern in FORBIDDEN_COMMITMENTS)
+
+
+FORBIDDEN_REASON = (
+    "CS_FORBIDDEN_COMMITMENT: 승인·확정 약속이나 반품 사유·제조 불량·책임·고객 과실을 확정한 표현이다. "
+    "검토·검사 뒤 결정된다고 조건부로 쓰거나 문장을 뺀다."
+)
+
+
+class ForbiddenCommitmentError(ValueError):
+    """형식은 맞지만 금지 약속이 있는 초안. 코드는 CS_FORBIDDEN_COMMITMENT이고 재작성에 쓸 초안·문장을 담는다.
+
+    sentences가 비어 있으면 정보 요청 질문에 걸린 것이라 문장 단위로 고칠 수 없다.
+    """
+
+    def __init__(self, draft: DraftOutput, sentences: tuple[RevisionSentence, ...]) -> None:
+        super().__init__("CS_FORBIDDEN_COMMITMENT")
+        self.draft = draft
+        self.sentences = sentences
+
+
+def forbidden_sentences(output: DraftOutput) -> tuple[RevisionSentence, ...] | None:
+    """금지 약속이 있는 문장. 없으면 빈 튜플, 정보 요청 질문에 있으면 None(문장 위치로 가리킬 수 없다)."""
+    if any(
+        find_forbidden_commitment(request.question)
+        for option in output.options
+        for request in option.info_requests
+    ):
+        return None
+    return tuple(
+        RevisionSentence(label=option.label, sentence_index=index, reason=FORBIDDEN_REASON)
+        for option in output.options
+        for index, sentence in enumerate(option.sentences)
+        if find_forbidden_commitment(sentence.text)
+    )
 
 
 def _validation_code(error: ValidationError) -> str:
@@ -432,6 +469,7 @@ def validate_output(
     ]
     if any(mentions_code(text, code) for text in texts for code in blocked_codes):
         raise ValueError("CS_BLOCKED_EVIDENCE")
-    if any(find_forbidden_commitment(text) for text in texts):
-        raise ValueError("CS_FORBIDDEN_COMMITMENT")
+    hits = forbidden_sentences(output)
+    if hits is None or hits:
+        raise ForbiddenCommitmentError(output, hits or ())
     return output
