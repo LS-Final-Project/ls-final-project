@@ -588,3 +588,12 @@ def test_the_default_lease_passes_and_a_short_one_stops_the_worker_at_start(monk
     with pytest.raises(SystemExit, match="INVALID_WORKER_CONFIGURATION"):
         cs_worker.main()
     assert len(called) == 1
+    # 처리 중 난 값 오류는 설정 오류로 바꾸지 않는다.
+    monkeypatch.delenv("CS_WORKER_LEASE_SECONDS")
+
+    def broken(*_args):
+        raise ValueError("CS_SOMETHING_ELSE")
+
+    monkeypatch.setattr(cs_worker, "execute_job", broken)
+    with pytest.raises(ValueError, match="CS_SOMETHING_ELSE"):
+        cs_worker.main()

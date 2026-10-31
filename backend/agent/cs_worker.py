@@ -20,7 +20,7 @@ from uuid import UUID
 
 import psycopg
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from pydantic import Field
+from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.agent.cs_runner import (
@@ -257,11 +257,14 @@ def main() -> None:
     try:
         job_id = parse_job_id(os.getenv("CS_JOB_ID"))
         worker = CsWorkerSettings()
-        check_lease(draft_ai_settings(AISettings()), worker.lease_seconds, calls=NODE_CALLS)
+        try:
+            check_lease(draft_ai_settings(AISettings()), worker.lease_seconds, calls=NODE_CALLS)
+        except ValueError:
+            raise SystemExit("INVALID_WORKER_CONFIGURATION") from None
         result = execute_job(Settings(), worker, job_id)
     except ApplicationError as error:
         raise SystemExit(error.code) from None
-    except ValueError:
+    except ValidationError:
         raise SystemExit("INVALID_WORKER_CONFIGURATION") from None
     except psycopg.Error:
         raise SystemExit("DEPENDENCY_UNAVAILABLE") from None
