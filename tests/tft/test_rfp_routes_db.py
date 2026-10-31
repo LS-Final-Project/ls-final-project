@@ -996,6 +996,8 @@ def test_requirement_list_has_board_fields_and_filters(client, admin, chain):
     add_requirement(admin, chain, "B-4", unresolved=Jsonb(["확인"]), necessity="CONDITION_BOUND")
     url = f"/projects/{chain['project']}/requirements"
     rows = {i["code"]: i for i in data(get(client, f"{url}?limit=100"))["items"]}
+    detail = data(get(client, f"/requirements/{edited}"))
+    assert detail["spec"]["attribute_key"] == "bil"
     assert (rows["B-1"]["attribute_key"], rows["B-1"]["provenance_kind"]) == (
         "bil",
         "system_record",

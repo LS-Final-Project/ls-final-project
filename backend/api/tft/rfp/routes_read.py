@@ -419,6 +419,7 @@ def detail_of(
             equipment=requirement["equipment"],
             task=requirement["task"],
             attribute=requirement["attribute"],
+            attribute_key=requirement["attribute_key"],
             value=requirement["value"],
             unit=requirement["unit"],
             tolerance=requirement["tolerance"],

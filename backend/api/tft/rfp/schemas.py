@@ -417,6 +417,8 @@ class RequirementSpec(Model):
     equipment: str | None
     task: str | None
     attribute: str | None
+    # 비교 어휘 키. 화면 라벨용이고 원문 표현은 attribute다.
+    attribute_key: str | None = None
     value: str | None
     unit: str | None
     # 원문 허용 오차 표기 그대로. null은 '없음'이 아니라 없거나 T15 전 판본(모름)이다.
