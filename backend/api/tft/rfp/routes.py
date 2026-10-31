@@ -90,7 +90,7 @@ P = "/projects/{project_id}"
 async def create_project(
     request: Request, user: User, payload: s.ProjectCreate, idempotency_key: Key
 ) -> SuccessResponse[s.RfpProjectDetail]:
-    """2. 접수. 호출자가 담당 sales가 된다. latest_job은 쓰기 응답에서 항상 null이다."""
+    """2. 접수. 호출자가 담당 sales가 된다."""
     return respond(
         request, await routes_write.create_project(request, user, payload, idempotency_key)
     )

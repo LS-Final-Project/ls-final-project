@@ -207,7 +207,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 
 | 구분 | 값 | 뜻 |
 | --- | --- | --- |
-| 산출물 상태 `output_status` | `INTAKE` 접수 · `ANALYZING` 분석 중 · `REVIEW_DRAFT` 검토본 작성 | 처리 작업 접수와 함께 `ANALYZING`, 검토본 저장으로 `REVIEW_DRAFT`. 입찰 통과·수주와 별개 |
+| 산출물 상태 `output_status` | `INTAKE` 접수 · `ANALYZING` 분석 중 · `REVIEW_DRAFT` 검토본 작성 | 처리 작업 접수와 함께 `ANALYZING`, 처리 실패·취소면 되돌림, 검토본 저장으로 `REVIEW_DRAFT`. 입찰 통과·수주와 별개 |
 | 판단 상태 `judgement_status` | `NEEDS_REVIEW` 검토 필요 · `CONDITION_CHECK` 조건 확인 필요 · `OWNER_CONFIRMED` 담당자 확인 | 프로젝트 단위 사람 판단 요약. 검토본 저장(아래 3.2)이 성공할 때 미해결 필수 조건이 하나도 없으면 `OWNER_CONFIRMED`, 남아 있으면 `CONDITION_CHECK` 유지. 저장 성공 여부와 별개의 축 |
 | 요구 상태 `status` | `EVIDENCE_FOUND` · `CONDITIONAL` · `SPEC_GAP` · `INSUFFICIENT_EVIDENCE` | 자료 없음은 판단 근거 부족이지 미충족이 아님 |
 | 요구 성격 `necessity` | `MANDATORY` · `PREFERRED` · `CONDITION_BOUND` · `UNDETERMINED` | 원문이 구분하지 않으면 `UNDETERMINED` |

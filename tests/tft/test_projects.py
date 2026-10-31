@@ -52,6 +52,7 @@ def project_row(index: int) -> dict:
         "strategic_customer_note": None,
         "strategic_customer_set_by": None,
         "integration_holder": "UNRESOLVED",
+        "latest_job_id": None,
     }
 
 

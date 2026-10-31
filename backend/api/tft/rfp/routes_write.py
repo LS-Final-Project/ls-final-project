@@ -1,6 +1,6 @@
 """경로 2·4·5·6: 프로젝트 접수·수정·담당 지정과 문서 업로드(KAN-188).
 
-세 프로젝트 경로는 같은 RfpProjectDetail을 돌려준다. latest_job은 플랫폼 runtime 소유라 여기서 읽지 않고 null이다.
+세 프로젝트 경로는 같은 RfpProjectDetail을 돌려준다. latest_job은 tft의 접수 기록에서 읽어 작업 ID만 있다.
 원문은 저장소에 먼저 쓰고 DB를 커밋한다. DB가 실패하면 객체만 남는다(실행 계정에 삭제 권한이 없다).
 """
 
@@ -75,7 +75,7 @@ async def project_fields(conn: AsyncConnection[Row], project_id: UUID) -> dict[s
         project_id: 프로젝트 ID.
 
     Returns:
-        dict: RfpProjectDetail 입력. latest_job은 플랫폼 소유라 항상 null이다.
+        dict: RfpProjectDetail 입력. latest_job은 최신 처리 접수의 ID만 있다.
     """
     row, requirements, pending = await repository.project_detail_parts(conn, project_id)
     state = await integration_state(conn, project_id)
@@ -90,7 +90,10 @@ async def project_fields(conn: AsyncConnection[Row], project_id: UUID) -> dict[s
         "pending_proposals_by_origin": {
             origin: pending.get(origin, 0) for origin in s.PendingByOrigin.model_fields
         },
-        "latest_job": None,
+        # 접수 기록에서 읽는다. 상태는 플랫폼 소유라 비워 두고 화면이 작업 상태 경로로 본다.
+        "latest_job": {"job_id": row["latest_job_id"], "status": None, "step": None}
+        if row["latest_job_id"]
+        else None,
         "integration_responsibility": integration_body(state),
     }
 

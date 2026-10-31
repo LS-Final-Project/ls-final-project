@@ -358,3 +358,85 @@ def test_worker_runs_the_real_processor_end_to_end(
         for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
             conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
         conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
+
+
+@pytest.fixture
+def stopped_job(settings, jobs_database, registered_user, project, admin):
+    """ANALYZING인 프로젝트의 접수된 rfp.process 작업(tft_worker 권한은 T14·T18)."""
+    from tests.tft.test_worker_processor_db import apply as apply_tft
+
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+        apply_tft(conn, "infra/migrations/tft/20261110_KAN-188_worker_output_status.sql")
+        conn.execute(
+            "UPDATE tft.projects SET output_status='ANALYZING' WHERE id=%s", (project["project"],)
+        )
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = TftJobRequest(
+                actor_id=registered_user[1],
+                kind="rfp.process",
+                project_id=project["project"],
+                input_version=input_version([project["docver"]]),
+                idempotency_key=str(uuid4()),
+                request_hash="c" * 64,
+            )
+            return (await admit_tft_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    yield job_id
+    with psycopg.connect(admin) as conn:
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
+
+
+def failing(job, emit):
+    raise RuntimeError("synthetic failure")
+
+
+def output_status(admin, project):
+    with psycopg.connect(admin) as conn:
+        return conn.execute(
+            "SELECT output_status FROM tft.projects WHERE id=%s", (project["project"],)
+        ).fetchone()[0]
+
+
+def test_a_failed_job_takes_the_project_out_of_analyzing(
+    worker_settings, admin, project, stopped_job
+):
+    """실패하면 다시 처리할 수 있게 INTAKE로 돌린다."""
+    with pytest.raises(ApplicationError):
+        run(worker_settings, stopped_job, failing)
+    assert output_status(admin, project) == "INTAKE"
+
+
+def test_a_failed_reprocess_keeps_the_saved_review(worker_settings, admin, project, stopped_job):
+    """검토본이 저장돼 있으면 그 상태로 돌린다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute("UPDATE tft.projects SET review_version=1 WHERE id=%s", (project["project"],))
+    with pytest.raises(ApplicationError):
+        run(worker_settings, stopped_job, failing)
+    assert output_status(admin, project) == "REVIEW_DRAFT"
+
+
+def test_a_finished_job_keeps_analyzing_until_the_review_is_saved(
+    worker_settings, admin, project, stopped_job
+):
+    assert run(worker_settings, stopped_job, lambda job, emit: None) == "TFT_JOB_SUCCEEDED"
+    assert output_status(admin, project) == "ANALYZING"
+
+
+def test_a_missing_grant_does_not_stop_the_job_from_failing(
+    worker_settings, jobs_database, admin, project, stopped_job
+):
+    """T18 전 DB에서도 작업 실패는 확정된다(SAVEPOINT)."""
+    from tests.tft.test_worker_processor_db import apply as apply_tft
+
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+    with pytest.raises(ApplicationError):
+        run(worker_settings, stopped_job, failing)
+    assert snapshot(jobs_database, stopped_job)[:2] == ("FAILED", True)
+    assert output_status(admin, project) == "ANALYZING"
