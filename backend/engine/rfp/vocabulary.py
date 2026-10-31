@@ -158,9 +158,12 @@ def _marker_is_for_another_item(value: str) -> bool:
         bool: "630A, delivery TBD" 꼴이면 True.
     """
     parts = re.split(r"[.;,]\s+", value)
-    marked = next((i for i, part in enumerate(parts) if PLACEHOLDER.search(part)), 0)
-    named = re.search(r"[^\W\d_]", PLACEHOLDER.split(parts[marked])[0]) is not None
-    return named and any(QUANTITY.search(part) for part in parts[:marked])
+    marked = [i for i, part in enumerate(parts) if PLACEHOLDER.search(part)]
+    # 표지가 둘 이상이면 어느 쪽이 값 자리인지 모른다.
+    if len(marked) != 1:
+        return False
+    named = re.search(r"[^\W\d_]", PLACEHOLDER.split(parts[marked[0]])[0]) is not None
+    return named and any(QUANTITY.search(part) for part in parts[: marked[0]])
 
 
 def is_placeholder(value: str | None) -> bool:

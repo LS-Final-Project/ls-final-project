@@ -605,6 +605,29 @@ def test_question_and_known_clause_must_belong_to_same_requirement(
         build_draft(**snapshot)
 
 
+def test_a_question_on_a_clause_without_requirements_is_kept_when_the_clause_exists(
+    snapshot: dict[str, Any],
+) -> None:
+    question = snapshot["questions"][0]
+    question.requirement_id = None
+    question.origin.clause_id = UUID(int=901)
+    values = {
+        "project_id": PROJECT,
+        "version": 1,
+        "data_origin": "synthetic",
+        "known_at": NOW,
+        "requirements": [],
+        "integration": s.IntegrationResponsibility(),
+        "questions": [question],
+    }
+    # 프로젝트에 없는 조항은 그대로 거절한다.
+    with pytest.raises(ValueError, match="UNKNOWN_REFERENCE"):
+        build_draft(**values, clause_ids={UUID(int=902)})
+    result = build_draft(**values, clause_ids={UUID(int=901), UUID(int=902)})
+    evidence = [e for row in sentences(result) for e in row.evidence]
+    assert ("clause", str(UUID(int=901))) in {(e.type, e.id) for e in evidence}
+
+
 def test_project_question_without_requirement_does_not_invent_requirement_reference(
     snapshot: dict[str, Any],
 ) -> None:

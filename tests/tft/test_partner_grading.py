@@ -638,6 +638,7 @@ def test_the_seeded_and_own_forms_keep_their_axes():
         "IEC 60076, <Insert value> kV",
         "IEC 60076, delivery TBD",
         "40 C ambient, <Insert value> kV",
+        "630 A, delivery TBD, voltage <Insert value> kV",
         "15 kV / TBD kA",
         "630 A <Insert delivery date>",
         # ponytail 표시 그대로: 글자 값은 미정 쪽으로 둔다.
