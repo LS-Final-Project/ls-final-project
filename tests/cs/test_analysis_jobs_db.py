@@ -320,8 +320,17 @@ def test_the_real_resume_finds_the_ticket_job_after_the_send_is_accepted(
         ([ValueError], "RESUME_FAILED", 1, []),
         # 분류는 시도마다 한다: 일시 오류 뒤 다른 오류가 나면 거기서 멈춘다.
         ([psycopg.OperationalError, ValueError], "RESUME_FAILED", 2, [0.5]),
+        # 문장 상한 초과는 일시 오류 계열이지만 다시 하면 상한이 시도 수만큼 늘어나므로 바로 포기한다.
+        ([psycopg.errors.QueryCanceled], "RESUME_FAILED", 1, []),
     ],
-    ids=["transient-then-ok", "transient-always", "privilege", "code-error", "transient-then-code"],
+    ids=[
+        "transient-then-ok",
+        "transient-always",
+        "privilege",
+        "code-error",
+        "transient-then-code",
+        "statement-timeout",
+    ],
 )
 def test_only_transient_resume_failures_are_retried(
     cs_database, admin, ticket, monkeypatch, errors, expected, calls, sleeps
@@ -375,4 +384,44 @@ def test_resume_bounds_the_checkpoint_connection_wait(cs_database, monkeypatch):
     with pytest.raises(psycopg.OperationalError):
         resume_graph(settings_for(cs_database), uuid4())
     assert seen[0]["connect_timeout"] == str(jobs_module.RESUME_CONNECT_TIMEOUT_S)
-    assert seen[0]["options"] == "-c search_path=checkpoint_cs"
+    assert seen[0]["options"] == (
+        f"-c search_path=checkpoint_cs -c statement_timeout={jobs_module.RESUME_STATEMENT_TIMEOUT_MS}"
+    )
+
+
+def test_the_statement_limit_reaches_the_checkpoint_session(cs_database):
+    """문장 상한은 실제 체크포인트 연결에 걸리고, 상한을 주지 않는 호출(worker 등)은 서버 기본 그대로다."""
+    from backend.agent.cs_runner import make_checkpointer
+
+    settings = settings_for(cs_database)
+    with make_checkpointer(settings, statement_timeout_ms=1234) as saver:
+        row = saver.conn.execute("SELECT current_setting('statement_timeout') AS v").fetchone()
+        path = saver.conn.execute("SELECT current_setting('search_path') AS v").fetchone()
+    assert (row["v"], path["v"]) == ("1234ms", "checkpoint_cs")
+    with make_checkpointer(settings) as saver:
+        row = saver.conn.execute("SELECT current_setting('statement_timeout') AS v").fetchone()
+    assert row["v"] == "0"
+
+
+def test_a_failed_job_lookup_does_not_fail_the_send_refresh(monkeypatch):
+    """재개 전 작업 조회가 DB 오류(503)로 실패해도 예외를 올리지 않고 RESUME_FAILED로 기록만 한다."""
+    from contextlib import asynccontextmanager
+
+    from fastapi import HTTPException
+
+    from backend.shared import database
+
+    @asynccontextmanager
+    async def unavailable(_settings):
+        raise HTTPException(503, "Database is unavailable")
+        yield  # pragma: no cover
+
+    def never(*_args):
+        raise AssertionError("resume must not run without a job")
+
+    monkeypatch.setattr(database, "connection", unavailable)
+    monkeypatch.setattr(jobs_module, "resume_graph", never)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(analysis_jobs=object(), settings=object()))
+    )
+    assert asyncio.run(jobs_module.resume_after_send(request, uuid4())) == "RESUME_FAILED"
