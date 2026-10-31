@@ -29,6 +29,7 @@ const MENU: Group[] = [
       { label: '반복 사례 모음' },
     ],
   },
+  { key: 'dept', label: '부서 검토', leaves: [{ label: '받은 요청', to: '/dept/inbox' }, { label: '검토 답변' }] },
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
@@ -50,6 +51,7 @@ function tabOf(pathname: string) {
   if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
   if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
   if (pathname === '/mail/inbox') return { kind: 'mail-inbox', name: '받은 메일 검토' };
+  if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '받은 요청' };
   if (pathname === '/mail/account') return { kind: 'mail-account', name: '메일 계정' };
   if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
   if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
@@ -82,7 +84,7 @@ export default function LsShell({ children }: { children?: ReactNode } = {}) {
   const navigate = useNavigate();
   const mode = getApiMode();
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
-  const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : pathname.startsWith('/mail') ? 'mail' : 'cs']: true });
+  const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : pathname.startsWith('/mail') ? 'mail' : pathname.startsWith('/dept') ? 'dept' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
   const [toggled, setToggled] = useState(false);
   useEffect(() => {
