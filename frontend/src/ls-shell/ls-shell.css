@@ -786,10 +786,6 @@
 .ls-root .kv-modal>h2{display:flex;align-items:center;height:32px;margin:0;padding:0 12px;background:var(--erp-head);border-bottom:1px solid var(--erp-border);font-size:13px;font-weight:400;color:var(--erp-text)}
 
 /* CS_K_Error(오류 화면): 보드에서 추가한 규칙(기존 선택자는 건드리지 않음) */
-.ls-root .kv-line.full{margin:6px 14px 0;padding:6px 10px;background:#fff;border:1px solid var(--erp-border);color:var(--erp-text);font-size:12.5px}
-.ls-root .kv-line.full b{font-weight:400;color:var(--erp-muted);margin-right:8px}
-.ls-root .kv-line{margin:8px 14px 0;font-size:12px;color:var(--erp-muted)}
-.ls-root .kv-line b{font-weight:300;color:var(--erp-text);font-size:inherit!important}
 .ls-root .kv-err{margin:12px 14px 0;background:#fff;border:1px solid var(--erp-border);padding:18px 20px}
 .ls-root .kv-err h2{margin:0 0 6px;font-size:15px;font-weight:500}
 .ls-root .kv-err p{margin:0 0 10px;font-size:12.5px;line-height:1.6}
