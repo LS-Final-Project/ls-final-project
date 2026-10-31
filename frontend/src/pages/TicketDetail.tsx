@@ -193,7 +193,7 @@ export default function TicketDetail() {
         </section>
         <section className="kv-box">
           <h2>설치 장비 확인<small>확인 전</small></h2>
-          <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} /></div>
+          <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} canWrite={canWrite} /></div>
         </section>
         <TicketAnalysisPanel key={`${ticketId}:${returnFormKey}`} analysis={analysisData} pending={analysis.isPending} workflow={wf} ticketState={data.workflow_state} canWrite={canWrite} busy={busy}
           onConfirm={form => void run('반품 사유를 확정했습니다.', signal => confirmReturn(ticketId, { ...form, version }, signal)).then(ok => { if (ok) setReturnFormKey(key => key + 1); })} />
