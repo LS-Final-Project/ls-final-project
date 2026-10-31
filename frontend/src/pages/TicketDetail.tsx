@@ -9,13 +9,14 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
 import TicketAudit from '../components/TicketAudit';
 import TicketSummary from '../components/TicketSummary';
 import AiDraftDialog from '../components/AiDraftDialog';
+import AnalysisCorrection from '../components/AnalysisCorrection';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
@@ -29,7 +30,7 @@ const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], str
   OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
 };
 type Transfer = WorkflowRecord['transfers'][number];
-type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | 'owner' | 'draft' | null;
+type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | 'owner' | 'draft' | 'correct' | null;
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
 
 const Cell = ({ label, children }: { label: string; children: ReactNode }) =>
@@ -152,6 +153,7 @@ export default function TicketDetail() {
       <KvMore items={[
         { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
+        { label: '분류 정정', note: !analysisData ? 'AI 분류를 읽은 뒤에 정정할 수 있습니다' : !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : 'AI 분류를 사유와 함께 정정합니다', action: analysisData && canWrite && !busy ? () => setDialog('correct') : undefined },
         { label: 'AI 초안 보기', note: 'AI 초안 3개를 읽고 고르거나 직접 씁니다. 보내기는 연결 전', action: () => setDialog('draft') },
         { label: '담당 변경', note: reasons.owner, action: busy || reasons.owner !== undefined ? undefined : () => setDialog('owner') },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
@@ -246,6 +248,9 @@ export default function TicketDetail() {
     {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)}
         onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
+    </KvModal>}
+    {dialog === 'correct' && data && analysisData && <KvModal title={`분류 정정, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => setDialog(null)}>
+      <AnalysisCorrection analysis={analysisData} onDone={() => setDialog(null)} onSubmit={async body => { try { await correctAnalysis(ticketId, body, new AbortController().signal); setNotice({ kind: 'ok', text: '분류 정정을 저장했습니다.' }); } finally { await analysis.refetch(); } }} />
     </KvModal>}
     {dialog === 'draft' && data && <KvModal title={`정보 요청 문안, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => setDialog(null)}>
       <AiDraftDialog analysis={analysisData} ticketLabel={`${data.customer_external_id}, ${data.body_language}`} />

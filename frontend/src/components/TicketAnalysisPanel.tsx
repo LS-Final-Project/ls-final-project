@@ -66,7 +66,7 @@ export default function TicketAnalysisPanel({ analysis, pending, workflow, ticke
         <div className="kv-field"><span>우선순위</span><span className="ro">{rule.priority}</span></div>
         <div className="kv-field"><span>처리 기한</span><span className="ro">첫 응답 {formatStamp(analysis?.rules?.first_response_due?.effective ?? rule.first_response_due)}, 해결 {formatStamp(analysis?.rules?.resolution_due?.effective ?? rule.resolution_due)}</span></div>
       </>}
-      <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류는 확정값이 아니라 제안입니다. 사람이 정정한 값은 사람 정정으로 표시합니다. 이 화면에서 분류를 정정하지는 않습니다.</div>
+      <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류는 확정값이 아니라 제안입니다. 사람이 정정한 값은 사람 정정으로 표시합니다. 정정은 위쪽 기타 메뉴의 "분류 정정"에서 합니다.</div>
 
       {isReturn && <form onSubmit={submit} aria-label="반품 확정" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--erp-border-soft)' }}>
         <div className="kv-sub" style={{ margin: '0 0 6px', color: 'var(--erp-text)' }}>반품 확정 (검사 뒤 사람이 기록)</div>
