@@ -164,7 +164,7 @@ export default function RfpTable() {
       }}
     /> },
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_r, index) => index + 1 },
-    { key: 'code', header: '요구', width: 104, cell: r => <button className="lnk" aria-pressed={r.requirement_id === selected}>{requirementNo(r.code)}</button> },
+    { key: 'code', header: '요구', width: 104, sort: 'ascending', cell: r => <button className="lnk" aria-pressed={r.requirement_id === selected}>{requirementNo(r.code)}</button> },
     { key: 'equipment', header: '장비', cell: r => r.equipment ?? '' },
     { key: 'task', header: '작업', width: 96, cell: r => r.task ?? '' },
     { key: 'attribute', header: '속성', cell: r => attributeName(r.attribute_key, r.attribute) },

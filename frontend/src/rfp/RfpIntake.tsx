@@ -43,7 +43,7 @@ export default function RfpIntake() {
   const items = projects.data?.data.items ?? [];
   const nameOf = useNames(items.flatMap(p => [p.sales_user_id, p.responsible_user_id]));
   if (!access.ready) return <BusinessGate access={access} title="접수 및 요구 검토" />;
-  const filter = (change: ProjectFilters) => { setFilters({ ...filters, ...change }); setCursors([undefined]); };
+  const filter = (change: ProjectFilters) => { setFilters({ ...filters, ...change }); setCursors([undefined]); setChecked(new Set()); };
   // 서버 검색어는 2~100자다. 한 글자는 보내지 않고 알린다.
   const search = text.trim();
   const shortSearch = search.length === 1;
@@ -74,7 +74,7 @@ export default function RfpIntake() {
     { key: 'questions', header: '열린 질문', width: 64, className: 'c', cell: p => count(p.open_questions_count, p.requirements_count > 0) },
     { key: 'sales', header: '담당', width: 104, className: 'c', cell: p => nameOf(p.sales_user_id) || (p.sales_user_id ? '지정' : '미지정') },
     { key: 'owner', header: '책임자', width: 104, className: 'c', cell: p => nameOf(p.responsible_user_id) || (p.responsible_user_id ? '지정' : '미지정') },
-    { key: 'created', header: '접수일', width: 96, className: 'd', cell: p => formatDate(p.created_at.slice(0, 10)) },
+    { key: 'created', header: '접수일', width: 96, className: 'd', sort: 'descending', cell: p => formatDate(p.created_at.slice(0, 10)) },
   ];
   const list = <>
     <KvCond onSearch={() => { if (!shortSearch) filter({ q: search || undefined }); }}>
@@ -106,8 +106,8 @@ export default function RfpIntake() {
     {(cursors.length > 1 || next) && <KvFoot
       count={`${cursors.length}쪽, ${items.length}건`}
       more={<>
-        <button className="kb" disabled={projects.isFetching || cursors.length === 1} onClick={() => setCursors(cursors.slice(0, -1))}>이전</button>
-        <button className="kb" disabled={projects.isFetching || !next} onClick={() => next && setCursors([...cursors, next])}>다음</button>
+        <button className="kb" disabled={projects.isFetching || cursors.length === 1} onClick={() => { setCursors(cursors.slice(0, -1)); setChecked(new Set()); }}>이전</button>
+        <button className="kb" disabled={projects.isFetching || !next} onClick={() => { if (next) { setCursors([...cursors, next]); setChecked(new Set()); } }}>다음</button>
       </>}
     />}
     {creating && <ProjectForm onCancel={() => setCreating(false)} />}

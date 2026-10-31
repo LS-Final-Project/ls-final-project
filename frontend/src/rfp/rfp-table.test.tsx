@@ -193,6 +193,14 @@ describe('자사 대응표', () => {
     await waitFor(() => expect(calls.some(c => c.url.includes('next_owner_field=TECH'))).toBe(true));
   });
 
+  it('요구 번호 순임을 머리글에 알리고 기본 정렬은 서버 순서 그대로다', async () => {
+    renderApp(PATH);
+    const table = await screen.findByRole('table', { name: '자사 대응표' });
+    expect(within(table).getByRole('columnheader', { name: '요구' }).getAttribute('aria-sort')).toBe('ascending');
+    await waitFor(() => expect(calls.some(c => c.url.includes('/requirements?'))).toBe(true));
+    expect(calls.filter(c => c.url.includes('/requirements?')).every(c => !c.url.includes('sort'))).toBe(true);
+  });
+
   it('요구가 없으면 변경 제안을 열 수 없고 F6도 동작하지 않는다', async () => {
     requirements = [];
     renderApp(PATH);
@@ -489,6 +497,28 @@ describe('승인 화면', () => {
     fireEvent.change(await screen.findByLabelText('상태'), { target: { value: '' } });
     await screen.findByRole('table', { name: '제안 내용' });
     expect((within(document.querySelector('.kv-btns') as HTMLElement).getByRole('button', { name: '승인' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // 조건을 바꿔도 행이 남는 값을 골라, 다시 읽은 뒤의 체크를 본다.
+  it.each([
+    ['상태', ''],
+    ['들어온 곳', 'web'],
+    ['요구', 'R'],
+  ])('%s 조건을 바꾸면 체크를 비운다', async (name, value) => {
+    proposals = [{ ...MOCK_PROPOSALS[0], requirement_id: MOCK_REQUIREMENTS[0].requirement_id }];
+    await open();
+    const box = async () => await screen.findByRole('checkbox', { name: /제안 선택/ }) as HTMLInputElement;
+    fireEvent.click(await box());
+    expect((await box()).checked).toBe(true);
+    fireEvent.change(screen.getByLabelText(name), { target: { value } });
+    await new Promise(resolve => { setTimeout(resolve, 50); });
+    expect((await box()).checked).toBe(false);
+  });
+
+  it('일시는 서버 순서(오래된 순)를 머리글에 알린다', async () => {
+    await open();
+    const head = within(screen.getByRole('table', { name: '변경 제안' })).getByRole('columnheader', { name: '일시' });
+    expect(head.getAttribute('aria-sort')).toBe('ascending');
   });
 
   it('자동으로 고른 첫 행은 보여 주기만 하고 행을 눌러야 승인·기각이 열린다', async () => {
