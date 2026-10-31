@@ -11,12 +11,13 @@ it, and an unconfirmed return subtype is never treated as NON_DEFECT.
 import csv
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import Literal, get_args
 
 from backend.engine.cs.classification import Category, Urgency
+from backend.engine.cs.improvement_candidates import FirmwareRelease
 
 POLICY_DIR = Path(__file__).with_name("policy")
 # SHA-256 of the copied reference files. Changing a table needs a reviewed update here.
@@ -25,6 +26,10 @@ POLICY_FILES = {
     "routing_rules.csv": "caacc47fe5a5b2167a8725285d1e1bcb7324b4792411e772b94b4c1ea846980d",
     "sla_policy.csv": "0ffa8d265cc863b3a1add2db0628d181d9e3584b015c0adbce47b39be6ac0fe2",
     "product_master.csv": "e8d6784d456499f706e5468eb6334790b32a7a145c43378e36d5d76a6ab19cbb",
+}
+# Reference data, not a rule table: it stays out of POLICY_VERSION so stored decisions keep theirs.
+REFERENCE_FILES = {
+    "firmware_history.csv": "4ea1f156d6d7dd0926879b154f5b5166f700c30adb8fc09284facc37e7ad5abd",
 }
 POLICY_VERSION = (
     "cs-rules-v1:"
@@ -120,9 +125,22 @@ class _Policy:
 def _read(name: str) -> list[dict[str, str]]:
     path = POLICY_DIR / name
     data = path.read_bytes()
-    if hashlib.sha256(data).hexdigest() != POLICY_FILES[name]:
+    if hashlib.sha256(data).hexdigest() != (POLICY_FILES | REFERENCE_FILES)[name]:
         raise RuntimeError(f"{name} changed without updating POLICY_FILES")
     return list(csv.DictReader(data.decode("utf-8-sig").splitlines()))
+
+
+@cache
+def firmware_releases() -> tuple[FirmwareRelease, ...]:
+    """Firmware release history, the input of the improvement candidate firmware rule."""
+    return tuple(
+        FirmwareRelease(
+            product_code=row["product_code"],
+            fw_version=row["fw_version"],
+            release_date=date.fromisoformat(row["release_date"]),
+        )
+        for row in _read("firmware_history.csv")
+    )
 
 
 @cache

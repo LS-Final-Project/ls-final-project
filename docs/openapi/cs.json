@@ -276,6 +276,372 @@
         "title": "Baseline",
         "type": "object"
       },
+      "CandidateCollect": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Judge as of this time. Defaults to now; a future time is a 422.",
+            "title": "As Of"
+          }
+        },
+        "title": "CandidateCollect",
+        "type": "object"
+      },
+      "CandidateCollected": {
+        "properties": {
+          "already_requested": {
+            "title": "Already Requested",
+            "type": "integer"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "document_candidates": {
+            "const": "NOT_CONNECTED",
+            "default": "NOT_CONNECTED",
+            "title": "Document Candidates",
+            "type": "string"
+          },
+          "eligible": {
+            "description": "Eligible groups, saved or not.",
+            "title": "Eligible",
+            "type": "integer"
+          },
+          "request_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Request Ids",
+            "type": "array"
+          },
+          "rules_version": {
+            "title": "Rules Version",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "skipped": {
+            "description": "Eligible groups not saved. A fault request needs a proposed department.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "as_of",
+          "rules_version",
+          "eligible",
+          "created",
+          "already_requested",
+          "skipped",
+          "request_ids"
+        ],
+        "title": "CandidateCollected",
+        "type": "object"
+      },
+      "CandidateItem": {
+        "additionalProperties": false,
+        "properties": {
+          "cases_total": {
+            "title": "Cases Total",
+            "type": "integer"
+          },
+          "cases_without_customer": {
+            "title": "Cases Without Customer",
+            "type": "integer"
+          },
+          "condition_status": {
+            "enum": [
+              "CONFIRMED",
+              "UNKNOWN"
+            ],
+            "title": "Condition Status",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "display_state": {
+            "enum": [
+              "CONFIRMED_CANDIDATE",
+              "CONDITION_UNCONFIRMED",
+              "INSUFFICIENT_EVIDENCE",
+              "NOT_ELIGIBLE"
+            ],
+            "title": "Display State",
+            "type": "string"
+          },
+          "distinct_customers": {
+            "title": "Distinct Customers",
+            "type": "integer"
+          },
+          "distinct_customers_in_best_window": {
+            "title": "Distinct Customers In Best Window",
+            "type": "integer"
+          },
+          "evidence": {
+            "description": "as_of\uae4c\uc9c0 \uc54c\ub824\uc9c4 \uae30\ub85d \uc804\ubd80, \uc2dc\uac01\uc21c.",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "firmware_rule_applied": {
+            "title": "Firmware Rule Applied",
+            "type": "boolean"
+          },
+          "first_known_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Known At"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_released_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Released On"
+          },
+          "outcome": {
+            "enum": [
+              "ELIGIBLE",
+              "NOT_ELIGIBLE",
+              "INSUFFICIENT_EVIDENCE"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uae30\uc900 \ub3c4\ub2ec \uc2dc\uac01. \ubbf8\ub2ec\uc774\uba74 null.",
+            "title": "Reached At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "REPEAT_90D_3_CUSTOMERS",
+              "FIRMWARE_FIX_RELEASED",
+              "DOCUMENT_ERROR_EVIDENCE",
+              "REPEATED_SPEC_3_TICKETS",
+              "BELOW_THRESHOLD",
+              "NO_CUSTOMER_ID",
+              "NO_KNOWN_AT",
+              "FW_VERSION_UNKNOWN",
+              "FW_VERSION_NOT_COMPARABLE",
+              "NO_EVIDENCE_LOCATION"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The fault request of this group, if any.",
+            "title": "Request Id"
+          },
+          "request_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DRAFT",
+                  "REVIEWED",
+                  "SENT",
+                  "ACKNOWLEDGED",
+                  "ADOPTED",
+                  "INFO_REQUESTED",
+                  "REJECTED",
+                  "ACTION_TAKEN",
+                  "FOLLOW_UP",
+                  "COMPLETED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Status"
+          },
+          "request_type": {
+            "const": "FAULT",
+            "default": "FAULT",
+            "title": "Request Type",
+            "type": "string"
+          },
+          "required_customers": {
+            "title": "Required Customers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product_code",
+          "fault_id",
+          "outcome",
+          "reason_code",
+          "reason",
+          "reached_at",
+          "first_known_at",
+          "distinct_customers",
+          "distinct_customers_in_best_window",
+          "required_customers",
+          "cases_total",
+          "cases_without_customer",
+          "firmware_rule_applied",
+          "condition_status",
+          "evidence",
+          "data_origin",
+          "display_state",
+          "request_id",
+          "request_status"
+        ],
+        "title": "CandidateItem",
+        "type": "object"
+      },
+      "CandidateList": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "document_candidates": {
+            "const": "NOT_CONNECTED",
+            "default": "NOT_CONNECTED",
+            "title": "Document Candidates",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rules_version": {
+            "title": "Rules Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "as_of",
+          "rules_version",
+          "items"
+        ],
+        "title": "CandidateList",
+        "type": "object"
+      },
+      "CandidateSkipped": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_PROPOSED_DEPARTMENT",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_origin",
+          "product_code",
+          "fault_id",
+          "reason_code"
+        ],
+        "title": "CandidateSkipped",
+        "type": "object"
+      },
       "CauseItem": {
         "description": "\uc6d0\uc778 \ud310\uc815. finding\u00b7\uae30\uc900\u00b7\ub300\uc0c1 \uac12\uc774 \uc5c6\ub2e4.",
         "properties": {
@@ -2575,6 +2941,50 @@
         "title": "EvidenceInput",
         "type": "object"
       },
+      "EvidenceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "case_id",
+          "customer_id",
+          "known_at"
+        ],
+        "title": "EvidenceRef",
+        "type": "object"
+      },
       "EvidenceRemoval": {
         "additionalProperties": false,
         "description": "\uadfc\uac70 \uc81c\uc678. \uac1c\uc120\uc694\uccad\uc758 \uadfc\uac70 \uc81c\uc678\uc640 \uac19\uc774 \uc77d\uc740 \ud310\ubcf8\uacfc \uc0ac\uc720\uac00 \ud544\uc694\ud558\ub2e4.",
@@ -2920,6 +3330,53 @@
       },
       "ImprovementRequest": {
         "properties": {
+          "candidate_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate As Of"
+          },
+          "candidate_reached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Reached At"
+          },
+          "candidate_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the system raised this candidate. Null on a manual request.",
+            "title": "Candidate Reason Code"
+          },
+          "candidate_rules_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rules Version"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -4264,6 +4721,41 @@
           "reason"
         ],
         "title": "ReasonRequest",
+        "type": "object"
+      },
+      "ReceivedTransfer": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "OPEN",
+              "RESULT_SUBMITTED",
+              "RETURNED_BY_DEPT",
+              "RECALLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "transferred_at": {
+            "format": "date-time",
+            "title": "Transferred At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "round",
+          "dept_code",
+          "status",
+          "transferred_at"
+        ],
+        "title": "ReceivedTransfer",
         "type": "object"
       },
       "RecordView": {
@@ -6337,6 +6829,38 @@
         "title": "SuccessResponse[AuditList]",
         "type": "object"
       },
+      "SuccessResponse_CandidateCollected_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CandidateCollected"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CandidateCollected]",
+        "type": "object"
+      },
+      "SuccessResponse_CandidateList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CandidateList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CandidateList]",
+        "type": "object"
+      },
       "SuccessResponse_ConditionComparison_": {
         "properties": {
           "data": {
@@ -7330,6 +7854,17 @@
               }
             ],
             "title": "Subject"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReceivedTransfer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest transfer to the department in the dept filter. None without it."
           },
           "workflow_state": {
             "enum": [
@@ -8740,6 +9275,181 @@
         "summary": "Cs Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/cs/improvement-candidates": {
+      "get": {
+        "operationId": "cs_list_improvement_candidates",
+        "parameters": [
+          {
+            "description": "Judge as of this time. Default now.",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Judge as of this time. Default now.",
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "ELIGIBLE",
+                    "NOT_ELIGIBLE",
+                    "INSUFFICIENT_EVIDENCE"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CandidateList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Only C/S may read or collect candidates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "as_of is in the future"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Candidates",
+        "tags": [
+          "improvement-candidates"
+        ]
+      }
+    },
+    "/api/v1/cs/improvement-candidates/collect": {
+      "post": {
+        "description": "Saves eligible groups that have no request yet. Running it again adds nothing.",
+        "operationId": "cs_collect_improvement_candidates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateCollect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CandidateCollected_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Only C/S may read or collect candidates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "as_of is in the future"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Collect Candidates",
+        "tags": [
+          "improvement-candidates"
         ]
       }
     },
@@ -12273,6 +12983,62 @@
               ],
               "title": "Sort",
               "type": "string"
+            }
+          },
+          {
+            "description": "Requests this department received: transferred to it in any round.",
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Requests this department received: transferred to it in any round.",
+              "title": "Dept"
+            }
+          },
+          {
+            "description": "Status of the latest transfer to dept. Needs dept.",
+            "in": "query",
+            "name": "transfer_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "OPEN",
+                    "RESULT_SUBMITTED",
+                    "RETURNED_BY_DEPT",
+                    "RECALLED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Status of the latest transfer to dept. Needs dept.",
+              "title": "Transfer Status"
             }
           }
         ],

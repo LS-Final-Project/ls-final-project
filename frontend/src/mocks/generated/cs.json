@@ -16,7 +16,8 @@
             "channel": "PHONE",
             "product_code": "TRF-OIL-1000",
             "workflow_state": "IN_REVIEW",
-            "owner_user_id": null
+            "owner_user_id": null,
+            "transfer": null
           },
           {
             "id": "22222222-2222-4222-8222-222222222222",
@@ -28,7 +29,8 @@
             "channel": "PARTNER_PORTAL",
             "product_code": "TRF-OIL-1000",
             "workflow_state": "CLOSED",
-            "owner_user_id": null
+            "owner_user_id": null,
+            "transfer": null
           }
         ],
         "next_cursor": null
@@ -472,6 +474,10 @@
             "QA_CLAIM"
           ],
           "receiver_unconfirmed": false,
+          "candidate_reason_code": null,
+          "candidate_reached_at": null,
+          "candidate_rules_version": null,
+          "candidate_as_of": null,
           "reviewed_by": null,
           "reviewed_at": null,
           "sent_at": null,

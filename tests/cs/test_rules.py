@@ -1,5 +1,6 @@
 """KAN-104 rule engine without an LLM: fixed policy, calendar clock, boundaries and invalid input."""
 
+import hashlib
 import inspect
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -247,3 +248,19 @@ def test_decide_passes_the_confirmed_subtype_through():
         confirmed_subtype="NON_DEFECT",
     )
     assert (confirmed.routing.dept, confirmed.routing.review_reasons) == ("SCM", ())
+
+
+def test_firmware_history_is_locked_but_stays_out_of_the_rule_version(monkeypatch):
+    assert "firmware_history.csv" not in rules.POLICY_FILES
+    joined = "".join(rules.POLICY_FILES[name] for name in sorted(rules.POLICY_FILES))
+    digest = hashlib.sha256(joined.encode()).hexdigest()[:12]
+    assert rules.POLICY_VERSION == f"cs-rules-v1:{digest}"
+    assert len(rules.firmware_releases()) == 39
+    first = rules.firmware_releases()[0]
+    assert (first.product_code, first.fw_version) == ("ACB-AS-2000", "1.2")
+    monkeypatch.setitem(rules.REFERENCE_FILES, "firmware_history.csv", "0" * 64)
+    rules.firmware_releases.cache_clear()
+    with pytest.raises(RuntimeError, match="firmware_history.csv changed"):
+        rules.firmware_releases()
+    monkeypatch.undo()
+    rules.firmware_releases.cache_clear()

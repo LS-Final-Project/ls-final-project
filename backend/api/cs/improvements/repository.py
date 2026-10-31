@@ -1,7 +1,8 @@
 """Queries for improvement requests. Tables come from infra/migrations/cs."""
 
+from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
@@ -14,7 +15,8 @@ REQUEST_COLUMNS = (
     "fw_released_on, status, version, current_round, cs_owner, problem_statement, "
     "confirmed_facts, inconsistencies, missing_info, not_claimed, review_task, proposed_depts, "
     "reviewed_by, reviewed_at, sent_at, followup_plan, followup_result, completed_by, "
-    "completed_at, created_by, created_at"
+    "completed_at, created_by, created_at, candidate_reason_code, candidate_reached_at, "
+    "candidate_rules_version, candidate_as_of"
 )
 # Requests a department user may read: sent to the department in any round, or (for a
 # manager) proposed to a managed department.
@@ -366,3 +368,78 @@ async def sent_by(conn: AsyncConnection[Row], request_id: UUID) -> UUID | None:
     )
     row = await cursor.fetchone()
     return row["actor_user_id"] if row else None
+
+
+# --- KAN-202: candidates ----------------------------------------------------------------
+
+
+async def candidate_cases(conn: AsyncConnection[Row], as_of: datetime) -> list[Row]:
+    """Resolution records known by as_of, with the ticket's customer."""
+    cursor = await conn.execute(
+        "SELECT rc.id AS case_id, rc.ticket_id, rc.product_code, rc.fault_id, "
+        "t.customer_external_id AS customer_id, rc.known_at, rc.root_cause_type, "
+        "rc.fw_version_at_issue, rc.data_origin, rc.resolved_by_dept "
+        "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
+        # A request's fault_id has a format check. Anything else cannot become a request.
+        "WHERE rc.known_at <= %s AND rc.fault_id ~ '^FLT-[0-9]{3}$' ORDER BY rc.known_at, rc.id",
+        (as_of,),
+    )
+    return await cursor.fetchall()
+
+
+async def confirmed_groups(
+    conn: AsyncConnection[Row], as_of: datetime
+) -> set[tuple[str, str, str]]:
+    """(data_origin, product, fault) whose conditions were all confirmed by as_of.
+
+    Same rule as the comparison's computed_condition_status, on the newest version known then.
+    """
+    cursor = await conn.execute(
+        "SELECT v.data_origin, c.product_code, c.fault_id FROM cs.condition_comparisons c "
+        "JOIN LATERAL (SELECT cv.version, cv.data_origin FROM cs.condition_comparison_versions cv "
+        "WHERE cv.comparison_id = c.id AND cv.known_at <= %s ORDER BY cv.version DESC LIMIT 1) v "
+        "ON true WHERE EXISTS (SELECT 1 FROM cs.condition_comparison_items i "
+        "WHERE i.comparison_id = c.id AND i.version = v.version AND i.kind = 'CONDITION') "
+        "AND NOT EXISTS (SELECT 1 FROM cs.condition_comparison_items i "
+        "WHERE i.comparison_id = c.id AND i.version = v.version AND i.kind = 'CONDITION' "
+        "AND i.judgement <> 'CONFIRMED')",
+        (as_of,),
+    )
+    return {(r["data_origin"], r["product_code"], r["fault_id"]) for r in await cursor.fetchall()}
+
+
+async def fault_requests(conn: AsyncConnection[Row]) -> dict[tuple[str, str, str], Row]:
+    """The newest fault request of each group, whoever wrote it."""
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (data_origin, product_code, fault_id) "
+        "id, status, data_origin, product_code, fault_id FROM cs.improvement_requests "
+        "WHERE request_type = 'FAULT' "
+        "ORDER BY data_origin, product_code, fault_id, created_at DESC, id DESC"
+    )
+    return {
+        (r["data_origin"], r["product_code"], r["fault_id"]): r for r in await cursor.fetchall()
+    }
+
+
+async def insert_candidate(conn: AsyncConnection[Row], values: Row) -> bool:
+    """Saves a candidate. False when another run saved the same group first."""
+    columns = ", ".join(values)
+    cursor = await conn.execute(
+        f"INSERT INTO cs.improvement_requests ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))}) "
+        "ON CONFLICT (product_code, fault_id, data_origin) "
+        "WHERE origin = 'SYSTEM_CANDIDATE' AND request_type = 'FAULT' DO NOTHING RETURNING id",
+        tuple(values.values()),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def insert_run_audit(
+    conn: AsyncConnection[Row], run_id: UUID, actor: UUID, changes: Row
+) -> None:
+    await conn.execute(
+        "INSERT INTO cs.audit_events "
+        "(id, entity_type, entity_id, action, version, actor_user_id, changes) "
+        "VALUES (%s, 'improvement_candidate_run', %s, 'create', 1, %s, %s)",
+        (uuid4(), run_id, actor, Jsonb(changes)),
+    )

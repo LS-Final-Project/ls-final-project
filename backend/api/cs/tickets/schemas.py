@@ -14,6 +14,7 @@ from backend.shared.models import CUSTOMER_ID
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
+TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 # Live workflow state (KAN-108). The provided `status` is source history, not this value.
 WorkflowState = Literal[
     "RECEIVED", "IN_REVIEW", "WAITING_CUSTOMER", "ANSWERED", "TRANSFERRED", "CLOSED"
@@ -21,6 +22,13 @@ WorkflowState = Literal[
 Code = Annotated[str, Field(min_length=1, max_length=64)]
 CustomerId = Annotated[str, Field(pattern=f"^{CUSTOMER_ID}$")]
 Subject = Annotated[str, Field(min_length=1, max_length=500)]
+
+
+class ReceivedTransfer(BaseModel):
+    round: int
+    dept_code: str
+    status: TransferStatus
+    transferred_at: datetime
 
 
 class TicketSummary(BaseModel):
@@ -37,6 +45,10 @@ class TicketSummary(BaseModel):
     workflow_state: WorkflowState
     owner_user_id: UUID | None = Field(
         default=None, description="C/S agent in charge. None until review starts."
+    )
+    transfer: ReceivedTransfer | None = Field(
+        default=None,
+        description="Latest transfer to the department in the dept filter. None without it.",
     )
 
 
