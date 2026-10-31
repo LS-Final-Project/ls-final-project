@@ -29,6 +29,8 @@ class ReceivedTransfer(BaseModel):
     dept_code: str
     status: TransferStatus
     transferred_at: datetime
+    reason: str = Field(description="Why C/S sent this request to the department.")
+    customer_external_id: str
 
 
 class TicketSummary(BaseModel):

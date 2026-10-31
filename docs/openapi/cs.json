@@ -4725,8 +4725,17 @@
       },
       "ReceivedTransfer": {
         "properties": {
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
           "dept_code": {
             "title": "Dept Code",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why C/S sent this request to the department.",
+            "title": "Reason",
             "type": "string"
           },
           "round": {
@@ -4753,7 +4762,9 @@
           "round",
           "dept_code",
           "status",
-          "transferred_at"
+          "transferred_at",
+          "reason",
+          "customer_external_id"
         ],
         "title": "ReceivedTransfer",
         "type": "object"

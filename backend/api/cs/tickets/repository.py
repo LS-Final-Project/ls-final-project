@@ -105,9 +105,10 @@ async def latest_transfers(
 ) -> dict[UUID, Row]:
     """The latest transfer of each ticket to one department. Ended ones are kept (KAN-202)."""
     cursor = await conn.execute(
-        "SELECT DISTINCT ON (ticket_id) ticket_id, round, dept_code, status, transferred_at "
-        "FROM cs.ticket_transfers WHERE ticket_id = ANY(%s) AND dept_code = %s "
-        "ORDER BY ticket_id, round DESC",
+        "SELECT DISTINCT ON (x.ticket_id) x.ticket_id, x.round, x.dept_code, x.status, "
+        "x.transferred_at, x.reason, t.customer_external_id "
+        "FROM cs.ticket_transfers x JOIN cs.tickets t ON t.id = x.ticket_id "
+        "WHERE x.ticket_id = ANY(%s) AND x.dept_code = %s ORDER BY x.ticket_id, x.round DESC",
         (ticket_ids, dept),
     )
     return {row["ticket_id"]: row for row in await cursor.fetchall()}
