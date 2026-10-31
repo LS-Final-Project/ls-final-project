@@ -54,7 +54,7 @@ function CustomersView() {
     { key: 'subject', header: '제목', className: 't', headClass: '', cell: item => item.subject || '(제목 없음)' },
     { key: 'channel', header: '접수 경로', width: 80, className: 'c', cell: item => CHANNEL_LABEL[item.channel as keyof typeof CHANNEL_LABEL] ?? item.channel },
     { key: 'product', header: '제품', width: 150, headClass: '', cell: item => item.product_code },
-    { key: 'state', header: '상태', width: 100, className: 'c', cell: item => STATE_LABEL[item.workflow_state] },
+    { key: 'state', header: '상태', width: 100, className: 'c', cell: item => STATE_LABEL[item.workflow_state] ?? item.workflow_state },
   ];
   const requestColumns: KvColumn<Request>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_item, index) => index + 1 },
@@ -65,7 +65,7 @@ function CustomersView() {
     { key: 'evidence', header: '근거 문의', headClass: '', cell: item => `${item.fault_id ?? '고장 ID 없음'}, 근거 문의 ${item.evidence_tickets}건` },
   ];
   const exportCsv = () => data && downloadCsv(`고객_이력_${data.customer_external_id}`, ['문의번호', '접수일시', '제목', '접수 경로', '제품', '상태'],
-    data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject ?? '', item.channel, item.product_code, STATE_LABEL[item.workflow_state]]));
+    data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject ?? '', item.channel, item.product_code, STATE_LABEL[item.workflow_state] ?? item.workflow_state]));
 
   return <main>
     <KvTitle path="C/S 관리" title="고객 이력" code="CS0103">

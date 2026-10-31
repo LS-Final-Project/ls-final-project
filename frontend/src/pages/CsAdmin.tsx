@@ -45,7 +45,7 @@ function AdminView() {
 
   const judges: Judge[] = o ? [
     { label: '7일 이상 미처리', count: o.tickets.open_age.over_7_days, what: '담당자가 혼자 못 푸는 건인지 보고, 재배정하거나 부서에 독촉합니다.', go: { to: '/cs/tickets', text: '문의 조회, 7일 이상' } },
-    { label: '담당자 없음', count: ownerRows ? ownerRows.filter(item => item.owner_user_id === null).reduce((sum, item) => sum + item.open, 0) : null, what: '접수만 되고 아무도 맡지 않은 문의. 담당자를 정해야 움직입니다.', go: null },
+    { label: '담당자 없음', count: ownerRows ? ownerRows.filter(item => item.owner_user_id === null).reduce((sum, item) => sum + item.open, 0) : null, what: '접수만 되고 아무도 맡지 않은 문의. 담당자를 정해야 움직입니다. 진행은 전체 기간 기준이며 고객 조건을 적용하지 않습니다.', go: null },
     { label: '부서가 반송·취소한 검토 요청', count: o.departments.reduce((sum, item) => sum + item.returned_or_recalled, 0), what: '부서가 자기 일이 아니라고 돌려보낸 건. 다른 부서로 다시 보낼지 정합니다.', go: null },
     { label: '부서 답변 왔는데 확인 전', count: o.departments.reduce((sum, item) => sum + Math.max(0, item.results_submitted - item.results_accepted), 0), what: '부서는 답했는데 담당자가 아직 고객 답변으로 옮기지 않은 건.', go: { to: '/cs/tickets', text: '문의 조회, 검토 답변 확인' } },
     { label: '개선요청 검토 부서 미정', count: o.improvements ? o.improvements.receiver_unconfirmed : null, what: '개선요청이 어느 부서로 가야 할지 정해지지 않았습니다.', go: { to: '/cs/improvements', text: '개선요청 현황' } },

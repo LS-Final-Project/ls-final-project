@@ -127,3 +127,10 @@ test('URLSearchParams.size가 없는 환경에서도 필터를 보존한다', ()
     expect(statsQuery({ start: '', end: '', dept: '', customer: '' }, 'overview')).toBe('');
   } finally { if (descriptor) Object.defineProperty(URLSearchParams.prototype, 'size', descriptor); else Reflect.deleteProperty(URLSearchParams.prototype, 'size'); }
 });
+
+test('고객 이력은 라벨 표에 없는 문의 상태를 빈 칸이 아니라 서버 값 그대로 보인다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: { customer_external_id: 'C1', received: 1, unconfirmed: [], by_state: { NEW_STATE: 1 }, by_product: {}, tickets: [{ id: 't', external_id: 'T-1', received_at: '2026-10-01T00:00:00Z', subject: 's', channel: 'EMAIL', product_code: 'P', workflow_state: 'NEW_STATE', data_origin: 'synthetic' }], units: [], improvement_requests: [] } })));
+  customers(); fireEvent.change(screen.getByLabelText('고객 ID'), { target: { value: 'C1' } }); fireEvent.click(screen.getByRole('button', { name: '조회' }));
+  const row = (await screen.findByRole('link', { name: 'T-1' })).closest('tr')!;
+  expect(row.textContent).toContain('NEW_STATE');
+});
