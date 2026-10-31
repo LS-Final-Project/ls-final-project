@@ -20,6 +20,8 @@ from backend.api.tft.partners.grading import (
 )
 from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
+from backend.api.tft.rfp.comparison import load_own_products
+from backend.engine.rfp.vocabulary import form_axes, is_placeholder
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -454,6 +456,36 @@ def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
     assert "요구값 미정" in row.reasons[-1]
 
 
+FIXED_FUSED_GRADES = {
+    "P-A": "REVIEW",
+    "P-B": "REVIEW",
+    "P-C": "REFERENCE_ONLY",
+    "P-D": "REVIEW",
+    "P-E": "REVIEW",
+    "L-A": "EXCLUDED",
+    "L-B": "REVIEW",
+    "L-C": "EXCLUDED",
+    "L-D": "EXCLUDED",
+    "M-A": "EXCLUDED",
+    "M-B": "EXCLUDED",
+    "T-A": "REVIEW",
+}
+DRAWOUT_VCB_GRADES = {
+    "P-A": "EXCLUDED",
+    "P-B": "EXCLUDED",
+    "P-C": "REFERENCE_ONLY",
+    "P-D": "EXCLUDED",
+    "P-E": "EXCLUDED",
+    "L-A": "REVIEW",
+    "L-B": "REVIEW",
+    "L-C": "EXCLUDED",
+    "L-D": "EXCLUDED",
+    "M-A": "REVIEW",
+    "M-B": "REVIEW",
+    "T-A": "REVIEW",
+}
+
+
 @pytest.mark.parametrize(
     ("wanted", "held", "name"),
     [
@@ -488,6 +520,32 @@ def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
         ("epoxy coated transformer", "oil-immersed transformer", "unknown"),
         # 퓨즈를 명시하면 부하개폐기여도 읽는다.
         ("fused load-break switch", "VCB switchgear", "failed"),
+        # 한글 축. 조사가 붙거나 띄어쓰기가 달라도 읽고, 영문과 같은 값으로 본다.
+        ("고정식으로 설치", "drawout switchgear", "failed"),
+        ("인출형 배전반", "fixed-mount switchgear", "failed"),
+        ("진공차단기 배전반", "fused switch", "failed"),
+        ("기중 차단기", "VCB switchgear", "failed"),
+        ("배선용 차단기", "vacuum circuit breaker", "failed"),
+        ("퓨즈 부하개폐기", "VCB switchgear", "failed"),
+        ("몰드 변압기", "oil-immersed transformer", "failed"),
+        ("유입식 변압기", "cast-resin transformer", "failed"),
+        ("인출식 진공 차단기", "drawout VCB switchgear", "unknown"),
+        # 형식을 명시하지 않은 말로는 제외하지 않는다.
+        ("부하개폐기", "VCB switchgear", "unknown"),
+        ("개폐기", "VCB switchgear", "unknown"),
+        ("제어회로 퓨즈 포함", "VCB switchgear", "unknown"),
+        ("빗물 유입 방지 구조", "cast-resin transformer", "unknown"),
+        ("몰드 케이스 차단기", "oil-immersed transformer", "unknown"),
+        ("반고정식 배전반", "drawout switchgear", "unknown"),
+        ("고정식 또는 인출식", "drawout switchgear", "unknown"),
+        # 한글 부정어. 외는 낱말로 설 때만 부정이다.
+        ("인출식이 아닌 배전반", "fixed-mount switchgear", "unknown"),
+        ("인출식 제외", "fixed-mount switchgear", "unknown"),
+        ("인출식 외 형식", "fixed-mount switchgear", "unknown"),
+        ("인출식 외에 허용", "fixed-mount switchgear", "unknown"),
+        ("퓨즈 내장 없는 구조", "VCB switchgear", "unknown"),
+        ("옥외용 고정식 배전반", "drawout switchgear", "failed"),
+        ("고정식 외함", "drawout switchgear", "failed"),
         # 단어 일부는 축 값이 아니다.
         ("defused panel", "VCB switchgear", "unknown"),
     ],
@@ -502,40 +560,10 @@ def test_form_conflicts_only_on_a_closed_axis(wanted, held, name):
 @pytest.mark.parametrize(
     ("wanted", "expected"),
     [
-        (
-            "fixed-mount fused switchgear",
-            {
-                "P-A": "REVIEW",
-                "P-B": "REVIEW",
-                "P-C": "REFERENCE_ONLY",
-                "P-D": "REVIEW",
-                "P-E": "REVIEW",
-                "L-A": "EXCLUDED",
-                "L-B": "REVIEW",
-                "L-C": "EXCLUDED",
-                "L-D": "EXCLUDED",
-                "M-A": "EXCLUDED",
-                "M-B": "EXCLUDED",
-                "T-A": "REVIEW",
-            },
-        ),
-        (
-            "metal-clad withdrawable VCB switchgear",
-            {
-                "P-A": "EXCLUDED",
-                "P-B": "EXCLUDED",
-                "P-C": "REFERENCE_ONLY",
-                "P-D": "EXCLUDED",
-                "P-E": "EXCLUDED",
-                "L-A": "REVIEW",
-                "L-B": "REVIEW",
-                "L-C": "EXCLUDED",
-                "L-D": "EXCLUDED",
-                "M-A": "REVIEW",
-                "M-B": "REVIEW",
-                "T-A": "REVIEW",
-            },
-        ),
+        ("fixed-mount fused switchgear", FIXED_FUSED_GRADES),
+        ("metal-clad withdrawable VCB switchgear", DRAWOUT_VCB_GRADES),
+        ("고정식 퓨즈 부하개폐기 배전반", FIXED_FUSED_GRADES),
+        ("인출식 진공차단기 배전반", DRAWOUT_VCB_GRADES),
     ],
 )
 def test_the_seeded_profiles_keep_their_form_grades(wanted, expected):
@@ -545,6 +573,63 @@ def test_the_seeded_profiles_keep_their_form_grades(wanted, expected):
         for profile in load_profiles()
     }
     assert graded == expected
+
+
+def test_the_seeded_and_own_forms_keep_their_axes():
+    profiles = {f.value for p in load_profiles() for f in p.spec_facts if f.attribute == "form"}
+    assert {value: form_axes(value) for value in profiles} == {
+        "LV switchboard": {},
+        "cast-resin transformer": {"insulation": "CAST_RESIN"},
+        "drawout LV switchgear": {"mounting": "DRAWOUT"},
+        "metal-clad VCB switchgear": {"switching": "VCB"},
+        "metal-enclosed fused load-break switchgear": {"switching": "FUSE_SWITCH"},
+    }
+    own = {
+        p.product_code: form_axes(f.value)
+        for p in load_own_products()
+        for f in p.spec_facts
+        if f.attribute == "form"
+    }
+    assert own == {
+        "MCCB-ABS-103c": {"switching": "MCCB"},
+        "MCCB-ABS-403c": {"switching": "MCCB"},
+        "ACB-AS-2000": {"switching": "ACB", "mounting": "DRAWOUT"},
+        "VCB-25kV-1250": {"switching": "VCB"},
+        "SWGR-MV-12kV": {"switching": "VCB", "mounting": "DRAWOUT"},
+        "TRF-DRY-630": {"insulation": "CAST_RESIN"},
+        "TRF-OIL-1000": {"insulation": "OIL"},
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "미정",
+        "미정임",
+        "용량 미정입니다",
+        "추후 협의",
+        "추후협의",
+        "차후 협의",
+        "별도 협의",
+        "별도 통보",
+        "추후 결정",
+        "협의 후 결정",
+        "협의 후 확정",
+        "TBD",
+        "<Insert value>",
+    ],
+)
+def test_a_value_left_open_is_not_compared(value):
+    row = req(9, "rated_current", value, operator="TEXT")
+    verdict, word = _value_verdict(row, SpecFact.model_validate(fact("rated_current", value)))
+    assert verdict == "unknown" and "자리표시자" in word
+
+
+@pytest.mark.parametrize(
+    "value", ["미정산 금액 없음", "협의체 구성", "협의 완료", "별도 제작", "추후 납품", "630"]
+)
+def test_a_real_value_is_not_read_as_left_open(value):
+    assert not is_placeholder(value)
 
 
 def test_the_form_axes_apply_only_to_the_form_attribute():
