@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS cs.ticket_summaries (
 );
 CREATE INDEX IF NOT EXISTS ticket_summaries_ticket_idx
     ON cs.ticket_summaries(ticket_id, created_at DESC, id DESC);
+-- One VALID summary per ticket text and prompt version, even when two instances create it at once.
+CREATE UNIQUE INDEX IF NOT EXISTS ticket_summaries_valid_once
+    ON cs.ticket_summaries(ticket_id, input_sha256, prompt_version) WHERE outcome = 'VALID';
 REVOKE ALL ON cs.ticket_summaries FROM cs_app;
 GRANT SELECT, INSERT ON cs.ticket_summaries TO cs_app;
 COMMIT;

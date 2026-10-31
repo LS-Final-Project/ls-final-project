@@ -45,7 +45,8 @@ async def matching(
     return await cursor.fetchone()
 
 
-async def insert(conn: AsyncConnection[Row], values: Row) -> Row:
+async def insert(conn: AsyncConnection[Row], values: Row) -> Row | None:
+    """시도 한 행을 더한다. 같은 원문·판본의 성공한 요약이 이미 있으면(동시 생성) None."""
     names = (
         "id",
         "ticket_id",
@@ -62,9 +63,9 @@ async def insert(conn: AsyncConnection[Row], values: Row) -> Row:
     )
     cursor = await conn.execute(
         f"INSERT INTO cs.ticket_summaries ({', '.join(names)}) "
-        f"VALUES ({', '.join(['%s'] * len(names))}) RETURNING {COLUMNS}",
+        f"VALUES ({', '.join(['%s'] * len(names))}) "
+        "ON CONFLICT (ticket_id, input_sha256, prompt_version) WHERE outcome = 'VALID' DO NOTHING "
+        f"RETURNING {COLUMNS}",
         tuple(values.get(name) for name in names),
     )
-    row = await cursor.fetchone()
-    assert row is not None
-    return row
+    return await cursor.fetchone()

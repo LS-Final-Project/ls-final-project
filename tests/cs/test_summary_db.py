@@ -16,6 +16,12 @@ from pydantic import SecretStr
 from backend.api.cs.main import create_app
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
 from backend.engine.cs.classification_call import ClassificationCallError
+from backend.engine.cs.summary import (
+    SUMMARY_INPUT_VERSION,
+    SUMMARY_PROMPT_VERSION,
+    build_summary_input,
+    input_sha256,
+)
 from backend.shared.access import Principal, principal_header
 from backend.shared.ai import Generation, Usage
 from backend.shared.settings import Settings
@@ -31,9 +37,13 @@ class FakeModel:
     def __init__(self):
         self.prompts: list[str] = []
         self.next: object = json.dumps({"summary_ko": SUMMARY}, ensure_ascii=False)
+        # 모델이 답하기 직전에 할 일(예: 다른 인스턴스가 먼저 저장하는 상황).
+        self.during = None
 
     def __call__(self, prompt: str) -> Generation:
         self.prompts.append(prompt)
+        if self.during:
+            self.during()
         if isinstance(self.next, Exception):
             raise self.next
         usage = Usage(input_tokens=120, output_tokens=40, thought_tokens=10, total_tokens=170)
@@ -190,3 +200,53 @@ def test_summaries_are_append_only_for_the_service(cs_database, client, ticket):
         ):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(sql, (ticket,))
+
+
+def test_another_instance_saving_first_is_returned_instead_of_a_duplicate(
+    client, model, admin, ticket
+):
+    """모델을 기다리는 사이 다른 인스턴스가 같은 원문의 요약을 저장하면, 중복 행 없이 그것을 200으로 준다."""
+    row = admin.execute(
+        "SELECT channel, body_language, subject, body FROM cs.tickets WHERE id = %s", (ticket,)
+    ).fetchone()
+    keys = ("channel", "body_language", "subject", "body")
+    current = input_sha256(build_summary_input(dict(zip(keys, row, strict=True))))
+
+    def other_instance_saves():
+        admin.execute(
+            "INSERT INTO cs.ticket_summaries (id, ticket_id, outcome, summary_ko, input_version, "
+            "input_sha256, prompt_version, requested_model, requested_by) VALUES "
+            "(%s, %s, 'VALID', '다른 인스턴스 요약이라고 함.', %s, %s, %s, 'gemini-3.6-flash', %s)",
+            (uuid4(), ticket, SUMMARY_INPUT_VERSION, current, SUMMARY_PROMPT_VERSION, uuid4()),
+        )
+
+    model.during = other_instance_saves
+    response = client.post(path(ticket))
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["summary"]["summary_ko"] == "다른 인스턴스 요약이라고 함."
+    count = admin.execute(
+        "SELECT count(*) FROM cs.ticket_summaries WHERE ticket_id = %s AND outcome = 'VALID'",
+        (ticket,),
+    ).fetchone()
+    assert count == (1,)
+
+
+def test_a_provider_error_keeps_the_usage_it_reports(client, model, admin, ticket):
+    model.next = ClassificationCallError(
+        "CS_RATE_LIMITED", usage=Usage(input_tokens=90, output_tokens=0, total_tokens=90)
+    )
+    assert client.post(path(ticket)).status_code == 502
+    assert admin.execute(
+        "SELECT outcome, error_code, input_tokens FROM cs.ticket_summaries WHERE ticket_id = %s",
+        (ticket,),
+    ).fetchone() == ("PROVIDER_ERROR", "CS_RATE_LIMITED", 90)
+
+
+def test_reading_works_even_when_the_ticket_cannot_be_summarized(client, admin, ticket):
+    """요약할 수 없는 원문(언어 표기 오류)이어도 GET은 저장본을 보여 주고, POST만 422다."""
+    client.post(path(ticket))
+    admin.execute("UPDATE cs.tickets SET body_language = 'not a language' WHERE id = %s", (ticket,))
+    view = client.get(path(ticket))
+    assert view.status_code == 200 and view.json()["data"]["summary"]["stale"] is True
+    failed = client.post(path(ticket))
+    assert (failed.status_code, failed.json()["error"]["code"]) == (422, "CS_SUMMARY_INPUT_INVALID")

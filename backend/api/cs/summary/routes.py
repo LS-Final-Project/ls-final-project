@@ -10,6 +10,7 @@
 
 import asyncio
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -55,6 +56,8 @@ class CsSummarySettings(BaseSettings):
     model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     # thinking 토큰을 포함한 출력 상한. 분류에서 1024는 thinking으로 잘렸다(cs_runner.py).
     max_output_tokens: int = Field(default=4096, ge=256, le=65536)
+    # 동시에 진행하는 요약 모델 호출 수(프로세스당).
+    max_concurrent_calls: int = Field(default=4, ge=1, le=32)
 
 
 def configure_summary(
@@ -69,6 +72,12 @@ def configure_summary(
     """
     app.state.summary_model = value.model
     app.state.summary_provider = None
+    # 모델 호출(최대 수십 초)이 기본 스레드 풀을 다 차지하지 않게 요약 전용 풀을 둔다.
+    app.state.summary_executor = ThreadPoolExecutor(
+        max_workers=value.max_concurrent_calls, thread_name_prefix="cs-summary"
+    )
+    # 같은 문의·원문에 동시에 온 생성 요청은 한 번만 모델을 부르도록 프로세스 안에서 줄 세운다.
+    app.state.summary_locks = {}
     if not value.enabled:
         return
     if provider is None:
@@ -118,7 +127,7 @@ def prepared(ticket: dict[str, Any]) -> tuple[Any, str]:
     return payload, input_sha256(payload)
 
 
-def record(row: dict[str, Any], current_sha: str) -> SummaryRecord:
+def record(row: dict[str, Any], current_sha: str | None) -> SummaryRecord:
     stale = row["input_sha256"] != current_sha or row["prompt_version"] != SUMMARY_PROMPT_VERSION
     return SummaryRecord.model_validate({**row, "stale": stale})
 
@@ -148,7 +157,11 @@ async def get_summary(
     summary_provider(request)
     async with connection(request.app.state.settings) as conn:
         ticket = await load(conn, principal, ticket_id)
-        _, sha = prepared(ticket)
+        try:
+            _, sha = prepared(ticket)
+        except ApplicationError:
+            # 요약할 수 없는 문의여도 저장본 조회는 된다. 지금 원문 기준으로는 오래된 것으로 본다.
+            sha = None
         valid = await repository.latest(conn, ticket_id, valid=True)
         last = await repository.latest(conn, ticket_id, valid=False)
     view = TicketSummaryView(
@@ -176,14 +189,55 @@ async def create_summary(
         # permissions.md 1.3: 범위(404) 다음 역할(403).
         ticket = await load(conn, principal, ticket_id)
         require_ticket_write(principal)
-        payload, sha = prepared(ticket)
+    payload, sha = prepared(ticket)
+    locks: dict[tuple[UUID, str], asyncio.Lock] = request.app.state.summary_locks
+    lock = locks.setdefault((ticket_id, sha), asyncio.Lock())
+    try:
+        async with lock:
+            return await make(request, provider, principal, ticket_id, payload, sha)
+    finally:
+        if not lock.locked():
+            locks.pop((ticket_id, sha), None)
+
+
+async def existing_view(request: Request, ticket_id: UUID, sha: str) -> Any:
+    """같은 원문·판본의 성공한 요약이 있으면 200 응답, 없으면 None."""
+    async with connection(request.app.state.settings) as conn:
         existing = await repository.matching(conn, ticket_id, sha, SUMMARY_PROMPT_VERSION)
         last = await repository.latest(conn, ticket_id, valid=False)
-    if existing:
-        view = TicketSummaryView(
-            ticket_id=ticket_id, summary=record(existing, sha), latest_attempt=attempt(last)
-        )
-        return JSONResponse(respond(request, view).model_dump(mode="json"), status_code=200)
+    if not existing:
+        return None
+    view = TicketSummaryView(
+        ticket_id=ticket_id, summary=record(existing, sha), latest_attempt=attempt(last)
+    )
+    return JSONResponse(respond(request, view).model_dump(mode="json"), status_code=200)
+
+
+def usage_values(usage: Any, model: str) -> dict[str, Any]:
+    cost, pricing = usage_cost(usage, model)
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "thought_tokens": usage.thought_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "total_tokens": usage.total_tokens,
+        "cost_usd": cost,
+        "pricing_version": pricing,
+    }
+
+
+async def make(
+    request: Request,
+    provider: Provider,
+    principal: Principal,
+    ticket_id: UUID,
+    payload: Any,
+    sha: str,
+) -> Any:
+    """모델을 한 번 불러 결과를 저장한다. 잠금 안에서 저장본을 다시 확인한다."""
+    reused = await existing_view(request, ticket_id, sha)
+    if reused is not None:
+        return reused
     model = request.app.state.summary_model
     values: dict[str, Any] = {
         "id": uuid4(),
@@ -195,23 +249,19 @@ async def create_summary(
         "requested_by": principal.user_id,
     }
     # DB 연결을 잡은 채 모델을 기다리지 않는다.
+    loop = asyncio.get_running_loop()
     try:
-        generation = await asyncio.to_thread(provider, render_prompt(payload))
+        generation = await loop.run_in_executor(
+            request.app.state.summary_executor, provider, render_prompt(payload)
+        )
     except ClassificationCallError as error:
         values.update(outcome="PROVIDER_ERROR", error_code=error.code)
+        values.update(usage_values(error.usage, model))
     else:
-        cost, pricing = usage_cost(generation.usage, model)
-        usage = generation.usage
         values.update(
             model_version=generation.model_version,
             latency_ms=generation.elapsed_ms,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            thought_tokens=usage.thought_tokens,
-            cached_input_tokens=usage.cached_input_tokens,
-            total_tokens=usage.total_tokens,
-            cost_usd=cost,
-            pricing_version=pricing,
+            **usage_values(generation.usage, model),
         )
         try:
             output = validate_output(generation.text, source=payload)
@@ -221,6 +271,11 @@ async def create_summary(
             values.update(outcome="VALID", summary_ko=output.summary_ko)
     async with connection(request.app.state.settings) as conn:
         stored = await repository.insert(conn, values)
+    if stored is None:
+        # 다른 인스턴스가 같은 원문의 요약을 먼저 저장했다(고유 색인). 그것을 돌려준다.
+        reused = await existing_view(request, ticket_id, sha)
+        assert reused is not None
+        return reused
     if stored["outcome"] != "VALID":
         raise ApplicationError(
             502,

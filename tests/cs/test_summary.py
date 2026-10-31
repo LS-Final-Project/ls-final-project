@@ -79,3 +79,31 @@ def test_malformed_outputs_are_schema_errors(value):
     with pytest.raises(SummaryOutputError) as caught:
         validate_output(value, source=build_summary_input(TICKET))
     assert caught.value.code == "CS_SUMMARY_SCHEMA"
+
+
+@pytest.mark.parametrize(
+    ("text", "grounded"),
+    [
+        ("모델 TRF-OIL-1000.", True),  # 문장 끝 마침표는 코드가 아니다
+        ("오류 E-204/E-204가 반복됐다고 함.", True),  # /는 나누는 기호
+        ("2026년 10월 2일부터 누유가 있다고 함.", True),  # 날짜를 바꿔 써도 각 수가 원문에 있다
+        ("20일 전부터 누유가 있다고 함.", False),  # 원문에 없는 수
+        ("e-205 오류가 났다고 함.", False),  # 원문에 없는 코드
+    ],
+)
+def test_codes_must_match_and_numbers_must_exist_by_value(text, grounded):
+    payload = build_summary_input(TICKET)
+    if grounded:
+        validate_output(raw(text), source=payload)
+    else:
+        with pytest.raises(SummaryOutputError) as caught:
+            validate_output(raw(text), source=payload)
+        assert caught.value.code == "CS_SUMMARY_UNGROUNDED"
+
+
+def test_a_reported_claim_is_not_a_commitment():
+    """고객이 들었다·주장한다는 인용은 요약이고, 사실처럼 쓴 승인은 막는다."""
+    payload = build_summary_input(TICKET)
+    validate_output(raw("고객은 보증이 승인되었다고 주장함."), source=payload)
+    with pytest.raises(SummaryOutputError):
+        validate_output(raw("고객 문의는 확인했고 보증이 승인되었습니다."), source=payload)

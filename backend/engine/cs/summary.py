@@ -6,9 +6,11 @@
 
 안전 규칙(출력 검사):
 - 한글이 있어야 한다(번역이 아니라 원문 그대로 나오는 경우를 거른다).
-- 요약에 나온 숫자와 코드형 토큰(TRF-OIL-1000, E-204 등)은 원문(제목·본문)에 있어야 한다. 모델이 시리얼·날짜·
-  수치를 지어내지 못하게 한다.
-- 승인·확정 약속 문구(초안과 같은 금지 문구)가 없어야 한다.
+- 요약에 나온 코드형 토큰(TRF-OIL-1000, E-204처럼 글자와 숫자가 섞인 것)은 원문에 그대로 있어야 하고, 수는 값으로
+  원문에 있어야 한다(2026-10-02를 2026년 10월 2일로 바꿔 쓰는 것은 된다). 모델이 시리얼·날짜·수치를 지어내지
+  못하게 한다.
+- 승인·확정 약속 문구(초안과 같은 금지 문구)를 사실처럼 쓰면 안 된다. "고객은 …승인되었다고 함"처럼 주장을
+  옮기는 문장은 된다.
 입력은 분류와 같은 마스킹(이메일, 라벨 붙은 시리얼)을 거친다.
 
 프롬프트는 이 모듈에 둔다. prompt_registry의 단계는 평가·채택 게이트와 묶여 있어서다(채택 전 기능).
@@ -29,8 +31,15 @@ SUMMARY_INPUT_VERSION = "cs-summary-input-v1"
 SUMMARY_PROMPT_VERSION = "v1"
 MAX_CHARS = 300
 HANGUL = re.compile(r"[가-힣]")
-# 숫자가 든 토큰(수치·날짜·시리얼·모델 코드). 요약에 나오면 원문에도 있어야 한다.
-NUMBERED = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*\d[A-Za-z0-9._/-]*|\d+")
+# 숫자가 든 코드(모델명·시리얼·오류 코드처럼 글자와 숫자가 섞인 토큰). `/`는 나누는 기호로 본다.
+CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# 수(천 단위 쉼표 포함). 날짜를 2026-10-02 → 2026년 10월 2일처럼 바꿔 써도 각 수가 원문에 있으면 통과한다.
+NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+|\d+")
+# 고객 주장을 옮기는 보고형 표현. 확정 약속 문구가 이 안에 있으면 요약이 아니라 인용이다.
+REPORTED = re.compile(
+    r"(?:다|라)\s*고\s*(?:함|했|하|주장|들었|말|요청|문의|전함|밝|적)|(?:다|라)는\s"
+)
+SENTENCE = re.compile(r"[^.!?\n。]+")
 INSTRUCTION = (
     "당신은 전력기기 해외 고객 문의를 한국인 C/S 담당자에게 요약해 주는 보조자다. 아래 입력 JSON의 "
     "subject와 body만 사용한다.\n"
@@ -86,8 +95,34 @@ def render_prompt(payload: ClassificationInput) -> str:
     return INSTRUCTION + "\n\n입력:\n" + payload.model_dump_json()
 
 
-def _normalized(text: str) -> str:
-    return re.sub(r"[\s]+", " ", text).casefold()
+def _codes(text: str) -> set[str]:
+    """글자와 숫자가 함께 든 토큰(끝의 . , - 는 뗀다)."""
+    tokens = (token.rstrip(".,-").casefold() for token in CODE.findall(text))
+    return {t for t in tokens if re.search(r"\d", t) and re.search(r"[a-z]", t)}
+
+
+def _numbers(text: str) -> set[int]:
+    """수 값(앞자리 0과 천 단위 쉼표 무시). 코드 안의 숫자도 원문 쪽에서는 센다."""
+    return {int(n.replace(",", "")) for n in NUMBER.findall(text)}
+
+
+def ungrounded(summary: str, source: str) -> bool:
+    """요약의 코드·수가 원문에 없으면 True. 코드는 그대로, 수는 값으로 비교한다."""
+    codes = _codes(summary)
+    if not codes <= _codes(source):
+        return True
+    rest = CODE.sub(
+        lambda m: " " if m.group(0).rstrip(".,-").casefold() in codes else m.group(0), summary
+    )
+    return not _numbers(rest) <= _numbers(source)
+
+
+def commits(summary: str) -> bool:
+    """확정 약속 문구가 고객 주장 인용이 아닌 문장에 있으면 True(초안과 같은 금지 문구)."""
+    return any(
+        find_forbidden_commitment(sentence) and not REPORTED.search(sentence)
+        for sentence in SENTENCE.findall(summary)
+    )
 
 
 def validate_output(raw: str, *, source: ClassificationInput) -> SummaryOutput:
@@ -108,9 +143,8 @@ def validate_output(raw: str, *, source: ClassificationInput) -> SummaryOutput:
     summary = output.summary_ko
     if not HANGUL.search(summary):
         raise SummaryOutputError("CS_SUMMARY_NOT_KOREAN")
-    original = _normalized(f"{source.subject or ''} {source.body}")
-    if any(_normalized(token) not in original for token in NUMBERED.findall(summary)):
+    if ungrounded(summary, f"{source.subject or ''} {source.body}"):
         raise SummaryOutputError("CS_SUMMARY_UNGROUNDED")
-    if find_forbidden_commitment(summary):
+    if commits(summary):
         raise SummaryOutputError("CS_SUMMARY_COMMITMENT")
     return output
