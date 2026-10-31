@@ -6,11 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
+from backend.api.tft.rfp.comparison import compare_in_family, load_own_products
+from backend.api.tft.worker_processor import to_comparison
 from backend.engine.documents.model import Block, DeletedValue, Position, build_document
 from backend.engine.rfp.clauses import build_clause_tree
 from backend.engine.rfp.edits import interpret_edits
 from backend.engine.rfp.requirements import (
     CODE_ONLY_FIELDS,
+    EXTRACTION_VERSION,
     MAX_SECTION_CALLS,
     MAX_SECTION_PARTS,
     ExtractedRequirement,
@@ -1045,3 +1048,85 @@ def test_attribute_keys_match_the_list_the_web_labels_are_checked_against():
     """웹 ATTRIBUTE_LABEL이 대조하는 목록과 추출 어휘가 같아야 한다."""
     fixture = Path(__file__).resolve().parents[2] / "docs/openapi/tft-attribute-keys.json"
     assert sorted(ATTRIBUTE_KEYS) == json.loads(fixture.read_text())
+
+
+def construction_section(
+    sentence="A. Switchgear shall be freestanding with withdrawable vacuum breakers, rated 15 kV.",
+):
+    """구조를 나열한 일반 표현의 합성 절. 14번 문구를 쓰지 않는다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 MEDIUM-VOLTAGE SWITCHGEAR"),
+        p(sentence),
+    ]
+    tree_ = build_clause_tree(build_document("DOCX", b"synthetic", blocks, [], tables=0))
+    return build_inputs(tree_, ["2.1"])[0]
+
+
+def test_the_prompt_asks_for_a_form_requirement_from_a_construction_sentence():
+    text = prompt(construction_section())
+    assert EXTRACTION_VERSION == "rfp-requirements-v10"
+    assert "the type of the equipment item itself" in text
+    assert "attribute_key form, separate from any measured values" in text.replace("\n  ", " ")
+    assert "how the equipment is built" not in text
+
+
+def test_the_prompt_keeps_parts_and_functions_out_of_form():
+    text = prompt(construction_section()).replace("\n  ", " ")
+    assert (
+        "A part, accessory, material, fastener, interlock, indicator, wiring, access or function "
+        'of the equipment is not its type: use "OTHER".'
+    ) in text
+
+
+def test_a_part_sentence_kept_as_other_is_not_compared_as_a_form():
+    quote = "Each door shall have a padlockable handle."
+    raw = json.dumps(
+        {
+            "requirements": [
+                req(
+                    "2.1.A",
+                    quote,
+                    "door handle",
+                    "padlockable",
+                    attribute_key="OTHER",
+                    equipment_family="MV_EQUIP",
+                    tolerance=None,
+                    certification_listed=False,
+                )
+                | {"operator": "TEXT"}
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, construction_section(f"A. {quote}"))
+    assert rejected == [] and kept[0].attribute_key == "OTHER"
+    outcome = compare_in_family(to_comparison(kept[0]), "MV_EQUIP", load_own_products())
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
+
+
+def test_a_construction_sentence_keeps_a_form_requirement_beside_its_rating():
+    quote = "Switchgear shall be freestanding with withdrawable vacuum breakers, rated 15 kV."
+    built = {
+        "attribute_key": "form",
+        "equipment_family": "MV_EQUIP",
+        "tolerance": None,
+        "certification_listed": False,
+    }
+    raw = json.dumps(
+        {
+            "requirements": [
+                req("2.1.A", quote, "construction", "withdrawable vacuum breakers", **built)
+                | {"operator": "TEXT"},
+                req("2.1.A", quote, "rated voltage", "15", "kV", **built)
+                | {"attribute_key": "rated_max_voltage"},
+            ]
+        }
+    )
+    kept, rejected, _, _ = validate_output(raw, construction_section())
+    assert rejected == []
+    assert [r.attribute_key for r in kept] == ["form", "rated_max_voltage"]
+    outcome = compare_in_family(to_comparison(kept[0]), "MV_EQUIP", load_own_products())
+    assert outcome.status != "SPEC_GAP"
+    fused = kept[0].model_copy(update={"value": "fused switch"})
+    gap = compare_in_family(to_comparison(fused), "MV_EQUIP", load_own_products())
+    assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "FORM")

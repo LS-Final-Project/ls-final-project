@@ -20,7 +20,7 @@
    - 연산자 기준(v6): 최소 요구는 `GTE`(문구가 '이상'이거나, 내전류·차단 용량·연속 전류처럼 더 높은 정격이 요구를 만족하는 양), 최대 제한은 `LTE`, 고정된 지정값(계통 전압, 고정값으로 적힌 절연 수준·공칭 정격)은 `EQ`, 범위는 `RANGE`다.
    - 조건 이름(v6): `conditions.name`은 어휘(`vocabulary.ConditionName`) 안의 값 또는 `OTHER`다. 자사·협력사 사양 근거의 조건 이름도 이 어휘 안에 있어야 한다(검사가 확인). `OTHER`면 `value`에 원문 문구를 그대로 둔다. 응답 스키마는 enum 하나다.
    - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
-     - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
+     - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`. 장비 자체의 형식을 적은 문장(개폐 기기, 설치 방식, 절연 방식)은 측정값과 따로 `form` 요구 1건으로 낸다. 부품, 부속, 재질, 체결, 연동, 표시, 배선, 접근, 기능은 형식이 아니라 `OTHER`다(v10)
      - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null. `LV_SWITCHGEAR`(v8)는 저압 배전반·스위치기어 조립품과 그 구획이고 그 안의 차단기는 `LV_BREAKER`다. 자사 제품이 없는 계열이라 자사 비교는 후보 없음이고, 협력사 저압 후보(`PROFILE_FAMILIES`)가 조립품·차단기 요구를 함께 받는다
      - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
