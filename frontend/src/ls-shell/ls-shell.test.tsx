@@ -31,6 +31,13 @@ describe('업무 셸과 옛 화면의 스타일 경계', () => {
     expect(container.querySelector('.ls-root .ls-legacy')).not.toBeNull();
   });
 
+  it('계정 화면은 새 셸 안에서 내 정보(CM0202)로 그린다', () => {
+    const { container } = show('/account');
+    expect(container.querySelector('.ls-root')).not.toBeNull();
+    expect(container.querySelector('.ls-legacy .kv-code')).toBeNull();
+    expect(container.querySelector('.kv-code')?.textContent).toBe('CM0202');
+  });
+
   it('문의 처리는 보드 기준 새 화면이라 옛 화면 영역이 아니다', () => {
     const { container } = show('/cs/tickets/22222222-2222-4222-8222-222222222222');
     expect(container.querySelector('.ls-legacy .kv-code')).toBeNull();

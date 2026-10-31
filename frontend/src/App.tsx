@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
@@ -22,12 +22,13 @@ import RfpDraft from './rfp/RfpDraft';
 export default function App() {
   return <Routes>
     <Route element={<Layout />}>
-      <Route index element={import.meta.env.DEV ? <DevCheck /> : <Account />} />
-      <Route path="account" element={<Account />} />
+      {/* 운영에서 첫 화면은 계정(로그인) 화면이다. 계정 화면은 새 셸 안에 있다. */}
+      <Route index element={import.meta.env.DEV ? <DevCheck /> : <Navigate to="/account" replace />} />
       <Route path="evaluations" element={<Evaluations />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
     <Route element={<LsShell />}>
+      <Route path="account" element={<Account />} />
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<div className="ls-legacy"><CsImprovements /></div>} />
       <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />

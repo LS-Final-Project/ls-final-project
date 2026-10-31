@@ -49,6 +49,7 @@ function tabOf(pathname: string) {
   if (pathname.startsWith('/cs/tickets/')) return { kind: 'ticket', name: '문의 처리' };
   if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
   if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
+  if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
   if (pathname.endsWith('/supplement')) return { kind: 'supplement', name: '보완 및 협력사 비교' };
   if (pathname.endsWith('/table/approvals')) return { kind: 'approvals', name: '승인 대기' };
