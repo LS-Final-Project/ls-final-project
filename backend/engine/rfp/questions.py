@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.engine.rfp.clauses import Clause, ClauseTree
 from backend.engine.rfp.requirements import ExtractedRequirement
-from backend.engine.rfp.vocabulary import has_placeholder, is_placeholder
+from backend.engine.rfp.vocabulary import has_placeholder
 
 QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY", "APPROVAL_PROCESS"]
 EQUIPMENT_ID = re.compile(
@@ -229,8 +229,7 @@ def _eligible(req: ExtractedRequirement, clauses: dict[str, Clause]) -> bool:
         or req.attribute_key == "OTHER"
         or not req.value
         or not req.quote.strip()
-        or is_placeholder(req.value)
-        or is_placeholder(req.quote)
+        or has_placeholder(req.quote)
     ):
         return False
     # 이전 추출 결과를 받아도 현행 본문에 없는 값은 사용하지 않는다.

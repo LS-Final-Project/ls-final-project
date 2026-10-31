@@ -628,6 +628,18 @@ def test_the_seeded_and_own_forms_keep_their_axes():
         "[ ] kV",
         "___ A",
         "The rated current shall be TBD A.",
+        # 조건·규격의 숫자는 확정 값이 아니다. 값 칸은 비어 있다.
+        "TBD (at 40 C)",
+        "<Insert value> kV, per IEC 60076",
+        "[ ] kV at 60 Hz",
+        "Voltage <Insert value> kV at 60 Hz.",
+        "at 60 Hz, <Insert value> kV",
+        "at 60 Hz, voltage TBD",
+        "IEC 60076, <Insert value> kV",
+        "IEC 60076, delivery TBD",
+        "40 C ambient, <Insert value> kV",
+        "15 kV / TBD kA",
+        "630 A <Insert delivery date>",
         # ponytail 표시 그대로: 글자 값은 미정 쪽으로 둔다.
         "Copper, finish TBD",
     ],
@@ -657,7 +669,7 @@ def test_a_value_left_open_is_not_compared(value):
         # 다른 항목의 표지 때문에 확정 값이 미정이 되지 않는다.
         "630A, delivery TBD",
         "Rated current 630 A. Delivery TBD.",
-        "630 A <Insert delivery date>",
+        "1.5 kV; insulation class TBD",
     ],
 )
 def test_a_real_value_is_not_read_as_left_open(value):

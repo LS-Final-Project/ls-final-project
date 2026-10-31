@@ -121,6 +121,16 @@ def test_an_empty_value_beside_other_numbers_is_not_an_inconsistency() -> None:
     assert [d.kind for d in output] == ["PLACEHOLDER"]
 
 
+def test_a_quote_with_any_marker_stays_out_of_the_inconsistency_check() -> None:
+    open_item = "Current 800 A. Delivery TBD."
+    known = "Current 900 A."
+    output = generate_question_drafts(
+        tree(clause("A", open_item), clause("B", known)),
+        [req("A", open_item, "800"), req("B", known, "900")],
+    )
+    assert [d.kind for d in output] == ["PLACEHOLDER"]
+
+
 def test_a_general_contract_sentence_is_not_a_field_left_open() -> None:
     text = "정격전류 630A. 납기는 별도 협의"
     assert generate_question_drafts(tree(clause("3.1.A", text)), []) == []

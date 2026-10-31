@@ -84,6 +84,8 @@ FamilyOrOther = Literal[EquipmentFamily, Other]
 ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
 PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
+# 확정 수치: 단위가 붙은 숫자. 조건으로 시작하는 구절(at 60 Hz)과 규격 번호(IEC 60076)는 아니다.
+QUANTITY = re.compile(r"^(?!\s*(?:at|per|for|in|with|under)\b).*\d\s*[a-zµΩ%°]", re.I)
 # 한글 미정 표시는 일반 계약 문장에도 나온다("납기는 별도 협의"). 그래서 값 전체가 그 말일 때만 본다.
 # 앞에 라벨 하나는 허용한다("용량: 미정"). 값이 함께 있는 문장을 미정으로 읽으면 판정이 사라진다.
 OPEN_VALUE = re.compile(
@@ -144,12 +146,29 @@ def has_placeholder(text: str | None) -> bool:
     return PLACEHOLDER.search(text) is not None or OPEN_VALUE.fullmatch(text) is not None
 
 
+def _marker_is_for_another_item(value: str) -> bool:
+    """앞 구절에 확정 수치가 있고 표지는 이름을 가진 다른 항목에 붙었는지.
+
+    기본은 미정이다. 조건·규격의 숫자(at 40 C, IEC 60076)는 값이 아니므로 이 둘이 함께일 때만 참이다.
+
+    Args:
+        value: 미정 표지가 든 값.
+
+    Returns:
+        bool: "630A, delivery TBD" 꼴이면 True.
+    """
+    parts = re.split(r"[.;,]\s+", value)
+    marked = next((i for i, part in enumerate(parts) if PLACEHOLDER.search(part)), 0)
+    named = re.search(r"[^\W\d_]", PLACEHOLDER.split(parts[marked])[0]) is not None
+    return named and any(QUANTITY.search(part) for part in parts[:marked])
+
+
 def is_placeholder(value: str | None) -> bool:
     """값 자리에 실제 값 대신 미정 표시가 있는지.
 
-    표지를 빼고 숫자가 남으면 확정 값이 있다. "Rated current 630 A. Delivery TBD."의 TBD는 다른
-    항목의 것이고, "<Insert value> kV"는 값 자리 자체가 비어 있다.
-    ponytail: 숫자로만 가른다. "Copper, finish TBD"처럼 글자 값은 미정으로 남는다(비교 제외 쪽).
+    "Rated current 630 A. Delivery TBD."의 TBD는 다른 항목의 것이고, "<Insert value> kV"는 값 자리
+    자체가 비어 있다. 문장 어디든 미정이 있는지는 has_placeholder가 본다.
+    ponytail: 구절로만 가른다. "630 A <Insert date>"처럼 한 구절에 섞이면 미정이다(비교 제외 쪽).
 
     Args:
         value: 요구값이나 값의 인용.
@@ -161,9 +180,7 @@ def is_placeholder(value: str | None) -> bool:
         return False
     if OPEN_VALUE.fullmatch(value) is not None:
         return True
-    return PLACEHOLDER.search(value) is not None and not re.search(
-        r"\d", PLACEHOLDER.sub("", value)
-    )
+    return PLACEHOLDER.search(value) is not None and not _marker_is_for_another_item(value)
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
