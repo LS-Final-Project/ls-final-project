@@ -16,6 +16,7 @@ import logging
 from typing import Any, Self
 from uuid import UUID
 
+import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from pydantic_settings import SettingsConfigDict
 
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 # 재개 실패 시 기다렸다 다시 시도하는 간격(초). 체크포인트 DB의 일시 오류(연결 끊김·재시작)를 넘기려는 것이라
 # 짧게 두 번만 한다. 그래도 실패하면 작업 ID를 로그로 남기고, 사람 확인 직전에 멈춘 그래프로 남는다.
 RESUME_RETRY_DELAYS = (0.5, 2.0)
+# 다시 시도할 오류. 대기가 발송 갱신 응답 안에서 일어나므로 기다려서 나아질 수 있는 것만 둔다.
+# psycopg.OperationalError는 연결 실패·관리자 종료·연결 수 초과·교착·직렬화 실패·문장 취소를 포함한다.
+# 권한·표 없음(ProgrammingError)이나 그래프·코드 오류는 다시 해도 같으므로 기다리지 않고 바로 포기한다.
+RESUME_TRANSIENT_ERRORS: tuple[type[Exception], ...] = (psycopg.OperationalError,)
 
 
 class CsAnalysisSettings(CustomerMailSettings):
@@ -149,8 +154,9 @@ async def resume_after_send(request: Request, ticket_id: UUID) -> str | None:
         ticket_id: 발송한 문의.
 
     Returns:
-        str | None: 재개 결과. 분석 작업이 꺼져 있거나 작업 기록이 없으면 None. 재개가 실패하면
-            RESUME_RETRY_DELAYS만큼 기다려 다시 하고, 모두 실패하면 RESUME_FAILED다.
+        str | None: 재개 결과. 분석 작업이 꺼져 있거나 작업 기록이 없으면 None. 일시 오류
+            (RESUME_TRANSIENT_ERRORS)로 실패하면 RESUME_RETRY_DELAYS만큼 기다려 다시 하고, 모두 실패하거나
+            일시 오류가 아니면 바로 RESUME_FAILED다.
     """
     if getattr(request.app.state, "analysis_jobs", None) is None:
         return None
@@ -167,7 +173,7 @@ async def resume_after_send(request: Request, ticket_id: UUID) -> str | None:
         except Exception as error:
             # 원문·상태를 남기지 않고 작업 ID와 예외 종류만 기록한다.
             extra = {"job_id": str(row["job_id"]), "error_type": type(error).__name__}
-            if delay is None:
+            if delay is None or not isinstance(error, RESUME_TRANSIENT_ERRORS):
                 logger.warning("cs analysis resume failed", extra=extra)
                 return "RESUME_FAILED"
             logger.info("cs analysis resume retry", extra={**extra, "delay_s": delay})

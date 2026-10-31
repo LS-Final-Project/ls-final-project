@@ -312,12 +312,22 @@ def test_the_real_resume_finds_the_ticket_job_after_the_send_is_accepted(
 
 
 @pytest.mark.parametrize(
-    ("failures", "expected", "calls"), [(1, "RESUMED", 2), (3, "RESUME_FAILED", 3)]
+    ("error", "failures", "expected", "calls", "sleeps"),
+    [
+        (psycopg.OperationalError("checkpoint database restarting"), 1, "RESUMED", 2, [0.5]),
+        (psycopg.errors.AdminShutdown("terminating connection"), 3, "RESUME_FAILED", 3, [0.5, 2.0]),
+        (psycopg.errors.InsufficientPrivilege("permission denied"), 1, "RESUME_FAILED", 1, []),
+        (ValueError("graph state broken"), 1, "RESUME_FAILED", 1, []),
+    ],
+    ids=["transient-then-ok", "transient-always", "privilege", "code-error"],
 )
-def test_a_failed_resume_is_retried_before_it_is_given_up(
-    cs_database, admin, ticket, monkeypatch, failures, expected, calls
+def test_only_transient_resume_failures_are_retried(
+    cs_database, admin, ticket, monkeypatch, error, failures, expected, calls, sleeps
 ):
-    """체크포인트 DB 일시 오류로 재개가 실패하면 다시 시도하고, 계속 실패할 때만 포기한다(#298 리뷰 P3)."""
+    """체크포인트 DB 일시 오류만 기다려 다시 시도하고, 권한·코드 오류는 기다리지 않고 바로 포기한다(#306 리뷰 P3).
+
+    대기가 발송 갱신 응답 안에서 일어나므로, 다시 해도 같은 오류에 응답을 늦추지 않는다.
+    """
     settings = settings_for(cs_database)
     job = uuid4()
     admin.execute(
@@ -326,17 +336,22 @@ def test_a_failed_resume_is_retried_before_it_is_given_up(
         (uuid4(), ticket, job),
     )
     seen = []
+    waited = []
 
     def flaky(_settings, job_id):
         seen.append(job_id)
         if len(seen) <= failures:
-            raise psycopg.OperationalError("checkpoint database restarting")
+            raise error
         return "RESUMED"
 
+    async def fake_sleep(delay):
+        waited.append(delay)
+
     monkeypatch.setattr(jobs_module, "resume_graph", flaky)
-    monkeypatch.setattr(jobs_module, "RESUME_RETRY_DELAYS", (0, 0))
+    monkeypatch.setattr(jobs_module.asyncio, "sleep", fake_sleep)
     request = SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(analysis_jobs=object(), settings=settings))
     )
     assert asyncio.run(jobs_module.resume_after_send(request, ticket)) == expected
     assert seen == [job] * calls
+    assert waited == sleeps
