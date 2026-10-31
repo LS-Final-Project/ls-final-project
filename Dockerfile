@@ -16,6 +16,7 @@ COPY eval ./eval
 COPY docs/openapi ./docs/openapi
 COPY frontend/src/mocks/generated ./frontend/src/mocks/generated
 COPY scripts/check_backend.py ./scripts/check_backend.py
+COPY scripts/rfp_draft_trace_input.py ./scripts/rfp_draft_trace_input.py
 RUN uv run --no-sync python scripts/check_backend.py "$TEST_SERVICE"
 
 FROM dependencies AS service-source

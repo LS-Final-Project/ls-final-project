@@ -695,7 +695,8 @@ def test_rewrite_command_survives_entire_migration_reapplication(admin, chain):
         assert error.value.diag.constraint_name == "rfp_commands_operation_check"
 
 
-def test_reapplied_command_constraints_match_runtime_operations():
+def test_reapplied_command_constraints_match_runtime_operations(admin):
+    """SQL 입력은 마이그레이션을 적용하는 auth-database 하니스에서만 검사한다."""
     from backend.api.tft.rfp.commands import OPERATIONS
 
     for name in ("20261106_KAN-199_question_drafts.sql", "20261111_KAN-188_draft_rewrite.sql"):
