@@ -63,3 +63,26 @@ it('30초 폴링은 진행 중 요청을 중복하지 않고 오류 뒤 멈춘�
   await act(async () => { await vi.advanceTimersByTimeAsync(90000); });
   expect(reads).toBe(2);
 });
+
+it('숨김 탭에서는 폴링하지 않고 보이는 탭으로 돌아오면 최신 수를 조회한다', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? data({ id: A }) : data({ count: ++reads })));
+  view();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(reads).toBe(1);
+  focusManager.setFocused(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(90001); });
+  expect(reads).toBe(1);
+  await act(async () => { focusManager.setFocused(true); await vi.advanceTimersByTimeAsync(1); });
+  expect(reads).toBe(2);
+  expect(screen.getByRole('button', { name: '알림, 안 읽음 2건' })).toBeTruthy();
+});
+
+it.each(['/account', '/cs'])('%s의 배타적인 Layout/LsShell은 종을 하나만 그린다', async path => {
+  const { renderApp } = await import('../test/render');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? data({ id: A, display_name: '알림 사용자', roles: ['cs_agent'], dept: null }) : url.endsWith('/unread-count') ? data({ count: 0 }) : data({ items: [] })));
+  renderApp(path);
+  await screen.findByRole('button', { name: '알림, 안 읽음 0건' });
+  expect(screen.getAllByRole('button', { name: /^알림/ })).toHaveLength(1);
+});

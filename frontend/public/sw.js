@@ -1,4 +1,6 @@
 /* KAN-201: push only. No fetch handler, offline shell or cached API responses. */
+let ownerRevision = 0;
+let ownerUpdates = Promise.resolve();
 const OWNER_CACHE = 'team4-notification-owner-v1';
 const OWNER_URL = new URL('/__notification_owner__', self.location.origin).href;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,25 +31,44 @@ self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('message', event => {
   if (event.data?.type !== 'NOTIFICATION_OWNER') return;
+  const revision = ++ownerRevision;
   event.waitUntil((async () => {
     const client = event.source?.id ? await self.clients.get(event.source.id) : null;
     if (!client || new URL(client.url).origin !== self.location.origin) return;
     const id = event.data.id;
     if (id !== null && !UUID.test(id || '')) return;
-    // Never trust an old tab to bind an owner different from the currently authenticated user.
     if (id && (await json('/api/v1/platform/me'))?.id !== id) return;
-    await bind(id);
-    if (!id) for (const shown of await self.registration.getNotifications()) shown.close();
-    event.ports[0]?.postMessage({ ok: true });
+    // Keep CacheStorage writes ordered; a slow old bind cannot resurrect an owner
+    // after a newer logout. Invalidation itself is immediate via ownerRevision.
+    const update = ownerUpdates.then(async () => {
+      if (revision !== ownerRevision) return;
+      await bind(id);
+      if (revision !== ownerRevision) return;
+      for (const shown of await self.registration.getNotifications()) {
+        if (!id || shown.data?.ownerId !== id) shown.close();
+      }
+      if (revision === ownerRevision) event.ports[0]?.postMessage({ ok: true });
+    });
+    ownerUpdates = update.catch(() => {});
+    await update;
   })().catch(() => {}));
 });
 self.addEventListener('push', event => {
+  const revision = ownerRevision;
   event.waitUntil((async () => {
     const payload = event.data?.json();
     const id = await owner();
     const item = await currentNotification(payload?.id, id, true);
-    if (!item) return;
-    await self.registration.showNotification(item.title, { tag: `notification:${item.id}`, data: { id: item.id, ownerId: id } });
+    if (!item || revision !== ownerRevision) return;
+    const tag = `notification:${id}:${item.id}`;
+    await self.registration.showNotification(item.title, { tag, data: { id: item.id, ownerId: id } });
+    // showNotification may finish after logout has already closed the old list.
+    // Close this owner's late result without closing a new owner's same intent.
+    if (revision !== ownerRevision || await owner() !== id) {
+      for (const shown of await self.registration.getNotifications({ tag })) {
+        if (shown.data?.ownerId === id) shown.close();
+      }
+    }
   })().catch(() => {}));
 });
 self.addEventListener('notificationclick', event => {

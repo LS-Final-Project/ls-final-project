@@ -13,7 +13,12 @@ export default function NotificationBell() {
   const session = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [cleanupError, setCleanupError] = useState<unknown>();
   const actorId = session.data?.data.id ?? null;
-  useEffect(() => { if (session.isSuccess) void reconcilePush(actorId).catch(setCleanupError); }, [session.isSuccess, actorId]);
+  useEffect(() => {
+    let current = true;
+    setCleanupError(undefined);
+    if (session.isSuccess) void reconcilePush(actorId).catch(error => { if (current) setCleanupError(error); });
+    return () => { current = false; };
+  }, [session.isSuccess, actorId]);
   return <>{cleanupError != null && <ErrorState error={cleanupError} />}{!session.isError && actorId && <Inbox key={actorId} actorId={actorId} />}</>;
 }
 function Inbox({ actorId }: { actorId: string }) {

@@ -4,7 +4,15 @@ const OWNER = 'team4-notification-push-owner';
 let pending: Promise<unknown> = Promise.resolve();
 function exclusive<T>(action: () => Promise<T>): Promise<T> { const result = pending.then(action); pending = result.catch(() => {}); return result; }
 export const pushSupported = () => window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-export const pushOwner = () => localStorage.getItem(OWNER);
+function ownerState(): { id: string | null; available: boolean } {
+  try { return { id: localStorage.getItem(OWNER), available: true }; }
+  catch { return { id: null, available: false }; }
+}
+export const pushOwner = () => ownerState().id;
+function forgetOwner(): boolean {
+  try { localStorage.removeItem(OWNER); return true; } catch { return false; }
+}
+const storageFailure = () => new Error('브라우저 저장소를 확인하지 못했습니다. OS 알림은 사이트 알림 설정에서 확인하세요.');
 const own = (registration: ServiceWorkerRegistration) => [registration.active, registration.waiting, registration.installing].some(worker => worker?.scriptURL === new URL('/sw.js', location.origin).href);
 export async function existingPushWorker() {
   if (!('serviceWorker' in navigator)) return undefined;
@@ -33,6 +41,7 @@ export function enablePush(actorId: string, key: string, signal?: AbortSignal): 
   return exclusive(async () => {
   signal?.throwIfAborted();
   const bytes = publicKeyBytes(key);
+  if (!ownerState().available) throw storageFailure();
   const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
   await registration.update();
   signal?.throwIfAborted();
@@ -43,7 +52,7 @@ export function enablePush(actorId: string, key: string, signal?: AbortSignal): 
   const priorOwner = pushOwner();
   let subscription = await ready.pushManager.getSubscription();
   signal?.throwIfAborted();
-  if (subscription && priorOwner !== actorId) { if (!await subscription.unsubscribe()) throw new Error('이전 계정의 브라우저 구독을 해제하지 못했습니다.'); subscription = null; }
+  if (subscription && priorOwner !== actorId) { await ownerMessage(ready, null); if (!await subscription.unsubscribe()) throw new Error('이전 계정의 브라우저 구독을 해제하지 못했습니다.'); subscription = null; }
   subscription ??= await ready.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
   const data = subscription.toJSON();
   if (!data.endpoint || !data.keys?.p256dh || !data.keys?.auth) throw new Error('브라우저 구독을 확인하지 못했습니다.');
@@ -53,11 +62,11 @@ export function enablePush(actorId: string, key: string, signal?: AbortSignal): 
     signal?.throwIfAborted();
     await ownerMessage(ready, actorId);
     signal?.throwIfAborted();
-    localStorage.setItem(OWNER, actorId);
+    try { localStorage.setItem(OWNER, actorId); } catch { throw storageFailure(); }
   } catch (error) {
     await ownerMessage(ready, null).catch(() => {});
     await subscription.unsubscribe().catch(() => false);
-    localStorage.removeItem(OWNER);
+    forgetOwner();
     throw error;
   }
   });
@@ -65,23 +74,26 @@ export function enablePush(actorId: string, key: string, signal?: AbortSignal): 
 // Local unsubscribe/owner clear happen even when the server is OFF or the delete is uncertain.
 export function clearPush(actorId?: string): Promise<void> {
   return exclusive(async () => {
-  const previousOwner = pushOwner();
+  const state = ownerState();
   const registration = await existingPushWorker();
-  if (!registration) { localStorage.removeItem(OWNER); return; }
-  let warning: unknown;
-  try { await ownerMessage(registration, null); } catch (error) { warning = error; }
+  let warning: unknown = state.available ? undefined : storageFailure();
+  if (!registration) {
+    if (!forgetOwner() || warning) throw storageFailure();
+    return;
+  }
+  try { await ownerMessage(registration, null); } catch (error) { warning ??= error; }
   const subscription = await registration.pushManager.getSubscription();
   if (subscription) {
     const endpoint = subscription.endpoint;
     const removed = await subscription.unsubscribe();
     if (!removed) throw new Error('브라우저 구독 해제를 확인하지 못했습니다. 사이트 알림 설정을 확인하세요.');
-    localStorage.removeItem(OWNER);
-    if (actorId && previousOwner === actorId) await deletePushSubscription(actorId, endpoint);
-  } else localStorage.removeItem(OWNER);
+    if (!forgetOwner()) warning ??= storageFailure();
+    if (actorId && state.id === actorId) await deletePushSubscription(actorId, endpoint);
+  } else if (!forgetOwner()) warning ??= storageFailure();
   if (warning) throw warning;
   });
 }
 export async function reconcilePush(actorId: string | null): Promise<void> {
-  const previous = pushOwner();
-  if (previous && previous !== actorId) await clearPush();
+  const previous = ownerState();
+  if (!previous.available || !previous.id || previous.id !== actorId) await clearPush();
 }

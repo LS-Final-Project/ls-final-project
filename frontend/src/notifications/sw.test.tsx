@@ -15,7 +15,7 @@ function worker(fetcher?: (path: string) => Promise<Response>, windows: any[] = 
   const fetch = vi.fn(fetcher ?? (async (path: string) => Response.json({ data: path.endsWith('/me') ? { id: A } : { items: [item] } })));
   runInNewContext(source, { URL, Response, AbortSignal, fetch,
     caches: { open: async () => ({ match: async () => state.owner ? Response.json({ id: state.owner }) : undefined, put: async (_key: string, value: Response) => { state.owner = (await value.json()).id; }, delete: async () => { state.owner = ''; } }) },
-    self: { location: { origin: 'https://app.example.invalid' }, addEventListener: (name: string, callback: (event: any) => void) => { listeners[name] = callback; }, skipWaiting: async () => {}, registration: { showNotification: show, getNotifications: async () => [{ close }] }, clients: { claim: async () => {}, get: async () => ({ url: 'https://app.example.invalid/account' }), matchAll: async () => windows, openWindow: open } },
+    self: { location: { origin: 'https://app.example.invalid' }, addEventListener: (name: string, callback: (event: any) => void) => { listeners[name] = callback; }, skipWaiting: async () => {}, registration: { showNotification: show, getNotifications: async () => [{ close, data: { ownerId: A } }] }, clients: { claim: async () => {}, get: async () => ({ url: 'https://app.example.invalid/account' }), matchAll: async () => windows, openWindow: open } },
   });
   async function emit(kind: string, payload: unknown) {
     let pending: Promise<unknown> | undefined;
@@ -27,7 +27,7 @@ function worker(fetcher?: (path: string) => Promise<Response>, windows: any[] = 
 }
 it('푸시 payload 제목/URL 대신 현재 수신함에서 확인한 값만 표시한다', async () => {
   const w = worker(); await w.emit('push', { id: ID, title: '믿지 않는 제목', url: 'https://evil.invalid' });
-  expect(w.show).toHaveBeenCalledWith(item.title, { tag: `notification:${ID}`, data: { id: ID, ownerId: A } });
+  expect(w.show).toHaveBeenCalledWith(item.title, { tag: `notification:${A}:${ID}`, data: { id: ID, ownerId: A } });
   expect(w.listeners.fetch).toBeUndefined();
 });
 it('현재 사용자가 다르면 이전 계정의 지연 푸시를 표시하지 않는다', async () => {
@@ -75,4 +75,31 @@ it('이미 열린 같은 origin 창을 안전한 URL로 이동하고 focus한다
   const w = worker(undefined, [{ url: 'https://app.example.invalid/account', navigate, focus }]);
   await w.emit('notificationclick', { id: ID, ownerId: A });
   expect(navigate).toHaveBeenCalledWith(`https://app.example.invalid${item.link_path}`); expect(focus).toHaveBeenCalledOnce(); expect(w.open).not.toHaveBeenCalled();
+});
+
+it('showNotification 대기 중 로그아웃하면 늦게 표시된 알림도 다시 닫는다', async () => {
+  const w = worker();
+  let displayed!: () => void;
+  w.show.mockImplementationOnce(() => new Promise<void>(resolve => { displayed = resolve; }));
+  const pending = w.emit('push', { id: ID });
+  await vi.waitFor(() => expect(displayed).toBeTypeOf('function'));
+  await w.emit('message', { type: 'NOTIFICATION_OWNER', id: null });
+  expect(w.close).toHaveBeenCalledOnce();
+  displayed(); await pending;
+  expect(w.close).toHaveBeenCalledTimes(2);
+  expect(w.state.owner).toBe('');
+});
+it('새 계정 바인딩도 이미 표시된 이전 계정 OS 알림을 지운다', async () => {
+  const w = worker(async path => Response.json({ data: path.endsWith('/me') ? { id: B } : { items: [] } }));
+  await w.emit('message', { type: 'NOTIFICATION_OWNER', id: B });
+  expect(w.state.owner).toBe(B); expect(w.close).toHaveBeenCalledOnce();
+});
+it('이전 바인딩의 me 응답이 늦어져도 로그아웃 뒤 소유자를 되살리지 않는다', async () => {
+  let resolve!: (value: Response) => void;
+  const w = worker(async () => new Promise<Response>(done => { resolve = done; }));
+  const pending = w.emit('message', { type: 'NOTIFICATION_OWNER', id: A });
+  await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+  await w.emit('message', { type: 'NOTIFICATION_OWNER', id: null });
+  resolve(Response.json({ data: { id: A } })); await pending;
+  expect(w.state.owner).toBe('');
 });

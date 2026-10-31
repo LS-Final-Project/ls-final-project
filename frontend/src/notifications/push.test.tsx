@@ -46,3 +46,22 @@ it('취소된 이전 화면의 켜기 작업은 구독하거나 등록하지 않
   await expect(enablePush(A, KEY, controller.signal)).rejects.toThrow();
   expect(b.serviceWorker.register).not.toHaveBeenCalled(); expect(savePushSubscription).not.toHaveBeenCalled();
 });
+
+it('저장소 접근 차단도 로컬 해제와 SW 정리를 막지 않고 실패를 알린다', async () => {
+  const b = browser();
+  const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+  const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+  try {
+    await expect(clearPush(A)).rejects.toThrow(/브라우저 저장소/);
+    expect(b.subscription.unsubscribe).toHaveBeenCalledOnce();
+    expect(b.active.postMessage.mock.calls[0][0]).toEqual({ type: 'NOTIFICATION_OWNER', id: null });
+    expect(deletePushSubscription).not.toHaveBeenCalled();
+    await expect(enablePush(A, KEY)).rejects.toThrow(/브라우저 저장소/);
+    expect(b.serviceWorker.register).not.toHaveBeenCalled();
+  } finally { read.mockRestore(); remove.mockRestore(); }
+});
+it('소유자 표시가 없어도 알려지지 않은 기존 구독을 보수적으로 해제한다', async () => {
+  const b = browser(); await reconcilePush(B);
+  expect(b.subscription.unsubscribe).toHaveBeenCalledOnce();
+  expect(deletePushSubscription).not.toHaveBeenCalled();
+});
