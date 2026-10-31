@@ -50,6 +50,8 @@ EquipmentFamily = Literal[
     "ESS",
     "HMI",
     "LV_BREAKER",
+    # 저압 배전반·스위치기어 조립품(차단기 자체는 LV_BREAKER). 자사 제품이 없어 협력사만 채점된다.
+    "LV_SWITCHGEAR",
     "METER",
     "MV_EQUIP",
     "PLC",

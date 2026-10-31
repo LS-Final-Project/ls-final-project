@@ -12,6 +12,7 @@ from backend.api.tft.partners.loader import (
     load_document_pools,
     load_profiles,
 )
+from backend.api.tft.rfp.comparison import Requirement, compare_in_family, load_own_products
 from backend.api.tft.worker_processor import (
     candidate_pool,
     grading_groups,
@@ -209,7 +210,7 @@ def test_the_candidate_pool_reads_the_whole_number_from_document_titles(titles, 
 def test_every_shipped_profile_has_an_equipment_family():
     """표에 없는 후보는 조용히 채점에서 빠지므로 시드 프로필은 모두 표에 있어야 한다."""
     assert {p.product_family for p in load_profiles()} <= set(PROFILE_FAMILIES)
-    assert set(PROFILE_FAMILIES.values()) <= EQUIPMENT_FAMILIES
+    assert frozenset().union(*PROFILE_FAMILIES.values()) <= EQUIPMENT_FAMILIES
 
 
 def test_a_document_with_two_families_grades_each_candidate_on_its_own_family():
@@ -233,6 +234,41 @@ def test_a_document_with_two_families_grades_each_candidate_on_its_own_family():
         "L-B": "EXCLUDED",
     }
     assert {p.candidate_code for p, _ in grading_groups(targets, profiles, None)} >= {"M-A", "L-C"}
+
+
+def test_lv_candidates_take_assembly_and_breaker_requirements():
+    """저압 배전반 후보는 조립품(UL 1558) 요구로 채점돼 L-B가 제외된다. 고압 후보는 받지 않는다."""
+    from backend.api.tft.partners import grading
+    from tests.tft.test_partner_grading import B2, DAY, LV_CONTEXT
+
+    profiles = load_profiles()
+    pool = frozenset(load_document_pools()["14"])
+    assemblies = [r for r in B2 if r.value == "UL 1558"]
+    assert assemblies
+    targets = [(r, "LV_SWITCHGEAR" if r in assemblies else "LV_BREAKER") for r in B2]
+    groups = {p.candidate_code: (p, mine) for p, mine in grading_groups(targets, profiles, pool)}
+    assert set(groups) == {"L-A", "L-B"}
+    summary, _ = grading.grade_candidate(*groups["L-B"], LV_CONTEXT, DAY)
+    assert summary.overall_grade == "EXCLUDED"
+    only = grading_groups([(assemblies[0], "LV_SWITCHGEAR")], profiles, pool)
+    assert {p.candidate_code for p, _ in only} == {"L-A", "L-B"}
+
+
+def test_own_products_have_no_lv_switchgear_family():
+    """자사 제품이 없는 계열은 후보 없음으로 정직하게 나온다."""
+    outcome = compare_in_family(
+        Requirement(
+            clause_no="2.6.A",
+            item="UL 1558",
+            attribute="certification",
+            value="UL 1558",
+            certification_standard="UL 1558",
+        ),
+        "LV_SWITCHGEAR",
+        load_own_products(),
+    )
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
+    assert outcome.candidates == []
 
 
 @pytest.mark.parametrize("family", [None, "OTHER", "PLC"])

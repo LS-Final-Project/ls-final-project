@@ -42,7 +42,8 @@ from backend.shared.ai import Generation, Usage
 # v5(KAN-185): 대체·동등품을 승인 조건부로 허용하는데 절차가 없는 요구를 approval_procedure_missing으로 표시한다.
 # v6(KAN-185): operator 판단 기준과 조건 이름 어휘(conditions.name). 단위 수식어는 비교 쪽 코드가 뗀다.
 # v7(KAN-185): 설계 기준 제품(basis_of_design)을 지정 모델과 나누고, 문장형 값의 비교용 표기(canonical_value).
-EXTRACTION_VERSION = "rfp-requirements-v7"
+# v8(KAN-185): 저압 배전반·스위치기어 조립품 계열(LV_SWITCHGEAR). 차단기 자체는 LV_BREAKER다.
+EXTRACTION_VERSION = "rfp-requirements-v8"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -334,7 +335,9 @@ Return JSON matching the schema. Rules:
   Keep attribute as the clause wording; attribute_key is only the link.
 - equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
   sure; null for a task or document requirement. Instrument transformers (voltage/potential or current
-  transformers) feeding meters or relays are not TRANSFORMER: use OTHER.
+  transformers) feeding meters or relays are not TRANSFORMER: use OTHER. A low-voltage switchgear or
+  switchboard assembly, or a section or structure of one, is LV_SWITCHGEAR; a circuit breaker or trip device
+  inside it is LV_BREAKER.
 - tolerance: a tolerance printed in the quote, copied exactly (e.g. "±10%", "+0/-5%"); else null. Keep value
   as the nominal value only. Never compute a range.
 - certification_listed: true only when the text requires a listing or label (e.g. "listed", "labeled",

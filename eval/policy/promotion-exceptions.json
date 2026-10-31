@@ -25,8 +25,8 @@
       "recorded_on": "2026-10-30",
       "deployed": {
         "model": "gemini-3.6-flash",
-        "extraction_version": "rfp-requirements-v7",
-        "prompt_fingerprint": "4f69cdaa1a5b266c",
+        "extraction_version": "rfp-requirements-v8",
+        "prompt_fingerprint": "b46514df5b534471",
         "max_output_tokens": 16384
       }
     }
