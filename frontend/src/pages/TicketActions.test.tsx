@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { useNavigate } from 'react-router-dom';
 import TicketDetail from './TicketDetail';
 import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
@@ -150,6 +151,9 @@ test('반품 확정은 읽은 판본과 보호 토큰을 보내고 끝나면 최
   await waitFor(() => expect((screen.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: '반품 확정' }));
   await screen.findByText('반품 사유를 확정했습니다.');
+  // 확정에 성공하면 입력 칸을 비운다(다음 확정에 앞 내용이 남지 않게).
+  await waitFor(() => expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe(''));
+  expect((screen.getByLabelText('책임 구분') as HTMLSelectElement).value).toBe('');
   expect(api.posts).toHaveLength(1);
   expect(api.posts[0].url).toMatch(/\/workflow\/return-subtype$/);
   expect(body(api.posts[0])).toEqual({ responsibility: 'MANUFACTURING', cause_type: null, non_manufacturing_reason: null, response_note: '교체 발송', version: 6 });
@@ -167,4 +171,18 @@ test('반품 확정의 판본 충돌 409는 다시 보내지 않고 최신 상�
   fireEvent.click(screen.getByRole('button', { name: '반품 확정' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/다른 사용자가 먼저 상태를 바꿨습니다/);
   expect(api.posts).toHaveLength(1);
+});
+
+test('다른 문의로 옮기면 반품 확정 입력을 비운다(앞 문의 내용이 실려 가지 않는다)', async () => {
+  server('IN_REVIEW', 6, undefined, returnAnalysis);
+  const Go = () => { const go = useNavigate(); return <button onClick={() => go('/cs/tickets/other')}>다른 문의</button>; };
+  setApiMode('live'); renderAt('/cs/tickets/first', '/cs/tickets/:ticketId', <><TicketDetail /><Go /></>);
+  await screen.findByRole('form', { name: '반품 확정' });
+  fireEvent.change(screen.getByLabelText('책임 구분'), { target: { value: 'MANUFACTURING' } });
+  fireEvent.change(screen.getByLabelText('대응 내용'), { target: { value: '앞 문의 내용' } });
+  expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe('앞 문의 내용');
+  fireEvent.click(screen.getByRole('button', { name: '다른 문의' }));
+  await waitFor(() => expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe(''));
+  expect((screen.getByLabelText('책임 구분') as HTMLSelectElement).value).toBe('');
+  expect((screen.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(true);
 });
