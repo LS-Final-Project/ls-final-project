@@ -501,7 +501,7 @@ def build_graph(
             reason = NO_EVIDENCE_SENTENCES if nothing else "CS_VERIFICATION_INPUT_INVALID"
             if number > 1:
                 # 재작성본은 검증할 수 없다. 재작성을 부른 첫 판정을 사람에게 그대로 보인다.
-                return {"verification": {**state["verification"], "reason": reason}}
+                return {"verification": {**(state["verification"] or {}), "reason": reason}}
             return {"verification": {"status": "NOT_VERIFIED", "reason": reason, "sentences": []}}
         if not verification_enabled or verification_provider is None:
             reason = (
