@@ -9,7 +9,7 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
 import { KvBox, KvCond, KvCondField, KvCondRow, KvField, KvNext, KvSplit, KvTitle } from '../ls-shell/kv';
 
-import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL } from './labels';
+import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label } from './labels';
 import './RfpDraft.css';
 
 const SECTIONS: Record<string, string> = {
@@ -186,8 +186,8 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <div className="draft-layout"><KvSplit columns="minmax(0, 1.49fr) minmax(330px, 1fr)">
     <div className="draft-sections" aria-label="초안 문장 목록">
     {data && visibleSentences.length === 0 && <p className="draft-empty" role="status">선택한 조건의 문장이 없습니다.</p>}
-    {displayedSections.filter(part => visibleSentences.length > 0 || part.sentences.length > 0).map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`} bodyStyle={{ padding: 0 }}>
-      {!part.sentences.filter(matches).length && <p className="draft-empty">{part.sentences.length ? '선택한 조건의 문장이 없습니다.' : '저장된 문장이 없습니다.'}</p>}
+    {visibleSentences.length > 0 && displayedSections.map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`} bodyStyle={{ padding: 0 }}>
+      {!part.sentences.length && <p className="draft-empty">저장된 문장이 없습니다.</p>}
       {part.sentences.filter(matches).map(row => <article className={`draft-sentence${editing?.sentence.sentence_id === row.sentence_id ? ' is-editing' : selectedSentence?.sentence_id === row.sentence_id ? ' is-selected' : ''}`} id={`draft-sentence-${row.sentence_id}`} key={row.sentence_id} aria-label={`문장 ${row.sentence_id}`}>
         <button type="button" className="draft-sentence-number" aria-label={`S${sentenceNumbers.get(row.sentence_id)} 선택`} aria-pressed={selectedSentence?.sentence_id === row.sentence_id} onClick={() => setSelectedSentenceId(row.sentence_id)}>S{sentenceNumbers.get(row.sentence_id)}</button>
         <div className="draft-sentence-body">
@@ -223,12 +223,12 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       </dl>
       <p className="draft-help">필수 요구의 근거 또는 다음 행동과 통합 책임은 저장 시 서버에서 확인합니다.</p>
       <p className="draft-help">고쳐 저장한 문장만 재검토가 풀립니다. 요구에 재검토가 남아 있으면 그 문장은 남습니다.</p>
-      {data && <p className="draft-disclaimer" role="note">{data.disclaimer} <span>{DATA_ORIGIN_LABEL[data.data_origin]}</span></p>}
+      {data && <p className="draft-disclaimer" role="note">{data.disclaimer} <span>{label(DATA_ORIGIN_LABEL, data.data_origin)}</span></p>}
     </KvBox>
     <KvBox title="검토본 저장" note="전체 초안 판본 기준">
       <label className="draft-input">검토 메모<textarea rows={2} maxLength={1000} value={note} disabled={busy || !!command} onChange={event => setNote(event.target.value)} /></label>
       <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ actorId: user.id, kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
-      {review && <div className="draft-receipt"><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{formatDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{OUTPUT_LABEL[review.output_status]} / {JUDGEMENT_LABEL[review.judgement_status]}</KvField></div>}
+      {review && <div className="draft-receipt"><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{formatDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{label(OUTPUT_LABEL, review.output_status)} / {label(JUDGEMENT_LABEL, review.judgement_status)}</KvField></div>}
     </KvBox>
     <KvBox title="DOCX 내보내기" note="저장된 검토본 판본 지정">
       <label className="draft-input">내보낼 검토본 판본<input type="number" min="1" step="1" value={reviewInput} disabled={busy || !!command} onChange={event => setReviewInput(event.target.value)} /></label>
