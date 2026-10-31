@@ -105,6 +105,16 @@
           "source_value": "2P / 3P / 4P"
         },
         {
+          "attribute": "form",
+          "value": "Molded case circuit breaker, 100A frame, thermal-magnetic trip unit",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-103c",
+          "section": "1",
+          "source_value": "Molded case circuit breaker, 100A frame, thermal-magnetic trip unit",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
+        },
+        {
           "attribute": "warranty_months",
           "value": "18",
           "unit": "month",
@@ -220,6 +230,16 @@
           "evidence_id": "DS-MCCB-ABS-403c",
           "section": "2.2",
           "source_value": "100% of Icu"
+        },
+        {
+          "attribute": "form",
+          "value": "Molded case circuit breaker, 400A frame, adjustable thermal-magnetic trip unit",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-MCCB-ABS-403c",
+          "section": "1",
+          "source_value": "Molded case circuit breaker, 400A frame, adjustable thermal-magnetic trip unit",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
         },
         {
           "attribute": "warranty_months",
@@ -353,6 +373,16 @@
           "source_value": "Modbus RTU (RS-485)"
         },
         {
+          "attribute": "form",
+          "value": "Air circuit breaker 2000A, draw-out type, electronic trip unit (LSIG)",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-ACB-AS-2000",
+          "section": "1",
+          "source_value": "Air circuit breaker 2000A, draw-out type, electronic trip unit (LSIG)",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
+        },
+        {
           "attribute": "warranty_months",
           "value": "24",
           "unit": "month",
@@ -454,6 +484,16 @@
           "evidence_id": "DS-VCB-25kV-1250",
           "section": "2.2",
           "source_value": "125 kV"
+        },
+        {
+          "attribute": "form",
+          "value": "Vacuum circuit breaker 25.8kV / 1250A, spring operating mechanism",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-VCB-25kV-1250",
+          "section": "1",
+          "source_value": "Vacuum circuit breaker 25.8kV / 1250A, spring operating mechanism",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
         },
         {
           "attribute": "warranty_months",
@@ -1450,6 +1490,16 @@
           "source_value": "Class F / 100 K"
         },
         {
+          "attribute": "form",
+          "value": "Cast resin dry-type transformer 630kVA, 11/0.415kV, Dyn11, AN/AF",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-TRF-DRY-630",
+          "section": "1",
+          "source_value": "Cast resin dry-type transformer 630kVA, 11/0.415kV, Dyn11, AN/AF",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
+        },
+        {
           "attribute": "warranty_months",
           "value": "24",
           "unit": "month",
@@ -1579,6 +1629,16 @@
           "section": "2.2",
           "source_value": "±2 x 2.5%",
           "note": "x를 ×로, 공백 제거"
+        },
+        {
+          "attribute": "form",
+          "value": "Oil-immersed transformer 1000kVA, 11/0.433kV, ONAN, conservator type",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-TRF-OIL-1000",
+          "section": "1",
+          "source_value": "Oil-immersed transformer 1000kVA, 11/0.433kV, ONAN, conservator type",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
         },
         {
           "attribute": "warranty_months",
@@ -2144,6 +2204,16 @@
           "evidence_id": "DS-SWGR-MV-12kV",
           "section": "2.2",
           "source_value": "75 kV"
+        },
+        {
+          "attribute": "form",
+          "value": "12kV air-insulated metal-clad switchgear, withdrawable VCB",
+          "unit": null,
+          "conditions": [],
+          "evidence_id": "DS-SWGR-MV-12kV",
+          "section": "1",
+          "source_value": "12kV air-insulated metal-clad switchgear, withdrawable VCB",
+          "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다."
         },
         {
           "attribute": "warranty_months",

@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 72개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 75개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -94,6 +94,9 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | C20 | `cs/20261103_KAN-99_chunk_embeddings.sql` | C10·C18, pgvector 확장(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | to_regclass('cs.chunk_embeddings') | 미확인 |
 | C21 | `cs/20261104_KAN-200_draft_verification.sql` | C14·C18·C19(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_draft_verifications') | 미확인 |
 | C22 | `cs/20261105_KAN-201_worker_notifications.sql` | C4·C18(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | cs_worker의 `cs.ticket_workflows.owner_user_id` SELECT | 미확인 |
+| C23 | `cs/20261106_KAN-107_ticket_customer_tier.sql` | C1·C18(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | 열 `cs.tickets.customer_tier` | 미확인 |
+| C24 | `cs/20261107_KAN-99_search_context.sql` | C10(헤더) | cs_migrator | 가능(표 재작성, 배타 잠금) | 열 `cs.document_chunks.search_context` | 미확인 |
+| C25 | `cs/20261106_KAN-131_ticket_summaries.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_summaries') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |

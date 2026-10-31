@@ -37,7 +37,12 @@ from backend.engine.cs.drafting import (
     RevisionSentence,
 )
 from backend.engine.cs.drafting_call import DraftAttempt, run_draft_attempt
-from backend.engine.cs.rules import RuleInputError, decide, product_family
+from backend.engine.cs.rules import (
+    DEFAULT_CUSTOMER_TIER,
+    RuleInputError,
+    decide,
+    product_family,
+)
 from backend.engine.cs.verification import (
     NO_EVIDENCE_SENTENCES,
     VerificationOutput,
@@ -383,7 +388,8 @@ def build_graph(
                 category=result["category_code"],
                 urgency=result["urgency_flag"],
                 product_code=ticket.product_code,
-                customer_tier=ticket.customer_tier,
+                # 등급을 모르면 표준으로 계산한다. 값은 저장하지 않고 분석 화면이 사유를 보인다.
+                customer_tier=ticket.customer_tier or DEFAULT_CUSTOMER_TIER,
                 return_subtype=result["return_subtype"],
                 received_at=ticket.received_at,
             )

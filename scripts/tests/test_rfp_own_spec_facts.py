@@ -18,6 +18,7 @@ MASTER = [
     "certifications",
     "warranty_months",
     "doc_ids",
+    "description",
 ]
 FACTS = ["product_code", "attribute", "value", "doc_id", "section"]
 
@@ -163,6 +164,31 @@ class NormalizeTest(unittest.TestCase):
                 [row("X", "Rated voltage", "see drawing")],
             )
 
+    def test_a_form_fact_comes_from_the_description_only_when_an_axis_reads(self):
+        base = {
+            "family": "F",
+            "lifecycle_status": "ACTIVE",
+            "standards": "",
+            "certifications": "",
+            "warranty_months": "12",
+        }
+        built = self.build(
+            [
+                {**base, "product_code": "A", "doc_ids": "DS-A;IG-A", "description": "Drawout VCB"},
+                {**base, "product_code": "B", "doc_ids": "DS-B", "description": "Panel meter"},
+                {**base, "product_code": "C", "doc_ids": "IG-C", "description": "Drawout VCB"},
+            ],
+            [],
+        )
+        forms = [
+            (p["product_code"], f["evidence_id"], f["section"], f["value"])
+            for p in built["products"]
+            for f in p["spec_facts"]
+            if f["attribute"] == "form"
+        ]
+        self.assertEqual(forms, [("A", "DS-A", "1", "Drawout VCB")])
+        self.assertEqual(built["coverage"]["mapped_rows"], 0)
+
     @unittest.skipUnless((REF / "product_master.csv").exists(), "제공 데이터 ref/가 없는 환경")
     def test_the_committed_file_is_the_output_of_the_provided_data(self):
         self.assertEqual(own.render(own.build(REF)), own.OUTPUT.read_text(encoding="utf-8"))
@@ -225,6 +251,38 @@ class CommittedFileTest(unittest.TestCase):
     def test_an_edited_coverage_number_is_found(self):
         self.data["coverage"]["unmapped_rows"] += 1
         self.assertIn("coverage 수가 행과 다름", own.stale_facts(self.data))
+
+    def test_only_products_with_a_readable_form_axis_get_a_form_fact(self):
+        forms = {
+            p["product_code"]: f
+            for p in self.data["products"]
+            for f in p["spec_facts"]
+            if f["attribute"] == "form"
+        }
+        self.assertEqual(
+            sorted(forms),
+            [
+                "ACB-AS-2000",
+                "MCCB-ABS-103c",
+                "MCCB-ABS-403c",
+                "SWGR-MV-12kV",
+                "TRF-DRY-630",
+                "TRF-OIL-1000",
+                "VCB-25kV-1250",
+            ],
+        )
+        for code, row in forms.items():
+            self.assertEqual((row["evidence_id"], row["section"]), (f"DS-{code}", "1"))
+            self.assertEqual(row["value"], row["source_value"])
+
+    def test_a_form_that_differs_from_its_source_is_found(self):
+        self.fact_of("form")["value"] = "drawout VCB"
+        self.assertTrue(any("형식" in p for p in own.stale_facts(self.data)))
+
+    def test_a_form_without_a_readable_axis_is_found(self):
+        row = self.fact_of("form")
+        row["value"] = row["source_value"] = "panel"
+        self.assertTrue(any("형식" in p for p in own.stale_facts(self.data)))
 
     def test_a_warranty_that_differs_from_its_source_is_found(self):
         self.fact_of("warranty_months")["value"] = "999"

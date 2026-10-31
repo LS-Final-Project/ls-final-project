@@ -45,6 +45,9 @@ test('제품 조건은 접수 경로와 결합하고 더 보기 뒤에도 유지
   expect((screen.getByLabelText('제품') as HTMLSelectElement).value).toBe('');
 });
 
+const detail=(note:string|null,fails=false)=>{const source=examples.find(x=>x.path==='/api/v1/cs/tickets/22222222-2222-4222-8222-222222222222')!;vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/analysis')?(fails?jsonResponse(500,errorBody('X','실패')):jsonResponse(200,{data:{rules:{tier_note:note}}})):jsonResponse(200,source.body)));setApiMode('live');renderAt('/cs/tickets/a','/cs/tickets/:ticketId',<TicketDetail/>);return source;};
+test('등급을 몰라 표준으로 계산했으면 문의 화면에 알린다',async()=>{detail('등급 미확인, 표준 기준 계산');expect((await screen.findByRole('note')).textContent).toBe('등급 미확인, 표준 기준 계산');});
+test('등급이 있으면 안내가 없고 분석을 못 읽어도 문의는 보인다',async()=>{const source=detail(null);await screen.findByText('문의번호');await waitFor(()=>expect(vi.mocked(fetch).mock.calls.some(([u])=>String(u).endsWith('/analysis'))).toBe(true));expect(screen.queryByRole('note')).toBeNull();cleanup();detail(null,true);await screen.findByText('문의번호');expect(screen.queryByRole('alert')).toBeNull();expect(source).toBeTruthy();});
 test('엑셀은 선택한 행이 조건으로 모두 가려지면 보이는 행 전체를 내려받는다',async()=>{
   stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});
   let blob:Blob|undefined;

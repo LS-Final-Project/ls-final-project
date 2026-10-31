@@ -43,6 +43,7 @@ from backend.agent.cs_search import (
 from backend.engine.cs.classification import build_input
 from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.graph import policy_slot
+from backend.engine.cs.rules import load_policy
 from backend.engine.search.hybrid import Searcher, excerpt, scoped_then_global, token_or_query
 from backend.engine.search.model import Candidate, SearchFilters
 from scripts.cs_candidate_run import SplitBlocked, git_sha, load_targets, write_private
@@ -213,6 +214,7 @@ def build_evidence(
     query_from: QuerySource,
     product_documents: Mapping[str, frozenset[str]] | None = None,
     product_filter: bool = True,
+    families: Mapping[str, str | None] | None = None,
     categories: Mapping[str, object] | None = None,
     policy_documents: Mapping[str, str] | None = None,
     vector: Searcher | None = None,
@@ -231,6 +233,8 @@ def build_evidence(
         product_documents: {ticket_id: 그 문의 제품 문서의 sha256 집합}. None이면 제품 통계도 내지 않는다.
         product_filter: True면 제품 문서 제한 검색을 먼저 하고 모자라면 전역으로 채운다. False면 전역만 쓰고
             통계만 낸다(전후 비교용).
+        families: {ticket_id: 문의 제품의 계열}. 있으면 운영 graph.retrieve처럼 계열로 먼저 찾는다.
+            product_documents 제한보다 우선한다.
         categories: {ticket_id: 분류 결과 category_code}. policy_documents와 함께 있으면 graph.policy_slot과 같은
             규칙으로 그 유형의 정책 문서 1자리를 예약한다(KAN-194 10차). None이면 예약하지 않는다.
         policy_documents: 정책 문서 doc_id → sha256(load_policy_documents).
@@ -273,6 +277,9 @@ def build_evidence(
             if product_filter and docs
             else None
         )
+        if families is not None:
+            family = families.get(ticket_id)
+            scoped = filters.model_copy(update={"product_family": family}) if family else None
         reserved = policy_slot(filters, (categories or {}).get(ticket_id), policy_documents)
         reserved_tickets += reserved is not None
         items, blocked = scoped_then_global(
@@ -310,6 +317,7 @@ def build_evidence(
         "limit_per_ticket": limit,
         "snippet_chars": snippet_chars,
         "query_from": query_from,
+        "family_scope": families is not None,
         "queries_sha256": hashlib.sha256("\n".join(queries).encode()).hexdigest(),
     }
     if categories is not None:
@@ -401,6 +409,11 @@ def main(
         help="제품 우선 검색을 끄고 통계만 낸다(--index-manifest와 함께, 전후 비교용)",
     )
     parser.add_argument(
+        "--family-scope",
+        action="store_true",
+        help="운영 경로처럼 제품 문서 대신 제품 계열로 먼저 찾는다(--index-manifest와 함께).",
+    )
+    parser.add_argument(
         "--classification",
         type=Path,
         help="분류 결과 라벨 JSON({ticket_id: {category_code}}). --index-manifest의 정책 문서로 1자리를 예약한다",
@@ -420,10 +433,11 @@ def main(
         or args.snippet_chars < 1
         or (args.no_product_filter and args.index_manifest is None)
         or (args.classification is not None and args.index_manifest is None)
+        or (args.family_scope and args.index_manifest is None)
     ):
         print(
             "CS_EVIDENCE_INVALID_ARGS: --limit-per-ticket은 1~90, --snippet-chars는 1 이상이고 "
-            "--no-product-filter·--classification은 --index-manifest와 함께만 씁니다."
+            "--no-product-filter·--classification·--family-scope는 --index-manifest와 함께만 씁니다."
         )
         return 1
     started = datetime.now(UTC)
@@ -471,6 +485,11 @@ def main(
             query_from=args.query_from,
             product_documents=product_documents,
             product_filter=not args.no_product_filter,
+            families=(
+                {t: load_policy().families.get(products.get(t) or "") for t in ids}
+                if args.family_scope
+                else None
+            ),
             categories=load_categories(args.classification) if args.classification else None,
             policy_documents=(
                 load_policy_documents(args.index_manifest) if args.classification else None

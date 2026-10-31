@@ -21,6 +21,8 @@ class ChunkMetadata(Strict):
     product_family: str | None = None
     access_scope: str | None = None
     version: str | None = None
+    title: str | None = None
+    product_code: str | None = None
 
 
 class Chunk(Strict):
