@@ -895,7 +895,9 @@ def test_certifications_and_designated_models_keep_their_order_for_task_requirem
     assert outcome.deficiency_cause == "DESIGNATED_MODEL"
 
 
-@pytest.mark.parametrize("value", ["<Insert value>", "< insert kV rating >", "TBD", "[ ]", "____"])
+@pytest.mark.parametrize(
+    "value", ["<Insert value>", "< insert kV rating >", "TBD", "[ ]", "____", "미정", "추후 협의"]
+)
 def test_a_placeholder_value_is_left_out_of_the_judgement(value):
     """미정 표시는 값이 아니다. 비교하지 않고 고객 회신을 받는 근거 부족으로 둔다."""
     wanted = Requirement(
