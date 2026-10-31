@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setApiMode } from '../api/client';
 import { Link } from 'react-router-dom';
@@ -46,7 +46,7 @@ beforeEach(() => {
   }));
   setApiMode('live');
 });
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); sessionStorage.clear(); });
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); vi.useRealTimers(); });
 const open = async () => { renderApp(PATH); await screen.findByRole('table', { name: '문서와 판본' }); await screen.findByRole('cell', { name: '공문' }); };
 const posts = (part: string) => calls.filter(c => c.method === 'POST' && c.url.includes(part));
 const next = () => document.querySelector('.kv-next')?.textContent ?? '';
@@ -87,40 +87,61 @@ describe('프로젝트 화면', () => {
     expect(next()).not.toContain('30초마다');
   });
 
-  it('새로고침해도 돌던 작업을 이어 보고 끝나면 잊는다', async () => {
-    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+  it('latest_job이 도는 중이면 잠그고 다시 들어와도 이어 본다', async () => {
+    project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
     await open();
-    expect(calls.some(c => c.url.endsWith('/platform/jobs/j9'))).toBe(true);
     await waitFor(() => expect(next()).toContain('30초마다'));
+    expect(calls.some(c => c.url.endsWith('/platform/jobs/j9'))).toBe(true);
     expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(true);
-    cleanup();
+    expect((screen.getByRole('button', { name: '처리 실행' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('이미 끝난 작업은 잠그지도 알리지도 않는다', async () => {
+    project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
     job = () => ok({ job_id: 'j9', status: 'SUCCEEDED' });
     await open();
-    await waitFor(() => expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBeNull());
+    await waitFor(() => expect(calls.some(c => c.url.endsWith('/platform/jobs/j9'))).toBe(true));
+    await waitFor(() => expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(next()).not.toContain('분석 완료');
   });
 
-  it.each([[404], [403]])('작업을 못 읽으면(%d) 잠그지 않고 기억을 지운다', async status => {
-    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+  it('돌던 작업이 끝나면 알린다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
+    await open();
+    await waitFor(() => expect(next()).toContain('30초마다'));
+    job = () => ok({ job_id: 'j9', status: 'SUCCEEDED' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await waitFor(() => expect(next()).toContain('분석 완료, 요구 48건'));
+    vi.useRealTimers();
+  });
+
+  it.each([[404], [403]])('남의 작업(%d)은 잠그지 않고 다시 읽지 않는다', async status => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
     job = () => jsonResponse(status, errorBody('X', '없음'));
     await open();
-    await waitFor(() => expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBeNull());
-    expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(calls.some(c => c.url.endsWith('/platform/jobs/j9'))).toBe(true));
+    await waitFor(() => expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false));
     expect(next()).not.toContain('30초마다');
+    const reads = () => calls.filter(c => c.url.endsWith('/platform/jobs/j9')).length;
+    const before = reads();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(reads()).toBe(before);
+    vi.useRealTimers();
   });
 
-  it('작업 조회 장애는 잠그지 않되 기억은 남겨 다시 본다', async () => {
-    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+  it('작업 조회 장애는 잠그지 않되 계속 다시 본다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
     job = () => jsonResponse(500, errorBody('X', '장애'));
     await open();
     await waitFor(() => expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false));
-    expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBe('j9');
-  });
-
-  it('저장소를 못 써도 화면은 돈다', async () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
-    await open();
-    expect(screen.getByRole('button', { name: '문서 올리기' })).toBeTruthy();
-    vi.restoreAllMocks();
+    const reads = () => calls.filter(c => c.url.endsWith('/platform/jobs/j9')).length;
+    const before = reads();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    vi.useRealTimers();
   });
 
   it('업무 UI가 꺼졌으면 프로젝트를 부르지 않는다', async () => {
@@ -203,7 +224,6 @@ describe('처리 실행', () => {
     expect(posts('/process')[0].key).toBeTruthy();
     await waitFor(() => expect(next()).toContain('분석 중'));
     expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBe('j1');
   });
 
   it('첫 실행은 사유 없이 된다', async () => {
@@ -292,15 +312,17 @@ describe('프로젝트 접수', () => {
 });
 
 describe('경로 안에서 프로젝트 이동', () => {
-  it('같은 화면 요소에서 프로젝트가 바뀌면 앞 프로젝트의 작업 상태가 따라오지 않는다', async () => {
+  it('이 화면에서 시작한 작업이 다른 프로젝트로 따라오지 않는다', async () => {
     const other = '44444444-4444-4444-8444-444444444444';
-    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+    project = { ...base, requirements_count: 0 };
     renderAt(PATH, 'tft/projects/:projectId', <><Link to={`/tft/projects/${other}`}>다른 프로젝트</Link><RfpIntake /></>);
+    await screen.findByRole('cell', { name: '공문' });
+    fireEvent.click(screen.getByRole('button', { name: '처리 실행' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '처리 실행' })[1]);
     await waitFor(() => expect(next()).toContain('30초마다'));
     fireEvent.click(screen.getByRole('link', { name: '다른 프로젝트' }));
     const upload = await screen.findByRole('button', { name: '문서 올리기' }) as HTMLButtonElement;
     await waitFor(() => expect(upload.disabled).toBe(false));
     expect(next()).not.toContain('30초마다');
-    expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBe('j9');
   });
 });
