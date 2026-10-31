@@ -16,7 +16,8 @@
 
 - 한글은 장(깊이 1)·조(2)·숫자 항목(3)·가/나 항목(4) 순서다. 장/조/PART가 없는 문서의
   `1. 일반` 같은 한글 숫자 제목은 깊이 2 절로 시작한다. 조의 괄호 제목·본문은 text에 보존한다.
-  한글 번호 문맥의 소수는 절로 승격하지 않으며 다음 영문 PART부터 기존 영문 깊이로 돌아간다.
+  한글 번호 문맥의 소수는 실제 번호 부모와 짧은 한글 제목이 있을 때만 계층으로 읽고 다음 영문 PART부터
+  기존 영문 깊이로 돌아간다.
 - 번호 없는 문단은 바로 앞 조항에 붙인다. 앞 글이 문장 끝(`.`·`:`·`;`)이 아니거나 이번 문단이 소문자로
   시작하면 줄이 중간에서 끊긴 것으로 보고 공백으로 잇는다(`LINE_BREAK_REJOINED`). 아니면 줄을 바꿔 붙인다.
 - 표: 한 행의 첫 글자 있는 칸이 번호만이면 그 행을 번호 조항으로 읽는다(14번 2.5 D·G·I…가 이런 배치다).
@@ -55,6 +56,13 @@ PART = re.compile(r"^PART\s+(\d+)\s*[-–—]\s*(.+)$")
 KOREAN_CHAPTER = re.compile(r"^(제\s*(\d+)\s*장)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_ARTICLE = re.compile(r"^(제\s*(\d+)\s*조)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_NUMBER = re.compile(r"^(\d+)\.\s*([가-힣].*)$")
+KOREAN_DECIMAL = re.compile(r"^(\d+(?:\.\d+)+)\s+([가-힣].*)$")
+# 문단 앞 소수 수량/조항 참조를 제목으로 승격하지 않는다.
+KOREAN_MEASURE = re.compile(
+    r"^(?:밀리미터|센티미터|킬로미터|미터|킬로볼트|볼트|킬로암페어|암페어|퍼센트|"
+    r"킬로그램|그램|리터|초|분|시간|일|개월|년|개|회|명|배)(?:\s|[은는이가을를의]|$)"
+)
+KOREAN_REFERENCE = re.compile(r"^(?:제\s*\d+\s*(?:장|조|항|호)|(?:조|항|호)(?:에|의|를))")
 KOREAN_LETTERS = "가나다라마바사아자차카타파하"
 ARTICLE = re.compile(r"^(\d+)\.(\d+)\s+(\S.*)$")
 # PDF에서 바꾼 문서는 절 번호와 첫 항목 번호가 표 칸 하나에 함께 떠 있다(14번 "2.2 A.").
@@ -103,10 +111,17 @@ class Clause(Strict):
 
 def is_korean_section(clause: Clause) -> bool:
     """새로 지원한 한글 장·조·독립 숫자 절인지. 기존 영문 leaf 선정은 바꾸지 않는다."""
-    return clause.depth <= 2 and (
-        KOREAN_CHAPTER.fullmatch(clause.label) is not None
-        or KOREAN_ARTICLE.fullmatch(clause.label) is not None
-        or (clause.depth == 2 and re.fullmatch(r"\d+\.", clause.label) is not None)
+    return (
+        clause.depth >= 3
+        and clause.clause_no == clause.label
+        and re.fullmatch(r"\d+(?:\.\d+)+", clause.label) is not None
+    ) or (
+        clause.depth <= 2
+        and (
+            KOREAN_CHAPTER.fullmatch(clause.label) is not None
+            or KOREAN_ARTICLE.fullmatch(clause.label) is not None
+            or (clause.depth == 2 and re.fullmatch(r"\d+\.", clause.label) is not None)
+        )
     )
 
 
@@ -179,6 +194,19 @@ def _shape(text: str) -> str:
     return re.sub(r"\d+", "#", text.strip())
 
 
+def _article_heading(tail: str) -> bool:
+    """독립 조 제목만 인정한다. 괄호 뒤 조사·다른 항 참조는 본문이다."""
+    if not tail:
+        return True
+    if tail.startswith(("(", "（")):
+        return re.match(r"^[（(][^()（）]{1,80}[）)](?:\s|$)", tail) is not None
+    return (
+        len(tail) <= 80
+        and not KOREAN_REFERENCE.match(tail)
+        and not tail.endswith((".", "…", "다", ":", ";", "?", "!"))
+    )
+
+
 def _label(text: str) -> tuple[int, str, str, str | None] | None:
     """문단 앞 번호를 읽는다.
 
@@ -187,7 +215,7 @@ def _label(text: str) -> tuple[int, str, str, str | None] | None:
     """
     if m := KOREAN_CHAPTER.match(text):
         return 1, f"제{m.group(2)}장", m.group(1), m.group(3).strip() or None
-    if m := KOREAN_ARTICLE.match(text):
+    if (m := KOREAN_ARTICLE.match(text)) and _article_heading(m.group(3)):
         return 2, f"제{m.group(2)}조", m.group(1), None
     if m := PART.match(text):
         head = text[: m.start(2)].strip()
@@ -302,11 +330,28 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     simple_korean = not any(
         PART.match(b.text.strip())
         or KOREAN_CHAPTER.match(b.text.strip())
-        or KOREAN_ARTICLE.match(b.text.strip())
+        or (KOREAN_ARTICLE.match(b.text.strip()) and _label(b.text.strip()) is not None)
         for b in document.blocks
     )
 
     def contextual_label(text: str) -> tuple[int, str, str, str | None] | None:
+        if korean and (decimal := KOREAN_DECIMAL.match(text)):
+            token, title = decimal.groups()
+            depth = len(token.split(".")) + 1
+            parent = token.rsplit(".", 1)[0]
+            has_parent = any(o.clause_no == parent for o in stack) or (
+                "." not in parent and any(o.clause_no == f"제{parent}장" for o in stack)
+            )
+            if (
+                depth <= 7
+                and has_parent
+                and len(title) <= 80
+                and not KOREAN_MEASURE.match(title)
+                and not KOREAN_REFERENCE.match(title)
+                and not title.endswith((".", "…", "다", ":", ";", "?", "!"))
+            ):
+                return depth, token, token, title
+            return None
         found = _label(text)
         if found is None:
             return None
@@ -450,7 +495,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         parent = stack[-1] if stack else None
         if depth == 1:
             base = token
-        elif depth == 2:
+        elif depth == 2 or (korean and KOREAN_DECIMAL.match(block.text.strip()) and label == token):
             base = token
         else:
             base = f"{parent.clause_no}.{token}" if parent else token
@@ -700,7 +745,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             korean = False
         elif (
             KOREAN_CHAPTER.match(text)
-            or KOREAN_ARTICLE.match(text)
+            or (KOREAN_ARTICLE.match(text) and _label(text) is not None)
             or (simple_korean and KOREAN_NUMBER.match(text))
         ):
             korean = True
@@ -721,7 +766,9 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             started = True
             cut = block.text.find(label) + len(label)
             body, deleted, history = _strip(block.text, block.deleted_values, cut)
-            if depth <= 2 and not KOREAN_ARTICLE.match(text):
+            if (depth <= 2 and not KOREAN_ARTICLE.match(text)) or (
+                korean and KOREAN_DECIMAL.match(text) and label == token
+            ):
                 # 제목 줄의 삭제 값(예: PART 3의 "(NOT IN CONTRACT)")은 제목 기준으로 따로 둔다.
                 open_clause(depth, token, label, body.strip() or title, block, "", [], history, [])
                 if current is not None:
