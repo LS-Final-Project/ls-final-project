@@ -75,6 +75,8 @@ test('고객·제품이 다른 장비는 아니오로, 확정과 제외는 연�
     : { status: 'NO_CONFIRMED_UNIT', unit: null, items: [] } })));
   view(); fireEvent.click(screen.getByRole('button', { name: '장비 정보 조회' }));
   await screen.findByText('VSN-OTHER');
+  // 불일치 장비도 어느 고객 장비인지 보여야 한다.
+  expect(screen.getAllByText(/고객 C1, 출처 synthetic PROVIDED/).length).toBe(2);
   expect(screen.getByText('아니오')).toBeTruthy();
   expect(screen.getByText('확정')).toBeTruthy();
   expect(screen.getByText('제외')).toBeTruthy();

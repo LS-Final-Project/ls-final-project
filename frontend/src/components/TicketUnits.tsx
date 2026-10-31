@@ -24,7 +24,7 @@ export default function TicketUnits({ ticketId }: { ticketId: string }) {
 
   const columns: KvColumn<UnitRow>[] = [
     { key: 'serial', header: '시리얼', headClass: '', cell: ({ unit }) => <><span>{unit.serial_no}</span>
-      <small style={{ display: 'block', color: 'var(--erp-muted)', whiteSpace: 'normal' }}>설치 {unit.commissioning_date ?? '미정'} ({unit.commissioning_status}), 출하 {unit.ship_date ?? '미정'}, 최근 FW {unit.fw_version_last ?? '미정'}, {unit.data_origin}</small></> },
+      <small style={{ display: 'block', color: 'var(--erp-muted)', whiteSpace: 'normal' }}>설치 {unit.commissioning_date ?? '미정'} ({unit.commissioning_status}), 출하 {unit.ship_date ?? '미정'}, 최근 FW {unit.fw_version_last ?? '미정'}, 고객 {unit.customer_external_id}, 출처 {unit.data_origin} {unit.derivation_kind}</small></> },
     { key: 'product', header: '제품', width: 96, headClass: '', cell: ({ unit }) => unit.product_code },
     { key: 'match', header: '고객/제품 일치', width: 64, className: 'c', cell: ({ matches_ticket }) => matches_ticket ? '예' : '아니오' },
     { key: 'link', header: '연결', width: 48, className: 'c', cell: ({ link }) => LINK_LABEL[link?.link_status ?? ''] ?? '후보' },
