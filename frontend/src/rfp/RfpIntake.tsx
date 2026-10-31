@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getJob, listDocuments, listProposals, listQuestions, type DocumentVersion } from '../api/rfp';
@@ -25,18 +25,8 @@ const DOCUMENTS: KvColumn<DocumentVersion>[] = [
 const counted = (counts: Record<string, number>, labels: Record<string, string>) =>
   Object.entries(labels).map(([code, text]) => `${text} ${counts[code] ?? 0}`).join(', ');
 
-// 실행 때 받은 작업 ID. 프로젝트 응답에 작업이 없어(latest_job은 null) 새로고침해도 이어 보도록 탭에 둔다.
-// 다른 탭이나 다른 사람의 실행은 여기 없으므로 서버의 TFT_JOB_IN_PROGRESS가 막는다.
-const jobKey = (projectId: string) => `rfp-job:${projectId}`;
-function rememberedJob(projectId: string) {
-  try { return sessionStorage.getItem(jobKey(projectId)) ?? undefined; } catch { return undefined; }
-}
-function rememberJob(projectId: string, jobId: string | undefined) {
-  try {
-    if (jobId) sessionStorage.setItem(jobKey(projectId), jobId);
-    else sessionStorage.removeItem(jobKey(projectId));
-  } catch { /* 저장소를 못 쓰면 이 화면에 있는 동안만 본다 */ }
-}
+// 작업 상태 경로는 요청한 사용자 본인만 열린다. 404·403이면 다시 읽어도 소용없다.
+const notMine = (error: unknown) => error instanceof ApiError && (error.status === 404 || error.status === 403);
 
 // 접수 및 요구 검토(TF0101) 프로젝트 화면. 진행 칸(output_status)은 산출물 단계이지 작업 상태가 아니다.
 // 작업이 도는지는 작업 ID로만 판단한다. 진행 칸으로 막으면 끝난 프로젝트가 영영 잠긴다.
@@ -51,39 +41,43 @@ function Intake({ projectId }: { projectId: string }) {
   const access = useBusinessAccess('tft');
   const client = useQueryClient();
   const [panel, setPanel] = useState<'upload' | 'process'>();
-  const [jobId, setJobId] = useState(() => rememberedJob(projectId));
+  // 방금 실행한 작업. 프로젝트 응답이 latest_job을 돌려주기 전까지 이 ID로 본다.
+  const [started, setStarted] = useState<string>();
   const [finished, setFinished] = useState<string>();
+  // 끝남은 돌던 모습을 본 작업만 알린다. latest_job은 끝난 뒤에도 남아 안 그러면 들어올 때마다 완료가 뜬다.
+  const watched = useRef<string>(undefined);
   const enabled = access.ready && projectId !== '';
-  const job = useQuery({
-    queryKey: ['jobs', mode, jobId],
-    queryFn: () => getJob(jobId as string),
-    enabled: enabled && !!jobId,
-    refetchInterval: query => { const status = query.state.data?.data.status; return !status || ACTIVE.has(status) ? POLL_MS : false; },
-  });
-  const jobStatus = job.data?.data.status;
-  // 상태를 읽지 못하면(다른 사용자의 작업 404, 장애) 돈다고 단정하지 않는다. 화면을 잠그지 않고 서버 409에 맡긴다.
-  const running = !!jobId && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
   const project = useQuery({
     queryKey: ['projects', mode, projectId],
     queryFn: () => getProject(projectId),
     enabled,
   });
+  const jobId = started ?? project.data?.data.latest_job?.job_id;
+  const job = useQuery({
+    queryKey: ['jobs', mode, jobId],
+    queryFn: () => getJob(jobId as string),
+    enabled: enabled && !!jobId,
+    refetchInterval: query => {
+      if (notMine(query.state.error)) return false;
+      const status = query.state.data?.data.status;
+      return !status || ACTIVE.has(status) ? POLL_MS : false;
+    },
+  });
+  const jobStatus = job.data?.data.status;
+  // 상태를 읽지 못하면(다른 사용자의 작업 404, 장애) 돈다고 단정하지 않는다. 화면을 잠그지 않고 서버 409에 맡긴다.
+  const running = !!jobId && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
   const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled });
   const pending = useQuery({ queryKey: ['rfp-proposals', mode, projectId, 'PENDING'], queryFn: () => listProposals(projectId, { status: 'PENDING' }), enabled });
   const open = useQuery({ queryKey: ['rfp-questions', mode, projectId, 'OPEN'], queryFn: () => listQuestions(projectId, 'OPEN'), enabled });
-  const jobGone = job.error instanceof ApiError && (job.error.status === 404 || job.error.status === 403);
   useEffect(() => {
-    if (!jobId || !jobGone) return;
-    setJobId(undefined);
-    rememberJob(projectId, undefined);
-  }, [jobId, jobGone, projectId]);
-  useEffect(() => {
-    if (!jobId || !jobStatus || ACTIVE.has(jobStatus)) return;
+    if (!jobId || !jobStatus) return;
+    if (ACTIVE.has(jobStatus)) { watched.current = jobId; return; }
+    if (watched.current !== jobId) return;
+    watched.current = undefined;
+    setStarted(undefined);
     setFinished(jobStatus);
-    setJobId(undefined);
-    rememberJob(projectId, undefined);
     for (const key of ['projects', 'rfp-documents', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
-  }, [jobId, jobStatus, client, mode, projectId]);
+  }, [jobId, jobStatus, client, mode]);
   if (!access.ready) return <BusinessGate access={access} title="접수 및 요구 검토" />;
   if (project.isPending) return <main><Loading /></main>;
   if (project.isError) return <main><ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;
@@ -116,7 +110,7 @@ function Intake({ projectId }: { projectId: string }) {
       client.invalidateQueries({ queryKey: ['rfp-documents', mode] });
       client.invalidateQueries({ queryKey: ['projects', mode] });
     }} />}
-    {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={started => { setPanel(undefined); setFinished(undefined); setJobId(started.job_id); rememberJob(projectId, started.job_id); }} />}
+    {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={({ job_id }) => { setPanel(undefined); setFinished(undefined); watched.current = job_id; setStarted(job_id); }} />}
     <KvSplit columns="1fr 1fr">
       <KvBox title={`프로젝트 ${data.external_id ?? ''}`.trim()}>
         <KvField label="프로젝트명">{data.name}</KvField>
