@@ -630,7 +630,7 @@ def gate_values(
         draft_trace: summarize_draft_trace 결과(없으면 None). 분모가 0이면 None이다.
 
     Returns:
-        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성·초안 추적), 사유를 비교하지
+        dict: 게이트 키 → 값. 요약이 없거나 측정 도구가 없는 키(근거 정확성), 사유를 비교하지
             못한 상태 일치(reason_compared false), necessity가 없는 정답 요구가 있는 중대 오충족, 발생 가능 건수가
             0인 두 0건 게이트, 검토 후보 미확인 조건 표시를 같이 재지 않은 협력사 추천 정밀도는 None이다.
     """
