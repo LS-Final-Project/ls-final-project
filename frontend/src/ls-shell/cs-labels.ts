@@ -50,3 +50,18 @@ export function formatStamp(iso: string): string {
 }
 
 export const dayOf = (iso: string) => formatStamp(iso).slice(0, 10);
+
+export const DEPT_LABEL: Record<string, string> = {
+  TS_LV: '저압기기 기술지원', TS_MV: '중압기기 기술지원', TS_TRF: '변압기 기술지원', TS_AUTO: '자동화 기술지원',
+  TS_ENERGY: '에너지 기술지원', RND_FW: '펌웨어 개발', QA_CLAIM: '품질보증/클레임', FIELD_SVC: '현장 서비스',
+  CERT: '인증', SALES_OPS: '영업 운영', SCM: '주문/물류', WARRANTY_DESK: '보증 데스크',
+};
+export const DEPT_CODES = Object.keys(DEPT_LABEL);
+export const deptName = (code: string) => DEPT_LABEL[code] ? `${DEPT_LABEL[code]} (${code})` : code;
+
+// 확인 근거(장비 연결의 derivation_kind). 가정·추정 자료를 확정처럼 적지 않는다.
+export const DERIVATION_LABEL: Record<string, string> = { PROVIDED: '고객 제공', DERIVED: '추정', ASSUMED: '가정 자료', SYSTEM: '시스템' };
+export const derivationName = (kind: string) => DERIVATION_LABEL[kind] ?? kind;
+
+// 통계 API의 미확인 지표 이름.
+export const UNCONFIRMED_LABEL: Record<string, string> = { SLA_DUE: 'SLA 기한', RULE_ASSIGNED_DEPT: '규칙상 담당 부서' };

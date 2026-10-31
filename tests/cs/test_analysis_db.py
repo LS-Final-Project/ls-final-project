@@ -452,14 +452,37 @@ def test_drafts_are_stored_as_ai_runs_and_shown_with_the_analysis(client, settin
     assert data["drafts"][0]["draft"] == draft and data["drafts"][1]["draft"] is None
 
 
-def test_a_manual_ticket_without_a_tier_has_no_rules_but_still_shows_values(
+def test_a_ticket_without_a_tier_uses_the_standard_tier_and_says_so(
     client, settings, admin, ticket
 ):
     admin.execute("DELETE FROM cs.ticket_source_records WHERE ticket_id=%s", (ticket,))
     store(settings, ticket)
     data = analysis(client, ticket)
-    assert (data["rules"]["ai"], data["rules"]["ai_error"]) == (None, "CS_CUSTOMER_TIER_UNKNOWN")
+    assert data["rules"]["ai_error"] is None and data["rules"]["ai"] is not None
+    assert data["rules"]["tier_note"] == "등급 미확인, 표준 기준 계산"
     assert data["fields"]["category_code"]["effective_value"] == "DEFECT"
+    # 계산에만 썼다. 저장된 값은 여전히 없다.
+    stored = admin.execute("SELECT customer_tier FROM cs.tickets WHERE id=%s", (ticket,)).fetchone()
+    assert stored == (None,)
+
+
+def test_a_tier_given_at_registration_is_used_without_a_note(client, settings, admin, ticket):
+    admin.execute("DELETE FROM cs.ticket_source_records WHERE ticket_id=%s", (ticket,))
+    admin.execute("UPDATE cs.tickets SET customer_tier='PLATINUM' WHERE id=%s", (ticket,))
+    store(settings, ticket)
+    platinum = analysis(client, ticket)["rules"]
+    assert platinum["tier_note"] is None
+    admin.execute("UPDATE cs.tickets SET customer_tier=NULL WHERE id=%s", (ticket,))
+    standard = analysis(client, ticket)["rules"]
+    # 같은 분류라도 등급이 기한을 바꾼다. 값이 실제로 쓰였다는 뜻이다.
+    assert (
+        platinum["first_response_due"]["effective"] != standard["first_response_due"]["effective"]
+    )
+
+
+def test_a_provided_tier_still_counts_and_gives_no_note(client, settings, ticket):
+    store(settings, ticket)
+    assert analysis(client, ticket)["rules"]["tier_note"] is None
 
 
 def test_rows_are_append_only_for_the_service(settings, cs_database, ticket):

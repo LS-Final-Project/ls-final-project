@@ -92,6 +92,8 @@ def business_database(auth_database):
             "cs/20261029_KAN-99_search_chunks.sql",
             "cs/20261029_KAN-194_checkpoint_schema.sql",
             "cs/20261101_KAN-107_worker_source.sql",
+            # 접수 경로가 등급 칸에 쓴다(C23). 역할을 만드는 worker_source 뒤다.
+            "cs/20261106_KAN-107_ticket_customer_tier.sql",
             "tft/20261023_KAN-119_projects.sql",
             "tft/20261023_KAN-122_staffing_requests.sql",
             "tft/20261025_KAN-123_recommendation_commands.sql",

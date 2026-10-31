@@ -39,7 +39,7 @@ T = TypeVar("T")
 
 TICKET = (
     "SELECT t.channel, t.body_language, t.subject, t.body, t.product_code, t.received_at, "
-    "s.customer_tier FROM cs.tickets t "
+    "coalesce(t.customer_tier, s.customer_tier) AS customer_tier FROM cs.tickets t "
     "LEFT JOIN cs.ticket_source_records s ON s.ticket_id = t.id WHERE t.id = %s"
 )
 # 고객에게 실제로 나간 메시지(플랫폼 ACCEPTED가 업무 상태에 반영된 것)만 "이미 요청함"으로 본다. 승인만 되고
@@ -142,7 +142,7 @@ class DbTicketSource:
                 # 어댑터(KAN-92)가 민감값을 주면 여기서 읽는다. 이메일·라벨 붙은 시리얼은 build_input이 가린다.
                 sensitive_values={},
                 product_code=ticket["product_code"],
-                # 직접 등록한 문의는 고객 등급이 없다. 빈 값이면 규칙 노드가 CS_RULE_INPUT으로 남기고 계속한다.
+                # 메일 문의처럼 등급이 없으면 빈 값이다. 규칙 노드가 표준 등급으로 계산한다.
                 customer_tier=ticket["customer_tier"] or "",
                 received_at=received if received.tzinfo else received.replace(tzinfo=UTC),
                 # 유형을 미리 알 필요가 없도록 계열의 유형별 지도를 주고, 초안 노드가 분류 결과로 행을 고른다.

@@ -6015,6 +6015,18 @@
           },
           "resolution_due": {
             "$ref": "#/components/schemas/DeadlineView"
+          },
+          "tier_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the customer tier is unknown and the standard tier was used.",
+            "title": "Tier Note"
           }
         },
         "required": [
@@ -6797,7 +6809,7 @@
       },
       "TicketCreate": {
         "additionalProperties": false,
-        "description": "Manual intake. Source IDs, origin and timestamps are set by the server.",
+        "description": "Intake through the API. Source IDs and timestamps are set by the server.\n\n`data_origin` accepts only `synthetic`: a loader of made-up tickets can mark them so, and\nnothing can label a ticket real. Left out, the server decides as before.",
         "properties": {
           "body": {
             "maxLength": 50000,
@@ -6826,6 +6838,34 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
             "title": "Customer External Id",
             "type": "string"
+          },
+          "customer_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "STANDARD",
+                  "GOLD",
+                  "PLATINUM"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Tier"
+          },
+          "data_origin": {
+            "anyOf": [
+              {
+                "const": "synthetic",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Origin"
           },
           "error_code_reported": {
             "anyOf": [

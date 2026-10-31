@@ -73,9 +73,11 @@ async def asked_info_codes(conn: AsyncConnection[Row], ticket_id: UUID) -> froze
 
 
 async def customer_tier(conn: AsyncConnection[Row], ticket_id: UUID) -> str | None:
-    """Tier recorded with the provided ticket. Manual tickets have none."""
+    """Tier given at registration, else the provided record's. Mail tickets have none."""
     cursor = await conn.execute(
-        "SELECT customer_tier FROM cs.ticket_source_records WHERE ticket_id = %s", (ticket_id,)
+        "SELECT coalesce(t.customer_tier, s.customer_tier) AS customer_tier FROM cs.tickets t "
+        "LEFT JOIN cs.ticket_source_records s ON s.ticket_id = t.id WHERE t.id = %s",
+        (ticket_id,),
     )
     row = await cursor.fetchone()
     return row["customer_tier"] if row else None

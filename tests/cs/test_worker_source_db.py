@@ -108,6 +108,13 @@ def test_a_ticket_without_a_source_record_has_no_tier(worker_dsn, admin, ticket)
     assert inputs.customer_tier == ""
 
 
+def test_the_worker_reads_the_tier_given_at_registration(worker_dsn, admin, ticket):
+    admin.execute("DELETE FROM cs.ticket_source_records WHERE ticket_id=%s", (ticket,))
+    admin.execute("UPDATE cs.tickets SET customer_tier='GOLD' WHERE id=%s", (ticket,))
+    inputs = worker_source.DbTicketSource(worker_dsn, None).load_ticket(str(ticket))
+    assert inputs.customer_tier == "GOLD"
+
+
 def test_the_graph_runs_on_the_worker_login_and_stops_before_human_review(
     worker_dsn, admin, ticket
 ):

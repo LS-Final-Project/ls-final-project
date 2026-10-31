@@ -23,7 +23,7 @@ const MENU: Group[] = [
       { label: '업무 홈', to: '/cs', end: true },
       { label: '문의 조회', to: '/cs/tickets' },
       { label: '문의 처리' },
-      { label: '고객 이력' },
+      { label: '고객 이력', to: '/cs/customers' },
       { label: '개선요청' },
       { label: '반복 사례 모음' },
     ],
@@ -37,7 +37,7 @@ const MENU: Group[] = [
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
-  { key: 'stats', label: '통계/보고서', leaves: [] },
+  { key: 'stats', label: '통계/보고서', leaves: [{ label: '운영 현황', to: '/cs/admin' }] },
   { key: 'system', label: '시스템 관리', leaves: [{ label: '평가', to: '/evaluations', devOnly: true }] },
 ];
 
@@ -46,6 +46,8 @@ function tabOf(pathname: string) {
   if (pathname === '/cs' || pathname === '/tft') return { kind: 'home', name: '업무 홈' };
   if (pathname === '/cs/tickets') return { kind: 'tickets', name: '문의 조회' };
   if (pathname.startsWith('/cs/tickets/')) return { kind: 'ticket', name: '문의 처리' };
+  if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
+  if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
   if (pathname.endsWith('/supplement')) return { kind: 'supplement', name: '보완 및 협력사 비교' };
   if (pathname.endsWith('/table/approvals')) return { kind: 'approvals', name: '승인 대기' };
