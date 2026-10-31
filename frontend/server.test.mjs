@@ -750,6 +750,7 @@ test('notification relay forwards only session-owned public endpoints and bounde
     for (const [path, method, body] of [
       ['/api/v1/platform/notifications?limit=20&offset=0', 'GET'],
       ['/api/v1/platform/notifications/unread-count', 'GET'],
+      [`/api/v1/platform/users?ids=${Array(100).fill(id).join(',')}`, 'GET'],
       [`/api/v1/platform/notifications/${id}/read`, 'POST', '{}'],
       ['/api/v1/platform/push/public-key', 'GET'],
       ['/api/v1/platform/push/subscription', 'PUT', '{"endpoint":"synthetic-test-only"}'],
@@ -764,6 +765,8 @@ test('notification relay forwards only session-owned public endpoints and bounde
       '/api/v1/platform/notifications?user_id=someone', '/api/v1/platform/notifications?limit=101',
       '/api/v1/platform/notifications?offset=-1', '/api/v1/platform/notifications?limit=1&limit=2',
       '/api/v1/platform/notifications/unread-count?offset=0', '/api/v1/platform/push/public-key?key=x',
+      '/api/v1/platform/users?ids=not-a-uuid', `/api/v1/platform/users?ids=${Array(101).fill(id).join(',')}`,
+      `/api/v1/platform/users?ids=${id}&ids=${id}`, `/api/v1/platform/users?email=${id}`,
       '/api/v1/platform/notifications/other/read', '/api/v1/platform/push/private-key',
     ]) assert.ok((await fetch(origin + path)).status >= 400, path);
     assert.equal((await fetch(origin + '/api/v1/platform/push/subscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 405);
@@ -778,7 +781,7 @@ test('notification relay forwards only session-owned public endpoints and bounde
     assert.equal(options.redirect, 'error');
     return options.method === 'GET' ? Response.json({ data: {} }) : new Response(null, { status: 204 });
   });
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
   assert.equal(calls[0][0], 'https://platform.example.invalid/api/v1/platform/notifications?limit=20&offset=0');
 });
 

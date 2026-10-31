@@ -31,6 +31,15 @@ class AssigneeList(BaseModel):
     items: list[Assignee]
 
 
+class UserName(BaseModel):
+    user_id: UUID
+    display_name: str
+
+
+class UserNameList(BaseModel):
+    items: list[UserName]
+
+
 class OwnerChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version: int = Field(ge=0)
@@ -84,4 +93,45 @@ async def list_assignees(
     response.headers["Cache-Control"] = "no-store"
     return SuccessResponse(
         data=AssigneeList(items=items), meta=ResponseMeta(request_id=request.state.request_id)
+    )
+
+
+@router.get(
+    "/users",
+    response_model=SuccessResponse[UserNameList],
+    operation_id="platform_list_user_names",
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def list_user_names(
+    request: Request,
+    response: Response,
+    _user: Annotated[SuccessResponse[Identity], Depends(me)],
+    ids: Annotated[str, Query(max_length=3699)],
+) -> SuccessResponse[UserNameList]:
+    """화면이 업무 기록의 사용자 ID를 이름으로 묶어 읽는다. 이름만 낸다.
+
+    tft는 identity를 읽지 못해 응답에 이름을 넣을 수 없다. 퇴직자도 기록의 이름이 보이도록
+    활성 여부로 거르지 않고, 없는 ID는 응답에서 빠진다.
+
+    Args:
+        request: 현재 요청.
+        response: 캐시 금지 헤더를 넣을 응답.
+        _user: 로그인 확인.
+        ids: 쉼표로 이은 사용자 UUID. 길이 제한이 100개까지만 받는다.
+
+    Returns:
+        SuccessResponse[UserNameList]: 찾은 사용자의 ID와 표시명.
+    """
+    try:
+        wanted = [UUID(value) for value in ids.split(",")]
+    except ValueError:
+        raise ApplicationError(422, "VALIDATION_ERROR", "Invalid user IDs.") from None
+    async with connection(request.app.state.settings) as conn:
+        cursor = await conn.execute(
+            "SELECT id AS user_id,display_name FROM identity.users WHERE id=ANY(%s)", (wanted,)
+        )
+        items = [UserName(**row) for row in await cursor.fetchall()]
+    response.headers["Cache-Control"] = "no-store"
+    return SuccessResponse(
+        data=UserNameList(items=items), meta=ResponseMeta(request_id=request.state.request_id)
     )

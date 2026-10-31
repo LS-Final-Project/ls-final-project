@@ -4109,6 +4109,17 @@
             ],
             "title": "Attribute"
           },
+          "attribute_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Key"
+          },
           "code": {
             "title": "Code",
             "type": "string"
@@ -4173,6 +4184,15 @@
               }
             ],
             "title": "Path"
+          },
+          "provenance_kind": {
+            "enum": [
+              "ai_draft",
+              "human_input",
+              "system_record"
+            ],
+            "title": "Provenance Kind",
+            "type": "string"
           },
           "requirement_id": {
             "format": "uuid",
@@ -4241,7 +4261,8 @@
           "path",
           "open_questions",
           "needs_rereview",
-          "version"
+          "version",
+          "provenance_kind"
         ],
         "title": "RequirementSummary",
         "type": "object"
@@ -4411,6 +4432,17 @@
               }
             ],
             "title": "Draft Version"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
           },
           "id": {
             "format": "uuid",
@@ -8477,7 +8509,7 @@
     },
     "/api/v1/tft/projects/{project_id}/requirements": {
       "get": {
-        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 7\uac1c.",
+        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 9\uac1c.",
         "operationId": "tft_list_rfp_requirements",
         "parameters": [
           {
@@ -8641,6 +8673,45 @@
                 }
               ],
               "title": "Has Open Question"
+            }
+          },
+          {
+            "in": "query",
+            "name": "next_owner_field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "SALES",
+                    "TECH",
+                    "PURCHASE",
+                    "CUSTOMER",
+                    "RND"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Owner Field"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unresolved_mandatory",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unresolved Mandatory"
             }
           }
         ],
