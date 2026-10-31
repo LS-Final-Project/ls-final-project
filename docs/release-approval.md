@@ -84,7 +84,7 @@
   - `DATABASE_URL`은 운영자 프록시를 거친 **cs_app** 연결이다. `--docs`·`--data-origin`은 스크립트 도움말을 따른다.
   - `--doc-index`를 반드시 준다. 없으면 맥락 머리가 절 경로뿐이고 문서 목록 청크도 빠지지 않아 검색 품질이 내려간다.
 - [ ] 재색인 뒤 `SELECT index_version, count(*) FROM cs.document_chunks GROUP BY 1`로 `chunking-v3` 행을 확인한다. 문서 묶음 133개 기준 845행이다.
-- [ ] 정책 manifest(`CS_POLICY_DOCUMENTS_FILE`)를 이번 재색인의 `--manifest-out` 결과로 바꾼다. 옛 판본 manifest는 worker가 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 거부한다. 이 값이 없으면 정책 1자리 예약이 꺼져 hit@5가 .993에서 .909로 내려간다.
+- [ ] 정책 문서 매핑을 확인한다. 이미지에 든 `eval/policy/cs_policy_documents.json`을 `deploy_workers.py`가 `CS_POLICY_DOCUMENTS_FILE`로 넘긴다. 재색인 `--manifest-out`의 POL-* 행 sha256이 이 파일과 같아야 한다. 정책 문서가 바뀌면 이 파일을 갱신해 다시 배포한다. 값이 없거나 비면 운영 worker가 시작에서 `CS_POLICY_DOCUMENTS_MISSING`으로 멈추고, 판본이 다르면 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다. 예약이 꺼지면 hit@5가 .993에서 .909로 내려가기 때문이다.
 - [ ] 벡터 검색을 켤 거면 다음을 한다(댓글 10886).
   - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 845청크, 맥락 머리 포함 325,305자, 근사 $0.0163). 끝나면 `VACUUM cs.chunk_embeddings`.
   - 서비스 설정은 G에서 켠다.
@@ -185,6 +185,7 @@
 | `EVALUATION_LOCAL_ADMISSION_ENABLED` | false | 운영에서 켜지 않는다 |
 | `JOBS_SWEEP_ENABLED`, `EVALUATION_DISPATCH_ENABLED`, `EVALUATION_JOBS_ENABLED`, `CS_JOBS_ENABLED`, `CS_JOBS_PROCESSOR_CONNECTED`, `CS_WORKER_JOBS_ENABLED`, `TFT_JOBS_ENABLED`, `TFT_JOBS_PROCESSOR_CONNECTED`, `TFT_WORKER_JOBS_ENABLED`, `TFT_PROCESSING_ENABLED`, `CS_ANALYSIS_ENABLED` | false | `setup_worker_jobs.py enable`(2-F) |
 | `CS_WORKER_ENABLED`, `TFT_WORKER_ENABLED` | false | `deploy_workers.py`(Job 환경, 2-F) |
+| `CS_POLICY_DOCUMENTS_FILE` | 없음(운영 worker는 시작 실패) | `deploy_workers.py`(이미지 안 `eval/policy/cs_policy_documents.json`) |
 | `CS_VECTOR_SEARCH_ENABLED` | false | 수동(2-G) |
 | `MICROSOFT_AUTH_ENABLED`, `MAILBOX_AUTH_ENABLED`, `MAIL_SYNC_ENABLED`, `MAIL_SEND_ENABLED`, `CS_MAIL_ENABLED`, `NOTIFICATION_PUSH_ENABLED`, `BUSINESS_RELAY_ENABLED` | false | 2-G 표(`MICROSOFT_AUTH`·`BUSINESS_RELAY`는 이미 켜짐) |
 | 웹: `BUSINESS_RELAY_ENABLED`, `EVALUATION_READ_RELAY_ENABLED`, `EVALUATION_CONTROL_RELAY_ENABLED`, `MAILBOX_AUTH_ENABLED` | false | team4-web 수동(2-G). `BUSINESS_RELAY`는 이미 켜짐 |
