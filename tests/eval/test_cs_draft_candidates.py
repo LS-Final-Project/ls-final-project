@@ -800,3 +800,15 @@ def test_output_limit_is_a_candidate_setting():
         factory(spec, AISettings())
         factory({**spec, "verification_max_output_tokens": 1024}, AISettings())
     assert built == [(VerificationOutput, 4096), (VerificationOutput, 1024)]
+
+
+@pytest.mark.parametrize("limit", [0, -1, "1024", 1.5, True])
+def test_a_bad_verification_limit_is_refused_when_loading_candidates(tmp_path, limit):
+    """검증 상한도 파일을 읽을 때 걸러, 유료 호출 전에 드러난다."""
+    path = tmp_path / "candidates.json"
+    spec = {"name": "c", "model": "m", "prompt_version": "v2"}
+    path.write_text(json.dumps([{**spec, "verification_max_output_tokens": limit}]))
+    with pytest.raises(ValueError):
+        cs_draft_run.load_specs(path)
+    path.write_text(json.dumps([{**spec, "verification_max_output_tokens": 1024}]))
+    assert cs_draft_run.load_specs(path)[0]["verification_max_output_tokens"] == 1024

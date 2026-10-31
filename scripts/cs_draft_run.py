@@ -245,7 +245,9 @@ def verification_factory(settings: AISettings) -> TextFactory:
             config,
             model=spec["model"],
             response_schema=VerificationOutput,
-            generation=knobs_of({**spec, "max_output_tokens": limit} if limit else spec),
+            generation=knobs_of(
+                {**spec, "max_output_tokens": limit} if limit is not None else spec
+            ),
         )
 
     return factory
