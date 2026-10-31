@@ -172,7 +172,10 @@ class IntegrationUpdate(Model):
 class ProjectUpdate(Model):
     supply_region: ConstraintText | None = None
     customer_manufacturer_list: ManufacturerList | None = None
-    off_list_permission: OffListPermission = "UNSTATED"
+    off_list_permission: OffListPermission = Field(
+        default_factory=lambda: "UNSTATED",
+        description="생략하면 기존 값을 보존합니다. UNSTATED를 명시하면 미정으로 변경합니다.",
+    )
     version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=200)
     client_name: str | None = Field(default=None, max_length=200)
