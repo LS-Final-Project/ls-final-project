@@ -18,11 +18,11 @@ export const getTicketWorkflow = (ticketId: string, signal?: AbortSignal) => req
 
 // 업무 상태를 바꾸는 호출은 개발 모드의 실제 API에서만 연다(개선요청 쓰기와 같은 기준). 운영 중계가 생기기 전까지 모의 응답으로 성공한 척하지 않는다.
 // 모든 요청은 읽은 업무 판본(version)을 보낸다. 판본이 다르면 서버가 409 CS_WORKFLOW_VERSION_CONFLICT를 돌려준다.
-async function postTo(url: string, body: object, signal: AbortSignal, method: 'POST' | 'PUT' = 'POST') {
+async function postTo(url: string, body: object, signal: AbortSignal, method: 'POST' | 'PUT' = 'POST', role: 'cs_agent' | 'dept_staff' = 'cs_agent') {
   if (!import.meta.env.DEV || getApiMode() !== 'live') throw new ApiError(403, '실제 API 개발 모드에서만 실행할 수 있습니다.');
   const identity = await me();
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-  if (!identity?.data.roles.includes('cs_agent')) throw new ApiError(403, 'C/S 담당자 세션이 필요합니다.');
+  if (!identity?.data.roles.includes(role)) throw new ApiError(403, role === 'dept_staff' ? '부서 담당자 세션이 필요합니다.' : 'C/S 담당자 세션이 필요합니다.');
   const token = sessionCsrfToken();
   if (!token) throw new ApiError(403, '세션 보호 정보를 확인할 수 없습니다. 다시 로그인해 주세요.');
   return request<WorkflowResponse>(url, { method, signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
@@ -41,6 +41,9 @@ export const reviewDeptResult = (ticketId: string, resultId: string, body: Revie
 // 담당자 재배정(C/S 관리자). 상태는 바뀌지 않는다. 새 담당자가 활성 cs_agent인지는 플랫폼 중계가 확인한다.
 export type OwnerBody = paths[`${Wf}/owner`]['put']['requestBody']['content']['application/json'];
 export const reassignOwner = (ticketId: string, body: OwnerBody, signal: AbortSignal) => postTo(`${base(ticketId)}/owner`, body, signal, 'PUT');
+// 이관받은 부서 담당자가 검토 답변을 보낸다(워크플로 ⑤). 문의는 검토중으로 돌아가고 답변은 C/S의 확인을 기다리는 SUBMITTED로 남는다.
+export type DeptResultBody = paths[`${Wf}/dept-result`]['post']['requestBody']['content']['application/json'];
+export const submitDeptResult = (ticketId: string, body: DeptResultBody, signal: AbortSignal) => postTo(`${base(ticketId)}/dept-result`, body, signal, 'POST', 'dept_staff');
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
 export const isResultVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_DEPT_RESULT_VERSION_CONFLICT';

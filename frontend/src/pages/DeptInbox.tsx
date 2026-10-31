@@ -56,7 +56,7 @@ function InboxView() {
 
   const columns: KvColumn<Row>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
-    { key: 'id', header: '문의번호', width: 110, className: 'id', cell: row => <Link to={`/cs/tickets/${row.id}`}>{row.external_id ?? row.id.slice(0, 8)}</Link> },
+    { key: 'id', header: '문의번호', width: 110, className: 'id', cell: row => <Link to={`/dept/result/${row.id}`}>{row.external_id ?? row.id.slice(0, 8)}</Link> },
     { key: 'subject', header: '제목', className: 't', headClass: '', cell: row => row.subject ?? '' },
     { key: 'round', header: '차수', width: 52, className: 'c', cell: row => row.transfer.round },
     { key: 'at', header: '요청일시', width: 130, className: 'd', sort: 'descending', headClass: '', cell: row => formatStamp(row.transfer.transferred_at) },
