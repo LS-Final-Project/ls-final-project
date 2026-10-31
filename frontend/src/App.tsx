@@ -4,6 +4,7 @@ import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
 import AccountGate from './pages/AccountGate';
 import DeptInbox from './pages/DeptInbox';
+import DeptResult from './pages/DeptResult';
 import MailAccount from './pages/MailAccount';
 import MailInbox from './pages/MailInbox';
 import MailSent from './pages/MailSent';
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="cs/improvements" element={<CsImprovements />} />
       <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
       <Route path="dept/inbox" element={<DeptInbox />} />
+      <Route path="dept/result/:ticketId" element={<DeptResult />} />
       <Route path="mail/inbox" element={<MailInbox />} />
       <Route path="mail/account" element={<MailAccount />} />
       <Route path="mail/sent" element={<MailSent />} />

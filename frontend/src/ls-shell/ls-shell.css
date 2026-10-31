@@ -798,3 +798,7 @@
 .ls-root .ls-legacy.ls-compact p,.ls-root .ls-legacy.ls-compact dd,.ls-root .ls-legacy.ls-compact dt{font-size:12.5px;line-height:1.5;margin:0 0 4px}
 .ls-root .ls-legacy.ls-compact section{margin-top:8px;padding:10px;border-radius:2px;border-color:var(--erp-border)}
 .ls-root .ls-legacy.ls-compact button,.ls-root .ls-legacy.ls-compact select,.ls-root .ls-legacy.ls-compact input,.ls-root .ls-legacy.ls-compact textarea{font-size:12.5px;padding:3px 8px;border-radius:2px}
+
+/* 한 줄 설명(요청 사유 등). 보드 CS_K_Dept_Result의 .kv-line */
+.ls-root .kv-line.full{margin:6px 14px 0;padding:6px 10px;background:#fff;border:1px solid var(--erp-border);color:var(--erp-text);font-size:12.5px}
+.ls-root .kv-line.full b{font-weight:400;color:var(--erp-muted);margin-right:8px;font-size:inherit!important}

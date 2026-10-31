@@ -51,6 +51,7 @@ function tabOf(pathname: string) {
   if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
   if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
   if (pathname === '/mail/inbox') return { kind: 'mail-inbox', name: '받은 메일 검토' };
+  if (pathname.startsWith('/dept/result/')) return { kind: 'dept-result', name: '검토 답변' };
   if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '받은 요청' };
   if (pathname === '/mail/account') return { kind: 'mail-account', name: '메일 계정' };
   if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
