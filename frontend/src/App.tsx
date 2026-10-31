@@ -13,6 +13,7 @@ import RfpHome from './rfp/RfpHome';
 import RfpProjects from './rfp/RfpProjects';
 import RfpApprovals from './rfp/RfpApprovals';
 import RfpTable from './rfp/RfpTable';
+import RfpDraft from './rfp/RfpDraft';
 
 export default function App() {
   return <Routes>
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="tft/projects" element={<RfpProjects />} />
       <Route path="tft/projects/:projectId/table" element={<RfpTable />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />
+      <Route path="tft/projects/:projectId/draft" element={<RfpDraft />} />
       <Route path="tft/projects/:projectId" element={<div className="ls-legacy"><ProjectDetail /></div>} />
     </Route>
   </Routes>;

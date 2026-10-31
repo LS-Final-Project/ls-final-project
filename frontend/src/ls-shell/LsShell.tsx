@@ -28,7 +28,7 @@ const MENU: Group[] = [
       { label: '접수 및 요구 검토', to: '/tft/projects', end: true },
       { label: '자사 대응표', inProject: 'table' },
       { label: '보완 및 협력사 비교' },
-      { label: '초안 및 검토 이력' },
+      { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
   { key: 'mail', label: '메일', leaves: [] },
@@ -41,6 +41,7 @@ function tabName(pathname: string) {
   if (pathname === '/cs' || pathname === '/tft') return '업무 홈';
   if (pathname === '/cs/tickets') return '문의 조회';
   if (pathname.startsWith('/cs/tickets/')) return '문의 처리';
+  if (/^\/tft\/projects\/[^/]+\/draft$/.test(pathname)) return '초안 및 검토 이력';
   if (pathname.endsWith('/table') || pathname.endsWith('/table/approvals')) return '자사 대응표';
   if (pathname.startsWith('/tft/projects')) return '접수 및 요구 검토';
   return 'C/S 관리';

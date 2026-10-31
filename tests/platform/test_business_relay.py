@@ -95,6 +95,12 @@ def business_database(auth_database):
             "tft/20261023_KAN-119_projects.sql",
             "tft/20261023_KAN-122_staffing_requests.sql",
             "tft/20261025_KAN-123_recommendation_commands.sql",
+            # 경로 1·3의 RFP 칸(T7·T11).
+            "tft/20261029_KAN-182_rfp_response.sql",
+            "tft/20261030_KAN-182_rfp_keys.sql",
+            "tft/20261101_KAN-186_supplement_paths.sql",
+            "tft/20261102_KAN-186_rnd_check.sql",
+            "tft/20261103_KAN-186_project_columns.sql",
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(

@@ -362,8 +362,11 @@
         "POST"
       ],
       "query": [
+        "cursor",
+        "judgement_status",
         "limit",
-        "cursor"
+        "output_status",
+        "q"
       ]
     },
     {
@@ -561,6 +564,11 @@
     }
   ],
   "cases": [
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects?output_status=INTAKE&q=abc",
+      "forward": true
+    },
     {
       "method": "GET",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/proposals?status=PENDING",
