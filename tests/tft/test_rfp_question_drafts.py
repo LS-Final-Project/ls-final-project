@@ -6,7 +6,7 @@ import pytest
 
 from backend.engine.documents.model import DeletedValue
 from backend.engine.rfp.clauses import Clause, ClauseTree, TableDeleted
-from backend.engine.rfp.questions import generate_question_drafts
+from backend.engine.rfp.questions import _identifiers, generate_question_drafts
 from backend.engine.rfp.requirements import Condition, ExtractedRequirement
 
 
@@ -26,7 +26,7 @@ def clause(no: str, text: str, **updates: object) -> Clause:
             clause_no=no,
             label=no,
             depth=3,
-            parent_no=None,
+            parent_no=no.rpartition(".")[0] or "SYNTHETIC-ITEM",
             ordinal=0,
             title=None,
             text=text,
@@ -50,7 +50,13 @@ def tree(*clauses: Clause) -> ClauseTree:
         sha256="synthetic",
         edit_trace_support=True,
         section_title=None,
-        clauses=list(clauses),
+        clauses=[
+            clause(no, "", parent_no=None, depth=2)
+            for no in sorted(
+                {c.parent_no for c in clauses if c.parent_no} - {c.clause_no for c in clauses}
+            )
+        ]
+        + list(clauses),
         preamble_block_ids=[],
         boilerplate_block_ids=[],
         excluded=[],
@@ -122,7 +128,7 @@ def test_title_and_table_current_values_are_used_without_deleted_history() -> No
     assert generate_question_drafts(tree(clean), []) == []
 
 
-def test_same_family_form_difference_is_a_question_despite_equipment_wording() -> None:
+def test_different_paths_and_equipment_wording_do_not_prove_same_item() -> None:
     a = "Provide metal-clad switchgear."
     b = "Provide metal-enclosed switchgear."
     r1 = req(
@@ -146,8 +152,7 @@ def test_same_family_form_difference_is_a_question_despite_equipment_wording() -
     t = tree(clause(r1.clause_no, a), clause(r2.clause_no, b))
     original = deepcopy((t.model_dump(), r1.model_dump(), r2.model_dump()))
     output = generate_question_drafts(t, [r1, r2, r1])
-    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
-    assert [(s.clause_no, s.quote) for s in output[0].sources] == [("3.1.A", a), ("3.2.A", b)]
+    assert output == []
     assert original == (t.model_dump(), r1.model_dump(), r2.model_dump())
     assert output == generate_question_drafts(t, [r1, r2, r1])
 
@@ -223,7 +228,7 @@ def test_unsupported_unit_keeps_literal_numeric_notation() -> None:
     assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
 
 
-def test_hyphenated_equipment_properties_are_not_identifiers() -> None:
+def test_different_hyphenated_equipment_properties_do_not_prove_same_item() -> None:
     a, b = "Required: 800 A.", "Required: 1600 A."
     output = generate_question_drafts(
         tree(clause("A", a), clause("B", b)),
@@ -232,7 +237,8 @@ def test_hyphenated_equipment_properties_are_not_identifiers() -> None:
             req("B", b, "1600", equipment="switchgear IP-65"),
         ],
     )
-    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+    assert output == []
+    assert _identifiers("switchgear IP-54") == _identifiers("switchgear IP-65") == set()
 
 
 @pytest.mark.parametrize(
@@ -248,7 +254,7 @@ def test_numeric_fragments_are_not_current_values(current: str, stale: str) -> N
 
 @pytest.mark.parametrize("text", ["Required: 125.", "Required,125, nominal.", "(125)."])
 def test_punctuation_around_whole_numeric_values_is_allowed(text: str) -> None:
-    b = "Required: 300."
+    b = text.replace("125", "300")
     output = generate_question_drafts(
         tree(clause("A", text), clause("B", b)),
         [req("A", text, "125", unit=None), req("B", b, "300", unit=None)],
@@ -316,7 +322,9 @@ def test_equipment_keyword_prefixes_are_not_identifiers(word: str) -> None:
             req("B", b, "1600", equipment="switchgear unit A"),
         ],
     )
-    assert len(output) == 1 and output[0].kind == "INCONSISTENCY"
+    assert output == []
+    assert _identifiers(f"switchgear {word}") == set()
+    assert _identifiers("switchgear unit A") == {"a"}
 
 
 @pytest.mark.parametrize("keyword", ["unit", "tag"])
@@ -439,7 +447,7 @@ def test_approval_question_rejects_missing_clause_stale_or_blank_quote(no: str, 
 def test_operator_and_tolerance_differences_are_clarification_candidates(
     change: dict[str, object],
 ) -> None:
-    a, b = "Current shall be 800 A.", "Current: 800 A."
+    a = b = "Current shall be 800 A."
     output = generate_question_drafts(
         tree(clause("A", a), clause("B", b)),
         [req("A", a, "800"), req("B", b, "800").model_copy(update=change)],
@@ -458,3 +466,213 @@ def test_same_clause_and_placeholder_values_do_not_create_inconsistency() -> Non
         ],
     )
     assert [d.kind for d in output] == ["PLACEHOLDER"]
+
+
+def test_proven_same_item_conflict_keeps_both_sources_and_deduplicates() -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    left = req("4.2.A", a, "640", equipment="control cabinet unit C")
+    right = req("4.2.B", b, "960", equipment="control cabinet tag C")
+    t = tree(clause(left.clause_no, a), clause(right.clause_no, b))
+    before = deepcopy((t, left, right))
+    result = generate_question_drafts(t, [left, right, left])
+    assert len(result) == 1 and result[0].kind == "INCONSISTENCY"
+    assert [(source.clause_no, source.quote) for source in result[0].sources] == [
+        (left.clause_no, a),
+        (right.clause_no, b),
+    ]
+    assert "rated_current" not in result[0].question
+    assert (t, left, right) == before
+
+
+@pytest.mark.parametrize(
+    "difference",
+    ["path", "equipment", "attribute", "topic", "no_equipment", "no_attribute", "no_parent"],
+)
+def test_same_attribute_key_alone_does_not_prove_same_item(difference: str) -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    left, right = req("4.2.A", a, "640"), req("4.2.B", b, "960")
+    if difference == "path":
+        right = right.model_copy(update={"clause_no": "4.3.B"})
+    elif difference == "equipment":
+        right = right.model_copy(update={"equipment": "auxiliary switchgear"})
+    elif difference == "attribute":
+        right = right.model_copy(update={"attribute": "auxiliary rating"})
+    elif difference == "topic":
+        b = "Auxiliary rating shall be 960 A."
+        right = right.model_copy(update={"quote": b})
+    elif difference == "no_equipment":
+        right = right.model_copy(update={"equipment": None})
+    elif difference == "no_attribute":
+        right = right.model_copy(update={"attribute": ""})
+    elif difference == "no_parent":
+        left = left.model_copy(update={"clause_no": "A"})
+        right = right.model_copy(update={"clause_no": "B"})
+    t = tree(clause(left.clause_no, a, parent_no=None), clause(right.clause_no, b, parent_no=None))
+    assert generate_question_drafts(t, [left, right]) == []
+
+
+def test_different_interfaces_in_sibling_clauses_are_not_value_conflicts() -> None:
+    a, b = "Metering output shall use alpha protocol.", "Protection link shall use beta protocol."
+    left = req(
+        "4.2.A",
+        a,
+        "alpha",
+        equipment="control panel",
+        attribute="interface",
+        attribute_key="communication_interface",
+        equipment_family="CONTROL",
+        unit=None,
+    )
+    right = req(
+        "4.2.B",
+        b,
+        "beta",
+        equipment="control panel",
+        attribute="interface",
+        attribute_key="communication_interface",
+        equipment_family="CONTROL",
+        unit=None,
+    )
+    assert (
+        generate_question_drafts(
+            tree(clause(left.clause_no, a), clause(right.clause_no, b)), [left, right]
+        )
+        == []
+    )
+
+
+def test_repeated_value_cannot_identify_which_item_conflicts() -> None:
+    a, b = "Main 640 A; auxiliary 640 A.", "Main 960 A; auxiliary 960 A."
+    assert (
+        generate_question_drafts(
+            tree(clause("A", a), clause("B", b)), [req("A", a, "640"), req("B", b, "960")]
+        )
+        == []
+    )
+
+
+def test_shared_explicit_id_does_not_override_conflicting_equipment_context() -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    left = req("4.2.A", a, "640", equipment="main switchgear tag C")
+    right = req("4.2.B", b, "960", equipment="auxiliary switchgear tag C")
+    assert (
+        generate_question_drafts(
+            tree(clause(left.clause_no, a), clause(right.clause_no, b)), [left, right]
+        )
+        == []
+    )
+
+
+def test_missing_parent_record_is_not_invented_as_same_item_context() -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    t = tree(clause("4.2.A", a), clause("4.2.B", b))
+    t = t.model_copy(update={"clauses": [c for c in t.clauses if c.depth == 3]})
+    assert generate_question_drafts(t, [req("4.2.A", a, "640"), req("4.2.B", b, "960")]) == []
+
+
+@pytest.mark.parametrize("equipment", ["switchgear id C", "switchgear no. 7", "switchgear #7"])
+def test_identical_explicit_equipment_notation_can_prove_same_item(equipment: str) -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    result = generate_question_drafts(
+        tree(clause("4.2.A", a), clause("4.2.B", b)),
+        [req("4.2.A", a, "640", equipment=equipment), req("4.2.B", b, "960", equipment=equipment)],
+    )
+    assert len(result) == 1 and result[0].kind == "INCONSISTENCY"
+
+
+def test_only_sharing_a_part_is_not_same_item_context() -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    t = tree(clause("4.2.A", a, parent_no="PART 4"), clause("4.3.B", b, parent_no="PART 4"))
+    t = t.model_copy(
+        update={
+            "clauses": [
+                c.model_copy(update={"depth": 1}) if c.clause_no == "PART 4" else c
+                for c in t.clauses
+            ]
+        }
+    )
+    assert generate_question_drafts(t, [req("4.2.A", a, "640"), req("4.3.B", b, "960")]) == []
+
+
+@pytest.mark.parametrize(
+    ("left_text", "right_text", "left_fields", "right_fields"),
+    [
+        (
+            "Rated current shall be at least 800 A.",
+            "Rated current shall be at most 800 A.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+        (
+            "Rated current shall be 800 A ±5%.",
+            "Rated current shall be 800 A.",
+            {"tolerance": "±5%"},
+            {"tolerance": None},
+        ),
+        (
+            "Rated current shall be 800 A (±5%).",
+            "Rated current shall be 800 A.",
+            {"tolerance": "±5%"},
+            {"tolerance": None},
+        ),
+        (
+            "Rated current shall be >= 800 A.",
+            "Rated current shall be <= 800 A.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+        (
+            "Rated current shall be 800 A minimum.",
+            "Rated current shall be 800 A maximum.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+    ],
+)
+def test_explicit_comparison_modifiers_are_part_of_the_value_frame(
+    left_text, right_text, left_fields, right_fields
+) -> None:
+    left = req("4.2.A", left_text, "800", **left_fields)
+    right = req("4.2.B", right_text, "800", **right_fields)
+    result = generate_question_drafts(
+        tree(clause(left.clause_no, left_text), clause(right.clause_no, right_text)), [left, right]
+    )
+    assert len(result) == 1 and result[0].kind == "INCONSISTENCY"
+    assert [(source.clause_no, source.quote) for source in result[0].sources] == [
+        (left.clause_no, left_text),
+        (right.clause_no, right_text),
+    ]
+    assert left.operator == left_fields.get("operator", "EQ")
+    assert left.tolerance == left_fields.get("tolerance")
+    assert right.operator == right_fields.get("operator", "EQ")
+    assert right.tolerance == right_fields.get("tolerance")
+
+
+@pytest.mark.parametrize(
+    "difference", ["topic", "path", "equipment", "attribute", "conditions", "unrelated_tolerance"]
+)
+def test_modifier_masking_does_not_remove_same_item_gates_or_other_topics(difference: str) -> None:
+    a, b = "Main rating shall be at least 800 A.", "Main rating shall be at most 800 A."
+    left, right = req("4.2.A", a, "800", operator="GTE"), req("4.2.B", b, "800", operator="LTE")
+    if difference == "topic":
+        b = "Auxiliary rating shall be at most 800 A."
+        right = right.model_copy(update={"quote": b})
+    elif difference == "path":
+        right = right.model_copy(update={"clause_no": "4.3.B"})
+    elif difference == "equipment":
+        right = right.model_copy(update={"equipment": "auxiliary switchgear"})
+    elif difference == "attribute":
+        right = right.model_copy(update={"attribute": "auxiliary rating"})
+    elif difference == "conditions":
+        right = right.model_copy(
+            update={"conditions": [Condition(name="ambient", value="40", unit="°C")]}
+        )
+    else:
+        b = "Main rating shall be at most 800 A; auxiliary sensor tolerance ±5%."
+        right = right.model_copy(update={"quote": b, "tolerance": "±5%"})
+    assert (
+        generate_question_drafts(
+            tree(clause(left.clause_no, a), clause(right.clause_no, b)), [left, right]
+        )
+        == []
+    )

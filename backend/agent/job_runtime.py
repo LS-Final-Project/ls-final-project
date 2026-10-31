@@ -225,6 +225,30 @@ def progress(settings: Settings, lease_seconds: int, lease: Lease, payload: dict
     return True
 
 
+def restore_output_status(conn: psycopg.Connection[dict[str, Any]], project_id: UUID) -> None:
+    """처리가 끝나지 못했으면 분석 중 표시를 거둔다. 작업 종료는 막지 않는다(SAVEPOINT).
+
+    문서를 다시 처리할 수 있으므로 INTAKE로, 저장된 검토본이 있으면 REVIEW_DRAFT로 돌린다.
+
+    Args:
+        conn: 종료 트랜잭션.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        None. 실패는 고정 코드 경고만 남긴다.
+    """
+    try:
+        with conn.transaction():
+            conn.execute(
+                "UPDATE tft.projects SET output_status = CASE WHEN review_version IS NULL "
+                "THEN 'INTAKE' ELSE 'REVIEW_DRAFT' END "
+                "WHERE id = %s AND output_status = 'ANALYZING'",
+                (project_id,),
+            )
+    except psycopg.Error:
+        logger.warning("PROJECT_OUTPUT_STATUS_RESTORE_FAILED")
+
+
 def finish(
     settings: Settings,
     lease: Lease,
@@ -255,6 +279,8 @@ def finish(
         conn.execute("UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, lease.job_id))
         kind = "job.failed" if state == "FAILED" else "job.completed"
         append(conn, lease.job_id, kind, {"state": state, **payload})
+        if lease.kind == "rfp.process" and state in {"FAILED", "CANCELLED"}:
+            restore_output_status(conn, lease.subject_id)
         # 본작업 상태·종료 이벤트는 유지하고, 부가 알림의 조회·INSERT만 SAVEPOINT로 격리한다.
         try:
             with conn.transaction():

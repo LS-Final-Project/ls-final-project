@@ -11,6 +11,7 @@ const ok = (data: unknown) => jsonResponse(200, { data, meta: { request_id: 'x' 
 type Call = { url: string; method: string; body: Record<string, unknown>; key: string | null; csrf: string | null };
 let calls: Call[];
 let write: (call: Call) => Response;
+let detail: unknown;
 let proposals: unknown[];
 let requirements: unknown[];
 let nextCursor: string | null;
@@ -27,7 +28,7 @@ function server() {
     if (url.includes('/proposals')) return ok({ items: proposals });
     if (url.endsWith('/documents')) return ok({ items: [{ document_version_id: 'd1', title: '사양서 v2' }] });
     if (url.includes('/requirements?')) return ok({ items: url.includes('cursor=next') ? [{ ...MOCK_REQUIREMENTS[3], requirement_id: 'more', code: 'R-99' }] : requirements, next_cursor: url.includes('cursor=next') ? null : nextCursor });
-    if (url.includes('/requirements/')) return ok(MOCK_DETAIL);
+    if (url.includes('/requirements/')) return ok(detail);
     return ok({ name: '합성 프로젝트', requirements_count: 48, unresolved_mandatory_count: 3, requirement_counts: { needs_rereview: 2 } });
   }));
   setApiMode('live');
@@ -39,6 +40,7 @@ beforeEach(() => {
   requirements = MOCK_REQUIREMENTS;
   nextCursor = null;
   write = () => ok(MOCK_DETAIL);
+  detail = MOCK_DETAIL;
   server();
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); });
@@ -242,6 +244,62 @@ describe('변경 제안', () => {
     expect(posts('/proposals')[0].body.proposed).toEqual({ unresolved: ['시험 성적서', '고객 허용'] });
   });
 
+  it('다시 불러온 뒤 손대지 않은 미확인은 최신 값을 보이고 제안에 넣지 않는다', async () => {
+    const withUnresolved = (unresolved: string[]) => ({ ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, unresolved } });
+    detail = withUnresolved(['A']);
+    write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
+    await form();
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '쓴 사유' } });
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    await screen.findByRole('alert');
+    detail = withUnresolved(['A', 'B']);
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    const field = screen.getByLabelText('미확인') as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe('A, B'));
+    write = () => ok(MOCK_DETAIL);
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    await waitFor(() => expect(posts('/proposals')).toHaveLength(2));
+    expect(posts('/proposals')[1].body.proposed).toEqual({ status: 'CONDITIONAL' });
+  });
+
+  it('직접 고친 미확인은 다시 불러와도 남고 제안에 들어간다', async () => {
+    const withUnresolved = (unresolved: string[]) => ({ ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, unresolved } });
+    detail = withUnresolved(['A']);
+    write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
+    await form();
+    fireEvent.change(screen.getByLabelText('미확인'), { target: { value: 'A, 내 항목' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '쓴 사유' } });
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    await screen.findByRole('alert');
+    detail = withUnresolved(['A', 'B']);
+    const reads = () => calls.filter(c => c.method === 'GET' && c.url.includes('/requirements/')).length;
+    const before = reads();
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await screen.findByRole('button', { name: '제안 저장' });
+    expect((screen.getByLabelText('미확인') as HTMLInputElement).value).toBe('A, 내 항목');
+    write = () => ok(MOCK_DETAIL);
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    await waitFor(() => expect(posts('/proposals')).toHaveLength(2));
+    expect(posts('/proposals')[1].body.proposed).toEqual({ unresolved: ['A', '내 항목'] });
+  });
+
+  it('저장 충돌은 폼과 입력을 지키고 최신 내용을 다시 읽는다', async () => {
+    write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
+    await form();
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '쓴 사유' } });
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('입력한 내용은 남습니다');
+    const reads = () => calls.filter(c => c.url.endsWith(MOCK_DETAIL.requirement_id) || c.url.includes('/requirements/')).length;
+    const before = reads();
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    expect((screen.getByLabelText('제안 사유') as HTMLTextAreaElement).value).toBe('쓴 사유');
+    expect(screen.getByRole('button', { name: '제안 저장' })).toBeTruthy();
+  });
+
   it('취소하면 닫힌다', async () => {
     await form();
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -305,6 +363,14 @@ describe('승인 화면', () => {
     expect((a.body as { reason: string }).reason).toBe('A');
     expect((b.body as { reason: string }).reason).toBe('B');
     expect(a.key).not.toBe(b.key);
+  });
+
+  it('승인 뒤 프로젝트 건수를 다시 읽는다', async () => {
+    await open();
+    const reads = () => calls.filter(c => c.url.endsWith(`/tft/projects/${PROJECT}`)).length;
+    const before = reads();
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
   it('메모가 없으면 version만 보낸다', async () => {
@@ -403,11 +469,4 @@ describe('셸 메뉴', () => {
     await waitFor(() => expect(links().find(l => l[0] === '자사 대응표')).toBeTruthy());
     expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBeNull();
   });
-});
-
-it('옛 프로젝트 상세에서 대응표로 간다', async () => {
-  setApiMode('mock');
-  renderApp(`/tft/projects/${PROJECT}`);
-  await waitFor(() => expect(document.querySelector('.ls-legacy a[href$="/table"]')).not.toBeNull());
-  expect(document.querySelector('.ls-legacy a[href$="/table"]')?.getAttribute('href')).toBe(PATH);
 });

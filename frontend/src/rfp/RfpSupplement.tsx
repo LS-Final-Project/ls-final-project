@@ -96,7 +96,7 @@ function RequirementSupplement({ projectId, requirement, canSelect, prefix, atte
       <KvField label="자료 기준 시각">{formatDateTime(options.data.data.known_at)}</KvField>
       {options.data.data.version !== requirement.version
         ? <p role="alert">요구 판본이 변경되었습니다. 보완 최신 조회 후 내용을 확인하세요.</p>
-        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} actorId={actorId} attempts={attempts} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); }} />}
+        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} actorId={actorId} attempts={attempts} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); void queryClient.invalidateQueries({ queryKey: [...prefix, requirement.requirement_id] }); }} />}
     </>}
   </KvBox>;
 }

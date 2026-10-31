@@ -116,6 +116,46 @@ async def insert_project(
     )
 
 
+async def mark_analyzing(conn: AsyncConnection[Row], project_id: UUID) -> str:
+    """플랫폼에 접수를 보내기 전에 산출물 상태를 ANALYZING으로 둔다(permissions.md 3.1).
+
+    접수 뒤에 쓰면 worker가 먼저 실패로 끝낸 작업 위에 ANALYZING을 덮어써 복구할 주체가 없다.
+    사람이 고치는 판본이 아니라 project version은 올리지 않는다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        str: 바꾸기 전 값. 접수가 안 되면 revert_analyzing에 넘긴다.
+    """
+    cursor = await conn.execute(
+        "UPDATE tft.projects p SET output_status = 'ANALYZING', updated_at = now() "
+        "FROM (SELECT id, output_status FROM tft.projects WHERE id = %s FOR UPDATE) o "
+        "WHERE p.id = o.id RETURNING o.output_status AS before",
+        (project_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return str(row["before"])
+
+
+async def revert_analyzing(conn: AsyncConnection[Row], project_id: UUID, before: str) -> None:
+    """접수되지 않은 처리의 표시를 되돌린다. 그사이 다른 값이 됐으면 건드리지 않는다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        before: mark_analyzing이 돌려준 값.
+    """
+    await conn.execute(
+        "UPDATE tft.projects SET output_status = %s, updated_at = now() "
+        "WHERE id = %s AND output_status = 'ANALYZING'",
+        (before, project_id),
+    )
+
+
 async def update_project(
     conn: AsyncConnection[Row], project_id: UUID, version: int, values: Mapping[str, Any]
 ) -> int:
@@ -220,14 +260,17 @@ async def project_detail_parts(
         project_id: 있는 프로젝트 ID.
 
     Returns:
-        tuple: (프로젝트 행+PROJECT_COUNTS·documents_count·draft_version, 최신 요구별 status·necessity·
+        tuple: (프로젝트 행+PROJECT_COUNTS·documents_count·draft_version·latest_job_id, 최신 요구별 status·necessity·
             needs_rereview, 승인 대기 제안의 입구별 수).
     """
     cursor = await conn.execute(
         f"SELECT p.*, {PROJECT_COUNTS}, "
         "(SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
         "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
-        "AS draft_version FROM tft.projects p WHERE p.id = %s",
+        "AS draft_version, (SELECT c.result->>'job_id' FROM tft.rfp_commands c "
+        "WHERE c.project_id = p.id AND c.operation = 'project.process' "
+        "ORDER BY c.created_at DESC LIMIT 1) AS latest_job_id "
+        "FROM tft.projects p WHERE p.id = %s",
         (project_id,),
     )
     project = await cursor.fetchone()

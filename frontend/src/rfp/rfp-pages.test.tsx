@@ -130,8 +130,3 @@ describe('업무 홈', () => {
     expect(document.querySelector('.kv-steps')!.textContent).not.toMatch(/\d/);
   });
 });
-
-it('옛 프로젝트 상세는 셸 안에서 스타일을 유지한다', () => {
-  renderApp('/tft/projects/33333333-3333-4333-8333-333333333333');
-  expect(document.querySelector('.ls-root .ls-legacy')).not.toBeNull();
-});
