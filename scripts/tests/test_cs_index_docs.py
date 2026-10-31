@@ -242,6 +242,7 @@ class IndexDocsTest(unittest.TestCase):
         self.assertEqual(
             (trip.document_kind, trip.product_family, trip.version), ("FAQ", "ACB", "r2")
         )
+        self.assertEqual((trip.title, trip.product_code), ("Trip", "ACB-08"))
         self.assertEqual((warranty.document_kind, warranty.version), ("CS_DOC", None))
         self.assertIsNone(rows["faq/warranty.docx"]["doc_id"])
         self.assertIsNone(rows["policy.DOCX"]["doc_id"])
@@ -249,6 +250,47 @@ class IndexDocsTest(unittest.TestCase):
         code, _, err = self.run_main("--doc-index", str(index))
         self.assertEqual(code, 1)
         self.assertIn("CS_INDEX_DOC_INDEX_INVALID", err)
+
+    def test_a_chunk_of_document_names_is_not_stored(self) -> None:
+        """doc_index 식별자만 나열한 절은 빼고 세며, 식별자가 없으면 그대로 둔다.
+
+        Returns:
+            None: 적재한 청크와 manifest 칸을 확인한다.
+        """
+        (self.root / "faq" / "list.md").write_text(
+            "# Guide\n\n## 1. Steps\n\nOpen the cover and check the terminal torque first.\n\n"
+            "## 2. Other\n\n- D-01 — Trip\n- D-02 — Warranty\n",
+            encoding="utf-8",
+        )
+        index = self.root / "doc_index.csv"
+        index.write_text(
+            "doc_id,title,doc_type,product_code,family,revision,path,chars\n"
+            "D-01,Trip,FAQ,ACB-08,ACB,r2,docs/faq/trip.md,20\n"
+            "D-02,List,FAQ,ACB-08,ACB,r2,docs/faq/list.md,20\n",
+            encoding="utf-8",
+        )
+        manifest = Path(self.dir.name) / "manifest.json"
+        args = ("--doc-index", str(index), "--manifest-out", str(manifest))
+        self.assertEqual(self.run_main(*args)[0], 0)
+        rows = {r["source_name"]: r for r in json.loads(manifest.read_text())["documents"]}
+        self.assertEqual(
+            (rows["faq/list.md"]["listing_chunks"], rows["faq/list.md"]["chunks"]), (1, 1)
+        )
+        self.assertEqual(self.run_main("--manifest-out", str(manifest))[0], 0)
+        rows = {r["source_name"]: r for r in json.loads(manifest.read_text())["documents"]}
+        self.assertEqual(
+            (rows["faq/list.md"]["listing_chunks"], rows["faq/list.md"]["chunks"]), (0, 2)
+        )
+
+    def test_embedding_input_puts_the_context_before_the_text(self) -> None:
+        """맥락 머리가 있으면 앞에 두고, 없으면 본문만 보낸다.
+
+        Returns:
+            None: 입력 문자열을 확인한다.
+        """
+        row = {"search_context": "Guide P-1", "text": "본문"}
+        self.assertEqual(cs_index_docs.embedding_input(row), "Guide P-1\n본문")
+        self.assertEqual(cs_index_docs.embedding_input(row | {"search_context": ""}), "본문")
 
     def test_execute_requires_local_database(self) -> None:
         """--execute는 DATABASE_URL이 없거나 로컬이 아니면(허용 플래그 없이) 1로 끝난다.

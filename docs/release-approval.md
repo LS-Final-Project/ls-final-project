@@ -74,12 +74,19 @@
 
 ### D. 검색 색인 (운영자 터미널, 서비스 배포와 처리 켜기보다 먼저)
 
-처리가 켜진 뒤 색인이 옛 판본이면, worker가 `chunking-v2` 조건으로 검색해 근거 0건 초안을 만든다. 그래서 색인을 먼저 맞춘다.
+**위험: 재색인 전에 새 코드가 뜨면 C/S 근거가 0건이다.** `INDEX_VERSION`이 코드에 박혀 있어 worker는 `chunking-v3` 행만 찾는다. 오류 없이 근거 0건 초안이 나오므로 로그로는 알아채기 어렵다. 색인을 서비스 배포보다 먼저 맞춘다.
 
-- [ ] 공용 문서 색인이 `chunking-v2`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
+순서: C24 적용 → v3 재색인 → 정책 manifest 재생성 → 행 수 확인 → 서비스 배포. 재색인은 옛 판본 행을 지우지 않으므로 옛 코드가 도는 동안 해도 안전하다. 되돌릴 때는 코드만 되돌리면 옛 판본 행으로 검색한다.
+
+- [ ] C24(`cs/20261107_KAN-99_search_context.sql`)를 적용한다. 재색인이 `search_context` 칸에 쓰므로 먼저 필요하다. 표를 다시 쓰는 동안 배타 잠금이 걸린다.
+
+- [ ] 공용 문서 색인이 `chunking-v3`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
   - `DATABASE_URL`은 운영자 프록시를 거친 **cs_app** 연결이다. `--docs`·`--data-origin`은 스크립트 도움말을 따른다.
+  - `--doc-index`를 반드시 준다. 없으면 맥락 머리가 절 경로뿐이고 문서 목록 청크도 빠지지 않아 검색 품질이 내려간다.
+- [ ] 재색인 뒤 `SELECT index_version, count(*) FROM cs.document_chunks GROUP BY 1`로 `chunking-v3` 행을 확인한다. 문서 묶음 133개 기준 845행이다.
+- [ ] 정책 문서 매핑을 확인한다. 이미지에 든 `eval/policy/cs_policy_documents.json`을 `deploy_workers.py`가 `CS_POLICY_DOCUMENTS_FILE`로 넘긴다. 재색인 `--manifest-out`의 POL-* 행 sha256이 이 파일과 같아야 한다. 정책 문서가 바뀌면 이 파일을 갱신해 다시 배포한다. 값이 없거나 비면 운영 worker가 시작에서 `CS_POLICY_DOCUMENTS_MISSING`으로 멈추고, 판본이 다르면 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다. 예약이 꺼지면 hit@5가 .993에서 .909로 내려가기 때문이다.
 - [ ] 벡터 검색을 켤 거면 다음을 한다(댓글 10886).
-  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 1,098청크, 근사 $0.012). 끝나면 `VACUUM cs.chunk_embeddings`.
+  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 845청크, 맥락 머리 포함 325,305자, 근사 $0.0163). 끝나면 `VACUUM cs.chunk_embeddings`.
   - 서비스 설정은 G에서 켠다.
 
 ### E. 서비스 배포 (dev → main)
@@ -178,6 +185,7 @@
 | `EVALUATION_LOCAL_ADMISSION_ENABLED` | false | 운영에서 켜지 않는다 |
 | `JOBS_SWEEP_ENABLED`, `EVALUATION_DISPATCH_ENABLED`, `EVALUATION_JOBS_ENABLED`, `CS_JOBS_ENABLED`, `CS_JOBS_PROCESSOR_CONNECTED`, `CS_WORKER_JOBS_ENABLED`, `TFT_JOBS_ENABLED`, `TFT_JOBS_PROCESSOR_CONNECTED`, `TFT_WORKER_JOBS_ENABLED`, `TFT_PROCESSING_ENABLED`, `CS_ANALYSIS_ENABLED` | false | `setup_worker_jobs.py enable`(2-F) |
 | `CS_WORKER_ENABLED`, `TFT_WORKER_ENABLED` | false | `deploy_workers.py`(Job 환경, 2-F) |
+| `CS_POLICY_DOCUMENTS_FILE` | 없음(운영 worker는 시작 실패) | `deploy_workers.py`(이미지 안 `eval/policy/cs_policy_documents.json`) |
 | `CS_VECTOR_SEARCH_ENABLED` | false | 수동(2-G) |
 | `MICROSOFT_AUTH_ENABLED`, `MAILBOX_AUTH_ENABLED`, `MAIL_SYNC_ENABLED`, `MAIL_SEND_ENABLED`, `CS_MAIL_ENABLED`, `NOTIFICATION_PUSH_ENABLED`, `BUSINESS_RELAY_ENABLED` | false | 2-G 표(`MICROSOFT_AUTH`·`BUSINESS_RELAY`는 이미 켜짐) |
 | 웹: `BUSINESS_RELAY_ENABLED`, `EVALUATION_READ_RELAY_ENABLED`, `EVALUATION_CONTROL_RELAY_ENABLED`, `MAILBOX_AUTH_ENABLED` | false | team4-web 수동(2-G). `BUSINESS_RELAY`는 이미 켜짐 |

@@ -1,6 +1,7 @@
 """KAN-194 9차 3/3 worker 문의 출처 규약과 정책 기본값."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -138,3 +139,28 @@ def test_parts_get_policy_documents_from_the_configured_manifest(tmp_path):
     assert load_parts(SETTINGS, module(given), configured).policy_documents == {
         "POL-ORDER": "b" * 64
     }
+
+
+def test_production_stops_without_a_policy_mapping(tmp_path):
+    """운영에서 매핑이 없거나 비면 시작에서 멈춘다. 로컬은 예약 없이 간다."""
+    production = SETTINGS.model_copy(update={"environment": "production"})
+
+    def module(name):
+        return SimpleNamespace(build=lambda settings: WorkerParts(SimpleNamespace()))
+
+    empty = manifest(tmp_path / "e.json", [])
+    for policy in (
+        CsPolicyDocumentsSettings(_env_file=None),
+        CsPolicyDocumentsSettings(_env_file=None, policy_documents_file=empty),
+    ):
+        with pytest.raises(ApplicationError) as caught:
+            load_parts(production, module, policy)
+        assert caught.value.code == "CS_POLICY_DOCUMENTS_MISSING"
+        assert load_parts(SETTINGS, module, policy).policy_documents in (None, {})
+
+
+def test_shipped_policy_mapping_matches_the_current_index():
+    """이미지에 드는 매핑은 현재 색인 판본의 정책 문서 넷을 담는다."""
+    shipped = Path(__file__).parents[2] / "eval" / "policy" / "cs_policy_documents.json"
+    documents = policy_documents_from_manifest(shipped, INDEX_VERSION)
+    assert sorted(documents) == ["POL-ORDER", "POL-RETURN", "POL-SERVICE", "POL-WARRANTY"]

@@ -40,12 +40,13 @@ from dataclasses import dataclass, field
 
 from backend.engine.documents.model import Block, ExtractedDocument
 from backend.engine.rfp.clauses import ARTICLE, LABELS, PART, SECTION_HEAD, SENTENCE_END
-from backend.engine.search.model import Chunk, ChunkingResult, ChunkKind
+from backend.engine.search.model import Chunk, ChunkingResult, ChunkKind, ChunkMetadata
 
-INDEX_VERSION = "chunking-v2"
+INDEX_VERSION = "chunking-v3"
 BUDGET = 1200
 PATH_LIMIT = 80
 HEADING_STYLE = re.compile(r"(?i)heading\s*(\d)")
+YAML_KEY = re.compile(r"^[A-Za-z_][\w-]*:")
 # 이 글자 수 이하이고 끝 문장부호가 없는 TEXT 청크는 제목만 든 것으로 보고 다음 청크에 합친다.
 TITLE_ONLY_MAX = 40
 # 줄머리 번호로 경계를 삼는 가장 깊은 깊이(clauses.py 깊이: SECTION 0·PART 1·조 2·A. 3). 조까지만 쓴다.
@@ -270,6 +271,77 @@ def _table_units(cells: list[Block], skipped: list[str]) -> list[Unit]:
     return units
 
 
+def _preamble(document: ExtractedDocument) -> list[str]:
+    """Markdown 머리말 블록 ID를 찾는다. 머리말은 본문이 아니라 색인에 넣지 않는다.
+
+    Args:
+        document: 추출 문서.
+
+    Returns:
+        list[str]: 맨 앞 YAML 머리말과 바로 뒤 인용 문단의 블록 ID. 닫는 줄이 없으면
+            머리말이 아니라 빈 목록이다. DOCX·PDF도 빈 목록이다.
+    """
+    blocks = document.blocks
+    if document.source_kind != "MARKDOWN" or not blocks:
+        return []
+    if blocks[0].text.splitlines()[:1] != ["---"]:
+        return []
+    for index, block in enumerate(blocks):
+        lines = block.text.splitlines()[0 if index else 1 :]
+        fields = lines[: lines.index("---")] if "---" in lines else lines
+        # 가로줄로 시작하는 본문을 머리말로 삼키지 않게 값 줄만 지나간다.
+        if not all(YAML_KEY.match(line) or line.startswith((" ", "- ")) for line in fields):
+            return []
+        if "---" in lines:
+            break
+    else:
+        return []
+    end = index + 1
+    if end < len(blocks) and blocks[end].text.startswith(">"):
+        end += 1
+    return [block.block_id for block in blocks[:end]]
+
+
+def search_context(chunk: Chunk, metadata: ChunkMetadata) -> str:
+    """검색 색인·임베딩에만 쓰는 맥락 머리를 만든다. 스니펫과 모델 입력에는 넣지 않는다.
+
+    Args:
+        chunk: 청크.
+        metadata: 문서 메타데이터.
+
+    Returns:
+        str: 문서 제목·제품·문서 종류·계열·절 경로를 공백으로 이은 값(중복 제외).
+    """
+    parts = (
+        metadata.title,
+        metadata.product_code,
+        metadata.document_kind,
+        metadata.product_family,
+        *chunk.section_path,
+    )
+    return " ".join(dict.fromkeys(part for part in parts if part))
+
+
+def is_document_listing(chunk: Chunk, document_ids: frozenset[str]) -> bool:
+    """제목을 뺀 줄이 모두 문서 식별자를 든 목록 청크인지 본다. 이런 청크는 근거가 못 된다.
+
+    Args:
+        chunk: 청크.
+        document_ids: 문서 묶음의 문서 식별자.
+
+    Returns:
+        bool: 줄이 둘 이상이고 전부 문서 식별자를 담으면 True.
+    """
+    lines = [
+        line.strip()
+        for line in chunk.text.splitlines()
+        if line.strip() and line.strip() not in chunk.section_path
+    ]
+    return len(lines) >= 2 and all(
+        any(document_id in line for document_id in document_ids) for line in lines
+    )
+
+
 def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> ChunkingResult:
     """추출 문서를 섹션 경로가 붙은 청크로 나눈다.
 
@@ -303,7 +375,8 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             None: chunks에 더하거나 pending에 둔다.
         """
         current = [label for _, label in path]
-        if layout or (kind == "TEXT" and _title_only(_text([], units))):
+        headings = all(block.block_id in heads for unit in units for block in unit.blocks)
+        if layout or (kind == "TEXT" and (headings or _title_only(_text([], units)))):
             pending.append((units, layout, title, current))
             return
         lead: list[Unit] = []
@@ -403,7 +476,9 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             emit(group, "TEXT", None)
         section.clear()
 
-    blocks = document.blocks
+    preamble = _preamble(document)
+    skipped.extend(preamble)
+    blocks = [block for block in document.blocks if block.block_id not in preamble]
     index = 0
     while index < len(blocks):
         block = blocks[index]
