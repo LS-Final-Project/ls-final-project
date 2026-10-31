@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
-import Account from './pages/Account';
+import AccountGate from './pages/AccountGate';
 import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
 import CsAdmin from './pages/CsAdmin';
@@ -27,8 +27,8 @@ export default function App() {
       <Route path="evaluations" element={<Evaluations />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
+    <Route path="account" element={<AccountGate />} />
     <Route element={<LsShell />}>
-      <Route path="account" element={<Account />} />
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<div className="ls-legacy"><CsImprovements /></div>} />
       <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />

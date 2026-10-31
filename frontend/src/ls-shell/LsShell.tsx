@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { businessUiEnabled } from '../components/BusinessAccess';
@@ -72,7 +72,8 @@ const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-h
 </svg>;
 
 // 캔버스 셸(사이드바, 상단 바, 열린 화면 탭). 화면별 제목 줄과 본문은 각 화면이 그린다.
-export default function LsShell() {
+// children을 주면 Outlet 대신 그것을 그린다(라우트 밖에서 셸을 직접 감쌀 때).
+export default function LsShell({ children }: { children?: ReactNode } = {}) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const mode = getApiMode();
@@ -171,7 +172,7 @@ export default function LsShell() {
             {t.kind !== 'home' && <button className="kt-x" aria-label={`${t.name} 닫기`} onClick={() => closeTab(t.kind)}>×</button>}
           </span>)}
         </div>
-        <div className="content kv" id="main-content" data-view="cs"><InShell.Provider value><Outlet /></InShell.Provider></div>
+        <div className="content kv" id="main-content" data-view="cs"><InShell.Provider value>{children ?? <Outlet />}</InShell.Provider></div>
       </div>
     </div>
   </div>;

@@ -68,3 +68,12 @@ test('세션이 없으면 계정 화면 대신 로그인 화면을 보이고 로
   expect(screen.getByRole('heading', { name: '다시 로그인' }).closest('.ls-login')).not.toBeNull();
   expect(screen.getByRole('link', { name: 'Microsoft로 로그인' }).getAttribute('href')).toBe('/api/v1/platform/auth/login');
 });
+
+test('부모가 알려 준 로그아웃 안내를 로그인 화면에서 보인다(셸 밖으로 바뀌며 다시 만들어져도 유지)', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '만료'))));
+  setApiMode('live');
+  renderAt('/account', '/account', <AccountPanel operational signedOutHint />);
+  // 세션 확인이 끝나면 로그인 화면이 로그아웃 안내와 함께 나온다.
+  expect((await screen.findByRole('heading', { name: '다시 로그인' })).closest('.ls-login')).not.toBeNull();
+  expect(screen.getByText('로그아웃했습니다.')).toBeTruthy();
+});

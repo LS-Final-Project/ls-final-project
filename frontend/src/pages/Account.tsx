@@ -9,17 +9,21 @@ import MailboxConnections from '../components/MailboxConnections';
 import LoginScreen from '../components/LoginScreen';
 import { KvBox, KvField, KvTitle } from '../ls-shell/kv';
 
-export default function Account() {
-  return <AccountPanel operational={!import.meta.env.DEV} />;
+export default function Account(props: AccountProps) {
+  return <AccountPanel operational={!import.meta.env.DEV} {...props} />;
 }
 
-export function AccountPanel({ operational }: { operational: boolean }) {
+// signedOutHint·onSignedOut: 로그아웃하면 화면이 셸 밖 로그인 화면으로 바뀌어 다시 만들어지므로, 로그아웃 안내는 부모(AccountGate)가 들고 있다.
+export type AccountProps = { signedOutHint?: boolean; onSignedOut?: () => void };
+
+export function AccountPanel({ operational, signedOutHint = false, onSignedOut }: { operational: boolean } & AccountProps) {
   const cache = useQueryClient();
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [signedOut, setSignedOut] = useState(false);
+  const [signedOutLocal, setSignedOut] = useState(false);
+  const signedOut = signedOutLocal || signedOutHint;
   const identity = user.isSuccess ? user.data?.data : null;
   async function signOut() {
     if (busy || !operational || !identity || !sessionCsrfToken()) return;
@@ -33,7 +37,7 @@ export function AccountPanel({ operational }: { operational: boolean }) {
       await cache.cancelQueries();
       cache.removeQueries({ predicate: query => query.queryKey[0] !== 'me' });
       cache.setQueryData(['me'], null);
-      setSignedOut(true); setConfirming(false);
+      setSignedOut(true); onSignedOut?.(); setConfirming(false);
     } catch (cause) {
       setError(cause);
       await user.refetch();
