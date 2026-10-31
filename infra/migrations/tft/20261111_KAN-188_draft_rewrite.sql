@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS tft.draft_rewrite_calls (
 REVOKE ALL ON tft.draft_rewrites,tft.draft_rewrite_calls FROM tft_app,tft_worker;
 GRANT SELECT,INSERT ON tft.draft_rewrites TO tft_app;
 GRANT UPDATE(job_id) ON tft.draft_rewrites TO tft_app;
+GRANT SELECT ON tft.draft_rewrite_calls TO tft_app;
 GRANT SELECT ON tft.draft_rewrites,tft.draft_rewrite_calls TO tft_worker;
 GRANT UPDATE(state,result_version) ON tft.draft_rewrites TO tft_worker;
 GRANT INSERT ON tft.draft_rewrite_calls TO tft_worker;

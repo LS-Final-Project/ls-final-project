@@ -832,6 +832,18 @@ class DraftRewrite(Model):
     version: int = Field(ge=1)
 
 
+class RewriteSummary(Model):
+    """모델 작성 결과. failures는 양식으로 남은 문장의 고정 사유 코드별 건수다."""
+
+    job_id: UUID
+    outcome: Literal["PENDING", "SUCCEEDED", "PARTIAL", "FAILED", "DISCARDED"]
+    result_version: int | None
+    model_sentences: int = 0
+    template_sentences: int = 0
+    human_sentences: int = 0
+    failures: dict[str, int] = Field(default_factory=dict)
+
+
 class ReviewVersionCreate(Model):
     version: int = Field(ge=1)
     note: str | None = Field(default=None, max_length=1000)

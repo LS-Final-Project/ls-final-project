@@ -13,6 +13,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.main import create_app
@@ -789,3 +790,56 @@ def test_template_backfill_uses_actual_automatic_origin_not_current_human_text(
         ).fetchone()
         assert existing == ("사람이 고친 본문은 양식이 아니다", original["text"])
         assert direct == (None,)
+
+
+def test_rewrite_summary_tells_full_partial_failed_and_discarded(client, app_dsn, chain, admin):
+    """호출 원장에서 사유를 세어 전체·일부·전부 실패·폐기를 구분한다."""
+    ready(app_dsn, admin, chain)
+    sections = call(client, "GET", chain).json()["data"]["sections"]
+    total = sum(len(part["sentences"]) for part in sections)
+    assert total >= 1
+    project = chain["project"]
+
+    def add(state, reasons=None, result=None):
+        job = uuid4()
+        row = uuid4()
+        with psycopg.connect(admin) as conn:
+            conn.execute(
+                "INSERT INTO tft.draft_rewrites(id,project_id,base_version,actor_id,request_key,"
+                "input_version,job_id,state,result_version) VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s)",
+                (row, project, SALES, uuid4().hex, uuid4().hex * 2, job, state, result),
+            )
+            for attempt, (outcome, values) in enumerate(reasons or []):
+                conn.execute(
+                    "INSERT INTO tft.draft_rewrite_calls(rewrite_id,section,attempt,outcome,reasons,"
+                    "prompt_version,requested_model,elapsed_ms,provider_attempts) "
+                    "VALUES (%s,'S',%s,%s,%s,'p','m',0,0)",
+                    (row, attempt, outcome, Jsonb(values)),
+                )
+        response = call(client, "GET", chain, f"/rewrites/{job}")
+        assert response.status_code == 200, response.text
+        return response.json()["data"]
+
+    full = add("saved", [("passed", {})], 2)
+    assert (full["outcome"], full["model_sentences"]) == ("SUCCEEDED", total)
+    assert full["template_sentences"] == 0 and full["result_version"] == 2
+    failed = add(
+        "saved",
+        [
+            (
+                "skipped",
+                {"1": "INPUT_BLOCKED"} | {str(n): "CALL_FAILED" for n in range(2, total + 1)},
+            )
+        ],
+    )
+    assert (failed["outcome"], failed["model_sentences"]) == ("FAILED", 0)
+    assert failed["failures"]["INPUT_BLOCKED"] == 1 and failed["result_version"] is None
+    # 재시도로 통과한 문장은 사유에 넣지 않는다.
+    retried = add("saved", [("retry", {"1": "STRUCTURE"}), ("passed", {})], 3)
+    assert retried["outcome"] == "SUCCEEDED" and retried["failures"] == {}
+    assert add("discarded")["outcome"] == "DISCARDED"
+    assert add("reserved")["outcome"] == "PENDING"
+    missing = call(client, "GET", chain, f"/rewrites/{uuid4()}")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "TFT_DRAFT_REWRITE_NOT_FOUND"
+    assert call(client, "GET", chain, f"/rewrites/{uuid4()}", user=OUTSIDER).status_code == 404

@@ -15,7 +15,9 @@ from backend.engine.cs.drafting import (
     REVISION_INSTRUCTION,
     DraftOutput,
     EvidenceSnippet,
+    ForbiddenCommitmentError,
     RevisionFeedback,
+    RevisionSentence,
     build_draft_input,
     instruction,
     render_prompt,
@@ -49,6 +51,17 @@ class DraftAttempt:
     prompt_version: str = DEFAULT_VERSIONS["draft"]
     # 공급자에 보낸 지시문 전체(판본 본문 + 출력 스키마, 입력 제외)의 sha256 앞 16자.
     instruction_fingerprint: str | None = None
+    # 금지 약속(CS_FORBIDDEN_COMMITMENT)으로 거부된 초안과 걸린 문장(KAN-193). 재작성 피드백에만 쓰고 저장하지 않는다.
+    forbidden_draft: DraftOutput | None = field(default=None, repr=False)
+    forbidden_sentences: tuple[RevisionSentence, ...] = field(default=(), repr=False)
+
+    def forbidden_revision(self) -> RevisionFeedback | None:
+        """금지 약속 문장만 고치게 할 재작성 피드백. 문장 위치로 가리킬 수 없으면(질문에 걸림) None."""
+        if self.forbidden_draft is None or not self.forbidden_sentences:
+            return None
+        return RevisionFeedback(
+            prior_draft=self.forbidden_draft, failed_sentences=list(self.forbidden_sentences)
+        )
 
 
 def run_draft_attempt(
@@ -179,6 +192,14 @@ def run_draft_attempt(
             response.text,
             evidence_chunk_ids=frozenset(snippet.chunk_id for snippet in payload.evidence),
             request_info_codes=frozenset(payload.request_info_codes),
+        )
+    except ForbiddenCommitmentError as error:
+        return replace(
+            result,
+            outcome="SCHEMA_VIOLATION",
+            error_code=str(error),
+            forbidden_draft=error.draft,
+            forbidden_sentences=error.sentences,
         )
     except ValueError as error:
         return replace(result, outcome="SCHEMA_VIOLATION", error_code=str(error))

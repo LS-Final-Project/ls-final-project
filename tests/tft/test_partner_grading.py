@@ -536,6 +536,9 @@ DRAWOUT_VCB_GRADES = {
         ("제어회로 퓨즈 포함", "VCB switchgear", "unknown"),
         ("빗물 유입 방지 구조", "cast-resin transformer", "unknown"),
         ("몰드 케이스 차단기", "oil-immersed transformer", "unknown"),
+        # 몰드 케이스는 영문 molded case와 같은 MCCB다. VCB와는 다른 형식이다.
+        ("몰드 케이스 차단기", "VCB switchgear", "failed"),
+        ("molded case breaker", "VCB switchgear", "failed"),
         ("반고정식 배전반", "drawout switchgear", "unknown"),
         ("고정식 또는 인출식", "drawout switchgear", "unknown"),
         # 한글 부정어. 외는 낱말로 설 때만 부정이다.
@@ -618,7 +621,27 @@ def test_the_seeded_and_own_forms_keep_their_axes():
         "협의 후 결정",
         "협의하여 확정",
         "TBD",
+        "TBD A",
         "<Insert value>",
+        "<Insert value> kV",
+        "<Insert rating at 40 C> kV",
+        "[ ] kV",
+        "___ A",
+        "The rated current shall be TBD A.",
+        # 조건·규격의 숫자는 확정 값이 아니다. 값 칸은 비어 있다.
+        "TBD (at 40 C)",
+        "<Insert value> kV, per IEC 60076",
+        "[ ] kV at 60 Hz",
+        "Voltage <Insert value> kV at 60 Hz.",
+        "at 60 Hz, <Insert value> kV",
+        "at 60 Hz, voltage TBD",
+        "IEC 60076, <Insert value> kV",
+        "IEC 60076, delivery TBD",
+        "40 C ambient, <Insert value> kV",
+        "15 kV / TBD kA",
+        "630 A <Insert delivery date>",
+        # ponytail 표시 그대로: 글자 값은 미정 쪽으로 둔다.
+        "Copper, finish TBD",
     ],
 )
 def test_a_value_left_open_is_not_compared(value):
@@ -643,6 +666,10 @@ def test_a_value_left_open_is_not_compared(value):
         "납기는 별도 협의",
         "630A 또는 별도 협의",
         "미정 사항은 별도 협의한다",
+        # 다른 항목의 표지 때문에 확정 값이 미정이 되지 않는다.
+        "630A, delivery TBD",
+        "Rated current 630 A. Delivery TBD.",
+        "1.5 kV; insulation class TBD",
     ],
 )
 def test_a_real_value_is_not_read_as_left_open(value):

@@ -154,18 +154,31 @@ def test_retry_after_saved_or_stale_head_never_calls_provider(monkeypatch):
     assert conn.record["state"] == "discarded" and conn.version == 3
 
 
-def test_failure_saves_template_new_version_without_mutating_base(monkeypatch):
+def test_failure_changing_nothing_makes_no_new_version(monkeypatch):
     conn, source, job = setup(monkeypatch)
 
     def fails(_):
         raise TimeoutError("do not persist private text")
 
     result = asyncio.run(service.process(conn, job, lambda _: None, fails, "gemini-3.6-flash"))
-    assert conn.saved.sections[0].sentences[0].text == source.sections[0].sentences[0].text
-    assert result["needs_review"] is True and conn.version == 2
+    assert conn.saved is None and conn.record["state"] == "saved"
+    assert result["needs_review"] is True and conn.version == 1
     assert conn.calls[0][3] == "error" and conn.calls[0][9] is None
     assert conn.calls[0][14] is None  # 공급자 미보고 비용을 0으로 꾸미지 않는다.
     assert "private" not in str(conn.calls)
+
+
+def test_failure_reverting_an_earlier_model_sentence_is_a_new_version(monkeypatch):
+    """앞선 모델 문장이 양식으로 돌아가면 바뀐 문장이 있으므로 판본을 만든다."""
+    conn, source, job = setup(monkeypatch)
+    row = source.sections[0].sentences[0]
+    row.template_text, row.text, row.provenance_kind = row.text, "앞선 모델 문장", "ai_draft"
+
+    def fails(_):
+        raise TimeoutError("fake")
+
+    asyncio.run(service.process(conn, job, lambda _: None, fails, "gemini-3.6-flash"))
+    assert conn.version == 2 and conn.saved.sections[0].sentences[0].text == row.template_text
 
 
 def test_trace_input_payload_is_identical_before_and_after_rewrite(monkeypatch):

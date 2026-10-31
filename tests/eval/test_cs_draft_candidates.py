@@ -698,7 +698,7 @@ def test_supported_drafts_are_verified_once_without_a_rewrite():
     assert row["calls"] == {"verification": 2, "rewrite": 0}
     assert row["status"] == {"first": {"VERIFIED": 2}, "final": {"VERIFIED": 2}}
     assert row["verdicts"]["first"] == {"SUPPORTED": 6}
-    assert row["rewrite"] == {"called": 0, "valid": 0, "errors": {}}
+    assert row["rewrite"] == {"called": 0, "forbidden": 0, "valid": 0, "errors": {}}
     assert row["usage"]["input_tokens"]["total"] == 10
 
 
@@ -721,7 +721,13 @@ def test_a_failed_sentence_rewrites_once_and_verifies_again():
     assert row["rewrite"]["valid"] == 1
     assert row["after_rewrite"]["schema"]["outcomes"]["VALID"] == 1
     assert row["per_case"] == [
-        {"case_id": "k1", "first": "NEEDS_REVIEW", "rewrite": "VALID", "final": "VERIFIED"}
+        {
+            "case_id": "k1",
+            "first": "NEEDS_REVIEW",
+            "rewrite": "VALID",
+            "rewrite_reason": "UNSUPPORTED",
+            "final": "VERIFIED",
+        }
     ]
     assert "gate" not in json.dumps(row) and "passed" not in row
 
@@ -803,6 +809,55 @@ def test_a_draft_that_failed_is_not_sent_to_the_verifier():
 
     row = verified(checker, broken, {"k1": CASES["k1"]})["verification"]
     assert checker.calls == [] and row["not_verified"] == {"CS_DRAFT_MISSING": 1}
+
+
+def promising(times):
+    """처음 times번은 DETAILED에 금지 약속 문장을 더하는 초안 공급자(KAN-193)."""
+    base = provider()
+    seen = []
+
+    def call(prompt):
+        seen.append(prompt)
+        result = base(prompt)
+        if len(seen) > times:
+            return result
+        body = json.loads(result.text)
+        detailed = next(o for o in body["options"] if o["label"] == "DETAILED")
+        detailed["sentences"].append(
+            {"text": "Your RMA is approved.", "kind": "CONDITION", "evidence_chunk_ids": []}
+        )
+        return replace(result, text=json.dumps(body))
+
+    call.seen = seen
+    return call
+
+
+def test_a_forbidden_draft_is_rewritten_once_before_verification():
+    """운영 그래프와 같다. 금지 약속 문장만 고쳐 쓰고 검증하며, 검증 실패로 다시 쓰지 않는다."""
+    draft = promising(1)
+    row = verified(verifier("UNSUPPORTED"), draft, {"k1": CASES["k1"]})
+    block = row["verification"]
+    assert len(draft.seen) == 2
+    [failed] = json.loads(draft.seen[1].split("\n\n입력:\n", 1)[1])["revision_feedback"][
+        "failed_sentences"
+    ]
+    assert (failed["label"], failed["sentence_index"]) == ("DETAILED", 1)
+    assert block["calls"] == {"verification": 1, "rewrite": 1}
+    assert block["rewrite"]["forbidden"] == 1 and block["rewrite"]["valid"] == 1
+    assert block["status"]["final"] == {"NEEDS_REVIEW": 1}
+    assert block["per_case"][0]["rewrite_reason"] == "FORBIDDEN"
+    # 처음 시도 지표는 그대로 금지 1건, 재작성을 반영한 지표는 0건이다.
+    assert row["forbidden"]["count"] == 1
+    assert block["after_rewrite"]["forbidden"]["count"] == 0
+
+
+def test_a_rewrite_that_still_promises_is_not_verified():
+    checker = verifier("SUPPORTED")
+    block = verified(checker, promising(2), {"k1": CASES["k1"]})["verification"]
+    assert checker.calls == [] and block["calls"] == {"verification": 0, "rewrite": 1}
+    assert block["rewrite"]["errors"] == {"CS_FORBIDDEN_COMMITMENT": 1}
+    assert block["not_verified"] == {"CS_DRAFT_MISSING": 1}
+    assert block["after_rewrite"]["forbidden"]["count"] == 1
 
 
 def test_rows_have_no_verification_block_unless_asked():

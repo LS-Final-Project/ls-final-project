@@ -13,7 +13,9 @@ from backend.engine.cs.drafting import (
     DRAFT_PROMPT,
     DRAFT_VALIDATION_CODES,
     FORBIDDEN_COMMITMENTS,
+    FORBIDDEN_REASON,
     EvidenceSnippet,
+    ForbiddenCommitmentError,
     build_draft_input,
     find_forbidden_commitment,
     validate_output,
@@ -315,8 +317,18 @@ FORBIDDEN_EXAMPLES = {
         "RMA issued: please ship.",
         "RMA approved.",
         "Your RMA request has been approved.",
+        # 조건 표지가 확정 뒤에 오면 확정이다(KAN-193 약속 패턴 조건 검사).
+        "Your RMA has been approved, so do not worry.",
+        # 부정·once는 약속 패턴의 표지가 아니다(#466 리뷰 P2).
+        "We have not found any issue and your RMA is approved.",
+        "Once you reply your RMA is approved.",
     ],
-    FORBIDDEN_COMMITMENTS[1].pattern: ["Return authorized.", "The return is approved."],
+    FORBIDDEN_COMMITMENTS[1].pattern: [
+        "Return authorized.",
+        "The return is approved.",
+        "Don't worry, your return is approved.",
+        "The return is approved if you need a label.",
+    ],
     FORBIDDEN_COMMITMENTS[2].pattern: [
         "Warranty approved.",
         "Your warranty claim has been approved.",
@@ -331,6 +343,9 @@ FORBIDDEN_EXAMPLES = {
         "We will send a technician tomorrow.",
         "We will dispatch our engineer.",
         "We'll send a technician tomorrow.",
+        "We will send a technician once you confirm the address.",
+        "Once you reply we will send a technician.",
+        "We never delay, so we will send a technician tomorrow.",
     ],
     FORBIDDEN_COMMITMENTS[6].pattern: ["A site visit is scheduled.", "Technician has been booked."],
     FORBIDDEN_COMMITMENTS[7].pattern: [
@@ -339,7 +354,11 @@ FORBIDDEN_EXAMPLES = {
         "We’ll replace it free of charge.",
     ],
     FORBIDDEN_COMMITMENTS[8].pattern: ["RMA가 승인되었습니다.", "RMA를 발급해 드리겠습니다."],
-    FORBIDDEN_COMMITMENTS[9].pattern: ["반품이 승인되었습니다.", "반품 승인해 드리겠습니다."],
+    FORBIDDEN_COMMITMENTS[9].pattern: [
+        "반품이 승인되었습니다.",
+        "반품 승인해 드리겠습니다.",
+        "혹시 궁금하실까 봐 말씀드리면 반품이 승인되었습니다.",
+    ],
     FORBIDDEN_COMMITMENTS[10].pattern: [
         "내일 방문하겠습니다.",
         "현장에 방문해 드리겠습니다.",
@@ -484,6 +503,12 @@ ALLOWED_EXAMPLES = [
     "There is no evidence that this is a manufacturing defect.",
     "We see no sign that the unit is a manufacturing defect.",
     "현재 자료만으로는 제조 불량으로 확정되었다고 볼 수 없습니다.",
+    # 약속 패턴도 같은 절 앞의 조건 표지를 본다(KAN-193, 재측정 CSV1-003715 오탐).
+    "Whether the return is approved will be communicated after inspection.",
+    "If the return is approved, we will contact you.",
+    "If a site visit is scheduled, we will share the details first.",
+    "Unless the warranty claim is approved, repair costs may apply.",
+    "만약 반품이 승인되었다는 연락을 받으셨다면 알려 주십시오.",
 ]
 
 
@@ -548,6 +573,26 @@ def test_forbidden_commitment_rejects_draft(text):
     )
     with pytest.raises(ValueError, match="^CS_FORBIDDEN_COMMITMENT$"):
         check(bad)
+
+
+def test_forbidden_error_points_at_the_sentences_to_rewrite():
+    """금지 약속 오류는 초안과 걸린 문장(선택지·순서·이유)을 담는다. 질문에 걸리면 문장이 없다(KAN-193)."""
+    bad = raw(
+        option("CONCISE"),
+        option("DETAILED", text="Your RMA has been approved.", kind="UNCONFIRMED", ids=()),
+        option("INFO_FIRST"),
+    )
+    with pytest.raises(ForbiddenCommitmentError) as caught:
+        check(bad)
+    assert str(caught.value) == "CS_FORBIDDEN_COMMITMENT"
+    [hit] = caught.value.sentences
+    assert (hit.label, hit.sentence_index, hit.reason) == ("DETAILED", 0, FORBIDDEN_REASON)
+    assert caught.value.draft.options[1].sentences[0].text == "Your RMA has been approved."
+    asking = option("INFO_FIRST")
+    asking["info_requests"][0]["question"] = "사진을 보내 주시면 내일 방문하겠습니다."
+    with pytest.raises(ForbiddenCommitmentError) as caught:
+        check(raw(option("CONCISE"), option("DETAILED"), asking))
+    assert caught.value.sentences == ()
 
 
 def test_forbidden_commitment_in_question_rejects_draft():
@@ -697,6 +742,13 @@ def test_schema_and_commitment_violations_keep_raw_and_usage(text, code):
     assert result.outcome == "SCHEMA_VIOLATION" and result.error_code == code
     assert result.raw_response == text and result.prediction is None
     assert result.usage == Usage(4, 2)
+    # 금지 약속만 재작성 피드백을 만든다(KAN-193). 형식 위반은 고칠 초안이 없다.
+    feedback = result.forbidden_revision()
+    if code == "CS_FORBIDDEN_COMMITMENT":
+        assert [(f.label, f.sentence_index) for f in feedback.failed_sentences] == [("CONCISE", 0)]
+        assert "RMA가 승인되었습니다." not in repr(result)
+    else:
+        assert feedback is None
 
 
 def test_timeout_and_rejected_input():

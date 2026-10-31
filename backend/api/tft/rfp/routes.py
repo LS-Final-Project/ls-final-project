@@ -571,6 +571,18 @@ async def rewrite_draft(
     )
 
 
+@router.get(
+    P + "/draft/rewrites/{job_id}",
+    response_model=SuccessResponse[s.RewriteSummary],
+    operation_id="tft_get_rfp_draft_rewrite",
+)
+async def get_draft_rewrite(
+    request: Request, user: User, project_id: UUID, job_id: UUID
+) -> SuccessResponse[s.RewriteSummary]:
+    """33. 모델 작성 작업의 결과 요약."""
+    return respond(request, await routes_draft.rewrite_summary(request, user, project_id, job_id))
+
+
 @router.post(
     P + "/draft/review-versions",
     status_code=201,

@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -134,8 +135,34 @@ async def snapshot_for(conn: AsyncConnection[Row], job: TftJob) -> tuple[Row, s.
         return record, snapshot
 
 
+def changed(before: s.Draft, after: s.Draft) -> bool:
+    """문장 글자나 작성 표시가 바뀌었는지 본다.
+
+    Args:
+        before: 입력 판본.
+        after: 모델 결과를 적용한 초안.
+
+    Returns:
+        bool: 바뀐 문장이 하나라도 있으면 True.
+    """
+
+    def rows(draft: s.Draft) -> list[tuple[str, str, str]]:
+        return [
+            (str(row.sentence_id), row.text, row.provenance_kind)
+            for part in draft.sections
+            for row in part.sentences
+        ]
+
+    return rows(before) != rows(after)
+
+
 async def apply_result(
-    conn: AsyncConnection[Row], job: TftJob, record: Row, result: Result, model: str
+    conn: AsyncConnection[Row],
+    job: TftJob,
+    record: Row,
+    snapshot: s.Draft,
+    result: Result,
+    model: str,
 ) -> bool:
     """사람 저장이 앞섰으면 모델 결과를 버린다. 기존 판본/이력을 변경하지 않는다."""
     async with conn.transaction():
@@ -148,6 +175,21 @@ async def apply_result(
                 "UPDATE tft.draft_rewrites SET state='discarded' WHERE id=%s", (record["id"],)
             )
             return False
+        if not changed(snapshot, result.draft):
+            # 바뀐 문장이 없으면 판본을 만들지 않는다. result_version 없는 saved가 이 경우다.
+            await conn.execute(
+                "UPDATE tft.draft_rewrites SET state='saved' WHERE id=%s", (record["id"],)
+            )
+            await commands.audit(
+                conn,
+                project_id=job.project_id,
+                actor=job.actor_id,
+                entity="draft",
+                entity_id=record["base_version"],
+                action="draft.rewrite.complete",
+                detail={"rewritten": result.rewritten, "fallback": result.fallback},
+            )
+            return True
         result.draft.version = record["base_version"] + 1
         result.draft.known_at = datetime.now(UTC)
         human_keys = [
@@ -176,6 +218,53 @@ async def apply_result(
             detail={"rewritten": result.rewritten, "fallback": result.fallback},
         )
     return True
+
+
+async def summary(conn: AsyncConnection[Row], project_id: UUID, job_id: UUID) -> s.RewriteSummary:
+    """작업 하나의 결과를 호출 원장에서 센다. 사유는 고정 코드뿐이고 문장 글자는 없다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        job_id: 모델 작성 작업 ID.
+
+    Returns:
+        s.RewriteSummary: 결과 구분과 문장 수, 사유별 건수. 없는 작업은 404다.
+    """
+    cursor = await conn.execute(
+        "SELECT id,state,base_version,result_version FROM tft.draft_rewrites "
+        "WHERE project_id=%s AND job_id=%s",
+        (project_id, job_id),
+    )
+    record = await cursor.fetchone()
+    if record is None:
+        raise ApplicationError(404, "TFT_DRAFT_REWRITE_NOT_FOUND", "The rewrite was not found.")
+    base = {"job_id": job_id, "result_version": record["result_version"]}
+    if record["state"] != "saved":
+        pending = record["state"] == "reserved"
+        return s.RewriteSummary(**base, outcome="PENDING" if pending else "DISCARDED")
+    snapshot = await db.load_snapshot(conn, project_id, record["base_version"])
+    if snapshot is None:
+        raise ValueError("TFT_DRAFT_VERSION_MISSING")
+    rows = [row for part in snapshot.sections for row in part.sentences]
+    human = sum(row.provenance_kind == "human_input" for row in rows)
+    cursor = await conn.execute(
+        "SELECT reasons FROM tft.draft_rewrite_calls WHERE rewrite_id=%s "
+        "AND outcome IN ('skipped','error','truncated','fallback')",
+        (record["id"],),
+    )
+    failures = Counter(code for row in await cursor.fetchall() for code in row["reasons"].values())
+    template = sum(failures.values())
+    model = len(rows) - human - template
+    outcome = "SUCCEEDED" if template == 0 else "FAILED" if model == 0 else "PARTIAL"
+    return s.RewriteSummary(
+        **base,
+        outcome=outcome,
+        model_sentences=model,
+        template_sentences=template,
+        human_sentences=human,
+        failures=dict(failures),
+    )
 
 
 async def saved_completion(conn: AsyncConnection[Row], job: TftJob, record: Row) -> Row:
@@ -211,7 +300,7 @@ async def process(
     )
     # 모델 호출이 끝나고 소유권/취소를 재검사한 뒤에만 저장한다.
     emit({"step": "draft", "counts": ZERO})
-    applied = await apply_result(conn, job, record, result, model)
+    applied = await apply_result(conn, job, record, snapshot, result, model)
     if not applied:
         return await saved_completion(conn, job, record)
     return completed(result.draft, bool(result.fallback))

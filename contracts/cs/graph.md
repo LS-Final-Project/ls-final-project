@@ -6,19 +6,21 @@
 
 `classify → rules → retrieve → draft → verify → [rewrite → reverify] → human_review → END`
 
+금지 약속 초안(KAN-193): `draft → rewrite → verify → human_review`. 재작성은 금지 약속·검증 실패를 합쳐 사례당 한 번이다.
+
 | 노드 | 호출하는 엔진 | 상태 갱신 | 실패 시 |
 | --- | --- | --- | --- |
 | `classify` | `classification_call.run_classification_attempt`(시도 1, 형식 위반이면 시도 2) | 마스킹한 분류 입력 `record`, `classification`, 시도 ID | `errors`에 코드를 남기고 `stage=CLASSIFY_FAILED`로 **END** |
 | `rules` | `rules.decide` | `rules`(정책 판본·우선순위·부서·SLA·기한, ISO 시각) | 정책 밖 입력은 `CS_RULE_INPUT`을 남기고 계속 |
 | `retrieve` | `search.hybrid.token_or_query`(마스킹 제목·본문 토큰 OR) → `scoped_then_global`(문의 제품 `rules.product_family`와 같은 `product_family` 청크 먼저, 모자라면 전체 보충, FLT-042 제외) | `evidence`(chunk_id·snippet=청크 본문 앞 800자·section_path·document_sha256) | 질의 토큰이 없으면 근거 0건, 모르는 제품이면 전체만 검색, 검색기 예외는 원문 없이 `CS_SEARCH_FAILED`를 남기고 계속. 근거 0건이어도 `draft`는 호출한다(문장은 CONDITION·UNCONFIRMED만 허용) |
-| `draft` | `drafting_call.run_draft_attempt`(시도 1, 형식 위반이면 시도 2) | `draft`(3선택지), 시도 ID | 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
-| `verify` | `verification_call.run_verification_attempt` 1회 | 문장별 판정·시도 ID | 호출 실패는 미검증으로 사람 확인, `UNSUPPORTED`가 있으면 rewrite |
-| `rewrite` | 피드백으로 `run_draft_attempt` 1회(형식 재시도 없음) | 새 초안·시도 ID | 기존 초안·판정을 보존해 사람 확인 |
+| `draft` | `drafting_call.run_draft_attempt`(시도 1, 형식 위반이면 시도 2) | `draft`(3선택지), 시도 ID. 금지 약속이면 `forbidden_feedback` | 금지 약속이 문장에만 있으면 `rewrite`. 그 밖에는 시도의 오류 코드를 남기고 **human_review로 계속**(사람이 직접 씀) |
+| `verify` | `verification_call.run_verification_attempt` 1회 | 문장별 판정·시도 ID | 호출 실패는 미검증으로 사람 확인, `UNSUPPORTED`가 있고 아직 재작성하지 않았으면 rewrite |
+| `rewrite` | 피드백(금지 약속 문장 또는 `UNSUPPORTED` 문장)으로 `run_draft_attempt` 1회(형식 재시도 없음) | 새 초안·시도 ID, `forbidden_feedback=None` | 기존 초안·판정을 보존해 사람 확인. 금지 약속 재작성 실패는 `errors`에 `draft`·`rewrite` 코드 둘 다 |
 | `reverify` | 새 초안의 검증 1회 | 최종 문장 판정·시도 ID | 결과와 무관하게 사람 확인 |
 | `human_review` | 없음 | `stage=HUMAN_REVIEW`만 | 없음 |
 
 - 분류 분기는 `route_after_classify`다. 분류 결과가 있으면 `rules`, 없으면 END로 간다.
-- 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 다시 부르지 않는다. 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
+- 형식 위반 재호출(KAN-194 4차, 2026-10-29 사용자 결정): 분류·초안 시도 1이 `SCHEMA_VIOLATION`·`CS_INVALID_OUTPUT`이면 노드 안에서 같은 입력으로 `attempt_number=2`를 한 번 더 부른다. 금지 약속(`CS_FORBIDDEN_COMMITMENT`)·차단 근거·다른 검증 코드·입력 보류·전송 오류·타임아웃은 같은 입력으로 다시 부르지 않는다(금지 약속은 아래 문장 재작성으로 간다). 두 시도 모두 기록하고 `errors`에는 마지막 시도 코드만 남긴다. `build_graph(invalid_output_retries=1)`이 기본이고 0이면 끈다(configurable에는 넣지 않음). 재호출은 노드 안에서 끝나므로 사람 확인 재개는 분류·초안을 다시 부르지 않는다.
 - 초안 호출 설정(KAN-194 7차): `build_graph(evidence_limit=N)`은 검색 결과 중 앞 N건만 초안 근거로 넘긴다(None이면 전부, 검색 limit·제품 우선 보충은 그대로). 실행기 `build_cs_runner`의 기본은 `DRAFT_DEFAULTS`(측정 뒤 PROPOSED 설정 2026-10-31: 출력 상한 6000, 근거 5건)이며 `draft_knobs`·`evidence_limit`으로 바꾼다.
 - 초안 오류 코드(KAN-194 6차): `drafting.validate_output`은 내용 규칙 위반을 `CS_INVALID_OUTPUT`으로 합치지 않고 그 코드를 그대로 올리며, `drafting_call`이 outcome `SCHEMA_VIOLATION`·`error_code=<코드>`로 남긴다. 그래서 결정적 위반(근거 ID 인용 오류 등)은 위 재호출 대상이 아니다.
 
@@ -29,7 +31,9 @@
   | `CS_MISSING_INFO_REQUEST` | INFO_FIRST가 요청 코드를 다 묻지 않음 | 안 함 |
   | `CS_EVIDENCE_REQUIRED` | 근거 ID 없는 EVIDENCE 문장 | 안 함 |
   | `CS_DUPLICATE_EVIDENCE`·`CS_DUPLICATE_INFO`·`CS_DUPLICATE_OPTION` | 근거 ID·정보 요청·선택지 라벨 중복 | 안 함 |
-  | `CS_FORBIDDEN_COMMITMENT`·`CS_BLOCKED_EVIDENCE` | 승인·확정 약속, 차단 코드 언급 | 안 함 |
+  | `CS_FORBIDDEN_COMMITMENT` | 승인·확정 약속 | 안 함(문장 재작성 1회, 아래) |
+  | `CS_BLOCKED_EVIDENCE` | 차단 코드 언급 | 안 함 |
+- 금지 약속 문장 재작성(KAN-193, 2026-10-31 담당 합의): 초안이 금지 약속으로만 거부되면 `drafting.ForbiddenCommitmentError`가 형식 검사를 통과한 초안과 걸린 문장(선택지·문장 순서·고정 이유 `FORBIDDEN_REASON`)을 담고, `DraftAttempt.forbidden_revision()`이 검증 재작성과 같은 `RevisionFeedback`을 만든다. `draft`는 이것을 `forbidden_feedback`에 두고 `rewrite`로 간다. 재작성본은 처음 검증(`verify`, 시도 1)을 받고, 그 결과가 `UNSUPPORTED`여도 다시 쓰지 않는다(재작성은 사례당 한 번, `after_verify`가 `draft_rewritten`을 본다). 재작성본도 거부되면 초안 없이 사람 확인이다. 정보 요청 질문에 걸린 금지 약속은 문장 위치로 가리킬 수 없어 재작성하지 않는다. 걸린 초안은 시도 객체 안에만 있고 시도 저장(`record_attempt`)에는 그대로 원시 응답만 남는다. 상태의 `forbidden_feedback`은 마스킹된 초안 출력이며 재작성 뒤 지운다. 측정 실행기(`eval/cs_draft_candidates.py`, `--verify`)도 같은 순서로 돌고(검증 없이 측정하면 재작성하지 않고 처음 시도 지표만 낸다. 운영 그래프는 검증이 꺼져 있어도 재작성한다) `verification.rewrite.forbidden`·`per_case[].rewrite_reason`(`FORBIDDEN`·`UNSUPPORTED`)으로 구분한다. 최대 호출 수(문의당 7)는 그대로다.
 - 기존 엔진의 안전·출력 검사는 유지한다. 모델 호출은 `backend/shared/ai.py`·`providers.py` 어댑터를 그대로 쓰며 LangChain 모델 래퍼는 쓰지 않는다.
 
 ## 중단점과 재개
@@ -131,7 +135,7 @@
   그래프에 되돌아가는 간선이 없다. 공급자 내부의 전송 재시도는 기존 정책이며 시도 `call_attempts`로 구분한다.
 - 검증 timeout/전송/출력검사 실패는 재작성하지 않고 `NOT_VERIFIED` 및 문장별 미검증 이유로 남긴다.
   초안이 없으면 검증 호출이 없고 사람 확인으로 간다. 비활성·공급자 없는 경로도 미검증으로 표시한다.
-- `CsState` 추가 키: `draft_attempt_id`, `verification`(status·reason·sentences), `draft_rewritten`.
+- `CsState` 추가 키: `draft_attempt_id`, `verification`(status·reason·sentences), `draft_rewritten`, `forbidden_feedback`(KAN-193).
   기존 체크포인트의 누락 키는 기본값으로 읽고 과거 draft ID는 시도 요약에서 찾는다. raw·모델 시도 본체는
   상태에 넣지 않는다. `attempt_ids`·`attempts`에는 검증도 포함하지만 `retried/recovered`는 분류·초안 형식
   재시도만 세며 round=2 검증을 재시도로 세지 않는다.

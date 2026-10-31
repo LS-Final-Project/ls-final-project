@@ -62,6 +62,8 @@ class VerificationRun:
     rewrite: DraftAttempt | None = None
     second: VerificationAttempt | None = None
     skipped: str | None = None
+    # 재작성이 금지 약속 때문이면 True(검증 전 재작성, KAN-193). first는 재작성본의 검증이다.
+    forbidden: bool = False
 
 
 def _cost(
@@ -100,6 +102,8 @@ def _verify_case(
 ) -> VerificationRun:
     """초안 하나를 검증하고, 실패 문장이 있으면 한 번 재작성해 다시 검증한다(graph와 같은 순서).
 
+    금지 약속으로 거부된 초안은 걸린 문장만 먼저 한 번 고쳐 쓰고 검증한다. 그때는 검증 재작성을 하지 않는다.
+
     Args:
         case: 사례.
         drafted: 최종 초안 시도.
@@ -110,7 +114,39 @@ def _verify_case(
         VerificationRun: 단계별 시도.
     """
     verifier = candidate.verification_provider
-    if drafted.prediction is None or verifier is None:
+
+    def rewritten(feedback: RevisionFeedback) -> DraftAttempt:
+        return run_draft_attempt(
+            case.record,
+            classification=case.classification,
+            required_info_codes=case.required_info_codes,
+            already_asked_codes=case.already_asked_codes,
+            evidence=case.evidence,
+            sensitive_values=case.sensitive_values,
+            provider=candidate.provider,
+            attempt_number=1,
+            prompt_version=candidate.prompt_version,
+            strip_phone_annotation=strip,
+            revision_feedback=feedback,
+        )
+
+    # 검증 공급자가 없는 측정은 처음 시도 지표만 낸다. 운영 그래프는 검증이 꺼져 있어도 금지 약속 재작성을 하지만,
+    # 측정에서 재작성 지표는 --verify 블록에만 있다(#466 리뷰 P3).
+    if verifier is None:
+        return VerificationRun(skipped="CS_DRAFT_MISSING")
+    forbidden = drafted.forbidden_revision() if drafted.prediction is None else None
+    if forbidden is not None:
+        # 금지 약속 문장만 한 번 고쳐 쓰고 처음 검증으로 보낸다. 재작성은 합쳐 한 번이다(KAN-193).
+        fixed = rewritten(forbidden)
+        if fixed.prediction is None:
+            return VerificationRun(rewrite=fixed, skipped="CS_DRAFT_MISSING", forbidden=True)
+        try:
+            payload = build_verification_input(fixed.prediction, case.evidence)
+        except ValueError as error:
+            return VerificationRun(rewrite=fixed, skipped=_input_problem(error), forbidden=True)
+        first = run_verification_attempt(payload, provider=verifier, attempt_number=1)
+        return VerificationRun(first=first, rewrite=fixed, forbidden=True)
+    if drafted.prediction is None:
         return VerificationRun(skipped="CS_DRAFT_MISSING")
     try:
         payload = build_verification_input(drafted.prediction, case.evidence)
@@ -123,19 +159,7 @@ def _verify_case(
     ]
     if not failed:
         return VerificationRun(first=first)
-    rewrite = run_draft_attempt(
-        case.record,
-        classification=case.classification,
-        required_info_codes=case.required_info_codes,
-        already_asked_codes=case.already_asked_codes,
-        evidence=case.evidence,
-        sensitive_values=case.sensitive_values,
-        provider=candidate.provider,
-        attempt_number=1,
-        prompt_version=candidate.prompt_version,
-        strip_phone_annotation=strip,
-        revision_feedback=RevisionFeedback(prior_draft=drafted.prediction, failed_sentences=failed),
-    )
+    rewrite = rewritten(RevisionFeedback(prior_draft=drafted.prediction, failed_sentences=failed))
     if rewrite.prediction is None:
         return VerificationRun(first=first, rewrite=rewrite)
     try:
@@ -236,6 +260,10 @@ def _verification_row(
         ),
         "rewrite": {
             "called": len(rewrites),
+            # 금지 약속 때문에 검증 전에 고쳐 쓴 사례 수(KAN-193). 나머지는 검증 실패 재작성이다.
+            "forbidden": sum(
+                1 for r in runs.values() if r.forbidden and r.rewrite and r.rewrite.call_started
+            ),
             "valid": sum(a.prediction is not None for a in rewrites),
             "errors": dict(
                 Counter(a.error_code or a.outcome for a in rewrites if not a.prediction)
@@ -256,6 +284,11 @@ def _verification_row(
                 "case_id": case_id,
                 "first": _status(r.first),
                 "rewrite": None if r.rewrite is None else r.rewrite.error_code or r.rewrite.outcome,
+                "rewrite_reason": None
+                if r.rewrite is None
+                else "FORBIDDEN"
+                if r.forbidden
+                else "UNSUPPORTED",
                 "final": _status(lasts[case_id]),
             }
             for case_id, r in runs.items()
