@@ -4074,6 +4074,24 @@
       },
       "OwnerLoad": {
         "properties": {
+          "by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Current state of the owner's tickets, whenever received (the period does not limit it). Every state is present.",
+            "propertyNames": {
+              "enum": [
+                "RECEIVED",
+                "IN_REVIEW",
+                "WAITING_CUSTOMER",
+                "ANSWERED",
+                "TRANSFERRED",
+                "CLOSED"
+              ]
+            },
+            "title": "By State",
+            "type": "object"
+          },
           "closed": {
             "description": "Closed in the period.",
             "title": "Closed",
@@ -4107,7 +4125,8 @@
           "owner_user_id",
           "received",
           "closed",
-          "open"
+          "open",
+          "by_state"
         ],
         "title": "OwnerLoad",
         "type": "object"
@@ -7121,6 +7140,19 @@
             "title": "Id",
             "type": "string"
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "C/S agent in charge. None until review starts.",
+            "title": "Owner User Id"
+          },
           "product_code": {
             "title": "Product Code",
             "type": "string"
@@ -8512,6 +8544,79 @@
     "/api/v1/cs/improvement-requests": {
       "get": {
         "operationId": "cs_list_improvement_requests",
+        "parameters": [
+          {
+            "description": "Request statuses, comma separated (e.g. DRAFT,SENT). The web relay takes each query key once.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Request statuses, comma separated (e.g. DRAFT,SENT). The web relay takes each query key once.",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "FAULT",
+                    "DOCUMENT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Type"
+            }
+          },
+          {
+            "description": "Sent to this department in any round, or proposed to it.",
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sent to this department in any round, or proposed to it.",
+              "title": "Dept"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8562,6 +8667,16 @@
               }
             },
             "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           },
           "503": {
             "content": {
@@ -11785,6 +11900,177 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "EMAIL",
+                    "PARTNER_PORTAL",
+                    "WEB_FORM",
+                    "PHONE",
+                    "CHAT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          },
+          {
+            "description": "Exact customer ID.",
+            "in": "query",
+            "name": "customer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact customer ID.",
+              "title": "Customer"
+            }
+          },
+          {
+            "description": "Owner (C/S agent) user ID.",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Owner (C/S agent) user ID.",
+              "title": "Owner"
+            }
+          },
+          {
+            "description": "Received at or after (inclusive).",
+            "in": "query",
+            "name": "received_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received at or after (inclusive).",
+              "title": "Received From"
+            }
+          },
+          {
+            "description": "Received before (exclusive).",
+            "in": "query",
+            "name": "received_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received before (exclusive).",
+              "title": "Received To"
+            }
+          },
+          {
+            "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "received_at_desc",
+              "enum": [
+                "received_at_desc",
+                "received_at_asc"
+              ],
+              "title": "Sort",
+              "type": "string"
             }
           }
         ],

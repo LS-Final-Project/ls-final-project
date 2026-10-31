@@ -21,7 +21,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 
 | 경로 | 허용 | 설명 |
 | --- | --- | --- |
-| `GET` | cs_agent, manager, dept_staff | 최신순 최대 200건. 조회 범위만 |
+| `GET?status&request_type&dept` | cs_agent, manager, dept_staff | 최신순 최대 200건. 조회 범위만. 필터(모두 선택, 함께 주면 모두 만족): `status`는 쉼표로 여러 개(`DRAFT,SENT`, 웹 중계가 같은 키를 한 번만 받음), `request_type`(`FAULT`·`DOCUMENT`), `dept`(어느 회차든 보낸 부서이거나 제안된 부서). 필터는 조회 범위를 넓히지 않는다. 알 수 없는 상태는 400 `CS_INVALID_FILTER`, 부서 목록 밖 부서(`GCS_L1` 포함)는 422 |
 | `POST` | cs_agent | 초안(`DRAFT`, 판본 1) 작성. 작성자가 C/S 담당자. 출처는 수동 문의와 같은 규칙(`CS_MANUAL_DATA_ORIGIN`) |
 | `GET /{id}` | 조회 범위 | 요청서, 근거, 현재 회차 부서, 회신, 조치, **다음 담당** |
 | `PATCH /{id}` | cs_agent | 내용 수정. 바뀐 값이 있을 때만 새 판본 |

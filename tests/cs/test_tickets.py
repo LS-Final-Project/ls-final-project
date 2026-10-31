@@ -70,7 +70,7 @@ def client(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def fake_list(conn, limit, after, departments=None):
+    async def fake_list(conn, limit, after, departments=None, *, filters=None, ascending=False):
         rows = sorted(ROWS, key=lambda r: (r["received_at"], r["id"]), reverse=True)
         if departments is not None:
             rows = [r for r in rows if TRANSFERS.get(r["id"], set()) & departments]
@@ -218,3 +218,42 @@ def test_sales_has_no_c_s_scope(client):
 def test_roles_combine(client):
     headers = as_user(roles={"sales", "cs_agent"})
     assert len(client.get("/api/v1/cs/tickets", headers=headers).json()["data"]["items"]) == 5
+
+
+def test_filters_reach_the_repository_parsed(client, monkeypatch):
+    """쉼표 상태 목록·오프셋 없는 시각(UTC로 읽음)·정렬이 저장소 호출로 그대로 간다."""
+    seen = {}
+
+    async def capture(conn, limit, after, departments=None, *, filters=None, ascending=False):
+        seen.update(filters=filters, ascending=ascending)
+        return []
+
+    monkeypatch.setattr(repository, "list_tickets", capture)
+    response = client.get(
+        "/api/v1/cs/tickets",
+        params={
+            "state": "IN_REVIEW, TRANSFERRED",
+            "received_from": "2026-10-01T00:00:00",
+            "q": "leak",
+            "sort": "received_at_asc",
+        },
+    )
+    assert response.status_code == 200
+    filters = seen["filters"]
+    assert filters.states == {"IN_REVIEW", "TRANSFERRED"} and filters.q == "leak"
+    assert filters.received_from == datetime(2026, 10, 1, tzinfo=UTC)
+    assert seen["ascending"] is True
+
+
+@pytest.mark.parametrize("state", ["", "IN_REVIEW,,CLOSED", "OPEN", "in_review"])
+def test_unknown_states_are_rejected_not_ignored(client, state):
+    response = client.get("/api/v1/cs/tickets", params={"state": state})
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "CS_INVALID_FILTER")
+
+
+def test_a_cursor_cannot_change_direction(client):
+    newest = client.get("/api/v1/cs/tickets", params={"limit": 2}).json()["data"]["next_cursor"]
+    response = client.get(
+        "/api/v1/cs/tickets", params={"cursor": newest, "sort": "received_at_asc"}
+    )
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "CS_INVALID_CURSOR")

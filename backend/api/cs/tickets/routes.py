@@ -2,7 +2,7 @@ import base64
 import binascii
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal, get_args
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,12 +17,14 @@ from backend.api.cs.tickets.access import (
 from backend.api.cs.tickets.schemas import (
     AuditEvent,
     AuditList,
+    Channel,
     ResolutionCase,
     TicketCreate,
     TicketDetail,
     TicketList,
     TicketSummary,
     TicketUpdate,
+    WorkflowState,
 )
 from backend.api.cs.units import repository as units
 from backend.shared.access import Principal, current_principal
@@ -55,9 +57,45 @@ def cursor_error() -> ApplicationError:
     return ApplicationError(400, "CS_INVALID_CURSOR", "The page cursor is invalid.")
 
 
-def encode_cursor(received_at: datetime, ticket_id: UUID) -> str:
-    raw = json.dumps({"r": received_at.isoformat(), "i": str(ticket_id)})
-    return base64.urlsafe_b64encode(raw.encode()).decode()
+STATES = frozenset(get_args(WorkflowState))
+
+
+def filter_error(message: str) -> ApplicationError:
+    return ApplicationError(400, "CS_INVALID_FILTER", message)
+
+
+def parse_states(value: str | None) -> frozenset[str] | None:
+    """Comma-separated workflow states. Unknown or empty parts are a 400, not ignored."""
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",")]
+    if not all(parts) or any(part not in STATES for part in parts):
+        raise filter_error("state must be workflow states separated by commas.")
+    return frozenset(parts)
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """A time without an offset is read as UTC, like stored times."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def encode_cursor(received_at: datetime, ticket_id: UUID, *, ascending: bool = False) -> str:
+    # The direction is part of the cursor so a page cannot continue in the other order.
+    data = {"r": received_at.isoformat(), "i": str(ticket_id)}
+    if ascending:
+        data["s"] = "asc"
+    return base64.urlsafe_b64encode(json.dumps(data).encode()).decode()
+
+
+def cursor_direction(value: str) -> bool:
+    """True when the cursor was made by an oldest-first page. Shape errors surface in decode."""
+    try:
+        data = json.loads(base64.urlsafe_b64decode(value.encode()))
+    except (binascii.Error, ValueError):
+        raise cursor_error() from None
+    return isinstance(data, dict) and data.get("s") == "asc"
 
 
 def decode_cursor(value: str) -> tuple[datetime, UUID]:
@@ -66,7 +104,11 @@ def decode_cursor(value: str) -> tuple[datetime, UUID]:
     except (binascii.Error, ValueError):
         raise cursor_error() from None
     # A cursor is client input: check its shape before parsing any value.
-    if not isinstance(data, dict) or set(data) != {"r", "i"}:
+    if (
+        not isinstance(data, dict)
+        or set(data) - {"s"} != {"r", "i"}
+        or data.get("s", "asc") != "asc"
+    ):
         raise cursor_error()
     received_at, ticket_id = data["r"], data["i"]
     if not isinstance(received_at, str) or not isinstance(ticket_id, str):
@@ -97,23 +139,58 @@ async def list_tickets(
     request: Request,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    state: str | None = Query(
+        None,
+        max_length=200,
+        description="Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). "
+        "The web relay takes each query key once.",
+    ),
+    channel: Channel | None = Query(None),
+    product_code: str | None = Query(None, min_length=1, max_length=64),
+    customer: str | None = Query(
+        None, min_length=1, max_length=200, description="Exact customer ID."
+    ),
+    owner: UUID | None = Query(None, description="Owner (C/S agent) user ID."),
+    received_from: datetime | None = Query(None, description="Received at or after (inclusive)."),
+    received_to: datetime | None = Query(None, description="Received before (exclusive)."),
+    q: str | None = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Substring of the ticket number, subject or customer ID (case-insensitive).",
+    ),
+    sort: Literal["received_at_desc", "received_at_asc"] = Query("received_at_desc"),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketList]:
     require_ticket_list(principal)
-    after = decode_cursor(cursor) if cursor else None
+    ascending = sort == "received_at_asc"
+    after = None
+    if cursor:
+        if cursor_direction(cursor) != ascending:
+            raise cursor_error()
+        after = decode_cursor(cursor)
+    filters = repository.TicketFilters(
+        states=parse_states(state),
+        channel=channel,
+        product_code=product_code,
+        customer=customer,
+        owner=owner,
+        received_from=as_utc(received_from),
+        received_to=as_utc(received_to),
+        q=q,
+    )
     departments = None if sees_all_tickets(principal) else transfer_departments(principal)
     if departments is not None and not departments:
         return respond(request, TicketList(items=[], next_cursor=None))
     async with connection(request.app.state.settings) as conn:
-        if departments is None:
-            rows = await repository.list_tickets(conn, limit, after)
-        else:
-            rows = await repository.list_tickets(conn, limit, after, departments)
+        rows = await repository.list_tickets(
+            conn, limit, after, departments, filters=filters, ascending=ascending
+        )
     items = [TicketSummary.model_validate(row) for row in rows[:limit]]
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]
-        next_cursor = encode_cursor(last["received_at"], last["id"])
+        next_cursor = encode_cursor(last["received_at"], last["id"], ascending=ascending)
     return SuccessResponse(
         data=TicketList(items=items, next_cursor=next_cursor),
         meta=ResponseMeta(request_id=request.state.request_id),

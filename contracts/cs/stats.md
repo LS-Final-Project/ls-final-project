@@ -5,7 +5,7 @@
 | 경로 (`/api/v1/cs/stats` 아래) | 허용 | 내용 |
 | --- | --- | --- |
 | `GET /overview?start&end&dept&customer` | manager(전체), cs_agent(자기 담당만) | 문의 접수·종결·진행 수, 상태별·출처별 수, 진행 문의 경과 기간, 이관 부서별 결과, 고객별 응대 부담 상위 10, 개선요청 상태·유형별 수(manager만) |
-| `GET /owners?start&end&dept` | manager | C/S 담당자별 접수·종결 수(기간 적용)와 **현재 진행 수**(기간과 무관한 지금의 부담). 기간 안 접수·종결이 없어도 진행 중인 문의가 있으면 목록에 나온다. 담당자 없는 문의는 `owner_user_id: null` |
+| `GET /owners?start&end&dept` | manager | C/S 담당자별 접수·종결 수(기간 적용)와 **현재 진행 수**(기간과 무관한 지금의 부담), **현재 상태별 수** `by_state`(기간과 무관, 여섯 상태 모두). 기간 안 접수·종결이 없어도 진행 중인 문의가 있으면 목록에 나온다. 담당자 없는 문의는 `owner_user_id: null`. cs_agent 자기 화면의 "내 담당 상태별 수"는 기간 없이 부른 `GET /overview`의 `tickets.by_state`(자기 담당만)를 쓴다 |
 | `GET /customers/{customer_external_id}?start&end` | 전체 문의를 보는 사용자(cs_agent, C/S 부서 manager) | 한 고객의 문의 수·상태별·제품별, 최근 문의 200건, 설치 장비와 장비별 확정 문의 수, 근거로 연결된 개선요청 |
 
 - **기간**: `start`는 포함, `end`는 미포함이며 시간대가 있어야 한다. 운영 현황의 `open`은 기간 안에 접수된 문의 중 진행 중인 수이고, 담당자별의 `open`은 기간과 관계없는 현재 진행 수다. 접수 수는 접수 시각, 종결 수는 종결 시각, 이관 결과는 이관 시각, 개선요청은 작성 시각으로 기간을 적용한다. 진행 문의 경과 기간은 기간 끝(없으면 현재)에서 잰다. 잘못된 기간은 422 `CS_INVALID_PERIOD`.

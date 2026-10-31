@@ -24,7 +24,7 @@ const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[
 // 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만 적용한다.
 // 변경 메서드의 query는 경로와 상관없이 400이다(handler의 query 검사).
 export const businessRoutes = [
-  ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor']],
+  ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor', 'state', 'channel', 'product_code', 'customer', 'owner', 'received_from', 'received_to', 'q', 'sort']],
   ['/api/v1/cs/tickets/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/cs/tickets/{uuid}/audit', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/analysis', ['GET', 'POST'], []],
@@ -49,7 +49,7 @@ export const businessRoutes = [
   ['/api/v1/cs/stats/overview', ['GET'], ['start', 'end', 'dept', 'customer']],
   ['/api/v1/cs/stats/owners', ['GET'], ['start', 'end', 'dept']],
   ['/api/v1/cs/stats/customers/{customer}', ['GET'], ['start', 'end']],
-  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], []],
+  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], ['status', 'request_type', 'dept']],
   ['/api/v1/cs/improvement-requests/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/versions', ['GET'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence', ['POST'], []],

@@ -6,7 +6,7 @@
 
 | 경로 | 응답 | 설명 |
 | --- | --- | --- |
-| `GET /api/v1/cs/tickets?limit=&cursor=` | `SuccessResponse[TicketList]` | 접수 시각 최신순. 항목마다 업무 상태 `workflow_state`(아래 절). `limit` 1~100(기본 50). `next_cursor`를 그대로 다음 요청의 `cursor`로 보낸다. 잘못된 커서는 400 `CS_INVALID_CURSOR` |
+| `GET /api/v1/cs/tickets?limit=&cursor=&state=&channel=&product_code=&customer=&owner=&received_from=&received_to=&q=&sort=` | `SuccessResponse[TicketList]` | 기본 접수 시각 최신순(`sort=received_at_asc`면 오래된 순). 항목마다 업무 상태 `workflow_state`(아래 절)와 담당자 `owner_user_id`(검토 전 null). `limit` 1~100(기본 50). `next_cursor`를 그대로 다음 요청의 `cursor`로 보내고, 커서는 만든 방향으로만 쓴다(다른 `sort`에 쓰면 400 `CS_INVALID_CURSOR`). 필터(모두 선택, 함께 주면 모두 만족): `state`는 쉼표로 여러 개(`IN_REVIEW,TRANSFERRED`, 웹 중계가 같은 키를 한 번만 받음), 업무 상태가 없는 문의는 `RECEIVED`. `channel`·`product_code`·`customer`(고객 ID 일치)·`owner`(담당자 ID). `received_from`(포함)·`received_to`(제외), 오프셋 없는 시각은 UTC. `q`는 문의 번호·제목·고객 ID의 부분 문자열(대소문자 무시, `%`·`_`는 글자). 필터는 조회 범위를 넓히지 않는다(부서 사용자는 이관된 문의 안에서만 거른다). 알 수 없는 상태는 400 `CS_INVALID_FILTER`, 그 밖의 형식 오류는 422 |
 | `GET /api/v1/cs/tickets/{ticket_id}` | `SuccessResponse[TicketDetail]` | 접수 원문과 연결된 해결 사례. 없는 문의는 404 `CS_TICKET_NOT_FOUND` |
 | `POST /api/v1/cs/tickets` | 201 `SuccessResponse[TicketDetail]` | 수동 접수. 요청은 `TicketCreate`(채널, 본문 언어, 고객·제품 코드, 제목, 본문, 보고된 펌웨어·에러코드)만 받는다. `id`, `external_id`(null), `version`(1), `received_at`, `data_origin`(중계 비활성은 demo, 활성은 서버의 CS_MANUAL_DATA_ORIGIN), `derivation_kind`(SYSTEM)는 서버가 정하며 요청에 넣으면 422 |
 | `PATCH /api/v1/cs/tickets/{ticket_id}` | `SuccessResponse[TicketDetail]` | 식별 정보 정정. `version`과 바꿀 필드(customer_external_id, product_code, subject, fw_version_reported, error_code_reported)를 보낸다. 본문·채널·접수 시각은 수정할 수 없다(422). 저장된 판본과 다르면 409 `CS_TICKET_VERSION_CONFLICT`, 값이 같으면 판본을 올리지 않는다 |
