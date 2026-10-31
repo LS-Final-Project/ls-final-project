@@ -116,8 +116,8 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | T16 | `tft/20261108_KAN-201_worker_notifications.sql` | T1·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | tft_worker의 `tft.projects.responsible_user_id` SELECT | 미확인 |
 | T17 | `tft/20261109_KAN-188_draft_execution.sql` | T7·T10~T15(헤더) | postgres(역할 확인) → tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `draft_sentences.needs_rereview`·`draft_versions.source_job_id` 및 제한 worker 권한 | 미확인 |
 | T18 | `tft/20261110_KAN-188_worker_output_status.sql` | T1·T7·T14(헤더) | tft_migrator | 가능(T14 재적용 뒤 다시 적용) | `has_column_privilege('tft_worker','tft.projects','output_status','UPDATE')` | 미적용 |
-| T20 | `tft/20261112_KAN-187_project_constraints.sql` | T14·T19 | tft_migrator | 가능 | 사람 입력 공급지역·제조사목록·목록외허용 정책 및 추출 의미 보존 | 미적용 |
 | T19 | `tft/20261111_KAN-188_draft_rewrite.sql` | T14·T17 | tft_migrator | 가능 | template_text·모델 사용량/대체 사유 저장 | 미적용 |
+| T20 | `tft/20261112_KAN-187_project_constraints.sql` | T14·T19 | tft_migrator | 가능 | 사람 입력 공급지역·제조사목록·목록외허용 정책 및 추출 의미 보존 | 미적용 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
