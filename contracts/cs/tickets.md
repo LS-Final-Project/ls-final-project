@@ -157,6 +157,20 @@ KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 �
 
 ### KAN-103 입력·원시 출력 검사 첫 단위
 
+KAN-92의 `backend/engine/cs/input_adapter.py::prepare_cs_input()`은 정규화된 CS 입력의
+로컬 검수 경계다. 별도 검수 근거로 확인한 `privacy_review_complete=True`와 명시적인
+`sensitive_values` 매핑이 모두 있어야 아래 `build_input`에 전달한다. 기본은 제품 기본 경로(v4,
+PHONE 상담원 표기 유지)이고, 표기를 지우는 분석용 v3 경로는 `strip_phone_annotation=True`를
+줄 때만 쓴다. 레코드 안의 승인 표시나
+빈 매핑으로 검수 완료를 추론하지 않는다. 검수 미확인은 `CS_PRIVACY_REVIEW_REQUIRED`,
+매핑 미제공은 `CS_SENSITIVE_VALUES_REQUIRED`로 보류하며, 정제 오류는 원문 재전송 없이
+그대로 실패한다. 반환 payload와 감사 메타데이터는 분리된다.
+
+이 boolean은 내부 함수의 확인 인자이며 Jira/검수표 상태 enum이나 외부 요청의 승인 값이
+아니다. 실제 검수 상태와 근거의 매핑·family/split 중복·known_at·사용 이력은 미확정이다.
+파일 적재·실제 자료 연결·모델 호출을 제공하지 않으며, 함수 성공은 외부 전송 승인이나
+KAN-92 전체 완료가 아니다. 합성 입력으로만 경계를 검증한다.
+
 `backend/engine/cs/classification.py`는 모델·DB·파일에 접근하지 않는 순수 함수다. KAN-92의 적재/정규화 어댑터를 대체하지 않는다. `build_input(record, sensitive_values=...)`는 정규화 레코드의 channel/body_language/subject/body만 선택한다. subject는 null을 허용하지만 네 키 모두 필요하다. body_language는 en/ko/en-US 같은 언어 태그 형식이며 빈/주석만 있는 본문은 거부한다. 원본은 수정하지 않는다.
 
 기본(`cs-classification-input-v4`, 2026-10-29 사용자 결정)은 PHONE 상담원 표기를 지우지 않고 제목·본문 전체를 넣으며 removed_annotations는 0이다. 분석용 `strip_phone_annotation=True`일 때만 PHONE의 제목·본문에서 알려진 긴급도 enum을 가진 `Urgency: <값>` 주석을 대소문자와 공백 차이를 허용해 제거하고 version은 `cs-classification-input-v3`이다. 반환값의 payload만 모델 입력이며 version과 removed_annotations는 실행 감사 기록용이다. 다른 채널의 같은 문구는 이 규칙으로 삭제하지 않는다. 아래 v2 이후의 제거·보류 규칙은 분석용 옵션에만 적용된다.
