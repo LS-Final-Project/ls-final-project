@@ -176,6 +176,7 @@ async def create_project(
                 sales_user_id=principal.user_id,
                 known_at=now,
                 values={
+                    "external_id": await repository.next_project_number(conn),
                     **{
                         k: fields[k]
                         for k in (

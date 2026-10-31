@@ -8,8 +8,12 @@
 import asyncio
 import hashlib
 import io
+import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import psycopg
 import pytest
@@ -108,6 +112,41 @@ def test_create_makes_the_caller_the_sales_owner_and_replays(client):
     assert again.status_code == 201 and again.json()["data"]["id"] == project["id"]
     changed = call(client, "POST", "/projects", OWNER, project_body(name="다른 이름"), key)
     assert error(changed) == (409, "IDEMPOTENCY_CONFLICT")
+
+
+def test_create_issues_a_project_number_once_and_in_order(client, admin):
+    """접수 번호는 연도별 순번이다. 동시 접수도 겹치지 않고 재전송은 새로 받지 않는다."""
+    year = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%y")
+    with psycopg.connect(admin) as conn:
+        # 다른 출처의 번호는 세지 않는다. 형식이 다른 웹 번호도 세지 않는다.
+        for source, instance, external in (
+            ("sync", "other", f"P{year}-9000"),
+            ("rfp", "web", f"P{year}-ABC"),
+        ):
+            conn.execute(
+                "INSERT INTO tft.projects (id, source, source_instance, data_origin, "
+                "derivation_kind, known_at, company_code, name, external_id) "
+                "VALUES (%s,%s,%s,'synthetic','PROVIDED',now(),'HOST','번호 시험',%s)",
+                (uuid4(), source, instance, external),
+            )
+    key = uuid4().hex
+    first = call(client, "POST", "/projects", OWNER, project_body(), key)
+    assert first.status_code == 201, first.text
+    number = first.json()["data"]["external_id"]
+    assert re.fullmatch(rf"P{year}-\d{{4}}", number)
+    again = call(client, "POST", "/projects", OWNER, project_body(), key)
+    assert again.json()["data"]["external_id"] == number
+    with ThreadPoolExecutor(4) as pool:
+        made = list(
+            pool.map(
+                lambda _: call(client, "POST", "/projects", OWNER, project_body(), uuid4().hex),
+                range(4),
+            )
+        )
+    numbers = sorted(r.json()["data"]["external_id"] for r in made)
+    start = int(number.split("-")[1])
+    assert start < 9000
+    assert numbers == [f"P{year}-{start + n:04d}" for n in range(1, 5)]
 
 
 def test_create_is_for_sales_with_known_departments_only(client, chain):

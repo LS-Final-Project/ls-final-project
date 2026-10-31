@@ -88,3 +88,49 @@ def test_owner_validation_rejects_missing_target_and_malformed_body(monkeypatch)
         with pytest.raises(ApplicationError) as error:
             asyncio.run(routes.validate_owner(settings, principal, body))
         assert error.value.code == code
+
+
+def test_user_names_are_read_in_one_query_and_expose_only_the_name(monkeypatch):
+    """ID 묶음을 한 번에 읽는다. 로그인만 보고 이메일 같은 값은 내지 않는다."""
+    app = create_app(Settings(_env_file=None, environment="test"))
+    user = Identity(
+        id=USER,
+        tid=USER,
+        oid=USER,
+        email="synthetic@example.invalid",
+        display_name="담당",
+        dept=None,
+        roles=["sales"],
+    )
+    app.dependency_overrides[me] = lambda: SuccessResponse(
+        data=user, meta=ResponseMeta(request_id=USER)
+    )
+    cursor = AsyncMock()
+    cursor.fetchall.return_value = [{"user_id": USER, "display_name": "담당"}]
+    conn = AsyncMock()
+    conn.execute.return_value = cursor
+
+    @asynccontextmanager
+    async def database(settings):
+        yield conn
+
+    monkeypatch.setattr(routes, "connection", database)
+    other = UUID(int=196)
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/platform/users?ids={USER},{other}")
+        assert response.status_code == 200
+        assert response.json()["data"] == {
+            "items": [{"user_id": str(USER), "display_name": "담당"}]
+        }
+        assert response.headers["cache-control"] == "no-store"
+        assert conn.execute.await_count == 1
+        assert conn.execute.await_args.args[1] == ([USER, other],)
+        conn.execute.reset_mock()
+        assert client.get("/api/v1/platform/users").status_code == 422
+        assert client.get("/api/v1/platform/users?ids=nope").status_code == 422
+        too_many = ",".join([str(USER)] * 101)
+        assert client.get(f"/api/v1/platform/users?ids={too_many}").status_code == 422
+        conn.execute.assert_not_awaited()
+    app.dependency_overrides.clear()
+    with TestClient(app) as client:
+        assert client.get(f"/api/v1/platform/users?ids={USER}").status_code == 401

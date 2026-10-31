@@ -302,6 +302,7 @@ async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.Re
         equipment=row["equipment"],
         task=row["task"],
         attribute=row["attribute"],
+        attribute_key=row["attribute_key"],
         value_text=value,
         necessity=row["necessity"],
         status=row["status"],
@@ -312,6 +313,7 @@ async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.Re
         version=row["version"],
         rnd_check=state,
         is_designated_item=row["designated_model"] is not None,
+        provenance_kind=row["provenance_kind"],
     )
 
 

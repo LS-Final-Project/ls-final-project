@@ -124,6 +124,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
             "status",
             "needs_rereview",
             "has_open_question",
+            "next_owner_field",
+            "unresolved_mandatory",
         ),
     ),
     ("/api/v1/tft/requirements/{uuid}", ("GET",), ()),
