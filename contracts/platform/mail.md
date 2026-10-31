@@ -269,7 +269,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 | 경로 (`/api/v1/platform/mail/reply-reviews`) | 동작 |
 | --- | --- |
-| `GET` | 내 메일함의 열린 검토(수신 시각·이유·후보). 제목·본문·주소 없음 |
+| `GET` | 내 메일함의 열린 검토(수신 시각·보낸 사람·제목·첨부 유무·이유·후보). 본문과 첨부 이름은 없다. 메일함 소유자 본인의 메일이다 |
 | `POST /{message_id}/link` (`owner_service`, `business_ref`, `note`) | **후보 중 하나에만** 연결(근거 `HUMAN`). 후보 밖은 422 `MAIL_REPLY_NOT_A_CANDIDATE` |
 | `POST /{message_id}/dismiss` (`note`) | 업무 회신이 아니라고 닫음 |
 
@@ -325,10 +325,10 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 ## 남은 작업
 
-- 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
+- 재발송·회신 검토 화면의 운영 공개(웹 중계는 KAN-178에서 열림, 화면이 개발 모드 조건)
 - KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26(`platform/20261030_KAN-110_mail_link_notify.sql`)·C13(`cs/20261030_KAN-110_customer_mail.sql`) 마이그레이션(C12 `KAN-194_checkpoint_schema`는 메일 연결과 무관), 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
 - `register-ticket`의 웹 중계와 화면(KAN-132)
-- 회신 검토 API의 웹 중계와 화면(KAN-132)
+- 회신 연결·무시 경로의 웹 중계(읽기는 열림)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)
