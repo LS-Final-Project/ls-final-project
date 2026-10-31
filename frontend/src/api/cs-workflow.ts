@@ -57,6 +57,9 @@ export const closeTicket = (ticketId: string, version: number, signal: AbortSign
 // 한국어 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
 export const createTicketSummary = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/summary`, {}, signal);
 
+// 담당자가 AI 분류를 정정한다. 바꾼 칸만 보내고 사유가 필수다. 읽은 분석 판본(version)과 기준 분석 실행(analysis_id)을 함께 보낸다. 업무 상태 판본은 바뀌지 않는다.
+export type CorrectionBody = paths['/api/v1/cs/tickets/{ticket_id}/analysis/corrections']['post']['requestBody']['content']['application/json'];
+export const correctAnalysis = (ticketId: string, body: CorrectionBody, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/analysis/corrections`, body, signal);
 export const isResultVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_DEPT_RESULT_VERSION_CONFLICT';
 export const isResolutionExists = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_RESOLUTION_CASE_EXISTS';
 export const isInvalidOwner = (error: unknown) => error instanceof ApiError && error.status === 422 && error.code === 'CS_INVALID_OWNER';
