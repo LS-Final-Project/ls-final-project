@@ -253,6 +253,13 @@ def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, g
     chosen = choose(client, gap, "OWN_DEVELOPMENT")
     assert chosen.status_code == 200, chosen.text
     assert chosen.json()["data"]["path"] == "OWN_DEVELOPMENT"
+    # 목록의 현재 보완 경로는 저장한 선택이다(요구 판본의 path가 아니다).
+    listed = call(client, "GET", f"/projects/{gap['project']}/requirements", OWNER)
+    assert [
+        r["path"]
+        for r in listed.json()["data"]["items"]
+        if r["requirement_id"] == str(gap["requirement"])
+    ] == ["OWN_DEVELOPMENT"]
     # 자동 질문도 쓰기다. 선택 감사와 따로 남는다.
     assert audit_actions(admin, gap["project"]).count("question.create") == 1
     assert audit_actions(admin, gap["project"]).count("supplement.select") == 1

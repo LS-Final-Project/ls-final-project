@@ -116,7 +116,7 @@ def edit(
     payload: s.DraftEdit,
     valid_refs: set[tuple[str, str]],
 ) -> tuple[s.Draft, dict[UUID, str]]:
-    """사람 수정은 새 판본이다. 조건·미확약·재검토와 고지를 바꾸는 DTO는 없다."""
+    """사람 수정은 새 판본이다. 고쳐 저장한 문장만 재검토가 풀린다(명세 결정 10)."""
     if payload.version != current.version:
         raise repository.version_conflict()
     result = current.model_copy(deep=True)
@@ -151,6 +151,7 @@ def edit(
             old_part, row = slots[change.sentence_id]
             row.text, row.evidence = change.text, [e.model_copy() for e in change.evidence]
             row.evidence_missing, row.provenance_kind = missing, "human_input"
+            row.needs_rereview = False
             if change.section is not None and change.section != old_part.section:
                 old_part.sentences.remove(row)
                 next(

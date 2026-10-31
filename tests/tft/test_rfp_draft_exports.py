@@ -129,7 +129,7 @@ def test_edit_keeps_conditions_review_flags_ids_and_disclaimer_in_new_version(sn
     )
     assert result.version == current.version + 1 and current.model_dump() == before
     assert moved.conditions == old.conditions and moved.unconfirmed == old.unconfirmed
-    assert moved.needs_rereview and moved.provenance_kind == "human_input"
+    assert not moved.needs_rereview and moved.provenance_kind == "human_input"
     assert result.disclaimer == DISCLAIMER
     assert reasons == {old.sentence_id: "원문을 확인한 문구 수정"}
     assert moved in next(part.sentences for part in result.sections if part.section == "DEVIATIONS")
@@ -317,6 +317,7 @@ def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
             return_value={(e.type, e.id) for e in row.evidence},
         ),
         patch.object(routes_draft.commands, "audit", new_callable=AsyncMock),
+        patch.object(routes_draft.repository, "clear_sentence_rereview", new_callable=AsyncMock),
         TestClient(app) as client,
     ):
         result = client.patch(

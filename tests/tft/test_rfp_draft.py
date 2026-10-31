@@ -270,11 +270,17 @@ def test_duplicate_snapshots_are_rejected(snapshot: dict[str, Any], key: str) ->
 @pytest.mark.parametrize("key", ["comparisons", "options"])
 def test_requirement_version_mismatch_is_rejected(snapshot: dict[str, Any], key: str) -> None:
     if key == "comparisons":
-        snapshot[key][0].requirement_version = 1
+        snapshot[key][0].requirement_version = 3
     else:
         snapshot[key][0].version = 1
     with pytest.raises(ValueError, match="VERSION_MISMATCH"):
         build_draft(**snapshot)
+
+
+def test_a_comparison_of_an_earlier_requirement_version_is_kept(snapshot: dict[str, Any]) -> None:
+    """승인은 판단 칸만 새 판본으로 만든다. 재처리가 이전 판본의 비교로 초안을 만든다."""
+    snapshot["comparisons"][0].requirement_version = 1
+    assert build_draft(**snapshot).version == snapshot["version"]
 
 
 @pytest.mark.parametrize("key", ["comparisons", "options", "questions"])

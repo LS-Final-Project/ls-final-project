@@ -1066,6 +1066,25 @@ async def clear_rereview(conn: AsyncConnection[Row], requirement_id: UUID, actor
     )
 
 
+async def clear_sentence_rereview(
+    conn: AsyncConnection[Row], project_id: UUID, sentences: list[UUID], actor: UUID
+) -> None:
+    """사람이 고쳐 저장한 문장의 표시만 해소한다(명세 결정 10).
+
+    Args:
+        conn: 초안 저장과 같은 트랜잭션.
+        project_id: 프로젝트 ID.
+        sentences: 고친 문장 ID.
+        actor: 고친 사용자.
+    """
+    await conn.execute(
+        "UPDATE tft.rereview_marks SET cleared_by = %s, cleared_at = now() "
+        "WHERE project_id = %s AND target_kind = 'draft_sentence' AND target_id = ANY(%s) "
+        "AND cleared_at IS NULL",
+        (actor, project_id, sentences),
+    )
+
+
 async def requirement_project(conn: AsyncConnection[Row], requirement_id: UUID) -> UUID | None:
     """요구가 속한 프로젝트.
 
@@ -1758,7 +1777,9 @@ async def list_requirements(
         params.append(after)
     cursor = await conn.execute(
         "SELECT req.id AS requirement_id, req.code, v.equipment, v.task, v.attribute, v.value, v.unit, "
-        "v.necessity, v.status, v.path, v.version, v.designated_model, v.needs_review, "
+        "v.necessity, v.status, coalesce((SELECT sel.path FROM tft.supplement_selections sel "
+        "WHERE sel.requirement_id = req.id ORDER BY sel.version DESC LIMIT 1), v.path) AS path, "
+        "v.version, v.designated_model, v.needs_review, "
         f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview "
         "FROM tft.requirements req JOIN tft.requirement_versions v "
         "ON v.requirement_id = req.id AND v.version = req.latest_version "

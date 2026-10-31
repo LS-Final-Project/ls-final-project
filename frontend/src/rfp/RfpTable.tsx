@@ -140,7 +140,7 @@ export default function RfpTable() {
   const approvals = `승인 대기${pendingCount === undefined ? '' : ` ${pendingCount}`}`;
   const columns: KvColumn<RequirementSummary>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_r, index) => index + 1 },
-    { key: 'code', header: '요구', width: 72, cell: r => <button className="kb sm" style={{ padding: '0 6px' }} aria-pressed={r.requirement_id === selected} onClick={() => { setSelected(r.requirement_id); setProposing(false); }}>{r.code}</button> },
+    { key: 'code', header: '요구', width: 150, cell: r => <button className="kb sm" style={{ padding: '0 6px' }} aria-pressed={r.requirement_id === selected} onClick={() => { setSelected(r.requirement_id); setProposing(false); }}>{r.code}</button> },
     { key: 'equipment', header: '장비', cell: r => r.equipment ?? '' },
     { key: 'task', header: '작업', width: 96, cell: r => r.task ?? '' },
     { key: 'attribute', header: '속성', cell: r => r.attribute ?? '' },
