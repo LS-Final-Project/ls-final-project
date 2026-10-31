@@ -203,3 +203,30 @@ async def save(
                     "evidence_id) VALUES (%s,%s,%s,%s)",
                     (physical_id, index, evidence.type, evidence.id),
                 )
+
+
+async def human_lineage(
+    conn: AsyncConnection[Row], project_id: UUID, version: int, keys: list[UUID]
+) -> tuple[dict[UUID, str], dict[UUID, str]]:
+    """사람 편집 이유와 자동 문장을 수정한 이력을 읽는다. 직접 추가는 자동 영역을 대체하지 않는다."""
+    if not keys:
+        return {}, {}
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (s.sentence_key) s.sentence_key,s.edit_reason, "
+        "(SELECT old.text FROM tft.draft_sentences old WHERE old.project_id=s.project_id "
+        "AND old.sentence_key=s.sentence_key AND old.draft_version<=%s "
+        "AND old.provenance_kind<>'human_input' ORDER BY old.draft_version DESC LIMIT 1) AS original_text "
+        "FROM tft.draft_sentences s WHERE s.project_id=%s AND s.draft_version<=%s "
+        "AND s.sentence_key=ANY(%s) AND s.edit_reason IS NOT NULL "
+        "ORDER BY s.sentence_key,s.draft_version DESC",
+        (version, project_id, version, keys),
+    )
+    rows = await cursor.fetchall()
+    return (
+        {row["sentence_key"]: row["edit_reason"] for row in rows},
+        {
+            row["sentence_key"]: row["original_text"]
+            for row in rows
+            if row["original_text"] is not None
+        },
+    )

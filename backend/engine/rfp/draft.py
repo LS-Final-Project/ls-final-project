@@ -196,6 +196,7 @@ def build_draft(
     selections: Sequence[s.SupplementSelected] = (),
     partners: Sequence[s.PartnerCandidate] = (),
     questions: Sequence[s.Question] = (),
+    replaced: Sequence[s.Section] = (),
 ) -> s.Draft:
     """동일 프로젝트의 최신 공개 스냅샷에서 근거가 있는 검토 문장만 만든다.
 
@@ -211,6 +212,7 @@ def build_draft(
         selections: 최신 사람 선택. 선택 판본은 요구 판본과 독립적이다.
         partners: 근거로 참조할 가상 협력사와 요구별 등급.
         questions: 최신 고객·내부 질문. 질문 판본은 요구 판본과 독립적이다.
+        replaced: 사람이 고친 기존 자동 문장. 같은 절의 포함 근거·조건 영역만 생성에서 제외한다.
 
     Returns:
         Draft: 여섯 절과 고정 고지를 가진 검토 초안. 모델·DB·시계·난수 호출은 없다.
@@ -385,6 +387,23 @@ def build_draft(
         representative_limit: int = REPRESENTATIVE_CHARS,
         literal_conditions: Sequence[str] = (),
     ) -> None:
+        proofs = {(e.type, e.id) for e in evidence}
+        shown_conditions = {_display(value) for value in conditions if value.strip()} | set(
+            literal_conditions
+        )
+        if (
+            key != ("integration",)
+            and proofs
+            and any(
+                part.section == section
+                and row.text.startswith(title + ".")
+                and proofs.issubset({(e.type, e.id) for e in row.evidence})
+                and shown_conditions.issubset(row.conditions)
+                for part in replaced
+                for row in part.sentences
+            )
+        ):
+            return
         summary = sections[section].setdefault(key, _Summary(key, title))
         summary.include(
             _Summary(
