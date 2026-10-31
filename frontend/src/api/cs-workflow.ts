@@ -41,6 +41,12 @@ export const reviewDeptResult = (ticketId: string, resultId: string, body: Revie
 // 담당자 재배정(C/S 관리자). 상태는 바뀌지 않는다. 새 담당자가 활성 cs_agent인지는 플랫폼 중계가 확인한다.
 export type OwnerBody = paths[`${Wf}/owner`]['put']['requestBody']['content']['application/json'];
 export const reassignOwner = (ticketId: string, body: OwnerBody, signal: AbortSignal) => postTo(`${base(ticketId)}/owner`, body, signal, 'PUT');
+// 설치 장비 연결을 후보·확정·제외로 기록한다. 새 연결은 version을 null로, 기존 연결은 읽은 판본을 보낸다. 업무 상태 판본은 바뀌지 않는다.
+export type UnitLinkBody = paths['/api/v1/cs/tickets/{ticket_id}/units/{unit_id}']['put']['requestBody']['content']['application/json'];
+export const saveUnitLink = (ticketId: string, unitId: string, body: UnitLinkBody, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/units/${encodeURIComponent(unitId)}`, body, signal, 'PUT');
+export const isUnitLinkConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_UNIT_LINK_VERSION_CONFLICT';
+export const isUnitAlreadyConfirmed = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_TICKET_UNIT_ALREADY_CONFIRMED';
+export const isUnitMismatch = (error: unknown) => error instanceof ApiError && error.status === 422 && error.code === 'CS_UNIT_MISMATCH';
 // 이관받은 부서 담당자가 검토 답변을 보낸다(워크플로 ⑤). 문의는 검토중으로 돌아가고 답변은 C/S의 확인을 기다리는 SUBMITTED로 남는다.
 export type DeptResultBody = paths[`${Wf}/dept-result`]['post']['requestBody']['content']['application/json'];
 export const submitDeptResult = (ticketId: string, body: DeptResultBody, signal: AbortSignal) => postTo(`${base(ticketId)}/dept-result`, body, signal, 'POST', 'dept_staff');
