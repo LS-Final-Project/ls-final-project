@@ -14,6 +14,7 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDateTime, Origin } from '../components/tft';
 import type { RequirementFilters } from '../api/rfp';
 import './RfpSupplement.css';
+import IntegrationPanel from './IntegrationPanel';
 import { ATTRIBUTE_LABEL, requirementNo, BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
 import { KvBox, KvField, KvGrid, KvNext, KvTitle, KvSplit, KvCond, KvCondRow, KvCondField, type KvColumn } from '../ls-shell/kv';
 
@@ -63,6 +64,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
       <Link className="kb" to={`/tft/projects/${projectId}`}>목록</Link>
     </KvTitle>
     <KvNext>{selected ? `${selected.equipment ?? selected.task ?? '선택 요구'} · ${attributeName(selected) ?? '속성 미기재'} · ${label(NECESSITY_LABEL, selected.necessity)} · ${label(STATUS_LABEL, selected.status)} | 다음: 보완 경로·후보 근거 확인 후 선택 저장` : '조회조건을 확인하고 보완할 요구를 선택하세요.'}</KvNext>
+    <IntegrationPanel projectId={projectId} canEdit={canSelect} />
     <KvCond onSearch={search}><KvCondRow columns={4}>
       <KvCondField label="프로젝트"><input aria-label="프로젝트" value={project.data?.data.name ?? ''} readOnly /></KvCondField>
       <KvCondField label="판단"><select aria-label="판단" value={status} onChange={e => setStatus(e.target.value)}><option value="">전체</option>{Object.entries(STATUS_LABEL).map(([code, value]) => <option key={code} value={code}>{value}</option>)}</select></KvCondField>
