@@ -35,6 +35,9 @@ class TicketSummary(BaseModel):
     channel: Channel
     product_code: str
     workflow_state: WorkflowState
+    owner_user_id: UUID | None = Field(
+        default=None, description="C/S agent in charge. None until review starts."
+    )
 
 
 class TicketList(BaseModel):
@@ -92,7 +95,11 @@ class TicketDetail(BaseModel):
 
 
 class TicketCreate(BaseModel):
-    """Manual intake. Source IDs, origin and timestamps are set by the server."""
+    """Intake through the API. Source IDs and timestamps are set by the server.
+
+    `data_origin` accepts only `synthetic`: a loader of made-up tickets can mark them so, and
+    nothing can label a ticket real. Left out, the server decides as before.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -104,6 +111,8 @@ class TicketCreate(BaseModel):
     body: str = Field(min_length=1, max_length=50_000)
     fw_version_reported: Code | None = None
     error_code_reported: Code | None = None
+    customer_tier: Literal["STANDARD", "GOLD", "PLATINUM"] | None = None
+    data_origin: Literal["synthetic"] | None = None
 
 
 # The customer's original text, channel and receipt time are never rewritten.

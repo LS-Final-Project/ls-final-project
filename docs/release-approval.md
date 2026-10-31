@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 운영 리비전 | 서비스 4개 모두 main `5188b7e`(2026-10-26) | 아래 확인 |
 | 배포되지 않은 변경 | dev가 main보다 384커밋 앞섬 | `git rev-list --count origin/main..origin/dev` |
-| 공용 DB에 적용할 마이그레이션 | 60개: cs C3–C22(20), platform P10–P32(23), tft T2–T18(17). 번호 빠짐 없음 | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
+| 공용 DB에 적용할 마이그레이션 | 63개: cs C3–C25(23), platform P10–P32(23), tft T2–T18(17). 번호 빠짐 없음(10/31 저녁 기준, C23 고객 등급 #435·C24 검색 문맥 #439·C25 한국어 요약 추가) | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
 | worker Job | 접속 검증 Job 3개뿐. 평가·C/S·RFP worker Job 없음 | 댓글 10729 |
 | 공용 DB 적용 상태 | 적용 기록 없음. 공용 상태 열은 T18·P32만 `미적용`, 나머지는 `미확인` | `infra/sql/README.md` |
 
@@ -57,7 +57,7 @@
 
 ### B. 공용 DB 마이그레이션 (운영자 터미널, 관리자 연결)
 
-- [ ] SQL 안내 표 순서대로 **C3–C22, P10–P32, T2–T18을 모두** 적용한다. 한 파일씩 `psql -X -v ON_ERROR_STOP=1 -f infra/migrations/<서비스>/<파일>`로 실행한다.
+- [ ] SQL 안내 표 순서대로 **C3–C25, P10–P32, T2–T18을 모두** 적용한다. 한 파일씩 `psql -X -v ON_ERROR_STOP=1 -f infra/migrations/<서비스>/<파일>`로 실행한다.
   - 서비스 사이 순서 의존은 없다. 서비스 안에서는 번호 순서를 지킨다. T14는 표에 P29를 선행으로 적었지만, T14가 필요한 역할을 스스로 만들어서 실제 의존은 없다.
   - **C19는 필수다**(시도 사용량 열). 이게 없으면 C/S worker가 저장할 때 `UndefinedColumn`으로 실패하고, C21도 적용되지 않는다.
   - C20(임베딩 표)은 pgvector 0.8 이상이 필요하다. 벡터 검색을 켜지 않아도 적용한다. C18을 다시 적용했다면 C20·C22도 다시 적용한다.
@@ -74,12 +74,19 @@
 
 ### D. 검색 색인 (운영자 터미널, 서비스 배포와 처리 켜기보다 먼저)
 
-처리가 켜진 뒤 색인이 옛 판본이면, worker가 `chunking-v2` 조건으로 검색해 근거 0건 초안을 만든다. 그래서 색인을 먼저 맞춘다.
+**위험: 재색인 전에 새 코드가 뜨면 C/S 근거가 0건이다.** `INDEX_VERSION`이 코드에 박혀 있어 worker는 `chunking-v3` 행만 찾는다. 오류 없이 근거 0건 초안이 나오므로 로그로는 알아채기 어렵다. 색인을 서비스 배포보다 먼저 맞춘다.
 
-- [ ] 공용 문서 색인이 `chunking-v2`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
+순서: C24 적용 → v3 재색인 → 정책 manifest 재생성 → 행 수 확인 → 서비스 배포. 재색인은 옛 판본 행을 지우지 않으므로 옛 코드가 도는 동안 해도 안전하다. 되돌릴 때는 코드만 되돌리면 옛 판본 행으로 검색한다.
+
+- [ ] C24(`cs/20261107_KAN-99_search_context.sql`)를 적용한다. 재색인이 `search_context` 칸에 쓰므로 먼저 필요하다. 표를 다시 쓰는 동안 배타 잠금이 걸린다.
+
+- [ ] 공용 문서 색인이 `chunking-v3`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
   - `DATABASE_URL`은 운영자 프록시를 거친 **cs_app** 연결이다. `--docs`·`--data-origin`은 스크립트 도움말을 따른다.
+  - `--doc-index`를 반드시 준다. 없으면 맥락 머리가 절 경로뿐이고 문서 목록 청크도 빠지지 않아 검색 품질이 내려간다.
+- [ ] 재색인 뒤 `SELECT index_version, count(*) FROM cs.document_chunks GROUP BY 1`로 `chunking-v3` 행을 확인한다. 문서 묶음 133개 기준 845행이다.
+- [ ] 정책 문서 매핑을 확인한다. 이미지에 든 `eval/policy/cs_policy_documents.json`을 `deploy_workers.py`가 `CS_POLICY_DOCUMENTS_FILE`로 넘긴다. 재색인 `--manifest-out`의 POL-* 행 sha256이 이 파일과 같아야 한다. 정책 문서가 바뀌면 이 파일을 갱신해 다시 배포한다. 값이 없거나 비면 운영 worker가 시작에서 `CS_POLICY_DOCUMENTS_MISSING`으로 멈추고, 판본이 다르면 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다. 예약이 꺼지면 hit@5가 .993에서 .909로 내려가기 때문이다.
 - [ ] 벡터 검색을 켤 거면 다음을 한다(댓글 10886).
-  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 1,098청크, 근사 $0.012). 끝나면 `VACUUM cs.chunk_embeddings`.
+  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 845청크, 맥락 머리 포함 325,305자, 근사 $0.0163). 끝나면 `VACUUM cs.chunk_embeddings`.
   - 서비스 설정은 G에서 켠다.
 
 ### E. 서비스 배포 (dev → main)
@@ -126,6 +133,7 @@
 | `MAIL_SYNC_ENABLED` | 플랫폼 | `infra/setup_mail_sync.sh` | 메일 수집 |
 | `MAIL_SEND_ENABLED` | 플랫폼 | `infra/setup_mail_send.sh` | 메일 발송 |
 | `CS_MAIL_ENABLED` | team4-cs | 수동 | C/S 고객 메일 발송 입구 |
+| `CS_SUMMARY_ENABLED` | team4-cs | 수동 | **[비용]** 문의 한국어 요약(`contracts/cs/summary.md`). C25 적용 뒤. 켜면 요약마다 모델 1회. 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `NOTIFICATION_PUSH_ENABLED` | 플랫폼 | `infra/setup_notification_push.sh` | 브라우저 알림(선택) |
 | `CS_VECTOR_SEARCH_ENABLED=true`, `CS_EMBEDDING_MODEL=gemini-embedding-2`, `CS_EMBEDDING_QUERY_TASK_TYPE=RETRIEVAL_DOCUMENT` | team4-cs·cs-worker Job | 수동 | D의 임베딩 적재 뒤. 실패하면 FTS로 넘어가고 로그에 `CS_VECTOR_SEARCH_FAILED`가 남는지 본다 |
 
@@ -178,7 +186,8 @@
 | `EVALUATION_LOCAL_ADMISSION_ENABLED` | false | 운영에서 켜지 않는다 |
 | `JOBS_SWEEP_ENABLED`, `EVALUATION_DISPATCH_ENABLED`, `EVALUATION_JOBS_ENABLED`, `CS_JOBS_ENABLED`, `CS_JOBS_PROCESSOR_CONNECTED`, `CS_WORKER_JOBS_ENABLED`, `TFT_JOBS_ENABLED`, `TFT_JOBS_PROCESSOR_CONNECTED`, `TFT_WORKER_JOBS_ENABLED`, `TFT_PROCESSING_ENABLED`, `CS_ANALYSIS_ENABLED` | false | `setup_worker_jobs.py enable`(2-F) |
 | `CS_WORKER_ENABLED`, `TFT_WORKER_ENABLED` | false | `deploy_workers.py`(Job 환경, 2-F) |
-| `CS_VECTOR_SEARCH_ENABLED` | false | 수동(2-G) |
+| `CS_POLICY_DOCUMENTS_FILE` | 없음(운영 worker는 시작 실패) | `deploy_workers.py`(이미지 안 `eval/policy/cs_policy_documents.json`) |
+| `CS_VECTOR_SEARCH_ENABLED`, `CS_SUMMARY_ENABLED` | false | 수동(2-G) |
 | `MICROSOFT_AUTH_ENABLED`, `MAILBOX_AUTH_ENABLED`, `MAIL_SYNC_ENABLED`, `MAIL_SEND_ENABLED`, `CS_MAIL_ENABLED`, `NOTIFICATION_PUSH_ENABLED`, `BUSINESS_RELAY_ENABLED` | false | 2-G 표(`MICROSOFT_AUTH`·`BUSINESS_RELAY`는 이미 켜짐) |
 | 웹: `BUSINESS_RELAY_ENABLED`, `EVALUATION_READ_RELAY_ENABLED`, `EVALUATION_CONTROL_RELAY_ENABLED`, `MAILBOX_AUTH_ENABLED` | false | team4-web 수동(2-G). `BUSINESS_RELAY`는 이미 켜짐 |
 
@@ -208,7 +217,7 @@ KAN-159에 아래를 채워 붙이고 검토자(김종하)에게 확인받는다
 - 근거·보고서: 선행 Q06~Q10 결과 링크
 - 동일 이미지: 서비스별 리비전 · digest · commit-sha = 이미지 빌드 digest · CI 성공 커밋, worker Job digest = worker 이미지 빌드 digest
 
-마이그레이션: C3–C22 / P10–P32 / T2–T18 적용 시각, 공용 상태 열 갱신 여부
+마이그레이션: C3–C25 / P10–P32 / T2–T18 적용 시각, 공용 상태 열 갱신 여부
 켠 설정: 3절 목록 중 켠 것
 미검증 한계: (예) 배포 환경 부하는 소규모만, 복구 훈련 미실행(비용 승인 대기), 초안·검증 모델 설정은 채택 전,
   PITR 꺼짐(복구는 하루 단위), 모델 품질은 평가 세트 기준

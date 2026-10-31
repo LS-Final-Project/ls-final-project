@@ -454,7 +454,106 @@ def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
     assert "요구값 미정" in row.reasons[-1]
 
 
-def test_range_comparison_and_a_form_text_mismatch_is_not_a_shortfall():
+@pytest.mark.parametrize(
+    ("wanted", "held", "name"),
+    [
+        ("drawout switchgear", "drawout switchgear", "passed"),
+        # 같은 축의 다른 값만 미달이다.
+        ("fixed-mount switchgear", "Draw-Out switchgear", "failed"),
+        ("cast-resin transformer", "liquid-filled transformer", "failed"),
+        ("fused switch", "VCB switchgear", "failed"),
+        ("MCCB panel", "air circuit breaker", "failed"),
+        # 축이 같아도 충족이 아니다. 축 밖의 단어를 읽지 않았다.
+        ("drawout VCB switchgear", "withdrawable vacuum circuit breaker panel", "unknown"),
+        ("metal-clad switchgear", "metal-enclosed switchgear", "unknown"),
+        # 한쪽에만 있거나 축을 못 읽으면 미기재이지 미달이 아니다.
+        ("fixed-mount switchgear", "VCB switchgear", "unknown"),
+        ("LV switchboard", "drawout switchgear", "unknown"),
+        ("drawout switchgear", "panel", "unknown"),
+        # 한 문구에 같은 축 값이 둘이면 어느 쪽인지 모른다.
+        ("fused or VCB switchgear", "VCB switchgear", "unknown"),
+        ("fixed-mount or drawout panel", "drawout panel", "unknown"),
+        # 부정은 읽지 않는다. 읽으면 뜻이 뒤집혀 잘못 제외한다.
+        ("non-drawout switchgear", "fixed-mount switchgear", "unknown"),
+        ("switchgear, not drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear other than drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear instead of drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear rather than drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear excluding drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear w/o drawout", "fixed-mount switchgear", "unknown"),
+        ("un-fused switch", "VCB switchgear", "unknown"),
+        # 그 형식을 명시하지 않은 말로는 제외하지 않는다.
+        ("load break switch", "VCB switchgear", "unknown"),
+        ("load interrupter switch", "VCB switchgear", "unknown"),
+        ("epoxy coated transformer", "oil-immersed transformer", "unknown"),
+        # 퓨즈를 명시하면 부하개폐기여도 읽는다.
+        ("fused load-break switch", "VCB switchgear", "failed"),
+        # 단어 일부는 축 값이 아니다.
+        ("defused panel", "VCB switchgear", "unknown"),
+    ],
+)
+def test_form_conflicts_only_on_a_closed_axis(wanted, held, name):
+    row = req(9, "form", wanted, operator="TEXT")
+    verdict, word = _value_verdict(row, SpecFact.model_validate(fact("form", held)))
+    assert verdict == name
+    assert verdict != "failed" or word == "형식 다름"
+
+
+@pytest.mark.parametrize(
+    ("wanted", "expected"),
+    [
+        (
+            "fixed-mount fused switchgear",
+            {
+                "P-A": "REVIEW",
+                "P-B": "REVIEW",
+                "P-C": "REFERENCE_ONLY",
+                "P-D": "REVIEW",
+                "P-E": "REVIEW",
+                "L-A": "EXCLUDED",
+                "L-B": "REVIEW",
+                "L-C": "EXCLUDED",
+                "L-D": "EXCLUDED",
+                "M-A": "EXCLUDED",
+                "M-B": "EXCLUDED",
+                "T-A": "REVIEW",
+            },
+        ),
+        (
+            "metal-clad withdrawable VCB switchgear",
+            {
+                "P-A": "EXCLUDED",
+                "P-B": "EXCLUDED",
+                "P-C": "REFERENCE_ONLY",
+                "P-D": "EXCLUDED",
+                "P-E": "EXCLUDED",
+                "L-A": "REVIEW",
+                "L-B": "REVIEW",
+                "L-C": "EXCLUDED",
+                "L-D": "EXCLUDED",
+                "M-A": "REVIEW",
+                "M-B": "REVIEW",
+                "T-A": "REVIEW",
+            },
+        ),
+    ],
+)
+def test_the_seeded_profiles_keep_their_form_grades(wanted, expected):
+    row = req(1, "form", wanted)
+    graded = {
+        profile.candidate_code: grade_requirement(profile, row, CONTEXT, DAY).grade
+        for profile in load_profiles()
+    }
+    assert graded == expected
+
+
+def test_the_form_axes_apply_only_to_the_form_attribute():
+    row = req(9, "communication_interface", "fused", operator="TEXT")
+    held = SpecFact.model_validate(fact("communication_interface", "VCB"))
+    assert _value_verdict(row, held)[0] == "unknown"
+
+
+def test_range_comparison_and_a_form_axis_conflict_excludes_but_a_text_mismatch_does_not():
     ranged = req(7, "impedance", "5~6", unit="%", operator="RANGE")
     assert (
         grade_requirement(
@@ -464,6 +563,9 @@ def test_range_comparison_and_a_form_text_mismatch_is_not_a_shortfall():
     )
     clad = profile("P-X", [fact("form", "metal-clad VCB switchgear")])
     graded = grade_requirement(clad, MV[0], CONTEXT, DAY)
+    assert graded.grade == "EXCLUDED" and "form" in graded.mandatory_check.failed
+    worded = profile("P-X", [fact("form", "metal-enclosed switchgear")])
+    graded = grade_requirement(worded, MV[0], CONTEXT, DAY)
     assert graded.grade == "REVIEW" and "form" in graded.mandatory_check.unknown
     assert graded.exclusion_reasons == []
 

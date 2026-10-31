@@ -12,7 +12,16 @@
       ],
       "query": [
         "limit",
-        "cursor"
+        "cursor",
+        "state",
+        "channel",
+        "product_code",
+        "customer",
+        "owner",
+        "received_from",
+        "received_to",
+        "q",
+        "sort"
       ]
     },
     {
@@ -41,6 +50,14 @@
     {
       "path": "/api/v1/cs/tickets/{uuid}/analysis/corrections",
       "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/summary",
+      "methods": [
+        "GET",
         "POST"
       ],
       "query": []
@@ -203,7 +220,11 @@
         "GET",
         "POST"
       ],
-      "query": []
+      "query": [
+        "status",
+        "request_type",
+        "dept"
+      ]
     },
     {
       "path": "/api/v1/cs/improvement-requests/{uuid}",
@@ -417,6 +438,13 @@
       ]
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/draft/rewrite",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/draft/review-versions",
       "methods": [
         "POST"
@@ -469,6 +497,7 @@
         "necessity",
         "status",
         "needs_rereview",
+        "needs_review",
         "has_open_question",
         "next_owner_field",
         "unresolved_mandatory"
@@ -595,6 +624,51 @@
       "method": "GET",
       "path": "/api/v1/cs/tickets?limit=1",
       "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW,TRANSFERRED&channel=EMAIL&q=leak&sort=received_at_asc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW&state=CLOSED",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=GCS_L1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT,SENT&request_type=FAULT&dept=TS_TRF",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT&status=SENT",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT",
+      "forward": false,
+      "status": 400
     },
     {
       "method": "GET",
@@ -1089,6 +1163,11 @@
     {
       "method": "PATCH",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/rewrite",
       "forward": true
     },
     {

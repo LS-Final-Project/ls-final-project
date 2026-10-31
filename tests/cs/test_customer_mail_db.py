@@ -424,6 +424,10 @@ def test_mail_registered_ticket_answers_its_sender_and_hides_mail_from_departmen
     assert response.status_code == 201, response.text
     created = response.json()["data"]
     assert (created["channel"], created["external_id"]) == ("EMAIL", "AAMk-synthetic-graph-id")
+    # 메일에는 등급이 없다. 없는 값을 채우지 않는다(규칙만 표준 기준으로 계산).
+    assert admin.execute(
+        "SELECT customer_tier FROM cs.tickets WHERE id=%s", (UUID(created["id"]),)
+    ).fetchone() == (None,)
     assert created["received_at"].startswith("2026-10-29T09:00:00")
     ticket_id = UUID(created["id"])
     try:

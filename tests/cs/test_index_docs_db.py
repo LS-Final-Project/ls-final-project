@@ -86,9 +86,11 @@ def test_embed_mode_fills_only_missing_chunks_and_stops_on_provider_error(
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "embed.docx").write_bytes(docx("Embedding probe KAN99 vector chunk."))
     calls = []
+    inputs = []
 
     def fake(text):
         calls.append(len(text))
+        inputs.append(text)
         return [0.5] * 768
 
     def broken(text):
@@ -107,6 +109,8 @@ def test_embed_mode_fills_only_missing_chunks_and_stops_on_provider_error(
         assert main([*base, "--execute", "--embed", "--manifest-out", str(out)], embedder=fake) == 0
         embedding = json.loads(out.read_text())["embedding"]
         assert embedding["embedding_version"] == "gemini-embedding-2:768:RETRIEVAL_DOCUMENT"
+        # 임베딩 입력은 맥락 머리(여기서는 문서 종류) 뒤에 본문이 온다.
+        assert all(text.startswith("CS_EMBED_TEST") for text in inputs)
         assert (
             embedding["embedded"] >= 1
             and embedding["calls"] == len(calls)

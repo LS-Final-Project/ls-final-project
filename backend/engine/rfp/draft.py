@@ -396,7 +396,7 @@ def build_draft(
             and proofs
             and any(
                 part.section == section
-                and row.text.startswith(title + ".")
+                and (row.template_text or row.text).startswith(title + ".")
                 and proofs.issubset({(e.type, e.id) for e in row.evidence})
                 and shown_conditions.issubset(row.conditions)
                 for part in replaced
@@ -694,6 +694,7 @@ def build_draft(
                 project_id, repr((version, section, group.key, text, unique, conditions))
             ),
             text=text,
+            template_text=text,
             evidence=[s.Evidence(type=kind, id=ref) for kind, ref in unique],
             conditions=conditions,
             unconfirmed=group.unconfirmed or bool(conditions) or group.rereview,

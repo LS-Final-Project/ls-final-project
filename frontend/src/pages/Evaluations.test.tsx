@@ -52,13 +52,13 @@ test('잠금 경로는 다섯 지표의 범위별 저장값을 반올림 없이 
   expect(screen.queryByText(/합성 품질/)).toBeNull();
   expect(screen.getByRole('note').textContent).toBe('quality_gate_evaluated=false · 합격 판정 아님');
   expect(screen.getByText('정답 묶음 cs-gold-bundle-test · 다섯 지표 연결')).toBeTruthy();
-  for (const label of ['대분류', '긴급도', '보조 분류', '반품 하위유형', '제공 정보']) expect(screen.getByRole('heading', { name: label })).toBeTruthy();
+  for (const label of ['대분류', '긴급도', '보조 분류', '반품 사유(고객 주장)', '제공 정보']) expect(screen.getByRole('heading', { name: label })).toBeTruthy();
   expect([...category.querySelectorAll('tbody tr')].map(row => row.textContent)).toEqual(['accuracy13 / 33', 'macro_f10.5714285714285714해당 없음3']);
   const partial = screen.getByRole('region', { name: '제공 정보 채점 범위 PRECISION_ONLY (precision만) 잠금 품질 표' });
   expect([...partial.querySelectorAll('tbody tr')].map(row => row.textContent)).toEqual(['precision계산 불가0 / 01']);
   expect(screen.getByText(/결과 분포: HELD 0 · NOT_STARTED 0 · SCHEMA_VIOLATION 1 · TIMEOUT 0 · TRANSPORT_FAILURE 0 · VALID 1 · 제외: PRECISION_ONLY 1 · 항목 집계: tp 1 · fp 1 · fn 1/)).toBeTruthy();
   expect(screen.getByText(/제외: NOT_RETURN 1/)).toBeTruthy();
-  expect(screen.getByRole('region', { name: '반품 하위유형 전체 클래스별 잠금 품질 표' }).querySelectorAll('tbody tr').length).toBe(2);
+  expect(screen.getByRole('region', { name: '반품 사유(고객 주장) 전체 클래스별 잠금 품질 표' }).querySelectorAll('tbody tr').length).toBe(2);
   expect(screen.getByText('품질 점수: 잠금 정답 다섯 지표 연결')).toBeTruthy();
   expect(screen.queryByText(/양호|우수|합격$|불합격|정답 검수·연결 전/)).toBeNull();
 });

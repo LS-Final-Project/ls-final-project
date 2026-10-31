@@ -274,11 +274,12 @@ async def list_requirements(
     necessity: s.Necessity | None = None,
     status: s.RequirementStatus | None = None,
     needs_rereview: bool | None = None,
+    needs_review: bool | None = None,
     has_open_question: bool | None = None,
     next_owner_field: s.NextOwner | None = None,
     unresolved_mandatory: bool | None = None,
 ) -> SuccessResponse[s.RequirementList]:
-    """12. 요구 목록·필터 9개."""
+    """12. 요구 목록·필터 10개."""
     data = await routes_read.list_requirements(
         request,
         principal,
@@ -290,6 +291,7 @@ async def list_requirements(
             "necessity": necessity,
             "status": status,
             "needs_rereview": needs_rereview,
+            "needs_review": needs_review,
             "has_open_question": has_open_question,
             "next_owner_field": next_owner_field,
             "unresolved_mandatory": unresolved_mandatory,
@@ -547,6 +549,26 @@ async def edit_draft(
 ) -> SuccessResponse[s.Draft]:
     """26. 이유를 남기고 초안 새 판본을 만든다."""
     return respond(request, await routes_draft.edit_draft(request, user, project_id, payload))
+
+
+@router.post(
+    P + "/draft/rewrite",
+    status_code=202,
+    response_model=SuccessResponse[s.JobAccepted],
+    operation_id="tft_rewrite_rfp_draft",
+)
+async def rewrite_draft(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.DraftRewrite,
+    idempotency_key: Key,
+) -> SuccessResponse[s.JobAccepted]:
+    """32. 명시한 양식 초안 판본을 모델로 작성한다. 별도 비용 작업이며 실패하면 양식을 유지한다."""
+    return respond(
+        request,
+        await jobs.admit(request, user, project_id, "rfp.draft_rewrite", payload, idempotency_key),
+    )
 
 
 @router.post(

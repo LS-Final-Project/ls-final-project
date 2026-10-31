@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
+from backend.engine.search.chunking import search_context
 from backend.engine.search.model import ChunkingResult, ChunkMetadata
 
 Row = dict[str, Any]
@@ -19,9 +20,9 @@ COLUMNS = (
     "id, document_sha256, index_version, ordinal, chunk_id, kind, section_path, text, "
     "char_count, page_start, page_end, table_title, has_deleted_values, flags, block_ids, "
     "source_position, document_kind, product_family, access_scope, meta_version, "
-    "document_version_id, data_origin, known_at"
+    "document_version_id, data_origin, known_at, search_context"
 )
-INSERT = f"INSERT INTO cs.document_chunks ({COLUMNS}) VALUES ({', '.join(['%s'] * 23)})"
+INSERT = f"INSERT INTO cs.document_chunks ({COLUMNS}) VALUES ({', '.join(['%s'] * 24)})"
 SEARCH = (
     "SELECT chunk_id, document_sha256, ordinal, section_path, "
     "ts_headline('english', text, q, 'MaxWords=35, MinWords=10') AS snippet, "
@@ -93,6 +94,7 @@ async def store_chunks(
             document_version_id,
             data_origin,
             known_at,
+            search_context(chunk, metadata),
         )
         for chunk in result.chunks
     ]
@@ -152,7 +154,7 @@ async def search_fts(
 
 # KAN-99 벡터 검색(C20 cs.chunk_embeddings). pgvector 파이썬 어댑터 없이 '[x,y,…]' 문자열을 vector로 변환한다.
 MISSING_EMBEDDINGS = (
-    "SELECT c.id, c.chunk_id, c.text FROM cs.document_chunks c "
+    "SELECT c.id, c.chunk_id, c.text, c.search_context FROM cs.document_chunks c "
     "WHERE c.index_version = %s AND NOT EXISTS (SELECT 1 FROM cs.chunk_embeddings e "
     "WHERE e.chunk_row_id = c.id AND e.embedding_version = %s) "
     "ORDER BY c.document_sha256, c.ordinal"

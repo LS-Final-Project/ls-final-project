@@ -119,3 +119,14 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - 검색기(R10 FTS·벡터) 연결, 고객 허용 조항 해석, RFP 맥락(제조사 목록 등)의 원천, PDF 생성·메모 해석 단계.
 - 입력 판본 복원(후속): 접수 때 `rfp_commands` 결과에 `document_version_ids`를 남기고 worker가 작업 ID로 읽게 바꾼다(지금은 해시 조합 역산, 판본 12개 상한).
 - 취소를 거는 경로. 지금은 `cancel_requested_at`을 읽기만 한다(KAN-194 이연 P3와 같은 범위).
+
+## 경로32 / rfp.draft_rewrite
+
+사람이 `POST /projects/{id}/draft/rewrite {version:N}`로 명시 접수한다. 접수 권한은 process와 같고,
+CSRF/키/한 프로젝트 한 활성 작업/상태 GET·SSE를 재사용한다. 입력 hash는 별도 rewrite 예약ID와 판본의
+SHA-256이며 문서 hash나 export hash와 섞지 않는다. 자동 연쇄 접수는 없다. 진행 step은 기존 `draft`다.
+본문/모델/프롬프트를 브라우저가 지정하지 못한다. tft.draft_rewrites의 scope/actor/input hash를 worker가
+다시 확인한다. 호출 동안 DB 트랜잭션/초안 잠금을 해제하고, 완료 시 최신 판본 CAS로 N+1만 추가한다.
+사람이 먼저 저장한 결과는 덮어쓰지 않으며, stale 결과를 버려도 이미 저장된 N/사람 판본은 남는다.
+호출 실패/검사 실패의 양식 대체는 needs_review 요약으로 보고하고 작업 자체를 실패로 꾸미지 않는다.
+[초안 모델 작성과 실패 정책](rfp-draft.md#경로32-모델-문장-작성)을 따른다. T19/P33은 미적용이며 운영 적용은 별도다.

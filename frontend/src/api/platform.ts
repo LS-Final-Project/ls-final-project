@@ -19,3 +19,7 @@ export async function logoutSession(): Promise<void> {
   await request<void>('/api/v1/platform/auth/logout', {method:'POST', headers:{'X-CSRF-Token':token}});
   clearSessionCsrfToken();
 }
+
+// 담당 변경 후보(활성 cs_agent). 사용자 이름은 이 목록에서만 알 수 있다.
+export type AssigneeListResponse = paths['/api/v1/platform/assignees']['get']['responses'][200]['content']['application/json'];
+export const listCsAssignees = (signal?: AbortSignal) => request<AssigneeListResponse>('/api/v1/platform/assignees?role=cs_agent', { signal });

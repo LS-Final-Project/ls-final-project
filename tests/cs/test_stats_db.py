@@ -153,6 +153,22 @@ def test_owner_load_for_managers(client, admin, customer):
         if i["owner_user_id"] == str(idle)
     ]
     assert (row["received"], row["closed"], row["open"]) == (0, 0, 1)
+    # Current state of every owned ticket, whenever received (KAN-131 화면 요청). All states present.
+    assert row["by_state"] == {
+        "RECEIVED": 0,
+        "IN_REVIEW": 0,
+        "WAITING_CUSTOMER": 1,
+        "ANSWERED": 0,
+        "TRANSFERRED": 0,
+        "CLOSED": 0,
+    }
+    [main] = [
+        i
+        for i in get(client, "owners", MANAGER, **SEPT)["items"]
+        if i["owner_user_id"] == str(customer["owner"])
+    ]
+    assert main["by_state"]["IN_REVIEW"] >= 1
+    assert sum(main["by_state"].values()) - main["by_state"]["CLOSED"] == main["open"]
     agent = Principal(user_id=customer["owner"], roles={"cs_agent"})
     response = client.get(f"{PATH}/owners", headers=principal_header(agent))
     assert response.status_code == 403

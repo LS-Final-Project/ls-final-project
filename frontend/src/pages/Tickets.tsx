@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
-import { listTickets, type TicketListResponse } from '../api/cs';
+import type { TicketListResponse } from '../api/cs';
 import { listImprovements } from '../api/cs-improvements';
 import { ErrorState, Loading } from '../components/states';
+import { useTicketPages } from '../ls-shell/use-tickets';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, dayOf, formatStamp, type RequestSummary, type TicketChannel } from '../ls-shell/cs-labels';
 
@@ -33,15 +34,10 @@ export default function Tickets() {
   const [newestFirst, setNewestFirst] = useState(true);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
 
-  const tickets = useInfiniteQuery({
-    queryKey: ['tickets', mode],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) => listTickets(pageParam, signal),
-    getNextPageParam: last => last.data.next_cursor ?? undefined,
-    enabled: access.ready,
-  });
-  const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready });
-  const refresh = () => { void tickets.refetch(); void improvements.refetch(); };
+  const tickets = useTicketPages(access.ready);
+  const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready && import.meta.env.DEV });
+  // refetch()는 enabled를 무시하므로 개선요청은 개발 모드에서만 다시 부른다.
+  const refresh = () => { void tickets.refetch(); if (import.meta.env.DEV) void improvements.refetch(); };
   useHotkey('F8', refresh, access.ready);
 
   const all = useMemo(() => tickets.data?.pages.flatMap(page => page.data.items) ?? [], [tickets.data]);
@@ -70,11 +66,12 @@ export default function Tickets() {
   const today = dayOf(new Date().toISOString());
   const todayCount = all.filter(item => dayOf(item.received_at) === today).length;
   const number = (item: Ticket) => item.external_id ?? item.id.slice(0, 8);
+  const pickedRows = rows.filter(item => picked.has(item.id));
   const allPicked = rows.length > 0 && rows.every(item => picked.has(item.id));
   const clear = () => { setStatus('ACTIVE'); setChannel(''); setProduct(''); setAge(''); setFrom(''); setTo(''); setSearch(''); };
   const togglePick = (id: string) => setPicked(prev => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next; });
   const exportCsv = () => {
-    const target = picked.size ? rows.filter(item => picked.has(item.id)) : rows;
+    const target = pickedRows.length ? pickedRows : rows;
     downloadCsv('문의_조회', ['문의번호', '제목', '제품', '접수 경로', '상태', '경과일', '접수일시'],
       target.map(item => [number(item), item.subject ?? '', item.product_code, CHANNEL_LABEL[item.channel], STATE_LABEL[item.workflow_state], ageOf(item), formatStamp(item.received_at)]));
   };
@@ -109,7 +106,7 @@ export default function Tickets() {
     <KvTitle path="C/S 관리" title="문의 조회" code="CS0101">
       <button className="kb primary" disabled={tickets.isFetching} onClick={refresh}>조회<KvKey>F8</KvKey></button>
       <button className="kb" disabled title="직접 등록 API가 아직 없습니다">신규 등록</button>
-      <button className="kb" disabled={rows.length === 0} onClick={exportCsv}>엑셀</button>
+      <button className="kb" disabled={rows.length === 0} onClick={exportCsv} title={pickedRows.length ? `선택한 ${pickedRows.length}건만 내려받습니다` : '표시된 행 전체를 내려받습니다'}>엑셀{pickedRows.length > 0 && <small> {pickedRows.length}</small>}</button>
       <button className="kb" onClick={() => window.print()}>인쇄</button>
     </KvTitle>
     <div className="kv-next">
@@ -150,6 +147,6 @@ export default function Tickets() {
 
     <div className="kv-gridhead sub"><span>개선요청, 진행 중 {requests.length}건</span><Link className="right" to="/cs/improvements">개선요청 조회 (CS0301)</Link></div>
     <KvGrid label="개선요청 목록" columns={requestColumns} rows={requests} rowKey={item => item.id}
-      fallback={improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && (improvements.error.status === 401 || improvements.error.status === 403) ? '운영 인증 중계와 권한 검증 뒤에 제공됩니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
+      fallback={!import.meta.env.DEV ? '운영 인증 중계와 권한 검증 뒤에 제공됩니다.' : improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && (improvements.error.status === 401 || improvements.error.status === 403) ? '운영 인증 중계와 권한 검증 뒤에 제공됩니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
   </main>;
 }

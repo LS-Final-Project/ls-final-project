@@ -25,12 +25,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_questions_draft_key
     ON tft.customer_questions (project_id, draft_key) WHERE draft_key IS NOT NULL;
 
 -- The confirm command (route 31) is recorded like the other commands.
+-- Keep the T19 operation when this re-runnable file follows an installed rewrite job.
 ALTER TABLE tft.rfp_commands DROP CONSTRAINT IF EXISTS rfp_commands_operation_check;
 ALTER TABLE tft.rfp_commands ADD CONSTRAINT rfp_commands_operation_check
     CHECK (operation IN ('project.create', 'document.upload', 'project.process',
         'supplement.select', 'question.create', 'question.reply', 'proposal.create', 'proposal.approve',
         'proposal.reject', 'review_version.create', 'export.create', 'annotation.process',
-        'question.confirm'));
+        'question.confirm', 'draft.rewrite'));
 
 GRANT INSERT ON tft.customer_questions TO tft_worker;
 

@@ -66,6 +66,8 @@ _NON_DEFECT_RULE = "RT-ALL-RETURN-NON_DEFECT"
 _SLA_CLOCK = "24x7 calendar hours"
 _AT_RISK = "elapsed >= 75% of target"
 AT_RISK_RATIO = 0.75
+# 등급을 모르는 문의를 계산할 때 쓰는 값. 저장하지 않는다(cs.tickets.customer_tier는 NULL로 둔다).
+DEFAULT_CUSTOMER_TIER = "STANDARD"
 
 
 class RuleInputError(ValueError):

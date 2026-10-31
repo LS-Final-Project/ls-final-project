@@ -738,3 +738,54 @@ def test_new_job_migrates_human_edits_and_marks_without_freezing_live_flags(
         },
     )
     assert stale.status_code == 409
+
+
+def test_template_backfill_uses_actual_automatic_origin_not_current_human_text(
+    client, app_dsn, chain, admin
+):
+    from pathlib import Path
+
+    from tests.tft.test_rfp_schema_db import apply
+
+    generate(app_dsn, chain, uuid4())
+    original = first_sentence(call(client, "GET", chain).json()["data"])
+    edited = call(
+        client,
+        "PATCH",
+        chain,
+        body={
+            "version": 1,
+            "edits": [
+                {
+                    "sentence_id": original["sentence_id"],
+                    "text": "사람이 고친 본문은 양식이 아니다",
+                    "reason": "문구 확인",
+                    "evidence": original["evidence"],
+                },
+                {
+                    "sentence_id": None,
+                    "section": "OUR_RESPONSE",
+                    "text": "새 사람 문장",
+                    "reason": "직접 추가",
+                    "evidence": original["evidence"],
+                },
+            ],
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.draft_sentences SET template_text=NULL WHERE project_id=%s",
+            (chain["project"],),
+        )
+        apply(conn, Path("infra/migrations/tft/20261111_KAN-188_draft_rewrite.sql"))
+        existing = conn.execute(
+            "SELECT text,template_text FROM tft.draft_sentences WHERE project_id=%s AND draft_version=2 AND sentence_key=%s",
+            (chain["project"], original["sentence_id"]),
+        ).fetchone()
+        direct = conn.execute(
+            "SELECT template_text FROM tft.draft_sentences WHERE project_id=%s AND text='새 사람 문장'",
+            (chain["project"],),
+        ).fetchone()
+        assert existing == ("사람이 고친 본문은 양식이 아니다", original["text"])
+        assert direct == (None,)

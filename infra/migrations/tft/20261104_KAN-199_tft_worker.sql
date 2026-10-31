@@ -42,4 +42,15 @@ GRANT INSERT ON tft.drafts, tft.draft_versions, tft.draft_sentences,
 GRANT UPDATE (latest_version) ON tft.drafts TO tft_worker;
 GRANT UPDATE (job_id,storage_key,sha256,size,completed_at) ON tft.exports TO tft_worker;
 
+-- KAN-188 T19가 이미 있으면 재적용 후에도 rewrite 최소 권한을 복구한다. 새 설치에서는 건너뛴다.
+DO $$
+BEGIN
+    IF to_regclass('tft.draft_rewrites') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.draft_rewrites TO tft_worker';
+        EXECUTE 'GRANT UPDATE(state,result_version) ON tft.draft_rewrites TO tft_worker';
+    END IF;
+    IF to_regclass('tft.draft_rewrite_calls') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT,INSERT ON tft.draft_rewrite_calls TO tft_worker';
+    END IF;
+END $$;
 COMMIT;

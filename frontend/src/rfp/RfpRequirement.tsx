@@ -246,7 +246,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
         {spec.attribute && attribute !== spec.attribute && <KvField label="원문 속성">{spec.attribute}</KvField>}
       </KvBox>
       <KvBox title="판단" note={written}>
-        <KvField label="상태">{label(STATUS_LABEL, judgement.status)}{data.needs_rereview ? ', 재검토' : ''}</KvField>
+        <KvField label="상태">{label(STATUS_LABEL, judgement.status)}{data.needs_rereview ? ', 재검토' : ''}{data.needs_review ? ', 원문 확인' : ''}</KvField>
         <div className="kv-field"><span>사유</span><div className="kv-text" style={{ minHeight: 0 }}>{judgement.reason}</div></div>
         <KvField label="미확인">{judgement.unresolved.join(', ') || '없음'}</KvField>
         <KvField label="보완 경로">{label(PATH_LABEL, judgement.path ?? '') || '없음'}</KvField>

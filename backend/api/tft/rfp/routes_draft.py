@@ -100,7 +100,8 @@ async def save_review(
                     continue
                 grounded = bool(req.origin.quote.strip() and req.judgement.reason.strip())
                 resolved = grounded and not is_unresolved_mandatory(req) and not req.needs_review
-                next_action = bool(req.judgement.unresolved and req.judgement.next_owner_field)
+                # 사양 차이는 미확인 항목이 비어 있어도 담당이나 저장한 보완이 다음 행동이다.
+                next_action = bool(req.judgement.next_owner_field or req.links.supplement_summary)
                 if not resolved and not next_action:
                     missing.append(str(req.requirement_id))
             bad_sentences = [

@@ -20,7 +20,7 @@ const score = (value: number | null) => value === null ? '계산 불가' : value
 /** 저장된 합성 품질을 숫자와 문구로만 표시한다. Args: 검증한 합성 품질 또는 미저장. Returns: 품질 절. */
 function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality'] }) {
   return <section aria-labelledby="synthetic-quality-title">
-    <h3 id="synthetic-quality-title">합성 품질 (반품 하위유형 · 최초 시도)</h3>
+    <h3 id="synthetic-quality-title">합성 품질 (반품 사유(고객 주장) · 최초 시도)</h3>
     <div className="evaluation-note" role="note"><p><strong>합성 정답 기준, 실제 품질·합격 판정 아님</strong></p></div>
     {!quality ? <p>합성 품질 미저장</p> : <>
       <p>채점 판본 {quality.scoring_version}{quality.stored_scoring_version_count > 1 ? ` (저장 판본 ${quality.stored_scoring_version_count}개 중 최신)` : ''} · 정답 판본 {quality.gold_version ?? '미지정'}</p>
@@ -41,7 +41,7 @@ function SyntheticQualityView({ quality }: { quality: Summary['synthetic_quality
 type Locked = NonNullable<Summary['locked_quality']>;
 type LockedMetric = NonNullable<Locked['metrics']['category']>;
 const metricLabels: [keyof Locked['metrics'], string][] = [
-  ['category', '대분류'], ['urgency', '긴급도'], ['secondary', '보조 분류'], ['return_subtype', '반품 하위유형'], ['provided_info', '제공 정보'],
+  ['category', '대분류'], ['urgency', '긴급도'], ['secondary', '보조 분류'], ['return_subtype', '반품 사유(고객 주장)'], ['provided_info', '제공 정보'],
 ];
 const segmentLabels: Record<string, string> = { all: '전체', 'scope=FULL': '채점 범위 FULL', 'scope=PRECISION_ONLY': '채점 범위 PRECISION_ONLY (precision만)' };
 const originLabels: Record<Summary['data_origin'], string> = { synthetic: '합성', demo: '시연', real: '실제' };

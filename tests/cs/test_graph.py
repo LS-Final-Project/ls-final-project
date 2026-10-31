@@ -726,3 +726,20 @@ def test_policy_slot_documents_match_search_expected_policy():
     assert {k: set(v) for k, v in POLICY_SLOT_DOCUMENTS.items()} == {
         k: v for k, v in expected.items() if v
     }
+
+
+def test_a_ticket_without_a_tier_is_ruled_with_the_standard_tier():
+    """메일로 등록한 문의처럼 등급이 없어도 규칙 단계가 실패하지 않는다."""
+    graph, _ = make(
+        InMemorySaver(), load_ticket=lambda ticket_id: replace(TICKET, customer_tier="")
+    )
+    config = thread_config("ticket-no-tier")
+    graph.invoke(initial_state("ticket-no-tier"), config)
+    values = graph.get_state(config).values
+    assert "CS_RULE_INPUT" not in [e["code"] for e in values["errors"]]
+    assert values["rules"] is not None
+    standard, _ = make(InMemorySaver())
+    gold = thread_config("ticket-gold")
+    standard.invoke(initial_state("ticket-gold"), gold)
+    # GOLD와 기한이 달라 표준 등급으로 계산됐음을 안다.
+    assert values["rules"] != standard.get_state(gold).values["rules"]
