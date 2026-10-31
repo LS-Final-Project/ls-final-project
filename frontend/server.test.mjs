@@ -742,3 +742,55 @@ test('web relay preserves DOCX attachment on the exact RFP export file route', a
     assert.equal((await fetch(origin + path.split('/exports/')[0])).status, 502);
   }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
 });
+
+test('notification relay forwards only session-owned public endpoints and bounded query/body', async () => {
+  const calls = [];
+  const id = '11111111-1111-4111-8111-111111111111';
+  await fixture(async origin => {
+    for (const [path, method, body] of [
+      ['/api/v1/platform/notifications?limit=20&offset=0', 'GET'],
+      ['/api/v1/platform/notifications/unread-count', 'GET'],
+      [`/api/v1/platform/notifications/${id}/read`, 'POST', '{}'],
+      ['/api/v1/platform/push/public-key', 'GET'],
+      ['/api/v1/platform/push/subscription', 'PUT', '{"endpoint":"synthetic-test-only"}'],
+      ['/api/v1/platform/push/subscription', 'DELETE', '{"endpoint":"synthetic-test-only"}'],
+    ]) {
+      const response = await fetch(origin + path, { method, body, headers: { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': 'csrf', Cookie: '__Host-team4_session=bound; unrelated=private; __Host-team4_oauth=not-needed', Authorization: 'Bearer browser-secret', 'X-User-ID': 'spoof' } });
+      assert.equal(response.status, method === 'GET' ? 200 : 204);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+    const total = calls.length;
+    for (const path of [
+      '/api/v1/platform/notifications?user_id=someone', '/api/v1/platform/notifications?limit=101',
+      '/api/v1/platform/notifications?offset=-1', '/api/v1/platform/notifications?limit=1&limit=2',
+      '/api/v1/platform/notifications/unread-count?offset=0', '/api/v1/platform/push/public-key?key=x',
+      '/api/v1/platform/notifications/other/read', '/api/v1/platform/push/private-key',
+    ]) assert.ok((await fetch(origin + path)).status >= 400, path);
+    assert.equal((await fetch(origin + '/api/v1/platform/push/subscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 405);
+    assert.equal((await fetch(origin + `/api/v1/platform/notifications/${id}/read`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' })).status, 415);
+    assert.equal(calls.length, total);
+  }, async (url, options) => {
+    calls.push([String(url), options]);
+    assert.equal(options.headers.Authorization, 'Bearer fixture-server-token');
+    assert.equal(options.headers.Cookie, '__Host-team4_session=bound');
+    assert.equal(options.headers['X-CSRF-Token'], 'csrf');
+    assert.equal(options.headers['X-User-ID'], undefined);
+    assert.equal(options.redirect, 'error');
+    return options.method === 'GET' ? Response.json({ data: {} }) : new Response(null, { status: 204 });
+  });
+  assert.equal(calls.length, 6);
+  assert.equal(calls[0][0], 'https://platform.example.invalid/api/v1/platform/notifications?limit=20&offset=0');
+});
+
+test('root service worker is JavaScript with revalidation instead of a one-hour static cache', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-sw-'));
+  await writeFile(join(directory, 'index.html'), '<h1>Fixture</h1>');
+  await writeFile(join(directory, 'sw.js'), '// no fake push');
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'not-used' }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/sw.js`);
+    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /javascript/);
+    assert.equal(response.headers.get('cache-control'), 'no-cache');
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true }); }
+});
