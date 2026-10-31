@@ -35,6 +35,8 @@ from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import gemini_text_provider
 from backend.engine.cs.rules import RuleInputError, product_family
+from backend.engine.cs.verification import VerificationOutput
+from backend.engine.cs.verification import instruction as verification_instruction
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
 from eval.cs_draft_candidates import DraftCandidate, DraftCase, run_draft_candidates
 from eval.cs_draft_metrics import DraftGold
@@ -225,6 +227,30 @@ def default_factory(settings: AISettings) -> TextFactory:
     return factory
 
 
+def verification_factory(settings: AISettings) -> TextFactory:
+    """검증 공급자를 내는 함수. 출력 상한은 후보의 verification_max_output_tokens, 없으면 초안과 같다.
+
+    Args:
+        settings: 환경변수에서 읽은 AI 설정.
+
+    Returns:
+        TextFactory: (명세, 설정) → VerificationOutput 스키마로 부르는 공급자.
+    """
+    client = create_client(settings)
+
+    def factory(spec: dict[str, Any], config: AISettings) -> Callable[[str], Generation]:
+        limit = spec.get("verification_max_output_tokens")
+        return gemini_text_provider(
+            client,
+            config,
+            model=spec["model"],
+            response_schema=VerificationOutput,
+            generation=knobs_of({**spec, "max_output_tokens": limit} if limit else spec),
+        )
+
+    return factory
+
+
 def execute(
     cases: Mapping[str, DraftCase],
     gold: Mapping[str, DraftGold],
@@ -240,6 +266,7 @@ def execute(
     on_case: Callable[..., None] | None = None,
     prior: Prior | None = None,
     resumed: Mapping[str, object] | None = None,
+    verifier: TextFactory | None = None,
 ) -> tuple[dict[str, object], AuditFiles]:
     """하네스로 실제 비교를 돌리고 실행 메타를 붙인다.
 
@@ -258,6 +285,7 @@ def execute(
         on_case: 사례가 끝날 때마다 부를 진행 기록(Progress.record).
         prior: 재개로 되살린 끝난 사례.
         resumed: meta에 더할 resumed_from·resumed_cases.
+        verifier: 있으면 초안마다 검증·재작성·재검증을 돌아 후보 행에 verification을 더한다.
 
     Returns:
         tuple: (결과, 감사). 결과는 run_draft_candidates 결과와 meta(후보·판본 지문·건수·기대값 규칙·표본 ID
@@ -272,6 +300,7 @@ def execute(
             model=spec["model"],
             prompt_version=spec["prompt_version"],
             knobs=knob_fields(spec),
+            verification_provider=verifier(spec, settings) if verifier else None,
         )
         for spec in specs
     ]
@@ -300,6 +329,15 @@ def execute(
             if strip_phone_annotation
             else DRAFT_INPUT_VERSION,
             "invalid_output_retries": invalid_output_retries,
+            **(
+                {
+                    "verification_fingerprint": hashlib.sha256(
+                        verification_instruction().encode()
+                    ).hexdigest()[:16]
+                }
+                if verifier
+                else {}
+            ),
             **(resumed or {}),
             "cases": len(cases),
             **counts,
@@ -315,12 +353,17 @@ def execute(
     return output, audits
 
 
-def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    factory: TextFactory | None = None,
+    verifier: TextFactory | None = None,
+) -> int:
     """인자를 읽어 dry-run 표를 출력하거나 --execute로 결과 JSON을 쓴다.
 
     Args:
         argv: 명령행 인자(테스트 주입용).
         factory: 실제 공급자 대신 쓸 공급자 함수(테스트 주입용).
+        verifier: 실제 검증 공급자 대신 쓸 함수(테스트 주입용).
 
     Returns:
         int: 0 성공, 2 test 분할 거부, 1 입력·출력 오류. 오류 원문·키는 출력하지 않는다.
@@ -339,6 +382,12 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
     parser.add_argument("--ticket-ids", help="쉼표로 구분한 재실행 대상 ID(--execute에서만)")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="초안마다 운영 경로(KAN-200)의 검증·재작성·재검증을 돈다. 호출·비용·판정 분포를 "
+        "기록하고 합격 판정은 하지 않는다. --resume과 같이 쓸 수 없다",
+    )
     parser.add_argument(
         "--audit-out",
         type=Path,
@@ -368,10 +417,11 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
         or (args.execute and args.out is None)
         or (args.audit_out is not None and not args.execute)
         or (args.resume is not None and not args.execute)
+        or (args.verify and args.resume is not None)
     ):
         print(
             "CS_RUN_INVALID_ARGS: --limit은 1 이상, --execute에는 --out이 필요하고 "
-            "--audit-out·--resume은 --execute와 함께만 쓴다."
+            "--audit-out·--resume은 --execute와 함께만 쓴다. --verify는 --resume과 쓸 수 없다."
         )
         return 1
     progress = None
@@ -420,8 +470,13 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
                 "dry-run: 네트워크 호출 없음. 토큰은 문자/4 근사와 UTF-8 바이트 상한이며 실제 과금은 "
                 "실행 후 usage로 확인한다. 근거 없는 사례는 모든 문장이 CONDITION·UNCONFIRMED여야 한다."
             )
+            # 사례당 초안 2(형식 재시도)·검증 1·재작성 1·재검증 1. 검증 토큰은 실측 전이라 금액은 없다.
+            upper = {"max_calls_per_case": 5} if args.verify else {}
             print(
-                json.dumps({"cases": len(cases), **counts, "candidates": rows}, ensure_ascii=False)
+                json.dumps(
+                    {"cases": len(cases), **counts, **upper, "candidates": rows},
+                    ensure_ascii=False,
+                )
             )
             return 0
         # 유료 호출 전에 모든 후보 판본이 레지스트리에 있는지 확인한다(뒤 후보에서 멈춰 결과를 잃지 않게).
@@ -456,6 +511,7 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
                 "limit": args.limit,
                 "strip_phone_annotation": args.strip_phone_annotation,
                 "invalid_output_retries": args.invalid_output_retries,
+                "verify": args.verify,
                 "cases": sorted(case_key(case_id) for case_id in selected),
                 "codes": sorted(codes),
                 "sensitive": run_fingerprint(sensitive),
@@ -485,6 +541,7 @@ def main(argv: list[str] | None = None, factory: TextFactory | None = None) -> i
             on_case=progress.record,
             prior=prior,
             resumed=resumed,
+            verifier=(verifier or verification_factory(settings)) if args.verify else None,
         )
         progress.close()
     except SplitBlocked:

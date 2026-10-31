@@ -154,7 +154,8 @@ def load_specs(path: Path) -> list[dict[str, Any]]:
         or any(
             not isinstance(spec, dict)
             or not {"name", "model", "prompt_version"} <= set(spec)
-            or not set(spec) <= {"name", "model", "prompt_version", *KNOB_FIELDS}
+            or not set(spec)
+            <= {"name", "model", "prompt_version", "verification_max_output_tokens", *KNOB_FIELDS}
             or not all(
                 isinstance(spec[key], str) and spec[key]
                 for key in ("name", "model", "prompt_version")
