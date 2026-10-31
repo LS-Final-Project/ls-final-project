@@ -113,7 +113,7 @@ describe('업무 홈', () => {
     await screen.findByRole('link', { name: '가' });
     expect(screen.getByText(/첫 쪽 기준/)).toBeTruthy();
     const steps = document.querySelector('.kv-steps')!.textContent!;
-    expect(steps).toContain('분석 중 2');
+    expect(steps).toContain('분석·검토 중 2');
     expect(steps).toContain('접수 1');
     expect(steps).toContain('검토본 작성 0');
     expect(document.querySelector('.kv-next')?.textContent).toContain('내 프로젝트 3, 할 일 있는 프로젝트 2 | 미해결 필수 3, 승인 대기 4, 열린 질문 2');
