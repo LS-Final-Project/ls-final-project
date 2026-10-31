@@ -12,7 +12,13 @@ from backend.engine.documents.model import (
     Position,
     build_document,
 )
-from backend.engine.search.chunking import INDEX_VERSION, chunk_document
+from backend.engine.search.chunking import (
+    INDEX_VERSION,
+    chunk_document,
+    is_document_listing,
+    search_context,
+)
+from backend.engine.search.model import ChunkMetadata
 
 
 def para(block_id: str, text: str, index: int, **extra: Any) -> Block:
@@ -239,8 +245,7 @@ def test_same_input_gives_same_chunks_and_metadata_stays_null() -> None:
     other = chunk_document(doc(*SPEC, *TABLE, data=b"another-version"))
     assert {c.chunk_id for c in other.chunks}.isdisjoint(c.chunk_id for c in first.chunks)
     assert all(
-        chunk.metadata.model_dump()
-        == dict.fromkeys(("document_kind", "product_family", "access_scope", "version"))
+        chunk.metadata.model_dump() == dict.fromkeys(ChunkMetadata.model_fields)
         for chunk in first.chunks
     )
 
@@ -354,3 +359,73 @@ def test_short_trailing_line_stays_in_its_own_section() -> None:
         (["2.4 TRANSFORMER"], ["note"]),
         (["2.5 SWITCHGEAR"], ["a25", "body2"]),
     ]
+
+
+def markdown(*texts: str) -> Any:
+    blocks = [para(f"b{i}", text, i) for i, text in enumerate(texts)]
+    return build_document("MARKDOWN", b"md", blocks, [], tables=0)
+
+
+def test_markdown_front_matter_and_the_notice_after_it_are_not_indexed():
+    """머리말과 바로 뒤 인용 문단은 뺀다. 본문의 인용은 남기고 머리말만 있는 문서는 빈다."""
+    yaml = "---\ndoc_id: X\ntitle: Y\n---"
+    body = "본문 문단은 사양과 절차를 충분히 길게 설명하는 문장이다."
+    result = chunk_document(markdown(yaml, "> 합성 안내", body, "> 본문 인용 문장이다."))
+    assert result.skipped_block_ids[:2] == ["b0", "b1"]
+    assert all("doc_id" not in c.text and "합성 안내" not in c.text for c in result.chunks)
+    assert "본문 인용" in "".join(c.text for c in result.chunks)
+    # YAML 안의 빈 줄로 단락이 갈려도 닫는 줄까지 머리말이다.
+    split = chunk_document(markdown("---\ndoc_id: X", "title: Y\n---", body))
+    assert split.skipped_block_ids[:2] == ["b0", "b1"] and body in split.chunks[0].text
+    alone = chunk_document(markdown("---\ndoc_id: X", "title: Y", "---", body))
+    assert alone.skipped_block_ids[:3] == ["b0", "b1", "b2"] and body in alone.chunks[0].text
+
+
+def test_only_a_closed_markdown_front_matter_is_dropped():
+    """닫는 줄이 없으면 머리말이 아니고, DOCX는 같은 글자여도 그대로 둔다."""
+    text = "---\n닫는 줄이 없는 문단이고 본문으로 충분히 긴 문장이다."
+    assert chunk_document(markdown(text)).chunks
+    yaml = "---\ndoc_id: X\n---"
+    blocks = [para("b0", yaml, 0), para("b1", "본문 문단은 충분히 긴 문장으로 쓴다.", 1)]
+    docx = build_document("DOCX", b"d", blocks, [], tables=0)
+    assert any("doc_id" in c.text for c in chunk_document(docx).chunks)
+
+
+def test_a_long_heading_alone_joins_the_next_chunk():
+    """제목 블록만 든 청크는 40자를 넘어도 따로 두지 않는다."""
+    title = "Cast Resin Dry-Type Transformer 630kVA (TRF-DRY-630) — Datasheet"
+    head = numbered("h1", title, 0, None, 0, heading=True)
+    sub_head = numbered("h2", "1. Overview", 1, None, 1, heading=True)
+    result = chunk_document(doc(head, sub_head, para("p", "변압기 개요 문장이다.", 2)))
+    assert len(result.chunks) == 1 and title in result.chunks[0].text
+
+
+def test_a_rule_at_the_top_is_not_front_matter():
+    """닫는 줄이 뒤에 있어도 값 줄이 아니면 머리말이 아니고, 인용은 바로 뒤 하나만 뺀다."""
+    rule = "---\n이 문단은 가로줄 뒤에 쓴 본문이고 뒤에도 가로줄이 또 나온다."
+    assert chunk_document(markdown(rule, "---", "뒤 문단도 본문이다.")).skipped_block_ids == []
+    body = "본문 문단은 사양과 절차를 충분히 길게 설명하는 문장이다."
+    result = chunk_document(markdown("---\na: 1\n---", "> 안내", "> 둘째 인용 문장이다.", body))
+    assert result.skipped_block_ids == ["b0", "b1"]
+
+
+def test_search_context_holds_document_identity_without_repeats():
+    heading = numbered("h", "1. Overview", 0, None, 0, heading=True)
+    chunk = chunk_document(doc(heading, para("p", "개요 문단이다.", 1))).chunks[0]
+    metadata = ChunkMetadata(title="T", product_code="P-1", document_kind="TG", product_family="F")
+    assert search_context(chunk, metadata) == "T P-1 TG F 1. Overview"
+    assert search_context(chunk, ChunkMetadata(title="1. Overview")) == "1. Overview"
+
+
+def test_only_a_chunk_of_nothing_but_document_names_is_a_listing():
+    ids = frozenset({"IG-A", "TG-A"})
+    heading = numbered("h", "6. Other", 0, None, 0, heading=True)
+
+    def chunk(*lines: str) -> Any:
+        blocks = [para(f"p{i}", line, i + 1) for i, line in enumerate(lines)]
+        return chunk_document(doc(heading, *blocks)).chunks[0]
+
+    assert is_document_listing(chunk("- IG-A — 설치", "- TG-A — 장애"), ids)
+    assert not is_document_listing(chunk("- IG-A — 설치"), ids)  # 줄 하나는 본문 인용일 수 있다
+    assert not is_document_listing(chunk("- IG-A — 설치", "차단기를 내린 뒤 점검한다."), ids)
+    assert not is_document_listing(chunk("- IG-A — 설치", "- TG-A — 장애"), frozenset())

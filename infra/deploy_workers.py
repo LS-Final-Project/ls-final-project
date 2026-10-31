@@ -20,6 +20,8 @@ CONTAINER = "worker"
 ENVIRONMENT = {
     "cs": {
         "CS_WORKER_ENABLED": "true",
+        # 이미지 안의 파일이다(Dockerfile이 eval을 /app/eval로 복사). 없으면 worker가 시작에서 멈춘다.
+        "CS_POLICY_DOCUMENTS_FILE": "/app/eval/policy/cs_policy_documents.json",
         # team4-cs 서비스와 같은 모델 설정(deploy_private.py).
         "AI_PROVIDER": "gemini",
         "GEMINI_MODEL": "gemini-3.6-flash",

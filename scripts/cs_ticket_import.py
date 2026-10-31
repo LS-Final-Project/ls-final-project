@@ -2,8 +2,11 @@
 
 기본은 파일 검사만 한다. --execute일 때만 등록한다. 입력은 문의 객체의 JSON 배열 또는 머리글 있는 CSV이고
 칸은 TicketCreate와 같다. 모든 행이 검사를 통과해야 한 건이라도 보낸다(중간까지만 들어가는 일을 막는다).
-내용이 완전히 같은 행은 거절한다.
+내용이 완전히 같은 행과 정책 제품표에 없는 제품 코드는 거절한다.
 data_origin은 synthetic으로 고정해 보내고, 응답이 synthetic이 아니면 멈춘다.
+
+실행: uv run --frozen python -m scripts.cs_ticket_import --file <입력> [--execute]
+자체 서명 인증서 주소는 검증을 끄지 말고 SSL_CERT_FILE에 그 인증서를 지정한다.
 
 세션은 환경변수 CS_IMPORT_COOKIE(브라우저의 세션 쿠키)에서만 읽고 출력하지 않는다. CSRF 토큰은 /api/v1/platform/me
 응답 머리글에서 받는다. 원장(--ledger, 기본 <입력>.ledger.jsonl)에 끝난 행을 적어 다시 돌려도 중복 등록하지 않는다.
@@ -25,6 +28,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.api.cs.tickets.schemas import TicketCreate
+from backend.engine.cs import rules
 
 ORIGIN = "synthetic"
 Sender = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Mapping[str, str], bytes]]
@@ -39,13 +43,14 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
     Returns:
         list[dict]: 행. CSV의 빈 칸은 없는 값으로 본다.
     """
-    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
-        return [
-            {key: value for key, value in row.items() if value not in ("", None)}
-            for row in csv.DictReader(text.splitlines())
-        ]
-    rows = json.loads(text)
+        # 본문은 등록 뒤 못 고친다. 칸 안의 줄바꿈이 남도록 csv 모듈이 줄을 나누게 둔다.
+        with path.open(encoding="utf-8-sig", newline="") as source:
+            return [
+                {key: value for key, value in row.items() if value not in ("", None)}
+                for row in csv.DictReader(source)
+            ]
+    rows = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list):
         raise ValueError("JSON 입력은 문의 객체의 배열이어야 합니다.")
     return rows
@@ -72,6 +77,10 @@ def check_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[s
         except ValidationError as error:
             fields = sorted({".".join(map(str, e["loc"])) for e in error.errors()})
             problems.append(f"{number}행: {', '.join(fields)} 칸이 맞지 않습니다.")
+            continue
+        # 정책 제품표에 없는 제품은 접수돼도 규칙 계산이 실패한다.
+        if ticket.product_code not in rules.load_policy().families:
+            problems.append(f"{number}행: 제품 코드 {ticket.product_code}가 제품표에 없습니다.")
             continue
         body = ticket.model_dump(exclude_none=True)
         # 원장 키가 같으면 한 건만 들어가야 할지 두 건인지 알 수 없다. 사람이 입력을 고치게 한다.
@@ -132,7 +141,13 @@ def execute(
         status, _, raw = send(
             "POST",
             f"{root}/api/v1/cs/tickets",
-            {"Cookie": cookie, "X-CSRF-Token": token, "Content-Type": "application/json"},
+            # 중계는 쓰기 요청의 Origin이 앱 주소와 같아야 받는다. 브라우저가 붙이는 값을 대신 보낸다.
+            {
+                "Cookie": cookie,
+                "X-CSRF-Token": token,
+                "Origin": root,
+                "Content-Type": "application/json",
+            },
             json.dumps(body, ensure_ascii=False).encode(),
         )
         if status != 201:

@@ -148,7 +148,10 @@ def test_product_documents_come_before_better_global_matches(cs_database):
                     conn,
                     result,
                     document_sha256=result.chunks[0].document_sha256,
-                    metadata=ChunkMetadata(document_kind="CS_MANUAL"),
+                    metadata=ChunkMetadata(
+                        document_kind="CS_MANUAL",
+                        product_family="ACB" if result is results[0] else None,
+                    ),
                     data_origin="synthetic",
                     known_at=KNOWN,
                 )
@@ -178,6 +181,21 @@ def test_product_documents_come_before_better_global_matches(cs_database):
             firsts[product_filter] = [row["document_sha256"] for row in evidence["T1"]]
             assert (meta["product_hits"], meta["product_top1"]) == (1, int(product_filter))
         assert firsts == {False: [other, product], True: [product, other]}
+        # 운영 경로처럼 계열로 좁히면 제품 문서 제한이 꺼져 있어도 계열 문서가 먼저다.
+        evidence, meta = build_evidence(
+            {"T1": record},
+            fts_searcher_from_dsn(dsn, INDEX_VERSION),
+            index_version=INDEX_VERSION,
+            document_sha256s=[product, other],
+            limit=5,
+            snippet_chars=800,
+            sensitive_values={},
+            query_from="subject+body",
+            product_filter=False,
+            families={"T1": "ACB"},
+        )
+        assert [row["document_sha256"] for row in evidence["T1"]] == [product, other]
+        assert meta["family_scope"] is True
     finally:
         with psycopg.connect(cs_database, autocommit=True) as conn:
             conn.execute(

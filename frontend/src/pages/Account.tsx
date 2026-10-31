@@ -6,6 +6,7 @@ import { ErrorState, Loading } from '../components/states';
 import PushToggle from '../components/PushToggle';
 import { clearPush } from '../notifications/push';
 import MailboxConnections from '../components/MailboxConnections';
+import LoginScreen from '../components/LoginScreen';
 
 export default function Account() {
   return <AccountPanel operational={!import.meta.env.DEV} />;
@@ -37,6 +38,8 @@ export function AccountPanel({ operational }: { operational: boolean }) {
       await user.refetch();
     } finally { setBusy(false); }
   }
+  // 세션이 없으면 계정 화면 대신 로그인 화면(보드 CS_K_Login)을 보인다.
+  if (user.isSuccess && !identity) return <LoginScreen operational={operational} signedOut={signedOut} notice={error != null ? <ErrorState error={error} /> : undefined} />;
   return <main>
     <header><p className="eyebrow">TEAM4 / ACCOUNT</p><h1>로그인과 계정</h1></header>
     {!operational && <p role="note" className="notice">개발 모드입니다. 시연 계정은 Microsoft 로그인이나 사서함 연결을 확인한 계정이 아닙니다. 이 화면에서 운영 로그인·메일 연결을 실행할 수 없습니다.</p>}

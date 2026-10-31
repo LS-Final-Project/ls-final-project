@@ -1,6 +1,6 @@
 # C/S 문의 한국어 요약 계약 (KAN-131 화면 요청)
 
-원본: `backend/api/cs/summary/`(조회·생성·저장), `backend/engine/cs/summary.py`(입력·프롬프트·출력 검사), 마이그레이션 `infra/migrations/cs/20261106_KAN-131_ticket_summaries.sql`(README C24).
+원본: `backend/api/cs/summary/`(조회·생성·저장), `backend/engine/cs/summary.py`(입력·프롬프트·출력 검사), 마이그레이션 `infra/migrations/cs/20261106_KAN-131_ticket_summaries.sql`(README C25).
 
 **상태: API 구현(가짜 모델 검사). 기본 비활성.** 기획서에는 아직 없는 기능이다(4.2절 다국어 분석은 "번역 없이 5칸만 판정"). 문의 처리 화면(CS0102)의 "한국어 요약" 칸에 쓰며, 기획서 반영은 팀에서 따로 정한다.
 
@@ -40,5 +40,5 @@
 ## 켜기
 
 - C/S 서비스 `CS_SUMMARY_ENABLED=true`(기본 false, 꺼져 있으면 두 경로 모두 404). 모델 `CS_SUMMARY_MODEL`(기본 `gemini-3.6-flash`), 출력 상한 `CS_SUMMARY_MAX_OUTPUT_TOKENS`(기본 4096, thinking 포함). Gemini 키는 서비스의 기존 `GEMINI_API_KEY`·`AI_PROVIDER`를 쓴다.
-- 켜기 전에 공용 DB에 C24를 적용한다. 켜면 C/S 서비스가 요약마다 모델을 한 번 부른다(비용).
+- 켜기 전에 공용 DB에 C25를 적용한다. 켜면 C/S 서비스가 요약마다 모델을 한 번 부른다(비용).
 - 남은 것: 실제 모델로 요약 품질과 검사 통과율 확인(사용자 승인 뒤), 화면 연결(KAN-131), 기획서 반영(팀 논의).

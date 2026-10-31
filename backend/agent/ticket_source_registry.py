@@ -134,6 +134,11 @@ def load_parts(
     documents = parts.policy_documents
     if documents is None and manifest is not None:
         documents = policy_documents_from_manifest(manifest, filters.index_version)
+    if not documents and settings.environment == "production":
+        # 정책 1자리 예약이 조용히 꺼진 채 근거가 나가지 않게 시작에서 멈춘다.
+        raise ApplicationError(
+            503, "CS_POLICY_DOCUMENTS_MISSING", "The policy document mapping is not configured."
+        )
     return replace(
         parts,
         allowed_info_codes=parts.allowed_info_codes or policy_info_codes(),

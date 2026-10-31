@@ -2,6 +2,23 @@
 
 원본: `backend/engine/search/chunking.py`(`chunk_document`, `INDEX_VERSION`). C/S(`cs.document_chunks`)와 RFP(`tft.document_chunks`) 검색 색인이 같은 규칙을 쓴다. 세부 규칙은 모듈 docstring이 원본이다.
 
+## chunking-v3 (2026-10-31)
+
+v2와 다른 점은 넷이다.
+
+1. **Markdown 머리말을 색인하지 않는다.** 문서 맨 앞 YAML 머리말(`---`로 둘러싼 블록)과 바로 뒤 인용 문단(`>`로 시작, 합성 안내 줄)은 청크에 넣지 않고 `skipped_block_ids`에 둔다. 닫는 `---`가 없으면 머리말로 보지 않는다.
+2. **제목 블록만 든 청크는 길이와 상관없이 다음 청크에 합친다.** v2의 40자 규칙은 긴 문서 제목을 놓쳐 제목 혼자 청크가 됐다. 이 규칙은 DOCX·PDF에도 적용된다.
+3. **문서 목록 청크를 근거에서 뺀다.** 제목을 뺀 줄이 둘 이상이고 모든 줄이 문서 묶음의 문서 식별자를 담으면 `scripts/cs_index_docs.py`가 적재하지 않는다(`is_document_listing`, manifest `listing_chunks`). 문구가 아니라 `doc_index.csv`의 식별자로 판정하며 `--doc-index`가 없으면 빼지 않는다.
+4. **검색 맥락 칸.** C/S `search_context`(C24)에 문서 제목·제품 코드·문서 종류·계열·절 경로를 넣는다(`search_context`). `tsv`만 이 칸을 색인하고 스니펫·`text`·초안 모델 입력에는 들어가지 않는다. 머리말을 빼면 사라지는 문서 고르기 어휘를 대신한다. 옛 판본 행은 빈 값이라 검색 결과가 그대로다.
+
+임베딩 입력은 맥락 머리와 본문을 잇는다(`embedding_input`). 본문만으로는 같은 계열의 제품·문서를 구분하지 못하기 때문이다. 재색인과 효과 측정은 승인 뒤 한다.
+
+`chunk_id`가 판본을 포함하므로 이미 적재한 색인은 C/S·RFP 모두 다시 만들어야 한다. 14번 DOCX는 82 → 81청크다(문서 제목 합침).
+
+문서 메타데이터는 청크 본문이 아니라 칸으로 유지한다: `document_kind`·`product_family`·`version`(`doc_index.csv`)과 색인 manifest의 `doc_id`·`source_name`·`sha256`.
+
+머리말 청크는 제품 코드가 몰려 있어 제품 우선 검색 상위를 차지했다(603건 근거 3,011조각 중 2,370개).
+
 ## chunking-v2 (2026-10-30)
 
 v1과 다른 점 세 가지다.
@@ -27,14 +44,14 @@ v1과 다른 점 세 가지다.
 | POL-WARRANTY.md | 8 → 6 | 7/8 → 5/6 | 2 → 0 | 0 → 0 |
 | TG-TRF-DRY-630.md | 12 → 10 | 11/12 → 9/10 | 2 → 0 | 0 → 0 |
 
-md의 경로 없는 청크 1개는 문서 머리(front matter)다. 14번은 v1에서 '2.5 EPOXY CAST RESIN' 머리가 청크 중간에 있었고, v2에서는 2.5·2.6 머리가 청크 시작이다.
+md의 경로 없는 청크 1개는 문서 머리(front matter)다(v3에서 뺐다). 14번은 v1에서 '2.5 EPOXY CAST RESIN' 머리가 청크 중간에 있었고, v2에서는 2.5·2.6 머리가 청크 시작이다.
 
 ## 재색인
 
 `chunk_id`는 문서 sha256·`INDEX_VERSION`·순서로 만든다. 판본이 바뀌면 모든 청크를 새로 만들어야 하고, v1 청크와 섞지 않는다.
 
-- 검색 조건(`SearchFilters.index_version`)과 정책 문서 manifest(`CS_POLICY_DOCUMENTS_FILE`)는 `chunking-v2`여야 한다.
-- 재색인 전 v1 색인만 있는 DB에서는 v2 검색 결과가 없다. v1 manifest를 쓰는 worker는 load 구간에서 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다.
+- 검색 조건(`SearchFilters.index_version`)과 정책 문서 manifest(`CS_POLICY_DOCUMENTS_FILE`)는 현재 `INDEX_VERSION`(`chunking-v3`)이어야 한다.
+- 재색인 전 옛 판본 색인만 있는 DB에서는 검색 결과가 없다. 옛 manifest를 쓰는 worker는 load 구간에서 `CS_POLICY_MANIFEST_INDEX_MISMATCH`로 실패한다.
 - 로컬 재색인(`cs_index_docs`, 로컬 DB 전용):
   `uv run --frozen python -m scripts.cs_index_docs --docs <문서 디렉터리> --data-origin demo --doc-index <doc_index.csv> --execute --manifest-out <manifest.json>`
 

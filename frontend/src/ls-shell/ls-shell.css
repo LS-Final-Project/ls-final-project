@@ -784,3 +784,9 @@
 .ls-root .kv-modal-bg{position:fixed;inset:0;background:rgba(20,28,45,.35);z-index:40}
 .ls-root .kv-modal{position:fixed;left:50%;top:150px;transform:translateX(-50%);width:600px;background:#fff;border:1px solid var(--erp-border);box-shadow:none;z-index:50}
 .ls-root .kv-modal>h2{display:flex;align-items:center;height:32px;margin:0;padding:0 12px;background:var(--erp-head);border-bottom:1px solid var(--erp-border);font-size:13px;font-weight:400;color:var(--erp-text)}
+
+/* CS_K_Error(오류 화면): 보드에서 추가한 규칙(기존 선택자는 건드리지 않음) */
+.ls-root .kv-err{margin:12px 14px 0;background:#fff;border:1px solid var(--erp-border);padding:18px 20px}
+.ls-root .kv-err h2{margin:0 0 6px;font-size:15px;font-weight:500}
+.ls-root .kv-err p{margin:0 0 10px;font-size:12.5px;line-height:1.6}
+.ls-root .kv-err .meta{font-size:12px;color:var(--erp-muted);margin-top:8px}

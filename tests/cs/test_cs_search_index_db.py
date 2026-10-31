@@ -193,6 +193,28 @@ def test_fts_ranks_words_titles_and_filters_documents(runtime) -> None:
     assert {hit["document_sha256"] for hit in search(runtime, "UL 1066", None)} >= {a_sha, b_sha}
 
 
+def test_search_context_is_searched_but_never_returned(runtime) -> None:
+    """맥락 머리는 FTS로만 찾히고 스니펫·본문에는 나오지 않는다."""
+    result = spec_a()
+    sha = result.chunks[0].document_sha256
+    metadata = ChunkMetadata(title="Zebrafinch Guide", product_code="ZF-100")
+
+    run(
+        runtime,
+        lambda conn: store_chunks(
+            conn,
+            result,
+            document_sha256=sha,
+            metadata=metadata,
+            data_origin="synthetic",
+            known_at=KNOWN,
+        ),
+    )
+    rows = search(runtime, "zebrafinch", None)
+    assert len(rows) == len(result.chunks)
+    assert not any("ebrafinch" in row["text"] + row["snippet"] for row in rows)
+
+
 def test_fts_filters_document_kinds(cs_database, runtime) -> None:
     """document_kinds는 청크 메타데이터 document_kind가 그 중 하나인 청크만 찾는다(KAN-194 10차 정책 예약)."""
     a, b = spec_a(), spec_b()

@@ -51,6 +51,7 @@ class WorkerDeploymentTests(unittest.TestCase):
         [command] = deployment.job_commands(build_fixture("cs"), ("cs",))
         text = " ".join(command)
         self.assertIn("CS_WORKER_ENABLED=true", text)
+        self.assertIn("CS_POLICY_DOCUMENTS_FILE=/app/eval/policy/cs_policy_documents.json", text)
         self.assertNotIn("TFT_", text)
 
     def test_unfinished_or_mismatched_builds_are_refused(self):

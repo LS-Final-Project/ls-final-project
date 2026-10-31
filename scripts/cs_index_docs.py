@@ -36,7 +36,7 @@ from psycopg.rows import dict_row
 from backend.api.cs.search.repository import missing_embeddings, store_chunks, store_embeddings
 from backend.engine.documents.model import ExtractedDocument
 from backend.engine.documents.router import extract
-from backend.engine.search.chunking import INDEX_VERSION, chunk_document
+from backend.engine.search.chunking import INDEX_VERSION, chunk_document, is_document_listing
 from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 from backend.engine.search.model import ChunkingResult, ChunkMetadata
 
@@ -99,6 +99,8 @@ def load_doc_index(csv_path: Path) -> dict[tuple[str, ...], dict[str, str | None
             key: (row.get(column) or "").strip() or None
             for key, column in (
                 ("doc_id", "doc_id"),
+                ("title", "title"),
+                ("product_code", "product_code"),
                 ("document_kind", "doc_type"),
                 ("product_family", "family"),
                 ("version", "revision"),
@@ -208,6 +210,18 @@ def default_embedder(model: str, dimensions: int, task_type: str) -> Embedder:
     )
 
 
+def embedding_input(row: dict[str, Any]) -> str:
+    """임베딩 입력을 만든다. 본문만으로는 어느 제품·문서인지 모르므로 맥락 머리를 앞에 둔다.
+
+    Args:
+        row: missing_embeddings 행.
+
+    Returns:
+        str: 맥락 머리(있으면)와 청크 본문.
+    """
+    return "\n".join(part for part in (row["search_context"], row["text"]) if part)
+
+
 def embed_chunks(
     dsn: str,
     *,
@@ -270,13 +284,14 @@ def embed_chunks(
     for row in rows:
         assert call is not None
         try:
-            values = call(row["text"])
+            text = embedding_input(row)
+            values = call(text)
         except Exception:
             # 공급자 원문은 남기지 않는다. 이미 넣은 행은 유지되고 다음 실행이 남은 청크부터 잇는다.
             summary["reason"] = "CS_EMBED_PROVIDER_ERROR"
             break
         summary["calls"] += 1
-        summary["chars"] += len(row["text"])
+        summary["chars"] += len(text)
         batch.append((row["id"], values))
         if len(batch) == EMBED_BATCH:
             summary["embedded"] += asyncio.run(save(batch))
@@ -323,6 +338,7 @@ def index_documents(
     """
     saver = store or (store_with_dsn(dsn) if execute and dsn else None)
     rows = []
+    document_ids = frozenset(e["doc_id"] for e in (doc_index or {}).values() if e["doc_id"])
     for path in find_documents(root):
         entry = (doc_index or {}).get(path.relative_to(root).parts)
         row: dict[str, Any] = {
@@ -332,6 +348,7 @@ def index_documents(
             "size": None,
             "blocks": None,
             "chunks": None,
+            "listing_chunks": None,
             "blocked_code_chunks": None,
             "stored": None,
             "stored_at": None,
@@ -352,6 +369,9 @@ def index_documents(
         except Exception:
             row["reason"] = "CS_INDEX_CHUNK_FAILED"
             continue
+        kept = [chunk for chunk in result.chunks if not is_document_listing(chunk, document_ids)]
+        row["listing_chunks"] = len(result.chunks) - len(kept)
+        result = result.model_copy(update={"chunks": kept})
         row["chunks"] = len(result.chunks)
         row["blocked_code_chunks"] = sum(
             any(mentions_code(chunk.text, code) for code in BLOCKED_CODES)
@@ -371,6 +391,8 @@ def index_documents(
                     document_kind=entry["document_kind"],
                     product_family=entry["product_family"],
                     version=entry["version"],
+                    title=entry["title"],
+                    product_code=entry["product_code"],
                 )
                 if entry
                 else ChunkMetadata(document_kind=document_kind),

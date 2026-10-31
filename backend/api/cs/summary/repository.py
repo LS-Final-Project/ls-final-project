@@ -1,4 +1,4 @@
-"""한국어 요약 시도 저장(추가만). 표는 infra/migrations/cs C23."""
+"""한국어 요약 시도 저장(추가만). 표는 infra/migrations/cs C25."""
 
 from typing import Any
 from uuid import UUID

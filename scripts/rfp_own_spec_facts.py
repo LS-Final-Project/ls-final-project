@@ -13,6 +13,7 @@ backend/api/tft/rfp/own_spec_facts.json이고 협력사 프로필(partners/profi
   표시(UL·CE·KC·CB 등)는 등록·시험 구분이 적혀 있지 않아 표시(MARK)로 둔다. 비교는 표시만으로 충족을 확정하지 않는다.
   "(-U variant)"는 변형 모델에만 있는 인증이다.
 - 상업 조건: 제품 마스터의 표준 보증 개월 수(warranty_months).
+- 형식: 제품 마스터 description에서 닫힌 축(vocabulary.FORM_AXES)이 읽히는 제품만 그 문장을 form으로 둔다.
 - 실제 LS 제품 성능 자료가 아니라 교육용 합성 데이터시트의 파생값(DERIVED)이다.
 """
 
@@ -23,6 +24,8 @@ import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
+
+from backend.engine.rfp.vocabulary import form_axes
 
 OUTPUT = (
     Path(__file__).resolve().parents[1] / "backend" / "api" / "tft" / "rfp" / "own_spec_facts.json"
@@ -360,6 +363,20 @@ def build(ref: Path) -> dict[str, object]:
                     }
                 )
             mapped += 1
+        # 형식 칸은 원천에 없고 제품 설명에 있다. 데이터시트 1절도 같은 문장이다.
+        if form_axes(item["description"]) and datasheet:
+            facts.append(
+                {
+                    "attribute": "form",
+                    "value": item["description"],
+                    "unit": None,
+                    "conditions": [],
+                    "evidence_id": datasheet,
+                    "section": "1",
+                    "source_value": item["description"],
+                    "note": "제품 설명 문장 그대로. 축이 읽히는 제품에만 둔다.",
+                }
+            )
         facts.append(
             {
                 "attribute": "warranty_months",
@@ -458,6 +475,10 @@ def stale_facts(data: dict) -> list[str]:
             if row["attribute"] == "warranty_months":
                 if row["source_value"] != f"warranty_months={row['value']}":
                     problems.append(f"{code}: 보증 원문과 값이 다름")
+                continue
+            if row["attribute"] == "form":
+                if row["source_value"] != row["value"] or not form_axes(str(row["value"])):
+                    problems.append(f"{code}: 형식 원문과 값이 다르거나 축을 읽지 못함")
                 continue
             place = (row["evidence_id"], row["section"], row["source_value"])
             sources.add(place)

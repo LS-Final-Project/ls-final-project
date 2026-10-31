@@ -17,6 +17,7 @@ from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 from backend.engine.rfp.vocabulary import (
     CANONICAL_FORMS,
     OTHER,
+    form_conflict,
     is_canonical,
     is_placeholder,
     read_canonical,
@@ -424,7 +425,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
 
     숫자 연산자는 단위가 같고 두 값이 모두 숫자일 때만 비교한다. 숫자가 아닌 EQ와 TEXT는 정규화한
     문자열이 같을 때만 충족이다. 문장 값은 표현만 달라도 글자가 어긋나므로 다르면 미달이 아니라
-    미확인이다. 형식(form)도 같다.
+    미확인이다. 형식(form)도 같되, 닫힌 축에서 값이 다르면 미달이다(vocabulary.FORM_AXES).
+    축이 같아도 충족으로 올리지 않는다. 축 밖의 단어는 읽지 않았기 때문이다.
 
     Args:
         requirement: 요구.
@@ -460,6 +462,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     attribute = requirement.attribute
     if _plain_value(attribute, requirement.value) == _plain_value(attribute, fact.value):
         return "passed", "충족"
+    if attribute == "form" and form_conflict(requirement.value, fact.value):
+        return "failed", "형식 다름"
     return "unknown", "값이 달라 확인 필요"
 
 

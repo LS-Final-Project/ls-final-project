@@ -26,6 +26,8 @@ class Server:
     def __call__(self, method, url, headers, body):
         if method == "GET":
             return self.me, {"X-CSRF-Token": "csrf-1"}, b"{}"
+        if headers.get("Origin") != "https://localhost:18443":
+            return 403, {}, b"{}"
         self.posts.append((url, headers, json.loads(body)))
         if self.fail_at == len(self.posts):
             return 503, {}, b"{}"
@@ -76,6 +78,14 @@ class ImportTest(unittest.TestCase):
             self.assertEqual(self.run_tool(self.write([ROW, bad]), server, "--execute"), 1)
             self.assertEqual(server.posts, [])
 
+    def test_a_product_outside_the_policy_table_stops_everything_before_a_write(self):
+        server = Server()
+        path = self.write([ROW, {**ROW, "product_code": "TRF-NONE-1", "body": "둘째"}])
+        with patch("builtins.print") as printed:
+            self.assertEqual(self.run_tool(path, server, "--execute"), 1)
+        self.assertEqual(server.posts, [])
+        self.assertIn("TRF-NONE-1", " ".join(str(c) for c in printed.call_args_list))
+
     def test_identical_rows_stop_everything_before_a_write(self):
         server = Server()
         path = self.write([ROW, {**ROW, "body": "둘째"}, dict(ROW)])
@@ -121,6 +131,16 @@ class ImportTest(unittest.TestCase):
         server = Server()
         self.assertEqual(self.run_tool(path, server, "--execute"), 0)
         self.assertNotIn("customer_tier", server.posts[0][2])
+
+    def test_csv_keeps_line_breaks_inside_a_cell(self):
+        path = self.folder / "tickets.csv"
+        path.write_bytes(
+            "channel,body_language,customer_external_id,product_code,body\r\n"
+            'EMAIL,ko,SYN-CUST-1,TRF-OIL-1000,"첫 줄\r\n둘째 줄\n셋째 줄"\r\n'.encode()
+        )
+        server = Server()
+        self.assertEqual(self.run_tool(path, server, "--execute"), 0)
+        self.assertEqual(server.posts[0][2]["body"], "첫 줄\r\n둘째 줄\n셋째 줄")
 
     def test_the_cookie_is_never_printed(self):
         with patch("builtins.print") as printed:
