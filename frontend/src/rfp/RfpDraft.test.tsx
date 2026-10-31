@@ -331,3 +331,20 @@ it('계정 전환 뒤 늦은 A 편집 응답은 B 캐시나 폼에 적용되지 
   expect(screen.queryByText('늦은 A 저장 결과')).toBeNull();
   expect(screen.getByText('새 계정 B 초안')).toBeTruthy();
 });
+
+
+it('보드 배치의 문장 번호와 접힌 전체 근거를 유지하고 편집은 해당 문장에 표시한다', async () => {
+  serve(); renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('문장 수정')).toBe(false));
+  const row = screen.getByRole('article', { name: `문장 ${SENTENCE}` });
+  expect(within(row).getByText('S1')).toBeTruthy();
+  const proof = within(row).getByText('근거 1건 · 조건 1건').closest('details');
+  expect(proof?.open).toBe(false);
+  expect(within(row).getByText('requirement: requirement-1')).toBeTruthy();
+  expect(screen.getByRole('complementary', { name: '검토본과 내보내기' })).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: '문장 수정' }));
+  expect(within(row).getByLabelText('수정 문장')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('수정 문장'), { target: { value: '필터를 바꿔도 보존하는 편집' } });
+  fireEvent.change(screen.getByLabelText('구역'), { target: { value: 'OUR_RESPONSE' } });
+  expect((screen.getByLabelText('수정 문장') as HTMLTextAreaElement).value).toBe('필터를 바꿔도 보존하는 편집');
+});
