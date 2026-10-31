@@ -445,6 +445,7 @@ def test_human_project_constraints_create_sparse_patch_clear_and_reject_empty_li
             customer_manufacturer_list=["제조사 A"],
             off_list_permission="FORBIDDEN",
         ),
+        key="constraints-create",
     ).json()["data"]
     assert (
         created["supply_region"],
