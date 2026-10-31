@@ -7,12 +7,16 @@ from uuid import UUID
 
 from psycopg import AsyncConnection, errors
 
+from backend.api.tft.rfp.repository import PROJECT_COUNTS
+
 Row = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
 
 SUMMARY_COLUMNS = (
     "p.id, p.external_id, p.name, p.company_code, p.status, p.data_origin, p.derivation_kind, "
-    "p.responsible_user_id, p.sales_user_id, p.created_at"
+    "p.responsible_user_id, p.sales_user_id, p.created_at, p.version, p.known_at, p.client_name, "
+    "p.output_status, p.judgement_status, p.strategic_customer, p.integration_holder, "
+    + PROJECT_COUNTS
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
@@ -35,12 +39,15 @@ async def list_projects(
     managed_projects: list[UUID],
     user_id: UUID,
     department: str | None = None,
+    *,
+    output_status: str | None = None,
+    judgement_status: str | None = None,
+    q: str | None = None,
 ) -> list[Row]:
     """Newest first, only projects the user may see (access.sees_project).
 
     Fetches one extra row so the caller knows whether a next page exists. `department` is the
-    dept_staff department: review_departments comes from a later migration, so only that
-    caller touches the column.
+    dept_staff department. Filters and counts run in this one statement, never per project.
     """
     scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s"
     params: list[Any] = [managed_projects, user_id, user_id]
@@ -48,6 +55,17 @@ async def list_projects(
         scope += " OR %s = ANY(p.review_departments)"
         params.append(department)
     scope += ")"
+    if output_status is not None:
+        scope += " AND p.output_status = %s"
+        params.append(output_status)
+    if judgement_status is not None:
+        scope += " AND p.judgement_status = %s"
+        params.append(judgement_status)
+    if q is not None:
+        # 검색어의 %·_는 글자 그대로 찾는다.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        scope += " AND (p.name ILIKE %s OR p.client_name ILIKE %s)"
+        params += [f"%{escaped}%", f"%{escaped}%"]
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "

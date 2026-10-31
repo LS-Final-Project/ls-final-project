@@ -1347,6 +1347,24 @@
         "title": "IntegrationResponsibility",
         "type": "object"
       },
+      "IntegrationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "holder": {
+            "default": "UNRESOLVED",
+            "enum": [
+              "OWN",
+              "SINGLE_PARTNER",
+              "JOINT",
+              "UNRESOLVED"
+            ],
+            "title": "Holder",
+            "type": "string"
+          }
+        },
+        "title": "IntegrationSummary",
+        "type": "object"
+      },
       "IntegrationUpdate": {
         "additionalProperties": false,
         "description": "\ud1b5\ud569 \ucc45\uc784 \uc9c0\uc815(\uc0ac\ub78c\uc758 \uacb0\uc815, \ubc14\ub85c human_input \ud310\ubcf8). required\u00b7\uadfc\uac70 \uc870\ud56d\uc740 \uc11c\ubc84\uac00 \uacc4\uc0b0\ud55c\ub2e4.",
@@ -2134,6 +2152,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "customer_goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Goal"
+          },
           "data_origin": {
             "enum": [
               "synthetic",
@@ -2152,6 +2181,21 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "documents_count": {
+            "title": "Documents Count",
+            "type": "integer"
+          },
+          "draft_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Version"
           },
           "external_id": {
             "anyOf": [
@@ -2180,14 +2224,65 @@
             ],
             "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when the RFP migrations are not applied yet, which is not the same as not required."
           },
+          "judgement_status": {
+            "enum": [
+              "NEEDS_REVIEW",
+              "CONDITION_CHECK",
+              "OWNER_CONFIRMED"
+            ],
+            "title": "Judgement Status",
+            "type": "string"
+          },
           "known_at": {
             "format": "date-time",
             "title": "Known At",
             "type": "string"
           },
+          "latest_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "open_questions_count": {
+            "title": "Open Questions Count",
+            "type": "integer"
+          },
+          "output_status": {
+            "enum": [
+              "INTAKE",
+              "ANALYZING",
+              "REVIEW_DRAFT"
+            ],
+            "title": "Output Status",
+            "type": "string"
+          },
+          "pending_proposals_by_origin": {
+            "$ref": "#/components/schemas/PendingByOrigin"
+          },
+          "pending_proposals_count": {
+            "title": "Pending Proposals Count",
+            "type": "integer"
+          },
+          "purpose": {
+            "const": "INITIAL_PROPOSAL",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "requirement_counts": {
+            "$ref": "#/components/schemas/RequirementCounts"
+          },
+          "requirements_count": {
+            "title": "Requirements Count",
+            "type": "integer"
           },
           "responsible_user_id": {
             "anyOf": [
@@ -2200,6 +2295,24 @@
               }
             ],
             "title": "Responsible User Id"
+          },
+          "review_departments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Review Departments",
+            "type": "array"
+          },
+          "review_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Version"
           },
           "rfp_requirements": {
             "items": {
@@ -2231,6 +2344,44 @@
             "title": "Status",
             "type": "string"
           },
+          "strategic_customer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer"
+          },
+          "strategic_customer_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Note"
+          },
+          "strategic_customer_set_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer Set By"
+          },
+          "unresolved_mandatory_count": {
+            "title": "Unresolved Mandatory Count",
+            "type": "integer"
+          },
           "version": {
             "title": "Version",
             "type": "integer"
@@ -2249,7 +2400,22 @@
           "client_name",
           "status",
           "responsible_user_id",
-          "rfp_requirements"
+          "rfp_requirements",
+          "output_status",
+          "judgement_status",
+          "purpose",
+          "customer_goal",
+          "review_departments",
+          "requirements_count",
+          "unresolved_mandatory_count",
+          "pending_proposals_count",
+          "open_questions_count",
+          "requirement_counts",
+          "pending_proposals_by_origin",
+          "latest_job",
+          "draft_version",
+          "review_version",
+          "documents_count"
         ],
         "title": "ProjectDetail",
         "type": "object"
@@ -2284,6 +2450,17 @@
       },
       "ProjectSummary": {
         "properties": {
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
           "company_code": {
             "title": "Company Code",
             "type": "string"
@@ -2328,9 +2505,47 @@
             "title": "Id",
             "type": "string"
           },
+          "integration_responsibility": {
+            "$ref": "#/components/schemas/IntegrationSummary"
+          },
+          "judgement_status": {
+            "enum": [
+              "NEEDS_REVIEW",
+              "CONDITION_CHECK",
+              "OWNER_CONFIRMED"
+            ],
+            "title": "Judgement Status",
+            "type": "string"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "open_questions_count": {
+            "title": "Open Questions Count",
+            "type": "integer"
+          },
+          "output_status": {
+            "enum": [
+              "INTAKE",
+              "ANALYZING",
+              "REVIEW_DRAFT"
+            ],
+            "title": "Output Status",
+            "type": "string"
+          },
+          "pending_proposals_count": {
+            "title": "Pending Proposals Count",
+            "type": "integer"
+          },
+          "requirements_count": {
+            "title": "Requirements Count",
+            "type": "integer"
           },
           "responsible_user_id": {
             "anyOf": [
@@ -2367,6 +2582,25 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "strategic_customer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategic Customer"
+          },
+          "unresolved_mandatory_count": {
+            "title": "Unresolved Mandatory Count",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -2378,7 +2612,17 @@
           "data_origin",
           "derivation_kind",
           "responsible_user_id",
-          "created_at"
+          "created_at",
+          "version",
+          "known_at",
+          "client_name",
+          "output_status",
+          "judgement_status",
+          "requirements_count",
+          "unresolved_mandatory_count",
+          "pending_proposals_count",
+          "open_questions_count",
+          "integration_responsibility"
         ],
         "title": "ProjectSummary",
         "type": "object"
@@ -4196,6 +4440,10 @@
             "title": "Name",
             "type": "string"
           },
+          "open_questions_count": {
+            "title": "Open Questions Count",
+            "type": "integer"
+          },
           "output_status": {
             "enum": [
               "INTAKE",
@@ -4326,6 +4574,7 @@
           "requirements_count",
           "unresolved_mandatory_count",
           "pending_proposals_count",
+          "open_questions_count",
           "created_at",
           "purpose",
           "customer_goal",
@@ -5871,6 +6120,66 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "output_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "INTAKE",
+                    "ANALYZING",
+                    "REVIEW_DRAFT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Output Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "judgement_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "NEEDS_REVIEW",
+                    "CONDITION_CHECK",
+                    "OWNER_CONFIRMED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Judgement Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 2,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
