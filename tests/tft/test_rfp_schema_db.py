@@ -19,6 +19,7 @@ from psycopg.sql import SQL, Identifier
 
 from backend.api.tft.partners.loader import PROFILES, load_profiles
 from backend.api.tft.partners.schemas import PartnerProfile
+from tests.tft.test_rfp_project_constraints import CONSTRAINT_CASES
 
 MIGRATIONS = (
     "20261023_KAN-119_projects.sql",
@@ -716,7 +717,17 @@ def test_reapplied_command_constraints_match_runtime_operations(admin):
         assert set(re.findall(r"'([^']+)'", check[1])) == OPERATIONS
 
 
-def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admin, chain):
+@pytest.mark.parametrize(
+    "reapplied",
+    [
+        "20261104_KAN-199_tft_worker.sql",
+        "20261109_KAN-188_draft_execution.sql",
+    ],
+    ids=["t14", "t17"],
+)
+def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(
+    admin, chain, reapplied
+):
     migration = Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql")
     project = chain["project"]
     with psycopg.connect(admin, autocommit=True) as conn:
@@ -727,7 +738,7 @@ def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admi
             (project,),
         )
         apply(conn, migration)
-        apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
+        apply(conn, Path("infra/migrations/tft") / reapplied)
         with conn.transaction():
             conn.execute("SET LOCAL ROLE tft_worker")
             assert conn.execute(
@@ -765,9 +776,19 @@ def test_legacy_semantic_columns_remain_null_after_t20_reapplication(admin, chai
             ).fetchone() == (None, None, None)
 
 
-def test_t14_is_safe_before_t20_columns_exist_and_does_not_open_other_project_columns(admin):
+@pytest.mark.parametrize(
+    "reapplied",
+    [
+        "20261104_KAN-199_tft_worker.sql",
+        "20261109_KAN-188_draft_execution.sql",
+    ],
+    ids=["t14", "t17"],
+)
+def test_worker_grants_are_safe_before_t20_columns_exist_and_do_not_open_other_columns(
+    admin, reapplied
+):
     # 전용 DB에서만 실행하고 모든 DDL/권한 변화를 rollback한다. T14의 바깥 BEGIN/COMMIT만 제거한다.
-    sql = Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql").read_text()
+    sql = (Path("infra/migrations/tft") / reapplied).read_text()
     statement = "\n".join(
         line
         for line in sql.splitlines()
@@ -784,3 +805,28 @@ def test_t14_is_safe_before_t20_columns_exist_and_does_not_open_other_project_co
         assert conn.execute(
             "SELECT has_column_privilege('tft_worker','tft.projects','name','SELECT')"
         ).fetchone() == (False,)
+
+
+@pytest.mark.parametrize("fields,valid", CONSTRAINT_CASES)
+def test_project_constraint_checks_match_api_text_and_item_boundaries(admin, chain, fields, valid):
+    with psycopg.connect(admin, autocommit=True) as conn:
+
+        def update():
+            conn.execute(
+                "UPDATE tft.projects SET supply_region=%s,customer_manufacturer_list=%s::text[] WHERE id=%s",
+                (
+                    fields.get("supply_region"),
+                    fields.get("customer_manufacturer_list"),
+                    chain["project"],
+                ),
+            )
+
+        if valid:
+            with conn.transaction(force_rollback=True):
+                update()
+        else:
+            with (
+                pytest.raises(psycopg.errors.CheckViolation),
+                conn.transaction(force_rollback=True),
+            ):
+                update()

@@ -2,14 +2,36 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL ROLE tft_migrator;
-ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS supply_region text
-    CHECK (supply_region IS NULL OR length(btrim(supply_region)) BETWEEN 1 AND 200);
-ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS customer_manufacturer_list text[]
-    CHECK (customer_manufacturer_list IS NULL OR (
-        cardinality(customer_manufacturer_list) BETWEEN 1 AND 100
-        AND array_position(customer_manufacturer_list, NULL) IS NULL
-        AND array_to_string(customer_manufacturer_list, '') <> ''
-    ));
+-- API StringConstraints(strip_whitespace=True,min_length=1,max_length=200)와 같은 문자 경계.
+-- Pydantic/Rust의 Unicode White_Space 집합이며 단어 내부 공백은 바꾸지 않는다.
+CREATE OR REPLACE FUNCTION tft.project_constraint_text_valid(value text)
+RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, tft
+AS $fn$
+    SELECT value IS NOT NULL AND char_length(btrim(value,
+        U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')) BETWEEN 1 AND 200;
+$fn$;
+CREATE OR REPLACE FUNCTION tft.project_manufacturer_list_valid(entries text[])
+RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, tft
+AS $fn$
+    SELECT entries IS NULL OR (
+        cardinality(entries) BETWEEN 1 AND 100 AND array_ndims(entries)=1
+        AND NOT EXISTS (SELECT 1 FROM unnest(entries) AS vals(item)
+            WHERE NOT tft.project_constraint_text_valid(item))
+    );
+$fn$;
+REVOKE ALL ON FUNCTION tft.project_constraint_text_valid(text), tft.project_manufacturer_list_valid(text[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION tft.project_constraint_text_valid(text), tft.project_manufacturer_list_valid(text[]) TO tft_app,tft_worker;
+ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS supply_region text;
+ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS customer_manufacturer_list text[];
+-- 이전 T20의 약한 동명 CHECK도 재적용으로 교체한다. 값을 고치거나 추측하지 않는다.
+ALTER TABLE tft.projects DROP CONSTRAINT IF EXISTS projects_supply_region_check;
+ALTER TABLE tft.projects ADD CONSTRAINT projects_supply_region_check
+    CHECK (supply_region IS NULL OR tft.project_constraint_text_valid(supply_region));
+ALTER TABLE tft.projects DROP CONSTRAINT IF EXISTS projects_customer_manufacturer_list_check;
+ALTER TABLE tft.projects ADD CONSTRAINT projects_customer_manufacturer_list_check
+    CHECK (tft.project_manufacturer_list_valid(customer_manufacturer_list));
 ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS off_list_permission text NOT NULL DEFAULT 'UNSTATED'
     CHECK (off_list_permission IN ('ALLOWED','FORBIDDEN','UNSTATED'));
 -- 새 추출값만 그대로 저장한다. 과거 NULL은 미보존이며 false나 추정값으로 채우지 않는다.

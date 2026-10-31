@@ -48,13 +48,15 @@ INVALID_SELECTION = (
     "WHERE ss.requirement_id={requirement} "
     "AND ss.version=(SELECT max(sv.version) FROM tft.supplement_selections sv "
     "WHERE sv.requirement_id=ss.requirement_id) "
-    "AND (ss.requirement_version<>sr.latest_version OR (ss.path IN "
-    "('EXTERNAL_PRODUCT','TASK_SUBCONTRACT','JOINT_PROPOSAL') AND EXISTS ("
-    "SELECT 1 FROM unnest(ss.candidate_codes) AS picked(code) WHERE NOT EXISTS ("
+    "AND ss.path IN ('EXTERNAL_PRODUCT','TASK_SUBCONTRACT','JOINT_PROPOSAL') "
+    "AND EXISTS (SELECT 1 FROM unnest(ss.candidate_codes) AS picked(code) "
+    "WHERE EXISTS (SELECT 1 FROM tft.partner_grades history "
+    "WHERE history.project_id=sr.project_id AND history.requirement_id=ss.requirement_id "
+    "AND history.candidate_code=picked.code) AND (NOT EXISTS ("
     f"SELECT 1 FROM ({LATEST_GRADES}) valid WHERE valid.requirement_id=ss.requirement_id "
     "AND valid.candidate_code=picked.code AND valid.grade<>'EXCLUDED') OR EXISTS ("
     f"SELECT 1 FROM ({LATEST_GRADES}) bad WHERE bad.project_id=sr.project_id "
-    "AND bad.candidate_code=picked.code AND bad.grade='EXCLUDED')))))"
+    "AND bad.candidate_code=picked.code AND bad.grade='EXCLUDED'))))"
 )
 
 

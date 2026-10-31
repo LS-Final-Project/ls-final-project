@@ -313,17 +313,32 @@ def test_worker_is_gated_and_needs_a_canonical_job_id(worker_settings):
 
 
 @pytest.mark.parametrize(
-    "revoke_constraints", [False, True], ids=["t14-preserves-grant", "missing-grant-mutation"]
+    "reapplied",
+    [
+        "infra/migrations/tft/20261104_KAN-199_tft_worker.sql",
+        "infra/migrations/tft/20261109_KAN-188_draft_execution.sql",
+    ],
+    ids=["t14", "t17"],
+)
+@pytest.mark.parametrize(
+    "revoke_constraints", [False, True], ids=["preserves-grant", "missing-grant-mutation"]
 )
 def test_worker_runs_the_real_processor_end_to_end(
-    settings, worker_settings, jobs_database, registered_user, project, admin, revoke_constraints
+    settings,
+    worker_settings,
+    jobs_database,
+    registered_user,
+    project,
+    admin,
+    revoke_constraints,
+    reapplied,
 ):
     """접수한 rfp.process 작업을 실제 처리 함수(가짜 추출기)로 끝까지 돌린다: 7단계 진행과 요구 저장."""
     from tests.tft.test_worker_processor_db import STEPS, FakeExtractor
     from tests.tft.test_worker_processor_db import apply as apply_tft
 
     with psycopg.connect(admin, autocommit=True) as conn:
-        apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+        apply_tft(conn, reapplied)
         if revoke_constraints:
             conn.execute(
                 "REVOKE SELECT(supply_region,customer_manufacturer_list,off_list_permission) ON tft.projects FROM tft_worker"
@@ -386,7 +401,7 @@ def test_worker_runs_the_real_processor_end_to_end(
     finally:
         if revoke_constraints:
             with psycopg.connect(admin, autocommit=True) as conn:
-                apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+                apply_tft(conn, reapplied)
     with psycopg.connect(admin) as conn:
         assert conn.execute(
             "SELECT count(*) FROM tft.requirements WHERE project_id=%s", (project["project"],)

@@ -5,10 +5,12 @@ import asyncio
 from unittest.mock import Mock
 
 import psycopg
+import pytest
 from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 
 from backend.api.tft.rfp import draft_repository, repository
+from tests.tft.test_rfp_http_base_db import app_dsn, chain  # noqa: F401
 from tests.tft.test_worker_processor_db import (  # noqa: F401
     SALES,
     FakeExtractor,
@@ -152,4 +154,99 @@ def test_regrading_uses_latest_requirement_and_profile_and_appends_in_that_exact
         conn.execute(
             "DELETE FROM tft.partner_profiles WHERE candidate_code=%s AND profile_version=2",
             (profile,),
+        )
+
+
+def advance_requirement(conn, requirement_id):
+    cursor = conn.execute(
+        "SELECT * FROM tft.requirement_versions WHERE requirement_id=%s LIMIT 0", (requirement_id,)
+    )
+    columns = [col.name for col in cursor.description]
+    conn.execute(
+        SQL(
+            "INSERT INTO tft.requirement_versions ({}) SELECT {} FROM tft.requirement_versions WHERE requirement_id=%s AND version=1"
+        ).format(
+            SQL(",").join(map(Identifier, columns)),
+            SQL(",").join(SQL("2") if col == "version" else Identifier(col) for col in columns),
+        ),
+        (requirement_id,),
+    )
+    conn.execute("UPDATE tft.requirements SET latest_version=2 WHERE id=%s", (requirement_id,))
+
+
+@pytest.mark.parametrize(
+    "path,codes", [("NONE", []), ("OTHER_OWN_PRODUCT", []), ("EXTERNAL_PRODUCT", ["P-A"])]
+)
+def test_ungraded_legacy_or_candidate_free_selection_is_not_invalidated_by_version_alone(
+    admin, app_dsn, chain, path, codes
+):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.supplement_selections(requirement_id,version,requirement_version,path,candidate_codes,role_split,decided_by,data_origin,derivation_kind,known_at) VALUES(%s,1,1,%s,%s,'합성 기록',%s,'synthetic','PROVIDED',now())",
+            (chain["requirement"], path, codes, SALES),
+        )
+        advance_requirement(conn, chain["requirement"])
+    assert read(app_dsn, lambda c: repository.invalid_selection(c, chain["requirement"])) is False
+    assert read(app_dsn, lambda c: repository.needs_rereview(c, chain["requirement"])) is False
+
+
+def test_grade_history_distinguishes_current_loss_exclusion_and_restored_validity(
+    admin, app_dsn, chain, profile
+):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.supplement_selections(requirement_id,version,requirement_version,path,candidate_codes,role_split,decided_by,data_origin,derivation_kind,known_at) VALUES(%s,1,1,'EXTERNAL_PRODUCT',%s,'합성 기록',%s,'synthetic','PROVIDED',now())",
+            (chain["requirement"], [profile], SALES),
+        )
+        before = conn.execute(
+            "SELECT * FROM tft.supplement_selections WHERE requirement_id=%s",
+            (chain["requirement"],),
+        ).fetchall()
+    grade = {
+        "requirement_id": chain["requirement"],
+        "grade": "REVIEW",
+        "reasons": [],
+        "exclusion_reasons": [],
+        "mandatory_check": {"passed": [], "failed": [], "unknown": []},
+    }
+
+    def store(version, excluded=False):
+        values = {
+            **grade,
+            "grade": "EXCLUDED" if excluded else "REVIEW",
+            "exclusion_reasons": ["합성 제외"] if excluded else [],
+        }
+        read(
+            app_dsn,
+            lambda c: repository.insert_grade(
+                c,
+                project_id=chain["project"],
+                candidate_code=profile,
+                profile_version=1,
+                requirement_version=version,
+                grade=values,
+                data_origin="synthetic",
+            ),
+        )
+
+    def needs():
+        return read(app_dsn, lambda c: repository.needs_rereview(c, chain["requirement"]))
+
+    assert needs() is False  # 최초 미채점
+    store(1)
+    assert needs() is False
+    with psycopg.connect(admin) as conn:
+        advance_requirement(conn, chain["requirement"])
+    assert needs() is True  # 이전 판정이 있지만 현재 요구 판본의 판정은 없음
+    store(2, excluded=True)
+    assert needs() is True
+    store(2)
+    assert needs() is False  # 현행 유효성 회복, 과거 EXCLUDED를 최신 판정으로 쓰지 않음
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT * FROM tft.supplement_selections WHERE requirement_id=%s",
+                (chain["requirement"],),
+            ).fetchall()
+            == before
         )

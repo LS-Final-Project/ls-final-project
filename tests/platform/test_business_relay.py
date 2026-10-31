@@ -105,6 +105,14 @@ def business_database(auth_database):
             "tft/20261101_KAN-186_supplement_paths.sql",
             "tft/20261102_KAN-186_rnd_check.sql",
             "tft/20261103_KAN-186_project_columns.sql",
+            # 프로젝트 입력 T20과 선언된 선행(T12/T13/T14/T15/T17/T19). T21 요약 경로는 여기서 읽지 않는다.
+            "tft/20261105_KAN-199_requirement_assembly_clause.sql",
+            "tft/20261106_KAN-199_question_drafts.sql",
+            "tft/20261104_KAN-199_tft_worker.sql",
+            "tft/20261107_KAN-188_requirement_semantic_fields.sql",
+            "tft/20261109_KAN-188_draft_execution.sql",
+            "tft/20261111_KAN-188_draft_rewrite.sql",
+            "tft/20261112_KAN-187_project_constraints.sql",
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(

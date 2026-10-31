@@ -89,7 +89,6 @@ export function UploadForm({ projectId, documents, onCancel, onDone }: {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [origin, setOrigin] = useState('synthetic');
-  const [constraints, setConstraints] = useState(emptyConstraints);
   const [base, setBase] = useState('');
   const problem = fileProblem(file);
   const payload = [file?.name, file?.size, file?.lastModified, kind, title.trim(), note.trim(), origin, base].join('|');

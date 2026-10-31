@@ -60,3 +60,37 @@ def test_existing_create_requests_do_not_gain_new_required_fields_in_api_schema(
         "customer_manufacturer_list",
         "off_list_permission",
     }
+
+
+# API와 실제 DB CHECK가 같은 계약 사례를 독립적으로 검증한다.
+CONSTRAINT_CASES = [
+    pytest.param({}, True, id="omitted"),
+    pytest.param({"supply_region": None, "customer_manufacturer_list": None}, True, id="null"),
+    pytest.param({"supply_region": " \t\n"}, False, id="blank-region"),
+    pytest.param({"supply_region": "\u00a0\u2003"}, False, id="unicode-blank-region"),
+    pytest.param({"supply_region": "가" * 200}, True, id="region-limit"),
+    pytest.param({"supply_region": "가" * 201}, False, id="region-over-limit"),
+    pytest.param({"supply_region": " \t" + "가" * 200 + "\n "}, True, id="region-trimmed-length"),
+    pytest.param({"customer_manufacturer_list": []}, False, id="empty-list"),
+    pytest.param({"customer_manufacturer_list": ["A", " "]}, False, id="blank-item-after-valid"),
+    pytest.param({"customer_manufacturer_list": ["\t\n"]}, False, id="blank-item"),
+    pytest.param({"customer_manufacturer_list": ["\u00a0\u2003"]}, False, id="unicode-blank-item"),
+    pytest.param({"customer_manufacturer_list": [None]}, False, id="null-item"),
+    pytest.param({"customer_manufacturer_list": ["가" * 201]}, False, id="item-over-limit"),
+    pytest.param(
+        {"customer_manufacturer_list": [" \t" + "가" * 200 + "\n "]}, True, id="trimmed-item-limit"
+    ),
+    pytest.param({"customer_manufacturer_list": ["A"] * 100}, True, id="list-count-limit"),
+    pytest.param({"customer_manufacturer_list": ["A"] * 101}, False, id="list-over-count"),
+    pytest.param({"customer_manufacturer_list": [["A"]]}, False, id="nested-list"),
+]
+
+
+@pytest.mark.parametrize("fields,valid", CONSTRAINT_CASES)
+def test_project_constraint_api_text_and_item_boundaries(fields, valid):
+    base = {"name": "합성", "company_code": "HOST", "data_origin": "synthetic"}
+    if valid:
+        ProjectCreate(**base, **fields)
+    else:
+        with pytest.raises(ValidationError):
+            ProjectCreate(**base, **fields)
