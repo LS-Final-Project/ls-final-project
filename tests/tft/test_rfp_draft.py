@@ -1,9 +1,7 @@
 """일반 합성 스냅샷으로 제안 초안의 근거·조건·참조 경계를 검증한다(KAN-188)."""
 
-import re
 from copy import deepcopy
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, get_args
 from uuid import UUID
 
@@ -1221,12 +1219,9 @@ def test_rewritten_template_fingerprint_survives_human_edit_and_regeneration(sna
 
 
 def test_every_internal_name_has_a_display_name():
-    """어휘가 늘면 표시 이름도 있어야 한다. 화면 표와도 같아야 한다."""
+    """어휘가 늘면 표시 이름도 있어야 한다. 화면 표 대조는 scripts/tests가 한다."""
     assert set(vocabulary.ATTRIBUTE_TEXT) == set(vocabulary.ATTRIBUTE_KEYS)
     assert set(vocabulary.CONDITION_TEXT) == set(vocabulary.CONDITION_NAMES)
-    labels = Path("frontend/src/rfp/labels.ts").read_text(encoding="utf-8")
-    block = labels.split("export const ATTRIBUTE_LABEL", 1)[1].split("};", 1)[0]
-    assert dict(re.findall(r"(\w+): '([^']+)'", block)) == vocabulary.ATTRIBUTE_TEXT
 
 
 @pytest.mark.parametrize(
