@@ -262,3 +262,21 @@ def test_six_sections_have_at_most_twelve_calls_and_only_failed_rows_are_repaire
 
     result = rewrite(source, repair)
     assert len(result.calls) == 12 and result.rewritten == 6 and result.fallback == 0
+
+
+def test_input_partition_cannot_silently_drop_numeric_representatives_and_product_names_stay_literal():
+    source = draft()
+    row = source.sections[0].sentences[0]
+    row.text = "사양 차이. 대표 항목: 「1 A」 / 「2 A」 / 「3 A」 / 「4 A」."
+
+    def forbidden_call(_):
+        raise AssertionError("incomplete input must not call")
+
+    result = rewrite(source, forbidden_call)
+    assert result.calls[0].attempt == 0 and result.calls[0].reasons == {1: "INPUT_INCOMPLETE"}
+    source = draft()
+    row = source.sections[0].sentences[0]
+    row.text += " LumenPanel"
+    row.evidence.append(s.Evidence(type="product", id="LumenPanel"))
+    result = rewrite(source, mutate(lambda text: text.replace("LumenPanel", "다른 제품")))
+    assert result.fallback == 1 and result.calls[-1].reasons == {1: "IDENTIFIER_CHANGED"}

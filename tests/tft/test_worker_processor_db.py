@@ -856,3 +856,107 @@ def test_reprocessing_keeps_human_sentence_without_a_model_call(worker_dsn, proj
             "SELECT text,provenance_kind,edit_reason FROM tft.draft_sentences WHERE project_id=%s AND draft_version=3 AND sentence_key=%s",
             (project["project"], key),
         ).fetchone() == ("사람의 검토 문장 원형", "human_input", "근거 확인")
+
+
+@pytest.mark.parametrize("human_race", [False, True])
+def test_rewrite_worker_uses_fake_provider_and_human_save_wins(
+    worker_dsn, project, admin, human_race
+):
+    from backend.api.tft.rfp import draft_repository as db
+    from backend.api.tft.rfp import draft_rewrite, drafts
+    from backend.api.tft.rfp import schemas as s
+    from backend.engine.rfp.draft_rewrite import fake_provider as fake_rewrite
+    from scripts.rfp_draft_trace_input import trace_input
+
+    run(worker_dsn, project, FakeExtractor())
+    key = uuid4().hex
+
+    async def prepare():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            frozen = await draft_rewrite.reserve(conn, project["project"], SALES, key, 1)
+            trace = await trace_input(conn, project["project"])
+            return frozen, trace
+
+    frozen, before = asyncio.run(prepare())
+    called = []
+
+    async def human_save():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            await conn.execute("SET LOCAL lock_timeout='1s'")
+            await db.lock(conn, project["project"])
+            current = await db.load_snapshot(conn, project["project"], 1)
+            row = next(row for part in current.sections for row in part.sentences)
+            updated, reasons = drafts.edit(
+                current,
+                s.DraftEdit.model_validate(
+                    {
+                        "version": 1,
+                        "edits": [
+                            {
+                                "sentence_id": row.sentence_id,
+                                "text": "모델 호출 중 사람이 저장한 문장 원형",
+                                "reason": "먼저 확인",
+                                "evidence": row.evidence,
+                            }
+                        ],
+                    }
+                ),
+                await drafts.valid_references(conn, project["project"]),
+            )
+            await db.save(conn, updated, actor=SALES, reasons=reasons)
+
+    def provider(prompt):
+        if human_race and not called:
+            asyncio.run(human_save())
+        called.append(prompt)
+        return fake_rewrite(prompt)
+
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    processor = make_processor(
+        settings, provider=FakeExtractor(), draft_provider=provider, store=None
+    )
+    job = TftJob(
+        job_id=uuid4(),
+        kind="rfp.draft_rewrite",
+        project_id=project["project"],
+        input_version=frozen,
+        actor_id=SALES,
+    )
+    processor(job, lambda _: None)
+    assert called  # 입력이 전부 차단되어 무호출로 통과한 것과 구분한다.
+
+    async def result():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            return await db.load_snapshot(conn, project["project"], 2), await trace_input(
+                conn, project["project"]
+            )
+
+    latest, after = asyncio.run(result())
+    with psycopg.connect(admin) as conn:
+        state = conn.execute(
+            "SELECT state FROM tft.draft_rewrites WHERE project_id=%s AND request_key=%s",
+            (project["project"], key),
+        ).fetchone()[0]
+        assert state == ("discarded" if human_race else "saved")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.draft_rewrite_calls WHERE rewrite_id=(SELECT id FROM tft.draft_rewrites WHERE project_id=%s AND request_key=%s)",
+                (project["project"], key),
+            ).fetchone()[0]
+            > 0
+        )
+    if human_race:
+        assert any(
+            row.text == "모델 호출 중 사람이 저장한 문장 원형"
+            and row.provenance_kind == "human_input"
+            for part in latest.sections
+            for row in part.sentences
+        )
+    else:
+        assert before == after
+        assert any(
+            row.provenance_kind == "ai_draft" for part in latest.sections for row in part.sentences
+        )
+    calls = len(called)
+    processor(job, lambda _: None)
+    assert len(called) == calls

@@ -187,11 +187,11 @@ async def process(
 ) -> Row:
     record, snapshot = await snapshot_for(conn, job)
     if snapshot is None:
-        return completed()
+        return completed(fallback=True)
     result = await asyncio.to_thread(
         rewrite, snapshot, provider, progress=lambda: emit({"step": "draft", "counts": ZERO})
     )
     # 모델 호출이 끝나고 소유권/취소를 재검사한 뒤에만 저장한다.
     emit({"step": "draft", "counts": ZERO})
     applied = await apply_result(conn, job, record, result, model)
-    return completed(result.draft if applied else None, bool(result.fallback) if applied else False)
+    return completed(result.draft if applied else None, bool(result.fallback) if applied else True)

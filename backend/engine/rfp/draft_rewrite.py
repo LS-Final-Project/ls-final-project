@@ -170,6 +170,11 @@ def validate(text: object, item: dict[str, Any], row: s.Sentence) -> str | None:
         r"\b[A-Za-z][A-Za-z0-9-]*[0-9][A-Za-z0-9-]*\b|\b(?:Class|Type)\s+[A-Za-z]\b", source
     )
     identifiers += re.findall(r"제품 (.*?) ·", source)
+    identifiers += [
+        e.id
+        for e in row.evidence
+        if e.type == "product" and e.id in (row.template_text or row.text)
+    ]
     for identifier in identifiers:
         # 두 부분으로 된 소수는 숫자 비교가 담당한다. 조항/판본/규격은 원형을 보존한다.
         if re.fullmatch(r"\d+\.\d+", identifier):
@@ -239,8 +244,19 @@ def rewrite(
         skipped = {}
         for no, row in enumerate(automatic, 1):
             item = input_of(row, no)
-            if no > 8 or forbidden(source_text(item), row):
+            payload = source_text(item)
+            original = row.template_text or row.text
+            if no > 8 or forbidden(original + "\n" + "\n".join(row.conditions), row):
                 skipped[no] = "INPUT_BLOCKED" if no <= 8 else "INPUT_LIMIT"
+            elif not numeric_values(original).issubset(numeric_values(payload)) or any(
+                phrase in original and phrase not in payload
+                for phrase in (
+                    *STATUS_TEXT.values(),
+                    *RESULT_TEXT.values(),
+                    *NEGATIVE.findall(original),
+                )
+            ):
+                skipped[no] = "INPUT_INCOMPLETE"
             else:
                 eligible[no] = row, item
         if skipped:

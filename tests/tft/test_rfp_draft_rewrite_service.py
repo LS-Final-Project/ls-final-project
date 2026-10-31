@@ -111,6 +111,7 @@ def test_provider_runs_outside_transaction_and_human_edit_wins_cas(monkeypatch, 
     assert outcome["counts"] == {"requirements": 0, "proposals": 0}
     assert conn.record["state"] == ("discarded" if raced else "saved")
     if raced:
+        assert outcome["needs_review"] is True
         assert conn.saved is None and conn.version == 2
     else:
         assert (
