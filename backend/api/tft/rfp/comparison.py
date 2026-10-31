@@ -283,7 +283,7 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         converted = grading._duration_converted(_as_grading(requirement), fact)
         compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = grading._value_verdict(_as_grading(requirement), compared)
-        gaps = grading._condition_gaps(_as_grading(requirement), compared)
+        gaps = grading._condition_gaps(_as_grading(requirement), compared, verdict)
         if verdict == "passed":
             gaps += _unstated_basis(requirement, compared)
         # 단위 차이는 사유 문구가 아니라 값으로 판단한다(grading 문구가 바뀌어도 그대로).

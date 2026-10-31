@@ -13,11 +13,12 @@ from backend.api.tft.partners.grading import (
     Requirement,
     RequirementGrade,
     RfpContext,
+    _value_verdict,
     grade_candidate,
     grade_requirement,
 )
 from backend.api.tft.partners.loader import load_profiles
-from backend.api.tft.partners.schemas import Condition, PartnerProfile
+from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -221,6 +222,36 @@ def test_p_b_short_time_current_shortfall_is_excluded_with_clause_and_evidence()
     assert "미달" in direct and "환산" not in direct
 
 
+def test_an_unreadable_condition_does_not_soften_a_shortfall_but_still_blocks_a_pass():
+    """어휘 밖 조건(OTHER)은 문구다. 미달은 그대로 미달, 충족은 확정하지 않는다."""
+    wanted = MV[3].model_copy(
+        update={"conditions": [*MV[3].conditions, Condition(name="OTHER", value="문구", unit=None)]}
+    )
+    facts = [f for f in MV_FACTS if f["attribute"] != "short_time_withstand_current"]
+    duration = [{"name": "duration", "value": "2", "unit": "s"}]
+    weak = fact("short_time_withstand_current", "25", "kA", conditions=duration)
+    strong = fact("short_time_withstand_current", "40", "kA", conditions=duration)
+    failed = grade_requirement(
+        profile("P-B", [*facts, weak], [cert("UL 347")]), wanted, CONTEXT, DAY
+    )
+    assert failed.grade == "EXCLUDED" and "미달" in failed.exclusion_reasons[0]
+    passed = grade_requirement(
+        profile("P-B", [*facts, strong], [cert("UL 347")]), wanted, CONTEXT, DAY
+    )
+    assert passed.grade == "REVIEW"
+    assert "short_time_withstand_current" in passed.mandatory_check.unknown
+
+
+@pytest.mark.parametrize(
+    ("wanted", "held", "name"),
+    [("Class F", "F", "passed"), ("F", "class f", "passed"), ("Class H", "F", "unknown")],
+)
+def test_class_values_compare_without_the_label(wanted, held, name):
+    row = req(9, "insulation_class", wanted, operator="TEXT")
+    verdict, _ = _value_verdict(row, SpecFact.model_validate(fact("insulation_class", held)))
+    assert verdict == name
+
+
 def test_a_shortfall_under_another_condition_is_unknown_not_excluded():
     """KAN-199: 지속시간 외 조건이 다르면 미달이어도 제외하지 않고 확인 필요로 둔다(조건이 같을 때만 미달)."""
     facts = [f for f in MV_FACTS if f["attribute"] != "short_time_withstand_current"]
@@ -332,7 +363,9 @@ def test_different_attribute_is_unknown_not_met():
     ("certs", "verdict", "phrase"),
     [
         ([cert("UL 347", "TEST_REPORT")], "unknown", "시험 성적"),
-        ([cert("IEC 62271-200", "TEST_REPORT")], "unknown", "다른 규격 체계"),
+        ([cert("IEC 62271-200", "TEST_REPORT")], "unknown", "다른 규격"),
+        # 같은 체계의 무관한 규격은 미달이 아니라 미확인이다(미기재는 미충족이 아니다).
+        ([cert("UL 508A")], "unknown", "다른 규격"),
         ([cert("UL 347", applicable_models=["X-200"])], "failed", "인증 적용 모델 다름"),
         ([cert("UL 347", valid_until="2026-11-19")], "failed", "인증 기준일 지남"),
         ([cert("UL 347", valid_until="2026-11-20")], "passed", "충족"),
@@ -342,6 +375,18 @@ def test_certification_rules(certs, verdict, phrase):
     row = grade_requirement(profile("P-X", MV_FACTS, certs), MV[5], CONTEXT, DAY)
     assert "certification:UL 347" in getattr(row.mandatory_check, verdict)
     assert phrase in " ".join(row.reasons + row.exclusion_reasons)
+
+
+def test_unrelated_standard_of_the_same_system_keeps_the_candidate_in_review():
+    """같은 체계의 다른 규격만 있어도 제외하지 않는다. 경쟁 규격 쌍은 양쪽 다 미달이다."""
+    wanted = MV[5].model_copy(update={"value": "IEEE C62.11", "standard_system": "IEEE"})
+    held = profile("P-X", MV_FACTS, [cert("IEEE C37.20.7", "TEST_REPORT")])
+    row = grade_requirement(held, wanted, CONTEXT, DAY)
+    assert row.grade == "REVIEW" and row.exclusion_reasons == []
+    assert row.mandatory_check.unknown[-1] == "certification:IEEE C62.11"
+    reverse = MV[5].model_copy(update={"value": "UL 891"})
+    rival = grade_requirement(profile("P-X", MV_FACTS, [cert("UL 1558")]), reverse, CONTEXT, DAY)
+    assert rival.grade == "EXCLUDED" and "미달" in rival.exclusion_reasons[0]
 
 
 def test_unit_prefix_case_is_a_different_unit():

@@ -21,7 +21,7 @@
    - 조건 이름(v6): `conditions.name`은 어휘(`vocabulary.ConditionName`) 안의 값 또는 `OTHER`다. 자사·협력사 사양 근거의 조건 이름도 이 어휘 안에 있어야 한다(검사가 확인). `OTHER`면 `value`에 원문 문구를 그대로 둔다. 응답 스키마는 enum 하나다.
    - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
      - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
-     - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
+     - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null. `LV_SWITCHGEAR`(v8)는 저압 배전반·스위치기어 조립품과 그 구획이고 그 안의 차단기는 `LV_BREAKER`다. 자사 제품이 없는 계열이라 자사 비교는 후보 없음이고, 협력사 저압 후보(`PROFILE_FAMILIES`)가 조립품·차단기 요구를 함께 받는다
      - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
      - `assembly_clause`(v4): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true, 장비가 나열되기만 하면 false. 통합 책임 판별(`rfp/integration.py`)의 입력이다. 처리 흐름 연결은 후속이다
@@ -67,6 +67,8 @@
 - `extract_section`은 원래 절의 모든 부분이 `VALID`일 때만 `VALID`다. 실패한 부분이 있으면 그 결과 코드이고, 성공한 부분의 요구는 남기며 `parts_failed`로 드러난다. 문장 포괄 분모는 실패한 부분까지 포함한 원래 절 전체 요구 문장 수다. 부분별 요구·실패·포괄 집계도 `extract_section`이 담당한다.
 - 입력 생성의 `RFP_SECTION_TOO_LONG`·`RFP_SECTION_TOO_MANY_PARTS`는 `ValueError`다. worker는 해당 절을 건너뛰고 `needs_review`로 남기는 흐름을 유지한다.
 - v1 측정 절(2.4 2510자, 2.5 3972자)은 상한 아래라 나뉘지 않는다. 2.6의 기존 실측은 2부분, 실패 0이며 목표 길이 초과 묶음 재분할 변경 후 실측은 미실행이다.
+
+부분 응답이 출력 상한에 닿으면(`MAX_TOKENS`) 잘린 응답은 버리고 그 부분을 조항 경계로 둘로 나눠 한 번만 다시 부른다. 조항이 하나면 나눌 수 없어 실패로 드러난다. 반쪽이 또 잘려도 더 나누지 않는다. 재시도는 절 호출 상한 `MAX_SECTION_CALLS`(24) 안에서만 하고, 남은 부분마다 2회와 반쪽의 4회를 남길 수 없으면 하지 않는다. 그래서 부분이 많은 절의 앞쪽 부분은 재시도되지 않을 수 있다. 잘린 호출의 사용량은 합계에 든다.
 
 ## 채점
 
