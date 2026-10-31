@@ -479,6 +479,31 @@ def test_a_truncation_is_retried_only_once_and_stays_visible():
     assert sum("2.6.B" in text for text in calls) == 3
 
 
+def test_truncated_calls_stay_in_the_usage_when_every_part_fails():
+    """모든 부분이 잘려도 든 비용이 합계에 남는다."""
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    calls = []
+
+    def provider(text):
+        calls.append(text)
+        return truncated()
+
+    result = extract_section(item, provider)
+    assert result.outcome == "SCHEMA_VIOLATION"
+    assert result.usage.input_tokens == 10 * len(calls) and calls
+
+
+def test_a_truncated_gap_fill_keeps_the_first_result_and_its_cost():
+    """보완 호출이 잘려도 1차 결과는 남고 그 비용이 합계에 든다."""
+    item = section()
+    answers = [gen([req("2.5.K", "BIL: 95 kV", "BIL", "95", "kV")]), truncated()]
+    result = extract_section(item, lambda text: answers.pop(0))
+    assert answers == [] and result.outcome == "VALID"
+    assert result.requirements and result.covered_final < result.sentences
+    assert result.usage.input_tokens == 20
+    assert result.truncated is False
+
+
 def test_a_single_clause_cannot_be_split_and_the_call_limit_holds():
     """조항 하나는 나눌 수 없다. 재시도해도 절 호출 상한을 넘지 않는다."""
     item = build_inputs(long_tree(), ["2.6"])[0]

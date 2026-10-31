@@ -748,7 +748,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
         parts=len(results),
         parts_failed=len(failed),
         parts_retried=retried,
-        usage=usage if valid else Usage(),
+        usage=usage if valid or retried or any(r.truncated for r in results) else Usage(),
         model_version=valid[0].model_version if valid else None,
     )
 
@@ -799,6 +799,16 @@ def _extract_part(item: ExtractionInput, provider: Callable[[str], Generation]) 
         try:
             extra_response, more, more_rejected, more_dropped, more_undesignated = _call(
                 gap, item, provider
+            )
+        except Truncated as error:
+            # 잘린 보완도 1차 결과를 지우지 않는다. 든 비용만 더한다.
+            usage = _sum_usage(usage, error.usage)
+            more, more_rejected, more_dropped, more_undesignated, extra_response = (
+                [],
+                [],
+                0,
+                0,
+                None,
             )
         except Exception:
             # 보완 호출 실패는 1차 결과를 지우지 않는다. 빠진 문장 수로 드러난다.
