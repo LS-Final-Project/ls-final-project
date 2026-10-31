@@ -26,7 +26,7 @@ describe('업무 셸과 옛 화면의 스타일 경계', () => {
     expect(read('./ls-shell.css')).toMatch(/\.ls-root :where\([^)]*\):where\(:not\(\.ls-legacy \*\)\)\{all:revert\}/);
   });
 
-  it.each(['/cs/stats', '/cs/improvements'])('%s 는 셸 안의 옛 화면 영역에 그린다', path => {
+  it.each(['/cs/improvements'])('%s 는 셸 안의 옛 화면 영역에 그린다', path => {
     const { container } = show(path);
     expect(container.querySelector('.ls-root .ls-legacy')).not.toBeNull();
   });

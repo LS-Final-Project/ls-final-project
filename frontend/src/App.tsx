@@ -4,7 +4,8 @@ import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
 import Account from './pages/Account';
 import Tickets from './pages/Tickets';
-import CsStats from './pages/CsStats';
+import CsCustomers from './pages/CsCustomers';
+import CsAdmin from './pages/CsAdmin';
 import CsImprovements from './pages/CsImprovements';
 import TicketDetail from './pages/TicketDetail';
 import Evaluations from './pages/Evaluations';
@@ -30,7 +31,8 @@ export default function App() {
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<div className="ls-legacy"><CsImprovements /></div>} />
       <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />
-      <Route path="cs/stats" element={<div className="ls-legacy"><CsStats /></div>} />
+      <Route path="cs/customers" element={<CsCustomers />} />
+      <Route path="cs/admin" element={<CsAdmin />} />
       <Route path="cs/tickets" element={<Tickets />} />
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
