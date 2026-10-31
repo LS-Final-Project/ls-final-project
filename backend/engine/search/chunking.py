@@ -337,9 +337,10 @@ def is_document_listing(chunk: Chunk, document_ids: frozenset[str]) -> bool:
         for line in chunk.text.splitlines()
         if line.strip() and line.strip() not in chunk.section_path
     ]
-    return len(lines) >= 2 and all(
-        any(document_id in line for document_id in document_ids) for line in lines
-    )
+    # 식별자는 글자·밑줄·하이픈 경계로 본다. D-01이 D-010이나 AD-01 안에서 맞지 않게 한다.
+    names = "|".join(re.escape(document_id) for document_id in sorted(document_ids))
+    pattern = re.compile(rf"(?<![\w-])(?:{names})(?![\w-])")
+    return bool(names) and len(lines) >= 2 and all(pattern.search(line) for line in lines)
 
 
 def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> ChunkingResult:
