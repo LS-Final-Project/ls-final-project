@@ -97,9 +97,17 @@ def req(no: str, quote: str, value: str | None, **updates: object) -> ExtractedR
     )
 
 
-@pytest.mark.parametrize(
-    "marker", ["<Insert value>", "TBD", "[ ]", "___", "<INSERT rating>", "미정", "추후 협의"]
-)
+def test_a_korean_field_left_open_becomes_a_question() -> None:
+    output = generate_question_drafts(tree(clause("3.1.A", "정격 전류: 미정")), [])
+    assert [d.kind for d in output] == ["PLACEHOLDER"]
+
+
+def test_a_general_contract_sentence_is_not_a_field_left_open() -> None:
+    text = "정격전류 630A. 납기는 별도 협의"
+    assert generate_question_drafts(tree(clause("3.1.A", text)), []) == []
+
+
+@pytest.mark.parametrize("marker", ["<Insert value>", "TBD", "[ ]", "___", "<INSERT rating>"])
 def test_placeholders_remain_undetermined(marker: str) -> None:
     text = f"The rated current shall be {marker} A."
     output = generate_question_drafts(tree(clause("3.1.A", text)), [])

@@ -83,13 +83,13 @@ AttributeKeyOrOther = Literal[AttributeKey, Other]
 FamilyOrOther = Literal[EquipmentFamily, Other]
 ConditionNameOrOther = Literal[ConditionName, Other]
 # 값이 아직 정해지지 않았다는 표시(<Insert value>, TBD, [ ], ___). 판정·질문이 같은 규칙을 쓴다.
-PLACEHOLDER = re.compile(
-    r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}"
-    # 한글은 \\b가 조사 앞에서 끊기지 않고 미정산 같은 낱말에도 걸려 글자로 막는다.
-    r"|(?<![가-힣])미정(?:임|입니다|이다|으로)?(?![가-힣])"
-    r"|(?:추후|차후|별도)\s*(?:협의|결정|확정|통보)"
-    r"|협의\s*(?:후|하여)\s*(?:결정|확정)",
-    re.I,
+PLACEHOLDER = re.compile(r"<\s*insert\b[^<>]*>|\bTBD\b|\[\s*\]|_{3,}", re.I)
+# 한글 미정 표시는 일반 계약 문장에도 나온다("납기는 별도 협의"). 그래서 값 전체가 그 말일 때만 본다.
+# 앞에 라벨 하나는 허용한다("용량: 미정"). 값이 함께 있는 문장을 미정으로 읽으면 판정이 사라진다.
+OPEN_VALUE = re.compile(
+    r"\s*(?:[^.。;:：\n]{1,30}[:：]\s*)?"
+    r"(?:미정|(?:추후|차후|별도)\s*(?:협의|결정|확정|통보)|협의\s*(?:후|하여)\s*(?:결정|확정))"
+    r"(?:임|입니다|이다)?\s*[.。]?\s*"
 )
 # 문장으로 적힌 값의 비교용 표기(canonical_value). 탭은 ±NxS% 또는 +Nx-MxS%(위 N·아래 M단, 단 간격 S%),
 # 보호 기능은 L·S·I·G 순서의 문자 집합이다(업계 표기라 알파벳순이 아니다).
@@ -139,7 +139,9 @@ def is_placeholder(value: str | None) -> bool:
     Returns:
         bool: 자리표시자면 True.
     """
-    return value is not None and PLACEHOLDER.search(value) is not None
+    if value is None:
+        return False
+    return PLACEHOLDER.search(value) is not None or OPEN_VALUE.fullmatch(value) is not None
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.

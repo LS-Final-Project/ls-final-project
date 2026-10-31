@@ -606,7 +606,9 @@ def test_the_seeded_and_own_forms_keep_their_axes():
     [
         "미정",
         "미정임",
-        "용량 미정입니다",
+        "미정입니다.",
+        "용량: 미정",
+        "납기：별도 협의",
         "추후 협의",
         "추후협의",
         "차후 협의",
@@ -614,7 +616,7 @@ def test_the_seeded_and_own_forms_keep_their_axes():
         "별도 통보",
         "추후 결정",
         "협의 후 결정",
-        "협의 후 확정",
+        "협의하여 확정",
         "TBD",
         "<Insert value>",
     ],
@@ -626,7 +628,22 @@ def test_a_value_left_open_is_not_compared(value):
 
 
 @pytest.mark.parametrize(
-    "value", ["미정산 금액 없음", "협의체 구성", "협의 완료", "별도 제작", "추후 납품", "630"]
+    "value",
+    [
+        "미정산 금액 없음",
+        "협의체 구성",
+        "협의 완료",
+        "별도 제작",
+        "추후 납품",
+        "630",
+        # 값이 있는 문장이나 일반 계약 문장은 미정이 아니다.
+        "정격전류 630A. 납기는 별도 협의",
+        "정격전류 630A. 납기: 별도 협의",
+        "세부 사양은 협의 후 결정",
+        "납기는 별도 협의",
+        "630A 또는 별도 협의",
+        "미정 사항은 별도 협의한다",
+    ],
 )
 def test_a_real_value_is_not_read_as_left_open(value):
     assert not is_placeholder(value)
