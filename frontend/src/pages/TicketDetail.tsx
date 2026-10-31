@@ -4,10 +4,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
+import ResolutionCaseForm from '../components/ResolutionCaseForm';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, getTicketWorkflow, isResolutionExists, isVersionConflict, recallTransfer, registerResolutionCase, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
@@ -23,7 +24,7 @@ const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], str
   OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
 };
 type Transfer = WorkflowRecord['transfers'][number];
-type Dialog = 'transfer' | 'recall' | 'close' | null;
+type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | null;
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
 
 const Cell = ({ label, children }: { label: string; children: ReactNode }) =>
@@ -70,6 +71,7 @@ export default function TicketDetail() {
     transfer: why(st === 'IN_REVIEW', '검토중인 문의만 요청할 수 있습니다'),
     recall: why(st === 'TRANSFERRED', '진행 중인 요청 없음'),
     close: why(st === 'ANSWERED' || st === 'IN_REVIEW', '종결할 수 없는 상태입니다'),
+    resolution: why(st === 'CLOSED' && !rc, rc ? '이미 해결 기록이 있습니다(문의당 한 건)' : '종결 후 한 건'),
   };
   const owner = wf?.owner_user_id ? (identity.data?.data?.id === wf.owner_user_id ? '나' : `사용자 ${wf.owner_user_id.slice(0, 8)}`) : wf ? '미지정' : '-';
 
@@ -89,6 +91,7 @@ export default function TicketDetail() {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : isResolutionExists(error) ? '이 문의에는 이미 해결 기록이 있습니다. 문의당 한 건만 등록할 수 있고 고치는 경로는 없습니다.'
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
           : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 상태를 읽었습니다. 반영 여부를 확인하세요.' });
       setDialog(null);
@@ -133,7 +136,7 @@ export default function TicketDetail() {
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
         { label: '담당 변경', note: 'C/S 관리자만, 연결 전' },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
-        { label: '해결 기록 남기기', note: '종결 후 한 건, 연결 전' },
+        { label: '해결 기록 남기기', note: reasons.resolution ?? '종결 후 한 건', action: busy || reasons.resolution !== undefined ? undefined : () => setDialog('resolution') },
       ]} />
     </KvTitle>
 
@@ -222,6 +225,10 @@ export default function TicketDetail() {
         <div className="kv-field"><span className="req">취소 사유</span><textarea name="reason" aria-label="취소 사유" rows={3} required /></div>
         <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>닫기</button><button type="submit" className="kb primary" disabled={busy}>요청 취소</button></div>
       </form>
+    </KvModal>}
+    {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)}
+        onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
     </KvModal>}
     {dialog === 'close' && data && <KvModal title={`종결, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <div className="kv-sub" style={{ margin: '0 0 8px' }}>이 문의를 종결합니다. 종결 뒤에는 해결 기록을 한 건 남길 수 있습니다. 종결 조건은 서버가 확인하며, 맞지 않으면 사유를 알려 줍니다.</div>
