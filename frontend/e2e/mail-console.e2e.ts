@@ -93,3 +93,31 @@ test('메일 메뉴: 세 화면이 사이드바 링크로 열린다', async ({ p
   await menu.getByRole('link', { name: '발송 상태' }).click();
   await expect(page.locator('.kv-code', { hasText: 'MB0102' })).toBeVisible();
 });
+
+test('발송 상태: 결과 모름이고 사본 없음이 확인된 발송만 사유를 받아 다시 보낼 수 있다', async ({ page }) => {
+  const posts: string[] = [];
+  const unknownRow = intent('3333cccc-3333-4333-8333-333333333333', 'UNKNOWN', { error_code: 'SUBMIT_TIMEOUT', resend_ready: true });
+  const waiting = intent('4444dddd-4444-4444-8444-444444444444', 'UNKNOWN', { error_code: 'SUBMIT_TIMEOUT', resend_ready: false });
+  await openLive(page, '/mail/sent', (route, url) => {
+    if (url.pathname.endsWith('/resend')) {
+      posts.push(route.request().postData() ?? '');
+      route.fulfill(json({ data: { intent_id: unknownRow.intent_id, status: 'QUEUED', task_registered: true } }));
+      return true;
+    }
+    if (url.pathname.endsWith('/mail/send-intents')) { route.fulfill(json({ data: { items: [unknownRow, waiting] } })); return true; }
+    return false;
+  });
+  await expect(page.getByRole('button', { name: '다시 보내기' })).toBeDisabled();
+  await page.getByLabel(`${waiting.subject} 선택`).check();
+  await expect(page.getByRole('button', { name: '다시 보내기' })).toBeDisabled();
+  await page.getByLabel(`${unknownRow.subject} 선택`).check();
+  await expect(page.getByRole('button', { name: '다시 보내기' })).toBeEnabled();
+  await page.getByRole('button', { name: '다시 보내기' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '다시 보내기' }).click();
+  expect(posts).toHaveLength(0);
+  await dialog.getByLabel('사유').fill('사본이 없어 재전송');
+  await dialog.getByRole('button', { name: '다시 보내기' }).click();
+  await expect(page.getByText('다시 보내기를 등록했습니다.')).toBeVisible();
+  expect(posts).toEqual([JSON.stringify({ reason: '사본이 없어 재전송' })]);
+});
