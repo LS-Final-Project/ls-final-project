@@ -94,3 +94,35 @@ export async function reclassifyMail(messageId: string, body: Reclassification, 
   if (!isTriage(data)) throw new ApiError(502, '저장 결과를 확인할 수 없습니다. 최신 분류를 다시 읽어 확인하세요.');
   return data;
 }
+
+export type SentCopyCheck = paths['/api/v1/platform/mail/send-intents/{intent_id}/check-sent-copy']['post']['responses'][200]['content']['application/json']['data'];
+export type ResendResult = paths['/api/v1/platform/mail/send-intents/{intent_id}/resend']['post']['responses'][200]['content']['application/json']['data'];
+
+// 메일을 외부로 내거나 메일 서버를 확인하는 호출이라 개발 모드의 실제 API와 세션 확인 정보가 있을 때만 연다.
+// 허용 조건(결과 불명만, 유예 시간, 사본 없음 확인, 승인자만)은 서버가 판단하고 어기면 4xx로 이유를 돌려준다.
+function sendGuard(): string {
+  if (!import.meta.env.DEV || getApiMode() !== 'live') throw new ApiError(403, '실제 API 개발 모드에서만 실행할 수 있습니다.');
+  const token = sessionCsrfToken();
+  if (!token) throw new ApiError(403, '세션 확인 정보가 없습니다. 세션을 다시 확인하세요.');
+  return token;
+}
+const isStatus = (value: unknown): value is SendStatus => STATUSES.includes(value as SendStatus);
+const intentPath = (intentId: string, action: string) => `/api/v1/platform/mail/send-intents/${encodeURIComponent(intentId)}/${action}`;
+
+/** 보낸 편지함 사본을 대조해 결과 불명 판단 근거를 이력에 남긴다. 사본이 확인되면 sent_copy_confirmed가 true다. */
+export async function checkSentCopy(intentId: string, signal?: AbortSignal): Promise<SentCopyCheck> {
+  const token = sendGuard();
+  const reply = await request<unknown>(intentPath(intentId, 'check-sent-copy'), { method: 'POST', signal, headers: { 'X-CSRF-Token': token } });
+  const data = (reply as { data?: Record<string, unknown> } | null)?.data;
+  if (!data || typeof data.sent_copy_confirmed !== 'boolean' || !isStatus(data.status)) throw new ApiError(502, '보낸 편지함 확인 결과를 확인할 수 없습니다.');
+  return data as SentCopyCheck;
+}
+
+/** 결과 불명 발송을 사유와 함께 다시 보낸다. 서버가 전송 작업을 등록한다. */
+export async function resendIntent(intentId: string, reason: string, signal?: AbortSignal): Promise<ResendResult> {
+  const token = sendGuard();
+  const reply = await request<unknown>(intentPath(intentId, 'resend'), { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify({ reason }) });
+  const data = (reply as { data?: Record<string, unknown> } | null)?.data;
+  if (!data || typeof data.task_registered !== 'boolean' || !isStatus(data.status)) throw new ApiError(502, '다시 보내기 결과를 확인할 수 없습니다. 발송 상태를 다시 조회해 확인하세요.');
+  return data as ResendResult;
+}
