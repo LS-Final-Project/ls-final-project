@@ -50,6 +50,8 @@ export const isUnitMismatch = (error: unknown) => error instanceof ApiError && e
 // 이관받은 부서 담당자가 검토 답변을 보낸다(워크플로 ⑤). 문의는 검토중으로 돌아가고 답변은 C/S의 확인을 기다리는 SUBMITTED로 남는다.
 export type DeptResultBody = paths[`${Wf}/dept-result`]['post']['requestBody']['content']['application/json'];
 export const submitDeptResult = (ticketId: string, body: DeptResultBody, signal: AbortSignal) => postTo(`${base(ticketId)}/dept-result`, body, signal, 'POST', 'dept_staff');
+// 이관받은 부서 담당자가 "우리 부서 일이 아님"으로 반송한다. 문의는 검토중으로 돌아가고 이관은 부서 반송(RETURNED_BY_DEPT)이 된다.
+export const returnTransfer = (ticketId: string, body: { reason: string; version: number }, signal: AbortSignal) => postTo(`${base(ticketId)}/return`, body, signal, 'POST', 'dept_staff');
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
 export const isResultVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_DEPT_RESULT_VERSION_CONFLICT';

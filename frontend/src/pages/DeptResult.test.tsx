@@ -14,11 +14,11 @@ const workflow = (transfers: unknown[], results: unknown[] = [], version = 7) =>
 const result1 = { id: 'res-1', dept_code: 'QA_CLAIM', transfer_id: 'tr-1', result: '과부하 설정값 상향 권고', reply_content: null, review_status: 'REWORK', review_note: '펌웨어 관점 검토 요청', reviewed_at: null, reviewed_by: null, submitted_at: '2026-10-22T01:00:00Z', submitted_by: 'u', version: 1 };
 const staff = { data: { id: '00000000-0000-4000-8000-000000000009', display_name: '최민호', dept: 'QA_CLAIM', roles: ['dept_staff'] } };
 
-type Post = (init: RequestInit) => Response;
+type Post = (init: RequestInit, path: string) => Response;
 const serve = (wf = workflow([transfer(1, 'RESULT_SUBMITTED'), transfer(2, 'OPEN')], [result1]), who: unknown = staff, post: Post = () => jsonResponse(200, workflow([], [], 8))) => vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
   const path = String(url);
   if (path.endsWith('/platform/me')) return new Response(JSON.stringify(who), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' } });
-  if (path.endsWith('/workflow/dept-result')) return post(init ?? {});
+  if (path.endsWith('/workflow/dept-result') || path.endsWith('/workflow/return')) return post(init ?? {}, path);
   if (path.endsWith('/workflow')) return jsonResponse(200, wf);
   return jsonResponse(200, ticket);
 });
@@ -35,7 +35,7 @@ test('요청 정보·사유·고객 원문과 이전 차수의 답변·다시 �
   const previous = within(screen.getByRole('table', { name: '이전 차수' })).getAllByRole('row')[1];
   expect(previous.textContent).toContain('과부하 설정값 상향 권고');
   expect(previous.textContent).toContain('펌웨어 관점 검토 요청');
-  expect((screen.getByRole('button', { name: '담당 아님 반송' }) as HTMLButtonElement).disabled).toBe(true);
+  for (const button of screen.getAllByRole('button', { name: '담당 아님 반송' })) expect((button as HTMLButtonElement).disabled).toBe(false);
   expect((screen.getByRole('button', { name: '임시 저장' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -92,4 +92,36 @@ test('접근 거절(403)은 오류 화면으로 보인다', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? jsonResponse(200, staff) : jsonResponse(403, errorBody('FORBIDDEN', '권한이 없습니다.'))));
   show();
   expect(await screen.findByText('권한이 없습니다')).toBeTruthy();
+});
+
+test('담당 아님 반송은 사유와 읽은 판본으로 보내고, 사유가 비면 보내지 않는다', async () => {
+  const calls: { path: string; body: unknown; token: string }[] = [];
+  vi.stubGlobal('fetch', serve(undefined, staff, (init, path) => { calls.push({ path, body: JSON.parse(String(init.body)), token: (init.headers as Record<string, string>)['X-CSRF-Token'] }); return jsonResponse(200, workflow([], [], 8)); }));
+  show();
+  await screen.findByText('CS26-1039');
+  const form = screen.getByRole('form', { name: '담당 아님 반송 입력' });
+  fireEvent.click(within(form).getByRole('button', { name: '담당 아님 반송' }));
+  expect(calls).toHaveLength(0);
+  fireEvent.change(within(form).getByLabelText('반송 사유'), { target: { value: '  우리 부서 소관이 아닌 제품  ' } });
+  fireEvent.click(within(form).getByRole('button', { name: '담당 아님 반송' }));
+  expect(await screen.findByText('담당 아님으로 반송했습니다. C/S 담당자가 다시 검토합니다.')).toBeTruthy();
+  expect(calls).toEqual([{ path: `/api/v1/cs/tickets/${TICKET}/workflow/return`, token: 'tok', body: { version: 7, reason: '우리 부서 소관이 아닌 제품' } }]);
+});
+
+test('반송도 판본 충돌(409)이면 안내하고 최신 상태를 다시 읽으며, 답변할 수 없는 요청은 잠근다', async () => {
+  const fetch = serve(undefined, staff, () => jsonResponse(409, errorBody('CS_WORKFLOW_VERSION_CONFLICT', '충돌')));
+  vi.stubGlobal('fetch', fetch);
+  show();
+  await screen.findByText('CS26-1039');
+  const form = screen.getByRole('form', { name: '담당 아님 반송 입력' });
+  fireEvent.change(within(form).getByLabelText('반송 사유'), { target: { value: '사유' } });
+  fireEvent.click(within(form).getByRole('button', { name: '담당 아님 반송' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('다른 사용자가 먼저 상태를 바꿨습니다');
+  const reads = () => fetch.mock.calls.filter(call => String(call[0]).endsWith('/workflow')).length;
+  await waitFor(() => expect(reads()).toBeGreaterThanOrEqual(2));
+  cleanup();
+  vi.stubGlobal('fetch', serve(workflow([transfer(1, 'RESULT_SUBMITTED')], [result1])));
+  show();
+  await screen.findByText('CS26-1039');
+  expect((screen.getByLabelText('반송 사유') as HTMLTextAreaElement).disabled).toBe(true);
 });
