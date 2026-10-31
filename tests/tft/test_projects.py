@@ -250,8 +250,8 @@ def test_detail_shows_the_integration_responsibility_with_its_basis_clause(clien
     assert integration["unresolved"]
 
 
-def test_detail_survives_a_database_without_the_rfp_migrations(client, monkeypatch):
-    """T7·T11·T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
+def test_detail_survives_a_database_without_the_t12_migration(client, monkeypatch):
+    """T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
 
     async def missing(conn, project_id):
         return None

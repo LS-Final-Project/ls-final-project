@@ -118,6 +118,6 @@ class ProjectDetail(BaseModel):
         default=None,
         description=(
             "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
-            "Null when the RFP migrations are not applied yet, which is not the same as not required."
+            "Null when migration T12 is not applied yet, which is not the same as not required."
         ),
     )

@@ -1835,6 +1835,29 @@ async def comparison_evidence(
     return await cursor.fetchall()
 
 
+async def excluded_candidates(
+    conn: AsyncConnection[Row], requirement_id: UUID, codes: Sequence[str]
+) -> list[str]:
+    """고른 후보 중 이 요구의 최신 저장 등급이 EXCLUDED인 코드.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+        codes: 고른 후보 코드.
+
+    Returns:
+        list[str]: 제외 후보 코드(코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT candidate_code FROM (SELECT DISTINCT ON (candidate_code) candidate_code, grade "
+        "FROM tft.partner_grades WHERE requirement_id = %s AND candidate_code = ANY(%s) "
+        "ORDER BY candidate_code, profile_version DESC, requirement_version DESC, version DESC) g "
+        "WHERE grade = 'EXCLUDED' ORDER BY candidate_code",
+        (requirement_id, list(codes)),
+    )
+    return [row["candidate_code"] for row in await cursor.fetchall()]
+
+
 async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     """후보×요구마다 저장된 최신 등급. 대상은 저장된 등급 행이 정한다(특정 요구 상태에 묶지 않는다).
 

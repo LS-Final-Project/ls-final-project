@@ -2222,7 +2222,7 @@
                 "type": "null"
               }
             ],
-            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when the RFP migrations are not applied yet, which is not the same as not required."
+            "description": "Assembly integration responsibility (RFP API spec v1.3 \u00a77), computed on read. Null when migration T12 is not applied yet, which is not the same as not required."
           },
           "judgement_status": {
             "enum": [
