@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getApiMode } from '../api/client';
+import { ApiError, getApiMode } from '../api/client';
 import { getJob, listDocuments, listProposals, listQuestions, type DocumentVersion } from '../api/rfp';
 import { getProject } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
@@ -42,6 +42,11 @@ function rememberJob(projectId: string, jobId: string | undefined) {
 // 작업이 도는지는 작업 ID로만 판단한다. 진행 칸으로 막으면 끝난 프로젝트가 영영 잠긴다.
 export default function RfpIntake() {
   const { projectId = '' } = useParams();
+  // 프로젝트를 옮기면 작업·알림 상태를 새로 시작한다(같은 경로 요소라 그대로 두면 앞 프로젝트 상태가 남는다).
+  return <Intake key={projectId} projectId={projectId} />;
+}
+
+function Intake({ projectId }: { projectId: string }) {
   const mode = getApiMode();
   const access = useBusinessAccess('tft');
   const client = useQueryClient();
@@ -56,7 +61,8 @@ export default function RfpIntake() {
     refetchInterval: query => { const status = query.state.data?.data.status; return !status || ACTIVE.has(status) ? POLL_MS : false; },
   });
   const jobStatus = job.data?.data.status;
-  const running = !!jobId && (!jobStatus || ACTIVE.has(jobStatus));
+  // 상태를 읽지 못하면(다른 사용자의 작업 404, 장애) 돈다고 단정하지 않는다. 화면을 잠그지 않고 서버 409에 맡긴다.
+  const running = !!jobId && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
   const project = useQuery({
     queryKey: ['projects', mode, projectId],
     queryFn: () => getProject(projectId),
@@ -65,6 +71,12 @@ export default function RfpIntake() {
   const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled });
   const pending = useQuery({ queryKey: ['rfp-proposals', mode, projectId, 'PENDING'], queryFn: () => listProposals(projectId, { status: 'PENDING' }), enabled });
   const open = useQuery({ queryKey: ['rfp-questions', mode, projectId, 'OPEN'], queryFn: () => listQuestions(projectId, 'OPEN'), enabled });
+  const jobGone = job.error instanceof ApiError && (job.error.status === 404 || job.error.status === 403);
+  useEffect(() => {
+    if (!jobId || !jobGone) return;
+    setJobId(undefined);
+    rememberJob(projectId, undefined);
+  }, [jobId, jobGone, projectId]);
   useEffect(() => {
     if (!jobId || !jobStatus || ACTIVE.has(jobStatus)) return;
     setFinished(jobStatus);

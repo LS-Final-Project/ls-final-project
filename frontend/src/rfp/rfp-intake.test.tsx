@@ -2,8 +2,10 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setApiMode } from '../api/client';
-import { errorBody, jsonResponse, renderApp } from '../test/render';
+import { Link } from 'react-router-dom';
+import { errorBody, jsonResponse, renderApp, renderAt } from '../test/render';
 import { fileProblem, latestVersions } from './IntakeForms';
+import RfpIntake from './RfpIntake';
 
 const ID = '33333333-3333-4333-8333-333333333333';
 const PATH = `/tft/projects/${ID}`;
@@ -95,6 +97,23 @@ describe('프로젝트 화면', () => {
     job = () => ok({ job_id: 'j9', status: 'SUCCEEDED' });
     await open();
     await waitFor(() => expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBeNull());
+  });
+
+  it.each([[404], [403]])('작업을 못 읽으면(%d) 잠그지 않고 기억을 지운다', async status => {
+    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+    job = () => jsonResponse(status, errorBody('X', '없음'));
+    await open();
+    await waitFor(() => expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBeNull());
+    expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(next()).not.toContain('30초마다');
+  });
+
+  it('작업 조회 장애는 잠그지 않되 기억은 남겨 다시 본다', async () => {
+    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+    job = () => jsonResponse(500, errorBody('X', '장애'));
+    await open();
+    await waitFor(() => expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBe('j9');
   });
 
   it('저장소를 못 써도 화면은 돈다', async () => {
@@ -269,5 +288,19 @@ describe('프로젝트 접수', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '접수' })[1]);
     await screen.findByRole('alert');
     expect((screen.getByLabelText('프로젝트명') as HTMLInputElement).value).toBe('합성');
+  });
+});
+
+describe('경로 안에서 프로젝트 이동', () => {
+  it('같은 화면 요소에서 프로젝트가 바뀌면 앞 프로젝트의 작업 상태가 따라오지 않는다', async () => {
+    const other = '44444444-4444-4444-8444-444444444444';
+    sessionStorage.setItem(`rfp-job:${ID}`, 'j9');
+    renderAt(PATH, 'tft/projects/:projectId', <><Link to={`/tft/projects/${other}`}>다른 프로젝트</Link><RfpIntake /></>);
+    await waitFor(() => expect(next()).toContain('30초마다'));
+    fireEvent.click(screen.getByRole('link', { name: '다른 프로젝트' }));
+    const upload = await screen.findByRole('button', { name: '문서 올리기' }) as HTMLButtonElement;
+    await waitFor(() => expect(upload.disabled).toBe(false));
+    expect(next()).not.toContain('30초마다');
+    expect(sessionStorage.getItem(`rfp-job:${ID}`)).toBe('j9');
   });
 });
