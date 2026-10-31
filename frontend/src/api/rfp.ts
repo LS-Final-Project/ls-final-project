@@ -1,5 +1,5 @@
 import type { components } from './generated/tft';
-import { request, sessionCsrfToken } from './client';
+import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
 import { MOCK_COMPARISON, MOCK_DETAIL, MOCK_PROPOSALS, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
 
 type Schemas = components['schemas'];
@@ -78,4 +78,46 @@ export const approveProposal = (id: string, version: number, note: string, key: 
 export const rejectProposal = (id: string, version: number, reason: string, key: string) => request<Envelope<Proposal>>(
   `/api/v1/tft/proposals/${encodeURIComponent(id)}/reject`,
   { ...json(key, { version, reason }), mockFallback: mock(MOCK_PROPOSALS[0]) },
+);
+
+export type ProjectCreate = Schemas['ProjectCreate'];
+export type RfpProject = Schemas['RfpProjectDetail'];
+export const createProject = (body: ProjectCreate, key: string) => request<Envelope<RfpProject>>(
+  '/api/v1/tft/projects', { ...json(key, body), mockFallback: mock({ id: '33333333-3333-4333-8333-333333333333' }) },
+);
+
+export const UPLOAD_LIMIT = 25 * 1024 * 1024;
+export type UploadFields = { file: File; kind: string; title: string; note: string; data_origin: string; supersedes_document_id?: string };
+
+// 멀티파트는 브라우저가 경계를 넣어야 해 공용 request(JSON 고정)를 쓰지 않는다.
+export async function uploadDocument(projectId: string, fields: UploadFields, key: string): Promise<DocumentVersion> {
+  if (import.meta.env.DEV && getApiMode() === 'mock') return { title: fields.title } as DocumentVersion;
+  const form = new FormData();
+  for (const [name, value] of Object.entries(fields)) if (value) form.append(name, value);
+  const csrf = sessionCsrfToken();
+  const response = await fetch(`/api/v1/tft/projects/${encodeURIComponent(projectId)}/documents`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Idempotency-Key': key, ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    body: form,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(response.status, body?.error?.message || `HTTP ${response.status}`, body?.meta?.request_id, body?.error?.code);
+  return body.data;
+}
+
+export const startProcess = (projectId: string, body: Schemas['ProcessRequest'], key: string) => request<Envelope<Schemas['JobAccepted']>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/process`,
+  { ...json(key, body), mockFallback: mock({ job_id: '77777777-7777-4777-8777-777777777771', status: 'QUEUED', status_url: '' }) },
+);
+
+export type JobStatus = { job_id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED' | 'CANCELLED' };
+export const getJob = (id: string) => request<Envelope<JobStatus>>(
+  `/api/v1/platform/jobs/${encodeURIComponent(id)}`, { mockFallback: mock({ job_id: id, status: 'SUCCEEDED' }) },
+);
+
+export type Question = Schemas['Question'];
+export const listQuestions = (projectId: string, status?: string) => request<Envelope<Schemas['QuestionList']>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions${status ? `?status=${status}` : ''}`,
+  { mockFallback: mock({ items: [] }) },
 );

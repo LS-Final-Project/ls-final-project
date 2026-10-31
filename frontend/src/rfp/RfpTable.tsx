@@ -74,11 +74,12 @@ function Detail({ projectId, id, proposing, onPropose, onClose }: {
       </KvBox>
     </KvSplit>
     {proposing && <ProposalForm
-      key={`${id}:${data.version}`}
+      key={id}
       projectId={projectId}
       requirement={data}
       onCancel={onClose}
       onSaved={() => { onClose(); client.invalidateQueries({ queryKey: ['rfp-proposals', mode] }); }}
+      onReload={() => { requirement.refetch(); comparison.refetch(); }}
     />}
   </>;
 }

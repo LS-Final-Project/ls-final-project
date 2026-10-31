@@ -16,10 +16,10 @@ const CONFLICT: Record<string, string> = {
   TFT_VERSION_CONFLICT: '다른 사람이 먼저 바꿨습니다. 요구가 그사이 바뀌어 승인하지 않았습니다. 최신 내용을 보고 다시 제안하세요. 기각은 할 수 있습니다.',
   TFT_PROPOSAL_DECIDED: '이미 처리된 제안입니다. 다시 불러와 확인하세요.',
 };
-export function Failure({ error, onReload }: { error: unknown; onReload: () => void }) {
+export function Failure({ error, onReload, messages = CONFLICT }: { error: unknown; onReload: () => void; messages?: Record<string, string> }) {
   const code = error instanceof ApiError ? error.code : undefined;
-  if (code && CONFLICT[code]) return <div role="alert" className="kv-next" style={{ margin: '6px 0 0' }}>
-    <span>{CONFLICT[code]}</span>
+  if (code && messages[code]) return <div role="alert" className="kv-next" style={{ margin: '6px 0 0' }}>
+    <span>{messages[code]}</span>
     <button className="kb" onClick={onReload}>다시 불러오기</button>
   </div>;
   return <ErrorState error={error} />;

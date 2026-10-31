@@ -5,14 +5,19 @@ import { KvBox } from '../ls-shell/kv';
 import { label, NECESSITY_LABEL, STATUS_LABEL } from './labels';
 import { Failure, settled, useAttemptKey } from './proposal-shared';
 
+const SAVE_CONFLICT: Record<string, string> = {
+  TFT_VERSION_CONFLICT: '다른 사람이 먼저 바꿨습니다. 다시 불러와 최신 판단을 본 뒤 저장하세요. 입력한 내용은 남습니다.',
+};
 const parts = (text: string) => text.split(',').map(item => item.trim()).filter(Boolean);
 
 // 변경 제안 입력(TF_K_Table_Propose). 바꿀 항목만 보낸다. 조건 칸은 이름·값 구조라 여기서 바꾸지 않고 보여 주기만 한다.
-export default function ProposalForm({ projectId, requirement, onCancel, onSaved }: {
+export default function ProposalForm({ projectId, requirement, onCancel, onSaved, onReload }: {
   projectId: string;
   requirement: RequirementDetail;
   onCancel: () => void;
   onSaved: () => void;
+  // 저장 실패 뒤 최신 내용만 다시 읽는다. 폼을 닫지 않아 입력이 남는다.
+  onReload: () => void;
 }) {
   const { judgement, spec } = requirement;
   const unresolvedNow = judgement.unresolved.join(', ');
@@ -59,7 +64,7 @@ export default function ProposalForm({ projectId, requirement, onCancel, onSaved
           <button type="button" className="kb" onClick={onCancel}>취소</button>
           <button type="submit" className="kb primary" disabled={!ready || create.isPending}>제안 저장</button>
         </div>
-        {create.isError && <Failure error={create.error} onReload={onSaved} />}
+        {create.isError && <Failure error={create.error} onReload={onReload} messages={SAVE_CONFLICT} />}
       </form>
     </KvBox>
   </div>;

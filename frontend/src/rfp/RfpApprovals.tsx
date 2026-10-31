@@ -98,7 +98,7 @@ export default function RfpApprovals() {
   const roles = access.user.data?.data.roles;
   const canDecide = !roles || roles.includes('sales') || roles.includes('manager');
   const reload = () => {
-    for (const key of ['rfp-proposals', 'rfp-requirements', 'rfp-requirement', 'rfp-comparison']) client.invalidateQueries({ queryKey: [key, mode] });
+    for (const key of ['rfp-proposals', 'rfp-requirements', 'rfp-requirement', 'rfp-comparison', 'projects']) client.invalidateQueries({ queryKey: [key, mode] });
   };
   const columns: KvColumn<Proposal>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => index + 1 },

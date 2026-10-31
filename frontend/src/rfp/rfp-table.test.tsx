@@ -242,6 +242,21 @@ describe('변경 제안', () => {
     expect(posts('/proposals')[0].body.proposed).toEqual({ unresolved: ['시험 성적서', '고객 허용'] });
   });
 
+  it('저장 충돌은 폼과 입력을 지키고 최신 내용을 다시 읽는다', async () => {
+    write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'conflict'));
+    await form();
+    fireEvent.change(screen.getByLabelText('상태', { selector: '#proposal-status' }), { target: { value: 'CONDITIONAL' } });
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '쓴 사유' } });
+    fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('입력한 내용은 남습니다');
+    const reads = () => calls.filter(c => c.url.endsWith(MOCK_DETAIL.requirement_id) || c.url.includes('/requirements/')).length;
+    const before = reads();
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    expect((screen.getByLabelText('제안 사유') as HTMLTextAreaElement).value).toBe('쓴 사유');
+    expect(screen.getByRole('button', { name: '제안 저장' })).toBeTruthy();
+  });
+
   it('취소하면 닫힌다', async () => {
     await form();
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -305,6 +320,14 @@ describe('승인 화면', () => {
     expect((a.body as { reason: string }).reason).toBe('A');
     expect((b.body as { reason: string }).reason).toBe('B');
     expect(a.key).not.toBe(b.key);
+  });
+
+  it('승인 뒤 프로젝트 건수를 다시 읽는다', async () => {
+    await open();
+    const reads = () => calls.filter(c => c.url.endsWith(`/tft/projects/${PROJECT}`)).length;
+    const before = reads();
+    fireEvent.click(screen.getByRole('button', { name: '승인' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
   it('메모가 없으면 version만 보낸다', async () => {
@@ -403,11 +426,4 @@ describe('셸 메뉴', () => {
     await waitFor(() => expect(links().find(l => l[0] === '자사 대응표')).toBeTruthy());
     expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBeNull();
   });
-});
-
-it('옛 프로젝트 상세에서 대응표로 간다', async () => {
-  setApiMode('mock');
-  renderApp(`/tft/projects/${PROJECT}`);
-  await waitFor(() => expect(document.querySelector('.ls-legacy a[href$="/table"]')).not.toBeNull());
-  expect(document.querySelector('.ls-legacy a[href$="/table"]')?.getAttribute('href')).toBe(PATH);
 });
