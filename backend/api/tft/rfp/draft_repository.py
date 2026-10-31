@@ -207,26 +207,33 @@ async def save(
 
 async def human_lineage(
     conn: AsyncConnection[Row], project_id: UUID, version: int, keys: list[UUID]
-) -> tuple[dict[UUID, str], dict[UUID, str]]:
+) -> tuple[dict[UUID, str], list[s.Section]]:
     """사람 편집 이유와 자동 문장을 수정한 이력을 읽는다. 직접 추가는 자동 영역을 대체하지 않는다."""
     if not keys:
-        return {}, {}
+        return {}, []
     cursor = await conn.execute(
         "SELECT DISTINCT ON (s.sentence_key) s.sentence_key,s.edit_reason, "
-        "(SELECT old.text FROM tft.draft_sentences old WHERE old.project_id=s.project_id "
+        "(SELECT old.draft_version FROM tft.draft_sentences old WHERE old.project_id=s.project_id "
         "AND old.sentence_key=s.sentence_key AND old.draft_version<=%s "
-        "AND old.provenance_kind<>'human_input' ORDER BY old.draft_version DESC LIMIT 1) AS original_text "
+        "AND old.provenance_kind<>'human_input' ORDER BY old.draft_version DESC LIMIT 1) AS original_version "
         "FROM tft.draft_sentences s WHERE s.project_id=%s AND s.draft_version<=%s "
         "AND s.sentence_key=ANY(%s) AND s.edit_reason IS NOT NULL "
         "ORDER BY s.sentence_key,s.draft_version DESC",
         (version, project_id, version, keys),
     )
     rows = await cursor.fetchall()
-    return (
-        {row["sentence_key"]: row["edit_reason"] for row in rows},
-        {
-            row["sentence_key"]: row["original_text"]
-            for row in rows
-            if row["original_text"] is not None
-        },
-    )
+    replacements = []
+    for original_version in sorted(
+        {row["original_version"] for row in rows if row["original_version"] is not None}
+    ):
+        snapshot = await load_snapshot(conn, project_id, original_version)
+        if snapshot is None:
+            raise ValueError("TFT_DRAFT_VERSION_MISSING")
+        keys_for_version = {
+            row["sentence_key"] for row in rows if row["original_version"] == original_version
+        }
+        for part in snapshot.sections:
+            originals = [row for row in part.sentences if row.sentence_id in keys_for_version]
+            if originals:
+                replacements.append(s.Section(section=part.section, sentences=originals))
+    return {row["sentence_key"]: row["edit_reason"] for row in rows}, replacements

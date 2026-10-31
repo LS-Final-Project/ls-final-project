@@ -112,19 +112,7 @@ async def generate(
         selections=selections,
         partners=partners,
         questions=[question_out(q) for q in await repository.list_questions(conn, project_id)],
-        replaced=[
-            s.Section(
-                section=part.section,
-                sentences=[
-                    row.model_copy(update={"text": replacements[row.sentence_id]})
-                    for row in part.sentences
-                    if row.sentence_id in replacements
-                ],
-            )
-            for part in previous.sections
-        ]
-        if previous
-        else [],
+        replaced=replacements,
     )
     result = preserve_human(result, previous, await valid_references(conn, project_id))
     await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)
