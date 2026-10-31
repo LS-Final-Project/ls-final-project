@@ -373,7 +373,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     """같은 속성의 후보 값 하나를 요구와 비교한다.
 
     숫자 연산자는 단위가 같고 두 값이 모두 숫자일 때만 비교한다. 숫자가 아닌 EQ와 TEXT는 정규화한
-    문자열이 같을 때만 충족이다. 형식(form)은 정해진 어휘라 다르면 미달, 그 밖의 문장 값은 다르면 미확인.
+    문자열이 같을 때만 충족이다. 문장 값은 표현만 달라도 글자가 어긋나므로 다르면 미달이 아니라
+    미확인이다. 형식(form)도 같다.
 
     Args:
         requirement: 요구.
@@ -406,8 +407,6 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     attribute = requirement.attribute
     if _plain_value(attribute, requirement.value) == _plain_value(attribute, fact.value):
         return "passed", "충족"
-    if requirement.attribute == "form":
-        return "failed", "형식 다름"
     return "unknown", "값이 달라 확인 필요"
 
 

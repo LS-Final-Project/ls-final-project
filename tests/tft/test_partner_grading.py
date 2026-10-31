@@ -16,6 +16,7 @@ from backend.api.tft.partners.grading import (
     _value_verdict,
     grade_candidate,
     grade_requirement,
+    overall_grade,
 )
 from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
@@ -453,7 +454,7 @@ def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
     assert "요구값 미정" in row.reasons[-1]
 
 
-def test_range_and_form_mismatch():
+def test_range_comparison_and_a_form_text_mismatch_is_not_a_shortfall():
     ranged = req(7, "impedance", "5~6", unit="%", operator="RANGE")
     assert (
         grade_requirement(
@@ -462,7 +463,9 @@ def test_range_and_form_mismatch():
         == "impedance"
     )
     clad = profile("P-X", [fact("form", "metal-clad VCB switchgear")])
-    assert grade_requirement(clad, MV[0], CONTEXT, DAY).grade == "EXCLUDED"
+    graded = grade_requirement(clad, MV[0], CONTEXT, DAY)
+    assert graded.grade == "REVIEW" and "form" in graded.mandatory_check.unknown
+    assert graded.exclusion_reasons == []
 
 
 def test_supply_region_ignores_case_and_spaces():
@@ -557,3 +560,34 @@ def test_designated_model_requirements_are_kept_out_of_partner_grading():
     assert (only.overall_grade, grades) == ("REVIEW", [])
     assert "모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음." in only.conditions_to_confirm
     assert len(only.designated_requirements) == 1
+
+
+def lv_requirements() -> list[Requirement]:
+    """14번 v8 회귀(2.6.A)를 줄인 요구: 표현만 다른 형식 문장과 수치·인증 미달 근거."""
+    form = req(40, "form", "drawout, low-voltage switchgear", equipment="LV switchgear")
+    ul = req(41, "certification", "UL 1558", equipment="LV switchgear", standard_system="UL")
+    current = req(
+        42,
+        "short_time_withstand_current",
+        "38",
+        unit="kA",
+        operator="GTE",
+        equipment="switchgear",
+    )
+    return [form, ul, current]
+
+
+@pytest.mark.parametrize(
+    ("code", "overall"),
+    [("L-A", "REVIEW"), ("L-B", "EXCLUDED"), ("P-B", "EXCLUDED")],
+)
+def test_form_wording_does_not_exclude_but_real_shortfalls_still_do(code, overall):
+    """글자만 다른 형식 문장은 제외 근거가 아니다. P-B 전류·L-B 인증 미달은 그대로 제외다."""
+    candidate = {p.candidate_code: p for p in load_profiles()}[code]
+    form, ul, current = lv_requirements()
+    wanted = {"L-A": [form, ul], "L-B": [form, ul], "P-B": [current]}[code]
+    grades = [grade_requirement(candidate, item, LV_CONTEXT, DAY) for item in wanted]
+    assert overall_grade(g.grade for g in grades) == overall
+    assert grades[0].grade == ("EXCLUDED" if code == "P-B" else "REVIEW")
+    reasons = [text for g in grades for text in g.exclusion_reasons]
+    assert not any("형식" in text or " form " in text for text in reasons)
