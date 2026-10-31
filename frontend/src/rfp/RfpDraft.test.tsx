@@ -404,3 +404,89 @@ it('전체가 빈 초안은 구역별 빈 문구를 반복하지 않는다', asy
   expect(within(list).getAllByText('선택한 조건의 문장이 없습니다.')).toHaveLength(1);
   expect(within(list).queryByText('저장된 문장이 없습니다.')).toBeNull();
 });
+
+it('모델 작성은 비용 안내 후 명시 접수하고 완료 뒤 최신 초안을 읽는다', async () => {
+  let generated = false;
+  const f = serve((url, init) => {
+    if (url.endsWith('/draft/rewrite') && init?.method === 'POST') {
+      generated = true;
+      return data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202);
+    }
+    if (url.includes('/platform/jobs/')) return data({ ...job(), kind: 'rfp.draft_rewrite' });
+    return data(generated ? { ...draft, version: 8, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [{ ...draft.sections[0].sentences[0], text: '모델이 작성한 검토 문장', provenance_kind: 'ai_draft' }] }] } : draft);
+  });
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  expect(screen.getByText(/호출 비용이 드는 별도 작업/)).toBeTruthy();
+  expect(f.mock.calls.some(([url]) => String(url).endsWith('/rewrite'))).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await screen.findByText('모델이 작성한 검토 문장');
+  expect(screen.getByText('모델 작성')).toBeTruthy();
+  const sent = f.mock.calls.filter(([url, init]) => String(url).endsWith('/rewrite') && init?.method === 'POST');
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(sent[0][1]!.body as string)).toEqual({ version: 7 });
+  expect(new Headers(sent[0][1]!.headers).get('Idempotency-Key')).toBeTruthy();
+});
+
+it('불명확 모델 작성 POST는 같은 키·판본으로 재확인한다', async () => {
+  let attempts = 0;
+  const f = serve((url, init) => {
+    if (url.endsWith('/draft/rewrite') && init?.method === 'POST') {
+      if (++attempts === 1) throw new TypeError('uncertain');
+      return data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202);
+    }
+    if (url.includes('/platform/jobs/')) return data({ ...job('RUNNING'), kind: 'rfp.draft_rewrite' });
+    return data(draft);
+  });
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await screen.findByText(/전송한 내용과 요청 키를 보존/);
+  fireEvent.click(screen.getByRole('button', { name: '같은 요청 다시 확인' }));
+  await screen.findByText('모델 문장 작성: 작성 중');
+  const sent = f.mock.calls.filter(([url, init]) => String(url).endsWith('/rewrite') && init?.method === 'POST');
+  expect(sent).toHaveLength(2);
+  expect(sent[0][1]!.body).toBe(sent[1][1]!.body);
+  expect(new Headers(sent[0][1]!.headers).get('Idempotency-Key')).toBe(new Headers(sent[1][1]!.headers).get('Idempotency-Key'));
+  expect(disabled('모델로 문장 작성')).toBe(true);
+});
+
+it.each(['FAILED', 'CANCELLED'])('모델 작성 %s는 양식 문장을 그대로 남긴다', async status => {
+  serve((url, init) => url.endsWith('/draft/rewrite') && init?.method === 'POST'
+    ? data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202)
+    : url.includes('/platform/jobs/') ? data({ ...job(status), kind: 'rfp.draft_rewrite' }) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await screen.findByText(new RegExp(`모델 문장 작성: ${status === 'FAILED' ? '실패' : '취소됨'}·양식 초안 유지`));
+  expect(screen.getByText(draft.sections[0].sentences[0].text)).toBeTruthy();
+  expect(screen.getByText('양식 문장')).toBeTruthy();
+});
+
+it('모델 작업 조회도 페이지 이동 시 취소한다', async () => {
+  let signal: AbortSignal | undefined;
+  serve((url, init) => {
+    if (url.endsWith('/draft/rewrite') && init?.method === 'POST') return data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202);
+    if (url.includes('/platform/jobs/')) { signal = init?.signal as AbortSignal; return new Promise(() => {}); }
+    return data(draft);
+  });
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await waitFor(() => expect(signal).toBeDefined());
+  fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: '프로젝트' }));
+  await waitFor(() => expect(signal!.aborted).toBe(true));
+});
+
+it('모델 작업 조회의 세션 만료는 모델 작성과 편집·검토 쓰기를 막는다', async () => {
+  serve((url, init) => url.endsWith('/draft/rewrite') && init?.method === 'POST'
+    ? data({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }, 202)
+    : url.includes('/platform/jobs/') ? jsonResponse(401, errorBody('SESSION_EXPIRED', '만료')) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
+  await screen.findByText('세션이 없거나 만료됐습니다.');
+  expect(disabled('모델로 문장 작성')).toBe(true);
+  expect(disabled('검토본 저장')).toBe(true);
+  expect(disabled('선택 문장 수정')).toBe(true);
+});

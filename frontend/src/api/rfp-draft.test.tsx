@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { downloadExport, getDraft, getExportJob, sendCommand, UncertainWrite, DOCX_MIME } from './rfp-draft';
+import { downloadExport, getDraft, getExportJob, getRewriteJob, sendCommand, UncertainWrite, DOCX_MIME } from './rfp-draft';
 
 const P = '11111111-1111-4111-8111-111111111111';
 const JOB = '22222222-2222-4222-8222-222222222222';
@@ -33,4 +33,23 @@ it('지정 판본은 실제 HTTP query로 조회한다', async () => {
   await getDraft(P, 4);
   expect(f.mock.calls[0]).toBeDefined();
   expect((f.mock.calls as unknown as [string, RequestInit][])[0][0]).toBe(`/api/v1/tft/projects/${P}/draft?version=4`);
+});
+
+it('rewrite 수락 응답은 export_id 없이도 고정 본문·키와 새 CSRF로 검증한다', async () => {
+  const f = vi.fn(async (url: string) => url.endsWith('/me')
+    ? new Response(JSON.stringify({ data: { id: P } }), { headers: { 'X-CSRF-Token': 'csrf' } })
+    : response({ job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` }));
+  vi.stubGlobal('fetch', f);
+  const result = await sendCommand(P, { actorId: P, kind: 'rewrite', key: 'rewrite-fixed-key', body: { version: 4 } });
+  expect(result).toMatchObject({ job_id: JOB });
+  expect(f.mock.calls[1][0]).toBe(`/api/v1/tft/projects/${P}/draft/rewrite`);
+});
+
+it('rewrite도 현재 actor가 바뀌면 POST를 보내지 않고 다른 종류의 작업을 거절한다', async () => {
+  const f = vi.fn(async () => new Response(JSON.stringify({ data: { id: EXPORT } }), { headers: { 'X-CSRF-Token': 'new-csrf' } }));
+  vi.stubGlobal('fetch', f);
+  await expect(sendCommand(P, { actorId: P, kind: 'rewrite', key: 'actor-key-fixed', body: { version: 4 } })).rejects.toThrow('계정이 변경');
+  expect(f).toHaveBeenCalledTimes(1);
+  vi.stubGlobal('fetch', vi.fn(async () => response({ job_id: JOB, project_id: P, owner: 'tft', kind: 'rfp.export', status: 'SUCCEEDED' })));
+  await expect(getRewriteJob(P, JOB)).rejects.toThrow('대상을 확인하지 못했습니다');
 });

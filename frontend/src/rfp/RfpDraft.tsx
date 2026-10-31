@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { me, type Identity } from '../api/platform';
-import { downloadExport, editDraft, getDraft, getDraftProject, getExportJob, sendCommand, SessionChanged, UncertainWrite, type Accepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
+import { downloadExport, editDraft, getDraft, getDraftProject, getExportJob, getRewriteJob, sendCommand, SessionChanged, UncertainWrite, type Accepted, type RewriteAccepted, type Command, type Draft, type Review, type Sentence } from '../api/rfp-draft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
@@ -58,6 +58,8 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const [reviewInput, setReviewInput] = useState('');
   const [command, setCommand] = useState<Command>();
   const [accepted, setAccepted] = useState<Accepted>();
+  const [rewriteAccepted, setRewriteAccepted] = useState<RewriteAccepted>();
+  const refreshedRewrite = useRef<string | undefined>(undefined);
   const [exportReview, setExportReview] = useState<number>();
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -71,13 +73,27 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     enabled: active, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1500 : false,
   });
+  const rewriteJob = useQuery({
+    queryKey: ['rfp-draft-rewrite', user.id, projectId, rewriteAccepted?.job_id],
+    queryFn: ({ signal }) => getRewriteJob(projectId, rewriteAccepted!.job_id, signal),
+    enabled: !!rewriteAccepted, retry: false,
+    refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1500 : false,
+  });
+  useEffect(() => {
+    const finished = rewriteJob.data;
+    if (!finished || !['SUCCEEDED', 'PARTIAL'].includes(finished.status) || refreshedRewrite.current === finished.job_id) return;
+    refreshedRewrite.current = finished.job_id;
+    setVersion(undefined); setVersionInput('');
+    void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] });
+    setMessage('모델 작성 작업이 끝났습니다. 최신 초안의 모델 작성·양식 문장 표시를 확인하세요. 그사이 저장된 사람 편집이 있으면 모델 결과를 적용하지 않습니다.');
+  }, [rewriteJob.data, cache, user.id, projectId]);
   const invalid = (failure: unknown) => {
     if (!alive.current) return;
     if (failure instanceof SessionChanged) { onSessionChanged(); return; }
     setError(failure);
     if (failure instanceof ApiError && [401, 403].includes(failure.status)) setBlocked(true);
   };
-  const expiredJob = job.error instanceof ApiError && [401, 403].includes(job.error.status);
+  const expiredJob = (job.error instanceof ApiError && [401, 403].includes(job.error.status)) || (rewriteJob.error instanceof ApiError && [401, 403].includes(rewriteJob.error.status));
   const writable = canWrite && !blocked && !expiredJob && !draft.isError && !busy && !command;
   const data = draft.isError ? undefined : draft.data;
   const sentences = data?.sections.flatMap(part => part.sentences);
@@ -119,7 +135,8 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       if (next.kind === 'review') {
         const saved = result as Review; setReview(saved); setReviewInput(String(saved.review_version));
         setMessage(`검토본 ${saved.review_version}판을 저장했습니다. 발송하거나 제안을 확정한 상태가 아닙니다.`);
-      } else { setAccepted(result as Accepted); setExportReview(next.body.review_version); }
+      } else if (next.kind === 'rewrite') { setRewriteAccepted(result as RewriteAccepted); }
+      else { setAccepted(result as Accepted); setExportReview(next.body.review_version); }
       setCommand(undefined);
     } catch (failure) {
       if (!alive.current) return;
@@ -151,11 +168,18 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   </form>;
   return <main className="rfp-draft">
     <KvTitle path="제안 지원" title="초안 및 검토 이력" code="TF0104">
+      <button className="kb" disabled={!writable || !data || !latest || !!editing || !!command || rewriteJob.isFetching || (!!rewriteJob.data && ['QUEUED', 'RUNNING'].includes(rewriteJob.data.status))} onClick={() => submit({ actorId: user.id, kind: 'rewrite', key: crypto.randomUUID(), body: { version: data!.version } })}>모델로 문장 작성</button>
       <button className="kb" aria-label="선택 문장 수정" title={selectedSentence ? `S${sentenceNumbers.get(selectedSentence.sentence_id)} 문장 수정` : '표시된 문장이 없습니다.'} disabled={!writable || !latest || !!editing || !selectedSentence} onClick={() => startEdit(selectedSentence)}>문장 수정</button>
       <Link to={`/tft/projects/${projectId}`}>프로젝트</Link>{' '}
       <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] }); }}>최신 조회</button>
     </KvTitle>
     <KvNext>{data ? `초안 판본 ${data.version} · 문장 ${sentences?.length}개 · 재검토 ${needsReview}개. ` : ''}근거와 조건을 검토한 뒤 검토본을 저장하세요. 공급·납기 확약과 발송은 사람이 별도로 확인합니다.</KvNext>
+    <p className="draft-context">판단을 확인한 뒤 요청하세요. 모델로 문장 작성은 호출 비용이 드는 별도 작업입니다. 실패한 문장은 양식 초안으로 유지됩니다. 저장된 사람 문장은 바꾸지 않습니다.</p>
+    {rewriteAccepted && <div className="draft-notice" aria-label="모델 문장 작성 작업">
+      {rewriteJob.isPending && <Loading label="모델 작성 상태 확인 중" />}
+      {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}
+      {!rewriteJob.isError && rewriteJob.data && <p role="status">모델 문장 작성: {rewriteJob.data.status === 'RUNNING' ? '작성 중' : rewriteJob.data.status === 'QUEUED' ? '대기 중' : rewriteJob.data.status === 'SUCCEEDED' ? '작업 완료' : rewriteJob.data.status === 'PARTIAL' ? '일부 완료·최신 초안 확인' : rewriteJob.data.status === 'CANCELLED' ? '취소됨·양식 초안 유지' : '실패·양식 초안 유지'}</p>}
+    </div>}
     {notice && <p className="draft-notice" role="alert">{notice}</p>}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {!canWrite && <p className="draft-notice">조회 전용입니다. 담당 sales·책임자 계정 확인 후 편집할 수 있습니다.</p>}
@@ -197,7 +221,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
           </>}
         </div>
         <div className="draft-proof">
-          <p>{row.provenance_kind === 'human_input' ? '직접 입력' : row.provenance_kind === 'ai_draft' ? 'AI 초안' : '시스템 기록'}</p>
+          <p>{row.provenance_kind === 'human_input' ? '사람 수정' : row.provenance_kind === 'ai_draft' ? '모델 작성' : '양식 문장'}</p>
           <p className={row.needs_rereview || row.evidence_missing ? 'draft-attention' : 'draft-state'}>{[row.unconfirmed && '미확약·미확인', row.needs_rereview && '재검토 필요', row.evidence_missing && '근거 누락'].filter(Boolean).join(' / ')}</p>
           <p className="draft-proof-preview">{Object.entries(EVIDENCE_LABEL).map(([kind, label]) => {
             const count = row.evidence.filter(e => e.type === kind).length;
