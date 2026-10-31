@@ -15,7 +15,7 @@ const JOB = '44444444-4444-4444-8444-444444444444';
 const EXPORT = '55555555-5555-4555-8555-555555555555';
 const BASE = `/api/v1/tft/projects/${P}/draft`;
 const identity = { id: USER, display_name: '검토자', roles: ['sales'], dept: null };
-const draft = { project_id: P, version: 7, data_origin: 'synthetic', derivation_kind: 'DERIVED', known_at: '2026-10-31T01:00:00Z', disclaimer: '시연용 검토본이며 실제 제안서가 아니다.', evidence_missing_count: 0,
+const draft = { project_id: P, version: 7, data_origin: 'synthetic', derivation_kind: 'DERIVED', known_at: '2026-10-31T01:00:00Z', disclaimer: '검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.', evidence_missing_count: 0,
   sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [{ sentence_id: SENTENCE, text: '고객의 장비 검토 문장', evidence: [{ type: 'requirement', id: 'requirement-1' }], conditions: ['실제 공급과 납기는 별도 확인'], unconfirmed: true, needs_rereview: true, evidence_missing: false, provenance_kind: 'system_record' }] }, { section: 'OUR_RESPONSE', sentences: [] }] };
 const accepted = { job_id: JOB, export_id: EXPORT, status_url: `/api/v1/platform/jobs/${JOB}`, status: 'QUEUED' };
 const job = (status = 'SUCCEEDED') => ({ job_id: JOB, project_id: P, owner: 'tft', kind: 'rfp.export', status, version: 1, last_event_sequence: 1 });

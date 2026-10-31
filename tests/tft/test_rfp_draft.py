@@ -221,7 +221,11 @@ def test_six_sections_grounding_counts_and_input_are_preserved(snapshot: dict[st
     assert s.Draft.model_validate(result.model_dump()) == result
     assert [part.section for part in result.sections] == list(get_args(s.DraftSection))
     assert all(part.sentences for part in result.sections)
-    assert result.disclaimer == "시연용 검토본이며 실제 제안서가 아니다." == DISCLAIMER
+    assert (
+        result.disclaimer
+        == "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
+        == DISCLAIMER
+    )
     assert result.version == 1 and result.known_at == NOW and result.derivation_kind == "DERIVED"
     registry = {
         ("requirement", str(REQ)),
