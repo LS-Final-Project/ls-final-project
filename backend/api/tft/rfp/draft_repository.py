@@ -266,3 +266,22 @@ async def evidence_labels(conn: AsyncConnection[Row], project_id: UUID) -> dict[
         parts = row["label"].split(":")
         labels[row["id"]] = f"{parts[1]}-{parts[2]}" if len(parts) == 3 else row["label"]
     return labels
+
+
+async def project_title(conn: AsyncConnection[Row], project_id: UUID) -> str:
+    """산출물 머리에 쓰는 접수 번호와 프로젝트 이름을 읽는다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        str: 접수 번호와 이름을 이은 값. 접수 번호가 없는 옛 프로젝트는 이름만이다.
+    """
+    cursor = await conn.execute(
+        "SELECT external_id, name FROM tft.projects WHERE id=%s", (project_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return " ".join(part for part in (row["external_id"], row["name"]) if part)
