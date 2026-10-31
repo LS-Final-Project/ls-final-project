@@ -4,6 +4,8 @@ import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
 import Account from './pages/Account';
 import Tickets from './pages/Tickets';
+import CsStats from './pages/CsStats';
+import CsImprovements from './pages/CsImprovements';
 import TicketDetail from './pages/TicketDetail';
 import Evaluations from './pages/Evaluations';
 import LsShell from './ls-shell/LsShell';
@@ -26,8 +28,11 @@ export default function App() {
     </Route>
     <Route element={<LsShell />}>
       <Route path="cs" element={<CsHome />} />
-      <Route path="cs/tickets" element={<div className="ls-legacy"><Tickets /></div>} />
-      <Route path="cs/tickets/:ticketId" element={<div className="ls-legacy"><TicketDetail /></div>} />
+      <Route path="cs/improvements" element={<div className="ls-legacy"><CsImprovements /></div>} />
+      <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />
+      <Route path="cs/stats" element={<div className="ls-legacy"><CsStats /></div>} />
+      <Route path="cs/tickets" element={<Tickets />} />
+      <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
       <Route path="tft/projects" element={<RfpIntake />} />
       <Route path="tft/projects/:projectId/supplement" element={<RfpSupplement />} />

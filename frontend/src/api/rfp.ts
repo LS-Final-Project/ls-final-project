@@ -30,6 +30,7 @@ export type RequirementFilters = {
   status?: RequirementStatus;
   necessity?: Necessity;
   needs_rereview?: boolean;
+  needs_review?: boolean;
   has_open_question?: boolean;
   next_owner_field?: string;
   unresolved_mandatory?: boolean;
@@ -151,4 +152,20 @@ export type UserName = { user_id: string; display_name: string };
 // 이름 묶음 조회. 없는 ID는 응답에서 빠진다. 한 번에 100개까지다.
 export const listUsers = (ids: string[]) => request<Envelope<{ items: UserName[] }>>(
   `/api/v1/platform/users?ids=${ids.map(encodeURIComponent).join(',')}`, { mockFallback: mock({ items: [] }) },
+);
+
+// 경로 4. 멱등 키가 없는 쓰기라 읽은 version으로 충돌을 막는다(409 TFT_VERSION_CONFLICT).
+export const updateIntegration = (projectId: string, version: number, integration: Schemas['IntegrationUpdate']) => {
+  const csrf = sessionCsrfToken();
+  return request<Envelope<RfpProject>>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH',
+    headers: csrf ? { 'X-CSRF-Token': csrf } : {},
+    body: JSON.stringify({ version, integration_responsibility: integration }),
+    mockFallback: mock({ id: projectId }),
+  });
+};
+
+// 프로젝트 전체 협력사 후보. 요구별 조회는 rfp-supplement의 listSupplementCandidates다.
+export const listProjectCandidates = (projectId: string) => request<Envelope<Schemas['PartnerCandidateList']>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/partner-candidates`, { mockFallback: mock({ items: [] }) },
 );

@@ -490,3 +490,20 @@ it('모델 작업 조회의 세션 만료는 모델 작성과 편집·검토 쓰
   expect(disabled('검토본 저장')).toBe(true);
   expect(disabled('선택 문장 수정')).toBe(true);
 });
+
+it.each([
+  [{ required: true, holder: 'UNRESOLVED' }, true],
+  [{ required: true, holder: 'OWN' }, false],
+  [{ required: false, holder: 'UNRESOLVED' }, false],
+])('통합 책임 %j 는 미확보로 막힐 때만 보완 화면으로 잇는다', async (integration_responsibility, shown) => {
+  const inner = serve();
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) !== `/api/v1/tft/projects/${P}`) return inner(input, init);
+    return data({ id: P, name: '실제 API 프로젝트', sales_user_id: USER, responsible_user_id: null, integration_responsibility });
+  }));
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText('실제 API 프로젝트');
+  const link = screen.queryByRole('link', { name: '보완 화면에서 지정' });
+  expect(!!link).toBe(shown);
+  if (link) expect(link.getAttribute('href')).toBe(`/tft/projects/${P}/supplement`);
+});

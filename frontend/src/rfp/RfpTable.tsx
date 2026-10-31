@@ -63,7 +63,7 @@ function Detail({ projectId, id, proposing, onPropose, onClose }: {
         {trace && <div className="kv-sub" style={{ margin: '8px 0 0' }}>검색: 문서 {trace.documents_searched}건, {trace.search_failed ? '실패' : '실패 없음'}. 가격과 표준 납기는 비교하지 않음</div>}
       </KvBox>
       <KvBox title={`판단, ${no}`} note={written}>
-        <div className="kv-field"><span>상태</span><span className="ro">{label(STATUS_LABEL, judgement.status)}{data.needs_rereview && <span className="kv-flags"><i className="rr">재검토</i></span>}</span></div>
+        <div className="kv-field"><span>상태</span><span className="ro">{label(STATUS_LABEL, judgement.status)}{data.needs_rereview && <span className="kv-flags"><i className="rr">재검토</i></span>}{data.needs_review && <span className="kv-flags"><i className="rr">원문 확인</i></span>}</span></div>
         <div className="kv-field"><span>사유</span><div className="kv-text" style={{ minHeight: 0 }}>{judgement.reason}</div></div>
         {judgement.unresolved.length > 0 && <KvField label="미확인">{judgement.unresolved.join(', ')}</KvField>}
         <KvField label="다음 담당">{label(OWNER_LABEL, judgement.next_owner_field) || '없음'}</KvField>
@@ -92,7 +92,7 @@ const SIZES = [50, 100];
 
 const csvRows = (rows: RequirementSummary[]) => rows.map(r => [
   requirementNo(r.code), r.equipment, r.task, attributeName(r.attribute_key, r.attribute), r.value_text, label(NECESSITY_LABEL, r.necessity), label(STATUS_LABEL, r.status),
-  r.path === 'NONE' ? '' : label(PATH_LABEL, r.path), r.open_questions || '', r.needs_rereview ? '재검토' : '',
+  r.path === 'NONE' ? '' : label(PATH_LABEL, r.path), r.open_questions || '', [r.needs_rereview && '재검토', r.needs_review && '원문 확인'].filter(Boolean).join(', '),
 ]);
 const CSV_HEAD = ['요구', '장비', '작업', '속성', '요구값', '성격', '상태', '보완 경로', '질문', '재검토'];
 
@@ -173,7 +173,7 @@ export default function RfpTable() {
     { key: 'status', header: '상태', width: 84, className: 'c', sort: 'ascending', cell: r => label(STATUS_LABEL, r.status) },
     { key: 'path', header: '보완 경로', width: 100, cell: r => r.path === 'NONE' ? '' : label(PATH_LABEL, r.path) },
     { key: 'questions', header: '질문', width: 44, className: 'c', cell: r => r.open_questions || '' },
-    { key: 'rereview', header: '재검토', width: 56, className: 'c', cell: r => r.needs_rereview ? '재검토' : '' },
+    { key: 'rereview', header: '재검토', width: 84, className: 'c', cell: r => [r.needs_rereview && '재검토', r.needs_review && '원문 확인'].filter(Boolean).join(', ') },
     { key: 'written', header: '작성', width: 64, className: 'c', cell: r => label(PROVENANCE_LABEL, r.provenance_kind) },
   ];
   return <main>
@@ -217,6 +217,9 @@ export default function RfpTable() {
           {Object.entries(STATUS_LABEL).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
         </select></KvCondField>
         <KvCondField label="재검토"><select aria-label="재검토" value={triValue(filters.needs_rereview)} onChange={event => filter({ needs_rereview: tri(event.target.value) })}>
+          <option value="">전체</option><option value="true">필요</option><option value="false">없음</option>
+        </select></KvCondField>
+        <KvCondField label="원문 확인"><select aria-label="원문 확인" value={triValue(filters.needs_review)} onChange={event => filter({ needs_review: tri(event.target.value) })}>
           <option value="">전체</option><option value="true">필요</option><option value="false">없음</option>
         </select></KvCondField>
         <KvCondField label="열린 질문"><select aria-label="열린 질문" value={triValue(filters.has_open_question)} onChange={event => filter({ has_open_question: tri(event.target.value) })}>

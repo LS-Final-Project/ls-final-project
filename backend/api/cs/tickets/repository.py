@@ -1,5 +1,6 @@
 """Read queries for C/S tickets. Tables are created by infra/migrations/cs only."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -12,7 +13,7 @@ STATE = "COALESCE(w.state, 'RECEIVED') AS workflow_state"
 FROM_TICKETS = "FROM cs.tickets t LEFT JOIN cs.ticket_workflows w ON w.ticket_id = t.id"
 SUMMARY_COLUMNS = (
     "t.id, t.external_id, t.subject, t.data_origin, t.derivation_kind, t.received_at, "
-    f"t.channel, t.product_code, {STATE}"
+    f"t.channel, t.product_code, {STATE}, w.owner_user_id"
 )
 DETAIL_COLUMNS = (
     "t.id, t.external_id, t.version, t.data_origin, t.derivation_kind, t.received_at, "
@@ -34,29 +35,83 @@ CASE_COLUMNS = (
 Row = dict[str, Any]
 
 
+@dataclass(frozen=True)
+class TicketFilters:
+    """List filters. None means no condition. The caller has validated every value."""
+
+    states: frozenset[str] | None = None
+    channel: str | None = None
+    product_code: str | None = None
+    customer: str | None = None
+    owner: UUID | None = None
+    received_from: datetime | None = None
+    received_to: datetime | None = None
+    q: str | None = None
+
+
+def like_pattern(text: str) -> str:
+    """Substring pattern with LIKE wildcards in the text escaped."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def filter_conditions(filters: TicketFilters) -> tuple[list[str], list[Any]]:
+    conditions: list[str] = []
+    params: list[Any] = []
+    if filters.states is not None:
+        conditions.append("COALESCE(w.state, 'RECEIVED') = ANY(%s)")
+        params.append(sorted(filters.states))
+    for column, value in (
+        ("t.channel", filters.channel),
+        ("t.product_code", filters.product_code),
+        ("t.customer_external_id", filters.customer),
+        ("w.owner_user_id", filters.owner),
+    ):
+        if value is not None:
+            conditions.append(f"{column} = %s")
+            params.append(value)
+    if filters.received_from is not None:
+        conditions.append("t.received_at >= %s")
+        params.append(filters.received_from)
+    if filters.received_to is not None:
+        conditions.append("t.received_at < %s")
+        params.append(filters.received_to)
+    if filters.q is not None:
+        conditions.append(
+            "(t.external_id ILIKE %s ESCAPE '\\' OR t.subject ILIKE %s ESCAPE '\\' "
+            "OR t.customer_external_id ILIKE %s ESCAPE '\\')"
+        )
+        params.extend([like_pattern(filters.q)] * 3)
+    return conditions, params
+
+
 async def list_tickets(
     conn: AsyncConnection[Row],
     limit: int,
     after: tuple[datetime, UUID] | None,
     departments: frozenset[str] | None = None,
+    *,
+    filters: TicketFilters | None = None,
+    ascending: bool = False,
 ) -> list[Row]:
-    """Newest first. Fetches one extra row so the caller knows whether a next page exists.
+    """Newest first (or oldest first). Fetches one extra row so the caller knows whether a next
+    page exists.
 
     `departments` limits the page to tickets transferred to those departments. None means
-    every ticket.
+    every ticket. Filters narrow the page further and never widen the scope.
     """
-    conditions: list[str] = []
-    params: list[Any] = []
+    conditions, params = filter_conditions(filters or TicketFilters())
     if departments is not None:
         conditions.append(IN_DEPARTMENTS)
         params.append(list(departments))
     if after is not None:
-        conditions.append("(t.received_at, t.id) < (%s, %s)")
+        conditions.append(f"(t.received_at, t.id) {'>' if ascending else '<'} (%s, %s)")
         params.extend(after)
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+    order = "ASC" if ascending else "DESC"
     cursor = await conn.execute(
         f"SELECT {SUMMARY_COLUMNS} {FROM_TICKETS} {where}"
-        "ORDER BY t.received_at DESC, t.id DESC LIMIT %s",
+        f"ORDER BY t.received_at {order}, t.id {order} LIMIT %s",
         (*params, limit + 1),
     )
     return await cursor.fetchall()

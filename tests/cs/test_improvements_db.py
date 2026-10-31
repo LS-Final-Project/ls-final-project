@@ -273,3 +273,53 @@ def test_service_cannot_rewrite_history(runtime_dsn, client, admin):
             pytest.raises(psycopg.errors.InsufficientPrivilege),
         ):
             conn.execute(statement, (request_id,))
+
+
+def test_the_list_filters_by_status_type_and_department(client, admin):
+    """상태(쉼표로 여러 개)·유형·부서로 좁힌다. 부서는 보낸 적 있거나 제안된 부서다(KAN-131 화면 요청)."""
+    fault = ok(client.post(PATH, json=fault_request([add_ticket(admin)])))["request"]["id"]
+    ticket, _ = add_ticket(admin)
+    document = ok(
+        client.post(
+            PATH,
+            json={
+                "request_type": "DOCUMENT",
+                "product_code": PRODUCT,
+                "doc_signal": "NOT_FOUND",
+                "doc_id": "DS-TRF-OIL-1000",
+                "problem_statement": "Customers cannot find the vector group in the catalog.",
+                "evidence": [{"ticket_id": str(ticket)}],
+            },
+        )
+    )["request"]["id"]
+    admin.execute(
+        "UPDATE cs.improvement_requests SET status = 'REVIEWED' WHERE id = %s", (document,)
+    )
+
+    def listed(**params):
+        items = ok(client.get(PATH, params=params))["items"]
+        return items, {item["id"] for item in items}
+
+    items, ids = listed(status="REVIEWED")
+    assert document in ids and fault not in ids
+    assert {item["status"] for item in items} == {"REVIEWED"}
+    _, ids = listed(status="DRAFT,REVIEWED")
+    assert {fault, document} <= ids
+    items, ids = listed(request_type="FAULT")
+    assert fault in ids and document not in ids
+    assert {item["request_type"] for item in items} == {"FAULT"}
+    _, ids = listed(dept="QA_CLAIM")
+    assert fault in ids and document not in ids
+    _, ids = listed(dept="QA_CLAIM", status="REVIEWED")
+    assert fault not in ids and document not in ids
+    assert code(client.get(PATH, params={"status": "DRAFT,"})) == (400, "CS_INVALID_FILTER")
+    assert code(client.get(PATH, params={"status": "OPEN"})) == (400, "CS_INVALID_FILTER")
+    assert client.get(PATH, params={"dept": "GCS_L1"}).status_code == 422
+    # 부서 사용자는 필터를 줘도 자기 부서로 보낸 요청만 본다. 제안만 된 초안은 보이지 않는다.
+    staff_ids = {
+        item["id"]
+        for item in ok(client.get(PATH, params={"dept": "QA_CLAIM"}, headers=as_(QA_STAFF)))[
+            "items"
+        ]
+    }
+    assert fault not in staff_ids

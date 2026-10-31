@@ -20,7 +20,7 @@ export function Failure({ error, onReload, messages = CONFLICT }: { error: unkno
   const code = error instanceof ApiError ? error.code : undefined;
   if (code && messages[code]) return <div role="alert" className="kv-next" style={{ margin: '6px 0 0' }}>
     <span>{messages[code]}</span>
-    <button className="kb" onClick={onReload}>다시 불러오기</button>
+    <button type="button" className="kb" onClick={onReload}>다시 불러오기</button>
   </div>;
   return <ErrorState error={error} />;
 }
