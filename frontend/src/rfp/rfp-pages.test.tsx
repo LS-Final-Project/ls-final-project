@@ -39,6 +39,25 @@ describe('프로젝트 목록', () => {
     expect(screen.getByRole('tab', { selected: true }).textContent).toContain('접수 및 요구 검토');
   });
 
+  it('접수일 내림차순임을 머리글에 알린다', async () => {
+    renderApp('/tft/projects');
+    const table = await screen.findByRole('table', { name: '접수 및 요구 검토' });
+    expect(within(table).getByRole('columnheader', { name: '접수일' }).getAttribute('aria-sort')).toBe('descending');
+  });
+
+  it('조건이나 쪽을 바꾸면 체크를 비운다', async () => {
+    live(url => isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
+    renderApp('/tft/projects');
+    const box = () => screen.getByLabelText('첫째 쪽 선택') as HTMLInputElement;
+    await screen.findByText('첫째 쪽');
+    fireEvent.click(box());
+    fireEvent.click(screen.getByRole('button', { name: '다음' }));
+    await waitFor(() => expect(box().checked).toBe(false));
+    fireEvent.click(box());
+    fireEvent.change(screen.getByLabelText('진행'), { target: { value: 'INTAKE' } });
+    await waitFor(() => expect(box().checked).toBe(false));
+  });
+
   it('커서로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
     const f = live(url => url.includes('cursor=c%2F2') ? page([project('2', '둘째 쪽')]) : isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');

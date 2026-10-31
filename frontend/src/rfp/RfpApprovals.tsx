@@ -161,7 +161,7 @@ export default function RfpApprovals() {
     { key: 'now', header: '현재', cell: p => changes(p).map(c => c.now).join(', ') },
     { key: 'next', header: '제안', cell: p => changes(p).map(c => c.next).join(', ') },
     { key: 'by', header: '제안자', width: 96, cell: p => p.proposer_kind === 'system' ? '자동' : nameOf(p.proposer_user_id) || '사용자' },
-    { key: 'at', header: '일시', width: 120, className: 'd', cell: p => shortDateTime(p.known_at) },
+    { key: 'at', header: '일시', width: 120, className: 'd', sort: 'ascending', cell: p => shortDateTime(p.known_at) },
     { key: 'status', header: '상태', width: 76, className: 'c', cell: p => label(PROPOSAL_STATUS_LABEL, p.status) },
   ];
   return <main>
@@ -175,15 +175,15 @@ export default function RfpApprovals() {
     <KvNext>{done ?? (project.data?.data.name ? `${project.data.data.name}, 변경 제안 ${items.length}건.` : '변경 제안.')}{!done && ' 기각은 사유 필수입니다.'}</KvNext>
     <KvCond onSearch={() => proposals.refetch()}>
       <KvCondRow columns={3}>
-        <KvCondField label="상태"><select aria-label="상태" value={status} onChange={event => { setStatus(event.target.value); setPicked(undefined); }}>
+        <KvCondField label="상태"><select aria-label="상태" value={status} onChange={event => { setStatus(event.target.value); setPicked(undefined); setChecked(new Set()); }}>
           <option value="">전체</option>
           {Object.entries(PROPOSAL_STATUS_LABEL).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
         </select></KvCondField>
-        <KvCondField label="들어온 곳"><select aria-label="들어온 곳" value={origin} onChange={event => { setOrigin(event.target.value); setPicked(undefined); }}>
+        <KvCondField label="들어온 곳"><select aria-label="들어온 곳" value={origin} onChange={event => { setOrigin(event.target.value); setPicked(undefined); setChecked(new Set()); }}>
           <option value="">전체</option>
           {Object.entries(ORIGIN_LABEL).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
         </select></KvCondField>
-        <KvCondField label="요구"><input aria-label="요구" type="text" placeholder="요구 번호" value={search} onChange={event => setSearch(event.target.value)} /></KvCondField>
+        <KvCondField label="요구"><input aria-label="요구" type="text" placeholder="요구 번호" value={search} onChange={event => { setSearch(event.target.value); setChecked(new Set()); }} /></KvCondField>
       </KvCondRow>
     </KvCond>
     <div className="kv-gridhead"><span>변경 제안 {items.length}건</span></div>

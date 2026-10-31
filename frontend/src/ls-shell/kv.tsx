@@ -106,6 +106,8 @@ export type KvColumn<T> = {
   width?: number;
   // c 가운데, n 숫자, t 제목 등 kv-grid 셀 클래스.
   className?: string;
+  // 서버가 주는 순서를 알린다. 눌러서 바꾸는 정렬이 아니라 표시만이다.
+  sort?: 'ascending' | 'descending';
   cell: (row: T, index: number) => ReactNode;
 };
 
@@ -129,7 +131,7 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
   return <div className={scroll ? 'kv-tablewrap scroll' : 'kv-tablewrap'}>
     <table className={frozen ? 'kv-grid' : 'kv-grid free'} aria-label={label}>
       <colgroup>{columns.map(c => <col key={c.key} style={c.width ? { width: c.width } : undefined} />)}</colgroup>
-      <thead><tr>{columns.map(c => <th key={c.key} className={c.className}>{c.header}</th>)}</tr></thead>
+      <thead><tr>{columns.map(c => <th key={c.key} className={c.className} aria-sort={c.sort}>{c.header}</th>)}</tr></thead>
       <tbody>
         {rows.length === 0
           ? <tr><td colSpan={columns.length}>{fallback}</td></tr>

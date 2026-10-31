@@ -728,3 +728,5 @@
   .ls-root .kv-grid{min-width:680px}
   .ls-root .kv-split .kv-grid{min-width:320px}
 }
+.ls-root .kv-grid th[aria-sort=ascending]::after{content:" ▲";font-size:9px}
+.ls-root .kv-grid th[aria-sort=descending]::after{content:" ▼";font-size:9px}
