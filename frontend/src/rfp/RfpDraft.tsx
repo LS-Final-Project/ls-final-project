@@ -198,7 +198,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     {rewriteAccepted && <div className="draft-notice" aria-label="모델 문장 작성 작업">
       {rewriteJob.isPending && <Loading label="모델 작성 상태 확인 중" />}
       {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}
-      {!rewriteJob.isError && rewriteJob.data && <p role="status">모델 문장 작성: {rewriteJob.data.status === 'RUNNING' ? '작성 중' : rewriteJob.data.status === 'QUEUED' ? '대기 중' : rewriteJob.data.status === 'SUCCEEDED' ? '작업 완료' : rewriteJob.data.status === 'PARTIAL' ? '일부 완료·최신 초안 확인' : rewriteJob.data.status === 'CANCELLED' ? '취소됨·양식 초안 유지' : '실패·양식 초안 유지'}</p>}
+      {!rewriteJob.isError && rewriteJob.data && <p role="status">모델 문장 작성: {rewriteJob.data.status === 'RUNNING' ? '작성 중' : rewriteJob.data.status === 'QUEUED' ? '대기 중' : rewriteJob.data.status === 'SUCCEEDED' ? '처리 끝남' : rewriteJob.data.status === 'PARTIAL' ? '일부 완료·최신 초안 확인' : rewriteJob.data.status === 'CANCELLED' ? '취소됨·양식 초안 유지' : '실패·양식 초안 유지'}</p>}
       {rewriteFinished && !rewriteResult.isPending && <RewriteOutcome summary={rewriteResult.data} />}
     </div>}
     {notice && <p className="draft-notice" role="alert">{notice}</p>}
