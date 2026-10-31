@@ -21,7 +21,7 @@
    - 조건 이름(v6): `conditions.name`은 어휘(`vocabulary.ConditionName`) 안의 값 또는 `OTHER`다. 자사·협력사 사양 근거의 조건 이름도 이 어휘 안에 있어야 한다(검사가 확인). `OTHER`면 `value`에 원문 문구를 그대로 둔다. 응답 스키마는 enum 하나다.
    - v3 의미 칸(같은 호출 안, 추가 호출 없음). `value`·`unit`·`conditions`·`quote`는 원문 그대로다.
      - `attribute_key`: 같은 물리량인 내부 사양 항목 하나 또는 `OTHER`
-     - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null
+     - `equipment_family`: 제품 계열 하나 또는 `OTHER`. 과업·문서 요구는 null. `LV_SWITCHGEAR`(v8)는 저압 배전반·스위치기어 조립품과 그 구획이고 그 안의 차단기는 `LV_BREAKER`다. 자사 제품이 없는 계열이라 자사 비교는 후보 없음이고, 협력사 저압 후보(`PROFILE_FAMILIES`)가 조립품·차단기 요구를 함께 받는다
      - `tolerance`: 원문 허용 오차 표기 그대로 또는 null. 범위 계산은 코드가 한다
      - `certification_listed`: 원문이 Listed·labeled 등록을 요구할 때만 true
      - `assembly_clause`(v4): 여러 장비를 한 조립품·단일 공급 책임으로 납품하라는 요구일 때만 true, 장비가 나열되기만 하면 false. 통합 책임 판별(`rfp/integration.py`)의 입력이다. 처리 흐름 연결은 후속이다

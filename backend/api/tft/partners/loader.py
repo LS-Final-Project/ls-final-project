@@ -13,11 +13,12 @@ from backend.api.tft.partners.schemas import PartnerProfile
 PROFILES = Path(__file__).with_name("profiles.json")
 POOLS = Path(__file__).with_name("document_pools.json")
 # 프로필 product_family(표시 문구) → 요구 equipment_family. 후보를 자기 계열 요구로만 채점할 때 쓴다.
-PROFILE_FAMILIES = {
-    "15kV 퓨즈 부하개폐기반": "MV_EQUIP",
-    "15kV metal-clad VCB 개폐장치": "MV_EQUIP",
-    "저압 배전반": "LV_BREAKER",
-    "몰드 변압기": "TRANSFORMER",
+# 저압 배전반 후보는 조립품 요구와 그 안의 차단기 요구를 모두 받는다.
+PROFILE_FAMILIES: dict[str, frozenset[str]] = {
+    "15kV 퓨즈 부하개폐기반": frozenset({"MV_EQUIP"}),
+    "15kV metal-clad VCB 개폐장치": frozenset({"MV_EQUIP"}),
+    "저압 배전반": frozenset({"LV_BREAKER", "LV_SWITCHGEAR"}),
+    "몰드 변압기": frozenset({"TRANSFORMER"}),
 }
 # tft.partner_profiles의 jsonb 열. similar_tasks·supply_regions는 text[]다.
 JSON_COLUMNS = frozenset(

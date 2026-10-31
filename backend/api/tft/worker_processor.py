@@ -488,8 +488,8 @@ def grading_groups(
     for profile in profiles:
         if pool is not None and profile.candidate_code not in pool:
             continue
-        family = PROFILE_FAMILIES.get(profile.product_family)
-        mine = [g for g, wanted in targets if family is not None and wanted == family]
+        families = PROFILE_FAMILIES.get(profile.product_family, frozenset())
+        mine = [g for g, wanted in targets if wanted in families]
         if mine:
             groups.append((profile, mine))
     return groups
