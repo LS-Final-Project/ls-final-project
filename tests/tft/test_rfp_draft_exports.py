@@ -47,7 +47,8 @@ def test_docx_is_valid_ooxml_with_all_sections_proofs_conditions_and_unicode(sna
         assert "wordprocessingml.document.main+xml" in content_types
     w = draft_exports.W
     texts = [node.text or "" for node in root.iter(w + "t")]
-    assert texts.count(DISCLAIMER) == 2
+    assert texts.count("검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.") == 2
+    assert texts[0] == texts[-1] == DISCLAIMER
     assert '한글 <장비> & "조건"' in texts and "다음 줄" in texts and "탭" in texts
     assert len(list(root.iter(w + "br"))) >= 2 and list(root.iter(w + "tab"))
     assert "조건·미확인: 조건 <허용> & 미확약" in texts
