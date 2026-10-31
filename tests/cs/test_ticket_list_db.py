@@ -176,13 +176,14 @@ def transfer(admin, ticket_id, dept, status="OPEN", round_no=1):
     admin.execute(
         "INSERT INTO cs.ticket_transfers (id, ticket_id, round, dept_code, status, reason, "
         "transferred_by, ended_by, ended_at, end_reason) "
-        "VALUES (%s, %s, %s, %s, %s, 'test', %s, %s, %s, %s)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             uuid4(),
             ticket_id,
             round_no,
             dept,
             status,
+            f"round {round_no}",
             AGENT.user_id,
             AGENT.user_id if ended else None,
             BASE if ended else None,
@@ -216,6 +217,9 @@ def test_the_department_filter_lists_what_it_received_with_the_latest_transfer(
     assert [i["id"] for i in items] == [str(both), str(returned)]
     assert items[0]["transfer"]["round"] == 2 and items[0]["transfer"]["status"] == "OPEN"
     assert items[0]["transfer"]["dept_code"] == "QA_CLAIM"
+    assert items[0]["transfer"]["reason"] == "round 2"
+    assert items[0]["transfer"]["customer_external_id"] == customer
+    assert items[1]["transfer"]["reason"] == "round 1"
     assert items[1]["transfer"]["status"] == "RETURNED_BY_DEPT"
 
     opened = received(client, customer, dept="QA_CLAIM", transfer_status="OPEN")["items"]
@@ -246,6 +250,13 @@ def test_the_department_filter_never_widens_a_department_user(client, admin, cus
     ]
     # 두 부서에 간 문의라도 다른 부서의 이관 정보는 주지 않는다.
     assert received(client, customer, staff, dept="TS_LV")["items"] == []
+    # 고객 ID와 요청 사유는 그 부서의 항목에만 있다. 문의 목록 자체에는 없다.
+    plain = client.get(
+        "/api/v1/cs/tickets", params={"customer": customer}, headers=principal_header(staff)
+    ).json()["data"]["items"]
+    assert plain[0]["transfer"] is None and "customer_external_id" not in plain[0]
+    own = received(client, customer, staff, dept="QA_CLAIM")["items"][0]["transfer"]
+    assert own["reason"] == "round 1" and own["dept_code"] == "QA_CLAIM"
     assert received(client, customer, manager, dept="QA_CLAIM")["items"] == []
     assert len(received(client, customer, manager, dept="TS_LV")["items"]) == 1
 

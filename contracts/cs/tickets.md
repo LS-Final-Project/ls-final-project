@@ -24,7 +24,7 @@
 - 원천 ID(`CSV1-000044`, `RC-0007`)는 `external_id`, URL과 내부 참조는 서버 UUID `id`를 쓴다.
 - 제목이 없는 채팅 문의의 `subject`는 null이다.
 - 해결 사례는 `known_at`이 지난 경우에만 상세에 포함한다. 제공 데이터는 해결 시각을 known_at으로 가정한다.
-- **부서 받은 요청(KAN-202)**: 목록의 `dept`는 그 부서로 이관된 적이 있는 문의만 거르고, 항목의 `transfer`에 그 부서의 최신 이관(`round`·`dept_code`·`status`·`transferred_at`)을 준다. `dept`가 없으면 `transfer`는 null이다. `transfer_status`는 그 부서 **최신 회차**의 상태로 거르며 `dept`가 필요하다(없으면 400 `CS_INVALID_FILTER`). 받은 요청 대기함은 `dept=<부서>&transfer_status=OPEN`이다. 정렬과 커서는 목록과 같은 접수 시각 기준이다. 필터는 조회 범위를 넓히지 않는다. 부서 사용자가 자기 범위 밖 부서를 주면 빈 쪽이다. 두 부서로 간 문의에서 다른 부서의 이관 정보를 보여 주지 않기 위해서다.
+- **부서 받은 요청(KAN-202)**: 목록의 `dept`는 그 부서로 이관된 적이 있는 문의만 거르고, 항목의 `transfer`에 그 부서의 최신 이관(`round`·`dept_code`·`status`·`transferred_at`·`reason`)과 문의의 `customer_external_id`를 준다. 둘은 `dept`를 줬을 때만 나간다. 문의 상세와 이관 조회에서 같은 사용자가 이미 보는 값이다. `dept`가 없으면 `transfer`는 null이다. `transfer_status`는 그 부서 **최신 회차**의 상태로 거르며 `dept`가 필요하다(없으면 400 `CS_INVALID_FILTER`). 받은 요청 대기함은 `dept=<부서>&transfer_status=OPEN`이다. 정렬과 커서는 목록과 같은 접수 시각 기준이다. 필터는 조회 범위를 넓히지 않는다. 부서 사용자가 자기 범위 밖 부서를 주면 빈 쪽이다. 두 부서로 간 문의에서 다른 부서의 이관 정보를 보여 주지 않기 위해서다.
 - 접근 검사(KAN-78, [권한 문서](../platform/permissions.md) 1.3·1.4·4.1): 사용자 정보가 없거나 잘못되면 401. 조회는 `cs_agent`와 C/S 부서(`GCS_L1`)를 관리하는 manager는 전체, dept_staff와 다른 부서 manager는 자기(관리) 부서로 **한 번이라도 이관된** 문의만 본다(KAN-108, 이관이 끝난 뒤에도 조회 유지). 범위 밖 문의는 없는 문의와 같은 404 `CS_TICKET_NOT_FOUND`. sales의 목록과 cs_agent가 아닌 사용자의 등록·정정은 403.
 - 업무 중계가 비활성일 때 위 경로는 `local`·`test`에서만 응답하고 `production`에서는 DB 조회 전에 404 `NOT_FOUND`로 닫는다. KAN-178의 명시 활성화는 [플랫폼 호출자 검증](../platform/auth.md#업무-json-중계와-호출자-검증-kan-178)과 기존 사용자·업무 권한 검사를 함께 요구한다. OpenAPI 상태는 `partial`이다. 설비·장비 일치 확인은 아래 절을 따른다.
 
