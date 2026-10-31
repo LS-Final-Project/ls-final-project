@@ -164,10 +164,14 @@ def options_for(
     designated: bool = False,
     rnd_check: RndCheck = "NOT_REQUIRED",
     approval_question: bool = False,
+    partner_graded: bool = False,
+    own_certification: bool = False,
 ) -> Options:
     """비교 결과에 맞는 보완 경로를 path_rank 순으로 낸다.
 
-    사양 차이, 타사 지정 모델(지정품), 핵심 기기 부재, 수행 과업만 경로를 계산한다. 그 밖의 근거 있음·조건부·근거
+    사양 차이, 타사 지정 모델(지정품), 핵심 기기 부재, 수행 과업은 경로를 계산한다. 근거 부족은
+    등급이 있는 협력사 후보가 있을 때만 외부 조달을 내고, 자사 후보가 있는 인증 요구면 고객이
+    금지하지 않은 한 대체 제안도 낸다. 그 밖의 근거 있음·조건부·근거
     부족은 경로가 아니라 다음 행동(조건 확인·자료 요청)이라 빈 목록이다.
 
     Args:
@@ -177,6 +181,8 @@ def options_for(
         rnd_check: 요구의 R&D 확인 상태(서버가 질문·답변에서 계산). 게이트 상태로 보이고,
             CONFIRMED_FEASIBLE이면 협력사 계열 경로를 막는다.
         approval_question: 지정품 대체 제안의 고객 승인 질문이 이미 있는지.
+        partner_graded: 이 요구에 제외되지 않은 등급의 협력사 후보가 있는지.
+        own_certification: 자사 후보가 있는 인증 요구인지.
 
     Returns:
         Options: 원인·허용과 경로 목록.
@@ -187,6 +193,12 @@ def options_for(
         paths = FIRST_PATHS[cause]
     elif outcome.status == "SPEC_GAP" and cause is not None:
         paths = FIRST_PATHS[cause]
+    elif outcome.status == "INSUFFICIENT_EVIDENCE" and partner_graded and cause not in NOT_RND:
+        # 자사 근거를 못 찾아도 후보가 있으면 외부 조달과 대체 제안을 비교한다(기획서 시연 B-2).
+        # 순서는 CERTIFICATION의 먼저 보는 경로와 같다.
+        paths = ("EXTERNAL_PRODUCT",)
+        if own_certification and permission != "FORBIDDEN":
+            paths = ("EXTERNAL_PRODUCT", "ALTERNATIVE_SPEC")
     else:
         return Options(deficiency_cause=cause, customer_permission=permission, options=[])
     gated = cause not in NOT_RND

@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import importlib.util
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import psycopg
@@ -859,6 +860,82 @@ def add_grade(admin, chain, requirement, code, grade, unknown=()):
                 Jsonb({"passed": [], "failed": [], "unknown": list(unknown)}),
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("attribute_key", "system", "compared", "permission", "paths"),
+    [
+        ("OTHER", "UL", True, "UNSTATED", ["EXTERNAL_PRODUCT", "ALTERNATIVE_SPEC"]),
+        (None, "UL", True, "UNSTATED", ["EXTERNAL_PRODUCT", "ALTERNATIVE_SPEC"]),
+        ("OTHER", "UL", True, "FORBIDDEN", ["EXTERNAL_PRODUCT", "NONE"]),
+        ("OTHER", "UL", False, "UNSTATED", ["EXTERNAL_PRODUCT"]),
+        ("OTHER", "NONE", True, "UNSTATED", ["EXTERNAL_PRODUCT"]),
+        ("bil", "UL", True, "UNSTATED", ["EXTERNAL_PRODUCT"]),
+    ],
+)
+def test_certification_gap_compares_alternative_only_with_own_candidate(
+    client, admin, chain, monkeypatch, attribute_key, system, compared, permission, paths
+):
+    """대체 제안은 자사 후보가 있는 인증 요구이고 고객이 금지하지 않을 때만 나온다."""
+    code = add_profile(admin)
+    requirement = chain["requirement"]
+    add_grade(admin, chain, requirement, code, "REVIEW")
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='INSUFFICIENT_EVIDENCE',operator='TEXT',"
+            "standard_system=%s,attribute_key=%s WHERE requirement_id=%s",
+            (system, attribute_key, requirement),
+        )
+        conn.execute(
+            "INSERT INTO tft.supplement_options (id, requirement_id, requirement_version, "
+            "deficiency_cause, customer_permission, path, allowed, blocked_reason, data_origin, "
+            "derivation_kind, known_at) VALUES (%s,%s,1,'CERTIFICATION',%s,'EXTERNAL_PRODUCT',%s,%s,"
+            "'synthetic','DERIVED',now())",
+            (
+                uuid4(),
+                requirement,
+                permission,
+                permission != "FORBIDDEN",
+                "금지" if permission == "FORBIDDEN" else None,
+            ),
+        )
+    monkeypatch.setattr(
+        repository, "latest_comparisons", AsyncMock(return_value=[{}] if compared else [])
+    )
+    assert list(options(client, chain)) == paths
+    with psycopg.connect(admin) as conn:
+        conn.execute("DELETE FROM tft.supplement_options WHERE requirement_id=%s", (requirement,))
+        conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+        conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
+
+
+def test_insufficient_evidence_with_a_grade_can_choose_external(client, admin, chain):
+    """처리가 저장한 선택지 행이 없어도 등급으로 경로와 후보가 열린다."""
+    code = add_profile(admin)
+    requirement = chain["requirement"]
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='INSUFFICIENT_EVIDENCE' "
+            "WHERE requirement_id=%s",
+            (requirement,),
+        )
+    assert options(client, chain) == {}
+    add_grade(admin, chain, requirement, code, "EXCLUDED")
+    assert options(client, chain) == {}
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.partner_grades SET grade='REVIEW',exclusion_reasons='[]' "
+            "WHERE candidate_code=%s",
+            (code,),
+        )
+    offered = options(client, chain)
+    assert list(offered) == ["EXTERNAL_PRODUCT"]
+    assert offered["EXTERNAL_PRODUCT"]["candidate_codes"] == [code]
+    chosen = choose(client, chain, "EXTERNAL_PRODUCT", candidate_codes=[code])
+    assert chosen.status_code == 200, chosen.text
+    with psycopg.connect(admin) as conn:
+        conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+        conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
 
 
 def add_profile(admin):
