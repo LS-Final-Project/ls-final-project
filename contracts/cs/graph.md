@@ -126,7 +126,7 @@
   한 번 보낸다. 레지스트리 `verification/v1`, 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
   `EVIDENCE` 문장 전수 1:1 대응과 입력 인용 범위를 검사한다. 문의 원문·정답을 새 입력으로 추가하지 않는다.
 - 검증 대상은 `EVIDENCE` 문장뿐이다(입력 판본 `cs-verification-input-v2`). `CONDITION`·`UNCONFIRMED` 문장은 근거를 달지 않아 입력에서 뺀다. 참조·차단어 검사는 모든 문장에 그대로 한다. `EVIDENCE` 문장이 없으면 호출 없이 `NOT_VERIFIED`, 사유 `CS_NO_EVIDENCE_SENTENCES`다.
-- 사례 상태: `EVIDENCE` 문장이 모두 `SUPPORTED`면 `VERIFIED`, 하나라도 아니면 `NEEDS_REVIEW`다. `UNVERIFIABLE`은 재작성하지 않고 표시만 한다. 초안·검증 기본 출력 상한은 6000이다(채택 전). 두 호출의 시간 제한은 60초이고 전용 클라이언트(`draft_ai_settings`)를 쓴다. 공용 `gemini_timeout_ms`(30초)와 분류는 그대로다. 일시 오류 재시도 1회면 호출 하나의 최악은 121초다. lease는 노드마다 연장하고 노드 안에 형식 재호출이 있어 노드 최악은 242초다. `CS_WORKER_LEASE_SECONDS` 기본은 300이고, `main`이 시작할 때 `check_lease(calls=2)`로 더 짧은 설정을 `INVALID_WORKER_CONFIGURATION`으로 막는다.
+- 사례 상태: `EVIDENCE` 문장이 모두 `SUPPORTED`면 `VERIFIED`, 하나라도 아니면 `NEEDS_REVIEW`다. `UNVERIFIABLE`은 재작성하지 않고 표시만 한다. 기본 출력 상한은 초안 6000, 검증 8192다(채택 전, 8192로 측정한 적 없음). 잘림 재시도는 없다. 두 호출의 시간 제한은 60초이고 전용 클라이언트(`draft_ai_settings`)를 쓴다. 공용 `gemini_timeout_ms`(30초)와 분류는 그대로다. 일시 오류 재시도 1회면 호출 하나의 최악은 121초다. lease는 노드마다 연장하고 노드 안에 형식 재호출이 있어 노드 최악은 242초다. `CS_WORKER_LEASE_SECONDS` 기본은 300이고, `main`이 시작할 때 `check_lease(calls=2)`로 더 짧은 설정을 `INVALID_WORKER_CONFIGURATION`으로 막는다.
 - 정상 검증에서 `UNSUPPORTED`가 있으면 `rewrite`로 간다. 기존 초안과 실패 문장 이유를
   정제 초안 입력에 붙여 **공급자 호출 한 번만** 재작성한다. 재작성에는 기존 형식 재시도를 적용하지 않는다.
   최초 draft의 기존 형식 재시도(0/1회)는 유지한다. 기존 draft/v1 지시문·입력은 재작성 이외에는 바뀌지 않는다.
