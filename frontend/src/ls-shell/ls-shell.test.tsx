@@ -31,6 +31,25 @@ describe('업무 셸과 옛 화면의 스타일 경계', () => {
     expect(container.querySelector('.ls-root .ls-legacy')).not.toBeNull();
   });
 
+  it('로그인한 계정 화면은 새 셸 안에서 내 정보(CM0202)로 그린다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { id: 'u', display_name: '합성', email: 'a@b.invalid', roles: ['cs_agent'], dept: null } })));
+    setApiMode('live');
+    const { container } = show('/account');
+    await waitFor(() => expect(container.querySelector('.kv-code')?.textContent).toBe('CM0202'));
+    expect(container.querySelector('.ls-root')).not.toBeNull();
+    expect(container.querySelector('.ls-legacy .kv-code')).toBeNull();
+  });
+
+  it('세션이 없으면 로그인 화면만 그리고 셸과 열린 화면 탭 저장은 하지 않는다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '만료'))));
+    setApiMode('live');
+    const { container } = show('/account');
+    await waitFor(() => expect(container.querySelector('.ls-login')).not.toBeNull());
+    expect(container.querySelector('.ls-root')).toBeNull();
+    expect(container.querySelector('.sidebar')).toBeNull();
+    expect(sessionStorage.getItem('ls-open-tabs')).toBeNull();
+  });
+
   it('문의 처리는 보드 기준 새 화면이라 옛 화면 영역이 아니다', () => {
     const { container } = show('/cs/tickets/22222222-2222-4222-8222-222222222222');
     expect(container.querySelector('.ls-legacy .kv-code')).toBeNull();
