@@ -15,7 +15,7 @@ const show = (path: string) => render(
   </QueryClientProvider>,
 );
 
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); });
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); sessionStorage.clear(); });
 
 describe('업무 셸과 옛 화면의 스타일 경계', () => {
   it('@scope 미지원 브라우저에서 전역 규칙이 사라지지 않는다', () => {
@@ -85,6 +85,40 @@ describe('셸 메뉴', () => {
   ])('%s 에서 메뉴는 %s 만 강조한다', async (path, name) => {
     const { container } = show(path);
     await waitFor(() => expect([...container.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual([name]));
+  });
+
+  it('연 화면이 탭으로 쌓이고 누르면 그 화면으로 간다', async () => {
+    const { container } = show('/tft/projects');
+    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '업무 홈' }));
+    await screen.findByRole('tab', { name: '업무 홈', selected: true });
+    expect(screen.getByRole('tab', { name: '접수 및 요구 검토', selected: false })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '접수 및 요구 검토' }));
+    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
+    expect(container.querySelectorAll('.kt-tab')).toHaveLength(2);
+  });
+
+  it('업무 홈 탭은 닫을 수 없고 현재 탭을 닫으면 앞 탭으로 간다', async () => {
+    show('/tft');
+    await screen.findByRole('tab', { name: '업무 홈', selected: true });
+    expect(screen.queryByRole('button', { name: '업무 홈 닫기' })).toBeNull();
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '접수 및 요구 검토' }));
+    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
+    fireEvent.click(screen.getByRole('button', { name: '접수 및 요구 검토 닫기' }));
+    await screen.findByRole('tab', { name: '업무 홈', selected: true });
+    await waitFor(() => expect(screen.queryByRole('tab', { name: '접수 및 요구 검토' })).toBeNull());
+  });
+
+  it('탭은 새로고침해도 남고 저장소를 못 써도 셸이 돈다', async () => {
+    sessionStorage.setItem('ls-open-tabs', JSON.stringify([{ kind: 'table', to: '/tft/projects/p1/table', name: '자사 대응표' }]));
+    show('/tft');
+    await screen.findByRole('tab', { name: '자사 대응표', selected: false });
+    cleanup();
+    sessionStorage.clear();
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
+    show('/tft');
+    await screen.findByRole('tab', { name: '업무 홈', selected: true });
+    spy.mockRestore();
   });
 
   it('세션 장애를 로그아웃으로 표시하지 않는다', async () => {
