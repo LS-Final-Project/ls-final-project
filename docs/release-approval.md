@@ -74,12 +74,12 @@
 
 ### D. 검색 색인 (운영자 터미널, 서비스 배포와 처리 켜기보다 먼저)
 
-처리가 켜진 뒤 색인이 옛 판본이면, worker가 `chunking-v2` 조건으로 검색해 근거 0건 초안을 만든다. 그래서 색인을 먼저 맞춘다.
+처리가 켜진 뒤 색인이 옛 판본이면, worker가 `chunking-v3` 조건으로 검색해 근거 0건 초안을 만든다. 그래서 색인을 먼저 맞춘다.
 
-- [ ] 공용 문서 색인이 `chunking-v2`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
+- [ ] 공용 문서 색인이 `chunking-v3`인지 확인한다. 아니면 `scripts/cs_index_docs.py --execute --allow-remote`로 재색인한다(#297).
   - `DATABASE_URL`은 운영자 프록시를 거친 **cs_app** 연결이다. `--docs`·`--data-origin`은 스크립트 도움말을 따른다.
 - [ ] 벡터 검색을 켤 거면 다음을 한다(댓글 10886).
-  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 1,098청크, 근사 $0.012). 끝나면 `VACUUM cs.chunk_embeddings`.
+  - **[비용]** `cs_index_docs --embed --allow-remote`로 임베딩을 적재한다(`gemini-embedding-2`, 768, 약 891청크, 근사 $0.0103). 끝나면 `VACUUM cs.chunk_embeddings`.
   - 서비스 설정은 G에서 켠다.
 
 ### E. 서비스 배포 (dev → main)

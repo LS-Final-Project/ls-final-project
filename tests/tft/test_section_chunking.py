@@ -354,3 +354,42 @@ def test_short_trailing_line_stays_in_its_own_section() -> None:
         (["2.4 TRANSFORMER"], ["note"]),
         (["2.5 SWITCHGEAR"], ["a25", "body2"]),
     ]
+
+
+def markdown(*texts: str) -> Any:
+    blocks = [para(f"b{i}", text, i) for i, text in enumerate(texts)]
+    return build_document("MARKDOWN", b"md", blocks, [], tables=0)
+
+
+def test_markdown_front_matter_and_the_notice_after_it_are_not_indexed():
+    """머리말과 바로 뒤 인용 문단은 뺀다. 본문의 인용은 남기고 머리말만 있는 문서는 빈다."""
+    yaml = "---\ndoc_id: X\ntitle: Y\n---"
+    body = "본문 문단은 사양과 절차를 충분히 길게 설명하는 문장이다."
+    result = chunk_document(markdown(yaml, "> 합성 안내", body, "> 본문 인용 문장이다."))
+    assert result.skipped_block_ids[:2] == ["b0", "b1"]
+    assert all("doc_id" not in c.text and "합성 안내" not in c.text for c in result.chunks)
+    assert "본문 인용" in "".join(c.text for c in result.chunks)
+    # YAML 안의 빈 줄로 단락이 갈려도 닫는 줄까지 머리말이다.
+    split = chunk_document(markdown("---\ndoc_id: X", "title: Y\n---", body))
+    assert split.skipped_block_ids[:2] == ["b0", "b1"] and body in split.chunks[0].text
+    alone = chunk_document(markdown("---\ndoc_id: X", "title: Y", "---", body))
+    assert alone.skipped_block_ids[:3] == ["b0", "b1", "b2"] and body in alone.chunks[0].text
+
+
+def test_only_a_closed_markdown_front_matter_is_dropped():
+    """닫는 줄이 없으면 머리말이 아니고, DOCX는 같은 글자여도 그대로 둔다."""
+    text = "---\n닫는 줄이 없는 문단이고 본문으로 충분히 긴 문장이다."
+    assert chunk_document(markdown(text)).chunks
+    yaml = "---\ndoc_id: X\n---"
+    blocks = [para("b0", yaml, 0), para("b1", "본문 문단은 충분히 긴 문장으로 쓴다.", 1)]
+    docx = build_document("DOCX", b"d", blocks, [], tables=0)
+    assert any("doc_id" in c.text for c in chunk_document(docx).chunks)
+
+
+def test_a_long_heading_alone_joins_the_next_chunk():
+    """제목 블록만 든 청크는 40자를 넘어도 따로 두지 않는다."""
+    title = "Cast Resin Dry-Type Transformer 630kVA (TRF-DRY-630) — Datasheet"
+    head = numbered("h1", title, 0, None, 0, heading=True)
+    sub_head = numbered("h2", "1. Overview", 1, None, 1, heading=True)
+    result = chunk_document(doc(head, sub_head, para("p", "변압기 개요 문장이다.", 2)))
+    assert len(result.chunks) == 1 and title in result.chunks[0].text

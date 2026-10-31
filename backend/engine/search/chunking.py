@@ -42,7 +42,7 @@ from backend.engine.documents.model import Block, ExtractedDocument
 from backend.engine.rfp.clauses import ARTICLE, LABELS, PART, SECTION_HEAD, SENTENCE_END
 from backend.engine.search.model import Chunk, ChunkingResult, ChunkKind
 
-INDEX_VERSION = "chunking-v2"
+INDEX_VERSION = "chunking-v3"
 BUDGET = 1200
 PATH_LIMIT = 80
 HEADING_STYLE = re.compile(r"(?i)heading\s*(\d)")
@@ -270,6 +270,33 @@ def _table_units(cells: list[Block], skipped: list[str]) -> list[Unit]:
     return units
 
 
+def _preamble(document: ExtractedDocument) -> list[str]:
+    """Markdown 머리말 블록 ID를 찾는다. 머리말은 본문이 아니라 색인에 넣지 않는다.
+
+    Args:
+        document: 추출 문서.
+
+    Returns:
+        list[str]: 맨 앞 YAML 머리말과 바로 뒤 인용 문단의 블록 ID. 닫는 줄이 없으면
+            머리말이 아니라 빈 목록이다. DOCX·PDF도 빈 목록이다.
+    """
+    blocks = document.blocks
+    if document.source_kind != "MARKDOWN" or not blocks:
+        return []
+    if blocks[0].text.splitlines()[:1] != ["---"]:
+        return []
+    for index, block in enumerate(blocks):
+        lines = block.text.splitlines()[0 if index else 1 :]
+        if "---" in lines:
+            break
+    else:
+        return []
+    end = index + 1
+    while end < len(blocks) and blocks[end].text.startswith(">"):
+        end += 1
+    return [block.block_id for block in blocks[:end]]
+
+
 def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> ChunkingResult:
     """추출 문서를 섹션 경로가 붙은 청크로 나눈다.
 
@@ -303,7 +330,8 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             None: chunks에 더하거나 pending에 둔다.
         """
         current = [label for _, label in path]
-        if layout or (kind == "TEXT" and _title_only(_text([], units))):
+        headings = all(block.block_id in heads for unit in units for block in unit.blocks)
+        if layout or (kind == "TEXT" and (headings or _title_only(_text([], units)))):
             pending.append((units, layout, title, current))
             return
         lead: list[Unit] = []
@@ -403,7 +431,9 @@ def chunk_document(document: ExtractedDocument, *, budget: int = BUDGET) -> Chun
             emit(group, "TEXT", None)
         section.clear()
 
-    blocks = document.blocks
+    preamble = _preamble(document)
+    skipped.extend(preamble)
+    blocks = [block for block in document.blocks if block.block_id not in preamble]
     index = 0
     while index < len(blocks):
         block = blocks[index]
