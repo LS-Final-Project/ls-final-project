@@ -614,10 +614,13 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
     """시드 스크립트(KAN-184): --execute 뒤 DB 행을 worker 방식으로 되돌리면 파일과 같고, 재실행은 0행이며,
     같은 판본 내용이 바뀌면 DIFFERENT, 새 판본이면 MISSING으로 종료 1이다. 기본 계획은 원격 DSN이어도 접속하지 않는다."""
     # 백엔드 검사 이미지에는 scripts/가 없어 DB가 있을 때(admin 통과 뒤)만 가져온다.
-    from scripts.rfp_seed_partner_profiles import main
+    from scripts.rfp_seed_partner_profiles import main, target_confirmation, target_of
 
     def run(*argv):
-        code = main(list(argv))
+        args = list(argv)
+        if "--execute" in args or "--apply" in args:
+            args += ["--confirm-target", target_confirmation(target_of(app_dsn))]
+        code = main(args)
         out = capsys.readouterr().out
         return code, json.loads(out.strip().splitlines()[-1]) if out.strip() else None
 

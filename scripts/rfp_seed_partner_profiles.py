@@ -5,20 +5,24 @@ RFP 처리 함수는 협력사 등급을 DB 행(FK)으로만 매기므로 프로
 
 기본(--dry-run)은 파일 검증과 계획 출력만 하며 DB에 접속하지 않는다. --check는 명시적인 읽기 전용
 대조다. --apply(기존 --execute와 같음)는 없는 판본만 INSERT … ON CONFLICT DO NOTHING으로 넣고 다시
-대조한다. 같은 판본 내용이 다르면 덮어쓰지 않으므로 파일의 profile_version을 올린다.
+대조한다. 적용은 출력된 host/port/dbname과 --confirm-target이 정확히 일치해야 접속한다.
+같은 판본 내용이 다르면 덮어쓰지 않으므로 파일의 profile_version을 올린다.
 
 공용 환경을 포함해 DSN은 운영자 터미널의 DATABASE_URL에서만 읽고 출력하지 않는다. 입력은 반드시
 synthetic 프로필이며 접속·INSERT 전에 검증한다. 공용 DB 적용은 운영자만 수행한다.
 """
 
 import argparse
+import ipaddress
 import json
 import os
+import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier, Placeholder
 
@@ -90,6 +94,46 @@ def insert(conn: psycopg.Connection[dict[str, Any]], profiles: list[PartnerProfi
     return inserted
 
 
+def target_of(dsn: str) -> dict[str, str]:
+    """명시한 단일 host/DB만 허용한다. libpq service·주소 우회·다중 대상은 거부한다."""
+    info = conninfo_to_dict(dsn)
+    if (
+        info.get("service")
+        or os.environ.get("PGSERVICE")
+        or info.get("hostaddr")
+        or os.environ.get("PGHOSTADDR")
+    ):
+        raise ValueError("TFT_SEED_TARGET_INVALID")
+    host, dbname = info.get("host", ""), info.get("dbname", "")
+    port = info.get("port") or os.environ.get("PGPORT") or "5432"
+    dns = re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", host)
+    socket = (
+        host.startswith("/")
+        and re.fullmatch(r"/[A-Za-z0-9_./:-]+", host)
+        and str(PurePosixPath(host)) == host
+        and ".." not in PurePosixPath(host).parts
+    )
+    try:
+        ipaddress.ip_address(host)
+        ip = True
+    except ValueError:
+        ip = False
+    if (
+        not (dns or socket or ip)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]{1,63}", dbname)
+        or not port.isascii()
+        or not port.isdecimal()
+        or not 1 <= int(port) <= 65535
+    ):
+        raise ValueError("TFT_SEED_TARGET_INVALID")
+    return {"host": host, "port": port, "dbname": dbname}
+
+
+def target_confirmation(target: dict[str, str]) -> str:
+    """비밀 없는 표시·확인 토큰. connect에도 검증된 같은 세 값을 명시한다."""
+    return " ".join(f"{name}={target[name]}" for name in ("host", "port", "dbname"))
+
+
 def main(argv: list[str] | None = None) -> int:
     """기본 무접속 계획, 명시 읽기 대조 또는 명시 적용 뒤 결과를 출력한다.
 
@@ -111,7 +155,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="없는 합성 판본만 넣고 대조(운영자 전용)",
     )
+    parser.add_argument(
+        "--confirm-target", help="출력된 host/port/dbname 토큰과 정확히 일치해야 적용"
+    )
     args = parser.parse_args(argv)
+    if args.confirm_target is not None and not args.apply:
+        parser.error("--confirm-target requires --apply/--execute")
     try:
         profiles = load_profiles(args.profiles)
         _synthetic(profiles)
@@ -129,8 +178,23 @@ def main(argv: list[str] | None = None) -> int:
     if not dsn:
         print("TFT_SEED_NEEDS_DB: DATABASE_URL이 필요하다.", file=sys.stderr)
         return 1
+    target: dict[str, str] = {}
+    if args.apply:
+        try:
+            target = target_of(dsn)
+        except (ValueError, psycopg.Error):
+            print("TFT_SEED_TARGET_INVALID: 명시된 단일 host·port·DB가 필요하다.", file=sys.stderr)
+            return 1
+        token = target_confirmation(target)
+        print(f"TARGET {token}")
+        if args.confirm_target != token:
+            print(
+                "TFT_SEED_TARGET_MISMATCH: --confirm-target으로 출력 대상을 정확히 확인한다.",
+                file=sys.stderr,
+            )
+            return 1
     try:
-        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+        with psycopg.connect(dsn, row_factory=dict_row, **target) as conn:
             if args.check:
                 conn.execute("SET TRANSACTION READ ONLY")
             inserted = insert(conn, profiles) if args.apply else 0
