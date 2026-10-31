@@ -5,7 +5,7 @@ from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_
 from backend.api.cs.routes import router
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
-from backend.engine.cs.rules import load_policy
+from backend.engine.cs.rules import firmware_releases, load_policy
 from backend.shared.settings import Settings
 
 
@@ -23,6 +23,7 @@ def create_app(
     """
     # An edited or mismatched policy table stops the service here, not at the first ticket.
     load_policy()
+    firmware_releases()
     app = create_application("cs", settings)
     if (
         app.state.settings.business_relay_enabled

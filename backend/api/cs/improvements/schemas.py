@@ -8,9 +8,9 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from backend.engine.cs.improvement_candidates import parse_version
+from backend.engine.cs.improvement_candidates import FaultCandidate, parse_version
 from backend.engine.cs.improvement_followups import ScopeKind
 from backend.shared.departments import TransferDepartment
 
@@ -196,6 +196,12 @@ class ImprovementRequest(BaseModel):
         description="No receiving department yet. A document request's receiver needs "
         "confirmation with the business before it can be sent."
     )
+    candidate_reason_code: str | None = Field(
+        default=None, description="Why the system raised this candidate. Null on a manual request."
+    )
+    candidate_reached_at: datetime | None = None
+    candidate_rules_version: str | None = None
+    candidate_as_of: datetime | None = None
     reviewed_by: UUID | None
     reviewed_at: datetime | None
     sent_at: datetime | None
@@ -441,3 +447,44 @@ class RequestRound(BaseModel):
 
 
 RequestDetail.model_rebuild()
+
+
+# Only CONFIRMED_CANDIDATE reads as settled. The others must not be shown as a confirmed result.
+DisplayState = Literal[
+    "CONFIRMED_CANDIDATE", "CONDITION_UNCONFIRMED", "INSUFFICIENT_EVIDENCE", "NOT_ELIGIBLE"
+]
+# Document signals have no source table yet (condition-comparison.md).
+DocumentCandidates = Literal["NOT_CONNECTED"]
+
+
+class CandidateItem(FaultCandidate):
+    data_origin: Literal["synthetic", "demo", "real"]
+    display_state: DisplayState
+    request_id: UUID | None = Field(description="The fault request of this group, if any.")
+    request_status: RequestStatus | None
+
+
+class CandidateList(BaseModel):
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    items: list[CandidateItem]
+
+
+class CandidateCollect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of: AwareDatetime | None = Field(
+        default=None, description="Judge as of this time. Defaults to now; a future time is a 422."
+    )
+
+
+class CandidateCollected(BaseModel):
+    run_id: UUID
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    eligible: int = Field(description="Eligible groups, saved or not.")
+    created: int
+    already_requested: int
+    request_ids: list[UUID]

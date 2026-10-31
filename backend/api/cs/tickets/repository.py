@@ -25,6 +25,13 @@ IN_DEPARTMENTS = (
     "EXISTS (SELECT 1 FROM cs.ticket_transfers x "
     "WHERE x.ticket_id = t.id AND x.dept_code = ANY(%s))"
 )
+TRANSFERRED_TO = (
+    "EXISTS (SELECT 1 FROM cs.ticket_transfers x WHERE x.ticket_id = t.id AND x.dept_code = %s)"
+)
+LATEST_TRANSFER_STATUS = (
+    "(SELECT x.status FROM cs.ticket_transfers x WHERE x.ticket_id = t.id AND x.dept_code = %s "
+    "ORDER BY x.round DESC LIMIT 1) = %s"
+)
 CASE_COLUMNS = (
     "id, external_id, data_origin, derivation_kind, resolved_at, known_at, product_code, "
     "fault_id, fw_version_at_issue, symptom, root_cause, root_cause_type, action_taken, "
@@ -47,6 +54,8 @@ class TicketFilters:
     received_from: datetime | None = None
     received_to: datetime | None = None
     q: str | None = None
+    dept: str | None = None
+    transfer_status: str | None = None
 
 
 def like_pattern(text: str) -> str:
@@ -82,7 +91,26 @@ def filter_conditions(filters: TicketFilters) -> tuple[list[str], list[Any]]:
             "OR t.customer_external_id ILIKE %s ESCAPE '\\')"
         )
         params.extend([like_pattern(filters.q)] * 3)
+    if filters.dept is not None:
+        conditions.append(TRANSFERRED_TO)
+        params.append(filters.dept)
+    if filters.transfer_status is not None:
+        conditions.append(LATEST_TRANSFER_STATUS)
+        params.extend([filters.dept, filters.transfer_status])
     return conditions, params
+
+
+async def latest_transfers(
+    conn: AsyncConnection[Row], ticket_ids: list[UUID], dept: str
+) -> dict[UUID, Row]:
+    """The latest transfer of each ticket to one department. Ended ones are kept (KAN-202)."""
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (ticket_id) ticket_id, round, dept_code, status, transferred_at "
+        "FROM cs.ticket_transfers WHERE ticket_id = ANY(%s) AND dept_code = %s "
+        "ORDER BY ticket_id, round DESC",
+        (ticket_ids, dept),
+    )
+    return {row["ticket_id"]: row for row in await cursor.fetchall()}
 
 
 async def list_tickets(

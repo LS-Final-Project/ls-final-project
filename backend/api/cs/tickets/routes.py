@@ -24,11 +24,13 @@ from backend.api.cs.tickets.schemas import (
     TicketList,
     TicketSummary,
     TicketUpdate,
+    TransferStatus,
     WorkflowState,
 )
 from backend.api.cs.units import repository as units
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
+from backend.shared.departments import TransferDepartment
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind, bind_path_ids
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
@@ -160,9 +162,17 @@ async def list_tickets(
         description="Substring of the ticket number, subject or customer ID (case-insensitive).",
     ),
     sort: Literal["received_at_desc", "received_at_asc"] = Query("received_at_desc"),
+    dept: TransferDepartment | None = Query(
+        None, description="Requests this department received: transferred to it in any round."
+    ),
+    transfer_status: TransferStatus | None = Query(
+        None, description="Status of the latest transfer to dept. Needs dept."
+    ),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketList]:
     require_ticket_list(principal)
+    if transfer_status is not None and dept is None:
+        raise filter_error("transfer_status needs dept.")
     ascending = sort == "received_at_asc"
     after = None
     if cursor:
@@ -178,15 +188,26 @@ async def list_tickets(
         received_from=as_utc(received_from),
         received_to=as_utc(received_to),
         q=q,
+        dept=dept,
+        transfer_status=transfer_status,
     )
     departments = None if sees_all_tickets(principal) else transfer_departments(principal)
-    if departments is not None and not departments:
+    # A ticket sent to two departments must not show the other one's transfer to this user.
+    if departments is not None and (not departments or (dept and dept not in departments)):
         return respond(request, TicketList(items=[], next_cursor=None))
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_tickets(
             conn, limit, after, departments, filters=filters, ascending=ascending
         )
-    items = [TicketSummary.model_validate(row) for row in rows[:limit]]
+        transfers = (
+            await repository.latest_transfers(conn, [r["id"] for r in rows[:limit]], dept)
+            if dept
+            else {}
+        )
+    items = [
+        TicketSummary.model_validate({**row, "transfer": transfers.get(row["id"])})
+        for row in rows[:limit]
+    ]
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]

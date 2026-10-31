@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.api.cs.tickets.schemas import WorkflowState
+from backend.api.cs.tickets.schemas import TransferStatus, WorkflowState
 from backend.shared.departments import TransferDepartment
 
 Code = Annotated[str, Field(min_length=1, max_length=64)]
@@ -19,7 +19,6 @@ Text = Annotated[str, Field(min_length=1, max_length=10_000)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 # An info_field_codebook code (eval/policy/cs_required_info.csv required_fields).
 InfoCode = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
-TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 ReviewStatus = Literal["SUBMITTED", "ACCEPTED", "REWORK_REQUESTED"]
 ReturnSubtype = Literal["DEFECT", "NON_DEFECT"]
 # KAN-193: who is responsible for a returned product, decided by a person after inspection.

@@ -2,7 +2,7 @@
 
 원본: `backend/api/cs/improvements/schemas.py`, `routes.py`, `next_owner.py`. 기획서 4.4·6.1과 [권한 문서](../platform/permissions.md) 2.2·2.2.1을 따른다. 마이그레이션은 `infra/migrations/cs/20261028_KAN-112_improvement_requests.sql`이다.
 
-KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회신·조치·후속 확인·완료 전이는 아래 [상태 전이 API](#상태-전이-api-kan-116)(KAN-116), 후보 자동 생성 규칙은 [후보 규칙](improvement-candidates.md)(KAN-113), 재요청·재발 재개(새 회차)는 KAN-117이 같은 테이블을 쓴다([재요청·재발 계약 초안](improvement-followups.md)).
+KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회신·조치·후속 확인·완료 전이는 아래 [상태 전이 API](#상태-전이-api-kan-116)(KAN-116), 후보 자동 생성 규칙과 저장은 [후보 규칙](improvement-candidates.md)(KAN-113, KAN-202), 재요청·재발 재개(새 회차)는 KAN-117이 같은 테이블을 쓴다([재요청·재발 계약 초안](improvement-followups.md)).
 
 ## 저장 구조
 
@@ -34,6 +34,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 - **유형별 규칙**: 고장 요청은 `fault_id`(`FLT-000`)와 제안 부서 1개 이상이 필요하다(비우면 422 `CS_DEPARTMENT_REQUIRED`). 문서 요청은 `doc_signal`(`NOT_FOUND`·`VALUE_CONFLICT`·`BROKEN_LINK`·`REPEATED_SPEC`)이 필요하고, 문서 담당 부서가 부서 목록에 없으므로 제안 부서가 비어 있을 수 있다. 이때 `receiver_unconfirmed = true`이고 검토 뒤 다음 할 일은 `CONFIRM_RECEIVER`다(전달은 KAN-116에서 막는다). 묶음 키(유형·제품·고장·신호)는 만든 뒤 바꾸지 않는다.
 - **근거 검사**: 문의의 제품이 요청과 같아야 한다. 고장 요청은 그 문의의 **이미 알려진** 해결 사례가 필요하고 사례의 고장 ID가 요청과 같아야 한다. 문서 요청은 사례를 붙이지 않는다. 어긋나면 422 `CS_EVIDENCE_INVALID`, 이미 근거인 문의는 409 `CS_EVIDENCE_EXISTS`, 모르는 제품은 422 `CS_UNKNOWN_PRODUCT`.
 - **사용 조건**: `condition_status`가 `UNKNOWN`(기본)이면 조건을 확인하지 못한 묶음이다. 조건이 다른 사례는 다른 요청으로 나눈다. 조건 비교 판단은 KAN-114·113이 한다.
+- **시스템 후보**: `POST /api/v1/cs/improvement-candidates/collect`가 만든 요청은 `origin=SYSTEM_CANDIDATE`·`DRAFT`이고 `cs_owner`가 비어 있다. 검토한 사람이 담당자가 된다. 그 뒤 동작은 일반 요청과 같다. 판정 당시 값은 `candidate_*` 칸에 있고 수동 요청은 null이다.
 - **문의 종결 ≠ 개선 완료**: 요청과 문의 상태는 서로 바꾸지 않는다. 종결된 문의도 근거가 될 수 있고, 요청을 완료해도 문의는 그대로다.
 - **조회 범위**: cs_agent와 C/S 부서 manager는 전체. dept_staff는 자기 부서가 수신 부서인 요청(전달된 회차가 있을 때)만, 다른 부서 manager는 관리 부서가 수신 부서이거나 제안 부서인 요청을 본다. 범위 밖은 404 `CS_REQUEST_NOT_FOUND`.
 
