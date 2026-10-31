@@ -10,6 +10,7 @@ from backend.engine.cs import drafting, improvement_drafting, improvement_reply,
 from backend.engine.cs.prompt_registry import (
     CONFIRMATION_RULES,
     DEFAULT_VERSIONS,
+    EVIDENCE_RULE,
     PROMPTS,
     get_prompt,
     list_versions,
@@ -38,6 +39,8 @@ V2_FINGERPRINTS = {
     "improvement_reply": "a9d0bafb9f324c2e",
     "improvement_draft": "9e6f87e3df1112cf",
 }
+# KAN-200 v3: 초안에 문서 사실만 EVIDENCE로 쓰라는 줄 하나만 더한 판본이다.
+V3_DRAFT_FINGERPRINT = "70bf469f2450f676"
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -58,7 +61,10 @@ def test_v1_fingerprints_are_pinned():
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
     assert list_versions("classification") == ("v1", "v2", "v3")
     assert list_versions("verification") == ("v1",)
-    assert all(list_versions(stage) == ("v1", "v2") for stage in V2_FINGERPRINTS)
+    assert list_versions("draft") == ("v1", "v2", "v3")
+    assert all(
+        list_versions(stage) == ("v1", "v2") for stage in V2_FINGERPRINTS if stage != "draft"
+    )
 
 
 @pytest.mark.parametrize("stage", sorted(MODULES))
@@ -94,6 +100,15 @@ def test_v2_adds_only_the_confirmation_rule(stage):
     assert v2[:index] + v2[index + 1 :] == v1
     assert "약속하지 않는다" in v2[index - 1]
     assert prompt_fingerprint(stage, "v2") == V2_FINGERPRINTS[stage]
+
+
+def test_draft_v3_adds_only_the_evidence_rule():
+    """v3는 v2의 EVIDENCE 뜻 줄 바로 뒤에 문서 사실 줄 하나만 더하고 지문을 고정한다."""
+    v2, v3 = get_prompt("draft", "v2").splitlines(), get_prompt("draft", "v3").splitlines()
+    index = v3.index(EVIDENCE_RULE.rstrip("\n"))
+    assert v3[:index] + v3[index + 1 :] == v2
+    assert "EVIDENCE로 쓰지 않는다" in v3[index - 1]
+    assert prompt_fingerprint("draft", "v3") == V3_DRAFT_FINGERPRINT
 
 
 def test_classification_v1_states_the_output_contract():
@@ -145,7 +160,7 @@ def test_classification_v2_adds_only_the_urgency_guide():
     assert "SAFETY > " not in guide and "우선" not in guide
 
 
-def test_product_defaults_use_v3_for_classification_only():
+def test_product_defaults_are_pinned():
     """제품 경로 기본 판본은 분류 v3·검증 v1·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
 
     Args:
@@ -159,7 +174,7 @@ def test_product_defaults_use_v3_for_classification_only():
 
     assert DEFAULT_VERSIONS == {
         "classification": "v3",
-        "draft": "v2",
+        "draft": "v3",
         "verification": "v1",
         "reply": "v2",
         "improvement_reply": "v2",
@@ -241,8 +256,8 @@ def test_draft_attempt_records_version_and_instruction_fingerprint():
     provider = Mock(return_value=Generation(raw(), Usage(), "fake-v1", ["STOP"]))
     result = attempt(provider)
     expected = hashlib.sha256(drafting.DRAFT_PROMPT.encode()).hexdigest()[:16]
-    assert (result.prompt_version, result.instruction_fingerprint) == ("v2", expected)
-    assert expected != prompt_fingerprint("draft", "v2")
+    assert (result.prompt_version, result.instruction_fingerprint) == ("v3", expected)
+    assert expected != prompt_fingerprint("draft", "v3")
     assert provider.call_args.args[0].startswith(drafting.DRAFT_PROMPT)
     unknown = Mock()
     with pytest.raises(ValueError, match="^CS_UNKNOWN_PROMPT_VERSION$"):
