@@ -51,7 +51,8 @@ test('담당자 미배정과 기간 밖 진행 부담을 구분하고 담당자 
   vi.stubGlobal('fetch', fetch); admin();
   await screen.findByText('판단이 필요한 것'); await screen.findByText('미배정');
   expect(screen.getByText('담당자별 진행')).toBeTruthy();
-  expect(screen.getByText(/진행은 전체 기간/)).toBeTruthy();
+  // 구역 제목 옆 안내와 '담당자 없음' 행 설명 두 곳에 같은 기준이 적혀 있다.
+  expect(screen.getAllByText(/진행은 전체 기간/).length).toBeGreaterThanOrEqual(2);
   fireEvent.change(screen.getByLabelText('고객 ID'), { target: { value: 'CUST-1' } });
   fireEvent.click(screen.getByRole('button', { name: '조회' }));
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes('/overview?') && String(url).includes('customer=CUST-1'))).toBe(true));
