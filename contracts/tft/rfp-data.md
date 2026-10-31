@@ -119,7 +119,7 @@ erDiagram
   - `tolerance`(원문 표기, `spec`)와 `needs_review`(시스템 표시, 목록·상세 최상위)는 T15 칸이다. `tolerance`의 `null`은 '오차 없음'이 아니라 '없거나 모름'이다(T15 전 판본은 재처리 전까지 `null`·`false`). `attribute_key`·`equipment_family`는 저장만 하고 응답에 내지 않는다.
   - `links.comparison_summary`는 후보 수와 결과 요약, `links.supplement_summary`는 최신 선택의 경로 코드다. 화면 표시용 자유 문자열이다.
   - 비교(14)는 비교가 저장된 가장 최근 요구 판본을 내고 그 판본을 `requirement_version`에 적는다. 후보가 없으면 저장 행이 없으므로 저장된 `equipment_family`로 `search_trace.filters`를 만든다(`family=…`, 모르면 `family=NONE`).
-  - 협력사 후보(17)는 저장된 등급 행이 있는 후보만 낸다. `overall_grade`는 `grading.overall_grade`로 저장 등급 전체에서 계산하고(`partner_grade_summaries`는 쓰지 않음), `requirement_id` 필터는 `grades`만 좁힌다. `conditions_to_confirm`은 `mandatory_check.unknown` 합집합, `on_customer_manufacturer_list`는 제조사 목록 입력 전이라 `null`이다.
+  - 협력사 후보(17)는 저장된 등급 행이 있는 후보만 낸다. `overall_grade`는 `grading.overall_grade`로 저장 등급 전체에서 계산하고(`partner_grade_summaries`는 쓰지 않음), `requirement_id` 필터는 `grades`만 좁힌다. `conditions_to_confirm`은 `mandatory_check.unknown` 합집합, `on_customer_manufacturer_list`는 최신 프로젝트의 사람 입력 제조사 목록 기준이며 미제공이면 `null`이다. 이 값은 저장 등급 판정 시점과 별개다. 응답의 `manufacturer_list_basis=CURRENT_PROJECT_INPUT`·`input_project_version`으로 구분하고, 요구별 등급의 추가 필드 `requirement_version`·`profile_version`·`version`·`known_at`은 실제 저장 판정의 판본·시점을 나타낸다. 기존 필드는 삭제하거나 의미를 바꾸지 않는다.
 - **쓰기 경로(KAN-188, `rfp/routes_write.py`)**: 2·4·5·6이다. 응답은 `RfpProjectDetail`이다.
   - 2 접수: `sales`만. 호출자가 담당이 되고 책임자는 자동 지정하지 않는다. `review_departments`는 `department_kinds`에 있어야 한다.
   - 4 수정: 담당 `sales`·책임자만. 본문에 있는 칸만 바꾼다. `name`·`review_departments`·`integration_responsibility`의 `null`은 422, `strategic_customer: null`은 입력자·메모와 함께 지운다.
@@ -142,7 +142,7 @@ erDiagram
   - 사람 행동 기록(행위자·시각 열): `project_assignments`, `review_versions`, `exports`, `rereview_marks`
   - 시스템 기록: `rfp_commands`(멱등), `rfp_audit_events`(감사)
 - **추가만**: 위 표에 `tft_app`은 SELECT·INSERT만 가지고 UPDATE·DELETE·TRUNCATE는 없다. 최신 판본 포인터와 상태 열만 열 단위 UPDATE를 연다. 판본을 고치지 않고 새 판본을 쓴다(명세 §2.3).
-- **재검토 표시는 판본과 따로 둔다.** 판본 행은 고치지 않으므로 `needs_rereview` 열을 판본 표에 두지 않는다. 응답의 `needs_rereview`는 대상에 해소 안 된 `rereview_marks` 행이 있는지로 계산한다.
+- **재검토 표시는 판본과 따로 둔다.** 판본 행은 고치지 않으므로 `needs_rereview` 열을 판본 표에 두지 않는다. 응답의 `needs_rereview`는 기존 미해소 표시·선택 이후 R&D 회신과 함께, 최신 보완 선택이 현행 요구/후보 등급에 맞는지를 공용 식으로 확인한다. 가짜 원인 제안이나 표시 행을 만들지 않는다.
   - 요구의 `needs_rereview`는 위 조건에 하나를 OR로 더한다(KAN-189): 그 요구의 INTERNAL R&D 자문 답변(`issue_type=RND_FEASIBILITY`) 기록 시각이 최신 보완 선택(`supplement_selections.decided_at`)보다 뒤면 참이다. 보완 선택이 없으면 이 조건은 보지 않고, 새 선택이 생기면 꺼진다. R&D 답변은 변경 제안을 만들지 않으므로(명세 v1.3 §5.3) 제안에 묶인 `rereview_marks` 행을 남길 수 없어 계산으로 둔다. 구현은 `backend/api/tft/rfp/repository.py`의 `needs_rereview`다.
   - 후속 제안(KAN-182): 답변을 표시 원인으로 저장하려면 `rereview_marks`에 `cause_question_id`(질문 FK, `cause_proposal_id`와 둘 중 하나)를 허용하는 확장이 필요하다. 그때까지는 위 계산이 원천이다.
 - **R&D 확인 `rnd_check`는 읽을 때 계산한다(KAN-189).** 원천은 `rnd.rnd_check_of(그 요구의 R&D 자문 질문·답변, WAIVED로 저장된 최신 보완 선택의 결정 시각)`이다(`repository.rnd_check`). 이 값을 바꾸려고 요구 판본을 새로 쓰거나 제자리 갱신하지 않는다. 비교·보완 선택지가 요구 판본에 묶여 있어 판본만 올리면 최신 판본의 비교가 비기 때문이다. `requirement_versions.rnd_check`(T10)는 다른 흐름이 판본을 새로 만들 때만 그 시점 값으로 채운다. 보완 선택 판본의 `rnd_check`는 선택 시점의 값(면제면 `WAIVED`)을 남긴다.
@@ -213,3 +213,19 @@ PREFERRED SPEC_GAP 1건이면 미해결 필수는 2건이다. EVIDENCE_FOUND라�
 통과하고 담당 sales 또는 책임자가 저장한 시점에만 판단 상태를 정한다. 미해결이
 남아도 요구별 상태·근거 또는 다음 행동이 갖춰지고 초안 문장의 근거·재검토 조건을
 통과하면 검토본 저장은 가능하되 `CONDITION_CHECK`를 유지한다.
+
+### 프로젝트의 사람 입력 제약(KAN-187)
+
+`supply_region`은 nullable text, `customer_manufacturer_list`는 nullable text[]이다. null은 미제공이며 명시한 빈 목록은 거부한다. 목록 항목과 공급지역은 비어 있지 않은 사람 입력만 허용한다. `off_list_permission`은 ALLOWED/FORBIDDEN/UNSTATED(기본) 코드이며 목록 존재만으로 FORBIDDEN을 추론하지 않는다. 회사·고객명·문서명·모델 출력에서 값을 추측하지 않는다. 접수 생성/PATCH/조회에 동일 필드를 제공하며 PATCH의 생략은 보존, 지역·목록의 명시 null은 미제공으로 되돌린다. 변경은 기존 등급의 재계산을 뜻하지 않으며 저장 요구를 대상으로 한 재실행이 필요하다. T20은 작성만 했으며 공용 DB 적용은 운영자가 수행한다.
+
+T20은 요구 판본 내부의 `kind`·`certification_listed`·`canonical_value`도 nullable로 보존한다(API DTO 추가 없음). 새 추출의 실제 값만 저장하며 승인된 요구 새 판본에도 그대로 이어진다. 과거 null은 원래 의미가 미보존된 것으로 구분하고 재추출/false/본문추론으로 메우지 않는다. 이 경우 재채점은 보수적인 검토 결과만 제공하며 근거 없이 등급을 올리지 않는다.
+
+### 저장 요구의 무모델 재채점(KAN-187)
+
+기존 처리 재실행에서도 현재 요구 판본 전체와 해당 원문 제목의 기존 후보 풀·최신 프로필·동일 트랜잭션의 사람 입력을 읽어 등급을 새 판본으로 추가한다. 원문 재읽기·추출/재작성 모델 호출은 0회이며 새 force 옵션이나 자동 승인은 없다. 유일키는 `(project_id,candidate_code,profile_version,requirement_id,requirement_version,version)`이며 실제 요구 판본을 쓰고 같은 대상의 등급 version만 올린다. 같은 job의 커밋된 초안 기록이 있으면 재시도에서 등급도 다시 쌓지 않는다. 공개 후보 조회·선택 검사에는 현행 요구 판본과 현재 최신 프로필에 맞는 등급만 쓴다. 아직 그 조합을 채점하지 않았다면 과거 조합을 최신 등급으로 대체 표시하지 않는다.
+
+사람이 저장한 보완 선택 행은 수정·삭제하지 않는다. 협력사 경로에서 실제 선택 코드에 해당 요구·후보의 등급 이력이 있고, 그 후보가 현행 요구/프로필의 판정에서 사라지거나 제외되면 요구/초안의 공용 유효성 식이 재검토로 표시한다. 판본 차이만으로 표시하지 않으며, 등급이 전혀 없던 기존 선택·후보 없는 경로는 최초 미채점과 구분해 기존 승인·R&D 재확인 계약을 유지한다. 이미 제외된 후보가 다른 요구의 전체 후보 등급을 제외로 만드는 경우도 포함한다. 부적합 선택은 초안의 확정된 결정 입력에서 제외하고 사람의 재선택을 기다린다. 순수 초안 엔진의 검증은 완화하지 않으며 기존 초안·사람 편집의 불변 저장 흐름을 유지한다. 새 재채점 후 초안 생성도 기존 무모델 양식 흐름으로 이어진다.
+
+T14·T17 각각의 재적용은 T20의 프로젝트3열이 모두 존재할 때만 그 열의 worker SELECT를 복원한다. T20 이전 설치는 이를 건너뛰며 T20 자체 GRANT도 유지한다. 다른 프로젝트 열의 읽기나 UPDATE는 확장하지 않는다. 권한을 제거한 실제 processor 변이는 전용 DB CI에서 실패 상태·요구 rollback으로 검증하며 로컬 DB 미설정 시 미실행으로 구분한다.
+
+T20의 지역·제조사명 CHECK는 API와 같은 Unicode 공백 제거 후 1~200자 조건을 항목마다 확인한다. 목록은 null 또는 1차원 1~100개이며 null/공백 항목을 거부한다. 기존 T20의 약한 CHECK도 재적용 시 교체하며 값을 자동 수정하지 않는다. 순수 검증 함수 EXECUTE는 프로젝트를 쓰는 tft_app과 기존 output_status UPDATE를 수행하는 tft_worker에만 열고 PUBLIC에서는 회수한다.
