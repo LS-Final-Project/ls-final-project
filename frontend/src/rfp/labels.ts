@@ -26,3 +26,9 @@ export const ORIGIN_LABEL: Record<string, string> = { web: '화면 수정', cust
 export const OPERATOR_LABEL: Record<string, string> = { EQ: '', GTE: '이상', LTE: '이하', RANGE: '범위', TEXT: '' };
 export const label = (labels: Record<string, string>, code: string | null | undefined) =>
   code ? labels[code] ?? code : '';
+export const DOCUMENT_KIND_LABEL: Record<string, string> = {
+  RFP_SPEC: 'RFP 사양서', DRAWING: '도면', ADDENDUM: '추가 공문', DATASHEET: '데이터시트', ANNOTATED_PDF: '메모 PDF',
+};
+export const DATA_ORIGIN_LABEL: Record<string, string> = { synthetic: '연습 자료', demo: '시연 자료', real: '실제' };
+export const PURPOSE_LABEL: Record<string, string> = { INITIAL_PROPOSAL: '초기 제안' };
+export const DEPARTMENTS = ['중압기기 기술지원', '저압기기 기술지원', '변압기 기술지원', '구매팀'];

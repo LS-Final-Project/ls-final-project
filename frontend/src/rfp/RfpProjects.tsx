@@ -7,6 +7,7 @@ import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDate } from '../components/tft';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvTitle, type KvColumn } from '../ls-shell/kv';
+import { ProjectForm } from './IntakeForms';
 import { JUDGEMENT_LABEL, label, OUTPUT_LABEL } from './labels';
 
 const count = (value: number, ready: boolean) => ready ? value : '';
@@ -33,6 +34,7 @@ export default function RfpProjects() {
   const access = useBusinessAccess('tft');
   const [filters, setFilters] = useState<ProjectFilters>({});
   const [text, setText] = useState('');
+  const [creating, setCreating] = useState(false);
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const cursor = cursors.at(-1);
   const projects = useQuery({ queryKey: ['projects', mode, filters, cursor], queryFn: () => listProjects(filters, cursor), enabled: access.ready, placeholderData: keepPreviousData });
@@ -45,6 +47,7 @@ export default function RfpProjects() {
   const next = projects.data?.data.next_cursor;
   return <main>
     <KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">
+      <button className="kb" onClick={() => setCreating(true)}>접수</button>
       <button className="kb primary" disabled={projects.isFetching || shortSearch} onClick={() => { if (search !== (filters.q ?? '')) filter({ q: search || undefined }); else projects.refetch(); }}>조회</button>
     </KvTitle>
     <KvCond onSearch={() => { if (!shortSearch) filter({ q: search || undefined }); }}>
@@ -71,6 +74,7 @@ export default function RfpProjects() {
         rowKey={p => p.id}
         fallback={projects.isPending ? <Loading /> : '프로젝트가 없습니다.'}
       />}
+    {creating && <ProjectForm onCancel={() => setCreating(false)} />}
     <KvFoot
       count={`${cursors.length}쪽, ${items.length}건`}
       more={<>

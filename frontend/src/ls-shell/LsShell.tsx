@@ -6,7 +6,7 @@ import { me } from '../api/platform';
 import logo from './ls-logo.svg';
 import './ls-shell.css';
 
-// inProject: 프로젝트를 연 뒤에만 가는 화면. 경로 뒷부분을 적는다.
+// inProject: 프로젝트를 열면 그 프로젝트 안으로 가는 화면. 경로 뒷부분을 적는다(빈 값은 프로젝트 화면).
 type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean; inProject?: string };
 type Group = { key: string; label: string; leaves: Leaf[] };
 
@@ -25,7 +25,7 @@ const MENU: Group[] = [
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
-      { label: '접수 및 요구 검토', to: '/tft/projects', end: true },
+      { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '' },
       { label: '자사 대응표', inProject: 'table' },
       { label: '보완 및 협력사 비교', inProject: 'supplement' },
       { label: '초안 및 검토 이력', inProject: 'draft' },
@@ -70,7 +70,7 @@ export default function LsShell() {
     ...group,
     leaves: group.leaves
       .filter(leaf => !leaf.devOnly || import.meta.env.DEV)
-      .map(leaf => leaf.inProject && project ? { ...leaf, to: `/tft/projects/${project}/${leaf.inProject}` } : leaf),
+      .map(leaf => leaf.inProject !== undefined && project ? { ...leaf, to: `/tft/projects/${project}${leaf.inProject && `/${leaf.inProject}`}` } : leaf),
   }));
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';

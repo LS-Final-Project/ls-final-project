@@ -5,11 +5,11 @@ import DevCheck from './pages/DevCheck';
 import Account from './pages/Account';
 import Tickets from './pages/Tickets';
 import TicketDetail from './pages/TicketDetail';
-import ProjectDetail from './pages/ProjectDetail';
 import Evaluations from './pages/Evaluations';
 import LsShell from './ls-shell/LsShell';
 import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
+import RfpIntake from './rfp/RfpIntake';
 import RfpProjects from './rfp/RfpProjects';
 import RfpSupplement from './rfp/RfpSupplement';
 import RfpApprovals from './rfp/RfpApprovals';
@@ -34,7 +34,7 @@ export default function App() {
       <Route path="tft/projects/:projectId/table" element={<RfpTable />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />
       <Route path="tft/projects/:projectId/draft" element={<RfpDraft />} />
-      <Route path="tft/projects/:projectId" element={<div className="ls-legacy"><ProjectDetail /></div>} />
+      <Route path="tft/projects/:projectId" element={<RfpIntake />} />
     </Route>
   </Routes>;
 }
