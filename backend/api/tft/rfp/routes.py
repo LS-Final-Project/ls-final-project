@@ -552,6 +552,26 @@ async def edit_draft(
 
 
 @router.post(
+    P + "/draft/rewrite",
+    status_code=202,
+    response_model=SuccessResponse[s.JobAccepted],
+    operation_id="tft_rewrite_rfp_draft",
+)
+async def rewrite_draft(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.DraftRewrite,
+    idempotency_key: Key,
+) -> SuccessResponse[s.JobAccepted]:
+    """32. 명시한 양식 초안 판본을 모델로 작성한다. 별도 비용 작업이며 실패하면 양식을 유지한다."""
+    return respond(
+        request,
+        await jobs.admit(request, user, project_id, "rfp.draft_rewrite", payload, idempotency_key),
+    )
+
+
+@router.post(
     P + "/draft/review-versions",
     status_code=201,
     response_model=SuccessResponse[s.ReviewVersion],

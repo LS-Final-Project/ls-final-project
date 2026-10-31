@@ -56,3 +56,60 @@ def test_a_lease_shorter_than_one_model_call_refuses_to_start(monkeypatch, lease
     else:
         worker_processor.build(settings)
         assert len(created) == 1
+
+
+def test_rewrite_provider_is_lazy_uses_array_schema_and_disables_transport_retries(monkeypatch):
+    from backend.engine.rfp.draft_rewrite import RewriteOutput
+
+    created, seen = [], {}
+    monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "client")
+
+    def generate(client, settings, text, *, response_schema):
+        seen.update(schema=response_schema, settings=settings)
+        return "generation"
+
+    monkeypatch.setattr(ai, "generate", generate)
+    provider = worker_processor.rewrite_provider(
+        ProcessorSettings(_env_file=None, draft_rewrite_provider="gemini")
+    )
+    assert created == []
+    assert provider("fake prompt") == "generation"
+    assert seen["schema"] is RewriteOutput
+    assert (
+        seen["settings"].gemini_max_output_tokens,
+        seen["settings"].gemini_timeout_ms,
+        seen["settings"].gemini_transient_retries,
+    ) == (8192, 120000, 0)
+    assert provider("another fake prompt") == "generation" and len(created) == 1
+
+
+def test_rewrite_invalid_lease_fails_at_start_before_client_or_model(monkeypatch):
+    monkeypatch.setenv("TFT_WORKER_LEASE_SECONDS", "60")
+    monkeypatch.setattr(ai, "create_client", lambda _: pytest.fail("client must stay lazy"))
+    monkeypatch.setattr(ai, "generate", lambda *a, **k: pytest.fail("model must not run"))
+    with pytest.raises(ValueError, match="INVALID_WORKER_CONFIGURATION"):
+        worker_processor.rewrite_provider(
+            ProcessorSettings(
+                _env_file=None, draft_rewrite_provider="gemini", draft_rewrite_timeout_ms=120000
+            )
+        )
+
+
+def test_build_rejects_rewrite_lease_before_real_client_creation(monkeypatch):
+    monkeypatch.setenv("TFT_EXTRACTION_PROVIDER", "fake")
+    monkeypatch.setenv("TFT_DRAFT_REWRITE_PROVIDER", "gemini")
+    monkeypatch.setenv("TFT_DRAFT_REWRITE_TIMEOUT_MS", "120000")
+    monkeypatch.setenv("TFT_WORKER_LEASE_SECONDS", "60")
+    monkeypatch.setattr(ai, "create_client", lambda _: pytest.fail("must not create client"))
+    with pytest.raises(ValueError, match="INVALID_WORKER_CONFIGURATION"):
+        worker_processor.build(Settings(_env_file=None, environment="test"))
+
+
+def test_fake_rewrite_configuration_does_not_need_real_ai_settings(monkeypatch):
+    monkeypatch.setattr(
+        worker_processor, "AISettings", lambda **_: pytest.fail("fake needs no AI settings")
+    )
+    provider = worker_processor.rewrite_provider(
+        ProcessorSettings(_env_file=None, draft_rewrite_provider="fake")
+    )
+    assert callable(provider)

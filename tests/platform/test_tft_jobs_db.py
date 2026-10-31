@@ -182,3 +182,19 @@ def test_caller_is_checked_before_the_body(settings, client):
     assert client.post(URL, json={"kind": "x"}).status_code == 401
     closed = TestClient(create_app(settings=settings))
     assert closed.post(URL, json={"kind": "x"}, headers=GOOD).status_code == 404
+
+
+def test_rewrite_job_uses_its_own_route_and_same_key_replays(client, jobs_database, body):
+    rewrite = {**body, "kind": "rfp.draft_rewrite"}
+    result = client.post(URL, json=rewrite, headers=GOOD)
+    assert result.status_code == 201, result.text
+    replay = client.post(URL, json=rewrite, headers=GOOD)
+    assert (
+        replay.status_code == 200
+        and replay.json()["data"]["job_id"] == result.json()["data"]["job_id"]
+    )
+    with psycopg.connect(jobs_database) as conn:
+        row = conn.execute(
+            "SELECT kind,route FROM runtime.jobs WHERE id=%s", (result.json()["data"]["job_id"],)
+        ).fetchone()
+    assert row == ("rfp.draft_rewrite", "/api/v1/tft/projects/{project_id}/draft/rewrite")

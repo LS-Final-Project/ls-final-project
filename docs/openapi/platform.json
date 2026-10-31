@@ -4128,7 +4128,8 @@
             "enum": [
               "rfp.process",
               "rfp.export",
-              "rfp.annotate"
+              "rfp.annotate",
+              "rfp.draft_rewrite"
             ],
             "title": "Kind",
             "type": "string"

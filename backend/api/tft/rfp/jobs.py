@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_run_annotations, can_run_processing
-from backend.api.tft.rfp import commands, draft_exports, repository
+from backend.api.tft.rfp import commands, draft_exports, draft_rewrite, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.shared.access import Principal
@@ -40,7 +40,7 @@ TFT_JOBS = "/internal/v1/platform/jobs/tft"
 NOT_CONNECTED = "TFT_PROCESSOR_NOT_CONNECTED"
 # 플랫폼 거절 중 그대로 옮기는 것. 나머지는 플랫폼을 쓸 수 없는 것으로 본다.
 PASSED_THROUGH = {409: ("TFT_JOB_IN_PROGRESS", "IDEMPOTENCY_CONFLICT"), 503: (NOT_CONNECTED,)}
-Kind = Literal["rfp.process", "rfp.annotate", "rfp.export"]
+Kind = Literal["rfp.process", "rfp.annotate", "rfp.export", "rfp.draft_rewrite"]
 
 
 class TftProcessingSettings(BaseSettings):
@@ -109,7 +109,7 @@ async def admit(
     principal: Principal,
     project_id: UUID,
     kind: Kind,
-    payload: s.ProcessRequest | s.AnnotationProcess | s.ExportRequest,
+    payload: s.ProcessRequest | s.AnnotationProcess | s.ExportRequest | s.DraftRewrite,
     key: str,
 ) -> s.JobAccepted:
     """범위·권한·입력을 검사하고 플랫폼에 작업을 접수한다.
@@ -132,6 +132,8 @@ async def admit(
         operation = "project.process"
     elif kind == "rfp.export":
         operation = "export.create"
+    elif kind == "rfp.draft_rewrite":
+        operation = "draft.rewrite"
     else:
         operation = "annotation.process"
     digest = commands.request_hash({"project_id": project_id}, payload.model_dump(mode="json"))
@@ -149,6 +151,10 @@ async def admit(
         )
         if known is not None:
             frozen = known[1]["input_version"]
+        elif isinstance(payload, s.DraftRewrite):
+            frozen = await draft_rewrite.reserve(
+                conn, project_id, principal.user_id, key, payload.version
+            )
         elif isinstance(payload, s.ExportRequest):
             reserved = await draft_exports.reserve(
                 conn, project_id, principal.user_id, key, payload
@@ -200,6 +206,15 @@ async def admit(
         async with connection(request.app.state.settings) as conn:
             try:
                 async with conn.transaction():
+                    if isinstance(payload, s.DraftRewrite):
+                        await conn.execute(
+                            "UPDATE tft.draft_rewrites SET job_id=%s WHERE id=%s AND (job_id IS NULL OR job_id=%s)",
+                            (
+                                accepted.job_id,
+                                draft_rewrite.request_id(project_id, principal.user_id, key),
+                                accepted.job_id,
+                            ),
+                        )
                     if isinstance(payload, s.ExportRequest):
                         await conn.execute(
                             "UPDATE tft.exports SET job_id=%s WHERE id=%s AND (job_id IS NULL OR job_id=%s)",

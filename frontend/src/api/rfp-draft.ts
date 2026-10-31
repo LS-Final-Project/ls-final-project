@@ -8,11 +8,12 @@ export type Sentence = components['schemas']['Sentence'];
 export type DraftEdit = components['schemas']['DraftEdit'];
 export type Review = components['schemas']['ReviewVersion'];
 export type Accepted = components['schemas']['ExportAccepted'];
+export type RewriteAccepted = components['schemas']['JobAccepted'];
 export type Job = Platform['schemas']['TftJobStatus'];
 type ReviewInput = components['schemas']['ReviewVersionCreate'];
 type ExportInput = components['schemas']['ExportRequest'];
 type DraftResponse = paths['/api/v1/tft/projects/{project_id}/draft']['get']['responses'][200]['content']['application/json'];
-export type Command = { actorId: string; kind: 'review'; key: string; body: ReviewInput } | { actorId: string; kind: 'export'; key: string; body: ExportInput };
+export type Command = { actorId: string; kind: 'review'; key: string; body: ReviewInput } | { actorId: string; kind: 'export'; key: string; body: ExportInput } | { actorId: string; kind: 'rewrite'; key: string; body: components['schemas']['DraftRewrite'] };
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const deadline = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
@@ -64,26 +65,30 @@ async function write<T>(path: string, method: string, body: unknown, actorId: st
   catch { throw new UncertainWrite(); }
 }
 export const editDraft = (id: string, actorId: string, body: DraftEdit, signal?: AbortSignal) => write<Draft>(base(id), 'PATCH', body, actorId, undefined, signal);
-export async function sendCommand(id: string, command: Command, signal?: AbortSignal): Promise<Review | Accepted> {
+export async function sendCommand(id: string, command: Command, signal?: AbortSignal): Promise<Review | Accepted | RewriteAccepted> {
   const result = command.kind === 'review'
     ? await write<Review>(`${base(id)}/review-versions`, 'POST', command.body, command.actorId, command.key, signal)
-    : await write<Accepted>(`${base(id)}/exports`, 'POST', command.body, command.actorId, command.key, signal);
+    : command.kind === 'rewrite'
+      ? await write<RewriteAccepted>(`${base(id)}/rewrite`, 'POST', command.body, command.actorId, command.key, signal)
+      : await write<Accepted>(`${base(id)}/exports`, 'POST', command.body, command.actorId, command.key, signal);
   if (!result || typeof result !== 'object') throw new UncertainWrite();
   if (command.kind === 'review') {
     const review = result as Review;
     if (review.project_id !== id || review.draft_version !== command.body.version || !Number.isSafeInteger(review.review_version) || review.review_version < 1) throw new UncertainWrite();
   } else {
     const accepted = result as Accepted;
-    if (!uuid.test(accepted.export_id) || !uuid.test(accepted.job_id) || accepted.status_url !== `/api/v1/platform/jobs/${accepted.job_id}`) throw new UncertainWrite();
+    if ((command.kind === 'export' && !uuid.test(accepted.export_id)) || !uuid.test(accepted.job_id) || accepted.status_url !== `/api/v1/platform/jobs/${accepted.job_id}` || !['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(accepted.status)) throw new UncertainWrite();
   }
   return result;
 }
-export async function getExportJob(project: string, jobId: string, signal?: AbortSignal): Promise<Job> {
+async function getDraftJob(project: string, jobId: string, kind: 'rfp.export' | 'rfp.draft_rewrite', signal?: AbortSignal): Promise<Job> {
   const job = await read<Job>(`/api/v1/platform/jobs/${encodeURIComponent(jobId)}`, signal);
-  if (job.job_id !== jobId || job.project_id !== project || job.owner !== 'tft' || job.kind !== 'rfp.export'
-    || !['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(job.status)) throw new Error('내보내기 작업의 대상을 확인하지 못했습니다.');
+  if (job.job_id !== jobId || job.project_id !== project || job.owner !== 'tft' || job.kind !== kind
+    || !['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(job.status)) throw new Error('요청한 작업의 대상을 확인하지 못했습니다.');
   return job;
 }
+export const getExportJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.export', signal);
+export const getRewriteJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.draft_rewrite', signal);
 export async function downloadExport(project: string, exportId: string): Promise<Blob> {
   const response = await fetch(`${base(project)}/exports/${encodeURIComponent(exportId)}/file`, { credentials: 'same-origin', cache: 'no-store', signal: deadline() });
   if (!response.ok) throw await failure(response);

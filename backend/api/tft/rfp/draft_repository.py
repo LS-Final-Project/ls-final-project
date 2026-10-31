@@ -101,6 +101,7 @@ async def _load(
             s.Sentence(
                 sentence_id=row["sentence_key"],
                 text=row["text"],
+                template_text=row["template_text"],
                 evidence=evidence,
                 conditions=row["conditions"],
                 unconfirmed=(row["unconfirmed"] or row["review_needed"])
@@ -180,7 +181,7 @@ async def save(
             await conn.execute(
                 "INSERT INTO tft.draft_sentences (id,project_id,draft_version,section,ordinal,"
                 "sentence_key,text,conditions,unconfirmed,evidence_missing,provenance_kind,edit_reason,"
-                "needs_rereview) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "needs_rereview,template_text) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     physical_id,
                     draft.project_id,
@@ -195,6 +196,8 @@ async def save(
                     row.provenance_kind,
                     (reasons or {}).get(row.sentence_id),
                     row.needs_rereview,
+                    row.template_text
+                    or (row.text if row.provenance_kind != "human_input" else None),
                 ),
             )
             for index, evidence in enumerate(row.evidence):

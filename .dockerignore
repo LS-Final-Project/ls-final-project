@@ -13,6 +13,7 @@
 !docs/openapi/**
 !scripts/
 !scripts/check_backend.py
+!scripts/rfp_draft_trace_input.py
 !frontend/
 !frontend/src/
 !frontend/src/mocks/

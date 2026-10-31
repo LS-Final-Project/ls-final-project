@@ -34,6 +34,7 @@ from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import (
     comparison,
     draft_exports,
+    draft_rewrite,
     drafts,
     integration,
     repository,
@@ -81,6 +82,10 @@ class ProcessorSettings(BaseSettings):
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
     extraction_timeout_ms: int = Field(default=120000, ge=1000, le=300000)
+    draft_rewrite_provider: Literal["gemini", "fake"] | None = None
+    draft_rewrite_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
+    draft_rewrite_max_output_tokens: int = Field(default=8192, ge=1, le=65536)
+    draft_rewrite_timeout_ms: int = Field(default=120000, ge=1000, le=300000)
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -128,6 +133,33 @@ def gemini_provider(ai: AISettings) -> Provider:
     return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
 
 
+def rewrite_provider(config: ProcessorSettings) -> Provider:
+    """실제 rewrite 작업이 호출할 때만 클라이언트를 만든다. 논리 호출당 운송 재시도는 하지 않는다."""
+    from backend.engine.rfp.draft_rewrite import RewriteOutput
+    from backend.engine.rfp.draft_rewrite import fake_provider as fake_rewrite
+
+    if (config.draft_rewrite_provider or config.extraction_provider) == "fake":
+        return fake_rewrite
+    ai = AISettings(
+        gemini_model=config.draft_rewrite_model,
+        gemini_max_output_tokens=config.draft_rewrite_max_output_tokens,
+        gemini_timeout_ms=config.draft_rewrite_timeout_ms,
+        gemini_transient_retries=0,
+    )
+    check_lease(ai, TftWorkerSettings().lease_seconds)
+    client = None
+
+    def provide(text: str) -> Generation:
+        nonlocal client
+        from backend.shared.ai import create_client, generate
+
+        if client is None:
+            client = create_client(ai)
+        return generate(client, ai, text, response_schema=RewriteOutput)
+
+    return provide
+
+
 def build(settings: Settings) -> Processor:
     """worker가 부르는 등록 지점.
 
@@ -147,7 +179,11 @@ def build(settings: Settings) -> Processor:
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
     return make_processor(
-        settings, provider=provider, store=document_store(DocumentStorageSettings())
+        settings,
+        provider=provider,
+        store=document_store(DocumentStorageSettings()),
+        draft_provider=rewrite_provider(config),
+        rewrite_model=config.draft_rewrite_model,
     )
 
 
@@ -158,6 +194,8 @@ def make_processor(
     store: DocumentStore | None,
     products: Sequence[comparison.Product] | None = None,
     today: Callable[[], date] = date.today,
+    draft_provider: Provider | None = None,
+    rewrite_model: str = "gemini-3.6-flash",
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -174,6 +212,10 @@ def make_processor(
     own = list(products) if products is not None else comparison.load_own_products()
 
     def processor(job: TftJob, emit: Emit) -> dict[str, Any] | None:
+        if job.kind == "rfp.draft_rewrite":
+            if draft_provider is None:
+                raise ValueError("TFT_DRAFT_REWRITE_PROVIDER_MISSING")
+            return asyncio.run(rewrite_job(settings, job, emit, draft_provider, rewrite_model))
         if job.kind == "rfp.export":
             return asyncio.run(export_job(settings, job, emit, store))
         if job.kind in ONLY_STEP:
@@ -182,6 +224,16 @@ def make_processor(
         return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor
+
+
+async def rewrite_job(
+    settings: Settings, job: TftJob, emit: Emit, provider: Provider, model: str
+) -> dict[str, Any]:
+    dsn = settings.database_url.get_secret_value() if settings.database_url else ""
+    async with await psycopg.AsyncConnection.connect(
+        dsn, row_factory=dict_row, autocommit=True
+    ) as conn:
+        return await draft_rewrite.process(conn, job, emit, provider, model)
 
 
 async def export_job(
