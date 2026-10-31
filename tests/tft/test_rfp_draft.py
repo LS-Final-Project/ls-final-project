@@ -549,7 +549,7 @@ def test_shown_assumption_is_grounded_and_never_used_as_fulfillment(
 def test_synthetic_product_identity_is_input_driven(snapshot: dict[str, Any]) -> None:
     snapshot["comparisons"][0].candidates[0].product_code = "OTHER-SYNTHETIC"
     row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
-    assert "OTHER-SYNTHETIC" not in row.text and "SYN-PRODUCT" not in row.text
+    assert "OTHER-SYNTHETIC" in row.text and "SYN-PRODUCT" not in row.text
     assert any(e.type == "product" and e.id == "OTHER-SYNTHETIC" for e in row.evidence)
     assert not any(e.type == "product" and e.id == "SYN-PRODUCT" for e in row.evidence)
 
@@ -839,3 +839,76 @@ def test_internal_key_display_handles_korean_particles_without_partial_identifie
     )
     body = " ".join(row.text for row in sentences(build_draft(**snapshot)))
     assert question.question_text in body
+
+
+@pytest.mark.parametrize("department", [None, "", " ", "TS_SYNTHETIC"])
+def test_internal_question_read_snapshot_never_falls_back_to_customer(snapshot, department):
+    question = snapshot["questions"][0]
+    payload = question.model_dump() | {"target": "INTERNAL", "target_dept": department}
+    snapshot["questions"] = [s.Question.model_validate(payload)]
+    result = build_draft(**snapshot)
+    rows = [
+        row
+        for row in sentences(result, "QUESTIONS_NEXT_ACTIONS")
+        if any(e.type == "question" for e in row.evidence)
+    ]
+    assert len(rows) == 1 and "내부 다음 행동" in rows[0].text
+    assert "고객 확인 질문" not in rows[0].text
+    assert (
+        "담당 부서 미정" if not department or not department.strip() else "담당 부서 지정됨"
+    ) in rows[0].text
+    assert (
+        snapshot["questions"][0].target == "INTERNAL"
+        and snapshot["questions"][0].target_dept == department
+    )
+    assert any(e.type == "question" and e.id == str(QUESTION) for e in rows[0].evidence)
+
+
+def test_multiple_own_representatives_identify_each_product_and_its_values(snapshot):
+    snapshot["requirements"][0].spec.attribute = "rated_current"
+    first = snapshot["comparisons"][0].candidates[0]
+    first.product_code = "SERIES_ALPHA"
+    second = first.model_copy(deep=True)
+    second.product_code = "SERIES_BETA"
+    second.attribute_match.our_value = "720"
+    third = first.model_copy(deep=True)
+    third.product_code = "rated_current"  # 제품 식별명이 키와 같아도 원형을 보존한다.
+    third.attribute_match.our_value = "960"
+    snapshot["comparisons"][0].candidates = [first, second, third]
+    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    for code, value in (("SERIES_ALPHA", "500"), ("SERIES_BETA", "720"), ("rated_current", "960")):
+        representative = next(part for part in row.text.split("「") if code in part)
+        assert (
+            f"제품 {code}" in representative
+            and "600 A" in representative
+            and f"{value} A" in representative
+        )
+        assert any(e.type == "product" and e.id == code for e in row.evidence)
+    assert row.text.count("「") == 3 and "DIFFERS" not in row.text
+    assert "rated current: 요구" in row.text and "rated_current: 요구" not in row.text
+    assert "특정 구성에서만 적용" in row.conditions and "현장 시험 필요" in row.conditions
+
+
+def test_question_target_not_department_controls_public_read_snapshot_classification(snapshot):
+    question = snapshot["questions"][0]
+    snapshot["questions"] = [
+        s.Question.model_validate(
+            question.model_dump() | {"target": "CUSTOMER", "target_dept": "RND"}
+        )
+    ]
+    rows = [
+        row
+        for row in sentences(build_draft(**snapshot), "QUESTIONS_NEXT_ACTIONS")
+        if any(e.type == "question" for e in row.evidence)
+    ]
+    assert (
+        len(rows) == 1 and "고객 확인 질문" in rows[0].text and "내부 다음 행동" not in rows[0].text
+    )
+
+
+def test_missing_internal_department_does_not_bypass_blank_question_guard(snapshot):
+    snapshot["questions"][0].target = "INTERNAL"
+    snapshot["questions"][0].target_dept = None
+    snapshot["questions"][0].question_text = " \t "
+    with pytest.raises(ValueError, match="RFP_DRAFT_INVALID_QUESTION"):
+        build_draft(**snapshot)

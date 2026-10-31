@@ -288,9 +288,7 @@ def build_draft(
         if question.requirement_id is not None and question.origin.clause_id is not None:
             if question.origin.clause_id != reqs[question.requirement_id].origin.clause_id:
                 raise ValueError("RFP_DRAFT_QUESTION_CLAUSE_MISMATCH")
-        if not question.question_text.strip() or (question.target == "INTERNAL") != bool(
-            question.target_dept
-        ):
+        if not question.question_text.strip():
             raise ValueError("RFP_DRAFT_INVALID_QUESTION")
     if len(integration.basis_clause_ids) != len(integration.basis_clause_nos):
         raise ValueError("RFP_DRAFT_INTEGRATION_BASIS_MISMATCH")
@@ -339,6 +337,7 @@ def build_draft(
         unconfirmed: bool = False,
         rereview: bool = False,
         priority: int = 9,
+        display_codes: bool = True,
     ) -> None:
         summary = sections[section].setdefault(key, _Summary(key, title))
         summary.include(
@@ -348,7 +347,7 @@ def build_draft(
                 priority,
                 {(e.type, e.id) for e in evidence},
                 {_display(value) for value in conditions if value.strip()},
-                [(sort_key, _sample(representative))],
+                [(sort_key, _sample(representative, display_codes=display_codes))],
                 unconfirmed or bool(conditions) or rereview,
                 rereview,
             )
@@ -410,12 +409,13 @@ def build_draft(
                     (*base_group, match.result),
                     f"{equipment}의 자사 후보 비교 · {RESULT_TEXT[match.result]}. 전체 요구 충족이나 공급 확약이 아님",
                     [*evidence, s.Evidence(type="product", id=candidate.product_code)],
-                    f"{req.spec.attribute or '비교 항목'}: 요구 {req.spec.value or '미정'} {req.spec.unit or ''}, 후보 {match.our_value or '자료 없음'} {match.our_unit or ''}",
+                    f"제품 {candidate.product_code} · {_display(req.spec.attribute or '비교 항목')}: 요구 {req.spec.value or '미정'} {req.spec.unit or ''}, 후보 {match.our_value or '자료 없음'} {match.our_unit or ''}",
                     (*order(req), candidate.product_code),
                     conditions=candidate_conditions,
                     unconfirmed=True,
                     rereview=review,
                     priority=priority,
+                    display_codes=False,
                 )
         if unconfirmed or status == "SPEC_GAP":
             destination: s.DraftSection = (
@@ -557,8 +557,8 @@ def build_draft(
         elif question.origin.clause_id is not None:
             evidence.append(s.Evidence(type="clause", id=str(question.origin.clause_id)))
         target = (
-            f"내부 다음 행동(담당 부서 {OWNER_TEXT[question.target_dept]})"
-            if question.target == "INTERNAL" and question.target_dept
+            f"내부 다음 행동(담당 부서 {OWNER_TEXT.get(question.target_dept, '지정됨') if question.target_dept and question.target_dept.strip() else '미정'})"
+            if question.target == "INTERNAL"
             else "고객 확인 질문"
         )
         state = {
