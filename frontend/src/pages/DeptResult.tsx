@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket } from '../api/cs';
-import { getTicketWorkflow, isVersionConflict, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
+import { getTicketWorkflow, isVersionConflict, returnTransfer, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading, Preparing } from '../components/states';
 import { KvBox, KvFormCell, KvFormRow, KvGrid, KvKey, KvNext, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
@@ -15,7 +15,7 @@ type Notice = { kind: 'ok' | 'error'; text: string } | null;
 const short = (text: string, max = 60) => text.length > max ? `${text.slice(0, max)}…` : text;
 
 // 검토 답변 CS0203(부서 창). 이관받은 부서 담당자가 요청 내용과 고객 원문을 보고 답변을 보낸다.
-// 담당 아님 반송과 임시 저장은 서버 경로가 없어 눌러지지 않게 둔다.
+// 임시 저장은 서버 경로가 없어 눌러지지 않게 둔다. 담당 아님 반송은 사유(필수)와 읽은 판본으로 보낸다.
 export default function DeptResult() {
   if (!import.meta.env.DEV) return <Preparing title="검토 답변" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
   return <ResultView />;
@@ -31,6 +31,7 @@ function ResultView() {
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
   const form = useRef<HTMLFormElement>(null);
+  const returnForm = useRef<HTMLFormElement>(null);
   useHotkey('F10', () => form.current?.requestSubmit(), !busy);
   useHotkey('Escape', () => navigate('/dept/inbox'));
 
@@ -50,16 +51,13 @@ function ResultView() {
   const previous = mine.filter(item => item.id !== current?.id).sort((a, b) => a.round - b.round);
   const resultOf = (transfer: Transfer): Result | undefined => wf.dept_results.find(item => item.transfer_id === transfer.id);
 
-  async function send(data: FormData) {
+  async function act(done: string, call: (signal: AbortSignal) => Promise<unknown>) {
     if (busy || !answerable) return;
-    const result = String(data.get('result') ?? '').trim();
-    const reply = String(data.get('reply') ?? '').trim();
-    if (!result) return;
     setBusy(true); setNotice(null);
     const controller = new AbortController();
     try {
-      await submitDeptResult(ticketId, { version: wf.version, result, reply_content: reply || null }, controller.signal);
-      setNotice({ kind: 'ok', text: '답변을 보냈습니다. C/S 담당자가 확인합니다.' });
+      await call(controller.signal);
+      setNotice({ kind: 'ok', text: done });
     } catch (error) {
       setNotice({ kind: 'error', text: isVersionConflict(error) ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 보내세요.'
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
@@ -69,6 +67,17 @@ function ResultView() {
       await Promise.allSettled([workflow.refetch(), ticket.refetch()]);
     }
   }
+  const send = (data: FormData) => {
+    const result = String(data.get('result') ?? '').trim();
+    const reply = String(data.get('reply') ?? '').trim();
+    if (!result) return;
+    void act('답변을 보냈습니다. C/S 담당자가 확인합니다.', signal => submitDeptResult(ticketId, { version: wf.version, result, reply_content: reply || null }, signal));
+  };
+  const giveBack = (data: FormData) => {
+    const reason = String(data.get('reason') ?? '').trim();
+    if (!reason) return;
+    void act('담당 아님으로 반송했습니다. C/S 담당자가 다시 검토합니다.', signal => returnTransfer(ticketId, { version: wf.version, reason }, signal));
+  };
 
   const columns: KvColumn<Transfer>[] = [
     { key: 'round', header: '차수', width: 44, className: 'c', cell: row => row.round },
@@ -80,7 +89,7 @@ function ResultView() {
   return <main>
     <KvTitle path="부서 검토" title="검토 답변" code="CS0203">
       <button className="kb primary" disabled={!answerable || busy} onClick={() => form.current?.requestSubmit()}>답변 보내기<KvKey>F10</KvKey></button>
-      <button className="kb" disabled title="담당 아님 반송 경로가 서버에 아직 없습니다">담당 아님 반송</button>
+      <button className="kb" disabled={!answerable || busy} onClick={() => returnForm.current?.requestSubmit()}>담당 아님 반송</button>
       <Link className="kb" to="/dept/inbox">목록<KvKey>Esc</KvKey></Link>
     </KvTitle>
     {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
@@ -110,7 +119,7 @@ function ResultView() {
         </>}
       </KvBox>
       <KvBox title="답변 입력">
-        <form ref={form} aria-label="검토 답변 입력" onSubmit={event => { event.preventDefault(); void send(new FormData(event.currentTarget)); }}>
+        <form ref={form} aria-label="검토 답변 입력" onSubmit={event => { event.preventDefault(); send(new FormData(event.currentTarget)); }}>
           <div className="kv-field"><span className="req">답변</span><textarea name="result" aria-label="답변" rows={6} required maxLength={10000} disabled={!answerable || busy} /></div>
           <div className="kv-field"><span>고객 회신 문안</span><textarea name="reply" aria-label="고객 회신 문안" rows={4} maxLength={10000} disabled={!answerable || busy} /></div>
           <div className="kv-actions">
@@ -119,7 +128,10 @@ function ResultView() {
           </div>
         </form>
         <div className="kv-sub" style={{ margin: '12px 0 4px', borderTop: '1px solid var(--erp-border-soft)', paddingTop: 10 }}>담당 아님 반송</div>
-        <div className="kv-sub" style={{ margin: 0 }}><span className="unc">반송 경로가 서버에 아직 없어 사용할 수 없습니다</span></div>
+        <form ref={returnForm} aria-label="담당 아님 반송 입력" onSubmit={event => { event.preventDefault(); giveBack(new FormData(event.currentTarget)); }}>
+          <div className="kv-field"><span className="req">반송 사유</span><textarea name="reason" aria-label="반송 사유" rows={2} required maxLength={2000} disabled={!answerable || busy} /></div>
+          <div className="kv-actions"><button type="submit" className="kb" disabled={!answerable || busy}>담당 아님 반송</button></div>
+        </form>
       </KvBox>
     </div>
   </main>;
