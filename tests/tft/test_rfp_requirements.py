@@ -1,6 +1,7 @@
 """KAN-185 요구 추출: 입력 구성, 근거 검사, 빠진 문장 보완 호출, 채점. 모델은 가짜 함수다."""
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +27,7 @@ from backend.engine.rfp.requirements import (
     validate_output,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score
+from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS
 from backend.shared.ai import Generation, Usage
 
 
@@ -1037,3 +1039,9 @@ def test_a_designated_manufacturer_must_be_a_token_of_the_clause():
     )
     result = validate_output(raw, designation_section(text))[0][0]
     assert (result.designated_model, result.designated_manufacturer) == ("R-100", None)
+
+
+def test_attribute_keys_match_the_list_the_web_labels_are_checked_against():
+    """웹 ATTRIBUTE_LABEL이 대조하는 목록과 추출 어휘가 같아야 한다."""
+    fixture = Path(__file__).resolve().parents[2] / "docs/openapi/tft-attribute-keys.json"
+    assert sorted(ATTRIBUTE_KEYS) == json.loads(fixture.read_text())
