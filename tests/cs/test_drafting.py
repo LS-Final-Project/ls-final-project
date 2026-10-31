@@ -19,6 +19,8 @@ from backend.engine.cs.drafting import (
     validate_output,
 )
 from backend.engine.cs.drafting_call import run_draft_attempt
+from backend.engine.cs.prompt_registry import EVIDENCE_RULE
+from backend.engine.cs.verification import build_verification_input
 from backend.shared.ai import Generation, Usage
 
 RECORD = {
@@ -649,6 +651,24 @@ def test_fake_provider_round_trip_keeps_usage_and_masked_prompt():
         stripped.input_version == DRAFT_INPUT_VERSION_STRIPPED and stripped.removed_annotations == 1
     )
     assert "raw_response=" not in repr(result)
+
+
+def test_fake_provider_gets_the_rule_and_a_greeting_stays_out_of_verification():
+    """공급자가 받는 지시문에 문서 사실 규칙이 있고, CONDITION 인사 문장은 검증 대상이 아니다."""
+    draft = json.loads(raw())
+    greeting = "We have received your inquiry. Thank you for contacting us."
+    for option in draft["options"]:
+        option["sentences"].insert(
+            0, {"text": greeting, "kind": "CONDITION", "evidence_chunk_ids": []}
+        )
+    usage = Usage(10, 3, None, 0, 13, {})
+    generation = Generation(json.dumps(draft), usage, "fake-v1", ["STOP"], model="fake", attempts=1)
+    provider = Mock(return_value=generation)
+    result = attempt(provider)
+    assert EVIDENCE_RULE in provider.call_args.args[0]
+    assert result.outcome == "VALID" and result.prediction is not None
+    payload = build_verification_input(result.prediction, EVIDENCE)
+    assert payload.sentences and all(s.text != greeting for s in payload.sentences)
 
 
 @pytest.mark.parametrize(

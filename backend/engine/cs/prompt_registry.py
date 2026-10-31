@@ -15,10 +15,10 @@ Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
 # 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 초안·회신·개선요청 네 단계는 v2(KAN-193
-# 확정 금지 지시 추가), 검증은 v1이다. 분류 외에는 채택 전이다.
+# 확정 금지 지시 추가), 검증은 v1이다. 분류 외에는 채택 전이다. 초안은 v3(KAN-200, 문서 사실만 EVIDENCE)다.
 DEFAULT_VERSIONS: dict[Stage, str] = {
     "classification": "v3",
-    "draft": "v2",
+    "draft": "v3",
     "verification": "v1",
     "reply": "v2",
     "improvement_reply": "v2",
@@ -210,6 +210,18 @@ def _with_confirmation_rule(body: str, rule: str) -> str:
 
 for _stage, _rule in CONFIRMATION_RULES.items():
     PROMPTS[_stage]["v2"] = _with_confirmation_rule(PROMPTS[_stage]["v1"], _rule)
+
+# KAN-200 v3: 3차 측정에서 남은 UNVERIFIABLE 16문장이 모두 문서 사실이 아니었다. EVIDENCE 뜻 줄 뒤에 한 줄만 더한다.
+EVIDENCE_RULE = (
+    "- EVIDENCE는 evidence에 있는 문서 사실만 쓴다. 문의 접수·인사·감사 문장, 고객 문의를 되풀이하는 문장, "
+    "고객에게 확인을 청하는 문장은 문서 사실이 아니므로 evidence_chunk_ids 없이 CONDITION으로 쓴다.\n"
+)
+_end = (
+    PROMPTS["draft"]["v2"].index("\n", PROMPTS["draft"]["v2"].index("EVIDENCE로 쓰지 않는다")) + 1
+)
+PROMPTS["draft"]["v3"] = (
+    PROMPTS["draft"]["v2"][:_end] + EVIDENCE_RULE + PROMPTS["draft"]["v2"][_end:]
+)
 
 
 def get_prompt(stage: Stage, version: str) -> str:
