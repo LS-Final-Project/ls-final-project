@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import MailInbox from './MailInbox';
-import { setApiMode } from '../api/client';
+import { clearSessionCsrfToken, setApiMode } from '../api/client';
 import type { MailTriage, ReplyReview } from '../api/mail';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 
@@ -17,7 +17,7 @@ const triage = (over: Partial<MailTriage> = {}): MailTriage => ({
 const serve = (items: ReplyReview[], tri: MailTriage | Response = triage()) => vi.fn(async (url: RequestInfo | URL) => String(url).includes('/triage')
   ? (tri instanceof Response ? tri : jsonResponse(200, { data: tri })) : jsonResponse(200, { data: { items } }));
 const show = () => { setApiMode('live'); return renderAt('/mail/inbox', '/mail/inbox', <MailInbox />); };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); clearSessionCsrfToken(); });
 
 test('검토 대기 답장을 사유·후보 수와 함께 최신순으로 보이고 선택한 메일의 분류를 읽는다', async () => {
   const older = review({ message_id: '55555555-5555-4555-8555-555555555555', received_at: '2026-10-28T08:00:00Z', reason: 'UNMATCHED_REPLY', candidates: [] });
@@ -61,11 +61,11 @@ test('검토 사유로 거르고 일자 범위가 거꾸로면 표를 비운다'
   expect(screen.getByText('검토할 메일이 없습니다.')).toBeTruthy();
 });
 
-test('서버 상태를 바꾸는 단추는 눌러지지 않는다', async () => {
+test('다른 업무 상태까지 바꾸는 연결·무시 단추는 눌러지지 않는다', async () => {
   vi.stubGlobal('fetch', serve([review({})]));
   show();
   await screen.findByRole('table', { name: '검토 대기 메일' });
-  for (const name of ['연결', '무시', '다시 분류']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  for (const name of ['연결', '무시']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('목록 오류와 예상 밖 본문, 분류 오류를 각각 보인다', async () => {
@@ -88,4 +88,78 @@ test('모의 응답 모드는 합성 예시임을 알린다', async () => {
   renderAt('/mail/inbox', '/mail/inbox', <MailInbox />);
   expect(await screen.findByText(/합성 예시이며 실제 메일이 아닙니다/)).toBeTruthy();
   expect(await screen.findByText('C/S 문의')).toBeTruthy();
+});
+
+async function withSession() {
+  const { request } = await import('../api/client');
+  await request('/api/v1/platform/me');
+}
+const latest = () => triage({ is_latest: true, latest_version: 2, attachments_pending: false });
+const serveWrite = (post: (init: RequestInit) => Response) => vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+  const path = String(url);
+  if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' } });
+  if (path.includes('/triage')) return init?.method === 'POST' ? post(init) : jsonResponse(200, { data: latest() });
+  return jsonResponse(200, { data: { items: [review({})] } });
+});
+const openDialog = async () => {
+  show();
+  const button = await screen.findByRole('button', { name: '다시 분류' });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button);
+  return screen.findByRole('dialog');
+};
+
+test('다시 분류는 읽은 판본과 바꾼 값으로 저장하고 새 판본 안내를 보인다', async () => {
+  const calls: RequestInit[] = [];
+  vi.stubGlobal('fetch', serveWrite(init => { calls.push(init); return jsonResponse(200, { data: { ...latest(), version: 3, latest_version: 3, provenance_kind: 'human_input' } }); }));
+  setApiMode('live');
+  await withSession();
+  const dialog = await openDialog();
+  fireEvent.change(within(dialog).getByLabelText('유형'), { target: { value: 'OTHER' } });
+  fireEvent.change(within(dialog).getByLabelText('연결 추천'), { target: { value: '' } });
+  fireEvent.change(within(dialog).getByLabelText('사유'), { target: { value: '  광고 메일이라 기타로 바꿈  ' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
+  expect(await screen.findByText('분류를 새 판본으로 저장했습니다.')).toBeTruthy();
+  expect(calls).toHaveLength(1);
+  expect((calls[0].headers as Record<string, string>)['X-CSRF-Token']).toBe('tok');
+  expect(JSON.parse(String(calls[0].body))).toEqual({ version: 2, mail_type: 'OTHER', reason: '광고 메일이라 기타로 바꿈', link_suggestion: null, needs_review: true });
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('다른 판본이 먼저 저장돼 409가 나면 안내하고 최신 분류를 다시 읽는다', async () => {
+  const fetch = serveWrite(() => jsonResponse(409, errorBody('MAIL_TRIAGE_VERSION_CONFLICT', '판본 충돌')));
+  vi.stubGlobal('fetch', fetch);
+  setApiMode('live');
+  await withSession();
+  const dialog = await openDialog();
+  fireEvent.change(within(dialog).getByLabelText('사유'), { target: { value: '사유' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('다른 판본이 먼저 저장됐습니다');
+  const reads = () => fetch.mock.calls.filter(call => String(call[0]).includes('/triage') && (call[1] as RequestInit | undefined)?.method !== 'POST').length;
+  await waitFor(() => expect(reads()).toBeGreaterThanOrEqual(2));
+});
+
+test('최신 판본이 아니면 다시 분류를 열 수 없고, 사유가 비면 저장 요청을 보내지 않는다', async () => {
+  vi.stubGlobal('fetch', serve([review({})]));
+  show();
+  await screen.findByText('C/S 문의');
+  expect((screen.getByRole('button', { name: '다시 분류' }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  const fetch = serveWrite(() => jsonResponse(200, { data: latest() }));
+  vi.stubGlobal('fetch', fetch);
+  setApiMode('live');
+  await withSession();
+  const dialog = await openDialog();
+  fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
+  expect(fetch.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+});
+
+test('세션 확인 정보가 없으면 저장하지 않고 안내한다', async () => {
+  const fetch = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => String(url).includes('/triage') ? jsonResponse(200, { data: latest() }) : jsonResponse(200, { data: { items: [review({})] } }));
+  vi.stubGlobal('fetch', fetch);
+  const dialog = await openDialog();
+  fireEvent.change(within(dialog).getByLabelText('사유'), { target: { value: '사유' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('세션 확인 정보가 없습니다');
+  expect(fetch.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
 });
