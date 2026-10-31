@@ -1,6 +1,7 @@
 """KAN-185 요구 추출: 입력 구성, 근거 검사, 빠진 문장 보완 호출, 채점. 모델은 가짜 함수다."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +10,8 @@ from backend.engine.rfp.clauses import build_clause_tree
 from backend.engine.rfp.edits import interpret_edits
 from backend.engine.rfp.requirements import (
     CODE_ONLY_FIELDS,
+    MAX_SECTION_CALLS,
+    MAX_SECTION_PARTS,
     ExtractedRequirement,
     ExtractionOutput,
     ResponseSchema,
@@ -16,6 +19,7 @@ from backend.engine.rfp.requirements import (
     coverage,
     designated_item,
     extract_section,
+    halved,
     prompt,
     requirement_sentences,
     split_input,
@@ -422,6 +426,89 @@ def test_a_long_section_is_split_by_first_level_groups_and_merged():
     ]
     assert result.sentences == len(requirement_sentences(item))
     assert result.usage.input_tokens == 20 and len(calls) == 3
+
+
+def truncated():
+    """출력 상한에 닿은 응답. JSON이 끊겨 있다."""
+    return Generation('{"requirements": [', Usage(10, 20, None, None, 30), "m", ["MAX_TOKENS"])
+
+
+def status_requirements(text, section="2.6.B"):
+    """지시문에 보이는 하위 조항마다 요구 하나."""
+    return gen(
+        [
+            req(f"{section}.{n}", "The relay shall report status", "status", operator="TEXT")
+            for n in (1, 2)
+            if f"{section}.{n}" in text
+        ]
+    )
+
+
+def test_a_truncated_part_is_split_at_a_clause_and_retried_once():
+    """잘린 부분은 조항 경계로 둘로 나눠 다시 부르고, 요구가 유실되지 않는다."""
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    calls = []
+
+    def provider(text):
+        calls.append(text)
+        if "2.6.B.1" in text and "2.6.B.2" in text:
+            return truncated()
+        if "2.6.B." in text:
+            return status_requirements(text)
+        letter = "A" if "2.6.A.1" in text else "C"
+        return status_requirements(text, f"2.6.{letter}")
+
+    result = extract_section(item, provider)
+    assert (result.outcome, result.parts_failed, result.parts_retried) == ("VALID", 0, 1)
+    assert {r.clause_no for r in result.requirements} >= {"2.6.B.1", "2.6.B.2"}
+    # 잘린 호출의 비용도 사용량에 든다.
+    assert result.usage.input_tokens == 10 * len(calls)
+
+
+def test_a_truncation_is_retried_only_once_and_stays_visible():
+    """나눈 반쪽도 잘리면 더 나누지 않고 실패로 드러낸다."""
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    calls = []
+
+    def provider(text):
+        calls.append(text)
+        return truncated() if "2.6.B" in text else status_requirements(text, "2.6.A")
+
+    result = extract_section(item, provider)
+    assert result.outcome == "SCHEMA_VIOLATION" and result.parts_failed == 2
+    assert sum("2.6.B" in text for text in calls) == 3
+
+
+def test_a_single_clause_cannot_be_split_and_the_call_limit_holds():
+    """조항 하나는 나눌 수 없다. 재시도해도 절 호출 상한을 넘지 않는다."""
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    single = item.model_copy(update={"clauses": item.clauses[:1]})
+    assert halved(single) == []
+    result = extract_section(single, lambda text: truncated())
+    assert (result.outcome, result.truncated, result.parts_retried) == (
+        "SCHEMA_VIOLATION",
+        True,
+        0,
+    )
+    calls = []
+
+    def provider(text):
+        calls.append(text)
+        return truncated()
+
+    pieces = [
+        item.model_copy(update={"clauses": item.clauses[:2]}) for _ in range(MAX_SECTION_PARTS)
+    ]
+    with patch("backend.engine.rfp.requirements.split_input", return_value=pieces):
+        extract_section(item, provider)
+    assert len(calls) <= MAX_SECTION_CALLS
+
+
+def test_halves_keep_every_clause_in_order():
+    item = build_inputs(long_tree(), ["2.6"])[0]
+    first, second = halved(item)
+    assert first.clauses + second.clauses == item.clauses
+    assert first.clauses and second.clauses
 
 
 def breaker_section():
