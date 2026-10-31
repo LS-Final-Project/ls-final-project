@@ -26,6 +26,8 @@ class Server:
     def __call__(self, method, url, headers, body):
         if method == "GET":
             return self.me, {"X-CSRF-Token": "csrf-1"}, b"{}"
+        if headers.get("Origin") != "https://localhost:18443":
+            return 403, {}, b"{}"
         self.posts.append((url, headers, json.loads(body)))
         if self.fail_at == len(self.posts):
             return 503, {}, b"{}"
