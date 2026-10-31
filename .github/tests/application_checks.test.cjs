@@ -42,3 +42,19 @@ test('협업 검사 명령이 실제 실패를 반환하고 최종 결과가 이
     fs.rmSync(directory, {recursive: true, force: true});
   }
 });
+
+test('비밀값 검사는 변경 경로와 상관없이 전체 이력을 가려서 검사하고 최종 결과를 막는다', () => {
+  const secrets = workflow.split('  secrets:\n')[1]?.split('  required:\n')[0];
+  assert.ok(secrets, 'secrets 작업이 있어야 한다');
+  assert.ok(!/\n    needs:|\n    if:/.test(secrets), '변경 선택에 묶이지 않고 늘 돈다');
+  assert.match(secrets, /fetch-depth: 0/);
+  assert.match(secrets, /GITLEAKS_SHA256: [0-9a-f]{64}\n/);
+  assert.match(secrets, /sha256sum -c -/);
+  assert.match(secrets, /--redact/);
+  assert.match(secrets, /--exit-code 1/);
+  assert.match(secrets, /--log-opts="--all"/);
+  assert.ok(!secrets.includes('continue-on-error:'), '검사 실패를 무시하지 않는다');
+  const required = workflow.split('  required:\n')[1];
+  assert.match(required.match(/needs: \[(.+)\]/)[1], /\bsecrets\b/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../../.gitleaks.toml'), 'utf8'), /useDefault = true/);
+});
