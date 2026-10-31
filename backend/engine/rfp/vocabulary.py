@@ -133,3 +133,62 @@ def is_placeholder(value: str | None) -> bool:
         bool: 자리표시자면 True.
     """
     return value is not None and PLACEHOLDER.search(value) is not None
+
+
+# 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
+# metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있어 넣지 않았다.
+FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {
+    "switching": {
+        "FUSE_SWITCH": ("fused", "fusible", "load break", "load interrupter"),
+        "VCB": ("vcb", "vacuum circuit breaker"),
+        "ACB": ("acb", "air circuit breaker"),
+        "MCCB": ("mccb", "molded case", "moulded case"),
+    },
+    "mounting": {
+        "FIXED": ("fixed mount",),
+        "DRAWOUT": ("drawout", "draw out", "withdrawable"),
+    },
+    "insulation": {
+        "CAST_RESIN": ("cast resin", "epoxy"),
+        "OIL": ("oil immersed", "liquid filled"),
+    },
+}
+_FORM_NEGATION = re.compile(r"\b(?:not|non|no|without|except)\b")
+
+
+def form_axes(text: str) -> dict[str, str]:
+    """형식 문구에서 축별 값을 읽는다.
+
+    Args:
+        text: 형식 값.
+
+    Returns:
+        dict[str, str]: 축과 값. 부정어가 있으면 빈 값이고, 한 문구에 같은 축 값이 둘이면 그 축은 뺀다.
+    """
+    plain = text.lower().replace("-", " ")
+    if _FORM_NEGATION.search(plain):
+        return {}
+    axes = {}
+    for axis, values in FORM_AXES.items():
+        found = [
+            value
+            for value, words in values.items()
+            if any(re.search(rf"\b{word}\b", plain) for word in words)
+        ]
+        if len(found) == 1:
+            axes[axis] = found[0]
+    return axes
+
+
+def form_conflict(wanted: str, offered: str) -> bool:
+    """두 형식 문구가 같은 축에 다른 값을 적었는지 본다.
+
+    Args:
+        wanted: 요구의 형식.
+        offered: 후보의 형식.
+
+    Returns:
+        bool: 충돌이면 True. 축을 못 읽거나 한쪽에만 있으면 충돌이 아니다.
+    """
+    theirs = form_axes(offered)
+    return any(theirs.get(axis, value) != value for axis, value in form_axes(wanted).items())
