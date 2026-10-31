@@ -1257,6 +1257,7 @@ def test_every_internal_name_has_a_display_name():
         ("supply_region", "공급 지역"),
         ("some_new_check", "사양 항목"),
         ("Rated Current at 40C", "Rated Current at 40C"),
+        ("Rated Current at 40.5C", "Rated Current at 40.5C"),
     ],
 )
 def test_check_names_become_display_names(name, text):

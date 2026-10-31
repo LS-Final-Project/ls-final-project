@@ -355,4 +355,4 @@ def check_text(name: str) -> str:
     for table in (ATTRIBUTE_TEXT, CONDITION_TEXT, CHECK_TEXT):
         if name in table:
             return table[name]
-    return "사양 항목" if "_" in name or "." in name else name
+    return "사양 항목" if re.fullmatch(r"[a-z][a-z0-9_.]*", name) else name
