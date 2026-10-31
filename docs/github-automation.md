@@ -35,6 +35,7 @@ Windows에서는 [공통 온보딩](team-start.md)의 WSL Ubuntu 환경에서 �
 | .githooks/prepare-commit-msg | 로컬 Git 커밋 시 Python 도우미 호출 |
 | .github/workflows/pr-metadata.yml | PR 제목과 링크 보완, 번호 불일치 검사(팀원 배정 없음) |
 | .github/workflows/application-checks.yml의 infrastructure | 변경 영향에 따른 Python Git 연동·Node PR 자동화 검사. 실패는 Application result에서 차단 |
+| .github/workflows/application-checks.yml의 secrets | 변경 경로와 상관없이 모든 커밋 이력을 gitleaks(버전·체크섬 고정)로 검사. 값은 가려 출력하고 발견 시 Application result에서 차단. 허용 규칙은 `.gitleaks.toml` |
 | .github/jira-config.json | Jira 링크의 기본 주소 |
 | .github/workflows/claude-code-review.yml | 매 커밋 Claude 구조화 리뷰와 결과 검사 |
 | .github/scripts/ai_review.cjs | 검토 SHA·완료·파일 범위·차단 지적 검사 및 댓글 게시 |

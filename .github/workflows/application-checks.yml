@@ -228,10 +228,34 @@ jobs:
           cache-suffix: ${{ github.job }}
       - run: uv sync --frozen --python 3.12
       - run: uv run --frozen python scripts/check_backend.py eval
+  secrets:
+    # 키·토큰이 커밋에 섞였는지 모든 이력에서 본다(KAN-165). 변경 경로와 상관없이 늘 돈다. 출력은 값을 가린다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # 공식 릴리스 체크섬 파일과 GitHub 자산 digest가 일치한 값(2026-10-31 확인).
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan history for secrets
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1 \
+            --log-opts="--all" .
   required:
     name: Application result
     if: always()
-    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation]
+    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation, secrets]
     runs-on: ubuntu-latest
     steps:
       - env:
