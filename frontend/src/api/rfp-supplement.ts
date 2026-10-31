@@ -1,7 +1,7 @@
 import type { paths } from './generated/tft';
 import { ApiError, request, sessionCsrfToken } from './client';
 import { me } from './platform';
-import { listRequirements, type RequirementSummary as SharedRequirementSummary } from './rfp';
+import { listRequirements, type RequirementSummary as SharedRequirementSummary, type RequirementFilters, type RequirementDetail } from './rfp';
 
 type Json<T> = T extends { content: { 'application/json': infer Body } } ? Body : never;
 type Options = paths['/api/v1/tft/requirements/{requirement_id}/supplement-options']['get'];
@@ -17,8 +17,10 @@ export type SupplementSelected = Json<Selection['responses'][200]>['data'];
 
 // The supplement form reads real requirements: do not mix the table's local
 // mock fallback with real options/candidates or duplicate its query construction.
-export const listSupplementRequirements = (projectId: string, cursor?: string) =>
-  listRequirements(projectId, {}, 20, cursor, { useMockFallback: false });
+export const listSupplementRequirements = (projectId: string, cursor?: string, filters: RequirementFilters = {}) =>
+  listRequirements(projectId, filters, 20, cursor, { useMockFallback: false });
+export const getSupplementRequirement = (requirementId: string) =>
+  request<{ data: RequirementDetail }>(`/api/v1/tft/requirements/${encodeURIComponent(requirementId)}`);
 export const getSupplementOptions = (requirementId: string) =>
   request<Json<Options['responses'][200]>>(`/api/v1/tft/requirements/${encodeURIComponent(requirementId)}/supplement-options`);
 export const listSupplementCandidates = (projectId: string, requirementId: string) =>
