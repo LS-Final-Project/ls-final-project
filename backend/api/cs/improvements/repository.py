@@ -26,10 +26,32 @@ IN_DEPARTMENTS = (
 LIST_LIMIT = 200
 
 
+# One department, whether it was sent the request in any round or only proposed for it.
+INVOLVES_DEPT = (
+    "(EXISTS (SELECT 1 FROM cs.request_departments f "
+    "WHERE f.request_id = r.id AND f.dept_code = %(dept)s) "
+    "OR %(dept)s = ANY(r.proposed_depts))"
+)
+
+
 async def list_requests(
-    conn: AsyncConnection[Row], departments: list[str] | None, proposed: bool
+    conn: AsyncConnection[Row],
+    departments: list[str] | None,
+    proposed: bool,
+    *,
+    statuses: list[str] | None = None,
+    request_type: str | None = None,
+    dept: str | None = None,
 ) -> list[Row]:
-    where = f"WHERE {IN_DEPARTMENTS} " if departments is not None else ""
+    """Newest first, up to LIST_LIMIT. Filters narrow the caller's scope and never widen it."""
+    conditions = [IN_DEPARTMENTS] if departments is not None else []
+    if statuses is not None:
+        conditions.append("r.status = ANY(%(statuses)s)")
+    if request_type is not None:
+        conditions.append("r.request_type = %(request_type)s")
+    if dept is not None:
+        conditions.append(INVOLVES_DEPT)
+    where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
     cursor = await conn.execute(
         "SELECT r.id, r.request_type, r.product_code, r.fault_id, r.doc_signal, r.status, "
         "r.version, r.cs_owner, r.problem_statement, r.created_at, "
@@ -37,7 +59,14 @@ async def list_requests(
         "WHERE e.request_id = r.id AND e.removed_at IS NULL) AS evidence_count "
         f"FROM cs.improvement_requests r {where}"
         "ORDER BY r.created_at DESC, r.id DESC LIMIT %(limit)s",
-        {"departments": departments, "proposed": proposed, "limit": LIST_LIMIT},
+        {
+            "departments": departments,
+            "proposed": proposed,
+            "statuses": statuses,
+            "request_type": request_type,
+            "dept": dept,
+            "limit": LIST_LIMIT,
+        },
     )
     return await cursor.fetchall()
 

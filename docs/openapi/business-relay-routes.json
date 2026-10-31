@@ -212,7 +212,11 @@
         "GET",
         "POST"
       ],
-      "query": []
+      "query": [
+        "status",
+        "request_type",
+        "dept"
+      ]
     },
     {
       "path": "/api/v1/cs/improvement-requests/{uuid}",
@@ -620,6 +624,23 @@
     {
       "method": "GET",
       "path": "/api/v1/cs/tickets?dept=GCS_L1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT,SENT&request_type=FAULT&dept=TS_TRF",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT&status=SENT",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT",
       "forward": false,
       "status": 400
     },
