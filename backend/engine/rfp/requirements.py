@@ -23,7 +23,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from backend.engine.rfp.clauses import ClauseTree
+from backend.engine.rfp.clauses import ClauseTree, is_korean_section
 from backend.engine.rfp.vocabulary import (
     ATTRIBUTE_KEYS,
     CONDITION_NAMES,
@@ -294,6 +294,12 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                     path=" > ".join(reversed(chain)),
                     text=clause.text,
                     table_rows=clause.table_rows,
+                )
+            )
+        if not clauses and is_korean_section(head) and (head.text.strip() or head.table_rows):
+            clauses.append(
+                ClauseInput(
+                    clause_no=head.clause_no, path="", text=head.text, table_rows=head.table_rows
                 )
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)

@@ -48,7 +48,7 @@ from backend.api.tft.rfp.storage import (
     read_document,
 )
 from backend.engine.documents.router import extract
-from backend.engine.rfp.clauses import ClauseTree, build_clause_tree
+from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_section
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
@@ -252,14 +252,23 @@ def sections_of(tree: ClauseTree) -> list[str]:
         tree: 조항 트리.
 
     Returns:
-        list[str]: 절 번호(트리 순서).
+        list[str]: 절 번호(트리 순서). 본문이 있는 한글 leaf 절도 포함한다.
     """
     numbers = [c.clause_no for c in tree.clauses]
     groups = {n for n in numbers if any(m.startswith(n + ".") for m in numbers)}
     parents = {c.clause_no: c.parent_no for c in tree.clauses}
+    parents_with_children = set(parents.values())
+    leaves = {
+        c.clause_no
+        for c in tree.clauses
+        if is_korean_section(c)
+        and c.clause_no not in groups
+        and c.clause_no not in parents_with_children
+        and (c.text.strip() or c.table_rows)
+    }
     out = []
     for no in numbers:
-        if no not in groups:
+        if no not in groups | leaves:
             continue
         parent = parents[no]
         while parent is not None and parent not in groups:

@@ -612,7 +612,7 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
     admin, app_dsn, tmp_path, monkeypatch, capsys
 ):
     """시드 스크립트(KAN-184): --execute 뒤 DB 행을 worker 방식으로 되돌리면 파일과 같고, 재실행은 0행이며,
-    같은 판본 내용이 바뀌면 DIFFERENT, 새 판본이면 MISSING으로 종료 1이고 원격 DSN은 거부한다."""
+    같은 판본 내용이 바뀌면 DIFFERENT, 새 판본이면 MISSING으로 종료 1이다. 기본 계획은 원격 DSN이어도 접속하지 않는다."""
     # 백엔드 검사 이미지에는 scripts/가 없어 DB가 있을 때(admin 통과 뒤)만 가져온다.
     from scripts.rfp_seed_partner_profiles import main
 
@@ -653,7 +653,7 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
     changed[1]["profile_version"] += 100
     path = tmp_path / "profiles.json"
     path.write_text(json.dumps(changed, ensure_ascii=False), encoding="utf-8")
-    code, summary = run("--profiles", str(path))
+    code, summary = run("--check", "--profiles", str(path))
     assert code == 1 and (summary["DIFFERENT"], summary["MISSING"]) == (1, 1)
     code, summary = run("--execute", "--profiles", str(path))
     assert code == 1 and summary["inserted"] == 1 and summary["DIFFERENT"] == 1
@@ -668,7 +668,8 @@ def test_seed_script_puts_the_file_profiles_and_flags_drift(
         )
     assert kept == profiles[0].notes
     monkeypatch.setenv("DATABASE_URL", "postgresql://tft_app:x@db.example.invalid:5432/team4")
-    assert main([]) == 1 and "TFT_SEED_NEEDS_LOCAL_DB" in capsys.readouterr().err
+    assert main([]) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["mode"] == "dry-run"
 
 
 def test_rewrite_command_survives_entire_migration_reapplication(admin, chain):
