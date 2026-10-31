@@ -277,6 +277,31 @@ def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, g
     assert len(again.json()["data"]["items"]) == 1
 
 
+def test_keeping_own_development_after_a_yes_does_not_ask_again(client, gap):
+    """R&D가 가능하다고 답한 뒤 같은 경로를 다시 저장하면 재검토만 풀리고 질문은 그대로다."""
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    url = f"/projects/{gap['project']}/questions?target=INTERNAL"
+    [question] = call(client, "GET", url, OWNER).json()["data"]["items"]
+    replied = answer(client, question, RND, rnd_feasibility="FEASIBLE")
+    assert replied.status_code == 200, replied.text
+    detail = f"/requirements/{gap['requirement']}"
+    assert data(get(client, detail))["needs_rereview"] is True
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    assert data(get(client, detail))["needs_rereview"] is False
+    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 1
+    assert options(client, gap)["EXTERNAL_PRODUCT"]["gate"]["status"] == "CONFIRMED_FEASIBLE"
+
+
+def test_keeping_own_development_after_a_no_asks_again(client, gap):
+    """불가 답을 받고도 자사 개발을 고르면 다시 묻는다."""
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    url = f"/projects/{gap['project']}/questions?target=INTERNAL"
+    [question] = call(client, "GET", url, OWNER).json()["data"]["items"]
+    assert answer(client, question, RND, rnd_feasibility="NOT_FEASIBLE").status_code == 200
+    assert choose(client, gap, "OWN_DEVELOPMENT").status_code == 200
+    assert len(call(client, "GET", url, OWNER).json()["data"]["items"]) == 2
+
+
 def test_partner_path_while_rnd_is_pending_needs_a_waiver(client, gap, admin):
     """열린 R&D 질문 중 협력사 경로는 사유 없이 422(질문 ID 안내), 사유가 있으면 WAIVED로 저장한다."""
     pending = ask(client, gap).json()["data"]
@@ -618,6 +643,10 @@ def test_clauses_are_paged_in_document_order_with_their_links(client, admin, cha
     url = f"/documents/{chain['document']}/clauses"
     first = data(get(client, f"{url}?limit=2"))
     assert [c["clause_no"] for c in first["items"]] == ["2.5.C", "2.5.D"]
+    # 요구 화면은 인용한 판본 ID로 부른다. 범위 검사는 같다.
+    by_version = f"/documents/{chain['docver']}/clauses?limit=2"
+    assert data(get(client, by_version))["items"] == first["items"]
+    assert get(client, by_version, OUTSIDER).status_code == 404
     top, child = first["items"]
     assert top["deleted_values"] == [{"text": "33", "position": 4}]
     assert top["flags"] == ["HIGHLIGHT"]

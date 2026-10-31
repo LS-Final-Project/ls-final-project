@@ -1634,6 +1634,24 @@ async def document_project(conn: AsyncConnection[Row], document_id: UUID) -> UUI
     return row["project_id"] if row else None
 
 
+async def document_version_row(conn: AsyncConnection[Row], version_id: UUID) -> Row | None:
+    """판본 ID로 판본과 프로젝트를 읽는다.
+
+    Args:
+        conn: dict_row 연결.
+        version_id: 문서 판본 ID.
+
+    Returns:
+        Row | None: document_versions 열과 project_id. 없으면 None.
+    """
+    cursor = await conn.execute(
+        "SELECT v.*, d.project_id FROM tft.document_versions v "
+        "JOIN tft.documents d ON d.id = v.document_id WHERE v.id = %s",
+        (version_id,),
+    )
+    return await cursor.fetchone()
+
+
 async def list_document_versions(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     """프로젝트의 문서 판본 전부(문서 순, 같은 문서는 새 판본 먼저).
 

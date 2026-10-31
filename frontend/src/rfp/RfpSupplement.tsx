@@ -12,7 +12,7 @@ import {
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime, Origin } from '../components/tft';
-import { PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
+import { BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
 import { KvBox, KvField, KvGrid, KvNext, KvTitle, type KvColumn } from '../ls-shell/kv';
 
 const text = (items: readonly string[]) => items.length ? items.join(' · ') : '없음';
@@ -130,7 +130,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
     { key: 'choose', header: '선택', cell: o => <input type="radio" name="supplement-path" aria-label={PATH[o.path]} checked={path === o.path} disabled={!canSelect || !o.allowed || save.isPending || conflict} onChange={() => { setPath(o.path); setCodes([]); setWaiver(''); }} /> },
     { key: 'rank', header: '순서', cell: o => o.rank },
     { key: 'path', header: '보완 경로', cell: o => PATH[o.path] },
-    { key: 'allowed', header: '허용·차단 사유', cell: o => o.allowed ? '선택 가능' : `선택 불가 · ${o.blocked_reason ?? '차단'}` },
+    { key: 'allowed', header: '허용·차단 사유', cell: o => o.allowed ? '선택 가능' : `선택 불가 · ${label(BLOCKED_LABEL, o.blocked_reason) || '차단'}` },
     { key: 'gate', header: 'R&D 확인', cell: o => label(RND_CHECK_LABEL, o.gate.status) },
     { key: 'conditions', header: '확인 조건·전문성', cell: o => <>{text(o.conditions_to_confirm)}<br />전문성: {text(o.required_expertise)}</> },
   ];

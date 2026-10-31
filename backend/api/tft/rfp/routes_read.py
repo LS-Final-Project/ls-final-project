@@ -194,6 +194,24 @@ def clause_out(row: Mapping[str, Any], numbers: Mapping[str, UUID]) -> s.Clause:
     )
 
 
+async def clause_source(conn: AsyncConnection[Row], principal: Principal, target: UUID) -> Row:
+    """조항을 읽을 판본. 요구는 인용한 판본 ID로 오고, 문서 ID면 최신 판본이다.
+
+    Args:
+        conn: dict_row 연결.
+        principal: 요청 사용자.
+        target: 문서 판본 ID 또는 문서 ID.
+
+    Returns:
+        Row: 문서 판본 행. 없거나 범위 밖이면 404다.
+    """
+    version = await repository.document_version_row(conn, target)
+    if version is None:
+        return await visible_document(conn, principal, target)
+    await visible_project(conn, principal, version["project_id"], *DOCUMENT_NOT_FOUND)
+    return version
+
+
 async def list_clauses(
     request: Request,
     principal: Principal,
@@ -218,7 +236,7 @@ async def list_clauses(
     """
     after = decode_cursor(cursor, int)
     async with connection(request.app.state.settings) as conn:
-        document = await visible_document(conn, principal, document_id)
+        document = await clause_source(conn, principal, document_id)
         rows = await repository.list_clauses(
             conn, document["id"], parent=parent, after=after, limit=limit
         )
