@@ -30,8 +30,8 @@ export default function App() {
     <Route path="account" element={<AccountGate />} />
     <Route element={<LsShell />}>
       <Route path="cs" element={<CsHome />} />
-      <Route path="cs/improvements" element={<div className="ls-legacy"><CsImprovements /></div>} />
-      <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />
+      <Route path="cs/improvements" element={<CsImprovements />} />
+      <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
       <Route path="cs/customers" element={<CsCustomers />} />
       <Route path="cs/admin" element={<CsAdmin />} />
       <Route path="cs/tickets" element={<Tickets />} />
