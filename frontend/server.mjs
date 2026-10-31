@@ -95,6 +95,14 @@ export const businessRoutes = [
   ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
   ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
 ];
+// 플랫폼이 직접 인가하는 내 수신함/구독만 중계한다. 업무 서비스 중계 표에 섞지 않는다.
+const notificationRoutes = [
+  [/^\/api\/v1\/platform\/notifications$/, ['GET'], ['limit', 'offset']],
+  [/^\/api\/v1\/platform\/notifications\/unread-count$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/notifications\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/read$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/push\/public-key$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
+];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
 // 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
@@ -180,7 +188,8 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       const assignees = path === '/api/v1/platform/assignees';
       if (assignees && ([...parsed.searchParams].some(([key, value]) => key !== 'role' || value !== 'cs_agent') || parsed.searchParams.getAll('role').length > 1)) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
-      const [business, businessQuery] = businessRelayEnabled ? businessRoute(path) : [[], []];
+      const notification = notificationRoutes.find(([pattern]) => pattern.test(path));
+      const [business, businessQuery] = notification ? notification.slice(1) : businessRelayEnabled ? businessRoute(path) : [[], []];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
       if (path === '/health') return json(response, 200, { status: 'ok', service: 'web' });
@@ -190,6 +199,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         if (business.length) {
           if (!business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
           const pairs = [...parsed.searchParams];
+          if (notification && pairs.some(([key, value]) => !/^(0|[1-9][0-9]*)$/.test(value) || (key === 'limit' ? +value < 1 || +value > 100 : +value > 100000))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
           if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || value.length > 200))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
         }
         const headers = { Authorization: `Bearer ${await tokenProvider()}` };
@@ -274,7 +284,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       }
       file = await realpath(file);
       if (!file.startsWith(staticRoot + sep)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600' });
+      response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': path === '/sw.js' || extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600' });
       response.end(request.method === 'HEAD' ? undefined : await readFile(file));
     } catch {
       // No upstream bodies, request headers or identity tokens in logs/errors.
