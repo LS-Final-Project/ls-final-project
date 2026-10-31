@@ -24,6 +24,7 @@ DB Secret은 해당 실행 계정에만, Gemini Secret의 새 직접 권한은 C
 - 새 DB 최초 준비·계정 정책: [SQL 안내](sql/README.md)
 - 새 업무 테이블: [마이그레이션 안내](../docs/team-start.md#필요할-때-참고-db-테이블-추가)
 - 로그·백업·운영 담당 후속 확인: [운영 확인](../docs/operations-basics.md)
+- 배포 뒤 확인·되돌리기·백업 복구 훈련: [배포 확인 런북](../docs/release-runbook.md)
 - 실제 모델·메일 연결: [외부 연동 점검](../docs/integration-checks.md)
 - 기존 공용 Microsoft 인증 준비: `prepare_microsoft_auth.py`의 기본 미리보기와
   [운영자 적용 순서](../docs/integration-checks.md#운영자-터미널에서-제품-인증-준비)를 따른다.
