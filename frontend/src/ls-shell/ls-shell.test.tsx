@@ -26,9 +26,15 @@ describe('업무 셸과 옛 화면의 스타일 경계', () => {
     expect(read('./ls-shell.css')).toMatch(/\.ls-root :where\([^)]*\):where\(:not\(\.ls-legacy \*\)\)\{all:revert\}/);
   });
 
-  it.each(['/cs/tickets', '/cs/tickets/22222222-2222-4222-8222-222222222222'])('%s 는 셸 안의 옛 화면 영역에 그린다', path => {
+  it.each(['/cs/tickets/22222222-2222-4222-8222-222222222222'])('%s 는 셸 안의 옛 화면 영역에 그린다', path => {
     const { container } = show(path);
     expect(container.querySelector('.ls-root .ls-legacy')).not.toBeNull();
+  });
+
+  it('문의 조회는 보드 기준 새 화면이라 옛 화면 영역이 아니다', () => {
+    const { container } = show('/cs/tickets');
+    expect(container.querySelector('.ls-legacy')).toBeNull();
+    expect(container.querySelector('.kv-code')?.textContent).toBe('CS0101');
   });
 
   it('업무 홈은 옛 화면 영역이 아니다', () => {

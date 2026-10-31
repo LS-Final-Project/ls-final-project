@@ -12,13 +12,18 @@ const list = (state: unknown) => ({data: {items: [{...base, workflow_state: stat
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 function viewList(){setApiMode('live');return renderAt('/cs/tickets','/cs/tickets',<Tickets/>);}
 function viewDetail(){setApiMode('live');return renderAt('/cs/tickets/x','/cs/tickets/:ticketId',<TicketDetail/>);}
+// 목록은 보드의 문구(검토중, 답변 완료, 부서 검토 중), 상세는 상태 안내 문구를 쓴다.
+const isRequests = (url: RequestInfo | URL) => String(url).includes('/improvement-requests');
 test.each([
-  ['RECEIVED','접수'], ['IN_REVIEW','검토 중'], ['WAITING_CUSTOMER','고객 회신 대기'],
-  ['ANSWERED','회신 완료'], ['TRANSFERRED','부서 이관'], ['CLOSED','종결'],
-])('목록과 상세는 계약 상태 %s를 %s로 표시한다',async(state,label)=>{
-  const fetch=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,String(url).endsWith('/tickets')?list(state):detail(state)));
-  vi.stubGlobal('fetch',fetch);const page=viewList();await screen.findByText(label,{selector:"strong"});
-  expect(screen.getByText(/일반 권고/)).toBeTruthy();page.unmount();viewDetail();await screen.findByText(label,{selector:"strong"});
+  ['RECEIVED','접수','접수'], ['IN_REVIEW','검토 중','검토중'], ['WAITING_CUSTOMER','고객 회신 대기','고객 회신 대기'],
+  ['ANSWERED','회신 완료','답변 완료'], ['TRANSFERRED','부서 이관','부서 검토 중'], ['CLOSED','종결','종결'],
+])('목록과 상세는 계약 상태 %s를 상세 %s, 목록 %s로 표시한다',async(state,label,listLabel)=>{
+  const fetch=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,isRequests(url)?{data:{items:[]}}:String(url).endsWith('/tickets')?list(state):detail(state)));
+  vi.stubGlobal('fetch',fetch);const page=viewList();
+  // 목록의 상태 조건은 기본으로 종결을 뺀다. 종결 시험은 전체를 고른다.
+  if(state==='CLOSED'){await screen.findByRole('table',{name:'문의 목록'});fireEvent.change(screen.getByLabelText('상태'),{target:{value:''}});}
+  await screen.findByText(listLabel,{selector:'td'});
+  page.unmount();viewDetail();await screen.findByText(label,{selector:"strong"});
   expect(screen.getByText(/실행 권한이나 후속 작업의 완료를 보장하지/)).toBeTruthy();
   expect(fetch.mock.calls.every(([url])=>!String(url).includes('/workflow'))).toBe(true);
 });
@@ -36,11 +41,12 @@ test.each([401,403,503])('상세 갱신 %i 실패는 옛 상태를 숨기고 재
 test('조회 중 반복 클릭을 막고 이탈 시 취소하며 재진입은 새 상태를 조회한다',async()=>{
   let signal:AbortSignal|undefined;let calls=0;
   vi.stubGlobal('fetch',vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{
-    calls++;if(calls>1)return Promise.resolve(jsonResponse(200,list('CLOSED')));
+    if(isRequests(_url))return Promise.resolve(jsonResponse(200,{data:{items:[]}}));
+    calls++;if(calls>1)return Promise.resolve(jsonResponse(200,list('IN_REVIEW')));
     signal=init?.signal as AbortSignal;
     return new Promise<Response>((_resolve,reject)=>signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));
   }));
-  const page=viewList();await waitFor(()=>expect(calls).toBe(1));const button=screen.getByRole('button',{name:'최신 상태 조회'});
+  const page=viewList();await waitFor(()=>expect(calls).toBe(1));const button=screen.getByRole('button',{name:/^조회/});
   expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);expect(calls).toBe(1);
-  page.unmount();expect(signal?.aborted).toBe(true);viewList();await screen.findByText('종결');expect(calls).toBe(2);
+  page.unmount();expect(signal?.aborted).toBe(true);viewList();await screen.findByText('검토중',{selector:'td'});expect(calls).toBe(2);
 });

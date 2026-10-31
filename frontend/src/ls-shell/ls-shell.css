@@ -730,3 +730,18 @@
 }
 .ls-root .kv-grid th[aria-sort=ascending]::after{content:" ▲";font-size:9px}
 .ls-root .kv-grid th[aria-sort=descending]::after{content:" ▼";font-size:9px}
+
+/* CS_K_List(CS0101): 보드에서 추가한 규칙(기존 선택자는 건드리지 않음) */
+.ls-root .kv-form .row{display:grid;border-top:1px solid var(--erp-border-soft)}
+.ls-root .kv-form .row:first-child{border-top:0}
+.ls-root .unc{color:var(--erp-muted)}
+.ls-root .kv-conflict .t{flex:1}
+.ls-root .kv-conflict .t b{font-weight:400;font-size:inherit!important}
+.ls-root .kv-conflict .t small{display:block;color:var(--erp-muted);margin-top:2px}
+.ls-root .kv-form .v .dim{color:var(--erp-muted)}
+.ls-root .kv-saved{display:flex;align-items:center;gap:8px;margin:6px 14px 0;font-size:12px;color:var(--erp-muted)}
+.ls-root .kv-saved select{height:24px;padding:0 6px;border:1px solid var(--erp-line);border-radius:2px;background:#fff;font:inherit;font-size:12px;color:var(--erp-text);width:200px}
+.ls-root .kv-saved a{margin-left:auto;color:var(--erp-accent)}
+.ls-root .kv-form .row{grid-auto-rows:30px}
+/* 조회조건·내 조건 칸의 테두리: 보드는 전역 입력 규칙(--mm-border 계열)이 덮어 연한 회색이다. 이 두 영역에만 적용한다. */
+.ls-root .kv-cond input:not([type=checkbox]):not([type=radio]),.ls-root .kv-cond select,.ls-root .kv-saved select{border-color:var(--erp-border)}
