@@ -9,8 +9,8 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, getTicketWorkflow, isResolutionExists, isResultVersionConflict, isVersionConflict, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
-import { me } from '../api/platform';
+import { closeTicket, confirmReturn, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { listCsAssignees, me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
@@ -25,7 +25,7 @@ const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], str
   OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
 };
 type Transfer = WorkflowRecord['transfers'][number];
-type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | null;
+type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | 'owner' | null;
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
 
 const Cell = ({ label, children }: { label: string; children: ReactNode }) =>
@@ -51,6 +51,7 @@ export default function TicketDetail() {
   // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
   const identity = useQuery({ queryKey: ['ticket-owner-identity', mode], queryFn: me, retry: false, enabled: access.ready && workflow.isSuccess });
   const [dialog, setDialog] = useState<Dialog>(null);
+  const assignees = useQuery({ queryKey: ['cs-assignees', mode], queryFn: ({ signal }) => listCsAssignees(signal), enabled: dialog === 'owner', retry: false, staleTime: 0 });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   // 반품 확정 입력 칸을 비우는 데 쓴다. 확정은 모든 칸을 덮어쓰는 기록이라 입력이 다른 문의나 다음 확정에 남으면 안 된다.
@@ -72,11 +73,14 @@ export default function TicketDetail() {
   const canWrite = import.meta.env.DEV && mode === 'live';
   const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : '실제 API 개발 모드에서만 실행할 수 있습니다';
   const st = data?.workflow_state;
+  // 담당 변경은 C/S 관리자만 할 수 있다(서버도 확인한다).
+  const isManager = identity.data?.data?.roles?.includes('manager') === true;
   const reasons = {
     start: why(st === 'RECEIVED', '이미 검토중'),
     transfer: why(st === 'IN_REVIEW' && !pendingResult, pendingResult ? '확인 전 답변이 있으면 요청할 수 없습니다' : '검토중인 문의만 요청할 수 있습니다'),
     recall: why(st === 'TRANSFERRED', '진행 중인 요청 없음'),
     close: why((st === 'ANSWERED' || st === 'IN_REVIEW') && !pendingResult, pendingResult ? '확인 전 답변이 있으면 불가' : '종결할 수 없는 상태입니다'),
+    owner: !isManager ? 'C/S 관리자만' : why(st !== 'CLOSED', '종결된 문의'),
     resolution: why(st === 'CLOSED' && !rc, rc ? '이미 해결 기록이 있습니다(문의당 한 건)' : '종결 후 한 건'),
   };
   const owner = wf?.owner_user_id ? (identity.data?.data?.id === wf.owner_user_id ? '나' : `사용자 ${wf.owner_user_id.slice(0, 8)}`) : wf ? '미지정' : '-';
@@ -97,6 +101,7 @@ export default function TicketDetail() {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : isInvalidOwner(error) ? '새 담당자로 지정할 수 없는 사용자입니다. 활성 C/S 담당자만 지정할 수 있습니다.'
         : isResultVersionConflict(error) ? '부서 답변이 그 사이 바뀌었습니다. 최신 답변을 다시 읽었으니 확인한 뒤 다시 저장하세요.'
         : isResolutionExists(error) ? '이 문의에는 이미 해결 기록이 있습니다. 문의당 한 건만 등록할 수 있고 고치는 경로는 없습니다.'
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
@@ -142,7 +147,7 @@ export default function TicketDetail() {
       <KvMore items={[
         { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
-        { label: '담당 변경', note: 'C/S 관리자만, 연결 전' },
+        { label: '담당 변경', note: reasons.owner, action: busy || reasons.owner !== undefined ? undefined : () => setDialog('owner') },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
         { label: '해결 기록 남기기', note: reasons.resolution ?? '종결 후 한 건', action: busy || reasons.resolution !== undefined ? undefined : () => setDialog('resolution') },
       ]} />
@@ -240,6 +245,16 @@ export default function TicketDetail() {
     {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)}
         onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
+    </KvModal>}
+    {dialog === 'owner' && data && <KvModal title={`담당 변경, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <form onSubmit={event => { event.preventDefault(); const next = String(new FormData(event.currentTarget).get('owner') ?? ''); if (next) void run('담당자를 바꿨습니다.', signal => reassignOwner(ticketId, { owner_user_id: next, version }, signal)); }}>
+        <div className="kv-field"><span>현재 담당</span><span className="ro">{owner}</span></div>
+        <div className="kv-field"><span className="req">새 담당</span>
+          {assignees.isPending ? <span className="ro">담당자 목록을 읽는 중입니다</span> : assignees.isError ? <span className="ro">담당자 목록을 불러오지 못했습니다</span>
+            : <select name="owner" aria-label="새 담당" required defaultValue=""><option value="" disabled>선택</option>{assignees.data.data.items.filter(item => item.user_id !== wf?.owner_user_id).map(item => <option key={item.user_id} value={item.user_id}>{item.display_name}</option>)}</select>}</div>
+        <div className="kv-sub" style={{ margin: '8px 0 0' }}>상태는 바뀌지 않습니다. 새 담당자가 활성 C/S 담당자인지는 서버가 확인합니다.</div>
+        <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>취소</button><button type="submit" className="kb primary" disabled={busy || !assignees.isSuccess}>변경</button></div>
+      </form>
     </KvModal>}
     {dialog === 'close' && data && <KvModal title={`종결, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <div className="kv-sub" style={{ margin: '0 0 8px' }}>이 문의를 종결합니다. 종결 뒤에는 해결 기록을 한 건 남길 수 있습니다. 종결 조건은 서버가 확인하며, 맞지 않으면 사유를 알려 줍니다.</div>

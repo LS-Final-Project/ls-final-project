@@ -12,15 +12,17 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 
 const flow = (state: string, version: number, extra: Record<string, unknown> = {}) => ({ data: { ticket_id: 'x', state, version, owner_user_id: null, closed_at: null, closed_by: null, customer_sent_at: null, dept_results: [], transfers: [], ...extra } });
 type Post = { url: string; init: RequestInit };
+const assigneesDefault = [{ user_id: 'u1', display_name: '김지원' }, { user_id: 'u2', display_name: '박민수' }];
 
 // 문의 상세·업무 흐름 조회와 쓰기 호출을 한 곳에서 받는 가짜 서버. post가 Promise를 돌려주면 응답을 늦출 수 있다.
-function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown, detailExtra: Record<string, unknown> = {}, flowExtra: Record<string, unknown> = {}) {
+function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown, detailExtra: Record<string, unknown> = {}, flowExtra: Record<string, unknown> = {}, roles: string[] = ['cs_agent'], assignees: Response | undefined = undefined) {
   const posts: Post[] = [];
   const get = vi.fn();
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
-    if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles: ['cs_agent'] } }), { status: 200, headers: { 'X-CSRF-Token': 'synthetic-csrf' } });
-    if ((init?.method ?? 'GET') === 'POST') { const call = { url: path, init: init! }; posts.push(call); return post(call); }
+    if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles } }), { status: 200, headers: { 'X-CSRF-Token': 'synthetic-csrf' } });
+    if (path.includes('/platform/assignees')) return assignees ?? jsonResponse(200, { data: { items: assigneesDefault } });
+    if (['POST', 'PUT'].includes(init?.method ?? 'GET')) { const call = { url: path, init: init! }; posts.push(call); return post(call); }
     if (path.endsWith('/workflow')) { get(path); return jsonResponse(200, flow(state, version, flowExtra)); }
     if (path.endsWith('/analysis')) return analysis ? jsonResponse(200, analysis) : jsonResponse(404, errorBody('CS_ANALYSIS_MISSING', '분석 없음'));
     return jsonResponse(200, { data: { ...base, workflow_state: state, ...detailExtra } });
@@ -276,4 +278,59 @@ test('이미 확인한 답변은 확인 상자를 보이지 않고 이력에 확
   expect(screen.queryByRole('region', { name: '검토 답변 확인' })).toBeNull();
   await waitFor(() => expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).disabled).toBe(false));
   openMore(); expect(menu('종결').disabled).toBe(false);
+});
+
+const manager = ['cs_agent', 'manager'];
+
+test('담당 변경은 관리자가 현재 담당을 뺀 후보에서 골라 읽은 판본과 보호 토큰으로 보낸다', async () => {
+  const api = server('IN_REVIEW', 5, () => jsonResponse(200, flow('IN_REVIEW', 5, { owner_user_id: 'u2' })), undefined, undefined, { owner_user_id: 'u1' }, manager);
+  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('담당 변경').disabled).toBe(false));
+  fireEvent.click(menu('담당 변경'));
+  const select = await screen.findByLabelText('새 담당') as HTMLSelectElement;
+  expect([...select.options].map(option => option.textContent)).toEqual(['선택', '박민수']);
+  fireEvent.change(select, { target: { value: 'u2' } });
+  fireEvent.click(screen.getByRole('button', { name: '변경' }));
+  await screen.findByText('담당자를 바꿨습니다.');
+  expect(api.posts[0].init.method).toBe('PUT');
+  expect(api.posts[0].url).toMatch(/\/workflow\/owner$/);
+  expect(body(api.posts[0])).toEqual({ owner_user_id: 'u2', version: 5 });
+  expect(api.posts[0].init.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
+});
+
+test('관리자가 아니거나 종결된 문의는 담당 변경을 열지 않고 이유를 적는다', async () => {
+  const agent = server('IN_REVIEW', 5);
+  const first = view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await waitFor(() => expect(agent.get).toHaveBeenCalled());
+  openMore(); expect(menu('담당 변경').disabled).toBe(true); expect(menu('담당 변경').textContent).toContain('C/S 관리자만');
+  first.unmount(); vi.unstubAllGlobals();
+  const closed = server('CLOSED', 5, undefined, undefined, undefined, {}, manager);
+  view(); await screen.findByText('종결', { selector: 'strong' });
+  await waitFor(() => expect(closed.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('담당 변경').textContent).toContain('종결된 문의'));
+  expect(menu('담당 변경').disabled).toBe(true);
+});
+
+test('새 담당이 활성 C/S 담당자가 아니면(422) 다시 보내지 않고 안내한다', async () => {
+  const api = server('IN_REVIEW', 5, () => jsonResponse(422, errorBody('CS_INVALID_OWNER', 'invalid')), undefined, undefined, { owner_user_id: 'u1' }, manager);
+  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('담당 변경').disabled).toBe(false));
+  fireEvent.click(menu('담당 변경'));
+  fireEvent.change(await screen.findByLabelText('새 담당'), { target: { value: 'u2' } });
+  fireEvent.click(screen.getByRole('button', { name: '변경' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/지정할 수 없는 사용자입니다/);
+  expect(api.posts).toHaveLength(1);
+});
+
+test('담당자 목록을 못 읽으면 변경을 막고 안내한다', async () => {
+  const api = server('IN_REVIEW', 5, undefined, undefined, undefined, { owner_user_id: 'u1' }, manager, jsonResponse(403, errorBody('FORBIDDEN', '금지')));
+  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('담당 변경').disabled).toBe(false));
+  fireEvent.click(menu('담당 변경'));
+  await screen.findByText('담당자 목록을 불러오지 못했습니다');
+  expect((screen.getByRole('button', { name: '변경' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(api.posts).toHaveLength(0);
 });
