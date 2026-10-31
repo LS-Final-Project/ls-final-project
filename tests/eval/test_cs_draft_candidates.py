@@ -746,6 +746,32 @@ def test_unverifiable_is_counted_without_a_rewrite():
     assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
 
 
+def test_a_rewrite_without_evidence_sentences_counts_the_first_verdict():
+    """graph reverify와 같은 뜻이다. 미검증이 아니라 첫 판정이 남는다."""
+    base = provider()
+    seen = []
+
+    def drafter(prompt):
+        seen.append(prompt)
+        result = base(prompt)
+        if len(seen) == 1:
+            return result
+        body = json.loads(result.text)
+        for option in body["options"]:
+            option["sentences"] = [
+                {"text": "합성 조건 문장", "kind": "CONDITION", "evidence_chunk_ids": []}
+            ]
+        return replace(result, text=json.dumps(body))
+
+    checker = verifier("UNSUPPORTED")
+    row = verified(checker, drafter, {"k1": CASES["k1"]})["verification"]
+    assert row["calls"] == {"verification": 1, "rewrite": 1}
+    assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
+    assert row["verdicts"]["final"] == row["verdicts"]["first"]
+    assert row["not_verified"] == {}
+    assert row["reverify_skipped"] == {"CS_NO_EVIDENCE_SENTENCES": 1}
+
+
 def test_still_failing_after_a_rewrite_stops_there():
     checker = verifier("UNSUPPORTED")
     row = verified(checker, cases={"k1": CASES["k1"]})["verification"]

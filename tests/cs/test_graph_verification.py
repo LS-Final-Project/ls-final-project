@@ -88,6 +88,28 @@ def test_rewrite_feedback_carries_only_the_unsupported_sentences():
     assert len(checks) == 2
 
 
+def test_a_rewrite_without_evidence_sentences_keeps_the_first_verdict():
+    """재작성본을 검증할 수 없어도 재작성을 부른 판정은 사람에게 남는다."""
+    drafts = []
+
+    def drafter(text):
+        drafts.append(text)
+        body = json.loads(draft_provider(text).text)
+        if len(drafts) > 1:
+            for option in body["options"]:
+                option["sentences"] = [
+                    {"text": "합성 조건 문장", "kind": "CONDITION", "evidence_chunk_ids": []}
+                ]
+        return Generation(json.dumps(body), Usage(7, 3), "fake", ["STOP"], attempts=1)
+
+    verifier, checks = verdict_provider(["UNSUPPORTED"])
+    _, _, state = invoke(verification_provider=verifier, draft_provider=drafter)
+    found = state.values["verification"]
+    assert len(checks) == 1 and len(drafts) == 2
+    assert found["status"] == "NEEDS_REVIEW" and found["reason"] == "CS_NO_EVIDENCE_SENTENCES"
+    assert {s["verdict"] for s in found["sentences"]} == {"UNSUPPORTED"}
+
+
 def test_a_draft_without_evidence_sentences_calls_no_verifier():
     def condition_only(text):
         body = json.loads(draft_provider(text).text)

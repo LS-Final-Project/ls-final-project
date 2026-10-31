@@ -115,10 +115,7 @@ def _verify_case(
     try:
         payload = build_verification_input(drafted.prediction, case.evidence)
     except ValueError as error:
-        nothing = error.args == (NO_EVIDENCE_SENTENCES,)
-        return VerificationRun(
-            skipped=NO_EVIDENCE_SENTENCES if nothing else "CS_VERIFICATION_INPUT_INVALID"
-        )
+        return VerificationRun(skipped=_input_problem(error))
     first = run_verification_attempt(payload, provider=verifier, attempt_number=1)
     failed = [
         RevisionSentence(label=s.label, sentence_index=s.sentence_index, reason=s.reason)
@@ -143,12 +140,23 @@ def _verify_case(
         return VerificationRun(first=first, rewrite=rewrite)
     try:
         again = build_verification_input(rewrite.prediction, case.evidence)
-    except ValueError:
-        return VerificationRun(
-            first=first, rewrite=rewrite, skipped="CS_VERIFICATION_INPUT_INVALID"
-        )
+    except ValueError as error:
+        return VerificationRun(first=first, rewrite=rewrite, skipped=_input_problem(error))
     second = run_verification_attempt(again, provider=verifier, attempt_number=2)
     return VerificationRun(first=first, rewrite=rewrite, second=second)
+
+
+def _input_problem(error: ValueError) -> str:
+    """검증 입력을 못 만든 사유(graph verify와 같은 이름).
+
+    Args:
+        error: build_verification_input의 오류.
+
+    Returns:
+        str: 고정 사유 코드.
+    """
+    nothing = error.args == (NO_EVIDENCE_SENTENCES,)
+    return NO_EVIDENCE_SENTENCES if nothing else "CS_VERIFICATION_INPUT_INVALID"
 
 
 def _status(attempt: VerificationAttempt | None) -> str:
@@ -218,8 +226,12 @@ def _verification_row(
             Counter(
                 r.skipped or (a.error_code or a.outcome if a else "CS_DRAFT_MISSING")
                 for r, a in ((r, r.second or r.first) for r in runs.values())
-                if r.skipped or a is None or a.prediction is None
+                if a is None or a.prediction is None
             )
+        ),
+        # 재작성본을 검증하지 못한 사례. 상태와 판정은 첫 검증 값이다(graph reverify와 같다).
+        "reverify_skipped": dict(
+            Counter(r.skipped for r in runs.values() if r.skipped and r.first)
         ),
         "rewrite": {
             "called": len(rewrites),
