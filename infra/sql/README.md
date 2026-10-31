@@ -91,7 +91,7 @@ LangGraph 체크포인터의 테이블 초기화 역시 마이그레이션 단�
 | C22 | `cs/20261105_KAN-201_worker_notifications.sql` | C4·C18(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | cs_worker의 `cs.ticket_workflows.owner_user_id` SELECT | 미확인 |
 | C23 | `cs/20261106_KAN-107_ticket_customer_tier.sql` | C1·C18(헤더) | cs_migrator | 가능(C18 재적용 뒤 다시 적용) | 열 `cs.tickets.customer_tier` | 미확인 |
 | C24 | `cs/20261107_KAN-99_search_context.sql` | C10(헤더) | cs_migrator | 가능(표 재작성, 배타 잠금) | 열 `cs.document_chunks.search_context` | 미확인 |
-| C25 | `cs/20261106_KAN-131_ticket_summaries.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_summaries') | 미적용 |
+| C25 | `cs/20261106_KAN-131_ticket_summaries.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_summaries') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |

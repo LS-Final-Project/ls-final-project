@@ -190,14 +190,19 @@ async def create_summary(
         ticket = await load(conn, principal, ticket_id)
         require_ticket_write(principal)
     payload, sha = prepared(ticket)
-    locks: dict[tuple[UUID, str], asyncio.Lock] = request.app.state.summary_locks
-    lock = locks.setdefault((ticket_id, sha), asyncio.Lock())
+    locks: dict[tuple[UUID, str], list[Any]] = request.app.state.summary_locks
+    key = (ticket_id, sha)
+    # [잠금, 쓰는 요청 수]. 마지막 요청이 나갈 때만 지운다. 잠금을 놓은 직후 깨어난 대기자가 아직 잠금을
+    # 얻지 못한 사이에 지우면, 새 요청이 다른 잠금을 만들어 모델을 함께 부르게 된다.
+    entry = locks.setdefault(key, [asyncio.Lock(), 0])
+    entry[1] += 1
     try:
-        async with lock:
+        async with entry[0]:
             return await make(request, provider, principal, ticket_id, payload, sha)
     finally:
-        if not lock.locked():
-            locks.pop((ticket_id, sha), None)
+        entry[1] -= 1
+        if entry[1] == 0:
+            locks.pop(key, None)
 
 
 async def existing_view(request: Request, ticket_id: UUID, sha: str) -> Any:
