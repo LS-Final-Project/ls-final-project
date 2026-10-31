@@ -15,10 +15,10 @@ Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
 # 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 초안·회신·개선요청 네 단계는 v2(KAN-193
-# 확정 금지 지시 추가), 검증은 v1이다. 분류 외에는 채택 전이다. 초안은 v3(KAN-200, 문서 사실만 EVIDENCE)다.
+# 확정 금지 지시 추가), 검증은 v1이다. 분류 외에는 채택 전이다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다.
 DEFAULT_VERSIONS: dict[Stage, str] = {
     "classification": "v3",
-    "draft": "v3",
+    "draft": "v4",
     "verification": "v1",
     "reply": "v2",
     "improvement_reply": "v2",
@@ -221,6 +221,16 @@ _end = (
 )
 PROMPTS["draft"]["v3"] = (
     PROMPTS["draft"]["v2"][:_end] + EVIDENCE_RULE + PROMPTS["draft"]["v2"][_end:]
+)
+# KAN-200 v4: v3 규칙이 인사 문장을 CONDITION으로 쓰라고 해 인사가 늘고 UNCONFIRMED가 77개에서 3개로
+# 줄었다(4차 측정). 인사는 쓰지 않게 하고 미확인·요청 구분을 지키게 한다. v2의 같은 자리에 한 줄만 더한다.
+EVIDENCE_RULE_V4 = (
+    "- EVIDENCE는 evidence에 있는 문서 사실만 쓴다. 문의 접수·인사·감사 문장은 쓰지 않고, 꼭 쓰면 "
+    "EVIDENCE로 달지 않는다. 아직 확인되지 않은 내용은 UNCONFIRMED로 쓴다. info_requests는 이 규칙과 "
+    "상관없이 선택지마다 빠짐없이 쓴다.\n"
+)
+PROMPTS["draft"]["v4"] = (
+    PROMPTS["draft"]["v2"][:_end] + EVIDENCE_RULE_V4 + PROMPTS["draft"]["v2"][_end:]
 )
 
 

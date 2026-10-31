@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
@@ -37,7 +37,13 @@ export default function Tickets() {
   const tickets = useTicketPages(access.ready);
   const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready && import.meta.env.DEV });
   // refetch()는 enabled를 무시하므로 개선요청은 개발 모드에서만 다시 부른다.
-  const refresh = () => { void tickets.refetch(); if (import.meta.env.DEV) void improvements.refetch(); };
+  // 조회 중에는 다시 부르지 않는다. 단추만 잠그면 다시 그려지기 전에 들어온 연타나 F8 키 반복이 요청을 겹친다.
+  const refreshing = useRef(false);
+  const refresh = () => {
+    if (refreshing.current) return;
+    refreshing.current = true;
+    void Promise.allSettled([tickets.refetch(), import.meta.env.DEV ? improvements.refetch() : undefined]).finally(() => { refreshing.current = false; });
+  };
   useHotkey('F8', refresh, access.ready);
 
   const all = useMemo(() => tickets.data?.pages.flatMap(page => page.data.items) ?? [], [tickets.data]);

@@ -11,6 +11,7 @@ from backend.engine.cs.prompt_registry import (
     CONFIRMATION_RULES,
     DEFAULT_VERSIONS,
     EVIDENCE_RULE,
+    EVIDENCE_RULE_V4,
     PROMPTS,
     get_prompt,
     list_versions,
@@ -41,6 +42,8 @@ V2_FINGERPRINTS = {
 }
 # KAN-200 v3: 초안에 문서 사실만 EVIDENCE로 쓰라는 줄 하나만 더한 판본이다.
 V3_DRAFT_FINGERPRINT = "70bf469f2450f676"
+# KAN-200 v4: v3 규칙 대신 인사를 쓰지 않고 미확인·요청 구분을 지키는 줄을 더한 판본이다.
+V4_DRAFT_FINGERPRINT = "1c35a30973e5c1b7"
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -61,7 +64,7 @@ def test_v1_fingerprints_are_pinned():
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
     assert list_versions("classification") == ("v1", "v2", "v3")
     assert list_versions("verification") == ("v1",)
-    assert list_versions("draft") == ("v1", "v2", "v3")
+    assert list_versions("draft") == ("v1", "v2", "v3", "v4")
     assert all(
         list_versions(stage) == ("v1", "v2") for stage in V2_FINGERPRINTS if stage != "draft"
     )
@@ -109,6 +112,18 @@ def test_draft_v3_adds_only_the_evidence_rule():
     assert v3[:index] + v3[index + 1 :] == v2
     assert "EVIDENCE로 쓰지 않는다" in v3[index - 1]
     assert prompt_fingerprint("draft", "v3") == V3_DRAFT_FINGERPRINT
+
+
+def test_draft_v4_adds_only_its_rule_to_v2():
+    """v4는 v3 규칙 대신 v2의 같은 자리에 한 줄만 더하고 지문을 고정한다."""
+    v2, v4 = get_prompt("draft", "v2").splitlines(), get_prompt("draft", "v4").splitlines()
+    index = v4.index(EVIDENCE_RULE_V4.rstrip("\n"))
+    assert v4[:index] + v4[index + 1 :] == v2
+    assert "EVIDENCE로 쓰지 않는다" in v4[index - 1]
+    for phrase in ("쓰지 않고", "UNCONFIRMED", "info_requests"):
+        assert phrase in EVIDENCE_RULE_V4
+    assert "CONDITION" not in EVIDENCE_RULE_V4
+    assert prompt_fingerprint("draft", "v4") == V4_DRAFT_FINGERPRINT
 
 
 def test_classification_v1_states_the_output_contract():
@@ -174,7 +189,7 @@ def test_product_defaults_are_pinned():
 
     assert DEFAULT_VERSIONS == {
         "classification": "v3",
-        "draft": "v3",
+        "draft": "v4",
         "verification": "v1",
         "reply": "v2",
         "improvement_reply": "v2",
@@ -256,8 +271,8 @@ def test_draft_attempt_records_version_and_instruction_fingerprint():
     provider = Mock(return_value=Generation(raw(), Usage(), "fake-v1", ["STOP"]))
     result = attempt(provider)
     expected = hashlib.sha256(drafting.DRAFT_PROMPT.encode()).hexdigest()[:16]
-    assert (result.prompt_version, result.instruction_fingerprint) == ("v3", expected)
-    assert expected != prompt_fingerprint("draft", "v3")
+    assert (result.prompt_version, result.instruction_fingerprint) == ("v4", expected)
+    assert expected != prompt_fingerprint("draft", "v4")
     assert provider.call_args.args[0].startswith(drafting.DRAFT_PROMPT)
     unknown = Mock()
     with pytest.raises(ValueError, match="^CS_UNKNOWN_PROMPT_VERSION$"):
