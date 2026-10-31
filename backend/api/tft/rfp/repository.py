@@ -1899,6 +1899,26 @@ async def comparison_evidence(
     return await cursor.fetchall()
 
 
+async def graded_candidates(conn: AsyncConnection[Row], requirement_id: UUID) -> list[str]:
+    """이 요구의 최신 저장 등급이 있고 제외되지 않은 후보.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+
+    Returns:
+        list[str]: 후보 코드(코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT candidate_code FROM (SELECT DISTINCT ON (candidate_code) candidate_code, grade "
+        "FROM tft.partner_grades WHERE requirement_id = %s "
+        "ORDER BY candidate_code, profile_version DESC, requirement_version DESC, version DESC) g "
+        "WHERE grade <> 'EXCLUDED' ORDER BY candidate_code",
+        (requirement_id,),
+    )
+    return [row["candidate_code"] for row in await cursor.fetchall()]
+
+
 async def excluded_candidates(
     conn: AsyncConnection[Row], requirement_id: UUID, codes: Sequence[str]
 ) -> list[str]:

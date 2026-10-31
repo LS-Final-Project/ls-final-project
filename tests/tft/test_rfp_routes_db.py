@@ -861,6 +861,35 @@ def add_grade(admin, chain, requirement, code, grade, unknown=()):
         )
 
 
+def test_insufficient_evidence_with_a_grade_can_choose_external(client, admin, chain):
+    """처리가 저장한 선택지 행이 없어도 등급으로 경로와 후보가 열린다."""
+    code = add_profile(admin)
+    requirement = chain["requirement"]
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='INSUFFICIENT_EVIDENCE' "
+            "WHERE requirement_id=%s",
+            (requirement,),
+        )
+    assert options(client, chain) == {}
+    add_grade(admin, chain, requirement, code, "EXCLUDED")
+    assert options(client, chain) == {}
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.partner_grades SET grade='REVIEW',exclusion_reasons='[]' "
+            "WHERE candidate_code=%s",
+            (code,),
+        )
+    offered = options(client, chain)
+    assert list(offered) == ["EXTERNAL_PRODUCT"]
+    assert offered["EXTERNAL_PRODUCT"]["candidate_codes"] == [code]
+    chosen = choose(client, chain, "EXTERNAL_PRODUCT", candidate_codes=[code])
+    assert chosen.status_code == 200, chosen.text
+    with psycopg.connect(admin) as conn:
+        conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+        conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
+
+
 def add_profile(admin):
     """합성 협력사 프로필 하나를 더한다.
 

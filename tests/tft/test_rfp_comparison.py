@@ -451,6 +451,37 @@ def test_core_equipment_missing_from_the_data_goes_to_joint_proposal_or_hold():
     assert plain.deficiency_cause is None and options_for(plain, "ALLOWED").options == []
 
 
+def test_insufficient_evidence_offers_external_only_with_a_graded_candidate():
+    """근거 부족에도 후보가 있으면 외부 조달을 비교한다. 없으면 다음 행동뿐이다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    outcome = compare(Requirement(clause_no="2.6.E", item="차단기", attribute="bil"), [], trace)
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
+    assert options_for(outcome, "ALLOWED").options == []
+    [option] = options_for(outcome, "UNSTATED", partner_graded=True).options
+    assert (option.path, option.allowed) == ("EXTERNAL_PRODUCT", True)
+    assert option.gate.requires == "OWN_DEVELOPMENT_CHECK"
+    assert any("허용 여부" in text for text in option.conditions_to_confirm)
+    forbidden = options_for(outcome, "FORBIDDEN", partner_graded=True).options[0]
+    assert not forbidden.allowed
+    feasible = options_for(
+        outcome, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE", partner_graded=True
+    ).options[0]
+    assert (feasible.allowed, feasible.blocked_reason) == (False, "OWN_DEVELOPMENT_FEASIBLE")
+    # 지정품·계약 조건·과업 규칙은 후보가 있어도 그대로다.
+    named = options_for(outcome, "ALLOWED", designated=True, partner_graded=True)
+    assert {o.path for o in named.options if o.allowed} == {
+        "CUSTOMER_SPECIFIED_PROCUREMENT",
+        "ALTERNATIVE_SPEC",
+    }
+    commercial = outcome.model_copy(update={"deficiency_cause": "COMMERCIAL"})
+    assert options_for(commercial, "ALLOWED", partner_graded=True).options == []
+    task = outcome.model_copy(update={"deficiency_cause": "TASK"})
+    assert [o.path for o in options_for(task, "ALLOWED", partner_graded=True).options] == [
+        "OWN_DEVELOPMENT",
+        "TASK_SUBCONTRACT",
+    ]
+
+
 def designated_outcome():
     """대체 불가 지정 요구의 판정. 시연 A의 설계 기준(참고 기준)과 다르다."""
     wanted = Requirement(clause_no="2.5.A", item="계전기", designated_model="Model X")

@@ -60,6 +60,7 @@ async def options_of(
     rows = await repository.stored_options(conn, requirement_id, requirement["version"])
     first = rows[0] if rows else None
     state, _ = await repository.rnd_check(conn, requirement_id)
+    graded = await repository.graded_candidates(conn, requirement_id)
     computed = supplement.options_for(
         # 규칙은 판단 상태와 부족 원인만 본다.
         Outcome.model_construct(
@@ -72,8 +73,11 @@ async def options_of(
         designated=requirement["designated_model"] is not None,
         rnd_check=state,
         approval_question=await repository.has_customer_question(conn, requirement_id),
+        partner_graded=bool(graded),
     )
     candidates = {row["path"]: list(row["candidate_codes"]) for row in rows}
+    # 처리는 등급보다 먼저 선택지를 저장하므로 외부 조달 후보는 등급에서 읽는다.
+    candidates["EXTERNAL_PRODUCT"] = candidates.get("EXTERNAL_PRODUCT") or graded
     out = s.SupplementOptions(
         version=requirement["version"],
         data_origin=requirement["data_origin"],
