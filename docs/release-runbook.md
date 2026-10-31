@@ -1,7 +1,8 @@
 # 배포 확인과 되돌리기 런북 (KAN-157)
 
 시연 환경을 배포한 뒤 확인할 것, 문제가 생겼을 때 이전 리비전으로 되돌리는 법, DB 백업 복구 훈련 순서를 적는다.
-순서대로 따라 하고 결과를 KAN-157(배포 묶음이면 KAN-159)에 남긴다.
+순서대로 따라 하고 결과를 KAN-157(배포 묶음이면 KAN-159)에 남긴다. 11/3 배포의 전체 순서(마이그레이션·worker·설정)는
+[배포 승인 점검표](release-approval.md)에 있다.
 
 - 대상: 교육장 프로젝트 `proj-skkuls0106-183255377938`, 계정 `skkuls0106@skkukdp.re.kr`, 서울 `asia-northeast3`
 - 서비스: Cloud Run `team4-web`, `team4-platform`, `team4-cs`, `team4-tft`. worker는 Cloud Run Jobs(`infra/deploy_workers.py`).
@@ -13,7 +14,7 @@
 
 ```bash
 P=proj-skkuls0106-183255377938; A=skkuls0106@skkukdp.re.kr; R=asia-northeast3
-G="--project=$P --account=$A --region=$R"
+G=(--project=$P --account=$A --region=$R)   # 배열이라야 zsh(Mac 기본)와 bash 모두 인자로 나뉜다
 ```
 
 ## 1. 배포 전: 이전 앱 호환 확인
@@ -28,7 +29,7 @@ SQL도 없다. 그래서 **새 마이그레이션을 적용한 DB에서 지금 �
 
   ```bash
   for s in web platform cs tft; do
-    gcloud run services describe team4-$s $G --format="value(metadata.name,metadata.labels.commit-sha)"
+    gcloud run services describe team4-$s "${G[@]}" --format="value(metadata.name,metadata.labels.commit-sha)"
   done
   git rev-parse origin/main
   ```
@@ -84,8 +85,8 @@ main CD는 같은 커밋의 Application checks 성공을 기다린 뒤 빌드한
 
    ```bash
    s=cs
-   gcloud run services describe team4-$s $G --format="yaml(status.traffic,metadata.labels.commit-sha)"
-   gcloud run revisions describe <100%인 리비전> $G --format="yaml(spec.containers[0].image,status.imageDigest)"
+   gcloud run services describe team4-$s "${G[@]}" --format="yaml(status.traffic,metadata.labels.commit-sha)"
+   gcloud run revisions describe <100%인 리비전> "${G[@]}" --format="yaml(spec.containers[0].image,status.imageDigest)"
    ```
 
 2. 그 리비전을 만든 이미지 빌드의 결과 digest. CD는 두 단계다.
@@ -95,9 +96,9 @@ main CD는 같은 커밋의 Application checks 성공을 기다린 뒤 빌드한
    그래서 배포 빌드에서 `_BUILD_ID`를 꺼내 그 빌드를 본다.
 
    ```bash
-   gcloud builds list $G --filter="tags=team4-cd" --limit=8 \
+   gcloud builds list "${G[@]}" --filter="tags=team4-cd" --limit=8 \
      --format="table(id,status,substitutions._SERVICE,substitutions._BUILD_ID,substitutions.COMMIT_SHA,createTime)"
-   gcloud builds describe <_BUILD_ID> $G --format="yaml(status,substitutions.COMMIT_SHA,results.images)"
+   gcloud builds describe <_BUILD_ID> "${G[@]}" --format="yaml(status,substitutions.COMMIT_SHA,results.images)"
    ```
 
 3. GitHub Actions에서 그 커밋의 Application checks가 성공했는지
@@ -114,8 +115,8 @@ python3 infra/deploy_private.py BUILD_ID --service cs          # 명령만 출�
 # 출력된 gcloud run deploy 명령 끝에 --no-traffic --tag=candidate를 붙여 실행한다 [변경]
 curl -fsS -H "Authorization: Bearer $(gcloud auth print-identity-token --account=$A)" \
   https://candidate---team4-cs-gew6ci4pgq-du.a.run.app/api/v1/cs/ready
-gcloud run services update-traffic team4-cs $G --to-tags=candidate=100   # [변경]
-gcloud run services update-traffic team4-cs $G --to-latest                # [변경] 최신 리비전 자동 배분을 다시 켠다
+gcloud run services update-traffic team4-cs "${G[@]}" --to-tags=candidate=100   # [변경]
+gcloud run services update-traffic team4-cs "${G[@]}" --to-latest                # [변경] 최신 리비전 자동 배분을 다시 켠다
 ```
 
 ## 3. 시연 준비 확인
@@ -128,16 +129,17 @@ gcloud run services update-traffic team4-cs $G --to-latest                # [변
 ```bash
 for s in web platform cs tft; do
   echo team4-$s
-  gcloud run services describe team4-$s $G --format="yaml(spec.template.metadata.annotations)" \
-    | grep -E "minScale|maxScale"
+  gcloud run services describe team4-$s "${G[@]}" --format="yaml(metadata.annotations)" \
+    | grep -E "run.googleapis.com/(min|max)Scale"
 done
 ```
 
-`autoscaling.knative.dev/minScale`이 1, `maxScale`이 2여야 한다. 인스턴스 1개가 계속 떠 있으므로 시연이 없는 기간에도
+서비스 단위 `run.googleapis.com/minScale`이 1, `run.googleapis.com/maxScale`이 2여야 한다. `--min`·`--max`는 리비전이
+아니라 서비스에 걸리므로 리비전 템플릿의 `autoscaling.knative.dev/maxScale`(기본 100)은 보지 않는다. 인스턴스 1개가 계속 떠 있으므로 시연이 없는 기간에도
 요금이 나간다. 시연 기간이 끝난 뒤 줄일지는 배포 담당이 정한다.
 
 ```bash
-gcloud run services update team4-cs $G --min=0   # [변경] 시연 기간이 끝난 뒤에만
+gcloud run services update team4-cs "${G[@]}" --min=0   # [변경] 시연 기간이 끝난 뒤에만
 ```
 
 ## 4. 운영에서 개발 모드 차단 확인
@@ -156,7 +158,7 @@ gcloud run services update team4-cs $G --min=0   # [변경] 시연 기간이 끝
 ```bash
 for s in platform cs tft; do
   echo team4-$s
-  gcloud run services describe team4-$s $G --format="yaml(spec.template.spec.containers[0].env)" \
+  gcloud run services describe team4-$s "${G[@]}" --format="yaml(spec.template.spec.containers[0].env)" \
     | grep -A1 -E "name: (ENVIRONMENT|DEV_AUTH_ENABLED)$"
 done
 # 개발 계정 목록 API가 404인지(플랫폼은 IAM 인증 요청)
@@ -177,10 +179,10 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ```bash
 s=cs
-gcloud run revisions list --service=team4-$s $G --limit=5 \
+gcloud run revisions list --service=team4-$s "${G[@]}" --limit=5 \
   --format="table(metadata.name,metadata.creationTimestamp,metadata.labels.commit-sha,status.conditions[0].type,status.conditions[0].status)"
-gcloud run services update-traffic team4-$s $G --to-revisions=<직전 리비전>=100   # [변경]
-gcloud run services describe team4-$s $G --format="yaml(status.traffic)"
+gcloud run services update-traffic team4-$s "${G[@]}" --to-revisions=<직전 리비전>=100   # [변경]
+gcloud run services describe team4-$s "${G[@]}" --format="yaml(status.traffic)"
 ```
 
 `--to-revisions`로 고정하면 "최신 리비전 자동 배분"이 꺼진다. 이 상태에서 CD가 새 리비전을 만들면 트래픽은 0%로 남는다.
@@ -188,7 +190,7 @@ CD는 서비스의 `commit-sha` 라벨만 보고 배포가 끝났다고 판단�
 반드시 아래로 자동 배분을 다시 켜고, 2번 확인을 다시 한다.
 
 ```bash
-gcloud run services update-traffic team4-$s $G --to-latest   # [변경] 고친 리비전이 배포된 뒤에만
+gcloud run services update-traffic team4-$s "${G[@]}" --to-latest   # [변경] 고친 리비전이 배포된 뒤에만
 ```
 
 - 되돌린 뒤 확인할 것:
