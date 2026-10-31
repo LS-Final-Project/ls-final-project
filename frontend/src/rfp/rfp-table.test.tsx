@@ -361,6 +361,8 @@ describe('변경 제안', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
     const field = screen.getByLabelText('미확인') as HTMLInputElement;
     await waitFor(() => expect(field.value).toBe('A, B'));
+    // 폼 안의 다시 불러오기는 읽기만 한다. 제안을 다시 보내면 안 된다.
+    expect(posts('/proposals')).toHaveLength(1);
     write = () => ok(MOCK_DETAIL);
     fireEvent.click(screen.getByRole('button', { name: '제안 저장' }));
     await waitFor(() => expect(posts('/proposals')).toHaveLength(2));

@@ -73,3 +73,6 @@ export const PROVENANCE_LABEL: Record<string, string> = { ai_draft: 'AI 작성',
 // 속성은 어휘에 있으면 한글, 없으면(OTHER·null) 원문 그대로다.
 export const attributeName = (key: string | null | undefined, text: string | null | undefined) =>
   key && ATTRIBUTE_LABEL[key] ? ATTRIBUTE_LABEL[key] : text ?? '';
+export const INTEGRATION_HOLDER_LABEL: Record<string, string> = {
+  UNRESOLVED: '미확보', OWN: '자사 통합', SINGLE_PARTNER: '단일 협력사', JOINT: '공동 제안', HOLD: '참여 보류 검토',
+};

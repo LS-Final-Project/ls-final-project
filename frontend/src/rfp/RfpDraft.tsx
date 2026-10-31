@@ -216,6 +216,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <KvBox title="검토본 저장 조건">
       <dl className="draft-checks">
         <div><dt>필수 요구, 상태와 근거 또는 다음 행동</dt><dd>{project.data?.unresolved_mandatory_count === undefined ? '서버 확인' : `미해결 ${project.data.unresolved_mandatory_count}`}</dd></div>
+        {project.data?.integration_responsibility?.required && project.data.integration_responsibility.holder === 'UNRESOLVED' && <div><dt>통합 책임</dt><dd className="draft-attention">미확보, <Link to={`/tft/projects/${projectId}/supplement`}>보완 화면에서 지정</Link></dd></div>}
         <div><dt>근거 없는 문장</dt><dd className={data?.evidence_missing_count ? 'draft-attention' : ''}>{data ? `${data.evidence_missing_count}문장` : '조회 전'}</dd></div>
         <div><dt>재검토 필요 문장</dt><dd className={needsReview ? 'draft-attention' : ''}>{needsReview === undefined ? '조회 전' : `${needsReview}문장`}</dd></div>
         <div><dt>초안 판본</dt><dd>{data ? `${data.version} · ${formatDateTime(data.known_at)}` : '조회 전'}</dd></div>
