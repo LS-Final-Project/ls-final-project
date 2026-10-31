@@ -134,7 +134,8 @@ async def claim_next(
         tft: RFP 접수 설정(없으면 rfp.* 행은 집지 않고 PENDING으로 둔다).
 
     Returns:
-        DispatchLease | None: 새 전송 소유권. 만료된 SENDING은 UNKNOWN으로 보류한다.
+        DispatchLease | None: 새 전송 소유권. 만료된 SENDING은 UNKNOWN으로 보류하고, 재시도 간격이
+            지난 C/S·RFP의 UNKNOWN은 시도 한도 안에서 다시 보낸다.
     """
     kinds = require_local(settings, access, dispatch, cs, tft)
     async with connection(settings) as conn, conn.transaction():
@@ -142,6 +143,10 @@ async def claim_next(
             "SELECT o.*,j.business_id,j.kind FROM runtime.dispatch_outbox o "
             "JOIN runtime.jobs j ON j.id=o.job_id "
             "WHERE ((o.state IN ('PENDING','REJECTED') AND o.next_attempt_at<=clock_timestamp()) "
+            # worker 인수가 작업당 한 번만 되므로 C/S·RFP의 결과 불명은 다시 보내도 안전하다.
+            # 평가는 운영자가 대조한다.
+            "OR (o.state='UNKNOWN' AND j.kind<>'evaluation.run' "
+            "AND o.next_attempt_at<=clock_timestamp()) "
             "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp())) "
             "AND j.kind = ANY(%s) "
             "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED",
@@ -151,7 +156,7 @@ async def claim_next(
         if row is None:
             return None
         if row["state"] == "SENDING":
-            await finish(conn, row, "UNKNOWN")
+            await finish(conn, row, "UNKNOWN", dispatch.retry_delay_seconds)
             return None
         if row["state"] == "CLAIMED":
             await conn.execute(
@@ -367,6 +372,6 @@ async def record_result(
             conn,
             row,
             result,
-            dispatch.retry_delay_seconds if result == "REJECTED" else 0,
+            dispatch.retry_delay_seconds if result in {"REJECTED", "UNKNOWN"} else 0,
             operation_name,
         )

@@ -8,11 +8,11 @@ from psycopg import AsyncConnection
 
 from backend.api.tft.projects.access import can_edit_project
 from backend.api.tft.projects.repository import integration_state
-from backend.api.tft.projects.routes import integration_body
 from backend.api.tft.rfp import commands, draft_exports, drafts, jobs, repository, storage
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.counts import count_unresolved_mandatory, is_unresolved_mandatory
+from backend.api.tft.rfp.integration import integration_body
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.shared.access import Principal
 from backend.shared.database import connection

@@ -17,7 +17,7 @@ export default function ProjectDetail() {
   const data = project.isSuccess ? project.data.data : undefined;
   return <main>
     <header><p className="eyebrow"><Link to="/tft/projects">TFT 프로젝트 목록</Link></p><h1>{data ? data.name : '프로젝트 현황'}</h1></header>
-    <button disabled={project.isFetching} onClick={()=>project.refetch()}>최신 상태 조회</button>
+    <button disabled={project.isFetching} onClick={()=>project.refetch()}>최신 상태 조회</button> <Link to="table">자사 대응표</Link>
     {project.isPending && <Loading />}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {data && <>

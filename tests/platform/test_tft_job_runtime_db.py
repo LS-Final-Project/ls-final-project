@@ -27,8 +27,9 @@ from backend.api.platform.jobs.dispatch import (
 )
 from backend.api.platform.jobs.events import EventPayload
 from backend.api.platform.jobs.sweep import JobsSweepSettings, configure_jobs_sweep
-from backend.api.platform.jobs.tft import TftJobSettings
+from backend.api.platform.jobs.tft import TftJobRequest, TftJobSettings, admit_tft_job
 from backend.api.platform.main import create_app
+from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from tests.platform.test_cs_job_runtime_db import add_user, cs_settings, outbox, session_client
 
@@ -223,6 +224,188 @@ def test_admission_sends_at_once_and_survives_a_failed_send(settings, monkeypatc
     app.state.jobs_sweep_caller = object()
     asyncio.run(sweep_module.dispatch_soon(app))
     assert calls == [1]
+
+
+def sweep_app(settings, handler):
+    """전송 트리거를 켠 앱(합성 Jobs API).
+
+    Args:
+        settings: DB 설정.
+        handler: Jobs API 응답.
+
+    Returns:
+        FastAPI: 앱.
+    """
+
+    class Caller:
+        def verify(self, token):
+            assert token == "scheduler-token"
+
+    async def token():
+        return "synthetic-access-token"
+
+    app = create_app(settings, tft_job_settings=tft_settings())
+    configure_jobs_sweep(
+        app,
+        JobsSweepSettings(
+            _env_file=None,
+            enabled=True,
+            service_url="https://platform.example.run.app",
+            invoker_email="jobs-dispatch-invoker@proj-test.iam.gserviceaccount.com",
+        ),
+        caller=Caller(),
+        token=token,
+        jobs=JOBS,
+        transport=httpx.MockTransport(handler),
+    )
+    return app
+
+
+def run_sweep(app):
+    response = TestClient(app).post(
+        "/internal/v1/platform/jobs/dispatch", headers={"Authorization": "Bearer scheduler-token"}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["data"]
+
+
+def job_state(database, job_id):
+    with psycopg.connect(database) as conn:
+        return conn.execute(
+            "SELECT j.status,c.failure_code,c.holder_id,"
+            "(SELECT array_agg(type ORDER BY sequence) FROM runtime.job_events WHERE job_id=j.id) "
+            "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id WHERE j.id=%s",
+            (job_id,),
+        ).fetchone()
+
+
+def age_events(database, job_id):
+    """작업 이벤트를 오래전 일로 만든다."""
+    with psycopg.connect(database) as conn:
+        conn.execute(
+            "UPDATE runtime.job_events SET occurred_at=now()-interval '1 hour' WHERE job_id=%s",
+            (job_id,),
+        )
+
+
+def test_unknown_rfp_send_is_retried_after_the_delay(settings, jobs_database, tft_job, monkeypatch):
+    """결과 불명은 재시도 간격 전에는 보내지 않고, 지나면 같은 작업을 다시 보낸다."""
+    monkeypatch.setenv("EVALUATION_DISPATCH_ENABLED", "true")
+    monkeypatch.setenv("TFT_WORKER_JOBS_ENABLED", "true")
+    operation = f"projects/123456789012/locations/{JOBS.region}/operations/synthetic-op"
+    answers = [httpx.Response(503, json={}), httpx.Response(200, json={"name": operation})]
+    posts = []
+
+    def handler(request):
+        posts.append(json.loads(request.content))
+        return answers.pop(0)
+
+    app = sweep_app(settings, handler)
+    assert run_sweep(app)["sent"] == 1
+    assert outbox(jobs_database, tft_job) == "UNKNOWN"
+    assert run_sweep(app)["sent"] == 0 and len(posts) == 1
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.dispatch_outbox SET next_attempt_at=now() WHERE job_id=%s", (tft_job,)
+        )
+    assert run_sweep(app)["sent"] == 1
+    assert outbox(jobs_database, tft_job) == "ACCEPTED"
+    assert posts[0] == posts[1]
+
+
+def test_unknown_retries_stop_at_the_attempt_limit(settings, jobs_database, tft_job, monkeypatch):
+    """결과 불명도 시도 한도를 넘지 않는다."""
+    monkeypatch.setenv("EVALUATION_DISPATCH_ENABLED", "true")
+    monkeypatch.setenv("TFT_WORKER_JOBS_ENABLED", "true")
+    posts = []
+
+    def handler(request):
+        posts.append(request)
+        return httpx.Response(503, json={})
+
+    app = sweep_app(settings, handler)
+    for _ in range(DISPATCH.max_attempts + 1):
+        run_sweep(app)
+        with psycopg.connect(jobs_database) as conn:
+            conn.execute(
+                "UPDATE runtime.dispatch_outbox SET next_attempt_at=now() WHERE job_id=%s",
+                (tft_job,),
+            )
+    assert len(posts) == DISPATCH.max_attempts
+    assert outbox(jobs_database, tft_job) == "EXHAUSTED"
+
+
+def test_stale_job_is_closed_and_the_project_accepts_again(
+    settings, jobs_database, tft_job, monkeypatch
+):
+    """전송이 소진돼 시작 못 한 작업은 실패로 닫히고, 그 프로젝트의 다음 접수가 열린다."""
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.dispatch_outbox SET state='EXHAUSTED' WHERE job_id=%s", (tft_job,)
+        )
+        subject, actor = conn.execute(
+            "SELECT subject_id,actor_id FROM runtime.jobs WHERE id=%s", (tft_job,)
+        ).fetchone()
+    app = sweep_app(settings, lambda _: httpx.Response(200, json={}))
+    assert run_sweep(app)["reaped"] == 0
+    assert job_state(jobs_database, tft_job)[0] == "QUEUED"
+    age_events(jobs_database, tft_job)
+    assert run_sweep(app)["reaped"] == 1
+    assert job_state(jobs_database, tft_job) == (
+        "FAILED",
+        "JOB_NOT_STARTED",
+        None,
+        ["job.queued", "job.failed"],
+    )
+    assert run_sweep(app)["reaped"] == 0
+
+    async def admit_again():
+        async with connection(settings) as conn, conn.transaction():
+            return await admit_tft_job(
+                conn,
+                TftJobRequest(
+                    kind="rfp.process",
+                    project_id=subject,
+                    input_version="b" * 64,
+                    actor_id=actor,
+                    idempotency_key=uuid4().hex,
+                    request_hash="c" * 64,
+                ),
+            )
+
+    again = asyncio.run(admit_again())
+    with psycopg.connect(jobs_database) as conn:
+        for table in ("job_control", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (again.job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (again.job_id,))
+    assert again.created is True
+
+
+def test_reaper_leaves_live_workers_and_closed_owners_alone(
+    settings, jobs_database, tft_job, monkeypatch
+):
+    """살아 있는 lease가 있거나 그 owner 게이트가 닫혔으면 오래돼도 닫지 않는다."""
+    age_events(jobs_database, tft_job)
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.job_control SET holder_id=gen_random_uuid(),"
+            "lease_expires_at=now()+interval '1 minute' WHERE job_id=%s",
+            (tft_job,),
+        )
+    app = sweep_app(settings, lambda _: httpx.Response(200, json={}))
+    assert run_sweep(app)["reaped"] == 0
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.job_control SET lease_expires_at=now()-interval '1 minute' "
+            "WHERE job_id=%s",
+            (tft_job,),
+        )
+    app.state.tft_jobs = tft_settings(connected=False)
+    assert run_sweep(app)["reaped"] == 0
+    assert job_state(jobs_database, tft_job)[0] == "QUEUED"
+    app.state.tft_jobs = tft_settings()
+    assert run_sweep(app)["reaped"] == 1
+    assert job_state(jobs_database, tft_job)[2] is None
 
 
 def test_cs_dispatch_leaves_rfp_rows_pending(settings, jobs_database, cs_job, tft_job):

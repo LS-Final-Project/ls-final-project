@@ -3,6 +3,9 @@
 Cloud Scheduler가 `POST /internal/v1/platform/jobs/dispatch`를 주기적으로 부르고, 접수 직후에도 한 건을 먼저
 보낸다(시작 지연을 줄인다). 접수 직후 전송은 실패해도 접수를 실패시키지 않고 다음 주기가 맡는다.
 평가 작업은 이 경로로도 local/test 밖에서 전송되지 않는다(admission_available).
+
+주기마다 시작하지 못한 C/S·RFP 작업을 실패로 닫는다. 전송이 끝내 안 되거나 Job이 뜨지 못하거나 worker가
+죽으면 작업이 QUEUED·RUNNING에 남아 그 프로젝트의 다음 접수가 계속 409가 되기 때문이다.
 """
 
 import asyncio
@@ -10,7 +13,8 @@ import logging
 from typing import Any, Self
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from pydantic import BaseModel, SecretStr, model_validator
+from psycopg.types.json import Jsonb
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.platform.jobs.cloud_run import (
@@ -19,9 +23,10 @@ from backend.api.platform.jobs.cloud_run import (
     TftWorkerJobSettings,
     dispatch_one,
 )
-from backend.api.platform.jobs.dispatch import DispatchSettings
+from backend.api.platform.jobs.dispatch import DispatchSettings, gate_open
 from backend.api.platform.jobs.tft import SERVICE_ACCOUNT
 from backend.api.platform.mail.storage import GoogleAccessToken
+from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ResponseMeta, SuccessResponse
 from backend.shared.service_auth import PlatformCaller
@@ -45,6 +50,9 @@ class JobsSweepSettings(BaseSettings):
     service_url: str = ""
     # Scheduler가 ID 토큰을 받는 호출 전용 서비스 계정.
     invoker_email: str = ""
+    # 살아 있는 lease 없이 이 시간 동안 이벤트가 없으면 작업을 실패로 닫는다. 전송 재시도(3회×30초)와
+    # Job 시작 시간보다 길어야 한다.
+    stale_seconds: int = Field(default=900, ge=300, le=86400)
 
     @model_validator(mode="after")
     def validate_enabled(self) -> Self:
@@ -64,6 +72,7 @@ class JobsSweepSettings(BaseSettings):
 
 class SweepData(BaseModel):
     sent: int
+    reaped: int
 
 
 def auth_unavailable() -> ApplicationError:
@@ -87,6 +96,7 @@ def configure_jobs_sweep(app: FastAPI, value: JobsSweepSettings, **overrides: An
         None.
     """
     app.state.jobs_sweep_caller = None
+    app.state.jobs_sweep = value
     app.state.jobs_dispatch_soon = dispatch_soon
     app.state.jobs_sweep_transport = overrides.get("transport")
     if not value.enabled:
@@ -104,6 +114,49 @@ def configure_jobs_sweep(app: FastAPI, value: JobsSweepSettings, **overrides: An
     app.state.jobs_sweep_token = token
     # 잘못된 설정은 요청 때가 아니라 시작할 때 드러낸다.
     app.state.jobs_sweep_jobs = overrides.get("jobs") or CloudRunJobsSettings()
+
+
+async def reap_stale(app: FastAPI) -> int:
+    """시작하지 못한 C/S·RFP 작업을 FAILED로 닫아 다음 접수를 연다.
+
+    늦게 뜬 worker는 작업이 끝난 상태라 인수하지 못한다(job_runtime.claim). 살아 있는 lease가 있으면 건드리지
+    않는다. 전송 장부는 그대로 두며, 남은 전송은 begin_send가 BLOCKED로 막는다.
+
+    Args:
+        app: 설정을 가진 플랫폼 앱.
+
+    Returns:
+        int: 닫은 작업 수. 게이트가 열린 owner만 본다.
+    """
+    gates = {"cs": app.state.cs_jobs, "tft": app.state.tft_jobs}
+    owners = [owner for owner, gate in gates.items() if gate_open(gate)]
+    if not owners:
+        return 0
+    async with connection(app.state.settings) as conn, conn.transaction():
+        cursor = await conn.execute(
+            "SELECT j.id FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
+            "WHERE j.owner=ANY(%s) AND j.status IN ('QUEUED','RUNNING') "
+            "AND coalesce(c.lease_expires_at<=clock_timestamp(),true) "
+            "AND (SELECT max(e.occurred_at) FROM runtime.job_events e WHERE e.job_id=j.id) "
+            "<clock_timestamp()-make_interval(secs=>%s) "
+            "ORDER BY j.created_at LIMIT %s FOR UPDATE OF j,c SKIP LOCKED",
+            (owners, app.state.jobs_sweep.stale_seconds, BATCH),
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            await conn.execute(
+                "UPDATE runtime.job_control SET holder_id=NULL,lease_expires_at=NULL,"
+                "version=version+1,failure_code='JOB_NOT_STARTED' WHERE job_id=%s",
+                (row["id"],),
+            )
+            await conn.execute("UPDATE runtime.jobs SET status='FAILED' WHERE id=%s", (row["id"],))
+            await conn.execute(
+                "INSERT INTO runtime.job_events(job_id,sequence,type,payload) VALUES "
+                "(%s,(SELECT max(sequence)+1 FROM runtime.job_events WHERE job_id=%s),"
+                "'job.failed',%s)",
+                (row["id"], row["id"], Jsonb({"state": "FAILED"})),
+            )
+    return len(rows)
 
 
 async def sweep(app: FastAPI, limit: int) -> int:
@@ -192,5 +245,6 @@ async def dispatch(request: Request) -> SuccessResponse[SweepData]:
     Returns:
         SuccessResponse[SweepData]: 전송을 시도한 건수.
     """
-    data = SweepData(sent=await sweep(request.app, BATCH))
+    reaped = await reap_stale(request.app)
+    data = SweepData(sent=await sweep(request.app, BATCH), reaped=reaped)
     return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))

@@ -6,7 +6,8 @@ import { me } from '../api/platform';
 import logo from './ls-logo.svg';
 import './ls-shell.css';
 
-type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean };
+// inProject: 프로젝트를 연 뒤에만 가는 화면. 경로 뒷부분을 적는다.
+type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean; inProject?: string };
 type Group = { key: string; label: string; leaves: Leaf[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
@@ -24,7 +25,10 @@ const MENU: Group[] = [
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
-      { label: '프로젝트 목록', to: '/tft/projects' },
+      { label: '접수 및 요구 검토', to: '/tft/projects', end: true },
+      { label: '자사 대응표', inProject: 'table' },
+      { label: '보완 및 협력사 비교', inProject: 'supplement' },
+      { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
   { key: 'mail', label: '메일', leaves: [] },
@@ -37,8 +41,9 @@ function tabName(pathname: string) {
   if (pathname === '/cs' || pathname === '/tft') return '업무 홈';
   if (pathname === '/cs/tickets') return '문의 조회';
   if (pathname.startsWith('/cs/tickets/')) return '문의 처리';
-  if (pathname === '/tft/projects') return '프로젝트 목록';
-  if (pathname.startsWith('/tft/projects/')) return '프로젝트';
+  if (/^\/tft\/projects\/[^/]+\/draft$/.test(pathname)) return '초안 및 검토 이력';
+  if (pathname.endsWith('/table') || pathname.endsWith('/table/approvals')) return '자사 대응표';
+  if (pathname.startsWith('/tft/projects')) return '접수 및 요구 검토';
   return 'C/S 관리';
 }
 
@@ -50,7 +55,6 @@ const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-h
 export default function LsShell() {
   const { pathname } = useLocation();
   const tab = pathname.endsWith('/supplement') ? '보완 및 협력사 비교' : tabName(pathname);
-  const projectPath = pathname.match(/^\/tft\/projects\/[0-9a-f-]{36}(?=\/|$)/i)?.[0];
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
@@ -61,8 +65,12 @@ export default function LsShell() {
   const identity = user.data?.data;
   // 기존 Layout과 같은 조건이다. 업무 UI가 꺼졌거나 미로그인이면 경로를 열지 않는다.
   const linked = import.meta.env.DEV || (businessUiEnabled && user.isSuccess && !!user.data);
+  const project = /^\/tft\/projects\/([^/]+)/.exec(pathname)?.[1];
   const menu = MENU.map(group => ({
-    ...group, leaves: [...group.leaves.filter(leaf => !leaf.devOnly || import.meta.env.DEV), ...(group.key === 'rfp' && projectPath ? [{ label: '보완 및 협력사 비교', to: `${projectPath}/supplement` }] : [])],
+    ...group,
+    leaves: group.leaves
+      .filter(leaf => !leaf.devOnly || import.meta.env.DEV)
+      .map(leaf => leaf.inProject && project ? { ...leaf, to: `/tft/projects/${project}/${leaf.inProject}` } : leaf),
   }));
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';
@@ -83,7 +91,7 @@ export default function LsShell() {
               {expanded && <ul>{group.leaves.map(leaf => <li key={leaf.label}>
                 {leaf.to && linked
                   ? <NavLink to={leaf.to} end={leaf.end} className={() => undefined}>{leaf.label}</NavLink>
-                  : <a aria-disabled="true" title={leaf.to ? '로그인 후 사용할 수 있습니다' : '준비 중'} tabIndex={-1}>{leaf.label}</a>}
+                  : <a aria-disabled="true" title={leaf.to ? '로그인 후 사용할 수 있습니다' : leaf.inProject ? '프로젝트를 먼저 여세요' : '준비 중'} tabIndex={-1}>{leaf.label}</a>}
               </li>)}</ul>}
             </li>;
           })}

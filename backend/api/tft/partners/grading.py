@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 from backend.engine.rfp.vocabulary import (
     CANONICAL_FORMS,
+    OTHER,
     is_canonical,
     is_placeholder,
     read_canonical,
@@ -28,6 +29,9 @@ Check = tuple[str, Verdict, str]
 # EXCLUDED를 뺀 등급의 낮은 순서. 후보 요약은 요구별 등급 중 가장 낮은 단계다.
 RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
+# 같은 장비를 서로 다른 제품군으로 규정해 한쪽 등록이 다른 쪽 미충족을 뜻하는 규격 쌍(_norm 표기).
+# UL 891은 배전반(Switchboard), UL 1558은 저압 차단기 배전반(Switchgear)이다.
+RIVAL_STANDARDS = (frozenset({"ul 891", "ul 1558"}),)
 # 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
 MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
@@ -351,6 +355,20 @@ def _tap(canonical: str) -> tuple[int, int, Decimal]:
     return int(both or up), int(both or down), Decimal(step)
 
 
+def _plain_value(attribute: str, value: str) -> str:
+    """문자열 비교용 값. 등급 속성은 'Class F'의 머리말을 뺀다(요구와 사양의 표기가 다르다).
+
+    Args:
+        attribute: 속성 어휘.
+        value: 값.
+
+    Returns:
+        str: 정규화한 값.
+    """
+    text = _norm(value)
+    return text.removeprefix("class ").strip() if attribute.endswith("_class") else text
+
+
 def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, str]:
     """같은 속성의 후보 값 하나를 요구와 비교한다.
 
@@ -385,7 +403,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
             return ("passed", "충족") if met else ("failed", "미달")
         if requirement.operator != "EQ":
             return "unknown", "값을 숫자로 읽을 수 없어 확인 필요"
-    if _norm(requirement.value) == _norm(fact.value):
+    attribute = requirement.attribute
+    if _plain_value(attribute, requirement.value) == _plain_value(attribute, fact.value):
         return "passed", "충족"
     if requirement.attribute == "form":
         return "failed", "형식 다름"
@@ -470,12 +489,16 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> Converted |
     return Converted(converted, note, given < wanted)
 
 
-def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
+def _condition_gaps(requirement: Requirement, fact: SpecFact, verdict: Verdict) -> list[str]:
     """요구 조건과 후보 근거 조건의 차이를 찾는다.
+
+    어휘 밖 조건(OTHER)은 값이 아니라 문구라 근거와 맞춰 볼 수 없다. 충족은 그대로 막지만(거짓 충족 방지)
+    미달을 조건부로 약하게 만들지는 않는다.
 
     Args:
         requirement: 요구.
         fact: 후보 사양 근거.
+        verdict: 값 비교 결과.
 
     Returns:
         list[str]: 'duration 요구 2 s, 후보 3 s' 같은 차이 목록.
@@ -483,6 +506,8 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
     given = {c.name: c for c in fact.conditions or []}
     gaps = []
     for want in requirement.conditions:
+        if want.name == OTHER and verdict == "failed":
+            continue
         got = given.get(want.name)
         if got is None:
             gaps.append(f"{want.name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
@@ -531,7 +556,7 @@ def _spec_check(
         converted = _duration_converted(requirement, fact)
         compared, note, shorter = converted if converted else (fact, None, False)
         verdict, word = _value_verdict(requirement, compared)
-        gaps = _condition_gaps(requirement, compared)
+        gaps = _condition_gaps(requirement, compared, verdict)
         if verdict == "passed" and gaps:
             verdict, word = "unknown", "값은 충족하나 조건이 달라 확인 필요"
         elif verdict == "failed" and gaps:
@@ -568,8 +593,9 @@ def _certification_check(
 ) -> Check:
     """certifications 배열로 인증 요구 하나를 판정한다.
 
-    다른 규격 체계의 근거(IEC 시험 성적 등)는 UL·IEEE 요구의 충족으로 넓히지 않고 미확인으로 둔다.
-    같은 체계의 다른 규격만 있으면(UL 891 vs UL 1558) 미달이다.
+    다른 규격의 근거는 요구의 충족으로 넓히지 않고 확인 필요로 둔다. 체계가 같아도 그렇다. 후보가
+    요구 규격을 갖고 있지 않다는 것은 자료에 없다는 뜻이지 미달이 아니다(미기재는 미충족이 아니다).
+    다만 같은 장비를 다른 제품군으로 규정하는 규격(RIVAL_STANDARDS)만 가졌으면 미달이다.
 
     Args:
         requirement: attribute가 certification이고 value가 규격명인 요구.
@@ -587,15 +613,16 @@ def _certification_check(
     )
     same = [c for c in profile.certifications if _norm(c.standard) == _norm(requirement.value)]
     if not same:
-        system = _system(requirement.value)
-        others = [
-            c for c in profile.certifications if system != "NONE" and _system(c.standard) == system
+        rival = [
+            c
+            for c in profile.certifications
+            if frozenset({_norm(c.standard), _norm(requirement.value)}) in RIVAL_STANDARDS
         ]
-        if others:
-            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in others)
-            return name, "failed", f"{head}, 후보는 같은 체계의 다른 규격 {held}만 있음: 미달."
+        if rival:
+            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in rival)
+            return name, "failed", f"{head}, 후보는 다른 제품군 규격 {held}만 있음: 미달."
         foreign = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in profile.certifications)
-        tail = f" 다른 규격 체계 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
+        tail = f" 다른 규격 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
         return name, "unknown", f"{head}: 후보에 같은 규격 근거가 없어 확인 필요.{tail}"
     covering = [c for c in same if models & set(c.applicable_models)]
     if not covering:
