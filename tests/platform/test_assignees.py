@@ -130,6 +130,9 @@ def test_user_names_are_read_in_one_query_and_expose_only_the_name(monkeypatch):
         assert client.get("/api/v1/platform/users?ids=nope").status_code == 422
         too_many = ",".join([str(USER)] * 101)
         assert client.get(f"/api/v1/platform/users?ids={too_many}").status_code == 422
+        compact = ",".join([USER.hex] * 101)
+        assert len(compact) <= 3699
+        assert client.get(f"/api/v1/platform/users?ids={compact}").status_code == 422
         conn.execute.assert_not_awaited()
     app.dependency_overrides.clear()
     with TestClient(app) as client:

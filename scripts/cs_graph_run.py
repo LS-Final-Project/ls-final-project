@@ -11,7 +11,7 @@ CS_GRAPH_NOTHING_TO_RESUME으로 종료 1이다(중복 유료 호출·오타 재
 required_info_codes, already_asked_codes}} JSON이다. 원문이 들어 있으므로 저장소에 두지 않는다. --out에는 상태
 요약(단계·다음 노드·오류 코드·시도 ID·시도 요약·재호출 수 retried·회복 수 recovered)만 쓴다.
 --invalid-output-retries(0|1, 기본 1)는 분류·초안 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출이다(KAN-194 4차).
---evidence-limit(기본 cs_runner.DRAFT_DEFAULTS 5)은 초안에 넘길 근거 수이고, --draft-max-output-tokens(기본 2048)는
+--evidence-limit(기본 cs_runner.DRAFT_DEFAULTS 5)은 초안에 넘길 근거 수이고, --draft-max-output-tokens(기본 6000)는
 --execute의 초안 출력 상한이다(KAN-194 7차, 초안 실측 PROPOSED 설정).
 
 --batch(KAN-194 8차): ticket-file의 모든 문의(또는 --ticket-ids)를 순서대로 thread_id=<--thread-id>-<ticket_id>로
@@ -43,6 +43,7 @@ from backend.agent.cs_runner import (
     DRAFT_DEFAULTS,
     InMemoryTicketSource,
     build_cs_runner,
+    draft_ai_settings,
     make_checkpointer,
     resume,
     run_ticket,
@@ -515,7 +516,7 @@ def main(
         "--draft-max-output-tokens",
         type=int,
         default=DRAFT_DEFAULTS["max_output_tokens"],
-        help="--execute 초안 출력 상한(thinking 포함, 기본 2048)",
+        help="--execute 초안 출력 상한(thinking 포함, 기본 6000)",
     )
     parser.add_argument("--out", type=Path)
     parser.add_argument(
@@ -644,6 +645,7 @@ def main(
             graph = build_cs_runner(
                 ai_settings,
                 client=client,
+                draft_client=client_factory(draft_ai_settings(ai_settings)),
                 ticket_source=source,
                 fts_searcher=searcher,
                 search_filters=FILTERS,
