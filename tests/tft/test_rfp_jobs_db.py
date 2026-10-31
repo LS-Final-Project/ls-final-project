@@ -37,11 +37,14 @@ class FakePlatform:
     def __init__(self):
         self.bodies = []
         self.answer = (201, {"data": {"job_id": str(uuid4()), "status": "QUEUED"}})
+        self.during = None
 
     def handler(self, request):
         assert request.url.path == "/internal/v1/platform/jobs/tft"
         assert request.headers["authorization"] == "Bearer tft-token"
         self.bodies.append(json.loads(request.content))
+        if self.during is not None:
+            self.during()
         if isinstance(self.answer, Exception):
             raise self.answer
         status, payload = self.answer
@@ -244,3 +247,56 @@ def test_a_refused_job_leaves_the_project_as_it_was(client, platform, chain):
     assert process(client, chain, reason="재처리").status_code == 409
     shown = detail(client, chain)
     assert shown["output_status"] == "INTAKE" and shown["latest_job"] is None
+
+
+def test_a_job_that_fails_before_the_answer_is_not_overwritten(client, platform, chain, admin):
+    """worker가 접수 응답보다 먼저 실패해 되돌려도 다시 ANALYZING이 되지 않는다."""
+    seen = []
+
+    def fast_failure():
+        with psycopg.connect(admin) as conn:
+            seen.append(
+                conn.execute(
+                    "UPDATE tft.projects SET output_status='INTAKE' WHERE id=%s "
+                    "AND output_status='ANALYZING' RETURNING id",
+                    (chain["project"],),
+                ).fetchone()
+            )
+
+    platform.during = fast_failure
+    assert process(client, chain, reason="재처리").status_code == 202
+    assert seen == [(chain["project"],)]
+    assert detail(client, chain)["output_status"] == "INTAKE"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        (409, {"error": {"code": "TFT_JOB_IN_PROGRESS"}}),
+        (500, {"error": {"code": "BOOM"}}),
+        httpx.ConnectError("synthetic"),
+    ],
+    ids=["refused", "server-error", "unreachable"],
+)
+def test_a_job_that_was_not_accepted_restores_the_previous_status(
+    client, platform, chain, admin, answer
+):
+    """접수가 안 되면 이전 값으로 돌아간다. 검토본 상태도 잃지 않는다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET output_status='REVIEW_DRAFT' WHERE id=%s", (chain["project"],)
+        )
+    platform.answer = answer
+    assert process(client, chain, reason="재처리").status_code >= 400
+    assert detail(client, chain)["output_status"] == "REVIEW_DRAFT"
+
+
+def test_a_resend_of_an_accepted_job_does_not_mark_again(client, platform, chain, admin):
+    """같은 키 재전송은 표시를 다시 쓰지 않는다(그사이 끝난 작업을 되살리지 않는다)."""
+    assert process(client, chain, key="resend-0001", reason="재처리").status_code == 202
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET output_status='INTAKE' WHERE id=%s", (chain["project"],)
+        )
+    assert process(client, chain, key="resend-0001", reason="재처리").status_code == 202
+    assert detail(client, chain)["output_status"] == "INTAKE"
