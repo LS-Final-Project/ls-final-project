@@ -143,8 +143,17 @@ def _identifiers(equipment: str | None) -> set[str]:
     return {next(g for g in m.groups() if g) for m in EQUIPMENT_ID.finditer(_norm(equipment))}
 
 
+# 비교값 바로 앞/뒤의 명시 수식어만 가린다. 다른 주제나 일반 문구는 제거하지 않는다.
+OPERATOR_BEFORE_VALUE = re.compile(
+    r"(?<!\w)(?:at\s+(?:least|most)|(?:not|no)\s+(?:less|more|greater)\s+than|"
+    r"(?:greater|less)\s+than(?:\s+or\s+equal\s+to)?|"
+    r"(?:minimum|maximum)(?:\s+of)?|>=|<=|≥|≤|>|<|=)\s*$"
+)
+OPERATOR_AFTER_VALUE = re.compile(r"^\s*(?:minimum|maximum|or\s+(?:greater|less|more|lower))(?!\w)")
+
+
 def _value_frame(req: ExtractedRequirement) -> str | None:
-    """인용의 값 한 곳과 인접 단위만 가린다. 같은 속성 키의 다른 주제를 합치지 않는다."""
+    """값 한 곳과 인접 단위·명시 연산자·기록된 허용오차만 가린다."""
     value, quote = _norm(req.value), _norm(req.quote)
     if not value:
         return None
@@ -154,10 +163,30 @@ def _value_frame(req: ExtractedRequirement) -> str | None:
     if len(matches) != 1:
         return None
     match = matches[0]
+    head = OPERATOR_BEFORE_VALUE.sub("", quote[: match.start()])
     tail = quote[match.end() :]
-    if req.unit:
-        tail = re.sub(r"^\s*" + re.escape(_norm(req.unit)) + r"(?!\w)", "", tail, count=1)
-    return _norm(quote[: match.start()] + "<value>" + tail)
+    tolerance = _norm(req.tolerance)
+    tolerance_pattern = (
+        re.compile(
+            r"^\s*(?:(?:with\s+(?:a\s+)?)?tolerance(?:\s+of)?\s*)?"
+            r"(?:\(\s*)?"
+            + re.escape(tolerance).replace(r"\ ", r"\s*")
+            + r"(?![\w%]|\.\d)(?:\s*\))?"
+        )
+        if tolerance
+        else None
+    )
+    # 단위 앞/뒤 허용오차 및 뒤쪽 minimum/maximum을 인접 범위에서만 처리한다.
+    for _ in range(3):
+        previous = tail
+        if req.unit:
+            tail = re.sub(r"^\s*" + re.escape(_norm(req.unit)) + r"(?!\w)", "", tail, count=1)
+        if tolerance_pattern:
+            tail = tolerance_pattern.sub("", tail, count=1)
+        tail = OPERATOR_AFTER_VALUE.sub("", tail, count=1)
+        if tail == previous:
+            break
+    return _norm(head + "<value>" + tail)
 
 
 def _same_item(

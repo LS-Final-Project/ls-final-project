@@ -824,3 +824,18 @@ def test_summary_hides_internal_fields_without_redacting_original_equipment_or_s
         assert internal not in body
     assert "Cabinet GX-810" in body and "IEC 61439-2" in body and "690 V" in body
     assert any(e.id == str(REQ) for row in sentences(result) for e in row.evidence)
+
+
+def test_internal_key_display_handles_korean_particles_without_partial_identifier_replacement(
+    snapshot,
+):
+    question = snapshot["questions"][0]
+    question.question_text = "rated_current가 아닌 protection_degree를 확인해 주세요."
+    body = " ".join(row.text for row in sentences(build_draft(**snapshot)))
+    assert "rated current가 아닌 protection degree를" in body
+    assert "rated_current가" not in body and "protection_degree를" not in body
+    question.question_text = (
+        "prerated_current 및 rated_current_suffix, rated_current2 표기는 그대로 확인."
+    )
+    body = " ".join(row.text for row in sentences(build_draft(**snapshot)))
+    assert question.question_text in body

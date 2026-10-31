@@ -78,11 +78,11 @@ DISPLAY_CODES.update(
 )
 DISPLAY_CODES = {key: label for key, label in DISPLAY_CODES.items() if "_" in key}
 CODE_WORD = re.compile(
-    r"(?<![\w])(?:"
+    r"(?<![A-Za-z0-9_])(?:"
     + "|".join(
         re.escape(key) for key in sorted(DISPLAY_CODES, key=lambda value: (-len(value), value))
     )
-    + r")(?![\w])"
+    + r")(?![A-Za-z0-9_])"
 )
 
 

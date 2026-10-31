@@ -592,3 +592,87 @@ def test_only_sharing_a_part_is_not_same_item_context() -> None:
         }
     )
     assert generate_question_drafts(t, [req("4.2.A", a, "640"), req("4.3.B", b, "960")]) == []
+
+
+@pytest.mark.parametrize(
+    ("left_text", "right_text", "left_fields", "right_fields"),
+    [
+        (
+            "Rated current shall be at least 800 A.",
+            "Rated current shall be at most 800 A.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+        (
+            "Rated current shall be 800 A ±5%.",
+            "Rated current shall be 800 A.",
+            {"tolerance": "±5%"},
+            {"tolerance": None},
+        ),
+        (
+            "Rated current shall be 800 A (±5%).",
+            "Rated current shall be 800 A.",
+            {"tolerance": "±5%"},
+            {"tolerance": None},
+        ),
+        (
+            "Rated current shall be >= 800 A.",
+            "Rated current shall be <= 800 A.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+        (
+            "Rated current shall be 800 A minimum.",
+            "Rated current shall be 800 A maximum.",
+            {"operator": "GTE"},
+            {"operator": "LTE"},
+        ),
+    ],
+)
+def test_explicit_comparison_modifiers_are_part_of_the_value_frame(
+    left_text, right_text, left_fields, right_fields
+) -> None:
+    left = req("4.2.A", left_text, "800", **left_fields)
+    right = req("4.2.B", right_text, "800", **right_fields)
+    result = generate_question_drafts(
+        tree(clause(left.clause_no, left_text), clause(right.clause_no, right_text)), [left, right]
+    )
+    assert len(result) == 1 and result[0].kind == "INCONSISTENCY"
+    assert [(source.clause_no, source.quote) for source in result[0].sources] == [
+        (left.clause_no, left_text),
+        (right.clause_no, right_text),
+    ]
+    assert left.operator == left_fields.get("operator", "EQ")
+    assert left.tolerance == left_fields.get("tolerance")
+    assert right.operator == right_fields.get("operator", "EQ")
+    assert right.tolerance == right_fields.get("tolerance")
+
+
+@pytest.mark.parametrize(
+    "difference", ["topic", "path", "equipment", "attribute", "conditions", "unrelated_tolerance"]
+)
+def test_modifier_masking_does_not_remove_same_item_gates_or_other_topics(difference: str) -> None:
+    a, b = "Main rating shall be at least 800 A.", "Main rating shall be at most 800 A."
+    left, right = req("4.2.A", a, "800", operator="GTE"), req("4.2.B", b, "800", operator="LTE")
+    if difference == "topic":
+        b = "Auxiliary rating shall be at most 800 A."
+        right = right.model_copy(update={"quote": b})
+    elif difference == "path":
+        right = right.model_copy(update={"clause_no": "4.3.B"})
+    elif difference == "equipment":
+        right = right.model_copy(update={"equipment": "auxiliary switchgear"})
+    elif difference == "attribute":
+        right = right.model_copy(update={"attribute": "auxiliary rating"})
+    elif difference == "conditions":
+        right = right.model_copy(
+            update={"conditions": [Condition(name="ambient", value="40", unit="°C")]}
+        )
+    else:
+        b = "Main rating shall be at most 800 A; auxiliary sensor tolerance ±5%."
+        right = right.model_copy(update={"quote": b, "tolerance": "±5%"})
+    assert (
+        generate_question_drafts(
+            tree(clause(left.clause_no, a), clause(right.clause_no, b)), [left, right]
+        )
+        == []
+    )
