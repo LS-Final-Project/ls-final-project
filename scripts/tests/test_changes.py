@@ -116,6 +116,10 @@ class ChangeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             changes.successful_branch_base("current", "feature")
 
+    def test_display_label_tables_run_the_cross_check(self):
+        for path in ("backend/engine/rfp/vocabulary.py", "frontend/src/rfp/labels.ts"):
+            self.assertTrue(changes.classify([path])["infrastructure"], path)
+
     def test_frontend_does_not_build_backends(self):
         result = changes.classify(["frontend/src/App.tsx"])
         self.assertEqual(result["services"], ["web"])

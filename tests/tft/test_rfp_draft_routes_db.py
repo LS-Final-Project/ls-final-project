@@ -447,8 +447,13 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
             return await db.load_snapshot(conn, chain["project"], 1)
 
+    async def labels():
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await db.evidence_labels(conn, chain["project"])
+
     original = asyncio.run(frozen())
-    expected = draft_exports.render_docx(original, 1)
+    names = asyncio.run(labels())
+    expected = draft_exports.render_docx(original, 1, names)
     events = []
 
     def crash_after_put(event):
@@ -498,7 +503,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         client, "POST", chain, "/review-versions", {"version": 1}, "current-review-blocked"
     )
     assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
-    assert draft_exports.render_docx(asyncio.run(frozen()), 1) == expected
+    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names) == expected
     asyncio.run(execute(lambda event: None))
     response = call(client, "GET", chain, f"/exports/{export_id}/file")
     assert response.status_code == 200 and response.content == expected
@@ -907,3 +912,15 @@ def test_rewrite_summary_tells_full_partial_failed_and_discarded(client, app_dsn
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "TFT_DRAFT_REWRITE_NOT_FOUND"
     assert call(client, "GET", chain, f"/rewrites/{uuid4()}", user=OUTSIDER).status_code == 404
+
+
+def test_draft_gives_readable_evidence_numbers(client, app_dsn, chain, admin):
+    """조회 응답은 근거 ID를 읽을 수 있는 번호로 바꾸는 표를 함께 준다."""
+    ready(app_dsn, admin, chain)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirements SET code='abcd1234:2.4.E.1.a:2' WHERE id=%s",
+            (chain["requirement"],),
+        )
+    data = call(client, "GET", chain).json()["data"]
+    assert data["evidence_labels"][str(chain["requirement"])] == "2.4.E.1.a-2"

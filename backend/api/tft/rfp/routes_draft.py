@@ -46,8 +46,9 @@ async def get_draft(
     async with connection(request.app.state.settings) as conn:
         await visible(conn, principal, project_id)
         result = await db.load(conn, project_id, version)
-    if result is None:
-        raise ApplicationError(404, "TFT_DRAFT_NOT_FOUND", "The draft version was not found.")
+        if result is None:
+            raise ApplicationError(404, "TFT_DRAFT_NOT_FOUND", "The draft version was not found.")
+        result.evidence_labels = await db.evidence_labels(conn, project_id)
     return result
 
 
@@ -89,6 +90,7 @@ async def edit_draft(
         )
         display = await db.load(conn, project_id, result.version)
         assert display is not None
+        display.evidence_labels = await db.evidence_labels(conn, project_id)
     return display
 
 

@@ -40,7 +40,7 @@ it('kv 조각으로 실제 응답의 고지·근거·조건·검토표시와 이
   serve(); renderApp(`/tft/projects/${P}/draft`);
   await screen.findByText(draft.disclaimer);
   expect(screen.getByText('실제 공급과 납기는 별도 확인')).toBeTruthy();
-  expect(screen.getByText('requirement: requirement-1')).toBeTruthy();
+  expect(screen.getByText('요구: requirement-1')).toBeTruthy();
   expect(screen.getByText('미확약·미확인 / 재검토 필요')).toBeTruthy();
   expect(screen.getByText('판본·검토본·내보내기 이력 목록은 제공되지 않습니다.')).toBeTruthy();
   expect(screen.getByRole('tab').textContent).toBe('초안 및 검토 이력');
@@ -340,7 +340,7 @@ it('보드 배치의 문장 번호와 접힌 전체 근거를 유지하고 편�
   expect(within(row).getByText('S1')).toBeTruthy();
   const proof = within(row).getByText('근거 1건 · 조건 1건').closest('details');
   expect(proof?.open).toBe(false);
-  expect(within(row).getByText('requirement: requirement-1')).toBeTruthy();
+  expect(within(row).getByText('요구: requirement-1')).toBeTruthy();
   expect(screen.getByRole('complementary', { name: '검토본과 내보내기' })).toBeTruthy();
   fireEvent.click(within(row).getByRole('button', { name: '문장 수정' }));
   expect(within(row).getByLabelText('수정 문장')).toBeTruthy();
@@ -357,7 +357,7 @@ it('근거 미리보기에는 종류별 건수만 보이고 원형 ID는 상세�
   const article = await screen.findByRole('article', { name: `문장 ${SENTENCE}` });
   expect(within(article).getByText('요구 1건 · 조항 1건')).toBeTruthy();
   expect(article.querySelector('.draft-proof-preview')?.textContent).not.toContain('a568c6a8');
-  expect(within(article).getByText(`clause: ${clauseId}`)).toBeTruthy();
+  expect(within(article).getByText(`조항: ${clauseId}`)).toBeTruthy();
 });
 
 it('필터에서는 0문장 구역을 빼고 전체 0건은 빈 상태를 한 번만 표시한다', async () => {
@@ -488,6 +488,14 @@ it('결과 요약을 읽지 못해도 끝난 사실을 알린다', async () => {
   await waitFor(() => expect(disabled('모델로 문장 작성')).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: '모델로 문장 작성' }));
   await screen.findByText(/결과 요약을 읽지 못했습니다/);
+});
+
+it('근거는 내부 ID 대신 읽을 수 있는 번호로 보여 준다', async () => {
+  const evidence = draft.sections[0].sentences[0].evidence[0];
+  serve(() => data({ ...draft, evidence_labels: { [evidence.id]: '2.4.E.1.a-2' } }));
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText(new RegExp(`: 2\\.4\\.E\\.1\\.a-2`));
+  expect(screen.queryByText(new RegExp(evidence.id))).toBeNull();
 });
 
 it('모델 작업 조회도 페이지 이동 시 취소한다', async () => {

@@ -240,3 +240,29 @@ async def human_lineage(
             if originals:
                 replacements.append(s.Section(section=part.section, sentences=originals))
     return {row["sentence_key"]: row["edit_reason"] for row in rows}, replacements
+
+
+async def evidence_labels(conn: AsyncConnection[Row], project_id: UUID) -> dict[str, str]:
+    """근거 ID를 사람이 읽는 번호로 바꾸는 표를 만든다. 저장값은 그대로 둔다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        dict[str, str]: 요구는 2.4.E.1.a-2 꼴, 조항은 조항 번호, 질문은 Q1부터의 순번.
+    """
+    cursor = await conn.execute(
+        "SELECT id::text AS id, code AS label FROM tft.requirements WHERE project_id=%(p)s "
+        "UNION ALL SELECT DISTINCT c.id::text, c.clause_no FROM tft.clauses c "
+        "JOIN tft.requirement_versions v ON v.clause_id=c.id "
+        "JOIN tft.requirements r ON r.id=v.requirement_id WHERE r.project_id=%(p)s "
+        "UNION ALL SELECT q.id::text, 'Q' || row_number() OVER (ORDER BY q.created_at, q.id) "
+        "FROM tft.customer_questions q WHERE q.project_id=%(p)s",
+        {"p": project_id},
+    )
+    labels = {}
+    for row in await cursor.fetchall():
+        parts = row["label"].split(":")
+        labels[row["id"]] = f"{parts[1]}-{parts[2]}" if len(parts) == 3 else row["label"]
+    return labels

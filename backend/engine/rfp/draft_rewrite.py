@@ -45,9 +45,12 @@ for vocabulary in (
 ):
     INTERNAL_CODES.update(get_args(vocabulary))
 INTERNAL_CODES.update(RESULT_TEXT)
+# 내부 코드 노출을 막는 검사다. voltage·form 같은 일반 단어는 고객 원문에도 있으므로
+# 식별자 꼴(밑줄·전체 대문자)만 본다. 금액·UUID·근거 ID·협력사 코드 검사는 별개다.
+IDENTIFIER_CODES = {key for key in INTERNAL_CODES if "_" in key or key.isupper()}
 CODE_WORDS = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
-    + "|".join(re.escape(key) for key in sorted(INTERNAL_CODES, key=len, reverse=True))
+    + "|".join(re.escape(key) for key in sorted(IDENTIFIER_CODES, key=len, reverse=True))
     + r")(?![A-Za-z0-9_])"
 )
 MONEY = re.compile(r"[$€₩¥]|\d[\d,.]*\s*(?:USD|EUR|KRW|달러|만원|억원|원)(?![A-Za-z])")

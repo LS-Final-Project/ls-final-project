@@ -9,7 +9,12 @@ from uuid import UUID, uuid5
 
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.integration import CHECK_ITEM, HOLDER_TEXT
-from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS, CONDITION_NAMES
+from backend.engine.rfp.vocabulary import (
+    ATTRIBUTE_KEYS,
+    CONDITION_NAMES,
+    CONDITION_TEXT,
+    check_text,
+)
 
 DISCLAIMER = "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
 PATH_TEXT: dict[s.SupplementPath, str] = {
@@ -169,7 +174,10 @@ def _requirement_evidence(req: s.RequirementDetail) -> list[s.Evidence]:
 
 
 def _conditions(req: s.RequirementDetail) -> list[str]:
-    result = [_display(f"{c.name}: {c.value} {c.unit or ''}".strip()) for c in req.spec.conditions]
+    result = [
+        _display(f"{CONDITION_TEXT.get(c.name, c.name)}: {c.value} {c.unit or ''}".strip())
+        for c in req.spec.conditions
+    ]
     if req.spec.tolerance is not None:
         result.append(f"요구 허용 오차(원문): {req.spec.tolerance}")
     if req.needs_review:
@@ -582,7 +590,7 @@ def build_draft(
                         conditions=[
                             *path_conditions,
                             *partner.conditions_to_confirm,
-                            *grade.mandatory_check.unknown,
+                            *map(check_text, grade.mandatory_check.unknown),
                             f"가상 협력사 요구별 등급: {GRADE_TEXT[grade.grade]}",
                             f"가상 협력사 확인 상태: {CONFIRMATION_TEXT[partner.confirmation_status]}",
                         ],

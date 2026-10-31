@@ -52,13 +52,30 @@ def test_docx_is_valid_ooxml_with_all_sections_proofs_conditions_and_unicode(sna
     assert '한글 <장비> & "조건"' in texts and "다음 줄" in texts and "탭" in texts
     assert len(list(root.iter(w + "br"))) >= 2 and list(root.iter(w + "tab"))
     assert "조건·미확인: 조건 <허용> & 미확약" in texts
-    assert any("재검토: True" in text for text in texts)
+    assert any("재검토: 예" in text for text in texts)
+    numbers = iter(range(1, 1000))
     for section in draft.sections:
         assert draft_exports.SECTION_TITLES[section.section] in texts
         for sentence in section.sentences:
-            assert f"문장 ID: {sentence.sentence_id}" in texts
-            for evidence in sentence.evidence:
-                assert f"근거 [{evidence.type}]: {evidence.id}" in texts
+            assert f"문장 번호: S{next(numbers)}" in texts
+            assert str(sentence.sentence_id) not in " ".join(texts)
+            for line in draft_exports.evidence_lines(sentence, {}):
+                assert line in texts
+
+
+def test_evidence_is_grouped_by_kind_with_readable_numbers():
+    """근거는 종류별 한 줄이고 번호를 모르는 ID도 빠지지 않는다."""
+    row = s.Sentence.model_construct(
+        evidence=[
+            s.Evidence(type="requirement", id="r1"),
+            s.Evidence(type="clause", id="c1"),
+            s.Evidence(type="requirement", id="r2"),
+        ]
+    )
+    assert draft_exports.evidence_lines(row, {"r1": "2.4.E-1", "c1": "2.4.E"}) == [
+        "근거 요구 2건: 2.4.E-1, r2",
+        "근거 조항 1건: 2.4.E",
+    ]
 
 
 @pytest.mark.parametrize("invalid", ["\x00", "\ud800", "\ufffe"])
@@ -311,6 +328,7 @@ def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
         patch.object(db, "load_snapshot", new_callable=AsyncMock, return_value=stored) as frozen,
         patch.object(db, "load", new_callable=AsyncMock, return_value=live) as display,
         patch.object(db, "save", new_callable=AsyncMock) as save,
+        patch.object(db, "evidence_labels", new_callable=AsyncMock, return_value={}),
         patch.object(
             drafts,
             "valid_references",

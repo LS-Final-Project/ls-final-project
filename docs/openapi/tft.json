@@ -978,6 +978,13 @@
             "title": "Disclaimer",
             "type": "string"
           },
+          "evidence_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Evidence Labels",
+            "type": "object"
+          },
           "evidence_missing_count": {
             "title": "Evidence Missing Count",
             "type": "integer"
