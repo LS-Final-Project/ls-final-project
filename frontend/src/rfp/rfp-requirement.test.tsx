@@ -92,6 +92,27 @@ describe('제목 줄', () => {
     await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
   });
 
+  it('Esc는 입력 요소와 열린 메뉴 안에서는 화면을 떠나지 않는다', async () => {
+    await open();
+    fireEvent.keyDown(screen.getByLabelText('순회 조건'), { key: 'Escape' });
+    expect(screen.getByRole('group', { name: '순회' })).toBeTruthy();
+    const more = document.querySelector('.kv-more') as HTMLDetailsElement;
+    more.open = true;
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('group', { name: '순회' })).toBeTruthy();
+    more.open = false;
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+  });
+
+  it('연결 표의 보완 경로는 코드가 아니라 라벨이다', async () => {
+    detail = { ...MOCK_DETAIL, links: { ...MOCK_DETAIL.links, supplement_summary: 'EXTERNAL_PRODUCT' } };
+    await open();
+    const table = screen.getByRole('table', { name: '연결' });
+    expect(table.textContent).toContain('외부 제품');
+    expect(table.textContent).not.toContain('EXTERNAL_PRODUCT');
+  });
+
   it('프로젝트·문서·조항 띠와 원문 내려받기를 문서 ID로 잇는다', async () => {
     await open();
     await screen.findByText('사양서 v2');

@@ -217,6 +217,28 @@ describe('자사 대응표', () => {
     expect((screen.getByRole('menuitem', { name: /상태 직접 수정/, hidden: true }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('문서에서 온 값이 수식으로 시작하면 엑셀에서 실행되지 않게 막고 URL은 뒤에 해제한다', async () => {
+    const created: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => { created.push(blob); return 'blob:x'; });
+    const revoke = vi.fn();
+    URL.revokeObjectURL = revoke;
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    requirements = [
+      { ...MOCK_REQUIREMENTS[0], attribute: '=HYPERLINK("x")', value_text: '+1', equipment: '-2', task: '@sum' },
+    ];
+    renderApp(PATH);
+    await screen.findByRole('heading', { name: /판단, R-01/ });
+    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
+    expect(revoke).not.toHaveBeenCalled();
+    const csv = await created[0].text();
+    expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(csv).toContain(`"'+1"`);
+    expect(csv).toContain(`"'-2"`);
+    expect(csv).toContain(`"'@sum"`);
+    await waitFor(() => expect(revoke).toHaveBeenCalled());
+    click.mockRestore();
+  });
+
   it('체크박스로 고른 행만 엑셀로 낸다', async () => {
     const created: Blob[] = [];
     URL.createObjectURL = vi.fn((blob: Blob) => { created.push(blob); return 'blob:x'; });
@@ -467,6 +489,33 @@ describe('승인 화면', () => {
     fireEvent.change(await screen.findByLabelText('상태'), { target: { value: '' } });
     await screen.findByRole('table', { name: '제안 내용' });
     expect((within(document.querySelector('.kv-btns') as HTMLElement).getByRole('button', { name: '승인' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('자동으로 고른 첫 행은 보여 주기만 하고 행을 눌러야 승인·기각이 열린다', async () => {
+    renderApp(APPROVALS);
+    await screen.findByRole('table', { name: '제안 내용' });
+    const buttons = (name: string) => screen.getAllByRole('button', { name }) as HTMLButtonElement[];
+    expect(buttons('승인').every(b => b.disabled)).toBe(true);
+    expect(buttons('기각').every(b => b.disabled)).toBe(true);
+    expect(screen.getByText(/행을 누르면 승인과 기각을/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('기각 사유'), { target: { value: '사유' } });
+    fireEvent.keyDown(window, { key: 'F10' });
+    await new Promise(resolve => { setTimeout(resolve, 30); });
+    expect(posts('/approve')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: MOCK_PROPOSALS[0].proposal_id.slice(0, 8) }).closest('tr') as HTMLElement);
+    await waitFor(() => expect(buttons('승인').every(b => !b.disabled)).toBe(true));
+    expect(buttons('기각').every(b => !b.disabled)).toBe(true);
+    expect(screen.queryByText(/행을 누르면 승인과 기각을/)).toBeNull();
+    fireEvent.keyDown(window, { key: 'F10' });
+    await waitFor(() => expect(posts('/approve')).toHaveLength(1));
+  });
+
+  it('행을 눌러 고른 뒤 조건을 바꾸면 다시 자동 선택으로 돌아가 승인이 닫힌다', async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText('들어온 곳'), { target: { value: 'web' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('origin=web'))).toBe(true));
+    await screen.findByRole('table', { name: '제안 내용' });
+    expect(screen.getAllByRole('button', { name: '승인' }).every(b => (b as HTMLButtonElement).disabled)).toBe(true);
   });
 
   it('처리된 제안은 F10을 눌러도 보내지 않는다', async () => {

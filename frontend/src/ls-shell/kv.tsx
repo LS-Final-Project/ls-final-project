@@ -8,6 +8,8 @@ export function useHotkey(key: string, action: () => void, enabled = true) {
     if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== key) return;
+      // Esc는 입력 중이거나 펼친 메뉴를 닫는 뜻일 수 있어 화면을 떠나지 않는다.
+      if (key === 'Escape' && ((event.target as Element | null)?.closest?.('input,textarea,select,details[open]') || document.querySelector('details[open]'))) return;
       event.preventDefault();
       action();
     };
@@ -80,12 +82,15 @@ export const KvFoot = ({ count, more, size }: { count: ReactNode; more?: ReactNo
 
 // 표시한 행을 CSV로 내려받는다(엑셀 단추). 서버 내보내기 경로가 없는 화면용이다. 엑셀이 한글을 읽도록 BOM을 붙인다.
 export function downloadCsv(name: string, head: string[], rows: unknown[][]) {
-  const csv = [head, ...rows].map(row => row.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
+  // 셀 값은 RFP 문서에서 온다. 수식으로 시작하면 엑셀이 실행하지 않게 앞에 '를 붙인다.
+  const safe = (text: string) => /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  const csv = [head, ...rows].map(row => row.map(cell => `"${safe(String(cell ?? '')).replaceAll('"', '""')}"`).join(',')).join('\r\n');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
   link.download = `${name}.csv`;
   link.click();
-  URL.revokeObjectURL(link.href);
+  // 바로 해제하면 내려받기가 실패하는 브라우저가 있다.
+  setTimeout(() => URL.revokeObjectURL(link.href));
 }
 
 // 이름표·값이 번갈아 나오는 띠. cells는 [이름, 값]이고 columns칸씩 줄을 바꾼다.

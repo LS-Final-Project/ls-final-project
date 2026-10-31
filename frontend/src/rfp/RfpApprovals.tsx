@@ -27,6 +27,8 @@ type DecisionProps = {
   proposal: Proposal;
   code: string;
   canDecide: boolean;
+  // 사용자가 행을 직접 눌렀는지. 승인은 되돌릴 수 없어 자동으로 고른 첫 행에는 결정 단추를 열지 않는다.
+  chosenByUser: boolean;
   by: string;
   onChanged: () => void;
   onApproved: (text: string) => void;
@@ -39,7 +41,7 @@ const CHANGES: KvColumn<Change>[] = [
 ];
 
 // 제목 줄의 승인·기각 단추와 F10도 이 폼의 입력을 쓴다.
-const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ proposal, code, canDecide, by, onChanged, onApproved }, ref) {
+const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ proposal, code, canDecide, chosenByUser, by, onChanged, onApproved }, ref) {
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
   const [approveKey, nextApprove] = useAttemptKey(note.trim());
@@ -56,7 +58,7 @@ const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ p
   });
   const busy = approve.isPending || reject.isPending;
   const pending = proposal.status === 'PENDING';
-  const able = pending && canDecide && !busy;
+  const able = pending && canDecide && chosenByUser && !busy;
   useImperativeHandle(ref, () => ({
     approve: () => { if (able) approve.mutate(); },
     reject: () => { if (able && reason.trim()) reject.mutate(); },
@@ -71,9 +73,10 @@ const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ p
           <input id="approve-note" type="text" maxLength={1000} value={note} onChange={event => setNote(event.target.value)} /></div>
         <div className="kv-field"><label htmlFor="reject-reason">기각 사유</label>
           <input id="reject-reason" type="text" maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></div>
+        {!chosenByUser && <p className="kv-sub" style={{ margin: '6px 0 0' }}>표에서 이 제안 행을 누르면 승인과 기각을 할 수 있습니다</p>}
         <div className="kv-actions">
-          <button className="kb" disabled={busy || !reason.trim()} onClick={() => reject.mutate()}>기각</button>
-          <button className="kb primary" disabled={busy} onClick={() => approve.mutate()}>승인<KvKey>F10</KvKey></button>
+          <button className="kb" disabled={!able || !reason.trim()} onClick={() => reject.mutate()}>기각</button>
+          <button className="kb primary" disabled={!able} onClick={() => approve.mutate()}>승인<KvKey>F10</KvKey></button>
         </div>
       </>}
       {pending && !canDecide && <KvField label="승인">담당 또는 책임자만 승인합니다.</KvField>}
@@ -82,6 +85,7 @@ const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ p
     </KvBox>;
 });
 
+const canDecideRole = (roles: string[]) => roles.includes('sales') || roles.includes('manager');
 const CSV_HEAD = ['제안', '들어온 곳', '요구', '항목', '현재', '제안 값', '일시', '상태'];
 
 // 변경 제안 승인(TF_K_Table_Approve). 세 입구(화면 수정·고객 회신·메모 PDF)의 제안이 한 목록에 모인다.
@@ -120,11 +124,12 @@ export default function RfpApprovals() {
   // 보드처럼 첫 행을 고른 채로 시작한다.
   const chosen = items.find(p => p.proposal_id === picked) ?? items[0];
   const selected = chosen?.proposal_id;
+  const chosenByUser = !!picked && picked === selected;
+  const decidable = chosenByUser && chosen?.status === 'PENDING' && (!access.user.data || canDecideRole(access.user.data.data.roles));
   const nameOf = useNames(items.flatMap(p => [p.proposer_user_id, p.decided_by]));
-  useHotkey('F10', approveNow, access.ready);
+  useHotkey('F10', approveNow, access.ready && decidable);
   if (!access.ready) return <BusinessGate access={access} title="자사 대응표" />;
-  const roles = access.user.data?.data.roles;
-  const canDecide = !roles || roles.includes('sales') || roles.includes('manager');
+  const canDecide = !access.user.data || canDecideRole(access.user.data.data.roles);
   const reload = () => {
     for (const key of ['rfp-proposals', 'rfp-requirements', 'rfp-requirement', 'rfp-comparison', 'projects']) client.invalidateQueries({ queryKey: [key, mode] });
   };
@@ -161,8 +166,8 @@ export default function RfpApprovals() {
   ];
   return <main>
     <KvTitle path="제안 지원" title="자사 대응표" code="TF0102">
-      <button className="kb primary" disabled={!chosen || chosen.status !== 'PENDING' || !canDecide} onClick={approveNow}>승인<KvKey>F10</KvKey></button>
-      <button className="kb" disabled={!chosen || chosen.status !== 'PENDING' || !canDecide} title="기각 사유를 적으면 기각됩니다" onClick={() => decision.current?.reject()}>기각</button>
+      <button className="kb primary" disabled={!decidable} title={chosenByUser ? undefined : '표에서 제안 행을 먼저 누르세요'} onClick={approveNow}>승인<KvKey>F10</KvKey></button>
+      <button className="kb" disabled={!decidable} title={chosenByUser ? '기각 사유를 적으면 기각됩니다' : '표에서 제안 행을 먼저 누르세요'} onClick={() => decision.current?.reject()}>기각</button>
       <Link className="kb" to={`/tft/projects/${projectId}/table`}>대응표</Link>
       <Link className="kb" to={`/tft/projects/${projectId}/draft`}>초안</Link>
       <button className="kb" disabled={items.length === 0} title={checked.size ? `고른 ${checked.size}건` : '표시한 행 전체'} onClick={() => downloadCsv('변경 제안', CSV_HEAD, items.filter(p => !checked.size || checked.has(p.proposal_id)).map(p => [p.proposal_id.slice(0, 8), label(ORIGIN_LABEL, p.origin), codeOf(p), changes(p).map(c => c.item).join(', '), changes(p).map(c => c.now).join(', '), changes(p).map(c => c.next).join(', '), shortDateTime(p.known_at), label(PROPOSAL_STATUS_LABEL, p.status)]))}>엑셀</button>
@@ -187,7 +192,7 @@ export default function RfpApprovals() {
       : <KvGrid label="변경 제안" columns={columns} rows={items} rowKey={p => p.proposal_id} selectedKey={selected} onRow={p => { setPicked(p.proposal_id); setDone(undefined); }} fallback={proposals.isPending ? <Loading /> : '조건에 맞는 제안이 없습니다.'} />}
     <KvSplit columns="1.6fr 1fr">
       {chosen
-        ? <Decision ref={decision} key={chosen.proposal_id} proposal={chosen} code={codeOf(chosen)} canDecide={canDecide} by={nameOf(chosen.proposer_user_id)} onChanged={reload} onApproved={setDone} />
+        ? <Decision ref={decision} key={chosen.proposal_id} proposal={chosen} code={codeOf(chosen)} canDecide={canDecide} chosenByUser={chosenByUser} by={nameOf(chosen.proposer_user_id)} onChanged={reload} onApproved={setDone} />
         : <KvBox title="제안">제안을 고르면 내용이 보입니다.</KvBox>}
       <div>
         <p className="kv-label">세 입구가 같은 목록</p>

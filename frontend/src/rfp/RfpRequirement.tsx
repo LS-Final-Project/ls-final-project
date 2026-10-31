@@ -184,7 +184,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   const toProject = `/tft/projects/${projectId}`;
   const connections: Connection[] = [
     { name: '자사 비교', text: links.comparison_summary ?? '없음', to: `${toProject}/table` },
-    { name: '보완 경로', text: links.supplement_summary ?? '없음', to: `${toProject}/supplement` },
+    { name: '보완 경로', text: label(PATH_LABEL, links.supplement_summary) || '없음', to: `${toProject}/supplement` },
     { name: '협력사 후보', text: `${links.partner_candidate_ids.length}건` },
     { name: '질문', text: `${links.question_ids.length}건` },
     { name: '승인 대기', text: `${pending}건`, to: pending > 0 ? `${toProject}/table/approvals` : undefined },
