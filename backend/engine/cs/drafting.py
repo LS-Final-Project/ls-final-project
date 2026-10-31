@@ -106,6 +106,11 @@ CONDITION_MARKERS = re.compile(
     r"|\bwithout\s+(?:evidence|confirmation|inspection|verification)\b",
     re.IGNORECASE,
 )
+# 약속 패턴(승인·파견·무상 처리)은 조건 표지만 본다. not·never·once·혹시는 "We have not found any issue and your
+# RMA is approved", "Once you reply we will send a technician"처럼 확정 약속 앞에도 와서 표지로 쓰지 않는다(#466 리뷰 P2).
+PROMISE_CONDITION_MARKERS = re.compile(
+    r"\b(?:if|whether|unless|in\s+case)\b|만약|만일", re.IGNORECASE
+)
 _CLAUSE_BREAKS = ".!?;:,\n"
 _NOT_A_CONDITION = re.compile(
     r"\b(?:do\s+not|don[’']t|never)\s+(?:worry|hesitate|mind)\b|\bnot\s+(?:only|to\s+worry)\b|\bonce\s+(?:again|more)\b",
@@ -344,12 +349,12 @@ def render_prompt(
     return instruction(prompt_version) + "\n\n입력:\n" + payload.model_dump_json()
 
 
-def _unconditional(pattern: re.Pattern[str], text: str) -> bool:
-    """패턴이 같은 절 앞부분의 조건·부정 표지 없이 맞는 곳이 있으면 True."""
+def _unconditional(pattern: re.Pattern[str], text: str, markers: re.Pattern[str]) -> bool:
+    """패턴이 같은 절 앞부분의 표지(markers) 없이 맞는 곳이 있으면 True."""
     for match in pattern.finditer(text):
         clause_start = max(text.rfind(mark, 0, match.start()) for mark in _CLAUSE_BREAKS) + 1
         clause = _NOT_A_CONDITION.sub(" ", text[clause_start : match.start()])
-        if not CONDITION_MARKERS.search(clause):
+        if not markers.search(clause):
             return True
     return False
 
@@ -361,10 +366,15 @@ def find_forbidden_commitment(text: str) -> bool:
         text: 초안 문장이나 질문.
 
     Returns:
-        bool: 약속·확정 패턴이 같은 절의 조건·부정 표지 없이 맞으면 True. 약속 패턴도 조건 문장
-            ("If the return is approved, …", "Whether the return is approved will be …")은 허용한다(KAN-193).
+        bool: 확정 패턴이 같은 절의 조건·부정 표지 없이, 또는 약속 패턴이 같은 절의 조건 표지(if·whether·
+            unless·in case·만약·만일) 없이 맞으면 True. 약속 패턴의 조건 문장("If the return is approved, …",
+            "Whether the return is approved will be …")은 허용한다(KAN-193).
     """
-    return any(_unconditional(pattern, text) for pattern in FORBIDDEN_COMMITMENTS)
+    return any(
+        _unconditional(pattern, text, PROMISE_CONDITION_MARKERS) for pattern in PROMISE_COMMITMENTS
+    ) or any(
+        _unconditional(pattern, text, CONDITION_MARKERS) for pattern in CONFIRMATION_COMMITMENTS
+    )
 
 
 FORBIDDEN_REASON = (

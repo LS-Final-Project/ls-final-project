@@ -130,6 +130,8 @@ def _verify_case(
             revision_feedback=feedback,
         )
 
+    # 검증 공급자가 없는 측정은 처음 시도 지표만 낸다. 운영 그래프는 검증이 꺼져 있어도 금지 약속 재작성을 하지만,
+    # 측정에서 재작성 지표는 --verify 블록에만 있다(#466 리뷰 P3).
     if verifier is None:
         return VerificationRun(skipped="CS_DRAFT_MISSING")
     forbidden = drafted.forbidden_revision() if drafted.prediction is None else None

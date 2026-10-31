@@ -319,6 +319,9 @@ FORBIDDEN_EXAMPLES = {
         "Your RMA request has been approved.",
         # 조건 표지가 확정 뒤에 오면 확정이다(KAN-193 약속 패턴 조건 검사).
         "Your RMA has been approved, so do not worry.",
+        # 부정·once는 약속 패턴의 표지가 아니다(#466 리뷰 P2).
+        "We have not found any issue and your RMA is approved.",
+        "Once you reply your RMA is approved.",
     ],
     FORBIDDEN_COMMITMENTS[1].pattern: [
         "Return authorized.",
@@ -341,6 +344,8 @@ FORBIDDEN_EXAMPLES = {
         "We will dispatch our engineer.",
         "We'll send a technician tomorrow.",
         "We will send a technician once you confirm the address.",
+        "Once you reply we will send a technician.",
+        "We never delay, so we will send a technician tomorrow.",
     ],
     FORBIDDEN_COMMITMENTS[6].pattern: ["A site visit is scheduled.", "Technician has been booked."],
     FORBIDDEN_COMMITMENTS[7].pattern: [
@@ -349,7 +354,11 @@ FORBIDDEN_EXAMPLES = {
         "We’ll replace it free of charge.",
     ],
     FORBIDDEN_COMMITMENTS[8].pattern: ["RMA가 승인되었습니다.", "RMA를 발급해 드리겠습니다."],
-    FORBIDDEN_COMMITMENTS[9].pattern: ["반품이 승인되었습니다.", "반품 승인해 드리겠습니다."],
+    FORBIDDEN_COMMITMENTS[9].pattern: [
+        "반품이 승인되었습니다.",
+        "반품 승인해 드리겠습니다.",
+        "혹시 궁금하실까 봐 말씀드리면 반품이 승인되었습니다.",
+    ],
     FORBIDDEN_COMMITMENTS[10].pattern: [
         "내일 방문하겠습니다.",
         "현장에 방문해 드리겠습니다.",
@@ -497,10 +506,9 @@ ALLOWED_EXAMPLES = [
     # 약속 패턴도 같은 절 앞의 조건 표지를 본다(KAN-193, 재측정 CSV1-003715 오탐).
     "Whether the return is approved will be communicated after inspection.",
     "If the return is approved, we will contact you.",
-    "Once the RMA is approved, we will arrange the shipment.",
     "If a site visit is scheduled, we will share the details first.",
     "Unless the warranty claim is approved, repair costs may apply.",
-    "혹시 반품이 승인되었다는 연락을 받으셨다면 알려 주십시오.",
+    "만약 반품이 승인되었다는 연락을 받으셨다면 알려 주십시오.",
 ]
 
 
