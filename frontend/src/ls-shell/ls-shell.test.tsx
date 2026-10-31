@@ -78,6 +78,15 @@ describe('셸 메뉴', () => {
     await waitFor(() => expect(shell().classList.contains('menu-open')).toBe(kept));
   });
 
+  it.each([
+    ['/tft/projects/p1/requirements/r1', '접수 및 요구 검토'],
+    ['/tft/projects/p1', '접수 및 요구 검토'],
+    ['/tft/projects/p1/table', '자사 대응표'],
+  ])('%s 에서 메뉴는 %s 만 강조한다', async (path, name) => {
+    const { container } = show(path);
+    await waitFor(() => expect([...container.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual([name]));
+  });
+
   it('세션 장애를 로그아웃으로 표시하지 않는다', async () => {
     live(500);
     show('/cs');

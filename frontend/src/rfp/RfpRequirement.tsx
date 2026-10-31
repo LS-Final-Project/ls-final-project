@@ -6,11 +6,12 @@ import {
   confirmQuestion, getRequirement, listClauses, listQuestions, listRequirements,
   type Clause, type Question, type RequirementDetail, type RequirementFilters,
 } from '../api/rfp';
+import { getProject } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
 import { KvBox, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
-import { DEPARTMENT_LABEL, ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, OWNER_LABEL, PATH_LABEL, QUESTION_STATUS_LABEL, STATUS_LABEL } from './labels';
+import { DEPARTMENT_LABEL, ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, OWNER_LABEL, PATH_LABEL, QUESTION_STATUS_LABEL, RND_CHECK_LABEL, STATUS_LABEL } from './labels';
 import { Failure } from './proposal-shared';
 import ProposalForm from './ProposalForm';
 import { QuestionForm, ReplyForm } from './QuestionForms';
@@ -97,7 +98,7 @@ function Source({ data }: { data: RequirementDetail }) {
 
 type Panel = { kind: 'propose' } | { kind: 'question' } | { kind: 'reply'; id: string };
 
-// 요구 상세와 조항 대조(TF0101). 상태·성격은 변경 제안으로만 바꾼다. 내부 질문은 부서 답변 칸이 필요해 회신을 여기서 받지 않는다.
+// 요구 상세와 조항 대조(TF0101). 상태·성격은 변경 제안으로만 바꾼다.
 export default function RfpRequirement() {
   const { projectId = '', requirementId = '' } = useParams();
   // 순회로 요구를 옮기면 열린 폼과 알림을 새로 시작한다.
@@ -112,6 +113,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   const [notice, setNotice] = useState<string>();
   const requirement = useQuery({ queryKey: ['rfp-requirement', mode, id], queryFn: () => getRequirement(id), enabled: access.ready });
   const questions = useQuery({ queryKey: ['rfp-questions', mode, projectId], queryFn: () => listQuestions(projectId), enabled: access.ready });
+  const project = useQuery({ queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: access.ready });
   const reload = () => {
     for (const key of ['rfp-questions', 'rfp-requirement', 'rfp-requirements', 'rfp-proposals', 'projects']) client.invalidateQueries({ queryKey: [key, mode] });
   };
@@ -129,7 +131,8 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   // 이 요구의 질문을 앞에 둔다.
   const rows = [...all].sort((a, b) => Number(b.requirement_id === id) - Number(a.requirement_id === id));
   const waiting = all.filter(q => q.status === 'OPEN').length;
-  const replying = panel?.kind === 'reply' ? all.find(q => q.question_id === panel.id) : undefined;
+  // 다시 읽었더니 이미 회신된 질문이면 폼을 닫는다.
+  const replying = panel?.kind === 'reply' ? all.find(q => q.question_id === panel.id && q.status === 'OPEN') : undefined;
   const value = [label(OPERATOR_LABEL, spec.operator), spec.value, spec.unit].filter(Boolean).join(' ');
   const pending = links.pending_proposal_ids.length;
   const nextStep = [
@@ -145,7 +148,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
     { key: 'reply', header: '회신', width: 200, cell: q => q.reply_received_at ? formatDateTime(q.reply_received_at) : q.internal_assumption ? `가정 ${q.internal_assumption.value}` : '' },
     { key: 'action', header: '처리', width: 112, className: 'c', cell: q => {
       if (q.status === 'DRAFT') return <button className="kb sm" disabled={confirm.isPending} onClick={() => confirm.mutate(q)}>보낸 질문으로</button>;
-      if (q.status === 'OPEN' && q.target === 'CUSTOMER') return <button className="kb sm" onClick={() => setPanel({ kind: 'reply', id: q.question_id })}>회신 기록</button>;
+      if (q.status === 'OPEN') return <button className="kb sm" onClick={() => setPanel({ kind: 'reply', id: q.question_id })}>회신 기록</button>;
       return '';
     } },
   ];
@@ -174,7 +177,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
       onSaved={() => { setPanel(undefined); reload(); }}
       onReload={() => requirement.refetch()}
     />}
-    {panel?.kind === 'question' && <QuestionForm projectId={projectId} requirement={data} onCancel={() => setPanel(undefined)} onSaved={() => { setPanel(undefined); reload(); }} />}
+    {panel?.kind === 'question' && <QuestionForm projectId={projectId} requirement={data} departments={project.data?.data.review_departments ?? []} onCancel={() => setPanel(undefined)} onSaved={() => { setPanel(undefined); reload(); }} />}
     {replying && <ReplyForm
       key={replying.question_id}
       question={replying}
@@ -182,7 +185,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
       onReload={() => questions.refetch()}
       onSaved={proposed => {
         setPanel(undefined);
-        setNotice(proposed ? '회신을 기록했습니다. 변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다.' : '회신을 기록했습니다. 줄어든 미확인 항목이 없어 변경 제안은 생기지 않았습니다.');
+        setNotice(replying.target === 'INTERNAL' ? '회신을 기록했습니다.' : proposed ? '회신을 기록했습니다. 변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다.' : '회신을 기록했습니다. 줄어든 미확인 항목이 없어 변경 제안은 생기지 않았습니다.');
         reload();
       }}
     />}
@@ -203,6 +206,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
         <div className="kv-field"><span>사유</span><div className="kv-text" style={{ minHeight: 0 }}>{judgement.reason}</div></div>
         <KvField label="미확인">{judgement.unresolved.join(', ') || '없음'}</KvField>
         <KvField label="보완 경로">{label(PATH_LABEL, judgement.path ?? '') || '없음'}</KvField>
+        {judgement.rnd_check && judgement.rnd_check !== 'NOT_REQUIRED' && <KvField label="R&D 확인">{label(RND_CHECK_LABEL, judgement.rnd_check)}</KvField>}
         <KvField label="다음 담당">{label(OWNER_LABEL, judgement.next_owner_field ?? '') || '없음'}</KvField>
         <p className="kv-sub" style={{ margin: '6px 0 0' }}>상태, 성격, 조건, 사유를 바꾸려면 변경 제안. 승인된 제안만 반영</p>
       </KvBox>

@@ -39,7 +39,7 @@ beforeEach(() => {
     if (url.includes('/questions')) return ok({ items: questions });
     if (url.includes('/requirements?')) return ok(url.includes('needs_rereview') ? { items: [row('z', 'R-9')], next_cursor: null } : pages[cursor]);
     if (url.includes('/requirements/')) return ok(detail);
-    return ok({});
+    return ok({ review_departments: ['RND_FW', 'SCM'] });
   }));
   setApiMode('live');
 });
@@ -221,13 +221,6 @@ describe('질문', () => {
     expect(screen.getByText('회신 기록됨')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
   });
-
-  it('내부 질문은 여기서 회신받지 않는다', async () => {
-    questions = [question('q1', { target: 'INTERNAL', target_dept: 'RND_FW', issue_type: 'RND_FEASIBILITY' })];
-    await open();
-    expect(screen.getByText('R&D')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
-  });
 });
 
 describe('회신', () => {
@@ -259,6 +252,18 @@ describe('회신', () => {
     expect((await screen.findByRole('status')).textContent).toContain(text);
   });
 
+  it('다시 읽어 이미 회신된 질문이면 폼을 닫는다', async () => {
+    write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'x'));
+    await form();
+    fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-10-27T09:30' } });
+    fireEvent.click(screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]') as HTMLElement);
+    await screen.findByRole('alert');
+    questions = [question('q1', { status: 'REPLIED' })];
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    await waitFor(() => expect(screen.queryByLabelText('회신 내용')).toBeNull());
+    expect(screen.getByText('회신 기록됨')).toBeTruthy();
+  });
+
   it('충돌은 입력을 지키고 다시 읽는다', async () => {
     write = () => jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', 'x'));
     await form();
@@ -269,6 +274,110 @@ describe('회신', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
     await waitFor(() => expect(calls.filter(c => c.url.includes('/questions')).length).toBeGreaterThan(1));
     expect((screen.getByLabelText('회신 내용') as HTMLTextAreaElement).value).toBe(' 가능합니다 ');
+  });
+});
+
+describe('내부 질문', () => {
+  const form = async () => { await open(); fireEvent.click(screen.getByRole('button', { name: '질문 작성' })); await within(screen.getByLabelText('대상')).findByRole('option', { name: 'R&D' }); };
+  const options = () => within(screen.getByLabelText('유형')).getAllByRole('option').map(o => o.textContent);
+
+  it('검토 부서만 대상으로 고른다', async () => {
+    await form();
+    expect(within(screen.getByLabelText('대상')).getAllByRole('option').map(o => o.textContent)).toEqual(['고객', 'R&D', '구매팀']);
+  });
+
+  it('R&D 확인은 R&D 부서에만 낸다', async () => {
+    await form();
+    fireEvent.change(screen.getByLabelText('대상'), { target: { value: 'RND_FW' } });
+    expect(options()).toEqual(['R&D 개발 가능성', '기술 자문', '구매 조건']);
+    fireEvent.change(screen.getByLabelText('대상'), { target: { value: 'SCM' } });
+    expect(options()).toEqual(['기술 자문', '구매 조건']);
+    fireEvent.change(screen.getByLabelText('대상'), { target: { value: 'CUSTOMER' } });
+    expect(options()).toEqual(['값 없음', '상충', '범위 불명확', '조건 없음']);
+  });
+
+  it('내부 질문은 부서와 함께 보내고 가정값을 받지 않는다', async () => {
+    await form();
+    fireEvent.change(screen.getByLabelText('가정값'), { target: { value: '50 kA' } });
+    fireEvent.change(screen.getByLabelText('대상'), { target: { value: 'RND_FW' } });
+    expect(screen.queryByLabelText('가정값')).toBeNull();
+    fireEvent.change(screen.getByLabelText('질문'), { target: { value: '자사 개발 가능합니까' } });
+    fireEvent.click(screen.getByRole('button', { name: '질문 저장' }));
+    await waitFor(() => expect(posts('/questions')).toHaveLength(1));
+    expect(posts('/questions')[0].body).toMatchObject({ target: 'INTERNAL', target_dept: 'RND_FW', issue_type: 'RND_FEASIBILITY', internal_assumption: null });
+  });
+});
+
+describe('R&D 회신', () => {
+  const RND = { target: 'INTERNAL', target_dept: 'RND_FW', issue_type: 'RND_FEASIBILITY' };
+  const submit = () => screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]') as HTMLButtonElement;
+  const form = async () => {
+    questions = [question('q1', RND)];
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+    fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '가능' } });
+    fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-10-27T09:30' } });
+  };
+
+  it('개발 가능성이 있어야 기록된다', async () => {
+    await form();
+    expect(submit().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'FEASIBLE' } });
+    expect(submit().disabled).toBe(false);
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts('/reply')).toHaveLength(1));
+    expect(posts('/reply')[0].body).toMatchObject({ rnd_feasibility: 'FEASIBLE', earliest_available_on: null, schedule_fits: null });
+    expect((await screen.findByRole('status')).textContent).toBe('회신을 기록했습니다.');
+  });
+
+  it('일정 조건부는 납기 부합까지 있어야 기록되고 시점을 함께 보낸다', async () => {
+    await form();
+    fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'FEASIBLE_WITH_SCHEDULE' } });
+    expect(submit().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('가능 시점'), { target: { value: '2027-03-01' } });
+    fireEvent.change(screen.getByLabelText('납기 부합'), { target: { value: 'no' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts('/reply')).toHaveLength(1));
+    expect(posts('/reply')[0].body).toMatchObject({ rnd_feasibility: 'FEASIBLE_WITH_SCHEDULE', earliest_available_on: '2027-03-01', schedule_fits: false });
+  });
+
+  it('조건부를 풀면 일정 값을 보내지 않는다', async () => {
+    await form();
+    fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'FEASIBLE_WITH_SCHEDULE' } });
+    fireEvent.change(screen.getByLabelText('납기 부합'), { target: { value: 'yes' } });
+    fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'NOT_FEASIBLE' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts('/reply')).toHaveLength(1));
+    expect(posts('/reply')[0].body).toMatchObject({ rnd_feasibility: 'NOT_FEASIBLE', earliest_available_on: null, schedule_fits: null });
+  });
+
+  it('판단 불가는 대기로 남는다고 알린다', async () => {
+    await form();
+    fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'UNDETERMINED' } });
+    expect(screen.getByText(/대기로 남습니다/)).toBeTruthy();
+  });
+
+  it('다른 내부 질문과 고객 질문에는 R&D 칸을 보내지 않는다', async () => {
+    questions = [question('q1', { target: 'INTERNAL', target_dept: 'SCM', issue_type: 'PURCHASE_TERMS' })];
+    await open();
+    expect(screen.getByText('구매팀')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+    expect(screen.queryByLabelText('개발 가능성')).toBeNull();
+    fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '답변' } });
+    fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-10-27T09:30' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts('/reply')).toHaveLength(1));
+    expect(Object.keys(posts('/reply')[0].body).sort()).toEqual(['received_at', 'reply_text', 'source_ref', 'version']);
+  });
+
+  it('R&D 확인 상태를 판단에 보이고 확인이 필요 없으면 감춘다', async () => {
+    detail = { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'PENDING' } };
+    await open();
+    expect(screen.getByText('R&D 확인 대기')).toBeTruthy();
+    cleanup();
+    detail = { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' } };
+    await open();
+    expect(screen.queryByText('확인 불필요')).toBeNull();
   });
 });
 
