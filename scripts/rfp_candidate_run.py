@@ -255,6 +255,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="저장소 밖 공식 실행 기록(JSON Lines). 평가 문서 FIRST 실행에 필수",
     )
+    parser.add_argument(
+        "--drafts",
+        type=Path,
+        help="초안 추적률 입력(scripts/rfp_draft_trace_input.py). 없으면 그 지표는 비어 있다",
+    )
     parser.add_argument("--provider", choices=["gemini", "fake"], default="gemini")
     parser.add_argument("--candidate-name", help="결과 후보 이름(기본 rfp-<모델>)")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
@@ -341,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         run = run_document(trees[n], by_number[n], provider, products, profiles, today)
         print(f"D{n}: 절 {run.section_outcomes} 요구 {len(run.predicted)}", flush=True)
         runs.append(run)
-    summary = summarize(gold, runs, args.run_label)
+    drafts = json.loads(args.drafts.read_text(encoding="utf-8")) if args.drafts else None
+    summary = summarize(gold, runs, args.run_label, drafts)
     data = result_file(
         summary,
         runs,
