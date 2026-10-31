@@ -312,8 +312,11 @@ def test_worker_is_gated_and_needs_a_canonical_job_id(worker_settings):
         parse_job_id(str(job_id).upper())
 
 
+@pytest.mark.parametrize(
+    "revoke_constraints", [False, True], ids=["t14-preserves-grant", "missing-grant-mutation"]
+)
 def test_worker_runs_the_real_processor_end_to_end(
-    settings, worker_settings, jobs_database, registered_user, project, admin
+    settings, worker_settings, jobs_database, registered_user, project, admin, revoke_constraints
 ):
     """접수한 rfp.process 작업을 실제 처리 함수(가짜 추출기)로 끝까지 돌린다: 7단계 진행과 요구 저장."""
     from tests.tft.test_worker_processor_db import STEPS, FakeExtractor
@@ -321,6 +324,18 @@ def test_worker_runs_the_real_processor_end_to_end(
 
     with psycopg.connect(admin, autocommit=True) as conn:
         apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
+        if revoke_constraints:
+            conn.execute(
+                "REVOKE SELECT(supply_region,customer_manufacturer_list,off_list_permission) ON tft.projects FROM tft_worker"
+            )
+        for column in ("supply_region", "customer_manufacturer_list", "off_list_permission"):
+            assert conn.execute(
+                "SELECT has_column_privilege('tft_worker','tft.projects',%s,'SELECT')",
+                (column,),
+            ).fetchone() == (not revoke_constraints,)
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','name','SELECT')"
+        ).fetchone() == (False,)
 
     async def admit():
         async with connection(settings) as conn, conn.transaction():
@@ -336,25 +351,46 @@ def test_worker_runs_the_real_processor_end_to_end(
 
     job_id = asyncio.run(admit())
     extractor = FakeExtractor()
-    result = execute_job(
-        worker_settings,
-        WORKER,
-        job_id,
-        processor_loader=lambda s: make_processor(
-            s, provider=extractor, store=LocalDocumentStore(project["root"])
-        ),
-    )
-    assert result == "TFT_JOB_SUCCEEDED"
-    status, released, failure, events = snapshot(jobs_database, job_id)
-    assert (status, released, failure) == ("SUCCEEDED", True, None)
-    progress = [payload["step"] for kind, payload in events if kind == "job.progress"]
-    # extract는 모델 호출마다·절마다 남는다(절 2개, 호출 2번).
-    assert progress == ["parse", *["extract"] * 4, *STEPS[2:]]
-    assert events[-1][1]["counts"] == {"requirements": 3, "proposals": 0}
+
+    def execute():
+        return execute_job(
+            worker_settings,
+            WORKER,
+            job_id,
+            processor_loader=lambda s: make_processor(
+                s, provider=extractor, store=LocalDocumentStore(project["root"])
+            ),
+        )
+
+    try:
+        if revoke_constraints:
+            with pytest.raises(ApplicationError) as error:
+                execute()
+            assert error.value.code == "TFT_WORKER_PROCESSING_FAILED"
+            assert snapshot(jobs_database, job_id)[:3] == (
+                "FAILED",
+                True,
+                "TFT_WORKER_PROCESSING_FAILED",
+            )
+            assert not any(
+                kind == "job.completed" for kind, _ in snapshot(jobs_database, job_id)[3]
+            )
+        else:
+            result = execute()
+            assert result == "TFT_JOB_SUCCEEDED"
+            status, released, failure, events = snapshot(jobs_database, job_id)
+            assert (status, released, failure) == ("SUCCEEDED", True, None)
+            progress = [payload["step"] for kind, payload in events if kind == "job.progress"]
+            assert progress == ["parse", *["extract"] * 4, *STEPS[2:]]
+            assert events[-1][1]["counts"] == {"requirements": 3, "proposals": 0}
+    finally:
+        if revoke_constraints:
+            with psycopg.connect(admin, autocommit=True) as conn:
+                apply_tft(conn, "infra/migrations/tft/20261104_KAN-199_tft_worker.sql")
     with psycopg.connect(admin) as conn:
         assert conn.execute(
             "SELECT count(*) FROM tft.requirements WHERE project_id=%s", (project["project"],)
-        ).fetchone() == (3,)
+        ).fetchone() == ((0,) if revoke_constraints else (3,))
         for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
             conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
         conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))

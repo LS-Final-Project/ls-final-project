@@ -415,3 +415,5 @@ GRANT CONNECT ON DATABASE team4 TO cs_worker_login, tft_worker_login;
 ```
 
 같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
+
+T20 적용 뒤 T14만 재적용해도 새 프로젝트 입력3열의 worker SELECT를 조건부로 복원한다. T20 이전에는 열 존재 검사를 통과하지 않으므로 새 설치 순서를 막지 않는다. 프로젝트의 다른 열 권한이나 UPDATE 권한은 넓히지 않는다.

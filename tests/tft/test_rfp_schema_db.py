@@ -724,7 +724,6 @@ def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admi
         )
         apply(conn, migration)
         apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
-        apply(conn, migration)
         with conn.transaction():
             conn.execute("SET LOCAL ROLE tft_worker")
             assert conn.execute(
@@ -760,3 +759,24 @@ def test_legacy_semantic_columns_remain_null_after_t20_reapplication(admin, chai
                 "WHERE requirement_id=%s AND version=1",
                 (chain["requirement"],),
             ).fetchone() == (None, None, None)
+
+
+def test_t14_is_safe_before_t20_columns_exist_and_does_not_open_other_project_columns(admin):
+    # 전용 DB에서만 실행하고 모든 DDL/권한 변화를 rollback한다. T14의 바깥 BEGIN/COMMIT만 제거한다.
+    sql = Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql").read_text()
+    statement = "\n".join(
+        line
+        for line in sql.splitlines()
+        if not line.startswith("\\") and line.strip() not in ("BEGIN;", "COMMIT;")
+    )
+    with psycopg.connect(admin, autocommit=True) as conn, conn.transaction(force_rollback=True):
+        conn.execute(
+            "ALTER TABLE tft.projects DROP COLUMN supply_region, DROP COLUMN customer_manufacturer_list, DROP COLUMN off_list_permission"
+        )
+        conn.execute(statement)
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','id','SELECT')"
+        ).fetchone() == (True,)
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','name','SELECT')"
+        ).fetchone() == (False,)
