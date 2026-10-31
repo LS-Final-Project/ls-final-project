@@ -26,7 +26,7 @@ def clause(no: str, text: str, **updates: object) -> Clause:
             clause_no=no,
             label=no,
             depth=3,
-            parent_no=no.rpartition(".")[0] or "SYNTHETIC-ITEM",
+            parent_no=no.rpartition(".")[0] or f"SYNTHETIC-{no}",
             ordinal=0,
             title=None,
             text=text,
@@ -471,7 +471,7 @@ def test_same_clause_and_placeholder_values_do_not_create_inconsistency() -> Non
 def test_proven_same_item_conflict_keeps_both_sources_and_deduplicates() -> None:
     a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
     left = req("4.2.A", a, "640", equipment="control cabinet unit C")
-    right = req("4.2.B", b, "960", equipment="control cabinet tag C")
+    right = req("4.3.B", b, "960", equipment="control cabinet tag C")
     t = tree(clause(left.clause_no, a), clause(right.clause_no, b))
     before = deepcopy((t, left, right))
     result = generate_question_drafts(t, [left, right, left])
@@ -490,9 +490,9 @@ def test_proven_same_item_conflict_keeps_both_sources_and_deduplicates() -> None
 )
 def test_same_attribute_key_alone_does_not_prove_same_item(difference: str) -> None:
     a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
-    left, right = req("4.2.A", a, "640"), req("4.2.B", b, "960")
+    left, right = req("4.2.A", a, "640"), req("4.3.B", b, "960")
     if difference == "path":
-        right = right.model_copy(update={"clause_no": "4.3.B"})
+        right = right.model_copy(update={"clause_no": "4.2.B"})
     elif difference == "equipment":
         right = right.model_copy(update={"equipment": "auxiliary switchgear"})
     elif difference == "attribute":
@@ -507,11 +507,13 @@ def test_same_attribute_key_alone_does_not_prove_same_item(difference: str) -> N
     elif difference == "no_parent":
         left = left.model_copy(update={"clause_no": "A"})
         right = right.model_copy(update={"clause_no": "B"})
-    t = tree(clause(left.clause_no, a, parent_no=None), clause(right.clause_no, b, parent_no=None))
+    t = tree(clause(left.clause_no, a), clause(right.clause_no, b))
+    if difference == "no_parent":
+        t = t.model_copy(update={"clauses": [c for c in t.clauses if c.depth == 3]})
     assert generate_question_drafts(t, [left, right]) == []
 
 
-def test_different_interfaces_in_sibling_clauses_are_not_value_conflicts() -> None:
+def test_different_interfaces_in_separate_branches_are_not_value_conflicts() -> None:
     a, b = "Metering output shall use alpha protocol.", "Protection link shall use beta protocol."
     left = req(
         "4.2.A",
@@ -524,7 +526,7 @@ def test_different_interfaces_in_sibling_clauses_are_not_value_conflicts() -> No
         unit=None,
     )
     right = req(
-        "4.2.B",
+        "4.3.B",
         b,
         "beta",
         equipment="control panel",
@@ -554,7 +556,7 @@ def test_repeated_value_cannot_identify_which_item_conflicts() -> None:
 def test_shared_explicit_id_does_not_override_conflicting_equipment_context() -> None:
     a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
     left = req("4.2.A", a, "640", equipment="main switchgear tag C")
-    right = req("4.2.B", b, "960", equipment="auxiliary switchgear tag C")
+    right = req("4.3.B", b, "960", equipment="auxiliary switchgear tag C")
     assert (
         generate_question_drafts(
             tree(clause(left.clause_no, a), clause(right.clause_no, b)), [left, right]
@@ -565,17 +567,17 @@ def test_shared_explicit_id_does_not_override_conflicting_equipment_context() ->
 
 def test_missing_parent_record_is_not_invented_as_same_item_context() -> None:
     a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
-    t = tree(clause("4.2.A", a), clause("4.2.B", b))
+    t = tree(clause("4.2.A", a), clause("4.3.B", b))
     t = t.model_copy(update={"clauses": [c for c in t.clauses if c.depth == 3]})
-    assert generate_question_drafts(t, [req("4.2.A", a, "640"), req("4.2.B", b, "960")]) == []
+    assert generate_question_drafts(t, [req("4.2.A", a, "640"), req("4.3.B", b, "960")]) == []
 
 
 @pytest.mark.parametrize("equipment", ["switchgear id C", "switchgear no. 7", "switchgear #7"])
 def test_identical_explicit_equipment_notation_can_prove_same_item(equipment: str) -> None:
     a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
     result = generate_question_drafts(
-        tree(clause("4.2.A", a), clause("4.2.B", b)),
-        [req("4.2.A", a, "640", equipment=equipment), req("4.2.B", b, "960", equipment=equipment)],
+        tree(clause("4.2.A", a), clause("4.3.B", b)),
+        [req("4.2.A", a, "640", equipment=equipment), req("4.3.B", b, "960", equipment=equipment)],
     )
     assert len(result) == 1 and result[0].kind == "INCONSISTENCY"
 
@@ -633,7 +635,7 @@ def test_explicit_comparison_modifiers_are_part_of_the_value_frame(
     left_text, right_text, left_fields, right_fields
 ) -> None:
     left = req("4.2.A", left_text, "800", **left_fields)
-    right = req("4.2.B", right_text, "800", **right_fields)
+    right = req("4.3.B", right_text, "800", **right_fields)
     result = generate_question_drafts(
         tree(clause(left.clause_no, left_text), clause(right.clause_no, right_text)), [left, right]
     )
@@ -653,12 +655,12 @@ def test_explicit_comparison_modifiers_are_part_of_the_value_frame(
 )
 def test_modifier_masking_does_not_remove_same_item_gates_or_other_topics(difference: str) -> None:
     a, b = "Main rating shall be at least 800 A.", "Main rating shall be at most 800 A."
-    left, right = req("4.2.A", a, "800", operator="GTE"), req("4.2.B", b, "800", operator="LTE")
+    left, right = req("4.2.A", a, "800", operator="GTE"), req("4.3.B", b, "800", operator="LTE")
     if difference == "topic":
         b = "Auxiliary rating shall be at most 800 A."
         right = right.model_copy(update={"quote": b})
     elif difference == "path":
-        right = right.model_copy(update={"clause_no": "4.3.B"})
+        right = right.model_copy(update={"clause_no": "4.2.B"})
     elif difference == "equipment":
         right = right.model_copy(update={"equipment": "auxiliary switchgear"})
     elif difference == "attribute":
@@ -676,3 +678,16 @@ def test_modifier_masking_does_not_remove_same_item_gates_or_other_topics(differ
         )
         == []
     )
+
+
+@pytest.mark.parametrize(
+    "parent_text", ["One of the following methods:", "All following ratings apply:", ""]
+)
+def test_sibling_values_are_conservatively_skipped_without_choice_inference(
+    parent_text: str,
+) -> None:
+    a, b = "Continuous rating shall be 640 A.", "Continuous rating shall be 960 A."
+    t = tree(
+        clause("5.7", parent_text, depth=2, parent_no=None), clause("5.7.1", a), clause("5.7.2", b)
+    )
+    assert generate_question_drafts(t, [req("5.7.1", a, "640"), req("5.7.2", b, "960")]) == []

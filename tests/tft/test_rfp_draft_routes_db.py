@@ -617,3 +617,124 @@ def test_editing_a_flagged_sentence_clears_only_that_sentence(client, app_dsn, c
     }
     assert shown[rows[0]["sentence_id"]] is False
     assert shown[rows[1]["sentence_id"]] is True
+
+
+def test_new_job_migrates_human_edits_and_marks_without_freezing_live_flags(
+    client, app_dsn, chain, admin
+):
+    from backend.api.tft.rfp import draft_repository as db
+
+    generate(app_dsn, chain, uuid4())
+    original = first_sentence(call(client, "GET", chain).json()["data"])
+    edited = call(
+        client,
+        "PATCH",
+        chain,
+        body={
+            "version": 1,
+            "edits": [
+                {
+                    "sentence_id": original["sentence_id"],
+                    "text": "사람 편집  원형\n600 A",
+                    "reason": "현행 문구 확인",
+                    "evidence": original["evidence"],
+                },
+                {
+                    "sentence_id": None,
+                    "section": "QUESTIONS_NEXT_ACTIONS",
+                    "text": "직접 추가한 행동",
+                    "reason": "후속 확인",
+                    "evidence": original["evidence"],
+                },
+            ],
+        },
+    ).json()["data"]
+    humans = {
+        r["sentence_id"]: r
+        for part in edited["sections"]
+        for r in part["sentences"]
+        if r["provenance_kind"] == "human_input"
+    }
+    marked = original["sentence_id"]
+    proposal, mark = uuid4(), uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id,project_id,requirement_id,base_requirement_version,origin,current,proposed,rationale,proposer_kind,proposer_user_id,data_origin,derivation_kind,known_at) "
+            "VALUES (%s,%s,%s,1,'web','{}','{}','후속 검토','user',%s,'synthetic','PROVIDED',now())",
+            (proposal, chain["project"], chain["requirement"], SALES),
+        )
+        conn.execute(
+            "INSERT INTO tft.rereview_marks (id,project_id,target_kind,target_id,cause_proposal_id) VALUES (%s,%s,'draft_sentence',%s,%s)",
+            (mark, chain["project"], marked, proposal),
+        )
+    job = uuid4()
+    third = generate(app_dsn, chain, job)
+    assert third.version == 3
+    shown = {str(row.sentence_id): row for part in third.sections for row in part.sentences}
+    assert shown[marked].needs_rereview is True
+    added_id = next(key for key in humans if key != marked)
+    assert shown[added_id].needs_rereview == humans[added_id]["needs_rereview"]
+
+    async def frozen():
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await db.load_snapshot(conn, chain["project"], 3)
+
+    snapshot = asyncio.run(frozen())
+    saved = {
+        str(row.sentence_id): row.model_dump(mode="json")
+        for part in snapshot.sections
+        for row in part.sentences
+    }
+    for key, row in humans.items():
+        assert saved[key] == row
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.rereview_marks SET cleared_at=now(),cleared_by=%s WHERE id=%s",
+            (SALES, mark),
+        )
+        assert (
+            conn.execute(
+                "SELECT edit_reason FROM tft.draft_sentences WHERE project_id=%s AND draft_version=3 AND sentence_key=%s",
+                (chain["project"], marked),
+            ).fetchone()[0]
+            == "현행 문구 확인"
+        )
+    latest = call(client, "GET", chain).json()["data"]
+    latest_rows = {r["sentence_id"]: r for part in latest["sections"] for r in part["sentences"]}
+    assert latest_rows[marked] == humans[marked]
+    updated = call(
+        client,
+        "PATCH",
+        chain,
+        body={
+            "version": 3,
+            "edits": [
+                {
+                    "sentence_id": marked,
+                    "text": "나중 편집",
+                    "reason": "재확인",
+                    "evidence": original["evidence"],
+                }
+            ],
+        },
+    )
+    assert updated.status_code == 200
+    assert generate(app_dsn, chain, job).version == 3
+    assert call(client, "GET", chain).json()["data"]["version"] == 4
+    stale = call(
+        client,
+        "PATCH",
+        chain,
+        body={
+            "version": 3,
+            "edits": [
+                {
+                    "sentence_id": marked,
+                    "text": "오래된 편집",
+                    "reason": "충돌",
+                    "evidence": original["evidence"],
+                }
+            ],
+        },
+    )
+    assert stale.status_code == 409

@@ -1032,3 +1032,170 @@ def test_long_customer_quote_only_has_explicit_length_ellipsis(snapshot):
     assert excerpt.endswith("…") and quote.startswith(excerpt[:-1])
     assert "rated_current가\t  600 A." in excerpt
     assert len(excerpt) <= engine.REPRESENTATIVE_CHARS
+
+
+def test_regeneration_preserves_human_text_and_other_requirements(snapshot):
+    from backend.api.tft.rfp.drafts import preserve_human
+
+    first = build_draft(**snapshot)
+    old = sentences(first, "CUSTOMER_GOAL_SCOPE")[0]
+    automatic = old.model_copy(deep=True)
+    old.text = "사람이 확인한 600 A\n  문구 원형"
+    old.provenance_kind = "human_input"
+    old.conditions.append("사람 조건  공백")
+    untouched = deepcopy(old)
+    second = deepcopy(snapshot["requirements"][0])
+    second.requirement_id = UUID(int=701)
+    second.origin.clause_id = UUID(int=702)
+    second.origin.clause_no = "S.2"
+    second.origin.quote = "The control panel shall have rated current 800 A."
+    second.spec.value = "800"
+    second.links.question_ids = []
+    second.links.partner_candidate_ids = []
+    snapshot["requirements"].append(second)
+    replaced = [s.Section(section="CUSTOMER_GOAL_SCOPE", sentences=[automatic])]
+    new = build_draft(**{**snapshot, "version": 3}, replaced=replaced)
+    refs = {(e.type, e.id) for row in sentences(build_draft(**snapshot)) for e in row.evidence}
+    merged = preserve_human(new, first, refs)
+    rows = sentences(merged, "CUSTOMER_GOAL_SCOPE")
+    assert len(rows) == 2
+    assert next(row for row in rows if row.provenance_kind == "human_input") == untouched
+    auto = next(row for row in rows if row.provenance_kind != "human_input")
+    assert ("requirement", str(second.requirement_id)) in {(e.type, e.id) for e in auto.evidence}
+    assert ("requirement", str(REQ)) not in {(e.type, e.id) for e in auto.evidence}
+    assert {(e.type, e.id) for row in sentences(merged) for e in row.evidence} == refs
+    assert old == untouched
+    assert preserve_human(new, first, refs) == merged
+
+
+def test_new_candidate_source_is_not_suppressed_by_an_edited_comparison(snapshot):
+    from backend.api.tft.rfp.drafts import preserve_human
+
+    first = build_draft(**snapshot)
+    old = sentences(first, "OUR_RESPONSE")[0]
+    automatic = old.model_copy(deep=True)
+    old.provenance_kind = "human_input"
+    old.text = "기존 제품에 대한 사람 확인"
+    candidate = deepcopy(snapshot["comparisons"][0].candidates[0])
+    candidate.product_code = "SYN-NEW"
+    snapshot["comparisons"][0].candidates.append(candidate)
+    new = build_draft(
+        **snapshot, replaced=[s.Section(section="OUR_RESPONSE", sentences=[automatic])]
+    )
+    refs = {(e.type, e.id) for row in sentences(new) for e in row.evidence}
+    merged = preserve_human(new, first, refs | {(e.type, e.id) for e in old.evidence})
+    assert len(sentences(merged, "OUR_RESPONSE")) == 2
+    auto = next(
+        row for row in sentences(merged, "OUR_RESPONSE") if row.provenance_kind != "human_input"
+    )
+    assert "SYN-NEW" in auto.text
+    assert ("product", "SYN-PRODUCT") not in {(e.type, e.id) for e in auto.evidence}
+
+
+def test_human_additions_exceed_auto_cap_and_missing_refs_are_not_silently_deleted(snapshot):
+    from backend.api.tft.rfp.drafts import preserve_human
+
+    first = build_draft(**snapshot)
+    source = sentences(first, "CUSTOMER_GOAL_SCOPE")[0]
+    human = [source.model_copy(deep=True) for _ in range(10)]
+    for i, row in enumerate(human):
+        row.sentence_id = UUID(int=800 + i)
+        row.provenance_kind = "human_input"
+        row.text = f"직접 추가한 확인 {i}"
+        row.needs_rereview = False
+    first.sections[0].sentences = human
+    generated = build_draft(**snapshot)
+    refs = {(e.type, e.id) for row in sentences(generated) for e in row.evidence}
+    merged = preserve_human(generated, first, refs)
+    assert len(sentences(merged, "CUSTOMER_GOAL_SCOPE")) == 11
+    assert sentences(merged, "CUSTOMER_GOAL_SCOPE")[1:] == human
+    missing = preserve_human(generated, first, refs - {("requirement", str(REQ))})
+    assert missing.evidence_missing_count == 10
+    assert all(
+        row.needs_rereview and row.evidence_missing
+        for row in sentences(missing)
+        if row.provenance_kind == "human_input"
+    )
+    assert all(not row.needs_rereview for row in human)
+
+
+def test_replaced_source_does_not_cover_a_different_path_or_new_condition(snapshot):
+    original = build_draft(**snapshot)
+    old = sentences(original, "DEVIATIONS")[0].model_copy(deep=True)
+    # 같은 절과 근거 집합만으로는 다른 경로의 문장을 대체할 수 없다.
+    old.text = "다른 보완 경로의 원래 자동 제목."
+    result = build_draft(**snapshot, replaced=[s.Section(section="DEVIATIONS", sentences=[old])])
+    assert result == original
+    old = sentences(original, "CUSTOMER_GOAL_SCOPE")[0]
+    snapshot["requirements"][0].spec.conditions.append(
+        type(snapshot["requirements"][0].spec.conditions[0])(name="새 조건", value="50", unit="°C")
+    )
+    result = build_draft(
+        **snapshot, replaced=[s.Section(section="CUSTOMER_GOAL_SCOPE", sentences=[old])]
+    )
+    assert sentences(result, "CUSTOMER_GOAL_SCOPE")
+    assert any(
+        "새 조건" in value
+        for row in sentences(result, "CUSTOMER_GOAL_SCOPE")
+        for value in row.conditions
+    )
+
+
+def test_replacement_fingerprint_uses_full_original_snapshot_after_human_reference_change(
+    snapshot, monkeypatch
+):
+    import asyncio
+
+    from backend.api.tft.rfp import draft_repository as db
+    from backend.api.tft.rfp.drafts import preserve_human
+
+    original = build_draft(**snapshot)
+    old = sentences(original, "CUSTOMER_GOAL_SCOPE")[0]
+    second = deepcopy(snapshot["requirements"][0])
+    second.requirement_id = UUID(int=910)
+    second.origin.clause_id = UUID(int=911)
+    second.origin.clause_no = "S.3"
+    second.spec.conditions = []
+    second.links.question_ids = []
+    second.links.partner_candidate_ids = []
+    previous = original.model_copy(deep=True)
+    edited = sentences(previous, "CUSTOMER_GOAL_SCOPE")[0]
+    edited.text = "사람이 근거와 조건을 바꾼 문장"
+    edited.evidence = [
+        s.Evidence(type="requirement", id=str(second.requirement_id)),
+        s.Evidence(type="clause", id=str(second.origin.clause_id)),
+    ]
+    edited.conditions = ["사람이 새로 정한 조건"]
+    edited.provenance_kind = "human_input"
+    before = deepcopy(edited)
+
+    class Cursor:
+        async def fetchall(self):
+            return [
+                {"sentence_key": old.sentence_id, "edit_reason": "근거 교체", "original_version": 1}
+            ]
+
+    class Connection:
+        async def execute(self, *args):
+            return Cursor()
+
+    async def load_original(conn, project_id, version):
+        assert project_id == PROJECT and version == 1
+        return original
+
+    monkeypatch.setattr(db, "load_snapshot", load_original)
+    reasons, replacements = asyncio.run(
+        db.human_lineage(Connection(), PROJECT, 2, [old.sentence_id])
+    )
+    assert reasons == {old.sentence_id: "근거 교체"}
+    assert replacements == [s.Section(section="CUSTOMER_GOAL_SCOPE", sentences=[old])]
+    snapshot["requirements"].append(second)
+    regenerated = build_draft(**{**snapshot, "version": 3}, replaced=replacements)
+    refs = {(e.type, e.id) for row in sentences(build_draft(**snapshot)) for e in row.evidence}
+    merged = preserve_human(regenerated, previous, refs)
+    goal = sentences(merged, "CUSTOMER_GOAL_SCOPE")
+    automatic = next(row for row in goal if row.provenance_kind == "system_record")
+    assert {e.id for e in automatic.evidence if e.type == "requirement"} == {
+        str(second.requirement_id)
+    }
+    assert next(row for row in goal if row.provenance_kind == "human_input") == before
