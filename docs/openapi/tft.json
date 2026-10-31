@@ -2899,7 +2899,7 @@
             "title": "Name"
           },
           "off_list_permission": {
-            "default": "UNSTATED",
+            "description": "\uc0dd\ub7b5\ud558\uba74 \uae30\uc874 \uac12\uc744 \ubcf4\uc874\ud569\ub2c8\ub2e4. UNSTATED\ub97c \uba85\uc2dc\ud558\uba74 \ubbf8\uc815\uc73c\ub85c \ubcc0\uacbd\ud569\ub2c8\ub2e4.",
             "enum": [
               "ALLOWED",
               "FORBIDDEN",

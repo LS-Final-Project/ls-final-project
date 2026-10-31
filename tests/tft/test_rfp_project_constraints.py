@@ -53,6 +53,35 @@ def test_sparse_patch_preserves_omitted_inputs_and_explicit_null_clears_them():
     }
 
 
+def test_patch_policy_openapi_has_no_default_and_stays_optional():
+    from backend.api.tft.main import create_app
+    from backend.shared.settings import Settings
+
+    schemas = create_app(Settings(_env_file=None, environment="test")).openapi()["components"][
+        "schemas"
+    ]
+    update = schemas["ProjectUpdate"]
+    policy = update["properties"]["off_list_permission"]
+    assert "default" not in policy
+    assert "off_list_permission" not in update["required"]
+    assert policy["type"] == "string"
+    assert policy["enum"] == ["ALLOWED", "FORBIDDEN", "UNSTATED"]
+    assert schemas["ProjectCreate"]["properties"]["off_list_permission"]["default"] == "UNSTATED"
+
+
+def test_patch_policy_omission_and_explicit_unstated_remain_distinct():
+    omitted = ProjectUpdate(version=3)
+    explicit = ProjectUpdate(version=3, off_list_permission="UNSTATED")
+    assert omitted.off_list_permission == "UNSTATED"  # 내부 기본값은 종전과 같다.
+    assert omitted.model_fields_set == {"version"}  # PATCH 핸들러가 갱신할 칸.
+    assert omitted.model_dump(exclude_unset=True) == {"version": 3}
+    assert explicit.model_fields_set == {"version", "off_list_permission"}
+    assert explicit.model_dump(exclude_unset=True) == {
+        "version": 3,
+        "off_list_permission": "UNSTATED",
+    }
+
+
 def test_existing_create_requests_do_not_gain_new_required_fields_in_api_schema():
     required = ProjectCreate.model_json_schema()["required"]
     assert not set(required) & {
