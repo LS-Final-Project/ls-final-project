@@ -17,6 +17,18 @@
 | worker Job | 접속 검증 Job 3개뿐. 평가·C/S·RFP worker Job 없음 | 댓글 10729 |
 | 공용 DB 적용 상태 | 기록 없음(`공용 상태` 열 모두 미확인) | `infra/sql/README.md` |
 
+**배포 전 운영 상태 (2026-10-31 15:40 KST, 김나영 읽기 전용 확인)**. 배포 뒤 같은 항목을 다시 보고 비교한다.
+
+| 항목 | 값 |
+| --- | --- |
+| 리비전·트래픽 | web 00007·platform 00009·cs 00007·tft 00007, 모두 `5188b7e`, 최신 리비전 100%(`latestRevision: true`) |
+| 인스턴스 | 4개 모두 서비스 단위 min 1·max 2 |
+| 개발 모드 | 백엔드 3개 `ENVIRONMENT=production`·`DEV_AUTH_ENABLED=false`, 웹 `NODE_ENV=production`. 공개 웹 경유 `/api/v1/platform/dev/accounts` 404 |
+| 켜져 있는 설정 | `BUSINESS_RELAY_ENABLED=true`(4개), `MICROSOFT_AUTH_ENABLED=true`(platform). `CS_MAIL_ENABLED`·`MAILBOX_AUTH_ENABLED`는 없음(꺼짐) |
+| 모델 설정 | cs·tft `GEMINI_MODEL=gemini-3.6-flash`, `GEMINI_MAX_OUTPUT_TOKENS=1024`. LangSmith 변수 없음 |
+| 공개 웹 | `/` 200, `/health` 200, `/api/v1/platform/ready` 200(database·vector·fts 모두 true) |
+| Cloud SQL | `db-custom-2-8192`(2 vCPU·8GB), ENTERPRISE, SSD 20GB, ZONAL, POSTGRES_17. 자동 백업 매일 성공(최근 2026-10-30), **시점 복구(PITR) 꺼짐** |
+
 ## 1. 선행 결과
 
 | WBS | 티켓 | 담당 | 상태(10/31) | 승인에 필요한 것 |
@@ -86,13 +98,13 @@
 
 | 설정 | 켜는 곳 | 메모 |
 | --- | --- | --- |
-| `MICROSOFT_AUTH_ENABLED` | `infra/prepare_microsoft_auth.py` | 제품 로그인 |
-| `MAILBOX_AUTH_ENABLED` | 수동 환경 설정 | 사서함 연결. 켜는 스크립트가 없다. 현재 값 확인 |
+| `MICROSOFT_AUTH_ENABLED` | `infra/prepare_microsoft_auth.py` | 제품 로그인. 10/31 운영 platform에서 켜져 있음 |
+| `MAILBOX_AUTH_ENABLED` | 수동 환경 설정 | 사서함 연결. 켜는 스크립트가 없다. 10/31 운영에는 없음(꺼짐) |
 | `MAIL_SYNC_ENABLED` | `infra/setup_mail_sync.sh` | 메일 수집 |
 | `MAIL_SEND_ENABLED` | `infra/setup_mail_send.sh` | 메일 발송 |
-| `CS_MAIL_ENABLED` | 수동 환경 설정 | C/S 고객 메일 발송 입구. 켜는 스크립트가 없다. 현재 값 확인 |
+| `CS_MAIL_ENABLED` | 수동 환경 설정 | C/S 고객 메일 발송 입구. 켜는 스크립트가 없다. 10/31 운영에는 없음(꺼짐) |
 | `NOTIFICATION_PUSH_ENABLED` | `infra/setup_notification_push.sh` | 브라우저 알림(선택) |
-| `BUSINESS_RELAY_ENABLED` | 수동 환경 설정 | 웹 → 플랫폼 → C/S·TFT 중계. [중계 활성화 전 확인](service-delivery.md#kan-178-업무-중계-활성화-전-확인). 현재 값 확인 |
+| `BUSINESS_RELAY_ENABLED` | 수동 환경 설정 | 웹 → 플랫폼 → C/S·TFT 중계. [중계 활성화 전 확인](service-delivery.md#kan-178-업무-중계-활성화-전-확인). 10/31 운영에서 4개 모두 켜져 있음 |
 
 ### H. 평가 화면
 
