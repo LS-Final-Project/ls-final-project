@@ -40,8 +40,11 @@ test('받은 메일 검토: 고른 메일의 분류를 읽고 다시 분류 대�
   });
   await expect(page.locator('.kv-code', { hasText: 'MB0101' })).toBeVisible();
   await expect(page.getByText('기존 건에 이어 붙이기').first()).toBeVisible();
+  // 연결은 후보를 고른 뒤에만, 무시는 고른 메일이 있으면 켜진다. 사유 없이는 어느 쪽도 요청을 보내지 않는다.
   await expect(page.getByRole('button', { name: '연결' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '무시' })).toBeDisabled();
+  await page.getByLabel('66666666 선택').check();
+  await expect(page.getByRole('button', { name: '연결' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '무시' })).toBeEnabled();
   await page.getByRole('button', { name: '다시 분류' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();

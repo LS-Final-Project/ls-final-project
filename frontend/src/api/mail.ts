@@ -126,3 +126,30 @@ export async function resendIntent(intentId: string, reason: string, signal?: Ab
   if (!data || typeof data.task_registered !== 'boolean' || !isStatus(data.status)) throw new ApiError(502, '다시 보내기 결과를 확인할 수 없습니다. 발송 상태를 다시 조회해 확인하세요.');
   return data as ResendResult;
 }
+
+export type LinkBody = paths['/api/v1/platform/mail/reply-reviews/{message_id}/link']['post']['requestBody']['content']['application/json'];
+export type RegisterBody = paths['/api/v1/platform/mail/messages/{message_id}/register-ticket']['post']['requestBody']['content']['application/json'];
+export type ReplyResult = paths['/api/v1/platform/mail/reply-reviews/{message_id}/link']['post']['responses'][200]['content']['application/json']['data'];
+export type RegisteredTicket = paths['/api/v1/platform/mail/messages/{message_id}/register-ticket']['post']['responses'][201]['content']['application/json']['data'];
+
+const OUTCOMES = ['LINKED', 'REVIEW', 'NONE'];
+async function decide(messageId: string, action: 'link' | 'dismiss', body: object, signal?: AbortSignal): Promise<ReplyResult> {
+  const token = sendGuard();
+  const reply = await request<unknown>(`/api/v1/platform/mail/reply-reviews/${encodeURIComponent(messageId)}/${action}`, { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
+  const data = (reply as { data?: Record<string, unknown> } | null)?.data;
+  if (!data || typeof data.message_id !== 'string' || !OUTCOMES.includes(data.outcome as string)) throw new ApiError(502, '처리 결과를 확인할 수 없습니다. 검토 목록을 다시 조회해 확인하세요.');
+  return data as ReplyResult;
+}
+/** 고객 답장을 후보 중 하나에 연결한다(사람이 정함, 근거 HUMAN). 후보 밖은 서버가 422로 거부한다. */
+export const linkReply = (messageId: string, body: LinkBody, signal?: AbortSignal) => decide(messageId, 'link', body, signal);
+/** 업무 회신이 아니라고 닫는다. 사유(note)가 기록에 남는다. */
+export const dismissReply = (messageId: string, note: string, signal?: AbortSignal) => decide(messageId, 'dismiss', { note }, signal);
+
+/** 받은 메일을 C/S 문의로 접수한다(내 사서함의 받은편지함 메일만). 같은 메일을 다시 접수하면 created=false로 기존 문의를 돌려준다. */
+export async function registerTicket(messageId: string, body: RegisterBody, signal?: AbortSignal): Promise<RegisteredTicket> {
+  const token = sendGuard();
+  const reply = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/register-ticket`, { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
+  const data = (reply as { data?: Record<string, unknown> } | null)?.data;
+  if (!data || typeof data.ticket_id !== 'string' || typeof data.created !== 'boolean') throw new ApiError(502, '문의 접수 결과를 확인할 수 없습니다. 문의 조회에서 확인하세요.');
+  return data as RegisteredTicket;
+}
