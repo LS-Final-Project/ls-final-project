@@ -139,3 +139,32 @@ it('켜기 실패 정리도 변경된 소유자/세대를 추정 삭제하지 �
   expect(b.subscription.unsubscribe).not.toHaveBeenCalled(); expect(b.active.postMessage).not.toHaveBeenCalled();
   expect(localStorage.getItem('team4-notification-push-owner')).toBe(B);
 });
+
+it.each([
+  [A, B, false],
+  [B, A, true],
+] as const)('조정 락 대기 중 owner %s→%s이면 획득 뒤 판단으로 정리(%s)한다', async (before, after, cleanup) => {
+  const b = browser(); localStorage.setItem('team4-notification-push-owner', before);
+  let acquire!: () => void;
+  b.locks.request.mockImplementationOnce(async (_name, _options, action) => {
+    await new Promise<void>(resolve => { acquire = resolve; });
+    return action();
+  });
+  const pending = reconcilePush(B);
+  try {
+    expect(b.locks.request).toHaveBeenCalledOnce();
+    expect(b.active.postMessage).not.toHaveBeenCalled();
+    localStorage.setItem('team4-notification-push-owner', after);
+  } finally { acquire?.(); await pending; }
+  expect(b.locks.request).toHaveBeenCalledOnce(); // cleanup reuses the held lock, never nests it
+  if (cleanup) {
+    expect(b.subscription.unsubscribe).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('team4-notification-push-owner')).toBeNull();
+    expect(notificationSession).toHaveBeenCalledWith(B);
+  } else {
+    expect(b.subscription.unsubscribe).not.toHaveBeenCalled();
+    expect(b.active.postMessage).not.toHaveBeenCalled();
+    expect(localStorage.getItem('team4-notification-push-owner')).toBe(B);
+  }
+  expect(deletePushSubscription).not.toHaveBeenCalled();
+});
