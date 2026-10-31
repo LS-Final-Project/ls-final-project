@@ -6,6 +6,7 @@ import pytest
 
 from backend.api.tft.worker_processor import sections_of
 from backend.engine.documents.model import Block, Position, build_document
+from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import build_clause_tree
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
@@ -28,7 +29,8 @@ def tree_of(*lines):
 @pytest.mark.parametrize("heading", ["제7조", "1. 일반", "제1장 일반"])
 def test_korean_leaf_body_reaches_fake_extraction_once(heading):
     body = "외함은 부식 방지 처리가 필요하다."
-    tree = tree_of(heading, body)
+    document = extract(f"{heading}\n\n{body}".encode(), mime="text/markdown")
+    tree = build_clause_tree(document)
     sections = sections_of(tree)
     assert len(sections) == 1
     [item] = build_inputs(tree, sections)
