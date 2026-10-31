@@ -48,3 +48,18 @@ export const FEASIBILITY_LABEL: Record<string, string> = {
 // tft.department_kinds에서 분류가 RND인 부서. R&D 답변 칸은 이 부서 대상 질문에만 서버가 받는다.
 // ponytail: 분류를 알려 주는 API가 없어 손으로 적었다. 부서 코드는 tft-department-codes.json 대조에 걸리지만 분류는 안 걸리니, R&D 부서가 늘면 여기도 고친다.
 export const RND_DEPARTMENTS = ['RND_FW'];
+// 요구 code(판본앞8자:조항:순번)의 표시 번호. 원시 값은 화면에 내지 않는다.
+export function requirementNo(code: string) {
+  const [, clause, order] = code.split(':');
+  return clause ? `${clause}-${order}` : code;
+}
+// attribute_key(backend/engine/rfp/vocabulary.py) → 화면 이름. 어휘에 없거나 OTHER면 원문 속성을 그대로 쓴다.
+export const ATTRIBUTE_LABEL: Record<string, string> = {
+  form: '형식', rated_max_voltage: '정격 최대전압', bil: '기준 충격 절연', short_time_withstand_current: '단시간 내전류', rated_current: '정격 전류',
+  arc_resistant: '아크 내성', internal_arc_classification: '내부 아크 등급', secondary_voltage: '2차 전압', primary_voltage: '1차 전압', rated_power: '정격 용량',
+  insulation_class: '절연 등급', impedance: '임피던스', tap: '탭', forced_air_capacity_increase: '강제 공랭 용량 증가', protection_functions: '보호 기능',
+  arc_flash_reduction: '아크플래시 저감', winding_material: '권선 재질', winding_temperature_sensor: '권선 온도 센서', communication_interface: '통신 규격',
+  warranty_months: '보증 기간', rated_operational_voltage: '정격 사용 전압', busbar_rated_current: '모선 정격 전류', power_frequency_withstand: '상용주파 내전압',
+  breaking_capacity_icu: '정격 한계 차단 용량', breaking_capacity_ics: '정격 사용 차단 용량', rated_short_circuit_breaking_current: '정격 단락 차단 전류',
+  frame_size: '프레임 크기', number_of_poles: '극수', vector_group: '결선', protection_degree: '보호 등급',
+};
