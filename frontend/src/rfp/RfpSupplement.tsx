@@ -26,6 +26,7 @@ export default function RfpSupplement() {
   const { projectId = '' } = useParams();
   const access = useBusinessAccess('tft');
   const user = useQuery({ queryKey: ['me'], queryFn: me, enabled: access.ready, retry: false });
+  if (user.isFetching && !user.data) return <Loading label="선택 권한 확인 중" />;
   if (!access.ready) return <BusinessGate access={access} title="보완 및 협력사 비교" />;
   if (user.isPending) return <Loading label="선택 권한 확인 중" />;
   if (user.isError) return <ErrorState error={user.error} onRetry={() => user.refetch()} />;
@@ -60,7 +61,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
     {project.isPending && <Loading />}
     {project.isError && <ErrorState error={project.error} onRetry={() => project.refetch()} />}
     {project.isSuccess && <>
-      <KvBox title={project.data.data.name} note={canSelect ? '담당 sales·책임자 선택 가능' : '읽기 전용 — 담당 sales·책임자만 선택 가능'}>
+      <KvBox title={project.data.data.name} note={canSelect ? '담당 영업·책임자 선택 가능' : '읽기 전용 — 담당 영업·책임자만 선택 가능'}>
         <p>요구 목록 {cursors.length}쪽 · {requirements.isSuccess ? `${rows.length}건` : requirements.isError ? '조회 실패' : '조회 중'}</p>
         <button className="kb" disabled={requirements.isFetching} onClick={() => { setRequirementId(''); void requirements.refetch(); }}>요구 목록 조회</button>{' '}
         <button className="kb" disabled={requirements.isFetching || cursors.length === 1} onClick={() => page(cursors.slice(0, -1))}>이전</button>{' '}
@@ -123,7 +124,10 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
     return selectSupplement(options.requirement_id, payload, attempts.get(body)!, actorId);
   }, retry: false, onSuccess: value => onSaved(value.data), onError: error => {
     if (error instanceof ApiError && error.status === 409) setConflict(true);
-    if (error instanceof ApiError && (error.code === 'SESSION_CHANGED' || error.status === 401)) void queryClient.invalidateQueries({ queryKey: ['me'] });
+    if (error instanceof ApiError && (error.code === 'SESSION_CHANGED' || error.status === 401)) {
+      queryClient.setQueryData(['me'], null);
+      void queryClient.invalidateQueries({ queryKey: ['me'] });
+    }
   } });
   const valid = canSelect && !conflict && !!option?.allowed && !!roleSplit.trim() && codes.every(c => option.candidate_codes.includes(c) && !excluded(c)) && (!needsWaiver || waiver.trim().length >= 20);
   const columns: KvColumn<SupplementOption>[] = [

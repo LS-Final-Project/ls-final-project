@@ -233,13 +233,24 @@ test('결과 불명 뒤 다른 요구를 보고 돌아와도 원래 본문 재�
   expect((posts[0].headers as Record<string, string>)['Idempotency-Key']).toBe((posts[1].headers as Record<string, string>)['Idempotency-Key']);
 });
 
-test('저장 직전 실제 세션이 바뀌면 다른 사용자 명의 POST를 보내지 않는다', async () => {
+test('저장 직전 세션이 바뀌면 재확인 중 이전 폼을 숨기고 다른 사용자 POST를 보내지 않는다', async () => {
   let active = U;
-  const f = live(url => url.endsWith('/platform/me') ? new Response(JSON.stringify({ data: { id: active, roles: ['sales'] } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'fresh-session-token' } }) : undefined);
+  let reads = 0;
+  let confirm!: (value: Response) => void;
+  const f = live(url => {
+    if (!url.endsWith('/platform/me')) return undefined;
+    reads++;
+    if (reads === 3) return new Promise<Response>(resolve => { confirm = resolve; });
+    return new Response(JSON.stringify({ data: { id: active, roles: ['sales'] } }), { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'fresh-session-token' } });
+  });
   renderApp(`/tft/projects/${P}/supplement`); await choose();
   active = '22222222-2222-4222-8222-222222222222';
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText('선택 권한 확인 중');
+  expect(screen.queryByRole('textbox', { name: '역할 분담' })).toBeNull();
+  expect(screen.queryByRole('table', { name: '협력사 후보 근거' })).toBeNull();
+  await waitFor(() => expect(confirm).toBeTypeOf('function'));
+  confirm(response({ id: active, roles: ['sales'] }));
   await screen.findByText(/읽기 전용/);
   expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
-  expect(screen.queryByRole('textbox', { name: '역할 분담' })).toBeNull();
 });
