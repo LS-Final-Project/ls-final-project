@@ -167,6 +167,12 @@ async def admit(
         "idempotency_key": key,
         "request_hash": digest,
     }
+    before = None
+    if known is None and kind == "rfp.process":
+        # worker가 응답보다 먼저 끝날 수 있으므로 접수 전에 쓴다.
+        async with connection(request.app.state.settings) as conn:
+            before = await repository.mark_analyzing(conn, project_id)
+    accepted: s.JobAccepted | None = None
     try:
         data = await client.post(TFT_JOBS, body)
         accepted = s.JobAccepted.model_validate(
@@ -181,10 +187,15 @@ async def admit(
             503, "DEPENDENCY_UNAVAILABLE", "The platform did not accept the job."
         ) from None
     except (PlatformUnreachable, PlatformUnknown, ValidationError):
-        # 2xx라도 본문을 읽을 수 없으면 접수 여부를 모르는 것과 같다.
+        # 2xx라도 본문을 읽을 수 없으면 접수 여부를 모르는 것과 같다. 같은 키로 다시 보내면 다시 표시한다.
         raise ApplicationError(
             503, "DEPENDENCY_UNAVAILABLE", "The platform did not answer the job request."
         ) from None
+    finally:
+        # 접수를 확인하지 못했으면 이유와 상관없이 되돌린다.
+        if accepted is None and before is not None:
+            async with connection(request.app.state.settings) as conn:
+                await repository.revert_analyzing(conn, project_id, before)
     if known is None:
         async with connection(request.app.state.settings) as conn:
             try:

@@ -1499,6 +1499,7 @@
       },
       "JobRef": {
         "additionalProperties": false,
+        "description": "\ucd5c\uc2e0 \ucc98\ub9ac \uc791\uc5c5. \uc0c1\ud0dc\ub294 \ud50c\ub7ab\ud3fc \uc18c\uc720\ub77c tft \uc751\ub2f5\uc5d0\uc11c\ub294 \ube44\uc5b4 \uc788\ub2e4(\uc791\uc5c5 \uc0c1\ud0dc \uacbd\ub85c\ub85c \uc77d\ub294\ub2e4).",
         "properties": {
           "job_id": {
             "format": "uuid",
@@ -1506,8 +1507,15 @@
             "type": "string"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           },
           "step": {
             "anyOf": [
@@ -6262,7 +6270,7 @@
         "x-implementation-status": "partial"
       },
       "post": {
-        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4. latest_job\uc740 \uc4f0\uae30 \uc751\ub2f5\uc5d0\uc11c \ud56d\uc0c1 null\uc774\ub2e4.",
+        "description": "2. \uc811\uc218. \ud638\ucd9c\uc790\uac00 \ub2f4\ub2f9 sales\uac00 \ub41c\ub2e4.",
         "operationId": "tft_create_rfp_project",
         "parameters": [
           {
