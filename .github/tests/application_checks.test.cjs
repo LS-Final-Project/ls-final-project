@@ -58,3 +58,21 @@ test('비밀값 검사는 변경 경로와 상관없이 전체 이력을 가려�
   assert.match(required.match(/needs: \[(.+)\]/)[1], /\bsecrets\b/);
   assert.match(fs.readFileSync(path.join(__dirname, '../../.gitleaks.toml'), 'utf8'), /useDefault = true/);
 });
+
+test('gitleaks 허용 규칙은 이름표 모양만 받고 실제 키 모양은 받지 않는다', () => {
+  const config = fs.readFileSync(path.join(__dirname, '../../.gitleaks.toml'), 'utf8');
+  const blocks = config.split('[[allowlists]]').slice(1);
+  assert.ok(blocks.length > 0);
+  for (const block of blocks) {
+    assert.match(block, /targetRules = \["generic-api-key"\]/, '허용은 generic-api-key에만 건다');
+  }
+  const pattern = new RegExp(config.match(/regexes = \['''(.+?)'''\]/)[1]);
+  for (const label of ['urgency_macro_f1', 'cs-comparison-key-v1', 'admission-key-123', 'fixture-server-token', 'lsv2-fixture-secret']) {
+    assert.ok(pattern.test(label), label);
+  }
+  // 대소문자·숫자가 섞인 임의 문자열(실제 키 모양)은 허용하지 않는다. 아래 값은 모두 지어낸 것이다.
+  for (const key of ['AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW', 'sk-proj-Ab12Cd34Ef56Gh78', 'Zx9Qw8Er7Ty6Ui5Op4', 'abc123def456ghi789',
+    'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', 'tok-9f8e7d6c5b4a', 'key_0a1b2c3d4e5f']) {
+    assert.ok(!pattern.test(key), key);
+  }
+});
