@@ -135,6 +135,31 @@ def _clean(value: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
+def mail_text(raw: bytes) -> tuple[str | None, str, str | None]:
+    """원문 MIME에서 제목·본문 텍스트·보낸 사람 주소를 꺼낸다(문의 접수용, KAN-110).
+
+    분류 입력과 달리 가리거나 자르지 않는다. 인용 이력도 그대로 둔다(고객이 보낸 원문이다).
+
+    Args:
+        raw: 원문 MIME 바이트.
+
+    Returns:
+        tuple: (제목 또는 None, 본문 텍스트, 보낸 사람 주소 또는 None). 파싱할 수 없으면
+        ValueError("MAIL_INVALID_INPUT").
+    """
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        if not isinstance(message, EmailMessage):
+            raise ValueError
+        subject = str(message.get("Subject", "") or "").strip() or None
+        body = _body_text(message).strip()
+        sender = message.get("From")
+        address = sender.addresses[0].addr_spec if sender and sender.addresses else None
+    except (ValueError, LookupError, TypeError, AttributeError):
+        raise ValueError("MAIL_INVALID_INPUT") from None
+    return subject, body, address
+
+
 def build_input(
     raw: bytes,
     *,

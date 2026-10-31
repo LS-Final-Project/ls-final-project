@@ -62,6 +62,7 @@ result = await sync_mailbox(
 | --- | --- | --- |
 | 알 수 없는 연결 | `ApplicationError` 403 `MAILBOX_ACCESS_DENIED` | 만들지 않음 |
 | 연결 해제 상태 | 409 `MAILBOX_NOT_CONNECTED` | 만들지 않음 |
+| 재연결 필요 표시(`reconnect_required_at`, KAN-81) | 409 `MAILBOX_RECONNECT_REQUIRED`. 토큰을 요청하지 않는다 | 만들지 않음 |
 | 같은 사서함 실행 중 | 409 `MAIL_SYNC_IN_PROGRESS` | 만들지 않음 |
 | 토큰 함수 실패 | `FAILED`, 토큰 함수의 코드(`MAILBOX_RECONNECT_REQUIRED` 등) | 기록 |
 | Graph 401 | 실행당 한 번만 `force_refresh=True`로 새 토큰을 받아 같은 요청을 다시 보냄. 다시 401이거나 이미 기회를 썼으면 `FAILED`, `GRAPH_UNAUTHORIZED` | 기록, 커서 유지 |
@@ -123,9 +124,9 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 | 결과 | 응답 | 큐·Scheduler |
 | --- | --- | --- |
 | 수집 성공 | 200 `SUCCEEDED` | 끝 |
-| 진행 중·연결 해제·알 수 없는 사서함 | 200 `SKIPPED` + 코드 | 끝(다음 주기) |
+| 진행 중·연결 해제·알 수 없는 사서함·재연결 필요 | 200 `SKIPPED` + 코드 | 끝(다음 주기). 재연결 필요 사서함은 등록 단계(`dispatch`)에서도 빠지고, 이미 큐에 있던 작업은 토큰 요청 전에 건너뛴다(실행 기록 없음, 2026-10-29 결정) |
 | 일시 실패: `GRAPH_THROTTLED`·`GRAPH_UNAVAILABLE`·`MAILBOX_TOKEN_UNAVAILABLE`·`MAIL_STORAGE_UNAVAILABLE`·`LEASE_EXPIRED`·`SYNC_CANCELLED` | 503 `FAILED` | 큐 재시도(최대 3회, 30~300초) |
-| 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN`·`MAILBOX_RECONNECT_REQUIRED` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
+| 그 밖의 실패(`GRAPH_UNAUTHORIZED`·`GRAPH_FORBIDDEN` 등) | 200 `FAILED` | 끝. 실행 기록에 남음 |
 | 작업 등록 중 하나라도 실패 | 503 | Scheduler 재시도(최대 3회, 30~120초). 이미 등록된 작업은 중복되지 않음 |
 
 - 큐·호출 계정·Scheduler 준비는 `infra/setup_mail_sync.sh`(인프라 담당자 실행). Scheduler 작업은 일시 중지로 만들고, 앱 설정을 켠 뒤 resume한다. 권한은 호출 계정에 플랫폼 `run.invoker`, `platform-runtime`에 큐 `cloudtasks.enqueuer`와 호출 계정 `iam.serviceAccountUser`만 준다.
@@ -229,7 +230,10 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 화면에서 쓰려면 웹 중계(`frontend/server.mjs`)에 이 경로를 추가해야 한다. 지금 중계는 플랫폼 자체 경로에 JSON 본문을 넘기는 유형이 없어(업무 경로는 플랫폼이 C/S로 다시 넘긴다) 새 유형이 필요하다. 화면 연결(KAN-132)과 함께 다룬다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
+- 회신 연결·무시, 문의 접수, 분류 변경은 웹 중계에 없다. 분류 변경은 화면이 개발 모드에서만 호출한다.
+- `business-relay-routes.json`은 업무 중계(`relay.BUSINESS_ROUTES`) 표라 플랫폼 자체 경로를 넣지 않는다.
 
 ## 회신·스레드·업무 연결 (KAN-75)
 
@@ -257,7 +261,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 - 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
 - **한계**: 판정은 메일당 한 번이다. `UNMATCHED_REPLY`로 검토에 간 메일은 나중에 그 원 메일이 `link_origin`으로 기록돼도 자동으로 다시 판정되지 않고, 후보가 없어 닫기만 할 수 있다. 메일로 접수한 문의는 접수 때 바로 `link_origin`을 남겨(KAN-110) 회신보다 먼저 근거가 있게 한다.
-- **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 업무 쪽(KAN-110)이 `replies_for(owner_service, business_ref)`로 연결을 읽고 한다.
+- **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 플랫폼이 연결을 C/S에 알리면(아래 KAN-110 절) C/S가 한다. `replies_for(owner_service, business_ref)`는 연결을 읽는 보조 함수로 남는다.
 - **자동 판정**: 수집 워커(`/internal/v1/platform/mail/sync`)가 수집 뒤 `judge_new_replies`로 판정 표시가 없는 받은 메일을 최대 50통 판정한다. 원문 읽기 실패 등은 표시를 남기지 않아 다음 실행에서 다시 하며, 수집 결과·응답 코드는 바꾸지 않는다(`replies_linked`·`replies_review`·`replies_failed`만 알린다).
 
 **메일함 주인의 검토 API** (`MAILBOX_AUTH_ENABLED`가 꺼져 있으면 404, 변경은 동일 출처·세션 CSRF)
@@ -270,12 +274,60 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 다른 사람 메일함의 검토는 404 `MAIL_REPLY_REVIEW_NOT_FOUND`, 이미 결정한 검토는 409 `MAIL_REPLY_REVIEW_DECIDED`다.
 
+### 실제 회신 확인
+
+2026-10-29 09:27~09:49 KST, 시연용 Outlook 가상 계정 두 개(수집 사서함 `csdesk-01`, 회신 계정 `manager-01`)로 확인했다. 결과는 PASS다.
+
+- **방식**: 로컬 로그인으로 `Mail.Read`·`Mail.Send` 토큰을 메모리에만 받았다. 새 로컬 PostgreSQL 17에 identity·KAN-81·KAN-71·KAN-73·KAN-74(열 권한 포함)·KAN-75 마이그레이션을 적용했다. 업무 참조 `cs_ticket:KAN75-<시각>`으로 승인 메일 1통을 보내 보낸편지함 사본까지 확인했다. 그 뒤 30초마다 `sync_mailbox` → `judge_new_replies`를 43회 반복했다. 제목·본문·주소·ID·토큰은 출력하지 않았고(진단 때 확인한 반송 사유 코드와 시연 메일 제목 앞부분은 예외), 받은 원문은 확인 뒤 지웠다.
+- **연결**: `manager-01`이 그 메일에 회신하자 다음 수집에서 저장됐고, 근거 `HEADER`(회신의 `In-Reply-To`가 발송 의도의 `sent_internet_message_id`)로 그 업무에 자동 연결됐다. `replies_for`가 1건을 돌려줬다.
+- **잘못 붙이지 않음**: 같은 시간에 수집 사서함으로 들어온 다른 회신 1통(Microsoft 보안 알림에 대한 회신의 반송)은 회신 헤더가 있지만 맞는 업무가 없어 `UNMATCHED_REPLY` 검토로 갔다. 기존 받은 메일 9통은 모두 `NONE`이었다. 오연결은 0건이다.
+- **10/28 두 번의 실패 원인**: 회신이 다른 메일(Microsoft 알림)에 보내져 순환 반송(5.4.14)된 것이었다. 정크 메일함 도착도 0통이어서, 수집 범위(받은편지함·보낸편지함)는 바꾸지 않는다.
+- **확인 범위**: 서버 함수 수준이다. 운영 워커(KAN-72)·사서함 연결 화면(KAN-81 HTTP)·검토 API를 거친 흐름은 포함하지 않는다. `THREAD` 근거(헤더 없이 같은 대화)는 합성 검사로만 확인했다.
+
+## C/S 연결 (KAN-110)
+
+`backend/api/platform/mail/business.py`(플랫폼 → C/S 호출), `intake.py`(메일 접수), `links.notify_cs_replies`(회신 통지), 마이그레이션 `20261030_KAN-110_mail_link_notify.sql`. C/S 쪽 계약은 [문의 계약](../cs/tickets.md#담당-검토이관부서-처리-결과종결-kan-108)의 "고객 메일 연결"이다.
+
+| 방향 | 경로 | 인증 | 하는 일 |
+| --- | --- | --- | --- |
+| C/S → 플랫폼 | `POST/GET /internal/v1/platform/mail/send-intents[/{id}]` | C/S 실행 계정 ID 토큰(위 KAN-74) | 승인 발송 넘기기·상태 읽기. C/S는 `business_ref=cs_ticket:<문의 ID>`, `business_version`=승인한 업무 판본 |
+| 플랫폼 → C/S | `POST /internal/v1/cs/tickets/{id}/customer-reply` | 플랫폼 실행 계정 ID 토큰(중계와 같은 호출자 헤더), 사용자 없음 | 연결된 회신 알림 → C/S가 기록·재개 |
+| 플랫폼 → C/S | `POST /internal/v1/cs/tickets/from-mail` | 같은 토큰 + 세션 사용자의 Principal | 메일 접수 |
+| 웹 → 플랫폼 | `POST /api/v1/platform/mail/messages/{message_id}/register-ticket` | 운영 세션(cs_agent)·동일 출처·세션 CSRF, `MAILBOX_AUTH_ENABLED` | 메일함 주인이 받은 메일을 문의로 접수 |
+
+- **회신 통지**: `mail_links`에 `business_notified_at`을 더했다(연결 행은 그대로, 통지 시각만). 수집 워커(`/sync`)가 판정 뒤 `owner_service='cs'`이고 `business_ref`가 문의 UUID인 미통지 `REPLY` 연결을 오래된 순으로 최대 50건 C/S에 알리고, 사람 연결(`reply-reviews/{id}/link`)도 바로 알린다. C/S가 200이면 통지 시각을 쓰고, 404 중 오류 코드가 `CS_TICKET_NOT_FOUND`인 경우만 다시 알리지 않는다. 경로 미배포·비활성 등 다른 404는 통지 시각을 쓰지 않고 다음 실행에서 재시도한다. 연결 실패·5xx는 표시가 없어 다음 실행에서 다시 한다(`replies_notified`·`replies_notify_failed`). 업무 중계가 꺼져 있으면(C/S 주소·토큰 없음) 알리지 않고 둔다.
+- **접수**(`register-ticket`, 본문 `customer_external_id`·`product_code`·`body_language`·선택 `fw_version_reported`·`error_code_reported`): 자기 메일함의 받은편지함 메일만(다른 사람·보낸편지함·지워진 메일은 404). 원문을 객체 저장소에서 읽어 제목·본문 텍스트(text/plain, 없으면 html의 보이는 텍스트, 가리거나 자르지 않음)·보낸 사람(수집 표 `from_address`, 없으면 From 헤더)을 꺼내 C/S `from-mail`로 넘기고, 만든 문의를 원 메일에 `ORIGIN`으로 연결한다(201, `created=true`). C/S가 이미 접수된 메일이라고 답하면(409 `CS_MAIL_ALREADY_REGISTERED`) 그 문의에 연결만 확인하고 200 `created=false`다. 본문이 없으면 422 `MAIL_BODY_EMPTY`, 제목 500자·본문 50,000자(C/S 문의 한도)를 넘으면 자르지 않고 422 `MAIL_TOO_LONG_FOR_TICKET`, C/S가 답하지 않으면 503 `CS_UNAVAILABLE`. AI 분류(KAN-73)는 접수 조건이 아니다. 업무 중계가 꺼져 있으면 404.
+- **웹 중계 없음**: `register-ticket`은 승인자 API와 같은 이유(플랫폼 자체 경로에 JSON 본문을 넘기는 유형 없음)로 아직 `frontend/server.mjs`에 없다. KAN-132에서 함께 다룬다.
+- **확인 범위**: 합성 C/S·합성 저장소로 검사했다(`tests/platform/test_mail_intake_db.py`). 실제 Cloud Run 사이의 ID 토큰 호출(C/S → 플랫폼, 플랫폼 → C/S)은 운영 적용 뒤 확인한다.
+
+### 실제 메일 확인 (KAN-110)
+
+2026-10-29 17:50~17:53 KST, 시연용 Outlook 가상 계정 두 개(수집 사서함 `csdesk-01`, 고객 역할 `manager-01`)로 KAN-110 완료 조건 전체를 한 번 돌렸다. 결과는 PASS다.
+
+- **방식**: 로컬 로그인으로 `csdesk-01`의 `Mail.Read`·`Mail.Send` 토큰을 메모리에만 받고, ID 토큰의 계정 이름이 수집 사서함과 같을 때만 진행했다. 새 로컬 PostgreSQL 17에 platform(KAN-71·73·74·75·81 재연결·P26)과 cs 마이그레이션 전체(C13·C14·C15 포함)를 적용했다. C/S 앱은 같은 프로세스의 TestClient로, 플랫폼 수집·판정·발송·회신 통지는 함수로 돌렸다(#242 코드). 제목·본문·주소·ID·토큰은 출력하지 않았고 건수·상태·코드만 남겼다. 받은 원문은 확인 뒤 지웠다.
+- **결과**
+
+| 단계 | 결과 |
+| --- | --- |
+| 고객 메일 수신·수집 | `manager-01`이 보낸 새 메일 1통을 수집 |
+| 문의 등록 | `from-mail` 201, 원 메일 `ORIGIN` 연결. 같은 메일 재등록은 409 `CS_MAIL_ALREADY_REGISTERED` |
+| 종결 차단(읽음·초안) | 검토 전 409 `CS_INVALID_TRANSITION`, 검토만 한 상태 409 `CS_CLOSE_CONDITION_UNMET`, 초안만 있는 상태 409 `CS_CLOSE_CONDITION_UNMET` |
+| 초안 검토 → 승인 | 합성 초안(모델 호출 없음)의 `DETAILED`를 검토해 승인. 승인 뒤에도 `IN_REVIEW`, 수신자는 원 메일 보낸 사람 |
+| 미확정 발송 종결 차단 | 플랫폼 대기(`QUEUED`) 중 종결 409 `CS_CUSTOMER_SEND_PENDING` |
+| 발송 | Graph `sendMail` `ACCEPTED`, 보낸편지함 사본 확인, 상태 읽기 뒤 문의 `ANSWERED` |
+| 회신 검토 | `manager-01`의 회신이 근거 `HEADER`로 이 문의에 연결, C/S 통지 1건(실패 0), 문의 `IN_REVIEW` 재개 |
+| 종결 이력 | `CLOSED`. 업무 감사 순서 `start_review` → `approve_send` → `send_answer` → `customer_reply` → `close` |
+| 잘못 붙이지 않음 | 이 문의 밖으로 연결된 회신 0건. 사서함의 다른 회신 2통(이전 확인의 메일)은 맞는 업무가 없어 `UNMATCHED_REPLY` 검토로 감 |
+
+- **`UNKNOWN` 종결 차단**: 실제 발송에서 결과 불명을 일부러 만들 수 없어, 결과 불명(응답 없음·5xx)과 그 상태의 종결 차단은 합성 플랫폼 검사(`tests/cs/test_customer_mail_db.py`, `test_customer_mail_retry.py`)로 확인했다.
+- **확인하지 않은 것**: 운영(Cloud Run)·공용 DB 환경에서의 왕복(C/S ↔ 플랫폼 ID 토큰 호출 포함)은 운영 적용(KAN-72 운영 묶음) 때 함께 확인한다.
+
 ## 남은 작업
 
 - 승인자 확인·재발송 API의 웹 중계와 화면(KAN-132)
-- KAN-110: C/S 답변 승인 → `send-intents` 호출, 접수 결과로 `record_customer_send`(문의 `ANSWERED`) 연결. 메일로 접수한 문의는 `link_origin`으로 원 메일을 기록하고, 연결된 회신(`replies_for`)으로 문의를 다시 연다. 받는 사람은 원 메일의 보낸 사람에서 정한다
+- KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26(`platform/20261030_KAN-110_mail_link_notify.sql`)·C13(`cs/20261030_KAN-110_customer_mail.sql`) 마이그레이션(C12 `KAN-194_checkpoint_schema`는 메일 연결과 무관), 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
+- `register-ticket`의 웹 중계와 화면(KAN-132)
 - 회신 검토 API의 웹 중계와 화면(KAN-132)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 수집한 메일을 C/S 문의로 바꾸는 연결(KAN-110, 분류 추천은 위 KAN-73 절)
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

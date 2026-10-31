@@ -12,6 +12,7 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
+from backend.api.platform.jobs.cs import CsJobSettings
 from backend.api.platform.jobs.dispatch import (
     DispatchLease,
     DispatchSettings,
@@ -20,6 +21,7 @@ from backend.api.platform.jobs.dispatch import (
     record_result,
     require_local,
 )
+from backend.api.platform.jobs.tft import TftJobSettings
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
@@ -36,6 +38,24 @@ class CloudRunJobsSettings(BaseSettings):
     timeout_seconds: float = Field(default=10, ge=0.1, le=60)
 
 
+class CsWorkerJobSettings(BaseSettings):
+    """C/S 처리 worker Job(KAN-194). 프로젝트·리전·시간 제한은 CloudRunJobsSettings를 쓰며 기본 비활성이다."""
+
+    model_config = SettingsConfigDict(env_prefix="CS_WORKER_JOBS_", extra="ignore")
+    enabled: bool = False
+    job: str = Field(default="cs-worker", pattern=r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+    container: str = Field(default="worker", pattern=r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+
+
+class TftWorkerJobSettings(BaseSettings):
+    """RFP 처리 worker Job(KAN-199). 프로젝트·리전·시간 제한은 CloudRunJobsSettings를 쓰며 기본 비활성이다."""
+
+    model_config = SettingsConfigDict(env_prefix="TFT_WORKER_JOBS_", extra="ignore")
+    enabled: bool = False
+    job: str = Field(default="tft-worker", pattern=r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+    container: str = Field(default="worker", pattern=r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+
+
 @dataclass(frozen=True)
 class DeliveryResult:
     """외부 본문 대신 저장하는 전송 결과와 제한된 operation 식별자."""
@@ -49,6 +69,8 @@ def require_transport(
     access: EvaluationAccessSettings,
     dispatch: DispatchSettings,
     jobs: CloudRunJobsSettings,
+    cs: CsJobSettings | None = None,
+    tft: TftJobSettings | None = None,
 ) -> None:
     """운영 잠금과 전송 제한 시간을 확인한다.
 
@@ -57,22 +79,27 @@ def require_transport(
         access: 합성 평가 허용 설정.
         dispatch: 전송 장부 설정.
         jobs: 고정 Job과 전송 시간 제한.
+        cs: C/S 접수 설정(C/S 전송에만).
+        tft: RFP 접수 설정(RFP 전송에만).
 
     Returns:
-        None: local/test의 명시적 허용과 lease보다 짧은 전송 제한일 때 반환한다.
+        None: 명시적 허용과 lease보다 짧은 전송 제한일 때 반환한다.
     """
-    require_local(settings, access, dispatch)
+    require_local(settings, access, dispatch, cs, tft)
     if not jobs.enabled or jobs.timeout_seconds + 1 >= dispatch.lease_seconds:
         raise ApplicationError(403, "JOBS_TRANSPORT_DISABLED", "Jobs transport is disabled.")
 
 
-def classify_response(status: int, body: bytes, jobs: CloudRunJobsSettings) -> DeliveryResult:
+def classify_response(
+    status: int, body: bytes, jobs: CloudRunJobsSettings, job: str | None = None
+) -> DeliveryResult:
     """완전한 제한 크기 JSON만 해석하고 미확인 결과를 UNKNOWN으로 보존한다.
 
     Args:
         status: 고정 Google API의 HTTP 상태.
         body: 제한 크기로 읽은 응답.
         jobs: operation의 프로젝트·리전 검증 기준.
+        job: 실행 이름 검증에 쓸 Job 이름. None이면 평가 Job(jobs.job)이다.
 
     Returns:
         DeliveryResult: 접수 확인·명확한 미접수·불명확 중 하나.
@@ -112,9 +139,7 @@ def classify_response(status: int, body: bytes, jobs: CloudRunJobsSettings) -> D
         return DeliveryResult("UNKNOWN", name)
     if value.get("done") is True:
         execution = value.get("response")
-        execution_prefix = (
-            f"projects/{jobs.project_number}/locations/{jobs.region}/jobs/{jobs.job}/executions/"
-        )
+        execution_prefix = f"projects/{jobs.project_number}/locations/{jobs.region}/jobs/{job or jobs.job}/executions/"
         if (
             not isinstance(execution, dict)
             or execution.get("@type") != "type.googleapis.com/google.cloud.run.v2.Execution"
@@ -136,32 +161,49 @@ async def send_job(
     token: SecretStr,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    cs: CsJobSettings | None = None,
+    cs_worker: CsWorkerJobSettings | None = None,
+    tft: TftJobSettings | None = None,
+    tft_worker: TftWorkerJobSettings | None = None,
 ) -> DeliveryResult:
     """고정 Jobs API에 재시도 없이 한 번 POST하고 결과만 반환한다.
 
+    작업 종류마다 Job·컨테이너·환경이 다르다. 평가는 jobs.job에 EVALUATION_RUN_ID=run_id, C/S는 cs_worker.job에
+    CS_JOB_ID=job_id, RFP(rfp.*)는 tft_worker.job에 TFT_JOB_ID=job_id다.
+
     Args:
-        settings: local/test 실행 환경.
+        settings: 실행 환경.
         access: 합성 평가 허용 설정.
         dispatch: 전송 장부 설정.
         jobs: 고정 Job과 전체 요청 시간 제한.
         lease: SENDING commit이 확인된 전송 식별자.
         token: 서버의 OAuth access token. 브라우저나 worker 토큰이 아니다.
         transport: 검사에서만 사용하는 합성 HTTP 전송기.
+        cs: C/S 접수 설정(C/S 작업에만).
+        cs_worker: C/S worker Job 설정(C/S 작업에만, 켜져 있어야 한다).
+        tft: RFP 접수 설정(RFP 작업에만).
+        tft_worker: RFP worker Job 설정(RFP 작업에만, 켜져 있어야 한다).
 
     Returns:
         DeliveryResult: timeout·단절·잘못된 응답은 UNKNOWN이며 자동 재시도하지 않는다.
     """
-    require_transport(settings, access, dispatch, jobs)
-    url = f"https://run.googleapis.com/v2/projects/{jobs.project_number}/locations/{jobs.region}/jobs/{jobs.job}:run"
+    require_transport(settings, access, dispatch, jobs, cs, tft)
+    if lease.kind != "evaluation.run":
+        target, name = (
+            (cs_worker, "CS_JOB_ID") if lease.kind == "cs.analyze" else (tft_worker, "TFT_JOB_ID")
+        )
+        if target is None or not target.enabled:
+            raise ValueError("Worker Job is not configured")
+        job, container = target.job, target.container
+        env = {"name": name, "value": str(lease.job_id)}
+    else:
+        job, container = jobs.job, jobs.container
+        env = {"name": "EVALUATION_RUN_ID", "value": str(lease.run_id)}
+    url = f"https://run.googleapis.com/v2/projects/{jobs.project_number}/locations/{jobs.region}/jobs/{job}:run"
     body = {
         "overrides": {
             "taskCount": 1,
-            "containerOverrides": [
-                {
-                    "name": jobs.container,
-                    "env": [{"name": "EVALUATION_RUN_ID", "value": str(lease.run_id)}],
-                }
-            ],
+            "containerOverrides": [{"name": container, "env": [env]}],
         }
     }
     try:
@@ -191,7 +233,7 @@ async def send_job(
                         if len(chunks) + len(chunk) > 65536:
                             return DeliveryResult("UNKNOWN")
                         chunks.extend(chunk)
-                    return classify_response(response.status_code, bytes(chunks), jobs)
+                    return classify_response(response.status_code, bytes(chunks), jobs, job)
     except (httpx.HTTPError, TimeoutError):
         return DeliveryResult("UNKNOWN")
 
@@ -204,8 +246,15 @@ async def dispatch_one(
     token_provider: Callable[[], Awaitable[SecretStr]],
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    cs: CsJobSettings | None = None,
+    cs_worker: CsWorkerJobSettings | None = None,
+    tft: TftJobSettings | None = None,
+    tft_worker: TftWorkerJobSettings | None = None,
 ) -> DeliveryResult | None:
     """인증 준비 뒤 한 건을 확보하고 전송 시작 commit 뒤 DB 밖에서 전달한다.
+
+    C/S·RFP 작업은 그 owner의 접수 설정과 켜진 worker Job 설정을 모두 받았을 때만 확보한다. 둘 중 하나가 없으면
+    그 행은 PENDING으로 남는다.
 
     Args:
         settings: 로컬 DB·환경 설정.
@@ -214,11 +263,17 @@ async def dispatch_one(
         jobs: 고정 Job과 요청 시간 제한.
         token_provider: 서버 OAuth 공급자. 실제 ADC 연결은 별도 운영 단위다.
         transport: 테스트의 합성 HTTP 전송기.
+        cs: C/S 접수 설정.
+        cs_worker: C/S worker Job 설정.
+        tft: RFP 접수 설정.
+        tft_worker: RFP worker Job 설정.
 
     Returns:
         DeliveryResult | None: 저장한 전송 결과 또는 확보/시작 가능한 작업 없음.
     """
-    require_transport(settings, access, dispatch, jobs)
+    cs = cs if cs_worker is not None and cs_worker.enabled else None
+    tft = tft if tft_worker is not None and tft_worker.enabled else None
+    require_transport(settings, access, dispatch, jobs, cs, tft)
     # 인증 획득 실패는 전송 전이므로 장부를 확보하지 않는다.
     try:
         async with asyncio.timeout(5):
@@ -233,10 +288,24 @@ async def dispatch_one(
         raise ApplicationError(
             503, "JOBS_AUTH_UNAVAILABLE", "Jobs authentication unavailable."
         ) from None
-    lease = await claim_next(settings, access, dispatch)
-    if lease is None or not await begin_send(settings, access, dispatch, lease):
+    lease = await claim_next(settings, access, dispatch, cs, tft)
+    if lease is None or not await begin_send(settings, access, dispatch, lease, cs, tft):
         return None
-    result = await send_job(settings, access, dispatch, jobs, lease, token, transport=transport)
+    result = await send_job(
+        settings,
+        access,
+        dispatch,
+        jobs,
+        lease,
+        token,
+        transport=transport,
+        cs=cs,
+        cs_worker=cs_worker,
+        tft=tft,
+        tft_worker=tft_worker,
+    )
     # 저장 실패는 호출자에게 전파하고 SENDING 만료 후 UNKNOWN으로 복구한다.
-    await record_result(settings, access, dispatch, lease, result.outcome, result.operation_name)
+    await record_result(
+        settings, access, dispatch, lease, result.outcome, result.operation_name, cs, tft
+    )
     return result

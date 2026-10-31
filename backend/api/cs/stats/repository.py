@@ -1,12 +1,15 @@
 """Aggregate queries over stored C/S records. Null filters match everything."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, get_args
 from uuid import UUID
 
 from psycopg import AsyncConnection
 
+from backend.api.cs.tickets.schemas import WorkflowState
+
 Row = dict[str, Any]
+STATES = get_args(WorkflowState)
 
 # Tickets after the department, customer and owner filters, with their current state.
 BASE = """
@@ -163,8 +166,10 @@ async def owners(conn: AsyncConnection[Row], p: Row) -> list[Row]:
         BASE + "SELECT owner_user_id, "
         f"count(*) FILTER (WHERE {RECEIVED}) AS received, "
         f"count(*) FILTER (WHERE closed_at IS NOT NULL AND {CLOSED}) AS closed, "
-        "count(*) FILTER (WHERE state <> 'CLOSED') AS open "
-        "FROM base GROUP BY owner_user_id "
+        "count(*) FILTER (WHERE state <> 'CLOSED') AS open, "
+        # Current state of each owned ticket, whenever received (like `open`).
+        + ", ".join(f"count(*) FILTER (WHERE state = '{s}') AS state_{s.lower()}" for s in STATES)
+        + " FROM base GROUP BY owner_user_id "
         f"HAVING count(*) FILTER (WHERE {RECEIVED}) > 0 "
         f"OR count(*) FILTER (WHERE closed_at IS NOT NULL AND {CLOSED}) > 0 "
         "OR count(*) FILTER (WHERE state <> 'CLOSED') > 0 "

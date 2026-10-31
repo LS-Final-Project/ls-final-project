@@ -4,13 +4,14 @@ import asyncio
 import hmac
 import re
 from collections.abc import Awaitable, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from requests.exceptions import RequestException
 from starlette.responses import Response
 
+from backend.api.platform.assignees.routes import validate_owner
 from backend.api.platform.auth.context import load_session_principal
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, configuration, csrf_token
 from backend.shared.access import PRINCIPAL_HEADER
@@ -20,18 +21,54 @@ from backend.shared.service_auth import CALLER_HEADER, metadata_token
 REQUEST_LIMIT = 1024 * 1024
 RESPONSE_LIMIT = 8 * 1024 * 1024
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+# 파일이 지나가는 두 경로만 위 한도와 JSON 규칙의 예외다. 인증·CSRF·Origin 검사는 같다.
+# 웹 frontend/server.mjs의 uploadPath·downloadPath와 같아야 한다.
+FILE_LIMIT = 26 * 1024 * 1024
+FILE_TYPES = frozenset(
+    (
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+)
+UPLOAD_PATH = re.compile(rf"/api/v1/tft/projects/{UUID_PATH}/documents")
+DOWNLOAD_PATH = re.compile(
+    rf"(?:/api/v1/tft/documents/{UUID_PATH}/file|/api/v1/tft/projects/{UUID_PATH}/draft/exports/{UUID_PATH}/file)"
+)
 # 디코드한 경로에서 검사한다. C/S 입력과 같은 고객 ID 규약이라 ?·#·/와 .·.. 세그먼트가
 # upstream URL을 바꾸지 못한다.
 CUSTOMER_PATH = CUSTOMER_ID
 # 조건 비교 근거 ID. 같은 이유로 첫 글자는 영숫자다(.·.. 세그먼트 차단).
 EVIDENCE_PATH = EVIDENCE_ID
+# Department codes (backend/shared/departments.py): upper-case code, no path separators.
+DEPT_PATH = r"[A-Z][A-Z0-9_]{0,63}"
 # (경로 틀, 허용 메서드, 허용 query 키). 웹 frontend/server.mjs의 businessRoutes와 같아야 하며
 # 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만
 # 적용한다. 변경 메서드의 query는 경로와 상관없이 400이다(relay()의 query 검사).
 BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    ("/api/v1/cs/tickets", ("GET", "POST"), ("limit", "cursor")),
+    (
+        "/api/v1/cs/tickets",
+        ("GET", "POST"),
+        (
+            "limit",
+            "cursor",
+            "state",
+            "channel",
+            "product_code",
+            "customer",
+            "owner",
+            "received_from",
+            "received_to",
+            "q",
+            "sort",
+            "dept",
+            "transfer_status",
+        ),
+    ),
     ("/api/v1/cs/tickets/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/cs/tickets/{uuid}/audit", ("GET",), ()),
+    ("/api/v1/cs/tickets/{uuid}/analysis", ("GET", "POST"), ()),
+    ("/api/v1/cs/tickets/{uuid}/analysis/corrections", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/summary", ("GET", "POST"), ()),
     ("/api/v1/cs/tickets/{uuid}/units", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/unit-history", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/units/{uuid}", ("PUT",), ()),
@@ -45,15 +82,32 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets/{uuid}/workflow/dept-results/{uuid}/review", ("POST",), ()),
     ("/api/v1/cs/tickets/{uuid}/workflow/close", ("POST",), ()),
     ("/api/v1/cs/tickets/{uuid}/workflow/owner", ("PUT",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/return-subtype", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/send", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/refresh", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/retry", ("POST",), ()),
     ("/api/v1/cs/stats/overview", ("GET",), ("start", "end", "dept", "customer")),
     ("/api/v1/cs/stats/owners", ("GET",), ("start", "end", "dept")),
     ("/api/v1/cs/stats/customers/{customer}", ("GET",), ("start", "end")),
-    ("/api/v1/cs/improvement-requests", ("GET", "POST"), ()),
+    ("/api/v1/cs/improvement-candidates", ("GET",), ("as_of", "outcome")),
+    ("/api/v1/cs/improvement-candidates/collect", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests", ("GET", "POST"), ("status", "request_type", "dept")),
     ("/api/v1/cs/improvement-requests/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/versions", ("GET",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/evidence", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/owner", ("PUT",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/review", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/send", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/followup-plan", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/complete", ("POST",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/followup-signals", ("GET",), ("as_of",)),
+    ("/api/v1/cs/improvement-requests/{uuid}/rounds", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison", ("GET", "POST"), ("version",)),
     ("/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements", ("POST",), ()),
     (
@@ -62,17 +116,74 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         (),
     ),
     ("/api/v1/cs/condition-comparisons", ("GET",), ("product_code", "fault_id", "version")),
-    ("/api/v1/tft/projects", ("GET",), ("limit", "cursor")),
-    ("/api/v1/tft/projects/{uuid}", ("GET",), ()),
+    (
+        "/api/v1/tft/projects",
+        ("GET", "POST"),
+        ("limit", "cursor", "output_status", "judgement_status", "q"),
+    ),
+    ("/api/v1/tft/projects/{uuid}", ("GET", "PATCH"), ()),
+    ("/api/v1/tft/projects/{uuid}/assignment", ("PATCH",), ()),
+    ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),
+    ("/api/v1/tft/documents/{uuid}", ("GET",), ()),
+    ("/api/v1/tft/documents/{uuid}/file", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft", ("GET", "PATCH"), ("version",)),
+    ("/api/v1/tft/projects/{uuid}/draft/rewrite", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/review-versions", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/exports", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file", ("GET",), ()),
+    ("/api/v1/tft/documents/{uuid}/clauses", ("GET",), ("parent", "limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
+    (
+        "/api/v1/tft/projects/{uuid}/requirements",
+        ("GET",),
+        (
+            "limit",
+            "cursor",
+            "document_version_id",
+            "equipment",
+            "task",
+            "necessity",
+            "status",
+            "needs_rereview",
+            "needs_review",
+            "has_open_question",
+            "next_owner_field",
+            "unresolved_mandatory",
+        ),
+    ),
+    ("/api/v1/tft/requirements/{uuid}", ("GET",), ()),
+    ("/api/v1/tft/requirements/{uuid}/comparison", ("GET",), ()),
+    ("/api/v1/tft/requirements/{uuid}/supplement-options", ("GET",), ()),
+    ("/api/v1/tft/requirements/{uuid}/supplement-selection", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/partner-candidates", ("GET",), ("requirement_id",)),
+    (
+        "/api/v1/tft/projects/{uuid}/questions",
+        ("GET", "POST"),
+        ("status", "requirement_id", "target", "target_dept"),
+    ),
+    ("/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm", ("POST",), ()),
+    ("/api/v1/tft/questions/{uuid}/reply", ("POST",), ()),
+    (
+        "/api/v1/tft/projects/{uuid}/proposals",
+        ("GET", "POST"),
+        ("status", "origin", "requirement_id"),
+    ),
+    ("/api/v1/tft/proposals/{uuid}/approve", ("POST",), ()),
+    ("/api/v1/tft/proposals/{uuid}/reject", ("POST",), ()),
 )
-_PLACEHOLDERS = {"{uuid}": UUID_PATH, "{customer}": CUSTOMER_PATH, "{evidence}": EVIDENCE_PATH}
+_PLACEHOLDERS = {
+    "{uuid}": UUID_PATH,
+    "{customer}": CUSTOMER_PATH,
+    "{evidence}": EVIDENCE_PATH,
+    "{dept}": DEPT_PATH,
+}
+# 분리 정규식은 _PLACEHOLDERS 키에서 만든다. 손으로 쓴 목록에 {dept}가 빠져 부서 경로 5개가 늘 404였다(KAN-116).
+_SPLIT = re.compile("(" + "|".join(re.escape(key) for key in _PLACEHOLDERS) + ")")
 _COMPILED = [
     (
         re.compile(
-            "".join(
-                _PLACEHOLDERS.get(part, re.escape(part))
-                for part in re.split(r"(\{uuid\}|\{customer\}|\{evidence\})", template)
-            )
+            "".join(_PLACEHOLDERS.get(part, re.escape(part)) for part in _SPLIT.split(template))
         ),
         set(methods),
         set(query),
@@ -146,20 +257,34 @@ def forward(method: str, url: str, headers: dict[str, str], body: bytes) -> Resp
             allow_redirects=False,
             stream=True,
         ) as upstream:
-            content_type = upstream.headers.get("Content-Type", "")
+            content_type = upstream.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            is_file = (
+                method == "GET"
+                and upstream.status_code == 200
+                and content_type in FILE_TYPES
+                and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+            )
             if 300 <= upstream.status_code < 400 or (
-                upstream.status_code != 204
-                and content_type.split(";", 1)[0].strip().lower() != "application/json"
+                upstream.status_code != 204 and content_type != "application/json" and not is_file
             ):
                 raise HTTPException(503)
             chunks = []
             size = 0
             for chunk in upstream.iter_content(65536):
                 size += len(chunk)
-                if size > RESPONSE_LIMIT:
+                if size > (FILE_LIMIT if is_file else RESPONSE_LIMIT):
                     raise HTTPException(503)
                 chunks.append(chunk)
             outgoing = {"Cache-Control": "no-store", "Content-Type": "application/json"}
+            if is_file:
+                disposition = upstream.headers.get("Content-Disposition", "")
+                outgoing |= {
+                    "Content-Type": content_type,
+                    "Content-Disposition": disposition
+                    if disposition.startswith("attachment;")
+                    else "attachment",
+                    "X-Content-Type-Options": "nosniff",
+                }
             for name in ("ETag", "X-Request-ID"):
                 if name in upstream.headers:
                     outgoing[name] = upstream.headers[name]
@@ -243,6 +368,7 @@ async def relay(request: Request, path: str) -> Response:
     if origin and origin != auth.app_origin.rstrip("/"):
         raise HTTPException(403)
     token = request.cookies.get(SESSION_COOKIE)
+    upload = request.method == "POST" and UPLOAD_PATH.fullmatch(path) is not None
     if request.method != "GET":
         if origin != auth.app_origin.rstrip("/"):
             raise HTTPException(403)
@@ -250,9 +376,8 @@ async def relay(request: Request, path: str) -> Response:
             request.headers.get(CSRF_HEADER, "").encode(), csrf_token(token).encode()
         ):
             raise HTTPException(403)
-        if (
-            request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            != "application/json"
+        if request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != (
+            "multipart/form-data" if upload else "application/json"
         ):
             raise HTTPException(415)
     principal = await load_session_principal(settings, token)
@@ -263,9 +388,15 @@ async def relay(request: Request, path: str) -> Response:
     size = 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > REQUEST_LIMIT:
+        if size > (FILE_LIMIT if upload else REQUEST_LIMIT):
             raise HTTPException(413)
         chunks.append(chunk)
+    body = b"".join(chunks)
+    if request.method == "PUT" and re.fullmatch(
+        rf"/api/v1/cs/(?:tickets/{UUID_PATH}/workflow|improvement-requests/{UUID_PATH})/owner",
+        path,
+    ):
+        await validate_owner(settings, principal, body)
     target = (
         settings.business_cs_url if path.startswith("/api/v1/cs/") else settings.business_tft_url
     )
@@ -281,12 +412,13 @@ async def relay(request: Request, path: str) -> Response:
         if name in request.headers:
             outgoing[name] = request.headers[name]
     if request.method != "GET":
-        outgoing["Content-Type"] = "application/json"
+        # 경계값이 든 원래 형식을 그대로 넘긴다. 위에서 multipart/form-data임을 확인했다.
+        outgoing["Content-Type"] = request.headers["Content-Type"] if upload else "application/json"
     query = "?" + urlencode(pairs) if pairs else ""
     return await asyncio.to_thread(
         request.app.state.business_forwarder,
         request.method,
         target + path + query,
         outgoing,
-        b"".join(chunks),
+        body,
     )

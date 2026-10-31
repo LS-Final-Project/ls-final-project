@@ -1,7 +1,8 @@
 {
-  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다.",
+  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다. dept_pattern은 부서 코드(KAN-116 개선요청 부서 동작)로 relay.py DEPT_PATH와 server.mjs placeholders의 {dept}가 같아야 한다.",
   "customer_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
   "evidence_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+  "dept_pattern": "[A-Z][A-Z0-9_]{0,63}",
   "routes": [
     {
       "path": "/api/v1/cs/tickets",
@@ -11,7 +12,18 @@
       ],
       "query": [
         "limit",
-        "cursor"
+        "cursor",
+        "state",
+        "channel",
+        "product_code",
+        "customer",
+        "owner",
+        "received_from",
+        "received_to",
+        "q",
+        "sort",
+        "dept",
+        "transfer_status"
       ]
     },
     {
@@ -26,6 +38,29 @@
       "path": "/api/v1/cs/tickets/{uuid}/audit",
       "methods": [
         "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis/corrections",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/summary",
+      "methods": [
+        "GET",
+        "POST"
       ],
       "query": []
     },
@@ -121,6 +156,34 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/return-subtype",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/refresh",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/retry",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/stats/overview",
       "methods": [
         "GET"
@@ -154,12 +217,33 @@
       ]
     },
     {
+      "path": "/api/v1/cs/improvement-candidates",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "as_of",
+        "outcome"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/improvement-requests",
       "methods": [
         "GET",
         "POST"
       ],
-      "query": []
+      "query": [
+        "status",
+        "request_type",
+        "dept"
+      ]
     },
     {
       "path": "/api/v1/cs/improvement-requests/{uuid}",
@@ -198,19 +282,81 @@
       "query": []
     },
     {
-      "path": "/api/v1/tft/projects",
+      "path": "/api/v1/cs/improvement-requests/{uuid}/review",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-plan",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/complete",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-signals",
       "methods": [
         "GET"
       ],
       "query": [
-        "limit",
-        "cursor"
+        "as_of"
       ]
     },
     {
-      "path": "/api/v1/tft/projects/{uuid}",
+      "path": "/api/v1/cs/improvement-requests/{uuid}/rounds",
       "methods": [
-        "GET"
+        "POST"
       ],
       "query": []
     },
@@ -221,17 +367,6 @@
         "POST"
       ],
       "query": [
-        "version"
-      ]
-    },
-    {
-      "path": "/api/v1/cs/condition-comparisons",
-      "methods": [
-        "GET"
-      ],
-      "query": [
-        "product_code",
-        "fault_id",
         "version"
       ]
     },
@@ -248,13 +383,356 @@
         "POST"
       ],
       "query": []
+    },
+    {
+      "path": "/api/v1/cs/condition-comparisons",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code",
+        "fault_id",
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "cursor",
+        "judgement_status",
+        "limit",
+        "output_status",
+        "q"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/assignment",
+      "methods": [
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/documents",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/file",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/rewrite",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/review-versions",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/clauses",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "parent",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/process",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/requirements",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "limit",
+        "cursor",
+        "document_version_id",
+        "equipment",
+        "task",
+        "necessity",
+        "status",
+        "needs_rereview",
+        "needs_review",
+        "has_open_question",
+        "next_owner_field",
+        "unresolved_mandatory"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/comparison",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/supplement-selection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/partner-candidates",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "requirement_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "status",
+        "requirement_id",
+        "target",
+        "target_dept"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/questions/{uuid}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/proposals",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "origin",
+        "requirement_id",
+        "status"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/proposals/{uuid}/approve",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/proposals/{uuid}/reject",
+      "methods": [
+        "POST"
+      ],
+      "query": []
     }
   ],
   "cases": [
     {
       "method": "GET",
+      "path": "/api/v1/tft/projects?output_status=INTAKE&q=abc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/proposals?status=PENDING",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/proposals/11111111-1111-4111-8111-111111111111/approve",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/proposals/11111111-1111-4111-8111-111111111111/reject",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/assignment",
+      "forward": true
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/cs/tickets?limit=1",
       "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW,TRANSFERRED&channel=EMAIL&q=leak&sort=received_at_asc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW&state=CLOSED",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?foo=bar",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=TS_LV&transfer_status=OPEN",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=TS_LV&dept=TS_MV",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates?as_of=2026-10-01T00%3A00%3A00Z&outcome=ELIGIBLE",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates?product_code=X",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT,SENT&request_type=FAULT&dept=TS_TRF",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT&status=SENT",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT",
+      "forward": false,
+      "status": 400
     },
     {
       "method": "GET",
@@ -620,6 +1098,173 @@
       "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/remove",
       "forward": false,
       "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/acknowledge",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/reply",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/action",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/resend",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/review-rejection",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/ts_lv/reply",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS%2FLV/reply",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/documents",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/clauses?limit=20&parent=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/process",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/requirements?status=SPEC_GAP&needs_rereview=true",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/comparison",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/supplement-options",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/supplement-selection",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/partner-candidates?requirement_id=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/22222222-2222-4222-8222-222222222222/confirm",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/questions/11111111-1111-4111-8111-111111111111/reply",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/file",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111?secret=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/not-a-uuid/documents",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?version=1",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/rewrite",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/rewrites/22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?secret=1",
+      "forward": false,
+      "status": 400
     }
   ]
 }

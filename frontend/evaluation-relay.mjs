@@ -7,12 +7,21 @@ const evaluations = '/api/v1/platform/evaluations';
 const readLists = new Set([`${evaluations}/policy`, `${evaluations}/experiments`, `${evaluations}/runs`]);
 
 /**
+ * 작업 상태·SSE 경로만 식별한다. RFP·C/S 처리 접수의 status_url이 가리키는 곳이고, 접근은 플랫폼이 owner별로 검사한다.
+ * Args: path는 디코딩된 URL 경로다.
+ * Returns: 작업 상태·SSE 경로일 때만 true.
+ */
+export function jobStatusPath(path) {
+  return jobPath.test(path);
+}
+
+/**
  * 평가 작업의 고정 읽기 경로만 식별한다.
  * Args: path는 디코딩된 URL 경로, method는 요청 메서드다.
- * Returns: 상태·SSE·실행 집계와 정책·목록 GET일 때만 true.
+ * Returns: 상태·SSE·실행 집계·사례별 시도와 정책·목록 GET일 때만 true.
  */
 export function evaluationReadPath(path, method = 'GET') {
-  return jobPath.test(path) || /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/summary$/.test(path)
+  return jobPath.test(path) || /^\/api\/v1\/platform\/evaluations\/runs\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(summary|cases)$/.test(path)
     || (method === 'GET' && readLists.has(path));
 }
 
@@ -121,7 +130,11 @@ export async function relayEvaluationRead(request, response, { path, searchParam
   if (!path.endsWith('/events') && (request.headers['transfer-encoding'] || Number(request.headers['content-length'] || 0) !== 0)) return fail(413, 'REQUEST_TOO_LARGE');
   const stream = path.endsWith('/events');
   const pairs = [...searchParams];
-  if (pairs.length && (!stream || pairs.length !== 1 || pairs[0][0] !== 'after' || pairs[0][1].length > 64)) return fail(400, 'INVALID_EVENT_CURSOR');
+  // 사례별 시도(/cases)는 cursor·limit을 한 번씩만 넘긴다(KAN-139 4차). 그 밖의 읽기는 SSE after 하나뿐이다.
+  if (path.endsWith('/cases')) {
+    const keys = pairs.map(([key]) => key);
+    if (new Set(keys).size !== keys.length || pairs.some(([key, value]) => !['cursor', 'limit'].includes(key) || value.length > 64)) return fail(400, 'BAD_REQUEST');
+  } else if (pairs.length && (!stream || pairs.length !== 1 || pairs[0][0] !== 'after' || pairs[0][1].length > 64)) return fail(400, 'INVALID_EVENT_CURSOR');
   const lastEventId = request.headers['last-event-id'];
   if (lastEventId !== undefined && (typeof lastEventId !== 'string' || lastEventId.length > 64)) return fail(400, 'INVALID_EVENT_CURSOR');
 

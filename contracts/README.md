@@ -7,7 +7,12 @@
 | 변경 대상 | 직접 수정 | 명령으로 생성 |
 | --- | --- | --- |
 | C/S 문의 | backend/api/cs/tickets/schemas.py, routes.py, backend/api/cs/examples.py | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 개선요청 후보 규칙 | backend/engine/cs/improvement_candidates.py ([후보 규칙](cs/improvement-candidates.md)) | 없음(엔진, HTTP 계약 아님) |
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
+| TFT RFP 자사 대응 | backend/api/tft/rfp/schemas.py, routes.py ([데이터 구조](tft/rfp-data.md)) | docs/openapi/tft.json |
+| TFT RFP 조항 트리·편집 흔적 | backend/engine/rfp/clauses.py, edits.py ([조항 트리](tft/rfp-clauses.md)) | 없음(엔진, HTTP 계약 아님) |
+| TFT RFP 요구 추출 | backend/engine/rfp/requirements.py, scoring.py ([요구 추출](tft/rfp-requirements.md)) | 없음(엔진, HTTP 계약 아님) |
+| TFT RFP 작업 접수 | backend/api/platform/jobs/tft.py, infra/migrations/platform/20261029_KAN-182_tft_jobs.sql ([작업 접수](tft/rfp-jobs.md)) | 없음(내부 경로, OpenAPI 제외) |
 | 플랫폼 사용자 | backend/api/platform/auth/schemas.py, routes.py | docs/openapi/platform.json |
 | 프론트 연결 | frontend/src/api/cs.ts, tft.ts, platform.ts 중 해당 서비스 | frontend/src/api/generated/ 아래 해당 TypeScript 파일 |
 | HTTP 공통 형식 | backend/shared/models.py, errors.py, backend/api/common/ | 공통 변경은 3개 서비스 산출물에 영향 |

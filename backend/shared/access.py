@@ -36,6 +36,26 @@ class Principal(BaseModel):
         return not self.roles.isdisjoint(roles)
 
 
+def verify_platform_caller(request: Request) -> None:
+    """Accepts only the platform's runtime account, for calls that carry no user (KAN-110).
+
+    With the business relay enabled the caller token is required and verified; in local and
+    test environments there is no token to verify. Elsewhere the route does not exist.
+
+    Raises:
+        HTTPException: 404 when operational paths are off, 401 on a missing or wrong token,
+            503 when Google's signing keys cannot be fetched.
+    """
+    settings = request.app.state.settings
+    if settings.business_relay_enabled:
+        tokens = request.headers.getlist(CALLER_HEADER)
+        if len(tokens) != 1:
+            raise HTTPException(401)
+        request.app.state.platform_caller.verify(tokens[0])
+    elif settings.environment not in {"local", "test"}:
+        raise HTTPException(404)
+
+
 def current_principal(request: Request) -> Principal:
     """호출자 인증 이후에만 전달된 사용자 정보를 읽고 업무 조회 전에 검증한다.
 
@@ -48,14 +68,7 @@ def current_principal(request: Request) -> Principal:
     Raises:
         HTTPException: 비활성 운영 경로는 404, 맥락·호출자 위반은 401, 서명키 장애는 503.
     """
-    settings = request.app.state.settings
-    if settings.business_relay_enabled:
-        tokens = request.headers.getlist(CALLER_HEADER)
-        if len(tokens) != 1:
-            raise HTTPException(401)
-        request.app.state.platform_caller.verify(tokens[0])
-    elif settings.environment not in {"local", "test"}:
-        raise HTTPException(404)
+    verify_platform_caller(request)
     values = request.headers.getlist(PRINCIPAL_HEADER)
     if len(values) != 1 or len(values[0].encode()) > 8192:
         raise HTTPException(401)

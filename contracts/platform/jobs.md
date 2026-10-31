@@ -10,7 +10,7 @@
 python3 scripts/workspace.py migrate platform 20261025_KAN-69_job_admission.sql
 ```
 
-`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다.
+`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다. KAN-182가 `owner=tft`의 `rfp.process`·`rfp.export`·`rfp.annotate`를 등록했다([RFP 작업 접수 계약](../tft/rfp-jobs.md)). tft 작업은 내부 접수 경로로만 만들고, KAN-199부터 전송 의도와 작업 제어 행을 함께 만든다(처리기 연결 전에는 503으로 저장하지 않음). KAN-194가 `owner=cs`의 `cs.analyze`를 등록했다(아래 'KAN-194 C/S 처리 작업' 절). cs 작업도 내부 접수 경로로만 만들지만 평가처럼 전송 의도를 만든다.
 
 | 테이블 | 저장 단위와 제약 |
 | --- | --- |
@@ -184,3 +184,51 @@ python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
 
 검증은 합성 operation 응답(`httpx.MockTransport`)과 전용 PostgreSQL로 한정한다(`tests/platform/test_jobs_transport.py`, `tests/platform/test_dispatch_ledger.py`). 실제 Google 조회·IAM·공용 DB 적용은 운영 단계다.
 
+
+### KAN-194 C/S 처리 작업(cs.analyze) 접수 — 1/3
+
+- 저장: `owner='cs'`, `kind='cs.analyze'`, `route='/api/v1/cs/tickets/{ticket_id}/analysis'`(KAN-107 분석 경로와 같은 값), `subject_id`=문의 `cs.tickets.id`, `business_id`=작업 자신, `actor_id`=요청 사용자. DB CHECK `jobs_owner_kind_route`가 이 조합만 받는다. 같은 문의에 진행 중(QUEUED·RUNNING) 작업은 하나뿐이다(`jobs_cs_one_active`, 409 `CS_JOB_IN_PROGRESS`).
+- 내부 접수 `POST /internal/v1/platform/jobs/cs`는 기본 비활성(404)이다.
+  - 켜면 Authorization의 Google ID 토큰을 플랫폼 audience·cs 실행 계정(`CS_JOBS_INVOKER_EMAIL`)으로 다시 검증한다.
+  - 본문은 `{ticket_id, input_version(SHA-256), idempotency_key, requested_by}`이고 원문·프롬프트는 받지 않는다.
+  - 같은 사용자·경로·키의 재전송은 기존 작업(200)이다. 문의·입력 판본이 다르면 409 `IDEMPOTENCY_CONFLICT`다(비교 hash는 플랫폼이 계산한다).
+  - `CS_JOBS_PROCESSOR_CONNECTED`(기본 꺼짐) 전에는 저장하지 않고 503 `CS_PROCESSOR_NOT_CONNECTED`다.
+- 적용 순서: `20261031_KAN-194_cs_jobs.sql`(P28)은 `20261029_KAN-182_tft_jobs.sql`(P24) 뒤에 적용한다. `jobs_owner_kind_route`는 마지막 파일(P28)이 평가·tft·cs 합집합으로 정의하므로, P24를 다시 적용하면 P28도 이어서 다시 적용한다(cs 행이 있으면 P24 단독 재적용은 CHECK 추가가 실패한다).
+- 새 작업은 한 트랜잭션에서 `job.queued` 이벤트, 전송 의도(`dispatch_outbox`), 작업 제어 행(`runtime.job_control`)을 함께 만든다. 평가와 같고 tft(전송 의도 없음)와 다르다.
+- `runtime.job_control`은 범용 worker 소유권 표다.
+  - 열: generation·holder_id·lease_expires_at·version·cancel_requested_at·failure_code(고정 코드만).
+  - 평가 lease는 `evaluation.run_control`에 그대로 둔다.
+  - platform_app은 SELECT·INSERT, `cs_worker`는 SELECT와 generation·holder_id·lease_expires_at·version·failure_code UPDATE만 갖는다.
+- `cs_worker`(NOLOGIN) 역할
+  - 플랫폼 마이그레이션은 runtime 권한만 준다: jobs 조회 열과 status UPDATE, job_events 열 INSERT, job_control.
+  - cs 테이블과 checkpoint_cs 권한은 KAN-107의 cs 마이그레이션이 준다.
+  - 플랫폼·cs·checkpoint는 같은 Postgres DB(team4)의 스키마로 나뉜다는 전제다.
+- 전송 분기(kind별 대상 Job·환경 `CS_JOB_ID`)와 상태·SSE의 owner별 접근 검사는 2/3(아래 절), worker 진입점은 3/3에서 연결한다. 3/3 전까지 처리기 연결 설정을 켜지 않는다.
+
+### KAN-194 C/S 작업 전송 분기와 상태·SSE 접근 — 2/3
+
+- 전송 장부는 작업 종류마다 따로 연다(`dispatch.require_local`이 허용 종류 목록을 돌려준다).
+  - 평가(`evaluation.run`): 기존 평가 local 접수 조건 그대로.
+  - C/S(`cs.analyze`): local/test에서 `CS_JOBS_ENABLED`·`CS_JOBS_PROCESSOR_CONNECTED`가 모두 켜지고, Jobs 전송에서는 C/S worker Job 설정(`CS_WORKER_JOBS_ENABLED`, 기본 꺼짐)까지 받았을 때만.
+  - 허용 종류가 없으면 403 `DISPATCH_DISABLED`다. 허용되지 않은 종류의 행은 확보하지 않고 PENDING으로 둔다. C/S 설정을 넘기지 않는 기존 호출자(평가 smoke worker 등)는 평가만 다룬다.
+- 전송 직전 재검사(`begin_send`): C/S는 게이트, 작업 QUEUED·RUNNING, 취소 요청 없음, 살아 있는 worker lease(`runtime.job_control`) 없음을 본다. 아니면 그 시도는 BLOCKED다. 평가는 기존 승인 재검사 그대로다.
+- Jobs 호출(`send_job`): 프로젝트·리전·시간 제한은 공통(`EVALUATION_JOBS_*` 설정)이다.
+  - 평가: `EVALUATION_JOBS_JOB`·`CONTAINER`, 환경 `EVALUATION_RUN_ID`=실행 ID.
+  - C/S: `CS_WORKER_JOBS_JOB`(기본 `cs-worker`)·`CONTAINER`, 환경 `CS_JOB_ID`=작업 ID. 완료 operation의 실행 이름도 그 Job 기준으로 검증한다.
+- 상태 `GET /api/v1/platform/jobs/{job_id}`와 SSE `.../events`는 세션을 먼저 확인(없으면 401)한 뒤 작업 owner의 검사기로 보낸다(`status.CHECKERS`).
+  - platform: 기존 평가 규칙. 지정 평가자가 아니면 403, 평가 조건이 안 맞으면 404.
+  - cs: 요청 사용자 본인 또는 `cs_agent` 역할만. 아니면 404.
+  - 그 밖의 owner(tft 등)와 없는 작업: 404.
+  - SSE는 연결 중에도 배치마다 같은 검사를 다시 한다.
+- 응답 `data`는 owner로 구분한다(OpenAPI `JobStatusResponse`). C/S는 `CsJobStatus{job_id, ticket_id, owner:'cs', kind:'cs.analyze', status, version, last_event_sequence}`다. `version`은 `runtime.job_control.version`이다.
+- 이벤트 payload 허용 키(`EventPayload`): 기존 `state` 외에 `step`(smoke·classify·rules·retrieve·draft), `stage`(그래프 단계), `retried`·`recovered`(0 이상 정수), `classification_outcome`·`draft_outcome`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD). 모르는 키(오류 코드 등)는 버리고 SSE로 내지 않는다.
+- 검증은 전용 PostgreSQL과 합성 Jobs 응답으로 한정한다(`tests/platform/test_cs_job_runtime_db.py`).
+- 3/3: worker(`backend.agent.cs_worker`)의 인수·lease·취소·이벤트·실패 코드는 [C/S 그래프 계약](../cs/graph.md)의 'worker 실행' 절이다.
+
+### KAN-199 RFP 작업 전송 분기와 상태·SSE 접근 — 1/2
+
+- 전송: `require_local`의 허용 종류에 rfp.*(`rfp.process`·`rfp.export`·`rfp.annotate`)를 더했다. local/test에서 `TFT_JOBS_ENABLED`·`TFT_JOBS_PROCESSOR_CONNECTED`가 켜졌을 때만이고, Jobs 전송은 `TFT_WORKER_JOBS_ENABLED`까지 켜져야 한다. 전송 직전 재검사는 C/S와 같은 `runtime.job_control` 규칙(`worker_sendable`)이다. Jobs 호출은 `TFT_WORKER_JOBS_JOB`(기본 `tft-worker`)에 환경 `TFT_JOB_ID`=작업 ID다.
+- 상태·SSE: 검사기 표에 tft를 더했다. 요청 사용자 본인만 보고 그 밖은 404다(역할로 넓히지 않음). 응답은 `TftJobStatus`다.
+- 이벤트 payload: RFP 단계 `step`(parse·extract·search·compare·supplement·candidates·draft·export·annotate), `document_version_id`, `counts{requirements, proposals}`, 기존 `needs_review`.
+- 세부 규칙은 [RFP 작업 계약](../tft/rfp-jobs.md)이다. 검증은 `tests/platform/test_tft_job_runtime_db.py`다.
+- 2/2: worker(`backend.agent.tft_worker`, 역할 `tft_worker`·P29)와 처리 함수 등록 규약은 [RFP 작업 계약](../tft/rfp-jobs.md)의 'worker' 절이다. C/S·RFP worker는 소유권·이벤트 기록을 `backend/agent/job_runtime.py`로 공유한다.

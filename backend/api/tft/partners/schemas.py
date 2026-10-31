@@ -8,25 +8,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.engine.rfp.vocabulary import AttributeKey
+
 Scope = Literal["SUPPLY", "ASSEMBLY", "INSTALL", "TEST", "CALC", "TRAINING"]
-Attribute = Literal[
-    "form",
-    "rated_max_voltage",
-    "bil",
-    "short_time_withstand_current",
-    "rated_current",
-    "arc_resistant",
-    "internal_arc_classification",
-    "secondary_voltage",
-    "primary_voltage",
-    "rated_power",
-    "insulation_class",
-    "impedance",
-    "tap",
-    "forced_air_capacity_increase",
-    "protection_functions",
-    "arc_flash_reduction",
-]
+# 속성 어휘는 엔진 쪽 단일 원본(KAN-185)이다. 추출 요구의 attribute_key와 같은 목록이다.
+Attribute = AttributeKey
 
 
 class Strict(BaseModel):

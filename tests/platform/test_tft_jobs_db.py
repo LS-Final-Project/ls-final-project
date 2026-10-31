@@ -1,0 +1,200 @@
+"""KAN-182 tft 작업 내부 접수를 전용 PostgreSQL과 platform_app 계정으로 확인한다. 행은 합성이다."""
+
+from uuid import uuid4
+
+import psycopg
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from backend.api.platform.jobs.tft import TftJobSettings, configure_tft_jobs
+from backend.api.platform.main import create_app
+
+GOOD = {"Authorization": "Bearer good-caller"}
+URL = "/internal/v1/platform/jobs/tft"
+
+
+class FakeCaller:
+    """지정 tft 실행 계정 토큰만 통과시키는 합성 검증기."""
+
+    def verify(self, token):
+        if token != "good-caller":
+            raise HTTPException(401)
+
+
+def enabled(**changes):
+    values = {"processor_connected": True, **changes}
+    return TftJobSettings(
+        _env_file=None,
+        **values,
+        enabled=True,
+        service_url="https://platform.example.run.app",
+        invoker_email="tft-runtime@proj-test.iam.gserviceaccount.com",
+    )
+
+
+@pytest.fixture
+def client(settings, jobs_database):
+    app = create_app(settings=settings)
+    configure_tft_jobs(app, enabled(), caller=FakeCaller())
+    return TestClient(app)
+
+
+@pytest.fixture
+def body(jobs_database, registered_user):
+    value = {
+        "actor_id": str(registered_user[1]),
+        "kind": "rfp.process",
+        "project_id": str(uuid4()),
+        "input_version": "a" * 64,
+        "idempotency_key": str(uuid4()),
+        "request_hash": "b" * 64,
+    }
+    yield value
+    with psycopg.connect(jobs_database) as conn:
+        mine = "SELECT id FROM runtime.jobs WHERE actor_id=%s"
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(
+                f"DELETE FROM runtime.{table} WHERE job_id IN ({mine})", (value["actor_id"],)
+            )
+        conn.execute("DELETE FROM runtime.jobs WHERE actor_id=%s", (value["actor_id"],))
+
+
+def rows(dsn, actor):
+    with psycopg.connect(dsn) as conn:
+        return conn.execute(
+            "SELECT j.owner, j.kind, j.subject_id::text, j.status, "
+            "(SELECT count(*) FROM runtime.job_events e WHERE e.job_id=j.id), "
+            "(SELECT count(*) FROM runtime.dispatch_outbox o WHERE o.job_id=j.id), "
+            "(SELECT count(*) FROM runtime.job_control c WHERE c.job_id=j.id) "
+            "FROM runtime.jobs j WHERE j.actor_id=%s ORDER BY j.created_at",
+            (actor,),
+        ).fetchall()
+
+
+def test_disabled_route_is_closed(settings, jobs_database, body):
+    response = TestClient(create_app(settings=settings)).post(URL, json=body, headers=GOOD)
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer someone-else"}])
+def test_only_the_tft_caller_can_admit(client, jobs_database, body, headers):
+    assert client.post(URL, json=body, headers=headers).status_code == 401
+    assert rows(jobs_database, body["actor_id"]) == []
+
+
+def test_admission_stores_a_queued_job_with_dispatch_intent_and_control(
+    client, jobs_database, body
+):
+    sent = []
+
+    async def soon(app):
+        sent.append(app)
+
+    client.app.state.jobs_dispatch_soon = soon
+    first = client.post(URL, json=body, headers=GOOD)
+    assert first.status_code == 201
+    assert len(sent) == 1
+    data = first.json()["data"]
+    assert data["status_url"] == f"/api/v1/platform/jobs/{data['job_id']}"
+    assert (data["kind"], data["project_id"], data["created"]) == (
+        "rfp.process",
+        body["project_id"],
+        True,
+    )
+    # KAN-199: 전송 의도와 작업 제어 행을 함께 만든다(전송기는 종류별로 열린다).
+    assert rows(jobs_database, body["actor_id"]) == [
+        ("tft", "rfp.process", body["project_id"], "QUEUED", 1, 1, 1)
+    ]
+    replay = client.post(URL, json=body, headers=GOOD)
+    assert (replay.status_code, replay.json()["data"]["job_id"]) == (200, data["job_id"])
+    assert len(rows(jobs_database, body["actor_id"])) == 1
+
+
+@pytest.mark.parametrize(
+    "change", [{"request_hash": "c" * 64}, {"input_version": "d" * 64}, {"project_id": None}]
+)
+def test_same_key_with_different_content_conflicts(client, jobs_database, body, change):
+    assert client.post(URL, json=body, headers=GOOD).status_code == 201
+    other = {**body, **{k: v or str(uuid4()) for k, v in change.items()}}
+    response = client.post(URL, json=other, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (409, "IDEMPOTENCY_CONFLICT")
+
+
+def test_one_running_job_per_project(client, jobs_database, body):
+    assert client.post(URL, json=body, headers=GOOD).status_code == 201
+    export = {**body, "kind": "rfp.export", "idempotency_key": str(uuid4())}
+    response = client.post(URL, json=export, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (409, "TFT_JOB_IN_PROGRESS")
+    # 끝난 뒤에는 같은 프로젝트에 새 작업을 받는다.
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.jobs SET status='SUCCEEDED' WHERE subject_id=%s", (body["project_id"],)
+        )
+    assert client.post(URL, json=export, headers=GOOD).status_code == 201
+
+
+def test_unknown_kind_and_extra_fields_are_refused(client, body):
+    assert (
+        client.post(URL, json={**body, "kind": "evaluation.run"}, headers=GOOD).status_code == 422
+    )
+    assert client.post(URL, json={**body, "prompt": "x"}, headers=GOOD).status_code == 422
+
+
+def test_database_refuses_mixed_owner_and_kind(jobs_database, registered_user):
+    with psycopg.connect(jobs_database) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO runtime.jobs (id,owner,kind,business_id,subject_id,input_version,"
+                "actor_id,method,route,idempotency_key,request_hash) VALUES (%s,'tft',"
+                "'evaluation.run',%s,%s,%s,%s,'POST','/api/v1/platform/evaluations/runs',%s,%s)",
+                (uuid4(), uuid4(), uuid4(), "a" * 64, registered_user[1], "key-00001", "b" * 64),
+            )
+
+
+def test_tft_runtime_role_still_has_no_runtime_access(jobs_database):
+    with psycopg.connect(jobs_database) as conn:
+        if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='tft_app'").fetchone():
+            pytest.skip("tft_app 역할이 없는 검사 DB")
+        assert not conn.execute(
+            "SELECT has_table_privilege('tft_app', 'runtime.jobs', 'INSERT')"
+        ).fetchone()[0]
+
+
+def test_unregistered_actor_is_a_client_error(client, jobs_database, body):
+    response = client.post(URL, json={**body, "actor_id": str(uuid4())}, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (422, "JOB_ACTOR_UNKNOWN")
+
+
+def test_nothing_is_stored_before_the_processor_is_connected(settings, jobs_database, body):
+    # 저장하면 QUEUED가 남아 그 프로젝트가 계속 409로 잠긴다.
+    app = create_app(settings=settings)
+    configure_tft_jobs(app, enabled(processor_connected=False), caller=FakeCaller())
+    response = TestClient(app).post(URL, json=body, headers=GOOD)
+    assert (response.status_code, response.json()["error"]["code"]) == (
+        503,
+        "TFT_PROCESSOR_NOT_CONNECTED",
+    )
+    assert rows(jobs_database, body["actor_id"]) == []
+
+
+def test_caller_is_checked_before_the_body(settings, client):
+    assert client.post(URL, json={"kind": "x"}).status_code == 401
+    closed = TestClient(create_app(settings=settings))
+    assert closed.post(URL, json={"kind": "x"}, headers=GOOD).status_code == 404
+
+
+def test_rewrite_job_uses_its_own_route_and_same_key_replays(client, jobs_database, body):
+    rewrite = {**body, "kind": "rfp.draft_rewrite"}
+    result = client.post(URL, json=rewrite, headers=GOOD)
+    assert result.status_code == 201, result.text
+    replay = client.post(URL, json=rewrite, headers=GOOD)
+    assert (
+        replay.status_code == 200
+        and replay.json()["data"]["job_id"] == result.json()["data"]["job_id"]
+    )
+    with psycopg.connect(jobs_database) as conn:
+        row = conn.execute(
+            "SELECT kind,route FROM runtime.jobs WHERE id=%s", (result.json()["data"]["job_id"],)
+        ).fetchone()
+    assert row == ("rfp.draft_rewrite", "/api/v1/tft/projects/{project_id}/draft/rewrite")

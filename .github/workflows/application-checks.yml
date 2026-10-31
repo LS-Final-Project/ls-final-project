@@ -91,6 +91,34 @@ jobs:
       - if: matrix.service == 'platform'
         run: |
           docker run --rm --network=none --entrypoint python team4-evaluation-worker -c 'import os,subprocess; from eval.smoke import FakeProvider; assert os.getuid()==10001; assert FakeProvider().generate("synthetic")[0]; result=subprocess.run(["python","-m","backend.api.platform.evaluations.job_worker"],env=os.environ|{"EVALUATION_RUN_ID":"11111111-1111-4111-8111-111111111111"},capture_output=True,text=True,timeout=10); assert result.returncode!=0 and result.stderr.strip()=="SMOKE_WORKER_DISABLED"'
+      - name: Build C/S worker image
+        if: matrix.service == 'cs'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: cs-worker
+          build-args: SERVICE_NAME=cs
+          load: true
+          tags: team4-cs-worker
+          cache-from: type=gha,scope=backend-cs-worker
+          cache-to: type=gha,scope=backend-cs-worker,mode=max
+      - if: matrix.service == 'cs'
+        run: |
+          docker run --rm --network=none --entrypoint python team4-cs-worker -c 'import os,subprocess; from backend.agent.ticket_source_registry import policy_info_codes; assert os.getuid()==10001; assert policy_info_codes(); result=subprocess.run(["python","-m","backend.agent.cs_worker"],env=os.environ|{"CS_JOB_ID":"11111111-1111-4111-8111-111111111111"},capture_output=True,text=True,timeout=30); assert result.returncode!=0 and result.stderr.strip()=="CS_WORKER_DISABLED", result.stderr[-300:]'
+      - name: Build RFP worker image
+        if: matrix.service == 'tft'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: tft-worker
+          build-args: SERVICE_NAME=tft
+          load: true
+          tags: team4-tft-worker
+          cache-from: type=gha,scope=backend-tft-worker
+          cache-to: type=gha,scope=backend-tft-worker,mode=max
+      - if: matrix.service == 'tft'
+        run: |
+          docker run --rm --network=none --entrypoint python team4-tft-worker -c 'import os,subprocess; assert os.getuid()==10001; assert not os.path.exists("backend/api/platform") and not os.path.exists("backend/api/cs"); result=subprocess.run(["python","-m","backend.agent.tft_worker"],env=os.environ|{"TFT_JOB_ID":"11111111-1111-4111-8111-111111111111"},capture_output=True,text=True,timeout=30); assert result.returncode!=0 and result.stderr.strip()=="TFT_WORKER_DISABLED", result.stderr[-300:]'
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -114,7 +142,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test-only
@@ -142,7 +170,7 @@ jobs:
           cache-dependency-glob: uv.lock
           cache-suffix: ${{ github.job }}
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_mailbox_vault.py tests/platform/test_microsoft_oauth.py tests/platform/test_mailbox_http.py tests/platform/test_mailbox_browser.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_job_admission.py tests/platform/test_dispatch_ledger.py tests/platform/test_jobs_transport.py tests/platform/test_job_status.py tests/platform/test_job_events.py tests/platform/test_web_job_events.py tests/platform/test_evaluation_admission.py tests/platform/test_evaluation_lists_db.py tests/platform/test_smoke_worker.py tests/platform/test_cs_smoke_storage.py tests/platform/test_job_worker.py tests/platform/test_run_controls.py tests/platform/test_mail_graph.py tests/platform/test_mail_sync_db.py tests/platform/test_mail_triage_db.py tests/platform/test_mail_worker_db.py tests/platform/test_mail_send_db.py tests/platform/test_mail_send_worker_db.py tests/platform/test_mail_send_http_db.py tests/platform/test_mail_links_db.py tests/cs/test_units_db.py tests/cs/test_workflow_db.py tests/cs/test_workflow_cases_db.py tests/cs/test_improvements_db.py tests/cs/test_stats_db.py tests/cs/test_comparisons_db.py tests/cs/test_comparison_writes_db.py tests/cs/test_cs_search_index_db.py tests/tft/test_search_index_db.py
+      - run: uv run --frozen pytest -q tests/platform/test_authorization_store.py tests/platform/test_session_store.py tests/platform/test_mailbox_vault.py tests/platform/test_microsoft_oauth.py tests/platform/test_mailbox_http.py tests/platform/test_mailbox_browser.py tests/platform/test_login_http.py tests/platform/test_session_context.py tests/platform/test_business_relay.py tests/platform/test_assignees_db.py tests/platform/test_security_regression_index.py tests/platform/test_resilience_regression_index.py tests/cs/test_cs_full_flow_db.py tests/cs/test_cs_flow_regression_index.py tests/platform/test_job_resilience_db.py tests/platform/test_job_admission.py tests/platform/test_dispatch_ledger.py tests/platform/test_jobs_transport.py tests/platform/test_job_status.py tests/platform/test_job_events.py tests/platform/test_web_job_events.py tests/platform/test_evaluation_admission.py tests/platform/test_evaluation_lists_db.py tests/platform/test_evaluation_registration_db.py tests/platform/test_smoke_worker.py tests/platform/test_cs_smoke_storage.py tests/platform/test_job_worker.py tests/platform/test_run_controls.py tests/platform/test_mail_graph.py tests/platform/test_mail_sync_db.py tests/platform/test_mail_triage_db.py tests/platform/test_mail_worker_db.py tests/platform/test_mail_send_db.py tests/platform/test_mail_send_worker_db.py tests/platform/test_mail_send_http_db.py tests/platform/test_mail_links_db.py tests/platform/test_mail_intake_db.py tests/cs/test_customer_mail_db.py tests/cs/test_worker_source_db.py tests/cs/test_analysis_jobs_db.py tests/cs/test_analysis_db.py tests/cs/test_ticket_list_db.py tests/cs/test_summary_db.py tests/cs/test_units_db.py tests/cs/test_workflow_db.py tests/cs/test_workflow_cases_db.py tests/cs/test_improvements_db.py tests/cs/test_improvement_transitions_db.py tests/cs/test_improvement_followups_db.py tests/cs/test_stats_db.py tests/cs/test_comparisons_db.py tests/cs/test_comparison_writes_db.py tests/cs/test_cs_search_index_db.py tests/cs/test_graph_db.py tests/cs/test_cs_runner_db.py tests/cs/test_evidence_build_db.py tests/platform/test_eval_import_run_db.py tests/tft/test_search_index_db.py tests/tft/test_rfp_schema_db.py tests/tft/test_rfp_http_base_db.py tests/tft/test_rfp_routes_db.py tests/tft/test_rfp_jobs_db.py tests/tft/test_worker_processor_db.py tests/platform/test_tft_jobs_db.py tests/platform/test_cs_jobs_db.py tests/platform/test_cs_job_runtime_db.py tests/platform/test_cs_worker_db.py tests/platform/test_cs_analysis_e2e_db.py tests/platform/test_tft_job_runtime_db.py tests/platform/test_tft_worker_db.py tests/cs/test_index_docs_db.py
   infrastructure:
     needs: changes
     if: needs.changes.outputs.infrastructure == 'true'
@@ -200,10 +228,34 @@ jobs:
           cache-suffix: ${{ github.job }}
       - run: uv sync --frozen --python 3.12
       - run: uv run --frozen python scripts/check_backend.py eval
+  secrets:
+    # 키·토큰이 커밋에 섞였는지 모든 이력에서 본다(KAN-165). 변경 경로와 상관없이 늘 돈다. 출력은 값을 가린다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # 공식 릴리스 체크섬 파일과 GitHub 자산 digest가 일치한 값(2026-10-31 확인).
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan history for secrets
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1 \
+            --log-opts="--all" .
   required:
     name: Application result
     if: always()
-    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation]
+    needs: [changes, backend, frontend, auth-database, infrastructure, evaluation, secrets]
     runs-on: ubuntu-latest
     steps:
       - env:

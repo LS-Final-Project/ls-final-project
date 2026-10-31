@@ -21,7 +21,10 @@ Category = Literal[
     "RETURN",
 ]
 Urgency = Literal["SAFETY", "SITE_DOWN", "PROD_IMPACT", "COMMISSION", "DEADLINE", "NONE"]
-INPUT_VERSION = "cs-classification-input-v3"
+# v4(KAN-105 4차): PHONE 상담원 표기(Urgency: <값>)를 지우지 않고 제목·본문 전체를 넣는다. v3은 표기를 지우던
+# 판본이며 분석용 strip_phone_annotation=True일 때만 쓴다.
+INPUT_VERSION = "cs-classification-input-v4"
+INPUT_VERSION_STRIPPED = "cs-classification-input-v3"
 _PHONE_LABEL = r"(?<![\w*`-])[*_`]*Urgency[*_`]*[ \t]*[:：][ \t]*[*_`]*"
 _PHONE_ANNOTATION = re.compile(
     _PHONE_LABEL
@@ -71,7 +74,7 @@ class ClassificationInput(BaseModel):
 
 @dataclass(frozen=True)
 class PreparedInput:
-    """모델용 입력과 모델에 전달하지 않을 처리 판본·주석 제거 건수."""
+    """모델용 입력과 모델에 전달하지 않을 처리 판본·주석 제거 건수(분석용 옵션이 꺼져 있으면 0)."""
 
     payload: ClassificationInput
     version: str
@@ -91,13 +94,21 @@ def mask_contacts_and_serials(value: str) -> str:
 
 
 def build_input(
-    record: Mapping[str, object], *, sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]]
+    record: Mapping[str, object],
+    *,
+    sensitive_values: Mapping[str, Literal["SERIAL", "PERSONAL"]],
+    strip_phone_annotation: bool = False,
 ) -> PreparedInput:
-    """허용 필드만 복사하고 알려진 민감값·PHONE 정답 주석을 제거한다.
+    """허용 필드만 복사하고 알려진 민감값을 가린다. PHONE 상담원 표기는 기본으로 그대로 둔다.
+
+    실제 입력에도 상담원 표기가 들어오므로 제품·평가 모두 제목·본문 전체를 넣는다(사용자 결정 2026-10-29).
+    합성 데이터에서는 표기가 정답과 같아 PHONE 긴급도는 PHONE/비PHONE 분리 보고로 드러낸다.
 
     Args:
         record: 어댑터가 정규화한 문의. 추가 정답·사후 기록은 선택하지 않는다.
         sensitive_values: 어댑터가 식별한 원값과 마스킹 종류. 빈 집합도 명시해야 한다.
+        strip_phone_annotation: 분석용. True면 v3처럼 PHONE의 `Urgency: <값>` 표기를 지우고, 남은 변형 라벨은
+            CS_UNSUPPORTED_PHONE_ANNOTATION으로 보류하며, 판본은 INPUT_VERSION_STRIPPED다.
 
     Returns:
         PreparedInput: 정제 입력과 감사 메타데이터. 잘못된 입력은 안전한 ValueError다.
@@ -122,7 +133,7 @@ def build_input(
         value = values[field]
         if value is None:
             continue
-        if payload.channel == "PHONE":
+        if strip_phone_annotation and payload.channel == "PHONE":
             value, count = _PHONE_ANNOTATION.subn("", value)
             removed += count
             if _PHONE_UNSUPPORTED.search(value):
@@ -139,7 +150,8 @@ def build_input(
     # 주석만 있던 본문은 실행 가능한 문의로 취급하지 않는다.
     if not values["body"].strip():
         raise ValueError("CS_EMPTY_INPUT")
-    return PreparedInput(ClassificationInput.model_validate(values), INPUT_VERSION, removed)
+    version = INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION
+    return PreparedInput(ClassificationInput.model_validate(values), version, removed)
 
 
 class ClassificationOutput(BaseModel):
@@ -150,6 +162,8 @@ class ClassificationOutput(BaseModel):
     secondary_category: Category | None
     urgency_flag: Urgency
     provided_info: list[str]
+    # What the customer stated at intake (KAN-193). Not an inspection result: a person confirms
+    # the return reason later in the workflow, and the LLM value never counts as confirmed.
     return_subtype: Literal["DEFECT", "NON_DEFECT"] | None
 
     @model_validator(mode="after")

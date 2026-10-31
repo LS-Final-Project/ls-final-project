@@ -5,10 +5,10 @@ while it backs a request, and nothing here changes a ticket.
 """
 
 from datetime import date
-from typing import Any
+from typing import Any, get_args
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.api.cs.improvements import repository
 from backend.api.cs.improvements.next_owner import next_owners
@@ -26,7 +26,10 @@ from backend.api.cs.improvements.schemas import (
     RequestDepartment,
     RequestDetail,
     RequestList,
+    RequestRound,
+    RequestStatus,
     RequestSummary,
+    RequestType,
     RequestUpdate,
     RequestVersion,
     RequestVersionList,
@@ -36,7 +39,7 @@ from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.engine.cs.rules import RuleInputError, product_family
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
-from backend.shared.departments import CS_DEPARTMENT
+from backend.shared.departments import CS_DEPARTMENT, TransferDepartment
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, SuccessResponse
 
@@ -53,6 +56,21 @@ router = APIRouter(
 )
 
 Row = dict[str, Any]
+
+
+STATUSES = frozenset(get_args(RequestStatus))
+
+
+def parse_statuses(value: str | None) -> list[str] | None:
+    """Comma-separated request statuses. Unknown or empty parts are a 400, not ignored."""
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",")]
+    if not all(parts) or any(part not in STATUSES for part in parts):
+        raise ApplicationError(
+            400, "CS_INVALID_FILTER", "status must be request statuses separated by commas."
+        )
+    return sorted(set(parts))
 
 
 def not_found() -> ApplicationError:
@@ -170,6 +188,10 @@ async def detail(conn: Any, request: Row) -> RequestDetail:
             RequestAction.model_validate(a)
             for a in await repository.list_actions(conn, request["id"])
         ],
+        rounds=[
+            RequestRound.model_validate(r)
+            for r in await repository.list_rounds(conn, request["id"])
+        ],
         next_owners=next_owners(request, departments),
     )
 
@@ -187,14 +209,28 @@ def model(request: Row) -> ImprovementRequest:
     openapi_extra=PARTIAL,
 )
 async def list_requests(
-    request: Request, principal: Principal = Depends(current_principal)
+    request: Request,
+    status: str | None = Query(
+        None,
+        max_length=200,
+        description="Request statuses, comma separated (e.g. DRAFT,SENT). "
+        "The web relay takes each query key once.",
+    ),
+    request_type: RequestType | None = Query(None),
+    dept: TransferDepartment | None = Query(
+        None, description="Sent to this department in any round, or proposed to it."
+    ),
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[RequestList]:
     require_list(principal)
+    statuses = parse_statuses(status)
     departments, proposed = scope(principal)
     if departments is not None and not departments:
         return respond(request, RequestList(items=[]))
     async with connection(request.app.state.settings) as conn:
-        rows = await repository.list_requests(conn, departments, proposed)
+        rows = await repository.list_requests(
+            conn, departments, proposed, statuses=statuses, request_type=request_type, dept=dept
+        )
     return respond(request, RequestList(items=[RequestSummary.model_validate(r) for r in rows]))
 
 

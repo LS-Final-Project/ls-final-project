@@ -12,6 +12,7 @@ from backend.api.platform.evaluations.admission import (
     CONFIG_FIELDS,
     accept_run,
     canonical_hash,
+    config_payload,
     get_run,
     validate_smoke_experiment,
 )
@@ -929,6 +930,66 @@ def make_locked(dsn, run_id):
             (GOLD_BUNDLE_ID, run_id),
         )
         conn.execute("UPDATE evaluation.runs SET provider='gemini' WHERE id=%s", (run_id,))
+
+
+def test_outcome_rows_need_a_locked_run_and_store_once_via_cli(
+    settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, monkeypatch, capsys
+):
+    """형식 위반율·결과별 건수(KAN-148 2차)는 합성 smoke 실행을 거부하고, 잠금 실행에는 CLI로 한 번만 저장한다.
+
+    Args:
+        settings: 합성 worker 설정.
+        cs_access: 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: CLI 환경변수.
+        capsys: 출력 확인.
+
+    Returns:
+        None: 거부 코드·저장 행·재저장 거부를 확인한다.
+    """
+    import json
+
+    from eval import cs_report
+
+    assert asyncio.run(dispatch_one(settings, cs_access)) == cs_run
+    with (
+        psycopg.connect(evaluation_database) as conn,
+        pytest.raises(ValueError, match="^CS_QUALITY_LOCKED_RUN_REQUIRED$"),
+    ):
+        cs_report.store_outcome_metrics(conn, cs_run, scoring_version="out-v1")
+    make_locked(evaluation_database, cs_run)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("EVALUATION_REPORT_DATABASE_URL", evaluation_database)
+    args = [
+        cs_report.STORE_OUTCOMES_COMMAND,
+        "--run-id",
+        str(cs_run),
+        "--scoring-version",
+        "out-v1",
+    ]
+    assert cs_report.main(args) == 0
+    assert json.loads(capsys.readouterr().out)["stored_rows"] == 1 + len(cs_report.OUTCOME_SEGMENTS)
+    with psycopg.connect(evaluation_database) as conn:
+        rate, outcomes = (
+            conn.execute(
+                "SELECT numerator,denominator FROM evaluation.metrics WHERE run_id=%s "
+                "AND metric_key='cs_locked_schema_violation_rate'",
+                (cs_run,),
+            ).fetchone(),
+            dict(
+                conn.execute(
+                    "SELECT segment,value::int FROM evaluation.metrics WHERE run_id=%s "
+                    "AND metric_key='cs_locked_outcome_count'",
+                    (cs_run,),
+                ).fetchall()
+            ),
+        )
+    assert set(outcomes) == set(cs_report.OUTCOME_SEGMENTS)
+    assert rate == (outcomes["SCHEMA_VIOLATION"], outcomes["VALID"] + outcomes["SCHEMA_VIOLATION"])
+    assert cs_report.main(args) == 1
+    assert capsys.readouterr().err == "CS_QUALITY_ALREADY_STORED\n"
 
 
 @pytest.mark.parametrize("metric", ["category", "urgency", "secondary", "return_subtype"])
@@ -2831,6 +2892,216 @@ def test_summary_projects_latest_synthetic_quality_without_cases(
         assert secret not in response.text
 
 
+def store_stage_row(dsn, run_id, version, key, value, *, at, **extra):
+    """검사 관리자 연결로 단계 채점 실행 단위 행 하나를 저장한다.
+
+    Args:
+        dsn: 격리 DB 연결 문자열.
+        run_id: 실행.
+        version: 채점 판본.
+        key: metric_key.
+        value: 값(None 허용).
+        at: 저장 시각.
+        extra: segment·class_label·support·details·threshold·comparison·passed.
+
+    Returns:
+        None: 저장한다.
+    """
+    fields = {"segment": "all", "class_label": None, "support": None, "details": {}} | extra
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "INSERT INTO evaluation.metrics (id,run_id,scoring_version,metric_key,segment,class_label,"
+            "value,support,details,threshold,comparison,passed,created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                uuid4(),
+                run_id,
+                version,
+                key,
+                fields["segment"],
+                fields["class_label"],
+                value,
+                fields["support"],
+                Jsonb(fields["details"]),
+                fields.get("threshold"),
+                fields.get("comparison"),
+                fields.get("passed"),
+                at,
+            ),
+        )
+
+
+def test_import_receipt_is_summary_only_and_never_a_smoke_or_control_target(
+    summary_client, settings, cs_access, cs_experiment, cs_run, evaluation_database
+):
+    """영수증 origin이 IMPORT면 작업자 인수·취소 대상이 아니고 smoke 경로 요약은 403이며, ACCEPT면 origin을 낸다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_experiment: 고정 합성 실험.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+
+    Returns:
+        None: origin 경계를 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["origin"] == "ACCEPT"
+    state = asyncio.run(get_run(settings, cs_access, cs_experiment["actor"], cs_run))
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.admission_receipts SET origin='IMPORT',import_ref=%s WHERE run_id=%s",
+            ("0" * 12, cs_run),
+        )
+    with pytest.raises(ApplicationError) as claimed:
+        asyncio.run(claim_run(settings, cs_access, cs_run))
+    assert claimed.value.code == "NOT_FOUND"
+    with pytest.raises(ApplicationError) as cancelled:
+        asyncio.run(
+            control_run(
+                settings,
+                cs_access,
+                cs_experiment["actor"],
+                cs_run,
+                "cancel",
+                str(uuid4()),
+                f'"{state.version}"',
+                uuid4(),
+            )
+        )
+    assert cancelled.value.code == "NOT_FOUND"
+    response = client.get(url)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "LOCAL_SMOKE_ONLY"
+    with psycopg.connect(evaluation_database) as conn, pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "UPDATE evaluation.admission_receipts SET import_ref=NULL WHERE run_id=%s", (cs_run,)
+        )
+
+
+def test_summary_groups_stage_metrics_by_latest_version(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup
+):
+    """검색·초안·RFP 채점 행을 단계별 최신 판본으로 묶고 null·저장 판정을 그대로 낸다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+
+    Returns:
+        None: 단계 묶음·판본 선택·null 유지·details 정리를 확인한다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    assert client.get(url).json()["data"]["stage_metrics"] == []
+    early = datetime(2026, 10, 29, 9, tzinfo=UTC)
+    late = early + timedelta(minutes=5)
+    db = evaluation_database
+    store_stage_row(db, cs_run, "search-v1", "search_hit_at_5", 0.5, at=early)
+    store_stage_row(
+        db,
+        cs_run,
+        "search-v2",
+        "search_hit_at_5",
+        0.75,
+        at=late,
+        support=8,
+        threshold=0.7,
+        comparison=">=",
+        passed=True,
+    )
+    store_stage_row(db, cs_run, "search-v2", "search_mrr", None, at=late)
+    store_stage_row(
+        db,
+        cs_run,
+        "draft-v1",
+        "draft_grounded_case_rate",
+        0.6,
+        at=early,
+        class_label="INFO_FIRST",
+        details={"tp": 3, "fp": 1, "fn": 2, "raw_output": "SECRET_TEXT", "note": "x", "tn": "7"},
+    )
+    store_stage_row(db, cs_run, "rfp-v1", "rfp_requirement_recall", 0.0, at=early, segment="doc=14")
+    # 분류 접두 행은 기존 품질 블록이 다루므로 묶음에 넣지 않는다.
+    store_stage_row(db, cs_run, "cls-v1", "category_macro_f1", 0.9, at=early)
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    blocks = response.json()["data"]["stage_metrics"]
+    assert [b["stage"] for b in blocks] == ["search", "draft", "rfp"]
+    search, draft, rfp = blocks
+    assert search["scoring_version"] == "search-v2" and search["stored_scoring_version_count"] == 2
+    assert [i["metric_key"] for i in search["items"]] == ["search_hit_at_5", "search_mrr"]
+    assert search["items"][0] == {
+        "metric_key": "search_hit_at_5",
+        "segment": "all",
+        "class_label": None,
+        "value": 0.75,
+        "support": 8,
+        "threshold": 0.7,
+        "comparison": ">=",
+        "passed": True,
+        "details": {},
+        "quality_gate_evaluated": False,
+    }
+    assert search["items"][1]["value"] is None and search["items"][1]["passed"] is None
+    assert draft["items"][0]["details"] == {"tp": 3, "fp": 1, "fn": 2}
+    assert draft["items"][0]["class_label"] == "INFO_FIRST"
+    assert rfp["items"][0]["value"] == 0.0 and rfp["items"][0]["segment"] == "doc=14"
+    assert rfp["stored_scoring_version_count"] == 1
+    for secret in ("SECRET_TEXT", "raw_output", "category_macro_f1", "cls-v1"):
+        assert secret not in response.text
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"key": "search_hit at 5: SECRET_TEXT"},
+        {"segment": "doc=" + "x" * 130},
+        {"class_label": "INFO FIRST"},
+    ],
+    ids=["key-with-spaces", "long-segment", "label-with-space"],
+)
+def test_summary_rejects_non_identifier_stage_fields(
+    summary_client, settings, cs_access, cs_run, evaluation_database, quality_rows_cleanup, field
+):
+    """식별자 형식이 아닌 단계 행 필드는 부분 표시 없이 503이며 값을 내보내지 않는다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        field: 어긋나게 할 필드.
+
+    Returns:
+        None: 503과 원문 비노출을 확인한다.
+    """
+    from datetime import UTC, datetime
+
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    key = field.pop("key", "search_hit_at_5")
+    store_stage_row(
+        evaluation_database, cs_run, "search-v1", key, 0.5, at=datetime.now(UTC), **field
+    )
+    response = client.get(url)
+    assert response.status_code == 503
+    assert "SECRET_TEXT" not in response.text and "INFO FIRST" not in response.text
+
+
 @pytest.mark.parametrize(
     "tamper", ["missing_row", "judged", "details", "outcomes_array", "class_duplicate_key"]
 )
@@ -2990,13 +3261,17 @@ def test_summary_comparison_key_changes_with_one_condition(
     assert "policy-secret-v2" not in response.text and "policy-secret-v2" not in caplog.text
 
 
-def test_summary_http_preserves_nulls_and_excludes_content(summary_client, settings, cs_access):
+def test_summary_http_preserves_nulls_and_excludes_content(
+    summary_client, settings, cs_access, cs_run, evaluation_database
+):
     """실행 전후의 저장 집계를 허용된 필드만으로 반환한다.
 
     Args:
         summary_client: 실제 세션 HTTP.
         settings: 합성 worker 설정.
         cs_access: 현재 승인.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB(실험 설정 대조용).
 
     Returns:
         None: 빈 값·부분 보고·민감 필드 비노출·캐시 금지를 검증한다.
@@ -3014,6 +3289,7 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
     assert set(data) == {
         "report_version",
         "run_id",
+        "origin",
         "status",
         "generated_at",
         "data_origin",
@@ -3027,9 +3303,30 @@ def test_summary_http_preserves_nulls_and_excludes_content(summary_client, setti
         "synthetic_quality",
         "locked_quality",
         "comparison_key",
+        "stage_metrics",
+        "experiment",
     }
+    assert data["stage_metrics"] == []
     assert data["synthetic_quality"] is None and data["locked_quality"] is None
     assert data["status"] == "PARTIAL" and data["data_origin"] == "synthetic"
+    assert data["origin"] == "ACCEPT"
+    # 실험 설정 블록(KAN-90 5차)은 experiments 표 값 그대로다.
+    experiment = data["experiment"]
+    assert set(experiment) == {
+        "experiment_id", "name", "purpose", "stage", "knobs", "model_id", "prompt_version",
+        "input_builder_version", "index_version", "config_hash", "data_split", "data_origin",
+    }  # fmt: skip
+    with psycopg.connect(evaluation_database) as conn:
+        stored = conn.execute(
+            "SELECT e.id::text,e.name,e.purpose,e.stage,e.knobs,e.model_id,e.prompt_version,"
+            "e.input_builder_version,e.index_version,e.config_hash,e.data_split,e.data_origin "
+            "FROM evaluation.experiments e JOIN evaluation.runs r ON r.experiment_id=e.id WHERE r.id=%s",
+            (cs_run,),
+        ).fetchone()
+    assert tuple(experiment[key] for key in (
+        "experiment_id", "name", "purpose", "stage", "knobs", "model_id", "prompt_version",
+        "input_builder_version", "index_version", "config_hash", "data_split", "data_origin",
+    )) == stored  # fmt: skip
     assert data["quality_available"] is False
     assert data["quality_unavailable_reason"] == "GOLD_NOT_CONNECTED"
     assert data["first"]["stored_attempt_count"] == 3
@@ -3202,13 +3499,13 @@ def locked_summary(dsn, run_id, access, monkeypatch, **changes):
             .fetchone()
         )
         experiment.update(changes)
-        digest = canonical_hash({k: experiment[k] for k in CONFIG_FIELDS})
+        digest = canonical_hash(config_payload(experiment))
         for column, value in {**changes, "config_hash": digest}.items():
             conn.execute(
                 psycopg.sql.SQL("UPDATE evaluation.experiments SET {}=%s WHERE id=%s").format(
                     psycopg.sql.Identifier(column)
                 ),
-                (value, experiment["id"]),
+                (Jsonb(value) if isinstance(value, dict) else value, experiment["id"]),
             )
     access.approved_config_hashes = frozenset({digest})
     golds = {metric: locked_gold(metric) for metric in LOCKED_GOLD}
@@ -3216,6 +3513,49 @@ def locked_summary(dsn, run_id, access, monkeypatch, **changes):
     locks = {metric: lock for _, table in golds.values() for metric, lock in table.items()}
     monkeypatch.setattr(summary, "GOLD_LOCKS", locks)
     return golds
+
+
+def test_summary_accepts_locked_run_with_stage_and_knobs(
+    summary_client,
+    settings,
+    cs_access,
+    cs_run,
+    evaluation_database,
+    quality_rows_cleanup,
+    monkeypatch,
+):
+    """stage·knobs가 있는 잠금 경로 실험도 요약의 구성 hash 재계산을 통과한다.
+
+    Args:
+        summary_client: 실제 세션 HTTP.
+        settings: 합성 worker 설정.
+        cs_access: 요약 API 승인 설정.
+        cs_run: 접수 실행.
+        evaluation_database: 격리 DB.
+        quality_rows_cleanup: 검사 뒤 metrics 행 정리.
+        monkeypatch: 잠금표 교체.
+
+    Returns:
+        None: hash 불일치(409) 없이 200을 확인한다.
+    """
+    client, url = summary_client
+    asyncio.run(dispatch_one(settings, cs_access))
+    locked_summary(
+        evaluation_database,
+        cs_run,
+        cs_access,
+        monkeypatch,
+        stage="classification",
+        knobs={"temperature": 0.2, "prompt_version": "v1"},
+    )
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    # 실험 설정 블록(KAN-90 5차)이 stage·knobs를 그대로 낸다.
+    experiment = response.json()["data"]["experiment"]
+    assert (experiment["stage"], experiment["knobs"]) == (
+        "classification",
+        {"temperature": 0.2, "prompt_version": "v1"},
+    )
 
 
 def store_locked(dsn, run_id, golds, metric, scoring_version="locked-v1"):
@@ -3289,6 +3629,8 @@ def test_summary_locked_quality_available_only_with_all_metrics(
         "attempt": "first",
         "quality_gate_evaluated": False,
         "metrics": dict.fromkeys(names),
+        # 형식 위반율 행(KAN-148 2차)을 저장하지 않은 실행은 null이다.
+        "outcomes": None,
     }
     for metric in names[:4]:
         store_locked(evaluation_database, cs_run, golds, metric)
@@ -3643,3 +3985,82 @@ def test_summary_invalid_cost_stays_safe_failure(
     assert response.status_code == 503
     assert response.headers["cache-control"] == "no-store"
     assert "data" not in response.json() and "secret-price" not in response.text
+
+
+def test_run_cases_page_attempts_with_summary_access_and_masked_refs(
+    summary_client, cs_access, cs_run, evaluation_database
+):
+    """사례 조회는 summary와 같은 접근 검사, case_id 커서 페이지, 사례 ID 해시·코드만 투영을 지킨다(KAN-139 4차).
+
+    Args:
+        summary_client: 실제 세션 HTTP와 요약 URL.
+        cs_access: 현재 승인(취소 검사에 쓴다).
+        cs_run: 접수 실행.
+        evaluation_database: 검사 관리자 연결.
+
+    Returns:
+        None: 원문 사례 ID·원시 응답·정답이 응답에 없음을 확인한다.
+    """
+    import hashlib
+
+    client, url = summary_client
+    cases_url = url.removesuffix("/summary") + "/cases"
+    asyncio.run(dispatch_one(client.app.state.settings, cs_access))
+    stored = saved(evaluation_database, cs_run)
+    first = client.get(cases_url, params={"limit": 2})
+    assert first.status_code == 200, first.text
+    page = first.json()["data"]
+    assert len(page["items"]) == 2 and page["next_cursor"] == page["items"][-1]["case_id"]
+    rest = client.get(cases_url, params={"cursor": page["next_cursor"], "limit": 100}).json()[
+        "data"
+    ]
+    assert rest["next_cursor"] is None
+    items = page["items"] + rest["items"]
+    assert [item["case_id"] for item in items] == sorted(item["case_id"] for item in items)
+    assert len(items) == len(FIXTURES)
+    shas = {hashlib.sha256(ref.encode()).hexdigest()[:12] for ref in FIXTURES}
+    assert {item["target_ref_sha"] for item in items} == shas
+    attempts = [attempt for item in items for attempt in item["attempts"]]
+    assert len(attempts) == len(stored)
+    assert set(attempts[0]) == {
+        "step",
+        "attempt",
+        "outcome",
+        "error_code",
+        "http_status",
+        "finish_reasons",
+        "call_attempts",
+        "model_version",
+        "latency_ms",
+        "parsed_output",
+    }
+    valid = next(
+        item
+        for item in items
+        if item["target_ref_sha"] == hashlib.sha256(b"cs-smoke-valid").hexdigest()[:12]
+    )
+    assert valid["attempts"][0]["parsed_output"]["category_code"] == "RETURN"
+    body = first.text + client.get(cases_url, params={"cursor": page["next_cursor"]}).text
+    for ref, case in FIXTURES.items():
+        assert ref not in body and case["body"] not in body
+    for row in stored:
+        assert not row["raw_output"] or row["raw_output"] not in body
+    assert "gold" not in body and "input_sha256" not in body and "usage_raw" not in body
+    for bad in ({"limit": 0}, {"limit": 101}, {"cursor": "x"}):
+        assert client.get(cases_url, params=bad).status_code == 422
+    cs_access.approved_config_hashes = frozenset()
+    assert client.get(cases_url).status_code == client.get(url).status_code == 403
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE evaluation.experiments SET data_split='test' "
+            "WHERE id=(SELECT experiment_id FROM evaluation.runs WHERE id=%s)",
+            (cs_run,),
+        )
+    assert client.get(cases_url).status_code == 404
+    from backend.api.platform.evaluations.cases import _codes
+
+    assert _codes("draft", {"category_code": "RETURN"}) is None
+    coded = _codes(
+        "classify", {"category_code": "반품 문의", "provided_info": ["MODEL", "모델명 문장"]}
+    )
+    assert coded is not None and coded.category_code is None and coded.provided_info == ["MODEL"]

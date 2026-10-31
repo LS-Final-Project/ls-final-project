@@ -20,6 +20,7 @@ from email.parser import BytesParser
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
@@ -365,6 +366,68 @@ async def replies_for(
         return [dict(r) for r in await cursor.fetchall()]
 
 
+async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) -> dict[str, int]:
+    """C/S 문의에 연결된 회신 중 아직 알리지 않은 것을 C/S에 알린다(KAN-110). 업무 참조가
+    문의 UUID인 연결만 대상이다. 실패한 연결은 표시가 없어 다음 실행에서 다시 알린다.
+
+    Args:
+        settings: 플랫폼 DB 설정.
+        caller: C/S 내부 경로 클라이언트(`business.CsCaller`).
+        limit: 한 번에 알릴 최대 수.
+
+    Returns:
+        dict[str, int]: `notified`(C/S가 받음), `missing`(C/S에 없는 문의, 다시 알리지 않음),
+        `failed`.
+    """
+    from backend.api.platform.mail.business import REPLY_PATH
+
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT l.id, l.message_id, l.business_ref, l.method, m.received_at "
+            "FROM integration.mail_links l JOIN integration.mail_messages m ON m.id=l.message_id "
+            "WHERE l.kind='REPLY' AND l.owner_service='cs' AND l.business_notified_at IS NULL "
+            "AND l.business_ref ~ '^cs_ticket:[0-9a-f-]{36}$' ORDER BY l.created_at, l.id LIMIT %s",
+            (limit,),
+        )
+        pending = await cursor.fetchall()
+    counts = {"notified": 0, "missing": 0, "failed": 0}
+    for link in pending:
+        ticket_id = link["business_ref"].removeprefix("cs_ticket:")
+        body = {
+            "message_id": str(link["message_id"]),
+            "method": link["method"],
+            "received_at": link["received_at"].isoformat(),
+        }
+        try:
+            response = await caller.post(REPLY_PATH.format(ticket_id=ticket_id), body)
+        except (httpx.HTTPError, HTTPException, ApplicationError):
+            counts["failed"] += 1
+            continue
+        if response.status_code == 200:
+            counts["notified"] += 1
+        elif response.status_code == 404:
+            # 배포 순서·비활성 경로의 404는 일시 실패다. 문의 없음이 명시된 경우만 끝낸다.
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if not isinstance(error, dict) or error.get("code") != "CS_TICKET_NOT_FOUND":
+                counts["failed"] += 1
+                continue
+            counts["missing"] += 1
+        else:
+            counts["failed"] += 1
+            continue
+        async with connection(settings) as conn:
+            await conn.execute(
+                "UPDATE integration.mail_links SET business_notified_at=now() "
+                "WHERE id=%s AND business_notified_at IS NULL",
+                (link["id"],),
+            )
+    return counts
+
+
 # --- 메일함 주인의 회신 검토 API -------------------------------------------------------------
 
 ACTIVATION = {"x-implementation-status": "partial", "x-activation": "MAILBOX_AUTH_ENABLED"}
@@ -498,6 +561,12 @@ async def link_reply(
     chosen = Candidate(
         owner_service=payload.owner_service, business_ref=payload.business_ref, method="HUMAN"
     )
+    # 업무 쪽에 바로 알린다(KAN-110). 실패해도 연결은 남고 수집 워커가 다음 실행에서 알린다.
+    from backend.api.platform.mail.business import cs_caller
+
+    caller = cs_caller(request)
+    if caller is not None:
+        await notify_cs_replies(request.app.state.settings, caller)
     return SuccessResponse(
         data=ReplyResult(message_id=message_id, outcome="LINKED", link=chosen),
         meta=ResponseMeta(request_id=request.state.request_id),

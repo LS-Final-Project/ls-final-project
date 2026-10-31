@@ -17,6 +17,157 @@
         "title": "Action",
         "type": "object"
       },
+      "AnalysisJob": {
+        "description": "\ud50c\ub7ab\ud3fc\uc5d0 \ub4f1\ub85d\ub41c AI \ubd84\uc11d \uc791\uc5c5(KAN-107). \ub4f1\ub85d\uc774 \ucc98\ub9ac \uc2dc\uc791\uc744 \ub73b\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "created": {
+            "description": "False when the same Idempotency-Key returned an earlier job.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_url": {
+            "description": "Platform job status; events at status_url + '/events'.",
+            "title": "Status Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "status_url",
+          "created"
+        ],
+        "title": "AnalysisJob",
+        "type": "object"
+      },
+      "AnalysisRun": {
+        "properties": {
+          "classification": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The five validated fields; only a VALID run has them.",
+            "title": "Classification"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provenance_kind": {
+            "const": "ai_draft",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "run_seq": {
+            "title": "Run Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_seq",
+          "job_id",
+          "outcome",
+          "classification",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "AnalysisRun",
+        "type": "object"
+      },
       "AuditEvent": {
         "properties": {
           "action": {
@@ -87,6 +238,408 @@
           "items"
         ],
         "title": "AuditList",
+        "type": "object"
+      },
+      "Baseline": {
+        "additionalProperties": false,
+        "properties": {
+          "action_dates": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Action Dates",
+            "type": "array"
+          },
+          "last_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sent At"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_sent_at",
+          "round",
+          "action_dates"
+        ],
+        "title": "Baseline",
+        "type": "object"
+      },
+      "CandidateCollect": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Judge as of this time. Defaults to now; a future time is a 422.",
+            "title": "As Of"
+          }
+        },
+        "title": "CandidateCollect",
+        "type": "object"
+      },
+      "CandidateCollected": {
+        "properties": {
+          "already_requested": {
+            "title": "Already Requested",
+            "type": "integer"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "document_candidates": {
+            "const": "NOT_CONNECTED",
+            "default": "NOT_CONNECTED",
+            "title": "Document Candidates",
+            "type": "string"
+          },
+          "eligible": {
+            "description": "Eligible groups, saved or not.",
+            "title": "Eligible",
+            "type": "integer"
+          },
+          "request_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Request Ids",
+            "type": "array"
+          },
+          "rules_version": {
+            "title": "Rules Version",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "skipped": {
+            "description": "Eligible groups not saved. A fault request needs a proposed department.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "as_of",
+          "rules_version",
+          "eligible",
+          "created",
+          "already_requested",
+          "skipped",
+          "request_ids"
+        ],
+        "title": "CandidateCollected",
+        "type": "object"
+      },
+      "CandidateItem": {
+        "additionalProperties": false,
+        "properties": {
+          "cases_total": {
+            "title": "Cases Total",
+            "type": "integer"
+          },
+          "cases_without_customer": {
+            "title": "Cases Without Customer",
+            "type": "integer"
+          },
+          "condition_status": {
+            "enum": [
+              "CONFIRMED",
+              "UNKNOWN"
+            ],
+            "title": "Condition Status",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "display_state": {
+            "enum": [
+              "CONFIRMED_CANDIDATE",
+              "CONDITION_UNCONFIRMED",
+              "INSUFFICIENT_EVIDENCE",
+              "NOT_ELIGIBLE"
+            ],
+            "title": "Display State",
+            "type": "string"
+          },
+          "distinct_customers": {
+            "title": "Distinct Customers",
+            "type": "integer"
+          },
+          "distinct_customers_in_best_window": {
+            "title": "Distinct Customers In Best Window",
+            "type": "integer"
+          },
+          "evidence": {
+            "description": "as_of\uae4c\uc9c0 \uc54c\ub824\uc9c4 \uae30\ub85d \uc804\ubd80, \uc2dc\uac01\uc21c.",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "firmware_rule_applied": {
+            "title": "Firmware Rule Applied",
+            "type": "boolean"
+          },
+          "first_known_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Known At"
+          },
+          "fw_fixed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Fixed Version"
+          },
+          "fw_released_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Released On"
+          },
+          "outcome": {
+            "enum": [
+              "ELIGIBLE",
+              "NOT_ELIGIBLE",
+              "INSUFFICIENT_EVIDENCE"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uae30\uc900 \ub3c4\ub2ec \uc2dc\uac01. \ubbf8\ub2ec\uc774\uba74 null.",
+            "title": "Reached At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "REPEAT_90D_3_CUSTOMERS",
+              "FIRMWARE_FIX_RELEASED",
+              "DOCUMENT_ERROR_EVIDENCE",
+              "REPEATED_SPEC_3_TICKETS",
+              "BELOW_THRESHOLD",
+              "NO_CUSTOMER_ID",
+              "NO_KNOWN_AT",
+              "FW_VERSION_UNKNOWN",
+              "FW_VERSION_NOT_COMPARABLE",
+              "NO_EVIDENCE_LOCATION"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The fault request of this group, if any.",
+            "title": "Request Id"
+          },
+          "request_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DRAFT",
+                  "REVIEWED",
+                  "SENT",
+                  "ACKNOWLEDGED",
+                  "ADOPTED",
+                  "INFO_REQUESTED",
+                  "REJECTED",
+                  "ACTION_TAKEN",
+                  "FOLLOW_UP",
+                  "COMPLETED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Status"
+          },
+          "request_type": {
+            "const": "FAULT",
+            "default": "FAULT",
+            "title": "Request Type",
+            "type": "string"
+          },
+          "required_customers": {
+            "title": "Required Customers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product_code",
+          "fault_id",
+          "outcome",
+          "reason_code",
+          "reason",
+          "reached_at",
+          "first_known_at",
+          "distinct_customers",
+          "distinct_customers_in_best_window",
+          "required_customers",
+          "cases_total",
+          "cases_without_customer",
+          "firmware_rule_applied",
+          "condition_status",
+          "evidence",
+          "data_origin",
+          "display_state",
+          "request_id",
+          "request_status"
+        ],
+        "title": "CandidateItem",
+        "type": "object"
+      },
+      "CandidateList": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "document_candidates": {
+            "const": "NOT_CONNECTED",
+            "default": "NOT_CONNECTED",
+            "title": "Document Candidates",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rules_version": {
+            "title": "Rules Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "as_of",
+          "rules_version",
+          "items"
+        ],
+        "title": "CandidateList",
+        "type": "object"
+      },
+      "CandidateSkipped": {
+        "properties": {
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "fault_id": {
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_PROPOSED_DEPARTMENT",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_origin",
+          "product_code",
+          "fault_id",
+          "reason_code"
+        ],
+        "title": "CandidateSkipped",
         "type": "object"
       },
       "CauseItem": {
@@ -279,6 +832,29 @@
           "known_at"
         ],
         "title": "ComparisonEvidence",
+        "type": "object"
+      },
+      "CompleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "followup_result": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Followup Result",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "followup_result"
+        ],
+        "title": "CompleteRequest",
         "type": "object"
       },
       "ConditionComparison": {
@@ -606,6 +1182,226 @@
         "title": "ConditionItem",
         "type": "object"
       },
+      "Correction": {
+        "properties": {
+          "based_on_analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Based On Analysis Id"
+          },
+          "corrected_by": {
+            "format": "uuid",
+            "title": "Corrected By",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Only the fields this correction changed.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "provenance_kind": {
+            "const": "human_input",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "based_on_analysis_id",
+          "fields",
+          "reason",
+          "corrected_by",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "Correction",
+        "type": "object"
+      },
+      "CorrectionRequest": {
+        "additionalProperties": false,
+        "description": "Only the fields given are corrected. `secondary_category: null` clears it.",
+        "properties": {
+          "analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`latest_valid_run_id` the person read; null only when there is none.",
+            "title": "Analysis Id"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TECH_SPEC",
+                  "INSTALL",
+                  "WARRANTY",
+                  "ORDER_LEAD",
+                  "MANUAL",
+                  "DEFECT",
+                  "COMPLIANCE",
+                  "QUOTE",
+                  "FW_UPDATE",
+                  "RETURN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "provided_info": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provided Info"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "secondary_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TECH_SPEC",
+                  "INSTALL",
+                  "WARRANTY",
+                  "ORDER_LEAD",
+                  "MANUAL",
+                  "DEFECT",
+                  "COMPLIANCE",
+                  "QUOTE",
+                  "FW_UPDATE",
+                  "RETURN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Category"
+          },
+          "urgency_flag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SAFETY",
+                  "SITE_DOWN",
+                  "PROD_IMPACT",
+                  "COMMISSION",
+                  "DEADLINE",
+                  "NONE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Flag"
+          },
+          "version": {
+            "description": "`version` of the analysis the person read.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "analysis_id",
+          "reason"
+        ],
+        "title": "CorrectionRequest",
+        "type": "object"
+      },
+      "Counts": {
+        "additionalProperties": false,
+        "properties": {
+          "application_unknown": {
+            "title": "Application Unknown",
+            "type": "integer"
+          },
+          "candidate_index": {
+            "title": "Candidate Index",
+            "type": "integer"
+          },
+          "new_since_sent": {
+            "title": "New Since Sent",
+            "type": "integer"
+          },
+          "pre_action_unit": {
+            "title": "Pre Action Unit",
+            "type": "integer"
+          },
+          "recurrence": {
+            "title": "Recurrence",
+            "type": "integer"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "new_since_sent",
+          "threshold",
+          "candidate_index",
+          "recurrence",
+          "pre_action_unit",
+          "application_unknown"
+        ],
+        "title": "Counts",
+        "type": "object"
+      },
       "CustomerHistory": {
         "properties": {
           "by_product": {
@@ -714,6 +1510,47 @@
         "title": "CustomerLoad",
         "type": "object"
       },
+      "CustomerReply": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "HEADER",
+              "THREAD",
+              "HUMAN"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "reopened": {
+            "title": "Reopened",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "method",
+          "received_at",
+          "reopened",
+          "created_at"
+        ],
+        "title": "CustomerReply",
+        "type": "object"
+      },
       "CustomerRequest": {
         "properties": {
           "evidence_tickets": {
@@ -758,6 +1595,385 @@
           "evidence_tickets"
         ],
         "title": "CustomerRequest",
+        "type": "object"
+      },
+      "CustomerSend": {
+        "description": "An approved customer message and what the platform said about it so far.\n\n`request_status` is about handing the message to the platform; `send_status` is the\nplatform's own state (QUEUED, SUBMITTING, ACCEPTED, UNKNOWN, FAILED). ACCEPTED means the\nmail provider took the message, not that the customer received it.",
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "format": "uuid",
+            "title": "Approved By",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "body_type": {
+            "enum": [
+              "text",
+              "html"
+            ],
+            "title": "Body Type",
+            "type": "string"
+          },
+          "cc_addresses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cc Addresses",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reviewed AI draft, if any.",
+            "title": "Draft Id"
+          },
+          "draft_option": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONCISE",
+                  "DETAILED",
+                  "INFO_FIRST"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Option"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "intent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent Id"
+          },
+          "kind": {
+            "enum": [
+              "ANSWER",
+              "INFO_REQUEST"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mailbox_id": {
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When ACCEPTED moved the ticket to ANSWERED or WAITING_CUSTOMER.",
+            "title": "Recorded At"
+          },
+          "request_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Error"
+          },
+          "request_status": {
+            "enum": [
+              "PENDING",
+              "REGISTERED",
+              "REJECTED",
+              "REQUEST_FAILED",
+              "REQUEST_UNKNOWN"
+            ],
+            "title": "Request Status",
+            "type": "string"
+          },
+          "requested_info_codes": {
+            "description": "Information codes this message asked for.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Requested Info Codes",
+            "type": "array"
+          },
+          "send_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send Error Code"
+          },
+          "send_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send Status"
+          },
+          "sent_copy_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent Copy Confirmed At"
+          },
+          "status_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Checked At"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "to_addresses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "To Addresses",
+            "type": "array"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "workflow_version",
+          "mailbox_id",
+          "subject",
+          "body_type",
+          "body",
+          "to_addresses",
+          "cc_addresses",
+          "payload_sha256",
+          "approved_by",
+          "approved_at",
+          "request_status",
+          "request_error",
+          "intent_id",
+          "send_status",
+          "send_error_code",
+          "attempts",
+          "accepted_at",
+          "sent_copy_confirmed_at",
+          "status_checked_at",
+          "recorded_at",
+          "created_at"
+        ],
+        "title": "CustomerSend",
+        "type": "object"
+      },
+      "CustomerSendRequest": {
+        "additionalProperties": false,
+        "description": "A C/S agent approves an answer or an information request for the customer.",
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "body_type": {
+            "default": "text",
+            "enum": [
+              "text",
+              "html"
+            ],
+            "title": "Body Type",
+            "type": "string"
+          },
+          "cc": {
+            "items": {
+              "maxLength": 320,
+              "minLength": 3,
+              "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Cc",
+            "type": "array"
+          },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Id"
+          },
+          "draft_option": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONCISE",
+                  "DETAILED",
+                  "INFO_FIRST"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Option"
+          },
+          "kind": {
+            "enum": [
+              "ANSWER",
+              "INFO_REQUEST"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mailbox_id": {
+            "description": "The approver's connected mailbox (KAN-81).",
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "requested_info_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Info Codes"
+          },
+          "subject": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 320,
+                  "minLength": 3,
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recipients. Omitted: the sender of the mail that opened the ticket.",
+            "title": "To"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "mailbox_id",
+          "subject",
+          "body"
+        ],
+        "title": "CustomerSendRequest",
         "type": "object"
       },
       "CustomerTicket": {
@@ -905,6 +2121,70 @@
         "title": "DataRange",
         "type": "object"
       },
+      "DeadlineView": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai"
+          },
+          "corrected": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The earlier of the two (2026-10-29).",
+            "title": "Effective"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "ai",
+          "corrected",
+          "effective",
+          "source"
+        ],
+        "title": "DeadlineView",
+        "type": "object"
+      },
       "DepartmentCount": {
         "properties": {
           "dept_code": {
@@ -936,6 +2216,74 @@
           "returned_or_recalled"
         ],
         "title": "DepartmentCount",
+        "type": "object"
+      },
+      "DeptActionRequest": {
+        "additionalProperties": false,
+        "description": "A department's improvement action, kept apart from any one customer's repair.\n\n`scope_kind`\u00b7`scope_value` say which units the action applies to, so a recurrence on an\napplied unit can be told apart from units that never got the fix (KAN-117). Omitted, the\nscope is OTHER and recurrence stays \"unknown\" for a person to judge.",
+        "properties": {
+          "action": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "action_date": {
+            "format": "date",
+            "title": "Action Date",
+            "type": "string"
+          },
+          "action_evidence": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action Evidence",
+            "type": "string"
+          },
+          "action_scope": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Action Scope",
+            "type": "string"
+          },
+          "scope_kind": {
+            "default": "OTHER",
+            "enum": [
+              "FIRMWARE_VERSION",
+              "SHIPPED_FROM",
+              "LOT",
+              "OTHER"
+            ],
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_value": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Value"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "action_scope",
+          "action_date",
+          "action_evidence"
+        ],
+        "title": "DeptActionRequest",
         "type": "object"
       },
       "DeptReply": {
@@ -1000,6 +2348,45 @@
           "replied_at"
         ],
         "title": "DeptReply",
+        "type": "object"
+      },
+      "DeptReplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reply_type": {
+            "enum": [
+              "ADOPTED",
+              "INFO_REQUESTED",
+              "REJECTED"
+            ],
+            "title": "Reply Type",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reply_type"
+        ],
+        "title": "DeptReplyRequest",
         "type": "object"
       },
       "DeptResult": {
@@ -1186,6 +2573,147 @@
           "hidden_evidence_count"
         ],
         "title": "DocumentSignal",
+        "type": "object"
+      },
+      "DraftRun": {
+        "properties": {
+          "analysis_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Three reply options as validated; only a VALID run has them.",
+            "title": "Draft"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provenance_kind": {
+            "const": "ai_draft",
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "verification_status": {
+            "default": "NOT_VERIFIED",
+            "enum": [
+              "NOT_VERIFIED",
+              "VERIFIED",
+              "NEEDS_REVIEW"
+            ],
+            "title": "Verification Status",
+            "type": "string"
+          },
+          "verifications": {
+            "items": {
+              "$ref": "#/components/schemas/VerificationRun"
+            },
+            "title": "Verifications",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "analysis_id",
+          "job_id",
+          "outcome",
+          "draft",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "provenance_kind",
+          "created_at"
+        ],
+        "title": "DraftRun",
         "type": "object"
       },
       "ErrorData": {
@@ -1413,6 +2941,50 @@
         "title": "EvidenceInput",
         "type": "object"
       },
+      "EvidenceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "case_id",
+          "customer_id",
+          "known_at"
+        ],
+        "title": "EvidenceRef",
+        "type": "object"
+      },
       "EvidenceRemoval": {
         "additionalProperties": false,
         "description": "\uadfc\uac70 \uc81c\uc678. \uac1c\uc120\uc694\uccad\uc758 \uadfc\uac70 \uc81c\uc678\uc640 \uac19\uc774 \uc77d\uc740 \ud310\ubcf8\uacfc \uc0ac\uc720\uac00 \ud544\uc694\ud558\ub2e4.",
@@ -1495,6 +3067,70 @@
           "evidence_location"
         ],
         "title": "EvidenceWrite",
+        "type": "object"
+      },
+      "FieldView": {
+        "properties": {
+          "ai_value": {
+            "title": "Ai Value"
+          },
+          "corrected": {
+            "title": "Corrected",
+            "type": "boolean"
+          },
+          "corrected_value": {
+            "title": "Corrected Value"
+          },
+          "effective_value": {
+            "title": "Effective Value"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "ai_value",
+          "corrected_value",
+          "effective_value",
+          "source",
+          "corrected"
+        ],
+        "title": "FieldView",
+        "type": "object"
+      },
+      "FollowupPlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "followup_plan": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Followup Plan",
+            "type": "string"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "followup_plan"
+        ],
+        "title": "FollowupPlanRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1694,6 +3330,53 @@
       },
       "ImprovementRequest": {
         "properties": {
+          "candidate_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate As Of"
+          },
+          "candidate_reached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Reached At"
+          },
+          "candidate_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the system raised this candidate. Null on a manual request.",
+            "title": "Candidate Reason Code"
+          },
+          "candidate_rules_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rules Version"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -2065,6 +3748,51 @@
         "title": "ImprovementRequest",
         "type": "object"
       },
+      "ImprovementReviewRequest": {
+        "additionalProperties": false,
+        "description": "DRAFT \u2192 REVIEWED. The agent may fix the proposed departments while reviewing.",
+        "properties": {
+          "proposed_depts": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Depts"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ImprovementReviewRequest",
+        "type": "object"
+      },
       "InstalledUnit": {
         "properties": {
           "commissioning_date": {
@@ -2423,6 +4151,178 @@
         "title": "JudgementWrite",
         "type": "object"
       },
+      "MailOrigin": {
+        "properties": {
+          "mailbox_id": {
+            "format": "uuid",
+            "title": "Mailbox Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "registered_by": {
+            "format": "uuid",
+            "title": "Registered By",
+            "type": "string"
+          },
+          "sender_address": {
+            "title": "Sender Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "mailbox_id",
+          "sender_address",
+          "received_at",
+          "registered_by"
+        ],
+        "title": "MailOrigin",
+        "type": "object"
+      },
+      "MissingInfo": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissingInfoView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the AI category and provided info."
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissingInfoView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the effective (corrected) category and provided info. Follow this one."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it cannot be counted: CS_ANALYSIS_MISSING (no valid run and no correction) or CS_RULE_INPUT (product outside the policy).",
+            "title": "Error"
+          }
+        },
+        "required": [
+          "ai",
+          "effective",
+          "error"
+        ],
+        "title": "MissingInfo",
+        "type": "object"
+      },
+      "MissingInfoView": {
+        "properties": {
+          "already_asked": {
+            "description": "Codes asked in messages that reached the customer.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Asked",
+            "type": "array"
+          },
+          "category_code": {
+            "description": "Category whose required-info row was used.",
+            "enum": [
+              "TECH_SPEC",
+              "INSTALL",
+              "WARRANTY",
+              "ORDER_LEAD",
+              "MANUAL",
+              "DEFECT",
+              "COMPLIANCE",
+              "QUOTE",
+              "FW_UPDATE",
+              "RETURN"
+            ],
+            "title": "Category Code",
+            "type": "string"
+          },
+          "missing": {
+            "description": "required \u2212 provided \u2212 already_asked, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "provided": {
+            "description": "Info codes the customer gave.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided",
+            "type": "array"
+          },
+          "required": {
+            "description": "Required info codes for this product family and category.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category_code",
+          "required",
+          "provided",
+          "already_asked",
+          "missing"
+        ],
+        "title": "MissingInfoView",
+        "type": "object"
+      },
+      "NewEvidence": {
+        "additionalProperties": false,
+        "description": "A person's new evidence, different from the rejection reason (rejection-closed only).",
+        "properties": {
+          "note": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "ticket_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Ticket Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ticket_ids",
+          "note"
+        ],
+        "title": "NewEvidence",
+        "type": "object"
+      },
       "NextOwner": {
         "description": "Who acts next and on what. The C/S owner may still be unassigned (null).",
         "properties": {
@@ -2631,6 +4531,24 @@
       },
       "OwnerLoad": {
         "properties": {
+          "by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Current state of the owner's tickets, whenever received (the period does not limit it). Every state is present.",
+            "propertyNames": {
+              "enum": [
+                "RECEIVED",
+                "IN_REVIEW",
+                "WAITING_CUSTOMER",
+                "ANSWERED",
+                "TRANSFERRED",
+                "CLOSED"
+              ]
+            },
+            "title": "By State",
+            "type": "object"
+          },
           "closed": {
             "description": "Closed in the period.",
             "title": "Closed",
@@ -2664,7 +4582,8 @@
           "owner_user_id",
           "received",
           "closed",
-          "open"
+          "open",
+          "by_state"
         ],
         "title": "OwnerLoad",
         "type": "object"
@@ -2804,6 +4723,130 @@
         "title": "ReasonRequest",
         "type": "object"
       },
+      "ReceivedTransfer": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "OPEN",
+              "RESULT_SUBMITTED",
+              "RETURNED_BY_DEPT",
+              "RECALLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "transferred_at": {
+            "format": "date-time",
+            "title": "Transferred At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "round",
+          "dept_code",
+          "status",
+          "transferred_at"
+        ],
+        "title": "ReceivedTransfer",
+        "type": "object"
+      },
+      "RecordView": {
+        "additionalProperties": false,
+        "properties": {
+          "action_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ud310\uc815\uc5d0 \uc4f4 \uc870\uce58\ub97c \ub4f1\ub85d\ud55c \ubd80\uc11c.",
+            "title": "Action Dept"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "class": {
+            "enum": [
+              "NEW_SINCE_SENT",
+              "RECURRENCE",
+              "PRE_ACTION_UNIT",
+              "APPLICATION_UNKNOWN",
+              "BEFORE_ACTION_DATE",
+              "IN_EARLIER_ROUND"
+            ],
+            "title": "Class",
+            "type": "string"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "case_id",
+          "known_at",
+          "customer_id",
+          "class",
+          "reason_code",
+          "basis"
+        ],
+        "title": "RecordView",
+        "type": "object"
+      },
       "RequestAction": {
         "properties": {
           "action": {
@@ -2845,6 +4888,28 @@
           "round": {
             "title": "Round",
             "type": "integer"
+          },
+          "scope_kind": {
+            "default": "OTHER",
+            "enum": [
+              "FIRMWARE_VERSION",
+              "SHIPPED_FROM",
+              "LOT",
+              "OTHER"
+            ],
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Value"
           }
         },
         "required": [
@@ -3208,6 +5273,14 @@
           },
           "request": {
             "$ref": "#/components/schemas/ImprovementRequest"
+          },
+          "rounds": {
+            "description": "Delivery rounds, oldest first (KAN-117).",
+            "items": {
+              "$ref": "#/components/schemas/RequestRound"
+            },
+            "title": "Rounds",
+            "type": "array"
           }
         },
         "required": [
@@ -3235,6 +5308,91 @@
           "items"
         ],
         "title": "RequestList",
+        "type": "object"
+      },
+      "RequestRound": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "candidate_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Index"
+          },
+          "kind": {
+            "enum": [
+              "FIRST",
+              "REQUEST_AGAIN",
+              "RECURRENCE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_evidence_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Evidence Note"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "opened_by": {
+            "format": "uuid",
+            "title": "Opened By",
+            "type": "string"
+          },
+          "previous_completion": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Completion"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "round",
+          "kind",
+          "opened_at",
+          "opened_by",
+          "candidate_index",
+          "as_of",
+          "new_evidence_note",
+          "previous_completion"
+        ],
+        "title": "RequestRound",
         "type": "object"
       },
       "RequestSummary": {
@@ -3589,6 +5747,37 @@
         "title": "RequestVersionList",
         "type": "object"
       },
+      "ResendRequest": {
+        "additionalProperties": false,
+        "description": "Calls one department again inside the current round (supplement, re-request after a\nrejection with new evidence, or a reminder after the reply deadline).",
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reason"
+        ],
+        "title": "ResendRequest",
+        "type": "object"
+      },
       "ResolutionCase": {
         "properties": {
           "action_taken": {
@@ -3675,6 +5864,17 @@
             "title": "Known At",
             "type": "string"
           },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Manufacturing Reason"
+          },
           "onsite_visit": {
             "title": "Onsite Visit",
             "type": "boolean"
@@ -3709,6 +5909,22 @@
           "resolved_by_dept": {
             "title": "Resolved By Dept",
             "type": "string"
+          },
+          "responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibility"
           },
           "rma_no": {
             "anyOf": [
@@ -3811,6 +6027,19 @@
             ],
             "title": "Fw Version At Issue"
           },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Manufacturing Reason"
+          },
           "onsite_visit": {
             "title": "Onsite Visit",
             "type": "boolean"
@@ -3853,6 +6082,22 @@
               }
             ],
             "title": "Resolved By Dept"
+          },
+          "responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibility"
           },
           "rma_no": {
             "anyOf": [
@@ -3924,6 +6169,73 @@
         "title": "ResponseMeta",
         "type": "object"
       },
+      "ReturnConfirmationRequest": {
+        "additionalProperties": false,
+        "description": "A person's inspection result for a return (KAN-193). Always human_input; a model\nresult cannot be submitted here.",
+        "properties": {
+          "cause_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SITE_CONDITION",
+                  "HARDWARE",
+                  "SETTING",
+                  "WEAR_PART",
+                  "FIRMWARE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause Type"
+          },
+          "non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with NON_MANUFACTURING, e.g. damaged in transport.",
+            "title": "Non Manufacturing Reason"
+          },
+          "response_note": {
+            "description": "What was done or will be done for the customer.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Response Note",
+            "type": "string"
+          },
+          "responsibility": {
+            "enum": [
+              "MANUFACTURING",
+              "NON_MANUFACTURING",
+              "UNDETERMINED"
+            ],
+            "title": "Responsibility",
+            "type": "string"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "responsibility",
+          "response_note"
+        ],
+        "title": "ReturnConfirmationRequest",
+        "type": "object"
+      },
       "ReviewRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3967,6 +6279,360 @@
           "decision"
         ],
         "title": "ReviewRequest",
+        "type": "object"
+      },
+      "RoundRequest": {
+        "additionalProperties": false,
+        "description": "Opens the next round: a re-request before action or a recurrence reopening after it.",
+        "properties": {
+          "as_of": {
+            "description": "The as_of of the signal the person read.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "dept_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Codes"
+          },
+          "kind": {
+            "enum": [
+              "REQUEST_AGAIN",
+              "RECURRENCE"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind",
+          "as_of"
+        ],
+        "title": "RoundRequest",
+        "type": "object"
+      },
+      "RuleView": {
+        "properties": {
+          "dept": {
+            "title": "Dept",
+            "type": "string"
+          },
+          "dept_rule_id": {
+            "title": "Dept Rule Id",
+            "type": "string"
+          },
+          "escalation_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Condition"
+          },
+          "escalation_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Dept"
+          },
+          "first_response_due": {
+            "format": "date-time",
+            "title": "First Response Due",
+            "type": "string"
+          },
+          "first_response_hours": {
+            "title": "First Response Hours",
+            "type": "integer"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "priority_rule_id": {
+            "title": "Priority Rule Id",
+            "type": "string"
+          },
+          "product_family": {
+            "title": "Product Family",
+            "type": "string"
+          },
+          "resolution_due": {
+            "format": "date-time",
+            "title": "Resolution Due",
+            "type": "string"
+          },
+          "resolution_hours": {
+            "title": "Resolution Hours",
+            "type": "integer"
+          },
+          "review_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Review Reasons",
+            "type": "array"
+          },
+          "sla_id": {
+            "title": "Sla Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_version",
+          "priority",
+          "priority_rule_id",
+          "product_family",
+          "dept",
+          "dept_rule_id",
+          "escalation_dept",
+          "escalation_condition",
+          "review_reasons",
+          "sla_id",
+          "first_response_hours",
+          "resolution_hours",
+          "first_response_due",
+          "resolution_due"
+        ],
+        "title": "RuleView",
+        "type": "object"
+      },
+      "Rules": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rules from the latest valid AI run."
+          },
+          "ai_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Error"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rules from the effective values. Priority, department and review reasons follow these; deadlines are below."
+          },
+          "effective_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Error"
+          },
+          "first_response_due": {
+            "$ref": "#/components/schemas/DeadlineView"
+          },
+          "resolution_due": {
+            "$ref": "#/components/schemas/DeadlineView"
+          },
+          "tier_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the customer tier is unknown and the standard tier was used.",
+            "title": "Tier Note"
+          }
+        },
+        "required": [
+          "ai",
+          "ai_error",
+          "effective",
+          "effective_error",
+          "first_response_due",
+          "resolution_due"
+        ],
+        "title": "Rules",
+        "type": "object"
+      },
+      "SendRequest": {
+        "additionalProperties": false,
+        "description": "REVIEWED \u2192 first round. Target departments default to the proposed ones.",
+        "properties": {
+          "dept_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Codes"
+          },
+          "reply_due_days": {
+            "default": 7,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Reply Due Days",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "SendRequest",
+        "type": "object"
+      },
+      "SentenceVerdict": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Chunk Ids",
+            "type": "array"
+          },
+          "label": {
+            "enum": [
+              "CONCISE",
+              "DETAILED",
+              "INFO_FIRST"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Reason",
+            "type": "string"
+          },
+          "sentence_index": {
+            "minimum": 0.0,
+            "title": "Sentence Index",
+            "type": "integer"
+          },
+          "verdict": {
+            "enum": [
+              "SUPPORTED",
+              "UNSUPPORTED",
+              "UNVERIFIABLE"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "sentence_index",
+          "verdict",
+          "reason",
+          "evidence_chunk_ids"
+        ],
+        "title": "SentenceVerdict",
         "type": "object"
       },
       "Side": {
@@ -4057,6 +6723,96 @@
         "title": "SideWrite",
         "type": "object"
       },
+      "Signal": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/Baseline"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          },
+          "decision": {
+            "enum": [
+              "REQUEST_AGAIN",
+              "RECURRENCE",
+              "NONE"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "next_action": {
+            "enum": [
+              "OPEN_ROUND_REQUEST_AGAIN",
+              "OPEN_ROUND_RECURRENCE",
+              "NONE"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "NOT_SENT",
+              "BEFORE_ACTION",
+              "AFTER_ACTION"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/RecordView"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "update_notice_customers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Update Notice Customers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "phase",
+          "decision",
+          "reason_code",
+          "baseline",
+          "counts",
+          "records",
+          "update_notice_customers",
+          "next_action"
+        ],
+        "title": "Signal",
+        "type": "object"
+      },
+      "SuccessResponse_AnalysisJob_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AnalysisJob"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AnalysisJob]",
+        "type": "object"
+      },
       "SuccessResponse_AuditList_": {
         "properties": {
           "data": {
@@ -4071,6 +6827,38 @@
           "meta"
         ],
         "title": "SuccessResponse[AuditList]",
+        "type": "object"
+      },
+      "SuccessResponse_CandidateCollected_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CandidateCollected"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CandidateCollected]",
+        "type": "object"
+      },
+      "SuccessResponse_CandidateList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CandidateList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CandidateList]",
         "type": "object"
       },
       "SuccessResponse_ConditionComparison_": {
@@ -4233,6 +7021,38 @@
         "title": "SuccessResponse[ResolutionCase]",
         "type": "object"
       },
+      "SuccessResponse_Signal_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Signal"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Signal]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketAnalysis_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketAnalysis"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketAnalysis]",
+        "type": "object"
+      },
       "SuccessResponse_TicketDetail_": {
         "properties": {
           "data": {
@@ -4263,6 +7083,22 @@
           "meta"
         ],
         "title": "SuccessResponse[TicketList]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketSummaryView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketSummaryView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketSummaryView]",
         "type": "object"
       },
       "SuccessResponse_TicketUnitList_": {
@@ -4327,6 +7163,227 @@
           "meta"
         ],
         "title": "SuccessResponse[Workflow]",
+        "type": "object"
+      },
+      "SummaryAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "SummaryAttempt",
+        "type": "object"
+      },
+      "SummaryRecord": {
+        "properties": {
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \uc694\uc57d \ub4a4 \ubb38\uc758 \uc6d0\ubb38\uc774 \ubc14\ub00c\uc5c8\uac70\ub098 \ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "summary_ko": {
+            "description": "AI\uac00 \uc4f4 \ud55c\uad6d\uc5b4 \uc694\uc57d. \ud310\uc815\uc774 \uc544\ub2c8\uba70 \uc6d0\ubb38\uc774 \uae30\uc900\uc774\ub2e4.",
+            "title": "Summary Ko",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "summary_ko",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale"
+        ],
+        "title": "SummaryRecord",
+        "type": "object"
+      },
+      "TicketAnalysis": {
+        "properties": {
+          "corrections": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/Correction"
+            },
+            "title": "Corrections",
+            "type": "array"
+          },
+          "drafts": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/DraftRun"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldView"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_valid_draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Valid Draft Id"
+          },
+          "latest_valid_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send it as analysis_id with a correction.",
+            "title": "Latest Valid Run Id"
+          },
+          "missing_info": {
+            "$ref": "#/components/schemas/MissingInfo",
+            "description": "Info still needed from the customer. Recounted from corrected values."
+          },
+          "return_subtype_stated": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DEFECT",
+                  "NON_DEFECT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the customer stated (AI). Confirmed only through workflow/return-subtype.",
+            "title": "Return Subtype Stated"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/Rules"
+          },
+          "runs": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "description": "Number of corrections. Send it with a correction.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "version",
+          "latest_run",
+          "latest_valid_run_id",
+          "runs",
+          "drafts",
+          "latest_valid_draft_id",
+          "corrections",
+          "fields",
+          "return_subtype_stated",
+          "rules",
+          "missing_info"
+        ],
+        "title": "TicketAnalysis",
         "type": "object"
       },
       "TicketCounts": {
@@ -4394,7 +7451,7 @@
       },
       "TicketCreate": {
         "additionalProperties": false,
-        "description": "Manual intake. Source IDs, origin and timestamps are set by the server.",
+        "description": "Intake through the API. Source IDs and timestamps are set by the server.\n\n`data_origin` accepts only `synthetic`: a loader of made-up tickets can mark them so, and\nnothing can label a ticket real. Left out, the server decides as before.",
         "properties": {
           "body": {
             "maxLength": 50000,
@@ -4423,6 +7480,34 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
             "title": "Customer External Id",
             "type": "string"
+          },
+          "customer_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "STANDARD",
+                  "GOLD",
+                  "PLATINUM"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Tier"
+          },
+          "data_origin": {
+            "anyOf": [
+              {
+                "const": "synthetic",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Origin"
           },
           "error_code_reported": {
             "anyOf": [
@@ -4737,6 +7822,19 @@
             "title": "Id",
             "type": "string"
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "C/S agent in charge. None until review starts.",
+            "title": "Owner User Id"
+          },
           "product_code": {
             "title": "Product Code",
             "type": "string"
@@ -4756,6 +7854,17 @@
               }
             ],
             "title": "Subject"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReceivedTransfer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest transfer to the department in the dept filter. None without it."
           },
           "workflow_state": {
             "enum": [
@@ -4782,6 +7891,50 @@
           "workflow_state"
         ],
         "title": "TicketSummary",
+        "type": "object"
+      },
+      "TicketSummaryView": {
+        "properties": {
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568). \uc2e4\ud328\ud588\uc73c\uba74 \ud654\uba74\uc774 \ub2e4\uc2dc \ub9cc\ub4e4\uae30\ub97c \ubcf4\uc5ec \uc904 \uc218 \uc788\ub2e4."
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc\uc758 \uc131\uacf5\ud55c \uc694\uc57d. \uc5c6\uc73c\uba74 null."
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "summary",
+          "latest_attempt"
+        ],
+        "title": "TicketSummaryView",
         "type": "object"
       },
       "TicketUnit": {
@@ -5263,6 +8416,120 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VerificationRun": {
+        "properties": {
+          "attempt_number": {
+            "title": "Attempt Number",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "sentences": {
+            "items": {
+              "$ref": "#/components/schemas/SentenceVerdict"
+            },
+            "title": "Sentences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "draft_id",
+          "job_id",
+          "attempt_number",
+          "outcome",
+          "sentences",
+          "input_version",
+          "model_version",
+          "prompt_version",
+          "error_code",
+          "created_at"
+        ],
+        "title": "VerificationRun",
+        "type": "object"
+      },
+      "Versioned": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "The request version the user decided on.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "Versioned",
+        "type": "object"
+      },
       "Workflow": {
         "properties": {
           "closed_at": {
@@ -5289,6 +8556,22 @@
             ],
             "title": "Closed By"
           },
+          "customer_replies": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerReply"
+            },
+            "title": "Customer Replies",
+            "type": "array"
+          },
+          "customer_sends": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CustomerSend"
+            },
+            "title": "Customer Sends",
+            "type": "array"
+          },
           "customer_sent_at": {
             "anyOf": [
               {
@@ -5309,6 +8592,16 @@
             "title": "Dept Results",
             "type": "array"
           },
+          "mail_origin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MailOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "owner_user_id": {
             "anyOf": [
               {
@@ -5320,6 +8613,103 @@
               }
             ],
             "title": "Owner User Id"
+          },
+          "return_cause_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SITE_CONDITION",
+                  "HARDWARE",
+                  "SETTING",
+                  "WEAR_PART",
+                  "FIRMWARE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Cause Type"
+          },
+          "return_non_manufacturing_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Non Manufacturing Reason"
+          },
+          "return_response_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Response Note"
+          },
+          "return_responsibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUFACTURING",
+                  "NON_MANUFACTURING",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed by a C/S agent after inspection; null until then.",
+            "title": "Return Responsibility"
+          },
+          "return_subtype_confirmed": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DEFECT",
+                  "NON_DEFECT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Derived from responsibility for routing: MANUFACTURING is DEFECT, NON_MANUFACTURING is NON_DEFECT, UNDETERMINED and unconfirmed are null.",
+            "title": "Return Subtype Confirmed"
+          },
+          "return_subtype_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype Confirmed At"
+          },
+          "return_subtype_confirmed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype Confirmed By"
           },
           "state": {
             "enum": [
@@ -5888,9 +9278,257 @@
         ]
       }
     },
+    "/api/v1/cs/improvement-candidates": {
+      "get": {
+        "operationId": "cs_list_improvement_candidates",
+        "parameters": [
+          {
+            "description": "Judge as of this time. Default now.",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Judge as of this time. Default now.",
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "ELIGIBLE",
+                    "NOT_ELIGIBLE",
+                    "INSUFFICIENT_EVIDENCE"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CandidateList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Only C/S may read or collect candidates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "as_of is in the future"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Candidates",
+        "tags": [
+          "improvement-candidates"
+        ]
+      }
+    },
+    "/api/v1/cs/improvement-candidates/collect": {
+      "post": {
+        "description": "Saves eligible groups that have no request yet. Running it again adds nothing.",
+        "operationId": "cs_collect_improvement_candidates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateCollect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CandidateCollected_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Only C/S may read or collect candidates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "as_of is in the future"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Collect Candidates",
+        "tags": [
+          "improvement-candidates"
+        ]
+      }
+    },
     "/api/v1/cs/improvement-requests": {
       "get": {
         "operationId": "cs_list_improvement_requests",
+        "parameters": [
+          {
+            "description": "Request statuses, comma separated (e.g. DRAFT,SENT). The web relay takes each query key once.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Request statuses, comma separated (e.g. DRAFT,SENT). The web relay takes each query key once.",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "FAULT",
+                    "DOCUMENT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Type"
+            }
+          },
+          {
+            "description": "Sent to this department in any round, or proposed to it.",
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sent to this department in any round, or proposed to it.",
+              "title": "Dept"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5941,6 +9579,16 @@
               }
             },
             "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           },
           "503": {
             "content": {
@@ -6242,6 +9890,111 @@
           }
         },
         "summary": "Update Request",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/complete": {
+      "post": {
+        "description": "FOLLOW_UP \u2192 COMPLETED: a person's decision after the follow-up result is recorded.\n\nA department reply or action never completes a request. Monitoring for recurrence\ncontinues after completion (KAN-117 reopens the request in a new round).",
+        "operationId": "cs_complete_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Complete",
         "tags": [
           "improvement-requests"
         ],
@@ -7079,6 +10832,576 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/acknowledge": {
+      "post": {
+        "description": "Department SENT \u2192 ACKNOWLEDGED by that department's staff.",
+        "operationId": "cs_acknowledge_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Acknowledge",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/action": {
+      "post": {
+        "description": "Department ADOPTED \u2192 ACTION_TAKEN with the action, its scope, date and evidence.\n\nAn adopted department does not wait for the others. The action is the department's\nimprovement, not a single customer's repair.",
+        "operationId": "cs_record_improvement_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Record Action",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/reply": {
+      "post": {
+        "description": "Department ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a reason.\n\nThe reply names the request version it answered. A reply is a claim, not a result:\nnothing here completes the request.",
+        "operationId": "cs_reply_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Reply",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/resend": {
+      "post": {
+        "description": "Calls one department again inside the current round (C/S agent).\n\nINFO_REQUESTED \u2192 SENT after supplementing; REJECTED \u2192 SENT only with evidence added after\nthe rejection (422 CS_EVIDENCE_REQUIRED otherwise); SENT / ACKNOWLEDGED \u2192 SENT as a\nreminder only after the reply deadline passed (409 otherwise). The round does not change.",
+        "operationId": "cs_resend_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Resend",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/review-rejection": {
+      "post": {
+        "description": "The C/S agent reviewed a rejection and will not re-request. No state change for the\ndepartment; once every department is rejected and reviewed the request is closed by\nrejection and only a new round (KAN-117) reopens it.",
+        "operationId": "cs_review_improvement_rejection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dept_code",
+            "required": true,
+            "schema": {
+              "title": "Dept Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Review Rejection",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/evidence": {
       "post": {
         "description": "Links a ticket (and, for faults, its case). The ticket's state does not matter.",
@@ -7299,6 +11622,225 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/improvement-requests/{request_id}/followup-plan": {
+      "post": {
+        "description": "ACTION_TAKEN \u2192 FOLLOW_UP once every department acted or had its rejection reviewed and\nat least one action exists. The plan (target, method, period) is written before checking.",
+        "operationId": "cs_plan_improvement_followup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowupPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Plan Followup",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/followup-signals": {
+      "get": {
+        "description": "Re-request / recurrence candidate at `as_of`. Same read scope as the request.",
+        "operationId": "cs_get_improvement_followup_signals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Judgement time (time zone required). Default now.",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Judgement time (time zone required). Default now.",
+              "title": "As Of"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Signal_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Signals",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/improvement-requests/{request_id}/owner": {
       "put": {
         "description": "Only a manager of the C/S department reassigns the C/S owner (permissions.md 2.2).",
@@ -7398,6 +11940,321 @@
           }
         },
         "summary": "Reassign Owner",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/review": {
+      "post": {
+        "description": "DRAFT \u2192 REVIEWED by a C/S agent, who becomes the owner if there is none.",
+        "operationId": "cs_review_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImprovementReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Review",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/rounds": {
+      "post": {
+        "description": "A C/S agent opens the next round for a re-request or a recurrence (permissions.md 2.2).\n\nThe candidate is checked again at the server's current time, which is also the round's\nopening time: records known between the person's `as_of` and now join this round's\nevidence and are not lost from the next count. Completing records of a reopened\nrequest are copied into the round row before the request starts again.",
+        "operationId": "cs_open_improvement_round",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoundRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Open Round",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/send": {
+      "post": {
+        "description": "REVIEWED \u2192 first round: every target department starts at SENT.\n\nDelivery here records the hand-over; mail to departments is not sent by this service.\nA document request without a confirmed receiver cannot be sent (CONFIRM_RECEIVER first).",
+        "operationId": "cs_send_improvement_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send",
         "tags": [
           "improvement-requests"
         ],
@@ -7956,6 +12813,233 @@
               ],
               "title": "Cursor"
             }
+          },
+          {
+            "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Workflow states, comma separated (e.g. IN_REVIEW,TRANSFERRED). The web relay takes each query key once.",
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "EMAIL",
+                    "PARTNER_PORTAL",
+                    "WEB_FORM",
+                    "PHONE",
+                    "CHAT"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          },
+          {
+            "description": "Exact customer ID.",
+            "in": "query",
+            "name": "customer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact customer ID.",
+              "title": "Customer"
+            }
+          },
+          {
+            "description": "Owner (C/S agent) user ID.",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Owner (C/S agent) user ID.",
+              "title": "Owner"
+            }
+          },
+          {
+            "description": "Received at or after (inclusive).",
+            "in": "query",
+            "name": "received_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received at or after (inclusive).",
+              "title": "Received From"
+            }
+          },
+          {
+            "description": "Received before (exclusive).",
+            "in": "query",
+            "name": "received_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Received before (exclusive).",
+              "title": "Received To"
+            }
+          },
+          {
+            "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring of the ticket number, subject or customer ID (case-insensitive).",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "received_at_desc",
+              "enum": [
+                "received_at_desc",
+                "received_at_asc"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Requests this department received: transferred to it in any round.",
+            "in": "query",
+            "name": "dept",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "TS_LV",
+                    "TS_MV",
+                    "TS_TRF",
+                    "TS_AUTO",
+                    "TS_ENERGY",
+                    "RND_FW",
+                    "QA_CLAIM",
+                    "FIELD_SVC",
+                    "CERT",
+                    "SALES_OPS",
+                    "SCM",
+                    "WARRANTY_DESK"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Requests this department received: transferred to it in any round.",
+              "title": "Dept"
+            }
+          },
+          {
+            "description": "Status of the latest transfer to dept. Needs dept.",
+            "in": "query",
+            "name": "transfer_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "OPEN",
+                    "RESULT_SUBMITTED",
+                    "RETURNED_BY_DEPT",
+                    "RECALLED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Status of the latest transfer to dept. Needs dept.",
+              "title": "Transfer Status"
+            }
           }
         ],
         "responses": {
@@ -8304,6 +13388,311 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/tickets/{ticket_id}/analysis": {
+      "get": {
+        "description": "AI runs, drafts, corrections, the effective values with their source, and the rules\ncomputed from the AI and the effective values. Same read scope as the ticket.",
+        "operationId": "cs_get_ticket_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketAnalysis_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Analysis",
+        "tags": [
+          "analysis"
+        ],
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "A C/S agent asks for an AI analysis (classification, rules, evidence, three drafts).\n\nThe platform runs it as a job and the graph stops before human review; results appear in\n`GET \u2026/analysis`. One job per ticket at a time (409 `CS_JOB_IN_PROGRESS`); resending the\nsame Idempotency-Key returns the earlier job. Not for a closed ticket.",
+        "operationId": "cs_start_ticket_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AnalysisJob_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start Analysis",
+        "tags": [
+          "analysis"
+        ],
+        "x-activation": "CS_ANALYSIS_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/analysis/corrections": {
+      "post": {
+        "description": "A C/S agent corrects category, secondary category, urgency or provided information.\n\nStored as its own `human_input` row; the AI row is not changed and a later AI run does not\nreplace it. Only fields that differ from the current effective value are stored. The\nreturn subtype is confirmed through workflow/return-subtype, not here.",
+        "operationId": "cs_correct_ticket_classification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketAnalysis_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Correct",
+        "tags": [
+          "analysis"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/tickets/{ticket_id}/audit": {
       "get": {
         "operationId": "cs_list_ticket_audit",
@@ -8490,6 +13879,206 @@
         "tags": [
           "workflow"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/summary": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c \ud55c\uad6d\uc5b4 \uc694\uc57d. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_ticket_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Summary",
+        "tags": [
+          "summary"
+        ],
+        "x-activation": "CS_SUMMARY_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud55c\uad6d\uc5b4 \uc694\uc57d\uc744 \ub9cc\ub4e0\ub2e4. \uac19\uc740 \uc6d0\ubb38\uc758 \uc131\uacf5\ud55c \uc694\uc57d\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_ticket_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Summary",
+        "tags": [
+          "summary"
+        ],
+        "x-activation": "CS_SUMMARY_ENABLED",
         "x-implementation-status": "partial"
       }
     },
@@ -8872,7 +14461,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/close": {
       "post": {
-        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.",
+        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
         "operationId": "cs_close_ticket",
         "parameters": [
           {
@@ -9197,7 +14786,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/owner": {
       "put": {
-        "description": "Only a manager of the C/S department reassigns the owner. The state does not change.\n\nThe C/S service cannot read the identity schema, so the new owner's role is not checked\nhere; the screen offers registered C/S agents only.",
+        "description": "Only a manager of the C/S department reassigns the owner. The state does not change.\n\nThe C/S service cannot read the identity schema, so the new owner's role is not checked\nhere. The platform relay checks it before forwarding (KAN-195: an inactive or non-cs_agent\nowner is 422 CS_INVALID_OWNER); a local direct call to this service skips that check.",
         "operationId": "cs_reassign_ticket_owner",
         "parameters": [
           {
@@ -9510,6 +15099,439 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/return-subtype": {
+      "post": {
+        "description": "A C/S agent records what inspection found for a return (KAN-193).\n\nResponsibility, cause type and response note. This is the only way a return becomes\nconfirmed: the LLM `return_subtype` on the ticket is what the customer stated at intake.\nNot before review starts and not after closing. The state does not change; confirming\nagain overwrites every field with a new version.",
+        "operationId": "cs_confirm_return_subtype",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid transition or stale version"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Confirm Return Subtype",
+        "tags": [
+          "workflow"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/send": {
+      "post": {
+        "description": "Approves an answer or an information request and hands it to the platform.\n\nIN_REVIEW only, one unsettled send at a time, and no department result waiting for\nreview. The workflow version advances on approval; the state changes only once the\nplatform reports ACCEPTED (refresh). The outcome of the hand-over is in the returned\nsend's `request_status`, not in the HTTP status.",
+        "operationId": "cs_send_customer_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send Message",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/sends/{send_id}/refresh": {
+      "post": {
+        "description": "Reads the platform status of a registered send. The first ACCEPTED moves the ticket\nto ANSWERED (answer) or WAITING_CUSTOMER (information request).",
+        "operationId": "cs_refresh_customer_send",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "send_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Send Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Refresh Send",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/workflow/sends/{send_id}/retry": {
+      "post": {
+        "description": "Calls the platform again for a send it never answered (PENDING, REQUEST_FAILED,\nREQUEST_UNKNOWN). Same version and content, so the platform returns the existing intent\nif the first call did get through.",
+        "operationId": "cs_retry_customer_send",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "send_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Send Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Action"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Workflow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found, or customer mail disabled"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Retry Send",
+        "tags": [
+          "workflow"
+        ],
+        "x-activation": "CS_MAIL_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/tickets/{ticket_id}/workflow/start-review": {
       "post": {
         "description": "RECEIVED \u2192 IN_REVIEW by a C/S agent, who becomes the owner if there is none.",
@@ -9617,7 +15639,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/transfer": {
       "post": {
-        "description": "IN_REVIEW \u2192 TRANSFERRED. The C/S agent confirms the department and the reason.",
+        "description": "IN_REVIEW \u2192 TRANSFERRED. The C/S agent confirms the department and the reason.\n\nRefused while a customer send is unsettled (KAN-110): the send's outcome must land on\nthe ticket in review first.",
         "operationId": "cs_transfer_ticket",
         "parameters": [
           {

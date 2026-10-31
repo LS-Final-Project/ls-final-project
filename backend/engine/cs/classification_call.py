@@ -9,6 +9,7 @@ from typing import Literal
 
 from backend.engine.cs.classification import (
     INPUT_VERSION,
+    INPUT_VERSION_STRIPPED,
     ClassificationInput,
     ClassificationOutput,
     build_input,
@@ -28,6 +29,7 @@ class ClassificationCallError(Exception):
         *,
         usage: Usage | None = None,
         http_status: int | None = None,
+        call_attempts: int | None = None,
     ) -> None:
         """허용된 오류 코드와 사용량만 복사해 전달한다.
 
@@ -35,6 +37,7 @@ class ClassificationCallError(Exception):
             code: 레이트 제한·타임아웃·기타 호출 실패의 고정 코드.
             usage: 제공자가 알려준 사용량. 미제공 값은 null로 유지한다.
             http_status: 알려진 HTTP 상태. 제공자 메시지는 받지 않는다.
+            call_attempts: 실패까지의 실제 호출 수(재시도 포함). 모르면 None이다.
 
         Returns:
             None: 시도 경계에서 처리할 안전한 오류를 만든다.
@@ -49,6 +52,9 @@ class ClassificationCallError(Exception):
         self.code = code
         self.usage = replace(usage) if usage is not None else Usage()
         self.http_status = http_status
+        self.call_attempts = (
+            call_attempts if type(call_attempts) is int and call_attempts >= 1 else None
+        )
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,8 @@ class ClassificationAttempt:
     # 응답의 Generation.model·attempts. 공급자 예외로 Generation이 없으면 None이다.
     requested_model: str | None = field(default=None, repr=False)
     call_attempts: int | None = None
+    # 분류 프롬프트 판본. 공급자가 판본을 고르므로 이 함수는 모르고, 저장 직전에 실행기(build_cs_runner)가 채운다.
+    prompt_version: str | None = None
 
 
 def run_classification_attempt(
@@ -82,6 +90,7 @@ def run_classification_attempt(
     allowed_info_codes: frozenset[str],
     provider: Callable[[ClassificationInput], Generation],
     attempt_number: int,
+    strip_phone_annotation: bool = False,
 ) -> ClassificationAttempt:
     """정제 입력을 한 번 호출하고 원시 검사 결과와 사용량을 보존한다.
 
@@ -91,15 +100,23 @@ def run_classification_attempt(
         allowed_info_codes: 검수된 정보 코드 집합. 기본값을 추측하지 않는다.
         provider: 정제된 네 필드만 받아 공통 Generation을 반환하는 호출자.
         attempt_number: 외부 실행기가 부여한 1 이상의 시도 번호.
+        strip_phone_annotation: 분석용. build_input에 그대로 넘긴다(기본 False, 판본은 입력 판본에 남는다).
 
     Returns:
         ClassificationAttempt: 내부 시도 기록. 입력 실패는 호출하지 않으며 자동 재시도하지 않는다.
     """
     if type(attempt_number) is not int or attempt_number < 1:
         raise ValueError("CS_INVALID_ATTEMPT_NUMBER")
-    result = ClassificationAttempt(attempt_number)
+    result = ClassificationAttempt(
+        attempt_number,
+        input_version=INPUT_VERSION_STRIPPED if strip_phone_annotation else INPUT_VERSION,
+    )
     try:
-        prepared = build_input(record, sensitive_values=sensitive_values)
+        prepared = build_input(
+            record,
+            sensitive_values=sensitive_values,
+            strip_phone_annotation=strip_phone_annotation,
+        )
     except ValueError as error:
         input_code = str(error)
         if input_code not in {
@@ -127,8 +144,10 @@ def run_classification_attempt(
         code: CallErrorCode = "CS_PROVIDER_ERROR"
         usage = Usage()
         http_status = None
+        attempts = None
         if isinstance(error, ClassificationCallError):
             code, usage, http_status = error.code, replace(error.usage), error.http_status
+            attempts = error.call_attempts
         elif isinstance(error, TimeoutError):
             code = "CS_PROVIDER_TIMEOUT"
         return replace(
@@ -139,6 +158,7 @@ def run_classification_attempt(
             http_status=http_status,
             usage=usage,
             latency_ms=round((time.perf_counter() - started) * 1000, 3),
+            call_attempts=attempts,
         )
 
     result = replace(

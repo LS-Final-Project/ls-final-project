@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.tft.main import create_app
 from backend.api.tft.projects import repository, routes
+from backend.api.tft.rfp import routes_write
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -35,6 +36,23 @@ def project_row(index: int) -> dict:
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
         "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
+        "output_status": "INTAKE",
+        "judgement_status": "NEEDS_REVIEW",
+        "purpose": "INITIAL_PROPOSAL",
+        "customer_goal": None,
+        "review_departments": [],
+        "requirements_count": 0,
+        "unresolved_mandatory_count": 0,
+        "pending_proposals_count": 0,
+        "open_questions_count": 0,
+        "documents_count": 0,
+        "draft_version": None,
+        "review_version": None,
+        "strategic_customer": None,
+        "strategic_customer_note": None,
+        "strategic_customer_set_by": None,
+        "integration_holder": "UNRESOLVED",
+        "latest_job_id": None,
     }
 
 
@@ -64,6 +82,20 @@ REQUIREMENTS = [
 ]
 
 
+HOLDER = {
+    "integration_holder": "UNRESOLVED",
+    "integration_holder_candidates": [],
+    "integration_note": None,
+    "integration_set_by": None,
+    "integration_set_at": None,
+}
+CLAUSE_ID = UUID(int=200)
+INTEGRATION_ROWS = [
+    {"clause_id": CLAUSE_ID, "clause_no": "2.3.A", "task": None, "assembly_clause": True},
+    {"clause_id": UUID(int=201), "clause_no": "2.5.K", "task": None, "assembly_clause": False},
+]
+
+
 def only_for(project_id: UUID, rows: list) -> list:
     return rows if project_id == PROJECT["id"] else []
 
@@ -74,7 +106,9 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after, managed_projects, user_id):
+    async def list_projects(
+        conn, limit, after, managed_projects, user_id, department=None, **filters
+    ):
         rows = [
             r
             for r in ROWS
@@ -90,13 +124,26 @@ def fakes(monkeypatch):
     async def get_project(conn, project_id):
         return next((dict(r) for r in ROWS if r["id"] == project_id), None)
 
+    async def integration_state(conn, project_id):
+        return HOLDER, only_for(project_id, INTEGRATION_ROWS)
+
     async def list_rfp_requirements(conn, project_id):
         return only_for(project_id, REQUIREMENTS)
 
+    async def review_departments(conn, project_id):
+        return []
+
+    async def project_detail_parts(conn, project_id):
+        return next(r for r in ROWS if r["id"] == project_id), [], {}
+
+    monkeypatch.setattr(routes_write.repository, "project_detail_parts", project_detail_parts)
+    monkeypatch.setattr(routes_write, "integration_state", integration_state)
+    monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_projects", list_projects)
     monkeypatch.setattr(repository, "get_project", get_project)
     monkeypatch.setattr(repository, "list_rfp_requirements", list_rfp_requirements)
+    monkeypatch.setattr(repository, "integration_state", integration_state)
 
 
 @pytest.fixture
@@ -184,6 +231,36 @@ def test_detail_of_project_without_requirements_has_an_empty_list(client):
     body = client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}").json()["data"]
     assert body["rfp_requirements"] == []
     assert body["responsible_user_id"] is None
+    assert body["integration_responsibility"]["required"] is False
+    assert body["integration_responsibility"]["basis_clause_ids"] == []
+
+
+def test_detail_shows_the_integration_responsibility_with_its_basis_clause(client):
+    """명세 v1.3 §7(KAN-199): required·근거 조항은 읽을 때 계산하고, 사람이 볼 수 있게 조항 ID와 번호를 함께 낸다."""
+    body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
+    integration = body["integration_responsibility"]
+    assert (integration["required"], integration["holder"]) == (True, "UNRESOLVED")
+    assert integration["basis_clause_ids"] == [str(CLAUSE_ID)]
+    assert integration["basis_clause_nos"] == ["2.3.A"]
+    assert [p["holder"] for p in integration["fallback_paths"]] == [
+        "OWN",
+        "SINGLE_PARTNER",
+        "JOINT",
+        "HOLD",
+    ]
+    assert integration["unresolved"]
+
+
+def test_detail_survives_a_database_without_the_t12_migration(client, monkeypatch):
+    """T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
+
+    async def missing(conn, project_id):
+        return None
+
+    monkeypatch.setattr(routes_write, "integration_state", missing)
+    result = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
+    assert result.status_code == 200
+    assert result.json()["data"]["integration_responsibility"] is None
 
 
 def test_unknown_project_returns_feature_error(client):

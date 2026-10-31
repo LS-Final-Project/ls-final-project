@@ -24,7 +24,7 @@ INSERT = f"INSERT INTO tft.document_chunks ({COLUMNS}) VALUES ({', '.join(['%s']
 SEARCH = (
     "SELECT chunk_id, document_sha256, ordinal, section_path, "
     "ts_headline('english', text, q, 'MaxWords=35, MinWords=10') AS snippet, "
-    "ts_rank_cd(tsv, q) AS rank, kind, table_title, page_start "
+    "ts_rank_cd(tsv, q) AS rank, kind, table_title, page_start, text "
     "FROM tft.document_chunks, websearch_to_tsquery('english', %s) AS q "
     "WHERE tsv @@ q AND index_version = %s "
     "AND (%s::text[] IS NULL OR document_sha256 = ANY(%s::text[])) "
@@ -118,8 +118,8 @@ async def search_fts(
         limit: 최대 결과 수(1~100).
 
     Returns:
-        chunk_id·document_sha256·ordinal·section_path·snippet·rank·kind·table_title·page_start 행을
-        순위 내림차순(같으면 문서·순번 오름차순)으로.
+        chunk_id·document_sha256·ordinal·section_path·snippet·rank·kind·table_title·page_start·
+        text 행을 순위 내림차순(같으면 문서·순번 오름차순)으로.
 
     Raises:
         ValueError: 질의가 비었거나 limit이 범위 밖일 때.

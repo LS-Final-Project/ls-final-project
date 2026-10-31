@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "Assignee": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name"
+        ],
+        "title": "Assignee",
+        "type": "object"
+      },
+      "AssigneeList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Assignee"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AssigneeList",
+        "type": "object"
+      },
       "AttemptSummary": {
         "additionalProperties": false,
         "description": "\ucd5c\ucd08\u00b7\uc7ac\uc2dc\ub3c4\u00b7\uc804\uccb4\ubcc4\ub85c \uacf5\uac1c\ud560 \uc218\uce58 \ud544\ub4dc\ub9cc \uc9c0\uc815\ud55c\ub2e4.",
@@ -113,6 +148,243 @@
         "title": "Candidate",
         "type": "object"
       },
+      "CaseAttemptView": {
+        "additionalProperties": false,
+        "description": "\uc2dc\ub3c4 \ud558\ub098\uc758 \uacb0\uacfc \uba54\ud0c0\ub370\uc774\ud130. \uc6d0\ubb38\u00b7\uc6d0\uc2dc \uc751\ub2f5\u00b7\uc0ac\uc6a9\ub7c9 \uc6d0\ubcf8\uc740 \uc5c6\ub2e4.",
+        "properties": {
+          "attempt": {
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "call_attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Attempts"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finish_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Finish Reasons",
+            "type": "array"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "SCHEMA_VIOLATION",
+              "TRANSPORT_FAILURE",
+              "TIMEOUT",
+              "HELD"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "parsed_output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedCodes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "attempt",
+          "outcome",
+          "error_code",
+          "http_status",
+          "finish_reasons",
+          "call_attempts",
+          "model_version",
+          "latency_ms",
+          "parsed_output"
+        ],
+        "title": "CaseAttemptView",
+        "type": "object"
+      },
+      "CaseView": {
+        "additionalProperties": false,
+        "description": "\uc0ac\ub840 \ud558\ub098. \uc0ac\ub840 ID\ub294 sha256 \uc55e 12\uc790\ub2e4.",
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/CaseAttemptView"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "VALID",
+              "INVALID_OUTPUT",
+              "HELD",
+              "FAILED",
+              "EXCLUDED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_ref_sha": {
+            "pattern": "^[0-9a-f]{12}$",
+            "title": "Target Ref Sha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "target_ref_sha",
+          "status",
+          "attempts"
+        ],
+        "title": "CaseView",
+        "type": "object"
+      },
+      "CsJobStatus": {
+        "additionalProperties": false,
+        "description": "C/S \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-194). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "cs.analyze",
+            "default": "cs.analyze",
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "minimum": 0.0,
+            "title": "Last Event Sequence",
+            "type": "integer"
+          },
+          "owner": {
+            "const": "cs",
+            "default": "cs",
+            "title": "Owner",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "ticket_id",
+          "status",
+          "version",
+          "last_event_sequence"
+        ],
+        "title": "CsJobStatus",
+        "type": "object"
+      },
+      "DatasetManifest": {
+        "additionalProperties": false,
+        "description": "{} \ub610\ub294 {\"sources\": [...]}. \uadf8 \ubc16\uc758 \ud0a4\ub294 \ubc1b\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestSource"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources"
+          }
+        },
+        "title": "DatasetManifest",
+        "type": "object"
+      },
       "DismissDecision": {
         "properties": {
           "note": {
@@ -126,6 +398,21 @@
           "note"
         ],
         "title": "DismissDecision",
+        "type": "object"
+      },
+      "Endpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "Endpoint",
         "type": "object"
       },
       "ErrorData": {
@@ -269,6 +556,27 @@
             "title": "Experiment Id",
             "type": "string"
           },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "title": "Knobs",
+            "type": "object"
+          },
           "model_id": {
             "title": "Model Id",
             "type": "string"
@@ -286,6 +594,31 @@
             "title": "Purpose",
             "type": "string"
           },
+          "runs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExperimentRunLink"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
           "target_count": {
             "title": "Target Count",
             "type": "integer"
@@ -298,6 +631,7 @@
           "data_split",
           "data_origin",
           "model_id",
+          "stage",
           "target_count",
           "created_at",
           "admissible",
@@ -455,6 +789,37 @@
         "title": "EvaluationPolicy",
         "type": "object"
       },
+      "EvaluationRunCases": {
+        "additionalProperties": false,
+        "description": "\uc0ac\ub840 \ud55c \ud398\uc774\uc9c0\uc640 \ub2e4\uc74c \ucee4\uc11c(\ub2e4\uc74c\uc774 \uc5c6\uc73c\uba74 null).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "EvaluationRunCases",
+        "type": "object"
+      },
       "EvaluationRunItem": {
         "description": "\ubcf8\uc778 \uc811\uc218 \uc2e4\ud589 \ud558\ub098. \uc6d0\uc2dc \ucd9c\ub825\u00b7\uc815\ub2f5\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
         "properties": {
@@ -497,6 +862,23 @@
             "title": "Run Id",
             "type": "string"
           },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
           "status": {
             "enum": [
               "QUEUED",
@@ -515,6 +897,7 @@
           "run_id",
           "job_id",
           "experiment_id",
+          "stage",
           "status",
           "requested_count",
           "needs_review",
@@ -630,6 +1013,16 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "experiment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryExperiment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "first": {
             "$ref": "#/components/schemas/AttemptSummary"
           },
@@ -647,6 +1040,14 @@
                 "type": "null"
               }
             ]
+          },
+          "origin": {
+            "enum": [
+              "ACCEPT",
+              "IMPORT"
+            ],
+            "title": "Origin",
+            "type": "string"
           },
           "quality_available": {
             "title": "Quality Available",
@@ -680,6 +1081,13 @@
             "format": "uuid",
             "title": "Run Id",
             "type": "string"
+          },
+          "stage_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/StageMetricBlock"
+            },
+            "title": "Stage Metrics",
+            "type": "array"
           },
           "status": {
             "enum": [
@@ -715,6 +1123,7 @@
         },
         "required": [
           "run_id",
+          "origin",
           "status",
           "generated_at",
           "data_origin",
@@ -788,6 +1197,292 @@
           "source"
         ],
         "title": "Evidence",
+        "type": "object"
+      },
+      "ExperimentCreate": {
+        "additionalProperties": false,
+        "description": "\uc0c8 \uc2e4\ud5d8 \ub4f1\ub85d \uc694\uccad. \ub4f1\ub85d\ud55c \uc2e4\ud5d8\uc740 \ubc14\uafb8\uc9c0 \uc54a\uc73c\uba70 \uad6c\uc131\uc744 \ubc14\uafb8\ub824\uba74 \uc0c8\ub85c \ub4f1\ub85d\ud55c\ub2e4.",
+        "properties": {
+          "configuration": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Configuration",
+            "type": "object"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "data_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "valid",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Split"
+          },
+          "dataset_manifest": {
+            "$ref": "#/components/schemas/DatasetManifest",
+            "default": {}
+          },
+          "gold_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gold Version"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "input_builder_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Builder Version"
+          },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "title": "Knobs",
+            "type": "object"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "purpose": {
+            "enum": [
+              "smoke",
+              "rule_replay",
+              "pipeline"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetCreate"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "purpose",
+          "data_origin",
+          "model_id",
+          "targets"
+        ],
+        "title": "ExperimentCreate",
+        "type": "object"
+      },
+      "ExperimentRegistered": {
+        "description": "\ub4f1\ub85d \uacb0\uacfc. hash\ub294 \uc6b4\uc601\uc790\uac00 \uc2b9\uc778 \ubaa9\ub85d\uc5d0 \ub123\uc744 \uac12\uc774\ub77c \ub4f1\ub85d\uc790\uc5d0\uac8c \ub3cc\ub824\uc900\ub2e4.",
+        "properties": {
+          "admissible": {
+            "title": "Admissible",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ADMISSION_UNAVAILABLE",
+                  "FINAL_TEST_LOCKED",
+                  "EXPERIMENT_NOT_APPROVED",
+                  "LOCAL_SMOKE_ONLY",
+                  "EXPERIMENT_HASH_MISMATCH"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "config_hash": {
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "dataset_hash": {
+            "title": "Dataset Hash",
+            "type": "string"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "target_set_hash": {
+            "title": "Target Set Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "config_hash",
+          "dataset_hash",
+          "target_set_hash",
+          "target_count",
+          "admissible",
+          "blocked_reason"
+        ],
+        "title": "ExperimentRegistered",
+        "type": "object"
+      },
+      "ExperimentRunLink": {
+        "description": "\uc2e4\ud5d8\uc758 \uc2e4\ud589 \ud558\ub098\ub85c \uac00\ub294 \ub9c1\ud06c(KAN-139 3\ucc28). summary\ub97c \uc5f4 \uc218 \uc788\ub294 \uc2e4\ud589(\uc601\uc218\uc99d \uc788\uc74c)\ub9cc \ub2f4\ub294\ub2e4.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "ACCEPT",
+              "IMPORT"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED",
+              "TIMED_OUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "origin",
+          "status",
+          "created_at"
+        ],
+        "title": "ExperimentRunLink",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -903,6 +1598,63 @@
           "roles"
         ],
         "title": "Identity",
+        "type": "object"
+      },
+      "JobStatusResponse": {
+        "description": "\uc0c1\ud0dc \uc870\ud68c \uc751\ub2f5. data\ub294 owner(platform\u00b7cs\u00b7tft)\ub85c \uad6c\ubd84\ud55c\ub2e4.",
+        "properties": {
+          "data": {
+            "discriminator": {
+              "mapping": {
+                "cs": "#/components/schemas/CsJobStatus",
+                "platform": "#/components/schemas/EvaluationJobStatus",
+                "tft": "#/components/schemas/TftJobStatus"
+              },
+              "propertyName": "owner"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationJobStatus"
+              },
+              {
+                "$ref": "#/components/schemas/CsJobStatus"
+              },
+              {
+                "$ref": "#/components/schemas/TftJobStatus"
+              }
+            ],
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "Keys": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "maxLength": 22,
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "maxLength": 87,
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "Keys",
         "type": "object"
       },
       "LinkDecision": {
@@ -1087,6 +1839,16 @@
           },
           "metrics": {
             "$ref": "#/components/schemas/LockedMetrics"
+          },
+          "outcomes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutcomeQuality"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "quality_gate_evaluated": {
             "const": false,
@@ -1446,6 +2208,288 @@
         "title": "MailboxConnections",
         "type": "object"
       },
+      "ManifestSource": {
+        "additionalProperties": false,
+        "description": "manifest\uc758 \uc6d0\ucc9c \ud558\ub098. \ud30c\uc77c \uc6d0\ubb38\uc774 \uc544\ub2c8\ub77c hash\u00b7\uac74\uc218\u00b7\ucd9c\ucc98 \uad6c\ubd84\ub9cc \ub2f4\ub294\ub2e4.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "file_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "File Sha256",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_instance": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Instance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "source_instance",
+          "file_sha256",
+          "count",
+          "data_origin"
+        ],
+        "title": "ManifestSource",
+        "type": "object"
+      },
+      "Notification": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "cs.review_wait",
+              "cs.safety",
+              "cs.reply",
+              "mail.unknown",
+              "cs.transfer",
+              "rfp.done",
+              "rfp.failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "link_path": {
+            "title": "Link Path",
+            "type": "string"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "link_path",
+          "created_at",
+          "read_at"
+        ],
+        "title": "Notification",
+        "type": "object"
+      },
+      "NotificationList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "required": [
+          "items",
+          "next_offset"
+        ],
+        "title": "NotificationList",
+        "type": "object"
+      },
+      "OutcomeQuality": {
+        "additionalProperties": false,
+        "description": "\ubd84\ub958 \ucd5c\ucd08 \uc2dc\ub3c4 \uacb0\uacfc\ub85c \uc800\uc7a5\ud55c \ud615\uc2dd \uc704\ubc18\uc728\u00b7\uacb0\uacfc\ubcc4 \uac74\uc218(KAN-148 2\ucc28). \uc815\ub2f5\uc774 \ud544\uc694 \uc5c6\uace0 \ud569\uaca9 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "outcomes": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "VALID",
+                "SCHEMA_VIOLATION",
+                "TRANSPORT_FAILURE",
+                "TIMEOUT",
+                "HELD",
+                "NOT_STARTED"
+              ]
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "received": {
+            "minimum": 0.0,
+            "title": "Received",
+            "type": "integer"
+          },
+          "schema_violation_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Violation Rate"
+          },
+          "schema_violations": {
+            "minimum": 0.0,
+            "title": "Schema Violations",
+            "type": "integer"
+          },
+          "scoring_version": {
+            "title": "Scoring Version",
+            "type": "string"
+          },
+          "stored_at": {
+            "format": "date-time",
+            "title": "Stored At",
+            "type": "string"
+          },
+          "stored_scoring_version_count": {
+            "minimum": 1.0,
+            "title": "Stored Scoring Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scoring_version",
+          "stored_scoring_version_count",
+          "stored_at",
+          "schema_violation_rate",
+          "schema_violations",
+          "received",
+          "outcomes"
+        ],
+        "title": "OutcomeQuality",
+        "type": "object"
+      },
+      "ParsedCodes": {
+        "additionalProperties": false,
+        "description": "\ubd84\ub958 \ucd9c\ub825\uc758 \ucf54\ub4dc \uac12\ub9cc. \ucf54\ub4dc \ud615\uc2dd\uc774 \uc544\ub2cc \uac12\uc740 null(provided_info\ub294 \ube80\ub2e4)\uc774\ub2e4.",
+        "properties": {
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "provided_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided Info",
+            "type": "array"
+          },
+          "return_subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Subtype"
+          },
+          "secondary_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Category"
+          },
+          "urgency_flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Flag"
+          }
+        },
+        "required": [
+          "category_code",
+          "secondary_category",
+          "urgency_flag",
+          "return_subtype",
+          "provided_info"
+        ],
+        "title": "ParsedCodes",
+        "type": "object"
+      },
+      "PublicKey": {
+        "properties": {
+          "public_key": {
+            "title": "Public Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "title": "PublicKey",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -1534,6 +2578,87 @@
           "reason"
         ],
         "title": "Reclassification",
+        "type": "object"
+      },
+      "RegisterTicket": {
+        "additionalProperties": false,
+        "description": "\uc811\uc218 \ub2f4\ub2f9\uc790\uac00 \uba54\uc77c\uc744 \uc77d\uace0 \ud655\uc778\ud55c \uac12. \uc81c\ubaa9\u00b7\ubcf8\ubb38\u00b7\ubcf4\ub0b8 \uc0ac\ub78c\uc740 \uc6d0\ubb38\uc5d0\uc11c \uac00\uc838\uc628\ub2e4.",
+        "properties": {
+          "body_language": {
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Body Language",
+            "type": "string"
+          },
+          "customer_external_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "error_code_reported": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code Reported"
+          },
+          "fw_version_reported": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fw Version Reported"
+          },
+          "product_code": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Product Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_external_id",
+          "product_code",
+          "body_language"
+        ],
+        "title": "RegisterTicket",
+        "type": "object"
+      },
+      "RegisteredTicket": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "ticket_id",
+          "created"
+        ],
+        "title": "RegisteredTicket",
         "type": "object"
       },
       "ReplyResult": {
@@ -1871,6 +2996,209 @@
         "title": "SentCopyCheck",
         "type": "object"
       },
+      "StageMetric": {
+        "additionalProperties": false,
+        "description": "\ub2e8\uacc4 \ucc44\uc810 \ud589 \ud558\ub098\uc758 \uc800\uc7a5 \uac12. \ud569\uaca9 \ud310\uc815\uc740 \ud654\uba74\uc774 \ub0b4\ub9ac\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "class_label": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Label"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "enum": [
+                  ">=",
+                  "<=",
+                  "="
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison"
+          },
+          "details": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "tp",
+                "fp",
+                "fn"
+              ]
+            },
+            "title": "Details",
+            "type": "object"
+          },
+          "metric_key": {
+            "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed"
+          },
+          "quality_gate_evaluated": {
+            "const": false,
+            "default": false,
+            "title": "Quality Gate Evaluated",
+            "type": "boolean"
+          },
+          "segment": {
+            "pattern": "^[A-Za-z0-9_.=:/-]{1,128}$",
+            "title": "Segment",
+            "type": "string"
+          },
+          "support": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Support"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "metric_key",
+          "segment",
+          "class_label",
+          "value",
+          "support",
+          "threshold",
+          "comparison",
+          "passed",
+          "details"
+        ],
+        "title": "StageMetric",
+        "type": "object"
+      },
+      "StageMetricBlock": {
+        "additionalProperties": false,
+        "description": "\ud55c \ub2e8\uacc4\uc758 \ucd5c\uc2e0 \ucc44\uc810 \ud310\ubcf8 \ud589 \ubb36\uc74c.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StageMetric"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "scoring_version": {
+            "title": "Scoring Version",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "search",
+              "draft",
+              "rfp"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "stored_at": {
+            "format": "date-time",
+            "title": "Stored At",
+            "type": "string"
+          },
+          "stored_scoring_version_count": {
+            "minimum": 1.0,
+            "title": "Stored Scoring Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage",
+          "scoring_version",
+          "stored_scoring_version_count",
+          "stored_at",
+          "items"
+        ],
+        "title": "StageMetricBlock",
+        "type": "object"
+      },
+      "Subscription": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/Keys"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "Subscription",
+        "type": "object"
+      },
+      "SuccessResponse_AssigneeList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AssigneeList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AssigneeList]",
+        "type": "object"
+      },
       "SuccessResponse_AuthorizationStart_": {
         "properties": {
           "data": {
@@ -1919,22 +3247,6 @@
         "title": "SuccessResponse[EvaluationExperiments]",
         "type": "object"
       },
-      "SuccessResponse_EvaluationJobStatus_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/EvaluationJobStatus"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/ResponseMeta"
-          }
-        },
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "SuccessResponse[EvaluationJobStatus]",
-        "type": "object"
-      },
       "SuccessResponse_EvaluationPolicy_": {
         "properties": {
           "data": {
@@ -1949,6 +3261,22 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationPolicy]",
+        "type": "object"
+      },
+      "SuccessResponse_EvaluationRunCases_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EvaluationRunCases"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EvaluationRunCases]",
         "type": "object"
       },
       "SuccessResponse_EvaluationRunStatus_": {
@@ -1997,6 +3325,22 @@
           "meta"
         ],
         "title": "SuccessResponse[EvaluationRuns]",
+        "type": "object"
+      },
+      "SuccessResponse_ExperimentRegistered_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExperimentRegistered"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ExperimentRegistered]",
         "type": "object"
       },
       "SuccessResponse_HealthData_": {
@@ -2063,6 +3407,38 @@
         "title": "SuccessResponse[MailboxConnections]",
         "type": "object"
       },
+      "SuccessResponse_NotificationList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[NotificationList]",
+        "type": "object"
+      },
+      "SuccessResponse_PublicKey_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicKey"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[PublicKey]",
+        "type": "object"
+      },
       "SuccessResponse_ReadinessData_": {
         "properties": {
           "data": {
@@ -2077,6 +3453,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RegisteredTicket_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RegisteredTicket"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RegisteredTicket]",
         "type": "object"
       },
       "SuccessResponse_ReplyResult_": {
@@ -2159,6 +3551,38 @@
         "title": "SuccessResponse[SentCopyCheck]",
         "type": "object"
       },
+      "SuccessResponse_UnreadCount_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnreadCount"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnreadCount]",
+        "type": "object"
+      },
+      "SuccessResponse_UserNameList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserNameList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UserNameList]",
+        "type": "object"
+      },
       "SummaryCost": {
         "additionalProperties": false,
         "description": "\uac00\uaca9\ud45c \ubb38\uc790\uc5f4 \uc5c6\uc774 \uc815\ud655\ud55c USD \ubd80\ubd84\ud569\u00b7\ud569\uacc4\uc640 \ubcf4\uace0 \ubc94\uc704\ub97c \uc81c\uacf5\ud55c\ub2e4.",
@@ -2210,6 +3634,150 @@
           "pricing_version_count"
         ],
         "title": "SummaryCost",
+        "type": "object"
+      },
+      "SummaryExperiment": {
+        "additionalProperties": false,
+        "description": "\uc2e4\ud589\uc758 \uc2e4\ud5d8 \uc124\uc815(KAN-90 5\ucc28). experiments \ud45c\uc5d0 \uc774\ubbf8 \uc788\ub294 \uac12\ub9cc \uc62e\uae30\uba70 \ucd94\uac00 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "config_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "data_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "train",
+                  "valid",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Split"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "index_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Version"
+          },
+          "input_builder_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Builder Version"
+          },
+          "knobs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Knobs",
+            "type": "object"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "purpose": {
+            "enum": [
+              "smoke",
+              "rule_replay",
+              "pipeline"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "classification",
+                  "search",
+                  "draft",
+                  "rfp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "name",
+          "purpose",
+          "stage",
+          "knobs",
+          "model_id",
+          "prompt_version",
+          "input_builder_version",
+          "index_version",
+          "config_hash",
+          "data_split",
+          "data_origin"
+        ],
+        "title": "SummaryExperiment",
         "type": "object"
       },
       "SummaryLatency": {
@@ -2507,6 +4075,110 @@
         "title": "SyntheticQuality",
         "type": "object"
       },
+      "TargetCreate": {
+        "additionalProperties": false,
+        "description": "\ub3d9\uacb0\ud560 \ub300\uc0c1 \ud558\ub098. attributes\ub294 \ubcf4\uace0 \ubd84\ub9ac\u00b7\uc81c\uc678 \ud50c\ub798\uadf8\uc774\uba70 \uc6d0\ubb38\u00b7\uc815\ub2f5\uc744 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Attributes",
+            "type": "object"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "demo",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "target_kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_ref": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_ref",
+          "target_kind",
+          "data_origin"
+        ],
+        "title": "TargetCreate",
+        "type": "object"
+      },
+      "TftJobStatus": {
+        "additionalProperties": false,
+        "description": "RFP \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-199). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rfp.process",
+              "rfp.export",
+              "rfp.annotate",
+              "rfp.draft_rewrite"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "minimum": 0.0,
+            "title": "Last Event Sequence",
+            "type": "integer"
+          },
+          "owner": {
+            "const": "tft",
+            "default": "tft",
+            "title": "Owner",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "project_id",
+          "kind",
+          "status",
+          "version",
+          "last_event_sequence"
+        ],
+        "title": "TftJobStatus",
+        "type": "object"
+      },
       "TokenTotal": {
         "additionalProperties": false,
         "description": "\uad00\uce21 \ubd80\ubd84\ud569\uacfc \ub204\ub77d \uc5c6\ub294 \uc804\uccb4 \ud569\uacc4\ub97c \uad6c\ubcc4\ud55c\ub2e4.",
@@ -2549,6 +4221,54 @@
           "total"
         ],
         "title": "TokenTotal",
+        "type": "object"
+      },
+      "UnreadCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "UnreadCount",
+        "type": "object"
+      },
+      "UserName": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name"
+        ],
+        "title": "UserName",
+        "type": "object"
+      },
+      "UserNameList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserName"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "UserNameList",
         "type": "object"
       },
       "ValidationError": {
@@ -2600,6 +4320,71 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/platform/assignees": {
+      "get": {
+        "description": "\uc7ac\ubc30\uc815 \uac00\ub2a5\ud55c \ud65c\uc131 \uc0c1\ub2f4\uc6d0\uc758 ID\u00b7\ud45c\uc2dc\uba85\ub9cc \ubc18\ud658\ud55c\ub2e4. \uacc4\uc815\u00b7\uc5ed\ud560\uc740 \ubcc0\uacbd\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "platform_list_assignees",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "const": "cs_agent",
+              "default": "cs_agent",
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AssigneeList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Assignees",
+        "tags": [
+          "assignees"
+        ]
+      }
+    },
     "/api/v1/platform/auth/callback": {
       "post": {
         "description": "Microsoft form_post\ub97c \uac80\uc99d\ud558\uace0 \uc0c8 \uc11c\ubc84 \uc138\uc158\uc744 \ubc1c\uae09\ud574 \uace0\uc815 \uc571 \uc9c4\uc785\uc810\uc73c\ub85c \uc774\ub3d9\ud55c\ub2e4.\n\nArgs:\n    request: \ube0c\ub77c\uc6b0\uc800 \uacb0\uc18d \ucfe0\ud0a4\uc640 form_post \ubcf8\ubb38\uc744 \ud3ec\ud568\ud55c \uc694\uccad.\n    provider: code \uad50\ud658\uacfc ID \ud1a0\ud070 \uac80\uc99d \uc5b4\ub311\ud130.\n\nReturns:\n    RedirectResponse: \uc138\uc158 \uad50\uccb4 \ud6c4 code\u00b7state \uc5c6\ub294 \uace0\uc815 URL\uc758 303 \uc751\ub2f5.",
@@ -3269,8 +5054,32 @@
     },
     "/api/v1/platform/evaluations/experiments": {
       "get": {
-        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c\uc640 \uc811\uc218 \uac00\ub2a5 \uc5ec\ubd80\u00b7\ub9c9\ud78c \uc0ac\uc720\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\ud5c8\uc6a9 \ubaa9\ub85d\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n\nReturns:\n    SuccessResponse[EvaluationExperiments]: \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID \uc5c6\ub294 \ubaa9\ub85d.",
+        "description": "\ubcf8\uc778 \uc2e4\ud5d8 \ucd5c\uadfc 50\uac1c\uc640 \uc811\uc218 \uac00\ub2a5 \uc5ec\ubd80\u00b7\ub9c9\ud78c \uc0ac\uc720\ub97c \ubc18\ud658\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \uc124\uc815\u00b7\ud5c8\uc6a9 \ubaa9\ub85d\u00b7\uc694\uccad ID\ub97c \uac00\uc9c4 \uc694\uccad.\n    principal: \ud604\uc7ac \uc9c0\uc815 \ud3c9\uac00\uc790 \uc138\uc158.\n    stage: \uc8fc\uc5b4\uc9c0\uba74 \uadf8 \ub2e8\uacc4(classification\u00b7search\u00b7draft\u00b7rfp)\uc758 \uc2e4\ud5d8\ub9cc.\n\nReturns:\n    SuccessResponse[EvaluationExperiments]: \uad6c\uc131 \uc6d0\ubb38\u00b7manifest\u00b7hash\u00b7\ub300\uc0c1 ID \uc5c6\ub294 \ubaa9\ub85d.",
         "operationId": "platform_list_evaluation_experiments",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "stage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "classification",
+                    "search",
+                    "draft",
+                    "rfp"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3302,6 +5111,16 @@
             },
             "description": "Forbidden"
           },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -3314,6 +5133,86 @@
           }
         },
         "summary": "Evaluation Experiments",
+        "tags": [
+          "evaluations"
+        ]
+      },
+      "post": {
+        "description": "\uc2e4\ud5d8 \uc815\uc758\uc640 \ub300\uc0c1 \uc9d1\ud569\uc744 \ub3d9\uacb0 \ub4f1\ub85d\ud55c\ub2e4. \ub4f1\ub85d\ud55c \uc2e4\ud5d8\uc740 \ubc14\uafb8\uc9c0 \uc54a\uc73c\uba70 \uc2b9\uc778\uc740 \uc6b4\uc601\uc790 \uc124\uc815\uc774\ub2e4. \ucd5c\uc885 \uc2dc\ud5d8(test) \ubd84\ud560\uc740 \ub4f1\ub85d\ud560 \uc218 \uc5c6\ub2e4.",
+        "operationId": "platform_register_evaluation_experiment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ExperimentRegistered_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Register Evaluation Experiment",
         "tags": [
           "evaluations"
         ]
@@ -3626,6 +5525,129 @@
         ]
       }
     },
+    "/api/v1/platform/evaluations/runs/{run_id}/cases": {
+      "get": {
+        "description": "summary\uc640 \uac19\uc740 \uc811\uadfc \uac80\uc0ac\ub85c \uc2e4\ud589\uc758 \uc0ac\ub840\ubcc4 \uc2dc\ub3c4\ub97c \ud55c \ud398\uc774\uc9c0 \uc870\ud68c\ud55c\ub2e4(KAN-139 4\ucc28).\n\nArgs:\n    request: \uc11c\ubc84 \ud658\uacbd\u00b7\uc2b9\uc778 \ubaa9\ub85d\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c \ub300\uc0c1 \uc2e4\ud589.\n    principal: \ud604\uc7ac \uc138\uc158\uacfc \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud55c \uc0ac\uc6a9\uc790.\n    cursor: \uc55e \ud398\uc774\uc9c0\uc758 \ub9c8\uc9c0\ub9c9 case_id.\n    limit: \ud398\uc774\uc9c0 \ud06c\uae30(1~100, \uae30\ubcf8 20).\n\nReturns:\n    SuccessResponse: \uc0ac\ub840 ID \ud574\uc2dc\u00b7\uc0c1\ud0dc\u00b7\uc2dc\ub3c4 \uba54\ud0c0\ub370\uc774\ud130. \uc6d0\ubb38\u00b7\uc815\ub2f5\u00b7\uc6d0\uc2dc \uc751\ub2f5 \uc5c6\uc74c.",
+        "operationId": "platform_list_evaluation_run_cases",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EvaluationRunCases_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Evaluation Run Cases",
+        "tags": [
+          "evaluations"
+        ]
+      }
+    },
     "/api/v1/platform/evaluations/runs/{run_id}/summary": {
       "get": {
         "description": "\ud604\uc7ac \uc138\uc158\uc758 \ud569\uc131 \uc0ac\uc6a9\ub7c9\u00b7\uac10\uc0ac \uc9d1\uacc4\ub97c \uc2a4\ub808\ub4dc \ud480\uc5d0\uc11c \uc870\ud68c\ud55c\ub2e4.\n\nArgs:\n    request: \uc11c\ubc84 \ud658\uacbd\u00b7\uc2b9\uc778 \ubaa9\ub85d\uacfc \uc694\uccad ID.\n    run_id: \uc870\ud68c \ub300\uc0c1 \uc2e4\ud589.\n    principal: \ud604\uc7ac \uc138\uc158\uacfc \ud3c9\uac00\uc790 \uac80\uc0ac\ub97c \ud1b5\uacfc\ud55c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse: \uc815\ub2f5\u00b7\uc608\uce21\u00b7\uc6d0\uc2dc \ub0b4\uc6a9 \uc5c6\ub294 \ud569\uc131 \uc9d1\uacc4.",
@@ -3908,7 +5930,7 @@
     },
     "/api/v1/platform/jobs/{job_id}": {
       "get": {
-        "description": "\uba85\uc2dc\uc801\uc73c\ub85c \ud5c8\uc6a9\ub41c local/test \ud569\uc131 \ud3c9\uac00 \uc791\uc5c5\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S\u00b7RFP)\uc758 \uc81c\ud55c \uc0c1\ud0dc\ub97c \uc870\ud68c\ud55c\ub2e4. \ud3c9\uac00\ub294 \uc9c0\uc815 \ud3c9\uac00\uc790 \ubcf8\uc778 \uc791\uc5c5\ub9cc(\ube44\ud3c9\uac00\uc790 403), C/S\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778 \ub610\ub294 cs_agent, RFP\ub294 \uc694\uccad \uc0ac\uc6a9\uc790 \ubcf8\uc778\ub9cc \ubcf4\uba70 \uadf8 \ubc16\uc740 404\ub2e4.",
         "operationId": "platform_get_evaluation_job",
         "parameters": [
           {
@@ -3927,7 +5949,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_EvaluationJobStatus_"
+                  "$ref": "#/components/schemas/JobStatusResponse"
                 }
               }
             },
@@ -3992,7 +6014,7 @@
     },
     "/api/v1/platform/jobs/{job_id}/events": {
       "get": {
-        "description": "\uc2a4\ud2b8\ub9bc \ud5e4\ub354 \uc804\uc5d0 \ud604\uc7ac \uad8c\ud55c\u00b7\ucee4\uc11c\ub97c \uac80\uc0ac\ud558\uace0 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c \uc7ac\uc0dd\ud55c\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc124\uc815\u00b7\uc138\uc158 \ucfe0\ud0a4\ub97c \uac00\uc9c4 \uc694\uccad.\n    job_id: \ud50c\ub7ab\ud3fc \ud3c9\uac00 \uc791\uc5c5 UUID.\n    last_event_id: \ucffc\ub9ac\ubcf4\ub2e4 \uc6b0\uc120\ud558\ub294 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n    after: \ud5e4\ub354\uac00 \uc5c6\ub294 \uacbd\uc6b0\uc758 \ub9c8\uc9c0\ub9c9 \uc218\uc2e0 sequence.\n\nReturns:\n    Response: SSE \uc751\ub2f5 \ub610\ub294 \uc885\ub8cc \ucee4\uc11c\uc758204. \uac80\uc99d \uc2e4\ud328\ub294 \uacf5\ud1b5 \uc624\ub958 \uc751\ub2f5.",
+        "description": "\ud50c\ub7ab\ud3fc \uc791\uc5c5(\ud3c9\uac00\u00b7C/S\u00b7RFP)\uc758 \uc800\uc7a5 \uc774\ubca4\ud2b8\ub97c SSE\ub85c \uc7ac\uc0dd\ud55c\ub2e4. \uc811\uadfc \uaddc\uce59\uc740 \uc0c1\ud0dc \uc870\ud68c\uc640 \uac19\uace0 \ubc30\uce58\ub9c8\ub2e4 \ub2e4\uc2dc \uac80\uc0ac\ud55c\ub2e4.",
         "operationId": "platform_stream_evaluation_job_events",
         "parameters": [
           {
@@ -4127,6 +6149,112 @@
         "tags": [
           "jobs"
         ]
+      }
+    },
+    "/api/v1/platform/mail/messages/{message_id}/register-ticket": {
+      "post": {
+        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc778 cs_agent\uac00 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc744 C/S \ubb38\uc758\ub85c \uc811\uc218\ud55c\ub2e4.\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6cc\uc9c4 \uba54\uc77c\uc740 404, \uc774\ubbf8 \uc774 \uba54\uc77c\ub85c \uc811\uc218\ud55c \ubb38\uc758\uac00 \uc788\uc73c\uba74 \uadf8 \ubb38\uc758\uc5d0\n\ub2e4\uc2dc \uc5f0\uacb0\ud558\uace0 200\uc744 \ub3cc\ub824\uc900\ub2e4(\ub450 \ubc88 \uc811\uc218\ud558\uc9c0 \uc54a\uc74c). \uc5c5\ubb34 \uc911\uacc4\uac00 \uaebc\uc838 \uc788\uc73c\uba74 404\ub2e4.",
+        "operationId": "platform_register_mail_ticket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RegisteredTicket_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Register Ticket",
+        "tags": [
+          "mail-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
       }
     },
     "/api/v1/platform/mail/messages/{message_id}/triage": {
@@ -4923,6 +7051,297 @@
         ]
       }
     },
+    "/api/v1/platform/notifications": {
+      "get": {
+        "operationId": "platform_list_my_notifications",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NotificationList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/notifications/unread-count": {
+      "get": {
+        "operationId": "platform_count_my_unread_notifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnreadCount_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Count Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/notifications/{intent_id}/read": {
+      "post": {
+        "operationId": "platform_read_my_notification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Notification",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/platform/push/public-key": {
+      "get": {
+        "operationId": "platform_push_public_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_PublicKey_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Key",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/api/v1/platform/push/subscription": {
+      "delete": {
+        "operationId": "platform_delete_my_push_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Endpoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unsubscribe",
+        "tags": [
+          "push"
+        ]
+      },
+      "put": {
+        "operationId": "platform_put_my_push_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Subscription"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscribe",
+        "tags": [
+          "push"
+        ]
+      }
+    },
     "/api/v1/platform/ready": {
       "get": {
         "operationId": "platform_readiness_api_v1_platform_ready_get",
@@ -4951,6 +7370,60 @@
         "summary": "Platform Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/platform/users": {
+      "get": {
+        "description": "\ud654\uba74\uc774 \uc5c5\ubb34 \uae30\ub85d\uc758 \uc0ac\uc6a9\uc790 ID\ub97c \uc774\ub984\uc73c\ub85c \ubb36\uc5b4 \uc77d\ub294\ub2e4. \uc774\ub984\ub9cc \ub0b8\ub2e4.\n\ntft\ub294 identity\ub97c \uc77d\uc9c0 \ubabb\ud574 \uc751\ub2f5\uc5d0 \uc774\ub984\uc744 \ub123\uc744 \uc218 \uc5c6\ub2e4. \ud1f4\uc9c1\uc790\ub3c4 \uae30\ub85d\uc758 \uc774\ub984\uc774 \ubcf4\uc774\ub3c4\ub85d\n\ud65c\uc131 \uc5ec\ubd80\ub85c \uac70\ub974\uc9c0 \uc54a\uace0, \uc5c6\ub294 ID\ub294 \uc751\ub2f5\uc5d0\uc11c \ube60\uc9c4\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc694\uccad.\n    response: \uce90\uc2dc \uae08\uc9c0 \ud5e4\ub354\ub97c \ub123\uc744 \uc751\ub2f5.\n    _user: \ub85c\uadf8\uc778 \ud655\uc778.\n    ids: \uc27c\ud45c\ub85c \uc774\uc740 \uc0ac\uc6a9\uc790 UUID, \ucd5c\ub300 100\uac1c.\n\nReturns:\n    SuccessResponse[UserNameList]: \ucc3e\uc740 \uc0ac\uc6a9\uc790\uc758 ID\uc640 \ud45c\uc2dc\uba85.",
+        "operationId": "platform_list_user_names",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "maxLength": 3699,
+              "title": "Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UserNameList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List User Names",
+        "tags": [
+          "assignees"
         ]
       }
     },

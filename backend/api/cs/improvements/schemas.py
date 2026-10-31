@@ -8,8 +8,10 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from backend.engine.cs.improvement_candidates import FaultCandidate, parse_version
+from backend.engine.cs.improvement_followups import ScopeKind
 from backend.shared.departments import TransferDepartment
 
 Text = Annotated[str, Field(min_length=1, max_length=10_000)]
@@ -194,6 +196,12 @@ class ImprovementRequest(BaseModel):
         description="No receiving department yet. A document request's receiver needs "
         "confirmation with the business before it can be sent."
     )
+    candidate_reason_code: str | None = Field(
+        default=None, description="Why the system raised this candidate. Null on a manual request."
+    )
+    candidate_reached_at: datetime | None = None
+    candidate_rules_version: str | None = None
+    candidate_as_of: datetime | None = None
     reviewed_by: UUID | None
     reviewed_at: datetime | None
     sent_at: datetime | None
@@ -264,6 +272,9 @@ class RequestAction(BaseModel):
     dept_code: str
     action: str
     action_scope: str
+    # Which units the action applies to (KAN-117); OTHER means a person judges.
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: str | None = None
     action_date: date
     action_evidence: str
     recorded_by: UUID
@@ -299,6 +310,9 @@ class RequestDetail(BaseModel):
     departments: list[RequestDepartment] = Field(description="Departments of the current round.")
     replies: list[DeptReply]
     actions: list[RequestAction]
+    rounds: list["RequestRound"] = Field(
+        default_factory=list, description="Delivery rounds, oldest first (KAN-117)."
+    )
     next_owners: list[NextOwner]
 
 
@@ -311,3 +325,176 @@ class RequestVersion(BaseModel):
 
 class RequestVersionList(BaseModel):
     items: list[RequestVersion]
+
+
+# --- KAN-116: review, delivery, department replies, actions, follow-up -------------------
+
+
+class Versioned(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The request version the user decided on.")
+
+
+class ImprovementReviewRequest(Versioned):
+    """DRAFT → REVIEWED. The agent may fix the proposed departments while reviewing."""
+
+    proposed_depts: list[TransferDepartment] | None = None
+
+
+class SendRequest(Versioned):
+    """REVIEWED → first round. Target departments default to the proposed ones."""
+
+    dept_codes: list[TransferDepartment] | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class DeptReplyRequest(Versioned):
+    reply_type: Literal["ADOPTED", "INFO_REQUESTED", "REJECTED"]
+    reason: Reason | None = None
+
+    @model_validator(mode="after")
+    def check_reason(self) -> Self:
+        if self.reply_type == "REJECTED" and self.reason is None:
+            raise ValueError("A rejection needs a reason.")
+        return self
+
+
+class DeptActionRequest(Versioned):
+    """A department's improvement action, kept apart from any one customer's repair.
+
+    `scope_kind`·`scope_value` say which units the action applies to, so a recurrence on an
+    applied unit can be told apart from units that never got the fix (KAN-117). Omitted, the
+    scope is OTHER and recurrence stays "unknown" for a person to judge.
+    """
+
+    action: Text
+    action_scope: Text
+    action_date: date
+    action_evidence: Text
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def check_scope(self) -> Self:
+        value = self.scope_value
+        if (self.scope_kind == "OTHER") != (value is None):
+            raise ValueError(
+                "scope_value is required for a structured scope and not allowed for OTHER"
+            )
+        if self.scope_kind == "FIRMWARE_VERSION" and parse_version(value) is None:
+            raise ValueError("scope_value must be a firmware version such as 1.72")
+        if self.scope_kind == "SHIPPED_FROM":
+            date.fromisoformat(value or "")
+        return self
+
+
+class ResendRequest(Versioned):
+    """Calls one department again inside the current round (supplement, re-request after a
+    rejection with new evidence, or a reminder after the reply deadline)."""
+
+    reason: Reason
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class FollowupPlanRequest(Versioned):
+    followup_plan: Text
+
+
+class CompleteRequest(Versioned):
+    followup_result: Text
+
+
+# --- KAN-117: re-request and recurrence rounds -------------------------------------------
+
+
+class NewEvidence(BaseModel):
+    """A person's new evidence, different from the rejection reason (rejection-closed only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_ids: list[UUID] = Field(min_length=1, max_length=50)
+    note: Reason
+
+
+class RoundRequest(Versioned):
+    """Opens the next round: a re-request before action or a recurrence reopening after it."""
+
+    kind: Literal["REQUEST_AGAIN", "RECURRENCE"]
+    as_of: datetime = Field(description="The as_of of the signal the person read.")
+    dept_codes: list[TransferDepartment] | None = None
+    new_evidence: NewEvidence | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def check(self) -> Self:
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of needs a time zone")
+        if self.new_evidence is not None and self.kind != "REQUEST_AGAIN":
+            raise ValueError("new_evidence only opens a re-request")
+        return self
+
+
+class RequestRound(BaseModel):
+    round: int
+    kind: Literal["FIRST", "REQUEST_AGAIN", "RECURRENCE"]
+    opened_at: datetime
+    opened_by: UUID
+    candidate_index: int | None
+    as_of: datetime | None
+    new_evidence_note: str | None
+    previous_completion: dict[str, Any] | None
+
+
+RequestDetail.model_rebuild()
+
+
+# Only CONFIRMED_CANDIDATE reads as settled. The others must not be shown as a confirmed result.
+DisplayState = Literal[
+    "CONFIRMED_CANDIDATE", "CONDITION_UNCONFIRMED", "INSUFFICIENT_EVIDENCE", "NOT_ELIGIBLE"
+]
+# Document signals have no source table yet (condition-comparison.md).
+DocumentCandidates = Literal["NOT_CONNECTED"]
+
+
+class CandidateItem(FaultCandidate):
+    data_origin: Literal["synthetic", "demo", "real"]
+    display_state: DisplayState
+    request_id: UUID | None = Field(description="The fault request of this group, if any.")
+    request_status: RequestStatus | None
+
+
+class CandidateList(BaseModel):
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    items: list[CandidateItem]
+
+
+class CandidateCollect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of: AwareDatetime | None = Field(
+        default=None, description="Judge as of this time. Defaults to now; a future time is a 422."
+    )
+
+
+class CandidateSkipped(BaseModel):
+    data_origin: Literal["synthetic", "demo", "real"]
+    product_code: str
+    fault_id: str
+    reason_code: Literal["NO_PROPOSED_DEPARTMENT"]
+
+
+class CandidateCollected(BaseModel):
+    run_id: UUID
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    eligible: int = Field(description="Eligible groups, saved or not.")
+    created: int
+    already_requested: int
+    skipped: list[CandidateSkipped] = Field(
+        description="Eligible groups not saved. A fault request needs a proposed department."
+    )
+    request_ids: list[UUID]

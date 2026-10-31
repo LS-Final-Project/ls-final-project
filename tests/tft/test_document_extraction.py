@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from backend.engine.documents.docx import extract_docx
+from backend.engine.documents.markdown import extract_markdown
 from backend.engine.documents.model import ExtractedDocument
 from backend.engine.documents.pdf import MAX_BYTES, MAX_PAGES, extract_pdf
 from backend.engine.documents.router import DOCX_MIME, extract
+from backend.engine.search.chunking import chunk_document
 
 NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
@@ -292,7 +294,7 @@ def test_router_uses_content_and_rejects_mismatch(tmp_path: Path) -> None:
     with zipfile.ZipFile(other_zip, "w") as archive:
         archive.writestr("xl/workbook.xml", "<x/>")
     for unsupported in (b"\xd0\xcf\x11\xe0legacy doc", other_zip.getvalue(), b"plain"):
-        with pytest.raises(ValueError, match="DOCX·PDF만"):
+        with pytest.raises(ValueError, match="DOCX·PDF·Markdown만"):
             extract(unsupported)
 
 
@@ -553,3 +555,104 @@ def test_footnote_marks_in_header_are_not_units() -> None:
         ("Load", "kVA"),
         ("Current", "A"),
     ]
+
+
+MARKDOWN = """\ufeff# 제품 안내 ##
+
+차단기 [설명서](https://example.com/manual)를 먼저 본다.
+정격은 ~~630 A~~ 800 A다.
+
+## 정격표
+
+| 모델 | 정격 전류 (A) |
+|---|---:|
+| ACB-08 | 800 |
+| ACB-16 | ~~1250~~ 1600 |
+
+```
+~~그대로~~ [x](y)
+```
+"""
+
+
+def test_markdown_headings_paragraphs_tables_and_strike() -> None:
+    document = extract_markdown(MARKDOWN.encode(), source_name="acb.md")
+    assert (document.source_kind, document.mime, document.source_name) == (
+        "MARKDOWN",
+        "text/markdown",
+        "acb.md",
+    )
+    title, body, section, *cells, code = document.blocks
+    assert title.hints and title.hints.is_heading and title.hints.numbering_level == 0
+    assert section.text == "정격표" and section.hints and section.hints.numbering_level == 1
+    assert body.text == "차단기 설명서를 먼저 본다.\n정격은  800 A다."
+    assert [(d.text, d.position, d.origin) for d in body.deleted_values] == [
+        ("630 A", 20, "STRIKE")
+    ]
+    assert [(c.position.row, c.position.col, c.text) for c in cells] == [
+        (0, 0, "모델"),
+        (0, 1, "정격 전류 (A)"),
+        (1, 0, "ACB-08"),
+        (1, 1, "800"),
+        (2, 0, "ACB-16"),
+        (2, 1, "1600"),
+    ]
+    assert {c.table_title for c in cells} == {"정격표"}
+    assert (cells[3].column_header, cells[3].column_unit) == ("정격 전류", "A")
+    assert cells[0].column_header is None
+    assert cells[5].deleted_values[0].text == "1250"
+    assert code.kind == "PARAGRAPH" and code.text == "~~그대로~~ [x](y)"
+    assert document.summary.tables == 1 and document.summary.strike_runs == 2
+    assert document.edit_trace_support
+    assert [b.text for b in extract_markdown(b"# C#\n## F# ##").blocks] == ["C#", "F#"]
+
+
+def test_markdown_chunks_follow_headings() -> None:
+    chunks = chunk_document(extract_markdown(MARKDOWN.encode())).chunks
+    assert [(c.section_path, c.block_ids[0]) for c in chunks] == [
+        (["제품 안내"], "p0"),
+        # v2: 제목만 든 "정격표" 청크는 다음 표 청크 앞에 합친다.
+        (["제품 안내", "정격표"], "p2"),
+        (["제품 안내", "정격표"], "p3"),
+    ]
+    assert "630 A" not in chunks[0].text
+    assert "모델: ACB-16 | 정격 전류 (A): 1600" in chunks[1].text
+
+
+def test_router_detects_markdown_and_rejects_unsafe_text(tmp_path: Path) -> None:
+    plain = tmp_path / "faq.md"
+    plain.write_bytes("자주 묻는 질문".encode())
+    assert extract(plain).source_kind == "MARKDOWN"
+    assert extract(plain).source_name == "faq.md"
+    assert extract(b"# FAQ").source_kind == "MARKDOWN"
+    assert extract(b"| a |", "text/markdown").source_kind == "MARKDOWN"
+    renamed = tmp_path / "faq.docx"
+    renamed.write_bytes(b"# FAQ")
+    with pytest.raises(ValueError, match="선언한 형식"):
+        extract(renamed)
+    pdf_named_md = tmp_path / "x.md"
+    pdf_named_md.write_bytes(pdf(["hello"]))
+    with pytest.raises(ValueError, match="선언한 형식"):
+        extract(pdf_named_md)
+    for unsafe, reason in (
+        (b"# a\x00", "NUL"),
+        (b"# \xff\xfe", "UTF-8"),
+        (b"# a\n<!DOCTYPE x>", "DOCTYPE"),
+        (b"#" * (MAX_BYTES + 1), "크기 상한"),
+    ):
+        with pytest.raises(ValueError, match=reason):
+            extract_markdown(unsafe)
+
+
+def test_router_uses_source_name_and_mime_for_markdown_bytes() -> None:
+    """바이트 입력은 source_name 확장자(.md)나 text/markdown MIME으로도 Markdown을 판별한다(KAN-99 이연 P3).
+
+    front matter·목록·일반 문장으로 시작해 첫 글자 규칙에 걸리지 않는 본문을 쓴다. 힌트가 없으면 여전히 거부한다.
+    """
+    body = "---\ntitle: FAQ\n---\n- 자주 묻는 질문\n".encode()
+    assert extract(body, source_name="faq.MD").source_kind == "MARKDOWN"
+    assert extract(body, "text/markdown; charset=utf-8").source_kind == "MARKDOWN"
+    assert extract(body, source_name="faq.md").source_name == "faq.md"
+    for hint in ({}, {"source_name": "faq.txt"}, {"mime": "text/plain"}):
+        with pytest.raises(ValueError, match="DOCX·PDF·Markdown만"):
+            extract(body, **hint)

@@ -2,8 +2,13 @@
 
 import hashlib
 import json
-from typing import Any
+import re
+from collections.abc import Iterator
+from typing import Any, get_args
 from uuid import UUID, uuid4
+
+import psycopg
+from psycopg.types.json import Jsonb
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.cs_smoke import matches_profile
@@ -12,6 +17,9 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationExperiment,
     EvaluationRunItem,
     EvaluationRunStatus,
+    ExperimentCreate,
+    ExperimentRegistered,
+    Stage,
 )
 from backend.api.platform.jobs.admission import EvaluationJobRequest, admit_evaluation_job
 from backend.shared.database import connection
@@ -33,6 +41,18 @@ CONFIG_FIELDS = (
     "configuration",
     "target_set_hash",
 )
+# 값이 없거나 빈 dict이면 hash에서 생략해 기존 실험·승인 hash를 그대로 둔다.
+OPTIONAL_CONFIG_FIELDS = ("stage", "knobs")
+# 마이그레이션 20261029_KAN-90_experiment_stage_knobs.sql의 CHECK 정규식과 같아야 한다(테스트가 비교).
+SECRET_KNOB_PATTERN = "api_key|token|secret|password|credential"
+KNOB_KEY = re.compile(r"[A-Za-z0-9_.]{1,64}")
+MAX_KNOBS = 20
+MAX_KNOB_TEXT = 256
+# 대상 attributes에 원문·정답을 담지 못하게 막는 키 이름(대소문자 무시, 부분 일치).
+RAW_TEXT_KEY_PATTERN = "body|subject|gold|answer|label"
+# 위 패턴에 걸리지만 원문이 아닌 층화 메타데이터 키(정확히 같을 때만). 잠금 집계(cs_strata)가 읽는다.
+# 단어 경계로 좁히면 email_body 같은 원문 키도 통과하므로 키 이름을 하나씩 허용한다(KAN-90, #244 이연).
+RAW_TEXT_KEY_EXEMPT = frozenset({"body_language"})
 
 
 def canonical_hash(value: dict[str, Any]) -> str:
@@ -46,6 +66,50 @@ def canonical_hash(value: dict[str, Any]) -> str:
     """
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def config_payload(experiment: dict[str, Any]) -> dict[str, Any]:
+    """config_hash를 계산할 구성 필드를 고른다.
+
+    Args:
+        experiment: 실험 행 또는 등록할 구성.
+
+    Returns:
+        dict: CONFIG_FIELDS 전부와, 값이 있을 때만 stage·knobs.
+    """
+    payload = {k: experiment[k] for k in CONFIG_FIELDS}
+    payload.update({k: experiment[k] for k in OPTIONAL_CONFIG_FIELDS if experiment.get(k)})
+    return payload
+
+
+def check_stage_knobs(stage: object, knobs: object) -> None:
+    """단계와 조절 항목을 검사한다.
+
+    지금은 단위 테스트와 DB CHECK(비밀 키·객체 여부)로만 강제한다. 실험 등록 API가 생기면 그 경로가 이
+    함수를 호출한다.
+
+    Args:
+        stage: 단계(classification·search·draft·rfp) 또는 None.
+        knobs: 깊이 1 dict. 키는 1~64자 영숫자·_·., 최대 20개, 값은 문자열(256자 이하)·정수·실수·bool.
+
+    Returns:
+        None: 비밀로 보이는 키는 422 EVALUATION_KNOB_SECRET, 그 밖의 위반은 422
+            EVALUATION_KNOB_INVALID ApplicationError다.
+    """
+    if stage is not None and stage not in get_args(Stage):
+        raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Stage is not allowed.")
+    if not isinstance(knobs, dict) or len(knobs) > MAX_KNOBS:
+        raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Knobs are invalid.")
+    for key, value in knobs.items():
+        if isinstance(key, str) and re.search(SECRET_KNOB_PATTERN, key, re.IGNORECASE):
+            raise ApplicationError(422, "EVALUATION_KNOB_SECRET", "Secret knobs are not allowed.")
+        if (
+            not isinstance(key, str)
+            or not KNOB_KEY.fullmatch(key)
+            or not isinstance(value, str | int | float)
+            or (isinstance(value, str) and len(value) > MAX_KNOB_TEXT)
+        ):
+            raise ApplicationError(422, "EVALUATION_KNOB_INVALID", "Knobs are invalid.")
 
 
 def admission_available(settings: Settings, access: EvaluationAccessSettings) -> bool:
@@ -101,7 +165,7 @@ def validate_smoke_experiment(experiment: dict[str, Any], access: EvaluationAcce
         or experiment["dataset_manifest"] != {}
     ):
         raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Only synthetic smoke is supported.")
-    if canonical_hash({k: experiment[k] for k in CONFIG_FIELDS}) != experiment["config_hash"]:
+    if canonical_hash(config_payload(experiment)) != experiment["config_hash"]:
         raise ApplicationError(409, "EXPERIMENT_HASH_MISMATCH", "Experiment hash differs.")
 
 
@@ -254,10 +318,12 @@ async def get_run(
 
 # ponytail: 커서 없이 최근 50개만 준다. 평가자 한 명의 실험·실행이 더 많아지면 커서를 더한다.
 LIST_LIMIT = 50
+# 실험 목록의 실험별 실행 링크 수(KAN-139 3차).
+EXPERIMENT_RUN_LIMIT = 10
 
 
 async def list_experiments(
-    settings: Settings, access: EvaluationAccessSettings, actor: UUID
+    settings: Settings, access: EvaluationAccessSettings, actor: UUID, stage: Stage | None = None
 ) -> list[EvaluationExperiment]:
     """본인 실험을 최근순으로 읽고 접수 가능 여부를 접수와 같은 규칙으로 계산한다.
 
@@ -265,17 +331,28 @@ async def list_experiments(
         settings: DB와 환경 설정.
         access: 현재 서버 허용 목록.
         actor: 현재 세션 사용자(지정 평가자 검사는 라우터가 한다).
+        stage: 주어지면 그 단계의 실험만.
 
     Returns:
         list[EvaluationExperiment]: 최대 50개. 구성 원문·manifest·hash·대상 ID는 없다.
     """
     available = admission_available(settings, access)
     async with connection(settings) as conn:
+        # 실행 링크는 summary와 같은 경계(영수증·요청자=작성자=본인·test 분할 제외)로 고르고 run_control은 보지 않는다.
         cursor = await conn.execute(
             "SELECT e.*, (SELECT count(*) FROM evaluation.experiment_targets t "
-            "WHERE t.experiment_id=e.id) AS target_count FROM evaluation.experiments e "
-            "WHERE e.created_by_user_id=%s ORDER BY e.created_at DESC, e.id LIMIT %s",
-            (actor, LIST_LIMIT),
+            "WHERE t.experiment_id=e.id) AS target_count, "
+            "(SELECT coalesce(json_agg(json_build_object('run_id',x.id,'origin',x.origin,"
+            "'status',x.status,'created_at',x.created_at) ORDER BY x.created_at DESC, x.id),'[]') "
+            "FROM (SELECT r.id,a.origin,r.status,r.created_at FROM evaluation.runs r "
+            "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+            "WHERE r.experiment_id=e.id AND r.requested_by_user_id=%s "
+            "AND e.data_split IS DISTINCT FROM 'test' "
+            "ORDER BY r.created_at DESC, r.id LIMIT %s) x) AS runs "
+            "FROM evaluation.experiments e "
+            "WHERE e.created_by_user_id=%s AND (%s::text IS NULL OR e.stage=%s) "
+            "ORDER BY e.created_at DESC, e.id LIMIT %s",
+            (actor, EXPERIMENT_RUN_LIMIT, actor, stage, stage, LIST_LIMIT),
         )
         rows = await cursor.fetchall()
     items = []
@@ -294,10 +371,13 @@ async def list_experiments(
                 data_split=row["data_split"],
                 data_origin=row["data_origin"],
                 model_id=row["model_id"],
+                stage=row["stage"],
+                knobs=row["knobs"],
                 target_count=row["target_count"],
                 created_at=row["created_at"],
                 admissible=reason is None,
                 blocked_reason=reason,
+                runs=row["runs"],
             )
         )
     return items
@@ -315,8 +395,8 @@ async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
     """
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT r.id,r.job_id,r.experiment_id,r.status,r.requested_count,r.needs_review,"
-            "r.failure_code,r.created_at FROM evaluation.runs r "
+            "SELECT r.id,r.job_id,r.experiment_id,e.stage,r.status,r.requested_count,"
+            "r.needs_review,r.failure_code,r.created_at FROM evaluation.runs r "
             "JOIN evaluation.experiments e ON e.id=r.experiment_id "
             "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
             "JOIN evaluation.run_control c ON c.run_id=r.id "
@@ -331,6 +411,7 @@ async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
             run_id=row["id"],
             job_id=row["job_id"],
             experiment_id=row["experiment_id"],
+            stage=row["stage"],
             status=row["status"],
             requested_count=row["requested_count"],
             needs_review=row["needs_review"],
@@ -339,3 +420,192 @@ async def list_runs(settings: Settings, actor: UUID) -> list[EvaluationRunItem]:
         )
         for row in rows
     ]
+
+
+def _keys(value: object) -> Iterator[str]:
+    """중첩 dict·list 안의 모든 키를 낸다.
+
+    Args:
+        value: JSON 값.
+
+    Returns:
+        Iterator[str]: 키 이름(문자열이 아닌 키는 str로 바꾼다).
+    """
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _keys(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keys(item)
+
+
+def _has_key(value: object, pattern: str, exempt: frozenset[str] = frozenset()) -> bool:
+    return any(key not in exempt and re.search(pattern, key, re.IGNORECASE) for key in _keys(value))
+
+
+async def _raise_if_registered(
+    conn: psycopg.AsyncConnection[dict[str, Any]], config_hash: str, actor: UUID
+) -> None:
+    """같은 구성의 실험이 있으면 409를 낸다. 본인 실험일 때만 ID를 알려준다.
+
+    Args:
+        conn: DB 연결.
+        config_hash: 등록하려는 구성 hash.
+        actor: 요청자.
+
+    Returns:
+        None: 없으면 반환하고, 있으면 EVALUATION_EXPERIMENT_EXISTS ApplicationError다.
+    """
+    cursor = await conn.execute(
+        "SELECT id,created_by_user_id FROM evaluation.experiments WHERE config_hash=%s",
+        (config_hash,),
+    )
+    row = await cursor.fetchone()
+    if row is not None:
+        details = [{"experiment_id": str(row["id"])}] if row["created_by_user_id"] == actor else []
+        raise ApplicationError(
+            409, "EVALUATION_EXPERIMENT_EXISTS", "Experiment already exists.", details
+        )
+
+
+def _check_registration(body: ExperimentCreate) -> None:
+    """등록 입력의 분할·필수값·비밀 키·대상·출처 규칙을 검사한다.
+
+    Args:
+        body: 형식 검사를 통과한 등록 요청.
+
+    Returns:
+        None: 위반은 422 ApplicationError다.
+    """
+    if body.data_split == "test":
+        raise ApplicationError(
+            422, "EVALUATION_TEST_SPLIT_REGISTRATION_BLOCKED", "Final test cannot be registered."
+        )
+    if body.purpose != "smoke" and (body.data_split is None or body.gold_version is None):
+        raise ApplicationError(
+            422, "EVALUATION_EXPERIMENT_INCOMPLETE", "Split and gold version are required."
+        )
+    check_stage_knobs(body.stage, body.knobs)
+    if _has_key(body.configuration, SECRET_KNOB_PATTERN):
+        raise ApplicationError(
+            422, "EVALUATION_CONFIGURATION_SECRET", "Secret configuration is not allowed."
+        )
+    refs = [target.target_ref for target in body.targets]
+    if len(set(refs)) != len(refs):
+        raise ApplicationError(422, "EVALUATION_TARGET_DUPLICATE", "Target refs must be unique.")
+    if any(
+        _has_key(
+            target.attributes,
+            f"{SECRET_KNOB_PATTERN}|{RAW_TEXT_KEY_PATTERN}",
+            RAW_TEXT_KEY_EXEMPT,
+        )
+        for target in body.targets
+    ):
+        raise ApplicationError(
+            422, "EVALUATION_TARGET_ATTRIBUTE_FORBIDDEN", "Target attributes are not allowed."
+        )
+    sources = body.dataset_manifest.sources or []
+    origins = {s.data_origin for s in sources} | {t.data_origin for t in body.targets}
+    # 실제·합성(또는 시연)을 섞으면 demo, 한 가지면 그 출처여야 한다.
+    expected = "demo" if len(origins) > 1 else next(iter(origins))
+    if body.data_origin != expected:
+        raise ApplicationError(
+            422, "EVALUATION_DATA_ORIGIN_MISMATCH", "Data origin does not match the sources."
+        )
+
+
+async def register_experiment(
+    settings: Settings, access: EvaluationAccessSettings, actor: UUID, body: ExperimentCreate
+) -> ExperimentRegistered:
+    """실험 정의와 대상 집합을 서버가 계산한 hash와 함께 한 트랜잭션으로 동결 등록한다.
+
+    Args:
+        settings: 플랫폼 DB 연결과 실행 환경.
+        access: 지정 평가자·접수 허용 설정. 승인 hash 목록은 바꾸지 않는다.
+        actor: 현재 세션의 지정 평가자.
+        body: 등록 요청.
+
+    Returns:
+        ExperimentRegistered: 실험 ID·hash·대상 수와 접수 규칙에 따른 접수 가능 여부. 같은 구성이 있으면
+            409 EVALUATION_EXPERIMENT_EXISTS, 입력 위반은 422, 접수 잠금 환경은 503이다.
+    """
+    check_actor(settings, access, actor)
+    _check_registration(body)
+    refs = sorted(target.target_ref for target in body.targets)
+    manifest = body.dataset_manifest.model_dump(exclude_none=True)
+    files = sorted(source["file_sha256"] for source in manifest.get("sources", []))
+    row: dict[str, Any] = body.model_dump(exclude={"name", "dataset_manifest", "targets"})
+    row.update(
+        dataset_manifest=manifest,
+        dataset_hash=hashlib.sha256("\n".join(files).encode()).hexdigest(),
+        target_set_hash=hashlib.sha256("\n".join(refs).encode()).hexdigest(),
+    )
+    row["config_hash"] = canonical_hash(config_payload(row))
+    experiment_id = uuid4()
+    async with connection(settings) as conn:
+        try:
+            async with conn.transaction():
+                await _raise_if_registered(conn, row["config_hash"], actor)
+                await conn.execute(
+                    "INSERT INTO evaluation.experiments (id,name,purpose,data_origin,"
+                    "dataset_manifest,dataset_hash,data_split,gold_version,policy_version,"
+                    "prompt_version,model_id,index_version,input_builder_version,configuration,"
+                    "target_set_hash,config_hash,created_by_user_id,stage,knobs) VALUES "
+                    "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        experiment_id,
+                        body.name,
+                        row["purpose"],
+                        row["data_origin"],
+                        Jsonb(manifest),
+                        row["dataset_hash"],
+                        row["data_split"],
+                        row["gold_version"],
+                        row["policy_version"],
+                        row["prompt_version"],
+                        row["model_id"],
+                        row["index_version"],
+                        row["input_builder_version"],
+                        Jsonb(row["configuration"]),
+                        row["target_set_hash"],
+                        row["config_hash"],
+                        actor,
+                        row["stage"],
+                        Jsonb(row["knobs"]),
+                    ),
+                )
+                async with conn.cursor() as cursor:
+                    await cursor.executemany(
+                        "INSERT INTO evaluation.experiment_targets "
+                        "(experiment_id,target_ref,target_kind,data_origin,attributes) "
+                        "VALUES (%s,%s,%s,%s,%s)",
+                        [
+                            (
+                                experiment_id,
+                                t.target_ref,
+                                t.target_kind,
+                                t.data_origin,
+                                Jsonb(t.attributes),
+                            )
+                            for t in body.targets
+                        ],
+                    )
+        except psycopg.errors.UniqueViolation:
+            # 동시에 같은 구성을 등록한 다른 요청이 먼저 commit했다.
+            await _raise_if_registered(conn, row["config_hash"], actor)
+            raise
+    reason = None
+    try:
+        validate_smoke_experiment(row, access)
+    except ApplicationError as error:
+        reason = error.code
+    return ExperimentRegistered(
+        experiment_id=experiment_id,
+        config_hash=row["config_hash"],
+        dataset_hash=row["dataset_hash"],
+        target_set_hash=row["target_set_hash"],
+        target_count=len(refs),
+        admissible=reason is None,
+        blocked_reason=reason,
+    )

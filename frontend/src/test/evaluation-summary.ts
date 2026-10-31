@@ -14,10 +14,10 @@ export function summaryFixture(): RunSummary {
     latency_ms: { reported_count: 3, missing_count: 0, p50: 5, p95: 8 },
   };
   return structuredClone({
-    report_version: 'cs-run-summary-v2', run_id: '22222222-2222-4222-8222-222222222222',
+    report_version: 'cs-run-summary-v2', run_id: '22222222-2222-4222-8222-222222222222', origin: 'ACCEPT',
     status: 'PARTIAL', generated_at: '2026-10-27T10:00:00Z', data_origin: 'synthetic',
     quality_available: false, quality_unavailable_reason: 'GOLD_NOT_CONNECTED',
-    target_count: 3, targets_without_first_attempt: 0, first, all: first, synthetic_quality: null, locked_quality: null, comparison_key: 'c'.repeat(64),
+    target_count: 3, targets_without_first_attempt: 0, first, all: first, synthetic_quality: null, locked_quality: null, comparison_key: 'c'.repeat(64), stage_metrics: [], experiment: null,
     retry: { stored_attempt_count: 0, unfinished_attempt_count: 0, stored_raw_response_count: 0,
       schema_violation_count: 0, schema_violation_rate: null, incomplete_evidence_attempt_count: 0,
       cost_usd: { reported_count: 0, missing_count: 0, known_sum: null, total: null, pricing_version_count: 0 },
@@ -55,7 +55,7 @@ export function lockedQualityFixture(): NonNullable<RunSummary['locked_quality']
   });
   const accuracy = value(1, 3, 3, 3);
   return structuredClone({
-    bundle_id: 'cs-gold-bundle-test', attempt: 'first', quality_gate_evaluated: false,
+    bundle_id: 'cs-gold-bundle-test', attempt: 'first', quality_gate_evaluated: false, outcomes: null,
     metrics: {
       category: metric({ accuracy, macro_f1: value(1, null, null, 3) }, { RETURN: { ...one, support: 3, tp: 3 } }),
       urgency: metric({ accuracy, macro_f1: value(1, null, null, 3), non_none_recall: value(1, 2, 2, 2), critical_missed: value(0, 0, 1, 1) }, { NONE: one, SAFETY: { ...one, support: 2, tp: 2 } }),

@@ -76,7 +76,7 @@ AI는 초안·근거를 준비하고, 사람이 최종 확인·승인한다.
 | 파일 | Cloud Storage |
 | 인증 | Microsoft OAuth (MSAL, PKCE) + `users` 테이블 역할 관리 |
 | 프론트 | React + Vite + TypeScript + TanStack Query, UI 키트 없음 |
-| 오케스트레이션 | LangChain + LangGraph + LangSmith |
+| 오케스트레이션 | LangChain + LangGraph + LangSmith. LangSmith 전송은 정책 확정 전 금지이며, 추적 환경 변수가 있으면 Settings 시작 검증과 `build_graph`가 거부한다(KAN-89, local의 `AI_TRACING_ALLOWED=true`만 예외). 새 진입점은 Settings를 먼저 만들거나 `tracing_requested(os.environ)`를 확인한다 |
 | CI/CD | GitHub Actions 검사 / Cloud Build 이미지 및 CD. dev 개발 통합, main 배포 |
 | 배치·비동기 작업 | Cloud Tasks (RFP 문서 처리) / Cloud Run Jobs (평가 실행, 데이터 초기화) |
 | 스트리밍 | SSE |
@@ -92,7 +92,7 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 | C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
 | C/S 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/12lSqCl6DiYLkstFWcZno5MqNKv_kJ2AC/view), [PDF](https://drive.google.com/file/d/1iBKkSpim-3UhYEWvz1dt2X2x62ecN3O_/view) |
-| RFP 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view) |
+| RFP 최신 기획서 | [전력사업_RFP_자사대응·협력사보완_AI_Agent_기획서_최종최종본.pdf](https://drive.google.com/file/d/1OKHJCb5uqcxAm3UrwpCjeOJNv0-4fJpM/view) (최종본 V_1, 2026-10-29 현업 논의 반영 개정, 30쪽). 3.2 평가 기준·3.3 평가셋·7장 일정은 10/28판과 동일하고, 업무 규칙 9건이 개정됐다(보완 경로에 R&D 개발 확인 단계, 지정품 분리, 전략 고객 표시값 등). [RFP API 명세 v1.2](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit). 이전 TFT 인력 구성 기획서([DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view))는 2026-10-28에 폐기된 범위의 역사 기준선이며 개발 기준이 아니다 |
 | 스토리보드 | [Google Docs](https://docs.google.com/document/d/1fprJf4b1P0dqKcv7KbFFSxnX2xn_cZM0/edit) |
 
 `data/`는 **읽기 전용**. 수정·생성·삭제 금지.

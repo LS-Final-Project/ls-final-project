@@ -8,13 +8,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 
 from backend.api.tft.projects import repository
-from backend.api.tft.projects.access import require_project_list, sees_project
+from backend.api.tft.projects.access import (
+    in_review_department,
+    require_project_list,
+    sees_project,
+)
 from backend.api.tft.projects.schemas import (
     ProjectDetail,
     ProjectList,
     ProjectSummary,
     RfpRequirement,
 )
+from backend.api.tft.rfp import schemas as rfp
+from backend.api.tft.rfp.routes_write import project_fields
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -85,6 +91,9 @@ async def list_projects(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    output_status: rfp.OutputStatus | None = None,
+    judgement_status: rfp.JudgementStatus | None = None,
+    q: str | None = Query(None, min_length=2, max_length=100),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[ProjectList]:
     require_project_list(principal)
@@ -96,8 +105,17 @@ async def list_projects(
             after,
             sorted(principal.managed_projects),
             principal.user_id,
+            principal.dept if "dept_staff" in principal.roles else None,
+            output_status=output_status,
+            judgement_status=judgement_status,
+            q=q,
         )
-    items = [ProjectSummary.model_validate(row) for row in rows[:limit]]
+    items = [
+        ProjectSummary.model_validate(
+            {**row, "integration_responsibility": {"holder": row["integration_holder"]}}
+        )
+        for row in rows[:limit]
+    ]
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]
@@ -119,13 +137,24 @@ async def get_project(
     async with connection(request.app.state.settings) as conn:
         row = await repository.get_project(conn, project_id)
         # Out-of-scope projects look the same as missing ones (permissions.md 1.3 step 2).
-        if row is None or not sees_project(
-            principal, row["id"], row["responsible_user_id"], row["sales_user_id"]
+        if row is None or not (
+            sees_project(principal, row["id"], row["responsible_user_id"], row["sales_user_id"])
+            or (
+                "dept_staff" in principal.roles
+                and in_review_department(
+                    principal, await repository.review_departments(conn, project_id)
+                )
+            )
         ):
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         requirements = await repository.list_rfp_requirements(conn, project_id)
+        fields = await project_fields(conn, project_id)
     detail = ProjectDetail.model_validate(
-        {**row, "rfp_requirements": [RfpRequirement.model_validate(r) for r in requirements]}
+        {
+            **row,
+            **fields,
+            "rfp_requirements": [RfpRequirement.model_validate(r) for r in requirements],
+        }
     )
     return respond(request, detail)
 

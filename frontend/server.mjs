@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { evaluationReadPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
+import { evaluationReadPath, jobStatusPath, relayEvaluationRead, evaluationControlPath, relayEvaluationControl } from './evaluation-relay.mjs';
 
 const allowed = new Set(['/api/v1/platform/health', '/api/v1/platform/ready']);
 const authentication = new Map([
@@ -10,6 +10,7 @@ const authentication = new Map([
   ['/api/v1/platform/auth/callback', 'POST'],
   ['/api/v1/platform/auth/logout', 'POST'],
   ['/api/v1/platform/me', 'GET'],
+  ['/api/v1/platform/assignees', 'GET'],
 ]);
 const mailboxAuthentication = new Map([
   ['/api/v1/platform/auth/mailbox', 'GET'],
@@ -23,9 +24,12 @@ const mailboxDisconnect = /^\/api\/v1\/platform\/auth\/mailbox\/[0-9a-fA-F]{8}-[
 // 두 검사가 docs/openapi/business-relay-routes.json과 각각 대조한다. 허용 query 키는 GET에만 적용한다.
 // 변경 메서드의 query는 경로와 상관없이 400이다(handler의 query 검사).
 export const businessRoutes = [
-  ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor']],
+  ['/api/v1/cs/tickets', ['GET', 'POST'], ['limit', 'cursor', 'state', 'channel', 'product_code', 'customer', 'owner', 'received_from', 'received_to', 'q', 'sort', 'dept', 'transfer_status']],
   ['/api/v1/cs/tickets/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/cs/tickets/{uuid}/audit', ['GET'], []],
+  ['/api/v1/cs/tickets/{uuid}/analysis', ['GET', 'POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/analysis/corrections', ['POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/summary', ['GET', 'POST'], []],
   ['/api/v1/cs/tickets/{uuid}/units', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/unit-history', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/units/{uuid}', ['PUT'], []],
@@ -39,25 +43,89 @@ export const businessRoutes = [
   ['/api/v1/cs/tickets/{uuid}/workflow/dept-results/{uuid}/review', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/workflow/close', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/workflow/owner', ['PUT'], []],
+  ['/api/v1/cs/tickets/{uuid}/workflow/return-subtype', ['POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/workflow/send', ['POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/refresh', ['POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/retry', ['POST'], []],
   ['/api/v1/cs/stats/overview', ['GET'], ['start', 'end', 'dept', 'customer']],
   ['/api/v1/cs/stats/owners', ['GET'], ['start', 'end', 'dept']],
   ['/api/v1/cs/stats/customers/{customer}', ['GET'], ['start', 'end']],
-  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], []],
+  ['/api/v1/cs/improvement-candidates', ['GET'], ['as_of', 'outcome']],
+  ['/api/v1/cs/improvement-candidates/collect', ['POST'], []],
+  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], ['status', 'request_type', 'dept']],
   ['/api/v1/cs/improvement-requests/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/versions', ['GET'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/owner', ['PUT'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/review', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/send', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/followup-plan', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/complete', ['POST'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/followup-signals', ['GET'], ['as_of']],
+  ['/api/v1/cs/improvement-requests/{uuid}/rounds', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison', ['GET', 'POST'], ['version']],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove', ['POST'], []],
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
-  ['/api/v1/tft/projects', ['GET'], ['limit', 'cursor']],
-  ['/api/v1/tft/projects/{uuid}', ['GET'], []],
+  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor', 'output_status', 'judgement_status', 'q']],
+  ['/api/v1/tft/projects/{uuid}', ['GET', 'PATCH'], []],
+  ['/api/v1/tft/projects/{uuid}/assignment', ['PATCH'], []],
+  ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],
+  ['/api/v1/tft/documents/{uuid}', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/draft', ['GET', 'PATCH'], ['version']],
+  ['/api/v1/tft/projects/{uuid}/draft/rewrite', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/review-versions', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/exports', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'needs_review', 'has_open_question', 'next_owner_field', 'unresolved_mandatory']],
+  ['/api/v1/tft/requirements/{uuid}', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/comparison', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/supplement-options', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/supplement-selection', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/partner-candidates', ['GET'], ['requirement_id']],
+  ['/api/v1/tft/projects/{uuid}/questions', ['GET', 'POST'], ['status', 'requirement_id', 'target', 'target_dept']],
+  ['/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm', ['POST'], []],
+  ['/api/v1/tft/questions/{uuid}/reply', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/proposals', ['GET', 'POST'], ['status', 'origin', 'requirement_id']],
+  ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
+  ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
+];
+// 플랫폼이 직접 인가하는 내 수신함/구독과 이름 묶음 조회만 중계한다. 업무 서비스 중계 표에 섞지 않는다.
+const userIds = /^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,99}$/;
+const notificationRoutes = [
+  [/^\/api\/v1\/platform\/users$/, ['GET'], ['ids']],
+  [/^\/api\/v1\/platform\/notifications$/, ['GET'], ['limit', 'offset']],
+  [/^\/api\/v1\/platform\/notifications\/unread-count$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/notifications\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/read$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/push\/public-key$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
+];
+// 메일 화면의 읽기와, 결과 불명 발송을 다루는 쓰기 2개만 플랫폼으로 보낸다(KAN-178). 재전송 조건은 서버가 검사한다
+// (contracts/platform/mail.md). 분류 변경·회신 연결·문의 접수는 넣지 않는다.
+const mailRoutes = [
+  [/^\/api\/v1\/platform\/mail\/send-intents$/, ['GET'], ['status']],
+  [/^\/api\/v1\/platform\/mail\/send-intents\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:check-sent-copy|resend)$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/mail\/reply-reviews$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
-export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}' };
-const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
+export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
+// 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
+const fileLimit = 26 * 1024 * 1024;
+const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
+const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid}']}/file|/api/v1/tft/projects/${placeholders['{uuid}']}/draft/exports/${placeholders['{uuid}']}/file)$`);
+const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
  * 허용표에서 경로와 정확히 일치하는 업무 API의 메서드·query 키를 찾는다.
@@ -126,24 +194,29 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       const parsed = new URL(request.url, 'http://local.invalid');
       const path = decodeURIComponent(parsed.pathname);
       if (path.startsWith('/api/v1/platform/auth/mailbox/') && !mailboxAuthEnabled) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      if (evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) {
+      if ((evaluationReadRelayEnabled && evaluationReadPath(path, request.method)) || (businessRelayEnabled && jobStatusPath(path))) {
         return relayEvaluationRead(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
       if (evaluationControlRelayEnabled && evaluationControlPath(path, request.method)) {
         return relayEvaluationControl(request, response, { path, searchParams: parsed.searchParams, target, tokenProvider, fetcher });
       }
+      const assignees = path === '/api/v1/platform/assignees';
+      if (assignees && ([...parsed.searchParams].some(([key, value]) => key !== 'role' || value !== 'cs_agent') || parsed.searchParams.getAll('role').length > 1)) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
       const authMethod = authentication.get(path) || (mailboxAuthEnabled ? (mailboxAuthentication.get(path) || (mailboxDisconnect.test(path) ? 'POST' : undefined)) : undefined);
-      const [business, businessQuery] = businessRelayEnabled ? businessRoute(path) : [[], []];
+      const notification = notificationRoutes.find(([pattern]) => pattern.test(path));
+      const direct = notification || mailRoutes.find(([pattern]) => pattern.test(path));
+      const [business, businessQuery] = direct ? direct.slice(1) : businessRelayEnabled ? businessRoute(path) : [[], []];
       if (authMethod) response.setHeader('Referrer-Policy', 'no-referrer');
       if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && authMethod === 'POST') && !business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
       if (path === '/health') return json(response, 200, { status: 'ok', service: 'web' });
       if (path.startsWith('/api/')) {
-        if ((!allowed.has(path) && !authMethod && !business.length) || (parsed.search && !business.length)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
+        if ((!allowed.has(path) && !authMethod && !business.length) || (parsed.search && !business.length && !assignees)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
         if (authMethod && request.method !== authMethod) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
         if (business.length) {
           if (!business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
           const pairs = [...parsed.searchParams];
-          if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || value.length > 200))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
+          if (notification && pairs.some(([key, value]) => key === 'ids' ? !userIds.test(value) : !/^(0|[1-9][0-9]*)$/.test(value) || (key === 'limit' ? +value < 1 || +value > 100 : +value > 100000))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
+          if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || (key !== 'ids' && value.length > 200)))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
         }
         const headers = { Authorization: `Bearer ${await tokenProvider()}` };
         let form;
@@ -156,16 +229,17 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
             // 브라우저가 제시한 내부 사용자·호출자·Authorization 헤더는 전달하지 않는다.
             for (const name of ['if-match', 'idempotency-key', 'x-request-id']) if (request.headers[name]) headers[name] = request.headers[name];
             if (request.method !== 'GET') {
-              if ((request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json') return json(response, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE' } });
+              const upload = request.method === 'POST' && uploadPath.test(path);
+              if ((request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase() !== (upload ? 'multipart/form-data' : 'application/json')) return json(response, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE' } });
               const chunks = [];
               let size = 0;
               for await (const chunk of request) {
                 size += chunk.length;
-                if (size > 1024 * 1024) return json(response, 413, { error: { code: 'REQUEST_TOO_LARGE' } });
+                if (size > (upload ? fileLimit : 1024 * 1024)) return json(response, 413, { error: { code: 'REQUEST_TOO_LARGE' } });
                 chunks.push(chunk);
               }
               form = Buffer.concat(chunks);
-              headers['Content-Type'] = 'application/json';
+              headers['Content-Type'] = upload ? request.headers['content-type'] : 'application/json';
             }
           }
           if (path === '/api/v1/platform/auth/callback' || (mailboxAuthEnabled && mailboxForms.has(path))) {
@@ -182,12 +256,14 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
             headers['Content-Type'] = type;
           }
         }
-        const result = await fetcher(new URL(path + (business.length ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
-        if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase() !== 'application/json'))) {
+        const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
+        const resultType = (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && downloadPath.test(path) && fileTypes.has(resultType);
+        if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && resultType !== 'application/json' && !isFile))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');
         }
-        const body = business.length ? await limitedBody(result, 8 * 1024 * 1024) : await result.text();
+        const body = business.length ? await limitedBody(result, isFile ? fileLimit : 8 * 1024 * 1024) : await result.text();
         const outgoing = { 'Content-Type': result.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' };
         if (authMethod) {
           for (const name of ['Location', 'X-CSRF-Token', 'X-Request-ID', 'Content-Security-Policy']) {
@@ -196,6 +272,11 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
           }
           const cookies = result.headers.getSetCookie();
           if (cookies.length) outgoing['Set-Cookie'] = cookies;
+        }
+        if (isFile) {
+          const disposition = result.headers.get('content-disposition') || '';
+          outgoing['Content-Type'] = resultType;
+          outgoing['Content-Disposition'] = disposition.startsWith('attachment;') ? disposition : 'attachment';
         }
         if (business.length) {
           for (const name of ['ETag', 'X-Request-ID']) {
@@ -219,7 +300,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
       }
       file = await realpath(file);
       if (!file.startsWith(staticRoot + sep)) return json(response, 404, { error: { code: 'NOT_FOUND' } });
-      response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600' });
+      response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': path === '/sw.js' || extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600' });
       response.end(request.method === 'HEAD' ? undefined : await readFile(file));
     } catch {
       // No upstream bodies, request headers or identity tokens in logs/errors.

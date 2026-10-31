@@ -5,7 +5,12 @@ import json
 
 import pytest
 
-from backend.engine.cs.classification import INPUT_VERSION, build_input, validate_output
+from backend.engine.cs.classification import (
+    INPUT_VERSION,
+    INPUT_VERSION_STRIPPED,
+    build_input,
+    validate_output,
+)
 
 # 실제 코드북이 아닌 검사 전용 코드. 운영 코드북은 KAN-92/95에서 연결한다.
 INFO_CODES = frozenset({"TEST_SERIAL", "TEST_PHOTO"})
@@ -56,7 +61,7 @@ def test_input_whitelist_and_no_mutation():
 
 @pytest.mark.parametrize("channel", ["PHONE", "EMAIL"])
 def test_annotation_and_sensitive_values(channel):
-    """주석은 PHONE에서만 제거하고 알려진 민감값과 이메일·시리얼을 가린다.
+    """분석용 옵션에서 주석은 PHONE에서만 제거하고 알려진 민감값과 이메일·시리얼을 가린다.
 
     Args:
         channel: 입력 채널.
@@ -70,14 +75,43 @@ def test_annotation_and_sensitive_values(channel):
         "subject": "Urgency: SITE_DOWN",
         "body": "Urgency: SAFETY\nurgency : NONE\nTrip at 300 V. serial: ZX-123; a@example.test 김테스트",
     }
-    prepared = build_input(record, sensitive_values={"김테스트": "PERSONAL"})
+    prepared = build_input(
+        record, sensitive_values={"김테스트": "PERSONAL"}, strip_phone_annotation=True
+    )
     payload = prepared.payload.model_dump_json()
+    assert prepared.version == INPUT_VERSION_STRIPPED
     assert "ZX-123" not in payload and "a@example.test" not in payload and "김테스트" not in payload
     assert "[SERIAL_PROVIDED]" in payload and "[PERSONAL_PROVIDED]" in payload
     assert "Trip at 300 V." in prepared.payload.body
     assert prepared.removed_annotations == (3 if channel == "PHONE" else 0)
     assert ("SAFETY" in payload) is (channel != "PHONE")
     assert "ZX-123" in record["body"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Urgency: SAFETY\nTrip at 300 V.",
+        "Urgency: HIGH\nTrip.",
+        "Note-Urgency: SAFETY\nTrip.",
+        "Urgency: SAFETY",
+    ],
+)
+def test_phone_annotation_is_kept_by_default(body):
+    """기본 입력(v4)은 PHONE 상담원 표기를 지우지도 보류하지도 않고 제목·본문 전체를 넣는다.
+
+    Args:
+        body: 지원·미지원·표기만 있는 합성 PHONE 본문.
+
+    Returns:
+        None: 본문 그대로, 판본 v4, 제거 0건을 확인한다.
+    """
+    record = {"channel": "PHONE", "body_language": "en", "subject": "Urgency: NONE", "body": body}
+    result = build_input(record, sensitive_values={})
+    assert (result.payload.subject, result.payload.body) == ("Urgency: NONE", body)
+    assert result.version == INPUT_VERSION == "cs-classification-input-v4"
+    assert result.removed_annotations == 0
+    assert INPUT_VERSION_STRIPPED == "cs-classification-input-v3"
 
 
 @pytest.mark.parametrize("label", ["S/N", "Serial number", "Serial No.", "시리얼 번호"])
@@ -148,6 +182,7 @@ def test_missing_field_and_annotation_only_are_rejected():
                 "body": "Urgency: SAFETY\n",
             },
             sensitive_values={},
+            strip_phone_annotation=True,
         )
 
 
@@ -328,9 +363,9 @@ def test_supported_phone_annotation_wrappers(annotation):
     """
     record = {"channel": "PHONE", "body_language": "en", "subject": annotation, "body": annotation}
     with pytest.raises(ValueError, match="^CS_EMPTY_INPUT$"):
-        build_input(record, sensitive_values={})
+        build_input(record, sensitive_values={}, strip_phone_annotation=True)
     record["body"] += "\nTrip at 300 V."
-    result = build_input(record, sensitive_values={})
+    result = build_input(record, sensitive_values={}, strip_phone_annotation=True)
     assert result.payload.subject == ""
     assert result.payload.body == "\nTrip at 300 V."
     assert result.removed_annotations == 2
@@ -356,10 +391,10 @@ def test_unknown_phone_annotation_is_held_without_partial_removal(value):
     }
     before = copy.deepcopy(record)
     with pytest.raises(ValueError, match="^CS_UNSUPPORTED_PHONE_ANNOTATION$"):
-        build_input(record, sensitive_values={})
+        build_input(record, sensitive_values={}, strip_phone_annotation=True)
     assert record == before
     record["channel"] = "EMAIL"
-    result = build_input(record, sensitive_values={})
+    result = build_input(record, sensitive_values={}, strip_phone_annotation=True)
     assert result.payload.body == record["body"]
     assert result.removed_annotations == 0
 
@@ -383,6 +418,7 @@ def test_attached_phone_label_is_held(prefix):
                 "body": f"{prefix}Urgency: SAFETY\nTrip at 300 V.",
             },
             sensitive_values={},
+            strip_phone_annotation=True,
         )
 
 
@@ -405,6 +441,7 @@ def test_split_phone_annotation_is_held(annotation):
                 "body": annotation + "\nTrip at 300 V.",
             },
             sensitive_values={},
+            strip_phone_annotation=True,
         )
 
 

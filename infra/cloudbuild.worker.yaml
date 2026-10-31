@@ -1,0 +1,16 @@
+# KAN-159: C/S·RFP 처리 Job 이미지. 시험은 서비스 빌드가 맡고 여기서는 worker 모듈을 불러오는지만 본다.
+substitutions:
+  _SERVICE: tft
+steps:
+  - id: image
+    name: gcr.io/cloud-builders/docker
+    args: [build, --target, '${_SERVICE}-worker', --build-arg, 'SERVICE_NAME=${_SERVICE}', --label, 'org.opencontainers.image.revision=${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}-worker:${COMMIT_SHA}', -t, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}-worker:${BUILD_ID}', .]
+  - id: worker-import
+    name: gcr.io/cloud-builders/docker
+    args: [run, --rm, --network=none, --entrypoint, python, 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}-worker:${COMMIT_SHA}', -c, 'import importlib,os; importlib.import_module("backend.agent."+os.environ["SERVICE_NAME"]+"_worker")']
+images:
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}-worker:${COMMIT_SHA}'
+  - 'asia-northeast3-docker.pkg.dev/${PROJECT_ID}/team4/${_SERVICE}-worker:${BUILD_ID}'
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

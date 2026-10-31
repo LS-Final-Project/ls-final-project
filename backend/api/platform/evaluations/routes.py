@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.platform.evaluations.access import require_evaluation_write, require_evaluator
 from backend.api.platform.evaluations.admission import (
@@ -12,7 +12,9 @@ from backend.api.platform.evaluations.admission import (
     get_run,
     list_experiments,
     list_runs,
+    register_experiment,
 )
+from backend.api.platform.evaluations.cases import MAX_LIMIT, EvaluationRunCases, list_run_cases
 from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.schemas import (
     EvaluationAdmission,
@@ -21,6 +23,9 @@ from backend.api.platform.evaluations.schemas import (
     EvaluationRunRequest,
     EvaluationRuns,
     EvaluationRunStatus,
+    ExperimentCreate,
+    ExperimentRegistered,
+    Stage,
 )
 from backend.api.platform.evaluations.summary import EvaluationRunSummary, get_run_summary
 from backend.shared.access import Principal
@@ -67,24 +72,66 @@ async def evaluation_policy(request: Request) -> SuccessResponse[EvaluationPolic
     operation_id="platform_list_evaluation_experiments",
 )
 async def evaluation_experiments(
-    request: Request, principal: Annotated[Principal, Depends(require_evaluator)]
+    request: Request,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+    stage: Stage | None = None,
 ) -> SuccessResponse[EvaluationExperiments]:
     """본인 실험 최근 50개와 접수 가능 여부·막힌 사유를 반환한다.
 
     Args:
         request: 서버 설정·허용 목록·요청 ID를 가진 요청.
         principal: 현재 지정 평가자 세션.
+        stage: 주어지면 그 단계(classification·search·draft·rfp)의 실험만.
 
     Returns:
         SuccessResponse[EvaluationExperiments]: 구성 원문·manifest·hash·대상 ID 없는 목록.
     """
     items = await list_experiments(
-        request.app.state.settings, request.app.state.evaluation_access, principal.user_id
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        stage,
     )
     return SuccessResponse(
         data=EvaluationExperiments(items=items),
         meta=ResponseMeta(request_id=request.state.request_id),
     )
+
+
+@router.post(
+    "/experiments",
+    status_code=201,
+    response_model=SuccessResponse[ExperimentRegistered],
+    operation_id="platform_register_evaluation_experiment",
+    dependencies=[Depends(require_evaluation_write)],
+    responses={code: {"model": ErrorResponse} for code in (409, 422, 503)},
+    description=(
+        "실험 정의와 대상 집합을 동결 등록한다. 등록한 실험은 바꾸지 않으며 승인은 운영자 설정이다. "
+        "최종 시험(test) 분할은 등록할 수 없다."
+    ),
+)
+async def register_evaluation_experiment(
+    request: Request,
+    body: ExperimentCreate,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+) -> SuccessResponse[ExperimentRegistered]:
+    """서버가 hash를 계산해 실험과 대상을 한 트랜잭션으로 등록한다.
+
+    Args:
+        request: 서버 설정·평가 허용 설정·요청 ID를 가진 요청.
+        body: 등록 요청.
+        principal: 현재 지정 평가자 세션.
+
+    Returns:
+        SuccessResponse[ExperimentRegistered]: 실험 ID·hash·대상 수·접수 가능 여부.
+    """
+    registered = await register_experiment(
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        body,
+    )
+    return SuccessResponse(data=registered, meta=ResponseMeta(request_id=request.state.request_id))
 
 
 @router.get(
@@ -251,5 +298,41 @@ def evaluation_run_summary(
     """
     data = get_run_summary(
         request.app.state.settings, request.app.state.evaluation_access, principal.user_id, run_id
+    )
+    return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))
+
+
+@router.get(
+    "/runs/{run_id}/cases",
+    response_model=SuccessResponse[EvaluationRunCases],
+    operation_id="platform_list_evaluation_run_cases",
+    responses={code: {"model": ErrorResponse} for code in (404, 409)},
+)
+def evaluation_run_cases(
+    request: Request,
+    run_id: UUID,
+    principal: Annotated[Principal, Depends(require_evaluator)],
+    cursor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 20,
+) -> SuccessResponse[EvaluationRunCases]:
+    """summary와 같은 접근 검사로 실행의 사례별 시도를 한 페이지 조회한다(KAN-139 4차).
+
+    Args:
+        request: 서버 환경·승인 목록과 요청 ID.
+        run_id: 조회 대상 실행.
+        principal: 현재 세션과 평가자 검사를 통과한 사용자.
+        cursor: 앞 페이지의 마지막 case_id.
+        limit: 페이지 크기(1~100, 기본 20).
+
+    Returns:
+        SuccessResponse: 사례 ID 해시·상태·시도 메타데이터. 원문·정답·원시 응답 없음.
+    """
+    data = list_run_cases(
+        request.app.state.settings,
+        request.app.state.evaluation_access,
+        principal.user_id,
+        run_id,
+        cursor=cursor,
+        limit=limit,
     )
     return SuccessResponse(data=data, meta=ResponseMeta(request_id=request.state.request_id))

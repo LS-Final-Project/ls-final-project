@@ -116,6 +116,10 @@ class ChangeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             changes.successful_branch_base("current", "feature")
 
+    def test_display_label_tables_run_the_cross_check(self):
+        for path in ("backend/engine/rfp/vocabulary.py", "frontend/src/rfp/labels.ts"):
+            self.assertTrue(changes.classify([path])["infrastructure"], path)
+
     def test_frontend_does_not_build_backends(self):
         result = changes.classify(["frontend/src/App.tsx"])
         self.assertEqual(result["services"], ["web"])
@@ -178,11 +182,33 @@ class ChangeTests(unittest.TestCase):
                 self.assertIn("cs", result["backends"])
                 self.assertIn("tft", result["backends"])
 
+    def test_api_modules_imported_by_evaluation_tests_run_the_evaluation_check(self):
+        # tests/eval이 import하는 rfp 비교·협력사·처리 함수가 바뀌면 평가 검사를 돈다(#329 누락 재발 방지).
+        for path in (
+            "backend/api/tft/rfp/comparison.py",
+            "backend/api/tft/partners/grading.py",
+            "backend/api/tft/worker_processor.py",
+            "backend/api/platform/evaluations/cs_smoke.py",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertTrue(result["evaluation"])
+                self.assertIn(path.split("/")[2], result["services"])
+        # 평가 검사가 쓰지 않는 api 경로는 그대로 평가를 켜지 않는다.
+        self.assertFalse(
+            changes.classify(["backend/api/tft/staffing_requests/routes.py"])["evaluation"]
+        )
+
     def test_new_evaluation_tests_run_without_releasing_an_api(self):
         result = changes.classify(["tests/eval/retrieval/test_metrics.py"])
         self.assertTrue(result["evaluation"])
         self.assertEqual(result["backends"], [])
         self.assertEqual(result["services"], [])
+
+    def test_deploy_model_changes_run_the_promotion_check(self):
+        result = changes.classify(["infra/deploy_private.py"])
+        self.assertTrue(result["evaluation"])
+        self.assertTrue(result["infrastructure"])
 
     def test_evaluation_spec_runs_evaluation_without_releasing_an_api(self):
         result = changes.classify(["docs/evaluation.md"])

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { disconnectMailbox, listMailboxes, startMailboxLink } from '../api/mailbox';
 import { sessionCsrfToken } from '../api/client';
 import { ErrorState, Loading } from './states';
+import { KvGrid, type KvColumn } from '../ls-shell/kv';
 
 const STATES = { connected: '연결됨', disconnected: '해제됨' } as const;
 // 재연결 필요 사유별 안내. 공급자 오류 이름 그대로 받는다.
@@ -39,26 +40,27 @@ export default function MailboxConnections({ navigate = (url: string) => window.
   // 이미 받은 목록이 있으면 재조회 실패에도 표를 유지한다. 처음부터 못 받았을 때만 전체 오류다.
   if (list.data === undefined) return <ErrorState error={list.error} onRetry={() => list.refetch()} />;
   if (list.data === null) return <p>사서함 연결이 이 배포에서 활성화되지 않았습니다.</p>;
+  const columns: KvColumn<(typeof list.data & object)[number]>[] = [
+    { key: 'id', header: '연결 ID', headClass: '', cell: item => item.mailbox_id },
+    { key: 'state', header: '상태', width: 220, headClass: '', cell: item => item.state === 'connected' && item.reconnect_required
+      ? <>재연결 필요<div className="kv-sub" style={{ margin: '2px 0 0', whiteSpace: 'normal' }}>재연결이 필요합니다. {REASONS[item.reconnect_reason ?? ''] ?? ''} Microsoft에서 동의를 복구해도 여기서 다시 연결해야 메일을 가져옵니다.</div></>
+      : STATES[item.state] },
+    { key: 'revision', header: '개정', width: 56, className: 'c', cell: item => item.revision },
+    { key: 'at', header: '변경 시각', width: 190, className: 'd', headClass: '', cell: item => item.updated_at },
+    { key: 'actions', header: '작업', width: 300, headClass: '', cell: item => <>
+      {item.state === 'connected' && item.reconnect_required && <button className="kb" disabled={busy || !csrf} onClick={() => void connect()}>재연결</button>}
+      {item.state !== 'connected' ? '-' : confirming !== item.mailbox_id
+        ? <button className="kb" disabled={busy || !csrf} onClick={() => setConfirming(item.mailbox_id)}>해제</button>
+        : <><span>이 사서함 연결을 해제할까요?</span> <button className="kb primary" disabled={busy || !csrf} onClick={() => void disconnect(item.mailbox_id)}>{busy ? '해제 중' : '해제 확인'}</button> <button className="kb" disabled={busy} onClick={() => setConfirming(null)}>취소</button></>}
+    </> },
+  ];
   return <div>
-    {disconnected && <p role="status">사서함 연결을 해제했습니다.</p>}
-    {list.isError && <p role="alert">사서함 연결 목록을 다시 불러오지 못했습니다. <button onClick={() => list.refetch()}>다시 불러오기</button></p>}
+    {disconnected && <p role="status" className="kv-sub" style={{ margin: '0 0 6px' }}>사서함 연결을 해제했습니다.</p>}
+    {list.isError && <p role="alert" className="kv-sub" style={{ margin: '0 0 6px' }}>사서함 연결 목록을 다시 불러오지 못했습니다. <button className="kb" onClick={() => list.refetch()}>다시 불러오기</button></p>}
     {error != null && <ErrorState error={error} />}
-    {!csrf && <p>세션 확인 정보가 없어 사서함 연결을 바꿀 수 없습니다. 세션을 다시 확인하세요.</p>}
-    {list.data.length === 0 ? <p>연결된 사서함이 없습니다.</p> : <table>
-      <thead><tr><th>연결 ID</th><th>상태</th><th>개정</th><th>변경 시각</th><th>작업</th></tr></thead>
-      <tbody>{list.data.map(item => <tr key={item.mailbox_id}>
-        <td>{item.mailbox_id}</td>
-        <td>{item.state === 'connected' && item.reconnect_required
-          ? <>재연결 필요<p>재연결이 필요합니다. {REASONS[item.reconnect_reason ?? ''] ?? ''} Microsoft에서 동의를 복구해도 여기서 다시 연결해야 메일을 가져옵니다.</p></>
-          : STATES[item.state]}</td>
-        <td>{item.revision}</td><td>{item.updated_at}</td>
-        <td>{item.state === 'connected' && item.reconnect_required && <button disabled={busy || !csrf} onClick={() => void connect()}>재연결</button>}
-        {item.state !== 'connected' ? '-' : confirming !== item.mailbox_id
-          ? <button disabled={busy || !csrf} onClick={() => setConfirming(item.mailbox_id)}>해제</button>
-          : <><span>이 사서함 연결을 해제할까요?</span><button disabled={busy || !csrf} onClick={() => void disconnect(item.mailbox_id)}>{busy ? '해제 중' : '해제 확인'}</button><button disabled={busy} onClick={() => setConfirming(null)}>취소</button></>}
-        </td>
-      </tr>)}</tbody>
-    </table>}
-    <button disabled={busy || !csrf} onClick={() => void connect()}>사서함 연결</button>
+    {!csrf && <p className="kv-sub" style={{ margin: '0 0 6px' }}>세션 확인 정보가 없어 사서함 연결을 바꿀 수 없습니다. 세션을 다시 확인하세요.</p>}
+    {list.data.length === 0 ? <p className="kv-sub" style={{ margin: '0 0 6px' }}>연결된 사서함이 없습니다.</p>
+      : <KvGrid label="메일 계정" columns={columns} rows={list.data} rowKey={item => item.mailbox_id} fallback="연결된 사서함이 없습니다." />}
+    <div className="kv-actions" style={{ justifyContent: 'flex-start' }}><button className="kb primary" disabled={busy || !csrf} onClick={() => void connect()}>사서함 연결</button></div>
   </div>;
 }

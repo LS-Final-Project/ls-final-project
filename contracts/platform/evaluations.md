@@ -34,7 +34,7 @@ DB 대기 상한은 초기 로컬 보호값으로 lock_timeout=2초, statement_t
 
 ### 마이그레이션과 남은 범위
 
-KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 user_controls migration을 추가로 적용해야 한다.
+KAN-85 → `20261025_KAN-69_job_admission.sql` → `20261025_KAN-90_run_admission.sql` 순으로 적용한다. run/job의 일대일 및 동일 business ID를 FK로 검증한다. 기존 non-null job_id가 runtime.jobs와 맞지 않으면 마이그레이션은 실패하므로 기존 레코드를 임의 수정하지 말고 이관 근거를 확인한다. run_control·admission_receipts는 platform_app에 SELECT·INSERT만 부여한다. `20261030_KAN-90_receipt_origin.sql`은 영수증에 `origin`(ACCEPT·IMPORT, 기존 행 ACCEPT)과 `import_ref`(IMPORT만, 반입 결과 JSON sha256 앞 12자)를 더한다. IMPORT는 `scripts/eval_import_run.py --execute`가 실행과 같은 트랜잭션에서 넣는 반입 영수증이며 run_control은 만들지 않는다. 취소·재개와 작업자 dispatch·만료 처리는 `origin='ACCEPT'` 영수증만 대상으로 한다. 작업자 역할에는 `origin` 열 SELECT만 더한다. generation=0/holder=null은 미실행 상태다. 아래 보완 migration과 로컬 worker는 합성 lease 획득·갱신을 제공하며 사용자 취소·재개는 아래 user_controls migration을 추가로 적용해야 한다.
 
 최초 응답 저장은 구조화 ID만 보존한다. 실제 모델 실행·운영 dispatcher/worker·외부 호출 복구, SSE, 전체 평가 및 최종 시험 운영은 후속 작업이다. 로컬 합성 접수 성공으로 KAN-69/90 전체 완료를 판단하지 않는다.
 
@@ -65,9 +65,11 @@ python3 scripts/workspace.py migrate platform 20261023_KAN-85_evaluation_storage
 `purpose`는 `smoke`(합성 연결 점검), `rule_replay`(검수된 입력으로 순수 룰 재현), `pipeline`(AI 예측 입력부터의 전체 파이프라인)이다. 평가 명세의 규칙 단독 평가와 전체 파이프라인을 같은 실험에 섞지 않는다. `smoke`가 아니면 `data_split`과 `gold_version`이 필수다.
 
 - `dataset_manifest`: 원천(`source`, `source_instance`)별 파일 SHA-256, 건수, `data_origin` 구분. 실제·합성 자료를 섞은 실행은 실험의 `data_origin`을 `demo`로 두고 manifest에 원천별 구분을 남긴다. `experiment_targets.data_origin`은 대상별 값이다.
-- `dataset_hash`: manifest가 가리키는 파일 hash를 정렬해 이은 문자열의 SHA-256.
+- `dataset_hash`: manifest가 가리키는 파일 hash(`sources[].file_sha256`)를 정렬해 `\n`으로 이은 문자열의 SHA-256. manifest가 빈 객체면 빈 문자열의 SHA-256이다. 고정 C/S smoke 프로필의 `dataset_hash`는 fixture JSON hash라 이 규칙과 별개다.
 - `target_set_hash`: `target_ref`를 정렬해 `\n`으로 이은 문자열의 SHA-256. 분모를 고정하는 값이며 모델별로 유리한 사례만 골라 바꾸지 않는다.
-- `config_hash`: 아래 필드를 키 순서로 정렬한 canonical JSON(`separators=(",", ":")`, `ensure_ascii=False`)의 SHA-256. `purpose`, `data_origin`, `dataset_hash`, `data_split`, `gold_version`, `policy_version`, `prompt_version`, `model_id`, `index_version`, `input_builder_version`, `configuration`, `target_set_hash`. 이름·생성자·시각은 포함하지 않는다. 같은 `config_hash`는 같은 실험이므로 새 실행만 추가한다.
+- `config_hash`: 아래 필드를 키 순서로 정렬한 canonical JSON(`separators=(",", ":")`, `ensure_ascii=False`)의 SHA-256. `purpose`, `data_origin`, `dataset_hash`, `data_split`, `gold_version`, `policy_version`, `prompt_version`, `model_id`, `index_version`, `input_builder_version`, `configuration`, `target_set_hash`, `stage`, `knobs`. `stage`가 null이거나 `knobs`가 빈 객체이면 그 키를 canonical JSON에서 생략한다. 그래서 두 필드가 생기기 전의 실험·승인 hash는 그대로다. 이름·생성자·시각은 포함하지 않는다. 같은 `config_hash`는 같은 실험이므로 새 실행만 추가한다.
+- `stage`: 실험이 바꾼 단계. `classification`, `search`, `draft`, `rfp` 중 하나이거나 null이다. 목록 `GET /experiments?stage=`로 거를 수 있고 실행 목록에도 실험의 단계가 나온다.
+- `knobs`: 그 단계에서 바꾼 비밀 아닌 조절 항목(`prompt_version`, `model_id`, `temperature`, `chunk_budget`, `rrf_k`, `forbidden_policy_version` 등)이다. 깊이 1 객체다. 키는 1~64자 영숫자·`_`·`.`이고 최대 20개다. 값은 문자열(256자 이하)·정수·실수·bool이다. 조절 항목은 실험 hash에 포함되므로 값을 바꾸면 새 실험이다. 이름에 `api_key`·`token`·`secret`·`password`·`credential`이 들어간 키(대소문자 무시)는 넣지 않는다. 검사 함수 `check_stage_knobs`는 비밀 키를 `EVALUATION_KNOB_SECRET`(422), 형식 위반을 `EVALUATION_KNOB_INVALID`(422)로 거부한다. 실험 등록 API가 아직 없어 지금은 이 함수의 단위 테스트와 DB CHECK(객체 여부·비밀 키)로만 강제하며, 등록 API가 생기면 그 경로가 이 함수를 호출한다.
 - `configuration`: `max_output_tokens`, `location`, `attempts` 같은 비밀 아닌 설정만 둔다. `gemini_api_key`, 프로젝트 자격증명, 토큰은 어떤 키로도 넣지 않는다.
 - `derivation_kind`는 `DERIVED` 또는 `SYSTEM`이다. 평가 기록은 제공 자료가 아니므로 `PROVIDED`를 쓰지 않는다.
 - `experiment_targets.attributes`: `channel`, `language`, `priority_adjusted_by_agent` 등 보고 분리와 제외 플래그. 평가 명세대로 120건을 분모에서 고정 차감하지 않고 이 플래그로 사례를 `EXCLUDED` 처리하며 `runs.excluded_counts`에 사유별 건수를 남긴다. 원문·정답·개인정보는 넣지 않는다.
@@ -281,6 +283,73 @@ first/retry/all의 저장 시도 수·미종료 시도 수, 토큰 5종의 보�
 내부 보고서 전체를 그대로 직렬화하지 않고 DTO에 열거한 집계만 투영한다. 비용은 아래
 선택적 집계로 연결하며 폴백 상세·정답 인수·품질 점수·실제 모델 실행·운영 활성화는 후속 범위다.
 
+### KAN-139 사례별 시도 조회와 LangSmith 링크
+
+- `GET /api/v1/platform/evaluations/runs/{run_id}/cases?cursor=&limit=`는 summary와 같은 접근 검사를 쓴다(`summary.open_run`). 영수증, 요청자=실험 작성자=본인, test 분할 404, 평가자·승인 hash 403, smoke 고정 프로필이 다르거나 잠금 구성이 바뀌면 403·409다. 조회 전용이고 새로 저장하지 않는다.
+- 페이지: `case_id` 순이다. `cursor`는 앞 페이지의 마지막 `case_id`(UUID)이고 `limit`은 1~100(기본 20)이다. 범위를 벗어나거나 UUID가 아니면 422이고, `next_cursor`는 다음 사례가 있을 때만 준다.
+- 사례 항목은 {`case_id`, `target_ref_sha`, `status`, `attempts`}다. `target_ref_sha`는 sha256(target_ref) 앞 12자이며, smoke 고정 ID든 ticket_id든 원문 사례 ID를 내지 않는다.
+- 시도 항목은 {`step`, `attempt`, `outcome`, `error_code`, `http_status`, `finish_reasons`, `call_attempts`, `model_version`, `latency_ms`, `parsed_output`}로 step·attempt 순이다. `input_version` 열은 시도 표에 없다. 입력 판본은 실험 단위이고 summary `experiment`에 나온다.
+- `parsed_output`은 step이 `classify`·`smoke`일 때만 코드 다섯 개(`category_code`·`secondary_category`·`urgency_flag`·`return_subtype`·`provided_info`)로 투영한다. 코드 형식(`[A-Za-z0-9_]{1,64}`)이 아닌 값은 null(목록이면 제외)이다. 문장이 들어 있을 수 있는 다른 단계는 null이다.
+- 내지 않는 값: 원문, `raw_output`, `final_output`, `gold_labels`, `input_sha256`, `usage_raw`, 토큰·비용(집계는 summary에 있다). 잠금 채점은 실행 단위라 사례별 정답·채점 결과는 내지 않는다.
+- 웹 중계는 읽기 플래그 아래 `/runs/{uuid}/cases`만 더 허용한다. 쿼리는 `cursor`·`limit` 각각 한 번, 값 64자 이하이며 그 밖은 400이다.
+- 화면: 실행 집계 아래 '사례별 시도' 절(20개씩, '더 보기')이 있다. 빌드 시 `VITE_LANGSMITH_PROJECT_URL`이 https 주소이면 실행 집계 상단에 '추적 보기 (LangSmith 프로젝트)' 링크(새 탭, `noopener noreferrer`)를 보이고, 없거나 https가 아니면 숨긴다. 실행별 trace 매핑은 없으므로 프로젝트 화면으로만 간다.
+
+### KAN-90 실험 등록 API
+
+`POST /api/v1/platform/evaluations/experiments`는 실험 정의와 대상 집합을 동결 등록한다.
+
+- **접근**: 현재 세션의 지정 평가자만 등록할 수 있다. `POST /runs`처럼 `Origin`과 세션에 결속된 `X-CSRF-Token`을 검사한다.
+- **환경**: 접수와 같은 잠금을 쓴다. 명시적으로 켠 local/test에서만 동작하고, 아니면 503 `EVALUATION_RUNNER_NOT_CONNECTED`다.
+- **불변**: 등록한 실험과 대상은 바꾸지 않는다(`platform_app`에는 UPDATE·DELETE 권한이 없다). 구성을 바꾸려면 새로 등록한다.
+- **승인 분리**: 승인(`EVALUATION_APPROVED_CONFIG_HASHES`)은 운영자 설정이라 이 API로 바꾸지 않는다. 그래서 등록 직후에는 보통 `admissible=false`이고 `blocked_reason=EXPERIMENT_NOT_APPROVED`다.
+- **최종 시험 제외**: `data_split='test'` 실험은 이 API로 등록할 수 없고 운영자 SQL로만 만든다.
+
+**입력**(extra 금지)
+
+| 필드 | 규칙 |
+| --- | --- |
+| `name` | 1~120자 |
+| `purpose` | `smoke`·`rule_replay`·`pipeline` |
+| `data_origin` | `synthetic`·`demo`·`real` |
+| `data_split` | `train`·`valid` 또는 null. `test`는 거부한다 |
+| `gold_version`·`policy_version`·`prompt_version`·`index_version`·`input_builder_version` | 문자열 또는 null. `purpose`가 `smoke`가 아니면 `data_split`과 `gold_version`이 필수다 |
+| `model_id` | 필수 |
+| `configuration` | 비밀 아닌 객체. 중첩 키까지 비밀 키 이름을 검사한다 |
+| `stage`·`knobs` | 위 규칙 그대로(`check_stage_knobs`) |
+| `dataset_manifest` | `{}` 또는 `{"sources": [{"source", "source_instance", "file_sha256"(64 hex), "count"(0 이상), "data_origin"}]}`. 다른 키는 받지 않는다 |
+| `targets` | 1~5000개. 각 대상은 `target_ref`(1~128자, 중복 금지), `target_kind`, `data_origin`, `attributes`(객체) |
+
+- **attributes**: 원문·정답·비밀을 담지 않는다. 중첩 키까지 검사해 이름에 `body`·`subject`·`gold`·`answer`·`label`이나 비밀 키 단어가 들어가면 거부한다. 예외는 층화 메타데이터 키 `body_language` 하나뿐이다(정확히 같은 이름만, 잠금 집계 `cs_strata`가 읽음). `email_body`처럼 다른 `body` 포함 키는 계속 거부한다(KAN-90, #244 이연).
+- **출처 일치**: manifest 원천과 대상의 `data_origin`이 두 가지 이상 섞이면 실험 `data_origin`은 `demo`여야 하고, 한 가지면 그 값과 같아야 한다.
+
+**서버 계산**
+
+- `dataset_hash`·`target_set_hash`·`config_hash`는 위 정의대로 서버가 계산한다.
+- 실험 행과 대상 행은 한 트랜잭션에 넣는다. `derivation_kind`는 `DERIVED`, 생성자는 요청자다.
+
+**응답 201**
+
+- 내용: `experiment_id`·`config_hash`·`dataset_hash`·`target_set_hash`·`target_count`·`admissible`·`blocked_reason`.
+- hash를 돌려주는 까닭: 등록자가 운영자에게 승인을 요청할 때 쓰는 값이다.
+- 목록(`GET /experiments`)은 지금처럼 hash를 보여주지 않는다.
+- KAN-139 3차로 실험 항목에 선택 필드 `runs`(기본 빈 목록)를 더한다. summary를 열 수 있는 실행만 최신순 최대 10개를 {`run_id`, `origin`(ACCEPT·IMPORT), `status`, `created_at`}로 담는다. 조건은 접수 영수증이 있고, 요청자=실험 작성자=본인이며, 실험이 test 분할이 아닌 것이다. run_control은 보지 않으므로 실행 목록·상태 API에 나오지 않는 반입 실행도 여기서 실행 상세(summary)로 들어간다. 조회 전용이며 새로 저장하지 않는다.
+
+**오류**
+
+| 코드 | 상태 | 조건 |
+| --- | --- | --- |
+| `EVALUATION_TEST_SPLIT_REGISTRATION_BLOCKED` | 422 | `data_split='test'` |
+| `EVALUATION_EXPERIMENT_INCOMPLETE` | 422 | `smoke`가 아닌데 `data_split`이나 `gold_version`이 없음 |
+| `EVALUATION_KNOB_SECRET`·`EVALUATION_KNOB_INVALID` | 422 | `stage`·`knobs` 규칙 위반 |
+| `EVALUATION_CONFIGURATION_SECRET` | 422 | `configuration`에 비밀 키 이름 |
+| `EVALUATION_TARGET_DUPLICATE` | 422 | `target_ref` 중복 |
+| `EVALUATION_TARGET_ATTRIBUTE_FORBIDDEN` | 422 | `attributes`에 원문·정답·비밀 키 이름 |
+| `EVALUATION_DATA_ORIGIN_MISMATCH` | 422 | 출처 일치 규칙 위반 |
+| `EVALUATION_EXPERIMENT_EXISTS` | 409 | 같은 `config_hash`가 이미 있음. 본인 실험이면 `details=[{"experiment_id": …}]`를 주고, 다른 평가자의 실험이면 코드만 준다 |
+| `EVALUATION_RUNNER_NOT_CONNECTED` | 503 | 접수 잠금 환경 |
+
+형식 위반(길이·enum·extra 키·manifest 구조)은 공통 요청 검증 오류(422)다. 같은 구성을 동시에 등록하면 먼저 commit한 요청만 201을 받고, 나머지는 409를 받는다. 감사 로그는 지금 평가 기능에 없어 만들지 않았다. 웹 중계에는 아직 이 경로를 열지 않았다.
+
 ### KAN-137 실험·실행 목록과 새 접수 화면
 
 - `GET /api/v1/platform/evaluations/experiments`: 지정 평가자 본인이 만든 실험 최근 50개(커서 없음). `experiment_id`·`name`·`purpose`·`data_split`·`data_origin`·`model_id`·`target_count`·`created_at`·`admissible`·`blocked_reason`. `blocked_reason`은 접수와 같은 `validate_smoke_experiment()`를 그대로 불러 얻은 코드(`FINAL_TEST_LOCKED`·`EXPERIMENT_NOT_APPROVED`·`LOCAL_SMOKE_ONLY`·`EXPERIMENT_HASH_MISMATCH`)이고, 서버 접수가 꺼져 있으면 `ADMISSION_UNAVAILABLE`이다. 대상 집합 hash 대조는 접수 때 한다. 구성 원문·`dataset_manifest`·hash·대상 ID는 응답에 넣지 않는다.
@@ -393,7 +462,9 @@ gold_sha256·gold_version·scored_target_count가 같을 때만 차이를 계산
 접근 경계는 두 경로 모두 local/test·접수 켬·지정 평가자·실험 생성자=요청자=본인·접수 영수증·
 test split 404·승인 구성 hash(아니면 403 EXPERIMENT_NOT_APPROVED)·구성 hash 재계산(다르면 409)이다.
 실험 purpose가 smoke이면 기존 합성 경로(고정 프로필·fake·local/test runner·고정 대상, 위반 403
-LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따른다. 그 밖은 잠금 경로로, purpose pipeline·rule_replay,
+LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따르며, 영수증 origin이 IMPORT면 smoke 경로는 403
+LOCAL_SMOKE_ONLY다. 반입 실행(IMPORT)은 아래 잠금 경로 검사를 그대로 받는다. 응답 `origin`(ACCEPT·IMPORT)으로
+화면이 반입 실행을 구분한다(KAN-90 4차). 반입 실행은 원시 응답을 저장하지 않으므로 원시 응답 수 0이 그대로 보인다. 그 밖은 잠금 경로로, purpose pipeline·rule_replay,
 실행 provider와 model_id가 fake가 아니고 합성 프로필이 아니며 data_split이 train·valid인 실행만 허용하고
 위반은 403 LOCKED_RUN_REQUIRED다. 잠금 경로는 고정 대상 목록이 없으므로 실험 대상 ID를 정렬해
 줄바꿈으로 이은 SHA-256이 `target_set_hash`와 다르면 409 TARGET_SET_MISMATCH다. production 활성화,
@@ -403,6 +474,12 @@ LOCAL_SMOKE_ONLY·409 TARGET_SET_MISMATCH)를 따른다. 그 밖은 잠금 경�
 `quality_unavailable_reason`은 GOLD_NOT_CONNECTED·GOLD_PARTIAL·null이다. 새 선택 필드
 `locked_quality`={`bundle_id`, `attempt=first`, `quality_gate_evaluated=false`, `metrics`}이며 metrics는
 category·urgency·secondary·return_subtype·provided_info 다섯 키를 항상 갖고 저장되지 않은 지표는 null이다.
+KAN-90 5차로 두 경로 모두 선택 필드 `experiment`(서버는 항상 채움, 이전 소비자 호환을 위해 선택)를 더한다. {`experiment_id`, `name`, `purpose`, `stage`, `knobs`, `model_id`, `prompt_version`, `input_builder_version`, `index_version`, `config_hash`, `data_split`, `data_origin`}이며 experiments 표 값을 그대로 옮기고 새로 저장하지 않는다. knobs는 접수 때 비밀 키를 거부한 값이다.
+KAN-148 2차로 locked_quality에 선택 필드 `outcomes`(기본 null)를 더한다. `eval.cs_report.store_outcome_metrics` 행
+(`cs_locked_schema_violation_rate`·`cs_locked_outcome_count`)의 최신 채점 판본이며 {`scoring_version`,
+`stored_scoring_version_count`, `stored_at`, `schema_violation_rate`(SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION),
+응답 0건이면 null), `schema_violations`, `received`, `outcomes`(결과별 건수, NOT_STARTED 포함)}다. 행끼리 분자·분모·
+결과 segment가 어긋나면 집계 오류(503)다. 기존 필드와 quality_available 계산은 그대로다.
 
 | 조건 | quality_available | reason | locked_quality |
 | --- | --- | --- | --- |
@@ -434,3 +511,5 @@ threshold·comparison·passed 기록, details 키·segment 간 공통값 불일�
 비교는 운영자 내부 연결의 `eval.cs_stored_metrics.compare_stored_runs`(별도 명령줄 진입점 없음)로만 한다. 소비자는 연결 여부·사유를 저장
 지표 수로 다시 계산해 응답과 다르면 집계 오류로 처리하고, synthetic_quality와 locked_quality가 함께
 오면 거부한다. 화면은 사유에 맞는 품질 문구만 바꾸며 잠금 품질 수치 표시는 후속 범위다.
+
+KAN-90 2차로 두 경로 모두 선택 필드 `stage_metrics`(기본 빈 목록)를 더한다. 같은 스냅샷에서 한 번의 SELECT로 실행 단위(`case_id` null) 행 중 metric_key 접두가 `search_`·`draft_`·`rfp_`인 행만 읽어 각각 search·draft·rfp 단계 묶음으로 낸다(접두 표는 `summary.py`의 `STAGE_PREFIXES`). 분류 지표는 기존 품질 블록이 다루므로 넣지 않는다. `stage` 값은 `search`·`draft`·`rfp`뿐이며 분류는 기존 품질 블록(`synthetic_quality`·`locked_quality`)이 담당한다. 묶음은 {`stage`, `scoring_version`, `stored_scoring_version_count`, `stored_at`, `items`}이고, 합성 품질과 같이 단계마다 저장 시각이 가장 늦은 채점 판본 하나만 쓰며 판본 수를 함께 낸다. 각 항목은 저장 행의 `metric_key`·`segment`·`class_label`·`value`·`support`·`threshold`·`comparison`·`passed`를 그대로 옮기고 `quality_gate_evaluated=false`로 고정한다. 값 null은 null로 두며 0으로 바꾸지 않는다. `details`는 음이 아닌 정수 `tp`·`fp`·`fn`만 남기고 다른 키는 버린다. 행이 없는 단계는 빠지고, 저장 행이 없으면 빈 목록이며 나머지 응답 형태는 같다. 합격 판정은 화면이 내리지 않는다.

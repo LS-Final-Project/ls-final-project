@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -14,17 +14,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import (
-    CONFIG_FIELDS,
     canonical_hash,
     check_actor,
+    config_payload,
     validate_smoke_experiment,
 )
 from backend.api.platform.evaluations.cs_smoke import FIXTURES, matches_profile
+from backend.api.platform.evaluations.schemas import KnobValue, Stage
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 from eval.cs_gold_locks import GOLD_BUNDLE_ID, GOLD_LOCKS
 from eval.cs_metrics import OUTCOMES, RETURN_SUBTYPE_LABELS
-from eval.cs_report import LOCKED_LABELS, LOCKED_REPORT_VERSION
+from eval.cs_report import (
+    LOCKED_LABELS,
+    LOCKED_REPORT_VERSION,
+    OUTCOME_REPORT_VERSION,
+    OUTCOME_SEGMENTS,
+)
 from eval.cs_response_audit import summarize_stored_response_audit
 from eval.cs_usage import summarize_stored_usage
 
@@ -242,6 +248,20 @@ class LockedMetrics(BaseModel):
     provided_info: LockedMetric | None
 
 
+class OutcomeQuality(BaseModel):
+    """분류 최초 시도 결과로 저장한 형식 위반율·결과별 건수(KAN-148 2차). 정답이 필요 없고 합격 판정이 아니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    scoring_version: str
+    stored_scoring_version_count: Annotated[int, Field(ge=1)]
+    stored_at: datetime
+    # SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION). 응답을 받은 시도가 0건이면 null이다.
+    schema_violation_rate: Ratio | None
+    schema_violations: Count
+    received: Count
+    outcomes: Outcomes
+
+
 class LockedQuality(BaseModel):
     """실험이 정답 묶음에 연결된 실행의 최초 시도 잠금 품질."""
 
@@ -250,6 +270,65 @@ class LockedQuality(BaseModel):
     attempt: Literal["first"] = "first"
     quality_gate_evaluated: Literal[False] = False
     metrics: LockedMetrics
+    # 형식 위반율 행(cs_report.store_outcome_metrics)이 없으면 null이다. 기존 필드는 그대로다.
+    outcomes: OutcomeQuality | None = None
+
+
+# 검색·초안·RFP 채점 행의 metric_key 접두와 단계. 분류는 기존 품질 블록이 다루므로 넣지 않는다.
+STAGE_PREFIXES: dict[str, Literal["search", "draft", "rfp"]] = {
+    "search_": "search",
+    "draft_": "draft",
+    "rfp_": "rfp",
+}
+# details에서 공개하는 키. 정수 건수만 내고 그 밖의 키·값은 버린다(원문성 값 차단).
+STAGE_DETAIL_KEYS = ("tp", "fp", "fn")
+# 단계 행의 metric_key·segment·class_label은 식별자만 낸다. 어긋나면(원문성 값) 부분 표시 없이 503이다.
+StageIdentifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.=:/-]{1,128}$")]
+
+
+class StageMetric(BaseModel):
+    """단계 채점 행 하나의 저장 값. 합격 판정은 화면이 내리지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    metric_key: StageIdentifier
+    segment: StageIdentifier
+    class_label: StageIdentifier | None
+    value: float | None
+    support: Count | None
+    threshold: float | None
+    comparison: Literal[">=", "<=", "="] | None
+    passed: bool | None
+    details: dict[Literal["tp", "fp", "fn"], Count]
+    quality_gate_evaluated: Literal[False] = False
+
+
+class StageMetricBlock(BaseModel):
+    """한 단계의 최신 채점 판본 행 묶음."""
+
+    model_config = ConfigDict(extra="forbid")
+    stage: Literal["search", "draft", "rfp"]
+    scoring_version: str
+    stored_scoring_version_count: Annotated[int, Field(ge=1)]
+    stored_at: datetime
+    items: list[StageMetric]
+
+
+class SummaryExperiment(BaseModel):
+    """실행의 실험 설정(KAN-90 5차). experiments 표에 이미 있는 값만 옮기며 추가 저장하지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    experiment_id: UUID
+    name: str
+    purpose: Literal["smoke", "rule_replay", "pipeline"]
+    stage: Stage | None
+    knobs: dict[str, KnobValue]
+    model_id: str
+    prompt_version: str | None
+    input_builder_version: str | None
+    index_version: str | None
+    config_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    data_split: Literal["train", "valid", "test"] | None
+    data_origin: Literal["synthetic", "demo", "real"]
 
 
 class EvaluationRunSummary(BaseModel):
@@ -258,6 +337,8 @@ class EvaluationRunSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
     report_version: Literal["cs-run-summary-v2"] = "cs-run-summary-v2"
     run_id: UUID
+    # 접수 영수증 출처. IMPORT는 scripts/eval_import_run.py가 반입한 실측 실행이다(KAN-90 4차).
+    origin: Literal["ACCEPT", "IMPORT"]
     status: RunStatus
     generated_at: datetime
     data_origin: Literal["synthetic", "demo", "real"]
@@ -271,6 +352,51 @@ class EvaluationRunSummary(BaseModel):
     synthetic_quality: SyntheticQuality | None = None
     locked_quality: LockedQuality | None = None
     comparison_key: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    stage_metrics: list[StageMetricBlock] = Field(default_factory=list)
+    # 실험 설정(stage·knobs·판본·config_hash). 이 필드 전 소비자를 위해 선택 필드이며 서버는 항상 채운다.
+    experiment: SummaryExperiment | None = None
+
+
+def open_run(
+    cursor: psycopg.Cursor[dict[str, Any]],
+    access: EvaluationAccessSettings,
+    actor: UUID,
+    run_id: UUID,
+) -> dict[str, Any]:
+    """요약·사례 조회가 같이 쓰는 실행 접근 검사(영수증·본인·test 404·smoke/잠금 경로 403·409).
+
+    Args:
+        cursor: dict_row 커서(호출자의 읽기 전용 트랜잭션).
+        access: 현재 평가자·구성 승인 목록.
+        actor: 현재 세션 사용자.
+        run_id: 조회할 실행.
+
+    Returns:
+        dict: 실험 전체 열과 provider·runner_kind·status·origin·generated_at. 위반은 ApplicationError다.
+    """
+    row = cursor.execute(
+        "SELECT e.*,r.provider,r.runner_kind,r.status,a.origin,"
+        "transaction_timestamp() AS generated_at "
+        "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
+        "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+        "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
+        (run_id, actor, actor),
+    ).fetchone()
+    if row is None or row["data_split"] == "test":
+        raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
+    if row["purpose"] != "smoke":
+        _validate_locked_run(row, access)
+    else:
+        validate_smoke_experiment(row, access)
+        # 반입 실행은 합성 smoke가 아니므로 smoke 경로로 열지 않는다.
+        if (
+            row["origin"] != "ACCEPT"
+            or not matches_profile(row)
+            or row["provider"] != "fake"
+            or row["runner_kind"] not in {"local", "test"}
+        ):
+            raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Summary is unavailable.")
+    return row
 
 
 def get_run_summary(
@@ -294,26 +420,8 @@ def get_run_summary(
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             conn.execute("SET LOCAL statement_timeout='5s'")
             with conn.cursor(row_factory=dict_row) as cursor:
-                row = cursor.execute(
-                    "SELECT e.*,r.provider,r.runner_kind,r.status,transaction_timestamp() AS generated_at "
-                    "FROM evaluation.runs r JOIN evaluation.experiments e ON e.id=r.experiment_id "
-                    "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
-                    "WHERE r.id=%s AND r.requested_by_user_id=%s AND e.created_by_user_id=%s",
-                    (run_id, actor, actor),
-                ).fetchone()
-            if row is None or row["data_split"] == "test":
-                raise ApplicationError(404, "NOT_FOUND", "Run is unavailable.")
+                row = open_run(cursor, access, actor, run_id)
             locked = row["purpose"] != "smoke"
-            if locked:
-                _validate_locked_run(row, access)
-            else:
-                validate_smoke_experiment(row, access)
-                if (
-                    not matches_profile(row)
-                    or row["provider"] != "fake"
-                    or row["runner_kind"] not in {"local", "test"}
-                ):
-                    raise ApplicationError(403, "LOCAL_SMOKE_ONLY", "Summary is unavailable.")
             with conn.cursor(row_factory=dict_row) as cursor:
                 targets = cursor.execute(
                     "SELECT target_ref,data_origin,attributes FROM evaluation.experiment_targets "
@@ -373,6 +481,7 @@ def get_run_summary(
             )
             return EvaluationRunSummary(
                 run_id=run_id,
+                origin=row["origin"],
                 status=row["status"],
                 generated_at=row["generated_at"],
                 data_origin=row["data_origin"],
@@ -390,6 +499,26 @@ def get_run_summary(
                 locked_quality=locked_quality,
                 # 잠금 경로는 서버 비밀 HMAC 키 판본 도입 전까지 비교 키를 내지 않는다.
                 comparison_key=None if locked else comparison_key(row),
+                stage_metrics=_read_stage_metrics(conn, run_id),
+                experiment=SummaryExperiment(
+                    experiment_id=row["id"],
+                    knobs=row["knobs"] or {},
+                    **{
+                        key: row[key]
+                        for key in (
+                            "name",
+                            "purpose",
+                            "stage",
+                            "model_id",
+                            "prompt_version",
+                            "input_builder_version",
+                            "index_version",
+                            "config_hash",
+                            "data_split",
+                            "data_origin",
+                        )
+                    },
+                ),
                 **groups,
             )
     except (psycopg.Error, ValueError):
@@ -417,7 +546,7 @@ def _validate_locked_run(experiment: dict, access: EvaluationAccessSettings) -> 
         or matches_profile(experiment)
     ):
         raise ApplicationError(403, "LOCKED_RUN_REQUIRED", "Summary is unavailable.")
-    if canonical_hash({k: experiment[k] for k in CONFIG_FIELDS}) != experiment["config_hash"]:
+    if canonical_hash(config_payload(experiment)) != experiment["config_hash"]:
         raise ApplicationError(409, "EXPERIMENT_HASH_MISMATCH", "Experiment hash differs.")
 
 
@@ -436,6 +565,69 @@ def comparison_key(experiment: dict) -> str:
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _read_stage_metrics(conn: psycopg.Connection, run_id: UUID) -> list[StageMetricBlock]:
+    """같은 스냅샷에서 검색·초안·RFP 실행 단위 채점 행을 한 번에 읽어 단계별 최신 판본으로 묶는다.
+
+    Args:
+        conn: 요약과 같은 읽기 전용 트랜잭션의 연결.
+        run_id: 조회 중인 실행.
+
+    Returns:
+        list[StageMetricBlock]: STAGE_PREFIXES 순서의 단계 묶음. 행이 없는 단계는 빠지고, 저장 행이 없으면
+            빈 목록이다. 단계마다 저장 시각이 가장 늦은 채점 판본 하나만 쓰고(합성 품질과 같은 규칙) 판본 수를
+            stored_scoring_version_count로 낸다. 값 null은 null로 두고, details는 음이 아닌 정수 tp·fp·fn만 남긴다.
+    """
+    patterns = [prefix.replace("_", "\\_") + "%" for prefix in STAGE_PREFIXES]
+    with conn.cursor(row_factory=dict_row) as cursor:
+        rows = cursor.execute(
+            "SELECT metric_key,segment,class_label,value,support,threshold,comparison,passed,details,"
+            "scoring_version,created_at FROM evaluation.metrics "
+            "WHERE run_id=%s AND case_id IS NULL AND metric_key LIKE ANY(%s)",
+            (run_id, patterns),
+        ).fetchall()
+    blocks = []
+    for prefix, stage in STAGE_PREFIXES.items():
+        stage_rows = [r for r in rows if r["metric_key"].startswith(prefix)]
+        if not stage_rows:
+            continue
+        stored: dict[str, datetime] = {}
+        for r in stage_rows:
+            version = r["scoring_version"]
+            stored[version] = max(stored.get(version, r["created_at"]), r["created_at"])
+        latest = max(stored, key=lambda version: (stored[version], version))
+        items = [
+            StageMetric(
+                metric_key=r["metric_key"],
+                segment=r["segment"],
+                class_label=r["class_label"],
+                value=None if r["value"] is None else float(r["value"]),
+                support=r["support"],
+                threshold=None if r["threshold"] is None else float(r["threshold"]),
+                comparison=r["comparison"],
+                passed=r["passed"],
+                details={
+                    key: r["details"][key]
+                    for key in STAGE_DETAIL_KEYS
+                    if type(r["details"].get(key)) is int and r["details"][key] >= 0
+                },
+            )
+            for r in sorted(
+                (r for r in stage_rows if r["scoring_version"] == latest),
+                key=lambda r: (r["metric_key"], r["segment"], r["class_label"] or ""),
+            )
+        ]
+        blocks.append(
+            StageMetricBlock(
+                stage=stage,
+                scoring_version=latest,
+                stored_scoring_version_count=len(stored),
+                stored_at=stored[latest],
+                items=items,
+            )
+        )
+    return blocks
 
 
 def _read_synthetic_quality(
@@ -605,7 +797,71 @@ def _read_locked_quality(
                 extra={"run_id": str(run_id), "metric": metric, "violation": violation},
             )
             raise ValueError("LOCKED_QUALITY_INVALID") from None
-    return LockedQuality(bundle_id=GOLD_BUNDLE_ID, metrics=LockedMetrics(**metrics))
+    return LockedQuality(
+        bundle_id=GOLD_BUNDLE_ID,
+        metrics=LockedMetrics(**metrics),
+        outcomes=_read_outcome_quality(conn, run_id),
+    )
+
+
+OUTCOME_KEYS = ("cs_locked_schema_violation_rate", "cs_locked_outcome_count")
+
+
+def _read_outcome_quality(conn: psycopg.Connection, run_id: UUID) -> OutcomeQuality | None:
+    """형식 위반율·결과별 건수 행의 최신 채점 판본을 읽고 서로 맞는지 확인한다.
+
+    Args:
+        conn: 요약과 같은 읽기 전용 트랜잭션의 연결.
+        run_id: 권한 검사를 통과한 비합성 실행.
+
+    Returns:
+        OutcomeQuality | None: 저장 행이 없으면 None. 결과 segment·판본·분자·분모가 어긋나면
+            LOCKED_QUALITY_INVALID ValueError다.
+    """
+    with conn.cursor(row_factory=dict_row) as cursor:
+        versions = cursor.execute(
+            "SELECT scoring_version FROM evaluation.metrics "
+            "WHERE run_id=%s AND case_id IS NULL AND metric_key=ANY(%s) "
+            "GROUP BY scoring_version ORDER BY max(created_at) DESC, scoring_version DESC",
+            (run_id, list(OUTCOME_KEYS)),
+        ).fetchall()
+        if not versions:
+            return None
+        rows = cursor.execute(
+            "SELECT metric_key,segment,value,numerator,denominator,details,created_at "
+            "FROM evaluation.metrics WHERE run_id=%s AND case_id IS NULL AND class_label IS NULL "
+            "AND scoring_version=%s AND metric_key=ANY(%s)",
+            (run_id, versions[0]["scoring_version"], list(OUTCOME_KEYS)),
+        ).fetchall()
+    rates = [row for row in rows if row["metric_key"] == OUTCOME_KEYS[0]]
+    counts = {row["segment"]: row for row in rows if row["metric_key"] == OUTCOME_KEYS[1]}
+    try:
+        [rate] = rates
+        outcomes = {segment: int(counts[segment]["value"]) for segment in OUTCOME_SEGMENTS}
+        violations, received = (
+            outcomes["SCHEMA_VIOLATION"],
+            outcomes["VALID"] + outcomes["SCHEMA_VIOLATION"],
+        )
+        if (
+            rate["segment"] != "all"
+            or set(counts) != set(OUTCOME_SEGMENTS)
+            or rate["details"].get("report_version") != OUTCOME_REPORT_VERSION
+            or (rate["numerator"], rate["denominator"]) != (violations, received)
+            or (rate["value"] is None) != (received == 0)
+        ):
+            raise ValueError("LOCKED_OUTCOME_ROWS")
+        return OutcomeQuality(
+            scoring_version=versions[0]["scoring_version"],
+            stored_scoring_version_count=len(versions),
+            stored_at=max(row["created_at"] for row in rows),
+            schema_violation_rate=None if rate["value"] is None else float(rate["value"]),
+            schema_violations=violations,
+            received=received,
+            outcomes=outcomes,
+        )
+    except (ValueError, KeyError, TypeError, AttributeError):
+        logger.warning("Locked outcome rows rejected", extra={"run_id": str(run_id)})
+        raise ValueError("LOCKED_QUALITY_INVALID") from None
 
 
 def _build_locked_metric(

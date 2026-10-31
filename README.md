@@ -15,6 +15,8 @@
 | 기획서의 출력·출처 정의와 평가 계산법 | [C/S 계약](contracts/cs/tickets.md), [데이터 계약](docs/data-contract.md), [평가 명세](docs/evaluation.md) |
 | 서비스별 CI, 이미지와 CD 및 공용 웹 준비 | [서비스별 배포 안내](docs/service-delivery.md) |
 | 로그와 실제 백업 확인 | [기본 운영 확인](docs/operations-basics.md) |
+| 배포 뒤 확인, 이전 리비전 되돌리기, 백업 복구 훈련 | [배포 확인 런북](docs/release-runbook.md) |
+| 11/3 배포 순서와 승인 판정 | [배포 승인 점검표](docs/release-approval.md) |
 | API 로컬 실행, 테스트, OpenAPI와 Docker 빌드 | [백엔드 실행 안내](backend/README.md) |
 | GCP DB, Secret 및 연결 검증 | [인프라 안내](infra/README.md) |
 | 프로젝트 목표, 현재 단계, 주요 링크 | [프로젝트 시작 안내](https://docs.google.com/document/d/1CI2gyXEogmcSIeAKceK9xsurv_ls8lJ3uOac45k6jqk/edit) |

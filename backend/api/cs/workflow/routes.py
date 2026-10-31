@@ -16,23 +16,32 @@ from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
 from backend.api.cs.tickets.schemas import ResolutionCase, WorkflowState
 from backend.api.cs.workflow import repository
+from backend.api.cs.workflow.mail import unsettled
 from backend.api.cs.workflow.schemas import (
     Action,
+    CustomerReply,
+    CustomerSend,
     DeptResult,
     DeptResultRequest,
+    MailOrigin,
     OwnerRequest,
     ReasonRequest,
     ResolutionCaseCreate,
+    ReturnConfirmationRequest,
     ReviewRequest,
     Transfer,
     TransferRequest,
     Workflow,
+    confirmed_subtype,
 )
+from backend.api.cs.workflow.sends import refresh_registered
 from backend.api.cs.workflow.service import (
     check,
     json_value,
     not_started,
+    notify_cs,
     save,
+    send_pending,
     unreviewed_result,
 )
 from backend.shared.access import Principal, Role, current_principal
@@ -88,14 +97,30 @@ async def view(conn: Any, workflow: Row, principal: Principal) -> Workflow:
     ticket_id = workflow["ticket_id"]
     transfers = await repository.list_transfers(conn, ticket_id)
     results = await repository.list_results(conn, ticket_id)
+    mail: dict[str, Any] = {}
     if not sees_all_tickets(principal):
         departments = transfer_departments(principal)
         transfers = [t for t in transfers if t["dept_code"] in departments]
         results = [r for r in results if r["dept_code"] in departments]
+    else:
+        # Customer mail (KAN-110): what was sent to and received from the customer is C/S
+        # business, not shown to department users.
+        origin = await repository.get_mail_origin(conn, ticket_id)
+        mail = {
+            "mail_origin": MailOrigin.model_validate(origin) if origin else None,
+            "customer_sends": [
+                CustomerSend.model_validate(s) for s in await repository.list_sends(conn, ticket_id)
+            ],
+            "customer_replies": [
+                CustomerReply.model_validate(r)
+                for r in await repository.list_replies(conn, ticket_id)
+            ],
+        }
     return Workflow(
         **workflow,
         transfers=[Transfer.model_validate(t) for t in transfers],
         dept_results=[DeptResult.model_validate(r) for r in results],
+        **mail,
     )
 
 
@@ -154,17 +179,24 @@ async def transfer(
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[Workflow]:
-    """IN_REVIEW → TRANSFERRED. The C/S agent confirms the department and the reason."""
+    """IN_REVIEW → TRANSFERRED. The C/S agent confirms the department and the reason.
+
+    Refused while a customer send is unsettled (KAN-110): the send's outcome must land on
+    the ticket in review first.
+    """
     async with connection(request.app.state.settings) as conn:
         workflow, _, results = await begin(conn, principal, ticket_id)
         require_role(principal, "cs_agent")
         check(workflow, payload.version, "IN_REVIEW")
         if any(r["review_status"] == "SUBMITTED" for r in results):
             raise unreviewed_result()
+        if any(unsettled(s) for s in await repository.list_sends(conn, ticket_id)):
+            raise send_pending()
+        transfer_id = uuid4()
         await repository.insert_transfer(
             conn,
             {
-                "id": uuid4(),
+                "id": transfer_id,
                 "ticket_id": ticket_id,
                 "dept_code": payload.dept_code,
                 "reason": payload.reason,
@@ -179,6 +211,14 @@ async def transfer(
             {"state": "TRANSFERRED"},
             dept_code=payload.dept_code,
             reason=payload.reason,
+        )
+        await notify_cs(
+            conn,
+            kind="cs.transfer",
+            ticket_id=ticket_id,
+            audience=[{"dept": payload.dept_code}, {"manager_dept": payload.dept_code}],
+            actor_id=principal.user_id,
+            dedupe_key=f"cs.transfer:{transfer_id}",
         )
         data = await view(conn, workflow, principal)
     return respond(request, data)
@@ -370,15 +410,24 @@ async def review_dept_result(
         )
         values: Row = {}
         if status == "REWORK_REQUESTED":
+            transfer_id = uuid4()
             await repository.insert_transfer(
                 conn,
                 {
-                    "id": uuid4(),
+                    "id": transfer_id,
                     "ticket_id": ticket_id,
                     "dept_code": result["dept_code"],
                     "reason": payload.note,
                     "transferred_by": principal.user_id,
                 },
+            )
+            await notify_cs(
+                conn,
+                kind="cs.transfer",
+                ticket_id=ticket_id,
+                audience=[{"dept": result["dept_code"]}, {"manager_dept": result["dept_code"]}],
+                actor_id=principal.user_id,
+                dedupe_key=f"cs.transfer:{transfer_id}",
             )
             values["state"] = "TRANSFERRED"
         workflow = await save(
@@ -407,13 +456,25 @@ async def close(
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[Workflow]:
     """Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent
-    customer message. An unreviewed department result blocks closing."""
+    customer message. An unreviewed department result blocks closing.
+
+    A customer send whose outcome is not final (queued, submitting, unknown, or never
+    answered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current
+    platform status is read first, so a send that was accepted meanwhile does not block.
+    """
+    async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, ticket_id)
+        require_role(principal, "cs_agent")
+        sends = await repository.list_sends(conn, ticket_id)
+    if any(unsettled(s) for s in sends):
+        await refresh_registered(request, sends)
     async with connection(request.app.state.settings) as conn:
         workflow, _, results = await begin(conn, principal, ticket_id)
-        require_role(principal, "cs_agent")
         check(workflow, payload.version, "IN_REVIEW", "ANSWERED")
         if any(r["review_status"] == "SUBMITTED" for r in results):
             raise unreviewed_result()
+        if any(unsettled(s) for s in await repository.list_sends(conn, ticket_id)):
+            raise send_pending()
         accepted = any(r["review_status"] == "ACCEPTED" for r in results)
         if workflow["state"] == "IN_REVIEW" and not accepted and not workflow["customer_sent_at"]:
             raise ApplicationError(
@@ -447,7 +508,8 @@ async def reassign_owner(
     """Only a manager of the C/S department reassigns the owner. The state does not change.
 
     The C/S service cannot read the identity schema, so the new owner's role is not checked
-    here; the screen offers registered C/S agents only.
+    here. The platform relay checks it before forwarding (KAN-195: an inactive or non-cs_agent
+    owner is 422 CS_INVALID_OWNER); a local direct call to this service skips that check.
     """
     async with connection(request.app.state.settings) as conn:
         workflow, _, _ = await begin(conn, principal, ticket_id)
@@ -462,6 +524,53 @@ async def reassign_owner(
                 "reassign_owner",
                 {"owner_user_id": payload.owner_user_id},
             )
+        data = await view(conn, workflow, principal)
+    return respond(request, data)
+
+
+@router.post(
+    "/return-subtype",
+    response_model=SuccessResponse[Workflow],
+    operation_id="cs_confirm_return_subtype",
+    openapi_extra=PARTIAL,
+)
+async def confirm_return_subtype(
+    ticket_id: UUID,
+    payload: ReturnConfirmationRequest,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[Workflow]:
+    """A C/S agent records what inspection found for a return (KAN-193).
+
+    Responsibility, cause type and response note. This is the only way a return becomes
+    confirmed: the LLM `return_subtype` on the ticket is what the customer stated at intake.
+    Not before review starts and not after closing. The state does not change; confirming
+    again overwrites every field with a new version.
+    """
+    async with connection(request.app.state.settings) as conn:
+        workflow, _, _ = await begin(conn, principal, ticket_id)
+        require_role(principal, "cs_agent")
+        check(workflow, payload.version, "IN_REVIEW", "TRANSFERRED", "WAITING_CUSTOMER", "ANSWERED")
+        workflow = await save(
+            conn,
+            workflow,
+            principal.user_id,
+            "confirm_return_subtype",
+            {
+                "return_responsibility": payload.responsibility,
+                "return_cause_type": payload.cause_type,
+                "return_non_manufacturing_reason": payload.non_manufacturing_reason,
+                "return_response_note": payload.response_note,
+                # Routing keeps reading the DEFECT/NON_DEFECT subtype; it is derived here so
+                # the enum and rules.route stay unchanged.
+                "return_subtype_confirmed": confirmed_subtype(payload.responsibility),
+                # The C11 reason column is replaced by the response note.
+                "return_subtype_confirmed_reason": None,
+                "return_subtype_confirmed_by": principal.user_id,
+                "return_subtype_confirmed_at": await repository.database_now(conn),
+            },
+            provenance_kind="human_input",
+        )
         data = await view(conn, workflow, principal)
     return respond(request, data)
 

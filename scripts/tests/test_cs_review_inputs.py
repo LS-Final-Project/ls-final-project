@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from backend.engine.cs.classification import INPUT_VERSION, INPUT_VERSION_STRIPPED
 from scripts.cs_review_inputs import prepare_review, source_groups
 
 
@@ -114,7 +115,7 @@ class InputReviewTests(unittest.TestCase):
         return manifest, hashlib.sha256(manifest.read_bytes()).hexdigest()
 
     def test_candidates_and_holds_preserve_denominators_and_separate_labels(self):
-        """정제·보류·모델 입력 비주입·패턴 마스킹을 실제 build_input으로 검증한다.
+        """분석용 옵션(v3)에서 정제·보류·모델 입력 비주입·패턴 마스킹을 실제 build_input으로 검증한다.
 
         Args:
             없음.
@@ -132,11 +133,13 @@ class InputReviewTests(unittest.TestCase):
             ["PHONE", "PHONE", "PHONE", "EMAIL"],
         )
         before = (self.root / "dev.csv").read_bytes()
-        summary = prepare_review(manifest, digest, self.root / "out")
+        summary = prepare_review(manifest, digest, self.root / "out", strip_phone_annotation=True)
         self.assertEqual(
             (summary["total"], summary["candidate"], summary["held"], summary["model_ready"]),
             (4, 2, 2, 0),
         )
+        self.assertEqual(summary["input_version"], INPUT_VERSION_STRIPPED)
+        self.assertTrue(summary["strip_phone_annotation"])
         self.assertEqual(
             summary["hold_reasons"], {"CS_UNSUPPORTED_PHONE_ANNOTATION": 1, "CS_EMPTY_INPUT": 1}
         )
@@ -182,7 +185,7 @@ class InputReviewTests(unittest.TestCase):
             )
 
     def test_boundary_sheet_links_source_and_candidates_without_auto_review(self):
-        """보류와 다중 그룹의 검수 항목·근거 연결을 실제 파일에서 확인한다.
+        """분석용 옵션(v3)에서 보류와 다중 그룹의 검수 항목·근거 연결을 실제 파일에서 확인한다.
 
         Args:
             없음.
@@ -194,7 +197,7 @@ class InputReviewTests(unittest.TestCase):
             ["Urgency: SAFETY\nhelp", "Urgency: HIGH", "help", "mail\nbody"],
             ["PHONE", "PHONE", "PHONE", "EMAIL"],
         )
-        summary = prepare_review(manifest, digest, self.root / "out")
+        summary = prepare_review(manifest, digest, self.root / "out", strip_phone_annotation=True)
         with (self.root / "out/review.boundaries.csv").open(newline="") as handle:
             reviews = list(csv.DictReader(handle))
         checks = summary["boundary_review"]["checks"]
@@ -228,6 +231,32 @@ class InputReviewTests(unittest.TestCase):
                 if r["source_record"] == "2"
             )
         )
+
+    def test_default_keeps_phone_annotation_without_phone_review_rows(self):
+        """기본 입력(v4)은 PHONE 표기를 그대로 두어 표기로 보류하지 않고 PHONE 제거 검수 행도 만들지 않는다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 후보·보류 수, 판본, 검수 행, 본문 보존을 확인한다.
+        """
+        manifest, digest = self.source(
+            ["Urgency: SAFETY\nhelp", "Urgency: HIGH", "Urgency: NONE", "mail\nbody"],
+            ["PHONE", "PHONE", "PHONE", "EMAIL"],
+        )
+        summary = prepare_review(manifest, digest, self.root / "out")
+        self.assertEqual((summary["candidate"], summary["held"]), (4, 0))
+        self.assertEqual(summary["input_version"], INPUT_VERSION)
+        self.assertFalse(summary["strip_phone_annotation"])
+        checks = summary["boundary_review"]["checks"]
+        self.assertEqual(
+            [checks[c] for c in ("PHONE_REMOVED", "PHONE_NO_REMOVAL", "PHONE_HELD")], [0, 0, 0]
+        )
+        candidates = (self.root / "out/candidates.jsonl").read_text().splitlines()
+        self.assertEqual(json.loads(candidates[1])["payload"]["body"], "Urgency: HIGH")
+        with (self.root / "out/review.boundaries.csv").open(newline="") as handle:
+            self.assertEqual({r["input_version"] for r in csv.DictReader(handle)}, {INPUT_VERSION})
 
     def test_boundary_csv_preserves_formula_like_id_as_json_text(self):
         """외부 ID를 수식 셀로 내보내지 않고 JSON 문자열로 보존한다.

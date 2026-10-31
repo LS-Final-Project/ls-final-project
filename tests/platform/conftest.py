@@ -1,5 +1,6 @@
 """OAuth 인가 시도와 운영 세션에서 공유하는 전용 PostgreSQL 검사 준비."""
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -14,7 +15,12 @@ from pydantic import SecretStr
 from backend.api.platform.auth.callback import MicrosoftSubject
 from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.evaluations.admission import CONFIG_FIELDS, canonical_hash
+from backend.api.platform.jobs.cs import CsJobRequest, admit_cs_job
+from backend.api.platform.jobs.tft import TftJobRequest, admit_tft_job
+from backend.shared.database import connection
 from backend.shared.settings import Settings
+from tests.cs.conftest import cs_database  # noqa: F401
+from tests.tft.conftest import tft_database  # noqa: F401
 
 
 @pytest.fixture(scope="session")
@@ -130,7 +136,7 @@ def registered_user(auth_database):
 
 
 @pytest.fixture(scope="session")
-def jobs_database(auth_database):
+def jobs_database(auth_database, request):
     """기존 전용 인증 검사 DB에 작업 접수 마이그레이션을 적용한다.
 
     Args:
@@ -139,6 +145,8 @@ def jobs_database(auth_database):
     Returns:
         str: 관리자 연결 문자열.
     """
+    request.getfixturevalue("cs_database")
+    request.getfixturevalue("tft_database")
     with psycopg.connect(auth_database, autocommit=True) as conn:
         if conn.execute("SELECT to_regclass('runtime.jobs')").fetchone()[0] is None:
             migration = Path(
@@ -161,6 +169,23 @@ def jobs_database(auth_database):
         # 재실행해도 같은 상태가 되는 마이그레이션이라 매번 적용한다.
         migration = Path(
             "infra/migrations/platform/20261028_KAN-69_dispatch_recovery.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-182 tft 작업 종류. 재실행해도 같은 상태가 된다.
+        migration = Path("infra/migrations/platform/20261029_KAN-182_tft_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-194 cs 작업 종류. tft 마이그레이션이 CHECK를 다시 만들므로 그 뒤에 적용한다.
+        migration = Path("infra/migrations/platform/20261031_KAN-194_cs_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-199 tft_worker 역할. job_control이 필요하므로 cs 마이그레이션 뒤에 적용한다.
+        migration = Path("infra/migrations/platform/20261031_KAN-199_tft_worker.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path("infra/migrations/platform/20261101_KAN-201_notifications.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path("infra/migrations/platform/20261108_KAN-159_job_reap.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path(
+            "infra/migrations/platform/20261109_KAN-188_draft_rewrite_jobs.sql"
         ).read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
@@ -207,6 +232,12 @@ def evaluation_database(jobs_database):
         sql = Path("infra/migrations/platform/20261027_KAN-90_worker_usage_KAN-86.sql").read_text()
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
         sql = Path("infra/migrations/platform/20261028_KAN-86_attempt_usage_raw.sql").read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path(
+            "infra/migrations/platform/20261029_KAN-90_experiment_stage_knobs.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        sql = Path("infra/migrations/platform/20261030_KAN-90_receipt_origin.sql").read_text()
         conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
     return jobs_database
 
@@ -301,3 +332,67 @@ def access(experiment):
         approved_config_hashes={experiment["config_hash"]},
         local_admission_enabled=True,
     )
+
+
+@pytest.fixture
+def cs_job(settings, jobs_database, registered_user):
+    """registered_user가 요청한 cs 작업을 접수하고 검사 뒤 정리한다.
+
+    Args:
+        settings: platform_app 설정.
+        jobs_database: 관리자 DSN.
+        registered_user: 요청 사용자.
+
+    Returns:
+        UUID: 작업 ID.
+    """
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = CsJobRequest(
+                ticket_id=uuid4(),
+                input_version="a" * 64,
+                idempotency_key=str(uuid4()),
+                requested_by=registered_user[1],
+            )
+            return (await admit_cs_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    yield job_id
+    with psycopg.connect(jobs_database) as conn:
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))
+
+
+@pytest.fixture
+def tft_job(settings, jobs_database, registered_user):
+    """registered_user가 요청한 rfp.process 작업을 접수하고 검사 뒤 정리한다.
+
+    Args:
+        settings: platform_app 설정.
+        jobs_database: 관리자 DSN.
+        registered_user: 요청 사용자.
+
+    Returns:
+        UUID: 작업 ID.
+    """
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = TftJobRequest(
+                actor_id=registered_user[1],
+                kind="rfp.process",
+                project_id=uuid4(),
+                input_version="a" * 64,
+                idempotency_key=str(uuid4()),
+                request_hash="b" * 64,
+            )
+            return (await admit_tft_job(conn, request)).job_id
+
+    job_id = asyncio.run(admit())
+    yield job_id
+    with psycopg.connect(jobs_database) as conn:
+        for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+            conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (job_id,))

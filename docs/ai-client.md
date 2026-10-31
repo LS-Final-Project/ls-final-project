@@ -36,7 +36,7 @@ response_schema는 SDK의 JSON 출력 요청이며, 반환 결과는 담당 기�
 
 - `Usage.raw`는 공급자 `usageMetadata`의 토큰 수를 응답 키 이름 그대로 담는다(입력·답변 원문은 담지 않는다). 정규화한 필드는 `input_tokens`·`output_tokens`·`thought_tokens`·`cached_input_tokens`·`total_tokens`이고, 공급자가 주지 않은 값은 None이다. 총합은 공급자 `total_tokens`만 쓰고 직접 더하지 않는다. 추론 토큰은 답변 토큰에 합치지 않는다.
 - `billable_input_tokens`는 `input_tokens - cached_input_tokens`다. Gemini는 캐시를 쓰지 않은 호출에서 `cachedContentTokenCount`를 생략하므로(공급자 명세) 이때 캐시를 0으로 보고 계산한다. `cached_input_tokens`는 그대로 None이다. `input_tokens`가 없거나 캐시가 입력보다 크면(입력에 캐시가 포함된다는 명세와 어긋남) None이다.
-- `Generation`과 `Embedding`에는 요청한 모델 ID `model`, SDK 호출 시간 `elapsed_ms`, 시도 횟수 `attempts`, 완료 시각 `finished_at`(UTC)이 붙는다. 자동 재시도가 없으므로(`HttpRetryOptions(attempts=1)`) `attempts`는 1이다.
+- `Generation`과 `Embedding`에는 요청한 모델 ID `model`, 호출 시간 `elapsed_ms`, 시도 횟수 `attempts`, 완료 시각 `finished_at`(UTC)이 붙는다. SDK 자체 재시도는 끈다(`HttpRetryOptions(attempts=1)`). `generate`는 일시 오류(타임아웃·429·5xx)만 `GEMINI_TRANSIENT_RETRIES`(기본 1, 0~2)번 1초·2초 간격으로 직접 다시 부르고, `attempts`에 실제 호출 수를, `elapsed_ms`에 재시도 포함 시간을 남긴다(KAN-144 14차). 400·401·403·404 같은 명확한 거부와 연결 실패는 다시 부르지 않는다. 실패 호출은 예외라 사용량이 없으므로 `usage`와 금액은 성공 호출 기준이다. `embed`는 재시도하지 않아 `attempts`가 1이다.
 - 단가표는 `backend/shared/ai_prices.json`이다. 저장소에는 빈 표 `{}`로 두며 수치를 추정해 넣지 않는다. 공식 가격표를 확인한 사람이 모델 ID마다 `input_per_million`·`output_per_million`·`cached_input_per_million`·`currency`·`as_of`(가격을 확인한 날짜)를 채운다.
   - 예: `{"MODEL_ID": {"input_per_million": "…", "output_per_million": "…", "cached_input_per_million": "…", "currency": "USD", "as_of": "YYYY-MM-DD"}}`
 - `estimate_cost(usage, model, load_price_table())`는 항목별로 금액을 따로 계산한다. 청구 입력은 입력 단가, 캐시 입력은 캐시 단가, 답변과 추론은 각각 출력 단가를 쓴다. 같은 토큰을 두 번 세지 않는다.
@@ -61,7 +61,7 @@ with create_client(settings, embedding=True) as client:
 
 임베딩 모델과 production 차원은 평가 후 확정한다. 실제 수집에서는 담당자가 모델과 차원을 선택해 DB 인덱스와 일치시키고 dimensions에 명시한다. 빈 벡터, 비유한 값과 요청 차원 불일치는 실패다. 제공자가 잘림 메타데이터를 반환하면 함께 검사한다. Gemini API는 auto_truncate 옵션을 받지 않으므로 수집 담당자가 선택 모델의 입력 토큰 한도에 맞춰 청킹 및 길이 검사를 적용한다.
 
-모델 교체 비교는 같은 합성 입력과 설정으로 `uv run --frozen python -m eval.smoke --provider gemini --env-file .env --model MODEL_ID`를 실행하고 생성된 JSON 및 HTML을 확인한다. 외부 호출의 자동 재시도와 제공자 자동 전환은 없다. 실제 문의 분류와 검색 품질 평가는 별도 담당 작업이며 최종 test 597건을 연결 점검에 쓰지 않는다.
+모델 교체 비교는 같은 합성 입력과 설정으로 `uv run --frozen python -m eval.smoke --provider gemini --env-file .env --model MODEL_ID`를 실행하고 생성된 JSON 및 HTML을 확인한다. 제공자 자동 전환은 없고, 재시도는 위 일시 오류 재시도뿐이다. 실제 문의 분류와 검색 품질 평가는 별도 담당 작업이며 최종 test 597건을 연결 점검에 쓰지 않는다.
 
 ## C/S 분류 단일 시도 (KAN-84 일부)
 
@@ -74,7 +74,8 @@ record, 명시적 sensitive_values·allowed_info_codes, 1 이상의 attempt_numb
 
 - 입력 실패는 `HELD`와 고정 오류 코드이며 호출하지 않는다. hash·제거 건수·호출 지연은 null이다.
 - 입력 통과 후 제공자를 한 번 호출한다. 정제 입력 JSON을 UTF-8, 키 정렬, 공백 없는 구분자로
-  직렬화한 `input_sha256`, 입력 판본과 PHONE 주석 제거 건수를 남긴다. hash는 제공자 측
+  직렬화한 `input_sha256`, 입력 판본과 PHONE 주석 제거 건수를 남긴다(제거는 분석용
+  `strip_phone_annotation=True`일 때만 하며 기본은 0이다). hash는 제공자 측
   시스템 프롬프트나 전체 HTTP 요청의 hash가 아니며 구성/프롬프트 판본 고정을 대신하지 않는다.
 - 응답은 원시 JSON 그대로 검사한다. `VALID`는 스키마 통과만 의미하며 의미상 정답이나 모델
   완료·품질 합격은 아니다. 잘못된/빈 응답은 `SCHEMA_VIOLATION`이고 응답 당시 사용량을 보존한다.
@@ -84,7 +85,8 @@ record, 명시적 sensitive_values·allowed_info_codes, 1 이상의 attempt_numb
   TimeoutError와 정규화된 타임아웃은 `TIMEOUT`, 나머지는 `TRANSPORT_FAILURE`다.
 - 호출 중 예외는 `execution_uncertain=true`다. 이는 실패를 원격 미실행의 증거로 삼지 않기
   위한 보수적인 표시다. 알려진 사용량만 복사하고 미제공 토큰은 null로 유지한다. 금액은 계산하지 않는다.
-- 자동 재시도·수선·폴백은 없다. 다음 시도는 외부 실행기가 새 번호로 명시 호출하며, 기존 시도
+- 시도 안의 재시도는 공급자 수준 일시 오류 재시도(위 `generate`, `call_attempts`에 실제 호출 수)뿐이고 수선·폴백은
+  없다. 형식 위반(`CS_INVALID_OUTPUT`) 재호출은 실행기(하네스·그래프)가 새 번호(시도 2)로 명시 호출하며, 기존 시도
   결과를 덮어쓰지 않는다. KeyboardInterrupt 등 중단은 상위 실행기로 전파한다.
 
 반환값은 **메모리 내 내부 기록**이다. `raw_response`는 제공자의 미마스킹 응답이므로 일반

@@ -1,0 +1,1385 @@
+{
+  "input": {
+    "requirements": [
+      {
+        "clause_no": "2.5.M",
+        "item": "탭 ±2×2.5%",
+        "attribute": "tap",
+        "attribute_label": null,
+        "value": "±2×2.5%",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": "±2x2.5%",
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.M",
+          "quote": "Full-Capacity Voltage Taps: Four nominal 2.5 percent taps, two above and two below rated primary voltage.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.I.1",
+        "item": "절연 Class F",
+        "attribute": "insulation_class",
+        "attribute_label": null,
+        "value": "Class F",
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.I.1",
+          "quote": "The electrical insulation system shall utilize Class F materials in a fully rated 155 degrees C system.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.N",
+        "item": "임피던스 5.75% ±10%",
+        "attribute": "impedance",
+        "attribute_label": null,
+        "value": "5.175~6.325",
+        "unit": "%",
+        "operator": "RANGE",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.N",
+          "quote": "Impedance: 5.75 percent, +/-10%.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.C.1",
+        "item": "강제 공랭 시 용량 증대 33%(115℃ 상승)",
+        "attribute": "forced_air_capacity_increase",
+        "attribute_label": null,
+        "value": "33",
+        "unit": "%",
+        "operator": "GTE",
+        "conditions": [
+          {
+            "name": "temperature_rise",
+            "value": "115",
+            "unit": "°C"
+          }
+        ],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.C.1",
+          "quote": "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5",
+        "item": "2차 전압 480Y/277V",
+        "attribute": "secondary_voltage",
+        "attribute_label": null,
+        "value": "480",
+        "unit": "V",
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.C.1",
+          "quote": "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+          "note": "2차 전압은 2.5.C의 2차 전압별 항목에 있다"
+        }
+      },
+      {
+        "clause_no": "2.5",
+        "item": "1차 전압·용량(도면 참조)",
+        "attribute": "primary_voltage",
+        "attribute_label": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5",
+          "quote": null,
+          "note": "원문에 1차 전압·용량 값이 없다(도면 참조). 인용할 문장 없음"
+        }
+      },
+      {
+        "clause_no": "2.5.K",
+        "item": "BIL 95kV",
+        "attribute": "bil",
+        "attribute_label": null,
+        "value": "95",
+        "unit": "kV",
+        "operator": "GTE",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.K",
+          "quote": "BIL: 95 kV.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.L",
+        "item": "알루미늄 권선",
+        "attribute": "winding_material",
+        "attribute_label": null,
+        "value": "aluminum",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.L",
+          "quote": "Windings: The high and low voltage windings shall be aluminum.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.G.1",
+        "item": "이중 온도센서",
+        "attribute": "winding_temperature_sensor",
+        "attribute_label": null,
+        "value": "dual",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.G.1",
+          "quote": "Dual temperature sensors shall be applied to the winding of each phase of the transformer.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.E",
+        "item": "ModBus RS-485 연동",
+        "attribute": "communication_interface",
+        "attribute_label": null,
+        "value": "RS-485 ModBus",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.E",
+          "quote": "Transformer mounted serial communications module shall render the following data via RS-485 ModBus interface",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.I",
+        "item": "IEEE C57.12.01",
+        "attribute": null,
+        "attribute_label": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": "IEEE C57.12.01",
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.I",
+          "quote": "Insulation Materials: IEEE C57.12.01.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.O",
+        "item": "소음 NEMA TR1(측정 ANSI C57.12.90)",
+        "attribute": null,
+        "attribute_label": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": "NEMA TR1",
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.O",
+          "quote": "The transformer shall comply with the sound level standards for dry transformers as defined in NEMA TR1. The measurement procedure shall be as specified in ANSI C57.12.90",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.2.A.1",
+        "item": "부품 Listed and labeled(NFPA 70)",
+        "attribute": null,
+        "attribute_label": null,
+        "value": null,
+        "unit": null,
+        "operator": "EQ",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": "UL",
+        "certification_listed": true,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": false,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.2.A.1",
+          "quote": "Electrical Components, Devices, and Accessories: Listed and labeled as defined in NFPA 70, by a qualified testing agency, and marked for intended location and application.",
+          "note": null
+        }
+      },
+      {
+        "clause_no": "2.5.A",
+        "item": "설계 기준: 타사 몰드 변압기 모델",
+        "attribute": null,
+        "attribute_label": null,
+        "value": "Eaton Resibloc",
+        "unit": null,
+        "operator": "TEXT",
+        "conditions": [],
+        "necessity": "MANDATORY",
+        "certification_standard": null,
+        "certification_listed": false,
+        "standard_system": "NONE",
+        "designated_model": null,
+        "basis_of_design": true,
+        "canonical_value": null,
+        "task": null,
+        "kind": "SPEC",
+        "core_equipment": false,
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.A",
+          "quote": "Style: Indoor, ventilated, insulated with epoxy, reinforced with glass fiber. 1. Basis of design: Eaton Resibloc",
+          "note": null
+        }
+      }
+    ],
+    "candidate_filter": {
+      "filters": [
+        "family=TRANSFORMER"
+      ],
+      "documents_searched": 2,
+      "search_failed": false
+    }
+  },
+  "output": [
+    {
+      "comparison": {
+        "clause_no": "2.5.M",
+        "item": "탭 ±2×2.5%",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.M",
+          "quote": "Full-Capacity Voltage Taps: Four nominal 2.5 percent taps, two above and two below rated primary voltage.",
+          "note": null
+        },
+        "status": "EVIDENCE_FOUND",
+        "reason": "원문 2.5.M tap 요구 '±2x2.5%', 자사 ±2×2.5%(근거 DS-TRF-DRY-630 2.2): 충족.",
+        "unresolved": [],
+        "next_owner": null,
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "±2×2.5%",
+            "our_unit": null,
+            "our_conditions": [
+              {
+                "name": "tap_type",
+                "value": "off-circuit",
+                "unit": null
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-DRY-630",
+                "clause": "2.2",
+                "applicability": "tap_type off-circuit",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "EVIDENCE_FOUND",
+            "reason": "원문 2.5.M tap 요구 '±2x2.5%', 자사 ±2×2.5%(근거 DS-TRF-DRY-630 2.2): 충족.",
+            "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "±2×2.5%",
+            "our_unit": null,
+            "our_conditions": [
+              {
+                "name": "tap_type",
+                "value": "off-circuit",
+                "unit": null
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.2",
+                "applicability": "tap_type off-circuit",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "EVIDENCE_FOUND",
+            "reason": "원문 2.5.M tap 요구 '±2x2.5%', 자사 ±2×2.5%(근거 DS-TRF-OIL-1000 2.2): 충족.",
+            "unresolved": []
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.I.1",
+        "item": "절연 Class F",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.I.1",
+          "quote": "The electrical insulation system shall utilize Class F materials in a fully rated 155 degrees C system.",
+          "note": null
+        },
+        "status": "EVIDENCE_FOUND",
+        "reason": "원문 2.5.I.1 insulation_class 요구 Class F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
+        "unresolved": [],
+        "next_owner": null,
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "F",
+            "our_unit": null,
+            "our_conditions": [
+              {
+                "name": "temperature_rise",
+                "value": "100",
+                "unit": "K"
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-DRY-630",
+                "clause": "2.2",
+                "applicability": "temperature_rise 100 K",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "EVIDENCE_FOUND",
+            "reason": "원문 2.5.I.1 insulation_class 요구 Class F, 자사 F(근거 DS-TRF-DRY-630 2.2): 충족.",
+            "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.I.1 insulation_class 요구 Class F: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "insulation_class 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.N",
+        "item": "임피던스 5.75% ±10%",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.N",
+          "quote": "Impedance: 5.75 percent, +/-10%.",
+          "note": null
+        },
+        "status": "CONDITIONAL",
+        "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference temperature 요구 미기재, 자사 근거 120 °C.",
+        "unresolved": [
+          "reference temperature 요구 미기재, 자사 근거 120 °C"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "6",
+            "our_unit": "%",
+            "our_conditions": [
+              {
+                "name": "reference_temperature",
+                "value": "120",
+                "unit": "°C"
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-DRY-630",
+                "clause": "2.2",
+                "applicability": "reference_temperature 120 °C",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "CONDITIONAL",
+            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference temperature 요구 미기재, 자사 근거 120 °C.",
+            "unresolved": [
+              "reference temperature 요구 미기재, 자사 근거 120 °C"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "DIFFERS",
+            "our_value": "5",
+            "our_unit": "%",
+            "our_conditions": [
+              {
+                "name": "reference_temperature",
+                "value": "75",
+                "unit": "°C"
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.2",
+                "applicability": "reference_temperature 75 °C",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "SPEC_GAP",
+            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 5 %(근거 DS-TRF-OIL-1000 2.2): 범위 밖.",
+            "unresolved": []
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.C.1",
+        "item": "강제 공랭 시 용량 증대 33%(115℃ 상승)",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.C.1",
+          "quote": "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+          "note": null
+        },
+        "status": "CONDITIONAL",
+        "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature rise 요구 115 °C, 후보 100 K.",
+        "unresolved": [
+          "temperature rise 요구 115 °C, 후보 100 K"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "MEETS",
+            "our_value": "39.7",
+            "our_unit": "%",
+            "our_conditions": [
+              {
+                "name": "temperature_rise",
+                "value": "100",
+                "unit": "K"
+              }
+            ],
+            "evidence": [
+              {
+                "document": "DS-TRF-DRY-630",
+                "clause": "2.1",
+                "applicability": "temperature_rise 100 K",
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "CONDITIONAL",
+            "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature rise 요구 115 °C, 후보 100 K.",
+            "unresolved": [
+              "temperature rise 요구 115 °C, 후보 100 K"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "forced_air_capacity_increase 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5",
+        "item": "2차 전압 480Y/277V",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.C.1",
+          "quote": "480Y/277V Secondary: 33% with fans at 115 degree C rise above 40 degree C and average ambient of 30 degree C.",
+          "note": "2차 전압은 2.5.C의 2차 전압별 항목에 있다"
+        },
+        "status": "SPEC_GAP",
+        "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 값 다름.",
+        "unresolved": [],
+        "next_owner": "TECH",
+        "deficiency_cause": "RATING",
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "DIFFERS",
+            "our_value": "415",
+            "our_unit": "V",
+            "our_conditions": [],
+            "evidence": [
+              {
+                "document": "DS-TRF-DRY-630",
+                "clause": "2.1",
+                "applicability": null,
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "SPEC_GAP",
+            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 값 다름.",
+            "unresolved": []
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": true,
+            "result": "DIFFERS",
+            "our_value": "433",
+            "our_unit": "V",
+            "our_conditions": [],
+            "evidence": [
+              {
+                "document": "DS-TRF-OIL-1000",
+                "clause": "2.1",
+                "applicability": null,
+                "limits": "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+              }
+            ],
+            "status": "SPEC_GAP",
+            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 433 V(근거 DS-TRF-OIL-1000 2.1): 값 다름.",
+            "unresolved": []
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": "RATING",
+        "customer_permission": "UNSTATED",
+        "options": [
+          {
+            "path": "OTHER_OWN_PRODUCT",
+            "rank": 1,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": true,
+            "conditions_to_confirm": [
+              "모델·구성·환경별 적용성과 추가 자료 확인"
+            ],
+            "required_expertise": [
+              "자사 기술"
+            ],
+            "blocked_reason": null
+          },
+          {
+            "path": "OWN_DEVELOPMENT",
+            "rank": 2,
+            "gate": {
+              "requires": "NONE",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": true,
+            "conditions_to_confirm": [
+              "R&D 개발(과업이면 자사 수행) 가능 여부와 시점, 요구 납기와의 정합 확인"
+            ],
+            "required_expertise": [
+              "R&D"
+            ],
+            "blocked_reason": null
+          },
+          {
+            "path": "EXTERNAL_PRODUCT",
+            "rank": 3,
+            "gate": {
+              "requires": "OWN_DEVELOPMENT_CHECK",
+              "status": "NOT_REQUIRED"
+            },
+            "allowed": true,
+            "conditions_to_confirm": [
+              "외부 제품 인터페이스·보증 책임 확인",
+              "RFP에 외부 보완 허용 여부가 없음: 발주처 확인"
+            ],
+            "required_expertise": [
+              "구매"
+            ],
+            "blocked_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5",
+        "item": "1차 전압·용량(도면 참조)",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5",
+          "quote": null,
+          "note": "원문에 1차 전압·용량 값이 없다(도면 참조). 인용할 문장 없음"
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5 1차 전압·용량(도면 참조): 요구값이 원문에 없음. 자료 요청 후 비교.",
+        "unresolved": [
+          "요구값(도면·자료) 확보"
+        ],
+        "next_owner": "CUSTOMER",
+        "deficiency_cause": null,
+        "candidates": [],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.K",
+        "item": "BIL 95kV",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.K",
+          "quote": "BIL: 95 kV.",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.K bil 요구 95 kV 이상: TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "bil 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.K bil 요구 95 kV 이상: TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "bil 자료 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.K bil 요구 95 kV 이상: TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "bil 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.L",
+        "item": "알루미늄 권선",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.L",
+          "quote": "Windings: The high and low voltage windings shall be aluminum.",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "winding_material 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_material 자료 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.L winding_material 요구 'aluminum': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_material 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.G.1",
+        "item": "이중 온도센서",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.G.1",
+          "quote": "Dual temperature sensors shall be applied to the winding of each phase of the transformer.",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "winding_temperature_sensor 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_temperature_sensor 자료 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.G.1 winding_temperature_sensor 요구 'dual': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "winding_temperature_sensor 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.E",
+        "item": "ModBus RS-485 연동",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.E",
+          "quote": "Transformer mounted serial communications module shall render the following data via RS-485 ModBus interface",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+        "unresolved": [
+          "communication_interface 자료 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-DRY-630 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "communication_interface 자료 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.E communication_interface 요구 'RS-485 ModBus': TRF-OIL-1000 자료에 같은 속성 근거가 없음.",
+            "unresolved": [
+              "communication_interface 자료 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.I",
+        "item": "IEEE C57.12.01",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.I",
+          "quote": "Insulation Materials: IEEE C57.12.01.",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.I IEEE C57.12.01 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+        "unresolved": [
+          "IEEE C57.12.01 보유 여부 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.I IEEE C57.12.01 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "IEEE C57.12.01 보유 여부 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.I IEEE C57.12.01 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "IEEE C57.12.01 보유 여부 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.O",
+        "item": "소음 NEMA TR1(측정 ANSI C57.12.90)",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.O",
+          "quote": "The transformer shall comply with the sound level standards for dry transformers as defined in NEMA TR1. The measurement procedure shall be as specified in ANSI C57.12.90",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.5.O NEMA TR1 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+        "unresolved": [
+          "NEMA TR1 보유 여부 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.O NEMA TR1 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "NEMA TR1 보유 여부 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.5.O NEMA TR1 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "NEMA TR1 보유 여부 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.2.A.1",
+        "item": "부품 Listed and labeled(NFPA 70)",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.2.A.1",
+          "quote": "Electrical Components, Devices, and Accessories: Listed and labeled as defined in NFPA 70, by a qualified testing agency, and marked for intended location and application.",
+          "note": null
+        },
+        "status": "INSUFFICIENT_EVIDENCE",
+        "reason": "원문 2.2.A.1 UL 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+        "unresolved": [
+          "UL 보유 여부 확인"
+        ],
+        "next_owner": "TECH",
+        "deficiency_cause": null,
+        "candidates": [
+          {
+            "product_code": "TRF-DRY-630",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.2.A.1 UL 요구: TRF-DRY-630의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "UL 보유 여부 확인"
+            ]
+          },
+          {
+            "product_code": "TRF-OIL-1000",
+            "lifecycle_status": "ACTIVE",
+            "comparable": false,
+            "result": "NO_DATA",
+            "our_value": null,
+            "our_unit": null,
+            "our_conditions": [],
+            "evidence": [],
+            "status": "INSUFFICIENT_EVIDENCE",
+            "reason": "원문 2.2.A.1 UL 요구: TRF-OIL-1000의 보유 자료 없음. 자사 자료는 IEC 체계만 있음.",
+            "unresolved": [
+              "UL 보유 여부 확인"
+            ]
+          }
+        ],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    },
+    {
+      "comparison": {
+        "clause_no": "2.5.A",
+        "item": "설계 기준: 타사 몰드 변압기 모델",
+        "origin": {
+          "document": "RFP-14 261116.11",
+          "document_version_id": null,
+          "clause_id": null,
+          "clause_no": "2.5.A",
+          "quote": "Style: Indoor, ventilated, insulated with epoxy, reinforced with glass fiber. 1. Basis of design: Eaton Resibloc",
+          "note": null
+        },
+        "status": "CONDITIONAL",
+        "reason": "원문 2.5.A 설계 기준 Eaton Resibloc: 지정이 아니라 참고 기준이라 동등 이상 제안이 가능한지 고객 확인 필요.",
+        "unresolved": [
+          "동등 이상 제안 가능 여부(고객 확인)"
+        ],
+        "next_owner": "CUSTOMER",
+        "deficiency_cause": null,
+        "candidates": [],
+        "search_trace": {
+          "filters": [
+            "family=TRANSFORMER"
+          ],
+          "documents_searched": 2,
+          "search_failed": false
+        }
+      },
+      "supplement": {
+        "deficiency_cause": null,
+        "customer_permission": "UNSTATED",
+        "options": []
+      }
+    }
+  ]
+}

@@ -14,6 +14,7 @@ from backend.shared.models import CUSTOMER_ID
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
+TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
 # Live workflow state (KAN-108). The provided `status` is source history, not this value.
 WorkflowState = Literal[
     "RECEIVED", "IN_REVIEW", "WAITING_CUSTOMER", "ANSWERED", "TRANSFERRED", "CLOSED"
@@ -21,6 +22,13 @@ WorkflowState = Literal[
 Code = Annotated[str, Field(min_length=1, max_length=64)]
 CustomerId = Annotated[str, Field(pattern=f"^{CUSTOMER_ID}$")]
 Subject = Annotated[str, Field(min_length=1, max_length=500)]
+
+
+class ReceivedTransfer(BaseModel):
+    round: int
+    dept_code: str
+    status: TransferStatus
+    transferred_at: datetime
 
 
 class TicketSummary(BaseModel):
@@ -35,6 +43,13 @@ class TicketSummary(BaseModel):
     channel: Channel
     product_code: str
     workflow_state: WorkflowState
+    owner_user_id: UUID | None = Field(
+        default=None, description="C/S agent in charge. None until review starts."
+    )
+    transfer: ReceivedTransfer | None = Field(
+        default=None,
+        description="Latest transfer to the department in the dept filter. None without it.",
+    )
 
 
 class TicketList(BaseModel):
@@ -66,6 +81,9 @@ class ResolutionCase(BaseModel):
         description="Accepted department result the case was written from (KAN-108). "
         "Null for provided cases.",
     )
+    # KAN-193: optional, entered by the person registering the case.
+    responsibility: Literal["MANUFACTURING", "NON_MANUFACTURING", "UNDETERMINED"] | None = None
+    non_manufacturing_reason: str | None = None
 
 
 class TicketDetail(BaseModel):
@@ -89,7 +107,11 @@ class TicketDetail(BaseModel):
 
 
 class TicketCreate(BaseModel):
-    """Manual intake. Source IDs, origin and timestamps are set by the server."""
+    """Intake through the API. Source IDs and timestamps are set by the server.
+
+    `data_origin` accepts only `synthetic`: a loader of made-up tickets can mark them so, and
+    nothing can label a ticket real. Left out, the server decides as before.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -101,6 +123,8 @@ class TicketCreate(BaseModel):
     body: str = Field(min_length=1, max_length=50_000)
     fw_version_reported: Code | None = None
     error_code_reported: Code | None = None
+    customer_tier: Literal["STANDARD", "GOLD", "PLATINUM"] | None = None
+    data_origin: Literal["synthetic"] | None = None
 
 
 # The customer's original text, channel and receipt time are never rewritten.

@@ -4,15 +4,24 @@
 명령문이 결과를 바꾸지 못한다(기획서 5.4). 유사도 점수는 만들지 않는다.
 """
 
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
+from backend.engine.rfp.vocabulary import (
+    CANONICAL_FORMS,
+    OTHER,
+    form_conflict,
+    is_canonical,
+    is_placeholder,
+    read_canonical,
+)
 
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
 Verdict = Literal["passed", "failed", "unknown"]
@@ -21,6 +30,19 @@ Check = tuple[str, Verdict, str]
 # EXCLUDED를 뺀 등급의 낮은 순서. 후보 요약은 요구별 등급 중 가장 낮은 단계다.
 RANK: tuple[Grade, ...] = ("REFERENCE_ONLY", "REVIEW", "MANDATORY_CONFIRMED")
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
+# 같은 장비를 서로 다른 제품군으로 규정해 한쪽 등록이 다른 쪽 미충족을 뜻하는 규격 쌍(_norm 표기).
+# UL 891은 배전반(Switchboard), UL 1558은 저압 차단기 배전반(Switchgear)이다.
+RIVAL_STANDARDS = (frozenset({"ul 891", "ul 1558"}),)
+# 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
+MAX_ESTIMATE_SECONDS = Decimal(3)
+# 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
+UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
+# 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
+SECONDS = frozenset({"sec", "secs", "second", "seconds"})
+# 요구에 비교할 숫자나 단위가 없을 때의 말. 단위가 다른 것과 구분한다.
+NO_NUMBER = "요구 값에 숫자·단위 없음"
+NO_UNIT = "요구 값에 단위 없음"
+SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
 
@@ -39,6 +61,10 @@ class Requirement(BaseModel):
     necessity: Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
     designated_model: str | None = None
     clause_no: str | None = None
+    # 원문 속성 표현. 사유 문장에 쓴다. attribute는 비교 어휘 키다.
+    attribute_label: str | None = None
+    # 문장형 값의 비교용 표기(추출 canonical_value). 있으면 value 대신 이것으로 견준다.
+    canonical_value: str | None = None
 
 
 class RfpContext(BaseModel):
@@ -62,11 +88,21 @@ class RequirementGrade(BaseModel):
     mandatory_check: MandatoryCheck
 
 
+class DesignatedRequirement(BaseModel):
+    """고객 지정 모델 요구. 협력사 후보 채점에 넣지 않고 지정품 조달로 따로 보인다(기획서 V_1 ⑧)."""
+
+    requirement_id: UUID
+    designated_model: str
+    clause_no: str | None
+    note: str = "고객 지정 조달"
+
+
 class CandidateSummary(BaseModel):
     candidate_code: str
     on_customer_manufacturer_list: bool | None
     overall_grade: Grade
     conditions_to_confirm: list[str]
+    designated_requirements: list[DesignatedRequirement] = []
 
 
 def grade_requirement(
@@ -93,7 +129,7 @@ def grade_requirement(
     if requirement.attribute == "certification":
         item = _certification_check(requirement, profile, models, reference_date)
     else:
-        item = _spec_check(requirement, profile, codes)
+        item = _spec_check(requirement, profile, codes, models)
     checks = _constraints(profile, context)
     reasons: list[str] = []
     if requirement.necessity in ("MANDATORY", "CONDITION_BOUND"):
@@ -131,6 +167,23 @@ def grade_requirement(
     )
 
 
+def overall_grade(grades: Iterable[Grade]) -> Grade:
+    """요구별 등급을 후보 등급으로 모은다(처리 시 요약과 저장 행 읽기가 같은 규칙을 쓴다).
+
+    Args:
+        grades: 채점한 요구별 등급.
+
+    Returns:
+        Grade: 하나라도 EXCLUDED면 EXCLUDED, 아니면 가장 낮은 단계, 없으면 REVIEW.
+    """
+    found = set(grades)
+    if not found:
+        return "REVIEW"
+    if "EXCLUDED" in found:
+        return "EXCLUDED"
+    return min(found, key=RANK.index)
+
+
 def grade_candidate(
     profile: PartnerProfile,
     requirements: Sequence[Requirement],
@@ -139,6 +192,10 @@ def grade_candidate(
 ) -> tuple[CandidateSummary, list[RequirementGrade]]:
     """후보 하나를 보완 대상 요구 전체에 대해 등급 매기고 후보 요약을 만든다.
 
+    고객 지정 모델(designated_model)이 있는 요구는 자사·협력사 DB에 없는 경우가 많아 협력사 후보 추천과 섞지 않는다
+    (기획서 V_1 ⑧). 그 요구는 채점하지 않고 요약의 designated_requirements에만 남긴다. 남은 요구가 없으면 채점할
+    대상이 없으므로 REVIEW와 그 사유를 낸다.
+
     Args:
         profile: 가상 협력사 프로필.
         requirements: 보완 대상 요구 목록. 비어 있으면 안 된다.
@@ -146,22 +203,31 @@ def grade_candidate(
         reference_date: 인증 유효기한 기준일.
 
     Returns:
-        tuple[CandidateSummary, list[RequirementGrade]]: 후보 요약(요구별 등급에 EXCLUDED가 있으면
-            EXCLUDED, 아니면 가장 낮은 단계)과 요구별 등급.
+        tuple[CandidateSummary, list[RequirementGrade]]: 후보 요약(채점한 요구별 등급에 EXCLUDED가 있으면
+            EXCLUDED, 아니면 가장 낮은 단계, 채점한 요구가 없으면 REVIEW)과 지정 모델 요구를 뺀 요구별 등급.
     """
     if not requirements:
         raise ValueError("At least one requirement is needed to grade a candidate.")
-    grades = [grade_requirement(profile, r, context, reference_date) for r in requirements]
+    designated = [
+        DesignatedRequirement(
+            requirement_id=r.requirement_id,
+            designated_model=r.designated_model,
+            clause_no=r.clause_no,
+        )
+        for r in requirements
+        if r.designated_model
+    ]
+    graded = [r for r in requirements if not r.designated_model]
+    grades = [grade_requirement(profile, r, context, reference_date) for r in graded]
     on_list, conditions = _manufacturer(profile, context)
-    found = {g.grade for g in grades}
-    overall: Grade = (
-        "EXCLUDED" if "EXCLUDED" in found else min(found, key=RANK.index)  # type: ignore[arg-type]
-    )
+    if not grades:
+        conditions = [*conditions, "모든 요구가 고객 지정 모델이라 협력사 채점 대상이 없음."]
     summary = CandidateSummary(
         candidate_code=profile.candidate_code,
         on_customer_manufacturer_list=on_list,
-        overall_grade=overall,
+        overall_grade=overall_grade(g.grade for g in grades),
         conditions_to_confirm=conditions,
+        designated_requirements=designated,
     )
     return summary, grades
 
@@ -239,21 +305,128 @@ def _head(requirement: Requirement) -> str:
         requirement: 요구.
 
     Returns:
-        str: '원문 2.4 short_time_withstand_current 요구 38 kA 이상'.
+        str: '원문 2.4 short-time withstand current 요구 38 kA 이상'.
     """
-    wanted = _with_unit(requirement.value, requirement.unit)
-    wanted = {"GTE": f"{wanted} 이상", "LTE": f"{wanted} 이하", "TEXT": f"'{wanted}'"}.get(
-        requirement.operator, wanted
-    )
+    wanted = requirement.canonical_value or _with_unit(requirement.value, requirement.unit)
     where = f"원문 {requirement.clause_no} " if requirement.clause_no else ""
-    return f"{where}{requirement.attribute} 요구 {wanted}"
+    name = requirement.attribute_label or requirement.attribute
+    if not wanted:
+        return f"{where}{name} 요구"
+    # 숫자가 없는 값에는 이상·이하를 붙이지 않는다.
+    operator = requirement.operator
+    if operator in ("GTE", "LTE") and not requirement.canonical_value:
+        operator = operator if _number(requirement.value) is not None else "TEXT"
+    wanted = {"GTE": f"{wanted} 이상", "LTE": f"{wanted} 이하", "TEXT": f"'{wanted}'"}.get(
+        operator, wanted
+    )
+    return f"{where}{name} 요구 {wanted}"
+
+
+def missing_word(requirement: Requirement) -> str:
+    """단위 없는 요구가 무엇을 빠뜨렸는지 쓴다. 숫자가 있으면 숫자가 없다고 하지 않는다.
+
+    Args:
+        requirement: 단위가 없는 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    return NO_UNIT if _number(requirement.value) is not None else NO_NUMBER
+
+
+def shortfall_word(requirement: Requirement) -> str:
+    """요구를 못 맞춘 방향을 말로 쓴다. 같아야 하는 값이 더 크면 미달이 아니다.
+
+    Args:
+        requirement: 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    return {"GTE": "미달", "LTE": "초과", "RANGE": "범위 밖"}.get(requirement.operator, "값 다름")
+
+
+def differing_word(requirement: Requirement) -> str:
+    """못 맞췄지만 조건이 달라 확정하지 않을 때의 말.
+
+    Args:
+        requirement: 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    if requirement.operator == "GTE":
+        return "값이 미달이나 조건이 달라 확인 필요"
+    return "값이 요구와 다르나 조건이 달라 확인 필요"
+
+
+def _unit_key(unit: str | None) -> str:
+    """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
+
+    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초 표기를 s로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
+    값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
+
+    Args:
+        unit: 원문 단위.
+
+    Returns:
+        str: 비교용 단위. 없으면 빈 문자열.
+    """
+    words = [w for w in re.split(r"[\s,()]+", unit or "") if w]
+    kept = [w for w in words if w.casefold().strip(".") not in UNIT_QUALIFIERS]
+    key = " ".join(kept)
+    return "s" if key.casefold() in SECONDS else key
+
+
+def _canonical_verdict(attribute: str, wanted: str, value: str) -> tuple[Verdict, str]:
+    """비교용 표기로 견준다. 탭은 위·아래 단 수와 간격이 모두 같아야 하고, 보호 기능은 요구가 자사의 부분집합이면 된다.
+
+    Args:
+        attribute: 속성 어휘.
+        wanted: 요구의 비교용 표기.
+        value: 사양 근거의 값.
+
+    Returns:
+        tuple[Verdict, str]: 결과와 판정 말.
+    """
+    got = read_canonical(attribute, value)
+    if got is None or not is_canonical(attribute, wanted):
+        return "unknown", "값을 비교 표기로 읽을 수 없어 확인 필요"
+    if attribute == "tap":
+        return ("passed", "충족") if _tap(wanted) == _tap(got) else ("failed", "탭 구성 다름")
+    missing = "".join(c for c in wanted if c not in got)
+    return ("failed", f"보호 기능 없음: {missing}") if missing else ("passed", "충족")
+
+
+def _tap(canonical: str) -> tuple[int, int, Decimal]:
+    """탭 표기를 (위 단 수, 아래 단 수, 간격)으로 나눈다. is_canonical을 통과한 값만 받는다."""
+    match = CANONICAL_FORMS["tap"].fullmatch(canonical)
+    assert match is not None
+    both, up, down, step = match.groups()
+    return int(both or up), int(both or down), Decimal(step)
+
+
+def _plain_value(attribute: str, value: str) -> str:
+    """문자열 비교용 값. 등급 속성은 'Class F'의 머리말을 뺀다(요구와 사양의 표기가 다르다).
+
+    Args:
+        attribute: 속성 어휘.
+        value: 값.
+
+    Returns:
+        str: 정규화한 값.
+    """
+    text = _norm(value)
+    return text.removeprefix("class ").strip() if attribute.endswith("_class") else text
 
 
 def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, str]:
     """같은 속성의 후보 값 하나를 요구와 비교한다.
 
     숫자 연산자는 단위가 같고 두 값이 모두 숫자일 때만 비교한다. 숫자가 아닌 EQ와 TEXT는 정규화한
-    문자열이 같을 때만 충족이다. 형식(form)은 정해진 어휘라 다르면 미달, 그 밖의 문장 값은 다르면 미확인.
+    문자열이 같을 때만 충족이다. 문장 값은 표현만 달라도 글자가 어긋나므로 다르면 미달이 아니라
+    미확인이다. 형식(form)도 같되, 닫힌 축에서 값이 다르면 미달이다(vocabulary.FORM_AXES).
+    축이 같아도 충족으로 올리지 않는다. 축 밖의 단어는 읽지 않았기 때문이다.
 
     Args:
         requirement: 요구.
@@ -262,9 +435,15 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     Returns:
         tuple[Verdict, str]: 결과와 판정 말.
     """
+    if is_placeholder(requirement.value):
+        return "unknown", "요구값 미정(자리표시자), 판정 제외"
+    if requirement.canonical_value:
+        return _canonical_verdict(requirement.attribute, requirement.canonical_value, fact.value)
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
-        if " ".join((requirement.unit or "").split()) != " ".join((fact.unit or "").split()):
+        if _unit_key(requirement.unit) != _unit_key(fact.unit):
+            if not requirement.unit:
+                return "unknown", missing_word(requirement)
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
         if requirement.operator == "RANGE":
@@ -272,26 +451,110 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
             bounds = (_number(low), _number(high)) if high else (None, None)
             if got is None or bounds[0] is None or bounds[1] is None:
                 return "unknown", "범위를 숫자로 읽을 수 없어 확인 필요"
-            return ("passed", "충족") if bounds[0] <= got <= bounds[1] else ("failed", "미달")
+            met = bounds[0] <= got <= bounds[1]
+            return ("passed", "충족") if met else ("failed", shortfall_word(requirement))
         want = _number(requirement.value)
         if got is not None and want is not None:
             met = {"EQ": got == want, "GTE": got >= want, "LTE": got <= want}[requirement.operator]
-            return ("passed", "충족") if met else ("failed", "미달")
+            return ("passed", "충족") if met else ("failed", shortfall_word(requirement))
         if requirement.operator != "EQ":
             return "unknown", "값을 숫자로 읽을 수 없어 확인 필요"
-    if _norm(requirement.value) == _norm(fact.value):
+    attribute = requirement.attribute
+    if _plain_value(attribute, requirement.value) == _plain_value(attribute, fact.value):
         return "passed", "충족"
-    if requirement.attribute == "form":
+    if attribute == "form" and form_conflict(requirement.value, fact.value):
         return "failed", "형식 다름"
     return "unknown", "값이 달라 확인 필요"
 
 
-def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
+class Converted(NamedTuple):
+    """지속시간을 요구 값으로 바꾼 사양 근거."""
+
+    fact: SpecFact
+    note: str
+    # 후보 지속시간이 요구보다 짧은지. 이때 환산값은 실제 정격보다 낮게 나오는 쪽이라 미달 근거가 되지 못한다.
+    shorter: bool
+
+
+def _at_required_duration(requirement: Requirement, facts: Sequence[SpecFact]) -> list[SpecFact]:
+    """요구 지속시간의 실측 값이 있으면 그것만 본다(같은 후보의 다른 지속시간 값으로 환산해 덮지 않는다).
+
+    Args:
+        requirement: 요구.
+        facts: 같은 속성의 후보 사양 근거.
+
+    Returns:
+        list[SpecFact]: 지속시간이 요구와 같은 근거. 없으면 전부다.
+    """
+    want = next((c for c in requirement.conditions if c.name == "duration"), None)
+    if want is None:
+        return list(facts)
+    same = [
+        f
+        for f in facts
+        if any(
+            c.name == "duration"
+            and (_number(c.value), _norm(_unit_key(c.unit)))
+            == (_number(want.value), _norm(_unit_key(want.unit)))
+            for c in f.conditions or []
+        )
+    ]
+    return same or list(facts)
+
+
+def _duration_converted(requirement: Requirement, fact: SpecFact) -> Converted | None:
+    """단시간 내전류의 지속시간이 요구와 다르면 후보 값을 요구 지속시간 값으로 추정한다(KAN-199).
+
+    I₂ = I₁·√(t₁/t₂)의 열 등가 추정이며 시험값이 아니다. 공개 근거로 확인한 것은 IEC 61439 저압 조립품(3 s까지, 정격
+    피크 이하 조건)뿐이고, 고압·IEEE 장비에는 추정으로만 쓴다. 정격 피크 값은 자료에 없어 검사하지 못하므로 호출자가
+    확인 항목으로 남긴다. 최소 요구(GTE)에만 쓴다. 호출자의 판정은 방향에 따라 다르다.
+
+    - 충족: 어느 방향이든 확정하지 않고 조건부로 둔다.
+    - 미달, 후보가 더 긴 시간 값: 미달이다(올린 값으로도 모자라다).
+    - 미달, 후보가 더 짧은 시간 값(`shorter`): 미달로 확정하지 않는다. 짧은 시간 값을 내리면 실제 정격보다 낮게 나온다.
+
+    Args:
+        requirement: 요구.
+        fact: 같은 속성의 후보 사양 근거.
+
+    Returns:
+        Converted | None: 지속시간을 요구 값으로 바꾸고 값을 추정한 근거. 단시간 내전류가 아니거나 GTE가 아니거나, 두
+            쪽 지속시간이 같거나 하나라도 없거나, 초 단위가 아니거나, 하나라도 3 s를 넘거나, 숫자로 읽을 수 없으면 None.
+    """
+    if requirement.attribute != "short_time_withstand_current" or requirement.operator != "GTE":
+        return None
+    want = next((c for c in requirement.conditions if c.name == "duration"), None)
+    got = next((c for c in fact.conditions or [] if c.name == "duration"), None)
+    if want is None or got is None or _unit_key(want.unit) != "s" or _unit_key(got.unit) != "s":
+        return None
+    wanted, given, current = _number(want.value), _number(got.value), _number(fact.value)
+    if wanted is None or given is None or current is None or wanted <= 0 or given <= 0:
+        return None
+    if wanted == given or max(wanted, given) > MAX_ESTIMATE_SECONDS:
+        return None
+    # 판정은 반올림하지 않은 값으로 한다(경계에서 미달이 충족으로 바뀌지 않게). 사유 문구에만 0.1로 반올림한다.
+    value = current * (given / wanted).sqrt()
+    conditions = [want if c.name == "duration" else c for c in fact.conditions or []]
+    converted = fact.model_copy(update={"value": str(value), "conditions": conditions})
+    shown = str(value.quantize(Decimal("0.1")))
+    note = (
+        f"열 등가 추정(I²t), 시험값 아님: {_with_unit(fact.value, fact.unit)}·"
+        f"{_with_unit(got.value, got.unit)} → {_with_unit(want.value, want.unit)} "
+        f"{_with_unit(shown, fact.unit)}"
+    )
+    return Converted(converted, note, given < wanted)
+
+
+def _condition_gaps(requirement: Requirement, fact: SpecFact, verdict: Verdict) -> list[str]:
     """요구 조건과 후보 근거 조건의 차이를 찾는다.
+
+    어휘 밖 조건(OTHER)은 값이 아니라 문구라 근거와 맞춰 볼 수 없다. 충족은 그대로 막지만(거짓 충족 방지)
+    미달을 조건부로 약하게 만들지는 않는다.
 
     Args:
         requirement: 요구.
         fact: 후보 사양 근거.
+        verdict: 값 비교 결과.
 
     Returns:
         list[str]: 'duration 요구 2 s, 후보 3 s' 같은 차이 목록.
@@ -299,30 +562,40 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact) -> list[str]:
     given = {c.name: c for c in fact.conditions or []}
     gaps = []
     for want in requirement.conditions:
+        if want.name == OTHER and verdict == "failed":
+            continue
         got = given.get(want.name)
         if got is None:
-            gaps.append(f"{want.name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
-        elif (_norm(got.value), _norm(got.unit)) != (_norm(want.value), _norm(want.unit)):
+            name = want.name.replace("_", " ")
+            gaps.append(f"{name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
+        elif (_norm(got.value), _norm(_unit_key(got.unit))) != (
+            _norm(want.value),
+            _norm(_unit_key(want.unit)),
+        ):
             gaps.append(
-                f"{want.name} 요구 {_with_unit(want.value, want.unit)}, "
+                f"{want.name.replace('_', ' ')} 요구 {_with_unit(want.value, want.unit)}, "
                 f"후보 {_with_unit(got.value, got.unit)}"
             )
     return gaps
 
 
-def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[str]) -> Check:
+def _spec_check(
+    requirement: Requirement, profile: PartnerProfile, codes: set[str], models: set[str]
+) -> Check:
     """제안 모델의 같은 속성 사양 근거로 요구 하나를 판정한다.
 
-    값이 충족이어도 조건(시간·온도 등)이 다르면 확약하지 않고 미확인으로 둔다. 미달이면 조건 차이를
-    사유에 함께 남긴다. 여러 제품 중 하나라도 충족하면 충족이다.
+    값이 충족이어도, 미달이어도 조건(시간·온도 등)이 다르면 확약하지 않고 미확인으로 둔다(KAN-199). 조건이 같을
+    때만 미달이다. 여러 제품 중 하나라도 충족하면 충족이다.
 
     Args:
         requirement: 요구.
         profile: 프로필.
         codes: 제안 모델의 제품 코드.
+        models: 제안 모델명(규격 체계 판단용).
 
     Returns:
-        Check: (속성, 결과, 사유 문장).
+        Check: (속성, 결과, 사유 문장). 충족이어도 요구 규격 체계가 근거 체계와 다르면 미확인이다(자사 비교와 같은 규칙,
+            미달은 낮추지 않는다). 프로필에는 제품별 규격이 없어 제안 모델에 적용되는 certifications의 체계를 근거로 본다.
     """
     facts = [
         f
@@ -336,15 +609,37 @@ def _spec_check(requirement: Requirement, profile: PartnerProfile, codes: set[st
             f"{_head(requirement)}: 제안 모델에 같은 속성 근거가 없어 확인 필요.",
         )
     judged = []
-    for fact in facts:
-        verdict, word = _value_verdict(requirement, fact)
-        gaps = _condition_gaps(requirement, fact)
+    for fact in _at_required_duration(requirement, facts):
+        converted = _duration_converted(requirement, fact)
+        compared, note, shorter = converted if converted else (fact, None, False)
+        verdict, word = _value_verdict(requirement, compared)
+        gaps = _condition_gaps(requirement, compared, verdict)
         if verdict == "passed" and gaps:
             verdict, word = "unknown", "값은 충족하나 조건이 달라 확인 필요"
-        judged.append((("passed", "unknown", "failed").index(verdict), verdict, word, fact, gaps))
-    _, verdict, word, fact, gaps = min(judged, key=lambda j: j[0])
+        elif verdict == "failed" and gaps:
+            verdict, word = "unknown", differing_word(requirement)
+        elif verdict == "failed" and shorter:
+            verdict, word = "unknown", SHORTER_SHORTFALL
+        elif verdict == "passed" and note:
+            verdict, word = "unknown", "환산 충족(시험값 아님), 정격 피크 확인 필요"
+        rank = ("passed", "unknown", "failed").index(verdict)
+        judged.append((rank, verdict, word, fact, gaps, note))
+    _, verdict, word, fact, gaps, note = min(judged, key=lambda j: j[0])
+    systems = {
+        _system(c.standard) for c in profile.certifications if models & set(c.applicable_models)
+    } - {"NONE"}
+    wanted = requirement.standard_system
+    if verdict == "passed" and wanted != "NONE" and systems and wanted not in systems:
+        basis = ", ".join(
+            c.standard
+            for c in profile.certifications
+            if models & set(c.applicable_models) and _system(c.standard) in systems
+        )
+        verdict, word = "unknown", f"규격 체계 다름: 요구 {wanted}, 근거 {basis}, 시험 규격 확인"
     cited = " ".join(filter(None, ("근거", fact.evidence_id, fact.section)))
     sentence = f"{_head(requirement)}, 후보 {_with_unit(fact.value, fact.unit)}({cited}): {word}."
+    if note:
+        sentence += f" {note}."
     if gaps:
         sentence += f" 조건 차이: {'; '.join(gaps)}."
     return requirement.attribute, verdict, sentence
@@ -355,8 +650,9 @@ def _certification_check(
 ) -> Check:
     """certifications 배열로 인증 요구 하나를 판정한다.
 
-    다른 규격 체계의 근거(IEC 시험 성적 등)는 UL·IEEE 요구의 충족으로 넓히지 않고 미확인으로 둔다.
-    같은 체계의 다른 규격만 있으면(UL 891 vs UL 1558) 미달이다.
+    다른 규격의 근거는 요구의 충족으로 넓히지 않고 확인 필요로 둔다. 체계가 같아도 그렇다. 후보가
+    요구 규격을 갖고 있지 않다는 것은 자료에 없다는 뜻이지 미달이 아니다(미기재는 미충족이 아니다).
+    다만 같은 장비를 다른 제품군으로 규정하는 규격(RIVAL_STANDARDS)만 가졌으면 미달이다.
 
     Args:
         requirement: attribute가 certification이고 value가 규격명인 요구.
@@ -374,15 +670,16 @@ def _certification_check(
     )
     same = [c for c in profile.certifications if _norm(c.standard) == _norm(requirement.value)]
     if not same:
-        system = _system(requirement.value)
-        others = [
-            c for c in profile.certifications if system != "NONE" and _system(c.standard) == system
+        rival = [
+            c
+            for c in profile.certifications
+            if frozenset({_norm(c.standard), _norm(requirement.value)}) in RIVAL_STANDARDS
         ]
-        if others:
-            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in others)
-            return name, "failed", f"{head}, 후보는 같은 체계의 다른 규격 {held}만 있음: 미달."
+        if rival:
+            held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in rival)
+            return name, "failed", f"{head}, 후보는 다른 제품군 규격 {held}만 있음: 미달."
         foreign = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in profile.certifications)
-        tail = f" 다른 규격 체계 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
+        tail = f" 다른 규격 {foreign}는 충족 근거로 쓰지 않는다." if foreign else ""
         return name, "unknown", f"{head}: 후보에 같은 규격 근거가 없어 확인 필요.{tail}"
     covering = [c for c in same if models & set(c.applicable_models)]
     if not covering:

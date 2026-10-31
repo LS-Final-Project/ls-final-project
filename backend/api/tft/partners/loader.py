@@ -1,12 +1,41 @@
-"""가상 협력사 프로필 파일 읽기. KAN-182 저장 구조가 생기면 이 파일을 시드로 쓴다."""
+"""가상 협력사 프로필 파일 읽기. 이 파일이 tft.partner_profiles 시드의 원천이다(scripts/rfp_seed_partner_profiles.py)."""
 
+import json
+from datetime import UTC, datetime, time
 from pathlib import Path
+from typing import Any
 
+from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
 from backend.api.tft.partners.schemas import PartnerProfile
 
 PROFILES = Path(__file__).with_name("profiles.json")
+POOLS = Path(__file__).with_name("document_pools.json")
+# 프로필 product_family(표시 문구) → 요구 equipment_family. 후보를 자기 계열 요구로만 채점할 때 쓴다.
+# 저압 배전반 후보는 조립품 요구와 그 안의 차단기 요구를 모두 받는다.
+PROFILE_FAMILIES: dict[str, frozenset[str]] = {
+    "15kV 퓨즈 부하개폐기반": frozenset({"MV_EQUIP"}),
+    "15kV metal-clad VCB 개폐장치": frozenset({"MV_EQUIP"}),
+    "저압 배전반": frozenset({"LV_BREAKER", "LV_SWITCHGEAR"}),
+    "몰드 변압기": frozenset({"TRANSFORMER"}),
+}
+# tft.partner_profiles의 jsonb 열. similar_tasks·supply_regions는 text[]다.
+JSON_COLUMNS = frozenset(
+    {"products", "integrator_capable", "spec_facts", "certifications", "lead_time", "confirmation"}
+)
+
+
+def load_document_pools(path: Path = POOLS) -> dict[str, list[str]]:
+    """문서별 후보 풀(데이터셋 번호 → 후보 코드)을 읽는다.
+
+    Args:
+        path: 풀 JSON 파일 경로.
+
+    Returns:
+        dict[str, list[str]]: 번호 문자열별 후보 코드.
+    """
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def load_profiles(path: Path = PROFILES) -> list[PartnerProfile]:
@@ -40,3 +69,35 @@ def load_profiles(path: Path = PROFILES) -> list[PartnerProfile]:
         if any(not set(c.applicable_models) <= own_models for c in profile.certifications):
             raise ValueError(f"{profile.candidate_code}: 인증 적용 모델이 products에 없습니다.")
     return profiles
+
+
+def profile_row(profile: PartnerProfile) -> dict[str, Any]:
+    """프로필 하나를 tft.partner_profiles 열 값으로 바꾼다(시드 INSERT용).
+
+    Args:
+        profile: 검증된 프로필.
+
+    Returns:
+        dict: 열 이름 → 값. jsonb 열은 Jsonb(lead_time이 없으면 None), known_at 날짜는 그날 00:00 UTC다.
+    """
+    values = profile.model_dump(mode="json")
+    row = {
+        key: Jsonb(value) if key in JSON_COLUMNS and value is not None else value
+        for key, value in values.items()
+    }
+    row["known_at"] = datetime.combine(profile.known_at, time(), UTC)
+    return row
+
+
+def profile_from_row(row: dict[str, Any]) -> PartnerProfile:
+    """tft.partner_profiles 행을 프로필로 되돌린다(파일과 대조용).
+
+    Args:
+        row: dict_row 행.
+
+    Returns:
+        PartnerProfile: known_at은 UTC 날짜다.
+    """
+    return PartnerProfile.model_validate(
+        {**row, "known_at": row["known_at"].astimezone(UTC).date()}
+    )

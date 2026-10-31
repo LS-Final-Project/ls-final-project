@@ -21,6 +21,7 @@ REGION = "asia-northeast3"
 ACCOUNT = os.environ.get("TEAM4_GCLOUD_ACCOUNT", "skkuls0106@skkukdp.re.kr")
 BUCKET = f"gs://{PROJECT}-team4-build-source/source"
 COMMON = [f"--project={PROJECT}", f"--account={ACCOUNT}", f"--region={REGION}"]
+WORKERS = ("cs-worker", "tft-worker")
 
 
 def output(command: list[str]) -> str:
@@ -158,6 +159,7 @@ def source_inputs(service: str, deploy: bool = False) -> list[str]:
         "frontend/src/mocks/generated",
         "scripts/check_backend.py",
         "infra/cloudbuild.service.yaml",
+        "infra/cloudbuild.worker.yaml",
     ]
 
 
@@ -168,12 +170,15 @@ def build(service: str, head: str, *, deploy_build_id: str | None = None) -> dic
         raise ValueError(
             "Commit build inputs before submitting. Only the selected commit is uploaded."
         )
+    worker = service.endswith("-worker")
     config = (
         "infra/cloudbuild.deploy.yaml"
         if deploy
+        else "infra/cloudbuild.worker.yaml"
+        if worker
         else f"infra/cloudbuild.{'web' if service == 'web' else 'service'}.yaml"
     )
-    substitutions = f"COMMIT_SHA={head},_SERVICE={service}"
+    substitutions = f"COMMIT_SHA={head},_SERVICE={service.removesuffix('-worker')}"
     if service == "web" and not deploy:
         substitutions = f"COMMIT_SHA={head}"
     if deploy:
@@ -263,7 +268,9 @@ def main() -> int:
     wait.add_argument("--revision", default="HEAD")
     for name in ("build", "run"):
         command = commands.add_parser(name)
-        command.add_argument("--service", choices=SERVICES, required=True)
+        # worker 이미지는 자동 배포에 들어가지 않고 사람이 build로 만든다.
+        choices = (*SERVICES, *WORKERS) if name == "build" else SERVICES
+        command.add_argument("--service", choices=choices, required=True)
         command.add_argument("--revision", default="HEAD")
     args = parser.parse_args()
     try:

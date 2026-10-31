@@ -10,10 +10,10 @@ type Lists = { available: boolean; experiments: Experiment[]; runs: RunItem[] };
 
 /**
  * 새 합성 평가 접수와 본인 실행 목록을 보여준다.
- * Args: onOpen은 작업 ID로 기존 상태 화면을 여는 함수다.
+ * Args: onOpen은 작업 ID로 기존 상태 화면을 여는 함수, onOpenRun은 실행 ID로 실행 상세(summary)를 여는 함수다.
  * Returns: 접수 폼과 실행 목록 구역.
  */
-export default function RunAdmission({ onOpen }: { onOpen: (jobId: string) => void }) {
+export default function RunAdmission({ onOpen, onOpenRun }: { onOpen: (jobId: string) => void; onOpenRun?: (runId: string) => void }) {
   const [lists, setLists] = useState<Lists | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -92,6 +92,16 @@ export default function RunAdmission({ onOpen }: { onOpen: (jobId: string) => vo
                 && <button disabled={busy || pending !== null} onClick={() => { setSelected(run.experimentId); void submit(prepareAdmission(run.experimentId)); }}>같은 실험으로 다시 접수</button>}</td>
           </tr>;
         })}</tbody>
+      </table>}
+      {onOpenRun && lists.experiments.some(item => item.runs.length > 0) && <table aria-label="실험별 실행">
+        <caption className="evaluation-caption">반입 실행은 위 목록에 없고 여기서 실행 상세로 엽니다.</caption>
+        <thead><tr><th>실험</th><th>실행</th><th>상태</th><th>상세</th></tr></thead>
+        <tbody>{lists.experiments.flatMap(item => item.runs.map(run => <tr key={run.runId}>
+          <td>{item.name}</td>
+          <td><code>{run.runId.slice(0, 8)}</code>{run.origin === 'IMPORT' && <> <span className="evaluation-tag">반입</span></>}</td>
+          <td>{statusLabels[run.status]}</td>
+          <td><button onClick={() => onOpenRun(run.runId)} aria-label={`실행 ${run.runId.slice(0, 8)} 상세`}>상세</button></td>
+        </tr>))}</tbody>
       </table>}
     </>}
   </section>;

@@ -305,6 +305,13 @@ def test_transport_outcomes(
     assert result == DeliveryResult(expected, operation)
     assert evidence(evaluation_database, queued) == (expected, 1, operation, "QUEUED", 1, 1)
     assert asyncio.run(claim_next(settings, access, dispatch)) is None
+    # 평가의 결과 불명은 간격이 지나도 다시 보내지 않는다(C/S·RFP만 재전송).
+    with psycopg.connect(evaluation_database) as conn:
+        conn.execute(
+            "UPDATE runtime.dispatch_outbox SET next_attempt_at=now()-interval '1 hour' "
+            "WHERE state='UNKNOWN'"
+        )
+    assert asyncio.run(claim_next(settings, access, dispatch)) is None
     assert len(calls) == 1
     assert "private" not in repr(result)
 

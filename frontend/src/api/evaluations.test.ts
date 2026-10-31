@@ -240,3 +240,122 @@ test('비교 키는 누락·null을 미제공으로 통과시키고 형식이 �
     await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
   }
 });
+
+/** 단계 지표 블록 하나를 만든다. Args: 없음. Returns: 서버 StageMetricBlock 모양의 합성 값. */
+const stageBlock = () => ({ stage: 'search', scoring_version: 'search-v1', stored_scoring_version_count: 2, stored_at: '2026-10-29T10:00:00Z',
+  items: [{ metric_key: 'search_hit_at_5', segment: 'all', class_label: null, value: 0.8, support: 50, threshold: 0.9, comparison: '>=', passed: false,
+    details: { tp: 40, fn: 10 }, quality_gate_evaluated: false }] });
+/** 형식 위반 블록을 만든다. Args: 없음. Returns: 율이 분자/분모와 맞는 합성 값. */
+const outcomeBlock = () => ({ scoring_version: 'out-v1', stored_scoring_version_count: 1, stored_at: '2026-10-29T11:00:00Z',
+  schema_violation_rate: 0.25, schema_violations: 1, received: 4,
+  outcomes: { HELD: 1, NOT_STARTED: 0, SCHEMA_VIOLATION: 1, TIMEOUT: 0, TRANSPORT_FAILURE: 0, VALID: 3 } });
+
+test('단계 지표와 형식 위반율은 키·값 그대로 투영하고 추가 필드는 버린다', async t => {
+  const data = summaryFixture();
+  const quality = lockedQualityFixture();
+  Object.assign(data, { origin: 'IMPORT', data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null,
+    stage_metrics: [{ ...stageBlock(), raw: 'secret', items: [{ ...stageBlock().items[0], case_id: 'secret' }] }],
+    locked_quality: { ...quality, outcomes: { ...outcomeBlock(), cases: ['secret'] } } });
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.equal(result.origin, 'IMPORT');
+  assert.deepEqual(result.stage_metrics, [stageBlock()]);
+  assert.deepEqual(result.locked_quality?.outcomes, outcomeBlock());
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});
+
+const extraChanges: Record<string, (data: Record<string, any>) => void> = {
+  stage_unknown: data => { data.stage_metrics = [{ ...stageBlock(), stage: 'classification' }]; },
+  stage_duplicate: data => { data.stage_metrics = [stageBlock(), stageBlock()]; },
+  stage_details_key: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], details: { secret: 1 } }] }]; },
+  stage_key_pattern: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], metric_key: 'bad key' }] }]; },
+  stage_gate: data => { data.stage_metrics = [{ ...stageBlock(), items: [{ ...stageBlock().items[0], quality_gate_evaluated: true }] }]; },
+  outcome_rate: data => { data.locked_quality.outcomes = { ...outcomeBlock(), schema_violation_rate: 0.5 }; },
+  outcome_received: data => { data.locked_quality.outcomes = { ...outcomeBlock(), received: 5 }; },
+  outcome_keys: data => { data.locked_quality.outcomes = { ...outcomeBlock(), outcomes: { VALID: 3 } }; },
+  outcome_zero: data => { data.locked_quality.outcomes = { ...outcomeBlock(), received: 0, schema_violations: 0, schema_violation_rate: 0,
+    outcomes: { HELD: 4, NOT_STARTED: 0, SCHEMA_VIOLATION: 0, TIMEOUT: 0, TRANSPORT_FAILURE: 0, VALID: 0 } }; },
+};
+for (const [name, change] of Object.entries(extraChanges)) {
+  test(`단계 지표·형식 위반율의 잘못된 ${name} 응답을 거부한다`, async t => {
+    const data: Record<string, any> = summaryFixture();
+    Object.assign(data, { data_origin: 'real', quality_available: true, quality_unavailable_reason: null, comparison_key: null,
+      locked_quality: lockedQualityFixture() });
+    change(data);
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+/** 실험 설정 블록을 만든다. Args: 없음. Returns: 서버 SummaryExperiment 모양의 합성 값. */
+const experimentBlock = () => ({ experiment_id: '33333333-3333-4333-8333-333333333333', name: 'import flash-lite valid', purpose: 'pipeline',
+  stage: 'classification', knobs: { thinking_budget: 0, temperature: 0.2, mode: 'fast', cached: true }, model_id: 'gemini-x',
+  prompt_version: 'v3', input_builder_version: 'cs-classification-input-v4', index_version: null, config_hash: 'd'.repeat(64),
+  data_split: 'valid', data_origin: 'real' });
+
+test('실험 설정은 experiments 값 그대로 투영하고 추가 필드는 버린다', async t => {
+  const data = summaryFixture();
+  Object.assign(data, { experiment: { ...experimentBlock(), dataset_manifest: { secret: 1 } } });
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+  const result = await getEvaluationSummary(data.run_id, new AbortController().signal);
+  assert.deepEqual(result.experiment, experimentBlock());
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});
+
+for (const [name, change] of Object.entries<(e: Record<string, unknown>) => void>({
+  hash: e => { e.config_hash = 'D'.repeat(64); },
+  knob_object: e => { e.knobs = { nested: { a: 1 } }; },
+  stage: e => { e.stage = 'ranking'; },
+  purpose: e => { e.purpose = 'production'; },
+  id: e => { e.experiment_id = 'not-uuid'; },
+})) {
+  test(`실험 설정의 잘못된 ${name} 응답을 거부한다`, async t => {
+    const data: Record<string, any> = summaryFixture();
+    const experiment: Record<string, unknown> = experimentBlock();
+    change(experiment);
+    data.experiment = experiment;
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ data }));
+    await assert.rejects(getEvaluationSummary(data.run_id, new AbortController().signal), /집계 응답/);
+  });
+}
+
+import { listExperiments } from './evaluation-admission.ts';
+
+test('실험 목록은 실행 링크를 투영하고, 없으면 빈 목록, 형식이 틀리면 거부한다', async t => {
+  const base = { experiment_id: '33333333-3333-4333-8333-333333333331', name: 'x', purpose: 'smoke', data_split: null, data_origin: 'synthetic',
+    model_id: 'fake', target_count: 2, created_at: '2026-10-28T01:00:00Z', admissible: true, blocked_reason: null };
+  const link = { run_id: '66666666-6666-4666-8666-666666666661', origin: 'IMPORT', status: 'PARTIAL', created_at: '2026-10-29T03:00:00Z' };
+  let items: unknown[] = [{ ...base, runs: [{ ...link, import_ref: 'secret' }] }, base];
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ data: { items } }));
+  const [first, second] = await listExperiments(new AbortController().signal);
+  assert.deepEqual(first.runs, [{ runId: link.run_id, origin: 'IMPORT', status: 'PARTIAL', createdAt: link.created_at }]);
+  assert.deepEqual(second.runs, []);
+  for (const bad of [{ ...link, origin: 'SYNC' }, { ...link, status: 'DONE' }, { ...link, run_id: 'x' }]) {
+    items = [{ ...base, runs: [bad] }];
+    await assert.rejects(listExperiments(new AbortController().signal), /실험 목록/);
+  }
+  items = [{ ...base, runs: Array.from({ length: 11 }, () => link) }];
+  await assert.rejects(listExperiments(new AbortController().signal), /실험 목록/);
+});
+
+import { getRunCases } from './evaluation-cases.ts';
+
+test('사례별 시도는 허용 키만 투영하고 형식이 틀리면 거부하며 커서를 그대로 쿼리로 보낸다', async t => {
+  const run = '22222222-2222-4222-8222-222222222222';
+  const attempt = { step: 'classify', attempt: 1, outcome: 'VALID', error_code: null, http_status: null, finish_reasons: ['STOP'],
+    call_attempts: 1, model_version: null, latency_ms: 3, parsed_output: { category_code: 'RETURN', secondary_category: null,
+      urgency_flag: 'NONE', return_subtype: null, provided_info: ['MODEL'] } };
+  const item = { case_id: '77777777-7777-4777-8777-777777777771', target_ref_sha: 'aaaaaaaaaaaa', status: 'VALID', attempts: [attempt] };
+  let data: unknown = { items: [{ ...item, target_ref: 'TICKET-1', attempts: [{ ...attempt, raw_output: 'secret' }] }], next_cursor: null };
+  const urls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string) => { urls.push(url); return Response.json({ data }); });
+  const page = await getRunCases(run, item.case_id, new AbortController().signal);
+  assert.equal(urls[0], `/api/v1/platform/evaluations/runs/${run}/cases?limit=20&cursor=${item.case_id}`);
+  assert.deepEqual(page, { items: [item], next_cursor: null });
+  for (const bad of [{ ...item, target_ref_sha: 'TICKET-1' }, { ...item, status: 'DONE' },
+    { ...item, attempts: [{ ...attempt, outcome: 'OK' }] }, { ...item, attempts: [{ ...attempt, parsed_output: { ...attempt.parsed_output, category_code: '반품 문의' } }] }]) {
+    data = { items: [bad], next_cursor: null };
+    await assert.rejects(getRunCases(run, null, new AbortController().signal), /사례 응답/);
+  }
+  await assert.rejects(getRunCases(run, 'x', new AbortController().signal), /사례 응답/);
+});

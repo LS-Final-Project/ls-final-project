@@ -11,6 +11,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.api.tft.rfp.schemas import (
+    IntegrationResponsibility,
+    IntegrationSummary,
+    JobRef,
+    JudgementStatus,
+    OutputStatus,
+    PendingByOrigin,
+    Purpose,
+    RequirementCounts,
+)
+
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 FieldTag = Literal[
@@ -32,6 +43,18 @@ class ProjectSummary(BaseModel):
         default=None, description="Responsible sales user (login user ID) who issues requests."
     )
     created_at: datetime
+    # RFP API spec §4.1. The fields above stay until the old screens are replaced.
+    version: int
+    known_at: datetime
+    client_name: str | None
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    requirements_count: int
+    unresolved_mandatory_count: int
+    pending_proposals_count: int
+    open_questions_count: int
+    strategic_customer: bool | None = None
+    integration_responsibility: IntegrationSummary
 
 
 class ProjectList(BaseModel):
@@ -72,3 +95,29 @@ class ProjectDetail(BaseModel):
         default=None, description="Responsible sales user (login user ID) who issues requests."
     )
     rfp_requirements: list[RfpRequirement]
+    # RFP API spec §4.1. status, external_id and rfp_requirements stay until the old screens go.
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    purpose: Purpose
+    customer_goal: str | None
+    review_departments: list[str]
+    requirements_count: int
+    unresolved_mandatory_count: int
+    pending_proposals_count: int
+    open_questions_count: int
+    requirement_counts: RequirementCounts
+    pending_proposals_by_origin: PendingByOrigin
+    latest_job: JobRef | None
+    draft_version: int | None
+    review_version: int | None
+    documents_count: int
+    strategic_customer: bool | None = None
+    strategic_customer_note: str | None = None
+    strategic_customer_set_by: UUID | None = None
+    integration_responsibility: IntegrationResponsibility | None = Field(
+        default=None,
+        description=(
+            "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
+            "Null when migration T12 is not applied yet, which is not the same as not required."
+        ),
+    )

@@ -21,13 +21,13 @@
 
 기획서의 규칙 적용 건 100%는 검수된 입력의 정책 재현 지표다. 우선순위 수동 조정 제외를 담당부서·분류 평가에 일괄 적용하지 않는다. 문서의 전체 120건을 split별 분모에서 고정 차감하지 않고 대상 레코드의 플래그로 제외한다. 전체 정답 priority와의 일치율은 참고 지표로 별도 보고하며 기존 96.65% 한계와 adjusted=N 합격선을 같은 분모로 해석하지 않는다.
 
-재시도 전 원시 출력, 최종 출력과 폴백 사용을 구분한다. 최종 결과가 정상이어도 최초 스키마 위반을 지우지 않는다. 원시 응답이 0건이면 스키마 위반율은 null이며 합격으로 표시하지 않는다. 원문·정답·토큰·개인정보를 로그에 무단 저장하지 않고, 감사용 출력은 접근이 제한된 마스킹 산출물로 보관한다.
+재시도 전 원시 출력, 최종 출력과 폴백 사용을 구분한다. 최종 결과가 정상이어도 최초 스키마 위반을 지우지 않는다. 후보 비교 하네스(`eval/cs_candidates`·`eval/cs_draft_candidates`, 실행기 `--invalid-output-retries`, 기본 1)는 형식 위반(`CS_INVALID_OUTPUT`)인 사례만 같은 입력으로 시도 2를 한 번 더 기록하며, 결과 행의 기존 지표는 최초 시도, `final` 블록은 최종 시도 기준이다. 초안의 금지 약속·차단 근거는 다시 부르지 않는다. 초안의 내용 규칙 위반(입력 밖 근거 인용 `CS_UNKNOWN_REFERENCE`, INFO_FIRST 요청 누락, 근거 없는 EVIDENCE, 중복)은 KAN-194 6차부터 outcome `SCHEMA_VIOLATION`에 자기 코드로 남아 재호출하지 않으며, 스키마 위반율에는 그대로 들어가고 `schema.error_codes`로 코드별 건수를 따로 본다. 원시 응답이 0건이면 스키마 위반율은 null이며 합격으로 표시하지 않는다. 원문·정답·토큰·개인정보를 로그에 무단 저장하지 않고, 감사용 출력은 접근이 제한된 마스킹 산출물로 보관한다.
 
 ## 보조 분류와 정보 추출
 
 다섯 출력의 의미·enum·null은 [C/S 계약](../contracts/cs/tickets.md)을 따른다. secondary_category는 주분류와 독립 채점한다. 전체 정확 일치율(null 포함), gold가 있는 복합 의도 대상의 macro-F1 및 없는 보조 의도를 생성한 건수를 각각 보고한다. null이 많은 데이터에서 전체 정확도만으로 복합 의도 성능을 주장하지 않는다. 정답은 원천 secondary_category를 검수해 사용하며 primary를 복사해 만들지 않는다.
 
-provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을 보고한다. 원문에 정보가 있다는 사실과 그 값이 정확한지는 구분하며 이미 제공한 정보를 재요청한 건수를 별도 채점한다. return_subtype은 [반품 하위유형 정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95)의 판본으로 채점한다. 이 정답은 팀 합의로 제공 데이터의 routing_rule_id에서 변환했으며(역산 금지 원칙의 반품 하위유형 예외), LLM 출력에서 정답을 만들지 않는다. 다른 필드에는 담당부서 정답 역산 금지를 그대로 적용한다. 미확인과 비해당 null은 검수 메타데이터에서 구분한다.
+provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을 보고한다. 원문에 정보가 있다는 사실과 그 값이 정확한지는 구분하며 이미 제공한 정보를 재요청한 건수를 별도 채점한다. return_subtype은 [반품 하위유형 정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95)의 판본으로 채점한다. 이 지표는 **고객이 접수 시 밝힌 반품 사유를 원문에서 읽어 내는 품질**이고, 검사 뒤 반품 사유를 맞게 판정했는지(확정 품질)가 아니다(KAN-193). 확정값은 사람이 업무 상태에 기록하며 LLM 지표로 채점하지 않는다. 이 정답은 팀 합의로 제공 데이터의 routing_rule_id에서 변환했으며(역산 금지 원칙의 반품 하위유형 예외), LLM 출력에서 정답을 만들지 않는다. 다른 필드에는 담당부서 정답 역산 금지를 그대로 적용한다. 미확인과 비해당 null은 검수 메타데이터에서 구분한다.
 
 보조 분류의 선택 기준은 아래 2026-10-27 사용자 결정에 따른다. provided_info·반품 하위유형의 추가 합격선은 KAN-82·95에서 잠근 뒤 본실험을 시작한다. 반품 하위유형 gold는 [정답 잠금](#cs-반품-하위유형-정답-잠금-kan-95)에서, provided_info gold와 채점 범위는 [제공 정보 정답 잠금](#cs-제공-정보-정답-잠금-kan-95)에서 잠갔다. 아직 잠그지 않은 점수를 임의로 합격 처리하지 않는다.
 
@@ -41,7 +41,7 @@ provided_info는 항목 코드의 set precision/recall/F1과 완전 일치율을
 ## 데이터와 안전 조건
 
 - 학습 2,800건, 검증 603건, 시험 597건을 구분한다. 선정·튜닝은 학습·검증 자료에서 수행한다. 시험셋은 사용 이력을 먼저 확인하고 동결 구성의 최종 1회만 사용한다. 이미 노출됐거나 사용 여부가 불명확하면 독립 최종 성능으로 주장하지 않는다. 이 문서 보완에서는 시험셋을 읽거나 실행하지 않았다.
-- PHONE의 `Urgency: <정답>` 주석은 원본을 수정하지 않고 build_input()에서 모델용 입력에만 제거한다. 제거 로직 판본과 처리 건수를 남기고 PHONE/비PHONE 및 언어별 점수를 분리한다. 누설을 남긴 비교는 원인 분석 자료로만 표시하고 채택 점수에 섞지 않는다.
+- PHONE의 상담원 표기(`Urgency: <값>`)는 입력에 포함한다. 실제 입력에도 상담원 표기가 들어오므로 제품·평가 모두 제목과 본문 전체를 넣는다(사용자 결정 2026-10-29, `cs-classification-input-v4`). 합성 데이터에서는 표기=정답이라 PHONE 긴급도는 PHONE/비PHONE으로 분리 보고하고 언어별 점수도 분리한다. 합격선 분모는 바꾸지 않는다. 실제 데이터에서는 메모 내용으로 재측정한다. 표기를 지운 입력(`cs-classification-input-v3`)은 분석용 옵션(`--strip-phone-annotation`)으로만 만들고 채택 점수에 섞지 않는다. `cs-classification-input-v3`으로 등록된 smoke 실험은 v4 이후 고정 합성 프로필과 맞지 않으므로 재등록해야 한다.
 - 정답 필드와 현재 문의 자신의 해결 기록, 판정 당시 없던 해결·회신·수정판은 입력·검색에서 제외한다. 반복 문제 평가는 해당 시점까지 알려진 기록만 사용한다.
 - FLT-042는 원천 후보·검색·프롬프트·인용·최종 응답 경계에서 차단한다. 문서/사례 ID와 근거 연결로 해당 오류의 재유입을 검증하며 문자열 하나가 없다는 검사만으로 차단 완료라고 하지 않는다.
 - 시리얼 원값, RMA 번호·방문일·보증 승인값의 AI 생성 금지, SAFETY·SITE_DOWN 희소 사례 및 부서/프로젝트 접근 범위를 회귀 검증한다. 평균 점수가 높아도 안전 조건 위반을 상쇄하지 않는다.
@@ -82,7 +82,7 @@ KAN-83 감사(오새결)에서는 해당 테스트와 과거 audit.py를 실행�
 
 ## C/S 반품 하위유형 정답 잠금 (KAN-95)
 
-2026-10-27에 개발 반품 298건(학습 245·검증 53)의 하위유형 정답을 잠갔다. 시험 분할은 쓰지 않았다.
+2026-10-27에 개발 반품 298건(학습 245·검증 53)의 하위유형 정답을 잠갔다. 정답의 뜻은 "접수 시 고객이 밝힌 반품 사유 유형"이다(KAN-193). 검사 후 확정과 구분하며, 이 구분 때문에 정답 값·판본·해시는 바꾸지 않는다. 시험 분할은 쓰지 않았다.
 정답 파일은 문의 정답 열에서 만든 데이터라 저장소에 넣지 않고, 아래 판본과 hash로만 기록한다.
 
 | 항목 | 값 |
@@ -217,7 +217,7 @@ TECH_SPEC 54건이며, 그중 53건은 null이고 1건의 MANUAL은 별도 매�
 - 출처: 제공 데이터의 urgency_flag를 원문과 대조해 그대로 채택했다
 
 **원문 대조**(AI(Claude), 개발 자료 원문만)
-- 전화 506건: 상담원 메모의 `Urgency:` 값과 정답이 모두 같다. 이 메모는 정답을 그대로 담고 있으므로 계약대로 모델 입력에서 지운다
+- 전화 506건: 상담원 메모의 `Urgency:` 값과 정답이 모두 같다. 이 메모는 정답과 같다. 2026-10-29 결정(KAN-105 #245)으로 기본 입력(v4)에는 그대로 두고, 전화 긴급도는 전화와 나머지 채널을 나눠 보고한다. 표기를 지운 입력(v3)은 분석용이다. 이 표기 때문에 전체 긴급도 점수는 전화 문의 몫만큼 실제보다 높게 나오므로, 전체 점수는 항상 비전화 점수와 함께 보고하고 전화 표기가 포함된 값이라고 표시한다. 합격선 분모는 바꾸지 않는다(위 입력 규칙)
 - 전화가 아닌 긴급도 문의 768건(DEADLINE 325, PROD_IMPACT 180, COMMISSION 176, SITE_DOWN 67, SAFETY 20): 모두 원문에 해당 신호 문장이 있다.
   데이터에서 한 긴급도에만 반복되는 문장(날짜만 지움) 100종으로 667건, 언어별 신호 표현으로 91건, 원문 직접 확인으로 10건을 확인했다
 - 전화가 아닌 NONE 2,129건: 위 신호 문장이 없다. 신호 표현 재검색에서 걸린 45건은 모두 Details의 "설치/시운전 날짜" 칸이나 시운전 작업 설명이었다
@@ -227,6 +227,25 @@ TECH_SPEC 54건이며, 그중 53건은 null이고 1건의 MANUAL은 별도 매�
 신호 문장의 예(영어): SAFETY는 발연·타는 냄새, 안전을 위한 격리, 아크 플래시, "안전 문제로 처리" 요청.
 SITE_DOWN은 라인 전체 또는 공장 전체 정지. PROD_IMPACT는 생산 영향 또는 하루 여러 번 반복.
 COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출 기한까지의 회신 요청.
+
+## 분류 프롬프트 판본 (KAN-105)
+
+`backend/engine/cs/prompt_registry.py`의 분류(classification) 판본이다. 지문은 `prompt_fingerprint`(본문 sha256 앞 16자)이며 `tests/cs/test_prompt_registry.py`가 고정한다. 기존 판본 본문은 고치지 않고 새 키로만 더한다. 채택은 실측 후에 정하며, 표에 올린 것만으로 기본 판본이 바뀌지 않는다. 제품 경로 기본 판본은 `prompt_registry.DEFAULT_VERSIONS` 한 곳에서 정한다(공급자·실행기가 이 값을 쓴다). 합성 smoke의 고정 프로필 판본(`cs-smoke-fixed-v1`)은 별개이며 바꾸지 않는다.
+
+| 판본 | 지문 | 바뀐 점 |
+| --- | --- | --- |
+| v1 | `ec6fefc1c1ba9e79` | 첫 지시문(2026-10-29까지 기본) |
+| v2 | `143d7655ee22fed7` | v1 + 긴급도 신호 지침 한 줄(위 긴급도 정답 잠금의 신호 설명) |
+| v3 | `f299989ca90bcf99` | v2의 return_subtype 줄만 교체: category_code나 secondary_category가 RETURN일 때만 DEFECT·NON_DEFECT, 둘 다 아니면 불량 내용이 있어도 null(예 WARRANTY·보조 DEFECT → null). valid 603 재측정의 형식 위반 1건 대응. **채택 2026-10-29, 기본 판본** |
+
+## 초안·회신·개선요청 프롬프트 판본 (KAN-193)
+
+초안(draft)·회신 해석(reply)·개선요청 회신(improvement_reply)·개선요청 초안(improvement_draft)은 채택 기록이 없어(초안은 승격 검사 예외 `NO_ADOPTION`) 실측 전에도 기본 판본을 바꿀 수 있다. 검증(verification)은 v1이다.
+
+| 판본 | 지문(draft·reply·improvement_reply·improvement_draft) | 바뀐 점 |
+| --- | --- | --- |
+| v1 | `963cfe6e…`·`8cea1946…`·`40c64f48…`·`fa4e6aa6…` | 첫 지시문(2026-10-30까지 기본) |
+| v2 | `a1990152…`·`1633ea89…`·`a9d0bafb…`·`9e6f87e3…` | v1의 승인 약속 금지 줄 뒤에 반품 사유·제조 불량·책임 소재·고객 과실 확정 금지 줄 하나만 추가(`prompt_registry.CONFIRMATION_RULES`. 개선요청 회신은 부서 주장을 그대로 옮기는 단계라 질문·근거 요청에만 적용). 같은 내용을 초안 금지 약속(`drafting.CONFIRMATION_COMMITMENTS`)이 뒤에서 거른다. **기본 판본(2026-10-31), 채택 실측 전** |
 
 ## C/S 규칙 평가 분모와 제외 사유 (KAN-95)
 
@@ -292,9 +311,78 @@ hash는 다르다). 잠금 정답으로 품질을 저장하는 실험은 `gold_v
 | `provided_info` | `provided-verified-v1-20261028` | `78abf59b398c3443cf623e027d33e88eed8bf9e0c75cb919f4504f07f211595d` | `ticket_id,provided_info,scoring_scope` | `FULL` | 2,643 | 561 |
 | `provided_info` | `provided-verified-v1-20261028` | `78abf59b398c3443cf623e027d33e88eed8bf9e0c75cb919f4504f07f211595d` | `ticket_id,provided_info,scoring_scope` | `PRECISION_ONLY` | 157 | 42 |
 
-## RFP 및 나머지 지표 잠금
+## RFP 지표 잠금 (KAN-143)
 
-RFP 기획서의 역할 precision/recall, 근거 정확도, 요청서 필수값, 가상 경력·가용성 생성, 공백 탐지 및 상태 전이를 각각 검수한다. 미기재·미확인·미충족을 구분하고 부서 검증과 지정 책임자 확정을 합치지 않는다. OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
+RFP 기획서 최종본(2026-10-29, Drive `1UoR4f61cF3jqIA_7bbUbPjVsvFo-GLsQ`) 3.2 '평가 항목과 개발용 통과 기준안'의 값을 `eval/policy/gates-rfp-v1.json`에 잠근다. 같은 날 올라온 최종최종본(`1OKHJCb5uqcxAm3UrwpCjeOJNv0-4fJpM`)도 3.2·3.3 내용은 같다. 기획서는 이 값을 개발 전 제안하는 기준이라고 적었다. 달성 실적이 아니며, 평가셋 규모·정답·중대오류 정의를 먼저 고정하고 분자/분모를 함께 공개한다. C/S·검색·규칙 합격선 `gates-v1.json`은 바꾸지 않았다. `scripts/eval_adopt.py --task rfp`는 `--gates`가 없으면 `gates-rfp-v1.json`을 읽는다.
+
+| 지표 키 | 기획서 평가 항목 | 분자 / 분모 | 합격선 | blocker | 측정 도구 |
+| --- | --- | --- | --- | --- | --- |
+| `rfp_requirement_recall` | 요구 추출 재현율 | 추출한 필수 요구 / 미리 고정한 절(문서마다 장비 1~2개 절) 안에 전수 표시한 필수 요구 | ≥ 0.90 | 아니오 | 구현: `summarize_requirement_extraction` `extraction.recall` |
+| `rfp_requirement_precision` | 요구 추출 정밀도 | 정답과 맞은 추출 요구 / 추출한 요구 | ≥ 0.90 | 아니오 | 구현: `summarize_requirement_extraction` `extraction.precision` |
+| `rfp_status_match_rate` | 사양 비교 | 네 가지 상태와 사유가 정답과 일치한 요구 / 정답 요구. 상태별 혼동표를 함께 공개 | ≥ 0.90 | 아니오 | 구현: `summarize_requirement_extraction` `status_match.rate`·`count`(정답 사유가 있으면 정규화 문장 일치, `reason_compared` 표기), 혼동표는 `status`. 사유가 없는 정답 요구가 있으면 게이트 값은 None |
+| `rfp_evidence_accuracy` | 원문 근거 정확성 | 인용 위치의 요구·사양이 판단을 실제로 뒷받침하는 판단 / 인용이 있는 판단 | ≥ 0.95 | 아니오 | 미구현(KAN-189) |
+| `rfp_critical_false_fulfillment_count` | 중대한 잘못된 충족 | 미충족·미확인 필수 요구를 확정 충족으로 처리한 건수 | == 0 | 예 | 구현: `critical_errors.mandatory_gap_judged_found.count`·`denominator`(정답 necessity MANDATORY·CONDITION_BOUND, necessity가 없는 정답 요구가 하나라도 있으면 None, 발생 가능 건수가 0이면 게이트 값 None) |
+| `rfp_partner_recommendation_precision` | 협력사 추천 적합성 | '필수 기술조건 확인 후보' 중 모든 필수 조건의 근거가 실제로 확인된 후보 / '필수 기술조건 확인 후보'. '검토 후보'는 미확인 조건이 빠짐없이 표시됐는지 따로 확인 | ≥ 0.90 | 아니오 | 구현: 게이트 값은 `summarize_candidate_grades` `mandatory_confirmed_precision`·`mandatory_confirmed_count`. 검토 후보 미확인 조건 표시는 `review_unconfirmed_listed`(정답·예측 모두 REVIEW인 후보 중 정답 미확인 항목을 빠짐없이 표시한 비율·건수·빠진 항목, KAN-191)로 따로 공개한다. 항목은 문장이 아니라 등급 판정의 검사 이름(`eval.rfp_metrics.unconfirmed_items`: 속성명, `certification:규격`, `integrator_capable.항목`, 제조사 목록 확인 `manufacturer_list`)으로 대조한다. 표시를 같이 재지 않으면 게이트 값은 None |
+| `rfp_integration_responsibility_rate` | 통합 책임 확인 | 조립·시험·연동·보증 책임자 확인이 필수 항목으로 표시되고 미확보 시 처리 경로가 제시된 조립품 공급 요구 / 조립품 공급 요구 | == 1.0 | 아니오 | 구현: `summarize_integration_responsibility` `rate`·`count`·`denominator`(정답의 조립품 공급 요구 조항마다, 예측의 필수 확인 항목 표시·근거 조항 포함·책임자 확정 또는 처리 경로 제시를 모두 볼 때 분자. 미예측 문서는 분자 밖, 분모 0이면 게이트 값 None). 엔진 `backend/api/tft/rfp/integration.py`(KAN-186) |
+| `rfp_mandatory_constraint_violation_count` | 필수 제약 처리 | 외부 보완 금지·필수 정격 미달 후보가 적합으로 추천된 건수 | == 0 | 예 | 구현: `summarize_candidate_grades` `excluded_recommended.count`·`denominator`(정답 EXCLUDED를 추천, 분모가 0이면 게이트 값 None) |
+| `rfp_draft_trace_rate` | 초안 근거 추적 | 요구·제품·협력사 근거 또는 가정 표시를 찾은 주요 제안 문장 / 주요 제안 문장 | == 1.0 | 아니오 | 구현: `summarize_draft_trace`. 주요 제안 문장은 자사 대응·차이·협력사 보완·가정 절이다. 근거는 프로젝트에 실제로 있는지 대조한다. 측정값은 처리한 초안이 있어야 나온다 |
+
+사례 수가 적으므로 비율에는 건수(예: 19/21)를 함께 적고, 중대오류 두 항목은 '0건 / 발생 가능 N건'으로 적는다. 측정값이 없는 지표는 NOT_EVALUABLE이고, blocker 두 항목이 측정되지 않으면 출시를 막는다. 3.2의 마지막 행 '준비 시간·수정량'(수작업과 도구 사용의 검토 완료 시간·수정 건수 비교)은 기준선 참고 측정이라 합격선에 넣지 않는다. 측정자가 이미 문서를 아는 한계가 있으므로, 두 방식에 다른 문서를 쓰거나 참고 측정으로 표시한다.
+
+평가셋은 기획서 3.3에 따라 실제 RFP 조항으로 만든다. 같은 발주 건의 문서는 양식과 표현이 같으므로 문서가 아니라 프로젝트 단위로 개발이나 평가 한쪽에만 둔다.
+
+| 구분 | 문서 | 쓰임 |
+| --- | --- | --- |
+| 개발·시연 | 프로젝트 2300096 묶음: 14번 유닛 변전소, 17번 배전반, 15번 15kV 개폐장치 | 추출 규칙·화면 개발, 대표 시연 |
+| 평가 | Project Alpha 10·12번, 사전구매 11번, 별도 발주처 18번(모두 개발 묶음과 다른 프로젝트) | 같은 장비 계열의 다른 발주처 문서로 일반화 확인 |
+| 회귀시험 | 15번(개발 묶음과 같은 프로젝트) | 기능 수정 후 기존 처리 결과 유지 확인. 일반화 평가 점수에는 넣지 않는다 |
+| 정답 참고 | 16번 업체 C/D/E 응답서(262000) | 공급 범위 밖 과업(E)·편차(D)를 찾아내는지 보는 실제 사례. 업체 제품 기준 응답이라 서비스 상태의 정답으로 쓰지 않는다. R12 평가에 쓰므로 R12 개발에는 쓰지 않는다 |
+
+미국 문서는 정답이 '판단 근거 부족'에 몰릴 수 있으므로 평가 사례에 네 가지 상태가 고르게 들어가게 고른다. 협력사 평가는 가상 후보에 한정한다.
+
+정답 사유(`expected_reason`)는 엔진 사유 어휘를 그대로 쓴다. 사유 코드 체계가 아직 없어 공백을 접고 대소문자를 맞춘 문장 일치로 비교한다. `eval.rfp_metrics.gate_values(extraction, grades, integration)`는 세 요약에서 게이트 키 9개 값을 `eval/adoption.py`의 `RFP_METRIC_KEYS` 순서로 꺼내며, 측정 도구가 없는 키와 요약이 없는 키는 None이다.
+
+미구현이거나 일부만 있는 측정 도구는 다음과 같다. 평가 문서 첫 실행의 공식 점수는 KAN-191에서 낸다.
+
+- 원문 근거 정확성 판정(KAN-189)
+- 초안 근거 추적(KAN-188)
+
+RFP 후보 비교 실행기(KAN-191): `scripts/rfp_candidate_run.py`(하네스 `eval/rfp_candidates.py`). 문서 manifest의 문서를 처리 함수(`backend/api/tft/worker_processor.py`)와 같은 경로(`to_comparison`·`to_grading`, 비교·보완·협력사 등급·통합 책임)로 돌리고, 정답과 비교해 `eval_adopt --task rfp` 입력 결과 파일을 쓴다. 협력사 등급은 처리 함수와 같은 대상·후보 고르기를 쓴다: 사양 차이·근거 부족 요구(`GRADED_STATUSES`)를, 문서 후보 풀 안의 후보가 자기 계열 요구로만 채점하고(`grading_groups`), 통합 책임 필요 여부는 정답 맥락이 아니라 추출 결과로 정한다(`integration_of`). 채점할 요구가 없는 정답 후보는 `NO_PREDICTION`이다.
+
+- 추출은 정답이 고정한 평가 절만 한다. 사례 키는 `D{문서 번호}`이고, 후보 행에는 게이트 키 9개가 들어간다. 측정 도구가 없는 근거 정확성·초안 근거 추적은 None이다.
+- 원문은 manifest sha256과 같을 때만 읽고, 결과는 저장소 밖에만 쓴다. 결과는 새 파일로만 만들고, 실행 중에 같은 경로가 생기면 덮어쓰지 않고 옆 파일(시각을 붙인 이름)에 남긴 뒤 실패로 끝낸다. 결과에는 원문·인용·값을 넣지 않는다.
+- 정답 파일의 `document_number`가 겹치면 받지 않는다(`EVAL_GOLD_DUPLICATE_DOCUMENT`).
+- **공식 실행 1회**: 평가 문서의 `FIRST` 실행은 저장소 밖 공식 실행 기록 `--official-ledger`(JSON Lines)가 필수다. 원문 확인 뒤 모델 호출 직전에, 파일 잠금 안에서 같은 manifest 판본·문서의 기록을 확인하고 `STARTED`를 남긴다. 끝나면 결과 파일 sha256을 담은 `COMPLETED`를 더한다. 기록이 이미 있으면 `EVAL_OFFICIAL_ALREADY_RECORDED`로 멈추고, 그 뒤는 `REMEASURE`(참고값)다. 도중에 실패한 첫 실행도 `STARTED`로 남아 공식 자리를 쓴 것으로 본다. 모델 설정·자사 제품·프로필 로드처럼 첫 모델 호출 전의 실패는 기록을 남기지 않는다. 기록에는 추출 모델 이름도 남는다. 평가 문서의 `REMEASURE`도 같은 기록 파일이 필수이고, 그 manifest 판본·문서의 공식 기록이 있을 때만 돈다(`EVAL_OFFICIAL_NOT_RECORDED`). 공식 실행 없이 재측정부터 돌려 점수를 본 뒤 FIRST로 돌리는 우회를 막는다. `--provider fake`는 평가 문서 FIRST로 돌릴 수 없다(`EVAL_FAKE_CANNOT_BE_OFFICIAL`). 공식 결과는 `COMPLETED`의 해시를 Jira(KAN-191)에 함께 남겨 가리킨다.
+- 정답 파일은 읽을 때 검사한다: 문서 번호 중복, 같은 문서 안 (조항, 속성) 중복, REVIEW 후보의 `unconfirmed` 누락은 받지 않는다. 그다음 예측 없는 빈 실행으로 채점을 끝까지 돌려 본다(`precheck`). 모두 모델 호출 전이라, 정답 오류로 비용과 공식 실행 기회를 쓰지 않는다.
+- 평가 문서는 `--confirm-evaluation` 없이는 모델을 부르기 전에 멈춘다. 용도가 다른 문서(평가·개발·회귀)는 한 실행에 섞지 않는다. `meta.official`은 평가 문서의 `--run-label FIRST` 실행만 참이고, `REMEASURE`와 개발·회귀 실행은 참고값이다. `meta.git_sha`는 코드 폴더에 커밋 안 한 변경이 있으면 `+dirty`가 붙는다.
+- 보완 경로 예측은 시스템이 1순위로 내미는 열린 선택지다(사람이 고르기 전 제안). 협력사 맥락(고객 제조사 목록·목록 외 허용·공급 지역·조립품 공급 여부)은 사람이 프로젝트에 입력하는 값이라 정답 파일이 준다.
+- 정답 파일(`eval.rfp_candidates.GoldFile`, 저장소 밖): `gold_version`, 문서마다 `document_number`·`sections`(평가 절)·`requirements`(`clause_no`·`attribute`·`expected_status`·`necessity`·`expected_path`·`expected_reason`)·`candidates`(후보 코드 → `grade`, REVIEW면 `unconfirmed` 항목 이름 목록 필수)·`assembly_clauses`·`context`.
+- 회귀 문서 15번은 문서 manifest `rfp-documents-20261029-v1`에 없어 아직 돌릴 수 없다. manifest에 15번(파일명·sha256·`split=regression`)을 더해야 한다.
+
+요구 추출 측정에서 채택 기록까지(KAN-143 4차). `scripts/rfp_requirements_eval.py --adoption-out`은 요구 추출 게이트 2개(`rfp_requirement_recall`·`rfp_requirement_precision`)만 `eval_adopt --task rfp` 입력 형식으로 쓴다. 값은 `eval.rfp_metrics.summarize_extraction_keys`의 (clause_no, attribute) 키 일치이며 비교 상태는 보지 않는다. 재현율 분모는 게이트 정의대로 필수(mandatory) 정답만이고, 정밀도는 예측 전체를 정답 전체와 맞춘다(meta `metric_definition`). 이 스크립트의 정답에는 상태가 없어 `summarize_requirement_extraction`에 넣을 수 없기 때문이다. 정답 attribute 어휘가 예측 어휘와 같은지는 검증하지 않았다(개발 정답은 저장소 밖, meta `vocabulary_note`). 나머지 7개는 측정하지 않아 NOT_EVALUABLE이고, 0건 blocker 2개가 미측정이라 blocker는 참이다. `report.json`의 엄격·관대 점수는 정의가 달라 채택 기록에 넣지 않는다.
+
+```bash
+uv run --frozen python scripts/rfp_requirements_eval.py --docx <RFP.docx> --gold <정답.jsonl> --sections 2.4 2.5 --out <저장소 밖 폴더> --adoption-out <저장소 밖 폴더>/rfp-adopt-input.json
+uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖 폴더>/rfp-adopt-input.json --adopt requirements-<모델> --decided-by <이름> --rationale <사유.txt> --out <기록.json> --note <메모.md>
+```
+
+## 평가 CI와 승격 차단 (KAN-147)
+
+| 언제 | 무엇을 | 실제 모델 호출 |
+| --- | --- | --- |
+| PR·dev 반영 | 평가 검사(`scripts/check_backend.py eval`, 가짜 공급자)와 승격 차단 검사(`tests/eval/test_promotion.py`) | 없음 |
+| 설정 변경 | 모델·프롬프트 판본·출력 상한을 바꾸면 승격 차단 검사가 실패한다. 실측(실제 API 평가) 결과로 새 채택 기록을 만들어 ADOPTED로 승인하고 함께 커밋해야 통과한다 | 실측은 사람이 로컬·플랫폼 평가 작업에서 한다 |
+| 정기 회귀 | `.github/workflows/evaluation-schedule.yml`: 매주 월요일 09:00 KST(수동 실행 가능) dev 기준으로 평가 검사와 승격 차단 검사를 돌린다. GitHub 예약 실행은 기본 브랜치의 워크플로 파일만 쓰며, 이 저장소의 기본 브랜치는 dev다(기본 브랜치를 바꾸면 그 브랜치에 이 파일이 있어야 한다) | 없음 |
+| 보고서 보관 | 정기 실행 결과(`promotion.json`, 평가 검사 로그 `evaluation.log`, 커밋)를 CI 보관물로 90일 둔다. 정기 실행의 평가 검사는 PR과 같은 `check_backend.py eval`이다. 실측 보고서는 채택 기록의 결과 파일 sha256으로 가리킨다 | — |
+
+- **승격 차단**(`eval/promotion.py`): 업무 실행 경로가 쓰는 설정을 코드 기본값에서 직접 읽어(`deployed_config`, 환경 변수는 보지 않음) 단계별 ADOPTED 채택 기록과 비교한다. C/S 분류·초안은 C/S worker가 함께 쓰는 공통 모델(`GEMINI_MODEL` 기본값), RFP 요구 추출은 추출 전용 `TFT_EXTRACTION_MODEL` 기본값을 본다. 배포 스크립트가 코드 기본값을 덮어쓰면 `DEPLOY_DIFFERS`로 따로 잡는다(`GEMINI_MODEL`·`GEMINI_MAX_OUTPUT_TOKENS`·`TFT_EXTRACTION_MODEL`·`TFT_EXTRACTION_MAX_OUTPUT_TOKENS`). 단계별로 보는 값: 모델, 프롬프트 판본과 본문 지문(초안은 그래프 노드가 실제로 쓰는 `run_draft_attempt` 기본 판본, RFP 추출은 지시문 본문 sha256), 출력 상한, 초안 근거 수, 임베딩 차원·task_type. 실행 설정과 채택 기록 **양쪽의 모든 항목**을 비교하므로, 채택 기록에 없는 실행 설정이나 실행 경로에 없는 채택 항목도 불일치다. 채택 기록 `decided_on`은 YYYY-MM-DD여야 한다. 단계는 분류·초안·임베딩·RFP 요구 추출이다. 단계마다 가장 최근 ADOPTED 기록(decided_on)만 기준이라, 옛 채택값으로 되돌려도 막힌다. 문제는 세 종류다: 설정값이 채택값과 다름(`MISMATCH`), 그 단계의 ADOPTED 기록이 없음(`NO_ADOPTION`), 예외 승인 없는 blocker 불합격(`BLOCKER_UNWAIVED`). PROPOSED 기록은 승격 근거가 아니다.
+- **알려진 문제**(`eval/policy/promotion-exceptions.json`): 사유·티켓이 있는 줄만 통과시킨다. 불일치(`MISMATCH`·`DEPLOY_DIFFERS`) 줄은 운영값·채택값까지, 채택 기록 없음(`NO_ADOPTION`) 줄은 그 단계의 지금 설정 전체를 적고 그 값 그대로일 때만 허용한다. 알려진 문제 위에서 설정을 또 바꾸면 막힌다. 예외는 결과의 `excepted`에 그대로 보인다. 해소됐는데 남은 줄도 실패라 목록이 낡지 않는다. blocker 불합격은 이 목록에 둘 수 없고 채택 기록의 `waivers`로만 승인한다.
+- 2026-10-31 기준 알려진 문제 2건: 초안·RFP 요구 추출은 채택 기록 없음. 분류는 `gemini-3.6-flash`·v3·출력 상한 4096을 채택해(`classification-20261031-flash36-v3-out4096`) 예외가 사라졌다.
+- 실제 API 정기 회귀(키·비용)는 GitHub에서 하지 않는다. 플랫폼 평가 작업을 예약 실행하는 방식은 운영 후속이다.
+
+## 나머지 지표 잠금
+
+OCR·검색·초안, 개선요청 기준선·조건 비교·재요청·완료 후 재개, p95·부하 및 비용의 정확한 대상·계산식·합격선은 KAN-82에서 기획서 목표에 연결해 잠근다. 이 문서만으로 KAN-82 전체 완료를 선언하지 않는다.
 
 ### KAN-88 최초 주분류 집계 첫 단위
 
@@ -488,6 +576,11 @@ DB·예상 밖 오류는 원문 없이 `CS_QUALITY_STORE_FAILED`. 원문·스택
 - details: 묶음 ID, 두 정답 판본·SHA, 규칙표·제품 파일 SHA, data_origin·split·상태, 고정 분모, gold 항목 수,
   `excluded_by_reason`(`PRECISION_ONLY` 수), `valid_count`·`outcomes`, 원인별 항목 수, 기준선 요청 필요 수.
   사례 ID·항목 코드·제품 코드는 넣지 않는다. 실패·보류는 요청을 계산하지 않고 `outcomes`에만 센다.
+- 형식 위반율(KAN-148 2차, `store_outcome_metrics`, 정답 파일 없음): `cs_locked_schema_violation_rate`(segment `all`,
+  분류 최초 시도 SCHEMA_VIOLATION / (VALID + SCHEMA_VIOLATION), eval/adoption 게이트 계산과 같은 정의, 응답 0건이면
+  null)와 `cs_locked_outcome_count`(segment=결과, HELD·TRANSPORT_FAILURE·TIMEOUT·NOT_STARTED 포함). 원시 응답이 없는
+  반입 실행도 계산되며 `scripts/eval_import_run.py --execute`가 같이 저장하고, `scripts/eval_reconcile.py`가 게이트 키
+  `schema_violation_rate`로 대조한다.
 
 운영자 명령(local/test, DB는 `EVALUATION_REPORT_DATABASE_URL`):
 
@@ -498,6 +591,7 @@ uv run --frozen python -m eval.cs_report store-locked-quality --run-id <UUID> \
 uv run --frozen python -m eval.cs_report store-locked-rerequest --run-id <UUID> \
   --category-gold <정답 CSV> --info-gold <정답 CSV> --dev-manifest <manifest.json> \
   --split <train|valid> --scoring-version <판본>
+uv run --frozen python -m eval.cs_report store-outcomes --run-id <UUID> --scoring-version <판본>
 ```
 
 재요청 명령은 개발 분리본 로더(`tests/cs/cs_dev_data.py`)를 지연 import하므로 저장소 전체가 있는 운영자 환경에서만
@@ -523,7 +617,7 @@ ID별 channel/body_language만 받으며 본문·정답·임의 필드를 추가
 전체/각 그룹은 미실행·실패를 포함한 기존 지표 계약을 유지한다. 각 축의 total 합은 전체
 total과 같고 missing_metadata는 채널/언어 누락 건수다. 축 간 그룹은 중복되므로 서로
 더하지 않는다. 나타나지 않은 그룹은 생성하지 않으며 대상0은 빈 그룹 목록과 null 점수다.
-PHONE 주석 제거 판본·처리 건수 및 누설 조건은 기존 입력 감사 기록에서 별도로 확인한다.
+PHONE 표기는 기본 입력에 포함하며, 분석용 표기 제거 비교의 판본·처리 건수는 입력 감사 기록에서 별도로 확인한다.
 이 집계만으로 누설 제거·정답 잠금·실제 품질 합격이 검증되지는 않는다.
 
 

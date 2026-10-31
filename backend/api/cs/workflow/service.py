@@ -4,6 +4,7 @@ Every function runs inside the caller's transaction, after the ticket row is loc
 writes the change and its audit event together.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -13,8 +14,10 @@ from psycopg import AsyncConnection
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.workflow import repository
 from backend.shared.errors import ApplicationError
+from backend.shared.notifications import enqueue_notification
 
 Row = dict[str, Any]
+logger = logging.getLogger(__name__)
 
 # States from which a customer reply brings the ticket back to review (permissions.md 2.1).
 REOPEN_STATES = ("WAITING_CUSTOMER", "ANSWERED", "CLOSED")
@@ -49,6 +52,14 @@ def not_started(ticket_id: UUID) -> Row:
         "customer_sent_at": None,
         "closed_at": None,
         "closed_by": None,
+        "return_responsibility": None,
+        "return_cause_type": None,
+        "return_non_manufacturing_reason": None,
+        "return_response_note": None,
+        "return_subtype_confirmed": None,
+        "return_subtype_confirmed_reason": None,
+        "return_subtype_confirmed_by": None,
+        "return_subtype_confirmed_at": None,
     }
 
 
@@ -123,6 +134,56 @@ async def record_customer_send(
     )
 
 
+def send_pending() -> ApplicationError:
+    return ApplicationError(
+        409,
+        "CS_CUSTOMER_SEND_PENDING",
+        "A customer message is still with the platform. Refresh its status first.",
+    )
+
+
+async def record_customer_reply(
+    conn: AsyncConnection[Row],
+    ticket_id: UUID,
+    message_id: UUID,
+    method: str,
+    received_at: datetime,
+) -> tuple[Row, bool, bool]:
+    """Records a reply the platform linked (KAN-75) and reopens the ticket when its state
+    allows (KAN-110). Recording the same mail again changes nothing.
+
+    Returns:
+        tuple: (workflow after, whether the ticket was reopened now, whether this call
+        recorded the reply).
+    """
+    workflow = await lock(conn, ticket_id)
+    reopened = workflow["state"] in REOPEN_STATES
+    recorded = await repository.insert_reply(
+        conn,
+        {
+            "message_id": message_id,
+            "ticket_id": ticket_id,
+            "method": method,
+            "received_at": received_at,
+            "reopened": reopened,
+        },
+    )
+    if not recorded:
+        return workflow, False, False
+    if reopened:
+        workflow = await reopen_for_customer_reply(conn, ticket_id, message_id, None)
+        owner = workflow["owner_user_id"]
+        await notify_cs(
+            conn,
+            kind="cs.reply",
+            ticket_id=ticket_id,
+            audience=[{"user": owner}] if owner else [{"role": "cs_agent"}],
+            actor_id=None,
+            dedupe_key=f"cs.reply:{message_id}",
+        )
+    return workflow, reopened, True
+
+
 async def reopen_for_customer_reply(
     conn: AsyncConnection[Row], ticket_id: UUID, message_id: UUID, actor: UUID | None
 ) -> Row:
@@ -138,3 +199,27 @@ async def reopen_for_customer_reply(
     if workflow["state"] == "CLOSED":
         values |= {"closed_at": None, "closed_by": None}
     return await save(conn, workflow, actor, "customer_reply", values, message_id=message_id)
+
+
+async def notify_cs(
+    conn: AsyncConnection[Row],
+    *,
+    kind: Literal["cs.reply", "cs.transfer", "cs.safety"],
+    ticket_id: UUID,
+    audience: list[dict[str, Any]],
+    actor_id: UUID | None,
+    dedupe_key: str,
+) -> None:
+    """기존 업무 TX의 알림 INSERT만 savepoint로 격리한다. 별도 commit·외부 호출은 없다."""
+    try:
+        async with conn.transaction():
+            await enqueue_notification(
+                conn,
+                kind=kind,
+                subject_id=ticket_id,
+                audience=audience,
+                actor_id=actor_id,
+                dedupe_key=dedupe_key,
+            )
+    except Exception:
+        logger.warning("NOTIFICATION_INTENT_FAILED")

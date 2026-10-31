@@ -147,8 +147,9 @@ version이 없어 최신 checksum은 확인하지 못했다. 10/25 기록의 MD5
 | 사용 이력 | 실행자·시각·대상 파일 hash·접근 split/열·목적·출력 열람자·튜닝/선택 반영 여부 | 모르는 값은 미확인. 독립 최종 여부는 아래 평가 명세에 따름 |
 | 검수 잠금 | 정답 판본·필드별 검수 수준·불일치 조정·보류 사유·지표별 분모/제외 목록 | 미검수 gold를 정답으로 확정하거나 누락 gold를 null 정답으로 만들지 않음 |
 
-manifest와 파일 인수 이후에만 승인된 개발 자료에서 PHONE 주석 제거 판본·전후 hash·
-제거/보류 건수와 채널별 분모를 검증한다. 현재 `cs-classification-input-v2` 합성 회귀 통과는
+manifest와 파일 인수 이후에만 승인된 개발 자료에서 입력 판본·전후 hash·채널별 분모를 검증한다.
+PHONE 주석 제거·보류 건수는 분석용 표기 제거 옵션(`cs-classification-input-v3`)에서만 생기며, 기본
+입력(`cs-classification-input-v4`)은 표기를 포함한다. 합성 회귀 통과는
 제공 개발 자료의 처리가 완료됐다는 증거가 아니다. 상세 [사용 이력 판정](evaluation.md#cs-사용-이력과-검수-준비-kan-83)을 함께 적용한다.
 
 ### KAN-93에서 준비하고 KAN-95에서 판정할 검수표
@@ -163,9 +164,9 @@ manifest와 파일 인수 이후에만 승인된 개발 자료에서 PHONE 주�
 | secondary_category | 주분류와 다른 명시적 의도 목록, 없다는 근거 | 다중 보조 의도 선택 기준, 비해당 null과 미검수 구분 |
 | urgency_flag | PHONE 주석과 본문 근거 분리, PHONE/비PHONE·희소 SAFETY/SITE_DOWN 구분 | 본문 근거의 긴급도와 원천 라벨 불일치 조정 |
 | provided_info | 입력에 실제 제공된 정보의 위치, 검수된 정보 코드북 판본 | 허용 코드 집합·정답 집합, 원값·시리얼 노출 없이 제공 여부 표시 |
-| return_subtype | POL-RETURN과 문의 근거, 반품 여부·확인 가능성 | DEFECT/NON_DEFECT/비해당 null. 미확인은 별도 상태로 보존 |
+| return_subtype | POL-RETURN과 문의 근거, 반품 여부·확인 가능성 | DEFECT/NON_DEFECT/비해당 null. **접수 시 고객 주장**의 추출 정답이며 검사 후 확정 판정이 아니다(KAN-193). 확정은 사람이 업무 상태에 남기는 책임 구분(제조/제조 외/미정)·원인 유형·대응 내용이고, 이 정답이나 LLM 출력에서 만들지 않는다. 미확인은 별도 상태로 보존 |
 | 회신·해결 이력 | 문의/장비/판본 연결과 당시 known_at, 아직 없는 정보 | 과거 사실·회신 주장·확인 필요 구분, 미래 정보 누설 차단 |
-| 인용 안전 | 근거 문서 ID·판본·위치와 금지 인용 여부 | FLT-042 차단, RMA/방문/보증 승인 생성 금지 |
+| 인용 안전 | 근거 문서 ID·판본·위치와 금지 인용 여부 | FLT-042 차단, RMA/방문/보증 승인 생성 금지. 사람 확정 전에는 반품 사유·제조 책임·보증 적용을 확정하는 문구 금지(KAN-193) |
 | 분모·제외 | 지표별 대상·원천 이상·검수 누락/충돌 목록 | 한 지표의 제외를 다른 지표로 전파하지 않음 |
 
 [KAN-104의 기록](https://lsteam4.atlassian.net/browse/KAN-104?focusedCommentId=10248)에 따르면
@@ -242,7 +243,7 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 | 파일 | 내용과 사용 경계 |
 | --- | --- |
 | candidates.jsonl | 성공 사례의 case_id·privacy_review_status와 정제 payload 4필드. 모델 실행 승인 아님 |
-| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
+| audit.jsonl | 모든 사례의 ID·split·채널·성공/보류·안전한 오류 코드·주석 제거 수(분석용 옵션에서만 0 초과)·원천 라벨 기반 검수 그룹. 본문·전체 gold 행은 포함하지 않음 |
 | review.boundaries.csv | 전건 개인정보와 선정된 경계별 미검수 질문·원문/후보 위치·판정 기록 칸. 본문/정답을 복사하지 않는 사람 검수 전용 |
 | summary.json | 입력/처리 판본·manifest/개발 파일 hash·출력 파일 hash·시간·전체/성공/보류·split/채널별 집계. 사례 ID 없음 |
 
@@ -259,7 +260,8 @@ payload로 전달하지 않는다. 민감값 목록이 아직 인수되지 않�
 원문 단위 사람 검수·오탐률·민감정보 완전성·실제 품질과 KAN-93 전체 완료는 아직 미확정이다.
 
 
-검수 도구 v2의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류,
+검수 도구 v3의 `review.boundaries.csv`는 전건 INPUT_PRIVACY와 PHONE 주석 제거/제거 없음/입력 보류(분석용
+`--strip-phone-annotation`에서만),
 원천 SAFETY/SITE_DOWN·보조 의도·회신·금지 참조별로 한 행씩 준비한다. 반품 정답 양식은
 기존 `review.return_subtype.csv`를 사용하며 중복 생성하지 않는다. 그룹은 겹칠 수 있고 선정에
 원천 라벨을 사용하므로 독립적인 맹검 정답 판정용으로 사용하지 않는다. 그룹에 없는 사례도

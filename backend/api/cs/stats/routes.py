@@ -150,9 +150,13 @@ async def owners(
     window = period(start, end)
     async with connection(request.app.state.settings) as conn:
         rows = await repository.owners(conn, repository.params(start, end, dept))
-    return respond(
-        request, OwnerList(period=window, items=[OwnerLoad.model_validate(r) for r in rows])
-    )
+    items = [
+        OwnerLoad.model_validate(
+            {**r, "by_state": {state: r[f"state_{state.lower()}"] for state in STATES}}
+        )
+        for r in rows
+    ]
+    return respond(request, OwnerList(period=window, items=items))
 
 
 @router.get(

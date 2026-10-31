@@ -358,10 +358,11 @@ def test_commit_between_state_and_events_uses_one_snapshot(
     """
     from fastapi import Request
 
-    from backend.api.platform.jobs import events
+    from backend.api.platform.jobs import events, status
 
     client, admitted = job_client
-    original = events.read_evaluation_job
+    # 상태 읽기는 owner별 검사기(status.read_platform_job → read_evaluation_job)를 거친다.
+    original = status.read_evaluation_job
 
     async def commit_after_read(conn, actor, job_id):
         """스냅샷을 만든 다음 별도 연결에서 종료와 이벤트를 commit한다.
@@ -399,11 +400,11 @@ def test_commit_between_state_and_events_uses_one_snapshot(
             ],
         }
     )
-    monkeypatch.setattr(events, "read_evaluation_job", commit_after_read)
+    monkeypatch.setattr(status, "read_evaluation_job", commit_after_read)
     first = asyncio.run(events.read_event_batch(request, admitted.job_id, 0))
     assert not first.terminal and first.last_sequence == 1
     assert [e.sequence for e in first.events] == [1]
-    monkeypatch.setattr(events, "read_evaluation_job", original)
+    monkeypatch.setattr(status, "read_evaluation_job", original)
     second = asyncio.run(events.read_event_batch(request, admitted.job_id, 1))
     assert second.terminal and second.last_sequence == 2
     assert [e.sequence for e in second.events] == [2]

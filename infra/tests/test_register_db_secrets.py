@@ -23,6 +23,8 @@ class RegistrationTests(unittest.TestCase):
             "LS_GCP_ACCOUNT": registration.ACCOUNT,
             "LS_REGION": registration.REGION,
             "CS_DB_PASSWORD": "test-only cs $' password",
+            "CS_WORKER_DB_PASSWORD": "test-only cs worker",
+            "TFT_WORKER_DB_PASSWORD": "test-only tft worker",
             "TFT_DB_PASSWORD": "test-only tft 한글 password",
             "PLATFORM_DB_PASSWORD": "test-only platform password\n",
         }

@@ -1,5 +1,6 @@
 """저장된 분류 시도의 사용량을 읽는다. 실제 호출 수나 미보고 비용은 추정하지 않는다."""
 
+from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
@@ -115,7 +116,7 @@ def _summarize(rows: list[dict]) -> dict:
     }
 
 
-def _sum_report(rows: list[dict], field: str) -> dict:
+def sum_report(rows: list[dict], field: str) -> dict:
     """미보고가 섞이면 완전한 총액 대신 확인된 부분합만 제공한다.
 
     Args:
@@ -135,11 +136,11 @@ def _sum_report(rows: list[dict], field: str) -> dict:
     }
 
 
-def _percentile(values: list[int], q: float) -> float | None:
+def percentile(values: Sequence[float], q: float) -> float | None:
     """관측값의 (n-1)q 위치를 선형 보간한다.
 
     Args:
-        values: 오름차순 지연 값.
+        values: 오름차순 지연 값(정수·실수).
         q: 0에서 1 사이 분위수.
 
     Returns:
@@ -151,3 +152,8 @@ def _percentile(values: list[int], q: float) -> float | None:
     lower = int(position)
     upper = min(lower + 1, len(values) - 1)
     return values[lower] + (values[upper] - values[lower]) * (position - lower)
+
+
+# 다른 평가 모듈이 쓰던 밑줄 이름은 별칭으로 남긴다.
+_sum_report = sum_report
+_percentile = percentile
