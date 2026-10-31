@@ -1,54 +1,139 @@
-import { type ReactNode } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
-import { getApiMode } from '../api/client';
+import { ApiError, getApiMode } from '../api/client';
 import { getTicket } from '../api/cs';
+import { closeTicket, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
-import { KvKey, KvMore, KvTitle, useHotkey } from '../ls-shell/kv';
+import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
 const PENDING = '연결 전입니다.';
+const DEPT_LABEL: Record<DeptCode, string> = {
+  TS_LV: '저압기기 기술지원', TS_MV: '중압기기 기술지원', TS_TRF: '변압기 기술지원', TS_AUTO: '자동화 기술지원',
+  TS_ENERGY: '에너지 기술지원', RND_FW: '펌웨어 개발', QA_CLAIM: '품질보증/클레임', FIELD_SVC: '현장 서비스',
+  CERT: '인증', SALES_OPS: '영업 운영', SCM: '주문/물류', WARRANTY_DESK: '보증 데스크',
+};
+const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], string> = {
+  OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
+};
+type Transfer = WorkflowRecord['transfers'][number];
+type Dialog = 'transfer' | 'recall' | 'close' | null;
+type Notice = { kind: 'ok' | 'error'; text: string } | null;
+
 const Cell = ({ label, children }: { label: string; children: ReactNode }) =>
   <label><span>{label}</span><div className="v">{children}</div></label>;
 const Row = ({ children }: { children: ReactNode }) =>
   <div className="row" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>{children}</div>;
 
-// 문의 처리 CS0102. 지금 API는 접수 원문·업무 상태·장비 후보 조회까지다.
-// 저장, 부서 검토 요청, 종결 같은 쓰기 동작과 AI 분류·요약, 처리 기록은 연결 전이라 비활성이나 준비 중으로 둔다.
+// 문의 처리 CS0102. 접수 원문·업무 상태·장비 후보 조회와 업무 흐름 4동작(검토 시작·부서 검토 요청·요청 취소·종결)을 연결한다.
+// AI 분류·요약, 처리 기록은 API가 없어 연결 전으로 표시한다.
 export default function TicketDetail() {
   const { ticketId = '' } = useParams();
   const navigate = useNavigate();
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
   const ticket = useQuery({ queryKey: ['tickets', mode, ticketId], queryFn: ({ signal }) => getTicket(ticketId, signal), enabled: access.ready && ticketId !== '' });
-  useHotkey('Escape', () => navigate('/cs/tickets'), access.ready);
+  // 상태 표시는 문의 상세의 값을 쓴다. 업무 흐름 조회는 판본(version), 담당, 검토 요청 이력만 읽는다.
+  const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
+  // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
+  const identity = useQuery({ queryKey: ['ticket-owner-identity', mode], queryFn: me, retry: false, enabled: access.ready && workflow.isSuccess });
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  const running = useRef<AbortController | null>(null);
+  useHotkey('Escape', () => navigate('/cs/tickets'), access.ready && dialog === null);
+
   if (!access.ready) return <BusinessGate access={access} title="문의 처리" />;
   const data = ticket.isSuccess ? ticket.data.data : undefined;
   const rc = data?.resolution_case;
+  // 응답이 계약 모양(판본 숫자, 이력 배열)이 아니면 쓰지 않는다.
+  const wf = workflow.isSuccess && typeof workflow.data.data?.version === 'number' && Array.isArray(workflow.data.data.transfers) ? workflow.data.data : undefined;
   const state = data ? STATE_LABEL[data.workflow_state] ?? '알 수 없는 상태, 확인 필요' : '-';
+  const canWrite = import.meta.env.DEV && mode === 'live';
+  const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : '실제 API 개발 모드에서만 실행할 수 있습니다';
+  const st = data?.workflow_state;
+  const reasons = {
+    start: why(st === 'RECEIVED', '이미 검토중'),
+    transfer: why(st === 'IN_REVIEW', '검토중인 문의만 요청할 수 있습니다'),
+    recall: why(st === 'TRANSFERRED', '진행 중인 요청 없음'),
+    close: why(st === 'ANSWERED' || st === 'IN_REVIEW', '종결할 수 없는 상태입니다'),
+  };
+  const owner = wf?.owner_user_id ? (identity.data?.data?.id === wf.owner_user_id ? '나' : `사용자 ${wf.owner_user_id.slice(0, 8)}`) : wf ? '미지정' : '-';
+
+  // 한 번에 한 동작만 실행한다. 실패하거나 결과를 알 수 없으면(408·5xx) 같은 요청을 다시 보내지 않고 최신 상태를 읽는다.
+  // 판본이 바뀌면 서버가 409를 주므로 이미 반영된 동작이 두 번 적용되지 않는다.
+  async function run(done: string, call: (signal: AbortSignal) => Promise<unknown>) {
+    if (busy) return;
+    const controller = new AbortController();
+    running.current = controller;
+    setBusy(true); setNotice(null);
+    try {
+      await call(controller.signal);
+      setNotice({ kind: 'ok', text: done });
+      setDialog(null);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setNotice({ kind: 'error', text: isVersionConflict(error)
+        ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
+          : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 상태를 읽었습니다. 반영 여부를 확인하세요.' });
+      setDialog(null);
+    } finally {
+      await Promise.allSettled([ticket.refetch(), workflow.refetch()]);
+      setBusy(false);
+    }
+  }
+  const version = wf?.version ?? 0;
+  const doStart = () => run('검토를 시작했습니다.', signal => startReview(ticketId, version, signal));
+  const submitTransfer = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const dept = String(form.get('dept') ?? '') as DeptCode;
+    const reason = String(form.get('reason') ?? '').trim();
+    if (!dept || !reason) return;
+    void run('부서 검토를 요청했습니다.', signal => transferTicket(ticketId, { dept_code: dept, reason, version }, signal));
+  };
+  const submitRecall = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim();
+    if (!reason) return;
+    void run('부서 검토 요청을 취소했습니다.', signal => recallTransfer(ticketId, { reason, version }, signal));
+  };
+
+  const transferColumns: KvColumn<Transfer>[] = [
+    { key: 'round', header: '회차', width: 44, className: 'c', cell: item => item.round },
+    { key: 'dept', header: '요청 부서', width: 150, cell: item => `${DEPT_LABEL[item.dept_code as DeptCode] ?? item.dept_code} (${item.dept_code})` },
+    { key: 'status', header: '상태', width: 80, className: 'c', cell: item => TRANSFER_STATUS[item.status] ?? item.status },
+    { key: 'reason', header: '사유', cell: item => item.reason },
+    { key: 'at', header: '요청 일시', width: 130, className: 'd', cell: item => formatStamp(item.transferred_at) },
+  ];
+
   return <main>
     <KvTitle path="C/S 관리" title="문의 처리" code="CS0102">
       <button className="kb primary" disabled title="저장할 항목이 아직 없습니다">저장<KvKey>F10</KvKey></button>
-      <button className="kb" disabled title="부서 검토 요청 연결 전입니다">부서 검토 요청</button>
+      <button className="kb" disabled={busy || reasons.transfer !== undefined} title={reasons.transfer} onClick={() => setDialog('transfer')}>부서 검토 요청</button>
       <Link className="kb" to="/cs/tickets">목록<KvKey>Esc</KvKey></Link>
       <KvMore items={[
-        { label: '검토 시작', note: data && data.workflow_state !== 'RECEIVED' ? '이미 검토중' : '연결 전' },
-        { label: '요청 취소', note: '연결 전' },
+        { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
+        { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
         { label: '담당 변경', note: 'C/S 관리자만, 연결 전' },
-        { label: '종결', note: '확인 완료된 검토 답변 또는 고객 발송 기록 필요' },
-        { label: '해결 기록 남기기', note: '종결 후 한 건' },
+        { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
+        { label: '해결 기록 남기기', note: '종결 후 한 건, 연결 전' },
       ]} />
     </KvTitle>
 
     <div className="kv-next">
       <span className="k">다음 할 일</span>
       {data ? <TicketWorkflow state={data.workflow_state} /> : <span>{ticket.isPending ? '불러오는 중' : '문의를 불러오지 못했습니다.'}</span>}
-      <button className="kb" style={{ marginLeft: 'auto', flex: 'none', whiteSpace: 'nowrap' }} disabled={ticket.isFetching} onClick={() => void ticket.refetch()}>최신 상태 조회</button>
+      <button className="kb" style={{ marginLeft: 'auto', flex: 'none', whiteSpace: 'nowrap' }} disabled={ticket.isFetching || busy} onClick={() => { void ticket.refetch(); void workflow.refetch(); }}>최신 상태 조회</button>
     </div>
     <div className="kv-sub" style={{ margin: '4px 14px 0' }}>API 조회 상태와 상태별 일반 안내입니다. 실행 권한이나 후속 작업의 완료를 보장하지 않습니다. 요약, 분류, 문안은 아직 없음, KAN-103과 106 뒤</div>
+    {notice && <div className={notice.kind === 'error' ? 'kv-err' : 'kv-next'} role={notice.kind === 'error' ? 'alert' : 'status'} style={{ margin: '6px 14px 0', padding: '6px 10px' }}>{notice.text}</div>}
 
     {ticket.isPending && <Loading />}
     {ticket.isError && <ErrorState error={ticket.error} onRetry={() => void ticket.refetch()} />}
@@ -63,7 +148,7 @@ export default function TicketDetail() {
         <Row>
           <Cell label="제품"><span className="ro">{data.product_code}</span></Cell>
           <Cell label="상태"><span className="ro">{state}</span></Cell>
-          <Cell label="담당"><span className="ro unc" title="담당자 조회는 연결 전입니다">-</span></Cell>
+          <Cell label="담당"><span className="ro">{owner}</span></Cell>
           <Cell label="자료 구분"><span className="ro">{data.data_origin}, {data.derivation_kind}</span></Cell>
         </Row>
       </div>
@@ -97,7 +182,9 @@ export default function TicketDetail() {
       <div className="kv-split">
         <div>
           <div className="kv-sub" style={{ margin: '0 0 6px' }}>검토 요청</div>
-          <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-muted)' }}>요청 이력 조회는 {PENDING}</div>
+          {wf
+            ? <KvGrid label="검토 요청 이력" columns={transferColumns} rows={wf.transfers} rowKey={item => item.id} fallback="요청 이력 없음" />
+            : <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-muted)' }}>{workflow.isError ? '요청 이력을 불러오지 못했습니다.' : '요청 이력을 읽는 중입니다.'}</div>}
           <div className="kv-sub" style={{ margin: '12px 0 0' }}>알려진 해결 사례</div>
           <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-text)' }}>
             {rc
@@ -115,5 +202,26 @@ export default function TicketDetail() {
         </div>
       </div>
     </>}
+
+    {dialog === 'transfer' && data && <KvModal title={`부서 검토 요청, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <form onSubmit={submitTransfer}>
+        <div className="kv-field"><span>현재</span><span className="ro">{state}, 담당 {owner}</span></div>
+        <div className="kv-field"><span className="req">요청 부서</span>
+          <select name="dept" aria-label="요청 부서" required defaultValue=""><option value="" disabled>선택</option>{(Object.keys(DEPT_LABEL) as DeptCode[]).map(code => <option key={code} value={code}>{DEPT_LABEL[code]} ({code})</option>)}</select></div>
+        <div className="kv-field"><span className="req">요청 사유</span><textarea name="reason" aria-label="요청 사유" rows={3} required /></div>
+        <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>취소</button><button type="submit" className="kb primary" disabled={busy}>요청</button></div>
+      </form>
+    </KvModal>}
+    {dialog === 'recall' && data && <KvModal title={`요청 취소, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <form onSubmit={submitRecall}>
+        <div className="kv-sub" style={{ margin: '0 0 8px' }}>부서에 보낸 검토 요청을 회수하고 검토중 상태로 돌아갑니다.</div>
+        <div className="kv-field"><span className="req">취소 사유</span><textarea name="reason" aria-label="취소 사유" rows={3} required /></div>
+        <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>닫기</button><button type="submit" className="kb primary" disabled={busy}>요청 취소</button></div>
+      </form>
+    </KvModal>}
+    {dialog === 'close' && data && <KvModal title={`종결, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <div className="kv-sub" style={{ margin: '0 0 8px' }}>이 문의를 종결합니다. 종결 뒤에는 해결 기록을 한 건 남길 수 있습니다. 종결 조건은 서버가 확인하며, 맞지 않으면 사유를 알려 줍니다.</div>
+      <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>닫기</button><button type="button" className="kb primary" disabled={busy} onClick={() => void run('문의를 종결했습니다.', signal => closeTicket(ticketId, version, signal))}>종결</button></div>
+    </KvModal>}
   </main>;
 }

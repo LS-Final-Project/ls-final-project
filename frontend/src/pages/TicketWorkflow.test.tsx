@@ -18,14 +18,18 @@ test.each([
   ['RECEIVED','접수','접수'], ['IN_REVIEW','검토 중','검토중'], ['WAITING_CUSTOMER','고객 회신 대기','고객 회신 대기'],
   ['ANSWERED','회신 완료','답변 완료'], ['TRANSFERRED','부서 이관','부서 검토 중'], ['CLOSED','종결','종결'],
 ])('목록과 상세는 계약 상태 %s를 상세 %s, 목록 %s로 표시한다',async(state,label,listLabel)=>{
-  const fetch=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,isRequests(url)?{data:{items:[]}}:String(url).endsWith('/tickets')?list(state):detail(state)));
+  // 업무 흐름 조회(/workflow)가 다른 상태를 돌려줘도 화면의 상태 표시는 문의 상세·목록의 값을 따른다.
+  const other=state==='CLOSED'?'RECEIVED':'CLOSED';
+  const flow={data:{ticket_id:'x',state:other,version:7,owner_user_id:null,closed_at:null,closed_by:null,customer_sent_at:null,dept_results:[],transfers:[]}};
+  const fetch=vi.fn(async(url:RequestInfo|URL)=>jsonResponse(200,isRequests(url)?{data:{items:[]}}:String(url).endsWith('/workflow')?flow:String(url).endsWith('/tickets')?list(state):detail(state)));
   vi.stubGlobal('fetch',fetch);const page=viewList();
   // 목록의 상태 조건은 기본으로 종결을 뺀다. 종결 시험은 전체를 고른다.
   if(state==='CLOSED'){await screen.findByRole('table',{name:'문의 목록'});fireEvent.change(screen.getByLabelText('상태'),{target:{value:''}});}
   await screen.findByText(listLabel,{selector:'td'});
   page.unmount();viewDetail();await screen.findByText(label,{selector:"strong"});
   expect(screen.getByText(/실행 권한이나 후속 작업의 완료를 보장하지/)).toBeTruthy();
-  expect(fetch.mock.calls.every(([url])=>!String(url).includes('/workflow'))).toBe(true);
+  expect(screen.queryByText(other==='CLOSED'?'종결':'접수',{selector:'strong'})).toBeNull();
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/workflow'))).toBe(true));
 });
 test.each(['NEW_STATE','toString',null,undefined])('미지원 상태 %s는 완료나 실행 권고로 추측하지 않는다',async(state)=>{
   vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,detail(state))));viewDetail();
