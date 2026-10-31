@@ -23,10 +23,9 @@ from starlette.types import Message
 
 from backend.api.tft.projects.access import can_edit_project, can_run_processing, manages_project
 from backend.api.tft.projects.repository import integration_state
-from backend.api.tft.projects.routes import integration_body
 from backend.api.tft.rfp import commands, repository, storage
 from backend.api.tft.rfp import schemas as s
-from backend.api.tft.rfp.counts import is_unresolved
+from backend.api.tft.rfp.integration import integration_body
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.api.tft.rfp.routes_read import document_out
 from backend.engine.documents.model import DOCX_MIME
@@ -68,6 +67,34 @@ def too_large() -> ApplicationError:
     return ApplicationError(413, "TFT_DOCUMENT_TOO_LARGE", "The document exceeds 25 MiB.")
 
 
+async def project_fields(conn: AsyncConnection[Row], project_id: UUID) -> dict[str, Any]:
+    """프로젝트 상세 칸(경로 3과 쓰기 응답이 같이 쓴다). 건수는 목록과 같은 SQL이다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        dict: RfpProjectDetail 입력. latest_job은 플랫폼 소유라 항상 null이다.
+    """
+    row, requirements, pending = await repository.project_detail_parts(conn, project_id)
+    state = await integration_state(conn, project_id)
+    return {
+        **{k: row[k] for k in s.PROJECT_COLUMNS},
+        "requirement_counts": {
+            "by_status": Counter(r["status"] for r in requirements),
+            "by_necessity": Counter(r["necessity"] for r in requirements),
+            "needs_rereview": sum(r["needs_rereview"] for r in requirements),
+            "open_questions": row["open_questions_count"],
+        },
+        "pending_proposals_by_origin": {
+            origin: pending.get(origin, 0) for origin in s.PendingByOrigin.model_fields
+        },
+        "latest_job": None,
+        "integration_responsibility": integration_body(state),
+    }
+
+
 async def project_detail(conn: AsyncConnection[Row], project_id: UUID) -> s.RfpProjectDetail:
     """쓰기 응답의 프로젝트 상세.
 
@@ -76,34 +103,9 @@ async def project_detail(conn: AsyncConnection[Row], project_id: UUID) -> s.RfpP
         project_id: 프로젝트 ID.
 
     Returns:
-        s.RfpProjectDetail: 프로젝트 칸과 집계. latest_job은 항상 null이다.
+        s.RfpProjectDetail: 프로젝트 칸과 집계.
     """
-    row, requirements, pending = await repository.project_detail_parts(conn, project_id)
-    state = await integration_state(conn, project_id)
-    by_status = Counter(r["status"] for r in requirements)
-    by_necessity = Counter(r["necessity"] for r in requirements)
-    return s.RfpProjectDetail.model_validate(
-        {
-            **{k: row[k] for k in s.PROJECT_COLUMNS},
-            "requirements_count": len(requirements),
-            "unresolved_mandatory_count": sum(
-                is_unresolved(r["necessity"], r["status"], r["unresolved"], r["needs_rereview"])
-                for r in requirements
-            ),
-            "pending_proposals_count": sum(pending.values()),
-            "requirement_counts": {
-                "by_status": by_status,
-                "by_necessity": by_necessity,
-                "needs_rereview": sum(r["needs_rereview"] for r in requirements),
-                "open_questions": sum(r["open_questions"] for r in requirements),
-            },
-            "pending_proposals_by_origin": {
-                origin: pending.get(origin, 0) for origin in s.PendingByOrigin.model_fields
-            },
-            "latest_job": None,
-            "integration_responsibility": integration_body(state),
-        }
-    )
+    return s.RfpProjectDetail.model_validate(await project_fields(conn, project_id))
 
 
 async def check_departments(conn: AsyncConnection[Row], departments: list[str]) -> None:

@@ -1087,3 +1087,71 @@ def test_review_department_sees_the_project_in_routes_1_and_3(client, chain):
     sales = Principal(user_id=uuid4(), roles=frozenset({"sales"}), dept="RND_FW")
     assert data(get(client, "/projects?limit=100", sales))["items"] == []
     assert get(client, url, sales).status_code == 404
+
+
+def test_routes_1_and_3_carry_the_spec_fields_with_one_calculation(client, gap, admin):
+    """경로 1·3: 옛 칸을 지우지 않고 명세 칸을 더한다. 건수는 목록과 상세가 같다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET necessity='MANDATORY' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+        conn.execute(
+            "UPDATE tft.projects SET client_name='Acme_100%%', output_status='ANALYZING', "
+            "judgement_status='CONDITION_CHECK' WHERE id=%s",
+            (gap["project"],),
+        )
+    assert ask(client, gap).status_code == 201
+    no_requirement = ask(client, gap, requirement_id=None)
+    assert no_requirement.status_code == 201, no_requirement.text
+    draft(admin, gap)
+    assert propose(client, gap, reason="다시 본 사유").status_code == 201
+    dropped = propose(client, gap, reason="기각할 제안").json()["data"]
+    assert decide(client, dropped, "reject", reason="중복").status_code == 200
+    project = str(gap["project"])
+    [item] = [i for i in data(get(client, "/projects?limit=100"))["items"] if i["id"] == project]
+    detail = data(get(client, f"/projects/{project}"))
+    for name in (
+        "requirements_count",
+        "unresolved_mandatory_count",
+        "pending_proposals_count",
+        "open_questions_count",
+        "output_status",
+        "judgement_status",
+    ):
+        assert item[name] == detail[name], name
+    assert (item["requirements_count"], item["unresolved_mandatory_count"]) == (1, 1)
+    assert (item["pending_proposals_count"], item["open_questions_count"]) == (1, 2)
+    assert detail["requirement_counts"]["open_questions"] == 2
+    assert detail["requirement_counts"]["by_necessity"] == {"MANDATORY": 1}
+    assert detail["pending_proposals_by_origin"]["web"] == 1
+    assert detail["documents_count"] == 1 and detail["latest_job"] is None
+    assert item["integration_responsibility"] == {"holder": "UNRESOLVED"}
+    # 옛 화면이 읽는 칸은 그대로 있다.
+    assert item["status"] == "INITIAL_REVIEW" and "external_id" in item
+    assert detail["rfp_requirements"] == [] and detail["status"] == "INITIAL_REVIEW"
+
+
+def test_project_list_filters_in_sql_with_literal_search_terms(client, gap, admin):
+    """상태 필터와 q(이름·고객명 부분 일치, 대소문자 무시). %·_는 글자 그대로다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET client_name='Acme_100%%', output_status='ANALYZING', "
+            "judgement_status='CONDITION_CHECK' WHERE id=%s",
+            (gap["project"],),
+        )
+    project = str(gap["project"])
+
+    def found(query):
+        items = data(get(client, f"/projects?limit=100&{query}"))["items"]
+        return project in [i["id"] for i in items]
+
+    assert found("output_status=ANALYZING") and not found("output_status=INTAKE")
+    assert found("judgement_status=CONDITION_CHECK") and not found("judgement_status=NEEDS_REVIEW")
+    assert found("q=acme") and found("q=%ED%95%A9%EC%84%B1")
+    assert found("q=_100") and not found("q=x_1")
+    assert found("q=0%25") and not found("q=A%25e")
+    assert not found("q=nothing")
+    assert found("output_status=ANALYZING&q=ACME")
+    assert get(client, "/projects?q=a").status_code == 422
+    assert get(client, "/projects?output_status=NOPE").status_code == 422

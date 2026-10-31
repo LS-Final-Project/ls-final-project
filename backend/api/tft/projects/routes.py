@@ -19,7 +19,8 @@ from backend.api.tft.projects.schemas import (
     ProjectSummary,
     RfpRequirement,
 )
-from backend.api.tft.rfp.integration import StoredRequirement, project_integration
+from backend.api.tft.rfp import schemas as rfp
+from backend.api.tft.rfp.routes_write import project_fields
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -90,6 +91,9 @@ async def list_projects(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    output_status: rfp.OutputStatus | None = None,
+    judgement_status: rfp.JudgementStatus | None = None,
+    q: str | None = Query(None, min_length=2, max_length=100),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[ProjectList]:
     require_project_list(principal)
@@ -102,8 +106,16 @@ async def list_projects(
             sorted(principal.managed_projects),
             principal.user_id,
             principal.dept if "dept_staff" in principal.roles else None,
+            output_status=output_status,
+            judgement_status=judgement_status,
+            q=q,
         )
-    items = [ProjectSummary.model_validate(row) for row in rows[:limit]]
+    items = [
+        ProjectSummary.model_validate(
+            {**row, "integration_responsibility": {"holder": row["integration_holder"]}}
+        )
+        for row in rows[:limit]
+    ]
     next_cursor = None
     if len(rows) > limit:
         last = rows[limit - 1]
@@ -136,39 +148,15 @@ async def get_project(
         ):
             raise ApplicationError(404, "TFT_PROJECT_NOT_FOUND", "The project was not found.")
         requirements = await repository.list_rfp_requirements(conn, project_id)
-        integration = await repository.integration_state(conn, project_id)
+        fields = await project_fields(conn, project_id)
     detail = ProjectDetail.model_validate(
         {
             **row,
+            **fields,
             "rfp_requirements": [RfpRequirement.model_validate(r) for r in requirements],
-            "integration_responsibility": integration_body(integration),
         }
     )
     return respond(request, detail)
-
-
-def integration_body(state: tuple[dict[str, Any], list[dict[str, Any]]] | None) -> Any:
-    """통합 책임 입력 → 응답 칸. 스키마가 없으면 None이다(repository.integration_state).
-
-    Args:
-        state: (사람 입력 칸, 최신 요구 판본 행) 또는 None.
-
-    Returns:
-        Any: IntegrationResponsibility 입력 dict 또는 None.
-    """
-    if state is None:
-        return None
-    holder, rows = state
-    return {
-        "holder": holder["integration_holder"],
-        "holder_candidate_codes": holder["integration_holder_candidates"],
-        "note": holder["integration_note"],
-        "set_by": holder["integration_set_by"],
-        "set_at": holder["integration_set_at"],
-        **project_integration(
-            [StoredRequirement.model_validate(r) for r in rows], holder["integration_holder"]
-        ),
-    }
 
 
 def respond(request: Request, data: Any) -> SuccessResponse[Any]:
