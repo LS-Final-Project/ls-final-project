@@ -5,6 +5,9 @@
 내용이 완전히 같은 행은 거절한다.
 data_origin은 synthetic으로 고정해 보내고, 응답이 synthetic이 아니면 멈춘다.
 
+실행: uv run --frozen python -m scripts.cs_ticket_import --file <입력> [--execute]
+자체 서명 인증서 주소는 검증을 끄지 말고 SSL_CERT_FILE에 그 인증서를 지정한다.
+
 세션은 환경변수 CS_IMPORT_COOKIE(브라우저의 세션 쿠키)에서만 읽고 출력하지 않는다. CSRF 토큰은 /api/v1/platform/me
 응답 머리글에서 받는다. 원장(--ledger, 기본 <입력>.ledger.jsonl)에 끝난 행을 적어 다시 돌려도 중복 등록하지 않는다.
 ponytail: 접수 경로에 멱등 키가 없어 원장으로 막는다. 응답을 받기 전에 끊긴 행은 원장에 없어 한 번 더 들어갈 수 있다.
@@ -39,13 +42,14 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
     Returns:
         list[dict]: 행. CSV의 빈 칸은 없는 값으로 본다.
     """
-    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
-        return [
-            {key: value for key, value in row.items() if value not in ("", None)}
-            for row in csv.DictReader(text.splitlines())
-        ]
-    rows = json.loads(text)
+        # 본문은 등록 뒤 못 고친다. 칸 안의 줄바꿈이 남도록 csv 모듈이 줄을 나누게 둔다.
+        with path.open(encoding="utf-8-sig", newline="") as source:
+            return [
+                {key: value for key, value in row.items() if value not in ("", None)}
+                for row in csv.DictReader(source)
+            ]
+    rows = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list):
         raise ValueError("JSON 입력은 문의 객체의 배열이어야 합니다.")
     return rows
@@ -132,7 +136,13 @@ def execute(
         status, _, raw = send(
             "POST",
             f"{root}/api/v1/cs/tickets",
-            {"Cookie": cookie, "X-CSRF-Token": token, "Content-Type": "application/json"},
+            # 중계는 쓰기 요청의 Origin이 앱 주소와 같아야 받는다. 브라우저가 붙이는 값을 대신 보낸다.
+            {
+                "Cookie": cookie,
+                "X-CSRF-Token": token,
+                "Origin": root,
+                "Content-Type": "application/json",
+            },
             json.dumps(body, ensure_ascii=False).encode(),
         )
         if status != 201:

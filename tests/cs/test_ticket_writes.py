@@ -111,6 +111,9 @@ def test_create_sets_server_owned_fields_and_audits_without_the_body(client, sto
     assert [(e["action"], e["version"]) for e in audit] == [("create", 1)]
     assert "body" not in audit[0]["changes"]
     assert audit[0]["changes"]["product_code"] == {"to": "TRF-OIL-1000"}
+    # 요청에 없던 출처도 저장된 값으로 남고, 등급은 없는 그대로 남는다.
+    assert audit[0]["changes"]["data_origin"] == {"to": "demo"}
+    assert audit[0]["changes"]["customer_tier"] == {"to": None}
 
 
 def test_create_keeps_the_given_tier_and_marks_a_loaded_ticket_synthetic(client, store):
