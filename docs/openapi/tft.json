@@ -8520,7 +8520,7 @@
     },
     "/api/v1/tft/projects/{project_id}/requirements": {
       "get": {
-        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 9\uac1c.",
+        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 10\uac1c.",
         "operationId": "tft_list_rfp_requirements",
         "parameters": [
           {
@@ -8668,6 +8668,22 @@
                 }
               ],
               "title": "Needs Rereview"
+            }
+          },
+          {
+            "in": "query",
+            "name": "needs_review",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Needs Review"
             }
           },
           {

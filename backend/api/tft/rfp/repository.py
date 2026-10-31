@@ -1002,6 +1002,8 @@ async def insert_approved_version(
         "decided_by": actor,
         "proposal_id": proposal["id"],
         "derivation_kind": "PROVIDED",
+        # 코드 전용 경고는 사람이 승인한 판본에 잇지 않는다.
+        "needs_review": False,
     }
     kept = [
         c for c in base if c not in changed and c not in ("decided_at", "known_at", "created_at")
@@ -1846,6 +1848,9 @@ async def list_requirements(
         if filters.get(column) is not None:
             where.append(f"v.{column} = %s")
             params.append(filters[column])
+    if filters.get("needs_review") is not None:
+        where.append("v.needs_review = %s")
+        params.append(filters["needs_review"])
     if filters.get("needs_rereview") is not None:
         where.append(f"({rereview}) = %s")
         params.append(filters["needs_rereview"])

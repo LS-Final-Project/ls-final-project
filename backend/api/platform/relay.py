@@ -123,6 +123,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
             "necessity",
             "status",
             "needs_rereview",
+            "needs_review",
             "has_open_question",
             "next_owner_field",
             "unresolved_mandatory",
