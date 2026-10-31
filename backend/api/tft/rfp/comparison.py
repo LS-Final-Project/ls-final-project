@@ -346,7 +346,8 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             )
         else:
             ours = grading._with_unit(fact.value, fact.unit)
-            unresolved.append(f"{grading.NO_NUMBER}: 원문 확인, 자사 {ours}")
+            word = grading.missing_word(_as_grading(requirement))
+            unresolved.append(f"{word}: 원문 확인, 자사 {ours}")
     elif result == "NOT_COMPARABLE":
         # 숫자로 읽지 못했거나 문자열 값이 달라 비교하지 못한 경우도 확인 항목을 남긴다.
         wanted = requirement.value or grading.NO_NUMBER

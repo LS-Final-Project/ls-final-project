@@ -40,6 +40,7 @@ UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
 SECONDS = frozenset({"sec", "secs", "second", "seconds"})
 # 요구에 비교할 숫자나 단위가 없을 때의 말. 단위가 다른 것과 구분한다.
 NO_NUMBER = "요구 값에 숫자·단위 없음"
+NO_UNIT = "요구 값에 단위 없음"
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
@@ -320,6 +321,18 @@ def _head(requirement: Requirement) -> str:
     return f"{where}{name} 요구 {wanted}"
 
 
+def missing_word(requirement: Requirement) -> str:
+    """단위 없는 요구가 무엇을 빠뜨렸는지 쓴다. 숫자가 있으면 숫자가 없다고 하지 않는다.
+
+    Args:
+        requirement: 단위가 없는 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    return NO_UNIT if _number(requirement.value) is not None else NO_NUMBER
+
+
 def shortfall_word(requirement: Requirement) -> str:
     """요구를 못 맞춘 방향을 말로 쓴다. 같아야 하는 값이 더 크면 미달이 아니다.
 
@@ -428,7 +441,7 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
         if _unit_key(requirement.unit) != _unit_key(fact.unit):
             if not requirement.unit:
-                return "unknown", NO_NUMBER
+                return "unknown", missing_word(requirement)
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
         if requirement.operator == "RANGE":

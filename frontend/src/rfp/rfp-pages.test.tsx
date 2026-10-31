@@ -10,6 +10,7 @@ const project = (id: string, name: string, output_status = 'ANALYZING', extra: R
   client_name: '가상 고객', output_status, judgement_status: 'CONDITION_CHECK', requirements_count: 48, unresolved_mandatory_count: 3,
   pending_proposals_count: 4, open_questions_count: 2, strategic_customer: null, integration_responsibility: { holder: 'UNRESOLVED' }, ...extra,
 });
+const isList = (url: string) => /\/tft\/projects(\?|$)/.test(url);
 const page = (items: unknown[], next_cursor: string | null = null) =>
   jsonResponse(200, { data: { items, next_cursor }, meta: { request_id: 'x' } });
 
@@ -30,16 +31,16 @@ describe('프로젝트 목록', () => {
     const table = screen.getByRole('table', { name: '접수 및 요구 검토' });
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
     expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
-      ['No', '프로젝트', '프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '담당', '책임자', '접수일'],
+      ['', 'No', '프로젝트', '프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '담당', '책임자', '접수일'],
     );
     expect(within(table).getAllByText('접수').length).toBeGreaterThan(0);
     expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
     expect(table.classList.contains('free')).toBe(true); // C/S 목록의 앞 세 열 고정을 쓰지 않는다
-    expect(screen.getByRole('tab').textContent).toContain('접수 및 요구 검토');
+    expect(screen.getByRole('tab', { selected: true }).textContent).toContain('접수 및 요구 검토');
   });
 
   it('커서로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
-    const f = live(url => url.includes('cursor=c%2F2') ? page([project('2', '둘째 쪽')]) : url.includes('/projects') ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
+    const f = live(url => url.includes('cursor=c%2F2') ? page([project('2', '둘째 쪽')]) : isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
     await screen.findByText('첫째 쪽');
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
@@ -72,7 +73,7 @@ describe('프로젝트 목록', () => {
 });
 
 describe('프로젝트 조회조건', () => {
-  const server = () => live(url => url.includes('/tft/projects') ? page([project('1', '합성')]) : jsonResponse(401, errorBody('X', '세션')));
+  const server = () => live(url => isList(url) ? page([project('1', '합성')]) : jsonResponse(401, errorBody('X', '세션')));
 
   it('진행·판단·검색어를 서버로 보내고 첫 쪽으로 돌아간다', async () => {
     const f = server();

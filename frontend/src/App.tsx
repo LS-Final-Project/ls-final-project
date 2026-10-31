@@ -11,7 +11,6 @@ import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
 import RfpIntake from './rfp/RfpIntake';
 import RfpRequirement from './rfp/RfpRequirement';
-import RfpProjects from './rfp/RfpProjects';
 import RfpSupplement from './rfp/RfpSupplement';
 import RfpApprovals from './rfp/RfpApprovals';
 import RfpTable from './rfp/RfpTable';
@@ -30,7 +29,7 @@ export default function App() {
       <Route path="cs/tickets" element={<div className="ls-legacy"><Tickets /></div>} />
       <Route path="cs/tickets/:ticketId" element={<div className="ls-legacy"><TicketDetail /></div>} />
       <Route path="tft" element={<RfpHome />} />
-      <Route path="tft/projects" element={<RfpProjects />} />
+      <Route path="tft/projects" element={<RfpIntake />} />
       <Route path="tft/projects/:projectId/supplement" element={<RfpSupplement />} />
       <Route path="tft/projects/:projectId/table" element={<RfpTable />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />

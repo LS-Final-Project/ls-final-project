@@ -1595,11 +1595,18 @@ def test_a_miss_names_its_direction_with_both_values_and_keeps_the_verdict(opera
     assert "요구 15 kV" in outcome.reason and f"자사 {ours} kV" in outcome.reason
 
 
-@pytest.mark.parametrize("value", ["rated short-time withstand current", "15"])
-def test_a_requirement_without_a_unit_says_so_instead_of_none(value):
+@pytest.mark.parametrize(
+    ("value", "word"),
+    [
+        ("rated short-time withstand current", "요구 값에 숫자·단위 없음"),
+        ("15", "요구 값에 단위 없음"),
+    ],
+)
+def test_a_requirement_without_a_unit_says_what_is_missing(value, word):
     outcome = compare(voltage(value=value, unit=None, operator="GTE"), [switchgear("25")], TRACE)
     assert outcome.status == "CONDITIONAL"
-    assert "요구 값에 숫자·단위 없음" in outcome.reason
+    assert f": {word}" in outcome.reason
+    assert any(item.startswith(word) for item in outcome.unresolved)
     assert "단위가 달라" not in outcome.reason
     assert not any("None" in item for item in outcome.unresolved)
     assert "None" not in outcome.reason
