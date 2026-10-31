@@ -117,7 +117,7 @@ async def list_user_names(
         request: 현재 요청.
         response: 캐시 금지 헤더를 넣을 응답.
         _user: 로그인 확인.
-        ids: 쉼표로 이은 사용자 UUID. 길이 제한이 100개까지만 받는다.
+        ids: 쉼표로 이은 사용자 UUID, 최대 100개.
 
     Returns:
         SuccessResponse[UserNameList]: 찾은 사용자의 ID와 표시명.
@@ -126,6 +126,9 @@ async def list_user_names(
         wanted = [UUID(value) for value in ids.split(",")]
     except ValueError:
         raise ApplicationError(422, "VALIDATION_ERROR", "Invalid user IDs.") from None
+    # 하이픈 없는 UUID는 짧아서 길이 제한만으로는 개수를 못 막는다.
+    if len(wanted) > 100:
+        raise ApplicationError(422, "VALIDATION_ERROR", "Too many user IDs.")
     async with connection(request.app.state.settings) as conn:
         cursor = await conn.execute(
             "SELECT id AS user_id,display_name FROM identity.users WHERE id=ANY(%s)", (wanted,)
