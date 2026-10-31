@@ -1272,9 +1272,9 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
     assert [p["decided_by"] for p in listed] == [str(SALES)]
 
 
-def review(client, gap):
+def review(client, gap, version=1):
     url = f"/projects/{gap['project']}/draft/review-versions"
-    return call(client, "POST", url, OWNER, {"version": 1}, uuid4().hex)
+    return call(client, "POST", url, OWNER, {"version": version}, uuid4().hex)
 
 
 def flag(admin, gap, columns):
@@ -1292,7 +1292,12 @@ def flag(admin, gap, columns):
 
 @pytest.mark.parametrize(
     ("proposed", "marks"),
-    [({}, []), ({"reason": "원문과 다름"}, [("requirement",), ("supplement",)])],
+    [
+        ({}, []),
+        ({"reason": "원문과 다름"}, [("requirement",), ("supplement",)]),
+        # 조건부는 보완 경로가 없어 요구 표시를 남기면 풀 길이 없다.
+        ({"status": "CONDITIONAL"}, [("supplement",)]),
+    ],
 )
 def test_approval_ends_the_extraction_warning_and_a_plain_check_marks_nothing(
     client, gap, admin, proposed, marks
@@ -1352,6 +1357,37 @@ def test_a_flagged_sentence_is_released_by_the_approved_check(client, app_dsn, g
     made = call(client, "POST", url, OWNER, body, uuid4().hex).json()["data"]
     assert decide(client, made).status_code == 200
     saved = review(client, gap)
+    assert saved.status_code == 201, saved.text
+
+
+def test_no_path_approval_leaves_the_sentence_mark_for_a_person_to_clear(
+    client, app_dsn, gap, admin
+):
+    """요구 표시만 없다. 문장 표시는 자동으로 지워지지 않고 사람이 문장을 고쳐야 풀린다."""
+    flag(admin, gap, "unresolved='[]', next_owner_field='TECH'")
+    generate(app_dsn, gap, uuid4())
+    made = propose(client, gap, status="CONDITIONAL").json()["data"]
+    assert decide(client, made).json()["data"]["needs_rereview"] is False
+    url = f"/projects/{gap['project']}/draft"
+    sections = data(get(client, url))["sections"]
+    marked = [row for part in sections for row in part["sentences"] if row["needs_rereview"]]
+    assert marked
+    blocked = review(client, gap)
+    assert error_of(blocked.json()) == "TFT_DRAFT_INCOMPLETE"
+    assert {d["field"] for d in blocked.json()["error"]["details"]} == {"sentence_id"}
+    edits = [
+        {
+            "sentence_id": row["sentence_id"],
+            "text": "사람이 다시 확인한 문구",
+            "reason": "요구 변경 반영",
+            "evidence": row["evidence"],
+        }
+        for row in marked
+    ]
+    edited = call(client, "PATCH", url, OWNER, {"version": 1, "edits": edits}, uuid4().hex)
+    assert edited.status_code == 200, edited.text
+    assert not any(r["needs_rereview"] for p in data(edited)["sections"] for r in p["sentences"])
+    saved = review(client, gap, version=2)
     assert saved.status_code == 201, saved.text
 
 

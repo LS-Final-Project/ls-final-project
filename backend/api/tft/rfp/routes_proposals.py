@@ -16,6 +16,7 @@ from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import proposal_out, visible_project
 from backend.api.tft.rfp.routes_read import requirement_out
+from backend.api.tft.rfp.routes_supplement import options_of
 from backend.shared.access import Principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -207,14 +208,22 @@ async def approve_proposal(
                 conn, proposal_id, "APPROVED", principal.user_id, payload.note
             )
             # 근거 확인으로 승인한 것 자체가 사람 재확인이고, 그 요구는 고를 보완 경로도 없다.
+            latest = await repository.latest_requirement_version(
+                conn, project["id"], requirement_id
+            )
+            if latest is None:
+                raise ValueError("TFT_REQUIREMENT_MISSING")
             # 값이 그대로면 연결 객체가 볼 변화가 없어 재검토 표시를 남기지 않는다.
             if proposal["proposed"] != proposal["current"]:
+                # 요구 표시는 보완 저장으로만 풀린다. 고를 경로가 없으면 남기지 않는다.
+                options, _ = await options_of(conn, latest)
                 await repository.mark_rereview(
                     conn,
                     project["id"],
                     requirement_id,
                     proposal_id,
-                    requirement_too=proposal["proposed"]["status"] != "EVIDENCE_FOUND",
+                    requirement_too=proposal["proposed"]["status"] != "EVIDENCE_FOUND"
+                    and any(option.allowed for option in options.options),
                 )
             await commands.audit(
                 conn,
@@ -231,11 +240,6 @@ async def approve_proposal(
                     "needs_review_confirmed": requirement["needs_review"],
                 },
             )
-            latest = await repository.latest_requirement_version(
-                conn, project["id"], requirement_id
-            )
-            if latest is None:
-                raise ValueError("TFT_REQUIREMENT_MISSING")
             detail = await requirement_out(conn, latest)
             return detail.model_dump(mode="json")
 
