@@ -713,3 +713,18 @@
 .ls-root .kv-tree small{font-size:11px;color:var(--erp-muted)}
 .ls-root .kv-clause{margin-top:8px;min-height:0}
 .ls-root .kv .kv-clause>b{display:block;font-size:12.5px;line-height:1.5;font-weight:500}
+/* 좁은 화면: 조립 조각이 줄 수를 인라인으로 정하므로 !important로 한 줄씩 쌓는다 */
+@media (max-width:800px){
+  .ls-root .kv-title{height:auto;min-height:40px;flex-wrap:wrap;padding:6px 14px}
+  .ls-root .kv-path{flex-wrap:nowrap;white-space:nowrap}
+  .ls-root .kv-btns{flex-wrap:wrap}
+  .ls-root .kv-btns .kb{white-space:nowrap}
+  .ls-root .kv-ribbon,.ls-root .kv-cond .row,.ls-root .kv-split{grid-template-columns:minmax(0,1fr)!important}
+  .ls-root .kv-cond label{border-left:0;border-top:1px solid var(--erp-border-soft)}
+  .ls-root .kv-walk{flex-wrap:wrap;padding:6px 10px}
+  .ls-root .kv-walk span{flex-basis:100%}
+  .ls-root .kt-tabs{overflow-x:auto;scrollbar-width:none}
+  .ls-root .kt-tab,.ls-root .kt-tab button[role=tab]{flex:none;white-space:nowrap}
+  .ls-root .kv-grid{min-width:680px}
+  .ls-root .kv-split .kv-grid{min-width:320px}
+}
