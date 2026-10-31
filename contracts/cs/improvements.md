@@ -21,11 +21,12 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 
 | 경로 | 허용 | 설명 |
 | --- | --- | --- |
-| `GET?status&request_type&dept` | cs_agent, manager, dept_staff | 최신순 최대 200건. 조회 범위만. 필터(모두 선택, 함께 주면 모두 만족): `status`는 쉼표로 여러 개(`DRAFT,SENT`, 웹 중계가 같은 키를 한 번만 받음), `request_type`(`FAULT`·`DOCUMENT`), `dept`(어느 회차든 보낸 부서이거나 제안된 부서). 필터는 조회 범위를 넓히지 않는다. 알 수 없는 상태는 400 `CS_INVALID_FILTER`, 부서 목록 밖 부서(`GCS_L1` 포함)는 422 |
+| `GET?status&request_type&dept` | cs_agent, manager, dept_staff | 최신순 최대 200건. 조회 범위만. 필터(모두 선택, 함께 주면 모두 만족): `status`는 쉼표로 여러 개(`DRAFT,SENT`, 웹 중계가 같은 키를 한 번만 받음), `request_type`(`FAULT`·`DOCUMENT`), `origin`(`SYSTEM_CANDIDATE`·`MANUAL`), `dept`(어느 회차든 보낸 부서이거나 제안된 부서). 필터는 조회 범위를 넓히지 않는다. 알 수 없는 상태는 400 `CS_INVALID_FILTER`, 부서 목록 밖 부서(`GCS_L1` 포함)는 422 |
 | `POST` | cs_agent | 초안(`DRAFT`, 판본 1) 작성. 작성자가 C/S 담당자. 출처는 수동 문의와 같은 규칙(`CS_MANUAL_DATA_ORIGIN`) |
 | `GET /{id}` | 조회 범위 | 요청서, 근거, 현재 회차 부서, 회신, 조치, **다음 담당** |
 | `PATCH /{id}` | cs_agent | 내용 수정. 바뀐 값이 있을 때만 새 판본 |
 | `GET /{id}/versions` | 조회 범위 | 판본별 내용 |
+| `GET /{id}/case-comparison` | 조회 범위 | 반복 사례 비교표(CS0201). 활성 근거마다 문의·고객·제품과 해결 기록(증상·원인 유형·원인·조치·해결 부서·적재 시각). 사례가 없는 근거는 해결 칸이 null이다. 제외한 근거는 내지 않는다 |
 | `POST /{id}/evidence` | cs_agent | 근거 추가. 새 판본 |
 | `POST /{id}/evidence/{evidence_id}/remove` | cs_agent | 근거 제외(사유 필수). 새 판본 |
 | `PUT /{id}/owner` | C/S 부서(`GCS_L1`) manager | 담당자 재배정. 새 판본 |
@@ -35,6 +36,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 - **근거 검사**: 문의의 제품이 요청과 같아야 한다. 고장 요청은 그 문의의 **이미 알려진** 해결 사례가 필요하고 사례의 고장 ID가 요청과 같아야 한다. 문서 요청은 사례를 붙이지 않는다. 어긋나면 422 `CS_EVIDENCE_INVALID`, 이미 근거인 문의는 409 `CS_EVIDENCE_EXISTS`, 모르는 제품은 422 `CS_UNKNOWN_PRODUCT`.
 - **사용 조건**: `condition_status`가 `UNKNOWN`(기본)이면 조건을 확인하지 못한 묶음이다. 조건이 다른 사례는 다른 요청으로 나눈다. 조건 비교 판단은 KAN-114·113이 한다.
 - **시스템 후보**: `POST /api/v1/cs/improvement-candidates/collect`가 만든 요청은 `origin=SYSTEM_CANDIDATE`·`DRAFT`이고 `cs_owner`가 비어 있다. 검토한 사람이 담당자가 된다. 그 뒤 동작은 일반 요청과 같다. 판정 당시 값은 `candidate_*` 칸에 있고 수동 요청은 null이다.
+- **비교표 범위**: 요청은 볼 수 있어도 이관받지 않은 문의의 해결 원문은 볼 수 없다. 전체 문의를 보지 않는 사용자에게는 그 행을 통째로 빼고 건수만 `hidden_case_count`로 준다.
 - **문의 종결 ≠ 개선 완료**: 요청과 문의 상태는 서로 바꾸지 않는다. 종결된 문의도 근거가 될 수 있고, 요청을 완료해도 문의는 그대로다.
 - **조회 범위**: cs_agent와 C/S 부서 manager는 전체. dept_staff는 자기 부서가 수신 부서인 요청(전달된 회차가 있을 때)만, 다른 부서 manager는 관리 부서가 수신 부서이거나 제안 부서인 요청을 본다. 범위 밖은 404 `CS_REQUEST_NOT_FOUND`.
 

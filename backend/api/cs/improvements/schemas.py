@@ -18,6 +18,7 @@ Text = Annotated[str, Field(min_length=1, max_length=10_000)]
 Short = Annotated[str, Field(min_length=1, max_length=200)]
 Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
 RequestType = Literal["FAULT", "DOCUMENT"]
+RequestOrigin = Literal["SYSTEM_CANDIDATE", "MANUAL"]
 DocSignal = Literal["NOT_FOUND", "VALUE_CONFLICT", "BROKEN_LINK", "REPEATED_SPEC"]
 RequestStatus = Literal[
     "DRAFT",
@@ -170,7 +171,7 @@ class OwnerUpdate(BaseModel):
 class ImprovementRequest(BaseModel):
     id: UUID
     request_type: RequestType
-    origin: Literal["SYSTEM_CANDIDATE", "MANUAL"]
+    origin: RequestOrigin
     data_origin: Literal["synthetic", "demo", "real"]
     derivation_kind: Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
     product_code: str
@@ -216,6 +217,7 @@ class ImprovementRequest(BaseModel):
 class RequestSummary(BaseModel):
     id: UUID
     request_type: RequestType
+    origin: RequestOrigin
     product_code: str
     fault_id: str | None
     doc_signal: DocSignal | None
@@ -498,3 +500,26 @@ class CandidateCollected(BaseModel):
         description="Eligible groups not saved. A fault request needs a proposed department."
     )
     request_ids: list[UUID]
+
+
+class CaseRow(BaseModel):
+    """요청의 근거 문의 한 건과 그 해결 기록. 사례가 없으면 해결 칸은 null이다."""
+
+    ticket_id: UUID
+    ticket_external_id: str | None
+    customer_external_id: str
+    product_code: str
+    case_id: UUID | None
+    case_external_id: str | None
+    symptom: str | None
+    root_cause_type: str | None
+    root_cause: str | None
+    action_taken: str | None
+    resolved_by_dept: str | None
+    known_at: datetime | None
+
+
+class CaseComparison(BaseModel):
+    request_id: UUID
+    items: list[CaseRow]
+    hidden_case_count: int = Field(description="Evidence tickets outside the viewer's scope.")

@@ -260,6 +260,95 @@ def test_department_scope_and_writers(client, admin):
     )
 
 
+def test_case_comparison_shows_active_evidence_within_the_viewers_scope(client, admin):
+    shared, shared_case = add_ticket(admin)
+    private, private_case = add_ticket(admin)
+    removed, removed_case = add_ticket(admin)
+    body = fault_request([(shared, shared_case), (private, private_case), (removed, removed_case)])
+    created = ok(client.post(PATH, json=body))["request"]
+    request_id, version = created["id"], created["version"]
+    evidence = ok(client.get(f"{PATH}/{request_id}"))["evidence"]
+    gone = next(e["id"] for e in evidence if e["ticket_id"] == str(removed))
+    out = client.post(
+        f"{PATH}/{request_id}/evidence/{gone}/remove", json={"version": version, "reason": "other"}
+    )
+    assert out.status_code == 200, out.text
+    url = f"{PATH}/{request_id}/case-comparison"
+
+    data = ok(client.get(url))
+    assert data["request_id"] == request_id and data["hidden_case_count"] == 0
+    assert {row["ticket_id"] for row in data["items"]} == {str(shared), str(private)}
+    row = next(r for r in data["items"] if r["ticket_id"] == str(shared))
+    assert (row["case_id"], row["product_code"]) == (str(shared_case), PRODUCT)
+    assert (row["symptom"], row["root_cause_type"], row["resolved_by_dept"]) == (
+        "Oil leak",
+        "WEAR_PART",
+        "FIELD_SVC",
+    )
+    assert (row["root_cause"], row["action_taken"]) == (
+        "Gasket damaged in transport",
+        "Replace gasket",
+    )
+    assert row["customer_external_id"].startswith("CUST-") and row["known_at"]
+    assert client.get(url, headers=as_(CS_MANAGER)).status_code == 200
+
+    # 요청을 받은 부서도 이관받지 않은 문의의 해결 기록은 볼 수 없다.
+    admin.execute(
+        "INSERT INTO cs.request_departments (request_id, round, dept_code, status) "
+        "VALUES (%s, 1, 'QA_CLAIM', 'SENT')",
+        (request_id,),
+    )
+    admin.execute(
+        "INSERT INTO cs.ticket_transfers (id, ticket_id, round, dept_code, status, reason, "
+        "transferred_by) VALUES (%s, %s, 1, 'QA_CLAIM', 'OPEN', 'test', %s)",
+        (uuid4(), shared, AGENT.user_id),
+    )
+    for user in (QA_STAFF, QA_MANAGER):
+        scoped = ok(client.get(url, headers=as_(user)))
+        assert [r["ticket_id"] for r in scoped["items"]] == [str(shared)]
+        assert scoped["hidden_case_count"] == 1
+        assert str(private) not in str(scoped) and str(private_case) not in str(scoped)
+    assert code(client.get(url, headers=as_(LV_STAFF))) == (404, "CS_REQUEST_NOT_FOUND")
+    assert code(client.get(f"{PATH}/{uuid4()}/case-comparison")) == (404, "CS_REQUEST_NOT_FOUND")
+
+
+def test_case_comparison_keeps_a_ticket_without_a_resolution_record(client, admin):
+    ticket, _ = add_ticket(admin)
+    created = ok(
+        client.post(
+            PATH,
+            json={
+                "request_type": "DOCUMENT",
+                "product_code": PRODUCT,
+                "doc_signal": "NOT_FOUND",
+                "problem_statement": "문서 확인",
+                "evidence": [{"ticket_id": str(ticket)}],
+            },
+        )
+    )["request"]
+    [row] = ok(client.get(f"{PATH}/{created['id']}/case-comparison"))["items"]
+    assert row["ticket_id"] == str(ticket)
+    assert (row["case_id"], row["symptom"], row["known_at"]) == (None, None, None)
+
+
+def test_the_list_filters_by_origin(client, admin):
+    ticket, case = add_ticket(admin, fault="FLT-071")
+    body = fault_request([(ticket, case)], fault_id="FLT-071")
+    manual = ok(client.post(PATH, json=body))["request"]["id"]
+    system = uuid4()
+    admin.execute(
+        "INSERT INTO cs.improvement_requests (id, request_type, origin, data_origin, "
+        "product_code, fault_id, problem_statement) "
+        "VALUES (%s, 'FAULT', 'SYSTEM_CANDIDATE', 'synthetic', %s, 'FLT-071', 'x')",
+        (system, f"KAN202-{system.hex[:8]}"),
+    )
+    listed = ok(client.get(PATH, params={"origin": "SYSTEM_CANDIDATE"}))["items"]
+    assert str(system) in {i["id"] for i in listed} and manual not in {i["id"] for i in listed}
+    assert {i["origin"] for i in listed} == {"SYSTEM_CANDIDATE"}
+    assert manual in {i["id"] for i in ok(client.get(PATH, params={"origin": "MANUAL"}))["items"]}
+    assert client.get(PATH, params={"origin": "OTHER"}).status_code == 422
+
+
 def test_service_cannot_rewrite_history(runtime_dsn, client, admin):
     data = ok(client.post(PATH, json=fault_request([add_ticket(admin)])))
     request_id = data["request"]["id"]

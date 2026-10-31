@@ -44,6 +44,7 @@ async def list_requests(
     statuses: list[str] | None = None,
     request_type: str | None = None,
     dept: str | None = None,
+    origin: str | None = None,
 ) -> list[Row]:
     """Newest first, up to LIST_LIMIT. Filters narrow the caller's scope and never widen it."""
     conditions = [IN_DEPARTMENTS] if departments is not None else []
@@ -53,9 +54,12 @@ async def list_requests(
         conditions.append("r.request_type = %(request_type)s")
     if dept is not None:
         conditions.append(INVOLVES_DEPT)
+    if origin is not None:
+        conditions.append("r.origin = %(origin)s")
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
     cursor = await conn.execute(
-        "SELECT r.id, r.request_type, r.product_code, r.fault_id, r.doc_signal, r.status, "
+        "SELECT r.id, r.request_type, r.origin, r.product_code, r.fault_id, r.doc_signal, "
+        "r.status, "
         "r.version, r.cs_owner, r.problem_statement, r.created_at, "
         "(SELECT count(*) FROM cs.request_evidence e "
         "WHERE e.request_id = r.id AND e.removed_at IS NULL) AS evidence_count "
@@ -67,6 +71,7 @@ async def list_requests(
             "statuses": statuses,
             "request_type": request_type,
             "dept": dept,
+            "origin": origin,
             "limit": LIST_LIMIT,
         },
     )
@@ -147,6 +152,22 @@ async def list_evidence(conn: AsyncConnection[Row], request_id: UUID) -> list[Ro
         "FROM cs.request_evidence e JOIN cs.tickets t ON t.id = e.ticket_id "
         "LEFT JOIN cs.resolution_cases c ON c.id = e.case_id "
         "WHERE e.request_id = %s ORDER BY (e.removed_at IS NOT NULL), e.added_at, e.id",
+        (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def evidence_cases(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
+    """Active evidence with its resolution record, oldest record first."""
+    cursor = await conn.execute(
+        "SELECT e.ticket_id, t.external_id AS ticket_external_id, t.customer_external_id, "
+        "COALESCE(c.product_code, t.product_code) AS product_code, e.case_id, "
+        "c.external_id AS case_external_id, c.symptom, c.root_cause_type, c.root_cause, "
+        "c.action_taken, c.resolved_by_dept, c.known_at "
+        "FROM cs.request_evidence e JOIN cs.tickets t ON t.id = e.ticket_id "
+        "LEFT JOIN cs.resolution_cases c ON c.id = e.case_id "
+        "WHERE e.request_id = %s AND e.removed_at IS NULL "
+        "ORDER BY c.known_at NULLS LAST, e.added_at, e.id",
         (request_id,),
     )
     return await cursor.fetchall()
