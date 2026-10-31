@@ -775,7 +775,8 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
     for (const path of [
       '/api/v1/platform/mail/send-intents',
       '/api/v1/platform/mail/reply-reviews',
-      `/api/v1/platform/mail/messages/${id}/triage`,
+      '/api/v1/platform/mail/messages/not-a-uuid/triage',
+      `/api/v1/platform/mail/messages/${id}/triage?version=1`,
       `/api/v1/platform/mail/send-intents/not-a-uuid/resend`,
       `/api/v1/platform/mail/send-intents/${id}/cancel`,
       `/api/v1/platform/mail/send-intents/${id}/resend?force=1`,
@@ -790,6 +791,7 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
     assert.equal(calls.length, total);
     assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/resend`, { method: 'POST', headers: { ...write, 'X-User-ID': 'forged' }, body: '{"reason":"synthetic"}' })).status, 200);
     assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/check-sent-copy`, { method: 'POST', headers: write })).status, 200);
+    assert.equal((await fetch(origin + `/api/v1/platform/mail/messages/${id}/triage`, { method: 'POST', headers: write, body: '{"version":1}' })).status, 200);
   }, async (url, options) => {
     calls.push(String(url));
     assert.equal(options.headers.Authorization, 'Bearer fixture-server-token');
@@ -801,7 +803,7 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
     }
     return Response.json({ data: {} });
   });
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
 });
 
 test('notification relay forwards only session-owned public endpoints and bounded query/body', async () => {
