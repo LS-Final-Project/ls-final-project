@@ -642,6 +642,169 @@
         "title": "CandidateSkipped",
         "type": "object"
       },
+      "CaseComparison": {
+        "properties": {
+          "hidden_case_count": {
+            "description": "Evidence tickets outside the viewer's scope.",
+            "title": "Hidden Case Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "items",
+          "hidden_case_count"
+        ],
+        "title": "CaseComparison",
+        "type": "object"
+      },
+      "CaseRow": {
+        "description": "\uc694\uccad\uc758 \uadfc\uac70 \ubb38\uc758 \ud55c \uac74\uacfc \uadf8 \ud574\uacb0 \uae30\ub85d. \uc0ac\ub840\uac00 \uc5c6\uc73c\uba74 \ud574\uacb0 \uce78\uc740 null\uc774\ub2e4.",
+        "properties": {
+          "action_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Taken"
+          },
+          "case_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case External Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "known_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known At"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "resolved_by_dept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By Dept"
+          },
+          "root_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Cause"
+          },
+          "root_cause_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Cause Type"
+          },
+          "symptom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symptom"
+          },
+          "ticket_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket External Id"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "ticket_external_id",
+          "customer_external_id",
+          "product_code",
+          "case_id",
+          "case_external_id",
+          "symptom",
+          "root_cause_type",
+          "root_cause",
+          "action_taken",
+          "resolved_by_dept",
+          "known_at"
+        ],
+        "title": "CaseRow",
+        "type": "object"
+      },
       "CauseItem": {
         "description": "\uc6d0\uc778 \ud310\uc815. finding\u00b7\uae30\uc900\u00b7\ub300\uc0c1 \uac12\uc774 \uc5c6\ub2e4.",
         "properties": {
@@ -5462,6 +5625,14 @@
             "title": "Id",
             "type": "string"
           },
+          "origin": {
+            "enum": [
+              "SYSTEM_CANDIDATE",
+              "MANUAL"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
           "problem_statement": {
             "title": "Problem Statement",
             "type": "string"
@@ -5502,6 +5673,7 @@
         "required": [
           "id",
           "request_type",
+          "origin",
           "product_code",
           "fault_id",
           "doc_signal",
@@ -6870,6 +7042,22 @@
           "meta"
         ],
         "title": "SuccessResponse[CandidateList]",
+        "type": "object"
+      },
+      "SuccessResponse_CaseComparison_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CaseComparison"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CaseComparison]",
         "type": "object"
       },
       "SuccessResponse_ConditionComparison_": {
@@ -9538,6 +9726,28 @@
               "description": "Sent to this department in any round, or proposed to it.",
               "title": "Dept"
             }
+          },
+          {
+            "description": "SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests.",
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "SYSTEM_CANDIDATE",
+                    "MANUAL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests.",
+              "title": "Origin"
+            }
           }
         ],
         "responses": {
@@ -9901,6 +10111,101 @@
           }
         },
         "summary": "Update Request",
+        "tags": [
+          "improvement-requests"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/case-comparison": {
+      "get": {
+        "description": "\uc694\uccad\uc758 \uadfc\uac70 \ubb38\uc758\uc640 \ud574\uacb0 \uae30\ub85d \ube44\uad50\ud45c(\ubc18\ubcf5 \uc0ac\ub840 \ubaa8\uc74c CS0201).\n\n\uc694\uccad\uc740 \ubcf4\uc5ec\ub3c4 \uc774\uad00\ubc1b\uc9c0 \uc54a\uc740 \ubb38\uc758\uc758 \ud574\uacb0 \uc6d0\ubb38\uc740 \ubcfc \uc218 \uc5c6\ub2e4. \uadf8\ub7f0 \ud589\uc740 \ube7c\uace0 \uc218\ub9cc \uc900\ub2e4.\n\nArgs:\n    request_id: \uac1c\uc120\uc694\uccad ID.\n    request: \uc694\uccad.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[CaseComparison]: \ud65c\uc131 \uadfc\uac70\uc758 \ube44\uad50 \ud589\uacfc \uc228\uae34 \uac74\uc218.",
+        "operationId": "cs_get_improvement_case_comparison",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CaseComparison_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the user's scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stale version or closed request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Case Comparison",
         "tags": [
           "improvement-requests"
         ],

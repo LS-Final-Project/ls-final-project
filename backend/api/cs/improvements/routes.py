@@ -10,10 +10,13 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from backend.api.cs.comparisons.repository import visible_tickets
 from backend.api.cs.improvements import repository
 from backend.api.cs.improvements.next_owner import next_owners
 from backend.api.cs.improvements.schemas import (
     CONTENT_FIELDS,
+    CaseComparison,
+    CaseRow,
     DeptReply,
     Evidence,
     EvidenceAdd,
@@ -26,6 +29,7 @@ from backend.api.cs.improvements.schemas import (
     RequestDepartment,
     RequestDetail,
     RequestList,
+    RequestOrigin,
     RequestRound,
     RequestStatus,
     RequestSummary,
@@ -220,6 +224,9 @@ async def list_requests(
     dept: TransferDepartment | None = Query(
         None, description="Sent to this department in any round, or proposed to it."
     ),
+    origin: RequestOrigin | None = Query(
+        None, description="SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests."
+    ),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[RequestList]:
     require_list(principal)
@@ -229,7 +236,13 @@ async def list_requests(
         return respond(request, RequestList(items=[]))
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_requests(
-            conn, departments, proposed, statuses=statuses, request_type=request_type, dept=dept
+            conn,
+            departments,
+            proposed,
+            statuses=statuses,
+            request_type=request_type,
+            dept=dept,
+            origin=origin,
         )
     return respond(request, RequestList(items=[RequestSummary.model_validate(r) for r in rows]))
 
@@ -366,6 +379,48 @@ async def update_request(
             row = await commit_version(conn, row, principal.user_id, "update", changes)
         data = await detail(conn, row)
     return respond(request, data)
+
+
+@router.get(
+    "/{request_id}/case-comparison",
+    response_model=SuccessResponse[CaseComparison],
+    operation_id="cs_get_improvement_case_comparison",
+    openapi_extra=PARTIAL,
+)
+async def case_comparison(
+    request_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[CaseComparison]:
+    """요청의 근거 문의와 해결 기록 비교표(반복 사례 모음 CS0201).
+
+    요청은 보여도 이관받지 않은 문의의 해결 원문은 볼 수 없다. 그런 행은 빼고 수만 준다.
+
+    Args:
+        request_id: 개선요청 ID.
+        request: 요청.
+        principal: 조회 사용자.
+
+    Returns:
+        SuccessResponse[CaseComparison]: 활성 근거의 비교 행과 숨긴 건수.
+    """
+    async with connection(request.app.state.settings) as conn:
+        await check_visible(conn, principal, request_id)
+        if await repository.get_request(conn, request_id) is None:
+            raise not_found()
+        rows = await repository.evidence_cases(conn, request_id)
+        shown = rows
+        if not sees_all_tickets(principal):
+            allowed = await visible_tickets(
+                conn, [r["ticket_id"] for r in rows], transfer_departments(principal)
+            )
+            shown = [r for r in rows if r["ticket_id"] in allowed]
+    return respond(
+        request,
+        CaseComparison(
+            request_id=request_id,
+            items=[CaseRow.model_validate(r) for r in shown],
+            hidden_case_count=len(rows) - len(shown),
+        ),
+    )
 
 
 @router.get(
