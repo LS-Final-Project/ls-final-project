@@ -8,6 +8,7 @@ import { getRequirement } from '../api/rfp';
 import { getProject } from '../api/tft';
 import { DEPARTMENT_LABEL, label, requirementNo } from '../rfp/labels';
 import logo from './ls-logo.svg';
+import { InShell } from '../components/states';
 import NotificationBell from '../components/NotificationBell';
 import './ls-shell.css';
 
@@ -169,7 +170,7 @@ export default function LsShell() {
             {t.kind !== 'home' && <button className="kt-x" aria-label={`${t.name} 닫기`} onClick={() => closeTab(t.kind)}>×</button>}
           </span>)}
         </div>
-        <div className="content kv" id="main-content" data-view="cs"><Outlet /></div>
+        <div className="content kv" id="main-content" data-view="cs"><InShell.Provider value><Outlet /></InShell.Provider></div>
       </div>
     </div>
   </div>;
