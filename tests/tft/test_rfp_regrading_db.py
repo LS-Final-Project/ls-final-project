@@ -9,8 +9,15 @@ import pytest
 from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 
+from backend.api.tft.projects import repository as projects_repository
 from backend.api.tft.rfp import draft_repository, repository
 from tests.tft.test_rfp_http_base_db import app_dsn, chain  # noqa: F401
+from tests.tft.test_rfp_write_routes_db import (  # noqa: F401
+    OWNER,
+    call,
+    client,
+    project_body,
+)
 from tests.tft.test_worker_processor_db import (  # noqa: F401
     SALES,
     FakeExtractor,
@@ -250,3 +257,32 @@ def test_grade_history_distinguishes_current_loss_exclusion_and_restored_validit
             ).fetchall()
             == before
         )
+
+
+def test_saved_project_constraints_survive_real_detail_get_and_response_based_edit(client, app_dsn):
+    expected = {
+        "supply_region": "한국",
+        "customer_manufacturer_list": ["제조사 A", "제조사 B"],
+        "off_list_permission": "FORBIDDEN",
+    }
+    created = call(client, "POST", "/projects", OWNER, project_body(**expected))
+    assert created.status_code == 201, created.text
+    project = created.json()["data"]
+    url = f"/projects/{project['id']}"
+    # 서비스의 보조 p.* 조회가 기본 상세 SELECT 누락을 가리는 경우도 독립적으로 잡는다.
+    saved = read(app_dsn, lambda conn: projects_repository.get_project(conn, project["id"]))
+    assert {name: saved[name] for name in expected} == expected
+    detail_response = call(client, "GET", url, OWNER)
+    assert detail_response.status_code == 200, detail_response.text
+    detail = detail_response.json()["data"]
+    assert {name: detail[name] for name in expected} == expected
+    # 편집폼과 같이 실제 GET 응답의 판본·세 값을 그대로 수정 요청에 사용한다.
+    body = {"version": detail["version"], **{name: detail[name] for name in expected}}
+    edited = call(client, "PATCH", url, OWNER, body)
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["data"]["version"] == detail["version"] + 1
+    after_response = call(client, "GET", url, OWNER)
+    assert after_response.status_code == 200, after_response.text
+    after = after_response.json()["data"]
+    assert after["version"] == detail["version"] + 1
+    assert {name: after[name] for name in expected} == expected

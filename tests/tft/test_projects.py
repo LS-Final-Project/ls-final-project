@@ -221,6 +221,47 @@ REMOVED_STAGES = {
 }
 
 
+def test_repository_detail_selects_saved_constraint_values():
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    stored = {
+        **PROJECT,
+        "supply_region": "한국",
+        "customer_manufacturer_list": ["제조사 A", "제조사 B"],
+        "off_list_permission": "FORBIDDEN",
+    }
+
+    async def execute(query, params):
+        assert params == (PROJECT["id"],)
+        # GET 조립 단계의 다른 조회로 누락을 가리지 않고 이 SELECT의 실제 투영을 확인한다.
+        columns = query.removeprefix("SELECT ").split(" FROM ", 1)[0].split(", ")
+        cursor = AsyncMock()
+        cursor.fetchone.return_value = {column: stored[column] for column in columns}
+        return cursor
+
+    conn = AsyncMock()
+    conn.execute.side_effect = execute
+    row = asyncio.run(repository.get_project(conn, PROJECT["id"]))
+    assert row["supply_region"] == "한국"
+    assert row["customer_manufacturer_list"] == ["제조사 A", "제조사 B"]
+    assert row["off_list_permission"] == "FORBIDDEN"
+
+
+def test_detail_response_preserves_saved_constraint_values(client, monkeypatch):
+    expected = {
+        "supply_region": "한국",
+        "customer_manufacturer_list": ["제조사 A", "제조사 B"],
+        "off_list_permission": "FORBIDDEN",
+    }
+    for name, value in expected.items():
+        monkeypatch.setitem(PROJECT, name, value)
+    response = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
+    assert response.status_code == 200, response.text
+    detail = response.json()["data"]
+    assert {name: detail[name] for name in expected} == expected
+
+
 def test_detail_is_the_project_with_its_rfp_requirements_only(client):
     body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
     assert body["sales_user_id"] == str(SALES)

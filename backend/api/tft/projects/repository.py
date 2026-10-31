@@ -20,7 +20,8 @@ SUMMARY_COLUMNS = (
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
-    "company_code, name, client_name, status, responsible_user_id, sales_user_id"
+    "company_code, name, client_name, status, responsible_user_id, sales_user_id, "
+    "supply_region, customer_manufacturer_list, off_list_permission"
 )
 INTEGRATION_COLUMNS = (
     "integration_holder, integration_holder_candidates, integration_note, integration_set_by, "
