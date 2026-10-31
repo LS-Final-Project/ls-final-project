@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
-import { listTickets, type TicketListResponse } from '../api/cs';
+import type { TicketListResponse } from '../api/cs';
 import { listImprovements } from '../api/cs-improvements';
 import { ErrorState, Loading } from '../components/states';
+import { useTicketPages } from '../ls-shell/use-tickets';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, dayOf, formatStamp, type RequestSummary, type TicketChannel } from '../ls-shell/cs-labels';
 
@@ -33,15 +34,10 @@ export default function Tickets() {
   const [newestFirst, setNewestFirst] = useState(true);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
 
-  const tickets = useInfiniteQuery({
-    queryKey: ['tickets', mode],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) => listTickets(pageParam, signal),
-    getNextPageParam: last => last.data.next_cursor ?? undefined,
-    enabled: access.ready,
-  });
+  const tickets = useTicketPages(access.ready);
   const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready && import.meta.env.DEV });
-  const refresh = () => { void tickets.refetch(); void improvements.refetch(); };
+  // refetch()는 enabled를 무시하므로 개선요청은 개발 모드에서만 다시 부른다.
+  const refresh = () => { void tickets.refetch(); if (import.meta.env.DEV) void improvements.refetch(); };
   useHotkey('F8', refresh, access.ready);
 
   const all = useMemo(() => tickets.data?.pages.flatMap(page => page.data.items) ?? [], [tickets.data]);
