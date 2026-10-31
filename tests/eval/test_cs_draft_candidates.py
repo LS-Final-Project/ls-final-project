@@ -746,6 +746,33 @@ def test_unverifiable_is_counted_without_a_rewrite():
     assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
 
 
+def test_a_rewrite_without_evidence_sentences_is_not_verified():
+    """graph와 같은 뜻이다. 옛 판정을 쓰지 않고 미검증으로 세고 사유를 따로 낸다."""
+    base = provider()
+    seen = []
+
+    def drafter(prompt):
+        seen.append(prompt)
+        result = base(prompt)
+        if len(seen) == 1:
+            return result
+        body = json.loads(result.text)
+        for option in body["options"]:
+            option["sentences"] = [
+                {"text": "합성 조건 문장", "kind": "CONDITION", "evidence_chunk_ids": []}
+            ]
+        return replace(result, text=json.dumps(body))
+
+    checker = verifier("UNSUPPORTED")
+    row = verified(checker, drafter, {"k1": CASES["k1"]})["verification"]
+    assert row["calls"] == {"verification": 1, "rewrite": 1}
+    assert row["status"]["first"] == {"NEEDS_REVIEW": 1}
+    assert row["status"]["final"] == {"NOT_VERIFIED": 1}
+    assert row["verdicts"]["final"] == {}
+    assert row["not_verified"] == {"CS_NO_EVIDENCE_SENTENCES": 1}
+    assert row["reverify_skipped"] == {"CS_NO_EVIDENCE_SENTENCES": 1}
+
+
 def test_still_failing_after_a_rewrite_stops_there():
     checker = verifier("UNSUPPORTED")
     row = verified(checker, cases={"k1": CASES["k1"]})["verification"]
