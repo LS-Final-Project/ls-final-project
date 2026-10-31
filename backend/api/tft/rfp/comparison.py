@@ -78,6 +78,8 @@ class Requirement(Strict):
     clause_no: str
     item: str
     attribute: str | None = None
+    # 원문 속성 표현. 사유 문장에 쓴다. attribute는 비교 어휘 키다.
+    attribute_label: str | None = None
     value: str | None = None
     unit: str | None = None
     operator: Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"] = "EQ"
@@ -255,11 +257,11 @@ def _unstated_basis(requirement: Requirement, fact: SpecFact) -> list[str]:
         fact: 자사 사양 근거.
 
     Returns:
-        list[str]: 'reference_temperature 요구 미기재, 자사 근거 120 °C' 같은 차이 목록.
+        list[str]: 'reference temperature 요구 미기재, 자사 근거 120 °C' 같은 차이 목록.
     """
     stated = {c.name for c in requirement.conditions}
     return [
-        f"{c.name} 요구 미기재, 자사 근거 {grading._with_unit(c.value, c.unit)}"
+        f"{c.name.replace('_', ' ')} 요구 미기재, 자사 근거 {grading._with_unit(c.value, c.unit)}"
         for c in fact.conditions or []
         if c.name in BASIS_CONDITIONS and c.name not in stated
     ]
@@ -275,7 +277,7 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
             product,
             "INSUFFICIENT_EVIDENCE",
             f"{head}: {product.product_code} 자료에 같은 속성 근거가 없음.",
-            [f"{requirement.attribute} 자료 확인"],
+            [f"{requirement.attribute_label or requirement.attribute} 자료 확인"],
         )
     judged = []
     for fact in grading._at_required_duration(_as_grading(requirement), facts):
@@ -305,7 +307,7 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         elif verdict == "failed" and gaps:
             # 미달이어도 요구와 다른 조건에서의 값이다. 같은 조건에서 미달이라는 근거가 없어 사양 차이로 확정하지 않는다.
             status, result = "CONDITIONAL", "DIFFERS"
-            word = "값이 미달이나 조건이 달라 확인 필요"
+            word = grading.differing_word(_as_grading(requirement))
         elif verdict == "failed" and shorter:
             # 짧은 시간 값을 내린 추정은 실제 정격보다 낮게 나온다. 미달 근거가 아니다.
             status, result = "CONDITIONAL", "DIFFERS"
@@ -338,10 +340,17 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         reason += f" {'; '.join(mismatch)}."
         unresolved += mismatch
     if unit_differs:
-        unresolved.append(f"단위 확인: 요구 {requirement.unit}, 자사 {fact.unit}")
+        if requirement.unit:
+            unresolved.append(
+                f"단위 확인: 요구 {requirement.unit}, 자사 {fact.unit or '단위 없음'}"
+            )
+        else:
+            ours = grading._with_unit(fact.value, fact.unit)
+            unresolved.append(f"{grading.NO_NUMBER}: 원문 확인, 자사 {ours}")
     elif result == "NOT_COMPARABLE":
         # 숫자로 읽지 못했거나 문자열 값이 달라 비교하지 못한 경우도 확인 항목을 남긴다.
-        unresolved.append(f"값 확인: 요구 {requirement.value}, 자사 {fact.value}")
+        wanted = requirement.value or grading.NO_NUMBER
+        unresolved.append(f"값 확인: 요구 {wanted}, 자사 {fact.value}")
     return CandidateMatch(
         product_code=product.product_code,
         lifecycle_status=product.lifecycle_status,
@@ -442,6 +451,7 @@ def _as_grading(requirement: Requirement) -> grading.Requirement:
         requirement_id=UUID(int=0),
         equipment="",
         attribute=requirement.attribute or "",
+        attribute_label=requirement.attribute_label,
         value=requirement.value or "",
         unit=requirement.unit,
         operator=requirement.operator,
