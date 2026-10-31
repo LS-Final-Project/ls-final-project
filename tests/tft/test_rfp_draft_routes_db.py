@@ -17,7 +17,7 @@ from psycopg.types.json import Jsonb
 
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.main import create_app
-from backend.api.tft.rfp import draft_exports, drafts
+from backend.api.tft.rfp import draft_exports, drafts, repository
 from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.shared.access import Principal, principal_header
@@ -106,6 +106,70 @@ def test_generated_job_retry_keeps_human_head_and_history(client, app_dsn, chain
             ).fetchone()[0]
             == 1
         )
+
+
+def add_clause_question(app_dsn, admin, chain, clause_id):
+    """요구가 뽑히지 않은 조항과 그 조항의 미정 질문을 넣는다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.clauses (id, document_version_id, clause_no, depth, ordinal, text, "
+            "data_origin, derivation_kind, known_at) "
+            "SELECT %s, document_version_id, '9.9.Z', depth, ordinal + 1000, '용량: 미정', "
+            "data_origin, derivation_kind, known_at FROM tft.clauses WHERE id = %s",
+            (clause_id, chain["clause"]),
+        )
+
+    async def work():
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            await repository.insert_question_draft(
+                conn,
+                project_id=chain["project"],
+                requirement_id=None,
+                clause={"id": clause_id, "page": None},
+                issue_type="EMPTY_VALUE",
+                question_text="확정 값을 알려 주시겠습니까?",
+                internal_assumption={
+                    "value": "미정",
+                    "basis_standard": None,
+                    "basis_clause": "9.9.Z",
+                    "approver_user_id": None,
+                    "shown_in_draft": False,
+                },
+                draft_key=hashlib.sha256(str(clause_id).encode()).hexdigest(),
+                data_origin="synthetic",
+                actor=SALES,
+            )
+            await conn.commit()
+
+    asyncio.run(work())
+
+
+def test_a_question_on_a_clause_without_requirements_does_not_fail_the_draft(
+    client, app_dsn, chain, admin
+):
+    clause_id = uuid4()
+    add_clause_question(app_dsn, admin, chain, clause_id)
+    generate(app_dsn, chain, uuid4())
+    data = call(client, "GET", chain).json()["data"]
+    evidence = {
+        (e["type"], e["id"])
+        for part in data["sections"]
+        for row in part["sentences"]
+        for e in row["evidence"]
+    }
+    assert ("clause", str(clause_id)) in evidence
+
+
+def test_clause_ids_stay_inside_the_project(app_dsn, chain, admin):
+    clause_id = uuid4()
+    add_clause_question(app_dsn, admin, chain, clause_id)
+
+    async def work(project):
+        async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+            return await repository.project_clause_ids(conn, project)
+
+    assert asyncio.run(work(chain["project"])) == {chain["clause"], clause_id}
+    assert asyncio.run(work(uuid4())) == set()
 
 
 def test_scope_readonly_and_review_snapshot_are_enforced(client, app_dsn, chain, admin):

@@ -1,7 +1,7 @@
 """근거가 연결된 RFP 제안 검토 초안을 결정적 템플릿으로 만든다(KAN-188)."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import get_args
@@ -197,6 +197,7 @@ def build_draft(
     partners: Sequence[s.PartnerCandidate] = (),
     questions: Sequence[s.Question] = (),
     replaced: Sequence[s.Section] = (),
+    clause_ids: Collection[UUID] = (),
 ) -> s.Draft:
     """동일 프로젝트의 최신 공개 스냅샷에서 근거가 있는 검토 문장만 만든다.
 
@@ -213,6 +214,7 @@ def build_draft(
         partners: 근거로 참조할 가상 협력사와 요구별 등급.
         questions: 최신 고객·내부 질문. 질문 판본은 요구 판본과 독립적이다.
         replaced: 사람이 고친 기존 자동 문장. 같은 절의 포함 근거·조건 영역만 생성에서 제외한다.
+        clause_ids: 프로젝트 문서의 조항 ID. 요구 없는 질문의 조항을 대조한다.
 
     Returns:
         Draft: 여섯 절과 고정 고지를 가진 검토 초안. 모델·DB·시계·난수 호출은 없다.
@@ -238,7 +240,9 @@ def build_draft(
         )
     ):
         raise ValueError("RFP_DRAFT_DUPLICATE_REFERENCE")
+    # 요구가 뽑히지 않은 조항의 질문도 있다. 프로젝트 조항이면 유효하다.
     clauses = {r.origin.clause_id for r in requirements if r.origin.clause_id is not None}
+    clauses |= set(clause_ids)
     for row in (*requirements, *comparisons, *options, *selections, *questions):
         if row.data_origin != data_origin:
             raise ValueError("RFP_DRAFT_DATA_ORIGIN_MISMATCH")
