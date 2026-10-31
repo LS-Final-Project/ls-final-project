@@ -1,6 +1,7 @@
 """C/S 처리 그래프(LangGraph) 골격과 체크포인트(KAN-194). contracts/cs/graph.md가 계약이다.
 
-분류 → 규칙 → 근거 검색 → 답변 초안 → 문장 검증(필요하면 재작성·재검증) → 사람 확인 순서로 실행한다. 사람 확인 직전에 멈추고(interrupt_before), 같은 thread_id로 invoke(None, config)를 부르면 끝난다.
+분류 → 규칙 → 근거 검색 → 답변 초안 → 문장 검증(필요하면 재작성·재검증) → 사람 확인 순서로 실행한다. 초안이 금지 약속으로
+거부되면 그 문장만 고치게 한 번 재작성하고 검증한다(KAN-193). 재작성은 합쳐 한 번이다. 사람 확인 직전에 멈추고(interrupt_before), 같은 thread_id로 invoke(None, config)를 부르면 끝난다.
 
 주입은 build_graph 인자로만 한다. LangGraph는 config["configurable"]·["metadata"]의 문자열·수 값을 체크포인트
 metadata에 그대로 복사하므로(langgraph.checkpoint.base.get_checkpoint_metadata), 원문이나 식별자를 configurable로
@@ -117,6 +118,9 @@ class CsState(TypedDict):
     draft_attempt_id: str | None
     verification: dict[str, Any] | None
     draft_rewritten: bool
+    # 금지 약속으로 거부된 초안을 고칠 재작성 피드백(RevisionFeedback, KAN-193). 재작성 뒤에는 None으로 지운다.
+    # 이 키가 생기기 전 체크포인트에는 없을 수 있다.
+    forbidden_feedback: dict[str, Any] | None
     errors: list[dict[str, str]]
     stage: Stage
 
@@ -172,6 +176,7 @@ def initial_state(ticket_id: str) -> CsState:
         draft_attempt_id=None,
         verification=None,
         draft_rewritten=False,
+        forbidden_feedback=None,
         errors=[],
         stage="RECEIVED",
     )
@@ -478,6 +483,14 @@ def build_graph(
             ),
         )
         if attempt.prediction is None:
+            feedback = attempt.forbidden_revision()
+            if feedback is not None:
+                # 금지 약속 문장만 한 번 고쳐 쓴다(KAN-193). 재작성이 실패하면 그때 오류로 남긴다.
+                return {
+                    **recorded,
+                    "forbidden_feedback": feedback.model_dump(mode="json"),
+                    "stage": "DRAFTED",
+                }
             code = attempt.error_code or attempt.outcome
             return {**recorded, "errors": _error(state, "draft", code), "stage": "DRAFTED"}
         return {
@@ -558,18 +571,26 @@ def build_graph(
         }
 
     def rewrite(state: CsState) -> dict[str, Any]:
-        """검증 실패 이유로 초안을 모델 호출 한 번만 재작성한다. 실패하면 기존 초안·판정을 보존한다."""
+        """금지 약속 문장이나 검증 실패 문장의 이유로 초안을 모델 호출 한 번만 재작성한다.
+
+        금지 약속 재작성과 검증 재작성은 합쳐 한 번이다(KAN-193). 실패하면 기존 초안·판정을 보존한다.
+        """
         ticket = load_ticket(state["ticket_id"])
         classification = ClassificationOutput.model_validate(state["classification"])
-        feedback = RevisionFeedback(
-            prior_draft=DraftOutput.model_validate(state["draft"]),
-            failed_sentences=[
-                RevisionSentence(
-                    label=s["label"], sentence_index=s["sentence_index"], reason=s["reason"]
-                )
-                for s in (state.get("verification") or {}).get("sentences", [])
-                if s["verdict"] == "UNSUPPORTED"
-            ],
+        forbidden = state.get("forbidden_feedback")
+        feedback = (
+            RevisionFeedback.model_validate(forbidden)
+            if forbidden
+            else RevisionFeedback(
+                prior_draft=DraftOutput.model_validate(state["draft"]),
+                failed_sentences=[
+                    RevisionSentence(
+                        label=s["label"], sentence_index=s["sentence_index"], reason=s["reason"]
+                    )
+                    for s in (state.get("verification") or {}).get("sentences", [])
+                    if s["verdict"] == "UNSUPPORTED"
+                ],
+            )
         )
         attempt = run_draft_attempt(
             ticket.record,
@@ -584,19 +605,33 @@ def build_graph(
         )
         recorded = record_tries(state, "draft", [attempt])
         if attempt.prediction is None:
+            code = attempt.error_code or attempt.outcome
+            # 금지 약속 재작성이 실패하면 처음 초안의 거부 사유도 남긴다(초안 없이 사람 확인).
+            first = (
+                _error(state, "draft", "CS_FORBIDDEN_COMMITMENT") if forbidden else state["errors"]
+            )
             return {
                 **recorded,
                 "draft_rewritten": False,
-                "errors": _error(state, "rewrite", attempt.error_code or attempt.outcome),
+                # 금지 문구가 든 이전 초안을 상태에 남기지 않는다.
+                "forbidden_feedback": None,
+                "errors": [*first, {"node": "rewrite", "code": code}],
             }
         return {
             **recorded,
             "draft": attempt.prediction.model_dump(mode="json"),
             "draft_attempt_id": recorded["attempt_ids"][-1],
             "draft_rewritten": True,
+            "forbidden_feedback": None,
         }
 
+    def after_draft(state: CsState) -> str:
+        return "rewrite" if state.get("forbidden_feedback") else "verify"
+
     def after_verify(state: CsState) -> str:
+        # 재작성은 금지 약속·검증 실패를 합쳐 한 번이다(KAN-193). 금지 약속을 고친 초안은 검증만 한다.
+        if state.get("draft_rewritten"):
+            return HUMAN_REVIEW
         # 미검증 답도 UNVERIFIABLE로 채워지지만 상태가 NEEDS_REVIEW가 아니라 재작성하지 않는다.
         verification = state.get("verification") or {}
         if verification.get("status") != "NEEDS_REVIEW":
@@ -605,7 +640,10 @@ def build_graph(
         return "rewrite" if rewrite_targets(found) else HUMAN_REVIEW
 
     def after_rewrite(state: CsState) -> str:
-        return "reverify" if state.get("draft_rewritten") else HUMAN_REVIEW
+        if not state.get("draft_rewritten"):
+            return HUMAN_REVIEW
+        # 금지 약속 재작성은 검증 전에 일어나 처음 검증으로, 검증 실패 재작성은 재검증으로 간다.
+        return "reverify" if state.get("verification") else "verify"
 
     def human_review(state: CsState) -> dict[str, Any]:
         """사람 확인 단계 표시만 남긴다. 확정·전송은 그래프 밖에서 사람이 한다.
@@ -631,9 +669,9 @@ def build_graph(
     graph.add_conditional_edges("classify", route_after_classify, ["rules", END])
     graph.add_edge("rules", "retrieve")
     graph.add_edge("retrieve", "draft")
-    graph.add_edge("draft", "verify")
+    graph.add_conditional_edges("draft", after_draft, ["rewrite", "verify"])
     graph.add_conditional_edges("verify", after_verify, ["rewrite", HUMAN_REVIEW])
-    graph.add_conditional_edges("rewrite", after_rewrite, ["reverify", HUMAN_REVIEW])
+    graph.add_conditional_edges("rewrite", after_rewrite, ["verify", "reverify", HUMAN_REVIEW])
     graph.add_edge("reverify", HUMAN_REVIEW)
     graph.add_edge(HUMAN_REVIEW, END)
     return graph.compile(checkpointer=checkpointer, interrupt_before=[HUMAN_REVIEW])
