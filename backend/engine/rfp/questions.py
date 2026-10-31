@@ -143,6 +143,54 @@ def _identifiers(equipment: str | None) -> set[str]:
     return {next(g for g in m.groups() if g) for m in EQUIPMENT_ID.finditer(_norm(equipment))}
 
 
+def _value_frame(req: ExtractedRequirement) -> str | None:
+    """인용의 값 한 곳과 인접 단위만 가린다. 같은 속성 키의 다른 주제를 합치지 않는다."""
+    value, quote = _norm(req.value), _norm(req.quote)
+    if not value:
+        return None
+    start = r"(?<!\w)(?<!\d[.,])" if value[0] in "+-.0123456789" else r"(?<!\w)"
+    end = r"(?!\w)(?![.,]\d)" if value[-1] in ".0123456789" else r"(?!\w)"
+    matches = list(re.finditer(start + re.escape(value) + end, quote))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    tail = quote[match.end() :]
+    if req.unit:
+        tail = re.sub(r"^\s*" + re.escape(_norm(req.unit)) + r"(?!\w)", "", tail, count=1)
+    return _norm(quote[: match.start()] + "<value>" + tail)
+
+
+def _same_item(
+    left: ExtractedRequirement, right: ExtractedRequirement, clauses: dict[str, Clause]
+) -> bool:
+    """조항 경로·장비·항목·나머지 인용이 동일성을 뒷받침할 때만 비교한다."""
+
+    def parent(req: ExtractedRequirement) -> str:
+        clause = clauses[req.clause_no]
+        candidate = clause.parent_no or req.clause_no.rpartition(".")[0]
+        return candidate if candidate in clauses and clauses[candidate].depth >= 2 else ""
+
+    if not parent(left) or parent(left) != parent(right):
+        return False
+    equipment_a, equipment_b = _norm(left.equipment), _norm(right.equipment)
+    ids_a, ids_b = _identifiers(left.equipment), _identifiers(right.equipment)
+    if not equipment_a or not equipment_b:
+        return False
+    if ids_a or ids_b:
+        if not ids_a or ids_a != ids_b:
+            return False
+        base_a = _norm(EQUIPMENT_ID.sub("", equipment_a))
+        base_b = _norm(EQUIPMENT_ID.sub("", equipment_b))
+        if equipment_a != equipment_b and (not base_a or base_a != base_b):
+            return False
+    elif equipment_a != equipment_b:
+        return False
+    if not _norm(left.attribute) or _norm(left.attribute) != _norm(right.attribute):
+        return False
+    frame = _value_frame(left)
+    return frame is not None and frame == _value_frame(right)
+
+
 def _eligible(req: ExtractedRequirement, clauses: dict[str, Clause]) -> bool:
     clause = clauses.get(req.clause_no)
     if (
@@ -202,10 +250,8 @@ def generate_question_drafts(
             or left.equipment_family != right.equipment_family
             or left.attribute_key != right.attribute_key
             or not _conditions_match(left, right)
+            or not _same_item(left, right, clauses)
         ):
-            continue
-        a, b = _identifiers(left.equipment), _identifiers(right.equipment)
-        if a and b and a.isdisjoint(b):
             continue
         if (
             left.operator == right.operator
@@ -220,11 +266,16 @@ def generate_question_drafts(
         if key in seen:
             continue
         seen.add(key)
+        attribute = (
+            left.attribute
+            if left.attribute and not re.fullmatch(r"[a-z]+(?:_[a-z0-9]+)+", left.attribute)
+            else "해당 항목"
+        )
         drafts.append(
             QuestionDraft(
                 kind="INCONSISTENCY",
                 sources=sources,
-                question=f"{left.clause_no}와 {right.clause_no}의 {left.attribute_key} 요구가 다릅니다. "
+                question=f"{left.clause_no}와 {right.clause_no}의 {attribute} 요구가 다릅니다. "
                 "같은 장비에 적용되는지, 적용할 값·형식과 우선 조항을 확인해 주시겠습니까?",
                 pre_reply_note="불일치 후보: 장비 동일성·조건·단위와 우선 조항을 확인하기 전까지 "
                 "임의로 값을 선택하거나 부적합으로 확정하지 않습니다.",

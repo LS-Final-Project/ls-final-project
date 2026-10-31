@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 from backend.api.tft.rfp import schemas as s
+from backend.engine.rfp import draft as engine
 from backend.engine.rfp.draft import DISCLAIMER, build_draft
 
 NOW = datetime(2026, 10, 30, tzinfo=UTC)
@@ -392,7 +393,7 @@ def test_same_partner_in_two_paths_has_distinct_ids_and_keeps_both_conditions(
     assert len(rows) == 2 and len({row.sentence_id for row in rows}) == 2
     assert any("외부 제품" in row.text and "계약 범위" in row.conditions for row in rows)
     assert any("공동 제안" in row.text and "공동 제안 책임 경계" in row.conditions for row in rows)
-    assert all("contract_scope" in row.conditions and "공급 조건" in row.conditions for row in rows)
+    assert all("계약 범위 확인" in row.conditions and "공급 조건" in row.conditions for row in rows)
     assert build_draft(**snapshot) == draft
 
 
@@ -423,7 +424,9 @@ def test_selection_does_not_confirm_feasibility_and_waiver_remains_condition(
     rows = sentences(build_draft(**snapshot), "PARTNER_SUPPLEMENT")
     assert any("사람 선택 기록 있음" in row.text for row in rows)
     assert all(row.unconfirmed for row in rows)
-    assert any("R&D 개발·수행 확인 미완료(WAIVED)" in row.conditions for row in rows)
+    assert any(
+        "R&D 개발·수행 확인 미완료(확인 절차 생략·사유 확인 필요)" in row.conditions for row in rows
+    )
     assert any("사람 선택 조건" in row.conditions for row in rows)
     assert not any("확인 완료" in row.text for row in rows)
 
@@ -512,9 +515,9 @@ def test_customer_questions_and_internal_next_actions_preserve_lifecycle(
         if any(e.type == "question" for e in row.evidence)
     ]
     assert len(rows) == 1 and question.question_text in rows[0].text
-    assert ("내부 다음 행동(담당 부서 RND)" if target == "INTERNAL" else "고객 확인 질문") in rows[
-        0
-    ].text
+    assert (
+        "내부 다음 행동(담당 부서 연구개발 담당)" if target == "INTERNAL" else "고객 확인 질문"
+    ) in rows[0].text
     if status == "DRAFT":
         assert "미발송" in rows[0].text and rows[0].unconfirmed
     if status == "REPLIED":
@@ -546,8 +549,9 @@ def test_shown_assumption_is_grounded_and_never_used_as_fulfillment(
 def test_synthetic_product_identity_is_input_driven(snapshot: dict[str, Any]) -> None:
     snapshot["comparisons"][0].candidates[0].product_code = "OTHER-SYNTHETIC"
     row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
-    assert "OTHER-SYNTHETIC" in row.text and "SYN-PRODUCT" not in row.text
+    assert "OTHER-SYNTHETIC" not in row.text and "SYN-PRODUCT" not in row.text
     assert any(e.type == "product" and e.id == "OTHER-SYNTHETIC" for e in row.evidence)
+    assert not any(e.type == "product" and e.id == "SYN-PRODUCT" for e in row.evidence)
 
 
 def test_product_from_another_requirement_cannot_ground_own_supplement(
@@ -645,3 +649,178 @@ def test_latest_system_review_flag_propagates_to_related_sentences(
         in sentences(result, "CUSTOMER_GOAL_SCOPE")[0].conditions
     )
     assert req.needs_review is True and req.needs_rereview is False
+
+
+def bulk_snapshot(snapshot: dict[str, Any], count: int = 240) -> dict[str, Any]:
+    """실제 문서/제품과 무관한 다장비·다상태·과업·선택 혼합 스냅샷."""
+    result = deepcopy(snapshot)
+    for key in ("requirements", "comparisons", "options", "questions", "selections"):
+        result[key] = []
+    partner = result["partners"][0]
+    partner.grades = []
+    for index in range(count):
+        req = snapshot["requirements"][0].model_copy(deep=True)
+        req.requirement_id = UUID(int=1000 + index)
+        req.code = f"{req.requirement_id.hex[:8]}:opaque:{index}"
+        req.origin.clause_id = UUID(int=2000 + index)
+        req.origin.clause_no = f"4.{index + 1}.A"
+        req.origin.quote = (
+            f"Cabinet series {index % 30} requires rating {500 + index} A under site conditions."
+        )
+        req.spec.equipment = f"cabinet series {index % 30}"
+        req.spec.attribute = "rated_current"
+        req.spec.value = str(500 + index)
+        req.spec.task = "ASSEMBLY" if index % 3 == 0 else None
+        req.spec.conditions = [
+            s.Condition(name="ambient_temperature", value=str(25 + index), unit="°C")
+        ]
+        req.judgement.status = list(get_args(s.RequirementStatus))[index % 4]
+        req.judgement.unresolved = [f"현장 경계 {index} 확인"]
+        req.needs_rereview = index % 2 == 0
+        req.needs_review = index % 11 == 0
+        question = snapshot["questions"][0].model_copy(deep=True)
+        question.question_id = UUID(int=3000 + index)
+        question.requirement_id = req.requirement_id
+        question.origin.clause_id = req.origin.clause_id
+        question.question_text = f"작업 {index}의 적용 조건을 확인해 주시겠습니까?"
+        question.target = "INTERNAL" if index % 2 else "CUSTOMER"
+        question.target_dept = list(get_args(s.DepartmentKind))[index % 5] if index % 2 else None
+        question.status = list(get_args(s.QuestionStatus))[index % 3]
+        req.links.question_ids = [question.question_id]
+        comp = snapshot["comparisons"][0].model_copy(deep=True)
+        comp.requirement_id = req.requirement_id
+        options = snapshot["options"][0].model_copy(deep=True)
+        options.requirement_id = req.requirement_id
+        options.permission_clause_id = req.origin.clause_id
+        grade = snapshot["partners"][0].grades[0].model_copy(deep=True)
+        grade.requirement_id = req.requirement_id
+        partner.grades.append(grade)
+        if index % 2:
+            selected = selection()
+            selected.requirement_id = req.requirement_id
+            result["selections"].append(selected)
+        for key, value in (
+            ("requirements", req),
+            ("comparisons", comp),
+            ("options", options),
+            ("questions", question),
+        ):
+            result[key].append(value)
+    result["integration"].basis_clause_ids = [result["requirements"][0].origin.clause_id]
+    result["integration"].basis_clause_nos = [result["requirements"][0].origin.clause_no]
+    return result
+
+
+def evidence_of(rows: list[s.Sentence]) -> set[tuple[str, str]]:
+    return {(proof.type, proof.id) for row in rows for proof in row.evidence}
+
+
+def test_bulk_summary_caps_sections_without_losing_evidence_conditions_or_flags(
+    snapshot, monkeypatch
+):
+    data = bulk_snapshot(snapshot)
+    before = deepcopy(data)
+    capped = build_draft(**data)
+    monkeypatch.setattr(engine, "MAX_SENTENCES_PER_SECTION", 10000)
+    uncapped = build_draft(**data)
+    assert len(sentences(uncapped)) > 48
+    assert len(sentences(capped)) <= 48
+    flags = {
+        str(req.requirement_id): req.needs_review or req.needs_rereview
+        for req in data["requirements"]
+    }
+    for section in get_args(s.DraftSection):
+        small, large = sentences(capped, section), sentences(uncapped, section)
+        assert len(small) <= 8
+        assert evidence_of(small) == evidence_of(large)
+        assert {condition for row in small for condition in row.conditions} == {
+            condition for row in large for condition in row.conditions
+        }
+        for row in small:
+            assert row.needs_rereview == any(
+                flags[e.id] for e in row.evidence if e.type == "requirement"
+            )
+            assert row.unconfirmed == any(
+                other.unconfirmed
+                for other in large
+                if set((e.type, e.id) for e in other.evidence)
+                <= set((e.type, e.id) for e in row.evidence)
+            )
+            assert row.text.count("「") <= 3
+            assert len(row.text) <= 4000
+    expected = (
+        {("requirement", str(req.requirement_id)) for req in data["requirements"]}
+        | {("clause", str(req.origin.clause_id)) for req in data["requirements"]}
+        | {("question", str(q.question_id)) for q in data["questions"]}
+        | {("product", "SYN-PRODUCT"), ("partner", "SYN-PARTNER")}
+    )
+    assert evidence_of(sentences(capped)) == expected
+    assert all(
+        f"현장 경계 {index} 확인" in {c for row in sentences(capped) for c in row.conditions}
+        for index in range(240)
+    )
+    assert (
+        len(
+            [
+                row
+                for row in sentences(capped, "ASSUMPTIONS_EXCLUSIONS")
+                if "통합 책임자:" in row.text
+            ]
+        )
+        == 1
+    )
+    mixed = [row for row in sentences(capped) if "혼합 항목 추가 검토" in row.text]
+    assert mixed and all("동일 항목이나 공급 가능 판단이 아님" in row.text for row in mixed)
+    assert capped.evidence_missing_count == 0 and all(row.evidence for row in sentences(capped))
+    assert capped.disclaimer == DISCLAIMER and data == before
+    ids = [row.sentence_id for row in sentences(capped)]
+    assert len(ids) == len(set(ids))
+    monkeypatch.setattr(engine, "MAX_SENTENCES_PER_SECTION", 8)
+    reordered = deepcopy(data)
+    for key in ("requirements", "comparisons", "options", "questions", "selections"):
+        reordered[key].reverse()
+    reordered["partners"][0].grades.reverse()
+    assert build_draft(**reordered) == capped
+
+
+def test_representatives_are_first_three_in_clause_order_and_full_evidence_remains(snapshot):
+    data = bulk_snapshot(snapshot, 12)
+    data["integration"] = s.IntegrationResponsibility()
+    for req in data["requirements"]:
+        req.spec.equipment = "common cabinet"
+        req.spec.task = None
+        req.judgement.status = "INSUFFICIENT_EVIDENCE"
+    result = build_draft(**data)
+    rows = sentences(result, "CUSTOMER_GOAL_SCOPE")
+    assert len(rows) == 1 and "요구 12건" in rows[0].text
+    for index in range(3):
+        assert data["requirements"][index].origin.quote in rows[0].text
+    assert data["requirements"][3].origin.quote not in rows[0].text
+    assert {e.id for e in rows[0].evidence if e.type == "requirement"} == {
+        str(req.requirement_id) for req in data["requirements"]
+    }
+
+
+def test_summary_hides_internal_fields_without_redacting_original_equipment_or_standard(snapshot):
+    req = snapshot["requirements"][0]
+    req.code = "abcd1234:4.7.C:2"
+    req.spec.equipment = "Cabinet GX-810"
+    req.origin.quote = "Cabinet GX-810 requires 600 A with IEC 61439-2 and a 690 V supply."
+    req.spec.attribute = "rated_current"
+    snapshot["questions"][0].question_text = "rated_current 요구의 조건을 확인해 주시겠습니까?"
+    result = build_draft(**snapshot)
+    body = " ".join(row.text for row in sentences(result))
+    for internal in (
+        req.code,
+        "rated_current",
+        "SPEC_GAP",
+        "CONDITIONAL",
+        "EXTERNAL_PRODUCT",
+        "UNCONFIRMED",
+        "REVIEW",
+        "PENDING",
+        "TECH",
+    ):
+        assert internal not in body
+    assert "Cabinet GX-810" in body and "IEC 61439-2" in body and "690 V" in body
+    assert any(e.id == str(REQ) for row in sentences(result) for e in row.evidence)
