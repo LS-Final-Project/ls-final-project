@@ -233,11 +233,15 @@ def build_cs_runner(
 
 
 @contextmanager
-def make_checkpointer(settings: Settings) -> Iterator[BaseCheckpointSaver]:
+def make_checkpointer(
+    settings: Settings, *, connect_timeout: int | None = None
+) -> Iterator[BaseCheckpointSaver]:
     """설정에 맞는 체크포인터를 열고 끝나면 연결을 닫는다.
 
     Args:
         settings: database_url이 있으면 그 DSN(cs_app)으로 checkpoint_cs 스키마의 PostgresSaver를 연다.
+        connect_timeout: 연결 대기 상한(초). 응답 안에서 여는 경로(발송 뒤 재개)는 응답 없는 DB에
+            OS 기본(1~2분)만큼 묶이지 않게 준다. None이면 DSN·libpq 기본을 따른다.
 
     Returns:
         Iterator[BaseCheckpointSaver]: PostgresSaver 또는(DSN이 없으면) InMemorySaver. 연결 옵션은
@@ -247,8 +251,9 @@ def make_checkpointer(settings: Settings) -> Iterator[BaseCheckpointSaver]:
     if settings.database_url is None:
         yield InMemorySaver()
         return
+    extra: dict[str, Any] = {} if connect_timeout is None else {"connect_timeout": connect_timeout}
     dsn = make_conninfo(
-        settings.database_url.get_secret_value(), options="-c search_path=checkpoint_cs"
+        settings.database_url.get_secret_value(), options="-c search_path=checkpoint_cs", **extra
     )
     with psycopg.connect(dsn, autocommit=True, prepare_threshold=0, row_factory=dict_row) as conn:
         yield PostgresSaver(conn)

@@ -35,7 +35,10 @@ logger = logging.getLogger(__name__)
 RESUME_RETRY_DELAYS = (0.5, 2.0)
 # 다시 시도할 오류. 대기가 발송 갱신 응답 안에서 일어나므로 기다려서 나아질 수 있는 것만 둔다.
 # psycopg.OperationalError는 연결 실패·관리자 종료·연결 수 초과·교착·직렬화 실패·문장 취소를 포함한다.
-# 권한·표 없음(ProgrammingError)이나 그래프·코드 오류는 다시 해도 같으므로 기다리지 않고 바로 포기한다.
+# 권한·표 없음(ProgrammingError)이나 그래프·코드 오류는 기다리지 않고 바로 포기한다. 잘못된 DSN·비밀번호도
+# psycopg에서는 OperationalError라 재시도되지만, 배포 전체 장애라 로그로 드러난다.
+# 재개 한 번의 체크포인트 연결 대기 상한(초). 앱 DB 연결(backend/shared/database.py)과 같다.
+RESUME_CONNECT_TIMEOUT_S = 3
 RESUME_TRANSIENT_ERRORS: tuple[type[Exception], ...] = (psycopg.OperationalError,)
 
 
@@ -124,7 +127,7 @@ def resume_graph(settings: Settings, job_id: UUID) -> str:
     from backend.engine.search.chunking import INDEX_VERSION
     from backend.engine.search.model import SearchFilters
 
-    with make_checkpointer(settings) as saver:
+    with make_checkpointer(settings, connect_timeout=RESUME_CONNECT_TIMEOUT_S) as saver:
         # 사람 확인 노드는 상태 표시만 남긴다. 모델·검색·입력 함수를 부르면 오류로 드러나게 막아 둔다.
         graph = build_graph(
             classification_provider=_no_model,
