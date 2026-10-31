@@ -78,6 +78,14 @@ class ImportTest(unittest.TestCase):
             self.assertEqual(self.run_tool(self.write([ROW, bad]), server, "--execute"), 1)
             self.assertEqual(server.posts, [])
 
+    def test_a_product_outside_the_policy_table_stops_everything_before_a_write(self):
+        server = Server()
+        path = self.write([ROW, {**ROW, "product_code": "TRF-NONE-1", "body": "둘째"}])
+        with patch("builtins.print") as printed:
+            self.assertEqual(self.run_tool(path, server, "--execute"), 1)
+        self.assertEqual(server.posts, [])
+        self.assertIn("TRF-NONE-1", " ".join(str(c) for c in printed.call_args_list))
+
     def test_identical_rows_stop_everything_before_a_write(self):
         server = Server()
         path = self.write([ROW, {**ROW, "body": "둘째"}, dict(ROW)])
