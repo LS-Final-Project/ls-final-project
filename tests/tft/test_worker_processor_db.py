@@ -806,3 +806,53 @@ def test_the_semantic_fields_are_stored_with_the_requirement_version(worker_dsn,
         # 인용에 허용 오차 표기가 있는데 칸이 비면 코드가 검토로 둔다.
         ("95", None, True, "bil", "OTHER"),
     ]
+
+
+def test_reprocessing_keeps_human_sentence_without_a_model_call(worker_dsn, project, admin):
+    from backend.api.tft.rfp import draft_repository as db
+    from backend.api.tft.rfp import drafts
+    from backend.api.tft.rfp import schemas as s
+
+    extractor = FakeExtractor()
+    run(worker_dsn, project, extractor)
+    calls = extractor.calls
+
+    async def human_edit():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            await db.lock(conn, project["project"])
+            current = await db.load_snapshot(conn, project["project"], 1)
+            row = next(row for part in current.sections for row in part.sentences)
+            updated, reasons = drafts.edit(
+                current,
+                s.DraftEdit.model_validate(
+                    {
+                        "version": 1,
+                        "edits": [
+                            {
+                                "sentence_id": row.sentence_id,
+                                "text": "사람의 검토 문장 원형",
+                                "reason": "근거 확인",
+                                "evidence": row.evidence,
+                            }
+                        ],
+                    }
+                ),
+                await drafts.valid_references(conn, project["project"]),
+            )
+            await db.save(conn, updated, actor=SALES, reasons=reasons)
+            return row.sentence_id
+
+    key = asyncio.run(human_edit())
+    run(worker_dsn, project, extractor)
+    assert extractor.calls == calls
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT latest_version FROM tft.drafts WHERE project_id=%s", (project["project"],)
+            ).fetchone()[0]
+            == 3
+        )
+        assert conn.execute(
+            "SELECT text,provenance_kind,edit_reason FROM tft.draft_sentences WHERE project_id=%s AND draft_version=3 AND sentence_key=%s",
+            (project["project"], key),
+        ).fetchone() == ("사람의 검토 문장 원형", "human_input", "근거 확인")

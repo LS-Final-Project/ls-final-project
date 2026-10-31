@@ -56,6 +56,21 @@ async def generate(
         if result is None:
             raise ValueError("TFT_DRAFT_VERSION_MISSING")
         return result
+    version = await db.head(conn, project_id)
+    previous = await db.load_snapshot(conn, project_id, version) if version else None
+    human = (
+        [
+            row
+            for part in previous.sections
+            for row in part.sentences
+            if row.provenance_kind == "human_input"
+        ]
+        if previous
+        else []
+    )
+    reasons, replacements = await db.human_lineage(
+        conn, project_id, version, [row.sentence_id for row in human]
+    )
     project = await repository.project_scope(conn, project_id)
     if project is None:
         raise ValueError("TFT_PROJECT_NOT_FOUND")
@@ -89,7 +104,7 @@ async def generate(
         raise ValueError("TFT_INTEGRATION_SCHEMA_MISSING")
     result = build_draft(
         project_id=project_id,
-        version=await db.head(conn, project_id) + 1,
+        version=version + 1,
         data_origin=project["data_origin"],
         known_at=datetime.now(UTC),
         requirements=requirements,
@@ -99,8 +114,10 @@ async def generate(
         selections=selections,
         partners=partners,
         questions=[question_out(q) for q in await repository.list_questions(conn, project_id)],
+        replaced=replacements,
     )
-    await db.save(conn, result, actor=actor, source_job_id=job_id)
+    result = preserve_human(result, previous, await valid_references(conn, project_id))
+    await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)
     await commands.audit(
         conn,
         project_id=project_id,
@@ -109,6 +126,32 @@ async def generate(
         entity_id=result.version,
         action="draft.generate",
         detail={"job_id": str(job_id)},
+    )
+    display = await db.load(conn, project_id, result.version)
+    if display is None:
+        raise ValueError("TFT_DRAFT_VERSION_MISSING")
+    return display
+
+
+def preserve_human(
+    generated: s.Draft, previous: s.Draft | None, valid_refs: set[tuple[str, str]]
+) -> s.Draft:
+    """사람 문장을 원형대로 이관한다. live mark를 고착시키지 않고 사라진 근거만 누락 표시한다."""
+    result = generated.model_copy(deep=True)
+    if previous is None:
+        return result
+    sections = {part.section: part for part in result.sections}
+    for part in previous.sections:
+        for old in part.sentences:
+            if old.provenance_kind != "human_input":
+                continue
+            row = old.model_copy(deep=True)
+            if not row.evidence or any((e.type, e.id) not in valid_refs for e in row.evidence):
+                row.evidence_missing = True
+                row.needs_rereview = True
+            sections[part.section].sentences.append(row)
+    result.evidence_missing_count = sum(
+        row.evidence_missing for part in result.sections for row in part.sentences
     )
     return result
 
