@@ -15,6 +15,7 @@ import { ErrorState, Loading } from '../components/states';
 import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
 import TicketAudit from '../components/TicketAudit';
 import TicketSummary from '../components/TicketSummary';
+import AiDraftDialog from '../components/AiDraftDialog';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
@@ -28,7 +29,7 @@ const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], str
   OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
 };
 type Transfer = WorkflowRecord['transfers'][number];
-type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | 'owner' | null;
+type Dialog = 'transfer' | 'recall' | 'close' | 'resolution' | 'owner' | 'draft' | null;
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
 
 const Cell = ({ label, children }: { label: string; children: ReactNode }) =>
@@ -151,6 +152,7 @@ export default function TicketDetail() {
       <KvMore items={[
         { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
+        { label: 'AI 초안 보기', note: 'AI 초안 3개를 읽고 고르거나 직접 씁니다. 보내기는 연결 전', action: () => setDialog('draft') },
         { label: '담당 변경', note: reasons.owner, action: busy || reasons.owner !== undefined ? undefined : () => setDialog('owner') },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
         { label: '해결 기록 남기기', note: reasons.resolution ?? '종결 후 한 건', action: busy || reasons.resolution !== undefined ? undefined : () => setDialog('resolution') },
@@ -244,6 +246,9 @@ export default function TicketDetail() {
     {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)}
         onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
+    </KvModal>}
+    {dialog === 'draft' && data && <KvModal title={`정보 요청 문안, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => setDialog(null)}>
+      <AiDraftDialog analysis={analysisData} ticketLabel={`${data.customer_external_id}, ${data.body_language}`} />
     </KvModal>}
     {dialog === 'owner' && data && <KvModal title={`담당 변경, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <form onSubmit={event => { event.preventDefault(); const next = String(new FormData(event.currentTarget).get('owner') ?? ''); if (next) void run('담당자를 바꿨습니다.', signal => reassignOwner(ticketId, { owner_user_id: next, version }, signal)); }}>
