@@ -150,7 +150,7 @@ function Intake({ projectId }: { projectId: string }) {
         <p style={{ margin: 0 }}>{proposals.length ? <Link to={`/tft/projects/${projectId}/table/approvals`}>승인 화면으로</Link> : '승인 대기 제안이 없습니다.'}</p>
       </KvBox>
       <KvBox title={`회신 대기 질문 ${questions.length}`}>
-        {questions.length ? <ul style={{ margin: 0, paddingLeft: 16 }}>{questions.slice(0, 5).map(q => <li key={q.question_id}>{q.question_text}</li>)}</ul> : <p style={{ margin: 0 }}>회신 대기 질문이 없습니다.</p>}
+        {questions.length ? <ul style={{ margin: 0, paddingLeft: 16 }}>{questions.slice(0, 5).map(q => <li key={q.question_id}>{q.requirement_id ? <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`}>{q.question_text}</Link> : q.question_text}</li>)}</ul> : <p style={{ margin: 0 }}>회신 대기 질문이 없습니다.</p>}
       </KvBox>
       <KvBox title={`미해결 필수 ${data.unresolved_mandatory_count}`}>
         <p style={{ margin: 0 }}>{data.unresolved_mandatory_count ? <Link to={`/tft/projects/${projectId}/table`}>대응표에서 보기</Link> : '미해결 필수가 없습니다.'}</p>

@@ -70,7 +70,10 @@ function Detail({ projectId, id, proposing, onPropose, onClose }: {
           <Link to={`/tft/projects/${projectId}/table/approvals`}>{pending.data?.data.items.length}건</Link>
         </KvField>}
         <div className="kv-field"><span>원문</span><div className="kv-text" lang="en" style={{ minHeight: 0 }}>{[origin.clause_no, origin.page != null ? `p.${origin.page}` : ''].filter(Boolean).join(' ')} {origin.quote}</div></div>
-        <div className="kv-actions"><button className="kb" onClick={onPropose}>변경 제안</button></div>
+        <div className="kv-actions">
+          <Link className="kb" to={`/tft/projects/${projectId}/requirements/${id}`}>요구 상세</Link>
+          <button className="kb" onClick={onPropose}>변경 제안</button>
+        </div>
       </KvBox>
     </KvSplit>
     {proposing && <ProposalForm

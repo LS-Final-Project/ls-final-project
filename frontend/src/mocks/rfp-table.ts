@@ -75,3 +75,16 @@ export const MOCK_PROPOSALS = [{
   decided_by: null,
   decided_at: null,
 }];
+
+export const MOCK_QUESTIONS = [{
+  version: 1, data_origin: 'synthetic' as const, derivation_kind: 'PROVIDED' as const, known_at: '2026-10-20T09:00:00Z',
+  question_id: '88888888-8888-4888-8888-888888888881', requirement_id: REQUIREMENT_ID, origin: { clause_id: null, page: 3 },
+  issue_type: 'CONDITION_MISSING' as const, question_text: '합성 질문: 1500 kVA 기준 조건을 확인해 주세요.', internal_assumption: null,
+  status: 'OPEN' as const, reply_received_at: null, created_by: '22222222-2222-4222-8222-222222222222', created_at: '2026-10-20T09:00:00Z',
+  target: 'CUSTOMER' as const, target_dept: null, rnd_feasibility: null,
+}];
+
+export const MOCK_CLAUSES = [{
+  clause_id: '99999999-9999-4999-8999-999999999991', clause_no: '2.1.A', parent_clause_id: null, depth: 1, title: '정격', page: 3,
+  text: 'The transformer rating shall be 1500 kVA minimum.', deleted_values: [], flags: [], cross_references: [], requirement_ids: [REQUIREMENT_ID],
+}];
