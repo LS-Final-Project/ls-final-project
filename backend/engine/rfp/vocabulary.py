@@ -136,10 +136,11 @@ def is_placeholder(value: str | None) -> bool:
 
 
 # 형식(form) 문구에서 읽는 닫힌 축. 하이픈은 공백으로 보고 읽는다.
-# metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있어 넣지 않았다.
+# 축 충돌은 협력사를 제외하니 그 형식을 명시한 말만 둔다. 부하개폐기(load break, load interrupter)는
+# 퓨즈가 없을 수 있고, epoxy는 코팅·도장에도 쓰며, metal-clad·metal-enclosed는 포함 관계로 볼 여지가 있다.
 FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {
     "switching": {
-        "FUSE_SWITCH": ("fused", "fusible", "load break", "load interrupter"),
+        "FUSE_SWITCH": ("fused", "fusible"),
         "VCB": ("vcb", "vacuum circuit breaker"),
         "ACB": ("acb", "air circuit breaker"),
         "MCCB": ("mccb", "molded case", "moulded case"),
@@ -149,11 +150,13 @@ FORM_AXES: dict[str, dict[str, tuple[str, ...]]] = {
         "DRAWOUT": ("drawout", "draw out", "withdrawable"),
     },
     "insulation": {
-        "CAST_RESIN": ("cast resin", "epoxy"),
+        "CAST_RESIN": ("cast resin",),
         "OIL": ("oil immersed", "liquid filled"),
     },
 }
-_FORM_NEGATION = re.compile(r"\b(?:not|non|no|without|except)\b")
+_FORM_NEGATION = re.compile(
+    r"\b(?:not|non|no|un|without|w/o|except|excluding|other than|instead of|rather than)\b"
+)
 
 
 def form_axes(text: str) -> dict[str, str]:

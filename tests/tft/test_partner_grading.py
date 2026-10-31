@@ -476,6 +476,18 @@ def test_a_placeholder_requirement_value_is_not_judged_for_a_partner():
         # 부정은 읽지 않는다. 읽으면 뜻이 뒤집혀 잘못 제외한다.
         ("non-drawout switchgear", "fixed-mount switchgear", "unknown"),
         ("switchgear, not drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear other than drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear instead of drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear rather than drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear excluding drawout", "fixed-mount switchgear", "unknown"),
+        ("switchgear w/o drawout", "fixed-mount switchgear", "unknown"),
+        ("un-fused switch", "VCB switchgear", "unknown"),
+        # 그 형식을 명시하지 않은 말로는 제외하지 않는다.
+        ("load break switch", "VCB switchgear", "unknown"),
+        ("load interrupter switch", "VCB switchgear", "unknown"),
+        ("epoxy coated transformer", "oil-immersed transformer", "unknown"),
+        # 퓨즈를 명시하면 부하개폐기여도 읽는다.
+        ("fused load-break switch", "VCB switchgear", "failed"),
         # 단어 일부는 축 값이 아니다.
         ("defused panel", "VCB switchgear", "unknown"),
     ],
@@ -485,6 +497,54 @@ def test_form_conflicts_only_on_a_closed_axis(wanted, held, name):
     verdict, word = _value_verdict(row, SpecFact.model_validate(fact("form", held)))
     assert verdict == name
     assert verdict != "failed" or word == "형식 다름"
+
+
+@pytest.mark.parametrize(
+    ("wanted", "expected"),
+    [
+        (
+            "fixed-mount fused switchgear",
+            {
+                "P-A": "REVIEW",
+                "P-B": "REVIEW",
+                "P-C": "REFERENCE_ONLY",
+                "P-D": "REVIEW",
+                "P-E": "REVIEW",
+                "L-A": "EXCLUDED",
+                "L-B": "REVIEW",
+                "L-C": "EXCLUDED",
+                "L-D": "EXCLUDED",
+                "M-A": "EXCLUDED",
+                "M-B": "EXCLUDED",
+                "T-A": "REVIEW",
+            },
+        ),
+        (
+            "metal-clad withdrawable VCB switchgear",
+            {
+                "P-A": "EXCLUDED",
+                "P-B": "EXCLUDED",
+                "P-C": "REFERENCE_ONLY",
+                "P-D": "EXCLUDED",
+                "P-E": "EXCLUDED",
+                "L-A": "REVIEW",
+                "L-B": "REVIEW",
+                "L-C": "EXCLUDED",
+                "L-D": "EXCLUDED",
+                "M-A": "REVIEW",
+                "M-B": "REVIEW",
+                "T-A": "REVIEW",
+            },
+        ),
+    ],
+)
+def test_the_seeded_profiles_keep_their_form_grades(wanted, expected):
+    row = req(1, "form", wanted)
+    graded = {
+        profile.candidate_code: grade_requirement(profile, row, CONTEXT, DAY).grade
+        for profile in load_profiles()
+    }
+    assert graded == expected
 
 
 def test_the_form_axes_apply_only_to_the_form_attribute():
