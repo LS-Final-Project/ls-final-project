@@ -429,3 +429,5 @@ def test_only_a_chunk_of_nothing_but_document_names_is_a_listing():
     assert not is_document_listing(chunk("- IG-A — 설치"), ids)  # 줄 하나는 본문 인용일 수 있다
     assert not is_document_listing(chunk("- IG-A — 설치", "차단기를 내린 뒤 점검한다."), ids)
     assert not is_document_listing(chunk("- IG-A — 설치", "- TG-A — 장애"), frozenset())
+    # 다른 식별자나 단어의 일부로 든 경우는 목록이 아니다.
+    assert not is_document_listing(chunk("- IG-A-2 — 설치", "- XTG-A — 장애"), ids)
