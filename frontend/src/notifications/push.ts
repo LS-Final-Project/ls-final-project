@@ -121,34 +121,40 @@ async function sameSubscription(registration: ServiceWorkerRegistration, subscri
 // Local unsubscribe/owner clear happen even when the server is OFF or the delete is uncertain.
 export function clearPush(actorId?: string, expectedSession: string | null | undefined = actorId): Promise<void> {
   return exclusive(async () => {
-    if (expectedSession !== undefined) await notificationSession(expectedSession);
-    const state = ownerState();
-    if (!state.available) throw storageFailure();
-    const registration = await existingPushWorker();
-    let warning: unknown;
-    if (!registration) {
-      if (!forgetOwner() || warning) throw storageFailure();
-      return;
-    }
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription && !state.id) throw new Error('기존 구독의 소유자를 확인하지 못했습니다. 사이트 알림 설정에서 확인하세요.');
-    if (actorId && state.id && state.id !== actorId) throw new NotificationSessionChanged();
-    if (state.id) {
-      await sameSubscription(registration, subscription, state.id);
-      try { await ownerMessage(registration, null); } catch (error) { warning ??= error; }
-    }
-    await sameSubscription(registration, subscription, state.id);
-    if (subscription) {
-      const endpoint = subscription.endpoint;
-      const removed = await subscription.unsubscribe();
-      if (!removed) throw new Error('브라우저 구독 해제를 확인하지 못했습니다. 사이트 알림 설정을 확인하세요.');
-      if (!forgetOwner()) warning ??= storageFailure();
-      if (actorId && state.id === actorId) await deletePushSubscription(actorId, endpoint);
-    } else if (!forgetOwner()) warning ??= storageFailure();
-    if (warning) throw warning;
+    await clearPushLocked(actorId, expectedSession);
   }, undefined, true);
 }
-export async function reconcilePush(actorId: string | null): Promise<void> {
-  const previous = ownerState();
-  if (!previous.available || !previous.id || previous.id !== actorId) await clearPush(undefined, actorId);
+// Caller holds the shared Web Lock; reconciliation must not acquire it twice.
+async function clearPushLocked(actorId?: string, expectedSession: string | null | undefined = actorId): Promise<void> {
+  if (expectedSession !== undefined) await notificationSession(expectedSession);
+  const state = ownerState();
+  if (!state.available) throw storageFailure();
+  const registration = await existingPushWorker();
+  let warning: unknown;
+  if (!registration) {
+    if (!forgetOwner() || warning) throw storageFailure();
+    return;
+  }
+  const subscription = await registration.pushManager.getSubscription();
+  if (subscription && !state.id) throw new Error('기존 구독의 소유자를 확인하지 못했습니다. 사이트 알림 설정에서 확인하세요.');
+  if (actorId && state.id && state.id !== actorId) throw new NotificationSessionChanged();
+  if (state.id) {
+    await sameSubscription(registration, subscription, state.id);
+    try { await ownerMessage(registration, null); } catch (error) { warning ??= error; }
+  }
+  await sameSubscription(registration, subscription, state.id);
+  if (subscription) {
+    const endpoint = subscription.endpoint;
+    const removed = await subscription.unsubscribe();
+    if (!removed) throw new Error('브라우저 구독 해제를 확인하지 못했습니다. 사이트 알림 설정을 확인하세요.');
+    if (!forgetOwner()) warning ??= storageFailure();
+    if (actorId && state.id === actorId) await deletePushSubscription(actorId, endpoint);
+  } else if (!forgetOwner()) warning ??= storageFailure();
+  if (warning) throw warning;
+}
+export function reconcilePush(actorId: string | null): Promise<void> {
+  return exclusive(async () => {
+    const previous = ownerState();
+    if (!previous.available || !previous.id || previous.id !== actorId) await clearPushLocked(undefined, actorId);
+  }, undefined, true);
 }
