@@ -190,6 +190,47 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         ).fetchone() == (1,)
 
 
+def test_selection_refuses_candidates_outside_the_path(client, gap):
+    """경로 16: 그 경로의 저장 후보만 받는다. 거절되면 선택이 저장되지 않는다."""
+    outside = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A", "P-Z"])
+    assert error(outside) == (422, "VALIDATION_ERROR")
+    assert outside.json()["error"]["details"] == [{"field": "candidate_codes", "reason": "P-Z"}]
+    url = f"/requirements/{gap['requirement']}/supplement-options"
+    assert (
+        data(get(client, f"/requirements/{gap['requirement']}"))["links"]["supplement_summary"]
+        is None
+    )
+    assert data(get(client, url))["options"]
+    done = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"])
+    assert done.status_code == 200, done.text
+
+
+def test_selection_refuses_a_candidate_excluded_for_the_requirement(client, gap, admin):
+    """경로 16: 최신 저장 등급이 EXCLUDED인 후보는 경로 후보여도 422다. 등급이 풀리면 받는다."""
+    code = add_profile(admin)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.supplement_options SET candidate_codes=%s WHERE requirement_id=%s",
+            ([code], gap["requirement"]),
+        )
+    add_grade(admin, gap, gap["requirement"], code, "EXCLUDED")
+    try:
+        refused = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=[code])
+        assert error(refused) == (422, "TFT_CANDIDATE_EXCLUDED")
+        assert refused.json()["error"]["details"] == [{"field": "candidate_codes", "reason": code}]
+        with psycopg.connect(admin) as conn:
+            conn.execute(
+                "UPDATE tft.partner_grades SET grade='REVIEW',exclusion_reasons='[]' "
+                "WHERE candidate_code=%s",
+                (code,),
+            )
+        assert choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=[code]).status_code == 200
+    finally:
+        with psycopg.connect(admin) as conn:
+            conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+            conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
+
+
 def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, gap, admin):
     """OWN_DEVELOPMENT 선택은 R&D 질문을 만들고 협력사 경로 게이트가 PENDING이 된다. dept_staff는 고를 수 없다."""
     before = options(client, gap)
@@ -811,8 +852,15 @@ def add_grade(admin, chain, requirement, code, grade, unknown=()):
         )
 
 
-def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
-    """후보: 저장된 등급이 있는 후보만, 후보 등급은 전체 기준, 요구 필터는 등급 목록만 좁힌다."""
+def add_profile(admin):
+    """합성 협력사 프로필 하나를 더한다.
+
+    Args:
+        admin: 관리자 DSN.
+
+    Returns:
+        str: 후보 코드.
+    """
     code = "Q-" + chr(ord("A") + uuid4().int % 26)
     profile = load_profiles()[1]
     row = profile.model_dump(mode="json") | {"candidate_code": code, "profile_version": 1}
@@ -828,6 +876,12 @@ def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
                 for k in columns
             ],
         )
+    return code
+
+
+def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
+    """후보: 저장된 등급이 있는 후보만, 후보 등급은 전체 기준, 요구 필터는 등급 목록만 좁힌다."""
+    code = add_profile(admin)
     url = f"/projects/{chain['project']}/partner-candidates"
     assert data(get(client, url))["items"] == []
     other = add_requirement(admin, chain, "R-5", status="INSUFFICIENT_EVIDENCE")

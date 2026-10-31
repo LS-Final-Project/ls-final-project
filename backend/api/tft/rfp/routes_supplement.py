@@ -93,6 +93,42 @@ async def options_of(
     return computed, out
 
 
+async def check_candidates(
+    conn: AsyncConnection[Row],
+    requirement_id: UUID,
+    options: s.SupplementOptions,
+    payload: s.SupplementSelection,
+) -> None:
+    """고른 후보가 그 경로의 후보이고 제외되지 않았는지 본다. 화면이 막아도 서버가 막는다.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+        options: 계산한 선택지(경로별 저장 후보).
+        payload: 선택 본문.
+
+    Returns:
+        None. 제외 후보는 422 TFT_CANDIDATE_EXCLUDED, 경로 밖 후보는 422 VALIDATION_ERROR다.
+    """
+    excluded = await repository.excluded_candidates(conn, requirement_id, payload.candidate_codes)
+    if excluded:
+        raise ApplicationError(
+            422,
+            "TFT_CANDIDATE_EXCLUDED",
+            "An excluded candidate cannot be selected.",
+            details=[{"field": "candidate_codes", "reason": code} for code in excluded],
+        )
+    allowed = next((o.candidate_codes for o in options.options if o.path == payload.path), [])
+    outside = sorted(set(payload.candidate_codes) - set(allowed))
+    if outside:
+        raise ApplicationError(
+            422,
+            "VALIDATION_ERROR",
+            "The candidate is not on this supplement path.",
+            details=[{"field": "candidate_codes", "reason": code} for code in outside],
+        )
+
+
 async def get_supplement_options(
     request: Request, principal: Principal, requirement_id: UUID
 ) -> s.SupplementOptions:
@@ -179,12 +215,13 @@ async def select_supplement(
             assert requirement is not None
             if requirement["latest_version"] != payload.version:
                 raise repository.version_conflict()
-            computed, _ = await options_of(conn, requirement)
+            computed, options = await options_of(conn, requirement)
             option = next((o for o in computed.options if o.path == payload.path), None)
             state, rnd_question_id = await repository.rnd_check(conn, requirement_id)
             decided = check_selection(
                 option, state, payload.rnd_check_waiver_reason, rnd_question_id
             )
+            await check_candidates(conn, requirement_id, options, payload)
             if payload.path == "OWN_DEVELOPMENT" and decided != "PENDING":
                 ask = rnd_question_for(
                     summary_of(requirement),
