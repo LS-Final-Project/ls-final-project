@@ -21,3 +21,12 @@ targetRules = ["generic-api-key"]
 paths = ['''^tests/test_logs\.py$''']
 regexTarget = "secret"
 regexes = ['''^ya29\.a0AfH6SMB$''']
+
+# 허용 규칙 검사(.github/tests/application_checks.test.cjs)가 "실제 키 모양은 받지 않는다"를 보이려고 지어낸
+# Google API 키 모양 값. 실제 키가 아니다. 이 파일의 이 값 하나만 허용한다.
+[[allowlists]]
+description = "허용 규칙 검사용으로 지어낸 Google API 키 모양 값"
+targetRules = ["gcp-api-key"]
+paths = ['''^\.github/tests/application_checks\.test\.cjs$''']
+regexTarget = "secret"
+regexes = ['''^AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW$''']

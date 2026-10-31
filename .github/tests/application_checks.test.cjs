@@ -64,7 +64,11 @@ test('gitleaks 허용 규칙은 이름표 모양만 받고 실제 키 모양은 
   const blocks = config.split('[[allowlists]]').slice(1);
   assert.ok(blocks.length > 0);
   for (const block of blocks) {
-    assert.match(block, /targetRules = \["generic-api-key"\]/, '허용은 generic-api-key에만 건다');
+    // generic-api-key가 아닌 규칙의 허용은 한 파일의 정확한 값 하나로만 둔다.
+    if (!/targetRules = \["generic-api-key"\]/.test(block)) {
+      assert.match(block, /paths = \['''\^[^']+\$'''\]/, '파일 하나로 좁힌다');
+      assert.match(block, /regexes = \['''\^[A-Za-z0-9]+\$'''\]/, '정확한 값 하나만 허용한다');
+    }
   }
   const pattern = new RegExp(config.match(/regexes = \['''(.+?)'''\]/)[1]);
   for (const label of ['urgency_macro_f1', 'cs-comparison-key-v1', 'admission-key-123', 'fixture-server-token', 'lsv2-fixture-secret']) {
