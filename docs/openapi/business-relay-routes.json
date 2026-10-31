@@ -12,7 +12,16 @@
       ],
       "query": [
         "limit",
-        "cursor"
+        "cursor",
+        "state",
+        "channel",
+        "product_code",
+        "customer",
+        "owner",
+        "received_from",
+        "received_to",
+        "q",
+        "sort"
       ]
     },
     {
@@ -595,6 +604,23 @@
       "method": "GET",
       "path": "/api/v1/cs/tickets?limit=1",
       "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW,TRANSFERRED&channel=EMAIL&q=leak&sort=received_at_asc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW&state=CLOSED",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=GCS_L1",
+      "forward": false,
+      "status": 400
     },
     {
       "method": "GET",
