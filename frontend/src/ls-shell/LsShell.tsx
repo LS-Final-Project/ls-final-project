@@ -18,14 +18,14 @@ type Group = { key: string; label: string; leaves: Leaf[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
 const MENU: Group[] = [
-  { key: 'mail', label: '메일', leaves: [] },
+  { key: 'mail', label: '메일', leaves: [{ label: '받은 메일 검토' }, { label: '발송 상태', to: '/mail/sent' }, { label: '메일 계정' }] },
   {
     key: 'cs', label: 'C/S 관리', leaves: [
       { label: '업무 홈', to: '/cs', end: true },
       { label: '문의 조회', to: '/cs/tickets' },
       { label: '문의 처리' },
       { label: '고객 이력', to: '/cs/customers' },
-      { label: '개선요청' },
+      { label: '개선요청', to: '/cs/improvements' },
       { label: '반복 사례 모음' },
     ],
   },
@@ -49,6 +49,8 @@ function tabOf(pathname: string) {
   if (pathname.startsWith('/cs/tickets/')) return { kind: 'ticket', name: '문의 처리' };
   if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
   if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
+  if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
+  if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
   if (pathname.endsWith('/supplement')) return { kind: 'supplement', name: '보완 및 협력사 비교' };
@@ -78,7 +80,7 @@ export default function LsShell({ children }: { children?: ReactNode } = {}) {
   const navigate = useNavigate();
   const mode = getApiMode();
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
-  const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : 'cs']: true });
+  const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : pathname.startsWith('/mail') ? 'mail' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.
   const [toggled, setToggled] = useState(false);
   useEffect(() => {
