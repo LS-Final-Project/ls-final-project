@@ -44,6 +44,24 @@ async def requirement_project(
     return await visible_project(conn, principal, project_id, *NOT_FOUND)
 
 
+def is_certification(requirement: Mapping[str, Any]) -> bool:
+    """저장 판본으로 인증 요구를 읽는다.
+
+    ponytail: 판본에 추출 kind가 없어 규격 칸으로 읽는다. 어긋나면 kind를 저장한다.
+
+    Args:
+        requirement: latest_requirement_version 행.
+
+    Returns:
+        bool: 값이 글자이고 규격 체계가 있으며 속성이 비교 어휘에 없으면 True.
+    """
+    return (
+        requirement["operator"] == "TEXT"
+        and requirement["standard_system"] != "NONE"
+        and requirement["attribute_key"] in (None, "OTHER")
+    )
+
+
 async def options_of(
     conn: AsyncConnection[Row], requirement: Mapping[str, Any]
 ) -> tuple[supplement.Options, s.SupplementOptions]:
@@ -74,6 +92,8 @@ async def options_of(
         rnd_check=state,
         approval_question=await repository.has_customer_question(conn, requirement_id),
         partner_graded=bool(graded),
+        own_certification=is_certification(requirement)
+        and bool(await repository.latest_comparisons(conn, requirement_id)),
     )
     candidates = {row["path"]: list(row["candidate_codes"]) for row in rows}
     # 처리는 등급보다 먼저 선택지를 저장하므로 외부 조달 후보는 등급에서 읽는다.

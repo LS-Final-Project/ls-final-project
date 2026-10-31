@@ -467,14 +467,27 @@ def test_insufficient_evidence_offers_external_only_with_a_graded_candidate():
         outcome, "ALLOWED", rnd_check="CONFIRMED_FEASIBLE", partner_graded=True
     ).options[0]
     assert (feasible.allowed, feasible.blocked_reason) == (False, "OWN_DEVELOPMENT_FEASIBLE")
+    # 자사 후보가 있는 인증 요구는 대체 제안도 비교한다. 금지면 내지 않는다.
+    both = options_for(outcome, "UNSTATED", partner_graded=True, own_certification=True)
+    assert [o.path for o in both.options] == ["EXTERNAL_PRODUCT", "ALTERNATIVE_SPEC"]
+    assert [o.rank for o in both.options] == [3, 3]
+    assert both.options[1].gate.requires == "OWN_DEVELOPMENT_CHECK"
+    refused = options_for(outcome, "FORBIDDEN", partner_graded=True, own_certification=True)
+    assert [o.path for o in refused.options] == ["EXTERNAL_PRODUCT", "NONE"]
+    assert options_for(outcome, "ALLOWED", own_certification=True).options == []
     # 지정품·계약 조건·과업 규칙은 후보가 있어도 그대로다.
-    named = options_for(outcome, "ALLOWED", designated=True, partner_graded=True)
+    named = options_for(
+        outcome, "ALLOWED", designated=True, partner_graded=True, own_certification=True
+    )
     assert {o.path for o in named.options if o.allowed} == {
         "CUSTOMER_SPECIFIED_PROCUREMENT",
         "ALTERNATIVE_SPEC",
     }
     commercial = outcome.model_copy(update={"deficiency_cause": "COMMERCIAL"})
-    assert options_for(commercial, "ALLOWED", partner_graded=True).options == []
+    assert (
+        options_for(commercial, "ALLOWED", partner_graded=True, own_certification=True).options
+        == []
+    )
     task = outcome.model_copy(update={"deficiency_cause": "TASK"})
     assert [o.path for o in options_for(task, "ALLOWED", partner_graded=True).options] == [
         "OWN_DEVELOPMENT",
