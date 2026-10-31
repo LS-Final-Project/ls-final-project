@@ -334,3 +334,15 @@ test('담당자 목록을 못 읽으면 변경을 막고 안내한다', async ()
   expect((screen.getByRole('button', { name: '변경' }) as HTMLButtonElement).disabled).toBe(true);
   expect(api.posts).toHaveLength(0);
 });
+
+test('우리 발송 뒤에 고객 회신이 도착하면 다음 할 일 줄과 대화에 보이고, 회신 본문은 저장하지 않았다고 밝힌다', async () => {
+  server('IN_REVIEW', 5, undefined, undefined, {}, {
+    customer_sends: [{ id: 's1', kind: 'INFO_REQUEST', body: 'Could you send a photo?', approved_at: '2026-10-28T00:40:00Z', accepted_at: '2026-10-28T00:41:00Z', approved_by: '11111111-1111-4111-8111-111111111111', send_status: 'ACCEPTED', send_error_code: null }],
+    customer_replies: [{ message_id: 'm1', method: 'HEADER', received_at: '2026-10-29T08:40:00Z', created_at: '2026-10-29T08:41:00Z', reopened: true }],
+  });
+  view();
+  const next = await screen.findByText('고객 회신 도착');
+  expect(next.parentElement?.textContent).toContain('검토중으로 복귀');
+  expect(screen.getByRole('log', { name: '대화' }).textContent).toContain('회신 본문은 메일 계정에서 확인합니다');
+  expect(screen.getByText('Could you send a photo?')).toBeTruthy();
+});
