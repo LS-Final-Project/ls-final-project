@@ -13,7 +13,7 @@
 
 ## 흐름
 
-1. **입력** `build_inputs(tree, ["2.4", "2.5"])`: 절마다 하위 조항의 **현행 텍스트**와 상위 조항 문맥(`path`)을 모은다. 취소선으로 지운 값은 보내지 않는다. 반환 타입은 평탄한 `list[ExtractionInput]`이며 요청 절 순서와 절 안 원문 조항 순서를 유지한다. 길이에 관계없이 요청 절마다 입력 하나를 반환한다. 나눔과 부분 결과 합산은 `extract_section`이 맡는다. 모든 부분은 원래 `section_no`·`section_title`·`clause_no`·`path`를 유지한다.
+1. **입력** `build_inputs(tree, ["2.4", "2.5"])`: 절마다 하위 조항의 **현행 텍스트**와 상위 조항 문맥(`path`)을 모은다. 취소선으로 지운 값은 보내지 않는다. 반환 타입은 평탄한 `list[ExtractionInput]`이며 요청 절 순서와 절 안 원문 조항 순서를 유지한다. 길이에 관계없이 요청 절마다 입력 하나를 반환한다. 새 한글 장·조·독립 숫자 leaf 절에 하위 본문이 없으면 머리 조항의 본문·표를 한 번만 입력으로 사용한다. 기존 영문 절 선정·하위 조항 입력은 유지한다. 나눔과 부분 결과 합산은 `extract_section`이 맡는다. 모든 부분은 원래 `section_no`·`section_title`·`clause_no`·`path`를 유지한다.
 2. **모델**: Gemini 구조화 출력으로 요구를 낸다. 요구 하나는 장비 하나의 속성 하나 또는 과업 하나다.
    - 출력 항목: `clause_no`, 근거 `quote`, `kind`, `equipment`, `task`, `attribute`, `value`, `unit`, `operator`
    - 값에 붙은 `conditions`(2차 전압별, 115℃ 상승 등), `standard_system`, `necessity`, `designated_model`, `designated_manufacturer`

@@ -101,6 +101,15 @@ class Clause(Strict):
     cross_references: list[CrossReference] = []
 
 
+def is_korean_section(clause: Clause) -> bool:
+    """새로 지원한 한글 장·조·독립 숫자 절인지. 기존 영문 leaf 선정은 바꾸지 않는다."""
+    return clause.depth <= 2 and (
+        KOREAN_CHAPTER.fullmatch(clause.label) is not None
+        or KOREAN_ARTICLE.fullmatch(clause.label) is not None
+        or (clause.depth == 2 and re.fullmatch(r"\d+\.", clause.label) is not None)
+    )
+
+
 class TableDeleted(Strict):
     row: int = Field(ge=0, description="table_rows 안 행 순번.")
     col: int = Field(ge=0, description="그 행의 글자 있는 칸 순번.")
