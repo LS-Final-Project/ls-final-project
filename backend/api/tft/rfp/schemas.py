@@ -620,6 +620,10 @@ class MandatoryCheck(Model):
 
 
 class CandidateGrade(Model):
+    requirement_version: int | None = None
+    profile_version: int | None = None
+    version: int | None = None
+    known_at: datetime | None = None
     requirement_id: UUID
     # 후보 × 요구마다 계산한 등급. 유사도 점수는 내지 않는다.
     grade: Grade
@@ -648,6 +652,8 @@ class PartnerCandidate(Model):
 
 
 class PartnerCandidateList(Model):
+    input_project_version: int | None = None
+    manufacturer_list_basis: Literal["CURRENT_PROJECT_INPUT"] = "CURRENT_PROJECT_INPUT"
     items: list[PartnerCandidate]
 
 

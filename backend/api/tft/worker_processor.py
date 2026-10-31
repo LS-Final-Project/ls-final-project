@@ -538,6 +538,145 @@ def grading_groups(
     return groups
 
 
+def stored_extraction(row: Mapping[str, Any]) -> ExtractedRequirement | None:
+    """보존된 추출값만 복원한다. 과거 미보존 kind/Listed는 추론하거나 false로 만들지 않는다."""
+    if row.get("kind") is None or row.get("certification_listed") is None:
+        return None
+    names = (
+        "quote",
+        "kind",
+        "equipment",
+        "task",
+        "attribute",
+        "attribute_key",
+        "equipment_family",
+        "value",
+        "unit",
+        "operator",
+        "conditions",
+        "standard_system",
+        "necessity",
+        "designated_model",
+        "designated_manufacturer",
+        "assembly_clause",
+        "tolerance",
+        "needs_review",
+        "certification_listed",
+        "canonical_value",
+    )
+    return ExtractedRequirement.model_validate(
+        {
+            **{name: row[name] for name in names if name in row},
+            "clause_no": row.get("clause_no") or "",
+        }
+    )
+
+
+def legacy_grade(
+    row: Mapping[str, Any],
+    profile: PartnerProfile,
+    context: grading.RfpContext,
+    previous: Mapping[str, Any] | None,
+) -> grading.RequirementGrade:
+    """과거 추출 의미가 없으면 사실 확인을 요구한다. 기존 제외/참고 단계는 올리지 않는다."""
+    checks = grading._constraints(profile, context)
+    check = grading.MandatoryCheck(unknown=["extraction_semantics"])
+    for name, verdict, _ in checks:
+        getattr(check, verdict).append(name)
+    exclusion = [reason for _, verdict, reason in checks if verdict == "failed"]
+    if previous and previous["grade"] == "EXCLUDED":
+        exclusion += previous["exclusion_reasons"]
+    value: grading.Grade = "EXCLUDED" if exclusion else "REVIEW"
+    if previous and previous["grade"] == "REFERENCE_ONLY" and not exclusion:
+        value = "REFERENCE_ONLY"
+    return grading.RequirementGrade(
+        requirement_id=row["requirement_id"],
+        grade=value,
+        reasons=["과거 추출 의미(kind·Listed·정규값)가 미보존되어 사람의 확인이 필요합니다."],
+        exclusion_reasons=list(dict.fromkeys(exclusion)),
+        mandatory_check=check,
+    )
+
+
+async def regrade_stored(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    project_id: UUID,
+    reference_date: date,
+    pool: frozenset[str] | None,
+) -> bool:
+    """현재 요구·프로필·사람 입력을 같은 업무 TX에서 재채점한다. 원문/provider/별도 commit 없음."""
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,187))", (str(project_id),))
+    rows = await repository.stored_grading_requirements(conn, project_id)
+    inputs = await repository.project_constraints(conn, project_id)
+    context = grading.RfpContext(
+        manufacturer_list=inputs["customer_manufacturer_list"],
+        off_list_permission=inputs["off_list_permission"],
+        supply_region=inputs["supply_region"],
+        requires_integrator=integration.integration_responsibility(
+            [
+                integration.Requirement(
+                    clause_no=r.get("clause_no") or "",
+                    task=r["task"],
+                    assembly_clause=r["assembly_clause"],
+                )
+                for r in rows
+            ]
+        ).required,
+    )
+    profiles = [
+        PartnerProfile.model_validate({**row, "known_at": row["known_at"].date()})
+        for row in await repository.partner_profiles(conn)
+    ]
+    previous = {
+        (g["candidate_code"], g["requirement_id"]): g
+        for g in await repository.project_grades(conn, project_id)
+    }
+    targets, legacy = [], []
+    by_id = {r["requirement_id"]: r for r in rows}
+    for row in rows:
+        if row["status"] not in GRADED_STATUSES or row["designated_model"] is not None:
+            continue
+        item = stored_extraction(row)
+        if item is None:
+            legacy.append(row)
+        elif (requirement := to_grading(row["requirement_id"], item)) is not None:
+            targets.append((requirement, row["equipment_family"]))
+    for profile, requirements in grading_groups(targets, profiles, pool):
+        _, grades = grading.grade_candidate(profile, requirements, context, reference_date)
+        for grade in grades:
+            row = by_id[grade.requirement_id]
+            await repository.insert_grade(
+                conn,
+                project_id=project_id,
+                candidate_code=profile.candidate_code,
+                profile_version=profile.profile_version,
+                requirement_version=row["version"],
+                grade=grade.model_dump(mode="json"),
+                data_origin=row["data_origin"],
+            )
+    for profile in profiles:
+        if pool is not None and profile.candidate_code not in pool:
+            continue
+        for row in legacy:
+            if row["equipment_family"] not in PROFILE_FAMILIES.get(
+                profile.product_family, frozenset()
+            ):
+                continue
+            grade = legacy_grade(
+                row, profile, context, previous.get((profile.candidate_code, row["requirement_id"]))
+            )
+            await repository.insert_grade(
+                conn,
+                project_id=project_id,
+                candidate_code=profile.candidate_code,
+                profile_version=profile.profile_version,
+                requirement_version=row["version"],
+                grade=grade.model_dump(mode="json"),
+                data_origin=row["data_origin"],
+            )
+    return not profiles or bool(legacy)
+
+
 async def process(
     settings: Settings,
     job: TftJob,
@@ -623,10 +762,6 @@ async def process(
             comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
             for _, _, r in extracted
         ]
-        profiles = [
-            PartnerProfile.model_validate({**row, "known_at": row["known_at"].date()})
-            for row in await repository.partner_profiles(conn)
-        ]
         async with conn.transaction():
             await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             for document, tree, clauses in parsed:
@@ -648,40 +783,13 @@ async def process(
                         data_origin=document["data_origin"],
                     )
             emit({"step": "supplement", "counts": counts(total)})
-            # 근거 부족 요구도 협력사로 메울 수 있어 채점한다. 충족·조건부는 보완 대상이 아니다.
-            gaps = [
-                (to_grading(requirement_id, item), document["data_origin"], item.equipment_family)
-                for requirement_id, (document, _, item), outcome in zip(ids, extracted, outcomes)
-                if outcome.status in GRADED_STATUSES
-            ]
-            targets = [(g, origin, family) for g, origin, family in gaps if g is not None]
-            if not profiles:
-                # 프로필 시드 전(KAN-184): 등급을 매기지 않고 검토가 필요하다고 남긴다.
-                needs_review = True
-            elif targets:
-                origin_of = {g.requirement_id: origin for g, origin, _ in targets}
-                context = grading.RfpContext(
-                    manufacturer_list=None,
-                    off_list_permission="UNSTATED",
-                    supply_region=None,
-                    requires_integrator=integration_of(r for _, _, r in extracted).required,
-                )
-                groups = grading_groups(
-                    [(g, family) for g, _, family in targets],
-                    profiles,
-                    candidate_pool(d["title"] for d in documents),
-                )
-                for profile, mine in groups:
-                    _, grades = grading.grade_candidate(profile, mine, context, today)
-                    for grade in grades:
-                        await repository.insert_grade(
-                            conn,
-                            project_id=job.project_id,
-                            candidate_code=profile.candidate_code,
-                            profile_version=profile.profile_version,
-                            grade=grade.model_dump(mode="json"),
-                            data_origin=origin_of[grade.requirement_id],
-                        )
+            # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
+            needs_review |= await regrade_stored(
+                conn,
+                job.project_id,
+                today,
+                candidate_pool(d["title"] for d in documents),
+            )
             emit({"step": "candidates", "counts": counts(total)})
             proposal = await drafts.generate(conn, job.project_id, job.actor_id, job.job_id)
             needs_review |= any(
@@ -818,6 +926,9 @@ async def store_requirements(
                 "attribute_key",
                 "equipment_family",
                 "conditions",
+                "kind",
+                "certification_listed",
+                "canonical_value",
             }
         )
         requirement_id = await repository.insert_requirement(
