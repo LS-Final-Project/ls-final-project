@@ -1258,6 +1258,7 @@ def test_every_internal_name_has_a_display_name():
         ("some_new_check", "사양 항목"),
         ("Rated Current at 40C", "Rated Current at 40C"),
         ("Rated Current at 40.5C", "Rated Current at 40.5C"),
+        ("certification:IEEE C37.13", "인증: IEEE C37.13"),
     ],
 )
 def test_check_names_become_display_names(name, text):
@@ -1271,6 +1272,35 @@ def test_conditions_and_unknown_checks_reach_the_draft_in_plain_words(snapshot):
     conditions = engine._conditions(item)
     assert "지속 시간: 2 s" in conditions
     assert not any("duration" in text for text in conditions)
+
+
+def test_no_internal_name_reaches_any_sentence_condition(snapshot: dict[str, Any]) -> None:
+    """요구·자사 후보·협력사 어느 경로로도 내부 이름이 초안 조건에 나가지 않는다."""
+    snapshot["requirements"][0].spec.conditions = [
+        s.Condition(name="duration", value="2", unit="s"),
+        s.Condition(name="OTHER", value="temperature other than 20 deg C", unit=None),
+    ]
+    partner = snapshot["partners"][0]
+    partner.conditions_to_confirm = ["integrator_capable.warranty", "certification:IEEE C37.13"]
+    partner.grades[0].mandatory_check.unknown = ["integrator_capable.assembly"]
+    match = snapshot["comparisons"][0].candidates[0].attribute_match
+    match.our_conditions = [
+        s.Condition(name="duration", value="3", unit="s"),
+        s.Condition(name="OTHER", value="현장 조건", unit=None),
+    ]
+    draft = build_draft(**snapshot)
+    conditions = [c for part in draft.sections for row in part.sentences for c in row.conditions]
+    joined = "\n".join(conditions)
+    for name in ("integrator_capable", "certification:", "OTHER", "duration"):
+        assert name not in joined, name
+    assert (
+        "지속 시간: 2 s" in conditions
+        and "기타 조건: temperature other than 20 deg C" in conditions
+    )
+    assert (
+        "후보 조건 지속 시간: 3 s" in conditions and "후보 조건 기타 조건: 현장 조건" in conditions
+    )
+    assert "보증 책임" in conditions and "인증: IEEE C37.13" in conditions
 
 
 def test_unknown_partner_checks_reach_the_draft_in_plain_words(snapshot: dict[str, Any]) -> None:

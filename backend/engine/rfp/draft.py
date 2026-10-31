@@ -12,8 +12,8 @@ from backend.api.tft.rfp.integration import CHECK_ITEM, HOLDER_TEXT
 from backend.engine.rfp.vocabulary import (
     ATTRIBUTE_KEYS,
     CONDITION_NAMES,
-    CONDITION_TEXT,
     check_text,
+    condition_text,
 )
 
 DISCLAIMER = "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
@@ -175,7 +175,7 @@ def _requirement_evidence(req: s.RequirementDetail) -> list[s.Evidence]:
 
 def _conditions(req: s.RequirementDetail) -> list[str]:
     result = [
-        _display(f"{CONDITION_TEXT.get(c.name, c.name)}: {c.value} {c.unit or ''}".strip())
+        _display(f"{condition_text(c.name)}: {c.value} {c.unit or ''}".strip())
         for c in req.spec.conditions
     ]
     if req.spec.tolerance is not None:
@@ -481,7 +481,7 @@ def build_draft(
                 if comp.search_trace.search_failed:
                     candidate_conditions.append("문서 검색 실패: 문서 근거 추가 확인 필요")
                 candidate_conditions.extend(
-                    f"후보 조건 {_display(c.name)}: {c.value} {c.unit or ''}".strip()
+                    f"후보 조건 {condition_text(c.name)}: {c.value} {c.unit or ''}".strip()
                     for c in match.our_conditions
                 )
                 for proof in match.evidence:
@@ -589,7 +589,7 @@ def build_draft(
                         (*order(req), code),
                         conditions=[
                             *path_conditions,
-                            *partner.conditions_to_confirm,
+                            *map(check_text, partner.conditions_to_confirm),
                             *map(check_text, grade.mandatory_check.unknown),
                             f"가상 협력사 요구별 등급: {GRADE_TEXT[grade.grade]}",
                             f"가상 협력사 확인 상태: {CONFIRMATION_TEXT[partner.confirmation_status]}",

@@ -259,7 +259,7 @@ INPUT_BLOCKED로 양식을 유지한다. 양식에서 제목/대표를 분리할
 
 ### 내부 이름 표시
 
-코드값은 저장·판정에 그대로 쓰고 초안·DOCX·화면에 나갈 때만 바꾼다. 조건 이름은 `CONDITION_TEXT`, 속성 키는 `ATTRIBUTE_TEXT`, 협력사 필수 확인 항목은 `check_text`로 바꾼다(`backend/engine/rfp/vocabulary.py`). 조건 문구는 초안을 만들 때 정해지므로 이전 판본 문장은 다시 처리해야 바뀐다.
+코드값은 저장·판정에 그대로 쓰고 초안·DOCX·화면에 나갈 때만 바꾼다. 요구·자사 후보의 조건 이름은 `condition_text`(`OTHER`는 `기타 조건`), 협력사 확인 항목은 `check_text`(`certification:IEEE C37.13` → `인증: IEEE C37.13`)로 바꾼다(`backend/engine/rfp/vocabulary.py`). 조건 문구는 초안을 만들 때 정해지므로 이전 판본 문장은 다시 처리해야 바뀐다.
 
 근거 저장값은 ID다. 경로25 응답의 `evidence_labels`와 DOCX는 요구 `2.4.E.1.a-2`, 조항 번호, 질문 `Q1`로 보여 준다. DOCX는 근거를 종류별 한 줄로 묶고 문장은 화면과 같은 `S1` 번호로 표시한다. 번호를 모르는 ID는 빼지 않고 그대로 둔다.
 
