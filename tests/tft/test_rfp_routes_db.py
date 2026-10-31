@@ -982,6 +982,38 @@ def test_insufficient_evidence_with_a_grade_can_choose_external(client, admin, c
         conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
 
 
+def test_requirement_list_has_board_fields_and_filters(client, admin, chain):
+    """보드 칸: 어휘 키·작성 구분, 다음 담당·미해결 필수 필터."""
+    edited = add_requirement(admin, chain, "B-1", attribute_key="bil")
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET provenance_kind='system_record' "
+            "WHERE requirement_id=%s",
+            (edited,),
+        )
+    add_requirement(admin, chain, "B-2", status="SPEC_GAP", next_owner_field="TECH")
+    add_requirement(admin, chain, "B-3", status="SPEC_GAP", necessity="PREFERRED")
+    add_requirement(admin, chain, "B-4", unresolved=Jsonb(["확인"]), necessity="CONDITION_BOUND")
+    url = f"/projects/{chain['project']}/requirements"
+    rows = {i["code"]: i for i in data(get(client, f"{url}?limit=100"))["items"]}
+    assert (rows["B-1"]["attribute_key"], rows["B-1"]["provenance_kind"]) == (
+        "bil",
+        "system_record",
+    )
+    assert rows["B-2"]["attribute_key"] is None
+
+    def codes(query):
+        found = data(get(client, f"{url}?limit=100&{query}"))["items"]
+        return {i["code"] for i in found if i["code"].startswith("B-")}
+
+    assert codes("next_owner_field=TECH") == {"B-2"}
+    assert codes("next_owner_field=CUSTOMER") == set()
+    assert codes("unresolved_mandatory=true") == {"B-2", "B-4"}
+    assert codes("unresolved_mandatory=false") == {"B-1", "B-3"}
+    assert codes("unresolved_mandatory=true&next_owner_field=TECH") == {"B-2"}
+    assert get(client, f"{url}?next_owner_field=NOBODY").status_code == 422
+
+
 def add_profile(admin):
     """합성 협력사 프로필 하나를 더한다.
 

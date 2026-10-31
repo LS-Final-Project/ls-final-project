@@ -46,14 +46,18 @@ NEEDS_REREVIEW = (
 
 # 목록·상세가 같이 쓰는 프로젝트 건수(별칭 p). 한 문장 안의 부분 질의라 프로젝트마다 왕복하지 않는다.
 # 미해결 규칙은 counts.is_unresolved와 같다(계약 '미해결 필수 요구 집계').
+# 미해결 필수(counts.is_unresolved와 같은 판정). v는 최신 요구 판본, req는 요구다.
+UNRESOLVED_MANDATORY = (
+    "v.necessity IN ('MANDATORY', 'CONDITION_BOUND') "
+    "AND (v.status <> 'EVIDENCE_FOUND' OR jsonb_array_length(v.unresolved) > 0 "
+    f"OR ({NEEDS_REREVIEW.format(requirement='req.id')}))"
+)
 PROJECT_COUNTS = (
     "(SELECT count(*) FROM tft.requirements req WHERE req.project_id = p.id) "
     "AS requirements_count, "
     "(SELECT count(*) FROM tft.requirements req JOIN tft.requirement_versions v "
     "ON v.requirement_id = req.id AND v.version = req.latest_version "
-    "WHERE req.project_id = p.id AND v.necessity IN ('MANDATORY', 'CONDITION_BOUND') "
-    "AND (v.status <> 'EVIDENCE_FOUND' OR jsonb_array_length(v.unresolved) > 0 "
-    f"OR ({NEEDS_REREVIEW.format(requirement='req.id')}))) AS unresolved_mandatory_count, "
+    f"WHERE req.project_id = p.id AND {UNRESOLVED_MANDATORY}) AS unresolved_mandatory_count, "
     "(SELECT count(*) FROM tft.change_proposals cp WHERE cp.project_id = p.id "
     "AND cp.status = 'PENDING') AS pending_proposals_count, "
     "(SELECT count(*) FROM tft.customer_questions cq WHERE cq.project_id = p.id "
@@ -86,6 +90,27 @@ async def project_scope(conn: AsyncConnection[Row], project_id: UUID) -> Row | N
         (project_id,),
     )
     return await cursor.fetchone()
+
+
+async def next_project_number(conn: AsyncConnection[Row]) -> str:
+    """접수 표시 번호를 발급한다(P26-0001). 연도는 한국 시각, 순번은 연도마다 새로 센다.
+
+    Args:
+        conn: 프로젝트를 넣을 트랜잭션. 커밋까지 다른 접수를 줄 세운다.
+
+    Returns:
+        str: 다음 번호.
+    """
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtext('tft.project_number'))")
+    cursor = await conn.execute(
+        "SELECT y.yy, coalesce(max(substring(p.external_id from '^P[0-9]{2}-([0-9]+)$')::int), 0) "
+        "+ 1 AS next FROM (SELECT to_char(now() AT TIME ZONE 'Asia/Seoul', 'YY') AS yy) y "
+        "LEFT JOIN tft.projects p ON p.source = 'rfp' AND p.source_instance = 'web' "
+        "AND p.external_id LIKE 'P' || y.yy || '-%' GROUP BY y.yy"
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return f"P{row['yy']}-{row['next']:04d}"
 
 
 async def insert_project(
@@ -1780,7 +1805,15 @@ async def list_requirements(
     )
     where = ["req.project_id = %s"]
     params: list[Any] = [project_id]
-    for column in ("document_version_id", "equipment", "task", "necessity", "status"):
+    columns = (
+        "document_version_id",
+        "equipment",
+        "task",
+        "necessity",
+        "status",
+        "next_owner_field",
+    )
+    for column in columns:
         if filters.get(column) is not None:
             where.append(f"v.{column} = %s")
             params.append(filters[column])
@@ -1790,6 +1823,9 @@ async def list_requirements(
     if filters.get("has_open_question") is not None:
         where.append(f"({open_questions} > 0) = %s")
         params.append(filters["has_open_question"])
+    if filters.get("unresolved_mandatory") is not None:
+        where.append(f"({UNRESOLVED_MANDATORY}) = %s")
+        params.append(filters["unresolved_mandatory"])
     if after is not None:
         where.append("req.code > %s")
         params.append(after)
@@ -1797,7 +1833,7 @@ async def list_requirements(
         "SELECT req.id AS requirement_id, req.code, v.equipment, v.task, v.attribute, v.value, v.unit, "
         "v.necessity, v.status, coalesce((SELECT sel.path FROM tft.supplement_selections sel "
         "WHERE sel.requirement_id = req.id ORDER BY sel.version DESC LIMIT 1), v.path) AS path, "
-        "v.version, v.designated_model, v.needs_review, "
+        "v.version, v.designated_model, v.needs_review, v.attribute_key, v.provenance_kind, "
         f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview "
         "FROM tft.requirements req JOIN tft.requirement_versions v "
         "ON v.requirement_id = req.id AND v.version = req.latest_version "

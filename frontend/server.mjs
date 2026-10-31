@@ -82,7 +82,7 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
-  ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'has_open_question']],
+  ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'has_open_question', 'next_owner_field', 'unresolved_mandatory']],
   ['/api/v1/tft/requirements/{uuid}', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/comparison', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/supplement-options', ['GET'], []],
@@ -95,8 +95,10 @@ export const businessRoutes = [
   ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
   ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
 ];
-// 플랫폼이 직접 인가하는 내 수신함/구독만 중계한다. 업무 서비스 중계 표에 섞지 않는다.
+// 플랫폼이 직접 인가하는 내 수신함/구독과 이름 묶음 조회만 중계한다. 업무 서비스 중계 표에 섞지 않는다.
+const userIds = /^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,99}$/;
 const notificationRoutes = [
+  [/^\/api\/v1\/platform\/users$/, ['GET'], ['ids']],
   [/^\/api\/v1\/platform\/notifications$/, ['GET'], ['limit', 'offset']],
   [/^\/api\/v1\/platform\/notifications\/unread-count$/, ['GET'], []],
   [/^\/api\/v1\/platform\/notifications\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/read$/, ['POST'], []],
@@ -199,8 +201,8 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         if (business.length) {
           if (!business.includes(request.method)) return json(response, 405, { error: { code: 'METHOD_NOT_ALLOWED' } });
           const pairs = [...parsed.searchParams];
-          if (notification && pairs.some(([key, value]) => !/^(0|[1-9][0-9]*)$/.test(value) || (key === 'limit' ? +value < 1 || +value > 100 : +value > 100000))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
-          if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || value.length > 200))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
+          if (notification && pairs.some(([key, value]) => key === 'ids' ? !userIds.test(value) : !/^(0|[1-9][0-9]*)$/.test(value) || (key === 'limit' ? +value < 1 || +value > 100 : +value > 100000))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
+          if (pairs.length && (request.method !== 'GET' || !businessQuery.length || pairs.length !== new Set(pairs.map(([key]) => key)).size || pairs.some(([key, value]) => !businessQuery.includes(key) || (key !== 'ids' && value.length > 200)))) return json(response, 400, { error: { code: 'BAD_REQUEST' } });
         }
         const headers = { Authorization: `Bearer ${await tokenProvider()}` };
         let form;

@@ -220,6 +220,8 @@ class IntegrationResponsibility(IntegrationSummary):
 
 class RfpProjectSummary(Provenance):
     id: UUID
+    # 접수 표시 번호(P26-0001). 번호 발급 전 프로젝트는 null이다.
+    external_id: str | None = None
     name: str
     client_name: str | None
     company_code: str
@@ -264,6 +266,7 @@ class RfpProjectDetail(RfpProjectSummary):
 
 # 저장 행에서 그대로 옮기는 프로젝트 칸. 집계 칸은 routes_write.project_detail이 채운다.
 PROJECT_COLUMNS = (
+    "external_id",
     "id",
     "version",
     "data_origin",
@@ -458,6 +461,8 @@ class RequirementSummary(Model):
     equipment: str | None
     task: str | None
     attribute: str | None
+    # 비교 어휘 키. 화면 라벨용이고 원문 표현은 attribute다.
+    attribute_key: str | None = None
     value_text: str | None
     necessity: Necessity
     status: RequirementStatus
@@ -467,6 +472,7 @@ class RequirementSummary(Model):
     # 시스템 표시(추출 허용 오차 불일치·목록 밖 키 등). 요구 내용이 아니라 사람이 볼 요구를 가리킨다.
     needs_review: bool = False
     version: int
+    provenance_kind: ProvenanceKind
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
 

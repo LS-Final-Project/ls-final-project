@@ -3567,6 +3567,22 @@
         "title": "SuccessResponse[UnreadCount]",
         "type": "object"
       },
+      "SuccessResponse_UserNameList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserNameList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UserNameList]",
+        "type": "object"
+      },
       "SummaryCost": {
         "additionalProperties": false,
         "description": "\uac00\uaca9\ud45c \ubb38\uc790\uc5f4 \uc5c6\uc774 \uc815\ud655\ud55c USD \ubd80\ubd84\ud569\u00b7\ud569\uacc4\uc640 \ubcf4\uace0 \ubc94\uc704\ub97c \uc81c\uacf5\ud55c\ub2e4.",
@@ -4217,6 +4233,41 @@
           "count"
         ],
         "title": "UnreadCount",
+        "type": "object"
+      },
+      "UserName": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name"
+        ],
+        "title": "UserName",
+        "type": "object"
+      },
+      "UserNameList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserName"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "UserNameList",
         "type": "object"
       },
       "ValidationError": {
@@ -7318,6 +7369,60 @@
         "summary": "Platform Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/platform/users": {
+      "get": {
+        "description": "\ud654\uba74\uc774 \uc5c5\ubb34 \uae30\ub85d\uc758 \uc0ac\uc6a9\uc790 ID\ub97c \uc774\ub984\uc73c\ub85c \ubb36\uc5b4 \uc77d\ub294\ub2e4. \uc774\ub984\ub9cc \ub0b8\ub2e4.\n\ntft\ub294 identity\ub97c \uc77d\uc9c0 \ubabb\ud574 \uc751\ub2f5\uc5d0 \uc774\ub984\uc744 \ub123\uc744 \uc218 \uc5c6\ub2e4. \ud1f4\uc9c1\uc790\ub3c4 \uae30\ub85d\uc758 \uc774\ub984\uc774 \ubcf4\uc774\ub3c4\ub85d\n\ud65c\uc131 \uc5ec\ubd80\ub85c \uac70\ub974\uc9c0 \uc54a\uace0, \uc5c6\ub294 ID\ub294 \uc751\ub2f5\uc5d0\uc11c \ube60\uc9c4\ub2e4.\n\nArgs:\n    request: \ud604\uc7ac \uc694\uccad.\n    response: \uce90\uc2dc \uae08\uc9c0 \ud5e4\ub354\ub97c \ub123\uc744 \uc751\ub2f5.\n    _user: \ub85c\uadf8\uc778 \ud655\uc778.\n    ids: \uc27c\ud45c\ub85c \uc774\uc740 \uc0ac\uc6a9\uc790 UUID. \uae38\uc774 \uc81c\ud55c\uc774 100\uac1c\uae4c\uc9c0\ub9cc \ubc1b\ub294\ub2e4.\n\nReturns:\n    SuccessResponse[UserNameList]: \ucc3e\uc740 \uc0ac\uc6a9\uc790\uc758 ID\uc640 \ud45c\uc2dc\uba85.",
+        "operationId": "platform_list_user_names",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "maxLength": 3699,
+              "title": "Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UserNameList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List User Names",
+        "tags": [
+          "assignees"
         ]
       }
     },
