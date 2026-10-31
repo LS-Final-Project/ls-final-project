@@ -192,8 +192,10 @@ class PendingByOrigin(Model):
 
 
 class JobRef(Model):
+    """최신 처리 작업. 상태는 플랫폼 소유라 tft 응답에서는 비어 있다(작업 상태 경로로 읽는다)."""
+
     job_id: UUID
-    status: str
+    status: str | None
     step: JobStep | None
 
 

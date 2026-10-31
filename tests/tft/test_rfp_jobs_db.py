@@ -212,3 +212,35 @@ def test_an_unreadable_platform_answer_is_unavailable(client, platform, chain):
     """플랫폼 2xx 본문이 접수 결과로 읽히지 않으면 500이 아니라 503 DEPENDENCY_UNAVAILABLE."""
     platform.answer = (201, {"data": {"job_id": str(uuid4()), "status": "SOMETHING"}})
     assert error(process(client, chain, reason="재처리")) == (503, "DEPENDENCY_UNAVAILABLE")
+
+
+def detail(client, chain):
+    response = client.get(
+        f"/api/v1/tft/projects/{chain['project']}", headers=principal_header(OWNER)
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["data"]
+
+
+def test_accepting_processing_shows_on_the_project(client, platform, chain):
+    """접수하면 ANALYZING이고 최신 작업 ID가 보인다. 상태는 플랫폼 소유라 비어 있다."""
+    before = detail(client, chain)
+    assert before["output_status"] == "INTAKE" and before["latest_job"] is None
+    first = process(client, chain, reason="재처리").json()["data"]["job_id"]
+    shown = detail(client, chain)
+    assert shown["output_status"] == "ANALYZING"
+    assert shown["latest_job"] == {"job_id": first, "status": None, "step": None}
+    # 프로젝트 판본은 사람이 고친 것이 아니라 오르지 않는다.
+    assert shown["version"] == before["version"]
+    second = str(uuid4())
+    platform.answer = (201, {"data": {"job_id": second, "status": "QUEUED"}})
+    process(client, chain, reason="재처리")
+    assert detail(client, chain)["latest_job"]["job_id"] == second
+
+
+def test_a_refused_job_leaves_the_project_as_it_was(client, platform, chain):
+    """플랫폼이 거절하면 상태도 작업도 바뀌지 않는다."""
+    platform.answer = (409, {"error": {"code": "TFT_JOB_IN_PROGRESS"}})
+    assert process(client, chain, reason="재처리").status_code == 409
+    shown = detail(client, chain)
+    assert shown["output_status"] == "INTAKE" and shown["latest_job"] is None

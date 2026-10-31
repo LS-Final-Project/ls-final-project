@@ -116,6 +116,22 @@ async def insert_project(
     )
 
 
+async def mark_analyzing(conn: AsyncConnection[Row], project_id: UUID) -> None:
+    """처리 작업 접수와 함께 산출물 상태를 ANALYZING으로 둔다(permissions.md 3.1).
+
+    완료·실패로 바뀌는 값은 명세에 없다. 다음 값 REVIEW_DRAFT는 검토본 저장이 정한다.
+    사람이 고치는 판본이 아니라 project version은 올리지 않는다.
+
+    Args:
+        conn: 접수 기록과 같은 트랜잭션.
+        project_id: 프로젝트 ID.
+    """
+    await conn.execute(
+        "UPDATE tft.projects SET output_status = 'ANALYZING', updated_at = now() WHERE id = %s",
+        (project_id,),
+    )
+
+
 async def update_project(
     conn: AsyncConnection[Row], project_id: UUID, version: int, values: Mapping[str, Any]
 ) -> int:
@@ -220,14 +236,17 @@ async def project_detail_parts(
         project_id: 있는 프로젝트 ID.
 
     Returns:
-        tuple: (프로젝트 행+PROJECT_COUNTS·documents_count·draft_version, 최신 요구별 status·necessity·
+        tuple: (프로젝트 행+PROJECT_COUNTS·documents_count·draft_version·latest_job_id, 최신 요구별 status·necessity·
             needs_rereview, 승인 대기 제안의 입구별 수).
     """
     cursor = await conn.execute(
         f"SELECT p.*, {PROJECT_COUNTS}, "
         "(SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
         "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
-        "AS draft_version FROM tft.projects p WHERE p.id = %s",
+        "AS draft_version, (SELECT c.result->>'job_id' FROM tft.rfp_commands c "
+        "WHERE c.project_id = p.id AND c.operation = 'project.process' "
+        "ORDER BY c.created_at DESC LIMIT 1) AS latest_job_id "
+        "FROM tft.projects p WHERE p.id = %s",
         (project_id,),
     )
     project = await cursor.fetchone()

@@ -198,6 +198,8 @@ async def admit(
                                 accepted.job_id,
                             ),
                         )
+                    if kind == "rfp.process":
+                        await repository.mark_analyzing(conn, project_id)
                     await commands.remember(
                         conn,
                         actor=principal.user_id,
