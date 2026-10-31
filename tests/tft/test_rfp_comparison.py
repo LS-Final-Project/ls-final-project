@@ -376,6 +376,27 @@ def test_a_forbidden_external_path_alone_leaves_a_hold(monkeypatch):
     ]
 
 
+def own_form(value, family):
+    requirement = Requirement(
+        clause_no="2.4", item="형식", attribute="form", value=value, operator="TEXT"
+    )
+    return compare_in_family(requirement, family, load_own_products())
+
+
+def test_a_form_on_another_axis_value_is_a_spec_gap_from_the_own_catalog():
+    gap = own_form("fused switchgear", "MV_EQUIP")
+    assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "FORM")
+
+
+def test_a_form_matching_one_transformer_and_not_the_other_is_not_a_gap():
+    mixed = own_form("oil-immersed transformer", "TRANSFORMER")
+    assert mixed.status == "CONDITIONAL"
+
+
+def test_a_form_in_a_family_without_form_facts_stays_insufficient():
+    assert own_form("fused switch", "METER").status == "INSUFFICIENT_EVIDENCE"
+
+
 def test_a_form_gap_starts_with_own_development():
     trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
     form = Requirement(
