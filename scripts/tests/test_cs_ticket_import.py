@@ -122,6 +122,16 @@ class ImportTest(unittest.TestCase):
         self.assertEqual(self.run_tool(path, server, "--execute"), 0)
         self.assertNotIn("customer_tier", server.posts[0][2])
 
+    def test_csv_keeps_line_breaks_inside_a_cell(self):
+        path = self.folder / "tickets.csv"
+        path.write_bytes(
+            "channel,body_language,customer_external_id,product_code,body\r\n"
+            'EMAIL,ko,SYN-CUST-1,TRF-OIL-1000,"첫 줄\r\n둘째 줄\n셋째 줄"\r\n'.encode()
+        )
+        server = Server()
+        self.assertEqual(self.run_tool(path, server, "--execute"), 0)
+        self.assertEqual(server.posts[0][2]["body"], "첫 줄\r\n둘째 줄\n셋째 줄")
+
     def test_the_cookie_is_never_printed(self):
         with patch("builtins.print") as printed:
             self.run_tool(self.write([ROW]), Server(status=500), "--execute")

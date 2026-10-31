@@ -286,9 +286,7 @@ async def create_ticket(
     }
     bind(ticket_id=values["id"])
     # The original body is immutable and stays in the ticket row, not in the audit trail.
-    created = {
-        name: {"to": value} for name, value in payload.model_dump().items() if name != "body"
-    }
+    created = {name: {"to": values[name]} for name in payload.model_dump() if name != "body"}
     async with connection(request.app.state.settings) as conn:
         await repository.insert_ticket(conn, values)
         await repository.insert_audit(

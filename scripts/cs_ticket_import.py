@@ -39,13 +39,14 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
     Returns:
         list[dict]: 행. CSV의 빈 칸은 없는 값으로 본다.
     """
-    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".csv":
-        return [
-            {key: value for key, value in row.items() if value not in ("", None)}
-            for row in csv.DictReader(text.splitlines())
-        ]
-    rows = json.loads(text)
+        # 본문은 등록 뒤 못 고친다. 칸 안의 줄바꿈이 남도록 csv 모듈이 줄을 나누게 둔다.
+        with path.open(encoding="utf-8-sig", newline="") as source:
+            return [
+                {key: value for key, value in row.items() if value not in ("", None)}
+                for row in csv.DictReader(source)
+            ]
+    rows = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list):
         raise ValueError("JSON 입력은 문의 객체의 배열이어야 합니다.")
     return rows
