@@ -447,6 +447,9 @@ router = APIRouter(
 class ReplyReview(BaseModel):
     message_id: UUID
     received_at: datetime
+    from_address: str | None = None
+    subject: str | None = None
+    has_attachments: bool | None = None
     reason: Reason
     candidates: list[Candidate]
     created_at: datetime
@@ -498,7 +501,8 @@ async def list_reviews(
     user = await operational_identity(request, response)
     async with connection(request.app.state.settings) as conn:
         cursor = await conn.execute(
-            "SELECT r.message_id, m.received_at, r.reason, r.candidates, r.created_at "
+            "SELECT r.message_id, m.received_at, m.from_address, m.subject, m.has_attachments, "
+            "r.reason, r.candidates, r.created_at "
             "FROM integration.mail_reply_reviews r "
             "JOIN integration.mail_messages m ON m.id=r.message_id "
             "JOIN mailbox_auth.connections c ON c.id=m.mailbox_id "

@@ -353,7 +353,27 @@ def test_owner_lists_open_reviews_and_reading_does_not_close_them(settings, link
     for _ in range(2):
         items = web["client"].get(PREFIX).json()["data"]["items"]
         assert [i["message_id"] for i in items] == [str(reply)]
-    assert set(items[0]) == {"message_id", "received_at", "reason", "candidates", "created_at"}
+    # 본문과 첨부 이름은 내지 않는다.
+    assert set(items[0]) == {
+        "message_id",
+        "received_at",
+        "from_address",
+        "subject",
+        "has_attachments",
+        "reason",
+        "candidates",
+        "created_at",
+    }
+    assert (items[0]["subject"], items[0]["has_attachments"]) == ("s", False)
+    assert items[0]["from_address"] is None
+    with psycopg.connect(links["dsn"]) as conn:
+        conn.execute(
+            "UPDATE integration.mail_messages SET from_address='sender@example.test', "
+            "has_attachments=true WHERE id=%s",
+            (reply,),
+        )
+    [item] = web["client"].get(PREFIX).json()["data"]["items"]
+    assert (item["from_address"], item["has_attachments"]) == ("sender@example.test", True)
     assert rows(
         links["dsn"], "SELECT status FROM integration.mail_reply_reviews WHERE message_id=%s", reply
     ) == [("OPEN",)]

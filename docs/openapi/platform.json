@@ -2734,6 +2734,28 @@
             "title": "Created At",
             "type": "string"
           },
+          "from_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Address"
+          },
+          "has_attachments": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Attachments"
+          },
           "message_id": {
             "format": "uuid",
             "title": "Message Id",
@@ -2753,6 +2775,17 @@
             "format": "date-time",
             "title": "Received At",
             "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
           }
         },
         "required": [
