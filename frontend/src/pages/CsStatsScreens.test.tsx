@@ -94,7 +94,7 @@ test('운영 현황은 재조회 응답을 기다리는 동안 이전 표시를 
 });
 
 test('고객 이력은 고객 ID를 요구하고 부서 조건을 보내지 않으며 가정 장비를 표시한다', async () => {
-  const fetch = vi.fn(async () => jsonResponse(200, { data: { customer_external_id: 'TEST/ONE', received: 0, unconfirmed: [], by_state: {}, by_product: {}, tickets: [], units: [{ id: 'unit', serial_no: 'SYNTHETIC-UNIT', product_code: 'TEST', unit_status: 'ACTIVE', derivation_kind: 'ASSUMED', confirmed_tickets: 0 }], improvement_requests: [] } }));
+  const fetch = vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: { customer_external_id: 'TEST/ONE', received: 0, unconfirmed: [], by_state: {}, by_product: {}, tickets: [], units: [{ id: 'unit', serial_no: 'SYNTHETIC-UNIT', product_code: 'TEST', unit_status: 'ACTIVE', derivation_kind: 'ASSUMED', confirmed_tickets: 0 }], improvement_requests: [] } }));
   vi.stubGlobal('fetch', fetch); customers();
   fireEvent.click(screen.getByRole('button', { name: '조회' })); await screen.findByText('고객 ID를 입력하세요.'); expect(fetch).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('고객 ID'), { target: { value: 'TEST/ONE' } });
