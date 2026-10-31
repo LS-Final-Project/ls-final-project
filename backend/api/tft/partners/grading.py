@@ -38,6 +38,8 @@ MAX_ESTIMATE_SECONDS = Decimal(3)
 UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
 # 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
 SECONDS = frozenset({"sec", "secs", "second", "seconds"})
+# 요구에 비교할 숫자나 단위가 없을 때의 말. 단위가 다른 것과 구분한다.
+NO_NUMBER = "요구 값에 숫자·단위 없음"
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
 
@@ -57,6 +59,8 @@ class Requirement(BaseModel):
     necessity: Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
     designated_model: str | None = None
     clause_no: str | None = None
+    # 원문 속성 표현. 사유 문장에 쓴다. attribute는 비교 어휘 키다.
+    attribute_label: str | None = None
     # 문장형 값의 비교용 표기(추출 canonical_value). 있으면 value 대신 이것으로 견준다.
     canonical_value: str | None = None
 
@@ -299,14 +303,47 @@ def _head(requirement: Requirement) -> str:
         requirement: 요구.
 
     Returns:
-        str: '원문 2.4 short_time_withstand_current 요구 38 kA 이상'.
+        str: '원문 2.4 short-time withstand current 요구 38 kA 이상'.
     """
     wanted = requirement.canonical_value or _with_unit(requirement.value, requirement.unit)
-    wanted = {"GTE": f"{wanted} 이상", "LTE": f"{wanted} 이하", "TEXT": f"'{wanted}'"}.get(
-        requirement.operator, wanted
-    )
     where = f"원문 {requirement.clause_no} " if requirement.clause_no else ""
-    return f"{where}{requirement.attribute} 요구 {wanted}"
+    name = requirement.attribute_label or requirement.attribute
+    if not wanted:
+        return f"{where}{name} 요구"
+    # 숫자가 없는 값에는 이상·이하를 붙이지 않는다.
+    operator = requirement.operator
+    if operator in ("GTE", "LTE") and not requirement.canonical_value:
+        operator = operator if _number(requirement.value) is not None else "TEXT"
+    wanted = {"GTE": f"{wanted} 이상", "LTE": f"{wanted} 이하", "TEXT": f"'{wanted}'"}.get(
+        operator, wanted
+    )
+    return f"{where}{name} 요구 {wanted}"
+
+
+def shortfall_word(requirement: Requirement) -> str:
+    """요구를 못 맞춘 방향을 말로 쓴다. 같아야 하는 값이 더 크면 미달이 아니다.
+
+    Args:
+        requirement: 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    return {"GTE": "미달", "LTE": "초과", "RANGE": "범위 밖"}.get(requirement.operator, "값 다름")
+
+
+def differing_word(requirement: Requirement) -> str:
+    """못 맞췄지만 조건이 달라 확정하지 않을 때의 말.
+
+    Args:
+        requirement: 요구.
+
+    Returns:
+        str: 판정 말.
+    """
+    if requirement.operator == "GTE":
+        return "값이 미달이나 조건이 달라 확인 필요"
+    return "값이 요구와 다르나 조건이 달라 확인 필요"
 
 
 def _unit_key(unit: str | None) -> str:
@@ -390,6 +427,8 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
         if _unit_key(requirement.unit) != _unit_key(fact.unit):
+            if not requirement.unit:
+                return "unknown", NO_NUMBER
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
         if requirement.operator == "RANGE":
@@ -397,11 +436,12 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
             bounds = (_number(low), _number(high)) if high else (None, None)
             if got is None or bounds[0] is None or bounds[1] is None:
                 return "unknown", "범위를 숫자로 읽을 수 없어 확인 필요"
-            return ("passed", "충족") if bounds[0] <= got <= bounds[1] else ("failed", "미달")
+            met = bounds[0] <= got <= bounds[1]
+            return ("passed", "충족") if met else ("failed", shortfall_word(requirement))
         want = _number(requirement.value)
         if got is not None and want is not None:
             met = {"EQ": got == want, "GTE": got >= want, "LTE": got <= want}[requirement.operator]
-            return ("passed", "충족") if met else ("failed", "미달")
+            return ("passed", "충족") if met else ("failed", shortfall_word(requirement))
         if requirement.operator != "EQ":
             return "unknown", "값을 숫자로 읽을 수 없어 확인 필요"
     attribute = requirement.attribute
@@ -509,13 +549,14 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact, verdict: Verdict) 
             continue
         got = given.get(want.name)
         if got is None:
-            gaps.append(f"{want.name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
+            name = want.name.replace("_", " ")
+            gaps.append(f"{name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
         elif (_norm(got.value), _norm(_unit_key(got.unit))) != (
             _norm(want.value),
             _norm(_unit_key(want.unit)),
         ):
             gaps.append(
-                f"{want.name} 요구 {_with_unit(want.value, want.unit)}, "
+                f"{want.name.replace('_', ' ')} 요구 {_with_unit(want.value, want.unit)}, "
                 f"후보 {_with_unit(got.value, got.unit)}"
             )
     return gaps
@@ -559,7 +600,7 @@ def _spec_check(
         if verdict == "passed" and gaps:
             verdict, word = "unknown", "값은 충족하나 조건이 달라 확인 필요"
         elif verdict == "failed" and gaps:
-            verdict, word = "unknown", "값이 미달이나 조건이 달라 확인 필요"
+            verdict, word = "unknown", differing_word(requirement)
         elif verdict == "failed" and shorter:
             verdict, word = "unknown", SHORTER_SHORTFALL
         elif verdict == "passed" and note:

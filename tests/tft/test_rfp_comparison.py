@@ -210,7 +210,7 @@ def test_demo_a_matches_the_planned_statuses_with_datasheet_evidence():
     assert (insulation.candidates[0].result, insulation.next_owner) == ("MEETS", None)
     # In range, but the datasheet value leans on a 120 °C basis the requirement does not state.
     assert impedance.candidates[0].result == "MEETS"
-    assert impedance.unresolved[0] == "reference_temperature 요구 미기재, 자사 근거 120 °C"
+    assert impedance.unresolved[0] == "reference temperature 요구 미기재, 자사 근거 120 °C"
     assert forced_air.next_owner == "TECH"
     assert (secondary.candidates[0].result, secondary.deficiency_cause) == ("DIFFERS", "RATING")
     assert "415 V" in secondary.reason
@@ -649,7 +649,7 @@ def test_a_shortfall_under_a_different_condition_is_conditional_not_a_gap():
         None,
     )
     assert "값이 미달이나 조건이 달라 확인 필요" in other.reason
-    assert "reference_temperature" in other.unresolved[0]
+    assert "reference temperature" in other.unresolved[0]
     same = compare(wanted, [product("85")], trace)
     assert (same.status, same.deficiency_cause) == ("SPEC_GAP", "RATING")
 
@@ -1109,7 +1109,7 @@ def test_a_met_value_on_an_unstated_basis_is_only_conditional():
     """결함 8: 요구에 기준 온도가 없어도 자사 값이 기대면 충족을 확정하지 않는다."""
     outcome = compare_in_family(impedance(), "TRANSFORMER", load_own_products())
     assert outcome.status == "CONDITIONAL"
-    assert any("reference_temperature 요구 미기재" in item for item in outcome.unresolved)
+    assert any("reference temperature 요구 미기재" in item for item in outcome.unresolved)
 
 
 def test_a_stated_basis_that_matches_stays_confirmed():
@@ -1558,3 +1558,61 @@ def test_a_certification_mark_alone_is_conditional_not_met():
         assert outcome.status == "CONDITIONAL"
         assert "등록·시험 구분 미기재" in outcome.reason
         assert outcome.unresolved[0].startswith("UL 인증 종류")
+
+
+TRACE = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+
+
+def voltage(**extra):
+    fields = {
+        "clause_no": "2.4",
+        "item": "차단기",
+        "attribute": "rated_max_voltage",
+        "attribute_label": "rated maximum voltage",
+        "value": "15",
+        "unit": "kV",
+        "operator": "EQ",
+        **extra,
+    }
+    return Requirement(**fields)
+
+
+def test_reasons_use_the_original_attribute_not_the_internal_key():
+    outcome = compare(voltage(), [switchgear("25.8")], TRACE)
+    assert "rated maximum voltage 요구 15 kV" in outcome.reason
+    assert "rated_max_voltage" not in outcome.reason
+
+
+@pytest.mark.parametrize(
+    ("operator", "ours", "word"),
+    [("EQ", "25.8", "값 다름"), ("LTE", "25.8", "초과"), ("GTE", "12", "미달")],
+)
+def test_a_miss_names_its_direction_with_both_values_and_keeps_the_verdict(operator, ours, word):
+    """같아야 하는 값이 더 크면 미달이 아니다. 판정은 그대로 사양 차이다."""
+    outcome = compare(voltage(operator=operator), [switchgear(ours)], TRACE)
+    assert outcome.status == "SPEC_GAP"
+    assert f": {word}." in outcome.reason
+    assert "요구 15 kV" in outcome.reason and f"자사 {ours} kV" in outcome.reason
+
+
+@pytest.mark.parametrize("value", ["rated short-time withstand current", "15"])
+def test_a_requirement_without_a_unit_says_so_instead_of_none(value):
+    outcome = compare(voltage(value=value, unit=None, operator="GTE"), [switchgear("25")], TRACE)
+    assert outcome.status == "CONDITIONAL"
+    assert "요구 값에 숫자·단위 없음" in outcome.reason
+    assert "단위가 달라" not in outcome.reason
+    assert not any("None" in item for item in outcome.unresolved)
+    assert "None" not in outcome.reason
+
+
+def test_a_text_value_gets_no_at_least_word():
+    outcome = compare(
+        voltage(value="rated voltage", unit=None, operator="GTE"), [switchgear("25")], TRACE
+    )
+    assert "'rated voltage'" in outcome.reason and "이상" not in outcome.reason
+
+
+def test_a_candidate_without_a_unit_does_not_print_none():
+    outcome = compare(voltage(), [switchgear("25.8", unit=None)], TRACE)
+    assert not any("None" in item for item in outcome.unresolved)
+    assert "단위 확인: 요구 kV, 자사 단위 없음" in outcome.unresolved

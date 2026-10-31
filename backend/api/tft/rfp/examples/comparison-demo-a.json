@@ -5,6 +5,7 @@
         "clause_no": "2.5.M",
         "item": "탭 ±2×2.5%",
         "attribute": "tap",
+        "attribute_label": null,
         "value": "±2×2.5%",
         "unit": null,
         "operator": "TEXT",
@@ -32,6 +33,7 @@
         "clause_no": "2.5.I.1",
         "item": "절연 Class F",
         "attribute": "insulation_class",
+        "attribute_label": null,
         "value": "Class F",
         "unit": null,
         "operator": "EQ",
@@ -59,6 +61,7 @@
         "clause_no": "2.5.N",
         "item": "임피던스 5.75% ±10%",
         "attribute": "impedance",
+        "attribute_label": null,
         "value": "5.175~6.325",
         "unit": "%",
         "operator": "RANGE",
@@ -86,6 +89,7 @@
         "clause_no": "2.5.C.1",
         "item": "강제 공랭 시 용량 증대 33%(115℃ 상승)",
         "attribute": "forced_air_capacity_increase",
+        "attribute_label": null,
         "value": "33",
         "unit": "%",
         "operator": "GTE",
@@ -119,6 +123,7 @@
         "clause_no": "2.5",
         "item": "2차 전압 480Y/277V",
         "attribute": "secondary_voltage",
+        "attribute_label": null,
         "value": "480",
         "unit": "V",
         "operator": "EQ",
@@ -146,6 +151,7 @@
         "clause_no": "2.5",
         "item": "1차 전압·용량(도면 참조)",
         "attribute": "primary_voltage",
+        "attribute_label": null,
         "value": null,
         "unit": null,
         "operator": "EQ",
@@ -173,6 +179,7 @@
         "clause_no": "2.5.K",
         "item": "BIL 95kV",
         "attribute": "bil",
+        "attribute_label": null,
         "value": "95",
         "unit": "kV",
         "operator": "GTE",
@@ -200,6 +207,7 @@
         "clause_no": "2.5.L",
         "item": "알루미늄 권선",
         "attribute": "winding_material",
+        "attribute_label": null,
         "value": "aluminum",
         "unit": null,
         "operator": "TEXT",
@@ -227,6 +235,7 @@
         "clause_no": "2.5.G.1",
         "item": "이중 온도센서",
         "attribute": "winding_temperature_sensor",
+        "attribute_label": null,
         "value": "dual",
         "unit": null,
         "operator": "TEXT",
@@ -254,6 +263,7 @@
         "clause_no": "2.5.E",
         "item": "ModBus RS-485 연동",
         "attribute": "communication_interface",
+        "attribute_label": null,
         "value": "RS-485 ModBus",
         "unit": null,
         "operator": "TEXT",
@@ -281,6 +291,7 @@
         "clause_no": "2.5.I",
         "item": "IEEE C57.12.01",
         "attribute": null,
+        "attribute_label": null,
         "value": null,
         "unit": null,
         "operator": "EQ",
@@ -308,6 +319,7 @@
         "clause_no": "2.5.O",
         "item": "소음 NEMA TR1(측정 ANSI C57.12.90)",
         "attribute": null,
+        "attribute_label": null,
         "value": null,
         "unit": null,
         "operator": "EQ",
@@ -335,6 +347,7 @@
         "clause_no": "2.2.A.1",
         "item": "부품 Listed and labeled(NFPA 70)",
         "attribute": null,
+        "attribute_label": null,
         "value": null,
         "unit": null,
         "operator": "EQ",
@@ -362,6 +375,7 @@
         "clause_no": "2.5.A",
         "item": "설계 기준: 타사 몰드 변압기 모델",
         "attribute": null,
+        "attribute_label": null,
         "value": "Eaton Resibloc",
         "unit": null,
         "operator": "TEXT",
@@ -567,9 +581,9 @@
           "note": null
         },
         "status": "CONDITIONAL",
-        "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference_temperature 요구 미기재, 자사 근거 120 °C.",
+        "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference temperature 요구 미기재, 자사 근거 120 °C.",
         "unresolved": [
-          "reference_temperature 요구 미기재, 자사 근거 120 °C"
+          "reference temperature 요구 미기재, 자사 근거 120 °C"
         ],
         "next_owner": "TECH",
         "deficiency_cause": null,
@@ -597,9 +611,9 @@
               }
             ],
             "status": "CONDITIONAL",
-            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference_temperature 요구 미기재, 자사 근거 120 °C.",
+            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: reference temperature 요구 미기재, 자사 근거 120 °C.",
             "unresolved": [
-              "reference_temperature 요구 미기재, 자사 근거 120 °C"
+              "reference temperature 요구 미기재, 자사 근거 120 °C"
             ]
           },
           {
@@ -625,7 +639,7 @@
               }
             ],
             "status": "SPEC_GAP",
-            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 5 %(근거 DS-TRF-OIL-1000 2.2): 미달.",
+            "reason": "원문 2.5.N impedance 요구 5.175~6.325 %, 자사 5 %(근거 DS-TRF-OIL-1000 2.2): 범위 밖.",
             "unresolved": []
           }
         ],
@@ -656,9 +670,9 @@
           "note": null
         },
         "status": "CONDITIONAL",
-        "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature_rise 요구 115 °C, 후보 100 K.",
+        "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature rise 요구 115 °C, 후보 100 K.",
         "unresolved": [
-          "temperature_rise 요구 115 °C, 후보 100 K"
+          "temperature rise 요구 115 °C, 후보 100 K"
         ],
         "next_owner": "TECH",
         "deficiency_cause": null,
@@ -686,9 +700,9 @@
               }
             ],
             "status": "CONDITIONAL",
-            "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature_rise 요구 115 °C, 후보 100 K.",
+            "reason": "원문 2.5.C.1 forced_air_capacity_increase 요구 33 % 이상, 자사 39.7 %(근거 DS-TRF-DRY-630 2.1): 값은 충족하나 조건이 달라 확인 필요. 조건 차이: temperature rise 요구 115 °C, 후보 100 K.",
             "unresolved": [
-              "temperature_rise 요구 115 °C, 후보 100 K"
+              "temperature rise 요구 115 °C, 후보 100 K"
             ]
           },
           {
@@ -734,7 +748,7 @@
           "note": "2차 전압은 2.5.C의 2차 전압별 항목에 있다"
         },
         "status": "SPEC_GAP",
-        "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 미달.",
+        "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 값 다름.",
         "unresolved": [],
         "next_owner": "TECH",
         "deficiency_cause": "RATING",
@@ -756,7 +770,7 @@
               }
             ],
             "status": "SPEC_GAP",
-            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 미달.",
+            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 415 V(근거 DS-TRF-DRY-630 2.1): 값 다름.",
             "unresolved": []
           },
           {
@@ -776,7 +790,7 @@
               }
             ],
             "status": "SPEC_GAP",
-            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 433 V(근거 DS-TRF-OIL-1000 2.1): 미달.",
+            "reason": "원문 2.5 secondary_voltage 요구 480 V, 자사 433 V(근거 DS-TRF-OIL-1000 2.1): 값 다름.",
             "unresolved": []
           }
         ],

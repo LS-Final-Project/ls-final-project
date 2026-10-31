@@ -591,3 +591,28 @@ def test_form_wording_does_not_exclude_but_real_shortfalls_still_do(code, overal
     assert grades[0].grade == ("EXCLUDED" if code == "P-B" else "REVIEW")
     reasons = [text for g in grades for text in g.exclusion_reasons]
     assert not any("형식" in text or " form " in text for text in reasons)
+
+
+@pytest.mark.parametrize(
+    ("operator", "word"), [("EQ", "값 다름"), ("LTE", "초과"), ("GTE", "미달")]
+)
+def test_grading_keeps_the_exclusion_and_only_rewords_the_miss(operator, word):
+    low = operator == "GTE"
+    item = req(
+        50, "rated_max_voltage", "15", unit="kV", operator=operator, attribute_label="정격 전압"
+    )
+    candidate = profile("P-X", [fact("rated_max_voltage", "12" if low else "25.8", "kV")])
+    graded = grade_requirement(candidate, item, CONTEXT, DAY)
+    assert graded.grade == "EXCLUDED"
+    [sentence] = graded.exclusion_reasons
+    assert "정격 전압 요구 15 kV" in sentence and f": {word}." in sentence
+    assert "rated_max_voltage 요구" not in sentence
+
+
+def test_a_requirement_without_a_unit_is_unknown_and_says_so():
+    item = req(51, "rated_max_voltage", "rated", operator="GTE", unit=None)
+    candidate = profile("P-X", [fact("rated_max_voltage", "25.8", "kV")])
+    graded = grade_requirement(candidate, item, CONTEXT, DAY)
+    assert graded.grade != "EXCLUDED"
+    text = " ".join(graded.reasons)
+    assert "요구 값에 숫자·단위 없음" in text and "단위가 달라" not in text and "None" not in text

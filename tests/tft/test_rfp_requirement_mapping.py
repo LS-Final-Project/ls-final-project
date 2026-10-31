@@ -286,3 +286,9 @@ def test_integration_is_decided_from_the_extracted_requirements():
     marked = plain.model_copy(update={"assembly_clause": True})
     assert not integration_of([plain]).required
     assert integration_of([plain, marked]).required
+
+
+def test_the_original_attribute_reaches_the_reason_inputs():
+    item = requirement("SPEC", "basic impulse level", "bil")
+    assert to_comparison(item).attribute_label == "basic impulse level"
+    assert to_grading(UUID(int=1), item).attribute_label == "basic impulse level"
