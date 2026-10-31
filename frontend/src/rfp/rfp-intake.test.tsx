@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setApiMode } from '../api/client';
 import { Link } from 'react-router-dom';
 import { errorBody, jsonResponse, renderApp, renderAt } from '../test/render';
 import { fileProblem, latestVersions } from './IntakeForms';
+import { DEPARTMENT_LABEL } from './labels';
 import RfpIntake from './RfpIntake';
 
+// 서버 tft.department_kinds와 대조되는 목록이다(tests/tft/test_rfp_schema.py).
+const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
+const SERVER_DEPARTMENTS: string[] = JSON.parse(read('../../../docs/openapi/tft-department-codes.json'));
 const ID = '33333333-3333-4333-8333-333333333333';
 const PATH = `/tft/projects/${ID}`;
 const ok = (data: unknown, status = 200) => jsonResponse(status, { data, meta: { request_id: 'x' } });
@@ -16,7 +21,7 @@ const doc = (document_id: string, version: number, title: string) => ({
 });
 const base = {
   id: ID, external_id: 'P26-0001', name: '합성 프로젝트', client_name: '가상 고객', purpose: 'INITIAL_PROPOSAL', output_status: 'REVIEW_DRAFT',
-  judgement_status: 'CONDITION_CHECK', sales_user_id: 's', responsible_user_id: null, review_departments: ['구매팀'], review_version: null, data_origin: 'synthetic',
+  judgement_status: 'CONDITION_CHECK', sales_user_id: 's', responsible_user_id: null, review_departments: ['SCM'], review_version: null, data_origin: 'synthetic',
   requirements_count: 48, unresolved_mandatory_count: 3, pending_proposals_count: 4, open_questions_count: 2, documents_count: 2, draft_version: 5,
   requirement_counts: { by_status: { EVIDENCE_FOUND: 29, CONDITIONAL: 8, SPEC_GAP: 6, INSUFFICIENT_EVIDENCE: 5 }, by_necessity: { MANDATORY: 31 }, needs_rereview: 2, open_questions: 2 },
 };
@@ -35,6 +40,9 @@ beforeEach(() => {
     const url = String(input); const method = init?.method ?? 'GET'; const headers = new Headers(init?.headers);
     const call = { url, method, body: init?.body instanceof FormData ? init.body : JSON.parse((init?.body as string) || 'null'), key: headers.get('Idempotency-Key'), csrf: headers.get('X-CSRF-Token'), type: headers.get('Content-Type') };
     calls.push(call);
+    if (method === 'POST' && url.endsWith('/tft/projects') && ((call.body as { review_departments: string[] }).review_departments).some(d => !SERVER_DEPARTMENTS.includes(d))) {
+      return jsonResponse(422, errorBody('VALIDATION_ERROR', 'unknown department'));
+    }
     if (method === 'POST') return post(call);
     if (url.includes('/platform/me')) return new Response(JSON.stringify({ data: { display_name: '합성', dept: null, roles: ['sales'] }, meta: { request_id: 'x' } }), { status: 200, headers: { 'X-CSRF-Token': 'csrf-1' } });
     if (url.includes('/platform/jobs/')) return job();
@@ -57,6 +65,7 @@ describe('프로젝트 화면', () => {
     expect(screen.getByText('근거 있음 29, 조건부 검토 8, 사양 차이 6, 근거 부족 5')).toBeTruthy();
     expect(screen.getByText('조건 확인 필요')).toBeTruthy();
     expect(screen.getByText('판본 5')).toBeTruthy();
+    expect(screen.getByText('구매팀')).toBeTruthy();
     expect(next()).toContain('요구 48건, 미해결 필수 3, 승인 대기 4, 열린 질문 2');
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
     expect(document.querySelector('.kv-btns a[href$="/table"]')?.getAttribute('href')).toBe(`${PATH}/table`);
@@ -294,9 +303,13 @@ describe('프로젝트 접수', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(posts('/tft/projects')).toHaveLength(1));
     expect(posts('/tft/projects')[0].body).toEqual({
-      name: '합성', company_code: 'HOST', client_name: null, customer_goal: null, review_departments: ['구매팀'], data_origin: 'synthetic', purpose: 'INITIAL_PROPOSAL',
+      name: '합성', company_code: 'HOST', client_name: null, customer_goal: null, review_departments: ['SCM'], data_origin: 'synthetic', purpose: 'INITIAL_PROPOSAL',
     });
     await screen.findByRole('table', { name: '문서와 판본' });
+  });
+
+  it('검토 부서는 서버가 받는 코드 전부를 고를 수 있다', () => {
+    expect(Object.keys(DEPARTMENT_LABEL).sort()).toEqual(SERVER_DEPARTMENTS);
   });
 
   it('실패하면 입력을 지킨다', async () => {

@@ -225,7 +225,7 @@ describe('질문', () => {
   it('내부 질문은 여기서 회신받지 않는다', async () => {
     questions = [question('q1', { target: 'INTERNAL', target_dept: 'RND_FW', issue_type: 'RND_FEASIBILITY' })];
     await open();
-    expect(screen.getByText('RND_FW')).toBeTruthy();
+    expect(screen.getByText('R&D')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
   });
 });
