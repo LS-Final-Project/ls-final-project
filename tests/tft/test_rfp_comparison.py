@@ -397,6 +397,17 @@ def test_a_form_in_a_family_without_form_facts_stays_insufficient():
     assert own_form("fused switch", "METER").status == "INSUFFICIENT_EVIDENCE"
 
 
+def test_a_form_without_an_axis_word_is_not_raised_to_conditional():
+    unread = own_form("Switch position indicator", "MV_EQUIP")
+    assert unread.status == "INSUFFICIENT_EVIDENCE"
+    assert unread.candidates and {c.result for c in unread.candidates} == {"NOT_COMPARABLE"}
+    assert "형식 축을 읽지 못해" in unread.reason
+
+
+def test_a_negated_form_is_read_as_no_axis():
+    assert own_form("not fused switchgear", "MV_EQUIP").status == "INSUFFICIENT_EVIDENCE"
+
+
 def test_a_form_gap_starts_with_own_development():
     trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
     form = Requirement(

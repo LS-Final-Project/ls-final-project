@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.engine.rfp.requirements import Kind
-from backend.engine.rfp.vocabulary import is_placeholder
+from backend.engine.rfp.vocabulary import form_axes, is_placeholder
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
 Result = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
@@ -317,6 +317,9 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
         else:
             # 단위가 다르거나 숫자로 읽을 수 없어 비교하지 못했다. 같다고도 다르다고도 하지 않는다.
             status, result = "CONDITIONAL", "NOT_COMPARABLE"
+            if requirement.attribute == "form" and not form_axes(requirement.value or ""):
+                # 닫힌 축이 없는 형식 문장은 읽은 것이 없어 확인할 조건도 없다. 조건부로 올리지 않는다.
+                status, word = "INSUFFICIENT_EVIDENCE", "형식 축을 읽지 못해 비교하지 않음"
         judged.append(
             (ORDER.index(status), status, result, word, fact, gaps, unit_differs, note, shorter)
         )
