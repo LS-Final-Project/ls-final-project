@@ -14,7 +14,7 @@ const flow = (state: string, version: number, extra: Record<string, unknown> = {
 type Post = { url: string; init: RequestInit };
 
 // 문의 상세·업무 흐름 조회와 쓰기 호출을 한 곳에서 받는 가짜 서버. post가 Promise를 돌려주면 응답을 늦출 수 있다.
-function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown) {
+function server(state: string, version: number, post: (call: Post) => Response | Promise<Response> = () => jsonResponse(200, flow('IN_REVIEW', version + 1)), analysis?: unknown, detailExtra: Record<string, unknown> = {}) {
   const posts: Post[] = [];
   const get = vi.fn();
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -23,7 +23,7 @@ function server(state: string, version: number, post: (call: Post) => Response |
     if ((init?.method ?? 'GET') === 'POST') { const call = { url: path, init: init! }; posts.push(call); return post(call); }
     if (path.endsWith('/workflow')) { get(path); return jsonResponse(200, flow(state, version)); }
     if (path.endsWith('/analysis')) return analysis ? jsonResponse(200, analysis) : jsonResponse(404, errorBody('CS_ANALYSIS_MISSING', '분석 없음'));
-    return jsonResponse(200, { data: { ...base, workflow_state: state } });
+    return jsonResponse(200, { data: { ...base, workflow_state: state, ...detailExtra } });
   }));
   return { posts, get };
 }
@@ -185,4 +185,49 @@ test('다른 문의로 옮기면 반품 확정 입력을 비운다(앞 문의 �
   await waitFor(() => expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe(''));
   expect((screen.getByLabelText('책임 구분') as HTMLSelectElement).value).toBe('');
   expect((screen.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+const fillResolution = () => {
+  const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  set('고장 코드', 'FLT-012'); set('증상', '터치 무반응'); set('원인 유형', 'FIRMWARE'); set('원인', '정전기'); set('조치', 'FW 적용'); set('해결 부서', 'TS_AUTO'); set('현장 방문', 'no');
+};
+
+test('해결 기록은 종결된 문의에 한 건 등록하고 읽은 판본과 보호 토큰을 보낸다', async () => {
+  const api = server('CLOSED', 9, () => jsonResponse(200, flow('CLOSED', 9)), undefined, { resolution_case: null });
+  view(); await screen.findByText('종결', { selector: 'strong' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('해결 기록 남기기').disabled).toBe(false));
+  fireEvent.click(menu('해결 기록 남기기'));
+  await screen.findByRole('form', { name: '해결 기록' });
+  fillResolution();
+  fireEvent.click(screen.getByRole('button', { name: '해결 기록 저장' }));
+  await screen.findByText('해결 기록을 남겼습니다.');
+  expect(api.posts).toHaveLength(1);
+  expect(api.posts[0].url).toMatch(/\/resolution-case$/);
+  expect(body(api.posts[0])).toMatchObject({ fault_id: 'FLT-012', root_cause_type: 'FIRMWARE', resolved_by_dept: 'TS_AUTO', onsite_visit: false, version: 9 });
+  expect(api.posts[0].init.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('이미 해결 기록이 있거나 종결 전이면 해결 기록 남기기를 열지 않고 이유를 적는다', async () => {
+  const closedWithCase = server('CLOSED', 9);
+  const first = view(); await screen.findByText('종결', { selector: 'strong' });
+  await waitFor(() => expect(closedWithCase.get).toHaveBeenCalled());
+  openMore(); expect(menu('해결 기록 남기기').disabled).toBe(true); expect(menu('해결 기록 남기기').textContent).toContain('이미 해결 기록이 있습니다');
+  first.unmount(); vi.unstubAllGlobals();
+  const notClosed = server('IN_REVIEW', 3, undefined, undefined, { resolution_case: null });
+  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await waitFor(() => expect(notClosed.get).toHaveBeenCalled());
+  openMore(); expect(menu('해결 기록 남기기').disabled).toBe(true); expect(menu('해결 기록 남기기').textContent).toContain('종결 후 한 건');
+});
+
+test('해결 기록이 이미 등록된 경우(409)는 다시 보내지 않고 안내한다', async () => {
+  const api = server('CLOSED', 9, () => jsonResponse(409, errorBody('CS_RESOLUTION_CASE_EXISTS', 'exists')), undefined, { resolution_case: null });
+  view(); await screen.findByText('종결', { selector: 'strong' });
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  openMore(); await waitFor(() => expect(menu('해결 기록 남기기').disabled).toBe(false));
+  fireEvent.click(menu('해결 기록 남기기')); await screen.findByRole('form', { name: '해결 기록' });
+  fillResolution(); fireEvent.click(screen.getByRole('button', { name: '해결 기록 저장' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/이미 해결 기록이 있습니다/);
+  expect(api.posts).toHaveLength(1);
 });
