@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getApiMode, setApiMode, request, type ApiMode } from '../api/client';
 import { listTickets } from '../api/cs';
 import { listProjects } from '../api/tft';
+import { clearPush } from '../notifications/push';
 import { listAccounts, me, selectAccount, logout } from '../api/platform';
 
 export default function DevCheck() {
@@ -13,8 +14,8 @@ export default function DevCheck() {
   const readiness = useQuery({queryKey: ['readiness'], queryFn: () => Promise.all((import.meta.env.DEV ? ['cs','tft','platform'] : ['platform']).map(service => request(`/api/v1/${service}/ready`)))});
   const tickets = useQuery({queryKey: ['tickets',mode], queryFn: () => listTickets(), enabled: import.meta.env.DEV});
   const projects = useQuery({queryKey: ['projects',mode], queryFn: () => listProjects(), enabled: import.meta.env.DEV});
-  const account = useMutation({mutationFn: selectAccount, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
-  const signout = useMutation({mutationFn: logout, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
+  const account = useMutation({mutationFn: async (id: string) => { await clearPush(); return selectAccount(id); }, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
+  const signout = useMutation({mutationFn: async () => { await clearPush(); return logout(); }, onSuccess: () => cache.invalidateQueries({queryKey: ['me']})});
   return <main>
     <header><p className="eyebrow">TEAM4 / {import.meta.env.DEV ? 'LOCAL DEVELOPMENT' : 'SHARED ENVIRONMENT'}</p><h1>개발 환경 확인</h1><p>{import.meta.env.DEV ? 'C/S, TFT와 공통 플랫폼의 연결을 확인하고 기능 개발을 시작하세요.' : '공용 웹에서 플랫폼과 데이터베이스의 연결을 확인합니다. 업무 화면과 실제 로그인은 준비 중입니다.'}</p></header>
     {import.meta.env.DEV && <div className="notice">로컬 시연 계정은 DB에서 조회합니다. {mode === 'mock' ? 'C/S와 TFT 목록은 합성한 모의 응답입니다.' : '실제 API를 호출합니다. 미구현 목록 API는 501을 반환합니다.'}</div>}

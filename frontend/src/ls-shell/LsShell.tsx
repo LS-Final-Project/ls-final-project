@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { businessUiEnabled } from '../components/BusinessAccess';
 import { me } from '../api/platform';
 import logo from './ls-logo.svg';
+import NotificationBell from '../components/NotificationBell';
 import './ls-shell.css';
 
 type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean };
@@ -98,7 +99,7 @@ export default function LsShell() {
           <div className="kt-left"><label htmlFor="nav-collapse" className="nav-toggle" title="메뉴 접기/펼치기" aria-label="메뉴 접기/펼치기">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </label></div>
-          <div className="kt-right">{name && <span>{name} <small>{identity?.dept}</small></span>}{name && <span className="kt-sep" />}<NavLink to="/account">계정·로그아웃</NavLink></div>
+          <div className="kt-right"><NotificationBell />{name && <span>{name} <small>{identity?.dept}</small></span>}{name && <span className="kt-sep" />}<NavLink to="/account">계정·로그아웃</NavLink></div>
         </header>
         <div className="kt-tabs" role="tablist" aria-label="열린 화면"><button role="tab" aria-selected="true">{tab}</button></div>
         <div className="content kv" id="main-content" data-view="cs"><Outlet /></div>

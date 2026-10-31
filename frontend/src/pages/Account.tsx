@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { me, logoutSession } from '../api/platform';
 import { sessionCsrfToken } from '../api/client';
 import { ErrorState, Loading } from '../components/states';
+import PushToggle from '../components/PushToggle';
+import { clearPush } from '../notifications/push';
 import MailboxConnections from '../components/MailboxConnections';
 
 export default function Account() {
@@ -21,6 +23,9 @@ export function AccountPanel({ operational }: { operational: boolean }) {
     if (busy || !operational || !identity || !sessionCsrfToken()) return;
     setBusy(true); setError(null);
     try {
+      try { await clearPush(identity.id); } catch { setError(new Error('OS 알림 구독 정리를 확인하지 못했습니다. 로그아웃 후 브라우저 사이트 알림 설정을 확인하세요.')); }
+      const current = await me();
+      if (current?.data.id !== identity.id) throw new Error('계정이 변경되어 로그아웃을 중단했습니다. 현재 계정을 다시 확인하세요.');
       await logoutSession();
       // Clear all prior user's business data only after confirmed server logout.
       await cache.cancelQueries();
@@ -48,6 +53,7 @@ export function AccountPanel({ operational }: { operational: boolean }) {
         {!confirming ? <button disabled={busy || !sessionCsrfToken()} onClick={() => setConfirming(true)}>로그아웃</button> : <div><p>현재 계정에서 로그아웃할까요?</p><button disabled={busy || !sessionCsrfToken()} onClick={() => void signOut()}>{busy ? '로그아웃 중' : '로그아웃 확인'}</button><button disabled={busy} onClick={() => setConfirming(false)}>취소</button></div>}
       </>}
     </section>}
+    {identity && <PushToggle key={identity.id} actorId={identity.id} />}
     <section><h2>메일 연결</h2><p>서비스 로그인과 메일 연결은 별도입니다.</p>{operational && identity && <MailboxConnections />}</section>
   </main>;
 }
