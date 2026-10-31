@@ -12,8 +12,10 @@ const states: Record<State, { label: string; advice: string }> = {
 
 export default function TicketWorkflow({ state }: { state: unknown }) {
   const info = typeof state === 'string' && Object.hasOwn(states, state) ? states[state as State] : undefined;
-  return <div>
-    <p>업무 상태: <strong>{info?.label ?? '확인 필요'}</strong></p>
-    <p>다음 작업 안내: {info?.advice ?? '현재 상태를 확인할 수 없습니다. 최신 상태를 다시 조회하세요.'}</p>
-  </div>;
+  // 문의 처리 화면의 "다음 할 일" 줄 안에서 한 줄로 이어 읽히도록 span으로 낸다.
+  return <>
+    <span>업무 상태: <strong>{info?.label ?? '확인 필요'}</strong></span>
+    <span className="sep">|</span>
+    <span>다음 작업 안내: {info?.advice ?? '현재 상태를 확인할 수 없습니다. 최신 상태를 다시 조회하세요.'}</span>
+  </>;
 }

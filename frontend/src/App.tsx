@@ -32,7 +32,7 @@ export default function App() {
       <Route path="cs/improvements/:requestId" element={<div className="ls-legacy"><CsImprovements /></div>} />
       <Route path="cs/stats" element={<div className="ls-legacy"><CsStats /></div>} />
       <Route path="cs/tickets" element={<Tickets />} />
-      <Route path="cs/tickets/:ticketId" element={<div className="ls-legacy"><TicketDetail /></div>} />
+      <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
       <Route path="tft/projects" element={<RfpIntake />} />
       <Route path="tft/projects/:projectId/supplement" element={<RfpSupplement />} />

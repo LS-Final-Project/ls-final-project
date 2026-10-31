@@ -30,7 +30,8 @@ test.each([
 test.each(['NEW_STATE','toString',null,undefined])('미지원 상태 %s는 완료나 실행 권고로 추측하지 않는다',async(state)=>{
   vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,detail(state))));viewDetail();
   await screen.findByText('확인 필요');expect(screen.getByText(/현재 상태를 확인할 수 없습니다/)).toBeTruthy();
-  expect(screen.queryByText('종결')).toBeNull();
+  // 기타 메뉴의 '종결' 동작 이름과 구분하려고 상태 표시(strong)만 본다.
+  expect(screen.queryByText('종결',{selector:'strong'})).toBeNull();
 });
 test.each([401,403,503])('상세 갱신 %i 실패는 옛 상태를 숨기고 재조회로 복구한다',async(status)=>{
   let fail=false;vi.stubGlobal('fetch',vi.fn(async()=>fail?jsonResponse(status,errorBody('FAILED','합성 오류')):jsonResponse(200,detail('IN_REVIEW'))));
