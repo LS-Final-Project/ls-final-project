@@ -66,6 +66,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/tickets/{uuid}/audit", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/analysis", ("GET", "POST"), ()),
     ("/api/v1/cs/tickets/{uuid}/analysis/corrections", ("POST",), ()),
+    ("/api/v1/cs/tickets/{uuid}/summary", ("GET", "POST"), ()),
     ("/api/v1/cs/tickets/{uuid}/units", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/unit-history", ("GET",), ()),
     ("/api/v1/cs/tickets/{uuid}/units/{uuid}", ("PUT",), ()),

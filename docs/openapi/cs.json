@@ -6561,6 +6561,22 @@
         "title": "SuccessResponse[TicketList]",
         "type": "object"
       },
+      "SuccessResponse_TicketSummaryView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketSummaryView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketSummaryView]",
+        "type": "object"
+      },
       "SuccessResponse_TicketUnitList_": {
         "properties": {
           "data": {
@@ -6623,6 +6639,108 @@
           "meta"
         ],
         "title": "SuccessResponse[Workflow]",
+        "type": "object"
+      },
+      "SummaryAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "SummaryAttempt",
+        "type": "object"
+      },
+      "SummaryRecord": {
+        "properties": {
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \uc694\uc57d \ub4a4 \ubb38\uc758 \uc6d0\ubb38\uc774 \ubc14\ub00c\uc5c8\uac70\ub098 \ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "summary_ko": {
+            "description": "AI\uac00 \uc4f4 \ud55c\uad6d\uc5b4 \uc694\uc57d. \ud310\uc815\uc774 \uc544\ub2c8\uba70 \uc6d0\ubb38\uc774 \uae30\uc900\uc774\ub2e4.",
+            "title": "Summary Ko",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "summary_ko",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale"
+        ],
+        "title": "SummaryRecord",
         "type": "object"
       },
       "TicketAnalysis": {
@@ -7238,6 +7356,50 @@
           "workflow_state"
         ],
         "title": "TicketSummary",
+        "type": "object"
+      },
+      "TicketSummaryView": {
+        "properties": {
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568). \uc2e4\ud328\ud588\uc73c\uba74 \ud654\uba74\uc774 \ub2e4\uc2dc \ub9cc\ub4e4\uae30\ub97c \ubcf4\uc5ec \uc904 \uc218 \uc788\ub2e4."
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc\uc758 \uc131\uacf5\ud55c \uc694\uc57d. \uc5c6\uc73c\uba74 null."
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "summary",
+          "latest_attempt"
+        ],
+        "title": "TicketSummaryView",
         "type": "object"
       },
       "TicketUnit": {
@@ -12951,6 +13113,206 @@
         "tags": [
           "workflow"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/summary": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c \ud55c\uad6d\uc5b4 \uc694\uc57d. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_ticket_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Summary",
+        "tags": [
+          "summary"
+        ],
+        "x-activation": "CS_SUMMARY_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud55c\uad6d\uc5b4 \uc694\uc57d\uc744 \ub9cc\ub4e0\ub2e4. \uac19\uc740 \uc6d0\ubb38\uc758 \uc131\uacf5\ud55c \uc694\uc57d\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_ticket_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketSummaryView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Summary",
+        "tags": [
+          "summary"
+        ],
+        "x-activation": "CS_SUMMARY_ENABLED",
         "x-implementation-status": "partial"
       }
     },
