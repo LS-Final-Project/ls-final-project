@@ -33,11 +33,20 @@
 - 규칙을 못 돌리면 이유를 돌려준다: 분석 없음 `CS_ANALYSIS_MISSING`, 분류·긴급도 없음 `CS_CLASSIFICATION_MISSING`, 고객 등급 없음(수동 접수 문의) `CS_CUSTOMER_TIER_UNKNOWN`, 정책 밖 값 `CS_RULE_INPUT`. 고객 등급은 제공 기록(`cs.ticket_source_records.customer_tier`)에서만 읽는다.
 - 반품: 주장값(`return_subtype`, AI)은 유효 주분류가 `RETURN`일 때만 쓰고, 사람 확정값(업무 상태)이 있으면 그것을 우선한다(KAN-193).
 
+## 부족 정보
+
+- `missing_info`는 고객에게 아직 받아야 할 정보 코드다. 초안 입력과 같은 식으로 센다: **필요 − 고객이 준 정보 − 이미 요청한 정보**(`backend/engine/cs/required_info.py`).
+  - 필요 정보는 정책표 `eval/policy/cs_required_info.csv`에서 문의 제품 계열·주분류의 행이다. worker(초안)도 같은 표를 쓴다.
+  - 이미 요청한 정보는 플랫폼이 접수해 업무 상태에 반영된 발송(`ticket_customer_sends.recorded_at`이 있음)의 `requested_info_codes`다. 승인만 되고 나가지 않은 메시지의 질문은 빼지 않는다.
+- 두 번 센다. AI 주분류·제공 정보로 한 번(`missing_info.ai`), 유효값(정정 반영)으로 한 번(`missing_info.effective`). 화면은 `effective`를 따른다. 담당자가 `provided_info`나 `category_code`를 정정하면 `effective`가 바로 다시 계산된다. AI 쪽과 저장된 초안은 바뀌지 않는다.
+- 각 쪽에 `category_code`(쓴 행), `required`, `provided`, `already_asked`, `missing`(모두 정렬)이 있다. 표에 없는 유형이면 `required`와 `missing`이 빈 목록이다.
+- 셀 수 없으면 `error`를 준다: 분석·정정 모두 없음 `CS_ANALYSIS_MISSING`, 정책 밖 제품 `CS_RULE_INPUT`.
+
 ## API
 
 | 경로 (`/api/v1/cs/tickets/{ticket_id}/analysis` 아래) | 허용 | 동작 |
 | --- | --- | --- |
-| `GET` | 문의 조회 범위 | `runs`·`drafts`·`corrections`(오래된 순), 필드별 `ai_value`·`corrected_value`·`effective_value`·`source`, `rules.ai`·`rules.effective`, 기한 `first_response_due`·`resolution_due`(`ai`·`corrected`·`effective`·`source`), `version`(정정 수), `latest_valid_run_id`, `latest_valid_draft_id` |
+| `GET` | 문의 조회 범위 | `runs`·`drafts`·`corrections`(오래된 순), 필드별 `ai_value`·`corrected_value`·`effective_value`·`source`, `rules.ai`·`rules.effective`, 기한 `first_response_due`·`resolution_due`(`ai`·`corrected`·`effective`·`source`), `missing_info.ai`·`missing_info.effective`·`missing_info.error`, `version`(정정 수), `latest_valid_run_id`, `latest_valid_draft_id` |
 | `POST /corrections` (`version`, `analysis_id`, `reason`, 바꿀 필드) | cs_agent | 정정 1행 저장 뒤 새 분석 보기. 업무 상태 판본은 바뀌지 않는다 |
 
 - **검사 순서**(권한 문서 1.3): 조회 범위 404 → 역할 403 → 상태 409 `CS_INVALID_TRANSITION`(`RECEIVED`·`CLOSED`, return-subtype과 같음) → 판본 409 → 입력 422.
@@ -71,7 +80,6 @@
 ## 남은 것 (KAN-107 완료 조건)
 
 - 운영 확인: 실제 ID 토큰·Cloud Run Jobs 전송·공용 DB 마이그레이션(C18)은 KAN-159 배포 묶음.
-- 정정된 `provided_info`로 부족 정보를 다시 계산하는 연결.
 
 
 ## 초안 문장 검증 (KAN-200)

@@ -5,6 +5,7 @@ runner (KAN-69, cs_runner.TicketSource) calls them once connected; tests and dem
 with synthetic rows. They lock the ticket row so run numbers stay in order.
 """
 
+import functools
 import json
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,8 @@ from backend.api.cs.analysis.schemas import (
     DeadlineView,
     DraftRun,
     FieldView,
+    MissingInfo,
+    MissingInfoView,
     Rules,
     RuleView,
     TicketAnalysis,
@@ -23,10 +26,10 @@ from backend.api.cs.analysis.schemas import (
 )
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.workflow import repository as workflow
-from backend.engine.cs import analysis
+from backend.engine.cs import analysis, required_info
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import DraftOutput
-from backend.engine.cs.rules import RuleDecision
+from backend.engine.cs.rules import RuleDecision, RuleInputError, product_family
 from backend.engine.cs.verification import VerificationInput, VerificationSentence
 from backend.engine.cs.verification import validate_output as validate_verification
 from backend.shared.errors import ApplicationError
@@ -130,6 +133,58 @@ def rule_view(decision: RuleDecision | None) -> RuleView | None:
     )
 
 
+@functools.cache
+def required_table() -> dict[str, dict[str, frozenset[str]]]:
+    """The policy required-info table, read once per process."""
+    return required_info.required_by_family()
+
+
+def missing_view(value: required_info.MissingInfo | None) -> MissingInfoView | None:
+    if value is None:
+        return None
+    return MissingInfoView(
+        category_code=value.category_code,
+        required=list(value.required),
+        provided=list(value.provided),
+        already_asked=list(value.already_asked),
+        missing=list(value.missing),
+    )
+
+
+def missing_info(
+    ai: dict[str, Any] | None,
+    effective: dict[str, Any],
+    product_code: str,
+    asked: frozenset[str],
+) -> MissingInfo:
+    """Missing info from the AI values and from the effective values (KAN-107).
+
+    The effective side uses the corrected category and provided info, so a person who corrects
+    what the customer gave sees the remaining questions change. Same count as the draft input.
+    """
+    try:
+        by_category = required_table().get(product_family(product_code), {})
+    except RuleInputError:
+        return MissingInfo(ai=None, effective=None, error="CS_RULE_INPUT")
+
+    def count(values: dict[str, Any] | None) -> required_info.MissingInfo | None:
+        if not values:
+            return None
+        return required_info.missing_info(
+            values.get("category_code"),
+            values.get("provided_info"),
+            required_by_category=by_category,
+            already_asked=asked,
+        )
+
+    ai_side, effective_side = count(ai), count(effective)
+    return MissingInfo(
+        ai=missing_view(ai_side),
+        effective=missing_view(effective_side),
+        error=None if effective_side else "CS_ANALYSIS_MISSING",
+    )
+
+
 def latest_valid(rows: list[Row]) -> Row | None:
     return next((r for r in reversed(rows) if r["outcome"] == "VALID"), None)
 
@@ -145,6 +200,7 @@ async def build(conn: Any, ticket_id: UUID) -> TicketAnalysis:
     corrections = await repository.list_corrections(conn, ticket_id)
     state = await workflow.get_workflow(conn, ticket_id)
     tier = await repository.customer_tier(conn, ticket_id)
+    asked = await repository.asked_info_codes(conn, ticket_id)
     # AI values come from the latest VALID run only. A failed later run does not hide them.
     valid = latest_valid(runs)
     ai = valid["classification"] if valid else None
@@ -196,4 +252,5 @@ async def build(conn: Any, ticket_id: UUID) -> TicketAnalysis:
             first_response_due=DeadlineView(**vars(first)),
             resolution_due=DeadlineView(**vars(resolution)),
         ),
+        missing_info=missing_info(ai, effective_values, ticket["product_code"], asked),
     )

@@ -3731,6 +3731,113 @@
         "title": "MailOrigin",
         "type": "object"
       },
+      "MissingInfo": {
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissingInfoView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the AI category and provided info."
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissingInfoView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the effective (corrected) category and provided info. Follow this one."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it cannot be counted: CS_ANALYSIS_MISSING (no valid run and no correction) or CS_RULE_INPUT (product outside the policy).",
+            "title": "Error"
+          }
+        },
+        "required": [
+          "ai",
+          "effective",
+          "error"
+        ],
+        "title": "MissingInfo",
+        "type": "object"
+      },
+      "MissingInfoView": {
+        "properties": {
+          "already_asked": {
+            "description": "Codes asked in messages that reached the customer.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Asked",
+            "type": "array"
+          },
+          "category_code": {
+            "description": "Category whose required-info row was used.",
+            "enum": [
+              "TECH_SPEC",
+              "INSTALL",
+              "WARRANTY",
+              "ORDER_LEAD",
+              "MANUAL",
+              "DEFECT",
+              "COMPLIANCE",
+              "QUOTE",
+              "FW_UPDATE",
+              "RETURN"
+            ],
+            "title": "Category Code",
+            "type": "string"
+          },
+          "missing": {
+            "description": "required \u2212 provided \u2212 already_asked, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "provided": {
+            "description": "Info codes the customer gave.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided",
+            "type": "array"
+          },
+          "required": {
+            "description": "Required info codes for this product family and category.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category_code",
+          "required",
+          "provided",
+          "already_asked",
+          "missing"
+        ],
+        "title": "MissingInfoView",
+        "type": "object"
+      },
       "NewEvidence": {
         "additionalProperties": false,
         "description": "A person's new evidence, different from the rejection reason (rejection-closed only).",
@@ -6547,6 +6654,10 @@
             "description": "Send it as analysis_id with a correction.",
             "title": "Latest Valid Run Id"
           },
+          "missing_info": {
+            "$ref": "#/components/schemas/MissingInfo",
+            "description": "Info still needed from the customer. Recounted from corrected values."
+          },
           "return_subtype_stated": {
             "anyOf": [
               {
@@ -6596,7 +6707,8 @@
           "corrections",
           "fields",
           "return_subtype_stated",
-          "rules"
+          "rules",
+          "missing_info"
         ],
         "title": "TicketAnalysis",
         "type": "object"

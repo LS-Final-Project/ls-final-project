@@ -20,6 +20,7 @@ from backend.engine.cs.analysis import Deadline, effective_fields, merge_deadlin
 from backend.shared.access import Principal, principal_header
 from backend.shared.database import connection
 from backend.shared.settings import Settings
+from tests.cs.test_worker_source_db import add_send
 from tests.cs.test_workflow_db import AGENT, TRF_STAFF, act, code, ok
 
 RECEIVED = datetime(2026, 10, 1, 9, tzinfo=UTC)
@@ -250,6 +251,89 @@ def test_a_new_ai_run_does_not_replace_a_correction(client, settings, ticket):
     assert code(
         correct(client, ticket, version=0, analysis_id=str(newer["id"]), urgency_flag="NONE")
     ) == (409, "CS_ANALYSIS_VERSION_CONFLICT")
+
+
+# TRANSFORMER(TRF-OIL-1000)의 정책 필요 정보(eval/policy/cs_required_info.csv).
+DEFECT_ROW = [
+    "error_code",
+    "load_profile",
+    "operating_condition",
+    "photos",
+    "product_model",
+    "serial_no",
+]
+WARRANTY_ROW = ["failure_description", "install_date", "photos", "purchase_doc", "serial_no"]
+
+
+def test_missing_info_is_recounted_from_corrected_provided_info(client, settings, admin, ticket):
+    """정정한 제공 정보·주분류로 부족 정보를 다시 센다. AI 쪽은 그대로이고, 실제로 나간 질문만 뺀다."""
+    assert analysis(client, ticket)["missing_info"] == {
+        "ai": None,
+        "effective": None,
+        "error": "CS_ANALYSIS_MISSING",
+    }
+    run = store(settings, ticket)
+    first = analysis(client, ticket)["missing_info"]
+    # AI가 준 "serial_number"는 정책 코드(serial_no)가 아니라 빠지지 않는다.
+    assert (
+        first["ai"]
+        == first["effective"]
+        == {
+            "category_code": "DEFECT",
+            "required": DEFECT_ROW,
+            "provided": ["serial_number"],
+            "already_asked": [],
+            "missing": DEFECT_ROW,
+        }
+    )
+    # 고객에게 나간 질문(photos)은 빼고, 승인만 되고 나가지 않은 질문(error_code)은 남긴다.
+    add_send(admin, ticket, 1, ["photos"], sent=True)
+    add_send(admin, ticket, 2, ["error_code"], sent=False)
+    ok(act(client, ticket, "start-review", version=0))
+    ok(
+        correct(
+            client,
+            ticket,
+            version=0,
+            analysis_id=str(run["id"]),
+            provided_info=["serial_no", "product_model"],
+        )
+    )
+    data = analysis(client, ticket)["missing_info"]
+    assert data["ai"]["missing"] == [
+        "error_code",
+        "load_profile",
+        "operating_condition",
+        "product_model",
+        "serial_no",
+    ]
+    assert data["effective"] == {
+        "category_code": "DEFECT",
+        "required": DEFECT_ROW,
+        "provided": ["product_model", "serial_no"],
+        "already_asked": ["photos"],
+        "missing": ["error_code", "load_profile", "operating_condition"],
+    }
+    # 주분류를 고치면 그 유형의 행으로 센다. 정정한 제공 정보는 그대로 쓴다.
+    ok(correct(client, ticket, version=1, analysis_id=str(run["id"]), category_code="WARRANTY"))
+    data = analysis(client, ticket)["missing_info"]
+    assert data["ai"]["category_code"] == "DEFECT"
+    assert (data["effective"]["category_code"], data["effective"]["required"]) == (
+        "WARRANTY",
+        WARRANTY_ROW,
+    )
+    assert data["effective"]["missing"] == ["failure_description", "install_date", "purchase_doc"]
+    assert data["error"] is None
+
+
+def test_a_product_outside_the_policy_has_no_missing_info(client, settings, admin, ticket):
+    admin.execute("UPDATE cs.tickets SET product_code = 'UNKNOWN-1' WHERE id = %s", (ticket,))
+    store(settings, ticket)
+    assert analysis(client, ticket)["missing_info"] == {
+        "ai": None,
+        "effective": None,
+        "error": "CS_RULE_INPUT",
+    }
 
 
 def test_correction_permissions_inputs_and_closing(client, settings, admin, ticket):

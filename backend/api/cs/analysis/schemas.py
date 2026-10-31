@@ -123,6 +123,29 @@ class Rules(BaseModel):
     resolution_due: DeadlineView
 
 
+class MissingInfoView(BaseModel):
+    category_code: Category = Field(description="Category whose required-info row was used.")
+    required: list[str] = Field(
+        description="Required info codes for this product family and category."
+    )
+    provided: list[str] = Field(description="Info codes the customer gave.")
+    already_asked: list[str] = Field(
+        description="Codes asked in messages that reached the customer."
+    )
+    missing: list[str] = Field(description="required − provided − already_asked, sorted.")
+
+
+class MissingInfo(BaseModel):
+    ai: MissingInfoView | None = Field(description="From the AI category and provided info.")
+    effective: MissingInfoView | None = Field(
+        description="From the effective (corrected) category and provided info. Follow this one."
+    )
+    error: str | None = Field(
+        description="Why it cannot be counted: CS_ANALYSIS_MISSING (no valid run and no "
+        "correction) or CS_RULE_INPUT (product outside the policy)."
+    )
+
+
 class TicketAnalysis(BaseModel):
     ticket_id: UUID
     version: int = Field(description="Number of corrections. Send it with a correction.")
@@ -139,6 +162,9 @@ class TicketAnalysis(BaseModel):
         description="What the customer stated (AI). Confirmed only through workflow/return-subtype."
     )
     rules: Rules
+    missing_info: MissingInfo = Field(
+        description="Info still needed from the customer. Recounted from corrected values."
+    )
 
 
 class CorrectionRequest(BaseModel):

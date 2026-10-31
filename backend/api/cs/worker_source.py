@@ -12,12 +12,9 @@ worker는 동기 코드이고 cs 저장 함수는 비동기라, 호출마다 `as
 """
 
 import asyncio
-import csv
-import io
 import os
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC
-from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -25,11 +22,12 @@ import psycopg
 from psycopg.rows import dict_row
 
 from backend.agent.job_runtime import parse_job_id
-from backend.agent.ticket_source_registry import REQUIRED_INFO, WorkerParts
+from backend.agent.ticket_source_registry import WorkerParts
 from backend.api.cs.analysis import service
 from backend.engine.cs.classification_call import ClassificationAttempt
 from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.graph import TicketInputs
+from backend.engine.cs.required_info import required_by_family
 from backend.engine.cs.rules import RuleInputError, product_family
 from backend.engine.cs.verification_call import VerificationAttempt
 from backend.shared.ai import usage_cost
@@ -54,27 +52,6 @@ LATEST_VALID_RUN = (
     "SELECT id FROM cs.ticket_analyses WHERE ticket_id = %s AND job_id = %s AND outcome = 'VALID' "
     "ORDER BY run_seq DESC LIMIT 1"
 )
-
-
-def required_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozenset[str]]]:
-    """정책표의 제품 계열 → 문의 유형 → 필요 정보 코드.
-
-    Args:
-        path: eval/policy/cs_required_info.csv.
-
-    Returns:
-        dict: 계열별 유형별 코드 집합. 열이 없으면 ValueError다.
-    """
-    reader = csv.DictReader(io.StringIO(path.read_text(encoding="utf-8-sig"), newline=""))
-    if not {"family", "category", "required_fields"} <= set(reader.fieldnames or ()):
-        raise ValueError("CS_REQUIRED_INFO_COLUMNS")
-    table: dict[str, dict[str, frozenset[str]]] = {}
-    for row in reader:
-        codes = frozenset(
-            code.strip() for code in row["required_fields"].split(";") if code.strip()
-        )
-        table.setdefault(row["family"], {})[row["category"]] = codes
-    return table
 
 
 def usage_values(attempt: ClassificationAttempt | DraftAttempt | VerificationAttempt) -> Row:
