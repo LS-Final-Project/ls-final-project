@@ -1451,9 +1451,9 @@ async def insert_requirement(
         "necessity, designated_model, designated_manufacturer, designated_clause_id, "
         "designated_procurement, assembly_clause, tolerance, "
         "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
-        "next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
+        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, known_at) "
         "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        "'ai_draft',%s,'DERIVED',now())",
+        "%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
         (
             requirement_id,
             document_version["id"],
@@ -1482,6 +1482,9 @@ async def insert_requirement(
             judgement["reason"],
             Jsonb(list(judgement["unresolved"])),
             judgement["next_owner"],
+            spec.get("kind"),
+            spec.get("certification_listed"),
+            spec.get("canonical_value"),
             origin,
         ),
     )

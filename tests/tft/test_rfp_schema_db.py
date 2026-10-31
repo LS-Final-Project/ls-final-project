@@ -723,6 +723,8 @@ def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admi
             (project,),
         )
         apply(conn, migration)
+        apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
+        apply(conn, migration)
         with conn.transaction():
             conn.execute("SET LOCAL ROLE tft_worker")
             assert conn.execute(
@@ -741,3 +743,20 @@ def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(admi
                 "UPDATE tft.projects SET customer_manufacturer_list=ARRAY[]::text[] WHERE id=%s",
                 (project,),
             )
+
+
+def test_legacy_semantic_columns_remain_null_after_t20_reapplication(admin, chain):
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply(conn, Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql"))
+        assert conn.execute(
+            "SELECT kind,certification_listed,canonical_value FROM tft.requirement_versions "
+            "WHERE requirement_id=%s AND version=1",
+            (chain["requirement"],),
+        ).fetchone() == (None, None, None)
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE tft_worker")
+            assert conn.execute(
+                "SELECT kind,certification_listed,canonical_value FROM tft.requirement_versions "
+                "WHERE requirement_id=%s AND version=1",
+                (chain["requirement"],),
+            ).fetchone() == (None, None, None)

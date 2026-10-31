@@ -217,3 +217,5 @@ PREFERRED SPEC_GAP 1건이면 미해결 필수는 2건이다. EVIDENCE_FOUND라�
 ### 프로젝트의 사람 입력 제약(KAN-187)
 
 `supply_region`은 nullable text, `customer_manufacturer_list`는 nullable text[]이다. null은 미제공이며 명시한 빈 목록은 거부한다. 목록 항목과 공급지역은 비어 있지 않은 사람 입력만 허용한다. `off_list_permission`은 ALLOWED/FORBIDDEN/UNSTATED(기본) 코드이며 목록 존재만으로 FORBIDDEN을 추론하지 않는다. 회사·고객명·문서명·모델 출력에서 값을 추측하지 않는다. 접수 생성/PATCH/조회에 동일 필드를 제공하며 PATCH의 생략은 보존, 지역·목록의 명시 null은 미제공으로 되돌린다. 변경은 기존 등급의 재계산을 뜻하지 않으며 저장 요구를 대상으로 한 재실행이 필요하다. T20은 작성만 했으며 공용 DB 적용은 운영자가 수행한다.
+
+T20은 요구 판본 내부의 `kind`·`certification_listed`·`canonical_value`도 nullable로 보존한다(API DTO 추가 없음). 새 추출의 실제 값만 저장하며 승인된 요구 새 판본에도 그대로 이어진다. 과거 null은 원래 의미가 미보존된 것으로 구분하고 재추출/false/본문추론으로 메우지 않는다. 이 경우 재채점은 보수적인 검토 결과만 제공하며 근거 없이 등급을 올리지 않는다.

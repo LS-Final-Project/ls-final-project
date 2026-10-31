@@ -129,6 +129,7 @@ def worker_dsn(admin):
     with psycopg.connect(admin, autocommit=True) as conn:
         apply(conn, Path("infra/migrations/tft/20261104_KAN-199_tft_worker.sql"))
         apply(conn, Path("infra/migrations/tft/20261109_KAN-188_draft_execution.sql"))
+        apply(conn, Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql"))
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='test_tft_proc'").fetchone():
             conn.execute("CREATE ROLE test_tft_proc LOGIN PASSWORD 'test-only'")
             conn.execute("GRANT tft_worker TO test_tft_proc")

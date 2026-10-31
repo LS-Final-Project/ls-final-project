@@ -12,6 +12,11 @@ ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS customer_manufacturer_list tex
     ));
 ALTER TABLE tft.projects ADD COLUMN IF NOT EXISTS off_list_permission text NOT NULL DEFAULT 'UNSTATED'
     CHECK (off_list_permission IN ('ALLOWED','FORBIDDEN','UNSTATED'));
+-- 새 추출값만 그대로 저장한다. 과거 NULL은 미보존이며 false나 추정값으로 채우지 않는다.
+ALTER TABLE tft.requirement_versions ADD COLUMN IF NOT EXISTS kind text
+    CHECK (kind IS NULL OR kind IN ('SPEC','TASK','DOCUMENT','COMPLIANCE','DESIGNATED_PRODUCT'));
+ALTER TABLE tft.requirement_versions ADD COLUMN IF NOT EXISTS certification_listed boolean;
+ALTER TABLE tft.requirement_versions ADD COLUMN IF NOT EXISTS canonical_value text;
 -- 기존 프로젝트 열 권한은 보존한다. 목록·정책을 모델이 만들거나 worker가 변경하지 않는다.
 GRANT SELECT(supply_region,customer_manufacturer_list,off_list_permission) ON tft.projects TO tft_worker;
 COMMIT;
