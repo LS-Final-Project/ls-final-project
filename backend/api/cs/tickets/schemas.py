@@ -35,6 +35,9 @@ class TicketSummary(BaseModel):
     channel: Channel
     product_code: str
     workflow_state: WorkflowState
+    owner_user_id: UUID | None = Field(
+        default=None, description="C/S agent in charge. None until review starts."
+    )
 
 
 class TicketList(BaseModel):
