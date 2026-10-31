@@ -41,6 +41,8 @@ RESULT_TEXT: dict[s.ComparisonResult, str] = {
 MAX_SENTENCES_PER_SECTION = 8
 MAX_REPRESENTATIVES = 3
 REPRESENTATIVE_CHARS = 120
+COMPARISON_REPRESENTATIVE_CHARS = 1000
+COMPARISON_VALUE_CHARS = 900
 OWNER_TEXT = {
     "SALES": "영업 담당",
     "TECH": "기술 검토 담당",
@@ -91,11 +93,52 @@ def _display(text: str) -> str:
 
 
 def _sample(text: str, limit: int = REPRESENTATIVE_CHARS, *, display_codes: bool = True) -> str:
-    text = " ".join((_display(text) if display_codes else text).split())
+    text = " ".join(_display(text).split()) if display_codes else text
     if len(text) <= limit:
         return text
-    prefix = text[:limit].rsplit(" ", 1)[0] if " " in text[:limit] else "상세 항목은 근거에서 확인"
+    prefix = text[:limit].rsplit(" ", 1)[0] if " " in text[:limit] else text[: limit - 1]
     return prefix + "…"
+
+
+def _comparison_sample(
+    req: s.RequirementDetail, candidate: s.ComparisonCandidate
+) -> tuple[str, list[str]]:
+    """비교값을 먼저 보존한다. 예산보다 긴 값/식별자는 자르지 않고 원문 조건으로 연결한다."""
+    match = candidate.attribute_match
+    wanted = f"{req.spec.value or '미정'} {req.spec.unit or ''}".strip()
+    offered = f"{match.our_value or '자료 없음'} {match.our_unit or ''}".strip()
+    value_text = f"요구 {wanted}, 후보 {offered}"
+    shortened = len(value_text) > COMPARISON_VALUE_CHARS
+    if shortened:
+        if len(wanted) <= len(offered):
+            offered = "[긴 후보값: 조건 원문 확인]"
+            if len(f"요구 {wanted}, 후보 {offered}") > COMPARISON_VALUE_CHARS:
+                wanted = "[긴 요구값: 조건 원문 확인]"
+        else:
+            wanted = "[긴 요구값: 조건 원문 확인]"
+            if len(f"요구 {wanted}, 후보 {offered}") > COMPARISON_VALUE_CHARS:
+                offered = "[긴 후보값: 조건 원문 확인]"
+        value_text = f"요구 {wanted}, 후보 {offered}"
+    attribute = _display(req.spec.attribute or "비교 항목")
+    attribute_note = "[긴 속성명: 조건 원문 확인]"
+    minimum_attribute = attribute if len(attribute) <= len(attribute_note) else attribute_note
+    product = candidate.product_code
+    primary = f"제품 {product} · {value_text}"
+    if len(primary + " · 속성 " + minimum_attribute) > COMPARISON_REPRESENTATIVE_CHARS:
+        product = "[긴 제품 식별명: 근거·조건 원문 확인]"
+        primary = f"제품 {product} · {value_text}"
+        shortened = True
+    if len(primary + " · 속성 " + attribute) > COMPARISON_REPRESENTATIVE_CHARS:
+        attribute = attribute_note
+        shortened = True
+    raw = []
+    if shortened:
+        raw.append(
+            f"자사 비교 원문: 제품 「{candidate.product_code}」; 속성 「{req.spec.attribute if req.spec.attribute is not None else '미정'}」; "
+            f"요구값 「{req.spec.value if req.spec.value is not None else '미정'}」/단위 「{req.spec.unit if req.spec.unit is not None else '미정'}」; "
+            f"후보값 「{match.our_value if match.our_value is not None else '자료 없음'}」/단위 「{match.our_unit if match.our_unit is not None else '미정'}」"
+        )
+    return primary + " · 속성 " + attribute, raw
 
 
 @dataclass
@@ -338,6 +381,8 @@ def build_draft(
         rereview: bool = False,
         priority: int = 9,
         display_codes: bool = True,
+        representative_limit: int = REPRESENTATIVE_CHARS,
+        literal_conditions: Sequence[str] = (),
     ) -> None:
         summary = sections[section].setdefault(key, _Summary(key, title))
         summary.include(
@@ -346,9 +391,15 @@ def build_draft(
                 title,
                 priority,
                 {(e.type, e.id) for e in evidence},
-                {_display(value) for value in conditions if value.strip()},
-                [(sort_key, _sample(representative, display_codes=display_codes))],
-                unconfirmed or bool(conditions) or rereview,
+                {_display(value) for value in conditions if value.strip()}
+                | set(literal_conditions),
+                [
+                    (
+                        sort_key,
+                        _sample(representative, representative_limit, display_codes=display_codes),
+                    )
+                ],
+                unconfirmed or bool(conditions) or bool(literal_conditions) or rereview,
                 rereview,
             )
         )
@@ -386,6 +437,7 @@ def build_draft(
             unconfirmed=unconfirmed,
             rereview=review,
             priority=priority,
+            display_codes=False,
         )
         comp = comps.get(req.requirement_id)
         if comp:
@@ -404,18 +456,21 @@ def build_draft(
                     candidate_conditions.extend(
                         value for value in (proof.applicability, proof.limits) if value
                     )
+                representative, raw_comparison = _comparison_sample(req, candidate)
                 add(
                     "OUR_RESPONSE",
                     (*base_group, match.result),
                     f"{equipment}의 자사 후보 비교 · {RESULT_TEXT[match.result]}. 전체 요구 충족이나 공급 확약이 아님",
                     [*evidence, s.Evidence(type="product", id=candidate.product_code)],
-                    f"제품 {candidate.product_code} · {_display(req.spec.attribute or '비교 항목')}: 요구 {req.spec.value or '미정'} {req.spec.unit or ''}, 후보 {match.our_value or '자료 없음'} {match.our_unit or ''}",
+                    representative,
                     (*order(req), candidate.product_code),
                     conditions=candidate_conditions,
                     unconfirmed=True,
                     rereview=review,
                     priority=priority,
                     display_codes=False,
+                    representative_limit=COMPARISON_REPRESENTATIVE_CHARS,
+                    literal_conditions=raw_comparison,
                 )
         if unconfirmed or status == "SPEC_GAP":
             destination: s.DraftSection = (
@@ -432,6 +487,7 @@ def build_draft(
                 unconfirmed=True,
                 rereview=review,
                 priority=priority,
+                display_codes=False,
             )
         option_set = opts.get(req.requirement_id)
         if option_set:
@@ -483,6 +539,7 @@ def build_draft(
                     unconfirmed=True,
                     rereview=review,
                     priority=priority,
+                    display_codes=False,
                 )
                 for code in sorted(option.candidate_codes if option.path in PARTNER_PATHS else []):
                     partner = candidates[code]
@@ -508,6 +565,7 @@ def build_draft(
                         unconfirmed=True,
                         rereview=review,
                         priority=priority,
+                        display_codes=False,
                     )
         if req.judgement.next_owner_field:
             owner = req.judgement.next_owner_field
@@ -522,6 +580,7 @@ def build_draft(
                 unconfirmed=True,
                 rereview=review,
                 priority=priority,
+                display_codes=False,
             )
 
     if integration.required:

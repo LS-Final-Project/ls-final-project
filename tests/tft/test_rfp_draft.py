@@ -885,7 +885,7 @@ def test_multiple_own_representatives_identify_each_product_and_its_values(snaps
         )
         assert any(e.type == "product" and e.id == code for e in row.evidence)
     assert row.text.count("「") == 3 and "DIFFERS" not in row.text
-    assert "rated current: 요구" in row.text and "rated_current: 요구" not in row.text
+    assert "속성 rated current" in row.text and "속성 rated_current" not in row.text
     assert "특정 구성에서만 적용" in row.conditions and "현장 시험 필요" in row.conditions
 
 
@@ -912,3 +912,117 @@ def test_missing_internal_department_does_not_bypass_blank_question_guard(snapsh
     snapshot["questions"][0].question_text = " \t "
     with pytest.raises(ValueError, match="RFP_DRAFT_INVALID_QUESTION"):
         build_draft(**snapshot)
+
+
+@pytest.mark.parametrize("long_field", ["product", "attribute", "values"])
+def test_comparison_sample_keeps_complete_values_ahead_of_long_labels(snapshot, long_field):
+    req = snapshot["requirements"][0]
+    candidate = snapshot["comparisons"][0].candidates[0]
+    if long_field == "product":
+        candidate.product_code = "MODEL_" + "X" * 200
+    elif long_field == "attribute":
+        req.spec.attribute = "rated_current " * 150
+        candidate.product_code = "rated_current"
+    else:
+        req.spec.value = "1234567890" * 30
+        candidate.attribute_match.our_value = "9876543210" * 30
+    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    assert f"요구 {req.spec.value} A" in row.text
+    assert f"후보 {candidate.attribute_match.our_value} A" in row.text
+    assert candidate.product_code in row.text
+    assert len(row.text) <= 4000
+    assert any(e.type == "product" and e.id == candidate.product_code for e in row.evidence)
+    if long_field == "attribute":
+        raw = next(c for c in row.conditions if c.startswith("자사 비교 원문:"))
+        assert "제품 「rated_current」" in raw
+        assert f"속성 「{req.spec.attribute}」" in raw
+        assert "제품 「rated current」" not in raw
+        assert "긴 속성명: 조건 원문 확인" in row.text
+
+
+@pytest.mark.parametrize("side", ["requirement", "candidate", "both"])
+def test_oversized_values_are_preserved_in_literal_conditions_not_partial_numbers(snapshot, side):
+    req = snapshot["requirements"][0]
+    candidate = snapshot["comparisons"][0].candidates[0]
+    if side in {"requirement", "both"}:
+        req.spec.value = "7" * 1600
+    if side in {"candidate", "both"}:
+        candidate.attribute_match.our_value = "9" * 1700
+    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    raw = next(c for c in row.conditions if c.startswith("자사 비교 원문:"))
+    assert f"요구값 「{req.spec.value}」" in raw
+    assert f"후보값 「{candidate.attribute_match.our_value}」" in raw
+    assert f"제품 「{candidate.product_code}」" in raw
+    if side in {"requirement", "both"}:
+        assert "긴 요구값: 조건 원문 확인" in row.text
+        assert "7" * 80 not in row.text
+    else:
+        assert "요구 600 A" in row.text
+    if side in {"candidate", "both"}:
+        assert "긴 후보값: 조건 원문 확인" in row.text
+        assert "9" * 80 not in row.text
+    else:
+        assert "후보 500 A" in row.text
+    assert len(row.text) <= 4000 and row.unconfirmed
+
+
+def test_three_long_comparison_samples_and_title_stay_within_body_limit(snapshot):
+    req = snapshot["requirements"][0]
+    req.spec.equipment = "cabinet long designation " * 100
+    req.spec.attribute = "attribute long description " * 100
+    req.spec.value = "1234567890" * 40
+    original = snapshot["comparisons"][0].candidates[0]
+    candidates = []
+    for index in range(3):
+        candidate = original.model_copy(deep=True)
+        candidate.product_code = f"SERIES_{index}_" + "Z" * 1200
+        candidate.attribute_match.our_value = str(index + 5) * 400
+        candidates.append(candidate)
+    snapshot["comparisons"][0].candidates = candidates
+    result = build_draft(**snapshot)
+    row = sentences(result, "OUR_RESPONSE")[0]
+    assert row.text.count("「") == 3 and len(row.text) <= 4000
+    for candidate in candidates:
+        assert f"후보 {candidate.attribute_match.our_value} A" in row.text
+        assert any(
+            f"제품 「{candidate.product_code}」" in c
+            and f"후보값 「{candidate.attribute_match.our_value}」" in c
+            for c in row.conditions
+        )
+        assert any(e.type == "product" and e.id == candidate.product_code for e in row.evidence)
+    assert "긴 제품 식별명: 근거·조건 원문 확인" in row.text
+    assert all(len(part.sentences) <= 8 for part in result.sections)
+    assert sum(len(part.sentences) for part in result.sections) <= 48
+
+
+def test_customer_quotes_bypass_code_mapping_and_whitespace_rewriting_in_every_section(snapshot):
+    quote = "고객 원문:\t rated_current가  600 A이며\nEXTERNAL_PRODUCT 표기는 그대로 유지."
+    snapshot["requirements"][0].origin.quote = quote
+    before = deepcopy(snapshot)
+    result = build_draft(**snapshot)
+    for section in (
+        "CUSTOMER_GOAL_SCOPE",
+        "DEVIATIONS",
+        "PARTNER_SUPPLEMENT",
+        "ASSUMPTIONS_EXCLUSIONS",
+        "QUESTIONS_NEXT_ACTIONS",
+    ):
+        assert any(quote in row.text for row in sentences(result, section))
+    assert snapshot == before
+    assert evidence_of(sentences(result)) == {
+        ("requirement", str(REQ)),
+        ("clause", str(CLAUSE)),
+        ("question", str(QUESTION)),
+        ("product", "SYN-PRODUCT"),
+        ("partner", "SYN-PARTNER"),
+    }
+
+
+def test_long_customer_quote_only_has_explicit_length_ellipsis(snapshot):
+    quote = "rated_current가\t  600 A. " + "원문 검토 조건 " * 100
+    snapshot["requirements"][0].origin.quote = quote
+    row = sentences(build_draft(**snapshot), "CUSTOMER_GOAL_SCOPE")[0]
+    excerpt = row.text.split("「", 1)[1].split("」", 1)[0]
+    assert excerpt.endswith("…") and quote.startswith(excerpt[:-1])
+    assert "rated_current가\t  600 A." in excerpt
+    assert len(excerpt) <= engine.REPRESENTATIVE_CHARS
