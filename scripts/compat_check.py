@@ -326,6 +326,16 @@ def migration_report(base: str) -> dict:
     }
 
 
+# 실행 검사가 작업 트리에서 읽는 경로. 커밋하지 않은 변경이 있으면 배포할 HEAD와 다른 내용을 검증하게 된다.
+RUN_INPUTS = (MIGRATIONS, "tests", ".github/workflows", "backend", "pyproject.toml", "uv.lock")
+
+
+def dirty_inputs(porcelain: str) -> list[str]:
+    """git status --porcelain 출력에서 실행 검사 입력에 걸리는 변경 경로."""
+    paths = [line[3:].split(" -> ")[-1] for line in porcelain.splitlines() if line.strip()]
+    return [p for p in paths if p.startswith(RUN_INPUTS)]
+
+
 def check_db_url(url: str) -> None:
     """loopback의 전용 검사 DB만 받는다."""
     info = conninfo_to_dict(url)
@@ -397,6 +407,9 @@ def pytest_run(args: list[str], cwd: Path, url: str) -> tuple[int, str]:
 def run_report(base: str, url: str) -> dict:
     """새 마이그레이션 DB에서 base 리비전의 tests 전체를 돌린 결과."""
     check_db_url(url)
+    dirty = dirty_inputs(git("status", "--porcelain", "--untracked-files=all"))
+    if dirty:
+        raise RuntimeError(f"커밋하지 않은 변경이 있어 HEAD를 검증할 수 없습니다: {dirty[:5]}")
     missing = unapplied_migrations()
     if missing:
         raise RuntimeError(f"검사 준비가 적용하지 않는 마이그레이션이 있습니다: {missing}")

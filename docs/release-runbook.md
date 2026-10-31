@@ -212,11 +212,12 @@ gcloud run services update-traffic team4-$s $G --to-latest   # [변경] 고친 �
 > 허용하지 않음), 접속은 `gcloud sql connect`의 5분 임시 허용만 쓴다. 출력 결과에 원문을 남기지 않는다.
 >
 > **덮어쓰기 주의**: `--restore-instance`가 `team4-sql`이면 운영 DB가 백업 시점으로 덮어써진다. 삭제 보호는 복원을
-> 막지 않는다. 복원 대상은 아래 변수로만 지정한다.
+> 막지 않는다. 복원 대상은 아래 변수로만 지정한다. 이름이 형식에 맞지 않으면 변수를 지우고, 아래 명령은
+> 모두 `${DRILL:?}`로 변수가 비어 있으면 실행 전에 멈춘다.
 
 ```bash
 DRILL=team4-sql-restore-$(date +%m%d)   # 지운 인스턴스 이름은 한동안 다시 쓸 수 없어 날짜를 붙인다
-test "$DRILL" != team4-sql && echo "복원 대상: $DRILL"
+case "${DRILL:?복원 대상 없음}" in team4-sql-restore-[0-9][0-9][0-9][0-9]) echo "복원 대상: $DRILL" ;; *) echo "중단: 복원 대상 이름이 아님"; unset DRILL ;; esac
 ```
 
 1. 원본 설정과 백업 확인(읽기 전용)
@@ -233,10 +234,10 @@ test "$DRILL" != team4-sql && echo "복원 대상: $DRILL"
 2. 복원용 인스턴스 만들기 **[변경, 비용]**. DB 버전·등급·에디션은 1의 값과 같게, 디스크는 원본 이상으로 한다.
 
    ```bash
-   gcloud sql instances create "$DRILL" --project=$P --account=$A --region=$R \
+   gcloud sql instances create "${DRILL:?복원 대상 없음}" --project=$P --account=$A --region=$R \
      --database-version=<1의 값> --tier=<1의 값> --edition=<1의 값> --storage-size=<원본 이상> \
      --no-backup --no-deletion-protection
-   gcloud sql instances describe "$DRILL" --project=$P --account=$A \
+   gcloud sql instances describe "${DRILL:?복원 대상 없음}" --project=$P --account=$A \
      --format="yaml(ipAddresses,settings.ipConfiguration.authorizedNetworks)"   # 인가 네트워크가 비었는지
    ```
 
@@ -244,14 +245,14 @@ test "$DRILL" != team4-sql && echo "복원 대상: $DRILL"
 
    ```bash
    gcloud sql backups restore <BACKUP_ID> --backup-instance=team4-sql \
-     --restore-instance="$DRILL" --project=$P --account=$A
+     --restore-instance="${DRILL:?복원 대상 없음}" --project=$P --account=$A
    ```
 
 4. 복원된 DB 확인. `gcloud sql connect`가 잠시 내 IP를 허용한다. 비밀번호는 화면에 남기지 않는다.
 
    ```bash
-   gcloud sql users set-password postgres --instance="$DRILL" --project=$P --account=$A --prompt-for-password   # [변경]
-   gcloud sql connect "$DRILL" --user=postgres --database=team4 --project=$P --account=$A
+   gcloud sql users set-password postgres --instance="${DRILL:?복원 대상 없음}" --project=$P --account=$A --prompt-for-password   # [변경]
+   gcloud sql connect "${DRILL:?복원 대상 없음}" --user=postgres --database=team4 --project=$P --account=$A
    ```
 
    ```sql
@@ -272,7 +273,7 @@ test "$DRILL" != team4-sql && echo "복원 대상: $DRILL"
 5. 복원 인스턴스 삭제 **[변경]**
 
    ```bash
-   gcloud sql instances delete "$DRILL" --project=$P --account=$A
+   gcloud sql instances delete "${DRILL:?복원 대상 없음}" --project=$P --account=$A
    gcloud sql instances list --project=$P --account=$A --format="table(name,state)"
    ```
 

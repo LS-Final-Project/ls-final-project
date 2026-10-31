@@ -238,6 +238,20 @@ class RunGuardTest(unittest.TestCase):
                 compat_check.unapplied_migrations(root), ["infra/migrations/platform/2_c.sql"]
             )
 
+    def test_uncommitted_inputs_stop_the_run(self):
+        """실행 검사는 작업 트리를 읽으므로 마이그레이션·검사·코드에 커밋하지 않은 변경이 있으면 멈춘다."""
+        porcelain = (
+            " M infra/migrations/cs/new.sql\n"
+            "?? tests/cs/test_x.py\n"
+            "R  backend/a.py -> backend/b.py\n"
+            "?? 2026-10-29-notes.txt\n"
+            " M docs/release-runbook.md\n"
+        )
+        self.assertEqual(
+            compat_check.dirty_inputs(porcelain),
+            ["infra/migrations/cs/new.sql", "tests/cs/test_x.py", "backend/b.py"],
+        )
+
     def test_snapshot_diff_reports_both_directions(self):
         """이전 검사 준비가 옛 권한을 다시 주면 added에, 무언가 지우면 removed에 나온다."""
         self.assertEqual(
