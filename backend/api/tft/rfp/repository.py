@@ -1775,15 +1775,44 @@ async def clause_ids_by_no(
     return {row["clause_no"]: row["id"] for row in await cursor.fetchall()}
 
 
+# 대응표 기본 순서: 할 일이 큰 상태부터, 같은 상태 안에서는 조항 자연 순서(2.9 다음 2.10, 1.1.A 다음 1.1.A.4.a).
+# 조항은 code(판본:조항:순번)에서 읽고 숫자 조각을 0으로 채워 배열로 비교한다. 짧은 쪽이 앞선다.
+# DB 로캘에 달라지지 않게 C 정렬이다. 쪽 커서도 같은 값을 비교해야 행이 빠지거나 겹치지 않는다.
+# ponytail: 쿼리마다 계산한다(프로젝트당 수백 건 기준). 수천 건이 되면 저장 칸과 색인으로 옮긴다.
+REQUIREMENT_STATUS_RANK = (
+    "CASE v.status WHEN 'SPEC_GAP' THEN 0 WHEN 'CONDITIONAL' THEN 1 "
+    "WHEN 'EVIDENCE_FOUND' THEN 2 WHEN 'INSUFFICIENT_EVIDENCE' THEN 3 ELSE 4 END"
+)
+
+
+def requirement_sort_key(rank: str, code: str) -> str:
+    """대응표 정렬·쪽 비교에 함께 쓰는 값 묶음(SQL 조각)을 만든다.
+
+    Args:
+        rank: 상태 순위 SQL.
+        code: 요구 code SQL(열 또는 바인딩 자리).
+
+    Returns:
+        str: (상태 순위, 조항 배열, 순번, code) 행 값.
+    """
+    clause = (
+        "ARRAY(SELECT CASE WHEN part ~ '^[0-9]+$' THEN lpad(part, 10, '0') ELSE part END "
+        f"FROM regexp_split_to_table(split_part({code}, ':', 2), '[.]') "
+        'WITH ORDINALITY AS t(part, n) ORDER BY n) COLLATE "C"'
+    )
+    order = f"lpad(split_part({code}, ':', 3), 10, '0') COLLATE \"C\""
+    return f'({rank}, {clause}, {order}, {code} COLLATE "C")'
+
+
 async def list_requirements(
     conn: AsyncConnection[Row],
     project_id: UUID,
     *,
     filters: Mapping[str, Any],
-    after: str | None,
+    after: tuple[int, str] | None,
     limit: int,
 ) -> list[Row]:
-    """최신 요구 판본을 코드 순으로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
+    """최신 요구 판본을 상태·조항 자연 순서로 읽는다. limit+1개를 읽어 다음 쪽 유무를 알린다.
 
     필터는 쪽이 어긋나지 않게 모두 SQL에서 건다.
 
@@ -1792,11 +1821,11 @@ async def list_requirements(
         project_id: 프로젝트 ID.
         filters: document_version_id·equipment·task·necessity·status·needs_rereview·has_open_question.
             None인 키는 조건이 아니다.
-        after: 이 코드 다음부터.
+        after: (상태 순위, code). 이 행 다음부터.
         limit: 쪽 크기.
 
     Returns:
-        list[Row]: 요구 요약 칸과 open_questions·needs_rereview.
+        list[Row]: 요구 요약 칸과 open_questions·needs_rereview·status_rank.
     """
     rereview = NEEDS_REREVIEW.format(requirement="req.id")
     open_questions = (
@@ -1827,17 +1856,23 @@ async def list_requirements(
         where.append(f"({UNRESOLVED_MANDATORY}) = %s")
         params.append(filters["unresolved_mandatory"])
     if after is not None:
-        where.append("req.code > %s")
-        params.append(after)
+        where.append(
+            f"{requirement_sort_key(REQUIREMENT_STATUS_RANK, 'req.code')} > "
+            f"{requirement_sort_key('%s::int', '%s::text')}"
+        )
+        # 바인딩 자리 넷: 순위, 그리고 조항·순번·code가 각각 읽는 code.
+        params.extend([after[0], after[1], after[1], after[1]])
     cursor = await conn.execute(
         "SELECT req.id AS requirement_id, req.code, v.equipment, v.task, v.attribute, v.value, v.unit, "
         "v.necessity, v.status, coalesce((SELECT sel.path FROM tft.supplement_selections sel "
         "WHERE sel.requirement_id = req.id ORDER BY sel.version DESC LIMIT 1), v.path) AS path, "
         "v.version, v.designated_model, v.needs_review, v.attribute_key, v.provenance_kind, "
-        f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview "
+        f"{open_questions} AS open_questions, ({rereview}) AS needs_rereview, "
+        f"{REQUIREMENT_STATUS_RANK} AS status_rank "
         "FROM tft.requirements req JOIN tft.requirement_versions v "
         "ON v.requirement_id = req.id AND v.version = req.latest_version "
-        f"WHERE {' AND '.join(where)} ORDER BY req.code LIMIT %s",
+        f"WHERE {' AND '.join(where)} "
+        f"ORDER BY {requirement_sort_key(REQUIREMENT_STATUS_RANK, 'req.code')} LIMIT %s",
         (*params, limit + 1),
     )
     return await cursor.fetchall()

@@ -114,6 +114,7 @@ erDiagram
   - 문서 경로 8~10은 문서의 최신 판본 기준이다. 목록(7)은 판본 전부다.
   - 조항(9)은 `parent`가 없으면 전체 조항을 문서 순서(`ordinal`)로 낸다. 화면이 `parent_clause_id`로 트리를 만든다.
   - 원문(10)은 항상 `attachment`·`nosniff`이고, 저장 해시·크기가 맞을 때만 낸다. 저장소(`TFT_DOCUMENT_BUCKET` 또는 `TFT_DOCUMENT_ROOT`)가 없거나 읽지 못하면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
+  - 요구 목록(12) 기본 순서는 상태(`SPEC_GAP`→`CONDITIONAL`→`EVIDENCE_FOUND`→`INSUFFICIENT_EVIDENCE`), 같은 상태 안에서는 조항 자연 순서(`2.9` 다음 `2.10`, `1.1.A` 다음 `1.1.A.4.a`), 순번이다. 커서는 정렬과 같은 값을 비교하고 상태 순위를 담아, 쪽을 넘기는 사이 상태가 바뀌어도 위치가 밀리지 않는다. 코드만 담은 옛 커서는 400 `TFT_INVALID_CURSOR`다.
   - 요구 목록(12)의 필터는 모두 SQL에서 걸어 쪽이 어긋나지 않는다. `open_questions`는 `OPEN`만 센다(`DRAFT` 제외).
   - `tolerance`(원문 표기, `spec`)와 `needs_review`(시스템 표시, 목록·상세 최상위)는 T15 칸이다. `tolerance`의 `null`은 '오차 없음'이 아니라 '없거나 모름'이다(T15 전 판본은 재처리 전까지 `null`·`false`). `attribute_key`·`equipment_family`는 저장만 하고 응답에 내지 않는다.
   - `links.comparison_summary`는 후보 수와 결과 요약, `links.supplement_summary`는 최신 선택의 경로 코드다. 화면 표시용 자유 문자열이다.

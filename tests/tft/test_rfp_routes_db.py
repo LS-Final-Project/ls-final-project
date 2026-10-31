@@ -6,8 +6,10 @@
 # ruff: noqa: F811
 
 import asyncio
+import base64
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -718,8 +720,69 @@ def test_the_file_is_a_checked_attachment_or_unavailable(
     assert "doc.bin" not in changed.text and str(tmp_path) not in changed.text
 
 
+def test_requirements_sort_by_status_then_natural_clause_across_pages(client, admin, chain):
+    """대응표 기본 순서: 상태 순위, 조항 자연 순서, 순번. 쪽을 넘겨도 빠지거나 겹치지 않는다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "DELETE FROM tft.requirement_versions WHERE requirement_id=%s", (chain["requirement"],)
+        )
+        conn.execute("DELETE FROM tft.requirements WHERE id=%s", (chain["requirement"],))
+    rows = {
+        "ab:2.10:1": "INSUFFICIENT_EVIDENCE",
+        "ab:2.9:1": "INSUFFICIENT_EVIDENCE",
+        "ab:1.1.A.4.a:1": "CONDITIONAL",
+        "ab:1.1.A:1": "CONDITIONAL",
+        "ab:3.1:10": "SPEC_GAP",
+        "ab:3.1:2": "SPEC_GAP",
+        "ab:1.0:1": "EVIDENCE_FOUND",
+        "ab:1.1.B:1": "CONDITIONAL",
+    }
+    ids = {
+        code: add_requirement(admin, chain, code, status=status) for code, status in rows.items()
+    }
+    url = f"/projects/{chain['project']}/requirements"
+    expected = [
+        "ab:3.1:2",
+        "ab:3.1:10",
+        "ab:1.1.A:1",
+        "ab:1.1.A.4.a:1",
+        "ab:1.1.B:1",
+        "ab:1.0:1",
+        "ab:2.9:1",
+        "ab:2.10:1",
+    ]
+    for size in (1, 2, 3, 100):
+        seen, cursor = [], None
+        # 쪽 나눔이 깨져도 멈추도록 쪽 수를 묶는다.
+        for _ in range(len(expected) + 1):
+            suffix = f"&cursor={cursor}" if cursor else ""
+            page = data(get(client, f"{url}?limit={size}{suffix}"))
+            seen += [i["code"] for i in page["items"]]
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+        assert seen == expected, size
+    # 필터를 걸어도 같은 순서로 쪽이 이어진다.
+    first = data(get(client, f"{url}?limit=2&status=CONDITIONAL"))
+    assert [i["code"] for i in first["items"]] == ["ab:1.1.A:1", "ab:1.1.A.4.a:1"]
+    rest = data(get(client, f"{url}?limit=2&status=CONDITIONAL&cursor={first['next_cursor']}"))
+    assert [i["code"] for i in rest["items"]] == ["ab:1.1.B:1"]
+    # 쪽을 넘기는 사이 마지막 행의 상태가 바뀌어도 위치는 커서의 순위로 이어진다.
+    page = data(get(client, f"{url}?limit=3"))
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='INSUFFICIENT_EVIDENCE' WHERE requirement_id=%s",
+            (ids["ab:1.1.A:1"],),
+        )
+    after = data(get(client, f"{url}?limit=100&cursor={page['next_cursor']}"))
+    assert [i["code"] for i in after["items"]][0] == "ab:1.1.A.4.a:1"
+    # 코드만 담은 옛 커서는 조용히 틀린 쪽을 주지 않고 거절한다.
+    stale = base64.urlsafe_b64encode(json.dumps({"k": "ab:3.1:2"}).encode()).decode()
+    assert error(get(client, f"{url}?cursor={stale}")) == (400, "TFT_INVALID_CURSOR")
+
+
 def test_requirements_filter_and_page_in_sql(client, admin, chain):
-    """요구 목록: 코드 순 쪽 나눔, 필터는 쪽 안에서가 아니라 전체에 걸리고, 시스템 표시가 보인다."""
+    """요구 목록: 상태·코드 순 쪽 나눔, 필터는 쪽 안에서가 아니라 전체에 걸리고, 시스템 표시가 보인다."""
     review = add_requirement(admin, chain, "R-2", needs_review=True, equipment="변압기")
     asked = add_requirement(admin, chain, "R-3", status="SPEC_GAP", value="95", unit="kV")
     add_requirement(admin, chain, "R-4", task="FACTORY_TEST", designated_model="SEL-751A")
@@ -727,9 +790,9 @@ def test_requirements_filter_and_page_in_sql(client, admin, chain):
     ask(client, {**chain, "requirement": asked})
     url = f"/projects/{chain['project']}/requirements"
     first = data(get(client, f"{url}?limit=2"))
-    assert [i["code"] for i in first["items"]] == ["R-1", "R-2"]
+    assert [i["code"] for i in first["items"]] == ["R-1", "R-3"]
     second = data(get(client, f"{url}?limit=2&cursor={first['next_cursor']}"))
-    assert [i["code"] for i in second["items"]] == ["R-3", "R-4"]
+    assert [i["code"] for i in second["items"]] == ["R-2", "R-4"]
     assert second["next_cursor"] is None
     by_code = {i["code"]: i for i in (*first["items"], *second["items"])}
     assert by_code["R-2"]["needs_review"] is True and by_code["R-1"]["needs_review"] is False
