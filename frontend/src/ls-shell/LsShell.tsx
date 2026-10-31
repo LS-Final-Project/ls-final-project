@@ -27,7 +27,7 @@ const MENU: Group[] = [
       { label: '업무 홈', to: '/tft', end: true },
       { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '' },
       { label: '자사 대응표', inProject: 'table' },
-      { label: '보완 및 협력사 비교' },
+      { label: '보완 및 협력사 비교', inProject: 'supplement' },
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
@@ -54,7 +54,7 @@ const Chevron = ({ open }: { open: boolean }) => <svg viewBox="0 0 12 12" aria-h
 // 캔버스 셸(사이드바, 상단 바, 열린 화면 탭). 화면별 제목 줄과 본문은 각 화면이 그린다.
 export default function LsShell() {
   const { pathname } = useLocation();
-  const tab = tabName(pathname);
+  const tab = pathname.endsWith('/supplement') ? '보완 및 협력사 비교' : tabName(pathname);
   const user = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
   const [open, setOpen] = useState<Record<string, boolean>>({ [pathname.startsWith('/tft') ? 'rfp' : 'cs']: true });
   // 넓은 화면은 메뉴 접기, 800px 이하는 메뉴 열기다(ls-shell.css). 좁은 화면은 화면을 옮기면 닫는다.

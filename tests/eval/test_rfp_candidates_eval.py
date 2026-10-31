@@ -221,7 +221,7 @@ def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
         row["rfp_requirement_recall"] == 1.0 and row["rfp_partner_recommendation_precision"] == 1.0
     )
     assert row["rfp_integration_responsibility_rate"] == 1.0
-    # 측정 도구가 없는 두 키는 None(NOT_EVALUABLE)이다.
+    # 근거 정확성은 측정 도구가 없고, 초안 추적률은 초안을 넘겨야 잰다(NOT_EVALUABLE).
     assert row["rfp_evidence_accuracy"] is None and row["rfp_draft_trace_rate"] is None
     meta = data["meta"]
     # 개발 문서의 FIRST는 공식 점수가 아니다(공식은 평가 문서 첫 실행만).
@@ -480,3 +480,24 @@ def test_a_fake_provider_run_can_never_be_official(tmp_path, monkeypatch, capsys
     assert evaluation_run(tmp_path, monkeypatch, *first, str(tmp_path / "b.json")) == 0
     started, completed = [json.loads(line) for line in ledger.read_text().splitlines()]
     assert started["model"] == completed["model"] == "model-x"
+
+
+def test_summary_takes_the_processed_draft_for_the_trace_rate():
+    """초안을 넘기면 게이트 값이 채워지고, 실행한 문서의 초안이 빠지면 거절한다."""
+    run = run_document(tree(), GOLD.documents[0], provider, OWN, PROFILES, date(2026, 11, 1))
+    number = str(GOLD.documents[0].document_number)
+    draft = {
+        "references": [["requirement", "r1"]],
+        "sentences": [
+            {
+                "section": "OUR_RESPONSE",
+                "evidence": [{"type": "requirement", "id": "r1"}],
+                "unconfirmed": False,
+            }
+        ],
+    }
+    summary = summarize(GOLD, [run], "REMEASURE", {number: draft})
+    assert summary["gates"]["rfp_draft_trace_rate"] == 1.0
+    assert summary["draft_trace"]["denominator"] == 1
+    with pytest.raises(ValueError, match="EVAL_INVALID_INPUT"):
+        summarize(GOLD, [run], "REMEASURE", {})

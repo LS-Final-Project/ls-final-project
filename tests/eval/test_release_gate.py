@@ -369,10 +369,9 @@ def test_rfp_gates_file_matches_planning_table(tmp_path):
     assert tuple(g.metric_key for g in gates) == RFP_METRIC_KEYS
     data = json.loads(GATES_RFP_PATH.read_text(encoding="utf-8"))
     tools = {item["metric_key"]: item["definition"]["tool"]["status"] for item in data["gates"]}
-    # 측정 도구가 없는 키는 근거 정확성(KAN-189)·초안 근거 추적(KAN-188) 2개다. 협력사 정밀도는 KAN-191에서 채웠다.
+    # 측정 도구가 없는 키는 근거 정확성(KAN-189)뿐이다.
     assert {key for key, status in tools.items() if status != "IMPLEMENTED"} == {
         "rfp_evidence_accuracy",
-        "rfp_draft_trace_rate",
     }
     assert set(tools.values()) <= {"IMPLEMENTED", "PARTIAL", "MISSING"}
     for change in (

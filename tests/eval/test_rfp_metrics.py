@@ -8,6 +8,7 @@ from eval.rfp_metrics import (
     gate_values,
     gold_fingerprint,
     summarize_candidate_grades,
+    summarize_draft_trace,
     summarize_edit_traces,
     summarize_integration_responsibility,
     summarize_requirement_extraction,
@@ -511,3 +512,52 @@ def test_review_candidates_must_show_every_unconfirmed_item_of_the_gold():
     # 정답 REVIEW 후보에 미확인 목록이 없으면 정답이 덜 만들어진 것이라 받지 않는다.
     with pytest.raises(ValueError, match="EVAL_INVALID_INPUT"):
         summarize_candidate_grades(gold, predicted, {"B": {"P-A": []}}, predicted_items)  # type: ignore[arg-type]
+
+
+def sentence(section="OUR_RESPONSE", evidence=(), unconfirmed=False):
+    return {
+        "section": section,
+        "evidence": [{"type": kind, "id": ref} for kind, ref in evidence],
+        "unconfirmed": unconfirmed,
+    }
+
+
+def test_draft_trace_counts_found_evidence_or_an_assumption_mark():
+    """분모는 제안 절 문장이다. 근거는 프로젝트에 있어야 찾은 것이고, 가정 표시도 분자다."""
+    draft = {
+        "references": [["requirement", "r1"], ["product", "p1"], ["clause", "c1"]],
+        "sentences": [
+            sentence(evidence=[("requirement", "r1"), ("product", "p1")]),
+            sentence("DEVIATIONS", evidence=[("requirement", "ghost")]),
+            sentence("PARTNER_SUPPLEMENT", evidence=[("clause", "c1")]),
+            sentence("ASSUMPTIONS_EXCLUSIONS", unconfirmed=True),
+            # 제안 절이 아니라 분모에 들지 않는다.
+            sentence("CUSTOMER_GOAL_SCOPE"),
+            sentence("QUESTIONS_NEXT_ACTIONS", evidence=[("requirement", "ghost")]),
+        ],
+    }
+    summary = summarize_draft_trace({"D14": draft})
+    assert (summary["count"], summary["denominator"]) == (2, 4)
+    assert summary["rate"] == 0.5 and summary["assumption_only"] == 1
+    assert summary["unresolved_references"] == 1
+    assert summary["by_case"] == {"D14": {"count": 2, "denominator": 4}}
+    values = gate_values(None, None, None, summary)
+    assert values["rfp_draft_trace_rate"] == 0.5
+
+
+def test_one_document_without_a_draft_leaves_the_rate_unmeasured():
+    """문서 하나의 초안이 빠졌으면 나머지가 다 찾혀도 값이 없다(게이트 == 1.0 통과 방지)."""
+    full = {
+        "references": [["requirement", "r1"]],
+        "sentences": [sentence(evidence=[("requirement", "r1")])],
+    }
+    summary = summarize_draft_trace({"D1": full, "D2": {"references": [], "sentences": []}})
+    assert summary["rate"] is None and (summary["count"], summary["denominator"]) == (1, 1)
+    assert summary["by_case"]["D2"] == {"count": 0, "denominator": 0}
+
+
+def test_empty_draft_has_no_trace_rate():
+    """문장이 없으면 잰 것이 없다. 1.0으로 보고하지 않는다."""
+    summary = summarize_draft_trace({"D14": {"references": [], "sentences": []}})
+    assert summary["rate"] is None
+    assert gate_values(None, None, None, summary)["rfp_draft_trace_rate"] is None
