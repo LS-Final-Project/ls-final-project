@@ -45,8 +45,8 @@ def test_default_review_and_missing_mapping_are_held():
         input_adapter.prepare_cs_input(sample(), privacy_review_complete=True)
 
 
-def test_reviewed_synthetic_input_uses_v3_and_preserves_original():
-    """어댑터→실제 v3 함수 연결에서 정답 제외·마스킹·감사 분리를 확인한다."""
+def test_reviewed_synthetic_input_uses_default_v4_and_preserves_original():
+    """어댑터→실제 build_input 기본 경로(v4)에서 정답 제외·마스킹·감사 분리를 확인한다."""
     record = sample()
     sensitive = {"합성사용자": "PERSONAL", "AB 1234": "SERIAL"}
     before = copy.deepcopy((record, sensitive))
@@ -57,11 +57,28 @@ def test_reviewed_synthetic_input_uses_v3_and_preserves_original():
         "channel": "PHONE",
         "body_language": "ko",
         "subject": None,
-        "body": "\n[PERSONAL_PROVIDED] 장비 [SERIAL_PROVIDED] 과열",
+        "body": "Urgency: SAFETY\n[PERSONAL_PROVIDED] 장비 [SERIAL_PROVIDED] 과열",
     }
+    assert result.version == "cs-classification-input-v4"
+    assert result.removed_annotations == 0
+    assert (record, sensitive) == before
+
+
+def test_analysis_path_strips_phone_annotation_as_v3():
+    """분석용 인자를 켜면 PHONE 표기를 지우는 v3 경로로 간다."""
+    record = sample()
+    sensitive = {"합성사용자": "PERSONAL", "AB 1234": "SERIAL"}
+    result = input_adapter.prepare_cs_input(
+        record,
+        privacy_review_complete=True,
+        sensitive_values=sensitive,
+        strip_phone_annotation=True,
+    )
+    assert (
+        result.payload.model_dump()["body"] == "\n[PERSONAL_PROVIDED] 장비 [SERIAL_PROVIDED] 과열"
+    )
     assert result.version == "cs-classification-input-v3"
     assert result.removed_annotations == 1
-    assert (record, sensitive) == before
 
 
 @pytest.mark.parametrize(
@@ -69,8 +86,6 @@ def test_reviewed_synthetic_input_uses_v3_and_preserves_original():
     [
         ({"body": 3}, None, "CS_INVALID_INPUT"),
         ({}, "subject", "CS_INVALID_INPUT"),
-        ({"body": "Urgency: SAFETY"}, None, "CS_EMPTY_INPUT"),
-        ({"body": "Urgency: PRIVATE_VALUE"}, None, "CS_UNSUPPORTED_PHONE_ANNOTATION"),
     ],
 )
 def test_builder_failure_is_preserved_without_raw_fallback(change, missing, error):
@@ -83,6 +98,26 @@ def test_builder_failure_is_preserved_without_raw_fallback(change, missing, erro
         input_adapter.prepare_cs_input(record, privacy_review_complete=True, sensitive_values={})
     assert str(caught.value) == error
     assert record == before
+
+
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        ("Urgency: SAFETY", "CS_EMPTY_INPUT"),
+        ("Urgency: PRIVATE_VALUE", "CS_UNSUPPORTED_PHONE_ANNOTATION"),
+    ],
+)
+def test_analysis_path_failure_is_preserved(body, error):
+    """분석용 v3 경로의 정제 실패도 원문 없는 고정 오류로 그대로 전달한다."""
+    record = sample() | {"body": body}
+    with pytest.raises(ValueError) as caught:
+        input_adapter.prepare_cs_input(
+            record,
+            privacy_review_complete=True,
+            sensitive_values={},
+            strip_phone_annotation=True,
+        )
+    assert str(caught.value) == error
 
 
 @pytest.mark.parametrize("record,sensitive", [(None, {}), ({}, []), ({}, {"x": "BAD"})])

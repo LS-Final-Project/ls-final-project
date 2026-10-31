@@ -159,7 +159,9 @@ KAN-103의 완료에는 정상·빈 보조 유형·복합 의도·불명확한 �
 
 KAN-92의 `backend/engine/cs/input_adapter.py::prepare_cs_input()`은 정규화된 CS 입력의
 로컬 검수 경계다. 별도 검수 근거로 확인한 `privacy_review_complete=True`와 명시적인
-`sensitive_values` 매핑이 모두 있어야 아래 v3 함수에 전달한다. 레코드 안의 승인 표시나
+`sensitive_values` 매핑이 모두 있어야 아래 `build_input`에 전달한다. 기본은 제품 기본 경로(v4,
+PHONE 상담원 표기 유지)이고, 표기를 지우는 분석용 v3 경로는 `strip_phone_annotation=True`를
+줄 때만 쓴다. 레코드 안의 승인 표시나
 빈 매핑으로 검수 완료를 추론하지 않는다. 검수 미확인은 `CS_PRIVACY_REVIEW_REQUIRED`,
 매핑 미제공은 `CS_SENSITIVE_VALUES_REQUIRED`로 보류하며, 정제 오류는 원문 재전송 없이
 그대로 실패한다. 반환 payload와 감사 메타데이터는 분리된다.
