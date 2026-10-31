@@ -432,3 +432,47 @@ def test_audit_records_each_write_once_with_the_actor(client, admin, chain):
         "document.upload",
         new_sales,
     )
+
+
+def test_human_project_constraints_create_sparse_patch_clear_and_reject_empty_list(client):
+    created = call(
+        client,
+        "POST",
+        "/projects",
+        OWNER,
+        project_body(
+            supply_region="한국",
+            customer_manufacturer_list=["제조사 A"],
+            off_list_permission="FORBIDDEN",
+        ),
+    ).json()["data"]
+    assert (
+        created["supply_region"],
+        created["customer_manufacturer_list"],
+        created["off_list_permission"],
+    ) == ("한국", ["제조사 A"], "FORBIDDEN")
+    url = f"/projects/{created['id']}"
+    renamed = call(client, "PATCH", url, OWNER, {"version": 1, "name": "수정 이름"}).json()["data"]
+    assert (
+        renamed["supply_region"],
+        renamed["customer_manufacturer_list"],
+        renamed["off_list_permission"],
+    ) == ("한국", ["제조사 A"], "FORBIDDEN")
+    cleared = call(
+        client,
+        "PATCH",
+        url,
+        OWNER,
+        {"version": 2, "supply_region": None, "customer_manufacturer_list": None},
+    ).json()["data"]
+    assert (
+        cleared["supply_region"],
+        cleared["customer_manufacturer_list"],
+        cleared["off_list_permission"],
+    ) == (None, None, "FORBIDDEN")
+    assert (
+        call(
+            client, "POST", "/projects", OWNER, project_body(customer_manufacturer_list=[])
+        ).status_code
+        == 422
+    )

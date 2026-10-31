@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
@@ -9,6 +9,7 @@ import {
 import { ErrorState } from '../components/states';
 import { KvBox, KvField } from '../ls-shell/kv';
 import { DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL } from './labels';
+import { ConstraintFields, constraintsBody, emptyConstraints, validConstraints } from './ProjectConstraintsForm';
 import { settled, useAttemptKey } from './proposal-shared';
 
 const Wrap = ({ children }: { children: ReactNode }) => <div style={{ margin: '8px 14px 0' }}>{children}</div>;
@@ -24,23 +25,27 @@ function Select({ id, label, value, onChange, options }: { id: string; label: st
 export function ProjectForm({ onCancel }: { onCancel: () => void }) {
   const navigate = useNavigate();
   const client = useQueryClient();
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const [name, setName] = useState('');
   const [clientName, setClientName] = useState('');
   const [code, setCode] = useState('');
   const [goal, setGoal] = useState('');
   const [departments, setDepartments] = useState<string[]>([]);
   const [origin, setOrigin] = useState('synthetic');
+  const [constraints, setConstraints] = useState(emptyConstraints);
   const body = {
+    ...constraintsBody(constraints),
     name: name.trim(), company_code: code.trim(), client_name: clientName.trim() || null, customer_goal: goal.trim() || null,
     review_departments: departments, data_origin: origin as 'synthetic' | 'demo' | 'real', purpose: 'INITIAL_PROPOSAL' as const,
   };
   const [key, nextKey] = useAttemptKey(JSON.stringify(body));
   const create = useMutation({
     mutationFn: () => createProject(body, key),
-    onSuccess: result => { nextKey(); client.invalidateQueries({ queryKey: ['projects'] }); navigate(`/tft/projects/${result.data.id}`); },
+    onSuccess: result => { if (!active.current) return; nextKey(); client.invalidateQueries({ queryKey: ['projects'] }); navigate(`/tft/projects/${result.data.id}`); },
     onError: error => { if (settled(error)) nextKey(); },
   });
-  const ready = body.name !== '' && body.company_code !== '';
+  const ready = body.name !== '' && body.company_code !== '' && validConstraints(constraints);
   return <Wrap><KvBox title="프로젝트 접수" note="담당은 접수한 사람, 책임자는 관리자가 지정. 문서는 접수 뒤 문서 올리기로">
     <form onSubmit={event => { event.preventDefault(); if (ready) create.mutate(); }}>
       <div className="kv-field"><label htmlFor="project-name" className="req">프로젝트명</label><input id="project-name" type="text" value={name} onChange={event => setName(event.target.value)} /></div>
@@ -51,6 +56,7 @@ export function ProjectForm({ onCancel }: { onCancel: () => void }) {
       <div className="kv-field"><span>검토 부서</span><div className="ro" style={{ gap: 12, flexWrap: 'wrap' }}>
         {Object.entries(DEPARTMENT_LABEL).map(([department, name]) => <label key={department}><input type="checkbox" style={{ display: 'inline-block', width: 'auto', minHeight: 0, margin: '0 4px 0 0' }} checked={departments.includes(department)} onChange={event => setDepartments(event.target.checked ? [...departments, department] : departments.filter(d => d !== department))} />{name}</label>)}
       </div></div>
+      <ConstraintFields value={constraints} onChange={setConstraints} disabled={create.isPending} />
       <Select id="project-origin" label="자료 구분" value={origin} onChange={setOrigin} options={DATA_ORIGIN_LABEL} />
       <div className="kv-actions">
         <button type="button" className="kb" onClick={onCancel}>취소</button>

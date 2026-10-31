@@ -19,6 +19,7 @@ from psycopg.sql import SQL, Identifier
 
 from backend.api.tft.partners.loader import PROFILES, load_profiles
 from backend.api.tft.partners.schemas import PartnerProfile
+from tests.tft.test_rfp_project_constraints import CONSTRAINT_CASES
 
 MIGRATIONS = (
     "20261023_KAN-119_projects.sql",
@@ -35,6 +36,7 @@ MIGRATIONS = (
     "20261109_KAN-188_draft_execution.sql",
     "20261110_KAN-188_worker_output_status.sql",
     "20261111_KAN-188_draft_rewrite.sql",
+    "20261112_KAN-187_project_constraints.sql",
     "20261113_KAN-188_rewrite_summary.sql",
     "20261114_KAN-188_export_title.sql",
 )
@@ -714,3 +716,118 @@ def test_reapplied_command_constraints_match_runtime_operations(admin):
         )
         assert check is not None
         assert set(re.findall(r"'([^']+)'", check[1])) == OPERATIONS
+
+
+@pytest.mark.parametrize(
+    "reapplied",
+    [
+        "20261104_KAN-199_tft_worker.sql",
+        "20261109_KAN-188_draft_execution.sql",
+    ],
+    ids=["t14", "t17"],
+)
+def test_project_constraints_reapply_preserves_inputs_and_worker_only_reads(
+    admin, chain, reapplied
+):
+    migration = Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql")
+    project = chain["project"]
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply(conn, migration)
+        conn.execute(
+            "UPDATE tft.projects SET supply_region='한국',customer_manufacturer_list=ARRAY['제조사 A'],"
+            "off_list_permission='FORBIDDEN' WHERE id=%s",
+            (project,),
+        )
+        apply(conn, migration)
+        apply(conn, Path("infra/migrations/tft") / reapplied)
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE tft_worker")
+            assert conn.execute(
+                "SELECT supply_region,customer_manufacturer_list,off_list_permission "
+                "FROM tft.projects WHERE id=%s",
+                (project,),
+            ).fetchone() == ("한국", ["제조사 A"], "FORBIDDEN")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with conn.transaction():
+                conn.execute("SET LOCAL ROLE tft_worker")
+                conn.execute(
+                    "UPDATE tft.projects SET supply_region='다른 지역' WHERE id=%s", (project,)
+                )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE tft.projects SET customer_manufacturer_list=ARRAY[]::text[] WHERE id=%s",
+                (project,),
+            )
+
+
+def test_legacy_semantic_columns_remain_null_after_t20_reapplication(admin, chain):
+    with psycopg.connect(admin, autocommit=True) as conn:
+        apply(conn, Path("infra/migrations/tft/20261112_KAN-187_project_constraints.sql"))
+        assert conn.execute(
+            "SELECT kind,certification_listed,canonical_value FROM tft.requirement_versions "
+            "WHERE requirement_id=%s AND version=1",
+            (chain["requirement"],),
+        ).fetchone() == (None, None, None)
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE tft_worker")
+            assert conn.execute(
+                "SELECT kind,certification_listed,canonical_value FROM tft.requirement_versions "
+                "WHERE requirement_id=%s AND version=1",
+                (chain["requirement"],),
+            ).fetchone() == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    "reapplied",
+    [
+        "20261104_KAN-199_tft_worker.sql",
+        "20261109_KAN-188_draft_execution.sql",
+    ],
+    ids=["t14", "t17"],
+)
+def test_worker_grants_are_safe_before_t20_columns_exist_and_do_not_open_other_columns(
+    admin, reapplied
+):
+    # 전용 DB에서만 실행하고 모든 DDL/권한 변화를 rollback한다. T14의 바깥 BEGIN/COMMIT만 제거한다.
+    sql = (Path("infra/migrations/tft") / reapplied).read_text()
+    statement = "\n".join(
+        line
+        for line in sql.splitlines()
+        if not line.startswith("\\") and line.strip() not in ("BEGIN;", "COMMIT;")
+    )
+    with psycopg.connect(admin, autocommit=True) as conn, conn.transaction(force_rollback=True):
+        conn.execute(
+            "ALTER TABLE tft.projects DROP COLUMN supply_region, DROP COLUMN customer_manufacturer_list, DROP COLUMN off_list_permission"
+        )
+        conn.execute(statement)
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','id','SELECT')"
+        ).fetchone() == (True,)
+        assert conn.execute(
+            "SELECT has_column_privilege('tft_worker','tft.projects','name','SELECT')"
+        ).fetchone() == (False,)
+
+
+@pytest.mark.parametrize("fields,valid", CONSTRAINT_CASES)
+def test_project_constraint_checks_match_api_text_and_item_boundaries(admin, chain, fields, valid):
+    with psycopg.connect(admin, autocommit=True) as conn:
+
+        def update():
+            conn.execute(
+                "UPDATE tft.projects SET supply_region=%s,customer_manufacturer_list=%s::text[] WHERE id=%s",
+                (
+                    fields.get("supply_region"),
+                    fields.get("customer_manufacturer_list"),
+                    chain["project"],
+                ),
+            )
+
+        if valid:
+            with conn.transaction(force_rollback=True):
+                update()
+        else:
+            with (
+                pytest.raises(psycopg.errors.CheckViolation),
+                conn.transaction(force_rollback=True),
+            ):
+                update()

@@ -275,7 +275,7 @@ def test_sections_are_the_top_numbered_groups():
 
 
 def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, project, admin, profile):
-    """7단계를 순서대로 보고하고 조항·요구·비교·선택지·등급을 저장한다. 다시 돌리면 모델도 행도 그대로다."""
+    """새 작업의 재실행은 모델·원문판본을 재사용하고 저장 요구 등급만 새 판본으로 쌓는다."""
     extractor = FakeExtractor()
     summary, events = run(worker_dsn, project, extractor)
     # extract는 모델 호출마다(counts 없음)와 절(2.1·2.2)마다(누적 counts) 남는다(lease 연장).
@@ -336,7 +336,7 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     assert [e["step"] for e in events] == STEPS
     assert extractor.calls == 2
     assert again["counts"] == {"requirements": 0, "proposals": 0}
-    assert stored(admin, project) == first
+    assert stored(admin, project) == {**first, "grades": first["grades"] * 2}
 
 
 def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(

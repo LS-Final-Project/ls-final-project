@@ -185,6 +185,9 @@ async def create_project(
                             "company_code",
                             "purpose",
                             "customer_goal",
+                            "supply_region",
+                            "customer_manufacturer_list",
+                            "off_list_permission",
                             "review_departments",
                             "data_origin",
                         )
@@ -235,7 +238,15 @@ async def update_project(
         now = datetime.now(UTC)
         values = {
             k: fields[k]
-            for k in ("name", "client_name", "customer_goal", "review_departments")
+            for k in (
+                "name",
+                "client_name",
+                "customer_goal",
+                "review_departments",
+                "supply_region",
+                "customer_manufacturer_list",
+                "off_list_permission",
+            )
             if k in fields
         }
         values |= strategic_values(fields, principal.user_id, now)

@@ -414,6 +414,7 @@ describe('프로젝트 접수', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(posts('/tft/projects')).toHaveLength(1));
     expect(posts('/tft/projects')[0].body).toEqual({
+      supply_region: null, customer_manufacturer_list: null, off_list_permission: 'UNSTATED',
       name: '합성', company_code: 'HOST', client_name: null, customer_goal: null, review_departments: ['SCM'], data_origin: 'synthetic', purpose: 'INITIAL_PROPOSAL',
     });
     await screen.findByRole('table', { name: '문서와 판본' });

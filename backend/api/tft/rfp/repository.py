@@ -32,6 +32,35 @@ QUESTION_COLUMNS = (
 )
 
 
+# 현행 요구 × 현행 후보 프로필의 저장 판정만 선택한다. 과거 snapshot은 별도 불변 초안에 남는다.
+LATEST_GRADES = (
+    "SELECT DISTINCT ON (g.candidate_code,g.requirement_id) g.* FROM tft.partner_grades g "
+    "JOIN tft.requirements r ON r.id=g.requirement_id AND r.project_id=g.project_id "
+    "AND r.latest_version=g.requirement_version "
+    "WHERE g.project_id={project} "
+    "AND g.profile_version=(SELECT max(p.profile_version) FROM tft.partner_profiles p "
+    "WHERE p.candidate_code=g.candidate_code) "
+    "ORDER BY g.candidate_code,g.requirement_id,g.version DESC"
+)
+# 저장 선택은 지우지 않는다. 현행 요구/등급과 맞지 않는 선택은 읽을 때 재검토 대상으로 돌린다.
+INVALID_SELECTION = (
+    "EXISTS (SELECT 1 FROM tft.supplement_selections ss "
+    "JOIN tft.requirements sr ON sr.id=ss.requirement_id "
+    "WHERE ss.requirement_id={requirement} "
+    "AND ss.version=(SELECT max(sv.version) FROM tft.supplement_selections sv "
+    "WHERE sv.requirement_id=ss.requirement_id) "
+    "AND ss.path IN ('EXTERNAL_PRODUCT','TASK_SUBCONTRACT','JOINT_PROPOSAL') "
+    "AND EXISTS (SELECT 1 FROM unnest(ss.candidate_codes) AS picked(code) "
+    "WHERE EXISTS (SELECT 1 FROM tft.partner_grades history "
+    "WHERE history.project_id=sr.project_id AND history.requirement_id=ss.requirement_id "
+    "AND history.candidate_code=picked.code) AND (NOT EXISTS ("
+    f"SELECT 1 FROM ({LATEST_GRADES.format(project='sr.project_id')}) valid WHERE valid.requirement_id=ss.requirement_id "
+    "AND valid.candidate_code=picked.code AND valid.grade<>'EXCLUDED') OR EXISTS ("
+    f"SELECT 1 FROM ({LATEST_GRADES.format(project='sr.project_id')}) bad WHERE bad.project_id=sr.project_id "
+    "AND bad.candidate_code=picked.code AND bad.grade='EXCLUDED'))))"
+)
+
+
 # 요구를 다시 봐야 하는지. 해소 안 된 재검토 표시가 있거나, R&D 답변이 최신 보완 선택보다 뒤다.
 NEEDS_REREVIEW = (
     "EXISTS (SELECT 1 FROM tft.rereview_marks WHERE target_kind = 'requirement' "
@@ -40,7 +69,8 @@ NEEDS_REREVIEW = (
     "JOIN tft.customer_questions q ON q.id = r.question_id WHERE q.requirement_id = {requirement} "
     "AND q.target = 'INTERNAL' AND q.issue_type = 'RND_FEASIBILITY') "
     "> (SELECT max(decided_at) FROM tft.supplement_selections "
-    "WHERE requirement_id = {requirement}), false)"
+    "WHERE requirement_id = {requirement}), false) "
+    f"OR ({INVALID_SELECTION})"
 )
 
 
@@ -759,10 +789,20 @@ async def needs_rereview(conn: AsyncConnection[Row], requirement_id: UUID) -> bo
     """
     cursor = await conn.execute(
         f"SELECT {NEEDS_REREVIEW.format(requirement='%s')} AS needs",
-        (requirement_id, requirement_id, requirement_id),
+        (requirement_id,) * NEEDS_REREVIEW.count("{requirement}"),
     )
     row = await cursor.fetchone()
     return bool(row and row["needs"])
+
+
+async def invalid_selection(conn: AsyncConnection[Row], requirement_id: UUID) -> bool:
+    """공용 재검토식과 같은 최신 선택 유효성 검사. 저장행은 변경하지 않는다."""
+    cursor = await conn.execute(
+        f"SELECT {INVALID_SELECTION.format(requirement='%s')} AS invalid",
+        (requirement_id,),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["invalid"])
 
 
 async def latest_selection(conn: AsyncConnection[Row], requirement_id: UUID) -> Row | None:
@@ -1470,9 +1510,9 @@ async def insert_requirement(
         "necessity, designated_model, designated_manufacturer, designated_clause_id, "
         "designated_procurement, assembly_clause, tolerance, "
         "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
-        "next_owner_field, provenance_kind, data_origin, derivation_kind, known_at) "
+        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, known_at) "
         "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        "'ai_draft',%s,'DERIVED',now())",
+        "%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
         (
             requirement_id,
             document_version["id"],
@@ -1501,6 +1541,9 @@ async def insert_requirement(
             judgement["reason"],
             Jsonb(list(judgement["unresolved"])),
             judgement["next_owner"],
+            spec.get("kind"),
+            spec.get("certification_listed"),
+            spec.get("canonical_value"),
             origin,
         ),
     )
@@ -1622,6 +1665,46 @@ async def partner_profiles(conn: AsyncConnection[Row]) -> list[Row]:
     return await cursor.fetchall()
 
 
+async def project_constraints(conn: AsyncConnection[Row], project_id: UUID) -> Row:
+    """동일 처리 snapshot의 사람 입력3열. 모델 호출 전 장기 행잠금을 만들지 않는다."""
+    cursor = await conn.execute(
+        "SELECT supply_region,customer_manufacturer_list,off_list_permission FROM tft.projects WHERE id=%s",
+        (project_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return row
+
+
+async def stored_grading_requirements(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """페이지 제한 없이 현행 판본과 그 판본의 실제 저장 조건을 읽는다."""
+    cursor = await conn.execute(
+        "SELECT v.*, c.clause_no, d.title AS document_title, coalesce((SELECT jsonb_agg(jsonb_build_object("
+        "'name',rc.name,'value',rc.value,'unit',rc.unit) ORDER BY rc.ordinal) "
+        "FROM tft.requirement_conditions rc WHERE rc.requirement_id=v.requirement_id "
+        "AND rc.version=v.version),'[]'::jsonb) AS conditions "
+        "FROM tft.requirements r JOIN tft.requirement_versions v "
+        "ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "LEFT JOIN tft.clauses c ON c.id=v.clause_id "
+        "LEFT JOIN tft.document_versions dv ON dv.id=v.document_version_id "
+        "LEFT JOIN tft.documents d ON d.id=dv.document_id WHERE r.project_id=%s ORDER BY r.id",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def prior_grades_for_regrading(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
+    """과거 의미 미보존 행의 비상승 경계만 위한 마지막 판정. 공개 최신 조회에는 쓰지 않는다."""
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (candidate_code,requirement_id) * FROM tft.partner_grades "
+        "WHERE project_id=%s ORDER BY candidate_code,requirement_id,requirement_version DESC,"
+        "profile_version DESC,version DESC",
+        (project_id,),
+    )
+    return await cursor.fetchall()
+
+
 async def insert_grade(
     conn: AsyncConnection[Row],
     *,
@@ -1630,32 +1713,33 @@ async def insert_grade(
     profile_version: int,
     grade: Mapping[str, Any],
     data_origin: str,
+    requirement_version: int = 1,
 ) -> None:
-    """후보 × 요구 등급 한 행을 쓴다(요구 판본 1).
-
-    Args:
-        conn: 진행 중 트랜잭션.
-        project_id: 프로젝트 ID.
-        candidate_code: 후보 코드.
-        profile_version: 프로필 판본.
-        grade: grading.RequirementGrade 덤프.
-        data_origin: 요구의 자료 출처.
-    """
+    """현행 요구·프로필의 판정을 새 grade 판본으로 append한다. 호출자가 프로젝트 채점을 직렬화한다."""
     await conn.execute(
-        "INSERT INTO tft.partner_grades (id, project_id, candidate_code, profile_version, "
-        "requirement_id, requirement_version, grade, reasons, exclusion_reasons, mandatory_check, "
-        "data_origin, derivation_kind, known_at) VALUES (%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%s,'DERIVED',now())",
+        "INSERT INTO tft.partner_grades (id,project_id,candidate_code,profile_version,"
+        "requirement_id,requirement_version,grade,reasons,exclusion_reasons,mandatory_check,"
+        "version,data_origin,derivation_kind,known_at) "
+        "SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,coalesce(max(version),0)+1,%s,'DERIVED',now() "
+        "FROM tft.partner_grades WHERE project_id=%s AND candidate_code=%s AND profile_version=%s "
+        "AND requirement_id=%s AND requirement_version=%s",
         (
             uuid4(),
             project_id,
             candidate_code,
             profile_version,
             grade["requirement_id"],
+            requirement_version,
             grade["grade"],
             Jsonb(grade["reasons"]),
             Jsonb(grade["exclusion_reasons"]),
             Jsonb(grade["mandatory_check"]),
             data_origin,
+            project_id,
+            candidate_code,
+            profile_version,
+            grade["requirement_id"],
+            requirement_version,
         ),
     )
 
@@ -1945,8 +2029,9 @@ async def requirement_detail_parts(
         requirement_id,
     )
     partners = await rows(
-        "SELECT DISTINCT candidate_code FROM tft.partner_grades WHERE requirement_id = %s "
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='%s')}) g WHERE requirement_id = %s "
         "ORDER BY candidate_code",
+        requirement["project_id"],
         requirement_id,
     )
     sentences = await rows(
@@ -2023,11 +2108,9 @@ async def graded_candidates(conn: AsyncConnection[Row], requirement_id: UUID) ->
         list[str]: 후보 코드(코드 순).
     """
     cursor = await conn.execute(
-        "SELECT candidate_code FROM (SELECT DISTINCT ON (candidate_code) candidate_code, grade "
-        "FROM tft.partner_grades WHERE requirement_id = %s "
-        "ORDER BY candidate_code, profile_version DESC, requirement_version DESC, version DESC) g "
-        "WHERE grade <> 'EXCLUDED' ORDER BY candidate_code",
-        (requirement_id,),
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='(SELECT project_id FROM tft.requirements WHERE id=%s)')}) g WHERE requirement_id=%s "
+        "AND grade<>'EXCLUDED' ORDER BY candidate_code",
+        (requirement_id, requirement_id),
     )
     return [row["candidate_code"] for row in await cursor.fetchall()]
 
@@ -2046,11 +2129,9 @@ async def excluded_candidates(
         list[str]: 제외 후보 코드(코드 순).
     """
     cursor = await conn.execute(
-        "SELECT candidate_code FROM (SELECT DISTINCT ON (candidate_code) candidate_code, grade "
-        "FROM tft.partner_grades WHERE requirement_id = %s AND candidate_code = ANY(%s) "
-        "ORDER BY candidate_code, profile_version DESC, requirement_version DESC, version DESC) g "
-        "WHERE grade = 'EXCLUDED' ORDER BY candidate_code",
-        (requirement_id, list(codes)),
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='(SELECT project_id FROM tft.requirements WHERE id=%s)')}) g WHERE requirement_id=%s "
+        "AND candidate_code=ANY(%s) AND grade='EXCLUDED' ORDER BY candidate_code",
+        (requirement_id, requirement_id, list(codes)),
     )
     return [row["candidate_code"] for row in await cursor.fetchall()]
 
@@ -2066,10 +2147,7 @@ async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[R
         list[Row]: partner_grades 행(후보 코드·요구 순).
     """
     cursor = await conn.execute(
-        "SELECT DISTINCT ON (candidate_code, requirement_id) * FROM tft.partner_grades "
-        "WHERE project_id = %s "
-        "ORDER BY candidate_code, requirement_id, profile_version DESC, requirement_version DESC, "
-        "version DESC",
+        f"SELECT * FROM ({LATEST_GRADES.format(project='%s')}) g ORDER BY candidate_code,requirement_id",
         (project_id,),
     )
     return await cursor.fetchall()

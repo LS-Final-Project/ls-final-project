@@ -635,7 +635,11 @@ async def comparison_of(conn: AsyncConnection[Row], requirement: Mapping[str, An
 
 
 def partner_candidate(
-    row: Mapping[str, Any], grades: Sequence[Mapping[str, Any]], shown: Sequence[Mapping[str, Any]]
+    row: Mapping[str, Any],
+    grades: Sequence[Mapping[str, Any]],
+    shown: Sequence[Mapping[str, Any]],
+    *,
+    manufacturer_list: list[str] | None = None,
 ) -> s.PartnerCandidate:
     """프로필과 저장 등급 → 후보 응답. 후보 등급은 저장된 요구별 등급 전체로 계산한다.
 
@@ -658,7 +662,15 @@ def partner_candidate(
         spec_facts_attributes=sorted({fact.attribute for fact in profile.spec_facts}),
         certifications=[c.standard for c in profile.certifications],
         integrator_capable=profile.integrator_capable.model_dump(),
-        on_customer_manufacturer_list=None,
+        on_customer_manufacturer_list=grading._manufacturer(
+            profile,
+            grading.RfpContext(
+                manufacturer_list=manufacturer_list,
+                off_list_permission="UNSTATED",
+                supply_region=None,
+                requires_integrator=False,
+            ),
+        )[0],
         lead_time=profile.lead_time,
         warranty=profile.warranty,
         confirmation_status=profile.confirmation.status,
@@ -666,6 +678,10 @@ def partner_candidate(
         conditions_to_confirm=list(dict.fromkeys(unknown)),
         grades=[
             s.CandidateGrade(
+                requirement_version=g.get("requirement_version"),
+                profile_version=g.get("profile_version"),
+                version=g.get("version"),
+                known_at=g.get("known_at"),
                 requirement_id=g["requirement_id"],
                 grade=g["grade"],
                 reasons=g["reasons"],
@@ -692,7 +708,13 @@ async def list_partner_candidates(
         s.PartnerCandidateList: 후보 코드 순 후보.
     """
     async with connection(request.app.state.settings) as conn:
+        await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         await visible_project(conn, principal, project_id, *PROJECT_NOT_FOUND)
+        inputs = await repository.project_constraints(conn, project_id)
+        cursor = await conn.execute("SELECT version FROM tft.projects WHERE id=%s", (project_id,))
+        project_version = await cursor.fetchone()
+        if project_version is None:
+            raise ValueError("TFT_PROJECT_MISSING")
         rows = await repository.project_grades(conn, project_id)
         profiles = await repository.profiles_of(
             conn, [(r["candidate_code"], r["profile_version"]) for r in rows]
@@ -706,6 +728,11 @@ async def list_partner_candidates(
         if shown:
             latest = max(g["profile_version"] for g in grades)
             items.append(
-                partner_candidate(profiles[(grades[0]["candidate_code"], latest)], grades, shown)
+                partner_candidate(
+                    profiles[(grades[0]["candidate_code"], latest)],
+                    grades,
+                    shown,
+                    manufacturer_list=inputs["customer_manufacturer_list"],
+                )
             )
-    return s.PartnerCandidateList(items=items)
+    return s.PartnerCandidateList(items=items, input_project_version=project_version["version"])

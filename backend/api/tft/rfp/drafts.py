@@ -86,8 +86,13 @@ async def generate(
         selected = await repository.latest_selection(conn, req.requirement_id)
         # 회신·승인으로 막히거나 사라진 경로의 선택은 결정으로 쓰지 않는다. 처리를 실패시키지
         # 않고, 재검토 표시로 사람에게 돌아간다.
-        if selected and any(o.path == selected["path"] and o.allowed for o in option.options):
+        if (
+            selected
+            and not await repository.invalid_selection(conn, req.requirement_id)
+            and any(o.path == selected["path"] and o.allowed for o in option.options)
+        ):
             selections.append(selected_out(selected))
+    inputs = await repository.project_constraints(conn, project_id)
     grades = await repository.project_grades(conn, project_id)
     profiles = await repository.profiles_of(
         conn, [(g["candidate_code"], g["profile_version"]) for g in grades]
@@ -98,7 +103,11 @@ async def generate(
     partners = []
     for code, mine in groups.items():
         profile = profiles[(code, max(g["profile_version"] for g in mine))]
-        partners.append(partner_candidate(profile, mine, mine))
+        partners.append(
+            partner_candidate(
+                profile, mine, mine, manufacturer_list=inputs["customer_manufacturer_list"]
+            )
+        )
     integration = integration_body(await integration_state(conn, project_id))
     if integration is None:
         raise ValueError("TFT_INTEGRATION_SCHEMA_MISSING")

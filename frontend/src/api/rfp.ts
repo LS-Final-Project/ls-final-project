@@ -89,6 +89,14 @@ export const createProject = (body: ProjectCreate, key: string) => request<Envel
   '/api/v1/tft/projects', { ...json(key, body), mockFallback: mock({ id: '33333333-3333-4333-8333-333333333333' }) },
 );
 
+export type ProjectConstraints = Pick<Schemas['ProjectUpdate'], 'supply_region' | 'customer_manufacturer_list' | 'off_list_permission'>;
+export const updateProjectConstraints = (id: string, version: number, fields: ProjectConstraints) => {
+  const csrf = sessionCsrfToken();
+  return request<Envelope<RfpProject>>(`/api/v1/tft/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: csrf ? { 'X-CSRF-Token': csrf } : {}, body: JSON.stringify({ version, ...fields }),
+  });
+};
+
 export const UPLOAD_LIMIT = 25 * 1024 * 1024;
 export type UploadFields = { file: File; kind: string; title: string; note: string; data_origin: string; supersedes_document_id?: string };
 

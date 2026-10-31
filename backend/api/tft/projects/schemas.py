@@ -16,6 +16,7 @@ from backend.api.tft.rfp.schemas import (
     IntegrationSummary,
     JobRef,
     JudgementStatus,
+    OffListPermission,
     OutputStatus,
     PendingByOrigin,
     Purpose,
@@ -31,6 +32,9 @@ ProjectStatus = Literal["INITIAL_REVIEW", "STAFFING", "COMPOSING", "CONFIRMED"]
 
 
 class ProjectSummary(BaseModel):
+    supply_region: str | None = None
+    customer_manufacturer_list: list[str] | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     id: UUID
     external_id: str | None
     name: str
@@ -79,6 +83,9 @@ class RfpRequirement(BaseModel):
 
 
 class ProjectDetail(BaseModel):
+    supply_region: str | None = None
+    customer_manufacturer_list: list[str] | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     id: UUID
     external_id: str | None
     version: int

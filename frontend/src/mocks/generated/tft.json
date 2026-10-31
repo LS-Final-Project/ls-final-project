@@ -7,6 +7,9 @@
       "data": {
         "items": [
           {
+            "supply_region": null,
+            "customer_manufacturer_list": null,
+            "off_list_permission": "UNSTATED",
             "id": "33333333-3333-4333-8333-333333333334",
             "external_id": null,
             "name": "합성 RFP: GIS 단말 키트 공급·설치 (예시)",
@@ -32,6 +35,9 @@
             }
           },
           {
+            "supply_region": null,
+            "customer_manufacturer_list": null,
+            "off_list_permission": "UNSTATED",
             "id": "33333333-3333-4333-8333-333333333333",
             "external_id": null,
             "name": "합성 RFP: 해저케이블 공급·설치 (예시)",
@@ -70,6 +76,9 @@
     "status": 200,
     "body": {
       "data": {
+        "supply_region": null,
+        "customer_manufacturer_list": null,
+        "off_list_permission": "UNSTATED",
         "id": "33333333-3333-4333-8333-333333333333",
         "external_id": null,
         "version": 1,

@@ -9,8 +9,9 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDate } from '../components/tft';
 import { downloadCsv, KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvNext, KvRibbon, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { latestVersions, ProcessForm, ProjectForm, UploadForm } from './IntakeForms';
+import ProjectConstraintsForm from './ProjectConstraintsForm';
 import { useNames } from './names';
-import { attributeName, DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, ISSUE_LABEL, JUDGEMENT_LABEL, label, NECESSITY_LABEL, ORIGIN_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
+import { attributeName, DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, ISSUE_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, NECESSITY_LABEL, ORIGIN_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
 
 const POLL_MS = 30_000;
 const ACTIVE = new Set(['QUEUED', 'RUNNING']);
@@ -110,7 +111,7 @@ export default function RfpIntake() {
         <button className="kb" disabled={projects.isFetching || !next} onClick={() => { if (next) { setCursors([...cursors, next]); setChecked(new Set()); } }}>다음</button>
       </>}
     />}
-    {creating && <ProjectForm onCancel={() => setCreating(false)} />}
+    {creating && <ProjectForm key={access.user.data?.data.id ?? "unverified"} onCancel={() => setCreating(false)} />}
   </>;
   const common = <>
     <button className="kb primary" disabled={projects.isFetching || shortSearch} onClick={() => { if (search !== (filters.q ?? '')) filter({ q: search || undefined }); else projects.refetch(); }}>조회<KvKey>F8</KvKey></button>
@@ -119,15 +120,15 @@ export default function RfpIntake() {
   const excel = <button className="kb" disabled={items.length === 0} title={checked.size ? `고른 ${checked.size}건` : '표시한 행 전체'} onClick={() => downloadCsv('프로젝트 목록', PROJECT_HEAD, items.filter(p => !checked.size || checked.has(p.id)).map(projectRow))}>엑셀</button>;
   if (!selected) return <main><KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{common}{excel}</KvTitle>{list}</main>;
   // 프로젝트를 옮기면 작업·알림 상태를 새로 시작한다(같은 경로 요소라 그대로 두면 앞 프로젝트 상태가 남는다).
-  return <Intake key={selected} projectId={selected} list={list} before={common} after={excel} />;
+  return <Intake key={`${access.user.data?.data.id ?? "unverified"}:${selected}`} actorId={access.user.data?.data.id} projectId={selected} list={list} before={common} after={excel} />;
 }
 
 // 고른 프로젝트 부분. 진행 칸(output_status)은 산출물 단계이지 작업 상태가 아니다.
 // 작업이 도는지는 작업 ID로만 판단한다. 진행 칸으로 막으면 끝난 프로젝트가 영영 잠긴다.
-function Intake({ projectId, list, before, after }: { projectId: string; list: ReactNode; before: ReactNode; after: ReactNode }) {
+function Intake({ projectId, actorId, list, before, after }: { projectId: string; actorId?: string; list: ReactNode; before: ReactNode; after: ReactNode }) {
   const mode = getApiMode();
   const client = useQueryClient();
-  const [panel, setPanel] = useState<'upload' | 'process'>();
+  const [panel, setPanel] = useState<'upload' | 'process' | 'constraints'>();
   // 방금 실행한 작업. 프로젝트 응답이 latest_job을 돌려주기 전까지 이 ID로 본다.
   const [started, setStarted] = useState<string>();
   const [finished, setFinished] = useState<string>();
@@ -168,12 +169,19 @@ function Intake({ projectId, list, before, after }: { projectId: string; list: R
     setStarted(undefined);
     setFinished(jobStatus);
     for (const key of ['projects', 'rfp-documents', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
-  }, [jobId, jobStatus, client, mode]);
+    client.invalidateQueries({ queryKey: ['rfp-supplement', mode] });
+    client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, projectId] });
+    if (actorId) {
+      client.invalidateQueries({ queryKey: ['rfp-draft', actorId, projectId] });
+      client.invalidateQueries({ queryKey: ['rfp-draft-project', actorId, projectId] });
+    }
+  }, [jobId, jobStatus, client, mode, projectId, actorId]);
   const title = (buttons?: ReactNode) => <KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{before}{buttons}{after}</KvTitle>;
   if (project.isPending) return <main>{title()}{list}<Loading /></main>;
   if (project.isError) return <main>{title()}{list}<ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;
   const data = project.data.data;
   const analyzing = running;
+  const canEdit = actorId !== undefined && [data.sales_user_id, data.responsible_user_id].includes(actorId);
   const counts = data.requirement_counts;
   const questions = open.data?.data.items ?? [];
   const unresolved = mandatory.data?.data.items ?? [];
@@ -230,6 +238,7 @@ function Intake({ projectId, list, before, after }: { projectId: string; list: R
   ];
   return <main>
     {title(<>
+      {canEdit && <button className="kb" disabled={analyzing} onClick={() => setPanel("constraints")}>협력사 입력 수정</button>}
       <button className="kb" disabled={analyzing} title={analyzing ? '작업이 끝나야 합니다' : undefined} onClick={() => setPanel('upload')}>문서 올리기</button>
       <button className="kb" disabled={analyzing || docs.length === 0} title={analyzing ? '작업이 끝나야 합니다' : docs.length === 0 ? '문서를 먼저 올리세요' : undefined} onClick={() => setPanel('process')}>처리 실행</button>
       {original
@@ -238,6 +247,7 @@ function Intake({ projectId, list, before, after }: { projectId: string; list: R
     </>)}
     <KvNext>{next}</KvNext>
     {list}
+    {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}
     {panel === 'upload' && <UploadForm projectId={projectId} documents={docs} onCancel={() => setPanel(undefined)} onDone={() => {
       setPanel(undefined);
       client.invalidateQueries({ queryKey: ['rfp-documents', mode] });
@@ -250,6 +260,9 @@ function Intake({ projectId, list, before, after }: { projectId: string; list: R
       ['프로젝트명', data.name],
       ['고객', data.client_name ?? '미기재'],
       ['제출 목적', label(PURPOSE_LABEL, data.purpose)],
+      ['공급 지역(최신 입력)', data.supply_region ?? '미제공'],
+      ['고객 제조사 목록(최신 입력)', data.customer_manufacturer_list?.join(', ') || '미제공'],
+      ['목록 밖 제조사 허용(최신 입력)', label(OFF_LIST_PERMISSION_LABEL, data.off_list_permission ?? 'UNSTATED')],
       ['진행', label(OUTPUT_LABEL, data.output_status)],
       ['판단', label(JUDGEMENT_LABEL, data.judgement_status)],
       ['담당', nameOf(data.sales_user_id) || (data.sales_user_id ? '지정' : '미지정')],
@@ -259,6 +272,7 @@ function Intake({ projectId, list, before, after }: { projectId: string; list: R
       ['검토본', data.review_version ? `v${data.review_version}` : '없음'],
       ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
     ]} />
+    <p>협력사 검토 입력을 바꿨다면 처리 재실행이 필요합니다. 현재 입력과 저장된 등급의 판정 시점은 다를 수 있습니다.</p>
     <KvSplit columns="1.25fr 1fr">
       <div>
         <p className="kv-label">문서와 판본 {docs.length}건, 이전 판본은 흐리게</p>

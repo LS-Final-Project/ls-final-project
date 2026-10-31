@@ -12,6 +12,16 @@ REVOKE SELECT ON tft.projects FROM tft_worker;
 GRANT SELECT (id,responsible_user_id,sales_user_id,review_departments,data_origin,
     integration_holder,integration_holder_candidates,integration_note,integration_set_by,integration_set_at)
     ON tft.projects TO tft_worker;
+-- KAN-187 T20 뒤 재적용해도 사람 입력3열의 최소 SELECT를 보존한다. T20 전 설치는 건너뛴다.
+DO $$
+BEGIN
+    IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema='tft' AND table_name='projects'
+        AND column_name IN ('supply_region','customer_manufacturer_list','off_list_permission')) = 3 THEN
+        EXECUTE 'GRANT SELECT(supply_region,customer_manufacturer_list,off_list_permission)
+            ON tft.projects TO tft_worker';
+    END IF;
+END $$;
 GRANT SELECT ON tft.requirements, tft.requirement_conditions,
     tft.clause_deleted_values, tft.product_comparisons, tft.comparison_evidence,
     tft.supplement_options, tft.supplement_selections, tft.partner_grades,

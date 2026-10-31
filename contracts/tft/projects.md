@@ -25,3 +25,5 @@
 - 합성 예시는 `data_origin=synthetic`인 해저케이블 RFP 프로젝트와 요구사항 두 건, 요구사항 없는 프로젝트 하나다. 사용자 ID는 로컬 시연 계정이다.
 
 수정 후 `python3 scripts/workspace.py contracts tft`를 실행한다.
+
+KAN-187: 프로젝트 생성·수정·조회는 사람 입력 `supply_region`(nullable text), `customer_manufacturer_list`(nullable text[]), `off_list_permission`(ALLOWED/FORBIDDEN/UNSTATED, 생략 기본 UNSTATED)를 지원한다. 빈 목록·빈 항목은 거부하고 null은 미제공이다. 기존 생성 요청은 새 필드를 생략해도 호환된다. 수정에서 생략한 칸은 보존하며 지역·목록의 null은 지움이다. 입력 수정은 담당 영업·책임자의 기존 PATCH/버전 충돌 규칙을 따른다. 화면은 최신 입력을 표시하고 변경 후 재처리가 필요함을 알린다. 코드값을 서버에 보내며 한글 라벨을 값으로 보내지 않는다. 판정 시점과 최신 입력 시점의 구분·선택 보존 정책은 [RFP 데이터 계약](rfp-data.md)을 따른다.

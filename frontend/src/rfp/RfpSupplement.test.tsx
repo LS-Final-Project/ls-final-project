@@ -424,3 +424,17 @@ test.each(['error', 'version'])('유효 폼 재조회가 %s이면 상단 저장�
   expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
   expect(top.disabled).toBe(true);
 });
+
+test('최신 입력 기준 목록 포함 여부와 저장 등급 판본·판정시각을 분리해 표시한다', async () => {
+  live(url => url.includes('/partner-candidates?') ? response({
+    input_project_version: 7, manufacturer_list_basis: 'CURRENT_PROJECT_INPUT',
+    items: candidates().map(c => ({ ...c, on_customer_manufacturer_list: true, grades: c.grades.map(g => ({
+      ...g, requirement_version: 1, profile_version: 2, version: 3, known_at: '2026-10-30T00:00:00Z',
+    })) })),
+  }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  await screen.findByText(/고객 목록 포함 여부는 최신 프로젝트 입력 v7 기준/);
+  expect(await screen.findByText(/저장 판정: 요구 v1 · 프로필 v2 · 등급 v3/)).toBeTruthy();
+  expect(screen.getByRole('columnheader', { name: '고객 목록(최신 입력)' })).toBeTruthy();
+});
