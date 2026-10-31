@@ -193,10 +193,12 @@ describe('자사 대응표', () => {
     await waitFor(() => expect(calls.some(c => c.url.includes('next_owner_field=TECH'))).toBe(true));
   });
 
-  it('요구 번호 순임을 머리글에 알리고 기본 정렬은 서버 순서 그대로다', async () => {
+  it('상태 순임을 머리글과 안내에 알리고 순서는 서버가 정한다', async () => {
     renderApp(PATH);
     const table = await screen.findByRole('table', { name: '자사 대응표' });
-    expect(within(table).getByRole('columnheader', { name: '요구' }).getAttribute('aria-sort')).toBe('ascending');
+    expect(within(table).getByRole('columnheader', { name: '상태' }).getAttribute('aria-sort')).toBe('ascending');
+    expect(within(table).getByRole('columnheader', { name: '요구' }).getAttribute('aria-sort')).toBeNull();
+    expect(screen.getByText(/상태 순\(사양 차이, 조건부 검토, 근거 있음, 근거 부족\), 같은 상태는 조항 순/)).toBeTruthy();
     await waitFor(() => expect(calls.some(c => c.url.includes('/requirements?'))).toBe(true));
     expect(calls.filter(c => c.url.includes('/requirements?')).every(c => !c.url.includes('sort'))).toBe(true);
   });

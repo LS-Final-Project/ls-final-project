@@ -283,6 +283,23 @@ async def download_document(request: Request, principal: Principal, document_id:
     )
 
 
+def requirement_cursor(value: str | None) -> tuple[int, str] | None:
+    """요구 목록 커서 값(상태 순위|code)을 읽는다.
+
+    Args:
+        value: decode_cursor 결과(없으면 None).
+
+    Returns:
+        tuple[int, str] | None: (상태 순위, code). 형식이 틀리면 400 TFT_INVALID_CURSOR다.
+    """
+    if value is None:
+        return None
+    rank, separator, code = value.partition("|")
+    if not separator or not rank.isdecimal() or not code:
+        raise ApplicationError(400, "TFT_INVALID_CURSOR", "The page cursor is invalid.")
+    return int(rank), code
+
+
 async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.RequirementSummary:
     """요구 행 → 목록 칸. 요구 응답에 칸을 더할 때는 이 함수와 detail_of만 고친다.
 
@@ -337,9 +354,10 @@ async def list_requirements(
         cursor: 쪽 커서.
 
     Returns:
-        s.RequirementList: 코드 순 요구와 다음 커서.
+        s.RequirementList: 상태·조항 순 요구와 다음 커서. 커서에 상태 순위를 함께 담아, 쪽을 넘기는
+            사이 상태가 바뀌어도 위치가 밀리지 않는다.
     """
-    after = decode_cursor(cursor, str)
+    after = requirement_cursor(decode_cursor(cursor, str))
     async with connection(request.app.state.settings) as conn:
         await visible_project(conn, principal, project_id, *PROJECT_NOT_FOUND)
         rows = await repository.list_requirements(
@@ -349,7 +367,10 @@ async def list_requirements(
         items = [await summary_of(conn, row) for row in page]
     more = len(rows) > limit
     return s.RequirementList(
-        items=items, next_cursor=encode_cursor(page[-1]["code"]) if more else None
+        items=items,
+        next_cursor=encode_cursor(f"{page[-1]['status_rank']}|{page[-1]['code']}")
+        if more
+        else None,
     )
 
 

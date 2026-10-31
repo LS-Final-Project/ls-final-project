@@ -164,13 +164,13 @@ export default function RfpTable() {
       }}
     /> },
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_r, index) => index + 1 },
-    { key: 'code', header: '요구', width: 104, sort: 'ascending', cell: r => <button className="lnk" aria-pressed={r.requirement_id === selected}>{requirementNo(r.code)}</button> },
+    { key: 'code', header: '요구', width: 104, cell: r => <button className="lnk" aria-pressed={r.requirement_id === selected}>{requirementNo(r.code)}</button> },
     { key: 'equipment', header: '장비', cell: r => r.equipment ?? '' },
     { key: 'task', header: '작업', width: 96, cell: r => r.task ?? '' },
     { key: 'attribute', header: '속성', cell: r => attributeName(r.attribute_key, r.attribute) },
     { key: 'value', header: '요구값', cell: r => r.value_text ?? '값 없음' },
     { key: 'necessity', header: '성격', width: 68, className: 'c', cell: r => label(NECESSITY_LABEL, r.necessity) },
-    { key: 'status', header: '상태', width: 84, className: 'c', cell: r => label(STATUS_LABEL, r.status) },
+    { key: 'status', header: '상태', width: 84, className: 'c', sort: 'ascending', cell: r => label(STATUS_LABEL, r.status) },
     { key: 'path', header: '보완 경로', width: 100, cell: r => r.path === 'NONE' ? '' : label(PATH_LABEL, r.path) },
     { key: 'questions', header: '질문', width: 44, className: 'c', cell: r => r.open_questions || '' },
     { key: 'rereview', header: '재검토', width: 56, className: 'c', cell: r => r.needs_rereview ? '재검토' : '' },
@@ -229,7 +229,7 @@ export default function RfpTable() {
       </KvCondRow>
       <button type="submit" hidden>검색</button>
     </KvCond>
-    <div className="kv-gridhead"><span>{unfiltered && detail ? `요구 ${detail.requirements_count}건 중 ${items.length}건 표시` : `요구 ${items.length}건 표시`}, 조항 순. 행을 누르면 아래에 자사 비교와 판단</span></div>
+    <div className="kv-gridhead"><span>{unfiltered && detail ? `요구 ${detail.requirements_count}건 중 ${items.length}건 표시` : `요구 ${items.length}건 표시`}, 상태 순(사양 차이, 조건부 검토, 근거 있음, 근거 부족), 같은 상태는 조항 순. 행을 누르면 아래에 자사 비교와 판단</span></div>
     {requirements.isError
       ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} />
       : <>
