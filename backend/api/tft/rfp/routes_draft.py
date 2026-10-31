@@ -57,6 +57,7 @@ async def edit_draft(
             current, payload, await drafts.valid_references(conn, project_id)
         )
         await db.save(conn, result, actor=principal.user_id, reasons=reasons)
+        await repository.clear_sentence_rereview(conn, project_id, list(reasons), principal.user_id)
         await commands.audit(
             conn,
             project_id=project_id,

@@ -189,7 +189,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <KvBox title="검토본 저장 조건">
       <KvField label="근거 없는 문장">{data ? `${data.evidence_missing_count}문장` : '조회 전'}</KvField>
       <KvField label="재검토 문장">{needsReview === undefined ? '조회 전' : `${needsReview}문장`}</KvField>
-      <p>필수 요구의 근거 또는 다음 행동과 통합 책임은 저장 시 서버에서 확인합니다. 문장 수정만으로 재검토 표시가 자동 해제되지 않습니다.</p>
+      <p>필수 요구의 근거 또는 다음 행동과 통합 책임은 저장 시 서버에서 확인합니다. 고쳐 저장한 문장만 재검토가 풀립니다. 요구에 재검토가 남아 있으면 그 문장은 남습니다.</p>
     </KvBox>
     <KvBox title="검토본 저장" note="이 화면에서 저장해 받은 결과만 표시합니다. 이력 목록은 제공되지 않습니다.">
       <label>검토 메모<textarea maxLength={1000} value={note} disabled={busy || !!command} onChange={event => setNote(event.target.value)} /></label>

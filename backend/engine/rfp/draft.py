@@ -252,7 +252,8 @@ def build_draft(
     for comparison_row in comparisons:
         if comparison_row.requirement_id not in reqs:
             raise ValueError("RFP_DRAFT_UNKNOWN_REFERENCE")
-        if comparison_row.requirement_version != reqs[comparison_row.requirement_id].version:
+        # 승인은 판단 칸만 새 판본으로 만들고 비교는 이전 판본 것을 그대로 쓴다. 앞선 판본만 어긋남이다.
+        if comparison_row.requirement_version > reqs[comparison_row.requirement_id].version:
             raise ValueError("RFP_DRAFT_VERSION_MISMATCH")
         codes = [c.product_code for c in comparison_row.candidates]
         if len(set(codes)) != len(codes) or any(not code.strip() for code in codes):

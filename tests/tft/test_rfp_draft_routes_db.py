@@ -554,3 +554,66 @@ def test_edit_does_not_persist_live_review_flags(client, app_dsn, chain, admin, 
     assert displayed[str(tracked.sentence_id)]["unconfirmed"] is False
     assert asyncio.run(frozen(2)) == original
     assert asyncio.run(frozen(3)) == snapshot3
+
+
+def test_editing_a_flagged_sentence_clears_only_that_sentence(client, app_dsn, chain, admin):
+    """제안 승인이 남긴 표시는 고쳐 저장한 문장만 풀린다(명세 결정 10). 안 풀리면 검토본을 못 저장한다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='EVIDENCE_FOUND',unresolved='[]',"
+            "next_owner_field=NULL WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    generate(app_dsn, chain, uuid4())
+    goal = first_sentence(call(client, "GET", chain).json()["data"])
+    added = {
+        "version": 1,
+        "edits": [
+            {
+                "sentence_id": None,
+                "section": "QUESTIONS_NEXT_ACTIONS",
+                "text": "별도 검토 행동",
+                "reason": "검토 추가",
+                "evidence": goal["evidence"],
+            }
+        ],
+    }
+    assert call(client, "PATCH", chain, body=added).status_code == 200
+    rows = [
+        row
+        for part in call(client, "GET", chain).json()["data"]["sections"]
+        for row in part["sentences"]
+    ]
+    proposal = uuid4()
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.change_proposals (id,project_id,requirement_id,base_requirement_version,origin,current,proposed,rationale,proposer_kind,proposer_user_id,data_origin,derivation_kind,known_at) "
+            "VALUES (%s,%s,%s,1,'web','{}','{}','후속 검토','user',%s,'synthetic','PROVIDED',now())",
+            (proposal, chain["project"], chain["requirement"], SALES),
+        )
+        for row in rows[:2]:
+            conn.execute(
+                "INSERT INTO tft.rereview_marks (id,project_id,target_kind,target_id,cause_proposal_id) "
+                "VALUES (%s,%s,'draft_sentence',%s,%s)",
+                (uuid4(), chain["project"], row["sentence_id"], proposal),
+            )
+    body = {
+        "version": 2,
+        "edits": [
+            {
+                "sentence_id": rows[0]["sentence_id"],
+                "text": "사람이 다시 확인한 문구",
+                "reason": "승인 뒤 재확인",
+                "evidence": rows[0]["evidence"],
+            }
+        ],
+    }
+    edited = call(client, "PATCH", chain, body=body)
+    assert edited.status_code == 200, edited.text
+    shown = {
+        row["sentence_id"]: row["needs_rereview"]
+        for part in edited.json()["data"]["sections"]
+        for row in part["sentences"]
+    }
+    assert shown[rows[0]["sentence_id"]] is False
+    assert shown[rows[1]["sentence_id"]] is True
