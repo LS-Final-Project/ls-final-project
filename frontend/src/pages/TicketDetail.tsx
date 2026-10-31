@@ -5,7 +5,7 @@ import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
-import { getTicket } from '../api/cs';
+import { getTicket, getTicketAnalysis } from '../api/cs';
 import { closeTicket, getTicketWorkflow, isVersionConflict, recallTransfer, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
@@ -38,6 +38,9 @@ export default function TicketDetail() {
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
   const ticket = useQuery({ queryKey: ['tickets', mode, ticketId], queryFn: ({ signal }) => getTicket(ticketId, signal), enabled: access.ready && ticketId !== '' });
+  // 기한을 읽는 사람이 등급이 추정임을 알아야 한다. 안내일 뿐이라 분석을 못 읽어도 화면은 그대로다.
+  const analysis = useQuery({ queryKey: ['ticket-analysis', mode, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
+  const tierNote = analysis.data?.data?.rules?.tier_note;
   // 상태 표시는 문의 상세의 값을 쓴다. 업무 흐름 조회는 판본(version), 담당, 검토 요청 이력만 읽는다.
   const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
   // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
@@ -134,6 +137,8 @@ export default function TicketDetail() {
     </div>
     <div className="kv-sub" style={{ margin: '4px 14px 0' }}>API 조회 상태와 상태별 일반 안내입니다. 실행 권한이나 후속 작업의 완료를 보장하지 않습니다. 요약, 분류, 문안은 아직 없음, KAN-103과 106 뒤</div>
     {notice && <div className={notice.kind === 'error' ? 'kv-err' : 'kv-next'} role={notice.kind === 'error' ? 'alert' : 'status'} style={{ margin: '6px 14px 0', padding: '6px 10px' }}>{notice.text}</div>}
+
+    {tierNote && <div className="kv-sub" role="note" style={{ margin: '4px 14px 0' }}>{tierNote}</div>}
 
     {ticket.isPending && <Loading />}
     {ticket.isError && <ErrorState error={ticket.error} onRetry={() => void ticket.refetch()} />}

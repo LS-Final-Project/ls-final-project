@@ -119,6 +119,10 @@ class Rules(BaseModel):
         "follow these; deadlines are below."
     )
     effective_error: str | None
+    tier_note: str | None = Field(
+        default=None,
+        description="Set when the customer tier is unknown and the standard tier was used.",
+    )
     first_response_due: DeadlineView
     resolution_due: DeadlineView
 
