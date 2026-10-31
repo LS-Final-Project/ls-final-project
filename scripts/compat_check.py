@@ -37,20 +37,43 @@ WORKFLOW = ROOT / ".github/workflows/application-checks.yml"
 DB_NAME = "kan77_auth_test"
 NAME = r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*"
 CREATE = re.compile(rf"create\s+(?:table|view)\s+(?:if\s+not\s+exists\s+)?({NAME})", re.I)
+FUNCTION = re.compile(rf"create\s+(?:or\s+replace\s+)?function\s+({NAME})", re.I)
 ALTER = re.compile(rf"alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?({NAME})(.*)", re.I | re.S)
 REVOKE = re.compile(r"revoke\s+.+?\s+on\s+(.+?)\s+from\s+(.+)$", re.I | re.S)
 ROLE = re.compile(r"[a-z_][a-z0-9_]*")
 CREATE_ROLE = re.compile(r"create\s+role\s+([a-z_][a-z0-9_]*)", re.I)
 BOOTSTRAP = "infra/sql"
 ALL_IN_SCHEMA = re.compile(r"all\s+tables\s+in\s+schema\s+([a-z_][a-z0-9_]*)", re.I)
+# 표가 아닌 대상(스키마·함수·시퀀스)의 권한 회수. 이전 앱 역할에서 회수하면 대상과 상관없이 확인한다.
+NON_TABLE_TARGET = re.compile(
+    r"^\s*(?:schema|function|procedure|routine|sequence|all\s+(?:sequences|functions|routines)\s+in)\b",
+    re.I,
+)
 # 이전 표에 걸면 이전 코드가 깨지는 변경. 새 표에는 무엇을 해도 이전 코드와 상관없다.
 BREAKING = (
     (re.compile(r"\bdrop\s+column\b", re.I), "DROP COLUMN"),
     (re.compile(r"\brename\b", re.I), "RENAME"),
     (re.compile(r"\balter\s+column\s+\w+\s+(?:set\s+data\s+)?type\b", re.I), "ALTER COLUMN TYPE"),
     (re.compile(r"\balter\s+column\s+\w+\s+set\s+not\s+null\b", re.I), "SET NOT NULL"),
+    (re.compile(r"\balter\s+column\s+\w+\s+drop\s+default\b", re.I), "DROP DEFAULT"),
+    (re.compile(r"\bset\s+schema\b", re.I), "SET SCHEMA"),
 )
-ADD_COLUMN = re.compile(r"\badd\s+column\b", re.I)
+# 이전 표에 걸면 이전 코드의 쓰기가 거절될 수 있는 변경. 넓히는지 좁히는지는 실행 검사로 본다.
+REVIEWED = (
+    (re.compile(r"\bdrop\s+constraint\b", re.I), "DROP CONSTRAINT"),
+    (
+        re.compile(
+            r"\badd\s+(?:constraint\b|primary\s+key|unique\b|foreign\s+key|check\b|exclude\b)", re.I
+        ),
+        "ADD CONSTRAINT",
+    ),
+    (re.compile(r"\bvalidate\s+constraint\b", re.I), "VALIDATE CONSTRAINT"),
+    (re.compile(r"\b(?:enable|force)\s+row\s+level\s+security\b", re.I), "ROW LEVEL SECURITY"),
+)
+# ADD [COLUMN] 열 정의. 제약 추가(ADD CONSTRAINT/PRIMARY KEY/…)는 열이 아니다.
+ADD_COLUMN = re.compile(
+    r"\badd\s+(?!constraint\b|primary\b|unique\b|foreign\b|check\b|exclude\b)(?:column\s+)?", re.I
+)
 SNAPSHOT = """
 WITH s AS (
   SELECT nspname FROM pg_namespace
@@ -75,6 +98,43 @@ SELECT 'fn ' || p.oid::regprocedure || ' ' || md5(pg_get_functiondef(p.oid))
 UNION ALL
 SELECT 'schema ' || nspname || ' ' || coalesce(nspacl::text, '') FROM pg_namespace
   WHERE nspname IN (SELECT nspname FROM s)
+UNION ALL
+SELECT 'fnacl ' || p.oid::regprocedure || ' ' || coalesce(p.proacl::text, '')
+  FROM pg_proc p WHERE pronamespace::regnamespace::text IN (SELECT nspname FROM s)
+UNION ALL
+SELECT 'rel ' || c.oid::regclass || ' kind=' || c.relkind::text || ' rls=' || c.relrowsecurity
+       || ' force=' || c.relforcerowsecurity || ' acl=' || coalesce(c.relacl::text, '')
+  FROM pg_class c WHERE relnamespace::regnamespace::text IN (SELECT nspname FROM s)
+   AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+UNION ALL
+SELECT 'view ' || c.oid::regclass || ' ' || md5(pg_get_viewdef(c.oid))
+  FROM pg_class c WHERE relnamespace::regnamespace::text IN (SELECT nspname FROM s)
+   AND c.relkind IN ('v', 'm')
+UNION ALL
+SELECT 'index ' || schemaname || '.' || indexname || ' ' || indexdef
+  FROM pg_indexes WHERE schemaname IN (SELECT nspname FROM s)
+UNION ALL
+SELECT 'policy ' || polrelid::regclass || ' ' || polname || ' ' || polcmd::text || ' '
+       || coalesce(pg_get_expr(polqual, polrelid), '') || ' '
+       || coalesce(pg_get_expr(polwithcheck, polrelid), '')
+  FROM pg_policy
+UNION ALL
+SELECT 'trigger ' || tgrelid::regclass || ' ' || tgname || ' ' || pg_get_triggerdef(oid)
+  FROM pg_trigger WHERE NOT tgisinternal
+UNION ALL
+SELECT 'enum ' || t.typnamespace::regnamespace || '.' || t.typname || ' ' || e.enumlabel
+  FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+UNION ALL
+SELECT 'defacl ' || pg_get_userbyid(defaclrole) || ' '
+       || coalesce(defaclnamespace::regnamespace::text, '*') || ' ' || defaclobjtype::text || ' '
+       || defaclacl::text
+  FROM pg_default_acl
+UNION ALL
+SELECT 'role ' || rolname || ' login=' || rolcanlogin || ' inherit=' || rolinherit
+  FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%'
+UNION ALL
+SELECT 'member ' || pg_get_userbyid(roleid) || ' -> ' || pg_get_userbyid(member)
+  FROM pg_auth_members
 ORDER BY 1
 """
 
@@ -96,7 +156,11 @@ def git(*args: str, cwd: Path = ROOT) -> str:
 
 
 def statements(sql: str) -> list[str]:
-    """주석을 지우고 세미콜론으로 나눈다. DO 블록 안의 문장도 각각 한 덩어리가 된다."""
+    """주석을 지우고 세미콜론으로 나눈다. DO 블록 안의 문장도 각각 한 덩어리가 된다.
+
+    문자열 안의 세미콜론·--는 구분하지 않는다(현재 마이그레이션에는 없다). 오탐·미탐은 실행 검사가 받친다.
+    """
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
     text = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
     return [part.strip() for part in text.split(";") if part.strip()]
 
@@ -104,6 +168,11 @@ def statements(sql: str) -> list[str]:
 def created_tables(sql: str) -> set[str]:
     """CREATE TABLE/VIEW로 만드는 schema.name들."""
     return {match.lower() for match in CREATE.findall(sql)}
+
+
+def created_functions(sql: str) -> set[str]:
+    """CREATE [OR REPLACE] FUNCTION으로 만드는 schema.name들."""
+    return {match.lower() for match in FUNCTION.findall(sql)}
 
 
 def created_roles(sql: str) -> set[str]:
@@ -134,7 +203,11 @@ def classify_file_changes(name_status: str) -> list[Finding]:
 
 
 def check_statements(
-    file: str, sql: str, base_tables: set[str], base_roles: set[str]
+    file: str,
+    sql: str,
+    base_tables: set[str],
+    base_roles: set[str],
+    base_functions: frozenset[str] = frozenset(),
 ) -> list[Finding]:
     """새 마이그레이션 한 파일에서 이전 표(base_tables)에 거는 위험 문장을 찾는다.
 
@@ -144,10 +217,12 @@ def check_statements(
         base_tables: 이전 리비전 마이그레이션이 만든 schema.name들.
         base_roles: 이전 리비전에서 권한을 받던 역할. 새로 생긴 역할(worker 등)에서 회수한 것은 이전 코드와
             상관없으므로 보지 않는다.
+        base_functions: 이전 리비전 마이그레이션이 만든 함수 schema.name들.
 
     Returns:
-        list[Finding]: BLOCK(DROP/RENAME/형 변경/NOT NULL 강제/DEFAULT 없는 NOT NULL 열 추가, DROP TABLE)과
-            REVIEW(권한 회수, 제약 삭제 — 넓히는지 좁히는지는 실행 검사로 본다).
+        list[Finding]: BLOCK(표 삭제, 열 삭제·이름 변경·형 변경·NOT NULL 강제·DEFAULT 삭제·스키마 이동,
+            DEFAULT 없는 NOT NULL 열 추가)과 REVIEW(제약 추가·삭제·검증, 행 보안, 이전 앱 역할의 권한 회수,
+            이전 함수의 교체·삭제, 인덱스·타입 삭제와 타입 변경, 이전 표의 정책 — 실행 검사로 확인한다).
     """
     findings = []
     for statement in statements(sql):
@@ -173,13 +248,33 @@ def check_statements(
                     findings.append(
                         Finding("BLOCK", file, table, "ADD COLUMN NOT NULL without DEFAULT")
                     )
-            if re.search(r"\bdrop\s+constraint\b", body, re.I):
-                findings.append(Finding("REVIEW", file, table, "DROP CONSTRAINT"))
+            for pattern, reason in REVIEWED:
+                if pattern.search(body):
+                    findings.append(Finding("REVIEW", file, table, reason))
+        for match in re.finditer(
+            rf"(?:create\s+or\s+replace|drop)\s+function\s+(?:if\s+exists\s+)?({NAME})", flat, re.I
+        ):
+            if match.group(1).lower() in base_functions:
+                findings.append(
+                    Finding("REVIEW", file, match.group(1).lower(), "FUNCTION REPLACED")
+                )
+        for match in re.finditer(
+            rf"\b(drop\s+index|drop\s+type|alter\s+type)\s+(?:if\s+exists\s+)?(?:concurrently\s+)?({NAME})",
+            flat,
+            re.I,
+        ):
+            reason = " ".join(match.group(1).upper().split())
+            findings.append(Finding("REVIEW", file, match.group(2).lower(), reason))
+        policy = re.search(rf"\b(?:create|alter|drop)\s+policy\b.*?\bon\s+({NAME})", flat, re.I)
+        if policy and policy.group(1).lower() in base_tables:
+            findings.append(Finding("REVIEW", file, policy.group(1).lower(), "POLICY"))
         revoke = REVOKE.search(flat)
         if revoke and set(ROLE.findall(revoke.group(2).lower())) & base_roles:
             target = revoke.group(1)
             schema = ALL_IN_SCHEMA.search(target)
-            if schema:
+            if NON_TABLE_TARGET.search(target):
+                hit = [" ".join(target.lower().split())]
+            elif schema:
                 hit = sorted(t for t in base_tables if t.split(".")[0] == schema.group(1).lower())
             else:
                 hit = sorted(t for t in re.findall(NAME, target.lower()) if t in base_tables)
@@ -198,10 +293,12 @@ def migration_report(base: str) -> dict:
     ]
     base_tables: set[str] = set()
     base_roles: set[str] = set()
+    base_functions: set[str] = set()
     for path in base_files:
         sql = git("show", f"{base}:{path}")
         base_tables |= created_tables(sql)
         base_roles |= created_roles(sql)
+        base_functions |= created_functions(sql)
     # 앱 역할은 최초 구성 SQL(infra/sql)이 만든다.
     for path in git("ls-tree", "-r", "--name-only", base, BOOTSTRAP).split():
         if path.endswith(".sql"):
@@ -214,11 +311,15 @@ def migration_report(base: str) -> dict:
         if line.startswith("A") and line.endswith(".sql")
     ]
     for path in added:
-        findings += check_statements(path, (ROOT / path).read_text(), base_tables, base_roles)
+        # 작업 트리가 아니라 커밋된 HEAD 내용을 본다.
+        findings += check_statements(
+            path, git("show", f"HEAD:{path}"), base_tables, base_roles, frozenset(base_functions)
+        )
     return {
         "base": git("rev-parse", "--short", base).strip(),
         "base_tables": len(base_tables),
         "base_roles": sorted(base_roles),
+        "base_functions": len(base_functions),
         "added": len(added),
         "block": [asdict(f) for f in findings if f.level == "BLOCK"],
         "review": [asdict(f) for f in findings if f.level == "REVIEW"],
@@ -265,8 +366,23 @@ def snapshot_diff(before: list[str], after: list[str]) -> dict[str, list[str]]:
     return {"removed": sorted(old - new), "added": sorted(new - old)}
 
 
+# 하위 검사에 넘기지 않는 환경 변수. uv가 다른 리비전의 가상 환경을 쓰거나, 셸의 모델·클라우드 키가 새지 않게 한다.
+DROPPED_ENV = ("UV_PROJECT_ENVIRONMENT", "VIRTUAL_ENV")
+SECRET_ENV = re.compile(r"(API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS)", re.I)
+
+
+def test_env(url: str, source: dict[str, str] | None = None) -> dict[str, str]:
+    """검사 프로세스 환경. 전용 DB 주소만 더하고 가상 환경 지정·비밀값은 뺀다."""
+    env = {
+        key: value
+        for key, value in (os.environ if source is None else source).items()
+        if key not in DROPPED_ENV and not SECRET_ENV.search(key)
+    }
+    return {**env, "AUTH_TEST_DATABASE_URL": url}
+
+
 def pytest_run(args: list[str], cwd: Path, url: str) -> tuple[int, str]:
-    env = {**os.environ, "AUTH_TEST_DATABASE_URL": url}
+    env = test_env(url)
     result = subprocess.run(
         ["uv", "run", "--frozen", "pytest", "-q", "-p", "no:cacheprovider", *args],
         cwd=cwd,
@@ -299,7 +415,10 @@ def run_report(base: str, url: str) -> dict:
         try:
             base_code, base_summary = pytest_run(["tests"], tree, url)
         finally:
-            git("worktree", "remove", "--force", str(tree))
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(tree)], cwd=ROOT, check=False
+            )
+            git("worktree", "prune")
     diff = snapshot_diff(before, snapshot(url))
     return {
         "base": git("rev-parse", "--short", base).strip(),

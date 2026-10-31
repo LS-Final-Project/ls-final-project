@@ -95,6 +95,88 @@ class StatementTest(unittest.TestCase):
         )
 
 
+class MoreStatementTest(unittest.TestCase):
+    def test_default_removal_schema_moves_and_columns_without_keyword_block(self):
+        """DEFAULT 삭제·스키마 이동, COLUMN 키워드 없는 NOT NULL 열 추가도 이전 코드를 깬다. 블록 주석은 문장이 아니다."""
+        self.assertEqual(
+            reasons(
+                "/* ALTER TABLE cs.tickets DROP COLUMN body; */"
+                "ALTER TABLE cs.tickets ALTER COLUMN status DROP DEFAULT;"
+                "ALTER TABLE runtime.jobs SET SCHEMA archive;"
+                "ALTER TABLE cs.tickets ADD owner text NOT NULL;"
+            ),
+            [
+                ("BLOCK", "cs.tickets", "DROP DEFAULT"),
+                ("BLOCK", "runtime.jobs", "SET SCHEMA"),
+                ("BLOCK", "cs.tickets", "ADD COLUMN NOT NULL without DEFAULT"),
+            ],
+        )
+
+    def test_new_constraints_security_and_object_drops_need_review(self):
+        """제약 추가는 이전 코드의 쓰기를 거절할 수 있고, 행 보안·인덱스·타입·이전 함수 변경도 확인 대상이다."""
+        found = [
+            (f.level, f.table, f.reason)
+            for f in compat_check.check_statements(
+                "x.sql",
+                "ALTER TABLE cs.tickets ADD CONSTRAINT t_ok CHECK (status <> '');"
+                "ALTER TABLE cs.tickets VALIDATE CONSTRAINT t_ok;"
+                "ALTER TABLE runtime.jobs ENABLE ROW LEVEL SECURITY;"
+                "CREATE POLICY p ON runtime.jobs USING (true);"
+                "DROP INDEX IF EXISTS cs.tickets_unique;"
+                "ALTER TYPE cs.state RENAME VALUE 'A' TO 'B';"
+                "CREATE OR REPLACE FUNCTION runtime.claim() RETURNS void AS $$ SELECT 1 $$ LANGUAGE sql;"
+                "CREATE FUNCTION cs.new_one() RETURNS void AS $$ SELECT 1 $$ LANGUAGE sql;",
+                BASE,
+                ROLES,
+                frozenset({"runtime.claim"}),
+            )
+        ]
+        self.assertEqual(
+            found,
+            [
+                ("REVIEW", "cs.tickets", "ADD CONSTRAINT"),
+                ("REVIEW", "cs.tickets", "VALIDATE CONSTRAINT"),
+                ("REVIEW", "runtime.jobs", "ROW LEVEL SECURITY"),
+                ("REVIEW", "runtime.jobs", "POLICY"),
+                ("REVIEW", "cs.tickets_unique", "DROP INDEX"),
+                ("REVIEW", "cs.state", "ALTER TYPE"),
+                ("REVIEW", "runtime.claim", "FUNCTION REPLACED"),
+            ],
+        )
+
+    def test_revokes_on_schemas_functions_and_sequences_need_review(self):
+        """표가 아닌 대상의 권한도 이전 앱 역할에서 회수하면 확인한다."""
+        self.assertEqual(
+            reasons(
+                "REVOKE USAGE ON SCHEMA runtime FROM cs_app, tft_app;"
+                "REVOKE EXECUTE ON FUNCTION runtime.claim() FROM platform_app;"
+                "REVOKE USAGE ON ALL SEQUENCES IN SCHEMA cs FROM cs_app;"
+                "REVOKE USAGE ON SCHEMA notify FROM cs_worker;"
+            ),
+            [
+                ("REVIEW", "schema runtime", "REVOKE FROM cs_app,tft_app"),
+                ("REVIEW", "function runtime.claim()", "REVOKE FROM platform_app"),
+                ("REVIEW", "all sequences in schema cs", "REVOKE FROM cs_app"),
+            ],
+        )
+
+
+class EnvTest(unittest.TestCase):
+    def test_tests_get_the_database_but_no_secrets_or_other_environments(self):
+        """이전 리비전 검사가 HEAD의 가상 환경이나 셸의 키를 쓰지 않게 한다."""
+        env = compat_check.test_env(
+            "db",
+            {
+                "PATH": "/bin",
+                "GEMINI_API_KEY": "k",
+                "UV_PROJECT_ENVIRONMENT": "/x",
+                "VIRTUAL_ENV": "/y",
+                "PGPASSWORD": "p",
+            },
+        )
+        self.assertEqual(env, {"PATH": "/bin", "AUTH_TEST_DATABASE_URL": "db"})
+
+
 class RoleAndTableTest(unittest.TestCase):
     def test_previous_tables_and_roles_are_read_from_create_statements(self):
         """표는 CREATE TABLE/VIEW에서, 앱 역할은 CREATE ROLE에서 읽고 마이그레이션 역할은 뺀다."""
@@ -106,6 +188,12 @@ class RoleAndTableTest(unittest.TestCase):
         )
         self.assertEqual(compat_check.created_tables(sql), {"cs.tickets", "cs.latest"})
         self.assertEqual(compat_check.created_roles(sql), {"cs_app"})
+        self.assertEqual(
+            compat_check.created_functions(
+                "CREATE OR REPLACE FUNCTION runtime.claim() RETURNS int"
+            ),
+            {"runtime.claim"},
+        )
 
 
 class RunGuardTest(unittest.TestCase):
