@@ -109,7 +109,11 @@ class InMemoryTicketSource:
 
 # 제품 경로 초안 기본 설정: 초안 실측 PROPOSED 설정(2026-10-29, adoption draft-proposed-product: flash-lite·
 # max_output_tokens 2048·근거 5건). 출력 상한 기본(AISettings 1024)과 근거 20건으로는 초안 JSON이 잘렸다.
-DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 2048, "evidence_limit": 5}
+# 2026-10-31 50건 측정: 4096에서도 초안 4.3%·검증 9.1%가 잘려 초안·검증 모두 6000으로 올렸다(채택 전).
+DRAFT_DEFAULTS: dict[str, int] = {"max_output_tokens": 6000, "evidence_limit": 5}
+# 초안·검증 호출 시간 제한. 4096 실측 p95 20.9초·최대 23.8초라 6000이면 약 35초다.
+# gemini_timeout_ms 기본(30초)은 공용이라 두고 이 두 호출의 클라이언트만 올린다.
+DRAFT_TIMEOUT_MS = 60000
 # 분류 출력 상한은 thinking을 포함한다. 공통 기본 1024로는 3.6-flash 50건 중 13건이 잘렸고 4096에서는 0건이었다
 # (2026-10-29 실측, classification-remeasure). 공통 기본값은 다른 호출이 쓰므로 그대로 둔다.
 CLASSIFICATION_DEFAULTS: dict[str, int] = {"max_output_tokens": 4096}
@@ -130,6 +134,18 @@ class RunOutcome:
     recovered: int
 
 
+def draft_ai_settings(ai: AISettings) -> AISettings:
+    """초안·검증 클라이언트 설정. 시간 제한만 다르다.
+
+    Args:
+        ai: 공통 AI 설정.
+
+    Returns:
+        AISettings: 시간 제한을 DRAFT_TIMEOUT_MS로 바꾼 사본.
+    """
+    return ai.model_copy(update={"gemini_timeout_ms": DRAFT_TIMEOUT_MS})
+
+
 def build_cs_runner(
     ai_settings: AISettings,
     *,
@@ -143,6 +159,7 @@ def build_cs_runner(
     prompt_version: str = DEFAULT_VERSIONS["classification"],
     allow_tracing: bool = False,
     invalid_output_retries: int = 1,
+    draft_client: genai.Client | None = None,
     classification_model: str | None = None,
     classification_knobs: GenerationKnobs | None = None,
     draft_knobs: GenerationKnobs | None = None,
@@ -167,6 +184,7 @@ def build_cs_runner(
         invalid_output_retries: 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(0|1). build_graph에 넘긴다.
         classification_model: 분류 전용 모델 ID. None이면 model을 쓴다.
         classification_knobs: 분류 공급자의 생성 조절 항목. None이면 CLASSIFICATION_DEFAULTS의 출력 상한이다.
+        draft_client: 초안·검증 호출 클라이언트(draft_ai_settings로 만든다). None이면 client.
         draft_knobs: 초안 공급자의 생성 조절 항목. None이면 GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS 값)다.
         evidence_limit: 초안에 넘길 근거 상위 개수(기본 DRAFT_DEFAULTS). build_graph에 넘긴다.
         policy_documents: 정책 문서 doc_id → document_sha256(색인 manifest). 있으면 정책 유형 문의에 정책 문서
@@ -200,7 +218,7 @@ def build_cs_runner(
             or GenerationKnobs(max_output_tokens=CLASSIFICATION_DEFAULTS["max_output_tokens"]),
         ),
         draft_provider=gemini_text_provider(
-            client,
+            draft_client or client,
             ai_settings,
             model=model,
             response_schema=DraftOutput,
@@ -208,7 +226,7 @@ def build_cs_runner(
             or GenerationKnobs(max_output_tokens=DRAFT_DEFAULTS["max_output_tokens"]),
         ),
         verification_provider=gemini_text_provider(
-            client,
+            draft_client or client,
             ai_settings,
             model=model,
             response_schema=VerificationOutput,

@@ -740,8 +740,14 @@ def test_after_rewrite_metrics_read_the_rewritten_draft():
     assert row["verification"]["after_rewrite"]["grounding"]["grounded_case_rate"] == 0.0
 
 
+def test_unverifiable_is_counted_without_a_rewrite():
+    row = verified(verifier("UNVERIFIABLE"), cases={"k1": CASES["k1"]})["verification"]
+    assert row["calls"] == {"verification": 1, "rewrite": 0}
+    assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
+
+
 def test_still_failing_after_a_rewrite_stops_there():
-    checker = verifier("UNVERIFIABLE")
+    checker = verifier("UNSUPPORTED")
     row = verified(checker, cases={"k1": CASES["k1"]})["verification"]
     assert row["calls"] == {"verification": 2, "rewrite": 1}
     assert row["status"]["final"] == {"NEEDS_REVIEW": 1}

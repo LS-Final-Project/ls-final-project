@@ -57,7 +57,7 @@ from backend.engine.rfp.requirements import (
     extract_section,
 )
 from backend.engine.rfp.vocabulary import OTHER
-from backend.shared.ai import TRANSIENT_BACKOFF_SECONDS, AISettings, Generation, Usage
+from backend.shared.ai import AISettings, Generation, Usage, check_lease
 from backend.shared.settings import Settings
 
 Provider = Callable[[str], Generation]
@@ -111,26 +111,6 @@ def extraction_settings(config: ProcessorSettings) -> AISettings:
         gemini_max_output_tokens=config.extraction_max_output_tokens,
         gemini_timeout_ms=config.extraction_timeout_ms,
     )
-
-
-def check_lease(ai: AISettings, lease_seconds: int) -> None:
-    """lease가 모델 호출 하나의 최악 시간보다 길어야 한다(호출마다 lease를 연장하므로).
-
-    최악 = 시간 제한 × (일시 오류 재시도 + 1) + 재시도 대기(TRANSIENT_BACKOFF_SECONDS부터 두 배씩).
-
-    Args:
-        ai: 추출 호출 설정.
-        lease_seconds: worker lease 길이(TFT_WORKER_LEASE_SECONDS).
-
-    Returns:
-        None. 짧으면 ValueError(INVALID_WORKER_CONFIGURATION)다.
-    """
-    retries = ai.gemini_transient_retries
-    worst = ai.gemini_timeout_ms / 1000 * (retries + 1) + sum(
-        TRANSIENT_BACKOFF_SECONDS * 2**n for n in range(retries)
-    )
-    if lease_seconds <= worst:
-        raise ValueError("INVALID_WORKER_CONFIGURATION")
 
 
 def gemini_provider(ai: AISettings) -> Provider:

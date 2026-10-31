@@ -5,14 +5,14 @@
       "stage": "draft",
       "kind": "NO_ADOPTION",
       "field": null,
-      "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(max_output_tokens 2048·근거 5건)은 2026-10-29 초안 실측의 PROPOSED 설정이고 ADOPTED 승인 전이다. 2026-10-31 KAN-193에서 판본을 v2(반품 사유·제조 책임·고객 과실 확정 금지 지시 한 줄 추가)로 올렸고, 10-29 실측은 v1 기준이라 채택 실측은 v2로 다시 한다",
+      "reason": "C/S 초안 채택 기록이 없다. 코드 기본값(max_output_tokens 6000·근거 5건)은 2026-10-31 50건 측정의 잘림(4096에서 초안 4.3%·검증 9.1%)으로 올린 값이고 ADOPTED 승인 전이다. 2026-10-31 KAN-193에서 판본을 v2(반품 사유·제조 책임·고객 과실 확정 금지 지시 한 줄 추가)로 올렸고, 10-29 실측은 v1 기준이라 채택 실측은 v2로 다시 한다",
       "ticket": "KAN-147",
       "recorded_on": "2026-10-31",
       "deployed": {
         "model": "gemini-3.6-flash",
         "prompt_version": "v2",
         "prompt_fingerprint": "a19901526261ff5c",
-        "max_output_tokens": 2048,
+        "max_output_tokens": 6000,
         "evidence_limit": 5
       }
     },

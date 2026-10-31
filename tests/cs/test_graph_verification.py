@@ -50,10 +50,63 @@ def test_supported_draft_is_verified_once_and_resume_never_calls_again():
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("verdict", ["UNSUPPORTED", "UNVERIFIABLE"])
+def test_unverifiable_is_marked_without_a_rewrite():
+    """근거가 모자라 판정 못 한 문장은 고쳐도 근거가 늘지 않는다. 표시만 하고 사람에게 간다."""
+    verifier, checks = verdict_provider(["UNVERIFIABLE"])
+    drafts = []
+
+    def drafter(text):
+        drafts.append(text)
+        return draft_provider(text)
+
+    _, _, state = invoke(verification_provider=verifier, draft_provider=drafter)
+    assert len(drafts) == len(checks) == 1
+    assert state.values["verification"]["status"] == "NEEDS_REVIEW"
+
+
+def test_rewrite_feedback_carries_only_the_unsupported_sentences():
+    checks = []
+
+    def verifier(text):
+        checks.append(text)
+        body = json.loads(verification_provider(text).text)
+        for index, sentence in enumerate(body["sentences"]):
+            sentence["verdict"] = "UNSUPPORTED" if index == 0 else "UNVERIFIABLE"
+            sentence["evidence_chunk_ids"] = []
+            sentence["reason"] = "Synthetic verification feedback."
+        return Generation(json.dumps(body), Usage(7, 3), "fake", ["STOP"], attempts=1)
+
+    drafts = []
+
+    def drafter(text):
+        drafts.append(text)
+        return draft_provider(text)
+
+    invoke(verification_provider=verifier, draft_provider=drafter)
+    data = json.loads(drafts[-1].split("\n\n입력:\n", 1)[1])
+    assert len(data["revision_feedback"]["failed_sentences"]) == 1
+    assert len(checks) == 2
+
+
+def test_a_draft_without_evidence_sentences_calls_no_verifier():
+    def condition_only(text):
+        body = json.loads(draft_provider(text).text)
+        for option in body["options"]:
+            option["sentences"] = [
+                {"text": "합성 조건 문장", "kind": "CONDITION", "evidence_chunk_ids": []}
+            ]
+        return Generation(json.dumps(body), Usage(7, 3), "fake", ["STOP"], attempts=1)
+
+    verifier, checks = verdict_provider(["SUPPORTED"])
+    _, _, state = invoke(verification_provider=verifier, draft_provider=condition_only)
+    assert checks == []
+    assert state.values["verification"]["status"] == "NOT_VERIFIED"
+    assert state.values["verification"]["reason"] == "CS_NO_EVIDENCE_SENTENCES"
+
+
 @pytest.mark.parametrize("final", ["SUPPORTED", "UNSUPPORTED", "UNVERIFIABLE"])
-def test_failure_rewrites_once_rechecks_once_and_keeps_the_final_verdict(verdict, final):
-    verifier, checks = verdict_provider([verdict, final])
+def test_failure_rewrites_once_rechecks_once_and_keeps_the_final_verdict(final):
+    verifier, checks = verdict_provider(["UNSUPPORTED", final])
     drafts = []
 
     def drafter(text):
