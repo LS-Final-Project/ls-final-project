@@ -24,7 +24,7 @@ function Toggle({ actorId }: { actorId: string }) {
     return () => { current = false; };
   }, [actorId, supported]);
   let available = false;
-  try { available = !!key.data?.public_key && !!publicKeyBytes(key.data.public_key); } catch { /* invalid key stays disabled */ }
+  try { available = key.isSuccess && !key.isFetching && !!key.data?.public_key && !!publicKeyBytes(key.data.public_key); } catch { /* invalid key stays disabled */ }
   async function turnOn() {
     if (!supported || !available || busy || permission === 'denied') return;
     setBusy(true); setError(undefined);

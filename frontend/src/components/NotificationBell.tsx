@@ -33,7 +33,7 @@ function Inbox({ actorId }: { actorId: string }) {
   const alive = useRef(true);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => { alive.current = true; controller.current = new AbortController(); return () => { alive.current = false; controller.current?.abort(); }; }, []);
-  const count = useQuery({ queryKey: ['notifications', actorId, 'count'], queryFn: ({ signal }) => unreadCount(signal), retry: false, refetchInterval: query => query.state.error ? false : 30000, refetchIntervalInBackground: false, refetchOnWindowFocus: true });
+  const count = useQuery({ queryKey: ['notifications', actorId, 'count'], queryFn: ({ signal }) => unreadCount(signal), retry: false, refetchInterval: query => query.state.error ? false : 30000, refetchIntervalInBackground: false, refetchOnWindowFocus: query => !query.state.error });
   const list = useQuery({ queryKey: ['notifications', actorId, 'list', offset], queryFn: ({ signal }) => listNotifications(offset, signal), enabled: open, retry: false });
   async function choose(item: NotificationItem) {
     if (busy || !notificationPath(item.link_path)) return;

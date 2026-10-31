@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderAt } from '../test/render';
 import PushToggle from './PushToggle';
@@ -43,4 +44,18 @@ it('권한 응답 대기 중 계정 화면을 떠나면 이전 사용자의 구�
   await waitFor(() => expect((screen.getByRole('button', { name: 'OS 알림 켜기' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'OS 알림 켜기' })); view.unmount(); resolve!('granted');
   await Promise.resolve(); expect(enablePush).not.toHaveBeenCalled();
+});
+
+it.each([404, 503])('이전 공개키가 캐시에 있어도 최신 %s 응답이면 켜기를 차단한다', async status => {
+  let healthy = true;
+  vi.stubGlobal('fetch', vi.fn(async () => healthy ? Response.json({ data: { public_key: 'test-only-public-key' } }) : Response.json({ error: { message: '설정 조회 실패' } }, { status })));
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={cache}><PushToggle actorId={A} /></QueryClientProvider>);
+  const button = screen.getByRole('button', { name: 'OS 알림 켜기' });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  healthy = false;
+  await cache.invalidateQueries({ queryKey: ['notification-push-key', A] });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+  fireEvent.click(button);
+  expect(permission).not.toHaveBeenCalled(); expect(enablePush).not.toHaveBeenCalled();
 });

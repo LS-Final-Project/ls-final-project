@@ -12,10 +12,11 @@ function worker(fetcher?: (path: string) => Promise<Response>, windows: any[] = 
   const state = { owner: A };
   const close = vi.fn(); const ack = vi.fn();
   const show = vi.fn(async () => {}); const open = vi.fn(async () => {});
+  const registration = { showNotification: show, getNotifications: vi.fn(async (_options?: { tag: string }) => [{ close, data: { ownerId: A } }]) };
   const fetch = vi.fn(fetcher ?? (async (path: string) => Response.json({ data: path.endsWith('/me') ? { id: A } : { items: [item] } })));
   runInNewContext(source, { URL, Response, AbortSignal, fetch,
     caches: { open: async () => ({ match: async () => state.owner ? Response.json({ id: state.owner }) : undefined, put: async (_key: string, value: Response) => { state.owner = (await value.json()).id; }, delete: async () => { state.owner = ''; } }) },
-    self: { location: { origin: 'https://app.example.invalid' }, addEventListener: (name: string, callback: (event: any) => void) => { listeners[name] = callback; }, skipWaiting: async () => {}, registration: { showNotification: show, getNotifications: async () => [{ close, data: { ownerId: A } }] }, clients: { claim: async () => {}, get: async () => ({ url: 'https://app.example.invalid/account' }), matchAll: async () => windows, openWindow: open } },
+    self: { location: { origin: 'https://app.example.invalid' }, addEventListener: (name: string, callback: (event: any) => void) => { listeners[name] = callback; }, skipWaiting: async () => {}, registration, clients: { claim: async () => {}, get: async () => ({ url: 'https://app.example.invalid/account' }), matchAll: async () => windows, openWindow: open } },
   });
   async function emit(kind: string, payload: unknown) {
     let pending: Promise<unknown> | undefined;
@@ -23,7 +24,7 @@ function worker(fetcher?: (path: string) => Promise<Response>, windows: any[] = 
     listeners[kind]({ ...event, waitUntil: (promise: Promise<unknown>) => { pending = promise; } });
     await pending;
   }
-  return { state, show, open, close, ack, fetch, listeners, emit };
+  return { state, show, open, close, ack, fetch, listeners, emit, registration };
 }
 it('푸시 payload 제목/URL 대신 현재 수신함에서 확인한 값만 표시한다', async () => {
   const w = worker(); await w.emit('push', { id: ID, title: '믿지 않는 제목', url: 'https://evil.invalid' });
@@ -102,4 +103,20 @@ it('이전 바인딩의 me 응답이 늦어져도 로그아웃 뒤 소유자를 
   await w.emit('message', { type: 'NOTIFICATION_OWNER', id: null });
   resolve(Response.json({ data: { id: A } })); await pending;
   expect(w.state.owner).toBe('');
+});
+
+it('이전 계정의 늦은 show 정리는 새 계정의 같은 intent 표시를 닫지 않는다', async () => {
+  let active = A;
+  const w = worker(async path => Response.json({ data: path.endsWith('/me') ? { id: active } : { items: [item] } }));
+  let displayed!: () => void;
+  w.show.mockImplementationOnce(() => new Promise<void>(resolve => { displayed = resolve; }));
+  const pending = w.emit('push', { id: ID });
+  await vi.waitFor(() => expect(displayed).toBeTypeOf('function'));
+  active = B;
+  await w.emit('message', { type: 'NOTIFICATION_OWNER', id: B });
+  const closeNew = vi.fn();
+  w.registration.getNotifications.mockResolvedValue([{ close: closeNew, data: { ownerId: B } }]);
+  displayed(); await pending;
+  expect(w.registration.getNotifications).toHaveBeenLastCalledWith({ tag: `notification:${A}:${ID}` });
+  expect(closeNew).not.toHaveBeenCalled();
 });

@@ -65,3 +65,9 @@ it('소유자 표시가 없어도 알려지지 않은 기존 구독을 보수적
   expect(b.subscription.unsubscribe).toHaveBeenCalledOnce();
   expect(deletePushSubscription).not.toHaveBeenCalled();
 });
+
+it.each(['', 'not-a-valid-key', btoa(String.fromCharCode(1, ...new Array(64).fill(1)))])('잘못된 공개키는 브라우저 구독에 사용하지 않는다', async key => {
+  const b = browser();
+  await expect(enablePush(A, key)).rejects.toThrow(/공개키/);
+  expect(b.serviceWorker.register).not.toHaveBeenCalled(); expect(savePushSubscription).not.toHaveBeenCalled();
+});

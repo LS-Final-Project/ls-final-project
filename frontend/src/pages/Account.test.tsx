@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
+import * as browserPush from '../notifications/push';
 import { me } from '../api/platform';
 import { AccountPanel } from './Account';
 import { clearSessionCsrfToken, setApiMode } from '../api/client';
@@ -8,7 +9,7 @@ import { errorBody, jsonResponse, renderAt } from '../test/render';
 
 const identity={id:'user',display_name:'합성 사용자',email:'test@example.invalid',roles:['sales'],dept:null};
 const session=()=>new Response(JSON.stringify({data:identity}),{status:200,headers:{'Content-Type':'application/json','X-CSRF-Token':'session-bound-test'}});
-afterEach(()=>{cleanup();vi.unstubAllGlobals();clearSessionCsrfToken();setApiMode('mock');});
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();clearSessionCsrfToken();setApiMode('mock');});
 function view(operational=true){setApiMode('live');renderAt('/account','/account',<AccountPanel operational={operational} />);}
 
 test('401은 고정 로그인 경로로 재로그인을 안내한다',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(401,errorBody('AUTH_REQUIRED','만료'))));view();const link=await screen.findByRole('link',{name:'Microsoft로 로그인'});expect(link.getAttribute('href')).toBe('/api/v1/platform/auth/login');expect(screen.getByText(/서비스 로그인과 메일 연결은 별도/)).toBeTruthy();});
@@ -39,4 +40,15 @@ test('로그아웃은 공통 헤더 등 다른 세션 구독자의 계정 표시
   fireEvent.click(screen.getByRole('button',{name:'로그아웃 확인'}));
   await screen.findByText('로그아웃했습니다.');
   expect(screen.getByTestId('other-session-observer').textContent).toBe('로그인 필요');
+});
+
+test('구독 DELETE/로컬 정리 실패는 고지하고 실제 세션 로그아웃을 계속한다', async () => {
+  vi.spyOn(browserPush, 'clearPush').mockRejectedValueOnce(new Error('delete uncertain'));
+  const fetcher = vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/logout') ? new Response(null, { status: 204 }) : session());
+  vi.stubGlobal('fetch', fetcher); view();
+  fireEvent.click(await screen.findByRole('button', { name: /^로그아웃$/ }));
+  fireEvent.click(screen.getByRole('button', { name: '로그아웃 확인' }));
+  await screen.findByText('로그아웃했습니다.');
+  expect(screen.getByText(/OS 알림 구독 정리를 확인하지 못했습니다/)).toBeTruthy();
+  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/logout'))).toHaveLength(1);
 });

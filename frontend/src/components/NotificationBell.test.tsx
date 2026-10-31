@@ -86,3 +86,25 @@ it.each(['/account', '/cs'])('%s의 배타적인 Layout/LsShell은 종을 하나
   await screen.findByRole('button', { name: '알림, 안 읽음 0건' });
   expect(screen.getAllByRole('button', { name: /^알림/ })).toHaveLength(1);
 });
+
+it('오류 뒤 focus만으로 자동 재시도하지 않고 수동 회복하면 폴링을 다시 시작한다', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/me')) return data({ id: A });
+    if (!url.endsWith('/unread-count')) return data({ items: [], next_offset: null });
+    reads++;
+    return reads === 1 ? new Response('{}', { status: 503 }) : data({ count: reads });
+  }));
+  view();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  await act(async () => { focusManager.setFocused(false); await vi.advanceTimersByTimeAsync(1); focusManager.setFocused(true); await vi.advanceTimersByTimeAsync(90001); });
+  expect(reads).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: '알림' }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  fireEvent.click(screen.getByRole('button', { name: '알림 새로고침' }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(reads).toBe(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30001); });
+  expect(reads).toBe(3);
+});
