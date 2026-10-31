@@ -52,7 +52,7 @@ test('보드 순서대로 선택지·후보근거·사람 선택을 Kv조각으�
   live(); renderApp(`/tft/projects/${P}/supplement`); await choose();
   expect(screen.getByRole('heading', { name: '보완 및 협력사 비교' })).toBeTruthy();
   expect(document.querySelector('.ls-legacy')).toBeNull();
-  expect((screen.getByRole('radio', { name: '자사 다른 제품' }) as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole('radio', { name: '다른 자사 제품' }) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole('checkbox', { name: '후보 L-A' }) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole('checkbox', { name: '후보 P-A' }) as HTMLInputElement).disabled).toBe(false);
   const table = screen.getByRole('table', { name: '협력사 후보 근거' });
@@ -105,7 +105,7 @@ test('409는 자동 재저장 없이 최신 조회·사용자 재선택을 요�
   const f = live((url, init) => init?.method === 'POST' ? jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', '다른 판본')) : undefined);
   renderApp(`/tft/projects/${P}/supplement`); await choose();
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
-  await screen.findByText(/판본 또는 선택 요청이 충돌/);
+  await screen.findByText(/선택 내용을 다시 확인해야/);
   expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: '보완 최신 조회' }));
   await waitFor(() => expect((screen.getByRole('radio', { name: '외부 제품' }) as HTMLInputElement).checked).toBe(false));
@@ -253,4 +253,26 @@ test('저장 직전 세션이 바뀌면 재확인 중 이전 폼을 숨기고 �
   confirm(response({ id: active, roles: ['sales'] }));
   await screen.findByText(/읽기 전용/);
   expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+test.each([
+  ['EVIDENCE_FOUND', 'PREFERRED', '근거 있음', '우선'],
+  ['CONDITIONAL', 'CONDITION_BOUND', '조건부 검토', '조건 따름'],
+  ['INSUFFICIENT_EVIDENCE', 'UNDETERMINED', '근거 부족', '미정'],
+])('판단 %s·성격 %s는 공용 보드 문구로 표시한다', async (status, necessity, statusText, necessityText) => {
+  live(url => url.includes('/requirements?') ? response({ items: [{ ...requirement(R, 'R-021'), status, necessity }], next_cursor: null }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  const table = await screen.findByRole('table', { name: '요구 목록' });
+  await within(table).findByText(statusText);
+  expect(within(table).getByText(necessityText)).toBeTruthy();
+  expect(within(table).queryByText(status)).toBeNull();
+});
+
+test.each(['TFT_CANDIDATE_EXCLUDED', 'TFT_RND_CHECK_REQUIRED'])('서버 %s 거부는 최신 조건 확인 없이 다시 전송하지 않는다', async code => {
+  const f = live((url, init) => init?.method === 'POST' ? jsonResponse(422, errorBody(code, '선택 조건 변경')) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`); await choose();
+  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  await screen.findByText(/선택 내용을 다시 확인해야/);
+  expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(f.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
 });

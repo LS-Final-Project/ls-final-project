@@ -12,13 +12,9 @@ import {
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime, Origin } from '../components/tft';
+import { PATH_LABEL as PATH, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
 import { KvBox, KvField, KvGrid, KvNext, KvTitle, type KvColumn } from '../ls-shell/kv';
 
-const PATH: Record<SupplementOption['path'], string> = {
-  OTHER_OWN_PRODUCT: '자사 다른 제품', OWN_DEVELOPMENT: '자사 개발·수행 확인', OWN_TERMS_REVIEW: '자사 상업 조건 검토',
-  ALTERNATIVE_SPEC: '대체 사양', EXTERNAL_PRODUCT: '외부 제품', TASK_SUBCONTRACT: '업무 외주',
-  JOINT_PROPOSAL: '공동 제안', CUSTOMER_SPECIFIED_PROCUREMENT: '고객 지정품 조달', NONE: '보완 경로 없음',
-};
 const RND: Record<string, string> = { NOT_REQUIRED: '확인 불필요', PENDING: 'R&D 확인 대기', CONFIRMED_FEASIBLE: '자사 개발 가능', CONFIRMED_NOT_FEASIBLE: '자사 개발 불가', CONFIRMED_SCHEDULE_MISMATCH: '일정 불일치', WAIVED: '확인 면제' };
 const text = (items: readonly string[]) => items.length ? items.join(' · ') : '없음';
 
@@ -49,7 +45,8 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
   const columns: KvColumn<RequirementSummary>[] = [
     { key: 'code', header: '요구', cell: r => <button className="kb" aria-pressed={r.requirement_id === requirementId} onClick={() => setRequirementId(r.requirement_id)}>{r.code}</button> },
     { key: 'spec', header: '대상·내용', cell: r => [r.equipment, r.task, r.attribute, r.value_text].filter(Boolean).join(' · ') || '내용 미기재' },
-    { key: 'status', header: '판단', cell: r => r.status },
+    { key: 'necessity', header: '성격', cell: r => label(NECESSITY_LABEL, r.necessity) },
+    { key: 'status', header: '판단', cell: r => label(STATUS_LABEL, r.status) },
     { key: 'path', header: '현재 보완 경로', cell: r => r.path ? PATH[r.path] : '미선택' },
     { key: 'version', header: '요구 판본', cell: r => r.version },
     { key: 'review', header: '재검토', cell: r => r.needs_rereview ? '필요' : '없음' },
@@ -123,7 +120,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
     if (!attempts.has(body)) attempts.set(body, crypto.randomUUID());
     return selectSupplement(options.requirement_id, payload, attempts.get(body)!, actorId);
   }, retry: false, onSuccess: value => onSaved(value.data), onError: error => {
-    if (error instanceof ApiError && error.status === 409) setConflict(true);
+    if (error instanceof ApiError && (error.status === 409 || ['TFT_CANDIDATE_EXCLUDED', 'TFT_RND_CHECK_REQUIRED'].includes(error.code ?? ''))) setConflict(true);
     if (error instanceof ApiError && (error.code === 'SESSION_CHANGED' || error.status === 401)) {
       queryClient.setQueryData(['me'], null);
       void queryClient.invalidateQueries({ queryKey: ['me'] });
@@ -155,7 +152,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
           {needsWaiver && <label>R&D 확인 면제 사유 (20자 이상)<textarea aria-label="R&D 확인 면제 사유" value={waiver} maxLength={1000} onChange={e => setWaiver(e.target.value)} /></label>}
         </fieldset>
         {needsWaiver && <p>자사 개발 확인 전 협력사 경로를 선택하면 확인 면제로 기록됩니다.</p>}
-        {conflict && <p role="alert">판본 또는 선택 요청이 충돌했습니다. 보완 최신 조회 후 다시 확인하세요.</p>}
+        {conflict && <p role="alert">선택 내용을 다시 확인해야 합니다. 보완 최신 조회 후 다시 선택하세요.</p>}
         {save.isError && <ErrorState error={save.error} />}
         <button className="kb primary" disabled={!valid || save.isPending} onClick={() => option && save.mutate({ version: options.version, path: option.path, candidate_codes: [...codes].sort(), role_split: roleSplit.trim(), conditions: conditions.split('\n').map(c => c.trim()).filter(Boolean), note: note.trim() || null, rnd_check_waiver_reason: needsWaiver ? waiver.trim() : null })}>{save.isPending ? '저장 중' : '보완 선택 저장'}</button>
       </KvBox>

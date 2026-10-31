@@ -1,25 +1,24 @@
 import type { paths } from './generated/tft';
 import { ApiError, request, sessionCsrfToken } from './client';
 import { me } from './platform';
+import { listRequirements, type RequirementSummary as SharedRequirementSummary } from './rfp';
 
 type Json<T> = T extends { content: { 'application/json': infer Body } } ? Body : never;
-type Requirements = paths['/api/v1/tft/projects/{project_id}/requirements']['get'];
 type Options = paths['/api/v1/tft/requirements/{requirement_id}/supplement-options']['get'];
 type Candidates = paths['/api/v1/tft/projects/{project_id}/partner-candidates']['get'];
 type Selection = paths['/api/v1/tft/requirements/{requirement_id}/supplement-selection']['post'];
-export type RequirementPage = Json<Requirements['responses'][200]>;
-export type RequirementSummary = RequirementPage['data']['items'][number];
+export type RequirementPage = Awaited<ReturnType<typeof listRequirements>>;
+export type RequirementSummary = SharedRequirementSummary;
 export type SupplementOptions = Json<Options['responses'][200]>['data'];
 export type SupplementOption = SupplementOptions['options'][number];
 export type PartnerCandidate = Json<Candidates['responses'][200]>['data']['items'][number];
 export type SupplementSelection = Json<Selection['requestBody']>;
 export type SupplementSelected = Json<Selection['responses'][200]>['data'];
 
-export const listSupplementRequirements = (projectId: string, cursor?: string) => {
-  const query = new URLSearchParams({ limit: '20' });
-  if (cursor) query.set('cursor', cursor);
-  return request<RequirementPage>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}/requirements?${query}`);
-};
+// The supplement form reads real requirements: do not mix the table's local
+// mock fallback with real options/candidates or duplicate its query construction.
+export const listSupplementRequirements = (projectId: string, cursor?: string) =>
+  listRequirements(projectId, {}, 20, cursor, { useMockFallback: false });
 export const getSupplementOptions = (requirementId: string) =>
   request<Json<Options['responses'][200]>>(`/api/v1/tft/requirements/${encodeURIComponent(requirementId)}/supplement-options`);
 export const listSupplementCandidates = (projectId: string, requirementId: string) =>

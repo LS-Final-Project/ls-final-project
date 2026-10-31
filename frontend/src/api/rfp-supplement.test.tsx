@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
+import { listRequirements } from './rfp';
 import { clearSessionCsrfToken, request, setApiMode } from './client';
 import { getSupplementOptions, listSupplementCandidates, listSupplementRequirements, selectSupplement, type SupplementSelection } from './rfp-supplement';
 
@@ -34,4 +35,29 @@ test('운영 CSRF가 없으면 전송하지 않고 기존 me 응답 토큰을 �
   expect(args[1].body).toBe(JSON.stringify(payload));
   expect(args[1].credentials).toBe('same-origin');
   expect(args[1].headers).toMatchObject({ 'Idempotency-Key': 'same-key-123', 'X-CSRF-Token': token });
+});
+
+test('공용 요구 목록을 재사용해도 보완 화면은 로컬 모의 요구를 끼워 넣지 않는다', async () => {
+  setApiMode('mock');
+  const fetcher = vi.fn(async () => Response.json({ data: { items: [], next_cursor: null } }));
+  vi.stubGlobal('fetch', fetcher);
+  const actual = await listSupplementRequirements('actual-project');
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(actual.data.items).toEqual([]);
+});
+
+test('공용 요구 API 기존 호출자는 기본 모의 fallback 동작을 유지한다', async () => {
+  setApiMode('mock');
+  const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+  const legacy = await listRequirements('existing-project', {}, 20);
+  expect(legacy.data.items.length).toBeGreaterThan(0);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+test('보완의 useMockFallback:false에서는 HTTP 실패를 가짜 요구로 바꾸지 않는다', async () => {
+  setApiMode('mock');
+  const fetcher = vi.fn(async () => Response.json({ error: { code: 'UNAVAILABLE', message: '실제 조회 실패' } }, { status: 503 }));
+  vi.stubGlobal('fetch', fetcher);
+  await expect(listSupplementRequirements('actual-project')).rejects.toMatchObject({ status: 503, message: '실제 조회 실패' });
+  expect(fetcher).toHaveBeenCalledOnce();
 });
