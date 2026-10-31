@@ -199,7 +199,7 @@ def _same_item(
         candidate = clause.parent_no or req.clause_no.rpartition(".")[0]
         return candidate if candidate in clauses and clauses[candidate].depth >= 2 else ""
 
-    if not parent(left) or parent(left) != parent(right):
+    if not parent(left) or not parent(right) or parent(left) == parent(right):
         return False
     equipment_a, equipment_b = _norm(left.equipment), _norm(right.equipment)
     ids_a, ids_b = _identifiers(left.equipment), _identifiers(right.equipment)
