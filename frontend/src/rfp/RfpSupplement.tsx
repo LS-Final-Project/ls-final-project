@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { me } from '../api/platform';
@@ -20,6 +20,7 @@ import { KvBox, KvField, KvGrid, KvNext, KvTitle, KvSplit, KvCond, KvCondRow, Kv
 const CAUSE: Record<string, string> = { RATING: '정격', CERTIFICATION: '인증', FORM: '구조·형식', TASK: '수행 작업', DESIGNATED_MODEL: '지정 모델', COMMERCIAL: '거래 조건', CORE_EQUIPMENT_MISSING: '핵심 장비 없음' };
 const PERMISSION = { ALLOWED: '허용', FORBIDDEN: '금지', UNSTATED: '미기재' };
 const attributeName = (r: RequirementSummary) => r.attribute_key && r.attribute_key !== 'OTHER' ? label(ATTRIBUTE_LABEL, r.attribute_key) : r.attribute;
+type SaveReady = (requirementId: string, ready: boolean) => void;
 const text = (items: readonly string[]) => items.length ? items.join(' · ') : '없음';
 
 export default function RfpSupplement() {
@@ -39,6 +40,8 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
   const prefix = ['rfp-supplement', mode, userId, projectId];
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [requirementId, setRequirementId] = useState('');
+  const [headerSave, setHeaderSave] = useState<{ requirementId: string; ready: boolean } | null>(null);
+  const onSaveReady = useCallback<SaveReady>((id, ready) => setHeaderSave(current => current?.requirementId === id && current.ready === ready ? current : { requirementId: id, ready }), []);
   const [status, setStatus] = useState('');
   const [necessity, setNecessity] = useState('');
   const [filters, setFilters] = useState<RequirementFilters>({});
@@ -54,7 +57,7 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
   const nextUnselected = rows.find(row => !row.path && row.requirement_id !== selected?.requirement_id);
   return <main className="rfp-supplement">
     <KvTitle path="제안 지원" title="보완 및 협력사 비교" code="TF0103">
-      <button className="kb primary" type="submit" form="supplement-selection" disabled={!selected || !canSelect}>선택 저장</button>
+      <button className="kb primary" type="submit" form="supplement-selection" disabled={!selected || !canSelect || !requirements.isSuccess || requirements.isFetching || headerSave?.requirementId !== selected.requirement_id || !headerSave.ready}>선택 저장</button>
       <button className="kb" disabled={!nextUnselected} onClick={() => nextUnselected && setRequirementId(nextUnselected.requirement_id)}>다음 미선택</button>
       {selected && <><a className="kb" href="#supplement-candidates">후보 비교</a><Link className="kb" to={`/tft/projects/${projectId}/requirements/${selected.requirement_id}`}>요구 상세</Link></>}
       <Link className="kb" to={`/tft/projects/${projectId}`}>목록</Link>
@@ -71,13 +74,13 @@ function SupplementProject({ projectId, userId }: { projectId: string; userId: s
     {project.isSuccess && <>
       <div className="supplement-list-heading"><span>조회 요구 {rows.length}건 · {cursors.length}쪽 · {canSelect ? '담당 영업·책임자 선택 가능' : '읽기 전용 — 담당 영업·책임자만 선택 가능'}</span><span><button className="kb" disabled={requirements.isFetching || cursors.length === 1} onClick={() => page(cursors.slice(0, -1))}>이전</button> <button className="kb" disabled={requirements.isFetching || !requirements.data?.data.next_cursor} onClick={() => page([...cursors, requirements.data!.data.next_cursor!])}>다음</button></span></div>
       {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : <nav className="supplement-requirements" aria-label="요구 목록">{rows.map(row => <button key={row.requirement_id} aria-label={requirementNo(row.code)} title={`${row.equipment ?? row.task ?? ''} ${attributeName(row) ?? ''} · ${label(STATUS_LABEL, row.status)} · ${label(NECESSITY_LABEL, row.necessity)}`} aria-pressed={row.requirement_id === selected?.requirement_id} onClick={() => setRequirementId(row.requirement_id)}>{requirementNo(row.code)} {attributeName(row) ?? row.equipment} {row.path ? '· 선택 완료' : ''}</button>)}{requirements.isPending ? <Loading /> : !rows.length && <p>조회조건에 맞는 정리된 요구가 없습니다.</p>}</nav>}
-      {selected && requirements.isSuccess && <RequirementSupplement key={selected.requirement_id} projectId={projectId} projectName={project.data.data.name} requirement={selected} canSelect={canSelect} prefix={prefix} actorId={userId} attempts={attempts.current} />}
+      {selected && requirements.isSuccess && <RequirementSupplement key={selected.requirement_id} projectId={projectId} projectName={project.data.data.name} requirement={selected} canSelect={canSelect && !requirements.isFetching} onSaveReady={onSaveReady} prefix={prefix} actorId={userId} attempts={attempts.current} />}
     </>}
   </main>;
 }
 
-function RequirementSupplement({ projectId, projectName, requirement, canSelect, prefix, attempts, actorId }: {
-  projectId: string; projectName: string; requirement: RequirementSummary; canSelect: boolean; prefix: string[]; attempts: Map<string, string>; actorId: string;
+function RequirementSupplement({ projectId, projectName, requirement, canSelect, onSaveReady, prefix, attempts, actorId }: {
+  projectId: string; projectName: string; requirement: RequirementSummary; canSelect: boolean; onSaveReady: SaveReady; prefix: string[]; attempts: Map<string, string>; actorId: string;
 }) {
   const queryClient = useQueryClient();
   const [saved, setSaved] = useState<SupplementSelected | null>(null);
@@ -90,7 +93,7 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
   };
   const info = options.data?.data;
   const no = detail.data?.data.origin.clause_no ?? requirementNo(requirement.code);
-  return <div className="supplement-detail" aria-label={`${requirementNo(requirement.code)} 보완 선택`}>
+  return <div className="supplement-detail">
     <div className="supplement-summary">
       <KvField label="프로젝트">{projectName}</KvField>
       <KvField label="요구"><Link to={`/tft/projects/${projectId}/requirements/${requirement.requirement_id}`}>{no} {attributeName(requirement)}</Link></KvField>
@@ -106,7 +109,7 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
       {detail.isSuccess && <><p>{no} · {detail.data.data.origin.page ? `${detail.data.data.origin.page}쪽` : '쪽 미기재'}</p><blockquote>{detail.data.data.origin.quote}</blockquote><p>판단 근거: {detail.data.data.judgement?.reason ?? '미기재'}</p><p>속성 원문: {requirement.attribute ?? '없음'} · 장비·작업: {[requirement.equipment, requirement.task].filter(Boolean).join(' / ') || '없음'}</p></>}
       {info && <><KvField label="요구 판본">{info.version}</KvField><KvField label="자료 기준 시각">{formatDateTime(info.known_at)}</KvField><Origin dataOrigin={info.data_origin} derivationKind={info.derivation_kind} />{info.permission_clause_id && <p>고객 허용 근거 조항 ID: {info.permission_clause_id}</p>}</>}
     </details>
-    <div className="supplement-list-heading"><span>보완 경로 {info?.options.length ?? '—'} · 가능 {info?.options.filter(o => o.allowed).length ?? '—'}</span><button className="kb" disabled={options.isFetching || candidates.isFetching} onClick={refresh}>보완 최신 조회</button></div>
+    <div className="supplement-list-heading"><h2 className="supplement-heading">{requirementNo(requirement.code)} 보완 선택</h2><span>보완 경로 {info?.options.length ?? '—'} · 가능 {info?.options.filter(o => o.allowed).length ?? '—'}</span><button className="kb" disabled={options.isFetching || candidates.isFetching} onClick={refresh}>보완 최신 조회</button></div>
     {options.isPending || candidates.isPending ? <Loading /> : null}
     {options.isError && <ErrorState error={options.error} onRetry={refresh} />}
     {candidates.isError && <ErrorState error={candidates.error} onRetry={refresh} />}
@@ -114,13 +117,13 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
     {options.isSuccess && candidates.isSuccess && <>
       {options.data.data.version !== requirement.version
         ? <p role="alert">요구 판본이 변경되었습니다. 보완 최신 조회 후 내용을 확인하세요.</p>
-        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} actorId={actorId} attempts={attempts} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); void queryClient.invalidateQueries({ queryKey: [...prefix, requirement.requirement_id] }); }} />}
+        : <SelectionEditor key={`${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} actorId={actorId} attempts={attempts} onSaveReady={onSaveReady} options={options.data.data} candidates={candidates.data.data.items} canSelect={canSelect && !options.isFetching && !candidates.isFetching} onSaved={value => { setSaved(value); void queryClient.invalidateQueries({ queryKey: [...prefix, 'requirements'] }); void queryClient.invalidateQueries({ queryKey: [...prefix, requirement.requirement_id] }); }} />}
     </>}
   </div>;
 }
 
-function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, actorId }: {
-  actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaved: (value: SupplementSelected) => void;
+function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId }: {
+  actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
 }) {
   const queryClient = useQueryClient();
   const [path, setPath] = useState<SupplementOption['path'] | ''>('');
@@ -145,6 +148,12 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
     }
   } });
   const valid = canSelect && !conflict && !!option?.allowed && !!roleSplit.trim() && codes.every(c => option.candidate_codes.includes(c) && !excluded(c)) && (!needsWaiver || waiver.trim().length >= 20);
+  const ready = valid && !save.isPending;
+  // Only the mounted editor can enable the header; refetch/unmount clears it before paint.
+  useLayoutEffect(() => {
+    onSaveReady(options.requirement_id, ready);
+    return () => onSaveReady(options.requirement_id, false);
+  }, [onSaveReady, options.requirement_id, ready]);
   const choosePath = (value: SupplementOption['path'] | '') => { setPath(value); setCodes([]); setWaiver(''); };
   const columns: KvColumn<SupplementOption>[] = [
     { key: 'choose', header: '선택', width: 38, className: 'c', cell: o => <input type="radio" name="supplement-path" aria-label={PATH[o.path]} checked={path === o.path} disabled={!canSelect || !o.allowed || save.isPending || conflict} onChange={() => choosePath(o.path)} /> },
@@ -166,7 +175,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
       <KvBox title="보완 선택" note="사람의 결정 · 저장하면 새 판본">
         <form id="supplement-selection" onSubmit={event => {
           event.preventDefault();
-          if (valid && !save.isPending && option) save.mutate({ version: options.version, path: option.path, candidate_codes: [...codes].sort(), role_split: roleSplit.trim(), conditions: conditions.split('\n').map(c => c.trim()).filter(Boolean), note: note.trim() || null, rnd_check_waiver_reason: needsWaiver ? waiver.trim() : null });
+          if (ready && option) save.mutate({ version: options.version, path: option.path, candidate_codes: [...codes].sort(), role_split: roleSplit.trim(), conditions: conditions.split('\n').map(c => c.trim()).filter(Boolean), note: note.trim() || null, rnd_check_waiver_reason: needsWaiver ? waiver.trim() : null });
         }}>
         <fieldset disabled={!canSelect || conflict || save.isPending}>
           <legend className="supplement-sr">보완 선택 작성</legend>
@@ -181,7 +190,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaved, attempts, ac
         {conflict && <p role="alert">선택 내용을 다시 확인해야 합니다. 보완 최신 조회 후 다시 선택하세요.</p>}
         {save.isError && <ErrorState error={save.error} />}
         <p className="supplement-help">최신 조회 시 미저장 선택을 다시 입력합니다. 허용 안 된 경로와 제외 후보는 고를 수 없습니다.</p>
-        <div className="supplement-actions"><button className="kb primary" type="submit" disabled={!valid || save.isPending}>{save.isPending ? '저장 중' : '보완 선택 저장'}</button></div>
+        <div className="supplement-actions"><button className="kb primary" type="submit" disabled={!ready}>{save.isPending ? '저장 중' : '보완 선택 저장'}</button></div>
         </form>
       </KvBox>
     </KvSplit></div>

@@ -29,3 +29,5 @@
 .rfp-supplement .supplement-checkboxes { width:100%; flex:1; }
 .rfp-supplement .supplement-checkboxes label { width:100%; }
 .rfp-supplement .supplement-checkboxes input[type=checkbox] { width:13px; height:13px; min-height:0; flex:0 0 13px; margin:2px 0 0; padding:0; }
+
+.rfp-supplement .supplement-heading { margin:0; font:inherit; font-weight:500; color:#244466; }

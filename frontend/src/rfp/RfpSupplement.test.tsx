@@ -119,6 +119,7 @@ test('옵션과 요구 판본이 다르면 저장 폼을 만들지 않는다', a
   fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
   await screen.findByText(/요구 판본이 변경되었습니다/);
   expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
+  expect((screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('요구 전환 뒤 늦게 온 저장 결과는 새 폼을 덮지 않는다', async () => {
@@ -128,7 +129,7 @@ test('요구 전환 뒤 늦게 온 저장 결과는 새 폼을 덮지 않는다'
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await waitFor(() => expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
-  await screen.findByLabelText('R-024 보완 선택');
+  await screen.findByRole('heading', { name: 'R-024 보완 선택', level: 2 });
   resolve(response(saved()));
   await waitFor(() => expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe(''));
   expect(screen.queryByText(/보완 선택 저장 완료/)).toBeNull();
@@ -179,7 +180,7 @@ test('늦은 옵션 조회 응답도 다른 요구에 붙지 않는다', async (
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
   await screen.findByRole('radio', { name: '외부 제품' });
   finish(response(options(R, 5)));
-  await waitFor(() => expect(screen.getByLabelText('R-024 보완 선택')).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'R-024 보완 선택', level: 2 })).toBeTruthy());
   expect(screen.queryByText(/요구 판본이 변경되었습니다/)).toBeNull();
 });
 
@@ -189,6 +190,7 @@ test.each([401, 403, 404, 503])('보완 조회 %i 오류를 숨기거나 저장 
   fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
   await screen.findByRole('alert');
   expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
+  expect((screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('빈 선택지와 빈 후보는 자동 선택이나 가짜 등급을 만들지 않는다', async () => {
@@ -224,7 +226,7 @@ test('결과 불명 뒤 다른 요구를 보고 돌아와도 원래 본문 재�
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await screen.findByText('결과 불명 유지');
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
-  await screen.findByLabelText('R-024 보완 선택');
+  await screen.findByRole('heading', { name: 'R-024 보완 선택', level: 2 });
   await choose();
   fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
   await screen.findByText('결과 불명 유지');
@@ -368,4 +370,57 @@ test.each([
   expect(tab.textContent).not.toContain('738dbba4');
   fireEvent.click(screen.getByText('원문·요구 상세 / 판본과 출처 확인'));
   expect(await screen.findByText(/속성 원문: 자유 원문 속성/)).toBeTruthy();
+});
+
+
+test('상단 저장은 하단 유효성·pending·충돌을 따르며 같은 폼을 제출한다', async () => {
+  let finish!: (value: Response) => void;
+  const f = live((_url, init) => init?.method === 'POST' ? new Promise<Response>(resolve => { finish = resolve; }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  await screen.findByRole('radio', { name: '외부 제품' });
+  const top = screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement;
+  const bottom = screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement;
+  expect(top.disabled).toBe(true); expect(bottom.disabled).toBe(true);
+  fireEvent.click(top); expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  await choose();
+  await waitFor(() => { expect(top.disabled).toBe(false); expect(bottom.disabled).toBe(false); });
+  fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '   ' } });
+  expect(top.disabled).toBe(true); expect(bottom.disabled).toBe(true);
+  fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '자사 설치 / 협력사 공급' } });
+  await waitFor(() => expect(top.disabled).toBe(false));
+  fireEvent.click(top);
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect(top.disabled).toBe(true); expect(bottom.disabled).toBe(true);
+  expect(f.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+  finish(jsonResponse(409, errorBody('TFT_VERSION_CONFLICT', '최신 판본 확인')));
+  await screen.findByText(/선택 내용을 다시 확인해야/);
+  expect(top.disabled).toBe(true); expect(bottom.disabled).toBe(true);
+});
+test.each(['options', 'candidates'])('%s 로딩 중에는 폼 없는 상단 저장도 비활성이다', async pending => {
+  let finish!: (value: Response) => void;
+  const f = live(url => (pending === 'options' ? url.endsWith('/supplement-options') : url.includes('/partner-candidates?')) ? new Promise<Response>(resolve => { finish = resolve; }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
+  const top = screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement;
+  expect(top.disabled).toBe(true); fireEvent.click(top);
+  expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  finish(response(pending === 'options' ? options() : { items: candidates() }));
+  await screen.findByRole('button', { name: '보완 선택 저장' }); expect(top.disabled).toBe(true);
+});
+
+test.each(['error', 'version'])('유효 폼 재조회가 %s이면 상단 저장의 이전 활성 상태를 지운다', async outcome => {
+  let reads = 0;
+  let finish!: (value: Response) => void;
+  live(url => url.endsWith('/supplement-options') && ++reads > 1 ? new Promise<Response>(resolve => { finish = resolve; }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`); await choose();
+  const top = screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement;
+  await waitFor(() => expect(top.disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '보완 최신 조회' }));
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect(top.disabled).toBe(true);
+  finish(outcome === 'error' ? jsonResponse(503, errorBody('FAILED', '재조회 실패')) : response(options(R, 2)));
+  await screen.findByText(outcome === 'error' ? '재조회 실패' : /요구 판본이 변경되었습니다/);
+  expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
+  expect(top.disabled).toBe(true);
 });
