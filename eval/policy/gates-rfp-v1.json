@@ -145,8 +145,8 @@
         "denominator": "초안의 주요 제안 문장 수",
         "report": "비율과 건수를 함께 적는다(예: 19/21)",
         "tool": {
-          "status": "MISSING",
-          "ref": "KAN-188"
+          "status": "IMPLEMENTED",
+          "ref": "eval.rfp_metrics.summarize_draft_trace(주요 제안 문장은 PROPOSAL_SECTIONS, 입력은 scripts/rfp_draft_trace_input.py)"
         }
       }
     }

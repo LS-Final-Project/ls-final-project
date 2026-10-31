@@ -45,6 +45,7 @@ from eval.rfp_metrics import (
     gate_values,
     gold_fingerprint,
     summarize_candidate_grades,
+    summarize_draft_trace,
     summarize_integration_responsibility,
     summarize_requirement_extraction,
     unconfirmed_items,
@@ -236,13 +237,20 @@ def precheck(gold: GoldFile, numbers: Sequence[int], run_label: RunLabel) -> str
     return None
 
 
-def summarize(gold: GoldFile, runs: Sequence[DocumentRun], run_label: RunLabel) -> dict:
+def summarize(
+    gold: GoldFile,
+    runs: Sequence[DocumentRun],
+    run_label: RunLabel,
+    drafts: Mapping[str, Mapping] | None = None,
+) -> dict:
     """정답 전체와 실행 결과를 지표로 모은다. 사례 키는 'D{문서 번호}'다.
 
     Args:
         gold: 정답 파일.
         runs: 문서별 실행 결과. 정답에 없는 문서는 받지 않는다.
         run_label: FIRST(평가 문서 첫 실행, 공식) 또는 REMEASURE(결함 수정 뒤 재측정, 참고값).
+        drafts: 문서 번호 문자열 → summarize_draft_trace 입력. 처리 함수를 돌린 프로젝트의 초안이다
+            (scripts/rfp_draft_trace_input.py). 없으면 초안 추적률은 None이다.
 
     Returns:
         dict: extraction·grades·integration 요약과 게이트 값 9개(gate_values), gold_fingerprint.
@@ -293,12 +301,20 @@ def summarize(gold: GoldFile, runs: Sequence[DocumentRun], run_label: RunLabel) 
         {case[r.document_number]: by_number[r.document_number].assembly_clauses for r in runs},
         {case[r.document_number]: r.integration or {} for r in runs},
     )
+    draft_trace = None
+    if drafts is not None:
+        if {str(r.document_number) for r in runs} - set(drafts):
+            raise ValueError("EVAL_INVALID_INPUT")
+        draft_trace = summarize_draft_trace(
+            {case[r.document_number]: drafts[str(r.document_number)] for r in runs}
+        )
     return {
         "gold_fingerprint": gold_fingerprint(gold_requirements),
         "extraction": extraction,
         "grades": grades,
         "integration": integration_summary,
-        "gates": gate_values(extraction, grades, integration_summary),
+        "draft_trace": draft_trace,
+        "gates": gate_values(extraction, grades, integration_summary, draft_trace),
     }
 
 

@@ -95,9 +95,11 @@ OPEN은 확인된 질문이지만 발송 여부는 별도 확인, REPLIED는 회
 추적 불변식과 count, 조건/미확인/재검토, 복수 경로의 후보 ID 유일성, 통합 책임과 질문 상태를 확인한다.
 실제 기획 사례 문구·제품 코드를 하드코딩하지 않는다. `scripts/check_backend.py tft`가 새 테스트를 수집한다.
 
-공식 `rfp_draft_trace_rate` 측정과 `eval.rfp_metrics.gate_values` 연결은 **후속 작업**이다.
-현재는 생성 문장의 근거 추적 불변식만 검사하며 공식 평가 통과로 보고하지 않는다.
-분모가 0인 빈 초안의 추적률도 1.0으로 보고하지 않는다.
+공식 `rfp_draft_trace_rate`는 `eval.rfp_metrics.summarize_draft_trace`가 처리된 프로젝트의 최신 초안으로 잰다.
+입력은 `scripts/rfp_draft_trace_input.py`가 만들고 `rfp_candidate_run --drafts`로 넘긴다. 분모는 자사 대응·차이·
+협력사 보완·가정 절의 문장이다. 분자는 프로젝트에 실제로 있는 요구·제품·협력사 근거가 있거나 가정 표시(`unconfirmed`)가
+있는 문장이다. 생성기의 `evidence_missing` 표시는 쓰지 않는다. 조항·질문만 달린 문장은 분자에 들지 않는다.
+분모가 0인 빈 초안의 추적률도 1.0으로 보고하지 않는다. 여러 문서 중 하나라도 초안이 비어 있으면 전체 값이 없다.
 기획서 4.10 원문과 Jira 전체 완료조건은 이 구현에 별도로 제공되지 않았으므로 이 계약은
 supervisor가 승인한 순수 엔진 범위다. 기획 원문 전체 구현·HTTP/저장/배포·실제 업무 성능 완료를 뜻하지 않는다.
 
