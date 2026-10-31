@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import io
 import zipfile
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID, uuid5
 from xml.etree import ElementTree as ET
@@ -22,6 +23,13 @@ Row = dict[str, Any]
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MAX_EXPORT_BYTES = 25 * 1024 * 1024
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+EVIDENCE_TEXT = {
+    "requirement": "요구",
+    "clause": "조항",
+    "product": "자사 제품",
+    "partner": "가상 협력사",
+    "question": "질문",
+}
 SECTION_TITLES: dict[s.DraftSection, str] = {
     "CUSTOMER_GOAL_SCOPE": "고객 목표·제안 검토 범위",
     "OUR_RESPONSE": "자사 후보",
@@ -96,7 +104,32 @@ async def reserve(
     return id
 
 
-def render_docx(draft: s.Draft, review_version: int) -> bytes:
+def yes_no(value: bool) -> str:
+    return "예" if value else "아니오"
+
+
+def evidence_lines(row: s.Sentence, labels: Mapping[str, str]) -> list[str]:
+    """근거를 종류별 한 줄로 묶는다. 번호를 모르는 ID는 빼지 않고 그대로 둔다.
+
+    Args:
+        row: 문장.
+        labels: 근거 ID → 표시 번호.
+
+    Returns:
+        list[str]: 근거 종류 순서를 지킨 줄.
+    """
+    groups: dict[str, list[str]] = {}
+    for evidence in row.evidence:
+        groups.setdefault(evidence.type, []).append(labels.get(evidence.id, evidence.id))
+    return [
+        f"근거 {EVIDENCE_TEXT[kind]} {len(names)}건: {', '.join(names)}"
+        for kind, names in groups.items()
+    ]
+
+
+def render_docx(
+    draft: s.Draft, review_version: int, labels: Mapping[str, str] | None = None
+) -> bytes:
     """고지·모든 절/문장·조건·근거·검토 표시를 실제 OOXML에 보존한다. 파일 생성은 결정적이다."""
     root = ET.Element(W + "document")
     body = ET.SubElement(root, W + "body")
@@ -124,6 +157,7 @@ def render_docx(draft: s.Draft, review_version: int) -> bytes:
                     run, W + "t", {"{http://www.w3.org/XML/1998/namespace}space": "preserve"}
                 ).text = part
 
+    number = 0
     paragraph(DISCLAIMER)
     paragraph(f"프로젝트 {draft.project_id} / 검토본 {review_version} / 초안 {draft.version}")
     paragraph(f"데이터 출처: {draft.data_origin} / 기준 시각: {draft.known_at.isoformat()}")
@@ -131,13 +165,15 @@ def render_docx(draft: s.Draft, review_version: int) -> bytes:
         paragraph(SECTION_TITLES[section.section])
         for row in section.sentences:
             paragraph(row.text)
-            paragraph(f"문장 ID: {row.sentence_id}")
+            number += 1
+            paragraph(f"문장 번호: S{number}")
             for condition in row.conditions:
                 paragraph(f"조건·미확인: {condition}")
-            for evidence in row.evidence:
-                paragraph(f"근거 [{evidence.type}]: {evidence.id}")
+            for line in evidence_lines(row, labels or {}):
+                paragraph(line)
             paragraph(
-                f"미확약: {row.unconfirmed} / 재검토: {row.needs_rereview} / 근거 누락: {row.evidence_missing}"
+                f"미확약: {yes_no(row.unconfirmed)} / 재검토: {yes_no(row.needs_rereview)} / "
+                f"근거 누락: {yes_no(row.evidence_missing)}"
             )
     paragraph(DISCLAIMER)
     entries = {
@@ -188,7 +224,8 @@ async def process(
     draft = await db.load_snapshot(conn, job.project_id, review["draft_version"])
     if draft is None:
         raise ValueError("TFT_DRAFT_NOT_FOUND")
-    data = await asyncio.to_thread(render_docx, draft, row["review_version"])
+    labels = await db.evidence_labels(conn, job.project_id)
+    data = await asyncio.to_thread(render_docx, draft, row["review_version"], labels)
     digest = hashlib.sha256(data).hexdigest()
     key = f"rfp/{job.project_id}/exports/{row['id']}.docx"
     try:

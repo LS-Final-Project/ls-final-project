@@ -788,6 +788,8 @@ class Draft(Provenance):
     # 고정 문구: 검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.
     disclaimer: str
     evidence_missing_count: int
+    # 근거 ID → 사람이 읽는 번호. 조회 응답에만 채우고 판본에 저장하지 않는다.
+    evidence_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class SentenceEdit(Model):

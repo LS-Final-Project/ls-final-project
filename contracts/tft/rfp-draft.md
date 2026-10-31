@@ -257,6 +257,14 @@ INPUT_BLOCKED로 양식을 유지한다. 양식에서 제목/대표를 분리할
   실패에서 공급자가 미보고한 토큰·비용은 null로 두며 0비용 성공으로 꾸미지 않는다.
 - 기존 검토본 저장/내보내기 인가·완전성 검사·불변 snapshot·PDF422는 그대로다.
 
+### 내부 이름 표시
+
+코드값은 저장·판정에 그대로 쓰고 초안·DOCX·화면에 나갈 때만 바꾼다. 조건 이름은 `CONDITION_TEXT`, 속성 키는 `ATTRIBUTE_TEXT`, 협력사 필수 확인 항목은 `check_text`로 바꾼다(`backend/engine/rfp/vocabulary.py`). 조건 문구는 초안을 만들 때 정해지므로 이전 판본 문장은 다시 처리해야 바뀐다.
+
+근거 저장값은 ID다. 경로25 응답의 `evidence_labels`와 DOCX는 요구 `2.4.E.1.a-2`, 조항 번호, 질문 `Q1`로 보여 준다. DOCX는 근거를 종류별 한 줄로 묶고 문장은 화면과 같은 `S1` 번호로 표시한다. 번호를 모르는 ID는 빼지 않고 그대로 둔다.
+
+모델 입력·출력의 내부 코드 검사(`CODE_WORDS`)는 식별자 꼴(밑줄·전체 대문자)만 본다. 고객 원문의 voltage 같은 일반 단어는 내부 코드가 아니다. 금액·UUID·근거 ID·협력사 코드 검사와 `KAN-`·`SYN-`·`DS-` 표기 차단은 그대로다.
+
 ### 경로33: 모델 작성 결과 요약
 
 `GET /api/v1/tft/projects/{id}/draft/rewrites/{job_id}`는 프로젝트를 볼 수 있는 사용자에게 작업 결과를 준다. 없는 작업은 404 `TFT_DRAFT_REWRITE_NOT_FOUND`다.

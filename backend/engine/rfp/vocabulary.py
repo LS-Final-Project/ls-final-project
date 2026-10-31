@@ -268,3 +268,88 @@ def form_conflict(wanted: str, offered: str) -> bool:
     """
     theirs = form_axes(offered)
     return any(theirs.get(axis, value) != value for axis, value in form_axes(wanted).items())
+
+
+# 표시 이름. 코드값은 저장·판정에 그대로 쓰고 초안·DOCX에 나갈 때만 바꾼다.
+# 속성 이름은 화면 frontend/src/rfp/labels.ts ATTRIBUTE_LABEL과 같다.
+ATTRIBUTE_TEXT: dict[str, str] = {
+    "form": "형식",
+    "rated_max_voltage": "정격 최대전압",
+    "bil": "기준 충격 절연",
+    "short_time_withstand_current": "단시간 내전류",
+    "rated_current": "정격 전류",
+    "arc_resistant": "아크 내성",
+    "internal_arc_classification": "내부 아크 등급",
+    "secondary_voltage": "2차 전압",
+    "primary_voltage": "1차 전압",
+    "rated_power": "정격 용량",
+    "insulation_class": "절연 등급",
+    "impedance": "임피던스",
+    "tap": "탭",
+    "forced_air_capacity_increase": "강제 공랭 용량 증가",
+    "protection_functions": "보호 기능",
+    "arc_flash_reduction": "아크플래시 저감",
+    "winding_material": "권선 재질",
+    "winding_temperature_sensor": "권선 온도 센서",
+    "communication_interface": "통신 규격",
+    "warranty_months": "보증 기간",
+    "rated_operational_voltage": "정격 사용 전압",
+    "busbar_rated_current": "모선 정격 전류",
+    "power_frequency_withstand": "상용주파 내전압",
+    "breaking_capacity_icu": "정격 한계 차단 용량",
+    "breaking_capacity_ics": "정격 사용 차단 용량",
+    "rated_short_circuit_breaking_current": "정격 단락 차단 전류",
+    "frame_size": "프레임 크기",
+    "number_of_poles": "극수",
+    "vector_group": "결선",
+    "protection_degree": "보호 등급",
+}
+CONDITION_TEXT: dict[str, str] = {
+    "duration": "지속 시간",
+    "ambient_temperature": "주위 온도",
+    "temperature_rise": "온도 상승",
+    "reference_temperature": "기준 온도",
+    "frequency": "주파수",
+    "altitude": "고도",
+    "voltage": "전압",
+    "current_type": "전류 종류",
+    "duty": "사용 조건",
+    "cooling": "냉각 방식",
+    "tap_type": "탭 방식",
+    "arc_current": "아크 전류",
+}
+# 협력사 필수 확인 항목. 화면 RfpSupplement.tsx checkLabel과 같다.
+RESPONSIBILITY_TEXT: dict[str, str] = {
+    "assembly": "조립 책임",
+    "supply": "공급 책임",
+    "install": "설치 책임",
+    "test": "시험 책임",
+    "calc": "계산 책임",
+    "training": "교육 책임",
+    "integration": "통합 책임",
+    "warranty": "보증 책임",
+}
+CHECK_TEXT: dict[str, str] = {
+    "supply_region": "공급 지역",
+    "manufacturer_list": "제조사 목록",
+    "contract_scope": "계약 범위 확인",
+    "certification": "인증",
+}
+
+
+def check_text(name: str) -> str:
+    """협력사 필수 확인 항목 이름을 표시 이름으로 바꾼다.
+
+    Args:
+        name: 등급 판정의 항목 이름(코드 또는 원문 속성).
+
+    Returns:
+        str: 표시 이름. 코드꼴인데 이름이 없으면 일반 이름, 원문 속성은 그대로다.
+    """
+    _, dot, tail = name.partition("integrator_capable.")
+    if dot:
+        return RESPONSIBILITY_TEXT.get(tail, "통합 수행 항목")
+    for table in (ATTRIBUTE_TEXT, CONDITION_TEXT, CHECK_TEXT):
+        if name in table:
+            return table[name]
+    return "사양 항목" if "_" in name or "." in name else name
