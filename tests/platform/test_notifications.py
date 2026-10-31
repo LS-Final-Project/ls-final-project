@@ -151,7 +151,8 @@ def test_my_list_count_and_read_never_take_a_caller_supplied_user(monkeypatch):
             "count": 1
         }
         count.assert_awaited_once_with(conn, USER)
-        assert expand.await_count == 2
+        expand.assert_not_awaited()
+        conn.execute.assert_not_awaited()
         for _ in range(2):
             assert client.post(f"/api/v1/platform/notifications/{SUBJECT}/read").status_code == 204
         read.assert_awaited_with(conn, USER, SUBJECT)
@@ -198,3 +199,28 @@ def test_missing_session_is_rejected_before_notification_queries(monkeypatch):
         assert client.get("/api/v1/platform/notifications/unread-count").status_code == 401
         assert client.post(f"/api/v1/platform/notifications/{SUBJECT}/read").status_code == 401
     query.assert_not_awaited()
+
+
+def test_get_list_and_count_execute_only_select_and_never_expand(monkeypatch):
+    list_mine, unread_count = repository.list_mine, repository.unread_count
+    client, conn, expand, _, _, _ = setup(monkeypatch)
+    expand.side_effect = AssertionError("GET must not expand recipients")
+    monkeypatch.setattr(repository, "list_mine", list_mine)
+    monkeypatch.setattr(repository, "unread_count", unread_count)
+
+    async def execute(sql, params):
+        assert sql.lstrip().startswith("SELECT ")
+        assert params[0] == USER
+        cursor = AsyncMock()
+        cursor.fetchall.return_value = []
+        cursor.fetchone.return_value = {"count": 3}
+        return cursor
+
+    conn.execute.side_effect = execute
+    with client:
+        assert client.get("/api/v1/platform/notifications").json()["data"]["items"] == []
+        assert client.get("/api/v1/platform/notifications/unread-count").json()["data"] == {
+            "count": 3
+        }
+    assert conn.execute.await_count == 2
+    expand.assert_not_awaited()

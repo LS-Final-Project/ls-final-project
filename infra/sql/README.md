@@ -153,6 +153,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P31 | `platform/20261102_KAN-201_web_push.sql` | P30 | platform_migrator | 가능 | notify.push_subscriptions / push_deliveries | 미확인 |
 | P32 | `platform/20261108_KAN-159_job_reap.sql` | P28(헤더) | platform_migrator | 가능 | has_column_privilege('platform_app','runtime.job_control','failure_code','UPDATE') | 미적용 |
 | P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능 | rfp.draft_rewrite 접수 제약 | 미적용 |
+| P34 | `platform/20261110_KAN-201_notification_expansion.sql` | P30 | platform_migrator | 가능 | notify.notification_intents의 notification_expand_on_insert trigger | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -378,6 +379,15 @@ P30은 운영자 연결에서 `CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION 
 어느 이력도 삭제·자동 병합하지 않고 운영자가 충돌 원인을 확인한다. 두 표는 함께 notify로 이동하므로
 업무 앱의 runtime 작업 표 접근은 여전히 허용하지 않는다.
 
+
+### KAN-201 생성 시 수신자 펼침(P34)
+
+P30 뒤 `python3 scripts/workspace.py migrate platform 20261110_KAN-201_notification_expansion.sql`을
+조회 코드 배포 전에 적용한다. 기존 pending 의도도 이 트랜잭션에서 펼치며 실패하면 전체 rollback한다.
+신규 INSERT는 플랫폼 소유 비공개 trigger 함수로 수신자를 만들고 업무 역할의 identity 접근·수신표 권한은 늘리지 않는다.
+직접 함수 EXECUTE는 PUBLIC/실행 역할에서 회수하고 고정 search_path를 사용한다. 재적용은 기존 읽음 시각을 보존한다.
+GET 목록/unread-count에서는 펼침·쓰기하지 않으며 push worker의 기존 pending 복구는 남는다.
+로컬 코드 검사 통과는 실제 DB 적용 성공을 뜻하지 않는다.
 
 ### KAN-201 Web Push 적용 (P31)
 

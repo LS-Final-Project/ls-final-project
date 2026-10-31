@@ -7,7 +7,8 @@
 
 `backend.shared.notifications.enqueue_notification(conn, *, kind, subject_id, audience, actor_id, dedupe_key, needs_review=False) -> bool`
 은 비동기 연결, `enqueue_notification_sync`는 동기 worker 연결용이다. 두 함수는 같은 입력 검증과 INSERT SQL을 쓴다.
-제공 conn에 INSERT 한 번만 실행하며 commit·SELECT·RETURNING·identity 조회·외부 호출은 없다. 성공 INSERT는 true,
+Python writer는 제공 conn에 INSERT 한 번만 실행하며 commit·SELECT·RETURNING·identity 조회·외부 호출은 없다.
+P34의 생성 trigger가 같은 트랜잭션에서 플랫폼 소유 함수로 활성 수신자를 펼친다. 업무 역할의 직접 identity 접근 권한은 추가하지 않는다. 성공 INSERT는 true,
 유일 dedupe_key 충돌은 false다. 호출자가 업무와 같은 트랜잭션 안에서 부르며 rollback되면 의도도 없다.
 
 - kind는 `cs.review_wait`, `cs.safety`, `cs.reply`, `mail.unknown`, `cs.transfer`, `rfp.done`, `rfp.failed`다.
@@ -28,8 +29,12 @@
 user 범위는 해당 사용자, role은 cs_agent 역할, dept는 부서 일치 및 dept_staff 역할,
 manager_dept는 manager 역할 및 identity.manager_departments 범위가 모두 필요하다.
 수신 INSERT는 PK 충돌을 무시하며 expanded_at과 **같은 트랜잭션**에 쓴다. 수신자 0명도 펼침 완료다.
-수신자는 플랫폼이 polling에서 의도를 최초로 펼치는 시점의 활성 상태·역할·부서·관리범위로 정한다.
-이벤트 발생 시점의 수신자 스냅샷을 저장하지 않으며, 펼침 완료 뒤 변경은 소급 반영하지 않는다. 이는 시연 범위에서 승인된 동작이다. 실패는 빈 성공으로 숨기지 않고 전체 rollback한다.
+신규 수신자는 의도 INSERT 시점의 활성 상태·역할·부서·관리범위로 확정한다. 생성 후 변경은 소급 반영하지 않는다.
+P34는 과거 pending 의도도 적용 시점에 펼친다. `expand_pending`은 push worker의 복구용으로 유지하며 GET에서 호출하지 않는다.
+목록과 unread-count는 SELECT만 실행한다. 읽음 POST의 기존 본인 범위·CSRF·멱등 시각 정책은 유지한다.
+P34의 함수는 `search_path=pg_catalog`, 스키마 한정 SQL, 소유자 실행 경계를 사용하고 PUBLIC/업무/플랫폼 실행 역할의 직접 EXECUTE를 회수한다.
+의도·수신행·expanded_at은 같은 트랜잭션이며 실패는 기존 생산자의 savepoint 전체를 되돌린다. 업무 상태와 완료 이벤트는 기존 정책대로 별도 보존한다.
+유일 dedupe_key 충돌은 AFTER INSERT trigger를 실행하지 않으므로 기존 수신/읽음 시각을 바꾸지 않는다.
 
 | API | 동작 |
 | --- | --- |
@@ -37,7 +42,7 @@ manager_dept는 manager 역할 및 identity.manager_departments 범위가 모두
 | GET `/api/v1/platform/notifications/unread-count` | 내 read_at=null 수 |
 | POST `/api/v1/platform/notifications/{intent_id}/read` | 본인 수신 행만 읽음, 성공204; 이미 읽었으면 시각 유지; 남의 것과 없는 것 모두404 |
 
-두 GET은 bounded batch 펼침 후 조회하므로 대기 의도가 많으면 다음 polling에서 계속한다. 스케줄러가 필요하지 않다.
+두 GET은 수신함 SELECT만 실행하며 펼침이나 expanded_at 갱신을 하지 않는다. 생성 시 trigger와 기존 pending 이관으로 앱 알림을 준비한다.
 반환 필드는 id·kind·고정 title·link_path·created_at·read_at뿐이다. audience·actor·dedupe·수신자 목록을 공개하지 않는다.
 사용자 ID는 기존 me의 서버 세션에서만 얻고 query/body로 선택하지 않는다. 알림 링크는 업무 자원 접근 권한을 부여하지 않는다.
 운영 인증은 기존 me, 변경은 기존 mutation_token(동일 Origin·세션 결속 CSRF)을 사용한다.
@@ -68,7 +73,7 @@ CS 시스템 완료 시에도 기존 계획대로 lease.actor_id를 제외한다
 
 ## 적용·검증
 
-[SQL 적용 순서](../../infra/sql/README.md)의 C22·T16·P30을 코드 배포 전에 적용한다. 모두 재실행 가능하며 기존 역할을 확장/승격하지 않는다.
+[SQL 적용 순서](../../infra/sql/README.md)의 C22·T16·P30·P34를 코드 배포 전에 적용한다. 모두 재실행 가능하며 기존 역할을 확장/승격하지 않는다.
 실제 writer 역할의 최초/중복 INSERT가 SELECT 권한 없이 되는지, 신규 표 권한, SKIP LOCKED 동시성·rollback·본인 API·CSRF·Origin·
 안전/확인 대기 상호배제·RFP 접수자 포함을 검증한다. 로컬에 전용 DB가 없으면 실제 DB 검사는 미실행으로 구분하고 CI에 위임한다.
 단위 fake 성공은 실제 DB 동시성·운영 배포·화면 표시·Web Push 성공의 근거가 아니다.
@@ -149,8 +154,7 @@ BackgroundTasks/비동기 잔여 작업을 사용하지 않는다. Job launch �
 
 별도 `python -m backend.api.platform.notifications.push_worker` Job은 유한 batch(기본100)로
 기존 펼침을 실행하고 현재 활성 사용자·미읽음·생성 후 1시간 이내 알림만 처리한다.
-새 구독 이전 과거 알림은 발송하지 않는다. 플랫폼 최초 polling/Job 펼침 시점의 수신자 정책을
-그대로 사용한다. `notify.push_deliveries`는 (intent_id,subscription_id) 유일 키다.
+새 구독 이전 과거 알림은 발송하지 않는다. 의도 생성 시 확정된 수신자를 사용하며, 과거 pending은 migration/복구 시점에 확정한다. `notify.push_deliveries`는 (intent_id,subscription_id) 유일 키다.
 SKIP LOCKED로 한 시도를 확보하고 SENDING/시도 수를 별도 TX로 commit한 뒤 구독 세대를
 다시 잠가 현재 소유권·미읽음·활성·TTL을 확인한다. 확인 실패는 SKIPPED이다.
 
@@ -243,3 +247,13 @@ U1~U4 후속 경계 확인:
   이 구간의 브라우저 장애에 대한 전체 시간 상한은 보장하지 않는다. 다른 탭 대기는 5초 뒤 실패하고,
   정리 실패 안내 후 계정 전환/로그아웃은 진행할 수 있다. 브라우저 사이트 설정 확인이 필요하다.
   실제 탭간 Web Locks/권한 동작은 Chrome 실환경 미확인이다.
+
+
+## 생성 측 펼침 적용(P34)
+
+`20261110_KAN-201_notification_expansion.sql`은 P30 뒤 플랫폼 소유 trigger와 비공개 함수를 설치한다.
+생산자는 `job_runtime`(C/S 검토/안전, RFP 완료/실패), `cs.workflow.service`(회신/이관),
+`platform.mail.send`(발송 결과 불명)의 공통 동기/비동기 enqueue 경로다. 생산자별 savepoint·경고·업무 commit 경계는 변경하지 않는다.
+Web Push OFF에서도 앱 수신함 생성은 INSERT로 완료된다. 푸시 발송이나 외부 API 호출을 trigger에 넣지 않는다.
+기존 pending backfill은 migration 트랜잭션에서 수행하며 새 표/업무 권한/역할 승격은 없다.
+실제 PostgreSQL 권한·재적용·수신 생성·savepoint 회귀는 auth-database 작업의 `test_notifications_db.py`로 검증한다.
