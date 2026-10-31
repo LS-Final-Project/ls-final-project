@@ -165,7 +165,7 @@ export default function TicketDetail() {
         </section>
         <section className="kv-box">
           <h2>설치 장비 확인<small>확인 전</small></h2>
-          <div className="body"><div className="ls-legacy" style={{ minHeight: 0, padding: 0 }}><TicketUnits key={ticketId} ticketId={ticketId} /></div></div>
+          <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} /></div>
         </section>
         <section className="kv-box ai-pre">
           <h2>AI 분류<span className="unc" style={{ marginLeft: 8 }}>아직 없음, KAN-103 뒤</span></h2>

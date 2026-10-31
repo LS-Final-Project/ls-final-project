@@ -15,7 +15,8 @@ test('사용자 조회 전 요청하지 않고 후보를 확정 이력으로 표
   fireEvent.click(screen.getByRole('button', {name:'장비 정보 조회'}));
   await screen.findByText('확정 장비가 없어 이전 문의를 표시하지 않습니다.');
   expect(screen.getByText('VSN-TEST')).toBeTruthy();
-  expect(screen.getByText(/고객·제품과 일치 · 후보/)).toBeTruthy();
+  // 보드의 표는 '고객/제품 일치'를 예·아니오로, 연결 상태를 후보·확정·제외로 적는다. 후보를 확정으로 적지 않는다.
+  expect(screen.getByText('예')).toBeTruthy();expect(screen.getByText('후보')).toBeTruthy();expect(screen.queryByText('확정')).toBeNull();
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 test('교체 전 이력은 별도로 표시하고 원문 링크만 제공한다', async () => {
@@ -65,4 +66,18 @@ test('같은 QueryClient의 신선한 캐시가 있어도 재진입 조회 중 �
  const page=render(<QueryClientProvider client={client}><MemoryRouter><TicketUnits ticketId="ticket-1"/></MemoryRouter></QueryClientProvider>);
  expect(screen.queryByText('VSN-TEST')).toBeNull();fireEvent.click(screen.getByText('장비 정보 조회'));
  await waitFor(()=>expect(fetch).toHaveBeenCalled());expect(screen.queryByText('VSN-TEST')).toBeNull();page.unmount();client.clear();
+});
+
+test('고객·제품이 다른 장비는 아니오로, 확정과 제외는 연결 열에 그대로 적는다', async () => {
+  const other = { ...unit, id: 'unit-2', serial_no: 'VSN-OTHER' };
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => jsonResponse(200, { data: String(url).endsWith('/units')
+    ? { items: [{ unit, link: { link_status: 'CONFIRMED' }, matches_ticket: true }, { unit: other, link: { link_status: 'REJECTED' }, matches_ticket: false }] }
+    : { status: 'NO_CONFIRMED_UNIT', unit: null, items: [] } })));
+  view(); fireEvent.click(screen.getByRole('button', { name: '장비 정보 조회' }));
+  await screen.findByText('VSN-OTHER');
+  // 불일치 장비도 어느 고객 장비인지 보여야 한다.
+  expect(screen.getAllByText(/고객 C1, 출처 synthetic PROVIDED/).length).toBe(2);
+  expect(screen.getByText('아니오')).toBeTruthy();
+  expect(screen.getByText('확정')).toBeTruthy();
+  expect(screen.getByText('제외')).toBeTruthy();
 });
