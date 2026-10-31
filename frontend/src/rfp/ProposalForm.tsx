@@ -39,7 +39,8 @@ export default function ProposalForm({ projectId, requirement, onCancel, onSaved
     onSuccess: () => { nextKey(); onSaved(); },
     onError: error => { if (settled(error)) nextKey(); },
   });
-  const ready = Object.keys(proposed).length > 0 && rationale.trim() !== '';
+  // 원문 확인 표시가 있는 요구는 값을 그대로 두고 '맞다'만 제안할 수 있다.
+  const ready = (Object.keys(proposed).length > 0 || requirement.needs_review) && rationale.trim() !== '';
   return <div style={{ margin: '8px 14px 0' }}>
     <KvBox title={`변경 제안, ${requirement.code} ${spec.attribute ?? ''}`} note="바꿀 항목만 적습니다. 저장하면 승인 대기로 들어가고 승인 뒤 반영">
       <form onSubmit={event => { event.preventDefault(); if (ready) create.mutate(); }}>
@@ -63,7 +64,7 @@ export default function ProposalForm({ projectId, requirement, onCancel, onSaved
           <input id="proposal-evidence" type="text" placeholder="쉼표로 구분" value={evidence} onChange={event => setEvidence(event.target.value)} /></div>
         <div className="kv-actions">
           <button type="button" className="kb" onClick={onCancel}>취소</button>
-          <button type="submit" className="kb primary" disabled={!ready || create.isPending}>제안 저장</button>
+          <button type="submit" className="kb primary" disabled={!ready || create.isPending}>{requirement.needs_review && Object.keys(proposed).length === 0 ? '값 확인 제안' : '제안 저장'}</button>
         </div>
         {create.isError && <Failure error={create.error} onReload={onReload} messages={SAVE_CONFLICT} />}
       </form>

@@ -274,11 +274,12 @@ async def list_requirements(
     necessity: s.Necessity | None = None,
     status: s.RequirementStatus | None = None,
     needs_rereview: bool | None = None,
+    needs_review: bool | None = None,
     has_open_question: bool | None = None,
     next_owner_field: s.NextOwner | None = None,
     unresolved_mandatory: bool | None = None,
 ) -> SuccessResponse[s.RequirementList]:
-    """12. 요구 목록·필터 9개."""
+    """12. 요구 목록·필터 10개."""
     data = await routes_read.list_requirements(
         request,
         principal,
@@ -290,6 +291,7 @@ async def list_requirements(
             "necessity": necessity,
             "status": status,
             "needs_rereview": needs_rereview,
+            "needs_review": needs_review,
             "has_open_question": has_open_question,
             "next_owner_field": next_owner_field,
             "unresolved_mandatory": unresolved_mandatory,

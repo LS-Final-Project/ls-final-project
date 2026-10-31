@@ -1272,6 +1272,111 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
     assert [p["decided_by"] for p in listed] == [str(SALES)]
 
 
+def review(client, gap):
+    url = f"/projects/{gap['project']}/draft/review-versions"
+    return call(client, "POST", url, OWNER, {"version": 1}, uuid4().hex)
+
+
+def flag(admin, gap, columns):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            f"UPDATE tft.requirement_versions SET {columns} WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+        # 초안 생성은 등급 없는 후보 코드를 거부한다. 합성 선택지는 후보 없이 둔다.
+        conn.execute(
+            "UPDATE tft.supplement_options SET candidate_codes='{}' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+
+
+@pytest.mark.parametrize(
+    ("proposed", "marks"),
+    [({}, []), ({"reason": "원문과 다름"}, [("requirement",), ("supplement",)])],
+)
+def test_approval_ends_the_extraction_warning_and_a_plain_check_marks_nothing(
+    client, gap, admin, proposed, marks
+):
+    """코드 경고는 승인 판본에 잇지 않고, 값 그대로의 확인은 재검토 표시를 남기지 않는다."""
+    assert choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"]).status_code == 200
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET needs_review=true WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+    listed = data(get(client, f"/projects/{gap['project']}/requirements?needs_review=true"))
+    assert [i["requirement_id"] for i in listed["items"]] == [str(gap["requirement"])]
+    body = {
+        "requirement_id": str(gap["requirement"]),
+        "proposed": proposed,
+        "rationale": "원문 대조",
+    }
+    url = f"/projects/{gap['project']}/proposals"
+    made = call(client, "POST", url, OWNER, body, uuid4().hex)
+    assert made.status_code == 201, made.text
+    approved = decide(client, made.json()["data"])
+    assert approved.status_code == 200, approved.text
+    detail = approved.json()["data"]
+    assert detail["needs_review"] is False
+    assert detail["judgement"]["provenance_kind"] == "human_input"
+    assert detail["judgement"]["decided_by"] == str(SALES)
+    assert not data(get(client, f"/projects/{gap['project']}/requirements?needs_review=true"))[
+        "items"
+    ]
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT target_kind FROM tft.rereview_marks WHERE project_id=%s ORDER BY 1",
+                (gap["project"],),
+            ).fetchall()
+            == marks
+        )
+        confirmed = conn.execute(
+            "SELECT detail->>'needs_review_confirmed' FROM tft.rfp_audit_events "
+            "WHERE action='proposal.approve' AND project_id=%s",
+            (gap["project"],),
+        ).fetchone()
+    assert confirmed == ("true",)
+
+
+def test_a_flagged_sentence_is_released_by_the_approved_check(client, app_dsn, gap, admin):
+    """원문 확인 표시가 잡은 초안 문장은 확인 제안 승인으로 풀려 검토본을 저장한다."""
+    flag(admin, gap, "unresolved='[]', next_owner_field='TECH'")
+    generate(app_dsn, gap, uuid4())
+    flag(admin, gap, "needs_review=true")
+    blocked = review(client, gap)
+    assert error_of(blocked.json()) == "TFT_DRAFT_INCOMPLETE"
+    assert {d["field"] for d in blocked.json()["error"]["details"]} == {"sentence_id"}
+    body = {"requirement_id": str(gap["requirement"]), "proposed": {}, "rationale": "원문 대조"}
+    url = f"/projects/{gap['project']}/proposals"
+    made = call(client, "POST", url, OWNER, body, uuid4().hex).json()["data"]
+    assert decide(client, made).status_code == 200
+    saved = review(client, gap)
+    assert saved.status_code == 201, saved.text
+
+
+@pytest.mark.parametrize("action", ["owner", "selection"])
+def test_review_takes_an_owner_or_a_saved_supplement_as_the_next_action(
+    client, app_dsn, gap, admin, action
+):
+    """사양 차이는 미확인 항목이 비어 있어도 담당이나 저장한 보완이 있으면 저장된다."""
+    flag(admin, gap, "unresolved='[]', next_owner_field=NULL")
+    generate(app_dsn, gap, uuid4())
+    blocked = review(client, gap)
+    assert blocked.status_code == 422
+    assert blocked.json()["error"]["details"] == [
+        {"field": "requirement_id", "reason": str(gap["requirement"])}
+    ]
+    if action == "owner":
+        flag(admin, gap, "next_owner_field='TECH'")
+    else:
+        chosen = choose(client, gap, "EXTERNAL_PRODUCT")
+        assert chosen.status_code == 200, chosen.text
+    saved = review(client, gap)
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["data"]["judgement_status"] == "CONDITION_CHECK"
+
+
 def test_reselecting_the_supplement_clears_the_rereview_marks(client, gap, admin):
     """재검토 표시는 같은 요구의 보완 선택을 다시 저장하면 해소된다(사람 재확인)."""
     assert choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"]).status_code == 200

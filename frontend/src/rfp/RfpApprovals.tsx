@@ -64,7 +64,7 @@ const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ p
     reject: () => { if (able && reason.trim()) reject.mutate(); },
   }));
   return <KvBox title={`제안, 요구 ${code}, ${label(ORIGIN_LABEL, proposal.origin)}`} note={label(PROPOSAL_STATUS_LABEL, proposal.status)}>
-      <KvGrid label="제안 내용" columns={CHANGES} rows={changes(proposal)} rowKey={c => c.item} fallback="바뀌는 항목이 없습니다." />
+      <KvGrid label="제안 내용" columns={CHANGES} rows={changes(proposal)} rowKey={c => c.item} fallback="값은 그대로입니다. 승인하면 추출 값이 맞다고 확인하고 원문 확인 표시를 풉니다." />
       <div className="kv-field" style={{ marginTop: 8 }}><span>사유</span><div className="kv-text" style={{ minHeight: 0 }}>{proposal.rationale}</div></div>
       <KvField label="제안자">{[proposal.proposer_kind === 'system' ? '자동' : by, shortDateTime(proposal.known_at), `판본 ${proposal.version}`].filter(Boolean).join(', ')}</KvField>
       {!pending && <KvField label="처리">{label(PROPOSAL_STATUS_LABEL, proposal.status)} {formatDateTime(proposal.decided_at)}. 처리된 제안은 다시 바꿀 수 없습니다.</KvField>}
@@ -157,7 +157,7 @@ export default function RfpApprovals() {
     { key: 'id', header: '제안', width: 84, cell: p => <button className="lnk" aria-pressed={p.proposal_id === selected}>{p.proposal_id.slice(0, 8)}</button> },
     { key: 'origin', header: '들어온 곳', width: 84, className: 'c', cell: p => label(ORIGIN_LABEL, p.origin) },
     { key: 'requirement', header: '요구', width: 80, cell: codeOf },
-    { key: 'item', header: '항목', width: 72, className: 'c', cell: p => changes(p).map(c => c.item).join(', ') },
+    { key: 'item', header: '항목', width: 72, className: 'c', cell: p => changes(p).map(c => c.item).join(', ') || '값 확인' },
     { key: 'now', header: '현재', cell: p => changes(p).map(c => c.now).join(', ') },
     { key: 'next', header: '제안', cell: p => changes(p).map(c => c.next).join(', ') },
     { key: 'by', header: '제안자', width: 96, cell: p => p.proposer_kind === 'system' ? '자동' : nameOf(p.proposer_user_id) || '사용자' },

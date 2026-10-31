@@ -88,6 +88,9 @@ describe('자사 대응표', () => {
     fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'SPEC_GAP' } });
     fireEvent.change(screen.getByLabelText('재검토'), { target: { value: 'false' } });
     await waitFor(() => expect(calls.some(c => c.url.includes('status=SPEC_GAP') && c.url.includes('needs_rereview=false'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('원문 확인'), { target: { value: 'true' } });
+    await waitFor(() => expect(calls.some(c => c.url.includes('needs_review=true'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('원문 확인'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('재검토'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'CONDITIONAL' } });
     await waitFor(() => expect(calls.some(c => c.url.includes('status=CONDITIONAL'))).toBe(true));
@@ -318,6 +321,21 @@ describe('변경 제안', () => {
     await screen.findByRole('heading', { name: /변경 제안, R-01/ });
     return screen.getByRole('button', { name: '제안 저장' }) as HTMLButtonElement;
   };
+
+  it('원문 확인 표시가 있는 요구는 값을 그대로 두는 확인을 제안한다', async () => {
+    write = () => ok(MOCK_PROPOSALS[0]);
+    detail = { ...MOCK_DETAIL, needs_review: true };
+    await open();
+    fireEvent.click(screen.getAllByRole('button', { name: '변경 제안' })[0]);
+    const submit = await screen.findByRole('button', { name: '값 확인 제안' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true); // 사유가 없다
+    fireEvent.change(screen.getByLabelText('제안 사유'), { target: { value: '원문 대조' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
+    expect(posts('/proposals')[0].body).toEqual({
+      requirement_id: MOCK_DETAIL.requirement_id, proposed: {}, rationale: '원문 대조', evidence_refs: [],
+    });
+  });
 
   it('바꾸는 칸만 보내고, 바뀌는 칸과 사유가 없으면 저장할 수 없다', async () => {
     write = () => ok(MOCK_PROPOSALS[0]);

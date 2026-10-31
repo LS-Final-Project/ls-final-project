@@ -86,7 +86,8 @@ async def create_proposal(
             # exclude_none은 조건 안의 unit까지 지우므로 위 칸만 거른다.
             changes = payload.proposed.model_dump()
             proposed = {**current, **{k: v for k, v in changes.items() if v is not None}}
-            if proposed == current:
+            # 코드가 건 원문 확인 표시가 있으면 값을 그대로 두는 '맞다' 확인도 제안이다.
+            if proposed == current and not requirement["needs_review"]:
                 raise ApplicationError(
                     422,
                     "VALIDATION_ERROR",
@@ -206,13 +207,15 @@ async def approve_proposal(
                 conn, proposal_id, "APPROVED", principal.user_id, payload.note
             )
             # 근거 확인으로 승인한 것 자체가 사람 재확인이고, 그 요구는 고를 보완 경로도 없다.
-            await repository.mark_rereview(
-                conn,
-                project["id"],
-                requirement_id,
-                proposal_id,
-                requirement_too=proposal["proposed"]["status"] != "EVIDENCE_FOUND",
-            )
+            # 값이 그대로면 연결 객체가 볼 변화가 없어 재검토 표시를 남기지 않는다.
+            if proposal["proposed"] != proposal["current"]:
+                await repository.mark_rereview(
+                    conn,
+                    project["id"],
+                    requirement_id,
+                    proposal_id,
+                    requirement_too=proposal["proposed"]["status"] != "EVIDENCE_FOUND",
+                )
             await commands.audit(
                 conn,
                 project_id=project["id"],
@@ -222,7 +225,11 @@ async def approve_proposal(
                 actor=principal.user_id,
                 proposer=proposal["proposer_user_id"],
                 approver=principal.user_id,
-                detail={"from": proposal["current"], "to": proposal["proposed"]},
+                detail={
+                    "from": proposal["current"],
+                    "to": proposal["proposed"],
+                    "needs_review_confirmed": requirement["needs_review"],
+                },
             )
             latest = await repository.latest_requirement_version(
                 conn, project["id"], requirement_id

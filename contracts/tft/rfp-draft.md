@@ -158,7 +158,7 @@ T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표�
   새 문장은 section이 필수다. 원문 없는 자유문장 또는 프로젝트 안에서 확인 못한 evidence는
   `evidence_missing=true`로 표시·합산하고 검토본 저장을 막는다. 변경 DTO로 고지나 검토 표시를 지울 수 없다.
 - **27 POST review-versions**: 담당 sales·책임자, Idempotency-Key 필수. 최신 초안 version 일치,
-  근거 누락/문장 재검토 0, 필수 요구 해결 또는 `unresolved+next_owner_field`, 통합 책임 필요 시 확보,
+  근거 누락/문장 재검토 0, 필수 요구 해결 또는 다음 행동(`next_owner_field` 또는 저장한 보완 선택, `unresolved`는 비어도 된다), 통합 책임 필요 시 확보,
   빈 초안 아님을 확인한다. 실패는 422 `TFT_DRAFT_INCOMPLETE`(대상 ID를 details에 표시), stale은 409.
   성공 시 `REVIEW_DRAFT`가 되고 미해결 필수가 있으면 `CONDITION_CHECK`, 없으면 `OWNER_CONFIRMED`다.
   이는 담당자의 저장 행위이며 공급·수주 승인이 아니다. 같은 키 재전송은 원래 검토본을 반환한다.
