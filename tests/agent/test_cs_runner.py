@@ -558,16 +558,19 @@ def test_only_draft_and_verification_get_the_long_client(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(("lease", "allowed"), [(120, False), (122, True), (180, True)])
-def test_lease_must_outlast_the_worst_draft_call(monkeypatch, lease, allowed):
-    """60초 2번과 재시도 대기 1초, 최악 121초다."""
+@pytest.mark.parametrize(
+    ("lease", "calls", "allowed"),
+    [(121, 1, False), (122, 1, True), (242, 2, False), (243, 2, True), (300, 2, True)],
+)
+def test_lease_must_outlast_the_worst_draft_call(monkeypatch, lease, calls, allowed):
+    """호출 하나는 60초 2번과 재시도 대기 1초로 121초, 형식 재호출까지 242초다."""
     monkeypatch.setattr(ai, "TRANSIENT_BACKOFF_SECONDS", 1.0)
     settings = draft_ai_settings(AISettings(gemini_api_key=KEY, gemini_transient_retries=1))
     if allowed:
-        check_lease(settings, lease)
+        check_lease(settings, lease, calls=calls)
     else:
         with pytest.raises(ValueError, match="INVALID_WORKER_CONFIGURATION"):
-            check_lease(settings, lease)
+            check_lease(settings, lease, calls=calls)
 
 
 def test_the_default_lease_passes_and_a_short_one_stops_the_worker_at_start(monkeypatch):
@@ -579,8 +582,9 @@ def test_the_default_lease_passes_and_a_short_one_stops_the_worker_at_start(monk
     monkeypatch.setattr(cs_worker, "execute_job", lambda *args: called.append(args) or "DONE")
     monkeypatch.setattr(cs_worker, "Settings", lambda: None)
     cs_worker.main()
-    assert called[0][1].lease_seconds == 180
-    monkeypatch.setenv("CS_WORKER_LEASE_SECONDS", "120")
+    assert called[0][1].lease_seconds == 300
+    # 호출 하나는 덮어도 형식 재호출까지 덮지 못하는 값이다.
+    monkeypatch.setenv("CS_WORKER_LEASE_SECONDS", "180")
     with pytest.raises(SystemExit, match="INVALID_WORKER_CONFIGURATION"):
         cs_worker.main()
     assert len(called) == 1

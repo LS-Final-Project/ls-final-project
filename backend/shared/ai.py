@@ -283,14 +283,15 @@ def failed_attempts(error: BaseException) -> int | None:
     return value if type(value) is int and value >= 1 else None
 
 
-def check_lease(ai: AISettings, lease_seconds: int) -> None:
-    """lease가 모델 호출 하나의 최악 시간보다 길어야 한다(호출마다 lease를 연장하므로).
+def check_lease(ai: AISettings, lease_seconds: int, *, calls: int = 1) -> None:
+    """lease가 연장 없이 이어지는 모델 호출의 최악 시간보다 길어야 한다.
 
     최악 = 시간 제한 × (일시 오류 재시도 + 1) + 재시도 대기(TRANSIENT_BACKOFF_SECONDS부터 두 배씩).
 
     Args:
         ai: 그 worker의 가장 긴 호출 설정.
         lease_seconds: worker lease 길이.
+        calls: lease 연장 없이 이어지는 호출 수. 호출마다 연장하면 1이다.
 
     Returns:
         None. 짧으면 ValueError(INVALID_WORKER_CONFIGURATION)다.
@@ -299,7 +300,7 @@ def check_lease(ai: AISettings, lease_seconds: int) -> None:
     worst = ai.gemini_timeout_ms / 1000 * (retries + 1) + sum(
         TRANSIENT_BACKOFF_SECONDS * 2**n for n in range(retries)
     )
-    if lease_seconds <= worst:
+    if lease_seconds <= worst * calls:
         raise ValueError("INVALID_WORKER_CONFIGURATION")
 
 

@@ -59,6 +59,8 @@ __all__ = ["CsWorkerSettings", "execute_job", "main", "parse_job_id"]
 NODES = ("classify", "rules", "retrieve", "draft", "verify", "rewrite", "reverify")
 # 입력 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 CS_WORKER_GRAPH_FAILED로 저장한다.
 LOAD_CODES = frozenset({"CS_WORKER_SOURCE_MISSING"})
+# lease는 노드마다 연장한다. 노드 안의 호출은 형식 재호출을 포함해 2번까지다.
+NODE_CALLS = 2
 
 
 class CsWorkerSettings(BaseSettings):
@@ -66,9 +68,9 @@ class CsWorkerSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="CS_WORKER_", extra="ignore")
     enabled: bool = False
-    # 초안·검증 호출 하나의 최악(60초 2번 + 대기 1초 = 121초)보다 길어야 한다(main이 막는다).
+    # 초안 노드 최악(호출 121초 × 형식 재호출 포함 2번 = 242초)보다 길어야 한다(main이 막는다).
     # 노드 하나(재호출 포함 모델 호출)가 이 안에 끝나야 한다. 노드마다 연장한다.
-    lease_seconds: int = Field(default=180, ge=10, le=900)
+    lease_seconds: int = Field(default=300, ge=10, le=900)
     # 없으면 공통 GEMINI_MODEL을 분류·초안에 함께 쓴다. 바꾸려면 채택 기록이 필요하다(eval/promotion.py).
     classification_model: str | None = None
     classification_max_output_tokens: int = Field(
@@ -255,7 +257,7 @@ def main() -> None:
     try:
         job_id = parse_job_id(os.getenv("CS_JOB_ID"))
         worker = CsWorkerSettings()
-        check_lease(draft_ai_settings(AISettings()), worker.lease_seconds)
+        check_lease(draft_ai_settings(AISettings()), worker.lease_seconds, calls=NODE_CALLS)
         result = execute_job(Settings(), worker, job_id)
     except ApplicationError as error:
         raise SystemExit(error.code) from None
