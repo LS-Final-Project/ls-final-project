@@ -228,6 +228,7 @@ class RfpProjectSummary(Provenance):
     requirements_count: int
     unresolved_mandatory_count: int
     pending_proposals_count: int
+    open_questions_count: int
     created_at: datetime
     # 명세 v1.3 §4 #1: 화면은 "전략 고객(영업 입력, 가설)" 배지로만 보여 준다.
     strategic_customer: bool | None = None
@@ -281,6 +282,10 @@ PROJECT_COLUMNS = (
     "draft_version",
     "review_version",
     "documents_count",
+    "requirements_count",
+    "unresolved_mandatory_count",
+    "pending_proposals_count",
+    "open_questions_count",
     "strategic_customer_note",
     "strategic_customer_set_by",
 )

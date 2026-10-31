@@ -95,7 +95,11 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         (),
     ),
     ("/api/v1/cs/condition-comparisons", ("GET",), ("product_code", "fault_id", "version")),
-    ("/api/v1/tft/projects", ("GET", "POST"), ("limit", "cursor")),
+    (
+        "/api/v1/tft/projects",
+        ("GET", "POST"),
+        ("limit", "cursor", "output_status", "judgement_status", "q"),
+    ),
     ("/api/v1/tft/projects/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/tft/projects/{uuid}/assignment", ("PATCH",), ()),
     ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),

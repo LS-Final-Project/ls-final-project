@@ -14,6 +14,7 @@ from backend.api.tft.projects.schemas import (
     ProjectSummary,
     RfpRequirement,
 )
+from backend.api.tft.rfp.schemas import IntegrationSummary, PendingByOrigin, RequirementCounts
 from backend.shared.models import ResponseMeta, SuccessResponse
 
 META = ResponseMeta(request_id=UUID("11111111-1111-4111-8111-111111111111"))
@@ -45,6 +46,16 @@ def summary(
         created_at=created_at,
         data_origin="synthetic",
         derivation_kind="ASSUMED",
+        version=1,
+        known_at=created_at,
+        client_name="가상 발주처",
+        output_status="INTAKE",
+        judgement_status="NEEDS_REVIEW",
+        requirements_count=0,
+        unresolved_mandatory_count=0,
+        pending_proposals_count=0,
+        open_questions_count=0,
+        integration_responsibility=IntegrationSummary(holder="UNRESOLVED"),
     )
 
 
@@ -96,6 +107,26 @@ def detail() -> ProjectDetail:
         rfp_requirements=requirements,
         data_origin="synthetic",
         derivation_kind="ASSUMED",
+        output_status="ANALYZING",
+        judgement_status="NEEDS_REVIEW",
+        purpose="INITIAL_PROPOSAL",
+        customer_goal=None,
+        review_departments=["RND_FW"],
+        requirements_count=2,
+        unresolved_mandatory_count=1,
+        pending_proposals_count=0,
+        open_questions_count=1,
+        requirement_counts=RequirementCounts(
+            by_status={"EVIDENCE_FOUND": 1, "SPEC_GAP": 1},
+            by_necessity={"MANDATORY": 2},
+            needs_rereview=0,
+            open_questions=1,
+        ),
+        pending_proposals_by_origin=PendingByOrigin(web=0, customer_reply=0, pdf_annot=0),
+        latest_job=None,
+        draft_version=None,
+        review_version=None,
+        documents_count=1,
     )
 
 

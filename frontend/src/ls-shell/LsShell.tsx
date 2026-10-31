@@ -39,6 +39,7 @@ function tabName(pathname: string) {
   if (pathname === '/cs/tickets') return '문의 조회';
   if (pathname.startsWith('/cs/tickets/')) return '문의 처리';
   if (pathname === '/tft/projects') return '프로젝트 목록';
+  if (/^\/tft\/projects\/[^/]+\/draft$/.test(pathname)) return '초안 및 검토 이력';
   if (pathname.startsWith('/tft/projects/')) return '프로젝트';
   return 'C/S 관리';
 }
@@ -62,7 +63,7 @@ export default function LsShell() {
   // 기존 Layout과 같은 조건이다. 업무 UI가 꺼졌거나 미로그인이면 경로를 열지 않는다.
   const linked = import.meta.env.DEV || (businessUiEnabled && user.isSuccess && !!user.data);
   const menu = MENU.map(group => ({
-    ...group, leaves: group.leaves.filter(leaf => !leaf.devOnly || import.meta.env.DEV),
+    ...group, leaves: [...group.leaves, ...(group.key === 'rfp' && /^\/tft\/projects\/[^/]+(?:\/draft)?$/.test(pathname) ? [{ label: '초안 및 검토 이력', to: `${pathname.replace(/\/draft$/, '')}/draft` }] : [])].filter(leaf => !leaf.devOnly || import.meta.env.DEV),
   }));
   const name = identity?.display_name ?? '';
   const affiliation = identity ? [identity.dept, identity.roles.join(', ')].filter(Boolean).join(', ') : '';

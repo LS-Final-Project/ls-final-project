@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.tft.main import create_app
 from backend.api.tft.projects import repository, routes
+from backend.api.tft.rfp import routes_write
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -35,6 +36,22 @@ def project_row(index: int) -> dict:
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
         "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
+        "output_status": "INTAKE",
+        "judgement_status": "NEEDS_REVIEW",
+        "purpose": "INITIAL_PROPOSAL",
+        "customer_goal": None,
+        "review_departments": [],
+        "requirements_count": 0,
+        "unresolved_mandatory_count": 0,
+        "pending_proposals_count": 0,
+        "open_questions_count": 0,
+        "documents_count": 0,
+        "draft_version": None,
+        "review_version": None,
+        "strategic_customer": None,
+        "strategic_customer_note": None,
+        "strategic_customer_set_by": None,
+        "integration_holder": "UNRESOLVED",
     }
 
 
@@ -88,7 +105,9 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after, managed_projects, user_id, department=None):
+    async def list_projects(
+        conn, limit, after, managed_projects, user_id, department=None, **filters
+    ):
         rows = [
             r
             for r in ROWS
@@ -113,6 +132,11 @@ def fakes(monkeypatch):
     async def review_departments(conn, project_id):
         return []
 
+    async def project_detail_parts(conn, project_id):
+        return next(r for r in ROWS if r["id"] == project_id), [], {}
+
+    monkeypatch.setattr(routes_write.repository, "project_detail_parts", project_detail_parts)
+    monkeypatch.setattr(routes_write, "integration_state", integration_state)
     monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_projects", list_projects)
@@ -226,13 +250,13 @@ def test_detail_shows_the_integration_responsibility_with_its_basis_clause(clien
     assert integration["unresolved"]
 
 
-def test_detail_survives_a_database_without_the_rfp_migrations(client, monkeypatch):
-    """T7·T11·T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
+def test_detail_survives_a_database_without_the_t12_migration(client, monkeypatch):
+    """T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
 
     async def missing(conn, project_id):
         return None
 
-    monkeypatch.setattr(repository, "integration_state", missing)
+    monkeypatch.setattr(routes_write, "integration_state", missing)
     result = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
     assert result.status_code == 200
     assert result.json()["data"]["integration_responsibility"] is None

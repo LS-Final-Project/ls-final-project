@@ -190,6 +190,47 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         ).fetchone() == (1,)
 
 
+def test_selection_refuses_candidates_outside_the_path(client, gap):
+    """경로 16: 그 경로의 저장 후보만 받는다. 거절되면 선택이 저장되지 않는다."""
+    outside = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A", "P-Z"])
+    assert error(outside) == (422, "VALIDATION_ERROR")
+    assert outside.json()["error"]["details"] == [{"field": "candidate_codes", "reason": "P-Z"}]
+    url = f"/requirements/{gap['requirement']}/supplement-options"
+    assert (
+        data(get(client, f"/requirements/{gap['requirement']}"))["links"]["supplement_summary"]
+        is None
+    )
+    assert data(get(client, url))["options"]
+    done = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A"])
+    assert done.status_code == 200, done.text
+
+
+def test_selection_refuses_a_candidate_excluded_for_the_requirement(client, gap, admin):
+    """경로 16: 최신 저장 등급이 EXCLUDED인 후보는 경로 후보여도 422다. 등급이 풀리면 받는다."""
+    code = add_profile(admin)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.supplement_options SET candidate_codes=%s WHERE requirement_id=%s",
+            ([code], gap["requirement"]),
+        )
+    add_grade(admin, gap, gap["requirement"], code, "EXCLUDED")
+    try:
+        refused = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=[code])
+        assert error(refused) == (422, "TFT_CANDIDATE_EXCLUDED")
+        assert refused.json()["error"]["details"] == [{"field": "candidate_codes", "reason": code}]
+        with psycopg.connect(admin) as conn:
+            conn.execute(
+                "UPDATE tft.partner_grades SET grade='REVIEW',exclusion_reasons='[]' "
+                "WHERE candidate_code=%s",
+                (code,),
+            )
+        assert choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=[code]).status_code == 200
+    finally:
+        with psycopg.connect(admin) as conn:
+            conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code=%s", (code,))
+            conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code=%s", (code,))
+
+
 def test_own_development_opens_an_rnd_question_and_gates_partner_paths(client, gap, admin):
     """OWN_DEVELOPMENT 선택은 R&D 질문을 만들고 협력사 경로 게이트가 PENDING이 된다. dept_staff는 고를 수 없다."""
     before = options(client, gap)
@@ -811,8 +852,15 @@ def add_grade(admin, chain, requirement, code, grade, unknown=()):
         )
 
 
-def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
-    """후보: 저장된 등급이 있는 후보만, 후보 등급은 전체 기준, 요구 필터는 등급 목록만 좁힌다."""
+def add_profile(admin):
+    """합성 협력사 프로필 하나를 더한다.
+
+    Args:
+        admin: 관리자 DSN.
+
+    Returns:
+        str: 후보 코드.
+    """
     code = "Q-" + chr(ord("A") + uuid4().int % 26)
     profile = load_profiles()[1]
     row = profile.model_dump(mode="json") | {"candidate_code": code, "profile_version": 1}
@@ -828,6 +876,12 @@ def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
                 for k in columns
             ],
         )
+    return code
+
+
+def test_partner_candidates_come_from_the_stored_grades(client, admin, chain):
+    """후보: 저장된 등급이 있는 후보만, 후보 등급은 전체 기준, 요구 필터는 등급 목록만 좁힌다."""
+    code = add_profile(admin)
     url = f"/projects/{chain['project']}/partner-candidates"
     assert data(get(client, url))["items"] == []
     other = add_requirement(admin, chain, "R-5", status="INSUFFICIENT_EVIDENCE")
@@ -1087,3 +1141,71 @@ def test_review_department_sees_the_project_in_routes_1_and_3(client, chain):
     sales = Principal(user_id=uuid4(), roles=frozenset({"sales"}), dept="RND_FW")
     assert data(get(client, "/projects?limit=100", sales))["items"] == []
     assert get(client, url, sales).status_code == 404
+
+
+def test_routes_1_and_3_carry_the_spec_fields_with_one_calculation(client, gap, admin):
+    """경로 1·3: 옛 칸을 지우지 않고 명세 칸을 더한다. 건수는 목록과 상세가 같다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET necessity='MANDATORY' WHERE requirement_id=%s",
+            (gap["requirement"],),
+        )
+        conn.execute(
+            "UPDATE tft.projects SET client_name='Acme_100%%', output_status='ANALYZING', "
+            "judgement_status='CONDITION_CHECK' WHERE id=%s",
+            (gap["project"],),
+        )
+    assert ask(client, gap).status_code == 201
+    no_requirement = ask(client, gap, requirement_id=None)
+    assert no_requirement.status_code == 201, no_requirement.text
+    draft(admin, gap)
+    assert propose(client, gap, reason="다시 본 사유").status_code == 201
+    dropped = propose(client, gap, reason="기각할 제안").json()["data"]
+    assert decide(client, dropped, "reject", reason="중복").status_code == 200
+    project = str(gap["project"])
+    [item] = [i for i in data(get(client, "/projects?limit=100"))["items"] if i["id"] == project]
+    detail = data(get(client, f"/projects/{project}"))
+    for name in (
+        "requirements_count",
+        "unresolved_mandatory_count",
+        "pending_proposals_count",
+        "open_questions_count",
+        "output_status",
+        "judgement_status",
+    ):
+        assert item[name] == detail[name], name
+    assert (item["requirements_count"], item["unresolved_mandatory_count"]) == (1, 1)
+    assert (item["pending_proposals_count"], item["open_questions_count"]) == (1, 2)
+    assert detail["requirement_counts"]["open_questions"] == 2
+    assert detail["requirement_counts"]["by_necessity"] == {"MANDATORY": 1}
+    assert detail["pending_proposals_by_origin"]["web"] == 1
+    assert detail["documents_count"] == 1 and detail["latest_job"] is None
+    assert item["integration_responsibility"] == {"holder": "UNRESOLVED"}
+    # 옛 화면이 읽는 칸은 그대로 있다.
+    assert item["status"] == "INITIAL_REVIEW" and "external_id" in item
+    assert detail["rfp_requirements"] == [] and detail["status"] == "INITIAL_REVIEW"
+
+
+def test_project_list_filters_in_sql_with_literal_search_terms(client, gap, admin):
+    """상태 필터와 q(이름·고객명 부분 일치, 대소문자 무시). %·_는 글자 그대로다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET client_name='Acme_100%%', output_status='ANALYZING', "
+            "judgement_status='CONDITION_CHECK' WHERE id=%s",
+            (gap["project"],),
+        )
+    project = str(gap["project"])
+
+    def found(query):
+        items = data(get(client, f"/projects?limit=100&{query}"))["items"]
+        return project in [i["id"] for i in items]
+
+    assert found("output_status=ANALYZING") and not found("output_status=INTAKE")
+    assert found("judgement_status=CONDITION_CHECK") and not found("judgement_status=NEEDS_REVIEW")
+    assert found("q=acme") and found("q=%ED%95%A9%EC%84%B1")
+    assert found("q=_100") and not found("q=x_1")
+    assert found("q=0%25") and not found("q=A%25e")
+    assert not found("q=nothing")
+    assert found("output_status=ANALYZING&q=ACME")
+    assert get(client, "/projects?q=a").status_code == 422
+    assert get(client, "/projects?output_status=NOPE").status_code == 422

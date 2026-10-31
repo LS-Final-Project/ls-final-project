@@ -70,7 +70,7 @@ export const businessRoutes = [
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove', ['POST'], []],
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
-  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor']],
+  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor', 'output_status', 'judgement_status', 'q']],
   ['/api/v1/tft/projects/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/tft/projects/{uuid}/assignment', ['PATCH'], []],
   ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],

@@ -7,10 +7,10 @@ from uuid import UUID, uuid4
 from psycopg import AsyncConnection
 
 from backend.api.tft.projects.repository import integration_state
-from backend.api.tft.projects.routes import integration_body
 from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
+from backend.api.tft.rfp.integration import integration_body
 from backend.api.tft.rfp.routes_questions import question_out
 from backend.api.tft.rfp.routes_read import comparison_of, detail_of, partner_candidate
 from backend.api.tft.rfp.routes_supplement import options_of, selected_out

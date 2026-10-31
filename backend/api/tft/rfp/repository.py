@@ -44,6 +44,23 @@ NEEDS_REREVIEW = (
 )
 
 
+# 목록·상세가 같이 쓰는 프로젝트 건수(별칭 p). 한 문장 안의 부분 질의라 프로젝트마다 왕복하지 않는다.
+# 미해결 규칙은 counts.is_unresolved와 같다(계약 '미해결 필수 요구 집계').
+PROJECT_COUNTS = (
+    "(SELECT count(*) FROM tft.requirements req WHERE req.project_id = p.id) "
+    "AS requirements_count, "
+    "(SELECT count(*) FROM tft.requirements req JOIN tft.requirement_versions v "
+    "ON v.requirement_id = req.id AND v.version = req.latest_version "
+    "WHERE req.project_id = p.id AND v.necessity IN ('MANDATORY', 'CONDITION_BOUND') "
+    "AND (v.status <> 'EVIDENCE_FOUND' OR jsonb_array_length(v.unresolved) > 0 "
+    f"OR ({NEEDS_REREVIEW.format(requirement='req.id')}))) AS unresolved_mandatory_count, "
+    "(SELECT count(*) FROM tft.change_proposals cp WHERE cp.project_id = p.id "
+    "AND cp.status = 'PENDING') AS pending_proposals_count, "
+    "(SELECT count(*) FROM tft.customer_questions cq WHERE cq.project_id = p.id "
+    "AND cq.status = 'OPEN') AS open_questions_count"
+)
+
+
 def version_conflict() -> ApplicationError:
     """읽은 판본이 최신과 다를 때의 오류.
 
@@ -203,11 +220,12 @@ async def project_detail_parts(
         project_id: 있는 프로젝트 ID.
 
     Returns:
-        tuple: (프로젝트 행+documents_count·draft_version, 최신 요구별 status·necessity·unresolved·
-            open_questions·needs_rereview, 승인 대기 제안의 입구별 수).
+        tuple: (프로젝트 행+PROJECT_COUNTS·documents_count·draft_version, 최신 요구별 status·necessity·
+            needs_rereview, 승인 대기 제안의 입구별 수).
     """
     cursor = await conn.execute(
-        "SELECT p.*, (SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
+        f"SELECT p.*, {PROJECT_COUNTS}, "
+        "(SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
         "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
         "AS draft_version FROM tft.projects p WHERE p.id = %s",
         (project_id,),
@@ -217,10 +235,7 @@ async def project_detail_parts(
         raise ValueError("TFT_PROJECT_MISSING")
     rereview = NEEDS_REREVIEW.format(requirement="req.id")
     cursor = await conn.execute(
-        "SELECT v.status, v.necessity, v.unresolved, "
-        "(SELECT count(*) FROM tft.customer_questions q "
-        "WHERE q.requirement_id = req.id AND q.status = 'OPEN') AS open_questions, "
-        f"({rereview}) AS needs_rereview FROM tft.requirements req "
+        f"SELECT v.status, v.necessity, ({rereview}) AS needs_rereview FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id "
         "AND v.version = req.latest_version WHERE req.project_id = %s",
         (project_id,),
@@ -1818,6 +1833,29 @@ async def comparison_evidence(
         (list(comparison_ids),),
     )
     return await cursor.fetchall()
+
+
+async def excluded_candidates(
+    conn: AsyncConnection[Row], requirement_id: UUID, codes: Sequence[str]
+) -> list[str]:
+    """고른 후보 중 이 요구의 최신 저장 등급이 EXCLUDED인 코드.
+
+    Args:
+        conn: dict_row 연결.
+        requirement_id: 요구 ID.
+        codes: 고른 후보 코드.
+
+    Returns:
+        list[str]: 제외 후보 코드(코드 순).
+    """
+    cursor = await conn.execute(
+        "SELECT candidate_code FROM (SELECT DISTINCT ON (candidate_code) candidate_code, grade "
+        "FROM tft.partner_grades WHERE requirement_id = %s AND candidate_code = ANY(%s) "
+        "ORDER BY candidate_code, profile_version DESC, requirement_version DESC, version DESC) g "
+        "WHERE grade = 'EXCLUDED' ORDER BY candidate_code",
+        (requirement_id, list(codes)),
+    )
+    return [row["candidate_code"] for row in await cursor.fetchall()]
 
 
 async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
