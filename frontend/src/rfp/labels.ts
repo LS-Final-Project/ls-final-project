@@ -31,7 +31,10 @@ export const DOCUMENT_KIND_LABEL: Record<string, string> = {
 };
 export const DATA_ORIGIN_LABEL: Record<string, string> = { synthetic: '연습 자료', demo: '시연 자료', real: '실제' };
 export const PURPOSE_LABEL: Record<string, string> = { INITIAL_PROPOSAL: '초기 제안' };
-export const DEPARTMENTS = ['중압기기 기술지원', '저압기기 기술지원', '변압기 기술지원', '구매팀'];
+// tft.department_kinds의 코드만 서버가 받는다(이름을 보내면 422). 코드 목록은 docs/openapi/tft-department-codes.json으로 대조한다.
+export const DEPARTMENT_LABEL: Record<string, string> = {
+  SALES_OPS: '영업운영', RND_FW: 'R&D', TS_TRF: '변압기 기술지원', TS_MV: '중압기기 기술지원', TS_LV: '저압기기 기술지원', CERT: '인증', SCM: '구매팀',
+};
 export const ISSUE_LABEL: Record<string, string> = {
   EMPTY_VALUE: '값 없음', CONFLICT: '상충', SCOPE_UNCLEAR: '범위 불명확', CONDITION_MISSING: '조건 없음',
   RND_FEASIBILITY: 'R&D 개발 가능성', TECH_ADVICE: '기술 자문', PURCHASE_TERMS: '구매 조건',

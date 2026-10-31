@@ -246,6 +246,14 @@ def test_spec_v1_3_paths_and_causes_are_stored_and_others_refused(admin, chain):
     violates(admin, insert, (uuid4(), chain["requirement"], "RATING", "OWN_TERMS", True, None))
 
 
+def test_department_codes_match_the_list_the_web_form_is_checked_against(admin):
+    """웹 접수 폼은 이 목록의 코드를 보낸다. 표에 없는 값은 경로 2가 422로 거절한다."""
+    with psycopg.connect(admin) as conn:
+        codes = conn.execute("SELECT dept_code FROM tft.department_kinds ORDER BY 1").fetchall()
+    fixture = Path(__file__).resolve().parents[2] / "docs/openapi/tft-department-codes.json"
+    assert [code for code, in codes] == json.loads(fixture.read_text())
+
+
 def test_rnd_check_internal_questions_and_department_kinds_are_stored(admin, app_dsn, chain):
     """KAN-186 T10(명세 v1.3 §5.2·§5.3·§9): R&D 확인 상태, 내부 자문 질문, R&D 답변 칸, 부서 분류."""
     with psycopg.connect(admin) as conn:

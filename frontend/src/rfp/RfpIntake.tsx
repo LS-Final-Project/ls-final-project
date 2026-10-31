@@ -9,7 +9,7 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
 import { KvBox, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
 import { ProcessForm, UploadForm } from './IntakeForms';
-import { DATA_ORIGIN_LABEL, DOCUMENT_KIND_LABEL, JUDGEMENT_LABEL, label, NECESSITY_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, STATUS_LABEL } from './labels';
+import { DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, JUDGEMENT_LABEL, label, NECESSITY_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, STATUS_LABEL } from './labels';
 
 const POLL_MS = 30_000;
 const ACTIVE = new Set(['QUEUED', 'RUNNING']);
@@ -120,7 +120,7 @@ function Intake({ projectId }: { projectId: string }) {
         <KvField label="판단">{label(JUDGEMENT_LABEL, data.judgement_status)}</KvField>
         <KvField label="담당">{data.sales_user_id ? '지정' : '미지정'}</KvField>
         <KvField label="책임자">{data.responsible_user_id ? '지정' : '미지정'}</KvField>
-        <KvField label="검토 부서">{data.review_departments.join(', ') || '없음'}</KvField>
+        <KvField label="검토 부서">{data.review_departments.map(code => label(DEPARTMENT_LABEL, code)).join(', ') || '없음'}</KvField>
         <KvField label="검토본">{data.review_version ? `v${data.review_version}` : '없음'}</KvField>
         <KvField label="자료 구분">{label(DATA_ORIGIN_LABEL, data.data_origin)}</KvField>
       </KvBox>

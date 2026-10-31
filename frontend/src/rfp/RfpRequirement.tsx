@@ -10,7 +10,7 @@ import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
 import { KvBox, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
-import { ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, OWNER_LABEL, PATH_LABEL, QUESTION_STATUS_LABEL, STATUS_LABEL } from './labels';
+import { DEPARTMENT_LABEL, ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, OWNER_LABEL, PATH_LABEL, QUESTION_STATUS_LABEL, STATUS_LABEL } from './labels';
 import { Failure } from './proposal-shared';
 import ProposalForm from './ProposalForm';
 import { QuestionForm, ReplyForm } from './QuestionForms';
@@ -139,7 +139,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   const columns: KvColumn<Question>[] = [
     { key: 'requirement', header: '요구', width: 72, className: 'c', cell: q => q.requirement_id === id ? '이 요구' : q.requirement_id ? <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`}>보기</Link> : '없음' },
     { key: 'issue', header: '유형', width: 96, className: 'c', cell: q => label(ISSUE_LABEL, q.issue_type) },
-    { key: 'target', header: '대상', width: 84, className: 'c', cell: q => q.target === 'INTERNAL' ? q.target_dept : '고객' },
+    { key: 'target', header: '대상', width: 84, className: 'c', cell: q => q.target === 'INTERNAL' ? label(DEPARTMENT_LABEL, q.target_dept) : '고객' },
     { key: 'text', header: '질문 내용', className: 't', cell: q => q.question_text },
     { key: 'status', header: '상태', width: 84, className: 'c', cell: q => label(QUESTION_STATUS_LABEL, q.status) },
     { key: 'reply', header: '회신', width: 200, cell: q => q.reply_received_at ? formatDateTime(q.reply_received_at) : q.internal_assumption ? `가정 ${q.internal_assumption.value}` : '' },

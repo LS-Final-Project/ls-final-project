@@ -8,7 +8,7 @@ import {
 } from '../api/rfp';
 import { ErrorState } from '../components/states';
 import { KvBox, KvField } from '../ls-shell/kv';
-import { DATA_ORIGIN_LABEL, DEPARTMENTS, DOCUMENT_KIND_LABEL } from './labels';
+import { DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL } from './labels';
 import { settled, useAttemptKey } from './proposal-shared';
 
 const Wrap = ({ children }: { children: ReactNode }) => <div style={{ margin: '8px 14px 0' }}>{children}</div>;
@@ -49,7 +49,7 @@ export function ProjectForm({ onCancel }: { onCancel: () => void }) {
       <KvField label="제출 목적">초기 제안</KvField>
       <div className="kv-field"><label htmlFor="project-goal">고객 목표</label><textarea id="project-goal" rows={2} value={goal} onChange={event => setGoal(event.target.value)} /></div>
       <div className="kv-field"><span>검토 부서</span><div className="ro" style={{ gap: 12, flexWrap: 'wrap' }}>
-        {DEPARTMENTS.map(department => <label key={department}><input type="checkbox" style={{ display: 'inline-block', width: 'auto', minHeight: 0, margin: '0 4px 0 0' }} checked={departments.includes(department)} onChange={event => setDepartments(event.target.checked ? [...departments, department] : departments.filter(d => d !== department))} />{department}</label>)}
+        {Object.entries(DEPARTMENT_LABEL).map(([department, name]) => <label key={department}><input type="checkbox" style={{ display: 'inline-block', width: 'auto', minHeight: 0, margin: '0 4px 0 0' }} checked={departments.includes(department)} onChange={event => setDepartments(event.target.checked ? [...departments, department] : departments.filter(d => d !== department))} />{name}</label>)}
       </div></div>
       <Select id="project-origin" label="자료 구분" value={origin} onChange={setOrigin} options={DATA_ORIGIN_LABEL} />
       <div className="kv-actions">
