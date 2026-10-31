@@ -79,7 +79,7 @@ function InboxView() {
     {list.isFetching && <Loading />}
     {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
     {!list.isFetching && list.isSuccess && <>
-      <div className="kv-gridhead"><span>사람이 연결 대상을 정해야 하는 고객 답장 {shown.length}건, 받은 시각 내림차순</span><Link className="right" to="/account">메일 계정</Link></div>
+      <div className="kv-gridhead"><span>사람이 연결 대상을 정해야 하는 고객 답장 {shown.length}건, 받은 시각 내림차순</span><Link className="right" to="/mail/account">메일 계정</Link></div>
       <KvGrid label="검토 대기 메일" columns={columns} rows={shown} rowKey={row => row.message_id} selectedKey={selected?.message_id} fallback="검토할 메일이 없습니다." />
       {selected && <>
         <div style={{ marginTop: 8 }}>
