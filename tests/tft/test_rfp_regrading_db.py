@@ -3,6 +3,7 @@
 
 import asyncio
 from unittest.mock import Mock
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -265,7 +266,7 @@ def test_saved_project_constraints_survive_real_detail_get_and_response_based_ed
         "customer_manufacturer_list": ["제조사 A", "제조사 B"],
         "off_list_permission": "FORBIDDEN",
     }
-    created = call(client, "POST", "/projects", OWNER, project_body(**expected))
+    created = call(client, "POST", "/projects", OWNER, project_body(**expected), key=uuid4().hex)
     assert created.status_code == 201, created.text
     project = created.json()["data"]
     url = f"/projects/{project['id']}"

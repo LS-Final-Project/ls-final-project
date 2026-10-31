@@ -37,7 +37,8 @@ LATEST_GRADES = (
     "SELECT DISTINCT ON (g.candidate_code,g.requirement_id) g.* FROM tft.partner_grades g "
     "JOIN tft.requirements r ON r.id=g.requirement_id AND r.project_id=g.project_id "
     "AND r.latest_version=g.requirement_version "
-    "WHERE g.profile_version=(SELECT max(p.profile_version) FROM tft.partner_profiles p "
+    "WHERE g.project_id={project} "
+    "AND g.profile_version=(SELECT max(p.profile_version) FROM tft.partner_profiles p "
     "WHERE p.candidate_code=g.candidate_code) "
     "ORDER BY g.candidate_code,g.requirement_id,g.version DESC"
 )
@@ -53,9 +54,9 @@ INVALID_SELECTION = (
     "WHERE EXISTS (SELECT 1 FROM tft.partner_grades history "
     "WHERE history.project_id=sr.project_id AND history.requirement_id=ss.requirement_id "
     "AND history.candidate_code=picked.code) AND (NOT EXISTS ("
-    f"SELECT 1 FROM ({LATEST_GRADES}) valid WHERE valid.requirement_id=ss.requirement_id "
+    f"SELECT 1 FROM ({LATEST_GRADES.format(project='sr.project_id')}) valid WHERE valid.requirement_id=ss.requirement_id "
     "AND valid.candidate_code=picked.code AND valid.grade<>'EXCLUDED') OR EXISTS ("
-    f"SELECT 1 FROM ({LATEST_GRADES}) bad WHERE bad.project_id=sr.project_id "
+    f"SELECT 1 FROM ({LATEST_GRADES.format(project='sr.project_id')}) bad WHERE bad.project_id=sr.project_id "
     "AND bad.candidate_code=picked.code AND bad.grade='EXCLUDED'))))"
 )
 
@@ -2028,8 +2029,9 @@ async def requirement_detail_parts(
         requirement_id,
     )
     partners = await rows(
-        f"SELECT candidate_code FROM ({LATEST_GRADES}) g WHERE requirement_id = %s "
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='%s')}) g WHERE requirement_id = %s "
         "ORDER BY candidate_code",
+        requirement["project_id"],
         requirement_id,
     )
     sentences = await rows(
@@ -2106,9 +2108,9 @@ async def graded_candidates(conn: AsyncConnection[Row], requirement_id: UUID) ->
         list[str]: 후보 코드(코드 순).
     """
     cursor = await conn.execute(
-        f"SELECT candidate_code FROM ({LATEST_GRADES}) g WHERE requirement_id=%s "
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='(SELECT project_id FROM tft.requirements WHERE id=%s)')}) g WHERE requirement_id=%s "
         "AND grade<>'EXCLUDED' ORDER BY candidate_code",
-        (requirement_id,),
+        (requirement_id, requirement_id),
     )
     return [row["candidate_code"] for row in await cursor.fetchall()]
 
@@ -2127,9 +2129,9 @@ async def excluded_candidates(
         list[str]: 제외 후보 코드(코드 순).
     """
     cursor = await conn.execute(
-        f"SELECT candidate_code FROM ({LATEST_GRADES}) g WHERE requirement_id=%s "
+        f"SELECT candidate_code FROM ({LATEST_GRADES.format(project='(SELECT project_id FROM tft.requirements WHERE id=%s)')}) g WHERE requirement_id=%s "
         "AND candidate_code=ANY(%s) AND grade='EXCLUDED' ORDER BY candidate_code",
-        (requirement_id, list(codes)),
+        (requirement_id, requirement_id, list(codes)),
     )
     return [row["candidate_code"] for row in await cursor.fetchall()]
 
@@ -2145,7 +2147,7 @@ async def project_grades(conn: AsyncConnection[Row], project_id: UUID) -> list[R
         list[Row]: partner_grades 행(후보 코드·요구 순).
     """
     cursor = await conn.execute(
-        f"SELECT * FROM ({LATEST_GRADES}) g WHERE project_id=%s ORDER BY candidate_code,requirement_id",
+        f"SELECT * FROM ({LATEST_GRADES.format(project='%s')}) g ORDER BY candidate_code,requirement_id",
         (project_id,),
     )
     return await cursor.fetchall()

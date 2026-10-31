@@ -382,3 +382,83 @@ def test_candidate_membership_uses_current_input_but_grade_keeps_actual_saved_ti
         ).on_customer_manufacturer_list
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "consumer", ["project", "graded", "excluded", "detail", "invalid", "rereview"]
+)
+def test_latest_grade_consumers_scope_the_inner_query_and_bind_parameters_in_order(consumer):
+    project_id, requirement_id = uuid4(), uuid4()
+    conn = AsyncMock()
+
+    async def execute(query, params):
+        cursor = AsyncMock()
+        cursor.fetchall.return_value = (
+            [{"edit_trace_support": True}] if "SELECT edit_trace_support" in query else []
+        )
+        cursor.fetchone.return_value = None
+        return cursor
+
+    conn.execute.side_effect = execute
+    if consumer == "project":
+        work = repository.project_grades(conn, project_id)
+        expected = (project_id,)
+    elif consumer == "graded":
+        work = repository.graded_candidates(conn, requirement_id)
+        expected = (requirement_id, requirement_id)
+    elif consumer == "excluded":
+        work = repository.excluded_candidates(conn, requirement_id, ["P-A", "P-B"])
+        expected = (requirement_id, requirement_id, ["P-A", "P-B"])
+    elif consumer == "detail":
+        work = repository.requirement_detail_parts(
+            conn,
+            {
+                "requirement_id": requirement_id,
+                "project_id": project_id,
+                "version": 2,
+                "clause_id": uuid4(),
+                "document_version_id": uuid4(),
+            },
+        )
+        expected = (project_id, requirement_id)
+    elif consumer == "invalid":
+        work = repository.invalid_selection(conn, requirement_id)
+        expected = (requirement_id,)
+    else:
+        work = repository.needs_rereview(conn, requirement_id)
+        expected = (requirement_id,) * 4
+    asyncio.run(work)
+    grade_queries = [
+        call.args
+        for call in conn.execute.await_args_list
+        if "FROM tft.partner_grades g " in call.args[0]
+    ]
+    assert len(grade_queries) == 1
+    query, params = grade_queries[0]
+    assert params == expected
+    assert query.count("%s") == len(params)
+    assert "{project}" not in query and "{requirement}" not in query
+    if consumer in {"invalid", "rereview"}:
+        # valid·bad 모두 선택의 소속 프로젝트에 묶어 다른 프로젝트의 제외 판정을 섞지 않는다.
+        assert query.count("WHERE g.project_id=sr.project_id AND g.profile_version=") == 2
+    elif consumer in {"project", "detail"}:
+        assert "WHERE g.project_id=%s AND g.profile_version=" in query
+    else:
+        assert (
+            "WHERE g.project_id=(SELECT project_id FROM tft.requirements WHERE id=%s) "
+            "AND g.profile_version=" in query
+        )
+
+
+def test_nested_rereview_grade_queries_keep_project_scope_without_adding_bindings():
+    from backend.api.tft.projects import repository as projects
+
+    for query in (
+        repository.NEEDS_REREVIEW.format(requirement="req.id"),
+        repository.UNRESOLVED_MANDATORY,
+        repository.PROJECT_COUNTS,
+        projects.SUMMARY_COLUMNS,
+    ):
+        assert query.count("WHERE g.project_id=sr.project_id AND g.profile_version=") == 2
+        assert "%s" not in query
+        assert "{project}" not in query and "{requirement}" not in query
