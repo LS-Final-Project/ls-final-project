@@ -52,3 +52,19 @@ test('구독 DELETE/로컬 정리 실패는 고지하고 실제 세션 로그아
   expect(screen.getByText(/OS 알림 구독 정리를 확인하지 못했습니다/)).toBeTruthy();
   expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/logout'))).toHaveLength(1);
 });
+
+test('세션이 없으면 계정 화면 대신 로그인 화면을 보이고 로그아웃 직후에는 안내를 함께 보인다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '만료'))));
+  view();
+  expect((await screen.findByRole('heading', { name: '로그인' })).closest('.ls-login')).not.toBeNull();
+  expect(screen.queryByRole('heading', { name: '현재 계정' })).toBeNull();
+  cleanup();
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/logout') ? new Response(null, { status: 204 }) : session()));
+  view();
+  fireEvent.click(await screen.findByRole('button', { name: /^로그아웃$/ }));
+  fireEvent.click(screen.getByRole('button', { name: '로그아웃 확인' }));
+  // 로그아웃이 끝나면 로그인 화면 안에서 로그아웃 안내와 다시 로그인 경로를 보인다.
+  expect(await screen.findByText('로그아웃했습니다.')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '다시 로그인' }).closest('.ls-login')).not.toBeNull();
+  expect(screen.getByRole('link', { name: 'Microsoft로 로그인' }).getAttribute('href')).toBe('/api/v1/platform/auth/login');
+});
