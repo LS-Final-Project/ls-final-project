@@ -105,6 +105,7 @@ def test_a_rewrite_that_still_promises_leaves_no_draft():
     _, _, values = run(draft_provider=draft, verification_provider=check)
     assert len(prompts) == 2 and checks == []
     assert values["draft"] is None and values["draft_rewritten"] is False
+    assert values["forbidden_feedback"] is None
     assert values["errors"] == [
         {"node": "draft", "code": "CS_FORBIDDEN_COMMITMENT"},
         {"node": "rewrite", "code": "CS_FORBIDDEN_COMMITMENT"},

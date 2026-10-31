@@ -613,6 +613,8 @@ def build_graph(
             return {
                 **recorded,
                 "draft_rewritten": False,
+                # 금지 문구가 든 이전 초안을 상태에 남기지 않는다.
+                "forbidden_feedback": None,
                 "errors": [*first, {"node": "rewrite", "code": code}],
             }
         return {
