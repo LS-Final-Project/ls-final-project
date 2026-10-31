@@ -198,7 +198,8 @@ def _verification_row(
     checks = [a for r in runs.values() for a in (r.first, r.second) if a and a.call_started]
     rewrites = [r.rewrite for r in runs.values() if r.rewrite and r.rewrite.call_started]
     called: list[DraftAttempt | VerificationAttempt] = [*checks, *rewrites]
-    lasts = {case_id: r.second or r.first for case_id, r in runs.items()}
+    # 재작성본을 검증하지 못했으면 옛 판정을 쓰지 않는다. 옛 초안의 문장을 가리킨다(graph와 같다).
+    lasts = {case_id: None if r.skipped else r.second or r.first for case_id, r in runs.items()}
 
     def verdicts(attempts: list[VerificationAttempt | None]) -> dict[str, int]:
         return dict(
@@ -226,10 +227,10 @@ def _verification_row(
             Counter(
                 r.skipped or (a.error_code or a.outcome if a else "CS_DRAFT_MISSING")
                 for r, a in ((r, r.second or r.first) for r in runs.values())
-                if a is None or a.prediction is None
+                if r.skipped or a is None or a.prediction is None
             )
         ),
-        # 재작성본을 검증하지 못한 사례. 상태와 판정은 첫 검증 값이다(graph reverify와 같다).
+        # NOT_VERIFIED 중 재작성본에 근거 문장이 없어 검증하지 못한 사례.
         "reverify_skipped": dict(
             Counter(r.skipped for r in runs.values() if r.skipped and r.first)
         ),

@@ -88,8 +88,8 @@ def test_rewrite_feedback_carries_only_the_unsupported_sentences():
     assert len(checks) == 2
 
 
-def test_a_rewrite_without_evidence_sentences_keeps_the_first_verdict():
-    """재작성본을 검증할 수 없어도 재작성을 부른 판정은 사람에게 남는다."""
+def test_a_rewrite_without_evidence_sentences_is_not_verified_and_drops_the_old_verdict():
+    """옛 판정은 옛 초안의 문장을 가리키므로 재작성본에 붙이지 않는다."""
     drafts = []
 
     def drafter(text):
@@ -106,8 +106,8 @@ def test_a_rewrite_without_evidence_sentences_keeps_the_first_verdict():
     _, _, state = invoke(verification_provider=verifier, draft_provider=drafter)
     found = state.values["verification"]
     assert len(checks) == 1 and len(drafts) == 2
-    assert found["status"] == "NEEDS_REVIEW" and found["reason"] == "CS_NO_EVIDENCE_SENTENCES"
-    assert {s["verdict"] for s in found["sentences"]} == {"UNSUPPORTED"}
+    assert found["status"] == "NOT_VERIFIED" and found["reason"] == "CS_NO_EVIDENCE_SENTENCES"
+    assert found["sentences"] == []
 
 
 def test_a_draft_without_evidence_sentences_calls_no_verifier():

@@ -746,8 +746,8 @@ def test_unverifiable_is_counted_without_a_rewrite():
     assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
 
 
-def test_a_rewrite_without_evidence_sentences_counts_the_first_verdict():
-    """graph reverify와 같은 뜻이다. 미검증이 아니라 첫 판정이 남는다."""
+def test_a_rewrite_without_evidence_sentences_is_not_verified():
+    """graph와 같은 뜻이다. 옛 판정을 쓰지 않고 미검증으로 세고 사유를 따로 낸다."""
     base = provider()
     seen = []
 
@@ -766,9 +766,10 @@ def test_a_rewrite_without_evidence_sentences_counts_the_first_verdict():
     checker = verifier("UNSUPPORTED")
     row = verified(checker, drafter, {"k1": CASES["k1"]})["verification"]
     assert row["calls"] == {"verification": 1, "rewrite": 1}
-    assert row["status"]["final"] == {"NEEDS_REVIEW": 1}
-    assert row["verdicts"]["final"] == row["verdicts"]["first"]
-    assert row["not_verified"] == {}
+    assert row["status"]["first"] == {"NEEDS_REVIEW": 1}
+    assert row["status"]["final"] == {"NOT_VERIFIED": 1}
+    assert row["verdicts"]["final"] == {}
+    assert row["not_verified"] == {"CS_NO_EVIDENCE_SENTENCES": 1}
     assert row["reverify_skipped"] == {"CS_NO_EVIDENCE_SENTENCES": 1}
 
 
