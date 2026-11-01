@@ -198,24 +198,29 @@ class EvidenceBuildTests(unittest.TestCase):
             code = cs_evidence_build.main(argv, searcher=lambda version: fake)
         return code, printed.getvalue()
 
-    def test_query_terms_build_a_masked_or_query(self):
-        """질의는 2자 이상 토큰을 중복 없이 OR로 잇고 마스킹 표식·'or'·41번째 이후 토큰을 뺀다.
+    def test_query_parts_build_a_masked_or_query(self):
+        """질의는 2자 이상 토큰을 중복 없이 OR로 잇고 마스킹 표식·'or'·41번째 이후를 뺀다.
 
         Returns:
             None: 질의 문자열을 확인한다.
         """
+
+        def terms(subject, body, source):
+            parts = cs_evidence_build.query_parts(subject, body, source)
+            return cs_evidence_build.token_or_query(*parts)
+
         self.assertEqual(
-            cs_evidence_build.query_terms(
+            terms(
                 "Trip [SERIAL_PROVIDED]",
                 "trip or a b-c Breaker [PERSONAL_PROVIDED]",
                 "subject+body",
             ),
             "Trip or Breaker",
         )
-        self.assertEqual(cs_evidence_build.query_terms("Only", "body text", "subject"), "Only")
-        self.assertEqual(cs_evidence_build.query_terms(None, "body text", "subject"), "")
+        self.assertEqual(terms("Only", "body text", "subject"), "Only")
+        self.assertEqual(terms(None, "body text", "subject"), "")
         many = " ".join(f"w{i:02d}" for i in range(50))
-        self.assertEqual(len(cs_evidence_build.query_terms(None, many, "body").split(" or ")), 40)
+        self.assertEqual(len(terms(None, many, "body").split(" or ")), 40)
 
     def test_writes_draft_evidence_without_blocked_chunks_or_query_text(self):
         """FLT-042 청크는 빠지고 본문 앞부분이 스니펫이 되며, 질의는 마스킹되고 출력에 남지 않는다.
