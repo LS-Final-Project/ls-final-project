@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { focusManager, onlineManager } from '@tanstack/react-query';
 import TicketDetail from '../pages/TicketDetail';
 import examples from '../mocks/generated/cs.json';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import CsAnalysisAction from './CsAnalysisAction';
 import { getAnalysisJob, startAnalysis } from '../api/cs-analysis';
@@ -35,7 +36,7 @@ function setup(extra = {}) {
 }
 const confirm = () => fireEvent.click(screen.getByRole('checkbox'));
 const start = () => fireEvent.click(screen.getByRole('button', { name: 'AI 분석 요청' }));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); actor = A; roles = ['cs_agent']; token = 'test-token'; });
+afterEach(() => { cleanup(); focusManager.setFocused(undefined); onlineManager.setOnline(true); vi.useRealTimers(); vi.unstubAllGlobals(); setApiMode('mock'); actor = A; roles = ['cs_agent']; token = 'test-token'; });
 
 test('명시 비용 확인 뒤 한 번 접수하고 문의별 작업 완료를 읽어 결과를 갱신한다', async () => {
   const fetch = serve(); const { done } = setup();
@@ -181,5 +182,99 @@ test('문의 처리 화면의 명시 접수 완료는 분석·문의·업무흐�
   expect(calls('/workflow')).toBeGreaterThan(before);
   expect(calls('/analysis')).toBeGreaterThan(1);
   expect(calls(`/tickets/${T}`)).toBeGreaterThan(1);
+  expect(posts(fetch)).toHaveLength(1);
+});
+
+test.each(['503', 'network', 'timeout'])('불명 접수의 재확인 중 me %s도 기존 키를 보존한다', async fault => {
+  let postCount = 0;
+  const fetch = serve(() => ++postCount === 1 ? jsonResponse(503, {}) : jsonResponse(202, accepted));
+  const original = fetch.getMockImplementation()!;
+  let failPreflight = false;
+  fetch.mockImplementation(async (url, init) => {
+    if (failPreflight && String(url).endsWith('/me')) {
+      if (fault === '503') return jsonResponse(503, { error: { message: '일시 인증 장애' } });
+      if (fault === 'timeout') throw new DOMException('timeout', 'TimeoutError');
+      throw new TypeError('offline');
+    }
+    return original(url, init);
+  });
+  setup(); confirm(); start();
+  await screen.findByRole('button', { name: '같은 분석 요청 다시 확인' });
+  const key = (posts(fetch)[0][1]!.headers as Record<string, string>)['Idempotency-Key'];
+  failPreflight = true;
+  fireEvent.click(screen.getByRole('button', { name: '같은 분석 요청 다시 확인' }));
+  await screen.findByRole('button', { name: '같은 분석 요청 다시 확인' });
+  expect(posts(fetch)).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'AI 분석 요청' })).toBeNull();
+  failPreflight = false;
+  fireEvent.click(screen.getByRole('button', { name: '같은 분석 요청 다시 확인' }));
+  await screen.findByRole('status');
+  expect(posts(fetch)).toHaveLength(2);
+  expect((posts(fetch)[1][1]!.headers as Record<string, string>)['Idempotency-Key']).toBe(key);
+});
+
+
+test.each(['error', 'terminal'])('%s 이후 focus/online 복귀가 작업 GET을 자동 재실행하지 않는다', async outcome => {
+  const fetch = serve();
+  const original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (url, init) => String(url).includes('/platform/jobs/') && outcome === 'error'
+    ? jsonResponse(503, { error: { message: '일시 조회 장애' } }) : original(url, init));
+  const { done } = setup(); confirm(); start();
+  if (outcome === 'error') await screen.findByRole('alert');
+  else await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+  const jobGets = () => fetch.mock.calls.filter(([url]) => String(url).includes('/platform/jobs/')).length;
+  const before = jobGets();
+  await act(async () => {
+    focusManager.setFocused(false); focusManager.setFocused(true);
+    window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+  });
+  expect(jobGets()).toBe(before);
+  expect(posts(fetch)).toHaveLength(1);
+});
+
+test('일시 작업 조회 오류의 명시 재조회는 GET만 다시 보낸다', async () => {
+  let retry = false;
+  const fetch = serve();
+  const original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (url, init) => String(url).includes('/platform/jobs/') && !retry
+    ? jsonResponse(503, { error: { message: '일시 조회 장애' } }) : original(url, init));
+  const { done } = setup(); confirm(); start();
+  const button = await screen.findByRole('button', { name: '분석 상태 다시 조회' });
+  retry = true; fireEvent.click(button);
+  await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+  expect(posts(fetch)).toHaveLength(1);
+});
+
+test('focus/reconnect 자동 조회를 꺼도 실행 중 주기 폴링은 유지된다', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  const fetch = serve();
+  const original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (url, init) => {
+    if (String(url).includes('/platform/jobs/')) return jsonResponse(200, { data: { job_id: J, ticket_id: T, owner: 'cs', kind: 'cs.analyze', status: ++reads === 1 ? 'RUNNING' : 'SUCCEEDED' } });
+    return original(url, init);
+  });
+  const { done } = setup(); confirm(); start();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(reads).toBe(1);
+  expect(done).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(reads).toBe(2);
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(posts(fetch)).toHaveLength(1);
+});
+
+test('불명 요청 재확인 중 권한을 잃으면 복구 후에도 새 POST를 차단한다', async () => {
+  const fetch = serve(() => jsonResponse(503, {})); setup(); confirm(); start();
+  await screen.findByRole('button', { name: '같은 분석 요청 다시 확인' });
+  roles = ['manager'];
+  fireEvent.click(screen.getByRole('button', { name: '같은 분석 요청 다시 확인' }));
+  await screen.findByText('C/S 담당자만 분석을 요청할 수 있습니다.');
+  roles = ['cs_agent'];
+  const button = screen.getByRole('button', { name: '같은 분석 요청 다시 확인' }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true); fireEvent.click(button);
   expect(posts(fetch)).toHaveLength(1);
 });

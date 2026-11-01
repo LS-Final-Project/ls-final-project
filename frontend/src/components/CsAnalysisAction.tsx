@@ -22,6 +22,7 @@ export default function CsAnalysisAction({ user, ticketId, closed, hasAnalysis, 
     queryKey: ['cs-analysis-job', user.id, ticketId, accepted?.job_id],
     queryFn: ({ signal }) => getAnalysisJob(user.id, ticketId, accepted!.job_id, signal),
     enabled: !!accepted && !blocked, retry: false,
+    refetchOnWindowFocus: false, refetchOnReconnect: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ['QUEUED', 'RUNNING'].includes(query.state.data.status)) ? 1000 : false,
   });
   const status = job.data?.status ?? accepted?.status;
@@ -46,7 +47,8 @@ export default function CsAnalysisAction({ user, ticketId, closed, hasAnalysis, 
       if (error instanceof AnalysisSessionChanged || error instanceof ApiError && [401, 403, 409].includes(error.status)) setBlocked(true);
       if (error instanceof ApiError && error.code === 'CS_JOB_IN_PROGRESS') setMessage('이 문의에 진행 중인 분석이 있습니다. 새 요청을 보내지 마세요. 기존 작업 번호를 모르면 현재 화면에서 진행 상태를 복원할 수 없습니다.');
       if (error instanceof ApiError && error.code === 'IDEMPOTENCY_CONFLICT') setMessage('같은 요청 키의 문의 입력이 변경되었습니다. 새 요청을 보내지 않고 최신 문의를 다시 확인하세요.');
-      if (!(error instanceof AnalysisUncertain)) setAttempt(undefined);
+      // 이전 POST의 결과불명은 사전 인증 실패로 해소되지 않는다. 보안 거절은 위에서 차단한다.
+      if (!(error instanceof AnalysisUncertain) && !attempt) setAttempt(undefined);
     } finally { if (!current.signal.aborted) setBusy(false); }
   }
   return <div className="kv-sub" style={{ margin: '6px 14px' }} aria-label="AI 분석 접수">
