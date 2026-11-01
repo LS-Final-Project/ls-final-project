@@ -565,6 +565,32 @@ class EvidenceBuildTests(unittest.TestCase):
         )
         self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["coded", "plain"])
 
+    def test_product_code_goes_first_in_the_query_and_into_the_code_match(self):
+        calls = []
+
+        def search(query, filters):
+            calls.append(query)
+            return [candidate("plain", "Rating table.", 1), candidate("own", "MCCB-X1 rating.", 2)]
+
+        record = {"channel": "EMAIL", "body_language": "en", "subject": None, "body": "Rating?"}
+        kwargs = {
+            "index_version": "cs-chunks-v1",
+            "document_sha256s": None,
+            "limit": 5,
+            "snippet_chars": 800,
+            "sensitive_values": {},
+            "query_from": "subject+body",
+        }
+        evidence, _ = cs_evidence_build.build_evidence(
+            {"T1": record}, search, product_codes={"T1": "MCCB-X1"}, **kwargs
+        )
+        self.assertTrue(calls[0].startswith("MCCB or X1 or "))
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["own", "plain"])
+        calls.clear()
+        evidence, _ = cs_evidence_build.build_evidence({"T1": record}, search, **kwargs)
+        self.assertFalse(calls[0].startswith("MCCB"))
+        self.assertEqual([row["chunk_id"] for row in evidence["T1"]], ["plain", "own"])
+
     def test_vector_gets_the_masked_text_and_is_fused_with_fts(self):
         """--vector 경로: 벡터 검색기는 토큰 OR 대신 마스킹 원문을 받고, 결과는 FTS와 함께 근거에 들며 meta에 남는다.
 

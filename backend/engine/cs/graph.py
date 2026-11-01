@@ -419,13 +419,15 @@ def build_graph(
                 CS_SEARCH_FAILED로 남긴다.
         """
         record = state["record"] or {}
-        query = token_or_query(record.get("subject"), record.get("body"))
+        if not token_or_query(record.get("subject"), record.get("body")):
+            return {"evidence": [], "stage": "RETRIEVED"}
+        code = load_ticket(state["ticket_id"]).product_code
+        # 본문에 없어도 문의의 제품 문서를 찾도록 제품 코드를 질의 앞에 둔다(어휘 상한에 잘리지 않게).
+        query = token_or_query(code, record.get("subject"), record.get("body"))
         # 코드 일치 가산(codes_in)은 토큰으로 쪼개지 않은 마스킹 원문에서 뽑는다.
         text = "\n".join(part for part in (record.get("subject"), record.get("body")) if part)
-        if not query:
-            return {"evidence": [], "stage": "RETRIEVED"}
         try:
-            family: str | None = product_family(load_ticket(state["ticket_id"]).product_code)
+            family: str | None = product_family(code)
         except RuleInputError:
             family = None
         scoped = search_filters.model_copy(update={"product_family": family}) if family else None
@@ -439,7 +441,7 @@ def build_graph(
                 # 벡터는 FTS용 어휘 OR 문자열이 아니라 마스킹 원문을 임베딩한다(KAN-99, 임베딩 실측과 같은 입력).
                 vector=(lambda _query, f: vector_searcher(text, f)) if vector_searcher else None,
                 limit=min(search_filters.limit, evidence_limit or search_filters.limit),
-                code_text=text,
+                code_text=f"{code}\n{text}",
                 reserved=policy_slot(search_filters, category, policy_documents),
             )
         except Exception:
