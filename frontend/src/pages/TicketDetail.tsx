@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketWorkflow from '../components/TicketWorkflow';
 import TicketUnits from '../components/TicketUnits';
 import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
+import CsAnalysisAction from '../components/CsAnalysisAction';
 import ResolutionCaseForm from '../components/ResolutionCaseForm';
 import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
@@ -42,22 +43,22 @@ const Row = ({ children }: { children: ReactNode }) =>
   <div className="row" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>{children}</div>;
 
 // 문의 처리 CS0102. 접수 원문·업무 상태·장비 후보 조회와 업무 흐름 4동작(검토 시작·부서 검토 요청·요청 취소·종결)을 연결한다.
-// AI 분류·요약, 처리 기록은 API가 없어 연결 전으로 표시한다.
+// 분석은 명시 요청하고 작업 완료 뒤 분류·초안 결과를 다시 읽는다.
 export default function TicketDetail() {
   const { ticketId = '' } = useParams();
   const navigate = useNavigate();
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
   const ticket = useQuery({ queryKey: ['tickets', mode, ticketId], queryFn: ({ signal }) => getTicket(ticketId, signal), enabled: access.ready && ticketId !== '' });
+  const identity = useQuery({ queryKey: ['ticket-owner-identity', mode, access.user.data?.data?.id], queryFn: me, retry: false, enabled: access.ready });
+  const analysisUser = access.user.data?.data ?? identity.data?.data;
   // 기한을 읽는 사람이 등급이 추정임을 알아야 한다. 안내일 뿐이라 분석을 못 읽어도 화면은 그대로다.
-  const analysis = useQuery({ queryKey: ['ticket-analysis', mode, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
+  const analysis = useQuery({ queryKey: ['ticket-analysis', mode, analysisUser?.id, ticketId], queryFn: ({ signal }) => getTicketAnalysis(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false });
   const tierNote = analysis.data?.data?.rules?.tier_note;
   // 분석 응답이 계약 모양(필드 표)이 아니면 쓰지 않는다. 모의 모드의 빈 응답도 여기서 걸러진다.
   const analysisData = analysis.isSuccess && analysis.data.data && typeof analysis.data.data.fields === 'object' && analysis.data.data.fields ? analysis.data.data : undefined;
   // 상태 표시는 문의 상세의 값을 쓴다. 업무 흐름 조회는 판본(version), 담당, 검토 요청 이력만 읽는다.
   const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
-  // 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다. 담당자 이름 표시에만 쓴다.
-  const identity = useQuery({ queryKey: ['ticket-owner-identity', mode], queryFn: me, retry: false, enabled: access.ready && workflow.isSuccess });
   const [dialog, setDialog] = useState<Dialog>(null);
   const assignees = useQuery({ queryKey: ['cs-assignees', mode], queryFn: ({ signal }) => listCsAssignees(signal), enabled: dialog === 'owner', retry: false, staleTime: 0 });
   const mailboxes = useQuery({ queryKey: ['send-mailboxes', mode], queryFn: () => listMailboxes(), enabled: dialog === 'draft' && mode === 'live', retry: false, staleTime: 0 });
@@ -217,6 +218,8 @@ export default function TicketDetail() {
         </Row>
       </div>
 
+      {analysisUser?.id && Array.isArray(analysisUser.roles) && <CsAnalysisAction key={`${analysisUser.id}:${ticketId}`} user={analysisUser} ticketId={ticketId} closed={data.workflow_state === 'CLOSED'} hasAnalysis={!!analysisData?.latest_run}
+        onComplete={() => { void analysis.refetch(); void ticket.refetch(); void workflow.refetch(); }} />}
       <div className="kv-split c3">
         <section className="kv-box">
           <h2>대화<small>최신이 위</small></h2>
@@ -229,7 +232,7 @@ export default function TicketDetail() {
           <h2>설치 장비 확인<small>확인 전</small></h2>
           <div className="body"><TicketUnits key={ticketId} ticketId={ticketId} canWrite={canWrite} /></div>
         </section>
-        <TicketAnalysisPanel key={`${ticketId}:${returnFormKey}`} analysis={analysisData} pending={analysis.isPending} workflow={wf} ticketState={data.workflow_state} canWrite={canWrite} busy={busy}
+        <TicketAnalysisPanel key={`${ticketId}:${returnFormKey}`} analysis={analysisData} pending={analysis.isPending} failed={analysis.isError} workflow={wf} ticketState={data.workflow_state} canWrite={canWrite} busy={busy}
           onConfirm={form => void run('반품 사유를 확정했습니다.', signal => confirmReturn(ticketId, { ...form, version }, signal)).then(ok => { if (ok) setReturnFormKey(key => key + 1); })} />
       </div>
 
