@@ -9,7 +9,7 @@ const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOStri
 const ticket = (n: number, round: number, status: NonNullable<TicketItem['transfer']>['status'], days: number): TicketItem => ({
   id: `3333333${n}-3333-4333-8333-333333333333`, external_id: `CS26-100${n}`, subject: `합성 문의 ${n}`, channel: 'EMAIL', product_code: 'INV-TEST', workflow_state: 'TRANSFERRED',
   owner_user_id: null, received_at: ago(days + 2), data_origin: 'synthetic', derivation_kind: 'PROVIDED',
-  transfer: { round, dept_code: 'QA_CLAIM', status, transferred_at: ago(days) },
+  transfer: { round, dept_code: 'QA_CLAIM', status, transferred_at: ago(days), customer_external_id: `CUST-${n}`, reason: `검토 요청 사유 ${n}` },
 } as TicketItem);
 const identity = (over: Record<string, unknown> = {}) => ({ data: { id: '00000000-0000-4000-8000-000000000009', display_name: '최민호', dept: 'QA_CLAIM', roles: ['dept_staff'], ...over } });
 const serve = (items: TicketItem[], who = identity(), next: string | null = null) => vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? jsonResponse(200, who)
@@ -27,6 +27,9 @@ test('소속 부서로 목록을 읽어 차수·요청일시·상태·경과일�
   expect(rows).toHaveLength(3);
   expect(rows[0].textContent).toContain('CS26-1001');
   expect(rows[0].textContent).toContain('진행');
+  expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(expect.arrayContaining(['고객', '요청 사유']));
+  expect(rows[0].textContent).toMatch(/CUST-\d/);
+  expect(rows[0].textContent).toMatch(/검토 요청 사유 \d/);
   expect(screen.getByText(/답변할 요청/).textContent).toMatch(/3건, 7일 이상 2/);
   expect(listCalls(fetch)[0]).toBe('/api/v1/cs/tickets?limit=100&dept=QA_CLAIM&transfer_status=OPEN');
   expect((screen.getByLabelText('부서') as HTMLSelectElement).disabled).toBe(true);

@@ -15,7 +15,7 @@ type Row = TicketItem & { transfer: Transfer };
 const isDept = (value: string | null | undefined): value is DeptCode => !!value && DEPT_CODES.includes(value);
 
 // 받은 요청 CS0202(부서 창). 우리 부서로 이관된 문의를 문의 목록 API의 부서 필터(KAN-202)로 읽어 보인다.
-// 목록 항목에는 고객 ID와 요청 사유가 없어 그 열은 넣지 않는다. 개선요청 회신 표도 부서별 조회가 없어 넣지 않는다.
+// 부서 필터를 주면 항목의 transfer에 고객 ID와 요청 사유가 함께 온다. 개선요청 회신 표는 부서별 조회가 없어 넣지 않는다.
 export default function DeptInbox() {
   if (!import.meta.env.DEV) return <Preparing title="받은 요청" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
   return <InboxView />;
@@ -57,14 +57,16 @@ function InboxView() {
   const columns: KvColumn<Row>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
     { key: 'id', header: '문의번호', width: 110, className: 'id', cell: row => <Link to={`/dept/result/${row.id}`}>{row.external_id ?? row.id.slice(0, 8)}</Link> },
+    { key: 'customer', header: '고객', width: 110, headClass: '', cell: row => row.transfer.customer_external_id },
     { key: 'subject', header: '제목', className: 't', headClass: '', cell: row => row.subject ?? '' },
     { key: 'round', header: '차수', width: 52, className: 'c', cell: row => row.transfer.round },
     { key: 'at', header: '요청일시', width: 130, className: 'd', sort: 'descending', headClass: '', cell: row => formatStamp(row.transfer.transferred_at) },
+    { key: 'reason', header: '요청 사유', width: 220, headClass: '', cell: row => row.transfer.reason },
     { key: 'status', header: '상태', width: 110, className: 'c', cell: row => STATUS_LABEL[row.transfer.status] },
     { key: 'age', header: '경과일', width: 64, className: 'c', cell: row => row.transfer.status === 'OPEN' ? elapsed(row) : '' },
   ];
-  const exportCsv = () => downloadCsv('받은_요청', ['문의번호', '제목', '차수', '요청일시', '상태', '경과일'],
-    shown.map(row => [row.external_id ?? row.id, row.subject ?? '', row.transfer.round, formatStamp(row.transfer.transferred_at), STATUS_LABEL[row.transfer.status], row.transfer.status === 'OPEN' ? elapsed(row) : '']));
+  const exportCsv = () => downloadCsv('받은_요청', ['문의번호', '고객', '제목', '차수', '요청일시', '요청 사유', '상태', '경과일'],
+    shown.map(row => [row.external_id ?? row.id, row.transfer.customer_external_id, row.subject ?? '', row.transfer.round, formatStamp(row.transfer.transferred_at), row.transfer.reason, STATUS_LABEL[row.transfer.status], row.transfer.status === 'OPEN' ? elapsed(row) : '']));
 
   return <main>
     <KvTitle path="부서 검토" title="받은 요청" code="CS0202">
@@ -100,7 +102,7 @@ function InboxView() {
       {dept && list.isPending && <Loading />}
       {dept && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
       {dept && list.isSuccess && <>
-        <div className="kv-gridhead"><span>문의 검토 요청 {shown.length}건. 문의별 최신 검토 요청을 표시, 고객·요청 사유는 목록 API가 주지 않아 상세에서 확인</span></div>
+        <div className="kv-gridhead"><span>문의 검토 요청 {shown.length}건. 문의별 최신 검토 요청을 표시</span></div>
         <KvGrid label="받은 요청" columns={columns} rows={shown} rowKey={row => row.id} fallback="조건에 맞는 요청이 없습니다." />
         <KvFoot count={`표시 ${shown.length}건 / 받아 온 ${all.length}건`} more={list.hasNextPage ? <button className="kb" disabled={list.isFetchingNextPage} onClick={() => { void list.fetchNextPage(); }}>{list.isFetchingNextPage ? '불러오는 중' : '더 보기'}</button> : undefined} />
       </>}
