@@ -31,7 +31,7 @@ function server(roles: string[], dept: string | undefined, reply: (post: Post) =
 function Harness({ data, onChanged }: { data: Detail; onChanged: (next?: ImprovementDetail) => void }) {
   const [message, setMessage] = useState<TransitionMessage>(null);
   const [hidden, setHidden] = useState(false);
-  const changed = (next?: ImprovementDetail) => { onChanged(next); setHidden(true); setTimeout(() => setHidden(false), 0); };
+  const changed = (next?: ImprovementDetail) => { if (next) onChanged(next); else onChanged(); setHidden(true); setTimeout(() => setHidden(false), 0); };
   return hidden ? null : <ImprovementTransitions detail={data} message={message} setMessage={setMessage} onChanged={changed} />;
 }
 function view(data: Detail, onChanged = vi.fn(), live = true) {
