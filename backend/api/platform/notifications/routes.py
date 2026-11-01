@@ -45,7 +45,6 @@ async def list_notifications(
 ) -> SuccessResponse[NotificationList]:
     query_keys(request, {"limit", "offset"})
     async with connection(request.app.state.settings) as conn:
-        await repository.expand_pending(conn)
         rows = await repository.list_mine(conn, user.data.id, limit + 1, offset)
     response.headers["Cache-Control"] = "no-store"
     return SuccessResponse(
@@ -67,7 +66,6 @@ async def count_notifications(
 ) -> SuccessResponse[UnreadCount]:
     query_keys(request, set())
     async with connection(request.app.state.settings) as conn:
-        await repository.expand_pending(conn)
         count = await repository.unread_count(conn, user.data.id)
     response.headers["Cache-Control"] = "no-store"
     return SuccessResponse(
