@@ -43,7 +43,7 @@ function payload(request, prepared) {
   return JSON.stringify({text});
 }
 
-async function fire(url, token, body, fetchImpl) {
+async function fire(url, token, body, fetchImpl, core) {
   if (typeof token !== 'string' || !token.trim() || /[\r\n]/.test(token)) {
     throw new Error('Routine token이 없거나 잘못됐습니다.');
   }
@@ -65,8 +65,14 @@ async function fire(url, token, body, fetchImpl) {
   try { data = await response.json(); } catch {
     throw new Error('Routine 시작 응답이 올바르지 않습니다. 자동 재시도하지 않습니다.');
   }
-  if (data?.type !== 'routine_fire' || typeof data.claude_code_session_id !== 'string' ||
-      !/^session_[A-Za-z0-9_-]+$/.test(data.claude_code_session_id)) {
+  // The API promises a string, not a prefix or alphabet. Never log the opaque ID,
+  // concatenate it into a URL/command, or treat session creation as review completion.
+  const id = data?.claude_code_session_id;
+  const shape = {type_matches: data?.type === 'routine_fire',
+    id_present: Object.hasOwn(data ?? {}, 'claude_code_session_id'),
+    id_is_string: typeof id === 'string', id_nonblank: typeof id === 'string' && id.trim().length > 0};
+  core.info(JSON.stringify({routine_fire_response: shape}));
+  if (!shape.type_matches || !shape.id_nonblank) {
     throw new Error('Routine 세션 생성 확인 실패: 자동 재시도하지 않습니다.');
   }
 }
@@ -146,7 +152,7 @@ async function run({github, context, core, prepared, url, token,
   const body = payload(request, {...prepared, head: pr.head.sha, base: pr.base.sha});
   // Last mutable-state check before spending a session; response is NOT review completion.
   await currentPR(github, context);
-  await fire(url, token, body, fetchImpl);
+  await fire(url, token, body, fetchImpl, core);
   const list = async () => {
     await currentPR(github, context);
     const comments = await github.paginate(github.rest.issues.listComments, {...context.repo,

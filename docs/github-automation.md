@@ -84,6 +84,11 @@ URL은 `https://api.anthropic.com/v1/claude_code/routines/trig_<영숫자>/fire`
 query·fragment·사용자 정보·명시적 포트·다른 host/path·redirect는 거부한다.
 Bearer token은 해당 공식 endpoint의 인증 헤더에만 사용하며 payload·댓글·오류에 출력하지 않는다.
 요청은 `anthropic-version: 2026-10-21`과 `{ "text": "<JSON 문자열>" }` 형식이다.
+시작 응답은 `type=routine_fire`와 비어 있지 않은 문자열 `claude_code_session_id`를
+요구한다. ID는 불투명 문자열로 취급하며 `session_` 같은 접두사를 강제하거나 명령·URL에
+조합하지 않는다. 로그에는 type 일치·ID 필드 존재·문자열 여부·비어 있지 않음의 boolean만
+남기며 ID·세션 URL·원응답은 출력하지 않는다. 진단 run 41310557079의 원응답은 미기록되어
+그 실패를 특정 접두사 때문이라고 확정할 수 없다. 기존 진단 PR #537은 수정·재실행하지 않는다.
 `text` 전체가 65,536자를 초과하면 diff를 자르거나 세션을 시작하지 않고 실패한다.
 큰 diff의 별도 전달 경로는 아직 구현하지 않았다.
 

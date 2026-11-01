@@ -16,7 +16,8 @@ function fixture() {
   const prepared = {files: ['example.py'], diff: 'diff --git a/example.py b/example.py\n-old\n+new\n', schema};
   let clock = Date.parse('2026-11-01T12:00:00Z');
   const f = {context, prepared, url, token: 'fixture-routine-token', pr,
-    requests: [], published: [], edits: [], failures: [], reads: 0, historyReads: 0, result: undefined,
+    requests: [], published: [], edits: [], failures: [], logs: [], reads: 0, historyReads: 0, result: undefined,
+    startResponse: {type: 'routine_fire', claude_code_session_id: 'session_fixture'},
     now: () => clock, sleep: async ms => {clock += ms;},
     advance: ms => {clock += ms;}};
   f.review = () => ({head_sha: head, base_sha: base, review_complete: true,
@@ -36,7 +37,7 @@ function fixture() {
   f.fetchImpl = async (target, options) => {
     f.requests.push({target, options});
     f.payload = JSON.parse(JSON.parse(options.body).text);
-    return {status: 200, json: async () => ({type: 'routine_fire', claude_code_session_id: 'session_fixture'})};
+    return {status: 200, json: async () => structuredClone(f.startResponse)};
   };
   f.github = {rest: {pulls: {get: async () => ({data: structuredClone(pr)})}, issues: {
     listComments() {}, getComment: async () => ({data: f.comment()}),
@@ -46,7 +47,7 @@ function fixture() {
   graphql: async (query, variables) => {
     f.historyReads++; assert.match(query, /^query\b/); assert.equal(variables.id, 'IC_fixture'); return f.history();
   }};
-  f.core = {setFailed: value => f.failures.push(value), summary: {
+  f.core = {info: value => f.logs.push(value), setFailed: value => f.failures.push(value), summary: {
     addHeading() {return this;}, addRaw() {return this;}, async write() {},
   }};
   return f;
@@ -86,6 +87,42 @@ test('requests and run attempts have independent unpredictable IDs', async () =>
   await run(a); await run(b);
   assert.notEqual(a.payload.request.request_id, b.payload.request.request_id);
   assert.equal(b.payload.request.run_attempt, '2');
+});
+
+test('session IDs are opaque strings: session_, cse_ and other nonblank IDs do not gate reviews', async () => {
+  for (const id of ['session_fixture', 'cse_fixture', 'opaque:진단/id']) {
+    const f = fixture(); f.startResponse.claude_code_session_id = id;
+    await run(f);
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.published.length, 1);
+    assert.deepEqual(JSON.parse(f.logs[0]), {routine_fire_response: {
+      type_matches: true, id_present: true, id_is_string: true, id_nonblank: true}});
+  }
+});
+
+test('missing, blank, non-string IDs and wrong response types are rejected without retry or review', async () => {
+  for (const startResponse of [null, {}, {type: 'routine_fire'},
+    ...['', ' \t\n ', null, 42, true, [], {}].map(id => ({type: 'routine_fire', claude_code_session_id: id})),
+    {type: 'error', claude_code_session_id: 'cse_fixture'}, {claude_code_session_id: 'session_fixture'}]) {
+    const f = fixture(); f.startResponse = startResponse;
+    await assert.rejects(() => run(f), /세션 생성 확인 실패/);
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.reads, 0);
+    assert.equal(f.published.length, 0);
+    const shape = JSON.parse(f.logs[0]).routine_fire_response;
+    assert.deepEqual(Object.keys(shape), ['type_matches', 'id_present', 'id_is_string', 'id_nonblank']);
+    assert.ok(Object.values(shape).every(value => typeof value === 'boolean'));
+  }
+});
+
+test('response diagnostics only log booleans, never the opaque ID, URL, token or raw response', async () => {
+  const f = fixture();
+  f.startResponse = {type: 'routine_fire', claude_code_session_id: `opaque ${f.token} ${url}`,
+    claude_code_session_url: url, untrusted: 'raw-response-fixture'};
+  await run(f);
+  assert.equal(f.logs.length, 1);
+  for (const secret of [f.token, url, 'opaque', 'raw-response-fixture']) assert.ok(!f.logs[0].includes(secret));
+  assert.ok(Object.values(JSON.parse(f.logs[0]).routine_fire_response).every(value => typeof value === 'boolean'));
 });
 
 test('rejects unofficial URLs before transmitting any secret', async () => {
