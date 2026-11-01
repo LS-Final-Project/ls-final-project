@@ -91,7 +91,25 @@ test('확정 결과를 보이고 정하지 못함은 불량 여부를 정한 것
 
 test('분석이 없으면 이전처럼 자리만 두고 비활성으로 안내한다', () => {
   const { container } = render(<TicketAnalysisPanel analysis={undefined} pending={false} canWrite busy={false} onConfirm={() => undefined} />);
-  expect(screen.getByText(/분석 조회는 연결 전입니다/)).toBeTruthy();
+  expect(screen.getByText(/아직 분석 결과가 없습니다/)).toBeTruthy();
   expect((screen.getByLabelText('주분류') as HTMLSelectElement).disabled).toBe(true);
   expect(container.querySelector('form')).toBeNull();
+});
+
+
+test('조회 실패와 분류 실패 및 유효 초안 부재를 구분한다', () => {
+  panel({ analysis: undefined, failed: true });
+  expect(screen.getByText('분석 조회 실패')).toBeTruthy();
+  cleanup();
+  panel({ analysis: analysis('DEFECT', { latest_run: { outcome: 'TIMEOUT' } }) });
+  expect(screen.getByRole('alert').textContent).toContain('최근 분류 시도는 유효하지 않습니다');
+  cleanup();
+  panel({ analysis: analysis('DEFECT', { latest_run: { outcome: 'VALID' } }) });
+  expect(screen.getByRole('alert').textContent).toContain('유효한 초안이 없습니다');
+});
+
+
+test('이전 유효 초안이 있어도 최신 작성 실패를 숨기지 않는다', () => {
+  panel({ analysis: analysis('DEFECT', { latest_run: { outcome: 'VALID' }, latest_valid_draft_id: 'old', drafts: [{ id: 'old', outcome: 'VALID', verification_status: 'VERIFIED' }, { id: 'new', outcome: 'TIMEOUT' }] }) });
+  expect(screen.getByRole('alert').textContent).toContain('최근 초안 작성 시도는 유효하지 않습니다');
 });

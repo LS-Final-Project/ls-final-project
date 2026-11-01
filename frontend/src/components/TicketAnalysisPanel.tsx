@@ -6,14 +6,15 @@ import { CAUSE_LABEL, RESPONSIBILITY_LABEL, RETURN_STATED_LABEL, categoryName, d
 type Analysis = TicketAnalysisResponse['data'];
 export type ReturnForm = Omit<ReturnBody, 'version'>;
 
-const FAIL_NOTE = 'AI 분류·담당자 수정 결과는 아직 연결되지 않았습니다. 원문 정보와 구분해 확인하세요.';
+const FAIL_NOTE = '분석 결과를 확인할 수 없습니다. 원문 정보와 구분해 확인하세요.';
 const text = (value: unknown) => value === null || value === undefined || value === '' ? '-' : typeof value === 'boolean' ? (value ? '예' : '아니오') : String(value);
 
 // AI 분류 패널. 분석 API(KAN-107)의 유효값(사람 정정이 있으면 그 값)과 규칙 결과를 읽기 전용으로 보인다.
 // 반품 문의는 검사 뒤 사람이 기록하는 확정 입력(KAN-198)을 함께 보인다. AI 값으로 확정 칸을 채우지 않는다.
-export default function TicketAnalysisPanel({ analysis, pending, workflow, ticketState, canWrite, busy, onConfirm }: {
+export default function TicketAnalysisPanel({ analysis, pending, failed = false, workflow, ticketState, canWrite, busy, onConfirm }: {
   analysis?: Analysis;
   pending: boolean;
+  failed?: boolean;
   workflow?: WorkflowRecord;
   ticketState?: string;
   canWrite: boolean;
@@ -32,11 +33,12 @@ export default function TicketAnalysisPanel({ analysis, pending, workflow, ticke
   const isReturn = category === 'RETURN';
   const provided = view('provided_info')?.effective_value;
   const run = analysis?.latest_run ?? undefined;
+  const recentDraft = analysis?.drafts?.at(-1);
 
   if (!fields) {
     // 분석을 읽지 못했거나(연결 전·권한) 아직 없으면 이전과 같이 자리만 둔다.
     return <section className="kv-box ai-pre">
-      <h2>AI 분류<span className="unc" style={{ marginLeft: 8 }}>{pending ? '불러오는 중' : '분석 조회는 연결 전입니다'}</span></h2>
+      <h2>AI 분류<span className="unc" style={{ marginLeft: 8 }}>{pending ? '불러오는 중' : failed ? '분석 조회 실패' : '아직 분석 결과가 없습니다'}</span></h2>
       <div className="body">
         {['주분류', '보조분류', '긴급 여부', '반품 유형'].map(label => <div key={label} className="kv-field"><span>{label}</span><select aria-label={label} disabled><option>-</option></select></div>)}
         <div className="kv-sub" style={{ margin: '8px 0 0' }}>{FAIL_NOTE}</div>
@@ -56,6 +58,7 @@ export default function TicketAnalysisPanel({ analysis, pending, workflow, ticke
   return <section className="kv-box ai-pre">
     <h2>AI 분류{run && <span className="auto">AI 작성 {formatStamp(run.created_at)}</span>}{!run && <span className="unc" style={{ marginLeft: 8 }}>분석 실행 없음</span>}</h2>
     <div className="body">
+      {failed && <p role="alert">최신 분석 조회에 실패했습니다. 표시된 이전 결과와 구분해 확인하세요.</p>}
       <div className="kv-field"><span>주분류</span><span className="ro">{categoryName(category)}{tag('category_code') && <small className="auto"> {tag('category_code')}</small>}</span></div>
       <div className="kv-field"><span>보조분류</span><span className="ro">{text(view('secondary_category')?.effective_value)}{tag('secondary_category') && <small className="auto"> {tag('secondary_category')}</small>}</span></div>
       <div className="kv-field"><span>긴급 여부</span><span className="ro">{text(view('urgency_flag')?.effective_value)}{tag('urgency_flag') && <small className="auto"> {tag('urgency_flag')}</small>}</span></div>
@@ -66,6 +69,11 @@ export default function TicketAnalysisPanel({ analysis, pending, workflow, ticke
         <div className="kv-field"><span>우선순위</span><span className="ro">{rule.priority}</span></div>
         <div className="kv-field"><span>처리 기한</span><span className="ro">첫 응답 {formatStamp(analysis?.rules?.first_response_due?.effective ?? rule.first_response_due)}, 해결 {formatStamp(analysis?.rules?.resolution_due?.effective ?? rule.resolution_due)}</span></div>
       </>}
+      {!run && <p>아직 분석을 실행하지 않았습니다.</p>}
+      {run?.outcome && run.outcome !== 'VALID' && <p role="alert">최근 분류 시도는 유효하지 않습니다 ({run.outcome}). 기존 유효 결과와 구분해 확인하세요.</p>}
+      {recentDraft && recentDraft.outcome !== 'VALID' && <p role="alert">최근 초안 작성 시도는 유효하지 않습니다 ({recentDraft.outcome}). 이전 유효 초안과 구분해 확인하세요.</p>}
+      {run?.outcome === 'VALID' && !analysis?.latest_valid_draft_id && <p role="alert">분류 결과는 있지만 유효한 초안이 없습니다. 초안 작성 결과를 확인하세요.</p>}
+      {analysis?.drafts?.some(draft => draft.id === analysis.latest_valid_draft_id && draft.verification_status !== 'VERIFIED') && <p>초안 문장 검증 결과를 확인하세요. 분석 작업 완료는 모든 문장의 근거 확인을 뜻하지 않습니다.</p>}
       <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류는 확정값이 아니라 제안입니다. 사람이 정정한 값은 사람 정정으로 표시합니다. 정정은 위쪽 기타 메뉴의 "분류 정정"에서 합니다.</div>
 
       {isReturn && <form onSubmit={submit} aria-label="반품 확정" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--erp-border-soft)' }}>
