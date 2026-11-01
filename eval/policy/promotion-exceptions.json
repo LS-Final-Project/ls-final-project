@@ -5,13 +5,13 @@
       "stage": "rfp_extraction",
       "kind": "NO_ADOPTION",
       "field": null,
-      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v6 의미 칸(KAN-185, assembly_clause·approval_procedure_missing·연산자 기준·조건 이름 어휘·basis_of_design·canonical_value 포함), 채택 전",
+      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v6 의미 칸(KAN-185, assembly_clause·approval_procedure_missing·연산자 기준·조건 이름 어휘·basis_of_design·canonical_value 포함), 채택 전. 2026-11-01 추출 v10을 운영값으로 올린다. 14번 1건과 검증 세트 실측은 관측값이고 정식 채택이 아니며 게이트를 계산하지 않았다",
       "ticket": "KAN-147",
-      "recorded_on": "2026-10-30",
+      "recorded_on": "2026-11-01",
       "deployed": {
         "model": "gemini-3.6-flash",
-        "extraction_version": "rfp-requirements-v8",
-        "prompt_fingerprint": "b46514df5b534471",
+        "extraction_version": "rfp-requirements-v10",
+        "prompt_fingerprint": "b1b1d974dfc6976c",
         "max_output_tokens": 16384
       }
     }

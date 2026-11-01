@@ -8,7 +8,7 @@
   아무것도 남지 않아 다시 돌리면 처음부터 한다.
 - 재실행: 조항이 저장된 문서 판본은 재추출하지 않는다. 현행 저장 요구는 무모델로 재채점하고 초안으로 잇는다.
   이미 커밋된 같은 job의 초안이 있으면 등급도 중복 저장하지 않는다.
-- rfp.export는 저장된 검토본 DOCX를 만들고, rfp.annotate는 아직 counts 0만 남긴다.
+- rfp.export는 저장된 검토본 DOCX를 만들고, 범위 밖인 rfp.annotate는 명시적으로 실패한다.
 """
 
 import asyncio
@@ -69,7 +69,6 @@ ZERO = {"requirements": 0, "proposals": 0}
 SPEC_KINDS = ("RFP_SPEC", "ADDENDUM")
 # 접수 입력 판본(input_version)을 찾을 때 조합을 다 볼 문서 판본 수 상한.
 MAX_VERSIONS = 12
-ONLY_STEP = {"rfp.export": "export", "rfp.annotate": "annotate"}
 
 
 class ProcessorSettings(BaseSettings):
@@ -220,9 +219,8 @@ def make_processor(
             return asyncio.run(rewrite_job(settings, job, emit, draft_provider, rewrite_model))
         if job.kind == "rfp.export":
             return asyncio.run(export_job(settings, job, emit, store))
-        if job.kind in ONLY_STEP:
-            emit({"step": ONLY_STEP[job.kind], "counts": ZERO})
-            return {"counts": ZERO, "needs_review": False}
+        if job.kind == "rfp.annotate":
+            raise ValueError("TFT_ANNOTATION_UNAVAILABLE")
         return asyncio.run(process(settings, job, emit, provider, store, own, today()))
 
     return processor

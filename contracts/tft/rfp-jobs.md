@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | `rfp.process` | `POST /api/v1/tft/projects/{project_id}/process` | `parse`·`extract`·`search`·`compare`·`supplement`·`candidates`·`draft` |
 | `rfp.export` | `POST /api/v1/tft/projects/{project_id}/draft/exports` | `export` |
-| `rfp.annotate` | `POST /api/v1/tft/projects/{project_id}/annotations/process` | `annotate` |
+| `rfp.annotate` | `POST /api/v1/tft/projects/{project_id}/annotations/process` | 지원 범위 밖: 접수 422 `TFT_ANNOTATION_UNAVAILABLE` |
 
 - DB CHECK 하나가 소유자·종류·경로 조합을 묶는다. 평가(`platform`·`evaluation.run`) 조합은 그대로다.
 - `subject_id`는 프로젝트 ID이고 tft 작업에만 있다. 같은 프로젝트에 `QUEUED`·`RUNNING` tft 작업은 하나뿐이다(부분 유일 인덱스, 409 `TFT_JOB_IN_PROGRESS`).
@@ -33,24 +33,24 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - 호출자 검증은 본문 검증보다 먼저 한다(비활성 404·불일치 401이 422보다 앞선다).
 - **본문**: `actor_id`, `kind`, `project_id`, `input_version`(동결 입력 SHA-256), `idempotency_key`(8~128자), `request_hash`(정규화 원 요청 SHA-256). 다른 키는 422다. 원문·프롬프트·모델 응답은 받지 않는다.
 - **응답**: 새 작업 201, 같은 요청 재전송 200. `data`는 `job_id`, `kind`, `project_id`, `status`, `status_url`(`/api/v1/platform/jobs/{job_id}`), `created`. 같은 키에 hash·입력 판본·프로젝트가 다르면 409 `IDEMPOTENCY_CONFLICT`. 등록되지 않은 `actor_id`는 422 `JOB_ACTOR_UNKNOWN`.
-- 작업, 첫 이벤트(`job.queued`), 전송 의도(`dispatch_outbox`), 작업 제어 행(`runtime.job_control`)을 한 트랜잭션에 저장한다(KAN-199). 처리기 연결 전에는 위 503 게이트 때문에 아무 행도 만들지 않고, tft 경로 11·30이 503을 그대로 전달한다(아래 'tft 접수' 절, 28은 A07).
+- 작업, 첫 이벤트(`job.queued`), 전송 의도(`dispatch_outbox`), 작업 제어 행(`runtime.job_control`)을 한 트랜잭션에 저장한다(KAN-199). 처리기 연결 전에는 위 503 게이트 때문에 아무 행도 만들지 않고, 지원되는 tft 접수 경로가 503을 그대로 전달한다(아래 'tft 접수' 절, 28은 A07).
 
 ## tft 접수 경로 11·30 (KAN-199·KAN-188)
 
 브라우저가 부르는 tft 경로가 위 내부 접수를 대신 부른다(`backend/api/tft/rfp/jobs.py`, C/S 분석 접수와 같은 방식).
 
-- **권한**: 프로젝트를 볼 수 없으면 404 `TFT_PROJECT_NOT_FOUND`다. 11 처리는 담당 sales·책임자, 30 메모 해석은 그에 더해 검토 부서 `dept_staff`이고(permissions.md 역할별 행동표), 아니면 403이다.
+- **권한**: 프로젝트를 볼 수 없으면 404 `TFT_PROJECT_NOT_FOUND`다. 11 처리는 담당 sales·책임자이며 아니면 403이다. 30은 인증된 요청에도 아래 범위 밖 오류를 반환한다.
 - **입력 검사(플랫폼 호출 전)**
   - 11: `document_version_ids`가 비면 프로젝트 문서마다 최신 판본을 처리한다. 프로젝트 밖 판본이 섞였거나 처리할 문서가 없으면 422 `VALIDATION_ERROR`다. 프로젝트에 요구가 이미 있으면(다시 처리하는 것이면) `reason`이 필요하고 없으면 422 `TFT_REASON_REQUIRED`다. tft는 `runtime.jobs`를 읽지 못하므로 '두 번째 실행'을 요구 유무로 판정한다.
-  - 30: 두 판본이 모두 프로젝트 것이어야 한다(아니면 422).
-- **플랫폼 본문**: `actor_id`=요청 사용자, `kind`(`rfp.process`·`rfp.annotate`), `project_id`, `input_version`=정렬한 문서 판본 ID 목록 JSON의 SHA-256, `idempotency_key`=요청 헤더, `request_hash`=경로 ID와 본문의 정렬 JSON SHA-256. 호출은 tft 실행 계정 ID 토큰이다(`backend/shared/platform_jobs.py`. tft 이미지에 `backend/api/cs`가 없어 C/S 클라이언트와 같은 동작을 shared에 따로 둔다).
-- **재전송**: 플랫폼이 받은 접수는 `tft.rfp_commands`(`project.process`·`annotation.process`)에 키·본문 해시·입력 판본과 함께 남긴다. 같은 키·같은 본문이 다시 오면 입력 검사(사유·판본)를 다시 하지 않고 남긴 입력 판본으로 플랫폼을 부른다(첫 접수 뒤 요구가 생겨도 422가 아니라 기존 작업이다). 같은 키·다른 본문은 플랫폼을 부르지 않고 409 `IDEMPOTENCY_CONFLICT`다. 같은 키가 동시에 오면 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 둔다.
+  - 30: 메모 PDF 해석은 지원 범위 밖이다. 기존 경로/DTO는 호환성을 위해 유지하지만 DB 접근·명령 기록·플랫폼 접수 전에 422 `TFT_ANNOTATION_UNAVAILABLE`로 거절한다. 신규 UI 진입점은 제공하지 않는다. 일반 RFP 사양서/추가 공문의 PDF 입력은 계속 지원한다.
+- **플랫폼 본문**: `actor_id`=요청 사용자, `kind`(`rfp.process`; 기존 `rfp.annotate`는 신규 접수 불가), `project_id`, `input_version`=정렬한 문서 판본 ID 목록 JSON의 SHA-256, `idempotency_key`=요청 헤더, `request_hash`=경로 ID와 본문의 정렬 JSON SHA-256. 호출은 tft 실행 계정 ID 토큰이다(`backend/shared/platform_jobs.py`. tft 이미지에 `backend/api/cs`가 없어 C/S 클라이언트와 같은 동작을 shared에 따로 둔다).
+- **재전송**: 플랫폼이 받은 접수는 `tft.rfp_commands`(`project.process`; 과거 `annotation.process` 기록은 보존)에 키·본문 해시·입력 판본과 함께 남긴다. 같은 키·같은 본문이 다시 오면 입력 검사(사유·판본)를 다시 하지 않고 남긴 입력 판본으로 플랫폼을 부른다(첫 접수 뒤 요구가 생겨도 422가 아니라 기존 작업이다). 같은 키·다른 본문은 플랫폼을 부르지 않고 409 `IDEMPOTENCY_CONFLICT`다. 같은 키가 동시에 오면 플랫폼이 같은 작업을 돌려주므로 먼저 남긴 기록을 둔다.
 - **응답**: 202 `JobAccepted{job_id, status, status_url}`. 같은 키 재전송도 202이고 `status`는 기존 작업의 지금 상태(플랫폼 6값)다.
 - **오류**
   - 플랫폼 409 `TFT_JOB_IN_PROGRESS`·`IDEMPOTENCY_CONFLICT`와 503 `TFT_PROCESSOR_NOT_CONNECTED`는 그대로 옮긴다.
   - tft 설정 `TFT_PROCESSING_ENABLED`(기본 꺼짐, `TFT_PROCESSING_PLATFORM_URL`=플랫폼 HTTPS origin)가 꺼져 있으면 플랫폼을 부르지 않고 503 `TFT_PROCESSOR_NOT_CONNECTED`다.
   - 연결 실패·결과 모름·그 밖의 거절(예: 422 `JOB_ACTOR_UNKNOWN`), 2xx지만 접수 결과로 읽을 수 없는 본문은 503 `DEPENDENCY_UNAVAILABLE`이다.
-- 28 내보내기는 담당 sales·책임자가 저장된 검토본을 DOCX로 접수한다. `ExportAccepted`는 기존 접수 필드에 `export_id`를 더한다. `input_version`은 예약 UUID 문자열의 SHA-256이며 process/annotate의 문서 판본 hash와 구분한다. PDF enum은 유지하지만 예약·접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`로 거부한다(PDF 생성 후속).
+- 28 내보내기는 담당 sales·책임자가 저장된 검토본을 DOCX로 접수한다. `ExportAccepted`는 기존 접수 필드에 `export_id`를 더한다. `input_version`은 예약 UUID 문자열의 SHA-256이며 process/annotate의 문서 판본 hash와 구분한다. PDF enum은 유지하지만 예약·접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`로 거부한다(Word만 지원).
 - 검사: `tests/tft/test_rfp_jobs_db.py`(가짜 플랫폼, `tft_app`).
 
 ## 전송 (KAN-199 1/2)
@@ -111,7 +111,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - **재채점 직렬화**: 모델·원문 처리가 끝난 뒤 같은 autocommit 연결에서 프로젝트별 session advisory lock을 획득하고 업무 REPEATABLE READ TX를 시작한다. 잠금 SELECT의 독립 snapshot은 문장 종료로 끝나므로, 대기한 선행 작업의 커밋을 업무 TX의 첫 데이터 snapshot에 포함한다. commit/rollback 뒤 finally에서 같은 키를 unlock하며 취소·unlock 실패 때는 연결 종료가 잠금을 해제한다. 재채점 함수 안에서 xact lock을 중복 획득하지 않는다.
 - **재실행 멱등**: 새 작업의 재실행은 저장된 현행 요구의 협력사 등급만 무모델로 새 판본에 쌓고 기존 초안 생성으로 이어진다. 같은 job의 완료 초안이 있으면 중복 재채점하지 않는다. 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 문서 포함)은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다. 조항이 하나도 없는 문서는 처리 표시가 남지 않지만 절이 없어 모델도 부르지 않는다.
 - **SSE 값**: 단계마다 `counts{requirements, proposals}`(proposals는 0). `skipped` 같은 새 키는 두지 않는다(허용 키 표 그대로).
-- `rfp.export`는 예약·작업 입력 판본·actor/job을 확인하고 저장된 검토본의 실제 DOCX를 private DocumentStore에 쓴 뒤 해시·크기·완료를 기록한다. 완료 재시도는 기존 파일의 무결성을 확인한다. 누락 예약·파일 실패를 성공으로 숨기지 않는다. `rfp.annotate`는 아직 단계 하나(counts 0)만 남긴다.
+- `rfp.export`는 예약·작업 입력 판본·actor/job을 확인하고 저장된 검토본의 실제 DOCX를 private DocumentStore에 쓴 뒤 해시·크기·완료를 기록한다. 완료 재시도는 기존 파일의 무결성을 확인한다. 누락 예약·파일 실패를 성공으로 숨기지 않는다. `rfp.annotate`는 지원하지 않는다. 경로30은 DB/명령/플랫폼 접수 전에 422 `TFT_ANNOTATION_UNAVAILABLE`로 거절하고, 이미 접수된 작업도 worker가 같은 코드로 실패시켜 0건 성공으로 숨기지 않는다.
 - **권한(`20261104_KAN-199_tft_worker.sql`)**: `tft_worker`는 문서·문서 판본·요구 판본·협력사 프로필 SELECT, 조항 SELECT·INSERT, 위 표 INSERT만 가진다. UPDATE·DELETE는 없다.
 - 검사: `tests/tft/test_worker_processor_db.py`(가짜 추출기·합성 Markdown·`tft_worker` 권한), 종단 `tests/platform/test_tft_worker_db.py::test_worker_runs_the_real_processor_end_to_end`.
 

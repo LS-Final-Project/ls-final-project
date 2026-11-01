@@ -54,6 +54,10 @@
 | 고객 질문 `status` | `OPEN`·`REPLIED` |
 | 변경 제안 `origin`/`status` | `web`·`customer_reply`·`pdf_annot` / `PENDING`·`APPROVED`·`REJECTED` |
 | 작업 `kind`/`step` | `rfp.process`·`rfp.export`·`rfp.annotate` / `parse`…`annotate` (플랫폼 `runtime.jobs`, owner=`tft`) |
+
+메모 PDF 해석(`rfp.annotate`, 경로30)은 지원 범위 밖으로 명시적 422이며 신규 UI 진입점을 제공하지 않는다.
+과거 문서/작업 표현을 위해 enum은 유지한다. 일반 RFP 문서 PDF 입력은 계속 지원한다.
+
 | 출처 | `data_origin`(`synthetic`·`demo`·`real`, 기본값 없이 필수), `derivation_kind`(`PROVIDED`·`DERIVED`·`SYSTEM`·`ASSUMED`), `provenance_kind`(`ai_draft`·`human_input`·`system_record`) |
 
 ## ERD

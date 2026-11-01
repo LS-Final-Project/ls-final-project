@@ -43,7 +43,9 @@ from backend.shared.ai import Generation, Usage
 # v6(KAN-185): operator 판단 기준과 조건 이름 어휘(conditions.name). 단위 수식어는 비교 쪽 코드가 뗀다.
 # v7(KAN-185): 설계 기준 제품(basis_of_design)을 지정 모델과 나누고, 문장형 값의 비교용 표기(canonical_value).
 # v8(KAN-185): 저압 배전반·스위치기어 조립품 계열(LV_SWITCHGEAR). 차단기 자체는 LV_BREAKER다.
-EXTRACTION_VERSION = "rfp-requirements-v8"
+# v9(KAN-184): 구조 문장을 form으로 뽑는 판본. 실측에서 form이 3개에서 90개로 늘어 쓰지 않았다.
+# v10(KAN-184): form을 장비 항목 자체의 형식 문장으로 좁히고 부품·재질·기능은 OTHER로 둔다.
+EXTRACTION_VERSION = "rfp-requirements-v10"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -339,6 +341,10 @@ Return JSON matching the schema. Rules:
   {attribute_keys}. If the text is not clearly the same quantity, use "OTHER". Do not guess from a similar word
   (e.g. a momentary current is not a short-time withstand current; an enclosure paint color is OTHER).
   Keep attribute as the clause wording; attribute_key is only the link.
+  A sentence that states the type of the equipment item itself (its switching device, how the item is mounted or
+  how it is insulated) gets one requirement with attribute_key form, separate from any measured values in the
+  same sentence. A part, accessory, material, fastener, interlock, indicator, wiring, access or function of the
+  equipment is not its type: use "OTHER".
 - equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
   sure; null for a task or document requirement. Instrument transformers (voltage/potential or current
   transformers) feeding meters or relays are not TRANSFORMER: use OTHER. A low-voltage switchgear or

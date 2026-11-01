@@ -273,6 +273,15 @@ describe('목록과 고른 프로젝트 한 화면', () => {
 });
 
 describe('문서 올리기', () => {
+  it('메모 해석용 문서는 선택에서 제외하고 일반 RFP PDF 업로드는 유지한다', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '문서 올리기' }));
+    expect(screen.queryByRole('option', { name: '메모 PDF' })).toBeNull();
+    expect(screen.getByRole('option', { name: 'RFP 사양서' })).toBeTruthy();
+    expect((screen.getByLabelText('파일') as HTMLInputElement).accept).toBe('.docx,.pdf');
+    expect(fileProblem(new File(['pdf'], 'spec.pdf'))).toBeNull();
+  });
+
   const file = (name: string, size = 10) => { const f = new File(['x'], name); Object.defineProperty(f, 'size', { value: size }); return f; };
   const form = async () => { await open(); fireEvent.click(screen.getByRole('button', { name: '문서 올리기' })); return screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement; };
 
