@@ -11,9 +11,13 @@
 개발 모드 계정은 Microsoft 인증 또는 사서함 연결의 증거로 표시하지 않는다.
 메일 연결·만료·재연결 상태는 플랫폼 메일 계약이 제공되기 전까지 미확인이다.
 
-업무 읽기 UI는 기본 비활성이다. 명시적으로 승인된 검증 환경에서만
-`VITE_BUSINESS_UI_ENABLED=true npm run build --prefix frontend`로 선택한다.
-현재 Dockerfile/배포 설정은 이 옵션을 켜지 않는다. 서버의 기존 `BUSINESS_RELAY_ENABLED`,
+업무 UI는 빌드 시 선택한다. 직접 npm 빌드할 때는
+`VITE_BUSINESS_UI_ENABLED=true npm run build --prefix frontend`로 활성화한다.
+Docker 빌드는 `BUSINESS_UI_ENABLED=false`가 기본이다. 정상 Cloud Build 웹 빌드는
+`--build-arg BUSINESS_UI_ENABLED=true`를 명시하며, Dockerfile은 시험이 통과한 뒤
+`npm run build` 명령에만 `VITE_BUSINESS_UI_ENABLED`를 전달한다. 이 값은 번들에 고정되므로
+Cloud Run의 런타임 환경 변수로 바뀌지 않는다. 개발 인증을 켜는 설정도 아니다.
+서버의 기존 `BUSINESS_RELAY_ENABLED`,
 플랫폼 인증·중계 설정과 서비스 권한도 별도로 준비되어야 한다. 이 문서는 배포 승인이나
 인증 설정 변경을 대신하지 않는다.
 
