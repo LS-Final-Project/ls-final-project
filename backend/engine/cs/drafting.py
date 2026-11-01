@@ -429,6 +429,33 @@ def _validation_code(error: ValidationError) -> str:
     return "CS_INVALID_OUTPUT"
 
 
+def complete_info_first(output: DraftOutput) -> DraftOutput:
+    """INFO_FIRST가 빠뜨린 요청을 같은 응답의 다른 선택지 질문으로 채운다.
+
+    모델이 CONCISE·DETAILED에서는 물은 코드를 INFO_FIRST에서만 빠뜨리면 초안 전체를 버리지 않는다.
+    새 질문을 만들지 않으며, 어느 선택지에도 없는 코드와 입력 밖 코드는 검사가 그대로 거부한다.
+
+    Args:
+        output: 형식 검사를 통과한 초안.
+
+    Returns:
+        DraftOutput: 빠진 요청을 채운 초안. 채울 것이 없으면 그대로다.
+    """
+    first = next(option for option in output.options if option.label == "INFO_FIRST")
+    asked = {request.info_code for request in first.info_requests}
+    added: list[InfoRequest] = []
+    for option in output.options:
+        for request in option.info_requests:
+            if request.info_code not in asked:
+                asked.add(request.info_code)
+                added.append(request)
+    if not added:
+        return output
+    filled = first.model_copy(update={"info_requests": [*first.info_requests, *added]})
+    options = [filled if option is first else option for option in output.options]
+    return output.model_copy(update={"options": options})
+
+
 def validate_output(
     raw: str,
     *,
@@ -457,6 +484,7 @@ def validate_output(
         raise ValueError(_validation_code(error)) from None
     except (ValueError, RecursionError):
         raise ValueError("CS_INVALID_OUTPUT") from None
+    output = complete_info_first(output)
     for option in output.options:
         if any(
             not set(sentence.evidence_chunk_ids) <= evidence_chunk_ids
