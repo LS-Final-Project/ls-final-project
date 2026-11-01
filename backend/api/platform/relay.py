@@ -98,7 +98,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     ("/api/v1/cs/improvement-requests/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/versions", ("GET",), ()),
-    ("/api/v1/cs/improvement-requests/{uuid}/case-comparison", ("GET",), ()),
+    ("/api/v1/cs/improvement-requests/{uuid}/case-comparison", ("GET",), ("include_candidates",)),
     ("/api/v1/cs/improvement-requests/{uuid}/evidence", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove", ("POST",), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/owner", ("PUT",), ()),

@@ -52,9 +52,9 @@ def add_case(admin, product, days, customer, **extra):
     admin.execute(
         "INSERT INTO cs.tickets (id, source, source_instance, external_id, data_origin, "
         "derivation_kind, received_at, known_at, channel, body_language, customer_external_id, "
-        "product_code, body) VALUES (%s, 'test', 'kan202', %s, %s, 'PROVIDED', %s, %s, 'EMAIL', "
-        "'en', %s, %s, 'body')",
-        (ticket_id, f"T-{ticket_id}", origin, at, at, customer, product),
+        "product_code, subject, body) VALUES (%s, 'test', 'kan202', %s, %s, 'PROVIDED', %s, %s, "
+        "'EMAIL', 'en', %s, %s, %s, 'body')",
+        (ticket_id, f"T-{ticket_id}", origin, at, at, customer, product, extra.get("subject")),
     )
     admin.execute(
         "INSERT INTO cs.resolution_cases (id, ticket_id, source, source_instance, external_id, "
@@ -392,3 +392,72 @@ def test_a_draft_from_a_candidate_goes_through_the_normal_review(client, admin, 
     assert reviewed.status_code == 200, reviewed.text
     request = reviewed.json()["data"]["request"]
     assert (request["status"], request["cs_owner"]) == ("REVIEWED", str(AGENT.user_id))
+
+
+def test_candidate_evidence_carries_the_numbers_subject_and_receipt_time(client, admin, product):
+    first = add_case(admin, product, 0, "CUST-0", subject="Oil leak at gasket")
+    add_case(admin, product, 10, "CUST-10")
+    add_case(admin, product, 20, "CUST-20")
+    [item] = group(client, product)
+    ref = item["evidence"][0]
+    assert (ref["ticket_id"], ref["case_id"]) == tuple(map(str, first))
+    assert ref["ticket_external_id"] == f"T-{first[0]}"
+    assert ref["case_external_id"] == f"RC-{first[1]}"
+    assert ref["ticket_subject"] == "Oil leak at gasket"
+    assert datetime.fromisoformat(ref["ticket_received_at"]) == BASE
+    # 제목이 없는 문의(채팅)는 null이다.
+    assert item["evidence"][1]["ticket_subject"] is None
+
+
+def test_case_comparison_adds_candidate_records_only_for_candidate_readers(client, admin, product):
+    cases = three_customers(admin, product)
+    collect(client)
+    [row] = requests_of(admin, product)
+    request_id = row[0]
+    path = f"/api/v1/cs/improvement-requests/{request_id}"
+    # 저장 뒤에 알려진 같은 묶음의 기록 하나와 제외한 근거 하나가 후보다.
+    later = add_case(admin, product, 40, "CUST-40", subject="Leak again")
+    add_case(admin, product, 41, "CUST-41", fault="FLT-902")
+    add_case(admin, product, 42, "CUST-42", origin="demo")
+    evidence = client.get(path).json()["data"]["evidence"]
+    link = next(e["id"] for e in evidence if e["ticket_id"] == str(cases[0][0]))
+    removed = client.post(f"{path}/evidence/{link}/remove", json={"version": 1, "reason": "x"})
+    assert removed.status_code == 200, removed.text
+    url = f"{path}/case-comparison"
+
+    default = client.get(url).json()["data"]
+    assert {r["row_kind"] for r in default["items"]} == {"EVIDENCE"}
+    assert len(default["items"]) == 2
+
+    for user in (AGENT, CS_MANAGER):
+        data = client.get(url, params={"include_candidates": "true"}, headers=header(user))
+        data = data.json()["data"]
+        kinds = {r["ticket_id"]: r["row_kind"] for r in data["items"]}
+        assert kinds == {
+            str(cases[1][0]): "EVIDENCE",
+            str(cases[2][0]): "EVIDENCE",
+            str(cases[0][0]): "CANDIDATE",
+            str(later[0]): "CANDIDATE",
+        }
+        assert data["hidden_case_count"] == 0
+        candidate = next(r for r in data["items"] if r["ticket_id"] == str(later[0]))
+        assert (candidate["case_id"], candidate["ticket_subject"]) == (str(later[1]), "Leak again")
+
+    # 후보를 읽을 수 없는 사용자는 후보 행도 후보 수도 받지 않는다(기본 응답과 같다).
+    admin.execute(
+        "INSERT INTO cs.ticket_transfers (id, ticket_id, round, dept_code, status, reason, "
+        "transferred_by) VALUES (%s, %s, 1, 'QA_CLAIM', 'OPEN', 'test', %s)",
+        (uuid4(), cases[1][0], AGENT.user_id),
+    )
+    for flag in ("true", "false"):
+        scoped = client.get(url, params={"include_candidates": flag}, headers=header(QA_MANAGER))
+        assert scoped.status_code == 200, scoped.text
+        data = scoped.json()["data"]
+        assert [(r["ticket_id"], r["row_kind"]) for r in data["items"]] == [
+            (str(cases[1][0]), "EVIDENCE")
+        ]
+        assert data["hidden_case_count"] == 1
+        assert str(later[0]) not in scoped.text and "Leak again" not in scoped.text
+    # 받은 부서가 아닌 직원에게는 요청 자체가 보이지 않는다.
+    hidden = client.get(url, params={"include_candidates": "true"}, headers=header(QA_STAFF))
+    assert hidden.status_code == 404
