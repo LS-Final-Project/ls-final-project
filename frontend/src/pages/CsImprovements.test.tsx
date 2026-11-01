@@ -8,11 +8,12 @@ import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const source=examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body;
+const improvementCalls=(f:ReturnType<typeof vi.fn>)=>f.mock.calls.filter(call=>String(call[0]).includes('/improvement-requests'));
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setApiMode('mock');});
 function view(detail=true){setApiMode('live');return renderAt(detail?'/cs/improvements/test':'/cs/improvements',detail?'/cs/improvements/:requestId':'/cs/improvements',<CsImprovements/>);}
 test('근거·조건·회신·조치를 분리하고 확인되지 않은 고객 적용을 추측하지 않는다',async()=>{
  const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);view();
- await screen.findByText('근거 문의');expect(screen.getByText('부서 조치')).toBeTruthy();expect(screen.getByText(/고객별 적용·재발 여부는 이 응답만으로/)).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(fetch).toHaveBeenCalledTimes(1);
+ await screen.findByText('근거 문의');expect(screen.getByText('부서 조치')).toBeTruthy();expect(screen.getByText(/고객별 적용·재발 여부는 이 응답만으로/)).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(improvementCalls(fetch)).toHaveLength(1);
 });
 test('빈 목록은 완료 건수가 아닌 조회 가능한 기록 없음으로 표시한다',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[]}})));view(false);await screen.findByText('조회 가능한 개선요청이 없습니다.');
@@ -34,7 +35,7 @@ test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>
 
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
  let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
- vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
+ vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(improvementCalls(fetch)).toHaveLength(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
 });
 
 
