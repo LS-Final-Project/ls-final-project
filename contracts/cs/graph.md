@@ -28,7 +28,7 @@
   | --- | --- | --- |
   | `CS_INVALID_OUTPUT` | JSON 파싱 실패·중복 키·타입·필드 위반(내용 규칙 위반과 섞인 경우 포함) | 1회 |
   | `CS_UNKNOWN_REFERENCE` | 입력에 없는 근거 chunk_id·정보 코드 인용 | 안 함 |
-  | `CS_MISSING_INFO_REQUEST` | INFO_FIRST가 요청 코드를 다 묻지 않음 | 안 함 |
+  | `CS_MISSING_INFO_REQUEST` | INFO_FIRST가 요청 코드를 다 묻지 않음. 같은 응답의 다른 선택지에 있는 질문은 먼저 INFO_FIRST로 옮겨 채우고(`complete_info_first`), 어느 선택지에도 없을 때만 이 코드다 | 안 함 |
   | `CS_EVIDENCE_REQUIRED` | 근거 ID 없는 EVIDENCE 문장 | 안 함 |
   | `CS_DUPLICATE_EVIDENCE`·`CS_DUPLICATE_INFO`·`CS_DUPLICATE_OPTION` | 근거 ID·정보 요청·선택지 라벨 중복 | 안 함 |
   | `CS_FORBIDDEN_COMMITMENT` | 승인·확정 약속 | 안 함(문장 재작성 1회, 아래) |

@@ -306,7 +306,7 @@ def test_info_first_must_ask_every_requested_code():
     assert check(raw(silent["CONCISE"], silent["DETAILED"], option("INFO_FIRST")))
     with pytest.raises(ValueError, match="^CS_MISSING_INFO_REQUEST$"):
         check(
-            raw(option("CONCISE"), option("DETAILED"), option("INFO_FIRST") | {"info_requests": []})
+            raw(silent["CONCISE"], silent["DETAILED"], option("INFO_FIRST") | {"info_requests": []})
         )
 
 
@@ -813,3 +813,60 @@ def test_blocked_evidence_input_failure_keeps_its_code():
     result = attempt(provider, evidence=EVIDENCE + [blocked])
     provider.assert_not_called()
     assert result.error_code == "CS_BLOCKED_EVIDENCE" and not result.call_started
+
+
+def asking(label, *codes):
+    """요청 코드를 정한 선택지를 만든다.
+
+    Args:
+        label: 선택지 라벨.
+        codes: 물을 정보 코드.
+
+    Returns:
+        dict: 선택지.
+    """
+    return {
+        **option(label),
+        "info_requests": [
+            {"info_code": code, "question": f"{code} 값을 알려 주세요."} for code in codes
+        ],
+    }
+
+
+def validated(*options, codes):
+    return validate_output(
+        raw(*options), evidence_chunk_ids=frozenset({"c1"}), request_info_codes=frozenset(codes)
+    )
+
+
+def test_info_first_borrows_a_missing_question_from_another_option():
+    output = validated(
+        asking("CONCISE", "A"),
+        asking("DETAILED", "A", "B", "C"),
+        asking("INFO_FIRST", "A"),
+        codes=("A", "B", "C"),
+    )
+    by_label = {item.label: item for item in output.options}
+    assert [r.info_code for r in by_label["INFO_FIRST"].info_requests] == ["A", "B", "C"]
+    assert by_label["INFO_FIRST"].info_requests[1].question == "B 값을 알려 주세요."
+    assert [r.info_code for r in by_label["CONCISE"].info_requests] == ["A"]
+
+
+def test_info_first_still_fails_when_no_option_asks_the_code():
+    with pytest.raises(ValueError, match="CS_MISSING_INFO_REQUEST"):
+        validated(
+            asking("CONCISE", "A"),
+            asking("DETAILED", "A", "B"),
+            asking("INFO_FIRST", "A"),
+            codes=("A", "B", "C"),
+        )
+
+
+def test_a_question_outside_the_request_codes_is_not_borrowed():
+    with pytest.raises(ValueError, match="CS_UNKNOWN_REFERENCE"):
+        validated(
+            asking("CONCISE", "A", "Z"),
+            asking("DETAILED", "A"),
+            asking("INFO_FIRST", "A"),
+            codes=("A",),
+        )
