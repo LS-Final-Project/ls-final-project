@@ -358,6 +358,7 @@ def test_retrieve_uses_token_or_query_and_product_family_first():
     assert [family for _, family in calls] == ["TRANSFORMER", None]
     query = calls[0][0]
     assert " or " in query and "PROVIDED" not in query
+    assert query.startswith("TRF or OIL or 1000 or ")
     assert [e["chunk_id"] for e in values["evidence"]] == ["chunk-1", "chunk-2"]
     assert values["evidence"][0]["snippet"] == "Warranty clause 1."
 
@@ -744,3 +745,19 @@ def test_a_ticket_without_a_tier_is_ruled_with_the_standard_tier():
     standard.invoke(initial_state("ticket-gold"), gold)
     # GOLD와 기한이 달라 표준 등급으로 계산됐음을 안다.
     assert values["rules"] != standard.get_state(gold).values["rules"]
+
+
+def test_retrieve_keeps_the_product_code_past_the_query_term_limit():
+    """본문 어휘가 상한을 넘어도 문의의 제품 코드는 질의에 남는다."""
+    calls = []
+    long = replace(
+        TICKET, record={**TICKET.record, "body": " ".join(f"word{n}" for n in range(60))}
+    )
+
+    def searcher(query, filters):
+        calls.append(query)
+        return fts_searcher(query, filters)
+
+    graph, _ = make(InMemorySaver(), fts_searcher=searcher, load_ticket=lambda ticket_id: long)
+    graph.invoke(initial_state("ticket-long"), thread_config("ticket-long"))
+    assert calls and calls[0].startswith("TRF or OIL or 1000 or ")

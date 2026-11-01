@@ -218,6 +218,7 @@ def build_evidence(
     categories: Mapping[str, object] | None = None,
     policy_documents: Mapping[str, str] | None = None,
     vector: Searcher | None = None,
+    product_codes: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     """문의마다 FTS로 근거 스니펫을 찾는다. 제품 문서가 주어지면 그 문서를 먼저 찾고 전역으로 채운다.
 
@@ -238,6 +239,7 @@ def build_evidence(
         categories: {ticket_id: 분류 결과 category_code}. policy_documents와 함께 있으면 graph.policy_slot과 같은
             규칙으로 그 유형의 정책 문서 1자리를 예약한다(KAN-194 10차). None이면 예약하지 않는다.
         policy_documents: 정책 문서 doc_id → sha256(load_policy_documents).
+        product_codes: {ticket_id: 문의 제품 코드}. 있으면 운영 graph.retrieve처럼 질의 앞에 넣는다.
         vector: 벡터 검색기(선택). 마스킹 원문을 질의로 받는다. 있으면 meta에 vector(embedding_version·failures)를 더한다.
 
     Returns:
@@ -257,14 +259,16 @@ def build_evidence(
     queries: list[str] = []
     input_failed = dropped = with_docs = hits = top1 = reserved_tickets = 0
     for ticket_id in sorted(records):
+        code = (product_codes or {}).get(ticket_id)
         docs = (product_documents or {}).get(ticket_id, frozenset())
         if scope is not None:
             docs = docs & scope
         with_docs += bool(docs)
         try:
             payload = build_input(records[ticket_id], sensitive_values=sensitive_values).payload
-            query = query_terms(payload.subject, payload.body, query_from)
-            text = "\n".join(query_parts(payload.subject, payload.body, query_from))
+            parts = query_parts(payload.subject, payload.body, query_from)
+            query = token_or_query(code, *parts) if token_or_query(*parts) else ""
+            text = "\n".join(parts)
         except ValueError:
             query = text = ""
         if not query:
@@ -289,7 +293,7 @@ def build_evidence(
             fts=searcher,
             vector=partial(by_text, vector, text) if vector else None,
             limit=limit,
-            code_text=text,
+            code_text=f"{code}\n{text}" if code else text,
             reserved=reserved,
         )
         rows = [
@@ -409,6 +413,11 @@ def main(
         help="제품 우선 검색을 끄고 통계만 낸다(--index-manifest와 함께, 전후 비교용)",
     )
     parser.add_argument(
+        "--no-product-query",
+        action="store_true",
+        help="문의 제품 코드를 질의에 넣지 않는다(전후 비교용, 운영은 넣는다).",
+    )
+    parser.add_argument(
         "--family-scope",
         action="store_true",
         help="운영 경로처럼 제품 문서 대신 제품 계열로 먼저 찾는다(--index-manifest와 함께).",
@@ -495,6 +504,9 @@ def main(
                 load_policy_documents(args.index_manifest) if args.classification else None
             ),
             vector=(vector or default_vector_searcher)(args.index_version) if args.vector else None,
+            product_codes=(
+                products if args.index_manifest is not None and not args.no_product_query else None
+            ),
         )
         write_private(args.out, json.dumps(evidence, ensure_ascii=False, indent=2).encode())
         meta |= {
