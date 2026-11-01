@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.engine.rfp.clauses import Clause, ClauseTree
 from backend.engine.rfp.requirements import ExtractedRequirement
-from backend.engine.rfp.vocabulary import has_placeholder
+from backend.engine.rfp.vocabulary import KOREAN_TIME_UNITS, has_placeholder
 
 QuestionKind = Literal["PLACEHOLDER", "INCONSISTENCY", "APPROVAL_PROCESS"]
 EQUIPMENT_ID = re.compile(
@@ -88,6 +88,7 @@ def _quantity(value: str, unit: str | None) -> tuple[str, str]:
     text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
     match = re.fullmatch(rf"({NUMBER})\s*([a-zA-Z%°]*)", text)
     given_unit = _norm(unit, preserve_case=True)
+    given_unit = KOREAN_TIME_UNITS.get(given_unit, given_unit)
     if match:
         suffix = match[2]
         if not suffix or not given_unit or suffix == given_unit:

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.api.tft.rfp.comparison import (
     Certification,
@@ -966,8 +967,10 @@ def short_time(unit="kA", operator="GTE", duration_unit="s"):
     )
 
 
-def rated_product(attribute, value, unit, duration=None):
-    conditions = [Condition(name="duration", value=duration, unit="s")] if duration else None
+def rated_product(attribute, value, unit, duration=None, duration_unit="s"):
+    conditions = (
+        [Condition(name="duration", value=duration, unit=duration_unit)] if duration else None
+    )
     return Product(
         product_code="X-1",
         family="MV_EQUIP",
@@ -999,6 +1002,7 @@ def rated_product(attribute, value, unit, duration=None):
         ("kA", "Sec"),
         ("kA", "SEC"),
         ("kA", "Seconds"),
+        ("kA", "초"),
     ],
 )
 def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
@@ -1022,6 +1026,65 @@ def test_units_that_change_the_quantity_are_not_stripped(unit):
     )
     assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
     assert any("단위 확인" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize(("korean", "english"), [("초", "s"), ("분", "min"), ("시간", "h")])
+def test_korean_time_units_compare_with_their_english_unit(korean, english):
+    """같은 값의 '3 초'와 '3 s'는 조건 차이가 아니다. 다른 값은 그대로 차이로 남는다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    requirement = short_time(duration_unit=korean)
+
+    def fact(duration):
+        return rated_product("short_time_withstand_current", "38", "kA", duration, english)
+
+    same = compare(requirement, [fact("2")], trace)
+    other = compare(requirement, [fact("5")], trace)
+    assert same.status == "EVIDENCE_FOUND" and not same.unresolved
+    assert other.status != "EVIDENCE_FOUND"
+
+
+@pytest.mark.parametrize(("korean", "english"), [("개월", "month"), ("년", "year")])
+def test_korean_period_units_are_compared_not_left_as_a_unit_gap(korean, english):
+    """'36 개월'과 '24 month'는 값을 견준다. 단위 차이로 비교를 멈추지 않는다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    wanted = Requirement(
+        clause_no="2.2",
+        item="보증",
+        attribute="warranty_months",
+        value="36",
+        unit=korean,
+        operator="GTE",
+    )
+    fact = rated_product("warranty_months", "24", english)
+    outcome = compare(wanted, [fact], trace)
+    assert (outcome.status, outcome.candidates[0].result) == ("SPEC_GAP", "DIFFERS")
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
+@pytest.mark.parametrize(
+    ("given", "key"),
+    [
+        ("sec", "s"),
+        ("Seconds", "s"),
+        ("s", "s"),
+        ("S", "S"),
+        ("min", "min"),
+        ("minutes", "minutes"),
+        ("h", "h"),
+        ("hr", "hr"),
+        ("hours", "hours"),
+        ("month", "month"),
+        ("months", "months"),
+        ("year", "year"),
+        ("years", "years"),
+        ("ms", "ms"),
+        ("kA SYM RMS", "kA"),
+        ("kA 초", "kA 초"),
+    ],
+)
+def test_english_unit_keys_do_not_change(given, key):
+    """한글 시간 단위를 더해도 영문 표기의 비교용 단위는 그대로다."""
+    assert grading._unit_key(given) == key
 
 
 def test_condition_units_ignore_case_after_the_unit_key():
