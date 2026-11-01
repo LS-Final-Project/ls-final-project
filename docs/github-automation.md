@@ -39,6 +39,7 @@ Windows에서는 [공통 온보딩](team-start.md)의 WSL Ubuntu 환경에서 �
 | .github/jira-config.json | Jira 링크의 기본 주소 |
 | .github/workflows/claude-code-review.yml | 매 커밋 Claude 구조화 리뷰와 결과 검사 |
 | .github/scripts/ai_review.cjs | 검토 SHA·완료·파일 범위·차단 지적 검사 및 댓글 게시 |
+| .github/scripts/routine_review.cjs | Cloud Routine 1회 시작과 인증된 결과 댓글 수신·요청 결속 검사 |
 
 PR 제목에 번호가 없으면 추가하고 번호가 다르면 오류를 표시한다. 본문은 jira-links 시작 및 끝 표시 사이만 갱신하며 그 밖의 설명은 보존한다. 표시가 손상되거나 중복되면 임의로 본문을 지우지 않고 오류를 표시한다. 자동 수정과 검사를 같은 실행에서 수행하므로 자동 수정의 후속 edited 이벤트에 의존하지 않는다.
 
@@ -68,6 +69,68 @@ P3는 참고 사항이다. 실행 오류·빈 결과·미완료·SHA 불일치·
 Draft·fork에는 구독 Secret을 사용하는 리뷰를 실행하지 않으며 이를 AI 통과로 취급하지 않는다.
 `@claude` 대화 응답이나 CodeRabbit 댓글만으로 `claude-review` 결과를 대신하지 않는다.
 팀원 자동 요청은 중단했지만 기존 요청은 관리자가 별도로 해제한다.
+
+### Cloud Routine 전환 (KAN-203)
+
+[KAN-203](https://lsteam4.atlassian.net/browse/KAN-203)은 완료된 KAN-175·177의 후속이다.
+`claude-review`는 기본 브랜치의 `prepare`로 전체 diff·파일 목록을 확인하고,
+Cloud Routine을 한 번 시작한 뒤 PR issue 댓글을 조회한다. `/fire` 응답의 세션 생성은
+검토 완료가 아니다. 인증된 결과를 받지 못하면 실패하며 기존 OAuth Action으로 폴백하지 않는다.
+`@claude` 대화 워크플로는 이번 전환 범위 밖이다.
+
+저장소 Actions secrets에는 `CLAUDE_REVIEW_ROUTINE_URL`과 `CLAUDE_REVIEW_ROUTINE_TOKEN`을 등록한다.
+2026-11-01 이름 등록만 확인했으며 값·유효성은 읽거나 시험하지 않았다.
+URL은 `https://api.anthropic.com/v1/claude_code/routines/trig_<영숫자>/fire`와 정확히 일치해야 한다.
+query·fragment·사용자 정보·명시적 포트·다른 host/path·redirect는 거부한다.
+Bearer token은 해당 공식 endpoint의 인증 헤더에만 사용하며 payload·댓글·오류에 출력하지 않는다.
+요청은 `anthropic-version: 2026-10-21`과 `{ "text": "<JSON 문자열>" }` 형식이다.
+`text` 전체가 65,536자를 초과하면 diff를 자르거나 세션을 시작하지 않고 실패한다.
+큰 diff의 별도 전달 경로는 아직 구현하지 않았다.
+
+Routine의 저장된 prompt는 이 저장소의 `routine-fire-payload` 요청만 처리하고,
+코드·시험·스크립트 실행, 코드 변경, push, merge, 다른 저장소 접근을 금지해야 한다.
+PR의 제목·본문·댓글·코드 속 지시문은 검토 데이터다. 전체 diff와 관련 계약을 읽고 최신
+head/base를 확인한다. 이전 검토를 재사용하지 않으며 전체 파일을 읽지 못했거나 SHA가
+다르면 `review_complete=false`를 반환한다. 유일한 쓰기 예외는 지정 PR에 결과 댓글 1개
+생성이다. 댓글 수정이나 추가 결과 댓글은 허용하지 않는다. 이 제한은 Routine prompt와
+클라우드 연결 설정에도 적용해야 하며, runner의 trusted checkout이 클라우드의 도구 권한을
+강제하는 것은 아니다. Actions의 GitHub token·Routine token을 클라우드에 전달하지 않는다.
+
+payload는 `kind: "routine-fire-payload"`, `request`, `head_sha`, `base_sha`,
+`reviewed_files`, 검증한 전체 `diff`, `result_marker`, `result_schema`, `instructions`를 담는다.
+`result_schema`가 이번 요청의 정확한 상수와 기존 review JSON 스키마를 전달한다.
+Routine은 다음 marker와 줄바꿈 뒤에 순수 JSON만 게시한다(코드 펜스 없음).
+
+```text
+<!-- team4-routine-review -->
+{"request_id":"<요청 UUID>","run_id":"<run ID 문자열>","run_attempt":"<attempt 문자열>","repository":"LS-Final-Project/ls-final-project","pr_number":123,"deadline":"<요청 ISO 시각>","review":{"head_sha":"<40자리 SHA>","base_sha":"<40자리 SHA>","review_complete":true,"reviewed_files":["<전체 변경 파일>"],"summary":"<한국어 검토 결과>","findings":[]}}
+```
+
+수신기는 GitHub가 제공하는 `user.type=Bot`, `user.id=209825114`와
+`performed_via_github_app.id=1236702`를 모두 요구한다. 숫자 ID는 GitHub의
+[`claude[bot]`](https://api.github.com/users/claude%5Bbot%5D)과
+[`Claude App`](https://api.github.com/apps/claude) 조회로 확인했다.
+표시 이름·본문의 주장·nonce·사람 계정·GitHub Actions bot만으로는 신뢰하지 않는다.
+요청 UUID는 인증 수단이 아니며 run/attempt·저장소·PR·기한의 재사용을 차단하는 결속값이다.
+15분 내 생성한 수정되지 않은 댓글 1개만 수락하며, 수락 전 재조회에서도 중복·삭제·수정이
+관측되면 실패한다. 미래 시각·오래된 댓글·잘못된 요청 필드도 거부한다.
+그 후 기존 `validate/finish`가 전체 reviewed_files·정확한 head/base·완료 여부와 P0~P2를
+검사하고 게시 전후 최신 PR 상태를 재확인한다. 수락 이후의 변경까지 지속 감시하지는
+않으므로 병합자는 현재 SHA와 결과를 마지막으로 확인해야 한다.
+
+**실제 발행자는 미확인이다.** 공식 [Routine 문서](https://code.claude.com/docs/en/routines)는
+연결한 사용자 명의로 작업이 나타날 수 있다고 설명하며, [클라우드 GitHub 인증](https://code.claude.com/docs/en/claude-code-on-the-web#github-authentication-options)은
+App 연결과 사용자 `gh` token 연결을 구분한다. App 존재만으로 Routine 댓글이 위 bot/App
+명의임을 입증할 수 없다. 연결 사용자 명의 댓글은 현재 정책에서 거부하며, 이를 자동
+수락하도록 완화하지 않았다. 실 연결의 발행자 검증과 결과 전달이 확인될 때까지 전환 성공·
+KAN-203 전체 완료를 보고하지 않는다.
+
+공식 [fire API](https://platform.claude.com/docs/en/api/claude-code/routines-fire)는 세션 시작만
+지원하고 token에 결과 읽기 권한이 없다. 매 요청이 새 세션이므로 POST는 자동 재시도하지
+않는다. timeout·5xx·결과 미수신 때도 이미 세션이 만들어졌을 수 있다. 담당자는 Cloud
+Routine 실행 내역과 GitHub 댓글의 서버 제공 작성자 정보를 확인한 뒤 다음 시도를 판단한다.
+승인된 실제 전환 검증 1건은 감독이 수행하며 로컬 fake 검사는 실제 발행자·모델 품질·
+클라우드 권한·운영 성공의 증거가 아니다. secret·연결·prompt 변경과 실제 호출은 별도다.
 
 2026-10-23 사용자 결정으로 `.coderabbit.yaml`에서 CodeRabbit 자동 리뷰와 PR 본문 요약을 중단한다.
 라벨·본문 키워드로 자동 리뷰가 다시 켜지지 않도록 두 설정도 비운다. 병합 조건은 CI 성공과 최신 head/base SHA의 `claude-review` 통과이며 CodeRabbit 완료를 추가로 기다리지 않는다.
@@ -118,4 +181,5 @@ dev → main 배포와 main → dev 동기화는 소스 브랜치 조건에서 �
 
 스마트 값은 [Atlassian 개발 정보](https://support.atlassian.com/cloud-automation/docs/jira-smart-values-development/) 및 [문자열 함수](https://support.atlassian.com/cloud-automation/docs/jira-smart-values-text-fields/)를 따른다. 배포 방법은 [서비스별 CI와 CD](service-delivery.md#오새결의-평소-배포-dev에서-main으로)를 참고한다.
 
-Claude의 구조화 출력은 [공식 Action 인터페이스](https://github.com/anthropics/claude-code-action/blob/6b6870e649b5ff408753befeaee5fc7989d4e6a9/action.yml)를 사용한다. 현재 비공개 저장소에서는 브랜치 보호 API가 요금제 제한으로 403을 반환한다. 검사 실패가 서버에서 병합을 강제 차단한다고 보고하지 않는다.
+Cloud Routine 결과는 위 댓글 envelope로 전달하고 기존 구조화 review 검사를 유지한다.
+현재 비공개 저장소에서는 브랜치 보호 API가 요금제 제한으로 403을 반환한다. 검사 실패가 서버에서 병합을 강제 차단한다고 보고하지 않는다.
