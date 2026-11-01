@@ -127,7 +127,7 @@ def test_provider_runs_outside_transaction_and_human_edit_wins_cas(monkeypatch, 
         assert (
             conn.version == 2 and conn.saved.sections[0].sentences[0].provenance_kind == "ai_draft"
         )
-    assert conn.calls and conn.calls[0][5] == "rfp-draft-rewrite-v1"
+    assert conn.calls and conn.calls[0][5] == "rfp-draft-rewrite-v2"
     assert original == before
 
 
