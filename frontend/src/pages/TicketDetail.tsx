@@ -9,13 +9,14 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
+import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
 import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
 import TicketAudit from '../components/TicketAudit';
 import TicketSummary from '../components/TicketSummary';
-import AiDraftDialog from '../components/AiDraftDialog';
+import AiDraftDialog, { type SendOptions } from '../components/AiDraftDialog';
 import AnalysisCorrection from '../components/AnalysisCorrection';
 import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
@@ -57,6 +58,7 @@ export default function TicketDetail() {
   const identity = useQuery({ queryKey: ['ticket-owner-identity', mode], queryFn: me, retry: false, enabled: access.ready && workflow.isSuccess });
   const [dialog, setDialog] = useState<Dialog>(null);
   const assignees = useQuery({ queryKey: ['cs-assignees', mode], queryFn: ({ signal }) => listCsAssignees(signal), enabled: dialog === 'owner', retry: false, staleTime: 0 });
+  const mailboxes = useQuery({ queryKey: ['send-mailboxes', mode], queryFn: () => listMailboxes(), enabled: dialog === 'draft' && import.meta.env.DEV && mode === 'live', retry: false, staleTime: 0 });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   // 반품 확정 입력 칸을 비우는 데 쓴다. 확정은 모든 칸을 덮어쓰는 기록이라 입력이 다른 문의나 다음 확정에 남으면 안 된다.
@@ -93,14 +95,14 @@ export default function TicketDetail() {
 
   // 한 번에 한 동작만 실행한다. 실패하거나 결과를 알 수 없으면(408·5xx) 같은 요청을 다시 보내지 않고 최신 상태를 읽는다.
   // 판본이 바뀌면 서버가 409를 주므로 이미 반영된 동작이 두 번 적용되지 않는다.
-  async function run(done: string, call: (signal: AbortSignal) => Promise<unknown>): Promise<boolean> {
+  async function run(done: string | ((result: unknown) => NonNullable<Notice>), call: (signal: AbortSignal) => Promise<unknown>): Promise<boolean> {
     if (busy) return false;
     const controller = new AbortController();
     running.current = controller;
     setBusy(true); setNotice(null);
     try {
-      await call(controller.signal);
-      setNotice({ kind: 'ok', text: done });
+      const result = await call(controller.signal);
+      setNotice(typeof done === 'function' ? done(result) : { kind: 'ok', text: done });
       setDialog(null);
       return true;
     } catch (error) {
@@ -120,6 +122,28 @@ export default function TicketDetail() {
     }
   }
   const version = wf?.version ?? 0;
+  // 승인했지만 결과가 정해지지 않은 발송. 있으면 새 발송을 막고(서버도 409), 대화에서 먼저 상태를 확인하게 한다.
+  const unsettledSend = (wf?.customer_sends ?? []).find(item => item.request_status === 'PENDING' || item.request_status === 'REQUEST_UNKNOWN' || (item.request_status === 'REGISTERED' && item.send_status !== 'ACCEPTED' && item.send_status !== 'FAILED'));
+  const sendBlock = !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : !wf ? '업무 판본을 읽는 중입니다'
+    : st !== 'IN_REVIEW' ? '검토중인 문의만 보낼 수 있습니다' : pendingResult ? '확인 전 부서 답변이 있으면 보낼 수 없습니다'
+    : unsettledSend ? '결과가 정해지지 않은 발송이 있습니다. 대화에서 상태를 먼저 확인하세요' : undefined;
+  const sendOptions: SendOptions = {
+    originalSubject: data?.subject ?? null, defaultTo: wf?.mail_origin?.sender_address ?? null,
+    mailboxes: mailboxes.isSuccess ? (mailboxes.data ?? []).filter(item => item.state === 'connected' && !item.reconnect_required).map(item => ({ id: item.mailbox_id, label: `사서함 ${item.mailbox_id.slice(0, 8)}` })) : undefined,
+    defaultMailboxId: wf?.mail_origin?.mailbox_id ?? null, disabled: sendBlock, busy,
+    onSend: body => void run(reply => sendNotice(reply), signal => sendCustomerMessage(ticketId, { ...body, version }, signal)),
+  };
+  // 넘긴 결과는 HTTP 상태가 아니라 마지막 발송의 request_status에 있다. 결과를 모르는 경우에는 같은 내용을 새로 승인하지 않게 안내한다.
+  function sendNotice(reply: unknown): NonNullable<Notice> {
+    const last = (reply as { data?: { customer_sends?: { request_status?: string; request_error?: string | null }[] } } | null)?.data?.customer_sends?.at(-1);
+    switch (last?.request_status) {
+      case 'REGISTERED': return { kind: 'ok', text: '승인해 플랫폼에 넘겼습니다. 대화의 "상태 확인"으로 접수 여부를 읽으면 문의 상태가 바뀝니다.' };
+      case 'REJECTED': return { kind: 'error', text: `플랫폼이 발송을 거부했습니다(${last.request_error ?? '사유 없음'}). 내용을 고쳐 다시 승인하세요.` };
+      case 'REQUEST_FAILED': return { kind: 'error', text: '플랫폼에 연결하지 못해 발송이 만들어지지 않았습니다. 대화의 "다시 요청"으로 같은 내용을 다시 요청하세요.' };
+      default: return { kind: 'error', text: '플랫폼의 응답을 확인하지 못했습니다. 같은 내용을 새로 승인하지 말고 대화의 "다시 요청"이나 "상태 확인"으로 결과를 먼저 확인하세요.' };
+    }
+  }
+  const sendActions = canWrite ? { busy, refresh: (id: string) => void run('발송 상태를 읽었습니다.', signal => refreshCustomerSend(ticketId, id, signal)), retry: (id: string) => void run(reply => sendNotice(reply), signal => retryCustomerSend(ticketId, id, version, signal)) } : undefined;
   const doStart = () => run('검토를 시작했습니다.', signal => startReview(ticketId, version, signal));
   const submitTransfer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -154,7 +178,7 @@ export default function TicketDetail() {
         { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
         { label: '분류 정정', note: !analysisData ? 'AI 분류를 읽은 뒤에 정정할 수 있습니다' : !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : 'AI 분류를 사유와 함께 정정합니다', action: analysisData && canWrite && !busy ? () => setDialog('correct') : undefined },
-        { label: 'AI 초안 보기', note: 'AI 초안 3개를 읽고 고르거나 직접 씁니다. 보내기는 연결 전', action: () => setDialog('draft') },
+        { label: 'AI 초안 보기', note: 'AI 초안 3개를 읽고 고르거나 직접 쓰고, 확인해 승인하면 고객에게 보냅니다', action: () => setDialog('draft') },
         { label: '담당 변경', note: reasons.owner, action: busy || reasons.owner !== undefined ? undefined : () => setDialog('owner') },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
         { label: '해결 기록 남기기', note: reasons.resolution ?? '종결 후 한 건', action: busy || reasons.resolution !== undefined ? undefined : () => setDialog('resolution') },
@@ -195,7 +219,7 @@ export default function TicketDetail() {
           <h2>대화<small>최신이 위</small></h2>
           <div className="body">
             <TicketSummary ticketId={ticketId} canWrite={canWrite} />
-            <CustomerThread original={data} workflow={wf} />
+            <CustomerThread original={data} workflow={wf} actions={sendActions} />
           </div>
         </section>
         <section className="kv-box">
@@ -252,8 +276,8 @@ export default function TicketDetail() {
     {dialog === 'correct' && data && analysisData && <KvModal title={`분류 정정, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => setDialog(null)}>
       <AnalysisCorrection analysis={analysisData} onDone={() => setDialog(null)} onSubmit={async body => { try { await correctAnalysis(ticketId, body, new AbortController().signal); setNotice({ kind: 'ok', text: '분류 정정을 저장했습니다.' }); } finally { await analysis.refetch(); } }} />
     </KvModal>}
-    {dialog === 'draft' && data && <KvModal title={`정보 요청 문안, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => setDialog(null)}>
-      <AiDraftDialog analysis={analysisData} ticketLabel={`${data.customer_external_id}, ${data.body_language}`} />
+    {dialog === 'draft' && data && <KvModal title={`답변·정보 요청 문안, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
+      <AiDraftDialog analysis={analysisData} ticketLabel={`${data.customer_external_id}, ${data.body_language}`} send={sendOptions} />
     </KvModal>}
     {dialog === 'owner' && data && <KvModal title={`담당 변경, ${data.external_id ?? data.id.slice(0, 8)}`} onClose={() => !busy && setDialog(null)}>
       <form onSubmit={event => { event.preventDefault(); const next = String(new FormData(event.currentTarget).get('owner') ?? ''); if (next) void run('담당자를 바꿨습니다.', signal => reassignOwner(ticketId, { owner_user_id: next, version }, signal)); }}>

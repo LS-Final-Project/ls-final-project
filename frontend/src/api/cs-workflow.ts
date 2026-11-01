@@ -52,6 +52,15 @@ export type DeptResultBody = paths[`${Wf}/dept-result`]['post']['requestBody']['
 export const submitDeptResult = (ticketId: string, body: DeptResultBody, signal: AbortSignal) => postTo(`${base(ticketId)}/dept-result`, body, signal, 'POST', 'dept_staff');
 // 이관받은 부서 담당자가 "우리 부서 일이 아님"으로 반송한다. 문의는 검토중으로 돌아가고 이관은 부서 반송(RETURNED_BY_DEPT)이 된다.
 export const returnTransfer = (ticketId: string, body: { reason: string; version: number }, signal: AbortSignal) => postTo(`${base(ticketId)}/return`, body, signal, 'POST', 'dept_staff');
+// 담당자가 답변·정보 요청을 승인해 플랫폼에 넘긴다(업무 판본이 오른다). 문의 상태는 플랫폼이 접수(ACCEPTED)를 알려 refresh한 뒤에 바뀐다.
+// 넘긴 결과는 HTTP 상태가 아니라 응답 customer_sends 마지막 항목의 request_status에 있다.
+export type SendBody = paths[`${Wf}/send`]['post']['requestBody']['content']['application/json'];
+export const sendCustomerMessage = (ticketId: string, body: SendBody, signal: AbortSignal) => post(ticketId, '/send', body, signal);
+// 플랫폼 발송 상태를 읽어 저장한다. 처음 ACCEPTED면 문의가 답변 완료 또는 고객 회신 대기로 바뀐다.
+export const refreshCustomerSend = (ticketId: string, sendId: string, signal: AbortSignal) => post(ticketId, `/sends/${encodeURIComponent(sendId)}/refresh`, {}, signal);
+// 플랫폼이 답하지 않은 발송을 같은 판본·내용으로 다시 요청한다(플랫폼이 같은 의도로 알아봐 두 번 보내지 않는다).
+export const retryCustomerSend = (ticketId: string, sendId: string, version: number, signal: AbortSignal) => post(ticketId, `/sends/${encodeURIComponent(sendId)}/retry`, { version }, signal);
+export const isSendPending = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_CUSTOMER_SEND_PENDING';
 export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
 
 // 한국어 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).

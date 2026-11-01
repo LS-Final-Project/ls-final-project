@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, expect, test, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import CustomerThread, { latestUnansweredReply } from './CustomerThread';
 import type { WorkflowRecord } from '../api/cs-workflow';
 
@@ -42,4 +42,32 @@ test('가장 늦은 미응답 회신만 골라 주고 회신이 없거나 이미
   expect(latestUnansweredReply(flow([send({ accepted_at: '2026-10-30T00:00:00Z' })], [reply()]))).toBeUndefined();
   expect(latestUnansweredReply(flow([], []))).toBeUndefined();
   expect(latestUnansweredReply(undefined)).toBeUndefined();
+});
+
+test('결과가 정해지지 않은 발송에만 상태 확인·다시 요청 단추를 보이고 누르면 그 발송 id를 넘긴다', () => {
+  const actions = { busy: false, refresh: vi.fn(), retry: vi.fn() };
+  const sends = [
+    send({ id: 'wait', request_status: 'REGISTERED', send_status: 'QUEUED' }),
+    send({ id: 'unknown', request_status: 'REQUEST_UNKNOWN', send_status: null }),
+    send({ id: 'done', request_status: 'REGISTERED', send_status: 'ACCEPTED' }),
+    send({ id: 'failed', request_status: 'REGISTERED', send_status: 'FAILED' }),
+    send({ id: 'rejected', request_status: 'REJECTED', send_status: null }),
+  ];
+  render(<CustomerThread original={original} workflow={flow(sends, [])} actions={actions} />);
+  expect(screen.getAllByRole('button', { name: '상태 확인' })).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: '다시 요청' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: '상태 확인' }));
+  fireEvent.click(screen.getByRole('button', { name: '다시 요청' }));
+  expect(actions.refresh).toHaveBeenCalledWith('wait');
+  expect(actions.retry).toHaveBeenCalledWith('unknown');
+  expect(screen.getByText('플랫폼이 거부')).toBeTruthy();
+});
+
+test('실행 중이면 단추를 막고, actions가 없으면 단추가 없다', () => {
+  const sends = [send({ id: 'wait', request_status: 'REGISTERED', send_status: 'QUEUED' })];
+  render(<CustomerThread original={original} workflow={flow(sends, [])} actions={{ busy: true, refresh: vi.fn(), retry: vi.fn() }} />);
+  expect((screen.getByRole('button', { name: '상태 확인' }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  render(<CustomerThread original={original} workflow={flow(sends, [])} />);
+  expect(screen.queryByRole('button', { name: '상태 확인' })).toBeNull();
 });
