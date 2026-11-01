@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { dismissReply, getMailTriage, isTriageVersionConflict, linkReply, listReplyReviews, reclassifyMail, registerTicket, type MailTriage, type ReplyReview } from '../api/mail';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
 import { KvBox, KvField, KvGrid, KvKey, KvModal, KvMore, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { formatStamp } from '../ls-shell/cs-labels';
 
@@ -22,10 +22,9 @@ const uuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 const day = (iso: string) => formatStamp(iso).slice(0, 10);
 
 // 받은 메일 검토 MB0101. 연결 대상을 사람이 정해야 하는 고객 답장을 읽어 보인다.
-// 이 API는 보낸 사람·제목·첨부를 주지 않아 보드의 해당 열은 없다. 다시 분류, 후보 문의에 연결, 무시(사유 필수), 새 문의로 접수를
-// 개발 모드의 실제 API에서 사람이 고른 메일에만 한다. 후보 선택·허용 조건은 서버가 최종 판단한다.
+// 보낸 사람·제목·첨부 여부는 서버가 주면 보이고(본문은 저장하지 않는다), 유형·확신은 메일별 분류를 따로 읽어야 해서 열이 없다.
+// 다시 분류, 후보 문의에 연결, 무시(사유 필수), 새 문의로 접수를 실제 API에서 사람이 고른 메일에만 한다. 후보 선택·허용 조건은 서버가 최종 판단한다.
 export default function MailInbox() {
-  if (!import.meta.env.DEV) return <Preparing title="받은 메일 검토" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
   return <InboxView />;
 }
 
@@ -100,8 +99,10 @@ function InboxView() {
   const columns: KvColumn<ReplyReview>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
     { key: 'received', header: '받은 시각', width: 110, className: 'd', sort: 'descending', cell: row => formatStamp(row.received_at).slice(5) },
-    { key: 'message', header: '메일', className: 't', headClass: '', cell: row => <button className="kb" aria-pressed={row.message_id === selected?.message_id} onClick={() => setPicked(row.message_id)}>{row.message_id.slice(0, 8)}</button> },
+    { key: 'from', header: '보낸 사람', width: 170, className: 't', headClass: '', cell: row => row.from_address ?? '-' },
+    { key: 'message', header: '제목', className: 't', headClass: '', cell: row => <button className="kb" aria-pressed={row.message_id === selected?.message_id} onClick={() => setPicked(row.message_id)}>{row.subject || `(제목 없음) ${row.message_id.slice(0, 8)}`}</button> },
     { key: 'reason', header: '검토 사유', width: 150, className: 'c', cell: row => REASON_LABEL[row.reason] },
+    { key: 'attach', header: '첨부', width: 60, className: 'c', cell: row => row.has_attachments == null ? '-' : row.has_attachments ? '있음' : '없음' },
     { key: 'candidates', header: '연결 후보', width: 90, className: 'c', cell: row => `${row.candidates.length}건` },
   ];
 
