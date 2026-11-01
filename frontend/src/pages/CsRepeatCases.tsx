@@ -231,7 +231,7 @@ function EvidenceBoard({ requestId, summary, cond, reloadRef }: { requestId: str
       : mode !== 'live' ? `${rowNo(selected)} 비교만 가능, 모의 응답에서는 근거를 바꾸지 않음`
         : selected.kind === 'CAND' ? `${rowNo(selected)} ${needsCase && !selected.caseId ? '해결 기록이 없어 넣을 수 없음' : '넣을지 판단'}`
           : selected.kind === 'IN' ? `${rowNo(selected)} 뺄지 판단` : `${rowNo(selected)} 뺀 근거, 기록 확인`;
-  const sep = <span className="sep">/</span>;
+  const sep = <span className="sep" style={{ display: 'inline' }}>/</span>;
 
   return <>
     <KvNext label="다음">

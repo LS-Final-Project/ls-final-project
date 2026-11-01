@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import CsRepeatCases from './CsRepeatCases';
 import { setApiMode } from '../api/client';
 import { addEvidence } from '../api/cs-repeat-cases';
+import type { ImprovementDetail } from '../api/cs-improvements';
 import type { useBusinessAccess } from '../components/BusinessAccess';
 import { errorBody, jsonResponse, renderApp, renderAt } from '../test/render';
 
@@ -28,7 +29,8 @@ const E2 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2';
 const E4 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4';
 
 const summary = { id: ID, request_type: 'FAULT', origin: 'SYSTEM_CANDIDATE', product_code: 'SYN-INV-1', fault_id: 'FLT-001', doc_signal: null, status: 'DRAFT', version: 3, cs_owner: null, problem_statement: '합성 반복 과전류 정지', evidence_count: 2, created_at: '2026-10-30T01:00:00Z' };
-const evidence = (id: string, ticket: string, no: string, caseNo: string, extra = {}) => ({ id, ticket_id: ticket, ticket_external_id: no, case_id: `bbbbbbbb-bbbb-4bbb-8bbb-${ticket.slice(-12)}`, case_external_id: caseNo, ticket_subject: `제목 ${no}`, ticket_received_at: '2026-10-28T00:00:00Z', customer_external_id: `CUST-${no}`, added_by: null, added_at: '2026-10-29T01:00:00Z', removed_by: null, removed_at: null, removal_reason: null, ...extra });
+type Evidence = ImprovementDetail['data']['evidence'][number];
+const evidence = (id: string, ticket: string, no: string, caseNo: string, extra: Partial<Evidence> = {}): Evidence => ({ id, ticket_id: ticket, ticket_external_id: no, case_id: `bbbbbbbb-bbbb-4bbb-8bbb-${ticket.slice(-12)}`, case_external_id: caseNo, ticket_subject: `제목 ${no}`, ticket_received_at: '2026-10-28T00:00:00Z', customer_external_id: `CUST-${no}`, added_by: null, added_at: '2026-10-29T01:00:00Z', removed_by: null, removed_at: null, removal_reason: null, ...extra });
 function detailBody(status = 'DRAFT', version = 3) {
   return { data: {
     request: { id: ID, request_type: 'FAULT', status, version },
@@ -342,5 +344,43 @@ test('근거와 후보가 없을 때 입력 사유 없이 단일 빈 표 안내�
   view();
   await screen.findByText('근거 문의와 후보가 없습니다.');
   expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  expect((screen.getByRole('button', { name: '근거에서 빼기' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+
+test('자동 재조회로 선택 근거가 빠지면 다른 포함 행에 이전 사유를 보내지 않는다', async () => {
+  const E3 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3';
+  let body = detailBody();
+  body.data.evidence.push(evidence(E3, T3, 'SYN-T-3', 'SYN-RC-3'));
+  const items = [...comparisonBody.data.items.filter(row => row.ticket_id !== T3), caseRow(T3, 'SYN-T-3')];
+  const fetch = serve({ detail: () => [200, body], compare: [200, { data: { ...comparisonBody.data, items } }], write: () => [200, body] });
+  view();
+  await screen.findByRole('table', { name: '비교' });
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '둘째 행에만 해당하는 사유' } });
+  body = { ...body, data: { ...body.data, evidence: body.data.evidence.map(row => row.id === E2 ? { ...row, removed_at: '2026-11-01T00:00:00Z', removal_reason: '다른 곳에서 뺌' } : row) } };
+  fireEvent.click(screen.getByRole('button', { name: /조회/ }));
+  await screen.findByText('다른 곳에서 뺌');
+  expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  expect((screen.getByRole('button', { name: '근거에서 빼기' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(posts(fetch)).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '셋째 문의를 확인한 새 사유' } });
+  fireEvent.click(screen.getByRole('button', { name: '근거에서 빼기' }));
+  await screen.findByText('근거에서 뺐습니다.');
+  expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence/${E3}/remove`, { reason: '셋째 문의를 확인한 새 사유', version: 3 }]]);
+});
+
+test('요청 전환은 requestId key로 초기화되어 기존 행과 사유를 인계하지 않는다', async () => {
+  const otherId = '22222222-2222-4222-8222-222222222222';
+  let other = false;
+  serve({ list: [200, { data: { items: [summary, { ...summary, id: otherId, problem_statement: '두 번째 개선요청' }] } }], detail: () => {
+    const body = detailBody();
+    return [200, { ...body, data: { ...body.data, request: { ...body.data.request, id: other ? otherId : ID } } }];
+  } });
+  view();
+  await screen.findByRole('table', { name: '비교' });
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '첫 요청에서만 쓰는 사유' } });
+  other = true;
+  fireEvent.change(screen.getByRole('combobox', { name: '요청번호' }), { target: { value: otherId } });
+  await waitFor(() => expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe(''));
   expect((screen.getByRole('button', { name: '근거에서 빼기' }) as HTMLButtonElement).disabled).toBe(true);
 });
