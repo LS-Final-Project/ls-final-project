@@ -13,7 +13,6 @@ export default function ImprovementEditor({record,onSaved,onReload,onEditingChan
   useEffect(()=>{if(wasOpened.current&&!opened)opener.current?.focus();wasOpened.current=opened;},[opened]);
   useEffect(()=>{onEditingChange?.(opened);return()=>onEditingChange?.(false);},[opened,onEditingChange]);
   useEffect(()=>()=>{controller.current?.abort();},[]);
-  if(!import.meta.env.DEV)return null;
   const available=getApiMode()==='live'&&record.status!=='COMPLETED';
   const changes:ImprovementPatch={version:record.version};
   for(const key of Object.keys(fields) as Field[]){if(values[key]===(record[key]??''))continue;const value=values[key].trim();if(value!==(record[key]??''))changes[key]=key==='problem_statement'?value:value||null;}

@@ -23,8 +23,7 @@ function Evidence({value}:{value:unknown}) {
 export default function ImprovementVersions({requestId}:{requestId:string}){
   const [opened,setOpened]=useState(false);
   const mode=getApiMode();
-  const versions=useQuery({queryKey:['cs-improvement-versions',mode,requestId],queryFn:({signal})=>getImprovementVersions(requestId,signal),enabled:import.meta.env.DEV&&opened,retry:false,staleTime:0});
-  if(!import.meta.env.DEV)return null;
+  const versions=useQuery({queryKey:['cs-improvement-versions',mode,requestId],queryFn:({signal})=>getImprovementVersions(requestId,signal),enabled:opened,retry:false,staleTime:0});
   const refresh=()=>{if(opened)void versions.refetch();else setOpened(true);};
   return <section><h2>작성 판본 이력</h2><p>각 판본에 저장된 작성 내용과 유효 근거입니다. 검토 승인·전달 완료를 뜻하지 않으며 현재 상태와 구분합니다.</p>
     <button disabled={versions.isFetching} onClick={refresh}>{opened?'판본 이력 새로고침':'판본 이력 조회'}</button>
