@@ -5,7 +5,8 @@ import { ApiError, getApiMode } from '../api/client';
 import { getTicket } from '../api/cs';
 import { getTicketWorkflow, isVersionConflict, returnTransfer, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { KvBox, KvFormCell, KvFormRow, KvGrid, KvKey, KvNext, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { DEPT_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
@@ -17,7 +18,8 @@ const short = (text: string, max = 60) => text.length > max ? `${text.slice(0, m
 // 검토 답변 CS0203(부서 창). 이관받은 부서 담당자가 요청 내용과 고객 원문을 보고 답변을 보낸다.
 // 임시 저장은 서버 경로가 없어 눌러지지 않게 둔다. 담당 아님 반송은 사유(필수)와 읽은 판본으로 보낸다.
 export default function DeptResult() {
-  if (!import.meta.env.DEV) return <Preparing title="검토 답변" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
+  const access = useBusinessAccess('cs');
+  if (!access.ready) return <BusinessGate access={access} title="검토 답변" />;
   return <ResultView />;
 }
 

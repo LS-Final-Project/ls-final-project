@@ -147,7 +147,7 @@ async def review(
         fresh = await commit_transition(
             conn, row, principal.user_id, "review", {"status": {"from": "DRAFT", "to": "REVIEWED"}}
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -218,7 +218,7 @@ async def send(
                 "departments": {"to": targets},
             },
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -263,7 +263,7 @@ async def acknowledge(
         fresh = await resummarize(
             conn, row, principal.user_id, "acknowledge", {"dept_code": {"to": dept_code}}
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -322,7 +322,7 @@ async def reply(
             "reply",
             {"dept_code": {"to": dept_code}, "reply_type": {"to": payload.reply_type}},
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -380,7 +380,7 @@ async def record_action(
             "record_action",
             {"dept_code": {"to": dept_code}, "action_date": {"to": str(payload.action_date)}},
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -461,7 +461,7 @@ async def resend(
                 "reason": {"to": payload.reason},
             },
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -501,7 +501,7 @@ async def review_rejection(
         fresh = await resummarize(
             conn, row, principal.user_id, "review_rejection", {"dept_code": {"to": dept_code}}
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -540,7 +540,7 @@ async def plan_followup(
             "plan_followup",
             {"status": {"from": "ACTION_TAKEN", "to": "FOLLOW_UP"}},
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)
 
 
@@ -586,5 +586,5 @@ async def complete(
             "complete",
             {"status": {"from": "FOLLOW_UP", "to": "COMPLETED"}},
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)

@@ -26,10 +26,9 @@ export default function TicketUnits({ ticketId, canWrite = false }: { ticketId: 
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const inFlight = useRef(false);
   const mode = getApiMode();
-  const enabled = import.meta.env.DEV && opened;
+  const enabled = opened;
   const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: ({ signal }) => getTicketUnits(ticketId, signal), enabled, staleTime: 0 });
   const history = useQuery({ queryKey: ['unit-history', mode, ticketId], queryFn: ({ signal }) => getUnitHistory(ticketId, signal), enabled, staleTime: 0 });
-  if (!import.meta.env.DEV) return <div className="kv-sub" style={{ margin: 0 }}>장비 조회의 운영 연결을 준비 중입니다.</div>;
   const failed = units.isError || history.isError;
   const busy = units.isFetching || history.isFetching;
   const refresh = () => { setOpened(true); if (opened) { void units.refetch(); void history.refetch(); } };
@@ -86,9 +85,9 @@ export default function TicketUnits({ ticketId, canWrite = false }: { ticketId: 
               <small style={{ display: 'block', color: 'var(--erp-muted)' }}>{item.relation === 'REPLACED_UNIT' ? '교체 전 장비 이력 — 설치·출하 정보를 현재 장비에 복사하지 않습니다.' : '동일 장비 이력'}</small>
             </li>)}</ul>}
         </>}
-      {canWrite && picked
-        ? <UnitLinkForm key={`${picked.unit.id}:${picked.link?.version ?? 0}`} row={picked} busy={saving} notice={notice} onSave={form => void save(form)} />
-        : <div className="kv-sub" style={{ margin: '8px 0 0' }}>장비 연결 확정·수정은 실제 API 개발 모드에서만 할 수 있습니다.</div>}
+      {!canWrite
+        ? <div className="kv-sub" style={{ margin: '8px 0 0' }}>모의 응답 모드에서는 장비 연결을 확정·수정할 수 없습니다.</div>
+        : picked && <UnitLinkForm key={`${picked.unit.id}:${picked.link?.version ?? 0}`} row={picked} busy={saving} notice={notice} onSave={form => void save(form)} />}
     </>}
   </div>;
 }

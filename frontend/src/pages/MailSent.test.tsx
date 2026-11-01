@@ -5,12 +5,19 @@ import { clearSessionCsrfToken, setApiMode } from '../api/client';
 import type { SendIntent } from '../api/mail';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 
+// 운영 빌드 시험에서 업무 UI 설정을 켠다(설정 값은 모듈을 읽을 때 정해진다). 개발 모드 시험은 접근 확인을 하지 않아 영향이 없다.
+vi.mock('../components/BusinessAccess', async importOriginal => {
+  const actual = await importOriginal<typeof import('../components/BusinessAccess')>();
+  return { ...actual, useBusinessAccess: (business: Parameters<typeof actual.useBusinessAccess>[0], operational?: boolean) => actual.useBusinessAccess(business, operational, true) };
+});
+const csAgent = () => jsonResponse(200, { data: { id: 'u1', roles: ['cs_agent'] } });
+
 const intent = (over: Partial<SendIntent>): SendIntent => ({
   intent_id: '11111111-1111-4111-8111-111111111111', business_ref: 'CS26-0001', business_version: 1, subject: '합성 제목', status: 'ACCEPTED', error_code: null,
   attempts: 1, created_at: '2026-10-29T00:20:00Z', submitted_at: '2026-10-29T00:20:05Z', accepted_at: '2026-10-29T00:20:06Z', sent_copy_confirmed_at: null, resend_ready: false, ...over,
 });
 const show = () => { setApiMode('live'); return renderAt('/mail/sent', '/mail/sent', <MailSent />); };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); clearSessionCsrfToken(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); setApiMode('mock'); clearSessionCsrfToken(); });
 
 test('발송 기록을 상태 이름과 함께 최신순으로 보이고 건수는 표시된 행에서 센다', async () => {
   const items = [intent({ intent_id: 'a', subject: '오래된 건', created_at: '2026-10-28T01:00:00Z', status: 'FAILED', error_code: 'RECIPIENT_REJECTED', submitted_at: null, accepted_at: null }),
@@ -154,4 +161,12 @@ test('세션 확인 정보가 없으면 요청하지 않고 안내한다', async
   fireEvent.click(button('보낸 편지함 확인'));
   expect((await screen.findByRole('alert')).textContent).toContain('세션 확인 정보가 없습니다');
   expect(fetch.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+});
+
+test('운영 빌드(개발 모드 아님)에서도 발송 기록을 읽어 보인다', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? csAgent() : jsonResponse(200, { data: { items: [intent({ subject: '운영 빌드 건' })] } })));
+  show();
+  expect(await screen.findByText('운영 빌드 건')).toBeTruthy();
+  expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
 });

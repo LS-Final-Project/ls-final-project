@@ -39,6 +39,7 @@ const isReview = (value: unknown): value is ReplyReview => {
   const item = value as Record<string, unknown> | null;
   return typeof item === 'object' && item !== null && typeof item.message_id === 'string' && typeof item.received_at === 'string'
     && REASONS.includes(item.reason as ReplyReview['reason']) && Array.isArray(item.candidates)
+    && (item.from_address == null || typeof item.from_address === 'string') && (item.subject == null || typeof item.subject === 'string') && (item.has_attachments == null || typeof item.has_attachments === 'boolean')
     && item.candidates.every(c => typeof c === 'object' && c !== null && typeof (c as Record<string, unknown>).business_ref === 'string');
 };
 const TYPES = ['NEW_RFP', 'EXISTING_CHANGE', 'CANDIDATE_REPLY', 'CS', 'OTHER'];
@@ -49,9 +50,9 @@ const isTriage = (value: unknown): value is MailTriage => {
 };
 
 const reviewSample = (): { data: { items: ReplyReview[] } } => ({ data: { items: [
-  { message_id: '44444444-4444-4444-8444-444444444444', received_at: '2026-10-29T08:41:00Z', created_at: '2026-10-29T08:42:00Z', reason: 'AMBIGUOUS',
+  { message_id: '44444444-4444-4444-8444-444444444444', received_at: '2026-10-29T08:41:00Z', created_at: '2026-10-29T08:42:00Z', reason: 'AMBIGUOUS', from_address: 'buyer@synthetic.example', subject: 'Re: 합성 정보 요청 예시', has_attachments: true,
     candidates: [{ owner_service: 'cs', business_ref: 'SYNTHETIC-CS-0001', method: 'HEADER' }, { owner_service: 'cs', business_ref: 'SYNTHETIC-CS-0002', method: 'THREAD' }] },
-  { message_id: '55555555-5555-4555-8555-555555555555', received_at: '2026-10-28T08:50:00Z', created_at: '2026-10-28T08:51:00Z', reason: 'UNMATCHED_REPLY', candidates: [] },
+  { message_id: '55555555-5555-4555-8555-555555555555', received_at: '2026-10-28T08:50:00Z', created_at: '2026-10-28T08:51:00Z', reason: 'UNMATCHED_REPLY', from_address: null, subject: null, has_attachments: false, candidates: [] },
 ] } });
 const triageSample = (messageId: string): { data: MailTriage } => ({ data: {
   message_id: messageId, version: 2, latest_version: 2, is_latest: true, mail_type: 'CS', needs_review: true, attachments_pending: false,
@@ -61,7 +62,7 @@ const triageSample = (messageId: string): { data: MailTriage } => ({ data: {
 
 /**
  * 사람이 연결 대상을 정해야 하는 고객 답장 목록을 읽는다(읽기 전용).
- * 이 API는 보낸 사람·제목·첨부를 주지 않는다(본문은 저장하지 않는다).
+ * 보낸 사람·제목·첨부 여부는 서버가 줄 때만 있다(없으면 null). 본문은 저장하지 않으므로 첨부는 있음 여부만이다.
  */
 export async function listReplyReviews(signal?: AbortSignal): Promise<ReplyReview[]> {
   const body = await request<unknown>('/api/v1/platform/mail/reply-reviews', { signal, mockFallback: reviewSample });
@@ -83,10 +84,10 @@ export const isTriageVersionConflict = (error: unknown) => error instanceof ApiE
 
 /**
  * 사람이 메일 분류를 바꿔 새 판본으로 남긴다. 읽은 판본(version)이 최신이 아니면 서버가 409로 거부한다.
- * 서버 상태를 바꾸므로 개발 모드의 실제 API에서만 연다(모의 응답으로 성공한 척하지 않는다).
+ * 서버 상태를 바꾸므로 실제 API 모드에서만 연다(모의 응답으로 성공한 척하지 않는다. 운영 빌드는 항상 실제 API다).
  */
 export async function reclassifyMail(messageId: string, body: Reclassification, signal?: AbortSignal): Promise<MailTriage> {
-  if (!import.meta.env.DEV || getApiMode() !== 'live') throw new ApiError(403, '실제 API 개발 모드에서만 실행할 수 있습니다.');
+  if (getApiMode() !== 'live') throw new ApiError(403, '실제 API 모드에서만 실행할 수 있습니다. 모의 응답 모드에서는 실행하지 않습니다.');
   const token = sessionCsrfToken();
   if (!token) throw new ApiError(403, '세션 확인 정보가 없습니다. 세션을 다시 확인하세요.');
   const reply = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/triage`, { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
@@ -98,10 +99,10 @@ export async function reclassifyMail(messageId: string, body: Reclassification, 
 export type SentCopyCheck = paths['/api/v1/platform/mail/send-intents/{intent_id}/check-sent-copy']['post']['responses'][200]['content']['application/json']['data'];
 export type ResendResult = paths['/api/v1/platform/mail/send-intents/{intent_id}/resend']['post']['responses'][200]['content']['application/json']['data'];
 
-// 메일을 외부로 내거나 메일 서버를 확인하는 호출이라 개발 모드의 실제 API와 세션 확인 정보가 있을 때만 연다.
+// 메일을 외부로 내거나 메일 서버를 확인하는 호출이라 실제 API 모드와 세션 확인 정보가 있을 때만 연다(운영 빌드는 항상 실제 API).
 // 허용 조건(결과 불명만, 유예 시간, 사본 없음 확인, 승인자만)은 서버가 판단하고 어기면 4xx로 이유를 돌려준다.
 function sendGuard(): string {
-  if (!import.meta.env.DEV || getApiMode() !== 'live') throw new ApiError(403, '실제 API 개발 모드에서만 실행할 수 있습니다.');
+  if (getApiMode() !== 'live') throw new ApiError(403, '실제 API 모드에서만 실행할 수 있습니다. 모의 응답 모드에서는 실행하지 않습니다.');
   const token = sessionCsrfToken();
   if (!token) throw new ApiError(403, '세션 확인 정보가 없습니다. 세션을 다시 확인하세요.');
   return token;

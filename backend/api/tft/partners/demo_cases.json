@@ -9,12 +9,12 @@
       "clause_no": "2.5",
       "own_product": "TRF-DRY-630",
       "requirements": [
-        {"item": "탭 ±2×2.5%", "clause_no": "2.5", "attribute": "tap", "expected_status": "EVIDENCE_FOUND", "reason": "같은 속성·같은 값", "table_row": 1},
-        {"item": "절연 Class F", "clause_no": "2.5", "attribute": "insulation_class", "expected_status": "EVIDENCE_FOUND", "reason": "같은 등급", "table_row": 2},
-        {"item": "임피던스 5.75% ±10%", "clause_no": "2.5", "attribute": "impedance", "expected_status": "CONDITIONAL", "reason": "범위 안이지만 기준 온도가 IEEE 조건과 같은지 기술 검토", "table_row": 3},
+        {"item": "탭 ±2×2.5%", "clause_no": "2.5.M", "attribute": "tap", "expected_status": "EVIDENCE_FOUND", "reason": "같은 속성·같은 값", "table_row": 1},
+        {"item": "절연 Class F", "clause_no": "2.5.I.1", "attribute": "insulation_class", "expected_status": "EVIDENCE_FOUND", "reason": "같은 등급", "table_row": 2},
+        {"item": "임피던스 5.75% ±10%", "clause_no": "2.5.N", "attribute": "impedance", "expected_status": "CONDITIONAL", "reason": "범위 안이지만 기준 온도가 IEEE 조건과 같은지 기술 검토", "table_row": 3},
         {"item": "강제 공랭 시 용량 증대 33%(115℃ 상승)", "clause_no": "2.5 C.1", "attribute": "forced_air_capacity_increase", "expected_status": "CONDITIONAL", "reason": "수치는 넘지만 요구 조건에서의 값인지 근거 없음. 115℃ 상승 조건의 AF 정격 확인", "table_row": 4},
-        {"item": "2차 전압 480Y/277V", "clause_no": "2.5", "attribute": "secondary_voltage", "expected_status": "SPEC_GAP", "reason": "2차 전압이 다름. 변형 모델 가능 여부를 변압기 기술부서에 자문", "table_row": 5},
-        {"item": "1차 전압·용량(도면 참조)", "clause_no": "2.5", "attribute": "primary_voltage", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "요구값을 아직 모름(도면 미확보). 도면 요청 후 비교", "table_row": 6},
+        {"item": "2차 전압 480Y/277V", "clause_no": "2.5.C.1", "attribute": "secondary_voltage", "expected_status": "SPEC_GAP", "reason": "2차 전압이 다름. 변형 모델 가능 여부를 변압기 기술부서에 자문", "table_row": 5},
+        {"item": "1차 전압·용량(도면 참조)", "clause_no": "2.5", "attribute": "primary_voltage", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "요구값을 아직 모름(도면 미확보). 도면 요청 후 비교. 사례 설정: 원문에 도면 참조 문구가 없어 14번 원문 근거가 아니다", "case_setting": true, "table_row": 6},
         {"item": "BIL 95kV", "clause_no": "2.5.K", "attribute": "bil", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
         {"item": "알루미늄 권선", "clause_no": "2.5.L", "attribute": "winding_material", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
         {"item": "이중 온도센서", "clause_no": "2.5.G.1", "attribute": "winding_temperature_sensor", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 속성 없음. 미기재는 미충족이 아님. 데이터시트 보완 요청", "table_row": 7},
@@ -50,7 +50,7 @@
       "clause_no": "2.6",
       "own_product": "ACB-AS-2000",
       "requirements": [
-        {"item": "인출형, LSIG 보호", "clause_no": "2.6", "attribute": "protection_functions", "expected_status": "EVIDENCE_FOUND", "reason": "기능 단위 근거 있음"},
+        {"item": "인출형, LSIG 보호", "clause_no": "2.6.E.4", "attribute": "protection_functions", "expected_status": "EVIDENCE_FOUND", "reason": "기능 단위 근거 있음"},
         {"item": "배전반 IEEE C37.20.1 + UL 1558", "clause_no": "2.6", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "배전반 제품 자료 없음"},
         {"item": "차단기 IEEE C37.13 + UL 1066", "clause_no": "2.6", "attribute": "certification", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "UL 1066 등록 근거를 찾을 수 없음. 미기재는 미충족이 아님"},
         {"item": "아크플래시 저감 4가지 방식 중 하나", "clause_no": "2.6", "attribute": "arc_flash_reduction", "expected_status": "INSUFFICIENT_EVIDENCE", "reason": "자료에 해당 기능 없음"}
@@ -65,7 +65,7 @@
       "title": "편집 흔적 반영과 고객 질문",
       "edit_traces": [
         {"clause_no": "2.5 C.1", "deleted_value": "50", "current_value": "33%", "expected": "요구값 33%로 등록, 삭제 값 50은 이력으로만 표시하고 되묻지 않음"},
-        {"clause_no": "PART 3", "deleted_value": "(NOT IN CONTRACT)", "current_value": "EXECUTION", "expected": "PART 3 전체를 계약 범위로 보고 3.6·3.7·3.8을 수행 과업 요구로 등록, 수행 주체는 확인 항목"}
+        {"clause_no": "PART 3", "deleted_value": "(NOT IN CONTRACT)", "current_value": "EXECUTION", "expected": "PART 3 전체를 계약 범위로 보고 3.2·3.6·3.7·3.8을 수행 과업 요구로 등록, 수행 주체는 확인 항목"}
       ],
       "questions": [
         {"clause_no": "2.4 E.1.c", "issue_type": "EMPTY_VALUE", "issue": "상용주파 내전압 \"<Insert value> kV\" 값이 비어 있음(템플릿 잔재)", "question_text": "요구 값을 알려 주십시오."},

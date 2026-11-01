@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import AiDraftDialog, { pickDraft } from './AiDraftDialog';
+import AiDraftDialog, { pickDraft, safetyWithoutDraft, type SendOptions } from './AiDraftDialog';
 import type { TicketAnalysisResponse } from '../api/cs';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -44,7 +44,7 @@ test('다른 초안을 고르면 문안과 검증이 바뀌고, 근거 부족 �
   expect((screen.getByRole('button', { name: '문안 복사' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-test('고친 문안을 복사하고, 복사가 막히면 안내하며, 보내기는 잠겨 있다', async () => {
+test('고친 문안을 복사하고, 복사가 막히면 안내하며, 보내기 옵션이 없으면 보내기 영역이 없다', async () => {
   const writeText = vi.fn(async () => undefined);
   vi.stubGlobal('navigator', { clipboard: { writeText } });
   render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" />);
@@ -55,7 +55,7 @@ test('고친 문안을 복사하고, 복사가 막히면 안내하며, 보내기
   writeText.mockRejectedValueOnce(new Error('denied'));
   fireEvent.click(screen.getByRole('button', { name: '문안 복사' }));
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('복사하지 못했습니다'));
-  expect((screen.getByRole('button', { name: '보내기' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('button', { name: '승인하고 보내기' })).toBeNull();
 });
 
 test('초안이 없거나 쓸 수 없으면 안내하고 직접 쓰기만 남는다', () => {
@@ -75,4 +75,122 @@ test('최신 유효 초안을 우선하고, 없으면 내용이 있는 가장 �
   expect(pickDraft(analysis([run({ id: 'a' }), run({ id: 'b', draft: null })], null))?.id).toBe('a');
   expect(pickDraft(analysis([run({ id: 'x', draft: null })], null))?.id).toBe('x');
   expect(pickDraft(undefined)).toBeUndefined();
+});
+
+const sendOpts = (over: Partial<SendOptions> = {}): SendOptions => ({
+  originalSubject: 'Touch panel frozen', defaultTo: 'buyer@example.com', mailboxes: [{ id: 'mb-1', label: '사서함 mb-1' }], defaultMailboxId: 'mb-1', busy: false, onSend: vi.fn(), ...over,
+});
+const approve = () => fireEvent.click(screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/));
+
+test('안전 문의인데 쓸 초안이 없으면 일반 안내 대신 강조 경고와 첫 응답 기한을 보인다', () => {
+  const safety = { drafts: [], latest_valid_draft_id: null, fields: { urgency_flag: { effective_value: 'SAFETY' } }, rules: { first_response_due: { effective: '2026-10-28T03:00:00Z' }, ai: { first_response_due: '2026-10-28T04:00:00Z' } } } as unknown as Analysis;
+  expect(safetyWithoutDraft(safety)).toEqual({ due: '2026-10-28T03:00:00Z' });
+  render(<AiDraftDialog analysis={safety} ticketLabel="x" />);
+  const alert = screen.getByRole('alert');
+  expect(alert.textContent).toContain('안전 문의입니다. AI 초안이 없어 담당자가 직접 응답해야 합니다.');
+  expect(alert.textContent).toMatch(/첫 응답 기한 2026-10-28/);
+  expect(screen.queryByText(/아직 AI 초안이 없습니다/)).toBeNull();
+  // 쓸 초안이 있거나 안전 문의가 아니면 경고가 없다.
+  expect(safetyWithoutDraft({ ...safety, latest_valid_draft_id: 'd1' } as Analysis)).toBeNull();
+  expect(safetyWithoutDraft({ ...safety, fields: { urgency_flag: { effective_value: 'NONE' } } } as unknown as Analysis)).toBeNull();
+  expect(safetyWithoutDraft(undefined)).toBeNull();
+});
+
+test('안전 문의의 기한이 없으면 기한 없이 경고만 보인다', () => {
+  const safety = { drafts: [], latest_valid_draft_id: null, fields: { urgency_flag: { effective_value: 'SAFETY' } }, rules: { first_response_due: { effective: null }, ai: null } } as unknown as Analysis;
+  render(<AiDraftDialog analysis={safety} ticketLabel="x" />);
+  expect(screen.getByRole('alert').textContent).not.toContain('첫 응답 기한');
+});
+
+test('고른 초안을 검토해 보낼 때 초안·선택지·요청 정보 코드를 담고, 확인 체크 전에는 보내지 않는다', () => {
+  const onSend = vi.fn();
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts({ onSend })} />);
+  const button = screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  expect(screen.getByText('내용과 받는 사람을 확인했다고 표시하세요')).toBeTruthy();
+  approve();
+  expect(button.disabled).toBe(false);
+  fireEvent.click(button);
+  expect(onSend).toHaveBeenCalledWith({
+    kind: 'INFO_REQUEST', mailbox_id: 'mb-1', subject: 'Re: Touch panel frozen', body: 'To help you, we need the rating label photo.', body_type: 'text',
+    to: ['buyer@example.com'], requested_info_codes: ['label_photo'], draft_id: 'd1', draft_option: 'INFO_FIRST',
+  });
+});
+
+test('문안을 고쳐 더는 묻지 않는 정보는 체크를 풀어 요청 코드에서 뺀다. 답변으로 바꾸면 코드를 비운다', () => {
+  const onSend = vi.fn();
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts({ onSend })} />);
+  fireEvent.click(screen.getByLabelText('정격 라벨 사진'));
+  approve(); fireEvent.click(screen.getByRole('button', { name: '승인하고 보내기' }));
+  expect(onSend.mock.calls[0][0]).toMatchObject({ kind: 'INFO_REQUEST', requested_info_codes: [] });
+  onSend.mockClear();
+  fireEvent.click(screen.getByLabelText('답변'));
+  approve(); fireEvent.click(screen.getByRole('button', { name: '승인하고 보내기' }));
+  expect(onSend.mock.calls[0][0]).toMatchObject({ kind: 'ANSWER', requested_info_codes: [] });
+});
+
+test('직접 쓴 문안은 초안 연결 없이 보내고, 받는 사람 여러 명을 나눠 담는다', () => {
+  const onSend = vi.fn();
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts({ onSend })} />);
+  fireEvent.click(screen.getByLabelText('직접 쓰기'));
+  fireEvent.change(screen.getByLabelText('미리보기'), { target: { value: '  직접 쓴 답변  ' } });
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'a@example.com, b@example.com' } });
+  fireEvent.change(screen.getByLabelText('제목'), { target: { value: ' 답변드립니다 ' } });
+  approve(); fireEvent.click(screen.getByRole('button', { name: '승인하고 보내기' }));
+  const sent = onSend.mock.calls[0][0];
+  expect(sent).toMatchObject({ kind: 'ANSWER', body: '직접 쓴 답변', subject: '답변드립니다', to: ['a@example.com', 'b@example.com'], requested_info_codes: [] });
+  expect(sent).not.toHaveProperty('draft_id');
+  expect(sent).not.toHaveProperty('draft_option');
+});
+
+test('최신 유효 초안이 아닌 초안을 보고 있으면 초안 연결을 남기지 않는다', () => {
+  const onSend = vi.fn();
+  render(<AiDraftDialog analysis={analysis([run({ id: 'old' })], null)} ticketLabel="x" send={sendOpts({ onSend })} />);
+  approve(); fireEvent.click(screen.getByRole('button', { name: '승인하고 보내기' }));
+  expect(onSend.mock.calls[0][0]).not.toHaveProperty('draft_id');
+});
+
+test('보낼 수 없는 이유를 단추 옆에 적는다: 이유 제공, 사서함 없음·읽는 중, 주소 오류, 제목·문안 없음', () => {
+  const view = (opts: Partial<SendOptions>) => { cleanup(); render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts(opts)} />); };
+  const button = () => screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement;
+  view({ disabled: '검토중인 문의만 보낼 수 있습니다' });
+  approve(); expect(button().disabled).toBe(true); expect(screen.getByText('검토중인 문의만 보낼 수 있습니다')).toBeTruthy();
+  view({ mailboxes: undefined }); expect(screen.getByText('사서함 연결을 읽는 중입니다')).toBeTruthy();
+  view({ mailboxes: [] }); expect(screen.getByText(/연결된 사서함이 없습니다/)).toBeTruthy();
+  view({ mailboxes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], defaultMailboxId: null });
+  expect(screen.getByText('보낼 사서함을 고르세요')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('보낼 사서함'), { target: { value: 'b' } });
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'not-an-address' } });
+  expect(screen.getByText('받는 사람 주소 형식을 확인하세요')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: '' } });
+  expect(screen.getByText('받는 사람을 입력하세요')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'x@example.com' } });
+  fireEvent.change(screen.getByLabelText('제목'), { target: { value: ' ' } });
+  expect(screen.getByText('제목을 입력하세요')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('제목'), { target: { value: '제목' } });
+  fireEvent.click(screen.getByLabelText('직접 쓰기'));
+  expect(screen.getByText('보낼 문안이 비어 있습니다')).toBeTruthy();
+});
+
+test('내용을 고치면 확인 체크가 풀려 다시 확인해야 한다', () => {
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts()} />);
+  approve();
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'other@example.com' } });
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+  approve();
+  fireEvent.change(screen.getByLabelText('미리보기'), { target: { value: '문안을 고쳤습니다.' } });
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('요청 정보 체크를 바꾸면 확인 체크가 풀리고, 사서함 연결을 읽지 못하면 이유를 적는다', () => {
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts()} />);
+  approve();
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByLabelText('정격 라벨 사진'));
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts({ mailboxes: undefined, mailboxesError: true })} />);
+  expect(screen.getByText(/사서함 연결을 읽지 못했습니다/)).toBeTruthy();
+  expect(screen.queryByText('사서함 연결을 읽는 중입니다')).toBeNull();
 });

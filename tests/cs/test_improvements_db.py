@@ -38,16 +38,16 @@ def client(runtime_dsn):
         yield test_client
 
 
-def add_ticket(admin, product=PRODUCT, fault="FLT-067"):
+def add_ticket(admin, product=PRODUCT, fault="FLT-067", subject=None):
     """A ticket and its known resolution case. Returns (ticket_id, case_id)."""
     ticket_id, case_id = uuid4(), uuid4()
     at = datetime(2025, 10, 5, tzinfo=UTC)
     admin.execute(
         "INSERT INTO cs.tickets (id, source, source_instance, external_id, data_origin, "
         "derivation_kind, received_at, known_at, channel, body_language, customer_external_id, "
-        "product_code, body) VALUES (%s, 'test', 'kan112', %s, 'synthetic', 'PROVIDED', %s, %s, "
-        "'EMAIL', 'en', %s, %s, 'Oil leakage at gasket.')",
-        (ticket_id, f"T-{ticket_id}", at, at, f"CUST-{uuid4().hex[:6]}", product),
+        "product_code, subject, body) VALUES (%s, 'test', 'kan112', %s, 'synthetic', 'PROVIDED', "
+        "%s, %s, 'EMAIL', 'en', %s, %s, %s, 'Oil leakage at gasket.')",
+        (ticket_id, f"T-{ticket_id}", at, at, f"CUST-{uuid4().hex[:6]}", product, subject),
     )
     admin.execute(
         "INSERT INTO cs.resolution_cases (id, ticket_id, source, source_instance, external_id, "
@@ -310,6 +310,79 @@ def test_case_comparison_shows_active_evidence_within_the_viewers_scope(client, 
         assert str(private) not in str(scoped) and str(private_case) not in str(scoped)
     assert code(client.get(url, headers=as_(LV_STAFF))) == (404, "CS_REQUEST_NOT_FOUND")
     assert code(client.get(f"{PATH}/{uuid4()}/case-comparison")) == (404, "CS_REQUEST_NOT_FOUND")
+
+
+def test_ticket_values_on_evidence_follow_the_viewers_scope(client, admin):
+    shared, shared_case = add_ticket(admin, subject="Leak at gasket - site A")
+    private, private_case = add_ticket(admin, subject="Leak at gasket - Jane Doe")
+    created = ok(
+        client.post(PATH, json=fault_request([(shared, shared_case), (private, private_case)]))
+    )
+    request_id = created["request"]["id"]
+    customers = dict(
+        admin.execute(
+            "SELECT id, customer_external_id FROM cs.tickets WHERE id = ANY(%s)",
+            ([shared, private],),
+        ).fetchall()
+    )
+
+    def by_ticket(data):
+        return {e["ticket_id"]: e for e in data["evidence"]}
+
+    full = by_ticket(created)
+    for ticket, subject in (
+        (shared, "Leak at gasket - site A"),
+        (private, "Leak at gasket - Jane Doe"),
+    ):
+        link = full[str(ticket)]
+        assert (link["ticket_subject"], link["customer_external_id"]) == (
+            subject,
+            customers[ticket],
+        )
+        assert datetime.fromisoformat(link["ticket_received_at"]) == datetime(
+            2025, 10, 5, tzinfo=UTC
+        )
+    rows = ok(client.get(f"{PATH}/{request_id}/case-comparison"))["items"]
+    assert {r["ticket_subject"] for r in rows} == {
+        "Leak at gasket - site A",
+        "Leak at gasket - Jane Doe",
+    }
+    assert all(r["ticket_received_at"] for r in rows)
+
+    # 부서 사용자는 이관받은 문의의 값만 받는다. 나머지는 null이고 응답 어디에도 없다.
+    admin.execute(
+        "INSERT INTO cs.request_departments (request_id, round, dept_code, status) "
+        "VALUES (%s, 1, 'QA_CLAIM', 'SENT')",
+        (request_id,),
+    )
+    admin.execute(
+        "INSERT INTO cs.ticket_transfers (id, ticket_id, round, dept_code, status, reason, "
+        "transferred_by) VALUES (%s, %s, 1, 'QA_CLAIM', 'OPEN', 'test', %s)",
+        (uuid4(), shared, AGENT.user_id),
+    )
+    admin.execute(
+        "UPDATE cs.improvement_requests SET status = 'SENT', current_round = 1 WHERE id = %s",
+        (request_id,),
+    )
+    for user in (QA_STAFF, QA_MANAGER):
+        response = client.get(f"{PATH}/{request_id}", headers=as_(user))
+        scoped = by_ticket(ok(response))
+        assert scoped[str(shared)]["ticket_subject"] == "Leak at gasket - site A"
+        assert scoped[str(shared)]["customer_external_id"] == customers[shared]
+        hidden = scoped[str(private)]
+        assert (hidden["ticket_subject"], hidden["ticket_received_at"]) == (None, None)
+        assert hidden["customer_external_id"] is None
+        assert "Jane Doe" not in response.text and customers[private] not in response.text
+        compared = client.get(f"{PATH}/{request_id}/case-comparison", headers=as_(user))
+        assert "Jane Doe" not in compared.text
+    # 쓰기 응답도 같은 상세를 쓴다. 부서 동작의 응답에도 숨긴 값이 없다.
+    acknowledged = client.post(
+        f"{PATH}/{request_id}/departments/QA_CLAIM/acknowledge",
+        json={"version": 1},
+        headers=as_(QA_STAFF),
+    )
+    assert acknowledged.status_code == 200, acknowledged.text
+    assert "Jane Doe" not in acknowledged.text and customers[private] not in acknowledged.text
 
 
 def test_case_comparison_keeps_a_ticket_without_a_resolution_record(client, admin):

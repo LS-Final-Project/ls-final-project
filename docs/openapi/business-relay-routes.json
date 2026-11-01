@@ -266,7 +266,9 @@
       "methods": [
         "GET"
       ],
-      "query": []
+      "query": [
+        "include_candidates"
+      ]
     },
     {
       "path": "/api/v1/cs/improvement-requests/{uuid}/evidence",
@@ -734,6 +736,17 @@
       "method": "GET",
       "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison",
       "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison?include_candidates=true",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison?include_candidates=true&include_candidates=false",
+      "forward": false,
+      "status": 400
     },
     {
       "method": "POST",

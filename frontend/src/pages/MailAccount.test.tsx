@@ -4,9 +4,16 @@ import MailAccount from './MailAccount';
 import { clearSessionCsrfToken, setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 
+// 운영 빌드 시험에서 업무 UI 설정을 켠다(설정 값은 모듈을 읽을 때 정해진다). 개발 모드 시험은 접근 확인을 하지 않아 영향이 없다.
+vi.mock('../components/BusinessAccess', async importOriginal => {
+  const actual = await importOriginal<typeof import('../components/BusinessAccess')>();
+  return { ...actual, useBusinessAccess: (business: Parameters<typeof actual.useBusinessAccess>[0], operational?: boolean) => actual.useBusinessAccess(business, operational, true) };
+});
+const csAgent = () => jsonResponse(200, { data: { id: 'u1', roles: ['cs_agent'] } });
+
 const connection = (over: Record<string, unknown>) => ({ mailbox_id: '99999999-9999-4999-8999-999999999999', state: 'connected', revision: 1, updated_at: '2026-10-29T08:00:00Z', reconnect_required: false, reconnect_reason: null, reconnect_required_at: null, ...over });
 const show = (navigate = vi.fn()) => { setApiMode('live'); renderAt('/mail/account', '/mail/account', <MailAccount navigate={navigate} />); return navigate; };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); clearSessionCsrfToken(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); setApiMode('mock'); clearSessionCsrfToken(); });
 
 test('연결 상태와 다시 연결 필요 계정을 사유와 함께 보인다', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [
@@ -31,7 +38,7 @@ test('세션 확인 정보가 없으면 다시 연결을 누를 수 없다', asy
 });
 
 test('다시 연결이 필요한 계정이 없으면 단추가 잠기고 안내한다', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [connection({})] } })));
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? csAgent() : jsonResponse(200, { data: { items: [connection({})] } })));
   show();
   await screen.findByRole('table', { name: '메일 계정' });
   expect(screen.getByText('다시 연결이 필요한 계정이 없습니다')).toBeTruthy();
@@ -76,4 +83,12 @@ test('다시 연결을 누르면 고정 authority의 동의 주소로 이동하�
   fireEvent.click(screen.getAllByRole('button', { name: '다시 연결' })[1]);
   expect(await screen.findByText(/연결 주소를 확인할 수 없습니다/)).toBeTruthy();
   expect(navigate).toHaveBeenCalledTimes(1);
+});
+
+test('운영 빌드(개발 모드 아님)에서도 연결 상태를 읽어 보인다', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? csAgent() : jsonResponse(200, { data: { items: [connection({})] } })));
+  show();
+  expect(await screen.findByRole('table', { name: '메일 계정' })).toBeTruthy();
+  expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
 });

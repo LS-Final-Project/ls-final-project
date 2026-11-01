@@ -20,7 +20,6 @@ export default function ImprovementCreator({onCreated,onEditingChange,onReload}:
   useEffect(()=>{if(wasOpened.current&&!opened)opener.current?.focus();wasOpened.current=opened;},[opened]);
   useEffect(()=>{onEditingChange?.(opened);return()=>onEditingChange?.(false);},[opened,onEditingChange]);
   useEffect(()=>()=>controller.current?.abort(),[]);
-  if(!import.meta.env.DEV)return null;
   const available=getApiMode()==='live';
   const valid=!!product.trim()&&!!values.problem_statement.trim()&&(type==='FAULT'?/^FLT-[0-9]{3}$/.test(fault.trim())&&depts.length>0:!!docSignal);
   const reset=()=>{setOpened(false);setType('FAULT');setProduct('');setFault('');setDocSignal('');setDepts([]);setValues(empty());setError('');setUncertain(false);};

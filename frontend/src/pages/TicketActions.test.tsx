@@ -135,7 +135,7 @@ test('모의 응답 모드에서는 상태를 바꾸는 동작을 열지 않는�
   setApiMode('mock');
   renderAt('/cs/tickets/22222222-2222-4222-8222-222222222222', '/cs/tickets/:ticketId', <TicketDetail />);
   await screen.findByRole('heading', { name: '문의 처리' });
-  await waitFor(() => expect(screen.getByRole('button', { name: '부서 검토 요청' }).getAttribute('title')).toBe('실제 API 개발 모드에서만 실행할 수 있습니다'));
+  await waitFor(() => expect(screen.getByRole('button', { name: '부서 검토 요청' }).getAttribute('title')).toBe('모의 응답 모드에서는 실행할 수 없습니다'));
   expect((screen.getByRole('button', { name: '부서 검토 요청' }) as HTMLButtonElement).disabled).toBe(true);
   expect(fetch.mock.calls.every(([, init]) => (init as RequestInit | undefined)?.method !== 'POST')).toBe(true);
 });

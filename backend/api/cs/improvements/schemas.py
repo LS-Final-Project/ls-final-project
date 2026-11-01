@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from backend.engine.cs.improvement_candidates import FaultCandidate, parse_version
+from backend.engine.cs.improvement_candidates import EvidenceRef, FaultCandidate, parse_version
 from backend.engine.cs.improvement_followups import ScopeKind
 from backend.shared.departments import TransferDepartment
 
@@ -239,6 +239,16 @@ class Evidence(BaseModel):
     ticket_external_id: str | None
     case_id: UUID | None
     case_external_id: str | None
+    ticket_subject: str | None = Field(
+        default=None,
+        description="The ticket's subject. Null without one (chat) or outside the viewer's scope.",
+    )
+    ticket_received_at: datetime | None = Field(
+        default=None, description="When the ticket was received. Null outside the viewer's scope."
+    )
+    customer_external_id: str | None = Field(
+        default=None, description="The ticket's customer. Null outside the viewer's scope."
+    )
     added_by: UUID | None
     added_at: datetime
     removed_by: UUID | None
@@ -459,7 +469,22 @@ DisplayState = Literal[
 DocumentCandidates = Literal["NOT_CONNECTED"]
 
 
+class CandidateEvidence(EvidenceRef):
+    """One record of a candidate with the ticket and record values the board shows."""
+
+    ticket_external_id: str | None = Field(default=None, description="The ticket number.")
+    case_external_id: str | None = Field(default=None, description="The resolution record number.")
+    ticket_subject: str | None = Field(
+        default=None, description="The ticket's subject. Null without one (chat)."
+    )
+    ticket_received_at: datetime | None = None
+
+
 class CandidateItem(FaultCandidate):
+    # Narrows the engine's EvidenceRef to its subclass with display values.
+    evidence: list[CandidateEvidence] = Field(  # type: ignore[assignment]
+        description="Every record known by as_of, oldest first."
+    )
     data_origin: Literal["synthetic", "demo", "real"]
     display_state: DisplayState
     request_id: UUID | None = Field(description="The fault request of this group, if any.")
@@ -505,8 +530,15 @@ class CandidateCollected(BaseModel):
 class CaseRow(BaseModel):
     """요청의 근거 문의 한 건과 그 해결 기록. 사례가 없으면 해결 칸은 null이다."""
 
+    row_kind: Literal["EVIDENCE", "CANDIDATE"] = Field(
+        default="EVIDENCE",
+        description="EVIDENCE is active evidence. CANDIDATE is a record of the same group that "
+        "is not evidence yet (include_candidates).",
+    )
     ticket_id: UUID
     ticket_external_id: str | None
+    ticket_subject: str | None = Field(description="The ticket's subject. Null without one (chat).")
+    ticket_received_at: datetime
     customer_external_id: str
     product_code: str
     case_id: UUID | None
@@ -522,4 +554,6 @@ class CaseRow(BaseModel):
 class CaseComparison(BaseModel):
     request_id: UUID
     items: list[CaseRow]
-    hidden_case_count: int = Field(description="Evidence tickets outside the viewer's scope.")
+    hidden_case_count: int = Field(
+        description="Active evidence outside the viewer's scope. Candidate rows never count."
+    )
