@@ -3,7 +3,9 @@ import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
 import { me } from './platform';
 export type ImprovementList = paths['/api/v1/cs/improvement-requests']['get']['responses'][200]['content']['application/json'];
 export type ImprovementDetail = paths['/api/v1/cs/improvement-requests/{request_id}']['get']['responses'][200]['content']['application/json'];
-export const listImprovements = (signal:AbortSignal) => request<ImprovementList>('/api/v1/cs/improvement-requests',{signal});
+export type ImprovementOrigin = 'SYSTEM_CANDIDATE' | 'MANUAL';
+// origin을 주면 서버가 그 출처의 요청만 돌려준다(SYSTEM_CANDIDATE: 시스템이 모은 후보, MANUAL: 사람이 만든 요청).
+export const listImprovements = (signal:AbortSignal, origin?:ImprovementOrigin) => request<ImprovementList>(`/api/v1/cs/improvement-requests${origin?`?origin=${origin}`:''}`,{signal});
 export const getImprovement = (id:string,signal:AbortSignal) => request<ImprovementDetail>(`/api/v1/cs/improvement-requests/${encodeURIComponent(id)}`,{signal});
 
 export type ImprovementVersions = paths['/api/v1/cs/improvement-requests/{request_id}/versions']['get']['responses'][200]['content']['application/json'];
@@ -64,3 +66,10 @@ export const completeImprovement = (id: string, body: CompleteBody, signal: Abor
 export const acknowledgeRequest = (id: string, dept: string, version: number, signal: AbortSignal) => transition(deptUrl(id, dept, 'acknowledge'), { version }, signal, 'dept_staff');
 export const replyToRequest = (id: string, dept: string, body: DeptReplyBody, signal: AbortSignal) => transition(deptUrl(id, dept, 'reply'), body, signal, 'dept_staff');
 export const recordDeptAction = (id: string, dept: string, body: DeptActionBody, signal: AbortSignal) => transition(deptUrl(id, dept, 'action'), body, signal, 'dept_staff');
+
+// 반복 사례 비교표(CS0201). 활성 근거마다 한 행이고, 해결 기록이 없는 근거는 해결 칸이 null이다. 볼 수 없는 문의는 행이 빠지고 hidden_case_count로 수만 온다.
+export type CaseComparison = paths['/api/v1/cs/improvement-requests/{request_id}/case-comparison']['get']['responses'][200]['content']['application/json'];
+export const getCaseComparison = (id: string, signal: AbortSignal) => request<CaseComparison>(requestUrl(id, '/case-comparison'), { signal, mockFallback: () => ({ data: { request_id: id, items: [], hidden_case_count: 0 } }) });
+export type EvidenceRemoveBody = Body<'/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove'>;
+// 근거를 뺀다(사유 필수). 행은 남고 제외자·시각·사유가 기록되며 새 판본이 된다.
+export const removeEvidence = (id: string, evidenceId: string, body: EvidenceRemoveBody, signal: AbortSignal) => transition(requestUrl(id, `/evidence/${encodeURIComponent(evidenceId)}/remove`), body, signal);

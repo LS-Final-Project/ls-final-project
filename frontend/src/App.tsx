@@ -12,6 +12,7 @@ import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
 import CsAdmin from './pages/CsAdmin';
 import CsImprovements from './pages/CsImprovements';
+import CsCases from './pages/CsCases';
 import TicketDetail from './pages/TicketDetail';
 import Evaluations from './pages/Evaluations';
 import LsShell from './ls-shell/LsShell';
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<CsImprovements />} />
       <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
+      <Route path="cs/cases" element={<CsCases />} />
       <Route path="dept/inbox" element={<DeptInbox />} />
       <Route path="dept/result/:ticketId" element={<DeptResult />} />
       <Route path="mail/inbox" element={<MailInbox />} />
