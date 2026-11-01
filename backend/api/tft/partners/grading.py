@@ -16,8 +16,8 @@ from pydantic import BaseModel
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 from backend.engine.rfp.vocabulary import (
     CANONICAL_FORMS,
-    KOREAN_TIME_UNITS,
     OTHER,
+    TIME_UNITS,
     form_conflict,
     is_canonical,
     is_placeholder,
@@ -43,11 +43,6 @@ MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
 UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
 # 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
-# 영문 min·h 변형(minute, hr 등)은 맞추지 않는다. 그쪽은 단위 확인으로 남는다.
-TIME_UNITS = {
-    **dict.fromkeys(("sec", "secs", "second", "seconds"), "s"),
-    **KOREAN_TIME_UNITS,
-}
 # 요구에 비교할 숫자나 단위가 없을 때의 말. 단위가 다른 것과 구분한다.
 NO_NUMBER = "요구 값에 숫자·단위 없음"
 NO_UNIT = "요구 값에 단위 없음"
