@@ -18,6 +18,7 @@ from backend.api.cs.improvements.routes import commit_version
 from backend.api.cs.improvements.schemas import (
     CandidateCollect,
     CandidateCollected,
+    CandidateEvidence,
     CandidateItem,
     CandidateList,
     CandidateSkipped,
@@ -28,6 +29,7 @@ from backend.api.cs.tickets.routes import respond
 from backend.engine.cs.improvement_candidates import (
     CANDIDATE_RULES_VERSION,
     CaseRecord,
+    EvidenceRef,
     FaultCandidate,
     Outcome,
     RootCauseType,
@@ -54,6 +56,7 @@ router = APIRouter(
 Row = dict[str, Any]
 Judged = tuple[str, FaultCandidate]
 ROOT_CAUSES = frozenset(get_args(RootCauseType))
+DISPLAY_VALUES = ("ticket_external_id", "case_external_id", "ticket_subject", "ticket_received_at")
 NOT_CLAIMED = "후보는 사람이 검토할 거리다. 원인과 책임을 단정하지 않는다."
 
 
@@ -84,6 +87,15 @@ def record(row: Row) -> CaseRecord:
         known_at=row["known_at"],
         root_cause_type=cause if cause in ROOT_CAUSES else None,
         fw_version_at_issue=row["fw_version_at_issue"],
+    )
+
+
+def evidence(ref: EvidenceRef, rows: dict[str, Row]) -> CandidateEvidence:
+    """The record with its ticket and record numbers, subject and receipt time."""
+    row = rows.get(ref.case_id or "", {})
+    return CandidateEvidence(
+        **ref.model_dump(),
+        **{name: row.get(name) for name in DISPLAY_VALUES},
     )
 
 
@@ -158,8 +170,10 @@ async def list_candidates(
     at = judgement_time(as_of)
     # ponytail: judged on every read over all records. Keep a table when the records outgrow it.
     async with connection(request.app.state.settings) as conn:
-        judged = await judge(conn, at, await repository.candidate_cases(conn, at))
+        rows = await repository.candidate_cases(conn, at)
+        judged = await judge(conn, at, rows)
         requests = await repository.fault_requests(conn)
+    shown = {str(row["case_id"]): row for row in rows}
     items = []
     for origin, candidate in judged:
         if outcome is not None and candidate.outcome != outcome:
@@ -167,7 +181,10 @@ async def list_candidates(
         linked = requests.get((origin, candidate.product_code, candidate.fault_id))
         items.append(
             CandidateItem(
-                **candidate.model_dump(),
+                **{
+                    **candidate.model_dump(),
+                    "evidence": [evidence(e, shown) for e in candidate.evidence],
+                },
                 data_origin=origin,
                 display_state=display_state(candidate),
                 request_id=linked["id"] if linked else None,

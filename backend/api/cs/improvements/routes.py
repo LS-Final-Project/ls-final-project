@@ -177,12 +177,29 @@ async def validate_evidence(conn: Any, request: Row, item: EvidenceInput) -> Non
         raise invalid_evidence("The case records another fault.")
 
 
-async def detail(conn: Any, request: Row) -> RequestDetail:
+async def shown_tickets(conn: Any, principal: Principal, ticket_ids: list[UUID]) -> set[UUID]:
+    """Evidence tickets whose content the viewer may read (permissions.md 4.1)."""
+    if sees_all_tickets(principal):
+        return set(ticket_ids)
+    return await visible_tickets(conn, ticket_ids, transfer_departments(principal))
+
+
+# Ticket values on an evidence link. Outside the viewer's scope they stay null, as the case
+# comparison drops those rows.
+TICKET_VALUES = ("ticket_subject", "ticket_received_at", "customer_external_id")
+
+
+async def detail(conn: Any, request: Row, principal: Principal) -> RequestDetail:
     departments = await repository.current_departments(conn, request)
+    evidence = await repository.list_evidence(conn, request["id"])
+    allowed = await shown_tickets(conn, principal, [e["ticket_id"] for e in evidence])
     return RequestDetail(
         request=model(request),
         evidence=[
-            Evidence.model_validate(e) for e in await repository.list_evidence(conn, request["id"])
+            Evidence.model_validate(
+                e if e["ticket_id"] in allowed else {**e, **dict.fromkeys(TICKET_VALUES)}
+            )
+            for e in evidence
         ],
         departments=[RequestDepartment.model_validate(d) for d in departments],
         replies=[
@@ -316,7 +333,7 @@ async def create_request(
                 "evidence": {"to": len(payload.evidence)},
             },
         )
-        data = await detail(conn, stored)
+        data = await detail(conn, stored, principal)
     return respond(request, data)
 
 
@@ -334,7 +351,7 @@ async def get_request(
         row = await repository.get_request(conn, request_id)
         if row is None:
             raise not_found()
-        data = await detail(conn, row)
+        data = await detail(conn, row, principal)
     return respond(request, data)
 
 
@@ -377,7 +394,7 @@ async def update_request(
             values = {name: payload.changed_values()[name] for name in changes}
             await repository.update_request(conn, request_id, row["version"], values)
             row = await commit_version(conn, row, principal.user_id, "update", changes)
-        data = await detail(conn, row)
+        data = await detail(conn, row, principal)
     return respond(request, data)
 
 
@@ -388,36 +405,47 @@ async def update_request(
     openapi_extra=PARTIAL,
 )
 async def case_comparison(
-    request_id: UUID, request: Request, principal: Principal = Depends(current_principal)
+    request_id: UUID,
+    request: Request,
+    include_candidates: bool = Query(
+        False,
+        description="Also return the group's candidate records that are not active evidence. "
+        "Only for users who may read candidates (cs_agent, C/S manager).",
+    ),
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[CaseComparison]:
     """요청의 근거 문의와 해결 기록 비교표(반복 사례 모음 CS0201).
 
     요청은 보여도 이관받지 않은 문의의 해결 원문은 볼 수 없다. 그런 행은 빼고 수만 준다.
+    후보 행은 개선 후보와 같은 권한일 때만 붙인다. 그 밖의 사용자에게는 행도 수도 주지 않는다.
 
     Args:
         request_id: 개선요청 ID.
         request: 요청.
+        include_candidates: 아직 근거가 아닌 같은 묶음의 해결 기록도 붙일지.
         principal: 조회 사용자.
 
     Returns:
-        SuccessResponse[CaseComparison]: 활성 근거의 비교 행과 숨긴 건수.
+        SuccessResponse[CaseComparison]: 활성 근거(와 후보)의 비교 행과 숨긴 근거 건수.
     """
     async with connection(request.app.state.settings) as conn:
         await check_visible(conn, principal, request_id)
-        if await repository.get_request(conn, request_id) is None:
+        row = await repository.get_request(conn, request_id)
+        if row is None:
             raise not_found()
         rows = await repository.evidence_cases(conn, request_id)
-        shown = rows
-        if not sees_all_tickets(principal):
-            allowed = await visible_tickets(
-                conn, [r["ticket_id"] for r in rows], transfer_departments(principal)
-            )
-            shown = [r for r in rows if r["ticket_id"] in allowed]
+        allowed = await shown_tickets(conn, principal, [r["ticket_id"] for r in rows])
+        shown = [r for r in rows if r["ticket_id"] in allowed]
+        candidates = []
+        # Candidates name other customers' records (require_candidates in candidates.py).
+        if include_candidates and sees_all_tickets(principal):
+            candidates = await repository.candidate_case_rows(conn, row)
     return respond(
         request,
         CaseComparison(
             request_id=request_id,
-            items=[CaseRow.model_validate(r) for r in shown],
+            items=[CaseRow.model_validate(r) for r in shown]
+            + [CaseRow.model_validate({**r, "row_kind": "CANDIDATE"}) for r in candidates],
             hidden_case_count=len(rows) - len(shown),
         ),
     )
@@ -494,7 +522,7 @@ async def add_evidence(
                 }
             },
         )
-        data = await detail(conn, row)
+        data = await detail(conn, row, principal)
     return respond(request, data)
 
 
@@ -534,7 +562,7 @@ async def remove_evidence(
             "update",
             {"evidence_removed": {"to": str(evidence_id)}, "reason": {"to": payload.reason}},
         )
-        data = await detail(conn, row)
+        data = await detail(conn, row, principal)
     return respond(request, data)
 
 
@@ -571,5 +599,5 @@ async def reassign_owner(
                 "update",
                 {"cs_owner": {"from": plain(row["cs_owner"]), "to": str(payload.owner_user_id)}},
             )
-        data = await detail(conn, row)
+        data = await detail(conn, row, principal)
     return respond(request, data)

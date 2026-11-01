@@ -53,7 +53,7 @@
 
 | 경로 | 허용 | 설명 |
 | --- | --- | --- |
-| `GET /api/v1/cs/improvement-candidates?as_of=&outcome=` | cs_agent, C/S 부서 manager | 읽을 때 판정한다. 저장되지 않는 `NOT_ELIGIBLE`·`INSUFFICIENT_EVIDENCE` 묶음도 사유·근거와 함께 낸다. `outcome`으로 거른다. 쪽 나눔 없음 |
+| `GET /api/v1/cs/improvement-candidates?as_of=&outcome=` | cs_agent, C/S 부서 manager | 읽을 때 판정한다. 저장되지 않는 `NOT_ELIGIBLE`·`INSUFFICIENT_EVIDENCE` 묶음도 사유·근거와 함께 낸다. `outcome`으로 거른다. 쪽 나눔 없음. 조회 응답의 `evidence[]`에는 화면 표시값 `ticket_external_id`(문의번호)·`case_external_id`(해결 기록 번호)·`ticket_subject`(문의 제목, 채팅처럼 없으면 null)·`ticket_received_at`(접수 시각)이 더 있다(KAN-202). 판정 규칙은 이 값을 쓰지 않는다 |
 | `POST /api/v1/cs/improvement-candidates/collect` (`as_of`?) | cs_agent, C/S 부서 manager | `ELIGIBLE` 묶음을 `SYSTEM_CANDIDATE`·`DRAFT`로 저장한다. 사람이 명시 호출한다. 스케줄러는 없다 |
 
 - **허용 범위**: 근거에 고객 식별자가 있어 전체 문의를 보는 사용자만 쓴다. 그 밖의 역할은 403이다.

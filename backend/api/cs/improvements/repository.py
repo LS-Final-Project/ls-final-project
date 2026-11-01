@@ -147,8 +147,9 @@ async def list_versions(conn: AsyncConnection[Row], request_id: UUID) -> list[Ro
 async def list_evidence(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
     cursor = await conn.execute(
         "SELECT e.id, e.ticket_id, t.external_id AS ticket_external_id, e.case_id, "
-        "c.external_id AS case_external_id, e.added_by, e.added_at, e.removed_by, "
-        "e.removed_at, e.removal_reason "
+        "c.external_id AS case_external_id, t.subject AS ticket_subject, "
+        "t.received_at AS ticket_received_at, t.customer_external_id, e.added_by, e.added_at, "
+        "e.removed_by, e.removed_at, e.removal_reason "
         "FROM cs.request_evidence e JOIN cs.tickets t ON t.id = e.ticket_id "
         "LEFT JOIN cs.resolution_cases c ON c.id = e.case_id "
         "WHERE e.request_id = %s ORDER BY (e.removed_at IS NOT NULL), e.added_at, e.id",
@@ -160,7 +161,8 @@ async def list_evidence(conn: AsyncConnection[Row], request_id: UUID) -> list[Ro
 async def evidence_cases(conn: AsyncConnection[Row], request_id: UUID) -> list[Row]:
     """Active evidence with its resolution record, oldest record first."""
     cursor = await conn.execute(
-        "SELECT e.ticket_id, t.external_id AS ticket_external_id, t.customer_external_id, "
+        "SELECT e.ticket_id, t.external_id AS ticket_external_id, t.subject AS ticket_subject, "
+        "t.received_at AS ticket_received_at, t.customer_external_id, "
         "COALESCE(c.product_code, t.product_code) AS product_code, e.case_id, "
         "c.external_id AS case_external_id, c.symptom, c.root_cause_type, c.root_cause, "
         "c.action_taken, c.resolved_by_dept, c.known_at "
@@ -169,6 +171,29 @@ async def evidence_cases(conn: AsyncConnection[Row], request_id: UUID) -> list[R
         "WHERE e.request_id = %s AND e.removed_at IS NULL "
         "ORDER BY c.known_at NULLS LAST, e.added_at, e.id",
         (request_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def candidate_case_rows(conn: AsyncConnection[Row], request: Row) -> list[Row]:
+    """The group's resolution records known now whose ticket is not active evidence.
+
+    The same records a candidate judgement lists as evidence (candidate_cases): same data
+    origin, product and fault. A document request has no such records.
+    """
+    if request["request_type"] != "FAULT":
+        return []
+    cursor = await conn.execute(
+        "SELECT rc.ticket_id, t.external_id AS ticket_external_id, t.subject AS ticket_subject, "
+        "t.received_at AS ticket_received_at, t.customer_external_id, rc.product_code, "
+        "rc.id AS case_id, rc.external_id AS case_external_id, rc.symptom, rc.root_cause_type, "
+        "rc.root_cause, rc.action_taken, rc.resolved_by_dept, rc.known_at "
+        "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
+        "WHERE rc.data_origin = %s AND rc.product_code = %s AND rc.fault_id = %s "
+        "AND rc.known_at <= now() AND NOT EXISTS (SELECT 1 FROM cs.request_evidence e "
+        "WHERE e.request_id = %s AND e.ticket_id = rc.ticket_id AND e.removed_at IS NULL) "
+        "ORDER BY rc.known_at, rc.id",
+        (request["data_origin"], request["product_code"], request["fault_id"], request["id"]),
     )
     return await cursor.fetchall()
 
@@ -395,10 +420,12 @@ async def sent_by(conn: AsyncConnection[Row], request_id: UUID) -> UUID | None:
 
 
 async def candidate_cases(conn: AsyncConnection[Row], as_of: datetime) -> list[Row]:
-    """Resolution records known by as_of, with the ticket's customer."""
+    """Resolution records known by as_of, with the ticket's customer and display values."""
     cursor = await conn.execute(
         "SELECT rc.id AS case_id, rc.ticket_id, rc.product_code, rc.fault_id, "
         "t.customer_external_id AS customer_id, rc.known_at, rc.root_cause_type, "
+        "t.external_id AS ticket_external_id, rc.external_id AS case_external_id, "
+        "t.subject AS ticket_subject, t.received_at AS ticket_received_at, "
         "rc.fw_version_at_issue, rc.data_origin, rc.resolved_by_dept "
         "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
         # A request's fault_id has a format check. Anything else cannot become a request.

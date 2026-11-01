@@ -328,5 +328,5 @@ async def open_round(
                 "as_of": {"to": payload.as_of.isoformat()},
             },
         )
-        data = await detail(conn, fresh)
+        data = await detail(conn, fresh, principal)
     return respond(request, data)

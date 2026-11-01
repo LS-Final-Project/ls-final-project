@@ -361,6 +361,99 @@
         "title": "CandidateCollected",
         "type": "object"
       },
+      "CandidateEvidence": {
+        "additionalProperties": false,
+        "description": "One record of a candidate with the ticket and record values the board shows.",
+        "properties": {
+          "case_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The resolution record number.",
+            "title": "Case External Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "known_at": {
+            "format": "date-time",
+            "title": "Known At",
+            "type": "string"
+          },
+          "ticket_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket number.",
+            "title": "Ticket External Id"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "ticket_received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Received At"
+          },
+          "ticket_subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's subject. Null without one (chat).",
+            "title": "Ticket Subject"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "case_id",
+          "customer_id",
+          "known_at"
+        ],
+        "title": "CandidateEvidence",
+        "type": "object"
+      },
       "CandidateItem": {
         "additionalProperties": false,
         "properties": {
@@ -408,9 +501,9 @@
             "type": "integer"
           },
           "evidence": {
-            "description": "as_of\uae4c\uc9c0 \uc54c\ub824\uc9c4 \uae30\ub85d \uc804\ubd80, \uc2dc\uac01\uc21c.",
+            "description": "Every record known by as_of, oldest first.",
             "items": {
-              "$ref": "#/components/schemas/EvidenceRef"
+              "$ref": "#/components/schemas/CandidateEvidence"
             },
             "title": "Evidence",
             "type": "array"
@@ -645,7 +738,7 @@
       "CaseComparison": {
         "properties": {
           "hidden_case_count": {
-            "description": "Evidence tickets outside the viewer's scope.",
+            "description": "Active evidence outside the viewer's scope. Candidate rows never count.",
             "title": "Hidden Case Count",
             "type": "integer"
           },
@@ -760,6 +853,16 @@
             ],
             "title": "Root Cause Type"
           },
+          "row_kind": {
+            "default": "EVIDENCE",
+            "description": "EVIDENCE is active evidence. CANDIDATE is a record of the same group that is not evidence yet (include_candidates).",
+            "enum": [
+              "EVIDENCE",
+              "CANDIDATE"
+            ],
+            "title": "Row Kind",
+            "type": "string"
+          },
           "symptom": {
             "anyOf": [
               {
@@ -786,11 +889,30 @@
             "format": "uuid",
             "title": "Ticket Id",
             "type": "string"
+          },
+          "ticket_received_at": {
+            "format": "date-time",
+            "title": "Ticket Received At",
+            "type": "string"
+          },
+          "ticket_subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's subject. Null without one (chat).",
+            "title": "Ticket Subject"
           }
         },
         "required": [
           "ticket_id",
           "ticket_external_id",
+          "ticket_subject",
+          "ticket_received_at",
           "customer_external_id",
           "product_code",
           "case_id",
@@ -2970,6 +3092,18 @@
             ],
             "title": "Case Id"
           },
+          "customer_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's customer. Null outside the viewer's scope.",
+            "title": "Customer External Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3025,6 +3159,31 @@
             "format": "uuid",
             "title": "Ticket Id",
             "type": "string"
+          },
+          "ticket_received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the ticket was received. Null outside the viewer's scope.",
+            "title": "Ticket Received At"
+          },
+          "ticket_subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ticket's subject. Null without one (chat) or outside the viewer's scope.",
+            "title": "Ticket Subject"
           }
         },
         "required": [
@@ -3102,50 +3261,6 @@
           "ticket_id"
         ],
         "title": "EvidenceInput",
-        "type": "object"
-      },
-      "EvidenceRef": {
-        "additionalProperties": false,
-        "properties": {
-          "case_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Case Id"
-          },
-          "customer_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Customer Id"
-          },
-          "known_at": {
-            "format": "date-time",
-            "title": "Known At",
-            "type": "string"
-          },
-          "ticket_id": {
-            "title": "Ticket Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ticket_id",
-          "case_id",
-          "customer_id",
-          "known_at"
-        ],
-        "title": "EvidenceRef",
         "type": "object"
       },
       "EvidenceRemoval": {
@@ -10119,7 +10234,7 @@
     },
     "/api/v1/cs/improvement-requests/{request_id}/case-comparison": {
       "get": {
-        "description": "\uc694\uccad\uc758 \uadfc\uac70 \ubb38\uc758\uc640 \ud574\uacb0 \uae30\ub85d \ube44\uad50\ud45c(\ubc18\ubcf5 \uc0ac\ub840 \ubaa8\uc74c CS0201).\n\n\uc694\uccad\uc740 \ubcf4\uc5ec\ub3c4 \uc774\uad00\ubc1b\uc9c0 \uc54a\uc740 \ubb38\uc758\uc758 \ud574\uacb0 \uc6d0\ubb38\uc740 \ubcfc \uc218 \uc5c6\ub2e4. \uadf8\ub7f0 \ud589\uc740 \ube7c\uace0 \uc218\ub9cc \uc900\ub2e4.\n\nArgs:\n    request_id: \uac1c\uc120\uc694\uccad ID.\n    request: \uc694\uccad.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[CaseComparison]: \ud65c\uc131 \uadfc\uac70\uc758 \ube44\uad50 \ud589\uacfc \uc228\uae34 \uac74\uc218.",
+        "description": "\uc694\uccad\uc758 \uadfc\uac70 \ubb38\uc758\uc640 \ud574\uacb0 \uae30\ub85d \ube44\uad50\ud45c(\ubc18\ubcf5 \uc0ac\ub840 \ubaa8\uc74c CS0201).\n\n\uc694\uccad\uc740 \ubcf4\uc5ec\ub3c4 \uc774\uad00\ubc1b\uc9c0 \uc54a\uc740 \ubb38\uc758\uc758 \ud574\uacb0 \uc6d0\ubb38\uc740 \ubcfc \uc218 \uc5c6\ub2e4. \uadf8\ub7f0 \ud589\uc740 \ube7c\uace0 \uc218\ub9cc \uc900\ub2e4.\n\ud6c4\ubcf4 \ud589\uc740 \uac1c\uc120 \ud6c4\ubcf4\uc640 \uac19\uc740 \uad8c\ud55c\uc77c \ub54c\ub9cc \ubd99\uc778\ub2e4. \uadf8 \ubc16\uc758 \uc0ac\uc6a9\uc790\uc5d0\uac8c\ub294 \ud589\ub3c4 \uc218\ub3c4 \uc8fc\uc9c0 \uc54a\ub294\ub2e4.\n\nArgs:\n    request_id: \uac1c\uc120\uc694\uccad ID.\n    request: \uc694\uccad.\n    include_candidates: \uc544\uc9c1 \uadfc\uac70\uac00 \uc544\ub2cc \uac19\uc740 \ubb36\uc74c\uc758 \ud574\uacb0 \uae30\ub85d\ub3c4 \ubd99\uc77c\uc9c0.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[CaseComparison]: \ud65c\uc131 \uadfc\uac70(\uc640 \ud6c4\ubcf4)\uc758 \ube44\uad50 \ud589\uacfc \uc228\uae34 \uadfc\uac70 \uac74\uc218.",
         "operationId": "cs_get_improvement_case_comparison",
         "parameters": [
           {
@@ -10130,6 +10245,18 @@
               "format": "uuid",
               "title": "Request Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Also return the group's candidate records that are not active evidence. Only for users who may read candidates (cs_agent, C/S manager).",
+            "in": "query",
+            "name": "include_candidates",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also return the group's candidate records that are not active evidence. Only for users who may read candidates (cs_agent, C/S manager).",
+              "title": "Include Candidates",
+              "type": "boolean"
             }
           }
         ],
