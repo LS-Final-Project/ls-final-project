@@ -114,6 +114,23 @@ Routine은 다음 marker와 줄바꿈 뒤에 순수 JSON만 게시한다(코드 
 요청 UUID는 인증 수단이 아니며 run/attempt·저장소·PR·기한의 재사용을 차단하는 결속값이다.
 15분 내 생성한 수정되지 않은 댓글 1개만 수락하며, 수락 전 재조회에서도 중복·삭제·수정이
 관측되면 실패한다. 미래 시각·오래된 댓글·잘못된 요청 필드도 거부한다.
+REST의 원작성자/App와 `created_at == updated_at`만으로는 같은 초에 수정된 본문을
+탐지할 수 없다. 최초 수신과 최종 REST 재조회 직후에 GraphQL `IssueComment`를 Node ID로
+조회하고 REST 댓글 ID·본문·생성/갱신 시각·저장소·PR을 대조한다. 명시적인
+`lastEditedAt=null`, `editor=null`, `includesCreatedEdit=false`와
+`userContentEdits(first:1)`의 `totalCount=0`, 빈 `nodes`, `hasNextPage=false`를 모두
+요구한다. 필드 누락·null 이력 연결·부분 응답·권한/API 오류·수정 이력이 있으면 실패한다.
+생성시각 정밀도나 처음 관측한 본문이 원본이라는 가정으로 무수정을 판정하지 않는다.
+
+GitHub [IssueComment 스키마](https://docs.github.com/en/graphql/reference/issues#issuecomment)는
+최종 편집자·편집시각·수정 이력 연결을 제공한다. `includesCreatedEdit`는 생성 데이터가
+수정 이력에 포함되는지 나타내므로 이 필드 하나만으로 원작성 상태를 판정하지 않는다.
+[수정 이력 안내](https://docs.github.com/en/communities/moderating-comments-and-conversations/tracking-changes-in-a-comment)에
+따르면 저장소 읽기 권한으로 이력을 볼 수 있고, 민감한 수정 내용을 삭제해도 편집자와
+수정시각은 남는다. 기존 댓글의 읽기 조회에서 무수정 상태의 위 필드 조합을 확인했다.
+로컬 CLI 인증으로 가능한 조회와 Actions `GITHUB_TOKEN`의 실제 조회 성공은 구분한다.
+워크플로 권한을 확대하지 않았으며 Actions의 이력 조회는 실 연결 검증에 남아 있다.
+해당 토큰으로 필드를 조회하지 못하면 수락하지 않는다.
 그 후 기존 `validate/finish`가 전체 reviewed_files·정확한 head/base·완료 여부와 P0~P2를
 검사하고 게시 전후 최신 PR 상태를 재확인한다. 수락 이후의 변경까지 지속 감시하지는
 않으므로 병합자는 현재 SHA와 결과를 마지막으로 확인해야 한다.

@@ -16,16 +16,23 @@ function fixture() {
   const prepared = {files: ['example.py'], diff: 'diff --git a/example.py b/example.py\n-old\n+new\n', schema};
   let clock = Date.parse('2026-11-01T12:00:00Z');
   const f = {context, prepared, url, token: 'fixture-routine-token', pr,
-    requests: [], published: [], edits: [], failures: [], reads: 0, result: undefined,
+    requests: [], published: [], edits: [], failures: [], reads: 0, historyReads: 0, result: undefined,
     now: () => clock, sleep: async ms => {clock += ms;},
     advance: ms => {clock += ms;}};
   f.review = () => ({head_sha: head, base_sha: base, review_complete: true,
     reviewed_files: ['example.py'], summary: '전체 diff 검토', findings: []});
-  f.comment = () => ({id: 42, user: {type: 'Bot', id: 209825114},
+  f.comment = () => ({id: 42, node_id: 'IC_fixture', user: {type: 'Bot', id: 209825114},
     performed_via_github_app: {id: 1236702},
     created_at: '2026-11-01T12:00:00Z', updated_at: '2026-11-01T12:00:00Z',
     body: `${MARKER}\n${JSON.stringify({...f.payload.request, review: f.review()})}`});
   f.comments = () => [f.comment()];
+  f.history = () => {const c = f.comment(); return {node: {
+    __typename: 'IssueComment', id: c.node_id, fullDatabaseId: String(c.id), body: c.body,
+    repository: {nameWithOwner: repository}, issue: {number: 12},
+    createdAt: c.created_at, updatedAt: c.updated_at,
+    lastEditedAt: null, editor: null, includesCreatedEdit: false,
+    userContentEdits: {totalCount: 0, nodes: [], pageInfo: {hasNextPage: false}},
+  }};};
   f.fetchImpl = async (target, options) => {
     f.requests.push({target, options});
     f.payload = JSON.parse(JSON.parse(options.body).text);
@@ -35,7 +42,10 @@ function fixture() {
     listComments() {}, getComment: async () => ({data: f.comment()}),
     createComment: async value => {f.published.push(value); return {data: {id: 99}};},
     updateComment: async value => {f.edits.push(value);},
-  }}, paginate: async (_method, params) => {f.reads++; f.listParams = params; return f.comments();}};
+  }}, paginate: async (_method, params) => {f.reads++; f.listParams = params; return f.comments();},
+  graphql: async (query, variables) => {
+    f.historyReads++; assert.match(query, /^query\b/); assert.equal(variables.id, 'IC_fixture'); return f.history();
+  }};
   f.core = {setFailed: value => f.failures.push(value), summary: {
     addHeading() {return this;}, addRaw() {return this;}, async write() {},
   }};
@@ -65,6 +75,7 @@ test('starts once; sends complete diff/schema without secrets, then authenticate
   assert.equal(f.payload.request.run_id, '123');
   assert.equal(f.payload.request.run_attempt, '1');
   assert.equal(f.reads, 2);
+  assert.equal(f.historyReads, 2);
   assert.equal(f.listParams.per_page, 100);
   assert.equal(f.published.length, 1);
   assert.match(f.published[0].body, /\*\*통과\*\*/);
@@ -240,4 +251,101 @@ test('head/base changes while waiting or publishing invalidate the review', asyn
     if (change === 'publish') {assert.equal(f.edits.length, 1); assert.match(f.edits[0].body, /검토 무효/);}
     else assert.equal(f.published.length, 0);
   }
+});
+
+test('same-second findings removal before first poll is rejected using server edit history', async () => {
+  const f = fixture();
+  const review = f.review, fetch = f.fetchImpl;
+  let originalBody;
+  f.fetchImpl = async (...args) => {
+    const response = await fetch(...args);
+    f.review = () => ({...review(), findings: [{severity: 'P2', path: 'example.py', line: 2, description: '차단 결함'}]});
+    originalBody = f.comment().body;
+    // A different editor deletes the finding before the receiver's very first read.
+    // GitHub REST timestamps remain equal at their exposed second precision.
+    f.review = review;
+    return response;
+  };
+  const history = f.history;
+  f.history = () => {const data = history(); Object.assign(data.node, {
+    lastEditedAt: '2026-11-01T12:00:00Z', editor: {login: 'another-editor'}, includesCreatedEdit: true,
+    userContentEdits: {totalCount: 2, nodes: [{id: 'edit'}], pageInfo: {hasNextPage: true}},
+  }); return data;};
+  await assert.rejects(() => run(f), /수정/);
+  assert.notEqual(originalBody, f.comment().body);
+  assert.equal(f.comment().created_at, f.comment().updated_at);
+  assert.equal(f.published.length, 0);
+});
+
+test('first and final history checks fail closed on missing metadata, partial responses or access errors', async () => {
+  const corruptions = [
+    data => {delete data.node.lastEditedAt;},
+    data => {delete data.node.editor;},
+    data => {delete data.node.includesCreatedEdit;},
+    data => {data.node.lastEditedAt = '2026-11-01T12:00:00Z';},
+    data => {data.node.editor = {__typename: 'User'};},
+    data => {data.node.includesCreatedEdit = true;},
+    data => {delete data.node.userContentEdits;},
+    data => {data.node.userContentEdits = null;},
+    data => {delete data.node.userContentEdits.totalCount;},
+    data => {data.node.userContentEdits.totalCount = 2;},
+    data => {data.node.userContentEdits.nodes = [{id: 'deleted-edit', deletedAt: '2026-11-01T12:00:00Z'}];},
+    data => {data.node.userContentEdits.nodes = null;},
+    data => {delete data.node.userContentEdits.pageInfo;},
+    data => {data.node.userContentEdits.pageInfo.hasNextPage = true;},
+    data => {data.errors = [{type: 'FORBIDDEN'}];},
+    data => {data.node = null;},
+    () => {throw new Error('Resource not accessible by integration');},
+  ];
+  for (const targetRead of [1, 2]) {
+    for (const corrupt of corruptions) {
+      const f = fixture(), history = f.history;
+      f.history = () => {const data = history(); if (f.historyReads === targetRead) corrupt(data); return data;};
+      await assert.rejects(() => run(f), /수정 이력/);
+      assert.equal(f.historyReads, targetRead);
+      assert.equal(f.published.length, 0);
+    }
+  }
+});
+
+test('GraphQL history must belong to the exact REST body, node, repository and PR', async () => {
+  for (const corrupt of [
+    data => {data.node.id = 'another-node';},
+    data => {data.node.fullDatabaseId = '43';},
+    data => {data.node.__typename = 'PullRequestReviewComment';},
+    data => {data.node.repository.nameWithOwner = 'other/repo';},
+    data => {data.node.issue.number = 13;},
+    data => {data.node.body += 'changed';},
+    data => {data.node.createdAt = '2026-11-01T11:59:59Z';},
+    data => {data.node.updatedAt = '2026-11-01T12:00:01Z';},
+  ]) {
+    const f = fixture(), history = f.history;
+    f.history = () => {const data = history(); corrupt(data); return data;};
+    await assert.rejects(() => run(f), /수정 이력/);
+    assert.equal(f.published.length, 0);
+  }
+  const f = fixture(), comment = f.comment;
+  f.comment = () => {const c = comment(); delete c.node_id; return c;};
+  await assert.rejects(() => run(f), /Node ID/);
+  assert.equal(f.published.length, 0);
+});
+
+test('final history detects a same-second edit after first verification even if body is restored', async () => {
+  const f = fixture(), history = f.history;
+  f.history = () => {const data = history();
+    if (f.historyReads === 2) Object.assign(data.node, {lastEditedAt: f.comment().created_at,
+      editor: {__typename: 'User'}, includesCreatedEdit: true,
+      userContentEdits: {totalCount: 3, nodes: [{id: 'edit'}], pageInfo: {hasNextPage: true}}});
+    return data;
+  };
+  await assert.rejects(() => run(f), /수정 이력/);
+  assert.equal(f.historyReads, 2);
+  assert.equal(f.published.length, 0);
+});
+
+test('deadline also applies while reading the final server history', async () => {
+  const f = fixture(), history = f.history;
+  f.history = () => {if (f.historyReads === 2) f.advance(15 * 60 * 1000); return history();};
+  await assert.rejects(() => run(f), /기한/);
+  assert.equal(f.published.length, 0);
 });

@@ -94,6 +94,41 @@ function matching(comments, request, started, deadline, observedAt) {
   return matches[0];
 }
 
+// REST author/App identify the creator, not a later editor. Require explicit server edit
+// metadata, including an empty history connection; equal second-resolution timestamps do not suffice.
+async function unedited(github, comment, request) {
+  if (typeof comment.node_id !== 'string' || !comment.node_id) {
+    throw new Error('Routine 댓글의 수정 이력을 조회할 Node ID가 없습니다.');
+  }
+  let data;
+  try {
+    data = await github.graphql(`query RoutineCommentHistory($id: ID!) {
+      node(id: $id) {
+        __typename
+        ... on IssueComment {
+          id fullDatabaseId body createdAt updatedAt
+          repository { nameWithOwner }
+          issue { number }
+          lastEditedAt editor { __typename } includesCreatedEdit
+          userContentEdits(first: 1) { totalCount nodes { id } pageInfo { hasNextPage } }
+        }
+      }
+    }`, {id: comment.node_id});
+  } catch {
+    throw new Error('Routine 댓글 수정 이력 조회 실패: 권한·API 오류를 무수정으로 간주하지 않습니다.');
+  }
+  const node = data?.node, history = node?.userContentEdits;
+  if (data?.errors || node?.__typename !== 'IssueComment' || node.id !== comment.node_id ||
+      node.fullDatabaseId !== String(comment.id) || node.repository?.nameWithOwner !== request.repository ||
+      node.issue?.number !== request.pr_number || node.body !== comment.body ||
+      node.createdAt !== comment.created_at || node.updatedAt !== comment.updated_at ||
+      node.lastEditedAt !== null || node.editor !== null || node.includesCreatedEdit !== false ||
+      history?.totalCount !== 0 || !Array.isArray(history.nodes) || history.nodes.length !== 0 ||
+      history.pageInfo?.hasNextPage !== false) {
+    throw new Error('Routine 댓글의 수정 이력 없음이 확인되지 않았습니다.');
+  }
+}
+
 /** Only fake HTTP/GitHub implementations are used by tests. Production calls once, then reads comments. */
 async function run({github, context, core, prepared, url, token,
   fetchImpl = fetch, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
@@ -122,6 +157,7 @@ async function run({github, context, core, prepared, url, token,
   while (now() < deadline) {
     const found = await list();
     if (found) {
+      await unedited(github, found.comment, request);
       validate(JSON.stringify(found.value.review), {head: pr.head.sha, base: pr.base.sha, files: prepared.files});
       // Re-read after a polling interval: reject duplicates/edits/deletion observed at acceptance.
       await sleep(POLL_MS);
@@ -134,6 +170,8 @@ async function run({github, context, core, prepared, url, token,
       if (!reread || fresh.body !== found.comment.body || now() >= deadline) {
         throw new Error('Routine 결과 재확인 실패 또는 기한 초과입니다.');
       }
+      await unedited(github, fresh, request);
+      if (now() >= deadline) throw new Error('Routine 수정 이력 확인 중 결과 기한이 지났습니다.');
       await finish({github, context, core, raw: JSON.stringify(reread.value.review),
         files: JSON.stringify(prepared.files), conclusion: 'success'});
       return;
