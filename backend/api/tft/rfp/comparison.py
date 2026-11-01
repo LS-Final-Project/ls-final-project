@@ -376,7 +376,8 @@ def _attribute_match(requirement: Requirement, product: Product) -> CandidateMat
 def _certification_match(requirement: Requirement, product: Product) -> CandidateMatch:
     """인증 요구. 규격 체계가 다른 시험 성적을 충족으로 넓히지 않는다(기획서 4.2)."""
     wanted = requirement.certification_standard or ""
-    held = [c for c in product.certifications if grading._norm(c.standard) == grading._norm(wanted)]
+    key = grading.certification_key(wanted)
+    held = [c for c in product.certifications if grading.certification_key(c.standard) == key]
     if held:
         head = f"원문 {requirement.clause_no} {wanted}"
 

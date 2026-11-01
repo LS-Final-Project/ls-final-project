@@ -34,6 +34,10 @@ SYSTEMS = ("IEC", "IEEE", "UL", "NEMA")
 # 같은 장비를 서로 다른 제품군으로 규정해 한쪽 등록이 다른 쪽 미충족을 뜻하는 규격 쌍(_norm 표기).
 # UL 891은 배전반(Switchboard), UL 1558은 저압 차단기 배전반(Switchgear)이다.
 RIVAL_STANDARDS = (frozenset({"ul 891", "ul 1558"}),)
+# 규격 이름이 아닌 일반 접미. Listed는 등록 요구라 떼지 않는다.
+CERTIFICATION_SUFFIX = re.compile(
+    r"(?:\s*(?:인증서?|마크)|[\s-]+(?:certified|certification|certificate|mark|marking))+$"
+)
 # 지속시간 추정을 쓰는 상한(초). 공개 근거의 단열 가정 범위이고 이보다 길면 조건 차이로 둔다.
 MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
@@ -365,6 +369,21 @@ def differing_word(requirement: Requirement) -> str:
     return "값이 요구와 다르나 조건이 달라 확인 필요"
 
 
+def certification_key(standard: str | None) -> str:
+    """인증 비교용 표기. 'CE 인증'과 'CE certified'를 CE와 같게 본다.
+
+    접미만 뗀다. 'UL 1558'과 'UL'처럼 규격 번호가 다른 값은 그대로 다르다.
+
+    Args:
+        standard: 원문 규격명.
+
+    Returns:
+        str: 비교용 표기. 접미뿐인 값은 뗄 규격이 없어 그대로 둔다.
+    """
+    key = _norm(standard)
+    return CERTIFICATION_SUFFIX.sub("", key) or key
+
+
 def _unit_key(unit: str | None) -> str:
     """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
 
@@ -673,12 +692,13 @@ def _certification_check(
     listing = any(
         c.name == "listing" and _norm(c.value) == "listed" for c in requirement.conditions
     )
-    same = [c for c in profile.certifications if _norm(c.standard) == _norm(requirement.value)]
+    wanted = certification_key(requirement.value)
+    same = [c for c in profile.certifications if certification_key(c.standard) == wanted]
     if not same:
         rival = [
             c
             for c in profile.certifications
-            if frozenset({_norm(c.standard), _norm(requirement.value)}) in RIVAL_STANDARDS
+            if frozenset({certification_key(c.standard), wanted}) in RIVAL_STANDARDS
         ]
         if rival:
             held = ", ".join(f"{c.standard}(근거 {c.evidence_id})" for c in rival)
