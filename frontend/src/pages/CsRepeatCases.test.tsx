@@ -28,7 +28,7 @@ const E2 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2';
 const E4 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4';
 
 const summary = { id: ID, request_type: 'FAULT', origin: 'SYSTEM_CANDIDATE', product_code: 'SYN-INV-1', fault_id: 'FLT-001', doc_signal: null, status: 'DRAFT', version: 3, cs_owner: null, problem_statement: '합성 반복 과전류 정지', evidence_count: 2, created_at: '2026-10-30T01:00:00Z' };
-const evidence = (id: string, ticket: string, no: string, caseNo: string, extra = {}) => ({ id, ticket_id: ticket, ticket_external_id: no, case_id: `bbbbbbbb-bbbb-4bbb-8bbb-${ticket.slice(-12)}`, case_external_id: caseNo, added_by: null, added_at: '2026-10-29T01:00:00Z', removed_by: null, removed_at: null, removal_reason: null, ...extra });
+const evidence = (id: string, ticket: string, no: string, caseNo: string, extra = {}) => ({ id, ticket_id: ticket, ticket_external_id: no, case_id: `bbbbbbbb-bbbb-4bbb-8bbb-${ticket.slice(-12)}`, case_external_id: caseNo, ticket_subject: `제목 ${no}`, ticket_received_at: '2026-10-28T00:00:00Z', customer_external_id: `CUST-${no}`, added_by: null, added_at: '2026-10-29T01:00:00Z', removed_by: null, removed_at: null, removal_reason: null, ...extra });
 function detailBody(status = 'DRAFT', version = 3) {
   return { data: {
     request: { id: ID, request_type: 'FAULT', status, version },
@@ -40,13 +40,13 @@ function detailBody(status = 'DRAFT', version = 3) {
     departments: [], replies: [], actions: [], next_owners: [],
   } };
 }
-const caseRow = (ticket: string, no: string, extra = {}) => ({ ticket_id: ticket, ticket_external_id: no, customer_external_id: `CUST-${no}`, product_code: 'SYN-INV-1', case_id: null, case_external_id: null, symptom: `증상 ${no}`, root_cause_type: 'FIRMWARE', root_cause: `원인 ${no}`, action_taken: `조치 ${no}`, resolved_by_dept: 'RND_FW', known_at: '2026-10-28T00:00:00Z', ...extra });
-const comparisonBody = { data: { request_id: ID, items: [caseRow(T1, 'SYN-T-1'), caseRow(T2, 'SYN-T-2', { root_cause: '다른 원인', root_cause_type: 'SYN_RAW_CODE', action_taken: null })], hidden_case_count: 0 } };
+const caseRow = (ticket: string, no: string, extra = {}) => ({ row_kind: 'EVIDENCE', ticket_id: ticket, ticket_external_id: no, ticket_subject: `제목 ${no}`, ticket_received_at: '2026-10-28T00:00:00Z', customer_external_id: `CUST-${no}`, product_code: 'SYN-INV-1', case_id: `bbbbbbbb-bbbb-4bbb-8bbb-${ticket.slice(-12)}`, case_external_id: `SYN-RC-${no.slice(-1)}`, symptom: `증상 ${no}`, root_cause_type: 'FIRMWARE', root_cause: `원인 ${no}`, action_taken: `조치 ${no}`, resolved_by_dept: 'RND_FW', known_at: '2026-10-28T00:00:00Z', ...extra });
+const comparisonBody = { data: { request_id: ID, items: [caseRow(T1, 'SYN-T-1'), caseRow(T2, 'SYN-T-2', { root_cause: '다른 원인', root_cause_type: 'SYN_RAW_CODE', action_taken: null }), caseRow(T3, 'SYN-T-3', { row_kind: 'CANDIDATE', case_id: C3, case_external_id: 'SYN-RC-3', customer_external_id: 'CUST-3', root_cause: '후보 원인' })], hidden_case_count: 0 } };
 const poolBody = { data: { as_of: '2026-10-31T00:00:00Z', rules_version: 'synthetic', items: [
   { request_id: ID, evidence: [
     { ticket_id: T1, case_id: 'x', customer_id: 'CUST-SYN-T-1', known_at: '2026-10-28T00:00:00Z' },
-    { ticket_id: T3, case_id: C3, customer_id: 'CUST-3', known_at: '2026-10-28T00:00:00Z' },
-    { ticket_id: T5, case_id: null, customer_id: null, known_at: '2026-10-28T00:00:00Z' },
+    { ticket_id: T3, ticket_external_id: 'SYN-T-3', case_id: C3, case_external_id: 'SYN-RC-3', ticket_subject: '제목 SYN-T-3', ticket_received_at: '2026-10-28T00:00:00Z', customer_id: 'CUST-3', known_at: '2026-10-28T00:00:00Z' },
+    { ticket_id: T5, ticket_external_id: 'SYN-T-5', case_id: null, case_external_id: null, ticket_subject: null, ticket_received_at: '2026-10-28T00:00:00Z', customer_id: null, known_at: '2026-10-28T00:00:00Z' },
   ] },
   { request_id: '22222222-2222-4222-8222-222222222222', evidence: [{ ticket_id: 'other-ticket', case_id: 'y', customer_id: 'OTHER', known_at: '2026-10-28T00:00:00Z' }] },
 ] } };
@@ -60,7 +60,7 @@ function serve(routes: Routes = {}) {
     const pick = (reply: Reply | (() => Reply)) => typeof reply === 'function' ? reply() : reply;
     const [status, body] = init?.method === 'POST' ? pick(routes.write ?? [200, detailBody()])
       : path.endsWith('?origin=SYSTEM_CANDIDATE') ? routes.list ?? [200, { data: { items: [summary] } }]
-        : path.endsWith('/case-comparison') ? routes.compare ?? [200, comparisonBody]
+        : path.endsWith('/case-comparison?include_candidates=true') ? routes.compare ?? [200, comparisonBody]
           : path === '/api/v1/cs/improvement-candidates' ? routes.pool ?? [200, poolBody]
             : pick(routes.detail ?? [200, detailBody()]);
     return jsonResponse(status, body);
@@ -85,11 +85,11 @@ test('포함·후보·뺌을 구분하고 후보는 현재 요청의 아직 넣�
   await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
   const text = (await rowsOf()).map(row => [...row.querySelectorAll('td')].slice(2).map(td => td.textContent));
   expect(text).toEqual([
-    ['SYN-T-1', 'SYN-RC-1', 'CUST-SYN-T-1', '-', '-', '포함'],
-    ['SYN-T-2', 'SYN-RC-2', 'CUST-SYN-T-2', '-', '-', '포함'],
-    ['-', '-', 'CUST-3', '-', '-', '후보'],
-    ['-', '해결 기록 없음', '-', '-', '-', '해결 기록 없음'],
-    ['SYN-T-4', 'SYN-RC-4', '-', '-', '-', '뺌'],
+    ['SYN-T-1', 'SYN-RC-1', 'CUST-SYN-T-1', '2026-10-28', '제목 SYN-T-1', '포함'],
+    ['SYN-T-2', 'SYN-RC-2', 'CUST-SYN-T-2', '2026-10-28', '제목 SYN-T-2', '포함'],
+    ['SYN-T-3', 'SYN-RC-3', 'CUST-3', '2026-10-28', '제목 SYN-T-3', '후보'],
+    ['SYN-T-5', '해결 기록 없음', '-', '2026-10-28', '미기록', '해결 기록 없음'],
+    ['SYN-T-4', 'SYN-RC-4', 'CUST-SYN-T-4', '2026-10-28', '제목 SYN-T-4', '뺌'],
   ]);
   expect(rows.length).toBeGreaterThan(0);
   expect(within(rows[0]).getByRole('link', { name: 'SYN-T-1' }).getAttribute('href')).toBe(`/cs/tickets/${T1}`);
@@ -117,7 +117,7 @@ test('첫 포함 행을 기준으로 고정해 번호 머리의 2열로 비교�
   view();
   const table = await screen.findByRole('table', { name: '비교' });
   expect(screen.getByRole('heading', { name: /비교, 2\/5행 SYN-RC-2 \(기준 SYN-T-1\)/ })).toBeTruthy();
-  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', 'SYN-T-1', 'SYN-T-2']);
+  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', '기준 SYN-T-1', 'SYN-RC-2']);
   expect([...compareCells('원인')].map(td => td.textContent)).toEqual(['원인', '원인 SYN-T-1', '다른 원인']);
   expect([...compareCells('원인 유형')].map(td => td.textContent)).toEqual(['원인 유형', '펌웨어', '이름 없는 유형']);
   expect([...compareCells('조치')].map(td => td.textContent)).toEqual(['조치', '조치 SYN-T-1', '미기록']);
@@ -125,7 +125,7 @@ test('첫 포함 행을 기준으로 고정해 번호 머리의 2열로 비교�
   expect(document.body.textContent).not.toContain('SYN_RAW_CODE');
   expect(screen.queryByRole('combobox', { name: '기준 행' })).toBeNull();
   pickRow(1);
-  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', 'SYN-T-1', 'SYN-T-1']);
+  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', '기준 SYN-T-1', 'SYN-RC-1']);
 });
 
 test('다음 할 일 줄은 조건 줄 위에서 고른 행과 서버 값으로 안내하고 후보 건수를 요약한다', async () => {
@@ -139,9 +139,9 @@ test('다음 할 일 줄은 조건 줄 위에서 고른 행과 서버 값으로 
   expect(screen.getByText('후보 문의 2건')).toBeTruthy();
   expect(screen.getByRole('table', { name: '근거 문의' }).querySelector('thead input')).toBeNull();
   pickRow(3);
-  expect(next.textContent).toContain('3행 넣을지 판단, 비교표 없음');
+  expect(next.textContent).toContain('SYN-T-3 넣을지 판단, 비교표 준비됨');
   pickRow(4);
-  expect(next.textContent).toContain('4행 해결 기록이 없어 넣을 수 없음');
+  expect(next.textContent).toContain('SYN-T-5 해결 기록이 없어 넣을 수 없음');
 });
 
 test('열린 화면 탭 이름은 반복 사례다', async () => {
@@ -151,19 +151,19 @@ test('열린 화면 탭 이름은 반복 사례다', async () => {
   await screen.findByRole('tab', { name: '반복 사례', selected: true });
 });
 
-test('후보 행을 고르면 비교표 대신 안내하고 근거 추가는 상세의 판본으로 보낸다', async () => {
+test('후보 행도 같은 종류와 해결 기록의 비교표를 보이고 근거 추가는 상세 판본으로 보낸다', async () => {
   const fetch = serve();
   view();
   await screen.findByRole('table', { name: '비교' });
   await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
   pickRow(3);
-  expect(screen.getByText(/근거에 넣기 전에는 비교표가 없습니다/)).toBeTruthy();
+  expect([...compareCells('원인')].map(td => td.textContent)).toEqual(['원인', '원인 SYN-T-1', '후보 원인']);
   expect(screen.getByRole('link', { name: '원문 보기' }).getAttribute('href')).toBe(`/cs/tickets/${T3}`);
-  const compareBefore = fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison')).length;
+  const compareBefore = fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length;
   fireEvent.click(screen.getByRole('button', { name: '근거 추가' }));
   await screen.findByText('근거에 추가했습니다.');
   expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence`, { ticket_id: T3, case_id: C3, version: 3 }]]);
-  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison')).length).toBe(compareBefore + 1));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length).toBe(compareBefore + 1));
 });
 
 test('해결 기록이 없는 후보와 뺀 행은 근거에 넣을 수 없다', async () => {
@@ -300,4 +300,47 @@ test('운영 빌드에서 권한이 확인되면 열리고, 역할이 없으면 
   view();
   expect(screen.getByRole('alert').textContent).toContain('권한이 없습니다');
   await waitFor(() => expect(fetch).not.toHaveBeenCalled());
+});
+
+
+test('선택 행을 바꾸면 사유가 다른 행에 남지 않고 다시 고른 원래 행도 비어 있다', async () => {
+  const fetch = serve();
+  view();
+  await screen.findByRole('table', { name: '비교' });
+  pickRow(2);
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '둘째 행 전용 사유' } });
+  pickRow(1);
+  expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  expect((screen.getByRole('button', { name: '근거에서 빼기' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '첫째 행 사유' } });
+  pickRow(3);
+  expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  pickRow(2);
+  expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: '확인한 둘째 행 사유' } });
+  fireEvent.click(screen.getByRole('button', { name: '근거에서 빼기' }));
+  await screen.findByText('근거에서 뺐습니다.');
+  expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence/${E2}/remove`, { reason: '확인한 둘째 행 사유', version: 3 }]]);
+});
+
+test.each(['row_kind', 'case_id'])('후보와 %s가 다른 비교값은 대신 쓰지 않는다', async key => {
+  const items = comparisonBody.data.items.map(row => row.ticket_id === T3 ? { ...row, [key]: key === 'row_kind' ? 'EVIDENCE' : 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } : row);
+  serve({ compare: [200, { data: { ...comparisonBody.data, items } }] });
+  view();
+  await screen.findByRole('table', { name: '비교' });
+  await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
+  pickRow(3);
+  expect(screen.getByText('이 후보의 비교표가 없습니다. 원문 보기로 문의를 확인하세요.')).toBeTruthy();
+  expect(document.body.textContent).not.toContain('후보 원인');
+});
+
+
+test('근거와 후보가 없을 때 입력 사유 없이 단일 빈 표 안내를 보인다', async () => {
+  const body = detailBody();
+  body.data.evidence = [];
+  serve({ detail: [200, body], pool: [200, { data: { items: [] } }], compare: [200, { data: { request_id: ID, items: [], hidden_case_count: 0 } }] });
+  view();
+  await screen.findByText('근거 문의와 후보가 없습니다.');
+  expect((screen.getByLabelText('빼는 사유') as HTMLTextAreaElement).value).toBe('');
+  expect((screen.getByRole('button', { name: '근거에서 빼기' }) as HTMLButtonElement).disabled).toBe(true);
 });

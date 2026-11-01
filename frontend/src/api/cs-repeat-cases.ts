@@ -10,7 +10,7 @@ export type CandidateList = paths['/api/v1/cs/improvement-candidates']['get']['r
 export type EvidenceAdd = paths['/api/v1/cs/improvement-requests/{request_id}/evidence']['post']['requestBody']['content']['application/json'];
 export type EvidenceRemove = paths['/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove']['post']['requestBody']['content']['application/json'];
 export const listRepeatCandidates = (signal:AbortSignal) => request<RepeatCandidateList>('/api/v1/cs/improvement-requests?origin=SYSTEM_CANDIDATE',{signal});
-export const getCaseComparison = (id:string,signal:AbortSignal) => request<CaseComparison>(`/api/v1/cs/improvement-requests/${encodeURIComponent(id)}/case-comparison`,{signal});
+export const getCaseComparison = (id:string,signal:AbortSignal) => request<CaseComparison>(`/api/v1/cs/improvement-requests/${encodeURIComponent(id)}/case-comparison?include_candidates=true`,{signal});
 // cs_agent와 C/S 부서 manager만 읽는다. 다른 역할은 403이다.
 export const listImprovementCandidates = (signal:AbortSignal) => request<CandidateList>('/api/v1/cs/improvement-candidates',{signal});
 
