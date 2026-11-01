@@ -14,6 +14,7 @@ from backend.engine.rfp.vocabulary import (
     CONDITION_NAMES,
     check_text,
     condition_text,
+    sentence_conditions,
 )
 
 DISCLAIMER = "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
@@ -486,7 +487,9 @@ def build_draft(
                 )
                 for proof in match.evidence:
                     candidate_conditions.extend(
-                        value for value in (proof.applicability, proof.limits) if value
+                        sentence_conditions(
+                            value for value in (proof.applicability, proof.limits) if value
+                        )
                     )
                 representative, raw_comparison = _comparison_sample(req, candidate)
                 add(

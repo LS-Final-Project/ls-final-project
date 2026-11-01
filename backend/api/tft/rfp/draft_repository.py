@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.repository import NEEDS_REREVIEW, version_conflict
 from backend.engine.rfp.draft import DISCLAIMER
+from backend.engine.rfp.vocabulary import sentence_conditions
 
 Row = dict[str, Any]
 
@@ -103,7 +104,7 @@ async def _load(
                 text=row["text"],
                 template_text=row["template_text"],
                 evidence=evidence,
-                conditions=row["conditions"],
+                conditions=sentence_conditions(row["conditions"]),
                 unconfirmed=(row["unconfirmed"] or row["review_needed"])
                 if live_review
                 else row["unconfirmed"],

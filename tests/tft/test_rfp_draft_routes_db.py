@@ -5,6 +5,7 @@
 import asyncio
 import hashlib
 import io
+import json
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
@@ -20,6 +21,7 @@ from backend.api.tft.main import create_app
 from backend.api.tft.rfp import draft_exports, drafts, repository
 from backend.api.tft.rfp.storage import LocalDocumentStore
 from backend.engine.rfp.draft import DISCLAIMER
+from backend.engine.rfp.vocabulary import DERIVED_SOURCE_NOTE
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
@@ -523,6 +525,18 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             "SELECT completed_at,sha256 FROM tft.exports WHERE id=%s", (export_id,)
         ).fetchone()
         assert completed_at is not None and digest == hashlib.sha256(expected).hexdigest()
+
+
+def test_saved_source_note_is_not_read_back_into_conditions(client, app_dsn, chain, admin):
+    """이미 저장된 판본의 출처 표시도 조건 칸으로 나오지 않는다."""
+    generate(app_dsn, chain, uuid4())
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.draft_sentences SET conditions=conditions || %s::jsonb WHERE project_id=%s",
+            (json.dumps([DERIVED_SOURCE_NOTE, "현장 시험 필요"]), chain["project"]),
+        )
+    conditions = first_sentence(call(client, "GET", chain).json()["data"])["conditions"]
+    assert DERIVED_SOURCE_NOTE not in conditions and "현장 시험 필요" in conditions
 
 
 @pytest.mark.parametrize("change", ["requirement", "mark"])

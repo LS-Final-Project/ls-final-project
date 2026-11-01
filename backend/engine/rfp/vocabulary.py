@@ -7,6 +7,7 @@
 """
 
 import re
+from collections.abc import Iterable
 from typing import Literal, get_args
 
 AttributeKey = Literal[
@@ -338,6 +339,23 @@ CHECK_TEXT: dict[str, str] = {
     "contract_scope": "계약 범위 확인",
     "certification": "인증",
 }
+
+
+# 자사 비교 근거의 자료 출처 표시. 비교 근거에만 남기고 문장 조건으로는 내보내지 않는다.
+MASTER_SOURCE_NOTE = "제품 마스터 표준 조건(합성)"
+DERIVED_SOURCE_NOTE = "합성 데이터시트 문장을 정규화한 값(DERIVED)"
+
+
+def sentence_conditions(conditions: Iterable[str]) -> list[str]:
+    """문장 조건 칸에 보일 값만 남긴다. 조건 칸은 화면·DOCX·모델 입력이 함께 쓴다.
+
+    Args:
+        conditions: 조건 값 목록.
+
+    Returns:
+        list[str]: 자료 출처 표시를 뺀 목록.
+    """
+    return [c for c in conditions if c not in (MASTER_SOURCE_NOTE, DERIVED_SOURCE_NOTE)]
 
 
 def condition_text(name: str) -> str:
