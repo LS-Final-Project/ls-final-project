@@ -82,6 +82,26 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     expect(calls.filter(call => call.method === 'POST').map(call => call.url)).toEqual([`/api/v1/cs/tickets/${ID}/workflow/start-review`]);
   });
 
+  test('문의 처리의 초안 대화상자는 운영 빌드에서도 보내는 메일함 목록을 읽는다', async () => {
+    const calls = production();
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(url);
+      calls.push({ url: path, method: init?.method ?? 'GET' });
+      if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles: ['cs_agent'] } }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'synthetic-csrf' } });
+      if (path.endsWith('/platform/auth/mailbox')) return jsonResponse(200, { data: { items: [] } });
+      if (path.endsWith('/workflow')) return jsonResponse(200, { data: { ticket_id: ID, state: 'IN_REVIEW', version: 2, owner_user_id: null, closed_at: null, closed_by: null, customer_sent_at: null, dept_results: [], transfers: [], customer_sends: [] } });
+      if (path.endsWith(`/tickets/${ID}`)) return jsonResponse(200, { data: { id: ID, external_id: 'T-1', subject: '합성 문의', body: '합성', body_language: 'en', channel: 'EMAIL', customer_external_id: 'C-1', product_code: 'P-1', received_at: '2026-10-28T00:00:00Z', known_at: '2026-10-28T00:00:00Z', workflow_state: 'IN_REVIEW', data_origin: 'synthetic', derivation_kind: 'synthetic', version: 1, resolution_case: null, error_code_reported: null, fw_version_reported: null } });
+      return jsonResponse(404, { error: { code: 'NOT_FOUND', message: '없음' } });
+    }));
+    const { default: TicketDetail } = await import('./TicketDetail.tsx');
+    show(`/cs/tickets/${ID}`, '/cs/tickets/:ticketId', <TicketDetail />);
+    await screen.findByText('T-1');
+    expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(false);
+    fireEvent.click(screen.getByText(/^기타 \d/));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^AI 초안 보기/ }));
+    await waitFor(() => expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(true));
+  });
+
   test('업무 UI 설정이 꺼진 운영 빌드는 화면을 열지 않고 업무 API를 부르지 않는다', async () => {
     const calls = production(false);
     const { default: MailSent } = await import('./MailSent.tsx');

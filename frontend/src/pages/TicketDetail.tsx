@@ -22,6 +22,8 @@ import { KvGrid, KvKey, KvModal, KvMore, KvTitle, useHotkey, type KvColumn } fro
 import { CHANNEL_LABEL, STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
 const PENDING = '연결 전입니다.';
+// 운영 빌드는 항상 실제 API다. 쓰기가 막히는 것은 로컬 개발의 모의 응답 모드뿐이다.
+const MOCK_BLOCKED = '모의 응답 모드에서는 실행할 수 없습니다';
 const DEPT_LABEL: Record<DeptCode, string> = {
   TS_LV: '저압기기 기술지원', TS_MV: '중압기기 기술지원', TS_TRF: '변압기 기술지원', TS_AUTO: '자동화 기술지원',
   TS_ENERGY: '에너지 기술지원', RND_FW: '펌웨어 개발', QA_CLAIM: '품질보증/클레임', FIELD_SVC: '현장 서비스',
@@ -58,7 +60,7 @@ export default function TicketDetail() {
   const identity = useQuery({ queryKey: ['ticket-owner-identity', mode], queryFn: me, retry: false, enabled: access.ready && workflow.isSuccess });
   const [dialog, setDialog] = useState<Dialog>(null);
   const assignees = useQuery({ queryKey: ['cs-assignees', mode], queryFn: ({ signal }) => listCsAssignees(signal), enabled: dialog === 'owner', retry: false, staleTime: 0 });
-  const mailboxes = useQuery({ queryKey: ['send-mailboxes', mode], queryFn: () => listMailboxes(), enabled: dialog === 'draft' && import.meta.env.DEV && mode === 'live', retry: false, staleTime: 0 });
+  const mailboxes = useQuery({ queryKey: ['send-mailboxes', mode], queryFn: () => listMailboxes(), enabled: dialog === 'draft' && mode === 'live', retry: false, staleTime: 0 });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   // 반품 확정 입력 칸을 비우는 데 쓴다. 확정은 모든 칸을 덮어쓰는 기록이라 입력이 다른 문의나 다음 확정에 남으면 안 된다.
@@ -79,7 +81,7 @@ export default function TicketDetail() {
   const REVIEW_LABEL = { SUBMITTED: '확인 전', ACCEPTED: '확인 완료', REWORK_REQUESTED: '다시 요청' } as const;
   const reviewOf = (transferId: string) => { const found = (wf?.dept_results ?? []).filter(item => item.transfer_id === transferId).at(-1); return found ? REVIEW_LABEL[found.review_status] ?? found.review_status : '-'; };
   const canWrite = mode === 'live';
-  const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : '실제 API 개발 모드에서만 실행할 수 있습니다';
+  const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : MOCK_BLOCKED;
   const st = data?.workflow_state;
   // 담당 변경은 C/S 관리자만 할 수 있다(서버도 확인한다).
   const isManager = identity.data?.data?.roles?.includes('manager') === true;
@@ -125,7 +127,7 @@ export default function TicketDetail() {
   const version = wf?.version ?? 0;
   // 승인했지만 결과가 정해지지 않은 발송. 있으면 새 발송을 막고(서버도 409), 대화에서 먼저 상태를 확인하게 한다.
   const unsettledSend = (wf?.customer_sends ?? []).find(isUnsettledSend);
-  const sendBlock = !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : !wf ? '업무 판본을 읽는 중입니다'
+  const sendBlock = !canWrite ? MOCK_BLOCKED : !wf ? '업무 판본을 읽는 중입니다'
     : st !== 'IN_REVIEW' ? '검토중인 문의만 보낼 수 있습니다' : pendingResult ? '확인 전 부서 답변이 있으면 보낼 수 없습니다'
     : unsettledSend ? '결과가 정해지지 않은 발송이 있습니다. 대화에서 상태를 먼저 확인하세요' : undefined;
   const sendOptions: SendOptions = {
@@ -178,7 +180,7 @@ export default function TicketDetail() {
       <KvMore items={[
         { label: '검토 시작', note: reasons.start, action: busy || reasons.start !== undefined ? undefined : () => void doStart() },
         { label: '요청 취소', note: reasons.recall, action: busy || reasons.recall !== undefined ? undefined : () => setDialog('recall') },
-        { label: '분류 정정', note: !analysisData ? 'AI 분류를 읽은 뒤에 정정할 수 있습니다' : !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : 'AI 분류를 사유와 함께 정정합니다', action: analysisData && canWrite && !busy ? () => setDialog('correct') : undefined },
+        { label: '분류 정정', note: !analysisData ? 'AI 분류를 읽은 뒤에 정정할 수 있습니다' : !canWrite ? MOCK_BLOCKED : 'AI 분류를 사유와 함께 정정합니다', action: analysisData && canWrite && !busy ? () => setDialog('correct') : undefined },
         { label: 'AI 초안 보기', note: 'AI 초안 3개를 읽고 고르거나 직접 쓰고, 확인해 승인하면 고객에게 보냅니다', action: () => setDialog('draft') },
         { label: '담당 변경', note: reasons.owner, action: busy || reasons.owner !== undefined ? undefined : () => setDialog('owner') },
         { label: '종결', note: reasons.close ?? '확인 완료된 검토 답변 또는 고객 발송 기록 필요', action: busy || reasons.close !== undefined ? undefined : () => setDialog('close') },
@@ -238,7 +240,7 @@ export default function TicketDetail() {
             ? <KvGrid label="검토 요청 이력" columns={transferColumns} rows={wf.transfers} rowKey={item => item.id} fallback="요청 이력 없음" />
             : <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-muted)' }}>{workflow.isError ? '요청 이력을 불러오지 못했습니다.' : '요청 이력을 읽는 중입니다.'}</div>}
           {pendingResult && <div style={{ marginTop: 8 }}><DeptResultReview key={pendingResult.id} result={pendingResult} round={roundOf(pendingResult.transfer_id)} busy={busy}
-            blocked={canWrite ? undefined : '실제 API 개발 모드에서만 실행할 수 있습니다'}
+            blocked={canWrite ? undefined : MOCK_BLOCKED}
             onSubmit={form => void run(form.decision === 'ACCEPT' ? '부서 답변을 확인했습니다.' : '같은 부서에 다시 요청했습니다.', signal => reviewDeptResult(ticketId, pendingResult.id, { ...form, version }, signal))} /></div>}
           <div className="kv-sub" style={{ margin: '12px 0 0' }}>알려진 해결 사례</div>
           <div className="kv-sub" style={{ margin: 0, padding: '6px 10px', border: '1px solid var(--erp-border)', background: '#fff', color: 'var(--erp-text)' }}>
