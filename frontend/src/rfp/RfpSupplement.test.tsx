@@ -40,8 +40,14 @@ function live(handler: Handler = () => undefined, owner = U) {
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
 }
+// 전체 셸의 없는 버튼을 반복 탐색하면 오류의 전체 role 목록 계산으로 조회 완료 갱신이 늦어질 수 있다.
+// 실제 요구 목록이 생긴 뒤 그 안에서 같은 role/name을 기다린다. 응답 지연은 그대로 기다린다.
+async function requirementButton(name: string) {
+  const list = await screen.findByLabelText('요구 목록', { selector: 'nav' });
+  return within(list).findByRole('button', { name });
+}
 async function choose() {
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   fireEvent.click(await screen.findByRole('radio', { name: '외부 제품' }));
   fireEvent.click(screen.getByRole('checkbox', { name: '후보 P-A' }));
   fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '자사 설치 / 협력사 공급' } });
@@ -66,7 +72,7 @@ test('보드 순서대로 선택지·후보근거·사람 선택을 Kv조각으�
 
 test('담당 sales·책임자가 아니면 조회만 하고 저장하지 않는다', async () => {
   const f = live(() => undefined, '다른 사용자'); renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   const radio = await screen.findByRole('radio', { name: '외부 제품' });
   expect((radio as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
@@ -93,7 +99,7 @@ test('불명확 응답 재시도는 원래 본문·멱등키, 수정 입력은 �
 
 test('R&D 면제·역할 분담을 입력하기 전 저장을 차단한다', async () => {
   live(); renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   fireEvent.click(await screen.findByRole('radio', { name: '외부 제품' }));
   const save = screen.getByRole('button', { name: '보완 선택 저장' });
   expect((save as HTMLButtonElement).disabled).toBe(true);
@@ -116,7 +122,7 @@ test('409는 자동 재저장 없이 최신 조회·사용자 재선택을 요�
 test('옵션과 요구 판본이 다르면 저장 폼을 만들지 않는다', async () => {
   live(url => url.endsWith('/supplement-options') ? response(options(R, 2)) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   await screen.findByText(/요구 판본이 변경되었습니다/);
   expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
   expect((screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -164,7 +170,7 @@ test.each(['user', 'project'])('%s 전환 뒤 지연 응답·이전 저장 결�
   await waitFor(() => expect(posts).toBe(1));
   fireEvent.click(screen.getByText(transition === 'user' ? '사용자 변경' : '프로젝트 변경'));
   if (transition === 'user') await screen.findByText(/읽기 전용/);
-  fireEvent.click(await screen.findByRole('button', { name: transition === 'user' ? 'R-021' : 'R-030' }));
+  fireEvent.click(await requirementButton(transition === 'user' ? 'R-021' : 'R-030'));
   finish(response(saved()));
   await screen.findByRole('textbox', { name: '역할 분담' });
   expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('');
@@ -175,7 +181,7 @@ test('늦은 옵션 조회 응답도 다른 요구에 붙지 않는다', async (
   let finish!: (value: Response) => void;
   live(url => url.includes(`/requirements/${R}/supplement-options`) ? new Promise<Response>(resolve => { finish = resolve; }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   await waitFor(() => expect(finish).toBeTypeOf('function'));
   fireEvent.click(screen.getByRole('button', { name: 'R-024' }));
   await screen.findByRole('radio', { name: '외부 제품' });
@@ -187,7 +193,7 @@ test('늦은 옵션 조회 응답도 다른 요구에 붙지 않는다', async (
 test.each([401, 403, 404, 503])('보완 조회 %i 오류를 숨기거나 저장 가능으로 보이지 않는다', async status => {
   live(url => url.endsWith('/supplement-options') ? jsonResponse(status, errorBody('FAILED', '조회 실패')) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   await screen.findByRole('alert');
   expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
   expect((screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -196,7 +202,7 @@ test.each([401, 403, 404, 503])('보완 조회 %i 오류를 숨기거나 저장 
 test('빈 선택지와 빈 후보는 자동 선택이나 가짜 등급을 만들지 않는다', async () => {
   live(url => url.endsWith('/supplement-options') ? response({ ...options(), options: [] }) : url.includes('/partner-candidates?') ? response({ items: [] }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   await screen.findByText('현재 선택 가능한 보완 경로가 없습니다.');
   expect(screen.getByText('이 요구의 저장된 후보 등급이 없습니다.')).toBeTruthy();
   expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
@@ -334,7 +340,7 @@ test('첫 요구와 첫 후보 근거를 자동으로 보여주고 원문 조항
 });
 test('판단·성격 조회는 서버 필터를 사용하고 첫 선택을 다시 확인한다', async () => {
   const f = live(); renderApp(`/tft/projects/${P}/supplement`);
-  await screen.findByRole('button', { name: 'R-021' });
+  await requirementButton('R-021');
   fireEvent.change(screen.getByLabelText('판단', { selector: 'select' }), { target: { value: 'SPEC_GAP' } });
   fireEvent.change(screen.getByLabelText('성격', { selector: 'select' }), { target: { value: 'MANDATORY' } });
   fireEvent.click(screen.getByRole('button', { name: /^조회$/ }));
@@ -365,7 +371,7 @@ test.each([
 ])('공용 속성키 %s와 짧은 조항 번호를 사용하고 원문 속성을 보존한다', async (key, shown) => {
   live(url => url.includes('/requirements?') ? response({ items: [{ ...requirement(R, '738dbba4:2.4.E.1.a:1'), attribute_key: key, attribute: '자유 원문 속성' }], next_cursor: null }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  const tab = await screen.findByRole('button', { name: '2.4.E.1.a-1' });
+  const tab = await requirementButton('2.4.E.1.a-1');
   expect(tab.textContent).toContain(shown);
   expect(tab.textContent).not.toContain('738dbba4');
   fireEvent.click(screen.getByText('원문·요구 상세 / 판본과 출처 확인'));
@@ -433,8 +439,27 @@ test('최신 입력 기준 목록 포함 여부와 저장 등급 판본·판정�
     })) })),
   }) : undefined);
   renderApp(`/tft/projects/${P}/supplement`);
-  fireEvent.click(await screen.findByRole('button', { name: 'R-021' }));
+  fireEvent.click(await requirementButton('R-021'));
   await screen.findByText(/고객 목록 포함 여부는 최신 프로젝트 입력 v7 기준/);
   expect(await screen.findByText(/저장 판정: 요구 v1 · 프로필 v2 · 등급 v3/)).toBeTruthy();
   expect(screen.getByRole('columnheader', { name: '고객 목록(최신 입력)' })).toBeTruthy();
+});
+
+test('첫 요구 응답을 기다린 뒤 실제 목록에서 선택하고 저장 준비 상태를 확인한다', async () => {
+  let finish!: (value: Response) => void;
+  const f = live(url => url.includes('/requirements?')
+    ? new Promise<Response>(resolve => { finish = resolve; }) : undefined);
+  renderApp(`/tft/projects/${P}/supplement`);
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  const list = await screen.findByLabelText('요구 목록', { selector: 'nav' });
+  expect(within(list).queryByRole('button', { name: 'R-021' })).toBeNull();
+  const top = screen.getByRole('button', { name: /^선택 저장$/ }) as HTMLButtonElement;
+  expect(top.disabled).toBe(true);
+  expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  finish(response({ items: [requirement(R, 'R-021')], next_cursor: null }));
+  const first = await requirementButton('R-021');
+  expect(first.getAttribute('aria-pressed')).toBe('true');
+  await choose();
+  await waitFor(() => expect(top.disabled).toBe(false));
+  expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
