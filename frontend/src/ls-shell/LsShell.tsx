@@ -26,7 +26,7 @@ const MENU: Group[] = [
       { label: '문의 처리' },
       { label: '고객 이력', to: '/cs/customers' },
       { label: '개선요청', to: '/cs/improvements' },
-      { label: '반복 사례 모음' },
+      { label: '반복 사례 모음', to: '/cs/repeat-cases' },
     ],
   },
   { key: 'dept', label: '부서 검토', leaves: [{ label: '받은 요청', to: '/dept/inbox' }, { label: '검토 답변' }] },
@@ -56,6 +56,7 @@ function tabOf(pathname: string) {
   if (pathname === '/mail/account') return { kind: 'mail-account', name: '메일 계정' };
   if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
   if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
+  if (pathname.startsWith('/cs/repeat-cases')) return { kind: 'repeat-cases', name: '반복 사례' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
   if (pathname.endsWith('/supplement')) return { kind: 'supplement', name: '보완 및 협력사 비교' };
