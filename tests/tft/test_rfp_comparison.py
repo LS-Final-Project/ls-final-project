@@ -1069,22 +1069,36 @@ def test_korean_period_units_are_compared_not_left_as_a_unit_gap(korean, english
         ("s", "s"),
         ("S", "S"),
         ("min", "min"),
-        ("minutes", "minutes"),
+        ("minutes", "min"),
+        ("Minutes", "min"),
         ("h", "h"),
         ("hr", "hr"),
-        ("hours", "hours"),
+        ("hours", "h"),
         ("month", "month"),
-        ("months", "months"),
+        ("months", "month"),
+        ("Months", "month"),
         ("year", "year"),
-        ("years", "years"),
+        ("years", "year"),
+        ("days", "day"),
+        ("day", "day"),
         ("ms", "ms"),
         ("kA SYM RMS", "kA"),
         ("kA 초", "kA 초"),
     ],
 )
-def test_english_unit_keys_do_not_change(given, key):
-    """한글 시간 단위를 더해도 영문 표기의 비교용 단위는 그대로다."""
+def test_time_unit_keys(given, key):
+    """복수형은 단수와 같고, 대문자 S·hr처럼 뜻이 다르거나 넣지 않은 표기는 그대로다."""
     assert grading._unit_key(given) == key
+
+
+@pytest.mark.parametrize(
+    "unit",
+    ["A", "kA", "mA", "V", "kV", "kVA", "MVA", "kW", "mW", "MW", "Hz", "mm", "m", "%", "°C", "K"]
+    + ["AF", "% of Icu", "kA peak", "kA asym", "ms"],
+)
+def test_units_outside_the_time_table_keep_their_key(unit):
+    """시간 단위 표는 다른 단위의 대소문자·표기를 건드리지 않는다."""
+    assert grading._unit_key(unit) == unit
 
 
 def test_condition_units_ignore_case_after_the_unit_key():

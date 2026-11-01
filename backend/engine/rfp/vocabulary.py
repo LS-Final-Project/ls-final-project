@@ -276,13 +276,14 @@ def form_conflict(wanted: str, offered: str) -> bool:
 
 # 표시 이름. 코드값은 저장·판정에 그대로 쓰고 초안·DOCX에 나갈 때만 바꾼다.
 # 속성 이름은 화면 frontend/src/rfp/labels.ts ATTRIBUTE_LABEL과 같다.
-# 추출 모델이 한국어 RFP에서 s 대신 내는 시간 단위. 비교할 때만 영문 표기로 맞춘다.
-KOREAN_TIME_UNITS: dict[str, str] = {
-    "초": "s",
-    "분": "min",
-    "시간": "h",
-    "개월": "month",
-    "년": "year",
+# 시간 단위 표기. 저장은 원문 그대로이고 비교할 때만 맞춘다. 키는 casefold 값이다.
+TIME_UNITS: dict[str, str] = {
+    **dict.fromkeys(("sec", "secs", "second", "seconds", "초"), "s"),
+    **dict.fromkeys(("minute", "minutes", "분"), "min"),
+    **dict.fromkeys(("hour", "hours", "시간"), "h"),
+    "days": "day",
+    **dict.fromkeys(("months", "개월"), "month"),
+    **dict.fromkeys(("years", "년"), "year"),
 }
 ATTRIBUTE_TEXT: dict[str, str] = {
     "form": "형식",
