@@ -8,11 +8,13 @@ import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const source=examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body;
-afterEach(()=>{cleanup();vi.unstubAllGlobals();setApiMode('mock');});
+afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.unstubAllEnvs();setApiMode('mock');});
+// 상세 화면은 역할 확인용 세션 조회(/me)를 함께 부른다. 상세 조회 횟수만 센다.
+const detailCalls=(fetch:{mock:{calls:unknown[][]}})=>fetch.mock.calls.filter(([url])=>!String(url).endsWith('/me'));
 function view(detail=true){setApiMode('live');return renderAt(detail?'/cs/improvements/test':'/cs/improvements',detail?'/cs/improvements/:requestId':'/cs/improvements',<CsImprovements/>);}
 test('근거·조건·회신·조치를 분리하고 확인되지 않은 고객 적용을 추측하지 않는다',async()=>{
  const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);view();
- await screen.findByText('근거 문의');expect(screen.getByText('부서 조치')).toBeTruthy();expect(screen.getByText(/고객별 적용·재발 여부는 이 응답만으로/)).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(fetch).toHaveBeenCalledTimes(1);
+ await screen.findByText('근거 문의');expect(screen.getByText('부서 조치')).toBeTruthy();expect(screen.getByText(/고객별 적용·재발 여부는 이 응답만으로/)).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(detailCalls(fetch)).toHaveLength(1);
 });
 test('빈 목록은 완료 건수가 아닌 조회 가능한 기록 없음으로 표시한다',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[]}})));view(false);await screen.findByText('조회 가능한 개선요청이 없습니다.');
@@ -33,8 +35,8 @@ test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>
 });
 
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
- let count=0;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
- vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
+ let count=0;const fetch=vi.fn((url:RequestInfo|URL,init?:RequestInit)=>{if(String(url).endsWith('/me'))return Promise.resolve(jsonResponse(401,errorBody('SESSION','세션 없음')));if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
+ vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(detailCalls(fetch)).toHaveLength(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
 });
 
 
@@ -83,4 +85,62 @@ test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결
  expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST'||init?.method==='PATCH')).toHaveLength(1);
  if(!detail){fireEvent.click(screen.getByRole('button',{name:'입력 버리고 목록 새로 조회'}));await screen.findByRole('button',{name:'새 개선요청 작성'});expect(screen.queryByText('합성 저장 결과 불확실')).toBeNull();expect(fetch.mock.calls.filter(([url,init])=>String(url).endsWith('/improvement-requests')&&!init?.method)).toHaveLength(2);expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);}
  focusManager.setFocused(undefined);
+});
+
+// 운영 빌드(DEV 꺼짐)에서도 업무 UI가 켜져 있고 C/S 역할이면 상세와 처리 동작을 연다. 업무 UI 설정은 모듈을 읽을 때 정해져 새로 불러온다.
+test('운영 빌드는 준비 중 대신 실제 상세와 역할별 동작을 보인다',async()=>{
+ vi.stubEnv('DEV',false);vi.stubEnv('VITE_BUSINESS_UI_ENABLED','true');vi.resetModules();
+ const [{default:Page},{renderAt:render}]=await Promise.all([import('./CsImprovements'),import('../test/render')]);
+ const fetch=vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,source));
+ vi.stubGlobal('fetch',fetch);
+ render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
+ await screen.findByText('근거 문의');expect(screen.queryByText(/운영 인증 중계와 권한 검증 후/)).toBeNull();
+ expect(await screen.findByRole('button',{name:'검토 완료 기록'})).toBeTruthy();expect(screen.getByRole('button',{name:'내용 수정'})).toBeTruthy();
+});
+test('운영 빌드에서 업무 UI가 꺼져 있으면 조회하지 않는다',async()=>{
+ vi.stubEnv('DEV',false);vi.stubEnv('VITE_BUSINESS_UI_ENABLED','false');vi.resetModules();
+ const [{default:Page},{renderAt:render}]=await Promise.all([import('./CsImprovements'),import('../test/render')]);
+ const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);
+ render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
+ await screen.findByRole('heading',{name:'개선요청'});expect(fetch).not.toHaveBeenCalled();expect(screen.queryByText('근거 문의')).toBeNull();
+});
+
+// 결과 불명 뒤 다시 읽기: 최신 상세를 실제로 받으면 처리 동작을 다시 열고, 다시 읽기가 실패하면 막은 채로 둔다.
+function uncertainFlow(){
+ const state={detail:200,write:503};
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(init?.method)return jsonResponse(state.write,errorBody('UNCERTAIN','합성 처리 결과 불확실'));
+  return jsonResponse(state.detail,state.detail===200?source:errorBody('FAIL','합성 조회 실패'));
+ });vi.stubGlobal('fetch',fetch);view();return {state,fetch};
+}
+const reviewButton=async()=>(await screen.findByRole('button',{name:'검토 완료 기록'})) as HTMLButtonElement;
+async function becomeUncertain(){
+ fireEvent.click(await reviewButton());fireEvent.click(screen.getByRole('button',{name:'기록 저장'}));
+ await screen.findByText('합성 처리 결과 불확실');
+}
+test('결과 불명 뒤 최신 상세를 받으면 처리 동작을 다시 시작할 수 있다',async()=>{
+ const {fetch}=uncertainFlow();await becomeUncertain();
+ fireEvent.click(screen.getByRole('button',{name:'입력 버리고 최신 상태 다시 읽기'}));
+ await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));
+ expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
+ expect(fetch.mock.calls.filter(([,init])=>init?.method)).toHaveLength(1);
+});
+test('결과 불명 뒤 다시 읽기가 실패하면 막은 채로 두고 이후 성공한 조회에서만 푼다',async()=>{
+ const {state}=uncertainFlow();await becomeUncertain();
+ state.detail=503;fireEvent.click(screen.getByRole('button',{name:'입력 버리고 최신 상태 다시 읽기'}));
+ await screen.findByText('합성 조회 실패');expect(screen.getByText(/최신 상세를 받기 전에는/)).toBeTruthy();
+ state.detail=200;fireEvent.click(screen.getByRole('button',{name:'최신 요청 조회'}));
+ await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
+});
+test('결과 불명 뒤 입력을 취소해도 최신 상세를 받지 못하면 막은 채로 둔다',async()=>{
+ const {state}=uncertainFlow();await becomeUncertain();
+ state.detail=503;fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
+ await screen.findByText('합성 조회 실패');expect(screen.getByText(/최신 상세를 받기 전에는/)).toBeTruthy();
+});
+test('처리 입력과 내용 수정은 동시에 열지 않는다',async()=>{
+ uncertainFlow();
+ fireEvent.click(await reviewButton());expect((screen.getByRole('button',{name:'내용 수정'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
+ fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
 });

@@ -63,3 +63,8 @@ test('검증 오류 뒤 수정해서 다시 저장할 수 있다',async()=>{
 test('저장 충돌 뒤 취소·재진입해도 최신 조회 전 재저장을 막는다',async()=>{
  const {fetch}=setup(409);edit();fireEvent.click(screen.getByText('내용 저장'));await screen.findByRole('alert');fireEvent.click(screen.getByText('수정 취소'));edit();expect((screen.getByText('내용 저장') as HTMLButtonElement).disabled).toBe(true);expect(fetch).toHaveBeenCalledTimes(2);expect(screen.getByText('입력 버리고 최신 내용 조회')).toBeTruthy();
 });
+
+test('처리 입력이 열려 있으면 내용 수정을 열지 않는다',()=>{
+ vi.stubGlobal('fetch',vi.fn());setApiMode('live');renderAt('/','/',<ImprovementEditor record={base().data.request} onSaved={()=>{}} onReload={()=>{}} locked/>);
+ expect((screen.getByText('내용 수정') as HTMLButtonElement).disabled).toBe(true);expect(screen.getByText(/부서 처리 입력이 열려 있어/)).toBeTruthy();
+});
