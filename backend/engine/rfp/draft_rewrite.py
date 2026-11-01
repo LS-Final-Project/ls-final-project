@@ -15,7 +15,7 @@ from backend.engine.rfp.draft import DISPLAY_CODES, RESULT_TEXT, STATUS_TEXT
 from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS, CONDITION_NAMES
 from backend.shared.ai import Generation, Usage
 
-PROMPT_VERSION = "rfp-draft-rewrite-v3"
+PROMPT_VERSION = "rfp-draft-rewrite-v4"
 
 
 class RewriteSentence(BaseModel):
@@ -161,6 +161,24 @@ def numeric_values(text: str) -> set[str]:
     return values
 
 
+def identifiers_of(item: dict[str, Any]) -> list[str]:
+    """글자 그대로 남아야 할 조항·판본·규격·모델 이름. 제품 이름은 비교 인용의 머리에서만 읽는다.
+
+    Args:
+        item: input_of가 만든 문장 입력.
+
+    Returns:
+        list[str]: 식별자. 두 부분으로 된 소수는 숫자 비교가 담당하므로 뺀다.
+    """
+    source = source_text(item)
+    found = IDENTIFIER.findall(source)
+    found += re.findall(
+        r"\b[A-Za-z][A-Za-z0-9-]*[0-9][A-Za-z0-9-]*\b|\b(?:Class|Type)\s+[A-Za-z]\b", source
+    )
+    found += re.findall(r"^제품 (.*?) ·", "\n".join(item["representatives"]), re.MULTILINE)
+    return [value for value in found if not re.fullmatch(r"\d+\.\d+", value)]
+
+
 def validate(text: object, item: dict[str, Any], row: s.Sentence) -> str | None:
     if not isinstance(text, str) or not text.strip() or len(text) > 4000:
         return "TEXT_LENGTH"
@@ -173,20 +191,12 @@ def validate(text: object, item: dict[str, Any], row: s.Sentence) -> str | None:
         (next(iter(numeric_values(number))), unit) for number, unit in UNIT.findall(text)
     }:
         return "UNIT_CHANGED"
-    identifiers = IDENTIFIER.findall(source)
-    identifiers += re.findall(
-        r"\b[A-Za-z][A-Za-z0-9-]*[0-9][A-Za-z0-9-]*\b|\b(?:Class|Type)\s+[A-Za-z]\b", source
-    )
-    identifiers += re.findall(r"제품 (.*?) ·", source)
-    identifiers += [
+    identifiers = identifiers_of(item) + [
         e.id
         for e in row.evidence
         if e.type == "product" and e.id in (row.template_text or row.text)
     ]
     for identifier in identifiers:
-        # 두 부분으로 된 소수는 숫자 비교가 담당한다. 조항/판본/규격은 원형을 보존한다.
-        if re.fullmatch(r"\d+\.\d+", identifier):
-            continue
         if identifier not in text:
             return "IDENTIFIER_CHANGED"
     for condition in item["conditions"]:
@@ -216,15 +226,22 @@ def must_keep(item: dict[str, Any]) -> list[str]:
         item: input_of가 만든 문장 입력.
 
     Returns:
-        list[str]: 조건값, 상태 문구, 건수, 부정 표현. 순서를 지키고 중복은 뺀다.
+        list[str]: 조건값, 상태 문구, 건수, 단위 붙은 값, 식별자, 남은 숫자, 부정 표현.
+            순서를 지키고 중복은 뺀다.
     """
     source = source_text(item)
     conditions = [c.partition(":")[2].strip() if ":" in c else c for c in item["conditions"]]
     status = [p for p in (*STATUS_TEXT.values(), *RESULT_TEXT.values()) if p in source]
     counts = COUNT.findall(source)
-    return list(
-        dict.fromkeys(filter(None, [*conditions, *status, *counts, *NEGATIVE.findall(source)]))
-    )
+    values = [match[0] for match in UNIT.finditer(source)]
+    words = [*conditions, *status, *counts, *values, *identifiers_of(item)]
+    covered = numeric_values(" ".join(words))
+    numbers = [token for token in NUMBER.findall(source) if not numeric_values(token) <= covered]
+    kept = list(dict.fromkeys(filter(None, [*words, *numbers, *NEGATIVE.findall(source)])))
+    # 다른 문구 안에 든 조각은 따로 알려 주지 않는다('3 s'와 'duration 3 s').
+    return [
+        phrase for phrase in kept if not any(phrase != other and phrase in other for other in kept)
+    ]
 
 
 def prompt(section: str, items: list[dict[str, Any]], failures: dict[int, str]) -> str:

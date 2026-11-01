@@ -82,7 +82,12 @@ DISPLAY_CODES.update(
     STATUS_TEXT | PATH_TEXT | OWNER_TEXT | RND_TEXT | GRADE_TEXT | CONFIRMATION_TEXT
 )
 DISPLAY_CODES.update(
-    {"contract_scope": "계약 범위 확인", "MV_EQUIP": "고압 장비", "LV_BREAKER": "저압 차단기"}
+    {
+        "contract_scope": "계약 범위 확인",
+        "MV_EQUIP": "고압 장비",
+        "LV_BREAKER": "저압 차단기",
+        "TEST_REPORT": "시험 성적서",
+    }
 )
 DISPLAY_CODES = {key: label for key, label in DISPLAY_CODES.items() if "_" in key}
 CODE_WORD = re.compile(
