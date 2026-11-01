@@ -25,10 +25,15 @@ function ImprovementView(){
   const mode=getApiMode();
   const [writing,setWriting]=useState(false);
   const [acting,setActing]=useState(false);
+  // 처리 결과 불명·충돌 때의 상세 갱신 횟수. 그 뒤 서버 상세를 실제로 한 번 더 받아야(조회 성공 또는 저장 응답) 처리 동작을 다시 연다. 다시 읽기가 실패하면 횟수가 그대로라 막은 채로 둔다.
+  const [uncertainAt,setUncertainAt]=useState<number|null>(null);
   const editing=writing||acting;
   const list=useQuery({queryKey:['cs-improvements',mode,'list'],queryFn:({signal})=>listImprovements(signal),enabled:!requestId&&!editing,retry:false,staleTime:0});
   const detail=useQuery({queryKey:['cs-improvements',mode,requestId],queryFn:({signal})=>getImprovement(requestId!,signal),enabled:!!requestId&&!editing,retry:false,staleTime:0});
   const active=requestId?detail:list;
+  const refresh=()=>{void active.refetch();};
+  const detailUpdates=requestId?client.getQueryState(['cs-improvements',mode,requestId])?.dataUpdateCount??0:0;
+  const actionsUncertain=uncertainAt!==null&&detailUpdates<=uncertainAt;
   const d=requestId&&!detail.isFetching&&detail.isSuccess?detail.data.data:null;
   const r=d?.request;
   // 쓰기 응답은 서버가 돌려준 최신 상세다. 판본 이력·목록·재요청 신호는 다시 읽게 둔다.
@@ -45,14 +50,15 @@ function ImprovementView(){
   ];
   return <main>
     <KvTitle path="C/S 관리" title={`개선요청 ${requestId?'상세':'목록'}`} code="CS0301">
-      <button className="kb primary" disabled={active.isFetching||editing} onClick={()=>active.refetch()}>최신 요청 조회<KvKey>F8</KvKey></button>
+      <button className="kb primary" disabled={active.isFetching||editing} onClick={refresh}>최신 요청 조회<KvKey>F8</KvKey></button>
       <Link className="kb" to="/cs/tickets">C/S 문의</Link>
       {requestId&&<Link className="kb" to="/cs/improvements">개선요청 목록</Link>}
     </KvTitle>
     {mode==='mock'&&<div className="kv-sub" role="status" style={{margin:'6px 14px 0'}}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
     <div className="kv-sub" style={{margin:'6px 14px 0'}}>저장된 요청을 조회합니다. 문의 종결, 부서 조치, 고객 적용 및 재발 확인은 서로 다른 기록입니다.</div>
     {editing&&<div className="kv-sub" style={{margin:'6px 14px 0'}}>작성·수정 중에는 입력 보존을 위해 자동 조회를 잠시 멈춥니다. 저장·취소 후 최신 내용을 확인하세요.</div>}
-    {active.isFetching&&<Loading/>}{!active.isFetching&&active.isError&&<ErrorState error={active.error} onRetry={()=>active.refetch()}/>}
+    {requestId&&actionsUncertain&&<div className="kv-sub" role="status" style={{margin:'6px 14px 0'}}>처리 결과를 확인하지 못했습니다. 최신 상세를 받기 전에는 검토·전달·부서 처리를 다시 시작하지 않습니다.</div>}
+    {active.isFetching&&<Loading/>}{!active.isFetching&&active.isError&&<ErrorState error={active.error} onRetry={refresh}/>}
     {!requestId&&!list.isFetching&&list.isSuccess&&<>
       <div className="kv-gridhead"><span>최신 요청 (최대 200건)</span></div>
       <KvGrid label="개선요청 목록" columns={listColumns} rows={list.data.data.items} rowKey={item=>item.id} fallback="조회 가능한 개선요청이 없습니다."/>
@@ -64,8 +70,8 @@ function ImprovementView(){
       <section><h2>근거 문의</h2>{d.evidence.length?d.evidence.map(e=><article key={e.id}><Link to={`/cs/tickets/${encodeURIComponent(e.ticket_id)}`}>{e.ticket_external_id??e.ticket_id}</Link><p>해결 사례: {e.case_external_id??e.case_id??'연결 없음'} · {e.removed_at?`제외됨: ${e.removal_reason??'사유 미확인'}`:'유효한 근거'}</p></article>):<p>연결된 근거 없음</p>}</section>
       <section><h2>현재 회차 수신 부서</h2>{d.departments.length?d.departments.map(x=><p key={`${x.round}-${x.dept_code}`}>{x.dept_code} · {x.status} · 전달 판본 {x.sent_version??'미확인'} · 기한 {x.reply_due_at??'미확인'} · {x.carried_over?'이월':'이번 회차'}</p>):<p>수신 부서 기록 없음</p>}<h3>부서 회신</h3>{d.replies.length?d.replies.map(x=><p key={x.id}>{x.dept_code} · 회차 {x.round} · 판본 {x.request_version} · {x.reply_type} · {x.reason??'사유 기록 없음'}</p>):<p>회신 기록 없음</p>}</section>
       <section><h2>부서 조치</h2>{d.actions.length?d.actions.map(x=><article key={x.id}><h3>{x.dept_code} · {x.action_date}</h3><p>{x.action}</p><p>적용 대상: {x.action_scope}</p><p>근거: {x.action_evidence}</p></article>):<p>조치 기록 없음</p>}<h3>후속 확인 (고객 적용·재발 확인과 구분)</h3><p>계획: {r.followup_plan??'미기록'}</p><p>결과: {r.followup_result??'미기록'}</p><p>고객별 적용·재발 여부는 이 응답만으로 확인할 수 없습니다.</p></section>
-      <ImprovementActions key={r.id} data={d} onEditingChange={setActing} onSaved={saved} onReload={()=>{void detail.refetch();}}/>
-      <ImprovementEditor onEditingChange={setWriting} key={`${r.id}:${r.version}`} record={r} onSaved={saved} onReload={()=>{void detail.refetch();}}/>
+      <ImprovementActions key={r.id} data={d} onEditingChange={setActing} onSaved={saved} onReload={refresh} uncertain={actionsUncertain} onUncertain={()=>setUncertainAt(detailUpdates)} locked={writing}/>
+      <ImprovementEditor onEditingChange={setWriting} locked={acting} key={`${r.id}:${r.version}`} record={r} onSaved={saved} onReload={()=>{void detail.refetch();}}/>
       <ImprovementVersions key={r.id} requestId={r.id}/>
     </></div>}
   </main>;

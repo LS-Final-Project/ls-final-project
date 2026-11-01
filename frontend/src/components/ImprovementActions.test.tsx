@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
+import { useState } from 'react';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import ImprovementActions from './ImprovementActions';
 import { clearSessionCsrfToken, setApiMode } from '../api/client';
@@ -27,7 +28,9 @@ function setup(data:ImprovementDetail,identity:Identity|null,write:(url:string,i
     return jsonResponse(200,{data:{}});
   });
   vi.stubGlobal('fetch',fetch);setApiMode('live');
-  renderAt('/','/',<ImprovementActions data={data.data} onSaved={saved} onReload={reload} onEditingChange={editing}/>);
+  // 결과 불명 상태는 상세 화면처럼 바깥에서 들고 있다. 해제는 화면 시험(CsImprovements.test)에서 확인한다.
+  function Host(){const [uncertain,setUncertain]=useState(false);return <ImprovementActions data={data.data} onSaved={saved} onReload={reload} onEditingChange={editing} uncertain={uncertain} onUncertain={()=>setUncertain(true)}/>;}
+  renderAt('/','/',<Host/>);
   const writes=()=>(fetch.mock.calls as unknown as [string,RequestInit|undefined][]).filter((call):call is [string,RequestInit]=>!!call[1]?.method);
   return {fetch,saved,reload,editing,writes};
 }
@@ -232,4 +235,20 @@ test('문서 요청은 재요청·재발 신호를 조회하지 않는다',async
   const {fetch}=setup(detail(d=>{d.request.request_type='DOCUMENT';}),{roles:['cs_agent']});
   await screen.findByText('문서 요청은 재요청·재발 판정 대상이 아닙니다.');expect(screen.queryByRole('button',{name:'신호 조회'})).toBeNull();
   expect((fetch.mock.calls as unknown as [string][]).some(([url])=>url.includes('followup-signals'))).toBe(false);
+});
+
+test('작성 내용 수정이 열려 있으면 처리 동작을 시작하지 않는다',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?meResponse({roles:['cs_agent']}):jsonResponse(200,{data:{}})));setApiMode('live');
+  renderAt('/','/',<ImprovementActions data={detail().data} onSaved={()=>{}} onReload={()=>{}} locked/>);
+  expect(((await screen.findByRole('button',{name:'검토 완료 기록'})) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText(/작성 내용 수정이 열려 있어/)).toBeTruthy();
+});
+
+test('담당자 재배정은 후보 목록에 있는 사람만 고를 수 있고 후보가 없으면 저장하지 않는다',async()=>{
+  const data=detail();
+  const {fetch,writes}=setup(data,{roles:['manager'],managed_departments:['GCS_L1']});
+  fetch.mockImplementation(async url=>String(url).endsWith('/me')?meResponse({roles:['manager'],managed_departments:['GCS_L1']}):jsonResponse(200,{data:{items:[{user_id:data.data.request.cs_owner,display_name:'현재 합성 담당자'}]}}));
+  fireEvent.click(await screen.findByRole('button',{name:'C/S 담당자 재배정'}));
+  await screen.findByText('재배정할 수 있는 C/S 담당자가 없습니다.');expect(screen.getByText('현재 담당: 현재 합성 담당자')).toBeTruthy();
+  expect(screen.queryByRole('textbox')).toBeNull();expect(saveButton().disabled).toBe(true);save();expect(writes()).toHaveLength(0);
 });

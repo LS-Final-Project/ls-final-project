@@ -69,7 +69,9 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   return rows;
 }
 
-export default function ImprovementActions({data,onSaved,onReload,onEditingChange}:{data:Data;onSaved:(result:ImprovementDetail)=>void;onReload:()=>void;onEditingChange?:(editing:boolean)=>void}){
+// uncertain(결과 불명·충돌)은 상위 화면이 갖는다. 다시 읽기로 최신 상세를 실제로 받은 뒤에만 상위가 해제하고, 다시 읽기가 실패하면 유지한다.
+// locked는 같은 화면의 다른 입력(작성 내용 수정)이 열려 있다는 뜻이다. 저장 응답이 다른 입력을 지우지 않도록 동시에 열지 않는다.
+export default function ImprovementActions({data,onSaved,onReload,onEditingChange,uncertain=false,onUncertain,locked=false}:{data:Data;onSaved:(result:ImprovementDetail)=>void;onReload:()=>void;onEditingChange?:(editing:boolean)=>void;uncertain?:boolean;onUncertain?:()=>void;locked?:boolean}){
   const r=data.request;
   const mode=getApiMode();
   const live=mode==='live';
@@ -77,7 +79,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
   const [open,setOpen]=useState<Open|null>(null);
   const [values,setValues]=useState<Record<string,string>>({});
   const [depts,setDepts]=useState<Dept[]>([]);
-  const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [uncertain,setUncertain]=useState(false);const [notice,setNotice]=useState('');
+  const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const controller=useRef<AbortController|null>(null);
   const assignees=useQuery({queryKey:['cs-assignees',mode],queryFn:({signal})=>listCsAssignees(signal),enabled:live&&open?.kind==='owner',retry:false,staleTime:0});
   useEffect(()=>{onEditingChange?.(open!==null);return()=>onEditingChange?.(false);},[open,onEditingChange]);
@@ -89,7 +91,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
   const set=(key:string)=>(e:{target:{value:string}})=>setValues(v=>({...v,[key]:e.target.value}));
   const v=(key:string)=>values[key]??'';
   const start=(row:Row)=>{
-    if(busy||uncertain)return;
+    if(busy||uncertain||locked)return;
     setOpen({kind:row.kind,target:row.target,version:r.version});setError('');setNotice('');
     setValues(row.kind==='send'||row.kind==='resend'?{reply_due_days:'7'}:row.kind==='action'?{scope_kind:'OTHER'}:row.kind==='reply'?{reply_type:'ADOPTED'}:{});
     setDepts(row.kind==='review'||row.kind==='send'?[...r.proposed_depts] as Dept[]:[]);
@@ -107,7 +109,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
       case 'evidence-remove':return !!v('reason').trim();
       case 'plan':return !!v('followup_plan').trim();
       case 'complete':return !!v('followup_result').trim();
-      case 'owner':return uuid.test(v('owner_user_id'));
+      case 'owner':return v('owner_user_id')!==r.cs_owner&&(assignees.data?.data.items??[]).some(a=>a.user_id===v('owner_user_id'));
       case 'reply':return v('reply_type')!=='REJECTED'||!!v('reason').trim();
       case 'action':return ['action','action_scope','action_evidence'].every(k=>!!v(k).trim())&&/^\d{4}-\d{2}-\d{2}$/.test(v('action_date'))&&(scope==='OTHER'||!!v('scope_value').trim());
       default:return true;
@@ -136,7 +138,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     catch(e){if(!s.aborted){
       const conflict=e instanceof ApiError&&e.status===409;
       setError(e instanceof ApiError?e.message:'처리 결과를 확인할 수 없습니다.');
-      setUncertain(!(e instanceof ApiError)||e.status===408||conflict||e.status>=500);
+      if(!(e instanceof ApiError)||e.status===408||conflict||e.status>=500)onUncertain?.();
     }}
     finally{if(controller.current===current)controller.current=null;if(!s.aborted)setBusy(false);}
   };
@@ -151,7 +153,13 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     case 'evidence-remove':return <label>제외 사유<textarea required maxLength={2000} value={v('reason')} onChange={set('reason')}/></label>;
     case 'plan':return <label>후속 확인 계획<textarea required maxLength={10000} value={v('followup_plan')} onChange={set('followup_plan')}/></label>;
     case 'complete':return <><label>후속 확인 결과<textarea required maxLength={10000} value={v('followup_result')} onChange={set('followup_result')}/></label><p>완료는 이 개선요청 기록을 닫을 뿐이며 고객별 적용·재발 여부를 확인했다는 뜻이 아닙니다.</p></>;
-    case 'owner':return assignees.isFetching?<Loading label="담당자 후보 조회 중"/>:assignees.isError?<ErrorState error={assignees.error} onRetry={()=>assignees.refetch()}/>:<label>새 C/S 담당자<select required value={v('owner_user_id')} onChange={set('owner_user_id')}><option value="">선택하세요</option>{(assignees.data?.data.items??[]).map(a=><option key={a.user_id} value={a.user_id} disabled={a.user_id===r.cs_owner}>{a.display_name}{a.user_id===r.cs_owner?' (현재 담당)':''}</option>)}</select></label>;
+    case 'owner':{
+      if(assignees.isFetching)return <Loading label="담당자 후보 조회 중"/>;
+      if(assignees.isError)return <ErrorState error={assignees.error} onRetry={()=>assignees.refetch()}/>;
+      const items=assignees.data?.data.items??[];const current=items.find(a=>a.user_id===r.cs_owner);
+      return <><p>현재 담당: {current?current.display_name:r.cs_owner?'후보 목록에 없는 사용자':'미배정'}</p>
+        {items.some(a=>a.user_id!==r.cs_owner)?<label>새 C/S 담당자<select required value={v('owner_user_id')} onChange={set('owner_user_id')}><option value="">선택하세요</option>{items.map(a=><option key={a.user_id} value={a.user_id} disabled={a.user_id===r.cs_owner}>{a.display_name}{a.user_id===r.cs_owner?' (현재 담당)':''}</option>)}</select></label>:<p>재배정할 수 있는 C/S 담당자가 없습니다.</p>}</>;
+    }
     case 'acknowledge':return <p>요청을 받았다고 기록합니다. 채택·반려 판단은 회신에서 따로 남깁니다.</p>;
     case 'reply':return <><label>회신 유형<select value={v('reply_type')} onChange={set('reply_type')}>{(Object.keys(REPLY_LABEL) as ReplyBody['reply_type'][]).map(k=><option key={k} value={k}>{REPLY_LABEL[k]}</option>)}</select></label><label>사유{v('reply_type')==='REJECTED'?' (반려는 필수)':' (선택)'}<textarea required={v('reply_type')==='REJECTED'} maxLength={2000} value={v('reason')} onChange={set('reason')}/></label></>;
     case 'action':return <>
@@ -171,8 +179,9 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     {live&&identity.isFetching&&<Loading label="내 역할 확인 중"/>}
     {live&&!identity.isFetching&&identity.isError&&<ErrorState error={identity.error} onRetry={()=>identity.refetch()}/>}
     {live&&!identity.isFetching&&identity.isSuccess&&(!identity.data?<p>로그인이 필요합니다.</p>:!rows.length?<p>내 역할로 이 요청에서 할 수 있는 동작이 없습니다.</p>:<table><thead><tr><th scope="col">동작</th><th scope="col">대상</th><th scope="col">가능 여부</th></tr></thead><tbody>
-      {rows.map(row=><tr key={`${row.kind}:${row.target??''}`}><td>{row.label}</td><td>{row.targetLabel}</td><td>{row.reason?<span>할 수 없음: {row.reason}</span>:<button disabled={busy||uncertain||open!==null} onClick={()=>start(row)}>{row.label}</button>}</td></tr>)}
+      {rows.map(row=><tr key={`${row.kind}:${row.target??''}`}><td>{row.label}</td><td>{row.targetLabel}</td><td>{row.reason?<span>할 수 없음: {row.reason}</span>:<button disabled={busy||uncertain||locked||open!==null} onClick={()=>start(row)}>{row.label}</button>}</td></tr>)}
     </tbody></table>)}
+    {locked&&!open&&<p>작성 내용 수정이 열려 있어 처리 동작을 시작할 수 없습니다. 수정을 저장하거나 취소한 뒤 진행하세요.</p>}
     {notice&&<p role="status">{notice}</p>}
     {open&&<form aria-label={openRow?`${openRow.label} 입력`:'처리 입력'} aria-busy={busy} onSubmit={e=>{e.preventDefault();void submit();}}>
       <p>{openRow?`${openRow.label} · ${openRow.targetLabel}`:''}. 읽은 판본: {open.version}. 그사이 다른 사람이 바꿨다면 저장하지 않고 다시 읽기를 안내합니다.</p>

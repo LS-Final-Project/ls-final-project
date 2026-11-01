@@ -104,3 +104,43 @@ test('운영 빌드에서 업무 UI가 꺼져 있으면 조회하지 않는다',
  render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
  await screen.findByRole('heading',{name:'개선요청'});expect(fetch).not.toHaveBeenCalled();expect(screen.queryByText('근거 문의')).toBeNull();
 });
+
+// 결과 불명 뒤 다시 읽기: 최신 상세를 실제로 받으면 처리 동작을 다시 열고, 다시 읽기가 실패하면 막은 채로 둔다.
+function uncertainFlow(){
+ const state={detail:200,write:503};
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(init?.method)return jsonResponse(state.write,errorBody('UNCERTAIN','합성 처리 결과 불확실'));
+  return jsonResponse(state.detail,state.detail===200?source:errorBody('FAIL','합성 조회 실패'));
+ });vi.stubGlobal('fetch',fetch);view();return {state,fetch};
+}
+const reviewButton=async()=>(await screen.findByRole('button',{name:'검토 완료 기록'})) as HTMLButtonElement;
+async function becomeUncertain(){
+ fireEvent.click(await reviewButton());fireEvent.click(screen.getByRole('button',{name:'기록 저장'}));
+ await screen.findByText('합성 처리 결과 불확실');
+}
+test('결과 불명 뒤 최신 상세를 받으면 처리 동작을 다시 시작할 수 있다',async()=>{
+ const {fetch}=uncertainFlow();await becomeUncertain();
+ fireEvent.click(screen.getByRole('button',{name:'입력 버리고 최신 상태 다시 읽기'}));
+ await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));
+ expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
+ expect(fetch.mock.calls.filter(([,init])=>init?.method)).toHaveLength(1);
+});
+test('결과 불명 뒤 다시 읽기가 실패하면 막은 채로 두고 이후 성공한 조회에서만 푼다',async()=>{
+ const {state}=uncertainFlow();await becomeUncertain();
+ state.detail=503;fireEvent.click(screen.getByRole('button',{name:'입력 버리고 최신 상태 다시 읽기'}));
+ await screen.findByText('합성 조회 실패');expect(screen.getByText(/최신 상세를 받기 전에는/)).toBeTruthy();
+ state.detail=200;fireEvent.click(screen.getByRole('button',{name:'최신 요청 조회'}));
+ await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
+});
+test('결과 불명 뒤 입력을 취소해도 최신 상세를 받지 못하면 막은 채로 둔다',async()=>{
+ const {state}=uncertainFlow();await becomeUncertain();
+ state.detail=503;fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
+ await screen.findByText('합성 조회 실패');expect(screen.getByText(/최신 상세를 받기 전에는/)).toBeTruthy();
+});
+test('처리 입력과 내용 수정은 동시에 열지 않는다',async()=>{
+ uncertainFlow();
+ fireEvent.click(await reviewButton());expect((screen.getByRole('button',{name:'내용 수정'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
+ fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
+});
