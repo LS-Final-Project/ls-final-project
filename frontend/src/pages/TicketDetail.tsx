@@ -9,11 +9,11 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
-import CustomerThread, { latestUnansweredReply } from '../components/CustomerThread';
+import CustomerThread, { isUnsettledSend, latestUnansweredReply } from '../components/CustomerThread';
 import TicketAudit from '../components/TicketAudit';
 import TicketSummary from '../components/TicketSummary';
 import AiDraftDialog, { type SendOptions } from '../components/AiDraftDialog';
@@ -109,6 +109,7 @@ export default function TicketDetail() {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : isSendPending(error) ? '결과가 정해지지 않은 발송이 있습니다. 대화에서 "상태 확인"이나 "다시 요청"으로 먼저 확인하세요.'
         : isInvalidOwner(error) ? '새 담당자로 지정할 수 없는 사용자입니다. 활성 C/S 담당자만 지정할 수 있습니다.'
         : isResultVersionConflict(error) ? '부서 답변이 그 사이 바뀌었습니다. 최신 답변을 다시 읽었으니 확인한 뒤 다시 저장하세요.'
         : isResolutionExists(error) ? '이 문의에는 이미 해결 기록이 있습니다. 문의당 한 건만 등록할 수 있고 고치는 경로는 없습니다.'
@@ -123,14 +124,14 @@ export default function TicketDetail() {
   }
   const version = wf?.version ?? 0;
   // 승인했지만 결과가 정해지지 않은 발송. 있으면 새 발송을 막고(서버도 409), 대화에서 먼저 상태를 확인하게 한다.
-  const unsettledSend = (wf?.customer_sends ?? []).find(item => item.request_status === 'PENDING' || item.request_status === 'REQUEST_UNKNOWN' || (item.request_status === 'REGISTERED' && item.send_status !== 'ACCEPTED' && item.send_status !== 'FAILED'));
+  const unsettledSend = (wf?.customer_sends ?? []).find(isUnsettledSend);
   const sendBlock = !canWrite ? '실제 API 개발 모드에서만 실행할 수 있습니다' : !wf ? '업무 판본을 읽는 중입니다'
     : st !== 'IN_REVIEW' ? '검토중인 문의만 보낼 수 있습니다' : pendingResult ? '확인 전 부서 답변이 있으면 보낼 수 없습니다'
     : unsettledSend ? '결과가 정해지지 않은 발송이 있습니다. 대화에서 상태를 먼저 확인하세요' : undefined;
   const sendOptions: SendOptions = {
     originalSubject: data?.subject ?? null, defaultTo: wf?.mail_origin?.sender_address ?? null,
     mailboxes: mailboxes.isSuccess ? (mailboxes.data ?? []).filter(item => item.state === 'connected' && !item.reconnect_required).map(item => ({ id: item.mailbox_id, label: `사서함 ${item.mailbox_id.slice(0, 8)}` })) : undefined,
-    defaultMailboxId: wf?.mail_origin?.mailbox_id ?? null, disabled: sendBlock, busy,
+    mailboxesError: mailboxes.isError, defaultMailboxId: wf?.mail_origin?.mailbox_id ?? null, disabled: sendBlock, busy,
     onSend: body => void run(reply => sendNotice(reply), signal => sendCustomerMessage(ticketId, { ...body, version }, signal)),
   };
   // 넘긴 결과는 HTTP 상태가 아니라 마지막 발송의 request_status에 있다. 결과를 모르는 경우에는 같은 내용을 새로 승인하지 않게 안내한다.

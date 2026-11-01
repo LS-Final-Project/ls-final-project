@@ -182,3 +182,15 @@ test('내용을 고치면 확인 체크가 풀려 다시 확인해야 한다', (
   fireEvent.change(screen.getByLabelText('미리보기'), { target: { value: '문안을 고쳤습니다.' } });
   expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+test('요청 정보 체크를 바꾸면 확인 체크가 풀리고, 사서함 연결을 읽지 못하면 이유를 적는다', () => {
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts()} />);
+  approve();
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByLabelText('정격 라벨 사진'));
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  render(<AiDraftDialog analysis={analysis([run()])} ticketLabel="x" send={sendOpts({ mailboxes: undefined, mailboxesError: true })} />);
+  expect(screen.getByText(/사서함 연결을 읽지 못했습니다/)).toBeTruthy();
+  expect(screen.queryByText('사서함 연결을 읽는 중입니다')).toBeNull();
+});

@@ -21,6 +21,8 @@ export type SendOptions = {
   defaultTo: string | null;
   // undefined는 읽는 중, 빈 배열은 연결된 사서함 없음.
   mailboxes: { id: string; label: string }[] | undefined;
+  // 사서함 연결 목록을 읽지 못했다.
+  mailboxesError?: boolean;
   defaultMailboxId: string | null;
   disabled?: string;
   busy: boolean;
@@ -71,6 +73,7 @@ export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysi
   const mailboxId = mailboxPick || (send?.mailboxes?.some(item => item.id === send.defaultMailboxId) ? send.defaultMailboxId ?? '' : send?.mailboxes?.length === 1 ? send.mailboxes[0].id : '');
   const recipients = to.split(/[\s,;]+/).filter(Boolean);
   const problem = !send ? '' : send.disabled ? send.disabled
+    : send.mailboxesError ? '사서함 연결을 읽지 못했습니다. 대화상자를 닫고 다시 여세요'
     : !send.mailboxes ? '사서함 연결을 읽는 중입니다'
     : send.mailboxes.length === 0 ? '연결된 사서함이 없습니다. 메일 계정에서 먼저 연결하세요'
     : !mailboxId ? '보낼 사서함을 고르세요'
@@ -137,7 +140,7 @@ export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysi
       <div className="kv-field"><span className="req">제목</span><input aria-label="제목" value={subject} onChange={event => { setSubject(event.target.value); setConfirmed(false); }} /></div>
       {kind === 'INFO_REQUEST' && current && current.info_requests.length > 0 && <div className="kv-field"><span>요청 정보</span>
         <div className="kv-check" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-          {current.info_requests.map(item => <label key={item.info_code}><input type="checkbox" checked={!dropped.includes(item.info_code)} onChange={event => setDropped(event.target.checked ? dropped.filter(code => code !== item.info_code) : [...dropped, item.info_code])} />{item.question}</label>)}
+          {current.info_requests.map(item => <label key={item.info_code}><input type="checkbox" checked={!dropped.includes(item.info_code)} onChange={event => { setDropped(event.target.checked ? dropped.filter(code => code !== item.info_code) : [...dropped, item.info_code]); setConfirmed(false); }} />{item.question}</label>)}
         </div></div>}
       {kind === 'INFO_REQUEST' && current && current.info_requests.length > 0 && <div className="kv-sub" style={{ margin: '0 0 4px' }}>문안을 고쳐 더는 묻지 않는 정보는 체크를 풀어 주세요. 체크한 정보는 보낸 뒤 같은 정보를 다시 묻지 않는 데 쓰입니다.</div>}
       <label className="kv-check" style={{ display: 'flex', gap: 6, margin: '6px 0' }}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />내용과 받는 사람을 확인했고, 고객에게 메일이 나가는 것을 승인합니다.</label>

@@ -120,3 +120,21 @@ test('안전 문의에 쓸 초안이 없으면 강조 경고를 보이고 직접
   expect(body(api.posts[0])).toMatchObject({ kind: 'ANSWER', body: '현장 안전을 위해 즉시 사용을 중지해 주십시오.', requested_info_codes: [] });
   expect(body(api.posts[0])).not.toHaveProperty('draft_id');
 });
+
+test('플랫폼에 닿지 못한 발송(REQUEST_FAILED)은 새 발송을 막지 않고 같은 내용 다시 요청만 더한다', async () => {
+  server('IN_REVIEW', 5, { customer_sends: [sentRow({ request_status: 'REQUEST_FAILED', send_status: null })] });
+  view(); await screen.findByRole('button', { name: '다시 요청' });
+  const dialog = await openDraft();
+  await waitFor(() => expect((dialog.getByLabelText('보낼 사서함') as HTMLSelectElement).value).toBe(MAILBOX));
+  expect(dialog.queryByText(/결과가 정해지지 않은 발송이 있습니다/)).toBeNull();
+  fireEvent.click(dialog.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/));
+  expect((dialog.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test('서버가 미확정 발송으로 거부하면(409) 원인을 안내하고 다시 보내지 않는다', async () => {
+  const api = server('IN_REVIEW', 5, {}, () => jsonResponse(409, { error: { code: 'CS_CUSTOMER_SEND_PENDING', message: '발송 대기 중', retryable: false }, meta: { request_id: '11111111-1111-4111-8111-111111111199' } }));
+  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  await approveAndSend(await openDraft());
+  expect((await screen.findByRole('alert')).textContent).toContain('결과가 정해지지 않은 발송이 있습니다');
+  expect(api.posts).toHaveLength(1);
+});

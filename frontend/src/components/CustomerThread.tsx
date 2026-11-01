@@ -50,10 +50,17 @@ export function latestUnansweredReply(workflow: WorkflowRecord | undefined): Rep
   return [...(workflow.customer_replies ?? [])].sort((a, b) => b.received_at.localeCompare(a.received_at)).find(item => !lastSend || item.received_at > lastSend);
 }
 
-// 결과가 정해지지 않은 발송에만 단추를 둔다. 넘김 결과를 모르면(응답 없음) 새로 승인하지 않고 같은 내용을 다시 요청한다.
+// 발송의 '미해결' 판정은 한 곳에서 한다(계약: contracts/cs/tickets.md 고객 메일 연결).
+// 결과 미확정 = 새 발송·이관·종결을 서버가 409로 막는 발송. REQUEST_FAILED는 플랫폼에 닿지 않아 의도가 없으므로(메일이 나가지 않음)
+// 최종이라 새 발송을 막지 않지만, 같은 내용을 다시 요청(retry)할 수는 있다.
+export const isUnsettledSend = (send: Send) => send.request_status === 'PENDING' || send.request_status === 'REQUEST_UNKNOWN' || isWaitingSend(send);
+export const isWaitingSend = (send: Send) => send.request_status === 'REGISTERED' && send.send_status !== 'ACCEPTED' && send.send_status !== 'FAILED';
+export const canRetrySend = (send: Send) => send.request_status === 'PENDING' || send.request_status === 'REQUEST_FAILED' || send.request_status === 'REQUEST_UNKNOWN';
+
+// 결과가 정해지지 않았거나 다시 요청할 수 있는 발송에만 단추를 둔다. 넘김 결과를 모르면(응답 없음) 새로 승인하지 않고 같은 내용을 다시 요청한다.
 function SendActions({ send, actions }: { send: Send; actions: Actions }) {
-  const open = send.request_status === 'PENDING' || send.request_status === 'REQUEST_FAILED' || send.request_status === 'REQUEST_UNKNOWN';
-  const waiting = send.request_status === 'REGISTERED' && send.send_status !== 'ACCEPTED' && send.send_status !== 'FAILED';
+  const open = canRetrySend(send);
+  const waiting = isWaitingSend(send);
   if (!open && !waiting) return null;
   return <div className="kv-actions" style={{ justifyContent: 'flex-start' }}>
     {waiting && <button type="button" className="kb" disabled={actions.busy} onClick={() => actions.refresh(send.id)}>상태 확인</button>}
