@@ -235,7 +235,7 @@ function EvidenceBoard({ requestId, summary, cond, reloadRef }: { requestId: str
 
   return <>
     <KvNext label="다음">
-      {decision}, {comparisonState} {sep} 요청 {REQUEST_STATUS_LABEL[request.status] ?? request.status}{summary && `, 근거 사례 ${summary.evidence_count}건`}
+      {decision}, {comparisonState} {sep} 요청 {REQUEST_STATUS_LABEL[request.status] ?? request.status}, 근거 사례 {active.length}건
       {pool.isSuccess && <> {sep} 후보 {candidateCount}건</>}
     </KvNext>
     {cond}

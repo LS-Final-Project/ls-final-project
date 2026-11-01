@@ -154,7 +154,9 @@ test('열린 화면 탭 이름은 반복 사례다', async () => {
 });
 
 test('후보 행도 같은 종류와 해결 기록의 비교표를 보이고 근거 추가는 상세 판본으로 보낸다', async () => {
-  const fetch = serve();
+  const added = detailBody('DRAFT', 4);
+  added.data.evidence.push(evidence('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3', T3, 'SYN-T-3', 'SYN-RC-3', { case_id: C3 }));
+  const fetch = serve({ write: [200, added] });
   view();
   await screen.findByRole('table', { name: '비교' });
   await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
@@ -164,6 +166,9 @@ test('후보 행도 같은 종류와 해결 기록의 비교표를 보이고 근
   const compareBefore = fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length;
   fireEvent.click(screen.getByRole('button', { name: '근거 추가' }));
   await screen.findByText('근거에 추가했습니다.');
+  expect(document.querySelector('.kv-next')!.textContent).toContain('근거 사례 3건');
+  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[7].textContent === '포함')).toHaveLength(3);
+  expect(screen.getByText(/판본 4/)).toBeTruthy();
   expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence`, { ticket_id: T3, case_id: C3, version: 3 }]]);
   await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length).toBe(compareBefore + 1));
 });
@@ -181,7 +186,9 @@ test('해결 기록이 없는 후보와 뺀 행은 근거에 넣을 수 없다',
 });
 
 test('근거에서 빼기는 사유가 있어야 하고 근거 ID·사유·판본을 보낸다', async () => {
-  const fetch = serve();
+  const removed = detailBody('DRAFT', 4);
+  removed.data.evidence[1] = { ...removed.data.evidence[1], removed_by: ME, removed_at: '2026-10-31T01:00:00Z', removal_reason: '합성 조건이 다름' };
+  const fetch = serve({ write: [200, removed] });
   view();
   await screen.findByRole('table', { name: '비교' });
   pickRow(2);
@@ -192,6 +199,9 @@ test('근거에서 빼기는 사유가 있어야 하고 근거 ID·사유·판�
   fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: ' 합성 조건이 다름 ' } });
   fireEvent.click(button);
   await screen.findByText('근거에서 뺐습니다.');
+  expect(document.querySelector('.kv-next')!.textContent).toContain('근거 사례 1건');
+  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[7].textContent === '포함')).toHaveLength(1);
+  expect(screen.getByText(/판본 4/)).toBeTruthy();
   expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence/${E2}/remove`, { reason: '합성 조건이 다름', version: 3 }]]);
 });
 
