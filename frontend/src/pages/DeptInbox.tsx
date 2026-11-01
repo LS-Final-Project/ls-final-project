@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { getApiMode } from '../api/client';
 import { listDeptRequests, type DeptCode, type TicketItem, type TransferStatus } from '../api/cs';
 import { me } from '../api/platform';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvNext, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { DEPT_CODES, DEPT_LABEL, dayOf, formatStamp } from '../ls-shell/cs-labels';
 
@@ -17,7 +18,8 @@ const isDept = (value: string | null | undefined): value is DeptCode => !!value 
 // 받은 요청 CS0202(부서 창). 우리 부서로 이관된 문의를 문의 목록 API의 부서 필터(KAN-202)로 읽어 보인다.
 // 부서 필터를 주면 항목의 transfer에 고객 ID와 요청 사유가 함께 온다. 개선요청 회신 표는 부서별 조회가 없어 넣지 않는다.
 export default function DeptInbox() {
-  if (!import.meta.env.DEV) return <Preparing title="받은 요청" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
+  const access = useBusinessAccess('cs');
+  if (!access.ready) return <BusinessGate access={access} title="받은 요청" />;
   return <InboxView />;
 }
 

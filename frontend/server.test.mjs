@@ -743,7 +743,7 @@ test('web relay preserves DOCX attachment on the exact RFP export file route', a
   }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
 });
 
-test('mail relay forwards the screen reads and the two sent-mail actions only', async () => {
+test('mail relay forwards only the reads and writes the mail screens use', async () => {
   const calls = [];
   const id = '11111111-1111-4111-8111-111111111111';
   await fixture(async origin => {
@@ -770,6 +770,8 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
       `/api/v1/platform/mail/send-intents/${id}/resend`,
       `/api/v1/platform/mail/send-intents/${id}/check-sent-copy`,
       '/api/v1/platform/mail/send-intents/not-a-uuid/resend',
+      `/api/v1/platform/mail/reply-reviews/${id}/link`,
+      `/api/v1/platform/mail/messages/${id}/register-ticket`,
     ]) assert.ok((await fetch(origin + path)).status >= 400, path);
     const write = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': 'csrf', ...cookie };
     for (const path of [
@@ -780,9 +782,11 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
       `/api/v1/platform/mail/send-intents/not-a-uuid/resend`,
       `/api/v1/platform/mail/send-intents/${id}/cancel`,
       `/api/v1/platform/mail/send-intents/${id}/resend?force=1`,
-      `/api/v1/platform/mail/reply-reviews/${id}/link`,
-      `/api/v1/platform/mail/reply-reviews/${id}/dismiss`,
-      `/api/v1/platform/mail/messages/${id}/register-ticket`,
+      `/api/v1/platform/mail/reply-reviews/not-a-uuid/link`,
+      `/api/v1/platform/mail/reply-reviews/${id}/delete`,
+      `/api/v1/platform/mail/reply-reviews/${id}/link?force=1`,
+      `/api/v1/platform/mail/messages/not-a-uuid/register-ticket`,
+      `/api/v1/platform/mail/messages/${id}/register-ticket?created=1`,
     ]) {
       const response = await fetch(origin + path, { method: 'POST', headers: write, body: '{}' });
       assert.ok([400, 404, 405].includes(response.status), path);
@@ -792,6 +796,12 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
     assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/resend`, { method: 'POST', headers: { ...write, 'X-User-ID': 'forged' }, body: '{"reason":"synthetic"}' })).status, 200);
     assert.equal((await fetch(origin + `/api/v1/platform/mail/send-intents/${id}/check-sent-copy`, { method: 'POST', headers: write })).status, 200);
     assert.equal((await fetch(origin + `/api/v1/platform/mail/messages/${id}/triage`, { method: 'POST', headers: write, body: '{"version":1}' })).status, 200);
+    for (const [path, body] of [
+      [`/api/v1/platform/mail/reply-reviews/${id}/link`, '{"owner_service":"cs","business_ref":"synthetic"}'],
+      [`/api/v1/platform/mail/reply-reviews/${id}/dismiss`, '{"note":"synthetic"}'],
+      [`/api/v1/platform/mail/messages/${id}/register-ticket`, '{"customer_external_id":"SYNTHETIC"}'],
+    ]) assert.equal((await fetch(origin + path, { method: 'POST', headers: { ...write, 'X-User-ID': 'forged' }, body })).status, 200, path);
+    assert.equal((await fetch(origin + `/api/v1/platform/mail/messages/${id}/register-ticket`, { method: 'POST', headers: { ...write, 'Content-Type': 'text/plain' }, body: '{}' })).status, 415);
   }, async (url, options) => {
     calls.push(String(url));
     assert.equal(options.headers.Authorization, 'Bearer fixture-server-token');
@@ -803,7 +813,12 @@ test('mail relay forwards the screen reads and the two sent-mail actions only', 
     }
     return Response.json({ data: {} });
   });
-  assert.equal(calls.length, 7);
+  assert.equal(calls.length, 10);
+  assert.deepEqual(calls.slice(7).map(url => new URL(url).pathname), [
+    `/api/v1/platform/mail/reply-reviews/${id}/link`,
+    `/api/v1/platform/mail/reply-reviews/${id}/dismiss`,
+    `/api/v1/platform/mail/messages/${id}/register-ticket`,
+  ]);
 });
 
 test('notification relay forwards only session-owned public endpoints and bounded query/body', async () => {

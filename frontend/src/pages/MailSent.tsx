@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { checkSentCopy, listSendIntents, resendIntent, type SendIntent, type SendStatus } from '../api/mail';
 import { ErrorState, Loading } from '../components/states';
+import MailGate from './MailGate';
 import { KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvModal, KvMore, KvNext, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { formatStamp } from '../ls-shell/cs-labels';
 
@@ -16,7 +17,7 @@ const clock = (iso: string | null) => iso ? formatStamp(iso).slice(5) : '';
 // 보낸 편지함 확인(결과 불명 건)과 다시 보내기(resend_ready인 건, 사유 필수)는 고른 행에 대해 서버에 요청한다.
 // 허용 조건은 서버가 막고, 화면은 resend_ready가 아닌 건의 다시 보내기를 켜지 않는다.
 export default function MailSent() {
-  return <SentView />;
+  return <MailGate title="발송 상태"><SentView /></MailGate>;
 }
 
 function SentView() {

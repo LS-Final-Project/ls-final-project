@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ApiError, getApiMode, sessionCsrfToken } from '../api/client';
 import { listMailboxes, startMailboxLink, type MailboxConnection } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
+import MailGate from './MailGate';
 import { KvBox, KvField, KvGrid, KvKey, KvMore, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { formatStamp } from '../ls-shell/cs-labels';
 
@@ -19,7 +20,7 @@ const needsReconnect = (item: MailboxConnection) => item.state === 'connected' &
 // 메일 계정 MB0103. 내 사서함 연결 상태와 다시 연결을 보인다.
 // 서버가 사서함 주소와 가져오기·분류 기록을 주지 않아 그 부분은 표시하지 않는다.
 export default function MailAccount({ navigate = (url: string) => window.location.assign(url) }: { navigate?: (url: string) => void }) {
-  return <AccountView navigate={navigate} />;
+  return <MailGate title="메일 계정"><AccountView navigate={navigate} /></MailGate>;
 }
 
 function AccountView({ navigate }: { navigate: (url: string) => void }) {

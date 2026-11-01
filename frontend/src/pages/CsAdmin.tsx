@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getOverview, getOwners, type Overview, type Owners, type StatsFilters } from '../api/cs-stats';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { DEPT_CODES, REQUEST_STATUS_LABEL, STATE_LABEL, UNCONFIRMED_LABEL, deptName } from '../ls-shell/cs-labels';
 import { emptyFilters, rangeError, timestamp, toApiFilters } from '../ls-shell/stats-common';
@@ -16,7 +17,8 @@ const bar = (value: number, max: number) => <span style={{ display: 'inline-bloc
 
 // 운영 현황 CS0901. 관리자가 판단할 건과 처리·개선 집계를 저장된 기록에서 읽어 보인다.
 export default function CsAdmin() {
-  if (!import.meta.env.DEV) return <Preparing title="운영 현황" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
+  const access = useBusinessAccess('cs');
+  if (!access.ready) return <BusinessGate access={access} title="운영 현황" />;
   return <AdminView />;
 }
 

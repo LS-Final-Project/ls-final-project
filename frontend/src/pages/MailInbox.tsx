@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { dismissReply, getMailTriage, isTriageVersionConflict, linkReply, listReplyReviews, reclassifyMail, registerTicket, type MailTriage, type ReplyReview } from '../api/mail';
 import { ErrorState, Loading } from '../components/states';
+import MailGate from './MailGate';
 import { KvBox, KvField, KvGrid, KvKey, KvModal, KvMore, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { formatStamp } from '../ls-shell/cs-labels';
 
@@ -25,7 +26,7 @@ const day = (iso: string) => formatStamp(iso).slice(0, 10);
 // 보낸 사람·제목·첨부 여부는 서버가 주면 보이고(본문은 저장하지 않는다), 유형·확신은 메일별 분류를 따로 읽어야 해서 열이 없다.
 // 다시 분류, 후보 문의에 연결, 무시(사유 필수), 새 문의로 접수를 실제 API에서 사람이 고른 메일에만 한다. 후보 선택·허용 조건은 서버가 최종 판단한다.
 export default function MailInbox() {
-  return <InboxView />;
+  return <MailGate title="받은 메일 검토"><InboxView /></MailGate>;
 }
 
 function InboxView() {

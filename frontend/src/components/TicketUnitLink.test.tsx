@@ -96,5 +96,13 @@ test('쓰기가 막힌 상태(canWrite 아님)에서는 양식 없이 안내만 
   vi.stubGlobal('fetch', serve([{ unit: unit('u1', 'SIM-001'), link: null, matches_ticket: true }]));
   await open(false);
   expect(screen.queryByRole('form', { name: '장비 연결' })).toBeNull();
-  expect(screen.getByText(/실제 API 개발 모드에서만 할 수 있습니다/)).toBeTruthy();
+  expect(screen.getByText(/모의 응답 모드에서는 장비 연결을 확정·수정할 수 없습니다/)).toBeTruthy();
+});
+
+test('쓸 수 있는데 장비 후보가 없으면 모의 응답 모드라고 안내하지 않는다', async () => {
+  vi.stubGlobal('fetch', serve([]));
+  await open(true);
+  expect(screen.getByText('조회 가능한 장비가 없습니다.')).toBeTruthy();
+  expect(screen.queryByText(/모의 응답 모드/)).toBeNull();
+  expect(screen.queryByRole('form', { name: '장비 연결' })).toBeNull();
 });

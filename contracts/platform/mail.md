@@ -230,10 +230,10 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
 - 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
 - 분류 변경은 메일함 소유자만, 읽은 판본과 사유가 있어야 한다. 사람 판본으로 저장되고 메일이 나가지 않는다.
-- 회신 연결·무시, 문의 접수는 웹 중계에 없다.
+- 회신 연결·무시와 문의 접수는 KAN-132에서 웹 중계에 넣었다. 연결 후보·접수 조건은 서버가 검사하고 중계는 경로·메서드·query·본문 형식만 거른다. 메일 계정 화면의 사서함 경로(목록·연결 시작·콜백·완료·해제)는 `mailRoutes`가 아니라 `MAILBOX_AUTH_ENABLED`의 사서함 인증 중계가 맡는다.
 - `business-relay-routes.json`은 업무 중계(`relay.BUSINESS_ROUTES`) 표라 플랫폼 자체 경로를 넣지 않는다.
 
 ## 회신·스레드·업무 연결 (KAN-75)
@@ -298,7 +298,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 - **회신 통지**: `mail_links`에 `business_notified_at`을 더했다(연결 행은 그대로, 통지 시각만). 수집 워커(`/sync`)가 판정 뒤 `owner_service='cs'`이고 `business_ref`가 문의 UUID인 미통지 `REPLY` 연결을 오래된 순으로 최대 50건 C/S에 알리고, 사람 연결(`reply-reviews/{id}/link`)도 바로 알린다. C/S가 200이면 통지 시각을 쓰고, 404 중 오류 코드가 `CS_TICKET_NOT_FOUND`인 경우만 다시 알리지 않는다. 경로 미배포·비활성 등 다른 404는 통지 시각을 쓰지 않고 다음 실행에서 재시도한다. 연결 실패·5xx는 표시가 없어 다음 실행에서 다시 한다(`replies_notified`·`replies_notify_failed`). 업무 중계가 꺼져 있으면(C/S 주소·토큰 없음) 알리지 않고 둔다.
 - **접수**(`register-ticket`, 본문 `customer_external_id`·`product_code`·`body_language`·선택 `fw_version_reported`·`error_code_reported`): 자기 메일함의 받은편지함 메일만(다른 사람·보낸편지함·지워진 메일은 404). 원문을 객체 저장소에서 읽어 제목·본문 텍스트(text/plain, 없으면 html의 보이는 텍스트, 가리거나 자르지 않음)·보낸 사람(수집 표 `from_address`, 없으면 From 헤더)을 꺼내 C/S `from-mail`로 넘기고, 만든 문의를 원 메일에 `ORIGIN`으로 연결한다(201, `created=true`). C/S가 이미 접수된 메일이라고 답하면(409 `CS_MAIL_ALREADY_REGISTERED`) 그 문의에 연결만 확인하고 200 `created=false`다. 본문이 없으면 422 `MAIL_BODY_EMPTY`, 제목 500자·본문 50,000자(C/S 문의 한도)를 넘으면 자르지 않고 422 `MAIL_TOO_LONG_FOR_TICKET`, C/S가 답하지 않으면 503 `CS_UNAVAILABLE`. AI 분류(KAN-73)는 접수 조건이 아니다. 업무 중계가 꺼져 있으면 404.
-- **웹 중계 없음**: `register-ticket`은 승인자 API와 같은 이유(플랫폼 자체 경로에 JSON 본문을 넘기는 유형 없음)로 아직 `frontend/server.mjs`에 없다. KAN-132에서 함께 다룬다.
+- **웹 중계**: `register-ticket`은 KAN-132에서 `frontend/server.mjs` `mailRoutes`에 넣었다(POST, query 없음, `application/json`만).
 - **확인 범위**: 합성 C/S·합성 저장소로 검사했다(`tests/platform/test_mail_intake_db.py`). 실제 Cloud Run 사이의 ID 토큰 호출(C/S → 플랫폼, 플랫폼 → C/S)은 운영 적용 뒤 확인한다.
 
 ### 실제 메일 확인 (KAN-110)
@@ -325,10 +325,8 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 
 ## 남은 작업
 
-- 재발송·회신 검토 화면의 운영 공개(웹 중계는 KAN-178에서 열림, 화면이 개발 모드 조건)
+- 메일 화면 세 개의 개발 모드 조건은 KAN-178에서 풀었고, KAN-132에서 업무 UI 설정과 역할 확인(`MailGate`)을 붙였다. 운영 세션으로 실제 왕복을 확인하는 일은 남아 있다
 - KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26(`platform/20261030_KAN-110_mail_link_notify.sql`)·C13(`cs/20261030_KAN-110_customer_mail.sql`) 마이그레이션(C12 `KAN-194_checkpoint_schema`는 메일 연결과 무관), 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
-- `register-ticket`의 웹 중계와 화면(KAN-132)
-- 회신 연결·무시 경로의 웹 중계(읽기는 열림)
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
 - 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)

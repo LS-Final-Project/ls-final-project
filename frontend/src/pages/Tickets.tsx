@@ -35,14 +35,13 @@ export default function Tickets() {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
 
   const tickets = useTicketPages(access.ready);
-  const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready && import.meta.env.DEV });
-  // refetch()는 enabled를 무시하므로 개선요청은 개발 모드에서만 다시 부른다.
+  const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready });
   // 조회 중에는 다시 부르지 않는다. 단추만 잠그면 다시 그려지기 전에 들어온 연타나 F8 키 반복이 요청을 겹친다.
   const refreshing = useRef(false);
   const refresh = () => {
     if (refreshing.current) return;
     refreshing.current = true;
-    void Promise.allSettled([tickets.refetch(), import.meta.env.DEV ? improvements.refetch() : undefined]).finally(() => { refreshing.current = false; });
+    void Promise.allSettled([tickets.refetch(), improvements.refetch()]).finally(() => { refreshing.current = false; });
   };
   useHotkey('F8', refresh, access.ready);
 
@@ -153,6 +152,6 @@ export default function Tickets() {
 
     <div className="kv-gridhead sub"><span>개선요청, 진행 중 {requests.length}건</span><Link className="right" to="/cs/improvements">개선요청 조회 (CS0301)</Link></div>
     <KvGrid label="개선요청 목록" columns={requestColumns} rows={requests} rowKey={item => item.id}
-      fallback={!import.meta.env.DEV ? '운영 인증 중계와 권한 검증 뒤에 제공됩니다.' : improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && (improvements.error.status === 401 || improvements.error.status === 403) ? '운영 인증 중계와 권한 검증 뒤에 제공됩니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
+      fallback={improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && improvements.error.status === 401 ? '로그인이 필요합니다. 계정 화면에서 다시 로그인하세요.' : improvements.error instanceof ApiError && improvements.error.status === 403 ? '개선요청을 볼 권한이 없습니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
   </main>;
 }
