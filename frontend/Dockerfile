@@ -4,7 +4,8 @@ COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN npm ci --prefix frontend --no-audit --no-fund
 COPY docs/openapi ./docs/openapi
 COPY frontend ./frontend
-RUN npm test --prefix frontend && npm run build --prefix frontend
+ARG BUSINESS_UI_ENABLED=false
+RUN npm test --prefix frontend && VITE_BUSINESS_UI_ENABLED="$BUSINESS_UI_ENABLED" npm run build --prefix frontend
 
 FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production PORT=8080

@@ -33,7 +33,8 @@ function serve(handler?: Handler, roles = ['sales'], owner = USER, responsible =
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
 }
-const disabled = (name: string) => (screen.getByRole('button', { name }) as HTMLButtonElement).disabled;
+// 셸 전체의 접근성 계산이 비동기 조회 완료를 밀지 않도록 현재 업무 화면에서 같은 버튼을 찾는다.
+const disabled = (name: string) => (within(screen.getByRole('main')).getByRole('button', { name }) as HTMLButtonElement).disabled;
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 it('kv 조각으로 실제 응답의 고지·근거·조건·검토표시와 이력 제한을 표시한다', async () => {
@@ -58,6 +59,23 @@ it.each([['dept_staff'], ['manager']])('프로젝트 담당이 아닌 %s는 조�
 it('담당 책임자는 실제 역할과 ID로 편집할 수 있다', async () => {
   serve(undefined, ['dept_staff'], USER, true); renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('문장 수정')).toBe(false));
+});
+
+it('프로젝트 응답이 오기 전에는 저장을 막고 담당 확인 뒤에만 연다', async () => {
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  const respond = serve();
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === `/api/v1/tft/projects/${P}`) await pending;
+    return respond(input, init);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText(draft.disclaimer);
+  expect(disabled('검토본 저장')).toBe(true);
+  expect(fetcher.mock.calls.some(([url]) => String(url) === `/api/v1/tft/projects/${P}`)).toBe(true);
+  finish();
+  await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
 });
 
 it('CAS 409는 사유/입력과 원래 판본을 보존하며 자동 저장 재시도를 하지 않는다', async () => {
