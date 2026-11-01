@@ -326,10 +326,22 @@ def test_old_runtime_tables_move_with_rows_constraints_and_runtime_worker_rights
             "SELECT id FROM notify.notification_intents WHERE dedupe_key=%s",
             (f"rfp.done:{subject}",),
         ).fetchone()[0]
+
+        # P34가 이미 만든 수신행을 실제 플랫폼 읽음 경계로 처리한다.
+        # 중복 INSERT로 구 이관의 준비 단계부터 실패하지 않게 한다.
+        async def mark_existing():
+            async with await psycopg.AsyncConnection.connect(
+                jobs_database, row_factory=dict_row
+            ) as marking:
+                await marking.execute("SET LOCAL ROLE platform_app")
+                assert await repository.mark_read(marking, users[0], intent)
+
+        asyncio.run(mark_existing())
         read_at = conn.execute(
-            "INSERT INTO notify.user_notifications(intent_id,user_id,read_at) VALUES (%s,%s,now()) RETURNING read_at",
+            "SELECT read_at FROM notify.user_notifications WHERE intent_id=%s AND user_id=%s",
             (intent, users[0]),
         ).fetchone()[0]
+        assert read_at is not None
         before = conn.execute(
             "SELECT user_id,read_at FROM notify.user_notifications WHERE intent_id=%s", (intent,)
         ).fetchall()
@@ -531,3 +543,49 @@ def test_creation_migration_expands_legacy_pending_and_reapplication_preserves_r
             ).fetchall()
             == before
         )
+
+
+def test_recipient_history_blocks_hard_delete_but_deactivation_preserves_it(jobs_database, users):
+    subject = uuid4()
+    data = dict(
+        kind="rfp.done",
+        subject_id=subject,
+        audience=[{"user": users[1]}],
+        actor_id=None,
+        dedupe_key=f"rfp.done:{subject}",
+    )
+    with role_connection(jobs_database, "tft_worker") as conn:
+        assert enqueue_notification_sync(conn, **data)
+    with psycopg.connect(jobs_database) as conn:
+        before = conn.execute(
+            "SELECT intent_id,read_at FROM notify.user_notifications WHERE user_id=%s", (users[1],)
+        ).fetchall()
+        assert len(before) == 1
+        with pytest.raises(psycopg.errors.ForeignKeyViolation) as error:
+            with conn.transaction():
+                # 역할 FK는 savepoint 안에서만 제거해 수신 FK의 동작을 독립 검증한다.
+                conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (users[1],))
+                conn.execute("DELETE FROM identity.users WHERE id=%s", (users[1],))
+        assert error.value.diag.constraint_name == "user_notifications_user_id_fkey"
+        conn.execute("UPDATE identity.users SET is_active=false WHERE id=%s", (users[1],))
+    later = uuid4()
+    with role_connection(jobs_database, "tft_worker") as conn:
+        assert enqueue_notification_sync(
+            conn, **{**data, "subject_id": later, "dedupe_key": f"rfp.done:{later}"}
+        )
+        assert not enqueue_notification_sync(conn, **data)
+    with psycopg.connect(jobs_database) as conn:
+        assert (
+            conn.execute(
+                "SELECT intent_id,read_at FROM notify.user_notifications WHERE user_id=%s",
+                (users[1],),
+            ).fetchall()
+            == before
+        )
+        assert conn.execute(
+            "SELECT is_active FROM identity.users WHERE id=%s", (users[1],)
+        ).fetchone() == (False,)
+        assert conn.execute(
+            "SELECT count(*) FROM notify.user_notifications n JOIN notify.notification_intents i ON i.id=n.intent_id WHERE i.dedupe_key=%s",
+            (f"rfp.done:{later}",),
+        ).fetchone() == (0,)

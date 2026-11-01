@@ -132,6 +132,10 @@ def registered_user(auth_database):
             conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.manager_departments WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (user_id,))
+            # P34 생성 trigger가 이 합성 사용자에게 만든 수신행만 정리한다.
+            # auth-only 검사에서는 notify 표가 아직 없을 수 있다.
+            if conn.execute("SELECT to_regclass('notify.user_notifications')").fetchone()[0]:
+                conn.execute("DELETE FROM notify.user_notifications WHERE user_id=%s", (user_id,))
             conn.execute("DELETE FROM identity.users WHERE id=%s", (user_id,))
 
 

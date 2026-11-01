@@ -257,3 +257,13 @@ U1~U4 후속 경계 확인:
 Web Push OFF에서도 앱 수신함 생성은 INSERT로 완료된다. 푸시 발송이나 외부 API 호출을 trigger에 넣지 않는다.
 기존 pending backfill은 migration 트랜잭션에서 수행하며 새 표/업무 권한/역할 승격은 없다.
 실제 PostgreSQL 권한·재적용·수신 생성·savepoint 회귀는 auth-database 작업의 `test_notifications_db.py`로 검증한다.
+
+
+### 사용자 삭제·비활성 및 시험 자료 정리
+
+P34는 기존 `user_notifications.user_id → identity.users.id` FK나 삭제 정책을 변경하지 않는다.
+생성 즉시 수신행이 생기므로 수신 이력이 있는 사용자의 hard DELETE는 이 FK로 거부된다.
+이력 CASCADE 삭제나 운영 사용자 삭제 API는 추가하지 않는다. `is_active=false`는 기존 수신·읽음 이력을 보존하고
+신규 의도의 활성 수신자 선택에서 제외되며, 동일 의도 재전달은 기존 수신행을 다시 만들지 않는다.
+합성 DB 시험의 `registered_user` 정리는 자신이 만든 UUID의 수신행만 사용자 삭제 전에 정리한다.
+이는 운영 삭제 정책이 아니며 다른 사용자·의도·읽음 이력을 삭제하는 동작으로 확장하지 않는다.
