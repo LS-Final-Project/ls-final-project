@@ -360,11 +360,10 @@ def test_a_sentence_with_every_must_keep_phrase_passes_and_losing_any_one_fails(
     row = keep_row()
     item = draft_rewrite.input_of(row, 1)
     kept = draft_rewrite.must_keep(item)
-    tail = "정격 1,250 A, 제품 QX-800"
-    assert draft_rewrite.validate(" ".join([*kept, tail]), item, row) is None
+    assert draft_rewrite.validate(" ".join(kept), item, row) is None
     for phrase in kept:
         rest = [p for p in kept if p != phrase]
-        assert draft_rewrite.validate(" ".join([*rest, tail]), item, row) is not None
+        assert draft_rewrite.validate(" ".join(rest), item, row) is not None
 
 
 def test_the_prompt_sends_must_keep_and_keeps_english_values():
@@ -392,3 +391,33 @@ def test_source_note_left_in_conditions_is_never_sent_to_the_model():
 
     result = rewrite(source, forbidden_call)
     assert result.calls[0].reasons == {1: "INPUT_BLOCKED"} and result.fallback == 1
+
+
+def test_must_keep_lists_values_identifiers_and_bare_numbers_without_repeating_fragments():
+    row = keep_row()
+    row.text = row.template_text = (
+        "제어반 비교. 요구 2건. 대표 항목: 「정격 40 kA」 / 「탭 +2x-4x2.5%」 / 「지정 모델 ORBIT-Z9」."
+    )
+    row.conditions = ["duration 3 s"]
+    kept = draft_rewrite.must_keep(draft_rewrite.input_of(row, 1))
+    assert {"40 kA", "ORBIT-Z9", "duration 3 s", "요구 2건"} <= set(kept)
+    assert "3 s" not in kept
+    numbers = draft_rewrite.numeric_values(" ".join(kept))
+    assert (
+        draft_rewrite.numeric_values(draft_rewrite.source_text(draft_rewrite.input_of(row, 1)))
+        <= numbers
+    )
+
+
+def test_a_title_with_the_word_product_is_not_a_product_name():
+    row = keep_row()
+    row.text = row.template_text = (
+        "저압 차단기의 외부 제품 조달 검토 · 미선택 선택지. 요구 1건. 대표 항목: 「정격 100 A」."
+    )
+    item = draft_rewrite.input_of(row, 1)
+    assert draft_rewrite.identifiers_of(item) == []
+    row.text = row.template_text = "비교. 요구 1건. 대표 항목: 「제품 QX-800 · 요구 100 A」."
+    assert "QX-800" in draft_rewrite.identifiers_of(draft_rewrite.input_of(row, 1))
+    assert (
+        draft_rewrite.validate("요구 1건, 100 A", draft_rewrite.input_of(row, 1), row) is not None
+    )

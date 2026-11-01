@@ -1324,3 +1324,9 @@ def test_unknown_partner_checks_reach_the_draft_in_plain_words(snapshot: dict[st
     conditions = [text for row in rows for text in row.conditions]
     assert "조립 책임" in conditions and "공급 지역" in conditions
     assert not any("integrator_capable" in text or "supply_region" in text for text in conditions)
+
+
+def test_a_test_report_kind_is_shown_as_words():
+    from backend.engine.rfp.draft import _display
+
+    assert _display("TEST_REPORT") == "시험 성적서"
