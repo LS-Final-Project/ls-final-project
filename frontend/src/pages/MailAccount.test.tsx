@@ -77,3 +77,12 @@ test('다시 연결을 누르면 고정 authority의 동의 주소로 이동하�
   expect(await screen.findByText(/연결 주소를 확인할 수 없습니다/)).toBeTruthy();
   expect(navigate).toHaveBeenCalledTimes(1);
 });
+
+test('운영 빌드(개발 모드 아님)에서도 연결 상태를 읽어 보인다', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [connection({})] } })));
+  show();
+  expect(await screen.findByRole('table', { name: '메일 계정' })).toBeTruthy();
+  expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
+  vi.unstubAllEnvs();
+});

@@ -155,3 +155,12 @@ test('세션 확인 정보가 없으면 요청하지 않고 안내한다', async
   expect((await screen.findByRole('alert')).textContent).toContain('세션 확인 정보가 없습니다');
   expect(fetch.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
 });
+
+test('운영 빌드(개발 모드 아님)에서도 발송 기록을 읽어 보인다', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [intent({ subject: '운영 빌드 건' })] } })));
+  show();
+  expect(await screen.findByText('운영 빌드 건')).toBeTruthy();
+  expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
+  vi.unstubAllEnvs();
+});
