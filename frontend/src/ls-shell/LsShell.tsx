@@ -26,7 +26,7 @@ const MENU: Group[] = [
       { label: '문의 처리' },
       { label: '고객 이력', to: '/cs/customers' },
       { label: '개선요청', to: '/cs/improvements' },
-      { label: '반복 사례 모음' },
+      { label: '반복 사례 모음', to: '/cs/repeat-cases' },
     ],
   },
   { key: 'dept', label: '부서 검토', leaves: [{ label: '받은 요청', to: '/dept/inbox' }, { label: '검토 답변' }] },
