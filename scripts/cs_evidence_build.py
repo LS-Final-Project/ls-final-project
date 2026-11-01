@@ -54,21 +54,6 @@ SEARCH_MARGIN = 10
 QuerySource = Literal["subject+body", "subject", "body"]
 
 
-def query_terms(subject: str | None, body: str, source: QuerySource) -> str:
-    """마스킹한 subject·body에서 OR 질의를 만든다.
-
-    Args:
-        subject: 마스킹한 제목(없으면 None).
-        body: 마스킹한 본문.
-        source: 질의에 쓸 필드.
-
-    Returns:
-        str: 2자 이상 단어 토큰(마스킹 표식·'or' 제외, casefold 기준 중복 제거, 앞 40개)을 ' or '로 이은
-            websearch 질의. 토큰이 없으면 빈 문자열이다.
-    """
-    return token_or_query(*query_parts(subject, body, source))
-
-
 def query_parts(subject: str | None, body: str, source: QuerySource) -> list[str]:
     """질의에 쓸 필드 값(빈 값 제외). 토큰 질의와 코드 일치 원문이 같은 필드를 쓴다.
 
