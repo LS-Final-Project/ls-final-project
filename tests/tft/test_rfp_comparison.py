@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.api.tft.rfp.comparison import (
     Certification,
@@ -1409,6 +1410,65 @@ def certified(kind, variant=None):
             ]
         }
     )
+
+
+@pytest.mark.parametrize(
+    "wanted",
+    [
+        "CE 인증",
+        "CE인증",
+        "CE 인증서",
+        "CE 마크",
+        "ce certified",
+        "CE-certified",
+        "CE Certification",
+    ]
+    + ["CE certificate", "CE mark", "CE Marking", "CE 인증 마크"],
+)
+def test_general_certification_suffix_does_not_hide_a_held_certification(wanted):
+    """R18: 'CE 인증'은 자사 CE와 같은 규격이다. 표시만 있으니 조건부다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    marked = switchgear("15").model_copy(
+        update={"certifications": [Certification(standard="CE", kind="MARK", evidence_id="DS-T")]}
+    )
+    outcome = compare(
+        Requirement(clause_no="5.2", item="차단기", certification_standard=wanted), [marked], trace
+    )
+    assert (outcome.status, outcome.candidates[0].our_value) == ("CONDITIONAL", "CE")
+
+
+@pytest.mark.parametrize(
+    ("given", "key"),
+    [
+        ("CE", "ce"),
+        ("UL 1558", "ul 1558"),
+        ("UL 1558 Listed", "ul 1558 listed"),
+        ("UL 508A", "ul 508a"),
+        ("IEC 60076-11", "iec 60076-11"),
+        ("CB Scheme", "cb scheme"),
+        ("Benchmark", "benchmark"),
+        ("KEMA-KEUR", "kema-keur"),
+        ("인증", "인증"),
+        ("Certification", "certification"),
+    ],
+)
+def test_certification_key_keeps_standard_names(given, key):
+    """접미가 아닌 규격 이름과 영문 표기는 그대로다."""
+    assert grading.certification_key(given) == key
+
+
+def test_a_suffix_does_not_widen_to_another_standard():
+    """'UL 1558 인증'은 UL과 다르다. 번호가 다른 규격을 보유로 넓히지 않는다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    marked = switchgear("15").model_copy(
+        update={"certifications": [Certification(standard="UL", kind="MARK", evidence_id="DS-T")]}
+    )
+    outcome = compare(
+        Requirement(clause_no="4.2", item="차단기", certification_standard="UL 1558 인증"),
+        [marked],
+        trace,
+    )
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
 
 
 def test_certification_kind_and_variant_decide_gap_or_condition():

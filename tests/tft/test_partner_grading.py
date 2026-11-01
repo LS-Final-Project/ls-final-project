@@ -380,6 +380,19 @@ def test_certification_rules(certs, verdict, phrase):
     assert phrase in " ".join(row.reasons + row.exclusion_reasons)
 
 
+@pytest.mark.parametrize("value", ["UL 347 인증", "UL 347 certified", "UL 347 Certification"])
+def test_candidate_certification_ignores_a_general_suffix(value):
+    wanted = MV[5].model_copy(update={"value": value})
+    row = grade_requirement(profile("P-X", MV_FACTS, [cert("UL 347")]), wanted, CONTEXT, DAY)
+    assert f"certification:{value}" in row.mandatory_check.passed
+
+
+def test_a_suffix_does_not_hide_a_rival_standard():
+    wanted = MV[5].model_copy(update={"value": "UL 891 인증"})
+    row = grade_requirement(profile("P-X", MV_FACTS, [cert("UL 1558")]), wanted, CONTEXT, DAY)
+    assert row.grade == "EXCLUDED"
+
+
 def test_unrelated_standard_of_the_same_system_keeps_the_candidate_in_review():
     """같은 체계의 다른 규격만 있어도 제외하지 않는다. 경쟁 규격 쌍은 양쪽 다 미달이다."""
     wanted = MV[5].model_copy(update={"value": "IEEE C62.11", "standard_system": "IEEE"})
