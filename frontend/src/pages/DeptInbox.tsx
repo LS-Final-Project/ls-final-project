@@ -57,14 +57,16 @@ function InboxView() {
   const columns: KvColumn<Row>[] = [
     { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
     { key: 'id', header: '문의번호', width: 110, className: 'id', cell: row => <Link to={`/dept/result/${row.id}`}>{row.external_id ?? row.id.slice(0, 8)}</Link> },
+    { key: 'customer', header: '고객', width: 110, headClass: '', cell: row => row.transfer.customer_external_id },
     { key: 'subject', header: '제목', className: 't', headClass: '', cell: row => row.subject ?? '' },
     { key: 'round', header: '차수', width: 52, className: 'c', cell: row => row.transfer.round },
     { key: 'at', header: '요청일시', width: 130, className: 'd', sort: 'descending', headClass: '', cell: row => formatStamp(row.transfer.transferred_at) },
+    { key: 'reason', header: '요청 사유', width: 220, headClass: '', cell: row => row.transfer.reason },
     { key: 'status', header: '상태', width: 110, className: 'c', cell: row => STATUS_LABEL[row.transfer.status] },
     { key: 'age', header: '경과일', width: 64, className: 'c', cell: row => row.transfer.status === 'OPEN' ? elapsed(row) : '' },
   ];
-  const exportCsv = () => downloadCsv('받은_요청', ['문의번호', '제목', '차수', '요청일시', '상태', '경과일'],
-    shown.map(row => [row.external_id ?? row.id, row.subject ?? '', row.transfer.round, formatStamp(row.transfer.transferred_at), STATUS_LABEL[row.transfer.status], row.transfer.status === 'OPEN' ? elapsed(row) : '']));
+  const exportCsv = () => downloadCsv('받은_요청', ['문의번호', '고객', '제목', '차수', '요청일시', '요청 사유', '상태', '경과일'],
+    shown.map(row => [row.external_id ?? row.id, row.transfer.customer_external_id, row.subject ?? '', row.transfer.round, formatStamp(row.transfer.transferred_at), row.transfer.reason, STATUS_LABEL[row.transfer.status], row.transfer.status === 'OPEN' ? elapsed(row) : '']));
 
   return <main>
     <KvTitle path="부서 검토" title="받은 요청" code="CS0202">
