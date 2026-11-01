@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getCustomerHistory, type CustomerHistory, type StatsFilters } from '../api/cs-stats';
-import { ErrorState, Loading, Preparing } from '../components/states';
+import { ErrorState, Loading } from '../components/states';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { KvCond, KvCondField, KvCondRow, KvFormCell, KvFormRow, KvGrid, KvKey, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, UNCONFIRMED_LABEL, derivationName, formatStamp } from '../ls-shell/cs-labels';
 import { emptyFilters, rangeError, toApiFilters } from '../ls-shell/stats-common';
@@ -16,7 +17,8 @@ const join = (values: Record<string, number>, label: (key: string) => string) =>
 
 // 고객 이력 CS0103. 고객 한 곳의 기간 내 문의, 설치 장비, 연결된 개선요청을 저장된 기록에서 읽어 보인다.
 export default function CsCustomers() {
-  if (!import.meta.env.DEV) return <Preparing title="고객 이력" message="운영 인증 중계와 권한 검증 후 제공됩니다." />;
+  const access = useBusinessAccess('cs');
+  if (!access.ready) return <BusinessGate access={access} title="고객 이력" />;
   return <CustomersView />;
 }
 

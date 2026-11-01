@@ -78,7 +78,7 @@ export default function TicketDetail() {
   const roundOf = (transferId: string) => wf?.transfers.find(item => item.id === transferId)?.round ?? null;
   const REVIEW_LABEL = { SUBMITTED: '확인 전', ACCEPTED: '확인 완료', REWORK_REQUESTED: '다시 요청' } as const;
   const reviewOf = (transferId: string) => { const found = (wf?.dept_results ?? []).filter(item => item.transfer_id === transferId).at(-1); return found ? REVIEW_LABEL[found.review_status] ?? found.review_status : '-'; };
-  const canWrite = import.meta.env.DEV && mode === 'live';
+  const canWrite = mode === 'live';
   const why = (ok: boolean, note: string) => canWrite ? (wf ? (ok ? undefined : note) : '업무 판본을 읽는 중입니다') : '실제 API 개발 모드에서만 실행할 수 있습니다';
   const st = data?.workflow_state;
   // 담당 변경은 C/S 관리자만 할 수 있다(서버도 확인한다).
