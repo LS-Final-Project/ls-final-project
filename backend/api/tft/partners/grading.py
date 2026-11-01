@@ -368,7 +368,7 @@ def differing_word(requirement: Requirement) -> str:
 def _unit_key(unit: str | None) -> str:
     """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
 
-    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초·분·시간 표기를 s·min·h로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
+    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 한글 시간 단위와 긴 초 표기를 영문으로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
     값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
 
     Args:

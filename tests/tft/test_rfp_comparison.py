@@ -1043,6 +1043,24 @@ def test_korean_time_units_compare_with_their_english_unit(korean, english):
     assert other.status != "EVIDENCE_FOUND"
 
 
+@pytest.mark.parametrize(("korean", "english"), [("개월", "month"), ("년", "year")])
+def test_korean_period_units_are_compared_not_left_as_a_unit_gap(korean, english):
+    """'36 개월'과 '24 month'는 값을 견준다. 단위 차이로 비교를 멈추지 않는다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    wanted = Requirement(
+        clause_no="2.2",
+        item="보증",
+        attribute="warranty_months",
+        value="36",
+        unit=korean,
+        operator="GTE",
+    )
+    fact = rated_product("warranty_months", "24", english)
+    outcome = compare(wanted, [fact], trace)
+    assert (outcome.status, outcome.candidates[0].result) == ("SPEC_GAP", "DIFFERS")
+    assert not any("단위" in item for item in outcome.unresolved)
+
+
 @pytest.mark.parametrize(
     ("given", "key"),
     [
@@ -1055,6 +1073,10 @@ def test_korean_time_units_compare_with_their_english_unit(korean, english):
         ("h", "h"),
         ("hr", "hr"),
         ("hours", "hours"),
+        ("month", "month"),
+        ("months", "months"),
+        ("year", "year"),
+        ("years", "years"),
         ("ms", "ms"),
         ("kA SYM RMS", "kA"),
         ("kA 초", "kA 초"),

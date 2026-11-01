@@ -212,6 +212,8 @@ def test_different_paths_and_equipment_wording_do_not_prove_same_item() -> None:
         ("3", "초", "3000", "ms"),
         ("30", "분", "30", "min"),
         ("2", "시간", "2", "h"),
+        ("36", "개월", "36", "month"),
+        ("3", "년", "3", "year"),
         ("1", "MW", "1000000", "W"),
         ("1", "MVA", "1000000", "VA"),
         ("1e3", None, "1000.0", None),
