@@ -11,6 +11,8 @@ from backend.api.tft.rfp import schemas as s
 from backend.engine.rfp import draft as engine
 from backend.engine.rfp import vocabulary
 from backend.engine.rfp.draft import DISCLAIMER, build_draft
+from backend.engine.rfp.draft_rewrite import input_of, must_keep
+from backend.engine.rfp.vocabulary import DERIVED_SOURCE_NOTE, MASTER_SOURCE_NOTE
 
 NOW = datetime(2026, 10, 30, tzinfo=UTC)
 PROJECT = UUID(int=1)
@@ -371,6 +373,17 @@ def test_four_states_and_unconfirmed_conditions_do_not_become_promises(
         assert any("사양 차이" in row.text for row in sentences(result, "DEVIATIONS"))
     if status == "INSUFFICIENT_EVIDENCE":
         assert any("미충족 확정 아님" in row.text for row in sentences(result))
+
+
+@pytest.mark.parametrize("note", [DERIVED_SOURCE_NOTE, MASTER_SOURCE_NOTE])
+def test_source_notes_stay_out_of_sentence_conditions_and_must_keep(
+    snapshot: dict[str, Any], note: str
+) -> None:
+    proof = snapshot["comparisons"][0].candidates[0].attribute_match.evidence[0]
+    proof.limits = note
+    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    assert note not in row.conditions and "특정 구성에서만 적용" in row.conditions
+    assert note not in must_keep(input_of(row, 1))
 
 
 def test_only_grounded_own_candidate_is_described_with_its_limits(snapshot: dict[str, Any]) -> None:

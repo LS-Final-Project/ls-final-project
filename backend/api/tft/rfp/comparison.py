@@ -25,7 +25,12 @@ from pydantic import BaseModel, ConfigDict
 from backend.api.tft.partners import grading
 from backend.api.tft.partners.schemas import Condition, SpecFact
 from backend.engine.rfp.requirements import Kind
-from backend.engine.rfp.vocabulary import form_axes, is_placeholder
+from backend.engine.rfp.vocabulary import (
+    DERIVED_SOURCE_NOTE,
+    MASTER_SOURCE_NOTE,
+    form_axes,
+    is_placeholder,
+)
 
 Status = Literal["EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUFFICIENT_EVIDENCE"]
 Result = Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
@@ -178,9 +183,7 @@ def _evidence(fact: SpecFact) -> Evidence:
         document=fact.evidence_id,
         clause=fact.section,
         applicability=grading._conditions_text(fact.conditions or []) or None,
-        limits="제품 마스터 표준 조건(합성)"
-        if fact.evidence_id == "product_master"
-        else "합성 데이터시트 문장을 정규화한 값(DERIVED)",
+        limits=MASTER_SOURCE_NOTE if fact.evidence_id == "product_master" else DERIVED_SOURCE_NOTE,
     )
 
 

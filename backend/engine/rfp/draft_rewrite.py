@@ -45,6 +45,8 @@ for vocabulary in (
 ):
     INTERNAL_CODES.update(get_args(vocabulary))
 INTERNAL_CODES.update(RESULT_TEXT)
+# 파생 구분 중 자료 출처 표시로 문장에 샌 값이다. PROVIDED·SYSTEM은 고객 대문자 원문에 흔해 뺀다.
+INTERNAL_CODES.add("DERIVED")
 # 내부 코드 노출을 막는 검사다. voltage·form 같은 일반 단어는 고객 원문에도 있으므로
 # 식별자 꼴(밑줄·전체 대문자)만 본다. 금액·UUID·근거 ID·협력사 코드 검사는 별개다.
 IDENTIFIER_CODES = {key for key in INTERNAL_CODES if "_" in key or key.isupper()}
@@ -53,6 +55,7 @@ CODE_WORDS = re.compile(
     + "|".join(re.escape(key) for key in sorted(IDENTIFIER_CODES, key=len, reverse=True))
     + r")(?![A-Za-z0-9_])"
 )
+SOURCE_NOTE = re.compile(r"정규화한\s*값|데이터시트\s*문장|제품\s*마스터")
 MONEY = re.compile(r"[$€₩¥]|\d[\d,.]*\s*(?:USD|EUR|KRW|달러|만원|억원|원)(?![A-Za-z])")
 NUMERIC = r"[-+−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?"
 NUMBER = re.compile(r"(?<![0-9_])" + NUMERIC + r"(?![0-9_])")
@@ -123,6 +126,7 @@ def forbidden(text: str, row: s.Sentence) -> bool:
         UUID_PATTERN.search(text)
         or INTERNAL.search(text)
         or CODE_WORDS.search(text)
+        or SOURCE_NOTE.search(text)
         or MONEY.search(text)
     ):
         return True

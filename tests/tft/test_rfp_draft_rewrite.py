@@ -11,6 +11,7 @@ from backend.api.tft.rfp import schemas as s
 from backend.engine.rfp import draft_rewrite
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.engine.rfp.draft_rewrite import fake_provider, rewrite
+from backend.engine.rfp.vocabulary import DERIVED_SOURCE_NOTE
 from backend.shared.ai import Generation, Usage
 
 
@@ -288,6 +289,7 @@ def test_input_partition_cannot_silently_drop_numeric_representatives_and_produc
     "text",
     [
         "Medium-voltage switchgear duration form tap frequency impedance",
+        "ratings derived from the Derived Table",
         "BIL: 15 kV, 95 kV",
     ],
 )
@@ -312,6 +314,11 @@ def test_customer_words_are_not_internal_codes(text):
         "단가 100 USD",
         "금액 3억원",
         "PARTNER-1 후보",
+        "합성 데이터시트 문장을 정규화한 값(DERIVED)",
+        "정격은 정규화한 값입니다",
+        "데이터시트 문장 기준",
+        "DERIVED값",
+        "제품 마스터 표준 조건(합성)",
     ],
 )
 def test_internal_codes_money_ids_and_partner_codes_stay_blocked(text):
@@ -372,3 +379,16 @@ def test_the_prompt_sends_must_keep_and_keeps_english_values():
     assert "대표 항목, 대표 인용 같은 입력 구조의 말을 문장에 쓰지 마세요" in text
     assert "한국어로 설명할 수 있습니다" not in text
     assert "must_keep" not in item
+
+
+def test_source_note_left_in_conditions_is_never_sent_to_the_model():
+    """옛 조건 칸에 출처 표시가 남아도 모델 입력이 되지 않고 양식이 유지된다."""
+    source = draft()
+    row = source.sections[0].sentences[0]
+    row.conditions.append(DERIVED_SOURCE_NOTE)
+
+    def forbidden_call(_):
+        raise AssertionError("must not call")
+
+    result = rewrite(source, forbidden_call)
+    assert result.calls[0].reasons == {1: "INPUT_BLOCKED"} and result.fallback == 1
