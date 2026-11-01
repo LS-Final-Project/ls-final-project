@@ -19,7 +19,12 @@ const today = () => new Date().toISOString().slice(0, 10);
  * 요청 상태는 사람이 고르지 않고 서버가 현재 회차 부서 상태에서 요약한다. 모든 호출은 읽은 판본을 보내고, 판본이 바뀌었으면 서버가 409로 거부한다.
  * 결과를 알 수 없으면(응답 없음·5xx) 같은 요청을 다시 보내지 않고 최신 내용을 읽는다.
  */
-export default function ImprovementTransitions({ detail, onChanged }: { detail: Detail; onChanged: (next?: ImprovementDetail) => void }) {
+export type TransitionMessage = { kind: 'ok' | 'error'; text: string } | null;
+
+// message는 상위가 들고 있다. 판본이 바뀌어 다시 읽는 동안 상위가 이 화면을 내려도 오류 안내('반영 여부를 확인하세요')가 사라지면 안 된다.
+export default function ImprovementTransitions({ detail, onChanged, message, setMessage }: {
+  detail: Detail; onChanged: (next?: ImprovementDetail) => void; message: TransitionMessage; setMessage: (next: TransitionMessage) => void;
+}) {
   const request = detail.request;
   const version = request.version;
   const available = import.meta.env.DEV && getApiMode() === 'live';
@@ -30,30 +35,28 @@ export default function ImprovementTransitions({ detail, onChanged }: { detail: 
   const isDept = roles.includes('dept_staff');
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
-  // 다른 요청으로 옮기거나 판본이 바뀌면 열어 둔 입력을 닫는다(앞 요청의 내용이 남지 않게).
-  useEffect(() => { setOpen(null); setError(''); }, [request.id, version]);
+  // 판본이 바뀌면 열어 둔 입력을 닫는다(앞 판본으로 쓴 내용이 남지 않게). 안내 문구는 지우지 않는다.
+  useEffect(() => { setOpen(null); }, [request.id, version]);
 
   async function run(done: string, call: (signal: AbortSignal) => Promise<ImprovementDetail>) {
     if (controller.current) return;
     const current = new AbortController();
     controller.current = current;
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setMessage(null);
     try {
       const result = await call(current.signal);
       if (current.signal.aborted) return;
-      setNotice(done); setOpen(null);
+      setMessage({ kind: 'ok', text: done }); setOpen(null);
       onChanged(result);
     } catch (caught) {
       if (current.signal.aborted) return;
       const status = caught instanceof ApiError ? caught.status : 0;
       const code = caught instanceof ApiError ? caught.code : '';
-      setError(code === 'CS_REQUEST_VERSION_CONFLICT' ? '다른 사용자가 먼저 바꿨습니다. 최신 내용을 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+      setMessage({ kind: 'error', text: code === 'CS_REQUEST_VERSION_CONFLICT' ? '다른 사용자가 먼저 바꿨습니다. 최신 내용을 다시 읽었으니 확인한 뒤 다시 실행하세요.'
         : status >= 400 && status < 500 && status !== 408 ? (caught as ApiError).message
-          : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 내용을 읽었습니다. 반영 여부를 확인하세요.');
+          : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 내용을 읽었습니다. 반영 여부를 확인하세요.' });
       onChanged();
     } finally {
       if (controller.current === current) controller.current = null;
@@ -63,7 +66,7 @@ export default function ImprovementTransitions({ detail, onChanged }: { detail: 
 
   const closed = request.status === 'COMPLETED';
   const disabled = !available || busy || closed;
-  const Open = ({ id, children }: { id: string; children: ReactNode }) => <button type="button" disabled={disabled} onClick={() => { setOpen(id); setError(''); setNotice(''); }}>{children}</button>;
+  const Open = ({ id, children }: { id: string; children: ReactNode }) => <button type="button" disabled={disabled} onClick={() => { setOpen(id); setMessage(null); }}>{children}</button>;
   const Cancel = () => <button type="button" disabled={busy} onClick={() => setOpen(null)}>취소</button>;
   const rows = detail.departments;
   const live = request.status !== 'FOLLOW_UP' && request.status !== 'COMPLETED';
@@ -73,8 +76,8 @@ export default function ImprovementTransitions({ detail, onChanged }: { detail: 
     <p>현재 {REQUEST_STATUS_LABEL[request.status] ?? request.status} · 판본 {version}. 상태는 부서 상태에서 서버가 정합니다. 문의 종결, 부서 조치, 고객 적용·재발 확인은 서로 다른 기록입니다.</p>
     {!available && <p>{getApiMode() === 'mock' ? '모의 응답에서는 실행하지 않습니다.' : '실제 API 개발 모드에서만 실행할 수 있습니다.'}</p>}
     {closed && <p>완료된 요청은 고칠 수 없습니다.</p>}
-    {notice && <p role="status">{notice}</p>}
-    {error && <p role="alert">{error}</p>}
+    {message?.kind === 'ok' && <p role="status">{message.text}</p>}
+    {message?.kind === 'error' && <p role="alert">{message.text}</p>}
 
     {isCs && request.status === 'DRAFT' && <div>
       <Open id="review">검토 완료</Open>
@@ -118,6 +121,9 @@ export default function ImprovementTransitions({ detail, onChanged }: { detail: 
   </section>;
 }
 
+// 다시 요청은 추가 정보 요청·반려 뒤에, 또는 회신 기한이 지난 미회신 부서를 재촉할 때만 서버가 받는다(contracts/cs/improvements.md).
+const canResend = (row: Department) => row.status === 'INFO_REQUESTED' || row.status === 'REJECTED'
+  || ((row.status === 'SENT' || row.status === 'ACKNOWLEDGED') && !!row.reply_due_at && new Date(row.reply_due_at).getTime() < Date.now());
 const sameSet = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every(item => right.includes(item));
 
 function DepartmentRow({ row, canCs, canDept, open, setOpen, disabled, busy, onAck, onRejectionReviewed, onResend, onReply, onAction }: {
@@ -138,7 +144,7 @@ function DepartmentRow({ row, canCs, canDept, open, setOpen, disabled, busy, onA
       {canDept && row.status === 'ACKNOWLEDGED' && toggle('reply', '회신')}
       {canDept && row.status === 'ADOPTED' && toggle('action', '조치 입력')}
       {canCs && row.status === 'REJECTED' && !row.rejection_reviewed_at && <button type="button" disabled={disabled} onClick={onRejectionReviewed}>반려 확인</button>}
-      {canCs && toggle('resend', '다시 요청')}
+      {canCs && canResend(row) && toggle('resend', '다시 요청')}
     </div>
     {open === key('resend') && <ResendForm busy={busy} cancel={<Cancel />} onSubmit={onResend} />}
     {open === key('reply') && <ReplyForm busy={busy} cancel={<Cancel />} onSubmit={onReply} />}

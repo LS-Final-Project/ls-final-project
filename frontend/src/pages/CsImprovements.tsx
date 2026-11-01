@@ -2,7 +2,7 @@ import { useState } from 'react';
 import ImprovementCreator from '../components/ImprovementCreator';
 import ImprovementEditor from '../components/ImprovementEditor';
 import ImprovementVersions from '../components/ImprovementVersions';
-import ImprovementTransitions from '../components/ImprovementTransitions';
+import ImprovementTransitions, { type TransitionMessage } from '../components/ImprovementTransitions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
@@ -22,6 +22,7 @@ function ImprovementView(){
   const {requestId}=useParams();
   const mode=getApiMode();
   const [editing,setEditing]=useState(false);
+  const [transitionMessage,setTransitionMessage]=useState<TransitionMessage>(null);
   const list=useQuery({queryKey:['cs-improvements',mode,'list'],queryFn:({signal})=>listImprovements(signal),enabled:!requestId&&!editing,retry:false,staleTime:0});
   const detail=useQuery({queryKey:['cs-improvements',mode,requestId],queryFn:({signal})=>getImprovement(requestId!,signal),enabled:!!requestId&&!editing,retry:false,staleTime:0});
   const active=requestId?detail:list;
@@ -60,7 +61,7 @@ function ImprovementView(){
       <section><h2>부서 조치</h2>{d.actions.length?d.actions.map(x=><article key={x.id}><h3>{x.dept_code} · {x.action_date}</h3><p>{x.action}</p><p>적용 대상: {x.action_scope}</p><p>근거: {x.action_evidence}</p></article>):<p>조치 기록 없음</p>}<h3>후속 확인 (고객 적용·재발 확인과 구분)</h3><p>계획: {r.followup_plan??'미기록'}</p><p>결과: {r.followup_result??'미기록'}</p><p>고객별 적용·재발 여부는 이 응답만으로 확인할 수 없습니다.</p></section>
       <ImprovementEditor onEditingChange={setEditing} key={`${r.id}:${r.version}`} record={r} onSaved={result=>{client.setQueryData(['cs-improvements',mode,requestId],result);void client.invalidateQueries({queryKey:['cs-improvement-versions',mode,r.id]});void client.invalidateQueries({queryKey:['cs-improvements',mode,'list']});}} onReload={()=>{void detail.refetch();}}/>
       <ImprovementVersions key={r.id} requestId={r.id}/>
-      <ImprovementTransitions detail={d} onChanged={result=>{if(result)client.setQueryData(['cs-improvements',mode,requestId],result);else void detail.refetch();void client.invalidateQueries({queryKey:['cs-improvement-versions',mode,r.id]});void client.invalidateQueries({queryKey:['cs-improvements',mode,'list']});}}/>
+      <ImprovementTransitions detail={d} message={transitionMessage} setMessage={setTransitionMessage} onChanged={result=>{if(result)client.setQueryData(['cs-improvements',mode,requestId],result);else void detail.refetch();void client.invalidateQueries({queryKey:['cs-improvement-versions',mode,r.id]});void client.invalidateQueries({queryKey:['cs-improvements',mode,'list']});}}/>
     </></div>}
   </main>;
 }

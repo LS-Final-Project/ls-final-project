@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
-import ImprovementTransitions from './ImprovementTransitions';
+import { useState } from 'react';
+import ImprovementTransitions, { type TransitionMessage } from './ImprovementTransitions';
 import type { ImprovementDetail } from '../api/cs-improvements';
 import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
@@ -26,9 +27,16 @@ function server(roles: string[], dept: string | undefined, reply: (post: Post) =
   }));
   return posts;
 }
+// 상위 화면처럼 안내 문구를 들고 있고, 다시 읽는 동안 화면을 내렸다가 올린다(실제 CsImprovements의 재조회 흐름).
+function Harness({ data, onChanged }: { data: Detail; onChanged: (next?: ImprovementDetail) => void }) {
+  const [message, setMessage] = useState<TransitionMessage>(null);
+  const [hidden, setHidden] = useState(false);
+  const changed = (next?: ImprovementDetail) => { onChanged(next); setHidden(true); setTimeout(() => setHidden(false), 0); };
+  return hidden ? null : <ImprovementTransitions detail={data} message={message} setMessage={setMessage} onChanged={changed} />;
+}
 function view(data: Detail, onChanged = vi.fn(), live = true) {
   setApiMode(live ? 'live' : 'mock');
-  renderAt('/x', '/x', <ImprovementTransitions detail={data} onChanged={onChanged} />);
+  renderAt('/x', '/x', <Harness data={data} onChanged={onChanged} />);
   return onChanged;
 }
 const button = (name: string | RegExp) => screen.getByRole('button', { name }) as HTMLButtonElement;
@@ -173,6 +181,9 @@ test('판본 충돌(409)과 서버 거부(4xx)는 이유를 보이고 최신 내
   fireEvent.submit(screen.getByRole('form', { name: '전달 입력' }));
   expect((await screen.findByRole('alert')).textContent).toContain('다른 사용자가 먼저 바꿨습니다');
   expect(changed).toHaveBeenCalledWith();
+  // 다시 읽느라 화면이 내려갔다 올라와도 안내가 남아 있다.
+  await waitFor(() => expect(screen.queryByRole('form', { name: '전달 입력' })).toBeNull());
+  expect(screen.getByRole('alert').textContent).toContain('다른 사용자가 먼저 바꿨습니다');
   cleanup();
   server(['cs_agent'], undefined, () => jsonResponse(422, errorBody('CS_DEPARTMENT_REQUIRED', '받는 부서를 정해야 합니다')));
   view(detail('REVIEWED'));
@@ -191,6 +202,8 @@ test('응답을 알 수 없는 오류(5xx)는 같은 요청을 다시 보내지 
   expect((await screen.findByRole('alert')).textContent).toContain('같은 요청을 다시 보내지 않고');
   expect(posts).toHaveLength(1);
   expect(changed).toHaveBeenCalledWith();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(screen.getByRole('alert').textContent).toContain('반영 여부를 확인하세요');
 });
 
 test('모의 응답 모드와 완료된 요청에서는 실행하지 않고, 역할이 없으면 안내한다', async () => {
@@ -205,4 +218,22 @@ test('모의 응답 모드와 완료된 요청에서는 실행하지 않고, 역
   server(['viewer'], undefined);
   view(detail('DRAFT'));
   expect(await screen.findByText(/C\/S 담당자나 부서 담당자가 아니라 실행할 수 없습니다/)).toBeTruthy();
+});
+
+test('다시 요청은 추가 정보 요청·반려, 또는 기한이 지난 미회신 부서에만 보인다', async () => {
+  server(['cs_agent'], undefined);
+  const past = '2020-01-01T00:00:00Z';
+  const future = '2099-01-01T00:00:00Z';
+  view(detail('SENT', [
+    dept({ dept_code: 'TS_AUTO', status: 'SENT', reply_due_at: future }), dept({ dept_code: 'TS_LV', status: 'SENT', reply_due_at: past }),
+    dept({ dept_code: 'TS_MV', status: 'ADOPTED' }), dept({ dept_code: 'CERT', status: 'ACTION_TAKEN' }), dept({ dept_code: 'SCM', status: 'INFO_REQUESTED' }),
+  ]));
+  await waitFor(() => expect(screen.getAllByRole('button', { name: '다시 요청' })).toHaveLength(2));
+  const rows = screen.getAllByRole('listitem');
+  const has = (code: string) => !!rows.find(row => row.textContent?.includes(`(${code})`))?.querySelector('button');
+  expect(has('TS_LV')).toBe(true);
+  expect(has('SCM')).toBe(true);
+  expect(has('TS_AUTO')).toBe(false);
+  expect(has('TS_MV')).toBe(false);
+  expect(has('CERT')).toBe(false);
 });
