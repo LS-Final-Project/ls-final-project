@@ -125,6 +125,10 @@ async def admit(
     Returns:
         s.JobAccepted: 작업 ID·상태·상태 경로. 같은 키 재전송이면 기존 작업이다.
     """
+    if kind == "rfp.annotate":
+        raise ApplicationError(
+            422, "TFT_ANNOTATION_UNAVAILABLE", "Memo PDF interpretation is not supported."
+        )
     if isinstance(payload, s.ExportRequest):
         draft_exports.require_docx(payload.format)
     operation: commands.Operation

@@ -45,7 +45,7 @@ it('kv 조각으로 실제 응답의 고지·근거·조건·검토표시와 이
   expect(screen.getByText('판본·검토본·내보내기 이력 목록은 제공되지 않습니다.')).toBeTruthy();
   expect(screen.getByRole('tab').textContent).toBe('초안 및 검토 이력');
   expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
-  expect(disabled('PDF (미지원)')).toBe(true);
+  expect(screen.queryByRole('button', { name: /PDF/ })).toBeNull();
   await waitFor(() => expect(disabled('문장 수정')).toBe(false));
 });
 

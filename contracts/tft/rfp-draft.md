@@ -174,8 +174,8 @@ T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표�
 
 ### 내보내기 포맷과 파일
 
-ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **이번 구현은 DOCX만**이며 PDF는 예약/DB 쓰기/
-플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 생성은 별도 후속 작업이다.
+ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **내보내기는 Word(DOCX)만 지원**이며 PDF는 예약/DB 쓰기/
+플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 내보내기는 지원 범위 밖이며 화면에는 PDF 내보내기 동작을 제공하지 않는다.
 reportlab·글꼴·의존성·이미지를 추가하지 않는다.
 
 DOCX는 stdlib ZIP/XML의 실제 OOXML 패키지로, 고정 고지·모든 절/문장·문장 번호·조건·근거·미확약/검토 표시를 싣는다.
