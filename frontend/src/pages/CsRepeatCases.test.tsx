@@ -4,7 +4,7 @@ import CsRepeatCases from './CsRepeatCases';
 import { setApiMode } from '../api/client';
 import { addEvidence } from '../api/cs-repeat-cases';
 import type { useBusinessAccess } from '../components/BusinessAccess';
-import { errorBody, jsonResponse, renderAt } from '../test/render';
+import { errorBody, jsonResponse, renderApp, renderAt } from '../test/render';
 
 // 운영 빌드의 권한 확인을 대신한다. null이면 실제 훅(개발 모드에서는 바로 열림)을 쓴다.
 let gate: ReturnType<typeof useBusinessAccess> | null = null;
@@ -13,7 +13,7 @@ vi.mock('../components/BusinessAccess', async original => {
   return { ...actual, useBusinessAccess: (business: 'cs' | 'tft') => gate ?? actual.useBusinessAccess(business) };
 });
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); gate = null; });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); gate = null; sessionStorage.clear(); });
 
 const ID = '11111111-1111-4111-8111-111111111111';
 const ME = '99999999-9999-4999-8999-999999999999';
@@ -40,8 +40,8 @@ function detailBody(status = 'DRAFT', version = 3) {
     departments: [], replies: [], actions: [], next_owners: [],
   } };
 }
-const caseRow = (ticket: string, no: string, extra = {}) => ({ ticket_id: ticket, ticket_external_id: no, customer_external_id: `CUST-${no}`, product_code: 'SYN-INV-1', case_id: null, case_external_id: null, symptom: `증상 ${no}`, root_cause_type: '펌웨어', root_cause: `원인 ${no}`, action_taken: `조치 ${no}`, resolved_by_dept: 'RND_FW', known_at: '2026-10-28T00:00:00Z', ...extra });
-const comparisonBody = { data: { request_id: ID, items: [caseRow(T1, 'SYN-T-1'), caseRow(T2, 'SYN-T-2', { root_cause: '다른 원인' })], hidden_case_count: 0 } };
+const caseRow = (ticket: string, no: string, extra = {}) => ({ ticket_id: ticket, ticket_external_id: no, customer_external_id: `CUST-${no}`, product_code: 'SYN-INV-1', case_id: null, case_external_id: null, symptom: `증상 ${no}`, root_cause_type: 'FIRMWARE', root_cause: `원인 ${no}`, action_taken: `조치 ${no}`, resolved_by_dept: 'RND_FW', known_at: '2026-10-28T00:00:00Z', ...extra });
+const comparisonBody = { data: { request_id: ID, items: [caseRow(T1, 'SYN-T-1'), caseRow(T2, 'SYN-T-2', { root_cause: '다른 원인', root_cause_type: 'SYN_RAW_CODE', action_taken: null })], hidden_case_count: 0 } };
 const poolBody = { data: { as_of: '2026-10-31T00:00:00Z', rules_version: 'synthetic', items: [
   { request_id: ID, evidence: [
     { ticket_id: T1, case_id: 'x', customer_id: 'CUST-SYN-T-1', known_at: '2026-10-28T00:00:00Z' },
@@ -97,30 +97,58 @@ test('포함·후보·뺌을 구분하고 후보는 현재 요청의 아직 넣�
   expect(screen.getByRole('link', { name: '요청으로 이동' }).getAttribute('href')).toBe(`/cs/improvements/${ID}`);
 });
 
-test('근거 변경 기록은 추가와 뺌을 최신순으로 처리자·사유와 함께 보인다', async () => {
+test('근거 변경 기록은 추가와 뺌을 오래된 순으로 처리자·사유와 함께 보인다', async () => {
   serve();
   view();
   const table = await screen.findByRole('table', { name: '근거 변경 기록' });
   await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(5));
   const text = within(table).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].slice(1).map(td => td.textContent));
+  expect(table.textContent).not.toContain(ME);
   expect(text).toEqual([
-    ['뺌', 'SYN-RC-4', 'SYN-T-4', '나', '합성 조건 불일치'],
-    ['추가', 'SYN-RC-2', 'SYN-T-2', '나', '-'],
     ['추가', 'SYN-RC-1', 'SYN-T-1', '시스템', '-'],
     ['추가', 'SYN-RC-4', 'SYN-T-4', '시스템', '-'],
+    ['추가', 'SYN-RC-2', 'SYN-T-2', '담당자', '-'],
+    ['뺌', 'SYN-RC-4', 'SYN-T-4', '담당자', '합성 조건 불일치'],
   ]);
 });
 
-test('기준(첫 포함 행)과 선택 행을 2열로 비교하고 기준을 바꿀 수 있다', async () => {
+test('첫 포함 행을 기준으로 고정해 번호 머리의 2열로 비교하고 원인 유형은 표시 이름, 빈 값은 미기록이다', async () => {
   serve();
   view();
-  await screen.findByRole('table', { name: '비교' });
+  const table = await screen.findByRole('table', { name: '비교' });
   expect(screen.getByRole('heading', { name: /비교, 2\/5행 SYN-RC-2 \(기준 SYN-T-1\)/ })).toBeTruthy();
+  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', 'SYN-T-1', 'SYN-T-2']);
   expect([...compareCells('원인')].map(td => td.textContent)).toEqual(['원인', '원인 SYN-T-1', '다른 원인']);
+  expect([...compareCells('원인 유형')].map(td => td.textContent)).toEqual(['원인 유형', '펌웨어', '이름 없는 유형']);
+  expect([...compareCells('조치')].map(td => td.textContent)).toEqual(['조치', '조치 SYN-T-1', '미기록']);
   expect([...compareCells('해결 부서')].map(td => td.textContent)).toEqual(['해결 부서', '펌웨어 개발', '펌웨어 개발']);
-  fireEvent.change(screen.getByRole('combobox', { name: '기준 행' }), { target: { value: `in:${E2}` } });
-  expect(screen.getByRole('heading', { name: /기준 SYN-T-2/ })).toBeTruthy();
-  expect([...compareCells('원인')].map(td => td.textContent)[1]).toBe('다른 원인');
+  expect(document.body.textContent).not.toContain('SYN_RAW_CODE');
+  expect(screen.queryByRole('combobox', { name: '기준 행' })).toBeNull();
+  pickRow(1);
+  expect([...table.querySelectorAll('th')].map(th => th.textContent)).toEqual(['항목', 'SYN-T-1', 'SYN-T-1']);
+});
+
+test('다음 할 일 줄은 조건 줄 위에서 고른 행과 서버 값으로 안내하고 후보 건수를 요약한다', async () => {
+  serve();
+  const { container } = view();
+  await screen.findByRole('table', { name: '비교' });
+  await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
+  const next = container.querySelector('.kv-next')!;
+  expect(next.compareDocumentPosition(container.querySelector('.kv-cond')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(next.textContent).toBe('다음SYN-T-2 뺄지 판단, 비교표 준비됨 / 요청 작성 중, 근거 사례 2건 / 후보 2건');
+  expect(screen.getByText('후보 문의 2건')).toBeTruthy();
+  expect(screen.getByRole('table', { name: '근거 문의' }).querySelector('thead input')).toBeNull();
+  pickRow(3);
+  expect(next.textContent).toContain('3행 넣을지 판단, 비교표 없음');
+  pickRow(4);
+  expect(next.textContent).toContain('4행 해결 기록이 없어 넣을 수 없음');
+});
+
+test('열린 화면 탭 이름은 반복 사례다', async () => {
+  serve();
+  setApiMode('live');
+  renderApp(`/cs/repeat-cases/${ID}`);
+  await screen.findByRole('tab', { name: '반복 사례', selected: true });
 });
 
 test('후보 행을 고르면 비교표 대신 안내하고 근거 추가는 상세의 판본으로 보낸다', async () => {
@@ -198,6 +226,8 @@ test('후보 API가 403이면 후보 행만 빼고 화면은 유지한다', asyn
   serve({ pool: [403, errorBody('FORBIDDEN', '합성 권한 없음')] });
   view();
   await screen.findByText(/후보 행은 빼고 보여 줍니다/);
+  expect(screen.getByText('후보 문의 확인 불가')).toBeTruthy();
+  expect(document.querySelector('.kv-next')!.textContent).not.toContain('후보');
   const rows = await rowsOf();
   expect(rows.map(row => row.querySelectorAll('td')[7].textContent)).toEqual(['포함', '포함', '뺌']);
   expect(screen.getByRole('table', { name: '비교' })).toBeTruthy();
@@ -208,7 +238,7 @@ test('완료된 요청은 비교만 하고 근거 입력을 막는다', async ()
   const fetch = serve({ detail: [200, detailBody('COMPLETED')] });
   view();
   await screen.findByRole('table', { name: '비교' });
-  expect(screen.getByText(/완료된 요청이라 근거를 바꿀 수 없습니다/)).toBeTruthy();
+  expect(screen.getByText(/완료된 요청이라 근거를 바꿀 수 없음/)).toBeTruthy();
   pickRow(3);
   expect((screen.getByRole('button', { name: '근거 추가' }) as HTMLButtonElement).disabled).toBe(true);
   pickRow(1);
