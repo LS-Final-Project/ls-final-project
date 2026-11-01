@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 from backend.engine.rfp.vocabulary import (
     CANONICAL_FORMS,
+    KOREAN_TIME_UNITS,
     OTHER,
     form_conflict,
     is_canonical,
@@ -38,7 +39,11 @@ MAX_ESTIMATE_SECONDS = Decimal(3)
 # 값의 양을 바꾸지 않는 단위 수식어. 'r.m.s.'는 점을 뗀 뒤 비교하므로 r.m.s로 남는다.
 UNIT_QUALIFIERS = frozenset({"sym", "symmetrical", "rms", "r.m.s", "ac"})
 # 긴 초 표기는 대소문자를 가리지 않는다(Sec, SEC, Seconds). 한 글자 s는 여기 없다: 대문자 S는 지멘스다.
-SECONDS = frozenset({"sec", "secs", "second", "seconds"})
+# 영문 min·h 변형(minute, hr 등)은 맞추지 않는다. 그쪽은 단위 확인으로 남는다.
+TIME_UNITS = {
+    **dict.fromkeys(("sec", "secs", "second", "seconds"), "s"),
+    **KOREAN_TIME_UNITS,
+}
 # 요구에 비교할 숫자나 단위가 없을 때의 말. 단위가 다른 것과 구분한다.
 NO_NUMBER = "요구 값에 숫자·단위 없음"
 NO_UNIT = "요구 값에 단위 없음"
@@ -363,7 +368,7 @@ def differing_word(requirement: Requirement) -> str:
 def _unit_key(unit: str | None) -> str:
     """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
 
-    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초 표기를 s로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
+    양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 초·분·시간 표기를 s·min·h로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
     값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
 
     Args:
@@ -375,7 +380,7 @@ def _unit_key(unit: str | None) -> str:
     words = [w for w in re.split(r"[\s,()]+", unit or "") if w]
     kept = [w for w in words if w.casefold().strip(".") not in UNIT_QUALIFIERS]
     key = " ".join(kept)
-    return "s" if key.casefold() in SECONDS else key
+    return TIME_UNITS.get(key.casefold(), key)
 
 
 def _canonical_verdict(attribute: str, wanted: str, value: str) -> tuple[Verdict, str]:

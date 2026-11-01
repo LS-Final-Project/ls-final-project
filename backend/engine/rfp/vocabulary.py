@@ -275,6 +275,8 @@ def form_conflict(wanted: str, offered: str) -> bool:
 
 # 표시 이름. 코드값은 저장·판정에 그대로 쓰고 초안·DOCX에 나갈 때만 바꾼다.
 # 속성 이름은 화면 frontend/src/rfp/labels.ts ATTRIBUTE_LABEL과 같다.
+# 추출 모델이 한국어 RFP에서 s 대신 내는 시간 단위. 비교할 때만 영문 표기로 맞춘다.
+KOREAN_TIME_UNITS: dict[str, str] = {"초": "s", "분": "min", "시간": "h"}
 ATTRIBUTE_TEXT: dict[str, str] = {
     "form": "형식",
     "rated_max_voltage": "정격 최대전압",
