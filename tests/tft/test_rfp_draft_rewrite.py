@@ -336,15 +336,24 @@ def test_must_keep_lists_condition_values_status_and_negation_once():
     item = draft_rewrite.input_of(row, 1)
     kept = draft_rewrite.must_keep(item)
     assert kept[:2] == ["35 °C", "고객 확인 필요"]
-    assert "사양 차이" in kept and "확약이 아님" in kept
+    assert "사양 차이" in kept and "확약이 아님" in kept and "요구 1건" in kept
     assert len(kept) == len(set(kept))
+
+
+def test_must_keep_lists_every_count_phrase():
+    row = keep_row()
+    row.text = row.template_text = (
+        "제어반 비교. 요구 3건 · 자사 후보 2건 · 가상 협력사 5건. 대표 항목: 「정격 1,250 A」."
+    )
+    kept = draft_rewrite.must_keep(draft_rewrite.input_of(row, 1))
+    assert {"요구 3건", "후보 2건", "협력사 5건"} <= set(kept)
 
 
 def test_a_sentence_with_every_must_keep_phrase_passes_and_losing_any_one_fails():
     row = keep_row()
     item = draft_rewrite.input_of(row, 1)
     kept = draft_rewrite.must_keep(item)
-    tail = "정격 1,250 A, 제품 QX-800, 요구 1건"
+    tail = "정격 1,250 A, 제품 QX-800"
     assert draft_rewrite.validate(" ".join([*kept, tail]), item, row) is None
     for phrase in kept:
         rest = [p for p in kept if p != phrase]
@@ -359,5 +368,7 @@ def test_the_prompt_sends_must_keep_and_keeps_english_values():
     assert data["sentences"][0]["must_keep"] == draft_rewrite.must_keep(item)
     assert "must_keep의 문구를 띄어쓰기까지 글자 그대로 모두" in text
     assert "번역하지 말고 원문 표기 그대로" in text
+    assert "값 끝의 마침표는 문장 안에 남기지 마세요" in text
+    assert "대표 항목, 대표 인용 같은 입력 구조의 말을 문장에 쓰지 마세요" in text
     assert "한국어로 설명할 수 있습니다" not in text
     assert "must_keep" not in item
