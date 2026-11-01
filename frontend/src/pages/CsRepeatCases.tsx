@@ -1,13 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
-import { getApiMode } from '../api/client';
-import { getCaseComparison, listRepeatCandidates, type CaseComparison } from '../api/cs-repeat-cases';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ApiError, getApiMode } from '../api/client';
+import { getImprovement, type ImprovementDetail } from '../api/cs-improvements';
+import { addEvidence, getCaseComparison, listImprovementCandidates, listRepeatCandidates, removeEvidence, type CaseComparison } from '../api/cs-repeat-cases';
+import { me } from '../api/platform';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
-import { KvGrid, KvKey, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
-import { DEPT_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, formatStamp, type RequestSummary } from '../ls-shell/cs-labels';
+import { KvBox, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { DEPT_LABEL, REQUEST_TYPE_LABEL, formatStamp, type RequestSummary } from '../ls-shell/cs-labels';
 
 type CaseRow = CaseComparison['data']['items'][number];
+type Kind = 'IN' | 'CAND' | 'OUT';
+// 표 한 행. 후보 행은 후보 API가 문의번호·해결 기록 번호를 주지 않아 표시값이 null이다.
+type Row = { key: string; kind: Kind; ticketId: string; ticketNo: string | null; caseId: string | null; caseNo: string | null; customer: string | null; evidenceId?: string };
+type LogEntry = { key: string; at: string; kind: '추가' | '뺌'; caseNo: string | null; ticketNo: string | null; by: string | null; reason: string | null };
 
 const DOC_SIGNAL_LABEL: Record<NonNullable<RequestSummary['doc_signal']>, string> = {
   NOT_FOUND: '자료에 없음',
@@ -15,74 +22,234 @@ const DOC_SIGNAL_LABEL: Record<NonNullable<RequestSummary['doc_signal']>, string
   BROKEN_LINK: '자료 링크 끊김',
   REPEATED_SPEC: '같은 사양 반복 문의',
 };
+const KIND_LABEL: Record<Kind, string> = { IN: '포함', CAND: '후보', OUT: '뺌' };
+const FIELDS: { key: string; label: string; value: (row: CaseRow) => string | null }[] = [
+  { key: 'product', label: '제품', value: row => row.product_code },
+  { key: 'symptom', label: '증상', value: row => row.symptom },
+  { key: 'cause_type', label: '원인 유형', value: row => row.root_cause_type },
+  { key: 'cause', label: '원인', value: row => row.root_cause },
+  { key: 'action', label: '조치', value: row => row.action_taken },
+  { key: 'dept', label: '해결 부서', value: row => row.resolved_by_dept && (DEPT_LABEL[row.resolved_by_dept] ?? row.resolved_by_dept) },
+];
 const dash = (value: string | null | undefined) => value ?? '-';
+const requestLabel = (item: RequestSummary) => `${item.problem_statement} · ${item.product_code} ${item.fault_id ?? (item.doc_signal ? DOC_SIGNAL_LABEL[item.doc_signal] : '')}`.trim();
 
-// 반복 사례 모음 CS0201. 저장된 시스템 후보와 그 근거 문의의 해결 기록을 나란히 본다. 건수는 서버가 준 값만 쓴다.
+// 반복 사례 모음 CS0201. 개선요청의 근거가 되는 같은 문제 문의를 비교해 근거에 넣거나 뺀다.
+// 근거 상태와 변경 기록은 요청 상세, 비교 칸은 사례 비교표, 후보 행은 후보 API가 준 값만 쓴다.
 export default function CsRepeatCases() {
   const { requestId } = useParams();
+  const navigate = useNavigate();
   const mode = getApiMode();
   const access = useBusinessAccess('cs');
   const list = useQuery({ queryKey: ['cs-repeat-cases', mode, 'list'], queryFn: ({ signal }) => listRepeatCandidates(signal), enabled: access.ready, retry: false, staleTime: 0 });
-  const comparison = useQuery({ queryKey: ['cs-repeat-cases', mode, requestId], queryFn: ({ signal }) => getCaseComparison(requestId!, signal), enabled: access.ready && !!requestId, retry: false, staleTime: 0 });
-  const busy = list.isFetching || comparison.isFetching;
+  const reloadBoard = useRef<() => void>(() => {});
   const refresh = () => {
-    if (busy) return;
+    if (list.isFetching) return;
     void list.refetch();
-    if (requestId) void comparison.refetch();
+    reloadBoard.current();
   };
   useHotkey('F8', refresh, access.ready);
   if (!access.ready) return <BusinessGate access={access} title="반복 사례 모음" />;
 
-  const candidates = list.isSuccess && !list.isFetching ? list.data.data.items : null;
-  const picked = candidates?.find(item => item.id === requestId);
-  const table = comparison.isSuccess && !comparison.isFetching ? comparison.data.data : null;
-  const listColumns: KvColumn<RequestSummary>[] = [
-    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_item, index) => index + 1 },
-    { key: 'title', header: '반복 문제', className: 't', headClass: '', cell: item => <Link to={`/cs/repeat-cases/${encodeURIComponent(item.id)}`} aria-current={item.id === requestId ? 'true' : undefined}>{item.problem_statement}</Link> },
-    { key: 'type', header: '유형', width: 80, className: 'c', cell: item => REQUEST_TYPE_LABEL[item.request_type] },
-    { key: 'product', header: '제품', width: 140, headClass: '', cell: item => item.product_code },
-    { key: 'signal', header: '고장 / 자료 신호', width: 150, headClass: '', cell: item => item.fault_id ?? (item.doc_signal ? DOC_SIGNAL_LABEL[item.doc_signal] : '-') },
-    { key: 'status', header: '상태', width: 110, className: 'c', cell: item => REQUEST_STATUS_LABEL[item.status] ?? item.status },
-    { key: 'evidence', header: '근거', width: 64, className: 'c', cell: item => `${item.evidence_count}건` },
-    { key: 'owner', header: '담당', width: 72, className: 'c', cell: item => item.cs_owner ? '배정됨' : '미배정' },
-    { key: 'saved', header: '저장 시각', width: 130, className: 'c', cell: item => formatStamp(item.created_at) },
-    { key: 'go', header: '이동', width: 110, className: 'c', cell: item => <Link to={`/cs/improvements/${encodeURIComponent(item.id)}`}>개선요청 상세</Link> },
-  ];
-  const caseColumns: KvColumn<CaseRow>[] = [
-    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
-    { key: 'ticket', header: '문의', width: 130, headClass: '', cell: row => <Link to={`/cs/tickets/${encodeURIComponent(row.ticket_id)}`}>{row.ticket_external_id ?? '번호 없는 문의'}</Link> },
-    { key: 'customer', header: '고객', width: 110, headClass: '', cell: row => row.customer_external_id },
-    { key: 'product', header: '제품', width: 120, headClass: '', cell: row => row.product_code },
-    { key: 'case', header: '해결 사례', width: 110, headClass: '', cell: row => row.case_external_id ?? (row.case_id ? '번호 없음' : '해결 기록 없음') },
-    { key: 'symptom', header: '증상', className: 't', headClass: '', cell: row => dash(row.symptom) },
-    { key: 'cause_type', header: '원인 유형', width: 100, headClass: '', cell: row => dash(row.root_cause_type) },
-    { key: 'cause', header: '원인', className: 't', headClass: '', cell: row => dash(row.root_cause) },
-    { key: 'action', header: '조치', className: 't', headClass: '', cell: row => dash(row.action_taken) },
-    { key: 'dept', header: '해결 부서', width: 130, headClass: '', cell: row => row.resolved_by_dept ? DEPT_LABEL[row.resolved_by_dept] ?? row.resolved_by_dept : '-' },
-    { key: 'known', header: '기록 시각', width: 130, className: 'c', cell: row => row.known_at ? formatStamp(row.known_at) : '-' },
-  ];
+  const candidates = list.isSuccess ? list.data.data.items : [];
   return <main>
     <KvTitle path="C/S 관리" title="반복 사례 모음" code="CS0201">
-      <button className="kb primary" disabled={busy} onClick={refresh}>최신 후보 조회<KvKey>F8</KvKey></button>
-      <Link className="kb" to="/cs/improvements">개선요청 목록</Link>
-      {requestId && <Link className="kb" to="/cs/repeat-cases">비교표 닫기</Link>}
+      <button className="kb primary" disabled={list.isFetching} onClick={refresh}>조회<KvKey>F8</KvKey></button>
+      {requestId
+        ? <Link className="kb" to={`/cs/improvements/${encodeURIComponent(requestId)}`}>요청으로 이동</Link>
+        : <button className="kb" disabled>요청으로 이동</button>}
     </KvTitle>
-    {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
-    <div className="kv-sub" style={{ margin: '6px 14px 0' }}>같은 문제가 여러 고객에게 반복되어 저장된 후보입니다. 후보를 고르면 근거 문의와 해결 기록을 비교합니다. 이 화면에서는 요청을 고치거나 보내지 않습니다.</div>
-    {list.isFetching && <Loading label="후보 목록을 불러오는 중" />}
+    {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다. 근거는 바꾸지 않습니다.</div>}
+    {!requestId && <KvNext>요청번호를 골라 근거 문의를 비교하세요.</KvNext>}
+    <KvCond onSearch={refresh}>
+      <KvCondRow columns={2}>
+        <KvCondField label="요청번호">
+          <select aria-label="요청번호" value={requestId ?? ''} disabled={!list.isSuccess} onChange={event => navigate(event.target.value ? `/cs/repeat-cases/${encodeURIComponent(event.target.value)}` : '/cs/repeat-cases')}>
+            <option value="">{list.isSuccess && !candidates.length ? '저장된 반복 사례 후보가 없습니다' : '요청 선택'}</option>
+            {requestId && list.isSuccess && !candidates.some(item => item.id === requestId) && <option value={requestId}>목록에 없는 요청</option>}
+            {candidates.map(item => <option key={item.id} value={item.id}>{requestLabel(item)}</option>)}
+          </select>
+        </KvCondField>
+      </KvCondRow>
+    </KvCond>
+    {list.isFetching && <Loading label="요청 목록을 불러오는 중" />}
     {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={() => list.refetch()} />}
-    {candidates && <>
-      <div className="kv-gridhead"><span>저장된 반복 사례 후보 (최신순, 최대 200건)</span></div>
-      <KvGrid label="반복 사례 후보 목록" columns={listColumns} rows={candidates} rowKey={item => item.id} selectedKey={requestId} fallback="저장된 반복 사례 후보가 없습니다." />
-    </>}
-    {requestId && <>
-      <div className="kv-gridhead"><span>사례 비교표{picked ? ` — ${picked.problem_statement}` : ''}</span><Link to={`/cs/improvements/${encodeURIComponent(requestId)}`}>개선요청 상세</Link></div>
-      {comparison.isFetching && <Loading label="비교표를 불러오는 중" />}
-      {!comparison.isFetching && comparison.isError && <ErrorState error={comparison.error} onRetry={() => comparison.refetch()} />}
-      {table && <>
-        <KvGrid label="사례 비교표" columns={caseColumns} rows={table.items} rowKey={row => row.ticket_id} fallback="비교할 근거 문의가 없습니다." />
-        {table.hidden_case_count > 0 && <div className="kv-sub" role="note" style={{ margin: '6px 14px 0' }}>볼 수 있는 범위 밖의 근거 문의 {table.hidden_case_count}건은 표에서 뺐습니다.</div>}
-      </>}
-    </>}
+    {!list.isFetching && list.isSuccess && !candidates.length && !requestId && <p className="state">저장된 반복 사례 후보가 없습니다.</p>}
+    {requestId && <EvidenceBoard key={requestId} requestId={requestId} reloadRef={reloadBoard} />}
   </main>;
+}
+
+function EvidenceBoard({ requestId, reloadRef }: { requestId: string; reloadRef: { current: () => void } }) {
+  const client = useQueryClient();
+  const mode = getApiMode();
+  const detailKey = ['cs-repeat-cases', mode, requestId, 'detail'];
+  const detail = useQuery({ queryKey: detailKey, queryFn: ({ signal }) => getImprovement(requestId, signal), retry: false, staleTime: 0 });
+  const comparison = useQuery({ queryKey: ['cs-repeat-cases', mode, requestId, 'comparison'], queryFn: ({ signal }) => getCaseComparison(requestId, signal), retry: false, staleTime: 0 });
+  const pool = useQuery({ queryKey: ['cs-repeat-cases', mode, 'candidates'], queryFn: ({ signal }) => listImprovementCandidates(signal), retry: false, staleTime: 0 });
+  const identity = useQuery({ queryKey: ['me'], queryFn: me, retry: false });
+  const [picked, setPicked] = useState<string | null>(null);
+  const [base, setBase] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [uncertain, setUncertain] = useState(false);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => () => { controller.current?.abort(); }, []);
+  const reload = () => {
+    void Promise.allSettled([detail.refetch(), comparison.refetch(), pool.refetch()]).then(([result]) => {
+      if (result.status === 'fulfilled' && result.value.isSuccess) setUncertain(false);
+    });
+  };
+  reloadRef.current = reload;
+
+  if (detail.isFetching && !detail.isSuccess) return <Loading label="요청 근거를 불러오는 중" />;
+  if (detail.isError && !detail.isFetching) return <ErrorState error={detail.error} onRetry={() => detail.refetch()} />;
+  if (!detail.isSuccess) return null;
+
+  const d = detail.data.data;
+  const request = d.request;
+  const completed = request.status === 'COMPLETED';
+  const compared = comparison.isSuccess ? comparison.data.data : null;
+  const caseOf = new Map((compared?.items ?? []).map(item => [item.ticket_id, item]));
+  const active = d.evidence.filter(e => !e.removed_at);
+  const activeTickets = new Set(active.map(e => e.ticket_id));
+  const poolRefs = pool.isSuccess ? pool.data.data.items.filter(item => item.request_id === request.id).flatMap(item => item.evidence) : [];
+  const seen = new Set<string>();
+  const rows: Row[] = [
+    ...active.map(e => ({ key: `in:${e.id}`, kind: 'IN' as const, ticketId: e.ticket_id, ticketNo: e.ticket_external_id, caseId: e.case_id, caseNo: e.case_external_id, customer: caseOf.get(e.ticket_id)?.customer_external_id ?? null, evidenceId: e.id })),
+    ...poolRefs.filter(ref => !activeTickets.has(ref.ticket_id) && !seen.has(ref.ticket_id) && seen.add(ref.ticket_id))
+      .map(ref => ({ key: `cand:${ref.ticket_id}`, kind: 'CAND' as const, ticketId: ref.ticket_id, ticketNo: null, caseId: ref.case_id, caseNo: null, customer: ref.customer_id })),
+    ...d.evidence.filter(e => e.removed_at).map(e => ({ key: `out:${e.id}`, kind: 'OUT' as const, ticketId: e.ticket_id, ticketNo: e.ticket_external_id, caseId: e.case_id, caseNo: e.case_external_id, customer: null, evidenceId: e.id })),
+  ];
+  const baseChoices = rows.filter(row => row.kind === 'IN' && caseOf.has(row.ticketId));
+  const baseRow = baseChoices.find(row => row.key === base) ?? baseChoices[0];
+  const selected = rows.find(row => row.key === picked) ?? rows.find(row => row !== baseRow) ?? rows[0];
+  const position = selected ? rows.indexOf(selected) + 1 : 0;
+  // 고장 요청의 근거는 해결 사례가 있어야 한다(계약 근거 검사). 사례가 없는 후보는 넣을 수 없다.
+  const needsCase = request.request_type === 'FAULT';
+  const evidenceLabel = (row: Row) => row.kind === 'CAND' && needsCase && !row.caseId ? '해결 기록 없음' : KIND_LABEL[row.kind];
+  const caseCell = (row: Row) => row.caseNo ?? (row.caseId ? '-' : '해결 기록 없음');
+  const rowLabel = (row: Row | undefined) => row ? row.caseNo ?? row.ticketNo ?? '-' : '-';
+  const writable = mode === 'live' && !completed;
+  const canAdd = writable && !busy && !uncertain && selected?.kind === 'CAND' && (!needsCase || !!selected.caseId);
+  const canRemove = writable && !busy && !uncertain && selected?.kind === 'IN' && !!reason.trim();
+
+  const write = async (send: (signal: AbortSignal) => Promise<ImprovementDetail>, done: string) => {
+    if (controller.current) return;
+    const current = new AbortController();
+    controller.current = current;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await send(current.signal);
+      if (current.signal.aborted) return;
+      client.setQueryData(detailKey, result);
+      setReason('');
+      setPicked(null);
+      setNotice({ text: done, error: false });
+      void comparison.refetch();
+      void pool.refetch();
+    } catch (error) {
+      if (current.signal.aborted) return;
+      if (error instanceof ApiError && error.status === 409) {
+        setNotice({ text: error.code === 'CS_REQUEST_VERSION_CONFLICT' ? '다른 곳에서 요청이 먼저 바뀌었습니다. 최신 내용을 다시 읽었으니 확인한 뒤 다시 시도하세요.' : `${error.message} 최신 내용을 다시 읽었습니다.`, error: true });
+        reload();
+      } else if (error instanceof ApiError && error.status !== 408 && error.status < 500) {
+        setNotice({ text: error.message, error: true });
+      } else {
+        setUncertain(true);
+        setNotice({ text: '저장 결과를 확인할 수 없습니다. 서버에 반영됐을 수 있으니 다시 보내지 말고 최신 내용을 조회하세요.', error: true });
+      }
+    } finally {
+      if (controller.current === current) controller.current = null;
+      if (!current.signal.aborted) setBusy(false);
+    }
+  };
+  const add = () => {
+    if (!canAdd || !selected) return;
+    void write(signal => addEvidence(request.id, { ticket_id: selected.ticketId, case_id: selected.caseId, version: request.version }, signal), '근거에 추가했습니다.');
+  };
+  const remove = () => {
+    if (!canRemove || !selected?.evidenceId) return;
+    void write(signal => removeEvidence(request.id, selected.evidenceId!, { reason: reason.trim(), version: request.version }, signal), '근거에서 뺐습니다.');
+  };
+
+  const myId = identity.data?.data.id;
+  const actor = (by: string | null) => by === null ? '시스템' : by === myId ? '나' : '다른 담당자';
+  const log: LogEntry[] = d.evidence.flatMap(e => [
+    { key: `${e.id}:add`, at: e.added_at, kind: '추가' as const, caseNo: e.case_external_id, ticketNo: e.ticket_external_id, by: e.added_by, reason: null },
+    ...(e.removed_at ? [{ key: `${e.id}:out`, at: e.removed_at, kind: '뺌' as const, caseNo: e.case_external_id, ticketNo: e.ticket_external_id, by: e.removed_by, reason: e.removal_reason }] : []),
+  ]).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+
+  const rowColumns: KvColumn<Row>[] = [
+    { key: 'pick', header: '선택', width: 44, className: 'c', cell: (row, index) => <input type="checkbox" aria-label={`${index + 1}행 선택`} checked={row === selected} onChange={() => setPicked(row.key)} /> },
+    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
+    { key: 'ticket', header: '문의번호', width: 120, headClass: '', cell: row => row.ticketNo ? <Link to={`/cs/tickets/${encodeURIComponent(row.ticketId)}`}>{row.ticketNo}</Link> : '-' },
+    { key: 'case', header: '해결 기록', width: 110, headClass: '', cell: caseCell },
+    { key: 'customer', header: '고객', width: 110, headClass: '', cell: row => dash(row.customer) },
+    { key: 'received', header: '접수일', width: 90, className: 'c', cell: () => '-' },
+    { key: 'title', header: '제목', className: 't', headClass: '', cell: () => '-' },
+    { key: 'evidence', header: '근거', width: 100, className: 'c', cell: evidenceLabel },
+  ];
+  const logColumns: KvColumn<LogEntry>[] = [
+    { key: 'at', header: '일시', width: 130, className: 'c', cell: entry => formatStamp(entry.at) },
+    { key: 'kind', header: '구분', width: 56, className: 'c', cell: entry => entry.kind },
+    { key: 'case', header: '해결 기록', width: 110, headClass: '', cell: entry => dash(entry.caseNo) },
+    { key: 'ticket', header: '문의', width: 120, headClass: '', cell: entry => dash(entry.ticketNo) },
+    { key: 'by', header: '처리자', width: 90, className: 'c', cell: entry => actor(entry.by) },
+    { key: 'reason', header: '사유', className: 't', headClass: '', cell: entry => dash(entry.reason) },
+  ];
+  const baseCase = baseRow && caseOf.get(baseRow.ticketId);
+  const selectedCase = selected?.kind === 'IN' ? caseOf.get(selected.ticketId) : undefined;
+  const compareColumns: KvColumn<(typeof FIELDS)[number]>[] = [
+    { key: 'label', header: '항목', width: 80, headClass: '', cell: field => field.label },
+    { key: 'base', header: '기준', className: 't', headClass: '', cell: field => baseCase ? dash(field.value(baseCase)) : '-' },
+    { key: 'picked', header: '선택 행', className: 't', headClass: '', cell: field => selectedCase ? dash(field.value(selectedCase)) : '-' },
+  ];
+  const noComparison = !selected ? null
+    : selected.kind === 'CAND' ? '근거에 넣기 전에는 비교표가 없습니다. 원문 보기로 문의를 확인하세요.'
+      : selected.kind === 'OUT' ? '근거에서 뺀 문의는 비교표가 없습니다. 원문 보기로 문의를 확인하세요.'
+        : compared && !selectedCase ? '볼 수 있는 범위 밖의 문의라 비교할 수 없습니다.' : null;
+  const next = completed ? '완료된 요청이라 근거를 바꿀 수 없습니다. 비교만 할 수 있습니다.'
+    : mode !== 'live' ? '모의 응답에서는 근거를 바꾸지 않습니다.'
+      : '포함된 문의와 후보를 비교해 근거에 넣거나 빼세요. 고장 요청은 해결 기록이 있는 문의만 넣을 수 있습니다.';
+
+  return <>
+    <KvNext>{next}</KvNext>
+    {notice && <div className="kv-sub" role={notice.error ? 'alert' : 'status'} style={{ margin: '6px 14px 0' }}>{notice.text}</div>}
+    {uncertain && <div className="kv-actions" style={{ margin: '6px 14px 0' }}><button className="kb primary" onClick={reload}>최신 내용 조회</button></div>}
+    <KvSplit columns="1.4fr 1fr">
+      <div>
+        <div className="kv-gridhead"><span>근거 문의 · {REQUEST_TYPE_LABEL[request.request_type]} · 판본 {request.version}</span></div>
+        <KvGrid label="근거 문의" columns={rowColumns} rows={rows} rowKey={row => row.key} selectedKey={selected?.key} onRow={row => setPicked(row.key)} fallback="근거 문의와 후보가 없습니다." />
+        {pool.isError && (pool.error instanceof ApiError && pool.error.status === 403
+          ? <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>후보 문의는 C/S 담당자와 C/S 부서 관리자만 볼 수 있어 후보 행은 빼고 보여 줍니다.</div>
+          : <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>후보 문의를 불러오지 못했습니다. <button className="kb" onClick={() => pool.refetch()}>후보 다시 조회</button></div>)}
+        {compared && compared.hidden_case_count > 0 && <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>볼 수 있는 범위 밖의 근거 문의 {compared.hidden_case_count}건은 비교표에서 뺐습니다.</div>}
+        <div className="kv-gridhead" style={{ marginTop: 12 }}><span>근거 변경 기록</span></div>
+        <KvGrid label="근거 변경 기록" columns={logColumns} rows={log} rowKey={entry => entry.key} fallback="근거 변경 기록이 없습니다." />
+      </div>
+      <KvBox title={`비교, ${position}/${rows.length}행 ${rowLabel(selected)} (기준 ${baseRow ? baseRow.ticketNo ?? '-' : '없음'})`}>
+        {baseChoices.length > 1 && <label>기준 행 <select aria-label="기준 행" value={baseRow?.key} onChange={event => setBase(event.target.value)}>
+          {baseChoices.map(row => <option key={row.key} value={row.key}>{rows.indexOf(row) + 1}행 {row.ticketNo ?? '-'}</option>)}
+        </select></label>}
+        {comparison.isFetching && <Loading label="비교표를 불러오는 중" />}
+        {!comparison.isFetching && comparison.isError && <ErrorState error={comparison.error} onRetry={() => comparison.refetch()} />}
+        {!comparison.isFetching && compared && (!baseRow ? <p className="state">기준으로 삼을 포함 행이 없습니다.</p>
+          : noComparison ? <p className="state">{noComparison}</p>
+            : <KvGrid label="비교" columns={compareColumns} rows={FIELDS} rowKey={field => field.key} fallback="-" />)}
+        <div className="kv-actions">
+          {selected ? <Link className="kb" to={`/cs/tickets/${encodeURIComponent(selected.ticketId)}`}>원문 보기</Link> : <button className="kb" disabled>원문 보기</button>}
+          <button className="kb primary" disabled={!canAdd} onClick={add}>{busy ? '처리 중' : '근거 추가'}</button>
+        </div>
+        <h3>근거에서 빼기 (포함된 건만)</h3>
+        <label>빼는 사유 (필수)
+          <textarea aria-label="빼는 사유" required maxLength={2000} disabled={!writable || busy || selected?.kind !== 'IN'} value={reason} onChange={event => setReason(event.target.value)} />
+        </label>
+        <div className="kv-actions">
+          <button className="kb" disabled={!canRemove} onClick={remove}>근거에서 빼기</button>
+        </div>
+      </KvBox>
+    </KvSplit>
+  </>;
 }
