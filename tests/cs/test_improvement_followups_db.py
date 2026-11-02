@@ -320,3 +320,132 @@ def test_department_users_do_not_see_other_customers_and_old_requests_get_round_
     assert (first["kind"], first["round"], second["kind"]) == ("FIRST", 1, "REQUEST_AGAIN")
     assert first["opened_at"] == sent["request"]["sent_at"]
     assert first["opened_by"] == str(AGENT.user_id)
+
+
+def add_confirmed_unit(admin, ticket_id, *, ship_date=None, lot_no=None):
+    """A unit of the record's customer and product, confirmed for the ticket (KAN-102 link)."""
+    unit_id = uuid4()
+    customer = admin.execute(
+        "SELECT customer_external_id FROM cs.tickets WHERE id=%s", (ticket_id,)
+    ).fetchone()[0]
+    admin.execute(
+        "INSERT INTO cs.installed_units (id, source, source_instance, data_origin, known_at, "
+        "serial_no, customer_external_id, product_code, ship_date, lot_no) VALUES (%s, 'test', "
+        "'kan117', 'demo', %s, %s, %s, %s, %s, %s)",
+        (
+            unit_id,
+            datetime(2025, 1, 1, tzinfo=UTC),
+            f"VSN-TRF-{unit_id.hex[:8]}",
+            customer,
+            PRODUCT,
+            ship_date,
+            lot_no,
+        ),
+    )
+    admin.execute(
+        "INSERT INTO cs.ticket_unit_links (id, ticket_id, unit_id, data_origin, link_status, "
+        "link_basis, decided_by, decided_at) VALUES (%s, %s, %s, 'demo', 'CONFIRMED', "
+        "'SERIAL_PROVIDED', %s, now())",
+        (uuid4(), ticket_id, unit_id, AGENT.user_id),
+    )
+    return unit_id
+
+
+def test_shipment_and_lot_scopes_read_the_confirmed_unit(client, admin):
+    """Records after a parts action are split by the confirmed unit's ship date or lot. A
+    candidate link or no unit leaves the record unknown."""
+    fault = new_fault()
+    sent = sent_request(client, admin, fault, depts=("QA_CLAIM",))
+    rid = sent["request"]["id"]
+    v = sent["request"]["version"]
+    v = ok(act(client, rid, "departments/QA_CLAIM/acknowledge", QA_STAFF, version=v))["request"][
+        "version"
+    ]
+    v = ok(
+        act(client, rid, "departments/QA_CLAIM/reply", QA_STAFF, version=v, reply_type="ADOPTED")
+    )["request"]["version"]
+    acted = ok(
+        act(
+            client,
+            rid,
+            "departments/QA_CLAIM/action",
+            QA_STAFF,
+            version=v,
+            action="Gasket changed from lot L-0315",
+            action_scope="Units shipped from 2025-12-01",
+            action_date="2025-12-01",
+            action_evidence="ECN-0315",
+            scope_kind="SHIPPED_FROM",
+            scope_value="2025-12-01",
+        )
+    )
+    assert acted["request"]["status"] == "ACTION_TAKEN"
+    # No confirmed unit: unknown. Shipped before the cut: pre-action unit. Shipped after: recurrence.
+    no_unit, _ = add_case(admin, fault, customer="CUST-NOUNIT")
+    before, _ = add_case(admin, fault, customer="CUST-BEFORE")
+    add_confirmed_unit(admin, before, ship_date="2025-11-20", lot_no="L-0310")
+    candidate_only, _ = add_case(admin, fault, customer="CUST-CANDIDATE")
+    unit = add_confirmed_unit(admin, candidate_only, ship_date="2025-12-15")
+    admin.execute(
+        "UPDATE cs.ticket_unit_links SET link_status='CANDIDATE', decided_by=NULL, "
+        "decided_at=NULL WHERE unit_id=%s",
+        (unit,),
+    )
+    signal = ok(signals(client, rid))
+    by_ticket = {r["ticket_id"]: r for r in signal["records"] if r["class"] != "IN_EARLIER_ROUND"}
+    assert (by_ticket[str(no_unit)]["class"], by_ticket[str(no_unit)]["reason_code"]) == (
+        "APPLICATION_UNKNOWN",
+        "UNKNOWN_SHIP_DATE",
+    )
+    assert (by_ticket[str(before)]["class"], by_ticket[str(before)]["reason_code"]) == (
+        "PRE_ACTION_UNIT",
+        "PRE_ACTION_UNIT_SHIPMENT",
+    )
+    assert by_ticket[str(before)]["basis"] == {
+        "shipped_on": "2025-11-20",
+        "shipped_from": "2025-12-01",
+    }
+    assert by_ticket[str(candidate_only)]["reason_code"] == "UNKNOWN_SHIP_DATE"
+    assert (signal["decision"], signal["counts"]["pre_action_unit"]) == ("NONE", 1)
+    after, _ = add_case(admin, fault, customer="CUST-AFTER")
+    add_confirmed_unit(admin, after, ship_date="2025-12-15", lot_no="L-0320")
+    signal = ok(signals(client, rid))
+    assert (signal["decision"], signal["counts"]["recurrence"]) == ("RECURRENCE", 1)
+    # A lot action on a later round reads the same unit's lot.
+    v = acted["request"]["version"]
+    reopened = ok(act(client, rid, "rounds", version=v, kind="RECURRENCE", as_of=signal["as_of"]))
+    v = reopened["request"]["version"]
+    v = ok(act(client, rid, "departments/QA_CLAIM/acknowledge", QA_STAFF, version=v))["request"][
+        "version"
+    ]
+    v = ok(
+        act(client, rid, "departments/QA_CLAIM/reply", QA_STAFF, version=v, reply_type="ADOPTED")
+    )["request"]["version"]
+    ok(
+        act(
+            client,
+            rid,
+            "departments/QA_CLAIM/action",
+            QA_STAFF,
+            version=v,
+            action="Lots reworked",
+            action_scope="L-0320, L-0321",
+            action_date="2026-01-10",
+            action_evidence="Rework record",
+            scope_kind="LOT",
+            scope_value="L-0320,L-0321",
+        )
+    )
+    admin.execute(
+        "UPDATE cs.tickets SET received_at = %s WHERE id = %s",
+        (datetime(2026, 1, 20, tzinfo=UTC), after),
+    )
+    reworked, _ = add_case(admin, fault, customer="CUST-REWORK")
+    add_confirmed_unit(admin, reworked, lot_no="L-0321")
+    untouched, _ = add_case(admin, fault, customer="CUST-OTHERLOT")
+    add_confirmed_unit(admin, untouched, lot_no="L-0399")
+    signal = ok(signals(client, rid))
+    by_ticket = {r["ticket_id"]: r for r in signal["records"]}
+    assert by_ticket[str(reworked)]["reason_code"] == "APPLIED_UNIT_RECURRENCE"
+    assert by_ticket[str(untouched)]["reason_code"] == "PRE_ACTION_UNIT_LOT"
+    assert by_ticket[str(untouched)]["basis"] == {"lot": "L-0399", "lots": "L-0320,L-0321"}

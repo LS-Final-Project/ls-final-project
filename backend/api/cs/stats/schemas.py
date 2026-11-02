@@ -119,7 +119,7 @@ class CustomerUnit(BaseModel):
     serial_no: str
     product_code: str
     unit_status: str
-    derivation_kind: str
+    derivation_kind: Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
     confirmed_tickets: int
 
 
