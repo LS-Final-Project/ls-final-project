@@ -1,6 +1,8 @@
 """Start/stop owned APIs without init, migration or a paid dispatcher. Fixed Docker targets only."""
 
+import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -27,17 +29,94 @@ def no_active_driver(config):
         raise ValueError("LOCAL_REAL_DRIVER_ACTIVE_STOP_IT_FIRST")
 
 
+def check_pg_resume(config, pg):
+    """Read an existing cluster without the image entrypoint or any initialization.
+
+    Never create/repair a volume, stop another writer, or run initdb as recovery.
+    Docker inspect/check/start are separate operations, not a daemon-wide lock.
+    """
+    volume = config["namespace"] + "-pgdata"
+    image = config["images"]["pg"]
+    pgdata = "/var/lib/postgresql/data"
+    env = pg["Config"].get("Env", [])
+    mounts = [m for m in pg["Mounts"] if m.get("Name") == volume]
+    if (
+        not re.fullmatch(r"sha256:[0-9a-f]{64}", image)
+        or [e for e in env if e.startswith("PGDATA=")] != ["PGDATA=" + pgdata]
+        or len(mounts) != 1
+        or mounts[0].get("Type") != "volume"
+        or mounts[0].get("Destination") != pgdata
+        or mounts[0].get("RW") is not True
+    ):
+        raise ValueError("LOCAL_PG_TARGET_INVALID")
+    try:
+        metadata = json.loads(docker("volume", "inspect", volume))[0]
+    except (RuntimeError, ValueError, IndexError, TypeError):
+        raise ValueError("LOCAL_PG_VOLUME_UNAVAILABLE") from None
+    labels = metadata.get("Labels") or {}
+    if (
+        metadata.get("Name") != volume
+        or labels.get("team4.local.owner") != config["owner"]
+        or labels.get("team4.local.namespace") != config["namespace"]
+    ):
+        raise ValueError("LOCAL_PG_VOLUME_OWNERSHIP_MISMATCH")
+    # The owned PG may already be running. Every other live RW consumer is refused,
+    # including a writer from another namespace; do not stop or modify that container.
+    for identifier in docker("ps", "-q", "--filter", "volume=" + volume).decode().split():
+        peer = inspect(identifier)
+        if (
+            peer["Id"] != pg["Id"]
+            and peer["State"]["Running"]
+            and any(
+                m.get("Type") == "volume" and m.get("Name") == volume and m.get("RW") is True
+                for m in peer["Mounts"]
+            )
+        ):
+            raise ValueError("LOCAL_PG_VOLUME_IN_USE")
+    try:
+        docker(
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network",
+            "none",
+            "--user",
+            "postgres",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--mount",
+            f"type=volume,src={volume},dst={pgdata},readonly,volume-nocopy",
+            "--entrypoint",
+            "/bin/sh",
+            image,
+            "-eu",
+            "-c",
+            'test ! -L "$1/PG_VERSION" && test -f "$1/PG_VERSION" && '
+            'test "$(cat "$1/PG_VERSION")" = 17 && '
+            'test ! -L "$1/base" && test -d "$1/base" && '
+            'test ! -L "$1/global" && test -d "$1/global"',
+            "local-pg-resume-check",
+            pgdata,
+        )
+    except RuntimeError:
+        raise ValueError("LOCAL_PG_CLUSTER_INVALID") from None
+
+
 def start(state: Path):
     config = owned(state)
     ns = config["namespace"]
     no_active_driver(config)
+    pg = inspect(ns + "-pg")
+    check_pg_resume(config, pg)
     for port in config["ports"].values():
         # Only web is host-published; internal API ports are in the DB namespace.
         if port == config["ports"]["web"]:
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", port))
     (state / "control/enabled.json").unlink(missing_ok=True)
-    pg = inspect(ns + "-pg")
     if not pg["State"]["Running"]:
         docker("start", ns + "-pg")
     pg = inspect(ns + "-pg")
