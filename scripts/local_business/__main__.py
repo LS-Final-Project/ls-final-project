@@ -112,13 +112,11 @@ def status(state):
 def enable(state, args):
     config = owned(state)
     ns = config["namespace"]
-    key = Path(args.key_file).expanduser().resolve()
-    if (
-        not key.is_file()
-        or key.stat().st_mode & 0o077
-        or key.stat().st_size > 4096
-        or key.is_symlink()
-    ):
+    key = Path(args.key_file).expanduser()
+    if key.is_symlink():
+        raise ValueError("LOCAL_PRIVATE_KEY_FILE_REQUIRED")
+    key = key.resolve()
+    if not key.is_file() or key.stat().st_mode & 0o077 or key.stat().st_size > 4096:
         raise ValueError("LOCAL_PRIVATE_KEY_FILE_REQUIRED")
     prices = Path(args.prices_file).resolve()
     from backend.shared.ai import load_price_table

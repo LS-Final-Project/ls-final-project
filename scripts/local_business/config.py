@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -12,11 +13,22 @@ POLICIES = frozenset({"POL-ORDER", "POL-RETURN", "POL-SERVICE", "POL-WARRANTY"})
 
 def save(path: Path, value: dict):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_suffix(path.suffix + ".new")
-    with temporary.open("x", encoding="utf-8") as out:
-        json.dump(value, out, indent=2)
-    temporary.chmod(0o600)
-    temporary.replace(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as out:
+            temporary = Path(out.name)
+            json.dump(value, out, indent=2)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def state_path(namespace: str) -> Path:
