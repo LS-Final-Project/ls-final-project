@@ -22,6 +22,7 @@ from backend.api.tft.rfp import repository, storage
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.api.tft.rfp.routes_supplement import requirement_project
+from backend.engine.documents.model import DOCX_MIME
 from backend.shared.access import Principal
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
@@ -252,6 +253,8 @@ async def list_clauses(
 async def download_document(request: Request, principal: Principal, document_id: UUID) -> Response:
     """10. 최신 판본 원문. 접근 검사는 프로젝트 조회와 같고, 저장 해시·크기가 맞을 때만 낸다.
 
+    파일명은 표시 제목에 저장 MIME의 확장자를 맞춘다. 업로드 원래 파일명은 별도로 저장하지 않는다.
+
     Args:
         request: 요청(설정).
         principal: 요청 사용자.
@@ -273,11 +276,17 @@ async def download_document(request: Request, principal: Principal, document_id:
         data = await storage.read_document(store, row["storage_key"], row["sha256"], row["size"])
     except storage.DocumentUnavailable:
         raise unavailable from None
+    filename = row["title"]
+    extension = {DOCX_MIME: ".docx", "application/pdf": ".pdf"}.get(row["mime"])
+    if extension and not filename.lower().endswith(extension):
+        if filename.lower().endswith((".docx", ".pdf")):
+            filename = filename.rsplit(".", 1)[0]
+        filename += extension
     return Response(
         content=data,
         media_type=row["mime"],
         headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(row['title'], safe='')}",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
             "X-Content-Type-Options": "nosniff",
         },
     )
