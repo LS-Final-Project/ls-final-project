@@ -127,8 +127,7 @@ export default function RfpIntake() {
   const excel = <button className="kb" disabled={items.length === 0} title={checked.size ? `고른 ${checked.size}건` : '표시한 행 전체'} onClick={() => downloadCsv('프로젝트 목록', PROJECT_HEAD, items.filter(p => !checked.size || checked.has(p.id)).map(projectRow))}>엑셀</button>;
   if (!selected) return <main><KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{common}{excel}</KvTitle>{list}</main>;
   // Wait for the live actor before mounting job state; avoid an unverified mount followed by a remount.
-  if (mode === 'live' && identity.isPending) return <main><Loading label="계정 확인 중" /></main>;
-  if (mode === 'live' && !actorId) return <main><ErrorState error={identity.error ?? new Error('계정 정보를 확인하지 못했습니다. 다시 로그인하세요.')} /></main>;
+  if (mode === 'live' && identity.isPending) return <main><KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{common}{excel}</KvTitle>{list}<Loading label="계정 확인 중" /></main>;
   // 프로젝트를 옮기면 작업·알림 상태를 새로 시작한다(같은 경로 요소라 그대로 두면 앞 프로젝트 상태가 남는다).
   return <Intake key={`${actorId ?? "unverified"}:${selected}`} actorId={actorId} projectId={selected} list={list} before={common} after={excel} />;
 }
@@ -164,7 +163,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
   });
   const jobStatus = job.data?.data.status;
   // 상태를 읽지 못하면(다른 사용자의 작업 404, 장애) 돈다고 단정하지 않는다. 화면을 잠그지 않고 서버 409에 맡긴다.
-  const unavailable = live?.connection === 'stopped' || notMine(job.error);
+  const unavailable = mode === 'live' && !actorId || live?.connection === 'stopped' || notMine(job.error);
   const running = !!jobId && !unavailable && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
   const bannerView = unavailable ? { connection: 'stopped' as const, message: '이 작업의 조회 권한을 확인할 수 없습니다. 계정과 작업을 확인하세요.' } : live;
   const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled });
