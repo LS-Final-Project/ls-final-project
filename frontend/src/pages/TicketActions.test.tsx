@@ -280,7 +280,8 @@ test('이미 확인한 답변은 확인 상자를 보이지 않고 이력에 확
   openMore(); expect(menu('종결').disabled).toBe(false);
 });
 
-const manager = ['cs_agent', 'manager'];
+// 실제 시연 관리자 계정은 manager 역할만 가진다(cs_agent 없음). 이 계정으로 담당을 바꿀 수 있어야 한다.
+const manager = ['manager'];
 
 test('담당 변경은 관리자가 현재 담당을 뺀 후보에서 골라 읽은 판본과 보호 토큰으로 보낸다', async () => {
   const api = server('IN_REVIEW', 5, () => jsonResponse(200, flow('IN_REVIEW', 5, { owner_user_id: 'u2' })), undefined, undefined, { owner_user_id: 'u1' }, manager);

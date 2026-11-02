@@ -54,12 +54,29 @@ test('엑셀은 선택한 행이 조건으로 모두 가려지면 보이는 행 
   vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:(value:Blob)=>{blob=value;return 'blob:test';},revokeObjectURL:()=>{}}));
   const click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
   fireEvent.click(screen.getByLabelText('ID-A 선택'));
-  expect(screen.getByRole('button',{name:/엑셀/}).getAttribute('title')).toBe('선택한 1건만 내려받습니다');
+  expect(screen.getByRole('button',{name:/^엑셀/}).getAttribute('title')).toBe('선택한 1건만 내려받습니다');
   // 선택한 Alpha(P1)가 제품 조건으로 가려져도 Beta만 보이므로 빈 파일이 아니라 보이는 행을 내려받는다.
   fireEvent.change(screen.getByLabelText('제품'),{target:{value:'P2'}});
-  expect(screen.getByRole('button',{name:/엑셀/}).getAttribute('title')).toBe('표시된 행 전체를 내려받습니다');
-  fireEvent.click(screen.getByRole('button',{name:/엑셀/}));
+  expect(screen.getByRole('button',{name:/^엑셀/}).getAttribute('title')).toBe('표시된 행 전체를 내려받습니다');
+  fireEvent.click(screen.getByRole('button',{name:/^엑셀/}));
   const text=await blob!.text();
   expect(text).toContain('ID-B');expect(text).not.toContain('ID-A');
   click.mockRestore();
 });
+
+// 선택 바의 담당 변경은 서버와 같은 조건(manager 역할 + C/S 부서 GCS_L1 관리)일 때만 열린다.
+for(const [who,data,open] of [['C/S 부서 관리자',{id:'m',roles:['manager'],managed_departments:['GCS_L1']},true],['다른 부서 관리자',{id:'m',roles:['manager'],managed_departments:['TS_TRF']},false],['C/S 담당자',{id:'c',roles:['cs_agent'],managed_departments:[]},false]] as const){
+  test(`선택 바 담당 변경: ${who}이면 ${open?'열린다':'잠긴다'}`,async()=>{
+    stub(url=>url.endsWith('/platform/me')?jsonResponse(200,{data}):only(items));view();
+    await screen.findByRole('link',{name:'Alpha'});
+    expect(screen.queryByRole('toolbar',{name:'선택한 문의'})).toBeNull();
+    fireEvent.click(screen.getByLabelText('ID-A 선택'));
+    const bar=within(screen.getByRole('toolbar',{name:'선택한 문의'}));
+    expect(screen.getByRole('toolbar',{name:'선택한 문의'}).textContent).toContain('1건 선택');
+    await waitFor(()=>expect((bar.getByRole('button',{name:'담당 변경'}) as HTMLButtonElement).disabled).toBe(!open));
+    if(open){fireEvent.click(bar.getByRole('button',{name:'담당 변경'}));expect(await screen.findByText('담당 변경, 1건')).toBeTruthy();}
+    else await waitFor(()=>expect(bar.getByRole('button',{name:'담당 변경'}).getAttribute('title')).toBe('C/S 부서 관리자만 담당을 바꿀 수 있습니다'));
+    fireEvent.click(bar.getByRole('button',{name:'선택 해제'}));
+    if(!open) expect(screen.queryByRole('toolbar',{name:'선택한 문의'})).toBeNull();
+  });
+}

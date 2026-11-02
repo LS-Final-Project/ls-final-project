@@ -386,12 +386,15 @@ async def insert_round(conn: AsyncConnection[Row], values: Row) -> None:
 
 async def bundle_records(conn: AsyncConnection[Row], product_code: str, fault_id: str) -> list[Row]:
     """Resolution records of the same product and fault, with the ticket's receipt time
-    (occurrence proxy) and customer. Future filtering by as_of is the engine's."""
+    (occurrence proxy), customer, and the ship date and lot of the ticket's confirmed unit
+    (KAN-102 link; none when no unit is confirmed). Future filtering by as_of is the engine's."""
     cursor = await conn.execute(
         "SELECT rc.id AS case_id, rc.ticket_id, t.customer_external_id AS customer_id, "
-        "rc.known_at, t.received_at, rc.fw_version_at_issue FROM cs.resolution_cases rc "
-        "JOIN cs.tickets t ON t.id = rc.ticket_id WHERE rc.product_code = %s AND rc.fault_id = %s "
-        "ORDER BY rc.known_at, rc.id",
+        "rc.known_at, t.received_at, rc.fw_version_at_issue, u.ship_date, u.lot_no "
+        "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
+        "LEFT JOIN cs.ticket_unit_links l ON l.ticket_id = t.id AND l.link_status = 'CONFIRMED' "
+        "LEFT JOIN cs.installed_units u ON u.id = l.unit_id "
+        "WHERE rc.product_code = %s AND rc.fault_id = %s ORDER BY rc.known_at, rc.id",
         (product_code, fault_id),
     )
     return await cursor.fetchall()

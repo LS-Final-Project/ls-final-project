@@ -117,7 +117,7 @@ function InboxView() {
       <KvMore items={[{ label: '프로젝트 만들기', note: '메일에서 바로 만드는 경로 아직 없음' }, { label: '본문 열기', note: '본문은 메일 계정에서, 여기 저장하지 않음' }]} />
     </KvTitle>
     {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 합성 예시이며 실제 메일이 아닙니다.</div>}
-    <KvNext>검토 대기 <b>{(list.data ?? []).length}</b>건. 시스템은 연결 후보를 추천만 하고, 어디로 보낼지는 사람이 정합니다. 보낸 사람·제목·첨부는 이 목록 API가 주지 않아 표시하지 않습니다</KvNext>
+    <KvNext>검토 대기 <b>{(list.data ?? []).length}</b>건. 시스템은 연결 후보를 추천만 하고, 어디로 보낼지는 사람이 정합니다. 본문은 저장하지 않아 보이지 않고 첨부는 있음 여부만 보입니다</KvNext>
     <form className="kv-cond" aria-label="조회조건" onSubmit={event => { event.preventDefault(); fetchAgain(); }}>
       <div className="row" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
         <label><span>검토 사유</span><select aria-label="검토 사유" value={reason} onChange={event => setReason(event.target.value as ReplyReview['reason'] | '')}>
