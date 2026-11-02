@@ -177,7 +177,8 @@ export function ProcessForm({ projectId, documents, rerun, onCancel, onStarted }
     {rerun && <>
       <div className="kv-field"><label htmlFor="process-reason" className="req">재실행 사유</label>
         <input id="process-reason" type="text" maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></div>
-      <KvField label="덮어쓰기">손댄 요구는 덮어쓰지 않고 변경 제안으로 들어옵니다. 승인된 판단도 유지</KvField>
+      {/* 재처리 결과를 변경 제안으로 다시 올리는 기능은 범위에서 뺐다(KAN-153). 없는 동작을 약속하지 않는다. */}
+      <KvField label="덮어쓰기">손댄 요구와 승인된 판단은 덮어쓰지 않습니다. 새 결과를 변경 제안으로 다시 올리지는 않으니 달라진 점은 대응표에서 직접 확인하세요</KvField>
     </>}
     <p className="kv-sub" style={{ margin: '6px 0 0' }}>2번째 실행부터 사유 필수. 실행 중에는 문서 올리기와 다른 실행이 막힙니다</p>
     <div className="kv-actions">

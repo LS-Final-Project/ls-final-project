@@ -355,6 +355,13 @@ describe('처리 실행', () => {
     expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('재실행 안내는 없는 변경 제안 생성을 약속하지 않는다', async () => {
+    await form();
+    const notice = screen.getByText(/손댄 요구와 승인된 판단은 덮어쓰지 않습니다/).textContent ?? '';
+    expect(notice).toContain('변경 제안으로 다시 올리지는 않');
+    expect(screen.queryByText(/변경 제안으로 들어옵니다/)).toBeNull();
+  });
+
   it('첫 실행은 사유 없이 된다', async () => {
     project = { ...base, requirements_count: 0 };
     const submit = await form();
