@@ -15,6 +15,7 @@
 """
 
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
@@ -54,6 +55,52 @@ ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUF
 # 값 자체를 바꾸는 기준 조건. 요구에 없어도 자사 값이 여기 기대면 충족을 확정하지 않는다(기획서: 임피던스 기준 온도).
 BASIS_CONDITIONS = frozenset({"reference_temperature"})
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
+# 조립품(개폐반·배전반) 요구를 부품(차단기) 정격으로 충족 처리하지 않는다(KAN-190 B-1). 기획서 4.8은 15 kV 개폐반
+# 요구를 자사 개폐반 SWGR-MV-12kV와 견주는데, 같은 계열(MV_EQUIP)의 VCB-25kV-1250(차단기 한 대) 25.8 kV가 충족으로 잡혔다.
+# 요구 쪽은 장비 이름(item)으로, 제품 쪽은 적용 규격으로 가른다. 제품 마스터에 조립품/부품 열이 없고, 규격이 장비
+# 범위를 정한다(IEC 62271-200 금속 폐쇄형 개폐장치, IEC 62271-100 교류 차단기, IEC 60947-2 저압 차단기).
+ASSEMBLY_WORDS = (
+    "switchgear",
+    "switchboard",
+    "panelboard",
+    "metal enclosed",
+    "metal clad",
+    "motor control center",
+    "load center",
+    "ring main unit",
+    "unit substation",
+    "개폐반",
+    "개폐기반",
+    "배전반",
+    "분전반",
+    "제어반",
+)
+# 조립품 이름과 같이 써도 부품 요구다(예: "switchgear circuit breaker", 인출형 차단기).
+DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb", "차단기")
+ASSEMBLY_STANDARDS = (
+    "IEC 62271-200",
+    "IEC 62271-201",
+    "IEC 62271-202",
+    "IEC 61439",
+    "IEEE C37.20",
+    "ANSI C37.20",
+    "UL 891",
+    "UL 1558",
+    "UL 845",
+    "UL 67",
+)
+COMPONENT_STANDARDS = (
+    "IEC 62271-100",
+    "IEC 62271-103",
+    "IEC 62271-105",
+    "IEC 60947",
+    "IEEE C37.04",
+    "IEEE C37.06",
+    "IEEE C37.09",
+    "IEEE C37.13",
+    "UL 489",
+    "UL 1066",
+)
 OWN_FACTS = Path(__file__).with_name("own_spec_facts.json")
 
 
@@ -454,6 +501,41 @@ def _certification_match(requirement: Requirement, product: Product) -> Candidat
     )
 
 
+def _has_word(text: str, words: Sequence[str]) -> bool:
+    plain = text.lower().replace("-", " ")
+    return any(re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", plain) for word in words)
+
+
+def _is_assembly(requirement: Requirement) -> bool:
+    """요구 장비가 조립품(개폐반·배전반 등)인지. 장비 이름에 부품(차단기) 낱말이 있으면 부품 요구로 본다."""
+    return _has_word(requirement.item, ASSEMBLY_WORDS) and not _has_word(
+        requirement.item, DEVICE_WORDS
+    )
+
+
+def _is_component(product: Product) -> bool:
+    """자사 제품이 부품(차단기·개폐기)인지. 적용 규격에 부품 규격만 있고 조립품 규격이 없을 때다."""
+
+    def under(prefixes: Sequence[str]) -> bool:
+        return any(s.upper().startswith(prefixes) for s in product.standards)
+
+    return under(COMPONENT_STANDARDS) and not under(ASSEMBLY_STANDARDS)
+
+
+def _component_for_assembly(requirement: Requirement, product: Product) -> CandidateMatch:
+    # 부품 정격은 조립품 정격이 아니다(차단기 25.8 kV ≠ 개폐반 정격). 미기재와 같이 근거 부족으로 두고 후보 목록에는 남긴다.
+    wanted = (
+        requirement.certification_standard or requirement.attribute_label or requirement.attribute
+    )
+    return _no_data(
+        product,
+        "INSUFFICIENT_EVIDENCE",
+        f"원문 {requirement.clause_no} {requirement.item} {wanted} 요구: {product.product_code}는 부품"
+        f"({', '.join(product.standards)})이라 조립품 근거로 쓰지 않음.",
+        [f"{requirement.item} 자료 확인"],
+    )
+
+
 def _as_grading(requirement: Requirement) -> grading.Requirement:
     return grading.Requirement(
         requirement_id=UUID(int=0),
@@ -625,8 +707,11 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             None,
             [],
         )
+    assembly = _is_assembly(requirement)
     matches = [
-        _certification_match(requirement, p)
+        _component_for_assembly(requirement, p)
+        if assembly and _is_component(p)
+        else _certification_match(requirement, p)
         if requirement.certification_standard
         else _attribute_match(requirement, p)
         for p in products
