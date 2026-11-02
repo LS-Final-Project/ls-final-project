@@ -473,6 +473,34 @@ def test_invalid_environment_rejected_before_opening_any_file(monkeypatch, chang
         worker.configuration()
 
 
+@pytest.mark.parametrize("owner", ["cs", "tft"])
+@pytest.mark.parametrize("enabled", ["1", "true", "0", "false"])
+def test_dispatcher_enabled_values_match_explicit_local_worker_gate(
+    tmp_path, monkeypatch, owner, enabled
+):
+    env = {
+        "ENVIRONMENT": "local",
+        "LOCAL_BUSINESS_MODE": "real",
+        "LOCAL_JOB_OWNER": owner,
+        "LOCAL_JOB_ID": str(JOB),
+        f"{owner.upper()}_JOB_ID": str(JOB),
+        f"{owner.upper()}_WORKER_ENABLED": enabled,
+        "LOCAL_DRIVER_TOKEN": "offline-token",
+        "LOCAL_BUSINESS_CONTROL": str(tmp_path),
+        "LOCAL_MODEL_KEY_FILE": str(tmp_path / "key"),
+        "LOCAL_PRICES_FILE": str(tmp_path / "prices.json"),
+        "DATABASE_URL": "unused",
+        "GEMINI_TRANSIENT_RETRIES": "0",
+        "CS_VECTOR_SEARCH_ENABLED": "false",
+    }
+    monkeypatch.setattr(os, "environ", env)
+    if enabled in {"1", "true"}:
+        assert worker.configuration().owner == owner
+    else:
+        with pytest.raises(worker.LocalStop, match="LOCAL_WORKER_CONFIGURATION_INVALID"):
+            worker.configuration()
+
+
 def test_no_claim_means_no_finish_and_only_fixed_diagnostic(capsys):
     worker.fail_claimed(job_runtime, [], "LOCAL_COST_UNKNOWN")
     assert capsys.readouterr().err == "LOCAL_FAILURE_NOT_RECORDED_NO_LEASE\n"

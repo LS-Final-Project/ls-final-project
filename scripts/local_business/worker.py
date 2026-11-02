@@ -55,7 +55,7 @@ def configuration() -> Configuration:
         job = UUID(env["LOCAL_JOB_ID"])
         if str(job) != env["LOCAL_JOB_ID"] or env.get(f"{owner.upper()}_JOB_ID") != str(job):
             raise ValueError
-        if env.get(f"{owner.upper()}_WORKER_ENABLED") != "1":
+        if env.get(f"{owner.upper()}_WORKER_ENABLED") not in {"1", "true"}:
             raise ValueError
         values = [
             env[name]
