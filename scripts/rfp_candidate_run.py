@@ -424,15 +424,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     written = write_new(args.out, text)
+    if claim is not None:
+        complete_official(
+            args.official_ledger, claim, hashlib.sha256(text.encode("utf-8")).hexdigest()
+        )
+    # 예측 파일은 결과·장부가 끝난 뒤에 쓴다. 여기서 실패해도 공식 기록과 결과 파일은 일관되다(리뷰 P3).
     predictions_written: Path | None = None
     if args.predictions_out is not None:
         predictions_written = write_new(
             args.predictions_out,
             json.dumps(predictions_file(runs, data["meta"]), ensure_ascii=False, indent=2) + "\n",
-        )
-    if claim is not None:
-        complete_official(
-            args.official_ledger, claim, hashlib.sha256(text.encode("utf-8")).hexdigest()
         )
     meta = data["meta"]
     print(

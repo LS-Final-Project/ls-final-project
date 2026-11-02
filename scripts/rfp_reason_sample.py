@@ -45,6 +45,12 @@ def sample(
     return chosen
 
 
+def _cell(value: object) -> str:
+    """표 셀 글자. 세로줄·개행·역슬래시가 표를 깨지 않게 이스케이프한다(모든 셀 공통)."""
+    text = "(null)" if value is None else str(value)
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
 def render(rows: Sequence[dict], meta: dict, seed: int, per_document: int) -> str:
     """표본을 Markdown 표로 만든다. 사람이 '맞음/틀림'·'메모' 칸을 채운다."""
     head = (
@@ -56,16 +62,36 @@ def render(rows: Sequence[dict], meta: dict, seed: int, per_document: int) -> st
     lines = ["| " + " | ".join(COLUMNS) + " |", "|" + "---|" * len(COLUMNS)]
     for r in rows:
         cells = (
-            str(r["document_number"]),
-            r["clause_no"],
-            r["attribute"] or "(null)",
-            r["status"],
-            (r["reason"] or "").replace("|", "\\|").replace("\n", " "),
+            _cell(r["document_number"]),
+            _cell(r["clause_no"]),
+            _cell(r["attribute"]),
+            _cell(r["status"]),
+            _cell(r["reason"] or ""),
             "",
             "",
         )
         lines.append("| " + " | ".join(cells) + " |")
     return head + "\n".join(lines) + "\n"
+
+
+def check_inputs(
+    predictions: Path, documents: Sequence[int], per_document: int, out: Path
+) -> str | None:
+    """입력을 고정 코드로 검사한다(rfp_candidate_run과 같은 EVAL_* 규칙)."""
+    if not predictions.is_file():
+        return "EVAL_PREDICTIONS_MISSING"
+    if not documents or len(set(documents)) != len(documents):
+        return "EVAL_DOCUMENTS_INVALID"
+    if per_document < 1:
+        return "EVAL_PER_DOCUMENT_INVALID"
+    resolved = out.resolve()
+    if ROOT == resolved or ROOT in resolved.parents:
+        return "EVAL_OUTPUT_INSIDE_REPOSITORY"
+    if out.exists():
+        return "EVAL_OUTPUT_EXISTS"
+    if not out.parent.is_dir():
+        return "EVAL_OUTPUT_DIR_MISSING"
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,14 +104,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--out", type=Path, required=True, help="저장소 밖 Markdown 표(새 파일)")
     args = parser.parse_args(argv)
-    resolved = args.out.resolve()
-    if ROOT == resolved or ROOT in resolved.parents:
-        print("EVAL_OUTPUT_INSIDE_REPOSITORY", file=sys.stderr)
-        return 1
-    if args.out.exists():
-        print("EVAL_OUTPUT_EXISTS", file=sys.stderr)
+    problem = check_inputs(args.predictions, args.documents, args.per_document, args.out)
+    if problem:
+        print(problem, file=sys.stderr)
         return 1
     data = json.loads(args.predictions.read_text(encoding="utf-8"))
+    present = {i["document_number"] for i in data.get("items", [])}
+    missing = [n for n in args.documents if n not in present]
+    if missing:
+        # 번호 오타나 예측 누락으로 문서 하나가 조용히 빠진 표가 나오지 않게 한다(리뷰 P3).
+        print(f"EVAL_PREDICTIONS_DOCUMENT_EMPTY {missing}", file=sys.stderr)
+        return 1
     rows = sample(data["items"], args.documents, args.per_document, args.seed)
     with args.out.open("x", encoding="utf-8") as handle:
         handle.write(render(rows, data.get("meta", {}), args.seed, args.per_document))

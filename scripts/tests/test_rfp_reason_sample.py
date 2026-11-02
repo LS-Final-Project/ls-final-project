@@ -77,6 +77,36 @@ class ReasonSampleTest(unittest.TestCase):
                 ),
                 1,
             )
+            # 요청한 문서가 예측에 없으면 조용히 빠지지 않고 실패한다. 문서당 0건·없는 입력도 고정 코드다.
+            self.assertEqual(
+                rs.main(
+                    [
+                        "--predictions",
+                        str(pred),
+                        "--documents",
+                        "10",
+                        "99",
+                        "--seed",
+                        "3",
+                        "--out",
+                        str(Path(tmp) / "x.md"),
+                    ]
+                ),
+                1,
+            )
+            self.assertFalse((Path(tmp) / "x.md").exists())
+            self.assertEqual(
+                rs.check_inputs(pred, [10], 0, Path(tmp) / "y.md"), "EVAL_PER_DOCUMENT_INVALID"
+            )
+            self.assertEqual(
+                rs.check_inputs(Path(tmp) / "none.json", [10], 1, Path(tmp) / "y.md"),
+                "EVAL_PREDICTIONS_MISSING",
+            )
+            self.assertEqual(
+                rs.check_inputs(pred, [10], 1, Path(tmp) / "nodir" / "y.md"),
+                "EVAL_OUTPUT_DIR_MISSING",
+            )
+            self.assertEqual(rs._cell("a|b\\c\r\nd"), "a\\|b\\\\c  d")
             inside = rs.ROOT / "eval" / "sample.md"
             self.assertEqual(
                 rs.main(
