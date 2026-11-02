@@ -328,7 +328,7 @@ def sales_headers(key=None):
 
 
 def test_stored_states_match_the_planned_demo_a_b1_b2(worker_dsn, admin, tmp_path, demo_profiles):
-    """시연 A 12/13, B-1 3/4, B-2 4/4가 처리 함수를 거친 뒤 DB에 기대 상태로 저장된다(나머지는 위 상수에 이유와 함께)."""
+    """시연 A 13/13(추출 불가 1건 제외), B-1 3/4, B-2 4/4가 처리 함수를 거친 뒤 DB에 기대 상태로 저장된다(나머지는 위 상수에 이유와 함께)."""
     by_quote = stored_status(admin, processed(worker_dsn, admin, tmp_path))
     mismatches = {}
     checked = 0
@@ -433,7 +433,7 @@ def test_draft_review_version_and_docx_export_follow_the_process(
         assert sections["OUR_RESPONSE"] and sections["PARTNER_SUPPLEMENT"]
         assert draft.json()["data"]["evidence_missing_count"] == 0
         saved = client.post(
-            f"{base}/review-versions", json={"version": 1}, headers=sales_headers("a09-review")
+            f"{base}/review-versions", json={"version": 1}, headers=sales_headers(uuid4().hex)
         )
         assert saved.status_code == 201, saved.text
         assert saved.json()["data"]["output_status"] == "REVIEW_DRAFT"
@@ -456,7 +456,7 @@ def test_draft_review_version_and_docx_export_follow_the_process(
         jobs = Jobs()
         client.app.state.processing_jobs = jobs
         payload = {"review_version": 1, "format": "DOCX"}
-        received = client.post(f"{base}/exports", json=payload, headers=sales_headers("a09-export"))
+        received = client.post(f"{base}/exports", json=payload, headers=sales_headers(uuid4().hex))
         assert received.status_code == 202, received.text
         export_id = received.json()["data"]["export_id"]
         job = TftJob(
