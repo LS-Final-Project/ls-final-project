@@ -211,7 +211,7 @@ ALL = {**DEMO_A, **DEMO_B1, **DEMO_B2, **DEMO_C}
 
 
 class DemoExtractor:
-    """모든 절에 같은 요구 목록을 돌려준다(절 밖 조항은 엔진이 버린다). 모델은 부르지 않는다."""
+    """절마다 그 절 원문에 인용이 있는 요구만 돌려준다. 모델은 부르지 않는다."""
 
     def __init__(self, items):
         self.items = items
@@ -231,9 +231,15 @@ class DemoExtractor:
 
 @pytest.fixture
 def demo_profiles(admin):
-    """가상 협력사 프로필 12개(P-A~C, L-A·B, 평가용)를 넣고 검사 뒤 지운다(다른 시험의 등급 검사에 남지 않게)."""
+    """가상 협력사 프로필 12개(P-A~C, L-A·B, 평가용)를 넣고 검사 뒤 지운다(다른 시험의 등급 검사에 남지 않게).
+
+    같은 시험 DB에서 이 파일이 동시에 두 번 돌면 한쪽이 지운 프로필을 다른 쪽이 쓰다 실패한다.
+    세션 advisory lock으로 넣기부터 지우기까지를 한 실행씩만 하게 한다.
+    """
     profiles = load_profiles()
     inserted = []
+    guard = psycopg.connect(admin, autocommit=True)
+    guard.execute("SELECT pg_advisory_lock(hashtext('test_a09_demo_flow_db.demo_profiles'))")
     with psycopg.connect(admin) as conn:
         for profile in profiles:
             row = profile_row(profile)
@@ -254,6 +260,7 @@ def demo_profiles(admin):
     with psycopg.connect(admin) as conn:
         conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code = ANY(%s)", (inserted,))
         conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code = ANY(%s)", (inserted,))
+    guard.close()  # 연결을 닫으면 세션 lock도 풀린다.
 
 
 # 14번 원문의 조항 번호가 합성 Markdown과 다른 항목(원문은 1.1 A.2, 합성은 1.1 A.1.a). 실제 모델은 읽은 번호를 쓰므로 원문 시험은 원문 번호로 준다.
@@ -433,7 +440,9 @@ def test_draft_review_version_and_docx_export_follow_the_process(
         assert sections["OUR_RESPONSE"] and sections["PARTNER_SUPPLEMENT"]
         assert draft.json()["data"]["evidence_missing_count"] == 0
         saved = client.post(
-            f"{base}/review-versions", json={"version": 1}, headers=sales_headers(uuid4().hex)
+            f"{base}/review-versions",
+            json={"version": draft.json()["data"]["version"]},
+            headers=sales_headers(uuid4().hex),
         )
         assert saved.status_code == 201, saved.text
         assert saved.json()["data"]["output_status"] == "REVIEW_DRAFT"

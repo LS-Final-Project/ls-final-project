@@ -208,85 +208,104 @@ async def collect_candidates(
 ) -> SuccessResponse[CandidateCollected]:
     """Saves eligible groups that have no request yet. Running it again adds nothing."""
     require_candidates(principal)
-    at = judgement_time(payload.as_of)
+    async with connection(request.app.state.settings) as conn:
+        collected = await save_candidates(conn, principal.user_id, judgement_time(payload.as_of))
+    return respond(request, collected)
+
+
+async def save_candidates(
+    conn: Any, actor: UUID, at: datetime, *, group: tuple[str, str, str] | None = None
+) -> CandidateCollected:
+    """Judges the records known by `at` and saves eligible groups that have no request yet.
+
+    Running it again adds nothing. The collect route calls it for every group; the resolution
+    case route (KAN-206) calls it for the group of the record it just saved.
+
+    Args:
+        conn: Open C/S connection; the caller owns the transaction.
+        actor: User recorded as the run's actor and the evidence author.
+        at: Judgement time. Records known later are not seen.
+        group: (data_origin, product_code, fault_id) to judge alone. None judges every group.
+
+    Returns:
+        CandidateCollected: Counts and the IDs of the requests this run created.
+    """
     run_id = uuid4()
     created: list[UUID] = []
     skipped: list[CandidateSkipped] = []
     already_requested = 0
-    async with connection(request.app.state.settings) as conn:
-        rows = await repository.candidate_cases(conn, at)
-        departments = {str(row["case_id"]): row["resolved_by_dept"] for row in rows}
-        judged = [pair for pair in await judge(conn, at, rows) if pair[1].outcome == "ELIGIBLE"]
-        requests = await repository.fault_requests(conn)
-        for origin, candidate in judged:
-            if (origin, candidate.product_code, candidate.fault_id) in requests:
-                already_requested += 1
-                continue
-            resolved = {departments[str(e.case_id)] for e in candidate.evidence}
-            proposed = sorted(resolved & TRANSFER_DEPARTMENTS)
-            # A fault request needs a department (CS_DEPARTMENT_REQUIRED). No candidate skips that.
-            if not proposed:
-                skipped.append(
-                    CandidateSkipped(
-                        data_origin=origin,
-                        product_code=candidate.product_code,
-                        fault_id=candidate.fault_id,
-                        reason_code="NO_PROPOSED_DEPARTMENT",
-                    )
+    rows = await repository.candidate_cases(conn, at)
+    departments = {str(row["case_id"]): row["resolved_by_dept"] for row in rows}
+    judged = [pair for pair in await judge(conn, at, rows) if pair[1].outcome == "ELIGIBLE"]
+    if group is not None:
+        judged = [p for p in judged if (p[0], p[1].product_code, p[1].fault_id) == group]
+    requests = await repository.fault_requests(conn)
+    for origin, candidate in judged:
+        if (origin, candidate.product_code, candidate.fault_id) in requests:
+            already_requested += 1
+            continue
+        resolved = {departments[str(e.case_id)] for e in candidate.evidence}
+        proposed = sorted(resolved & TRANSFER_DEPARTMENTS)
+        # A fault request needs a department (CS_DEPARTMENT_REQUIRED). No candidate skips that.
+        if not proposed:
+            skipped.append(
+                CandidateSkipped(
+                    data_origin=origin,
+                    product_code=candidate.product_code,
+                    fault_id=candidate.fault_id,
+                    reason_code="NO_PROPOSED_DEPARTMENT",
                 )
-                continue
-            values = draft(origin, candidate, proposed, at)
-            if not await repository.insert_candidate(conn, values):
-                already_requested += 1
-                continue
-            stored = await repository.get_request(conn, values["id"])
-            assert stored is not None
-            for item in candidate.evidence:
-                await repository.insert_evidence(
-                    conn,
-                    {
-                        "id": uuid4(),
-                        "request_id": values["id"],
-                        "ticket_id": UUID(item.ticket_id),
-                        "case_id": UUID(item.case_id) if item.case_id else None,
-                        "added_by": principal.user_id,
-                    },
-                )
-            await commit_version(
+            )
+            continue
+        values = draft(origin, candidate, proposed, at)
+        if not await repository.insert_candidate(conn, values):
+            already_requested += 1
+            continue
+        stored = await repository.get_request(conn, values["id"])
+        assert stored is not None
+        for item in candidate.evidence:
+            await repository.insert_evidence(
                 conn,
-                stored,
-                principal.user_id,
-                "create",
                 {
-                    "origin": {"to": "SYSTEM_CANDIDATE"},
-                    "reason_code": {"to": candidate.reason_code},
-                    "run_id": {"to": str(run_id)},
+                    "id": uuid4(),
+                    "request_id": values["id"],
+                    "ticket_id": UUID(item.ticket_id),
+                    "case_id": UUID(item.case_id) if item.case_id else None,
+                    "added_by": actor,
                 },
             )
-            created.append(values["id"])
-        await repository.insert_run_audit(
+        await commit_version(
             conn,
-            run_id,
-            principal.user_id,
+            stored,
+            actor,
+            "create",
             {
-                "as_of": at.isoformat(),
-                "rules_version": CANDIDATE_RULES_VERSION,
-                "eligible": len(judged),
-                "created": len(created),
-                "already_requested": already_requested,
-                "skipped": len(skipped),
+                "origin": {"to": "SYSTEM_CANDIDATE"},
+                "reason_code": {"to": candidate.reason_code},
+                "run_id": {"to": str(run_id)},
             },
         )
-    return respond(
-        request,
-        CandidateCollected(
-            run_id=run_id,
-            as_of=at,
-            rules_version=CANDIDATE_RULES_VERSION,
-            eligible=len(judged),
-            created=len(created),
-            already_requested=already_requested,
-            skipped=skipped,
-            request_ids=created,
-        ),
+        created.append(values["id"])
+    await repository.insert_run_audit(
+        conn,
+        run_id,
+        actor,
+        {
+            "as_of": at.isoformat(),
+            "rules_version": CANDIDATE_RULES_VERSION,
+            "eligible": len(judged),
+            "created": len(created),
+            "already_requested": already_requested,
+            "skipped": len(skipped),
+        },
+    )
+    return CandidateCollected(
+        run_id=run_id,
+        as_of=at,
+        rules_version=CANDIDATE_RULES_VERSION,
+        eligible=len(judged),
+        created=len(created),
+        already_requested=already_requested,
+        skipped=skipped,
+        request_ids=created,
     )
