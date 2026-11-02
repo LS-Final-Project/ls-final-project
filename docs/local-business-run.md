@@ -1,5 +1,29 @@
 # 각 팀원 PC의 로컬 업무 실행 (KAN-159)
 
+## 한 명령으로 준비하기
+
+새 통합 진입점은 아래 명령이다. Docker 엔진, Git, uv/Python 3.12, Node 24/npm, OpenSSL, GWS를 먼저 설치하고 본인 GWS 계정으로 공용 Drive 접근을 준비한다. 키나 비밀번호를 공유하지 않는다. 현재 변경의 실제 새 환경·Mac 검증은 진행 중이며, 아래 명령이 모든 팀원 PC에서 통과했다고 주장하지 않는다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap --namespace team4-kan159-my-pc
+```
+
+최초 실행은 승인된 Drive 입력 다운로드·해시 대조 → 새 전용 Docker 이미지/DB/계정 준비 → 개발 문의 3,403건과 제공 해결 사례 696건 → 가정 장비 34개와 이전 문의 후보 연결 10개 → 검색 문서·기본 협력사 → RFP 원문 22개와 합성 시연 1개 등록 → localhost 기동 순서다. 가정 장비는 기존 문의를 재사용하며 신규 문의·확정 연결을 만들지 않는다. 평가용 RFP 4개는 등록만 하고 자동 분석하지 않는다. 평가 정답이나 과거 분석·승인·초안 결과를 seed하지 않으며 메일은 OFF다.
+
+`--plan`은 다운로드 계획만 표시하고 파일·DB·네트워크를 변경하지 않는다. `--profile cs`는 RFP 원문 다운로드·등록을 제외한다. `--port 40443`처럼 비어 있는 포트를 선택할 수 있다. 승인된 생성 시연 파일도 공용 Drive 목록에 포함돼 별도 수동 복사가 필요 없다.
+
+성공 후 같은 명령을 다시 실행하면 보관한 코드와 DB를 사용하며 기존 문의·분석·초안·비용 기록을 초기화하거나 다시 적재하지 않는다. 다른 profile이나 깨끗한 새 시험은 다른 namespace로 만든다. 중간 적재가 UNKNOWN으로 기록되면 서버·영수증 대조 전 자동 반복하지 않는다. 부분 namespace나 볼륨, 원장 파일을 삭제해 우회하지 않는다. 전원 손실 후 기록의 내구성·중복 방지를 절대 보장하는 구조는 아니므로 불청정 종료는 담당자 대조가 필요하다.
+
+모델은 기본 OFF다. 실제 Gemini API 실행을 원하면 본인의 **Google AI Studio 키 파일**을 본인만 읽도록 저장(`chmod 600`)한 뒤 같은 명령에 명시적으로 옵션을 붙인다. 파일 내용은 명령행이나 채팅에 넣지 않는다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap \
+  --namespace team4-kan159-my-pc --enable-model cs \
+  --key-file /absolute/path/to/private/gemini-key --max-jobs 1
+```
+
+RFP는 `--enable-model tft`로 선택한다. 키는 해당 worker에만 전달되고 API·웹에는 전달하지 않는다. 이 옵션은 작업 허가만 열며 화면에서 접수하기 전 자동 모델 호출은 하지 않는다. 한 사람이 한 작업씩 완료·비용을 확인하고 다음 작업을 진행한다. 기본 허가는 최대 20 SDK 호출, 호출별 예약 USD 0.15, 누적 허용 USD 1.50이며 공급자 청구 hard cap이 아니다. UNKNOWN 비용이나 미완료 작업은 기존 수동 검토 원칙을 따른다. 아래의 `disable-real`, `stop`, `start` 명령도 계속 사용할 수 있다. 합성 계정 로그인과 실제 Microsoft 로그인은 별개다.
+
 각자 받은 자료와 같은 코드를 사용해 신규 C/S는 UI 등록, RFP는 UI 업로드 후 실제 처리한다. **source `46b750fc32c2c25d83385d5ea8bee4af52a92032` 실행 스냅샷에 로컬 worker CONNECT 권한을 보정한 환경의 실증 기록이 있다. 최신 통합 코드 전체 E2E·품질·실제 Microsoft/메일·운영 완료와는 구분한다.**
 
 감독이 확인한 범위는 C/S 등록 → 분석 → 팝업, RFP 처리 20 / 초안 48 → 사용자 승인 OWN → 검토본 → DOCX 완료다. 누적 모델 호출은 8회, 기록 비용은 USD 0.083790이며 DOCX export의 추가 모델 호출은 0회다. 해당 검증 종료·본 정정 시점에 모델은 OFF다. 이 기록을 다른 PC나 최신 통합 코드의 전체 재실행 성공으로 확대하지 않는다.
