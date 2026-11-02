@@ -42,6 +42,32 @@
 
 각 PC에서 수령처·수령일·상대 파일명·크기·SHA-256·허용 용도·원본/파생 관계를 기록하고 관리자의 대상 판본 manifest와 대조한다. 파일명·수정 시각만으로 동일 판본이라 하지 않는다. hash는 파일 단위로 계산하며 gold를 포함한 디렉터리를 재귀 열람하지 않는다. 상세는 [데이터 계약](data-contract.md)을 따른다.
 
+### 팀원 공통 파일 해시 기준
+
+이번에 보유한 교육용 합성 파일을 **로컬 기능검증용 공통 입력 기준**으로 기록했다. 공식 평가 동결(KAN-158)이나 품질 합격 기준이 아니다. 현재 Drive 파일과의 동일성 미확인은 그대로 유지한다.
+
+- 필수 [local-business-data.sha256](local-business-data.sha256): 검색 문서 107개와 `docs/doc_index.csv`의 108개 항목. 문서 목록·SHA·크기는 기존 `/tmp/kan159-input-check/cs-dry-run.json`에서 가져왔고, 동일 목록에 대해서만 현존 파일 크기를 대조했다. 문서 본문을 재열람·재해시하지 않았다. doc_index만 실제 파일의 SHA-256을 계산해 추가했다.
+- 선택 [local-business-data-ref.sha256](local-business-data-ref.sha256): `ref/product_master.csv`, `ref/product_spec_facts.csv` 2개 항목. 승인된 두 파일만 SHA-256을 계산했다. ref 미수령 PC는 이 선택 검사를 생략하고 커밋된 자사 23종 파생값을 사용할 수 있다. ref가 없다는 이유로 1차 UI 검증을 막지 않는다.
+
+수령한 묶음의 최상위 폴더에서 상대 `docs/...`·`ref/...` 경로를 대조한다. 아래 경로는 각 PC의 실제 위치로 바꾼다. 입력 파일을 정규화하거나 이름만 맞추려고 수정하지 않는다.
+
+```bash
+export CODE_ROOT='/absolute/path/to/code'
+export RECEIVED_ROOT='/absolute/path/to/received/CS_AI_Agent_Training_Data_v1'
+cd "$RECEIVED_ROOT"
+sha256sum -c "$CODE_ROOT/docs/local-business-data.sha256"
+```
+
+108개 항목 모두 OK인지 확인한다. 누락·해시 불일치가 하나라도 있으면 해당 자료의 적재를 중단하고 담당자에게 파일명·기대/실제 hash만 보고한다. 다른 파일로 자동 대체하거나 확인 실패를 무시하지 않는다. 이 검사는 목록에 없는 추가 파일을 검사하지 않으므로 원본 폴더에 별도 시연자료를 섞지 않는다. 불필요한 추가 입력이 있다면 기존 받은 자료를 보존하고 실행 담당과 적재 범위를 확인한다.
+
+ref CSV도 수령하여 원천 대조를 할 때만 같은 위치에서 다음 선택 검사를 실행한다.
+
+```bash
+sha256sum -c "$CODE_ROOT/docs/local-business-data-ref.sha256"
+```
+
+해시 확인 후 아래 CLI를 실행할 때는 코드 루트로 돌아간다(`cd "$CODE_ROOT"`). 체크섬 일치는 동일 바이트의 증거이며 추출·적재·모델 품질·업무 전체 성공을 뜻하지 않는다. 팀원 PC에서 위 검사와 실제 DB 적재는 아직 미실행이다.
+
 ## 3. C/S 검색 문서: 확인 → 명시 적용 → worker 연결
 
 아래 명령은 저장소 루트에서 실행하며 개인 PC의 실재 경로로 바꾼다. `CS_INPUT_DOCS`는 수령한 문서 폴더이고, `CS_INDEX_RUNTIME`은 원자료·`data/` 밖에 마련한 쓰기 가능한 실행 결과 폴더다. CLI가 이곳에 manifest를 출력한다.
@@ -130,6 +156,6 @@ PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_own_spec_facts 
 4. 실행도구 담당의 인증·권한·CSRF·단일 처리 dispatcher/정규 worker 준비를 확인한다.
 5. UI에서 신규 CS 등록/RFP 업로드 후 해당 입력으로 실제 생성한 상태·분류·근거·비교/초안 등을 확인한다. 결과와 예상 결론을 사전 seed하지 않는다. 메일 발송·운영 반영은 별도 승인 대상이다.
 
-지원 공백은 각 PC의 수령 파일과 공통 hash/판본 manifest, 원천 ref CSV의 현재 공유 경로, 기존 해결사례 CSV의 업무 검색 importer, runner와 execute manifest/DB/worker를 잇는 실제 연결 검증이다. `cs_ticket_import.py`는 합성 CSV를 접수 API에 보내는 별도 CLI이며 1차 기동 필수나 해결사례 importer의 대체재가 아니다. `cs_fault_match_run.py`는 개발 manifest와 해결사례를 사용하는 실험 도구이며 업무 DB 적재 도구가 아니다.
+남은 지원 공백은 각 PC의 수령 파일 확보와 위 공통 hash 대조의 실제 수행, 원천 ref CSV의 현재 공유 경로, 기존 해결사례 CSV의 업무 검색 importer, runner와 execute manifest/DB/worker를 잇는 실제 연결 검증이다. `cs_ticket_import.py`는 합성 CSV를 접수 API에 보내는 별도 CLI이며 1차 기동 필수나 해결사례 importer의 대체재가 아니다. `cs_fault_match_run.py`는 개발 manifest와 해결사례를 사용하는 실험 도구이며 업무 DB 적재 도구가 아니다.
 
 CLI 구현, 원자료 확보, 실제 DB 적용, 모델 처리 성공, 업무 전체 완료를 따로 기록한다. dry-run·고정 기대값·과거 시뮬레이션만으로 후자를 완료 처리하지 않는다.
