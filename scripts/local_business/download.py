@@ -239,6 +239,7 @@ def _fetch(row, temporary):
             stderr=subprocess.DEVNULL,
             check=True,
             timeout=300,
+            cwd=temporary.parent,  # GWS requires --output to remain inside its current directory.
         )
     except (OSError, subprocess.SubprocessError):
         raise ValueError("DOWNLOAD_GWS_FAILED") from None

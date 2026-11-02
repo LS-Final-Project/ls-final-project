@@ -51,6 +51,19 @@ class DownloadTests(unittest.TestCase):
         run.assert_not_called()
         self.assertFalse(self.destination.exists())
 
+    def test_gws_output_is_inside_the_child_working_directory(self):
+        output = self.root / "download"
+
+        def guarded_cli(args, **kwargs):
+            # GWS 0.22.5 rejects an absolute --output outside cwd before any HTTP request.
+            target = Path(args[args.index("--output") + 1])
+            cwd = Path(kwargs.get("cwd", Path.cwd()))
+            if not target.is_relative_to(cwd):
+                raise subprocess.CalledProcessError(1, args)
+
+        with patch.object(module.subprocess, "run", side_effect=guarded_cli):
+            module._fetch(file_row(), output)
+
     def test_exact_file_skips_and_conflict_fails_before_any_fetch(self):
         with patch.object(
             module, "_fetch", side_effect=lambda r, p: p.write_bytes(b"authored fixture")
@@ -262,13 +275,17 @@ class DownloadTests(unittest.TestCase):
         )
         module.validate_manifest(m)
         self.assertEqual(
-            {k: len(v) for k, v in m["groups"].items()}, {"corpus": 108, "cs_history": 7, "rfp": 22}
+            {k: len(v) for k, v in m["groups"].items()}, {"corpus": 108, "cs_history": 7, "rfp": 23}
         )
         self.assertEqual(
             {r["id"] for r in m["groups"]["rfp"] if r["source_category"] == "evaluation"},
             {"D10", "D11", "D12", "D18"},
         )
-        self.assertEqual(len(m["missing"]), 1)
+        self.assertEqual(m["missing"], [])
+        demo = [r for r in m["groups"]["rfp"] if r["source_category"] == "generated_demo"]
+        self.assertEqual(len(demo), 1)
+        self.assertEqual(demo[0]["drive_id"], "1Xjznr4KSmj4ET9EUAS7XlVslhhraWLoQ")
+        self.assertEqual(demo[0]["origin"], "synthetic")
         members = next(r["members"] for r in m["groups"]["cs_history"] if "members" in r)
         self.assertEqual(
             {Path(r["relative_path"]).name for r in members},
