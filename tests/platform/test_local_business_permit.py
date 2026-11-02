@@ -1,3 +1,4 @@
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from uuid import uuid4
@@ -104,3 +105,95 @@ def test_limits_require_integers(tmp_path, limit, name):
     limits = {"max_jobs": 1, "max_calls": 1, name: limit}
     with pytest.raises(ValueError, match="INVALID_LOCAL_LIMIT"):
         p.authorize(**limits, reserve_usd="0.25")
+
+
+def test_explicit_unlimited_passes_all_four_caps_and_keeps_known_costs(tmp_path):
+    p = Permit(tmp_path / "unlimited.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.01", unlimited=True)
+    for _ in range(101):
+        job = str(uuid4())
+        p.grant(token, job)
+        charge = p.reserve(token, job, "fake-only")
+        assert p.settle(charge, actual_usd="5.00") is None
+    with p.transaction() as db:
+        assert p.driver(db, token)["limit_mode"] == "unlimited"
+        assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 101
+        assert db.execute("SELECT count(*) FROM charges WHERE state='SETTLED'").fetchone()[0] == 101
+        assert p.committed(db) == Decimal("505.00")  # Authored fake accounting, no provider calls.
+    with pytest.raises(Denied, match="LOCAL_JOB_ALREADY_AUTHORIZED"):
+        p.grant(token, job)
+    with pytest.raises(Denied, match="LOCAL_DRIVER_ALREADY_AUTHORIZED"):
+        p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.01", unlimited=True)
+
+
+@pytest.mark.parametrize("settle_unknown", [True, False])
+def test_unlimited_unknown_or_interrupted_reservation_still_blocks_new_work(
+    tmp_path, settle_unknown
+):
+    p = Permit(tmp_path / "unlimited.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
+    job = str(uuid4())
+    p.grant(token, job)
+    charge = p.reserve(token, job, "fake-only")
+    if settle_unknown:
+        assert p.settle(charge, actual_usd=None) == "LOCAL_COST_UNKNOWN"
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.grant(token, str(uuid4()))
+    p.close_driver(token)
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        Permit(p.path).authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
+
+
+def test_unlimited_mode_belongs_to_charge_token_even_after_driver_closes(tmp_path):
+    p = Permit(tmp_path / "unlimited.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
+    job = str(uuid4())
+    p.grant(token, job)
+    charge = p.reserve(token, job, "fake-only")
+    p.close_driver(token)
+    assert Permit(p.path).settle(charge, actual_usd="0.90") is None
+    with p.transaction() as db:
+        assert db.execute("SELECT state FROM charges").fetchone()[0] == "SETTLED"
+        assert (
+            db.execute("SELECT limit_mode FROM driver_modes WHERE token=?", (token,)).fetchone()[0]
+            == "unlimited"
+        )
+
+
+def test_additive_mode_table_is_concurrent_and_legacy_permissions_stay_limited(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    token, job, charge = str(uuid4()), str(uuid4()), str(uuid4())
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+            CREATE TABLE driver(singleton INTEGER PRIMARY KEY CHECK(singleton=1),token TEXT,
+              job_limit INTEGER NOT NULL,call_limit INTEGER NOT NULL,reservation TEXT NOT NULL,budget TEXT NOT NULL);
+            CREATE TABLE grants(job_id TEXT PRIMARY KEY,token TEXT NOT NULL);
+            CREATE TABLE charges(id TEXT PRIMARY KEY,token TEXT NOT NULL,job_id TEXT NOT NULL,
+              model TEXT NOT NULL,reserved TEXT NOT NULL,actual TEXT,state TEXT NOT NULL,
+              usage TEXT,reason TEXT);
+        """)
+        db.execute("INSERT INTO driver VALUES(1,?,1,1,'0.15','1.50')", (token,))
+        db.execute("INSERT INTO grants VALUES(?,?)", (job, token))
+        db.execute(
+            "INSERT INTO charges VALUES(?,?,?,'fake','0.15',NULL,'RESERVED',NULL,NULL)",
+            (charge, token, job),
+        )
+    with ThreadPoolExecutor(4) as pool:
+        permits = list(pool.map(lambda _: Permit(path), range(4)))
+    p = permits[0]
+    with p.transaction() as db:
+        assert p.driver(db, token)["limit_mode"] == "limited"
+        assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM driver_modes").fetchone()[0] == 0
+    assert p.settle(charge, actual_usd="0.90") == "LOCAL_RESERVATION_EXCEEDED"
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.grant(token, str(uuid4()))
+
+
+def test_limited_token_is_not_upgraded_by_a_later_unlimited_request(tmp_path):
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "fake-only")
+    p.close_driver(token)
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
+    assert p.settle(charge, actual_usd="0.60") == "LOCAL_RESERVATION_EXCEEDED"

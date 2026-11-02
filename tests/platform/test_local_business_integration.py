@@ -155,6 +155,31 @@ def test_disabled_exhausted_stale_or_wrong_owner_never_opens_gate(local_state):
     assert not runtime.gate(local_state, "cs")
 
 
+@pytest.mark.parametrize(
+    "value,allowed",
+    [
+        ({"mode": "real", "owner": "cs", "limit_mode": "unlimited", "remaining_jobs": None}, True),
+        ({"mode": "real", "owner": "cs", "remaining_jobs": None}, False),
+        ({"mode": "real", "owner": "cs", "remaining_jobs": True}, False),
+        ({"mode": "real", "owner": "cs", "remaining_jobs": 1.5}, False),
+        ({"mode": "real", "owner": "cs", "limit_mode": "unlimited", "remaining_jobs": 1}, False),
+        ({"mode": "real", "owner": "cs", "limit_mode": "unlimited"}, False),
+        ({"mode": "real", "owner": "cs", "limit_mode": None, "remaining_jobs": 1}, False),
+        ({"mode": "real", "owner": "cs", "limit_mode": "limited", "remaining_jobs": 1}, True),
+        ({"mode": "real", "owner": "cs", "remaining_jobs": "unlimited"}, False),
+        (None, False),
+        ([], False),
+    ],
+)
+def test_explicit_unlimited_admission_and_malformed_markers_fail_closed(
+    local_state, value, allowed
+):
+    (local_state / "control/enabled.json").write_text(json.dumps(value))
+    assert runtime.gate(local_state, "cs") is allowed
+    assert not runtime.gate(local_state, "tft")
+    assert not runtime.gate(local_state, "other")
+
+
 def test_dirty_source_stops_before_any_namespace_or_db_creation(monkeypatch):
     monkeypatch.setattr(setup.subprocess, "check_output", lambda *a, **k: b" M infra/local/init.sh")
     monkeypatch.setattr(setup, "docker", lambda *a, **k: pytest.fail("Docker must not be called"))
@@ -173,10 +198,12 @@ def test_missing_frontend_provenance_stops_before_db_access(local_state, monkeyp
         setup.owned(local_state)
 
 
-@pytest.mark.parametrize("outcome", ["known", "unknown", "overrun"])
+@pytest.mark.parametrize("outcome", ["known", "unknown", "overrun", "unlimited_overrun"])
 def test_actual_sqlite_permit_is_used_at_sdk_boundary(tmp_path, outcome):
     p = Permit(tmp_path / "permit.sqlite3")
-    token = p.authorize(max_jobs=1, max_calls=2, reserve_usd="0.10")
+    token = p.authorize(
+        max_jobs=1, max_calls=2, reserve_usd="0.10", unlimited=outcome == "unlimited_overrun"
+    )
     job = uuid4()
     p.grant(token, str(job))
     config = Configuration(
@@ -190,7 +217,7 @@ def test_actual_sqlite_permit_is_used_at_sdk_boundary(tmp_path, outcome):
         as_of=date(2026, 11, 2),
     )
     meter = Meter(p, config, {"fake-sdk-model": price})
-    tokens = 1000000 if outcome == "overrun" else 1
+    tokens = 1000000 if outcome in {"overrun", "unlimited_overrun"} else 1
     usage = SimpleNamespace(
         prompt_token_count=tokens,
         candidates_token_count=1,
@@ -205,7 +232,8 @@ def test_actual_sqlite_permit_is_used_at_sdk_boundary(tmp_path, outcome):
             assert db.execute("SELECT state FROM charges").fetchone()[0] == "RESERVED"
         return response
 
-    if outcome == "known":
+    settled = outcome in {"known", "unlimited_overrun"}
+    if settled:
         assert meter.generate(fake_sdk, model="fake-sdk-model") is response
     else:
         with pytest.raises(LocalStop):
@@ -213,10 +241,10 @@ def test_actual_sqlite_permit_is_used_at_sdk_boundary(tmp_path, outcome):
     with p.transaction() as db:
         row = db.execute("SELECT reserved,actual,state FROM charges").fetchone()
         assert row["reserved"] == "0.10"
-        assert row["state"] == ("SETTLED" if outcome == "known" else "UNKNOWN")
-        if outcome == "overrun":
+        assert row["state"] == ("SETTLED" if settled else "UNKNOWN")
+        if outcome in {"overrun", "unlimited_overrun"}:
             assert Decimal(row["actual"]) > Decimal("0.10")
-    if outcome != "known":
+    if not settled:
         p.close_driver(token)
         with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
             Permit(p.path).authorize(max_jobs=1, max_calls=1, reserve_usd="0.10")

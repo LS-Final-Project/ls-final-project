@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 from scripts.local_business.config import ROOT, clean_env, settings, state_path
-from scripts.local_business.permit import Permit
+from scripts.local_business.permit import Permit, require_unlimited_snapshot, validate_limits
 from scripts.local_business.setup import docker, fresh, inspect, owned
 from scripts.local_business.stack import running_drivers, start, stop, tunnel
 
@@ -265,8 +265,13 @@ def status(state):
 
 
 def enable(state, args):
+    if os.environ.get("ENVIRONMENT", "local") != "local" or "K_SERVICE" in os.environ:
+        raise ValueError("LOCAL_RUNNER_REQUIRES_LOCAL_ENVIRONMENT")
     config = owned(state)
     ns = config["namespace"]
+    unlimited = getattr(args, "unlimited", False)
+    if unlimited:
+        require_unlimited_snapshot(state)
     key = Path(args.key_file).expanduser()
     if key.is_symlink():
         raise ValueError("LOCAL_PRIVATE_KEY_FILE_REQUIRED")
@@ -285,6 +290,7 @@ def enable(state, args):
         max_calls=args.max_calls,
         reserve_usd=args.reserve_usd,
         budget_usd=args.budget_usd,
+        unlimited=unlimited,
     )
     name = ns + "-driver-" + token[:8]
     try:
@@ -349,8 +355,8 @@ def enable(state, args):
     except BaseException:
         permit.close_driver(token)
         raise
-    print("Started explicit bounded driver:", name)
-    print("Reservations are admission controls, not a guaranteed provider USD hard cap.")
+    print("Started explicit", "unlimited" if unlimited else "limited", "driver:", name)
+    print("UNKNOWN/interrupted reservations still block work; provider quotas remain in effect.")
 
 
 def main():
@@ -379,11 +385,32 @@ def main():
             p.add_argument("--key-file", required=True)
             p.add_argument("--prices-file", required=True)
             p.add_argument("--model", required=True)
-            p.add_argument("--max-jobs", type=int, default=1)
-            p.add_argument("--max-calls", type=int, default=8)
+            p.add_argument(
+                "--unlimited",
+                action="store_true",
+                help="Remove tool job/call/USD caps; preserve UNKNOWN blocking and usage journal",
+            )
+            p.add_argument("--max-jobs", type=int, help="Limited mode default: 1")
+            p.add_argument("--max-calls", type=int, help="Limited mode default: 8")
             p.add_argument("--reserve-usd", default="0.15")
-            p.add_argument("--budget-usd", default="1.50")
+            p.add_argument("--budget-usd", help="Limited mode default: 1.50")
     args = parser.parse_args()
+    if args.command == "enable-real":
+        if args.unlimited and any(
+            v is not None for v in (args.max_jobs, args.max_calls, args.budget_usd)
+        ):
+            parser.error(
+                "--unlimited cannot be combined with --max-jobs, --max-calls or --budget-usd"
+            )
+        args.max_jobs = 1 if args.max_jobs is None else args.max_jobs
+        args.max_calls = 8 if args.max_calls is None else args.max_calls
+        args.budget_usd = "1.50" if args.budget_usd is None else args.budget_usd
+        try:
+            validate_limits(
+                args.max_jobs, args.max_calls, args.reserve_usd, args.budget_usd, args.unlimited
+            )
+        except ValueError:
+            parser.error("Invalid local limits or amounts")
     state = state_path(args.namespace)
     if args.command == "setup":
         print(
