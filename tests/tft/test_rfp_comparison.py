@@ -1820,12 +1820,16 @@ def test_an_assembly_requirement_is_not_met_by_a_breaker_rating():
     vcb = by_code["VCB-25kV-1250"]
     assert (vcb.status, vcb.result, vcb.evidence) == ("INSUFFICIENT_EVIDENCE", "NO_DATA", [])
     assert "조립품 근거로 쓰지 않음" in vcb.reason
-    assert (
-        compare_in_family(
-            mv_voltage("15kV 퓨즈 부하개폐기반"), "MV_EQUIP", load_own_products()
-        ).status
-        == "SPEC_GAP"
-    )
+    for item in (
+        "15kV 퓨즈 부하개폐기반",
+        "15kV 금속폐쇄형 개폐장치",
+        "Medium-Voltage Switchgears",
+        "switchgear with circuit breakers",
+    ):
+        assert (
+            compare_in_family(mv_voltage(item), "MV_EQUIP", load_own_products()).status
+            == "SPEC_GAP"
+        ), item
 
 
 def test_a_breaker_requirement_still_uses_the_breaker_rating():

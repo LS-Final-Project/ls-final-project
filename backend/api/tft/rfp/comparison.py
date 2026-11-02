@@ -70,6 +70,7 @@ ASSEMBLY_WORDS = (
     "ring main unit",
     "unit substation",
     "개폐반",
+    "개폐장치",
     "개폐기반",
     "배전반",
     "분전반",
@@ -501,14 +502,17 @@ def _certification_match(requirement: Requirement, product: Product) -> Candidat
     )
 
 
-def _has_word(text: str, words: Sequence[str]) -> bool:
+def _has_word(text: str, words: Sequence[str], plural: bool = False) -> bool:
+    """낱말 경계로 찾는다. plural이면 영어 복수형(switchgears·switchboards)도 같은 낱말로 본다."""
     plain = text.lower().replace("-", " ")
-    return any(re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", plain) for word in words)
+    tail = "(?:e?s)?" if plural else ""
+    return any(re.search(rf"(?<![a-z]){re.escape(word)}{tail}(?![a-z])", plain) for word in words)
 
 
 def _is_assembly(requirement: Requirement) -> bool:
     """요구 장비가 조립품(개폐반·배전반 등)인지. 장비 이름에 부품(차단기) 낱말이 있으면 부품 요구로 본다."""
-    return _has_word(requirement.item, ASSEMBLY_WORDS) and not _has_word(
+    # 부품 낱말은 단수만 본다: "switchgear with circuit breakers"는 차단기를 담은 개폐반(조립품) 요구다.
+    return _has_word(requirement.item, ASSEMBLY_WORDS, plural=True) and not _has_word(
         requirement.item, DEVICE_WORDS
     )
 
@@ -517,7 +521,12 @@ def _is_component(product: Product) -> bool:
     """자사 제품이 부품(차단기·개폐기)인지. 적용 규격에 부품 규격만 있고 조립품 규격이 없을 때다."""
 
     def under(prefixes: Sequence[str]) -> bool:
-        return any(s.upper().startswith(prefixes) for s in product.standards)
+        # 규격 번호 뒤에 숫자가 이어지면 다른 규격이다("UL 67"은 "UL 674"가 아니다).
+        return any(
+            re.match(rf"{re.escape(prefix)}(?!\d)", s.upper())
+            for s in product.standards
+            for prefix in prefixes
+        )
 
     return under(COMPONENT_STANDARDS) and not under(ASSEMBLY_STANDARDS)
 
