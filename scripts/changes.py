@@ -96,7 +96,9 @@ def classify(paths: list[str]) -> dict:
             # 운영 모델 설정은 승격 차단 검사(eval/promotion.py, KAN-147)가 읽는다.
             if path == "infra/deploy_private.py":
                 evaluation = True
-            if path.startswith("infra/migrations/platform/"):
+            if path.startswith("scripts/local_business/"):
+                contracts.add("platform")
+            elif path.startswith("infra/migrations/platform/"):
                 contracts.add("platform")
             elif path in {"scripts/changes.py", "scripts/check_backend.py"}:
                 release.update(SERVICES)

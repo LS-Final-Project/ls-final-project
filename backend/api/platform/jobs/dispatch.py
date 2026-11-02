@@ -123,6 +123,8 @@ async def claim_next(
     dispatch: DispatchSettings,
     cs: CsJobSettings | None = None,
     tft: TftJobSettings | None = None,
+    *,
+    job_id: UUID | None = None,
 ) -> DispatchLease | None:
     """허용 종류의 전송 한 건을 확보하거나 만료된 전송의 불명확 상태를 보존한다.
 
@@ -149,8 +151,9 @@ async def claim_next(
             "AND o.next_attempt_at<=clock_timestamp()) "
             "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp())) "
             "AND j.kind = ANY(%s) "
+            "AND (%s::uuid IS NULL OR o.job_id=%s) "
             "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED",
-            (kinds,),
+            (kinds, job_id, job_id),
         )
         row = await cursor.fetchone()
         if row is None:
