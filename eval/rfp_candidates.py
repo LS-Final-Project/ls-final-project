@@ -30,6 +30,7 @@ from backend.api.tft.worker_processor import (
     GRADED_STATUSES,
     grading_groups,
     integration_of,
+    section_systems,
     to_comparison,
     to_grading,
 )
@@ -215,8 +216,9 @@ def run_document(
             run.model_versions.add(result.model_version)
         extracted += result.requirements
     # 운영 처리 함수(worker_processor)와 같은 호출이다: 요구 장비 계열의 후보 안에서만 비교한다.
+    systems = section_systems(extracted)
     outcomes = [
-        comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
+        comparison.compare_in_family(to_comparison(r, systems), r.equipment_family, products)
         for r in extracted
     ]
     run.predicted = [_predicted(r, o) for r, o in zip(extracted, outcomes, strict=True)]

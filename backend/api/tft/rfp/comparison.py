@@ -81,6 +81,29 @@ ASSEMBLY_WORDS = (
 DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb")
 # 한국어 장비 이름은 끝말이 장비다: "차단기 포함 개폐반"은 개폐반, "개폐반용 차단기"는 차단기. "차단기반"은 조립품이다.
 KOREAN_DEVICE = re.compile(r"차단기(?!반)")
+# 차단기가 아닌 개폐·보호 장비(부하개폐기·단로기·퓨즈·피뢰기). 차단기 제품의 정격·형식은 형식이 다른 장비의 값이라 이런
+# 요구의 근거가 아니다(KAN-208, #550과 같은 방식). "switchgear"·"switchboard"는 낱말 경계로 걸리지 않는다.
+OTHER_DEVICE_WORDS = (
+    "interrupter switch",
+    "load interrupter",
+    "load break switch",
+    "disconnect switch",
+    "disconnector",
+    "isolator",
+    "switch",
+    "fuse",
+    "arrester",
+)
+KOREAN_OTHER_DEVICE = re.compile(r"개폐기(?!반)|단로기|퓨즈|피뢰기")
+BREAKER_STANDARDS = (
+    "IEC 62271-100",
+    "IEC 60947-2",
+    "IEEE C37.04",
+    "IEEE C37.06",
+    "IEEE C37.09",
+    "IEEE C37.13",
+    "UL 489",
+)
 ASSEMBLY_STANDARDS = (
     "IEC 62271-200",
     "IEC 62271-201",
@@ -540,6 +563,38 @@ def _is_component(product: Product) -> bool:
     return under(COMPONENT_STANDARDS) and not under(ASSEMBLY_STANDARDS)
 
 
+def _is_other_device(requirement: Requirement) -> bool:
+    """요구 장비가 차단기가 아닌 개폐·보호 장비인지(부하개폐기·단로기·퓨즈·피뢰기). 조립품·차단기 요구는 아니다."""
+    item = requirement.item
+    if _is_assembly(requirement) or _has_word(item, DEVICE_WORDS) or KOREAN_DEVICE.search(item):
+        return False
+    return _has_word(item, OTHER_DEVICE_WORDS, plural=True) or bool(
+        KOREAN_OTHER_DEVICE.search(item)
+    )
+
+
+def _is_breaker(product: Product) -> bool:
+    """자사 제품이 차단기인지. 적용 규격이 모두 차단기 규격일 때다(변형 표기 "UL 489 (-U variant)"도 같은 규격)."""
+    return bool(product.standards) and all(
+        any(re.match(rf"{re.escape(prefix)}(?!\d)", s.upper()) for prefix in BREAKER_STANDARDS)
+        for s in product.standards
+    )
+
+
+def _breaker_for_other_device(requirement: Requirement, product: Product) -> CandidateMatch:
+    # 차단기 정격은 부하개폐기·피뢰기 정격이 아니다. 미기재와 같이 근거 부족으로 두고 후보 목록에는 남긴다.
+    wanted = (
+        requirement.certification_standard or requirement.attribute_label or requirement.attribute
+    )
+    return _no_data(
+        product,
+        "INSUFFICIENT_EVIDENCE",
+        f"원문 {requirement.clause_no} {requirement.item} {wanted} 요구: {product.product_code}는 차단기"
+        f"({', '.join(product.standards)})라 다른 형식 장비의 근거로 쓰지 않음.",
+        [f"{requirement.item} 자료 확인"],
+    )
+
+
 def _component_for_assembly(requirement: Requirement, product: Product) -> CandidateMatch:
     # 부품 정격은 조립품 정격이 아니다(차단기 25.8 kV ≠ 개폐반 정격). 미기재와 같이 근거 부족으로 두고 후보 목록에는 남긴다.
     wanted = (
@@ -726,9 +781,12 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             [],
         )
     assembly = _is_assembly(requirement)
+    other_device = _is_other_device(requirement)
     matches = [
         _component_for_assembly(requirement, p)
         if assembly and _is_component(p)
+        else _breaker_for_other_device(requirement, p)
+        if other_device and _is_breaker(p)
         else _certification_match(requirement, p)
         if requirement.certification_standard
         else _attribute_match(requirement, p)
