@@ -282,7 +282,8 @@ def _post(client, endpoint, entry, operation, ledger, ledger_path, headers, vali
         _fail("POST_PATH")
     attempt = {"key": str(uuid4()), "status": "UNKNOWN", "endpoint": endpoint}
     entry[operation] = attempt
-    save(ledger_path, ledger)  # Persist key/uncertain state before transmission, even on crash.
+    # Record key/uncertain state before transmission for process-interruption recovery.
+    save(ledger_path, ledger)
     response = client.post(
         endpoint, headers={**headers, "Idempotency-Key": attempt["key"]}, **kwargs
     )
@@ -302,7 +303,10 @@ def register_inputs(state: Path, inputs: list[dict], download_root: Path) -> dic
 
     UNKNOWN/REJECTED attempts need operator review, not automatic retries. A stale lock after
     process death likewise requires review. A confirmed create with no upload attempt resumes
-    only its existing project. Returns metadata only, never document contents or session secrets.
+    only its existing project. Atomic writes and locks are not fsynced: after an unclean OS
+    shutdown or power loss, an operator must reconcile server records before restarting.
+    Skip verification compares server hash metadata; it does not download document binaries.
+    Returns metadata only, never document contents or session secrets.
     """
     if (
         os.environ.get("ENVIRONMENT", "").strip().lower() == "production"
