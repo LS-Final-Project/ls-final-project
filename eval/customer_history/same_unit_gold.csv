@@ -1,0 +1,12 @@
+scenario_id,previous_ticket,current_ticket,expected_repeat_type,expected_unit_serial_no,note
+S02,CSV1-001943,CSV1-003521,SAME_UNIT,VSN-UPS-0201,시리얼은 확인 질문. 인계 예정일을 확정 시운전일로 쓰지 않음
+S03,CSV1-001083,CSV1-002392,SAME_UNIT,VSN-HMI-0301,"P1. 시리얼 확인 질문, 증상만 요청"
+S04,CSV1-000808,CSV1-003124,REPLACEMENT,VSN-ELCB-0402,같은 제품 두 번째 보증 청구. 원장비 0401로 확인하지 않음. PO는 요청
+S05,CSV1-001394,CSV1-003485,SAME_UNIT,VSN-ELCB-0501,7개월 전 같은 증상 원격 해결 이력 표시
+S06,CSV1-001087,CSV1-001781,REPLACEMENT,VSN-PV-0602,교체품 3개월 내 이상. S.04를 불량으로 단정하지 않음
+S07,CSV1-002448,CSV1-003221,REPLACEMENT,VSN-BMS-0702,"P1. 교체품 3개월 내 고장, QA 이관 후보"
+S09,CSV1-000670,CSV1-000791,MULTIPLE_UNITS,,20대 중 1대 미상. 임의로 고르지 않음
+S10,CSV1-001025,CSV1-001204,CONFLICT,,20일 전 교체품 vs 26개월 사용. 이력만으로 승인·거절하지 않음
+S11,CSV1-001777,CSV1-002275,CONFLICT,,51일 전 첫 설치 vs 38개월 사용. 이전 시리얼을 이번 장비로 단정하지 않음
+S13,CSV1-000991,CSV1-003317,DIFFERENT_UNIT,VSN-MTR-1302,"다른 장비(회신 때 공개, 장비 표에 없음). 2024-05 설치일을 쓰면 보증 만료 오판"
+S15,CSV1-001663,CSV1-002603,SAME_UNIT,VSN-iS7-1501,본문 FW 4.10이 현재 값. 이력 4.05는 과거 값. 라벨 오류 사례

@@ -123,6 +123,8 @@
 
 ### G. 화면·메일·검색 설정
 
+- [ ] **고객 이력 시연 장비**: 공용 DB에 장비가 0대면 문의 상세의 장비 확인이 비어 보인다. 운영자 터미널(관리자·마이그레이터 연결)에서 `uv run --frozen python -m scripts.cs_seed_units --admin-url <관리자 DSN> --tickets-source <개발 분할 tickets.dev.csv> --confirm-by <시연 cs_agent 사용자 ID> --allow-remote --execute`로 장비 34대·시나리오 문의 22건을 넣는다([자료 설명](../eval/customer_history/README.md), C3 이후 적용 뒤). dry-run으로 먼저 수를 확인한다. 다시 돌려도 같다.
+
 절차는 [외부 연동 점검](integration-checks.md)과 각 스크립트를 따른다.
 
 | 설정 | 서비스 | 켜는 곳 | 메모 |
