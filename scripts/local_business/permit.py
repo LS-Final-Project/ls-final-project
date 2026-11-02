@@ -82,6 +82,8 @@ class Permit:
         self, *, max_jobs: int, max_calls: int, reserve_usd: str, budget_usd: str = "1.50"
     ) -> str:
         reserve, budget = money(reserve_usd), money(budget_usd)
+        if type(max_jobs) is not int or type(max_calls) is not int:
+            raise ValueError("INVALID_LOCAL_LIMIT")
         if not 1 <= max_jobs <= 20 or not 1 <= max_calls <= 100:
             raise ValueError("INVALID_LOCAL_LIMIT")
         if not 0 < reserve <= budget < Decimal("3.00"):
@@ -167,6 +169,7 @@ class Permit:
                     charge,
                 ),
             )
+            return reason
 
     def close_driver(self, token: str):
         with self.transaction() as db:

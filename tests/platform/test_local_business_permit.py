@@ -56,7 +56,10 @@ def test_unknown_or_interrupted_call_survives_restart_and_blocks_new_spend(tmp_p
 def test_known_overrun_is_not_clamped_and_blocks_future_calls(tmp_path):
     p, token, job = permit(tmp_path)
     charge = p.reserve(token, job, "configured-model")
-    p.settle(charge, actual_usd="2.10", usage={"input_tokens": 10, "total_tokens": 20})
+    assert (
+        p.settle(charge, actual_usd="2.10", usage={"input_tokens": 10, "total_tokens": 20})
+        == "LOCAL_RESERVATION_EXCEEDED"
+    )
     with p.transaction() as db:
         assert p.committed(db) == Decimal("2.10")
     with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
@@ -92,3 +95,12 @@ def test_invalid_amounts_do_not_open_a_driver(tmp_path, amount):
     p = Permit(tmp_path / "charges.sqlite3")
     with pytest.raises(ValueError):
         p.authorize(max_jobs=1, max_calls=1, reserve_usd=amount)
+
+
+@pytest.mark.parametrize("limit", [True, False, 1.5, "2"])
+@pytest.mark.parametrize("name", ["max_jobs", "max_calls"])
+def test_limits_require_integers(tmp_path, limit, name):
+    p = Permit(tmp_path / "charges.sqlite3")
+    limits = {"max_jobs": 1, "max_calls": 1, name: limit}
+    with pytest.raises(ValueError, match="INVALID_LOCAL_LIMIT"):
+        p.authorize(**limits, reserve_usd="0.25")
