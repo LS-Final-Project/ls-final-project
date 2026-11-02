@@ -49,7 +49,7 @@
 ```bash
 export CS_INPUT_DOCS='/absolute/path/to/received/CS_AI_Agent_Training_Data_v1/docs'
 export CS_INDEX_RUNTIME='/absolute/path/to/writable/runtime'
-PYTHONPATH=. uv run python -m scripts.cs_index_docs \
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.cs_index_docs \
   --docs "$CS_INPUT_DOCS" \
   --doc-index "$CS_INPUT_DOCS/doc_index.csv" \
   --data-origin synthetic --dry-run \
@@ -63,7 +63,7 @@ dry-run도 원자료를 읽어 추출·청킹한다. 문서 작성자가 이를 
 다음은 명시적인 **로컬 DB 쓰기**다. 실행 담당이 대상을 확인하고 runner에서 해당 DB의 `cs_app`용 `DATABASE_URL`을 안전하게 전달한 뒤에만 실행한다. 비밀번호를 명령 이력에 적지 않고 환경 전체나 연결 문자열을 출력하지 않는다. CLI가 기존 `.env.local`을 자동으로 읽는다고 가정하지 않는다.
 
 ```bash
-PYTHONPATH=. uv run python -m scripts.cs_index_docs \
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.cs_index_docs \
   --docs "$CS_INPUT_DOCS" \
   --doc-index "$CS_INPUT_DOCS/doc_index.csv" \
   --data-origin synthetic --execute \
@@ -86,7 +86,7 @@ export CS_VECTOR_SEARCH_ENABLED=false
 저장소의 합성 협력사 파일을 DB 연결 없이 검사하고 계획을 표시하는 기존 명령:
 
 ```bash
-PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles --dry-run
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_seed_partner_profiles --dry-run
 ```
 
 **기존 실행 근거(감독 제공):** 같은 f3 기준·Python 3.12.3·env-i에서 rc0, 기본 tracked 프로필 12곳(P/L/M/T), synthetic, 모두 `PLANNED`였다. 로그는 `/tmp/kan159-input-check/partner-dry-run.log`다. 별도 demo-en Q-A~F 6곳을 기본 적재로 선택하지 않았다. DB·모델 호출이 없는 계획 확인이며 실제 DB 적재 성공을 의미하지 않는다.
@@ -94,15 +94,21 @@ PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles --dry-run
 runner가 대상 로컬 TFT DB의 `DATABASE_URL`을 안전하게 전달한 후 먼저 읽기 전용 대조를 한다. 기존 DB를 reset하지 않는다.
 
 ```bash
-PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles --check
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_seed_partner_profiles --check
 ```
 
-내용 차이를 확인하고 표시된 host/port/dbname 대상 토큰과 대조한 다음, 필요한 경우에만 명시 적용한다.
+`--check`는 대상 토큰을 출력하지 않는다. 적용이 필요하면 먼저 confirm 없이 아래 명령을 한 번 실행한다. `TARGET`의 host/port/dbname 토큰을 확인한 후 confirm 불일치로 종료코드 1이 나오는 것이 예상 결과이며, 이 단계는 DB 접속 전에 거부된다. 예상 거부를 적재 실패나 적재 성공으로 기록하지 않는다.
 
 ```bash
-PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles \
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_seed_partner_profiles --apply
+```
+
+출력된 대상이 개인 PC의 의도한 로컬 TFT DB인지 설정과 대조한다. 대상이 맞을 때만 정확한 토큰으로 명시 적용하고, 이후 읽기 전용 대조를 다시 수행한다.
+
+```bash
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_seed_partner_profiles \
   --apply --confirm-target '<확인한 대상 토큰>'
-PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles --check
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_seed_partner_profiles --check
 ```
 
 기존 판본을 덮어쓰지 않고 없는 판본만 추가한다. 기존 판본과의 `DIFFERENT`를 성공으로 취급하지 않는다. 미확인 후보 세트로 자동 교체하지 않는다. 문서 작성자는 DB 대조·적용을 실행하지 않았다.
@@ -110,7 +116,7 @@ PYTHONPATH=. uv run python -m scripts.rfp_seed_partner_profiles --check
 자사 23종은 커밋된 `backend/api/tft/rfp/own_spec_facts.json`을 이용한다. 원천 CSV 2종을 받은 경우의 대조 명령은 아래와 같다. `--check`를 생략하면 기본 출력 파일에 쓰는 생성 처리가 되므로 각 PC 준비에서는 생략하지 않는다.
 
 ```bash
-PYTHONPATH=. uv run python -m scripts.rfp_own_spec_facts \
+PYTHONPATH=. uv run --frozen --python 3.12 python -m scripts.rfp_own_spec_facts \
   --ref '/absolute/path/to/received/CS_AI_Agent_Training_Data_v1/ref' --check
 ```
 
