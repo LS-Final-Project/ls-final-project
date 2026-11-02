@@ -83,9 +83,9 @@ def namespace_lock(state):
 
 def command(args, log, *, data=None):
     log.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with log.open("wb") as out:
+    with log.open("wb") as out, log.with_suffix(".stderr.log").open("wb") as errors:
         result = subprocess.run(
-            args, input=data, stdout=out, stderr=subprocess.STDOUT, env=tool_env(), cwd=ROOT
+            args, input=data, stdout=out, stderr=errors, env=tool_env(), cwd=ROOT
         )
     require(result.returncode == 0, "COMMAND_FAILED_PRESERVED")
     return log.read_bytes()

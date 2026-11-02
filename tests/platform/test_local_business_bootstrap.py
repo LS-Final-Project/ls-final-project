@@ -188,3 +188,18 @@ def test_host_production_flag_is_not_silently_sanitized(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "")
     with pytest.raises(ValueError, match="LOCAL_ONLY"):
         module.bootstrap("team4-kan159-fixture", plan_only=True)
+
+
+def test_stderr_warning_cannot_corrupt_success_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(module, "tool_env", lambda: {"PATH": os.defpath})
+    log = tmp_path / "private/result.log"
+    result = module.command(
+        [
+            os.sys.executable,
+            "-c",
+            "import sys; print('{\"SAME\":12}'); print('late warning',file=sys.stderr)",
+        ],
+        log,
+    )
+    assert json.loads(result) == {"SAME": 12}
+    assert log.with_suffix(".stderr.log").read_text().strip() == "late warning"
