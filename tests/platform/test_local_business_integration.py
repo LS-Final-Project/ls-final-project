@@ -277,3 +277,23 @@ def test_changed_snapshot_is_refused_before_container_access(local_state, monkey
     )
     with pytest.raises(ValueError, match="LOCAL_(SOURCE|FRONTEND)_PROVENANCE_MISMATCH"):
         setup.owned(local_state)
+
+
+def test_git_snapshot_permissions_allow_readonly_pg_uid_without_touching_private_files(tmp_path):
+    import hashlib
+
+    source = tmp_path / "public-source"
+    sql = source / "infra/sql"
+    sql.mkdir(parents=True, mode=0o700)
+    file = sql / "roles.sql"
+    file.write_text("-- public Git schema only")
+    file.chmod(0o600)
+    private = tmp_path / "individual-key"
+    private.write_text("not-a-real-key")
+    private.chmod(0o600)
+    before = hashlib.sha256(file.read_bytes()).hexdigest()
+    setup.readable_snapshot(source)
+    assert source.stat().st_mode & 0o555 == 0o555 and sql.stat().st_mode & 0o555 == 0o555
+    assert file.stat().st_mode & 0o444 == 0o444
+    assert private.stat().st_mode & 0o777 == 0o600
+    assert hashlib.sha256(file.read_bytes()).hexdigest() == before

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -268,8 +269,6 @@ if __name__ == "__main__":
     except Exception as error:
         # Fixed diagnostics only; subprocess/DB/provider exceptions may contain secrets.
         safe = (
-            str(error)
-            if isinstance(error, ValueError) and str(error).startswith("LOCAL_")
-            else "LOCAL_COMMAND_FAILED"
+            str(error) if re.fullmatch(r"LOCAL_[A-Z0-9_]+", str(error)) else "LOCAL_COMMAND_FAILED"
         )
         raise SystemExit(safe) from None

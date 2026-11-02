@@ -28,6 +28,15 @@ def inspect(name):
     return json.loads(docker("inspect", name))[0]
 
 
+def readable_snapshot(source: Path):
+    """Git-only public source must be readable by PostgreSQL UID999 across read-only binds."""
+    source.chmod(0o755)
+    for path in source.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("LOCAL_SOURCE_SYMLINK_FORBIDDEN")
+        path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
+
+
 def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int = 38443):
     if type(web_port) is not int or not 1 <= web_port <= 65535 or web_port in {38081, 38082, 38083}:
         raise ValueError("LOCAL_PORTS_INVALID")
@@ -91,6 +100,7 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
             if member.isfile()
         }
         tree.extractall(source, filter="data")
+    readable_snapshot(source)
     (state / "private/source.tar").write_bytes(archive)
     config["source_archive_sha256"] = hashlib.sha256(archive).hexdigest()
     # Build this archived frontend with the feature flag explicitly enabled. Never accept an old dist.
@@ -187,7 +197,8 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
     docker(*command, image_ids["pg"])
     for _ in range(90):
         container = inspect(namespace + "-pg")
-        logs = docker("logs", namespace + "-pg")
+        log_result = subprocess.run(["docker", "logs", namespace + "-pg"], capture_output=True)
+        logs = log_result.stdout + log_result.stderr
         (state / "logs/setup-pg.log").write_bytes(logs)
         if not container["State"]["Running"]:
             raise RuntimeError("LOCAL_FRESH_INIT_FAILED_PRESERVED")
