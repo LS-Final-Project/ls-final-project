@@ -120,6 +120,8 @@ const HANGUL = /[가-힣]/;
  * 영어면 표에 있는 코드는 한국어로, 업무 코드인데 표에 없으면 일반 안내로, 그 밖은 서버 문구 그대로. */
 export function errorText(code: string | undefined, serverMessage: string): string {
   if (HANGUL.test(serverMessage)) return serverMessage;
+  // 입력 검증 실패는 서버 문구에 어느 칸이 문제인지가 들어 있어, 일반 안내 뒤에 원문을 붙인다.
+  if (code === 'VALIDATION_ERROR') return `${TEXT.VALIDATION_ERROR} (${serverMessage})`;
   if (code && TEXT[code]) return TEXT[code];
   if (code && BUSINESS.test(code)) return `요청을 처리하지 못했습니다(${code}). 최신 상태를 다시 읽은 뒤 확인하세요.`;
   return serverMessage;
