@@ -200,6 +200,7 @@ def test_foreign_driver_owner_is_not_stopped(local_state, monkeypatch):
 
 def test_old_pid_reused_by_other_namespace_is_never_killed(local_state, monkeypatch):
     from pathlib import Path
+
     from scripts.local_business import __main__ as cli
 
     pidfile = local_state / "control/tunnel.json"
@@ -222,3 +223,57 @@ def test_old_pid_reused_by_other_namespace_is_never_killed(local_state, monkeypa
     with pytest.raises(ValueError, match="LOCAL_TUNNEL_PID_MISMATCH"):
         cli.stop_tunnel(local_state)
     assert killed == [] and pidfile.exists()
+
+
+@pytest.mark.parametrize("change", ["modified", "missing", "extra", "symlink", "extra-dist"])
+def test_changed_snapshot_is_refused_before_container_access(local_state, monkeypatch, change):
+    import hashlib
+    import io
+    import tarfile
+
+    source = local_state / "source"
+    source.mkdir()
+    dist = source / "frontend/dist"
+    dist.mkdir(parents=True)
+    (local_state / "private").mkdir()
+    original = b"# fixed worker\n"
+    (source / "worker.py").write_bytes(original)
+    (dist / "index.html").write_bytes(b"fixed frontend")
+    digest = hashlib.sha256(original).hexdigest()
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tree:
+        member = tarfile.TarInfo("worker.py")
+        member.size = len(original)
+        tree.addfile(member, io.BytesIO(original))
+    blob = archive.getvalue()
+    (local_state / "private/source.tar").write_bytes(blob)
+    (local_state / "source-manifest.json").write_text(
+        json.dumps({"tracked": {"worker.py": digest}, "files": {"worker.py": digest}})
+    )
+    config = json.loads((local_state / "settings.json").read_text())
+    config.update(
+        setup_complete=True,
+        source_sha="fixed-source",
+        source_archive_sha256=hashlib.sha256(blob).hexdigest(),
+        frontend_build={
+            "source_sha": "fixed-source",
+            "business_ui": True,
+            "files": {"index.html": hashlib.sha256(b"fixed frontend").hexdigest()},
+        },
+    )
+    (local_state / "settings.json").write_text(json.dumps(config))
+    if change == "modified":
+        (source / "worker.py").write_bytes(b"# modified worker")
+    if change == "missing":
+        (source / "worker.py").unlink()
+    if change == "extra":
+        (source / "unexpected.py").write_text("raise RuntimeError")
+    if change == "symlink":
+        (source / "unexpected.py").symlink_to(source / "worker.py")
+    if change == "extra-dist":
+        (dist / "unexpected.js").write_text("unexpected()")
+    monkeypatch.setattr(
+        setup, "inspect", lambda *a: pytest.fail("Changed source must not reach Docker")
+    )
+    with pytest.raises(ValueError, match="LOCAL_(SOURCE|FRONTEND)_PROVENANCE_MISMATCH"):
+        setup.owned(local_state)

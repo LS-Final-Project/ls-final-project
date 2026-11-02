@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.local_business.config import ROOT, clean_env, state_path
+from scripts.local_business.config import ROOT, clean_env, settings, state_path
 from scripts.local_business.permit import Permit
 from scripts.local_business.setup import docker, fresh, inspect, owned
 from scripts.local_business.stack import running_drivers, start, stop, tunnel

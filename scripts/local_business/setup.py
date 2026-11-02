@@ -5,6 +5,7 @@ import io
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import tarfile
 import time
@@ -82,7 +83,15 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
     source.mkdir(mode=0o700)
     archive = subprocess.check_output(["git", "-C", str(ROOT), "archive", config["source_sha"]])
     with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+        if any(member.issym() or member.islnk() for member in tree.getmembers()):
+            raise ValueError("LOCAL_SOURCE_SYMLINK_FORBIDDEN")
+        tracked = {
+            member.name: hashlib.sha256(tree.extractfile(member).read()).hexdigest()
+            for member in tree.getmembers()
+            if member.isfile()
+        }
         tree.extractall(source, filter="data")
+    (state / "private/source.tar").write_bytes(archive)
     config["source_archive_sha256"] = hashlib.sha256(archive).hexdigest()
     # Build this archived frontend with the feature flag explicitly enabled. Never accept an old dist.
     build_env = {
@@ -99,6 +108,17 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
         )
         if result.returncode:
             raise RuntimeError("LOCAL_FRONTEND_BUILD_FAILED_PRESERVED")
+    # Build dependencies are never needed by the running static/relay server.
+    shutil.rmtree(source / "frontend/node_modules")
+    for filename, digest in tracked.items():
+        if hashlib.sha256((source / filename).read_bytes()).hexdigest() != digest:
+            raise ValueError("LOCAL_BUILD_CHANGED_TRACKED_SOURCE")
+    source_files = {
+        str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(source.rglob("*"))
+        if p.is_file() and not p.is_relative_to(source / "frontend/dist")
+    }
+    save(state / "source-manifest.json", {"tracked": tracked, "files": source_files})
     config["frontend_build"] = {
         "source_sha": config["source_sha"],
         "business_ui": True,
@@ -176,6 +196,27 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
         time.sleep(1)
     else:
         raise RuntimeError("LOCAL_FRESH_INIT_TIMEOUT_PRESERVED")
+    for _ in range(60):
+        ready = subprocess.run(
+            [
+                "docker",
+                "exec",
+                namespace + "-pg",
+                "pg_isready",
+                "-h",
+                "127.0.0.1",
+                "-U",
+                "postgres",
+                "-d",
+                "team4",
+            ],
+            capture_output=True,
+        )
+        if ready.returncode == 0:
+            break
+        time.sleep(0.5)
+    else:
+        raise RuntimeError("LOCAL_FRESH_FINAL_SERVER_NOT_READY_PRESERVED")
     # Standard migrations create NOLOGIN worker roles. Only new-namespace setup adds separate logins.
     sql = "BEGIN;\n"
     for role in ("local_cs_worker", "local_tft_worker"):
@@ -280,12 +321,40 @@ def owned(state: Path):
     build = config.get("frontend_build", {})
     if build.get("source_sha") != config["source_sha"] or build.get("business_ui") is not True:
         raise ValueError("LOCAL_FRONTEND_PROVENANCE_MISSING")
+    dist = state / "source/frontend/dist"
+    if {str(p.relative_to(dist)) for p in dist.rglob("*") if p.is_file()} != set(build["files"]):
+        raise ValueError("LOCAL_FRONTEND_PROVENANCE_MISMATCH")
     for filename, digest in build["files"].items():
         if (
             hashlib.sha256((state / "source/frontend/dist" / filename).read_bytes()).hexdigest()
             != digest
         ):
             raise ValueError("LOCAL_FRONTEND_PROVENANCE_MISMATCH")
+    archive = (state / "private/source.tar").read_bytes()
+    if hashlib.sha256(archive).hexdigest() != config["source_archive_sha256"]:
+        raise ValueError("LOCAL_SOURCE_PROVENANCE_MISMATCH")
+    manifest = json.loads((state / "source-manifest.json").read_text())
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+        original = {
+            member.name: hashlib.sha256(tree.extractfile(member).read()).hexdigest()
+            for member in tree.getmembers()
+            if member.isfile()
+        }
+    if original != manifest["tracked"]:
+        raise ValueError("LOCAL_SOURCE_PROVENANCE_MISMATCH")
+    source = state / "source"
+    actual_files = {
+        str(p.relative_to(source))
+        for p in source.rglob("*")
+        if p.is_file() and not p.is_relative_to(dist)
+    }
+    if any(p.is_symlink() for p in source.rglob("*")) or actual_files != set(manifest["files"]):
+        raise ValueError("LOCAL_SOURCE_PROVENANCE_MISMATCH")
+    for filename, digest in manifest["files"].items():
+        if hashlib.sha256((source / filename).read_bytes()).hexdigest() != digest:
+            raise ValueError("LOCAL_SOURCE_PROVENANCE_MISMATCH")
+    if not manifest["tracked"].items() <= manifest["files"].items():
+        raise ValueError("LOCAL_SOURCE_PROVENANCE_MISMATCH")
     namespace = config["namespace"]
     container = inspect(namespace + "-pg")
     if (
