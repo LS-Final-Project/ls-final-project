@@ -772,6 +772,8 @@ class Proposal(Provenance):
     status: ProposalStatus
     decided_by: UUID | None
     decided_at: datetime | None
+    # 승인 메모 또는 기각 사유. 결정 전이거나 메모 없이 승인했으면 null이다.
+    decision_note: str | None = None
 
 
 class ProposalList(Model):

@@ -3015,6 +3015,17 @@
             ],
             "title": "Decided By"
           },
+          "decision_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
           "derivation_kind": {
             "enum": [
               "PROVIDED",
