@@ -105,8 +105,14 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setattr(stack, "owned", lambda _: config)
     monkeypatch.setattr(stack, "inspect", inspect)
     monkeypatch.setattr(stack, "docker", docker)
+
+    def socket_option(level, option, value):
+        assert (level, option, value) == (stack.socket.SOL_SOCKET, stack.socket.SO_REUSEADDR, 1)
+
     monkeypatch.setattr(
-        stack.socket, "socket", lambda: nullcontext(SimpleNamespace(bind=lambda _: None))
+        stack.socket,
+        "socket",
+        lambda: nullcontext(SimpleNamespace(bind=lambda _: None, setsockopt=socket_option)),
     )
     return state, tmp_path
 
