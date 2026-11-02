@@ -196,6 +196,25 @@ test('business upstream redirects, HTML, oversized responses and timeouts stay f
 });
 
 
+test('serves PDF module workers as JavaScript with nosniff', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-module-'));
+  await writeFile(join(directory, 'pdf.worker.mjs'), 'export const worker = true;');
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture' }));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/pdf.worker.mjs`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'text/javascript; charset=utf-8');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await response.text(), 'export const worker = true;');
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(directory, { recursive: true });
+  }
+});
+
 test('serves a symlinked static root but rejects a file symlink outside it', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'team4-root-'));
   const content = join(directory, 'content');

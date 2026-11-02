@@ -39,6 +39,10 @@ def test_docx_is_valid_ooxml_with_all_sections_proofs_conditions_and_unicode(sna
             "[Content_Types].xml",
             "_rels/.rels",
             "word/document.xml",
+            "word/styles.xml",
+            "word/header1.xml",
+            "word/footer1.xml",
+            "word/_rels/document.xml.rels",
         }
         for name in package.namelist():
             ET.fromstring(package.read(name))
@@ -373,3 +377,56 @@ def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
     assert result.json()["data"]["sections"][0]["sentences"][0]["needs_rereview"] is True
     frozen.assert_awaited_once()
     display.assert_awaited_once()
+
+
+def test_docx_layout_uses_a4_repeating_tables_headings_and_linked_appendix(snapshot):
+    draft = build_draft(**snapshot)
+    data = draft_exports.render_docx(draft, 7)
+    w = draft_exports.W
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+        assert len(list(root.iter(w + "tbl"))) >= 3
+        assert len(list(root.iter(w + "tblHeader"))) == len(list(root.iter(w + "tbl")))
+        page = root.find(f".//{w}pgSz")
+        assert page is not None and page.attrib == {w + "w": "11906", w + "h": "16838"}
+        assert not list(root.iter(w + "trHeight"))
+        assert not list(root.iter(w + "vMerge"))
+        assert not list(root.iter(w + "noWrap"))
+        anchors = {row.get(w + "name") for row in root.iter(w + "bookmarkStart")}
+        links = {row.get(w + "anchor") for row in root.iter(w + "hyperlink")}
+        total = sum(len(section.sentences) for section in draft.sections)
+        assert anchors == links == {f"sentence_{n}" for n in range(1, total + 1)}
+        styles = ET.fromstring(package.read("word/styles.xml"))
+        assert {"Heading1", "Heading2", "Title"} <= {
+            style.get(w + "styleId") for style in styles.iter(w + "style")
+        }
+        footer = ET.fromstring(package.read("word/footer1.xml"))
+        assert any(row.get(w + "instr") == " PAGE " for row in footer.iter(w + "fldSimple"))
+
+
+def test_docx_layout_keeps_empty_sections_long_text_flags_and_missing_label_ids(snapshot):
+    draft = build_draft(**snapshot)
+    for section in draft.sections:
+        section.sentences = []
+    row = s.Sentence(
+        sentence_id=UUID(int=900),
+        text="긴 비교 내용 <원문> & 조건 " * 300 + "마지막 문장",
+        evidence=[s.Evidence(type="requirement", id="unmapped-requirement")],
+        conditions=["여러 조건\r\n둘째 줄\t탭 <>&", "긴 조건 " * 400 + "마지막 조건"],
+        unconfirmed=True,
+        needs_rereview=True,
+        evidence_missing=True,
+        provenance_kind="human_input",
+    )
+    draft.sections[1].sentences = [row]
+    data = draft_exports.render_docx(draft, 4)
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    texts = [node.text or "" for node in root.iter(draft_exports.W + "t")]
+    assert texts.count("등록된 문장 없음") == 5
+    assert row.text in texts and row.conditions[1] in "\n".join(texts)
+    assert "unmapped-requirement" in "\n".join(texts)
+    assert all(name in texts for name in draft_exports.SECTION_TITLES.values())
+    assert "미확약: 예 / 재검토: 예 / 근거 누락: 예" in texts
+    assert "작성 유형: 담당자 입력" in texts
+    assert data == draft_exports.render_docx(draft, 4)

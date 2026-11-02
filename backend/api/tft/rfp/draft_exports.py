@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from psycopg import AsyncConnection
 
 from backend.agent.processor_registry import Emit, TftJob
+from backend.api.tft.rfp import docx_layout as layout
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.commands import audit
@@ -139,6 +140,13 @@ def evidence_lines(row: s.Sentence, labels: Mapping[str, str]) -> list[str]:
     ]
 
 
+def sentence_flags(row: s.Sentence) -> str:
+    return (
+        f"미확약: {yes_no(row.unconfirmed)} / 재검토: {yes_no(row.needs_rereview)} / "
+        f"근거 누락: {yes_no(row.evidence_missing)}"
+    )
+
+
 def render_docx(
     draft: s.Draft,
     review_version: int,
@@ -149,55 +157,71 @@ def render_docx(
     root = ET.Element(W + "document")
     body = ET.SubElement(root, W + "body")
 
-    def paragraph(text: str) -> None:
-        if any(
-            not (
-                c in "\n\r\t"
-                or 0x20 <= ord(c) <= 0xD7FF
-                or 0xE000 <= ord(c) <= 0xFFFD
-                or 0x10000 <= ord(c) <= 0x10FFFF
-            )
-            for c in text
-        ):
-            raise ValueError("TFT_EXPORT_INVALID_CHARACTER")
-        para = ET.SubElement(body, W + "p")
-        run = ET.SubElement(para, W + "r")
-        for index, line in enumerate(text.replace("\r\n", "\n").replace("\r", "\n").split("\n")):
-            if index:
-                ET.SubElement(run, W + "br")
-            for tab_index, part in enumerate(line.split("\t")):
-                if tab_index:
-                    ET.SubElement(run, W + "tab")
-                ET.SubElement(
-                    run, W + "t", {"{http://www.w3.org/XML/1998/namespace}space": "preserve"}
-                ).text = part
+    def paragraph(text: str, style: str = "Normal") -> None:
+        layout.paragraph(body, text, style)
 
-    number = 0
-    paragraph(DISCLAIMER)
+    paragraph(DISCLAIMER, "Notice")
     head = [title, f"검토본 {review_version}", f"초안 {draft.version}"]
-    paragraph(" / ".join(part for part in head if part))
+    paragraph(" / ".join(part for part in head if part), "Title")
     known = draft.known_at.astimezone(KST).strftime("%Y-%m-%d %H:%M")
-    paragraph(f"자료 구분: {ORIGIN_TEXT[draft.data_origin]} / 기준 시각: {known} KST")
+    paragraph(f"자료 구분: {ORIGIN_TEXT[draft.data_origin]} / 기준 시각: {known} KST", "Meta")
+    paragraph(
+        "본문 S번호로 근거 부록을 확인하세요. 미확약·재검토·근거 누락의 ‘아니오’는 "
+        "해당 표식이 없다는 뜻이며 적합·공급 가능·승인 완료를 의미하지 않습니다.",
+        "Meta",
+    )
+    table_sections = {"OUR_RESPONSE", "DEVIATIONS", "PARTNER_SUPPLEMENT"}
+    widths = (650, 3500, 2600, 2730)
+    numbered: list[tuple[int, s.Sentence]] = []
     for section in draft.sections:
-        paragraph(SECTION_TITLES[section.section])
+        paragraph(SECTION_TITLES[section.section], "Heading1")
+        if not section.sentences:
+            paragraph("등록된 문장 없음", "Meta")
+            continue
+        table = (
+            layout.table(body, ("문장", "대응 내용", "조건·확인사항", "근거 / 검토 표시"), widths)
+            if section.section in table_sections
+            else None
+        )
         for row in section.sentences:
-            paragraph(row.text)
-            number += 1
-            paragraph(f"문장 번호: S{number}")
-            for condition in row.conditions:
-                paragraph(f"조건·미확인: {condition}")
-            for line in evidence_lines(row, labels or {}):
-                paragraph(line)
-            paragraph(
-                f"미확약: {yes_no(row.unconfirmed)} / 재검토: {yes_no(row.needs_rereview)} / "
-                f"근거 누락: {yes_no(row.evidence_missing)}"
-            )
-    paragraph(DISCLAIMER)
-    entries = {
-        "[Content_Types].xml": b'<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
-        "_rels/.rels": b'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
-        "word/document.xml": ET.tostring(root, encoding="utf-8", xml_declaration=True),
+            number = len(numbered) + 1
+            numbered.append((number, row))
+            flag_text = sentence_flags(row)
+            if table is not None:
+                cells = layout.table_row(table, widths)
+                layout.paragraph(cells[0], f"S{number}", "TableText")
+                layout.sentence_link(cells[0], number)
+                layout.paragraph(cells[1], row.text, "TableText")
+                for condition in row.conditions or ["등록 조건 없음"]:
+                    layout.paragraph(cells[2], condition, "TableText")
+                for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
+                    layout.paragraph(cells[3], line, "TableText")
+                layout.paragraph(cells[3], flag_text, "TableText")
+            else:
+                paragraph(row.text)
+                layout.sentence_link(body, number)
+                for condition in row.conditions:
+                    paragraph(f"조건·미확인: {condition}", "Meta")
+        if table is not None:
+            paragraph("", "Meta")
+    paragraph("부록 · 문장별 근거와 검토 기록", "Heading1")
+    paragraph("본문과 같은 S번호의 모든 조건·근거·검토 표시입니다.", "Meta")
+    provenance = {
+        "ai_draft": "AI 작성 초안",
+        "human_input": "담당자 입력",
+        "system_record": "양식·시스템 기록",
     }
+    for number, row in numbered:
+        layout.sentence_heading(body, number)
+        paragraph(row.text)
+        for condition in row.conditions:
+            paragraph(f"조건·미확인: {condition}", "Meta")
+        for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
+            paragraph(line, "Meta")
+        paragraph(sentence_flags(row), "Meta")
+        paragraph(f"작성 유형: {provenance[row.provenance_kind]}", "Meta")
+    paragraph(DISCLAIMER, "Notice")
+    entries = layout.package_parts(root, body, ORIGIN_TEXT[draft.data_origin])
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:
         for name, content in sorted(entries.items()):

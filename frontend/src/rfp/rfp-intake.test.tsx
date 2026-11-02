@@ -9,6 +9,10 @@ import { fileProblem, latestVersions } from './IntakeForms';
 import { DEPARTMENT_LABEL, requirementNo, shortDateTime } from './labels';
 import RfpIntake from './RfpIntake';
 
+// File rendering has dedicated SHA/MIME tests and real DOCX/PDF browser fixtures.
+// These admission/upload fixtures return JSON only and intentionally isolate the binary viewer.
+vi.mock('./OriginalDocument', () => ({ OriginalDocument: () => <div>원문 미리보기 검사 별도</div> }));
+
 // 서버 tft.department_kinds와 대조되는 목록이다(tests/tft/test_rfp_schema.py).
 const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
 const SERVER_DEPARTMENTS: string[] = JSON.parse(read('../../../docs/openapi/tft-department-codes.json'));
@@ -58,7 +62,8 @@ beforeEach(() => {
   setApiMode('live');
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); vi.useRealTimers(); });
-const open = async () => { renderApp(PATH); await screen.findByRole('table', { name: '문서와 판본' }); await screen.findByRole('cell', { name: '공문' }); };
+const showMetadata = async () => { const summary = await screen.findByText('문서 판본 및 요구 집계'); if (!summary.closest('details')?.open) fireEvent.click(summary); };
+const open = async () => { renderApp(PATH); await showMetadata(); await screen.findByRole('table', { name: '문서와 판본' }); await screen.findByRole('cell', { name: '공문' }); };
 const posts = (part: string) => calls.filter(c => c.method === 'POST' && c.url.includes(part));
 const next = () => document.querySelector('.kv-next')?.textContent ?? '';
 
@@ -198,6 +203,7 @@ describe('목록과 고른 프로젝트 한 화면', () => {
   it('문서 표에 조항·삭제 값을 보이고 이전 판본은 흐리게 비운다', async () => {
     listing(id => ({ ...base, id }));
     renderApp(PATH);
+    await showMetadata();
     const table = await screen.findByRole('table', { name: '문서와 판본' });
     await within(table).findAllByText('212');
     const rows = within(table).getAllByRole('row').slice(1);
@@ -436,6 +442,7 @@ describe('프로젝트 접수', () => {
       supply_region: null, customer_manufacturer_list: null, off_list_permission: 'UNSTATED',
       name: '합성', company_code: 'HOST', client_name: null, customer_goal: null, review_departments: ['SCM'], data_origin: 'synthetic', purpose: 'INITIAL_PROPOSAL',
     });
+    await showMetadata();
     await screen.findByRole('table', { name: '문서와 판본' });
   });
 

@@ -15,6 +15,7 @@ import { ProjectPagination, ProjectSearchField } from './ProjectPagination';
 import { useNames } from './names';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { RfpJobBanner, rfpJobPresentation } from './RfpJobBanner';
+import { RfpDocumentReview } from './RfpDocumentReview';
 import { deniedRfpJob, readRfpJob } from '../api/rfp-job-events';
 import { attributeName, DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, ISSUE_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, NECESSITY_LABEL, ORIGIN_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
 
@@ -123,7 +124,7 @@ export default function RfpIntake() {
   // Wait for the live actor before mounting job state; avoid an unverified mount followed by a remount.
   if (mode === 'live' && identity.isPending) return <main><KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">{common}{excel}</KvTitle>{list}<Loading label="계정 확인 중" /></main>;
   // 프로젝트를 옮기면 작업·알림 상태를 새로 시작한다(같은 경로 요소라 그대로 두면 앞 프로젝트 상태가 남는다).
-  return <Intake key={`${actorId ?? "unverified"}:${selected}`} actorId={actorId} projectId={selected} list={list} before={common} after={excel} />;
+  return <Intake key={`${actorId ?? "unverified"}:${selected}`} actorId={actorId} projectId={selected} list={projectId ? <details className="rfp-project-switch"><summary>다른 프로젝트 선택</summary>{list}</details> : list} before={common} after={excel} />;
 }
 
 // 고른 프로젝트 부분. 진행 칸(output_status)은 산출물 단계이지 작업 상태가 아니다.
@@ -286,6 +287,8 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
       ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
     ]} />
     <p>협력사 검토 입력을 바꿨다면 처리 재실행이 필요합니다. 현재 입력과 저장된 등급의 판정 시점은 다를 수 있습니다.</p>
+    <RfpDocumentReview projectId={projectId} actorId={actorId} documents={docs} />
+    <details className="rfp-project-switch"><summary>문서 판본 및 요구 집계</summary>
     <KvSplit columns="1.25fr 1fr">
       <div>
         <p className="kv-label">문서와 판본 {docs.length}건, 이전 판본은 흐리게</p>
@@ -300,6 +303,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
         </tbody></table>
       </div>
     </KvSplit>
+    </details>
     <div className="kv-gridhead sub"><span>이 프로젝트에서 내가 할 일, 매일 여기서 출발. 건수는 프로젝트 상세의 집계 값</span></div>
     <KvSplit columns="1fr 1fr 1fr">
       <div>
