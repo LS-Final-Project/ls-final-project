@@ -4,6 +4,7 @@ These RSA identities are NOT evidence of Microsoft or Google authentication. Key
 created by local setup, never copied from an earlier verification artifact.
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -33,6 +34,15 @@ CS_SA = "cs@local-business.iam.gserviceaccount.com"
 TFT_SA = "tft@local-business.iam.gserviceaccount.com"
 
 
+def require_local_fixture() -> None:
+    """Never supply synthetic identities inside a production or Cloud Run process."""
+    if (
+        os.environ.get("ENVIRONMENT", "").strip().lower() == "production"
+        or "K_SERVICE" in os.environ
+    ):
+        raise ValueError("LOCAL_IDENTITY_FORBIDDEN_ENVIRONMENT")
+
+
 def local_origin(value: str) -> str:
     """Accept only a canonical HTTPS localhost origin with an explicit port."""
     try:
@@ -50,9 +60,11 @@ class LocalLogin:
     """Supply four synthetic subjects; existing routes consume/bind state and sessions."""
 
     def __init__(self, web_origin: str):
+        require_local_fixture()
         self.web_origin = local_origin(web_origin)
 
     def begin(self, purpose, *, browser_binding, now, owner_user_id=None):
+        require_local_fixture()
         if purpose is not OAuthPurpose.LOGIN:
             raise HTTPException(403)
         state = token_urlsafe(32)
@@ -68,6 +80,7 @@ class LocalLogin:
         )
 
     def redeem(self, pending, callback):
+        require_local_fixture()
         code = callback.get("code")
         if (
             pending.purpose is not OAuthPurpose.LOGIN
@@ -85,16 +98,19 @@ class LocalIdentity:
     """Use only the explicit local key directory; no environment/cloud credentials."""
 
     def __init__(self, state: Path, web_origin: str):
+        require_local_fixture()
         self.auth = state / "auth"
         self.web_origin = local_origin(web_origin)
 
     def _key(self, filename: str) -> str:
+        require_local_fixture()
         path = self.auth / filename
         if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
             raise ValueError("INVALID_LOCAL_KEY_FILE")
         return path.read_text(encoding="utf-8")
 
     def auth_settings(self) -> MicrosoftAuthSettings:
+        require_local_fixture()
         return MicrosoftAuthSettings(
             _env_file=None,
             enabled=True,

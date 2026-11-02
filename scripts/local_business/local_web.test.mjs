@@ -1,9 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { localHandler, validateSettings } from './local_web.mjs';
+import { localHandler, validateSettings, requireLocalEnvironment } from './local_web.mjs';
 
 const settings = { ports: { web: 38443, platform: 38083, cs: 38081, tft: 38082 },
   web_origin: 'https://localhost:38443' };
+test('entrypoint requires explicit local and rejects even empty Cloud Run marker', () => {
+  requireLocalEnvironment({ ENVIRONMENT: 'local' });
+  for (const env of [{}, { ENVIRONMENT: 'production' }, { ENVIRONMENT: 'test' },
+    { ENVIRONMENT: 'local', K_SERVICE: '' }, { ENVIRONMENT: 'local', K_SERVICE: 'web' }]) {
+    assert.throws(() => requireLocalEnvironment(env), /LOCAL_WEB_FORBIDDEN_ENVIRONMENT/);
+  }
+});
 function request(url, method = 'GET', host = 'localhost:38443') {
   const result = { status: null, body: '', delegated: false };
   localHandler(settings, () => { result.delegated = true; })(

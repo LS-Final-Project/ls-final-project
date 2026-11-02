@@ -40,7 +40,14 @@ export function localHandler(settings, web) {
   };
 }
 
+export function requireLocalEnvironment(env) {
+  if (env.ENVIRONMENT !== 'local' || Object.hasOwn(env, 'K_SERVICE')) {
+    throw new Error('LOCAL_WEB_FORBIDDEN_ENVIRONMENT');
+  }
+}
+
 async function main() {
+  requireLocalEnvironment(process.env);
   const state = resolve(process.env.LOCAL_BUSINESS_STATE ?? '/local/state');
   const repo = resolve(process.env.LOCAL_BUSINESS_REPO ?? '/workspace');
   const settings = validateSettings(JSON.parse(readFileSync(join(state, 'settings.json'), 'utf8')));

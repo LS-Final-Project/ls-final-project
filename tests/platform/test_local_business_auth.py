@@ -10,7 +10,36 @@ from fastapi import HTTPException
 
 from backend.api.platform.auth.callback import OAuthPurpose, validate_callback
 from backend.shared.errors import ApplicationError
-from scripts.local_business.auth import CS_ORIGIN, PLATFORM_SA, TFT_ORIGIN, LocalIdentity
+from scripts.local_business.auth import (
+    CS_ORIGIN,
+    PLATFORM_SA,
+    TFT_ORIGIN,
+    LocalIdentity,
+    LocalLogin,
+)
+
+
+@pytest.mark.parametrize(
+    "key,value", [("ENVIRONMENT", "production"), ("K_SERVICE", ""), ("K_SERVICE", "worker")]
+)
+def test_fixture_rejects_production_and_cloud_run(identity, monkeypatch, key, value):
+    login = identity.oauth()
+    now = datetime.now(UTC)
+    _, pending = login.begin(OAuthPurpose.LOGIN, browser_binding="browser", now=now)
+    monkeypatch.setenv(key, value)
+    operations = [
+        lambda: LocalIdentity(identity.auth.parent, identity.web_origin),
+        lambda: LocalLogin(identity.web_origin),
+        identity.auth_settings,
+        identity.oauth,
+        lambda: identity.token(CS_ORIGIN, PLATFORM_SA),
+        lambda: identity.caller(CS_ORIGIN, PLATFORM_SA),
+        lambda: login.begin(OAuthPurpose.LOGIN, browser_binding="browser", now=now),
+        lambda: login.redeem(pending, {"code": "local-1"}),
+    ]
+    for operation in operations:
+        with pytest.raises(ValueError, match="LOCAL_IDENTITY_FORBIDDEN_ENVIRONMENT"):
+            operation()
 
 
 @pytest.fixture
