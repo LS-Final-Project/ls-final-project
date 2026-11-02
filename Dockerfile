@@ -6,6 +6,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python
 
 FROM dependencies AS test-dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-install-project --python /usr/local/bin/python
 
 FROM test-dependencies AS test
