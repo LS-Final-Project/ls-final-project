@@ -294,9 +294,9 @@ def test_own_development_hands_the_requirement_to_rnd(
 @pytest.mark.xfail(
     strict=True,
     reason="KAN-190 관찰(dev 9df5089): 통합 책임자를 지정해도 초안 전제 문장은 다음 처리 전까지 '미확보'로 남아, "
-    "지정 직후 저장한 검토본에 옛 문장이 들어간다",
+    "지정 직후 초안(검토본으로 저장될 문장)에 옛 문장이 남는다",
 )
-def test_a_review_saved_right_after_naming_the_holder_carries_it(
+def test_the_draft_right_after_naming_the_holder_carries_it(
     worker_dsn, admin, app_dsn, tmp_path, demo_profiles
 ):
     project, _ = assembly_project(worker_dsn, admin, tmp_path)
