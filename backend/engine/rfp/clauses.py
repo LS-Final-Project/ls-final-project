@@ -18,6 +18,9 @@
   `1. 일반` 같은 한글 숫자 제목은 깊이 2 절로 시작한다. 조의 괄호 제목·본문은 text에 보존한다.
   한글 번호 문맥의 소수는 실제 번호 부모와 짧은 한글 제목이 있을 때만 계층으로 읽고 다음 영문 PART부터
   기존 영문 깊이로 돌아간다.
+- Word 자동 번호(numPr) 문단은 본문 글자에 번호가 없다. DOCX 층이 계산한 `hints.list_text`("2.1"·"A."·"PART 2 -")가
+  있고 글자 번호가 없으면 그 번호를 앞에 붙여 같은 패턴으로 읽는다(KAN-207, 평가 18번 유형). 글자 번호가 있는 문단과
+  글머리표(•)는 그대로다. 삭제 값 위치는 붙인 번호만큼 옮긴 뒤 번호를 떼며 되돌린다.
 - 번호 없는 문단은 바로 앞 조항에 붙인다. 앞 글이 문장 끝(`.`·`:`·`;`)이 아니거나 이번 문단이 소문자로
   시작하면 줄이 중간에서 끊긴 것으로 보고 공백으로 잇는다(`LINE_BREAK_REJOINED`). 아니면 줄을 바꿔 붙인다.
 - 표: 한 행의 첫 글자 있는 칸이 번호만이면 그 행을 번호 조항으로 읽는다(14번 2.5 D·G·I…가 이런 배치다).
@@ -51,7 +54,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.engine.documents.model import Block, CrossReference, DeletedValue, ExtractedDocument
 
-CLAUSE_TREE_VERSION = "clause-tree-v1"
+CLAUSE_TREE_VERSION = "clause-tree-v2"  # v2: 자동 번호(hints.list_text) 지원(KAN-207)
 PART = re.compile(r"^PART\s+(\d+)\s*[-–—]\s*(.+)$")
 KOREAN_CHAPTER = re.compile(r"^(제\s*(\d+)\s*장)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_ARTICLE = re.compile(r"^(제\s*(\d+)\s*조)(?=\s|[（(.:]|$)\s*(.*)$")
@@ -230,6 +233,44 @@ def _label(text: str) -> tuple[int, str, str, str | None] | None:
     return None
 
 
+AUTO_PART = re.compile(r"^PART\s+(\d+)\s*[-–—]?\s*$")
+
+
+def _auto_label(list_text: str) -> str | None:
+    """DOCX 층이 계산한 자동 번호를 본문 앞에 붙일 글자로 바꾼다. 번호 패턴이 아니면(글머리표 등) None."""
+    label = list_text.strip()
+    if m := AUTO_PART.match(label):
+        return f"PART {m.group(1)} - "
+    for candidate in (label, label.rstrip(".") if "." in label[:-1] else label):
+        if _label(candidate + " x") is not None:
+            return candidate + " "
+    return None
+
+
+def _auto_numbered(block: Block) -> Block:
+    """본문 글자에 번호가 없는 자동 번호 문단에 계산된 번호를 앞에 붙인다(KAN-207, 평가 18번 유형).
+
+    글자 번호가 있는 문단(14·17번 전부)과 자동 번호가 없는 문단은 그대로 돌려준다. 삭제 값 위치는 붙인 길이만큼 옮긴다
+    (_strip이 번호를 떼며 다시 되돌린다).
+    """
+    text = block.text.strip()
+    if block.kind != "PARAGRAPH" or block.hints is None or not block.hints.list_text or not text:
+        return block
+    if _label(text) is not None or PART.match(text) or SECTION_HEAD.match(text):
+        return block
+    prefix = _auto_label(block.hints.list_text)
+    if prefix is None:
+        return block
+    return block.model_copy(
+        update={
+            "text": prefix + block.text.lstrip(),
+            "deleted_values": _shift(
+                block.deleted_values, len(prefix) - (len(block.text) - len(block.text.lstrip()))
+            ),
+        }
+    )
+
+
 def _strip(
     text: str, deleted: list[DeletedValue], cut: int
 ) -> tuple[str, list[DeletedValue], list[str]]:
@@ -312,8 +353,9 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     Returns:
         ClauseTree: 문서 순서의 조항, 머리말·반복 문구 블록, 번호 문제.
     """
-    noise = _boilerplate(document.blocks)
-    texts = {b.block_id: b.text.strip() for b in document.blocks}
+    blocks = [_auto_numbered(b) for b in document.blocks]
+    noise = _boilerplate(blocks)
+    texts = {b.block_id: b.text.strip() for b in blocks}
     clauses: list[Clause] = []
     issues: list[NumberingIssue] = []
     preamble: list[str] = []
@@ -331,7 +373,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         PART.match(b.text.strip())
         or KOREAN_CHAPTER.match(b.text.strip())
         or (KOREAN_ARTICLE.match(b.text.strip()) and _label(b.text.strip()) is not None)
-        for b in document.blocks
+        for b in blocks
     )
 
     def contextual_label(text: str) -> tuple[int, str, str, str | None] | None:
@@ -615,7 +657,6 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             body += sep + piece
         return body, deleted
 
-    blocks = document.blocks
     i = 0
     ended = False
     while i < len(blocks):
@@ -785,7 +826,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         i += 1
     flush_pending()
     close()
-    order = [b.block_id for b in document.blocks]
+    order = [b.block_id for b in blocks]
     boilerplate = sorted(noise, key=order.index)
     return ClauseTree(
         sha256=document.sha256,
