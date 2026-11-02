@@ -1,0 +1,1568 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "verification": "Drive files.list metadata SHA-256/bytes matched retained local inputs; no content downloaded",
+    "date": "2026-11-02",
+    "history": "Raw CSV may contain answer columns; importer whitelist projection mandatory. No heldout/gold replay.",
+    "rfp": "Evaluation D10/D11/D12/D18 registration-only; training label is educational origin, not approved evaluation split.",
+    "equipment": "KAN-205 committed assumed equipment CSV is supplied by code, not Drive."
+  },
+  "profiles": {
+    "full": [
+      "corpus",
+      "cs_history",
+      "rfp"
+    ],
+    "cs": [
+      "corpus",
+      "cs_history"
+    ],
+    "rfp": [
+      "rfp"
+    ]
+  },
+  "groups": {
+    "corpus": [
+      {
+        "id": "corpus-001",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ACB-AS-2000/DS-ACB-AS-2000.md",
+        "sha256": "3bbf26537172bb00d406616bd733688f3e755f475f3620962253c4a7bde09689",
+        "bytes": 2294,
+        "drive_id": "1eXCr3lK1CHFjRPKGTJttPXooIfzcQv7G",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-002",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ACB-AS-2000/IG-ACB-AS-2000.md",
+        "sha256": "c45082ad6d3952442637667860113fa578580fe406a06c22f3312868ee84fb6e",
+        "bytes": 2439,
+        "drive_id": "1Sg-pJm89oSUCutdyOhETrqQ8SUlUOrNf",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-003",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ACB-AS-2000/RN-ACB-AS-2000.md",
+        "sha256": "77ce9ea766b618a93447f3f6c40455bea75be3ceaab5984b9a7668f02744716b",
+        "bytes": 1378,
+        "drive_id": "1FrxNzAWUDSpKVNZCrKA1_wxnoWn-iRO0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-004",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ACB-AS-2000/TG-ACB-AS-2000.md",
+        "sha256": "b3bec94138ceb36685ed473a7ca36ce1402d4fbfee5d6bdaefd45e9efd6e3f10",
+        "bytes": 2925,
+        "drive_id": "15Xs4b2VMvK-wJDJSHsXFg5ep_UvVjMJE",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-005",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/CONT-MC-32a/DS-CONT-MC-32a.md",
+        "sha256": "000dbba757b0ab590cf63f70f073c6e835f4e7e7f21bf0762b9e5134024a481d",
+        "bytes": 2066,
+        "drive_id": "1bG7mCvTpvhoOJlb3n_grb9DIsQaAIL7-",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-006",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/CONT-MC-32a/IG-CONT-MC-32a.md",
+        "sha256": "06b8bf62cf1a1ef043e83916ce312244a7fa9a4e6c85e59fef070c2b33bd4d70",
+        "bytes": 2123,
+        "drive_id": "1Uvw43N8ikxcv2AjuSqolxahm9LxZ4Agf",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-007",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/CONT-MC-32a/MG-CONT-MC-32a.md",
+        "sha256": "014bcfcbff72ea490d07f3dd18b54523864714e0518c3548d2c966b9d5fa17b8",
+        "bytes": 739,
+        "drive_id": "10IUb9Ry8jprkpRs_W3JSQkWr2VjZJZni",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-008",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/CONT-MC-32a/TG-CONT-MC-32a.md",
+        "sha256": "1d68eb8a1e2fd9237a11961b55852dc633b9375689ab4432ebb7859b78f4ef5f",
+        "bytes": 2046,
+        "drive_id": "1ZaL0fMK3rfbHUEmIRMrIB7Owea5dh4bE",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-009",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ELCB-EBN-203c/DS-ELCB-EBN-203c.md",
+        "sha256": "4a15a34a67460ded916a7da1e669a290696fb8fb5b0ae23075611a066b37257c",
+        "bytes": 2057,
+        "drive_id": "1rjlN22BwTxQObe_5-UGJS5v_dfyZdFr9",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-010",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ELCB-EBN-203c/IG-ELCB-EBN-203c.md",
+        "sha256": "155936296d9f7d9d539fab023e2d77a9ecdab39822457adc2063f6314b94f260",
+        "bytes": 2380,
+        "drive_id": "1lJOUDCRqoIv1qAxNQ0SWynOxmvBCYb0Y",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-011",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ELCB-EBN-203c/MG-ELCB-EBN-203c.md",
+        "sha256": "586342aeea39bcdb31084e99dc509d1b19e1a4bb02664eb5faf14cc32d62464d",
+        "bytes": 821,
+        "drive_id": "1qL7wTZqMiODrebtDHh7nyl_uTUpHV_V0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-012",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ELCB-EBN-203c/TG-ELCB-EBN-203c.md",
+        "sha256": "290fc10a974e22cd943e014940195dc5adc6904ae8f9c28e64b5e4afe9a3906a",
+        "bytes": 2937,
+        "drive_id": "1haKABzAlp0oD22WERcy5sXrssTVD71Ch",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-013",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-BMS-V3/DS-ESS-BMS-V3.md",
+        "sha256": "2e66683d269f4c0503081e4da409683a901a01ef38b8ae7c481d9ac63018282d",
+        "bytes": 2082,
+        "drive_id": "1WaYH3BqLmzXqwlQODdLscxjhfCeJtNde",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-014",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-BMS-V3/IG-ESS-BMS-V3.md",
+        "sha256": "c6b82dd6ec76760c32a8183c07c3694eb31ef49f32436934a68171ee0e0d31aa",
+        "bytes": 2328,
+        "drive_id": "1kxWOthV5Mg7a60DECpjgmCXYciQoAniA",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-015",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-BMS-V3/RN-ESS-BMS-V3.md",
+        "sha256": "546c3f97c2a4004bf51ac2248c59b13b382d5f74084a8a6cd3440d94a7892320",
+        "bytes": 1311,
+        "drive_id": "1DDoH73CL3HGXC8JiF9wruP3M936MI6X0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-016",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-BMS-V3/TG-ESS-BMS-V3.md",
+        "sha256": "9e357bab143f476f1a2a6d734f6ec1823c948d649c2852bac3fde45a2c753ea8",
+        "bytes": 4158,
+        "drive_id": "1SdsXSGB6Ij8Dn7ZdVUOinCKpSJsC8fJ9",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-017",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-PCS-100kW/DS-ESS-PCS-100kW.md",
+        "sha256": "de176520c259db3dfb1688f43cc2e0ffbcab4bb1048527fa3227d8a335465a2f",
+        "bytes": 2167,
+        "drive_id": "1UBH44v14zBxdrtd486Hdwm0Se_D6HtLT",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-018",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-PCS-100kW/IG-ESS-PCS-100kW.md",
+        "sha256": "78777cf122d264635df2c941bb185910aedf9621d865fba3aec146cd8284550d",
+        "bytes": 2360,
+        "drive_id": "1XN0__xRKcEYbMHOlSwwZiIXtdhUCTvcr",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-019",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-PCS-100kW/RN-ESS-PCS-100kW.md",
+        "sha256": "d6cabbf748edaaea13e8429b0d589524e16d2ee7f97b7cdeb8a3724cfc9fee3d",
+        "bytes": 1289,
+        "drive_id": "1395Lz_EKqZpyyhqkuwgyrIfDsc2ixNe3",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-020",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/ESS-PCS-100kW/TG-ESS-PCS-100kW.md",
+        "sha256": "fa82265d2cf79cd1e91378cb3a4456405b64fbab74ee74b16268f6648376a134",
+        "bytes": 3088,
+        "drive_id": "1sWbIsItMHRs-egbNCwzFVKYX734DyaGa",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-021",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-eXP60/DS-HMI-XGT-eXP60.md",
+        "sha256": "71218abb0d9bc6232692180ca4fd466f33dfb8553bc9c7e6ea4176fa3aeab33e",
+        "bytes": 1947,
+        "drive_id": "16_PNl35t55vQFYCGpyTQE19Xetb5krg9",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-022",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-eXP60/IG-HMI-XGT-eXP60.md",
+        "sha256": "000e0e8be64e9ec5f2d38202d3c0142d1932e524c562bd7445059c9f80e265b0",
+        "bytes": 2338,
+        "drive_id": "14Jjm34DPC0ev_53HviK_DjRyPxPYkTsf",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-023",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-eXP60/RN-HMI-XGT-eXP60.md",
+        "sha256": "c819a42254c6125252839b464dd2c3f1bb0eab5bb489a0fdbbb76e3fefdaf3b1",
+        "bytes": 1281,
+        "drive_id": "1z0hQ_3VcP-O79WQNDndSy2KeauFJKZxf",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-024",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-eXP60/TG-HMI-XGT-eXP60.md",
+        "sha256": "954c6d8d7f505ad687cce0e768a43b57c5754670a34aecddc3ec856093f6ce66",
+        "bytes": 3422,
+        "drive_id": "1-A2iRJUUWOup-W2gSylW46jzfCjY__HV",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-025",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-iXP90/DS-HMI-XGT-iXP90.md",
+        "sha256": "c64d70993be57493269c67e8139ffe8e5db1dc48021c6487c9e50871d9323497",
+        "bytes": 1961,
+        "drive_id": "14-jV7YlWmF6q5BTQmV5YLneEUaCLK1wC",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-026",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-iXP90/IG-HMI-XGT-iXP90.md",
+        "sha256": "65217967530d6ed8c94c3cbdd41ce5f7dc80cfe1ebab54bc66ca13e68aea37d8",
+        "bytes": 2356,
+        "drive_id": "1Sx40HNRtwcewxBOk7AKbX8YOT4QwaxnC",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-027",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-iXP90/RN-HMI-XGT-iXP90.md",
+        "sha256": "07e0aed5badfe0eeb71ccf523399afee1dbf236143b91a5e3a9513dc3fd137cc",
+        "bytes": 1258,
+        "drive_id": "1iZoUZBjfoOIJ0--3yxgWb5PvejtNOKG5",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-028",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/HMI-XGT-iXP90/TG-HMI-XGT-iXP90.md",
+        "sha256": "0c06c53cba2a5f069cf1d2d36d9899f9e9c4c234d3082ab50b5fad9c73c5ffba",
+        "bytes": 3115,
+        "drive_id": "1G6aDz3s3zd-f0s9v3k0nzZJB4wN5HMmz",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-029",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0075-S100/DS-INV-LSLV0075-S100.md",
+        "sha256": "cdebdda76efa6d19ef211bf807a34b97dc8d1dbcc95972c824aa0308f029cf5f",
+        "bytes": 2345,
+        "drive_id": "1W8t09rSNL0ZiPt6YNt6RPNbJRrmqe4FH",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-030",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0075-S100/IG-INV-LSLV0075-S100.md",
+        "sha256": "9d3c7180e4c8f4a0496488509f6ffae80c4f4f43629fef7f028eb93f9f108d69",
+        "bytes": 2610,
+        "drive_id": "1_WZbHpAIGorVIXH8rA19bADbmKJd_U1z",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-031",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0075-S100/RN-INV-LSLV0075-S100.md",
+        "sha256": "40535122e04467c8b4b16886216a403b1c5e40885f8d50887e66aefd8079effd",
+        "bytes": 1436,
+        "drive_id": "1KjmziF5GPoFvAi-Uv0H6nh54UbHIbG4k",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-032",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0075-S100/TG-INV-LSLV0075-S100.md",
+        "sha256": "b6e80f09bd7c15357eba31476406532ef8772a8e986d9b6a50a3518560ee6abe",
+        "bytes": 7316,
+        "drive_id": "1lFZKoZAbyhL5GrAr79FM8Zhv4W0qVtoC",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-033",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0220-H100/DS-INV-LSLV0220-H100.md",
+        "sha256": "9031caf98f08791a782d5703bdbcc2bae838115693c6fea8cf958d98a6cb1115",
+        "bytes": 2186,
+        "drive_id": "1f6gTu_UYBZbpkbDenLJGBI2r18_UVn8p",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-034",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0220-H100/IG-INV-LSLV0220-H100.md",
+        "sha256": "8e87d1b5278dd5eede40bc25341152a6f53e93ad07f5b50243b20affd4f65907",
+        "bytes": 2590,
+        "drive_id": "1MJ8Rru84qqzAvO3xgm52jeqgHgl3KvRA",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-035",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0220-H100/RN-INV-LSLV0220-H100.md",
+        "sha256": "e31b6d49e00ac8edaf470fdaf7c364dfbcf447880f7cc5d73b346eceaeeaa1bd",
+        "bytes": 1345,
+        "drive_id": "1fMKeC5WuAYBO13DfPbcqLoMbHZLLrZFQ",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-036",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0220-H100/TG-INV-LSLV0220-H100.md",
+        "sha256": "f94e2d7a1df1a751466f936011c91565a37539432167fad3e1689d0e4529e2b1",
+        "bytes": 6873,
+        "drive_id": "1kpQSDREpchj8zYfUhsaV_-uLHFSVPwfa",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-037",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0750-iS7/DS-INV-LSLV0750-iS7.md",
+        "sha256": "02de9ccce6da496b9ed86f2be410711d0bb93f81995ce079e30b18fa96cae16d",
+        "bytes": 2177,
+        "drive_id": "19AhbKrt7fBHBafCnU8RJ5_g0mH2Ii8OE",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-038",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0750-iS7/IG-INV-LSLV0750-iS7.md",
+        "sha256": "52808754a0b95e4ed6515d68fae946b5708558583f5cc908e7e4d71cf903c141",
+        "bytes": 2582,
+        "drive_id": "1jv8SpbG3uzbi6TEXpKq_JRzO-ONy2MZt",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-039",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0750-iS7/RN-INV-LSLV0750-iS7.md",
+        "sha256": "85efa35d710f4845109f25bea16852c3f44acdd6885194f854b6485eb41ab3da",
+        "bytes": 1294,
+        "drive_id": "1Ag7cUgXiaYNh2ha2sP4IEQD2HFjDSHsS",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-040",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/INV-LSLV0750-iS7/TG-INV-LSLV0750-iS7.md",
+        "sha256": "f77ffd57ae64f6b1cc8674a7d2863a84c854f329ce1df575a6a31871c821fc37",
+        "bytes": 6910,
+        "drive_id": "166Cextm-79YqnIHVjLfXu6UlZEFVzsbe",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-041",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-103c/DS-MCCB-ABS-103c.md",
+        "sha256": "6add769158eec706ae584c97a9acc50fcc2e3a3622a153f4d001766692e700a3",
+        "bytes": 2244,
+        "drive_id": "1nKpeEchaBj5wRr8bhwdydtHZwkzbmEat",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-042",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-103c/IG-MCCB-ABS-103c.md",
+        "sha256": "1cbb81b9d029799f92451a1d83869c268dce6f29e1d67112efa01cf6144188b5",
+        "bytes": 2392,
+        "drive_id": "1Cydfv5hk3ftqCnoQAPewuXnKRSECwpyO",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-043",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-103c/MG-MCCB-ABS-103c.md",
+        "sha256": "cb6e56317138457c526cc3013321747d590e9a34795f8b44705d21283581f501",
+        "bytes": 821,
+        "drive_id": "1bbXCVesRLzgAQFDlnsE6i5jnssxgfusL",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-044",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-103c/TG-MCCB-ABS-103c.md",
+        "sha256": "f64582bc0dcec8486f544a74cd0536decada55e29ff85f07a1d9f04c20e8272e",
+        "bytes": 2503,
+        "drive_id": "1ETi2RzdD2KXnRxXTZeEGXyUpzys1A8ab",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-045",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-403c/DS-MCCB-ABS-403c.md",
+        "sha256": "b43e9a48ec96ae29aed3f3cfa8c1bd9ffe5b6eb9b6c24f6a4a000b0044c27ea9",
+        "bytes": 2257,
+        "drive_id": "1but43m5HUhML3c45evLyM7bBaSmqjFj6",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-046",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-403c/IG-MCCB-ABS-403c.md",
+        "sha256": "70d35d4cfaa9fff8107a616a8389866b046e0c268dcf68dfa33cde98902324a6",
+        "bytes": 2392,
+        "drive_id": "17HwV9Rj3n8hmxvHSMuTrDPWNjafsQH8w",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-047",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-403c/MG-MCCB-ABS-403c.md",
+        "sha256": "7b2533e78a3045eb13087adfff2a986b28b1ca07140e5efb87385b96197663d8",
+        "bytes": 821,
+        "drive_id": "1YCTbP4OMJ4IXfZGN_2x_M0e5W3tTGEOH",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-048",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/MCCB-ABS-403c/TG-MCCB-ABS-403c.md",
+        "sha256": "264dd41936b13946f756aae3591f5c85362d60264d5c1ea252d7368cee16d7f8",
+        "bytes": 2503,
+        "drive_id": "14jg8LGCJx2xmm_BlXmDeYjTv1QuYNjtY",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-049",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LP3500-3P4W/DS-METER-LP3500-3P4W.md",
+        "sha256": "b77c1498a66f9db7898a8ccb96d106914e353fae25a1bb2d9af40ea41d308066",
+        "bytes": 2135,
+        "drive_id": "1HQLO4vwCyEy4MrwgNuPStzgMZvRNShOD",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-050",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LP3500-3P4W/IG-METER-LP3500-3P4W.md",
+        "sha256": "8469214c25bbf6dfc9c1fb56837d94e1fc58bf291d4e1f82cdb89955c6041244",
+        "bytes": 2327,
+        "drive_id": "1ek_wNTblmRiaxciHwkTn2r8uGdt-IEYZ",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-051",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LP3500-3P4W/RN-METER-LP3500-3P4W.md",
+        "sha256": "eaa1b11fc61832f5034fd78499046c5a5b2ada0be9bd39476892ba39b136e9d1",
+        "bytes": 1302,
+        "drive_id": "1DtSzQffm-U_Sa53yIJiBEQxC7y5uAPp7",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-052",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LP3500-3P4W/TG-METER-LP3500-3P4W.md",
+        "sha256": "17b33731fd9bdcf43496c2d8a8a463c7f24970e2971f7cf605458abdd6524c9a",
+        "bytes": 2332,
+        "drive_id": "1mWh70graNoNw4yXIyFxS436IdVorz1Q5",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-053",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LPB-DIN/DS-METER-LPB-DIN.md",
+        "sha256": "6faed52cb8bacaa4f5155c1fe8cd7d8b5d3b71de0f33ee1dd5c7b4312742e0a7",
+        "bytes": 1887,
+        "drive_id": "1ACFtcMjJHHE6P4Pjy9K2-jN9F-XJmcDr",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-054",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LPB-DIN/IG-METER-LPB-DIN.md",
+        "sha256": "7908b87839877bdcc6aa1871975e2211701bdd980bc52cc79f502282eacb1fe1",
+        "bytes": 2188,
+        "drive_id": "1hQqae5FkYcDiASzLS7Be7m6R77Y_Fakf",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-055",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LPB-DIN/MG-METER-LPB-DIN.md",
+        "sha256": "8d9244242b3b97b55e5d09d6c471f824e995d03e5235ac80a12c01805a2c7043",
+        "bytes": 762,
+        "drive_id": "1DSIq9wh3q29wubLh6RPDUrKOm3Fs8f6W",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-056",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/METER-LPB-DIN/TG-METER-LPB-DIN.md",
+        "sha256": "9a5d253c4349195496c2ed050a59561510ba52bed3924cbd26a77d71a6789fc7",
+        "bytes": 1893,
+        "drive_id": "1paknpbqLjiVN6XUv_JLJm0cl-7FpKA71",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-057",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGB-XBM-DR16S/DS-PLC-XGB-XBM-DR16S.md",
+        "sha256": "6084d940e5683f61688c2a6f870995e675fb5aaacc2e3edf3cb26d6676c4d1a7",
+        "bytes": 2172,
+        "drive_id": "1U9phvS3rqdffZAABQh-13rrhyXwHDf5l",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-058",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGB-XBM-DR16S/IG-PLC-XGB-XBM-DR16S.md",
+        "sha256": "0110df969fed99b874d7fb39e5c3448cc067cafe593b0849c7d855329ae97a6c",
+        "bytes": 2433,
+        "drive_id": "13acGVPU_j4C2Q5hnfpwpzgObKDpVysxC",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-059",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGB-XBM-DR16S/RN-PLC-XGB-XBM-DR16S.md",
+        "sha256": "efd539de5ec0d1caa1212374103b5c73a835795748dca8b87651627eed3a4566",
+        "bytes": 1314,
+        "drive_id": "1RgufTj5MkXxsTwimBfqnGlgqHBdKxxGG",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-060",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGB-XBM-DR16S/TG-PLC-XGB-XBM-DR16S.md",
+        "sha256": "bbb52003bf71b86485c4c266331e8f1a24959bfd20c351b9a4792e7213bc50f0",
+        "bytes": 4464,
+        "drive_id": "1K-AukVD9Gpb4IZR_R5HKfbIkwcQbNtT4",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-061",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGI-CPUU/DS-PLC-XGI-CPUU.md",
+        "sha256": "25a40d72b72018fc95267afd1c550124150f5fc42ef26ed348059c6fdeb8b97d",
+        "bytes": 2000,
+        "drive_id": "1rKp0Sv7ESRKKvghZaJ42hG3_APWgLbw9",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-062",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGI-CPUU/IG-PLC-XGI-CPUU.md",
+        "sha256": "9a12666c58d5190ce5dd00c70951af6706181beecee23eb167cc5756e4d67d67",
+        "bytes": 2399,
+        "drive_id": "1YC8yAcPKJjog-ymmwsFQI0fFk7sIZPF9",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-063",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGI-CPUU/RN-PLC-XGI-CPUU.md",
+        "sha256": "304ce712cb594ad385155e4263b081876c4dd3a47bd0a5a4f926be4dc6ae1147",
+        "bytes": 1301,
+        "drive_id": "1d_CLmJV8BTfXBfeV_0lhSb7QoUfnu_Lq",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-064",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PLC-XGI-CPUU/TG-PLC-XGI-CPUU.md",
+        "sha256": "d6cc6ec2ad0a3fad36d3216b8aaf6e57edc89b10bfecb7084140139f41c85768",
+        "bytes": 4464,
+        "drive_id": "1c0kanvs-xkiICap-pvOFPNiMb6hg7UW5",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-065",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PV-INV-SOLAR-25/DS-PV-INV-SOLAR-25.md",
+        "sha256": "36fd3ebd1893769b76812b1840a998bab6f5a258570d9e31aa1061305cea7cf0",
+        "bytes": 2140,
+        "drive_id": "1zi3YLW000XaZjTlf_h2QByygiTgzi3Nn",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-066",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PV-INV-SOLAR-25/IG-PV-INV-SOLAR-25.md",
+        "sha256": "5930c087335a90e7df6311732fa10346624ef9936f82d0064323440f3b26195c",
+        "bytes": 2387,
+        "drive_id": "1evItxXQQDmll9eIErB_YnE8jKkR70Su0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-067",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PV-INV-SOLAR-25/RN-PV-INV-SOLAR-25.md",
+        "sha256": "279b8532065b04981cda3e8400c835d37f7bbb10adbd92a57511b046083463dd",
+        "bytes": 1290,
+        "drive_id": "18Miv9AOF3g9x_50JVgQ2xkRe1MB-992U",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-068",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/PV-INV-SOLAR-25/TG-PV-INV-SOLAR-25.md",
+        "sha256": "03b3dd1b3848eacbe66a2f1b27f932f5a3188784cd7368f252dc947474ccfd40",
+        "bytes": 3181,
+        "drive_id": "1FT2n6CpJ6CBPCJaxZDWZ_ht3dWITsXR0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-069",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/RELAY-GMR-22/DS-RELAY-GMR-22.md",
+        "sha256": "833ca9462a0d35840f0a23a1f8cb47a3177c7f4216ecba4bedb3dc42709a843a",
+        "bytes": 1908,
+        "drive_id": "1i_aZ4Wk2QDYSJBxmMUpnY5ZVnAp_jS5H",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-070",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/RELAY-GMR-22/IG-RELAY-GMR-22.md",
+        "sha256": "0e777e8dc5bf6518c41bb7b9624d34f93e9ba55bc7a8bcf8dc5bee229130b161",
+        "bytes": 2164,
+        "drive_id": "1tIkBSCWZ130RGMGD3bBGRb6TTwoXeN98",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-071",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/RELAY-GMR-22/MG-RELAY-GMR-22.md",
+        "sha256": "4511e8fbd22c9f60aae6dbe321407c25a3808c22242ff9af6691e3e21bd2c9f3",
+        "bytes": 800,
+        "drive_id": "17jW6d3K_4fzH5mD13RIThoIHB0Bp30W7",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-072",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/RELAY-GMR-22/TG-RELAY-GMR-22.md",
+        "sha256": "cf4e78ae400dcf3814a9a71f41ccdd8b9a6e899b55b5d7924f30c207c2175ac6",
+        "bytes": 1999,
+        "drive_id": "1Twh5HzgaIggTxdef1CGaQIOvV0N5bEWT",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-073",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/SWGR-MV-12kV/DS-SWGR-MV-12kV.md",
+        "sha256": "a653727486c49871883c6655dd222ce218743136a7725ab779d2905a6d3cb56d",
+        "bytes": 1965,
+        "drive_id": "1Ngictj08TVurZQKw7hRoY-dH3eTjjbHi",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-074",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/SWGR-MV-12kV/IG-SWGR-MV-12kV.md",
+        "sha256": "3a1a8d86cd34cee1aa8b4b8f7a983468bb0ffc0f944e8d60fa0b6a4244a35a95",
+        "bytes": 2472,
+        "drive_id": "1SMGLW2lGRi1lrUcfrnv-OilDRbPeAXzG",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-075",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/SWGR-MV-12kV/MG-SWGR-MV-12kV.md",
+        "sha256": "734b0395d55c6e81bb78bfd8dd013d1ce1b949bb8200db28a55e0032806c631e",
+        "bytes": 856,
+        "drive_id": "1tBIX6qiSFgkbsMb30oJ16rG3Ik-dFasJ",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-076",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/SWGR-MV-12kV/TG-SWGR-MV-12kV.md",
+        "sha256": "89aafadeefb57f818e6b89d728846b74efa0a83714c6520beb667bdaa7c523bc",
+        "bytes": 2896,
+        "drive_id": "1g9VYAMRr4BALCU1hzJY0iBj7s9ZReYH1",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-077",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-DRY-630/DS-TRF-DRY-630.md",
+        "sha256": "057be8932392596e06288772938a3b60c3c2d700911762244d4d152d4eb3b6f6",
+        "bytes": 2322,
+        "drive_id": "1CaMv89vQGQcOw7Tw7ZfD_Sd8xHJYOs_y",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-078",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-DRY-630/IG-TRF-DRY-630.md",
+        "sha256": "58315e01577bb439e97fbe2de9a98cc9f73780dcd55ec1fbc2e9b83219825a6c",
+        "bytes": 2489,
+        "drive_id": "1NJGPrbL3bbHP7StnaIa5xw86BhORBd-p",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-079",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-DRY-630/MG-TRF-DRY-630.md",
+        "sha256": "b1331f9a66a9ab40228e01e0be694520a8e7aa3082c850a6fcb29eb1ba98f600",
+        "bytes": 910,
+        "drive_id": "1I7LTL0FRTJjxlQ15SQqwmDQuUbBZ9zvE",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-080",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-DRY-630/TG-TRF-DRY-630.md",
+        "sha256": "5e0558becde0558c0899dc72ceab776251069d7384d2240e81652342507eff26",
+        "bytes": 2450,
+        "drive_id": "1RWmgnr1hOhNuz4RyFk_SyggJo2TVerqn",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-081",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-OIL-1000/DS-TRF-OIL-1000.md",
+        "sha256": "861aec8f2624d98e9d7ae833db1911e55878977e3d5e4b527b6fea003399f132",
+        "bytes": 2271,
+        "drive_id": "1zDAwyhPyvtELAUb1HCnciAmJswmPh-mr",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-082",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-OIL-1000/IG-TRF-OIL-1000.md",
+        "sha256": "8979a996905745919624dded04e0b742f7e5ce19131a79f87a7d1d31b56bcd41",
+        "bytes": 2420,
+        "drive_id": "1Iu7kl9i_uh0y9urTsTME8EExc04RxBiv",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-083",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-OIL-1000/MG-TRF-OIL-1000.md",
+        "sha256": "947c3e113237580b82daa3db6d994e1f2e4f19be7535be47f74623ce3c9e35e2",
+        "bytes": 875,
+        "drive_id": "1Dkgv0JOqoUorNvPPIArXhu75N5EVBMks",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-084",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/TRF-OIL-1000/TG-TRF-OIL-1000.md",
+        "sha256": "5fc9376c9e2c15b4f4d6da5a60f05073d6e5fb66b1932afd3cf682f0432b6c93",
+        "bytes": 2955,
+        "drive_id": "1_I1NWGkWuMimCQOczeG63Y1Ucx1c2wtp",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-085",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/UPS-LSU-10K/DS-UPS-LSU-10K.md",
+        "sha256": "c589a62556e28fe91b8b7efaf6a2c5011ac2394b08998fd7c75497332394d635",
+        "bytes": 2016,
+        "drive_id": "1w0pq6d0r4ADCiy_w3-_-zgARZkPEJj0W",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-086",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/UPS-LSU-10K/IG-UPS-LSU-10K.md",
+        "sha256": "fef8ec8258538e19de7e9e66458c489e9935cdb82bff0d2a75b53608cc91cec6",
+        "bytes": 2226,
+        "drive_id": "1FH3vFQaoPlBVj1FGnJIc6EQIjYgQRC9P",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-087",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/UPS-LSU-10K/RN-UPS-LSU-10K.md",
+        "sha256": "0f2c67745c1871e9d8a27f7bc77422d69c1d23e2953d6a15d26e9cc0e157a023",
+        "bytes": 1272,
+        "drive_id": "10SrD0abOyBH1Vycixcmmnb73Ul2pK7xn",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-088",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/UPS-LSU-10K/TG-UPS-LSU-10K.md",
+        "sha256": "ff5b90002fdbeef07abdb804b3ed8fcfa3046c7b2c8ab4cd646010dcc512e426",
+        "bytes": 2936,
+        "drive_id": "1EXfkd0aVoKg2h5RV3s4cizHR8Hbne9-e",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-089",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/VCB-25kV-1250/DS-VCB-25kV-1250.md",
+        "sha256": "f1640aedd62570c673dae8e218ec32f5aef11e64ac8339bef0fa9ff09fe57794",
+        "bytes": 2147,
+        "drive_id": "15y60KcVsrZpxKWRI0_jz3w_g6FmxnqAa",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-090",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/VCB-25kV-1250/IG-VCB-25kV-1250.md",
+        "sha256": "2a7887529c6f3140c85a0dd9c56ac7e4cffa5c6f9c2a6db412e1dcbc8369516c",
+        "bytes": 2438,
+        "drive_id": "1GjGJBSsybcyTl7iDgLeiAG08ShWiCXpr",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-091",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/VCB-25kV-1250/MG-VCB-25kV-1250.md",
+        "sha256": "eee4a078e5d82da6f5d113c1951947e0806447b4fa6a3fb04e4be12f5a17c8d4",
+        "bytes": 841,
+        "drive_id": "1RjGqm0cuoectU6GL0LOFNvXU1nHZHlAx",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-092",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/VCB-25kV-1250/TG-VCB-25kV-1250.md",
+        "sha256": "a27061eeeff5744fa492486d06fe83acb2102fa1aa5aef3dc0539397a2bcfdf1",
+        "bytes": 2611,
+        "drive_id": "1TRy0uFr2uyJE2DFNQHcHkvm7_ZfLTQFu",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-093",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/doc_index.csv",
+        "sha256": "ebc13827e3c54482a56490a20c388613d48ecbd730d893e4499982e2cff63dd0",
+        "bytes": 13702,
+        "drive_id": "19rGEJtma-u09OREo8hDET_4n56XWkP5s",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "corpus-094",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-CONTROL.md",
+        "sha256": "69dcc7fa4c2e1e49e107a2a4dc3eeadafd96f6b53e1d57620d593f882fe4590b",
+        "bytes": 1371,
+        "drive_id": "1LIHspolrZyH1SncnNWP3lwPgepL6bxKr",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-095",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-DRIVE.md",
+        "sha256": "a15fa29e318d7d4d7b8c08f4f6a37ed1375e1d242df77750c2330373b90742b7",
+        "bytes": 1712,
+        "drive_id": "1LPn2T-Ip6N6HvpLixXW82sHC9EfXfM1A",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-096",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-ESS.md",
+        "sha256": "85e5b9ec3ef1c611b8d6e8a676d738239034d187e34ed9445e5cfe51a6eed7b9",
+        "bytes": 1506,
+        "drive_id": "1HVzahDpY5VWOneHYk4W-MLdSZ6XlP__p",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-097",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-HMI.md",
+        "sha256": "05be645d72d86585d680b411b42cc45b0b41e734b6700528654f813366ce479c",
+        "bytes": 1456,
+        "drive_id": "1Q-ktmhlEUQkrDdFY4tHX2ukiPIGtamM8",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-098",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-LV_BREAKER.md",
+        "sha256": "85a669bfa51b0fc33990e2ba0773e42d794777c509cd71821e3f5205b1dd8943",
+        "bytes": 1693,
+        "drive_id": "1bacpOKlb7mpANPF10goN4C35UXQjfmcx",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-099",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-METER.md",
+        "sha256": "9aa147433bb74216db52072fe2180b677dad28b95300a7898c50470464a023b3",
+        "bytes": 1440,
+        "drive_id": "1YD1F0Vs3pVNQBqP9OFNJAfrQz1SDR_U0",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-100",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-MV_EQUIP.md",
+        "sha256": "b183cf4c94bcd65b2e86ded9015763f54796ff8fce17afb66ffabd2f302e3a05",
+        "bytes": 1406,
+        "drive_id": "18iBnnSnqHEZETHQGZGhNwArz2XaYyyjy",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-101",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-PLC.md",
+        "sha256": "3dde9c55ca5b458e3c5f1c8b59db013b17fd88a20ec2ebff02be7b044f0c5a52",
+        "bytes": 1522,
+        "drive_id": "1JvzXMe9wRLOhuru4YgZtU0ve6aRaORla",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-102",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-PV.md",
+        "sha256": "5bf7ff08bcf35108cff434a95ca848ca1794ffbd2c020ddac3e8cadb0863fa3e",
+        "bytes": 1367,
+        "drive_id": "1_gLI4KQZs4BazI60yrx-CwGhiFzsw_k2",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-103",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-TRANSFORMER.md",
+        "sha256": "b1e4e85d9a0083677065a46bd89d373bc4967a901548a9d6784a0763ad71d989",
+        "bytes": 1467,
+        "drive_id": "18MKYAY_D6U7FJjGgUiYSjvekPIa7HyrC",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-104",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/faq/FAQ-UPS.md",
+        "sha256": "02497180b905da07d35c3b1c81d7fdfbcc8ae1b7edbdd34beda2bf80286f81e6",
+        "bytes": 1354,
+        "drive_id": "1WtVk7SgakuJHcBR6twTxNW9BoFw167Cy",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-105",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/policy/POL-ORDER.md",
+        "sha256": "ddf7f2813fb4bc5757314cb700c4f0b695b6ee16ad49e53ce0e37d33d41774ac",
+        "bytes": 1753,
+        "drive_id": "1AdX58Fz6LYRxe-IiZBJi3vQG3xqTkR9I",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-106",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/policy/POL-RETURN.md",
+        "sha256": "bd79fd89122191d2afcc5d430af4d530bce52c7a2fe2d06f537bda98483519b2",
+        "bytes": 1181,
+        "drive_id": "1VEFxNpkPiDAYmTDPnrBX2jtlCQ5YEegQ",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-107",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/policy/POL-SERVICE.md",
+        "sha256": "684688a4c62826829f07c7027fa4dd69613ec022a7ef4b10d6d6d79636f2399a",
+        "bytes": 1660,
+        "drive_id": "13f8wXPyGOEg7Dq_mjVCVZ9kVEHpgwVV4",
+        "mime_type": "text/markdown"
+      },
+      {
+        "id": "corpus-108",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/docs/policy/POL-WARRANTY.md",
+        "sha256": "fab3d2b865dc5023cd3cc563259fbd1bbfa0a7e6ad5eef8399267fd58306bada",
+        "bytes": 1950,
+        "drive_id": "1WU2x5BhQK2tdiXc6cytZXZKyAeKR3CqU",
+        "mime_type": "text/markdown"
+      }
+    ],
+    "cs_history": [
+      {
+        "id": "history-tickets.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/tickets.csv",
+        "sha256": "c370a047df2a812b3cce7b92a6244e135aee5aa3c9907b7271cec0384aa857b3",
+        "bytes": 4053369,
+        "drive_id": "1pc1DPs0RAtQlFTCPhgeXNRL0AmI7uB-q",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "history-resolution_cases.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/resolution_cases.csv",
+        "sha256": "770af7767f720f140f243c886095d7d3f96bdb3d33b8a75c45ff95e9afe5a36c",
+        "bytes": 575329,
+        "drive_id": "1xGaJQCUZVeWs8pCQ3UcZ_6f_Z44fHeKQ",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "ref-customers.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/ref/customers.csv",
+        "sha256": "00e1f74e3a3c75df0f18c61085aff3dc74fe3f7000caac736aedd901970eab1e",
+        "bytes": 37996,
+        "drive_id": "1IwtCSAenIQBr9IYkBjf8hh4oISWzofBX",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "ref-product_master.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/ref/product_master.csv",
+        "sha256": "e8d6784d456499f706e5468eb6334790b32a7a145c43378e36d5d76a6ab19cbb",
+        "bytes": 7691,
+        "drive_id": "1Pcjc592MViVby3mbza_bMhpu_HlLq7mh",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "ref-fault_catalog.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/ref/fault_catalog.csv",
+        "sha256": "9eb221594aeab7078cf1e5bad1db9f4d3d7145724816b0e12757fc1ab60c65e6",
+        "bytes": 20310,
+        "drive_id": "1JkPygGu9wmIs1ByEqxJKoVn9LB4Xx-iZ",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "ref-departments.csv",
+        "relative_path": "CS_AI_Agent_Training_Data_v1/ref/departments.csv",
+        "sha256": "f0ec048e240cb1184553ae77f3123833ec6905b84c3a8c8b8ddca211cf7f9ddb",
+        "bytes": 1259,
+        "drive_id": "1hZ2qCc6OiIZJ1jM3pCEqGu6Paq1rXthb",
+        "mime_type": "text/csv"
+      },
+      {
+        "id": "development-bundle",
+        "relative_path": "bundles/cs-development-20261027.zip",
+        "sha256": "877321e109cf9dc8c7b942fda1443d105e2386bd15b7e800958bb8cc9642be79",
+        "bytes": 2156649,
+        "drive_id": "1_4uGP-e_yrZGOhVEwqOtlUGcFx9ZDpMu",
+        "mime_type": "application/zip",
+        "members": [
+          {
+            "archive_path": "cs-development-20261027/manifest.json",
+            "relative_path": "cs-development-20261027/manifest.json",
+            "sha256": "00f135a2a90db9c04abb51860a1b64ebad239f55807d630428ba16a63452318a",
+            "bytes": 1153
+          },
+          {
+            "archive_path": "cs-development-20261027/tickets.train.csv",
+            "relative_path": "cs-development-20261027/tickets.train.csv",
+            "sha256": "4d377a6ed7c323f43229a26767594c891f2e64bc03f98c42d3eb76d7e9865316",
+            "bytes": 2839344
+          },
+          {
+            "archive_path": "cs-development-20261027/tickets.valid.csv",
+            "relative_path": "cs-development-20261027/tickets.valid.csv",
+            "sha256": "a7684e46308e24fadb9b3f545ffde272d01c768bdc60bc93f102663f23d32b9b",
+            "bytes": 608571
+          },
+          {
+            "archive_path": "cs-development-20261027/tickets.dev.csv",
+            "relative_path": "cs-development-20261027/tickets.dev.csv",
+            "sha256": "c3fd2b60b06c793ee572dfb79edc2f6bbcf220b92177afb30ea0161cd6029933",
+            "bytes": 3447010
+          }
+        ]
+      }
+    ],
+    "rfp": [
+      {
+        "id": "D01",
+        "relative_path": "rfp/00고객사_00지역_문서검토_00고객사 Comment Update_Preliminary Technical Specification for GIS_R[REDACTED] - 00고객사 Comments [DATE REDACTED]_교육용클렌징v6.docx",
+        "sha256": "791feb2d0ced7504bb3e519eae20a210b165e0660d57cc6b64b11bf40fb01d2a",
+        "bytes": 102164,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D01 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D01",
+        "title": "D01 00고객사_00지역_문서검토_00고객사 Comment Update_Preliminary Technical Specification for GIS_R[REDACTED] - 00고객사 Comments [DATE REDACTED]_교육용클렌징v6",
+        "note": "교육용 정제 원문 D01; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 791feb2d0ced7504bb3e519eae20a210b165e0660d57cc6b64b11bf40fb01d2a",
+        "drive_id": "19Q15JTKjPDL_VINOySVBD2jc2dVZjm2n",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D02",
+        "relative_path": "rfp/00고객사_00지역_문서검토_115kV GIS_교육용클렌징v6.docx",
+        "sha256": "9abb2a01a98ca8cc2545bbdeae5765cedcb8ff250ca05e9e5ce1d397c4c4b55a",
+        "bytes": 285458,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D02 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D02",
+        "title": "D02 00고객사_00지역_문서검토_115kV GIS_교육용클렌징v6",
+        "note": "교육용 정제 원문 D02; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 9abb2a01a98ca8cc2545bbdeae5765cedcb8ff250ca05e9e5ce1d397c4c4b55a",
+        "drive_id": "1RLHyt9qNW6EWRNXzzpTwlHxDgKI0bbLd",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D03",
+        "relative_path": "rfp/00고객사_00지역_문서검토_Attachment 4.1 Detail Technical Spec. for 154kV GIS_교육용클렌징v6.docx",
+        "sha256": "0a6f133a9fa110832fe2c5933d5ad859765e669cec300f3c75fb05ce975e1389",
+        "bytes": 176024,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D03 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D03",
+        "title": "D03 00고객사_00지역_문서검토_Attachment 4.1 Detail Technical Spec. for 154kV GIS_교육용클렌징v6",
+        "note": "교육용 정제 원문 D03; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 0a6f133a9fa110832fe2c5933d5ad859765e669cec300f3c75fb05ce975e1389",
+        "drive_id": "1b_blztPO9CrKoaSI8t-iQlMSK0YFl5sv",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D04",
+        "relative_path": "rfp/00고객사_00지역_문서검토_Attachment.05_00고객사 Specification No. E-039 - Circuit Breaker_교육용클렌징v6.docx",
+        "sha256": "a2f3e1b3d071d95aedb76bb77e9de3451b435a63e272b7ff836766bc63c74b7c",
+        "bytes": 802931,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D04 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D04",
+        "title": "D04 00고객사_00지역_문서검토_Attachment.05_00고객사 Specification No. E-039 - Circuit Breaker_교육용클렌징v6",
+        "note": "교육용 정제 원문 D04; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 a2f3e1b3d071d95aedb76bb77e9de3451b435a63e272b7ff836766bc63c74b7c",
+        "drive_id": "1JFidibHGgyvNMJVHLMyiPnuKo55xOP87",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D05",
+        "relative_path": "rfp/00고객사_00지역_문서검토_FEED-EL-TS-039-T0_Specification for Electrical Testing_교육용클렌징v6.docx",
+        "sha256": "66d2441704084482b5ced958cc2731536429089f3169c7bee27e53d923d8499b",
+        "bytes": 59894,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D05 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D05",
+        "title": "D05 00고객사_00지역_문서검토_FEED-EL-TS-039-T0_Specification for Electrical Testing_교육용클렌징v6",
+        "note": "교육용 정제 원문 D05; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 66d2441704084482b5ced958cc2731536429089f3169c7bee27e53d923d8499b",
+        "drive_id": "1cKaKrXSCqF5He9Xxe24WdqmAFln8uwDH",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D06",
+        "relative_path": "rfp/00고객사_00지역_문서검토_FEED-EL-TS-055-TREDACTED-RREDACTED_Specification for High Voltage Switchgear_교육용클렌징v6.docx",
+        "sha256": "7ee1f8132043446dac56825dcdb4e2f4a309be603605f12dcc4a3239f6db6043",
+        "bytes": 157713,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D06 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D06",
+        "title": "D06 00고객사_00지역_문서검토_FEED-EL-TS-055-TREDACTED-RREDACTED_Specification for High Voltage Switchgear_교육용클렌징v6",
+        "note": "교육용 정제 원문 D06; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 7ee1f8132043446dac56825dcdb4e2f4a309be603605f12dcc4a3239f6db6043",
+        "drive_id": "1y0QCjlKF_UWVxmnTE8NNU5bFQFXFU8ln",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D07",
+        "relative_path": "rfp/00지역_문서검토_1. Bidding Forms_Draft_교육용클렌징v6.docx",
+        "sha256": "3fa67b7747e2453929e2081a1874e5a54dc9e70ee1b4b166e1c48d69bc47ceb6",
+        "bytes": 1006692,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D07 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D07",
+        "title": "D07 00지역_문서검토_1. Bidding Forms_Draft_교육용클렌징v6",
+        "note": "교육용 정제 원문 D07; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 3fa67b7747e2453929e2081a1874e5a54dc9e70ee1b4b166e1c48d69bc47ceb6",
+        "drive_id": "1H8LM5xDw2XZ4r38vsJmISSk1ee369OFe",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D08",
+        "relative_path": "rfp/00지역_문서검토_6. Section6_Employers Requirement_Substation_Draft_교육용클렌징v6.docx",
+        "sha256": "e1d1fc3540a5a960cfe73733e046e222ee40fc40dfe65f1e9c73ce5f58058b1e",
+        "bytes": 937279,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D08 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D08",
+        "title": "D08 00지역_문서검토_6. Section6_Employers Requirement_Substation_Draft_교육용클렌징v6",
+        "note": "교육용 정제 원문 D08; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 e1d1fc3540a5a960cfe73733e046e222ee40fc40dfe65f1e9c73ce5f58058b1e",
+        "drive_id": "1sADHHQPaJxJJYgR67f_WxjqRkxkS0PX7",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D09",
+        "relative_path": "rfp/26 05 48.01-GA-Seismic Controls for Electrical Systems - Prepurchase_교육용클렌징v6.docx",
+        "sha256": "cf483f6790be8753abf67d6bf582121d93ff388895c7d282a860337c67f959fd",
+        "bytes": 58942,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D09 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D09",
+        "title": "D09 26 05 48.01-GA-Seismic Controls for Electrical Systems - Prepurchase_교육용클렌징v6",
+        "note": "교육용 정제 원문 D09; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 cf483f6790be8753abf67d6bf582121d93ff388895c7d282a860337c67f959fd",
+        "drive_id": "1mVu9SIE4x36L0NwjbFak9iQnPlVDNuBh",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D10",
+        "relative_path": "rfp/26 11 16 12 fl - secondary unit substations with switchboard secondary_교육용클렌징v6.docx",
+        "sha256": "73417adf6749bc76e54d4ec831dfe761b6a016c16c1d580d280154eb7995c6af",
+        "bytes": 73506,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D10 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D10",
+        "title": "D10 26 11 16 12 fl - secondary unit substations with switchboard secondary_교육용클렌징v6",
+        "note": "교육용 정제 원문 D10; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 73417adf6749bc76e54d4ec831dfe761b6a016c16c1d580d280154eb7995c6af",
+        "drive_id": "1U4_iVyzKcu6TuK9bihS655x7cTIGniIO",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D11",
+        "relative_path": "rfp/26 11 16.01-GA-Secondary LV Unit Substations - Prepurchase-_교육용클렌징v6.docx",
+        "sha256": "bf0e226a80716cc1b24f401eed95b0ec26974c07643613eceb902d129a1deff9",
+        "bytes": 463909,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D11 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D11",
+        "title": "D11 26 11 16.01-GA-Secondary LV Unit Substations - Prepurchase-_교육용클렌징v6",
+        "note": "교육용 정제 원문 D11; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 bf0e226a80716cc1b24f401eed95b0ec26974c07643613eceb902d129a1deff9",
+        "drive_id": "18VogiVgtKGeMhbPJRJyQSu8UcTU_SCnj",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D12",
+        "relative_path": "rfp/26 13 00 fl - medium-voltage switchgear (15kv rated)_교육용클렌징v6.docx",
+        "sha256": "f1797dc3be97d8b6793465a6b3793f51a08d324bdcccc319f23cb9f55057fc16",
+        "bytes": 59797,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D12 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D12",
+        "title": "D12 26 13 00 fl - medium-voltage switchgear (15kv rated)_교육용클렌징v6",
+        "note": "교육용 정제 원문 D12; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 f1797dc3be97d8b6793465a6b3793f51a08d324bdcccc319f23cb9f55057fc16",
+        "drive_id": "1XLuj1gaH1FlXCpZvzKu04R-3Dzd8aK5P",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D13",
+        "relative_path": "rfp/26-2413-SWITCHBOARDS_RevREDACTED_교육용클렌징v6.docx",
+        "sha256": "20babb1f3730ab47dbce5b5602d33ab7dd71ae3a9e95adcc83d9895bac0da786",
+        "bytes": 76501,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D13 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D13",
+        "title": "D13 26-2413-SWITCHBOARDS_RevREDACTED_교육용클렌징v6",
+        "note": "교육용 정제 원문 D13; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 20babb1f3730ab47dbce5b5602d33ab7dd71ae3a9e95adcc83d9895bac0da786",
+        "drive_id": "1_ARXxQ85111JoYS0gVwryLdVBOmSWfhI",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D14",
+        "relative_path": "rfp/261116.11 fl - secondary unit substations with switchgear secondary_교육용클렌징v6.docx",
+        "sha256": "e73a2eec4c848b68a758636009abfca0054029b0236d97ee0b126e3c25d57945",
+        "bytes": 74556,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D14 [개발-교육원문]",
+        "customer_code": "KAN159-RFP-D14",
+        "title": "D14 261116.11 fl - secondary unit substations with switchgear secondary_교육용클렌징v6",
+        "note": "교육용 정제 원문 D14; 개발-교육원문; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 e73a2eec4c848b68a758636009abfca0054029b0236d97ee0b126e3c25d57945",
+        "drive_id": "1ZLlcsBtz5SprwvhfVnwc2eEyGSYB5qf1",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D15",
+        "relative_path": "rfp/261326 fl - medium-voltage metal-clad switchgear_교육용클렌징v6.docx",
+        "sha256": "f7bf68f8b4aa6ce481e1c381d62689b99d029c5ea31381ec0b17b0b25296c1e1",
+        "bytes": 74506,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D15 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D15",
+        "title": "D15 261326 fl - medium-voltage metal-clad switchgear_교육용클렌징v6",
+        "note": "교육용 정제 원문 D15; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 f7bf68f8b4aa6ce481e1c381d62689b99d029c5ea31381ec0b17b0b25296c1e1",
+        "drive_id": "191MajrZhhc6P8Vo0w_bsGD4QyiU6Hf-7",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D16",
+        "relative_path": "rfp/262000 Electric Distribution_교육용클렌징v6.docx",
+        "sha256": "619f96580b55176a571fdbaa9587a7762fde5a95869409e5650ce496768498d4",
+        "bytes": 79318,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D16 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D16",
+        "title": "D16 262000 Electric Distribution_교육용클렌징v6",
+        "note": "교육용 정제 원문 D16; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 619f96580b55176a571fdbaa9587a7762fde5a95869409e5650ce496768498d4",
+        "drive_id": "19zMhTaGUFlfj04K5UwnWm0tqU-ZawWg2",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D17",
+        "relative_path": "rfp/262413 fl - switchboards_교육용클렌징v6.docx",
+        "sha256": "7f93aa2ac447689e88c3f606d927e8ec39a735ed35e4a2b801e7ade20eb39be0",
+        "bytes": 57010,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D17 [개발-교육원문]",
+        "customer_code": "KAN159-RFP-D17",
+        "title": "D17 262413 fl - switchboards_교육용클렌징v6",
+        "note": "교육용 정제 원문 D17; 개발-교육원문; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 7f93aa2ac447689e88c3f606d927e8ec39a735ed35e4a2b801e7ade20eb39be0",
+        "drive_id": "1_j5zZJ42lkRzDq_Izoao734PO6ib_BA2",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D18",
+        "relative_path": "rfp/337230 Medium-Voltage Metal-Clad Switchgear [DATE REDACTED]_교육용클렌징v6.docx",
+        "sha256": "12d5429385a094fb8b8256995bc71934b52b4cb7144092093de5426aa89d1e64",
+        "bytes": 87121,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D18 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D18",
+        "title": "D18 337230 Medium-Voltage Metal-Clad Switchgear [DATE REDACTED]_교육용클렌징v6",
+        "note": "교육용 정제 원문 D18; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 12d5429385a094fb8b8256995bc71934b52b4cb7144092093de5426aa89d1e64",
+        "drive_id": "1VnJWf9Wgu1tbkWFY5UEMwMX9OGRgvOB7",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D19",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제1장_설계기준_교육용클렌징v6.docx",
+        "sha256": "db455b668c730339ea4847fa254b5f5759e95a0bd5797f64a0ef70da5c9aa8d0",
+        "bytes": 92317,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D19 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D19",
+        "title": "D19 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제1장_설계기준_교육용클렌징v6",
+        "note": "교육용 정제 원문 D19; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 db455b668c730339ea4847fa254b5f5759e95a0bd5797f64a0ef70da5c9aa8d0",
+        "drive_id": "1KZe3F8w0djgs6DB9ixAaddhYMuS0zm77",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D20",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제2장_계통설명서_교육용클렌징v6.docx",
+        "sha256": "9a46e90ca0f63505d637cb5e98bb5298b296d9391b7913cd360ff19742384297",
+        "bytes": 396022,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D20 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D20",
+        "title": "D20 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제2장_계통설명서_교육용클렌징v6",
+        "note": "교육용 정제 원문 D20; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 9a46e90ca0f63505d637cb5e98bb5298b296d9391b7913cd360ff19742384297",
+        "drive_id": "16SLVmZUquFLGgRIYx-Nywbz-ndSsFgz7",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D21",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제3장_일반사항_교육용클렌징v6.docx",
+        "sha256": "cb5eb24c657aec95145870597e631731efd6edebc4ea1fc9e665dfdd6076d13e",
+        "bytes": 1500156,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D21 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D21",
+        "title": "D21 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제3장_일반사항_교육용클렌징v6",
+        "note": "교육용 정제 원문 D21; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 cb5eb24c657aec95145870597e631731efd6edebc4ea1fc9e665dfdd6076d13e",
+        "drive_id": "109qvaGPs00HkxVkR5gH7--NqFqR1tRcy",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      },
+      {
+        "id": "D22",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제8장_154kV 송변전설비_교육용클렌징v6.docx",
+        "sha256": "6bdecd4923eba5093220670647efe9123db1cd9baf61b0fffe8719fd576c5a96",
+        "bytes": 783823,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D22 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D22",
+        "title": "D22 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제8장_154kV 송변전설비_교육용클렌징v6",
+        "note": "교육용 정제 원문 D22; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 6bdecd4923eba5093220670647efe9123db1cd9baf61b0fffe8719fd576c5a96",
+        "drive_id": "1Vpm7eiSpJtwLWKH9YAfgAp-tpydv2kFw",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "demo"
+      }
+    ]
+  },
+  "pipeline": {
+    "corpus_dir": "CS_AI_Agent_Training_Data_v1/docs",
+    "history": {
+      "manifest": "cs-development-20261027/manifest.json",
+      "source_tickets": "CS_AI_Agent_Training_Data_v1/tickets.csv",
+      "cases": "CS_AI_Agent_Training_Data_v1/resolution_cases.csv",
+      "ref": "CS_AI_Agent_Training_Data_v1/ref"
+    },
+    "rfp": [
+      {
+        "id": "D01",
+        "relative_path": "rfp/00고객사_00지역_문서검토_00고객사 Comment Update_Preliminary Technical Specification for GIS_R[REDACTED] - 00고객사 Comments [DATE REDACTED]_교육용클렌징v6.docx",
+        "sha256": "791feb2d0ced7504bb3e519eae20a210b165e0660d57cc6b64b11bf40fb01d2a",
+        "bytes": 102164,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D01 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D01",
+        "title": "D01 00고객사_00지역_문서검토_00고객사 Comment Update_Preliminary Technical Specification for GIS_R[REDACTED] - 00고객사 Comments [DATE REDACTED]_교육용클렌징v6",
+        "note": "교육용 정제 원문 D01; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 791feb2d0ced7504bb3e519eae20a210b165e0660d57cc6b64b11bf40fb01d2a",
+        "origin": "demo"
+      },
+      {
+        "id": "D02",
+        "relative_path": "rfp/00고객사_00지역_문서검토_115kV GIS_교육용클렌징v6.docx",
+        "sha256": "9abb2a01a98ca8cc2545bbdeae5765cedcb8ff250ca05e9e5ce1d397c4c4b55a",
+        "bytes": 285458,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D02 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D02",
+        "title": "D02 00고객사_00지역_문서검토_115kV GIS_교육용클렌징v6",
+        "note": "교육용 정제 원문 D02; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 9abb2a01a98ca8cc2545bbdeae5765cedcb8ff250ca05e9e5ce1d397c4c4b55a",
+        "origin": "demo"
+      },
+      {
+        "id": "D03",
+        "relative_path": "rfp/00고객사_00지역_문서검토_Attachment 4.1 Detail Technical Spec. for 154kV GIS_교육용클렌징v6.docx",
+        "sha256": "0a6f133a9fa110832fe2c5933d5ad859765e669cec300f3c75fb05ce975e1389",
+        "bytes": 176024,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D03 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D03",
+        "title": "D03 00고객사_00지역_문서검토_Attachment 4.1 Detail Technical Spec. for 154kV GIS_교육용클렌징v6",
+        "note": "교육용 정제 원문 D03; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 0a6f133a9fa110832fe2c5933d5ad859765e669cec300f3c75fb05ce975e1389",
+        "origin": "demo"
+      },
+      {
+        "id": "D04",
+        "relative_path": "rfp/00고객사_00지역_문서검토_Attachment.05_00고객사 Specification No. E-039 - Circuit Breaker_교육용클렌징v6.docx",
+        "sha256": "a2f3e1b3d071d95aedb76bb77e9de3451b435a63e272b7ff836766bc63c74b7c",
+        "bytes": 802931,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D04 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D04",
+        "title": "D04 00고객사_00지역_문서검토_Attachment.05_00고객사 Specification No. E-039 - Circuit Breaker_교육용클렌징v6",
+        "note": "교육용 정제 원문 D04; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 a2f3e1b3d071d95aedb76bb77e9de3451b435a63e272b7ff836766bc63c74b7c",
+        "origin": "demo"
+      },
+      {
+        "id": "D05",
+        "relative_path": "rfp/00고객사_00지역_문서검토_FEED-EL-TS-039-T0_Specification for Electrical Testing_교육용클렌징v6.docx",
+        "sha256": "66d2441704084482b5ced958cc2731536429089f3169c7bee27e53d923d8499b",
+        "bytes": 59894,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D05 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D05",
+        "title": "D05 00고객사_00지역_문서검토_FEED-EL-TS-039-T0_Specification for Electrical Testing_교육용클렌징v6",
+        "note": "교육용 정제 원문 D05; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 66d2441704084482b5ced958cc2731536429089f3169c7bee27e53d923d8499b",
+        "origin": "demo"
+      },
+      {
+        "id": "D06",
+        "relative_path": "rfp/00고객사_00지역_문서검토_FEED-EL-TS-055-TREDACTED-RREDACTED_Specification for High Voltage Switchgear_교육용클렌징v6.docx",
+        "sha256": "7ee1f8132043446dac56825dcdb4e2f4a309be603605f12dcc4a3239f6db6043",
+        "bytes": 157713,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D06 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D06",
+        "title": "D06 00고객사_00지역_문서검토_FEED-EL-TS-055-TREDACTED-RREDACTED_Specification for High Voltage Switchgear_교육용클렌징v6",
+        "note": "교육용 정제 원문 D06; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 7ee1f8132043446dac56825dcdb4e2f4a309be603605f12dcc4a3239f6db6043",
+        "origin": "demo"
+      },
+      {
+        "id": "D07",
+        "relative_path": "rfp/00지역_문서검토_1. Bidding Forms_Draft_교육용클렌징v6.docx",
+        "sha256": "3fa67b7747e2453929e2081a1874e5a54dc9e70ee1b4b166e1c48d69bc47ceb6",
+        "bytes": 1006692,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D07 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D07",
+        "title": "D07 00지역_문서검토_1. Bidding Forms_Draft_교육용클렌징v6",
+        "note": "교육용 정제 원문 D07; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 3fa67b7747e2453929e2081a1874e5a54dc9e70ee1b4b166e1c48d69bc47ceb6",
+        "origin": "demo"
+      },
+      {
+        "id": "D08",
+        "relative_path": "rfp/00지역_문서검토_6. Section6_Employers Requirement_Substation_Draft_교육용클렌징v6.docx",
+        "sha256": "e1d1fc3540a5a960cfe73733e046e222ee40fc40dfe65f1e9c73ce5f58058b1e",
+        "bytes": 937279,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D08 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D08",
+        "title": "D08 00지역_문서검토_6. Section6_Employers Requirement_Substation_Draft_교육용클렌징v6",
+        "note": "교육용 정제 원문 D08; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 e1d1fc3540a5a960cfe73733e046e222ee40fc40dfe65f1e9c73ce5f58058b1e",
+        "origin": "demo"
+      },
+      {
+        "id": "D09",
+        "relative_path": "rfp/26 05 48.01-GA-Seismic Controls for Electrical Systems - Prepurchase_교육용클렌징v6.docx",
+        "sha256": "cf483f6790be8753abf67d6bf582121d93ff388895c7d282a860337c67f959fd",
+        "bytes": 58942,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D09 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D09",
+        "title": "D09 26 05 48.01-GA-Seismic Controls for Electrical Systems - Prepurchase_교육용클렌징v6",
+        "note": "교육용 정제 원문 D09; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 cf483f6790be8753abf67d6bf582121d93ff388895c7d282a860337c67f959fd",
+        "origin": "demo"
+      },
+      {
+        "id": "D10",
+        "relative_path": "rfp/26 11 16 12 fl - secondary unit substations with switchboard secondary_교육용클렌징v6.docx",
+        "sha256": "73417adf6749bc76e54d4ec831dfe761b6a016c16c1d580d280154eb7995c6af",
+        "bytes": 73506,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D10 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D10",
+        "title": "D10 26 11 16 12 fl - secondary unit substations with switchboard secondary_교육용클렌징v6",
+        "note": "교육용 정제 원문 D10; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 73417adf6749bc76e54d4ec831dfe761b6a016c16c1d580d280154eb7995c6af",
+        "origin": "demo"
+      },
+      {
+        "id": "D11",
+        "relative_path": "rfp/26 11 16.01-GA-Secondary LV Unit Substations - Prepurchase-_교육용클렌징v6.docx",
+        "sha256": "bf0e226a80716cc1b24f401eed95b0ec26974c07643613eceb902d129a1deff9",
+        "bytes": 463909,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D11 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D11",
+        "title": "D11 26 11 16.01-GA-Secondary LV Unit Substations - Prepurchase-_교육용클렌징v6",
+        "note": "교육용 정제 원문 D11; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 bf0e226a80716cc1b24f401eed95b0ec26974c07643613eceb902d129a1deff9",
+        "origin": "demo"
+      },
+      {
+        "id": "D12",
+        "relative_path": "rfp/26 13 00 fl - medium-voltage switchgear (15kv rated)_교육용클렌징v6.docx",
+        "sha256": "f1797dc3be97d8b6793465a6b3793f51a08d324bdcccc319f23cb9f55057fc16",
+        "bytes": 59797,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D12 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D12",
+        "title": "D12 26 13 00 fl - medium-voltage switchgear (15kv rated)_교육용클렌징v6",
+        "note": "교육용 정제 원문 D12; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 f1797dc3be97d8b6793465a6b3793f51a08d324bdcccc319f23cb9f55057fc16",
+        "origin": "demo"
+      },
+      {
+        "id": "D13",
+        "relative_path": "rfp/26-2413-SWITCHBOARDS_RevREDACTED_교육용클렌징v6.docx",
+        "sha256": "20babb1f3730ab47dbce5b5602d33ab7dd71ae3a9e95adcc83d9895bac0da786",
+        "bytes": 76501,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D13 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D13",
+        "title": "D13 26-2413-SWITCHBOARDS_RevREDACTED_교육용클렌징v6",
+        "note": "교육용 정제 원문 D13; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 20babb1f3730ab47dbce5b5602d33ab7dd71ae3a9e95adcc83d9895bac0da786",
+        "origin": "demo"
+      },
+      {
+        "id": "D14",
+        "relative_path": "rfp/261116.11 fl - secondary unit substations with switchgear secondary_교육용클렌징v6.docx",
+        "sha256": "e73a2eec4c848b68a758636009abfca0054029b0236d97ee0b126e3c25d57945",
+        "bytes": 74556,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D14 [개발-교육원문]",
+        "customer_code": "KAN159-RFP-D14",
+        "title": "D14 261116.11 fl - secondary unit substations with switchgear secondary_교육용클렌징v6",
+        "note": "교육용 정제 원문 D14; 개발-교육원문; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 e73a2eec4c848b68a758636009abfca0054029b0236d97ee0b126e3c25d57945",
+        "origin": "demo"
+      },
+      {
+        "id": "D15",
+        "relative_path": "rfp/261326 fl - medium-voltage metal-clad switchgear_교육용클렌징v6.docx",
+        "sha256": "f7bf68f8b4aa6ce481e1c381d62689b99d029c5ea31381ec0b17b0b25296c1e1",
+        "bytes": 74506,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D15 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D15",
+        "title": "D15 261326 fl - medium-voltage metal-clad switchgear_교육용클렌징v6",
+        "note": "교육용 정제 원문 D15; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 f7bf68f8b4aa6ce481e1c381d62689b99d029c5ea31381ec0b17b0b25296c1e1",
+        "origin": "demo"
+      },
+      {
+        "id": "D16",
+        "relative_path": "rfp/262000 Electric Distribution_교육용클렌징v6.docx",
+        "sha256": "619f96580b55176a571fdbaa9587a7762fde5a95869409e5650ce496768498d4",
+        "bytes": 79318,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D16 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D16",
+        "title": "D16 262000 Electric Distribution_교육용클렌징v6",
+        "note": "교육용 정제 원문 D16; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 619f96580b55176a571fdbaa9587a7762fde5a95869409e5650ce496768498d4",
+        "origin": "demo"
+      },
+      {
+        "id": "D17",
+        "relative_path": "rfp/262413 fl - switchboards_교육용클렌징v6.docx",
+        "sha256": "7f93aa2ac447689e88c3f606d927e8ec39a735ed35e4a2b801e7ade20eb39be0",
+        "bytes": 57010,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D17 [개발-교육원문]",
+        "customer_code": "KAN159-RFP-D17",
+        "title": "D17 262413 fl - switchboards_교육용클렌징v6",
+        "note": "교육용 정제 원문 D17; 개발-교육원문; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 7f93aa2ac447689e88c3f606d927e8ec39a735ed35e4a2b801e7ade20eb39be0",
+        "origin": "demo"
+      },
+      {
+        "id": "D18",
+        "relative_path": "rfp/337230 Medium-Voltage Metal-Clad Switchgear [DATE REDACTED]_교육용클렌징v6.docx",
+        "sha256": "12d5429385a094fb8b8256995bc71934b52b4cb7144092093de5426aa89d1e64",
+        "bytes": 87121,
+        "source_category": "evaluation",
+        "project_name": "KAN159 교육원문 D18 [평가-등록조회전용]",
+        "customer_code": "KAN159-RFP-D18",
+        "title": "D18 337230 Medium-Voltage Metal-Clad Switchgear [DATE REDACTED]_교육용클렌징v6",
+        "note": "교육용 정제 원문 D18; 평가-등록조회전용; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 12d5429385a094fb8b8256995bc71934b52b4cb7144092093de5426aa89d1e64",
+        "origin": "demo"
+      },
+      {
+        "id": "D19",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제1장_설계기준_교육용클렌징v6.docx",
+        "sha256": "db455b668c730339ea4847fa254b5f5759e95a0bd5797f64a0ef70da5c9aa8d0",
+        "bytes": 92317,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D19 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D19",
+        "title": "D19 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제1장_설계기준_교육용클렌징v6",
+        "note": "교육용 정제 원문 D19; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 db455b668c730339ea4847fa254b5f5759e95a0bd5797f64a0ef70da5c9aa8d0",
+        "origin": "demo"
+      },
+      {
+        "id": "D20",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제2장_계통설명서_교육용클렌징v6.docx",
+        "sha256": "9a46e90ca0f63505d637cb5e98bb5298b296d9391b7913cd360ff19742384297",
+        "bytes": 396022,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D20 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D20",
+        "title": "D20 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제2장_계통설명서_교육용클렌징v6",
+        "note": "교육용 정제 원문 D20; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 9a46e90ca0f63505d637cb5e98bb5298b296d9391b7913cd360ff19742384297",
+        "origin": "demo"
+      },
+      {
+        "id": "D21",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제3장_일반사항_교육용클렌징v6.docx",
+        "sha256": "cb5eb24c657aec95145870597e631731efd6edebc4ea1fc9e665dfdd6076d13e",
+        "bytes": 1500156,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D21 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D21",
+        "title": "D21 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제3장_일반사항_교육용클렌징v6",
+        "note": "교육용 정제 원문 D21; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 cb5eb24c657aec95145870597e631731efd6edebc4ea1fc9e665dfdd6076d13e",
+        "origin": "demo"
+      },
+      {
+        "id": "D22",
+        "relative_path": "rfp/신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제8장_154kV 송변전설비_교육용클렌징v6.docx",
+        "sha256": "6bdecd4923eba5093220670647efe9123db1cd9baf61b0fffe8719fd576c5a96",
+        "bytes": 783823,
+        "source_category": "training",
+        "project_name": "KAN159 교육원문 D22 [교육원문-분할미지정]",
+        "customer_code": "KAN159-RFP-D22",
+        "title": "D22 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제8장_154kV 송변전설비_교육용클렌징v6",
+        "note": "교육용 정제 원문 D22; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 6bdecd4923eba5093220670647efe9123db1cd9baf61b0fffe8719fd576c5a96",
+        "origin": "demo"
+      }
+    ]
+  },
+  "missing": [
+    {
+      "group": "rfp",
+      "relative_path": "rfp/demo-en.docx",
+      "reason": "Generated local artifact only; no Drive file ID found via connector search and GWS files.list. No upload authorized."
+    }
+  ]
+}
