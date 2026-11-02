@@ -33,12 +33,14 @@ it('SSE denied state does not lock upload as though another actor job were runni
   expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
   expect(screen.getByRole('status').textContent).toContain('조회가 중단');
   expect(screen.getByRole('status').textContent).not.toContain('시작');
+  expect(screen.getByText('최근 작업').nextElementSibling?.textContent).toBe('조회 불가');
 });
 it('fallback GET denial removes stale RUNNING presentation and stops automatic refetch', async () => {
   const { client, fetcher } = setup();await waitFor(() => expect(vi.mocked(watchRfpJob)).toHaveBeenCalled());
   await act(async () => vi.mocked(watchRfpJob).mock.calls[0][2]({ connection: 'fallback', job: { job_id: J, project_id: P, owner: 'tft', kind: 'rfp.process', status: 'RUNNING', version: 1, last_event_sequence: 2 } }));
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('조회가 중단'));
   expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByText('최근 작업').nextElementSibling?.textContent).toBe('조회 불가');
   const reads = fetcher.mock.calls.filter(([u]) => u.includes(`/jobs/${J}`)).length;
   await act(async () => { await client.invalidateQueries({ queryKey: ['jobs'] }); });
   expect(fetcher.mock.calls.filter(([u]) => u.includes(`/jobs/${J}`))).toHaveLength(reads);
@@ -54,4 +56,22 @@ it('confirmed GET terminal snapshot triggers existing result invalidation after 
   await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-requirements','live']}));
   expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-draft',A,P]});
   expect((screen.getByRole('button',{name:'문서 올리기'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it.each(['job.started', 'job.progress'])('recent job row agrees with %s, terminal signal, and confirmed GET without changing the cache', async type => {
+  const { client } = setup();await waitFor(() => expect(vi.mocked(watchRfpJob)).toHaveBeenCalled());
+  const update = vi.mocked(watchRfpJob).mock.calls[0][2];
+  const job = { job_id: J, project_id: P, owner: 'tft' as const, kind: 'rfp.process' as const, status: 'QUEUED' as const, version: 1, last_event_sequence: 0 };
+  const progress = { sequence: 1, occurredAt: '2026-11-02T12:00:00Z', type, step: 'extract' };
+  const row = () => screen.getByText('최근 작업').nextElementSibling?.textContent;
+  await act(async () => update({ connection: 'connected', job, progress }));
+  expect(row()).toBe('실행 중 (최근 서버 관측)');
+  expect(screen.getByRole('status').textContent).toContain('진행이 관측');
+  expect(client.getQueryData(['jobs', 'live', A, P, J])).toEqual({ data: job });
+  await act(async () => update({ connection: 'connected', job, progress: { ...progress, sequence: 2, type: 'job.completed' } }));
+  expect(row()).toBe('결과 확인 중');
+  expect(screen.getByRole('status').textContent).toContain('저장된 결과를 확인');
+  expect(client.getQueryData(['jobs', 'live', A, P, J])).toEqual({ data: job });
+  await act(async () => update({ connection: 'ended', job: { ...job, status: 'SUCCEEDED', last_event_sequence: 2 } }));
+  expect(row()).toBe('완료');
 });

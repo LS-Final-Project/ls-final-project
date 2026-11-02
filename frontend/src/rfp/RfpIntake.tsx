@@ -13,7 +13,7 @@ import { latestVersions, ProcessForm, ProjectForm, UploadForm } from './IntakeFo
 import ProjectConstraintsForm from './ProjectConstraintsForm';
 import { useNames } from './names';
 import { useRfpJobEvents } from './useRfpJobEvents';
-import { RfpJobBanner } from './RfpJobBanner';
+import { RfpJobBanner, rfpJobPresentation } from './RfpJobBanner';
 import { deniedRfpJob, readRfpJob } from '../api/rfp-job-events';
 import { attributeName, DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, ISSUE_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, NECESSITY_LABEL, ORIGIN_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
 
@@ -287,7 +287,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
       ['담당', nameOf(data.sales_user_id) || (data.sales_user_id ? '지정' : '미지정')],
       ['책임자', nameOf(data.responsible_user_id) || (data.responsible_user_id ? '지정' : '미지정')],
       ['검토 부서', (data.review_departments ?? []).map(code => label(DEPARTMENT_LABEL, code)).join(', ') || '없음'],
-      ['최근 작업', jobStatus ? label({ QUEUED: '대기', RUNNING: '실행 중', SUCCEEDED: '완료', PARTIAL: '일부 완료', FAILED: '실패', CANCELLED: '취소' }, jobStatus) : '없음'],
+      ['최근 작업', jobId ? rfpJobPresentation(unavailable ? undefined : jobStatus, bannerView).row : '없음'],
       ['검토본', data.review_version ? `v${data.review_version}` : '없음'],
       ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
     ]} />
