@@ -292,3 +292,112 @@ def test_the_original_attribute_reaches_the_reason_inputs():
     item = requirement("SPEC", "basic impulse level", "bil")
     assert to_comparison(item).attribute_label == "basic impulse level"
     assert to_grading(UUID(int=1), item).attribute_label == "basic impulse level"
+
+
+def _mv(
+    clause_no, equipment, attribute_key, value, unit, operator="GTE", system="NONE", kind="SPEC"
+):
+    """고압 개폐 장비 요구(합성). 자사 MV_EQUIP 후보는 VCB-25kV-1250(차단기)과 SWGR-MV-12kV(개폐반)다."""
+    return requirement(kind, attribute_key, attribute_key).model_copy(
+        update={
+            "clause_no": clause_no,
+            "equipment": equipment,
+            "value": value,
+            "unit": unit,
+            "operator": operator,
+            "standard_system": system,
+            "equipment_family": "MV_EQUIP",
+        }
+    )
+
+
+def test_a_maximum_on_a_minimum_rating_is_read_as_at_least():
+    """KAN-208: 계통 "15 kV maximum"을 LTE로 뽑아도 장비 정격은 그 이상이어야 한다(GTE). 12 kV 개폐반은 사양 차이다."""
+    item = _mv("2.6.B.1", "metal-enclosed switchgear", "rated_max_voltage", "15", "kV", "LTE")
+    compared = to_comparison(item)
+    assert compared.operator == "GTE"
+    assert to_grading(UUID(int=1), item).operator == "GTE"
+    swgr = next(
+        c
+        for c in compare_in_family(compared, "MV_EQUIP", load_own_products()).candidates
+        if c.product_code == "SWGR-MV-12kV"
+    )
+    assert swgr.status == "SPEC_GAP"
+    # 하한 정격이 아닌 속성의 LTE(예: 임피던스 상한)는 그대로다.
+    impedance = requirement("SPEC", "impedance", "impedance").model_copy(update={"operator": "LTE"})
+    assert to_comparison(impedance).operator == "LTE"
+
+
+def test_a_breaker_is_not_evidence_for_a_switch_fuse_or_arrester():
+    """KAN-208: 부하개폐기·퓨즈·피뢰기 요구에 차단기(VCB) 정격을 근거로 쓰지 않는다(형식이 다른 장비의 값)."""
+    switch = _mv("2.6.C.1", "fused load interrupter switch", "rated_current", "600", "A")
+    vcb = next(
+        c
+        for c in compare_in_family(
+            to_comparison(switch), "MV_EQUIP", load_own_products()
+        ).candidates
+        if c.product_code == "VCB-25kV-1250"
+    )
+    assert vcb.status == "INSUFFICIENT_EVIDENCE" and "차단기" in vcb.reason
+    # 차단기 요구에는 그대로 근거다.
+    breaker = _mv("2.6.C.1", "vacuum circuit breaker", "rated_current", "600", "A")
+    vcb = next(
+        c
+        for c in compare_in_family(
+            to_comparison(breaker), "MV_EQUIP", load_own_products()
+        ).candidates
+        if c.product_code == "VCB-25kV-1250"
+    )
+    assert vcb.status == "EVIDENCE_FOUND"
+    from backend.api.tft.rfp.comparison import _is_other_device
+
+    def device(item):
+        return _is_other_device(Requirement(clause_no="2.6", item=item))
+
+    assert device("surge arrester") and device("부하개폐기") and device("power fuses")
+    assert not device("metal-enclosed switchgear") and not device("switchboard")
+    assert not device("circuit breaker") and not device("개폐기반")
+
+
+def test_a_section_standard_system_is_inherited_only_when_it_is_single():
+    """KAN-208: 상위 조항의 IEEE 체계를 같은 절의 체계 없는 요구가 이어받아 IEC 근거로 충족을 확정하지 않는다."""
+    from backend.api.tft.worker_processor import section_systems
+
+    parent = _mv(
+        "2.6.A",
+        "metal-enclosed switchgear",
+        "OTHER",
+        "IEEE C37.20.3",
+        None,
+        "TEXT",
+        "IEEE",
+        "COMPLIANCE",
+    )
+    busbar = _mv("2.6.B.3", "metal-enclosed switchgear", "busbar_rated_current", "1200", "A")
+    other = _mv("2.7.A", "dry-type transformer", "rated_power", "1000", "kVA")
+    systems = section_systems([parent, busbar, other])
+    assert systems == {"2.6": "IEEE"}
+    compared = to_comparison(busbar, systems)
+    assert compared.standard_system == "IEEE"
+    assert to_comparison(other, systems).standard_system == "NONE"
+    swgr = next(
+        c
+        for c in compare_in_family(compared, "MV_EQUIP", load_own_products()).candidates
+        if c.product_code == "SWGR-MV-12kV"
+    )
+    # 1250 A ≥ 1200 A로 값은 충족하지만 IEC 62271-200 근거라 조건부다. 이어받지 않으면 충족이었다.
+    assert swgr.status == "CONDITIONAL"
+    plain = next(
+        c
+        for c in compare_in_family(
+            to_comparison(busbar), "MV_EQUIP", load_own_products()
+        ).candidates
+        if c.product_code == "SWGR-MV-12kV"
+    )
+    assert plain.status == "EVIDENCE_FOUND"
+    # 보호 기능·탭 같은 구성은 체계를 이어받지 않는다(시연 B-2 LSIG는 근거 있음 그대로).
+    lsig = _mv("2.6.E.4", "air circuit breaker", "protection_functions", "LSIG", None, "TEXT")
+    assert to_comparison(lsig, systems).standard_system == "NONE"
+    # 같은 절에 체계가 둘이면 이어받지 않는다.
+    mixed = parent.model_copy(update={"clause_no": "2.6.B", "standard_system": "IEC"})
+    assert section_systems([parent, mixed, busbar]) == {}

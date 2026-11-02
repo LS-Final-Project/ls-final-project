@@ -289,6 +289,48 @@ SYMMETRIC = re.compile(r"^\s*(?:±|\+\s*/\s*-|\+-)\s*(\d+(?:\.\d+)?)\s*%?\s*$")
 ASYMMETRIC = re.compile(r"^\s*\+\s*(\d+(?:\.\d+)?)\s*%?\s*/\s*-\s*(\d+(?:\.\d+)?)\s*%?\s*$")
 
 
+# 값이 높을수록 만족하는 장비 정격(전압·절연·전류·차단 용량). 요구는 늘 하한이다. "15 kV maximum"(계통 최고전압)처럼
+# maximum이 붙어도 장비 정격은 그 이상이어야 한다. 추출이 LTE로 내면 GTE로 바로잡는다(KAN-208, 비교 방향 오독).
+MINIMUM_RATINGS = frozenset(
+    {
+        "rated_max_voltage",
+        "rated_operational_voltage",
+        "bil",
+        "power_frequency_withstand",
+        "short_time_withstand_current",
+        "rated_current",
+        "busbar_rated_current",
+        "breaking_capacity_icu",
+        "breaking_capacity_ics",
+        "rated_short_circuit_breaking_current",
+    }
+)
+
+
+def rating_operator(item: ExtractedRequirement) -> Operator:
+    """비교 연산자. 하한 정격(MINIMUM_RATINGS)의 LTE는 GTE로 바로잡는다. 원문·저장 값은 그대로다(KAN-208)."""
+    if item.operator == "LTE" and item.attribute_key in MINIMUM_RATINGS:
+        return "GTE"
+    return item.operator
+
+
+def section_systems(items: Iterable[ExtractedRequirement]) -> dict[str, str]:
+    """절(조항 번호 앞 두 자리, 예 2.6)마다 하나로 정해진 규격 체계. 체계가 둘 이상이거나 없으면 넣지 않는다.
+
+    IEEE·UL 체계가 상위 조항("Comply with IEEE C37.20.3")에만 적혀 있으면 아래 항목 요구의 standard_system이 비어
+    IEC 근거로 충족이 확정됐다(KAN-208). 같은 절의 체계를 이어받아 충족을 조건부로 낮추는 데만 쓴다.
+    """
+    found: dict[str, set[str]] = {}
+    for item in items:
+        if item.standard_system != "NONE":
+            found.setdefault(_article(item.clause_no), set()).add(item.standard_system)
+    return {article: next(iter(systems)) for article, systems in found.items() if len(systems) == 1}
+
+
+def _article(clause_no: str) -> str:
+    return ".".join(clause_no.split(".")[:2])
+
+
 def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
     """명목값(EQ)과 원문 허용 오차로 비교 범위를 만든다(KAN-199). 계산은 코드가 하고 원문 값은 그대로 저장한다.
 
@@ -304,7 +346,7 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
     """
     if item.tolerance is None or item.operator != "EQ" or item.value is None:
         # 문장형 요구는 value가 비어도 비교용 표기로 비교한다.
-        return item.operator, item.value or item.canonical_value
+        return rating_operator(item), item.value or item.canonical_value
     nominal = grading._number(item.value)
     symmetric, asymmetric = SYMMETRIC.match(item.tolerance), ASYMMETRIC.match(item.tolerance)
     if nominal is None or not (symmetric or asymmetric):
@@ -319,7 +361,9 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
     return "RANGE", f"{format(low.normalize(), 'f')}~{format(high.normalize(), 'f')}"
 
 
-def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
+def to_comparison(
+    item: ExtractedRequirement, systems: dict[str, str] | None = None
+) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
     COMPLIANCE는 인증 요구(certification_standard=value, 없으면 attribute), 그 밖은 추출의 attribute_key(자사 사양
@@ -329,11 +373,17 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
 
     Args:
         item: 추출 요구.
+        systems: 같은 문서의 절별 규격 체계(section_systems). 요구 체계가 비어 있는 하한 정격(MINIMUM_RATINGS)만
+            이어받는다(KAN-208).
 
     Returns:
         comparison.Requirement: 비교 입력.
     """
     certification = item.kind == "COMPLIANCE"
+    system = item.standard_system
+    # 시험 규격에 기대는 물리 정격만 이어받는다. 탭·보호 기능·형식 같은 구성은 규격 체계와 무관하다(시연 B-2 LSIG).
+    if system == "NONE" and systems and item.attribute_key in MINIMUM_RATINGS:
+        system = systems.get(_article(item.clause_no), "NONE")
     operator, value = tolerance_range(item)
     return comparison.Requirement(
         clause_no=item.clause_no,
@@ -348,7 +398,7 @@ def to_comparison(item: ExtractedRequirement) -> comparison.Requirement:
         # 추출은 규격을 value에 둔다(attribute는 'standard compliance' 같은 이름표, 14번 실측).
         certification_standard=(item.value or item.attribute) if certification else None,
         certification_listed=item.certification_listed,
-        standard_system=item.standard_system,
+        standard_system=system,
         designated_model=item.designated_model,
         basis_of_design=item.basis_of_design,
         canonical_value=item.canonical_value,
@@ -762,9 +812,16 @@ async def process(
         emit({"step": "search", "counts": counts(total)})
 
         # 요구 장비 계열의 자사 후보 안에서만 비교한다(KAN-199). 계열을 모르면 비교하지 않는다.
+        # 절별 규격 체계는 문서마다 따로 본다(다른 문서의 같은 절 번호와 섞지 않는다).
+        systems_by_document = {
+            id(document): section_systems(r for d, _, r in extracted if d is document)
+            for document, _, _ in extracted
+        }
         outcomes = [
-            comparison.compare_in_family(to_comparison(r), r.equipment_family, products)
-            for _, _, r in extracted
+            comparison.compare_in_family(
+                to_comparison(r, systems_by_document[id(document)]), r.equipment_family, products
+            )
+            for document, _, r in extracted
         ]
         # 잠금 SELECT 자체도 snapshot을 만든다. autocommit 문장에서 기다린 뒤 RR을 시작해야
         # 선행 작업이 커밋한 등급을 첫 데이터 snapshot에 포함한다. 업무 TX 종료까지 같은 키를 보유한다.
