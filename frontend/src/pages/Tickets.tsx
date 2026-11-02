@@ -7,6 +7,8 @@ import type { TicketListResponse } from '../api/cs';
 import { listImprovements } from '../api/cs-improvements';
 import { ErrorState, Loading } from '../components/states';
 import TicketCreateDialog from '../components/TicketCreateDialog';
+import BatchOwnerDialog from '../components/BatchOwnerDialog';
+import { me } from '../api/platform';
 import { useTicketPages } from '../ls-shell/use-tickets';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, dayOf, formatStamp, type RequestSummary, type TicketChannel } from '../ls-shell/cs-labels';
@@ -35,6 +37,10 @@ export default function Tickets() {
   const [newestFirst, setNewestFirst] = useState(true);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = useState(false);
+  const [batchOwner, setBatchOwner] = useState(false);
+  // 담당 변경은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
+  const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' && picked.size > 0 });
+  const isManager = identity.data?.data?.roles?.includes('manager') === true;
 
   const tickets = useTicketPages(access.ready);
   const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready });
@@ -145,6 +151,12 @@ export default function Tickets() {
     <div className="kv-gridhead"><span>조회 {all.length}건 중 {rows.length}건 표시. 조회조건은 받아 온 목록 안에서 거름, 경과일은 접수일에서 계산</span><span className="unc" style={{ marginLeft: 8 }}>서버 필터, 요약, 고객 열 아직 없음</span></div>
     {tickets.isPending && <Loading />}
     {tickets.isError && <ErrorState error={tickets.error} onRetry={() => void tickets.refetch()} />}
+    {pickedRows.length > 0 && <div className="kv-gridhead sub" role="toolbar" aria-label="선택한 문의">
+      <span><b>{pickedRows.length}</b>건 선택</span>
+      <button type="button" className="kb" disabled={!isManager} title={isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : 'C/S 관리자만 담당을 바꿀 수 있습니다'} onClick={() => setBatchOwner(true)}>담당 변경</button>
+      <button type="button" className="kb" aria-label="선택한 문의 엑셀" onClick={exportCsv}>엑셀</button>
+      <button type="button" className="kb" onClick={() => setPicked(new Set())}>선택 해제</button>
+    </div>}
     {tickets.isSuccess && !tickets.isError && <>
       <KvGrid label="문의 목록" frozen sortable scroll columns={columns} rows={rows} rowKey={item => item.id}
         fallback={all.length ? '조건에 맞는 문의가 없습니다. 조건 지우기로 조건을 비울 수 있습니다.' : '문의가 없습니다.'} />
@@ -155,6 +167,7 @@ export default function Tickets() {
     <div className="kv-gridhead sub"><span>개선요청, 진행 중 {requests.length}건</span><Link className="right" to="/cs/improvements">개선요청 조회 (CS0301)</Link></div>
     <KvGrid label="개선요청 목록" columns={requestColumns} rows={requests} rowKey={item => item.id}
       fallback={improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && improvements.error.status === 401 ? '로그인이 필요합니다. 계정 화면에서 다시 로그인하세요.' : improvements.error instanceof ApiError && improvements.error.status === 403 ? '개선요청을 볼 권한이 없습니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
+    {batchOwner && <BatchOwnerDialog targets={pickedRows.map(item => ({ id: item.id, label: number(item) }))} onClose={() => setBatchOwner(false)} onDone={() => { void tickets.refetch(); }} />}
     {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={() => { void tickets.refetch(); }} />}
   </main>;
 }

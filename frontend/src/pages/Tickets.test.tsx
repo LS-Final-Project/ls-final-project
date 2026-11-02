@@ -54,11 +54,11 @@ test('엑셀은 선택한 행이 조건으로 모두 가려지면 보이는 행 
   vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:(value:Blob)=>{blob=value;return 'blob:test';},revokeObjectURL:()=>{}}));
   const click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
   fireEvent.click(screen.getByLabelText('ID-A 선택'));
-  expect(screen.getByRole('button',{name:/엑셀/}).getAttribute('title')).toBe('선택한 1건만 내려받습니다');
+  expect(screen.getByRole('button',{name:/^엑셀/}).getAttribute('title')).toBe('선택한 1건만 내려받습니다');
   // 선택한 Alpha(P1)가 제품 조건으로 가려져도 Beta만 보이므로 빈 파일이 아니라 보이는 행을 내려받는다.
   fireEvent.change(screen.getByLabelText('제품'),{target:{value:'P2'}});
-  expect(screen.getByRole('button',{name:/엑셀/}).getAttribute('title')).toBe('표시된 행 전체를 내려받습니다');
-  fireEvent.click(screen.getByRole('button',{name:/엑셀/}));
+  expect(screen.getByRole('button',{name:/^엑셀/}).getAttribute('title')).toBe('표시된 행 전체를 내려받습니다');
+  fireEvent.click(screen.getByRole('button',{name:/^엑셀/}));
   const text=await blob!.text();
   expect(text).toContain('ID-B');expect(text).not.toContain('ID-A');
   click.mockRestore();
