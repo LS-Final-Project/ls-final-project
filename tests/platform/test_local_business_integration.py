@@ -196,3 +196,29 @@ def test_foreign_driver_owner_is_not_stopped(local_state, monkeypatch):
     )
     with pytest.raises(ValueError, match="LOCAL_NAMESPACE_OWNERSHIP_MISMATCH"):
         stack.running_drivers({"namespace": "team4-kan159-offline", "owner": "ours"})
+
+
+def test_old_pid_reused_by_other_namespace_is_never_killed(local_state, monkeypatch):
+    from pathlib import Path
+    from scripts.local_business import __main__ as cli
+
+    pidfile = local_state / "control/tunnel.json"
+    pidfile.write_text(json.dumps({"pid": 999999, "namespace": "team4-kan159-offline"}))
+    exists, read = Path.exists, Path.read_bytes
+    monkeypatch.setattr(
+        Path, "exists", lambda p: True if str(p) == "/proc/999999/cmdline" else exists(p)
+    )
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda p: (
+            b"python\0-m\0scripts.local_business\0tunnel\0--namespace\0team4-kan159-other\0"
+            if str(p) == "/proc/999999/cmdline"
+            else read(p)
+        ),
+    )
+    killed = []
+    monkeypatch.setattr(cli.os, "kill", lambda *args: killed.append(args))
+    with pytest.raises(ValueError, match="LOCAL_TUNNEL_PID_MISMATCH"):
+        cli.stop_tunnel(local_state)
+    assert killed == [] and pidfile.exists()

@@ -22,7 +22,16 @@ def stop_tunnel(state):
     path = Path(f"/proc/{value['pid']}/cmdline")
     if path.exists():
         args = path.read_bytes().split(b"\0")
-        if b"scripts.local_business" not in args or b"tunnel" not in args:
+        namespace = settings(state)["namespace"].encode()
+        positions = [i for i, arg in enumerate(args) if arg == b"--namespace"]
+        if (
+            b"scripts.local_business" not in args
+            or b"tunnel" not in args
+            or len(positions) != 1
+            or positions[0] + 1 >= len(args)
+            or args[positions[0] + 1] != namespace
+            or value.get("namespace") != namespace.decode()
+        ):
             raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
         os.kill(value["pid"], signal.SIGTERM)
     pidfile.unlink()
@@ -49,7 +58,7 @@ def up(state):
     )
     from scripts.local_business.config import save
 
-    save(state / "control/tunnel.json", {"pid": p.pid})
+    save(state / "control/tunnel.json", {"pid": p.pid, "namespace": config["namespace"]})
     print(config["web_origin"])
 
 
