@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode, useState } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import BatchOwnerDialog from './BatchOwnerDialog';
@@ -27,10 +28,14 @@ function server(flows: Record<string, ReturnType<typeof flow> | undefined>, put:
   }));
   return puts;
 }
-function view(targets = [A, B, C]) {
+function view(targets = [A, B, C], strict = false) {
   setApiMode('live');
   const onDone = vi.fn();
-  renderAt('/x', '/x', <BatchOwnerDialog targets={targets.map((id, i) => ({ id, label: `CS-${i + 1}` }))} onClose={vi.fn()} onDone={onDone} />);
+  const dialog = <BatchOwnerDialog targets={targets.map((id, i) => ({ id, label: `CS-${i + 1}` }))} onClose={vi.fn()} onDone={onDone} />;
+  // 실제 화면처럼 StrictMode 앱 안에서 나중에 여는 경우(첫 렌더와 함께 열면 effect 두 번 실행 문제가 드러나지 않는다).
+  const Later = () => { const [open, setOpen] = useState(false); return open ? dialog : <button type="button" onClick={() => setOpen(true)}>열기</button>; };
+  renderAt('/x', '/x', strict ? <StrictMode><Later /></StrictMode> : dialog);
+  if (strict) fireEvent.click(screen.getByRole('button', { name: '열기' }));
   return onDone;
 }
 const choose = async () => { fireEvent.change(await screen.findByLabelText('새 담당'), { target: { value: NEW } }); fireEvent.click(screen.getByRole('button', { name: '변경' })); };
@@ -73,4 +78,12 @@ test('종결된 문의는 보내지 않고, 상태를 읽지 못한 문의는 �
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('끝남: 바꿈 1, 건너뜀 1, 실패 1, 결과 모름 0'));
   expect(puts.map(put => put.url.split('/tickets/')[1])).toEqual([`${C}/workflow/owner`]);
   expect(results()).toEqual(['CS-1 · 건너뜀 · 종결된 문의입니다', 'CS-2 · 실패 · 문의 상태를 읽지 못해 보내지 않았습니다', 'CS-3 · 바꿈']);
+});
+
+test('개발 모드(StrictMode)의 effect 두 번 실행 뒤에도 변경을 보낸다', async () => {
+  const puts = server({ [A]: flow('u1', 1) });
+  view([A], true);
+  await choose();
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('끝남: 바꿈 1'));
+  expect(puts).toHaveLength(1);
 });

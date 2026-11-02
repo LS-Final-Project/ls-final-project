@@ -22,7 +22,8 @@ export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const running = useRef(false);
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // StrictMode 개발 모드는 effect를 setup→cleanup→setup으로 두 번 돌리므로 setup에서 다시 true로 둔다.
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   async function run() {
     if (running.current || !owner) return;
@@ -37,6 +38,7 @@ export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets
         const workflow = await getTicketWorkflow(target.id, signal);
         if (workflow.data.state === 'CLOSED') { done.push({ ...base, result: '건너뜀', note: '종결된 문의입니다' }); continue; }
         if (workflow.data.owner_user_id === owner) { done.push({ ...base, result: '건너뜀', note: '이미 그 담당입니다' }); continue; }
+        if (!alive.current) return;
         sent = true;
         await reassignOwner(target.id, { owner_user_id: owner, version: workflow.data.version }, signal);
         done.push({ ...base, result: '바꿈', note: '' });
