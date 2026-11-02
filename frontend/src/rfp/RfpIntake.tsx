@@ -8,9 +8,10 @@ import { getProject, listProjects, type ProjectFilters, type ProjectSummary } fr
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDate } from '../components/tft';
-import { downloadCsv, KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvNext, KvRibbon, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { downloadCsv, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvRibbon, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { latestVersions, ProcessForm, ProjectForm, UploadForm } from './IntakeForms';
 import ProjectConstraintsForm from './ProjectConstraintsForm';
+import { ProjectPagination, ProjectSearchField } from './ProjectPagination';
 import { useNames } from './names';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { RfpJobBanner, rfpJobPresentation } from './RfpJobBanner';
@@ -42,20 +43,18 @@ export default function RfpIntake() {
   const [text, setText] = useState('');
   const [creating, setCreating] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
-  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
-  const cursor = cursors.at(-1);
-  const projects = useQuery({ queryKey: ['projects', mode, filters, cursor], queryFn: () => listProjects(filters, cursor), enabled: access.ready, placeholderData: keepPreviousData });
+  const [page, setPage] = useState(1);
+  const projects = useQuery({ queryKey: ['projects', mode, access.user.data?.data.id, filters, page], queryFn: () => listProjects(filters, undefined, page), enabled: access.ready, placeholderData: keepPreviousData });
   const refetch = projects.refetch;
   const reload = useCallback(() => { refetch(); }, [refetch]);
   useHotkey('F8', reload, access.ready);
   const items = projects.data?.data.items ?? [];
   const nameOf = useNames(items.flatMap(p => [p.sales_user_id, p.responsible_user_id]));
   if (!access.ready) return <BusinessGate access={access} title="접수 및 요구 검토" />;
-  const filter = (change: ProjectFilters) => { setFilters({ ...filters, ...change }); setCursors([undefined]); setChecked(new Set()); };
+  const filter = (change: ProjectFilters) => { setFilters({ ...filters, ...change }); setPage(1); setChecked(new Set()); };
   // 서버 검색어는 2~100자다. 한 글자는 보내지 않고 알린다.
   const search = text.trim();
   const shortSearch = search.length === 1;
-  const next = projects.data?.data.next_cursor;
   const selected = projectId ?? items[0]?.id;
   const columns: KvColumn<ProjectSummary>[] = [
     { key: 'check', header: <input type="checkbox" aria-label="전체 선택" checked={items.length > 0 && checked.size === items.length} onChange={event => setChecked(new Set(event.target.checked ? items.map(p => p.id) : []))} />, width: 30, className: 'c', cell: p => <input
@@ -69,7 +68,7 @@ export default function RfpIntake() {
         setChecked(nextChecked);
       }}
     /> },
-    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => index + 1 },
+    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => (page - 1) * 10 + index + 1 },
     { key: 'code', header: '프로젝트', width: 88, cell: p => p.external_id ? <Link to={`/tft/projects/${p.id}`}>{p.external_id}</Link> : '' },
     { key: 'name', header: '프로젝트명', className: 't', cell: p => <Link to={`/tft/projects/${p.id}`}>{p.name}</Link> },
     { key: 'client', header: '고객', width: 130, cell: p => p.client_name ?? '' },
@@ -86,7 +85,7 @@ export default function RfpIntake() {
   ];
   const list = <>
     <KvCond onSearch={() => { if (!shortSearch) filter({ q: search || undefined }); }}>
-      <KvCondRow columns={3}>
+      <KvCondRow columns={4}>
         <KvCondField label="진행"><select aria-label="진행" value={filters.output_status ?? ''} onChange={event => filter({ output_status: event.target.value || undefined })}>
           <option value="">전체</option>
           {Object.entries(OUTPUT_LABEL).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
@@ -95,7 +94,8 @@ export default function RfpIntake() {
           <option value="">전체</option>
           {Object.entries(JUDGEMENT_LABEL).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
         </select></KvCondField>
-        <KvCondField label="검색어"><input aria-label="검색어" type="text" maxLength={100} placeholder="프로젝트명, 고객명, 2자 이상" value={text} onChange={event => setText(event.target.value)} /></KvCondField>
+        <KvCondField label="검색 기준"><ProjectSearchField value={filters.search_field ?? 'all'} onChange={value => filter({ search_field: value })} /></KvCondField>
+        <KvCondField label="검색어"><input aria-label="검색어" type="text" maxLength={100} placeholder="번호 또는 이름, 2자 이상" value={text} onChange={event => setText(event.target.value)} /></KvCondField>
       </KvCondRow>
       <button type="submit" hidden>검색</button>
     </KvCond>
@@ -111,13 +111,7 @@ export default function RfpIntake() {
         onRow={p => navigate(`/tft/projects/${p.id}`)}
         fallback={projects.isPending ? <Loading /> : '프로젝트가 없습니다.'}
       />}
-    {(cursors.length > 1 || next) && <KvFoot
-      count={`${cursors.length}쪽, ${items.length}건`}
-      more={<>
-        <button className="kb" disabled={projects.isFetching || cursors.length === 1} onClick={() => { setCursors(cursors.slice(0, -1)); setChecked(new Set()); }}>이전</button>
-        <button className="kb" disabled={projects.isFetching || !next} onClick={() => { if (next) { setCursors([...cursors, next]); setChecked(new Set()); } }}>다음</button>
-      </>}
-    />}
+    {!projects.isError && <ProjectPagination page={page} total={projects.data?.data.total} busy={projects.isFetching} onPage={value => { setPage(value); setChecked(new Set()); }} />}
     {creating && <ProjectForm key={access.user.data?.data.id ?? "unverified"} onCancel={() => setCreating(false)} />}
   </>;
   const common = <>
@@ -263,7 +257,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
         ? <a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(original.document_id)}/file`}>원문 내려받기</a>
         : <button className="kb" disabled title="문서를 먼저 올리세요">원문 내려받기</button>}
     </>)}
-    {jobId && <RfpJobBanner view={bannerView} status={unavailable ? undefined : jobStatus} accepted={started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />}
+    {jobId && <RfpJobBanner key={jobId} view={bannerView} status={unavailable ? undefined : jobStatus} accepted={started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />}
     <KvNext>{next}</KvNext>
     {list}
     {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}

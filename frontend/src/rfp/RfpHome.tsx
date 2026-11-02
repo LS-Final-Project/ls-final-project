@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getApiMode } from '../api/client';
-import { listProjects, type ProjectSummary } from '../api/tft';
+import { listProjects, type ProjectFilters, type ProjectSummary } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { KvBox, KvField, KvGrid, KvKey, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { ProjectPagination, ProjectSearchField } from './ProjectPagination';
 import { JUDGEMENT_LABEL, label, OUTPUT_LABEL } from './labels';
 
 const TERMS: [string, string][] = [
@@ -27,8 +28,8 @@ function nextAction(p: ProjectSummary) {
   ].filter(Boolean);
   return todo.join(', ') || '없음';
 }
-const COLUMNS: KvColumn<ProjectSummary>[] = [
-  { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => index + 1 },
+const columns = (page: number): KvColumn<ProjectSummary>[] => [
+  { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => (page - 1) * 10 + index + 1 },
   { key: 'code', header: '프로젝트', width: 96, cell: p => p.external_id ? <Link to={`/tft/projects/${p.id}`}>{p.external_id}</Link> : '' },
   { key: 'name', header: '프로젝트명', className: 't', cell: p => <Link to={`/tft/projects/${p.id}`}>{p.name}</Link> },
   { key: 'output', header: '진행', width: 84, className: 'c', cell: p => label(OUTPUT_LABEL, p.output_status) },
@@ -38,14 +39,19 @@ const COLUMNS: KvColumn<ProjectSummary>[] = [
   { key: 'questions', header: '열린 질문', width: 64, className: 'c', cell: p => p.requirements_count ? p.open_questions_count : '' },
   { key: 'next', header: '다음 행동', cell: nextAction },
 ];
-// 업무 홈 TF0001(TF_K_Home). 건수는 받아 온 첫 쪽을 더한 값이다. 보드의 최근 작업·공지는 API가 없어 영역을 두지 않는다.
+// 업무 홈 TF0001(TF_K_Home). 업무 건수는 현재 페이지를 더한 값이다. 보드의 최근 작업·공지는 API가 없어 영역을 두지 않는다.
 export default function RfpHome() {
   const mode = getApiMode();
   const access = useBusinessAccess('tft');
   const queryClient = useQueryClient();
   const reload = useCallback(() => { queryClient.invalidateQueries(); }, [queryClient]);
   useHotkey('F8', reload, access.ready);
-  const projects = useQuery({ queryKey: ['projects', mode, undefined], queryFn: () => listProjects(), enabled: access.ready });
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<ProjectFilters>({});
+  const [text, setText] = useState('');
+  const [field, setField] = useState<'all' | 'external_id' | 'name'>('all');
+  const search = () => { if (text.trim().length === 1) return; setFilters({ q: text.trim() || undefined, search_field: field }); setPage(1); };
+  const projects = useQuery({ queryKey: ['projects', mode, access.user.data?.data.id, filters, page], queryFn: () => listProjects(filters, undefined, page), enabled: access.ready });
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
   const items = projects.data?.data.items ?? [];
   const count = (status: string) => items.filter(p => p.output_status === status).length;
@@ -60,10 +66,10 @@ export default function RfpHome() {
       <button className="kb" onClick={() => window.print()}>인쇄</button>
     </KvTitle>
     <KvNext>{projects.isSuccess
-      ? `내 프로젝트 ${items.length}, 할 일 있는 프로젝트 ${todo} | 미해결 필수 ${sum(p => p.unresolved_mandatory_count)}, 승인 대기 ${sum(p => p.pending_proposals_count)}, 열린 질문 ${sum(p => p.open_questions_count)}`
+      ? `현재 페이지 ${items.length}건, 할 일 있는 프로젝트 ${todo} | 미해결 필수 ${sum(p => p.unresolved_mandatory_count)}, 승인 대기 ${sum(p => p.pending_proposals_count)}, 열린 질문 ${sum(p => p.open_questions_count)}`
       : '내 프로젝트를 불러오는 중입니다.'}</KvNext>
     <KvSplit columns="1fr 1.15fr">
-      <KvBox title="업무 개요" note={projects.isSuccess ? `내 프로젝트 ${items.length}건, 단계별, 첫 쪽 기준` : undefined} bodyStyle={{ padding: 0 }}>
+      <KvBox title="업무 개요" note={projects.isSuccess ? `내 프로젝트 ${items.length}건, 단계별, 현재 페이지 기준` : undefined} bodyStyle={{ padding: 0 }}>
         <div className="kv-steps" style={{ margin: 0, border: 0, borderBottom: '1px solid var(--erp-border-soft)' }}>
           {Object.entries(OUTPUT_LABEL).map(([code, text]) =>
             <span key={code} className={projects.isSuccess && busiest > 0 && count(code) === busiest ? 'now' : undefined} style={{ height: 30, lineHeight: '30px' }}>{text} <b style={{ fontWeight: 400, fontSize: 'inherit' }}>{projects.isSuccess ? count(code) : '-'}</b></span>)}
@@ -76,15 +82,22 @@ export default function RfpHome() {
         {TERMS.map(([term, text]) => <KvField key={term} label={term}>{text}</KvField>)}
       </KvBox>
     </KvSplit>
+    <form className="rfp-project-search" aria-label="프로젝트 검색" onSubmit={event => { event.preventDefault(); search(); }}>
+      <ProjectSearchField value={field} onChange={setField} />
+      <input aria-label="검색어" value={text} maxLength={100} placeholder="번호 또는 이름, 2자 이상" onChange={event => setText(event.target.value)} />
+      <button className="kb primary" type="submit" disabled={projects.isFetching || text.trim().length === 1}>검색</button>
+      {text.trim().length === 1 && <span>검색어는 두 글자 이상 입력하세요.</span>}
+    </form>
     <div className="kv-gridhead"><span>내 프로젝트{projects.isSuccess ? ` ${items.length}건` : ''}</span></div>
     {projects.isError
       ? <ErrorState error={projects.error} onRetry={() => projects.refetch()} />
       : <KvGrid
         label="내 프로젝트"
-        columns={COLUMNS}
+        columns={columns(page)}
         rows={items}
         rowKey={p => p.id}
         fallback={projects.isPending ? <Loading /> : '프로젝트가 없습니다.'}
       />}
+    {!projects.isError && <ProjectPagination page={page} total={projects.data?.data.total} busy={projects.isFetching} onPage={setPage} />}
   </main>;
 }

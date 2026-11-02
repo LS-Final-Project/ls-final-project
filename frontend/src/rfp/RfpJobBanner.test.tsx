@@ -8,7 +8,7 @@ import { RfpJobBanner } from './RfpJobBanner';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { watchRfpJob } from '../api/rfp-job-events';
 vi.mock('../api/rfp-job-events', async importOriginal => ({ ...await importOriginal<typeof import('../api/rfp-job-events')>(), watchRfpJob: vi.fn(async () => undefined) }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 it('shows immediate admission, observed stage/counts and separates reconnecting from job failure', () => {
   const { rerender } = render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" /></MemoryRouter>);
   expect(screen.getByRole('status').textContent).toContain('접수했습니다');
@@ -75,4 +75,28 @@ it('shows only observed stages and stops motion on reconnect, denial and termina
   rerender(ui(view, 'SUCCEEDED'));
   expect(container.querySelector('.is-live')).toBeNull();
   expect(screen.getByRole('link')).toBeTruthy();
+});
+
+
+it('paces burst observations without delaying completion, and lets users skip the replay', () => {
+  vi.useFakeTimers();
+  const events = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-02T12:00:01Z', type: 'job.progress', step }));
+  const ui = (activity: typeof events, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
+  const { container, rerender, unmount } = render(ui([]));
+  rerender(ui(events));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  act(() => vi.advanceTimersByTime(699));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  act(() => vi.advanceTimersByTime(1));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  rerender(ui(events, 'SUCCEEDED'));
+  expect(screen.getByRole('status').textContent).toContain('처리가 완료');
+  expect(screen.getByRole('link')).toBeTruthy();
+  expect(screen.getByText(/완료된 분석 과정 다시보기/)).toBeTruthy();
+  expect(container.querySelector('.is-live')).toBeNull();
+  act(() => screen.getByRole('button', { name: '한 번에 보기' }).click());
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
+  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  unmount(); expect(vi.getTimerCount()).toBe(0);
 });

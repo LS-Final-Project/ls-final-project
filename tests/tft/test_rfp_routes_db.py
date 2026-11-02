@@ -1623,3 +1623,28 @@ def test_draft_trace_input_reads_the_latest_draft_and_project_references(admin, 
         }
     ]
     assert ("requirement", str(chain["requirement"])) in data["references"]
+
+
+def test_numbered_project_search_counts_only_the_authorized_filtered_rows(client, chain, admin):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET external_id='PAGE-23', name='Pagination_100%%', "
+            "client_name='Other Customer' WHERE id=%s",
+            (chain["project"],),
+        )
+    number = data(get(client, "/projects?page=1&limit=1&search_field=external_id&q=PAGE-23"))
+    assert number["total"] == 1
+    assert [row["id"] for row in number["items"]] == [str(chain["project"])]
+    second = data(get(client, "/projects?page=2&limit=1&search_field=external_id&q=PAGE-23"))
+    assert second == {"items": [], "next_cursor": None, "total": 1}
+    wrong_field = data(get(client, "/projects?page=1&search_field=name&q=PAGE-23"))
+    assert wrong_field["total"] == 0 and wrong_field["items"] == []
+    literal = data(get(client, "/projects?page=1&search_field=name&q=_100%25"))
+    assert literal["total"] == 1
+    assert data(get(client, "/projects?page=1&search_field=name&q=x_100%25"))["total"] == 0
+    assert data(get(client, "/projects?page=1&q=PAGE-23"))["total"] == 1
+    hidden = data(get(client, "/projects?page=1&q=PAGE-23", OUTSIDER))
+    assert hidden == {"items": [], "next_cursor": None, "total": 0}
+    # The authorized review department follows the identical scope for both rows and total.
+    department = data(get(client, "/projects?page=1&q=PAGE-23", RND))
+    assert department["total"] == 1 and len(department["items"]) == 1

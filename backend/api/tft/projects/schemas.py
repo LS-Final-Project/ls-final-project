@@ -64,6 +64,7 @@ class ProjectSummary(BaseModel):
 class ProjectList(BaseModel):
     items: list[ProjectSummary]
     next_cursor: str | None
+    total: int | None = None
 
 
 class RfpRequirement(BaseModel):

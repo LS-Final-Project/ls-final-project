@@ -52,7 +52,7 @@ beforeEach(() => {
     if (url.endsWith('/documents')) return ok({ items: documents });
     if (url.includes('/proposals')) return ok({ items: [] });
     if (url.includes('/questions')) return ok({ items: [{ question_id: 'q1', question_text: '값을 확인해 주세요' }] });
-    if (url.endsWith('/tft/projects')) return ok({ items: [], next_cursor: null });
+    if (/\/tft\/projects(?:\?|$)/.test(url)) return ok({ items: [], next_cursor: null });
     return ok(project);
   }));
   setApiMode('live');
@@ -170,7 +170,7 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     const inner = vi.mocked(fetch).getMockImplementation() as typeof fetch;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/tft/projects')) return ok({ items: [summary(ID, '첫째'), summary('p2', '둘째')], next_cursor: null });
+      if (/\/tft\/projects(?:\?|$)/.test(url)) return ok({ items: [summary(ID, '첫째'), summary('p2', '둘째')], next_cursor: null });
       if (url.endsWith('/tft/projects/p2')) return ok(detail('p2'));
       if (url.endsWith(`/tft/projects/${ID}`)) return ok(detail(ID));
       if (url.includes('/requirements?')) return ok({ items: [{ requirement_id: 'r1', code: 'abc:2.1:1', attribute: 'rating', attribute_key: 'rated_current', status: 'SPEC_GAP', open_questions: 2 }] });
@@ -251,7 +251,7 @@ describe('목록과 고른 프로젝트 한 화면', () => {
 
   it('F8은 목록을 다시 읽는다', async () => {
     await open();
-    const lists = () => calls.filter(c => c.url.endsWith('/tft/projects')).length;
+    const lists = () => calls.filter(c => /\/tft\/projects(?:\?|$)/.test(c.url)).length;
     const before = lists();
     fireEvent.keyDown(window, { key: 'F8' });
     await waitFor(() => expect(lists()).toBeGreaterThan(before));

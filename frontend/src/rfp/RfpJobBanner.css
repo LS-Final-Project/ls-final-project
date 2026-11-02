@@ -50,3 +50,5 @@
 @media (max-width: 1100px) { .rfp-analysis-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .rfp-job-banner { margin: 8px; padding: 12px; } .rfp-analysis-heading { flex-wrap: wrap; gap: 10px; } .rfp-analysis-title > strong { font-size: 16px; } .rfp-analysis-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rfp-analysis-result { white-space: normal; } }
 @media (prefers-reduced-motion: reduce) { .is-live .rfp-analysis-symbol::after, .is-live .rfp-analysis-badge::before { animation: none; } }
+
+.rfp-analysis-playback { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; color: #526e90; font-size: 12px; }

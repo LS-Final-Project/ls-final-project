@@ -11,8 +11,8 @@ const project = (id: string, name: string, output_status = 'ANALYZING', extra: R
   pending_proposals_count: 4, open_questions_count: 2, strategic_customer: null, integration_responsibility: { holder: 'UNRESOLVED' }, ...extra,
 });
 const isList = (url: string) => /\/tft\/projects(\?|$)/.test(url);
-const page = (items: unknown[], next_cursor: string | null = null) =>
-  jsonResponse(200, { data: { items, next_cursor }, meta: { request_id: 'x' } });
+const page = (items: unknown[], next_cursor: string | null = null, total = next_cursor ? 20 : items.length) =>
+  jsonResponse(200, { data: { items, next_cursor, total }, meta: { request_id: 'x' } });
 
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); });
 
@@ -58,13 +58,13 @@ describe('프로젝트 목록', () => {
     await waitFor(() => expect(box().checked).toBe(false));
   });
 
-  it('커서로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
-    const f = live(url => url.includes('cursor=c%2F2') ? page([project('2', '둘째 쪽')]) : isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
+  it('번호로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
+    const f = live(url => url.includes('page=2') ? page([project('2', '둘째 쪽')], null, 11) : isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
     await screen.findByText('첫째 쪽');
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
     await screen.findByText('둘째 쪽');
-    expect(f.mock.calls.some(([u]) => String(u).endsWith('/api/v1/tft/projects?cursor=c%2F2'))).toBe(true);
+    expect(f.mock.calls.some(([u]) => String(u).includes('page=2&limit=10'))).toBe(true);
     await waitFor(() => expect((screen.getByRole('button', { name: '다음' }) as HTMLButtonElement).disabled).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: '이전' }));
     await screen.findByText('첫째 쪽');
@@ -131,12 +131,12 @@ describe('업무 홈', () => {
     live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
     await screen.findByRole('link', { name: '가' });
-    expect(screen.getByText(/첫 쪽 기준/)).toBeTruthy();
+    expect(screen.getByText(/현재 페이지 기준/)).toBeTruthy();
     const steps = document.querySelector('.kv-steps')!.textContent!;
     expect(steps).toContain('분석·검토 중 2');
     expect(steps).toContain('접수 1');
     expect(steps).toContain('검토본 작성 0');
-    expect(document.querySelector('.kv-next')?.textContent).toContain('내 프로젝트 3, 할 일 있는 프로젝트 2 | 미해결 필수 3, 승인 대기 4, 열린 질문 2');
+    expect(document.querySelector('.kv-next')?.textContent).toContain('현재 페이지 3건, 할 일 있는 프로젝트 2 | 미해결 필수 3, 승인 대기 4, 열린 질문 2');
     const table = screen.getByRole('table', { name: '내 프로젝트' });
     expect(within(table).getByText('승인 대기 4건 처리, 열린 질문 2건 회신 기록, 미해결 필수 3건 판단')).toBeTruthy();
     expect(within(table).getByText('없음')).toBeTruthy();
@@ -149,4 +149,26 @@ describe('업무 홈', () => {
     await screen.findByRole('alert');
     expect(document.querySelector('.kv-steps')!.textContent).not.toMatch(/\d/);
   });
+});
+
+
+it.each(['/tft', '/tft/projects'])('번호/이름 검색과 전체 건수 페이지를 서버와 연결한다: %s', async path => {
+  const f = live(url => {
+    if (!isList(url)) return jsonResponse(401, errorBody('X', '세션'));
+    const params = new URL(url, 'http://test').searchParams;
+    return page([project('1', params.has('q') ? '검색된 프로젝트' : '목록 프로젝트')], null, params.has('q') ? 1 : 23);
+  });
+  renderApp(path);
+  await screen.findByText('목록 프로젝트');
+  fireEvent.click(screen.getByRole('button', { name: '3페이지' }));
+  await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('page=3&limit=10'))).toBe(true));
+  fireEvent.change(screen.getByLabelText('검색 기준'), { target: { value: 'external_id' } });
+  fireEvent.change(screen.getByLabelText('검색어'), { target: { value: ' P26-0023 ' } });
+  fireEvent.submit(screen.getByRole('form', { name: path === '/tft' ? '프로젝트 검색' : '조회조건' }));
+  await screen.findByText('검색된 프로젝트');
+  expect(f.mock.calls.some(([u]) => String(u).includes('search_field=external_id') && String(u).includes('q=P26-0023') && String(u).includes('page=1'))).toBe(true);
+  expect(screen.queryByRole('button', { name: '3페이지' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('검색 기준'), { target: { value: 'name' } });
+  fireEvent.submit(screen.getByRole('form', { name: path === '/tft' ? '프로젝트 검색' : '조회조건' }));
+  await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('search_field=name') && String(u).includes('q=P26-0023'))).toBe(true));
 });

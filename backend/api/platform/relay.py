@@ -124,7 +124,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "/api/v1/tft/projects",
         ("GET", "POST"),
-        ("limit", "cursor", "output_status", "judgement_status", "q"),
+        ("limit", "cursor", "output_status", "judgement_status", "q", "page", "search_field"),
     ),
     ("/api/v1/tft/projects/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/tft/projects/{uuid}/assignment", ("PATCH",), ()),

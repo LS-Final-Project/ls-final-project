@@ -9,6 +9,10 @@
 | `GET /api/v1/tft/projects?limit=&cursor=` | `SuccessResponse[ProjectList]` | `created_at DESC, id DESC` 고정 정렬. `limit` 1~100(기본 20). `next_cursor`를 그대로 다음 요청의 `cursor`로 보내며 끝은 null. 잘못된 커서는 400 `TFT_INVALID_CURSOR` |
 | `GET /api/v1/tft/projects/{project_id}` | `SuccessResponse[ProjectDetail]` | 프로젝트와 RFP 요구사항(`rfp_requirements`). 없는 프로젝트는 404 `TFT_PROJECT_NOT_FOUND` |
 
+숫자 페이지 UI(KAN-188)는 `page=1&limit=10`을 사용한다. `page`는 1~1,000,000이며 `cursor`와 함께 보내면 400 `TFT_INVALID_PAGINATION`이다. 응답 `total`은 동일 사용자 조회 범위·필터에 속한 전체 프로젝트 수다(커서 방식에서는 null). 범위를 벗어난 페이지는 빈 items와 total을 돌려준다. 정렬은 기존과 같으며 새 프로젝트 등록 중 페이지를 옮기면 행 위치가 바뀔 수 있다.
+
+`q`는 2~100자, 대소문자를 무시하는 부분 검색이며 `%`·`_`·`\`는 문자 그대로 검색한다. `search_field=all`(기본)은 프로젝트 번호(`external_id`)·프로젝트명·고객명, `external_id`는 프로젝트 번호, `name`은 프로젝트명만 검색한다. `output_status`·`judgement_status`와 조합 가능하며 건수 조회에도 같은 조건·권한이 적용된다. DB 구조와 기존 cursor 소비 계약은 유지한다.
+
 `ProjectSummary`에는 내부 UUID, `external_id`, 이름, `company_code`, 프로젝트 `status`, `data_origin`·`derivation_kind`, `responsible_user_id`(로그인 사용자 ID), `sales_user_id`(담당 sales의 로그인 사용자 ID, 미배정이면 null. KAN-122에서 추가), `created_at`이 있다. `ProjectDetail`은 여기에 `version`·`known_at`·`client_name`과 `rfp_requirements`(요구 코드, 분야 태그, 제목·설명, 문서명·`document_id`·`document_version_id`, 조항·페이지·발췌, 두 출처 축)를 더한다.
 
 ## TFT 인력 구성 단계 제거 (KAN-181)

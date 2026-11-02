@@ -26,6 +26,26 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const running = !display.terminal && !stopped && !confirming && (status === 'RUNNING' || ['job.started', 'job.progress'].includes(p?.type ?? ''));
   const live = running && view?.connection === 'connected';
   const activity = stopped ? [] : view?.activity ?? (p?.step ? [p] : []);
+  // Pace only newly received observations; an already completed job opens without a fake wait.
+  const [visibleCount, setVisibleCount] = useState(activity.length);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!media) return;
+    const change = () => setReducedMotion(media.matches);
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
+  const failed = status === 'FAILED' || status === 'CANCELLED';
+  const paced = !stopped && !disconnected && !failed && !reducedMotion;
+  const displayedActivity = paced ? activity.slice(0, Math.max(1, visibleCount)) : activity;
+  const playing = paced && displayedActivity.length < activity.length;
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setTimeout(() => setVisibleCount(count => Math.max(1, count) + 1), 700);
+    return () => window.clearTimeout(timer);
+  }, [playing, visibleCount, activity.length]);
+  const shownLatest = displayedActivity.at(-1);
   const latest = activity.at(-1);
   const counts = [...activity].reverse().find(item => item.counts)?.counts;
   const docId = p?.documentVersionId ?? latest?.documentVersionId;
@@ -58,13 +78,18 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
     {view?.message && <p className="rfp-analysis-notice">{view.message}</p>}
     {docId ? <p className="rfp-analysis-document">관측 문서: {doc ? `${doc.title} v${doc.version}` : '문서 판본 이름을 확인 중입니다.'}</p>
       : requestDocuments.length > 0 && <p className="rfp-analysis-document">요청 문서: {requestDocuments.map(id => { const d = documents.find(v => v.document_version_id === id); return d ? `${d.title} v${d.version}` : '문서 판본 확인 중'; }).join(', ')}</p>}
-    {!display.terminal && !stopped && isAnalysis && <ol className="rfp-analysis-stages" aria-label="분석 단계별 관측 상태">
+    {!stopped && isAnalysis && activity.length > 0 && <div className="rfp-analysis-playback">
+      <span>{display.terminal ? playing ? '완료된 분석 과정 다시보기 · 결과는 지금 열 수 있습니다' : '완료된 분석 과정' : playing ? '수신한 분석 단계를 순서대로 표시합니다' : '서버에서 관측된 분석 단계'}</span>
+      {playing ? <button className="kb" onClick={() => setVisibleCount(activity.length)}>한 번에 보기</button>
+        : display.terminal && !failed && !reducedMotion && activity.length > 1 && <button className="kb" onClick={() => setVisibleCount(0)}>과정 다시보기</button>}
+    </div>}
+    {!stopped && isAnalysis && (!display.terminal || activity.length > 0) && <ol className="rfp-analysis-stages" aria-label="분석 단계별 관측 상태">
       {pipeline.map((step, i) => {
-        const seen = activity.some(item => item.step === step);
-        const recent = latest?.step === step;
+        const seen = displayedActivity.some(item => item.step === step);
+        const recent = shownLatest?.step === step;
         return <li key={step} className={recent ? 'is-current' : seen ? 'is-observed' : ''} aria-current={recent ? 'step' : undefined}>
           <span className="rfp-stage-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
-          <span><b>{steps[step]}</b><small>{recent ? disconnected ? '마지막 수신 단계' : '최근 확인' : seen ? '관측됨' : '아직 관측 안 됨'}</small></span>
+          <span><b>{steps[step]}</b><small>{recent ? disconnected ? '마지막 수신 단계' : playing || display.terminal ? '과정 보기' : '최근 확인' : seen ? '관측됨' : activity.some(item => item.step === step) ? '표시 대기' : '아직 관측 안 됨'}</small></span>
         </li>;
       })}
     </ol>}

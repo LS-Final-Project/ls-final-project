@@ -122,7 +122,12 @@ def fakes(monkeypatch):
         rows = sorted(rows, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         if after:
             rows = [r for r in rows if (r["created_at"], r["id"]) < after]
-        return rows[: limit + 1]
+        return rows[filters.get("offset", 0) : filters.get("offset", 0) + limit + 1]
+
+    async def count_projects(conn, managed_projects, user_id, department=None, **filters):
+        return len(
+            await list_projects(conn, 100, None, managed_projects, user_id, department, **filters)
+        )
 
     async def get_project(conn, project_id):
         return next((dict(r) for r in ROWS if r["id"] == project_id), None)
@@ -144,6 +149,7 @@ def fakes(monkeypatch):
     monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_projects", list_projects)
+    monkeypatch.setattr(repository, "count_projects", count_projects)
     monkeypatch.setattr(repository, "get_project", get_project)
     monkeypatch.setattr(repository, "list_rfp_requirements", list_rfp_requirements)
     monkeypatch.setattr(repository, "integration_state", integration_state)
@@ -368,3 +374,49 @@ def test_c_s_agent_has_no_tft_scope(client):
     headers = as_user(roles={"cs_agent"})
     assert client.get("/api/v1/tft/projects", headers=headers).status_code == 403
     assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 403
+
+
+def test_numbered_pages_keep_authorized_total_and_legacy_cursor(client):
+    first = client.get("/api/v1/tft/projects?page=1&limit=2").json()["data"]
+    third = client.get("/api/v1/tft/projects?page=3&limit=2").json()["data"]
+    assert first["total"] == third["total"] == 5
+    assert len(first["items"]) == 2 and len(third["items"]) == 1
+    assert first["items"][0]["external_id"] == "RFP-0004"
+    assert third["items"][0]["external_id"] == "RFP-0000"
+    assert client.get("/api/v1/tft/projects?page=99&limit=2").json()["data"] == {
+        "items": [],
+        "next_cursor": None,
+        "total": 5,
+    }
+    assert client.get("/api/v1/tft/projects").json()["data"]["total"] is None
+    assert (
+        client.get(
+            "/api/v1/tft/projects", params={"page": 1, "cursor": first["next_cursor"]}
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("query", ["page=0", "page=1000001", "search_field=sql", "page=1.5"])
+def test_numbered_page_and_search_field_validation(client, query):
+    assert client.get("/api/v1/tft/projects?" + query).status_code == 422
+
+
+def test_list_and_count_share_authorization_and_literal_search_scope():
+    for field, columns in [
+        ("all", ("external_id", "name", "client_name")),
+        ("external_id", ("external_id",)),
+        ("name", ("name",)),
+    ]:
+        scope, params = repository.project_scope(
+            [UUID(int=1)], SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW", "a_%", field
+        )
+        assert (
+            "p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s OR %s = ANY(p.review_departments)"
+            in scope
+        )
+        assert "p.output_status = %s" in scope and "p.judgement_status = %s" in scope
+        assert params[:6] == [[UUID(int=1)], SALES, SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW"]
+        assert params[6:] == [r"%a\_\%%"] * len(columns)
+        assert all(f"p.{column} ILIKE %s" in scope for column in columns)
+        assert scope.count("ILIKE") == len(columns)
