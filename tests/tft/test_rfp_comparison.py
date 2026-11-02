@@ -1793,3 +1793,71 @@ def test_a_candidate_without_a_unit_does_not_print_none():
     outcome = compare(voltage(), [switchgear("25.8", unit=None)], TRACE)
     assert not any("None" in item for item in outcome.unresolved)
     assert "단위 확인: 요구 kV, 자사 단위 없음" in outcome.unresolved
+
+
+def mv_voltage(item):
+    return Requirement(
+        clause_no="2.4.E.1.a",
+        item=item,
+        attribute="rated_max_voltage",
+        value="15",
+        unit="kV",
+        operator="GTE",
+    )
+
+
+def test_an_assembly_requirement_is_not_met_by_a_breaker_rating():
+    """KAN-190 B-1: 15 kV 개폐반 요구는 같은 계열의 차단기(VCB-25kV-1250, 25.8 kV) 정격으로 충족되지 않는다.
+
+    기획서 4.8대로 자사 개폐반 SWGR-MV-12kV(12 kV)와 견줘 사양 차이다. 차단기는 후보 목록에 근거 부족으로 남는다.
+    """
+    outcome = compare_in_family(
+        mv_voltage("medium-voltage switchgear"), "MV_EQUIP", load_own_products()
+    )
+    assert (outcome.status, outcome.deficiency_cause) == ("SPEC_GAP", "RATING")
+    by_code = {c.product_code: c for c in outcome.candidates}
+    assert by_code["SWGR-MV-12kV"].status == "SPEC_GAP"
+    vcb = by_code["VCB-25kV-1250"]
+    assert (vcb.status, vcb.result, vcb.evidence) == ("INSUFFICIENT_EVIDENCE", "NO_DATA", [])
+    assert "조립품 근거로 쓰지 않음" in vcb.reason
+    for item in (
+        "15kV 퓨즈 부하개폐기반",
+        "15kV 금속폐쇄형 개폐장치",
+        "Medium-Voltage Switchgears",
+        "switchgear with circuit breakers",
+        "차단기 포함 15kV 개폐반",
+        "15kV 차단기반",
+    ):
+        assert (
+            compare_in_family(mv_voltage(item), "MV_EQUIP", load_own_products()).status
+            == "SPEC_GAP"
+        ), item
+
+
+def test_a_breaker_requirement_still_uses_the_breaker_rating():
+    """부품 요구에는 부품 근거를 그대로 쓴다(장비 이름에 개폐반이 있어도 차단기 요구면 같다)."""
+    for item in ("vacuum circuit breaker", "switchgear circuit breaker", "개폐반용 진공 차단기"):
+        outcome = compare_in_family(mv_voltage(item), "MV_EQUIP", load_own_products())
+        assert outcome.status == "EVIDENCE_FOUND", item
+        assert {c.product_code for c in outcome.candidates if c.status == "EVIDENCE_FOUND"} == {
+            "VCB-25kV-1250"
+        }
+
+
+def test_an_assembly_requirement_still_uses_an_assembly_rating():
+    """조립품 근거로는 그대로 판정한다: 요구 10 kV 이상은 자사 개폐반 12 kV로 충족이다."""
+    wanted = mv_voltage("metal-clad switchgear").model_copy(update={"value": "10"})
+    outcome = compare_in_family(wanted, "MV_EQUIP", load_own_products())
+    assert outcome.status == "EVIDENCE_FOUND"
+    assert outcome.reason == next(
+        c.reason for c in outcome.candidates if c.product_code == "SWGR-MV-12kV"
+    )
+
+
+def test_only_breaker_candidates_leave_an_assembly_requirement_insufficient():
+    """후보가 차단기뿐이면 미달이 아니라 근거 부족이다(미기재 ≠ 미충족)."""
+    breakers = [p for p in load_own_products() if p.product_code == "VCB-25kV-1250"]
+    trace = SearchTrace(filters=["family=MV_EQUIP"], documents_searched=1, search_failed=False)
+    outcome = compare(mv_voltage("medium-voltage switchgear"), breakers, trace)
+    assert (outcome.status, outcome.next_owner) == ("INSUFFICIENT_EVIDENCE", "TECH")
+    assert outcome.unresolved == ["medium-voltage switchgear 자료 확인"]

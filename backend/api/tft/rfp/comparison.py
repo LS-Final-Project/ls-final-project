@@ -15,6 +15,7 @@
 """
 
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
@@ -54,6 +55,56 @@ ORDER: tuple[Status, ...] = ("EVIDENCE_FOUND", "CONDITIONAL", "SPEC_GAP", "INSUF
 # 값 자체를 바꾸는 기준 조건. 요구에 없어도 자사 값이 여기 기대면 충족을 확정하지 않는다(기획서: 임피던스 기준 온도).
 BASIS_CONDITIONS = frozenset({"reference_temperature"})
 SYSTEMS = ("IEC", "IEEE", "UL", "NEMA", "ANSI")
+# 조립품(개폐반·배전반) 요구를 부품(차단기) 정격으로 충족 처리하지 않는다(KAN-190 B-1). 기획서 4.8은 15 kV 개폐반
+# 요구를 자사 개폐반 SWGR-MV-12kV와 견주는데, 같은 계열(MV_EQUIP)의 VCB-25kV-1250(차단기 한 대) 25.8 kV가 충족으로 잡혔다.
+# 요구 쪽은 장비 이름(item)으로, 제품 쪽은 적용 규격으로 가른다. 제품 마스터에 조립품/부품 열이 없고, 규격이 장비
+# 범위를 정한다(IEC 62271-200 금속 폐쇄형 개폐장치, IEC 62271-100 교류 차단기, IEC 60947-2 저압 차단기).
+ASSEMBLY_WORDS = (
+    "switchgear",
+    "switchboard",
+    "panelboard",
+    "metal enclosed",
+    "metal clad",
+    "motor control center",
+    "load center",
+    "ring main unit",
+    "unit substation",
+    "개폐반",
+    "개폐장치",
+    "개폐기반",
+    "배전반",
+    "분전반",
+    "제어반",
+    "차단기반",
+)
+# 조립품 이름과 같이 써도 부품 요구다(예: "switchgear circuit breaker", 인출형 차단기).
+DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb")
+# 한국어 장비 이름은 끝말이 장비다: "차단기 포함 개폐반"은 개폐반, "개폐반용 차단기"는 차단기. "차단기반"은 조립품이다.
+KOREAN_DEVICE = re.compile(r"차단기(?!반)")
+ASSEMBLY_STANDARDS = (
+    "IEC 62271-200",
+    "IEC 62271-201",
+    "IEC 62271-202",
+    "IEC 61439",
+    "IEEE C37.20",
+    "ANSI C37.20",
+    "UL 891",
+    "UL 1558",
+    "UL 845",
+    "UL 67",
+)
+COMPONENT_STANDARDS = (
+    "IEC 62271-100",
+    "IEC 62271-103",
+    "IEC 62271-105",
+    "IEC 60947",
+    "IEEE C37.04",
+    "IEEE C37.06",
+    "IEEE C37.09",
+    "IEEE C37.13",
+    "UL 489",
+    "UL 1066",
+)
 OWN_FACTS = Path(__file__).with_name("own_spec_facts.json")
 
 
@@ -454,6 +505,55 @@ def _certification_match(requirement: Requirement, product: Product) -> Candidat
     )
 
 
+def _has_word(text: str, words: Sequence[str], plural: bool = False) -> bool:
+    """낱말 경계로 찾는다. plural이면 영어 복수형(switchgears·switchboards)도 같은 낱말로 본다."""
+    plain = text.lower().replace("-", " ")
+    tail = "(?:e?s)?" if plural else ""
+    return any(re.search(rf"(?<![a-z]){re.escape(word)}{tail}(?![a-z])", plain) for word in words)
+
+
+def _is_assembly(requirement: Requirement) -> bool:
+    """요구 장비가 조립품(개폐반·배전반 등)인지. 장비 이름에 부품(차단기) 낱말이 있으면 부품 요구로 본다."""
+    item = requirement.item
+    # 부품 낱말은 단수만 본다: "switchgear with circuit breakers"는 차단기를 담은 개폐반(조립품) 요구다.
+    if not _has_word(item, ASSEMBLY_WORDS, plural=True) or _has_word(item, DEVICE_WORDS):
+        return False
+    devices = [m.end() for m in KOREAN_DEVICE.finditer(item)]
+    if not devices:
+        return True
+    plain = item.lower().replace("-", " ")
+    last_assembly = max(plain.rfind(word) + len(word) for word in ASSEMBLY_WORDS if word in plain)
+    return last_assembly > max(devices)
+
+
+def _is_component(product: Product) -> bool:
+    """자사 제품이 부품(차단기·개폐기)인지. 적용 규격에 부품 규격만 있고 조립품 규격이 없을 때다."""
+
+    def under(prefixes: Sequence[str]) -> bool:
+        # 규격 번호 뒤에 숫자가 이어지면 다른 규격이다("UL 67"은 "UL 674"가 아니다).
+        return any(
+            re.match(rf"{re.escape(prefix)}(?!\d)", s.upper())
+            for s in product.standards
+            for prefix in prefixes
+        )
+
+    return under(COMPONENT_STANDARDS) and not under(ASSEMBLY_STANDARDS)
+
+
+def _component_for_assembly(requirement: Requirement, product: Product) -> CandidateMatch:
+    # 부품 정격은 조립품 정격이 아니다(차단기 25.8 kV ≠ 개폐반 정격). 미기재와 같이 근거 부족으로 두고 후보 목록에는 남긴다.
+    wanted = (
+        requirement.certification_standard or requirement.attribute_label or requirement.attribute
+    )
+    return _no_data(
+        product,
+        "INSUFFICIENT_EVIDENCE",
+        f"원문 {requirement.clause_no} {requirement.item} {wanted} 요구: {product.product_code}는 부품"
+        f"({', '.join(product.standards)})이라 조립품 근거로 쓰지 않음.",
+        [f"{requirement.item} 자료 확인"],
+    )
+
+
 def _as_grading(requirement: Requirement) -> grading.Requirement:
     return grading.Requirement(
         requirement_id=UUID(int=0),
@@ -625,8 +725,11 @@ def compare(requirement: Requirement, products: Sequence[Product], trace: Search
             None,
             [],
         )
+    assembly = _is_assembly(requirement)
     matches = [
-        _certification_match(requirement, p)
+        _component_for_assembly(requirement, p)
+        if assembly and _is_component(p)
+        else _certification_match(requirement, p)
         if requirement.certification_standard
         else _attribute_match(requirement, p)
         for p in products

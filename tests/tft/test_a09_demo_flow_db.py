@@ -292,12 +292,9 @@ GROUPS = {"A": DEMO_A, "B-1": DEMO_B1, "B-2": DEMO_B2}
 # demo_cases.json에 있지만 이 시험이 요구로 만들 수 없는 항목. 시연 A "1차 전압·용량(도면 참조)"은 원문에 값과 인용할 문장이 없다
 # (도면 참조, 시연 사례 설정이다). 추출 요구는 인용이 필수라 가짜 추출기로도 만들 수 없다.
 NOT_EXTRACTABLE = {("A", "1차 전압·용량(도면 참조)")}
-# 처리 함수가 기대 상태와 다른 결과를 저장하는 항목(2026-11-02 dev 9df5089 관찰). 값이 바뀌면 시험이 알려 준다.
-KNOWN_DEVIATIONS = {
-    # 요구 계열(MV_EQUIP)의 자사 후보 전체를 비교해 VCB-25kV-1250(25.8 kV)이 15 kV 이상을 충족한다. 기획서 4.8의 기대(자사 SWGR-MV-12kV
-    # 12 kV 기준 사양 차이)와 다르다. 단위 시험(test_rfp_comparison)은 후보를 SWGR 하나로 좁혀 이 차이를 만나지 않는다.
-    ("B-1", "정격 최대전압 15kV / BIL 95kV"): "EVIDENCE_FOUND",
-}
+# 처리 함수가 기대 상태와 다른 결과를 저장하는 항목. 값이 바뀌면 시험이 알려 준다. B-1 15 kV(VCB-25kV-1250 차단기 정격으로
+# 개폐반 요구가 충족되던 것)는 조립품 요구에 부품 근거를 쓰지 않게 고쳐 기대 상태(SWGR-MV-12kV 기준 사양 차이)로 저장된다.
+KNOWN_DEVIATIONS: dict[tuple[str, str], str] = {}
 
 
 def expected_states():
@@ -335,7 +332,7 @@ def sales_headers(key=None):
 
 
 def test_stored_states_match_the_planned_demo_a_b1_b2(worker_dsn, admin, tmp_path, demo_profiles):
-    """시연 A 13/13(추출 불가 1건 제외), B-1 3/4, B-2 4/4가 처리 함수를 거친 뒤 DB에 기대 상태로 저장된다(나머지는 위 상수에 이유와 함께)."""
+    """시연 A 13/13(추출 불가 1건 제외), B-1 4/4, B-2 4/4가 처리 함수를 거친 뒤 DB에 기대 상태로 저장된다."""
     by_quote = stored_status(admin, processed(worker_dsn, admin, tmp_path))
     mismatches = {}
     checked = 0
@@ -353,10 +350,6 @@ def test_stored_states_match_the_planned_demo_a_b1_b2(worker_dsn, admin, tmp_pat
     assert len(expected_states()) == 22 and checked == 21
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KAN-190 관찰: 자사 후보 전체(VCB-25kV-1250 포함)와 비교해 15 kV 요구가 충족으로 저장된다. 기획서 4.8 기대는 사양 차이",
-)
 def test_b1_voltage_follows_the_plan_for_the_own_product(
     worker_dsn, admin, tmp_path, demo_profiles
 ):
