@@ -81,6 +81,8 @@ async def signal_for(conn: Any, request: Row, as_of: datetime) -> tuple[Signal, 
             known_at=r["known_at"],
             received_at=r["received_at"],
             fw_version_at_issue=r["fw_version_at_issue"],
+            shipped_on=r["ship_date"],
+            lot=r["lot_no"],
         )
         for r in await repository.bundle_records(conn, request["product_code"], request["fault_id"])
     ]
