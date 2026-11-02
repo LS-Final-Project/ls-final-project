@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -48,7 +49,15 @@ def settings(state: Path) -> dict:
 
 def clean_env(extra: dict[str, str]) -> dict[str, str]:
     # No .env, inherited key, tracing, OAuth, proxy, Cloud Run or dispatch flag.
-    return {"PATH": os.defpath, "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1", **extra}
+    docker = shutil.which("docker")
+    paths = ([str(Path(docker).absolute().parent)] if docker else []) + os.defpath.split(os.pathsep)
+    return {
+        "PATH": os.pathsep.join(dict.fromkeys(paths)),
+        "HOME": str(Path.home()),
+        "PYTHONPATH": str(ROOT),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        **extra,
+    }
 
 
 def policy_mapping(path: Path) -> dict[str, str]:

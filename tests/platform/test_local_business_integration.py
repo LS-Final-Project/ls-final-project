@@ -272,7 +272,9 @@ def test_old_pid_reused_by_other_namespace_is_never_killed(local_state, monkeypa
     from scripts.local_business import __main__ as cli
 
     pidfile = local_state / "control/tunnel.json"
-    pidfile.write_text(json.dumps({"pid": 999999, "namespace": "team4-kan159-offline"}))
+    from scripts.local_business.config import save
+
+    save(pidfile, {"pid": 999999, "namespace": "team4-kan159-offline"})
     exists, read = Path.exists, Path.read_bytes
     monkeypatch.setattr(
         Path, "exists", lambda p: True if str(p) == "/proc/999999/cmdline" else exists(p)

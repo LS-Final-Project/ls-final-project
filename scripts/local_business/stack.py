@@ -105,6 +105,17 @@ def check_pg_resume(config, pg):
         raise ValueError("LOCAL_PG_CLUSTER_INVALID") from None
 
 
+def check_web_port(port):
+    # Match ThreadingTCPServer.allow_reuse_address: TIME_WAIT is not a live listener.
+    # SO_REUSEPORT is deliberately absent; an existing server must still be refused.
+    with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            raise ValueError("LOCAL_WEB_PORT_UNAVAILABLE") from None
+
+
 def start(state: Path):
     config = owned(state)
     ns = config["namespace"]
@@ -114,8 +125,7 @@ def start(state: Path):
     for port in config["ports"].values():
         # Only web is host-published; internal API ports are in the DB namespace.
         if port == config["ports"]["web"]:
-            with socket.socket() as sock:
-                sock.bind(("127.0.0.1", port))
+            check_web_port(port)
     (state / "control/enabled.json").unlink(missing_ok=True)
     if not pg["State"]["Running"]:
         docker("start", ns + "-pg")

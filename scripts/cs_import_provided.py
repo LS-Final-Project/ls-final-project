@@ -27,7 +27,6 @@ from backend.api.cs.workflow.schemas import ResolutionCaseCreate
 from backend.engine.cs.rules import load_policy
 from scripts.local_business.config import ROOT, settings
 
-BASE_SOURCE = "a4ce3dc0bceb5e707606189a5b35ba5d40be6ff4"
 SOURCE = "training_csv"
 ASSUMPTIONS = {
     "tickets.known_at": "ASSUMED from source received_at_utc; no explicit known_at column",
@@ -398,6 +397,8 @@ class Target:
     runtime_image: str
     system_id: str
     db_oid: int
+    expected_source_sha: str
+    expected_loader_sha256: str
     db_name: str = "team4"
 
     def token(self):
@@ -405,11 +406,22 @@ class Target:
 
 
 def validate_target(state: Path, target: Target, dsn: str):
+    # Host bootstrap proves owned/no-active-driver and Git/archive/blob identity.
+    # This isolated loader needs no Git checkout or Docker socket to check its part.
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", target.expected_source_sha) is not None
+        and re.fullmatch(r"[0-9a-f]{64}", target.expected_loader_sha256) is not None,
+        "IMPORT_SOURCE_PROOF_INVALID",
+    )
+    require(
+        digest(Path(__file__).read_bytes()) == target.expected_loader_sha256,
+        "IMPORT_LOADER_PROOF_MISMATCH",
+    )
     cfg = settings(state)
     require(
         cfg.get("setup_complete") is True
         and cfg["namespace"] == target.namespace
-        and cfg.get("source_sha") == BASE_SOURCE
+        and cfg.get("source_sha") == target.expected_source_sha
         and cfg.get("owner") == target.owner
         and cfg["images"].get("pg") == target.pg_image
         and cfg["images"].get("runtime") == target.runtime_image,
@@ -578,6 +590,8 @@ def main(argv=None):
     parser.add_argument("--expected-runtime-image")
     parser.add_argument("--expected-system-id")
     parser.add_argument("--expected-db-oid", type=int)
+    parser.add_argument("--expected-source-sha")
+    parser.add_argument("--expected-loader-sha256")
     parser.add_argument("--expected-db-name", default="team4")
     parser.add_argument("--receipt", type=Path)
     args = parser.parse_args(argv)
@@ -610,6 +624,8 @@ def main(argv=None):
                     args.expected_runtime_image,
                     args.expected_system_id,
                     args.expected_db_oid,
+                    args.expected_source_sha,
+                    args.expected_loader_sha256,
                     args.receipt,
                 )
             ),
@@ -622,6 +638,8 @@ def main(argv=None):
             args.expected_runtime_image,
             args.expected_system_id,
             args.expected_db_oid,
+            args.expected_source_sha,
+            args.expected_loader_sha256,
             args.expected_db_name,
         )
         validate_target(args.target_state, target, os.environ.get("DATABASE_URL", ""))

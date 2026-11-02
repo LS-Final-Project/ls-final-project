@@ -6,6 +6,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python
 
 FROM dependencies AS test-dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-install-project --python /usr/local/bin/python
 
 FROM test-dependencies AS test
@@ -17,6 +18,8 @@ COPY docs/openapi ./docs/openapi
 COPY frontend/src/mocks/generated ./frontend/src/mocks/generated
 COPY scripts/check_backend.py ./scripts/check_backend.py
 COPY scripts/local_business ./scripts/local_business
+COPY scripts/cs_import_provided.py ./scripts/cs_import_provided.py
+COPY docs/local-business-downloads.json ./docs/local-business-downloads.json
 COPY scripts/rfp_draft_trace_input.py ./scripts/rfp_draft_trace_input.py
 RUN uv run --no-sync python scripts/check_backend.py "$TEST_SERVICE"
 
