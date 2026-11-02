@@ -130,7 +130,7 @@ def read_units(path: Path) -> list[Unit]:
             raise ValueError(f"장비 CSV에 열이 없음: {missing}")
         rows = list(reader)
     units: list[Unit] = []
-    serials: set[str] = set()
+    serials: set[tuple[str, str]] = set()
     for index, row in enumerate(rows, start=2):
         where = f"{path.name}:{index}"
         serial = _blank(row["serial_no"])

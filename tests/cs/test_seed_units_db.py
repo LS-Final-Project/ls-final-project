@@ -47,10 +47,8 @@ PRODUCT = {
 }
 
 
-@pytest.fixture(scope="module", autouse=True)
-def clean_seed(cs_database):
-    """같은 검사 DB를 다시 쓸 때 지난 실행의 시연 장비·문의가 남아 있으면 지운다(적재는 다시 돌려도 같아야 한다)."""
-    with psycopg.connect(cs_database, autocommit=True) as admin:
+def remove_seed(admin) -> None:
+    with admin.transaction():
         admin.execute(
             "DELETE FROM cs.ticket_unit_links WHERE unit_id IN "
             "(SELECT id FROM cs.installed_units WHERE source = %s)",
@@ -62,6 +60,16 @@ def clean_seed(cs_database):
             (seed.SOURCE,),
         )
         admin.execute("DELETE FROM cs.installed_units WHERE source = %s", (seed.SOURCE,))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def clean_seed(cs_database):
+    """지난 실행의 시연 장비·문의를 시작 전에 지우고, 끝난 뒤에도 지워 뒤 검사에 남기지 않는다."""
+    with psycopg.connect(cs_database, autocommit=True) as admin:
+        remove_seed(admin)
+    yield
+    with psycopg.connect(cs_database, autocommit=True) as admin:
+        remove_seed(admin)
 
 
 @pytest.fixture(scope="module")
