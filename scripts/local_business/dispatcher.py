@@ -1,4 +1,4 @@
-"""One explicit bounded UI-job driver. Runtime DB remains the only job/dispatch ledger."""
+"""One explicit UI-job driver with optional caps. Runtime DB is the only job/dispatch ledger."""
 
 import asyncio
 import json
@@ -21,6 +21,7 @@ from scripts.local_business.permit import Denied, Permit
 from scripts.local_business.runtime import job_settings, local_only
 
 KINDS = {"cs": ["cs.analyze"], "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export"]}
+UNLIMITED_PROTOCOL = 1
 
 
 def candidate(settings, owner, after):
@@ -102,17 +103,20 @@ def main():
             after = conn.execute("SELECT clock_timestamp()").fetchone()[0]
         stage = "LOCAL_DRIVER_PERMIT_INIT_FAILED"
         with permit.transaction() as db:
-            limit = permit.driver(db, token)["job_limit"]
+            permission = permit.driver(db, token)
+            limit_mode = permission["limit_mode"]
+            limit = None if limit_mode == "unlimited" else permission["job_limit"]
         used = 0
         stage = "LOCAL_DRIVER_FAILED"
-        while not stopped and used < limit:
+        while not stopped and (limit is None or used < limit):
             save(
                 marker,
                 {
                     "mode": "real",
                     "owner": owner,
                     "started_after": after.isoformat(),
-                    "remaining_jobs": limit - used,
+                    "limit_mode": limit_mode,
+                    "remaining_jobs": None if limit is None else limit - used,
                 },
             )
             row = candidate(settings, owner, after)
@@ -174,7 +178,8 @@ def main():
                         "mode": "real",
                         "owner": owner,
                         "started_after": after.isoformat(),
-                        "remaining_jobs": limit - used,
+                        "limit_mode": limit_mode,
+                        "remaining_jobs": None if limit is None else limit - used,
                     },
                 )
                 if time.monotonic() - started > 1800:

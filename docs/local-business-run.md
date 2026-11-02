@@ -20,11 +20,19 @@ C/S 제공 문의는 과거 접수 자료이므로 목록의 날짜 범위를 `2
 
 ```bash
 uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap \
-  --namespace team4-kan159-my-pc --enable-model cs \
-  --key-file /absolute/path/to/private/gemini-key --max-jobs 1
+  --namespace team4-kan159-qa-unlimited --port 41443 --enable-model cs \
+  --key-file /absolute/path/to/private/gemini-key --unlimited
 ```
 
-RFP는 `--enable-model tft`로 선택한다. 키는 해당 worker에만 전달되고 API·웹에는 전달하지 않는다. 이 옵션은 작업 허가만 열며 화면에서 접수하기 전 자동 모델 호출은 하지 않는다. 한 사람이 한 작업씩 완료·비용을 확인하고 다음 작업을 진행한다. 기본 허가는 최대 20 SDK 호출, 호출별 예약 USD 0.15, 누적 허용 USD 1.50이며 공급자 청구 hard cap이 아니다. UNKNOWN 비용이나 미완료 작업은 기존 수동 검토 원칙을 따른다. 아래의 `disable-real`, `stop`, `start` 명령도 계속 사용할 수 있다. 합성 계정 로그인과 실제 Microsoft 로그인은 별개다.
+RFP는 `--enable-model tft`로 선택한다. 키는 해당 worker에만 전달되고 API·웹에는 전달하지 않는다. 이 옵션은 작업 허가만 열며 화면에서 접수하기 전 자동 모델 호출은 하지 않는다. 한 사람이 한 작업씩 완료·비용을 확인하고 다음 작업을 진행한다. `--unlimited`는 작업 수·SDK 호출 수·도구의 누적 USD 예산·알려진 호출별 예약 초과 차단을 모두 해제한다. 개인이 사용량과 비용을 관리하며 `disable-real`로 종료한다. Google 제공자 쿼터·요율·오류가 해제되는 것은 아니다.
+
+`--unlimited`를 생략한 기존 제한 모드는 그대로다. bootstrap 기본값은 작업 1개/호출 20회/추정 예약 USD 0.15/누적 예산 USD 1.50이고, 직접 `enable-real`의 기본 호출 수는 8회다. 제한 모드만 `--max-jobs 1~20`, `--max-calls 1~100`, `--budget-usd`를 선택할 수 있다. unlimited와 이 세 옵션을 함께 쓰면 모순된 설정으로 거절한다. `--reserve-usd`(기본 0.15)는 unlimited에서도 불명 호출을 원장에 남길 추정 예약이며 cap이 아니다. 알려진 실제 비용은 예약을 넘어도 전액 SETTLED로 기록한다.
+
+UNKNOWN/SDK 실패/중단 예약은 두 모드 모두 보존하고 추가 호출·새 작업·새 driver 허가를 차단한다. 이는 금액 제한이 아니라 실행·정산 불확실성 경계이며, 원장을 지우거나 새 토큰으로 자동 재시도하지 않는다. 원장·단일 driver·중복 작업 방지·lease·인증·CSRF·production 거부는 유지한다. 합성 계정 로그인과 실제 Microsoft 로그인은 별개다.
+
+**기존 namespace 주의:** host에서 `git pull`해도 설치 때 보관한 `source`는 바뀌지 않는다. 구 snapshot에 `--unlimited`를 주면 키 접근·Permit 변경·key mount 전에 `LOCAL_UNLIMITED_SNAPSHOT_UNSUPPORTED`로 거절한다. 일반 팀원용 데이터 보존 업데이트 CLI는 아직 없으므로 이 기능을 포함한 코드를 받은 뒤 위 예처럼 **사용하지 않은 새 namespace와 포트**로 준비한다. 예시의 41443도 해당 PC에서 비어 있어야 하며, 기존 40443/38443 환경을 중지하거나 덮어쓰지 않는다. 기존 DB·결과·원장을 보존하고, 새 namespace로 기존 업무 결과를 자동 이동하지 않는다. 감독의 별도 운영 업데이트 사례를 자동 재실행하거나 기존 namespace를 삭제·재초기화하지 않는다.
+
+이미 unlimited 지원 코드로 설치된 namespace는 같은 bootstrap 명령을 재사용하거나 아래 직접 `enable-real --unlimited`를 쓸 수 있다. 기존 driver가 있으면 먼저 정상 종료·정산을 확인해야 한다. 중단 예약이 남은 채 재활성화해 우회할 수 없다. `limit_mode=unlimited`/`remaining_jobs=null`은 명시 프로토콜이며, 구 marker에 null·문자열·큰 숫자를 수동 주입하지 않는다.
 
 각자 받은 자료와 같은 코드를 사용해 신규 C/S는 UI 등록, RFP는 UI 업로드 후 실제 처리한다. **source `46b750fc32c2c25d83385d5ea8bee4af52a92032` 실행 스냅샷에 로컬 worker CONNECT 권한을 보정한 환경의 실증 기록이 있다. 최신 통합 코드 전체 E2E·품질·실제 Microsoft/메일·운영 완료와는 구분한다.**
 
@@ -201,7 +209,23 @@ uv run --frozen --python 3.12 python -m scripts.local_business enable-real \
 
 작업 수는 1~20, 호출 수는 1~100이며, 금액은 `0 < reserve <= budget < 3.00`이어야 한다. 예약은 **호출 허용 제한이며 공급자 USD hard cap이 아니다.** 응답 사용량 누락·SDK 실패·예약 초과는 예약을 유지하거나 불명 상태로 남기고 추가 호출을 차단한다. 정상 응답 비용도 공급자 최종 청구 확정으로 취급하지 않는다.
 
-활성화 후 UI에서 새 C/S 분석 또는 RFP 처리 요청을 만든다. dispatcher는 활성화 시각 이후의 해당 owner 신규 작업만 고르고, 정규 worker의 lease·DB 결과를 사용한다. 예전 QUEUED/RUNNING을 자동 재전송하지 않는다. 허용한 작업 수를 쓰면 종료하며 다시 활성화하려면 상태·비용을 먼저 확인한다. 활성화 전에는 모델 작업 요청이 `LOCAL_REAL_DRIVER_DISABLED`로 거부된다. 실제 업무 생성 결과만 확인하고 사용자 사전 시연 결과를 넣지 않는다.
+위 범위와 예약 초과 차단은 기존 **제한 모드**다. 이미 지원 snapshot으로 설치된 namespace에서 작업·호출·도구 비용 cap 없이 QA하려면 다음처럼 명시한다. 기존 구 snapshot에는 적용되지 않으며 새 namespace 준비 안내는 문서 앞부분을 따른다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business enable-real \
+  --namespace "$NS" --owner cs \
+  --key-file '/absolute/path/to/private/key-file' \
+  --prices-file '/absolute/path/to/confirmed/prices.json' \
+  --model '<가격이 확인된 모델 ID>' --unlimited
+```
+
+`--owner tft`도 같은 계약이다. 정상 비용은 제한 없이 기록하되 UNKNOWN/미정산은 그대로 차단한다. 종료 명령은 다음과 같다. 이는 해당 owner의 로컬 driver를 끄며 업무 DB·원장·결과를 초기화하지 않는다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business disable-real --namespace "$NS"
+```
+
+활성화 후 UI에서 새 C/S 분석 또는 RFP 처리 요청을 만든다. dispatcher는 활성화 시각 이후의 해당 owner 신규 작업만 고르고, 정규 worker의 lease·DB 결과를 사용한다. 예전 QUEUED/RUNNING을 자동 재전송하지 않는다. 제한 모드에서는 허용한 작업 수를 쓰면 종료하며 다시 활성화하려면 상태·비용을 먼저 확인한다. unlimited는 사용자가 끄기 전까지 다음 신규 작업을 기다리되 실패·UNKNOWN·worker 중단 경계에서는 보존 후 중단한다. 활성화 전에는 모델 작업 요청이 `LOCAL_REAL_DRIVER_DISABLED`로 거부된다. 실제 업무 생성 결과만 확인하고 사용자 사전 시연 결과를 넣지 않는다.
 
 ## 4. 중지·재시작과 미완료 작업
 

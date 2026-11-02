@@ -1,4 +1,4 @@
-"""One explicit local input setup. Preserve existing work; never enable paid workers."""
+"""Explicit local setup; paid workers require personal opt-in. Preserve existing work."""
 
 import argparse
 import copy
@@ -15,6 +15,7 @@ from pathlib import Path
 from scripts.cs_import_provided import Target
 from scripts.local_business import download
 from scripts.local_business.config import ROOT, clean_env, policy_mapping, save, state_path
+from scripts.local_business.permit import require_unlimited_snapshot, validate_limits
 from scripts.local_business.register_inputs import FIELDS, register_inputs
 from scripts.local_business.setup import PG_IMAGE, docker, owned
 from scripts.local_business.stack import no_active_driver, running_drivers
@@ -498,12 +499,24 @@ def bootstrap(namespace, profile="full", port=38443, *, plan_only=False):
         }
 
 
-def enable_selected(namespace, owner, key_file, max_jobs):
+def enable_selected(
+    namespace,
+    owner,
+    key_file,
+    max_jobs,
+    *,
+    max_calls=20,
+    reserve_usd="0.15",
+    budget_usd="1.50",
+    unlimited=False,
+):
     """Explicit opt-in only; verify a live driver before advertising model readiness."""
     state = state_path(namespace)
     with namespace_lock(state):
         config = owned(state)
         no_active_driver(config)
+        if unlimited:
+            require_unlimited_snapshot(state)
         args = [
             os.sys.executable,
             "-m",
@@ -519,15 +532,20 @@ def enable_selected(namespace, owner, key_file, max_jobs):
             str(state / "source/backend/shared/ai_prices.json"),
             "--model",
             "gemini-3.6-flash",
-            "--max-jobs",
-            str(max_jobs),
-            "--max-calls",
-            "20",
             "--reserve-usd",
-            "0.15",
-            "--budget-usd",
-            "1.50",
+            reserve_usd,
         ]
+        if unlimited:
+            args += ["--unlimited"]
+        else:
+            args += [
+                "--max-jobs",
+                str(max_jobs),
+                "--max-calls",
+                str(max_calls),
+                "--budget-usd",
+                budget_usd,
+            ]
         marker = state / "control/enabled.json"
         require(not marker.exists(), "STALE_MODEL_MARKER_REQUIRES_REVIEW")
         try:
@@ -539,11 +557,26 @@ def enable_selected(namespace, owner, key_file, max_jobs):
                     break
                 if marker.is_file():
                     data = json.loads(marker.read_text())
+                    ready_limits = isinstance(data, dict) and (
+                        (
+                            unlimited
+                            and data.get("limit_mode") == "unlimited"
+                            and "remaining_jobs" in data
+                            and data["remaining_jobs"] is None
+                        )
+                        or (
+                            not unlimited
+                            and data.get("limit_mode", "limited") == "limited"
+                            and type(data.get("remaining_jobs")) is int
+                            and data["remaining_jobs"] == max_jobs
+                        )
+                    )
                     if (
                         len(drivers) == 1
+                        and isinstance(data, dict)
                         and data.get("mode") == "real"
                         and data.get("owner") == owner
-                        and data.get("remaining_jobs") == max_jobs
+                        and ready_limits
                         and 0 <= time.time() - marker.stat().st_mtime < 5
                     ):
                         return
@@ -572,16 +605,51 @@ def main():
     parser.add_argument("--plan", action="store_true")
     parser.add_argument("--enable-model", choices=("cs", "tft"))
     parser.add_argument("--key-file", type=Path)
-    parser.add_argument("--max-jobs", type=int, default=1)
+    parser.add_argument(
+        "--unlimited",
+        action="store_true",
+        help="With --enable-model: remove tool job/call/USD caps; preserve UNKNOWN blocking",
+    )
+    parser.add_argument("--max-jobs", type=int, help="Limited mode default: 1")
+    parser.add_argument("--max-calls", type=int, help="Limited mode default: 20")
+    parser.add_argument("--reserve-usd", default="0.15")
+    parser.add_argument("--budget-usd", help="Limited mode default: 1.50")
     args = parser.parse_args()
     if bool(args.enable_model) != bool(args.key_file) or (args.plan and args.enable_model):
         parser.error("--enable-model and --key-file must be supplied together, without --plan")
-    if not 1 <= args.max_jobs <= 20:
-        parser.error("--max-jobs must be between 1 and 20")
+    if args.unlimited and (
+        not args.enable_model
+        or any(v is not None for v in (args.max_jobs, args.max_calls, args.budget_usd))
+    ):
+        parser.error(
+            "--unlimited requires --enable-model and cannot be combined with finite job/call/USD caps"
+        )
+    args.max_jobs = 1 if args.max_jobs is None else args.max_jobs
+    args.max_calls = 20 if args.max_calls is None else args.max_calls
+    args.budget_usd = "1.50" if args.budget_usd is None else args.budget_usd
     try:
+        validate_limits(
+            args.max_jobs, args.max_calls, args.reserve_usd, args.budget_usd, args.unlimited
+        )
+    except ValueError:
+        parser.error("Invalid local limits or amounts")
+    try:
+        if args.unlimited and state_path(args.namespace).exists():
+            state = state_path(args.namespace)
+            owned(state)
+            require_unlimited_snapshot(state)
         result = bootstrap(args.namespace, args.profile, args.port, plan_only=args.plan)
         if args.enable_model:
-            enable_selected(args.namespace, args.enable_model, args.key_file, args.max_jobs)
+            enable_selected(
+                args.namespace,
+                args.enable_model,
+                args.key_file,
+                args.max_jobs,
+                max_calls=args.max_calls,
+                reserve_usd=args.reserve_usd,
+                budget_usd=args.budget_usd,
+                unlimited=args.unlimited,
+            )
             result["model_enabled"] = True
             result["model_owner"] = args.enable_model
     except Exception as error:

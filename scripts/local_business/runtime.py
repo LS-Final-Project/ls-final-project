@@ -21,6 +21,8 @@ from scripts.local_business.auth import (
 )
 from scripts.local_business.config import settings
 
+UNLIMITED_PROTOCOL = 1
+
 
 def local_only():
     if os.environ.get("ENVIRONMENT") != "local" or "K_SERVICE" in os.environ:
@@ -32,11 +34,18 @@ def gate(state: Path, owner: str) -> bool:
         marker = state / "control" / "enabled.json"
         value = json.loads(marker.read_text())
         age = time.time() - marker.stat().st_mtime
+        if not isinstance(value, dict) or owner not in {"cs", "tft"}:
+            return False
+        limit_mode = value.get("limit_mode", "limited")
+        remaining = value.get("remaining_jobs")
+        admitted = (limit_mode == "limited" and type(remaining) is int and remaining > 0) or (
+            limit_mode == "unlimited" and "remaining_jobs" in value and remaining is None
+        )
         return (
             0 <= age < 5
             and value.get("mode") == "real"
             and value.get("owner") == owner
-            and value.get("remaining_jobs", 0) > 0
+            and admitted
         )
     except (OSError, ValueError, KeyError):
         return False
