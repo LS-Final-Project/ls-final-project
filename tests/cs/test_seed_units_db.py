@@ -16,7 +16,9 @@ from pydantic import SecretStr
 from backend.api.cs.main import create_app
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
-from scripts import cs_seed_units as seed
+
+# CI의 Docker 검사 이미지에는 scripts/가 일부만 들어가므로 전용 DB 작업(host)에서만 읽는다.
+seed = pytest.importorskip("scripts.cs_seed_units")
 
 AGENT = Principal(user_id=uuid4(), roles={"cs_agent"})
 UNITS = Path("eval/customer_history/units_demo.csv")
