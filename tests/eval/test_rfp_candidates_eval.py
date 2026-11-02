@@ -438,6 +438,57 @@ def test_the_official_first_run_is_recorded_once_before_the_model_is_called(
     assert json.loads((tmp_path / "c.json").read_text())["meta"]["official"] is False
 
 
+def test_predictions_out_lists_each_requirement_without_quotes_or_values(tmp_path, monkeypatch):
+    """--predictions-out은 요구별 상태·사유를 저장소 밖 새 파일에 남긴다(사유 표본 확인 입력). 원문 인용·값은 없다."""
+    ledger = tmp_path / "official.jsonl"
+    out, predictions = tmp_path / "r.json", tmp_path / "p.json"
+    args = ["--run-label", "FIRST", "--out", str(out), "--official-ledger", str(ledger)]
+    # 기본 가짜 공급자는 요구를 뽑지 않으므로, 요구 2건을 내는 합성 공급자로 바꿔 끼운다(실제 호출 없음).
+    monkeypatch.setattr(rfp_candidate_run, "gemini", lambda _env: ("model-x", provider))
+    assert (
+        evaluation_run(
+            tmp_path, monkeypatch, *args, "--predictions-out", str(predictions), patch_gemini=False
+        )
+        == 0
+    )
+    data = json.loads(predictions.read_text())
+    assert data["meta"]["git_sha"] == json.loads(out.read_text())["meta"]["git_sha"]
+    assert [
+        (i["document_number"], i["clause_no"], i["attribute"], i["status"]) for i in data["items"]
+    ] == [
+        (10, "2.6.A", "rated_max_voltage", "SPEC_GAP"),
+        (10, "2.6.B", None, "INSUFFICIENT_EVIDENCE"),
+    ]
+    assert set(data["items"][0]) == {
+        "document_number",
+        "clause_no",
+        "attribute",
+        "status",
+        "necessity",
+        "path",
+        "reason",
+    }
+    dumped = predictions.read_text()
+    assert QUOTE_A not in dumped and QUOTE_B not in dumped
+    # 이미 있는 예측 파일은 모델을 부르기 전에 거부한다(결과 파일과 같은 규칙).
+    assert (
+        evaluation_run(
+            tmp_path,
+            monkeypatch,
+            "--run-label",
+            "REMEASURE",
+            "--out",
+            str(tmp_path / "r2.json"),
+            "--official-ledger",
+            str(ledger),
+            "--predictions-out",
+            str(predictions),
+        )
+        == 1
+    )
+    assert not (tmp_path / "r2.json").exists()
+
+
 def test_a_failed_first_run_still_uses_up_the_official_slot(tmp_path):
     ledger = tmp_path / "official.jsonl"
     claim = ("m1", [10], "2026-11-04T00:00:00+00:00", "abc")

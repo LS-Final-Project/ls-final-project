@@ -9,6 +9,9 @@
   없으면 모델을 부르기 전에 멈춘다. 첫 실행은 `--run-label FIRST`(공식), 결함을 고친 뒤 재측정은 `REMEASURE`(참고값)다.
 - 실제 모델 호출은 비용이 든다. `--provider fake`는 요구를 뽑지 않는 고정 응답으로 경로만 확인한다.
 - 결과 파일은 `eval_adopt --task rfp` 입력이다(meta.documents, 후보 행의 게이트 키 9개).
+- `--predictions-out`은 요구별 예측(조항·속성·상태·사유·필수 여부·경로)을 저장소 밖 별도 파일에 남긴다. 사람이
+  사유를 표본으로 확인하는 입력이다(`scripts/rfp_reason_sample.py`). 엔진 사유에는 비교 값이 들어갈 수 있어 결과
+  파일과 달리 공유하지 않고 정답 작성자에게만 1:1로 넘긴다. 정답 내용은 넣지 않는다.
 """
 
 import argparse
@@ -17,7 +20,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -35,6 +38,7 @@ from backend.engine.documents.router import extract  # noqa: E402
 from backend.engine.rfp.clauses import build_clause_tree  # noqa: E402
 from backend.shared.ai import Generation  # noqa: E402
 from eval.rfp_candidates import (  # noqa: E402
+    DocumentRun,
     GoldFile,
     precheck,
     result_file,
@@ -44,7 +48,13 @@ from eval.rfp_candidates import (  # noqa: E402
 
 
 def check_inputs(
-    manifest: dict, numbers: list[int], gold: GoldFile, out: Path, *, confirm_evaluation: bool
+    manifest: dict,
+    numbers: list[int],
+    gold: GoldFile,
+    out: Path,
+    *,
+    confirm_evaluation: bool,
+    predictions_out: Path | None = None,
 ) -> str | None:
     """모델을 부르기 전에 입력을 검사한다(유료 호출 뒤 실패를 막는다).
 
@@ -54,17 +64,21 @@ def check_inputs(
         gold: 정답 파일.
         out: 결과 파일 경로.
         confirm_evaluation: 평가 문서를 공식·참고 측정에 쓴다는 명시.
+        predictions_out: 요구별 예측 파일 경로(선택). 결과 파일과 같은 규칙(새 파일·저장소 밖)이다.
 
     Returns:
         str | None: 문제가 있으면 고정 코드, 없으면 None.
     """
-    if out.exists():
-        return "EVAL_OUTPUT_EXISTS"
-    if not out.parent.is_dir():
-        return "EVAL_OUTPUT_DIR_MISSING"
-    resolved = out.resolve()
-    if ROOT == resolved or ROOT in resolved.parents:
-        return "EVAL_OUTPUT_INSIDE_REPOSITORY"
+    for path in (out, predictions_out):
+        if path is None:
+            continue
+        if path.exists():
+            return "EVAL_OUTPUT_EXISTS"
+        if not path.parent.is_dir():
+            return "EVAL_OUTPUT_DIR_MISSING"
+        resolved = path.resolve()
+        if ROOT == resolved or ROOT in resolved.parents:
+            return "EVAL_OUTPUT_INSIDE_REPOSITORY"
     entries = {d["document_number"]: d for d in manifest["documents"]}
     if not numbers or len(set(numbers)) != len(numbers):
         return "EVAL_DOCUMENTS_INVALID"
@@ -241,6 +255,44 @@ def gemini(env_file: Path) -> tuple[str, Callable[[str], Generation]]:
     )
 
 
+def predictions_file(runs: Sequence[DocumentRun], meta: Mapping[str, object]) -> dict:
+    """요구별 예측 목록. 사람이 엔진 사유를 표본으로 확인하는 입력이다(KAN-191 ⓐ).
+
+    Args:
+        runs: 문서별 실행 결과.
+        meta: 결과 파일의 meta(실행 판본·시각을 같이 적어 어느 실행의 예측인지 묶는다).
+
+    Returns:
+        dict: {"meta": {...}, "items": [{document_number, clause_no, attribute, status, necessity, path, reason}]}.
+            원문 인용·추출 값(value_text)·근거 블록은 넣지 않는다. 사유는 엔진 문장 그대로다.
+    """
+    keep = (
+        "run_label",
+        "official",
+        "manifest_version",
+        "gold_version",
+        "started_at",
+        "git_sha",
+        "model_versions",
+    )
+    return {
+        "meta": {k: meta[k] for k in keep if k in meta},
+        "items": [
+            {
+                "document_number": run.document_number,
+                "clause_no": p.clause_no,
+                "attribute": p.attribute,
+                "status": p.status,
+                "necessity": p.necessity,
+                "path": p.path,
+                "reason": p.reason,
+            }
+            for run in runs
+            for p in run.predicted
+        ],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, required=True)
@@ -260,6 +312,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="초안 추적률 입력(scripts/rfp_draft_trace_input.py). 없으면 그 지표는 비어 있다",
     )
+    parser.add_argument(
+        "--predictions-out",
+        type=Path,
+        help="저장소 밖 요구별 예측 JSON(조항·속성·상태·사유). 사유 표본 확인 입력. 결과 파일처럼 새 파일로만 쓴다",
+    )
     parser.add_argument("--provider", choices=["gemini", "fake"], default="gemini")
     parser.add_argument("--candidate-name", help="결과 후보 이름(기본 rfp-<모델>)")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
@@ -276,7 +333,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"EVAL_GOLD_INVALID {codes}: 모델을 부르지 않았다.", file=sys.stderr)
         return 1
     problem = check_inputs(
-        manifest, args.documents, gold, args.out, confirm_evaluation=args.confirm_evaluation
+        manifest,
+        args.documents,
+        gold,
+        args.out,
+        confirm_evaluation=args.confirm_evaluation,
+        predictions_out=args.predictions_out,
     ) or precheck(gold, args.documents, args.run_label)
     entries = {d["document_number"]: d for d in manifest["documents"]}
     evaluation = not problem and entries[args.documents[0]]["split"] == "evaluation"
@@ -366,13 +428,24 @@ def main(argv: list[str] | None = None) -> int:
         complete_official(
             args.official_ledger, claim, hashlib.sha256(text.encode("utf-8")).hexdigest()
         )
+    # 예측 파일은 결과·장부가 끝난 뒤에 쓴다. 여기서 실패해도 공식 기록과 결과 파일은 일관되다(리뷰 P3).
+    predictions_written: Path | None = None
+    if args.predictions_out is not None:
+        predictions_written = write_new(
+            args.predictions_out,
+            json.dumps(predictions_file(runs, data["meta"]), ensure_ascii=False, indent=2) + "\n",
+        )
     meta = data["meta"]
     print(
         f"{args.run_label}({'공식' if meta['official'] else '참고값'}) 문서 {meta['documents']}건 | "
         + " | ".join(f"{k} {v}" for k, v in meta["counts"].items())
     )
     print(f"결과: {written}")
-    if written != args.out:
+    if predictions_written is not None:
+        print(f"요구별 예측: {predictions_written}")
+    if written != args.out or (
+        predictions_written is not None and predictions_written != args.predictions_out
+    ):
         print(
             f"EVAL_OUTPUT_EXISTS: 실행 중 {args.out}가 생겨 덮어쓰지 않고 위 경로에 남겼다.",
             file=sys.stderr,
