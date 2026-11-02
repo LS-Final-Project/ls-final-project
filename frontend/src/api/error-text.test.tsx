@@ -15,6 +15,10 @@ test('서버가 이미 한국어로 준 구체적인 사유는 덮지 않는다'
   expect(errorText('MAIL_RESEND_NOT_ALLOWED', '유예 시간이 지나지 않았습니다.')).toBe('유예 시간이 지나지 않았습니다.');
 });
 
+test('입력 검증 실패는 어느 칸이 문제인지 알 수 있게 서버 원문을 붙인다', () => {
+  expect(errorText('VALIDATION_ERROR', 'body.version: field required')).toBe('입력값을 확인하세요. (body.version: field required)');
+});
+
 test('표에 없는 업무 코드는 영어 대신 코드를 붙인 일반 안내를 보인다', () => {
   expect(errorText('CS_SOMETHING_NEW', 'Something new happened.')).toBe('요청을 처리하지 못했습니다(CS_SOMETHING_NEW). 최신 상태를 다시 읽은 뒤 확인하세요.');
 });
