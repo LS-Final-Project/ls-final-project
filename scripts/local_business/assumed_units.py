@@ -6,12 +6,12 @@ No connection creation, ticket writes, gold inputs, model calls or confirmation 
 
 import csv
 import hashlib
+import io
 import re
 from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
-
-from scripts.cs_seed_units import Unit, read_ticket_refs, read_units
 
 UNITS_SHA256 = "a4b4432086cb26e6fda04188de72fc9cefe6ae39f3b51467970c10b3768174df"
 REFS_SHA256 = "93706b3f57df6796c5f95c9ffd8206ec664909d1eb8d02ae79a7171b54a9d36b"
@@ -23,6 +23,67 @@ INSTANCE = "kan205-assumed-bootstrap-v1"
 def require(ok, code):
     if not ok:
         raise ValueError("LOCAL_ASSUMED_UNITS_" + code)
+
+
+@dataclass(frozen=True)
+class Unit:
+    serial_no: str
+    customer_external_id: str
+    product_code: str
+    site_code: str | None
+    commissioning_date: date | None
+    commissioning_status: str
+    unit_status: str
+    replaced_by_serial_no: str | None
+    fw_version_last: str | None
+    known_at: datetime
+
+
+@dataclass(frozen=True)
+class TicketRef:
+    scenario_id: str
+    ticket_id: str
+    role: str
+    unit_serial_no: str | None
+
+
+def _rows(path, expected):
+    require(not path.is_symlink() and path.is_file(), "INPUT_PATH")
+    data = path.read_bytes()
+    require(hashlib.sha256(data).hexdigest() == expected, "INPUT_HASH")
+    # Parse exactly the bytes just checked; no mutable-file reopen and no seed dependency.
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8"), newline="")))
+
+
+def _unit(row):
+    known = datetime.fromisoformat(row["known_at"].replace("Z", "+00:00"))
+    require(known.tzinfo is not None, "UNIT_TIME")
+    unit = Unit(
+        serial_no=row["serial_no"],
+        customer_external_id=row["customer_external_id"],
+        product_code=row["product_code"],
+        site_code=row["site_code"] or None,
+        commissioning_date=date.fromisoformat(row["commissioning_date"])
+        if row["commissioning_date"]
+        else None,
+        commissioning_status=row["commissioning_status"],
+        unit_status=row["unit_status"],
+        replaced_by_serial_no=row["replaced_by_serial_no"] or None,
+        fw_version_last=row["fw_version_last"] or None,
+        known_at=known.astimezone(UTC),
+    )
+    require(bool(unit.serial_no and unit.customer_external_id and unit.product_code), "UNIT_ID")
+    require(
+        unit.commissioning_status in {"CONFIRMED", "PLANNED", "UNKNOWN"}
+        and (unit.commissioning_status == "UNKNOWN") == (unit.commissioning_date is None),
+        "UNIT_COMMISSIONING",
+    )
+    require(
+        unit.unit_status in {"ACTIVE", "REPLACED", "RETIRED"}
+        and (unit.unit_status == "REPLACED") == (unit.replaced_by_serial_no is not None),
+        "UNIT_STATUS",
+    )
+    return unit
 
 
 @dataclass(frozen=True)
@@ -38,16 +99,40 @@ class Plan:
 
 def prepare(units_path: Path, refs_path: Path, receipt: dict) -> Plan:
     """Read only approved pinned metadata; receipt is the committed history-import receipt."""
-    for path, expected in ((units_path, UNITS_SHA256), (refs_path, REFS_SHA256)):
-        require(not path.is_symlink() and path.is_file(), "INPUT_PATH")
-        require(hashlib.sha256(path.read_bytes()).hexdigest() == expected, "INPUT_HASH")
-    # These parsers read equipment/ID metadata only, never ticket bodies or answer files.
-    units = tuple(read_units(units_path))
-    refs = tuple(read_ticket_refs(refs_path, list(units)))
-    with units_path.open(newline="", encoding="utf-8") as handle:
-        scenarios = {
-            (r["product_code"], r["serial_no"]): r["scenario_id"] for r in csv.DictReader(handle)
-        }
+    unit_rows = _rows(units_path, UNITS_SHA256)
+    ref_rows = _rows(refs_path, REFS_SHA256)
+    units = tuple(_unit(r) for r in unit_rows)
+    refs = tuple(
+        TicketRef(r["scenario_id"], r["ticket_id"], r["role"], r["unit_serial_no"] or None)
+        for r in ref_rows
+    )
+    scenarios = {(r["product_code"], r["serial_no"]): r["scenario_id"] for r in unit_rows}
+    by_key = {(u.product_code, u.serial_no): u for u in units}
+    for unit in units:
+        if unit.replaced_by_serial_no:
+            replacement = by_key.get((unit.product_code, unit.replaced_by_serial_no))
+            require(
+                replacement is not None
+                and replacement.customer_external_id == unit.customer_external_id
+                and replacement.known_at >= unit.known_at,
+                "REPLACEMENT_SCOPE",
+            )
+    require(
+        all(
+            r.ticket_id
+            and r.role in {"previous", "current"}
+            and (r.role != "current" or r.unit_serial_no is None)
+            for r in refs
+        ),
+        "REF_SCOPE",
+    )
+    require(
+        all(
+            r.unit_serial_no is None or any(u.serial_no == r.unit_serial_no for u in units)
+            for r in refs
+        ),
+        "LINK_UNIT_MISMATCH",
+    )
     require(len(units) == len(scenarios) == 34 and len(refs) == 22, "SCOPE")
     require(set(scenarios.values()) == {r.scenario_id for r in refs} == SCENARIOS, "SCOPE")
     require(sum(r.unit_serial_no is not None for r in refs) == 10, "LINK_SCOPE")

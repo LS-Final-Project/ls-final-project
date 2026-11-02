@@ -302,3 +302,29 @@ def test_same_serial_across_products_keeps_composite_identity(bundle):
     result = mod.apply(db, modified)
     assert result["units_inserted"] == 34 and result["links_inserted"] == 10
     assert len({r["unit_id"] for r in db.tables["ticket_unit_links"]}) == 10
+
+
+def test_module_imports_with_only_docker_copied_local_business_file(tmp_path):
+    """Docker test stage omits cs_seed_units/cs_index_docs: no dependency on either."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    isolated = tmp_path / "scripts" / "local_business" / "assumed_units.py"
+    isolated.parent.mkdir(parents=True)
+    isolated.write_bytes(Path(mod.__file__).read_bytes())
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            "import runpy,sys; runpy.run_path(sys.argv[1])",
+            str(isolated),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
