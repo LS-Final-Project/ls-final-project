@@ -255,9 +255,8 @@ def main() -> None:
     runtime = None
     try:
         config = configuration()
-        from scripts.local_business.permit import Permit
-
         from backend.agent import job_runtime
+        from scripts.local_business.permit import Permit
 
         runtime = job_runtime
         module = f"backend.agent.{config.owner}_worker"

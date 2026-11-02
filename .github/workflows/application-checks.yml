@@ -195,7 +195,9 @@ jobs:
         with:
           node-version: '24'
       - name: Test PR automation
-        run: node --test .github/tests/*.test.cjs
+        run: |
+          node --test .github/tests/*.test.cjs
+          node --test scripts/local_business/local_web.test.mjs
       - name: Verify fresh local database initialization
         timeout-minutes: 5
         env:

@@ -13,6 +13,11 @@ spec.loader.exec_module(changes)
 
 
 class ChangeTests(unittest.TestCase):
+    def test_local_business_tools_select_python_and_node_jobs(self):
+        result = changes.classify(["scripts/local_business/dispatcher.py"])
+        self.assertIn("platform", result["backends"])
+        self.assertTrue(result["infrastructure"])
+
     def test_cs_engine_selects_only_its_consumers_including_runtime_markdown(self):
         """C/S 전용 엔진의 검사·배포와 평가 소비자를 선택한다.
 
