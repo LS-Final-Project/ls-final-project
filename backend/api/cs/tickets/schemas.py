@@ -59,6 +59,14 @@ class TicketList(BaseModel):
     next_cursor: str | None
 
 
+class CandidateAfterCase(BaseModel):
+    """What the automatic candidate judgement did right after a case was registered (KAN-206)."""
+
+    outcome: Literal["CREATED", "ALREADY_REQUESTED", "NOT_ELIGIBLE", "SKIPPED", "FAILED"]
+    # The saved or already existing fault request of this product and fault, when there is one.
+    request_id: UUID | None = None
+
+
 class ResolutionCase(BaseModel):
     id: UUID
     external_id: str | None
@@ -86,6 +94,12 @@ class ResolutionCase(BaseModel):
     # KAN-193: optional, entered by the person registering the case.
     responsibility: Literal["MANUFACTURING", "NON_MANUFACTURING", "UNDETERMINED"] | None = None
     non_manufacturing_reason: str | None = None
+    # KAN-206: only on the registration response. Reads of stored cases leave it null.
+    improvement_candidate: CandidateAfterCase | None = Field(
+        default=None,
+        description="Candidate judgement of this product and fault right after registration. "
+        "FAILED means the case was saved but the judgement did not run; null when read later.",
+    )
 
 
 class TicketDetail(BaseModel):

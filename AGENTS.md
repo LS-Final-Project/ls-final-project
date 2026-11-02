@@ -1,6 +1,6 @@
 # 4조 업무지원 AI Agent — 에이전트 온보딩
 
-갱신 2026-10-22. 이 레포는 C/S·RFP 에이전트의 코드 작업 저장소다. 이 파일은 AI 코딩 도구용 규칙이며 사람의 설치 안내는 [공통 온보딩](docs/team-start.md)이다.
+갱신 2026-11-02(담당 경계·기획 원본 정합화). 이 레포는 C/S·RFP 에이전트의 코드 작업 저장소다. 이 파일은 AI 코딩 도구용 규칙이며 사람의 설치 안내는 [공통 온보딩](docs/team-start.md)이다.
 
 작업 전 이 파일과 사용자가 지정한 Jira 티켓, 자기 이름의 노션 안내에서 첫 작업과 담당 범위를 확인한다. 로컬 실행이 필요하면 공통 온보딩의 1~5를 따른다. 모든 설계 및 운영 문서를 먼저 읽을 필요는 없다. 설계는 [아키텍처](docs/architecture.md), API 변경은 [계약 수정 안내](contracts/README.md)를 해당 작업에서 참고한다.
 
@@ -92,7 +92,7 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 | C/S 학습 데이터 | `data/`의 실제 위치와 이름을 확인. 데이터 기능 구현 시 필요한 자료만 Google Drive에서 받음 |
 | RFP·시연 데이터 | `data/` 하위 (수집 완료 후 추가 예정) |
 | C/S 최신 기획서 | [최종 DOCX](https://drive.google.com/file/d/12lSqCl6DiYLkstFWcZno5MqNKv_kJ2AC/view), [PDF](https://drive.google.com/file/d/1iBKkSpim-3UhYEWvz1dt2X2x62ecN3O_/view) |
-| RFP 최신 기획서 | [전력사업_RFP_자사대응·협력사보완_AI_Agent_기획서_최종최종본.pdf](https://drive.google.com/file/d/1OKHJCb5uqcxAm3UrwpCjeOJNv0-4fJpM/view) (최종본 V_1, 2026-10-29 현업 논의 반영 개정, 30쪽). 3.2 평가 기준·3.3 평가셋·7장 일정은 10/28판과 동일하고, 업무 규칙 9건이 개정됐다(보완 경로에 R&D 개발 확인 단계, 지정품 분리, 전략 고객 표시값 등). [RFP API 명세 v1.2](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit). 이전 TFT 인력 구성 기획서([DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view))는 2026-10-28에 폐기된 범위의 역사 기준선이며 개발 기준이 아니다 |
+| RFP 최신 기획서 | [전력사업_RFP_자사대응·협력사보완_AI_Agent_기획서_최종최종본.pdf](https://drive.google.com/file/d/1OKHJCb5uqcxAm3UrwpCjeOJNv0-4fJpM/view) (최종본 V_1, 2026-10-29 현업 논의 반영 개정, 30쪽). 3.2 평가 기준·3.3 평가셋·7장 일정은 10/28판과 동일하고, 업무 규칙 9건이 개정됐다(보완 경로에 R&D 개발 확인 단계, 지정품 분리, 전략 고객 표시값 등). [RFP API 명세](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit). 이전 TFT 인력 구성 기획서([DOCX](https://drive.google.com/file/d/1zolHAa_hHtQeNyc1dIV7btO0HK3pRmcR/view), [PDF](https://drive.google.com/file/d/1XWbOkU1cIeAxRHWJjtE0l234YckS4GfW/view))는 2026-10-28에 폐기된 범위의 역사 기준선이며 개발 기준이 아니다 |
 | 스토리보드 | [Google Docs](https://docs.google.com/document/d/1fprJf4b1P0dqKcv7KbFFSxnX2xn_cZM0/edit) |
 
 `data/`는 **읽기 전용**. 수정·생성·삭제 금지.
@@ -123,15 +123,15 @@ Redis, Kubernetes, BigQuery, FAISS 없음.
 
 현재 개발 분담은 아래 실명 담당을 기준으로 한다. 이 표와 [공통 안내의 담당 경계](docs/team-start.md#담당-경계와-공통-작업)를 함께 적용한다. 이후 사용자가 지정한 담당 범위와 Jira의 최신 배정이 우선한다.
 
-2026-10-25 사용자 결정으로 KAN-90 평가 관리 API와 KAN-137·138·139 평가 화면은 오새결 담당으로 변경했다. 아래 기존 표의 evaluations·평가 화면 범위에는 이 변경이 우선한다. 관련 신규 저장 확장도 오새결이 담당하며 완료된 KAN-85 이력과 나머지 프론트 담당은 유지한다. 2026-10-28 프로젝트 2 범위가 TFT 팀 구성에서 RFP 자사 대응·협력사 보완(KAN-7, A01~A12 = KAN-182~192)으로 바뀌었다. `backend/api/tft/`는 서비스 이름만 유지하며 범위는 A 티켓 배정을 따른다: 김나영 A01·A04·A05(데이터 구조·조항 추출·비교·판정), 김종하 A02·A07~A09(조항 정리·경로 구현·화면·통합 시험), 오새결 A03·A06(가상 협력사 후보 풀·등급 규칙).
+2026-10-25 사용자 결정으로 KAN-90 평가 관리 API와 KAN-137·138·139 평가 화면은 오새결 담당으로 변경했다. 아래 기존 표의 evaluations·평가 화면 범위에는 이 변경이 우선한다. 관련 신규 저장 확장도 오새결이 담당하며 완료된 KAN-85 이력과 나머지 프론트 담당은 유지한다. 2026-10-28 프로젝트 2 범위가 TFT 팀 구성에서 RFP 자사 대응·협력사 보완(KAN-7, A01~A12 = KAN-182~192)으로 바뀌었다. `backend/api/tft/`는 서비스 이름만 유지하며 범위는 A 티켓 배정을 따른다: 김나영 A01·A04·A05(데이터 구조·조항 추출·비교·판정), 김종하 A02·A09(조항 정리·통합 시험), 오새결 A03·A06·A07·A08(가상 협력사 후보 풀·등급 규칙·대응표/초안·변경 제안). A07·A08은 2026-10-31 이후 Jira 배정(KAN-188·189)을 반영한다. 개별 후속 작업의 사용자 위임은 해당 작업 범위에 우선하며, 이 표로 다른 티켓의 담당을 자동 변경하지 않는다.
 
 | 담당 | 소유 기능 | 주로 수정할 경로 |
 | --- | --- | --- |
 | 김나영 | 메일, 사용자 등록·업무 권한, C/S API와 결정론적 규칙, 통합 회귀, RFP 데이터 구조·조항 추출·비교·판정(A01·A04·A05) | `backend/api/platform/mail/`, 사용자·권한 기능, `backend/api/cs/`, `backend/engine/cs/`의 규칙, `backend/api/tft/`의 저장 구조·비교·판정, 관련 마이그레이션·테스트 |
-| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S와 RFP 대응의 AI, 가상 협력사 후보 풀·등급 규칙(A03·A06), 평가 실행·지표 | `backend/api/platform/auth/`, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
-| 김종하 | 프론트, RFP 조항 정리·경로 구현·화면·통합 시험(A02·A07~A09), 플랫폼 평가 관리 API와 평가 화면 | `frontend/`, `backend/api/tft/`의 경로·중계 행, `backend/api/platform/evaluations/`, 관련 마이그레이션·테스트 |
+| 오새결 | Microsoft 인증·토큰·서버 세션, 인프라, 입력 어댑터·데이터·검색, C/S와 RFP 대응의 AI, 가상 협력사 후보 풀·등급 규칙(A03·A06), RFP 대응표·초안·변경 제안(A07·A08), 평가 관리 API·화면·실행·지표 | `backend/api/platform/auth/`, `backend/api/platform/evaluations/`, `backend/api/tft/`·`frontend/`의 해당 RFP·평가 기능, `backend/engine/`의 어댑터·검색, `backend/agent/`, `backend/shared/ai.py`, `eval/`, 인프라 설정 |
+| 김종하 | 평가·A07·A08을 제외한 프론트, RFP 조항 정리·통합 시험(A02·A09), 개별 위임된 후속 작업 | `frontend/`, `backend/api/tft/`의 담당 경로·중계 행, 관련 마이그레이션·테스트 |
 
-아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth는 오새결, mail 및 사용자·업무 권한은 김나영, evaluations는 김종하다. 인증 결과와 메일 접근 인터페이스를 계약으로 공유하고 OAuth·토큰 갱신을 중복 구현하지 않는다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
+아직 없는 기능 폴더는 작업 시 추가하는 제안 경로다. `backend/engine/`과 플랫폼 앱은 기능 단위로 나눠 사용한다. 규칙은 김나영, 어댑터·검색은 오새결이며 플랫폼 auth는 오새결, mail 및 사용자·업무 권한은 김나영, evaluations는 오새결이다. 인증 결과와 메일 접근 인터페이스를 계약으로 공유하고 OAuth·토큰 갱신을 중복 구현하지 않는다. 같은 최상위 폴더를 사용한다는 이유로 담당 기능의 수정을 막지 않는다.
 
 자기 티켓에 필요한 기능·테스트·계약 산출물만 수정한다. 다른 담당 기능과 공용 라우터·설정·DTO를 바꿔야 하면 먼저 영향과 계약을 확인하고 변경을 작게 유지한다. 다른 사람의 미커밋 변경을 덮어쓰지 않는다. 세션 간 대화를 공유한다고 가정하지 않고 파일과 Jira에 결과를 남긴다.
 
