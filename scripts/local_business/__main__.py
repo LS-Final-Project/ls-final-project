@@ -4,9 +4,14 @@ import argparse
 import json
 import os
 import re
+import secrets
 import signal
+import ssl
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from scripts.local_business.config import ROOT, clean_env, settings, state_path
@@ -15,13 +20,78 @@ from scripts.local_business.setup import docker, fresh, inspect, owned
 from scripts.local_business.stack import running_drivers, start, stop, tunnel
 
 
+def process_identity(pid):
+    """Read only this PID's owner/start/command on Darwin and Linux; never print it."""
+    if type(pid) is not int or pid <= 1:
+        raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+    try:
+        result = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "uid=", "-o", "lstart=", "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=clean_env({"LC_ALL": "C"}),
+        )
+        if result.returncode == 1 and not result.stdout.strip():
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return None
+            raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED")
+        lines = result.stdout.strip().splitlines()
+        if result.returncode or len(lines) != 1:
+            raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED")
+        parts = lines[0].split(None, 6)
+        if len(parts) != 7 or not parts[0].isdecimal():
+            raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED")
+        return {"uid": int(parts[0]), "started": " ".join(parts[1:6]), "command": parts[6]}
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED") from None
+
+
 def stop_tunnel(state):
     pidfile = state / "control/tunnel.json"
     if not pidfile.exists():
         return
+    if (
+        pidfile.is_symlink()
+        or pidfile.stat().st_uid != os.getuid()
+        or pidfile.stat().st_mode & 0o077
+    ):
+        raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
     value = json.loads(pidfile.read_text())
-    path = Path(f"/proc/{value['pid']}/cmdline")
-    if path.exists():
+    pid = value.get("pid")
+    if type(pid) is not int or pid <= 1 or value.get("namespace") != settings(state)["namespace"]:
+        raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+    if "argv" in value:
+        argv = value["argv"]
+        if (
+            not isinstance(argv, list)
+            or len(argv) != 8
+            or not all(isinstance(a, str) for a in argv)
+            or not Path(argv[0]).is_absolute()
+            or argv[1:6]
+            != ["-m", "scripts.local_business", "tunnel", "--namespace", value["namespace"]]
+            or argv[6] != "--tunnel-token"
+            or not re.fullmatch(r"[0-9a-f]{64}", argv[7])
+            or value.get("uid") != os.getuid()
+        ):
+            raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+        proof = process_identity(pid)
+        if proof is not None and proof != {
+            "uid": value["uid"],
+            "started": value.get("started"),
+            "command": " ".join(argv),
+        }:
+            raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+    else:
+        # Existing Linux records predate portable process proof. Preserve their exact argv guard.
+        path = Path(f"/proc/{pid}/cmdline")
+        if not path.exists():
+            if process_identity(pid) is not None:
+                raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED")
+            pidfile.unlink()
+            return
         args = path.read_bytes().split(b"\0")
         namespace = settings(state)["namespace"].encode()
         positions = [i for i, arg in enumerate(args) if arg == b"--namespace"]
@@ -34,32 +104,117 @@ def stop_tunnel(state):
             or value.get("namespace") != namespace.decode()
         ):
             raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
-        os.kill(value["pid"], signal.SIGTERM)
+        if path.stat().st_uid != os.getuid():
+            raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+        proof = process_identity(pid)
+        if proof is not None and (
+            proof["uid"] != os.getuid()
+            or proof["command"] != " ".join(a.decode() for a in args if a)
+        ):
+            raise ValueError("LOCAL_TUNNEL_PID_MISMATCH")
+    if proof is not None:
+        os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if process_identity(pid) != proof:
+                break  # Gone or reused; never signal the replacement process.
+            time.sleep(0.05)
+        else:
+            raise ValueError("LOCAL_TUNNEL_STOP_TIMEOUT")
     pidfile.unlink()
+
+
+def wait_ready(state, config, child):
+    """Require authenticated localhost HTTPS and real platform DB readiness, not spawn success."""
+    try:
+        context = ssl.create_default_context(cafile=str(state / "auth/tls-cert.pem"))
+    except (OSError, ssl.SSLError):
+        raise ValueError("LOCAL_HTTPS_CERTIFICATE_INVALID") from None
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context), NoRedirect()
+    )
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if child.poll() is not None:
+            raise ValueError("LOCAL_TUNNEL_EXITED_BEFORE_READY")
+        try:
+            with opener.open(
+                config["web_origin"] + "/api/v1/platform/ready", timeout=2
+            ) as response:
+                document = json.loads(response.read(4096))
+                data = document.get("data") if isinstance(document, dict) else None
+                if (
+                    isinstance(data, dict)
+                    and response.status == 200
+                    and data.get("service") == "platform"
+                    and all(data.get(k) is True for k in ("database", "vector", "fts"))
+                ):
+                    return
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, ssl.SSLCertVerificationError):
+                raise ValueError("LOCAL_HTTPS_CERTIFICATE_INVALID") from None
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.2)
+    raise ValueError("LOCAL_HTTPS_NOT_READY")
 
 
 def up(state):
     config = start(state)
-    log = (state / "logs/tunnel.log").open("ab")
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "scripts.local_business",
-            "tunnel",
-            "--namespace",
-            config["namespace"],
-        ],
-        env=clean_env({}),
-        cwd=ROOT,
-        stdin=subprocess.DEVNULL,
-        stdout=log,
-        stderr=log,
-        start_new_session=True,
-    )
+    command = [
+        sys.executable,
+        "-m",
+        "scripts.local_business",
+        "tunnel",
+        "--namespace",
+        config["namespace"],
+        "--tunnel-token",
+        secrets.token_hex(32),
+    ]
+    with (state / "logs/tunnel.log").open("ab") as log:
+        p = subprocess.Popen(
+            command,
+            env=clean_env({}),
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+        )
     from scripts.local_business.config import save
 
-    save(state / "control/tunnel.json", {"pid": p.pid, "namespace": config["namespace"]})
+    try:
+        proof = process_identity(p.pid)
+        if proof is None or proof["uid"] != os.getuid() or proof["command"] != " ".join(command):
+            raise ValueError("LOCAL_TUNNEL_PROCESS_UNVERIFIED")
+        save(
+            state / "control/tunnel.json",
+            {
+                "pid": p.pid,
+                "namespace": config["namespace"],
+                "uid": proof["uid"],
+                "started": proof["started"],
+                "argv": command,
+            },
+        )
+        wait_ready(state, config, p)
+    except BaseException:
+        if p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait(timeout=5)
+        pidfile = state / "control/tunnel.json"
+        if pidfile.exists() and json.loads(pidfile.read_text()).get("argv") == command:
+            pidfile.unlink()
+        raise
     print(config["web_origin"])
 
 
@@ -217,6 +372,8 @@ def main():
             p.add_argument("--runtime-image", required=True)
             p.add_argument("--web-image", required=True)
             p.add_argument("--web-port", type=int, default=38443)
+        if command == "tunnel":
+            p.add_argument("--tunnel-token", help=argparse.SUPPRESS)
         if command == "enable-real":
             p.add_argument("--owner", choices=["cs", "tft"], required=True)
             p.add_argument("--key-file", required=True)
