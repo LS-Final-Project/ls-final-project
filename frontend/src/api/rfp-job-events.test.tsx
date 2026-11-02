@@ -82,3 +82,23 @@ it('reconnects from the last received cursor and retains the prior observation w
   expect(views.find(v=>v.connection==='reconnecting')?.progress?.sequence).toBe(1);
   expect(views.at(-1)?.job?.status).toBe('SUCCEEDED');
 });
+
+it('retains distinct actual stage observations without mutating prior views or replaying duplicates', async () => {
+  let reads = 0; const views: RfpWatch[] = [];
+  const events = [event(1, 'job.started', {}), event(2, 'job.progress', { step: 'parse' }), event(3), event(3), event(4, 'job.progress', { step: 'extract', counts: { requirements: 8, proposals: 0 } }), event(5, 'job.completed', { state: 'SUCCEEDED' })];
+  vi.stubGlobal('fetch', vi.fn(async (u: string) => u.endsWith('/me') ? json({ id: target.actorId }) : u.includes('/events') ? stream(events) : json(snap(++reads === 1 ? 'RUNNING' : 'SUCCEEDED', 5))));
+  await watchRfpJob(target, new AbortController().signal, v => views.push(v));
+  expect(views.find(v => v.progress?.sequence === 2)?.activity?.map(p => p.step)).toEqual(['parse']);
+  expect(views.at(-1)?.activity?.map(p => p.step)).toEqual(['parse', 'extract']);
+  expect(views.at(-1)?.activity?.at(-1)?.counts?.requirements).toBe(8);
+  expect(views.at(-1)?.startedAt).toBe('2026-11-02T12:00:00Z');
+});
+it('clears activity and start time when a reconnect loses authorization', async () => {
+  vi.useFakeTimers(); let reads = 0; const views: RfpWatch[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (u: string) => u.endsWith('/me') ? ++reads === 1 ? json({ id: target.actorId }) : new Response('{}', { status: 403 }) : u.includes('/events') ? stream([event(1, 'job.started', {}), event(2)]) : json(snap())));
+  const run = watchRfpJob(target, new AbortController().signal, v => views.push(v));
+  await vi.runAllTimersAsync(); await run;
+  expect(views.some(v => v.activity?.length === 1)).toBe(true);
+  expect(views.at(-1)).toMatchObject({ connection: 'stopped', activity: [] });
+  expect(views.at(-1)?.startedAt).toBeUndefined();
+});

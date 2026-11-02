@@ -66,7 +66,7 @@ it.each(['job.started', 'job.progress'])('recent job row agrees with %s, termina
   const row = () => screen.getByText('최근 작업').nextElementSibling?.textContent;
   await act(async () => update({ connection: 'connected', job, progress }));
   expect(row()).toBe('실행 중 (최근 서버 관측)');
-  expect(screen.getByRole('status').textContent).toContain('진행이 관측');
+  expect(screen.getByRole('status').textContent).toContain('AI가 RFP를 분석하고 있습니다');
   expect(client.getQueryData(['jobs', 'live', A, P, J])).toEqual({ data: job });
   await act(async () => update({ connection: 'connected', job, progress: { ...progress, sequence: 2, type: 'job.completed' } }));
   expect(row()).toBe('결과 확인 중');

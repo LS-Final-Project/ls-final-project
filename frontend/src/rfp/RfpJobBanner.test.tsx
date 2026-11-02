@@ -44,8 +44,35 @@ it('aborts on actor/project/job change and rejects late updates from each former
 it('observed start supersedes an older QUEUED snapshot, but a terminal signal cannot claim completion', () => {
   const progress = { sequence: 1, occurredAt: '2026-11-02T12:00:00Z', type: 'job.started' };
   const { rerender } = render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="QUEUED" view={{ connection: 'connected', progress }} /></MemoryRouter>);
-  expect(screen.getByRole('status').textContent).toContain('진행이 관측');
+  expect(screen.getByRole('status').textContent).toContain('AI가 RFP를 분석하고 있습니다');
   expect(screen.getByRole('status').textContent).not.toContain('접수');
   rerender(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ connection: 'connected', progress: { ...progress, type: 'job.completed' } }} /></MemoryRouter>);
   expect(screen.getByRole('status').textContent).toContain('저장된 결과를 확인');expect(screen.queryByRole('link')).toBeNull();
+});
+
+it('shows only observed stages and stops motion on reconnect, denial and terminal confirmation', () => {
+  const parse = { sequence: 2, occurredAt: '2026-11-02T12:00:01Z', type: 'job.progress', step: 'parse' };
+  const extract = { ...parse, sequence: 3, step: 'extract', counts: { requirements: 5, proposals: 0 } };
+  const view = { connection: 'connected' as const, progress: extract, activity: [parse, extract] };
+  const ui = (v: typeof view | { connection: 'stopped' }, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={v} /></MemoryRouter>;
+  const { container, rerender } = render(ui(view));
+  expect(container.querySelector('.is-live')).toBeTruthy();
+  expect(container.querySelectorAll('.rfp-analysis-stages .is-observed')).toHaveLength(1);
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  expect(screen.getAllByText('아직 관측 안 됨')).toHaveLength(5);
+  expect(container.querySelector('.rfp-analysis-history')?.textContent).toContain('2개 단계 관측');
+  expect(document.body.textContent).not.toMatch(/%|ETA|문서 읽기 완료/);
+  rerender(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ ...view, connection: 'reconnecting' }} /></MemoryRouter>);
+  expect(container.querySelector('.is-live')).toBeNull();
+  expect(screen.getByText('마지막 수신 단계')).toBeTruthy();
+  rerender(ui({ connection: 'stopped' }));
+  expect(container.querySelector('.rfp-analysis-stages')).toBeNull();
+  expect(container.querySelector('.rfp-analysis-history')).toBeNull();
+  rerender(ui({ ...view, progress: { ...extract, type: 'job.completed' } }));
+  expect(container.querySelector('.is-live')).toBeNull();
+  expect(screen.getByRole('status').textContent).toContain('결과를 확인');
+  expect(screen.queryByRole('link')).toBeNull();
+  rerender(ui(view, 'SUCCEEDED'));
+  expect(container.querySelector('.is-live')).toBeNull();
+  expect(screen.getByRole('link')).toBeTruthy();
 });

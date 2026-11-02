@@ -11,6 +11,7 @@ export type RfpProgress = {
 export type RfpWatch = {
   connection: 'connecting' | 'connected' | 'reconnecting' | 'fallback' | 'stopped' | 'ended';
   job?: RfpJob; progress?: RfpProgress; checkedAt?: number; message?: string;
+  activity?: RfpProgress[]; startedAt?: string;
 };
 const states = new Set(['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED']);
 const kinds = new Set(['rfp.process', 'rfp.export', 'rfp.annotate', 'rfp.draft_rewrite']);
@@ -119,7 +120,8 @@ function delay(ms: number, signal: AbortSignal) {
 export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update: (view: RfpWatch) => void): Promise<void> {
   let cursor: number | undefined, progress: RfpProgress | undefined, failures = 0, resetCursor = false;
   let job: RfpJob | undefined, checkedAt: number | undefined;
-  const publish = (connection: RfpWatch['connection'], message?: string) => { if (!signal.aborted) update({ connection, job, progress, checkedAt, message }); };
+  let activity: RfpProgress[] = [], startedAt: string | undefined;
+  const publish = (connection: RfpWatch['connection'], message?: string) => { if (!signal.aborted) update({ connection, job, progress, checkedAt, message, activity, startedAt }); };
   while (!signal.aborted) {
     try {
       publish(failures ? 'reconnecting' : 'connecting');
@@ -127,14 +129,20 @@ export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update
       if (!activeRfpJob(job.status)) { publish('ended'); return; }
       if (cursor === undefined) cursor = 0; // Replay retained progress, including events emitted before the UI connected.
       if (resetCursor) { cursor = job.last_event_sequence; resetCursor = false; }
-      await stream(target, cursor, signal, () => publish('connected'), p => { cursor = p.sequence; progress = p; failures = 0; publish('connected'); });
+      await stream(target, cursor, signal, () => publish('connected'), p => {
+        cursor = p.sequence; progress = p; failures = 0;
+        if (p.type === 'job.started') startedAt = p.occurredAt;
+        // One latest observation per public stage; neither order nor presence means completion.
+        if (p.step) activity = [...activity.filter(item => item.step !== p.step), p];
+        publish('connected');
+      });
       // 204 or terminal event: re-read status; do not treat the event itself as committed completion.
       job = await readRfpJob(target, signal); signal.throwIfAborted(); checkedAt = Date.now();
       if (!activeRfpJob(job.status)) { publish('ended'); return; }
       throw new TypeError('Terminal not confirmed');
     } catch (error) {
       if (signal.aborted) return;
-      if (deniedRfpJob(error)) { job = undefined; progress = undefined; publish('stopped', '이 작업의 조회 권한을 확인할 수 없습니다. 계정과 작업을 확인하세요.'); return; }
+      if (deniedRfpJob(error)) { job = undefined; progress = undefined; activity = []; startedAt = undefined; publish('stopped', '이 작업의 조회 권한을 확인할 수 없습니다. 계정과 작업을 확인하세요.'); return; }
       if (error instanceof CursorExpired || error instanceof Gap) { resetCursor = true; }
       failures++;
       if (!job || failures > 3 || error instanceof ApiError && error.status < 500 && !(error instanceof CursorExpired)) {
