@@ -105,6 +105,18 @@ test('판본 충돌 409는 같은 요청을 다시 보내지 않고 최신 상�
   await waitFor(() => expect(api.get.mock.calls.length).toBeGreaterThanOrEqual(2));
 });
 
+test('다른 화면이 먼저 상태를 바꿔 온 409(CS_INVALID_TRANSITION)는 서버 영어 문구 대신 한국어로 안내하고 최신 상태를 읽는다', async () => {
+  const api = server('RECEIVED', 3, () => jsonResponse(409, errorBody('CS_INVALID_TRANSITION', 'The ticket state does not allow this action.')));
+  view(); await screen.findByText('접수', { selector: 'strong' });
+  await waitFor(() => expect(menu('검토 시작').disabled).toBe(false));
+  openMore(); fireEvent.click(menu('검토 시작'));
+  const alert = (await screen.findByRole('alert')).textContent;
+  expect(alert).toMatch(/지금 문의 상태에서는 할 수 없는 동작입니다/);
+  expect(alert).not.toMatch(/does not allow/);
+  expect(api.posts).toHaveLength(1);
+  await waitFor(() => expect(api.get.mock.calls.length).toBeGreaterThanOrEqual(2));
+});
+
 test('결과를 알 수 없는 오류(5xx)도 다시 보내지 않고 확인을 안내한다', async () => {
   const api = server('RECEIVED', 3, () => jsonResponse(503, errorBody('UNAVAILABLE', '일시 장애')));
   view(); await screen.findByText('접수', { selector: 'strong' });

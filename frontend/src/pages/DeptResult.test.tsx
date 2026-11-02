@@ -65,6 +65,18 @@ test('판본 충돌(409)은 안내하고 최신 상태를 다시 읽는다', asy
   await waitFor(() => expect(reads()).toBeGreaterThanOrEqual(2));
 });
 
+test('요청이 그 사이 취소돼 온 409(CS_INVALID_TRANSITION)는 한국어로 안내한다', async () => {
+  const fetch = serve(undefined, staff, () => jsonResponse(409, errorBody('CS_INVALID_TRANSITION', 'The ticket state does not allow this action.')));
+  vi.stubGlobal('fetch', fetch);
+  show();
+  await screen.findByText('CS26-1039');
+  fireEvent.change(screen.getByLabelText('답변'), { target: { value: '답변' } });
+  fireEvent.click(within(screen.getByRole('form', { name: '검토 답변 입력' })).getByRole('button', { name: '답변 보내기' }));
+  const alert = (await screen.findByRole('alert')).textContent;
+  expect(alert).toContain('지금 문의 상태에서는 할 수 없는 동작입니다');
+  expect(alert).not.toContain('does not allow');
+});
+
 test('답변이 비어 있으면 요청을 보내지 않는다', async () => {
   const fetch = serve();
   vi.stubGlobal('fetch', fetch);

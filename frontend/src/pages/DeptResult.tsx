@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket } from '../api/cs';
-import { getTicketWorkflow, isVersionConflict, returnTransfer, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
+import { getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidTransition, isVersionConflict, returnTransfer, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
@@ -62,6 +62,7 @@ function ResultView() {
       setNotice({ kind: 'ok', text: done });
     } catch (error) {
       setNotice({ kind: 'error', text: isVersionConflict(error) ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 보내세요.'
+        : isInvalidTransition(error) ? INVALID_TRANSITION_TEXT
         : error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 ? error.message
           : '결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 않고 최신 상태를 읽었습니다. 반영 여부를 확인하세요.' });
     } finally {

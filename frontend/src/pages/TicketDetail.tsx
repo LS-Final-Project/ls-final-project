@@ -10,7 +10,7 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicket, getTicketAnalysis } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, isInvalidOwner, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, startReview, transferTicket, type DeptCode, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
@@ -112,6 +112,7 @@ export default function TicketDetail() {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
       setNotice({ kind: 'error', text: isVersionConflict(error)
         ? '다른 사용자가 먼저 상태를 바꿨습니다. 최신 상태를 다시 읽었으니 확인한 뒤 다시 실행하세요.'
+        : isInvalidTransition(error) ? INVALID_TRANSITION_TEXT
         : isSendPending(error) ? '결과가 정해지지 않은 발송이 있습니다. 대화에서 "상태 확인"이나 "다시 요청"으로 먼저 확인하세요.'
         : isInvalidOwner(error) ? '새 담당자로 지정할 수 없는 사용자입니다. 활성 C/S 담당자만 지정할 수 있습니다.'
         : isResultVersionConflict(error) ? '부서 답변이 그 사이 바뀌었습니다. 최신 답변을 다시 읽었으니 확인한 뒤 다시 저장하세요.'

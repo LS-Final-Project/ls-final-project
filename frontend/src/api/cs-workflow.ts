@@ -74,6 +74,9 @@ export const isResultVersionConflict = (error: unknown) => error instanceof ApiE
 export const isResolutionExists = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_RESOLUTION_CASE_EXISTS';
 export const isInvalidOwner = (error: unknown) => error instanceof ApiError && error.status === 422 && error.code === 'CS_INVALID_OWNER';
 export const isVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_WORKFLOW_VERSION_CONFLICT';
+// 서버는 판본보다 상태를 먼저 본다. 다른 화면이 먼저 상태를 바꾸면 같은 동작을 다시 눌러도 판본 충돌이 아니라 이 코드가 온다.
+export const isInvalidTransition = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_INVALID_TRANSITION';
+export const INVALID_TRANSITION_TEXT = '지금 문의 상태에서는 할 수 없는 동작입니다. 그 사이 상태가 바뀌었을 수 있어 최신 상태를 다시 읽었습니다. 확인한 뒤 다시 실행하세요.';
 
 // 담당자가 문의를 직접 등록한다(수동 접수). 출처·판본·ID는 서버가 정하므로 보내지 않는다. 새 문의는 접수 상태로 시작한다.
 export type TicketCreateBody = paths['/api/v1/cs/tickets']['post']['requestBody']['content']['application/json'];
