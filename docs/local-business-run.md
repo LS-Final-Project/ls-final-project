@@ -36,6 +36,8 @@ uv run --frozen --python 3.12 python -m scripts.local_business status --namespac
 
 한 명령이 실패하면 다음 명령으로 넘어가지 않는다. `LOCAL_STATE_EXISTS_USE_START`, `LOCAL_NAMESPACE_EXISTS_PRESERVE`, `LOCAL_SETUP_INCOMPLETE_PRESERVED`는 기존 상태를 삭제하라는 뜻이 아니다. 부분 생성 상태와 로그를 보존하고 담당자에게 확인한다. 시작한 주소는 `https://localhost:38443`이며 지정 포트가 사용 중이면 중단한다. localhost 전용 자체 TLS 인증서의 출처·주소를 확인한다. 공개 공유서버로 노출하지 않는다.
 
+setup에서 만드는 자체 TLS 인증서의 유효기간은 **7일**이다. 만료되면 브라우저의 만료 경고·접속 거부가 발생할 수 있으며 start/restart가 인증서를 자동 갱신하지 않는다. 현재 인증서 갱신 CLI는 없다. 새 namespace 준비가 필요하면 담당자와 기존 DB·업로드 파일·비용/작업 상태를 보존한 뒤 진행한다. 인증서 만료를 해결하려고 기존 namespace·볼륨을 자동 삭제하거나 재초기화하지 않는다.
+
 setup 시 코드 SHA·archive hash·이미지 ID·frontend 산출물 hash를 `artifacts/local-business/$NS/settings.json`에 기록한다. 이후 start/restart는 그때 보관한 source/dist를 사용하므로 저장소 pull만으로 기존 namespace의 실행 코드가 바뀌지는 않는다. 코드 갱신이 필요하면 담당자와 별도 새 namespace를 준비하고 이전 DB를 보존한다.
 
 브라우저의 `/api/v1/platform/auth/login`에서 로컬 fixture의 합성 계정 선택 form으로 이동한다. C/S 담당자·변압기 기술지원·수주 담당자·관리자 4개에 대응하며 제품 세션·역할·CSRF 경계를 이용한다. **Microsoft 로그인·Graph·실제 사서함 검증은 아니다.** chooser/웹 연결은 현재 통합 확인 대상으로, 실제 선택 화면 성공을 이 문서에서 보장하지 않는다. 메일 인증·수집·발송, 평가 실행·푸시·자동 sweep은 비활성으로 설정한다. 실제 Microsoft 계정·토큰을 넣어 이 fixture를 대체하지 않는다.
