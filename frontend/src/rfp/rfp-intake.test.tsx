@@ -29,12 +29,13 @@ type Call = { url: string; method: string; body: unknown; key: string | null; cs
 let calls: Call[];
 let project: Record<string, unknown>;
 let documents: unknown[];
-let job: () => Response;
+const jobSnapshot = (job_id: string, status: string) => ({ job_id, status, project_id: ID, owner: 'tft', kind: 'rfp.process', version: 1, last_event_sequence: 0 });
+let job: (id: string) => Response;
 let post: (call: Call) => Response;
 
 beforeEach(() => {
   calls = []; project = base; documents = [doc('a', 1, '사양서'), doc('a', 2, '사양서'), doc('b', 1, '공문')];
-  job = () => ok({ job_id: 'j1', status: 'RUNNING' });
+  job = id => ok(jobSnapshot(id, 'RUNNING'));
   post = () => ok({ job_id: 'j1', status: 'QUEUED', status_url: '' }, 202);
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input); const method = init?.method ?? 'GET'; const headers = new Headers(init?.headers);
@@ -44,8 +45,10 @@ beforeEach(() => {
       return jsonResponse(422, errorBody('VALIDATION_ERROR', 'unknown department'));
     }
     if (method === 'POST') return post(call);
-    if (url.includes('/platform/me')) return new Response(JSON.stringify({ data: { display_name: '합성', dept: null, roles: ['sales'] }, meta: { request_id: 'x' } }), { status: 200, headers: { 'X-CSRF-Token': 'csrf-1' } });
-    if (url.includes('/platform/jobs/')) return job();
+    if (url.includes('/platform/me')) return new Response(JSON.stringify({ data: { id: '00000000-0000-4000-8000-000000000003', display_name: '합성', dept: null, roles: ['sales'] }, meta: { request_id: 'x' } }), { status: 200, headers: { 'X-CSRF-Token': 'csrf-1' } });
+    // These existing tests exercise polling fallback. SSE validation/recovery is covered separately.
+    if (url.includes('/events?')) return jsonResponse(400, errorBody('INVALID_EVENT_CURSOR', 'fixture: polling fallback'));
+    if (url.includes('/platform/jobs/')) return job(url.split('/').at(-1)!);
     if (url.endsWith('/documents')) return ok({ items: documents });
     if (url.includes('/proposals')) return ok({ items: [] });
     if (url.includes('/questions')) return ok({ items: [{ question_id: 'q1', question_text: '값을 확인해 주세요' }] });
@@ -107,7 +110,7 @@ describe('프로젝트 화면', () => {
 
   it('이미 끝난 작업은 잠그지도 알리지도 않는다', async () => {
     project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
-    job = () => ok({ job_id: 'j9', status: 'SUCCEEDED' });
+    job = () => ok(jobSnapshot('j9', 'SUCCEEDED'));
     await open();
     await waitFor(() => expect(calls.some(c => c.url.endsWith('/platform/jobs/j9'))).toBe(true));
     await waitFor(() => expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false));
@@ -119,7 +122,7 @@ describe('프로젝트 화면', () => {
     project = { ...base, latest_job: { job_id: 'j9', status: null, step: null } };
     await open();
     await waitFor(() => expect(next()).toContain('30초마다'));
-    job = () => ok({ job_id: 'j9', status: 'SUCCEEDED' });
+    job = () => ok(jobSnapshot('j9', 'SUCCEEDED'));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     await waitFor(() => expect(next()).toContain('분석 완료, 요구 48건'));
     vi.useRealTimers();
@@ -392,7 +395,7 @@ describe('처리 실행', () => {
     ['FAILED', '처리가 끝나지 못했습니다'],
     ['CANCELLED', '처리가 끝나지 못했습니다'],
   ])('작업이 %s 로 끝나면 알리고 다시 읽는다', async (status, text) => {
-    job = () => ok({ job_id: 'j1', status });
+    job = () => ok(jobSnapshot('j1', status));
     const submit = await form();
     fireEvent.change(screen.getByLabelText('재실행 사유'), { target: { value: '사유' } });
     // 프로젝트는 실행 접수 때도 다시 읽으니, 작업이 끝나야만 다시 읽는 제안 목록으로 확인한다.
@@ -406,7 +409,7 @@ describe('처리 실행', () => {
 
   it('요구 0건으로 끝나면 원문 확인을 안내한다', async () => {
     project = { ...base, requirements_count: 0 };
-    job = () => ok({ job_id: 'j1', status: 'SUCCEEDED' });
+    job = () => ok(jobSnapshot('j1', 'SUCCEEDED'));
     const submit = await form();
     fireEvent.click(submit);
     await waitFor(() => expect(next()).toContain('원문을 확인하세요'));
