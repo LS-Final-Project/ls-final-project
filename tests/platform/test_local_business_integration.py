@@ -2,8 +2,10 @@
 
 import json
 import os
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -16,6 +18,72 @@ from backend.shared.ai import ModelPrice
 from scripts.local_business import runtime, setup
 from scripts.local_business.permit import Denied, Permit
 from scripts.local_business.worker import Configuration, LocalStop, Meter
+
+
+@pytest.mark.parametrize("stage", ["corpus", "database", "permit"])
+def test_driver_initialization_failure_has_safe_stage_and_never_admits(
+    tmp_path, monkeypatch, stage
+):
+    from scripts.local_business import dispatcher
+
+    control = tmp_path / "control"
+    control.mkdir()
+    credentials = tmp_path / "worker-db.json"
+    credentials.write_text(
+        json.dumps({"platform_app": "private-dsn", "local_cs_worker": "private-dsn"})
+    )
+    for key, value in {
+        "LOCAL_BUSINESS_STATE": str(tmp_path),
+        "LOCAL_BUSINESS_CONTROL": str(control),
+        "LOCAL_JOB_OWNER": "cs",
+        "LOCAL_DRIVER_TOKEN": "private-token",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        dispatcher,
+        "Path",
+        lambda p: credentials if p == "/local/secrets/worker-db.json" else Path(p),
+    )
+    monkeypatch.setattr(dispatcher, "local_only", lambda: None)
+    monkeypatch.setattr(dispatcher, "Settings", lambda **kw: object())
+    monkeypatch.setattr(dispatcher.signal, "signal", lambda *a: None)
+
+    def failure():
+        raise RuntimeError("private-dsn private-token provider-message")
+
+    monkeypatch.setattr(
+        dispatcher, "corpus_check", lambda *a: failure() if stage == "corpus" else None
+    )
+
+    @contextmanager
+    def connect(*a, **kw):
+        if stage == "database":
+            failure()
+        yield SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: ("clock",)))
+
+    monkeypatch.setattr(dispatcher.psycopg, "connect", connect)
+
+    class FakePermit:
+        def __init__(self, path):
+            pass
+
+        @contextmanager
+        def transaction(self):
+            yield None
+
+        def driver(self, db, token):
+            failure()
+
+        def close_driver(self, token):
+            pass
+
+    monkeypatch.setattr(dispatcher, "Permit", FakePermit)
+    monkeypatch.setattr(dispatcher, "candidate", lambda *a: pytest.fail("No business admission"))
+    expected = "LOCAL_DRIVER_" + stage.upper() + "_INIT_FAILED"
+    with pytest.raises(SystemExit, match=expected):
+        dispatcher.main()
+    assert json.loads((control / "driver-result.json").read_text())["reason"] == expected
+    assert not (control / "enabled.json").exists()
 
 
 @pytest.fixture

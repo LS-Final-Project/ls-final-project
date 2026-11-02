@@ -92,15 +92,19 @@ def main():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+    stage = "LOCAL_DRIVER_CORPUS_INIT_FAILED"
     try:
         if owner == "cs":
             corpus_check(credentials["local_cs_worker"])
         # Never resume anything queued/running before this explicit driver starts.
+        stage = "LOCAL_DRIVER_DATABASE_INIT_FAILED"
         with psycopg.connect(credentials["platform_app"]) as conn:
             after = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+        stage = "LOCAL_DRIVER_PERMIT_INIT_FAILED"
         with permit.transaction() as db:
             limit = permit.driver(db, token)["job_limit"]
         used = 0
+        stage = "LOCAL_DRIVER_FAILED"
         while not stopped and used < limit:
             save(
                 marker,
@@ -193,7 +197,7 @@ def main():
                 permit.outstanding(db)
     except Exception as error:
         # Never log a DSN/provider body. Safe reason is a fixed locally generated code only.
-        reason = str(error) if isinstance(error, Denied) else "LOCAL_DRIVER_FAILED"
+        reason = str(error) if isinstance(error, Denied) else stage
         save(
             control / "driver-result.json",
             {"reason": reason, "unfinished_jobs_require_review": True},

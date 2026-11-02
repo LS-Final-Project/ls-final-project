@@ -28,6 +28,31 @@ def inspect(name):
     return json.loads(docker("inspect", name))[0]
 
 
+def worker_login_sql(passwords, database="team4"):
+    """New setup only: dedicated worker logins inherit their worker role and CONNECT."""
+    from psycopg import sql
+
+    statements = []
+    for role, member in (("local_cs_worker", "cs_worker"), ("local_tft_worker", "tft_worker")):
+        statements.append(
+            sql.SQL(
+                "CREATE ROLE {} LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                "NOREPLICATION NOBYPASSRLS PASSWORD {}; GRANT {} TO {}; "
+                "GRANT CONNECT ON DATABASE {} TO {};"
+            )
+            .format(
+                sql.Identifier(role),
+                sql.Literal(passwords[role]),
+                sql.Identifier(member),
+                sql.Identifier(role),
+                sql.Identifier(database),
+                sql.Identifier(role),
+            )
+            .as_string()
+        )
+    return "BEGIN;\n" + "\n".join(statements) + "\nCOMMIT;\n"
+
+
 def readable_snapshot(source: Path):
     """Git-only public source must be readable by PostgreSQL UID999 across read-only binds."""
     source.chmod(0o755)
@@ -229,11 +254,7 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
     else:
         raise RuntimeError("LOCAL_FRESH_FINAL_SERVER_NOT_READY_PRESERVED")
     # Standard migrations create NOLOGIN worker roles. Only new-namespace setup adds separate logins.
-    sql = "BEGIN;\n"
-    for role in ("local_cs_worker", "local_tft_worker"):
-        member = "cs_worker" if role == "local_cs_worker" else "tft_worker"
-        sql += f"CREATE ROLE {role} LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{passwords[role]}';\nGRANT {member} TO {role};\n"
-    sql += "COMMIT;\n"
+    sql = worker_login_sql(passwords)
     docker(
         "exec",
         "-i",
