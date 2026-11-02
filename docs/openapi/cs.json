@@ -2340,6 +2340,12 @@
             "type": "integer"
           },
           "derivation_kind": {
+            "enum": [
+              "PROVIDED",
+              "DERIVED",
+              "SYSTEM",
+              "ASSUMED"
+            ],
             "title": "Derivation Kind",
             "type": "string"
           },
