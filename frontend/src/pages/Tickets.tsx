@@ -155,6 +155,6 @@ export default function Tickets() {
     <div className="kv-gridhead sub"><span>개선요청, 진행 중 {requests.length}건</span><Link className="right" to="/cs/improvements">개선요청 조회 (CS0301)</Link></div>
     <KvGrid label="개선요청 목록" columns={requestColumns} rows={requests} rowKey={item => item.id}
       fallback={improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && improvements.error.status === 401 ? '로그인이 필요합니다. 계정 화면에서 다시 로그인하세요.' : improvements.error instanceof ApiError && improvements.error.status === 403 ? '개선요청을 볼 권한이 없습니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
-    {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={refresh} />}
+    {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={() => { void tickets.refetch(); }} />}
   </main>;
 }

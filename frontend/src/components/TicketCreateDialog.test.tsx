@@ -61,12 +61,12 @@ test('고객 ID 형식이 틀리면 보내지 않고 안내한다', async () => 
   expect(posts).toHaveLength(0);
 });
 
-test('서버 거부(4xx)는 이유를 보이고 다시 시도할 수 있다', async () => {
-  const posts = server(() => jsonResponse(422, errorBody('VALIDATION', '알 수 없는 제품 코드입니다.')));
+test('서버 거부(4xx)는 이유를 보이고 다시 시도할 수 있다. 입력 검증 실패(422)는 한국어로 안내한다', async () => {
+  const posts = server(() => jsonResponse(422, errorBody('VALIDATION', 'Request validation failed.')));
   view();
   fill();
   submit();
-  expect((await screen.findByRole('alert')).textContent).toContain('알 수 없는 제품 코드입니다.');
+  expect((await screen.findByRole('alert')).textContent).toContain('서버가 입력값을 받지 않았습니다');
   expect((screen.getByRole('button', { name: '등록' }) as HTMLButtonElement).disabled).toBe(false);
   expect(posts).toHaveLength(1);
 });
@@ -95,5 +95,43 @@ test('C/S 담당자가 아니거나 모의 응답 모드면 요청을 보내지 
   fill();
   submit();
   expect((await screen.findByRole('alert')).textContent).toContain('모의 응답 모드');
+  expect(posts).toHaveLength(0);
+});
+
+test('공백만 넣은 본문·제품 코드는 보내지 않고 안내한다', async () => {
+  const posts = server();
+  view();
+  fill({ 본문: '   ' });
+  submit();
+  expect((await screen.findByRole('alert')).textContent).toContain('공백 없이 입력하세요');
+  expect(posts).toHaveLength(0);
+});
+
+test('응답 시간 초과(408)와 통신 오류도 결과를 모르므로 다시 등록하지 않게 잠근다', async () => {
+  for (const reply of [() => jsonResponse(408, errorBody('TIMEOUT', '시간 초과')), () => { throw new TypeError('Failed to fetch'); }]) {
+    const posts = server(reply as () => Response);
+    view();
+    fill();
+    submit();
+    expect((await screen.findByRole('alert')).textContent).toContain('다시 등록하지 말고');
+    expect((screen.getByRole('button', { name: '등록' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(posts).toHaveLength(1);
+    cleanup();
+  }
+});
+
+test('등록 전 세션 확인이 실패하면 문의가 만들어지지 않았으므로 다시 시도할 수 있다', async () => {
+  const posts: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith('/platform/me')) return jsonResponse(503, errorBody('UNAVAILABLE', '일시 장애'));
+    posts.push(path);
+    return jsonResponse(201, { data: { id: NEW_ID } });
+  }));
+  view();
+  fill();
+  submit();
+  expect((await screen.findByRole('alert')).textContent).toContain('세션을 확인하지 못해 등록하지 않았습니다');
+  expect((screen.getByRole('button', { name: '등록' }) as HTMLButtonElement).disabled).toBe(false);
   expect(posts).toHaveLength(0);
 });

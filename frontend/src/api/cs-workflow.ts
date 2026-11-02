@@ -79,7 +79,13 @@ export const isVersionConflict = (error: unknown) => error instanceof ApiError &
 export type TicketCreateBody = paths['/api/v1/cs/tickets']['post']['requestBody']['content']['application/json'];
 export async function createTicket(body: TicketCreateBody, signal: AbortSignal) {
   if (getApiMode() !== 'live') throw new ApiError(403, '모의 응답 모드에서는 실행할 수 없습니다. 실제 API에서 실행하세요.');
-  const identity = await me();
+  // 세션 확인은 등록 요청 전이다. 여기서 실패하면 문의가 만들어지지 않았으므로 다시 시도해도 되는 오류(4xx)로 알린다.
+  let identity: Awaited<ReturnType<typeof me>>;
+  try { identity = await me(); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new ApiError(403, '세션을 확인하지 못해 등록하지 않았습니다. 잠시 후 다시 시도하세요.');
+  }
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
   if (!identity?.data.roles.includes('cs_agent')) throw new ApiError(403, 'C/S 담당자 세션이 필요합니다.');
   const token = sessionCsrfToken();

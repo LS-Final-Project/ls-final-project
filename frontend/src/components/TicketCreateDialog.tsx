@@ -26,6 +26,8 @@ export default function TicketCreateDialog({ products, onClose, onCreated }: { p
     const form = new FormData(event.currentTarget);
     const customer = text(form, 'customer');
     if (!CUSTOMER.test(customer)) { setError('고객 ID는 영문·숫자와 . _ - 만 쓸 수 있고 64자 이하입니다.'); return; }
+    // 공백만 넣으면 브라우저 필수 검사는 통과하지만 서버는 거부한다. 보내기 전에 막는다.
+    if (!text(form, 'product') || !text(form, 'body') || text(form, 'language').length < 2) { setError('제품 코드·본문·본문 언어(2자 이상)를 공백 없이 입력하세요.'); return; }
     const body: TicketCreateBody = {
       channel: text(form, 'channel') as TicketChannel, body_language: text(form, 'language'), customer_external_id: customer,
       product_code: text(form, 'product'), body: text(form, 'body'),
@@ -33,13 +35,14 @@ export default function TicketCreateDialog({ products, onClose, onCreated }: { p
     };
     running.current = true; setBusy(true); setError('');
     try {
-      const created = await createTicket(body, new AbortController().signal);
+      const created = await createTicket(body, AbortSignal.timeout(30_000));
       onCreated();
       onClose();
       navigate(`/cs/tickets/${encodeURIComponent(created.data.id)}`);
     } catch (caught) {
       const status = caught instanceof ApiError ? caught.status : 0;
-      if (status >= 400 && status < 500 && status !== 408) setError((caught as ApiError).message);
+      if (status === 422) setError('서버가 입력값을 받지 않았습니다. 필수 칸과 형식(고객 ID·제품 코드·길이)을 확인하세요.');
+      else if (status >= 400 && status < 500 && status !== 408) setError((caught as ApiError).message);
       else { setError('등록 결과를 확인하지 못했습니다. 같은 문의를 다시 등록하지 말고 목록을 조회해 먼저 확인하세요.'); setUnknown(true); onCreated(); }
     } finally { running.current = false; setBusy(false); }
   }
