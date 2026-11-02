@@ -75,9 +75,12 @@ ASSEMBLY_WORDS = (
     "배전반",
     "분전반",
     "제어반",
+    "차단기반",
 )
 # 조립품 이름과 같이 써도 부품 요구다(예: "switchgear circuit breaker", 인출형 차단기).
-DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb", "차단기")
+DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb")
+# 한국어 장비 이름은 끝말이 장비다: "차단기 포함 개폐반"은 개폐반, "개폐반용 차단기"는 차단기. "차단기반"은 조립품이다.
+KOREAN_DEVICE = re.compile(r"차단기(?!반)")
 ASSEMBLY_STANDARDS = (
     "IEC 62271-200",
     "IEC 62271-201",
@@ -511,10 +514,16 @@ def _has_word(text: str, words: Sequence[str], plural: bool = False) -> bool:
 
 def _is_assembly(requirement: Requirement) -> bool:
     """요구 장비가 조립품(개폐반·배전반 등)인지. 장비 이름에 부품(차단기) 낱말이 있으면 부품 요구로 본다."""
+    item = requirement.item
     # 부품 낱말은 단수만 본다: "switchgear with circuit breakers"는 차단기를 담은 개폐반(조립품) 요구다.
-    return _has_word(requirement.item, ASSEMBLY_WORDS, plural=True) and not _has_word(
-        requirement.item, DEVICE_WORDS
-    )
+    if not _has_word(item, ASSEMBLY_WORDS, plural=True) or _has_word(item, DEVICE_WORDS):
+        return False
+    devices = [m.end() for m in KOREAN_DEVICE.finditer(item)]
+    if not devices:
+        return True
+    plain = item.lower().replace("-", " ")
+    last_assembly = max(plain.rfind(word) + len(word) for word in ASSEMBLY_WORDS if word in plain)
+    return last_assembly > max(devices)
 
 
 def _is_component(product: Product) -> bool:

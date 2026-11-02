@@ -1825,6 +1825,8 @@ def test_an_assembly_requirement_is_not_met_by_a_breaker_rating():
         "15kV 금속폐쇄형 개폐장치",
         "Medium-Voltage Switchgears",
         "switchgear with circuit breakers",
+        "차단기 포함 15kV 개폐반",
+        "15kV 차단기반",
     ):
         assert (
             compare_in_family(mv_voltage(item), "MV_EQUIP", load_own_products()).status
@@ -1834,7 +1836,7 @@ def test_an_assembly_requirement_is_not_met_by_a_breaker_rating():
 
 def test_a_breaker_requirement_still_uses_the_breaker_rating():
     """부품 요구에는 부품 근거를 그대로 쓴다(장비 이름에 개폐반이 있어도 차단기 요구면 같다)."""
-    for item in ("vacuum circuit breaker", "switchgear circuit breaker"):
+    for item in ("vacuum circuit breaker", "switchgear circuit breaker", "개폐반용 진공 차단기"):
         outcome = compare_in_family(mv_voltage(item), "MV_EQUIP", load_own_products())
         assert outcome.status == "EVIDENCE_FOUND", item
         assert {c.product_code for c in outcome.candidates if c.status == "EVIDENCE_FOUND"} == {
