@@ -83,7 +83,8 @@
           "recurrence_prevention": "Quality feedback sent to factory for lot analysis.",
           "dept_result_id": null,
           "responsibility": null,
-          "non_manufacturing_reason": null
+          "non_manufacturing_reason": null,
+          "improvement_candidate": null
         }
       },
       "meta": {
@@ -433,7 +434,8 @@
         "recurrence_prevention": null,
         "dept_result_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
         "responsibility": null,
-        "non_manufacturing_reason": null
+        "non_manufacturing_reason": null,
+        "improvement_candidate": null
       },
       "meta": {
         "request_id": "11111111-1111-4111-8111-111111111111"

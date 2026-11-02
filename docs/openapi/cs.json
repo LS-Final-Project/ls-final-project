@@ -276,6 +276,39 @@
         "title": "Baseline",
         "type": "object"
       },
+      "CandidateAfterCase": {
+        "description": "What the automatic candidate judgement did right after a case was registered (KAN-206).",
+        "properties": {
+          "outcome": {
+            "enum": [
+              "CREATED",
+              "ALREADY_REQUESTED",
+              "NOT_ELIGIBLE",
+              "SKIPPED",
+              "FAILED"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "CandidateAfterCase",
+        "type": "object"
+      },
       "CandidateCollect": {
         "additionalProperties": false,
         "properties": {
@@ -6155,6 +6188,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "improvement_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateAfterCase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Candidate judgement of this product and fault right after registration. FAILED means the case was saved but the judgement did not run; null when read later."
           },
           "known_at": {
             "description": "Earliest time this case may be used as evidence.",

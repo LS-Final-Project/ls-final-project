@@ -5,6 +5,7 @@ Each action locks the ticket row, then checks in the order of permissions.md 1.3
 moves the state through the mail sending path (KAN-74), not through this router.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any, get_args
 from uuid import UUID, uuid4
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
-from backend.api.cs.tickets.schemas import ResolutionCase, WorkflowState
+from backend.api.cs.tickets.schemas import CandidateAfterCase, ResolutionCase, WorkflowState
 from backend.api.cs.workflow import repository
 from backend.api.cs.workflow.mail import unsettled
 from backend.api.cs.workflow.schemas import (
@@ -66,6 +67,8 @@ router = APIRouter(
 
 Row = dict[str, Any]
 ALL_STATES = get_args(WorkflowState)
+
+logger = logging.getLogger(__name__)
 
 
 def require_role(principal: Principal, role: Role) -> None:
@@ -663,4 +666,50 @@ async def register_resolution_case(
                 "fault_id": {"to": payload.fault_id},
             },
         )
-    return respond(request, ResolutionCase.model_validate(case))
+    # 기획서 ⑧ → ⑩: 사례가 저장된 뒤 그 제품·고장 묶음만 다시 판정한다(KAN-206). 실패해도 등록은 그대로다.
+    candidate = await candidate_after_case(request, principal.user_id, case)
+    return respond(
+        request, ResolutionCase.model_validate({**case, "improvement_candidate": candidate})
+    )
+
+
+async def candidate_after_case(
+    request: Request, actor: UUID, case: dict[str, Any]
+) -> CandidateAfterCase:
+    """Runs the KAN-202 candidate collection for the case's group on its own connection.
+
+    The case is already committed. Any failure here is logged with a fixed code and reported as
+    FAILED so the registration response stays a 201.
+
+    Args:
+        request: Request with the C/S settings.
+        actor: User who registered the case; recorded as the run's actor.
+        case: The saved case row (data_origin, product_code, fault_id, known_at).
+
+    Returns:
+        CandidateAfterCase: What the judgement did for this group.
+    """
+    from backend.api.cs.improvements import repository as improvements
+    from backend.api.cs.improvements.candidates import save_candidates
+
+    group = (case["data_origin"], case["product_code"], case["fault_id"])
+    try:
+        async with connection(request.app.state.settings) as conn:
+            # The new record is judged with its own known_at, so it counts.
+            collected = await save_candidates(conn, actor, case["known_at"], group=group)
+            existing = (await improvements.fault_requests(conn)).get(group)
+    except Exception:  # noqa: BLE001 - 후보 판정은 보조 단계라 등록을 실패로 바꾸지 않는다.
+        logger.warning(
+            "cs candidate after case failed",
+            extra={"code": "CS_CANDIDATE_AFTER_CASE_FAILED", "ticket_id": str(case["ticket_id"])},
+        )
+        return CandidateAfterCase(outcome="FAILED")
+    if collected.created:
+        return CandidateAfterCase(outcome="CREATED", request_id=collected.request_ids[0])
+    if collected.already_requested:
+        return CandidateAfterCase(
+            outcome="ALREADY_REQUESTED", request_id=existing["id"] if existing else None
+        )
+    if collected.skipped:
+        return CandidateAfterCase(outcome="SKIPPED")
+    return CandidateAfterCase(outcome="NOT_ELIGIBLE")
