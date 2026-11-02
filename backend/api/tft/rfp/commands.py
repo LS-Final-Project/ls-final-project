@@ -54,8 +54,8 @@ OPERATIONS: frozenset[str] = frozenset(
 )
 
 
-# 연산 → (감사 대상, 응답에서 대상 ID를 읽을 칸). 멱등 기록이 곧 쓰기 기록이다. proposal.approve는
-# 응답이 요구 상세이고 제안자·승인자를 함께 남겨야 해서 경로가 직접 기록한다.
+# 연산 → (감사 대상, 응답에서 대상 ID를 읽을 칸). 멱등 기록이 곧 쓰기 기록이다. proposal.approve·reject는
+# 제안자·결정자와 결정 내용을 함께 남겨야 해서 경로가 직접 기록한다.
 AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "project.create": ("project", "id"),
     "document.upload": ("document", "document_version_id"),
@@ -64,7 +64,6 @@ AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "question.reply": ("question", "question_id"),
     "question.confirm": ("question", "question_id"),
     "proposal.create": ("proposal", "proposal_id"),
-    "proposal.reject": ("proposal", "proposal_id"),
     "project.process": ("job", "job_id"),
     "annotation.process": ("job", "job_id"),
     "review_version.create": ("review_version", "review_version"),
@@ -97,7 +96,7 @@ async def audit(
         action: 행동 이름(연산 이름).
         actor: 요청자.
         proposer: 승인한 제안의 제안자(시스템 제안이면 None).
-        approver: 승인자.
+        approver: 승인자(기각이면 기각한 사람).
         detail: from·to 등 추가 내용.
 
     Returns:
