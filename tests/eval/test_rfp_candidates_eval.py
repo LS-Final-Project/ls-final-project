@@ -100,9 +100,10 @@ GOLD = GoldFile.model_validate(
                         "expected_status": "SPEC_GAP",
                         "necessity": "MANDATORY",
                     },
+                    # 과업 요구는 어휘 키가 없어 정답 속성이 null이다(정답 작성 규칙).
                     {
                         "clause_no": "2.6.B",
-                        "attribute": "factory test",
+                        "attribute": None,
                         "expected_status": "INSUFFICIENT_EVIDENCE",
                         "necessity": "MANDATORY",
                     },
@@ -190,6 +191,83 @@ def test_the_evaluation_grades_insufficient_requirements_like_the_processor():
     assert set(run.grades) == {"P-A", "P-B"}
 
 
+def test_predictions_are_keyed_by_vocabulary_attribute_not_clause_wording():
+    """정답 키는 어휘 키다. 추출의 attribute(원문 문구 "BIL")가 아니라 attribute_key("bil")로 맞추고,
+    인증·규격은 certification, 어휘 밖(OTHER)은 null이다(KAN-191, 정답 v1 작성 규칙)."""
+
+    def wording(text):
+        return gen(
+            [
+                req(
+                    "2.6.A",
+                    QUOTE_A,
+                    "BIL",
+                    "38",
+                    "kV",
+                    operator="GTE",
+                    attribute_key="bil",
+                    equipment_family="MV_EQUIP",
+                ),
+                req(
+                    "2.6.A",
+                    QUOTE_A,
+                    "IEEE C37.20.1 listed",
+                    operator="TEXT",
+                    kind="COMPLIANCE",
+                    standard_system="IEEE",
+                    attribute_key="OTHER",
+                ),
+                req("2.6.B", QUOTE_B, "factory test", operator="TEXT", task="FACTORY_TEST"),
+            ]
+        )
+
+    gold = GoldFile.model_validate(
+        {
+            "gold_version": "synthetic-v1",
+            "documents": [
+                {
+                    "document_number": 14,
+                    "sections": ["2.6"],
+                    "requirements": [
+                        {
+                            "clause_no": "2.6.A",
+                            "attribute": "bil",
+                            "expected_status": "INSUFFICIENT_EVIDENCE",
+                            "necessity": "MANDATORY",
+                        },
+                        {
+                            "clause_no": "2.6.A",
+                            "attribute": "certification",
+                            "expected_status": "INSUFFICIENT_EVIDENCE",
+                            "necessity": "MANDATORY",
+                        },
+                        {
+                            "clause_no": "2.6.B",
+                            "attribute": None,
+                            "expected_status": "INSUFFICIENT_EVIDENCE",
+                            "necessity": "MANDATORY",
+                        },
+                    ],
+                    "candidates": {},
+                }
+            ],
+        }
+    )
+    run = run_document(tree(), gold.documents[0], wording, OWN, PROFILES, date(2026, 11, 20))
+    assert [(r.clause_no, r.attribute) for r in run.predicted] == [
+        ("2.6.A", "bil"),
+        ("2.6.A", "certification"),
+        ("2.6.B", None),
+    ]
+    summary = summarize(gold, [run], "FIRST")
+    # 글자가 다른 원문 문구를 키로 썼다면 세 요구 모두 미추출로 세어 재현율이 0이 됐을 것이다.
+    extraction = summary["extraction"]["extraction"]
+    assert (extraction["recall_count"], extraction["precision_count"]) == ("3/3", "3/3")
+    # 상태 일치율은 사유를 비교하지 않은 참고 값이다(정답 사유가 비어 있으면 게이트 값은 None).
+    assert summary["extraction"]["status_match"]["count"] == "3/3"
+    assert summary["extraction"]["status_match"]["reason_compared"] is False
+
+
 def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
     run = run_document(tree(), GOLD.documents[0], provider, OWN, PROFILES, date(2026, 11, 20))
     assert run.section_outcomes == {"2.6": "VALID"}
@@ -226,6 +304,10 @@ def test_a_document_runs_the_processor_path_and_writes_the_adoption_result():
     meta = data["meta"]
     # 개발 문서의 FIRST는 공식 점수가 아니다(공식은 평가 문서 첫 실행만).
     assert (meta["documents"], meta["official"], meta["counts"]["recall"]) == (1, False, "2/2")
+    # 정답 사유가 없으면 상태 일치 수는 참고 값이고 게이트 값은 None이다.
+    assert meta["counts"]["status_match"] == "2/2"
+    assert meta["counts"]["status_match_reason_compared"] is False
+    assert row["rfp_status_match_rate"] is None
     # 결과에는 원문 인용·값을 넣지 않는다.
     dumped = json.dumps(data, ensure_ascii=False)
     assert QUOTE_A not in dumped and QUOTE_B not in dumped and '"38"' not in dumped

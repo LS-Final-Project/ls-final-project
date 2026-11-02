@@ -281,9 +281,25 @@ async def reject_proposal(
         project = await decidable_project(conn, principal, proposal_id)
 
         async def work() -> dict[str, Any]:
-            await pending_proposal(conn, proposal_id, payload.version)
+            proposal = await pending_proposal(conn, proposal_id, payload.version)
             row = await repository.decide_proposal(
                 conn, proposal_id, "REJECTED", principal.user_id, payload.reason
+            )
+            # 승인과 같이 제안자·결정자를 남기고, 바꾸지 않은 제안값과 사유를 상세에 둔다.
+            await commands.audit(
+                conn,
+                project_id=project["id"],
+                entity="proposal",
+                entity_id=proposal_id,
+                action="proposal.reject",
+                actor=principal.user_id,
+                proposer=proposal["proposer_user_id"],
+                approver=principal.user_id,
+                detail={
+                    "to": {"status": row["status"], "version": row["version"]},
+                    "proposed": proposal["proposed"],
+                    "reason": payload.reason,
+                },
             )
             return proposal_out(row).model_dump(mode="json")
 

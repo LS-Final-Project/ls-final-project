@@ -1,8 +1,10 @@
 # 각 팀원 PC의 로컬 업무 실행 (KAN-159)
 
-각자 받은 자료와 같은 코드를 사용해 신규 C/S는 UI 등록, RFP는 UI 업로드 후 실제 처리한다. **현재 실행도구는 통합 검증 중이다. 이 안내는 설치·실기동·실모델 처리 성공 기록이 아니다.** 코드와 명령의 최종 대조는 실행도구 담당(coder2)이 통합할 때 수행한다.
+각자 받은 자료와 같은 코드를 사용해 신규 C/S는 UI 등록, RFP는 UI 업로드 후 실제 처리한다. **source `46b750fc32c2c25d83385d5ea8bee4af52a92032` 실행 스냅샷에 로컬 worker CONNECT 권한을 보정한 환경의 실증 기록이 있다. 최신 통합 코드 전체 E2E·품질·실제 Microsoft/메일·운영 완료와는 구분한다.**
 
-명령은 coder2의 `scripts/local_business/{__main__,setup,stack,dispatcher}.py` 작업본을 정적으로 대조했다(당시 HEAD `5389de23baa3cd108b1d6700ca0d7d8584791e1b`, 미커밋 CLI 포함). 이 문서 단독 브랜치에는 실행도구가 없으므로, **runner가 통합된 코드**에서 실행해야 한다. 기존 [데이터 준비 안내](local-business-data.md)와 공통 해시 기준은 PR [#555](https://github.com/LS-Final-Project/ls-final-project/pull/555)에 있다.
+감독이 확인한 범위는 C/S 등록 → 분석 → 팝업, RFP 처리 20 / 초안 48 → 사용자 승인 OWN → 검토본 → DOCX 완료다. 누적 모델 호출은 8회, 기록 비용은 USD 0.083790이며 DOCX export의 추가 모델 호출은 0회다. 해당 검증 종료·본 정정 시점에 모델은 OFF다. 이 기록을 다른 PC나 최신 통합 코드의 전체 재실행 성공으로 확대하지 않는다.
+
+명령은 `scripts/local_business/{__main__,setup,stack,dispatcher}.py`의 CLI 기준이다. 새 setup에는 통합된 코드를 사용하고 namespace에 기록된 `source_sha`를 확인한다. 기존 실행 스냅샷과 현재 Git HEAD를 혼동하지 않는다. 기존 [데이터 준비 안내](local-business-data.md)와 공통 해시 기준은 PR [#555](https://github.com/LS-Final-Project/ls-final-project/pull/555)에 있다.
 
 ## 1. PC 준비
 
@@ -40,7 +42,7 @@ setup에서 만드는 자체 TLS 인증서의 유효기간은 **7일**이다. �
 
 setup 시 코드 SHA·archive hash·이미지 ID·frontend 산출물 hash를 `artifacts/local-business/$NS/settings.json`에 기록한다. 이후 start/restart는 그때 보관한 source/dist를 사용하므로 저장소 pull만으로 기존 namespace의 실행 코드가 바뀌지는 않는다. 코드 갱신이 필요하면 담당자와 별도 새 namespace를 준비하고 이전 DB를 보존한다.
 
-브라우저의 `/api/v1/platform/auth/login`에서 로컬 fixture의 합성 계정 선택 form으로 이동한다. C/S 담당자·변압기 기술지원·수주 담당자·관리자 4개에 대응하며 제품 세션·역할·CSRF 경계를 이용한다. **Microsoft 로그인·Graph·실제 사서함 검증은 아니다.** chooser/웹 연결은 현재 통합 확인 대상으로, 실제 선택 화면 성공을 이 문서에서 보장하지 않는다. 메일 인증·수집·발송, 평가 실행·푸시·자동 sweep은 비활성으로 설정한다. 실제 Microsoft 계정·토큰을 넣어 이 fixture를 대체하지 않는다.
+브라우저의 `/api/v1/platform/auth/login`에서 로컬 fixture의 합성 계정 선택 form으로 이동한다. C/S 담당자·변압기 기술지원·수주 담당자·관리자 4개에 대응하며 제품 세션·역할·CSRF 경계를 이용한다. **Microsoft 로그인·Graph·실제 사서함 검증은 아니다.** 앞선 source46 실증은 이 로컬 fixture 범위의 기록이며 실제 Microsoft 인증 성공의 증거로 쓰지 않는다. 메일 인증·수집·발송, 평가 실행·푸시·자동 sweep은 비활성으로 설정한다. 실제 Microsoft 계정·토큰을 넣어 이 fixture를 대체하지 않는다.
 
 ## 3. 자료 준비 후 필요한 작업만 real 활성화
 
@@ -48,7 +50,7 @@ setup 시 코드 SHA·archive hash·이미지 ID·frontend 산출물 hash를 `ar
 
 ### C/S 검색 근거
 
-C/S real 전에는 **해당 namespace DB에 실제 적재된** `execute/chunking-v3` 검색 manifest와 필수 `POL-ORDER/RETURN/SERVICE/WARRANTY` 매핑을 준비한다. dry-run manifest로 대신하지 않는다. 아래는 새 기능이 아닌 기존 `scripts.cs_index_docs --execute`의 **명시적 로컬 DB 적재** 명령이다. 해당 PC의 setup이 끝나고 원자료 hash 대조가 통과한 뒤, real driver가 꺼진 상태에서 실행한다. 실제 명령 검증·적재는 coder2의 새 disposable namespace에서 별도로 수행하며 문서 작성자는 실행하지 않았다.
+C/S real 전에는 **해당 namespace DB에 실제 적재된** `execute/chunking-v3` 검색 manifest와 필수 `POL-ORDER/RETURN/SERVICE/WARRANTY` 매핑을 준비한다. dry-run manifest로 대신하지 않는다. 아래는 새 기능이 아닌 기존 `scripts.cs_index_docs --execute`의 **명시적 로컬 DB 적재** 명령이다. 해당 PC의 setup이 끝나고 원자료 hash 대조가 통과한 뒤, real driver가 꺼진 상태에서 실행한다. 아래는 각 새 namespace의 재현 명령이다. 앞선 source46 실증을 각 PC의 적재 성공으로 대신하지 않으며 문서 작성자는 직접 적재를 실행하지 않았다.
 
 저장소 루트에서 `NS`를 앞 단계와 동일하게 지정한다. `CS_INPUT_DOCS`는 받은 묶음의 실제 `docs/` 절대 경로로 바꾼다. 첫 Python 구간은 기존 `owned()`로 namespace 소유권·DB 이미지/볼륨·frontend 산출물 등을 읽기 확인하고, settings의 `source_sha`가 현재 코드 HEAD인지 확인한 뒤 **settings에 기록된 runtime image ID**를 선택한다. 다른 namespace나 현재 태그의 이미지로 임의 대체하지 않는다. 이 확인이 실패하면 뒤의 적재를 실행하지 않는다.
 
@@ -99,7 +101,7 @@ docker run --rm --pull=never \
 
 ### RFP 기본 협력사 프로필
 
-같은 신규 namespace의 internal PG에 기본 tracked 합성 프로필 **12곳(P/L/M/T)**을 명시 적재한다. 검증용 demo-en Q-A~F 6곳은 선택하지 않으며 `--profiles`로 교체하지 않는다. 자사 23종 파생 파일과 달리 협력사 프로필은 DB 행이 필요하지만, 등급·선택·비교·분석 결과는 seed하지 않는다. 기존 `scripts.rfp_seed_partner_profiles`만 사용하며 새 importer나 자동 seed를 추가하지 않는다. 실제 명령 검증·적재는 coder2의 fresh disposable에서 별도로 수행하며 작성자는 실행하지 않았다.
+같은 신규 namespace의 internal PG에 기본 tracked 합성 프로필 **12곳(P/L/M/T)**을 명시 적재한다. 검증용 demo-en Q-A~F 6곳은 선택하지 않으며 `--profiles`로 교체하지 않는다. 자사 23종 파생 파일과 달리 협력사 프로필은 DB 행이 필요하지만, 등급·선택·비교·분석 결과는 seed하지 않는다. 기존 `scripts.rfp_seed_partner_profiles`만 사용하며 새 importer나 자동 seed를 추가하지 않는다. 아래는 각 새 namespace의 재현 명령이며 source46의 업무 결과를 사전 seed하지 않는다. 문서 작성자는 직접 적재를 실행하지 않았다.
 
 저장소 루트의 같은 터미널에서 실행한다. 앞 C/S 블록의 변수는 subshell을 벗어나면 남지 않으므로 여기서 namespace와 기록된 runtime 이미지를 다시 확인한다. 이후 단계가 끝날 때까지 `NS`·아래 변수를 바꾸지 않는다. 확인이 실패하면 중단한다. 함수는 같은 Docker 명령을 반복 호출하기 위한 현재 터미널용 정의이며 파일을 생성하지 않는다.
 
@@ -194,6 +196,6 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 고아 QUEUED/RUNNING, 살아 있는 lease, 중단된 driver, 비용 RESERVED/UNKNOWN이 있으면 **enable-real·재시작을 중단하고 담당자에게 보고**한다. UI 재요청·setup 재실행·DB/permit 행 삭제·토큰 초기화로 우회하지 않는다. 현재 비용 journal은 미정산 예약을 발견하면 `LOCAL_COST_UNKNOWN_REVIEW_REQUIRED` 등으로 추가 허용을 거부한다. 고아 job의 일괄 자동 복구 CLI는 없다. 정규 stale lease 복구도 살아 있는 holder를 지우지 않는 기존 절차에 따라 담당자가 판단한다.
 
-**통합 WIP:** driver label/owner 확인과 status의 실제 driver 조회는 coder2 수정본에서 대조했다. 그러나 모든 고아 job을 start/restart에서 자동 거부하는 기능이나 복구 전용 CLI는 없다. 사용자가 status를 확인해 중단하고 담당자와 복구를 판단해야 한다. 비용 불명 차단은 추가 유료 허용에 대한 것으로 앱 재시작만으로 정산되거나 안전해지지 않는다. coder2의 최종 명령 대조·전체 통합 검증은 아직 미완료이며 설치 성공으로 표시하지 않는다.
+**남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. UI 작업은 한 번에 하나씩 요청하고 종료·허용 상태를 확인한 후 다음 작업을 보낸다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
 
-status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 본 문서 작성 중 setup/start/적재/모델/DB 실행은 없었으며, 설치 성공·전체 업무 완료·운영 배포를 주장하지 않는다.
+status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 이번 문서 정정·dev 정합 작업에서는 setup/start/적재/모델/DB를 추가 실행하지 않았다. 앞선 source46 실증, 최신 코드 정합, 각 PC의 재현과 전체 업무·운영 완료를 각각 구분해 기록한다.
