@@ -1,7 +1,7 @@
 """KAN-153 Q05: 14번 시연 흐름에서 변경 제안 기각·목록 구분과 가상·검토용 표시를 확인한다(전용 PostgreSQL, 가짜 추출기).
 
 A09 시험(test_a09_demo_flow_db.py)이 흐름 전체·승인·재실행 보존·검토본·내보내기를 이미 다룬다. 이 파일은 그와 겹치지 않는
-Q05 완료 조건만 본다: (1) 기각하면 요구 판본은 그대로이고 제안 행(결정자·사유)과 명령 기록만 남는다, (2) 제안 목록이 승인 대기·
+Q05 완료 조건만 본다: (1) 기각하면 요구 판본은 그대로이고 제안 행(결정자·사유)과 명령·감사 기록이 남는다, (2) 제안 목록이 승인 대기·
 승인·기각을 구분해 보여 준다, (3) 협력사 후보·초안·내보낸 검토본에 가상(합성) 표시와 검토용 문구가 남는다.
 
 한계: 요구 추출은 A09의 가짜 추출기 값이다. 재처리 때 사람이 손댄 요구를 변경 제안으로 다시 띄우는 규칙은 구현에 없다
@@ -67,7 +67,7 @@ def propose(client, project, requirement_id, status, rationale):
 def test_rejecting_a_proposal_keeps_the_requirement_and_leaves_only_history(
     worker_dsn, admin, app_dsn, tmp_path, demo_profiles
 ):
-    """기각은 요구 판본·재검토 표시를 만들지 않고, 제안 행에 결정자·시각·사유가, 명령 기록에 기각이 남는다. 다시 결정할 수 없다."""
+    """기각은 요구 판본·재검토 표시를 만들지 않고, 제안 행에 결정자·시각·사유가, 명령·감사 기록에 기각이 남는다. 다시 결정할 수 없다."""
     project = processed(worker_dsn, admin, tmp_path)
     requirement = requirement_of(admin, project, "BIL 95kV")
     before = versions_of(admin, requirement)
@@ -225,7 +225,7 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
         saved = client.post(
             f"{base}/review-versions",
             json={"version": data["version"]},
-            headers=sales_headers("q05-review"),
+            headers=sales_headers(uuid4().hex),
         )
         assert saved.status_code == 201, saved.text
 
@@ -247,7 +247,7 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
         received = client.post(
             f"{base}/exports",
             json={"review_version": saved.json()["data"]["review_version"], "format": "DOCX"},
-            headers=sales_headers("q05-export"),
+            headers=sales_headers(uuid4().hex),
         )
         assert received.status_code == 202, received.text
         export_id = received.json()["data"]["export_id"]
