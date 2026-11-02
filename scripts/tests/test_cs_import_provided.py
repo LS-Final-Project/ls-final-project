@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stdout
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,8 +24,18 @@ NS = "team4-kan159-import-offline"
 OWNER = "12345678-1234-4234-8234-123456789abc"
 PG = "sha256:" + "a" * 64
 RUNTIME = "sha256:" + "b" * 64
+SOURCE_SHA = "d" * 40
+LOADER_SHA = loader.digest(Path(loader.__file__).read_bytes())
 TARGET = loader.Target(
-    NS, OWNER, PG, RUNTIME, "7703436257927106598", 19676, "kan159_import_fixture_coder2_20261102"
+    NS,
+    OWNER,
+    PG,
+    RUNTIME,
+    "7703436257927106598",
+    19676,
+    SOURCE_SHA,
+    LOADER_SHA,
+    "kan159_import_fixture_coder2_20261102",
 )
 DSN = "postgresql://postgres@127.0.0.1:5432/" + TARGET.db_name
 
@@ -244,7 +255,7 @@ class ImportTests(unittest.TestCase):
                     "namespace": NS,
                     "owner": OWNER,
                     "setup_complete": True,
-                    "source_sha": loader.BASE_SOURCE,
+                    "source_sha": SOURCE_SHA,
                     "images": {"pg": PG, "runtime": RUNTIME},
                     "web_origin": "https://localhost:39443",
                     "ports": {"web": 39443},
@@ -297,6 +308,10 @@ class ImportTests(unittest.TestCase):
             TARGET.system_id,
             "--expected-db-oid",
             str(TARGET.db_oid),
+            "--expected-source-sha",
+            SOURCE_SHA,
+            "--expected-loader-sha256",
+            LOADER_SHA,
             "--expected-db-name",
             TARGET.db_name,
             "--receipt",
@@ -434,6 +449,74 @@ class ImportTests(unittest.TestCase):
             (self.state / "settings.json").write_bytes(loader.encoded(modified))
             with self.assertRaises(loader.Invalid):
                 loader.validate_target(self.state, TARGET, DSN)
+
+    def test_two_pinned_sources_bind_token_and_receipt(self):
+        cfg = json.loads((self.state / "settings.json").read_bytes())
+        for source in ("a" * 40, "b" * 40):
+            target = replace(TARGET, expected_source_sha=source)
+            (self.state / "settings.json").write_bytes(
+                loader.encoded({**cfg, "source_sha": source})
+            )
+            loader.validate_target(self.state, target, DSN)
+            self.assertNotEqual(target.token(), TARGET.token())
+            proof = loader.receipt(self.plan(), target)["target"]
+            self.assertEqual(proof["expected_source_sha"], source)
+            self.assertEqual(proof["expected_loader_sha256"], LOADER_SHA)
+        self.assertNotEqual(
+            replace(TARGET, expected_loader_sha256="0" * 64).token(), TARGET.token()
+        )
+        self.connect_mock.assert_not_called()
+
+    def test_apply_proof_failures_are_preconnect(self):
+        plan = self.plan()
+        for flag, value in (
+            ("--expected-source-sha", "a" * 40),
+            ("--expected-source-sha", "D" * 40),
+            ("--expected-source-sha", "short"),
+            ("--expected-loader-sha256", "0" * 64),
+            ("--expected-loader-sha256", "A" * 64),
+        ):
+            args = self.apply_cli() + ["--confirm-target", TARGET.token()]
+            args[args.index(flag) + 1] = value
+            with (
+                self.subTest(flag=flag, value=value),
+                patch.object(loader, "prepare", return_value=plan),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(loader.main(args), 1)
+        for flag in ("--expected-source-sha", "--expected-loader-sha256"):
+            args = self.apply_cli()
+            index = args.index(flag)
+            del args[index : index + 2]
+            with (
+                self.subTest(missing=flag),
+                patch.object(loader, "prepare", return_value=plan),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(loader.main(args), 1)
+        altered = self.root / "altered-loader.py"
+        altered.write_bytes(b"different executable bytes")
+        with patch.object(loader, "__file__", str(altered)), self.assertRaises(loader.Invalid):
+            loader.validate_target(self.state, TARGET, DSN)
+        self.connect_mock.assert_not_called()
+
+    def test_dryrun_needs_no_target_proof_and_old_receipt_is_not_converted(self):
+        plan = self.plan()
+        with patch.object(loader, "prepare", return_value=plan), redirect_stdout(io.StringIO()):
+            self.assertEqual(loader.main(self.cli()), 0)
+        old = loader.receipt(plan, TARGET)
+        old["target"].pop("expected_source_sha")
+        old["target"].pop("expected_loader_sha256")
+        path = self.root / "receipt.json"
+        path.write_bytes(loader.encoded(old) + b"\n")
+        path.chmod(0o600)
+        before = path.read_bytes()
+        with patch.object(loader, "prepare", return_value=plan), redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                loader.main(self.apply_cli() + ["--confirm-target", TARGET.token()]), 1
+            )
+        self.assertEqual(path.read_bytes(), before)
+        self.connect_mock.assert_not_called()
 
     def test_actual_sql_shape_idempotency_and_private_metadata_receipt(self):
         plan = self.plan()
