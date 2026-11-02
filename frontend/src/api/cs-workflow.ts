@@ -1,6 +1,7 @@
 import type { paths } from './generated/cs';
 import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
 import { me } from './platform';
+import type { TicketDetailResponse } from './cs';
 
 type Wf = '/api/v1/cs/tickets/{ticket_id}/workflow';
 export type WorkflowResponse = paths[Wf]['get']['responses'][200]['content']['application/json'];
@@ -73,3 +74,15 @@ export const isResultVersionConflict = (error: unknown) => error instanceof ApiE
 export const isResolutionExists = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_RESOLUTION_CASE_EXISTS';
 export const isInvalidOwner = (error: unknown) => error instanceof ApiError && error.status === 422 && error.code === 'CS_INVALID_OWNER';
 export const isVersionConflict = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_WORKFLOW_VERSION_CONFLICT';
+
+// 담당자가 문의를 직접 등록한다(수동 접수). 출처·판본·ID는 서버가 정하므로 보내지 않는다. 새 문의는 접수 상태로 시작한다.
+export type TicketCreateBody = paths['/api/v1/cs/tickets']['post']['requestBody']['content']['application/json'];
+export async function createTicket(body: TicketCreateBody, signal: AbortSignal) {
+  if (getApiMode() !== 'live') throw new ApiError(403, '모의 응답 모드에서는 실행할 수 없습니다. 실제 API에서 실행하세요.');
+  const identity = await me();
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  if (!identity?.data.roles.includes('cs_agent')) throw new ApiError(403, 'C/S 담당자 세션이 필요합니다.');
+  const token = sessionCsrfToken();
+  if (!token) throw new ApiError(403, '세션 보호 정보를 확인할 수 없습니다. 다시 로그인해 주세요.');
+  return request<TicketDetailResponse>('/api/v1/cs/tickets', { method: 'POST', signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
+}

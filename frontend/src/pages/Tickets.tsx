@@ -6,6 +6,7 @@ import { ApiError, getApiMode } from '../api/client';
 import type { TicketListResponse } from '../api/cs';
 import { listImprovements } from '../api/cs-improvements';
 import { ErrorState, Loading } from '../components/states';
+import TicketCreateDialog from '../components/TicketCreateDialog';
 import { useTicketPages } from '../ls-shell/use-tickets';
 import { KvCond, KvCondField, KvCondRow, KvFoot, KvGrid, KvKey, KvTitle, downloadCsv, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, dayOf, formatStamp, type RequestSummary, type TicketChannel } from '../ls-shell/cs-labels';
@@ -33,6 +34,7 @@ export default function Tickets() {
   const [search, setSearch] = useState('');
   const [newestFirst, setNewestFirst] = useState(true);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [creating, setCreating] = useState(false);
 
   const tickets = useTicketPages(access.ready);
   const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready });
@@ -110,7 +112,7 @@ export default function Tickets() {
   return <main>
     <KvTitle path="C/S 관리" title="문의 조회" code="CS0101">
       <button className="kb primary" disabled={tickets.isFetching} onClick={refresh}>조회<KvKey>F8</KvKey></button>
-      <button className="kb" disabled title="직접 등록 API가 아직 없습니다">신규 등록</button>
+      <button className="kb" disabled={mode !== 'live'} title={mode !== 'live' ? '실제 API 모드에서만 등록할 수 있습니다' : undefined} onClick={() => setCreating(true)}>신규 등록</button>
       <button className="kb" disabled={rows.length === 0} onClick={exportCsv} title={pickedRows.length ? `선택한 ${pickedRows.length}건만 내려받습니다` : '표시된 행 전체를 내려받습니다'}>엑셀{pickedRows.length > 0 && <small> {pickedRows.length}</small>}</button>
       <button className="kb" onClick={() => window.print()}>인쇄</button>
     </KvTitle>
@@ -153,5 +155,6 @@ export default function Tickets() {
     <div className="kv-gridhead sub"><span>개선요청, 진행 중 {requests.length}건</span><Link className="right" to="/cs/improvements">개선요청 조회 (CS0301)</Link></div>
     <KvGrid label="개선요청 목록" columns={requestColumns} rows={requests} rowKey={item => item.id}
       fallback={improvements.isPending ? '불러오는 중' : improvements.isError ? (improvements.error instanceof ApiError && improvements.error.status === 401 ? '로그인이 필요합니다. 계정 화면에서 다시 로그인하세요.' : improvements.error instanceof ApiError && improvements.error.status === 403 ? '개선요청을 볼 권한이 없습니다.' : '개선요청을 불러오지 못했습니다.') : '진행 중인 개선요청이 없습니다.'} />
+    {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={refresh} />}
   </main>;
 }
