@@ -56,6 +56,7 @@ from backend.engine.rfp.requirements import (
     ExtractedRequirement,
     Operator,
     ResponseSchema,
+    StandardSystem,
     build_inputs,
     extract_section,
 )
@@ -314,17 +315,27 @@ def rating_operator(item: ExtractedRequirement) -> Operator:
     return item.operator
 
 
-def section_systems(items: Iterable[ExtractedRequirement]) -> dict[str, str]:
-    """절(조항 번호 앞 두 자리, 예 2.6)마다 하나로 정해진 규격 체계. 체계가 둘 이상이거나 없으면 넣지 않는다.
+SectionKey = tuple[str, str | None]
+
+
+def section_systems(items: Iterable[ExtractedRequirement]) -> dict[SectionKey, StandardSystem]:
+    """절(조항 번호 앞 두 자리, 예 2.6)과 장비 계열마다 하나로 정해진 규격 체계. 둘 이상이거나 없으면 넣지 않는다.
+
+    장비 계열까지 키로 써서, 한 절에 개폐반 IEEE 조항과 다른 계열(변압기 등) 정격이 섞여도 체계를 옮기지 않는다
+    (리뷰 P3). 계열이 없는 요구(과업·인증 이름표)는 같은 절의 계열 없는 요구끼리만 묶인다.
 
     IEEE·UL 체계가 상위 조항("Comply with IEEE C37.20.3")에만 적혀 있으면 아래 항목 요구의 standard_system이 비어
     IEC 근거로 충족이 확정됐다(KAN-208). 같은 절의 체계를 이어받아 충족을 조건부로 낮추는 데만 쓴다.
     """
-    found: dict[str, set[str]] = {}
+    found: dict[SectionKey, set[StandardSystem]] = {}
     for item in items:
         if item.standard_system != "NONE":
-            found.setdefault(_article(item.clause_no), set()).add(item.standard_system)
-    return {article: next(iter(systems)) for article, systems in found.items() if len(systems) == 1}
+            found.setdefault(_section(item), set()).add(item.standard_system)
+    return {key: next(iter(systems)) for key, systems in found.items() if len(systems) == 1}
+
+
+def _section(item: ExtractedRequirement) -> SectionKey:
+    return _article(item.clause_no), item.equipment_family
 
 
 def _article(clause_no: str) -> str:
@@ -362,7 +373,7 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
 
 
 def to_comparison(
-    item: ExtractedRequirement, systems: dict[str, str] | None = None
+    item: ExtractedRequirement, systems: dict[SectionKey, StandardSystem] | None = None
 ) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
@@ -383,7 +394,7 @@ def to_comparison(
     system = item.standard_system
     # 시험 규격에 기대는 물리 정격만 이어받는다. 탭·보호 기능·형식 같은 구성은 규격 체계와 무관하다(시연 B-2 LSIG).
     if system == "NONE" and systems and item.attribute_key in MINIMUM_RATINGS:
-        system = systems.get(_article(item.clause_no), "NONE")
+        system = systems.get(_section(item), "NONE")
     operator, value = tolerance_range(item)
     return comparison.Requirement(
         clause_no=item.clause_no,

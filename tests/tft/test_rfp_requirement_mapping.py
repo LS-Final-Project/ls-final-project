@@ -376,7 +376,7 @@ def test_a_section_standard_system_is_inherited_only_when_it_is_single():
     busbar = _mv("2.6.B.3", "metal-enclosed switchgear", "busbar_rated_current", "1200", "A")
     other = _mv("2.7.A", "dry-type transformer", "rated_power", "1000", "kVA")
     systems = section_systems([parent, busbar, other])
-    assert systems == {"2.6": "IEEE"}
+    assert systems == {("2.6", "MV_EQUIP"): "IEEE"}
     compared = to_comparison(busbar, systems)
     assert compared.standard_system == "IEEE"
     assert to_comparison(other, systems).standard_system == "NONE"
@@ -398,6 +398,13 @@ def test_a_section_standard_system_is_inherited_only_when_it_is_single():
     # 보호 기능·탭 같은 구성은 체계를 이어받지 않는다(시연 B-2 LSIG는 근거 있음 그대로).
     lsig = _mv("2.6.E.4", "air circuit breaker", "protection_functions", "LSIG", None, "TEXT")
     assert to_comparison(lsig, systems).standard_system == "NONE"
+    # 같은 절이라도 다른 장비 계열(변압기)은 개폐반의 체계를 이어받지 않는다(리뷰 P3).
+    transformer = _mv("2.6.C", "dry-type transformer", "bil", "95", "kV").model_copy(
+        update={"equipment_family": "TRANSFORMER"}
+    )
+    assert (
+        to_comparison(transformer, section_systems([parent, transformer])).standard_system == "NONE"
+    )
     # 같은 절에 체계가 둘이면 이어받지 않는다.
     mixed = parent.model_copy(update={"clause_no": "2.6.B", "standard_system": "IEC"})
     assert section_systems([parent, mixed, busbar]) == {}
