@@ -236,7 +236,7 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
         saved = client.post(
             f"{base}/review-versions",
             json={"version": data["version"]},
-            headers=sales_headers("q05-review"),
+            headers=sales_headers(uuid4().hex),
         )
         assert saved.status_code == 201, saved.text
 
@@ -258,7 +258,7 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
         received = client.post(
             f"{base}/exports",
             json={"review_version": saved.json()["data"]["review_version"], "format": "DOCX"},
-            headers=sales_headers("q05-export"),
+            headers=sales_headers(uuid4().hex),
         )
         assert received.status_code == 202, received.text
         export_id = received.json()["data"]["export_id"]
