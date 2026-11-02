@@ -3,6 +3,7 @@
 import copy
 import csv
 import io
+import ipaddress
 import json
 import os
 import tempfile
@@ -201,7 +202,10 @@ class FakeConnection:
     def execute(self, sql, params=()):
         self.queries.append(sql)
         if sql.startswith("SELECT current_database()"):
-            return SimpleNamespace(fetchone=lambda: self.identity)
+            row = dict(self.identity)
+            if "host(inet_server_addr()) AS address" in sql:
+                row["address"] = str(ipaddress.ip_interface(row["address"]).ip)
+            return SimpleNamespace(fetchone=lambda: row)
         if "count(*) AS n FROM identity.users" in sql:
             return SimpleNamespace(fetchone=lambda: {"n": self.accounts})
         if sql.startswith(("SET LOCAL ROLE", "LOCK TABLE")):
@@ -516,6 +520,22 @@ class ImportTests(unittest.TestCase):
         conn.identity["now"] = datetime(2025, 1, 1, tzinfo=UTC)
         with self.assertRaisesRegex(loader.Invalid, "IMPORT_FUTURE_KNOWN_AT"):
             loader.apply_plan(conn, self.plan(), TARGET)
+
+    def test_inet_server_mask_uses_host_normalization_with_exact_ipv4_guard(self):
+        conn = FakeConnection()
+        conn.identity["address"] = "127.0.0.1/32"
+        result = loader.apply_plan(conn, self.plan(), TARGET)
+        self.assertEqual(result["tickets"]["inserted"], 2)
+        self.assertIn("host(inet_server_addr()) AS address", conn.queries[0])
+        for address in ("127.0.0.2/32", "::1/128"):
+            conn = FakeConnection()
+            conn.identity["address"] = address
+            with (
+                self.subTest(address=address),
+                self.assertRaisesRegex(loader.Invalid, "IMPORT_SERVER_IDENTITY_MISMATCH"),
+            ):
+                loader.apply_plan(conn, self.plan(), TARGET)
+            self.assertFalse(any(q.startswith("INSERT") for q in conn.queries))
 
     def test_cli_confirmation_is_preconnect_and_production_counts_are_fixed(self):
         out = io.StringIO()

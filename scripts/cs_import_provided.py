@@ -166,10 +166,11 @@ def prepare(
     *,
     expected=Counts(),
 ) -> Plan:
-    """Validate pinned inputs, project before modelling and never consume heldout bodies.
+    """Validate pinned inputs and exclude heldout/gold fields from Plan and DB rows.
 
     Non-default Counts exists only for isolated fixture callers; CLI never exposes it.
-    Source CSV contributes only ID/split metadata. Gold columns are allowed but discarded.
+    Hashing/CSV parsing reads whole files; source contributes only ID/split metadata.
+    Gold columns are allowed but discarded before modelling, storage and receipts.
     """
     mdata = read(manifest, manifest_sha256)
     meta = json.loads(mdata)
@@ -460,7 +461,7 @@ def apply_plan(conn, plan: Plan, target: Target):
         row = conn.execute(
             "SELECT current_database() AS db_name, (SELECT oid::bigint FROM pg_database "
             "WHERE datname=current_database()) AS db_oid, current_user AS current_user, "
-            "session_user AS session_user, inet_server_addr()::text AS address, "
+            "session_user AS session_user, host(inet_server_addr()) AS address, "
             "inet_server_port() AS port, current_setting('server_version_num')::int AS version, "
             "(SELECT system_identifier::text FROM pg_control_system()) AS system_id, "
             "pg_is_in_recovery() AS recovery, clock_timestamp() AS now"
