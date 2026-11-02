@@ -30,7 +30,8 @@
   삭제 값이 있는 문단은 빼지 않는다. 뺀 문단은 글과 함께 `excluded`에 남긴다. `END OF SECTION …`과 그 뒤
   문단(마지막 페이지 바닥글 등)은 절 밖이라 조항에 붙이지 않는다(`AFTER_END_OF_SECTION`).
   첫 PART 앞 문단은 머리말이다.
-- 표 칸 하나가 `2.4 A.`처럼 절·항목 번호만이면 그 절과 항목을 연다. 같은 행 뒤가 본문이면 그 본문이
+- 표 칸 하나가 `2.4 A.`처럼 절·항목 번호만이면 그 절과 항목을 연다. 절 번호와 항목 번호가 다른 칸(`2.1 | A. | …`)이어도
+  같게 읽는다(KAN-207). `PART 1 GENERAL`처럼 대시가 없는 PART는 제목이 대문자일 때만 PART다. 같은 행 뒤가 본문이면 그 본문이
   항목 본문이고, 뒤가 번호 칸(`1.`·`ABB.`)이면 그 칸들은 앞 조항 목록의 이어짐이라 앞 조항에 두고, 절은 번호가
   `1`·`a`로 다시 시작하는 곳에서 연다(`DEFERRED_ARTICLE`).
 - 한 문단에 항목 두 개가 붙어 있으면(PDF 변환, 14번 2.4 C.3 "… open. b. Expulsion …") 문장 끝 바로 뒤에
@@ -54,8 +55,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.engine.documents.model import Block, CrossReference, DeletedValue, ExtractedDocument
 
-CLAUSE_TREE_VERSION = "clause-tree-v2"  # v2: 자동 번호(hints.list_text) 지원(KAN-207)
-PART = re.compile(r"^PART\s+(\d+)\s*[-–—]\s*(.+)$")
+CLAUSE_TREE_VERSION = "clause-tree-v3"  # v3: 대시 없는 PART·칸 나뉜 절 번호(KAN-207)
+# "PART 2 - PRODUCTS"(14번) 또는 대시 없는 "PART 1 GENERAL"(평가 11번 유형, KAN-207). 대시가 없으면 제목이 대문자일
+# 때만 PART다(본문의 "PART 2 of …"를 PART로 읽지 않는다).
+PART = re.compile(r"^PART\s+(\d+)(?:\s*[-–—]\s*|\s+(?=[A-Z][A-Z0-9 ,/&()'\-]*$))(.+)$")
 KOREAN_CHAPTER = re.compile(r"^(제\s*(\d+)\s*장)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_ARTICLE = re.compile(r"^(제\s*(\d+)\s*조)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_NUMBER = re.compile(r"^(\d+)\.\s*([가-힣].*)$")
@@ -70,6 +73,8 @@ KOREAN_LETTERS = "가나다라마바사아자차카타파하"
 ARTICLE = re.compile(r"^(\d+)\.(\d+)\s+(\S.*)$")
 # PDF에서 바꾼 문서는 절 번호와 첫 항목 번호가 표 칸 하나에 함께 떠 있다(14번 "2.2 A.").
 COMPOUND = re.compile(r"^(\d+)\.(\d+)\s+([A-Z])\.$")
+# 표 칸에 절 번호만 있는 칸("2.1"). 다음 칸이 "A."뿐이면 두 칸을 "2.1 A."로 이어 읽는다(평가 18번 유형, KAN-207).
+ARTICLE_ONLY = re.compile(r"^\d+\.\d+$")
 LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (3, re.compile(r"^([A-Z])\.(?:\s+|$)")),
     (4, re.compile(r"^(\d{1,2})\.(?:\s+|$)")),
@@ -691,12 +696,23 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 if filled and started and not korean
                 else None
             )
+            skip = 0
+            if (
+                compound is None
+                and started
+                and not korean
+                and len(filled) >= 2
+                and ARTICLE_ONLY.match(filled[0].text.strip())
+            ):
+                # 절 번호와 첫 항목 번호가 다른 칸에 나뉜 배치(2.1 | A. | 본문)는 같은 칸 "2.1 A."와 같게 읽는다.
+                compound = COMPOUND.match(f"{filled[0].text.strip()} {filled[1].text.strip()}")
+                skip = 1 if compound is not None else 0
             if compound is not None and not article_ok(compound.group(1), compound.group(2)):
                 compound = None
             if compound is not None:
                 flush_pending()
                 article = f"{compound.group(1)}.{compound.group(2)}"
-                rest = filled[1:]
+                rest = filled[1 + skip :]
                 lead = _label(rest[0].text.strip() + " x") if rest else None
                 if rest and lead is not None and rest[0].text.strip() == lead[2]:
                     # 뒤가 번호 칸이면 앞 목록의 이어짐이다. 절은 번호가 다시 시작할 때 연다.
@@ -710,7 +726,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                         filled[0],
                         body,
                         deleted,
-                        [c.block_id for c in rest],
+                        [c.block_id for c in filled[1:]],
                         None,
                     )
                     continue
