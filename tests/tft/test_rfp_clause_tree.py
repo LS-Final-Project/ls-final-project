@@ -4,7 +4,8 @@
 표 칸에 번호, 절 번호가 표 칸에 떠 있음, 한 문단에 항목 두 개, 취소선 값.
 """
 
-from backend.engine.documents.model import Block, DeletedValue, Position, build_document
+from backend.engine.documents.docx import extract_docx
+from backend.engine.documents.model import Block, DeletedValue, Hints, Position, build_document
 from backend.engine.rfp.clauses import build_clause_tree
 from backend.engine.rfp.edits import classify, interpret_edits, mark, restore
 
@@ -19,6 +20,22 @@ def p(text, *deleted, n=[0]):
         text=text,
         deleted_values=[DeletedValue(text=t, position=at, origin="STRIKE") for t, at in deleted],
         position=Position(paragraph_index=n[0]),
+    )
+
+
+def np(text, list_text, *deleted):
+    """Word 자동 번호 문단: 본문 글자에 번호가 없고 DOCX 층이 계산한 list_text만 있다(평가 18번 유형)."""
+    block = p(text, *deleted)
+    return block.model_copy(
+        update={
+            "hints": Hints(
+                style_name=None,
+                numbering_level=0,
+                list_text=list_text,
+                is_heading=False,
+                numbering_raw=None,
+            )
+        }
     )
 
 
@@ -521,3 +538,53 @@ def test_korean_decimal_number_and_standalone_unit_are_quantities_not_titles():
     tree = tree_of(p("1. 일반"), *(p(line) for line in quantities))
     assert [c.clause_no for c in tree.clauses] == ["1"]
     assert all(line in tree.clauses[0].text for line in quantities)
+
+
+def test_auto_numbered_paragraphs_use_the_computed_list_text():
+    """자동 번호 문단은 DOCX 층의 list_text로 번호를 읽는다(KAN-207). 글자 번호가 있는 문단과 글머리표는 그대로다."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        np("METAL-CLAD SWITCHGEAR", "2.1"),
+        np("General requirement.", "A."),
+        np("Rated 50% value.", "1.", ("40", 6)),
+        np("Bullet note.", "•"),
+        p("B. Literal item."),
+        np("C. Already numbered.", "C."),
+        np("Sub item.", "1)"),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == ["PART 2", "2.1", "2.1.A", "2.1.A.1", "2.1.B", "2.1.C", "2.1.C.1"]
+    assert clauses["2.1"].title == "METAL-CLAD SWITCHGEAR"
+    # 글머리표 문단은 번호가 아니라 바로 앞 조항에 붙는다.
+    assert "Bullet note." in clauses["2.1.A.1"].text
+    # 붙인 번호를 뗀 뒤 삭제 값 위치는 원래 자리("50%" 앞)로 돌아온다.
+    item = clauses["2.1.A.1"]
+    assert item.text[item.deleted_values[0].position :].startswith("50%")
+    # 글자 번호와 list_text가 같이 있으면 번호를 두 번 붙이지 않는다.
+    assert clauses["2.1.C"].text == "Already numbered."
+    assert tree.numbering_issues == []
+
+
+def test_docx_auto_numbering_reaches_the_clause_tree():
+    """numPr 자동 번호만 있는 DOCX(평가 18번 유형)도 PART·절·항목 트리가 복원된다. 원문은 합성이다."""
+    from tests.tft.test_document_extraction import NUMBERING, STYLES, docx, para, run
+
+    def styled(style, text):
+        return para(run(text), props=f'<w:pStyle w:val="{style}"/>')
+
+    body = "".join(
+        styled(style, text)
+        for style, text in [
+            ("PRT", "PRODUCTS"),
+            ("ART", "METAL-CLAD SWITCHGEAR"),
+            ("PR1", "Rated maximum voltage shall be 15 kV."),
+            ("PR1", "BIL shall be 95 kV."),
+        ]
+    )
+    document = extract_docx(docx(body, word_styles_xml=STYLES, word_numbering_xml=NUMBERING))
+    assert [b.text for b in document.blocks][1] == "METAL-CLAD SWITCHGEAR"  # 본문 글자에 번호 없음
+    tree = build_clause_tree(document)
+    clauses = by_no(tree)
+    assert list(clauses) == ["PART 1", "1.1", "1.1.A", "1.1.B"]
+    assert clauses["PART 1"].title == "PRODUCTS" and clauses["1.1"].title == "METAL-CLAD SWITCHGEAR"
+    assert clauses["1.1.B"].text == "BIL shall be 95 kV."
