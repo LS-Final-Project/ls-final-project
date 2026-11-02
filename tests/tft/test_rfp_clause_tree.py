@@ -588,3 +588,40 @@ def test_docx_auto_numbering_reaches_the_clause_tree():
     assert list(clauses) == ["PART 1", "1.1", "1.1.A", "1.1.B"]
     assert clauses["PART 1"].title == "PRODUCTS" and clauses["1.1"].title == "METAL-CLAD SWITCHGEAR"
     assert clauses["1.1.B"].text == "BIL shall be 95 kV."
+
+
+def test_part_without_a_dash_opens_the_part_only_with_a_capital_title():
+    """대시 없는 "PART 1 GENERAL"도 PART다(평가 11번 유형, KAN-207). 본문의 "PART 2 of …"는 PART가 아니다."""
+    tree = tree_of(
+        p("PART 1 GENERAL"),
+        p("1.01 SUMMARY"),
+        p("A. See PART 2 of the drawings for details."),
+        p("PART 2 PRODUCTS"),
+        p("2.04 DRY-TYPE TRANSFORMER"),
+        p("A. Rated 1000 kVA."),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == ["PART 1", "1.01", "1.01.A", "PART 2", "2.04", "2.04.A"]
+    assert clauses["PART 2"].title == "PRODUCTS"
+    assert "PART 2 of the drawings" in clauses["1.01.A"].text
+
+
+def test_article_and_item_numbers_in_separate_cells_read_like_one_cell():
+    """표 행 "2.1 | A. | 본문"(평가 18번 유형)은 같은 칸 "2.1 A."와 같게 절과 항목을 연다(KAN-207)."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        cell(1, 0, 0, "2.1"),
+        cell(1, 0, 1, "A."),
+        cell(1, 0, 2, "Rated maximum voltage shall be 15 kV."),
+        cell(1, 1, 0, ""),
+        cell(1, 1, 1, "B."),
+        cell(1, 1, 2, "BIL shall be 95 kV."),
+        cell(2, 0, 0, "2.2"),
+        cell(2, 0, 1, "A."),
+        cell(2, 0, 2, "Provide a meter."),
+        p("2.10 FIELD TESTS"),
+    )
+    clauses = by_no(tree)
+    assert list(clauses) == ["PART 2", "2.1", "2.1.A", "2.1.B", "2.2", "2.2.A", "2.10"]
+    assert clauses["2.1.A"].text == "Rated maximum voltage shall be 15 kV."
+    assert clauses["2.1.B"].text == "BIL shall be 95 kV."
