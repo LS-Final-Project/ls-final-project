@@ -44,6 +44,8 @@ setup 시 코드 SHA·archive hash·이미지 ID·frontend 산출물 hash를 `ar
 
 [데이터 안내](local-business-data.md)에 따라 필수 검색 문서 107개+doc_index의 hash를 대조한다. ref CSV 2종은 선택이다. 자사 23종은 커밋 파생 파일, 협력사는 기본 tracked 합성 프로필을 사용한다. 문의 4,000건·사례 800건 전량 적재나 generated demo-en/smoke 자료는 기본 선행이 아니다.
 
+### C/S 검색 근거
+
 C/S real 전에는 **해당 namespace DB에 실제 적재된** `execute/chunking-v3` 검색 manifest와 필수 `POL-ORDER/RETURN/SERVICE/WARRANTY` 매핑을 준비한다. dry-run manifest로 대신하지 않는다. 아래는 새 기능이 아닌 기존 `scripts.cs_index_docs --execute`의 **명시적 로컬 DB 적재** 명령이다. 해당 PC의 setup이 끝나고 원자료 hash 대조가 통과한 뒤, real driver가 꺼진 상태에서 실행한다. 실제 명령 검증·적재는 coder2의 새 disposable namespace에서 별도로 수행하며 문서 작성자는 실행하지 않았다.
 
 저장소 루트에서 `NS`를 앞 단계와 동일하게 지정한다. `CS_INPUT_DOCS`는 받은 묶음의 실제 `docs/` 절대 경로로 바꾼다. 첫 Python 구간은 기존 `owned()`로 namespace 소유권·DB 이미지/볼륨·frontend 산출물 등을 읽기 확인하고, settings의 `source_sha`가 현재 코드 HEAD인지 확인한 뒤 **settings에 기록된 runtime image ID**를 선택한다. 다른 namespace나 현재 태그의 이미지로 임의 대체하지 않는다. 이 확인이 실패하면 뒤의 적재를 실행하지 않는다.
@@ -92,6 +94,67 @@ docker run --rm --pull=never \
 이 연결 문자열은 해당 신규 로컬 DB의 loopback trust와 `cs_app` 권한을 사용하며 비밀번호·모델 키를 전달하지 않는다. DB 컨테이너의 네트워크만 공유하고 호스트 DB 포트를 공개하거나 외부 egress를 추가하지 않는다. source와 받은 docs는 읽기 전용, namespace의 corpus만 영구 출력이 가능하고 `/tmp`는 임시 공간이다. 원자료·`data/`·다른 namespace의 DB를 변경하지 않는다. `--embed`는 없으며 FTS만 준비하고 벡터 검색은 계속 OFF다.
 
 종료코드 0만으로 개별 문서 적재 성공을 판단하지 않는다. 호스트의 `artifacts/local-business/$NS/corpus/cs-index-execute.json`에서 `mode=execute`, `index_version=chunking-v3`, 모든 문서의 `reason=null`·`stored>0`, 필수 정책 4종의 `doc_id → sha256`을 확인한다. 기존 `policy_mapping()`도 같은 manifest를 검사하고 dispatcher는 C/S real 시작 시 현재 DB의 대응 청크 존재를 읽기 대조한다. 실패·누락·다른 DB에서 복사한 manifest로 다음 단계에 진행하지 않는다. worker는 같은 corpus를 읽기 전용 연결한 `/local/corpus/cs-index-execute.json`을 사용한다. 기존 dry-run 107문서/794청크는 예상 입력 근거이며 이 명령의 실제 실행 결과나 각 PC의 적재 성공 기록이 아니다.
+
+### RFP 기본 협력사 프로필
+
+같은 신규 namespace의 internal PG에 기본 tracked 합성 프로필 **12곳(P/L/M/T)**을 명시 적재한다. 검증용 demo-en Q-A~F 6곳은 선택하지 않으며 `--profiles`로 교체하지 않는다. 자사 23종 파생 파일과 달리 협력사 프로필은 DB 행이 필요하지만, 등급·선택·비교·분석 결과는 seed하지 않는다. 기존 `scripts.rfp_seed_partner_profiles`만 사용하며 새 importer나 자동 seed를 추가하지 않는다. 실제 명령 검증·적재는 coder2의 fresh disposable에서 별도로 수행하며 작성자는 실행하지 않았다.
+
+저장소 루트의 같은 터미널에서 실행한다. 앞 C/S 블록의 변수는 subshell을 벗어나면 남지 않으므로 여기서 namespace와 기록된 runtime 이미지를 다시 확인한다. 이후 단계가 끝날 때까지 `NS`·아래 변수를 바꾸지 않는다. 확인이 실패하면 중단한다. 함수는 같은 Docker 명령을 반복 호출하기 위한 현재 터미널용 정의이며 파일을 생성하지 않는다.
+
+```bash
+CODE_ROOT="$(pwd -P)"
+LOCAL_STATE_DIR="$CODE_ROOT/artifacts/local-business/$NS"
+RUNTIME_IMAGE_ID="$(uv run --frozen --python 3.12 python -B - "$NS" <<'PY'
+import re
+import subprocess
+import sys
+from scripts.local_business.config import state_path
+from scripts.local_business.setup import owned
+from scripts.local_business.stack import no_active_driver
+
+config = owned(state_path(sys.argv[1]))
+no_active_driver(config)
+head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+image = config["images"]["runtime"]
+if (config["namespace"] != sys.argv[1] or config["source_sha"] != head
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", image)):
+    raise SystemExit("LOCAL_PARTNER_SOURCE_OR_IMAGE_MISMATCH")
+print("source_sha=" + head + " runtime_image=" + image, file=sys.stderr)
+print(image)
+PY
+)"
+local_partner_seed() {
+  test -n "$RUNTIME_IMAGE_ID" || return 1
+  docker run --rm --pull=never \
+    --network "container:${NS}-pg" --user "$(id -u):$(id -g)" \
+    --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,nosuid,nodev,size=64m --workdir /tmp \
+    --mount "type=bind,src=$LOCAL_STATE_DIR/source,dst=/workspace,readonly" \
+    --entrypoint /usr/bin/env "$RUNTIME_IMAGE_ID" -i \
+    PATH=/app/.venv/bin:/usr/local/bin:/usr/bin:/bin HOME=/tmp \
+    PYTHONPATH=/workspace PYTHONDONTWRITEBYTECODE=1 ENVIRONMENT=local \
+    DATABASE_URL=postgresql://tft_app@127.0.0.1:5432/team4 \
+    python -m scripts.rfp_seed_partner_profiles "$@"
+}
+local_partner_seed --dry-run
+```
+
+dry-run은 DB에 접속하지 않는다. 12곳의 `PLANNED`·synthetic 요약과 종료코드 0을 확인한다. 키·비밀번호·원자료를 마운트하지 않으며 snapshot source는 읽기 전용이다. 다음 명령은 confirm이 없으므로 **`TARGET` 출력 후 DB 접속 전에 예상 종료코드 1로 거부**되어야 한다. `--check`에서는 TARGET이 출력되지 않는다.
+
+```bash
+local_partner_seed --apply
+```
+
+`TARGET host=127.0.0.1 port=5432 dbname=team4`와 `TFT_SEED_TARGET_MISMATCH`, 종료코드 1을 확인한다. 다른 오류가 나면 중단한다. 이 거부는 적재 실패나 성공을 의미하지 않는다. host/port/dbname 외에도 위에서 확인한 namespace·source SHA·runtime image가 자기 신규 DB의 것인지 대조한다. 모두 맞을 때만 다음 단계에서 정확한 토큰을 명시한다.
+
+```bash
+local_partner_seed --apply --confirm-target 'host=127.0.0.1 port=5432 dbname=team4'
+local_partner_seed --check
+```
+
+명시 적용은 없는 판본만 추가하고 기존 판본을 덮어쓰지 않는다. 두 명령을 각각 확인하여 12곳 모두 `SAME`, `MISSING=0`, `DIFFERENT=0`, 종료코드 0인지 확인한다. 새 DB에서 `inserted=12`가 예상되지만 실제 출력으로 확인해야 하며 재실행은 0일 수 있다. `--check`는 읽기 전용 DB 대조다. 차이·누락·권한 오류가 있으면 멈추고 담당자에게 보고하며 임의 판본 변경·DB reset으로 우회하지 않는다. 여기까지는 모델 호출·업무 결과 seed 없이 입력 프로필만 준비하는 단계다.
+
+### 실제 모델 작업 허용
 
 real 활성화는 실제 유료 모델 요청을 허용한다. 본인의 비공개 키 파일(타 사용자 접근 불가, 4,096바이트 이하)과 사용 모델의 USD 단가 파일을 실행 담당과 확인한다. 키를 환경 덤프·명령 인수·브라우저에 붙이지 않는다. `--key-file`에는 값이 아닌 파일 경로를 지정한다. 단가 파일은 공통 `ModelPrice` 형식의 입력/출력/캐시 단가·통화·기준일을 갖춰야 하며, 미확인 모델 가격을 만들지 않는다.
 
