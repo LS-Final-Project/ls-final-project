@@ -1,5 +1,6 @@
 import csExamples from '../mocks/generated/cs.json';
 import tftExamples from '../mocks/generated/tft.json';
+import { errorText } from './error-text';
 
 let csrfToken: string | null = null;
 export const sessionCsrfToken = () => csrfToken;
@@ -13,8 +14,13 @@ export function setApiMode(value: ApiMode) {
   mode = value;
 }
 
+// message는 화면에 보일 문구다. 업무 코드는 한국어로 바꾸고(error-text.ts), 서버 원문은 serverMessage에 남긴다.
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public requestId?: string, public code?: string) { super(message); }
+  public serverMessage: string;
+  constructor(public status: number, message: string, public requestId?: string, public code?: string) {
+    super(errorText(code, message));
+    this.serverMessage = message;
+  }
 }
 
 // mockFallback: 모의 응답 모드에서 생성된 예시가 없는 경로가 돌려줄 값. 실제 API 모드와 production 빌드에서는 쓰이지 않는다.
