@@ -1280,6 +1280,20 @@
         "drive_id": "1Vpm7eiSpJtwLWKH9YAfgAp-tpydv2kFw",
         "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "origin": "demo"
+      },
+      {
+        "id": "DEMO-EN",
+        "relative_path": "rfp/demo-en.docx",
+        "sha256": "a56031175c62bcbc47e62b6d010a8275523b982c982b10da78b56791f96b2444",
+        "bytes": 2726,
+        "source_category": "generated_demo",
+        "project_name": "KAN159 별도 합성시연 DEMO-EN",
+        "customer_code": "KAN159-RFP-DEMO-EN",
+        "title": "DEMO-EN 합성 시연 RFP",
+        "note": "별도 생성 합성 시연 입력. 실제 고객 원문·평가 정답 아님. 등록은 모델 처리를 자동 허용하지 않음.",
+        "drive_id": "1Xjznr4KSmj4ET9EUAS7XlVslhhraWLoQ",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "origin": "synthetic"
       }
     ]
   },
@@ -1555,14 +1569,20 @@
         "title": "D22 신재생_00고객사_00프로젝트_문서검토_제Ⅳ편 제8장_154kV 송변전설비_교육용클렌징v6",
         "note": "교육용 정제 원문 D22; 교육원문-분할미지정; 이번 범위 등록·목록조회만. 모델처리/내용분석 금지. 원본 SHA256 6bdecd4923eba5093220670647efe9123db1cd9baf61b0fffe8719fd576c5a96",
         "origin": "demo"
+      },
+      {
+        "id": "DEMO-EN",
+        "relative_path": "rfp/demo-en.docx",
+        "sha256": "a56031175c62bcbc47e62b6d010a8275523b982c982b10da78b56791f96b2444",
+        "bytes": 2726,
+        "source_category": "generated_demo",
+        "project_name": "KAN159 별도 합성시연 DEMO-EN",
+        "customer_code": "KAN159-RFP-DEMO-EN",
+        "title": "DEMO-EN 합성 시연 RFP",
+        "note": "별도 생성 합성 시연 입력. 실제 고객 원문·평가 정답 아님. 등록은 모델 처리를 자동 허용하지 않음.",
+        "origin": "synthetic"
       }
     ]
   },
-  "missing": [
-    {
-      "group": "rfp",
-      "relative_path": "rfp/demo-en.docx",
-      "reason": "Generated local artifact only; no Drive file ID found via connector search and GWS files.list. No upload authorized."
-    }
-  ]
+  "missing": []
 }
