@@ -398,6 +398,10 @@ def test_a_section_standard_system_is_inherited_only_when_it_is_single():
     # 보호 기능·탭 같은 구성은 체계를 이어받지 않는다(시연 B-2 LSIG는 근거 있음 그대로).
     lsig = _mv("2.6.E.4", "air circuit breaker", "protection_functions", "LSIG", None, "TEXT")
     assert to_comparison(lsig, systems).standard_system == "NONE"
+    # 상위 조항이 계열 없이 추출돼도 같은 절의 계열 있는 하한 정격이 그 체계를 이어받는다(리뷰 P3).
+    bare = parent.model_copy(update={"equipment_family": None})
+    assert section_systems([bare, busbar]) == {("2.6", None): "IEEE"}
+    assert to_comparison(busbar, section_systems([bare, busbar])).standard_system == "IEEE"
     # 같은 절이라도 다른 장비 계열(변압기)은 개폐반의 체계를 이어받지 않는다(리뷰 P3).
     transformer = _mv("2.6.C", "dry-type transformer", "bil", "95", "kV").model_copy(
         update={"equipment_family": "TRANSFORMER"}

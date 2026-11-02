@@ -394,7 +394,10 @@ def to_comparison(
     system = item.standard_system
     # 시험 규격에 기대는 물리 정격만 이어받는다. 탭·보호 기능·형식 같은 구성은 규격 체계와 무관하다(시연 B-2 LSIG).
     if system == "NONE" and systems and item.attribute_key in MINIMUM_RATINGS:
-        system = systems.get(_section(item), "NONE")
+        # 같은 계열의 체계가 없으면 같은 절의 계열 없는 상위 조항("Comply with IEEE …")의 체계를 쓴다(리뷰 P3).
+        system = systems.get(_section(item)) or systems.get(
+            (_article(item.clause_no), None), "NONE"
+        )
     operator, value = tolerance_range(item)
     return comparison.Requirement(
         clause_no=item.clause_no,
@@ -457,6 +460,8 @@ def to_grading(requirement_id: UUID, item: ExtractedRequirement) -> grading.Requ
         unit=item.unit,
         operator=operator,
         conditions=conditions,
+        # 절 단위 체계 이어받기(section_systems)는 자사 비교에만 쓴다(KAN-208 승인 범위, 계약 rfp-comparison.md).
+        # 협력사 등급은 원래대로 요구 자신의 체계만 본다.
         standard_system=item.standard_system,
         necessity=item.necessity,
         designated_model=item.designated_model,
