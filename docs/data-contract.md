@@ -33,7 +33,7 @@ KAN-55 검토안. 외부 데이터는 어댑터에서 아래 형식으로 정규
 
 파생 레코드는 근거 ID와 각 근거의 출처를 보존한다. 합성·가정 근거를 포함한 결과를 real로 승격하지 않으며, 실제·합성 자료를 섞은 실행은 demo로 표시하고 실행 manifest에 원천별 구분을 남긴다. 외부 제공 자료나 가정 여부가 불명확하면 확인 필요로 남기며 임의의 기본값으로 확정하지 않는다.
 
-이 명세는 KAN-55의 어댑터·저장·UI·평가 전달 계약이다. 현재 대표 목록 DTO에 derivation_kind가 구현된 것은 아니며 기존 data_origin을 깨지 않고 기능별 DTO와 합성 예시를 확장한 뒤 OpenAPI 및 소비자를 함께 검사한다.
+이 명세는 KAN-55의 어댑터·저장·UI·평가 전달 계약이다. `derivation_kind`는 C/S OpenAPI(`docs/openapi/cs.json`)의 `TicketSummary`·`TicketDetail`·`ResolutionCase`·`InstalledUnit`·`CustomerUnit`·`ImprovementRequest`·`ComparisonEvidence`에 위 네 값의 enum으로 들어 있고, `ConditionComparison`은 계산 결과라 항상 `DERIVED`다(2026-11-02 KAN-163 대조). DB는 같은 네 값을 CHECK로 막는다. 새 DTO는 같은 enum을 쓰고 `python3 scripts/workspace.py contracts cs --check`로 OpenAPI와 함께 확인한다.
 
 시각은 RFC 3339 UTC의 `Z` 표기로 저장하고 전달한다. 기간과 날짜만 있는 필드는 `YYYY-MM-DD`와 기준 시간대를 별도로 둔다. 날짜를 임의의 정확한 시각으로 바꾸지 않는다. ID 유일성은 최소 `(source, source_instance, entity_type, external_id)`로 정의하고 null 외부 ID에는 적용하지 않는다.
 
