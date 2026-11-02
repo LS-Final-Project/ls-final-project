@@ -40,7 +40,8 @@ export default function Tickets() {
   const [batchOwner, setBatchOwner] = useState(false);
   // 담당 변경은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
   const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' && picked.size > 0 });
-  const isManager = identity.data?.data?.roles?.includes('manager') === true;
+  // 서버는 manager 역할과 C/S 부서(GCS_L1) 관리를 함께 본다. 다른 부서 관리자에게는 열지 않는다.
+  const isManager = identity.data?.data?.roles?.includes('manager') === true && (identity.data?.data?.managed_departments ?? []).includes('GCS_L1');
 
   const tickets = useTicketPages(access.ready);
   const improvements = useQuery({ queryKey: ['cs-improvements-board', mode], queryFn: ({ signal }) => listImprovements(signal), enabled: access.ready });
@@ -153,7 +154,7 @@ export default function Tickets() {
     {tickets.isError && <ErrorState error={tickets.error} onRetry={() => void tickets.refetch()} />}
     {pickedRows.length > 0 && <div className="kv-gridhead sub" role="toolbar" aria-label="선택한 문의">
       <span><b>{pickedRows.length}</b>건 선택</span>
-      <button type="button" className="kb" disabled={!isManager} title={isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : 'C/S 관리자만 담당을 바꿀 수 있습니다'} onClick={() => setBatchOwner(true)}>담당 변경</button>
+      <button type="button" className="kb" disabled={!isManager} title={isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : identity.isPending ? '세션을 확인하는 중입니다' : identity.isError ? '세션을 확인하지 못했습니다. 새로고침하세요' : 'C/S 부서 관리자만 담당을 바꿀 수 있습니다'} onClick={() => setBatchOwner(true)}>담당 변경</button>
       <button type="button" className="kb" aria-label="선택한 문의 엑셀" onClick={exportCsv}>엑셀</button>
       <button type="button" className="kb" onClick={() => setPicked(new Set())}>선택 해제</button>
     </div>}

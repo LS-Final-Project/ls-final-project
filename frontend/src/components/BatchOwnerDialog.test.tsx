@@ -10,17 +10,18 @@ const A = '11111111-1111-4111-8111-11111111111a';
 const B = '11111111-1111-4111-8111-11111111111b';
 const C = '11111111-1111-4111-8111-11111111111c';
 const NEW = 'u2';
-const flow = (owner: string | null, version: number) => ({ data: { ticket_id: 'x', state: 'IN_REVIEW', version, owner_user_id: owner, closed_at: null, closed_by: null, customer_sent_at: null, dept_results: [], transfers: [] } });
+const flow = (owner: string | null, version: number, state = 'IN_REVIEW') => ({ data: { ticket_id: 'x', state, version, owner_user_id: owner, closed_at: null, closed_by: null, customer_sent_at: null, dept_results: [], transfers: [] } });
 type Put = { url: string; body: Record<string, unknown> };
 
 // 문의별 업무 흐름(담당·판본)과 PUT 응답을 정해 둔 가짜 서버.
-function server(flows: Record<string, ReturnType<typeof flow>>, put: (id: string) => Response = () => jsonResponse(200, flow(NEW, 9))) {
+function server(flows: Record<string, ReturnType<typeof flow> | undefined>, put: (id: string) => Response = () => jsonResponse(200, flow(NEW, 9))) {
   const puts: Put[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'm1', roles: ['manager'] } }), { status: 200, headers: { 'X-CSRF-Token': 'tok' } });
     if (path.includes('/platform/assignees')) return jsonResponse(200, { data: { items: [{ user_id: 'u1', display_name: '김지원' }, { user_id: NEW, display_name: '박민수' }] } });
     const id = Object.keys(flows).find(key => path.includes(key))!;
+    if (flows[id] === undefined) return jsonResponse(503, errorBody('UNAVAILABLE', '일시 장애'));
     if (init?.method === 'PUT') { puts.push({ url: path, body: JSON.parse(String(init.body)) }); return put(id); }
     return jsonResponse(200, flows[id]);
   }));
@@ -63,4 +64,13 @@ test('한 건이 실패해도 나머지는 계속하고, 판본 충돌·담당 �
   expect(lines[2]).toContain('활성 C/S 담당자가 아닙니다');
   // 끝나면 변경 단추를 없애 같은 요청을 다시 보내지 않는다.
   expect(screen.queryByRole('button', { name: '변경' })).toBeNull();
+});
+
+test('종결된 문의는 보내지 않고, 상태를 읽지 못한 문의는 보내지 않은 실패로 알린다', async () => {
+  const puts = server({ [A]: flow('u1', 4, 'CLOSED'), [B]: undefined, [C]: flow('u1', 2) });
+  view();
+  await choose();
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('끝남: 바꿈 1, 건너뜀 1, 실패 1, 결과 모름 0'));
+  expect(puts.map(put => put.url.split('/tickets/')[1])).toEqual([`${C}/workflow/owner`]);
+  expect(results()).toEqual(['CS-1 · 건너뜀 · 종결된 문의입니다', 'CS-2 · 실패 · 문의 상태를 읽지 못해 보내지 않았습니다', 'CS-3 · 바꿈']);
 });
