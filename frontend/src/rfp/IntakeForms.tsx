@@ -171,6 +171,13 @@ export function ProcessForm({ projectId, documents, rerun, onCancel, onStarted }
   });
   const ready = latest.length > 0 && (!rerun || reason.trim() !== '');
   const code = start.error instanceof ApiError ? start.error.code : undefined;
+  // isPending은 다음 렌더에야 단추를 잠그므로, 그 사이 연속 클릭이 같은 요청을 여러 번 보냈다(KAN-154 E2E). 보낸 즉시 막는다.
+  const sending = useRef(false);
+  const run = () => {
+    if (sending.current) return;
+    sending.current = true;
+    start.mutate(undefined, { onSettled: () => { sending.current = false; } });
+  };
   return <Wrap><KvBox title="처리 실행">
     <KvField label="문서">{latest.map(d => `${d.title} v${d.version}`).join(', ') || '문서를 먼저 올리세요'}</KvField>
     <KvField label="단계">문서 읽기, 요구 추출, 자사 자료 검색, 비교, 보완 경로, 협력사 후보, 초안. 7단계 전부</KvField>
@@ -183,7 +190,7 @@ export function ProcessForm({ projectId, documents, rerun, onCancel, onStarted }
     <p className="kv-sub" style={{ margin: '6px 0 0' }}>2번째 실행부터 사유 필수. 실행 중에는 문서 올리기와 다른 실행이 막힙니다</p>
     <div className="kv-actions">
       <button className="kb" onClick={onCancel}>취소</button>
-      <button className="kb primary" disabled={!ready || start.isPending} onClick={() => start.mutate()}>처리 실행</button>
+      <button className="kb primary" disabled={!ready || start.isPending} onClick={run}>처리 실행</button>
     </div>
     {start.isError && (code && RUN_FAILURE[code] ? <p role="alert">{RUN_FAILURE[code]}</p> : <ErrorState error={start.error} />)}
   </KvBox></Wrap>;
