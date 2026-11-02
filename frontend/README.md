@@ -4,12 +4,12 @@
 `npm run build --prefix frontend`가 서버/UI 회귀, 생성 계약 타입, TypeScript와 Vite 빌드를 검사한다.
 별도 lint 스크립트는 없다.
 
-## 운영 계정과 읽기 UI
+## 운영 계정과 업무 UI
 
 운영 빌드는 `/account`에서 고정 Microsoft 로그인 경로와 세션 확인·로그아웃을 제공한다.
 로그아웃은 `/me`의 세션 CSRF 헤더가 있을 때만 요청하며 성공 후 업무 캐시를 제거한다.
 개발 모드 계정은 Microsoft 인증 또는 사서함 연결의 증거로 표시하지 않는다.
-메일 연결·만료·재연결 상태는 플랫폼 메일 계약이 제공되기 전까지 미확인이다.
+메일 연결·만료·재연결 상태는 [플랫폼 인증 계약](../contracts/platform/auth.md)과 [메일 계약](../contracts/platform/mail.md)을 소비한다. 해당 환경의 사서함 설정과 실제 송수신 검증은 별도다.
 
 업무 UI는 빌드 시 선택한다. 직접 npm 빌드할 때는
 `VITE_BUSINESS_UI_ENABLED=true npm run build --prefix frontend`로 활성화한다.
@@ -29,6 +29,15 @@ Cloud Run의 런타임 환경 변수로 바뀌지 않는다. 개발 인증을 �
 새로고침 실패 시 이전 응답을 현재 성공 데이터로 표시하지 않는다.
 `최신 상태 조회`는 수동 재조회이며 SSE 재연결·폴백 구현을 뜻하지 않는다.
 
-구성안 검토는 KAN-125의 검증 보고와 KAN-127의 불변 판본/결정 API를 소비한다.
-과거 판본은 현재 검증 결과와 구분하고, 최종 결정은 현재 책임자에게만 제공한다.
-새 구성안 작성은 모든 역할에 후보 또는 공백 사유를 기록하고 이전 판본을 보존한다. 책임자 지정과 운영 쓰기 경로 연결은 아직 포함되지 않는다. 전체 업무 완료로 보지 않는다.
+RFP 대응표·보완·초안·검토본은 [RFP 데이터 계약](../contracts/tft/rfp-data.md)과
+[초안 계약](../contracts/tft/rfp-draft.md)을 따른다. 현재 범위는 Word 내보내기이며,
+검토본 저장·다운로드를 고객 발송이나 입찰 승인 완료로 표시하지 않는다.
+
+## 평가 화면
+
+`/evaluations` 라우트는 있지만 사이드바의 평가 메뉴는 `devOnly`라 production 빌드에서 숨겨진다.
+직접 URL을 열어도 평가 권한이 생기지 않는다. 웹의 `EVALUATION_READ_RELAY_ENABLED`와
+`EVALUATION_CONTROL_RELAY_ENABLED`는 별도이며 기본 비활성이다. 플랫폼은 유효한 운영 세션과
+`EVALUATION_EVALUATOR_USER_IDS` 지정, 경로별 소유권·실행 조건을 검사한다. 새 실행 접수는
+명시적으로 켠 local/test·승인 설정만 허용한다. 메뉴 노출과 공용 환경 시연 준비는 별도 작업이며,
+자세한 조건은 [평가 계약](../contracts/platform/evaluations.md)을 따른다.
