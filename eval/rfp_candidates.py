@@ -9,6 +9,8 @@
 - 결과 파일은 `eval_adopt --task rfp` 입력 형식이다(meta에 `documents`, 후보 행에 게이트 키 9개). 측정 도구가 없는
   키(근거 정확성·초안 근거 추적)는 None이라 NOT_EVALUABLE이다.
 - 결과에는 원문·인용·값을 넣지 않는다. 키(조항 번호·속성)와 건수만 남긴다.
+- 채점 키의 속성은 어휘 키다(`gold_attribute`). 정답은 `vocabulary.AttributeKey` 값으로 적고, 인증·규격 요구는
+  `certification`, 어휘 밖은 null이다. 추출의 `attribute`(원문 문구, 예 "BIL")는 정답과 글자가 달라 키로 쓰지 않는다.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -38,6 +40,7 @@ from backend.engine.rfp.requirements import (
     build_inputs,
     extract_section,
 )
+from backend.engine.rfp.vocabulary import OTHER
 from backend.shared.ai import Generation, Usage
 from eval.rfp_metrics import (
     GoldRequirement,
@@ -141,6 +144,20 @@ def _add(a: Usage, b: Usage) -> Usage:
     )
 
 
+# 인증·규격 요구의 정답 속성. 어휘(AttributeKey)에 없는 고정 키라 정답 작성 규칙과 같은 글자로 둔다.
+CERTIFICATION_ATTRIBUTE = "certification"
+
+
+def gold_attribute(item: ExtractedRequirement) -> str | None:
+    """추출 요구의 채점 키 속성. 정답 작성 규칙과 같다: 인증·규격은 `certification`, 어휘 키가 있으면 그 키, 없으면 None.
+
+    추출의 `attribute`는 원문 문구(예 "BIL")라 정답 키(`bil`)와 글자가 다르다(KAN-191). 운영 비교처럼 어휘 키로 맞춘다.
+    """
+    if item.kind == "COMPLIANCE":
+        return CERTIFICATION_ATTRIBUTE
+    return None if item.attribute_key == OTHER else item.attribute_key
+
+
 def _predicted(item: ExtractedRequirement, outcome: comparison.Outcome) -> PredictedRequirement:
     """추출 요구와 비교 결과 → 채점 입력. 경로는 시스템이 1순위로 내미는 열린 선택지다(사람이 고르기 전 제안)."""
     options = supplement.options_for(
@@ -152,7 +169,7 @@ def _predicted(item: ExtractedRequirement, outcome: comparison.Outcome) -> Predi
     )
     return PredictedRequirement(
         clause_no=item.clause_no,
-        attribute=item.attribute,
+        attribute=gold_attribute(item),
         status=outcome.status,
         necessity=item.necessity,
         path=allowed[0].path if allowed and outcome.status != "EVIDENCE_FOUND" else None,
@@ -378,6 +395,9 @@ def result_file(
                 "recall": extraction["extraction"]["recall_count"],
                 "precision": extraction["extraction"]["precision_count"],
                 "status_match": extraction["status_match"]["count"],
+                # 상태만 맞춘 수다. 정답 사유가 모두 있을 때만 참이고, 거짓이면 게이트 rfp_status_match_rate는 None이라
+                # 이 수는 참고 값(사유 미비교)으로 보고한다(KAN-191 결정).
+                "status_match_reason_compared": extraction["status_match"]["reason_compared"],
                 "partner_mandatory_confirmed": grades["mandatory_confirmed_count"],
                 "partner_review_listed": (grades["review_unconfirmed_listed"] or {}).get("count"),
                 "integration": summary["integration"]["count"],
