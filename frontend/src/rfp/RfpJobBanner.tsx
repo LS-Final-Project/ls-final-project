@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { RfpWatch } from '../api/rfp-job-events';
 import type { DocumentVersion } from '../api/rfp';
+import { RfpPersona } from './RfpPersona';
+import { RfpReasoning } from './RfpReasoning';
 import './RfpJobBanner.css';
 
 const steps: Record<string, string> = { parse: '문서 읽기', extract: '요구 추출', search: '자사 자료 검색', compare: '자사 비교', supplement: '보완 경로 확인', candidates: '협력사 후보 확인', draft: '초안 작성', export: 'Word 내보내기', annotate: '보완 문서 처리' };
@@ -72,14 +74,14 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
     return () => window.clearTimeout(timer);
   }, [finishingPlayback, paced, shownLatest?.step]);
   const presenting = playing || paced && finishingPlayback;
-  // Real completion and the visual replay are separate: results stay available while
-  // the ring accompanies the remaining observed cards, including the final draft card.
+  // Observed-card reading time never changes the live Persona state or real completion.
   const replaying = display.terminal && presenting;
-  const haloState = processing || replaying ? shownLatest?.step === 'draft' ? 'speaking' : 'thinking' : 'idle';
-  const haloPaused = stopped || failed || p?.type === 'job.failed' || display.terminal && !replaying;
-  const haloLabel = haloPaused ? stopped ? '분석 상태 확인 중' : failed || p?.type === 'job.failed' ? '분석 중단' : '분석 완료'
-    : `${replaying ? '완료된 과정 · ' : ''}${haloState === 'speaking' ? 'AI 초안 작성 중' : haloState === 'thinking' ? 'AI 분석 중' : 'AI 대기 중'}`;
   const latest = activity.at(-1);
+  const actualStage = p?.step ?? latest?.step;
+  const haloState = processing ? actualStage === 'draft' ? 'speaking' : 'thinking' : 'idle';
+  const haloPaused = stopped || failed || p?.type === 'job.failed' || display.terminal || disconnected || reducedMotion;
+  const haloLabel = stopped ? '분석 상태 확인 중' : failed ? '분석 중단' : display.terminal ? '분석 완료' : p?.type === 'job.failed' ? '분석 중단' : disconnected ? '분석 연결 확인 중'
+    : `${haloState === 'speaking' ? 'AI 초안 작성 중' : haloState === 'thinking' ? 'AI 분석 중' : 'AI 대기 중'}`;
   const counts = [...activity].reverse().find(item => item.counts)?.counts;
   const docId = p?.documentVersionId ?? latest?.documentVersionId;
   const doc = documents.find(d => d.document_version_id === docId);
@@ -99,14 +101,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const clock = (stamp: string) => new Date(stamp).toLocaleTimeString('ko-KR', { hour12: false });
   return <section className={`rfp-job-banner${live ? ' is-live' : ''}${processing ? ' is-processing' : ''}${replaying ? ' is-replaying' : ''}${display.terminal ? ' is-terminal' : ''}${disconnected || stopped ? ' is-disconnected' : ''}`} aria-label="문서 처리 상태">
     <header className="rfp-analysis-heading">
-      <div className="rfp-analysis-symbol" role="img" aria-label={haloLabel} data-state={haloState} data-paused={haloPaused}>
-        <span className="rfp-halo-scene" aria-hidden="true">
-          <span className="rfp-halo-track" />
-          <span className="rfp-halo-light" />
-          <span className="rfp-halo-inner" />
-          {haloPaused && <span className="rfp-halo-result">{display.terminal && status === 'SUCCEEDED' ? '✓' : '!'}</span>}
-        </span>
-      </div>
+      <RfpPersona state={haloState} paused={haloPaused} label={haloLabel} />
       <div className="rfp-analysis-title" role="status" aria-live="polite">
         <div className="rfp-analysis-eyebrow">RFP ANALYSIS <span className="rfp-analysis-badge">{display.terminal ? replaying ? '완료 · 과정 표시 중' : '처리 결과' : stopped ? '조회 중단' : disconnected ? '연결 확인 중' : live ? haloState === 'speaking' ? '초안 작성 중' : '분석 진행 중' : confirming ? '결과 확인 중' : running ? '상태 확인 중' : '시작 대기'}</span></div>
         <strong key={title} className="rfp-stage-caption">{title}</strong>
@@ -137,10 +132,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
       <div><span className="rfp-observation-dot" aria-hidden="true" /><b>{latest?.step ? `최근 확인 단계: ${steps[latest.step]}` : running ? '작업 시작 확인 · 첫 단계 소식을 기다립니다' : '작업 시작을 기다립니다'}</b>{p && <time dateTime={p.occurredAt}>서버 기록 {clock(p.occurredAt)}</time>}</div>
       {counts && <p>누적 발견 수(임시): <strong>요구 {counts.requirements}건</strong> · 제안 {counts.proposals}건. 저장된 최종 결과와 다를 수 있습니다.</p>}
     </div>}
-    {activity.length > 0 && !stopped && <details className="rfp-analysis-history"><summary>분석 활동 내역 <span>{activity.length}개 단계 관측</span></summary>
-      <ol>{[...activity].reverse().map(item => <li key={item.step}><time dateTime={item.occurredAt}>{clock(item.occurredAt)}</time><b>{steps[item.step!]}</b><span>{item.counts ? `요구 ${item.counts.requirements}건 · 제안 ${item.counts.proposals}건 발견 (임시)` : '단계 이벤트 수신'}</span></li>)}</ol>
-      <p>각 단계의 최근 수신 기록입니다. 관측된 단계가 저장 완료를 뜻하지는 않습니다.</p>
-    </details>}
+    {activity.length > 0 && !stopped && <RfpReasoning activity={activity} active={live} completed={display.terminal} disconnected={disconnected} documents={documents} labels={steps} />}
     {p?.needsReview && <p className="rfp-analysis-notice">결과에 사람의 검토가 필요합니다.</p>}
     {display.terminal && <p className="rfp-analysis-footnote">완료는 담당자 승인이 아닙니다. 대응표의 미해결 요구와 근거를 확인하세요.</p>}
   </section>;

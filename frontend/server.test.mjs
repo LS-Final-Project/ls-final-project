@@ -215,6 +215,26 @@ test('serves PDF module workers as JavaScript with nosniff', async () => {
   }
 });
 
+test('serves the local Rive runtime as WebAssembly with original bytes and nosniff', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-wasm-'));
+  const bytes = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+  await writeFile(join(directory, 'rive.wasm'), bytes);
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture' }));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/rive.wasm`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/wasm');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(directory, { recursive: true });
+  }
+});
+
 test('serves a symlinked static root but rejects a file symlink outside it', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'team4-root-'));
   const content = join(directory, 'content');

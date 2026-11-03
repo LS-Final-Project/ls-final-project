@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RfpJobBanner } from './RfpJobBanner';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { watchRfpJob } from '../api/rfp-job-events';
+vi.mock('./RfpPersona', () => ({ RfpPersona: ({ state, paused, label }: { state: string; paused: boolean; label: string }) => <div role="img" aria-label={label} data-state={state} data-paused={paused} /> }));
 vi.mock('../api/rfp-job-events', async importOriginal => ({ ...await importOriginal<typeof import('../api/rfp-job-events')>(), watchRfpJob: vi.fn(async () => undefined) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 it('shows immediate admission, observed stage/counts and separates reconnecting from job failure', () => {
@@ -140,7 +141,7 @@ it('keeps the analysis animation through draft observation and result confirmati
   expect(container.querySelector('.is-processing')).toBeNull();
 });
 
-it('keeps a separately labelled replay animation through the draft card when a fast job already completed', () => {
+it('keeps readable completed history through the draft card while the live Halo stays idle', () => {
   vi.useFakeTimers();
   const activity = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
   const ui = (events: typeof activity, status: string) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: status === 'SUCCEEDED' ? 'ended' : 'connected', activity: events, progress: events.at(-1) }} /></MemoryRouter>;
@@ -155,7 +156,8 @@ it('keeps a separately labelled replay animation through the draft card when a f
   for (const ms of [1100, 2200, 1000, 1800, 1400, 1200]) act(() => vi.advanceTimersByTime(ms));
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
   expect(container.querySelector('.is-replaying')).toBeTruthy();
-  expect(screen.getByRole('img', { name: '완료된 과정 · AI 초안 작성 중' }).getAttribute('data-state')).toBe('speaking');
+  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-state')).toBe('idle');
+  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-paused')).toBe('true');
   act(() => vi.advanceTimersByTime(2199));
   expect(container.querySelector('.is-replaying')).toBeTruthy();
   act(() => vi.advanceTimersByTime(1));
@@ -195,4 +197,40 @@ it('opens restored history at the current stage, and only replays it on explicit
   rerender(ui('SUCCEEDED', 3));
   act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+});
+
+
+it('uses the latest real draft observation for Persona even while earlier cards are still being presented', () => {
+  vi.useFakeTimers();
+  const parse = { sequence: 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'parse' };
+  const draft = { ...parse, sequence: 8, step: 'draft' };
+  const ui = (activity: typeof parse[], status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
+  const { container, rerender } = render(ui([]));
+  rerender(ui([parse, draft]));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  expect(screen.getByRole('img', { name: 'AI 초안 작성 중' }).getAttribute('data-state')).toBe('speaking');
+  expect(screen.getByRole('status').textContent).toContain('AI가 RFP 초안을 작성하고 있습니다');
+  rerender(ui([parse, draft], 'SUCCEEDED'));
+  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-state')).toBe('idle');
+  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-paused')).toBe('true');
+  expect(screen.getByRole('link')).toBeTruthy();
+});
+
+it('keeps work history open on completion and respects a user collapse across incoming events', () => {
+  const parse = { sequence: 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'parse' };
+  const draft = { ...parse, sequence: 8, step: 'draft' };
+  const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+  const ui = (activity: typeof parse[], status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
+  const { rerender } = render(ui([parse]));
+  expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('true');
+  act(() => screen.getByRole('button', { name: /AI 작업 내역/ }).click());
+  rerender(ui([parse, draft]));
+  expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('false');
+  act(() => screen.getByRole('button', { name: /AI 작업 내역/ }).click());
+  rerender(ui([parse, draft], 'SUCCEEDED'));
+  expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByText(/최종 저장 상태는 별도로 확인/)).toBeTruthy();
+  expect(screen.getByText(/AI의 내부 추론이 아니며/)).toBeTruthy();
+  expect(scroll).not.toHaveBeenCalled();
+  scroll.mockRestore();
 });
