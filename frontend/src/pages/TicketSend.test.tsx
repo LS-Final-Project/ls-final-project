@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useNavigate } from 'react-router-dom';
 import TicketDetail from './TicketDetail';
 import { setApiMode } from '../api/client';
 import { jsonResponse, renderAt } from '../test/render';
@@ -37,16 +38,17 @@ function server(state: string, version: number, workflowExtra: Record<string, un
     if (['POST', 'PUT'].includes(init?.method ?? 'GET')) { const call = { url: path, init: init! }; posts.push(call); return post(call); }
     if (path.endsWith('/workflow')) return jsonResponse(200, flow(state, version, workflowExtra));
     if (path.endsWith('/analysis')) return jsonResponse(200, analysisBody);
-    return jsonResponse(200, { data: { ...base, workflow_state: state } });
+    // 시스템 발송은 메일로 들어온 문의만 한다(11/3 팀 결정). 다른 채널은 문안 복사만 있다.
+    return jsonResponse(200, { data: { ...base, channel: 'EMAIL', workflow_state: state } });
   }));
   return { posts };
 }
 function view() { setApiMode('live'); return renderAt('/cs/tickets/x', '/cs/tickets/:ticketId', <TicketDetail />); }
 const body = (call: Post) => JSON.parse(call.init.body as string);
+const ready = (label: string) => screen.findByText(label, { selector: 'strong.state' });
+// 초안 비교 창은 회신 상자의 [다른 초안]으로 연다(KAN-210).
 async function openDraft() {
-  await waitFor(() => expect((screen.getByText(/^기타 \d/)).closest('details')).toBeTruthy());
-  fireEvent.click(screen.getByText(/^기타 \d/));
-  fireEvent.click(await screen.findByRole('menuitem', { name: /^AI 초안 보기/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '다른 초안' }));
   return within(await screen.findByRole('dialog'));
 }
 async function approveAndSend(dialog: ReturnType<typeof within>) {
@@ -57,8 +59,10 @@ async function approveAndSend(dialog: ReturnType<typeof within>) {
 
 test('초안을 검토해 승인하면 읽은 판본·사서함·받는 사람·초안 연결을 담아 보내고, 넘긴 결과를 안내한다', async () => {
   const api = server('IN_REVIEW', 5);
-  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  view(); await ready('검토중');
   const dialog = await openDraft();
+  // 회신 상자의 기본 버전과 다른 버전도 창에서 골라 보낼 수 있다.
+  fireEvent.click(dialog.getByLabelText(/부족한 정보 먼저/));
   expect((dialog.getByLabelText('받는 사람') as HTMLInputElement).value).toBe('buyer@example.com');
   await approveAndSend(dialog);
   await screen.findByText(/승인해 플랫폼에 넘겼습니다/);
@@ -72,7 +76,7 @@ test('초안을 검토해 승인하면 읽은 판본·사서함·받는 사람·
 test('플랫폼이 거부하거나 연결하지 못하거나 응답이 없으면 각각 다른 안내를 하고 다시 보내지 않는다', async () => {
   for (const [status, text] of [['REJECTED', /플랫폼이 발송을 거부했습니다\(RECIPIENT_REJECTED\)/], ['REQUEST_FAILED', /플랫폼에 연결하지 못해/], ['REQUEST_UNKNOWN', /새로 승인하지 말고/]] as const) {
     const api = server('IN_REVIEW', 5, {}, () => jsonResponse(200, flow('IN_REVIEW', 6, { customer_sends: [sentRow({ request_status: status, request_error: status === 'REJECTED' ? 'RECIPIENT_REJECTED' : null })] })));
-    view(); await screen.findByText('검토 중', { selector: 'strong' });
+    view(); await ready('검토중');
     await approveAndSend(await openDraft());
     expect((await screen.findByRole('alert')).textContent).toMatch(text);
     expect(api.posts).toHaveLength(1);
@@ -82,7 +86,7 @@ test('플랫폼이 거부하거나 연결하지 못하거나 응답이 없으면
 
 test('결과가 정해지지 않은 발송이 있으면 새 발송을 막고, 대화의 상태 확인이 그 발송을 새로 읽는다', async () => {
   const api = server('IN_REVIEW', 5, { customer_sends: [sentRow()] }, () => jsonResponse(200, flow('ANSWERED', 6, { customer_sends: [sentRow({ send_status: 'ACCEPTED', accepted_at: '2026-10-28T00:41:00Z' })] })));
-  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  view(); await ready('검토중');
   const dialog = await openDraft();
   expect(await dialog.findByText(/결과가 정해지지 않은 발송이 있습니다/)).toBeTruthy();
   expect((dialog.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
@@ -95,7 +99,7 @@ test('결과가 정해지지 않은 발송이 있으면 새 발송을 막고, �
 test('넘김 결과를 모르는 발송은 다시 요청으로 같은 판본을 보내 확인한다', async () => {
   const api = server('IN_REVIEW', 7, { customer_sends: [sentRow({ request_status: 'REQUEST_UNKNOWN', send_status: null })] },
     () => jsonResponse(200, flow('IN_REVIEW', 7, { customer_sends: [sentRow()] })));
-  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  view(); await ready('검토중');
   fireEvent.click(await screen.findByRole('button', { name: '다시 요청' }));
   await screen.findByText(/승인해 플랫폼에 넘겼습니다/);
   expect(api.posts[0].url).toMatch(/\/workflow\/sends\/s1\/retry$/);
@@ -104,14 +108,14 @@ test('넘김 결과를 모르는 발송은 다시 요청으로 같은 판본을 
 
 test('검토중이 아니거나 부서 답변이 확인 전이면 보내기를 막고 이유를 적는다', async () => {
   server('ANSWERED', 5);
-  view(); await screen.findByText(/^기타 \d/);
+  view(); await ready('답변 완료');
   const dialog = await openDraft();
   expect(await dialog.findByText('검토중인 문의만 보낼 수 있습니다')).toBeTruthy();
 });
 
 test('안전 문의에 쓸 초안이 없으면 강조 경고를 보이고 직접 써서 보낼 수 있다', async () => {
   const api = server('IN_REVIEW', 5, {}, undefined, analysis('SAFETY', false));
-  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  view(); await ready('검토중');
   const dialog = await openDraft();
   expect(dialog.getByRole('alert').textContent).toContain('안전 문의입니다');
   fireEvent.change(dialog.getByLabelText('미리보기'), { target: { value: '현장 안전을 위해 즉시 사용을 중지해 주십시오.' } });
@@ -133,8 +137,86 @@ test('플랫폼에 닿지 못한 발송(REQUEST_FAILED)은 새 발송을 막지 
 
 test('서버가 미확정 발송으로 거부하면(409) 원인을 안내하고 다시 보내지 않는다', async () => {
   const api = server('IN_REVIEW', 5, {}, () => jsonResponse(409, { error: { code: 'CS_CUSTOMER_SEND_PENDING', message: '발송 대기 중', retryable: false }, meta: { request_id: '11111111-1111-4111-8111-111111111199' } }));
-  view(); await screen.findByText('검토 중', { selector: 'strong' });
+  view(); await ready('검토중');
   await approveAndSend(await openDraft());
   expect((await screen.findByRole('alert')).textContent).toContain('결과가 정해지지 않은 발송이 있습니다');
   expect(api.posts).toHaveLength(1);
+});
+
+test('회신 상자 안 보내기 확인으로 고른 초안을 승인해 보내고, 승인 전에는 보내지 않는다(KAN-210)', async () => {
+  const api = server('IN_REVIEW', 5);
+  view(); await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  const box = await screen.findByText('보내기 확인');
+  const send = () => screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement;
+  await waitFor(() => expect((screen.getByLabelText('보낼 사서함') as HTMLSelectElement).value).toBe(MAILBOX));
+  expect((screen.getByLabelText('받는 사람') as HTMLInputElement).value).toBe('buyer@example.com');
+  expect(send().disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/));
+  await waitFor(() => expect(send().disabled).toBe(false));
+  const button = send(); fireEvent.click(button); fireEvent.click(button);
+  await screen.findByText(/승인해 플랫폼에 넘겼습니다/);
+  expect(api.posts).toHaveLength(1);
+  expect(body(api.posts[0])).toMatchObject({ version: 5, kind: 'ANSWER', mailbox_id: MAILBOX, to: ['buyer@example.com'], draft_id: 'd1', draft_option: 'CONCISE', requested_info_codes: [] });
+  expect(box).toBeTruthy();
+});
+
+test('메일이 아닌 채널 문의는 시스템 발송 없이 문안 복사만 둔다', async () => {
+  const api = server('IN_REVIEW', 5);
+  vi.mocked(fetch).mockImplementation(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'u1', roles: ['cs_agent'] } }), { status: 200, headers: { 'X-CSRF-Token': 'synthetic-csrf' } });
+    if (path.endsWith('/workflow')) return jsonResponse(200, flow('IN_REVIEW', 5));
+    if (path.endsWith('/analysis')) return jsonResponse(200, analysis());
+    return jsonResponse(200, { data: { ...base, channel: 'PHONE', workflow_state: 'IN_REVIEW' } });
+  });
+  view(); await ready('검토중');
+  expect(await screen.findByRole('button', { name: '문안 복사' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '답변 보내기' })).toBeNull();
+  const dialog = await openDraft();
+  expect(dialog.queryByRole('button', { name: '승인하고 보내기' })).toBeNull();
+  expect(api.posts).toHaveLength(0);
+});
+
+test('다른 문의로 옮기면 보내기 확인·승인·받는 사람이 남지 않는다(앞 문의 내용으로 발송되지 않는다)', async () => {
+  server('IN_REVIEW', 5);
+  const Go = () => { const go = useNavigate(); return <button onClick={() => go('/cs/tickets/other')}>다른 문의</button>; };
+  setApiMode('live'); renderAt('/cs/tickets/x', '/cs/tickets/:ticketId', <><TicketDetail /><Go /></>);
+  await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'previous@example.com' } });
+  fireEvent.click(screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/));
+  fireEvent.click(screen.getByRole('button', { name: '다른 문의' }));
+  await waitFor(() => expect(screen.queryByText('보내기 확인')).toBeNull());
+  await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  expect((screen.getByLabelText('받는 사람') as HTMLInputElement).value).toBe('buyer@example.com');
+  expect((screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('승인한 뒤 본문을 부서 문안으로 바꾸면 승인이 풀리고 다시 확인해야 보낸다', async () => {
+  const api = server('IN_REVIEW', 5, {
+    transfers: [{ id: 't1', dept_code: 'TS_TRF', status: 'RESULT_SUBMITTED', round: 1, reason: '검토', transferred_at: '2026-10-28T00:30:00Z', transferred_by: 'u1', ended_at: null, end_reason: null }],
+    dept_results: [{ id: 'r1', transfer_id: 't1', dept_code: 'TS_TRF', version: 1, review_status: 'ACCEPTED', result: '교체 필요', reply_content: 'We will replace the unit.', submitted_at: '2026-10-28T01:00:00Z', submitted_by: 'u2' }],
+  });
+  view(); await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  await waitFor(() => expect((screen.getByLabelText('보낼 사서함') as HTMLSelectElement).value).toBe(MAILBOX));
+  const approve = () => screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/) as HTMLInputElement;
+  const send = () => screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement;
+  fireEvent.click(approve());
+  await waitFor(() => expect(send().disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '이 문안 쓰기' }));
+  await waitFor(() => expect(approve().checked).toBe(false));
+  expect(send().disabled).toBe(true);
+  fireEvent.click(approve());
+  await waitFor(() => expect(send().disabled).toBe(false));
+  fireEvent.click(send());
+  await screen.findByText(/승인해 플랫폼에 넘겼습니다/);
+  expect(api.posts).toHaveLength(1);
+  expect(body(api.posts[0]).body).toBe('We will replace the unit.');
 });

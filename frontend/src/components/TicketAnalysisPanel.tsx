@@ -11,7 +11,7 @@ const text = (value: unknown) => value === null || value === undefined || value 
 
 // AI 분류 패널. 분석 API(KAN-107)의 유효값(사람 정정이 있으면 그 값)과 규칙 결과를 읽기 전용으로 보인다.
 // 반품 문의는 검사 뒤 사람이 기록하는 확정 입력(KAN-198)을 함께 보인다. AI 값으로 확정 칸을 채우지 않는다.
-export default function TicketAnalysisPanel({ analysis, pending, failed = false, workflow, ticketState, canWrite, busy, onConfirm }: {
+export default function TicketAnalysisPanel({ analysis, pending, failed = false, workflow, ticketState, canWrite, busy, onConfirm, onCorrect }: {
   analysis?: Analysis;
   pending: boolean;
   failed?: boolean;
@@ -20,6 +20,7 @@ export default function TicketAnalysisPanel({ analysis, pending, failed = false,
   canWrite: boolean;
   busy: boolean;
   onConfirm: (form: ReturnForm) => void;
+  onCorrect?: () => void;
 }) {
   const [responsibility, setResponsibility] = useState<ReturnBody['responsibility'] | ''>('');
   const [cause, setCause] = useState('');
@@ -56,13 +57,13 @@ export default function TicketAnalysisPanel({ analysis, pending, failed = false,
   };
 
   return <section className="kv-box ai-pre">
-    <h2>AI 분류{run && <span className="auto">AI 작성 {formatStamp(run.created_at)}</span>}{!run && <span className="unc" style={{ marginLeft: 8 }}>분석 실행 없음</span>}</h2>
+    <h2>AI 분류{run && <span className="auto">AI 작성 {formatStamp(run.created_at)}</span>}{!run && <span className="unc" style={{ marginLeft: 8 }}>분석 실행 없음</span>}{onCorrect && <button className="kb" style={{ marginLeft: 'auto', height: 22 }} title="AI 분류를 사유와 함께 정정합니다" onClick={onCorrect}>분류 정정</button>}</h2>
     <div className="body">
       {failed && <p role="alert">최신 분석 조회에 실패했습니다. 표시된 이전 결과와 구분해 확인하세요.</p>}
       <div className="kv-field"><span>주분류</span><span className="ro">{categoryName(category)}{tag('category_code') && <small className="auto"> {tag('category_code')}</small>}</span></div>
       <div className="kv-field"><span>보조분류</span><span className="ro">{text(view('secondary_category')?.effective_value)}{tag('secondary_category') && <small className="auto"> {tag('secondary_category')}</small>}</span></div>
       <div className="kv-field"><span>긴급 여부</span><span className="ro">{text(view('urgency_flag')?.effective_value)}{tag('urgency_flag') && <small className="auto"> {tag('urgency_flag')}</small>}</span></div>
-      <div className="kv-field"><span>고객이 보낸 것</span><span className="ro">{Array.isArray(provided) && provided.length ? provided.join(', ') : '-'}</span></div>
+      <div className="kv-field"><span>고객이 보낸 것</span><span className="ro">{Array.isArray(provided) && provided.length ? provided.map(item => <span key={String(item)} className="td-chip">✓ {String(item)}</span>) : '-'}</span></div>
       {isReturn && <div className="kv-field"><span>반품 사유(고객 주장)</span><span className="ro">{analysis?.return_subtype_stated ? RETURN_STATED_LABEL[analysis.return_subtype_stated] : '-'} <small className="auto">접수 때 밝힌 값, 확정 아님</small></span></div>}
       {rule && <>
         <div className="kv-field"><span>담당 부서</span><span className="ro">{deptName(rule.dept)}</span></div>
@@ -74,7 +75,7 @@ export default function TicketAnalysisPanel({ analysis, pending, failed = false,
       {recentDraft && recentDraft.outcome !== 'VALID' && <p role="alert">최근 초안 작성 시도는 유효하지 않습니다 ({recentDraft.outcome}). 이전 유효 초안과 구분해 확인하세요.</p>}
       {run?.outcome === 'VALID' && !analysis?.latest_valid_draft_id && <p role="alert">분류 결과는 있지만 유효한 초안이 없습니다. 초안 작성 결과를 확인하세요.</p>}
       {analysis?.drafts?.some(draft => draft.id === analysis.latest_valid_draft_id && draft.verification_status !== 'VERIFIED') && <p>초안 문장 검증 결과를 확인하세요. 분석 작업 완료는 모든 문장의 근거 확인을 뜻하지 않습니다.</p>}
-      <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류는 확정값이 아니라 제안입니다. 사람이 정정한 값은 사람 정정으로 표시합니다. 정정은 위쪽 기타 메뉴의 "분류 정정"에서 합니다.</div>
+      <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 분류는 확정값이 아니라 제안입니다. 사람이 정정한 값은 사람 정정으로 표시합니다. 정정은 이 상자 위쪽의 "분류 정정"에서 합니다.</div>
 
       {isReturn && <form onSubmit={submit} aria-label="반품 확정" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--erp-border-soft)' }}>
         <div className="kv-sub" style={{ margin: '0 0 6px', color: 'var(--erp-text)' }}>반품 확정 (검사 뒤 사람이 기록)</div>

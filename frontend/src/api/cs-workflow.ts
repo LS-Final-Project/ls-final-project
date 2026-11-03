@@ -62,7 +62,8 @@ export const refreshCustomerSend = (ticketId: string, sendId: string, signal: Ab
 // 플랫폼이 답하지 않은 발송을 같은 판본·내용으로 다시 요청한다(플랫폼이 같은 의도로 알아봐 두 번 보내지 않는다).
 export const retryCustomerSend = (ticketId: string, sendId: string, version: number, signal: AbortSignal) => post(ticketId, `/sends/${encodeURIComponent(sendId)}/retry`, { version }, signal);
 export const isSendPending = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_CUSTOMER_SEND_PENDING';
-export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
+// 메일 외 채널 문의는 응대 내용(response_note)으로 종결할 수 있다(KAN-211).
+export const closeTicket = (ticketId: string, version: number, signal: AbortSignal, responseNote?: string) => post(ticketId, '/close', responseNote ? { version, response_note: responseNote } : { version }, signal);
 
 // 한국어 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
 export const createTicketSummary = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/summary`, {}, signal);
