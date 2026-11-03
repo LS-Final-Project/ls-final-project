@@ -149,3 +149,32 @@ it('이미지 전사는 native 텍스트 강조 대신 정확한 이미지/페�
   expect(originalQuote({ ...origin!, clause_no: 'OCR-PDF-P0003.1', page: 3 })).toEqual({ quote: '', notice: expect.stringContaining('PDF 원문 3쪽') });
   expect(originalQuote({ ...origin!, clause_no: '1.3.1' })).toEqual({ quote: '170 kV', notice: undefined });
 });
+
+describe('선택한 인용으로 원문 스크롤', () => {
+  function layout(element: Element, top: number) { element.getBoundingClientRect = () => ({ top } as DOMRect); }
+  function scrollable(element: Element, scrollTop: number, clientHeight: number) {
+    Object.defineProperty(element, 'scrollTop', { configurable: true, writable: true, value: scrollTop });
+    Object.defineProperty(element, 'clientHeight', { configurable: true, value: clientHeight });
+  }
+  it('iframe 문서 자체가 스크롤할 때 이미 내려간 거리를 두 번 더하지 않는다', () => {
+    const doc = document.implementation.createHTMLDocument('docx');
+    doc.body.innerHTML = '<p>앞</p><p><mark data-rfp-quote="true">인용</mark></p>';
+    // 브라우저의 표준 모드 문서는 html 요소가 스크롤한다. jsdom은 scrollingElement를 구현하지 않는다.
+    Object.defineProperty(doc, 'scrollingElement', { configurable: true, value: doc.documentElement });
+    const scroller = doc.scrollingElement as HTMLElement;
+    scrollable(scroller, 1000, 900);
+    layout(scroller, -1000); // 문서 루트의 rect는 스크롤과 함께 위로 올라간다.
+    layout(doc.querySelector('mark')!, 500);
+    revealQuote(doc.body, scroller);
+    expect(scroller.scrollTop).toBe(1000 + 500 - 300);
+  });
+  it('PDF처럼 고정된 스크롤 상자는 상자 위치를 기준으로 한다', () => {
+    const root = page('<div><mark data-rfp-quote="true">인용</mark></div>');
+    const scroller = document.createElement('div');
+    scrollable(scroller, 50, 600);
+    layout(scroller, 100);
+    layout(root.querySelector('mark')!, 600);
+    revealQuote(root, scroller);
+    expect(scroller.scrollTop).toBe(50 + 600 - 100 - 200);
+  });
+});

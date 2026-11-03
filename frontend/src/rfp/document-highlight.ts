@@ -96,6 +96,8 @@ function runningPageText(root: HTMLElement): Set<Element> {
 export function revealQuote(root: HTMLElement, scroller: HTMLElement) {
   const mark = root.querySelector('mark[data-rfp-quote]');
   if (!mark) return;
-  const top = scroller.scrollTop + mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3;
+  // A document's scrolling element moves with its content (rect.top = -scrollTop); its viewport starts at 0.
+  const viewTop = scroller === scroller.ownerDocument.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
+  const top = scroller.scrollTop + mark.getBoundingClientRect().top - viewTop - scroller.clientHeight / 3;
   scroller.scrollTop = Math.max(0, top);
 }
