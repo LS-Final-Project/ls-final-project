@@ -121,6 +121,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         (),
     ),
     ("/api/v1/cs/condition-comparisons", ("GET",), ("product_code", "fault_id", "version")),
+    ("/api/v1/cs/faults", ("GET",), ("product_code",)),
     (
         "/api/v1/tft/projects",
         ("GET", "POST"),
