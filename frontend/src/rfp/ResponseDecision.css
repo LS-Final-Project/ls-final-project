@@ -41,3 +41,8 @@
 .response-workspace h4 { margin:0 0 4px; color:#203b60; font-size:14px; }
 .rfp-response-decision .response-comparison > div > b { font-size:12px; line-height:1.5; }
 .ls-root .rfp-response-decision .response-action-conditions > b { font-size:13px; line-height:1.5; font-weight:600; }
+.ls-root .rfp-response-decision .response-guided-review { padding:14px; }
+.ls-root .rfp-response-decision .response-guided-review h4 { margin:0 0 8px; font-size:14px; font-weight:600; line-height:1.5; color:#203b60; }
+.ls-root .rfp-response-decision .response-question-records article { padding:10px 0; border-bottom:1px solid #e3e9f1; }
+.ls-root .rfp-response-decision .response-question-records strong { font-size:13px; font-weight:600; line-height:1.5; }
+.ls-root .rfp-response-decision .response-record-note { color:#63738c; font-size:11px; margin-top:12px; }

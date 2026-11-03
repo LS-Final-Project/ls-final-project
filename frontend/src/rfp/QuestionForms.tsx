@@ -1,10 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ApiError } from '../api/client';
 import { me } from '../api/platform';
 import { createQuestion, replyQuestion, type Question, type RequirementDetail } from '../api/rfp';
 import { KvBox, KvField } from '../ls-shell/kv';
-import { DEPARTMENT_LABEL, FEASIBILITY_LABEL, ISSUE_LABEL, label, RND_DEPARTMENTS } from './labels';
+import { DEPARTMENT_LABEL, FEASIBILITY_LABEL, ISSUE_LABEL, label, requirementNo, RND_DEPARTMENTS } from './labels';
 import { Failure, settled, useAttemptKey } from './proposal-shared';
 
 // 내부 자문 유형은 INTERNAL 전용이다. R&D 확인은 R&D 부서만 답할 수 있어 다른 부서에는 내지 않는다.
@@ -19,8 +19,12 @@ const trimmed = (text: string) => text.trim() || null;
 
 // 고객 질문 작성(TF_K_Req_Question). 가정값은 충족 판정에 쓰지 않는다.
 // ponytail: 승인자를 고를 사용자 목록 API가 없어 승인자는 비우고 초안 표시는 끈다. 승인 없는 가정이 고객 초안에 나가면 안 된다.
-export function QuestionForm({ projectId, requirement, departments, onCancel, onSaved, initialTarget, actorId, useMockFallback = true }: {
+export function QuestionForm({ projectId, requirement, departments, onCancel, onSaved, initialTarget, actorId, useMockFallback = true, audience, initialIssue, initialText = '', disabled = false }: {
   initialTarget?: string;
+  audience?: 'INTERNAL' | 'CUSTOMER';
+  initialIssue?: Question['issue_type'];
+  initialText?: string;
+  disabled?: boolean;
   actorId?: string;
   useMockFallback?: boolean;
   projectId: string;
@@ -30,10 +34,14 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const startingTarget = initialTarget && departments.includes(initialTarget) ? initialTarget : CUSTOMER;
+  const formId = useId();
+  const fieldId = (name: string) => `${formId}-${name}`;
+  const internalOnly = audience === 'INTERNAL' || audience !== 'CUSTOMER' && !!initialTarget;
+  const fixedTarget = audience !== 'CUSTOMER' && initialTarget && departments.includes(initialTarget) ? initialTarget : undefined;
+  const startingTarget = fixedTarget ?? (internalOnly ? '' : CUSTOMER);
   const [target, setTarget] = useState(startingTarget);
-  const [issue, setIssue] = useState(issuesFor(startingTarget)[0]);
-  const [text, setText] = useState('');
+  const [issue, setIssue] = useState(initialIssue && issuesFor(startingTarget).includes(initialIssue) ? initialIssue : issuesFor(startingTarget)[0]);
+  const [text, setText] = useState(initialText);
   const [assumed, setAssumed] = useState('');
   const [standard, setStandard] = useState('');
   const [clause, setClause] = useState('');
@@ -48,6 +56,7 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
   const [key, nextKey] = useAttemptKey(JSON.stringify(body));
   const create = useMutation({
     mutationFn: async () => {
+      if (disabled || !target || target !== CUSTOMER && !departments.includes(target) || internalOnly && target === CUSTOMER || audience === 'CUSTOMER' && target !== CUSTOMER || !issuesFor(target).includes(issue)) throw new ApiError(403, '질문 작성 권한과 검토 부서를 다시 확인하세요.');
       if (actorId) {
         const actor = await me();
         if (!actor || actor.data.id !== actorId) throw new ApiError(409, '세션 사용자가 변경되었습니다. 다시 확인해 주세요.', undefined, 'SESSION_CHANGED');
@@ -57,30 +66,33 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
     onSuccess: () => { nextKey(); onSaved(); },
     onError: error => { if (settled(error)) nextKey(); },
   });
-  return <div style={{ margin: '8px 14px 0' }}><KvBox title={`질문 작성, ${requirement.code}`}>
-    <form onSubmit={event => { event.preventDefault(); if (body.question_text) create.mutate(); }}>
+  return <div style={{ margin: '8px 14px 0' }}><KvBox title={`질문 작성 · ${requirementNo(requirement.code)}`}>
+    <form onSubmit={event => { event.preventDefault(); if (!disabled && target && body.question_text && !create.isPending) create.mutate(); }}>
+      <fieldset disabled={disabled || create.isPending} style={{ border: 0, padding: 0, margin: 0 }}>
       <KvField label="원문">{clauseOf(requirement) || '조항 없음'}</KvField>
-      <div className="kv-field"><label htmlFor="question-target">대상</label>
-        <select id="question-target" disabled={!!initialTarget} value={target} onChange={event => { setTarget(event.target.value); setIssue(issuesFor(event.target.value)[0]); }}>
-          <option value={CUSTOMER}>고객</option>
-          {departments.map(code => <option key={code} value={code}>{label(DEPARTMENT_LABEL, code)}</option>)}
+      <div className="kv-field"><label htmlFor={fieldId('question-target')}>대상</label>
+        <select id={fieldId('question-target')} disabled={!!fixedTarget} value={target} onChange={event => { setTarget(event.target.value); setIssue(initialIssue && issuesFor(event.target.value).includes(initialIssue) ? initialIssue : issuesFor(event.target.value)[0]); }}>
+          {internalOnly && <option value="">검토 부서 선택</option>}
+          {!internalOnly && <option value={CUSTOMER}>고객</option>}
+          {audience !== 'CUSTOMER' && departments.map(code => <option key={code} value={code}>{label(DEPARTMENT_LABEL, code)}</option>)}
         </select></div>
-      <div className="kv-field"><label htmlFor="question-issue">유형</label>
-        <select id="question-issue" disabled={!!initialTarget} value={issue} onChange={event => setIssue(event.target.value)}>
+      <div className="kv-field"><label htmlFor={fieldId('question-issue')}>유형</label>
+        <select id={fieldId('question-issue')} disabled={!!fixedTarget} value={issue} onChange={event => setIssue(event.target.value)}>
           {issuesFor(target).map(code => <option key={code} value={code}>{ISSUE_LABEL[code]}</option>)}
         </select></div>
-      <div className="kv-field"><label htmlFor="question-text" className="req">질문</label>
-        <textarea id="question-text" rows={3} maxLength={4000} value={text} onChange={event => setText(event.target.value)} /></div>
-      {target === CUSTOMER && <div className="kv-field"><label htmlFor="question-assumed">가정값</label>
-        <input id="question-assumed" type="text" placeholder="회신 전 가정값, 선택. 충족 판정에는 쓰지 않음" value={assumed} onChange={event => setAssumed(event.target.value)} /></div>}
+      <div className="kv-field"><label htmlFor={fieldId('question-text')} className="req">질문</label>
+        <textarea id={fieldId('question-text')} rows={3} maxLength={4000} value={text} onChange={event => setText(event.target.value)} /></div>
+      {target === CUSTOMER && <div className="kv-field"><label htmlFor={fieldId('question-assumed')}>가정값</label>
+        <input id={fieldId('question-assumed')} type="text" placeholder="회신 전 가정값, 선택. 충족 판정에는 쓰지 않음" value={assumed} onChange={event => setAssumed(event.target.value)} /></div>}
       {target === CUSTOMER && assumed.trim() && <>
-        <div className="kv-field"><label htmlFor="question-standard">근거 규격</label><input id="question-standard" type="text" value={standard} onChange={event => setStandard(event.target.value)} /></div>
-        <div className="kv-field"><label htmlFor="question-clause">근거 조항</label><input id="question-clause" type="text" value={clause} onChange={event => setClause(event.target.value)} /></div>
+        <div className="kv-field"><label htmlFor={fieldId('question-standard')}>근거 규격</label><input id={fieldId('question-standard')} type="text" value={standard} onChange={event => setStandard(event.target.value)} /></div>
+        <div className="kv-field"><label htmlFor={fieldId('question-clause')}>근거 조항</label><input id={fieldId('question-clause')} type="text" value={clause} onChange={event => setClause(event.target.value)} /></div>
       </>}
       <div className="kv-actions">
         <button type="button" className="kb" onClick={onCancel}>취소</button>
-        <button type="submit" className="kb primary" disabled={!body.question_text || create.isPending}>질문 저장</button>
+        <button type="submit" className="kb primary" disabled={disabled || !target || !body.question_text || create.isPending}>질문 저장</button>
       </div>
+      </fieldset>
       {create.isError && <Failure error={create.error} onReload={onSaved} messages={{}} />}
     </form>
   </KvBox></div>;

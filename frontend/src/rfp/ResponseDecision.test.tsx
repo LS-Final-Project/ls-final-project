@@ -31,24 +31,24 @@ test('stale comparison and candidate profiles prevent saving', async () => {
   expect(await screen.findByText(/현재 요구 판본의 자사 비교 결과가 아닙니다/)).toBeTruthy();
   expect(await screen.findByText(/현재 요구·프로필 판본과 연결된 등급/)).toBeTruthy();
   expect(screen.queryByText('합성-TRF-1000')).toBeNull();
-  expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '대응 방안 저장' })).toBeNull();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 test('read only access disables original selection form without opening mutations', async () => {
   show(false);
-  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
-  expect((await screen.findByRole('combobox', { name: '보완 경로' })).closest('fieldset')?.disabled).toBe(true);
-  expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  expect((await screen.findByRole('combobox', { name: '기록할 대응 방안' })).closest('fieldset')?.disabled).toBe(true);
+  expect((screen.getByRole('button', { name: '대응 방안 저장' }) as HTMLButtonElement).disabled).toBe(true);
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 test('explicit save uses original version and invokes parent refresh', async () => {
   vi.mocked(selectSupplement).mockResolvedValue({ data: { requirement_id: requirement.requirement_id, version: 2 } as never, meta: { request_id: 'test' } });
   const saved = show();
-  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
-  fireEvent.change(await screen.findByRole('combobox', { name: '보완 경로' }), { target: { value: 'NONE' } });
-  fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '자사 확인 담당' } });
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  fireEvent.change(await screen.findByRole('combobox', { name: '기록할 대응 방안' }), { target: { value: 'NONE' } });
+  fireEvent.change(screen.getByRole('textbox', { name: '담당자와 후속 확인 사항' }), { target: { value: '자사 확인 담당' } });
   expect(selectSupplement).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: '보완 선택 저장' }));
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 저장' }));
   await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   expect(selectSupplement).toHaveBeenCalledWith(requirement.requirement_id, expect.objectContaining({ version: 1, path: 'NONE' }), expect.any(String), 'actor');
   expect(getComparison).toHaveBeenCalledWith(requirement.requirement_id, { useMockFallback: false });
@@ -56,11 +56,11 @@ test('explicit save uses original version and invokes parent refresh', async () 
 
 test('failed options refresh disables cached selection evidence', async () => {
   show();
-  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
-  await screen.findByRole('combobox', { name: '보완 경로' });
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  await screen.findByRole('combobox', { name: '기록할 대응 방안' });
   vi.mocked(getSupplementOptions).mockRejectedValueOnce(new Error('조회 실패'));
   fireEvent.click(screen.getByRole('button', { name: '대응 근거 최신 조회' }));
-  await waitFor(() => expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('button', { name: '대응 방안 저장' })).toBeNull());
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 
@@ -78,23 +78,23 @@ test('default view compares typed customer and product values before opening evi
 
 test('unknown development gate opens real selection without suggesting development', async () => {
   show();
-  fireEvent.click(await screen.findByRole('button', { name: '미확인 조건·대응 경로 확인 →' }));
+  fireEvent.click(await screen.findByRole('button', { name: '대응 방안 기록' }));
   expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
-  expect(screen.queryByText('개발 검토 요청 작성')).toBeNull();
+  expect(screen.queryByText('개발팀에 확인할 질문 작성')).toBeNull();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 
 test('collapsing a selection keeps the unsaved role split and does not submit it', async () => {
   show();
-  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
-  await screen.findByRole('combobox', { name: '보완 경로' });
-  fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '검토 중인 역할' } });
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  await screen.findByRole('combobox', { name: '기록할 대응 방안' });
+  fireEvent.change(screen.getByRole('textbox', { name: '담당자와 후속 확인 사항' }), { target: { value: '검토 중인 역할' } });
   fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
-  expect(screen.queryByRole('textbox', { name: '역할 분담' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: '담당자와 후속 확인 사항' })).toBeNull();
   expect(screen.getByRole('region', { name: '비교 근거와 원문' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
   expect(screen.queryByRole('region', { name: '비교 근거와 원문' })).toBeNull();
-  expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('검토 중인 역할');
+  expect((screen.getByRole('textbox', { name: '담당자와 후속 확인 사항' }) as HTMLTextAreaElement).value).toBe('검토 중인 역할');
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 
@@ -136,12 +136,13 @@ test('commercial warranty compares typed values and opens terms selection withou
   vi.mocked(getComparison).mockResolvedValue({ data: { ...MOCK_COMPARISON, candidates: [{ ...MOCK_COMPARISON.candidates[0], attribute_match: { ...MOCK_COMPARISON.candidates[0].attribute_match, matched_attribute: 'warranty_months', our_value: '24', our_unit: 'months' } }] } });
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'COMMERCIAL', options: [{ ...options.options[0], path: 'OWN_TERMS_REVIEW', conditions_to_confirm: ['영업·보증 담당 조건 변경 확인'] }] }, meta: { request_id: 'test' } });
   show();
-  const action = await screen.findByRole('button', { name: '영업·보증 조건 변경 확인 →' });
+  await screen.findByText('36 개월');
+  const action = screen.getByRole('button', { name: '대응 방안 기록' });
   const current = screen.getByRole('region', { name: '선택 요구 현재 상태' });
   expect(current.textContent).toContain('36 개월');
   expect(current.textContent).toContain('24 개월');
   expect(current.textContent).toContain('12 개월 차이');
-  expect(screen.queryByText('개발 검토 요청 작성')).toBeNull();
+  expect(screen.queryByText('개발팀에 확인할 질문 작성')).toBeNull();
   fireEvent.click(action);
   expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
   expect(screen.getAllByText('영업·보증 담당 조건 변경 확인').length).toBeGreaterThan(0);
@@ -162,8 +163,8 @@ test('task server development gate preserves the actual feasibility request flow
   show();
   const action = await screen.findByRole('button', { name: '담당·수행 범위와 제출 근거 확인 →' });
   fireEvent.click(action);
-  expect(screen.getByRole('heading', { name: '수행 가능성·일정 검토' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: '수행 가능성 검토 요청 작성' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '개발팀 가능성·일정 확인' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' })).toBeTruthy();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 
@@ -201,7 +202,7 @@ test('a recorded development question remains available for commercial requireme
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'COMMERCIAL', options: [{ ...options.options[0], path: 'OWN_TERMS_REVIEW' }] }, meta: { request_id: 'test' } });
   show();
   await screen.findByText(/현재 대응 조건과 별도로 개발 검토 기록/);
-  fireEvent.click(screen.getByRole('button', { name: '기술·개발 검토' }));
+  fireEvent.click(screen.getByRole('button', { name: '개발팀 가능성·일정 확인' }));
   expect(await screen.findByText('이 요구의 개발 검토 요청 기록이 없습니다.')).toBeTruthy();
   expect(screen.getByText(/실제 이메일 전달 여부/)).toBeTruthy();
   expect(screen.queryByText('발송 완료')).toBeNull();
@@ -212,9 +213,9 @@ test('a recorded development question remains available for commercial requireme
 test('designated procurement stays separate from partner and development suggestions', async () => {
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'DESIGNATED_MODEL', options: [{ ...options.options[0], path: 'CUSTOMER_SPECIFIED_PROCUREMENT' }] }, meta: { request_id: 'test' } });
   show();
-  fireEvent.click(await screen.findByRole('button', { name: '지정품 조달 조건 확인 →' }));
+  fireEvent.click(await screen.findByRole('button', { name: '대응 방안 기록' }));
   expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
-  expect(screen.queryByRole('button', { name: '기술·개발 검토' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '개발팀 가능성·일정 확인' })).toBeNull();
   expect(screen.queryByRole('button', { name: '협력사 후보 비교' })).toBeNull();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
@@ -224,12 +225,63 @@ test('switching evidence preserves an unsaved internal development question', as
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: [{ ...options.options[0], gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
   show(true, vi.fn(), requirement, ['RND_FW']);
   fireEvent.click(await screen.findByRole('button', { name: '기술·개발 검토 확인 →' }));
-  await waitFor(() => expect((screen.getByRole('button', { name: '개발 검토 요청 작성' }) as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(screen.getByRole('button', { name: '개발 검토 요청 작성' }));
+  await waitFor(() => expect((screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' }));
   fireEvent.change(screen.getByLabelText('질문'), { target: { value: '고객 납기에 가능한지 검토 부탁드립니다.' } });
   fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
   expect(screen.queryByRole('textbox', { name: '질문' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '기술·개발 검토' }));
+  fireEvent.click(screen.getByRole('button', { name: '개발팀 가능성·일정 확인' }));
   expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe('고객 납기에 가능한지 검토 부탁드립니다.');
   expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('commercial default shows the question task, preserves its input across evidence, and records terms without a partner field', async () => {
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'COMMERCIAL', options: [{ ...options.options[0], path: 'OWN_TERMS_REVIEW' }] }, meta: { request_id: 'test' } });
+  show(true, vi.fn(), requirement, ['SALES_OPS']);
+  const question = await screen.findByRole('button', { name: '검토 질문 작성' });
+  expect(screen.queryByRole('combobox', { name: '기록할 대응 방안' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '영업·보증 조건 변경 확인 →' })).toBeNull();
+  fireEvent.click(question);fireEvent.change(screen.getByLabelText('대상'), { target: { value: 'SALES_OPS' } });
+  fireEvent.change(screen.getByLabelText('질문'), { target: { value: '조건 변경 가능 여부 검토 중입니다.' } });
+  fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
+  expect(screen.queryByRole('textbox', { name: '질문' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '질문·회신 기록' }));
+  expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe('조건 변경 가능 여부 검토 중입니다.');
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  expect((screen.getByRole('combobox', { name: '기록할 대응 방안' }) as HTMLSelectElement).value).toBe('OWN_TERMS_REVIEW');
+  expect(screen.queryByText('이 경로에 등록된 후보가 없습니다.')).toBeNull();
+  expect(screen.queryByLabelText('후보')).toBeNull();
+  expect(screen.getByRole('textbox', { name: '누가 어떤 조건을 확인할지' })).toBeTruthy();
+  expect(screen.getByPlaceholderText(/영업 담당이 보증 연장 가능 여부/)).toBeTruthy();
+  expect((screen.getByRole('button', { name: '대응 방안 저장' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('partner paths retain candidate selection and switching to a nonpartner clears selected candidates', async () => {
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: [{ ...options.options[0], path: 'EXTERNAL_PRODUCT', candidate_codes: ['P-A'] }, { ...options.options[0], path: 'OTHER_OWN_PRODUCT' }] }, meta: { request_id: 'test' } });
+  vi.mocked(selectSupplement).mockResolvedValue({ data: { requirement_id: requirement.requirement_id, version: 2 } as never, meta: { request_id: 'test' } });
+  const saved = show();fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  const paths = await screen.findByRole('combobox', { name: '기록할 대응 방안' });
+  fireEvent.change(paths, { target: { value: 'EXTERNAL_PRODUCT' } });
+  fireEvent.click(screen.getByRole('checkbox', { name: '후보 P-A' }));
+  fireEvent.change(paths, { target: { value: 'OTHER_OWN_PRODUCT' } });
+  expect(screen.queryByRole('checkbox', { name: '후보 P-A' })).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: '담당자와 후속 확인 사항' }), { target: { value: '기술지원이 자사 제품 조건을 확인' } });
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 저장' }));await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(selectSupplement).toHaveBeenCalledWith(requirement.requirement_id, expect.objectContaining({ path: 'OTHER_OWN_PRODUCT', candidate_codes: [], role_split: '기술지원이 자사 제품 조건을 확인' }), expect.any(String), 'actor');
+});
+
+test('all server options and blocking reasons remain readable alongside the contextual selection', async () => {
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'COMMERCIAL', options: [{ ...options.options[0], path: 'OWN_TERMS_REVIEW' }, { ...options.options[0], path: 'EXTERNAL_PRODUCT', allowed: false, blocked_reason: '고객 조건에 따라 차단' }] }, meta: { request_id: 'test' } });
+  show();await screen.findByRole('button', { name: '검토 질문 작성' });fireEvent.click(screen.getByRole('button', { name: '대응 방안 기록' }));
+  fireEvent.click(screen.getByText('대응 방안과 제한 조건'));
+  expect(screen.getByText('고객 조건에 따라 차단')).toBeTruthy();
+  expect((screen.getByRole('option', { name: '외부 제품' }) as HTMLOptionElement).disabled).toBe(true);expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('a task without a scalar value keeps its real development gate instead of inventing a missing customer value', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, spec: { ...MOCK_DETAIL.spec, task: '현장 시험 수행', operator: 'TEXT', value: null }, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' } } as never });
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'TASK', options: [{ ...options.options[0], gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
+  show();fireEvent.click(await screen.findByRole('button', { name: '담당·수행 범위와 제출 근거 확인 →' }));
+  expect(screen.getByRole('heading', { name: '개발팀 가능성·일정 확인' })).toBeTruthy();expect(screen.queryByRole('button', { name: '고객 확인 질문 작성' })).toBeNull();expect(selectSupplement).not.toHaveBeenCalled();
 });

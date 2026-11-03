@@ -8,6 +8,7 @@ import { ErrorState, Loading } from '../components/states';
 import { SelectionEditor, reasonLabel } from './RfpSupplement';
 import { attributeName, requirementNo, STATUS_LABEL, BLOCKED_LABEL, PATH_LABEL, RND_CHECK_LABEL, label } from './labels';
 import './ResponseDecision.css';
+import { GuidedRequirementReview } from './GuidedRequirementReview';
 import { DevelopmentReviewFlow } from './DevelopmentReviewFlow';
 
 const noop = () => {};
@@ -55,19 +56,23 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
   const recordedDevelopment = !!currentDetail?.judgement.rnd_question_id || ['PENDING', 'CONFIRMED_FEASIBLE', 'CONFIRMED_NOT_FEASIBLE', 'CONFIRMED_SCHEDULE_MISMATCH', 'WAIVED'].includes(currentDetail?.judgement.rnd_check ?? '');
   const showDevelopment = recordedDevelopment || !commercial && !designated && developmentGate;
   const showPartners = currentOptions?.options.some(o => ['EXTERNAL_PRODUCT', 'TASK_SUBCONTRACT', 'JOINT_PROPOSAL'].includes(o.path)) === true;
+  const customerValueMissing = !!currentDetail && !task && currentDetail.spec.operator !== 'TEXT' && !currentDetail.spec.value?.trim();
+  const guided = !!currentDetail && (customerValueMissing || commercial || designated || !showDevelopment && currentDetail.judgement.status !== 'EVIDENCE_FOUND');
+  const activePanel = expanded === 'closed' ? undefined : expanded ?? (guided ? 'questions' : undefined);
   const termsOption = currentOptions?.options.find(o => o.path === 'OWN_TERMS_REVIEW');
   const next = issue ? { text: '최신 근거 다시 조회', panel: 'refresh' }
     : reviewNeeded ? { text: '원문·판정 재확인', panel: 'criteria' }
     : !currentDetail || !currentOptions ? { text: '검토 조건 확인 중', panel: 'loading' }
     : currentDetail.judgement.status === 'EVIDENCE_FOUND' && !currentOptions.options.length && !recordedDevelopment && !selectionRecord && !hasSavedPath ? { text: '충족 근거 확인', panel: 'criteria' }
-    : commercial ? { text: '영업·보증 조건 변경 확인', panel: 'selection' }
-    : designated ? { text: '지정품 조달 조건 확인', panel: 'selection' }
+    : customerValueMissing ? { text: '고객 확인 질문 작성', panel: 'questions' }
+    : commercial ? { text: '검토 질문과 기록 확인', panel: 'questions' }
+    : designated ? { text: '조달 확인 질문과 기록 확인', panel: 'questions' }
     : task ? { text: '담당·수행 범위와 제출 근거 확인', panel: showDevelopment ? 'development' : 'selection' }
     : currentDetail.judgement.rnd_check === 'PENDING' ? { text: '개발 회신 확인', panel: 'development' }
     : selectionRecord || hasSavedPath ? { text: '기록된 경로·남은 조건 확인', panel: 'selection' }
     : currentDetail.judgement.status === 'EVIDENCE_FOUND' ? { text: '충족 근거 확인', panel: 'criteria' }
     : showDevelopment ? { text: '기술·개발 검토 확인', panel: 'development' }
-    : { text: '미확인 조건·대응 경로 확인', panel: 'selection' };
+    : { text: '확인 질문과 기록 보기', panel: 'questions' };
   const workTitle = commercial ? '보증·상업 조건 검토' : designated ? '지정품 조달 검토' : task ? '수행 범위·담당 검토' : '대응 방안 검토';
   const heading = commercial ? '보증·상업 조건 확인이 필요합니다' : designated ? '지정품 조달 조건을 확인하세요' : task ? '수행 범위와 담당을 확인하세요' : currentDetail?.judgement.status === 'EVIDENCE_FOUND' ? '저장된 충족 근거를 확인하세요' : '고객 요구와 자사 조건을 확인하세요';
   const actionExplanation = commercial ? '영업·보증 조건 변경 가능 여부와 남은 조건을 확인하세요.'
@@ -105,7 +110,7 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
       </div>
       <p className="response-comparison-note">{currentComparison && currentComparison.candidates.length > 3 ? `비교 후보 ${currentComparison.candidates.length}개 중 3개 표시 · 전체는 비교 근거와 원문에서 확인하세요. ` : ''}{currentComparison && currentComparison.candidates.length > 1 ? '비교 후보별 조건입니다. 대응 제품은 아직 선택되지 않았습니다.' : '표시된 비교 제품의 해당 조건입니다. 설비 전체의 충족 여부를 뜻하지 않습니다.'}</p>
       {(selectionRecord || hasSavedPath) && <p className="response-saved-path">{selectionRecord ? `보완 선택 기록 · ${label(PATH_LABEL, selectionRecord)}` : `판정에 기록된 경로 · ${label(PATH_LABEL, savedPath)}`}{!selectionRecord && currentDetail?.judgement.provenance_kind === 'ai_draft' ? ' · AI 제안' : ''}{reviewNeeded || selectionRecord && selectionRecord !== savedPath || currentOptions && !currentOptions.options.some(o => o.path === (selectionRecord || savedPath) && o.allowed) ? ' · 재확인 필요' : ''}</p>}
-      <p className="response-action-explanation">{actionExplanation}</p><div className="response-next-action"><span>다음 할 일</span><button className="kb primary" type="button" onClick={openNext} disabled={next.panel === 'loading'}>{next.text} →</button><Link to={`/tft/projects/${projectId}/requirements/${id}`}>요구 상세</Link></div>
+      {!guided && <p className="response-action-explanation">{actionExplanation}</p>}{(!guided || issue || reviewNeeded) && activePanel !== next.panel && <div className="response-next-action"><span>다음 할 일</span><button className="kb primary" type="button" onClick={openNext} disabled={next.panel === 'loading'}>{next.text} →</button><Link to={`/tft/projects/${projectId}/requirements/${id}`}>요구 상세</Link></div>}
       {!canSelect && <p className="response-readonly">현재 읽기 전용 · 담당자 권한과 최신 조회 상태를 확인하세요.</p>}
     </section>
     <div className="response-visible-alerts">
@@ -122,21 +127,23 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
       {candidates.isSuccess && !candidateVersionsMatch && <p role="alert">현재 요구·프로필 판본과 연결된 등급을 확인할 수 없습니다.</p>}
     </div>
     <div className="response-workspace-actions" role="group" aria-label="검토 작업 선택">
-      <button className="kb" type="button" aria-expanded={expanded === 'selection'} aria-controls="response-selection-workspace" onClick={() => openWorkspace('selection')}>{workTitle}</button>
-      {showDevelopment && <button className="kb" type="button" aria-expanded={expanded === 'development'} aria-controls="response-development-workspace" onClick={() => openWorkspace('development')}>{task ? '수행 가능성·일정 검토' : '기술·개발 검토'}</button>}
-      {showPartners && <button className="kb" type="button" aria-expanded={expanded === 'partners'} aria-controls="response-partners-workspace" onClick={() => openWorkspace('partners')}>협력사 후보 비교</button>}
-      <button className="kb" type="button" aria-expanded={expanded === 'criteria'} aria-controls="response-criteria-workspace" onClick={() => expanded === 'criteria' ? setExpanded(undefined) : openWorkspace('criteria')}>비교 근거와 원문</button>
-      {expanded && <button className="kb" type="button" onClick={() => setExpanded(undefined)}>검토 작업 닫기</button>}
+      {guided && activePanel !== 'questions' && <button className="kb" type="button" aria-expanded={activePanel === 'questions'} aria-controls="response-questions-workspace" onClick={() => openWorkspace('questions')}>질문·회신 기록</button>}
+      <button className="kb" type="button" aria-expanded={activePanel === 'selection'} aria-controls="response-selection-workspace" onClick={() => openWorkspace('selection')}>대응 방안 기록</button>
+      {showDevelopment && !(activePanel === undefined && next.panel === 'development') && <button className="kb" type="button" aria-expanded={activePanel === 'development'} aria-controls="response-development-workspace" onClick={() => openWorkspace('development')}>개발팀 가능성·일정 확인</button>}
+      {showPartners && <button className="kb" type="button" aria-expanded={activePanel === 'partners'} aria-controls="response-partners-workspace" onClick={() => openWorkspace('partners')}>협력사 후보 비교</button>}
+      <button className="kb" type="button" aria-expanded={activePanel === 'criteria'} aria-controls="response-criteria-workspace" onClick={() => activePanel === 'criteria' ? setExpanded(undefined) : openWorkspace('criteria')}>비교 근거와 원문</button>
+      {activePanel && <button className="kb" type="button" onClick={() => setExpanded('closed')}>검토 작업 닫기</button>}
     </div>
-    <div ref={workspace} className="response-workspace" hidden={!expanded} aria-label="선택한 검토 작업">
-    {showDevelopment && <div id="response-development-workspace" hidden={expanded !== 'development'}>{visited.has('development') && <DevelopmentReviewFlow taskReview={task} embedded key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} requirementId={id} requirementVersion={version} canRequest={canSelect && !detail.isFetching} reviewDepartments={reviewDepartments} projectVersion={projectVersion} canEditProject={canEditProject} onProjectSaved={onProjectSaved} partnerCount={candidates.isSuccess && candidateVersionsMatch ? candidateRows.filter(c => currentGrade(c).some(g => g.grade !== 'EXCLUDED')).length : undefined} onSaved={onSaved} />}</div>}
-{showPartners && <section id="response-partners-workspace" hidden={expanded !== 'partners'} className="response-card response-disclosure" aria-label="협력사 후보">
+    <div ref={workspace} className="response-workspace" hidden={!activePanel} aria-label="선택한 검토 작업">
+    {guided && currentDetail && <div id="response-questions-workspace" hidden={activePanel !== 'questions'}><GuidedRequirementReview key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} departments={reviewDepartments} canWrite={canSelect && !detail.isFetching} customerValueMissing={customerValueMissing} commercial={commercial} designated={!!designated} onSaved={onSaved} /></div>}
+    {showDevelopment && <div id="response-development-workspace" hidden={activePanel !== 'development'}>{visited.has('development') && <DevelopmentReviewFlow taskReview={task} embedded key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} requirementId={id} requirementVersion={version} canRequest={canSelect && !detail.isFetching} reviewDepartments={reviewDepartments} projectVersion={projectVersion} canEditProject={canEditProject} onProjectSaved={onProjectSaved} partnerCount={candidates.isSuccess && candidateVersionsMatch ? candidateRows.filter(c => currentGrade(c).some(g => g.grade !== 'EXCLUDED')).length : undefined} onSaved={onSaved} />}</div>}
+{showPartners && <section id="response-partners-workspace" hidden={activePanel !== 'partners'} className="response-card response-disclosure" aria-label="협력사 후보">
       <header><h4>협력사 후보</h4><small>{partnerSummary}</small></header>{visited.has('partners') && <><div className="response-disclosure-body">
       {candidates.isPending && <Loading label="협력사 후보 조회 중" />}
       {candidates.isSuccess && <><p>가상 협력사 · 이 요구와 프로필 판본의 저장 등급만 표시합니다.</p><div className="response-partner-list">{candidateRows.map(c => <article className="response-evidence" key={c.candidate_code}><b>{c.candidate_code} · {c.display_name}</b><p>프로필 v{c.profile_version} · 인증 {c.certifications.join(' · ') || '미기재'}</p>{currentGrade(c).length === 1 ? currentGrade(c).map(g => <div key={`${g.requirement_id}:${g.profile_version}`}><strong>{gradeLabel[g.grade]}</strong><p>{g.reasons.map(reasonLabel).join(' · ') || '이유 미기재'}</p><p>제외 사유: {g.exclusion_reasons.map(reasonLabel).join(' · ') || '없음'}</p><p>미충족: {g.mandatory_check.failed.map(reasonLabel).join(' · ') || '없음'} · 미확인: {g.mandatory_check.unknown.map(reasonLabel).join(' · ') || '없음'}</p><small>요구 v{g.requirement_version} · 프로필 v{g.profile_version} · 등급 v{g.version ?? '미기재'}</small></div>) : <p>현재 판본의 등급 상세를 표시할 수 없습니다.</p>}</article>)}</div>{!candidateRows.length && <p>저장된 후보가 없습니다.</p>}</>}
     </div></>}
     </section>}
-    <section id="response-criteria-workspace" hidden={expanded !== 'criteria'} className="response-card response-disclosure response-criteria" aria-label="비교 근거와 원문">
+    <section id="response-criteria-workspace" hidden={activePanel !== 'criteria'} className="response-card response-disclosure response-criteria" aria-label="비교 근거와 원문">
       <header><h4>비교 근거와 원문</h4><small>원문 인용·미확인·판본</small></header>{visited.has('criteria') && <><div className="response-disclosure-body">
       <h4>제품별 비교 출처</h4>
       {comparison.isPending ? <Loading label="자사 비교 조회 중" /> : comparison.isError ? null : !currentComparison ? null : <>
@@ -153,15 +160,15 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
       <Link to={`/tft/projects/${projectId}/requirements/${id}`}>상세 검토·변경 제안·질문</Link>
     </div></>}
     </section>
-    <section id="response-selection-workspace" hidden={expanded !== 'selection'} className="response-card response-disclosure response-selection" aria-label="대응 경로 선택">
+    <section id="response-selection-workspace" hidden={activePanel !== 'selection'} className="response-card response-disclosure response-selection" aria-label="대응 경로 선택">
       <header><h4>{workTitle}</h4><small>{!currentDetail ? '확인 중' : selectionRecord ? `선택 기록 · ${label(PATH_LABEL, selectionRecord)}` : hasSavedPath ? '판정 경로 있음 · 사람 선택 미확인' : '검토 방안 미선택'}</small></header>{visited.has('selection') && <><div className="response-disclosure-body">
 
       {commercial && !termsOption && <p role="alert">현재 서버가 조건 변경 검토 경로를 제공하지 않았습니다. 원문과 최신 경로를 확인하세요.</p>}
-      {(commercial ? currentOptions?.options.filter(o => o.path === 'OWN_TERMS_REVIEW') : currentOptions?.options)?.map(o => <div className="response-action-conditions" key={o.path}><b>{label(PATH_LABEL, o.path)} · {o.allowed ? '선택 가능' : '조건 확인 필요'}</b><p>{o.conditions_to_confirm.join(' · ') || '구체적인 확인 조건이 기록되지 않았습니다.'}</p>{o.required_expertise.length > 0 && <p>검토할 전문 분야: {o.required_expertise.map(reasonLabel).join(' · ')}</p>}{!o.allowed && <p>{label(BLOCKED_LABEL, o.blocked_reason) || '차단 사유 확인 필요'}</p>}</div>)}
+      <details className="response-route-conditions"><summary>대응 방안과 제한 조건</summary>{currentOptions?.options.map(o => <div className="response-action-conditions" key={o.path}><b>{label(PATH_LABEL, o.path)} · {o.allowed ? '기록 허용' : '조건 확인 필요'}</b><p>{o.conditions_to_confirm.join(' · ') || '구체적인 확인 조건이 기록되지 않았습니다.'}</p>{o.required_expertise.length > 0 && <p>검토할 전문 분야: {o.required_expertise.map(reasonLabel).join(' · ')}</p>}{!o.allowed && <p>{label(BLOCKED_LABEL, o.blocked_reason) || '차단 사유 확인 필요'}</p>}</div>)}</details>
       <button className="kb" type="button" onClick={refresh} disabled={detail.isFetching || comparison.isFetching || options.isFetching || candidates.isFetching}>대응 근거 최신 조회</button>
       {!canSelect && <p>조회 권한으로 열었습니다. 대응 경로 저장은 담당자만 가능합니다.</p>}
       {options.isPending && <Loading label="대응 경로 조회 중" />}
-      {selectionReady && currentOptions ? <SelectionEditor key={`${id}:${version}:${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} compact actorId={actorId} attempts={attempts.current} onSaveReady={noop} options={currentOptions} candidates={candidateRows} canSelect={canSelect && !detail.isFetching && !options.isFetching && !candidates.isFetching} onSaved={onSaved} /> : !options.isPending && !candidates.isPending && <p role="alert">요구·경로·후보의 판본과 연결을 확인한 후 선택할 수 있습니다.</p>}
+      {selectionReady && currentOptions ? <SelectionEditor key={`${id}:${version}:${options.dataUpdatedAt}:${candidates.dataUpdatedAt}`} compact context={commercial ? 'commercial' : designated ? 'designated' : task ? 'task' : 'technical'} actorId={actorId} attempts={attempts.current} onSaveReady={noop} options={currentOptions} candidates={candidateRows} canSelect={canSelect && !detail.isFetching && !options.isFetching && !candidates.isFetching} onSaved={onSaved} /> : !options.isPending && !candidates.isPending && <p role="alert">요구·경로·후보의 판본과 연결을 확인한 후 선택할 수 있습니다.</p>}
     </div></>}
     </section>
     </div>
