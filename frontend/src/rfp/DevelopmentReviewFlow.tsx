@@ -8,9 +8,9 @@ import { QuestionForm } from './QuestionForms';
 import { FEASIBILITY_LABEL, RND_CHECK_LABEL, label } from './labels';
 import './DevelopmentReviewFlow.css';
 
-export function DevelopmentReviewFlow({ projectId, actorId, requirement, requirementId, requirementVersion, canRequest, reviewDepartments, partnerCount, onSaved, projectVersion, canEditProject, onProjectSaved, expanded, onExpandedChange }: {
+export function DevelopmentReviewFlow({ projectId, actorId, requirement, requirementId, requirementVersion, canRequest, reviewDepartments, partnerCount, onSaved, projectVersion, canEditProject, onProjectSaved, expanded, onExpandedChange, taskReview = false }: {
   projectId: string; actorId: string; requirement?: RequirementDetail; requirementId: string; requirementVersion: number;
-  expanded?: boolean; onExpandedChange?: (value: boolean) => void; canRequest: boolean; projectVersion?: number; canEditProject?: boolean; onProjectSaved?: () => void; reviewDepartments?: string[]; partnerCount?: number; onSaved: () => void;
+  taskReview?: boolean; expanded?: boolean; onExpandedChange?: (value: boolean) => void; canRequest: boolean; projectVersion?: number; canEditProject?: boolean; onProjectSaved?: () => void; reviewDepartments?: string[]; partnerCount?: number; onSaved: () => void;
 }) {
   const [writing, setWriting] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -31,7 +31,7 @@ export function DevelopmentReviewFlow({ projectId, actorId, requirement, require
   return <section className="development-review">
     {questions.isError && <ErrorState error={questions.error} onRetry={() => questions.refetch()} />}
     {inconsistent && <p role="alert">요구의 개발 상태와 최근 질문의 판단 불가 회신이 다릅니다. 최신 상세를 확인하세요.</p>}
-    <details className="response-card response-disclosure" open={expanded} onToggle={e => onExpandedChange?.(e.currentTarget.open)}><summary><b>개발 검토</b><span>{summary}{latest?.rnd_feasibility ? ` · 최근 회신 ${label(FEASIBILITY_LABEL, latest.rnd_feasibility)}` : ''}</span></summary><div className="response-disclosure-body">
+    <details className="response-card response-disclosure" open={expanded} onToggle={e => onExpandedChange?.(e.currentTarget.open)}><summary><b>{taskReview ? '수행 가능성·일정 검토' : '기술·개발 검토'}</b><span>{summary}{latest?.rnd_feasibility ? ` · 최근 회신 ${label(FEASIBILITY_LABEL, latest.rnd_feasibility)}` : ''}</span></summary><div className="response-disclosure-body">
     <ol className="development-stages" aria-label="개발 검토 단계">{['개발팀 검토 요청', '개발 가능성·일정 판정', outcome].map((text, index) => <li key={text} aria-current={stage === index ? 'step' : undefined}>{text}</li>)}</ol>
     <p>{!current ? '현재 요구 판본의 개발 검토 상태를 확인 중입니다.' : status === 'NOT_REQUIRED' && questions.isSuccess && !relevant.length ? '개발 검토 요청 전 · 현재 별도 개발 확인 조건 없음' : status ? label(RND_CHECK_LABEL, status) : '개발 검토 상태가 제공되지 않았습니다.'}</p>
     {questions.isPending && <p>개발 검토 요청 기록 조회 중</p>}
@@ -45,7 +45,7 @@ export function DevelopmentReviewFlow({ projectId, actorId, requirement, require
     {!reviewDepartments?.includes('RND_FW') && <p>프로젝트 개발 검토 부서가 확인되어야 요청을 작성할 수 있습니다.</p>}
     {!reviewDepartments?.includes('RND_FW') && <ReviewDepartmentSetup key={`${projectId}:${projectVersion}`} projectId={projectId} actorId={actorId} version={projectVersion} departments={reviewDepartments} canEdit={canEditProject === true} onSaved={onProjectSaved ?? (() => {})} />}
     {open && <p>진행 중인 개발 검토 요청이 있습니다. 상세에서 회신 기록을 확인하세요.</p>}
-    {writing && ready && current ? <QuestionForm key={`${requirementId}:${requirementVersion}`} projectId={projectId} requirement={current} departments={['RND_FW']} initialTarget="RND_FW" actorId={actorId} useMockFallback={false} onCancel={() => setWriting(false)} onSaved={() => { setWriting(false); setSaved(true); void questions.refetch(); onSaved(); }} /> : <button className="kb" type="button" disabled={!ready} onClick={() => setWriting(true)}>개발 검토 요청 작성</button>}
+    {writing && ready && current ? <QuestionForm key={`${requirementId}:${requirementVersion}`} projectId={projectId} requirement={current} departments={['RND_FW']} initialTarget="RND_FW" actorId={actorId} useMockFallback={false} onCancel={() => setWriting(false)} onSaved={() => { setWriting(false); setSaved(true); void questions.refetch(); onSaved(); }} /> : <button className="kb" type="button" disabled={!ready} onClick={() => setWriting(true)}>{taskReview ? '수행 가능성 검토 요청 작성' : '개발 검토 요청 작성'}</button>}
     <Link className="development-detail" to={`/tft/projects/${projectId}/requirements/${requirementId}`}>요구 상세·회신 기록</Link>
   </div></details></section>;
 }
