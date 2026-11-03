@@ -32,6 +32,7 @@ from backend.api.cs.improvements.schemas import (
     AiDraftRecord,
     ImprovementAiDraftView,
 )
+from backend.api.cs.tickets.access import sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.engine.cs.classification_call import ClassificationCallError
 from backend.engine.cs.improvement_drafting import (
@@ -176,9 +177,10 @@ def context_for(request: Row, rows: list[Row], as_of: datetime) -> ImprovementDr
                     resolved_by_dept=row["resolved_by_dept"],
                 )
             )
-    # 후보 부서: 지금 제안 부서와 근거를 해결한 부서. 부서 목록 밖(C/S 1차 등)은 뺀다. 없으면 전체 목록.
-    known = {*request["proposed_depts"], *(row["resolved_by_dept"] for row in rows if fault)}
-    candidates = sorted(dept for dept in known if dept in TRANSFER_DEPARTMENTS) or sorted(
+    # 후보 부서: 근거를 해결한 부서(부서 목록 안, C/S 1차 등은 뺀다). 없으면(문서 요청 등) 전체 목록.
+    # 지금 제안 부서는 넣지 않는다. 사람이 제안 부서를 고쳐도 입력이 같아 초안이 오래된 것이 되지 않는다.
+    resolved = {row["resolved_by_dept"] for row in rows if fault}
+    candidates = sorted(dept for dept in resolved if dept in TRANSFER_DEPARTMENTS) or sorted(
         TRANSFER_DEPARTMENTS
     )
     try:
@@ -256,8 +258,16 @@ def attempt(row: Row | None) -> AiDraftAttempt | None:
     return AiDraftAttempt.model_validate(row) if row else None
 
 
+def require_all_tickets(principal: Principal) -> None:
+    """초안은 요청의 모든 유효 근거로 만든다. 받는 부서처럼 근거 일부만 볼 수 있는 사용자에게는 주지 않는다
+    (case-comparison이 범위 밖 해결 기록을 빼는 것과 같은 규칙, permissions.md 4.1)."""
+    if not sees_all_tickets(principal):
+        raise HTTPException(403)
+
+
 async def load(conn: Any, principal: Principal, request_id: UUID) -> tuple[Row, list[Row]]:
     await check_visible(conn, principal, request_id)
+    require_all_tickets(principal)
     row = await requests.get_request(conn, request_id)
     if row is None:
         raise not_found()

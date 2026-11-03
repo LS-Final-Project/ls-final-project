@@ -49,9 +49,9 @@ def answer(refs: list[str], **changes) -> str:
         "missing_info": ["출하 로트", "운송 경로"],
         "not_claimed": ["운송 파손이라고 단정하지 않는다."],
         "review_task": "누유가 특정 로트에 몰렸는지 확인한다.",
-        "proposed_depts": ["QA_CLAIM"],
+        "proposed_depts": ["FIELD_SVC"],
         "dept_questions": [
-            {"dept_code": "QA_CLAIM", "question": "같은 로트 출하분을 알려 주세요."}
+            {"dept_code": "FIELD_SVC", "question": "같은 로트 출하분을 알려 주세요."}
         ],
         **changes,
     }
@@ -154,7 +154,7 @@ def test_an_agent_makes_a_draft_once_and_the_request_is_unchanged(
     assert draft["stale"] is False and draft["request_version"] == 1
     assert draft["missing_info"] == ["출하 로트", "운송 경로"]
     assert draft["dept_questions"] == [
-        {"dept_code": "QA_CLAIM", "question": "같은 로트 출하분을 알려 주세요."}
+        {"dept_code": "FIELD_SVC", "question": "같은 로트 출하분을 알려 주세요."}
     ]
     # 근거 참조는 원문 링크를 위해 문의·사례 ID와 함께 돌려준다.
     refs = {item["ref"]: item for item in draft["evidence"]}
@@ -183,8 +183,11 @@ def test_editing_the_content_keeps_the_draft_but_changing_evidence_makes_it_stal
     request, rows = request_with_evidence
     model.next = answer([rows[1][2]])
     client.post(path(request["id"]))
-    # 사람이 내용을 고쳐도(판본 2) 근거 입력이 같으니 같은 초안이다.
-    edited = client.patch(f"{PATH}/{request['id']}", json={"version": 1, "review_task": "x"})
+    # 사람이 내용·제안 부서를 고쳐도(판본 2) 근거 입력이 같으니 같은 초안이다.
+    edited = client.patch(
+        f"{PATH}/{request['id']}",
+        json={"version": 1, "review_task": "x", "proposed_depts": ["QA_CLAIM", "SCM"]},
+    )
     assert edited.status_code == 200, edited.text
     assert client.get(path(request["id"])).json()["data"]["draft"]["stale"] is False
     # 근거를 빼면 입력이 바뀌어 오래된 초안이 되고, 새로 만들 수 있다.
@@ -252,7 +255,8 @@ def test_scope_role_state_and_activation(runtime_dsn, client, model, admin, requ
         "VALUES (%s, 1, 'QA_CLAIM', 'SENT')",
         (request["id"],),
     )
-    assert client.get(path(request["id"]), headers=principal_header(QA_STAFF)).status_code == 200
+    # 초안은 모든 근거로 만든 것이라, 근거 일부만 볼 수 있는 받는 부서 담당자는 조회도 생성도 못 한다.
+    assert client.get(path(request["id"]), headers=principal_header(QA_STAFF)).status_code == 403
     assert client.post(path(request["id"]), headers=principal_header(QA_STAFF)).status_code == 403
     assert client.post(path(request["id"]), headers=principal_header(LV_STAFF)).status_code == 404
     assert client.post(path(uuid4())).status_code == 404
