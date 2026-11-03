@@ -82,3 +82,19 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | `COMPLETED` | 없음 |
 
 C/S 할 일의 `user_id`는 요청의 담당자이며 아직 없으면 null이다. 부서 할 일은 부서 코드만 준다.
+
+## AI 작성 초안 (KAN-115)
+
+기획서 15쪽 "LLM이 확인된 사실·불일치·부족한 정보를 나눠 초안 작성, 프로그램이 근거 목록·건수 채우기"와 10쪽 개선요청서 구성을 따른다. 초안은 요청서를 **바꾸지 않는** AI 작성물(`ai_draft`)이다. 담당자가 고쳐 기존 내용 수정(`PATCH`)으로 반영해야 새 판본이 된다.
+
+| 경로 | 역할 | 동작 |
+| --- | --- | --- |
+| `GET /api/v1/cs/improvement-requests/{id}/ai-draft` | 요청 조회 범위 | 저장된 최근 성공 초안(`draft`)과 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다 |
+| `POST /api/v1/cs/improvement-requests/{id}/ai-draft` | cs_agent | 초안을 만든다. 같은 근거 입력·프롬프트 판본의 성공한 초안이 있으면 모델을 부르지 않고 200으로 돌려준다. 새로 만들면 201, 모델 실패·출력 거부는 시도를 저장하고 502 `CS_IMPROVEMENT_DRAFT_FAILED`(`details[0].code`에 원인). 완료된 요청은 409 `CS_REQUEST_COMPLETED`, 유효 근거가 없으면 422 `CS_IMPROVEMENT_DRAFT_INPUT_INVALID` |
+
+- `CS_IMPROVEMENT_DRAFT_ENABLED`가 꺼져 있으면 두 경로 모두 404다. 켜면 C/S 서비스가 모델을 직접 부른다(비용, 기본 `gemini-3.6-flash`). 로컬 업무 실행기는 요약과 같은 CS 실행기 중계(`/improvement-draft`)로 부르고 같은 원장에 기록한다.
+- 입력: 요청 유형·제품·고장 또는 문서 신호, 유효 근거 문의(제목+본문 앞 2,000자, 보고 펌웨어·오류 코드)와 그 해결 사례(고장 요청만), 조건 판정(`condition_status`·`condition_summary`를 그대로 인용), 후보 부서(지금 제안 부서와 근거를 해결한 부서 중 부서 목록 안, 없으면 전체 목록). 근거 참조는 문의·사례 외부 ID다. 자유 서술은 분류와 같은 규칙으로 가린다.
+- 출력 검사(`backend/engine/cs/improvement_drafting.py`): 확인된 사실·불일치는 입력 근거 참조가 1개 이상, 제안 부서는 후보 안, 고장 요청은 제안 부서·단정하지 않는 내용이 1개 이상, 부서 질문은 제안 부서마다 하나, 모든 문장에 승인·확정 약속 금지(`CS_FORBIDDEN_COMMITMENT`). 원인 단정은 프롬프트 지시로만 막는다.
+- `draft`: `problem_statement`, `confirmed_facts`·`inconsistencies`(문장과 `evidence_refs`), `missing_info`, `not_claimed`, `review_task`, `proposed_depts`, `dept_questions`(부서별 질문 하나, 어디로도 보내지 않는다), `evidence`(참조 → 문의·사례 ID), `request_version`(입력을 읽은 판본), `stale`. 사람이 내용을 고쳐도 근거가 같으면 같은 초안이며, 근거를 넣거나 빼면 `stale`이 되고 다시 만들 수 있다.
+- 저장: `cs.improvement_ai_drafts`(C27, 추가만). 모델·판본·사용량·비용을 함께 남긴다. 같은 입력의 성공 초안은 하나다.
+

@@ -178,6 +178,10 @@ def app_for(service: str, state: Path):
             return await call_next(request)
     elif service == "cs":
         from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
+        from backend.api.cs.improvements.ai_draft import (
+            CsImprovementDraftSettings,
+            configure_improvement_draft,
+        )
         from backend.api.cs.main import create_app
         from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
         from backend.api.cs.workflow.mail import CustomerMailSettings
@@ -187,6 +191,11 @@ def app_for(service: str, state: Path):
         # No model key/client in the API. Cache reads and reuse work without a driver.
         configure_summary(
             app, CsSummarySettings(_env_file=None, enabled=True), provider=bridge_provider(state)
+        )
+        configure_improvement_draft(
+            app,
+            CsImprovementDraftSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/improvement-draft"),
         )
         configure_analysis_jobs(
             app,

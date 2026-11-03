@@ -262,6 +262,14 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/ai-draft",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/improvement-requests/{uuid}/case-comparison",
       "methods": [
         "GET"
