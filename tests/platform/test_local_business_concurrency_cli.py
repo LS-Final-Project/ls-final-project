@@ -52,7 +52,15 @@ def fixture_driver(state, monkeypatch):
                 "scripts.local_business.dispatcher",
             ]
         },
-        "Mounts": [{"Source": str(state / "control"), "Destination": "/local/control", "RW": True}],
+        "Mounts": [
+            {"Source": str(state / "control"), "Destination": "/local/control", "RW": True},
+            {"Source": str(state / "source"), "Destination": "/workspace", "RW": False},
+            {
+                "Source": str(state / "settings.json"),
+                "Destination": "/local/state/settings.json",
+                "RW": False,
+            },
+        ],
     }
     monkeypatch.setattr(cli, "inspect", lambda _: row)
     return p, token, row
@@ -73,13 +81,21 @@ def test_live_cli_changes_only_caps_without_key_restart_or_new_token(tmp_path, m
     assert token not in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("bad", ["image", "mount", "command", "cs"])
+@pytest.mark.parametrize(
+    "bad", ["image", "mount", "source", "source_rw", "settings", "command", "cs"]
+)
 def test_cli_rejects_wrong_driver_or_parallel_cs(tmp_path, monkeypatch, bad):
     p, token, row = fixture_driver(tmp_path, monkeypatch)
     if bad == "image":
         row["Image"] = "other"
     elif bad == "mount":
         row["Mounts"][0]["Source"] = "/other/control"
+    elif bad == "source":
+        row["Mounts"][1]["Source"] = "/old-snapshot/source"
+    elif bad == "source_rw":
+        row["Mounts"][1]["RW"] = True
+    elif bad == "settings":
+        row["Mounts"][2]["Source"] = "/other/settings.json"
     elif bad == "command":
         row["Config"]["Cmd"][-1] = "another.module"
     else:

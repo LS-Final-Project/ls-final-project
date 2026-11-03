@@ -389,6 +389,18 @@ def set_concurrency(state, args):
         not row["State"]["Running"]
         or row["Image"] != config["images"]["runtime"]
         or command[-3:] != ["python", "-m", "scripts.local_business.dispatcher"]
+        or not all(
+            any(
+                m.get("Source") == str(state / source)
+                and m["Destination"] == destination
+                and m["RW"] is False
+                for m in row["Mounts"]
+            )
+            for source, destination in (
+                ("source", "/workspace"),
+                ("settings.json", "/local/state/settings.json"),
+            )
+        )
         or not any(
             m.get("Source") == str(state / "control")
             and m["Destination"] == "/local/control"
