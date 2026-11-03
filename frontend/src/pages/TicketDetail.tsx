@@ -214,13 +214,20 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   // 기획서 4.1 ②~⑥: 다음 행동(추가 정보 요청 / 답변 / 부서 이관) 하나를 정하고 그 초안 하나를 확인해 보낸다.
   const info = analysisData?.missing_info?.effective ?? undefined;
   const missing = info?.missing ?? [];
+  // 기획서 4.1 ②: 추가 정보 요청은 처리를 막는 누락(정책표 blocking_fields)만 묻는다. 나머지 누락은 답변에서 같이 물어본다.
+  const blocking = info?.blocking_missing ?? [];
+  const optional = missing.filter(code => !blocking.includes(code));
+  const names = (codes: readonly string[]) => codes.map(infoName).join(', ');
   const asked = info?.already_asked ?? [];
   const escalation = rule?.escalation_dept ?? null;
   // 확인 완료된 부서 답변이 있으면 다음 행동은 그 답변을 반영한 고객 답변이다(빠진 정보가 남아 있어도).
   const acceptedResult = (wf?.dept_results ?? []).filter(item => item.review_status === 'ACCEPTED').at(-1);
-  const defaultAction = acceptedResult ? 'answer' : missing.length > 0 ? 'info' : 'answer';
+  const defaultAction = acceptedResult ? 'answer' : blocking.length > 0 ? 'info' : 'answer';
   // 제안 이유. 이관 조건은 규칙이 판단할 수 없어(예: "불량 반품이면") 자동 제안하지 않고 확인 표시만 한다.
-  const suggestWhy = acceptedResult ? '확인 완료된 부서 답변이 있어 답변을 제안합니다' : missing.length > 0 ? `받아야 할 정보 ${missing.length}개가 빠져 있어 추가 정보 요청을 제안합니다` : '빠진 정보가 없어 답변을 제안합니다';
+  const suggestWhy = acceptedResult ? '확인 완료된 부서 답변이 있어 답변을 제안합니다'
+    : blocking.length > 0 ? `처리에 꼭 필요한 정보 ${blocking.length}개(${names(blocking)})가 빠져 있어 추가 정보 요청을 제안합니다`
+      : optional.length > 0 ? `꼭 필요한 정보는 있어 답변을 제안합니다. 빠진 정보(${names(optional)})는 답변에서 같이 물어보세요`
+        : '빠진 정보가 없어 답변을 제안합니다';
   const act = action ?? defaultAction;
   const optionOf = (label: string) => draftOptions.find(item => item.label === label);
   const chosen = boxPick === 'OWN' ? undefined : (boxPick ? optionOf(boxPick) : undefined) ?? (act === 'info' ? optionOf('INFO_FIRST') ?? draftOptions[0] : act === 'answer' ? optionOf('DETAILED') ?? optionOf('CONCISE') ?? draftOptions[0] : undefined);
@@ -514,7 +521,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
               <div className="act" role="radiogroup" aria-label="다음 행동">
                 <div className="meta">다음 행동 <small>규칙이 제안하고 담당자가 정합니다</small></div>
                 {([
-                  ['info', '추가 정보 요청', info ? (missing.length ? `빠진 정보 ${missing.length}개` : '빠진 정보 없음') : '분석 전'],
+                  ['info', '추가 정보 요청', info ? (missing.length ? `빠진 정보 ${missing.length}개${blocking.length ? ` · 꼭 필요 ${blocking.length}개` : ''}` : '빠진 정보 없음') : '분석 전'],
                   ['answer', '답변', acceptedResult ? '부서 답변 확인됨 · 반영해 답변' : '문서 근거로 답변'],
                   ['transfer', '부서 이관', escalation ? `후보: ${DEPT_LABEL[escalation as DeptCode] ?? escalation}` : '규칙상 후보 없음'],
                 ] as const).map(([key, name, sub]) => <label key={key} className={act === key ? 'cand sel' : 'cand'}>

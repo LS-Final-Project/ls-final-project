@@ -4724,6 +4724,14 @@
             "title": "Already Asked",
             "type": "array"
           },
+          "blocking_missing": {
+            "description": "Missing codes the policy marks as blocking (blocking_fields), sorted. Only these call for asking the customer before answering.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocking Missing",
+            "type": "array"
+          },
           "category_code": {
             "description": "Category whose required-info row was used.",
             "enum": [

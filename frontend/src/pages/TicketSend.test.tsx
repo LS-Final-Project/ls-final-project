@@ -220,3 +220,20 @@ test('승인한 뒤 본문을 부서 문안으로 바꾸면 승인이 풀리고 
   expect(api.posts).toHaveLength(1);
   expect(body(api.posts[0]).body).toBe('We will replace the unit.');
 });
+
+// 기획서 4.1 ②: 추가 정보 요청은 처리를 막는 누락만 묻는다(정책표 blocking_fields).
+const withMissing = (missing: string[], blocking: string[]) => { const body = analysis(); (body.data as Record<string, unknown>).missing_info = { ai: null, error: null,
+  effective: { category_code: 'DEFECT', required: ['error_code', 'operating_condition', 'serial_no'], provided: ['serial_no'], already_asked: [], missing, blocking_missing: blocking } }; return body; };
+const suggested = async () => { const group = await screen.findByRole('radiogroup', { name: '다음 행동' }); await waitFor(() => expect(within(group).getByText('제안')).toBeTruthy()); return within(group).getByText('제안').closest('label')!.textContent; };
+
+test('막는 정보가 빠졌을 때만 추가 정보 요청을 제안하고, 나머지 누락은 답변에서 묻도록 안내한다', async () => {
+  server('IN_REVIEW', 1, {}, undefined, withMissing(['operating_condition'], []));
+  view();
+  expect(await suggested()).toContain('답변');
+  expect(screen.getByText(/꼭 필요한 정보는 있어 답변을 제안합니다\. 빠진 정보\(.+\)는 답변에서 같이 물어보세요/)).toBeTruthy();
+  cleanup();
+  server('IN_REVIEW', 1, {}, undefined, withMissing(['error_code', 'operating_condition'], ['error_code']));
+  view();
+  expect(await suggested()).toContain('추가 정보 요청');
+  expect(screen.getByText(/처리에 꼭 필요한 정보 1개\(.+\)가 빠져 있어 추가 정보 요청을 제안합니다/)).toBeTruthy();
+});

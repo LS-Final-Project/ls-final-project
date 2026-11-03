@@ -40,6 +40,7 @@
   - 이미 요청한 정보는 플랫폼이 접수해 업무 상태에 반영된 발송(`ticket_customer_sends.recorded_at`이 있음)의 `requested_info_codes`다. 승인만 되고 나가지 않은 메시지의 질문은 빼지 않는다.
 - 두 번 센다. AI 주분류·제공 정보로 한 번(`missing_info.ai`), 유효값(정정 반영)으로 한 번(`missing_info.effective`). 화면은 `effective`를 따른다. 담당자가 `provided_info`나 `category_code`를 정정하면 `effective`가 바로 다시 계산된다. AI 쪽과 저장된 초안은 바뀌지 않는다.
 - 각 쪽에 `category_code`(쓴 행), `required`, `provided`, `already_asked`, `missing`(모두 정렬)이 있다. 표에 없는 유형이면 `required`와 `missing`이 빈 목록이다.
+- `blocking_missing`은 `missing` 가운데 정책표 `blocking_fields`(처리를 막는 정보)에 있는 코드다(정렬). 기획서 4.1 ②에 따라 화면은 이 값이 있을 때만 다음 행동으로 추가 정보 요청을 제안하고, 나머지 누락은 답변에서 같이 묻도록 안내한다(KAN-162). 초안 입력의 부족 정보 계산은 그대로 `missing`을 쓴다.
 - 셀 수 없으면 `error`를 준다: 분석·정정 모두 없음 `CS_ANALYSIS_MISSING`, 정책 밖 제품 `CS_RULE_INPUT`.
 
 ## API
