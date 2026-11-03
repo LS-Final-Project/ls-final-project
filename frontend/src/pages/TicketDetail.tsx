@@ -40,8 +40,14 @@ const hm = (iso: string) => formatStamp(iso).slice(11, 16);
 const md = (iso: string) => formatStamp(iso).slice(5, 10);
 
 // 문의 처리 CS0102. 점검반영 v3 목업(02_CS_문의처리.png) 배치: 상단 정보 8칸, 단계 바와 지금 할 일, 원문·문의 정보·회신 준비 3열.
+// 문의가 바뀌면(알림·링크로 같은 화면 안에서 이동) 입력·발송 확인·분석 진행 상태를 모두 새로 시작한다.
+// 앞 문의의 수신자·본문·승인 체크가 다음 문의에 남아 그대로 발송되지 않게 하려는 것이다.
 export default function TicketDetail() {
   const { ticketId = '' } = useParams();
+  return <TicketScreen key={ticketId} ticketId={ticketId} />;
+}
+
+function TicketScreen({ ticketId }: { ticketId: string }) {
   const navigate = useNavigate();
   const mode = getApiMode();
   const access = useBusinessAccess('cs');

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useNavigate } from 'react-router-dom';
 import TicketDetail from './TicketDetail';
 import { setApiMode } from '../api/client';
 import { jsonResponse, renderAt } from '../test/render';
@@ -175,4 +176,23 @@ test('메일이 아닌 채널 문의는 시스템 발송 없이 문안 복사만
   const dialog = await openDraft();
   expect(dialog.queryByRole('button', { name: '승인하고 보내기' })).toBeNull();
   expect(api.posts).toHaveLength(0);
+});
+
+test('다른 문의로 옮기면 보내기 확인·승인·받는 사람이 남지 않는다(앞 문의 내용으로 발송되지 않는다)', async () => {
+  server('IN_REVIEW', 5);
+  const Go = () => { const go = useNavigate(); return <button onClick={() => go('/cs/tickets/other')}>다른 문의</button>; };
+  setApiMode('live'); renderAt('/cs/tickets/x', '/cs/tickets/:ticketId', <><TicketDetail /><Go /></>);
+  await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  fireEvent.change(screen.getByLabelText('받는 사람'), { target: { value: 'previous@example.com' } });
+  fireEvent.click(screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/));
+  fireEvent.click(screen.getByRole('button', { name: '다른 문의' }));
+  await waitFor(() => expect(screen.queryByText('보내기 확인')).toBeNull());
+  await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  expect((screen.getByLabelText('받는 사람') as HTMLInputElement).value).toBe('buyer@example.com');
+  expect((screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
 });
