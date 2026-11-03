@@ -267,6 +267,8 @@ async def make(
         values.update(outcome="PROVIDER_ERROR", error_code=error.code)
         values.update(usage_values(error.usage, model))
     else:
+        model = generation.model or model
+        values["requested_model"] = model
         values.update(
             model_version=generation.model_version,
             latency_ms=generation.elapsed_ms,

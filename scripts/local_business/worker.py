@@ -16,12 +16,16 @@ from uuid import UUID
 from pydantic import SecretStr
 
 from backend.shared import ai
+from scripts.local_business.permit import Denied
+
+ADMISSION_LIMIT_CODES = frozenset({"LOCAL_JOB_LIMIT", "LOCAL_CALL_LIMIT", "LOCAL_BUDGET_EXHAUSTED"})
 
 
 class LocalStop(BaseException):
     """A fixed local reason that must not become a successful product fallback."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, admission_reason: str | None = None):
+        self.admission_reason = admission_reason
         self.code = code
         super().__init__(code)
 
@@ -106,9 +110,9 @@ class Meter:
         self.permit, self.config, self.prices = permit, config, prices
         self.stopped: str | None = None
 
-    def stop(self, code: str) -> None:
+    def stop(self, code: str, *, admission_reason: str | None = None) -> None:
         self.stopped = code
-        raise LocalStop(code) from None
+        raise LocalStop(code, admission_reason=admission_reason) from None
 
     def priced(self, model) -> str:
         if self.stopped:
@@ -143,8 +147,14 @@ class Meter:
         model = self.priced(kwargs.get("model"))
         try:
             charge = self.permit.reserve(self.config.token, str(self.config.job_id), model)
-        except Exception:
-            self.stop("LOCAL_RESERVATION_DENIED")
+        except Exception as error:
+            # Preserve only known admission limits for synchronous callers. The worker's
+            # stop code and fail-closed handling of unknown spend/authorization stay intact.
+            reason = str(error) if isinstance(error, Denied) else None
+            self.stop(
+                "LOCAL_RESERVATION_DENIED",
+                admission_reason=reason if reason in ADMISSION_LIMIT_CODES else None,
+            )
         try:
             response = generate_content(**kwargs)
         except BaseException:

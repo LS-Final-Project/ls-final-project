@@ -284,6 +284,8 @@ def test_missing_info_is_recounted_from_corrected_provided_info(client, settings
             "provided": ["serial_number"],
             "already_asked": [],
             "missing": DEFECT_ROW,
+            # 그중 처리를 막는 정보(정책표 blocking_fields, KAN-162).
+            "blocking_missing": ["error_code", "serial_no"],
         }
     )
     # 고객에게 나간 질문(photos)은 빼고, 승인만 되고 나가지 않은 질문(error_code)은 남긴다.
@@ -313,6 +315,7 @@ def test_missing_info_is_recounted_from_corrected_provided_info(client, settings
         "provided": ["product_model", "serial_no"],
         "already_asked": ["photos"],
         "missing": ["error_code", "load_profile", "operating_condition"],
+        "blocking_missing": ["error_code"],
     }
     # 주분류를 고치면 그 유형의 행으로 센다. 정정한 제공 정보는 그대로 쓴다.
     ok(correct(client, ticket, version=1, analysis_id=str(run["id"]), category_code="WARRANTY"))
@@ -323,6 +326,7 @@ def test_missing_info_is_recounted_from_corrected_provided_info(client, settings
         WARRANTY_ROW,
     )
     assert data["effective"]["missing"] == ["failure_description", "install_date", "purchase_doc"]
+    assert data["effective"]["blocking_missing"] == ["purchase_doc"]
     assert data["error"] is None
 
 

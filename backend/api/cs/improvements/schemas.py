@@ -561,3 +561,63 @@ class CaseComparison(BaseModel):
     hidden_case_count: int = Field(
         description="Active evidence outside the viewer's scope. Candidate rows never count."
     )
+
+
+# KAN-115 AI 작성 초안(backend/api/cs/improvements/ai_draft.py). 요청서를 바꾸지 않는 AI 작성물이다.
+AiDraftOutcome = Literal["VALID", "INVALID_OUTPUT", "PROVIDER_ERROR"]
+
+
+class AiDraftFact(BaseModel):
+    text: str
+    evidence_refs: list[str] = Field(
+        description="Evidence refs (see evidence) this sentence rests on."
+    )
+
+
+class AiDraftQuestion(BaseModel):
+    dept_code: str
+    question: str = Field(description="One question for that department. Not sent anywhere.")
+
+
+class AiDraftEvidence(BaseModel):
+    ref: str = Field(description="The ref the model saw: the ticket or case external ID.")
+    ticket_id: UUID
+    case_id: UUID | None
+
+
+class AiDraftRecord(BaseModel):
+    id: UUID
+    request_version: int = Field(description="Request version the input was read from.")
+    created_at: datetime = Field(description="AI 작성 시각.")
+    requested_model: str
+    model_version: str | None
+    prompt_version: str
+    input_version: str
+    stale: bool = Field(
+        description="True면 초안 뒤 근거가 바뀌었거나 프롬프트 판본이 바뀌었다. 다시 만들 수 있다."
+    )
+    problem_statement: str
+    confirmed_facts: list[AiDraftFact]
+    inconsistencies: list[AiDraftFact]
+    missing_info: list[str]
+    not_claimed: list[str]
+    review_task: str
+    proposed_depts: list[str]
+    dept_questions: list[AiDraftQuestion]
+    evidence: list[AiDraftEvidence] = Field(description="Refs in the input and what they point to.")
+
+
+class AiDraftAttempt(BaseModel):
+    id: UUID
+    outcome: AiDraftOutcome
+    error_code: str | None
+    created_at: datetime
+
+
+class ImprovementAiDraftView(BaseModel):
+    request_id: UUID
+    draft: AiDraftRecord | None = Field(description="가장 최근의 성공한 초안. 없으면 null.")
+    latest_attempt: AiDraftAttempt | None = Field(
+        description="가장 최근 시도(실패 포함). 실패했으면 화면이 다시 만들기를 보여 줄 수 있다."
+    )
+    provenance: Literal["ai_draft"] = "ai_draft"

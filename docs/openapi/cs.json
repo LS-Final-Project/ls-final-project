@@ -17,6 +17,249 @@
         "title": "Action",
         "type": "object"
       },
+      "AiDraftAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "AiDraftAttempt",
+        "type": "object"
+      },
+      "AiDraftEvidence": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "ref": {
+            "description": "The ref the model saw: the ticket or case external ID.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "ticket_id",
+          "case_id"
+        ],
+        "title": "AiDraftEvidence",
+        "type": "object"
+      },
+      "AiDraftFact": {
+        "properties": {
+          "evidence_refs": {
+            "description": "Evidence refs (see evidence) this sentence rests on.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "evidence_refs"
+        ],
+        "title": "AiDraftFact",
+        "type": "object"
+      },
+      "AiDraftQuestion": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "question": {
+            "description": "One question for that department. Not sent anywhere.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dept_code",
+          "question"
+        ],
+        "title": "AiDraftQuestion",
+        "type": "object"
+      },
+      "AiDraftRecord": {
+        "properties": {
+          "confirmed_facts": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftFact"
+            },
+            "title": "Confirmed Facts",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dept_questions": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftQuestion"
+            },
+            "title": "Dept Questions",
+            "type": "array"
+          },
+          "evidence": {
+            "description": "Refs in the input and what they point to.",
+            "items": {
+              "$ref": "#/components/schemas/AiDraftEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inconsistencies": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftFact"
+            },
+            "title": "Inconsistencies",
+            "type": "array"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "missing_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Info",
+            "type": "array"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "not_claimed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Not Claimed",
+            "type": "array"
+          },
+          "problem_statement": {
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "proposed_depts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Proposed Depts",
+            "type": "array"
+          },
+          "request_version": {
+            "description": "Request version the input was read from.",
+            "title": "Request Version",
+            "type": "integer"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "review_task": {
+            "title": "Review Task",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \ucd08\uc548 \ub4a4 \uadfc\uac70\uac00 \ubc14\ub00c\uc5c8\uac70\ub098 \ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "request_version",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale",
+          "problem_statement",
+          "confirmed_facts",
+          "inconsistencies",
+          "missing_info",
+          "not_claimed",
+          "review_task",
+          "proposed_depts",
+          "dept_questions",
+          "evidence"
+        ],
+        "title": "AiDraftRecord",
+        "type": "object"
+      },
       "AnalysisJob": {
         "description": "\ud50c\ub7ab\ud3fc\uc5d0 \ub4f1\ub85d\ub41c AI \ubd84\uc11d \uc791\uc5c5(KAN-107). \ub4f1\ub85d\uc774 \ucc98\ub9ac \uc2dc\uc791\uc744 \ub73b\ud558\uc9c0 \uc54a\ub294\ub2e4.",
         "properties": {
@@ -3792,6 +4035,50 @@
         "title": "HistoryTicket",
         "type": "object"
       },
+      "ImprovementAiDraftView": {
+        "properties": {
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiDraftRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc\uc758 \uc131\uacf5\ud55c \ucd08\uc548. \uc5c6\uc73c\uba74 null."
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiDraftAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568). \uc2e4\ud328\ud588\uc73c\uba74 \ud654\uba74\uc774 \ub2e4\uc2dc \ub9cc\ub4e4\uae30\ub97c \ubcf4\uc5ec \uc904 \uc218 \uc788\ub2e4."
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "draft",
+          "latest_attempt"
+        ],
+        "title": "ImprovementAiDraftView",
+        "type": "object"
+      },
       "ImprovementCounts": {
         "properties": {
           "by_status": {
@@ -4746,6 +5033,14 @@
               "type": "string"
             },
             "title": "Already Asked",
+            "type": "array"
+          },
+          "blocking_missing": {
+            "description": "Missing codes the policy marks as blocking (blocking_fields), sorted. Only these call for asking the customer before answering.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocking Missing",
             "type": "array"
           },
           "category_code": {
@@ -7475,6 +7770,22 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_ImprovementAiDraftView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ImprovementAiDraftView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ImprovementAiDraftView]",
         "type": "object"
       },
       "SuccessResponse_Overview_": {
@@ -10556,6 +10867,226 @@
         "tags": [
           "improvement-requests"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/ai-draft": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c AI \uc791\uc131 \ucd08\uc548. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_improvement_ai_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Ai Draft",
+        "tags": [
+          "improvements"
+        ],
+        "x-activation": "CS_IMPROVEMENT_DRAFT_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "AI \uc791\uc131 \ucd08\uc548\uc744 \ub9cc\ub4e0\ub2e4. \uac19\uc740 \uadfc\uac70 \uc785\ub825\uc758 \uc131\uacf5\ud55c \ucd08\uc548\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_improvement_ai_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Ai Draft",
+        "tags": [
+          "improvements"
+        ],
+        "x-activation": "CS_IMPROVEMENT_DRAFT_ENABLED",
         "x-implementation-status": "partial"
       }
     },

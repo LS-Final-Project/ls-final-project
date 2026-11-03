@@ -42,3 +42,6 @@
 - C/S 서비스 `CS_SUMMARY_ENABLED=true`(기본 false, 꺼져 있으면 두 경로 모두 404). 모델 `CS_SUMMARY_MODEL`(기본 `gemini-3.6-flash`), 출력 상한 `CS_SUMMARY_MAX_OUTPUT_TOKENS`(기본 4096, thinking 포함), 프로세스당 동시 호출 `CS_SUMMARY_MAX_CONCURRENT_CALLS`(기본 4, 요약 전용 스레드 풀). 공급자 오류도 공급자가 알려 준 사용량을 저장한다. Gemini 키는 서비스의 기존 `GEMINI_API_KEY`·`AI_PROVIDER`를 쓴다.
 - 켜기 전에 공용 DB에 C25를 적용한다. 켜면 C/S 서비스가 요약마다 모델을 한 번 부른다(비용).
 - 남은 것: 실제 모델로 요약 품질과 검사 통과율 확인(사용자 승인 뒤), 화면 연결(KAN-131), 기획서 반영(팀 논의).
+
+- 각 PC의 KAN-159 로컬 QA runner는 API에 모델 키를 주는 대신 CS driver의 인증된 내부 요약 bridge를 주입한다. 저장본 조회·재사용은 driver 없이 가능하고, 새 생성은 분류와 같은 Permit 작업/호출·비용 원장을 사용한다. 일반 서비스의 기본 비활성 설정은 유지한다. 설치 snapshot과 새 namespace 준비는 [로컬 실행 안내](../../docs/local-business-run.md#각-pc의-한국어-요약-qa-kan-159)를 따른다.
+- `requested_model`과 비용 계산의 모델 ID는 공급자가 보고한 요청 모델(`Generation.model`)을 우선하며, 없으면 서비스 설정을 쓴다. 로컬 driver의 명시 `--model`과 API 기본 모델이 달라도 시도 원장에 다른 모델을 기록하지 않기 위한 규칙이다. 실제 모델 판본은 별도 `model_version`에 보존한다.
