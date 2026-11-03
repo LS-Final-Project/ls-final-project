@@ -28,7 +28,7 @@ describe('프로젝트 목록', () => {
   it('목록을 셸 안에 그리고 상세로 잇는다', async () => {
     renderApp('/tft/projects');
     const link = await screen.findByRole('link', { name: /해저케이블/ });
-    const table = screen.getByRole('table', { name: '접수 및 요구 검토' });
+    const table = screen.getByRole('table', { name: 'RFP 검토' });
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
     expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
       ['', 'No', '프로젝트', '프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '담당', '책임자', '접수일'],
@@ -36,12 +36,12 @@ describe('프로젝트 목록', () => {
     expect(within(table).getAllByText('접수').length).toBeGreaterThan(0);
     expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
     expect(table.classList.contains('free')).toBe(true); // C/S 목록의 앞 세 열 고정을 쓰지 않는다
-    expect(screen.getByRole('tab', { selected: true }).textContent).toContain('접수 및 요구 검토');
+    expect(screen.getByRole('tab', { selected: true }).textContent).toContain('RFP 검토');
   });
 
   it('접수일 내림차순임을 머리글에 알린다', async () => {
     renderApp('/tft/projects');
-    const table = await screen.findByRole('table', { name: '접수 및 요구 검토' });
+    const table = await screen.findByRole('table', { name: 'RFP 검토' });
     expect(within(table).getByRole('columnheader', { name: '접수일' }).getAttribute('aria-sort')).toBe('descending');
   });
 

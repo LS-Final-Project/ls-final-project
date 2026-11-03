@@ -62,7 +62,7 @@ export default function RfpHome() {
   return <main>
     <KvTitle path="제안 지원" title="업무 홈" code="TF0001">
       <button className="kb primary" onClick={reload}>조회<KvKey>F8</KvKey></button>
-      <Link className="kb" to="/tft/projects">접수 및 요구 검토</Link>
+      <Link className="kb" to="/tft/projects">RFP 검토</Link>
       <button className="kb" onClick={() => window.print()}>인쇄</button>
     </KvTitle>
     <KvNext>{projects.isSuccess

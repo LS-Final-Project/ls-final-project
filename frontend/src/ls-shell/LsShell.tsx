@@ -33,8 +33,7 @@ const MENU: Group[] = [
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
-      { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '', also: /\/requirements\// },
-      { label: '대응 방안 검토', inProject: 'table', also: /\/supplement$/ },
+      { label: 'RFP 검토', to: '/tft/projects', end: true, inProject: '', also: /\/(requirements\/|table(?:\/approvals)?$|supplement$)/ },
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
@@ -58,11 +57,11 @@ function tabOf(pathname: string) {
   if (pathname.startsWith('/cs/repeat-cases')) return { kind: 'repeat-cases', name: '반복 사례' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
-  if (pathname.endsWith('/supplement')) return { kind: 'table', name: '대응 방안 검토' };
+  if (pathname.endsWith('/supplement')) return { kind: 'intake', name: 'RFP 검토' };
   if (pathname.endsWith('/table/approvals')) return { kind: 'approvals', name: '승인 대기' };
-  if (pathname.endsWith('/table')) return { kind: 'table', name: '대응 방안 검토' };
+  if (pathname.endsWith('/table')) return { kind: 'intake', name: 'RFP 검토' };
   if (pathname.includes('/requirements/')) return { kind: 'requirement', name: '요구' };
-  if (pathname.startsWith('/tft/projects')) return { kind: 'intake', name: '접수 및 요구 검토' };
+  if (pathname.startsWith('/tft/projects')) return { kind: 'intake', name: 'RFP 검토' };
   return { kind: 'other', name: 'C/S 관리' };
 }
 type OpenTab = { kind: string; to: string; name: string };
@@ -74,7 +73,8 @@ function savedTabs(): OpenTab[] {
     const unique = new Map<string, OpenTab>();
     for (const tab of saved) {
       const response = /^\/tft\/projects\/[^/]+\/(table|supplement)$/.test(tab.to);
-      const next = response ? { ...tab, kind: 'table', name: '대응 방안 검토' } : tab;
+      const intake = /^\/tft\/projects(?:\/[^/]+)?$/.test(tab.to);
+      const next = response ? { ...tab, to: tab.to.replace(/\/(table|supplement)$/, ''), kind: 'intake', name: 'RFP 검토' } : intake ? { ...tab, kind: 'intake', name: 'RFP 검토' } : tab;
       unique.set(next.kind, next);
     }
     return [...unique.values()];
@@ -112,7 +112,7 @@ export default function LsShell({ children }: { children?: ReactNode } = {}) {
   const current = tabOf(pathname);
   const suffix = current.kind === 'requirement'
     ? requirementInfo.data && requirementNo(requirementInfo.data.data.code)
-    : ['table', 'approvals', 'draft'].includes(current.kind) ? projectInfo.data?.data.external_id : undefined;
+    : ['intake', 'approvals', 'draft'].includes(current.kind) ? projectInfo.data?.data.external_id : undefined;
   const title = [current.name, suffix].filter(Boolean).join(' ');
   const [tabs, setTabs] = useState<OpenTab[]>(savedTabs);
   const closing = useRef(false);

@@ -111,10 +111,10 @@ describe('셸 메뉴', () => {
   });
 
   it.each([
-    ['/tft/projects/p1/requirements/r1', '접수 및 요구 검토'],
-    ['/tft/projects/p1', '접수 및 요구 검토'],
-    ['/tft/projects/p1/table', '대응 방안 검토'],
-    ['/tft/projects/p1/supplement', '대응 방안 검토'],
+    ['/tft/projects/p1/requirements/r1', 'RFP 검토'],
+    ['/tft/projects/p1', 'RFP 검토'],
+    ['/tft/projects/p1/table', 'RFP 검토'],
+    ['/tft/projects/p1/supplement', 'RFP 검토'],
   ])('%s 에서 메뉴는 %s 만 강조한다', async (path, name) => {
     const { container } = show(path);
     await waitFor(() => expect([...container.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual([name]));
@@ -122,12 +122,12 @@ describe('셸 메뉴', () => {
 
   it('연 화면이 탭으로 쌓이고 누르면 그 화면으로 간다', async () => {
     const { container } = show('/tft/projects');
-    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
+    await screen.findByRole('tab', { name: 'RFP 검토', selected: true });
     fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '업무 홈' }));
     await screen.findByRole('tab', { name: '업무 홈', selected: true });
-    expect(screen.getByRole('tab', { name: '접수 및 요구 검토', selected: false })).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: '접수 및 요구 검토' }));
-    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
+    expect(screen.getByRole('tab', { name: 'RFP 검토', selected: false })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'RFP 검토' }));
+    await screen.findByRole('tab', { name: 'RFP 검토', selected: true });
     expect(container.querySelectorAll('.kt-tab')).toHaveLength(2);
   });
 
@@ -135,17 +135,17 @@ describe('셸 메뉴', () => {
     show('/tft');
     await screen.findByRole('tab', { name: '업무 홈', selected: true });
     expect(screen.queryByRole('button', { name: '업무 홈 닫기' })).toBeNull();
-    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '접수 및 요구 검토' }));
-    await screen.findByRole('tab', { name: '접수 및 요구 검토', selected: true });
-    fireEvent.click(screen.getByRole('button', { name: '접수 및 요구 검토 닫기' }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: 'RFP 검토' }));
+    await screen.findByRole('tab', { name: 'RFP 검토', selected: true });
+    fireEvent.click(screen.getByRole('button', { name: 'RFP 검토 닫기' }));
     await screen.findByRole('tab', { name: '업무 홈', selected: true });
-    await waitFor(() => expect(screen.queryByRole('tab', { name: '접수 및 요구 검토' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'RFP 검토' })).toBeNull());
   });
 
   it('탭은 새로고침해도 남고 저장소를 못 써도 셸이 돈다', async () => {
     sessionStorage.setItem('ls-open-tabs', JSON.stringify([{ kind: 'table', to: '/tft/projects/p1/table', name: '자사 대응표' }]));
     show('/tft');
-    await screen.findByRole('tab', { name: '대응 방안 검토', selected: false });
+    await screen.findByRole('tab', { name: 'RFP 검토', selected: false });
     cleanup();
     sessionStorage.clear();
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
@@ -168,7 +168,7 @@ it('이전 대응표·협력사 탭은 같은 대응 검토 탭으로 복구한�
     {kind:'supplement',to:'/tft/projects/p1/supplement',name:'보완 및 협력사 비교'},
   ]));
   show('/tft/projects');
-  await screen.findByRole('tab', {name:'대응 방안 검토'});
-  expect(screen.getAllByRole('tab', {name:'대응 방안 검토'})).toHaveLength(1);
+  await screen.findByRole('tab', {name:'RFP 검토'});
+  expect(screen.getAllByRole('tab', {name:'RFP 검토'})).toHaveLength(1);
   expect(screen.queryByRole('tab', {name:'보완 및 협력사 비교'})).toBeNull();
 });

@@ -1,59 +1,53 @@
 // @vitest-environment jsdom
+import {useState} from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ContextReview } from './ContextReview';
-import { CONTEXT_CATEGORIES, getContext, processContext, updateContext, type ContextEnvelope } from '../api/rfp-context';
+import { getContext, processContext, updateContext, type ContextEnvelope } from '../api/rfp-context';
 import { ApiError } from '../api/client';
-import type { DocumentVersion } from '../api/rfp';
+import { listRequirements, type DocumentVersion, type RequirementSummary } from '../api/rfp';
+import { MOCK_REQUIREMENTS } from '../mocks/rfp-table';
 vi.mock('../api/rfp-context',async original=>({...await original<object>(),getContext:vi.fn(),processContext:vi.fn(),updateContext:vi.fn()}));
+vi.mock('../api/rfp',async original=>({...await original<object>(),listRequirements:vi.fn()}));
 const documents=[{document_id:'doc1',document_version_id:'v1',title:'첫 문서',version:1},{document_id:'doc2',document_version_id:'v2',title:'둘째 문서',version:2}] as DocumentVersion[];
-const fixture=():ContextEnvelope=>({project_id:'p',version:3,status:'CURRENT',source_fingerprint:'a'.repeat(64),current_source_fingerprint:'a'.repeat(64),provenance:'ai_draft',created_at:null,created_by:null,reason:null,requirements:[],source_refs:Object.keys(CONTEXT_CATEGORIES).map((_,i)=>({requirement_id:`r${i}`,version:1,code:`R-${i}`,document_id:i===1?'doc2':'doc1',document_version_id:i===1?'v2':'v1',clause_id:`c${i}`,page:1,quote:`합성 인용 ${i}`})),result:{schema_version:'rfp-context-v1',prompt_version:'rfp-context-v1',outcome:'PARTIAL',groups:[{entity_id:'system',name:'전력계통',kind:'SYSTEM',evidence_requirement_ids:['r0'],diagram_source_ids:[],needs_review:true},{entity_id:'equipment',name:'변압기',kind:'EQUIPMENT',parent_id:'system',evidence_requirement_ids:['r0'],diagram_source_ids:['d1'],needs_review:true}],assignments:Object.keys(CONTEXT_CATEGORIES).map((category,i)=>({requirement_id:`r${i}`,primary_category:category as keyof typeof CONTEXT_CATEGORIES,additional_categories:i===0?['QUALITY']:[],group_ids:['system','equipment'],relations:[{group_id:'system',relation:'APPLIES_TO'},{group_id:'equipment',relation:'RELATED'}],reason:`근거 ${i}`,evidence_requirement_ids:[`r${i}`],needs_review:true})),issues:[{code:'MISSING',requirement_ids:['r8'],entity_ids:[],message:'미분류 요구 확인 필요'}]}});
-const started=vi.fn(), source=vi.fn();
-function show(){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><ContextReview projectId="p" actorId="actor" document={documents[0]} documents={documents} onStarted={started} onSource={source}/></QueryClientProvider>);}
-beforeEach(()=>{vi.mocked(getContext).mockResolvedValue({data:fixture()});vi.mocked(processContext).mockResolvedValue({data:{job_id:'job',status:'QUEUED',status_url:'/jobs/job'}});});
+const rows=Array.from({length:12},(_,i)=>({...MOCK_REQUIREMENTS[0],requirement_id:`r${i}`,code:`1234abcd:2.1:${i+1}`})) as RequirementSummary[];
+const fixture=():ContextEnvelope=>({project_id:'p',version:3,status:'CURRENT',source_fingerprint:'a'.repeat(64),current_source_fingerprint:'a'.repeat(64),provenance:'ai_draft',created_at:null,created_by:null,reason:null,requirements:[],source_refs:rows.map((row,i)=>({requirement_id:row.requirement_id,version:1,code:row.code,document_id:'doc1',document_version_id:'v1',clause_id:`c${i}`,page:1,quote:`합성 인용 ${i}`})),result:{schema_version:'rfp-context-v1',prompt_version:'rfp-context-v1',outcome:'PARTIAL',groups:[{entity_id:'system',name:'전력계통',kind:'SYSTEM',evidence_requirement_ids:['r0'],diagram_source_ids:[],needs_review:true},{entity_id:'equipment',name:'변압기',tag:'TR-01',site:'동관',kind:'EQUIPMENT',parent_id:'system',evidence_requirement_ids:['r0'],diagram_source_ids:['d1'],needs_review:true}],assignments:rows.map((row,i)=>({requirement_id:row.requirement_id,primary_category:i===1?'QUALITY':'EQUIPMENT',additional_categories:i===0?['QUALITY']:[],group_ids:['equipment'],relations:[],reason:`근거 ${i}`,evidence_requirement_ids:[row.requirement_id],needs_review:true})),issues:[]}});
+const started=vi.fn(),source=vi.fn(),selected=vi.fn(),cleared=vi.fn();
+function Harness({items=rows}:{items?:RequirementSummary[]}){const [id,setId]=useState<string>();return <ContextReview projectId="p" actorId="actor" document={documents[0]} documents={documents} requirements={items} selectedRequirementId={id} onStarted={started} onSource={source} onSelectRequirement={(row,ref)=>{setId(row.requirement_id);selected(row,ref);}} onClearSelection={()=>{setId(undefined);cleared();}}/>;}
+function show(items=rows){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><Harness items={items}/></QueryClientProvider>);}
+async function choose(){fireEvent.click(await screen.findByRole('button',{name:/변압기.*전력계통/}));}
+beforeEach(()=>{vi.mocked(getContext).mockResolvedValue({data:fixture()});vi.mocked(listRequirements).mockResolvedValue({data:{items:rows,next_cursor:null}});vi.mocked(processContext).mockResolvedValue({data:{job_id:'job',status:'QUEUED',status_url:'/jobs/job'}});});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-it('전체 맥락을 선택 문서로 구분하고 공통 연결 요구를 중복 집계하지 않는다',async()=>{
- show();await screen.findByText(/고유 요구 8건/);expect(processContext).not.toHaveBeenCalled();
- expect(screen.getByRole('button',{name:/전력계통 › 변압기/})).toBeTruthy();
- fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});expect(screen.getByText(/고유 요구 9건/)).toBeTruthy();
- fireEvent.click(screen.getByRole('tab',{name:'8개 분류'}));
- for(const name of Object.values(CONTEXT_CATEGORIES))expect(screen.getByRole('button',{name:new RegExp(`^${name} `)})).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'품질·시험 2'}));expect(screen.getByText('R-0 · 설비·장비')).toBeTruthy();expect(screen.getByText('R-4 · 품질·시험')).toBeTruthy();
+it('starts with actual targets, then ten concise customer requirements grouped by kind without category tabs',async()=>{
+ show();await screen.findByText('고객 요구 12건 / 검토 대상 2개');
+ expect(screen.queryByRole('tab')).toBeNull();expect(screen.queryByRole('region',{name:'선택 대상 고객 요구'})).toBeNull();
+ await choose();const panel=screen.getByRole('region',{name:'선택 대상 고객 요구'});
+ expect(within(panel).getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(10);
+ expect(screen.queryByText(/1234abcd:/)).toBeNull();expect(screen.getByRole('heading',{name:'장비 사양'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'2페이지'}));expect(within(panel).getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(2);
+ expect(screen.getByRole('heading',{name:'품질·시험'})).toBeTruthy();expect(cleared).toHaveBeenCalled();expect(processContext).not.toHaveBeenCalled();
 });
-it('근거 원문 이동은 정확한 문서·요구 판본 정보를 넘긴다',async()=>{
- show();await screen.findByText(/고유 요구 8건/);fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});
- fireEvent.click(screen.getByRole('button',{name:'R-1 원문 · 문서 이동'}));expect(source).toHaveBeenCalledWith(expect.objectContaining({requirement_id:'r1',version:1,document_version_id:'v2',document_id:'doc2'}));
+it('selecting a requirement passes the exact summary/source and reveals only that edit affordance',async()=>{
+ show();await choose();fireEvent.click(screen.getByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/}));
+ expect((screen.getByText('다른 대상 선택').closest('details') as HTMLDetailsElement).open).toBe(false);expect((screen.getByText('다른 요구 선택').closest('details') as HTMLDetailsElement).open).toBe(false);
+ expect(selected).toHaveBeenCalledWith(rows[0],expect.objectContaining({requirement_id:'r0',version:1,document_id:'doc1',document_version_id:'v1'}));
+ expect(screen.getAllByRole('button',{name:'요구 종류·대상 연결 수정'})).toHaveLength(1);
+ fireEvent.click(screen.getByRole('button',{name:'조항 2.1 · 요구 1 원문'}));expect(source).toHaveBeenCalledWith(expect.objectContaining({requirement_id:'r0',version:1}));
 });
-it('아직 미실행과 오래된 결과를 구분하며 stale 결과는 수정하지 않는다',async()=>{
- const stale={...fixture(),status:'STALE' as const};vi.mocked(getContext).mockResolvedValue({data:stale});show();await screen.findByRole('alert');expect(screen.getByRole('alert').textContent).toContain('이전 결과');for(const b of screen.getAllByRole('button',{name:'분류·묶음 수정'}))expect((b as HTMLButtonElement).disabled).toBe(true);expect(updateContext).not.toHaveBeenCalled();
+it.each(['STALE','NOT_ANALYZED','error','missing-source'] as const)('keeps all actual rows accessible as unorganized after %s',async status=>{
+ const data=fixture();if(status==='error')vi.mocked(getContext).mockRejectedValue(new ApiError(403,'접근 거부'));else{if(status==='missing-source')data.source_refs.pop();else data.status=status;vi.mocked(getContext).mockResolvedValue({data});}
+ show();fireEvent.click(await screen.findByRole('button',{name:/미정리 요구/}));expect(screen.getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(10);expect(screen.queryByRole('button',{name:'요구 종류·대상 연결 수정'})).toBeNull();expect(updateContext).not.toHaveBeenCalled();expect(processContext).not.toHaveBeenCalled();
 });
-it('미실행 결과는 GET만으로 처리하지 않고 명시 클릭 1회만 접수한다',async()=>{
- vi.mocked(getContext).mockResolvedValue({data:{...fixture(),version:null,status:'NOT_ANALYZED',result:null}});show();await screen.findByText(/아직 맥락별 정리를 실행하지 않았습니다/);expect(processContext).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole('button',{name:'맥락별 정리'}));await waitFor(()=>expect(started).toHaveBeenCalledWith(expect.objectContaining({job_id:'job'})));expect(processContext).toHaveBeenCalledTimes(1);
+it('processing is explicit with visible cost notice and only one POST',async()=>{
+ vi.mocked(getContext).mockResolvedValue({data:{...fixture(),status:'NOT_ANALYZED',result:null}});show();await screen.findByText(/아직 검토 대상을 정리하지 않았습니다/);expect(processContext).not.toHaveBeenCalled();expect(screen.getByText('AI 사용료 발생').closest('details')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'검토 대상 정리'}));await waitFor(()=>expect(started).toHaveBeenCalledWith(expect.objectContaining({job_id:'job'})));expect(processContext).toHaveBeenCalledTimes(1);
 });
-it('사람 수정은 원판본·fingerprint와 전체 결과를 새 판본 PATCH로 보낸다',async()=>{
- const valid=fixture();valid.result!.outcome='VALID';valid.result!.assignments=valid.result!.assignments.map(a=>({...a,needs_review:false}));vi.mocked(getContext).mockResolvedValue({data:valid});
- vi.mocked(updateContext).mockResolvedValue({data:{...fixture(),version:4,provenance:'human_input',reason:'사람이 확인한 분류'}});show();await screen.findByText(/고유 요구 8건/);
- fireEvent.click(screen.getAllByRole('button',{name:'분류·묶음 수정'})[0]);fireEvent.change(screen.getByLabelText('주 분류'),{target:{value:'QUALITY'}});fireEvent.change(screen.getByLabelText('수정 사유'),{target:{value:'사람이 확인한 분류'}});fireEvent.click(screen.getByRole('button',{name:'새 판본으로 저장'}));
- await screen.findByText(/맥락 판본 4 · 사람 수정/);expect(updateContext).toHaveBeenCalledWith('p',expect.objectContaining({expected_version:3,expected_source_fingerprint:'a'.repeat(64),reason:'사람이 확인한 분류',result:expect.objectContaining({outcome:'PARTIAL',assignments:expect.arrayContaining([expect.objectContaining({requirement_id:'r0',primary_category:'QUALITY',additional_categories:[],needs_review:true})])})}),expect.any(String));
+it('human correction keeps expected version/fingerprint and conflict never auto-retries',async()=>{
+ vi.mocked(updateContext).mockRejectedValue(new ApiError(409,'conflict'));show();await choose();fireEvent.click(screen.getByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/}));fireEvent.click(screen.getByRole('button',{name:'요구 종류·대상 연결 수정'}));fireEvent.change(screen.getByLabelText('주 요구 종류'),{target:{value:'QUALITY'}});fireEvent.change(screen.getByLabelText('수정 사유'),{target:{value:'원문 시험 요구 확인'}});fireEvent.click(screen.getByRole('button',{name:'새 판본으로 저장'}));await screen.findByText(/다른 수정이나 원문 변경/);expect(updateContext).toHaveBeenCalledWith('p',expect.objectContaining({expected_version:3,expected_source_fingerprint:'a'.repeat(64),result:expect.objectContaining({outcome:'PARTIAL'})}),expect.any(String));expect(updateContext).toHaveBeenCalledTimes(1);
 });
-it('PATCH 충돌은 실패를 숨기거나 자동 재처리하지 않는다',async()=>{
- vi.mocked(updateContext).mockRejectedValue(new ApiError(409,'conflict'));show();await screen.findByText(/고유 요구 8건/);fireEvent.click(screen.getAllByRole('button',{name:'분류·묶음 수정'})[0]);fireEvent.change(screen.getByLabelText('수정 사유'),{target:{value:'수정'}});fireEvent.click(screen.getByRole('button',{name:'새 판본으로 저장'}));await screen.findByText(/다른 수정이나 원문 변경/);expect(processContext).not.toHaveBeenCalled();expect(updateContext).toHaveBeenCalledTimes(1);
+it('project source navigation retains exact document identity without leaking internal code',async()=>{
+ const data=fixture();data.source_refs[0]={...data.source_refs[0],document_id:'doc2',document_version_id:'v2'};vi.mocked(getContext).mockResolvedValue({data});show(rows.slice(1));await screen.findByText('고객 요구 11건 / 검토 대상 2개');fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});await screen.findByText('고객 요구 12건 / 검토 대상 2개');await choose();fireEvent.click(screen.getByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/}));fireEvent.click(screen.getByRole('button',{name:'조항 2.1 · 요구 1 원문 · 문서 이동'}));expect(source).toHaveBeenCalledWith(expect.objectContaining({document_id:'doc2',document_version_id:'v2',requirement_id:'r0'}));
 });
-it('GET 오류는 빈 결과로 숨기지 않는다',async()=>{vi.mocked(getContext).mockRejectedValue(new ApiError(403,'접근 거부'));show();await screen.findByRole('alert');expect(screen.queryByText(/아직 맥락별/)).toBeNull();expect(processContext).not.toHaveBeenCalled();});
-
-it('맥락 요구는 20개씩 번호로 이동하고 묶음·분류·범위 변경은 첫 페이지로 돌아간다',async()=>{
- const data=fixture(), original=data.result!.assignments[0], ref=data.source_refs[0];
- data.result!.assignments=Array.from({length:45},(_,i)=>({...original,requirement_id:`many${i}`,evidence_requirement_ids:[]}));
- data.source_refs=data.result!.assignments.map((a,i)=>({...ref,requirement_id:a.requirement_id,code:`M-${i}`}));
- vi.mocked(getContext).mockResolvedValue({data});show();await screen.findByText(/고유 요구 45건/);
- expect(screen.getAllByRole('button',{name:'분류·묶음 수정'})).toHaveLength(20);expect(screen.queryByText('M-20 · 설비·장비')).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'2페이지'}));expect(screen.queryByText('M-0 · 설비·장비')).toBeNull();expect(screen.getByText('M-20 · 설비·장비')).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'M-20 원문'}));expect(source).toHaveBeenCalledWith(expect.objectContaining({requirement_id:'many20',document_version_id:'v1'}));
- fireEvent.click(screen.getByRole('button',{name:'3페이지'}));expect(screen.getAllByRole('button',{name:'분류·묶음 수정'})).toHaveLength(5);
- fireEvent.click(screen.getByRole('button',{name:/전력계통 › 변압기/}));expect(screen.getByRole('button',{name:'1페이지'}).getAttribute('aria-current')).toBe('page');
- fireEvent.click(screen.getByRole('button',{name:'2페이지'}));fireEvent.click(screen.getByRole('tab',{name:'8개 분류'}));expect(screen.getByText('M-0 · 설비·장비')).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'2페이지'}));fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});expect(screen.getByRole('button',{name:'1페이지'}).getAttribute('aria-current')).toBe('page');
- expect(processContext).not.toHaveBeenCalled();
+it('target search and six-item pagination keep the chosen customer requirements reachable',async()=>{
+ const data=fixture();data.result!.groups=Array.from({length:9},(_,i)=>({...data.result!.groups[1],entity_id:`t${i}`,name:`대상 ${i}`,tag:`TR-${i}`,parent_id:null}));data.result!.assignments.forEach(a=>{a.group_ids=data.result!.groups.map(g=>g.entity_id);});vi.mocked(getContext).mockResolvedValue({data});show();await screen.findByText('고객 요구 12건 / 검토 대상 9개');expect(within(screen.getByRole('group',{name:'검토 대상 선택'})).getAllByRole('button')).toHaveLength(6);fireEvent.click(screen.getByRole('button',{name:'검토 대상 2페이지'}));expect(within(screen.getByRole('group',{name:'검토 대상 선택'})).getAllByRole('button')).toHaveLength(3);fireEvent.change(screen.getByLabelText('검토 대상 찾기'),{target:{value:'TR-8'}});fireEvent.click(screen.getByRole('button',{name:/대상 8/}));expect(screen.getByRole('region',{name:'선택 대상 고객 요구'})).toBeTruthy();
 });

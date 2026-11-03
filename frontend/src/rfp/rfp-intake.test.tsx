@@ -78,16 +78,16 @@ describe('프로젝트 화면', () => {
     expect(screen.getByText('구매팀')).toBeTruthy();
     expect(next()).toContain('요구 48건, 미해결 필수 3, 승인 대기 4, 열린 질문 2');
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
-    expect(screen.getByRole('link', { name: '대응 방안 검토 (TF0102)' }).getAttribute('href')).toBe(`${PATH}/table`);
+    expect(screen.getByRole('link', { name: '검토 대상 보기' }).getAttribute('href')).toBe('#rfp-document-review');
     expect(document.querySelector('.ls-legacy')).toBeNull();
-    expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['접수 및 요구 검토']);
+    expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['RFP 검토']);
   });
 
   it('새 프로젝트는 문서부터 안내하고 처리 실행을 막는다', async () => {
     project = { ...base, documents_count: 0, requirements_count: 0, output_status: 'INTAKE' }; documents = [];
     renderApp(PATH);
     await screen.findByText('문서가 없습니다. 문서 올리기로 시작하세요.');
-    expect(next()).toContain('문서 0, 요구 0');
+    expect(next()).toContain('문서를 올린 뒤 처리 실행을 누르세요.');
     expect(screen.getByRole('img', { name: 'AI 대기 중' }).getAttribute('data-state')).toBe('idle');
     expect(screen.getByRole('status').textContent).toContain('문서를 올리면 분석을 시작할 수 있습니다.');
     expect(screen.queryByRole('list', { name: '분석 단계별 관측 상태' })).toBeNull();
@@ -193,7 +193,7 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     listing(id => ({ ...base, id, name: '첫째 상세' }));
     renderApp('/tft/projects');
     await screen.findByText('첫째 상세');
-    expect(screen.getByRole('table', { name: '접수 및 요구 검토' }).querySelector('tr.sel')?.textContent).toContain('첫째');
+    expect(screen.getByRole('table', { name: 'RFP 검토' }).querySelector('tr.sel')?.textContent).toContain('첫째');
   });
 
   it('행을 누르면 같은 화면에서 그 프로젝트로 바뀐다', async () => {
@@ -202,7 +202,7 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     await screen.findByText('첫째 상세');
     fireEvent.click(screen.getByText('둘째').closest('tr') as HTMLElement);
     await screen.findByText('둘째 상세');
-    expect(screen.getByRole('table', { name: '접수 및 요구 검토' })).toBeTruthy();
+    expect(screen.getByRole('table', { name: 'RFP 검토' })).toBeTruthy();
   });
 
   it('문서 표에 조항·삭제 값을 보이고 이전 판본은 흐리게 비운다', async () => {

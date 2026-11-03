@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import type { RfpWatch } from '../api/rfp-job-events';
 import type { DocumentVersion } from '../api/rfp';
 import { RfpPersona } from './RfpPersona';
 import { RfpReasoning, rfpStageDescription } from './RfpReasoning';
 import './RfpJobBanner.css';
 
-const steps: Record<string, string> = { parse: '문서 읽기', extract: '요구 추출', search: '자사 자료 검색', compare: '자사 비교', supplement: '보완 경로 확인', candidates: '협력사 후보 확인', draft: '초안 작성', export: 'Word 내보내기', annotate: '보완 문서 처리', context_map:'설비·과업 맥락 정리', context_link:'요구·근거 연결', context_validate:'맥락 정리 검증' };
+const steps: Record<string, string> = { parse: '문서 읽기', extract: '요구 추출', search: '자사 자료 검색', compare: '자사 비교', supplement: '보완 경로 확인', candidates: '협력사 후보 확인', draft: '초안 작성', export: 'Word 내보내기', annotate: '보완 문서 처리', context_map:'검토 대상 정리', context_link:'요구·근거 연결', context_validate:'요구 연결 확인' };
 const statuses: Record<string, string> = { QUEUED: '처리 요청을 접수했습니다.', RUNNING: '작업이 시작됐습니다.', SUCCEEDED: '처리가 완료됐습니다.', PARTIAL: '일부 처리가 완료됐습니다. 결과 확인이 필요합니다.', FAILED: '처리에 실패했습니다. 입력과 결과를 확인하세요.', CANCELLED: '처리가 취소됐습니다.' };
 // Presentation only: observed events never mutate the authoritative GET snapshot.
 export function rfpJobPresentation(status: string | undefined, view?: RfpWatch, accepted = false) {
@@ -17,7 +16,7 @@ export function rfpJobPresentation(status: string | undefined, view?: RfpWatch, 
   const rows: Record<string, string> = { QUEUED: '대기', RUNNING: '실행 중', SUCCEEDED: '완료', PARTIAL: '일부 완료', FAILED: '실패', CANCELLED: '취소' };
   return { headline: status ? statuses[status] : accepted ? '처리 요청을 접수했습니다. 작업 시작을 확인하고 있습니다.' : '작업 상태를 확인하고 있습니다.', row: status ? rows[status] : '확인 중', terminal };
 }
-export function RfpJobBanner({ view, status, accepted, documents, projectId, requestDocuments = [], idle = false }: {
+export function RfpJobBanner({ view, status, accepted, documents, requestDocuments = [], idle = false }: {
   view?: RfpWatch; status?: string; accepted: boolean; documents: DocumentVersion[]; projectId: string; requestDocuments?: string[]; idle?: boolean;
 }) {
   const p = view?.progress;
@@ -56,7 +55,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const kind = view?.job?.kind;
   const isContext = kind==='rfp.context' || actualStage?.startsWith('context_');
   const isAnalysis = kind ? kind === 'rfp.process' : !['export', 'annotate'].includes(p?.step ?? '');
-  const title = idle ? 'RFP 분석 대기 중' : stopped ? '처리 상태를 확인할 수 없습니다' : disconnected && !display.terminal ? '분석 상태를 다시 확인하고 있습니다' : confirming ? '분석 결과를 확인하고 있습니다' : running ? isContext ? 'AI가 요구를 맥락별로 정리하고 있습니다' : isAnalysis ? haloState === 'speaking' ? 'AI가 RFP 초안을 작성하고 있습니다' : 'AI가 RFP를 분석하고 있습니다' : steps[p?.step ?? ''] ?? '작업을 처리하고 있습니다' : display.terminal ? display.headline : '분석을 준비하고 있습니다';
+  const title = idle ? 'RFP 분석 대기 중' : stopped ? '처리 상태를 확인할 수 없습니다' : disconnected && !display.terminal ? '분석 상태를 다시 확인하고 있습니다' : confirming ? '분석 결과를 확인하고 있습니다' : running ? isContext ? 'AI가 설비와 업무별로 요구사항을 정리하고 있습니다' : isAnalysis ? haloState === 'speaking' ? 'AI가 RFP 초안을 작성하고 있습니다' : 'AI가 RFP를 분석하고 있습니다' : steps[p?.step ?? ''] ?? '작업을 처리하고 있습니다' : display.terminal ? display.headline : '분석을 준비하고 있습니다';
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!processing || !view?.startedAt) return;
@@ -78,7 +77,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
       {processing && elapsed && <div className="rfp-analysis-elapsed"><span>작업 시작 후</span><b>{elapsed}</b>{disconnected && <small>진행 확인 중</small>}</div>}
       {display.terminal && (drawingOnly
         ? <a className="rfp-analysis-result" href="#rfp-document-review">도면 분석 결과 확인 →</a>
-        : <Link className="rfp-analysis-result" to={`/tft/projects/${projectId}/table`}>대응 방안 검토에서 결과 확인 →</Link>)}
+        : <a className="rfp-analysis-result" href="#rfp-document-review">검토 대상 보기 →</a>)}
     </header>
     {view?.message && <p className="rfp-analysis-notice">{view.message}</p>}
     {docId ? <p className="rfp-analysis-document">관측 문서: {doc ? `${doc.title} v${doc.version}` : '문서 판본 이름을 확인 중입니다.'}</p>
@@ -95,6 +94,6 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
     </div>}
     {activity.length > 0 && !stopped && <RfpReasoning activity={activity} active={live} completed={display.terminal} disconnected={disconnected} currentStep={actualStage} documents={documents} labels={steps} />}
     {p?.needsReview && <p className="rfp-analysis-notice">결과에 사람의 검토가 필요합니다.</p>}
-    {display.terminal && <p className="rfp-analysis-footnote">{drawingOnly ? '완료는 담당자 승인이 아닙니다. 도면 원본과 연결 후보를 대조해 확인하세요.' : '완료는 담당자 승인이 아닙니다. 대응표의 미해결 요구와 근거를 확인하세요.'}</p>}
+    {display.terminal && <p className="rfp-analysis-footnote">{drawingOnly ? '완료는 담당자 승인이 아닙니다. 도면 원본과 연결 후보를 대조해 확인하세요.' : '완료는 담당자 승인이 아닙니다. 미해결 요구와 원문 근거를 확인하세요.'}</p>}
   </section>;
 }

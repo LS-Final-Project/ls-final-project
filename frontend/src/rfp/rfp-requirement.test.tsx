@@ -5,6 +5,13 @@ import { setApiMode } from '../api/client';
 import { MOCK_DETAIL } from '../mocks/rfp-table';
 import { errorBody, jsonResponse, renderApp } from '../test/render';
 
+// The return destination is covered by the unified review integration tests.
+// Keep these tests focused on detail editing and verify the real route parameter.
+vi.mock('./RfpIntake', async () => {
+  const { useParams } = await import('react-router-dom');
+  return { default: function ReviewDestination() { const { projectId } = useParams(); return <p data-testid="review-destination">{projectId}</p>; } };
+});
+
 const PROJECT = '33333333-3333-4333-8333-333333333333';
 const ID = MOCK_DETAIL.requirement_id;
 const PATH = `/tft/projects/${PROJECT}/requirements/${ID}`;
@@ -81,7 +88,7 @@ describe('요구 상세', () => {
 });
 
 describe('제목 줄', () => {
-  it('F6은 변경 제안을 열고 Esc는 폼이 없을 때만 대응표로 돌아간다', async () => {
+  it('F6은 변경 제안을 열고 Esc는 폼이 없을 때만 RFP 검토로 돌아간다', async () => {
     await open();
     fireEvent.keyDown(window, { key: 'F6' });
     await screen.findByRole('button', { name: '제안 저장' });
@@ -90,6 +97,7 @@ describe('제목 줄', () => {
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+    expect((await screen.findByTestId('review-destination')).textContent).toBe(PROJECT);
   });
 
   it('Esc는 입력 요소와 열린 메뉴 안에서는 화면을 떠나지 않는다', async () => {
@@ -103,6 +111,7 @@ describe('제목 줄', () => {
     more.open = false;
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+    expect((await screen.findByTestId('review-destination')).textContent).toBe(PROJECT);
   });
 
   it('연결 표의 보완 경로는 코드가 아니라 라벨이다', async () => {

@@ -28,11 +28,11 @@ const P = '/tft/projects/33333333-3333-4333-8333-333333333333';
 describe('권한 확인 뒤 화면 열림', () => {
   it.each([
     ['업무 홈', '/tft', 'tft', <RfpHome key="home" />, '업무 홈'],
-    ['접수', '/tft/projects', 'tft/projects', <RfpIntake key="intake" />, '접수 및 요구 검토'],
-    ['프로젝트', P, 'tft/projects/:projectId', <RfpIntake key="project" />, '접수 및 요구 검토'],
+    ['접수', '/tft/projects', 'tft/projects', <RfpIntake key="intake" />, 'RFP 검토'],
+    ['프로젝트', P, 'tft/projects/:projectId', <RfpIntake key="project" />, 'RFP 검토'],
     ['대응표', `${P}/table`, 'tft/projects/:projectId/table', <RfpTable key="table" />, '자사 대응표'],
     ['승인', `${P}/table/approvals`, 'tft/projects/:projectId/table/approvals', <RfpApprovals key="approvals" />, '자사 대응표'],
-    ['요구 상세', `${P}/requirements/r1`, 'tft/projects/:projectId/requirements/:requirementId', <RfpRequirement key="requirement" />, '접수 및 요구 검토'],
+    ['요구 상세', `${P}/requirements/r1`, 'tft/projects/:projectId/requirements/:requirementId', <RfpRequirement key="requirement" />, 'RFP 검토'],
   ])('%s', async (_name, path, pattern, element, title) => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     renderAt(path, pattern, element);

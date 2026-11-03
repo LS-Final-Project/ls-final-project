@@ -1,142 +1,69 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup,fireEvent,render,screen,waitFor,within } from '@testing-library/react';
+import { afterEach,beforeEach,expect,it,vi } from 'vitest';
 import { RfpDocumentReview } from './RfpDocumentReview';
-import { MOCK_COMPARISON, MOCK_DETAIL, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
-import { listDocumentDiagrams, getComparison, getDocument, getRequirement, listProjectCandidates, listRequirements, type DocumentVersion } from '../api/rfp';
-vi.mock('../api/rfp', async original => ({ ...await original<object>(), listDocumentDiagrams: vi.fn(), getRequirement: vi.fn(), listRequirements: vi.fn(), getComparison: vi.fn(), getDocument: vi.fn(), listProjectCandidates: vi.fn() }));
-vi.mock('./OriginalDocument', () => ({ OriginalDocument: ({ document, origin }: { document: DocumentVersion; origin?: { quote: string } }) => <div data-testid="original">{document.title}<span data-testid="quote">{origin?.quote}</span></div> }));
-beforeEach(() => { vi.mocked(getDocument).mockResolvedValue({ data: { document_version_id: 'v0', extraction_warnings: [] } as never }); vi.mocked(getComparison).mockResolvedValue({ data: MOCK_COMPARISON }); vi.mocked(listProjectCandidates).mockResolvedValue({ data: { items: [], manufacturer_list_basis: 'CURRENT_PROJECT_INPUT' } }); });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
-const docs = ['first','second'].map((title, i) => ({ title, document_id: `doc${i}`, document_version_id: `v${i}`, kind: 'RFP_SPEC', version: 1 })) as DocumentVersion[];
-const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={docs} /></MemoryRouter></QueryClientProvider>);
-
-it('문서별 요구 선택과 정확 판본 인용을 연결하고 문서를 옮기면 이전 내용을 버린다', async () => {
-  vi.mocked(listRequirements).mockImplementation(async (_p, filters) => ({ data: { items: filters.document_version_id === 'v0' ? MOCK_REQUIREMENTS.slice(0, 2) as never : [], next_cursor: null } }));
-  vi.mocked(getRequirement).mockImplementation(async id => ({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' as const }, requirement_id: id, origin: { ...MOCK_DETAIL.origin, document_version_id: 'v0', quote: id.endsWith('1') ? 'first quote' : 'second quote' } } }));
-  show();
-  await waitFor(() => expect(screen.getByTestId('quote').textContent).toBe('first quote'));
-  fireEvent.click(screen.getByRole('button', { name: /R-02/ }));
-  await waitFor(() => expect(screen.getByTestId('quote').textContent).toBe('second quote'));
-  fireEvent.change(screen.getByLabelText('검토 문서'), { target: { value: 'v1' } });
-  await screen.findByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.');
-  expect(screen.getByTestId('quote').textContent).toBe('');
-  expect(listRequirements).toHaveBeenLastCalledWith('p', { document_version_id: 'v1' }, 100, undefined, { signal: expect.any(AbortSignal) });
+import { MOCK_DETAIL,MOCK_REQUIREMENTS } from '../mocks/rfp-table';
+import { getDocument,listDocumentDiagrams,listRequirements,type DocumentVersion } from '../api/rfp';
+import { getSupplementRequirement } from '../api/rfp-supplement';
+import { getContext,processContext,type ContextEnvelope } from '../api/rfp-context';
+import { getProject } from '../api/tft';
+vi.mock('../api/rfp',async original=>({...await original<object>(),getDocument:vi.fn(),listDocumentDiagrams:vi.fn(),listRequirements:vi.fn()}));
+vi.mock('../api/rfp-supplement',async original=>({...await original<object>(),getSupplementRequirement:vi.fn()}));
+vi.mock('../api/rfp-context',async original=>({...await original<object>(),getContext:vi.fn(),processContext:vi.fn()}));
+vi.mock('../api/tft',()=>({getProject:vi.fn()}));
+vi.mock('./OriginalDocument',()=>({OriginalDocument:({document,origin}:{document:DocumentVersion;origin?:{quote:string}})=><div data-testid="original">{document.title}<span data-testid="quote">{origin?.quote}</span></div>}));
+vi.mock('./ResponseDecision',()=>({ResponseDecision:({requirement,canSelect,reviewDepartments}:{requirement:{requirement_id:string};canSelect:boolean;reviewDepartments?:string[]})=><div data-testid="decision">{requirement.requirement_id}<span>{canSelect?'저장 가능':'읽기 전용'}</span><span>{reviewDepartments?.join(',')}</span></div>}));
+const docs=['first','second'].map((title,i)=>({title,document_id:`doc${i}`,document_version_id:`v${i}`,kind:'RFP_SPEC',version:1})) as DocumentVersion[];
+const rows=MOCK_REQUIREMENTS.slice(0,2) as never;
+const show=(documents=docs,busy=false)=>render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={documents} busy={busy}/></MemoryRouter></QueryClientProvider>);
+async function chooseFirst(){fireEvent.click(await screen.findByRole('button',{name:/미정리 요구/}));fireEvent.click(screen.getByRole('button',{name:/R-01/}));}
+beforeEach(()=>{
+ vi.mocked(getProject).mockResolvedValue({data:{id:'p',name:'프로젝트',sales_user_id:'a',responsible_user_id:null,version:2,review_departments:['RND_FW']} as never,meta:{request_id:'test'}});
+ vi.mocked(getDocument).mockResolvedValue({data:{document_version_id:'v0',extraction_warnings:[]} as never});
+ vi.mocked(getContext).mockResolvedValue({data:{project_id:'p',status:'NOT_ANALYZED',result:null,source_refs:[],requirements:[]} as unknown as ContextEnvelope});
+ vi.mocked(listRequirements).mockImplementation(async(_p,filters)=>({data:{items:filters.document_version_id==='v1'?[]:rows,next_cursor:null}}));
+ vi.mocked(getSupplementRequirement).mockImplementation(async id=>({data:{...MOCK_DETAIL,requirement_id:id,origin:{...MOCK_DETAIL.origin,document_version_id:'v0',quote:id.endsWith('1')?'first quote':'second quote'}} as never}));
+});
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it('has one review entry and connects target → customer requirement → real response workflow',async()=>{
+ show();await screen.findByRole('heading',{name:'RFP 검토'});expect(screen.queryByText('기존 요구·대응 검토')).toBeNull();expect(screen.queryByText('맥락별 검토')).toBeNull();expect(screen.queryByTestId('decision')).toBeNull();
+ await chooseFirst();await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('first quote'));expect(screen.getByTestId('decision').textContent).toContain('저장 가능');expect(screen.getByTestId('decision').textContent).toContain('RND_FW');
+ fireEvent.click(screen.getByRole('button',{name:/R-02/}));await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('second quote'));
+ fireEvent.change(screen.getByLabelText('검토 문서'),{target:{value:'v1'}});await screen.findByText('이 범위에 추출된 고객 요구가 없습니다.');expect(screen.getByTestId('quote').textContent).toBe('');expect(screen.queryByTestId('decision')).toBeNull();expect(listRequirements).toHaveBeenLastCalledWith('p',{document_version_id:'v1'},100,undefined,{signal:expect.any(AbortSignal),useMockFallback:false});expect(processContext).not.toHaveBeenCalled();
+});
+it.each(['document','requirement-version','canonical-version','detail-error'] as const)('never highlights or mounts response when %s does not match',async mismatch=>{
+ if(mismatch==='canonical-version')vi.mocked(listRequirements).mockResolvedValue({data:{items:[{...MOCK_REQUIREMENTS[0],version:3}] as never,next_cursor:null}});
+ if(mismatch==='detail-error')vi.mocked(getSupplementRequirement).mockRejectedValue(new Error('접근 거절'));
+ else vi.mocked(getSupplementRequirement).mockResolvedValue({data:{...MOCK_DETAIL,version:mismatch==='requirement-version'?2:1,origin:{...MOCK_DETAIL.origin,document_version_id:mismatch==='document'?'other':'v0'}} as never});
+ show();await chooseFirst();await screen.findByText(mismatch==='detail-error'?'접근 거절':'요구 또는 문서 판본이 일치하지 않아 원문 강조와 대응 선택을 보류했습니다.');expect(screen.getByTestId('quote').textContent).toBe('');expect(screen.queryByTestId('decision')).toBeNull();
+});
+it('loads all summary cursors and clears the old selected response on page or target changes',async()=>{
+ const many=Array.from({length:12},(_,i)=>({...MOCK_REQUIREMENTS[0],requirement_id:`r${i}`,code:`R-${String(i+1).padStart(2,'0')}`}));vi.mocked(listRequirements).mockImplementation(async(_p,_filters,_limit,cursor)=>({data:{items:(cursor?many.slice(10):many.slice(0,10)) as never,next_cursor:cursor?null:'next'}}));
+ show();fireEvent.click(await screen.findByRole('button',{name:/미정리 요구/}));expect(listRequirements).toHaveBeenLastCalledWith('p',{document_version_id:'v0'},100,'next',{signal:expect.any(AbortSignal),useMockFallback:false});fireEvent.click(screen.getByRole('button',{name:/R-01/}));await screen.findByTestId('decision');fireEvent.click(screen.getByRole('button',{name:'2페이지'}));expect(screen.queryByTestId('decision')).toBeNull();expect(screen.getByTestId('quote').textContent).toBe('');expect(within(screen.getByRole('region',{name:'선택 대상 고객 요구'})).getAllByRole('button',{name:/R-/})).toHaveLength(2);
+});
+it.each(['busy','not-owner','project-error'] as const)('keeps response read-only for %s',async reason=>{
+ if(reason==='not-owner')vi.mocked(getProject).mockResolvedValue({data:{sales_user_id:'other',responsible_user_id:'other',version:2,review_departments:[]} as never,meta:{request_id:'test'}});
+ if(reason==='project-error')vi.mocked(getProject).mockRejectedValue(new Error('프로젝트 접근 거절'));
+ show(docs,reason==='busy');await chooseFirst();await waitFor(()=>expect(screen.getByTestId('decision').textContent).toContain('읽기 전용'));
+});
+it.each(['warnings','wrong-version','error'] as const)('preserves source and actual requirements while extraction info is %s',async state=>{
+ if(state==='warnings')vi.mocked(getDocument).mockResolvedValue({data:{document_version_id:'v0',extraction_warnings:['PDF 원문 2쪽: 이미지 전사 불확실']} as never});
+ if(state==='wrong-version')vi.mocked(getDocument).mockResolvedValue({data:{document_version_id:'old',extraction_warnings:['다른 판본 경고']} as never});
+ if(state==='error')vi.mocked(getDocument).mockRejectedValue(new Error('문서 조회 실패'));
+ show();await screen.findByText(state==='warnings'?'PDF 원문 2쪽: 이미지 전사 불확실':'현재 판본 추출 안내 확인 불가');await chooseFirst();await screen.findByTestId('decision');expect(screen.getByTestId('original').textContent).toContain('first');expect(screen.queryByText('다른 판본 경고')).toBeNull();
+});
+it.each(['empty','error','wrong-version'] as const)('preserves zero-text drawing original and diagram inspection for %s',async state=>{
+ vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
+ if(state==='error')vi.mocked(listDocumentDiagrams).mockRejectedValue(new Error('도면 조회 실패'));else vi.mocked(listDocumentDiagrams).mockResolvedValue({data:{document_id:'doc0',document_version_id:state==='wrong-version'?'old':'v0',processing_status:'NOT_ANALYZED',items:[],warnings:[]}});
+ show([{...docs[0],kind:'DRAWING'}]);await screen.findByText('추출된 문자 요구는 0건입니다. 도면의 장비·기호와 연결 후보는 위 도면 검토에서 확인하세요.');expect(screen.getByTestId('original')).toBeTruthy();expect(screen.getByRole('region',{name:'RFP 검토'}).id).toBe('rfp-document-review');expect(screen.queryByTestId('decision')).toBeNull();
 });
 
-it('권한 오류와 문서 판본 불일치에서 원문 하이라이트를 만들지 않는다', async () => {
-  vi.mocked(listRequirements).mockResolvedValue({ data: { items: MOCK_REQUIREMENTS.slice(0, 1) as never, next_cursor: null } });
-  vi.mocked(getRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' } } });
-  show();
-  await screen.findByText('요구와 문서 판본이 일치하지 않습니다. 문서를 다시 선택하세요.');
-  expect(screen.getByTestId('quote').textContent).toBe('');
-  cleanup();
-  vi.mocked(getRequirement).mockRejectedValue(new Error('접근 거절'));
-  show();
-  await screen.findByText('접근 거절');
-  expect(screen.getByTestId('quote').textContent).toBe('');
-});
-
-it('전체 문서 커서를 읽고 선택한 장비의 번호 페이지를 이동하며 필터 변경은 처음부터 조회한다', async () => {
-  const rows = Array.from({ length: 12 }, (_, i) => ({ ...MOCK_REQUIREMENTS[0], requirement_id: `r${i}`, code: `R-${String(i + 1).padStart(2, '0')}` }));
-  vi.mocked(listRequirements).mockImplementation(async (_p, filters, _limit, cursor) => ({ data: { items: (filters.unresolved_mandatory ? rows.slice(0, 1) : cursor ? rows.slice(10) : rows.slice(0, 10)) as never, next_cursor: !filters.unresolved_mandatory && !cursor ? 'next' : null } }));
-  vi.mocked(getRequirement).mockImplementation(async id => ({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' as const }, requirement_id: id, origin: { ...MOCK_DETAIL.origin, document_version_id: 'v0' } } }));
-  show();
-  await screen.findByText('세부 요구 12개');
-  expect(listRequirements).toHaveBeenLastCalledWith('p', { document_version_id: 'v0' }, 100, 'next', { signal: expect.any(AbortSignal) });
-  fireEvent.click(screen.getByRole('button', { name: '2' }));
-  await screen.findByText('2쪽 · 2건 / 선택 묶음 12건');
-  expect(screen.getByRole('button', { name: /R-11/ })).toBeTruthy();
-  fireEvent.click(screen.getByLabelText('미해결 필수만'));
-  await screen.findByText('1쪽 · 1건 / 선택 묶음 1건');
-  expect(listRequirements).toHaveBeenLastCalledWith('p', { document_version_id: 'v0', unresolved_mandatory: true }, 100, undefined, { signal: expect.any(AbortSignal) });
-});
-
-it('장비를 바꾸면 해당 요구만 보여주고 OCR 근거에는 원본 확인을 요구한다', async () => {
-  vi.mocked(listRequirements).mockResolvedValue({ data: { items: [MOCK_REQUIREMENTS[0], { ...MOCK_REQUIREMENTS[1], equipment: 'GIS', code: '1234abcd:OCR-PDF-P0001.1:1' }] as never, next_cursor: null } });
-  vi.mocked(getRequirement).mockImplementation(async id => ({ data: { ...MOCK_DETAIL, requirement_id:id, judgement: { ...MOCK_DETAIL.judgement, rnd_check:'NOT_REQUIRED' }, origin:{...MOCK_DETAIL.origin, document_version_id:'v0',clause_no:id===MOCK_REQUIREMENTS[0].requirement_id?'1.1':'OCR-PDF-P0001.1'} } }));
-  show();
-  await screen.findByRole('button', { name: /장비 검토.*GIS/ });
-  fireEvent.click(screen.getByRole('button', { name: /장비 검토.*GIS/ }));
-  await screen.findByText(/이미지에서 읽은 텍스트/);
-  expect(screen.queryByRole('button', { name: /R-01/ })).toBeNull();
-  expect(within(screen.getByRole('group', { name:'분석 요구 선택' })).getByRole('button', { name: /OCR-PDF-P0001/ })).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('설비·장비 찾기'), { target:{value:'변압기'} });
-  expect(screen.queryByRole('button', { name: /장비 검토.*GIS/ })).toBeNull();
-});
-
-
-it('문서 추출 경고를 숨기지 않고 보여주며 오래된 요구 판본은 하이라이트하지 않는다', async () => {
-  vi.mocked(getDocument).mockResolvedValue({data:{document_version_id:'v0',extraction_warnings:['PDF 원문 2쪽: 이미지 전사 불확실']} as never});
-  vi.mocked(listRequirements).mockResolvedValue({data:{items:[{...MOCK_REQUIREMENTS[0],version:2}] as never,next_cursor:null}});
-  vi.mocked(getRequirement).mockResolvedValue({data:{...MOCK_DETAIL,version:1,judgement:{...MOCK_DETAIL.judgement,rnd_check:'NOT_REQUIRED'},origin:{...MOCK_DETAIL.origin,document_version_id:'v0'}}});
-  show();
-  await screen.findByText('PDF 원문 2쪽: 이미지 전사 불확실');
-  await screen.findByText('요구와 문서 판본이 일치하지 않습니다. 문서를 다시 선택하세요.');
-  expect(screen.getByTestId('quote').textContent).toBe('');
-});
-
-
-it.each(['different-version', 'request-error'])('추출 안내 %s는 현재 판본 확인 불가로 표시하고 문서와 요구는 유지한다', async failure => {
-  if (failure === 'request-error') vi.mocked(getDocument).mockRejectedValue(new Error('문서 조회 오류'));
-  else vi.mocked(getDocument).mockResolvedValue({ data: { document_version_id: 'newer-version', extraction_warnings: ['다른 판본의 경고'] } as never });
-  vi.mocked(listRequirements).mockResolvedValue({ data: { items: MOCK_REQUIREMENTS.slice(0, 1) as never, next_cursor: null } });
-  vi.mocked(getRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' }, origin: { ...MOCK_DETAIL.origin, document_version_id: 'v0', quote: '현재 판본 인용' } } });
-  show();
-  await screen.findByText('현재 판본 추출 안내 확인 불가');
-  expect(screen.queryByText('다른 판본의 경고')).toBeNull();
-  expect(screen.getByTestId('original').textContent).toContain('first');
-  await waitFor(() => expect(screen.getByTestId('quote').textContent).toBe('현재 판본 인용'));
-  expect(screen.getByRole('button', { name: /R-01/ })).toBeTruthy();
-});
-
-it('같은 문서의 선택 판본이 바뀌면 추출 안내도 별도 조회한다', async () => {
-  vi.mocked(listRequirements).mockResolvedValue({ data: { items: [], next_cursor: null } });
-  vi.mocked(getDocument).mockResolvedValueOnce({ data: { document_version_id: 'v0', extraction_warnings: ['이전 판본 안내'] } as never })
-    .mockResolvedValueOnce({ data: { document_version_id: 'v2', extraction_warnings: ['현재 판본 안내'] } as never });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  const view = (documents: DocumentVersion[]) => <QueryClientProvider client={client}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={documents} /></MemoryRouter></QueryClientProvider>;
-  const rendered = render(view([docs[0]]));
-  await screen.findByText('이전 판본 안내');
-  rendered.rerender(view([{ ...docs[0], document_version_id: 'v2', version: 2 }]));
-  await screen.findByText('현재 판본 안내');
-  expect(screen.queryByText('이전 판본 안내')).toBeNull();
-  expect(getDocument).toHaveBeenCalledTimes(2);
-});
-
-
-it('요구 없는 DRAWING은 도면 검토를 먼저 열고 미분석일 때 원문을 보존한다', async () => {
-  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
-  vi.mocked(listDocumentDiagrams).mockResolvedValue({data:{document_id:'doc0',document_version_id:'v0',processing_status:'NOT_ANALYZED',items:[],warnings:[]}});
-  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={[{...docs[0],kind:'DRAWING'}]} /></MemoryRouter></QueryClientProvider>);
-  await screen.findByText(/이 판본에는 단선결선도 분석 기록이 없습니다/);
-  expect(screen.getByRole('region',{name:'원문과 분석 검토'}).id).toBe('rfp-document-review');
-  await screen.findByText('추출된 문자 요구는 0건입니다. 도면의 장비·기호와 연결 후보는 위 도면 검토에서 확인하세요.');
-  expect(screen.getByTestId('original')).toBeTruthy();
-  expect(screen.queryByRole('complementary',{name:'문서별 분석 결과'})).toBeNull();
-  expect(screen.queryByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.')).toBeNull();
-});
-
-
-it.each(['empty','error','wrong-version'])('도면 %s 상태는 원문을 보존하고 요구 0을 전체 분석 없음으로 바꾸지 않는다', async state => {
-  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
-  if(state === 'error') vi.mocked(listDocumentDiagrams).mockRejectedValue(new Error('도면 결과 접근 불가'));
-  else vi.mocked(listDocumentDiagrams).mockResolvedValue({data:{document_id:'doc0',document_version_id:state==='wrong-version'?'other':'v0',processing_status:'ANALYZED',items:[],warnings:[]}});
-  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={[{...docs[0],kind:'DRAWING'}]} /></MemoryRouter></QueryClientProvider>);
-  if(state==='error') await screen.findByText('도면 결과 접근 불가');
-  else if(state==='wrong-version') await screen.findByText(/도면 분석과 선택 문서 판본이 다릅니다/);
-  else await screen.findByText(/이 판본에서 저장된 단선결선도 연결 후보가 없습니다/);
-  expect(screen.getByTestId('original')).toBeTruthy();
-  expect(screen.queryByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.')).toBeNull();
-});
-
-it.each([false,true])('맥락 보기는 명시 선택 뒤 타문서 근거를 조회하되 판본불일치=%s는 강조하지 않는다',async mismatch=>{
-  const contextApi=await import('../api/rfp-context');
-  const get=vi.spyOn(contextApi,'getContext').mockResolvedValue({data:{project_id:'p',version:1,status:'CURRENT',source_fingerprint:'a'.repeat(64),current_source_fingerprint:'a'.repeat(64),provenance:'ai_draft',created_at:null,created_by:null,reason:null,requirements:[],source_refs:[{requirement_id:'cross',version:2,code:'R-CROSS',document_id:'doc1',document_version_id:'v1',clause_id:null,page:1,quote:'타문서 근거'}],result:{schema_version:'rfp-context-v1',prompt_version:'rfp-context-v1',outcome:'VALID',groups:[],issues:[],assignments:[{requirement_id:'cross',primary_category:'TASK',additional_categories:[],group_ids:[],relations:[],reason:'다른 문서 과업',evidence_requirement_ids:['cross'],needs_review:true}]}}});
-  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
-  vi.mocked(getRequirement).mockResolvedValue({data:{...MOCK_DETAIL,requirement_id:'cross',version:mismatch?3:2,judgement:{...MOCK_DETAIL.judgement,rnd_check:'NOT_REQUIRED'},origin:{...MOCK_DETAIL.origin,document_version_id:'v1',quote:'타문서 근거'}}});
-  show();expect(get).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'맥락별 검토'}));await screen.findByText(/고유 요구 0건/);fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});fireEvent.click(screen.getByRole('button',{name:'R-CROSS 원문 · 문서 이동'}));
-  if(mismatch){await screen.findByText('근거 요구 또는 문서 판본이 달라 원문 강조를 보류했습니다.');expect(screen.getByTestId('quote').textContent).toBe('');}else{await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('타문서 근거'));}expect(screen.getByTestId('original').textContent).toContain('second');get.mockRestore();
+it('a cross-document source v2 cannot highlight when the actual destination requirement is v3 even if cached detail is v2',async()=>{
+ const first=MOCK_REQUIREMENTS[0],other={...MOCK_REQUIREMENTS[1],version:3};
+ vi.mocked(listRequirements).mockImplementation(async(_p,filters)=>({data:{items:filters.document_version_id==='v1'?[other] as never:[first] as never,next_cursor:null}}));
+ vi.mocked(getContext).mockResolvedValue({data:{project_id:'p',version:1,status:'CURRENT',source_fingerprint:'a',current_source_fingerprint:'a',requirements:[],source_refs:[{requirement_id:first.requirement_id,version:1,code:first.code,document_id:'doc0',document_version_id:'v0',page:1,quote:'first',clause_id:null},{requirement_id:other.requirement_id,version:2,code:other.code,document_id:'doc1',document_version_id:'v1',page:1,quote:'old other',clause_id:null}],result:{groups:[{entity_id:'target',name:'변압기',kind:'EQUIPMENT',needs_review:false,evidence_requirement_ids:[],diagram_source_ids:[]}],assignments:[{requirement_id:first.requirement_id,primary_category:'EQUIPMENT',additional_categories:[],group_ids:['target'],relations:[],evidence_requirement_ids:[other.requirement_id],reason:'원문',needs_review:false}],issues:[]}} as unknown as ContextEnvelope});
+ vi.mocked(getSupplementRequirement).mockImplementation(async id=>({data:{...MOCK_DETAIL,requirement_id:id,version:id===other.requirement_id?2:1,origin:{...MOCK_DETAIL.origin,document_version_id:id===other.requirement_id?'v1':'v0',quote:'stale cached quote'}} as never}));
+ show();fireEvent.click(await screen.findByRole('button',{name:/변압기.*설비/}));fireEvent.click(screen.getByRole('button',{name:/R-01/}));await screen.findByTestId('decision');fireEvent.click(screen.getByRole('button',{name:'R-02 원문 · 문서 이동'}));await screen.findByText('요구 또는 문서 판본이 일치하지 않아 원문 강조와 대응 선택을 보류했습니다.');expect(screen.getByTestId('original').textContent).toContain('second');expect(screen.getByTestId('quote').textContent).toBe('');expect(screen.queryByTestId('decision')).toBeNull();
 });

@@ -50,8 +50,11 @@ export const FEASIBILITY_LABEL: Record<string, string> = {
 export const RND_DEPARTMENTS = ['RND_FW'];
 // 요구 code(판본앞8자:조항:순번)의 표시 번호. 원시 값은 화면에 내지 않는다.
 export function requirementNo(code: string) {
-  const [, clause, order] = code.split(':');
-  return clause ? `${clause}-${order}` : code;
+  const stored = code.match(/^[^:]+:([^:]+):(\d+)$/i);
+  if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored[1])) return '요구 번호 미기재';
+  if (stored) return stored[1].startsWith('OCR-') ? `이미지 요구 ${stored[2]}` : `${stored[1]}-${stored[2]}`;
+  if (!code || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(code)) return '요구 번호 미기재';
+  return code;
 }
 // 표 칸에 맞는 짧은 일시(2026-10-26 14:20, 사용자 시간대).
 export function shortDateTime(at: string) {

@@ -51,7 +51,7 @@ function Walk({ projectId, id, onNext }: { projectId: string; id: string; onNext
     <select aria-label="순회 조건" value={walk} onChange={event => setWalk(event.target.value)}>
       {Object.entries(WALKS).map(([code, { name }]) => <option key={code} value={code}>{name}</option>)}
     </select>
-    <span>대응표에서 행을 누르면 이어서 볼 수 있습니다</span>
+    <span>RFP 검토에서 대상을 고른 뒤 요구사항을 확인할 수 있습니다</span>
     {go(before, '이전 요구')}
     {go(after, '다음 요구')}
   </div>;
@@ -135,7 +135,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   const project = useQuery({ queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: access.ready });
   const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled: access.ready });
   const propose = useCallback(() => setPanel({ kind: 'propose' }), []);
-  const back = useCallback(() => navigate(`/tft/projects/${projectId}/table`), [navigate, projectId]);
+  const back = useCallback(() => navigate(`/tft/projects/${projectId}#rfp-document-review`), [navigate, projectId]);
   useHotkey('F6', propose, access.ready);
   useHotkey('Escape', back, access.ready && !panel);
   const reload = () => {
@@ -146,7 +146,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
     mutationFn: (question: Question) => confirmQuestion(projectId, question.question_id, crypto.randomUUID()),
     onSuccess: reload,
   });
-  if (!access.ready) return <BusinessGate access={access} title="접수 및 요구 검토" />;
+  if (!access.ready) return <BusinessGate access={access} title="RFP 검토" />;
   if (requirement.isPending) return <main><Loading /></main>;
   if (requirement.isError) return <main><ErrorState error={requirement.error} onRetry={() => requirement.refetch()} /></main>;
   const data = requirement.data.data;
@@ -183,7 +183,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   ];
   const toProject = `/tft/projects/${projectId}`;
   const connections: Connection[] = [
-    { name: '자사 비교', text: links.comparison_summary ?? '없음', to: `${toProject}/table` },
+    { name: '자사 비교', text: links.comparison_summary ?? '없음', to: `${toProject}#rfp-document-review` },
     { name: '보완 경로', text: label(PATH_LABEL, links.supplement_summary) || '없음', to: `${toProject}/supplement` },
     { name: '협력사 후보', text: `${links.partner_candidate_ids.length}건` },
     { name: '질문', text: `${links.question_ids.length}건` },
@@ -191,14 +191,14 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
     { name: '초안 문장', text: `${links.draft_sentence_ids.length}건`, to: `${toProject}/draft` },
   ];
   return <main>
-    <KvTitle path="제안 지원" title="접수 및 요구 검토" code="TF0101">
+    <KvTitle path="제안 지원" title="RFP 검토">
       <button className="kb primary" onClick={propose}>변경 제안<KvKey>F6</KvKey></button>
       <button className="kb" onClick={() => setPanel({ kind: 'question' })}>질문 작성</button>
       {nextPath ? <Link className="kb" to={nextPath}>다음 요구</Link> : <button className="kb" disabled>다음 요구</button>}
       {documentId
         ? <a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(documentId)}/file`}>원문 내려받기</a>
         : <button className="kb" disabled>원문 내려받기</button>}
-      <Link className="kb" to={`/tft/projects/${projectId}/table`}>목록<KvKey>Esc</KvKey></Link>
+      <Link className="kb" to={`/tft/projects/${projectId}#rfp-document-review`}>RFP 검토<KvKey>Esc</KvKey></Link>
       <KvMore items={[
         { label: '상태 직접 수정', note: '승인 전 반영 금지, 변경 제안으로' },
         { label: '처리 실행', note: '요구 화면에서는 실행하지 않음' },

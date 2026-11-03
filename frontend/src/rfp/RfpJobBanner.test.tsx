@@ -21,7 +21,7 @@ it('shows immediate admission, observed stage/counts and separates reconnecting 
   expect(screen.queryByRole('link')).toBeNull();
   expect(document.body.textContent).not.toMatch(/%|ETA/);
   rerender(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="PARTIAL" view={{ connection: 'ended' }} /></MemoryRouter>);
-  expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
+  expect(screen.getByRole('link').getAttribute('href')).toBe('#rfp-document-review');
   expect(screen.getByRole('status').textContent).toContain('일부');
 });
 it('aborts on actor/project/job change and rejects late updates from each former subscription', async () => {
@@ -223,10 +223,10 @@ it('routes drawing-only completion to the original and connection candidates wit
   expect(screen.getByLabelText('현재 분석 상태').querySelector('time')).toBeTruthy();
   expect(scroll).not.toHaveBeenCalled();
   rerender(ui(['DRAWING','RFP_SPEC']));
-  expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
-  expect(screen.getByText(/대응표의 미해결 요구와 근거/)).toBeTruthy();
+  expect(screen.getByRole('link').getAttribute('href')).toBe('#rfp-document-review');
+  expect(screen.getByText(/미해결 요구와 원문 근거/)).toBeTruthy();
   rerender(ui([]));
-  expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
+  expect(screen.getByRole('link').getAttribute('href')).toBe('#rfp-document-review');
   scroll.mockRestore();
 });
 
@@ -235,6 +235,6 @@ it('context steps remain live thinking after draft and do not claim approval or 
   render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{connection:'connected',activity,progress:activity[1]}}/></MemoryRouter>);
   expect(screen.getByRole('img',{name:'AI 분석 중'}).getAttribute('data-state')).toBe('thinking');
   expect(screen.getByRole('img').getAttribute('data-completed')).toBe('false');
-  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('설비·과업 맥락 정리');
-  expect(screen.getByRole('status').textContent).toContain('맥락별로 정리');expect(screen.queryByRole('link')).toBeNull();
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('검토 대상 정리');
+  expect(screen.getByRole('status').textContent).toContain('설비와 업무별로 요구사항을 정리');expect(screen.queryByRole('link')).toBeNull();
 });
