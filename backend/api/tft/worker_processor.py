@@ -54,6 +54,7 @@ from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
+    ExtractionInput,
     Operator,
     ResponseSchema,
     StandardSystem,
@@ -272,11 +273,31 @@ def sections_of(tree: ClauseTree) -> list[str]:
         if no not in groups | leaves:
             continue
         parent = parents[no]
+        # 한글 장 번호와 독립된 1.1 절은 제8장.7 같은 앞 항목의 번호 묶음에 포함되지 않는다.
+        if parent is not None and not no.startswith(parent + "."):
+            parent = None
         while parent is not None and parent not in groups:
             parent = parents.get(parent)
         if parent is None:
             out.append(no)
     return out
+
+
+def document_inputs(tree: ClauseTree) -> tuple[list[ExtractionInput], bool]:
+    """모델 호출 전에 문서 입력을 검사한다. 전절 거절은 처리 완료로 저장하지 않는다."""
+    inputs: list[ExtractionInput] = []
+    skipped = False
+    for section in sections_of(tree):
+        try:
+            [item] = build_inputs(tree, [section])
+        except ValueError:
+            skipped = True
+            continue
+        if item.clauses:
+            inputs.append(item)
+    if not inputs:
+        raise ValueError("TFT_DOCUMENT_EXTRACTION_INPUT_INVALID")
+    return inputs, skipped
 
 
 # 질문 초안 종류 → 질문 유형. 승인 절차는 demo_cases(2.1 제조사 목록)와 같이 조건 누락으로 본다.
@@ -797,18 +818,20 @@ async def process(
                 parsed.append((document, tree, {}))
             emit({"step": "parse", "document_version_id": str(document["id"])})
 
-        # extract: 절마다 모델을 부른다. 너무 긴 절·실패한 절은 건너뛰고 검토가 필요하다고 표시한다.
+        # 모든 신규 문서를 먼저 검사한다. 전절 입력 실패가 조항 저장·0건 성공으로 굳어지지 않게 한다.
+        prepared = []
+        for document, tree, clauses in parsed:
+            inputs, skipped = document_inputs(tree)
+            needs_review |= skipped
+            prepared.append((document, clauses, inputs))
+
+        # extract: 절마다 모델을 부른다. 일부 긴 절·실패한 절은 검토가 필요하다고 표시한다.
         # 절마다 진행을 남겨 lease를 연장한다(절이 많으면 모델 호출 중 lease가 끝나 다른 worker가 다시 부르지 않게).
         extracted: list[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]] = []
         called = False
         tracked, stopped = lease_keeping(provider, emit)
-        for document, tree, clauses in parsed:
-            for section in sections_of(tree):
-                try:
-                    [section_input] = build_inputs(tree, [section])
-                except ValueError:
-                    needs_review = True
-                    continue
+        for document, clauses, inputs in prepared:
+            for section_input in inputs:
                 result = await asyncio.to_thread(extract_section, section_input, tracked)
                 if stopped:
                     # extract_section은 공급자 예외를 결과 코드로 바꾸므로 취소·소유권 상실을 여기서 다시 올린다.

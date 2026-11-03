@@ -625,3 +625,100 @@ def test_article_and_item_numbers_in_separate_cells_read_like_one_cell():
     assert list(clauses) == ["PART 2", "2.1", "2.1.A", "2.1.B", "2.2", "2.2.A", "2.10"]
     assert clauses["2.1.A"].text == "Rated maximum voltage shall be 15 kV."
     assert clauses["2.1.B"].text == "BIL shall be 95 kV."
+
+
+def test_compact_korean_spec_uses_independent_decimal_sections_and_preserves_body():
+    tree = tree_of(
+        p("제8장 설비 기준"),
+        p("1.1적용 범위 1.1.1본 설비는 정격 전압을 만족하여야 한다."),
+        p("1.1.2부속 장치를 공급하여야 한다."),
+        p("1)보호 장치는 별도로 공급하여야 한다."),
+        p("1.2공급 범위"),
+        p("1.2.1시험 기록을 제공하여야 한다."),
+        p("2.1구성"),
+        p("2.1.1제어 장치를 제공하여야 한다."),
+    )
+    rows = by_no(tree)
+    assert {"1.1", "1.1.2", "1.2", "1.2.1", "2.1", "2.1.1"} <= rows.keys()
+    assert rows["1.1"].parent_no == "제8장"
+    assert rows["1.1.2"].parent_no == "1.1"
+    assert "정격 전압을 만족" in rows["1.1.1"].text
+    assert rows["1.1.1"].parent_no == "1.1"
+    assert "부속 장치를 공급" in rows["1.1.2"].text
+    assert any(
+        c.parent_no == "1.1.2" and c.text == "보호 장치는 별도로 공급하여야 한다."
+        for c in tree.clauses
+    )
+    assert rows["2.1.1"].parent_no == "2.1"
+
+
+def test_compact_korean_spec_does_not_promote_quantities_or_orphan_references():
+    tree = tree_of(
+        p("제8장 설비 기준"),
+        p("1.1범위"),
+        p("1.1.1자료를 제출하여야 한다."),
+        p("1.1.2기록을 보존하여야 한다."),
+        p("13.8kV 정격으로 한다."),
+        p("0.5 밀리미터 공차를 적용한다."),
+        p("3.7.2조에 따른 확인을 한다."),
+    )
+    rows = by_no(tree)
+    assert "13.8" not in rows and "0.5" not in rows and "3.7.2" not in rows
+    assert all(s in rows["1.1.2"].text for s in ("13.8kV", "0.5 밀리미터", "3.7.2조"))
+
+
+def test_compact_split_retains_deleted_value_and_original_block_source():
+    text = "1.1범위 1.1.1정격은 22.9kV 이상이어야 한다."
+    original = p(text, ("13.8", text.index("22.9")))
+    tree = tree_of(
+        p("제8장 기준"),
+        original,
+        p("1.1.2장치를 공급하여야 한다."),
+        p("1.1.3시험을 수행하여야 한다."),
+    )
+    row = by_no(tree)["1.1.1"]
+    assert row.block_ids == [original.block_id]
+    assert row.deleted_values[0].text == "13.8"
+    assert row.text[row.deleted_values[0].position :].startswith("22.9kV")
+
+
+def test_compact_next_sibling_retains_attached_rating_without_renumbering():
+    tree = tree_of(
+        p("제8장 기준"),
+        p("4.1범위"),
+        p("4.1.1자료를 제출한다."),
+        p("4.1.222.9kV 이상으로 공급한다."),
+        p("4.1.3IEC 기준을 적용한다."),
+        p("4.1.4시험을 수행한다."),
+    )
+    rows = by_no(tree)
+    assert rows["4.1.2"].text == "22.9kV 이상으로 공급한다."
+    assert rows["4.1.3"].text == "IEC 기준을 적용한다."
+    assert "4.1.222.9" not in rows
+    assert rows["4.1.2"].parent_no == "4.1"
+
+
+def test_compact_korean_detection_does_not_change_following_english_part():
+    tree = tree_of(
+        p("제8장 기준"),
+        p("1.1범위"),
+        p("1.1.1자료를 제출한다."),
+        p("1.1.2기록을 보존한다."),
+        p("PART 2 - PRODUCTS"),
+        p("2.1 EQUIPMENT"),
+        p("A. Provide a meter."),
+        p("1) Check ratings."),
+    )
+    rows = by_no(tree)
+    assert rows["2.1.A"].text == "Provide a meter."
+    assert rows["2.1.A.1"].text == "Check ratings."
+
+
+def test_compact_child_without_sentence_ending_is_requirement_body():
+    tree = tree_of(
+        p("제8장 기준"), p("1.1범위"), p("1.1.1시험 기록 제출"), p("1.1.2공급 부품 목록 제출")
+    )
+    rows = by_no(tree)
+    assert rows["1.1.1"].title is None
+    assert rows["1.1.1"].text == "시험 기록 제출"
+    assert rows["1.1.2"].text == "공급 부품 목록 제출"
