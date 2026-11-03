@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { highlightQuote } from './document-highlight';
+import { highlightQuote, revealQuote } from './document-highlight';
 import { readOriginal } from './OriginalDocument';
 import type { DocumentVersion } from '../api/rfp';
 
 function page(html: string) { const root = document.createElement('div'); root.innerHTML = html; return root; }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('원문 인용 위치', () => {
   it('서식 run을 가로지르는 유일한 인용과 줄바꿈을 연결하고 텍스트를 보존한다', () => {
@@ -84,4 +84,33 @@ describe('원문 파일 판본/세션 경계', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('login', { headers: { 'content-type': 'text/html' } })));
     await expect(readOriginal(doc, new AbortController().signal)).rejects.toThrow('형식');
   });
+});
+
+
+it('highlighting during a refresh never scrolls the document or its outer page', () => {
+  const scroll = vi.fn();
+  vi.stubGlobal('scrollTo', scroll);
+  const old = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = scroll;
+  try {
+    const root = page('<p>Rated voltage 12 kV.</p>');
+    expect(highlightQuote(root, '12 kV.')).toBe(1);
+    expect(highlightQuote(root, '12 kV.')).toBe(1);
+    expect(scroll).not.toHaveBeenCalled();
+  } finally { Element.prototype.scrollIntoView = old; }
+});
+
+
+it('an explicit quote selection moves only the viewer scroll offset', () => {
+  const root = page('<p>Rated voltage 12 kV.</p>');
+  highlightQuote(root, '12 kV.');
+  const scroller = document.createElement('div');
+  scroller.scrollTop = 120;
+  Object.defineProperty(scroller, 'clientHeight', { value: 300 });
+  vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+  vi.spyOn(root.querySelector('mark')!, 'getBoundingClientRect').mockReturnValue({ top: 430 } as DOMRect);
+  const outer = vi.fn(); vi.stubGlobal('scrollTo', outer);
+  revealQuote(root, scroller);
+  expect(scroller.scrollTop).toBe(400);
+  expect(outer).not.toHaveBeenCalled();
 });

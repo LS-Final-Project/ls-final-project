@@ -47,7 +47,7 @@ it('ignores duplicate/older events and confirms terminal with GET, not an event 
   let reads = 0; const views: RfpWatch[] = [];
   vi.stubGlobal('fetch', vi.fn(async (u: string) => u.endsWith('/me') ? json({ id: target.actorId }) : u.includes('/events') ? stream([event(), event(), event(2), event(1), event(3, 'job.completed', { state: 'SUCCEEDED' })]) : json(snap(++reads === 1 ? 'RUNNING' : 'SUCCEEDED', reads === 1 ? 2 : 3))));
   await watchRfpJob(target, new AbortController().signal, v => views.push(v));
-  expect(views.filter(v => v.progress && v.connection === 'connected').map(v => v.progress!.sequence)).toEqual([1, 2, 3]);
+  expect(views.filter(v => v.progress && v.connection === 'connected').map(v => v.progress!.sequence)).toEqual([2, 3]);
   expect(views.find(v => v.progress?.type === 'job.completed')?.job?.status).toBe('RUNNING');
   expect(views.at(-1)).toMatchObject({ connection: 'ended', job: { status: 'SUCCEEDED' } }); expect(reads).toBe(2);
 });
@@ -86,9 +86,10 @@ it('reconnects from the last received cursor and retains the prior observation w
 it('retains distinct actual stage observations without mutating prior views or replaying duplicates', async () => {
   let reads = 0; const views: RfpWatch[] = [];
   const events = [event(1, 'job.started', {}), event(2, 'job.progress', { step: 'parse' }), event(3), event(3), event(4, 'job.progress', { step: 'extract', counts: { requirements: 8, proposals: 0 } }), event(5, 'job.completed', { state: 'SUCCEEDED' })];
-  vi.stubGlobal('fetch', vi.fn(async (u: string) => u.endsWith('/me') ? json({ id: target.actorId }) : u.includes('/events') ? stream(events) : json(snap(++reads === 1 ? 'RUNNING' : 'SUCCEEDED', 5))));
+  vi.stubGlobal('fetch', vi.fn(async (u: string) => u.endsWith('/me') ? json({ id: target.actorId }) : u.includes('/events') ? stream(events) : json(snap(++reads === 1 ? 'RUNNING' : 'SUCCEEDED', reads === 1 ? 3 : 5))));
   await watchRfpJob(target, new AbortController().signal, v => views.push(v));
-  expect(views.find(v => v.progress?.sequence === 2)?.activity?.map(p => p.step)).toEqual(['parse']);
+  expect(views.find(v => v.progress?.sequence === 3)?.activity?.map(p => p.step)).toEqual(['parse', 'extract']);
+  expect(views.find(v => v.progress?.sequence === 3)?.activity?.at(-1)?.counts?.requirements).toBe(2);
   expect(views.at(-1)?.activity?.map(p => p.step)).toEqual(['parse', 'extract']);
   expect(views.at(-1)?.activity?.at(-1)?.counts?.requirements).toBe(8);
   expect(views.at(-1)?.startedAt).toBe('2026-11-02T12:00:00Z');
@@ -101,4 +102,14 @@ it('clears activity and start time when a reconnect loses authorization', async 
   expect(views.some(v => v.activity?.length === 1)).toBe(true);
   expect(views.at(-1)).toMatchObject({ connection: 'stopped', activity: [] });
   expect(views.at(-1)?.startedAt).toBeUndefined();
+});
+
+
+it('restores a running job at the latest snapshot stage without exposing older steps as live playback', async () => {
+  const controller = new AbortController(); const views: RfpWatch[] = [];
+  const history = [event(1, 'job.started', {}), event(2, 'job.progress', { step: 'parse' }), event(3, 'job.progress', { step: 'extract' }), event(4, 'job.progress', { step: 'compare' })];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? json({ id: target.actorId }) : url.includes('/events') ? stream(history) : json(snap('RUNNING', 4))));
+  await watchRfpJob(target, controller.signal, v => { views.push(v); if (v.progress?.sequence === 4) controller.abort(); });
+  expect(views.filter(v => v.progress).map(v => v.progress?.step)).toEqual(['compare']);
+  expect(views.at(-1)).toMatchObject({ restoredCount: 3, activity: [{ step: 'parse' }, { step: 'extract' }, { step: 'compare' }] });
 });

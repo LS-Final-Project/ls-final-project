@@ -55,6 +55,13 @@ export function highlightQuote(root: HTMLElement, quote: string): number {
     mark.dataset.rfpQuote = 'true';
     range.surroundContents(mark);
   }
-  root.querySelector('mark[data-rfp-quote]')?.scrollIntoView?.({ block: 'center', behavior: 'instant' });
   return 1;
+}
+
+/** Reveal an explicitly selected quote inside its viewer, never scroll outer ancestors. */
+export function revealQuote(root: HTMLElement, scroller: HTMLElement) {
+  const mark = root.querySelector('mark[data-rfp-quote]');
+  if (!mark) return;
+  const top = scroller.scrollTop + mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3;
+  scroller.scrollTop = Math.max(0, top);
 }

@@ -183,3 +183,16 @@ it('maps the Halo to idle, thinking and speaking without animating completed or 
   rerender(ui('FAILED', 'draft'));
   expect(screen.getByRole('img', { name: '분석 중단' }).getAttribute('data-paused')).toBe('true');
 });
+
+
+it('opens restored history at the current stage, and only replays it on explicit request', () => {
+  const activity = ['parse', 'extract', 'compare'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
+  const ui = (status: string, restoredCount = 0) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', ...(restoredCount ? { activity, progress: activity.at(-1) } : {}), restoredCount }} /></MemoryRouter>;
+  const { container, rerender } = render(ui('RUNNING'));
+  rerender(ui('RUNNING', 3));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 비교');
+  expect(screen.queryByText('수신한 분석 단계를 순서대로 표시합니다')).toBeNull();
+  rerender(ui('SUCCEEDED', 3));
+  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+});

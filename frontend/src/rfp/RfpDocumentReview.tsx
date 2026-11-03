@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getApiMode } from '../api/client';
 import { getRequirement, listRequirements, type DocumentVersion, type RequirementDetail } from '../api/rfp';
@@ -27,6 +27,8 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
   const [page, setPage] = useState(0);
   const [picked, setPicked] = useState<string>();
   const [filter, setFilter] = useState(false);
+  const [selectionRevision, setSelectionRevision] = useState(0);
+  const focusAnalysis = useCallback(() => globalThis.document.getElementById('rfp-selected-analysis')?.focus({ preventScroll: true }), []);
   const requirements = useInfiniteQuery({
     queryKey: ['rfp-requirements', mode, projectId, actorId, 'document-review', document.document_version_id, filter],
     queryFn: ({ pageParam }) => listRequirements(projectId, { document_version_id: document.document_version_id, ...(filter ? { unresolved_mandatory: true } : {}) }, 10, pageParam),
@@ -46,12 +48,12 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
     if (!result.isError && result.data && result.data.pages.length > page + 1) setPage(page + 1);
   };
   return <div className="rfp-review-columns">
-    <OriginalDocument key={document.document_version_id} document={document} origin={selected?.origin} onQuoteClick={() => globalThis.document.getElementById('rfp-selected-analysis')?.focus()} />
+    <OriginalDocument key={document.document_version_id} document={document} origin={selected?.origin} selectionRevision={selectionRevision} onQuoteClick={focusAnalysis} />
     <aside className="rfp-analysis-pane" aria-label="문서별 분석 결과">
       <div className="rfp-analysis-toolbar"><h3>분석한 요구</h3><label><input type="checkbox" checked={filter} onChange={e => { setFilter(e.target.checked); setPage(0); setPicked(undefined); }} />미해결 필수만</label></div>
       {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : requirements.isPending ? <Loading label="분석 결과 읽는 중" /> : <>
         <div className="rfp-requirement-cards" role="group" aria-label="분석 요구 선택">
-          {rows.map(row => <button type="button" key={row.requirement_id} aria-pressed={row.requirement_id === id} onClick={() => setPicked(row.requirement_id)} className="rfp-requirement-card">
+          {rows.map(row => <button type="button" key={row.requirement_id} aria-pressed={row.requirement_id === id} onClick={() => { setPicked(row.requirement_id); setSelectionRevision(n => n + 1); }} className="rfp-requirement-card">
             <span><b>{requirementNo(row.code)}</b><small className={`rfp-status ${row.status}`}>{label(STATUS_LABEL, row.status)}</small></span>
             <strong>{[row.equipment, attributeName(row.attribute_key, row.attribute)].filter(Boolean).join(' · ') || '내용 확인 필요'}</strong>
             <span>{row.value_text || '요구값 미확정'}<small>{label(NECESSITY_LABEL, row.necessity)}</small></span>
