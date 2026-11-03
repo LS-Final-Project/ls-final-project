@@ -16,6 +16,7 @@ import stat
 import zipfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from typing import Any
 from xml.etree import ElementTree as ET
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -82,6 +83,47 @@ class Transcription(BaseModel):
 
 class CheckedTranscription(Transcription):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class ProviderTranscription(Transcription):
+    """Lower provider grammar complexity; acceptance limits stay in runtime validators.
+
+    Gemini may reject large nested array/numeric constraints. Keep field names, types,
+    enums and required/nullable structure, but enforce these limits only after receipt.
+    This is a compatibility precaution, not evidence for a particular provider failure.
+    """
+
+    @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        schema = super().model_json_schema(*args, **kwargs)
+        limits = {
+            "minItems",
+            "maxItems",
+            "minLength",
+            "maxLength",
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+            "pattern",
+        }
+
+        def simplify(node: dict[str, Any]) -> None:
+            for key in limits:
+                node.pop(key, None)
+            # Do not treat field/definition names as schema keywords.
+            for container in ("properties", "$defs"):
+                for child in node.get(container, {}).values():
+                    simplify(child)
+            for union in ("anyOf", "allOf", "oneOf"):
+                for child in node.get(union, []):
+                    simplify(child)
+            if isinstance(node.get("items"), dict):
+                simplify(node["items"])
+
+        simplify(schema)
+        return schema
 
 
 @dataclass(frozen=True)
@@ -350,7 +392,7 @@ def gemini_image_provider(settings: AISettings) -> ImageProvider:
             client,
             settings,
             transcription_prompt(item),
-            response_schema=Transcription,
+            response_schema=ProviderTranscription,
             inline_media=(item.mime, item.data),
         )
 

@@ -554,3 +554,147 @@ def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(tmp
             p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
     else:
         assert all(r.usage_metadata.total_token_count == 130 for r in results)
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (TimeoutError("secret-token"), {"kind": "TIMEOUT_ERROR"}),
+        (ConnectionError("secret-url"), {"kind": "CONNECTION_ERROR"}),
+        (KeyboardInterrupt("secret-body"), {"kind": "KEYBOARD_INTERRUPT"}),
+        (ValueError("secret-input"), {"kind": "OTHER"}),
+    ],
+)
+def test_provider_diagnostic_fixed_non_api_kinds(tmp_path, capsys, error, expected):
+    permit = FakePermit()
+    client, calls = client_for(worker.Meter(permit, configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL, contents="secret-prompt")
+    captured = capsys.readouterr()
+    assert not captured.out and "secret" not in captured.err
+    assert json.loads(captured.err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        **expected,
+        "http_status": None,
+        "provider_status": None,
+    }
+    assert permit.settlements == [("offline-charge", None, None)]
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert len(calls) == 1
+
+
+def test_api_diagnostic_only_allowed_status_and_http_code(tmp_path, capsys):
+    from google.genai.errors import APIError
+
+    error = APIError(
+        403,
+        {"error": {"status": "PERMISSION_DENIED", "message": "secret-token-input-body"}},
+        response=SimpleNamespace(headers={"Authorization": "secret-token"}),
+    )
+    permit = FakePermit()
+    client, calls = client_for(worker.Meter(permit, configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL, contents="secret-prompt")
+    captured = capsys.readouterr()
+    assert not captured.out and "secret" not in captured.err
+    assert json.loads(captured.err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": 403,
+        "provider_status": "PERMISSION_DENIED",
+    }
+    assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "code,status",
+    [(True, "secret-key"), (400.0, "400"), (99, "invalid_argument"), (600, {"secret": "body"})],
+)
+def test_api_diagnostic_drops_non_exact_or_unlisted_values(tmp_path, capsys, code, status):
+    from google.genai.errors import APIError
+
+    error = APIError(400, {"error": {"message": "secret-body"}})
+    error.code, error.status = code, status
+    client, _ = client_for(worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": None,
+        "provider_status": None,
+    }
+
+
+def test_provider_diagnostic_does_not_call_exception_accessors_or_stringification(tmp_path, capsys):
+    from google.genai.errors import APIError
+
+    accessed = []
+
+    class HostileValue(str):
+        def __str__(self):
+            accessed.append("str-value")
+            raise AssertionError("secret-value")
+
+    class HostileAPI(APIError):
+        def __getattribute__(self, name):
+            if name in {"code", "status", "message", "details", "response", "__dict__"}:
+                accessed.append(name)
+                raise AssertionError("secret-accessor")
+            return super().__getattribute__(name)
+
+        def __str__(self):
+            accessed.append("str-exception")
+            raise AssertionError("secret-exception")
+
+        __repr__ = __str__
+
+    error = HostileAPI.__new__(HostileAPI)
+    attributes = BaseException.__dict__["__dict__"].__get__(error)
+    attributes.update(code=HostileValue("400"), status=HostileValue("INVALID_ARGUMENT"))
+    client, _ = client_for(worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": None,
+        "provider_status": None,
+    }
+    assert not accessed
+
+    class NonAPI(Exception):
+        @property
+        def code(self):
+            accessed.append("non-api-code")
+            raise AssertionError("secret-code")
+
+        @property
+        def status(self):
+            accessed.append("non-api-status")
+            raise AssertionError("secret-status")
+
+    client, _ = client_for(
+        worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=NonAPI("secret")
+    )
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err)["kind"] == "OTHER"
+    assert not accessed
+
+
+def test_diagnostic_output_failure_preserves_unknown_and_local_stop(tmp_path, monkeypatch):
+    permit = FakePermit()
+    client, calls = client_for(
+        worker.Meter(permit, configuration(tmp_path), PRICES), error=TimeoutError("secret")
+    )
+
+    def broken_stderr(_):
+        raise OSError("secret-log-device")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worker.sys, "stderr", SimpleNamespace(write=broken_stderr))
+        with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+            client.models.generate_content(model=MODEL)
+    assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1

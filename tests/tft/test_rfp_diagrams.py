@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from backend.engine.documents.diagrams import DiagramGraph
 from backend.engine.documents.router import extract
 from backend.engine.documents.vision import (
+    CheckedTranscription,
+    ProviderTranscription,
     Transcription,
     append_ocr_clauses,
     gemini_image_provider,
@@ -230,6 +232,16 @@ def test_provider_schema_uses_real_sdk_without_network_and_preserves_inline_imag
     schema = body["generationConfig"]["responseJsonSchema"]
     assert "diagram" in schema["properties"]
     assert "additionalProperties" not in json.dumps(schema)
+    for constraint in (
+        "maxItems",
+        "minItems",
+        "maxLength",
+        "minLength",
+        "minimum",
+        "maximum",
+        "pattern",
+    ):
+        assert f'"{constraint}"' not in json.dumps(schema)
     inline = body["contents"][0]["parts"][0]["inlineData"]
     assert inline["mime_type"] == "image/png"
     assert base64.b64decode(inline["data"]) == PNG
@@ -264,3 +276,63 @@ def test_vml_visibility_with_whitespace_is_not_sent_as_visible_image():
     result = transcribe(plan, lambda _: pytest.fail("hidden image provider call"))
     assert result.items == []
     assert result.skipped[0].reason == "OCR_IMAGE_PRESENTATION_UNSUPPORTED"
+
+
+def test_provider_projection_preserves_typed_shape_and_does_not_mutate_runtime_schema():
+    original = Transcription.model_json_schema()
+    projected = ProviderTranscription.model_json_schema()
+    assert projected["properties"]["lines"]["type"] == "array"
+    assert projected["properties"]["lines"]["items"] == {"type": "string"}
+    assert projected["required"] == original["required"]
+    assert projected["properties"]["diagram"] == original["properties"]["diagram"]
+    for name, schema in original["$defs"].items():
+        reduced = projected["$defs"][name]
+        assert reduced["type"] == schema["type"]
+        assert reduced.get("required") == schema.get("required")
+        assert set(reduced["properties"]) == set(schema["properties"])
+        for field, value in schema["properties"].items():
+            for keyword in ("type", "enum", "const", "$ref", "default"):
+                if keyword in value:
+                    assert reduced["properties"][field][keyword] == value[keyword]
+    assert Transcription.model_json_schema() == original
+    assert original["properties"]["lines"]["maxItems"] == 128
+    assert original["$defs"]["DiagramGraph"]["properties"]["nodes"]["maxItems"] == 80
+    assert CheckedTranscription.model_json_schema()["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        (lambda d: d.update(lines=["x"] * 129), "OCR_RESPONSE_INVALID"),
+        (lambda d: d.update(uncertain=["x"] * 33), "OCR_RESPONSE_INVALID"),
+        (lambda d: d["diagram"]["nodes"][0].update(id="1bad"), "OCR_DIAGRAM_INVALID"),
+        (lambda d: d["diagram"]["nodes"][0].update(label="x" * 321), "OCR_DIAGRAM_INVALID"),
+        (lambda d: d["diagram"]["nodes"][0]["bbox"].update(x_min=-1), "OCR_DIAGRAM_INVALID"),
+        (
+            lambda d: d["diagram"]["nodes"].extend([d["diagram"]["nodes"][0]] * 80),
+            "OCR_DIAGRAM_INVALID",
+        ),
+        (
+            lambda d: d["diagram"]["edges"].extend([d["diagram"]["edges"][0]] * 160),
+            "OCR_DIAGRAM_INVALID",
+        ),
+        (
+            lambda d: d["diagram"]["edges"][0].update(path=[{"x": 1, "y": 2}] * 33),
+            "OCR_DIAGRAM_INVALID",
+        ),
+    ],
+)
+def test_lightweight_provider_does_not_relax_runtime_acceptance(sdk_http, change, reason):
+    state, requests = sdk_http
+    payload = {"lines": ["TR-01"], "uncertain": [], "contains_diagram": True, "diagram": diagram()}
+    change(payload)
+    state["response"]["candidates"][0]["content"]["parts"][0]["text"] = json.dumps(payload)
+    settings = AISettings(gemini_api_key="fixture-explicit-key", gemini_transient_retries=0)
+    plan = image_inputs(docx(IMAGE), extract(docx(IMAGE)))
+    result = transcribe(plan, gemini_image_provider(settings))
+    assert len(requests) == 1
+    assert any(issue.reason == reason for issue in result.skipped)
+    if reason == "OCR_RESPONSE_INVALID":
+        assert result.items == []
+    else:
+        assert result.items[0].lines == ["TR-01"] and result.items[0].diagram is None

@@ -5,6 +5,7 @@ the claim observer are intercepted; product graphs, DB leases and results stay r
 Unknown spend retains its reservation and escapes Exception-based product fallbacks.
 """
 
+import json
 import os
 import runpy
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 from threading import BoundedSemaphore, RLock
 from uuid import UUID
 
+from google.genai.errors import APIError
 from pydantic import SecretStr
 
 from backend.shared import ai
@@ -100,6 +102,55 @@ def complete_usage(response) -> ai.Usage:
     return ai.Usage(values[0], values[1], values[2], cached, values[3])
 
 
+_PROVIDER_STATUSES = frozenset(
+    {
+        "INVALID_ARGUMENT",
+        "UNAUTHENTICATED",
+        "PERMISSION_DENIED",
+        "RESOURCE_EXHAUSTED",
+        "UNAVAILABLE",
+        "INTERNAL",
+        "DEADLINE_EXCEEDED",
+        "NOT_FOUND",
+    }
+)
+
+
+def provider_failure_diagnostic(error: BaseException) -> None:
+    """Emit fixed metadata only, never provider messages, bodies, URLs or credentials.
+
+    GenAI stores code/status as instance fields. Reading the base exception dictionary
+    avoids arbitrary subclass accessors and never stringifies an exception or field.
+    Logging failure must not prevent the existing UNKNOWN settlement and LocalStop.
+    """
+    try:
+        kind, code, status = "OTHER", None, None
+        error_type = type(error)
+        if issubclass(error_type, APIError):
+            kind = "API_ERROR"
+            attributes = BaseException.__dict__["__dict__"].__get__(error)
+            raw_code, raw_status = attributes.get("code"), attributes.get("status")
+            if type(raw_code) is int and 100 <= raw_code <= 599:
+                code = raw_code
+            if type(raw_status) is str and raw_status in _PROVIDER_STATUSES:
+                status = raw_status
+        elif issubclass(error_type, TimeoutError):
+            kind = "TIMEOUT_ERROR"
+        elif issubclass(error_type, ConnectionError):
+            kind = "CONNECTION_ERROR"
+        elif issubclass(error_type, KeyboardInterrupt):
+            kind = "KEYBOARD_INTERRUPT"
+        record = {
+            "event": "LOCAL_PROVIDER_CALL_FAILED",
+            "kind": kind,
+            "http_status": code,
+            "provider_status": status,
+        }
+        sys.stderr.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except BaseException:
+        pass
+
+
 class Meter:
     """One shared gate for every client/model created during the regular worker run."""
 
@@ -167,7 +218,8 @@ class Meter:
                 self.stop("LOCAL_RESERVATION_DENIED")
         try:
             response = generate_content(**kwargs)
-        except BaseException:
+        except BaseException as error:
+            provider_failure_diagnostic(error)
             self.unknown(charge, "LOCAL_PROVIDER_CALL_FAILED")
         try:
             usage = complete_usage(response)
