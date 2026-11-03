@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { RfpWatch } from '../api/rfp-job-events';
 import type { DocumentVersion } from '../api/rfp';
@@ -6,6 +6,9 @@ import './RfpJobBanner.css';
 
 const steps: Record<string, string> = { parse: '문서 읽기', extract: '요구 추출', search: '자사 자료 검색', compare: '자사 비교', supplement: '보완 경로 확인', candidates: '협력사 후보 확인', draft: '초안 작성', export: 'Word 내보내기', annotate: '보완 문서 처리' };
 const statuses: Record<string, string> = { QUEUED: '처리 요청을 접수했습니다.', RUNNING: '작업이 시작됐습니다.', SUCCEEDED: '처리가 완료됐습니다.', PARTIAL: '일부 처리가 완료됐습니다. 결과 확인이 필요합니다.', FAILED: '처리에 실패했습니다. 입력과 결과를 확인하세요.', CANCELLED: '처리가 취소됐습니다.' };
+// Minimum reading time for bursts, not estimated processing durations. Never advance
+// beyond an observed event. Time already spent on a slow stage counts toward its minimum.
+const readingTime: Record<string, number> = { parse: 1100, extract: 2200, search: 1000, compare: 1800, supplement: 1400, candidates: 1200, draft: 2200 };
 // Presentation only: observed events never mutate the authoritative GET snapshot.
 export function rfpJobPresentation(status: string | undefined, view?: RfpWatch, accepted = false) {
   const terminal = !!status && !['QUEUED', 'RUNNING'].includes(status);
@@ -37,15 +40,23 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
     return () => media.removeEventListener('change', change);
   }, []);
   const failed = status === 'FAILED' || status === 'CANCELLED';
+  // The stream ending/reconnecting is not the job ending. Keep motion through draft
+  // and committed-result confirmation, but never continue on denial or known failure.
+  const processing = !stopped && !failed && p?.type !== 'job.failed' && (running || confirming);
   const paced = !stopped && !disconnected && !failed && !reducedMotion;
   const displayedActivity = paced ? activity.slice(0, Math.max(1, visibleCount)) : activity;
   const playing = paced && displayedActivity.length < activity.length;
+  const shownLatest = displayedActivity.at(-1);
+  const shownSince = useRef({ step: shownLatest?.step, at: Date.now() });
+  useEffect(() => {
+    if (shownSince.current.step !== shownLatest?.step) shownSince.current = { step: shownLatest?.step, at: Date.now() };
+  }, [shownLatest?.step]);
   useEffect(() => {
     if (!playing) return;
-    const timer = window.setTimeout(() => setVisibleCount(count => Math.max(1, count) + 1), 700);
+    const remaining = Math.max(0, (readingTime[shownLatest?.step ?? ''] ?? 1100) - (Date.now() - shownSince.current.at));
+    const timer = window.setTimeout(() => setVisibleCount(count => Math.max(1, count) + 1), remaining);
     return () => window.clearTimeout(timer);
-  }, [playing, visibleCount, activity.length]);
-  const shownLatest = displayedActivity.at(-1);
+  }, [playing, visibleCount, activity.length, shownLatest?.step]);
   const latest = activity.at(-1);
   const counts = [...activity].reverse().find(item => item.counts)?.counts;
   const docId = p?.documentVersionId ?? latest?.documentVersionId;
@@ -56,15 +67,15 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const title = stopped ? '처리 상태를 확인할 수 없습니다' : disconnected && !display.terminal ? '분석 상태를 다시 확인하고 있습니다' : confirming ? '분석 결과를 확인하고 있습니다' : running ? isAnalysis ? 'AI가 RFP를 분석하고 있습니다' : steps[p?.step ?? ''] ?? '작업을 처리하고 있습니다' : display.terminal ? display.headline : '분석을 준비하고 있습니다';
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (!running || !view?.startedAt) return;
+    if (!processing || !view?.startedAt) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [running, view?.startedAt]);
+  }, [processing, view?.startedAt]);
   const seconds = view?.startedAt ? Math.floor((now - Date.parse(view.startedAt)) / 1000) : -1;
   const elapsed = seconds >= 0 ? `${Math.floor(seconds / 60)}분 ${String(seconds % 60).padStart(2, '0')}초` : undefined;
   const clock = (stamp: string) => new Date(stamp).toLocaleTimeString('ko-KR', { hour12: false });
-  return <section className={`rfp-job-banner${live ? ' is-live' : ''}${display.terminal ? ' is-terminal' : ''}${disconnected || stopped ? ' is-disconnected' : ''}`} aria-label="문서 처리 상태">
+  return <section className={`rfp-job-banner${live ? ' is-live' : ''}${processing ? ' is-processing' : ''}${display.terminal ? ' is-terminal' : ''}${disconnected || stopped ? ' is-disconnected' : ''}`} aria-label="문서 처리 상태">
     <header className="rfp-analysis-heading">
       <div className="rfp-analysis-symbol" aria-hidden="true">{display.terminal ? status === 'SUCCEEDED' ? '✓' : '!' : stopped || disconnected ? '!' : '✦'}</div>
       <div className="rfp-analysis-title" role="status" aria-live="polite">
@@ -72,7 +83,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
         <strong>{title}</strong>
         {!display.terminal && <p>{disconnected ? '실시간 연결 확인 중 · 작업 실패를 뜻하지 않습니다.' : live ? isAnalysis ? '문서의 요구사항과 대응 근거를 정리하고 있습니다. 실시간 상태 연결됨' : '요청한 작업을 처리하고 있습니다. 실시간 상태 연결됨' : display.headline}</p>}
       </div>
-      {running && elapsed && <div className="rfp-analysis-elapsed"><span>작업 시작 후</span><b>{elapsed}</b>{disconnected && <small>진행 확인 중</small>}</div>}
+      {processing && elapsed && <div className="rfp-analysis-elapsed"><span>작업 시작 후</span><b>{elapsed}</b>{disconnected && <small>진행 확인 중</small>}</div>}
       {display.terminal && <Link className="rfp-analysis-result" to={`/tft/projects/${projectId}/table`}>자사 대응표에서 결과 확인 →</Link>}
     </header>
     {view?.message && <p className="rfp-analysis-notice">{view.message}</p>}

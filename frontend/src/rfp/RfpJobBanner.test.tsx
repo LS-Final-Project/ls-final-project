@@ -78,17 +78,21 @@ it('shows only observed stages and stops motion on reconnect, denial and termina
 });
 
 
-it('paces burst observations without delaying completion, and lets users skip the replay', () => {
+it('gives extraction more reading time than parsing without delaying confirmed completion', () => {
   vi.useFakeTimers();
   const events = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-02T12:00:01Z', type: 'job.progress', step }));
   const ui = (activity: typeof events, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
   const { container, rerender, unmount } = render(ui([]));
   rerender(ui(events));
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
-  act(() => vi.advanceTimersByTime(699));
+  act(() => vi.advanceTimersByTime(1099));
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
   act(() => vi.advanceTimersByTime(1));
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  act(() => vi.advanceTimersByTime(2199));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  act(() => vi.advanceTimersByTime(1));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 자료 검색');
   rerender(ui(events, 'SUCCEEDED'));
   expect(screen.getByRole('status').textContent).toContain('처리가 완료');
   expect(screen.getByRole('link')).toBeTruthy();
@@ -99,4 +103,39 @@ it('paces burst observations without delaying completion, and lets users skip th
   act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
   unmount(); expect(vi.getTimerCount()).toBe(0);
+});
+
+it('holds a long extraction until the next real event, then advances without adding another fixed wait', () => {
+  vi.useFakeTimers();
+  const extract = { sequence: 3, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'extract' };
+  const ui = (activity: typeof extract[]) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
+  const { container, rerender } = render(ui([extract]));
+  act(() => vi.advanceTimersByTime(60000));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  expect(container.querySelectorAll('.is-observed')).toHaveLength(0);
+  // Another extraction count does not restart the presentation deadline.
+  rerender(ui([{ ...extract, sequence: 4, counts: { requirements: 9, proposals: 0 } } as typeof extract]));
+  rerender(ui([extract, { ...extract, sequence: 5, step: 'search' }]));
+  act(() => vi.advanceTimersByTime(0));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 자료 검색');
+});
+
+it('keeps the analysis animation through draft observation and result confirmation until authoritative completion', () => {
+  const progress = { sequence: 8, occurredAt: '2026-11-03T00:01:00Z', type: 'job.progress', step: 'draft' };
+  const ui = (type: string, connection: 'connected' | 'reconnecting' | 'ended' | 'stopped', status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection, progress: { ...progress, type }, activity: [progress] }} /></MemoryRouter>;
+  const { container, rerender } = render(ui('job.progress', 'connected'));
+  expect(container.querySelector('.is-processing')).toBeTruthy();
+  rerender(ui('job.progress', 'reconnecting'));
+  expect(container.querySelector('.is-processing')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('연결 확인 중');
+  rerender(ui('job.completed', 'connected'));
+  expect(container.querySelector('.is-processing')).toBeTruthy();
+  expect(screen.queryByRole('link')).toBeNull();
+  rerender(ui('job.completed', 'ended', 'SUCCEEDED'));
+  expect(container.querySelector('.is-processing')).toBeNull();
+  expect(screen.getByRole('link')).toBeTruthy();
+  rerender(ui('job.failed', 'connected'));
+  expect(container.querySelector('.is-processing')).toBeNull();
+  rerender(ui('job.progress', 'stopped'));
+  expect(container.querySelector('.is-processing')).toBeNull();
 });
