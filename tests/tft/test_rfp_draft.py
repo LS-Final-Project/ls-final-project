@@ -1,5 +1,6 @@
 """일반 합성 스냅샷으로 제안 초안의 근거·조건·참조 경계를 검증한다(KAN-188)."""
 
+import re
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, get_args
@@ -223,7 +224,9 @@ def test_six_sections_grounding_counts_and_input_are_preserved(snapshot: dict[st
     assert isinstance(result, s.Draft)
     assert s.Draft.model_validate(result.model_dump()) == result
     assert [part.section for part in result.sections] == list(get_args(s.DraftSection))
-    assert all(part.sentences for part in result.sections)
+    # 합성 비교는 600 A 요구에 500 A 후보(DIFFERS)라 자사 대응 근거가 아니다.
+    assert all(part.sentences for part in result.sections if part.section != "OUR_RESPONSE")
+    assert sentences(result, "OUR_RESPONSE") == []
     assert (
         result.disclaimer
         == "검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다."
@@ -370,9 +373,15 @@ def test_four_states_and_unconfirmed_conditions_do_not_become_promises(
     )
     assert req.judgement.status == status
     if status == "SPEC_GAP":
-        assert any("사양 차이" in row.text for row in sentences(result, "DEVIATIONS"))
+        assert any(
+            "판단 상태: 사양 차이" in row.conditions for row in sentences(result, "DEVIATIONS")
+        )
     if status == "INSUFFICIENT_EVIDENCE":
-        assert any("미충족 확정 아님" in row.text for row in sentences(result))
+        assert any(
+            "판단 상태: 근거 부족(미충족 확정 아님)" in row.conditions for row in sentences(result)
+        )
+    # 판단 상태의 주의 문구는 조건 칸에 남고 본문에 반복하지 않는다.
+    assert not any("확정 아님" in row.text or "확약이 아님" in row.text for row in related)
 
 
 @pytest.mark.parametrize("note", [DERIVED_SOURCE_NOTE, MASTER_SOURCE_NOTE])
@@ -381,19 +390,28 @@ def test_source_notes_stay_out_of_sentence_conditions_and_must_keep(
 ) -> None:
     proof = snapshot["comparisons"][0].candidates[0].attribute_match.evidence[0]
     proof.limits = note
-    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    row = compared(build_draft(**snapshot))[0]
     assert note not in row.conditions and "특정 구성에서만 적용" in row.conditions
     assert note not in must_keep(input_of(row, 1))
 
 
 def test_only_grounded_own_candidate_is_described_with_its_limits(snapshot: dict[str, Any]) -> None:
-    own = sentences(build_draft(**snapshot), "OUR_RESPONSE")
-    assert len(own) == 1
+    result = build_draft(**snapshot)
+    own = compared(result)
+    assert len(own) == 1 and own == [
+        row for row in sentences(result, "DEVIATIONS") if row in own
+    ]  # 차이(DIFFERS)는 자사 대응이 아니라 사양 차이다.
+    assert sentences(result, "OUR_RESPONSE") == []
     assert "600 A" in own[0].text and "500 A" in own[0].text
     assert "특정 구성에서만 적용" in own[0].conditions and "현장 시험 필요" in own[0].conditions
-    assert "전체 요구 충족이나 공급 확약이 아님" in own[0].text
-    snapshot["comparisons"][0].candidates[0].attribute_match.evidence = []
-    assert sentences(build_draft(**snapshot), "OUR_RESPONSE") == []
+    assert "비교 항목 기록이며 전체 요구 충족이나 공급 확약이 아님" in own[0].conditions
+    match = snapshot["comparisons"][0].candidates[0].attribute_match
+    match.result, match.our_value = "MEETS", "600"
+    meets = sentences(build_draft(**snapshot), "OUR_RESPONSE")
+    assert len(meets) == 1 and "자사 제품 자료와 일치하는 비교 항목" in meets[0].text
+    assert "제품의 실제 공급·납기·적용 모델은 별도 확인" in meets[0].conditions
+    match.evidence = []
+    assert compared(build_draft(**snapshot)) == []
 
 
 def test_same_partner_in_two_paths_has_distinct_ids_and_keeps_both_conditions(
@@ -446,7 +464,11 @@ def test_selection_does_not_confirm_feasibility_and_waiver_remains_condition(
     snapshot["requirements"][0].judgement.rnd_check = "WAIVED"
     snapshot["options"][0].options[0].gate.status = "WAIVED"
     rows = sentences(build_draft(**snapshot), "PARTNER_SUPPLEMENT")
-    assert any("사람 선택 기록 있음" in row.text for row in rows)
+    assert any(row.text.startswith("선택한 방안 — ") for row in rows)
+    assert not any("검토 가능한 대안" in row.text for row in rows if "선택한 방안" in row.text)
+    assert any(
+        "사람이 선택한 방안 기록이며 이행·공급·납기 확약이 아님" in row.conditions for row in rows
+    )
     assert all(row.unconfirmed for row in rows)
     assert any(
         "R&D 개발·수행 확인 미완료(확인 절차 생략·사유 확인 필요)" in row.conditions for row in rows
@@ -480,7 +502,7 @@ def test_forbidden_unselected_option_does_not_block_draft(snapshot: dict[str, An
     assert snapshot["selections"] == []
     result = build_draft(**snapshot)
     assert sentences(result, "CUSTOMER_GOAL_SCOPE")
-    assert sentences(result, "OUR_RESPONSE")
+    assert compared(result)
     assert sentences(result, "PARTNER_SUPPLEMENT") == []
     assert result.disclaimer == DISCLAIMER
 
@@ -501,7 +523,7 @@ def test_blocked_unselected_path_and_unprovided_candidate_are_not_invented(
     snapshot["options"][0].options[0].allowed = False
     rows = sentences(build_draft(**snapshot), "PARTNER_SUPPLEMENT")
     assert rows == []
-    assert not any("사람 선택 기록 있음" in row.text for row in sentences(build_draft(**snapshot)))
+    assert not any("선택한 방안" in row.text for row in sentences(build_draft(**snapshot)))
 
 
 @pytest.mark.parametrize("holder", ["OWN", "SINGLE_PARTNER", "JOINT", "UNRESOLVED"])
@@ -572,7 +594,7 @@ def test_shown_assumption_is_grounded_and_never_used_as_fulfillment(
 
 def test_synthetic_product_identity_is_input_driven(snapshot: dict[str, Any]) -> None:
     snapshot["comparisons"][0].candidates[0].product_code = "OTHER-SYNTHETIC"
-    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    row = compared(build_draft(**snapshot))[0]
     assert "OTHER-SYNTHETIC" in row.text and "SYN-PRODUCT" not in row.text
     assert any(e.type == "product" and e.id == "OTHER-SYNTHETIC" for e in row.evidence)
     assert not any(e.type == "product" and e.id == "SYN-PRODUCT" for e in row.evidence)
@@ -758,94 +780,95 @@ def bulk_snapshot(snapshot: dict[str, Any], count: int = 240) -> dict[str, Any]:
     return result
 
 
+def compared(draft: s.Draft) -> list[s.Sentence]:
+    """자사 후보 비교 문장. 일치는 자사 대응, 차이는 사양 차이, 그 밖은 미확인 절에 있다."""
+    return [row for row in sentences(draft) if any(e.type == "product" for e in row.evidence)]
+
+
 def evidence_of(rows: list[s.Sentence]) -> set[tuple[str, str]]:
     return {(proof.type, proof.id) for row in rows for proof in row.evidence}
 
 
-def test_bulk_summary_caps_sections_without_losing_evidence_conditions_or_flags(
-    snapshot, monkeypatch
-):
+def test_bulk_draft_keeps_each_equipment_and_path_apart_without_mixed_overflow(snapshot):
+    """많은 요구도 건수 상한으로 서로 다른 장비·과업·선택 여부를 한 문장에 합치지 않는다."""
     data = bulk_snapshot(snapshot)
     before = deepcopy(data)
-    capped = build_draft(**data)
-    monkeypatch.setattr(engine, "MAX_SENTENCES_PER_SECTION", 10000)
-    uncapped = build_draft(**data)
-    assert len(sentences(uncapped)) > 48
-    assert len(sentences(capped)) <= 48
+    result = build_draft(**data)
+    rows = sentences(result)
+    equipment = {str(req.requirement_id): req.spec.equipment for req in data["requirements"]}
     flags = {
         str(req.requirement_id): req.needs_review or req.needs_rereview
         for req in data["requirements"]
     }
-    for section in get_args(s.DraftSection):
-        small, large = sentences(capped, section), sentences(uncapped, section)
-        assert len(small) <= 8
-        assert evidence_of(small) == evidence_of(large)
-        assert {condition for row in small for condition in row.conditions} == {
-            condition for row in large for condition in row.conditions
-        }
-        for row in small:
-            assert row.needs_rereview == any(
-                flags[e.id] for e in row.evidence if e.type == "requirement"
-            )
-            assert row.unconfirmed == any(
-                other.unconfirmed
-                for other in large
-                if set((e.type, e.id) for e in other.evidence)
-                <= set((e.type, e.id) for e in row.evidence)
-            )
-            assert row.text.count("「") <= 3
-            assert len(row.text) <= 4000
+    for row in rows:
+        assert "혼합 항목" not in row.text and "대표 항목" not in row.text
+        assert not re.search(r"요구 \d+건", row.text)
+        assert len(row.text) <= 4000 and row.text.count("「") <= engine.MAX_ITEMS_PER_SENTENCE
+        assert row.needs_rereview == any(
+            flags[e.id] for e in row.evidence if e.type == "requirement"
+        )
+        assert not ("선택한 방안" in row.text and "검토 가능한 대안" in row.text)
+    # 요구 범위는 문장마다 장비 하나이고 그 이름으로 시작한다.
+    for row in sentences(result, "CUSTOMER_GOAL_SCOPE"):
+        names = {equipment[e.id] for e in row.evidence if e.type == "requirement"}
+        assert len(names) == 1 and row.text.startswith(next(iter(names)))
+    # 목록 문장은 상태·방안이 하나이고 나열한 장비마다 이름이 본문에 있다.
+    for row in sentences(result):
+        for e in row.evidence:
+            if e.type == "requirement" and not row.text.startswith("유닛 전체"):
+                assert equipment[e.id] in row.text
+    assert len(sentences(result, "CUSTOMER_GOAL_SCOPE")) == 30
     expected = (
         {("requirement", str(req.requirement_id)) for req in data["requirements"]}
         | {("clause", str(req.origin.clause_id)) for req in data["requirements"]}
         | {("question", str(q.question_id)) for q in data["questions"]}
         | {("product", "SYN-PRODUCT"), ("partner", "SYN-PARTNER")}
     )
-    assert evidence_of(sentences(capped)) == expected
+    assert evidence_of(rows) == expected
     assert all(
-        f"현장 경계 {index} 확인" in {c for row in sentences(capped) for c in row.conditions}
+        f"현장 경계 {index} 확인" in {c for row in rows for c in row.conditions}
         for index in range(240)
     )
     assert (
         len(
             [
                 row
-                for row in sentences(capped, "ASSUMPTIONS_EXCLUSIONS")
+                for row in sentences(result, "ASSUMPTIONS_EXCLUSIONS")
                 if "통합 책임자:" in row.text
             ]
         )
         == 1
     )
-    mixed = [row for row in sentences(capped) if "혼합 항목 추가 검토" in row.text]
-    assert mixed and all("동일 항목이나 공급 가능 판단이 아님" in row.text for row in mixed)
-    assert capped.evidence_missing_count == 0 and all(row.evidence for row in sentences(capped))
-    assert capped.disclaimer == DISCLAIMER and data == before
-    ids = [row.sentence_id for row in sentences(capped)]
+    assert result.evidence_missing_count == 0 and all(row.evidence for row in rows)
+    assert result.disclaimer == DISCLAIMER and data == before
+    ids = [row.sentence_id for row in rows]
     assert len(ids) == len(set(ids))
-    monkeypatch.setattr(engine, "MAX_SENTENCES_PER_SECTION", 8)
     reordered = deepcopy(data)
     for key in ("requirements", "comparisons", "options", "questions", "selections"):
         reordered[key].reverse()
     reordered["partners"][0].grades.reverse()
-    assert build_draft(**reordered) == capped
+    assert build_draft(**reordered) == result
 
 
-def test_representatives_are_first_three_in_clause_order_and_full_evidence_remains(snapshot):
-    data = bulk_snapshot(snapshot, 12)
+@pytest.mark.parametrize("count", [12, 13])
+def test_one_equipment_lists_every_quote_in_clause_order_and_splits_with_own_evidence(
+    snapshot, count
+):
+    data = bulk_snapshot(snapshot, count)
     data["integration"] = s.IntegrationResponsibility()
     for req in data["requirements"]:
         req.spec.equipment = "common cabinet"
         req.spec.task = None
         req.judgement.status = "INSUFFICIENT_EVIDENCE"
-    result = build_draft(**data)
-    rows = sentences(result, "CUSTOMER_GOAL_SCOPE")
-    assert len(rows) == 1 and "요구 12건" in rows[0].text
-    for index in range(3):
-        assert data["requirements"][index].origin.quote in rows[0].text
-    assert data["requirements"][3].origin.quote not in rows[0].text
-    assert {e.id for e in rows[0].evidence if e.type == "requirement"} == {
-        str(req.requirement_id) for req in data["requirements"]
-    }
+    rows = sentences(build_draft(**data), "CUSTOMER_GOAL_SCOPE")
+    assert len(rows) == (1 if count == 12 else 2)
+    text = " ".join(row.text for row in rows)
+    positions = [text.index(req.origin.quote) for req in data["requirements"]]
+    assert positions == sorted(positions)
+    for row in rows:
+        assert row.text.startswith("common cabinet: 「")
+        shown = {req.requirement_id for req in data["requirements"] if req.origin.quote in row.text}
+        assert {UUID(e.id) for e in row.evidence if e.type == "requirement"} == shown
 
 
 def test_summary_hides_internal_fields_without_redacting_original_equipment_or_standard(snapshot):
@@ -922,7 +945,7 @@ def test_multiple_own_representatives_identify_each_product_and_its_values(snaps
     third.product_code = "rated_current"  # 제품 식별명이 키와 같아도 원형을 보존한다.
     third.attribute_match.our_value = "960"
     snapshot["comparisons"][0].candidates = [first, second, third]
-    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    row = compared(build_draft(**snapshot))[0]
     for code, value in (("SERIES_ALPHA", "500"), ("SERIES_BETA", "720"), ("rated_current", "960")):
         representative = next(part for part in row.text.split("「") if code in part)
         assert (
@@ -973,7 +996,7 @@ def test_comparison_sample_keeps_complete_values_ahead_of_long_labels(snapshot, 
     else:
         req.spec.value = "1234567890" * 30
         candidate.attribute_match.our_value = "9876543210" * 30
-    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    row = compared(build_draft(**snapshot))[0]
     assert f"요구 {req.spec.value} A" in row.text
     assert f"후보 {candidate.attribute_match.our_value} A" in row.text
     assert candidate.product_code in row.text
@@ -995,7 +1018,7 @@ def test_oversized_values_are_preserved_in_literal_conditions_not_partial_number
         req.spec.value = "7" * 1600
     if side in {"candidate", "both"}:
         candidate.attribute_match.our_value = "9" * 1700
-    row = sentences(build_draft(**snapshot), "OUR_RESPONSE")[0]
+    row = compared(build_draft(**snapshot))[0]
     raw = next(c for c in row.conditions if c.startswith("자사 비교 원문:"))
     assert f"요구값 「{req.spec.value}」" in raw
     assert f"후보값 「{candidate.attribute_match.our_value}」" in raw
@@ -1027,7 +1050,7 @@ def test_three_long_comparison_samples_and_title_stay_within_body_limit(snapshot
         candidates.append(candidate)
     snapshot["comparisons"][0].candidates = candidates
     result = build_draft(**snapshot)
-    row = sentences(result, "OUR_RESPONSE")[0]
+    row = compared(result)[0]
     assert row.text.count("「") == 3 and len(row.text) <= 4000
     for candidate in candidates:
         assert f"후보 {candidate.attribute_match.our_value} A" in row.text
@@ -1038,8 +1061,7 @@ def test_three_long_comparison_samples_and_title_stay_within_body_limit(snapshot
         )
         assert any(e.type == "product" and e.id == candidate.product_code for e in row.evidence)
     assert "긴 제품 식별명: 근거·조건 원문 확인" in row.text
-    assert all(len(part.sentences) <= 8 for part in result.sections)
-    assert sum(len(part.sentences) for part in result.sections) <= 48
+    assert all(len(row.text) <= 4000 for row in sentences(result))
 
 
 def test_customer_quotes_bypass_code_mapping_and_whitespace_rewriting_in_every_section(snapshot):
@@ -1047,14 +1069,10 @@ def test_customer_quotes_bypass_code_mapping_and_whitespace_rewriting_in_every_s
     snapshot["requirements"][0].origin.quote = quote
     before = deepcopy(snapshot)
     result = build_draft(**snapshot)
-    for section in (
-        "CUSTOMER_GOAL_SCOPE",
-        "DEVIATIONS",
-        "PARTNER_SUPPLEMENT",
-        "ASSUMPTIONS_EXCLUSIONS",
-        "QUESTIONS_NEXT_ACTIONS",
-    ):
-        assert any(quote in row.text for row in sentences(result, section))
+    # 고객 원문은 요구 범위 절에 그대로 한 번 싣는다. 다른 절은 장비·항목 이름으로 가리킨다.
+    assert any(quote in row.text for row in sentences(result, "CUSTOMER_GOAL_SCOPE"))
+    for row in sentences(result):
+        assert "rated current가" not in row.text and "외부 제품 조달 검토 표기" not in row.text
     assert snapshot == before
     assert evidence_of(sentences(result)) == {
         ("requirement", str(REQ)),
@@ -1113,22 +1131,18 @@ def test_new_candidate_source_is_not_suppressed_by_an_edited_comparison(snapshot
     from backend.api.tft.rfp.drafts import preserve_human
 
     first = build_draft(**snapshot)
-    old = sentences(first, "OUR_RESPONSE")[0]
+    old = compared(first)[0]
     automatic = old.model_copy(deep=True)
     old.provenance_kind = "human_input"
     old.text = "기존 제품에 대한 사람 확인"
     candidate = deepcopy(snapshot["comparisons"][0].candidates[0])
     candidate.product_code = "SYN-NEW"
     snapshot["comparisons"][0].candidates.append(candidate)
-    new = build_draft(
-        **snapshot, replaced=[s.Section(section="OUR_RESPONSE", sentences=[automatic])]
-    )
+    new = build_draft(**snapshot, replaced=[s.Section(section="DEVIATIONS", sentences=[automatic])])
     refs = {(e.type, e.id) for row in sentences(new) for e in row.evidence}
     merged = preserve_human(new, first, refs | {(e.type, e.id) for e in old.evidence})
-    assert len(sentences(merged, "OUR_RESPONSE")) == 2
-    auto = next(
-        row for row in sentences(merged, "OUR_RESPONSE") if row.provenance_kind != "human_input"
-    )
+    assert len(compared(merged)) == 2
+    auto = next(row for row in compared(merged) if row.provenance_kind != "human_input")
     assert "SYN-NEW" in auto.text
     assert ("product", "SYN-PRODUCT") not in {(e.type, e.id) for e in auto.evidence}
 
@@ -1244,13 +1258,13 @@ def test_replacement_fingerprint_uses_full_original_snapshot_after_human_referen
 
 def test_rewritten_template_fingerprint_survives_human_edit_and_regeneration(snapshot):
     original = build_draft(**snapshot)
-    automatic = sentences(original, "OUR_RESPONSE")[0].model_copy(deep=True)
+    automatic = compared(original)[0].model_copy(deep=True)
     automatic.text = "모델이 한국어로 다시 작성한 문장"
     automatic.provenance_kind = "ai_draft"
     regenerated = build_draft(
-        **snapshot, replaced=[s.Section(section="OUR_RESPONSE", sentences=[automatic])]
+        **snapshot, replaced=[s.Section(section="DEVIATIONS", sentences=[automatic])]
     )
-    assert sentences(regenerated, "OUR_RESPONSE") == []
+    assert compared(regenerated) == []
     assert automatic.template_text != automatic.text
 
 
@@ -1330,3 +1344,61 @@ def test_a_test_report_kind_is_shown_as_words():
     from backend.engine.rfp.draft import _display
 
     assert _display("TEST_REPORT") == "시험 성적서"
+
+
+def test_unselected_alternatives_and_candidates_never_read_as_decided(snapshot):
+    """사람이 고르지 않은 경로·후보는 '검토 가능한 대안'으로만 쓰고 결정·공급 확정으로 쓰지 않는다."""
+    data = bulk_snapshot(snapshot, 8)
+    result = build_draft(**data)
+    chosen = {str(v.requirement_id) for v in data["selections"]}
+    for row in sentences(result):
+        reqs = {e.id for e in row.evidence if e.type == "requirement"}
+        if row.text.startswith("검토 가능한 대안(미선택)"):
+            assert "선택되지 않은 검토 대안이며 이행·공급·납기 확약이 아님" in row.conditions
+        if row.text.startswith("선택한 방안"):
+            assert reqs <= chosen
+            assert "사람이 선택한 방안 기록이며 이행·공급·납기 확약이 아님" in row.conditions
+        for claim in (
+            "공급 가능함",
+            "공급 가능합니다",
+            "공급 확정",
+            "승인 완료",
+            "충족합니다",
+            "선택 완료",
+        ):
+            assert claim not in row.text
+    assert any(row.text.startswith("검토 가능한 대안(미선택)") for row in sentences(result))
+    assert any(row.text.startswith("선택한 방안") for row in sentences(result))
+
+
+def test_human_edit_of_a_listing_sentence_is_kept_and_its_items_are_not_relisted(snapshot):
+    from backend.api.tft.rfp.drafts import preserve_human
+
+    data = bulk_snapshot(snapshot, 4)
+    first = build_draft(**data)
+    target = next(
+        row for row in sentences(first, "QUESTIONS_NEXT_ACTIONS") if "확인 대상" in row.text
+    )
+    automatic = target.model_copy(deep=True)
+    target.text, target.provenance_kind = "담당자가 고친 확인 목록", "human_input"
+    kept = deepcopy(target)
+    extra = deepcopy(data["requirements"][0])
+    extra.requirement_id, extra.origin.clause_id = UUID(int=9001), UUID(int=9002)
+    extra.origin.clause_no, extra.spec.equipment = "9.1", "new cabinet"
+    extra.links.question_ids, extra.links.partner_candidate_ids = [], []
+    data["requirements"].append(extra)
+    section = s.Section(section="QUESTIONS_NEXT_ACTIONS", sentences=[automatic])
+    new = build_draft(**{**data, "version": 3}, replaced=[section])
+    refs = {(e.type, e.id) for row in sentences(new) for e in row.evidence}
+    merged = preserve_human(new, first, refs | {(e.type, e.id) for e in target.evidence})
+    rows = sentences(merged, "QUESTIONS_NEXT_ACTIONS")
+    assert next(row for row in rows if row.provenance_kind == "human_input") == kept
+    relisted = [
+        row
+        for row in rows
+        if row.provenance_kind != "human_input"
+        and row.text.startswith(automatic.text.split(":")[0])
+    ]
+    assert [row.text for row in relisted] == [
+        f"{automatic.text.split(':')[0]}: new cabinet · rated current."
+    ]

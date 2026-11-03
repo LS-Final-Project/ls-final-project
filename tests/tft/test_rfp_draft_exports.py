@@ -382,6 +382,8 @@ def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
 
 
 def test_docx_layout_uses_a4_repeating_tables_headings_and_linked_appendix(snapshot):
+    # 자사 대응 표는 일치한 비교가 있을 때만 생긴다(차이는 사양 차이 표로 간다).
+    snapshot["comparisons"][0].candidates[0].attribute_match.result = "MEETS"
     draft = build_draft(**snapshot)
     data = draft_exports.render_docx(draft, 7)
     w = draft_exports.W

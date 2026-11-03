@@ -48,6 +48,33 @@ describe('원문 인용 위치', () => {
     expect([...root.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['Rated voltage', 'is 12 kV.']);
     expect(root.querySelectorAll('br')).toHaveLength(2);
   });
+  it('별도 run으로 붙은 조항·목록 번호는 본문 단어로 보지 않되 같은 run의 숫자는 막는다', () => {
+    const numbered = page('<p><span>6.2</span><span>도면 및 서류 </span><br><span> </span><span>6.2.1</span><span>계약상대자는 계획서를 제출한다.</span></p><p><span>②</span><span>일사량계 계측 범위는 0 W/㎡~1000 W/㎡로 한다.</span></p>');
+    expect(highlightQuote(numbered, '계약상대자는 계획서를 제출한다.')).toBe(1);
+    expect(numbered.querySelector('mark')?.textContent).toBe('계약상대자는 계획서를 제출한다.');
+    expect(highlightQuote(numbered, '일사량계 계측 범위는 0 W/㎡~1000 W/㎡로 한다.')).toBe(1);
+    expect(highlightQuote(numbered, '2.1 계약상대자는')).toBe(0);
+    expect(highlightQuote(page('<p><span>1</span><span>12 kV</span></p>'), '12 kV')).toBe(0);
+    expect(highlightQuote(page('<p><span>1.</span><span>5 kV</span></p>'), '5 kV')).toBe(0);
+    expect(highlightQuote(page('<p><span>1.</span><span>5 kV</span></p>'), '1.5 kV')).toBe(1);
+    expect(highlightQuote(page('<p><span>3.2</span><span>1 kV</span></p>'), '1 kV')).toBe(0);
+    expect(highlightQuote(page('<p><span>정격 1</span><span>12 kV</span></p>'), '12 kV')).toBe(0);
+    expect(highlightQuote(page('<p>6.2.1계약상대자는</p>'), '계약상대자는')).toBe(0);
+  });
+  it('페이지마다 반복되는 머리글·바닥글을 건너 페이지를 넘는 인용을 잇는다', () => {
+    const pages = Array.from({ length: 4 }, (_, n) => `<section class="docx"><article><table><tr><td><p>사업명 90MW</p></td></tr></table><p>본문 ${n === 1 ? '최대한 많은' : n === 2 ? '부품을 조립한다.' : '기타'}</p><p>제 3장 기술규격서</p><p>페이지 ${n + 1} / 4</p></article></section>`).join('');
+    const root = page(pages);
+    expect(highlightQuote(root, '최대한 많은 본문 부품을 조립한다.')).toBe(1);
+    expect([...root.querySelectorAll('mark')].map(m => m.textContent).join('|')).toBe('최대한 많은|본문 부품을 조립한다.');
+    expect(highlightQuote(root, '제 3장 기술규격서')).toBe(0);
+  });
+  it('목차 줄과 본문에 같은 제목이 있으면 본문만, 본문이 둘이면 불확실로 둔다', () => {
+    const root = page('<p>첨부 2 도면목록 ........ 40</p><p>정상 첨부 2 도면목록</p>');
+    expect(highlightQuote(root, '첨부 2 도면목록')).toBe(1);
+    expect(root.querySelector('mark')?.parentElement?.textContent).toBe('정상 첨부 2 도면목록');
+    expect(highlightQuote(page('<p>계산식 ....... 40</p><p>첨부 1 계산식</p><p>1. 계산식</p>'), '계산식')).toBe(2);
+    expect(highlightQuote(page('<p>계산식 ....... 40</p>'), '계산식')).toBe(1);
+  });
   it('빈 인용은 강조를 지우고 대조 판정을 만들지 않는다', () => {
     const root = page('<p>Hello</p>');
     highlightQuote(root, 'Hello');
