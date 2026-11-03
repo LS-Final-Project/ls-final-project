@@ -65,7 +65,7 @@ def mutate(change):
     [
         lambda t: t.replace("1,250", "900"),
         lambda t: t + " " + str(UUID(int=2)),
-        lambda t: t.replace("고객 확인 필요", ""),
+        lambda t: t.replace("IEC", "KS"),
         lambda t: t + " rated_current가 필요하다",
         lambda t: t + " EVIDENCE_FOUND",
         lambda t: t + " 공급 가능합니다",
@@ -155,7 +155,7 @@ def test_retry_contains_only_invalid_sentences_but_second_call_error_discards_wh
     received = []
 
     def provider(prompt):
-        data = json.loads(prompt.split("\n", 1)[1])
+        data = json.loads(prompt.rsplit("\n", 1)[1])
         received.append(data)
         if len(received) == 2:
             assert [row["no"] for row in data["sentences"]] == [2]
@@ -198,13 +198,12 @@ def test_prompt_whitelist_has_no_project_sentence_or_evidence_ids_and_lease_loss
             str(UUID(int=2)),
         ):
             assert identifier not in prompt
-        payload = json.loads(prompt.split("\n", 1)[1])
+        payload = json.loads(prompt.rsplit("\n", 1)[1])
         assert set(payload["sentences"][0]) == {
             "no",
             "title",
-            "representatives",
-            "conditions",
-            "unconfirmed",
+            "items",
+            "context_only",
             "must_keep",
         }
         return fake_provider(prompt)
@@ -255,7 +254,7 @@ def test_six_sections_have_at_most_twelve_calls_and_only_failed_rows_are_repaire
     attempts = {}
 
     def repair(prompt):
-        data = json.loads(prompt.split("\n", 1)[1])
+        data = json.loads(prompt.rsplit("\n", 1)[1])
         section = data["section"]
         attempts[section] = attempts.get(section, 0) + 1
         rows = json.loads(fake_provider(prompt).text)
@@ -275,8 +274,15 @@ def test_input_partition_cannot_silently_drop_numeric_representatives_and_produc
     def forbidden_call(_):
         raise AssertionError("incomplete input must not call")
 
-    result = rewrite(source, forbidden_call)
-    assert result.calls[0].attempt == 0 and result.calls[0].reasons == {1: "INPUT_INCOMPLETE"}
+    sent = []
+
+    def provider(prompt):
+        sent.append(json.loads(prompt.rsplit("\n", 1)[1])["sentences"][0]["items"])
+        return fake_provider(prompt)
+
+    # 예전에는 대표 항목 3개까지만 보내 입력 누락으로 막았다. 이제 항목을 모두 보낸다.
+    assert rewrite(source, provider).rewritten == 1
+    assert sent == [["1 A", "2 A", "3 A", "4 A"]]
     source = draft()
     row = source.sections[0].sentences[0]
     row.text += " LumenPanel"
@@ -342,7 +348,8 @@ def test_must_keep_lists_condition_values_status_and_negation_once():
     row.conditions = ["주위온도: 35 °C", "고객 확인 필요", "고객 확인 필요"]
     item = draft_rewrite.input_of(row, 1)
     kept = draft_rewrite.must_keep(item)
-    assert kept[:2] == ["35 °C", "고객 확인 필요"]
+    # 조건은 화면의 조건 칸이 보여 준다. 문장에 다시 쓰라고 요구하지 않는다.
+    assert "35 °C" not in kept and "고객 확인 필요" not in kept
     assert "사양 차이" in kept and "확약이 아님" in kept and "요구 1건" in kept
     assert len(kept) == len(set(kept))
 
@@ -370,13 +377,13 @@ def test_the_prompt_sends_must_keep_and_keeps_english_values():
     row = keep_row()
     item = draft_rewrite.input_of(row, 1)
     text = draft_rewrite.prompt("OUR_RESPONSE", [item], {})
-    data = json.loads(text.split("\n", 1)[1])
+    data = json.loads(text.rsplit("\n", 1)[1])
     assert data["sentences"][0]["must_keep"] == draft_rewrite.must_keep(item)
-    assert "must_keep의 문구를 띄어쓰기까지 글자 그대로 모두" in text
-    assert "번역하지 말고 원문 표기 그대로" in text
-    assert "값 끝의 마침표는 문장 안에 남기지 마세요" in text
-    assert "대표 항목, 대표 인용 같은 입력 구조의 말을 문장에 쓰지 마세요" in text
-    assert "한국어로 설명할 수 있습니다" not in text
+    assert "must_keep의 문구는 띄어쓰기까지 글자 그대로" in text
+    assert "글자 그대로 둡니다" in text
+    assert "'대표 항목'·'요구 n건' 같은 입력 구조의 말" in text
+    assert "context_only" in text and "옮겨 적지 마세요" in text
+    assert "'~가 아니라 ~다' 대비" in text
     assert "must_keep" not in item
 
 
@@ -400,8 +407,8 @@ def test_must_keep_lists_values_identifiers_and_bare_numbers_without_repeating_f
     )
     row.conditions = ["duration 3 s"]
     kept = draft_rewrite.must_keep(draft_rewrite.input_of(row, 1))
-    assert {"40 kA", "ORBIT-Z9", "duration 3 s", "요구 2건"} <= set(kept)
-    assert "3 s" not in kept
+    assert {"40 kA", "ORBIT-Z9", "요구 2건"} <= set(kept)
+    assert "duration 3 s" not in kept and "3 s" not in kept
     numbers = draft_rewrite.numeric_values(" ".join(kept))
     assert (
         draft_rewrite.numeric_values(draft_rewrite.source_text(draft_rewrite.input_of(row, 1)))
@@ -421,3 +428,71 @@ def test_a_title_with_the_word_product_is_not_a_product_name():
     assert (
         draft_rewrite.validate("요구 1건, 100 A", draft_rewrite.input_of(row, 1), row) is not None
     )
+
+
+def new_row(text: str, conditions: list[str] | None = None) -> s.Sentence:
+    row = draft().sections[0].sentences[0]
+    row.text = row.template_text = text
+    row.conditions = conditions or []
+    return row
+
+
+def test_new_format_lists_every_item_and_subject_and_keeps_conditions_out_of_the_text():
+    row = new_row(
+        "자사 자료에서 대응 근거를 아직 찾지 못한 요구: 154kV 변압기 · 설비 효율 / DC간선 · 전압강하.",
+        ["판단 상태: 근거 부족(미충족 확정 아님)", "고객 확인 필요"],
+    )
+    item = draft_rewrite.input_of(row, 1)
+    assert item["representatives"] == ["154kV 변압기 · 설비 효율", "DC간선 · 전압강하"]
+    assert item["subjects"] == ["154kV 변압기", "DC간선"]
+    good = (
+        "154kV 변압기의 설비 효율과 DC간선의 전압강하는 자사 자료에서 대응 근거를 아직 찾지 못했다."
+    )
+    assert draft_rewrite.validate(good, item, row) is None
+    dropped = "154kV 변압기의 설비 효율은 자사 자료에서 대응 근거를 아직 찾지 못했다."
+    assert draft_rewrite.validate(dropped, item, row) == "SUBJECT_MISSING"
+    found = "154kV 변압기와 DC간선은 자사 자료에 대응 근거가 있다."
+    assert draft_rewrite.validate(found, item, row) == "NEGATION_MISSING"
+
+
+def test_quoted_scope_sentence_keeps_its_equipment_and_numbers():
+    row = new_row("154kV 변압기: 「154kV변압기 설비 효율 : 99%이상」.")
+    item = draft_rewrite.input_of(row, 1)
+    assert item["subjects"] == ["154kV 변압기"]
+    assert item["representatives"] == ["154kV변압기 설비 효율 : 99%이상"]
+    assert (
+        draft_rewrite.validate("154kV 변압기는 설비 효율 99% 이상을 요구한다.", item, row) is None
+    )
+    assert draft_rewrite.validate("154kV 변압기는 설비 효율 98% 이상을 요구한다.", item, row)
+    assert draft_rewrite.validate("변압기는 설비 효율 99% 이상을 요구한다.", item, row)
+
+
+def test_unselected_alternative_must_stay_unselected_and_product_names_survive_brackets():
+    row = new_row("검토 가능한 대안(미선택) — 과업 위탁 검토: 부품 공장 조립 / 극성표시.")
+    item = draft_rewrite.input_of(row, 1)
+    plain = "부품 공장 조립과 극성표시는 과업 위탁을 검토할 수 있다."
+    assert draft_rewrite.validate(plain, item, row) == "NEGATION_MISSING"
+    kept = "부품 공장 조립과 극성표시는 과업 위탁을 검토할 수 있으나 아직 선택하지 않았다."
+    assert draft_rewrite.validate(kept, item, row) is None
+    compared = new_row(
+        "GIS — 자사 후보와 차이가 있는 비교 항목: "
+        "「제품 SWGR-MV-12kV · 요구 170 kV, 후보 12 kV · 속성 정격전압」."
+    )
+    assert "SWGR-MV-12kV" in draft_rewrite.identifiers_of(draft_rewrite.input_of(compared, 1))
+
+
+def test_sections_longer_than_one_batch_are_sent_in_batches_not_skipped():
+    source = draft()
+    base = source.sections[0].sentences[0]
+    source.sections[0].sentences = [
+        base.model_copy(update={"sentence_id": UUID(int=100 + n)}) for n in range(20)
+    ]
+    sizes = []
+
+    def provider(prompt):
+        sizes.append(len(json.loads(prompt.rsplit("\n", 1)[1])["sentences"]))
+        return fake_provider(prompt)
+
+    result = rewrite(source, provider)
+    assert sizes == [8, 8, 4] and result.rewritten == 20 and result.fallback == 0
+    assert not any(call.outcome == "skipped" for call in result.calls)
