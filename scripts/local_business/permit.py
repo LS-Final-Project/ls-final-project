@@ -174,10 +174,26 @@ class Permit:
                 raise Denied("LOCAL_JOB_LIMIT")
             db.execute("INSERT INTO grants VALUES(?,?)", (job_id, token))
 
-    def reserve(self, token: str, job_id: str, model: str) -> str:
+    def reserve(
+        self, token: str, job_id: str, model: str, *, active_charges: tuple[str, ...] = ()
+    ) -> str:
         with self.transaction() as db:
             row = self.driver(db, token)
-            self.outstanding(db)
+            # Only reservations held in this live Meter may overlap. A restarted worker
+            # has no in-memory charge IDs, so abandoned RESERVED calls still block.
+            unresolved = db.execute(
+                "SELECT id,token,job_id,state FROM charges WHERE state!='SETTLED'"
+            ).fetchall()
+            if (
+                len(active_charges) > 2
+                or len(set(active_charges)) != len(active_charges)
+                or {r["id"] for r in unresolved} != set(active_charges)
+                or any(
+                    r["state"] != "RESERVED" or r["token"] != token or r["job_id"] != job_id
+                    for r in unresolved
+                )
+            ):
+                raise Denied("LOCAL_COST_UNKNOWN_REVIEW_REQUIRED")
             if not db.execute(
                 "SELECT 1 FROM grants WHERE job_id=? AND token=?", (job_id, token)
             ).fetchone():

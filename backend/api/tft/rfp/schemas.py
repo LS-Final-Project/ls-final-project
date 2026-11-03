@@ -352,6 +352,7 @@ class DocumentList(Model):
 class DocumentDetail(DocumentVersion):
     clauses_count: int
     deleted_values_count: int
+    extraction_warnings: list[str] = Field(default_factory=list)
 
 
 class DeletedValue(Model):

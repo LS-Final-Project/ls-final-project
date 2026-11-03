@@ -790,6 +790,13 @@
             "title": "Edit Trace Support",
             "type": "boolean"
           },
+          "extraction_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extraction Warnings",
+            "type": "array"
+          },
           "kind": {
             "enum": [
               "RFP_SPEC",

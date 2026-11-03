@@ -2171,3 +2171,13 @@ async def profiles_of(
     )
     rows = await cursor.fetchall()
     return {(r["candidate_code"], r["profile_version"]): r for r in rows}
+
+
+async def extraction_warnings(conn: AsyncConnection[Row], document_version_id: UUID) -> list[str]:
+    """Application-generated OCR notices for an already authorized exact document version."""
+    cursor = await conn.execute(
+        "SELECT text FROM tft.clauses WHERE document_version_id=%s "
+        "AND clause_no LIKE 'OCR-REVIEW-%%' ORDER BY ordinal",
+        (document_version_id,),
+    )
+    return [row["text"] for row in await cursor.fetchall()]

@@ -2,7 +2,7 @@
 import { webcrypto } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { highlightQuote, revealQuote } from './document-highlight';
-import { readOriginal } from './OriginalDocument';
+import { originalQuote, readOriginal } from './OriginalDocument';
 import type { DocumentVersion } from '../api/rfp';
 
 function page(html: string) { const root = document.createElement('div'); root.innerHTML = html; return root; }
@@ -113,4 +113,12 @@ it('an explicit quote selection moves only the viewer scroll offset', () => {
   revealQuote(root, scroller);
   expect(scroller.scrollTop).toBe(400);
   expect(outer).not.toHaveBeenCalled();
+});
+
+
+it('이미지 전사는 native 텍스트 강조 대신 정확한 이미지/페이지 위치 안내를 준다', () => {
+  const origin = { quote: '170 kV', clause_no: 'OCR-DOCX-0002.1', page: null } as Parameters<typeof originalQuote>[0];
+  expect(originalQuote(origin)).toEqual({ quote: '', notice: expect.stringContaining('본문 이미지 순번 2') });
+  expect(originalQuote({ ...origin!, clause_no: 'OCR-PDF-P0003.1', page: 3 })).toEqual({ quote: '', notice: expect.stringContaining('PDF 원문 3쪽') });
+  expect(originalQuote({ ...origin!, clause_no: '1.3.1' })).toEqual({ quote: '170 kV', notice: undefined });
 });

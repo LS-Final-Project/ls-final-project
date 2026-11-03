@@ -114,6 +114,13 @@ def test_process_preflights_all_new_documents_before_any_provider_or_store(monke
     monkeypatch.setattr(wp, "read_document", read)
     monkeypatch.setattr(wp, "extract", lambda data, **kwargs: trees[data])
     monkeypatch.setattr(wp, "build_clause_tree", lambda tree: tree)
+    monkeypatch.setattr(
+        wp.vision,
+        "image_inputs",
+        lambda *_: wp.vision.VisionPlan(
+            inputs=[wp.vision.ImageInput("OCR-DOCX-0001", "image 1", "image/png", b"fake")]
+        ),
+    )
     events = []
     job = SimpleNamespace(
         project_id=uuid4(), input_version=wp.input_version([d["id"] for d in documents])
@@ -128,6 +135,7 @@ def test_process_preflights_all_new_documents_before_any_provider_or_store(monke
                 object(),
                 [],
                 date(2026, 1, 1),
+                image_provider=provider,
             )
         )
     assert [e["step"] for e in events] == ["parse", "parse"]

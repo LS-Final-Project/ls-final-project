@@ -23,7 +23,15 @@ export async function readOriginal(document: DocumentVersion, signal: AbortSigna
   return bytes;
 }
 
+export function originalQuote(origin?: RequirementDetail['origin']) {
+  const ocr = origin?.clause_no?.match(/^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)/);
+  if (!ocr) return { quote: origin?.quote ?? '', notice: undefined };
+  const location = ocr[1] === 'DOCX-' ? `본문 이미지 순번 ${Number(ocr[2])}` : `PDF 원문 ${origin?.page ?? Number(ocr[2])}쪽`;
+  return { quote: '', notice: `이미지 전사 · ${location}. 원본 이미지와 수치를 대조하세요. 이미지의 글자를 원문 텍스트와 일치했다고 표시하지 않습니다.` };
+}
+
 export function OriginalDocument({ document, origin, onQuoteClick, selectionRevision = 0 }: { document: DocumentVersion; origin?: RequirementDetail['origin']; selectionRevision?: number; onQuoteClick: () => void }) {
+  const { quote, notice } = originalQuote(origin);
   const [bytes, setBytes] = useState<ArrayBuffer>();
   const [error, setError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
@@ -35,15 +43,15 @@ export function OriginalDocument({ document, origin, onQuoteClick, selectionRevi
   return <section className="rfp-original-pane" aria-label="실제 원문 문서">
     <header><div><b>{document.title}</b><small>판본 {document.version} · {document.mime === DOCX ? 'DOCX' : 'PDF'}</small></div><a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(document.document_id)}/file`}>선택 문서 내려받기</a></header>
     <p className="rfp-review-help">{document.mime === DOCX ? '업로드한 DOCX의 본문·표입니다. Word와 글꼴·페이지 나눔은 다를 수 있습니다.' : '업로드한 PDF입니다. 스캔 이미지처럼 문자가 없는 페이지는 밑줄 위치를 확인할 수 없습니다.'}</p>
-    {error ? <ErrorState error={error} onRetry={() => setAttempt(attempt + 1)} /> : !bytes ? <Loading label="원문 파일 읽는 중" /> : document.mime === DOCX ? <DocxOriginal bytes={bytes} quote={origin?.quote ?? ''} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} /> : <PdfOriginal bytes={bytes} quote={origin?.quote ?? ''} sourcePage={origin?.page} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} />}
+    {error ? <ErrorState error={error} onRetry={() => setAttempt(attempt + 1)} /> : !bytes ? <Loading label="원문 파일 읽는 중" /> : document.mime === DOCX ? <DocxOriginal bytes={bytes} quote={quote} notice={notice} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} /> : <PdfOriginal bytes={bytes} quote={quote} notice={notice} sourcePage={origin?.page} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} />}
   </section>;
 }
 
-function MatchNotice({ count, quote }: { count?: number; quote: string }) {
-  return <p className="rfp-match-notice" role="status">{!quote ? '오른쪽에서 분석한 요구를 선택하세요.' : count === undefined ? '인용 위치 확인 중' : count === 1 ? '선택한 요구의 인용문을 원문에 강조했습니다.' : count === 2 ? '같은 인용문이 여러 곳에 있습니다. 조항을 대조해 위치를 확인하세요.' : '인용 위치 확인 필요 — 오른쪽 인용문과 원문을 대조하세요.'}</p>;
+function MatchNotice({ count, quote, notice }: { count?: number; quote: string; notice?: string }) {
+  return <p className="rfp-match-notice" role="status">{notice ?? (!quote ? '오른쪽에서 분석한 요구를 선택하세요.' : count === undefined ? '인용 위치 확인 중' : count === 1 ? '선택한 요구의 인용문을 원문에 강조했습니다.' : count === 2 ? '같은 인용문이 여러 곳에 있습니다. 조항을 대조해 위치를 확인하세요.' : '인용 위치 확인 필요 — 오른쪽 인용문과 원문을 대조하세요.')}</p>;
 }
 
-function DocxOriginal({ bytes, quote, onQuoteClick, selectionRevision }: { bytes: ArrayBuffer; quote: string; selectionRevision: number; onQuoteClick: () => void }) {
+function DocxOriginal({ bytes, quote, notice, onQuoteClick, selectionRevision }: { bytes: ArrayBuffer; quote: string; notice?: string; selectionRevision: number; onQuoteClick: () => void }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const revealed = useRef(0);
   const [ready, setReady] = useState(0);
@@ -87,10 +95,10 @@ function DocxOriginal({ bytes, quote, onQuoteClick, selectionRevision }: { bytes
     body.addEventListener('click', click);
     return () => body.removeEventListener('click', click);
   }, [rendered, onQuoteClick]);
-  return <><MatchNotice count={match} quote={quote} />{error && <ErrorState error={error} />}{!rendered && !error && <Loading label="문서 화면 준비 중" />}<iframe ref={frame} className="rfp-docx-frame" title="DOCX 원문" sandbox="allow-same-origin" srcDoc={FRAME} onLoad={() => setReady(n => n + 1)} /></>;
+  return <><MatchNotice count={match} quote={quote} notice={notice} />{error && <ErrorState error={error} />}{!rendered && !error && <Loading label="문서 화면 준비 중" />}<iframe ref={frame} className="rfp-docx-frame" title="DOCX 원문" sandbox="allow-same-origin" srcDoc={FRAME} onLoad={() => setReady(n => n + 1)} /></>;
 }
 
-function PdfOriginal({ bytes, quote, sourcePage, onQuoteClick, selectionRevision }: { bytes: ArrayBuffer; quote: string; sourcePage?: number | null; selectionRevision: number; onQuoteClick: () => void }) {
+function PdfOriginal({ bytes, quote, notice, sourcePage, onQuoteClick, selectionRevision }: { bytes: ArrayBuffer; quote: string; notice?: string; sourcePage?: number | null; selectionRevision: number; onQuoteClick: () => void }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy>();
   const [page, setPage] = useState(1);
   const [error, setError] = useState<unknown>();
@@ -145,5 +153,5 @@ function PdfOriginal({ bytes, quote, sourcePage, onQuoteClick, selectionRevision
     if (!rendered || renderedQuote !== quote || !layer.current || !scroller.current || !quote || selectionRevision <= revealed.current) return;
     revealQuote(layer.current, scroller.current); revealed.current = selectionRevision;
   }, [quote, rendered, renderedQuote, selectionRevision]);
-  return <><div className="rfp-pdf-navigation"><button className="kb" disabled={!pdf || page <= 1} onClick={() => setPage(page - 1)}>이전 원문 쪽</button><span>{page} / {pdf?.numPages ?? '…'}</span><button className="kb" disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(page + 1)}>다음 원문 쪽</button></div><MatchNotice count={match} quote={quote} />{error && <ErrorState error={error} />}{!rendered && !error && <Loading label="PDF 페이지 준비 중" />}<div className="rfp-pdf-scroll" ref={scroller}><div className="rfp-pdf-page"><canvas ref={canvas} aria-label={`원문 ${page}쪽`} /><div ref={layer} className="textLayer" onClick={event => { if ((event.target as Element).closest('mark[data-rfp-quote]')) onQuoteClick(); }} /></div></div></>;
+  return <><div className="rfp-pdf-navigation"><button className="kb" disabled={!pdf || page <= 1} onClick={() => setPage(page - 1)}>이전 원문 쪽</button><span>{page} / {pdf?.numPages ?? '…'}</span><button className="kb" disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(page + 1)}>다음 원문 쪽</button></div><MatchNotice count={match} quote={quote} notice={notice} />{error && <ErrorState error={error} />}{!rendered && !error && <Loading label="PDF 페이지 준비 중" />}<div className="rfp-pdf-scroll" ref={scroller}><div className="rfp-pdf-page"><canvas ref={canvas} aria-label={`원문 ${page}쪽`} /><div ref={layer} className="textLayer" onClick={event => { if ((event.target as Element).closest('mark[data-rfp-quote]')) onQuoteClick(); }} /></div></div></>;
 }

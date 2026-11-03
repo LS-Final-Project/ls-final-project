@@ -11,6 +11,7 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import BoundedSemaphore, RLock
 from uuid import UUID
 
 from pydantic import SecretStr
@@ -105,10 +106,14 @@ class Meter:
     def __init__(self, permit, config: Configuration, prices: dict[str, ai.ModelPrice]):
         self.permit, self.config, self.prices = permit, config, prices
         self.stopped: str | None = None
+        self.lock = RLock()
+        self.slots = BoundedSemaphore(3 if config.owner == "tft" else 1)
+        self.active_charges: set[str] = set()
 
     def stop(self, code: str) -> None:
-        self.stopped = code
-        raise LocalStop(code) from None
+        with self.lock:
+            self.stopped = self.stopped or code
+            raise LocalStop(self.stopped) from None
 
     def priced(self, model) -> str:
         if self.stopped:
@@ -130,21 +135,36 @@ class Meter:
         return model
 
     def unknown(self, charge: str, code: str) -> None:
-        try:
-            self.permit.settle(charge, actual_usd=None)
-        except Exception:
-            # The outstanding reservation still blocks later calls if settlement failed.
-            self.stop("LOCAL_SETTLEMENT_FAILED")
-        self.stop(code)
+        with self.lock:
+            try:
+                self.permit.settle(charge, actual_usd=None)
+                self.active_charges.discard(charge)
+            except Exception:
+                self.stop("LOCAL_SETTLEMENT_FAILED")
+            self.stop(code)
 
     def generate(self, generate_content, *args, **kwargs):
+        with self.slots:
+            return self._generate(generate_content, *args, **kwargs)
+
+    def _generate(self, generate_content, *args, **kwargs):
         if args:
             self.stop("LOCAL_SDK_OPERATION_BLOCKED")
-        model = self.priced(kwargs.get("model"))
-        try:
-            charge = self.permit.reserve(self.config.token, str(self.config.job_id), model)
-        except Exception:
-            self.stop("LOCAL_RESERVATION_DENIED")
+        with self.lock:
+            model = self.priced(kwargs.get("model"))
+            try:
+                if self.active_charges:
+                    charge = self.permit.reserve(
+                        self.config.token,
+                        str(self.config.job_id),
+                        model,
+                        active_charges=tuple(sorted(self.active_charges)),
+                    )
+                else:
+                    charge = self.permit.reserve(self.config.token, str(self.config.job_id), model)
+                self.active_charges.add(charge)
+            except Exception:
+                self.stop("LOCAL_RESERVATION_DENIED")
         try:
             response = generate_content(**kwargs)
         except BaseException:
@@ -159,29 +179,33 @@ class Meter:
                 raise ValueError("LOCAL_COST_INCOMPLETE")
         except Exception:
             self.unknown(charge, "LOCAL_COST_UNKNOWN")
-        try:
-            reason = self.permit.settle(
-                charge,
-                actual_usd=str(cost.total),
-                usage={
-                    name: getattr(usage, name)
-                    for name in (
-                        "input_tokens",
-                        "output_tokens",
-                        "thought_tokens",
-                        "cached_input_tokens",
-                        "total_tokens",
-                    )
-                },
-            )
-        except Exception:
-            self.stop("LOCAL_SETTLEMENT_FAILED")
-        if reason is not None:
-            self.stop(
-                "LOCAL_RESERVATION_EXCEEDED"
-                if reason == "LOCAL_RESERVATION_EXCEEDED"
-                else "LOCAL_COST_UNKNOWN"
-            )
+        with self.lock:
+            try:
+                reason = self.permit.settle(
+                    charge,
+                    actual_usd=str(cost.total),
+                    usage={
+                        name: getattr(usage, name)
+                        for name in (
+                            "input_tokens",
+                            "output_tokens",
+                            "thought_tokens",
+                            "cached_input_tokens",
+                            "total_tokens",
+                        )
+                    },
+                )
+            except Exception:
+                self.stop("LOCAL_SETTLEMENT_FAILED")
+            self.active_charges.discard(charge)
+            if reason is not None:
+                self.stop(
+                    "LOCAL_RESERVATION_EXCEEDED"
+                    if reason == "LOCAL_RESERVATION_EXCEEDED"
+                    else "LOCAL_COST_UNKNOWN"
+                )
+            if self.stopped:
+                self.stop(self.stopped)
         return response
 
 

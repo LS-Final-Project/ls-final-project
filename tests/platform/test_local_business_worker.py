@@ -504,3 +504,53 @@ def test_dispatcher_enabled_values_match_explicit_local_worker_gate(
 def test_no_claim_means_no_finish_and_only_fixed_diagnostic(capsys):
     worker.fail_claimed(job_runtime, [], "LOCAL_COST_UNKNOWN")
     assert capsys.readouterr().err == "LOCAL_FAILURE_NOT_RECORDED_NO_LEASE\n"
+
+
+@pytest.mark.parametrize("fail_first", [False, True])
+def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(tmp_path, fail_first):
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Barrier, Event
+
+    from scripts.local_business.permit import Denied, Permit
+
+    p = Permit(tmp_path / "concurrent.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    config = replace(configuration(tmp_path), token=token)
+    p.grant(token, str(config.job_id))
+    meter = worker.Meter(p, config, PRICES)
+    barrier = Barrier(3, timeout=3)
+    failed = Event()
+
+    def generate_content(**kwargs):
+        barrier.wait()
+        if fail_first and kwargs["contents"] == "first":
+            raise TimeoutError("provider details must not leak")
+        if fail_first:
+            assert failed.wait(3)
+        return response()
+
+    def call(name):
+        try:
+            return meter.generate(generate_content, model=MODEL, contents=name)
+        except worker.LocalStop as error:
+            failed.set()
+            return error.code
+
+    with ThreadPoolExecutor(3) as pool:
+        results = list(pool.map(call, ["first", "second", "third"]))
+    with p.transaction() as db:
+        states = [r[0] for r in db.execute("SELECT state FROM charges")]
+        assert states.count("RESERVED") == 0
+        assert states.count("UNKNOWN") == int(fail_first)
+        assert states.count("SETTLED") == (2 if fail_first else 3)
+    assert not meter.active_charges
+    if fail_first:
+        assert results == ["LOCAL_PROVIDER_CALL_FAILED"] * 3
+        with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+            meter.generate(lambda **_: pytest.fail("no more SDK"), model=MODEL)
+        p.close_driver(token)
+        with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+            p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    else:
+        assert all(r.usage_metadata.total_token_count == 130 for r in results)

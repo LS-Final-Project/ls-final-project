@@ -36,13 +36,13 @@ export type RequirementFilters = {
   unresolved_mandatory?: boolean;
 };
 
-export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean } = {}) {
+export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean; signal?: AbortSignal } = {}) {
   const query = new URLSearchParams({ limit: String(limit) });
   for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value));
   if (cursor) query.set('cursor', cursor);
   return request<Envelope<Schemas['RequirementList']>>(
     `/api/v1/tft/projects/${encodeURIComponent(projectId)}/requirements?${query}`,
-    options.useMockFallback === false ? {} : { mockFallback: mock({ items: MOCK_REQUIREMENTS, next_cursor: null }) },
+    { signal: options.signal, ...(options.useMockFallback === false ? {} : { mockFallback: mock({ items: MOCK_REQUIREMENTS, next_cursor: null }) }) },
   );
 }
 
@@ -174,6 +174,6 @@ export const updateIntegration = (projectId: string, version: number, integratio
 };
 
 // 프로젝트 전체 협력사 후보. 요구별 조회는 rfp-supplement의 listSupplementCandidates다.
-export const listProjectCandidates = (projectId: string) => request<Envelope<Schemas['PartnerCandidateList']>>(
-  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/partner-candidates`, { mockFallback: mock({ items: [] }) },
+export const listProjectCandidates = (projectId: string, signal?: AbortSignal) => request<Envelope<Schemas['PartnerCandidateList']>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/partner-candidates`, { signal, mockFallback: mock({ items: [] }) },
 );

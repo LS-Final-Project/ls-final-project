@@ -197,3 +197,30 @@ def test_limited_token_is_not_upgraded_by_a_later_unlimited_request(tmp_path):
     with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
         p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
     assert p.settle(charge, actual_usd="0.60") == "LOCAL_RESERVATION_EXCEEDED"
+
+
+def test_only_this_process_known_inflight_charges_can_overlap(tmp_path):
+    p, token, job = permit(tmp_path, budget_usd="1.50")
+    first = p.reserve(token, job, "fake")
+    second = p.reserve(token, job, "fake", active_charges=(first,))
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        Permit(p.path).reserve(token, job, "fake")
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=(str(uuid4()),))
+    p.settle(first, actual_usd=None)
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=(second,))
+    # Already sent call can still settle after another call failed.
+    assert p.settle(second, actual_usd="0.01") is None
+
+
+def test_parallel_reservations_count_toward_limited_budget_and_calls(tmp_path):
+    p, token, job = permit(tmp_path, budget_usd="1.00")
+    first = p.reserve(token, job, "fake")
+    second = p.reserve(token, job, "fake", active_charges=(first,))
+    with pytest.raises(Denied, match="LOCAL_CALL_LIMIT"):
+        p.reserve(token, job, "fake", active_charges=(first, second))
+    p.settle(first, actual_usd="0.50")
+    p.settle(second, actual_usd="0.50")
+    with p.transaction() as db:
+        assert p.committed(db) == Decimal("1.00")

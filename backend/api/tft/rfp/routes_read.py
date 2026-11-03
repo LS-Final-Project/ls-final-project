@@ -157,8 +157,10 @@ async def get_document(
     """
     async with connection(request.app.state.settings) as conn:
         row = await visible_document(conn, principal, document_id)
+        warnings = await repository.extraction_warnings(conn, row["id"])
     return s.DocumentDetail(
         **document_out(row),
+        extraction_warnings=warnings,
         clauses_count=row["clauses_count"],
         deleted_values_count=row["deleted_values_count"],
     )

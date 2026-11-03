@@ -54,6 +54,8 @@ beforeEach(() => {
     if (url.includes('/events?')) return jsonResponse(400, errorBody('INVALID_EVENT_CURSOR', 'fixture: polling fallback'));
     if (url.includes('/platform/jobs/')) return job(url.split('/').at(-1)!);
     if (url.endsWith('/documents')) return ok({ items: documents });
+    if (url.includes('/requirements?')) return ok({ items: [], next_cursor: null });
+    if (url.includes('/partner-candidates')) return ok({ items: [], manufacturer_list_basis: 'CURRENT_PROJECT_INPUT' });
     if (url.includes('/proposals')) return ok({ items: [] });
     if (url.includes('/questions')) return ok({ items: [{ question_id: 'q1', question_text: '값을 확인해 주세요' }] });
     if (/\/tft\/projects(?:\?|$)/.test(url)) return ok({ items: [], next_cursor: null });
