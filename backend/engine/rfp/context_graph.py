@@ -27,7 +27,7 @@ from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
 
 PROMPT_VERSION = "rfp-context-v2"
 BATCH_SIZE = 24
-MAX_PARALLEL = 3
+MAX_PARALLEL = 6
 INVENTORY_BATCH_SIZE = 80
 MAX_REQUIREMENTS = 4000
 MAX_INPUT_CHARS = 5_000_000
@@ -362,7 +362,7 @@ async def run_context(
     diagram_source_ids: list[str] | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> ContextResult:
-    """Chunked inventory/linking (max 3 concurrent), then at most one 24-row repair."""
+    """Chunked inventory/linking (max 6 concurrent), then at most one 24-row repair."""
     _guard()
     diagrams = list(diagram_source_ids or [])
 

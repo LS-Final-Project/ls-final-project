@@ -186,7 +186,7 @@ def test_invalid_assignment_evidence_loses_classification_not_original_row():
     assert result.outcome == "PARTIAL"
 
 
-def test_1196_requirements_chunked_max_three_and_progress_without_duplicate_assignments():
+def test_1196_requirements_chunked_max_six_and_progress_without_duplicate_assignments():
     active = 0
     peak = 0
     calls = Counter()
@@ -210,12 +210,39 @@ def test_1196_requirements_chunked_max_three_and_progress_without_duplicate_assi
     rows = [requirement(f"r{i}") for i in range(1196)]
     result = asyncio.run(graph.run_context(rows, provider, progress=seen_progress.append))
     assert calls == {"inventory": 15, "link": 50}
-    assert peak == 3 and active == 0
+    assert peak == 6 and active == 0
     assert max(sizes["inventory"]) <= 80 and max(sizes["link"]) <= 24
     assert len(result.assignments) == 1196
     assert {a.requirement_id for a in result.assignments} == {r.requirement_id for r in rows}
     assert result.outcome == "VALID"
     assert set(seen_progress) == {"context_map", "context_link", "context_validate"}
+
+
+@pytest.mark.parametrize("count,expected_peak", [(1, 1), (24, 1), (25, 2), (120, 5), (121, 6)])
+def test_short_inputs_only_start_needed_batches(count, expected_peak):
+    active = 0
+    peak = 0
+    calls = Counter()
+
+    async def provider(stage, payload):
+        nonlocal active, peak
+        assert payload["requirements"]
+        active += 1
+        peak = max(peak, active)
+        calls[stage] += 1
+        await asyncio.sleep(0)
+        active -= 1
+        if stage == "inventory":
+            return ContextProposal()
+        return ContextProposal(
+            assignments=[assignment(r["requirement_id"]) for r in payload["requirements"]]
+        )
+
+    result = asyncio.run(graph.run_context([requirement(f"r{i}") for i in range(count)], provider))
+    assert peak == expected_peak and active == 0
+    assert calls == {"inventory": (count + 79) // 80, "link": (count + 23) // 24}
+    assert len(result.assignments) == count
+    assert result.outcome == "VALID"
 
 
 def test_ambiguous_repair_is_once_bounded_and_cannot_modify_other_requirements():
@@ -277,7 +304,7 @@ def test_provider_failure_waits_started_calls_and_blocks_pending_batches():
 
     with pytest.raises(RuntimeError, match="synthetic"):
         asyncio.run(graph.run_context([requirement(f"r{i}") for i in range(500)], provider))
-    assert started == 3 and running == 0
+    assert started == 6 and running == 0
 
 
 def test_tracing_and_input_limits_block_before_any_provider(monkeypatch):
