@@ -139,6 +139,12 @@ def required_table() -> dict[str, dict[str, frozenset[str]]]:
     return required_info.required_by_family()
 
 
+@functools.cache
+def blocking_table() -> dict[str, dict[str, frozenset[str]]]:
+    """The policy table's blocking info (blocking_fields), read once per process."""
+    return required_info.blocking_by_family()
+
+
 def missing_view(value: required_info.MissingInfo | None) -> MissingInfoView | None:
     if value is None:
         return None
@@ -148,6 +154,7 @@ def missing_view(value: required_info.MissingInfo | None) -> MissingInfoView | N
         provided=list(value.provided),
         already_asked=list(value.already_asked),
         missing=list(value.missing),
+        blocking_missing=list(value.blocking_missing),
     )
 
 
@@ -163,7 +170,9 @@ def missing_info(
     what the customer gave sees the remaining questions change. Same count as the draft input.
     """
     try:
-        by_category = required_table().get(product_family(product_code), {})
+        family = product_family(product_code)
+        by_category = required_table().get(family, {})
+        blocking = blocking_table().get(family, {})
     except RuleInputError:
         return MissingInfo(ai=None, effective=None, error="CS_RULE_INPUT")
 
@@ -175,6 +184,7 @@ def missing_info(
             values.get("provided_info"),
             required_by_category=by_category,
             already_asked=asked,
+            blocking_by_category=blocking,
         )
 
     ai_side, effective_side = count(ai), count(effective)
