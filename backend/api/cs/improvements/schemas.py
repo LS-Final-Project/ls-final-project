@@ -549,6 +549,10 @@ class CaseRow(BaseModel):
     action_taken: str | None
     resolved_by_dept: str | None
     known_at: datetime | None
+    fw_version_at_issue: str | None = Field(
+        default=None, description="Firmware version when the fault happened, as recorded."
+    )
+    onsite_visit: bool | None = Field(default=None, description="Whether an engineer visited.")
 
 
 class CaseComparison(BaseModel):

@@ -290,6 +290,8 @@ def test_case_comparison_shows_active_evidence_within_the_viewers_scope(client, 
         "Replace gasket",
     )
     assert row["customer_external_id"].startswith("CUST-") and row["known_at"]
+    # 규칙 비교(화면의 근거 비교)에 쓰는 칸. 고정값은 위 add_ticket의 INSERT와 같다.
+    assert (row["fw_version_at_issue"], row["onsite_visit"]) == (None, True)
     assert client.get(url, headers=as_(CS_MANAGER)).status_code == 200
 
     # 요청을 받은 부서도 이관받지 않은 문의의 해결 기록은 볼 수 없다.
@@ -402,6 +404,7 @@ def test_case_comparison_keeps_a_ticket_without_a_resolution_record(client, admi
     [row] = ok(client.get(f"{PATH}/{created['id']}/case-comparison"))["items"]
     assert row["ticket_id"] == str(ticket)
     assert (row["case_id"], row["symptom"], row["known_at"]) == (None, None, None)
+    assert (row["fw_version_at_issue"], row["onsite_visit"]) == (None, None)
 
 
 def test_the_list_filters_by_origin(client, admin):

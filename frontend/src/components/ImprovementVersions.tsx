@@ -25,12 +25,12 @@ export default function ImprovementVersions({requestId}:{requestId:string}){
   const mode=getApiMode();
   const versions=useQuery({queryKey:['cs-improvement-versions',mode,requestId],queryFn:({signal})=>getImprovementVersions(requestId,signal),enabled:opened,retry:false,staleTime:0});
   const refresh=()=>{if(opened)void versions.refetch();else setOpened(true);};
-  return <section><h2>작성 판본 이력</h2><p>각 판본에 저장된 작성 내용과 유효 근거입니다. 검토 승인·전달 완료를 뜻하지 않으며 현재 상태와 구분합니다.</p>
-    <button disabled={versions.isFetching} onClick={refresh}>{opened?'판본 이력 새로고침':'판본 이력 조회'}</button>
+  return <section className="ia"><div className="ph"><h2>작성 판본 이력</h2></div><p className="meta">각 판본에 저장된 작성 내용과 유효 근거입니다. 검토 승인·전달 완료를 뜻하지 않으며 현재 상태와 구분합니다.</p>
+    <button className="kb3 sm" disabled={versions.isFetching} onClick={refresh}>{opened?'판본 이력 새로고침':'판본 이력 조회'}</button>
     {versions.isFetching&&<Loading/>}{opened&&!versions.isFetching&&versions.isError&&<ErrorState error={versions.error} onRetry={refresh}/>}
     {opened&&!versions.isFetching&&versions.isSuccess&&(versions.data.data.items.length?versions.data.data.items.map(v=><article key={v.version}>
       <h3>판본 {v.version}</h3><p>변경 시각: {v.changed_at} · 변경자 ID: {v.changed_by??'미확인'}</p>
-      <dl>{Object.entries(fields).map(([field,label])=><div key={field}><dt>{label}</dt><dd>{recordedText(v.content[field])}</dd></div>)}</dl>
+      <dl className="kvl">{Object.entries(fields).map(([field,label])=><div key={field}><dt>{label}</dt><dd>{recordedText(v.content[field])}</dd></div>)}</dl>
       <p>제안 부서: {Array.isArray(v.content.proposed_depts)&&v.content.proposed_depts.every(d=>typeof d==='string')?v.content.proposed_depts.join(', ')||'미기록':'미확인'}</p>
       <h4>해당 판본의 근거</h4><Evidence value={v.content.evidence}/>
     </article>):<p>저장된 판본이 없습니다.</p>)}

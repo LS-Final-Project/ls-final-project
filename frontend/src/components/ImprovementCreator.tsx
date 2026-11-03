@@ -8,8 +8,12 @@ const fields={problem_statement:'검토할 문제',confirmed_facts:'확인된 �
 type Field=keyof typeof fields;
 const empty=()=>Object.fromEntries(Object.keys(fields).map(key=>[key,''])) as Record<Field,string>;
 
-export default function ImprovementCreator({onCreated,onEditingChange,onReload}:{onReload?:()=>void;onEditingChange?:(editing:boolean)=>void;onCreated:(data:ImprovementDetail)=>void}){
-  const [opened,setOpened]=useState(false);
+// opened를 주면 여는 단추는 화면 제목 줄이 갖고(목록 화면), 이 상자는 입력만 그린다.
+export default function ImprovementCreator({onCreated,onEditingChange,onReload,opened:shown,onOpenedChange}:{onReload?:()=>void;onEditingChange?:(editing:boolean)=>void;onCreated:(data:ImprovementDetail)=>void;opened?:boolean;onOpenedChange?:(opened:boolean)=>void}){
+  const [own,setOwn]=useState(false);
+  const controlled=shown!==undefined;
+  const opened=controlled?shown:own;
+  const setOpened=(value:boolean)=>{if(controlled)onOpenedChange?.(value);else setOwn(value);};
   const [type,setType]=useState<ImprovementCreate['request_type']>('FAULT');
   const [product,setProduct]=useState('');const [fault,setFault]=useState('');
   const [docSignal,setDocSignal]=useState<NonNullable<ImprovementCreate['doc_signal']>|''>('');
@@ -32,9 +36,9 @@ export default function ImprovementCreator({onCreated,onEditingChange,onReload}:
     catch(e){if(!current.signal.aborted){setError(e instanceof ApiError?e.message:'저장 결과를 확인할 수 없습니다.');setUncertain(!(e instanceof ApiError)||e.status===408||e.status===409||e.status>=500);}}
     finally{if(controller.current===current)controller.current=null;if(!current.signal.aborted)setBusy(false);}
   };
-  return <section><h2>수동 개선요청 초안</h2><p>초안만 저장합니다. AI 판정·근거 연결·검토 승인·부서 전달은 수행하지 않습니다. 조건은 미확인으로 기록됩니다.</p>
+  return <section className="ia"><div className="ph"><h2>수동 개선요청 초안</h2></div><p className="meta">초안만 저장합니다. AI 판정·근거 연결·검토 승인·부서 전달은 수행하지 않습니다. 조건은 미확인으로 기록됩니다.</p>
     {!available&&<p>모의 응답에서는 새 요청을 저장하지 않습니다.</p>}
-    {!opened?<button ref={opener} disabled={!available} onClick={()=>setOpened(true)}>새 개선요청 작성</button>:<form aria-label="개선요청 초안 작성" aria-busy={busy} onSubmit={e=>{e.preventDefault();void save();}}>
+    {!opened?(controlled?null:<button className="kb3 sm pri" ref={opener} disabled={!available} onClick={()=>setOpened(true)}>새 개선요청 작성</button>):<form className="sendbox" aria-label="개선요청 초안 작성" aria-busy={busy} onSubmit={e=>{e.preventDefault();void save();}}>
       <fieldset disabled={busy||uncertain}><legend>초안 내용</legend>
         <label>요청 유형<select autoFocus value={type} onChange={e=>{setType(e.target.value as ImprovementCreate['request_type']);setFault('');setDocSignal('');setDepts([]);}}><option value="FAULT">고장</option><option value="DOCUMENT">문서</option></select></label>
         <label>제품 코드<input required maxLength={200} value={product} onChange={e=>setProduct(e.target.value)}/></label>
@@ -45,10 +49,9 @@ export default function ImprovementCreator({onCreated,onEditingChange,onReload}:
       </fieldset>
       {error&&<p role="alert">{error}</p>}
       {uncertain&&<p>저장 결과가 불확실해 다시 작성하지 않습니다. 목록에서 실제 생성 여부를 먼저 확인하세요. 화면을 나가거나 새로고침해도 이미 생성된 요청은 취소되지 않습니다.</p>}
-      {uncertain&&<button type="button" onClick={()=>{reset();onReload?.();}}>입력 버리고 목록 새로 조회</button>}
-      <p>저장 중 이탈은 서버 생성을 취소하지 못할 수 있습니다. 재진입 시 목록에서 생성 여부를 확인하세요.</p>
-      <button type="submit" disabled={busy||uncertain||!valid}>{busy?'초안 저장 중':'초안 저장'}</button>
-      <button type="button" disabled={busy||uncertain} onClick={reset}>작성 취소</button>
+      {uncertain&&<button className="kb3 sm" type="button" onClick={()=>{reset();onReload?.();}}>입력 버리고 목록 새로 조회</button>}
+      <p className="meta">저장 중 이탈은 서버 생성을 취소하지 못할 수 있습니다. 재진입 시 목록에서 생성 여부를 확인하세요.</p>
+      <div className="row2"><button className="kb3 sm" type="button" disabled={busy||uncertain} onClick={reset}>작성 취소</button><button className="kb3 sm pri" type="submit" disabled={busy||uncertain||!valid}>{busy?'초안 저장 중':'초안 저장'}</button></div>
     </form>}
   </section>;
 }

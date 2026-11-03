@@ -9,8 +9,8 @@ import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const source=examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body;
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.unstubAllEnvs();setApiMode('mock');});
-// 상세 화면은 역할 확인용 세션 조회(/me)를 함께 부른다. 상세 조회 횟수만 센다.
-const detailCalls=(fetch:{mock:{calls:unknown[][]}})=>fetch.mock.calls.filter(([url])=>!String(url).endsWith('/me'));
+// 상세 화면은 역할 확인용 세션 조회(/me)와 근거 비교(case-comparison)·고장 목록(faults)을 함께 부른다. 상세 조회 횟수만 센다.
+const detailCalls=(fetch:{mock:{calls:unknown[][]}})=>fetch.mock.calls.filter(([url])=>!String(url).endsWith('/me')&&!String(url).includes('/case-comparison')&&!String(url).includes('/cs/faults'));
 function view(detail=true){setApiMode('live');return renderAt(detail?'/cs/improvements/test':'/cs/improvements',detail?'/cs/improvements/:requestId':'/cs/improvements',<CsImprovements/>);}
 test('근거·조건·회신·조치를 분리하고 확인되지 않은 고객 적용을 추측하지 않는다',async()=>{
  const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);view();
@@ -143,4 +143,17 @@ test('처리 입력과 내용 수정은 동시에 열지 않는다',async()=>{
  fireEvent.click(await reviewButton());expect((screen.getByRole('button',{name:'내용 수정'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
  fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
+});
+
+test('근거 비교는 해결 기록 칸을 나란히 두고 다수와 다른 값과 확인할 줄을 표시한다',async()=>{
+ const row=(ticket:string,fw:string|null,cause:string,dept:string)=>({row_kind:'EVIDENCE',ticket_id:`${ticket}-0000-4000-8000-000000000000`.slice(0,36),ticket_external_id:ticket,ticket_subject:null,ticket_received_at:'2026-09-01T00:00:00Z',customer_external_id:`C-${ticket}`,product_code:'P',case_id:null,case_external_id:null,symptom:null,root_cause_type:cause,root_cause:null,action_taken:null,resolved_by_dept:dept,known_at:null,fw_version_at_issue:fw,onsite_visit:false});
+ const items=[row('T-1','1.72','SETTING','TS_LV'),row('T-2','1.72','SETTING','TS_LV'),row('T-3','1.80','HARDWARE','TS_MV')];
+ const fault=structuredClone(source) as unknown as ImprovementDetail;fault.data.request.request_type='FAULT';
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:'test',hidden_case_count:0,items}}):jsonResponse(200,fault)));view();
+ const table=await screen.findByRole('table',{name:'근거 비교'});
+ const rows=[...table.querySelectorAll('tbody tr')];
+ expect(rows.map(r=>r.querySelector('td:last-child')!.textContent)).toEqual(['같음','같음','원문 확인']);
+ // 원인·FW(묶음을 가르는 조건)는 노랑, 해결 부서(참고)는 회색으로 다르게 표시한다.
+ expect(rows[2].querySelectorAll('.cmp.diff')).toHaveLength(2);expect(rows[2].querySelectorAll('.cmp.ref')).toHaveLength(1);
+ expect(screen.getByText('판단 필요 2')).toBeTruthy();expect(screen.getByText('참고 1')).toBeTruthy();
 });

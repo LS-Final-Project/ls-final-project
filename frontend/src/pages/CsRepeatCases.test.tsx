@@ -85,7 +85,7 @@ test('포함·후보·뺌을 구분하고 후보는 현재 요청의 아직 넣�
   view();
   const rows = await rowsOf();
   await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
-  const text = (await rowsOf()).map(row => [...row.querySelectorAll('td')].slice(2).map(td => td.textContent));
+  const text = (await rowsOf()).map(row => [...row.querySelectorAll('td')].slice(1).map(td => td.textContent));
   expect(text).toEqual([
     ['SYN-T-1', 'SYN-RC-1', 'CUST-SYN-T-1', '2026-10-28', '제목 SYN-T-1', '포함'],
     ['SYN-T-2', 'SYN-RC-2', 'CUST-SYN-T-2', '2026-10-28', '제목 SYN-T-2', '포함'],
@@ -135,8 +135,8 @@ test('다음 할 일 줄은 조건 줄 위에서 고른 행과 서버 값으로 
   const { container } = view();
   await screen.findByRole('table', { name: '비교' });
   await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(5));
-  const next = container.querySelector('.kv-next')!;
-  expect(next.compareDocumentPosition(container.querySelector('.kv-cond')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const next = container.querySelector('.nextbar')!;
+  expect(next.compareDocumentPosition(container.querySelector('.cond')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(next.textContent).toBe('다음SYN-T-2 뺄지 판단, 비교표 준비됨 / 요청 작성 중, 근거 사례 2건 / 후보 2건');
   expect(screen.getByText('후보 문의 2건')).toBeTruthy();
   expect(screen.getByRole('table', { name: '근거 문의' }).querySelector('thead input')).toBeNull();
@@ -166,8 +166,8 @@ test('후보 행도 같은 종류와 해결 기록의 비교표를 보이고 근
   const compareBefore = fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length;
   fireEvent.click(screen.getByRole('button', { name: '근거 추가' }));
   await screen.findByText('근거에 추가했습니다.');
-  expect(document.querySelector('.kv-next')!.textContent).toContain('근거 사례 3건');
-  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[7].textContent === '포함')).toHaveLength(3);
+  expect(document.querySelector('.nextbar')!.textContent).toContain('근거 사례 3건');
+  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[6].textContent === '포함')).toHaveLength(3);
   expect(screen.getByText(/판본 4/)).toBeTruthy();
   expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence`, { ticket_id: T3, case_id: C3, version: 3 }]]);
   await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/case-comparison?include_candidates=true')).length).toBe(compareBefore + 1));
@@ -199,8 +199,8 @@ test('근거에서 빼기는 사유가 있어야 하고 근거 ID·사유·판�
   fireEvent.change(screen.getByLabelText('빼는 사유'), { target: { value: ' 합성 조건이 다름 ' } });
   fireEvent.click(button);
   await screen.findByText('근거에서 뺐습니다.');
-  expect(document.querySelector('.kv-next')!.textContent).toContain('근거 사례 1건');
-  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[7].textContent === '포함')).toHaveLength(1);
+  expect(document.querySelector('.nextbar')!.textContent).toContain('근거 사례 1건');
+  expect((await rowsOf()).filter(row => row.querySelectorAll('td')[6].textContent === '포함')).toHaveLength(1);
   expect(screen.getByText(/판본 4/)).toBeTruthy();
   expect(posts(fetch)).toEqual([[`/api/v1/cs/improvement-requests/${ID}/evidence/${E2}/remove`, { reason: '합성 조건이 다름', version: 3 }]]);
 });
@@ -239,9 +239,9 @@ test('후보 API가 403이면 후보 행만 빼고 화면은 유지한다', asyn
   view();
   await screen.findByText(/후보 행은 빼고 보여 줍니다/);
   expect(screen.getByText('후보 문의 확인 불가')).toBeTruthy();
-  expect(document.querySelector('.kv-next')!.textContent).not.toContain('후보');
+  expect(document.querySelector('.nextbar')!.textContent).not.toContain('후보');
   const rows = await rowsOf();
-  expect(rows.map(row => row.querySelectorAll('td')[7].textContent)).toEqual(['포함', '포함', '뺌']);
+  expect(rows.map(row => row.querySelectorAll('td')[6].textContent)).toEqual(['포함', '포함', '뺌']);
   expect(screen.getByRole('table', { name: '비교' })).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
 });

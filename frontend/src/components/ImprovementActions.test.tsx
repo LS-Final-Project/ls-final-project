@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { useState } from 'react';
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import ImprovementActions from './ImprovementActions';
 import { clearSessionCsrfToken, setApiMode } from '../api/client';
 import type { ImprovementDetail } from '../api/cs-improvements';
@@ -251,4 +251,26 @@ test('담당자 재배정은 후보 목록에 있는 사람만 고를 수 있고
   fireEvent.click(await screen.findByRole('button',{name:'C/S 담당자 재배정'}));
   await screen.findByText('재배정할 수 있는 C/S 담당자가 없습니다.');expect(screen.getByText('현재 담당: 현재 합성 담당자')).toBeTruthy();
   expect(screen.queryByRole('textbox')).toBeNull();expect(saveButton().disabled).toBe(true);save();expect(writes()).toHaveLength(0);
+});
+
+test('제안 부서가 있는 요청의 전달은 받는 부서를 칩으로 보이고, 바꿀 때만 체크 칸을 연다',async()=>{
+  const data=detail(d=>{sent(d);d.request.proposed_depts=['TS_LV'];});
+  const {writes,saved}=setup(data,{roles:['cs_agent']});
+  fireEvent.click(await screen.findByRole('button',{name:'부서 전달 기록'}));
+  expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  expect(screen.getByText(/저압기기 기술지원/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'받는 부서 바꾸기'}));
+  expect((screen.getByLabelText(/저압기기 기술지원/) as HTMLInputElement).checked).toBe(true);
+  save();await waitFor(()=>expect(saved).toHaveBeenCalled());
+  expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:7});
+});
+
+test('지금 할 수 있는 첫 동작을 상위 화면에 알리고, 그 실행은 같은 입력을 연다',async()=>{
+  const onPrimary=vi.fn();
+  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?meResponse({roles:['cs_agent']}):jsonResponse(200,{data:{}})));setApiMode('live');
+  renderAt('/','/',<ImprovementActions data={detail(d=>{d.request.status='DRAFT';}).data} onSaved={()=>{}} onReload={()=>{}} onPrimary={onPrimary}/>);
+  await waitFor(()=>expect(onPrimary.mock.calls.some(([a])=>a?.label==='검토 완료 기록')).toBe(true));
+  const action=onPrimary.mock.calls.map(([a])=>a).filter(Boolean).at(-1);
+  act(()=>action.run());
+  expect(await screen.findByRole('form',{name:'검토 완료 기록 입력'})).toBeTruthy();
 });

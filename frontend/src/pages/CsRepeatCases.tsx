@@ -6,8 +6,11 @@ import { getImprovement, type ImprovementDetail } from '../api/cs-improvements';
 import { addEvidence, getCaseComparison, listImprovementCandidates, listRepeatCandidates, removeEvidence, type CaseComparison } from '../api/cs-repeat-cases';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
-import { KvBox, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { useHotkey } from '../ls-shell/kv';
+import LogTable, { type LogColumn } from './LogTable';
 import { CAUSE_LABEL, DEPT_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, dayOf, formatStamp, type RequestSummary } from '../ls-shell/cs-labels';
+import './ticket-detail-v3.css';
+import './repeat-cases-v3.css';
 
 type CaseRow = CaseComparison['data']['items'][number];
 type Kind = 'IN' | 'CAND' | 'OUT';
@@ -53,33 +56,36 @@ export default function CsRepeatCases() {
   if (!access.ready) return <BusinessGate access={access} title="반복 사례 모음" />;
 
   const candidates = list.isSuccess ? list.data.data.items : [];
-  const title = <>
-    <KvTitle path="C/S 관리" title="반복 사례 모음" code="CS0201">
-      <button className="kb primary" disabled={list.isFetching} onClick={refresh}>조회<KvKey>F8</KvKey></button>
+  const title = <div className="title">
+    <span className="path">C/S 관리 ›</span><h1>반복 사례 모음</h1><code className="kv-code">CS0201</code>
+    <div className="btns">
+      <Link className="kb3" to="/cs/improvements">개선요청 목록</Link>
       {requestId
-        ? <Link className="kb" to={`/cs/improvements/${encodeURIComponent(requestId)}`}>요청으로 이동</Link>
-        : <button className="kb" disabled>요청으로 이동</button>}
-    </KvTitle>
-    {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다. 근거는 바꾸지 않습니다.</div>}
-  </>;
-  const cond = <KvCond onSearch={refresh}>
-    <KvCondRow columns={2}>
-      <KvCondField label="요청번호">
-        <select aria-label="요청번호" value={requestId ?? ''} disabled={!list.isSuccess} onChange={event => navigate(event.target.value ? `/cs/repeat-cases/${encodeURIComponent(event.target.value)}` : '/cs/repeat-cases')}>
-          <option value="">{list.isSuccess && !candidates.length ? '저장된 반복 사례 후보가 없습니다' : '요청 선택'}</option>
-          {requestId && list.isSuccess && !candidates.some(item => item.id === requestId) && <option value={requestId}>목록에 없는 요청</option>}
-          {candidates.map(item => <option key={item.id} value={item.id}>{requestLabel(item)}</option>)}
-        </select>
-      </KvCondField>
-    </KvCondRow>
-  </KvCond>;
-  return <main>
+        ? <Link className="kb3" to={`/cs/improvements/${encodeURIComponent(requestId)}`}>요청으로 이동</Link>
+        : <button className="kb3" disabled>요청으로 이동</button>}
+      <span className="vsep" />
+      <button className="kb3 pri" disabled={list.isFetching} onClick={refresh}>조회<kbd aria-hidden="true">F8</kbd></button>
+    </div>
+  </div>;
+  const cond = <form className="cond" onSubmit={event => { event.preventDefault(); refresh(); }}>
+    <span className="k">요청번호</span>
+    <select aria-label="요청번호" value={requestId ?? ''} disabled={!list.isSuccess} onChange={event => navigate(event.target.value ? `/cs/repeat-cases/${encodeURIComponent(event.target.value)}` : '/cs/repeat-cases')}>
+      <option value="">{list.isSuccess && !candidates.length ? '저장된 반복 사례 후보가 없습니다' : '요청 선택'}</option>
+      {requestId && list.isSuccess && !candidates.some(item => item.id === requestId) && <option value={requestId}>목록에 없는 요청</option>}
+      {candidates.map(item => <option key={item.id} value={item.id}>{requestLabel(item)}</option>)}
+    </select>
+    <span className="hint">해결 기록을 남길 때 기준(90일 안 고객 3곳 등)에 닿은 묶음이 개선요청 초안과 함께 여기에 모입니다.</span>
+  </form>;
+  return <main className="td3 rc3">
     {title}
-    {!requestId && <><KvNext label="다음">요청번호를 골라 근거 문의를 비교하세요.</KvNext>{cond}</>}
-    {list.isFetching && <Loading label="요청 목록을 불러오는 중" />}
-    {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={() => list.refetch()} />}
-    {!list.isFetching && list.isSuccess && !candidates.length && !requestId && <p className="state">저장된 반복 사례 후보가 없습니다.</p>}
-    {requestId && <EvidenceBoard key={requestId} requestId={requestId} summary={candidates.find(item => item.id === requestId)} cond={cond} reloadRef={reloadBoard} />}
+    <div className="body">
+      {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다. 근거는 바꾸지 않습니다.</div>}
+      {!requestId && <><div className="steps nextbar"><div className="now"><div><small>다음</small><b>요청번호를 골라 근거 문의를 비교하세요.</b></div></div></div>{cond}</>}
+      {list.isFetching && <Loading label="요청 목록을 불러오는 중" />}
+      {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={() => list.refetch()} />}
+      {!list.isFetching && list.isSuccess && !candidates.length && !requestId && <div className="pane"><div className="pb empty">저장된 반복 사례 후보가 없습니다.</div></div>}
+      {requestId && <EvidenceBoard key={requestId} requestId={requestId} summary={candidates.find(item => item.id === requestId)} cond={cond} reloadRef={reloadBoard} />}
+    </div>
   </main>;
 }
 
@@ -195,30 +201,29 @@ function EvidenceBoard({ requestId, summary, cond, reloadRef }: { requestId: str
     ...(e.removed_at ? [{ key: `${e.id}:out`, at: e.removed_at, kind: '뺌' as const, caseNo: e.case_external_id, ticketNo: e.ticket_external_id, by: e.removed_by, reason: e.removal_reason }] : []),
   ]).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
-  const rowColumns: KvColumn<Row>[] = [
+  const rowColumns: LogColumn<Row>[] = [
     { key: 'pick', header: '선택', width: 32, className: 'c', cell: (row, index) => <input type="checkbox" aria-label={`${index + 1}행 선택`} checked={row === selected} onChange={() => selectRow(row)} /> },
-    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_row, index) => index + 1 },
-    { key: 'ticket', header: '문의번호', width: 96, headClass: '', cell: row => row.ticketNo ? <Link to={`/cs/tickets/${encodeURIComponent(row.ticketId)}`}>{row.ticketNo}</Link> : '-' },
-    { key: 'case', header: '해결 기록', width: 80, headClass: '', cell: caseCell },
-    { key: 'customer', header: '고객', width: 90, headClass: '', cell: row => dash(row.customer) },
+    { key: 'ticket', header: '문의번호', width: 96, cell: row => row.ticketNo ? <Link to={`/cs/tickets/${encodeURIComponent(row.ticketId)}`}>{row.ticketNo}</Link> : '-' },
+    { key: 'case', header: '해결 기록', width: 80, cell: caseCell },
+    { key: 'customer', header: '고객', width: 90, cell: row => dash(row.customer) },
     { key: 'received', header: '접수일', width: 88, className: 'c', cell: row => row.receivedAt ? dayOf(row.receivedAt) : '-' },
-    { key: 'title', header: '제목', className: 't', headClass: '', cell: row => unrecorded(row.subject) },
+    { key: 'title', header: '제목', className: 't', cell: row => unrecorded(row.subject) },
     { key: 'evidence', header: '근거', width: 78, className: 'c', cell: evidenceLabel },
   ];
-  const logColumns: KvColumn<LogEntry>[] = [
+  const logColumns: LogColumn<LogEntry>[] = [
     { key: 'at', header: '일시', width: 130, className: 'c', cell: entry => formatStamp(entry.at) },
     { key: 'kind', header: '구분', width: 56, className: 'c', cell: entry => entry.kind },
-    { key: 'case', header: '해결 기록', width: 80, headClass: '', cell: entry => dash(entry.caseNo) },
-    { key: 'ticket', header: '문의', width: 120, headClass: '', cell: entry => dash(entry.ticketNo) },
+    { key: 'case', header: '해결 기록', width: 80, cell: entry => dash(entry.caseNo) },
+    { key: 'ticket', header: '문의', width: 120, cell: entry => dash(entry.ticketNo) },
     { key: 'by', header: '처리자', width: 90, className: 'c', cell: entry => actor(entry.by) },
-    { key: 'reason', header: '사유', className: 't', headClass: '', cell: entry => dash(entry.reason) },
+    { key: 'reason', header: '사유', className: 't', cell: entry => dash(entry.reason) },
   ];
   const baseCase = baseRow && comparisonOf(baseRow);
   const selectedCase = selected && comparisonOf(selected);
-  const compareColumns: KvColumn<(typeof FIELDS)[number]>[] = [
-    { key: 'label', header: '항목', width: 80, headClass: '', cell: field => field.label },
-    { key: 'base', header: baseRow ? `기준 ${rowNo(baseRow)}` : '기준', className: 't', headClass: '', cell: field => baseCase ? unrecorded(field.value(baseCase)) : '미기록' },
-    { key: 'picked', header: selected ? rowLabel(selected) : '선택 행', className: 't', headClass: '', cell: field => selectedCase ? unrecorded(field.value(selectedCase)) : '미기록' },
+  const compareColumns: LogColumn<(typeof FIELDS)[number]>[] = [
+    { key: 'label', header: '항목', width: 80, cell: field => field.label },
+    { key: 'base', header: baseRow ? `기준 ${rowNo(baseRow)}` : '기준', className: 't', cell: field => baseCase ? unrecorded(field.value(baseCase)) : '미기록' },
+    { key: 'picked', header: selected ? rowLabel(selected) : '선택 행', className: 't', cell: field => selectedCase ? unrecorded(field.value(selectedCase)) : '미기록' },
   ];
   const noComparison = !selected ? null
     : selected.kind === 'CAND' && !selectedCase ? '이 후보의 비교표가 없습니다. 원문 보기로 문의를 확인하세요.'
@@ -234,44 +239,49 @@ function EvidenceBoard({ requestId, summary, cond, reloadRef }: { requestId: str
   const sep = <span className="sep" style={{ display: 'inline' }}>/</span>;
 
   return <>
-    <KvNext label="다음">
-      {decision}, {comparisonState} {sep} 요청 {REQUEST_STATUS_LABEL[request.status] ?? request.status}, 근거 사례 {active.length}건
-      {pool.isSuccess && <> {sep} 후보 {candidateCount}건</>}
-    </KvNext>
+    <div className="steps nextbar">
+      <div className="now"><div><small>다음</small><b>{decision}, {comparisonState}</b></div></div>
+      <span className="reply"> {sep} 요청 {REQUEST_STATUS_LABEL[request.status] ?? request.status}, 근거 사례 {active.length}건{pool.isSuccess && <> {sep} 후보 {candidateCount}건</>}</span>
+    </div>
     {cond}
-    {notice && <div className="kv-sub" role={notice.error ? 'alert' : 'status'} style={{ margin: '6px 14px 0' }}>{notice.text}</div>}
-    {uncertain && <div className="kv-actions" style={{ margin: '6px 14px 0' }}><button className="kb primary" onClick={reload}>최신 내용 조회</button></div>}
-    <KvSplit columns="725fr 452fr">
-      <div>
-        <div className="kv-gridhead"><span>근거 문의 · {REQUEST_TYPE_LABEL[request.request_type]} · 판본 {request.version}</span><span>{pool.isSuccess ? `후보 문의 ${candidateCount}건` : pool.isFetching ? '후보 문의 불러오는 중' : '후보 문의 확인 불가'}</span></div>
-        <KvGrid label="근거 문의" columns={rowColumns} rows={rows} rowKey={row => row.key} selectedKey={selected?.key} onRow={selectRow} fallback="근거 문의와 후보가 없습니다." />
-        {pool.isError && (pool.error instanceof ApiError && pool.error.status === 403
-          ? <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>후보 문의는 C/S 담당자와 C/S 부서 관리자만 볼 수 있어 후보 행은 빼고 보여 줍니다.</div>
-          : <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>후보 문의를 불러오지 못했습니다. <button className="kb" onClick={() => pool.refetch()}>후보 다시 조회</button></div>)}
-        {compared && compared.hidden_case_count > 0 && <div className="kv-sub" role="note" style={{ margin: '6px 0 0' }}>볼 수 있는 범위 밖의 근거 문의 {compared.hidden_case_count}건은 비교표에서 뺐습니다.</div>}
-        <div className="kv-gridhead" style={{ marginTop: 12 }}><span>근거 변경 기록</span></div>
-        <KvGrid label="근거 변경 기록" columns={logColumns} rows={log} rowKey={entry => entry.key} fallback="근거 변경 기록이 없습니다." />
-      </div>
-      <KvBox title={`비교, ${position}/${rows.length}행 ${rowLabel(selected)} (기준 ${baseRow ? baseRow.ticketNo ?? '-' : '없음'})`}>
-        {comparison.isFetching && <Loading label="비교표를 불러오는 중" />}
-        {!comparison.isFetching && comparison.isError && <ErrorState error={comparison.error} onRetry={() => comparison.refetch()} />}
-        {!comparison.isFetching && compared && (!baseRow ? <p className="state">기준으로 삼을 포함 행이 없습니다.</p>
-          : noComparison ? <p className="state">{noComparison}</p>
-            : <KvGrid label="비교" columns={compareColumns} rows={FIELDS} rowKey={field => field.key} fallback="-" />)}
-        <div className="kv-actions">
-          {selected ? <Link className="kb" to={`/cs/tickets/${encodeURIComponent(selected.ticketId)}`}>원문 보기</Link> : <button className="kb" disabled>원문 보기</button>}
-          <button className="kb primary" disabled={!canAdd} onClick={add}>{busy ? '처리 중' : '근거 추가'}</button>
+    {notice && <div className={notice.error ? 'note err' : 'note'} role={notice.error ? 'alert' : 'status'}>{notice.text}</div>}
+    {uncertain && <div><button className="kb3 sm pri" onClick={reload}>최신 내용 조회</button></div>}
+    <div className="rc-cols">
+      <div className="stack">
+        <div className="pane">
+          <div className="ph">근거 문의 · {REQUEST_TYPE_LABEL[request.request_type]} · 판본 {request.version}<div className="r"><span className="meta">{pool.isSuccess ? `후보 문의 ${candidateCount}건` : pool.isFetching ? '후보 문의 불러오는 중' : '후보 문의 확인 불가'}</span></div></div>
+          <LogTable label="근거 문의" columns={rowColumns} rows={rows} rowKey={row => row.key} selectedKey={selected?.key} onRow={selectRow} fallback="근거 문의와 후보가 없습니다." />
+          {pool.isError && (pool.error instanceof ApiError && pool.error.status === 403
+            ? <div className="pb"><div className="tier-note" role="note">후보 문의는 C/S 담당자와 C/S 부서 관리자만 볼 수 있어 후보 행은 빼고 보여 줍니다.</div></div>
+            : <div className="pb"><div className="tier-note" role="note">후보 문의를 불러오지 못했습니다. <button className="kb3 sm" onClick={() => pool.refetch()}>후보 다시 조회</button></div></div>)}
+          {compared && compared.hidden_case_count > 0 && <div className="pb"><div className="tier-note" role="note">볼 수 있는 범위 밖의 근거 문의 {compared.hidden_case_count}건은 비교표에서 뺐습니다.</div></div>}
         </div>
-        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--erp-border-soft)' }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: 11.5, fontWeight: 400, color: 'var(--erp-muted)' }}>근거에서 빼기 (포함된 건만)</h3>
-          <label style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', alignItems: 'center', gap: 8, margin: 0 }}>빼는 사유 (필수)
-            <textarea aria-label="빼는 사유" required maxLength={2000} rows={2} style={{ width: '100%', boxSizing: 'border-box', margin: 0 }} disabled={!writable || busy || selected?.kind !== 'IN'} value={reason} onChange={event => selected && setRemoval({ rowKey: selected.key, text: event.target.value })} />
-          </label>
-          <div className="kv-actions" style={{ justifyContent: 'flex-end' }}>
-            <button className="kb" disabled={!canRemove} onClick={remove}>근거에서 빼기</button>
+        <div className="pane">
+          <div className="ph">근거 변경 기록</div>
+          <LogTable label="근거 변경 기록" columns={logColumns} rows={log} rowKey={entry => entry.key} fallback="근거 변경 기록이 없습니다." />
+        </div>
+      </div>
+      <div className="pane">
+        <div className="ph"><h2>{`비교, ${position}/${rows.length}행 ${rowLabel(selected)} (기준 ${baseRow ? baseRow.ticketNo ?? '-' : '없음'})`}</h2></div>
+        <div className="pb">
+          {comparison.isFetching && <Loading label="비교표를 불러오는 중" />}
+          {!comparison.isFetching && comparison.isError && <ErrorState error={comparison.error} onRetry={() => comparison.refetch()} />}
+          {!comparison.isFetching && compared && (!baseRow ? <p className="none">기준으로 삼을 포함 행이 없습니다.</p>
+            : noComparison ? <p className="none">{noComparison}</p>
+              : <LogTable label="비교" columns={compareColumns} rows={FIELDS} rowKey={field => field.key} fallback="-" />)}
+          <div className="row2">
+            {selected ? <Link className="kb3 sm" to={`/cs/tickets/${encodeURIComponent(selected.ticketId)}`}>원문 보기</Link> : <button className="kb3 sm" disabled>원문 보기</button>}
+            <button className="kb3 sm pri" style={{ marginLeft: 'auto' }} disabled={!canAdd} onClick={add}>{busy ? '처리 중' : '근거 추가'}</button>
+          </div>
+          <div className="sendbox">
+            <h3>근거에서 빼기 (포함된 건만)</h3>
+            <label className="fr top"><span className="k">빼는 사유 (필수)</span>
+              <textarea aria-label="빼는 사유" required maxLength={2000} rows={2} disabled={!writable || busy || selected?.kind !== 'IN'} value={reason} onChange={event => selected && setRemoval({ rowKey: selected.key, text: event.target.value })} />
+            </label>
+            <div className="row2"><button className="kb3 sm" style={{ marginLeft: 'auto' }} disabled={!canRemove} onClick={remove}>근거에서 빼기</button></div>
           </div>
         </div>
-      </KvBox>
-    </KvSplit>
+      </div>
+    </div>
   </>;
 }

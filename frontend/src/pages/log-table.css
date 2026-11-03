@@ -1,0 +1,12 @@
+/* LogTable: 문의 처리 화면 처리 기록 표(.td3 .log)에 고르기·가운데 정렬·빈 행만 더한다. 글꼴·굵기는 화면(Pretendard, 400)을 그대로 따른다. */
+.ls-root .kv .td3 .log,.ls-root .kv .td3 .log th,.ls-root .kv .td3 .log td{font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;-webkit-font-smoothing:auto}
+.ls-root .kv .td3 .log td{font-weight:400;color:#1d2433;vertical-align:middle}
+.ls-root .kv .td3 .log th{white-space:nowrap;position:sticky;top:0;z-index:1}
+.ls-root .kv .td3 .log th.c,.ls-root .kv .td3 .log td.c{text-align:center}
+.ls-root .kv .td3 .log td.t{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ls-root .kv .td3 .log td.none{color:#9aa2b1;text-align:center;padding:18px 10px}
+.ls-root .kv .td3 .log tr.pick{cursor:pointer}
+.ls-root .kv .td3 .log tbody tr:hover{background:#f7f8fb}
+.ls-root .kv .td3 .log tr.sel,.ls-root .kv .td3 .log tr.sel:hover{background:#f6f4fe}
+.ls-root .kv .td3 .log tr.sel td:first-child{box-shadow:inset 2px 0 0 #6a55d6}
+.ls-root .kv .td3 .log input[type=checkbox]{accent-color:#1a3a7a}
