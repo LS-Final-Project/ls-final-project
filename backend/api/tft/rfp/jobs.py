@@ -21,7 +21,13 @@ from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_run_annotations, can_run_processing
-from backend.api.tft.rfp import commands, draft_exports, draft_rewrite, repository
+from backend.api.tft.rfp import (
+    commands,
+    context_repository,
+    draft_exports,
+    draft_rewrite,
+    repository,
+)
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.shared.access import Principal
@@ -40,7 +46,7 @@ TFT_JOBS = "/internal/v1/platform/jobs/tft"
 NOT_CONNECTED = "TFT_PROCESSOR_NOT_CONNECTED"
 # 플랫폼 거절 중 그대로 옮기는 것. 나머지는 플랫폼을 쓸 수 없는 것으로 본다.
 PASSED_THROUGH = {409: ("TFT_JOB_IN_PROGRESS", "IDEMPOTENCY_CONFLICT"), 503: (NOT_CONNECTED,)}
-Kind = Literal["rfp.process", "rfp.annotate", "rfp.export", "rfp.draft_rewrite"]
+Kind = Literal["rfp.process", "rfp.annotate", "rfp.export", "rfp.draft_rewrite", "rfp.context"]
 
 
 class TftProcessingSettings(BaseSettings):
@@ -95,6 +101,11 @@ def input_version(document_version_ids: Sequence[UUID]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def context_input_version(fingerprint: str, base_version: int) -> str:
+    """Bind the source and human grouping head to one immutable admission."""
+    return hashlib.sha256(f"rfp-context-v1:{fingerprint}:{base_version}".encode()).hexdigest()
+
+
 def invalid(field: str, reason: str) -> ApplicationError:
     return ApplicationError(
         422,
@@ -109,7 +120,11 @@ async def admit(
     principal: Principal,
     project_id: UUID,
     kind: Kind,
-    payload: s.ProcessRequest | s.AnnotationProcess | s.ExportRequest | s.DraftRewrite,
+    payload: s.ProcessRequest
+    | s.AnnotationProcess
+    | s.ExportRequest
+    | s.DraftRewrite
+    | s.ContextProcess,
     key: str,
 ) -> s.JobAccepted:
     """범위·권한·입력을 검사하고 플랫폼에 작업을 접수한다.
@@ -132,7 +147,9 @@ async def admit(
     if isinstance(payload, s.ExportRequest):
         draft_exports.require_docx(payload.format)
     operation: commands.Operation
-    if kind == "rfp.process":
+    if kind == "rfp.context":
+        operation = "context.process"
+    elif kind == "rfp.process":
         operation = "project.process"
     elif kind == "rfp.export":
         operation = "export.create"
@@ -155,6 +172,13 @@ async def admit(
         )
         if known is not None:
             frozen = known[1]["input_version"]
+        elif isinstance(payload, s.ContextProcess):
+            source = await context_repository.load_source(conn, project_id)
+            if not source.requirements:
+                raise invalid(
+                    "requirements", "No extracted requirements are available to organize."
+                )
+            frozen = context_input_version(source.fingerprint, source.base_context_version)
         elif isinstance(payload, s.DraftRewrite):
             frozen = await draft_rewrite.reserve(
                 conn, project_id, principal.user_id, key, payload.version

@@ -930,3 +930,25 @@ test('diagram images retain exact version query and binary only on image path', 
   }, async url => { calls.push(String(url)); return new Response('original-image', { headers: { 'Content-Type': 'image/png' } }); }, true);
   assert.ok(calls[0].endsWith(path + `?document_version_id=${id}`));
 });
+
+test('RFP context relay preserves versioned reads, CSRF and idempotent writes within exact paths', async () => {
+  const id='11111111-1111-4111-8111-111111111111', calls=[];
+  await fixture(async origin=>{
+    const base=`/api/v1/tft/projects/${id}/context`;
+    const headers={Cookie:'__Host-team4_session=session; unrelated=secret',Origin:origin,'X-CSRF-Token':'context-csrf','Idempotency-Key':'context-key','Content-Type':'application/json',Authorization:'Bearer browser-secret'};
+    assert.equal((await fetch(origin+base+'?version=2',{headers})).status,200);
+    assert.equal((await fetch(origin+base,{method:'PATCH',headers,body:'{"expected_version":2,"reason":"synthetic"}'})).status,200);
+    assert.equal((await fetch(origin+base+'/process',{method:'POST',headers,body:'{}'})).status,202);
+    const total=calls.length;
+    for(const path of [base+'?target=other',base+'?version=1&version=2'])assert.equal((await fetch(origin+path,{headers})).status,400);
+    assert.equal((await fetch(origin+base+'/process?version=2',{method:'POST',headers,body:'{}'})).status,400);
+    assert.equal((await fetch(origin+base+'/confirm',{method:'POST',headers,body:'{}'})).status,405);
+    assert.equal((await fetch(origin+base,{method:'DELETE',headers})).status,405);
+    assert.equal(calls.length,total);
+  },async(url,options)=>{calls.push({url:String(url),options});return Response.json({data:{}},{status:String(url).endsWith('/process')?202:200});},true);
+  assert.equal(calls.length,3);
+  assert.match(calls[0].url,/context\?version=2$/);
+  for(const {options} of calls){assert.equal(options.headers.Authorization,'Bearer fixture-server-token');assert.equal(options.headers.Cookie,'__Host-team4_session=session');assert.equal(options.headers['X-CSRF-Token'],'context-csrf');assert.equal(options.headers['idempotency-key'],'context-key');assert.equal(options.redirect,'error');}
+  assert.equal(calls[1].options.body.toString(),'{"expected_version":2,"reason":"synthetic"}');
+  assert.equal(calls[2].options.body.toString(),'{}');
+});

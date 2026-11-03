@@ -323,7 +323,7 @@ async def project_detail_parts(
         "(SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
         "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
         "AS draft_version, (SELECT c.result->>'job_id' FROM tft.rfp_commands c "
-        "WHERE c.project_id = p.id AND c.operation = 'project.process' "
+        "WHERE c.project_id = p.id AND c.operation IN ('project.process','context.process') "
         "ORDER BY c.created_at DESC LIMIT 1) AS latest_job_id "
         "FROM tft.projects p WHERE p.id = %s",
         (project_id,),

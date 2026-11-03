@@ -14,9 +14,9 @@ export type RfpWatch = {
   activity?: RfpProgress[]; startedAt?: string; restoredCount?: number;
 };
 const states = new Set(['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED']);
-const kinds = new Set(['rfp.process', 'rfp.export', 'rfp.annotate', 'rfp.draft_rewrite']);
+const kinds = new Set(['rfp.process', 'rfp.export', 'rfp.annotate', 'rfp.draft_rewrite', 'rfp.context']);
 const types = new Set(['job.queued', 'job.started', 'job.progress', 'job.completed', 'job.failed']);
-const steps = new Set(['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft', 'export', 'annotate']);
+const steps = new Set(['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft', 'export', 'annotate', 'context_map', 'context_link', 'context_validate']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) && (v as number) >= min;

@@ -62,6 +62,12 @@ BEGIN
     IF to_regclass('tft.document_diagrams') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.document_diagrams TO tft_worker';
     END IF;
+    IF to_regclass('tft.context_versions') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT,INSERT ON tft.context_versions TO tft_worker';
+    END IF;
+    IF to_regclass('tft.review_context_snapshots') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.review_context_snapshots TO tft_worker';
+    END IF;
     IF to_regclass('tft.draft_rewrite_calls') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.draft_rewrite_calls TO tft_worker';
     END IF;

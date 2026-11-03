@@ -283,6 +283,8 @@ def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot,
             return SimpleNamespace(
                 fetchone=AsyncMock(return_value={"draft_version": original.version})
             )
+        if "FROM tft.review_context_snapshots" in sql:
+            return SimpleNamespace(fetchone=AsyncMock(return_value=None))
         return AsyncMock()
 
     conn.execute.side_effect = execute

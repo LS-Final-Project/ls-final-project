@@ -661,6 +661,622 @@
         "title": "Condition",
         "type": "object"
       },
+      "ContextAssignment": {
+        "additionalProperties": false,
+        "properties": {
+          "additional_categories": {
+            "items": {
+              "enum": [
+                "EQUIPMENT",
+                "TASK",
+                "DELIVERABLE",
+                "INTERFACE",
+                "QUALITY",
+                "SCHEDULE",
+                "QUALIFICATION",
+                "COMMERCIAL"
+              ],
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Additional Categories",
+            "type": "array"
+          },
+          "evidence_requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "title": "Evidence Requirement Ids",
+            "type": "array"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "primary_category": {
+            "enum": [
+              "EQUIPMENT",
+              "TASK",
+              "DELIVERABLE",
+              "INTERFACE",
+              "QUALITY",
+              "SCHEDULE",
+              "QUALIFICATION",
+              "COMMERCIAL",
+              "UNCLASSIFIED"
+            ],
+            "title": "Primary Category",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRelation"
+            },
+            "maxItems": 40,
+            "title": "Relations",
+            "type": "array"
+          },
+          "requirement_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "primary_category",
+          "reason"
+        ],
+        "title": "ContextAssignment",
+        "type": "object"
+      },
+      "ContextCorrection": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Source Fingerprint",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ContextResult"
+          }
+        },
+        "required": [
+          "expected_version",
+          "expected_source_fingerprint",
+          "reason",
+          "result"
+        ],
+        "title": "ContextCorrection",
+        "type": "object"
+      },
+      "ContextGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "diagram_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Diagram Source Ids",
+            "type": "array"
+          },
+          "entity_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "evidence_requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4000,
+            "minItems": 1,
+            "title": "Evidence Requirement Ids",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "SYSTEM",
+              "EQUIPMENT",
+              "TASK",
+              "COMMON"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "entity_id",
+          "name",
+          "kind",
+          "evidence_requirement_ids"
+        ],
+        "title": "ContextGroup",
+        "type": "object"
+      },
+      "ContextIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entity_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirement Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ContextIssue",
+        "type": "object"
+      },
+      "ContextProcess": {
+        "additionalProperties": false,
+        "description": "Reorganize existing requirements; never upload or re-extract the source.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ContextProcess",
+        "type": "object"
+      },
+      "ContextRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Group Id",
+            "type": "string"
+          },
+          "relation": {
+            "enum": [
+              "SAME_EQUIPMENT",
+              "PART_OF",
+              "APPLIES_TO",
+              "RELATED"
+            ],
+            "title": "Relation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "relation"
+        ],
+        "title": "ContextRelation",
+        "type": "object"
+      },
+      "ContextRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute"
+          },
+          "clause_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause Id"
+          },
+          "clause_no": {
+            "maxLength": 500,
+            "title": "Clause No",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "diagram_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Diagram Source Ids",
+            "type": "array"
+          },
+          "document_version_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "necessity": {
+            "title": "Necessity",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 16000,
+            "title": "Quote",
+            "type": "string"
+          },
+          "requirement_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "section_path": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Section Path",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version",
+          "document_version_id",
+          "clause_id",
+          "clause_no",
+          "section_path",
+          "quote",
+          "status",
+          "necessity"
+        ],
+        "title": "ContextRequirement",
+        "type": "object"
+      },
+      "ContextResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "current_source_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Current Source Fingerprint",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRequirement"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Fingerprint"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            },
+            "title": "Source Refs",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "NOT_ANALYZED",
+              "CURRENT",
+              "STALE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "project_id",
+          "status",
+          "current_source_fingerprint",
+          "requirements",
+          "source_refs"
+        ],
+        "title": "ContextResponse",
+        "type": "object"
+      },
+      "ContextResult": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ContextAssignment"
+            },
+            "maxItems": 4000,
+            "title": "Assignments",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ContextGroup"
+            },
+            "maxItems": 4000,
+            "title": "Groups",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ContextIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "PARTIAL"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "const": "rfp-context-v1",
+            "default": "rfp-context-v1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "rfp-context-v1",
+            "default": "rfp-context-v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "groups",
+          "assignments"
+        ],
+        "title": "ContextResult",
+        "type": "object"
+      },
       "CrossReference": {
         "additionalProperties": false,
         "properties": {
@@ -2013,6 +2629,9 @@
             "anyOf": [
               {
                 "enum": [
+                  "context_map",
+                  "context_link",
+                  "context_validate",
                   "parse",
                   "extract",
                   "search",
@@ -2555,6 +3174,9 @@
           "steps": {
             "items": {
               "enum": [
+                "context_map",
+                "context_link",
+                "context_validate",
                 "parse",
                 "extract",
                 "search",
@@ -5790,6 +6412,74 @@
         "title": "SentenceEdit",
         "type": "object"
       },
+      "SourceReference": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause Id"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_version_id": {
+            "format": "uuid",
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version",
+          "code",
+          "document_id",
+          "document_version_id",
+          "clause_id",
+          "page",
+          "quote"
+        ],
+        "title": "SourceReference",
+        "type": "object"
+      },
       "SuccessResponse_ClauseList_": {
         "properties": {
           "data": {
@@ -5820,6 +6510,22 @@
           "meta"
         ],
         "title": "SuccessResponse[Comparison]",
+        "type": "object"
+      },
+      "SuccessResponse_ContextResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ContextResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ContextResponse]",
         "type": "object"
       },
       "SuccessResponse_DiagramList_": {
@@ -7909,6 +8615,342 @@
           }
         },
         "summary": "Assign Project",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/context": {
+      "get": {
+        "operationId": "tft_get_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ContextResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Get Context",
+        "tags": [
+          "rfp"
+        ]
+      },
+      "patch": {
+        "operationId": "tft_correct_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ContextResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Correct Context",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/context/process": {
+      "post": {
+        "operationId": "tft_process_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextProcess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_JobAccepted_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Process Context",
         "tags": [
           "rfp"
         ]

@@ -454,11 +454,13 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             return (
                 await db.evidence_labels(conn, chain["project"]),
                 await db.project_title(conn, chain["project"]),
+                await db.load_review_context(conn, chain["project"], 1),
             )
 
     original = asyncio.run(frozen())
-    names, title = asyncio.run(head())
-    expected = draft_exports.render_docx(original, 1, names, title)
+    names, title, context = asyncio.run(head())
+    assert context is not None and context.status == "NOT_ANALYZED"
+    expected = draft_exports.render_docx(original, 1, names, title, context)
     events = []
 
     def crash_after_put(event):
@@ -515,7 +517,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         client, "POST", chain, "/review-versions", {"version": 1}, "current-review-blocked"
     )
     assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
-    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names, title) == expected
+    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names, title, context) == expected
     asyncio.run(execute(lambda event: None))
     response = call(client, "GET", chain, f"/exports/{export_id}/file")
     assert response.status_code == 200 and response.content == expected

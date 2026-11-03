@@ -20,7 +20,10 @@ from scripts.local_business.config import policy_mapping, save
 from scripts.local_business.permit import Denied, Permit
 from scripts.local_business.runtime import job_settings, local_only
 
-KINDS = {"cs": ["cs.analyze"], "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export"]}
+KINDS = {
+    "cs": ["cs.analyze"],
+    "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export", "rfp.context"],
+}
 UNLIMITED_PROTOCOL = 1
 
 

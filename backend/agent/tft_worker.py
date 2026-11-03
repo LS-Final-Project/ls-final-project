@@ -39,6 +39,9 @@ __all__ = ["TftWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # contracts/tft/rfp-jobs.md 단계 표.
 STEPS = (
+    "context_map",
+    "context_link",
+    "context_validate",
     "parse",
     "extract",
     "search",

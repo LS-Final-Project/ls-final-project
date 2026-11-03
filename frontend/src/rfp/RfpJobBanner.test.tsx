@@ -229,3 +229,12 @@ it('routes drawing-only completion to the original and connection candidates wit
   expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
   scroll.mockRestore();
 });
+
+it('context steps remain live thinking after draft and do not claim approval or completion',()=>{
+  const activity=[{sequence:8,occurredAt:'2026-11-03T00:00:00Z',type:'job.progress',step:'draft'},{sequence:9,occurredAt:'2026-11-03T00:00:01Z',type:'job.progress',step:'context_map'}];
+  render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{connection:'connected',activity,progress:activity[1]}}/></MemoryRouter>);
+  expect(screen.getByRole('img',{name:'AI 분석 중'}).getAttribute('data-state')).toBe('thinking');
+  expect(screen.getByRole('img').getAttribute('data-completed')).toBe('false');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('설비·과업 맥락 정리');
+  expect(screen.getByRole('status').textContent).toContain('맥락별로 정리');expect(screen.queryByRole('link')).toBeNull();
+});

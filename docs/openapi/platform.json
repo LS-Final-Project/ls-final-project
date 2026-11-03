@@ -4162,7 +4162,8 @@
               "rfp.process",
               "rfp.export",
               "rfp.annotate",
-              "rfp.draft_rewrite"
+              "rfp.draft_rewrite",
+              "rfp.context"
             ],
             "title": "Kind",
             "type": "string"

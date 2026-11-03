@@ -131,3 +131,12 @@ it.each(['empty','error','wrong-version'])('도면 %s 상태는 원문을 보존
   expect(screen.getByTestId('original')).toBeTruthy();
   expect(screen.queryByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.')).toBeNull();
 });
+
+it.each([false,true])('맥락 보기는 명시 선택 뒤 타문서 근거를 조회하되 판본불일치=%s는 강조하지 않는다',async mismatch=>{
+  const contextApi=await import('../api/rfp-context');
+  const get=vi.spyOn(contextApi,'getContext').mockResolvedValue({data:{project_id:'p',version:1,status:'CURRENT',source_fingerprint:'a'.repeat(64),current_source_fingerprint:'a'.repeat(64),provenance:'ai_draft',created_at:null,created_by:null,reason:null,requirements:[],source_refs:[{requirement_id:'cross',version:2,code:'R-CROSS',document_id:'doc1',document_version_id:'v1',clause_id:null,page:1,quote:'타문서 근거'}],result:{schema_version:'rfp-context-v1',prompt_version:'rfp-context-v1',outcome:'VALID',groups:[],issues:[],assignments:[{requirement_id:'cross',primary_category:'TASK',additional_categories:[],group_ids:[],relations:[],reason:'다른 문서 과업',evidence_requirement_ids:['cross'],needs_review:true}]}}});
+  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
+  vi.mocked(getRequirement).mockResolvedValue({data:{...MOCK_DETAIL,requirement_id:'cross',version:mismatch?3:2,judgement:{...MOCK_DETAIL.judgement,rnd_check:'NOT_REQUIRED'},origin:{...MOCK_DETAIL.origin,document_version_id:'v1',quote:'타문서 근거'}}});
+  show();expect(get).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'맥락별 검토'}));await screen.findByText(/고유 요구 0건/);fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});fireEvent.click(screen.getByRole('button',{name:'R-CROSS 원문 · 문서 이동'}));
+  if(mismatch){await screen.findByText('근거 요구 또는 문서 판본이 달라 원문 강조를 보류했습니다.');expect(screen.getByTestId('quote').textContent).toBe('');}else{await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('타문서 근거'));}expect(screen.getByTestId('original').textContent).toContain('second');get.mockRestore();
+});

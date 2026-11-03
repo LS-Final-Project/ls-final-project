@@ -17,6 +17,8 @@ from backend.api.tft.rfp import docx_layout as layout
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.commands import audit
+from backend.api.tft.rfp.context_report import append_context_report
+from backend.api.tft.rfp.context_schemas import ContextResponse
 from backend.api.tft.rfp.storage import DocumentStore, DocumentUnavailable, read_document
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.shared.errors import ApplicationError
@@ -152,6 +154,7 @@ def render_docx(
     review_version: int,
     labels: Mapping[str, str] | None = None,
     title: str = "",
+    context: ContextResponse | None = None,
 ) -> bytes:
     """고지·모든 절/문장·조건·근거·검토 표시를 실제 OOXML에 보존한다. 파일 생성은 결정적이다."""
     root = ET.Element(W + "document")
@@ -170,6 +173,7 @@ def render_docx(
         "해당 표식이 없다는 뜻이며 적합·공급 가능·승인 완료를 의미하지 않습니다.",
         "Meta",
     )
+    append_context_report(body, context)
     table_sections = {"OUR_RESPONSE", "DEVIATIONS", "PARTNER_SUPPLEMENT"}
     widths = (650, 3500, 2600, 2730)
     numbered: list[tuple[int, s.Sentence]] = []
@@ -266,8 +270,9 @@ async def process(
     if draft is None:
         raise ValueError("TFT_DRAFT_NOT_FOUND")
     labels = await db.evidence_labels(conn, job.project_id)
+    context = await db.load_review_context(conn, job.project_id, row["review_version"])
     data = await asyncio.to_thread(
-        render_docx, draft, row["review_version"], labels, row["title"] or ""
+        render_docx, draft, row["review_version"], labels, row["title"] or "", context
     )
     digest = hashlib.sha256(data).hexdigest()
     key = f"rfp/{job.project_id}/exports/{row['id']}.docx"

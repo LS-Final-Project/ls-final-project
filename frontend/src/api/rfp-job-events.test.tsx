@@ -113,3 +113,10 @@ it('restores a running job at the latest snapshot stage without exposing older s
   expect(views.filter(v => v.progress).map(v => v.progress?.step)).toEqual(['compare']);
   expect(views.at(-1)).toMatchObject({ restoredCount: 3, activity: [{ step: 'parse' }, { step: 'extract' }, { step: 'compare' }] });
 });
+
+it('accepts context jobs and only the three explicit context observation steps',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(json({id:target.actorId})).mockResolvedValueOnce(json(snap('RUNNING',1,{kind:'rfp.context'}))));
+  expect((await readRfpJob(target,new AbortController().signal)).kind).toBe('rfp.context');
+  for(const step of ['context_map','context_link','context_validate'])expect(parseRfpEvent(frame(event(2,'job.progress',{step,counts:{requirements:9,proposals:0}})),target.jobId)?.step).toBe(step);
+  expect(()=>parseRfpEvent(frame(event(2,'job.progress',{step:'context_approved'})),target.jobId)).toThrow();
+});

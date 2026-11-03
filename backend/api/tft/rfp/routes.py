@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
+    context_routes,
     jobs,
     routes_diagrams,
     routes_draft,
@@ -23,6 +24,7 @@ from backend.api.tft.rfp import (
     routes_write,
 )
 from backend.api.tft.rfp import schemas as s
+from backend.api.tft.rfp.context_schemas import ContextCorrection, ContextResponse
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind_path_ids
@@ -256,6 +258,70 @@ async def process(
     """
     data = await jobs.admit(request, principal, project_id, "rfp.process", payload, idempotency_key)
     return respond(request, data)
+
+
+@router.get(
+    P + "/context",
+    response_model=SuccessResponse[ContextResponse],
+    operation_id="tft_get_rfp_context",
+)
+async def get_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> SuccessResponse[ContextResponse]:
+    return respond(request, await context_routes.get_context(request, user, project_id, version))
+
+
+@router.patch(
+    P + "/context",
+    response_model=SuccessResponse[ContextResponse],
+    operation_id="tft_correct_rfp_context",
+)
+async def correct_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: ContextCorrection,
+    idempotency_key: Key,
+) -> SuccessResponse[ContextResponse]:
+    return respond(
+        request,
+        await context_routes.correct_context(
+            request,
+            user,
+            project_id,
+            payload,
+            idempotency_key,
+        ),
+    )
+
+
+@router.post(
+    P + "/context/process",
+    status_code=202,
+    response_model=SuccessResponse[s.JobAccepted],
+    operation_id="tft_process_rfp_context",
+)
+async def process_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.ContextProcess,
+    idempotency_key: Key,
+) -> SuccessResponse[s.JobAccepted]:
+    return respond(
+        request,
+        await jobs.admit(
+            request,
+            user,
+            project_id,
+            "rfp.context",
+            payload,
+            idempotency_key,
+        ),
+    )
 
 
 @router.get(

@@ -144,6 +144,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects/{uuid}/draft/exports", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/clauses", ("GET",), ("parent", "limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}/context", ("GET", "PATCH"), ("version",)),
+    ("/api/v1/tft/projects/{uuid}/context/process", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
     (
         "/api/v1/tft/projects/{uuid}/requirements",

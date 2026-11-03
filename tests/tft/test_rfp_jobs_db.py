@@ -350,3 +350,23 @@ def test_explicit_draft_rewrite_version_is_authorized_idempotent_and_stale_safe(
         )
         assert denied.status_code == status
     assert len(platform.bodies) == calls
+
+
+def test_context_admission_is_restored_as_latest_job_on_project_reload(client, platform, chain):
+    original = process(client, chain, reason="합성 기존 처리")
+    assert original.status_code == 202
+    context_id = str(uuid4())
+    platform.answer = (201, {"data": {"job_id": context_id, "status": "QUEUED"}})
+    headers = {**principal_header(OWNER), "Idempotency-Key": "context-reload-01"}
+    response = client.post(
+        f"/api/v1/tft/projects/{chain['project']}/context/process", json={}, headers=headers
+    )
+    assert response.status_code == 202, response.text
+    assert platform.bodies[-1]["kind"] == "rfp.context"
+    detail = client.get(f"/api/v1/tft/projects/{chain['project']}", headers=principal_header(OWNER))
+    assert detail.status_code == 200
+    assert detail.json()["data"]["latest_job"]["job_id"] == context_id
+    again = client.post(
+        f"/api/v1/tft/projects/{chain['project']}/context/process", json={}, headers=headers
+    )
+    assert again.status_code == 202 and again.json()["data"]["job_id"] == context_id

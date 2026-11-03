@@ -26,7 +26,17 @@ TERMINAL_STATES = frozenset({"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"})
 Outcome = Literal["VALID", "SCHEMA_VIOLATION", "TRANSPORT_FAILURE", "TIMEOUT", "HELD"]
 # RFP 작업 단계(contracts/tft/rfp-jobs.md 표). rfp.process는 parse~draft, rfp.export는 export, rfp.annotate는 annotate.
 RfpStep = Literal[
-    "parse", "extract", "search", "compare", "supplement", "candidates", "export", "annotate"
+    "context_map",
+    "context_link",
+    "context_validate",
+    "parse",
+    "extract",
+    "search",
+    "compare",
+    "supplement",
+    "candidates",
+    "export",
+    "annotate",
 ]
 
 

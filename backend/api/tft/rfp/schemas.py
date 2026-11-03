@@ -90,8 +90,11 @@ DepartmentKind = Literal["SALES", "RND", "TECH", "PURCHASE", "OTHER"]
 ProposalOrigin = Literal["web", "customer_reply", "pdf_annot"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED"]
 ProposerKind = Literal["user", "system"]
-JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite"]
+JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite", "rfp.context"]
 JobStep = Literal[
+    "context_map",
+    "context_link",
+    "context_validate",
     "parse",
     "extract",
     "search",
@@ -124,6 +127,12 @@ ConfirmationStatus = Literal["UNCONFIRMED", "CONTACT_PLANNED", "CONFIRMED"]
 
 class Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ContextProcess(Model):
+    """Reorganize existing requirements; never upload or re-extract the source."""
+
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 class Provenance(Model):

@@ -10,22 +10,27 @@ import { OriginalDocument } from './OriginalDocument';
 import { DiagramReview } from './DiagramReview';
 import { equipmentGroups, readDocumentRequirements } from './equipment-groups';
 import { EquipmentOverview, EquipmentResponse, ReviewPages } from './EquipmentOverview';
+import { ContextReview } from './ContextReview';
+import type { ContextSource } from '../api/rfp-context';
 import './RfpDocumentReview.css';
 
-export function RfpDocumentReview({ projectId, actorId, documents }: { projectId: string; actorId?: string; documents: DocumentVersion[] }) {
+export function RfpDocumentReview({ projectId, actorId, documents, busy = false, onContextStarted }: { projectId: string; actorId?: string; documents: DocumentVersion[]; busy?: boolean; onContextStarted?: (job:{job_id:string})=>void }) {
   const [picked, setPicked] = useState<string>();
+  const [view, setView] = useState<'requirements'|'context'>('requirements');
+  const [contextSource, setContextSource] = useState<(ContextSource & {revision:number})>();
   const versions = latestVersions(documents);
   const document = versions.find(d => d.document_version_id === picked) ?? versions.find(d => d.kind === 'RFP_SPEC') ?? versions[0];
   if (!document) return <div className="rfp-review-empty">문서를 올리면 원문과 분석 결과를 나란히 확인할 수 있습니다.</div>;
   return <section id="rfp-document-review" className="rfp-document-review" aria-label="원문과 분석 검토">
     <div className="rfp-review-heading"><div><h2>원문과 분석 결과</h2><p>{document.kind === 'DRAWING' ? '도면 원본에서 장비·기호와 연결 후보를 확인하세요. 문자 요구는 별도로 표시합니다.' : '설비별 대응 현황을 확인하고, 세부 요구를 선택해 원문과 근거를 대조하세요.'}</p></div>
-      <label>검토 문서<select aria-label="검토 문서" value={document.document_version_id} onChange={e => setPicked(e.target.value)}>{versions.map(d => <option key={d.document_version_id} value={d.document_version_id}>{d.title} · v{d.version}</option>)}</select></label>
+      <label>검토 문서<select aria-label="검토 문서" value={document.document_version_id} onChange={e => {setPicked(e.target.value);setContextSource(undefined);}}>{versions.map(d => <option key={d.document_version_id} value={d.document_version_id}>{d.title} · v{d.version}</option>)}</select></label>
     </div>
-    <DocumentAnalysis key={`${actorId}:${projectId}:${document.document_version_id}`} projectId={projectId} actorId={actorId} document={document} />
+    <div className="rfp-review-view-switch" role="group" aria-label="분석 보기"><button type="button" aria-pressed={view==='requirements'} onClick={()=>{setView('requirements');setContextSource(undefined);}}>기존 요구·대응 검토</button><button type="button" aria-pressed={view==='context'} onClick={()=>setView('context')}>맥락별 검토</button></div>
+    <DocumentAnalysis view={view} documents={versions} busy={busy} onContextStarted={onContextStarted} contextSource={contextSource} onSource={source=>{setPicked(source.document_version_id);setContextSource(previous=>({...source,revision:(previous?.revision??0)+1}));}} key={`${actorId}:${projectId}:${document.document_version_id}`} projectId={projectId} actorId={actorId} document={document} />
   </section>;
 }
 
-function DocumentAnalysis({ projectId, actorId, document }: { projectId: string; actorId?: string; document: DocumentVersion }) {
+function DocumentAnalysis({ projectId, actorId, document, documents, view, busy, onContextStarted, contextSource, onSource }: { projectId: string; actorId?: string; document: DocumentVersion; documents:DocumentVersion[]; view:'requirements'|'context';busy:boolean;onContextStarted?:(job:{job_id:string})=>void;contextSource?:ContextSource & {revision:number};onSource:(source:ContextSource)=>void }) {
   const mode = getApiMode();
   const drawing = document.kind === 'DRAWING';
   const [diagramVisible, setDiagramVisible] = useState(false);
@@ -50,8 +55,9 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
   const totalPages = Math.ceil((group?.rows.length ?? 0) / 10);
   const currentPage = Math.min(page, Math.max(0, totalPages - 1));
   const rows = group?.rows.slice(currentPage * 10, currentPage * 10 + 10) ?? [];
-  const id = rows.find(r => r.requirement_id === picked)?.requirement_id ?? rows[0]?.requirement_id;
-  const requirementVersion = rows.find(r => r.requirement_id === id)?.version;
+  const selectedContext = view==='context' && contextSource?.document_version_id===document.document_version_id ? contextSource : undefined;
+  const id = view==='context' ? selectedContext?.requirement_id : rows.find(r => r.requirement_id === picked)?.requirement_id ?? rows[0]?.requirement_id;
+  const requirementVersion = selectedContext?.version ?? rows.find(r => r.requirement_id === id)?.version;
   const detail = useQuery({ queryKey: ['rfp-requirement', mode, actorId, projectId, id, requirementVersion], queryFn: () => getRequirement(id!), enabled: !!id, retry: false });
   // Never highlight stale detail from another document/version after navigation or invalidation.
   const selected = !!id && !detail.isError && detail.data?.data.requirement_id === id && detail.data.data.version === requirementVersion && detail.data.data.origin.document_version_id === document.document_version_id ? detail.data.data : undefined;
@@ -60,14 +66,16 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
     {extractionInfoUnavailable && <p className="rfp-review-warning" role="status">현재 판본 추출 안내 확인 불가</p>}
     {extractionWarnings.length > 0 && <div className="rfp-review-warning" role="status"><strong>원문 추출 확인 필요</strong><ul>{extractionWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
     <DiagramReview document={document} actorId={actorId} projectId={projectId} onOriginalVisible={setDiagramVisible} />
-    <div className="rfp-group-filter"><label><input type="checkbox" checked={filter} onChange={e => { setFilter(e.target.checked); setPage(0); setPicked(undefined); setGroupKey(undefined); }} />미해결 필수만</label></div>
+    {view==='requirements' && <><div className="rfp-group-filter"><label><input type="checkbox" checked={filter} onChange={e => { setFilter(e.target.checked); setPage(0); setPicked(undefined); setGroupKey(undefined); }} />미해결 필수만</label></div>
     {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : requirements.isPending ? <Loading label="설비별 요구 전체 읽는 중" /> : <>
       {groups.length ? <EquipmentOverview groups={groups} selected={group?.key} onSelect={chooseGroup} filtered={filter} /> : <p className="rfp-review-empty">{filter ? '이 문서에 미해결 필수 요구가 없습니다.' : drawing ? '추출된 문자 요구는 0건입니다. 도면의 장비·기호와 연결 후보는 위 도면 검토에서 확인하세요.' : '이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.'}</p>}
       {group && <EquipmentResponse group={group} candidates={candidates.data?.data.items ?? []} candidatesPending={candidates.isPending} candidatesError={candidates.isError} projectId={projectId} />}
     </>}
-    {(!drawing || groups.length > 0 || !diagramVisible) && <div className="rfp-review-columns" style={drawing && !groups.length ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
-    <OriginalDocument key={document.document_version_id} document={document} origin={selected?.origin} selectionRevision={selectionRevision} onQuoteClick={focusAnalysis} />
-    {(!drawing || groups.length > 0) && <aside className="rfp-analysis-pane" aria-label="문서별 분석 결과">
+    </>}
+    {(!drawing || groups.length > 0 || !diagramVisible || view==='context') && <div className="rfp-review-columns" style={drawing && !groups.length && view!=='context' ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
+    <OriginalDocument key={document.document_version_id} document={document} origin={selected?.origin} selectionRevision={selectedContext?.revision??selectionRevision} onQuoteClick={focusAnalysis} />
+    {(!drawing || groups.length > 0 || view==='context') && <aside className="rfp-analysis-pane" aria-label="문서별 분석 결과">
+      {view==='context' ? <><ContextReview projectId={projectId} actorId={actorId} document={document} documents={documents} busy={busy} onStarted={onContextStarted} onSource={onSource}/>{selectedContext&&detail.isError&&<ErrorState error={detail.error}/>} {(contextSource&&!selectedContext||selectedContext&&!detail.isPending&&!selected)&&<p role="alert">근거 요구 또는 문서 판본이 달라 원문 강조를 보류했습니다.</p>}</> : <>
       <div className="rfp-analysis-toolbar"><h3>{group ? `${group.name} · 세부 요구` : '분석한 요구'}</h3></div>
       {!requirements.isError && !requirements.isPending && <>
         <div className="rfp-requirement-cards" role="group" aria-label="분석 요구 선택">
@@ -80,7 +88,7 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
         {rows.length > 0 && <><p className="rfp-review-page-count">{currentPage + 1}쪽 · {rows.length}건 / 선택 묶음 {group?.rows.length}건</p><ReviewPages label="문서 요구 페이지" page={currentPage} count={totalPages} onChange={n => { setPage(n); setPicked(undefined); }} /></>}
       </>}
       {id && (detail.isError ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} /> : detail.isPending ? <Loading label="선택한 요구 읽는 중" /> : selected ? <AnalysisDetail data={selected} projectId={projectId} actorId={actorId} /> : <p role="alert">요구와 문서 판본이 일치하지 않습니다. 문서를 다시 선택하세요.</p>)}
-    </aside>}
+    </>} </aside>}
     </div>}
   </>;
 }

@@ -181,6 +181,7 @@ async def save_review(
                     saved,
                 ),
             )
+            await db.capture_review_context(conn, project_id, review_version)
             await conn.execute(
                 "UPDATE tft.projects SET review_version=%s,output_status='REVIEW_DRAFT',judgement_status=%s,version=version+1 WHERE id=%s",
                 (review_version, judgement, project_id),

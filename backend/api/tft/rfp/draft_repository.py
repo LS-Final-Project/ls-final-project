@@ -7,6 +7,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
 from backend.api.tft.rfp import schemas as s
+from backend.api.tft.rfp.context_schemas import ContextResponse
 from backend.api.tft.rfp.repository import NEEDS_REREVIEW, version_conflict
 from backend.engine.rfp.draft import DISCLAIMER
 from backend.engine.rfp.vocabulary import sentence_conditions
@@ -286,3 +287,35 @@ async def project_title(conn: AsyncConnection[Row], project_id: UUID) -> str:
     if row is None:
         raise ValueError("TFT_PROJECT_MISSING")
     return " ".join(part for part in (row["external_id"], row["name"]) if part)
+
+
+async def capture_review_context(
+    conn: AsyncConnection[Row], project_id: UUID, review_version: int
+) -> None:
+    """Freeze exact context + original refs inside the review creation transaction, including absence/staleness."""
+    from backend.api.tft.rfp.context_repository import load_context
+
+    await lock(conn, project_id)
+    cursor = await conn.execute(
+        "SELECT 1 FROM tft.review_context_snapshots WHERE project_id=%s AND review_version=%s",
+        (project_id, review_version),
+    )
+    if await cursor.fetchone():
+        return
+    snapshot = await load_context(conn, project_id)
+    await conn.execute(
+        "INSERT INTO tft.review_context_snapshots(project_id,review_version,context_version,snapshot) VALUES(%s,%s,%s,%s)",
+        (project_id, review_version, snapshot.version, Jsonb(snapshot.model_dump(mode="json"))),
+    )
+
+
+async def load_review_context(
+    conn: AsyncConnection[Row], project_id: UUID, review_version: int
+) -> ContextResponse | None:
+    """Old reviews without a captured snapshot return None; never backfill with newer context."""
+    cursor = await conn.execute(
+        "SELECT snapshot FROM tft.review_context_snapshots WHERE project_id=%s AND review_version=%s",
+        (project_id, review_version),
+    )
+    row = await cursor.fetchone()
+    return ContextResponse.model_validate(row["snapshot"]) if row else None

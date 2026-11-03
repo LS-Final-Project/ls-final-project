@@ -48,7 +48,7 @@ class TftJobStatus(BaseModel):
     job_id: UUID
     project_id: UUID
     owner: Literal["tft"] = "tft"
-    kind: Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite"]
+    kind: Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite", "rfp.context"]
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"]
     version: int = Field(ge=1)
     last_event_sequence: int = Field(ge=0)

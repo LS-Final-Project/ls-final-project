@@ -429,3 +429,12 @@ GRANT CONNECT ON DATABASE team4 TO cs_worker_login, tft_worker_login;
 같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
 
 T20 적용 뒤 T14 또는 T17을 각각 재적용해도 새 프로젝트 입력3열의 worker SELECT를 조건부로 복원한다. T20 이전에는 열 존재 검사를 통과하지 않으므로 새 설치 순서를 막지 않는다. 프로젝트의 다른 열 권한이나 UPDATE 권한은 넓히지 않는다.
+
+## KAN-188 맥락 정리 확장
+
+기존 도면 저장과 초안/검토본 구조 뒤에 TFT `20261118_KAN-188_context_analysis.sql`,
+`20261119_KAN-188_context_commands.sql`을 적용한다. 플랫폼은
+`20261118_KAN-188_context_jobs.sql`로 `rfp.context` 종류/경로 조합을 확장한다.
+원 요구/기존 판정·검토본은 변경하지 않으며, 검토본 저장 이후의 맥락 결과를 과거 DOCX에 소급하지 않는다.
+TFT 20261106·20261111의 명령 CHECK 재적용도 context.process 행을 보존하도록 허용집합을 확장했다.
+구체 계약은 [맥락별 정리](../../contracts/tft/rfp-context.md)다. 운영 적용과 복원 검증은 별도다.

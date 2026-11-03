@@ -16,6 +16,7 @@
 | `kind` | 만드는 경로(멱등 범위) | 단계 `step` |
 | --- | --- | --- |
 | `rfp.process` | `POST /api/v1/tft/projects/{project_id}/process` | `parse`·`extract`·`search`·`compare`·`supplement`·`candidates`·`draft` |
+| `rfp.context` | `POST /api/v1/tft/projects/{project_id}/context/process` | `context_map`·`context_link`·`context_validate` |
 | `rfp.export` | `POST /api/v1/tft/projects/{project_id}/draft/exports` | `export` |
 | `rfp.annotate` | `POST /api/v1/tft/projects/{project_id}/annotations/process` | 지원 범위 밖: 접수 422 `TFT_ANNOTATION_UNAVAILABLE` |
 
@@ -131,3 +132,8 @@ SHA-256이며 문서 hash나 export hash와 섞지 않는다. 자동 연쇄 접�
 사람이 먼저 저장한 결과는 덮어쓰지 않으며, stale 결과를 버려도 이미 저장된 N/사람 판본은 남는다.
 호출 실패/검사 실패의 양식 대체는 needs_review 요약으로 보고하고 작업 자체를 실패로 꾸미지 않는다.
 [초안 모델 작성과 실패 정책](rfp-draft.md#경로32-모델-문장-작성)을 따른다. T19/P33은 미적용이며 운영 적용은 별도다.
+
+## 맥락 정리 후속
+
+정규 process의 초안 저장 뒤 맥락 후보를 연결하며, 기존 추출 결과는 별도 `rfp.context`로 정리한다.
+입력 고정·병렬 호출·불변 검토본·실패 경계는 [맥락별 정리 계약](rfp-context.md)을 따른다.

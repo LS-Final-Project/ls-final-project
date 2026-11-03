@@ -648,6 +648,23 @@
         "POST"
       ],
       "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context/process",
+      "methods": [
+        "POST"
+      ],
+      "query": []
     }
   ],
   "cases": [

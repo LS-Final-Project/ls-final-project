@@ -56,6 +56,9 @@ from backend.api.tft.rfp.storage import (
 from backend.engine.documents import vision
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_section
+from backend.engine.rfp.context_graph import ContextProvider, Stage, create_gemini_context_provider
+from backend.engine.rfp.context_graph import fake_provider as fake_context_provider
+from backend.engine.rfp.context_models import ContextProposal
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
@@ -188,6 +191,18 @@ def build(settings: Settings) -> Processor:
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
+    context_provider: ContextProvider | None = fake_context_provider
+    if config.extraction_provider == "gemini":
+        # SDK creation is lazy; exports and previously completed jobs do not create a model client.
+        context_client: ContextProvider | None = None
+
+        async def organize(stage: Stage, payload: dict[str, Any]) -> ContextProposal:
+            nonlocal context_client
+            if context_client is None:
+                context_client = create_gemini_context_provider(extraction_settings(config))
+            return await context_client(stage, payload)
+
+        context_provider = organize
     return make_processor(
         settings,
         provider=provider,
@@ -195,6 +210,7 @@ def build(settings: Settings) -> Processor:
         draft_provider=rewrite_provider(config),
         rewrite_model=config.draft_rewrite_model,
         extraction_concurrency=config.extraction_concurrency,
+        context_provider=context_provider,
         image_provider=(
             vision.gemini_image_provider(extraction_settings(config))
             if config.extraction_provider == "gemini"
@@ -214,6 +230,7 @@ def make_processor(
     rewrite_model: str = "gemini-3.6-flash",
     extraction_concurrency: int = 3,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
+    context_provider: ContextProvider | None = None,
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -230,6 +247,12 @@ def make_processor(
     own = list(products) if products is not None else comparison.load_own_products()
 
     def processor(job: TftJob, emit: Emit) -> dict[str, Any] | None:
+        from backend.api.tft.rfp.context_worker import process_context
+
+        if job.kind == "rfp.context":
+            if context_provider is None:
+                raise ValueError("TFT_CONTEXT_PROVIDER_MISSING")
+            return asyncio.run(process_context(settings, job, emit, context_provider))
         if job.kind == "rfp.draft_rewrite":
             if draft_provider is None:
                 raise ValueError("TFT_DRAFT_REWRITE_PROVIDER_MISSING")
@@ -238,7 +261,7 @@ def make_processor(
             return asyncio.run(export_job(settings, job, emit, store))
         if job.kind == "rfp.annotate":
             raise ValueError("TFT_ANNOTATION_UNAVAILABLE")
-        return asyncio.run(
+        result = asyncio.run(
             process(
                 settings,
                 job,
@@ -251,6 +274,12 @@ def make_processor(
                 image_provider,
             )
         )
+        if context_provider is not None:
+            organized = asyncio.run(
+                process_context(settings, job, emit, context_provider, check_input=False)
+            )
+            result["needs_review"] = bool(result.get("needs_review") or organized["needs_review"])
+        return result
 
     return processor
 

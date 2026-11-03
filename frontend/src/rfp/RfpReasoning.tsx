@@ -4,6 +4,9 @@ import type { DocumentVersion } from '../api/rfp';
 import './RfpReasoning.css';
 
 const descriptions: Record<string, string> = {
+  context_map:'기존 요구를 설비·과업과 8개 분류로 정리하는 단계가 기록됐습니다.',
+  context_link:'요구와 묶음의 근거 연결을 확인하는 단계가 기록됐습니다.',
+  context_validate:'맥락 정리의 누락과 충돌을 검증하는 단계가 기록됐습니다.',
   parse: '문서의 글과 이미지 영역을 확인하는 단계가 기록됐습니다.',
   extract: '문서에서 요구사항을 추출하는 단계가 기록됐습니다.',
   search: '자사 자료 검색 단계가 기록됐습니다.',

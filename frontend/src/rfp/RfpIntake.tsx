@@ -180,7 +180,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
     // Keep the admitted job authoritative until project navigation or a new admission.
     // A stale latest_job during invalidation must not switch back to the previous job.
     setFinished(jobStatus);
-    for (const key of ['projects', 'rfp-documents', 'rfp-diagrams', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
+    for (const key of ['projects', 'rfp-documents', 'rfp-diagrams', 'rfp-context', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
     client.invalidateQueries({ queryKey: ['rfp-supplement', mode] });
     client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, projectId] });
     if (actorId) {
@@ -288,7 +288,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
       ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
     ]} />
     <p>협력사 검토 입력을 바꿨다면 처리 재실행이 필요합니다. 현재 입력과 저장된 등급의 판정 시점은 다를 수 있습니다.</p>
-    <RfpDocumentReview projectId={projectId} actorId={actorId} documents={docs} />
+    <RfpDocumentReview projectId={projectId} actorId={actorId} documents={docs} busy={analyzing} onContextStarted={({job_id})=>{setRequestDocuments(latestVersions(docs).map(d=>d.document_version_id));setFinished(undefined);watched.current=job_id;setStarted(job_id);client.invalidateQueries({queryKey:['projects',mode]});}} />
     <details className="rfp-project-switch"><summary>문서 판본 및 요구 집계</summary>
     <KvSplit columns="1.25fr 1fr">
       <div>
