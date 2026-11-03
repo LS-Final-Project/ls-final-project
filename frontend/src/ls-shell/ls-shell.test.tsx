@@ -113,7 +113,8 @@ describe('셸 메뉴', () => {
   it.each([
     ['/tft/projects/p1/requirements/r1', '접수 및 요구 검토'],
     ['/tft/projects/p1', '접수 및 요구 검토'],
-    ['/tft/projects/p1/table', '자사 대응표'],
+    ['/tft/projects/p1/table', '대응 방안 검토'],
+    ['/tft/projects/p1/supplement', '대응 방안 검토'],
   ])('%s 에서 메뉴는 %s 만 강조한다', async (path, name) => {
     const { container } = show(path);
     await waitFor(() => expect([...container.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual([name]));
@@ -144,7 +145,7 @@ describe('셸 메뉴', () => {
   it('탭은 새로고침해도 남고 저장소를 못 써도 셸이 돈다', async () => {
     sessionStorage.setItem('ls-open-tabs', JSON.stringify([{ kind: 'table', to: '/tft/projects/p1/table', name: '자사 대응표' }]));
     show('/tft');
-    await screen.findByRole('tab', { name: '자사 대응표', selected: false });
+    await screen.findByRole('tab', { name: '대응 방안 검토', selected: false });
     cleanup();
     sessionStorage.clear();
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
@@ -158,4 +159,16 @@ describe('셸 메뉴', () => {
     show('/cs');
     await screen.findByText('세션 확인 실패');
   });
+});
+
+
+it('이전 대응표·협력사 탭은 같은 대응 검토 탭으로 복구한다', async () => {
+  sessionStorage.setItem('ls-open-tabs', JSON.stringify([
+    {kind:'table',to:'/tft/projects/p1/table',name:'자사 대응표'},
+    {kind:'supplement',to:'/tft/projects/p1/supplement',name:'보완 및 협력사 비교'},
+  ]));
+  show('/tft/projects');
+  await screen.findByRole('tab', {name:'대응 방안 검토'});
+  expect(screen.getAllByRole('tab', {name:'대응 방안 검토'})).toHaveLength(1);
+  expect(screen.queryByRole('tab', {name:'보완 및 협력사 비교'})).toBeNull();
 });

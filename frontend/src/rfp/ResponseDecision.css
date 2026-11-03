@@ -1,0 +1,14 @@
+.rfp-response-decision { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.rfp-response-decision .response-card { border:1px solid #dce2ec; border-radius:8px; padding:16px; background:#fff; min-width:0; overflow-wrap:anywhere; }
+.rfp-response-decision h3 { margin:0 0 12px; color:#203b60; font-size:15px; }
+.rfp-response-decision p { font-size:13px; line-height:1.6; margin:7px 0; }
+.rfp-response-decision small { color:#63738c; font-size:11px; }
+.rfp-response-decision .response-evidence, .rfp-response-decision .response-gate { border-top:1px solid #e6ebf2; padding:10px 0; }
+.rfp-response-decision blockquote { margin:8px 0; padding:10px; border-left:3px solid #a9bbd2; background:#f5f7fb; white-space:pre-wrap; }
+.rfp-response-decision .supplement-bottom > div { grid-template-columns:minmax(0,1fr)!important; }
+.rfp-response-decision .supplement-bottom fieldset > div { grid-template-columns:minmax(0,1fr); gap:5px; }
+.rfp-response-decision .supplement-bottom section { margin:0; }
+
+.rfp-response-decision .response-own-list { max-height:300px; overflow:auto; }
+
+.rfp-response-decision .response-partner-list { max-height:330px; overflow:auto; }

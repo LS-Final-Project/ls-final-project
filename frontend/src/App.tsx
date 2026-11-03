@@ -20,9 +20,8 @@ import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
 import RfpIntake from './rfp/RfpIntake';
 import RfpRequirement from './rfp/RfpRequirement';
-import RfpSupplement from './rfp/RfpSupplement';
+import RfpResponseReview from './rfp/RfpResponseReview';
 import RfpApprovals from './rfp/RfpApprovals';
-import RfpTable from './rfp/RfpTable';
 import RfpDraft from './rfp/RfpDraft';
 
 export default function App() {
@@ -50,8 +49,8 @@ export default function App() {
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
       <Route path="tft/projects" element={<RfpIntake />} />
-      <Route path="tft/projects/:projectId/supplement" element={<RfpSupplement />} />
-      <Route path="tft/projects/:projectId/table" element={<RfpTable />} />
+      <Route path="tft/projects/:projectId/supplement" element={<RfpResponseReview />} />
+      <Route path="tft/projects/:projectId/table" element={<RfpResponseReview />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />
       <Route path="tft/projects/:projectId/draft" element={<RfpDraft />} />
       <Route path="tft/projects/:projectId/requirements/:requirementId" element={<RfpRequirement />} />

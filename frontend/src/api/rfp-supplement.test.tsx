@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { listRequirements } from './rfp';
+import { getComparison, listRequirements } from './rfp';
 import { clearSessionCsrfToken, request, setApiMode } from './client';
 import { getSupplementRequirement, getSupplementOptions, listSupplementCandidates, listSupplementRequirements, selectSupplement, type SupplementSelection } from './rfp-supplement';
 
@@ -70,4 +70,14 @@ test('보완 원문 상세도 실 API를 사용하고 필터를 공용 요구 �
     '/api/v1/tft/requirements/clause%2Fid',
     '/api/v1/tft/projects/project/requirements?limit=20&status=SPEC_GAP&necessity=MANDATORY',
   ]);
+});
+
+
+test('통합 대응 비교는 명시한 실 API 실패를 모의 제품으로 바꾸지 않는다', async () => {
+  setApiMode('mock');
+  const fetcher = vi.fn(async () => Response.json({ error: { code: 'UNAVAILABLE', message: '비교 조회 실패' } }, { status: 503 }));
+  vi.stubGlobal('fetch', fetcher);
+  await expect(getComparison('requirement/id', { useMockFallback: false })).rejects.toMatchObject({ status: 503 });
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(String((fetcher.mock.calls[0] as unknown[])[0])).toBe('/api/v1/tft/requirements/requirement%2Fid/comparison');
 });

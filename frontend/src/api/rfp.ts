@@ -1,3 +1,5 @@
+import { me } from './platform';
+import type { ProjectDetailResponse } from './tft';
 import type { components } from './generated/tft';
 import { ApiError, getApiMode, request, sessionCsrfToken } from './client';
 import { MOCK_CLAUSES, MOCK_COMPARISON, MOCK_DETAIL, MOCK_PROPOSALS, MOCK_QUESTIONS, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
@@ -50,8 +52,8 @@ export const getRequirement = (id: string) => request<Envelope<RequirementDetail
   `/api/v1/tft/requirements/${encodeURIComponent(id)}`, { mockFallback: mock(MOCK_DETAIL) },
 );
 
-export const getComparison = (id: string) => request<Envelope<Comparison>>(
-  `/api/v1/tft/requirements/${encodeURIComponent(id)}/comparison`, { mockFallback: mock(MOCK_COMPARISON) },
+export const getComparison = (id: string, options: { useMockFallback?: boolean } = {}) => request<Envelope<Comparison>>(
+  `/api/v1/tft/requirements/${encodeURIComponent(id)}/comparison`, options.useMockFallback === false ? {} : { mockFallback: mock(MOCK_COMPARISON) },
 );
 
 export const listDocuments = (projectId: string) => request<Envelope<Schemas['DocumentList']>>(
@@ -128,13 +130,13 @@ export const getJob = (id: string) => request<Envelope<JobStatus>>(
 );
 
 export type Question = Schemas['Question'];
-export const listQuestions = (projectId: string, status?: string) => request<Envelope<Schemas['QuestionList']>>(
+export const listQuestions = (projectId: string, status?: string, options: { useMockFallback?: boolean } = {}) => request<Envelope<Schemas['QuestionList']>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions${status ? `?status=${status}` : ''}`,
-  { mockFallback: mock({ items: MOCK_QUESTIONS }) },
+  options.useMockFallback === false ? {} : { mockFallback: mock({ items: MOCK_QUESTIONS }) },
 );
-export const createQuestion = (projectId: string, body: Schemas['QuestionCreate'], key: string) => request<Envelope<Question>>(
+export const createQuestion = (projectId: string, body: Schemas['QuestionCreate'], key: string, options: { useMockFallback?: boolean } = {}) => request<Envelope<Question>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions`,
-  { ...json(key, body), mockFallback: mock(MOCK_QUESTIONS[0]) },
+  { ...json(key, body), ...(options.useMockFallback === false ? {} : { mockFallback: mock(MOCK_QUESTIONS[0]) }) },
 );
 export const confirmQuestion = (projectId: string, id: string, key: string) => request<Envelope<Question>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions/${encodeURIComponent(id)}/confirm`,
@@ -184,3 +186,16 @@ export const listDocumentDiagrams = (documentId: string, versionId: string, sign
   `/api/v1/tft/documents/${encodeURIComponent(documentId)}/diagrams?${new URLSearchParams({ document_version_id: versionId })}`,
   { signal, mockFallback: mock({ document_id: documentId, document_version_id: versionId, processing_status: 'NOT_ANALYZED', items: [], warnings: [] }) },
 );
+
+// Explicit project access change. Preserve the caller's full department list;
+// the existing project version contract rejects concurrent edits.
+export async function addRfpReviewDepartment(projectId: string, version: number, departments: string[], actorId: string) {
+  const actor = await me();
+  if (!actor || actor.data.id !== actorId) throw new ApiError(409, '세션 사용자가 변경되었습니다. 프로젝트를 다시 확인하세요.', undefined, 'SESSION_CHANGED');
+  const csrf = sessionCsrfToken();
+  if (!csrf && !import.meta.env.DEV) throw new ApiError(403, '세션 확인 후 검토 부서를 다시 설정하세요.');
+  return request<ProjectDetailResponse>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH', headers: csrf ? { 'X-CSRF-Token': csrf } : {},
+    body: JSON.stringify({ version, review_departments: [...new Set([...departments, 'RND_FW'])] }),
+  });
+}

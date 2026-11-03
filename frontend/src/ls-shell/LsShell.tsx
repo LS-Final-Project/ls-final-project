@@ -34,8 +34,7 @@ const MENU: Group[] = [
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
       { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '', also: /\/requirements\// },
-      { label: '자사 대응표', inProject: 'table' },
-      { label: '보완 및 협력사 비교', inProject: 'supplement' },
+      { label: '대응 방안 검토', inProject: 'table', also: /\/supplement$/ },
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
@@ -59,9 +58,9 @@ function tabOf(pathname: string) {
   if (pathname.startsWith('/cs/repeat-cases')) return { kind: 'repeat-cases', name: '반복 사례' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
-  if (pathname.endsWith('/supplement')) return { kind: 'supplement', name: '보완 및 협력사 비교' };
+  if (pathname.endsWith('/supplement')) return { kind: 'table', name: '대응 방안 검토' };
   if (pathname.endsWith('/table/approvals')) return { kind: 'approvals', name: '승인 대기' };
-  if (pathname.endsWith('/table')) return { kind: 'table', name: '자사 대응표' };
+  if (pathname.endsWith('/table')) return { kind: 'table', name: '대응 방안 검토' };
   if (pathname.includes('/requirements/')) return { kind: 'requirement', name: '요구' };
   if (pathname.startsWith('/tft/projects')) return { kind: 'intake', name: '접수 및 요구 검토' };
   return { kind: 'other', name: 'C/S 관리' };
@@ -69,7 +68,17 @@ function tabOf(pathname: string) {
 type OpenTab = { kind: string; to: string; name: string };
 const TABS_KEY = 'ls-open-tabs';
 function savedTabs(): OpenTab[] {
-  try { return JSON.parse(sessionStorage.getItem(TABS_KEY) ?? '[]'); } catch { return []; }
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(TABS_KEY) ?? '[]') as OpenTab[];
+    // Both legacy links now open the same response workspace, including restored tabs.
+    const unique = new Map<string, OpenTab>();
+    for (const tab of saved) {
+      const response = /^\/tft\/projects\/[^/]+\/(table|supplement)$/.test(tab.to);
+      const next = response ? { ...tab, kind: 'table', name: '대응 방안 검토' } : tab;
+      unique.set(next.kind, next);
+    }
+    return [...unique.values()];
+  } catch { return []; }
 }
 function saveTabs(tabs: OpenTab[]) {
   try { sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs)); } catch { /* 저장소를 못 쓰면 이 화면에 있는 동안만 쓴다 */ }

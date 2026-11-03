@@ -78,7 +78,7 @@ describe('프로젝트 화면', () => {
     expect(screen.getByText('구매팀')).toBeTruthy();
     expect(next()).toContain('요구 48건, 미해결 필수 3, 승인 대기 4, 열린 질문 2');
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
-    expect(screen.getByRole('link', { name: '자사 대응표 (TF0102)' }).getAttribute('href')).toBe(`${PATH}/table`);
+    expect(screen.getByRole('link', { name: '대응 방안 검토 (TF0102)' }).getAttribute('href')).toBe(`${PATH}/table`);
     expect(document.querySelector('.ls-legacy')).toBeNull();
     expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['접수 및 요구 검토']);
   });

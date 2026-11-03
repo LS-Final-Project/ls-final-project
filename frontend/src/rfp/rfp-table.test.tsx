@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+// Preserve the legacy editor/table behavioral contracts under the existing shell.
+// The unified production route is exercised separately in RfpResponseReview and shell tests.
+vi.mock('./RfpResponseReview', () => import('./RfpTable'));
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionCsrfToken, setApiMode } from '../api/client';
@@ -72,7 +75,7 @@ describe('자사 대응표', () => {
       ['', 'No', '요구', '장비', '작업', '속성', '요구값', '성격', '상태', '보완 경로', '질문', '재검토', '작성'],
     );
     expect(table.classList.contains('free')).toBe(true);
-    expect(screen.getByRole('tab', { selected: true }).textContent).toContain('자사 대응표');
+    expect(screen.getByRole('tab', { selected: true }).textContent).toContain('대응 방안 검토');
     await screen.findByText(/합성 프로젝트, 요구 48건, 미해결 필수 3, 재검토 2/);
     await screen.findByText('표시 4건 / 조회 48건');
     // 첫 행이 골라진 채로 시작해 아래 패널이 비지 않는다.
@@ -699,12 +702,12 @@ describe('셸 메뉴', () => {
   const links = () => [...document.querySelectorAll('.sidebar a')].map(a => [a.textContent, a.getAttribute('href')]);
   it('보드의 제안 지원 묶음이고 자사 대응표는 프로젝트를 연 뒤에 간다', async () => {
     renderApp(PATH);
-    await waitFor(() => expect(links().map(l => l[0])).toEqual(expect.arrayContaining(['업무 홈', '접수 및 요구 검토', '자사 대응표', '보완 및 협력사 비교', '초안 및 검토 이력'])));
-    expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBe(PATH);
-    expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['자사 대응표']);
+    await waitFor(() => expect(links().map(l => l[0])).toEqual(expect.arrayContaining(['업무 홈', '접수 및 요구 검토', '대응 방안 검토', '초안 및 검토 이력'])));
+    expect(links().find(l => l[0] === '대응 방안 검토')?.[1]).toBe(PATH);
+    expect([...document.querySelectorAll('.sidebar a[aria-current="page"]')].map(a => a.textContent)).toEqual(['대응 방안 검토']);
     cleanup();
     renderApp('/tft');
-    await waitFor(() => expect(links().find(l => l[0] === '자사 대응표')).toBeTruthy());
-    expect(links().find(l => l[0] === '자사 대응표')?.[1]).toBeNull();
+    await waitFor(() => expect(links().find(l => l[0] === '대응 방안 검토')).toBeTruthy());
+    expect(links().find(l => l[0] === '대응 방안 검토')?.[1]).toBeNull();
   });
 });

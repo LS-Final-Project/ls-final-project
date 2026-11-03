@@ -114,6 +114,6 @@ function AnalysisDetail({ data, projectId, actorId }: { data: RequirementDetail;
     {(data.needs_review || data.needs_rereview) && <p className="rfp-review-warning">{data.needs_review && '원문 확인 필요 '}{data.needs_rereview && '재검토 필요'}</p>}
     <dl><dt>미확인</dt><dd>{[...spec.undetermined_items, ...judgement.unresolved].join(' / ') || '기록된 항목 없음'}</dd><dt>보완 경로</dt><dd>{label(PATH_LABEL, judgement.path ?? '') || '미지정'}</dd></dl>
     <p className="rfp-review-help">추출·판단 결과는 담당자의 최종 승인과 다릅니다.</p>
-    <div className="rfp-review-actions"><Link className="kb" to={`/tft/projects/${projectId}/requirements/${data.requirement_id}`}>상세 검토·변경 제안</Link><Link className="kb" to={`/tft/projects/${projectId}/table`}>자사 대응표</Link></div>
+    <div className="rfp-review-actions"><Link className="kb" to={`/tft/projects/${projectId}/requirements/${data.requirement_id}`}>상세 검토·변경 제안</Link><Link className="kb" to={`/tft/projects/${projectId}/table`}>대응 방안 검토</Link></div>
   </article>;
 }

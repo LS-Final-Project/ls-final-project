@@ -78,7 +78,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
       {processing && elapsed && <div className="rfp-analysis-elapsed"><span>작업 시작 후</span><b>{elapsed}</b>{disconnected && <small>진행 확인 중</small>}</div>}
       {display.terminal && (drawingOnly
         ? <a className="rfp-analysis-result" href="#rfp-document-review">도면 분석 결과 확인 →</a>
-        : <Link className="rfp-analysis-result" to={`/tft/projects/${projectId}/table`}>자사 대응표에서 결과 확인 →</Link>)}
+        : <Link className="rfp-analysis-result" to={`/tft/projects/${projectId}/table`}>대응 방안 검토에서 결과 확인 →</Link>)}
     </header>
     {view?.message && <p className="rfp-analysis-notice">{view.message}</p>}
     {docId ? <p className="rfp-analysis-document">관측 문서: {doc ? `${doc.title} v${doc.version}` : '문서 판본 이름을 확인 중입니다.'}</p>

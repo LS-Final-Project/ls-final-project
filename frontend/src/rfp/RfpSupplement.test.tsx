@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+// Preserve the legacy editor/table behavioral contracts under the existing shell.
+// The unified production route is exercised separately in RfpResponseReview and shell tests.
+vi.mock('./RfpResponseReview', () => import('./RfpSupplement'));
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom';
 import RfpSupplement from './RfpSupplement';

@@ -125,8 +125,8 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
   </div>;
 }
 
-function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId }: {
-  actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
+export function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId, compact = false }: {
+  compact?: boolean; actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
 }) {
   const queryClient = useQueryClient();
   const [path, setPath] = useState<SupplementOption['path'] | ''>('');
@@ -168,13 +168,13 @@ function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved,
     { key: 'blocked', header: '막힌 이유', width: 240, cell: o => o.allowed ? '—' : label(BLOCKED_LABEL, o.blocked_reason) || '차단' },
   ];
   return <>
-    <KvGrid label="보완 경로 선택지" columns={columns} rows={[...options.options].sort((a, b) => a.rank - b.rank)} selectedKey={path} rowKey={o => o.path} fallback="현재 선택 가능한 보완 경로가 없습니다." />
-    <details className="supplement-source"><summary>경로 조건·차단 사유 전체</summary>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <div key={o.path}><strong>{PATH[o.path]}</strong><p>확인 조건: {text(o.conditions_to_confirm)}</p><p>필요 전문성: {text(o.required_expertise)} · R&D 확인: {label(RND_CHECK_LABEL, o.gate.status)}</p>{!o.allowed && <p>막힌 이유: {label(BLOCKED_LABEL, o.blocked_reason) || '차단'}</p>}</div>)}</details>
+    {!compact && <><KvGrid label="보완 경로 선택지" columns={columns} rows={[...options.options].sort((a, b) => a.rank - b.rank)} selectedKey={path} rowKey={o => o.path} fallback="현재 선택 가능한 보완 경로가 없습니다." />
+    <details className="supplement-source"><summary>경로 조건·차단 사유 전체</summary>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <div key={o.path}><strong>{PATH[o.path]}</strong><p>확인 조건: {text(o.conditions_to_confirm)}</p><p>필요 전문성: {text(o.required_expertise)} · R&D 확인: {label(RND_CHECK_LABEL, o.gate.status)}</p>{!o.allowed && <p>막힌 이유: {label(BLOCKED_LABEL, o.blocked_reason) || '차단'}</p>}</div>)}</details></>}
     <div className="supplement-bottom"><KvSplit columns="minmax(0,1.6fr) minmax(340px,1fr)">
-      <div id="supplement-candidates">
+      {!compact && <div id="supplement-candidates">
         <p className="supplement-candidate-heading">협력사 후보 {candidates.length} · 가상 협력사, 등급은 이 요구 기준</p>
         <CandidateEvidence candidates={candidates} requirementId={options.requirement_id} />
-      </div>
+      </div>}
       <KvBox title="보완 선택" note="사람의 결정 · 저장하면 새 판본">
         <form id="supplement-selection" onSubmit={event => {
           event.preventDefault();
@@ -208,7 +208,7 @@ const checkLabel = (value: string) => {
   const responsibility: Record<string, string> = { assembly: '조립 책임', supply: '공급 책임', install: '설치 책임', test: '시험 책임', calc: '계산 책임', training: '교육 책임', integration: '통합 책임', warranty: '보증 책임' };
   return value.startsWith('integrator_capable.') ? responsibility[value.slice('integrator_capable.'.length)] ?? '통합 수행 항목(원문 상세)' : ATTRIBUTE_LABEL[value] ?? (/^[a-z][a-z0-9_.]*$/.test(value) ? '사양 항목(원문 상세)' : value);
 };
-const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\b[a-z]+(?:_[a-z]+)+\b|\bbil\b/g, key => key.startsWith('integrator_capable.') || ATTRIBUTE_LABEL[key] ? checkLabel(key) : key);
+export const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\b[a-z]+(?:_[a-z]+)+\b|\bbil\b/g, key => key.startsWith('integrator_capable.') || ATTRIBUTE_LABEL[key] ? checkLabel(key) : key);
 function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerCandidate[]; requirementId: string }) {
   const [code, setCode] = useState('');
   const selected = candidates.find(c => c.candidate_code === code) ?? candidates[0];

@@ -47,7 +47,7 @@ export function EquipmentResponse({ group, candidates, candidatesPending, candid
   return <section className="rfp-equipment-response" aria-label="선택 설비 대응 요약">
     <header><h3>{group.name}</h3><span>{group.section ? `원문 절 ${group.section}` : '절 범위 미확정'} · {group.rows.length}개 요구</span></header>
     <div className="rfp-response-columns">
-      <div><h4>자사 대응 근거</h4><strong>{summary.evidence}개 근거 있음</strong><p>사양 차이 {summary.gap} · 조건부 {summary.conditional} · 자료 부족 {summary.unknown}</p><p>항목별 판정입니다. 한 모델이 설비 전체를 충족한다는 뜻은 아닙니다.</p><Link to={`/tft/projects/${projectId}/table`}>자사 대응표 열기 →</Link></div>
+      <div><h4>자사 대응 근거</h4><strong>{summary.evidence}개 근거 있음</strong><p>사양 차이 {summary.gap} · 조건부 {summary.conditional} · 자료 부족 {summary.unknown}</p><p>항목별 판정입니다. 한 모델이 설비 전체를 충족한다는 뜻은 아닙니다.</p><Link to={`/tft/projects/${projectId}/table`}>대응 방안 검토 열기 →</Link></div>
       <div><h4>협력사 보완 검토</h4>{candidatesPending ? <p>저장된 후보 판정 조회 중</p> : candidatesError ? <p role="alert">후보 조회 실패 · 대응 가능 여부 미확인</p> : partners.length ? <ul>{partners.map(({ candidate, grades }) => <li key={candidate.candidate_code}><b>{candidate.display_name}</b><span>{candidate.overall_grade === 'EXCLUDED' ? '전체 후보 제외' : [...new Set(grades.map(g => GRADE[g.grade]))].join(' · ')} · 관련 요구 {grades.length}개</span></li>)}</ul> : <p>현재 요구·프로필 판본에 맞는 저장 후보 판정이 없습니다. 대응 불가 판정은 아닙니다.</p>}<p>가상 협력사 자료 · 고객 허용·R&D·통합 책임 확인 후 선택</p><Link to={`/tft/projects/${projectId}/supplement`}>보완 경로·협력사 비교 →</Link></div>
       <div><h4>남은 문제와 다음 확인</h4><p>사양 차이 {summary.gap} · 근거 부족 {summary.unknown}</p><p>조건부 {summary.conditional} · 원문/재검토 {summary.review}</p><p>열린 질문 {summary.questions} · R&D 대기 {summary.rnd}</p><p>미기재·미확인을 대응 불가로 바꾸지 않습니다. 아래 세부 요구에서 사유와 근거를 확인하세요.</p></div>
     </div>

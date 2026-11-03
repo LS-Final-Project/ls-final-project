@@ -1,5 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ApiError } from '../api/client';
+import { me } from '../api/platform';
 import { createQuestion, replyQuestion, type Question, type RequirementDetail } from '../api/rfp';
 import { KvBox, KvField } from '../ls-shell/kv';
 import { DEPARTMENT_LABEL, FEASIBILITY_LABEL, ISSUE_LABEL, label, RND_DEPARTMENTS } from './labels';
@@ -17,7 +19,10 @@ const trimmed = (text: string) => text.trim() || null;
 
 // 고객 질문 작성(TF_K_Req_Question). 가정값은 충족 판정에 쓰지 않는다.
 // ponytail: 승인자를 고를 사용자 목록 API가 없어 승인자는 비우고 초안 표시는 끈다. 승인 없는 가정이 고객 초안에 나가면 안 된다.
-export function QuestionForm({ projectId, requirement, departments, onCancel, onSaved }: {
+export function QuestionForm({ projectId, requirement, departments, onCancel, onSaved, initialTarget, actorId, useMockFallback = true }: {
+  initialTarget?: string;
+  actorId?: string;
+  useMockFallback?: boolean;
   projectId: string;
   requirement: RequirementDetail;
   // 프로젝트 검토 부서. 내부 질문은 이 안에서만 서버가 받는다.
@@ -25,8 +30,9 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [target, setTarget] = useState(CUSTOMER);
-  const [issue, setIssue] = useState(CUSTOMER_ISSUES[0]);
+  const startingTarget = initialTarget && departments.includes(initialTarget) ? initialTarget : CUSTOMER;
+  const [target, setTarget] = useState(startingTarget);
+  const [issue, setIssue] = useState(issuesFor(startingTarget)[0]);
   const [text, setText] = useState('');
   const [assumed, setAssumed] = useState('');
   const [standard, setStandard] = useState('');
@@ -41,7 +47,13 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
   };
   const [key, nextKey] = useAttemptKey(JSON.stringify(body));
   const create = useMutation({
-    mutationFn: () => createQuestion(projectId, body, key),
+    mutationFn: async () => {
+      if (actorId) {
+        const actor = await me();
+        if (!actor || actor.data.id !== actorId) throw new ApiError(409, '세션 사용자가 변경되었습니다. 다시 확인해 주세요.', undefined, 'SESSION_CHANGED');
+      }
+      return useMockFallback ? createQuestion(projectId, body, key) : createQuestion(projectId, body, key, { useMockFallback: false });
+    },
     onSuccess: () => { nextKey(); onSaved(); },
     onError: error => { if (settled(error)) nextKey(); },
   });
@@ -49,12 +61,12 @@ export function QuestionForm({ projectId, requirement, departments, onCancel, on
     <form onSubmit={event => { event.preventDefault(); if (body.question_text) create.mutate(); }}>
       <KvField label="원문">{clauseOf(requirement) || '조항 없음'}</KvField>
       <div className="kv-field"><label htmlFor="question-target">대상</label>
-        <select id="question-target" value={target} onChange={event => { setTarget(event.target.value); setIssue(issuesFor(event.target.value)[0]); }}>
+        <select id="question-target" disabled={!!initialTarget} value={target} onChange={event => { setTarget(event.target.value); setIssue(issuesFor(event.target.value)[0]); }}>
           <option value={CUSTOMER}>고객</option>
           {departments.map(code => <option key={code} value={code}>{label(DEPARTMENT_LABEL, code)}</option>)}
         </select></div>
       <div className="kv-field"><label htmlFor="question-issue">유형</label>
-        <select id="question-issue" value={issue} onChange={event => setIssue(event.target.value)}>
+        <select id="question-issue" disabled={!!initialTarget} value={issue} onChange={event => setIssue(event.target.value)}>
           {issuesFor(target).map(code => <option key={code} value={code}>{ISSUE_LABEL[code]}</option>)}
         </select></div>
       <div className="kv-field"><label htmlFor="question-text" className="req">질문</label>

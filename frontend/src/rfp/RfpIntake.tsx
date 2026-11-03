@@ -202,9 +202,9 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
   const next = (() => {
     if (finished === 'FAILED' || finished === 'CANCELLED') return '처리가 끝나지 못했습니다. 입력을 확인하고 다시 실행하세요.';
     if (!analyzing && data.requirements_count === 0 && latestVersions(docs).some(d => d.kind === 'DRAWING')) return `${finished === 'PARTIAL' ? '일부 처리된 결과입니다. ' : ''}문자 요구 0건입니다. 도면의 장비·기호와 연결 후보는 아래 도면 검토에서 별도로 확인하세요.`;
-    if (finished === 'PARTIAL') return `일부만 처리됐습니다. 요구 ${data.requirements_count}건, 빠진 절이 있으니 자사 대응표를 확인하세요.`;
+    if (finished === 'PARTIAL') return `일부만 처리됐습니다. 요구 ${data.requirements_count}건, 빠진 절이 있으니 대응 방안 검토를 확인하세요.`;
     if (finished && data.requirements_count === 0) return '분석 완료, 요구 0건. 원문을 확인하세요. 평가 절이 비었거나 뽑은 요구가 인용 검사에서 모두 버려졌을 수 있습니다.';
-    if (finished) return `분석 완료, 요구 ${data.requirements_count}건. 자사 대응표에서 확인하세요.`;
+    if (finished) return `분석 완료, 요구 ${data.requirements_count}건. 대응 방안 검토에서 확인하세요.`;
     if (analyzing && live?.connection === 'fallback') return '분석 중입니다. 실시간 연결 대신 30초마다 상태를 다시 읽습니다.';
     if (analyzing) return '문서를 처리하고 있습니다. 최근 확인 상태는 위 처리 상태 영역에서 확인하세요. 작업 중에는 처리 실행과 문서 올리기가 제한됩니다.';
     if (data.documents_count === 0) return `새 프로젝트, 문서 0, 요구 0. 다음 문서 올리기, 그 다음 처리 실행. 접수만으로는 분석하지 않습니다.`;
@@ -269,7 +269,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
       client.invalidateQueries({ queryKey: ['projects', mode] });
     }} />}
     {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={({ job_id }, ids) => { setRequestDocuments(ids); setPanel(undefined); setFinished(undefined); watched.current = job_id; setStarted(job_id); }} />}
-    <div className="kv-gridhead"><span>선택 {data.external_id ?? data.name}</span><Link className="right" to={`/tft/projects/${projectId}/table`}>자사 대응표 (TF0102)</Link></div>
+    <div className="kv-gridhead"><span>선택 {data.external_id ?? data.name}</span><Link className="right" to={`/tft/projects/${projectId}/table`}>대응 방안 검토 (TF0102)</Link></div>
     <KvRibbon cells={[
       ['프로젝트', data.external_id ?? ''],
       ['프로젝트명', data.name],

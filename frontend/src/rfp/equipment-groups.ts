@@ -2,14 +2,14 @@ import { listRequirements, type RequirementFilters, type RequirementSummary } fr
 import type { PartnerCandidate } from '../api/rfp-supplement';
 
 // Summary pages only: do not fetch 1,000 full requirement/comparison documents to draw the overview.
-export async function readDocumentRequirements(projectId: string, filters: RequirementFilters, signal: AbortSignal): Promise<RequirementSummary[]> {
+export async function readDocumentRequirements(projectId: string, filters: RequirementFilters, signal: AbortSignal, options: { useMockFallback?: boolean } = {}): Promise<RequirementSummary[]> {
   const rows: RequirementSummary[] = [];
   const cursors = new Set<string>();
   const ids = new Set<string>();
   let cursor: string | undefined;
   do {
     signal.throwIfAborted();
-    const response = await listRequirements(projectId, filters, 100, cursor, { signal });
+    const response = await listRequirements(projectId, filters, 100, cursor, { signal, ...options });
     signal.throwIfAborted();
     for (const row of response.data.items) {
       if (ids.has(row.requirement_id)) throw new Error('요구 목록이 조회 중 변경되었습니다. 다시 조회해 주세요.');
