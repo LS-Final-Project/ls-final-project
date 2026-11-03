@@ -347,7 +347,7 @@ def load_candidates(state, config, inputs):
         state,
         config,
         ["-m", "scripts.local_business.bootstrap_candidates"],
-        "cs_app",
+        "postgres",
         inputs,
         state / "logs/bootstrap-candidates.log",
     )

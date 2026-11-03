@@ -27,6 +27,9 @@ ACTOR = uuid5(NAMESPACE_URL, "team4-local-bootstrap/improvement-candidates")
 
 async def collect(dsn: str) -> dict:
     async with await AsyncConnection.connect(dsn, row_factory=dict_row) as conn:
+        # The target check needs the postgres login (same as the other steps). Writes run with the
+        # C/S service's own privileges, so the step can do no more than the collect route.
+        await conn.execute("SET ROLE cs_app")
         row = await (
             await conn.execute("SELECT current_database() AS db, current_user AS role")
         ).fetchone()
