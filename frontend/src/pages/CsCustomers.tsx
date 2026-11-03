@@ -30,7 +30,7 @@ function CustomersView() {
   const initial: StatsFilters = { ...emptyFilters, customer: params.get('customer')?.trim() ?? '', start: params.get('start') ?? '', end: params.get('end') ?? '' };
   const [draft, setDraft] = useState(initial);
   const [filters, setFilters] = useState<StatsFilters>(() => initial.customer && !rangeError(initial) ? toApiFilters(initial) : emptyFilters);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => initial.customer ? rangeError(initial) : '');
   const history = useQuery({ queryKey: ['cs-stats', mode, 'customer', filters], queryFn: ({ signal }) => getCustomerHistory(filters, signal), enabled: filters.customer !== '', retry: false, staleTime: 0 });
   const apply = () => {
     const invalid = rangeError(draft) || (draft.customer.trim() ? '' : '고객 ID를 입력하세요.');
@@ -71,6 +71,8 @@ function CustomersView() {
         <span className="range"><input type="date" aria-label="시작일" value={draft.start} onChange={event => setDraft({ ...draft, start: event.target.value })} /><em>~</em><input type="date" aria-label="종료일 (포함)" value={draft.end} onChange={event => setDraft({ ...draft, end: event.target.value })} /></span>
         <span className="hint">제공 문의는 과거 자료라 2025-10-01~2026-09-30 안에 있습니다.</span>
         <a href="#clear" className="clear" onClick={event => { event.preventDefault(); reset(); }}>초기화</a>
+        {/* 입력 칸이 여럿이면 제출 단추가 있어야 Enter로 조회된다. 보이는 조회 단추는 제목 줄에 있다. */}
+        <button type="submit" hidden tabIndex={-1} aria-hidden="true" />
       </form>
       {unapplied && draft.customer.trim() !== '' && <div className="stale">입력한 고객 ID는 아직 적용되지 않았습니다. 조회를 누르면 해당 고객을 조회합니다.</div>}
       {error && <div className="note err" role="alert">{error}</div>}
