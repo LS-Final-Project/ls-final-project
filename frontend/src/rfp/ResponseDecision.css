@@ -40,3 +40,4 @@
 .response-workspace header { padding:12px 14px; border-bottom:1px solid #e3e9f1; background:#f8fafc; }
 .response-workspace h4 { margin:0 0 4px; color:#203b60; font-size:14px; }
 .rfp-response-decision .response-comparison > div > b { font-size:12px; line-height:1.5; }
+.rfp-response-decision .response-action-conditions > b { font-size:13px; line-height:1.5; font-weight:600; }
