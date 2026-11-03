@@ -1079,6 +1079,36 @@
         "title": "CauseItem",
         "type": "object"
       },
+      "CloseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "response_note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the agent answered the customer outside the system (KAN-211). Needed to close a ticket that did not come by e-mail when there is no sent message and no accepted department result: those channels are answered by phone, chat or portal, not by a system e-mail. Kept in the audit event, not on the workflow.",
+            "title": "Response Note"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "CloseRequest",
+        "type": "object"
+      },
       "ComparisonEvidence": {
         "description": "\uadfc\uac70 \ucc38\uc870\uc640 \uadfc\uac70 \uc790\uc2e0\uc758 \ucd9c\ucc98. \ubcf8\ubb38\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
         "properties": {
@@ -15177,7 +15207,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/close": {
       "post": {
-        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
+        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA ticket that did not come by e-mail is answered outside the system (phone, chat, web\nform, partner portal; team decision 2026-11-03, KAN-211), so from IN_REVIEW it may also\nclose with `response_note`, how the agent answered. The note goes into the audit event.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
         "operationId": "cs_close_ticket",
         "parameters": [
           {
@@ -15195,7 +15225,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Action"
+                "$ref": "#/components/schemas/CloseRequest"
               }
             }
           },

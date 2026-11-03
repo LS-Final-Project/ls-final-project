@@ -20,6 +20,7 @@ from backend.api.cs.workflow import repository
 from backend.api.cs.workflow.mail import unsettled
 from backend.api.cs.workflow.schemas import (
     Action,
+    CloseRequest,
     CustomerReply,
     CustomerSend,
     DeptResult,
@@ -454,12 +455,16 @@ async def review_dept_result(
 )
 async def close(
     ticket_id: UUID,
-    payload: Action,
+    payload: CloseRequest,
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[Workflow]:
     """Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent
     customer message. An unreviewed department result blocks closing.
+
+    A ticket that did not come by e-mail is answered outside the system (phone, chat, web
+    form, partner portal; team decision 2026-11-03, KAN-211), so from IN_REVIEW it may also
+    close with `response_note`, how the agent answered. The note goes into the audit event.
 
     A customer send whose outcome is not final (queued, submitting, unknown, or never
     answered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current
@@ -479,18 +484,32 @@ async def close(
         if any(unsettled(s) for s in await repository.list_sends(conn, ticket_id)):
             raise send_pending()
         accepted = any(r["review_status"] == "ACCEPTED" for r in results)
-        if workflow["state"] == "IN_REVIEW" and not accepted and not workflow["customer_sent_at"]:
+        ticket = await tickets.get_ticket(conn, ticket_id)
+        answered_outside = (
+            ticket is not None
+            and ticket["channel"] != "EMAIL"
+            and payload.response_note is not None
+        )
+        if (
+            workflow["state"] == "IN_REVIEW"
+            and not accepted
+            and not workflow["customer_sent_at"]
+            and not answered_outside
+        ):
             raise ApplicationError(
                 409,
                 "CS_CLOSE_CONDITION_UNMET",
-                "Closing needs an accepted department result or a sent customer message.",
+                "Closing needs an accepted department result or a sent customer message, "
+                "or for a ticket that did not come by e-mail a note of how it was answered.",
             )
+        note = {"response_note": payload.response_note} if payload.response_note else {}
         workflow = await save(
             conn,
             workflow,
             principal.user_id,
             "close",
             {"state": "CLOSED", "closed_at": datetime.now(UTC), "closed_by": principal.user_id},
+            **note,
         )
         data = await view(conn, workflow, principal)
     return respond(request, data)

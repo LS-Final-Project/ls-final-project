@@ -386,3 +386,28 @@ def test_a_subtype_confirmed_before_responsibility_is_carried_over(client, admin
             "WHERE ticket_id = %s",
             (ticket,),
         )
+
+
+def test_a_ticket_not_from_email_closes_with_a_note_of_how_it_was_answered(client, admin, ticket):
+    """KAN-211: phone, chat, web form and portal tickets are answered outside the system."""
+    admin.execute("UPDATE cs.tickets SET channel = 'PHONE' WHERE id = %s", (ticket,))
+    ok(act(client, ticket, "start-review", version=0))
+    assert code(act(client, ticket, "close", version=1)) == (409, "CS_CLOSE_CONDITION_UNMET")
+    blank = act(client, ticket, "close", version=1, response_note="")
+    assert blank.status_code == 422
+    closed = ok(act(client, ticket, "close", version=1, response_note="전화로 납기 4주 안내함"))
+    assert closed["state"] == "CLOSED"
+    audit = admin.execute(
+        "SELECT changes FROM cs.audit_events WHERE entity_id = %s AND entity_type = "
+        "'ticket_workflow' ORDER BY version DESC LIMIT 1",
+        (ticket,),
+    ).fetchone()
+    changes = audit["changes"] if isinstance(audit, dict) else audit[0]
+    assert changes["action"] == {"to": "close"}
+    assert changes["response_note"] == {"to": "전화로 납기 4주 안내함"}
+
+
+def test_an_email_ticket_still_needs_a_sent_message_or_department_result(client, ticket):
+    ok(act(client, ticket, "start-review", version=0))
+    noted = act(client, ticket, "close", version=1, response_note="전화로 안내함")
+    assert code(noted) == (409, "CS_CLOSE_CONDITION_UNMET")

@@ -96,6 +96,18 @@ class Action(BaseModel):
     version: int = Field(ge=0, description="The workflow version the user decided on.")
 
 
+class CloseRequest(Action):
+    response_note: Reason | None = Field(
+        default=None,
+        description=(
+            "How the agent answered the customer outside the system (KAN-211). Needed to close "
+            "a ticket that did not come by e-mail when there is no sent message and no accepted "
+            "department result: those channels are answered by phone, chat or portal, not by "
+            "a system e-mail. Kept in the audit event, not on the workflow."
+        ),
+    )
+
+
 class TransferRequest(Action):
     dept_code: TransferDepartment
     reason: Reason
