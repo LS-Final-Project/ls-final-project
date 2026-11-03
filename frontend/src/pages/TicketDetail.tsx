@@ -42,6 +42,13 @@ const md = (iso: string) => formatStamp(iso).slice(5, 10);
 // 문의 처리 CS0102. 점검반영 v3 목업(02_CS_문의처리.png) 배치: 상단 정보 8칸, 단계 바와 지금 할 일, 원문·문의 정보·회신 준비 3열.
 // 문의가 바뀌면(알림·링크로 같은 화면 안에서 이동) 입력·발송 확인·분석 진행 상태를 모두 새로 시작한다.
 // 앞 문의의 수신자·본문·승인 체크가 다음 문의에 남아 그대로 발송되지 않게 하려는 것이다.
+// 한국어 요약은 줄마다 한 항목이다(요약 프롬프트 v2). 이전 판본처럼 줄이 없으면 문장 끝(. ! ?)에서 나눈다.
+// 줄 앞 번호·글머리표는 화면이 붙이므로 뗀다.
+function summaryLines(text: string): string[] {
+  const lines = text.includes('\n') ? text.split('\n') : text.split(/(?<=[.!?。])\s+/);
+  return lines.map(line => line.replace(/^\s*(?:\d{1,2}[.)]|[-•·*])\s+/, '').trim()).filter(Boolean);
+}
+
 export default function TicketDetail() {
   const { ticketId = '' } = useParams();
   return <TicketScreen key={ticketId} ticketId={ticketId} />;
@@ -445,7 +452,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
           <div className="pb">
             <div className="sum">
               <div className="h"><span className="ai">✦ AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
-              {summaryRecord ? <p><span className="n">1</span>{summaryRecord.summary_ko}</p>
+              {summaryRecord ? summaryLines(summaryRecord.summary_ko).map((line, index) => <p key={index}><span className="n">{index + 1}</span>{line}</p>)
                 : summaryOff ? <p className="meta">요약 기능이 이 배포에서 꺼져 있습니다</p>
                 : summary.isPending ? <p className="meta">불러오는 중</p>
                 : <p className="meta" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>아직 요약이 없습니다

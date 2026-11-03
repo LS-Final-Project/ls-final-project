@@ -28,7 +28,8 @@ from backend.engine.cs.classification import ClassificationInput, _unique_object
 from backend.engine.cs.drafting import _Strict, find_forbidden_commitment
 
 SUMMARY_INPUT_VERSION = "cs-summary-input-v1"
-SUMMARY_PROMPT_VERSION = "v1"
+# v2(KAN-162 QA): 1~3개 항목을 줄로 나누고 명사형(~음·~함)으로 끝낸다. 화면이 줄마다 번호를 붙인다.
+SUMMARY_PROMPT_VERSION = "v2"
 MAX_CHARS = 300
 HANGUL = re.compile(r"[가-힣]")
 # 숫자가 든 코드(모델명·시리얼·오류 코드처럼 글자와 숫자가 섞인 토큰). `/`는 나누는 기호로 본다.
@@ -40,10 +41,14 @@ REPORTED = re.compile(
     r"(?:다|라)\s*고\s*(?:함|했|하|주장|들었|말|요청|문의|전함|밝|적)|(?:다|라)는\s"
 )
 SENTENCE = re.compile(r"[^.!?\n。]+")
+# 모델이 지시와 달리 줄 앞에 붙인 번호·글머리표(1. 2) - • ·). 떼고 검사·저장한다. 번호는 화면이 붙인다.
+MARKER = re.compile(r"^\s*(?:\d{1,2}[.)]|[-•·*])\s+")
 INSTRUCTION = (
     "당신은 전력기기 해외 고객 문의를 한국인 C/S 담당자에게 요약해 주는 보조자다. 아래 입력 JSON의 "
     "subject와 body만 사용한다.\n"
-    "- 고객이 무엇을 겪었고 무엇을 요청하는지 한국어 1~3문장으로 요약한다. 300자를 넘기지 않는다.\n"
+    "- 고객이 무엇을 겪었고 무엇을 요청하는지 한국어 1~3개 항목으로 요약한다. 항목은 줄바꿈(\\n)으로 나누고 "
+    "한 항목은 한 줄의 짧은 문장이다. 번호·글머리표를 붙이지 않는다. 전체 300자를 넘기지 않는다.\n"
+    "- 각 항목은 '~다'가 아니라 명사형으로 끝낸다(예: '…이 반복됨', '…을 요청함', '…이 없음').\n"
     "- 원문에 없는 사실, 원인 추정, 보증·교체·환불 여부 판단, 약속을 쓰지 않는다. 고객이 주장한 내용은 "
     "'고객은 …라고 함'처럼 주장으로 쓴다.\n"
     "- 숫자, 날짜, 모델명, 시리얼, 오류 코드는 원문 표기 그대로 옮기고 새로 만들지 않는다. 원문에 숫자가 "
@@ -140,7 +145,11 @@ def validate_output(raw: str, *, source: ClassificationInput) -> SummaryOutput:
         output = SummaryOutput.model_validate(data)
     except (ValueError, ValidationError, TypeError):
         raise SummaryOutputError("CS_SUMMARY_SCHEMA") from None
-    summary = output.summary_ko
+    lines = (MARKER.sub("", line).strip() for line in output.summary_ko.splitlines())
+    summary = "\n".join(line for line in lines if line)
+    if not summary:
+        raise SummaryOutputError("CS_SUMMARY_SCHEMA")
+    output = SummaryOutput(summary_ko=summary)
     if not HANGUL.search(summary):
         raise SummaryOutputError("CS_SUMMARY_NOT_KOREAN")
     if ungrounded(summary, f"{source.subject or ''} {source.body}"):
