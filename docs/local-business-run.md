@@ -249,3 +249,21 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 **남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. UI 작업은 한 번에 하나씩 요청하고 종료·허용 상태를 확인한 후 다음 작업을 보낸다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
 
 status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 이번 문서 정정·dev 정합 작업에서는 setup/start/적재/모델/DB를 추가 실행하지 않았다. 앞선 source46 실증, 최신 코드 정합, 각 PC의 재현과 전체 업무·운영 완료를 각각 구분해 기록한다.
+
+### 각 PC의 한국어 요약 QA (KAN-159)
+
+요약 bridge를 포함한 새 코드로 준비한 namespace에서는 문의 상세의 한국어 요약을 사용할 수 있다. 저장본 조회와 같은 원문·프롬프트의 재사용(POST 200)은 CS driver가 꺼져 있어도 가능하다. 새 요약 생성에는 **CS `enable-real` driver**가 필요하다. RFP driver만 켠 상태에서는 생성할 수 없다. 제한 모드에서는 요약 한 번도 분류와 같은 작업 1개·모델 호출 1회로 합산하며, 명시한 `--unlimited` 모드에서도 사용량·비용 기록과 불명 비용 차단은 유지된다.
+
+새 snapshot을 포함한 코드를 받은 뒤, 기존에 사용하지 않은 namespace와 해당 PC의 빈 포트로 실행한다. 개인 키 경로는 각자 소유한 파일로 바꾼다.
+
+```sh
+uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap \
+  --namespace team4-kan159-summary-qa --port 42443 --enable-model cs \
+  --key-file "$HOME/.config/team4/gemini-api-key" --unlimited
+```
+
+기존 namespace는 설치 시 보관한 source를 사용한다. `git pull`이나 `restart`만으로 요약 bridge가 추가되지 않는다. 기존 DB·업로드·결과·비용 원장을 보존하고 새 namespace를 준비한다. 기존 40443 환경이나 별도 RFP 실험판을 교체하는 명령이 아니다.
+
+모델 키는 driver에만 제공된다. API는 내부 Docker망의 인증된 요약 bridge에 마스킹된 입력을 보내며, 표준 요약 API의 권한·입력/출력 검사·저장 계약을 그대로 적용한다. 분류 실행 중에는 새 요약 요청이 503 `LOCAL_SUMMARY_UNAVAILABLE`로 거절될 수 있으므로 진행 중인 작업이 끝난 뒤 다시 누른다. 같은 성공 요약을 다시 만들 때는 모델을 재호출하지 않는다. HTTP나 모델 실패에 자동 재전송하지 않으며 비용이 불명확하면 driver를 중지하고 원장을 대조한다.
+
+기존 업무 중계의 응답 대기 제한은 20초다. 긴 모델 호출은 화면에서 먼저 실패로 보이더라도 서버에서 완료·저장될 수 있으므로 새로고침하여 저장본을 먼저 확인한다. fake SDK·로컬 HTTP 회귀 통과는 실제 모델의 한국어 요약 품질이나 업무 QA 완료를 뜻하지 않는다. 요약 시도에는 driver가 선택한 요청 모델과 사용량을 기록하며, 로컬 비용 원장의 정산에는 driver에 명시한 가격표를 사용한다.
