@@ -219,9 +219,11 @@ test('다른 문의로 옮기면 반품 확정 입력을 비운다(앞 문의 �
   fireEvent.change(screen.getByLabelText('대응 내용'), { target: { value: '앞 문의 내용' } });
   expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe('앞 문의 내용');
   fireEvent.click(screen.getByRole('button', { name: '다른 문의' }));
-  await waitFor(() => expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe(''));
+  // 문의가 바뀌면 화면을 새로 시작하므로 열려 있던 반품 확정 창도 닫힌다. 다시 열면 비어 있어야 한다.
+  await waitFor(() => expect(screen.queryByRole('form', { name: '반품 확정' })).toBeNull());
+  form = await openReturn();
+  expect((screen.getByLabelText('대응 내용') as HTMLTextAreaElement).value).toBe('');
   expect((screen.getByLabelText('책임 구분') as HTMLSelectElement).value).toBe('');
-  form = within(await screen.findByRole('form', { name: '반품 확정' }));
   expect((form.getByRole('button', { name: '반품 확정' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
