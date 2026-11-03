@@ -154,6 +154,8 @@ test('근거 비교는 해결 기록 칸을 나란히 두고 다수와 다른 �
  const rows=[...table.querySelectorAll('tbody tr')];
  expect(rows.map(r=>r.querySelector('td:last-child')!.textContent)).toEqual(['같음','같음','원문 확인']);
  // 원인·FW(묶음을 가르는 조건)는 노랑, 해결 부서(참고)는 회색으로 다르게 표시한다.
- expect(rows[2].querySelectorAll('.cmp.diff')).toHaveLength(2);expect(rows[2].querySelectorAll('.cmp.ref')).toHaveLength(1);
+ // 원인 유형·해결 부서는 값마다 색(많은 값부터 tone-0), FW는 다수와 다른 값만 노랑.
+ expect([...rows[2].querySelectorAll('.cmp.tone')].map(c=>c.className)).toEqual(['cmp tone tone-1','cmp tone tone-1']);
+ expect(rows[0].querySelectorAll('.cmp.tone-0')).toHaveLength(2);expect(rows[2].querySelectorAll('.cmp.diff')).toHaveLength(1);
  expect(screen.getByText('판단 필요 2')).toBeTruthy();expect(screen.getByText('참고 1')).toBeTruthy();
 });

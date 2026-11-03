@@ -48,11 +48,12 @@ type CaseRow = CaseComparison['data']['items'][number];
 // 규칙 비교(기획서 16쪽: 사용 조건이 구조화된 칸에 있으면 규칙으로 비교). 해결 기록 칸 값을 항목별로 모아
 // 같은지·다른지와 그 무게를 먼저 보이고, 표에서 근거별 값을 확인한다. 묶음이 맞는지는 사람이 정한다.
 // split: 다르면 같은 고장 ID라도 나눌 수 있는 조건(기획서 15쪽: 펌웨어·운전 조건, 원인). ref: 누가·어떻게 고쳤는지라 묶음과 무관한 참고.
-const COMPARE: { key: string; label: string; weight: 'split' | 'ref'; value: (row: CaseRow) => string | null }[] = [
-  { key: 'cause', label: '원인 유형', weight: 'split', value: row => row.root_cause_type ? CAUSE_LABEL[row.root_cause_type] ?? row.root_cause_type : null },
+// palette: 값마다 다른 색 박스로 보인다(원인 유형·해결 부서). 나머지는 다수와 다른 값만 표시한다.
+const COMPARE: { key: string; label: string; weight: 'split' | 'ref'; palette?: boolean; value: (row: CaseRow) => string | null }[] = [
+  { key: 'cause', label: '원인 유형', weight: 'split', palette: true, value: row => row.root_cause_type ? CAUSE_LABEL[row.root_cause_type] ?? row.root_cause_type : null },
   { key: 'fw', label: '고장 당시 FW', weight: 'split', value: row => row.fw_version_at_issue ?? null },
   // 해결 부서에는 이관 부서 목록 밖의 C/S 1차(GCS_L1)도 온다(해결 기록 입력 화면과 같은 이름).
-  { key: 'dept', label: '해결 부서', weight: 'ref', value: row => row.resolved_by_dept ? (row.resolved_by_dept === 'GCS_L1' ? 'C/S 1차 (GCS_L1)' : deptName(row.resolved_by_dept)) : null },
+  { key: 'dept', label: '해결 부서', weight: 'ref', palette: true, value: row => row.resolved_by_dept ? (row.resolved_by_dept === 'GCS_L1' ? 'C/S 1차 (GCS_L1)' : deptName(row.resolved_by_dept)) : null },
   { key: 'onsite', label: '현장 방문', weight: 'ref', value: row => row.onsite_visit == null ? null : row.onsite_visit ? '있음' : '없음' },
 ];
 type Verdict = 'same' | 'check' | 'ref' | 'none';
@@ -65,7 +66,9 @@ function summarize(rows: CaseRow[]) {
     const base = sorted.length && (sorted.length === 1 || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
     const verdict: Verdict = !sorted.length ? 'none' : sorted.length === 1 ? 'same' : field.weight === 'split' ? 'check' : 'ref';
     const differs = (row: CaseRow) => { const value = field.value(row); return sorted.length > 1 && value !== null && (base === null || value !== base); };
-    return { ...field, base, verdict, differs };
+    // 많은 값부터 0, 1, 2… 색 번호. 색은 6가지를 돌려 쓴다.
+    const tone = (value: string) => sorted.findIndex(([key]) => key === value) % 6;
+    return { ...field, base, verdict, differs, tone };
   });
 }
 function EvidenceCompare({ requestId }: { requestId: string }) {
@@ -76,18 +79,21 @@ function EvidenceCompare({ requestId }: { requestId: string }) {
   const checks = stats.filter(stat => stat.verdict === 'check').length;
   const refs = stats.filter(stat => stat.verdict === 'ref').length;
   const needsLook = (row: CaseRow) => stats.some(stat => stat.weight === 'split' && stat.differs(row));
+  // 판단할 것(묶음을 가르는 조건의 차이)이 있을 때만 펼쳐 둔다. 담당자가 누르면 그 상태를 따른다.
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const open = opened ?? checks > 0;
   return <div className="pane cmp-pane">
-    <div className="ph"><h2>근거 비교</h2><span className="meta">근거 {rows.length}건의 해결 기록 값을 항목별로 맞춰 봅니다</span>
+    <div className="ph"><button type="button" className="fold" aria-expanded={open} onClick={() => setOpened(!open)}><span className="caret">{open ? '▾' : '▸'}</span><h2>근거 비교</h2></button><span className="meta">근거 {rows.length}건의 해결 기록 값을 항목별로 맞춰 봅니다</span>
       <div className="r">{comparison.isSuccess && (checks || refs
         ? <>{checks > 0 && <span className="chip w">판단 필요 {checks}</span>}{refs > 0 && <span className="chip x">참고 {refs}</span>}</>
         : <span className="chip">모두 같음</span>)}</div></div>
     {comparison.isFetching && <Loading label="근거 비교를 불러오는 중" />}
     {!comparison.isFetching && comparison.isError && <div className="pb"><ErrorState error={comparison.error} onRetry={() => comparison.refetch()} /></div>}
-    {!comparison.isFetching && comparison.isSuccess && <>
+    {open && !comparison.isFetching && comparison.isSuccess && <>
       <div className="pb">
         {checks > 0
-          ? <p className="meta">노란 값은 묶음을 가르는 조건(원인 유형·고장 당시 FW)이 다수와 다른 곳입니다. "원문 확인" 줄을 열어 같은 문제인지 보고, 다르면 근거 관리에서 빼고, 같으면 이유를 내용 수정의 사용 조건에 적으세요. 회색 값은 참고(해결 부서·현장 방문)입니다.</p>
-          : <p className="meta">묶음을 가르는 조건이 모두 같습니다. 참고 항목은 누가·어떻게 고쳤는지의 차이라 근거를 빼지 않아도 됩니다.</p>}
+          ? <p className="meta">원인 유형·해결 부서는 값마다 색이 다릅니다. 고장 당시 FW는 다수와 다른 값이 노랗습니다. 확인 칸의 "원문 확인"은 원인 유형이나 FW가 다수와 다른 근거입니다. 원문을 열어 같은 문제인지 보고, 다르면 근거 관리에서 빼고, 같으면 이유를 내용 수정의 사용 조건에 적으세요.</p>
+          : <p className="meta">원인 유형과 고장 당시 FW가 모두 같습니다. 해결 부서·현장 방문은 누가·어떻게 고쳤는지의 차이라 근거를 빼지 않아도 됩니다.</p>}
       </div>
       <LogTable label="근거 비교" rows={rows} rowKey={row => `${row.ticket_id}:${row.case_id ?? ''}`} fallback="비교할 근거가 없습니다."
         columns={[
@@ -97,7 +103,7 @@ function EvidenceCompare({ requestId }: { requestId: string }) {
           ...stats.map(stat => ({ key: stat.key, header: stat.label, cell: (row: CaseRow) => {
             const value = stat.value(row);
             if (value === null) return <span className="none">미기록</span>;
-            const cls = !stat.differs(row) ? 'cmp' : stat.weight === 'split' ? 'cmp diff' : 'cmp ref';
+            const cls = stat.palette ? `cmp tone tone-${stat.tone(value)}` : !stat.differs(row) ? 'cmp' : stat.weight === 'split' ? 'cmp diff' : 'cmp ref';
             return <span className={cls}>{value}</span>;
           } })),
           { key: 'check', header: '확인', width: 88, className: 'c', cell: row => needsLook(row) ? <span className="chip w">원문 확인</span> : <span className="chip">같음</span> },
@@ -180,7 +186,7 @@ function ImprovementView(){
           <div className="k">유형</div><div className="v">{r.request_type==='FAULT'?'고장':'문서'}</div>
           <div className="k">제품</div><div className="v">{r.product_code}</div>
           <div className="k">고장 / 문서</div><div className="v">{r.fault_id??r.doc_signal??'미확인'}{r.doc_id&&<span className="meta"> · {r.doc_id}</span>}</div>
-          <div className="k">상태</div><div className="v last"><strong className="state">{REQUEST_STATUS_LABEL[r.status]??r.status}</strong></div>
+          <div className="k">상태</div><div className="v last"><strong className="state ir-state">{REQUEST_STATUS_LABEL[r.status]??r.status}</strong></div>
           <div className="k nb">판본 / 회차</div><div className="v nb">{r.version} / {r.current_round}</div>
           <div className="k nb">조건 확인</div><div className="v nb">{r.condition_status==='UNKNOWN'?<span className="chip w">미확인</span>:r.condition_status}</div>
           <div className="k nb">수정 FW</div><div className="v nb">{r.fw_fixed_version??'미확인'} / {r.fw_released_on??'미확인'}</div>

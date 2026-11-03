@@ -106,3 +106,18 @@
 .ls-root .kv .td3.ir3 .cmp.diff{background:#fdf3dc;color:#8a5a00;box-shadow:inset 0 0 0 1px #f3e2b8}
 .ls-root .kv .td3.ir3 .log td .none{color:#9aa2b1}
 .ls-root .kv .td3.ir3 .cmp.ref{background:#eef0f4;color:#5b6475;box-shadow:inset 0 0 0 1px #d3d8e0;font-weight:500}
+/* 상세 위쪽 정보 칸: 두 줄 높이를 같게, 상태 값은 다른 값과 같은 진한 글씨 */
+.ls-root .kv .td3.ir3 .info>div{height:36px;min-height:36px;box-sizing:border-box}
+.ls-root .kv .td3.ir3 .info .chip{line-height:18px}
+.ls-root .kv .td3.ir3 .info strong.ir-state{color:#1d2433;font-weight:600}
+/* 근거 비교 접기 */
+.ls-root .kv .td3.ir3 .ph .fold{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer}
+.ls-root .kv .td3.ir3 .ph .fold .caret{font-size:11px;color:#6b7385;width:10px}
+/* 값마다 다른 색(원인 유형·해결 부서). 많은 값부터 tone-0 */
+.ls-root .kv .td3.ir3 .cmp.tone{font-weight:600;box-shadow:inset 0 0 0 1px currentColor}
+.ls-root .kv .td3.ir3 .cmp.tone-0{background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.ir3 .cmp.tone-1{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.ir3 .cmp.tone-2{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ir3 .cmp.tone-3{background:#f4f2fd;color:#5b3fd0}
+.ls-root .kv .td3.ir3 .cmp.tone-4{background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.ir3 .cmp.tone-5{background:#eef0f4;color:#3a4558}
