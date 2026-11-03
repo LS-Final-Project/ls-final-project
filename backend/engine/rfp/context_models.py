@@ -92,7 +92,7 @@ class ContextResult(Strict):
     groups: list[ContextGroup] = Field(max_length=4000)
     assignments: list[ContextAssignment] = Field(max_length=4000)
     issues: list[ContextIssue] = Field(default_factory=list)
-    prompt_version: Literal["rfp-context-v1"] = "rfp-context-v1"
+    prompt_version: Literal["rfp-context-v1", "rfp-context-v2"] = "rfp-context-v2"
 
 
 class ContextProposal(Strict):

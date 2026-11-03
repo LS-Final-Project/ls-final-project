@@ -485,3 +485,54 @@ def test_max_length_provider_ids_are_remapped_with_parent_links_and_roundtrip_sa
     assert len(roots) == len(children) == 1
     assert children[0].parent_id == roots[0].entity_id
     assert ContextResult.model_validate_json(result.model_dump_json()) == result
+
+
+def test_provider_schema_requires_all_assignment_fields_and_self_evidence_instruction():
+    from google.genai import types
+
+    schema = graph._ProviderSchema.model_json_schema()
+    assignment_schema = schema["$defs"]["ContextAssignment"]
+    assert set(assignment_schema["required"]) == set(assignment_schema["properties"])
+    for field in (
+        "evidence_requirement_ids",
+        "group_ids",
+        "relations",
+        "additional_categories",
+        "needs_review",
+    ):
+        assert field in assignment_schema["required"]
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_json_schema=schema
+    )
+    assert config.response_json_schema == schema
+    assert "own requirement_id" in graph.INSTRUCTION
+    assert "Do not substitute clause_id" in graph.INSTRUCTION
+
+
+def test_evidence_error_codes_distinguish_missing_self_and_foreign_without_echoing_values():
+    missing = validate([requirement()], assignments=[assignment(evidence_requirement_ids=[])])
+    assert [issue.code for issue in missing.issues] == ["MISSING_SELF_EVIDENCE"]
+    foreign = validate(
+        [requirement()],
+        assignments=[assignment(evidence_requirement_ids=["r1", "secret-unrecognized-id"])],
+    )
+    assert [issue.code for issue in foreign.issues] == ["UNKNOWN_EVIDENCE_REFERENCE"]
+    for result in (missing, foreign):
+        assert result.assignments[0].primary_category == "UNCLASSIFIED"
+        assert result.assignments[0].needs_review and result.outcome == "PARTIAL"
+        assert "secret-unrecognized-id" not in result.model_dump_json()
+
+
+def test_v1_validation_is_stable_for_human_edits_while_new_results_use_v2():
+    legacy = ContextResult(
+        outcome="VALID", groups=[], assignments=[assignment()], prompt_version="rfp-context-v1"
+    )
+    assert graph.validate_result([requirement()], legacy) == legacy
+    assert (
+        ContextResult.model_validate_json(legacy.model_dump_json()).prompt_version
+        == "rfp-context-v1"
+    )
+    assert (
+        asyncio.run(graph.run_context([requirement()], graph.fake_provider)).prompt_version
+        == "rfp-context-v2"
+    )

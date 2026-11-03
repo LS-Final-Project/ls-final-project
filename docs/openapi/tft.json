@@ -1257,8 +1257,11 @@
             "type": "string"
           },
           "prompt_version": {
-            "const": "rfp-context-v1",
-            "default": "rfp-context-v1",
+            "default": "rfp-context-v2",
+            "enum": [
+              "rfp-context-v1",
+              "rfp-context-v2"
+            ],
             "title": "Prompt Version",
             "type": "string"
           },
